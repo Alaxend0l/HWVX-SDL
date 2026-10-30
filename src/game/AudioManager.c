@@ -76,7 +76,7 @@ void SoundManager_Init(void) {
     u32 i;
 
     Audio_Init();
-    memset(g_globalMusic, 0, sizeof(g_globalMusic));
+    memset(g_globalMusic, 0, 3 * sizeof(MusicFade));  /* port: 0x24 bytes (asm); g_globalMusic is a pointer view here */
     g_globalMusic[0].cur = 1.0f;
     g_listener[0].pos = g_listener[0].vel = g_zeroVector;
     g_listener[0].fwd = fwd;
@@ -477,10 +477,13 @@ void SoundSource_Stop(s32 index) {
 
     if (g_sources[index].voice > 0) {
         ReleaseVoice(g_sources[index].voice);
-        g_sources[index].voice = -1;
-        g_sources[index].unk24 = 0.0f;
-        g_sources[index].looping = FALSE;
     }
+    /* port: always free the source (asm); the decomp only did when a voice
+     * was playing, so silent sources (cars in vehicle select) leaked until
+     * the 100 slots ran out and CreateSource spun forever */
+    g_sources[index].voice = -1;
+    g_sources[index].unk24 = 0.0f;
+    g_sources[index].looping = FALSE;
     return;
 #undef g_sources
 }

@@ -1134,12 +1134,30 @@ u8 g_itemTimer[4] __attribute__((aligned(4))) = {
 
 /* g_keyBinding (.data, Player.s) */
 u8 g_keyBinding[144] __attribute__((aligned(8))) = {
-    [0] = W32(0x1), [4] = W32(0x2030405), [8] = W32(0x6070809), [12] = W32(0xA0B0C0D), [16] = W32(0x1000A0B), [20] = W32(0x9070806),
-    [24] = W32(0x4050302), [28] = W32(0xC0D010F), [32] = W32(0x4000A0B), [36] = W32(0x6070809), [40] = W32(0xFF050302), [44] = W32(0xC0D010F),
-    [48] = W32(0x3000807), [52] = W32(0xA0C0B0D), [56] = W32(0x4050302), [60] = W32(0x906010F), [64] = W32(0xB0A), [68] = W32(0x6070809),
-    [72] = W32(0x4050302), [76] = W32(0xD0C010E), [80] = W32(0x1020B0A), [84] = W32(0x6070809), [88] = W32(0xFFFF0302), [92] = W32(0xD0C01FF),
-    [96] = W32(0x1020807), [100] = W32(0xA0C0B0D), [104] = W32(0xFFFF0302), [108] = W32(0x90601FF), [112] = W32(0x807), [116] = W32(0xA0C0B0D),
-    [120] = W32(0xFF050302), [124] = W32(0x906010E), [128] = W32(0x3000A0B), [132] = W32(0x9060807), [136] = W32(0x4050302), [140] = W32(0xC0D010F),
+    [0] = W8(0x0), [1] = W8(0x0), [2] = W8(0x0), [3] = W8(0x1), [4] = W8(0x2), [5] = W8(0x3),
+    [6] = W8(0x4), [7] = W8(0x5), [8] = W8(0x6), [9] = W8(0x7), [10] = W8(0x8), [11] = W8(0x9),
+    [12] = W8(0xA), [13] = W8(0xB), [14] = W8(0xC), [15] = W8(0xD), [16] = W8(0x1), [17] = W8(0x0),
+    [18] = W8(0xA), [19] = W8(0xB), [20] = W8(0x9), [21] = W8(0x7), [22] = W8(0x8), [23] = W8(0x6),
+    [24] = W8(0x4), [25] = W8(0x5), [26] = W8(0x3), [27] = W8(0x2), [28] = W8(0xC), [29] = W8(0xD),
+    [30] = W8(0x1), [31] = W8(0xF), [32] = W8(0x4), [33] = W8(0x0), [34] = W8(0xA), [35] = W8(0xB),
+    [36] = W8(0x6), [37] = W8(0x7), [38] = W8(0x8), [39] = W8(0x9), [40] = W8(0xFF), [41] = W8(0x5),
+    [42] = W8(0x3), [43] = W8(0x2), [44] = W8(0xC), [45] = W8(0xD), [46] = W8(0x1), [47] = W8(0xF),
+    [48] = W8(0x3), [49] = W8(0x0), [50] = W8(0x8), [51] = W8(0x7), [52] = W8(0xA), [53] = W8(0xC),
+    [54] = W8(0xB), [55] = W8(0xD), [56] = W8(0x4), [57] = W8(0x5), [58] = W8(0x3), [59] = W8(0x2),
+    [60] = W8(0x9), [61] = W8(0x6), [62] = W8(0x1), [63] = W8(0xF), [64] = W8(0x0), [65] = W8(0x0),
+    [66] = W8(0xB), [67] = W8(0xA), [68] = W8(0x6), [69] = W8(0x7), [70] = W8(0x8), [71] = W8(0x9),
+    [72] = W8(0x4), [73] = W8(0x5), [74] = W8(0x3), [75] = W8(0x2), [76] = W8(0xD), [77] = W8(0xC),
+    [78] = W8(0x1), [79] = W8(0xE), [80] = W8(0x1), [81] = W8(0x2), [82] = W8(0xB), [83] = W8(0xA),
+    [84] = W8(0x6), [85] = W8(0x7), [86] = W8(0x8), [87] = W8(0x9), [88] = W8(0xFF), [89] = W8(0xFF),
+    [90] = W8(0x3), [91] = W8(0x2), [92] = W8(0xD), [93] = W8(0xC), [94] = W8(0x1), [95] = W8(0xFF),
+    [96] = W8(0x1), [97] = W8(0x2), [98] = W8(0x8), [99] = W8(0x7), [100] = W8(0xA), [101] = W8(0xC),
+    [102] = W8(0xB), [103] = W8(0xD), [104] = W8(0xFF), [105] = W8(0xFF), [106] = W8(0x3), [107] = W8(0x2),
+    [108] = W8(0x9), [109] = W8(0x6), [110] = W8(0x1), [111] = W8(0xFF), [112] = W8(0x0), [113] = W8(0x0),
+    [114] = W8(0x8), [115] = W8(0x7), [116] = W8(0xA), [117] = W8(0xC), [118] = W8(0xB), [119] = W8(0xD),
+    [120] = W8(0xFF), [121] = W8(0x5), [122] = W8(0x3), [123] = W8(0x2), [124] = W8(0x9), [125] = W8(0x6),
+    [126] = W8(0x1), [127] = W8(0xE), [128] = W8(0x3), [129] = W8(0x0), [130] = W8(0xA), [131] = W8(0xB),
+    [132] = W8(0x9), [133] = W8(0x6), [134] = W8(0x8), [135] = W8(0x7), [136] = W8(0x4), [137] = W8(0x5),
+    [138] = W8(0x3), [139] = W8(0x2), [140] = W8(0xC), [141] = W8(0xD), [142] = W8(0x1), [143] = W8(0xF),
 };
 
 /* g_lastCamPos (.bss, State_GamePlay.s) */
@@ -1461,6 +1479,21 @@ u8 g_StopInput[8] __attribute__((aligned(16)));  /* original size 0x4 */
 
 /* g_StreamingDataPacks (.bss, FileStreaming.s) */
 u8 g_StreamingDataPacks[88] __attribute__((aligned(16)));  /* original size 0x2C */
+
+/* g_stunt1localString (.sdata, CarA.s) */
+u8 g_stunt1localString[4] __attribute__((aligned(8))) = {
+    [0] = W32(0x0),
+};
+
+/* g_stuntLossString (.sdata, CarA.s) */
+u8 g_stuntLossString[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x0),
+};
+
+/* g_stuntMessageLocalString (.sdata, CarA_Suspension.s) */
+u8 g_stuntMessageLocalString[4] __attribute__((aligned(8))) = {
+    [0] = W32(0x0),
+};
 
 /* gs_useMainRouteOnly (.sbss, NavHolder.s) */
 u8 gs_useMainRouteOnly[8] __attribute__((aligned(16)));  /* original size 0x1 */
@@ -2077,21 +2110,6 @@ void *g_pPlayerManager[1] = { (u8 *)g_playerManager + 0 };
 /* g_rndNumber: host pointer(s) */
 void *g_rndNumber[1] = { (u8 *)rndNumberBuffer + 0 };
 
-/* g_stunt1localString (.sdata: a one-entry table of string slots) */
-u8 g_stunt1localString[4] __attribute__((aligned(4))) = {
-    [0] = W32(0x0),
-};
-
-/* g_stuntLossString (.sdata: a one-entry table of string slots) */
-u8 g_stuntLossString[4] __attribute__((aligned(4))) = {
-    [0] = W32(0x0),
-};
-
-/* g_stuntMessageLocalString (.sdata: a one-entry table of string slots) */
-u8 g_stuntMessageLocalString[4] __attribute__((aligned(4))) = {
-    [0] = W32(0x0),
-};
-
 /* pActionFuncArray: host pointer(s) */
 void *pActionFuncArray[44] = { (u8 *)&ActionAirboxChangeMode + 0, (u8 *)&ActionCameraSetTargets + 0, (u8 *)&ActionDestructibleChangeMode + 0, (u8 *)&ActionFXPointChangeMode + 0, (u8 *)&ActionInterfacePlay + 0, (u8 *)&ActionItemChangeMode + 0, (u8 *)&ActionEndLevel + 0, (u8 *)&ActionTimerChangeValue + 0, (u8 *)&ActionTimerChangeMode + 0, (u8 *)&ActionMoveableChangeMode + 0, (u8 *)&ActionMusicChange + 0, (u8 *)&ActionMusicSetSong + 0, (u8 *)&ActionNavPointChangeMode + 0, (u8 *)&ActionPauseGame + 0, (u8 *)&ActionSpeakerChangeMode + 0, (u8 *)&ActionTargetArrowSetTarget + 0, (u8 *)&ActionVariableChangeValue + 0, (u8 *)&ActionVehicleChangeMode + 0, (u8 *)&ActionVehicleAISetNamedPath + 0, (u8 *)&ActionVertexColorSeqChangeMode + 0, (u8 *)&ActionPrintDebugString + 0, (u8 *)&ActionVehicleTeleport + 0, (u8 *)&ActionVehicleChangeControl + 0, (u8 *)&ActionSetPlayerVehicle + 0, (u8 *)&ActionVehicleRemoveItem + 0, (u8 *)&ActionVehicleRemoveCreature + 0, (u8 *)&ActionVariableChangeMode + 0, (u8 *)&ActionLoadInterfacePack + 0, (u8 *)&ActionPlayInterfacePack + 0, (u8 *)&ActionUnloadInterfacePack + 0, (u8 *)&ActionEndInterfacePack + 0, (u8 *)&ActionEndInterface + 0, (u8 *)&ActionHUDChangeMode + 0, (u8 *)&ActionScriptLightChangeMode + 0, (u8 *)&ActionCodeVariableModifyValue + 0, (u8 *)&ActionMissionObjChangeMode + 0, (u8 *)&ActionPauseTACSystem + 0, (u8 *)&ActionSwapAIScript + 0, (u8 *)&ActionResetGameRound + 0, (u8 *)&ActionRoundComplete + 0, (u8 *)&ActionVehicleGiveItem + 0, (u8 *)&ActionSetPlayerOrder + 0, (u8 *)&ActionPlaySoundSequence + 0, (u8 *)&ActionCreatureChangeMode + 0 };
 
@@ -2100,9 +2118,6 @@ void *pTriggerFuncArray[28] = { (u8 *)&TriggerTrue + 0, (u8 *)&TriggerAirboxEnte
 
 /* Fill pointer slots with handles once, before main(). */
 __attribute__((constructor)) static void DataGen_Fixups(void) {
-    SLOT_STORE(g_stunt1localString + 0x0, (u8 *)s_CarA___639_ + 0);
-    SLOT_STORE(g_stuntLossString + 0x0, (u8 *)stunt_msg_buffer + 0);
-    SLOT_STORE(g_stuntMessageLocalString + 0x0, (u8 *)stunt_msg_buffer_second + 0);
     SLOT_STORE(g_AI_AsyncProcess + 0x4, (u8 *)&AI_AsyncProcess_80006C80 + 0);
     SLOT_STORE(g_carAVTable + 0x0, (u8 *)&CarA_Init + 0);
     SLOT_STORE(g_carAVTable + 0x4, (u8 *)&CarA_Release + 0);
@@ -2240,6 +2255,9 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_soundSeqVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
     SLOT_STORE(g_soundSeqVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
     SLOT_STORE(g_soundSeqVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
+    SLOT_STORE(g_stunt1localString + 0x0, (u8 *)s_CarA___639_ + 0);
+    SLOT_STORE(g_stuntLossString + 0x0, (u8 *)stunt_msg_buffer + 0);
+    SLOT_STORE(g_stuntMessageLocalString + 0x0, (u8 *)stunt_msg_buffer_second + 0);
     SLOT_STORE(triggerLabelsArray + 0x0, (u8 *)s_Trigger___299_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x4, (u8 *)s_Trigger___300_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x8, (u8 *)s_Trigger___301_ + 0);

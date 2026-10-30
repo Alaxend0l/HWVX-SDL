@@ -20,6 +20,8 @@ pulled in automatically.
   tools/gen_data.py NAME...        # or: tools/gen_data.py @names.txt
   tools/gen_data.py --raw rawData NAME...  # rawData's "pointers" are image data
   tools/gen_data.py --hostptr g_pX NAME... # g_pX is `T *g_pX` in the C code
+  tools/gen_data.py --bytes g_tbl NAME...  # g_tbl holds u8/u16 fields: keep the
+                                           # original byte order (as pack data)
 """
 import pathlib
 import re
@@ -152,6 +154,7 @@ class Emitter:
         self.exported = set()  # local objects the game's C refers to by name
         self.raw = set()       # objects whose "pointers" are really plain data
         self.hostptr = set()   # objects the C code declares as host pointers
+        self.bytes = set()     # byte/halfword tables: emitted in the original byte order
         self.late = []
 
     def resolve(self, name, file):
@@ -186,7 +189,11 @@ class Emitter:
             if d == ".4byte":
                 for a in [x.strip() for x in arg.split(",")]:
                     if re.fullmatch(r"-?(0x[0-9A-Fa-f]+|\d+)", a):
-                        items.append(("W32", int(a, 0) & 0xFFFFFFFF))
+                        v = int(a, 0) & 0xFFFFFFFF
+                        if obj["name"] in self.bytes:
+                            items += [("W8", (v >> sh) & 0xFF) for sh in (24, 16, 8, 0)]
+                        else:
+                            items.append(("W32", v))
                     else:
                         m = re.fullmatch(r"([^+\-]+)([+\-]0x[0-9A-Fa-f]+|[+\-]\d+)?", a)
                         sym, add = m.group(1), int(m.group(2), 0) if m.group(2) else 0
@@ -199,7 +206,11 @@ class Emitter:
                     size += 4
             elif d == ".2byte":
                 for a in arg.split(","):
-                    items.append(("W16", int(a.strip(), 0) & 0xFFFF))
+                    v = int(a.strip(), 0) & 0xFFFF
+                    if obj["name"] in self.bytes:
+                        items += [("W8", v >> 8), ("W8", v & 0xFF)]
+                    else:
+                        items.append(("W16", v))
                     size += 2
             elif d == ".byte":
                 for a in arg.split(","):
@@ -287,8 +298,9 @@ def main():
     names = []
     raw = set()
     hostptr = set()
-    while args and args[0] in ("--raw", "--hostptr"):
-        (raw if args[0] == "--raw" else hostptr).add(args[1])
+    nbytes = set()
+    while args and args[0] in ("--raw", "--hostptr", "--bytes"):
+        {"--raw": raw, "--hostptr": hostptr, "--bytes": nbytes}[args[0]].add(args[1])
         args = args[2:]
     for a in args:
         if a.startswith("@"):
@@ -299,6 +311,7 @@ def main():
     em = Emitter(objs)
     em.raw = raw
     em.hostptr = hostptr
+    em.bytes = nbytes
     functions = load_functions()
     not_found = []
     for n in names:

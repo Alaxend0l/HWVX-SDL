@@ -187,7 +187,8 @@ static void Claim_Textures(Swapper *s, u32 off, u32 count) {
 
 /* Strings: a pointer target that looks like text: at least 3 printable
  * characters and a NUL, starting with a letter, digit, path character or
- * text punctuation ('|' is the fonts' line break: "|A valid Memory Card..."),
+ * text punctuation ('|' is the fonts' line break: "|A valid Memory Card...";
+ * '+' starts the time bonus "+10 Sec"),
  * and mostly letters and digits (floats like 0.7f read as "?333", so '?' and
  * '@' can't start one). */
 static int IsWordChar(u8 c) {
@@ -206,7 +207,7 @@ static void Claim_StringTargets(Swapper *s, const u32 *pointers, u32 numPointers
             continue;
         }
         c0 = s->base[t];
-        if (!IsWordChar(c0) && (c0 == 0 || strchr("\\/.|[(\"'-#*<!", c0) == NULL)) {
+        if (!IsWordChar(c0) && (c0 == 0 || strchr("\\/.|[(\"'-+#*<!", c0) == NULL)) {
             continue;
         }
         while (t + n < s->size && s->base[t + n] >= 0x20 && s->base[t + n] < 0x7F) {
@@ -1325,16 +1326,16 @@ static void Claim_CarAInfo(Swapper *s, u32 off) {
     if (p != ~0u) {
         u32 m = Target(s, p + 0x10);
         Claim_MotionAnim(s, m);
-        /* the model's optional parts 0x38 -> { count, parts (0x18 each: u8 flags,
+        /* the model's optional parts 0x38 -> { count, parts (0x1C each: u8 flags,
          * u8 xform, u16 matrix 0x4, geometry 0x8, offset 0xC) } (CarA_DrawScript) */
         if (m != ~0u) {
             u32 list = Target(s, m + 0x38), parts;
             if (list != ~0u && (parts = Target(s, list + 4)) != ~0u) {
                 n = Word(s, list);
                 for (i = 0; i < n && i < 0x100; i++) {
-                    ClaimBytes(s, parts + i * 0x18, 4);
-                    ClaimU16(s, parts + i * 0x18 + 4);
-                    ClaimU16(s, parts + i * 0x18 + 6);
+                    ClaimBytes(s, parts + i * 0x1C, 4);
+                    ClaimU16(s, parts + i * 0x1C + 4);
+                    ClaimU16(s, parts + i * 0x1C + 6);
                 }
             }
         }
