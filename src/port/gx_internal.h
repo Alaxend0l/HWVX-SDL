@@ -8,6 +8,10 @@
 #define GX_NUM_ATTR 21        /* PNMTXIDX .. TEX7 */
 #define GX_NUM_VTXFMT 8
 #define GX_NUM_POSMTX 10      /* ids 0, 3, ... 27 */
+/* Slot after the loadable ones: always identity. Position matrix id 60
+ * (GX_IDENTITY) reads XF rows 60-62, which GXInit fills with identity; the
+ * billboard sprites (Render_DrawNewBBSprites) draw with it. */
+#define GX_POSMTX_IDENTITY GX_NUM_POSMTX
 #define GX_NUM_TEXMTX 10      /* ids 30, 33, ... 57 */
 #define GX_NUM_LIGHTS 8
 
@@ -44,7 +48,7 @@ typedef struct GXState {
     u8 arrayStride[GX_NUM_ATTR];
 
     /* transform */
-    f32 posMtx[GX_NUM_POSMTX][3][4];
+    f32 posMtx[GX_NUM_POSMTX + 1][3][4];
     f32 texMtx[GX_NUM_TEXMTX][3][4];
     u32 curMtx;
     f32 proj[4][4];

@@ -21,7 +21,7 @@ static const char *s_vs =
     "layout(location=3) in vec4 aClr1;\n"
     "layout(location=4) in vec2 aTex[8];\n"
     "layout(location=12) in float aMtx;\n"
-    "uniform vec4 uPosMtx[30];\n"
+    "uniform vec4 uPosMtx[33];\n"
     "uniform vec4 uTexMtx[30];\n"
     "uniform mat4 uProj;\n"
     "uniform ivec4 uTexGen[8];\n"        /* func, src, mtx slot (-1 = identity), 0 */
@@ -336,7 +336,7 @@ static void ApplyState(void) {
                   (GLsizei)(g->scissor[2] * sx), (GLsizei)(g->scissor[3] * sy));
     }
 
-    glUniform4fv(s.u[U_POSMTX], 30, &g->posMtx[0][0][0]);
+    glUniform4fv(s.u[U_POSMTX], 3 * (GX_POSMTX_IDENTITY + 1), &g->posMtx[0][0][0]);
     glUniform4fv(s.u[U_TEXMTX], 30, &g->texMtx[0][0][0]);
     glUniformMatrix4fv(s.u[U_PROJ], 1, GL_TRUE, &g->proj[0][0]);
 

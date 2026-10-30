@@ -131,6 +131,7 @@ Debugging aids:
   geometry magenta with depth, blending and culling off.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
+- `HWVX_FPSLOG=1` logs the frame rate (capped at 60 Hz) and the game's average frame delta every 5 s.
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
 
 `tools/xgc_inspect.py FILE.xgc [--dump OFFSET N]` shows a data pack's TOC,

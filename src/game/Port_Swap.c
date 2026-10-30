@@ -353,10 +353,18 @@ static void Claim_SoundSeq(Swapper *s, u32 off) {
 static void Claim_KeyTrack(Swapper *s, u32 track, u32 stride, u32 bytesAt) {
     u32 keys = Target(s, track + 4);
     u32 n = Word(s, track);
-    u32 i;
+    u32 i, w;
 
     for (i = 0; keys != ~0u && i < n && i < 0x10000; i++) {
-        ClaimBytes(s, keys + i * stride + bytesAt, 4);
+        u32 key = keys + i * stride;
+        ClaimBytes(s, key + bytesAt, 4);
+        /* the rest are f32/u32 values: claim them, or the string heuristic
+         * can take a key for text (725.0f is "D5@\0") and leave it unswapped */
+        for (w = 0; w < stride; w += 4) {
+            if (w != bytesAt && InBlob(s, key + w, 4) && s->claim[key + w] == CLAIM_DEFAULT) {
+                Claim(s, key + w, 4, CLAIM_U32);
+            }
+        }
     }
 }
 
@@ -548,6 +556,62 @@ static void Claim_IMObjectData(Swapper *s, u32 off) {
 
 /* ObjDef / IMObject (0x6C): u8 kind 0x0, type 0x1, 0x2-0x7, active 0x8, input 0x9, u16 id 0xA,
  * s16 0xC, sub 0x14 (u8 type, u8 at 0x0), anim 0x60, data 0x44. */
+/* Briefing dialogue (object type 2; InterfaceManager_MoveDialogSystem):
+ * { count, entries (0x20 each) }. Entry: u8 active, id, special, specialKey;
+ * s32 time 0x4; sound 0x8/0xC; text 0x10; character 0x14; actions 0x18.
+ * Character: info 0x8, colour 0xC -> RGBA8 (copied into a colour key),
+ * idle 0x10/0x14, talk 0x18/0x1C (counts, lists), u8 state 0x20, special
+ * anims 0x30, quad 0x34. Anims are texture key animations, 0x10 each
+ * (numKeys, keys, frameTime, u8 0xC, u8 0xD, u16 0xE). */
+static void Claim_DialogAnims(Swapper *s, u32 list, u32 n) {
+    u32 i;
+
+    for (i = 0; list != ~0u && i < n && i < 0x100; i++) {
+        ClaimBytes(s, list + i * 0x10 + 0xC, 2);
+        ClaimU16(s, list + i * 0x10 + 0xE);
+    }
+}
+
+static void Claim_DialogList(Swapper *s, u32 off) {
+    u32 entries, n, i;
+
+    if (off == ~0u) {
+        return;
+    }
+    entries = Target(s, off + 4);
+    n = Word(s, off);
+    for (i = 0; entries != ~0u && i < n && i < 0x400; i++) {
+        u32 e = entries + i * 0x20;
+        u32 chr = Target(s, e + 0x14);
+
+        ClaimBytes(s, e, 4);
+        Claim_ActionList(s, e + 0x18);
+        if (chr == ~0u || s->claim[chr + 0x20] == CLAIM_BYTES) {
+            continue;   /* characters are shared between entries */
+        }
+        ClaimBytes(s, chr + 0x20, 4);
+        {
+            u32 colour = Target(s, chr + 0xC);
+            if (colour != ~0u) {
+                ClaimBytes(s, colour, 4);
+            }
+        }
+        Claim_DialogAnims(s, Target(s, chr + 0x14), Word(s, chr + 0x10));
+        Claim_DialogAnims(s, Target(s, chr + 0x1C), Word(s, chr + 0x18));
+        /* special anims: indexed by the entries' specialKey; no count */
+        {
+            u32 sp = Target(s, chr + 0x30), k, maxKey = 0;
+            for (k = 0; sp != ~0u && k < n && k < 0x400; k++) {
+                u32 ek = entries + k * 0x20;
+                if (Target(s, ek + 0x14) == chr && s->base[ek + 2] && s->base[ek + 3] + 1u > maxKey) {
+                    maxKey = s->base[ek + 3] + 1u;
+                }
+            }
+            Claim_DialogAnims(s, sp, maxKey);
+        }
+    }
+}
+
 static void Claim_IMObject(Swapper *s, u32 off) {
     u32 sub;
 
@@ -573,6 +637,9 @@ static void Claim_IMObject(Swapper *s, u32 off) {
                 }
             }
             ClaimBytes(s, sub, 4);
+            break;
+        case 2:
+            Claim_DialogList(s, sub);
             break;
         case 6:
         case 7:
@@ -969,6 +1036,7 @@ static void Claim_AIScript(Swapper *s, u32 script) {
     Claim_AIState(s, script + 0x28, 0);
 }
 
+static void Claim_Emitter(Swapper *s, u32 off);
 static void Claim_World(Swapper *s, u32 off) {
     u32 list, n, i, k;
 
@@ -1005,6 +1073,7 @@ static void Claim_World(Swapper *s, u32 off) {
             m = Word(s, il + 0xC);
             for (j = 0; dyn != ~0u && j < m && j < 0x1000; j++) {
                 ClaimBytes(s, dyn + j * 0x40 + 0x38, 1);       /* hasScale */
+                Claim_Emitter(s, Target(s, dyn + j * 0x40 + 0x24));   /* FX point: an emitter */
             }
         }
     }
@@ -1114,6 +1183,17 @@ static void Claim_LineDef(Swapper *s, u32 d) {
     Claim_Track(s, d + 0x14, KEYS_COLOR);
 }
 
+/* Emitter (Emitter.c, EmitterData): u8 unk0, pickMode, limited, pad;
+ * s32 count 0x4, delays 0x8/0xC; f32 range 0x10, speedScale 0x14; fx ids
+ * 0x18/0x1C (u32); sound sequence 0x20 (SoundSeq_Init, thing type 0x10). */
+static void Claim_Emitter(Swapper *s, u32 off) {
+    if (off == ~0u || s->claim[off] == CLAIM_BYTES) {
+        return;
+    }
+    ClaimBytes(s, off, 4);
+    Claim_SoundSeq(s, Target(s, off + 0x20));
+}
+
 static void Claim_EventSeq(Swapper *s, u32 script) {
     static int depth;   /* type 3 entries nest scripts; data can cycle */
     u32 entries, n, i;
@@ -1149,8 +1229,8 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
                 case 3:   /* a nested event sequence (EventSeq_Init: data 0x40) */
                     Claim_EventSeq(s, a);
                     break;
-                case 4:   /* an emitter (Emitter_Init: u8 x4) */
-                    ClaimBytes(s, a, 4);
+                case 4:   /* an emitter */
+                    Claim_Emitter(s, a);
                     break;
                 case 7:   /* a destructible / physical object record */
                     Claim_ThingRecord(s, a);
@@ -1289,18 +1369,31 @@ static void Claim_SlaveData(Swapper *s, u8 type, u32 data) {
     case 8:
         Claim_MotionAnim(s, data);
         break;
+    case 10:  /* shared slaves (SharedSlaveHolder_Get): { u32 active, slave list 0x4 } */
+        Claim_SlaveList(s, data + 4);
+        break;
     }
 }
 
 static void Claim_SlaveList(Swapper *s, u32 off) {
+    static int depth;   /* shared slaves (type 10) nest slave lists */
     u32 t = Target(s, off + 4), n = Word(s, off), i;
 
+    if (depth > 8) {
+        return;
+    }
+    depth++;
     for (i = 0; t != ~0u && i < n && i < 0x400; i++) {
         u32 e = t + i * 0x20;
-        Claim_SlaveData(s, s->base[e + 0x10], Target(s, e + 0x18));
+        if (s->claim[e + 0x10] == CLAIM_BYTES) {
+            continue;   /* already walked (lists are shared) */
+        }
         ClaimBytes(s, e + 0x10, 2);
         ClaimU16(s, e + 0x12);
+        ClaimBytes(s, e + 0x1C, 4);   /* 0x1D: shared slave holder index, set at runtime */
+        Claim_SlaveData(s, s->base[e + 0x10], Target(s, e + 0x18));
     }
+    depth--;
 }
 
 /* Keyframe animation (Anim.c: Anim): s32 flags 0x4, numBones 0x10,
@@ -1748,6 +1841,25 @@ static void Claim_TACTriggers(Swapper *s, u32 off, u32 count) {
     }
 }
 
+/* ---- items (type 2 packs: the root is the item's ItemInfo) ----------------
+ * 0x0 u8 type, 0x1 u8, 0x2 u16 value (CarA_ProcessItemPickup); 0x30 -> weapon /
+ * wildcard data (u8 spinType 0x2C, spinLimit 0x2D, u16 spinBone 0x2E; u8
+ * priority 0x34); shared slaves
+ * { count, list } at 0x38 (Item_Init, Item_Draw). */
+static void Claim_ItemInfo(Swapper *s, u32 off) {
+    u32 sub;
+
+    ClaimBytes(s, off, 2);
+    ClaimU16(s, off + 2);
+    sub = Target(s, off + 0x30);
+    if (sub != ~0u) {
+        ClaimBytes(s, sub + 0x2C, 2);   /* u8 spinType, spinLimit (WildCard.c) */
+        ClaimU16(s, sub + 0x2E);        /* spinBone */
+        ClaimBytes(s, sub + 0x34, 4);   /* u8 priority (AI weapons) */
+    }
+    Claim_SlaveList(s, off + 0x38);
+}
+
 static void Claim_Roots(Swapper *s) {
     u32 table = Target(s, 4);
     u32 n = Word(s, 0);
@@ -1779,6 +1891,13 @@ static void Claim_Roots(Swapper *s) {
             break;
         case 1: /* interface packs */
             Claim_IMHeader(s, obj);
+            break;
+        case 2: /* items */
+            Claim_ItemInfo(s, obj);
+            break;
+        case 9: /* audio packs: each root is a sound sequence (briefing dialogue,
+                 * InterfaceManager_MoveDialogSystem -> SoundSequence_Play) */
+            Claim_SoundSeq(s, obj);
             break;
 
         default:

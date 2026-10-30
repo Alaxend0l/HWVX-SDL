@@ -133,11 +133,17 @@ static int VertexSize(int fmt) {
 }
 
 /* Decode one attribute from `r` (direct data) into `v`. */
+/* Shader slot for a position matrix id (row address / 3). Ids 0-27 are the
+ * loadable matrices; anything else (in practice 60, GX_IDENTITY) is identity. */
+static f32 PosMtxSlot(u32 id) {
+    return (f32)(id / 3 < GX_NUM_POSMTX ? id / 3 : GX_POSMTX_IDENTITY);
+}
+
 static void DecodeAttr(Reader *r, int attr, const GXVtxAttrFmt *f, GXVertex *v) {
     int i, n;
 
     if (attr == GX_VA_PNMTXIDX) {
-        v->mtxIdx = (f32)(RdU8(r) / 3);
+        v->mtxIdx = PosMtxSlot(RdU8(r));
         return;
     }
     if (attr <= 8) {
@@ -181,7 +187,7 @@ static void DecodeVertex(Reader *r, int fmt, GXVertex *v) {
     int a;
 
     memset(v, 0, sizeof(*v));
-    v->mtxIdx = (f32)(g_gx.curMtx / 3);
+    v->mtxIdx = PosMtxSlot(g_gx.curMtx);
     v->clr[0][0] = v->clr[0][1] = v->clr[0][2] = v->clr[0][3] = 1.0f;
     for (a = 0; a < GX_NUM_ATTR; a++) {
         const GXVtxAttrFmt *f = &g_gx.vat[fmt][a];

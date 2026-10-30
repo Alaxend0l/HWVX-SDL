@@ -25,7 +25,7 @@ void *GXInit(void *base, u32 size) {
     g->viewport[5] = 1.0f;
     g->scissor[2] = 640;
     g->scissor[3] = 480;
-    for (i = 0; i < GX_NUM_POSMTX; i++) {
+    for (i = 0; i <= GX_POSMTX_IDENTITY; i++) {
         g->posMtx[i][0][0] = g->posMtx[i][1][1] = g->posMtx[i][2][2] = 1.0f;
     }
     for (i = 0; i < GX_NUM_TEXMTX; i++) {

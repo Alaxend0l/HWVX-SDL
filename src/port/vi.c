@@ -74,6 +74,26 @@ void VIWaitForRetrace(void) {
     Port_GiantLock();
 
     s_retraceCount++;
+    {   /* HWVX_FPSLOG=1: log the real frame rate and the game's frame delta */
+        static int on = -1;
+        static u64 t0;
+        static u32 frames, msSum;
+        extern s32 g_iDeltaTimeMS;
+        if (on < 0) {
+            on = SDL_getenv("HWVX_FPSLOG") != NULL;
+            t0 = SDL_GetTicksNS();
+        }
+        if (on) {
+            u64 t = SDL_GetTicksNS();
+            frames++;
+            msSum += g_iDeltaTimeMS;
+            if (t - t0 >= 5000000000ull) {
+                Port_Log("FPS %.2f (game delta avg %.2f ms)", frames * 1e9 / (double)(t - t0), (double)msSum / frames);
+                t0 = t;
+                frames = msSum = 0;
+            }
+        }
+    }
     Pad_PortSample();
     if (s_postRetrace != NULL) {
         s_postRetrace(s_retraceCount);
