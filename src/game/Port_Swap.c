@@ -795,6 +795,13 @@ static void Claim_VolumeHolder(Swapper *s, u32 holder) {
     }
 }
 
+static f32 BEFloatAt(Swapper *s, u32 off) {
+    union { u32 u; f32 f; } v;
+
+    v.u = Word(s, off);
+    return v.f;
+}
+
 /* Quadrant BSP (BSPN0.c): nodes of 0x20 { plane, u8 type 0x10, u16 next
  * 0x12 }; type & 1: front child is the next node, type & 2: back child is
  * `next` nodes on. */
@@ -894,6 +901,34 @@ static void Claim_Collision(Swapper *s) {
         }
         for (j = 0; edges != ~0u && j < Word(s, cell + 0x40) && j < 0x10000; j++) {
             ClaimU16(s, edges + j * 2);
+        }
+    }
+}
+
+/* Volume shapes (VolumeManager.c IsPointWithinVolume: s32 type 0x8; 0 = BSP
+ * at 0x28, 1 = sphere) are referenced from trigger parameter lists and other
+ * records, so BSP volumes are found by shape: type 0 and a root node whose
+ * plane normal is unit length. */
+static void Claim_VolumeShapeScan(Swapper *s, const u32 *pointers, u32 numPointers) {
+    u32 i;
+
+    for (i = 0; i < numPointers; i++) {
+        u32 v = Target(s, pointers[i]), root;
+        f32 x, y, z, len;
+
+        if (v == ~0u || !InBlob(s, v, 0x2C) || Word(s, v + 8) != 0) {
+            continue;
+        }
+        root = Target(s, v + 0x28);
+        if (root == ~0u || !InBlob(s, root, 0x20) || s->base[root + 0x10] > 3) {
+            continue;
+        }
+        x = BEFloatAt(s, root);
+        y = BEFloatAt(s, root + 4);
+        z = BEFloatAt(s, root + 8);
+        len = x * x + y * y + z * z;
+        if (len > 0.98f && len < 1.02f) {
+            Claim_BSPN0(s, root);
         }
     }
 }
@@ -1024,7 +1059,8 @@ static void Claim_Sound(Swapper *s, u32 off) {
  *     u8 0x10 }, 2 { f32 x4, u8 axis/damped/spin 0x10 } }), info 0x2C
  *     { Vector4, u8 0x10 } for velocity kind 0x22 == 4 (else f32 ranges);
  *   position emitters (5, 6, 8, 10, 25, 26): u8 0x18, 0x19, range 0x1C.
- * a by type: 1 particle (u8 0x0), 5 blast (u8 0x0-0x4), 10 sound (u8 0x0),
+ * a by type: 1 particle (u8 0x0), 2 projectile, 3 nested script, 4 emitter (u8 x4),
+ * 5 blast (u8 0x0-0x4), 6/7 destructible/physical record, 10 sound (u8 0x0),
  * 26 sound sequence. */
 static void Claim_SoundSeq(Swapper *s, u32 off);
 
@@ -1040,11 +1076,13 @@ static void Claim_LineDef(Swapper *s, u32 d) {
 }
 
 static void Claim_EventSeq(Swapper *s, u32 script) {
+    static int depth;   /* type 3 entries nest scripts; data can cycle */
     u32 entries, n, i;
 
-    if (script == ~0u) {
+    if (script == ~0u || depth > 4) {
         return;
     }
+    depth++;
     entries = Target(s, script + 4);
     n = Word(s, script);
     for (i = 0; entries != ~0u && i < n && i < 0x400; i++) {
@@ -1066,6 +1104,26 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
                 if (info != ~0u && s->base[b + 0x22] == 4) {   /* else a range of f32s */
                     ClaimBytes(s, info + 0x10, 4);
                 }
+            }
+            if (a != ~0u) {
+                switch (Word(s, e)) {
+                case 3:   /* a nested event sequence (EventSeq_Init: data 0x40) */
+                    Claim_EventSeq(s, a);
+                    break;
+                case 4:   /* an emitter (Emitter_Init: u8 x4) */
+                    ClaimBytes(s, a, 4);
+                    break;
+                case 7:   /* a destructible / physical object record */
+                    Claim_ThingRecord(s, a);
+                    break;
+                }
+            }
+            if (Word(s, e) == 2 && a != ~0u && s->claim[a] != CLAIM_BYTES) {
+                /* projectile (Projectile.c): u8 0x3-0x5, 0x8; scale keys 0x8C,
+                 * colour keys 0x94 */
+                ClaimBytes(s, a, 0xC);
+                Claim_Track(s, a + 0x8C, KEYS_VEC4);
+                Claim_Track(s, a + 0x94, KEYS_COLOR);
             }
             if (Word(s, e) == 1 && a != ~0u) {
                 /* particle (ParticleManager.c): u8 kind 0x0 (0 GX particle,
@@ -1103,6 +1161,9 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
                     ClaimBytes(s, a, 8);
                     ClaimBytes(s, Target(s, a + 0x1C), 4);
                     break;
+                case 6:   /* a destructible record (Destructible_Init) */
+                    Claim_ThingRecord(s, a);
+                    break;
                 case 10: ClaimBytes(s, a, 4); break;
                 case 26: Claim_SoundSeq(s, a); break;
                 }
@@ -1110,6 +1171,7 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
             break;
         }
     }
+    depth--;
 }
 
 /* Event sequences are also referenced from records walked nowhere else
@@ -1763,6 +1825,7 @@ void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataS
     Claim_ModelScan(&s, pointers, numPointers);
     Claim_EventSeqScan(&s, pointers, numPointers);
     Claim_KeyAnimScan(&s, pointers, numPointers);
+    Claim_VolumeShapeScan(&s, pointers, numPointers);
     Claim_Roots(&s);
     Claim_TACTriggers(&s, triggerOffset, numTriggers);
     Claim_Shaders(&s, shaderOffset, numShaders);

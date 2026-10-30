@@ -3943,12 +3943,18 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
             }
             case 100:
                 if (*(u32 *)(iface + 0x4) == 2) {
+                    /* port: the default name is the first string slot of the
+                     * object's text table, and SetObjectText takes a table of
+                     * string slots (it copies the string pointer at once, so
+                     * one static slot does, as the original's stack variable) */
+                    static u32 s_nameSlot;
                     char *name = GameSettings_GetActiveMemoryCardFileName(*SLOT_LOAD(u16 *, (iface + 0x20)) == 5,
                                                                          *(u16 *)(SLOT_LOAD(u8 *, (obj + 0x25C)) + 0xA),
-                                                                         *SLOT_LOAD(char **, SLOT_LOAD(u8 *, (obj + 0x258))));
+                                                                         SLOT_LOAD(char *, SLOT_LOAD(u8 *, (obj + 0x258))));
 
                     if (name != NULL) {
-                        InterfaceManager_SetObjectText(obj, &name);
+                        s_nameSlot = HND(name);
+                        InterfaceManager_SetObjectText(obj, (char **)&s_nameSlot);
                     }
                     if (name != NULL && SLOT_LOAD(void *, (obj + 0x254)) != NULL) {
                         obj[0x240] = 0;
