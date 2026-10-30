@@ -196,7 +196,7 @@ void *PlayerManager_NewAIPlayer(u8 *desc) {
         break;
     }
     for (; player != NULL; player = SLOT_LOAD(u8 *, (player + 0xB0))) {
-        if (*(void (**)(void *))(player + 0x24) == init) {
+        if (((void (*)(void *))SLOT_LOAD(void *, (player + 0x24))) == init) {
             if (SLOT_LOAD(u8 *, (player + 0xB4)) == NULL) {
                 SLOT_STORE((g_playerManager + 0x20DC), SLOT_LOAD(u8 *, (player + 0xB0)));
             } else {
@@ -213,7 +213,7 @@ void *PlayerManager_NewAIPlayer(u8 *desc) {
     if (player == NULL) {
         return NULL;
     }
-    (*(void (**)(void *))(player + 0x24))(player);
+    (((void (*)(void *))SLOT_LOAD(void *, (player + 0x24))))(player);
     SLOT_STORE((player + 0xB0), SLOT_LOAD(u8 *, (g_playerManager + 0x20D8)));
     SLOT_STORE((player + 0xB4), NULL);
     if (SLOT_LOAD(u8 *, (player + 0xB0)) != NULL) {

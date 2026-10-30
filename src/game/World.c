@@ -329,7 +329,7 @@ s32 ActionItemChangeMode(u32 *action) {
                 *(u32 *)(item + 0x28) = 0;
                 obj = SLOT_LOAD(u8 *, (item + 0x24));
                 if (obj != NULL) {
-                    (*(void (**)(void *))(SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))(obj);
+                    (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))))(obj);
                     *(u32 *)(item + 0x18) = *(u32 *)(item + 0x14);
                     SLOT_STORE((item + 0x24), NULL);
                 }
@@ -345,7 +345,7 @@ s32 ActionItemChangeMode(u32 *action) {
             if (action[0] == 0) {
                 obj = SLOT_LOAD(u8 *, (item + 0x24));
                 if (obj != NULL) {
-                    (*(void (**)(void *))(SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))(obj);
+                    (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))))(obj);
                     *(u32 *)(item + 0x18) = *(u32 *)(item + 0x14);
                     SLOT_STORE((item + 0x24), NULL);
                 }
@@ -356,10 +356,10 @@ s32 ActionItemChangeMode(u32 *action) {
 }
 
 void RenderQuadrant(u8 *quadrant) {
-    typedef struct { PTR32(void) pad0; void *pad4; void *geom; } StaticGeom;
+    typedef struct { PTR32(void) pad0; PTR32(void) pad4; PTR32(void) geom; } StaticGeom;
     typedef struct { PTR32(u8) geom; u8 noDraw; u8 pad5; u8 hasDist; u8 visible; f32 dist; u8 padC[0xC]; u32 slaves[2]; } Model;
-    typedef struct { Vector4 pos; Vector4 quat; u8 pad20[4]; Model *model; f32 dist; u8 pad2C[8]; u8 useDist; u8 pad35[7]; f32 radius; } Instance;
-    typedef struct { u32 pad0; u32 count; Instance *instances; } InstanceList;
+    typedef struct { Vector4 pos; Vector4 quat; u8 pad20[4]; PTR32(Model) model; f32 dist; u8 pad2C[8]; u8 useDist; u8 pad35[7]; f32 radius; } Instance;
+    typedef struct { u32 pad0; u32 count; PTR32(Instance) instances; } InstanceList;
     typedef struct { u8 pad0[0x10]; f32 mtx[3][4]; Vector4 pos; Vector4 quat; u8 pad60[0x14]; u32 unk74; u8 pad78[0x78]; } DrawThing;
     u32 i;
     u32 j;
@@ -373,11 +373,11 @@ void RenderQuadrant(u8 *quadrant) {
         return;
     }
     for (i = 0; i < *(u32 *)(quadrant + 0xC); i++) {
-        Gfx_DrawGeometry(HND((SLOT_LOAD(StaticGeom *, (quadrant + 0x10)))[i].geom), HND(NULL));
+        Gfx_DrawGeometry(HND(GETP((SLOT_LOAD(StaticGeom *, (quadrant + 0x10)))[i].geom)), HND(NULL));
     }
     for (j = 0; j < (SLOT_LOAD(InstanceList *, (quadrant + 0x30)))->count; j++) {
-        inst = &(SLOT_LOAD(InstanceList *, (quadrant + 0x30)))->instances[j];
-        model = inst->model;
+        inst = &GETP((SLOT_LOAD(InstanceList *, (quadrant + 0x30)))->instances)[j];
+        model = GETP(inst->model);
         if (model->visible == 0) {
             continue;
         }
@@ -390,7 +390,7 @@ void RenderQuadrant(u8 *quadrant) {
             if (distSq > inst->dist * inst->dist) {
                 continue;
             }
-        } else if (inst->model->hasDist && distSq > inst->model->dist * inst->model->dist) {
+        } else if (GETP(inst->model)->hasDist && distSq > GETP(inst->model)->dist * GETP(inst->model)->dist) {
             continue;
         }
         if (Gfx_FrustrumCullSphereTestAllWindows(inst, inst->radius)) {
@@ -423,13 +423,12 @@ void TimerManager_Heartbeat(void) {
     typedef struct {
         u8 unk0[0x50];
         u32 numTimers;
-        PTR32(Timer *) timers;
+        PTR32(PTR32(Timer)) timers;
     } TimerWorld;
     TimerWorld *world;
     Timer *timer;
     u32 i;
     u8 speed;
-    Timer **timers;
     u32 dt;
 
     world = GETP(g_worldData.world);
@@ -438,8 +437,7 @@ void TimerManager_Heartbeat(void) {
     }
     speed = GameSettings_GetCodeVariable(0x6C, 7);
     for (i = 0; i < world->numTimers; i++) {
-        timers = GETP(world->timers);
-        timer = timers[i];
+        timer = GETP(GETP(world->timers)[i]);  /* port: a table of pointer slots */
         if (GETP(timer->def)->type == 7) {
             continue;
         }
@@ -451,8 +449,8 @@ void TimerManager_Heartbeat(void) {
         }
         if (timer->countUp == 0) {
             timer->time -= dt;
-            if (timers[i]->time < 0.0f) {
-                timers[i]->time = 0.0f;
+            if (timer->time < 0.0f) {
+                timer->time = 0.0f;
             }
         } else {
             timer->time += dt;

@@ -934,7 +934,7 @@ s32 CarA_PreMove(void *thing) {
                 engineVolume = 1.0f;
             }
             if (GETP(car->vehicleIface)->numSoundSets != 0) {
-                enginePitch *= GETP(GETP(car->vehicleIface)->soundSets)[1]->pitchScale;
+                enginePitch *= GETP(GETP(GETP(car->vehicleIface)->soundSets)[1])->pitchScale;
             }
             SoundSource_Set(car->soundIds[1], 5, &car->worldMatrix.v[3]);
             SoundSource_Set(car->soundIds[1], 6, &car->velocity);
@@ -1098,7 +1098,7 @@ void CarA_DrawReflection(void *thing) {
     typedef struct { PTR32(void) geom; u16 mtxIndex; u8 pad6[2]; } ModelPart;
     typedef struct {
         u32 numGeoms;
-        PTR32(void *) geoms;
+        PTR32(PTR32(void)) geoms;
         u32 numParts;
         PTR32(ModelPart) parts;
         u8 pad10[4];
@@ -1229,7 +1229,7 @@ void CarA_DrawScript(u8 *car) {
     typedef struct { PTR32(void) geom; u16 mtxIndex; u8 pad6[2]; } ModelPart;
     typedef struct {
         u32 numGeoms;
-        PTR32(void *) geoms;
+        PTR32(PTR32(void)) geoms;
         u32 numParts;
         PTR32(ModelPart) parts;
         u8 pad10[4];
@@ -1266,7 +1266,7 @@ void CarA_DrawScript(u8 *car) {
     LightManager_LightThing(car);
     skel = GETP((SLOT_LOAD(Model *, (car + 0x330)))->skel);
     for (i = 0; i < (SLOT_LOAD(Model *, (car + 0x330)))->numGeoms; i++) {
-        Gfx_DrawAnimGeometryAux(GETP((SLOT_LOAD(Model *, (car + 0x330)))->geoms)[i], matrices, *skel, 0);
+        Gfx_DrawAnimGeometryAux(GETP(GETP((SLOT_LOAD(Model *, (car + 0x330)))->geoms)[i]), matrices, *skel, 0);
     }
     for (i = 0; i < (SLOT_LOAD(Model *, (car + 0x330)))->numParts; i++) {
         ModelPart *e = &GETP((SLOT_LOAD(Model *, (car + 0x330)))->parts)[i];

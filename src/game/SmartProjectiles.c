@@ -41,7 +41,7 @@ typedef struct SmartTarget {
   Vector4 pos;
   u8 pad50[0x88 - 0x50];
   u32 list;
-  PTR32(void *) vtable;
+  PTR32(PTR32(void)) vtable;
 } SmartTarget;
 
 typedef struct SmartProjVTable {
@@ -111,7 +111,7 @@ void SmartProjectileA_AquireTarget(SmartProjectile *proj) {
     bestIdx = count;
     for (i = 0; i < count; i++) {
         dist = PSVECSquareDistance(&proj->pos, &targets[i]->pos);
-        pos = ((Vector4 *(*)(SmartTarget *))GETP(targets[i]->vtable)[0x40 / 4])(targets[i]);
+        pos = ((Vector4 *(*)(SmartTarget *))GETP(GETP(targets[i]->vtable)[0x40 / 4]))(targets[i]);
         t = 1.0f;
         if (targets[i] != (SmartTarget *)proj && targets[i] != source &&
             !(dist < GETP(GETP(proj->info)->params)->minRange * GETP(GETP(proj->info)->params)->minRange) &&

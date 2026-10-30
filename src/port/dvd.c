@@ -17,18 +17,67 @@ static char *JoinPath(const char *name) {
 }
 
 /* Disc paths are case-insensitive on the GameCube; host file systems often
- * aren't. Try as given, then lowercase. */
+ * aren't. Try the name as given, then resolve it one path component at a time
+ * against the directory listing, ignoring case. */
+typedef struct CaseMatch {
+    const char *want;
+    char *found;
+} CaseMatch;
+
+static SDL_EnumerationResult SDLCALL MatchEntry(void *userdata, const char *dir, const char *name) {
+    CaseMatch *m = (CaseMatch *)userdata;
+    (void)dir;
+    if (SDL_strcasecmp(name, m->want) == 0) {
+        m->found = SDL_strdup(name);
+        return SDL_ENUM_SUCCESS;
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+static char *ResolveCase(const char *name) {
+    char *dir = SDL_strdup(g_port.dataDir);
+    const char *p = name;
+
+    while (*p == '/') {
+        p++;
+    }
+    while (*p) {
+        const char *end = SDL_strchr(p, '/');
+        size_t len = end ? (size_t)(end - p) : SDL_strlen(p);
+        char *part = SDL_strndup(p, len);
+        CaseMatch m = { part, NULL };
+        char *next;
+        size_t n;
+
+        SDL_EnumerateDirectory(dir, MatchEntry, &m);
+        SDL_free(part);
+        if (m.found == NULL) {
+            SDL_free(dir);
+            return NULL;
+        }
+        n = SDL_strlen(dir) + SDL_strlen(m.found) + 2;
+        next = SDL_malloc(n);
+        SDL_snprintf(next, n, "%s/%s", dir, m.found);
+        SDL_free(m.found);
+        SDL_free(dir);
+        dir = next;
+        p += len;
+        while (*p == '/') {
+            p++;
+        }
+    }
+    return dir;
+}
+
 static SDL_IOStream *OpenDiscFile(const char *name) {
     char *path = JoinPath(name);
     SDL_IOStream *io = SDL_IOFromFile(path, "rb");
-    if (io == NULL) {
-        char *p;
-        for (p = path + strlen(g_port.dataDir); *p; p++) {
-            *p = (char)SDL_tolower((unsigned char)*p);
-        }
-        io = SDL_IOFromFile(path, "rb");
-    }
+
     SDL_free(path);
+    if (io == NULL && (path = ResolveCase(name)) != NULL) {
+        io = SDL_IOFromFile(path, "rb");
+        SDL_free(path);
+    }
     return io;
 }
 

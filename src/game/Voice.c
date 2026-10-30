@@ -3,7 +3,7 @@
 #include "common.h"
 
 typedef struct SFX {
-    PTR32(void) data;
+    u32 data;  /* sample address in ARAM once created (CreateSFX_) */
     u32 unk4;
     u32 unk8;
     u32 unkC;
@@ -65,7 +65,7 @@ s32 AudioVoice_Init(void) {
 
     for (i = 0; i < 0xFE; i++) {
         g_soundLst[i] = i + 1;
-        SETP(g_sound[i].data, 0);
+        g_sound[i].data = 0;
     }
     g_soundLst[0xFD] = 0xFF;
     g_freeSound = 0;
@@ -116,12 +116,12 @@ s8 DestroySFX(u32 handle) {
     u32 data;
 
     handle--;
-    if (handle < 0xFE && GETP(g_sound[handle].data) != NULL) {
+    if (handle < 0xFE && g_sound[handle].data != 0) {
         SFX *sfx = &g_sound[handle];
         g_soundLst[handle] = g_freeSound;
         g_freeSound = handle;
-        data = (u32)HND(GETP(sfx->data));
-        SETP(sfx->data, NULL);
+        data = sfx->data;
+        sfx->data = 0;
         return FreeA_(data);
     }
     return 0;
@@ -200,12 +200,12 @@ u32 GetVoice(u32 handle, u8 priority) {
     SFX *sfx;
 
     handle--;
-    if (handle < 0xFE && GETP(g_sound[handle].data) != NULL) {
+    if (handle < 0xFE && g_sound[handle].data != 0) {
         sfx = &g_sound[handle];
         voice = GetVoice_(1, priority * 2);
         if (voice != NULL) {
             SETP(voice->sfx, sfx);
-            voice->unk20 = (u32)HND(GETP(sfx->data));
+            voice->unk20 = sfx->data;
             voice->unk28 = sfx->unk4;
             voice->unk24 = sfx->unk8;
             voice->unk30 = sfx->unkC;

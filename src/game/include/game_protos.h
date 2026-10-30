@@ -5,6 +5,7 @@
 
 struct ParticleGX_MacroStep_t;
 struct ParticleGX_Move_t;
+struct SlaveTrigger;
 struct Thing;
 
 
@@ -129,7 +130,7 @@ void SFX_ProcessSource(u32 index);
 void SongManager_LoadSong(u8 *data, u8 *bank);
 void SongManager_PlaySong(void);
 void SongManager_StopBKSong(void);
-void * SoundAudioSample_Play(void *sample);
+void * SoundAudioSample_Play(u32 sample);
 void SoundAudioSample_Set(void *voice, s32 type, s32 value);
 void SoundListener_Set(s32 listener, s32 param, void *value);
 void SoundListener_SetTotalListeners(u32 arg0);
@@ -884,6 +885,12 @@ u8 PlayerManager_PlayerHumanCount(void);
 void PlayerManager_Release(void);
 s32 PlayerManager_RemovePlayer(void *player);
 void PlayerManager_Render_DEBUG(void);
+
+/* Port_Swap.c */
+void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize, u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers, u32 textureDataOffset, u32 numTextures);
+void PortSwap_PackHeader(u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
+void PortSwap_SFXDescriptors(u8 *sfx, u32 count);
+void PortSwap_TOC(u32 *buf, u32 bufWords);
 
 /* ProcessManager.c */
 void ProcessManager_Add(char *name, void (*init)(void), void (*update)(void), s32 arg, u32 flags);

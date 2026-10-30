@@ -4,6 +4,19 @@
 
 #include <string.h>
 
+/* ---- MSL rand() (see sdk.h) -------------------------------------------- */
+
+static unsigned int s_randNext = 1;
+
+#undef rand
+#undef srand
+int Port_Rand(void) {
+    s_randNext = s_randNext * 1103515245u + 12345u;
+    return (int)((s_randNext >> 16) & 0x7FFF);
+}
+
+void Port_SRand(unsigned int seed) { s_randNext = seed; }
+
 /* ---- EXI / PPC ---------------------------------------------------------- */
 
 /* Re-enabled the EXI2 (debugger) interrupt after DVD/card calls. */

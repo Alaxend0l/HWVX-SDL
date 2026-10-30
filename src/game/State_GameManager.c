@@ -63,8 +63,8 @@ extern u8 g_bInterfacePlaying[];  /* typed per function below */
 
 s32 StateGameManager_Heartbeat(void) {
     typedef struct { s32 name; s32 script; } PackRef;
-    typedef struct { u8 type; void *movie; PackRef *pack; } Step;
-    typedef struct { u8 pad0[4]; s32 menuName; u8 pad8[0x20]; s32 menuFile; u32 numSteps; Step *steps; } MCP;
+    typedef struct { u8 type; PTR32(void) movie; PTR32(PackRef) pack; } Step;
+    typedef struct { u8 pad0[4]; s32 menuName; u8 pad8[0x20]; s32 menuFile; u32 numSteps; PTR32(Step) steps; } MCP;
     #define g_GameManagerState (*(struct { PTR32(MCP) mcp; u32 step; } *)(void *)&g_GameManagerState)
     #define g_bInterfacePlaying (*(s8 *)(void *)&g_bInterfacePlaying)
     extern s32 g_interfacePackID;
@@ -77,11 +77,11 @@ s32 StateGameManager_Heartbeat(void) {
         return 1;
     }
     if (g_GameManagerState.step < GETP(g_GameManagerState.mcp)->numSteps) {
-        step = &GETP(g_GameManagerState.mcp)->steps[g_GameManagerState.step];
+        step = &GETP(GETP(g_GameManagerState.mcp)->steps)[g_GameManagerState.step];
         switch (step->type) {
         case 0:
-            if (step->movie != NULL) {
-                StateMovie_SetMovieToPlay(HND(step->movie));
+            if (GETP(step->movie) != NULL) {
+                StateMovie_SetMovieToPlay(HND(GETP(step->movie)));
                 StateManager_QueueChange(3);
             }
             break;
@@ -89,9 +89,9 @@ s32 StateGameManager_Heartbeat(void) {
             loadDefaults = 1;
         case 4:
             if (!g_bInterfacePlaying) {
-                g_interfacePackID = FileStreaming_LoadDataPack(PTR(step->pack->name), 1, step->pack->script, 0);
+                g_interfacePackID = FileStreaming_LoadDataPack(PTR(GETP(step->pack)->name), 1, GETP(step->pack)->script, 0);
                 if ((pack = FileStreaming_InitializeDataPack(g_interfacePackID, 1, 1)) != NULL) {
-                    InterfaceManager_Create(DataPack_GetScript(pack, step->pack->script), 0, StateGameManager_InterfaceHandler);
+                    InterfaceManager_Create(DataPack_GetScript(pack, GETP(step->pack)->script), 0, StateGameManager_InterfaceHandler);
                     g_bInterfacePlaying = 1;
                 }
                 if (g_GameManagerState.step == GETP(g_GameManagerState.mcp)->numSteps - 1) {

@@ -9,6 +9,7 @@
 #define SDK_H
 
 #include <math.h>
+#include <string.h>
 
 #include "port.h"
 
@@ -106,13 +107,18 @@ typedef struct DVDCommandBlock {
     u8 opaque[0x30];
 } DVDCommandBlock;
 
+/* GameCube layout and size (0x3C): the game allocates it itself and reads
+ * `length` at 0x34. The port keeps its SDL stream inside the command block. */
 typedef struct DVDFileInfo {
-    DVDCommandBlock cb;
-    u32 startAddr;
-    u32 length;
-    void *callback;
-    void *host; /* port: SDL_IOStream */
-} DVDFileInfo;
+    union {
+        DVDCommandBlock cb;
+        void *host;   /* port: SDL_IOStream */
+    };
+    u32 startAddr;    /* 0x30 */
+    u32 length;       /* 0x34 */
+    u32 callback;     /* 0x38 (unused by the port) */
+} __attribute__((packed, aligned(4))) DVDFileInfo;
+_Static_assert(sizeof(DVDFileInfo) == 0x3C, "DVDFileInfo must keep the GameCube size");
 
 void DVDInit(void);
 BOOL DVDOpen(const char *fileName, DVDFileInfo *fileInfo);
@@ -279,6 +285,15 @@ void EXIInit(void);
 void GBAConnectivityInit(void);
 void GBAConnectivityLoop(void);
 
+/* ---- C library behaviour the game relies on ------------------------------- */
+
+/* CodeWarrior's MSL rand(): the ANSI sample generator, 0..32767. The game
+ * divides by 32768.0f to get [0, 1), which glibc's RAND_MAX would break. */
+int Port_Rand(void);
+void Port_SRand(unsigned int seed);
+#define rand() Port_Rand()
+#define srand(s) Port_SRand(s)
+
 /* ---- CodeWarrior PowerPC intrinsics -------------------------------------- */
 
 static inline f64 __fabs(f64 x) { return fabs(x); }
@@ -287,11 +302,11 @@ static inline int __abs(int x) { return x < 0 ? -x : x; }
 /* frsqrte is a ~5-bit estimate the game refines with Newton steps; exact is fine. */
 static inline f64 __frsqrte(f64 x) { return 1.0 / sqrt(x); }
 static inline u32 __mulhwu(u32 a, u32 b) { return (u32)(((u64)a * b) >> 32); }
-/* store halfword byte-reversed, i.e. little-endian, at base + off */
+/* store halfword byte-reversed: a later (native) load of it reads bswap(v),
+ * as it would on the GameCube */
 static inline void __sthbrx(u16 v, void *base, int off) {
-    u8 *p = (u8 *)base + off;
-    p[0] = (u8)v;
-    p[1] = (u8)(v >> 8);
+    u16 r = bswap16(v);
+    memcpy((u8 *)base + off, &r, 2);
 }
 
 #ifdef __cplusplus

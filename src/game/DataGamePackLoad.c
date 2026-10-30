@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Swap.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -83,6 +84,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     tocName = toc->name;
     if (tocName == NULL || strcmp(tocName, name) != 0) {
         File_Read(g_fileID, 0x800, g_buffer);
+        PortSwap_TOC(g_buffer, 0x800 / 4);  /* port: the file is big-endian */
         if (g_buffer[0] != 0x020100A0 || g_buffer[1] != 0x040100AE) {
             File_Close(g_fileID);
             g_fileID = -1;
@@ -132,7 +134,11 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         g_openFileDataPackType = 0xB;
         return 0;
     }
+    g_portSwapPackType = type;  /* port: picks the swap walker */
+    g_portSwapPackName = name;
+    Port_Log("data pack %s: type %u id %u", name, type, id);
     DataPack_LoadDataPack(g_fileID, PTR(arg1));
+    g_portSwapPackType = -1;
     return 1;
 }
 
@@ -182,6 +188,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
 
     memset(pack, 0, sizeof(DataPack));
     File_Read(file, sizeof(DataPackFileHeader), &header);
+    PortSwap_PackHeader((u32 *)&header, 20, 2, sizeof(DataPackRef));  /* port */
     pack->numRelocs = header.numRelocs;
     pack->numSoundRelocs = header.numSoundRelocs;
     pack->numTextures = header.numTextures;
@@ -219,6 +226,13 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         data = sfx;
         sfx += header.numSoundPointers * 4;
         SETP(pack->soundBase, (u8 *)PTR((((u32)HND(sfx) + 0x1F) & ~0x1F)));
+        /* port: the pointer table and the slots it lists are big-endian; the
+         * rest of the sound data stays so (the mixer reads it that way) */
+        Port_SwapArray32(data, header.numSoundPointers);
+        for (i = 0; i < header.numSoundPointers; i++) {
+            u32 *slot = (u32 *)(GETP(pack->soundBase) + ((u32 *)data)[i]);
+            *slot = BE32(*slot);
+        }
         UpdatePointers((u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
         SETP(pack->sfxData, (u8 *)((u8 *)GETP(pack->soundBase) + header.sfxOffset));
         if (header.songOffset != 0 || (header.soundDataSize != 0 && header.numSoundRelocs == 0)) {
@@ -233,6 +247,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             pack->songLoaded = 1;
         }
         sfx = GETP(pack->sfxData);
+        PortSwap_SFXDescriptors(sfx, pack->numSounds);  /* port */
         for (i = 0; i < pack->numSounds; i++) {
             if (g_bSoundLoadingEnabled) {
                 GETP(pack->soundIDs)[i] = CreateSFX(sfx);
@@ -272,6 +287,16 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     readSize += header.dataSize;
     readSize += relocSize;
     File_Read(file, readSize, data);
+    {
+        /* port: swap tables and data blob before the relocations below */
+        u32 rs = header.numRelocs * 8 + header.numGX * 8 + header.numSoundRelocs * 8;
+        u8 *blob = data + rs + pad;
+        u32 *texRelocs = (u32 *)(blob + header.dataSize);
+
+        PortSwap_PackData(data, rs / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
+                          texRelocs + header.numTexRelocs * 2, header.numPointers,
+                          header.textureDataOffset, header.numTextures);
+    }
     SETP(pack->relocs, (s32 *)data);
     offset = header.numRelocs * 8;
     SETP(pack->gxList, (u32 *)(data + offset));
@@ -445,11 +470,16 @@ void DataPack_RefreshTextures(DataPack *pack) {
 
     base = GETP(pack->base);
     Gfx_LoadPalettes_RAM(GETP(pack->paletteData), HND(GETP(pack->palettes)));
-    texData = pack->textureData;
-    for (i = 0; i < pack->numTextures; i++) {
-        GETP(pack->textureIDs)[i] = Gfx_LoadTexture_RAM(&texData);
-        if (texData & 0x1F) {
-            texData += 0x20 - (texData & 0x1F);
+    {
+        /* port: textureData is a handle; Gfx_LoadTexture_RAM advances a pointer */
+        u8 *tex = PTR(pack->textureData);
+
+        for (i = 0; i < pack->numTextures; i++) {
+            GETP(pack->textureIDs)[i] = Gfx_LoadTexture_RAM(&tex);
+            texData = HND(tex);
+            if (texData & 0x1F) {
+                tex += 0x20 - (texData & 0x1F);
+            }
         }
     }
     for (i = 0; i < pack->numRelocs; i++) {

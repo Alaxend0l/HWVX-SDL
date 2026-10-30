@@ -511,15 +511,17 @@ s8 SoundSource_IsLooping(s32 index) {
 #undef g_sources
 }
 
-void *SoundAudioSample_Play(void *sample) {
+/* port: `sample` is a sound effect id (CreateSFX), which the decomp typed as
+ * a pointer */
+void *SoundAudioSample_Play(u32 sample) {
     void *voice;
 
-    if (sample == NULL) {
+    if (sample == 0) {
         return NULL;
     }
-    voice = PTR(GetVoice(HND(sample), (u8)(rand() % 10 + 5)));
+    voice = (void *)(uintptr_t)GetVoice(sample, (u8)(rand() % 10 + 5));  /* port: an opaque voice id */
     if (voice != NULL) {
-        SetVoiceState(HND(voice), 1);
+        SetVoiceState((u32)(uintptr_t)voice, 1);
         return voice;
     }
     return NULL;
@@ -528,13 +530,13 @@ void *SoundAudioSample_Play(void *sample) {
 void SoundAudioSample_Set(void *voice, s32 type, s32 value) {
     switch (type) {
     case 0:
-        SetVoiceVol(HND(voice), (s16)value);
+        SetVoiceVol((u32)(uintptr_t)voice, (s16)value);
         break;
     case 1:
-        SetVoicePitch(HND(voice), value);
+        SetVoicePitch((u32)(uintptr_t)voice, value);
         break;
     case 4:
-        SetVoicePos(HND(voice), (s16)value, -0x7FFF);
+        SetVoicePos((u32)(uintptr_t)voice, (s16)value, -0x7FFF);
         break;
     case 9:
         break;

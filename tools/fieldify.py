@@ -146,6 +146,14 @@ def convert_decls(text, fields, review, fname):
         out.append(text[last:s])
         body = text[s:e]
         line0 = text.count("\n", 0, s) + 1
+        if "\n" not in body and ";" in body:
+            # one-line struct: `struct { u32 a; T *p; }`
+            parts = [p for p in body.split(";")]
+            conv = [convert_line(p + ";", fields, review, f"{fname}:{line0}")[:-1]
+                    if p.strip() else p for p in parts[:-1]]
+            out.append(";".join(conv + [parts[-1]]))
+            last = e
+            continue
         new = []
         for k, l in enumerate(body.split("\n")):
             new.append(convert_line(l, fields, review, f"{fname}:{line0 + k}"))

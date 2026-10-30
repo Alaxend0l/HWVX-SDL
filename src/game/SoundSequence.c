@@ -168,7 +168,7 @@ s32 SoundSequence_Play(s8 *seq, Vector4 *pos) {
     extern Vector4 g_zeroVector;
     extern s8 g_bFreezeWorld;
     Vector4 p;
-    struct { Vector4 pos; s8 *seq; u8 flag; } params __attribute__((aligned(16)));
+    struct { Vector4 pos; PTR32(s8) seq; u8 flag; } params __attribute__((aligned(16)));
     u8 *thing;
 
     if (!seq[4] && PlayerManager_PlayerHumanCount() > 1) {
@@ -180,7 +180,7 @@ s32 SoundSequence_Play(s8 *seq, Vector4 *pos) {
         p = g_zeroVector;
     }
     params.pos = p;
-    params.seq = seq;
+    SETP(params.seq, seq);
     params.flag = 0;
     thing = ThingManager_DARYL_CreateThing(0x10, &params);
     if (thing != NULL) {
@@ -197,7 +197,7 @@ s32 SoundSequence_PlayQueued(s8 *seq, Vector4 *pos) {
     extern s8 g_bFreezeWorld;
     Vector4 p;
     u8 *list[0x80];
-    struct { Vector4 pos; s8 *seq; u8 flag; } params __attribute__((aligned(16)));
+    struct { Vector4 pos; PTR32(s8) seq; u8 flag; } params __attribute__((aligned(16)));
     u8 *created;
     u8 *thing;
     s8 found;
@@ -212,7 +212,7 @@ s32 SoundSequence_PlayQueued(s8 *seq, Vector4 *pos) {
             p = g_zeroVector;
         }
         params.pos = p;
-        params.seq = seq;
+        SETP(params.seq, seq);
         params.flag = 0;
         created = ThingManager_DARYL_CreateThing(0x10, &params);
         if (created != NULL) {

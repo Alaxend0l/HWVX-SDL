@@ -80,6 +80,7 @@ s32 StateManager_GotoState(s32 state) {
     }
     State_GetGameStateStr(g_pStateManager->current, curStr);
     State_GetGameStateStr(state, nextStr);
+    Port_Log("state %s -> %s", curStr, nextStr);  /* port */
     if (g_pStateManager->current != -1 && GETP(g_pStateManager->states[g_pStateManager->current].exit) != NULL &&
         GETP(g_pStateManager->states[g_pStateManager->current].exit)(state) != 1) {
         return g_pStateManager->current;

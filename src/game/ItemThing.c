@@ -143,7 +143,7 @@ s8 Item_Move(u8 *item) {
     }
     if (*SLOT_LOAD(u8 *, (item + 0xC0)) == 7 && SLOT_LOAD(u8 *, (item + 0x94)) != NULL && SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (item + 0x94)) + 0x2C)) != NULL) {
         u8 *obj = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (item + 0x94)) + 0x2C));
-        *(s32 *)(item + 0xD4) = (*(s32 (**)(void *))(SLOT_LOAD(u8 *, (obj + 0x8C)) + 0x2C))(obj);
+        *(s32 *)(item + 0xD4) = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 0x2C))))(obj);
     }
     return 1;
 }

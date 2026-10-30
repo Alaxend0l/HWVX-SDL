@@ -61,6 +61,14 @@ endforeach()
 
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/port/miniaudio_impl.c PROPERTIES COMPILE_OPTIONS "-w")
 
+# Debug aid for the data pack byte-swapping: see src/port/swapcheck.c.
+option(HWVX_SWAPCHECK "Report game reads that disagree with how pack data was swapped" OFF)
+if(HWVX_SWAPCHECK)
+    target_compile_definitions(hwvx PRIVATE HWVX_SWAPCHECK)
+    set_property(SOURCE ${GAME_SOURCES} APPEND PROPERTY COMPILE_OPTIONS
+        "-fsanitize=kernel-address;--param=asan-instrumentation-with-call-threshold=0;--param=asan-stack=0;--param=asan-globals=0")
+endif()
+
 option(HWVX_ASAN "Build with AddressSanitizer/UBSan" OFF)
 if(HWVX_ASAN)
     target_compile_options(hwvx PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

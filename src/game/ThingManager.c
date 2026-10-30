@@ -303,7 +303,7 @@ s32 SharedSlaveHolder_Get(void *shared) {
 }
 
 void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
-    typedef struct { u8 pad[0x10]; u8 type; u8 pad2[7]; u8 *shared; u8 pad3[4]; } Trigger;
+    typedef struct { u8 pad[0x10]; u8 type; u8 pad2[7]; PTR32(u8) shared; u8 pad3[4]; } Trigger;
     typedef struct SlaveThing {
         u8 pad0[0x10];
         Matrix4 mtx;
@@ -323,7 +323,7 @@ void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
     for (i = 0; i < triggers[0]; i++) {
         Trigger *trigger = &((Trigger *)PTR(triggers[1]))[i];
         if (trigger->type == 10) {
-            shared = trigger->shared;
+            shared = GETP(trigger->shared);
             slave = SLOT_LOAD(SlaveThing *, (g_aSharedSlaveHolder + (*(SLOT_LOAD(u8 *, (shared + 8)) + 0x1D)) * 8 + 4));
             if (*(u32 *)shared != 0) {
                 for (; slave != NULL; slave = GETP(slave->next)) {
@@ -358,13 +358,13 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
     } SharedSlaves;
     extern Vector4 g_zeroVector;
     extern void *g_pSourcePlayer;
-    struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; void *data; void *player; f32 f; } p1 __attribute__((aligned(16)));
-    struct { Vector4 a; Vector4 b; Vector4 c; void *data; void *player; f32 f; } p2 __attribute__((aligned(16)));
-    struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; void *player; } p5 __attribute__((aligned(16)));
-    struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; void *player; } p6 __attribute__((aligned(16)));
-    struct { Vector4 a; Vector4 b; Vector4 c; void *data; s32 time; void *player; f32 f; } p7 __attribute__((aligned(16)));
-    struct { Vector4 unk; Vector4 a; Vector4 b; void *data; s32 flag; } p8 __attribute__((aligned(16)));
-    struct { Vector4 a; void *data; u8 flag; } p3 __attribute__((aligned(16)));
+    struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; PTR32(void) data; PTR32(void) player; f32 f; } p1 __attribute__((aligned(16)));
+    struct { Vector4 a; Vector4 b; Vector4 c; PTR32(void) data; PTR32(void) player; f32 f; } p2 __attribute__((aligned(16)));
+    struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p5 __attribute__((aligned(16)));
+    struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p6 __attribute__((aligned(16)));
+    struct { Vector4 a; Vector4 b; Vector4 c; PTR32(void) data; s32 time; PTR32(void) player; f32 f; } p7 __attribute__((aligned(16)));
+    struct { Vector4 unk; Vector4 a; Vector4 b; PTR32(void) data; s32 flag; } p8 __attribute__((aligned(16)));
+    struct { Vector4 a; PTR32(void) data; u8 flag; } p3 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 a; } p9 __attribute__((aligned(16)));
     Vector4 p4 __attribute__((aligned(16)));
     u8 id;
@@ -376,12 +376,12 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
 
     switch (trigger->type) {
     case 1:
-        p1.data = GETP(trigger->data);
+        SETP(p1.data, GETP(trigger->data));
         p1.c = *c;
-        p1.player = g_pSourcePlayer;
+        SETP(p1.player, g_pSourcePlayer);
         p1.zero = g_zeroVector;
-        if (p1.data != NULL && *(u32 *)p1.data != 0) {
-            p1.player = g_pSourcePlayer;
+        if (GETP(p1.data) != NULL && *(u32 *)GETP(p1.data) != 0) {
+            SETP(p1.player, g_pSourcePlayer);
             p1.f = 0.0f;
             p1.a = *a;
             p1.b = *b;
@@ -390,10 +390,10 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
         break;
     case 2:
         if (GETP(trigger->data) != NULL) {
-            p2.data = GETP(trigger->data);
+            SETP(p2.data, GETP(trigger->data));
             p2.f = 0.0f;
             p2.c = *c;
-            p2.player = g_pSourcePlayer;
+            SETP(p2.player, g_pSourcePlayer);
             p2.a = *a;
             p2.a.w = 1.0f;
             p2.b = *b;
@@ -404,7 +404,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
         data = GETP(trigger->data);
         if (data != NULL && data != NULL) {
             p3.a = *a;
-            p3.data = data;
+            SETP(p3.data, data);
             p3.flag = 1;
             slave = ThingManager_DARYL_CreateSlave(0x10, &p3, trigger->id);
         }
@@ -419,7 +419,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
             SETP(p5.data, GETP(trigger->data));
             p5.pos = trigger->pos;
             p5.flag = 1;
-            p5.player = g_pSourcePlayer;
+            SETP(p5.player, g_pSourcePlayer);
             slave = ThingManager_DARYL_CreateSlave(5, &p5, trigger->id);
         }
         break;
@@ -429,7 +429,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
         }
         if (GETP(trigger->data) != NULL) {
             SETP(p6.data, GETP(trigger->data));
-            p6.player = g_pSourcePlayer;
+            SETP(p6.player, g_pSourcePlayer);
             p6.pos = trigger->pos;
             p6.flag = 0;
             slave = ThingManager_DARYL_CreateSlave(5, &p6, trigger->id);
@@ -437,11 +437,11 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
         break;
     case 7:
         if (GETP(trigger->data) != NULL) {
-            p7.data = GETP(trigger->data);
+            SETP(p7.data, GETP(trigger->data));
             p7.f = 0.0f;
             p7.time = 20;
             p7.c = *c;
-            p7.player = g_pSourcePlayer;
+            SETP(p7.player, g_pSourcePlayer);
             p7.a = *a;
             p7.a.w = 1.0f;
             p7.b = *b;
@@ -453,7 +453,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
         if (data != NULL) {
             p8.a = *a;
             p8.b = *b;
-            p8.data = data;
+            SETP(p8.data, data);
             p8.flag = 0;
             slave = ThingManager_DARYL_CreateSlave(0xF, &p8, trigger->id);
         }
@@ -1472,7 +1472,7 @@ s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
         other = (ThingHeader *)PTR(results[i].id);
         if (!(other->flags & 2) && other != g_pNoRayCollideThing &&
             SegmentVsSphere(other->unk40, start, &end, other->unk70)) {
-            hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)GETP(other->vtable) + 0x38))(other, start, dir, info, best);
+            hit = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, ((u8 *)GETP(other->vtable) + 0x38))))(other, start, dir, info, best);
             if (hit < *t) {
                 best = hit;
             }
@@ -1528,7 +1528,7 @@ s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info) {
                 (*(f32 *)(other + 0x70) + *(f32 *)((u8 *)thing + 0x70)) * (*(f32 *)(other + 0x70) + *(f32 *)((u8 *)thing + 0x70)) >
                     PSVECSquareDistance((u8 *)thing + 0x40, other + 0x40)) {
                 if (*(s16 *)(other + 0x80) == 1) {
-                    t = OBoxHitsOBox(obox, &g_zeroVector, (*(void *(**)(void *))(SLOT_LOAD(u8 *, (other + 0x8C)) + 0x40))(other), &g_zeroVector, 0, 1.0f);
+                    t = OBoxHitsOBox(obox, &g_zeroVector, (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (other + 0x8C)) + 0x40))))(other), &g_zeroVector, 0, 1.0f);
                 }
                 if (t < 1.0f) {
                     hit = 1;
@@ -1598,7 +1598,7 @@ s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s
         if ((statics == 1 && GETP(GETP(other->record)->info)->takesDamage == 0 && GETP(GETP(other->record)->info)->armour == 0) ||
             (dynamics == 1 && (GETP(GETP(other->record)->info)->takesDamage == 1 || GETP(GETP(other->record)->info)->armour != 0))) {
             if (SegmentVsSphere(&other->offsetPos, start, &hitEnd, *(f32 *)((u8 *)other + 0x70))) {
-                hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)GETP(other->vtable) + 0x38))(other, start, &dir, info, best);
+                hit = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, ((u8 *)GETP(other->vtable) + 0x38))))(other, start, &dir, info, best);
                 if (hit < *t) {
                     best = hit;
                 }
@@ -1791,85 +1791,85 @@ void ThingManager_Invalidate(u32 start, u32 end) {
     for (i = 0; i < 140; i++) {
         thing = g_thingManager_DARYL.unk0 + i * 0x160;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Projectile_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 192; i++) {
         thing = g_thingManager_DARYL.unk0 + 0xC080 + i * 0x100;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)EventSeq_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 160; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x18080 + i * 0xD0;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Emitter_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 500; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x20280 + i * 0xF0;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Destructible_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 96; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x3D740 + i * 0xF0;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Item_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 192; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x43140 + i * 0x160;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)AttachThing_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 1; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x5B940 + i * 0x5A0;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Creature_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 16; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x5BB10 + i * 0x480;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)WildCardRack_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 8; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x60310 + i * 0x5A0;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)CarA_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 100; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x63010 + i * 0x140;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Destructible_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 32; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x6ADE0 + i * 0x110;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Tracer_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 1; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x6CFE0 + i * 0x120;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Pod_Invalidate(HND(thing), start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 1; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x6D100 + i * 0x5A0;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Destructible_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 56; i++) {
         thing = g_thingManager_DARYL.unk0 + 0x6D2F0 + i * 0xF0;
         if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Motion_Invalidate(thing, start, end)) {
-            (*(void (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))(thing);
+            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
         }
     }
     for (i = 0; i < 128; i++) {

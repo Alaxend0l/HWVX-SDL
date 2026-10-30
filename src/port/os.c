@@ -6,6 +6,7 @@
  * thread only gives it up at the points where a GameCube thread would block
  * (waiting for vsync, DVD, a message, or exiting). */
 #include "port_internal.h"
+#include "swapcheck.h"
 
 /* ---- arena ------------------------------------------------------------- */
 
@@ -144,6 +145,7 @@ void OSFreeToHeap(int heapId, void *ptr) {
     HeapCell *c = (HeapCell *)((u8 *)ptr - HEAP_HDR);
     HeapCell *f;
 
+    PortSwapCheck_Forget(ptr, c->size - HEAP_HDR);
     SDL_LockMutex(s_heapLock);
     CellUnlink(&heap->allocated, c);
     heap->inUse -= c->size;

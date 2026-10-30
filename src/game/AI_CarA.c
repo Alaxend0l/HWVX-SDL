@@ -503,7 +503,7 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
     typedef struct WeaponDef {
         u8 type;
         u8 pad1[0x20 - 0x1];
-        PTR32(char *) name;
+        PTR32(PTR32(char)) name;
         u8 pad24[0x30 - 0x24];
         PTR32(WeaponParams) params;
     } WeaponDef;
@@ -639,7 +639,7 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
         if (holder->current == best) {
             def = GETP(holder->slots[best].def);
             if (g_attackDelay == 0 || RandomAdd_s32(0, 50) == 0 || def->type != 3 ||
-                strcmp(*GETP(def->name), g_jetBoostersName_800CC3E4) == 0) {
+                strcmp(GETP(GETP(def->name)[0]), g_jetBoostersName_800CC3E4) == 0) {
                 ai[0x1B] = 0xFF;
                 *(u32 *)(ai + 0xC) |= 0x800;
             }
@@ -689,13 +689,13 @@ static void AI_Car_ClearedNavPoint_800087C8(u8 *car, s8 arg1) {
         (*(u32 *)(car + 0x4A4))++;
         if (SLOT_LOAD(u8 *, (car + 0x3E4)) != NULL && *(u32 *)(car + 0x4A4) >= 30) {
             thing = SLOT_LOAD(u8 *, (car + 0x2C));
-            holder = (*(void *(**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))(thing);
+            holder = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
             target = SLOT_LOAD(u8 *, (car + 0x3E4));
             if (*SLOT_LOAD(u8 *, target) == 10 || *SLOT_LOAD(u8 *, target) == 14) {
                 dest = *(s32 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x28);
             } else {
                 thing = SLOT_LOAD(u8 *, (target + 0x10));
-                dest = (*(s32 (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))(thing);
+                dest = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
             }
             AI_Car_PrepareNavPath(car, holder, dest);
         }
@@ -896,7 +896,7 @@ void AI_Car_AsyncHeartbeat(u8 *ai) {
         }
         thing = SLOT_LOAD(u8 *, (ai + 0x2C));
         repath = 0;
-        holder = (*(void *(**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))(thing);
+        holder = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
         target = SLOT_LOAD(u8 *, (ai + 0x3E4));
         if (*SLOT_LOAD(u8 *, target) == 10 || *SLOT_LOAD(u8 *, target) == 14) {
             dest = *(s32 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x28);
@@ -907,7 +907,7 @@ void AI_Car_AsyncHeartbeat(u8 *ai) {
         } else {
             thing = SLOT_LOAD(u8 *, (target + 0x10));
             if (!(*(u32 *)(thing + 0x74) & 0x1000)) {
-                dest = (*(s32 (**)(void *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))(thing);
+                dest = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
                 if ((s8)NavHolder_IsLinked((s32)HND(holder), dest)) {
                     *(u32 *)(ai + 0x4A4) = 32;
                     if (*(u32 *)(ai + 0x4A0) < NavHolder_GetTotalNavPoints()) {
@@ -1617,7 +1617,7 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
 s8 AI_Car_EnterState(u8 *ai, u8 *branch, s32 slot) {
     typedef struct { PTR32(u8) info; u32 timer0; u32 timer1; u32 timer2; u8 pad10[4]; u8 count; } AIBranch;
     extern Vector4 g_zeroVector;
-    struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; u32 id; u8 *player; f32 f0; f32 f1; } p __attribute__((aligned(16)));
+    struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; u32 id; PTR32(u8) player; f32 f0; f32 f1; } p __attribute__((aligned(16)));
     u32 id;
     u8 *car;
     u8 i;
@@ -1661,7 +1661,7 @@ s8 AI_Car_EnterState(u8 *ai, u8 *branch, s32 slot) {
             p.a = *(Vector4 *)(car + 0x40);
             p.b = *(Vector4 *)(car + 0x50);
             p.c = *(Vector4 *)(car + 0x0);
-            p.player = ai;
+            SETP(p.player, ai);
             p.f0 = 0.0f;
             p.zero = g_zeroVector;
             ThingManager_DARYL_CreateThing(1, &p);

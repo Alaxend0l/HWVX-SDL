@@ -19,6 +19,8 @@ typedef void (APIENTRYP PFNGLDEPTHFUNCPROC)(GLenum func);
 typedef void (APIENTRYP PFNGLDEPTHMASKPROC)(GLboolean flag);
 typedef void (APIENTRYP PFNGLCOLORMASKPROC)(GLboolean r, GLboolean g, GLboolean b, GLboolean a);
 typedef void (APIENTRYP PFNGLCULLFACEPROC)(GLenum mode);
+typedef void (APIENTRYP PFNGLFRONTFACEPROC)(GLenum mode);
+typedef void (APIENTRYP PFNGLDEPTHRANGEPROC)(GLdouble n, GLdouble f);
 typedef void (APIENTRYP PFNGLPOINTSIZEPROC)(GLfloat size);
 typedef void (APIENTRYP PFNGLLINEWIDTHPROC)(GLfloat width);
 typedef GLenum (APIENTRYP PFNGLGETERRORPROC)(void);
@@ -60,6 +62,8 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLDEPTHMASKPROC, glDepthMask)                                          \
     X(PFNGLCOLORMASKPROC, glColorMask)                                          \
     X(PFNGLCULLFACEPROC, glCullFace)                                            \
+    X(PFNGLFRONTFACEPROC, glFrontFace)                                          \
+    X(PFNGLDEPTHRANGEPROC, glDepthRange)                                        \
     X(PFNGLPOINTSIZEPROC, glPointSize)                                          \
     X(PFNGLLINEWIDTHPROC, glLineWidth)                                          \
     X(PFNGLGETERRORPROC, glGetError)                                            \
@@ -110,6 +114,7 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLUNIFORM1IPROC, glUniform1i)                                          \
     X(PFNGLUNIFORM1IVPROC, glUniform1iv)                                        \
     X(PFNGLUNIFORM4FVPROC, glUniform4fv)                                        \
+    X(PFNGLUNIFORM4IVPROC, glUniform4iv)                                        \
     X(PFNGLUNIFORMMATRIX4FVPROC, glUniformMatrix4fv)                            \
     X(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers)                              \
     X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer)                              \
@@ -140,6 +145,8 @@ GL_FUNCS(GL_DECLARE)
 #define glDepthMask p_glDepthMask
 #define glColorMask p_glColorMask
 #define glCullFace p_glCullFace
+#define glFrontFace p_glFrontFace
+#define glDepthRange p_glDepthRange
 #define glPointSize p_glPointSize
 #define glLineWidth p_glLineWidth
 #define glGetError p_glGetError
@@ -190,6 +197,7 @@ GL_FUNCS(GL_DECLARE)
 #define glUniform1i p_glUniform1i
 #define glUniform1iv p_glUniform1iv
 #define glUniform4fv p_glUniform4fv
+#define glUniform4iv p_glUniform4iv
 #define glUniformMatrix4fv p_glUniformMatrix4fv
 #define glGenFramebuffers p_glGenFramebuffers
 #define glBindFramebuffer p_glBindFramebuffer

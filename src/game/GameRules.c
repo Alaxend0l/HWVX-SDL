@@ -374,7 +374,7 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
                 *(u8 *)(car + 0x4E8) = 1;
                 *(s32 *)(car + 0x3B0) = -1;
                 *(s32 *)(car + 0x3B4) = 1;
-                (*(void (**)(void *))(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (player + 0x2C)) + 0x8C)) + 0xC))(SLOT_LOAD(u8 *, (player + 0x2C)));
+                (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (player + 0x2C)) + 0x8C)) + 0xC))))(SLOT_LOAD(u8 *, (player + 0x2C)));
                 *(u32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x74) |= 0x800;
             }
             if (jettison || GameSettings_GetCodeVariable(0x135, 0) != 0) {

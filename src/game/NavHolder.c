@@ -74,7 +74,7 @@ void NavHolder_Init(NavData *data) {
         SETP(gs_NavHolder.objects, (void **)Allocate(data->numNodes * 4, 0, ""));
     }
     for (i = 0; i < GETP(gs_NavHolder.data)->numNodes; i++) {
-        GETP(gs_NavHolder.objects)[i] = (void *)PTR(HND(Grid_AddObject(5, i, GETP(GETP(gs_NavHolder.data)->nodes) + i * 0x60, GETP(GETP(gs_NavHolder.data)->nodes) + i * 0x60)));
+        SETP(GETP(gs_NavHolder.objects)[i], (void *)PTR(HND(Grid_AddObject(5, i, GETP(GETP(gs_NavHolder.data)->nodes) + i * 0x60, GETP(GETP(gs_NavHolder.data)->nodes) + i * 0x60))));
     }
 }
 

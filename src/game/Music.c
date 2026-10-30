@@ -79,6 +79,16 @@ void CreateMusic(u8 *data, u8 *bank) {
   if (data == 0 || bank == 0) {
     return;
   }
+  /* port: the MIDI/IT players read big-endian RIFX song data directly and
+   * aren't byte-swapped yet; play no music rather than misread it. */
+  {
+    static int warned;
+    if (!warned) {
+      warned = 1;
+      OSReport("music disabled: RIFX song data not byte-swapped yet\n");
+    }
+    return;
+  }
   if (CmpType_(data, 'MIDI')) {
     DestroyMusic = DestroyMIDI;
     SetMusicState = SetMIDIState;

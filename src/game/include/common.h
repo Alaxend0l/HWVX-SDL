@@ -373,7 +373,7 @@ typedef struct NavData {
 
 typedef struct NavHolder {
   PTR32(NavData) data;
-  PTR32(void *) objects;
+  PTR32(PTR32(void)) objects;
 } NavHolder;
 
 typedef struct NavLink {
@@ -750,7 +750,7 @@ typedef struct GRWorld {
   PTR32(GRZone) zones;
   u8 unk28[0x28];
   u32 numTriggers;
-  PTR32(GRTrigger *) triggers;
+  PTR32(PTR32(GRTrigger)) triggers;
 } GRWorld;
 typedef struct SpawnPoint {
   Vector4 pos;
@@ -970,7 +970,7 @@ typedef struct {
 typedef struct {
   u8 unk0[0x50];
   u32 numTimers;
-  PTR32(Timer *) timers;
+  PTR32(PTR32(Timer)) timers;
 } TimerWorld;
 typedef struct Quad {
   u8 pad0[0x1C];

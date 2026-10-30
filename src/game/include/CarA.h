@@ -163,7 +163,7 @@ typedef struct CarAStuntInfo {
   u32 numMessages;          /* 0x3C */
   PTR32(char **) messages;         /* 0x40 picked by score */
   u8 pad44[4];              /* 0x44 */
-  PTR32(char *) failMessage;       /* 0x48 NULL: g_stuntLossString */
+  PTR32(PTR32(char)) failMessage;       /* 0x48 NULL: g_stuntLossString */
   u32 numFailThings;        /* 0x4C */
   PTR32(u32) failThings;          /* 0x50 thing ids, picked by fail time */
   f32 spinScore;            /* 0x54 */
@@ -253,7 +253,7 @@ typedef struct CarAInfo {
   u32 numShiftSounds;       /* 0x110 */
   PTR32(u32) shiftSounds;         /* 0x114 */
   u32 numSoundSets;         /* 0x118 */
-  PTR32(CarASoundSet *) soundSets; /* 0x11C */
+  PTR32(PTR32(CarASoundSet)) soundSets; /* 0x11C */
 } CarAInfo;
 
 /* Per-wheel runtime state, 8 slots in CarA from 0x1B0. */
@@ -336,10 +336,10 @@ typedef struct CarA {
   u8 tiltState;             /* 0x490 0: rest, 1/2: tilted by the stick, 3 */
   u8 stuntAxis;             /* 0x491 0: none, 1: pitch (stickX), 2: roll (stickY) */
   u8 pad492[2];             /* 0x492 */
-  PTR32(char *) stuntPopup;        /* 0x494 */
+  PTR32(PTR32(char)) stuntPopup;        /* 0x494 */
   u32 pickupId;             /* 0x498 last picked-up item's id */
-  PTR32(char *) stuntScoreMessage; /* 0x49C */
-  PTR32(char *) stuntMessage;      /* 0x4A0 */
+  PTR32(PTR32(char)) stuntScoreMessage; /* 0x49C */
+  PTR32(PTR32(char)) stuntMessage;      /* 0x4A0 */
   s32 pickupCount;          /* 0x4A4 type 9 items picked up */
   u8 pad4A8[8];             /* 0x4A8 */
   Vector4 stuntSpin;        /* 0x4B0 zeroed when a stunt fails */

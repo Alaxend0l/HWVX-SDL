@@ -628,7 +628,7 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
         f32 volume;
         f32 pitch;
         f32 pitchRange;
-        PTR32(void) sample;
+        u32 sample;            /* sound effect id (pack sound relocation) */
         PTR32(u8) range;
     } Sound;
     typedef struct Key {
@@ -636,7 +636,7 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
         u8 active;
         u8 pad[3];
         u32 numSounds;
-        PTR32(Sound *) sounds;
+        PTR32(PTR32(Sound)) sounds;
     } Key;
     typedef struct KeyTrack {
         u32 count;
@@ -679,23 +679,23 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
             s->current = s->index;
             if (GETP(t->keys)[s->index].numSounds != 0) {
                 idx = RandomAdd_s32(0, GETP(t->keys)[s->index].numSounds);
-                snd = GETP(GETP(t->keys)[s->index].sounds)[idx];
+                snd = GETP(GETP(GETP(t->keys)[s->index].sounds)[idx]);
                 if (snd != NULL) {
                     if (snd->type == 1) {
                         void *voice;
                         f32 pitch;
 
-                        voice = SoundAudioSample_Play(GETP(snd->sample));
+                        voice = SoundAudioSample_Play(snd->sample);
                         pitch = RandomAdd(snd->pitch, snd->pitchRange);
                         SoundAudioSample_Set(voice, 0, 32767.0f * snd->volume);
                         SoundAudioSample_Set(voice, 1, 65536.0f * pitch);
                     } else {
                         s32 src;
-                        void *sample;
+                        u32 sample;  /* sound effect id; SoundSource_Set copies 4 bytes */
                         f32 pitch;
 
                         src = SoundManager_CreateSource(snd->owner);
-                        sample = GETP(snd->sample);
+                        sample = snd->sample;
                         pitch = RandomAdd(snd->pitch, snd->pitchRange);
                         SoundSource_Set(src, 8, &sample);
                         SoundSource_Set(src, 5, pos);

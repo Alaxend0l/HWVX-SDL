@@ -128,7 +128,7 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
     if (!(*(u32 *)(obj + 0x74) & 0x40002)) {
         dist = 1.0f;
         if ((s8)Thing_HitsTerrain(obj, &dist, hit) && 0.0f == dist) {
-            (*(void (**)(u8 *))(SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))(obj);
+            (((void (*)(u8 *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))))(obj);
         }
     }
     return 1;
@@ -601,7 +601,7 @@ void PhysicalObject_DynamicCollideImpact(u8 *obj, u8 *collision, f32 force) {
         Vector4 center;
         Vector4 corners[8];
     } OBox;
-    struct { Vector4 pos; Vector4 vel; Vector4 spin; Vector4 quat; void *info; u32 unk44; u32 unk48; u32 unk4C; u32 unk50; } params __attribute__((aligned(16)));
+    struct { Vector4 pos; Vector4 vel; Vector4 spin; Vector4 quat; PTR32(void) info; u32 unk44; u32 unk48; u32 unk4C; u32 unk50; } params __attribute__((aligned(16)));
     Vector4 normal __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
     Vector4 center __attribute__((aligned(16)));
@@ -678,7 +678,7 @@ void PhysicalObject_DynamicCollideImpact(u8 *obj, u8 *collision, f32 force) {
                 params.unk50 = 0;
                 params.unk4C = 0;
                 params.vel = g_zeroVector;
-                params.info = SLOT_LOAD(void *, (obj + 0xC0));
+                SETP(params.info, SLOT_LOAD(void *, (obj + 0xC0)));
                 params.quat = *(Vector4 *)(obj + 0x50);
                 params.spin = *(Vector4 *)(obj + 0x130);
                 ThingManager_DARYL_CreateThing(3, &params);

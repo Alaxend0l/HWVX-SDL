@@ -89,8 +89,12 @@ s32 File_Open(u32 dev, const char *name, u32 flags, s32 *size) {
     s32 i;
     s8 ok;
     char c;
+    char copy[0x100];
 
-    p = (char *)name;
+    /* port: the original lowercases `name` in place; callers pass literals */
+    snprintf(copy, sizeof(copy), "%s", name);
+    name = copy;
+    p = copy;
     strrchr(name, '.');
     while ((c = *p) != 0) {
         *p = tolower((u8)c);

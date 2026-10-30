@@ -117,6 +117,19 @@ Run in this order on freshly imported sources (each is idempotent):
    the decomp's split data sections (needs the decomp built, for
    `build/HOTWHE/asm`). Pointer entries become handles at startup.
 
+Debugging aids:
+
+- `cmake -DHWVX_SWAPCHECK=ON` (in its own build dir): every game read of pack
+  data is checked against how it was swapped; mismatches are logged once per
+  code address with the pack offset (`addr2line -e hwvx -f -i -p PC`).
+- `HWVX_DUMP=dir` saves every 60th frame as a BMP; `HWVX_GXDEBUG=1` draws all
+  geometry magenta with depth, blending and culling off.
+- Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
+
+`tools/xgc_inspect.py FILE.xgc [--dump OFFSET N]` shows a data pack's TOC,
+header, root objects and which words are pointers; use it when writing swap
+walkers in `src/game/Port_Swap.c`.
+
 `tools/asm_args.py NAME...` reports which argument registers a function reads
 in the original, and which it passes straight on to a call; use it to settle
 call sites that disagree with a definition.
@@ -137,8 +150,9 @@ fixes (the script prints the command).
 
 ## Status
 
-Work in progress: it builds and boots into the game's state machine, but
-nothing is drawn and asset data is not byte-swapped yet.
+Work in progress: it boots through the memory card check and the legal
+screen to the title screen ("Press Start"), drawn by the GX emulation. Level
+loading (the attract-mode demo starts after a while) is the next step.
 
 - [x] Build system, platform layer: window/GL context, VI frame pacing,
       threads, heap arena + handles, DVD → data dir, CARD → save files,
@@ -149,9 +163,13 @@ nothing is drawn and asset data is not byte-swapped yet.
 - [x] Decomp code merged in up to the latest decomp commit (see
       `src/game/DECOMP_REVISION`)
 - [x] Globals from the original data sections (`src/game/data_gen.c`)
-- [ ] Byte-swapping of asset formats on load (next: the game boots, loads
-      `mcp.xgc` and runs its state machine, but reads big-endian fields as-is)
-- [ ] GX → OpenGL renderer (vertex decoding, display lists, textures, TEV)
+- [ ] Byte-swapping of asset formats on load (`src/game/Port_Swap.c`): pack
+      container and tables, textures, SFX, the MCP and interfaces are done;
+      worlds/geometry/cars are next
+- [x] GX → OpenGL renderer: FIFO/display-list vertex decoding, all texture
+      formats, matrices, texgen, lighting channels, TEV, blending, fog
+      (no render-to-texture or indirect texturing yet)
+- [ ] Music: the MIDI/IT players read big-endian RIFX data; disabled for now
 - [ ] THP movies (skipped for now), aux-bus reverb, ADPCM
 - [ ] Logitech wheels / force feedback via SDL haptics (no wheel reported yet)
 - [ ] IPL ROM font for the debug text printer (empty font for now)

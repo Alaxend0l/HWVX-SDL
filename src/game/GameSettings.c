@@ -1378,7 +1378,7 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
     }
     data = g_pSavedGameData;
     ok = 0;
-    if ((handle = File_Open(HND((char *)PTR(device) + 0xB), GETP(info.fileName), 0, NULL)) != -1) {
+    if ((handle = File_Open(device + 0xB, GETP(info.fileName), 0, NULL)) != -1) {
         File_Read(handle, size * 8 + 0x15C, data);
         if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
             ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
@@ -1446,10 +1446,10 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
     extern u8 *g_pSavedGameData;
     static u32 s_curCount;
     static s32 s_curStatus;
-    static char *s_curActiveDevice;
+    static s32 s_curActiveDevice;  /* port: a device number, not a pointer */
     static u32 s_curMemStatus = 0xFFFFFFFF;
     s32 status;
-    char *prevDevice;
+    s32 prevDevice;
     s32 handle;
     u8 *mcp;
     s8 ok;
@@ -1461,18 +1461,18 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
     status = 2;
     if (++s_curCount >= 30) {
         s_curCount = 0;
-    } else if (!g_bRefreshMC && !bForce && s_curActiveDevice == (char *)PTR(device) + 10) {
+    } else if (!g_bRefreshMC && !bForce && s_curActiveDevice == device + 10) {
         return s_curStatus;
     }
     prevDevice = s_curActiveDevice;
-    s_curActiveDevice = (char *)PTR(device) + 10;
+    s_curActiveDevice = device + 10;
     g_bRefreshMC = 0;
     do {
         prevMemStatus = s_curMemStatus;
-        s_curMemStatus = FileManager_GetDeviceStatus(HND((char *)PTR(device) + 10));
+        s_curMemStatus = FileManager_GetDeviceStatus(device + 10);
         if (s_curMemStatus == 1) {
             status = 1;
-            if (prevMemStatus == s_curMemStatus && !g_bRefreshMC_FileList && !bForce && prevDevice == (char *)PTR(device) + 10) {
+            if (prevMemStatus == s_curMemStatus && !g_bRefreshMC_FileList && !bForce && prevDevice == device + 10) {
                 return s_curStatus;
             }
             mcp = GameSettings_LoadMCP();
@@ -1485,12 +1485,12 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
                 file.version = 0;
                 file.size = file.version;
             }
-            if (!FileManager_IsDeviceFormatted(HND((char *)PTR(device) + 10))) {
+            if (!FileManager_IsDeviceFormatted(device + 10)) {
                 status = 4;
             } else {
                 SETP(file.data, g_pSavedGameData);
                 ok = 0;
-                if ((handle = File_Open(HND((char *)PTR(device) + 10), GETP(file.name), 0, NULL)) != -1) {
+                if ((handle = File_Open(device + 10, GETP(file.name), 0, NULL)) != -1) {
                     File_Read(handle, file.size * 8 + 0x15C, GETP(file.data));
                     if (((u32 *)GETP(file.data))[0] == 4 && ((u32 *)GETP(file.data))[1] == file.version &&
                         ((u32 *)GETP(file.data))[2] == FileManager_GetChecksum(file.version, GETP(file.data) + 0xC)) {
@@ -1502,12 +1502,12 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
                     if (!((s8 *)g_pSavedGameData)[0x5C]) {
                         status = 0;
                     }
-                } else if ((handle = File_Open(HND((char *)PTR(device) + 10), GETP(file.name), 0, NULL)) != -1) {
+                } else if ((handle = File_Open(device + 10, GETP(file.name), 0, NULL)) != -1) {
                     File_Close(handle);
                     status = 9;
                 } else {
-                    FileManager_GetDeviceFreeSpace(HND((char *)PTR(device) + 10), &freeBytes, &totalBytes);
-                    if (FileManager_GetDeviceStatus(HND((char *)PTR(device) + 10)) == 0) {
+                    FileManager_GetDeviceFreeSpace(device + 10, &freeBytes, &totalBytes);
+                    if (FileManager_GetDeviceStatus(device + 10) == 0) {
                         status = 2;
                     } else if (freeBytes < 0x1C000) {
                         status = 3;
@@ -1519,7 +1519,7 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
             s_curStatus = status;
             return status;
         } else if (s_curMemStatus == 3) {
-            switch (FileManager_GetDeviceLastError(HND((char *)PTR(device) + 10))) {
+            switch (FileManager_GetDeviceLastError(device + 10)) {
             case -11:
                 status = 14;
                 break;

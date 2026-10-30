@@ -590,7 +590,7 @@ s32 ActionMoveableChangeMode(u32 *action) {
                 *(f32 *)(mover + 0xD8) = action[2];
                 break;
             case 3:
-                (*(void (**)(void *))(SLOT_LOAD(u8 *, (mover + 0x8C)) + 4))(mover);
+                (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (mover + 0x8C)) + 4))))(mover);
                 break;
             }
             switch (action[1]) {

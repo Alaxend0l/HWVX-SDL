@@ -156,7 +156,7 @@ def main():
              " * Do not edit by hand; fix the definition and regenerate. */",
              "#ifndef GAME_PROTOS_H", "#define GAME_PROTOS_H", ""]
     tags = set()
-    for sig, _ in protos.values():
+    for sig, _ in list(protos.values()) + list(erased.values()):
         tags |= set(re.findall(r"\b((?:struct|union)\s+\w+)", sig))
     lines += [f"{t};" for t in sorted(tags)] + [""]
     cur = None

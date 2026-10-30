@@ -186,7 +186,7 @@ void MotionState_Draw2(void *state, s32 mtx, u8 *matrices) {
     } GeomEntry;
     typedef struct AnimData {
         u32 numAux;
-        PTR32(void *) aux;
+        PTR32(PTR32(void)) aux;
         u32 numGeom;
         PTR32(GeomEntry) geom;
         u8 pad10[4];
@@ -212,7 +212,7 @@ void MotionState_Draw2(void *state, s32 mtx, u8 *matrices) {
         SubMatrixToQuaternion((void *)PTR(mtx), &quat);
         TEST_AnimTraverseHeirarchyToMatricesWorld(&quat, (void *)PTR((mtx + 0x30)), frames, *skel, matrices, 1.0f);
         for (i = 0; i < GETP(ds->anim)->numAux; i++) {
-            Gfx_DrawAnimGeometryAux(GETP(GETP(ds->anim)->aux)[i], matrices, *skel, 0);
+            Gfx_DrawAnimGeometryAux(GETP(GETP(GETP(ds->anim)->aux)[i]), matrices, *skel, 0);
         }
         for (i = 0; i < GETP(ds->anim)->numGeom; i++) {
             e = &GETP(GETP(ds->anim)->geom)[i];
@@ -222,7 +222,7 @@ void MotionState_Draw2(void *state, s32 mtx, u8 *matrices) {
     } else {
         cached = GETP(ds->cached);
         for (i = 0; i < GETP(ds->anim)->numAux; i++) {
-            Gfx_DrawAnimGeometryAux(GETP(GETP(ds->anim)->aux)[i], cached, *skel, PTR(mtx));
+            Gfx_DrawAnimGeometryAux(GETP(GETP(GETP(ds->anim)->aux)[i]), cached, *skel, PTR(mtx));
         }
         for (i = 0; i < GETP(ds->anim)->numGeom; i++) {
             void *geom;

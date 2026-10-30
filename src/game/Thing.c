@@ -16,7 +16,7 @@ typedef struct Thing {
     u8 unk83;          /* 0x83 */
     s32 unk84;         /* 0x84 */
     s32 unk88;         /* 0x88 */
-    PTR32(void *) vtable;     /* 0x8C */
+    PTR32(PTR32(void)) vtable;     /* 0x8C */
     u8 pad90[4];
     s32 unk94;         /* 0x94 */
 } Thing;
@@ -164,19 +164,19 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
     best = *t;
     switch (*(s16 *)(a + 0x80)) {
     case 3:
-        best = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))(SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))(b, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
+        best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))))(b, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
         break;
     case 1:
         switch (*(s16 *)(b + 0x80)) {
         case 3:
-            best = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))(SLOT_LOAD(u8 *, (a + 0x8C)) + 0x38))(a, (Vector4 *)(b + 0x40), (Vector4 *)b, hit, *t);
+            best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (a + 0x8C)) + 0x38))))(a, (Vector4 *)(b + 0x40), (Vector4 *)b, hit, *t);
             break;
         case 1: {
             void *boxA;
             void *boxB;
 
-            boxA = (*(void *(**)(void *))(SLOT_LOAD(u8 *, (a + 0x8C)) + 0x40))(a);
-            boxB = (*(void *(**)(void *))(SLOT_LOAD(u8 *, (b + 0x8C)) + 0x40))(b);
+            boxA = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (a + 0x8C)) + 0x40))))(a);
+            boxB = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (b + 0x8C)) + 0x40))))(b);
             if (!Thing_SweptSpheresTouch(a, b, *t)) {
                 return 0;
             }
@@ -263,7 +263,7 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
     case 6:
         switch (*(s16 *)(b + 0x80)) {
         case 3:
-            best = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))(SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))(a, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
+            best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))))(a, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
             break;
         case 1: {
             RayHit rayHit;
@@ -1116,11 +1116,11 @@ void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand
         break;
     case 1:
         if (thing->flags & 8) {
-            thing = ((Thing *(*)(Thing *))GETP(thing->vtable)[0x10])(thing);
+            thing = ((Thing *(*)(Thing *))GETP(GETP(thing->vtable)[0x10]))(thing);
             CopyVector(min, (Vector4 *)((u8 *)thing + 0xD0));
             CopyVector(max, (Vector4 *)((u8 *)thing + 0xE0));
         } else {
-            box = ((Box *(*)(Thing *))GETP(thing->vtable)[0x10])(thing);
+            box = ((Box *(*)(Thing *))GETP(GETP(thing->vtable)[0x10]))(thing);
             for (i = 0; i < 8; i++) {
                 p1 = box->corners[i];
                 MinMaxVec(min, max, &p1);

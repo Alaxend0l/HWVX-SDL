@@ -306,7 +306,7 @@ s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info
             }
         }
         if (SegmentVsSphere(&other->offsetPos, start, &end, *(f32 *)((u8 *)other + 0x70))) {
-            hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)GETP(other->vtable) + 0x38))(other, start, dir, info, best);
+            hit = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, ((u8 *)GETP(other->vtable) + 0x38))))(other, start, dir, info, best);
             if (hit < *t) {
                 best = hit;
             }

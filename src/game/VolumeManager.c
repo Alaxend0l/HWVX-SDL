@@ -30,7 +30,7 @@ typedef struct VolumeShape {
 
 typedef struct VolumeList {
     u32 count;
-    PTR32(VolumeShape *) volumes;
+    PTR32(PTR32(VolumeShape)) volumes;
 } VolumeList;
 
 typedef struct VolumeCell {
@@ -260,7 +260,7 @@ VolumeShape *IsPointWithinForceBox(Vector4 *point) {
     count = g_VolumeHolder != NULL ? GETP(g_VolumeHolder->cells)[cell].types[1].count : 0;
     i = 0;
     while (i < count) {
-        volume = GETP(GETP(g_VolumeHolder->cells)[cell].types[1].volumes)[i];
+        volume = GETP(GETP(GETP(g_VolumeHolder->cells)[cell].types[1].volumes)[i]);
         if (VolumeManager_IsPointInVolume(point, volume)) {
             return volume;
         }
@@ -309,7 +309,7 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
     cell = VolumeManager_GetCell(g_VolumeHolder, point);
     count = g_VolumeHolder != NULL ? GETP(g_VolumeHolder->cells)[cell].types[2].count : 0;
     for (i = 0; i < count; i++) {
-        volume = GETP(GETP(g_VolumeHolder->cells)[cell].types[2].volumes)[i];
+        volume = GETP(GETP(GETP(g_VolumeHolder->cells)[cell].types[2].volumes)[i]);
         if (VolumeManager_IsPointInVolume(point, volume)) {
             ReverbSettings *reverb = (ReverbSettings *)GETP(volume->fog);
 
@@ -379,7 +379,7 @@ void VolumeManager_SetFogLevel(Vector4 *point) {
     cell = VolumeManager_GetCell(g_VolumeHolder, point);
     count = g_VolumeHolder != NULL ? GETP(g_VolumeHolder->cells)[cell].types[4].count : 0;
     for (i = 0; i < count; i++) {
-        volume = GETP(GETP(g_VolumeHolder->cells)[cell].types[4].volumes)[i];
+        volume = GETP(GETP(GETP(g_VolumeHolder->cells)[cell].types[4].volumes)[i]);
         if (VolumeManager_IsPointInVolume(point, volume)) {
             FogSettings *fog = GETP(volume->fog);
 

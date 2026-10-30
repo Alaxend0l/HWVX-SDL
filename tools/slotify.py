@@ -193,11 +193,40 @@ def rewrite(src, fname, report):
     return out
 
 
+FN_DEREF = re.compile(r"\*\(\s*(" + TYPE + r"[\s\*]*)\(\s*\*\s*\*\s*\)\s*\(")
+
+
+def rewrite_fn_slots(src):
+    """`*(R (**)(A))(expr)` reads a function pointer from a 4-byte slot (a
+    vtable entry): -> `((R (*)(A))SLOT_LOAD(void *, (expr)))`."""
+    out = src
+    while True:
+        for m in FN_DEREF.finditer(out):
+            args_open = m.end() - 1
+            args_close = match_paren(out, args_open)
+            cast_close = args_close + 1
+            if cast_close >= len(out) or out[cast_close] != ")":
+                continue
+            j = cast_close + 1
+            while j < len(out) and out[j] in " \t":
+                j += 1
+            if j >= len(out) or out[j] != "(":
+                continue
+            expr_close = match_paren(out, j)
+            ret = m.group(1).strip()
+            args = out[args_open:args_close + 1]
+            new = f"(({ret} (*){args})SLOT_LOAD(void *, {out[j:expr_close + 1]}))"
+            out = out[:m.start()] + new + out[expr_close + 1:]
+            break
+        else:
+            return out
+
+
 def main():
     report = {}
     for path in sys.argv[1:]:
         src = open(path).read()
-        out = rewrite(src, path.split("/")[-1], report)
+        out = rewrite_fn_slots(rewrite(src, path.split("/")[-1], report))
         if out != src:
             open(path, "w").write(out)
             print(f"{path}: {out.count('SLOT_') - src.count('SLOT_')} rewrites", file=sys.stderr)
