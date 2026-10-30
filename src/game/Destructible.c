@@ -507,8 +507,9 @@ void Destructible_DynamicCollideImpact(u8 *destructible, u8 *collision, s32 dama
     }
 }
 
-s32 Destructible_GetSurfaceScript(Destructible *destructible) {
-    return GETP(GETP(destructible->record)->info)->surfaceScript;
+/* port: returns the surface pointer (vtable getPhys); the field is a slot */
+void *Destructible_GetSurfaceScript(Destructible *destructible) {
+    return PTR(GETP(GETP(destructible->record)->info)->surfaceScript);
 }
 
 u32 Destructible_Invalidate(Destructible *destructible, u32 start, u32 end) {

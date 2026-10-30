@@ -136,7 +136,9 @@ void Port_Fatal(const char *fmt, ...) {
     SDL_vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "%s", buf);
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Hot Wheels: Velocity X", buf, NULL);
+    if (SDL_getenv("HWVX_NO_DIALOG") == NULL) {  /* scripted/headless runs: log only */
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Hot Wheels: Velocity X", buf, NULL);
+    }
     abort();
 }
 

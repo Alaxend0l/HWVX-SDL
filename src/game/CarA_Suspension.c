@@ -19,7 +19,7 @@ typedef struct SuspSurface {
     u32 dustThing;            /* 0x30 */
     u32 particle;             /* 0x34 */
     u8 pad38[4];
-    struct { u8 pad[0x14]; u32 sample; } *rollSound; /* 0x3C */
+    PTR32(struct { u8 pad[0x14]; u32 sample; }) rollSound; /* 0x3C */
     u32 sparkThing;           /* 0x40 */
 } SuspSurface;
 
@@ -84,10 +84,10 @@ f32 CarA_GetImpactMultiplier(void *car, void *other, f32 scale) {
 void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
     extern Player *g_pSourcePlayer;
     extern char stunt_msg_buffer_second[];
-    extern char *g_stuntMessageLocalString;
+    extern u8 g_stuntMessageLocalString[];  /* port: a table of string slots */
     typedef struct RackItem {
         u8 pad0[0x30];
-        struct { u8 pad0[0x28]; s32 maxCount; } *data;
+        PTR32(struct { u8 pad0[0x28]; s32 maxCount; }) data;
     } RackItem;
     typedef struct RackSlot {
         u8 pad0[0x40];
@@ -252,8 +252,8 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
                                     idx = numMsgs - 1;
                                 }
                             }
-                            if (GETP(stunt->messages)[idx] != NULL) {
-                                sprintf(stunt_msg_buffer_second, "%s%d\n", *GETP(stunt->messages)[idx], points);
+                            if (GETP(GETP(stunt->messages)[idx]) != NULL) {
+                                sprintf(stunt_msg_buffer_second, "%s%d\n", GETP(GETP(GETP(stunt->messages)[idx])[0]), points);
                                 SETP(car->stuntPopup, &g_stuntMessageLocalString);
                             }
                         }
@@ -292,8 +292,8 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
 
                     if (GETP(slot->item) != NULL) {
                         slot->count += (s16)points;
-                        if (slot->count > (s16)GETP(slot->item)->data->maxCount) {
-                            slot->count = GETP(slot->item)->data->maxCount;
+                        if (slot->count > (s16)GETP(GETP(slot->item)->data)->maxCount) {
+                            slot->count = GETP(GETP(slot->item)->data)->maxCount;
                         }
                     }
                 }
@@ -471,8 +471,8 @@ void CarA_ComputeSuspensionForces(void *thing) {
                 if (one != GETP(GETP(car->vehicleIface)->engine)->unk6C) {
                     scale = len;
                 }
-                if (springForce > maxForce && GETP(hit.surface)->rollSound != NULL) {
-                    rollSurface = (SuspSurface *)GETP(hit.surface)->rollSound;
+                if (springForce > maxForce && GETP(GETP(hit.surface)->rollSound) != NULL) {
+                    rollSurface = (SuspSurface *)GETP(GETP(hit.surface)->rollSound);
                     maxForce = springForce;
                 }
                 contact.x = dir.x * scale + GETP(car->motionState.animMatrices)[wheel->bone].v[3].x;

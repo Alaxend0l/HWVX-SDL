@@ -7,12 +7,14 @@ typedef struct GPAIScripts {
     u32 scripts[4];         /* 0x90 one per difficulty */
 } GPAIScripts;
 
+typedef struct GPItemInfo {
+    u8 pad0[0x20];
+    s32 count;              /* 0x20 */
+} GPItemInfo;
+
 typedef struct GPItem {
     u8 pad0[0x30];
-    struct {
-        u8 pad0[0x20];
-        s32 count;          /* 0x20 */
-    } *info;                /* 0x30 */
+    PTR32(GPItemInfo) info; /* 0x30 */
 } GPItem;
 
 /* A car placed in the world (World_GetTileCar), 0x60 bytes. */
@@ -262,7 +264,7 @@ s32 StateGamePlay_Init(void) {
                                 void *rack = ThingManagerList_GetByType((u8 *)GETP(car->creature) + 0x344, 8);
 
                                 WildCardRack_JettisonAll(rack);
-                                WildCardRack_Add(rack, item, item->info->count);
+                                WildCardRack_Add(rack, item, GETP(item->info)->count);
                             }
                         }
                     }
@@ -329,7 +331,7 @@ s32 StateGamePlay_Init(void) {
                         void *rack = ThingManagerList_GetByType((u8 *)GETP(car->creature) + 0x344, 8);
 
                         WildCardRack_JettisonAll(rack);
-                        WildCardRack_Add(rack, GETP(car->item), GETP(car->item)->info->count);
+                        WildCardRack_Add(rack, GETP(car->item), GETP(GETP(car->item)->info)->count);
                     }
                 }
                 action[0] = car->mode;

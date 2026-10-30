@@ -89,7 +89,11 @@ static const char *s_vs =
     "    if (i >= uNumTexGens) { vTex[i] = vec3(0.0, 0.0, 1.0); continue; }\n"
     "    int src = uTexGen[i].y;\n"
     "    vec4 s = src == 0 ? p : src == 1 ? vec4(aNrm, 1.0) : (src >= 4 && src <= 11) ? vec4(aTex[src - 4], 1.0, 1.0)\n"
-    "           : (src >= 12 && src <= 18) ? vec4(vTex[src - 12].xy, 1.0, 1.0) : vec4(0.0, 0.0, 1.0, 1.0);\n"
+    /* TEXCOORDn: an earlier generated coordinate (bump/emboss chains); naming
+     * one not generated yet (the shadow pass uses TEXCOORD0 for coordinate 0)
+     * reads the raw vertex coordinate, as the hardware's source row does */
+    "           : (src >= 12 && src <= 18) ? (src - 12 < i ? vec4(vTex[src - 12].xy, 1.0, 1.0) : vec4(aTex[src - 12], 1.0, 1.0))\n"
+    "           : vec4(0.0, 0.0, 1.0, 1.0);\n"
     "    int t = uTexGen[i].z;\n"
     "    vec3 tc = t < 0 ? s.xyz : vec3(dot(uTexMtx[t*3], s), dot(uTexMtx[t*3+1], s), uTexGen[i].x == 0 ? dot(uTexMtx[t*3+2], s) : 1.0);\n"
     "    if (uTexGen[i].x == 1 && t < 0) tc.z = 1.0;\n"

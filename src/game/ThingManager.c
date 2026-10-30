@@ -741,22 +741,24 @@ typedef struct MoveCarIface {
     u8 pad0[0x80];
     PTR32(MoveCarTuning) tuning;      /* 0x80 */
     u8 pad84[0x1C];
-    struct { u8 pad0[0x44]; MoveCarBody *body; } *model; /* 0xA0 */
+    PTR32(struct { u8 pad0[0x44]; PTR32(MoveCarBody) body; }) model; /* 0xA0 */
 } MoveCarIface;
 
 typedef struct MoveCar {
     MoveThing thing;
-    u8 padAC[0x3BC - 0xAC];
+    u8 padAC[0x3BC - sizeof(MoveThing)];  /* port: MoveThing rounds up to 0xB0 (16-byte Vector4) */
     PTR32(MoveCarIface) iface;        /* 0x3BC */
     u8 pad3C0[0x50C - 0x3C0];
     f32 drag;                   /* 0x50C */
     u8 pad510[0x18];
     f32 rideHeight;             /* 0x528 */
 } MoveCar;
+_Static_assert(__builtin_offsetof(MoveCar, iface) == 0x3BC, "MoveCar layout");
+_Static_assert(__builtin_offsetof(MoveCar, rideHeight) == 0x528, "MoveCar layout");
 
 typedef struct MovePlayer {
     u8 pad0[0xD0];
-    struct { u8 pad0[0x1C]; f32 damageScale; } *difficulty; /* 0xD0 */
+    PTR32(struct { u8 pad0[0x1C]; f32 damageScale; }) difficulty; /* 0xD0 */
 } MovePlayer;
 
 typedef struct MoveImpactFx {
@@ -1234,7 +1236,7 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             if (GETP(hit.other) != NULL && GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable &&
                 GETP(GETP(hit.other)->vtable) == (MoveThingVTable *)g_carAVTable) {
                 MoveCar *car = (MoveCar *)GETP(hit.thing);
-                MoveCarBody *body = GETP(car->iface)->model->body;
+                MoveCarBody *body = GETP(GETP(GETP(car->iface)->model)->body);
 
                 armA.x = hit.pos.x - car->thing.mtx.v[3].x;
                 armA.y = hit.pos.y - car->thing.mtx.v[3].y;
@@ -1242,18 +1244,18 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                 if (FloatsEqual(PSVECDotProduct(&car->thing.mtx.v[2], &armA) - car->rideHeight, body->bumperHeight, 0.3f)) {
                     damageA = -vA * GETP(GETP(car->iface)->tuning)->damageScale * PSVECDotProduct(&GETP(hit.thing)->mtx.v[2], &hit.normal);
                     if (GETP(GETP(hit.thing)->player) != NULL && !Player_IsHuman(GETP(GETP(hit.thing)->player))) {
-                        damageA = (f32)damageA * ((MovePlayer *)GETP(GETP(hit.thing)->player))->difficulty->damageScale;
+                        damageA = (f32)damageA * GETP(((MovePlayer *)GETP(GETP(hit.thing)->player))->difficulty)->damageScale;
                     }
                 }
                 car = (MoveCar *)GETP(hit.other);
-                body = GETP(car->iface)->model->body;
+                body = GETP(GETP(GETP(car->iface)->model)->body);
                 armB.x = hit.pos.x - car->thing.mtx.v[3].x;
                 armB.y = hit.pos.y - car->thing.mtx.v[3].y;
                 armB.z = hit.pos.z - car->thing.mtx.v[3].z;
                 if (FloatsEqual(PSVECDotProduct(&car->thing.mtx.v[2], &armB) - car->rideHeight, body->bumperHeight, 0.3f)) {
                     damageB = vA * GETP(GETP(car->iface)->tuning)->damageScale * PSVECDotProduct(&GETP(hit.other)->mtx.v[2], &hit.normal);
                     if (GETP(GETP(hit.other)->player) != NULL && !Player_IsHuman(GETP(GETP(hit.other)->player))) {
-                        damageB = (f32)damageB * ((MovePlayer *)GETP(GETP(hit.other)->player))->difficulty->damageScale;
+                        damageB = (f32)damageB * GETP(((MovePlayer *)GETP(GETP(hit.other)->player))->difficulty)->damageScale;
                     }
                 }
             }

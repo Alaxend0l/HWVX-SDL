@@ -5,7 +5,6 @@
 #   --hostptr: objects the C code declares as host pointers (T *name)
 cd "$(dirname "$0")/.." || exit 1
 exec python3 tools/gen_data.py --raw rawData \
-    --hostptr g_pPlayerManager --hostptr g_rndNumber --hostptr g_stunt1localString \
-    --hostptr g_stuntLossString --hostptr g_stuntMessageLocalString \
+    --hostptr g_pPlayerManager --hostptr g_rndNumber \
     --hostptr pTriggerFuncArray --hostptr pActionFuncArray \
     @tools/gen_data_names.txt

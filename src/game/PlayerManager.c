@@ -103,6 +103,9 @@ void PlayerManager_Init(void) {
         PTR32(PMPlayer) free;
     } PlayerMgr;
     extern s32 g_aiHoldIndex;
+    _Static_assert(sizeof(HumanPlayer) == 0x158 && sizeof(CarPlayer) == 0x670 && sizeof(CreaturePlayer) == 0x100,
+                   "player sizes");
+    _Static_assert(__builtin_offsetof(PlayerMgr, active) == 0x20D8, "player manager layout");
     PlayerMgr *pm = (PlayerMgr *)g_playerManager;
     PMPlayer *player;
     s32 i;

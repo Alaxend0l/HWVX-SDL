@@ -170,7 +170,7 @@ void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info) {
         Vector4 pos;
         Matrix4 orient;
         u8 unk50[0x3C];
-        struct { u8 unk0[0x1C]; void (*getOrientationInfo)(struct LookerCamera *, void *, u8 *); } *vtable;
+        PTR32(struct { u8 unk0[0x1C]; FPTR32(void, (struct LookerCamera *, void *, u8 *)) getOrientationInfo; }) vtable;
     } LookerCamera;
     typedef struct {
         Vector4 pos;
@@ -197,7 +197,7 @@ void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info) {
     if (cam != NULL) {
         l->orient = cam->orient;
         l->pos = GETP(l->camera)->pos;
-        GETP(l->camera)->vtable->getOrientationInfo(GETP(l->camera), arg1, info);
+        GETP(GETP(GETP(l->camera)->vtable)->getOrientationInfo)(GETP(l->camera), arg1, info);
         return;
     }
     o->fov = l->fov;

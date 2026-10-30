@@ -174,7 +174,7 @@ typedef struct AnimTrack {
     u8 pad1;
     u16 numKeys;
     PTR32(f32) times;
-    f32 (*coefs)[16];
+    PTR32(__typeof__(f32[16])) coefs;
     PTR32(struct AnimTrack) next;
     f32 value[4];
 } AnimTrack;
@@ -204,19 +204,19 @@ static inline s32 AnimTrack_FindKey(f32 *times, s32 numKeys, f32 time) {
 static inline AnimTrack *AnimTrack_Eval3(AnimTrack *track, f32 time, f32 *out) {
     s32 key = AnimTrack_FindKey(GETP(track->times), track->numKeys, time);
 
-    out[0] = time * (time * (time * track->coefs[key][0] + track->coefs[key][1]) + track->coefs[key][2]) + track->coefs[key][3];
-    out[1] = time * (time * (time * track->coefs[key][4] + track->coefs[key][5]) + track->coefs[key][6]) + track->coefs[key][7];
-    out[2] = time * (time * (time * track->coefs[key][8] + track->coefs[key][9]) + track->coefs[key][10]) + track->coefs[key][11];
+    out[0] = time * (time * (time * GETP(track->coefs)[key][0] + GETP(track->coefs)[key][1]) + GETP(track->coefs)[key][2]) + GETP(track->coefs)[key][3];
+    out[1] = time * (time * (time * GETP(track->coefs)[key][4] + GETP(track->coefs)[key][5]) + GETP(track->coefs)[key][6]) + GETP(track->coefs)[key][7];
+    out[2] = time * (time * (time * GETP(track->coefs)[key][8] + GETP(track->coefs)[key][9]) + GETP(track->coefs)[key][10]) + GETP(track->coefs)[key][11];
     return GETP(track->next);
 }
 
 static inline AnimTrack *AnimTrack_Eval4(AnimTrack *track, f32 time, f32 *out) {
     s32 key = AnimTrack_FindKey(GETP(track->times), track->numKeys, time);
 
-    out[0] = time * (time * (time * track->coefs[key][0] + track->coefs[key][1]) + track->coefs[key][2]) + track->coefs[key][3];
-    out[1] = time * (time * (time * track->coefs[key][4] + track->coefs[key][5]) + track->coefs[key][6]) + track->coefs[key][7];
-    out[2] = time * (time * (time * track->coefs[key][8] + track->coefs[key][9]) + track->coefs[key][10]) + track->coefs[key][11];
-    out[3] = time * (time * (time * track->coefs[key][12] + track->coefs[key][13]) + track->coefs[key][14]) + track->coefs[key][15];
+    out[0] = time * (time * (time * GETP(track->coefs)[key][0] + GETP(track->coefs)[key][1]) + GETP(track->coefs)[key][2]) + GETP(track->coefs)[key][3];
+    out[1] = time * (time * (time * GETP(track->coefs)[key][4] + GETP(track->coefs)[key][5]) + GETP(track->coefs)[key][6]) + GETP(track->coefs)[key][7];
+    out[2] = time * (time * (time * GETP(track->coefs)[key][8] + GETP(track->coefs)[key][9]) + GETP(track->coefs)[key][10]) + GETP(track->coefs)[key][11];
+    out[3] = time * (time * (time * GETP(track->coefs)[key][12] + GETP(track->coefs)[key][13]) + GETP(track->coefs)[key][14]) + GETP(track->coefs)[key][15];
     return GETP(track->next);
 }
 
@@ -310,9 +310,9 @@ static inline AnimTrack *AnimTrack_Eval3s(AnimTrack *track, f32 time, f32 *out) 
             break;
         }
     }
-    out[0] = time * (time * (time * track->coefs[key][0] + track->coefs[key][1]) + track->coefs[key][2]) + track->coefs[key][3];
-    out[1] = time * (time * (time * track->coefs[key][4] + track->coefs[key][5]) + track->coefs[key][6]) + track->coefs[key][7];
-    out[2] = time * (time * (time * track->coefs[key][8] + track->coefs[key][9]) + track->coefs[key][10]) + track->coefs[key][11];
+    out[0] = time * (time * (time * GETP(track->coefs)[key][0] + GETP(track->coefs)[key][1]) + GETP(track->coefs)[key][2]) + GETP(track->coefs)[key][3];
+    out[1] = time * (time * (time * GETP(track->coefs)[key][4] + GETP(track->coefs)[key][5]) + GETP(track->coefs)[key][6]) + GETP(track->coefs)[key][7];
+    out[2] = time * (time * (time * GETP(track->coefs)[key][8] + GETP(track->coefs)[key][9]) + GETP(track->coefs)[key][10]) + GETP(track->coefs)[key][11];
     return GETP(track->next);
 }
 

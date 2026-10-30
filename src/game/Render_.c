@@ -1067,7 +1067,7 @@ void Render_DrawShadows(void) {
         u16 numGroups;
         u8 unk4[0x8 - 0x4];
         PTR32(ShadowGroup) groups;
-        f32 (*verts)[3];
+        PTR32(__typeof__(f32[3])) verts;
     } ShadowGeometry;
     typedef struct ShadowModel {
         u8 unk0[0x8];
@@ -1107,13 +1107,13 @@ void Render_DrawShadows(void) {
             GXSetTevOrder(0, 0xFF, 0xFF, 4);
             GXSetBlendMode(1, 1, 1, 5);
             for (j = 0; j < GETP(model->geometry)->numGroups; j++) {
-                DrawVolume(GETP(model->geometry)->verts, GETP(GETP(GETP(model->geometry)->groups)[j].edges), GETP(GETP(model->geometry)->groups)[j].numEdges,
+                DrawVolume(GETP(GETP(model->geometry)->verts), GETP(GETP(GETP(model->geometry)->groups)[j].edges), GETP(GETP(model->geometry)->groups)[j].numEdges,
                            300.0f * dir.x, 300.0f * dir.y, 300.0f * dir.z);
             }
             GXSetBlendMode(1, 0, 3, 5);
             GXSetCullMode(2);
             for (j = 0; j < GETP(model->geometry)->numGroups; j++) {
-                DrawVolume(GETP(model->geometry)->verts, GETP(GETP(GETP(model->geometry)->groups)[j].edges), GETP(GETP(model->geometry)->groups)[j].numEdges,
+                DrawVolume(GETP(GETP(model->geometry)->verts), GETP(GETP(GETP(model->geometry)->groups)[j].edges), GETP(GETP(model->geometry)->groups)[j].numEdges,
                            300.0f * dir.x, 300.0f * dir.y, 300.0f * dir.z);
             }
             GXSetCullMode(1);

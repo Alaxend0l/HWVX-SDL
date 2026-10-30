@@ -775,7 +775,7 @@ s32 EventSeq_Move(u8 *seq) {
     typedef struct { s32 base; s32 range; u32 count; PTR32(Spawn) spawns; } SpawnList;
     f32 scale;
     u32 dt;
-    void *sample;
+    u32 sample;  /* sound effect id (pack sound relocation); SoundSource_Set copies 4 bytes */
     f32 pitch;
     Entry *entry;
     Script *script;
@@ -1135,7 +1135,7 @@ s32 EventSeq_Move(u8 *seq) {
                 u8 *emit = GETP(entry->b);
                 s32 src = SoundManager_CreateSource(0);
 
-                sample = SLOT_LOAD(void *, (p + 0x14));
+                sample = *(u32 *)(p + 0x14);
                 pitch = RandomAdd(*(f32 *)(p + 0xC), *(f32 *)(p + 0x10));
                 {
                     Vector4 tmp;
@@ -1269,7 +1269,7 @@ s32 EventSeq_Move(u8 *seq) {
         }
         case 11:
             *(u32 *)(seq + 0xD8) = *(u32 *)(seq + 0xD4);
-            *(u32 *)(seq + 0xDC) = (u32)HND(GETP(GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].a));
+            *(u32 *)(seq + 0xDC) = GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].a.h  /* port: a value (repeat count), not a pointer */;
             break;
         case 12:
             if (*(u32 *)(seq + 0xDC) != 0) {
@@ -1278,13 +1278,13 @@ s32 EventSeq_Move(u8 *seq) {
             }
             break;
         case 15:
-            *(u32 *)(seq + 0xE0) = (u32)HND(GETP(entry->a));
+            *(u32 *)(seq + 0xE0) = entry->a.h;  /* port: a value, not a pointer */
             break;
         case 13: {
             u32 i;
 
             *(u32 *)(seq + 0xE8) = i = *(u32 *)(seq + 0xD4) + 1;
-            *(u32 *)(seq + 0xE4) = (u32)HND(GETP(GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].a));
+            *(u32 *)(seq + 0xE4) = GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].a.h  /* port: a value (repeat count), not a pointer */;
             *(u32 *)(seq + 0xEC) = 0;
             for (; i < (SLOT_LOAD(Script *, (seq + 0xD0)))->count; i++) {
                 if (GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[i].type == 14) break;

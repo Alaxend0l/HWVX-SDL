@@ -268,6 +268,8 @@ done:
     }
 }
 
+/* port: [(s32)arg - 1] indexes -1 for arg 0, as the original's 32-bit address
+ * arithmetic wrapped; with an unsigned index it would land 16 GB away. */
 void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     extern s8 g_bGameSettingsInitialized;
     extern s8 g_bBlockReset;
@@ -375,7 +377,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         break;
     case 0xC9:
         if (arg >= 1 && arg <= 10) {
-            g_codeVariables.controllerState[arg - 1] = val;
+            g_codeVariables.controllerState[(s32)arg - 1] = val;
         }
         break;
     case 0xCA:
@@ -393,7 +395,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         }
         break;
     case 0xCB:
-        g_codeVariables.playerVehicle[arg - 1] = val;
+        g_codeVariables.playerVehicle[(s32)arg - 1] = val;
         if (arg - 1 == 0) {
             switch (type) {
             case 0:
@@ -406,7 +408,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         }
         break;
     case 0xCC:
-        g_codeVariables.playerItem[arg - 1] = val;
+        g_codeVariables.playerItem[(s32)arg - 1] = val;
         if (arg - 1 == 0) {
             switch (type) {
             case 0:
@@ -420,13 +422,13 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         break;
     case 0xCE:
         if (arg <= 4) {
-            g_generalGameSettings.controllers[arg - 1].data[1] = val;
+            g_generalGameSettings.controllers[(s32)arg - 1].data[1] = val;
             GameSettings_ApplyDefaultGameData();
         }
         break;
     case 0xD1:
         if (arg <= 4) {
-            g_generalGameSettings.controllers[arg - 1].data[0] = val;
+            g_generalGameSettings.controllers[(s32)arg - 1].data[0] = val;
             GameSettings_ApplyDefaultGameData();
             if (val) {
                 Input_SetForceFeedbackActive(arg - 1, 1);
@@ -493,22 +495,22 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         break;
     case 0x191:
         if (arg <= 4) {
-            g_codeVariables.unk34[arg - 1] = val;
+            g_codeVariables.unk34[(s32)arg - 1] = val;
         }
         break;
     case 0x192:
         if (arg <= 4) {
-            g_codeVariables.unk44[arg - 1] = val;
+            g_codeVariables.unk44[(s32)arg - 1] = val;
         }
         break;
     case 0x193:
         if (arg <= 4) {
-            g_codeVariables.unk54[arg - 1] = val;
+            g_codeVariables.unk54[(s32)arg - 1] = val;
         }
         break;
     case 0x194:
         if (arg <= 4) {
-            g_codeVariables.unk64[arg - 1] = val != 0;
+            g_codeVariables.unk64[(s32)arg - 1] = val != 0;
         }
         break;
     case 0x197:
@@ -541,6 +543,8 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         break;
     }
 }
+/* port: [(s32)arg - 1] indexes -1 for arg 0, as the original's 32-bit address
+ * arithmetic wrapped; with an unsigned index it would land 16 GB away. */
 u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     typedef struct WorldEntry {
         u32 unk0;
@@ -669,10 +673,10 @@ done:
         return g_generalGameSettings.difficulty;
     case 0xC9:
         if ((1 << (arg - 1)) & Input_GetContollersPluggedIn()) {
-            return g_codeVariables.controllerState[arg - 1];
+            return g_codeVariables.controllerState[(s32)arg - 1];
         }
-        g_codeVariables.playerVehicle[arg - 1] = -1;
-        g_codeVariables.controllerState[arg - 1] = 1;
+        g_codeVariables.playerVehicle[(s32)arg - 1] = -1;
+        g_codeVariables.controllerState[(s32)arg - 1] = 1;
         return 0;
     case 0xCA:
         switch (type) {
@@ -709,9 +713,9 @@ done:
             }
             break;
         }
-        return g_codeVariables.playerVehicle[arg - 1];
+        return g_codeVariables.playerVehicle[(s32)arg - 1];
     case 0xCC:
-        return g_codeVariables.playerItem[arg - 1];
+        return g_codeVariables.playerItem[(s32)arg - 1];
     case 0xCD:
         n = 0;
         for (port = 0; port < 4; port++) {
@@ -722,17 +726,17 @@ done:
         return n;
     case 0xCE:
         if (arg <= 4) {
-            return g_generalGameSettings.controllers[arg - 1].data[1];
+            return g_generalGameSettings.controllers[(s32)arg - 1].data[1];
         }
         return 0;
     case 0xD1:
         if (arg <= 4) {
-            return (s8)g_generalGameSettings.controllers[arg - 1].data[0];
+            return (s8)g_generalGameSettings.controllers[(s32)arg - 1].data[0];
         }
         return 0;
     case 0xD2:
         if (arg <= 4) {
-            return g_codeVariables.playerVehicle[arg - 1] != -1;
+            return g_codeVariables.playerVehicle[(s32)arg - 1] != -1;
         }
         return 0;
     case 0xCF:
@@ -800,22 +804,22 @@ done:
         return g_codeVariables.unk30;
     case 0x191:
         if (arg <= 4) {
-            return g_codeVariables.unk34[arg - 1];
+            return g_codeVariables.unk34[(s32)arg - 1];
         }
         break;
     case 0x192:
         if (arg <= 4) {
-            return g_codeVariables.unk44[arg - 1];
+            return g_codeVariables.unk44[(s32)arg - 1];
         }
         break;
     case 0x193:
         if (arg <= 4) {
-            return g_codeVariables.unk54[arg - 1];
+            return g_codeVariables.unk54[(s32)arg - 1];
         }
         break;
     case 0x194:
         if (arg <= 4) {
-            return g_codeVariables.unk64[arg - 1];
+            return g_codeVariables.unk64[(s32)arg - 1];
         }
         break;
     case 0x195:

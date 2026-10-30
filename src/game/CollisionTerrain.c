@@ -668,7 +668,7 @@ s8 OBoxHitsBSPZeroTimeEdgesOnly(void *obox, void *bsp, void *arg2)
     return 0;
 }
 
-u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 depth, void *plane, f32 *t, Vector4 *hit) {
+u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, u32 node, s32 depth, void *plane, f32 *t, Vector4 *hit) {
     typedef struct {
         Vector4 plane;
         u32 material;
@@ -681,14 +681,14 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
     f32 frac;
     u32 result;
 
-    n = (BSPNode2 *)(SLOT_LOAD(u8 *, ((u8 *)bsp + 0x30)) + (u32)HND(node) * 0x20);
+    n = (BSPNode2 *)(SLOT_LOAD(u8 *, ((u8 *)bsp + 0x30)) + node * 0x20);
     d0 = Distance_Plane(n, start);
     d1 = Distance_Plane(n, end);
     if (d0 == 0.0f && d1 == 0.0f) {
         if (n->front == 0xFFFF) {
             return 0;
         }
-        return RayHitsBSP2(start, end, bsp, (void *)PTR(n->front), depth + 1, plane, t, hit);
+        return RayHitsBSP2(start, end, bsp, n->front, depth + 1, plane, t, hit);
     }
     if (d0 > 0.0f && d1 < 0.0f) {
         Vector4 dir __attribute__((aligned(16)));
@@ -703,14 +703,14 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
         mid.y = dir.y * frac + start->y;
         mid.z = dir.z * frac + start->z;
         if (n->front != 0xFFFF) {
-            result = RayHitsBSP2(start, &mid, bsp, (void *)PTR(n->front), depth + 1, plane, t, hit);
+            result = RayHitsBSP2(start, &mid, bsp, n->front, depth + 1, plane, t, hit);
             if (result) {
                 *t *= frac;
                 return result;
             }
         }
         if (n->back != 0xFFFF) {
-            result = RayHitsBSP2(&mid, end, bsp, (void *)PTR(n->back), depth + 1, plane, t, hit);
+            result = RayHitsBSP2(&mid, end, bsp, n->back, depth + 1, plane, t, hit);
             if (result) {
                 *t = *t * (1.0f - frac) + frac;
                 if (frac == *t) {
@@ -741,7 +741,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
         mid.y = dir.y * frac + start->y;
         mid.z = dir.z * frac + start->z;
         if (n->back != 0xFFFF) {
-            result = RayHitsBSP2(start, &mid, bsp, (void *)PTR(n->back), depth + 1, plane, t, hit);
+            result = RayHitsBSP2(start, &mid, bsp, n->back, depth + 1, plane, t, hit);
             if (result) {
                 *t *= frac;
                 return result;
@@ -753,7 +753,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
             return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x5C)))[n->material];
         }
         if (n->front != 0xFFFF) {
-            result = RayHitsBSP2(&mid, end, bsp, (void *)PTR(n->front), depth + 1, plane, t, hit);
+            result = RayHitsBSP2(&mid, end, bsp, n->front, depth + 1, plane, t, hit);
             if (result) {
                 *t = *t * (1.0f - frac) + frac;
                 if (frac == *t) {
@@ -769,12 +769,12 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
     }
     if (d0 > 0.0f || d1 > 0.0f) {
         if (n->front != 0xFFFF) {
-            return RayHitsBSP2(start, end, bsp, (void *)PTR(n->front), depth + 1, plane, t, hit);
+            return RayHitsBSP2(start, end, bsp, n->front, depth + 1, plane, t, hit);
         }
         return 0;
     }
     if (n->back != 0xFFFF) {
-        return RayHitsBSP2(start, end, bsp, (void *)PTR(n->back), depth + 1, plane, t, hit);
+        return RayHitsBSP2(start, end, bsp, n->back, depth + 1, plane, t, hit);
     }
     *hit = *start;
     *t = 0.0f;
@@ -794,7 +794,7 @@ u32 RayHitsBSP(Vector4 *start, Vector4 *dir, void *bbox, f32 *time, void *bsp) {
     end.x = start->x + dir->x * *time;
     end.y = start->y + dir->y * *time;
     end.z = start->z + dir->z * *time;
-    result = RayHitsBSP2(start, &end, bbox, NULL, 0, bsp, &t, &hit);
+    result = RayHitsBSP2(start, &end, bbox, 0, 0, bsp, &t, &hit);
     if (result) {
         eps = 0.1f;
         if (hit.x < ((Vector4 *)bbox)[0].x - eps ||
@@ -1076,7 +1076,7 @@ void BuildOOB(Vector4 *bounds, Matrix4 *mtx, u8 *oob) {
     Vector4 center __attribute__((aligned(16)));
     Vector4 *corners = (Vector4 *)oob;
     f32 *ext = (f32 *)(oob + 0x90);
-    Vector4 **axes = (Vector4 **)(oob + 0xA0);
+    Vector4 *axes[3];  /* port: stored below as handles in the 4-byte slots at 0xA0 */
 
     ext[0] = 0.5f * (bounds[1].z - bounds[0].z);
     ext[1] = 0.5f * (bounds[1].x - bounds[0].x);
@@ -1084,6 +1084,9 @@ void BuildOOB(Vector4 *bounds, Matrix4 *mtx, u8 *oob) {
     axes[0] = &mtx->v[2];
     axes[1] = &mtx->v[0];
     axes[2] = &mtx->v[1];
+    SLOT_STORE((oob + 0xA0), axes[0]);
+    SLOT_STORE((oob + 0xA4), axes[1]);
+    SLOT_STORE((oob + 0xA8), axes[2]);
     PSVECAdd(&bounds[0], &bounds[1], &center);
     PSVECScale(&center, &center, 0.5f);
     PSVECScale(&mtx->v[2], &corners[0], center.z);

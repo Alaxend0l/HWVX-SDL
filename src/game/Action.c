@@ -688,12 +688,12 @@ s32 ActionVehicleGiveItem(void *arg) {
         break;
     case 1:
         info = NULL;
-        if ((u32)HND(GETP(action->item)) < 1000) {
-            packID = FileStreaming_GetPackID(SLOT_LOAD(char *, (SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0xA4)), 2, (u32)HND(GETP(action->item)));
+        if (action->item.h < 1000) {
+            packID = FileStreaming_GetPackID(SLOT_LOAD(char *, (SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0xA4)), 2, action->item.h);
             if (packID < 0xFFFFFFFF) {
                 pack = FileStreaming_InitializeDataPack(packID, 2, 1);
                 if (pack != NULL) {
-                    info = (ItemInfo *)DataPack_GetScript(pack, (s32)HND(GETP(action->item)));
+                    info = (ItemInfo *)DataPack_GetScript(pack, (s32)action->item.h);
                 }
             }
         } else {

@@ -223,10 +223,10 @@ void Player_Heartbeat(void *arg0) {
     } HBVehicleVTable;
     typedef struct HBItem {
         u8 pad0[0x30];
-        struct {
+        PTR32(struct {
             u8 pad0[0x20];
             s32 count;
-        } *info;
+        }) info;
     } HBItem;
     typedef struct HBTileCar {
         Vector4 pos;
@@ -526,7 +526,7 @@ void Player_Heartbeat(void *arg0) {
                 void *rack = ThingManagerList_GetByType(&GETP(GETP(player->tileCar)->creature)->slaves, 8);
 
                 WildCardRack_JettisonAll(rack);
-                WildCardRack_Add(rack, GETP(GETP(player->tileCar)->item), GETP(GETP(player->tileCar)->item)->info->count);
+                WildCardRack_Add(rack, GETP(GETP(player->tileCar)->item), GETP(GETP(GETP(player->tileCar)->item)->info)->count);
             }
         }
     }

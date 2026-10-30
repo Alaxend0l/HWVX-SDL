@@ -733,7 +733,7 @@ typedef struct GeometryGroup {
     u8 unk16[0x18 - 0x16];
     u16 unk18;
     u8 unk1A[0x1C - 0x1A];
-    u16 (*tris)[3];
+    PTR32(__typeof__(u16[3])) tris;
 } GeometryGroup;
 
 typedef struct GeometryVertex {
@@ -781,11 +781,11 @@ void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix) {
     count = (u32)HND(GETP(grp->data));
     for (i = 0; i < count; i++) {
         for (j = 0; j < 3; j++) {
-            XformVec(matrix, &GETP(geometry->verts)[grp->tris[i][j]].pos, &v[j]);
+            XformVec(matrix, &GETP(geometry->verts)[GETP(grp->tris)[i][j]].pos, &v[j]);
         }
-        Gfx_Add3DLine(&v[0], &v[1], &GETP(geometry->verts)[grp->tris[i][0]].color);
-        Gfx_Add3DLine(&v[1], &v[2], &GETP(geometry->verts)[grp->tris[i][1]].color);
-        Gfx_Add3DLine(&v[2], &v[0], &GETP(geometry->verts)[grp->tris[i][2]].color);
+        Gfx_Add3DLine(&v[0], &v[1], &GETP(geometry->verts)[GETP(grp->tris)[i][0]].color);
+        Gfx_Add3DLine(&v[1], &v[2], &GETP(geometry->verts)[GETP(grp->tris)[i][1]].color);
+        Gfx_Add3DLine(&v[2], &v[0], &GETP(geometry->verts)[GETP(grp->tris)[i][2]].color);
     }
 }
 

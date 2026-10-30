@@ -122,11 +122,14 @@ Debugging aids:
 - `cmake -DHWVX_SWAPCHECK=ON` (in its own build dir): every game read of pack
   data is checked against how it was swapped; mismatches are logged once per
   code address with the pack offset (`addr2line -e hwvx -f -i -p PC`).
-- `HWVX_AUTOINPUT="700:start,900:a"` holds a button on controller 1 for 10
-  frames from each given frame (scripted test runs);
+- `HWVX_AUTOINPUT="700:start,+400:start,+150:a"` holds a button on
+  controller 1 for 10 frames: `N:btn` at frame N, `+N:btn` once the game has
+  gone N frames without reading the disc after the previous press (so
+  loading times don't shift the script);
 - `HWVX_DUMP=dir` saves every 60th frame as a BMP; `HWVX_GXDEBUG=1` draws all
   geometry magenta with depth, blending and culling off.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
+- `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
 
 `tools/xgc_inspect.py FILE.xgc [--dump OFFSET N]` shows a data pack's TOC,
 header, root objects and which words are pointers; use it when writing swap

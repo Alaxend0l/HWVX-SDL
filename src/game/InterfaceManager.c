@@ -667,6 +667,10 @@ void InterfaceManager_SetOffset(s32 index, f32 x, f32 y) {
 }
 
 s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) {
+    if (header != NULL) {  /* port: trace interface creation */
+        Port_Log("interface create: header id %u, %u objects%s", *(u16 *)header, *(u32 *)(header + 0xC),
+                 owner != NULL ? " (player)" : "");
+    }
     typedef struct {
         s8 isVar;
         u8 pad1;
@@ -3540,6 +3544,7 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
     #define g_playerMessage1 (*(char ***)(void *)&g_playerMessage1)
     #define g_playerMessage2 (*(char ***)(void *)&g_playerMessage2)
     #define g_playerMessage3 (*(char ***)(void *)&g_playerMessage3)
+    static u32 s_rndNumberSlot[1];
     char tmp[0x80];
     f32 dtCopy;
     f32 value;
@@ -3648,7 +3653,7 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                             strcpy((char *)(obj + 0x1C0), q.text);
                             *(u16 *)(obj + 0x1A8) = strlen(q.text);
                         } else if (*(u32 *)(obj + 0x1A4) == 0) {
-                            InterfaceManager_SetObjectText(obj, *(char ***)(obj + 0x1A0));
+                            InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (obj + 0x1A0)));
                         }
                         doText = 0;
                     } else if (obj[0x243] == 6 && obj[0x246] == 1) {
@@ -3699,18 +3704,18 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 }
                 break;
             case 17:
-                if (*(char ***)(data + 0x48) != NULL) {
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x48));
+                if (SLOT_LOAD(char **, (data + 0x48)) != NULL) {
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (data + 0x48)));
                 }
                 break;
             case 18:
-                if (*(char ***)(data + 0x4C) != NULL) {
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x4C));
+                if (SLOT_LOAD(char **, (data + 0x4C)) != NULL) {
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (data + 0x4C)));
                 }
                 break;
             case 19:
-                if (*(char ***)(data + 0x60) != NULL) {
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x60));
+                if (SLOT_LOAD(char **, (data + 0x60)) != NULL) {
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (data + 0x60)));
                 }
                 break;
             case 20:
@@ -3747,8 +3752,9 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                     obj[0x2C] = 1;
                     *(f32 *)(obj + 0x278) = RandomAdd(0.0f, *(u16 *)(SLOT_LOAD(u8 *, (obj + 0x25C)) + 0xA));
                     sprintf(rndNumberBuffer, "%1.0f", *(f32 *)(obj + 0x278));
-                    *(char ***)(data + 0x5C) = g_rndNumber;
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x5C));
+                    s_rndNumberSlot[0] = HND(rndNumberBuffer);  /* port: a table of string slots */
+                    SLOT_STORE((data + 0x5C), s_rndNumberSlot);
+                    InterfaceManager_SetObjectText(obj, (char **)s_rndNumberSlot);
                 } else {
                     *(s32 *)(obj + 0x27C) -= g_iDeltaTimeMS;
                 }
@@ -3773,8 +3779,9 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 } else {
                     *(s32 *)(obj + 0x27C) -= g_iDeltaTimeMS;
                     sprintf(rndNumberBuffer, "%1.0f", *(f32 *)(obj + 0x278));
-                    *(char ***)(data + 0x5C) = g_rndNumber;
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x5C));
+                    s_rndNumberSlot[0] = HND(rndNumberBuffer);  /* port: a table of string slots */
+                    SLOT_STORE((data + 0x5C), s_rndNumberSlot);
+                    InterfaceManager_SetObjectText(obj, (char **)s_rndNumberSlot);
                 }
                 break;
             case 40: {
@@ -3810,18 +3817,18 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 }
                 break;
             case 49:
-                if (*(char ***)(data + 0x64) != NULL) {
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x64));
+                if (SLOT_LOAD(char **, (data + 0x64)) != NULL) {
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (data + 0x64)));
                 }
                 break;
             case 60:
-                if (*(char ***)(data + 0x40) != NULL) {
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x40));
+                if (SLOT_LOAD(char **, (data + 0x40)) != NULL) {
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (data + 0x40)));
                 }
                 break;
             case 61:
-                if (*(char ***)(data + 0x44) != NULL) {
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x44));
+                if (SLOT_LOAD(char **, (data + 0x44)) != NULL) {
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (data + 0x44)));
                 }
                 break;
             case 62:
@@ -3856,8 +3863,8 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 }
                 break;
             case 81:
-                if (*(char ***)(data + 0x68) != NULL) {
-                    InterfaceManager_SetObjectText(obj, *(char ***)(data + 0x68));
+                if (SLOT_LOAD(char **, (data + 0x68)) != NULL) {
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, (data + 0x68)));
                 }
                 break;
             case 82:
@@ -5939,50 +5946,58 @@ f32 DropShip_GetLRTime(s32 index)
 }
 
 void InterfaceManager_SetMissionObjectiveText(u8 *obj, u8 **data) {
+    /* port: data is a world objective { u32 arg, info slot }; info has a
+     * big-endian word type 0x0 (the u8s in it are left as bytes), value
+     * slots 0xC/0x10 and string-table slots 0x14/0x18 */
+    u8 *objective = (u8 *)data;
+    u8 *info = SLOT_LOAD(u8 *, objective + 4);
     char **text;
     char buf[16];
     char *str;
     s32 i;
     s32 j;
     s32 len;
+    u32 type;
 
-    if (SLOT_LOAD(u8 *, (data[1] + 0xC)) == NULL) {
-        if (*(char ***)(data[1] + 0x14) != NULL) {
-            text = *(char ***)(data[1] + 0x14);
+    if (SLOT_LOAD(u8 *, (info + 0xC)) == NULL) {
+        if (SLOT_LOAD(char **, (info + 0x14)) != NULL) {
+            text = SLOT_LOAD(char **, (info + 0x14));
         } else {
-            text = *(char ***)(data[1] + 0x18);
+            text = SLOT_LOAD(char **, (info + 0x18));
         }
-    } else if (*(f32 *)(SLOT_LOAD(u8 *, (data[1] + 0xC)) + 4)) {
-        text = *(char ***)(data[1] + 0x18);
+    } else if (*(f32 *)(SLOT_LOAD(u8 *, (info + 0xC)) + 4)) {
+        text = SLOT_LOAD(char **, (info + 0x18));
     } else {
-        text = *(char ***)(data[1] + 0x14);
+        text = SLOT_LOAD(char **, (info + 0x14));
     }
     if (text == NULL) {
         return;
     }
-    if (data[1][0] == 0) {
+    type = Port_ReadBE32(info);
+    if (type == 0) {
         InterfaceManager_SetObjectText(obj, text);
         return;
     }
-    if (data[1][0] == 1) {
-        sprintf(buf, "%d", (u32)*(f32 *)(SLOT_LOAD(u8 *, (data[1] + 0x10)) + 4));
-    } else if (data[1][0] == 2) {
-        u32 ms = *(f32 *)(SLOT_LOAD(u8 *, (data[1] + 0x10)) + 8);
+    buf[0] = 0;
+    if (type == 1) {
+        sprintf(buf, "%d", (u32)*(f32 *)(SLOT_LOAD(u8 *, (info + 0x10)) + 4));
+    } else if (type == 2) {
+        u32 ms = *(f32 *)(SLOT_LOAD(u8 *, (info + 0x10)) + 8);
         u32 secs = ms / 1000;
         u32 mins = secs / 60;
         secs %= 60;
         sprintf(buf, "%02d:%02d", mins, secs);
-    } else if (data[1][0] == 3) {
-        u32 *var = SLOT_LOAD(u32 *, (data[1] + 0x10));
+    } else if (type == 3) {
+        u32 *var = SLOT_LOAD(u32 *, (info + 0x10));
         u32 value;
         if (var[0] < 10) {
-            value = GetCodeVariable(var[0], data[0]);
+            value = GetCodeVariable(var[0], (u8 *)PTR(*(u32 *)objective));
         } else {
             value = GetCodeVariable(var[0], (u8 *)PTR(var[1]));
         }
         sprintf(buf, "%d", value);
     }
-    str = *text;
+    str = SLOT_LOAD(char *, text);
     len = strlen(str);
     j = strlen(buf);
     if (len != strlen((char *)(obj + 0x290))) {
@@ -6033,13 +6048,13 @@ void InterfaceManager_RestoreMissionObjString(u8 *mgr)
         {
             if (*(f32 *)((char *)SLOT_LOAD(f32 *, ((char *)obj + 0xc)) + 4) != zero)
             {
-                str = *(char ***)((char *)obj + 0x18);
+                str = SLOT_LOAD(char **, ((char *)obj + 0x18));
             }
             else
             {
-                str = *(char ***)((char *)obj + 0x14);
+                str = SLOT_LOAD(char **, ((char *)obj + 0x14));
             }
-            strcpy(*str, (char *)(mgr + 0x290));
+            strcpy(SLOT_LOAD(char *, str), (char *)(mgr + 0x290));
         }
     }
 }

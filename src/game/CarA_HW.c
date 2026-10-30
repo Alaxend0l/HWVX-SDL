@@ -17,7 +17,7 @@ extern u32 g_iDeltaTimeMS;
 extern void *g_pSourcePlayer;
 extern Vector4 g_zeroVector;
 extern char stunt_msg_buffer[];
-extern char *g_stuntLossString;
+extern u8 g_stuntLossString[];  /* port: a table of string slots */
 
 
 

@@ -1845,8 +1845,8 @@ void AI_Car_Reset(u8 *car) {
         u8 unk4[0x10];
     } AICarTarget;
     typedef struct AICarTargets {
-        AICarTarget targets[16];
         u8 unk0[0x4B0];
+        AICarTarget targets[16];   /* 0x4B0 (asm); the decomp had them at 0 */
     } AICarTargets;
     register u8 *vehicle;
     u16 i;

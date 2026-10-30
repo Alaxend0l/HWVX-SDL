@@ -2077,14 +2077,20 @@ void *g_pPlayerManager[1] = { (u8 *)g_playerManager + 0 };
 /* g_rndNumber: host pointer(s) */
 void *g_rndNumber[1] = { (u8 *)rndNumberBuffer + 0 };
 
-/* g_stunt1localString: host pointer(s) */
-void *g_stunt1localString[1] = { (u8 *)s_CarA___639_ + 0 };
+/* g_stunt1localString (.sdata: a one-entry table of string slots) */
+u8 g_stunt1localString[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x0),
+};
 
-/* g_stuntLossString: host pointer(s) */
-void *g_stuntLossString[1] = { (u8 *)stunt_msg_buffer + 0 };
+/* g_stuntLossString (.sdata: a one-entry table of string slots) */
+u8 g_stuntLossString[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x0),
+};
 
-/* g_stuntMessageLocalString: host pointer(s) */
-void *g_stuntMessageLocalString[1] = { (u8 *)stunt_msg_buffer_second + 0 };
+/* g_stuntMessageLocalString (.sdata: a one-entry table of string slots) */
+u8 g_stuntMessageLocalString[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x0),
+};
 
 /* pActionFuncArray: host pointer(s) */
 void *pActionFuncArray[44] = { (u8 *)&ActionAirboxChangeMode + 0, (u8 *)&ActionCameraSetTargets + 0, (u8 *)&ActionDestructibleChangeMode + 0, (u8 *)&ActionFXPointChangeMode + 0, (u8 *)&ActionInterfacePlay + 0, (u8 *)&ActionItemChangeMode + 0, (u8 *)&ActionEndLevel + 0, (u8 *)&ActionTimerChangeValue + 0, (u8 *)&ActionTimerChangeMode + 0, (u8 *)&ActionMoveableChangeMode + 0, (u8 *)&ActionMusicChange + 0, (u8 *)&ActionMusicSetSong + 0, (u8 *)&ActionNavPointChangeMode + 0, (u8 *)&ActionPauseGame + 0, (u8 *)&ActionSpeakerChangeMode + 0, (u8 *)&ActionTargetArrowSetTarget + 0, (u8 *)&ActionVariableChangeValue + 0, (u8 *)&ActionVehicleChangeMode + 0, (u8 *)&ActionVehicleAISetNamedPath + 0, (u8 *)&ActionVertexColorSeqChangeMode + 0, (u8 *)&ActionPrintDebugString + 0, (u8 *)&ActionVehicleTeleport + 0, (u8 *)&ActionVehicleChangeControl + 0, (u8 *)&ActionSetPlayerVehicle + 0, (u8 *)&ActionVehicleRemoveItem + 0, (u8 *)&ActionVehicleRemoveCreature + 0, (u8 *)&ActionVariableChangeMode + 0, (u8 *)&ActionLoadInterfacePack + 0, (u8 *)&ActionPlayInterfacePack + 0, (u8 *)&ActionUnloadInterfacePack + 0, (u8 *)&ActionEndInterfacePack + 0, (u8 *)&ActionEndInterface + 0, (u8 *)&ActionHUDChangeMode + 0, (u8 *)&ActionScriptLightChangeMode + 0, (u8 *)&ActionCodeVariableModifyValue + 0, (u8 *)&ActionMissionObjChangeMode + 0, (u8 *)&ActionPauseTACSystem + 0, (u8 *)&ActionSwapAIScript + 0, (u8 *)&ActionResetGameRound + 0, (u8 *)&ActionRoundComplete + 0, (u8 *)&ActionVehicleGiveItem + 0, (u8 *)&ActionSetPlayerOrder + 0, (u8 *)&ActionPlaySoundSequence + 0, (u8 *)&ActionCreatureChangeMode + 0 };
@@ -2094,6 +2100,9 @@ void *pTriggerFuncArray[28] = { (u8 *)&TriggerTrue + 0, (u8 *)&TriggerAirboxEnte
 
 /* Fill pointer slots with handles once, before main(). */
 __attribute__((constructor)) static void DataGen_Fixups(void) {
+    SLOT_STORE(g_stunt1localString + 0x0, (u8 *)s_CarA___639_ + 0);
+    SLOT_STORE(g_stuntLossString + 0x0, (u8 *)stunt_msg_buffer + 0);
+    SLOT_STORE(g_stuntMessageLocalString + 0x0, (u8 *)stunt_msg_buffer_second + 0);
     SLOT_STORE(g_AI_AsyncProcess + 0x4, (u8 *)&AI_AsyncProcess_80006C80 + 0);
     SLOT_STORE(g_carAVTable + 0x0, (u8 *)&CarA_Init + 0);
     SLOT_STORE(g_carAVTable + 0x4, (u8 *)&CarA_Release + 0);

@@ -497,7 +497,7 @@ f32 CarA_Transmission_GetTorqueAtWheels(u8 *car)
 
 void CarA_ExecuteCombo(CarA *car) {
     extern Vector4 g_zeroVector;
-    extern char *g_stunt1localString;
+    extern u8 g_stunt1localString[];  /* port: a table of string slots */
 
     switch (GETP(car->player)->combo) {
     case 2:
@@ -2197,13 +2197,15 @@ void *CarA_GetOrientedCollision(u8 *car)
     return NULL;
 }
 
-s32 CarA_GetSurfaceScript(u8 *car)
+/* port: returns the surface (a pointer, called through the vtable like
+ * Thing_GetSurfaceScript); the decomp returned the 32-bit slot value */
+void *CarA_GetSurfaceScript(u8 *car)
 {
     u8 *coll;
 
     coll = SLOT_LOAD(u8 *, (car + 0x3BC));
     coll = SLOT_LOAD(u8 *, (coll + 0xA0));
-    return *(s32 *)(coll + 0x30);
+    return SLOT_LOAD(void *, (coll + 0x30));
 }
 
 void CarA_GetCameraOrientationInfo(CarA *car, u32 index, void *out) {
@@ -2356,7 +2358,7 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
     } PickupRack;
     extern Vector4 g_zeroVector;
     extern char stunt_msg_buffer[];
-    extern char *g_stuntLossString;
+    extern u8 g_stuntLossString[];  /* port: a table of string slots */
     Vector4 pos __attribute__((aligned(16)));
     u8 current;
     PickupRack *rack;

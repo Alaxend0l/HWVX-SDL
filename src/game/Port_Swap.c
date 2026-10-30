@@ -63,12 +63,43 @@ static int InBlob(Swapper *s, u32 off, u32 n) {
     return off < s->size && n <= s->size - off;
 }
 
+#ifdef HWVX_SWAPCHECK
+#include <execinfo.h>
+/* HWVX_SWAPTRACE=offset (hex): log a backtrace for every claim that covers
+ * this blob offset, in any pack (swap-check builds only). */
+static void Claim_Trace(Swapper *s, u32 off, u32 n, u8 kind) {
+    static int init;
+    static u32 traceOff = ~0u;
+    void *frames[8];
+    int k, count;
+
+    if (!init) {
+        const char *e = getenv("HWVX_SWAPTRACE");
+        init = 1;
+        if (e != NULL) {
+            traceOff = (u32)strtoul(e, NULL, 16);
+        }
+    }
+    if (traceOff == ~0u || off > traceOff || traceOff - off >= n) {
+        return;
+    }
+    count = backtrace(frames, 8);
+    Port_Log("swaptrace: %s off 0x%X n %u kind %u", g_portSwapPackName ? g_portSwapPackName : "?", off, n, kind);
+    for (k = 1; k < count; k++) {
+        Port_Log("  %p", frames[k]);
+    }
+}
+#endif
+
 static void Claim(Swapper *s, u32 off, u32 n, u8 kind) {
     u32 i;
 
     if (!InBlob(s, off, n)) {
         return;
     }
+#ifdef HWVX_SWAPCHECK
+    Claim_Trace(s, off, n, kind);
+#endif
     for (i = 0; i < n; i++) {
         if (s->claim[off + i] != CLAIM_DONE) {
             s->claim[off + i] = kind;
@@ -494,12 +525,13 @@ static void Claim_IMObjectData(Swapper *s, u32 off) {
     Claim_EventList(s, off + 0x10, off + 0x14);
 }
 
-/* ObjDef / IMObject (0x6C): u8 kind 0x0, type 0x1, 0x2-0x7, active 0x8, input 0x9,
+/* ObjDef / IMObject (0x6C): u8 kind 0x0, type 0x1, 0x2-0x7, active 0x8, input 0x9, u16 id 0xA,
  * s16 0xC, sub 0x14 (u8 type, u8 at 0x0), anim 0x60, data 0x44. */
 static void Claim_IMObject(Swapper *s, u32 off) {
     u32 sub;
 
-    ClaimBytes(s, off, 12);
+    ClaimBytes(s, off, 10);
+    ClaimU16(s, off + 0xA);   /* id (InterfaceManager_MoveObject: timers, goals) */
     ClaimU16(s, off + 0xC);
     ClaimU16(s, off + 0xE);
     sub = Target(s, off + 0x14);
@@ -732,6 +764,109 @@ static void Claim_VolumeHolder(Swapper *s, u32 holder) {
     }
 }
 
+/* Quadrant BSP (BSPN0.c): nodes of 0x20 { plane, u8 type 0x10, u16 next
+ * 0x12 }; type & 1: front child is the next node, type & 2: back child is
+ * `next` nodes on. */
+static void Claim_BSPN0(Swapper *s, u32 root) {
+    u32 *stack, sp = 0, cap = 64;
+
+    if (root == ~0u) {
+        return;
+    }
+    stack = malloc(cap * sizeof(u32));
+    if (stack == NULL) {
+        Port_Fatal("out of memory swapping a BSP");
+    }
+    stack[sp++] = root;
+    while (sp != 0) {
+        u32 node = stack[--sp];
+        u8 type;
+
+        if (!InBlob(s, node, 0x20) || s->claim[node + 0x10] == CLAIM_BYTES) {
+            continue;
+        }
+        type = s->base[node + 0x10];
+        ClaimBytes(s, node + 0x10, 2);
+        ClaimU16(s, node + 0x12);
+        if (sp + 2 > cap) {
+            u32 *grown = realloc(stack, (cap *= 2) * sizeof(u32));
+            if (grown == NULL) {
+                free(stack);
+                Port_Fatal("out of memory swapping a BSP");
+            }
+            stack = grown;
+        }
+        if (type & 1) {
+            stack[sp++] = node + 0x20;
+        }
+        if (type & 2) {
+            stack[sp++] = node + Port_ReadBE16(s->base + node + 0x12) * 0x20;
+        }
+    }
+    free(stack);
+}
+
+/* Collision pack (type 5; CollisionTerrain.c), at the base: TerrainGrid
+ * { origin, cells 0x20 (0x50 each), size 0x28-0x30, numX/Y/Z 0x34-0x3C,
+ * cell index 0x40 (s32 per grid cell) }, then polys 0x4C, mode 0x58 (1:
+ * BSP), edges 0x54, materials 0x5C.  A cell has BSP nodes 0x30 (0x20 each:
+ * plane, u32 material, u16 front 0x14, u16 back 0x16; 0xFFFF ends), poly
+ * indices 0x38 (u32, count 0x3C) and edge indices 0x44 (u16, count 0x40). */
+static void Claim_CollisionBSP(Swapper *s, u32 nodes) {
+    u32 *stack, sp = 0, cap = 64;
+
+    stack = malloc(cap * sizeof(u32));
+    if (stack == NULL) {
+        Port_Fatal("out of memory swapping collision");
+    }
+    stack[sp++] = 0;
+    while (sp != 0) {
+        u32 node = nodes + stack[--sp] * 0x20, k;
+
+        if (!InBlob(s, node, 0x20) || s->claim[node + 0x14] == CLAIM_U16) {
+            continue;
+        }
+        ClaimU16(s, node + 0x14);
+        ClaimU16(s, node + 0x16);
+        if (sp + 2 > cap) {
+            u32 *grown = realloc(stack, (cap *= 2) * sizeof(u32));
+            if (grown == NULL) {
+                free(stack);
+                Port_Fatal("out of memory swapping collision");
+            }
+            stack = grown;
+        }
+        for (k = 0; k < 2; k++) {
+            u16 child = Port_ReadBE16(s->base + node + 0x14 + k * 2);
+            if (child != 0xFFFF) {
+                stack[sp++] = child;
+            }
+        }
+    }
+    free(stack);
+}
+
+static void Claim_Collision(Swapper *s) {
+    u32 cells = Target(s, 0x20), index = Target(s, 0x40), numCells = 0, total, i, j;
+
+    total = Word(s, 0x34) * Word(s, 0x38) * Word(s, 0x3C);
+    for (i = 0; index != ~0u && i < total && i < 0x100000; i++) {
+        u32 c = Word(s, index + i * 4);
+        if (c + 1 > numCells && c < 0x10000) {
+            numCells = c + 1;
+        }
+    }
+    for (i = 0; cells != ~0u && i < numCells; i++) {
+        u32 cell = cells + i * 0x50, nodes = Target(s, cell + 0x30), edges = Target(s, cell + 0x44);
+        if (nodes != ~0u) {
+            Claim_CollisionBSP(s, nodes);
+        }
+        for (j = 0; edges != ~0u && j < Word(s, cell + 0x40) && j < 0x10000; j++) {
+            ClaimU16(s, edges + j * 2);
+        }
+    }
+}
+
 static void Claim_World(Swapper *s, u32 off) {
     u32 list, n, i;
 
@@ -745,6 +880,7 @@ static void Claim_World(Swapper *s, u32 off) {
     n = Word(s, off + 0x20);
     for (i = 0; list != ~0u && i < n && i < 0x1000; i++) {
         u32 il = Target(s, list + i * 0x50 + 0x30);
+        Claim_BSPN0(s, Target(s, list + i * 0x50 + 0x1C));   /* visibility BSP */
         ClaimBytes(s, list + i * 0x50 + 0x34, 4);   /* s8 loaded, visible (World_Render) */
         if (il != ~0u) {
             u32 items = Target(s, il + 0x18), m = Word(s, il + 0x14), j;
@@ -800,6 +936,13 @@ static void Claim_World(Swapper *s, u32 off) {
             }
         }
     }
+    /* objectives 0x58/0x5C (8 each: u32, info -> { u8, u8 type, u8 id, u8 })
+     * (InterfaceManager_PreprocessInterface, GameSettings_GetCodeVariable) */
+    list = Target(s, off + 0x5C);
+    n = Word(s, off + 0x58);
+    for (i = 0; list != ~0u && i < n && i < 0x400; i++) {
+        ClaimBytes(s, Target(s, list + i * 8 + 4), 4);
+    }
     Claim_VolumeHolder(s, Target(s, off + 4));
     {
         u32 gd = Target(s, off + 0x9C);
@@ -842,11 +985,126 @@ static void Claim_Sound(Swapper *s, u32 off) {
  * 2 emitter (EmitterData: u8 x4), 3 sound sequence, 5/6 attach (u8 x4,
  * scale keys 0xC and 0x14, color keys 0x1C), 8 motion (animated model),
  * 9 radar blip (u8 x4). */
+/* Event sequence (EventSequence.c, slave type 1): script { count, entries
+ * (0xC: u32 type, a, b) }.  b is an emitter:
+ *   particle emitters (types 1-4, 7, 29: EventSeq_Advanced_GetInitData):
+ *     s32 count 0x0-0x4, f32 0x8-0x1C, u8 0x20-0x22, offset 0x28 (kind
+ *     0x21: 2 = { f32, f32, u8 0x8, u8 type 0x9, data 0xC: type 1 { Vector4,
+ *     u8 0x10 }, 2 { f32 x4, u8 axis/damped/spin 0x10 } }), info 0x2C
+ *     { Vector4, u8 0x10 } for velocity kind 0x22 == 4 (else f32 ranges);
+ *   position emitters (5, 6, 8, 10, 25, 26): u8 0x18, 0x19, range 0x1C.
+ * a by type: 1 particle (u8 0x0), 5 blast (u8 0x0-0x4), 10 sound (u8 0x0),
+ * 26 sound sequence. */
+static void Claim_SoundSeq(Swapper *s, u32 off);
+static void Claim_EventSeq(Swapper *s, u32 script) {
+    u32 entries, n, i;
+
+    if (script == ~0u) {
+        return;
+    }
+    entries = Target(s, script + 4);
+    n = Word(s, script);
+    for (i = 0; entries != ~0u && i < n && i < 0x400; i++) {
+        u32 e = entries + i * 0xC;
+        u32 a = Target(s, e + 4), b = Target(s, e + 8);
+
+        switch (Word(s, e)) {
+        case 1: case 2: case 3: case 4: case 7: case 29:
+            if (b != ~0u && s->claim[b + 0x20] != CLAIM_BYTES) {
+                u32 adv = Target(s, b + 0x28), info = Target(s, b + 0x2C);
+                ClaimBytes(s, b + 0x20, 4);
+                if (s->base[b + 0x21] == 2 && adv != ~0u) {
+                    u32 d = Target(s, adv + 0xC);
+                    ClaimBytes(s, adv + 8, 4);
+                    if (d != ~0u && (s->base[adv + 9] == 1 || s->base[adv + 9] == 2)) {
+                        ClaimBytes(s, d + 0x10, 4);
+                    }
+                }
+                if (info != ~0u && s->base[b + 0x22] == 4) {   /* else a range of f32s */
+                    ClaimBytes(s, info + 0x10, 4);
+                }
+            }
+            if (Word(s, e) == 1 && a != ~0u) {
+                u32 anim = Target(s, a + 4);   /* particle: u8 0x0, anim 0x4 -> u8 x4 */
+                ClaimBytes(s, a, 4);
+                if (anim != ~0u) {
+                    ClaimBytes(s, anim, 4);
+                }
+            }
+            break;
+        case 5: case 6: case 8: case 10: case 25: case 26:
+            if (b != ~0u) {
+                ClaimBytes(s, b + 0x18, 4);
+            }
+            if (a != ~0u) {
+                switch (Word(s, e)) {
+                case 5:   /* blast: u8 0x0-0x4; damage 0x1C -> { u8 flags, u8 } */
+                    ClaimBytes(s, a, 8);
+                    ClaimBytes(s, Target(s, a + 0x1C), 4);
+                    break;
+                case 10: ClaimBytes(s, a, 4); break;
+                case 26: Claim_SoundSeq(s, a); break;
+                }
+            }
+            break;
+        }
+    }
+}
+
+/* Event sequences are also referenced from records walked nowhere else
+ * (dynamic world objects' shared slaves), so they are found by shape too. */
+static int IsSlotOrNull(Swapper *s, u32 off) {
+    return InBlob(s, off, 4) && (s->claim[off] == CLAIM_DONE || Word(s, off) == 0);
+}
+
+static int IsEventSeq(Swapper *s, u32 script) {
+    u32 entries, n, i, emitters = 0;
+
+    if (script == ~0u || !InBlob(s, script, 8)) {
+        return 0;
+    }
+    n = Word(s, script);
+    entries = Target(s, script + 4);
+    if (n == 0 || n > 0x100 || entries == ~0u || !InBlob(s, entries, n * 0xC)) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        u32 e = entries + i * 0xC, type = Word(s, e);
+        if (type > 40) {
+            return 0;
+        }
+        switch (type) {   /* other entries hold values (repeat counts, times) */
+        case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8:
+        case 10: case 25: case 26: case 29:
+            if (!IsSlotOrNull(s, e + 4) || Target(s, e + 8) == ~0u) {
+                return 0;
+            }
+            emitters++;
+            break;
+        }
+    }
+    return emitters != 0;
+}
+
+static void Claim_EventSeqScan(Swapper *s, const u32 *pointers, u32 numPointers) {
+    u32 i;
+
+    for (i = 0; i < numPointers; i++) {
+        u32 t = Target(s, pointers[i]);
+        if (IsEventSeq(s, t)) {
+            Claim_EventSeq(s, t);
+        }
+    }
+}
+
 static void Claim_SlaveData(Swapper *s, u8 type, u32 data) {
     if (data == ~0u) {
         return;
     }
     switch (type) {
+    case 1:
+        Claim_EventSeq(s, data);
+        break;
     case 2:
     case 9:
         ClaimBytes(s, data, 4);
@@ -960,14 +1218,57 @@ static int IsSkeleton(Swapper *s, u32 skel) {
     return children == n - 1;
 }
 
+/* Other records point at skeletons too (a destructible's motion record has
+ * one at 0x14 as well), so a model must also have a frame rate at 0x18. */
+static int IsMotionAnim(Swapper *s, u32 m) {
+    f32 fps;
+
+    if (m == ~0u || !InBlob(s, m, 0x34) || Word(s, m) > 0x100 || Word(s, m + 8) > 0x400) {
+        return 0;
+    }
+    fps = BEFloat(s, m + 0x18);
+    return fps >= 1.0f && fps <= 1000.0f && IsSkeleton(s, Target(s, m + 0x14));
+}
+
 static void Claim_ModelScan(Swapper *s, const u32 *pointers, u32 numPointers) {
     u32 i;
 
     for (i = 0; i < numPointers; i++) {
         u32 m = Target(s, pointers[i]);
-        if (m != ~0u && InBlob(s, m, 0x20) && Word(s, m + 8) <= 0x400 &&
-            IsSkeleton(s, Target(s, m + 0x14))) {
+        if (IsMotionAnim(s, m)) {
             Claim_MotionAnim(s, m);
+        }
+    }
+}
+
+/* Keyframe animations hang off many records (movers' tracks, cars, models),
+ * so they are also found by shape: numBones 0x10, pointer slots for flags
+ * 0x1C, times 0x20 and data 0x24, a time range 0x8-0xC and a frame count
+ * 0x28. */
+static int IsKeyAnim(Swapper *s, u32 a) {
+    u32 bones, frames;
+    f32 t0, t1;
+
+    if (a == ~0u || !InBlob(s, a, 0x34)) {
+        return 0;
+    }
+    bones = Word(s, a + 0x10);
+    frames = Word(s, a + 0x28);
+    t0 = BEFloat(s, a + 0x8);
+    t1 = BEFloat(s, a + 0xC);
+    return bones != 0 && bones <= 0x100 && frames != 0 && frames <= 0x10000 &&
+           t0 > -1e7f && t1 < 1e7f && t0 <= t1 &&
+           Target(s, a + 0x1C) != ~0u && Target(s, a + 0x20) != ~0u && Target(s, a + 0x24) != ~0u &&
+           InBlob(s, Target(s, a + 0x1C), bones * 2);
+}
+
+static void Claim_KeyAnimScan(Swapper *s, const u32 *pointers, u32 numPointers) {
+    u32 i;
+
+    for (i = 0; i < numPointers; i++) {
+        u32 a = Target(s, pointers[i]);
+        if (IsKeyAnim(s, a)) {
+            Claim_KeyAnim(s, a);
         }
     }
 }
@@ -1286,7 +1587,14 @@ static void Claim_Roots(Swapper *s) {
         Claim_World(s, 0);  /* world packs: the world itself is at the base */
         return;
     }
-    for (i = 0; table != ~0u && i < n; i++) {
+    if (s->packType == 5) {
+        Claim_Collision(s);  /* collision packs: the grid is at the base */
+        return;
+    }
+    if (s->packType == 8) {
+        return;  /* shared packs start with an export table instead */
+    }
+    for (i = 0; table != ~0u && i < n && InBlob(s, table + i * 8, 8); i++) {
         u32 obj = Target(s, table + i * 8);
 
         if (obj == ~0u) {
@@ -1387,6 +1695,8 @@ void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataS
     Claim_GeometryScan(&s, pointers, numPointers);
     Claim_GeometryScanRelocs(&s, texRelocs, numTexRelocs);
     Claim_ModelScan(&s, pointers, numPointers);
+    Claim_EventSeqScan(&s, pointers, numPointers);
+    Claim_KeyAnimScan(&s, pointers, numPointers);
     Claim_Roots(&s);
     Claim_TACTriggers(&s, triggerOffset, numTriggers);
     Claim_Shaders(&s, shaderOffset, numShaders);
