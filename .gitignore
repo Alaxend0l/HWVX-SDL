@@ -1,5 +1,7 @@
 # Build
 build/
+build-*/
+orig/
 
 # Prerequisites
 *.d

@@ -1,0 +1,5 @@
+
+
+void Dprintf(char *str, ...)
+{
+}
