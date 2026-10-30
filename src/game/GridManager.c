@@ -51,12 +51,18 @@ static inline void Grid_GetCell(Vector4 *pos, s32 *cellX, s32 *cellZ) {
     f32 fz;
 
     fx = (pos->x - gGridManager.min.x) / gGridManager.cellSizeX;
+    if (!(fx < 0.0f) && !(fx >= 0.0f)) {
+        fx = 0.0f;   /* port: NaN would convert to INT_MIN and index far outside the grid */
+    }
     if (fx < 0.0f) {
         fx = 0.0f;
     } else if (fx >= (f32)gGridManager.numX) {
         fx = (f32)gGridManager.numX - 1.0f;
     }
     fz = (pos->z - gGridManager.min.z) / gGridManager.cellSizeZ;
+    if (!(fz < 0.0f) && !(fz >= 0.0f)) {
+        fz = 0.0f;   /* port: as above */
+    }
     if (fz < 0.0f) {
         fz = 0.0f;
     } else if (fz >= (f32)gGridManager.numZ) {

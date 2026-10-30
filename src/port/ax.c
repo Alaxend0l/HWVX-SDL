@@ -2,7 +2,7 @@
  *
  * The game's sound engine (Voice_.c) programs DSP voice parameter blocks
  * (AXVPB) directly by byte offset, so voices here are raw 0x200-byte blocks in
- * GameCube layout which this software mixer interprets every 5 ms AX frame.
+ * GameCube layout which this software mixer interprets every AX frame.
  *
  * Threads: the game's AX frame callback is game code, so it must run under the
  * giant lock. A dedicated AX thread runs callback + mixer and queues each
@@ -16,12 +16,16 @@ void Port_GiantLock(void);
 void Port_GiantUnlock(void);
 
 #define AX_RATE 48000
-#define AX_FRAME_SAMPLES (AX_RATE / 200) /* 5 ms */
+/* AX processes 160 samples per frame: 5 ms at 32 kHz, 3.33 ms at the 48 kHz
+ * DSP rate the game selects (AISetDSPSampleRate(1)). The frame callback's
+ * timing depends on it: Audio_Update(0xD05) advances the music and voice
+ * envelopes by 3333 us per frame. */
+#define AX_FRAME_SAMPLES 160
 #define AX_MAX_VOICES 64
 #define AX_VPB_SIZE 0x200
 #define ARAM_SIZE (16u << 20)
 #define ARAM_BASE 0x4000u /* the SDK reserves the first 16 KB for the DSP */
-#define RING_FRAMES (AX_FRAME_SAMPLES * 8)
+#define RING_FRAMES (AX_FRAME_SAMPLES * 12) /* samples: 40 ms */
 
 /* Byte offsets inside an AXVPB (GameCube layout). */
 #define VPB_PRIORITY 0x0C
@@ -298,12 +302,12 @@ static int SDLCALL AXThread(void *unused) {
                 continue;
             }
         } else {
-            /* silent: one AX frame per 5 ms of real time */
+            /* silent: one AX frame per frame length of real time */
             Uint64 now = SDL_GetTicksNS();
             if (now < next) {
                 SDL_DelayNS(next - now);
             }
-            next += SDL_NS_PER_SECOND / 200;
+            next += SDL_NS_PER_SECOND * AX_FRAME_SAMPLES / AX_RATE;
         }
         Port_GiantLock();
         RunAXFrame(frame);

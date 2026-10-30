@@ -1239,10 +1239,17 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
             }
             if (Word(s, e) == 2 && a != ~0u && s->claim[a] != CLAIM_BYTES) {
                 /* projectile (Projectile.c): u8 0x3-0x5, 0x8; scale keys 0x8C,
-                 * colour keys 0x94 */
+                 * colour keys 0x94; slaves 0x9C (Projectile_Init:
+                 * Thing_InitAllSlavesNow); smart target u16s 0xA8 */
+                u32 tgt = Target(s, a + 0xA8);
                 ClaimBytes(s, a, 0xC);
                 Claim_Track(s, a + 0x8C, KEYS_VEC4);
                 Claim_Track(s, a + 0x94, KEYS_COLOR);
+                Claim_SlaveList(s, a + 0x9C);
+                if (tgt != ~0u) {
+                    ClaimU16(s, tgt);
+                    ClaimU16(s, tgt + 2);
+                }
             }
             if (Word(s, e) == 1 && a != ~0u) {
                 /* particle (ParticleManager.c): u8 kind 0x0 (0 GX particle,
@@ -1843,8 +1850,8 @@ static void Claim_TACTriggers(Swapper *s, u32 off, u32 count) {
 
 /* ---- items (type 2 packs: the root is the item's ItemInfo) ----------------
  * 0x0 u8 type, 0x1 u8, 0x2 u16 value (CarA_ProcessItemPickup); 0x30 -> weapon /
- * wildcard data (u8 spinType 0x2C, spinLimit 0x2D, u16 spinBone 0x2E; u8
- * priority 0x34); shared slaves
+ * wildcard data (card 0x0: a motion animation; u8 spinType 0x2C, spinLimit
+ * 0x2D, u16 spinBone 0x2E; u8 priority 0x34); shared slaves
  * { count, list } at 0x38 (Item_Init, Item_Draw). */
 static void Claim_ItemInfo(Swapper *s, u32 off) {
     u32 sub;
@@ -1853,6 +1860,13 @@ static void Claim_ItemInfo(Swapper *s, u32 off) {
     ClaimU16(s, off + 2);
     sub = Target(s, off + 0x30);
     if (sub != ~0u) {
+        /* 0x0 -> the wildcard card: a motion animation whose slave triggers
+         * (0x2C) fire the weapon (WildcardState_Heartbeat ->
+         * MotionState_BlendTriggerEvents): event sequences with the projectile */
+        u32 card = Target(s, sub);
+        if (card != ~0u && IsMotionAnim(s, card)) {
+            Claim_MotionAnim(s, card);
+        }
         ClaimBytes(s, sub + 0x2C, 2);   /* u8 spinType, spinLimit (WildCard.c) */
         ClaimU16(s, sub + 0x2E);        /* spinBone */
         ClaimBytes(s, sub + 0x34, 4);   /* u8 priority (AI weapons) */
@@ -2045,6 +2059,43 @@ void PortSwap_QuadPack(u8 *data, u32 size, u32 index) {
     Claim_StringTargets(&s, pointers, nPointers);
     snprintf(name, sizeof(name), "quad#%u", index);
     Swapper_Finish(&s, name);
+}
+
+/* ---- music (MIDI.c: CreateMIDI) -------------------------------------------
+ * Called on CreateMIDI's heap copies; the pack keeps the big-endian original.
+ * Song: RIFX 'MIDI' around a standard MIDI file. The players read the RIFX
+ * size (0x4) and the MThd fields (size 0x10, format/tracks/division 0x14-
+ * 0x18) as words; MTrk (0x1A) event data is a byte stream.
+ * Bank: RIFX 'sndb': u32 size 0x4, version 0xC, instrument count 0x10, table
+ * size 0x14 (sample data follows the table), 0x18, 0x1C; instruments (0x20
+ * each, MIDI_INST / MIDISample_): u32 sample address, length, loop, rate
+ * (0x0-0xC); u8 0x10, bits 0x11, 0x12, 0x13, program 0x14, 0x15, key range
+ * 0x16/0x17; u16 envelope 0x18, 0x1A, sustain 0x1C, 0x1E. Sample data stays
+ * big-endian, like the hardware reads it from ARAM. */
+void PortSwap_MIDI(u8 *song, u8 *bank) {
+    u32 i, n;
+
+    *(u32 *)(song + 0x4) = Port_ReadBE32(song + 0x4);
+    *(u32 *)(song + 0x10) = Port_ReadBE32(song + 0x10);
+    for (i = 0x14; i <= 0x18; i += 2) {
+        *(u16 *)(song + i) = Port_ReadBE16(song + i);
+    }
+    *(u32 *)(song + 0x1E) = Port_ReadBE32(song + 0x1E);
+
+    for (i = 0x4; i < 0x20; i += 4) {
+        if (i != 0x8) {   /* 0x8 is the 'sndb' id, compared as bytes */
+            *(u32 *)(bank + i) = Port_ReadBE32(bank + i);
+        }
+    }
+    n = *(u32 *)(bank + 0x10);
+    for (i = 0; i < n && 0x20 + (i + 1) * 0x20 <= *(u32 *)(bank + 0x14); i++) {
+        u8 *e = bank + 0x20 + i * 0x20;
+        Port_SwapArray32(e, 4);
+        *(u16 *)(e + 0x18) = Port_ReadBE16(e + 0x18);
+        *(u16 *)(e + 0x1A) = Port_ReadBE16(e + 0x1A);
+        *(u16 *)(e + 0x1C) = Port_ReadBE16(e + 0x1C);
+        *(u16 *)(e + 0x1E) = Port_ReadBE16(e + 0x1E);
+    }
 }
 
 /* ---- sound effects (Voice.c: SFX) ----------------------------------------

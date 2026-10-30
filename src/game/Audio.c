@@ -54,7 +54,9 @@ void Audio_Update(u32 unused)
 {
 	if (SongUpdate != NULL)
 	{
-		SongUpdate();
+		/* port: the original leaves `unused` (the frame time) in r3 for
+		 * ProcessMIDI(time) / ProcessIT(ticks) */
+		((void (*)(u32))SongUpdate)(unused);
 	}
 
 	if (VoiceUpdate != 0)

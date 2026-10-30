@@ -891,6 +891,7 @@ void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataS
 void PortSwap_PackHeader(u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
 void PortSwap_QuadPack(u8 *data, u32 size, u32 index);
 void PortSwap_SFXDescriptors(u8 *sfx, u32 count);
+void PortSwap_MIDI(u8 *song, u8 *bank);
 void PortSwap_TOC(u32 *buf, u32 bufWords);
 
 /* ProcessManager.c */

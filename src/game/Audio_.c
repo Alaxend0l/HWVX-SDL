@@ -157,7 +157,9 @@ s32 FreeA_(u32 addr) {
                 g_memblk[i].addr = g_memblk[next].addr;
                 g_memblk[i].size += g_memblk[next].size;
                 g_memblk[i].next = g_memblk[next].next;
-                g_memblk[g_memblk[i].next].prev = i;
+                if (g_memblk[i].next != 0xFFFFFFFF) {   /* port: GC wrote g_memblk[-1] here; a 64-bit index would not wrap */
+                    g_memblk[g_memblk[i].next].prev = i;
+                }
                 g_memblk[next].next = g_free;
                 g_memblk[next].size = 0;
                 g_free = next;
@@ -166,7 +168,9 @@ s32 FreeA_(u32 addr) {
                 g_memblk[prev].addr = g_memblk[i].addr;
                 g_memblk[prev].size += g_memblk[i].size;
                 g_memblk[prev].next = g_memblk[i].next;
-                g_memblk[g_memblk[prev].next].prev = prev;
+                if (g_memblk[prev].next != 0xFFFFFFFF) {   /* port: as above */
+                    g_memblk[g_memblk[prev].next].prev = prev;
+                }
                 g_memblk[i].next = g_free;
                 g_memblk[i].size = 0;
                 g_free = i;

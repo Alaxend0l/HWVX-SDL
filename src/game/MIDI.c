@@ -149,11 +149,14 @@ void CreateMIDI(u8 *hdr, u8 *snd)
     {
         return;
     }
-    i = *(u32 *)(hdr + 4) + 8;
-    g_pHdr = OSAllocFromHeap(__OSCurrHeap, i + *(u32 *)(snd + 0x14));
+    /* port: the song (RIFX 'MIDI') and bank (RIFX 'sndb') are big-endian in
+     * the pack; only the copies below are swapped (PortSwap_MIDI) */
+    i = Port_ReadBE32(hdr + 4) + 8;
+    g_pHdr = OSAllocFromHeap(__OSCurrHeap, i + Port_ReadBE32(snd + 0x14));
     g_pSnd = (MIDI_SND *)((u8 *)g_pHdr + i);
     memcpy(g_pHdr, hdr, i);
-    memcpy((u8 *)g_pSnd, snd, *(u32 *)(snd + 0x14));
+    memcpy((u8 *)g_pSnd, snd, Port_ReadBE32(snd + 0x14));
+    PortSwap_MIDI(g_pHdr, (u8 *)g_pSnd);
     g_pSnd->size += (u32)HND(snd);
     FindMarkers((u8 *)g_pHdr + 0x22);
     memset(g_pProg, 0, 0x200);
@@ -201,13 +204,14 @@ void DestroyMIDI(void)
 
 s32 SetMIDIState(s32 state) {
  typedef struct MIDI_VOICE *MV; typedef struct MIDI_CHN MC;
- extern void *g_pHdr; extern s32 g_musicState; extern u32 SongUpdate, g_trkOn, g_trkOff;
+ extern void *g_pHdr; extern s32 g_musicState; extern u32 g_trkOn, g_trkOff;
+ extern void (*volatile SongUpdate)(void);  /* port: a host function pointer (Audio.c) */
  extern u8 g_song[0x24];
      void ProcessMIDI(s32); u32 ReadVar_(u8 **pp);
  MC *chn; MV voice, next; u32 i; s32 old;
  if (g_pHdr == NULL) return -1;
  if (state == 0 || g_pHdr == NULL) return g_musicState;
- if (state != 1) SongUpdate = 0;
+ if (state != 1) SongUpdate = NULL;
  switch (state) {
  case 2:
   for (chn = g_chn, i = 0x10; i != 0; i--)
@@ -247,7 +251,7 @@ s32 SetMIDIState(s32 state) {
     for (voice = GETP((chn++)->voice); voice != NULL; voice = GETP(voice->next)) SetVoiceState_(voice, 1);
    break;
   }
-  state = 1; SongUpdate = (u32)HND(ProcessMIDI);
+  state = 1; SongUpdate = (void (*)(void))ProcessMIDI;  /* called with the frame time (Audio_Update) */
   break;
  }
  old = g_musicState; g_musicState = state; return old;
