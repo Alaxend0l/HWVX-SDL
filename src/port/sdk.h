@@ -1,5 +1,5 @@
 /* The subset of the Dolphin (GameCube) SDK that the game calls, implemented by
- * src/port on top of SDL3, OpenGL and miniaudio.
+ * src/port on top of SDL3 (window, input, audio) and OpenGL.
  *
  * Signatures follow the real SDK; enum parameters are plain integers. Structs
  * the game defines itself (AXVPB, PADStatus, CARDStat, ...) are only referred
@@ -218,7 +218,7 @@ s32 CARDWrite(struct CARDFileInfo *fileInfo, const void *buf, s32 length, s32 of
 s32 CARDGetStatus(s32 chan, s32 fileNo, struct CARDStat *stat);
 s32 CARDSetStatus(s32 chan, s32 fileNo, struct CARDStat *stat);
 
-/* ---- AI / AR / AX (audio -> miniaudio) -------------------------------- */
+/* ---- AI / AR / AX (audio -> SDL3 audio stream) ------------------------ */
 
 void AIInit(u8 *stack);
 void AIReset(void);

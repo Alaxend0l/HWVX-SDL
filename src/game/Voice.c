@@ -41,6 +41,12 @@ typedef struct Voice {
     u8 unk4C[0x24];
 } Voice;
 
+/* port: a voice id is the struct's first four bytes read big-endian, as on
+ * the GameCube: kind, sfxIndex, serial, then the voice index in the low byte
+ * ((u8)id). Read natively on a little-endian host, `kind` would land in the
+ * low byte and every sound effect voice would look like voice 1. */
+#define VOICE_ID(v) BE32((v)->id)
+
 extern Voice g_voice[0x20];
 extern SFX g_sound[0xFE];
 extern u8 g_soundLst[0xFE];
@@ -218,14 +224,14 @@ u32 GetVoice(u32 handle, u8 priority) {
             voice->posY = -0x7FFF;
             voice->sfxIndex = handle;
             voice->serial++;
-            return voice->id;
+            return VOICE_ID(voice);
         }
     }
     return 0;
 }
 
 void ReleaseVoice(u32 id) {
-    if (id == g_voice[(u8)id].id) {
+    if (id == VOICE_ID(&g_voice[(u8)id])) {
         SetVoiceState_(&g_voice[(u8)id], 3);
     }
 }
@@ -234,7 +240,7 @@ extern s32 g_sfxState;
 s32 SetVoiceState(u32 id, s32 state) {
     Voice *voice = &g_voice[(u8)id];
 
-    if (voice->id == id) {
+    if (VOICE_ID(voice) == id) {
         if (voice->state == state) {
             return state;
         }
@@ -263,7 +269,7 @@ s32 SetVoiceState(u32 id, s32 state) {
 s32 SetVoiceVol(u32 id, s32 vol) {
     Voice *voice = &g_voice[(u8)id];
 
-    if (voice->id == id) {
+    if (VOICE_ID(voice) == id) {
         voice->vol = vol;
         if (voice->state == 1) {
             SetVoiceVol_(voice, g_sfxvol);
@@ -276,7 +282,7 @@ s32 SetVoiceVol(u32 id, s32 vol) {
 s32 SetVoicePos(u32 id, s16 x, s16 y) {
     Voice *voice = &g_voice[(u8)id];
 
-    if (voice->id == id) {
+    if (VOICE_ID(voice) == id) {
         voice->posX = x;
         voice->posY = y;
         if (voice->state == 1) {
@@ -290,7 +296,7 @@ s32 SetVoicePos(u32 id, s16 x, s16 y) {
 s32 SetVoicePitch(u32 id, s32 pitch) {
     Voice *voice = &g_voice[(u8)id];
 
-    if (voice->id == id) {
+    if (VOICE_ID(voice) == id) {
         voice->pitch = pitch;
         if (SetVoiceRate_(voice)) {
             return 1;

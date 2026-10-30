@@ -1,16 +1,16 @@
-/* AX/AI/ARAM audio replacement on miniaudio.
+/* AX/AI/ARAM audio replacement on SDL3 audio.
  *
  * The game's sound engine (Voice_.c) programs DSP voice parameter blocks
  * (AXVPB) directly by byte offset, so voices here are raw 0x200-byte blocks in
  * GameCube layout which this software mixer interprets every 5 ms AX frame.
  *
  * Threads: the game's AX frame callback is game code, so it must run under the
- * giant lock. A dedicated AX thread runs callback + mixer and fills a ring
- * buffer; the miniaudio device callback only drains the ring and never touches
- * game state. */
+ * giant lock. A dedicated AX thread runs callback + mixer and queues each
+ * frame on an SDL audio stream, keeping at most RING_FRAMES queued; the
+ * stream's device callback only wakes the AX thread and never touches game
+ * state. Without an output device the thread paces itself on the clock, so
+ * the game's sound timing still runs. */
 #include "port_internal.h"
-
-#include "miniaudio.h"
 
 void Port_GiantLock(void);
 void Port_GiantUnlock(void);
@@ -56,8 +56,7 @@ static AXCallback s_frameCallback;
 static AXAuxCallback s_auxA, s_auxB;
 static void *s_auxACtx, *s_auxBCtx;
 
-static ma_device s_device;
-static ma_pcm_rb s_ring;
+static SDL_AudioStream *s_stream;  /* NULL: no output device */
 static SDL_Thread *s_axThread;
 static SDL_Semaphore *s_ringSpace;
 static volatile int s_running;
@@ -284,73 +283,64 @@ static void RunAXFrame(float *out) {
     }
 }
 
+#define FRAME_BYTES ((int)sizeof(float) * AX_FRAME_SAMPLES * 2)
+
 static int SDLCALL AXThread(void *unused) {
     float frame[AX_FRAME_SAMPLES * 2];
+    Uint64 next = SDL_GetTicksNS();
     (void)unused;
 
     while (s_running) {
-        void *dst;
-        ma_uint32 n;
-
-        if (ma_pcm_rb_available_write(&s_ring) < AX_FRAME_SAMPLES) {
-            SDL_WaitSemaphoreTimeout(s_ringSpace, 5);
-            continue;
+        if (s_stream != NULL) {
+            /* keep at most RING_FRAMES queued: wait for the device to drain */
+            if (SDL_GetAudioStreamQueued(s_stream) > (RING_FRAMES - AX_FRAME_SAMPLES) * (int)sizeof(float) * 2) {
+                SDL_WaitSemaphoreTimeout(s_ringSpace, 5);
+                continue;
+            }
+        } else {
+            /* silent: one AX frame per 5 ms of real time */
+            Uint64 now = SDL_GetTicksNS();
+            if (now < next) {
+                SDL_DelayNS(next - now);
+            }
+            next += SDL_NS_PER_SECOND / 200;
         }
         Port_GiantLock();
         RunAXFrame(frame);
         Port_GiantUnlock();
-
-        n = AX_FRAME_SAMPLES;
-        if (ma_pcm_rb_acquire_write(&s_ring, &n, &dst) == MA_SUCCESS) {
-            memcpy(dst, frame, n * sizeof(float) * 2);
-            ma_pcm_rb_commit_write(&s_ring, n);
+        if (s_stream != NULL) {
+            SDL_PutAudioStreamData(s_stream, frame, FRAME_BYTES);
         }
     }
     return 0;
 }
 
-static void DeviceCallback(ma_device *dev, void *output, const void *input, ma_uint32 frameCount) {
-    float *out = output;
-    (void)dev;
-    (void)input;
-
-    while (frameCount > 0) {
-        void *src;
-        ma_uint32 n = frameCount;
-        if (ma_pcm_rb_acquire_read(&s_ring, &n, &src) != MA_SUCCESS || n == 0) {
-            break;
-        }
-        memcpy(out, src, n * sizeof(float) * 2);
-        ma_pcm_rb_commit_read(&s_ring, n);
-        out += n * 2;
-        frameCount -= n;
-    }
-    /* Underrun: the output buffer is pre-zeroed by miniaudio. */
+/* Runs on SDL's audio thread whenever the device wants more: just wake the
+ * AX thread (an underrun plays silence). */
+static void SDLCALL DeviceCallback(void *userdata, SDL_AudioStream *stream, int additional, int total) {
+    (void)userdata;
+    (void)stream;
+    (void)additional;
+    (void)total;
     SDL_SignalSemaphore(s_ringSpace);
 }
 
 void AXInit(void) {
-    ma_device_config cfg;
+    SDL_AudioSpec spec;
 
     if (s_running) {
         return;
     }
-    if (ma_pcm_rb_init(ma_format_f32, 2, RING_FRAMES, NULL, NULL, &s_ring) != MA_SUCCESS) {
-        Port_Fatal("audio ring buffer init failed");
-    }
-    cfg = ma_device_config_init(ma_device_type_playback);
-    cfg.playback.format = ma_format_f32;
-    cfg.playback.channels = 2;
-    cfg.sampleRate = AX_RATE;
-    cfg.dataCallback = DeviceCallback;
-    cfg.periodSizeInFrames = AX_FRAME_SAMPLES * 2;
-    cfg.noPreSilencedOutputBuffer = MA_FALSE;
-    if (ma_device_init(NULL, &cfg, &s_device) != MA_SUCCESS) {
-        Port_Log("audio: no output device; continuing silently");
-    } else {
-        ma_device_start(&s_device);
-    }
+    spec.format = SDL_AUDIO_F32;
+    spec.channels = 2;
+    spec.freq = AX_RATE;
     s_ringSpace = SDL_CreateSemaphore(0);
+    s_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, DeviceCallback, NULL);
+    if (s_stream == NULL) {
+        Port_Log("audio: no output device (%s); continuing silently", SDL_GetError());
+    } else {
+        SDL_ResumeAudioStreamDevice(s_stream);
+    }
     s_running = 1;
     s_axThread = SDL_CreateThread(AXThread, "ax", NULL);
 }
@@ -365,6 +355,10 @@ void Audio_PortShutdown(void) {
     }
     s_running = 0;
     SDL_WaitThread(s_axThread, NULL);
-    ma_device_uninit(&s_device);
-    ma_pcm_rb_uninit(&s_ring);
+    if (s_stream != NULL) {
+        SDL_DestroyAudioStream(s_stream);  /* also closes the device */
+        s_stream = NULL;
+    }
+    SDL_DestroySemaphore(s_ringSpace);
+    s_ringSpace = NULL;
 }

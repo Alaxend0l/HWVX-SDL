@@ -177,8 +177,11 @@ void GetSystemDate(s32 *year, s32 *month, s32 *day, s32 *hour, s32 *minute) {
 
 int main(int argc, char **argv) {
     ParseArgs(argc, argv);
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         Port_Fatal("SDL_Init failed: %s", SDL_GetError());
+    }
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {  /* no sound is not fatal (ax.c runs silently) */
+        Port_Log("audio: %s", SDL_GetError());
     }
     CheckDataDir();
     Port_InitHandles(PORT_ARENA_SIZE);

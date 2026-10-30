@@ -4,7 +4,7 @@ Turning the GC Decompilation of HWVX into a portable codebase for modding and po
 The game code comes from the [HWVX-GC-Decomp](HWVX-GC-Decomp) submodule. The
 GameCube SDK it was written against (OS, GX, DVD, PAD, CARD, AX...) is replaced
 by a platform layer on **SDL3** (window, input, files, threads),
-**OpenGL 3.3** (graphics) and **miniaudio** (sound). Everything is C, built
+**OpenGL 3.3** (graphics); sound goes through SDL3's audio streams. Everything is C, built
 with GCC.
 
 ## Building
@@ -161,7 +161,7 @@ cars; it currently stops while running the level's scripted triggers/actions.
 
 - [x] Build system, platform layer: window/GL context, VI frame pacing,
       threads, heap arena + handles, DVD → data dir, CARD → save files,
-      PAD → SDL gamepad/keyboard, AX mixer → miniaudio, MTX/VEC
+      PAD → SDL gamepad/keyboard, AX mixer → SDL audio stream, MTX/VEC
 - [x] Pointer slots, pointer↔integer conversions and struct pointer fields
       converted to 32-bit handles (tool-driven, ~9k sites)
 - [x] Game sources compile and link on 64-bit (x86-64 Linux, GCC)

@@ -21,8 +21,7 @@ file(GLOB PORT_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/port/*.c)
 add_executable(hwvx ${GAME_SOURCES} ${PORT_SOURCES})
 target_include_directories(hwvx PRIVATE
     ${CMAKE_SOURCE_DIR}/src/game/include
-    ${CMAKE_SOURCE_DIR}/src/port
-    ${CMAKE_SOURCE_DIR}/thirdparty)
+    ${CMAKE_SOURCE_DIR}/src/port)
 target_link_libraries(hwvx PRIVATE SDL3::SDL3 Threads::Threads ${CMAKE_DL_LIBS})
 if(NOT WIN32)
     target_link_libraries(hwvx PRIVATE m)
@@ -58,8 +57,6 @@ foreach(src ${GAME_SOURCES})
     string(MAKE_C_IDENTIFIER ${stem} stem)
     set_property(SOURCE ${src} APPEND PROPERTY COMPILE_DEFINITIONS HWVX_SRC_${stem})
 endforeach()
-
-set_source_files_properties(${CMAKE_SOURCE_DIR}/src/port/miniaudio_impl.c PROPERTIES COMPILE_OPTIONS "-w")
 
 # Debug aid for the data pack byte-swapping: see src/port/swapcheck.c.
 option(HWVX_SWAPCHECK "Report game reads that disagree with how pack data was swapped" OFF)

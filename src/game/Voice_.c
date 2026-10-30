@@ -106,7 +106,7 @@ s32 AudioVoice_Create_(void *voices) {
 
     for (i = 0; i < 0x20; i++) {
         SETP(g_voice[i].axv, NULL);
-        *(u32 *)&g_voice[i] = i;
+        *(u32 *)&g_voice[i] = BE32(i);  /* port: the index is the id's low byte, last in memory (Voice.c VOICE_ID) */
         g_voice[i].id = 0xFF;
     }
     m_InitOnce = 1;
