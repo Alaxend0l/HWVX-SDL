@@ -150,11 +150,14 @@ static inline s8 Thing_SweptSpheresTouch(u8 *a, u8 *b, f32 t) {
 }
 
 s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
-    typedef struct CollisionBox {
-        Vector4 min;
-        Vector4 max;
-        Vector4 extra;
-    } CollisionBox;
+    typedef union CollisionBox {
+        struct {
+            Vector4 min;
+            Vector4 max;
+            Vector4 extra;
+        };
+        f64 d[6];
+    } CollisionBox __attribute__((aligned(16)));
     typedef struct RayHit {
         Vector4 pos;
         Vector4 normal;
@@ -164,11 +167,15 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
 
     best = *t;
     switch (*(s16 *)(a + 0x80)) {
+    case 0:
+        break;
     case 3:
         best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))))(b, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
         break;
     case 1:
         switch (*(s16 *)(b + 0x80)) {
+        case 0:
+            break;
         case 3:
             best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (a + 0x8C)) + 0x38))))(a, (Vector4 *)(b + 0x40), (Vector4 *)b, hit, *t);
             break;

@@ -395,17 +395,17 @@ void OBoxCache_Set(u32 box0, u32 box1, Vector4 *pos, Vector4 *normal)
     g_aCollisionPairCache[slot].objectB = box1;
 }
 
-static inline s8 OBoxCache_Get(u32 box0, u32 box1, Vector4 *pos, Vector4 *normal) {
+static inline s8 OBoxCache_Get(void *box0, void *box1, Vector4 *pos, Vector4 *normal) {
     s32 i;
 
     for (i = 0; i < 4; i++) {
-        if (box0 == g_aCollisionPairCache[i].objectA && box1 == g_aCollisionPairCache[i].objectB) {
+        if ((u32)HND(box0) == g_aCollisionPairCache[i].objectA && (u32)HND(box1) == g_aCollisionPairCache[i].objectB) {
             *pos = g_aCollisionPairCache[i].pos;
             *normal = g_aCollisionPairCache[i].normal;
             g_aCollisionPairCache[i].time = 0;
             return 1;
         }
-        if (box1 == g_aCollisionPairCache[i].objectA && box0 == g_aCollisionPairCache[i].objectB) {
+        if ((u32)HND(box1) == g_aCollisionPairCache[i].objectA && (u32)HND(box0) == g_aCollisionPairCache[i].objectB) {
             *pos = g_aCollisionPairCache[i].pos;
             normal->x = -g_aCollisionPairCache[i].normal.x;
             normal->y = -g_aCollisionPairCache[i].normal.y;
@@ -438,25 +438,29 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
     Vector4 pB;
     Vector4 plane;
     Vector4 q;
-    Vector4 diff;
-    u8 maxIdx2;
-    u8 minIdx2;
+    Vector4 diff __attribute__((aligned(16)));
+    u8 featB;
+    u8 corner;
+    u8 axisB;
+    u8 axisIdx;
+    u8 type;
     s32 i;
+    s32 j;
     s32 k;
+    s32 ia;
     u8 minIdx;
     u8 maxIdx;
-    s32 j;
-    s32 ia;
-    u8 axisIdx;
-    u8 corner;
-    u8 type;
+    u8 minIdx2;
+    u8 maxIdx2;
+    u8 aMin;
+    u8 aMax;
+    u8 bMin;
+    u8 bMax;
     f32 d;
     f32 s;
     f32 d1;
     f32 denom;
     f32 mag;
-    u8 featB;
-    u8 axisB;
     OBBHit *hit = hitInfo;
     OBB *b = boxB;
     OBB *a = boxA;
@@ -496,7 +500,7 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
             return maxT;
         case 2:
             corner = minIdx;
-            axisIdx = i + 3;
+            axisIdx = (u8)i + 3;
             type = 1;
             break;
         case 3:
@@ -507,16 +511,16 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
         }
     }
     for (i = 0; i < 3; i++) {
-        minIdx = 0;
-        maxIdx = 0;
+        minIdx2 = 0;
+        maxIdx2 = 0;
         da.minB = da.maxB = PSVECDotProduct(GETP(b->axis[i]), &a->corners[0]);
         for (k = 1; k < 8; k++) {
             d = PSVECDotProduct(GETP(b->axis[i]), &a->corners[k]);
             if (d < da.minB) {
                 da.minB = d;
-                minIdx = k;
+                minIdx2 = k;
             } else if (d > da.maxB) {
-                maxIdx = k;
+                maxIdx2 = k;
                 da.maxB = d;
             }
         }
@@ -528,12 +532,12 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
         case 0:
             return maxT;
         case 2:
-            corner = maxIdx;
-            axisIdx = i + 3;
+            corner = maxIdx2;
+            axisIdx = (u8)i + 3;
             type = 2;
             break;
         case 3:
-            corner = minIdx;
+            corner = minIdx2;
             axisIdx = i;
             type = 2;
             break;
@@ -541,10 +545,10 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
     }
     for (ia = 0; ia < 3; ia++) {
         for (j = 0; j < 3; j++) {
-            minIdx = 0;
-            maxIdx = 0;
-            minIdx2 = 0;
-            maxIdx2 = 0;
+            aMin = 0;
+            aMax = 0;
+            bMin = 0;
+            bMax = 0;
             PSVECCrossProduct(GETP(a->axis[ia]), GETP(b->axis[j]), &n);
             if (PSVECDotProduct(&n, &n) < 0.0001) {
                 continue;
@@ -555,17 +559,17 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
                 d = PSVECDotProduct(&a->corners[k], &n);
                 if (d < da.minB) {
                     da.minB = d;
-                    minIdx = k;
+                    aMin = k;
                 } else if (d > da.maxB) {
-                    maxIdx = k;
+                    aMax = k;
                     da.maxB = d;
                 }
                 d = PSVECDotProduct(&b->corners[k], &n);
                 if (d < da.minA) {
                     da.minA = d;
-                    minIdx2 = k;
+                    bMin = k;
                 } else if (d > da.maxA) {
-                    maxIdx2 = k;
+                    bMax = k;
                     da.maxA = d;
                 }
             }
@@ -574,16 +578,16 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
             case 0:
                 return maxT;
             case 2:
-                featB = minIdx2;
-                corner = maxIdx;
+                featB = bMin;
+                corner = aMax;
                 axisIdx = ia;
                 axisB = j;
                 type = 3;
                 break;
             case 3:
-                featB = maxIdx2;
-                corner = minIdx;
-                axisIdx = ia + 3;
+                featB = bMax;
+                corner = aMin;
+                axisIdx = (u8)ia + 3;
                 axisB = j;
                 type = 3;
                 break;
@@ -659,7 +663,7 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
             OBoxCache_Set((u32)HND(a), (u32)HND(b), &hit->pos, &hit->normal);
             break;
         default:
-            if (!OBoxCache_Get((u32)HND(a), (u32)HND(b), &hit->pos, &hit->normal)) {
+            if (!OBoxCache_Get(a, b, &hit->pos, &hit->normal)) {
                 diff.x = a->center.x - b->center.x;
                 diff.y = a->center.y - b->center.y;
                 diff.z = a->center.z - b->center.z;

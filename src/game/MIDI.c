@@ -223,7 +223,11 @@ s32 SetMIDIState(s32 state) {
   switch (g_musicState) {
   case 0: case 3: case 4:
    *(u32 *)(g_song + 0x14) = (u32)HND(g_pHdr) + 0x22;
-   *(u32 *)(g_song + 0x18) = ReadVar_((u8 **)(g_song + 0x14));
+   { /* port: song + 0x14 is a 4-byte handle slot */
+    u8 *pos = SLOT_LOAD(u8 *, (g_song + 0x14));
+    *(u32 *)(g_song + 0x18) = ReadVar_(&pos);
+    SLOT_STORE((g_song + 0x14), pos);
+   }
    g_song[0x1C] = 8; g_song[0x1D] = 0;
    *(u32 *)(g_song + 4) = 500000 / *(u16 *)((u8 *)g_pHdr + 0x18);
    *(u32 *)(g_song + 0x10) = 0x10000; *(u32 *)(g_song + 0x20) = 0x10000;
@@ -1022,7 +1026,11 @@ void JumpToMarker(void)
     SETP(((MIDI_SONG *)g_song)->field_14, SLOT_LOAD(u8 *, g_mrk[((MIDI_SONG *)g_song)->field_1E]));
     ((MIDI_SONG *)g_song)->field_0 = 0;
     ((MIDI_SONG *)g_song)->field_8 = 0;
-    ((MIDI_SONG *)g_song)->field_18 = ReadVar_(&((MIDI_SONG *)g_song)->field_14);
+    {   /* port: field_14 is a 4-byte handle slot */
+        u8 *pos = GETP(((MIDI_SONG *)g_song)->field_14);
+        ((MIDI_SONG *)g_song)->field_18 = ReadVar_(&pos);
+        SETP(((MIDI_SONG *)g_song)->field_14, pos);
+    }
     ((MIDI_SONG *)g_song)->field_1D = (&g_mrk[((MIDI_SONG *)g_song)->field_1E][4])[1];
     ((MIDI_SONG *)g_song)->field_1C = g_mrk[((MIDI_SONG *)g_song)->field_1E][4];
     for (i = 0x10, chn = g_chn; i != 0; chn++, i--)

@@ -3785,16 +3785,17 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 }
                 break;
             case 40: {
-                u32 **slot = (u32 **)(data + *(u16 *)(SLOT_LOAD(u8 *, (obj + 0x25C)) + 0xA) * 4);
+                /* port: data + 0x80 is a table of 4-byte u32 * slots */
+                u32 *val = SLOT_LOAD(u32 *, (data + 0x80 + *(u16 *)(SLOT_LOAD(u8 *, (obj + 0x25C)) + 0xA) * 4));
 
-                if (slot[0x80 / 4] != NULL) {
-                    if (*slot[0x80 / 4] != *(u32 *)(obj + 0x2F8)) {
+                if (val != NULL) {
+                    if (*val != *(u32 *)(obj + 0x2F8)) {
                         obj[0x84] = 1;
                         obj[0x54] = 1;
                         obj[0x2C] = 1;
                     }
-                    *(u32 *)(obj + 0x2F8) = *slot[0x80 / 4];
-                    ref = slot[0x80 / 4];
+                    *(u32 *)(obj + 0x2F8) = *val;
+                    ref = val;
                 }
                 break;
             }
@@ -4036,7 +4037,7 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 if (idx >= *(u32 *)(anim + 0)) {
                     idx = *(u32 *)(anim + 0) - 1;
                 }
-                *(u16 *)(obj + 0x24A) = (SLOT_LOAD(u32 *, (anim + 4)))[idx];
+                *(u16 *)(obj + 0x24A) = (SLOT_LOAD(u32 *, (anim + 4)))[(s32)idx]; /* count 0: [-1], as on GC */
                 if (*(u32 *)(obj + 0x28C) != idx) {
                     *(u32 *)(obj + 0x28C) = idx;
                     obj[0x2C] = 1;
@@ -4065,7 +4066,7 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 }
                 if (idx != *(u32 *)(obj + 0x28C)) {
                     *(u32 *)(obj + 0x28C) = idx;
-                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, SLOT_LOAD(u32 *, (list + 4)) + idx));
+                    InterfaceManager_SetObjectText(obj, SLOT_LOAD(char **, SLOT_LOAD(u32 *, (list + 4)) + (s32)idx)); /* count 0: [-1], as on GC */
                 }
             }
         }

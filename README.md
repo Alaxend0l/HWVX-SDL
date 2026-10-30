@@ -125,10 +125,12 @@ Debugging aids:
 - `HWVX_AUTOINPUT="700:start,+400:start,+150:a"` holds a button on
   controller 1 for 10 frames: `N:btn` at frame N, `+N:btn` once the game has
   gone N frames without reading the disc after the previous press (so
-  loading times don't shift the script);
+  loading times don't shift the script); `btn*N` holds for N frames
+  instead of 10;
 - `HWVX_DUMP=dir` saves every 60th frame as a BMP; `HWVX_GXDEBUG=1` draws all
   geometry magenta with depth, blending and culling off.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
+- `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
 
 `tools/xgc_inspect.py FILE.xgc [--dump OFFSET N]` shows a data pack's TOC,

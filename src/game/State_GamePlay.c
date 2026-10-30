@@ -700,7 +700,7 @@ s32 StateGamePlay_Heartbeat(void) {
         }
         if (g_DemoModeCounter < g_DemoModeSwitchVehicleTime && CameraManager_GetActiveCameras() == 1) {
             void *player;
-            void **camera;
+            Camera *camera;
 
             g_DemoModeSwitchVehicleTime = g_DemoModeCounter - 8000;
             if (g_DemoModeSwitchVehicleTime < 0) {
@@ -712,9 +712,9 @@ s32 StateGamePlay_Heartbeat(void) {
             }
             player = PlayerManager_GetPlayerByIndex(g_DemoModeCurrentPlayer);
             camera = CameraManager_GetCameraByIndex(0);
-            if (*camera != NULL && M2C_FIELD(*camera, u32 *, 0x68) < 0xFFFFFFFF) {
-                InterfaceManager_ReleaseInterface(M2C_FIELD(*camera, u32 *, 0x68));
-                M2C_FIELD(*camera, u32 *, 0x68) = 0xFFFFFFFF;
+            if (GETP(camera->player) != NULL && M2C_FIELD(GETP(camera->player), u32 *, 0x68) < 0xFFFFFFFF) {
+                InterfaceManager_ReleaseInterface(M2C_FIELD(GETP(camera->player), u32 *, 0x68));
+                M2C_FIELD(GETP(camera->player), u32 *, 0x68) = 0xFFFFFFFF;
             }
             Camera_SetPlayer(camera, player);
         }

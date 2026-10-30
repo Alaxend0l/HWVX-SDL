@@ -155,6 +155,7 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 /* ---- diagnostics ------------------------------------------------------ */
 
 void Port_Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+int Port_AllCheats(void);
 void Port_Fatal(const char *fmt, ...) __attribute__((format(printf, 1, 2), noreturn));
 #define PORT_TODO(what) Port_Todo(__func__, what)
 void Port_Todo(const char *func, const char *what);

@@ -955,6 +955,9 @@ s8 GameSettings_IsCheatEnabled(s32 cheat) {
     u32 i;
     u8 result;
 
+    if (Port_AllCheats()) {
+        return 1;
+    }
     if (bFirstTime) {
         bFirstTime = 0;
         pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);

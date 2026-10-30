@@ -141,6 +141,7 @@ static void ReadKeyboard(PADStatus *st) {
  *   +N:btn  press once the game has run N frames in a row without reading
  *           the disc since the previous press was released, so loading
  *           times don't shift the schedule (use this for menu navigation).
+ * Either form takes an optional hold length: btn*N holds for N frames.
  * Buttons: a b x y start z l r up down left right; main stick: sup sdown
  * sleft sright. Each press is logged with its frame. */
 static u32 s_frame;
@@ -182,9 +183,14 @@ static u16 AutoInput(void) {
             Port_Log("HWVX_AUTOINPUT: can't parse \"%s\"", next);
             next = NULL;
         } else if (rel ? (s_frame >= pressEnd && quiet >= frame) : s_frame >= frame) {
+            unsigned hold = 10;
+            int m = 0;
+            if (next[rel + n] == '*' && SDL_sscanf(next + rel + n + 1, "%u%n", &hold, &m) == 1) {
+                n += 1 + m;   /* btn*N: hold for N frames */
+            }
             SDL_strlcpy(held, name, sizeof(held));
-            pressEnd = s_frame + 10;
-            Port_Log("autoinput: %s at frame %u", held, (unsigned)s_frame);
+            pressEnd = s_frame + hold;
+            Port_Log("autoinput: %s at frame %u for %u frames", held, (unsigned)s_frame, hold);
             next += rel + n;
             if (*next == ',') {
                 next++;

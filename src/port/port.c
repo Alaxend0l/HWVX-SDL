@@ -129,6 +129,15 @@ void Port_Log(const char *fmt, ...) {
     va_end(ap);
 }
 
+int Port_AllCheats(void) {
+    /* HWVX_CHEATS=1: every cheat reads as on, without touching save data. */
+    static int all = -1;
+    if (all < 0) {
+        all = SDL_getenv("HWVX_CHEATS") != NULL;
+    }
+    return all;
+}
+
 void Port_Fatal(const char *fmt, ...) {
     char buf[1024];
     va_list ap;

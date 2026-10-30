@@ -1038,6 +1038,11 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             stuck++;
             dt = 0.0f;
             if (stuck > 10) {
+                if (GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable) {   /* PHYSDBG */
+                    Port_Log("PHYSDBG STUCK zeroing type %d other %d n %.2f %.2f %.2f vel %.2f %.2f %.2f iters %d",
+                             GETP(hit.thing)->type, GETP(hit.other) != NULL ? GETP(hit.other)->type : -1,
+                             hit.normal.x, hit.normal.y, hit.normal.z, GETP(hit.thing)->vel.x, GETP(hit.thing)->vel.y, GETP(hit.thing)->vel.z, iters);
+                }
                 if (!(GETP(hit.thing)->flags & 0x4000008)) {
                     GETP(hit.thing)->vel.x = 0.0f;
                     GETP(hit.thing)->vel.y = 0.0f;
@@ -1169,7 +1174,7 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                             if (idx > n) {
                                 idx = n;
                             }
-                            id = GETP(fx_->ids)[idx - 1];
+                            id = GETP(fx_->ids)[(s32)(idx - 1)]; /* idx 0 reads ids[-1], as the 32-bit wrap does on GC */
                             if (id != 0) {
                                 fx.id = id;
                                 fx.pos = hit.pos;
@@ -1220,6 +1225,8 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             } else if (GETP(hit.surface) != NULL) {
                 elastB = GETP(hit.surface)->elasticity;
             }
+            f32 dbgV = vA - vB, dbgEA = elastA, dbgEB = elastB;   /* PHYSDBG */
+            Vector4 dbgVel = GETP(hit.thing)->vel;                /* PHYSDBG */
             vA = (vA - vB) * -(1.0f + _fabs(elastA * elastB));
             PSVECAdd(&crossA, &crossB, &sum);
             vA /= (invMassA + invMassB) * PSVECDotProduct(&hit.normal, &hit.normal) + PSVECDotProduct(&sum, &hit.normal);
@@ -1260,6 +1267,13 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                 }
             }
             GETP(GETP(GETP(hit.thing)->vtable)->collide)(GETP(hit.thing), &hit, damageB, elastB);
+            if (GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable && GETP(GETP(hit.thing)->player) != NULL && Player_IsHuman(GETP(GETP(hit.thing)->player))) {   /* PHYSDBG */
+                Vector4 v = GETP(hit.thing)->vel;
+                Port_Log("PHYSDBG it%d dt %.4f n %.2f %.2f %.2f rel %.2f eA %.2f eB %.2f other %d invM %.4f %.4f J %.2f vel %.2f %.2f %.2f -> %.2f %.2f %.2f stuck %d",
+                         iters, dt, hit.normal.x, hit.normal.y, hit.normal.z, dbgV, dbgEA, dbgEB, GETP(hit.other) != NULL ? GETP(hit.other)->type : -1,
+                         invMassA, invMassB, vA, dbgVel.x, dbgVel.y, dbgVel.z, v.x, v.y, v.z, stuck);
+                if (GETP(hit.surface) != NULL) { u32 *sw = (u32 *)GETP(hit.surface); Port_Log("PHYSDBG surf %u %08x %08x %08x %08x %08x %08x %08x %08x", HND(sw), sw[0], sw[1], sw[2], sw[3], sw[4], sw[5], sw[6], sw[7]); }
+            }
             Thing_DynamicGridMove(GETP(hit.thing), dtStep);
             if (GETP(hit.other) != NULL) {
                 GETP(GETP(GETP(hit.other)->vtable)->collide)(GETP(hit.other), &hit, damageA, elastA);
@@ -1893,20 +1907,20 @@ void ThingManager_Invalidate(u32 start, u32 end) {
 s8 TriggerVehicleDamage(u32 *params) {
     u32 i;
     u32 count;
-    u8 **things;
+    u32 *things; /* thing handles */
     s32 *saved;
     u32 type;
     s32 amount;
     s32 result;
 
     count = params[0];
-    things = (u8 **)&params[1];
+    things = &params[1];
     result = 0;
     saved = (s32 *)&params[count + 3];
     type = params[count + 1];
     amount = params[count + 2];
     for (i = 0; i < count; i++) {
-        u8 *vehicle = SLOT_LOAD(u8 *, (u8 *)(*things) + 0x28);
+        u8 *vehicle = SLOT_LOAD(u8 *, (u8 *)PTR(*things) + 0x28);
         if (type == 0x2A) {
             s32 damage = *(s32 *)(vehicle + 0x78);
             if (damage < *saved - amount) {

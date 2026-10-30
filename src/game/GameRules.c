@@ -1,5 +1,7 @@
 #include "common.h"
 
+typedef PTR32(GRTrigger) GRTriggerSlot; /* entry of GRWorld.triggers */
+
 
 extern s8 g_bRoundEnd;
 extern u32 g_playerNumThatWon;
@@ -11,12 +13,12 @@ void GameRules_Init(void) {
     extern s8 g_bWaitingForRoundReset;
     extern s8 g_bInit;
     extern s32 g_savedActions[];
-    extern GRTrigger **g_pTimer;
+    extern GRTriggerSlot *g_pTimer;
     u32 j;
     GRZone *zone;
     u32 i;
     u8 *mcp;
-    GRTrigger **slot;
+    GRTriggerSlot *slot;
 
     g_bRoundEnd = 0;
     g_playerNumThatWon = 1;
@@ -36,10 +38,10 @@ void GameRules_Init(void) {
     case 2:
         for (i = 0; i < ((GRWorld *)GETP(g_worldData.world))->numTriggers; i++) {
             slot = &GETP(((GRWorld *)GETP(g_worldData.world))->triggers)[i];
-            if ((*slot)->type == 0xC) {
+            if (GETP(*slot)->type == 0xC) {
                 g_pTimer = slot;
-                (*g_pTimer)->time = GameSettings_GetCodeVariable(0x12E, 0);
-                if ((*g_pTimer)->time == 0.0f) {
+                GETP(*g_pTimer)->time = GameSettings_GetCodeVariable(0x12E, 0);
+                if (GETP(*g_pTimer)->time == 0.0f) {
                     g_pTimer = NULL;
                 }
                 break;
@@ -51,9 +53,9 @@ void GameRules_Init(void) {
         if (mcp != NULL && GameSettings_GetCodeVariable(0x198, 0) != 0) {
             for (i = 0; i < ((GRWorld *)GETP(g_worldData.world))->numTriggers; i++) {
                 slot = &GETP(((GRWorld *)GETP(g_worldData.world))->triggers)[i];
-                if ((*slot)->type == 0xC) {
-                    if ((*slot)->time == 0.0f) {
-                        (*slot)->time = (SLOT_LOAD(u32 *, (mcp + 0x24)))[1];
+                if (GETP(*slot)->type == 0xC) {
+                    if (GETP(*slot)->time == 0.0f) {
+                        GETP(*slot)->time = (SLOT_LOAD(u32 *, (mcp + 0x24)))[1];
                     }
                     break;
                 }
@@ -81,7 +83,7 @@ void GameRules_HeartBeat(void) {
     extern u32 g_playerNumThatWon;
     extern s8 g_bWaitingForRoundReset;
     extern s8 g_bInit;
-    extern GRTrigger **g_pTimer;
+    extern GRTriggerSlot *g_pTimer;
     static u32 s_requiredNumWins = -1;
     s8 useWins;
     u32 numPlayers;
@@ -123,7 +125,7 @@ void GameRules_HeartBeat(void) {
             winner = g_playerNumThatWon;
             g_bRoundEnd = 0;
             roundOver = 1;
-        } else if (g_pTimer != NULL && (*g_pTimer)->time == 0.0f) {
+        } else if (g_pTimer != NULL && GETP(*g_pTimer)->time == 0.0f) {
             roundOver = 1;
         } else {
             switch (GameSettings_GetCodeVariable(0x12D, 0)) {
@@ -304,7 +306,7 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
     } CarParams;
     extern s8 g_bWaitingForRoundReset;
     extern s32 g_savedActions[];
-    extern GRTrigger **g_pTimer;
+    extern GRTriggerSlot *g_pTimer;
     extern u32 g_attackDelay;
     extern Vector4 g_zeroVector;
     u32 numPlayers;
@@ -323,7 +325,7 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
     Trigger_RestoreActions(g_savedActions, 100);
     InterfaceManager_ReleaseAllInterfaces();
     if (g_pTimer != NULL) {
-        (*g_pTimer)->time = GameSettings_GetCodeVariable(0x12E, 0);
+        GETP(*g_pTimer)->time = GameSettings_GetCodeVariable(0x12E, 0);
     }
     if (GameSettings_GetCodeVariable(0x12D, 0) >= 3) {
         g_attackDelay = 8000;
