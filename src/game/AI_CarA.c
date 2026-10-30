@@ -670,7 +670,7 @@ static void AI_Car_ClearedNavPoint_800087C8(u8 *car, s8 arg1) {
     u8 *nav;
     u8 *thing;
     u8 *target;
-    void *holder;
+    s32 holder;   /* port: nearest nav point index (vtable 0x2C); the decomp keeps it in a void * */
     s32 dest;
     f32 dist;
 
@@ -689,7 +689,7 @@ static void AI_Car_ClearedNavPoint_800087C8(u8 *car, s8 arg1) {
         (*(u32 *)(car + 0x4A4))++;
         if (SLOT_LOAD(u8 *, (car + 0x3E4)) != NULL && *(u32 *)(car + 0x4A4) >= 30) {
             thing = SLOT_LOAD(u8 *, (car + 0x2C));
-            holder = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
+            holder = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
             target = SLOT_LOAD(u8 *, (car + 0x3E4));
             if (*SLOT_LOAD(u8 *, target) == 10 || *SLOT_LOAD(u8 *, target) == 14) {
                 dest = *(s32 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x28);
@@ -718,13 +718,13 @@ static void AI_Car_ClearedNavPoint_800087C8(u8 *car, s8 arg1) {
     }
 }
 
-s32 AI_Car_PrepareNavPath(u8 *car, void *holder, s32 dest) {
+s32 AI_Car_PrepareNavPath(u8 *car, s32 from, s32 dest) {
     s32 result = 1;
     u8 *point;
 
     memset(car + 0x420, 0, 0x80);
     *(u32 *)(car + 0x4A4) = 0;
-    point = NavHolder_FindPath(HND(holder), dest);
+    point = NavHolder_FindPath(from, dest);
     if (point != NULL) {
         NavHolder_FillPointerArrayPath(point, car + 0x420, 0x20);
         *(s32 *)(car + 0x4A8) = dest;
@@ -839,7 +839,7 @@ void AI_Car_AsyncHeartbeat(u8 *ai) {
     u8 *car;
     s8 repath;
     s32 dest;
-    void *holder;
+    s32 holder;   /* port: nearest nav point index (vtable 0x2C); the decomp keeps it in a void * */
     s32 paused;
     u8 *target;
     u8 *thing;
@@ -896,7 +896,7 @@ void AI_Car_AsyncHeartbeat(u8 *ai) {
         }
         thing = SLOT_LOAD(u8 *, (ai + 0x2C));
         repath = 0;
-        holder = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
+        holder = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
         target = SLOT_LOAD(u8 *, (ai + 0x3E4));
         if (*SLOT_LOAD(u8 *, target) == 10 || *SLOT_LOAD(u8 *, target) == 14) {
             dest = *(s32 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x28);
@@ -908,7 +908,7 @@ void AI_Car_AsyncHeartbeat(u8 *ai) {
             thing = SLOT_LOAD(u8 *, (target + 0x10));
             if (!(*(u32 *)(thing + 0x74) & 0x1000)) {
                 dest = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
-                if ((s8)NavHolder_IsLinked((s32)HND(holder), dest)) {
+                if ((s8)NavHolder_IsLinked(holder, dest)) {
                     *(u32 *)(ai + 0x4A4) = 32;
                     if (*(u32 *)(ai + 0x4A0) < NavHolder_GetTotalNavPoints()) {
                         dist = PSVECSquareDistance(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40, NavHolder_GetNavPoint(*(u32 *)(ai + 0x4A0)));
@@ -1744,7 +1744,7 @@ s8 AI_Car_DetermineStateBranch(u8 *car, void *arg, s8 skip) {
 s32 AI_Car_DetermineState(u8 *car) {
     typedef struct { PTR32(u8) info; u32 timer0; u32 timer1; u32 timer2; u8 pad10[8]; } AIBranch;
     typedef struct { u8 pad0[0xD4]; AIBranch branches[32]; } AICarBranches;
-    typedef void *(*GetNavHolderFn)(void *thing);
+    typedef s32 (*GetNavHolderFn)(void *thing);   /* nearest nav point index */
     u32 i;
     u32 prev;
 
@@ -1770,7 +1770,7 @@ s32 AI_Car_DetermineState(u8 *car) {
                 *(u32 *)(car + 0xC8) = 1;
             } else if (SLOT_LOAD(u8 *, (car + 0x3F0)) != NULL) {
                 AI_Car_PrepareNavPath(car,
-                    (*(GetNavHolderFn *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x2C)) + 0x8C)) + 0x2C))(SLOT_LOAD(u8 *, (car + 0x2C))),
+                    SLOT_LOAD(GetNavHolderFn, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x2C)) + 0x8C)) + 0x2C))(SLOT_LOAD(u8 *, (car + 0x2C))),
                     *(s32 *)(SLOT_LOAD(u8 *, (car + 0x3F0)) + 0x28));
             }
         }

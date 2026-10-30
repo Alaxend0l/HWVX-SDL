@@ -182,7 +182,9 @@ void AttachThing_DrawCorona(void *arg0) {
             scaled.b = thing->color.b * fade;
             scaled.a = thing->color.a;
             color = scaled;
-            Gfx_AddCorona(&screen, GETP(thing->data)->texture, &color, thing->scaleX, thing->scaleY, GETP(thing->data)->blend);
+            /* port: GC passes ints and floats in separate registers, so the decomp's
+             * (scaleX, scaleY, blend) order reaches (flag, a, b) as (blend, scaleX, scaleY) */
+            Gfx_AddCorona(&screen, GETP(thing->data)->texture, &color, GETP(thing->data)->blend, thing->scaleX, thing->scaleY);
         }
     }
 }

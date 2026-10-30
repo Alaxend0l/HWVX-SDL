@@ -197,7 +197,7 @@ s32 WildCardRack_Move(void *thing) {
                     SETP(rack->target, NULL);
                     rack->unk47C = -1.0f;
                 } else {
-                    (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, (GETP(rack->target) + 0x8C)) + 0x3C))(GETP(rack->target), &targetPos);
+                    SLOT_LOAD(GetTargetPosFn, (SLOT_LOAD(u8 *, (GETP(rack->target) + 0x8C)) + 0x3C))(GETP(rack->target), &targetPos);
                     PSVECSubtract(&targetPos, &rack->pos, &rack->mtx[2]);
                     PSVECCrossProduct(&rack->mtx[1], &rack->mtx[2], &rack->mtx[0]);
                     PSVECCrossProduct(&rack->mtx[2], &rack->mtx[0], &rack->mtx[1]);
@@ -236,7 +236,7 @@ s32 WildCardRack_Move(void *thing) {
                 for (i = 0; i < count; i++) {
                     t = 1.0f;
                     if (targets[i] != rack && (GETP(rack->player) == NULL || targets[i] != SLOT_LOAD(void *, (GETP(rack->player) + 0x2C)))) {
-                        (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, ((u8 *)targets[i] + 0x8C)) + 0x3C))(targets[i], &pos);
+                        SLOT_LOAD(GetTargetPosFn, (SLOT_LOAD(u8 *, ((u8 *)targets[i] + 0x8C)) + 0x3C))(targets[i], &pos);
                         InverseXformVec(&rack->mtx[0], &pos, &local);
                         dist = _fabs(local.z * (local.x * local.y));
                         if (!(local.z < 1.0f) && !(_fabs(local.x / local.z) > 1.0f) && !RayHitsTerrain(&rack->pos, &pos, &t, NULL) &&
@@ -255,7 +255,7 @@ s32 WildCardRack_Move(void *thing) {
             if (GETP(rack->target) != NULL) {
                 mtx = *(Matrix4 *)&rack->mtx[0];
                 mtx.v[3] = GETP(rack->slots[rack->cur].matrices)[GETP(GETP(rack->slots[rack->cur].thing)->data)->spinBone].v[3];
-                (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, (GETP(rack->target) + 0x8C)) + 0x3C))(GETP(rack->target), &pos2);
+                SLOT_LOAD(GetTargetPosFn, (SLOT_LOAD(u8 *, (GETP(rack->target) + 0x8C)) + 0x3C))(GETP(rack->target), &pos2);
                 InverseXformVec(&mtx, &pos2, &local2);
                 angle = -atan2(local2.y, local2.z);
             }

@@ -35,7 +35,7 @@ void AI_Car_DriveToTarget(u8 *ai, Vector4 *target, f32 speed);
 s8 AI_Car_EnterState(u8 *ai, u8 *branch, s32 slot);
 void AI_Car_Heartbeat(u8 *ai);
 void AI_Car_Init(u8 *car, u8 *params);
-s32 AI_Car_PrepareNavPath(u8 *car, void *holder, s32 dest);
+s32 AI_Car_PrepareNavPath(u8 *car, s32 from, s32 dest);
 void AI_Car_Reset(u8 *car);
 
 /* AI_Creature.c */

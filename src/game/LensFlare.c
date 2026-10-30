@@ -271,7 +271,7 @@ void LensFlare_Render(void) {
                             }
                         }
                         c = color;
-                        Gfx_Add2DSprite(&sprite, e->texture, &c, e->size, e->flag, 0.0f);
+                        Gfx_Add2DSprite(&sprite, e->texture, &c, e->flag, e->size, 0.0f); /* port: GC int/float regs; see Gfx_AddCorona call */
                     }
                 }
             }

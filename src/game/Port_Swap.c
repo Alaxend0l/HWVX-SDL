@@ -933,14 +933,53 @@ static void Claim_VolumeShapeScan(Swapper *s, const u32 *pointers, u32 numPointe
     }
 }
 
+/* ---- car AI scripts (AI_CarA.c) -------------------------------------------
+ * Script: f32 speedScale, gripScale (0x0/0x4), f32s 0xC-0x18, u8 priority 0x26
+ * (bytes 0x24-0x27), state tree root at 0x28.
+ * State: { info (0x0), u32 numChildren (0x4), children (0x8, 0xC each) }.
+ * Info (AI_Car_DetermineTarget): u8 type, subtype, sortMode, pad, pad, unk5,
+ * limited, pad (0x0-0x7); f32 ranges 0x14-0x28; s32 timers 0x38-0x4C;
+ * limits 0x58 -> { s32 x4, u8 mode 0x10, u8 compare 0x11 }; u32 thing id 0x5C. */
+static void Claim_AIState(Swapper *s, u32 st, int depth) {
+    u32 info, limits, children, n, i;
+
+    if (st == ~0u || depth > 32) {
+        return;
+    }
+    info = Target(s, st);
+    if (info != ~0u) {
+        ClaimBytes(s, info, 8);
+        limits = Target(s, info + 0x58);
+        if (limits != ~0u) {
+            ClaimBytes(s, limits + 0x10, 4);
+        }
+    }
+    children = Target(s, st + 0x8);
+    n = Word(s, st + 0x4);
+    for (i = 0; children != ~0u && i < n && i < 0x100; i++) {
+        Claim_AIState(s, children + i * 0xC, depth + 1);
+    }
+}
+
+static void Claim_AIScript(Swapper *s, u32 script) {
+    if (script == ~0u) {
+        return;
+    }
+    ClaimBytes(s, script + 0x24, 4);
+    Claim_AIState(s, script + 0x28, 0);
+}
+
 static void Claim_World(Swapper *s, u32 off) {
-    u32 list, n, i;
+    u32 list, n, i, k;
 
     list = Target(s, off + 0x0C);
     n = Word(s, off + 0x08);
     for (i = 0; list != ~0u && i < n && i < 0x100; i++) {
         ClaimBytes(s, list + i * 0x60 + 0x34, 4);
         ClaimBytes(s, list + i * 0x60 + 0x58, 8);
+        for (k = 0; k < 4; k++) {   /* per-difficulty AI scripts 0x40-0x4C */
+            Claim_AIScript(s, Target(s, list + i * 0x60 + 0x40 + k * 4));
+        }
     }
     list = Target(s, off + 0x24);
     n = Word(s, off + 0x20);
@@ -1404,6 +1443,9 @@ static void Claim_KeyAnimScan(Swapper *s, const u32 *pointers, u32 numPointers) 
 static void Claim_CarAInfo(Swapper *s, u32 off) {
     u32 p, n, i;
 
+    for (i = 0; i < 4; i++) {   /* per-difficulty AI scripts 0x90-0x9C */
+        Claim_AIScript(s, Target(s, off + 0x90 + i * 4));
+    }
     ClaimBytes(s, off + 0x10, 4);
     ClaimU16(s, off + 0x14);
     ClaimU16(s, off + 0x16);
