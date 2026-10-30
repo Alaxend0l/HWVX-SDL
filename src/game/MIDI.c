@@ -6,9 +6,9 @@ typedef struct MIDI_VOICE
     u8 channel;
     u8 byte2;
     u8 byte3;
-    struct MIDI_VOICE *next;
+    PTR32(struct MIDI_VOICE) next;
     u8 pad_8_F[8];
-    struct MIDI_INST *prog;
+    PTR32(struct MIDI_INST) prog;
     u8 priority;
     u8 state;
     u8 state2;
@@ -32,7 +32,7 @@ typedef struct MIDI_VOICE
 
 typedef struct MIDI_CHN
 {
-    struct MIDI_VOICE *voice;
+    PTR32(struct MIDI_VOICE) voice;
     s8 field_4;
     u8 field_5;
     u8 prog;
@@ -57,7 +57,7 @@ typedef struct MIDI_SONG
     u32 field_8;
     u32 field_C;
     u32 field_10;
-    u8 *field_14;
+    PTR32(u8) field_14;
     u32 field_18;
     u8 field_1C;
     u8 field_1D;
@@ -213,12 +213,12 @@ s32 SetMIDIState(s32 state) {
  switch (state) {
  case 2:
   for (chn = g_chn, i = 0x10; i != 0; i--)
-   for (voice = (chn++)->voice; voice != NULL; voice = voice->next) SetVoiceState_(voice, 2);
+   for (voice = GETP((chn++)->voice); voice != NULL; voice = GETP(voice->next)) SetVoiceState_(voice, 2);
   break;
  case 3: case 4:
   for (chn = g_chn, i = 0x10; i != 0; i--) {
-   voice = chn->voice; (chn++)->voice = NULL;
-   while (voice != NULL) { next = voice->next; SetVoiceState_(voice, 3); voice = next; }
+   voice = GETP(chn->voice); SETP((chn++)->voice, NULL);
+   while (voice != NULL) { next = GETP(voice->next); SetVoiceState_(voice, 3); voice = next; }
   }
   if (state == 3) break;
  case 1:
@@ -231,7 +231,7 @@ s32 SetMIDIState(s32 state) {
    *(u32 *)(g_song + 0x10) = 0x10000; *(u32 *)(g_song + 0x20) = 0x10000;
    g_song[0x1E] = 0; g_song[0x1F] = 0;
    for (chn = g_chn, i = 0x10; i != 0; i--) {
-    *(u8 *)((u8 *)chn + 4) = 1; chn->voice = NULL;
+    *(u8 *)((u8 *)chn + 4) = 1; SETP(chn->voice, NULL);
     *(u8 *)((u8 *)chn + 6) = 0; *(u8 *)((u8 *)chn + 7) = 0; *(u16 *)((u8 *)chn + 8) = 0;
     *(u8 *)((u8 *)chn + 0xA) = 0x7F; *(u8 *)((u8 *)chn + 0xB) = 0x64;
     *(u32 *)((u8 *)chn + 0xC) = 0; chn->vol = 0x4F5C; chn->note = 0x40; chn->count = 2;
@@ -242,7 +242,7 @@ s32 SetMIDIState(s32 state) {
    break;
   case 2:
    for (chn = g_chn, i = 0x10; i != 0; i--)
-    for (voice = (chn++)->voice; voice != NULL; voice = voice->next) SetVoiceState_(voice, 1);
+    for (voice = GETP((chn++)->voice); voice != NULL; voice = GETP(voice->next)) SetVoiceState_(voice, 1);
    break;
   }
   state = 1; SongUpdate = (u32)HND(ProcessMIDI);
@@ -261,7 +261,7 @@ void SetMIDIVol(void)
     for (chn = g_chn, i = 0x10; i != 0; chn++, i--)
     {
         SetGVol(chn);
-        for (voice = chn->voice; voice != NULL; voice = voice->next)
+        for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
         {
             SetVoiceVol_(voice, chn->vol);
         }
@@ -282,7 +282,7 @@ void SetMIDIPitch(u32 pitch)
     for (chn = g_chn, i = 0x10; i != 0; chn++, i--)
     {
         chn->pitch = Mul16_(GetPitchWheel_(chn->note, chn->count), pitch);
-        for (voice = chn->voice; voice != NULL; voice = voice->next)
+        for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
         {
             *(s32 *)((u8 *)voice + 0x34) = chn->pitch;
             SetVoiceRate_(voice);
@@ -399,12 +399,12 @@ void ProcessMIDI(s32 time)
     }
     for (chn = g_chn, i = 0x10; i != 0; chn++, i--)
     {
-        voice = chn->voice;
+        voice = GETP(chn->voice);
         while (voice != NULL)
         {
             if (voice->state2 == 3)
             {
-                voice = voice->next;
+                voice = GETP(voice->next);
                 continue;
             }
             voice->count += Mul16_(voice->rate, time);
@@ -416,7 +416,7 @@ void ProcessMIDI(s32 time)
                     voice->field_38 = voice->count >> 1;
                     break;
                 }
-                rate = GetEnvRate(voice->prog->field_1A);
+                rate = GetEnvRate(GETP(voice->prog)->field_1A);
                 if (rate != -1U)
                 {
                     voice->rate = rate;
@@ -430,13 +430,13 @@ void ProcessMIDI(s32 time)
                 if (voice->count < 0x10000)
                 {
                     voice->field_38 = g_envelope[voice->count >> 8];
-                    if (voice->field_38 > voice->prog->field_1C)
+                    if (voice->field_38 > GETP(voice->prog)->field_1C)
                     {
                         break;
                     }
                 }
             sustain:
-                voice->field_38 = voice->prog->field_1C;
+                voice->field_38 = GETP(voice->prog)->field_1C;
                 if (voice->field_38 > 0)
                 {
                     voice->state2 = 3;
@@ -457,7 +457,7 @@ void ProcessMIDI(s32 time)
                 continue;
             }
             SetVoiceVol_(voice, chn->vol);
-            voice = voice->next;
+            voice = GETP(voice->next);
         }
     }
 restart:
@@ -486,7 +486,7 @@ restart:
             {
             case 8:
             noteoff:
-                for (voice = chn->voice; voice != NULL && voice->byte2 != (s8)*p; voice = voice->next)
+                for (voice = GETP(chn->voice); voice != NULL && voice->byte2 != (s8)*p; voice = GETP(voice->next))
                 {
                 }
                 if (voice != NULL)
@@ -537,7 +537,7 @@ restart:
                 }
                 if (inst != NULL)
                 {
-                    for (voice = chn->voice; voice != NULL && voice->byte2 != (s8)*p; voice = voice->next)
+                    for (voice = GETP(chn->voice); voice != NULL && voice->byte2 != (s8)*p; voice = GETP(voice->next))
                     {
                     }
                     if (voice == NULL)
@@ -548,8 +548,8 @@ restart:
                             p += 2;
                             break;
                         }
-                        voice->next = chn->voice;
-                        chn->voice = voice;
+                        SETP(voice->next, GETP(chn->voice));
+                        SETP(chn->voice, voice);
                         voice->pitch2 = chn->pitch;
                     }
                     else
@@ -559,7 +559,7 @@ restart:
                             voice->priority += 15;
                             SetVoicePriority_(voice);
                         }
-                        if (voice->prog == inst)
+                        if (GETP(voice->prog) == inst)
                         {
                             goto start;
                         }
@@ -570,7 +570,7 @@ restart:
                     voice->field_20 = inst->field_0;
                     voice->field_24 = inst->field_8;
                     voice->field_28 = inst->field_4;
-                    voice->prog = inst;
+                    SETP(voice->prog, inst);
                 start:
                     voice->noteRate = GetNoteRate_(inst->field_C, *p);
                     rate = GetEnvRate(inst->field_18);
@@ -639,7 +639,7 @@ restart:
                 case 0x40:
                     if (chn->field_1F && (s8)*p < 0x40)
                     {
-                        for (voice = chn->voice; voice != NULL; voice = voice->next)
+                        for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                         {
                             if (voice->byte17)
                             {
@@ -651,7 +651,7 @@ restart:
                     break;
                 case 0x5B:
                     chn->field_10 = (s8)*p << 8;
-                    for (voice = chn->voice; voice != NULL; voice = voice->next)
+                    for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                     {
                         voice->field_48 = chn->field_10;
                     }
@@ -691,7 +691,7 @@ restart:
                     chn->pitch = 0x10000;
                     if (chn->field_1F)
                     {
-                        for (voice = chn->voice; voice != NULL; voice = voice->next)
+                        for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                         {
                             if (voice->byte17)
                             {
@@ -704,10 +704,10 @@ restart:
                 case 0x7A:
                     break;
                 case 0x7B:
-                    voice = chn->voice;
+                    voice = GETP(chn->voice);
                     if (chn->field_1F)
                     {
-                        for (; voice != NULL; voice = voice->next)
+                        for (; voice != NULL; voice = GETP(voice->next))
                         {
                             voice->byte17 = 1;
                         }
@@ -730,7 +730,7 @@ restart:
                 chn->note = p[1];
                 chn->pitch = GetPitchWheel_(chn->note, chn->count);
                 p += 2;
-                for (voice = chn->voice; voice != NULL; voice = voice->next)
+                for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                 {
                     voice->pitch2 = chn->pitch;
                     SetVoiceRate_(voice);
@@ -801,7 +801,7 @@ restart:
     {
         if (mask & 1)
         {
-            for (voice = chn->voice; voice != NULL; voice = voice->next)
+            for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
             {
                 SetVoiceVol_(voice, chn->vol);
             }
@@ -869,17 +869,17 @@ void DestroyMIDIVoice(MIDI_VOICE *voice)
 {
     MIDI_VOICE *v;
 
-    v = g_chn[voice->channel].voice;
+    v = GETP(g_chn[voice->channel].voice);
     if (v == voice)
     {
-        g_chn[voice->channel].voice = voice->next;
+        SETP(g_chn[voice->channel].voice, GETP(voice->next));
     }
     else
     {
-        for (; v->next != voice; v = v->next)
+        for (; GETP(v->next) != voice; v = GETP(v->next))
         {
         }
-        v->next = voice->next;
+        SETP(v->next, GETP(voice->next));
     }
     voice->state = 0;
     voice->channel = 0xFF;
@@ -889,18 +889,18 @@ MIDI_VOICE *DestroyVoice(MIDI_VOICE *voice)
     MIDI_VOICE *next;
     MIDI_VOICE *v;
 
-    next = voice->next;
-    v = g_chn[voice->channel].voice;
+    next = GETP(voice->next);
+    v = GETP(g_chn[voice->channel].voice);
     if (v == voice)
     {
-        g_chn[voice->channel].voice = next;
+        SETP(g_chn[voice->channel].voice, next);
     }
     else
     {
-        for (; v->next != voice; v = v->next)
+        for (; GETP(v->next) != voice; v = GETP(v->next))
         {
         }
-        v->next = next;
+        SETP(v->next, next);
     }
     SetVoiceState_(voice, 3);
     return next;
@@ -1028,7 +1028,7 @@ void JumpToMarker(void)
     }
     g_trkOn = 0;
     g_trkOff = 0;
-    ((MIDI_SONG *)g_song)->field_14 = SLOT_LOAD(u8 *, g_mrk[((MIDI_SONG *)g_song)->field_1E]);
+    SETP(((MIDI_SONG *)g_song)->field_14, SLOT_LOAD(u8 *, g_mrk[((MIDI_SONG *)g_song)->field_1E]));
     ((MIDI_SONG *)g_song)->field_0 = 0;
     ((MIDI_SONG *)g_song)->field_8 = 0;
     ((MIDI_SONG *)g_song)->field_18 = ReadVar_(&((MIDI_SONG *)g_song)->field_14);
@@ -1036,13 +1036,13 @@ void JumpToMarker(void)
     ((MIDI_SONG *)g_song)->field_1C = g_mrk[((MIDI_SONG *)g_song)->field_1E][4];
     for (i = 0x10, chn = g_chn; i != 0; chn++, i--)
     {
-        for (voice = chn->voice; voice != NULL; voice = voice->next)
+        for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
         {
             if (voice->state2 != 4)
             {
                 voice->state2 = 4;
                 voice->byte17 = 0;
-                env = *(u16 *)((u8 *)voice->prog + 0x1E);
+                env = *(u16 *)((u8 *)GETP(voice->prog) + 0x1E);
                 if (env != 0)
                 {
                     rate = -1U / (u32)(env * 0x3E8);

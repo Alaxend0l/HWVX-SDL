@@ -26,19 +26,19 @@ typedef struct _FILE {
     u8 is_dynamically_allocated;
     u8 unkD[0x18 - 0xD];
     u32 position;
-    u8 *buffer;
+    PTR32(u8) buffer;
     u32 buffer_size;
-    u8 *buffer_ptr;
+    PTR32(u8) buffer_ptr;
     u32 buffer_len;
     u32 buffer_alignment;
     u32 saved_buffer_len;
     u32 buffer_pos;
-    void *position_fn;
-    void *read_fn;
-    s32 (*write_fn)(u32 handle, u8 *buffer, u32 *count, void *ref_con);
-    s32 (*close_fn)(u32 handle);
-    void *ref_con;
-    struct _FILE *next_file_struct;
+    PTR32(void) position_fn;
+    PTR32(void) read_fn;
+    FPTR32(s32, (u32 handle, u8 *buffer, u32 *count, void *ref_con)) write_fn;
+    FPTR32(s32, (u32 handle)) close_fn;
+    PTR32(void) ref_con;
+    PTR32(struct _FILE) next_file_struct;
 } FILE;
 
 extern int errno;

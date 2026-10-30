@@ -14,7 +14,7 @@ typedef struct DebugFontInfo {
 
 typedef struct GameDataFonts {
     u8 unk0[0xC8];
-    DebugFontInfo *debugFont;
+    PTR32(DebugFontInfo) debugFont;
 } GameDataFonts;
 
 u8 g_timeBar[0x20];
@@ -52,7 +52,7 @@ void ShowStats_Init(void) {
     DebugFontInfo *font;
 
     if (World_GetGameData() != NULL) {
-        font = ((GameDataFonts *)World_GetGameData())->debugFont;
+        font = GETP(((GameDataFonts *)World_GetGameData())->debugFont);
         g_debugDataFlag = 1;
         memset(g_timeBar, 0, sizeof(g_timeBar));
         g_timeBarOn = 0;

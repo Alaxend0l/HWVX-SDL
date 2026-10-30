@@ -3,7 +3,7 @@
 
 
 typedef struct GeometryEntry {
-    void *geometry;
+    PTR32(void) geometry;
     char name[0x40];
     s16 refCount;
     u8 unk46[2];
@@ -29,7 +29,7 @@ s32 Geometry_Create(void) {
     g_pGeometryHandler->max = 0x800;
     g_pGeometryHandler->count = 0;
     for (i = 0; i < g_pGeometryHandler->max; i++) {
-        g_pGeometryHandler->entries[i].geometry = NULL;
+        SETP(g_pGeometryHandler->entries[i].geometry, NULL);
         g_pGeometryHandler->entries[i].refCount = 0;
     }
     return 1;
@@ -50,7 +50,7 @@ void Geometry_Init(s8 clear) {
         if (clear == 1) {
             g_pGeometryHandler->entries[i].refCount = 0;
         }
-        Geometry_FreeGeometry(g_pGeometryHandler->entries[i].geometry);
+        Geometry_FreeGeometry(GETP(g_pGeometryHandler->entries[i].geometry));
     }
 }
 
@@ -60,11 +60,11 @@ void Geometry_FreeGeometry(void *geometry) {
 
     if (geometry != NULL) {
         for (i = 0; i < g_pGeometryHandler->max; i++) {
-            if (g_pGeometryHandler->entries[i].geometry == geometry) {
+            if (GETP(g_pGeometryHandler->entries[i].geometry) == geometry) {
                 g_pGeometryHandler->entries[i].refCount--;
                 if (g_pGeometryHandler->entries[i].refCount < 1) {
                     Deallocate(geometry);
-                    g_pGeometryHandler->entries[i].geometry = NULL;
+                    SETP(g_pGeometryHandler->entries[i].geometry, NULL);
                     g_pGeometryHandler->entries[i].name[0] = 0;
                     g_pGeometryHandler->count--;
                 }
@@ -84,16 +84,16 @@ void *Geometry_Get(char *name) {
         u16 unk0;
         u16 numMaterials;
         u32 unk4;
-        GeoMaterial *materials;
+        PTR32(GeoMaterial) materials;
         u32 unkC;
         u32 unk10;
-        u8 *textures;
+        PTR32(u8) textures;
     } GeoMesh;
     typedef struct {
         u16 unk0;
         u16 numMeshes;
         u32 unk4;
-        GeoMesh *meshes;
+        PTR32(GeoMesh) meshes;
     } Geometry;
     extern GeometryHandler *g_pGeometryHandler;
     char path[256];
@@ -115,12 +115,12 @@ void *Geometry_Get(char *name) {
         ext = path + strlen(path);
     }
     for (j = 0; j < g_pGeometryHandler->max; j++) {
-        if (g_pGeometryHandler->entries[j].geometry != NULL &&
+        if (GETP(g_pGeometryHandler->entries[j].geometry) != NULL &&
             stricmp(g_pGeometryHandler->entries[j].name, path) == 0) {
             g_pGeometryHandler->entries[j].refCount++;
-            return g_pGeometryHandler->entries[j].geometry;
+            return GETP(g_pGeometryHandler->entries[j].geometry);
         }
-        if (g_pGeometryHandler->entries[j].geometry == NULL && slot == -1) {
+        if (GETP(g_pGeometryHandler->entries[j].geometry) == NULL && slot == -1) {
             slot = j;
         }
     }
@@ -134,13 +134,13 @@ void *Geometry_Get(char *name) {
         return NULL;
     }
     g_pGeometryHandler->entries[slot].refCount++;
-    g_pGeometryHandler->entries[slot].geometry = geo;
+    SETP(g_pGeometryHandler->entries[slot].geometry, geo);
     g_pGeometryHandler->count++;
     for (i = 0; i < geo->numMeshes; i++) {
-        mesh = &geo->meshes[i];
+        mesh = &GETP(geo->meshes)[i];
         for (j = 0; j < mesh->numMaterials; j++) {
-            if (mesh->materials[j].texIndex != 0xFFFF) {
-                mesh->materials[j].texHandle = Gfx_LoadTexture(mesh->textures + mesh->materials[j].texIndex);
+            if (GETP(mesh->materials)[j].texIndex != 0xFFFF) {
+                GETP(mesh->materials)[j].texHandle = Gfx_LoadTexture(GETP(mesh->textures) + GETP(mesh->materials)[j].texIndex);
             }
         }
     }

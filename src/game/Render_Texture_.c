@@ -2,7 +2,7 @@
 
 typedef struct Texture {
     u8 unk0[0x24];
-    void *data;
+    PTR32(void) data;
     u32 unk28;
     f32 unk2C;
     u16 unk30;
@@ -56,17 +56,17 @@ void Render_CreateTextureSlot(u32 id) {
     case 2:
         break;
     case 1:
-        DCFlushRange(tex->data, tex->unk30 * (tex->width * 4));
+        DCFlushRange(GETP(tex->data), tex->unk30 * (tex->width * 4));
         format = 6;
         tex = &m_texture[id];
-        data = tex->data;
+        data = GETP(tex->data);
         tex->height = 0;
         break;
     case 4:
-        DCFlushRange(tex->data, tex->unk30 * tex->width);
+        DCFlushRange(GETP(tex->data), tex->unk30 * tex->width);
         texs = m_texture;
         format = 0xE;
-        data = texs[id].data;
+        data = GETP(texs[id].data);
         break;
     }
     tex = &m_texture[id];

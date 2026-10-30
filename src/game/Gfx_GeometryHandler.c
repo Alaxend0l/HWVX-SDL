@@ -59,7 +59,7 @@ typedef struct GeometryGroup {
     u16 unk0;
     u16 flags;
     u8 unk4[0x10 - 0x4];
-    void *data;
+    PTR32(void) data;
     u16 unk14;
     u8 unk16[0x18 - 0x16];
     u16 unk18;
@@ -71,8 +71,8 @@ typedef struct Geometry {
     u16 numGroups;
     u16 unk4;
     u16 unk6;
-    GeometryGroup *groups;
-    f32 *lodDistances;
+    PTR32(GeometryGroup) groups;
+    PTR32(f32) lodDistances;
     f32 bboxMin[4];
     f32 bboxMax[4];
     f32 center[4];
@@ -157,7 +157,7 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector *matrix, u8 *lod, u8 flag) {
     PSVECSubtract(&center, (Vector *)((u8 *)window + 0x180), &diff);
     dist = PSVECDotProduct(&diff, (Vector *)((u8 *)window + 0x190));
     dist *= ((f32 *)window)[0x9D];
-    if (!(((Geometry *)geometry->groups)->groups->flags & 0x8000) && g_state.farClippingPlane > 0.0f &&
+    if (!(GETP(((Geometry *)GETP(geometry->groups))->groups)->flags & 0x8000) && g_state.farClippingPlane > 0.0f &&
         dist >= g_state.farClippingPlane) {
         return 0;
     }
@@ -172,18 +172,18 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector *matrix, u8 *lod, u8 flag) {
         return 0;
     }
     for (i = 0; i < geometry->numGroups; i++) {
-        if (dist < geometry->lodDistances[i]) {
+        if (dist < GETP(geometry->lodDistances)[i]) {
             break;
         }
     }
-    if (geometry->numGroups == 1 && geometry->lodDistances[0] == 0.0f) {
+    if (geometry->numGroups == 1 && GETP(geometry->lodDistances)[0] == 0.0f) {
         i = 0;
     }
     if (i < geometry->numGroups) {
         if (g_CurrentViews != 1 && i + 1 < geometry->numGroups) {
-            return (u32)HND(geometry->groups) + (i + 1) * 0x18;
+            return (u32)HND(GETP(geometry->groups)) + (i + 1) * 0x18;
         }
-        return (u32)HND(geometry->groups) + i * 0x18;
+        return (u32)HND(GETP(geometry->groups)) + i * 0x18;
     }
     Gfx_EnableState(0x20000);
     return 0;
@@ -240,7 +240,7 @@ s32 Gfx_CalcGeometryLOD(Geometry *geometry, f32 *matrix) {
     dist = PSVECDotProduct(&min, (Vector *)((u8 *)GetRenderWindow() + 0x190));
     dist *= ((f32 *)GetRenderWindow())[0x9D];
     for (i = 0; i < geometry->numGroups; i++) {
-        if (dist < geometry->lodDistances[i]) {
+        if (dist < GETP(geometry->lodDistances)[i]) {
             break;
         }
     }

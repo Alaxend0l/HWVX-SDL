@@ -6,10 +6,10 @@ typedef struct SoundSequence {
     u8 pad50[0x74 - 0x50];
     u32 flags;    /* 0x74 */
     u8 pad78[0x38];
-    u8 *params;   /* 0xB0 */
+    PTR32(u8) params;   /* 0xB0 */
     u8 state[0xC4 - 0xB4]; /* 0xB4 */
     s32 timer;    /* 0xC4 */
-    struct SoundSequence *queued; /* 0xC8 */
+    PTR32(struct SoundSequence) queued; /* 0xC8 */
     f32 rate;     /* 0xCC */
     s32 sources[4]; /* 0xD0 */
 } SoundSequence;
@@ -70,10 +70,10 @@ s32 SoundSeq_Init(u8 *seq, u8 *data) {
 static void SoundSeq_RemoveFromQueue(SoundSequence *seq) {
     SoundSequence *next;
 
-    next = seq->queued;
+    next = GETP(seq->queued);
     if (next != NULL) {
         next->flags &= ~0x80000000;
-        seq->queued = NULL;
+        SETP(seq->queued, NULL);
     } else {
         Trigger_SoundSequenceQueueEmptied();
     }
@@ -116,7 +116,7 @@ s32 SoundSeq_Move(void *thing) {
         }
         seq->timer -= g_iDeltaTimeMS;
     }
-    key = ExtractSoundKey(seq->params + 8, seq->state, &seq->pos, g_fDeltaTimeMS * seq->rate);
+    key = ExtractSoundKey(GETP(seq->params) + 8, seq->state, &seq->pos, g_fDeltaTimeMS * seq->rate);
     if (key >= 0) {
         found = 0;
         for (i = 0; i < 4; i++) {
@@ -159,7 +159,7 @@ s32 SoundSeq_Move(void *thing) {
 
 s32 SoundSeq_Invalidate(SoundSequence *seq, u32 start, u32 end)
 {
-    if ((u32)HND(seq->params) >= start && (u32)HND(seq->params) < end) {
+    if ((u32)HND(GETP(seq->params)) >= start && (u32)HND(GETP(seq->params)) < end) {
         return 1;
     }
     return 0;
@@ -255,7 +255,7 @@ void SoundSequence_ClearQueue(void) {
         count--;
         if (list[count]->flags & 0x40000000) {
             list[count]->flags &= ~0x40000000;
-            list[count]->queued = NULL;
+            SETP(list[count]->queued, NULL);
             SoundSeq_Release(list[count]);
         }
     }

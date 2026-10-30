@@ -140,13 +140,13 @@ void Pod_Draw(u8 *pod) {
         u8 pad2[2];
         u16 mtxIndex;
         u8 pad6[2];
-        void *geom;
-        Vector4 *offset;
+        PTR32(void) geom;
+        PTR32(Vector4) offset;
         u8 pad10[0xC];
     } PodPart;
     typedef struct PodPartList {
         u32 count;
-        PodPart *parts;
+        PTR32(PodPart) parts;
     } PodPartList;
     PodPartList *list;
     u32 i;
@@ -163,8 +163,8 @@ void Pod_Draw(u8 *pod) {
     list = SLOT_LOAD(PodPartList *, (SLOT_LOAD(u8 *, (pod + 0xB0)) + 0x38));
     if (list != NULL) {
         for (i = 0; i < list->count; i++) {
-            part = &list->parts[i];
-            geom = part->geom;
+            part = &GETP(list->parts)[i];
+            geom = GETP(part->geom);
             bit = *(u32 *)(pod + 0x114) & (1 << i);
             if (bit && !(part->flags & 1)) {
                 continue;
@@ -173,8 +173,8 @@ void Pod_Draw(u8 *pod) {
                 continue;
             }
             mtx = (SLOT_LOAD(Matrix4 *, (pod + 0xC0)))[part->mtxIndex];
-            if (list->parts[i].xform) {
-                XformVec(&mtx, list->parts[i].offset, &mtx.v[3]);
+            if (GETP(list->parts)[i].xform) {
+                XformVec(&mtx, GETP(GETP(list->parts)[i].offset), &mtx.v[3]);
             }
             Gfx_DrawGeometry(HND(geom), HND(&mtx));
         }

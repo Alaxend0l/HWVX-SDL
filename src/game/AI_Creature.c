@@ -63,8 +63,8 @@ s8 AI_Creature_Spawn(u8 *creature, u8 *spawner, u32 index) {
     typedef struct CreatureParams {
         Vector4 pos;
         f32 angle;
-        u8 *info;
-        u8 *player;
+        PTR32(u8) info;
+        PTR32(u8) player;
     } CreatureParams;
     CreatureParams params __attribute__((aligned(16)));
     u8 *info;
@@ -93,12 +93,12 @@ s8 AI_Creature_Spawn(u8 *creature, u8 *spawner, u32 index) {
         info = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, spawner) + 0x2C));
         SLOT_STORE((creature + 0xE0), SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (info + 0x10)) + (index)));
         list = SLOT_LOAD(u8 *, (info + 0x8));
-        params.info = SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (list + 4)) + (rand() % *(u32 *)list));
+        SETP(params.info, SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (list + 4)) + (rand() % *(u32 *)list)));
         params.pos = *SLOT_LOAD(Vector4 *, (creature + 0xE0));
         params.angle = 0.017453292f * (f32)(rand() % 360);
         SLOT_STORE((creature + 0xA8), NULL);
     } else {
-        params.info = SLOT_LOAD(u8 *, (spawner + 0x18));
+        SETP(params.info, SLOT_LOAD(u8 *, (spawner + 0x18)));
         params.pos = *(Vector4 *)spawner;
         params.angle = *(f32 *)(spawner + 0x14);
         SLOT_STORE((creature + 0xD8), NULL);
@@ -118,21 +118,21 @@ s8 AI_Creature_Spawn(u8 *creature, u8 *spawner, u32 index) {
             break;
         }
     }
-    params.player = creature;
+    SETP(params.player, creature);
     params.pos.y += 0.1f;
-    if (*(u32 *)(creature + 0xD0) == 0 && params.info != NULL) {
+    if (*(u32 *)(creature + 0xD0) == 0 && GETP(params.info) != NULL) {
         switch (GameSettings_GetDifficulty()) {
         case 0:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(params.info + 0x44);
+            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x44);
             break;
         case 1:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(params.info + 0x48);
+            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x48);
             break;
         case 2:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(params.info + 0x4C);
+            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x4C);
             break;
         case 3:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(params.info + 0x50);
+            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x50);
             break;
         }
     }
@@ -141,7 +141,7 @@ s8 AI_Creature_Spawn(u8 *creature, u8 *spawner, u32 index) {
         *(u8 *)(creature + 0xCD) = 2;
         *(s32 *)(creature + 0xC8) = 1;
         *(u32 *)(creature + 0xDC) = index;
-        Player_SetThing(params.player, thing);
+        Player_SetThing(GETP(params.player), thing);
         *(u32 *)(creature + 0x6C) |= 0x100;
         SLOT_STORE((thing + 0x90), SLOT_LOAD(u8 *, (creature + 0xA8)));
         return 1;
@@ -176,8 +176,8 @@ void AI_Creature_PopulateVolumes(void) {
         if (++v == g_volumeTotal) {
             v = 0;
         }
-        info = SLOT_LOAD(u8 *, (gs_aSpawnVolumes[v].volume + 0x2C));
-        if (*(u32 *)(gs_aSpawnVolumes[v].volume + 4) == 0 || *(u32 *)(info + 4) == gs_aSpawnVolumes[v].unk4 || *(u32 *)(info + 0xC) == 0 || info[0] != 0) {
+        info = SLOT_LOAD(u8 *, (GETP(gs_aSpawnVolumes[v].volume) + 0x2C));
+        if (*(u32 *)(GETP(gs_aSpawnVolumes[v].volume) + 4) == 0 || *(u32 *)(info + 4) == gs_aSpawnVolumes[v].unk4 || *(u32 *)(info + 0xC) == 0 || info[0] != 0) {
             continue;
         }
         idx = gs_aSpawnVolumes[v].index;
@@ -217,7 +217,7 @@ static inline void AI_Creature_InitSpawnVolumes(void) {
     gs_currentVolume = 0;
     MemClr32(gs_aSpawnVolumes, g_volumeTotal * sizeof(SpawnVolume));
     for (i = 0; i < g_volumeTotal; i++) {
-        gs_aSpawnVolumes[i].volume = VolumeManager_GetVolumeTypeByIndex(5, i);
+        SETP(gs_aSpawnVolumes[i].volume, VolumeManager_GetVolumeTypeByIndex(5, i));
     }
 }
 
@@ -231,17 +231,17 @@ static inline void AI_Creature_UpdateNearestCars(void) {
     count = ThingManager_GetActiveCars(cars, 9);
     if (count != 0) {
         for (i = 0; i < count; i++) {
-            gs_aNearestCars[i].car = cars[i];
+            SETP(gs_aNearestCars[i].car, cars[i]);
             PSVECScale(cars[i], &gs_aNearestCars[i].pos, 0.18f);
             PSVECAdd(cars[i] + 0x40, &gs_aNearestCars[i].pos, &gs_aNearestCars[i].pos);
         }
         if (i < 8) {
-            gs_aNearestCars[i].car = NULL;
+            SETP(gs_aNearestCars[i].car, NULL);
         }
         if (s_currentCar >= count) {
             s_currentCar = 0;
         }
-        gs_aNearestCars[s_currentCar].speed = PSVECSquareMag(gs_aNearestCars[s_currentCar].car);
+        gs_aNearestCars[s_currentCar].speed = PSVECSquareMag(GETP(gs_aNearestCars[s_currentCar].car));
         if (gs_aNearestCars[s_currentCar].speed > 1.0f) {
             gs_aNearestCars[s_currentCar].range = 400.0f * (1.0f - gs_aNearestCars[s_currentCar].speed / 100000.0f);
         } else {
@@ -259,7 +259,7 @@ static inline void AI_Creature_FindNearestCar(u8 *creature) {
 
     best = *(f32 *)(SLOT_LOAD(u8 *, (creature + 0xD0)) + 0x18);
     for (i = 0; i < 8; i++) {
-        if (gs_aNearestCars[i].car == NULL) {
+        if (GETP(gs_aNearestCars[i].car) == NULL) {
             break;
         }
         dist = PSVECSquareDistance(SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x40, &gs_aNearestCars[i].pos);

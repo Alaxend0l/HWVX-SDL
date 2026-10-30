@@ -395,8 +395,8 @@ void MusicHearbeat(void) {
         SetMusicTempo(65536.0f * g_globalMusic_800DBE30[2].cur);
     }
     for (i = 0; i < 32; i++) {
-        if (g_tracks_803C6F30[i].active && g_tracks_803C6F30[i].time > 0.0f && g_tracks_803C6F30[i].vol != g_tracks_803C6F30[i].target) {
-            g_tracks_803C6F30[i].vol = (g_fDeltaTimeMS / g_tracks_803C6F30[i].time) * (g_tracks_803C6F30[i].target - g_tracks_803C6F30[i].vol) + g_tracks_803C6F30[i].vol;
+        if (GETP(g_tracks_803C6F30[i].active) && GETP(g_tracks_803C6F30[i].time) > 0.0f && g_tracks_803C6F30[i].vol != GETP(g_tracks_803C6F30[i].target)) {
+            g_tracks_803C6F30[i].vol = (g_fDeltaTimeMS / GETP(g_tracks_803C6F30[i].time)) * (GETP(g_tracks_803C6F30[i].target) - g_tracks_803C6F30[i].vol) + g_tracks_803C6F30[i].vol;
             g_tracks_803C6F30[i].time -= g_fDeltaTimeMS;
             if (g_tracks_803C6F30[i].vol < 0.0f) {
                 g_tracks_803C6F30[i].vol = 0.0f;
@@ -458,8 +458,8 @@ void SoundSource_Stop(s32 index) {
     } SoundSource;
     extern SoundSource *g_sources;
 
-    if (g_sources[index].voice > 0) {
-        ReleaseVoice(g_sources[index].voice);
+    if (GETP(g_sources[index].voice) > 0) {
+        ReleaseVoice(GETP(g_sources[index].voice));
         g_sources[index].voice = -1;
         g_sources[index].unk24 = 0.0f;
         g_sources[index].looping = FALSE;
@@ -475,7 +475,7 @@ s8 SoundSource_IsActive(s32 index) {
     } SoundSource;
     extern SoundSource *g_sources;
 
-    return g_sources[index].voice != -1;
+    return GETP(g_sources[index].voice) != -1;
 }
 
 s8 SoundSource_IsLooping(s32 index) {
@@ -560,9 +560,9 @@ void SoundManager_Pause(s32 paused) {
     }
 }
 
-void SongManager_LoadSong(void) {
+void SongManager_LoadSong(u8 *data, u32 size) {
     extern s8 g_songLoaded_803C6F2C;
-    CreateMusic();
+    CreateMusic(data, size);
     g_songLoaded_803C6F2C = 1;
 }
 
@@ -644,8 +644,8 @@ s32 ActionMusicChange(void *data) {
     }
     if (action->volTime == 0) {
         g_globalMusic_800DBE30[0].cur = action->vol;
-        if (g_worldData.world != NULL) {
-            g_globalMusic_800DBE30[0].cur = action->vol * (SLOT_LOAD(MusicScale *, ((u8 *)g_worldData.world + 0x9C)))->vol;
+        if (GETP(g_worldData.world) != NULL) {
+            g_globalMusic_800DBE30[0].cur = action->vol * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->vol;
         }
         SetMusicVol(32767.0f * g_globalMusic_800DBE30[0].cur);
     } else {
@@ -654,8 +654,8 @@ s32 ActionMusicChange(void *data) {
     g_globalMusic_800DBE30[0].time = *(f32 *)&action->volTime;
     if (action->pitchTime == 0) {
         g_globalMusic_800DBE30[1].cur = action->pitch;
-        if (g_worldData.world != NULL) {
-            g_globalMusic_800DBE30[1].cur = action->pitch * (SLOT_LOAD(MusicScale *, ((u8 *)g_worldData.world + 0x9C)))->pitch;
+        if (GETP(g_worldData.world) != NULL) {
+            g_globalMusic_800DBE30[1].cur = action->pitch * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->pitch;
         }
         SetMusicPitch(65536.0f * g_globalMusic_800DBE30[1].cur);
     } else {
@@ -664,8 +664,8 @@ s32 ActionMusicChange(void *data) {
     g_globalMusic_800DBE30[1].time = *(f32 *)&action->pitchTime;
     if (action->tempoTime == 0) {
         g_globalMusic_800DBE30[2].cur = action->tempo;
-        if (g_worldData.world != NULL) {
-            g_globalMusic_800DBE30[2].cur = action->tempo * (SLOT_LOAD(MusicScale *, ((u8 *)g_worldData.world + 0x9C)))->tempo;
+        if (GETP(g_worldData.world) != NULL) {
+            g_globalMusic_800DBE30[2].cur = action->tempo * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->tempo;
         }
         SetMusicTempo(65536.0f * g_globalMusic_800DBE30[2].cur);
     } else {
@@ -675,7 +675,7 @@ s32 ActionMusicChange(void *data) {
     if (action->orderMode == 0x29) {
         SetMusicOrder(action->order, action->orderType == 0x27);
         for (i = 0; i < 15; i++) {
-            g_tracks_803C6F30[i].active = 0;
+            SETP(g_tracks_803C6F30[i].active, 0);
         }
     }
     for (i = 0; i < action->numTracks; i++) {

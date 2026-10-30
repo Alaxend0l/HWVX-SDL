@@ -17,8 +17,8 @@ void Blast_Action(u8 *blast, Vector4 *pos, u8 *source) {
     struct {
         Vector4 pos;
         Vector4 dir;
-        u8 *thing;
-        u8 *source;
+        PTR32(u8) thing;
+        PTR32(u8) source;
         u32 unk28;
         u8 unk2C[0x50 - 0x2C];
     } __attribute__((aligned(16))) impact;
@@ -186,8 +186,8 @@ void Blast_Action(u8 *blast, Vector4 *pos, u8 *source) {
             impact.pos.y = 2.0f * *(f32 *)(thing + 0x24) + pos->y;
             impact.pos.z = 2.0f * *(f32 *)(thing + 0x28) + pos->z;
         }
-        impact.thing = thing;
-        impact.source = source;
+        SETP(impact.thing, thing);
+        SETP(impact.source, source);
         impact.unk28 = 0;
         force *= (*(f32 (**)(u8 *))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x14))(thing);
         (*(void (**)(u8 *, void *, s32, f32))(SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x18))(thing, &impact, damageType, force);
@@ -236,7 +236,7 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
         u8 pad8;
         u8 type;
         u8 padA[2];
-        void *data;
+        PTR32(void) data;
     } EventSeqAdvanced;
     f32 scale;
 
@@ -255,7 +255,7 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
         scale = RandomAdd(adv->base, adv->range);
         switch (adv->type) {
         case 0: {
-            Vector4 *dir = adv->data;
+            Vector4 *dir = GETP(adv->data);
 
             RandomNumberGenerator_GetRandomVector(out);
             out->x *= scale * dir->x;
@@ -264,7 +264,7 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
             break;
         }
         case 1: {
-            Vector4 *dir = adv->data;
+            Vector4 *dir = GETP(adv->data);
             Vector4 mul __attribute__((aligned(16))) = {1.0f, 1.0f, 1.0f, 0.0f};
 
             RandomNumberGenerator_GetRandomVector(out);
@@ -312,7 +312,7 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
             break;
         }
         case 2: {
-            EventSeqCircle *circle = adv->data;
+            EventSeqCircle *circle = GETP(adv->data);
             f32 height = RandomAdd(circle->base, circle->range);
             f32 t = 1.0f;
             f32 angle;

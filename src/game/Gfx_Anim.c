@@ -6,7 +6,7 @@ typedef struct GeometryGroup {
     u16 unk0;
     u16 flags;
     u8 unk4[0x10 - 0x4];
-    void *data;
+    PTR32(void) data;
     u16 unk14;
     u8 unk16[0x18 - 0x16];
     u16 unk18;
@@ -18,34 +18,36 @@ typedef struct Geometry {
     u16 numGroups;
     u16 unk4;
     u16 unk6;
-    GeometryGroup *groups;
-    f32 *lodDistances;
+    PTR32(GeometryGroup) groups;
+    PTR32(f32) lodDistances;
     f32 bboxMin[4];
     f32 bboxMax[4];
     f32 center[4];
 } Geometry;
 
 typedef struct DLSkinGroup {
-    Geometry *lod;
+    PTR32(Geometry) lod;
     s32 lightState;
-    f32 *matrices;
+    PTR32(f32) matrices;
     u32 count;
     u16 matrix;
     u8 group;
     u8 window;
 } DLSkinGroup;
 
-void AnimTraverseHeirarchyToMatrices(void);
+void AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices);
 void *GetRenderWindow(void);
 
-void Gfx_AnimExtractKeyFrame(void)
+/* Both forward their arguments unchanged. Callers pass a bone count as a 4th
+ * argument that AnimExtractKeyFrame never read (it reuses r5). */
+void Gfx_AnimExtractKeyFrame(void *anim, f32 time, void *out, s32 count)
 {
-    AnimExtractKeyFrame();
+    AnimExtractKeyFrame(anim, time, out);
 }
 
-void Gfx_AnimTraverseHeirarchyToMatrices(void)
+void Gfx_AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices)
 {
-    AnimTraverseHeirarchyToMatrices();
+    AnimTraverseHeirarchyToMatrices(bones, count, matrices);
 }
 
 void Gfx_DrawAnimGeometryAux_(Geometry *geometry, f32 *matrices, u32 count, f32 *matrix);
@@ -78,13 +80,13 @@ void Gfx_DrawAnimGeometryAux(Geometry *geometry, f32 *matrices, u32 count, f32 *
             }
             if (level != 0xFFFFFFFF) {
                 matrixState = Gfx_AddWorldMatrixState_CacheMatrix(matrix);
-                lod = (Geometry *)((u8 *)geometry->groups + level * 0x18);
+                lod = (Geometry *)((u8 *)GETP(geometry->groups) + level * 0x18);
                 for (j = 0; j < lod->numGroups; j++) {
                     group = DisplayList_AddGroup_Skin();
-                    group->lod = lod;
+                    SETP(group->lod, lod);
                     group->group = j;
                     group->matrix = matrixState;
-                    group->matrices = matrices;
+                    SETP(group->matrices, matrices);
                     group->lightState = Gfx_GetLightState();
                     group->window = g_currentWindow;
                     group->count = count;
@@ -118,7 +120,7 @@ void Gfx_DrawAnimGeometryAux_(Geometry *geometry, f32 *matrices, u32 count, f32 
         MultiplyMatrix(matrices, matrix, world);
         level = Gfx_CalcGeometryLOD(geometry, world);
     }
-    lod = (Geometry *)((u8 *)geometry->groups + level * 0x18);
+    lod = (Geometry *)((u8 *)GETP(geometry->groups) + level * 0x18);
     MatrixToMtxTranspose(view, (u8 *)GetRenderWindow() + 0x40);
     for (i = 0; i < count; i++) {
         MatrixToMtxTranspose(bone, matrices + i * 16);

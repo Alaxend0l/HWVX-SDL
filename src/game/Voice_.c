@@ -2,12 +2,12 @@
 
 
 typedef struct AXVPB {
-    struct AXVPB *next;
-    struct AXVPB *prev;
-    struct AXVPB *next1;
+    PTR32(struct AXVPB) next;
+    PTR32(struct AXVPB) prev;
+    PTR32(struct AXVPB) next1;
     u32 priority;
-    void *callback;
-    void *userContext;
+    PTR32(void) callback;
+    PTR32(void) userContext;
     u32 index;
     u32 sync;
     u8 unk20[0x144 - 0x20];
@@ -41,7 +41,7 @@ typedef struct VoiceHW {
     u8 kind;
     u8 id;
     u8 unk2[2];
-    struct VoiceHW *next;
+    PTR32(struct VoiceHW) next;
     u8 unk8[0xC];
     u8 priority;
     u8 state;
@@ -56,7 +56,7 @@ typedef struct VoiceHW {
     u8 unk3C[0xC];
     s32 unk48;
     u8 unk4C[4];
-    AXVPB *axv;
+    PTR32(AXVPB) axv;
     u8 unk54;
     u8 unk55;
     u8 unk56;
@@ -78,9 +78,9 @@ extern void (*DestroySongVoice)(VoiceHW *voice);
 extern VoiceHW *g_pFree;
 
 typedef struct AXFX_DELAY {
-    s32 *left;
-    s32 *right;
-    s32 *sur;
+    PTR32(s32) left;
+    PTR32(s32) right;
+    PTR32(s32) sur;
     u32 currentSize[3];
     u32 currentPos[3];
     u32 currentFeedback[3];
@@ -101,11 +101,11 @@ extern s32 g_active;
 void SetVoiceState_(VoiceHW *voice, s32 state);
 
 
-s32 AudioVoice_Create_(void) {
+s32 AudioVoice_Create_(void *voices) {
     u32 i;
 
     for (i = 0; i < 0x20; i++) {
-        g_voice[i].axv = NULL;
+        SETP(g_voice[i].axv, NULL);
         *(u32 *)&g_voice[i] = i;
         g_voice[i].id = 0xFF;
     }
@@ -118,9 +118,9 @@ s32 AudioVoice_Init_(void) {
 
     for (i = 0; i < 0x20; i++) {
         SetVoiceState_(&g_voice[i], 3);
-        g_voice[i].next = &g_voice[i + 1];
+        SETP(g_voice[i].next, &g_voice[i + 1]);
     }
-    g_voice[0x1F].next = NULL;
+    SETP(g_voice[0x1F].next, NULL);
     g_pFree = g_voice;
     g_active = -1;
     if (m_InitOnce == 0) {
@@ -188,9 +188,9 @@ VoiceHW *GetVoice_(u8 kind, u32 priority) {
         return NULL;
     }
     voice = g_pFree;
-    g_pFree = g_pFree->next;
-    voice->next = NULL;
-    voice->axv = axv;
+    g_pFree = GETP(g_pFree->next);
+    SETP(voice->next, NULL);
+    SETP(voice->axv, axv);
     voice->kind = kind;
     voice->state = 3;
     voice->priority = priority;
@@ -213,7 +213,7 @@ void StartVoice_(VoiceHW *voice) {
     s32 level;
 
     level = OSDisableInterrupts();
-    axv = (u8 *)voice->axv;
+    axv = (u8 *)GETP(voice->axv);
     switch (voice->unk2C[0]) {
     case 8:
         *(u16 *)(axv + 0x1D6) = 0x100;
@@ -282,27 +282,27 @@ void SetVoiceState_(VoiceHW *voice, s32 state) {
         level = OSDisableInterrupts();
         voice->state = 0;
         voice->id = 0xFE;
-        if (voice->axv != NULL) {
+        if (GETP(voice->axv) != NULL) {
             level2 = OSDisableInterrupts();
-            if (voice->axv->priority != 0) {
-                AXFreeVoice(voice->axv);
+            if (GETP(voice->axv)->priority != 0) {
+                AXFreeVoice(GETP(voice->axv));
             }
-            voice->axv = NULL;
+            SETP(voice->axv, NULL);
             OSRestoreInterrupts(level2);
         }
-        voice->next = g_pFree;
+        SETP(voice->next, g_pFree);
         g_pFree = voice;
         OSRestoreInterrupts(level);
         break;
     case 2:
         voice->state = 2;
-        voice->axv->state = 0;
-        voice->axv->sync |= 4;
+        GETP(voice->axv)->state = 0;
+        GETP(voice->axv)->sync |= 4;
         break;
     case 1:
         voice->state = 1;
-        voice->axv->state = 1;
-        voice->axv->sync |= 4;
+        GETP(voice->axv)->state = 1;
+        GETP(voice->axv)->sync |= 4;
         break;
     }
 }
@@ -311,7 +311,7 @@ void SetVoicePriority_(VoiceHW *voice) {
     s32 level;
 
     level = OSDisableInterrupts();
-    AXSetVoicePriority(voice->axv, voice->priority);
+    AXSetVoicePriority(GETP(voice->axv), voice->priority);
     OSRestoreInterrupts(level);
 }
 
@@ -320,14 +320,14 @@ void DestroyVoice_(AXVPB *axv) {
     s32 level;
 
     level = OSDisableInterrupts();
-    voice = axv->userContext;
+    voice = GETP(axv->userContext);
     if (voice->kind == 0) {
         DestroySongVoice(voice);
     }
     voice->state = 0;
     voice->id = 0xFD;
-    voice->axv = NULL;
-    voice->next = g_pFree;
+    SETP(voice->axv, NULL);
+    SETP(voice->next, g_pFree);
     g_pFree = voice;
     OSRestoreInterrupts(level);
 }
@@ -354,7 +354,7 @@ void ProcessVoice_(void) {
         if (voice->state != 1) {
             continue;
         }
-        axv = voice->axv;
+        axv = GETP(voice->axv);
         if (axv->state == 0) {
             if (voice->kind == 0) {
                 DestroySongVoice(voice);
@@ -362,15 +362,15 @@ void ProcessVoice_(void) {
             level = OSDisableInterrupts();
             voice->state = 0;
             voice->id = 0xFE;
-            if (voice->axv != NULL) {
+            if (GETP(voice->axv) != NULL) {
                 level2 = OSDisableInterrupts();
-                if (voice->axv->priority != 0) {
-                    AXFreeVoice(voice->axv);
+                if (GETP(voice->axv)->priority != 0) {
+                    AXFreeVoice(GETP(voice->axv));
                 }
-                voice->axv = NULL;
+                SETP(voice->axv, NULL);
                 OSRestoreInterrupts(level2);
             }
-            voice->next = g_pFree;
+            SETP(voice->next, g_pFree);
             g_pFree = voice;
             OSRestoreInterrupts(level);
             continue;
@@ -524,8 +524,8 @@ s8 SetVoiceRate_(VoiceHW *voice) {
     u32 rate = (1.0f / 48000.0f) * ((f32)voice->rate * (f32)voice->pitch);
 
     if (rate <= 0x2EE00 && rate >= 0x60) {
-        *(u32 *)&voice->axv->ratioHi = rate;
-        voice->axv->sync |= 0x80000;
+        *(u32 *)&GETP(voice->axv)->ratioHi = rate;
+        GETP(voice->axv)->sync |= 0x80000;
         return 1;
     }
     return 0;
@@ -534,7 +534,7 @@ s32 SetVoiceOffset_(VoiceHW *voice, u32 offset) {
     AXVPB *axv;
 
     if (offset < voice->length) {
-        axv = voice->axv;
+        axv = GETP(voice->axv);
         *(u32 *)&axv->currentAddressHi = voice->addr + offset;
         axv->sync |= 0x1000;
         return 1;

@@ -3,10 +3,10 @@
 
 
 typedef struct GameState {
-    void (*interrupt)(void);
-    void (*heartbeat)(void);
-    s8 (*enter)(s32 prev);
-    s8 (*exit)(s32 next);
+    FPTR32(void, (void)) interrupt;
+    FPTR32(void, (void)) heartbeat;
+    FPTR32(s8, (s32 prev)) enter;
+    FPTR32(s8, (s32 next)) exit;
 } GameState;
 
 typedef struct StateManager {
@@ -25,39 +25,39 @@ void StateManager_Create(void) {
 
     g_pStateManager = Allocate(sizeof(StateManager), 0, "");
     for (i = 0; i < 13; i++) {
-        g_pStateManager->states[i].interrupt = NULL;
-        g_pStateManager->states[i].heartbeat = NULL;
-        g_pStateManager->states[i].enter = NULL;
-        g_pStateManager->states[i].exit = NULL;
+        SETP(g_pStateManager->states[i].interrupt, NULL);
+        SETP(g_pStateManager->states[i].heartbeat, NULL);
+        SETP(g_pStateManager->states[i].enter, NULL);
+        SETP(g_pStateManager->states[i].exit, NULL);
     }
-    g_pStateManager->states[3].interrupt = NULL;
-    g_pStateManager->states[3].heartbeat = StateMovie_Heartbeat;
-    g_pStateManager->states[3].enter = StateMovie_Init;
-    g_pStateManager->states[3].exit = StateMovie_Shutdown;
-    g_pStateManager->states[5].interrupt = NULL;
-    g_pStateManager->states[5].heartbeat = StateGamePlay_Heartbeat;
-    g_pStateManager->states[5].enter = StateGamePlay_Init;
-    g_pStateManager->states[5].exit = StateGamePlay_Shutdown;
-    g_pStateManager->states[6].interrupt = NULL;
-    g_pStateManager->states[6].heartbeat = StateRenderTest_Heartbeat;
-    g_pStateManager->states[6].enter = StateRenderTest_Init;
-    g_pStateManager->states[6].exit = StateRenderTest_Shutdown;
-    g_pStateManager->states[8].interrupt = NULL;
-    g_pStateManager->states[8].heartbeat = StateShutdown_Heartbeat;
-    g_pStateManager->states[8].enter = StateShutdown_Init;
-    g_pStateManager->states[8].exit = StateShutdown_Shutdown;
-    g_pStateManager->states[2].interrupt = NULL;
-    g_pStateManager->states[2].heartbeat = StateTitleScreen_Heartbeat;
-    g_pStateManager->states[2].enter = StateTitleScreen_Init;
-    g_pStateManager->states[2].exit = StateTitleScreen_Shutdown;
-    g_pStateManager->states[11].interrupt = NULL;
-    g_pStateManager->states[11].heartbeat = StateProgressionManager_Heartbeat;
-    g_pStateManager->states[11].enter = StateProgressionManager_Init;
-    g_pStateManager->states[11].exit = StateProgressionManager_Shutdown;
-    g_pStateManager->states[12].interrupt = NULL;
-    g_pStateManager->states[12].heartbeat = StateGameManager_Heartbeat;
-    g_pStateManager->states[12].enter = StateGameManager_Init;
-    g_pStateManager->states[12].exit = StateGameManager_Shutdown;
+    SETP(g_pStateManager->states[3].interrupt, NULL);
+    SETP(g_pStateManager->states[3].heartbeat, StateMovie_Heartbeat);
+    SETP(g_pStateManager->states[3].enter, StateMovie_Init);
+    SETP(g_pStateManager->states[3].exit, StateMovie_Shutdown);
+    SETP(g_pStateManager->states[5].interrupt, NULL);
+    SETP(g_pStateManager->states[5].heartbeat, StateGamePlay_Heartbeat);
+    SETP(g_pStateManager->states[5].enter, StateGamePlay_Init);
+    SETP(g_pStateManager->states[5].exit, StateGamePlay_Shutdown);
+    SETP(g_pStateManager->states[6].interrupt, NULL);
+    SETP(g_pStateManager->states[6].heartbeat, StateRenderTest_Heartbeat);
+    SETP(g_pStateManager->states[6].enter, StateRenderTest_Init);
+    SETP(g_pStateManager->states[6].exit, StateRenderTest_Shutdown);
+    SETP(g_pStateManager->states[8].interrupt, NULL);
+    SETP(g_pStateManager->states[8].heartbeat, StateShutdown_Heartbeat);
+    SETP(g_pStateManager->states[8].enter, StateShutdown_Init);
+    SETP(g_pStateManager->states[8].exit, StateShutdown_Shutdown);
+    SETP(g_pStateManager->states[2].interrupt, NULL);
+    SETP(g_pStateManager->states[2].heartbeat, StateTitleScreen_Heartbeat);
+    SETP(g_pStateManager->states[2].enter, StateTitleScreen_Init);
+    SETP(g_pStateManager->states[2].exit, StateTitleScreen_Shutdown);
+    SETP(g_pStateManager->states[11].interrupt, NULL);
+    SETP(g_pStateManager->states[11].heartbeat, StateProgressionManager_Heartbeat);
+    SETP(g_pStateManager->states[11].enter, StateProgressionManager_Init);
+    SETP(g_pStateManager->states[11].exit, StateProgressionManager_Shutdown);
+    SETP(g_pStateManager->states[12].interrupt, NULL);
+    SETP(g_pStateManager->states[12].heartbeat, StateGameManager_Heartbeat);
+    SETP(g_pStateManager->states[12].enter, StateGameManager_Init);
+    SETP(g_pStateManager->states[12].exit, StateGameManager_Shutdown);
     g_pStateManager->current = -1;
     g_pStateManager->next = -1;
 }
@@ -82,16 +82,16 @@ s32 StateManager_GotoState(s32 state) {
     }
     State_GetGameStateStr(g_pStateManager->current, curStr);
     State_GetGameStateStr(state, nextStr);
-    if (g_pStateManager->current != -1 && g_pStateManager->states[g_pStateManager->current].exit != NULL &&
-        g_pStateManager->states[g_pStateManager->current].exit(state) != 1) {
+    if (g_pStateManager->current != -1 && GETP(g_pStateManager->states[g_pStateManager->current].exit) != NULL &&
+        GETP(g_pStateManager->states[g_pStateManager->current].exit)(state) != 1) {
         return g_pStateManager->current;
     }
-    if (g_pStateManager->states[state].enter != NULL &&
-        g_pStateManager->states[state].enter(g_pStateManager->current) != 1) {
+    if (GETP(g_pStateManager->states[state].enter) != NULL &&
+        GETP(g_pStateManager->states[state].enter)(g_pStateManager->current) != 1) {
         return g_pStateManager->current;
     }
-    Interrupt_Process = g_pStateManager->states[state].interrupt ? g_pStateManager->states[state].interrupt : NULL;
-    Heartbeat_Process = g_pStateManager->states[state].heartbeat;
+    Interrupt_Process = GETP(g_pStateManager->states[state].interrupt) ? GETP(g_pStateManager->states[state].interrupt) : NULL;
+    Heartbeat_Process = GETP(g_pStateManager->states[state].heartbeat);
     g_pStateManager->current = state;
     return g_pStateManager->current;
 }

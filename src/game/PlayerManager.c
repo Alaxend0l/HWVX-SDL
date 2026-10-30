@@ -3,53 +3,53 @@ extern u8 g_playerManager[0x20E0];
 
 typedef struct PMPlayer {
     u8 pad0[0x20];
-    void (*controlReader)();
-    void (*init)();
-    void (*heartbeat)();
+    FPTR32(void, (void)) controlReader;
+    FPTR32(void, (void)) init;
+    FPTR32(void, (void)) heartbeat;
     u8 pad2C[0xB0 - 0x2C];
-    struct PMPlayer *next;
-    struct PMPlayer *prev;
+    PTR32(struct PMPlayer) next;
+    PTR32(struct PMPlayer) prev;
 } PMPlayer;
 
 typedef struct PlayerManager {
     u8 pad0[0x20D8];
-    PMPlayer *active;
-    PMPlayer *free;
+    PTR32(PMPlayer) active;
+    PTR32(PMPlayer) free;
 } PlayerManager;
 
 static inline PMPlayer *PlayerManager_PopActive(PlayerManager *mgr) {
-    PMPlayer *player = mgr->active;
+    PMPlayer *player = GETP(mgr->active);
     if (player == NULL) {
         return NULL;
     }
-    mgr->active = player->next;
-    if (player->next != NULL) {
-        player->next->prev = NULL;
+    SETP(mgr->active, GETP(player->next));
+    if (GETP(player->next) != NULL) {
+        SETP(GETP(player->next)->prev, NULL);
     }
-    player->next = NULL;
+    SETP(player->next, NULL);
     return player;
 }
 
 static inline void PlayerManager_UnlinkActive(PlayerManager *mgr, PMPlayer *player) {
-    if (player->prev == NULL) {
-        mgr->active = player->next;
+    if (GETP(player->prev) == NULL) {
+        SETP(mgr->active, GETP(player->next));
     } else {
-        player->prev->next = player->next;
+        SETP(GETP(player->prev)->next, GETP(player->next));
     }
-    if (player->next != NULL) {
-        player->next->prev = player->prev;
-        player->next = NULL;
+    if (GETP(player->next) != NULL) {
+        SETP(GETP(player->next)->prev, GETP(player->prev));
+        SETP(player->next, NULL);
     }
-    player->prev = NULL;
+    SETP(player->prev, NULL);
 }
 
 static inline void PlayerManager_PushFree(PlayerManager *mgr, PMPlayer *player) {
-    player->next = mgr->free;
-    player->prev = NULL;
-    if (player->next != NULL) {
-        player->next->prev = player;
+    SETP(player->next, GETP(mgr->free));
+    SETP(player->prev, NULL);
+    if (GETP(player->next) != NULL) {
+        SETP(GETP(player->next)->prev, player);
     }
-    mgr->free = player;
+    SETP(mgr->free, player);
 }
 
 
@@ -99,8 +99,8 @@ void PlayerManager_Init(void) {
         CarPlayer cars[4];
         CreaturePlayer creatures[1];
         PMPlayer nulls[1];
-        PMPlayer *active;
-        PMPlayer *free;
+        PTR32(PMPlayer) active;
+        PTR32(PMPlayer) free;
     } PlayerMgr;
     extern s32 g_aiHoldIndex;
     void AI_Car_Heartbeat();
@@ -108,34 +108,34 @@ void PlayerManager_Init(void) {
     PMPlayer *player;
     s32 i;
 
-    pm->active = NULL;
-    pm->free = NULL;
+    SETP(pm->active, NULL);
+    SETP(pm->free, NULL);
     for (i = 0; i < 4; i++) {
         player = &pm->humans[i].base;
-        player->controlReader = Player_DefaultControlReader;
-        player->init = PlayerHuman_Init;
-        player->heartbeat = PlayerHuman_Heartbeat;
+        SETP(player->controlReader, Player_DefaultControlReader);
+        SETP(player->init, PlayerHuman_Init);
+        SETP(player->heartbeat, PlayerHuman_Heartbeat);
         PlayerManager_PushFree((PlayerManager *)pm, player);
     }
     for (i = 0; i < 4; i++) {
         player = &pm->cars[i].base;
-        player->controlReader = AI_Car_Heartbeat;
-        player->init = AI_Car_Init;
-        player->heartbeat = Player_Heartbeat;
+        SETP(player->controlReader, AI_Car_Heartbeat);
+        SETP(player->init, AI_Car_Init);
+        SETP(player->heartbeat, Player_Heartbeat);
         PlayerManager_PushFree((PlayerManager *)pm, player);
     }
     for (i = 0; i < 1; i++) {
         player = &pm->creatures[i].base;
-        player->controlReader = AI_Creature_Heartbeat;
-        player->init = AI_Creature_Init;
-        player->heartbeat = Player_Heartbeat;
+        SETP(player->controlReader, AI_Creature_Heartbeat);
+        SETP(player->init, AI_Creature_Init);
+        SETP(player->heartbeat, Player_Heartbeat);
         PlayerManager_PushFree((PlayerManager *)pm, player);
     }
     for (i = 0; i < 1; i++) {
         player = &pm->nulls[i];
-        player->controlReader = Player_NULL;
-        player->init = Player_Init;
-        player->heartbeat = Player_NULL;
+        SETP(player->controlReader, Player_NULL);
+        SETP(player->init, Player_Init);
+        SETP(player->heartbeat, Player_NULL);
         PlayerManager_PushFree((PlayerManager *)pm, player);
     }
     g_aiHoldIndex = 0;
@@ -296,7 +296,7 @@ void PlayerManager_Heartbeat(void) {
         g_attackDelay = 0;
     }
     g_AI_FramesSinceAsyncEventProcessed++;
-    if (g_worldData.world != NULL) {
+    if (GETP(g_worldData.world) != NULL) {
         if ((s8)g_AI_AsyncProcess[0xC] == 0) {
             AI_AddEvent(g_AI_AsyncProcess);
         }
@@ -327,7 +327,7 @@ s32 PlayerManager_RemovePlayer(void *player) {
     PlayerManager *mgr;
     PMPlayer *p;
 
-    for (p = ((PlayerManager *)g_playerManager)->active; p != NULL; p = p->next) {
+    for (p = GETP(((PlayerManager *)g_playerManager)->active); p != NULL; p = GETP(p->next)) {
         if (p == player) {
             break;
         }
@@ -337,12 +337,12 @@ s32 PlayerManager_RemovePlayer(void *player) {
     }
     PlayerManager_UnlinkActive((PlayerManager *)g_pPlayerManager, p);
     mgr = (PlayerManager *)g_pPlayerManager;
-    p->next = mgr->free;
-    p->prev = NULL;
-    if (p->next != NULL) {
-        p->next->prev = p;
+    SETP(p->next, GETP(mgr->free));
+    SETP(p->prev, NULL);
+    if (GETP(p->next) != NULL) {
+        SETP(GETP(p->next)->prev, p);
     }
-    mgr->free = p;
+    SETP(mgr->free, p);
     return 1;
 }
 

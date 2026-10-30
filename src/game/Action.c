@@ -1,7 +1,7 @@
 #include "common.h"
 
-s32 ActionCameraSetTargets(void) {
-    CameraManager_SetCameraGlobalMode();
+s32 ActionCameraSetTargets(u32 *mode) {
+    CameraManager_SetCameraGlobalMode(mode);
     return 1;
 }
 
@@ -61,7 +61,7 @@ void Action_Init(void) {
 void Action_Heartbeat(void) {
     typedef struct Action {
         s32 type;
-        void *data;
+        PTR32(void) data;
         s32 unk8;
         s32 unkC;
         s32 unk10;
@@ -75,8 +75,8 @@ void Action_Heartbeat(void) {
     for (i = 0; i < 80; i++) {
         Action *action = m_Actions_800DBC80[i];
         if (action != NULL && action->delay <= 0) {
-            pActionFuncArray_800CF500[action->type](action->data);
-            if (m_Actions_800DBC80[i]->type != 0x14 || SLOT_LOAD(void *, (u32 *)(m_Actions_800DBC80[i]->data) + (1)) == NULL) {
+            pActionFuncArray_800CF500[action->type](GETP(action->data));
+            if (m_Actions_800DBC80[i]->type != 0x14 || SLOT_LOAD(void *, (u32 *)(GETP(m_Actions_800DBC80[i]->data)) + (1)) == NULL) {
                 m_Actions_800DBC80[i] = NULL;
             }
         } else if (action != NULL) {
@@ -93,7 +93,7 @@ void Action_ReleaseAllActions(void) {
 s32 Action_AddAction(void *arg0) {
     typedef struct Action {
         s32 type;
-        void *data;
+        PTR32(void) data;
         s32 unk8;
         s32 delayInit;
         u32 count;
@@ -140,9 +140,9 @@ s32 ActionPrintDebugString(u32 *action)
     else
     {
         action[1] = 0;
-        for (i = 0; i < M2C_FIELD(g_worldData.world, u32 *, 8); i++)
+        for (i = 0; i < M2C_FIELD(GETP(g_worldData.world), u32 *, 8); i++)
         {
-            obj = (u8 *)((char *)SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0xC) + i * 0x60);
+            obj = (u8 *)((char *)SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0xC) + i * 0x60);
             if (M2C_FIELD(obj, u8 *, 0x35) == 1)
             {
                 switch (*action)
@@ -348,7 +348,7 @@ s32 ActionVehicleRemoveItem(u32 *action) {
     } ItemThing;
     typedef struct Vehicle {
         u8 unk0[0x28];
-        u8 *creature;
+        PTR32(u8) creature;
     } Vehicle;
     void *list;
     u32 i;
@@ -357,7 +357,7 @@ s32 ActionVehicleRemoveItem(u32 *action) {
     u8 *creature;
 
     for (i = 0; i < action[1]; i++) {
-        creature = ((Vehicle *)PTR(action[i + 2]))->creature;
+        creature = GETP(((Vehicle *)PTR(action[i + 2]))->creature);
         if (creature != NULL) {
             list = creature + 0x344;
             rack = ThingManagerList_GetByType(list, 8);
@@ -392,9 +392,9 @@ s32 ActionVehicleGiveItem(void *arg) {
         u8 pad10[0x4];
         s32 respawn;
         s32 timer;
-        ItemInfo *info;
+        PTR32(ItemInfo) info;
         f32 value;
-        u8 *thing;
+        PTR32(u8) thing;
         u32 type;
         u8 pad2C[0x34 - 0x2C];
         u8 hasValue;
@@ -410,15 +410,15 @@ s32 ActionVehicleGiveItem(void *arg) {
         f32 unk34;
         f32 unk38;
         u32 unk3C;
-        ItemInfo *info;
+        PTR32(ItemInfo) info;
         f32 value;
         u8 subtype;
     } ItemParams;
     typedef struct Action {
         s32 type;
-        void *item;
+        PTR32(void) item;
         u32 count;
-        u8 *cars[1];
+        PTR32(u8) cars[1];
     } Action;
     extern Vector4 g_zeroVector;
     Item *item;
@@ -438,11 +438,11 @@ s32 ActionVehicleGiveItem(void *arg) {
 
     switch (action->type) {
     case 0:
-        item = action->item;
+        item = GETP(action->item);
         if (item == NULL) {
             return;
         }
-        if (item->info->type == 7) {
+        if (GETP(item->info)->type == 7) {
             numPlayers = PlayerManager_PlayerCount();
             for (j = 0; j < numPlayers; j++) {
                 car = SLOT_LOAD(u8 *, ((u8 *)PlayerManager_GetPlayerByIndex(j) + 0x2C));
@@ -454,14 +454,14 @@ s32 ActionVehicleGiveItem(void *arg) {
                 }
             }
         }
-        if (item->thing == NULL) {
+        if (GETP(item->thing) == NULL) {
             item->timer = 0;
             params.pos = item->pos;
-            params.pos.y += item->info->height;
+            params.pos.y += GETP(item->info)->height;
             params.unk30 = 0.0f;
             params.unk34 = 0.0f;
             params.unk38 = 0.0f;
-            params.info = item->info;
+            SETP(params.info, GETP(item->info));
             params.quat.w = 1.0f;
             params.quat.x = 0.0f;
             params.quat.y = 0.0f;
@@ -471,14 +471,14 @@ s32 ActionVehicleGiveItem(void *arg) {
             t = ThingManager_DARYL_CreateThing(4, &params);
             if (t != NULL) {
                 item->spawned = 1;
-                item->thing = t;
-                SLOT_STORE((item->thing + 0x90), item);
+                SETP(item->thing, t);
+                SLOT_STORE((GETP(item->thing) + 0x90), item);
                 *(u32 *)(t + 0x74) |= 1;
                 if (item->respawn != 0) {
                     SLOT_STORE((t + 0xD0), item);
                 }
-                if (item->info->effect != 0) {
-                    p.id = item->info->effect;
+                if (GETP(item->info)->effect != 0) {
+                    p.id = GETP(item->info)->effect;
                     p.a = item->pos;
                     p.b = params.quat;
                     p.c.z = 0.0f;
@@ -492,20 +492,20 @@ s32 ActionVehicleGiveItem(void *arg) {
                 }
             }
         }
-        thing = item->thing;
+        thing = GETP(item->thing);
         break;
     case 1:
         info = NULL;
-        if ((u32)HND(action->item) < 1000) {
-            packID = FileStreaming_GetPackID(SLOT_LOAD(char *, (SLOT_LOAD(u8 *, ((u8 *)g_worldData.world + 0x9C)) + 0xA4)), 2, (u32)HND(action->item));
+        if ((u32)HND(GETP(action->item)) < 1000) {
+            packID = FileStreaming_GetPackID(SLOT_LOAD(char *, (SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0xA4)), 2, (u32)HND(GETP(action->item)));
             if (packID < 0xFFFFFFFF) {
                 pack = FileStreaming_InitializeDataPack(packID, 2, 1);
                 if (pack != NULL) {
-                    info = (ItemInfo *)DataPack_GetScript(pack, (s32)HND(action->item));
+                    info = (ItemInfo *)DataPack_GetScript(pack, (s32)HND(GETP(action->item)));
                 }
             }
         } else {
-            info = action->item;
+            info = GETP(action->item);
         }
         if (info != NULL) {
             params2.pos = g_zeroVector;
@@ -513,7 +513,7 @@ s32 ActionVehicleGiveItem(void *arg) {
             params2.unk30 = 0.0f;
             params2.unk34 = 0.0f;
             params2.unk38 = 0.0f;
-            params2.info = info;
+            SETP(params2.info, info);
             params2.quat.w = 1.0f;
             params2.quat.x = 0.0f;
             params2.quat.y = 0.0f;
@@ -530,8 +530,8 @@ s32 ActionVehicleGiveItem(void *arg) {
         return 0;
     }
     for (i = 0; i < action->count; i++) {
-        if (SLOT_LOAD(u8 *, (action->cars[i] + 0x28)) != NULL) {
-            CarA_ProcessItemPickup(SLOT_LOAD(u8 *, (action->cars[i] + 0x28)), thing);
+        if (SLOT_LOAD(u8 *, (GETP(action->cars[i]) + 0x28)) != NULL) {
+            CarA_ProcessItemPickup(SLOT_LOAD(u8 *, (GETP(action->cars[i]) + 0x28)), thing);
         }
     }
     return 1;
@@ -555,7 +555,7 @@ s32 ActionPlaySoundSequence(void *arg0) {
     } else if (M2C_FIELD(arg0, u32 *, 4) != 0) {
         SoundSequence_ClearQueue();
     } else {
-        for (thing = g_thingManager_DARYL.activeList; thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
+        for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
             if (SLOT_LOAD(u8 *, (u8 *)(thing) + 0x8C) == g_soundSeqVTable && M2C_FIELD(thing, u32 *, 0xB0) == id) {
                 ((void (*)(void *))(M2C_FIELD(thing, void ***, 0x8C))[1])(thing);
             }

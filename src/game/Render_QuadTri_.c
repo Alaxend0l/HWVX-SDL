@@ -126,10 +126,10 @@ typedef struct GDL {
     u8 unkBFDA0[0xEDCC0 - 0xBFDA0];
     GDLPointSprite pointSprites[1000];
     u8 unkF3A80[0x24CDE0 - 0xF3A80];
-    GDLGroupTriVtx *groupTriVtx;      /* 0x24CDE0 */
-    GDLGroupTri *groupTris;           /* 0x24CDE4 */
-    GDLGroupQuadVtx *groupQuadVtx;    /* 0x24CDE8 */
-    GDLGroupLitTriVtx *groupLitTriVtx; /* 0x24CDEC */
+    PTR32(GDLGroupTriVtx) groupTriVtx;      /* 0x24CDE0 */
+    PTR32(GDLGroupTri) groupTris;           /* 0x24CDE4 */
+    PTR32(GDLGroupQuadVtx) groupQuadVtx;    /* 0x24CDE8 */
+    PTR32(GDLGroupLitTriVtx) groupLitTriVtx; /* 0x24CDEC */
     u8 unk24CDF0[0x24CDF4 - 0x24CDF0];
     u16 spriteHeads[0x1FF];
 } GDL;
@@ -183,7 +183,7 @@ typedef struct FontChar {
 typedef struct Font {
     f32 height;
     f32 width;
-    char *letters;
+    PTR32(char) letters;
     u16 texture;
     u8 caseMode;
     u8 unkF;
@@ -545,18 +545,18 @@ void Render_DrawTriGroup(void) {
 
     Render_StateZWriteEnable(0);
     for (i = 0; i < g_pGDL->numGroupTris; i++) {
-        blend = g_pGDL->groupTris[i].blendMode;
-        start = g_pGDL->groupTris[i].start;
-        g_debugTriCount += g_pGDL->groupTris[i].count;
+        blend = GETP(g_pGDL->groupTris)[i].blendMode;
+        start = GETP(g_pGDL->groupTris)[i].start;
+        g_debugTriCount += GETP(g_pGDL->groupTris)[i].count;
         Render_StateAlphaBlendEnable(blend > 1);
         Render_StateBlendMode(blend);
-        Render_SetTextureHandle(g_pGDL->groupTris[i].tex);
-        switch (g_pGDL->groupTris[i].type) {
+        Render_SetTextureHandle(GETP(g_pGDL->groupTris)[i].tex);
+        switch (GETP(g_pGDL->groupTris)[i].type) {
         case 0:
             SetTriVtxDesc();
-            GXBegin(0x90, 0, g_pGDL->groupTris[i].count * 3);
-            for (j = 0; j < g_pGDL->groupTris[i].count; j++) {
-                tri = &g_pGDL->groupTriVtx[start++];
+            GXBegin(0x90, 0, GETP(g_pGDL->groupTris)[i].count * 3);
+            for (j = 0; j < GETP(g_pGDL->groupTris)[i].count; j++) {
+                tri = &GETP(g_pGDL->groupTriVtx)[start++];
                 GXPosition3f32(tri->x0, tri->y0, tri->z0);
                 GXColor4u8(tri->r, tri->g, tri->b, tri->a);
                 GXTexCoord2f32(tri->s0, tri->t0);
@@ -570,9 +570,9 @@ void Render_DrawTriGroup(void) {
             break;
         case 4:
             SetTriVtxDesc();
-            GXBegin(0x90, 0, g_pGDL->groupTris[i].count * 6);
-            for (j = 0; j < g_pGDL->groupTris[i].count; j++) {
-                quad = &g_pGDL->groupQuadVtx[start++];
+            GXBegin(0x90, 0, GETP(g_pGDL->groupTris)[i].count * 6);
+            for (j = 0; j < GETP(g_pGDL->groupTris)[i].count; j++) {
+                quad = &GETP(g_pGDL->groupQuadVtx)[start++];
                 GXPosition3f32(quad->x0, quad->y0, quad->z0);
                 GXColor4u8(quad->r, quad->g, quad->b, quad->a);
                 GXTexCoord2f32(0.0f, quad->s);
@@ -595,9 +595,9 @@ void Render_DrawTriGroup(void) {
             break;
         case 1:
             SetTriVtxDesc();
-            GXBegin(0x90, 0, g_pGDL->groupTris[i].count * 3);
-            for (j = 0; j < g_pGDL->groupTris[i].count; j++) {
-                lit = &g_pGDL->groupLitTriVtx[start++];
+            GXBegin(0x90, 0, GETP(g_pGDL->groupTris)[i].count * 3);
+            for (j = 0; j < GETP(g_pGDL->groupTris)[i].count; j++) {
+                lit = &GETP(g_pGDL->groupLitTriVtx)[start++];
                 GXPosition3f32(lit->x0, lit->y0, lit->z0);
                 GXColor4u8(lit->c[0][0], lit->c[0][1], lit->c[0][2], lit->c[0][3]);
                 GXTexCoord2f32(lit->s0, lit->t0);

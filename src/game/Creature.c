@@ -11,7 +11,7 @@ typedef struct AnimTable
 {
     u8 unk0[0x14];
     u32 count;
-    AnimEntry *entries;
+    PTR32(AnimEntry) entries;
 } AnimTable;
 
 /* damage parts: pieces a creature can lose when gibbed */
@@ -22,16 +22,16 @@ typedef struct DamagePart
     u16 unk2;
     u16 bone;
     u16 unk6;
-    void *geom;
-    Vector4 *offset;
-    Vector4 *slavePos;
+    PTR32(void) geom;
+    PTR32(Vector4) offset;
+    PTR32(Vector4) slavePos;
     u32 debris;
-    void *slaveInfo;
+    PTR32(void) slaveInfo;
 } DamagePart;
 typedef struct DamagePartList
 {
     u32 count;
-    DamagePart *parts;
+    PTR32(DamagePart) parts;
 } DamagePartList;
 
 static inline u32 Creature_FindDamagePart(DamagePartList *list, u32 bone)
@@ -40,7 +40,7 @@ static inline u32 Creature_FindDamagePart(DamagePartList *list, u32 bone)
 
     for (i = 0; i < list->count; i++)
     {
-        if (bone == list->parts[i].bone)
+        if (bone == GETP(list->parts)[i].bone)
         {
             return i;
         }
@@ -64,7 +64,7 @@ typedef struct CreatureInit
 {
     Vector4 pos;
     f32 jitterBase;
-    u8 *anims;
+    PTR32(u8) anims;
 } CreatureInit;
 
 
@@ -90,7 +90,7 @@ void Creature_MotionStateInitDeath(Creature *creature) {
     index = *(u32 *)((u8 *)creature + 0x1CC);
     state = 0xFFFF;
     if (creature->unk1B4 == 0) {
-        anims = creature->anims;
+        anims = GETP(creature->anims);
         if (SLOT_LOAD(u32 *, (anims + 0x30)) != NULL) {
             entry = (u8 *)SLOT_LOAD(u32 *, (anims + 0x30)) + index * 0x60;
             if (index >= *(u32 *)(anims + 0x2C) || *(u32 *)entry == 0) {
@@ -185,11 +185,11 @@ void Creature_MotionStateInit(void *arg0, s32 state, u8 reset, u8 keepTime)
         creature->flags |= 0x10;
         break;
     }
-    anims = (AnimTable *)creature->anims;
-    entry = anims->entries + index;
+    anims = (AnimTable *)GETP(creature->anims);
+    entry = GETP(anims->entries) + index;
     if (index >= anims->count || entry->anim == 0)
     {
-        entry = anims->entries;
+        entry = GETP(anims->entries);
         state = 0;
         index = 0;
     }
@@ -219,7 +219,7 @@ s32 Creature_Init(Creature *arg0, CreatureInit *arg1)
     init = arg1;
     creature = arg0;
     Thing_Init(creature, 0);
-    creature->anims = init->anims;
+    SETP(creature->anims, GETP(init->anims));
     creature->pos = init->pos;
     creature->startPos = creature->pos;
     creature->mass = RandomAdd(0.002f, 0.001f);
@@ -232,7 +232,7 @@ s32 Creature_Init(Creature *arg0, CreatureInit *arg1)
     creature->unkB4 = 0.0f;
     creature->unkC0 = 0.0f;
     creature->unk1B4 = 0;
-    creature->unk78 = *(u32 *)(creature->anims + 4);
+    creature->unk78 = *(u32 *)(GETP(creature->anims) + 4);
     Creature_MotionStateInit(creature, 0, 0, 0);
     creature->unkBF = 0;
     creature->unk130 = 0.03f;
@@ -248,14 +248,14 @@ void Creature_Release(Creature *creature) {
     Thing_Release(HND(creature));
 }
 
-void Creature_PartialGibb(Creature *creature, u32 count) {
+void Creature_PartialGibb(Creature *creature, u32 count, s32 unused) {
     typedef struct DebrisParams {
         Vector4 pos;
         Vector4 quat;
         Vector4 vel;
         Vector4 angVel;
         u32 id;
-        void *player;
+        PTR32(void) player;
         f32 unk48;
         f32 unk4C;
     } DebrisParams;
@@ -265,7 +265,7 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
         Vector4 axis;
         Vector4 vel;
         f32 gravity;
-        void *geom;
+        PTR32(void) geom;
         s32 life;
         u32 unk4C;
         s32 unk50;
@@ -275,7 +275,7 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
         Vector4 pos;
         Vector4 quat;
         Vector4 vel;
-        void *info;
+        PTR32(void) info;
         u32 unk34;
         f32 unk38;
         u8 pad3C[4];
@@ -287,7 +287,7 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
     typedef struct AnimNodeList {
         u32 count;
         u8 pad4[0xC];
-        AnimNode *nodes;
+        PTR32(AnimNode) nodes;
     } AnimNodeList;
     extern Vector4 g_zeroVector;
     void XformVec(void *mtx, void *in, Vector4 *out);
@@ -311,11 +311,11 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
 
     blown = 0;
     anim = SLOT_LOAD(AnimNodeList *, (SLOT_LOAD(u8 *, creature->motion) + 0x14));
-    list = SLOT_LOAD(DamagePartList *, (creature->anims + 0x70));
+    list = SLOT_LOAD(DamagePartList *, (GETP(creature->anims) + 0x70));
     if (list == NULL) {
         return;
     }
-    memcpy(nodes, anim->nodes, anim->count << 5);
+    memcpy(nodes, GETP(anim->nodes), anim->count << 5);
     for (i = 0; i < anim->count; i++) {
         nodes[i].flags = 0;
         if (creature->unk1C8 & (1 << i)) {
@@ -335,12 +335,12 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
         if (j == -1) {
             continue;
         }
-        if (list->parts[j].useOffset) {
-            XformVec(SLOT_LOAD(u8 *, (creature->motion + 0x10)) + (i << 6), list->parts[j].offset, &pos);
+        if (GETP(list->parts)[j].useOffset) {
+            XformVec(SLOT_LOAD(u8 *, (creature->motion + 0x10)) + (i << 6), GETP(GETP(list->parts)[j].offset), &pos);
         } else {
             pos = *(Vector4 *)(SLOT_LOAD(u8 *, (creature->motion + 0x10)) + (i << 6) + 0x30);
         }
-        if (list->parts[j].spawned == 0) {
+        if (GETP(list->parts)[j].spawned == 0) {
             scale = RandomNumberGenerator_GetRandomFloat(3.0f, 20.0f);
             RandomNumberGenerator_GetRandomVector(&dir);
             vel = *(Vector4 *)creature;
@@ -349,12 +349,12 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
             vel.z = dir.z * scale + vel.z;
             SubMatrixToQuaternion(SLOT_LOAD(u8 *, (creature->motion + 0x10)) + (i << 6), &quat);
             creature->unk1C8 |= 1 << i;
-            debris = list->parts[j].debris;
+            debris = GETP(list->parts)[j].debris;
             partParams.life = 3000;
             partParams.gravity = -50.0f;
             partParams.vel = vel;
             partParams.pos = pos;
-            partParams.geom = list->parts[j].geom;
+            SETP(partParams.geom, GETP(GETP(list->parts)[j].geom));
             partParams.quat = quat;
             partParams.unk50 = 1;
             if (debris != 0) {
@@ -362,7 +362,7 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
                 debrisParams.pos = pos;
                 debrisParams.quat = quat;
                 debrisParams.vel = vel;
-                debrisParams.player = NULL;
+                SETP(debrisParams.player, NULL);
                 debrisParams.unk48 = 0.0f;
                 debrisParams.unk4C = 0.0f;
                 debrisParams.angVel = g_zeroVector;
@@ -371,14 +371,14 @@ void Creature_PartialGibb(Creature *creature, u32 count) {
             RandomNumberGenerator_GetRandomVector(&partParams.axis);
             partParams.axis.w = 0.017453292f * RandomAdd(100.0f, 1260.0f);
             thing = ThingManager_DARYL_CreateThing(6, &partParams);
-            if (thing != NULL && list->parts[j].slaveInfo != NULL) {
+            if (thing != NULL && GETP(GETP(list->parts)[j].slaveInfo) != NULL) {
                 slaveParams.unk38 = 0.0f;
                 slaveParams.quat.w = 1.0f;
                 slaveParams.quat.x = 0.0f;
                 slaveParams.quat.y = 0.0f;
                 slaveParams.quat.z = 0.0f;
-                slaveParams.pos = Vector4_OrZero(list->parts[j].slavePos);
-                slaveParams.info = list->parts[j].slaveInfo;
+                slaveParams.pos = Vector4_OrZero(GETP(GETP(list->parts)[j].slavePos));
+                SETP(slaveParams.info, GETP(GETP(list->parts)[j].slaveInfo));
                 slaveParams.unk34 = 0;
                 slaveParams.vel = g_zeroVector;
                 slave = ThingManager_DARYL_CreateSlave(2, &slaveParams, 0xFF);
@@ -406,14 +406,14 @@ void Creature_InterpretControls(void *arg0) {
         u8 unk0[0x78];
         s32 unk78;
         u8 unk7C[0x94 - 0x7C];
-        struct CreatureControls *controls;
+        PTR32(struct CreatureControls) controls;
         u8 unk98[0xBF - 0x98];
         s8 unkBF;
         u8 unkC0[0xC4 - 0xC0];
         s32 state;
         f32 unkC8;
         u8 unkCC[0xE4 - 0xCC];
-        u8 *motion;
+        PTR32(u8) motion;
         u8 unkE8[0xEC - 0xE8];
         f32 time;
     } *creature = arg0;
@@ -425,26 +425,26 @@ void Creature_InterpretControls(void *arg0) {
     }
     if (creature->unkBF) {
         if (!((state == 4 || state == 10) &&
-              creature->time < *(f32 *)(SLOT_LOAD(u8 *, (creature->motion + 0x28)) + 4))) {
-            if (creature->controls->unk1B) {
+              creature->time < *(f32 *)(SLOT_LOAD(u8 *, (GETP(creature->motion) + 0x28)) + 4))) {
+            if (GETP(creature->controls)->unk1B) {
                 Creature_MotionStateInit(creature, 7, 1, 0);
-            } else if (creature->controls->unk1A) {
+            } else if (GETP(creature->controls)->unk1A) {
                 Creature_MotionStateInit(creature, 9, 1, 0);
-            } else if (creature->controls->y > 0x20) {
-                if (creature->controls->unk14) {
+            } else if (GETP(creature->controls)->y > 0x20) {
+                if (GETP(creature->controls)->unk14) {
                     Creature_MotionStateInit(creature, 2, 1, 1);
                 } else {
                     Creature_MotionStateInit(creature, 1, 1, 1);
                 }
-            } else if (creature->controls->y < -0x20) {
+            } else if (GETP(creature->controls)->y < -0x20) {
                 Creature_MotionStateInit(creature, 5, 1, 1);
-            } else if (creature->controls->x > 0x20) {
+            } else if (GETP(creature->controls)->x > 0x20) {
                 Creature_MotionStateInit(creature, 6, 1, 1);
             } else {
                 Creature_MotionStateInit(creature, 0, 1, 1);
             }
         }
-        switch (creature->controls->unk32) {
+        switch (GETP(creature->controls)->unk32) {
         case 17:
             Creature_MotionStateInit(creature, 14, 0, 0);
             break;
@@ -455,7 +455,7 @@ void Creature_InterpretControls(void *arg0) {
             Creature_PartialGibb(creature, 2, 0);
             break;
         }
-        creature->controls->unk32 = 0;
+        GETP(creature->controls)->unk32 = 0;
         creature->unkC8 = 2.0f;
     } else {
         switch (state) {
@@ -530,7 +530,7 @@ s32 Creature_Move(Creature *creature)
 void Creature_MicroStep(void *arg0, f32 dt) {
     struct CreatureModel {
         u8 unk0[0x14];
-        u32 *numBones;
+        PTR32(u32) numBones;
     };
     struct Matrix4 {
         Vector4 v[4];
@@ -541,9 +541,9 @@ void Creature_MicroStep(void *arg0, f32 dt) {
         u8 unk50[0x74 - 0x50];
         u32 flags;
         u8 unk78[0xCC - 0x78];
-        struct CreatureModel *model;
+        PTR32(struct CreatureModel) model;
         u8 unkD0[0xDC - 0xD0];
-        struct Matrix4 *bones;
+        PTR32(struct Matrix4) bones;
         u8 unkE0[0x1A0 - 0xE0];
         Vector4 vel;
     } *creature = arg0;
@@ -553,11 +553,11 @@ void Creature_MicroStep(void *arg0, f32 dt) {
 
     AccumulateVector(&creature->vel, &creature->pos, &pos, dt);
     creature->pos = pos;
-    numBones = creature->model->numBones;
+    numBones = GETP(GETP(creature->model)->numBones);
     for (i = 0; i < *numBones; i++) {
-        creature->bones[i].v[3].x += creature->vel.x * dt;
-        creature->bones[i].v[3].y += creature->vel.y * dt;
-        creature->bones[i].v[3].z += creature->vel.z * dt;
+        GETP(creature->bones)[i].v[3].x += creature->vel.x * dt;
+        GETP(creature->bones)[i].v[3].y += creature->vel.y * dt;
+        GETP(creature->bones)[i].v[3].z += creature->vel.z * dt;
     }
     creature->flags &= ~0x4000;
 }
@@ -591,7 +591,7 @@ struct CreatureControlsMS
 struct CreatureModelMS
 {
     u8 unk0[0x14];
-    u32 *numBones;
+    PTR32(u32) numBones;
 };
 struct CreatureMS
 {
@@ -603,7 +603,7 @@ struct CreatureMS
     u32 flags;
     s32 unk78;
     u8 unk7C[0x94 - 0x7C];
-    struct CreatureControlsMS *controls;
+    PTR32(struct CreatureControlsMS) controls;
     u8 unk98[0xB0 - 0x98];
     f32 angle;
     f32 angVel;
@@ -611,11 +611,11 @@ struct CreatureMS
     s8 onGround;
     u8 unkC0[0xC8 - 0xC0];
     f32 unkC8;
-    struct CreatureModelMS *model;
+    PTR32(struct CreatureModelMS) model;
     u8 unkD0[0xDC - 0xD0];
-    u8 *bones;
+    PTR32(u8) bones;
     u8 unkE0[0xE4 - 0xE0];
-    struct CreatureAnimMS *anim;
+    PTR32(struct CreatureAnimMS) anim;
     u8 unkE8;
     u8 unkE9;
     u8 unkEA[0xEC - 0xEA];
@@ -625,11 +625,11 @@ struct CreatureMS
     f32 unkF8;
     u32 unkFC;
     u8 unk100[0x104 - 0x100];
-    struct CreatureAnimMS *anim2;
+    PTR32(struct CreatureAnimMS) anim2;
     u8 unk108[0x110 - 0x108];
     f32 unk110;
     u8 unk114[0x118 - 0x114];
-    struct CreatureEntryMS *entry;
+    PTR32(struct CreatureEntryMS) entry;
     u8 unk11C[0x120 - 0x11C];
     Vector4 normal;
     f32 unk130;
@@ -673,7 +673,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
     };
     struct CreatureModel {
         u8 unk0[0x14];
-        u32 *numBones;
+        PTR32(u32) numBones;
     };
     struct Creature {
         Vector4 vel;
@@ -684,7 +684,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
         u32 flags;
         s32 unk78;
         u8 unk7C[0x94 - 0x7C];
-        struct CreatureControls *controls;
+        PTR32(struct CreatureControls) controls;
         u8 unk98[0xB0 - 0x98];
         f32 angle;
         f32 angVel;
@@ -692,11 +692,11 @@ void Creature_MacroStep(void *arg0, f32 dt) {
         s8 onGround;
         u8 unkC0[0xC8 - 0xC0];
         f32 unkC8;
-        struct CreatureModel *model;
+        PTR32(struct CreatureModel) model;
         u8 unkD0[0xDC - 0xD0];
-        u8 *bones;
+        PTR32(u8) bones;
         u8 unkE0[0xE4 - 0xE0];
-        struct CreatureAnim *anim;
+        PTR32(struct CreatureAnim) anim;
         u8 unkE8;
         u8 unkE9;
         u8 unkEA[0xEC - 0xEA];
@@ -706,11 +706,11 @@ void Creature_MacroStep(void *arg0, f32 dt) {
         f32 unkF8;
         u32 unkFC;
         u8 unk100[0x104 - 0x100];
-        struct CreatureAnim *anim2;
+        PTR32(struct CreatureAnim) anim2;
         u8 unk108[0x110 - 0x108];
         f32 unk110;
         u8 unk114[0x118 - 0x114];
-        struct CreatureEntry *entry;
+        PTR32(struct CreatureEntry) entry;
         u8 unk11C[0x120 - 0x11C];
         Vector4 normal;
         f32 unk130;
@@ -754,13 +754,13 @@ void Creature_MacroStep(void *arg0, f32 dt) {
     }
     TimeHandler_SetTimeElapsedSec_f32(dt);
     Creature_InterpretControls(creature);
-    if (creature->anim != NULL && !creature->entry->unk19 && creature->time >= creature->entry->start &&
-        creature->time < creature->entry->end) {
-        speed = creature->anim->fps;
-        forward = creature->entry->forward;
-        side = creature->entry->side;
-        if (creature->controls != NULL && (creature->controls->flags & 0x100)) {
-            speed *= creature->controls->speed;
+    if (GETP(creature->anim) != NULL && !GETP(creature->entry)->unk19 && creature->time >= GETP(creature->entry)->start &&
+        creature->time < GETP(creature->entry)->end) {
+        speed = GETP(creature->anim)->fps;
+        forward = GETP(creature->entry)->forward;
+        side = GETP(creature->entry)->side;
+        if (GETP(creature->controls) != NULL && (GETP(creature->controls)->flags & 0x100)) {
+            speed *= GETP(creature->controls)->speed;
         }
         creature->vel.x = speed * (forward * creature->mtx[0].x + side * creature->mtx[2].x);
         creature->vel.z = speed * (forward * creature->mtx[0].z + side * creature->mtx[2].z);
@@ -812,7 +812,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
             }
         }
     }
-    controls = creature->controls;
+    controls = GETP(creature->controls);
     if (!(controls->flags & 0x100)) {
         if (!(creature->flags & 0x10) && creature->unk78 > 0) {
             if (controls->x > 0x20) {
@@ -840,7 +840,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
             diff += 6.2831855f;
         }
         if (FloatsEqual(diff, 0.0f, step)) {
-            creature->angle = creature->controls->angle;
+            creature->angle = GETP(creature->controls)->angle;
         } else if (diff > 0.0f) {
             creature->angle += step;
         } else {
@@ -877,15 +877,15 @@ void Creature_MacroStep(void *arg0, f32 dt) {
         a = 0.0f;
         b = a;
         w /= w + creature->unk110;
-        if (creature->anim != NULL) {
-            a = creature->anim->fps;
+        if (GETP(creature->anim) != NULL) {
+            a = GETP(creature->anim)->fps;
         }
-        if (creature->anim2 != NULL) {
-            b = creature->anim2->fps;
+        if (GETP(creature->anim2) != NULL) {
+            b = GETP(creature->anim2)->fps;
         }
         b += w * (a - b);
-        if (creature->controls != NULL && (creature->controls->flags & 0x100)) {
-            b *= creature->controls->speed;
+        if (GETP(creature->controls) != NULL && (GETP(creature->controls)->flags & 0x100)) {
+            b *= GETP(creature->controls)->speed;
         }
         Motion_BlendHeartbeat_FPS(&creature->anim, 2, b);
         if (creature->unkFC != 0) {
@@ -894,20 +894,20 @@ void Creature_MacroStep(void *arg0, f32 dt) {
         creature->weight = 0.0f;
         Motion_HeartbeatB2(&creature->model, creature);
     }
-    if (creature->entry->unk19) {
-        if (creature->unkF4 < creature->entry->start && creature->unkF8 > creature->entry->start) {
-            forward = creature->entry->forward;
-            speed = creature->anim->fps;
-            side = creature->entry->side;
-            if (creature->controls != NULL && (creature->controls->flags & 0x100)) {
-                speed *= creature->controls->speed;
+    if (GETP(creature->entry)->unk19) {
+        if (creature->unkF4 < GETP(creature->entry)->start && creature->unkF8 > GETP(creature->entry)->start) {
+            forward = GETP(creature->entry)->forward;
+            speed = GETP(creature->anim)->fps;
+            side = GETP(creature->entry)->side;
+            if (GETP(creature->controls) != NULL && (GETP(creature->controls)->flags & 0x100)) {
+                speed *= GETP(creature->controls)->speed;
             }
             creature->vel.x += speed * (forward * creature->mtx[0].x + side * creature->mtx[2].x);
-            creature->vel.y += creature->entry->lift;
+            creature->vel.y += GETP(creature->entry)->lift;
             creature->vel.z += speed * (forward * creature->mtx[0].z + side * creature->mtx[2].z);
         }
         if (creature->onGround) {
-            if (creature->unkF8 > creature->entry->end) {
+            if (creature->unkF8 > GETP(creature->entry)->end) {
                 creature->vel.x = 0.0f;
                 creature->vel.z = 0.0f;
             }
@@ -917,10 +917,10 @@ void Creature_MacroStep(void *arg0, f32 dt) {
     }
     MotionState_BuildMatricesWorld(&creature->quat, &creature->pos, &creature->model, 1.0f);
     if (creature->unk1C8 != 0) {
-        u32 *numBones = creature->model->numBones;
+        u32 *numBones = GETP(GETP(creature->model)->numBones);
         for (i = 0; i < *numBones; i++) {
             if (creature->unk1C8 & (1 << i)) {
-                memset(creature->bones + i * 0x40, 0, 0x30);
+                memset(GETP(creature->bones) + i * 0x40, 0, 0x30);
             }
         }
     }
@@ -967,7 +967,7 @@ s32 Creature_ProcessItemPickup(u8 *creature, void *item)
 }
 
 u32 Creature_Invalidate(Creature *creature, u32 start, u32 end) {
-    if ((u32)HND(creature->anims) >= start && (u32)HND(creature->anims) < end) {
+    if ((u32)HND(GETP(creature->anims)) >= start && (u32)HND(GETP(creature->anims)) < end) {
         return 1;
     }
     return 0;

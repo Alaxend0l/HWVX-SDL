@@ -6,7 +6,7 @@ void FlashHolder_Init(void) {
     u32 i;
 
     for (i = 0; i < 16; i++) {
-        g_pFlash[i].flash = NULL;
+        SETP(g_pFlash[i].flash, NULL);
     }
 }
 
@@ -14,8 +14,8 @@ s32 FlashHolder_Add(FlashDef *flash, Vector4 *pos, s32 arg2, f32 time) {
     s32 i;
 
     for (i = 0; i < 16; i++) {
-        if (g_pFlash[i].flash == NULL) {
-            g_pFlash[i].flash = flash;
+        if (GETP(g_pFlash[i].flash) == NULL) {
+            SETP(g_pFlash[i].flash, flash);
             g_pFlash[i].pos = *pos;
             g_pFlash[i].unk60 = arg2;
             g_pFlash[i].remaining = flash->duration;
@@ -30,7 +30,7 @@ s32 FlashHolder_Add(FlashDef *flash, Vector4 *pos, s32 arg2, f32 time) {
 
 static inline void FlashHolder_Remove(s32 index) {
     if (index >= 0) {
-        g_pFlash[index].flash = NULL;
+        SETP(g_pFlash[index].flash, NULL);
     }
 }
 
@@ -44,14 +44,14 @@ void FlashHolder_Heartbeat(void) {
     delta = g_iDeltaTimeMS;
     for (i = 0; i < 16; i++) {
         flash = &g_pFlash[i];
-        if (flash->flash != NULL) {
+        if (GETP(flash->flash) != NULL) {
             if (flash->remaining == 0 || flash->remaining > delta) {
                 if (flash->remaining != 0) {
                     flash->remaining -= delta;
                 }
-                ExtractColorKey(flash->flash->colorKey + 4, flash->colorOut, g_fDeltaTimeMS);
-                ExtractPointKey(flash->flash->pointKey, flash->pointOut, g_fDeltaTimeMS);
-                if (*flash->flash->colorKey == 5) {
+                ExtractColorKey(GETP(GETP(flash->flash)->colorKey) + 4, flash->colorOut, g_fDeltaTimeMS);
+                ExtractPointKey(GETP(flash->flash)->pointKey, flash->pointOut, g_fDeltaTimeMS);
+                if (*GETP(GETP(flash->flash)->colorKey) == 5) {
                     flash->color.a = flash->color.a * flash->time;
                 } else {
                     flash->color.r = flash->color.r * flash->time;
@@ -75,10 +75,10 @@ void FlashHolder_Render(void) {
     Gfx_GetCameraPosition(&camera);
     for (i = 0; i < 16; i++) {
         flash = &g_pFlash[i];
-        owner = flash->flash;
+        owner = GETP(flash->flash);
         if (owner != NULL && owner->enabled != 0) {
             color = flash->color;
-            Gfx_ScreenOverlay(&color, *owner->colorKey);
+            Gfx_ScreenOverlay(&color, *GETP(owner->colorKey));
         }
     }
 }

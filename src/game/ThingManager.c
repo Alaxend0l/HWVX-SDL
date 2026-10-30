@@ -22,10 +22,10 @@ typedef struct ThingHeader {
     u8 slavePlayer;             /* 0x83 */
     u8 pad84[4];
     u32 unk88;                  /* 0x88 */
-    void *vtable;               /* 0x8C */
+    PTR32(void) vtable;               /* 0x8C */
     u8 pad90[0x10];
-    struct ThingHeader *prev;   /* 0xA0 */
-    struct ThingHeader *next;   /* 0xA4 */
+    PTR32(struct ThingHeader) prev;   /* 0xA0 */
+    PTR32(struct ThingHeader) next;   /* 0xA4 */
     u32 type;                   /* 0xA8 index into the free lists */
 } ThingHeader;
 
@@ -63,26 +63,26 @@ typedef struct ThingPools {
     ThingSlotF0 motions[56];            /* 0x6D2F0 type 15 */
     ThingSlotE0 soundSeqs[128];         /* 0x70770 type 16 */
     ThingSlotD0 radarBlips[64];         /* 0x77770 type 17 */
-    void *activeList;                   /* 0x7AB70 */
-    void *freeList[19];                 /* 0x7AB74 */
+    PTR32(void) activeList;                   /* 0x7AB70 */
+    PTR32(void) freeList[19];                 /* 0x7AB74 */
 } ThingPools;
 
 static inline void ThingManager_InitFreeThing(ThingHeader *thing, void *vtable, u32 type) {
     void **freeList;
     ThingHeader *head;
 
-    thing->vtable = vtable;
+    SETP(thing->vtable, vtable);
     thing->unk88 = 0;
     thing->flags |= 0x1000;
-    thing->prev = NULL;
-    thing->next = NULL;
+    SETP(thing->prev, NULL);
+    SETP(thing->next, NULL);
     thing->type = type;
     freeList = g_thingManager_DARYL.freeList + thing->type;
-    thing->next = *freeList;
-    thing->prev = NULL;
-    head = thing->next;
+    SETP(thing->next, *freeList);
+    SETP(thing->prev, NULL);
+    head = GETP(thing->next);
     if (head != NULL) {
-        head->prev = thing;
+        SETP(head->prev, thing);
     }
     *freeList = thing;
 }
@@ -167,7 +167,7 @@ void ThingManagerList_RemoveReleasedThings(void **list) {
     ThingHeader *next;
 
     for (thing = *list; thing != NULL; thing = next) {
-        next = thing->next;
+        next = GETP(thing->next);
         if (thing->flags & 0x200000) {
             ThingManagerList_ReleaseAndRemoveAll(&thing->unk88);
             ThingManagerList_Remove(list, thing);
@@ -184,7 +184,7 @@ void ThingManagerList_ReleaseAndRemoveAll(void **list) {
 
     ThingManagerList_ReleaseAll(list);
     for (thing = *list; thing != NULL; thing = next) {
-        next = thing->next;
+        next = GETP(thing->next);
         if ((thing->flags & 0x200000) != 0) {
             void **children;
             ThingManagerList_ReleaseAndRemoveAll(children = (void **)&thing->unk88);
@@ -219,10 +219,10 @@ void ThingManagerList_EmancipateSlaves(void *mtx, void **list) {
         u8 slaveId;
         u8 slavePlayer;
         u8 pad84[8];
-        void *vtable;
+        PTR32(void) vtable;
         u8 pad90[0x10];
-        struct SlaveThing *prev;
-        struct SlaveThing *next;
+        PTR32(struct SlaveThing) prev;
+        PTR32(struct SlaveThing) next;
     } SlaveThing;
     extern u8 g_itemVTable[];
     Matrix4 out;
@@ -231,27 +231,27 @@ void ThingManagerList_EmancipateSlaves(void *mtx, void **list) {
 
     thing = *list;
     while (thing != NULL) {
-        next = thing->next;
+        next = GETP(thing->next);
         if (thing->slavePlayer == 0xEF) {
-            if (thing->prev == NULL) {
-                *list = thing->next;
+            if (GETP(thing->prev) == NULL) {
+                *list = GETP(thing->next);
             } else {
-                thing->prev->next = thing->next;
+                SETP(GETP(thing->prev)->next, GETP(thing->next));
             }
-            if (thing->next != NULL) {
-                thing->next->prev = thing->prev;
-                thing->next = NULL;
+            if (GETP(thing->next) != NULL) {
+                SETP(GETP(thing->next)->prev, GETP(thing->prev));
+                SETP(thing->next, NULL);
             }
-            thing->prev = NULL;
+            SETP(thing->prev, NULL);
             MultiplyMatrix(&thing->mtx, mtx, &out);
             thing->mtx = out;
-            thing->next = g_thingManager_DARYL.activeList;
-            thing->prev = NULL;
-            if (thing->next != NULL) {
-                thing->next->prev = thing;
+            SETP(thing->next, GETP(g_thingManager_DARYL.activeList));
+            SETP(thing->prev, NULL);
+            if (GETP(thing->next) != NULL) {
+                SETP(GETP(thing->next)->prev, thing);
             }
-            g_thingManager_DARYL.activeList = thing;
-            if (thing->gridCell != 0 && (u8 *)thing->vtable == g_itemVTable) {
+            SETP(g_thingManager_DARYL.activeList, thing);
+            if (thing->gridCell != 0 && (u8 *)GETP(thing->vtable) == g_itemVTable) {
                 Thing_AddToGrid(thing, 3);
                 thing->flags &= ~8;
             }
@@ -266,13 +266,13 @@ s32 SharedSlaveHolder_Get(void *shared) {
     s32 i;
 
     for (i = 0; i < 64; i++) {
-        if (((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key == shared) {
+        if (GETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key) == shared) {
             return i;
         }
     }
     for (i = 0; i < 64; i++) {
-        if (((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key == NULL) {
-            ((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key = shared;
+        if (GETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key) == NULL) {
+            SETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key, shared);
             ThingManagerList_InitAllSlavesNow(&((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].slaves, (u8 *)shared + 4, 0xFF);
             return i;
         }
@@ -289,7 +289,7 @@ void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
         u8 pad60[0x2C];
         void (**vtbl)(struct SlaveThing *);
         u8 pad90[0x14];
-        struct SlaveThing *next;
+        PTR32(struct SlaveThing) next;
     } SlaveThing;
     extern u8 g_aSharedSlaveHolder[0x200];
     u32 i;
@@ -304,7 +304,7 @@ void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
             shared = trigger->shared;
             slave = SLOT_LOAD(SlaveThing *, (g_aSharedSlaveHolder + (*(SLOT_LOAD(u8 *, (shared + 8)) + 0x1D)) * 8 + 4));
             if (*(u32 *)shared != 0) {
-                for (; slave != NULL; slave = slave->next) {
+                for (; slave != NULL; slave = GETP(slave->next)) {
                     quat = slave->quat;
                     pos = slave->mtx.v[3];
                     QuaternionMult((Quaternion *)(thing + 0x50), &quat, &slave->quat);
@@ -324,23 +324,23 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         u8 pad11;
         u16 id;
         u8 pad14[4];
-        void *data;
+        PTR32(void) data;
     } *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player) {
     typedef struct SharedSlaves {
         u32 active;
         u8 pad4[4];
-        u8 *info;
+        PTR32(u8) info;
     } SharedSlaves;
     extern Vector4 g_zeroVector;
     extern void *g_pSourcePlayer;
     struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; void *data; void *player; f32 f; } p1 __attribute__((aligned(16)));
     struct { Vector4 a; Vector4 b; Vector4 c; void *data; void *player; f32 f; } p2 __attribute__((aligned(16)));
-    struct { void *data; u8 pad4[0xC]; Vector4 pos; s32 flag; void *player; } p5 __attribute__((aligned(16)));
-    struct { void *data; u8 pad4[0xC]; Vector4 pos; s32 flag; void *player; } p6 __attribute__((aligned(16)));
+    struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; void *player; } p5 __attribute__((aligned(16)));
+    struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; void *player; } p6 __attribute__((aligned(16)));
     struct { Vector4 a; Vector4 b; Vector4 c; void *data; s32 time; void *player; f32 f; } p7 __attribute__((aligned(16)));
     struct { Vector4 unk; Vector4 a; Vector4 b; void *data; s32 flag; } p8 __attribute__((aligned(16)));
     struct { Vector4 a; void *data; u8 flag; } p3 __attribute__((aligned(16)));
-    struct { void *data; u8 pad4[0xC]; Vector4 a; } p9 __attribute__((aligned(16)));
+    struct { PTR32(void) data; u8 pad4[0xC]; Vector4 a; } p9 __attribute__((aligned(16)));
     Vector4 p4 __attribute__((aligned(16)));
     u8 id;
     u8 pl;
@@ -351,7 +351,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
 
     switch (trigger->type) {
     case 1:
-        p1.data = trigger->data;
+        p1.data = GETP(trigger->data);
         p1.c = *c;
         p1.player = g_pSourcePlayer;
         p1.zero = g_zeroVector;
@@ -364,8 +364,8 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         }
         break;
     case 2:
-        if (trigger->data != NULL) {
-            p2.data = trigger->data;
+        if (GETP(trigger->data) != NULL) {
+            p2.data = GETP(trigger->data);
             p2.f = 0.0f;
             p2.c = *c;
             p2.player = g_pSourcePlayer;
@@ -376,7 +376,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         }
         break;
     case 3:
-        data = trigger->data;
+        data = GETP(trigger->data);
         if (data != NULL && data != NULL) {
             p3.a = *a;
             p3.data = data;
@@ -390,8 +390,8 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         slave = ThingManager_DARYL_CreateSlave(8, &p4, trigger->id);
         break;
     case 5:
-        if (trigger->data != NULL) {
-            p5.data = trigger->data;
+        if (GETP(trigger->data) != NULL) {
+            SETP(p5.data, GETP(trigger->data));
             p5.pos = trigger->pos;
             p5.flag = 1;
             p5.player = g_pSourcePlayer;
@@ -399,11 +399,11 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         }
         break;
     case 6:
-        if (ViewManager_GetViewFormat() > 1 && *(u8 *)trigger->data != 0) {
+        if (ViewManager_GetViewFormat() > 1 && *(u8 *)GETP(trigger->data) != 0) {
             break;
         }
-        if (trigger->data != NULL) {
-            p6.data = trigger->data;
+        if (GETP(trigger->data) != NULL) {
+            SETP(p6.data, GETP(trigger->data));
             p6.player = g_pSourcePlayer;
             p6.pos = trigger->pos;
             p6.flag = 0;
@@ -411,8 +411,8 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         }
         break;
     case 7:
-        if (trigger->data != NULL) {
-            p7.data = trigger->data;
+        if (GETP(trigger->data) != NULL) {
+            p7.data = GETP(trigger->data);
             p7.f = 0.0f;
             p7.time = 20;
             p7.c = *c;
@@ -424,7 +424,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         }
         break;
     case 8:
-        data = trigger->data;
+        data = GETP(trigger->data);
         if (data != NULL) {
             p8.a = *a;
             p8.b = *b;
@@ -434,26 +434,26 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
         }
         break;
     case 9:
-        data = trigger->data;
+        data = GETP(trigger->data);
         if (data != NULL) {
             p9.a = *a;
-            p9.data = data;
+            SETP(p9.data, data);
             slave = ThingManager_DARYL_CreateSlave(0x11, &p9, trigger->id);
         }
         break;
     case 10:
-        shared = trigger->data;
+        shared = GETP(trigger->data);
         if (shared != NULL && shared->active == 0) {
             shared->active = 1;
-            shared->info[0x1D] = SharedSlaveHolder_Get(shared);
+            GETP(shared->info)[0x1D] = SharedSlaveHolder_Get(shared);
         }
         break;
     case 99:
         id = trigger->id;
         pl = player;
-        for (thing = *list; thing != NULL; thing = thing->next) {
+        for (thing = *list; thing != NULL; thing = GETP(thing->next)) {
             if (thing->slaveId == id && thing->slavePlayer == pl) {
-                ((void (**)(ThingHeader *))thing->vtable)[1](thing);
+                ((void (**)(ThingHeader *))GETP(thing->vtable))[1](thing);
             }
         }
         break;
@@ -461,10 +461,10 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
 
     if (slave != NULL) {
         slave->slavePlayer = player;
-        slave->next = *list;
-        slave->prev = NULL;
-        if (slave->next != NULL) {
-            slave->next->prev = slave;
+        SETP(slave->next, *list);
+        SETP(slave->prev, NULL);
+        if (GETP(slave->next) != NULL) {
+            SETP(GETP(slave->next)->prev, slave);
         }
         *list = slave;
     }
@@ -493,18 +493,18 @@ void ThingManager_DARYL_CreateMain(void) {
     u32 i;
 
     for (i = 0; i < 18; i++) {
-        tm->freeList[i] = NULL;
+        SETP(tm->freeList[i], NULL);
     }
-    tm->activeList = NULL;
+    SETP(tm->activeList, NULL);
     for (i = 0; i < 140; i++) {
         ThingSlotProjectile *p = &tm->projectiles[i];
 
-        p->thing.vtable = g_projectileVTable;
+        SETP(p->thing.vtable, g_projectileVTable);
         p->unk130 = -1;
         p->thing.unk88 = 0;
         p->thing.flags |= 0x1000;
-        p->thing.prev = NULL;
-        p->thing.next = NULL;
+        SETP(p->thing.prev, NULL);
+        SETP(p->thing.next, NULL);
         p->thing.type = 0;
         ThingManagerList_Append(&g_thingManager_DARYL.freeList[p->thing.type], &p->thing);
     }
@@ -584,12 +584,12 @@ void ThingManager_DARYL_Destroy(void) {
     void *thing;
     u32 i;
 
-    for (thing = g_thingManager_DARYL.activeList; thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
+    for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
         ((void (*)(void *))(M2C_FIELD(thing, void ***, 0x8C))[1])(thing);
     }
-    g_thingManager_DARYL.activeList = NULL;
+    SETP(g_thingManager_DARYL.activeList, NULL);
     for (i = 0; i < 18; i++) {
-        g_thingManager_DARYL.freeList[i] = NULL;
+        SETP(g_thingManager_DARYL.freeList[i], NULL);
     }
 }
 
@@ -611,7 +611,7 @@ void ThingManager_MoveLookerOnly(void) {
     void *thing;
 
     ((void (*)(void *))(M2C_FIELD(&g_thingManager_DARYL, void ***, 0x6AD9C))[2])(g_thingManager_DARYL.looker);
-    for (thing = g_thingManager_DARYL.activeList; thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
+    for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
         if (SLOT_LOAD(u8 *, (u8 *)(thing) + 0x8C) == g_soundSeqVTable && (M2C_FIELD(thing, u32 *, 0x74) & 0x100000)) {
             ((void (*)(void *))(M2C_FIELD(thing, void ***, 0x8C))[3])(thing);
         }
@@ -638,9 +638,9 @@ void ThingManager_DARYL_Render(void) {
     void Thing_DrawSlaves(void *);
     ThingHeader *thing;
 
-    for (thing = g_thingManager_DARYL.activeList; thing != NULL; thing = thing->next) {
+    for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
         if (!(thing->flags & 0x200200) && Gfx_FrustrumCullSphereTestAllWindows(thing->unk40, thing->unk70)) {
-            ((void (**)(void *))thing->vtable)[4](thing);
+            ((void (**)(void *))GETP(thing->vtable))[4](thing);
             g_pNoRayCollideThing = thing;
             Thing_DrawSlaves(thing);
         }
@@ -649,24 +649,24 @@ void ThingManager_DARYL_Render(void) {
 }
 
 void *ThingManager_DARYL_CreateThing(s32 type, void *params) {
-    void *thing = g_thingManager_DARYL.freeList[type];
+    void *thing = GETP(g_thingManager_DARYL.freeList[type]);
 
     if (thing == NULL) {
         thing = NULL;
     } else {
-        g_thingManager_DARYL.freeList[type] = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-        if (g_thingManager_DARYL.freeList[type] != NULL) {
-            SLOT_STORE((u8 *)(g_thingManager_DARYL.freeList[type]) + 0xA0, NULL);
+        SETP(g_thingManager_DARYL.freeList[type], SLOT_LOAD(void *, (u8 *)(thing) + 0xA4));
+        if (GETP(g_thingManager_DARYL.freeList[type]) != NULL) {
+            SLOT_STORE((u8 *)(GETP(g_thingManager_DARYL.freeList[type])) + 0xA0, NULL);
         }
         SLOT_STORE((u8 *)(thing) + 0xA4, NULL);
     }
     if (thing != NULL) {
-        SLOT_STORE((u8 *)(thing) + 0xA4, g_thingManager_DARYL.activeList);
+        SLOT_STORE((u8 *)(thing) + 0xA4, GETP(g_thingManager_DARYL.activeList));
         SLOT_STORE((u8 *)(thing) + 0xA0, NULL);
         if (SLOT_LOAD(void *, (u8 *)(thing) + 0xA4) != NULL) {
             SLOT_STORE((u8 *)(SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) + 0xA0, thing);
         }
-        g_thingManager_DARYL.activeList = thing;
+        SETP(g_thingManager_DARYL.activeList, thing);
         ((void (*)(void *, void *))(M2C_FIELD(thing, void ***, 0x8C))[0])(thing, params);
         return thing;
     }
@@ -674,14 +674,14 @@ void *ThingManager_DARYL_CreateThing(s32 type, void *params) {
 }
 
 void *ThingManager_DARYL_CreateSlave(s32 type, void *params, u8 id) {
-    void *slave = g_thingManager_DARYL.freeList[type];
+    void *slave = GETP(g_thingManager_DARYL.freeList[type]);
 
     if (slave == NULL) {
         slave = NULL;
     } else {
-        g_thingManager_DARYL.freeList[type] = SLOT_LOAD(void *, (u8 *)(slave) + 0xA4);
-        if (g_thingManager_DARYL.freeList[type] != NULL) {
-            SLOT_STORE((u8 *)(g_thingManager_DARYL.freeList[type]) + 0xA0, NULL);
+        SETP(g_thingManager_DARYL.freeList[type], SLOT_LOAD(void *, (u8 *)(slave) + 0xA4));
+        if (GETP(g_thingManager_DARYL.freeList[type]) != NULL) {
+            SLOT_STORE((u8 *)(GETP(g_thingManager_DARYL.freeList[type])) + 0xA0, NULL);
         }
         SLOT_STORE((u8 *)(slave) + 0xA4, NULL);
     }
@@ -779,7 +779,7 @@ s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
         other = (ThingHeader *)PTR(results[i].id);
         if (!(other->flags & 2) && other != g_pNoRayCollideThing &&
             SegmentVsSphere(other->unk40, start, &end, other->unk70)) {
-            hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)other->vtable + 0x38))(other, start, dir, info, best);
+            hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)GETP(other->vtable) + 0x38))(other, start, dir, info, best);
             if (hit < *t) {
                 best = hit;
             }
@@ -795,7 +795,7 @@ s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
 s8 RayHitsTerrainAndObjects(void *arg0, void *arg1, void *arg2, void *arg3) {
     s8 hitTerrain;
 
-    if (g_worldData.world == NULL || SLOT_LOAD(void *, g_worldData.world) == NULL) {
+    if (GETP(g_worldData.world) == NULL || SLOT_LOAD(void *, GETP(g_worldData.world)) == NULL) {
         return 0;
     }
     hitTerrain = RayHitsTerrain_Aux3(arg0, arg1, arg2, arg3);
@@ -859,10 +859,10 @@ s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s
         if (other->flags & 2) {
             continue;
         }
-        if ((statics == 1 && other->record->info->takesDamage == 0 && other->record->info->armour == 0) ||
-            (dynamics == 1 && (other->record->info->takesDamage == 1 || other->record->info->armour != 0))) {
+        if ((statics == 1 && GETP(GETP(other->record)->info)->takesDamage == 0 && GETP(GETP(other->record)->info)->armour == 0) ||
+            (dynamics == 1 && (GETP(GETP(other->record)->info)->takesDamage == 1 || GETP(GETP(other->record)->info)->armour != 0))) {
             if (SegmentVsSphere(&other->offsetPos, start, &hitEnd, *(f32 *)((u8 *)other + 0x70))) {
-                hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)other->vtable + 0x38))(other, start, &dir, info, best);
+                hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)GETP(other->vtable) + 0x38))(other, start, &dir, info, best);
                 if (hit < *t) {
                     best = hit;
                 }
@@ -876,7 +876,7 @@ s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s
     return 0;
 }
 
-s32 ThingManager_GetActiveCars(void **cars) {
+s32 ThingManager_GetActiveCars(void **cars, s32 max) {
     s32 count;
     s32 i;
 
@@ -890,7 +890,7 @@ s32 ThingManager_GetActiveCars(void **cars) {
     return count;
 }
 
-s32 ThingManager_GetActiveItems(void **items) {
+s32 ThingManager_GetActiveItems(void **items, s32 max) {
     s32 count;
     s32 i;
 
@@ -904,7 +904,7 @@ s32 ThingManager_GetActiveItems(void **items) {
     return count;
 }
 
-s32 ThingManager_GetActiveSoundSequences(void **seqs) {
+s32 ThingManager_GetActiveSoundSequences(void **seqs, s32 max) {
     s32 count;
     s32 i;
 
@@ -919,7 +919,7 @@ s32 ThingManager_GetActiveSoundSequences(void **seqs) {
 }
 
 s32 GetAllTargets(void **targets) {
-    return ThingManager_GetActiveCars(targets);
+    return ThingManager_GetActiveCars(targets, 8);
 }
 
 static inline s32 ThingManager_GetActiveUnk6D100(void **things) {
@@ -1051,7 +1051,7 @@ void ThingManager_Invalidate(u32 start, u32 end) {
     SoundSeqThing *seq;
     u32 j;
 
-    if (g_thingManager_DARYL.activeList == NULL) {
+    if (GETP(g_thingManager_DARYL.activeList) == NULL) {
         return;
     }
     for (i = 0; i < 140; i++) {

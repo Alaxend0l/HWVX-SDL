@@ -4,7 +4,7 @@
 typedef struct ThingLightingData {
     u32 numSteps;           /* 0x00 frames to fade over, -1: never fade */
     u32 step;               /* 0x04 */
-    CarA *thing;            /* 0x08 */
+    PTR32(CarA) thing;            /* 0x08 */
     GXColor parallel;       /* 0x0C */
     GXColor parallelTarget; /* 0x10 */
     GXColor parallelDelta;  /* 0x14 */
@@ -28,11 +28,11 @@ static inline s8 LightManager_AddThing(CarA *thing, u32 numSteps) {
         thing->lightIndex = -1;
         return 0;
     }
-    if (thing->lightIndex < g_numThingsToLight && g_ThingLightingData[thing->lightIndex].thing == thing) {
+    if (thing->lightIndex < g_numThingsToLight && GETP(g_ThingLightingData[thing->lightIndex].thing) == thing) {
         g_ThingLightingData[thing->lightIndex].dirty = 1;
         return 1;
     }
-    g_ThingLightingData[g_numThingsToLight].thing = thing;
+    SETP(g_ThingLightingData[g_numThingsToLight].thing, thing);
     g_ThingLightingData[g_numThingsToLight].numSteps = numSteps;
     g_ThingLightingData[g_numThingsToLight].step = offsetCount % numSteps;
     g_ThingLightingData[g_numThingsToLight].dirty = 1;
@@ -63,10 +63,10 @@ void LightManager_Initialize(void) {
     g_numThingsToLight = 0;
     g_bLightVolumesExist = 0;
     memset(g_ThingLightingData, 0, sizeof(g_ThingLightingData));
-    for (i = 0; i < ((LightWorld *)g_worldData.world)->numVolumes; i++) {
-        volume = (Volume *)(((LightWorld *)g_worldData.world)->volumes + i * 0x30);
+    for (i = 0; i < ((LightWorld *)GETP(g_worldData.world))->numVolumes; i++) {
+        volume = (Volume *)(GETP(((LightWorld *)GETP(g_worldData.world))->volumes) + i * 0x30);
         if (volume->type == 6) {
-            light = volume->light;
+            light = GETP(volume->light);
             g_bLightVolumesExist = 1;
             if (light->type == 1) {
                 g_directionalLights[g_numDirectionalLights++] = light;
@@ -75,7 +75,7 @@ void LightManager_Initialize(void) {
                 g += light->g;
                 b += light->b;
             } else if (light->type == 3) {
-                light->index = VertexColorSeqManager_GetLightIndex(((LightWorld *)g_worldData.world)->lights + light->index * 0x10);
+                light->index = VertexColorSeqManager_GetLightIndex(GETP(((LightWorld *)GETP(g_worldData.world))->lights) + light->index * 0x10);
             }
         }
     }
@@ -123,7 +123,7 @@ void LightManager_LightThing(CarA *thing) {
     isNew = 0;
     tracked = 1;
     data = NULL;
-    if (!g_bLightVolumesExist || g_worldData.world == NULL || ((LightWorld *)g_worldData.world)->unk0 == 0) {
+    if (!g_bLightVolumesExist || GETP(g_worldData.world) == NULL || ((LightWorld *)GETP(g_worldData.world))->unk0 == 0) {
         whiteAmbient.r = 0xFF;
         whiteAmbient.g = 0xFF;
         whiteAmbient.b = 0xFF;
@@ -136,8 +136,8 @@ void LightManager_LightThing(CarA *thing) {
     }
     *(u32 *)&ambient = 0;
     *(u32 *)&parallel = 0;
-    if (thing->lightIndex >= g_numThingsToLight || g_ThingLightingData[thing->lightIndex].thing != thing) {
-        if ((u8 *)thing->vtable == g_carAVTable) {
+    if (thing->lightIndex >= g_numThingsToLight || GETP(g_ThingLightingData[thing->lightIndex].thing) != thing) {
+        if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
             tracked = LightManager_AddThing(thing, 10);
         } else {
             tracked = LightManager_AddThing(thing, 0xFFFFFFFF);
@@ -160,7 +160,7 @@ void LightManager_LightThing(CarA *thing) {
         for (i = 0; i < numVolumes; i++) {
             volume = PTR(VolumeManager_GetVolumeTypeByIndexByCell(6, i, cell));
             if (IsPointWithinVolume(&thing->worldMatrix.v[3], volume, &dist)) {
-                light = volume->light;
+                light = GETP(volume->light);
                 if (volume->falloff == 0 || dist < volume->innerDist) {
                     if (light->type == 3) {
                         VertexColorSeqManager_GetLightColor(light->index, &seq);

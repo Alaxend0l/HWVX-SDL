@@ -7,9 +7,9 @@ typedef struct AIStats {
 } AIStats;
 
 typedef struct AIEvent {
-    void *data;
-    void (*func)();
-    struct AIEvent *next;
+    PTR32(void) data;
+    FPTR32(void, (void)) func;
+    PTR32(struct AIEvent) next;
     s8 queued;
 } AIEvent;
 
@@ -125,15 +125,15 @@ s32 AI_ProcessEvent(void) {
     event = gs_pAsyncEventHead_803C6F08;
     g_AI_FramesSinceAsyncEventProcessed = 0;
     if (event != NULL) {
-        gs_pAsyncEventHead_803C6F08 = event->next;
+        gs_pAsyncEventHead_803C6F08 = GETP(event->next);
         if (gs_pAsyncEventHead_803C6F08 == NULL) {
             gs_pAsyncEventTail_803C6F04 = NULL;
         }
         event->queued = 0;
-        if (event->data != NULL) {
-            event->func(event->data);
+        if (GETP(event->data) != NULL) {
+            GETP(event->func)(GETP(event->data));
         } else {
-            event->func();
+            GETP(event->func)();
         }
         return 1;
     }

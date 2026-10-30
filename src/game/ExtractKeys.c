@@ -10,7 +10,7 @@ void ExtractF32Key(u8 *track, u8 *state, f32 dt) {
     } Key;
     typedef struct KeyTrack {
         u32 count;
-        Key *keys;
+        PTR32(Key) keys;
     } KeyTrack;
     typedef struct KeyState {
         f32 value;
@@ -39,31 +39,31 @@ void ExtractF32Key(u8 *track, u8 *state, f32 dt) {
         return;
     }
     s->time += dt;
-    if (reset || s->time >= t->keys[s->index].duration) {
+    if (reset || s->time >= GETP(t->keys)[s->index].duration) {
         s->current = 0;
         for (;;) {
-            if (s->time < t->keys[s->index].duration) {
+            if (s->time < GETP(t->keys)[s->index].duration) {
                 break;
             }
             s->current = s->index;
-            s->time -= t->keys[s->index].duration;
+            s->time -= GETP(t->keys)[s->index].duration;
             s->index++;
             if (s->index >= t->count) {
                 for (i = 0; i < t->count; i++) {
-                    if (t->keys[i].active) {
+                    if (GETP(t->keys)[i].active) {
                         s->index = i;
                         break;
                     }
                 }
                 if (s->index >= t->count) {
-                    s->value = t->keys[s->current].value;
+                    s->value = GETP(t->keys)[s->current].value;
                     return;
                 }
                 break;
             }
         }
-        s->slope = t->keys[s->index].value - t->keys[s->current].value;
-        key = &t->keys[s->index];
+        s->slope = GETP(t->keys)[s->index].value - GETP(t->keys)[s->current].value;
+        key = &GETP(t->keys)[s->index];
         if (key->interp == 0) {
             f = 0.0f;
             if (key->duration > 0.0f) {
@@ -72,7 +72,7 @@ void ExtractF32Key(u8 *track, u8 *state, f32 dt) {
             s->slope *= f;
         }
     }
-    keys = t->keys;
+    keys = GETP(t->keys);
     key = &keys[s->index];
     if (key->interp == 0) {
         s->value = s->slope * s->time + keys[s->current].value;
@@ -105,7 +105,7 @@ void ExtractColorKey(void *track, void *state, f32 dt) {
     } Key;
     typedef struct KeyTrack {
         u32 count;
-        Key *keys;
+        PTR32(Key) keys;
     } KeyTrack;
     typedef struct KeyState {
         f32 slopeR;
@@ -141,34 +141,34 @@ void ExtractColorKey(void *track, void *state, f32 dt) {
         return;
     }
     s->time += dt;
-    if (reset || s->time >= t->keys[s->index].duration) {
+    if (reset || s->time >= GETP(t->keys)[s->index].duration) {
         s->current = 0;
         for (;;) {
-            if (s->time < t->keys[s->index].duration) {
+            if (s->time < GETP(t->keys)[s->index].duration) {
                 break;
             }
             s->current = s->index;
-            s->time -= t->keys[s->index].duration;
+            s->time -= GETP(t->keys)[s->index].duration;
             s->index++;
             if (s->index >= t->count) {
                 for (i = 0; i < t->count; i++) {
-                    if (t->keys[i].active) {
+                    if (GETP(t->keys)[i].active) {
                         s->index = i;
                         break;
                     }
                 }
                 if (s->index >= t->count) {
-                    s->c = t->keys[s->current].c;
+                    s->c = GETP(t->keys)[s->current].c;
                     return;
                 }
                 break;
             }
         }
-        s->slopeR = t->keys[s->index].c.r - t->keys[s->current].c.r;
-        s->slopeG = t->keys[s->index].c.g - t->keys[s->current].c.g;
-        s->slopeB = t->keys[s->index].c.b - t->keys[s->current].c.b;
-        s->slopeA = t->keys[s->index].c.a - t->keys[s->current].c.a;
-        key = &t->keys[s->index];
+        s->slopeR = GETP(t->keys)[s->index].c.r - GETP(t->keys)[s->current].c.r;
+        s->slopeG = GETP(t->keys)[s->index].c.g - GETP(t->keys)[s->current].c.g;
+        s->slopeB = GETP(t->keys)[s->index].c.b - GETP(t->keys)[s->current].c.b;
+        s->slopeA = GETP(t->keys)[s->index].c.a - GETP(t->keys)[s->current].c.a;
+        key = &GETP(t->keys)[s->index];
         if (key->interp == 0) {
             f = 0.0f;
             if (key->duration > 0.0f) {
@@ -180,13 +180,13 @@ void ExtractColorKey(void *track, void *state, f32 dt) {
             s->slopeA *= f;
         }
     }
-    keys = t->keys;
+    keys = GETP(t->keys);
     key = &keys[s->index];
     if (key->interp == 0) {
         s->r = s->slopeR * s->time + keys[s->current].c.r;
-        s->g = s->slopeG * s->time + t->keys[s->current].c.g;
-        s->b = s->slopeB * s->time + t->keys[s->current].c.b;
-        s->a = s->slopeA * s->time + t->keys[s->current].c.a;
+        s->g = s->slopeG * s->time + GETP(t->keys)[s->current].c.g;
+        s->b = s->slopeB * s->time + GETP(t->keys)[s->current].c.b;
+        s->a = s->slopeA * s->time + GETP(t->keys)[s->current].c.a;
         s->c.r = s->r;
         s->c.g = s->g;
         s->c.b = s->b;
@@ -205,9 +205,9 @@ void ExtractColorKey(void *track, void *state, f32 dt) {
         f = 0.0f;
     }
     s->r = f * s->slopeR + keys[s->current].c.r;
-    s->g = f * s->slopeG + t->keys[s->current].c.g;
-    s->b = f * s->slopeB + t->keys[s->current].c.b;
-    s->a = f * s->slopeA + t->keys[s->current].c.a;
+    s->g = f * s->slopeG + GETP(t->keys)[s->current].c.g;
+    s->b = f * s->slopeB + GETP(t->keys)[s->current].c.b;
+    s->a = f * s->slopeA + GETP(t->keys)[s->current].c.a;
     s->c.r = s->r;
     s->c.g = s->g;
     s->c.b = s->b;
@@ -225,7 +225,7 @@ void ExtractScaleKey(void *track, void *state, f32 dt) {
     } Key;
     typedef struct KeyTrack {
         u32 count;
-        Key *keys;
+        PTR32(Key) keys;
     } KeyTrack;
     typedef struct KeyState {
         Vector4 v;
@@ -256,33 +256,33 @@ void ExtractScaleKey(void *track, void *state, f32 dt) {
         return;
     }
     s->time += dt;
-    if (reset || s->time >= t->keys[s->index].duration) {
+    if (reset || s->time >= GETP(t->keys)[s->index].duration) {
         s->current = 0;
         for (;;) {
-            if (s->time < t->keys[s->index].duration) {
+            if (s->time < GETP(t->keys)[s->index].duration) {
                 break;
             }
             s->current = s->index;
-            s->time -= t->keys[s->index].duration;
+            s->time -= GETP(t->keys)[s->index].duration;
             s->index++;
             if (s->index >= t->count) {
                 for (i = 0; i < t->count; i++) {
-                    if (t->keys[i].active) {
+                    if (GETP(t->keys)[i].active) {
                         s->index = i;
                         break;
                     }
                 }
                 if (s->index >= t->count) {
-                    s->v = t->keys[s->current].v;
+                    s->v = GETP(t->keys)[s->current].v;
                     return;
                 }
                 break;
             }
         }
-        s->slopeX = t->keys[s->index].v.x - t->keys[s->current].v.x;
-        s->slopeY = t->keys[s->index].v.y - t->keys[s->current].v.y;
-        s->slopeZ = t->keys[s->index].v.z - t->keys[s->current].v.z;
-        key = &t->keys[s->index];
+        s->slopeX = GETP(t->keys)[s->index].v.x - GETP(t->keys)[s->current].v.x;
+        s->slopeY = GETP(t->keys)[s->index].v.y - GETP(t->keys)[s->current].v.y;
+        s->slopeZ = GETP(t->keys)[s->index].v.z - GETP(t->keys)[s->current].v.z;
+        key = &GETP(t->keys)[s->index];
         if (key->interp == 0) {
             f = 0.0f;
             if (key->duration > 0.0f) {
@@ -293,12 +293,12 @@ void ExtractScaleKey(void *track, void *state, f32 dt) {
             s->slopeZ *= f;
         }
     }
-    keys = t->keys;
+    keys = GETP(t->keys);
     key = &keys[s->index];
     if (key->interp == 0) {
         s->v.x = s->slopeX * s->time + keys[s->current].v.x;
-        s->v.y = s->slopeY * s->time + t->keys[s->current].v.y;
-        s->v.z = s->slopeZ * s->time + t->keys[s->current].v.z;
+        s->v.y = s->slopeY * s->time + GETP(t->keys)[s->current].v.y;
+        s->v.z = s->slopeZ * s->time + GETP(t->keys)[s->current].v.z;
         return;
     }
     f = 0.0f;
@@ -313,8 +313,8 @@ void ExtractScaleKey(void *track, void *state, f32 dt) {
         f = 0.0f;
     }
     s->v.x = f * s->slopeX + keys[s->current].v.x;
-    s->v.y = f * s->slopeY + t->keys[s->current].v.y;
-    s->v.z = f * s->slopeZ + t->keys[s->current].v.z;
+    s->v.y = f * s->slopeY + GETP(t->keys)[s->current].v.y;
+    s->v.z = f * s->slopeZ + GETP(t->keys)[s->current].v.z;
 }
 
 void ExtractPointKey(u8 *track, u8 *state, f32 dt) {
@@ -328,7 +328,7 @@ void ExtractPointKey(u8 *track, u8 *state, f32 dt) {
     } Key;
     typedef struct KeyTrack {
         u32 count;
-        Key *keys;
+        PTR32(Key) keys;
     } KeyTrack;
     typedef struct KeyState {
         f32 x;
@@ -359,33 +359,33 @@ void ExtractPointKey(u8 *track, u8 *state, f32 dt) {
         return;
     }
     s->time += dt;
-    if (reset || s->time >= t->keys[s->index].duration) {
+    if (reset || s->time >= GETP(t->keys)[s->index].duration) {
         s->current = 0;
         for (;;) {
-            if (s->time < t->keys[s->index].duration) {
+            if (s->time < GETP(t->keys)[s->index].duration) {
                 break;
             }
             s->current = s->index;
-            s->time -= t->keys[s->index].duration;
+            s->time -= GETP(t->keys)[s->index].duration;
             s->index++;
             if (s->index >= t->count) {
                 for (i = 0; i < t->count; i++) {
-                    if (t->keys[i].active) {
+                    if (GETP(t->keys)[i].active) {
                         s->index = i;
                         break;
                     }
                 }
                 if (s->index >= t->count) {
-                    s->x = t->keys[s->current].x;
-                    s->y = t->keys[s->current].y;
+                    s->x = GETP(t->keys)[s->current].x;
+                    s->y = GETP(t->keys)[s->current].y;
                     return;
                 }
                 break;
             }
         }
-        s->slopeX = t->keys[s->index].x - t->keys[s->current].x;
-        s->slopeY = t->keys[s->index].y - t->keys[s->current].y;
-        key = &t->keys[s->index];
+        s->slopeX = GETP(t->keys)[s->index].x - GETP(t->keys)[s->current].x;
+        s->slopeY = GETP(t->keys)[s->index].y - GETP(t->keys)[s->current].y;
+        key = &GETP(t->keys)[s->index];
         if (key->interp == 0) {
             f = 0.0f;
             if (key->duration > 0.0f) {
@@ -395,11 +395,11 @@ void ExtractPointKey(u8 *track, u8 *state, f32 dt) {
             s->slopeY *= f;
         }
     }
-    keys = t->keys;
+    keys = GETP(t->keys);
     key = &keys[s->index];
     if (key->interp == 0) {
         s->x = s->slopeX * s->time + keys[s->current].x;
-        s->y = s->slopeY * s->time + t->keys[s->current].y;
+        s->y = s->slopeY * s->time + GETP(t->keys)[s->current].y;
         return;
     }
     f = s->time / key->duration;
@@ -411,7 +411,7 @@ void ExtractPointKey(u8 *track, u8 *state, f32 dt) {
         f = 0.0f;
     }
     s->x = f * s->slopeX + keys[s->current].x;
-    s->y = f * s->slopeY + t->keys[s->current].y;
+    s->y = f * s->slopeY + GETP(t->keys)[s->current].y;
 }
 
 void ExtractActiveKey(u8 *track, u8 *state, f32 dt) {
@@ -423,7 +423,7 @@ void ExtractActiveKey(u8 *track, u8 *state, f32 dt) {
     } Key;
     typedef struct KeyTrack {
         u32 count;
-        Key *keys;
+        PTR32(Key) keys;
     } KeyTrack;
     typedef struct KeyState {
         f32 time;
@@ -448,32 +448,32 @@ void ExtractActiveKey(u8 *track, u8 *state, f32 dt) {
         return;
     }
     s->time += dt;
-    if (!reset && !(s->time >= t->keys[s->index].duration)) {
+    if (!reset && !(s->time >= GETP(t->keys)[s->index].duration)) {
         return;
     }
     s->current = 0;
     for (;;) {
-        if (s->time < t->keys[s->index].duration) {
+        if (s->time < GETP(t->keys)[s->index].duration) {
             break;
         }
         s->current = s->index;
-        s->time -= t->keys[s->index].duration;
+        s->time -= GETP(t->keys)[s->index].duration;
         s->index++;
         if (s->index >= t->count) {
             for (i = 0; i < t->count; i++) {
-                if (t->keys[i].active) {
+                if (GETP(t->keys)[i].active) {
                     s->index = i;
                     break;
                 }
             }
             if (s->index >= t->count) {
-                s->value = t->keys[s->current].value;
+                s->value = GETP(t->keys)[s->current].value;
                 return;
             }
             break;
         }
     }
-    s->value = t->keys[s->current].value;
+    s->value = GETP(t->keys)[s->current].value;
 }
 
 void ExtractUVKey(void *track, void *state, f32 dt) {
@@ -493,7 +493,7 @@ void ExtractUVKey(void *track, void *state, f32 dt) {
     } UVKey;
     typedef struct UVKeyTrack {
         u32 count;
-        UVKey *keys;
+        PTR32(UVKey) keys;
     } UVKeyTrack;
     typedef struct UVKeyState {
         UVKey v;
@@ -530,34 +530,34 @@ void ExtractUVKey(void *track, void *state, f32 dt) {
         return;
     }
     s->time += dt;
-    if (reset || s->time >= t->keys[s->index].duration) {
+    if (reset || s->time >= GETP(t->keys)[s->index].duration) {
         s->current = 0;
         for (;;) {
-            if (s->time < t->keys[s->index].duration) {
+            if (s->time < GETP(t->keys)[s->index].duration) {
                 break;
             }
             s->current = s->index;
-            s->time -= t->keys[s->index].duration;
+            s->time -= GETP(t->keys)[s->index].duration;
             s->index++;
             if (s->index >= t->count) {
                 for (i = 0; i < t->count; i++) {
-                    if (t->keys[i].active) {
+                    if (GETP(t->keys)[i].active) {
                         s->index = i;
                         break;
                     }
                 }
                 if (s->index >= t->count) {
-                    s->v = t->keys[s->current];
+                    s->v = GETP(t->keys)[s->current];
                     return;
                 }
                 break;
             }
         }
-        s->slopeU0 = t->keys[s->index].u0 - t->keys[s->current].u0;
-        s->slopeV0 = t->keys[s->index].v0 - t->keys[s->current].v0;
-        s->slopeU3 = t->keys[s->index].u3 - t->keys[s->current].u3;
-        s->slopeV3 = t->keys[s->index].v3 - t->keys[s->current].v3;
-        key = &t->keys[s->index];
+        s->slopeU0 = GETP(t->keys)[s->index].u0 - GETP(t->keys)[s->current].u0;
+        s->slopeV0 = GETP(t->keys)[s->index].v0 - GETP(t->keys)[s->current].v0;
+        s->slopeU3 = GETP(t->keys)[s->index].u3 - GETP(t->keys)[s->current].u3;
+        s->slopeV3 = GETP(t->keys)[s->index].v3 - GETP(t->keys)[s->current].v3;
+        key = &GETP(t->keys)[s->index];
         if (key->interp == 0) {
             f = 0.0f;
             if (key->duration > 0.0f) {
@@ -569,13 +569,13 @@ void ExtractUVKey(void *track, void *state, f32 dt) {
             s->slopeV3 *= f;
         }
     }
-    keys = t->keys;
+    keys = GETP(t->keys);
     key = &keys[s->index];
     if (key->interp == 0) {
         s->v.u0 = s->slopeU0 * s->time + keys[s->current].u0;
-        s->v.v0 = s->slopeV0 * s->time + t->keys[s->current].v0;
-        s->v.u3 = s->slopeU3 * s->time + t->keys[s->current].u3;
-        s->v.v3 = s->slopeV3 * s->time + t->keys[s->current].v3;
+        s->v.v0 = s->slopeV0 * s->time + GETP(t->keys)[s->current].v0;
+        s->v.u3 = s->slopeU3 * s->time + GETP(t->keys)[s->current].u3;
+        s->v.v3 = s->slopeV3 * s->time + GETP(t->keys)[s->current].v3;
         return;
     }
     f = s->time / key->duration;
@@ -587,13 +587,13 @@ void ExtractUVKey(void *track, void *state, f32 dt) {
         f = 0.0f;
     }
     s->v.u0 = f * s->slopeU0 + keys[s->current].u0;
-    s->v.v0 = f * s->slopeV0 + t->keys[s->current].v0;
-    s->v.u1 = f * s->slopeU1 + t->keys[s->current].u1;
-    s->v.v1 = f * s->slopeV1 + t->keys[s->current].v1;
-    s->v.u2 = f * s->slopeU2 + t->keys[s->current].u2;
-    s->v.v2 = f * s->slopeV2 + t->keys[s->current].v2;
-    s->v.u3 = f * s->slopeU3 + t->keys[s->current].u3;
-    s->v.v3 = f * s->slopeV3 + t->keys[s->current].v3;
+    s->v.v0 = f * s->slopeV0 + GETP(t->keys)[s->current].v0;
+    s->v.u1 = f * s->slopeU1 + GETP(t->keys)[s->current].u1;
+    s->v.v1 = f * s->slopeV1 + GETP(t->keys)[s->current].v1;
+    s->v.u2 = f * s->slopeU2 + GETP(t->keys)[s->current].u2;
+    s->v.v2 = f * s->slopeV2 + GETP(t->keys)[s->current].v2;
+    s->v.u3 = f * s->slopeU3 + GETP(t->keys)[s->current].u3;
+    s->v.v3 = f * s->slopeV3 + GETP(t->keys)[s->current].v3;
 }
 
 void ExtractTextureKey(TextureKeyAnim *anim, TextureKeyState *state, f32 dt) {
@@ -602,7 +602,7 @@ void ExtractTextureKey(TextureKeyAnim *anim, TextureKeyState *state, f32 dt) {
             state->texture = 0;
             return;
         }
-        state->texture = anim->keys[0];
+        state->texture = GETP(anim->keys)[0];
         state->key = 0;
         state->time = 0.0f;
         state->reset = 0;
@@ -613,7 +613,7 @@ void ExtractTextureKey(TextureKeyAnim *anim, TextureKeyState *state, f32 dt) {
         if (state->key == anim->numKeys) {
             state->key = 0;
         }
-        state->texture = anim->keys[state->key];
+        state->texture = GETP(anim->keys)[state->key];
         state->time -= anim->frameTime;
     }
 }
@@ -628,19 +628,19 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
         f32 volume;
         f32 pitch;
         f32 pitchRange;
-        void *sample;
-        u8 *range;
+        PTR32(void) sample;
+        PTR32(u8) range;
     } Sound;
     typedef struct Key {
         f32 duration;
         u8 active;
         u8 pad[3];
         u32 numSounds;
-        Sound **sounds;
+        PTR32(Sound *) sounds;
     } Key;
     typedef struct KeyTrack {
         u32 count;
-        Key *keys;
+        PTR32(Key) keys;
     } KeyTrack;
     typedef struct KeyState {
         s32 unk0;
@@ -670,22 +670,22 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
         return -2;
     }
     s->time += dt;
-    if (reset || s->time >= t->keys[s->index].duration) {
+    if (reset || s->time >= GETP(t->keys)[s->index].duration) {
         s->current = 0;
         for (;;) {
-            if (s->time < t->keys[s->index].duration) {
+            if (s->time < GETP(t->keys)[s->index].duration) {
                 break;
             }
             s->current = s->index;
-            if (t->keys[s->index].numSounds != 0) {
-                idx = RandomAdd_s32(0, t->keys[s->index].numSounds);
-                snd = t->keys[s->index].sounds[idx];
+            if (GETP(t->keys)[s->index].numSounds != 0) {
+                idx = RandomAdd_s32(0, GETP(t->keys)[s->index].numSounds);
+                snd = GETP(GETP(t->keys)[s->index].sounds)[idx];
                 if (snd != NULL) {
                     if (snd->type == 1) {
                         void *voice;
                         f32 pitch;
 
-                        voice = SoundAudioSample_Play(snd->sample);
+                        voice = SoundAudioSample_Play(GETP(snd->sample));
                         pitch = RandomAdd(snd->pitch, snd->pitchRange);
                         SoundAudioSample_Set(voice, 0, 32767.0f * snd->volume);
                         SoundAudioSample_Set(voice, 1, 65536.0f * pitch);
@@ -695,15 +695,15 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
                         f32 pitch;
 
                         src = SoundManager_CreateSource(snd->owner);
-                        sample = snd->sample;
+                        sample = GETP(snd->sample);
                         pitch = RandomAdd(snd->pitch, snd->pitchRange);
                         SoundSource_Set(src, 8, &sample);
                         SoundSource_Set(src, 5, pos);
                         SoundSource_Set(src, 0, &snd->volume);
                         SoundSource_Set(src, 1, &pitch);
                         if (snd->type == 0) {
-                            SoundSource_Set(src, 2, snd->range);
-                            SoundSource_Set(src, 3, snd->range + 4);
+                            SoundSource_Set(src, 2, GETP(snd->range));
+                            SoundSource_Set(src, 3, GETP(snd->range) + 4);
                         }
                         SoundSource_Play(src);
                         if (snd->owner) {
@@ -712,11 +712,11 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
                     }
                 }
             }
-            s->time -= t->keys[s->index].duration;
+            s->time -= GETP(t->keys)[s->index].duration;
             s->index++;
             if (s->index >= t->count) {
                 for (i = 0; i < t->count; i++) {
-                    if (t->keys[i].active) {
+                    if (GETP(t->keys)[i].active) {
                         s->index = i;
                         break;
                     }

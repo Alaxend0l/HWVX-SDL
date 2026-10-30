@@ -113,8 +113,8 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
         u8 visible;
         u8 frame;
         f32 speed;
-        u8 *info;
-        void *texture;
+        PTR32(u8) info;
+        PTR32(void) texture;
         f32 unkC4;
         f32 spin;
         s32 life;
@@ -169,13 +169,13 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
         } else {
             particle->frame = RandomAdd_s32(0, *(s32 *)(anim + 0x20));
         }
-        particle->texture = SLOT_LOAD(void *, (u32 *)SLOT_LOAD(void *, (anim + 0x24)) + (particle->frame));
-        if (particle->texture != NULL) {
+        SETP(particle->texture, SLOT_LOAD(void *, (u32 *)SLOT_LOAD(void *, (anim + 0x24)) + (particle->frame)));
+        if (GETP(particle->texture) != NULL) {
             particle->speed = speed;
             particle->pos = *pos;
             particle->vel = *vel;
             particle->accel = *accel;
-            particle->info = info;
+            SETP(particle->info, info);
             rate = 1.0f;
             particle->unkC4 = rate;
             particle->life = life - time;
@@ -188,14 +188,14 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
             }
             particle->scaleActive = 1;
             particle->colourActive = 1;
-            ExtractColorKey(particle->info + 0x14, particle->colour, time);
+            ExtractColorKey(GETP(particle->info) + 0x14, particle->colour, time);
             particle->unkD8 = RandomAdd(*(f32 *)(anim + 0xC), *(f32 *)(anim + 0x10));
             ExtractScaleKey(anim + 0x28, particle->scale, time);
             particle->visible = 1;
-            if (*(u32 *)(particle->info + 0x14) == 0) {
+            if (*(u32 *)(GETP(particle->info) + 0x14) == 0) {
                 particle->visible = 0;
-            } else if (*(u32 *)(particle->info + 0x14) == 1) {
-                c = *SLOT_LOAD(Colour *, (particle->info + 0x18));
+            } else if (*(u32 *)(GETP(particle->info) + 0x14) == 1) {
+                c = *SLOT_LOAD(Colour *, (GETP(particle->info) + 0x18));
                 if (c.r == 0xFF && c.b == 0xFF && c.g == 0xFF) {
                     particle->visible = 0;
                 }
@@ -273,7 +273,7 @@ void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owne
         f32 rotSpeed;
         s32 life;
         f32 unk8C;
-        u8 *info;
+        PTR32(u8) info;
         u8 flags;
         u8 type;
         u8 visible;
@@ -317,7 +317,7 @@ void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owne
         sprite->pos = *pos;
         sprite->vel = *vel;
         sprite->accel = *accel;
-        sprite->info = info;
+        SETP(sprite->info, info);
         sprite->flags &= ~0xC;
         if (anim[1] != 0) {
             sprite->frame = 0;
@@ -335,16 +335,16 @@ void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owne
         sprite->type = anim[0];
         sprite->sizeActive = 1;
         sprite->colourActive = 1;
-        ExtractColorKey(sprite->info + 0x14, sprite->colour, time);
+        ExtractColorKey(GETP(sprite->info) + 0x14, sprite->colour, time);
         sprite->unk8C = RandomAdd(*(f32 *)(anim + 0x14), *(f32 *)(anim + 0x18));
         ExtractF32Key(anim + 0x28, sprite->size, time);
         sprite->rot = RandomDirVar(*(f32 *)(anim + 0x4), *(f32 *)(anim + 0x8));
         sprite->rotSpeed = RandomAdd(*(f32 *)(anim + 0xC), *(f32 *)(anim + 0x10));
         sprite->visible = 1;
-        if (*(u32 *)(sprite->info + 0x14) == 0) {
+        if (*(u32 *)(GETP(sprite->info) + 0x14) == 0) {
             sprite->visible = 0;
-        } else if (*(u32 *)(sprite->info + 0x14) == 1) {
-            c = *SLOT_LOAD(Colour *, (sprite->info + 0x18));
+        } else if (*(u32 *)(GETP(sprite->info) + 0x14) == 1) {
+            c = *SLOT_LOAD(Colour *, (GETP(sprite->info) + 0x18));
             if (c.r == 0xFF && c.b == 0xFF && c.g == 0xFF) {
                 sprite->visible = 0;
             }
@@ -487,8 +487,8 @@ void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t {
         u8 visible;
         u8 frame;
         f32 speed;
-        u8 *info;
-        void *texture;
+        PTR32(u8) info;
+        PTR32(void) texture;
         f32 unkC4;
         f32 spin;
         s32 life;
@@ -529,12 +529,12 @@ void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t {
     u32 sound;
     u8 bounced;
 
-    anim = SLOT_LOAD(u8 *, (particle->info + 0x4));
-    idx = RandomAdd_s32(0, *(s32 *)(particle->info + 0x1C));
+    anim = SLOT_LOAD(u8 *, (GETP(particle->info) + 0x4));
+    idx = RandomAdd_s32(0, *(s32 *)(GETP(particle->info) + 0x1C));
     dt = particle->timer;
     if (particle->life < 0) {
-        if (*(u32 *)(particle->info + 0x1C) != 0) {
-            fx = (SLOT_LOAD(u32 *, (particle->info + 0x20)))[idx];
+        if (*(u32 *)(GETP(particle->info) + 0x1C) != 0) {
+            fx = (SLOT_LOAD(u32 *, (GETP(particle->info) + 0x20)))[idx];
             if (fx != 0) {
                 params.id = fx;
                 params.pos = particle->pos;
@@ -562,7 +562,7 @@ void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t {
             particle->frameTimer -= particle->timer;
         }
     }
-    ExtractColorKey(particle->info + 0x14, particle->colour, dt * particle->rate);
+    ExtractColorKey(GETP(particle->info) + 0x14, particle->colour, dt * particle->rate);
     ExtractScaleKey(anim + 0x28, particle->scale, dt * particle->rate);
     if (anim[1] & 4) {
         return;
@@ -575,8 +575,8 @@ void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t {
         if (RayHitsTerrain(particle, &newPos, &t, &hit)) {
             AccumulateVector(&particle->vel, &particle->pos, &particle->pos, t * dt);
             if (anim[1] == 1) {
-                if (*(u32 *)(particle->info + 0x1C) != 0) {
-                    fx = (SLOT_LOAD(u32 *, (particle->info + 0x20)))[idx];
+                if (*(u32 *)(GETP(particle->info) + 0x1C) != 0) {
+                    fx = (SLOT_LOAD(u32 *, (GETP(particle->info) + 0x20)))[idx];
                     if (fx != 0) {
                         params2.id = fx;
                         params2.pos = particle->pos;
@@ -638,7 +638,7 @@ void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t {
     particle->targetVel.z = (particle->targetPos.z - particle->pos.z) / particle->timer;
 }
 
-void ParticleSprite_Move(u8 *sprite) {
+void ParticleSprite_Move(u8 *sprite, void *sprites) {
     extern Vector4 g_zeroVector;
     extern f32 g_fDeltaTimeMS;
     extern f32 g_fDeltaTimeSec;

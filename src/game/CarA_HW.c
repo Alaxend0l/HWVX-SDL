@@ -7,7 +7,7 @@ typedef struct CarAShiftSoundParams {
     Vector4 vel;
     Vector4 angVel;
     u32 id;
-    void *player;
+    PTR32(void) player;
     f32 unk48;
     f32 unk4C;
 } CarAShiftSoundParams;
@@ -25,11 +25,11 @@ s8 CarA_DoFreeStyleStunts(CarA *car) {
     s32 threshold;
     Player *pad;
 
-    threshold = car->vehicleIface->stunt->unk28;
-    if (car->player == NULL || !Player_IsHuman(car->player)) {
+    threshold = GETP(GETP(car->vehicleIface)->stunt)->unk28;
+    if (GETP(car->player) == NULL || !Player_IsHuman(GETP(car->player))) {
         return 0;
     }
-    pad = car->player;
+    pad = GETP(car->player);
     if (pad->button10 == 0 && pad->button1A == 0 &&
         pad->stickX > -0x40 && pad->stickX < 0x40 && pad->stickY > -0x40 && pad->stickY < 0x40) {
         return 0;
@@ -60,9 +60,9 @@ void CarA_StuntImpulse(CarA *car, Vector4 *linImpulse, Vector4 *angImpulse) {
     car->angularMomentum.y += ang.y;
     car->angularMomentum.z += ang.z;
     car->transmissionFlags |= 2;
-    info = car->vehicleIface;
+    info = GETP(car->vehicleIface);
     if (info->numSlaves > 4) {
-        MotionState_InitAllSlavesNow(HND(&car->motionState), info->slaves + 0x34, 4);
+        MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(info->slaves) + 0x34, 4);
     }
 }
 
@@ -86,29 +86,29 @@ s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t) {
     f32 roll;
     f32 mag;
 
-    stunt = car->vehicleIface->stunt;
+    stunt = GETP(GETP(car->vehicleIface)->stunt);
     scale = 1.0f;
     frac = (f32)(u32)(car->unk460 - stunt->unk28) / stunt->maxTime;
     if (!CarA_DoFreeStyleStunts(car)) {
         car->stuntAxis = 0;
         return 0;
     }
-    if (car->player->stickX > 100 || car->player->stickX < -100) {
+    if (GETP(car->player)->stickX > 100 || GETP(car->player)->stickX < -100) {
         rates[0] = 1.0f;
         if (car->stuntAxis != 1) {
             car->stuntAxisVec = car->worldMatrix.v[1];
             car->stuntAxis = 1;
         }
-        if (car->player->stickX > 0) {
+        if (GETP(car->player)->stickX > 0) {
             scale = -1.0f;
         }
-    } else if (car->player->stickY > 100 || car->player->stickY < -100) {
+    } else if (GETP(car->player)->stickY > 100 || GETP(car->player)->stickY < -100) {
         rates[1] = 1.0f;
         if (car->stuntAxis != 2) {
             car->stuntAxisVec = car->worldMatrix.v[0];
             car->stuntAxis = 2;
         }
-        if (car->player->stickY > 0) {
+        if (GETP(car->player)->stickY > 0) {
             scale = -1.0f;
         }
     } else {
@@ -123,17 +123,17 @@ s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t) {
         spin *= 0.0f;
         break;
     case 1:
-        spin *= car->vehicleIface->stunt->pitchRate;
+        spin *= GETP(GETP(car->vehicleIface)->stunt)->pitchRate;
         break;
     case 2:
-        spin *= -car->vehicleIface->stunt->rollRate;
+        spin *= -GETP(GETP(car->vehicleIface)->stunt)->rollRate;
         break;
     }
     accum.x += car->stuntAxisVec.x * spin;
     accum.y += car->stuntAxisVec.y * spin;
     accum.z += car->stuntAxisVec.z * spin;
-    stunt = car->vehicleIface->stunt;
-    player = car->player;
+    stunt = GETP(GETP(car->vehicleIface)->stunt);
+    player = GETP(car->player);
     roll = 0.0f;
     scale = 0.5f * (stunt->pitchRate + stunt->spinRate);
     if (player->button10) {
@@ -148,7 +148,7 @@ s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t) {
     accum.y += car->worldMatrix.v[2].y * roll;
     accum.z += car->worldMatrix.v[2].z * roll;
     if (!(car->transmissionFlags & 0x20000)) {
-        stunt = car->vehicleIface->stunt;
+        stunt = GETP(GETP(car->vehicleIface)->stunt);
         car->stuntTime += g_fDeltaTimeSec * (stunt->rollRate * (rates[0] * stunt->rollScore)) +
                           g_fDeltaTimeSec * (stunt->pitchRate * (rates[1] * stunt->pitchScore)) +
                           g_fDeltaTimeSec * (stunt->spinRate * (rates[2] * stunt->spinScore));
@@ -173,10 +173,10 @@ s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t) {
         XformVecOrientation(&car->worldMatrix, &scaled, &car->angularMomentum);
         car->stuntSpin.x += 3.0f * t;
         *outQ = newQ;
-        if (car->stuntTime > car->vehicleIface->stunt->minFailTime) {
-            player = car->player;
-            sprintf(player->stuntScoreText, "Points +%d", (u32)car->stuntTime);
-            car->stuntScoreMessage = &player->stuntScoreText;
+        if (car->stuntTime > GETP(GETP(car->vehicleIface)->stunt)->minFailTime) {
+            player = GETP(car->player);
+            sprintf(GETP(player->stuntScoreText), "Points +%d", (u32)car->stuntTime);
+            SETP(car->stuntScoreMessage, &player->stuntScoreText);
         }
         return 1;
     }
@@ -193,20 +193,20 @@ void CarA_StuntFail(CarA *car) {
     f32 maxTime;
     CarAShiftSoundParams params __attribute__((aligned(16)));
 
-    stunt = car->vehicleIface->stunt;
+    stunt = GETP(GETP(car->vehicleIface)->stunt);
     minTime = stunt->minFailTime;
     if (car->stuntTime > minTime) {
         count = stunt->numFailThings;
         maxTime = stunt->maxFailTime;
         secs = car->stuntTime;
-        if (stunt->failMessage != NULL) {
-            car->stuntMessage = stunt->failMessage;
+        if (GETP(stunt->failMessage) != NULL) {
+            SETP(car->stuntMessage, GETP(stunt->failMessage));
         } else {
             sprintf(stunt_msg_buffer, "Stunt Failed");
-            car->stuntMessage = &g_stuntLossString;
+            SETP(car->stuntMessage, &g_stuntLossString);
         }
-        if (car->vehicleIface->numSlaves > 10) {
-            MotionState_InitAllSlavesNow(HND(&car->motionState), car->vehicleIface->slaves + 0x7C, 10);
+        if (GETP(car->vehicleIface)->numSlaves > 10) {
+            MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x7C, 10);
         }
         if (count != 0 && (f32)secs > minTime) {
             idx = 0;
@@ -216,14 +216,14 @@ void CarA_StuntFail(CarA *car) {
                     idx = count - 1;
                 }
             }
-            params.id = stunt->failThings[idx];
+            params.id = GETP(stunt->failThings)[idx];
             if (params.id != 0) {
                 params.pos = car->worldMatrix.v[3];
                 params.animRefPos = car->animRefPos;
                 params.vel.x = car->velocity.x;
                 params.vel.y = 0.0f;
                 params.vel.z = car->velocity.z;
-                params.player = NULL;
+                SETP(params.player, NULL);
                 params.unk48 = 0.0f;
                 params.unk4C = 0.0f;
                 params.angVel = g_zeroVector;
@@ -241,10 +241,10 @@ void CarA_SlaveWeaponHeartbeat(CarA *car) {
     u32 i;
     s32 *rpm;
 
-    for (i = 0; i < car->vehicleIface->numSlaveWeapons; i++) {
+    for (i = 0; i < GETP(car->vehicleIface)->numSlaveWeapons; i++) {
         rpm = &car->slaveWeaponRpm[i];
         if (*rpm < 10000) {
-            MotionState_InitSlavesTimed(&car->motionState, car->vehicleIface->slaveWeapons + i * 0xC + 4, i + 0xF0, *rpm);
+            MotionState_InitSlavesTimed(&car->motionState, GETP(GETP(car->vehicleIface)->slaveWeapons) + i * 0xC + 4, i + 0xF0, *rpm);
             ThingManagerList_RemoveReleasedThings(&car->motionState.slaves);
             *rpm += g_iDeltaTimeMS;
         }
@@ -263,7 +263,7 @@ s32 CarA_PreMove_Control_HW(void *thing) {
     u8 mode = 0;
     u8 throttling = 0;
     u8 reversing = 0;
-    f32 decel = -car->vehicleIface->accel->unk18;
+    f32 decel = -GETP(GETP(car->vehicleIface)->accel)->unk18;
     f32 coast;
     f32 steerRate;
     f32 steer;
@@ -272,38 +272,38 @@ s32 CarA_PreMove_Control_HW(void *thing) {
     u32 id;
     CarAInfo *info;
 
-    if (car->player->button15) {
+    if (GETP(car->player)->button15) {
         car->transmissionFlags |= 0x8000;
     } else {
         car->transmissionFlags &= ~0x8000;
     }
 
     if (!CarA_DoFreeStyleStunts(car)) {
-        if (car->player->throttle) {
-            if (car->player->brake == 0 && car->gradeOrReverse > -2.0f) {
+        if (GETP(car->player)->throttle) {
+            if (GETP(car->player)->brake == 0 && car->gradeOrReverse > -2.0f) {
                 if (((car->transmissionFlags & 0x1000) &&
-                     car->rpm >= car->vehicleIface->unk1C * car->vehicleIface->unk30) ||
-                    (!(car->transmissionFlags & 0x1000) && car->rpm >= car->vehicleIface->unk1C)) {
+                     car->rpm >= GETP(car->vehicleIface)->unk1C * GETP(car->vehicleIface)->unk30) ||
+                    (!(car->transmissionFlags & 0x1000) && car->rpm >= GETP(car->vehicleIface)->unk1C)) {
                     car->gradeOrReverse += -0.1f * car->gradeOrReverse * g_fDeltaTimeSec;
-                    car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
-                    if (car->rpm < car->vehicleIface->unk24 && car->curveTableIdx > 1) {
+                    car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
+                    if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
                         car->curveTableIdx--;
-                        car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
+                        car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
                     }
                     mode = 2;
-                    decel = 255.0f * (0.2f * -car->vehicleIface->accel->unk1C);
+                    decel = 255.0f * (0.2f * -GETP(GETP(car->vehicleIface)->accel)->unk1C);
                 } else {
                     throttling = 1;
                 }
             } else {
                 car->reverseTimer = 0;
                 mode = 1;
-                decel = -(f32)car->player->throttle * car->vehicleIface->accel->unk20;
+                decel = -(f32)GETP(car->player)->throttle * GETP(GETP(car->vehicleIface)->accel)->unk20;
             }
-        } else if (car->player->brake) {
-            if (car->player->throttle == 0 && car->gradeOrReverse < 1.0f) {
+        } else if (GETP(car->player)->brake) {
+            if (GETP(car->player)->throttle == 0 && car->gradeOrReverse < 1.0f) {
                 car->reverseTimer += g_iDeltaTimeMS;
-                if (car->reverseTimer > car->vehicleIface->engine->unk18) {
+                if (car->reverseTimer > GETP(GETP(car->vehicleIface)->engine)->unk18) {
                     reversing = 1;
                     car->transmissionFlags |= 4;
                 } else {
@@ -312,24 +312,24 @@ s32 CarA_PreMove_Control_HW(void *thing) {
             } else {
                 car->reverseTimer = 0;
                 mode = 1;
-                decel = -(f32)car->player->brake * car->vehicleIface->accel->unk18;
+                decel = -(f32)GETP(car->player)->brake * GETP(GETP(car->vehicleIface)->accel)->unk18;
             }
         } else {
             coast = 0.05f * car->gradeOrReverse;
             car->gradeOrReverse += -0.1f * car->gradeOrReverse * g_fDeltaTimeSec;
-            car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
-            if (car->rpm < car->vehicleIface->unk24 && car->curveTableIdx > 1) {
+            car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
+            if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
                 car->curveTableIdx--;
-                car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
-                if (car->vehicleIface->numShiftSounds != 0) {
-                    id = car->vehicleIface->shiftSounds[RandomAdd_s32(0, car->vehicleIface->numShiftSounds)];
+                car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
+                if (GETP(car->vehicleIface)->numShiftSounds != 0) {
+                    id = GETP(GETP(car->vehicleIface)->shiftSounds)[RandomAdd_s32(0, GETP(car->vehicleIface)->numShiftSounds)];
                     if (id != 0) {
                         CarAShiftSoundParams p __attribute__((aligned(16)));
                         p.id = id;
                         p.pos = car->worldMatrix.v[3];
                         p.animRefPos = car->animRefPos;
                         p.vel = car->velocity;
-                        p.player = NULL;
+                        SETP(p.player, NULL);
                         p.unk48 = 0.0f;
                         p.unk4C = 0.0f;
                         p.angVel = g_zeroVector;
@@ -338,7 +338,7 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                 }
             }
             mode = 2;
-            decel = 255.0f * (0.5f * -car->vehicleIface->accel->unk1C);
+            decel = 255.0f * (0.5f * -GETP(GETP(car->vehicleIface)->accel)->unk1C);
             if (car->gradeOrReverse < 20.0f) {
                 if (coast < 0.1f) {
                     coast = 0.1f;
@@ -348,26 +348,26 @@ s32 CarA_PreMove_Control_HW(void *thing) {
         }
     }
 
-    g_pSourcePlayer = car->player;
+    g_pSourcePlayer = GETP(car->player);
     if (reversing) {
         torque = 0.5f * CarA_Transmission_GetTorqueAtWheels(car);
-        accel = -torque * (f32)car->player->brake;
+        accel = -torque * (f32)GETP(car->player)->brake;
         car->rpm += accel * g_fDeltaTimeSec;
-        if (car->rpm < -car->vehicleIface->unk20) {
-            car->rpm = -car->vehicleIface->unk20;
+        if (car->rpm < -GETP(car->vehicleIface)->unk20) {
+            car->rpm = -GETP(car->vehicleIface)->unk20;
         }
-        if (car->rpm < car->vehicleIface->unk24 && car->curveTableIdx > 1) {
+        if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
             car->curveTableIdx--;
-            car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
-            if (car->vehicleIface->numShiftSounds != 0) {
-                id = car->vehicleIface->shiftSounds[RandomAdd_s32(0, car->vehicleIface->numShiftSounds)];
+            car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
+            if (GETP(car->vehicleIface)->numShiftSounds != 0) {
+                id = GETP(GETP(car->vehicleIface)->shiftSounds)[RandomAdd_s32(0, GETP(car->vehicleIface)->numShiftSounds)];
                 if (id != 0) {
                     CarAShiftSoundParams p __attribute__((aligned(16)));
                     p.id = id;
                     p.pos = car->worldMatrix.v[3];
                     p.animRefPos = car->animRefPos;
                     p.vel = car->velocity;
-                    p.player = NULL;
+                    SETP(p.player, NULL);
                     p.unk48 = 0.0f;
                     p.unk4C = 0.0f;
                     p.angVel = g_zeroVector;
@@ -375,19 +375,19 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                 }
             }
         }
-        car->gradeOrReverse = car->rpm * car->vehicleIface->gears[car->curveTableIdx].ratio;
+        car->gradeOrReverse = car->rpm * GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
     } else if (throttling) {
         torque = 0.5f * CarA_Transmission_GetTorqueAtWheels(car);
         if (!(car->transmissionFlags & 0x1000)) {
-            if (car->rpm >= car->vehicleIface->unk1C) {
+            if (car->rpm >= GETP(car->vehicleIface)->unk1C) {
                 accel = 0.0f;
             } else {
-                accel = torque * (f32)car->player->throttle;
+                accel = torque * (f32)GETP(car->player)->throttle;
             }
         } else {
-            accel = torque * (f32)car->player->throttle;
+            accel = torque * (f32)GETP(car->player)->throttle;
         }
-        if (car->player->button15 && car->rpm < 1000.0f) {
+        if (GETP(car->player)->button15 && car->rpm < 1000.0f) {
             if (car->rpm < -1000.0f) {
                 car->unk4FC = 1.0f;
             } else {
@@ -400,22 +400,22 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                 car->rpm *= -1.0f;
             }
         }
-        if (car->player->button15 && car->unk4FC < 0.5f) {
+        if (GETP(car->player)->button15 && car->unk4FC < 0.5f) {
             car->unk4FC = 0.2f;
         }
-        if (car->rpm > car->vehicleIface->unk20 &&
-            car->curveTableIdx < car->vehicleIface->numGears - 1) {
+        if (car->rpm > GETP(car->vehicleIface)->unk20 &&
+            car->curveTableIdx < GETP(car->vehicleIface)->numGears - 1) {
             car->curveTableIdx++;
-            car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
+            car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
         }
-        car->gradeOrReverse = car->rpm * car->vehicleIface->gears[car->curveTableIdx].ratio;
+        car->gradeOrReverse = car->rpm * GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
         if (car->transmissionFlags & 0x1000) {
-            if (car->gradeOrReverse > car->vehicleIface->engine->unk44 * car->vehicleIface->unk30) {
-                car->gradeOrReverse = car->vehicleIface->engine->unk44 * car->vehicleIface->unk30;
+            if (car->gradeOrReverse > GETP(GETP(car->vehicleIface)->engine)->unk44 * GETP(car->vehicleIface)->unk30) {
+                car->gradeOrReverse = GETP(GETP(car->vehicleIface)->engine)->unk44 * GETP(car->vehicleIface)->unk30;
             }
         } else {
-            if (car->gradeOrReverse > car->vehicleIface->engine->unk44) {
-                car->gradeOrReverse = car->vehicleIface->engine->unk44;
+            if (car->gradeOrReverse > GETP(GETP(car->vehicleIface)->engine)->unk44) {
+                car->gradeOrReverse = GETP(GETP(car->vehicleIface)->engine)->unk44;
             }
         }
     }
@@ -432,19 +432,19 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                 car->gradeOrReverse = 0.0f;
             }
         }
-        car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
-        if (car->rpm < car->vehicleIface->unk24 && car->curveTableIdx > 1) {
+        car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
+        if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
             car->curveTableIdx--;
-            car->rpm = car->gradeOrReverse / car->vehicleIface->gears[car->curveTableIdx].ratio;
-            if (car->vehicleIface->numShiftSounds != 0) {
-                id = car->vehicleIface->shiftSounds[RandomAdd_s32(0, car->vehicleIface->numShiftSounds)];
+            car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
+            if (GETP(car->vehicleIface)->numShiftSounds != 0) {
+                id = GETP(GETP(car->vehicleIface)->shiftSounds)[RandomAdd_s32(0, GETP(car->vehicleIface)->numShiftSounds)];
                 if (id != 0) {
                     CarAShiftSoundParams p __attribute__((aligned(16)));
                     p.id = id;
                     p.pos = car->worldMatrix.v[3];
                     p.animRefPos = car->animRefPos;
                     p.vel = car->velocity;
-                    p.player = NULL;
+                    SETP(p.player, NULL);
                     p.unk48 = 0.0f;
                     p.unk4C = 0.0f;
                     p.angVel = g_zeroVector;
@@ -452,13 +452,13 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                 }
             }
         }
-        if (car->rpm < -car->vehicleIface->unk1C) {
-            car->rpm = -car->vehicleIface->unk1C;
+        if (car->rpm < -GETP(car->vehicleIface)->unk1C) {
+            car->rpm = -GETP(car->vehicleIface)->unk1C;
         }
         if (!(car->transmissionFlags & 0x20) && mode == 1) {
             car->transmissionFlags |= 0x20;
-            if (car->vehicleIface->numSlaves >= 3) {
-                MotionState_InitAllSlavesNow(HND(&car->motionState), car->vehicleIface->slaves + 0x28, 3);
+            if (GETP(car->vehicleIface)->numSlaves >= 3) {
+                MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x28, 3);
             }
         } else if (mode == 2 && (car->transmissionFlags & 0x20)) {
             car->transmissionFlags &= ~0x20;
@@ -469,9 +469,9 @@ s32 CarA_PreMove_Control_HW(void *thing) {
         MotionState_ReleaseSlavesByType(HND(&car->motionState), 3);
     }
 
-    info = car->vehicleIface;
-    steerRate = info->engine->unk14;
-    steer = 0.017453292f * (45.0f * -((f32)car->player->stickX / 128.0f));
+    info = GETP(car->vehicleIface);
+    steerRate = GETP(info->engine)->unk14;
+    steer = 0.017453292f * (45.0f * -((f32)GETP(car->player)->stickX / 128.0f));
     if (CarA_DoFreeStyleStunts(car)) {
         steer = 0.0f;
     }

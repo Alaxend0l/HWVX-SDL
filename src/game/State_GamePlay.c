@@ -22,8 +22,8 @@ typedef struct GPTileCar {
     f32 rotY;               /* 0x14 */
     f32 rotZ;               /* 0x18 */
     u8 pad1C[8];
-    GPAIScripts *aiScripts; /* 0x24 */
-    CarA *creature;         /* 0x28 */
+    PTR32(GPAIScripts) aiScripts; /* 0x24 */
+    PTR32(CarA) creature;         /* 0x28 */
     u32 mode;               /* 0x2C */
     u8 pad30[4];
     u8 unk34;               /* 0x34 */
@@ -33,7 +33,7 @@ typedef struct GPTileCar {
     f32 farDist;            /* 0x3C */
     u32 scripts[4];         /* 0x40 one per difficulty */
     u8 pad50[4];
-    GPItem *item;           /* 0x54 */
+    PTR32(GPItem) item;           /* 0x54 */
     u8 pad58[7];
     u8 unk5F;               /* 0x5F */
 } GPTileCar;
@@ -44,27 +44,27 @@ typedef struct GPWorldInfo {
     u8 pad80[8];
     u32 lightTexture;       /* 0x88 */
     u8 pad8C[0x18];
-    void *packList;         /* 0xA4 */
+    PTR32(void) packList;         /* 0xA4 */
 } GPWorldInfo;
 
 typedef struct GPWorld {
-    u8 *grid;               /* 0x00 */
+    PTR32(u8) grid;               /* 0x00 */
     u8 pad4[4];
     u32 numTileCars;        /* 0x08 */
-    GPTileCar *tileCars;    /* 0x0C */
+    PTR32(GPTileCar) tileCars;    /* 0x0C */
     u8 pad10[0x68];
-    void *nav;              /* 0x78 */
+    PTR32(void) nav;              /* 0x78 */
     u8 pad7C[0x20];
-    GPWorldInfo *info;      /* 0x9C */
+    PTR32(GPWorldInfo) info;      /* 0x9C */
 } GPWorld;
 
 typedef struct GPCreatureParams {
     Vector4 pos;            /* 0x00 */
     Vector4 quat;           /* 0x10 */
     Vector4 vel;            /* 0x20 */
-    GPAIScripts *aiScripts; /* 0x30 */
+    PTR32(GPAIScripts) aiScripts; /* 0x30 */
     u8 pad34[8];
-    void *player;           /* 0x3C */
+    PTR32(void) player;           /* 0x3C */
 } GPCreatureParams;
 
 typedef struct GPAIPlayerDesc {
@@ -81,13 +81,13 @@ typedef struct GPSpeakerSound {
     u8 unk8[4];             /* 0x08 */
     u8 unkC[8];             /* 0x0C */
     s32 unk14;              /* 0x14 */
-    u8 *unk18;              /* 0x18 */
+    PTR32(u8) unk18;              /* 0x18 */
 } GPSpeakerSound;
 
 typedef struct GPTileSpeaker {
     Vector4 pos;            /* 0x00 */
     u8 pad10[4];
-    GPSpeakerSound *sound;  /* 0x14 */
+    PTR32(GPSpeakerSound) sound;  /* 0x14 */
     u8 pad18[4];
     u32 mode;               /* 0x1C */
     u8 pad20[0xC];
@@ -99,7 +99,7 @@ typedef struct GPTilePath {
     u32 unk4;               /* 0x04 */
     f32 unk8;               /* 0x08 */
     u32 unkC;               /* 0x0C */
-    CarA *thing;            /* 0x10 */
+    PTR32(CarA) thing;            /* 0x10 */
     u32 unk14;              /* 0x14 */
     u8 pad18;
     u8 hasSpeed;            /* 0x19 */
@@ -206,10 +206,10 @@ s32 StateGamePlay_Init(void) {
     VertexColorSeqManager_Init();
     VolumeManager_Initialize();
     LightManager_Initialize();
-    Grid_Init(((GPWorld *)g_worldData.world)->grid, ((GPWorld *)g_worldData.world)->grid + 0x10, 0x10, 0x10);
-    NavHolder_Init(((GPWorld *)g_worldData.world)->nav);
-    LightHolder_SetTexture(((GPWorld *)g_worldData.world)->info->lightTexture);
-    InterfaceManager_SetRadarBlip(((GPWorld *)g_worldData.world)->info->radarBlip);
+    Grid_Init(GETP(((GPWorld *)GETP(g_worldData.world))->grid), GETP(((GPWorld *)GETP(g_worldData.world))->grid) + 0x10, 0x10, 0x10);
+    NavHolder_Init(GETP(((GPWorld *)GETP(g_worldData.world))->nav));
+    LightHolder_SetTexture(GETP(((GPWorld *)GETP(g_worldData.world))->info)->lightTexture);
+    InterfaceManager_SetRadarBlip(GETP(((GPWorld *)GETP(g_worldData.world))->info)->radarBlip);
     GameSettings_RestoreGameData();
     ThingManager_DARYL_CreateThing(0xB, NULL);
     {
@@ -218,11 +218,11 @@ s32 StateGamePlay_Init(void) {
 
         i = 0;
         while ((car = World_GetTileCar(i)) != NULL) {
-            if (car->aiScripts != NULL && (car->port <= 4 || car->unk34 == 0 || car->unk5F != 0)) {
+            if (GETP(car->aiScripts) != NULL && (car->port <= 4 || car->unk34 == 0 || car->unk5F != 0)) {
                 params.pos = car->pos;
                 params.pos.y += 10.0f;
-                params.player = NULL;
-                params.aiScripts = car->aiScripts;
+                SETP(params.player, NULL);
+                SETP(params.aiScripts, GETP(car->aiScripts));
                 params.vel = g_zeroVector;
                 if (car->port <= 4) {
                     car->unk34 = 0;
@@ -245,10 +245,10 @@ s32 StateGamePlay_Init(void) {
                             Player_SetName(player, 4, "Player 4");
                         }
                         humanUsed[car->port - 1] = 1;
-                        car->creature = ThingManager_DARYL_CreateThing(9, &params);
-                        Player_SetThing(player, car->creature);
-                        car->creature->tileData = car;
-                        player->tileCar = car;
+                        SETP(car->creature, ThingManager_DARYL_CreateThing(9, &params));
+                        Player_SetThing(player, GETP(car->creature));
+                        SETP(GETP(car->creature)->tileData, car);
+                        SETP(player->tileCar, car);
                         if (GameSettings_GetGameType() == 0 && script == 3 && GameSettings_IsCheatEnabled(8)) {
                             script = 0x4D;
                         }
@@ -257,10 +257,10 @@ s32 StateGamePlay_Init(void) {
 
                             item = DataPack_GetScript(
                                 FileStreaming_InitializeDataPack(
-                                    FileStreaming_LoadDataPack(((GPWorld *)g_worldData.world)->info->packList, 2, script, 0), 2, 1),
+                                    FileStreaming_LoadDataPack(GETP(GETP(((GPWorld *)GETP(g_worldData.world))->info)->packList), 2, script, 0), 2, 1),
                                 script);
                             if (item != NULL) {
-                                void *rack = ThingManagerList_GetByType((u8 *)car->creature + 0x344, 8);
+                                void *rack = ThingManagerList_GetByType((u8 *)GETP(car->creature) + 0x344, 8);
 
                                 WildCardRack_JettisonAll(rack);
                                 WildCardRack_Add(rack, item, item->info->count);
@@ -276,37 +276,37 @@ s32 StateGamePlay_Init(void) {
                     if (difficulty == 0) {
                         if (car->scripts[0] != 0) {
                             script = car->scripts[0];
-                        } else if (params.aiScripts->scripts[0] != 0) {
-                            script = params.aiScripts->scripts[0];
+                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
+                            script = GETP(params.aiScripts)->scripts[0];
                         }
                     } else if (difficulty == 1) {
                         if (car->scripts[1] != 0) {
                             script = car->scripts[1];
-                        } else if (params.aiScripts->scripts[0] != 0) {
-                            script = params.aiScripts->scripts[1];
+                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
+                            script = GETP(params.aiScripts)->scripts[1];
                         }
                     } else if (difficulty == 2) {
                         if (car->scripts[2] != 0) {
                             script = car->scripts[2];
-                        } else if (params.aiScripts->scripts[0] != 0) {
-                            script = params.aiScripts->scripts[2];
+                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
+                            script = GETP(params.aiScripts)->scripts[2];
                         }
                     } else if (difficulty == 3) {
                         if (car->scripts[3] != 0) {
                             script = car->scripts[3];
-                        } else if (params.aiScripts->scripts[0] != 0) {
-                            script = params.aiScripts->scripts[3];
+                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
+                            script = GETP(params.aiScripts)->scripts[3];
                         }
                     }
                     if (script == 0) {
-                        if (params.aiScripts->scripts[0] != 0) {
-                            script = params.aiScripts->scripts[0];
-                        } else if (params.aiScripts->scripts[1] != 0) {
-                            script = params.aiScripts->scripts[1];
-                        } else if (params.aiScripts->scripts[2] != 0) {
-                            script = params.aiScripts->scripts[2];
+                        if (GETP(params.aiScripts)->scripts[0] != 0) {
+                            script = GETP(params.aiScripts)->scripts[0];
+                        } else if (GETP(params.aiScripts)->scripts[1] != 0) {
+                            script = GETP(params.aiScripts)->scripts[1];
+                        } else if (GETP(params.aiScripts)->scripts[2] != 0) {
+                            script = GETP(params.aiScripts)->scripts[2];
                         } else {
-                            script = params.aiScripts->scripts[3];
+                            script = GETP(params.aiScripts)->scripts[3];
                         }
                     }
                     desc.script = script;
@@ -319,18 +319,18 @@ s32 StateGamePlay_Init(void) {
                         i++;
                         continue;
                     }
-                    aiPlayer->aiScripts = params.aiScripts;
+                    SETP(aiPlayer->aiScripts, GETP(params.aiScripts));
                     sprintf(name, "AI %d", countAI++);
                     Player_SetName(aiPlayer, -1, name);
-                    car->creature = ThingManager_DARYL_CreateThing(9, &params);
-                    Player_SetThing(aiPlayer, car->creature);
-                    car->creature->tileData = car;
-                    aiPlayer->tileCar = car;
-                    if (car->item != NULL) {
-                        void *rack = ThingManagerList_GetByType((u8 *)car->creature + 0x344, 8);
+                    SETP(car->creature, ThingManager_DARYL_CreateThing(9, &params));
+                    Player_SetThing(aiPlayer, GETP(car->creature));
+                    SETP(GETP(car->creature)->tileData, car);
+                    SETP(aiPlayer->tileCar, car);
+                    if (GETP(car->item) != NULL) {
+                        void *rack = ThingManagerList_GetByType((u8 *)GETP(car->creature) + 0x344, 8);
 
                         WildCardRack_JettisonAll(rack);
-                        WildCardRack_Add(rack, car->item, car->item->info->count);
+                        WildCardRack_Add(rack, GETP(car->item), GETP(car->item)->info->count);
                     }
                 }
                 action[0] = car->mode;
@@ -349,17 +349,17 @@ s32 StateGamePlay_Init(void) {
         j = 0;
         while ((speaker = World_GetTileSpeaker(j)) != NULL) {
             source = SoundManager_CreateSource(1);
-            soundId = speaker->sound->unk14;
+            soundId = GETP(speaker->sound)->unk14;
             SoundSource_Set(source, 8, &soundId);
             SoundSource_Set(source, 5, speaker);
-            switch (speaker->sound->type) {
+            switch (GETP(speaker->sound)->type) {
             case 0:
-                SoundSource_Set(source, 2, speaker->sound->unk18);
-                SoundSource_Set(source, 3, speaker->sound->unk18 + 4);
-                SoundSource_Set(source, 0, speaker->sound->unk8);
+                SoundSource_Set(source, 2, GETP(GETP(speaker->sound)->unk18));
+                SoundSource_Set(source, 3, GETP(GETP(speaker->sound)->unk18) + 4);
+                SoundSource_Set(source, 0, GETP(speaker->sound)->unk8);
                 break;
             }
-            SoundSource_Set(source, 1, speaker->sound->unkC);
+            SoundSource_Set(source, 1, GETP(speaker->sound)->unkC);
             SoundSource_Play(source);
             speakerAction[0] = speaker->mode;
             speakerAction[1] = 1;
@@ -407,8 +407,8 @@ s32 StateGamePlay_Init(void) {
             pathParams.vel = g_zeroVector;
             pathParams.unk5C = path->unk4;
             pathParams.unk54 = path->unk8;
-            path->thing = ThingManager_DARYL_CreateThing(0xA, &pathParams);
-            path->thing->tileData = path;
+            SETP(path->thing, ThingManager_DARYL_CreateThing(0xA, &pathParams));
+            SETP(GETP(path->thing)->tileData, path);
             i++;
         }
     }
@@ -497,12 +497,12 @@ s32 StateGamePlay_Init(void) {
 
         n = 0;
         mcp = GameSettings_GetMCP();
-        for (i = 0; i < ((GPWorld *)g_worldData.world)->numTileCars; i++) {
-            if (((GPWorld *)g_worldData.world)->tileCars[i].aiScripts != NULL &&
-                ((GPWorld *)g_worldData.world)->tileCars[i].port <= 4 &&
-                ((GPWorld *)g_worldData.world)->tileCars[i].creature != NULL) {
+        for (i = 0; i < ((GPWorld *)GETP(g_worldData.world))->numTileCars; i++) {
+            if (GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].aiScripts) != NULL &&
+                GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].port <= 4 &&
+                GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].creature) != NULL) {
                 viewIdx[n] = n;
-                players[n] = ((GPWorld *)g_worldData.world)->tileCars[i].creature->player;
+                players[n] = GETP(GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].creature)->player);
                 n++;
             }
         }
@@ -565,7 +565,7 @@ void SetPlayerControls(void) {
     typedef struct MCP {
         u8 unk0[0x3C];
         u32 numBindings;
-        ControlBinding ***bindings;
+        PTR32(ControlBinding **) bindings;
     } MCP;
     typedef struct HumanPlayer {
         u8 unk0[0x60];
@@ -588,7 +588,7 @@ void SetPlayerControls(void) {
             if (settings->data[1] >= mcp->numBindings) {
                 settings->data[1] = 0;
             }
-            PlayerHuman_SetControlBinding(player, PTR((*mcp->bindings[settings->data[1]])->binding));
+            PlayerHuman_SetControlBinding(player, PTR((*GETP(mcp->bindings)[settings->data[1]])->binding));
         } else {
             PlayerHuman_SetDefaultControls(player, settings->data[1]);
         }
@@ -659,19 +659,19 @@ s32 StateGamePlay_Heartbeat(void) {
             removed = 1;
         }
         if (pressed && GameSettings_GetCodeVariable(0x19B, 0)) {
-            if (g_pauseState == 0 && SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0x9C)) + 0xCC) != NULL) {
+            if (g_pauseState == 0 && SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC) != NULL) {
                 g_pauseState = 1;
                 StateGamePlay_Pause(1);
                 g_bFreezeWorld = 1;
                 bControllerRemoved = removed;
-                pauseInterfaceID = InterfaceManager_Create(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0x9C)) + 0xCC), 0, GamePlay_Interface);
+                pauseInterfaceID = InterfaceManager_Create(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC), 0, GamePlay_Interface);
                 InterfaceManager_SetInput(pauseInterfaceID, input);
                 GameSettings_SetCodeVariable(0xD5, 0, input + 1);
-            } else if (SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0x9C)) + 0xCC) != NULL && removed && !bControllerRemoved) {
+            } else if (SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC) != NULL && removed && !bControllerRemoved) {
                 s32 oldInput = GameSettings_GetCodeVariable(0xD5, 0) - 1;
                 bControllerRemoved = removed;
                 InterfaceManager_ReleaseAllUnpausedInterfaces();
-                pauseInterfaceID = InterfaceManager_Create(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0x9C)) + 0xCC), 0, GamePlay_Interface);
+                pauseInterfaceID = InterfaceManager_Create(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC), 0, GamePlay_Interface);
                 InterfaceManager_SetInput(pauseInterfaceID, oldInput);
             }
             Wheel_PlayAllAirborne();
@@ -824,26 +824,26 @@ s32 StateGamePlay_Shutdown(void) {
 
 void GamePlay_Interface(void *msg) {
     extern struct {
-        void (*handleInput)(void *msg);
-        void (*update)(void *msg);
+        FPTR32(void, (void *msg)) handleInput;
+        FPTR32(void, (void *msg)) update;
     } g_handleInterfaceGP;
 
     switch (M2C_FIELD(msg, u16 *, 4)) {
     case 3:
         GamePlay_Startup();
-        if (g_handleInterfaceGP.handleInput != NULL) {
-            g_handleInterfaceGP.handleInput(msg);
+        if (GETP(g_handleInterfaceGP.handleInput) != NULL) {
+            GETP(g_handleInterfaceGP.handleInput)(msg);
         }
         break;
     case 1:
-        if (g_handleInterfaceGP.update != NULL) {
-            g_handleInterfaceGP.update(msg);
+        if (GETP(g_handleInterfaceGP.update) != NULL) {
+            GETP(g_handleInterfaceGP.update)(msg);
         }
         break;
     case 2:
     default:
-        if (g_handleInterfaceGP.handleInput != NULL) {
-            g_handleInterfaceGP.handleInput(msg);
+        if (GETP(g_handleInterfaceGP.handleInput) != NULL) {
+            GETP(g_handleInterfaceGP.handleInput)(msg);
         }
         break;
     }
@@ -851,12 +851,12 @@ void GamePlay_Interface(void *msg) {
 
 void GamePlay_Startup(void) {
     extern struct {
-        void (*handleInput)(void *msg);
-        void (*update)(void);
+        FPTR32(void, (void *msg)) handleInput;
+        FPTR32(void, (void)) update;
     } g_handleInterfaceGP;
 
-    g_handleInterfaceGP.handleInput = GamePlay_PauseOptions_HandleInput;
-    g_handleInterfaceGP.update = NULL;
+    SETP(g_handleInterfaceGP.handleInput, GamePlay_PauseOptions_HandleInput);
+    SETP(g_handleInterfaceGP.update, NULL);
 }
 
 void GamePlay_PauseOptions_HandleInput(void *msg) {
@@ -975,7 +975,7 @@ s32 TriggerInterfacePackEnd(u32 *pack) {
     i = 0;
     id = pack[0];
     for (entry = g_InterfacePackData; i < g_NumInterfacesPlaying; entry++, i++) {
-        if (id == entry->id && strcmp(entry->name, (char *)(pack + 1)) == 0) {
+        if (id == entry->id && strcmp(GETP(entry->name), (char *)(pack + 1)) == 0) {
             return 0;
         }
     }
@@ -1012,7 +1012,7 @@ s32 ActionEndInterfacePack(u32 *pack) {
     u32 i;
 
     for (i = 0; i < g_NumInterfacesPlaying; i++) {
-        if (pack[0] == g_InterfacePackData[i].id && strcmp(g_InterfacePackData[i].name, (char *)(pack + 1)) == 0) {
+        if (pack[0] == g_InterfacePackData[i].id && strcmp(GETP(g_InterfacePackData[i].name), (char *)(pack + 1)) == 0) {
             InterfaceManager_EndInterface(g_InterfacePackData[i].unk8);
             for (; i < g_NumInterfacesPlaying - 1; i++) {
                 g_InterfacePackData[i] = g_InterfacePackData[i + 1];

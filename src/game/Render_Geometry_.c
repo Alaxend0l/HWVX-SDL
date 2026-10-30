@@ -33,13 +33,13 @@ typedef struct GeometryGroup {
     u16 flags;
     GXColor color;
     u8 unk8[0xC - 0x8];
-    struct UVScroll *uvScroll;
+    PTR32(struct UVScroll) uvScroll;
     u32 dlSize;
     u16 unk14;
     u8 unk16[0x18 - 0x16];
     u16 unk18;
     u16 unk1A;
-    void *displayList;
+    PTR32(void) displayList;
 } GeometryGroup;
 
 typedef struct UVScroll {
@@ -61,7 +61,7 @@ typedef struct GfxState {
 
 typedef struct Texture {
     u8 unk0[0x24];
-    void *data;
+    PTR32(void) data;
     u32 unk28;
     f32 unk2C;
     u16 unk30;
@@ -81,7 +81,7 @@ extern u32 g_currentWindow;
 
 typedef struct GDLAlphaGroup {
     f32 matrix[4][4];
-    struct Geometry *geometry;
+    PTR32(struct Geometry) geometry;
     s32 group;
     u8 unk48[0x4C - 0x48];
     GXColor color;
@@ -98,8 +98,8 @@ typedef struct Geometry {
     u16 numGroups;
     u16 unk4;
     u16 unk6;
-    GeometryGroup *groups;
-    f32 *lodDistances;
+    PTR32(GeometryGroup) groups;
+    PTR32(f32) lodDistances;
     f32 bboxMin[4];
     f32 bboxMax[4];
     f32 center[4];
@@ -115,7 +115,7 @@ typedef struct GDLSphere {
 } GDLSphere;
 
 typedef struct GDLDrawEntry {
-    void *geometry;
+    PTR32(void) geometry;
     GXColor color;
     u32 matrix;
     s32 lightState;
@@ -126,7 +126,7 @@ typedef struct GDLDrawEntry {
 } GDLDrawEntry;
 
 typedef struct GDLLODEntry {
-    void *geometry;
+    PTR32(void) geometry;
     u32 matrix;
 } GDLLODEntry;
 
@@ -224,9 +224,9 @@ typedef struct GDLMatrix {
 } __attribute__((aligned(16))) GDLMatrix;
 
 typedef struct DLSkinGroup {
-    void *lod;
+    PTR32(void) lod;
     s32 lightState;
-    f32 *matrices;
+    PTR32(f32) matrices;
     u32 count;
     u16 matrix;
     u8 group;
@@ -234,7 +234,7 @@ typedef struct DLSkinGroup {
 } DLSkinGroup;
 
 typedef struct DLGroup {
-    void *geometry;
+    PTR32(void) geometry;
     s32 lightState;
     u16 matrix;
     u16 unkA;
@@ -289,7 +289,7 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix);
 
 static inline void RenderOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     Render_DrawOpaqueGroup(geometry, group, matrix);
-    if ((geometry->groups[group].flags & 0x10) && g_CurrentViews == 1) {
+    if ((GETP(geometry->groups)[group].flags & 0x10) && g_CurrentViews == 1) {
         EnvMap(geometry, group, matrix, 2);
     }
 }
@@ -303,7 +303,7 @@ void Render_GeometryListSplitScreen(void) {
             Gfx_SetRenderWindow(view);
             Render_StateSetScissor();
             for (i = 0; i < g_pDL->numOpaqueGroups; i++) {
-                Geometry *geometry = g_pDL->opaqueGroups[i].geometry;
+                Geometry *geometry = GETP(g_pDL->opaqueGroups[i].geometry);
                 void *matrix = Gfx_GetWorldMatrixState(g_pDL->opaqueGroups[i].matrix);
                 if (g_pDL->opaqueGroups[i].window == view) {
                     if (matrix == g_identity) {
@@ -315,7 +315,7 @@ void Render_GeometryListSplitScreen(void) {
                 }
             }
             for (i = 0; i < g_pDL->numLitGroups; i++) {
-                Geometry *geometry = g_pDL->litGroups[i].geometry;
+                Geometry *geometry = GETP(g_pDL->litGroups[i].geometry);
                 void *matrix = Gfx_GetWorldMatrixState(g_pDL->litGroups[i].matrix);
                 m_curLightState = g_pDL->litGroups[i].lightState;
                 if (g_pDL->litGroups[i].window == view) {
@@ -328,7 +328,7 @@ void Render_GeometryListSplitScreen(void) {
                 }
             }
             for (i = 0; i < g_pDL->numAlphaGroups; i++) {
-                Geometry *geometry = g_pDL->alphaGroups[i].geometry;
+                Geometry *geometry = GETP(g_pDL->alphaGroups[i].geometry);
                 void *matrix = Gfx_GetWorldMatrixState(g_pDL->alphaGroups[i].matrix);
                 if (g_pDL->alphaGroups[i].window == view) {
                     if (matrix == g_identity) {
@@ -350,7 +350,7 @@ void Render_GeometryList(void) {
     GXColor color;
 
     for (i = 0; i < g_pGDL->numDrawEntries; i++) {
-        geometry = g_pGDL->drawEntries[i].geometry;
+        geometry = GETP(g_pGDL->drawEntries[i].geometry);
         matrix = Gfx_GetWorldMatrixState(g_pGDL->drawEntries[i].matrix);
         if (g_pGDL->drawEntries[i].unk10) {
             Gfx_EnableState(0x10);
@@ -365,7 +365,7 @@ void Render_GeometryList(void) {
         }
     }
     for (i = 0; i < g_pGDL->numLODEntries; i++) {
-        Geometry *lod = g_pGDL->lodEntries[i].geometry;
+        Geometry *lod = GETP(g_pGDL->lodEntries[i].geometry);
         void *lodMatrix = Gfx_GetWorldMatrixState(g_pGDL->lodEntries[i].matrix);
         Gfx_DrawGeometryLOD_Immediate(lod, lodMatrix);
     }
@@ -418,15 +418,15 @@ void Render_Geometry(Geometry *geom, f32 *m) {
         radius = PSVECDotProduct(&min, (Vector4 *)((u8 *)GetRenderWindow() + 0x190));
         radius *= ((f32 *)GetRenderWindow())[0x9D];
         for (i = 0; i < geom->numGroups; i++) {
-            if (radius < geom->lodDistances[i]) {
+            if (radius < GETP(geom->lodDistances)[i]) {
                 break;
             }
         }
-        if (geom->numGroups == 1 && 0.0f == geom->lodDistances[0]) {
+        if (geom->numGroups == 1 && 0.0f == GETP(geom->lodDistances)[0]) {
             i = 0;
         }
         if (i < geom->numGroups) {
-            Gfx_DrawGeometryLOD_Immediate((Geometry *)((u8 *)geom->groups + i * 0x18), (f32 (*)[4])m);
+            Gfx_DrawGeometryLOD_Immediate((Geometry *)((u8 *)GETP(geom->groups) + i * 0x18), (f32 (*)[4])m);
         }
         Gfx_EnableState(0x20000);
     }
@@ -442,9 +442,9 @@ void Gfx_DrawGeometryLOD_Immediate(Geometry *geometry, f32 (*matrix)[4]) {
             Gfx_SetWorldMatrix(matrix);
         }
         for (i = 0; i < geometry->numGroups; i++) {
-            geometry->groups[i].flags |= m_fillMode;
+            GETP(geometry->groups)[i].flags |= m_fillMode;
             RenderGroup(geometry, i, matrix);
-            geometry->groups[i].flags &= ~m_fillMode;
+            GETP(geometry->groups)[i].flags &= ~m_fillMode;
         }
     }
 }
@@ -453,18 +453,18 @@ void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix);
 void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode);
 void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix);
 void RenderGroup(Geometry *geometry, u32 group, f32 (*matrix)[4]) {
-    if (geometry->groups[group].flags & 0x4000) {
+    if (GETP(geometry->groups)[group].flags & 0x4000) {
         return;
     }
-    if (geometry->groups[group].flags & 0x80) {
+    if (GETP(geometry->groups)[group].flags & 0x80) {
         GXColor color = g_state.constColor;
         DisplayList_AddAlphaGroup((s32)HND(geometry), group, 0, (g_state.flags >> 4) & 1, &color);
-    } else if (geometry->groups[group].flags & 1) {
+    } else if (GETP(geometry->groups)[group].flags & 1) {
         GXColor color = g_state.constColor;
         DisplayList_AddAlphaGroup((s32)HND(geometry), group, 0, (g_state.flags >> 4) & 1, &color);
-    } else if (geometry->groups[group].flags & 2) {
+    } else if (GETP(geometry->groups)[group].flags & 2) {
         EnvMap(geometry, group, matrix, 1);
-    } else if (geometry->groups[group].flags & 0x100) {
+    } else if (GETP(geometry->groups)[group].flags & 0x100) {
         DrawGroupWireframe(geometry, group, matrix);
     } else {
         RenderOpaqueGroup(geometry, group, matrix);
@@ -482,8 +482,8 @@ void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode) {
     s32 blend;
 
     opaque = mode & 1;
-    grp = &geometry->groups[group];
-    dl = grp->displayList;
+    grp = &GETP(geometry->groups)[group];
+    dl = GETP(grp->displayList);
     color.r = grp->color.r;
     color.g = grp->color.g;
     color.b = grp->color.b;
@@ -520,7 +520,7 @@ void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode) {
         GXSetVtxDesc(0, 1);
         m_VtxDescFlag = 0;
     }
-    SetVertexBuffer((u32 *)geometry->lodDistances, grp->flags, geometry->unk4);
+    SetVertexBuffer((u32 *)GETP(geometry->lodDistances), grp->flags, geometry->unk4);
     DCFlushRange(dl, grp->dlSize);
     GXCallDisplayList(dl, grp->dlSize);
     Render_SetConstColor(NULL);
@@ -537,9 +537,9 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     UVScroll *scroll;
     f32 mtx[3][4];
 
-    grp = &geometry->groups[group];
-    vb = geometry->lodDistances;
-    dl = grp->displayList;
+    grp = &GETP(geometry->groups)[group];
+    vb = GETP(geometry->lodDistances);
+    dl = GETP(grp->displayList);
     if (grp->unk18 == 0) {
         Render_SetTextureHandle(grp->unk1A);
     } else {
@@ -557,15 +557,15 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     } else if (grp->flags & 4) {
         Render_UpdateLightState(m_curLightState);
         Render_UseLighting(1);
-        if (grp->uvScroll != NULL) {
+        if (GETP(grp->uvScroll) != NULL) {
             mtx[0][0] = 1.0f;
             mtx[0][1] = 0.0f;
             mtx[0][2] = 0.0f;
-            mtx[0][3] = grp->uvScroll->u;
+            mtx[0][3] = GETP(grp->uvScroll)->u;
             mtx[1][0] = 0.0f;
             mtx[1][1] = 1.0f;
             mtx[1][2] = 0.0f;
-            mtx[1][3] = grp->uvScroll->v;
+            mtx[1][3] = GETP(grp->uvScroll)->v;
             GXLoadTexMtxImm(mtx, 30, 1);
             GXSetTexCoordGen2(0, 1, 4, 30, 0, 125);
         }
@@ -577,12 +577,12 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
         SetVertexBuffer((u32 *)vb, grp->flags, geometry->unk4);
         DCFlushRange(dl, grp->dlSize);
         GXCallDisplayList(dl, grp->dlSize);
-        if (grp->uvScroll != NULL) {
+        if (GETP(grp->uvScroll) != NULL) {
             GXSetTexCoordGen2(0, 1, 4, 60, 0, 125);
         }
         Render_UseLighting(0);
     } else {
-        scroll = grp->uvScroll;
+        scroll = GETP(grp->uvScroll);
         if (scroll != NULL) {
             f32 mtx2[3][4];
             mtx2[0][0] = 1.0f;
@@ -629,8 +629,8 @@ void Render_DrawAlphaGroup(u16 index) {
         return;
     }
     ag = &g_pGDL->alphaGroups[index];
-    vb = ag->geometry->lodDistances;
-    grp = &ag->geometry->groups[g_pGDL->alphaGroups[index].group];
+    vb = GETP(GETP(ag->geometry)->lodDistances);
+    grp = &GETP(GETP(ag->geometry)->groups)[g_pGDL->alphaGroups[index].group];
     if (grp->unk18 == 0) {
         Render_SetTextureHandle(grp->unk1A);
     } else {
@@ -659,8 +659,8 @@ void Render_DrawAlphaGroup(u16 index) {
     GXLoadPosMtxImm(mtx, 0);
     GXSetCurrentMtx(0);
     g_state.unk93 = 0;
-    scroll = grp->uvScroll;
-    dl = grp->displayList;
+    scroll = GETP(grp->uvScroll);
+    dl = GETP(grp->displayList);
     if (scroll != NULL) {
         tmtx[0][0] = 1.0f;
         tmtx[0][1] = 0.0f;
@@ -677,7 +677,7 @@ void Render_DrawAlphaGroup(u16 index) {
         } else if (ag->unk50) {
             Render_SetConstColor(&ag->color);
         }
-        SetVertexBuffer((u32 *)vb, ag->geometry->groups->flags, ag->geometry->unk4);
+        SetVertexBuffer((u32 *)vb, GETP(GETP(ag->geometry)->groups)->flags, GETP(ag->geometry)->unk4);
         SetTriVtxDescIdxAlpha();
         DCFlushRange(dl, grp->dlSize);
         GXCallDisplayList(dl, grp->dlSize);
@@ -687,13 +687,13 @@ void Render_DrawAlphaGroup(u16 index) {
         GXSetTexCoordGen2(0, 1, 4, 60, 0, 125);
     } else if (ag->unk50) {
         Render_SetConstColor(&ag->color);
-        SetVertexBuffer((u32 *)vb, ag->geometry->groups->flags, ag->geometry->unk4);
+        SetVertexBuffer((u32 *)vb, GETP(GETP(ag->geometry)->groups)->flags, GETP(ag->geometry)->unk4);
         SetTriVtxDescIdxAlpha();
         DCFlushRange(dl, grp->dlSize);
         GXCallDisplayList(dl, grp->dlSize);
         Render_SetConstColor(NULL);
     } else {
-        SetVertexBuffer((u32 *)vb, ag->geometry->groups->flags, ag->geometry->unk4);
+        SetVertexBuffer((u32 *)vb, GETP(GETP(ag->geometry)->groups)->flags, GETP(ag->geometry)->unk4);
         SetTriVtxDescIdxAlpha();
         DCFlushRange(dl, grp->dlSize);
         GXCallDisplayList(dl, grp->dlSize);

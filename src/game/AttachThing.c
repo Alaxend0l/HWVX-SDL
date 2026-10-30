@@ -29,16 +29,16 @@ typedef struct RadarBlipData {
     u8 unkC[0x18 - 0xC];
     u32 texture;
     u8 unk1C[0x20 - 0x1C];
-    GXColor *color;
+    PTR32(GXColor) color;
 } RadarBlipData;
 
 typedef struct RadarBlip {
     u8 unk0[0x40];
     Vector4 pos;
     u8 unk50[0x94 - 0x50];
-    void *player;
+    PTR32(void) player;
     u8 unk98[0xB0 - 0x98];
-    RadarBlipData *data;
+    PTR32(RadarBlipData) data;
     s32 unkB4;
     f32 health;
 } RadarBlip;
@@ -117,7 +117,7 @@ void AttachThing_DrawCorona(void *arg0) {
         u8 pad2[0x8 - 0x2];
         u32 texture;
         u8 padC[0x24 - 0xC];
-        f32 *range;
+        PTR32(f32) range;
     };
     struct AttachCorona {
         u8 pad00[0x40];
@@ -125,7 +125,7 @@ void AttachThing_DrawCorona(void *arg0) {
         u8 pad50[0x74 - 0x50];
         u32 flags;
         u8 pad78[0xB4 - 0x78];
-        struct AttachData *data;
+        PTR32(struct AttachData) data;
         s32 timer;
         f32 fade;
         u8 padC0[0xD0 - 0xC0];
@@ -150,8 +150,8 @@ void AttachThing_DrawCorona(void *arg0) {
         Thing_Release(HND(thing));
         return;
     }
-    farDist = thing->data->range[1];
-    nearDist = thing->data->range[0];
+    farDist = GETP(GETP(thing->data)->range)[1];
+    nearDist = GETP(GETP(thing->data)->range)[0];
     Gfx_TransformVector(&thing->pos, &screen);
     depth = screen.w;
     if (!(depth < 0.0f) && !(depth > farDist)) {
@@ -178,7 +178,7 @@ void AttachThing_DrawCorona(void *arg0) {
             scaled.b = thing->color.b * fade;
             scaled.a = thing->color.a;
             color = scaled;
-            Gfx_AddCorona(&screen, thing->data->texture, &color, thing->scaleX, thing->scaleY, thing->data->blend);
+            Gfx_AddCorona(&screen, GETP(thing->data)->texture, &color, thing->scaleX, thing->scaleY, GETP(thing->data)->blend);
         }
     }
 }
@@ -235,13 +235,13 @@ s32 AttachGeometry_Move(void *arg0) {
         u8 pad0[0x14];
         u8 scale[0x1C - 0x14];
         u8 color[0x2C - 0x1C];
-        Vector4 *axis;
+        PTR32(Vector4) axis;
     };
     struct AttachGeom {
         u8 pad0[0x50];
         Quaternion rot;
         u8 pad60[0xB4 - 0x60];
-        struct AttachGeomData *data;
+        PTR32(struct AttachGeomData) data;
         u8 padB8[0xC0 - 0xB8];
         f32 spin;
         u8 padC4[0xD0 - 0xC4];
@@ -251,9 +251,9 @@ s32 AttachGeometry_Move(void *arg0) {
     Quaternion rot;
     Quaternion out;
 
-    ExtractColorKey(thing->data->color, thing->color, g_fDeltaTimeMS);
-    ExtractScaleKey(thing->data->scale, thing->scale, g_fDeltaTimeMS);
-    GenerateQuaternion(thing->data->axis, &rot, 0.01745329238474369f * thing->spin * g_fDeltaTimeSec);
+    ExtractColorKey(GETP(thing->data)->color, thing->color, g_fDeltaTimeMS);
+    ExtractScaleKey(GETP(thing->data)->scale, thing->scale, g_fDeltaTimeMS);
+    GenerateQuaternion(GETP(GETP(thing->data)->axis), &rot, 0.01745329238474369f * thing->spin * g_fDeltaTimeSec);
     QuaternionMult(&rot, &thing->rot, &out);
     thing->rot = out;
     return 1;
@@ -267,7 +267,7 @@ void AttachThing_SlaveTransform(u8 *attach, Matrix4 *mtx) {
         u32 flags;
         u8 pad78[0xB0 - 0x78];
         f32 minDot;
-        u8 *data;
+        PTR32(u8) data;
         u8 padB8[4];
         f32 fade;
     } AttachThing;
@@ -282,14 +282,14 @@ void AttachThing_SlaveTransform(u8 *attach, Matrix4 *mtx) {
 
     pos = thing->mtx.v[3];
     XformVec(mtx, &pos, &thing->mtx.v[3]);
-    if (thing->data[2] == 1) {
+    if (GETP(thing->data)[2] == 1) {
         thing->flags &= ~0x10;
         Gfx_GetCameraPosition(&camera);
         PSVECSubtract(&thing->mtx.v[3], &camera, &toCamera);
         if (PSVECSquareMag(&toCamera)) {
             PSVECNormalize(&toCamera, &toCamera);
         }
-        XformVecOrientation(mtx, SLOT_LOAD(void *, (thing->data + 0x28)), &dir);
+        XformVecOrientation(mtx, SLOT_LOAD(void *, (GETP(thing->data) + 0x28)), &dir);
         dot = -PSVECDotProduct(&dir, &toCamera);
         minDot = thing->minDot;
         if (dot < minDot) {
@@ -350,7 +350,7 @@ void RadarBlip_Draw(RadarBlip *blip) {
     single = 0;
     pos = blip->pos;
     if (g_CurrentViews == 1) {
-        if (!((blip->player == NULL || (!Player_IsHuman(blip->player) && !GameSettings_GetCodeVariable(0x198, 0))) && StateManager_CurrState() == 5)) {
+        if (!((GETP(blip->player) == NULL || (!Player_IsHuman(GETP(blip->player)) && !GameSettings_GetCodeVariable(0x198, 0))) && StateManager_CurrState() == 5)) {
             return;
         }
     }
@@ -368,7 +368,7 @@ void RadarBlip_Draw(RadarBlip *blip) {
         Gfx_SetWorldMatrix(NULL);
         Gfx_TransformVector(&pos, &screen);
         if (screen.w > 10.0f) {
-            color = *blip->data->color;
+            color = *GETP(GETP(blip->data)->color);
             if (!isInWindow(&screen)) {
                 continue;
             }
@@ -376,14 +376,14 @@ void RadarBlip_Draw(RadarBlip *blip) {
                 color.a = (screen.w - 50.0f) / 200.0f * color.a;
             }
             spritePos = screen;
-            spritePos.y -= blip->data->height;
-            if (blip->data->showSprite && screen.w > 50.0f) {
-                Gfx_Add2DSprite(&spritePos, blip->data->texture, color, blip->data->size, 5, 3.1415927f);
+            spritePos.y -= GETP(blip->data)->height;
+            if (GETP(blip->data)->showSprite && screen.w > 50.0f) {
+                Gfx_Add2DSprite(&spritePos, GETP(blip->data)->texture, color, GETP(blip->data)->size, 5, 3.1415927f);
             }
             barPos = screen;
             barPos.y -= 12.0f;
             barPos.x -= 12.0f;
-            if (blip->data->showBar && !g_pauseState) {
+            if (GETP(blip->data)->showBar && !g_pauseState) {
                 barWidth = 24.0f;
                 width = barWidth * blip->health;
                 if (width > barWidth) {

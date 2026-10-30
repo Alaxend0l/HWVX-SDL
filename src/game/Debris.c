@@ -8,7 +8,7 @@ typedef struct Debris {
     u32 flags;
     u8 pad78[0x38];
     Vector4 spinAxis;
-    void *visual;
+    PTR32(void) visual;
     f32 gravity;
     u8 padC8[4];
     f32 mass;
@@ -170,12 +170,12 @@ s32 Debris_Move(u8 *debris) {
 }
 
 void Debris_Draw(Debris *debris) {
-    if (debris->visual != NULL) {
+    if (GETP(debris->visual) != NULL) {
         if (debris->flags & 0x20000000) {
-            Gfx_DrawGeometry(HND(debris->visual), HND(debris->mtx));
+            Gfx_DrawGeometry(HND(GETP(debris->visual)), HND(debris->mtx));
         }
         else {
-            Gfx_DrawGeometry_MatrixNotCached(HND(debris->visual), HND(debris->mtx));
+            Gfx_DrawGeometry_MatrixNotCached(HND(GETP(debris->visual)), HND(debris->mtx));
         }
     }
 }

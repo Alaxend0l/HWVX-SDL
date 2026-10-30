@@ -19,18 +19,18 @@ typedef struct FlareElement {
 
 typedef struct FlareData {
     u32 count;
-    FlareElement *elements;
+    PTR32(FlareElement) elements;
     u8 rayTest;
     u8 overlay;
     u8 padA[2];
     f32 fadeStart;
     f32 fadeEnd;
-    FlareOverlay *ov;
+    PTR32(FlareOverlay) ov;
 } FlareData;
 
 typedef struct Flare {
-    FlareData *flare;
-    u8 *thing;
+    PTR32(FlareData) flare;
+    PTR32(u8) thing;
     u8 unk8[0x10 - 0x8];
     Vector4 pos;
     s8 visible;
@@ -56,7 +56,7 @@ void LensFlare_Init(void) {
     s32 i;
 
     for (i = 0; i < 64; i++) {
-        g_pFlare[i].flare = NULL;
+        SETP(g_pFlare[i].flare, NULL);
     }
     g_activeFlares = 0;
     g_LensFlareRayTest = 1;
@@ -69,9 +69,9 @@ s32 LensFlare_Add(FlareData *flare, u8 *thing, Vector4 *pos) {
 
     if (flare != NULL) {
         for (i = 0; i < 64; i++) {
-            if (g_pFlare[i].flare == NULL) {
-                g_pFlare[i].thing = thing;
-                g_pFlare[i].flare = flare;
+            if (GETP(g_pFlare[i].flare) == NULL) {
+                SETP(g_pFlare[i].thing, thing);
+                SETP(g_pFlare[i].flare, flare);
                 g_pFlare[i].visible = 0;
                 if (pos != NULL) {
                     g_pFlare[i].pos = *pos;
@@ -96,9 +96,9 @@ void LensFlare_Delete(s32 arg0) {
 
     if (arg0 != -1) {
         g_activeFlares = 0;
-        g_pFlare[arg0].flare = NULL;
+        SETP(g_pFlare[arg0].flare, NULL);
         for (i = 0; i < 64; i++) {
-            if (g_pFlare[i].flare != NULL) {
+            if (GETP(g_pFlare[i].flare) != NULL) {
                 g_activeFlares = i + 1;
             }
         }
@@ -163,10 +163,10 @@ void LensFlare_Render(void) {
     }
     for (i = 0; i < g_activeFlares; i++) {
         f = &g_pFlare[i];
-        if (f->flare == NULL) {
+        if (GETP(f->flare) == NULL) {
             continue;
         }
-        screen = LensFlare_GetPos(f->thing, &f->pos);
+        screen = LensFlare_GetPos(GETP(f->thing), &f->pos);
         PSVECSubtract(&camera, &screen, &dir);
         XformVec(mtx, &dir, &screen);
         screen.z *= -1.0f;
@@ -176,7 +176,7 @@ void LensFlare_Render(void) {
             if (x < 0.0f || x > (f32)w || y < 0.0f || y > (f32)h) {
                 continue;
             }
-            d = f->flare;
+            d = GETP(f->flare);
             scale = 128.0f;
             if (screen.z > d->fadeStart) {
                 scale -= scale * ((screen.z - d->fadeStart) / (d->fadeEnd - d->fadeStart));
@@ -189,7 +189,7 @@ void LensFlare_Render(void) {
             y -= Sqrt(vx * vx + vy * vy);
             y *= 1.0f / halfH;
             if (y > 0.0f) {
-                if (f->flare->rayTest && i == g_LensFlareRayTest) {
+                if (GETP(f->flare)->rayTest && i == g_LensFlareRayTest) {
                     len = 1.0f;
                     if (RayHitsTerrainAndObjects(&camera, &dir, &len, NULL)) {
                         f->visible = 0;
@@ -199,9 +199,9 @@ void LensFlare_Render(void) {
                 }
                 if (f->visible) {
                     y *= scale;
-                    if (f->flare->overlay) {
+                    if (GETP(f->flare)->overlay) {
                         GXColor c;
-                        ov = f->flare->ov;
+                        ov = GETP(GETP(f->flare)->ov);
                         color = ov->color;
                         scale = y * ov->scale / 128.0f;
                         if (scale < 0.0f) {
@@ -235,16 +235,16 @@ void LensFlare_Render(void) {
                             }
                         }
                         c = color;
-                        Gfx_ScreenOverlay(&c, f->flare->ov->mode);
+                        Gfx_ScreenOverlay(&c, GETP(GETP(f->flare)->ov)->mode);
                     }
                     y /= 128.0f;
-                    for (j = 0; j < f->flare->count; j++) {
+                    for (j = 0; j < GETP(f->flare)->count; j++) {
                         GXColor c;
-                        e = &f->flare->elements[j];
+                        e = &GETP(GETP(f->flare)->elements)[j];
                         sprite.x = (f32)vx * e->pos + halfW;
                         sprite.y = (f32)vy * e->pos + halfH;
                         color = e->color;
-                        if (f->flare->elements[j].flag < 4) {
+                        if (GETP(GETP(f->flare)->elements)[j].flag < 4) {
                             u32 r = color.r * y;
                             u32 g = color.g * y;
                             u32 b = color.b * y;

@@ -30,8 +30,8 @@ void GSI_VehicleSelectionInfo(u8 *info)
     u8 *vehicle;
 
     for (i = 0; i < 4; i++) {
-        if (*(u32 *)info == g_vehicleInterfaceData[i].iface && g_vehicleInterfaceData[i].cars[0] != NULL) {
-            vehicle = SLOT_LOAD(u8 *, (g_vehicleInterfaceData[i].cars[0] + 0x3BC));
+        if (*(u32 *)info == g_vehicleInterfaceData[i].iface && GETP(g_vehicleInterfaceData[i].cars[0]) != NULL) {
+            vehicle = SLOT_LOAD(u8 *, (GETP(g_vehicleInterfaceData[i].cars[0]) + 0x3BC));
             info[0xC9] = *(u8 *)(SLOT_LOAD(u8 *, (vehicle + 0x84)) + 0x34);
             info[0xCA] = *(u8 *)(SLOT_LOAD(u8 *, (vehicle + 0x84)) + 0x35);
             info[0xCB] = *(u8 *)(SLOT_LOAD(u8 *, (vehicle + 0x84)) + 0x36);

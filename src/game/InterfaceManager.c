@@ -28,7 +28,7 @@ typedef struct InterfaceKeyState {
 } InterfaceKeyState;
 
 
-/* Message passed to an interface's callback (InterfaceState.callback). */
+/* Message passed to an interface's callback (GETP(InterfaceState.callback)). */
 typedef struct InterfaceEventMsg {
     u32 index;
     u16 type;
@@ -41,7 +41,7 @@ typedef struct InterfaceEventMsg {
     u8 handled;
     u8 pad29[0x30 - 0x29];
     u32 data[3];
-    u32 *values;
+    PTR32(u32) values;
     u16 slotId;
 } InterfaceEventMsg;
 
@@ -50,11 +50,11 @@ typedef struct InterfaceState {
     u8 pad0[4];
     u32 state;
     u8 pad8[4];
-    u8 *parentObj;
+    PTR32(u8) parentObj;
     u32 unk10;
     u8 pad14[0x20 - 0x14];
-    u16 *header;
-    u16 *targets[0x16];
+    PTR32(u16) header;
+    PTR32(u16) targets[0x16];
     u8 flags;
     u8 id;
     u8 pad7E;
@@ -62,7 +62,7 @@ typedef struct InterfaceState {
     u8 curTarget;
     u8 unk81;
     u8 pad82[0x90 - 0x82];
-    void (*callback)(InterfaceEventMsg *msg);
+    FPTR32(void, (InterfaceEventMsg *msg)) callback;
     u8 pad94[4];
     s32 values[0x1E];
     u32 numValues;
@@ -113,7 +113,7 @@ void InterfaceManager_SetRadarBlip(u16 arg0) {
 void InterfaceManager_SetInput(s32 index, s32 input) {
     typedef struct InterfaceSlot {
         u8 pad0[0x25C];
-        u8 *object;
+        PTR32(u8) object;
         u8 pad260[0x270 - 0x260];
         s32 child;
         u8 pad274[0x300 - 0x274];
@@ -123,7 +123,7 @@ void InterfaceManager_SetInput(s32 index, s32 input) {
         u8 pad4[0x84 - 0x4];
         u8 hasInput;
         u8 pad85[0x88 - 0x85];
-        InterfaceSlot *slots;
+        PTR32(InterfaceSlot) slots;
         s32 input;
         u8 pad90[0x170 - 0x90];
     } Interface;
@@ -133,11 +133,11 @@ void InterfaceManager_SetInput(s32 index, s32 input) {
     g_interface[index].input = input;
     g_interface[index].hasInput = 1;
     for (i = 0; i < g_interface[index].count; i++) {
-        switch (g_interface[index].slots[i].object[1]) {
+        switch (GETP(GETP(g_interface[index].slots)[i].object)[1]) {
         case 6:
         case 7:
-            if (g_interface[index].slots[i].object[0] != 3) {
-                InterfaceManager_SetInput(g_interface[index].slots[i].child, input);
+            if (GETP(GETP(g_interface[index].slots)[i].object)[0] != 3) {
+                InterfaceManager_SetInput(GETP(g_interface[index].slots)[i].child, input);
             }
             break;
         }
@@ -197,13 +197,13 @@ void InterfaceManager_ReleaseInterface(u32 index) {
     typedef struct Interface {
         u32 count;
         u8 pad4[0x20 - 0x4];
-        u8 *header;
+        PTR32(u8) header;
         u8 pad24[0x7D - 0x24];
         u8 id;
         u8 pad7E[0x88 - 0x7E];
-        u8 *slots;
+        PTR32(u8) slots;
         u8 pad8C[0x90 - 0x8C];
-        void (*callback)(InterfaceMessage *);
+        FPTR32(void, (InterfaceMessage *)) callback;
         u8 pad94[0x98 - 0x94];
         u32 values[(0x170 - 0x98) / 4];
     } Interface;
@@ -220,7 +220,7 @@ void InterfaceManager_ReleaseInterface(u32 index) {
         return;
     }
     InterfaceManager_RemoveInterfaceFromRender(index);
-    if (iface->callback != NULL) {
+    if (GETP(iface->callback) != NULL) {
         InterfaceMessage msg;
 
         msg.index = iface->id;
@@ -230,10 +230,10 @@ void InterfaceManager_ReleaseInterface(u32 index) {
         msg.unk2C = 0;
         msg.unk12 = 0;
         msg.unk30 = 0;
-        iface->callback(&msg);
+        GETP(iface->callback)(&msg);
     }
     for (i = 0; i < iface->count; i++) {
-        slot = iface->slots + i * 0x300;
+        slot = GETP(iface->slots) + i * 0x300;
         if (*(u32 *)(slot + 0x26C) != 0 && (slot[0x243] == 4 || slot[0x243] == 3)) {
             *(u32 *)(slot + 0x26C) = 0;
             slot[0x244] = 0;
@@ -253,8 +253,8 @@ void InterfaceManager_ReleaseInterface(u32 index) {
             InterfaceManager_RestoreMissionObjString(slot);
         }
     }
-    for (i = 0; i < *SLOT_LOAD(u32 *, (iface->header + 0x1C)); i++) {
-        entry = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->header + 0x1C)) + 4)) + i * 0x34;
+    for (i = 0; i < *SLOT_LOAD(u32 *, (GETP(iface->header) + 0x1C)); i++) {
+        entry = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->header) + 0x1C)) + 4)) + i * 0x34;
         if (entry[0] == 0 && entry[2] != 0) {
             *(u32 *)(entry + 0xC) = iface->values[i];
         }
@@ -265,9 +265,9 @@ void InterfaceManager_ReleaseInterface(u32 index) {
         FileStreaming_ReleaseAllDataPacks(10, 1);
         g_curMusicPackName = NULL;
     }
-    Trigger_InterfaceEnd(HND(iface->header));
+    Trigger_InterfaceEnd(HND(GETP(iface->header)));
     InterfaceHasEnded(index);
-    InterfaceManager_ReleaseInterfaceObjects(g_interface[index].slots);
+    InterfaceManager_ReleaseInterfaceObjects(GETP(g_interface[index].slots));
     iface->count = 0;
 }
 
@@ -349,7 +349,7 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
     } CondValue;
     typedef struct {
         s32 id;
-        CondValue *val;
+        PTR32(CondValue) val;
     } CodeVar;
     typedef struct {
         u8 type;
@@ -357,12 +357,12 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
         s32 min;
         s32 max;
         s32 offset;
-        CodeVar *data;
+        PTR32(CodeVar) data;
         u8 pad14[0x34 - 0x14];
     } Variable;
     typedef struct {
         u32 count;
-        Variable *vars;
+        PTR32(Variable) vars;
     } VariableList;
     typedef struct {
         u8 type;
@@ -374,10 +374,10 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
         u16 id;
         u8 pad2[0xC - 0x2];
         u32 numObjects;
-        u8 *objects;
+        PTR32(u8) objects;
         u32 numProps;
-        Property *props;
-        VariableList *vars;
+        PTR32(Property) props;
+        PTR32(VariableList) vars;
         u8 pad20[0x34 - 0x20];
         u32 layer;
         u8 pad38[0x3C - 0x38];
@@ -387,29 +387,29 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
         u8 id;
         u8 pad1[0x10 - 0x1];
         u32 unk10;
-        u32 *unk14;
+        PTR32(u32) unk14;
     } ObjectData;
     typedef struct {
         u8 pad0[0x8];
         u8 active;
         u8 pad9[0x44 - 0x9];
-        ObjectData *data;
+        PTR32(ObjectData) data;
     } Object;
     typedef struct {
         u8 pad0[0x25C];
-        Object *object;
+        PTR32(Object) object;
         u8 pad260[0x300 - 0x260];
     } Slot;
     typedef struct {
         u32 count;
         u32 state;
-        u8 *owner;
-        Slot *selected;
+        PTR32(u8) owner;
+        PTR32(Slot) selected;
         u8 pad10[0x14 - 0x10];
         s32 unk14;
         f32 unk18;
-        Property *unk1C;
-        Header *header;
+        PTR32(Property) unk1C;
+        PTR32(Header) header;
         u32 unk24;
         u8 pad28[0x7D - 0x28];
         u8 index;
@@ -422,9 +422,9 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
         u8 unk84;
         u8 unk85;
         u8 pad86[0x88 - 0x86];
-        Slot *slots;
+        PTR32(Slot) slots;
         s32 mode;
-        void (*callback)(void *msg);
+        FPTR32(void, (void *msg)) callback;
         u32 unk94;
         s32 vars[30];
         u32 numVars;
@@ -450,7 +450,7 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
     typedef struct {
         u8 pad0[0x48];
         u32 numVars;
-        WorldVar **vars;
+        PTR32(WorldVar *) vars;
     } World;
     typedef struct {
         u32 index;
@@ -461,7 +461,7 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
         u8 padC[0x28 - 0xC];
         u8 unk28;
         u8 pad29[0x3C - 0x29];
-        s32 *vars;
+        PTR32(s32) vars;
         u8 pad40[0x48 - 0x40];
     } InterfaceMessage;
     extern Interface g_interface[];
@@ -501,17 +501,17 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
     if (iface == NULL) {
         return -1;
     }
-    iface->slots = InterfaceManager_GetInterfaceObjects(hdr->numObjects);
-    if (iface->slots == NULL) {
+    SETP(iface->slots, InterfaceManager_GetInterfaceObjects(hdr->numObjects));
+    if (GETP(iface->slots) == NULL) {
         return -1;
     }
     iface->paused = 0;
     iface->count = 0;
-    iface->owner = owner;
-    iface->selected = NULL;
-    iface->header = hdr;
+    SETP(iface->owner, owner);
+    SETP(iface->selected, NULL);
+    SETP(iface->header, hdr);
     iface->unk24 = 0;
-    iface->callback = callback;
+    SETP(iface->callback, callback);
     iface->unk14 = -1;
     iface->unk7E = 0;
     iface->unk7F = 0;
@@ -520,7 +520,7 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
     iface->unk80 = 0;
     iface->unk81 = 0;
     iface->unk82 = 0;
-    iface->unk1C = NULL;
+    SETP(iface->unk1C, NULL);
     iface->unk18 = 0.0f;
     iface->unk94 = 0;
     iface->unk85 = 0;
@@ -557,63 +557,63 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
     switch (hdr->id) {
     case 2:
         if (GameSettings_GetGameType() == 0) {
-            iface->callback = GSI_VehicleItemSelection;
+            SETP(iface->callback, GSI_VehicleItemSelection);
         } else if (GameSettings_GetGameType() == 1) {
             if (StateManager_CurrState() == 2) {
-                iface->callback = GSI_VehicleItemSelection;
+                SETP(iface->callback, GSI_VehicleItemSelection);
             } else {
-                iface->callback = ArmageddonDropShip;
+                SETP(iface->callback, ArmageddonDropShip);
             }
         }
         GameSettings_SetDefaultControllerState();
         break;
     case 3:
         if (GameSettings_GetGameType() == 0) {
-            iface->callback = GSI_VehicleItemSelection;
+            SETP(iface->callback, GSI_VehicleItemSelection);
         } else if (GameSettings_GetGameType() == 1) {
-            iface->callback = ArmageddonDropShip;
+            SETP(iface->callback, ArmageddonDropShip);
         }
         GameSettings_SetDefaultControllerState();
         break;
     case 8:
-        iface->callback = TitleScreen_Interface;
+        SETP(iface->callback, TitleScreen_Interface);
         break;
     }
     for (i = 0; i < hdr->numObjects; i++) {
-        InterfaceManager_AddObject(iface, hdr->objects + i * 0x6C);
+        InterfaceManager_AddObject(iface, GETP(hdr->objects) + i * 0x6C);
     }
     InterfaceManager_SetLoadState(iface, 0);
-    for (i = 0; i < iface->header->numProps; i++) {
-        if (iface->header->props[i].type == 0x1E) {
-            iface->unk1C = &iface->header->props[i];
-            iface->unk18 = iface->header->props[i].value;
+    for (i = 0; i < GETP(iface->header)->numProps; i++) {
+        if (GETP(GETP(iface->header)->props)[i].type == 0x1E) {
+            SETP(iface->unk1C, &GETP(GETP(iface->header)->props)[i]);
+            iface->unk18 = GETP(GETP(iface->header)->props)[i].value;
             break;
         }
     }
     for (i = 0; i < iface->count; i++) {
-        slot = &iface->slots[i];
-        if (slot->object->active && slot->object->data->id != 0 && slot->object->data->id < minId) {
-            minId = slot->object->data->id;
-            iface->selected = slot;
+        slot = &GETP(iface->slots)[i];
+        if (GETP(slot->object)->active && GETP(GETP(slot->object)->data)->id != 0 && GETP(GETP(slot->object)->data)->id < minId) {
+            minId = GETP(GETP(slot->object)->data)->id;
+            SETP(iface->selected, slot);
         }
     }
-    for (i = 0, iface->numVars = 0; i < hdr->vars->count && i < 30; i++, iface->numVars++) {
-        switch (hdr->vars->vars[i].type) {
+    for (i = 0, iface->numVars = 0; i < GETP(hdr->vars)->count && i < 30; i++, iface->numVars++) {
+        switch (GETP(GETP(hdr->vars)->vars)[i].type) {
         case 0:
-            iface->vars[i] = hdr->vars->vars[i].offset;
+            iface->vars[i] = GETP(GETP(hdr->vars)->vars)[i].offset;
             break;
         case 1:
-            cv = hdr->vars->vars[i].data;
-            if (cv->val->isVar) {
-                iface->vars[i] = GameSettings_GetCodeVariable(cv->id, iface->vars[cv->val->value]);
+            cv = GETP(GETP(GETP(hdr->vars)->vars)[i].data);
+            if (GETP(cv->val)->isVar) {
+                iface->vars[i] = GameSettings_GetCodeVariable(cv->id, iface->vars[GETP(cv->val)->value]);
             } else {
-                iface->vars[i] = GameSettings_GetCodeVariable(cv->id, cv->val->value);
+                iface->vars[i] = GameSettings_GetCodeVariable(cv->id, GETP(cv->val)->value);
             }
-            iface->vars[i] += hdr->vars->vars[i].offset;
-            if (iface->vars[i] > hdr->vars->vars[i].max) {
-                iface->vars[i] = iface->vars[i] - hdr->vars->vars[i].max - 1 + hdr->vars->vars[i].min;
-            } else if (iface->vars[i] < hdr->vars->vars[i].min) {
-                iface->vars[i] = hdr->vars->vars[i].max - (hdr->vars->vars[i].min - iface->vars[i] - 1);
+            iface->vars[i] += GETP(GETP(hdr->vars)->vars)[i].offset;
+            if (iface->vars[i] > GETP(GETP(hdr->vars)->vars)[i].max) {
+                iface->vars[i] = iface->vars[i] - GETP(GETP(hdr->vars)->vars)[i].max - 1 + GETP(GETP(hdr->vars)->vars)[i].min;
+            } else if (iface->vars[i] < GETP(GETP(hdr->vars)->vars)[i].min) {
+                iface->vars[i] = GETP(GETP(hdr->vars)->vars)[i].max - (GETP(GETP(hdr->vars)->vars)[i].min - iface->vars[i] - 1);
             }
             break;
         case 2:
@@ -624,18 +624,18 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
             }
             break;
         case 3:
-            if (iface->selected != NULL) {
-                iface->vars[i] = iface->selected->object->data->id;
+            if (GETP(iface->selected) != NULL) {
+                iface->vars[i] = GETP(GETP(GETP(iface->selected)->object)->data)->id;
             } else {
                 iface->vars[i] = 0;
             }
             break;
         case 4:
-            if ((World *)g_worldData.world != NULL) {
+            if ((World *)GETP(g_worldData.world) != NULL) {
                 iface->vars[i] = 0;
-                for (j = 0; j < ((World *)g_worldData.world)->numVars; j++) {
-                    if (((World *)g_worldData.world)->vars[j]->id == hdr->vars->vars[i].offset) {
-                        iface->vars[i] = ((World *)g_worldData.world)->vars[j]->value;
+                for (j = 0; j < ((World *)GETP(g_worldData.world))->numVars; j++) {
+                    if (GETP(((World *)GETP(g_worldData.world))->vars)[j]->id == GETP(GETP(hdr->vars)->vars)[i].offset) {
+                        iface->vars[i] = GETP(((World *)GETP(g_worldData.world))->vars)[j]->value;
                     }
                 }
             }
@@ -645,28 +645,28 @@ s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg)) 
     if (hdr->id == 7) {
         GameSettings_GetSaveGameName(iface->vars);
     }
-    if (iface->callback != NULL) {
+    if (GETP(iface->callback) != NULL) {
         msg.index = iface->index;
         msg.type = 3;
         msg.id = hdr->id;
         msg.result = 0;
         msg.unk28 = 0;
-        msg.vars = iface->vars;
-        iface->callback(&msg);
+        SETP(msg.vars, iface->vars);
+        GETP(iface->callback)(&msg);
         if (msg.result != 0) {
             for (i = 0; i < iface->count; i++) {
-                slot = &iface->slots[i];
-                if (slot->object->active && slot->object->data->id == msg.result) {
-                    iface->selected = slot;
+                slot = &GETP(iface->slots)[i];
+                if (GETP(slot->object)->active && GETP(GETP(slot->object)->data)->id == msg.result) {
+                    SETP(iface->selected, slot);
                 }
             }
         }
     }
     InterfaceManager_PreprocessInterface(iface);
-    if (g_bMemoryCardHWHack && iface->count == 14 && iface->slots[9].object->active &&
-        iface->slots[9].object->data->id == 6 && iface->slots[9].object->data->unk10 == 1) {
+    if (g_bMemoryCardHWHack && iface->count == 14 && GETP(GETP(iface->slots)[9].object)->active &&
+        GETP(GETP(GETP(iface->slots)[9].object)->data)->id == 6 && GETP(GETP(GETP(iface->slots)[9].object)->data)->unk10 == 1) {
         g_bMemoryCardHWHack = 0;
-        iface->slots[9].object->data->unk14[1] = 100;
+        GETP(GETP(GETP(GETP(iface->slots)[9].object)->data)->unk14)[1] = 100;
     }
     return index;
 }
@@ -677,52 +677,52 @@ void InterfaceManager_AddObject()
 
 void InterfaceManager_PreprocessInterface(u8 *iface) {
     typedef struct MusicInfo {
-        char *name;
+        PTR32(char) name;
         u32 id;
     } MusicInfo;
     typedef struct InterfaceHeader {
         u8 pad0[0x30];
-        MusicInfo *music;
+        PTR32(MusicInfo) music;
         u8 pad34[0x38 - 0x34];
         f32 volume;
     } InterfaceHeader;
     typedef struct FontInfo {
         u8 pad0[0x8];
-        u8 *name;
+        PTR32(u8) name;
         u8 padC[0x28 - 0xC];
         s32 id;
     } FontInfo;
     typedef struct ResourceEntry {
         u8 pad0[0x8];
         u32 soundID;
-        char *soundName;
+        PTR32(char) soundName;
         u8 pad10[0x14 - 0x10];
-        FontInfo *font;
+        PTR32(FontInfo) font;
         u8 pad18[0x20 - 0x18];
     } ResourceEntry;
     typedef struct ResourceList {
         u32 count;
-        ResourceEntry *entries;
+        PTR32(ResourceEntry) entries;
     } ResourceList;
     typedef struct SoundPack {
         s32 id;
-        u8 *data;
+        PTR32(u8) data;
     } SoundPack;
     typedef struct InterfaceSlot {
         u8 pad0[0x245];
         u8 type;
         u8 pad246[0x25C - 0x246];
-        u8 *object;
+        PTR32(u8) object;
         u8 pad260[0x300 - 0x260];
     } InterfaceSlot;
     typedef struct WorldObjective {
         u32 unk0;
-        u8 *info;
+        PTR32(u8) info;
     } WorldObjective;
     typedef struct World {
         u8 pad0[0x58];
         u32 numObjectives;
-        WorldObjective *objectives;
+        PTR32(WorldObjective) objectives;
     } World;
     extern char *g_curMusicPackName;
     extern u32 g_curMusicPackID;
@@ -743,18 +743,18 @@ void InterfaceManager_PreprocessInterface(u8 *iface) {
     WorldObjective *objective;
     u32 id;
 
-    if ((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music != NULL && (SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music->name != NULL) {
-        if (g_curMusicPackName == NULL || strcmp(g_curMusicPackName, (SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music->name) != 0
-            || g_curMusicPackID != (SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music->id) {
+    if (GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music) != NULL && GETP(GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music)->name) != NULL) {
+        if (g_curMusicPackName == NULL || strcmp(g_curMusicPackName, GETP(GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music)->name)) != 0
+            || g_curMusicPackID != GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music)->id) {
             SongManager_StopBKSong();
             if (g_curMusicPackName != NULL) {
                 FileStreaming_ReleaseDataPack(FileStreaming_GetPackID(g_curMusicPackName, 10, g_curMusicPackID), 10);
             }
-            FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music->name, 10, (SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music->id, 0), 10, 1);
+            FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(GETP(GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music)->name), 10, GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music)->id, 0), 10, 1);
             SongManager_PlaySong();
             SetMusicVol(32767.0f * (SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->volume);
-            g_curMusicPackName = (SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music->name;
-            g_curMusicPackID = (SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music->id;
+            g_curMusicPackName = GETP(GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music)->name);
+            g_curMusicPackID = GETP((SLOT_LOAD(InterfaceHeader *, (iface + 0x20)))->music)->id;
         }
     }
     g_numInterfaceDialogSoundPacks = 0;
@@ -764,19 +764,19 @@ void InterfaceManager_PreprocessInterface(u8 *iface) {
         list = SLOT_LOAD(ResourceList *, (SLOT_LOAD(u8 *, (iface + 0x158)) + 0x258));
         total = 0;
         for (i = 0; i < list->count; i++) {
-            if (list->entries[i].font != NULL) {
-                if (list->entries[i].font->name == NULL) {
+            if (GETP(GETP(list->entries)[i].font) != NULL) {
+                if (GETP(GETP(GETP(list->entries)[i].font)->name) == NULL) {
                     continue;
                 }
-                list->entries[i].font->id = InterfaceManager_AddFont(list->entries[i].font->name);
+                GETP(GETP(list->entries)[i].font)->id = InterfaceManager_AddFont(GETP(GETP(GETP(list->entries)[i].font)->name));
             }
-            if (list->entries[i].soundName != NULL && g_numInterfaceDialogSoundPacks < 15 && total < 1000000) {
-                pack = FileStreaming_LoadDataPack(list->entries[i].soundName, 9, list->entries[i].soundID, 0);
+            if (GETP(GETP(list->entries)[i].soundName) != NULL && g_numInterfaceDialogSoundPacks < 15 && total < 1000000) {
+                pack = FileStreaming_LoadDataPack(GETP(GETP(list->entries)[i].soundName), 9, GETP(list->entries)[i].soundID, 0);
                 data = FileStreaming_InitializeDataPack(pack, 9, 1);
                 sp = &g_interfaceDialogSoundPacks[g_numInterfaceDialogSoundPacks];
                 g_numInterfaceDialogSoundPacks++;
                 sp->id = pack;
-                sp->data = data;
+                SETP(sp->data, data);
                 total += *(u32 *)(data + 0x90);
                 g_curInterfaceDialogSoundIndex = i + 1;
             }
@@ -787,14 +787,14 @@ void InterfaceManager_PreprocessInterface(u8 *iface) {
         slot = &(SLOT_LOAD(InterfaceSlot *, (iface + 0x88)))[i];
         switch (slot->type) {
         case 0x34:
-            id = *(u16 *)(slot->object + 0xA);
-            world = g_worldData.world;
+            id = *(u16 *)(GETP(slot->object) + 0xA);
+            world = GETP(g_worldData.world);
             if (world == NULL) {
                 break;
             }
             for (k = 0; k < world->numObjectives; k++) {
-                objective = &world->objectives[k];
-                info = objective->info;
+                objective = &GETP(world->objectives)[k];
+                info = GETP(objective->info);
                 if (info[2] == id) {
                     if (info[1] == 0x17) {
                         InterfaceManager_SetMissionObjectiveText((u8 *)slot, objective);
@@ -962,9 +962,9 @@ void InterfaceManager_SetLoadState(u8 *iface, s32 state) {
 void InterfaceManager_LinkThingToObject(s32 index, u32 id, void *thing) {
     typedef struct InterfaceSlot {
         u8 pad0[0x25C];
-        u8 *object;
+        PTR32(u8) object;
         u8 pad260[0x288 - 0x260];
-        void *thing;
+        PTR32(void) thing;
         u8 pad28C[0x300 - 0x28C];
     } InterfaceSlot;
     extern u8 g_interface[][0x170];
@@ -973,8 +973,8 @@ void InterfaceManager_LinkThingToObject(s32 index, u32 id, void *thing) {
 
     if (iface != NULL) {
         for (i = 0; i < *(u32 *)iface; i++) {
-            if (id == *(u32 *)((SLOT_LOAD(InterfaceSlot *, (iface + 0x88)))[i].object + 0x10)) {
-                (SLOT_LOAD(InterfaceSlot *, (iface + 0x88)))[i].thing = thing;
+            if (id == *(u32 *)(GETP((SLOT_LOAD(InterfaceSlot *, (iface + 0x88)))[i].object) + 0x10)) {
+                SETP((SLOT_LOAD(InterfaceSlot *, (iface + 0x88)))[i].thing, thing);
             }
         }
     }
@@ -1244,22 +1244,22 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         s32 delta;
     } EventMod;
     typedef struct {
-        u16 *target;
+        PTR32(u16) target;
         u8 flags;
         u8 type;
         u16 id;
-        void *args;
+        PTR32(void) args;
         u32 movie;
         u8 pad10[4];
         u32 sound;
-        u8 *bytes;
+        PTR32(u8) bytes;
         u32 numMods;
-        EventMod *mods;
+        PTR32(EventMod) mods;
         s32 delta;
     } EventDef;
     typedef struct {
         u8 pad0[8];
-        EventDef *def;
+        PTR32(EventDef) def;
     } Event;
     typedef struct {
         u8 pad0[4];
@@ -1290,15 +1290,15 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         InterfaceManager_SetObjectState(iface, obj, 3, 0);
         stateSet = 1;
     }
-    if (((Event *)event)->def->sound != 0) {
-        SoundSequence_Play(PTR(((Event *)event)->def->sound), 0);
+    if (GETP(((Event *)event)->def)->sound != 0) {
+        SoundSequence_Play(PTR(GETP(((Event *)event)->def)->sound), 0);
     }
     iface->unk81 = 0;
-    switch (((Event *)event)->def->type) {
+    switch (GETP(((Event *)event)->def)->type) {
     case 1:
     case 0x20:
         if (iface->isChild != 0) {
-            if (((Event *)event)->def->type == 0x20) {
+            if (GETP(((Event *)event)->def)->type == 0x20) {
                 iface = &g_interface[iface->parent];
             } else {
                 return;
@@ -1309,48 +1309,48 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
 
             msg.index = iface->id;
             msg.type = 0xF;
-            msg.id = ((Event *)event)->def->id;
+            msg.id = GETP(((Event *)event)->def)->id;
             msg.arg = arg;
             msg.value = 0;
             msg.objState = 0;
             msg.handled = 0;
             msg.result = 0;
-            if (((Event *)event)->def->target != NULL) {
-                msg.slotId = *((Event *)event)->def->target;
+            if (GETP(GETP(((Event *)event)->def)->target) != NULL) {
+                msg.slotId = *GETP(GETP(((Event *)event)->def)->target);
             }
-            if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-                msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+            if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+                msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
             }
-            msg.values = (u32 *)iface->values;
-            if (iface->callback != NULL) {
-                iface->callback(&msg);
+            SETP(msg.values, (u32 *)iface->values);
+            if (GETP(iface->callback) != NULL) {
+                GETP(iface->callback)(&msg);
             }
             if (msg.result == 0xB) {
                 break;
             }
         }
-        if (((Event *)event)->def->sound != 0) {
-            SoundSequence_Play(PTR(((Event *)event)->def->sound), 0);
+        if (GETP(((Event *)event)->def)->sound != 0) {
+            SoundSequence_Play(PTR(GETP(((Event *)event)->def)->sound), 0);
         }
-        iface->flags = ((Event *)event)->def->flags;
-        iface->targets[0] = ((Event *)event)->def->target;
-        if (!stateSet && iface->targets[0] != NULL) {
+        iface->flags = GETP(((Event *)event)->def)->flags;
+        SETP(iface->targets[0], GETP(GETP(((Event *)event)->def)->target));
+        if (!stateSet && GETP(iface->targets[0]) != NULL) {
             InterfaceManager_SetLoadState(iface, 1);
             if (iface->flags & 1) {
                 iface->unk10 = 0;
                 return 0;
             }
         }
-        if (iface->targets[0] != NULL) {
+        if (GETP(iface->targets[0]) != NULL) {
             return 0;
         }
         break;
     case 3:
-        if (*iface->header == 2) {
+        if (*GETP(iface->header) == 2) {
             if (GameSettings_GetCodeVariable(0xC9, iface->player) != 3) {
                 return 0;
             }
-        } else if (*iface->header == 3) {
+        } else if (*GETP(iface->header) == 3) {
             if (GameSettings_GetCodeVariable(0xC9, iface->player) != 3) {
                 return 0;
             }
@@ -1363,19 +1363,19 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
 
             msg.index = iface->id;
             msg.type = 0x10;
-            msg.id = ((Event *)event)->def->id;
+            msg.id = GETP(((Event *)event)->def)->id;
             msg.arg = arg;
             msg.value = 0;
             msg.objState = 0;
             msg.handled = 0;
             msg.slotId = 0xFFFF;
             msg.result = 0;
-            if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-                msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+            if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+                msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
             }
-            msg.values = (u32 *)iface->values;
-            if (iface->callback != NULL) {
-                iface->callback(&msg);
+            SETP(msg.values, (u32 *)iface->values);
+            if (GETP(iface->callback) != NULL) {
+                GETP(iface->callback)(&msg);
             }
             if (msg.result == 0xB) {
                 break;
@@ -1394,20 +1394,20 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
 
         msg.index = iface->id;
         msg.type = 0;
-        msg.id = ((Event *)event)->def->id;
+        msg.id = GETP(((Event *)event)->def)->id;
         msg.arg = arg;
         msg.value = 0;
         msg.objState = 0;
         msg.handled = 0;
         msg.result = 0;
-        if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+        if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
         }
-        if (iface->callback != NULL) {
-            iface->callback(&msg);
+        if (GETP(iface->callback) != NULL) {
+            GETP(iface->callback)(&msg);
         }
-        if (msg.value != 0xFFFFFFFF && ((Event *)event)->def->sound != 0 && msg.handled == 0) {
-            SoundSequence_Play(PTR(((Event *)event)->def->sound), 0);
+        if (msg.value != 0xFFFFFFFF && GETP(((Event *)event)->def)->sound != 0 && msg.handled == 0) {
+            SoundSequence_Play(PTR(GETP(((Event *)event)->def)->sound), 0);
         }
         if (msg.result == 4) {
             InterfaceManager_SetLoadState(iface, 1);
@@ -1418,9 +1418,9 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
             return 1;
         }
         if (msg.value != 0xFFFFFFFF) {
-            iface->flags = ((Event *)event)->def->flags;
-            iface->targets[0] = (u16 *)PTR(msg.value);
-            if (!stateSet && iface->targets[0] != NULL) {
+            iface->flags = GETP(((Event *)event)->def)->flags;
+            SETP(iface->targets[0], (u16 *)PTR(msg.value));
+            if (!stateSet && GETP(iface->targets[0]) != NULL) {
                 InterfaceManager_SetLoadState(iface, 1);
                 if (iface->flags & 1) {
                     iface->unk10 = 0;
@@ -1436,28 +1436,28 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
 
         msg.index = iface->id;
         msg.type = 0xF;
-        msg.id = ((Event *)event)->def->id;
+        msg.id = GETP(((Event *)event)->def)->id;
         msg.arg = arg;
         msg.value = 0;
         msg.objState = 0;
         msg.handled = 0;
         msg.result = 0;
         if (cur != 0) {
-            msg.slotId = *iface->targets[cur];
+            msg.slotId = *GETP(iface->targets[cur]);
         } else {
             msg.slotId = 0xFFFF;
         }
-        if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+        if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
         }
-        msg.values = (u32 *)iface->values;
-        if (iface->callback != NULL) {
-            iface->callback(&msg);
+        SETP(msg.values, (u32 *)iface->values);
+        if (GETP(iface->callback) != NULL) {
+            GETP(iface->callback)(&msg);
         }
         if (msg.result == 0xB) {
             return 1;
         }
-        InterfaceManager_Backup_Key(iface, event, ((Event *)event)->def->flags);
+        InterfaceManager_Backup_Key(iface, event, GETP(((Event *)event)->def)->flags);
         return 0;
     }
     case 6:
@@ -1469,28 +1469,28 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         InterfaceEventMsg msg;
 
         msg.index = iface->id;
-        if (((Event *)event)->def->type == 7) {
+        if (GETP(((Event *)event)->def)->type == 7) {
             EndLevelAction action;
 
             action.type = 4;
-            action.id = ((Event *)event)->def->id;
+            action.id = GETP(((Event *)event)->def)->id;
             ActionEndLevel(&action);
             return 1;
         }
-        if (((Event *)event)->def->type == 8) {
+        if (GETP(((Event *)event)->def)->type == 8) {
             EndLevelAction action;
 
             action.type = 5;
-            action.id = ((Event *)event)->def->id;
+            action.id = GETP(((Event *)event)->def)->id;
             ActionEndLevel(&action);
             return 1;
         }
-        if (((Event *)event)->def->type == 6 || ((Event *)event)->def->type == 0x1E) {
+        if (GETP(((Event *)event)->def)->type == 6 || GETP(((Event *)event)->def)->type == 0x1E) {
             u32 progA;
             u32 progB;
 
-            if (((Event *)event)->def->type == 6) {
-                EventArg **args = ((Event *)event)->def->args;
+            if (GETP(((Event *)event)->def)->type == 6) {
+                EventArg **args = GETP(GETP(((Event *)event)->def)->args);
 
                 if (args[0]->isVar) {
                     progA = iface->values[args[0]->value];
@@ -1509,15 +1509,15 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
             msg.type = 6;
             StateManager_QueueChange(0xB);
             msg.result = 4;
-        } else if (((Event *)event)->def->type == 9) {
+        } else if (GETP(((Event *)event)->def)->type == 9) {
             msg.type = 9;
-            msg.id = ((Event *)event)->def->id;
+            msg.id = GETP(((Event *)event)->def)->id;
             InterfaceManager_ReleaseInterface(iface->id);
             StateManager_QueueChange(2);
             return;
-        } else if (((Event *)event)->def->type == 10) {
+        } else if (GETP(((Event *)event)->def)->type == 10) {
             msg.type = 10;
-            msg.id = ((Event *)event)->def->id;
+            msg.id = GETP(((Event *)event)->def)->id;
             StateProgressionManager_RestartCurrentLevel();
         }
         msg.arg = arg;
@@ -1525,14 +1525,14 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         msg.objState = 0;
         msg.handled = 0;
         msg.result = 0;
-        if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+        if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
         }
-        if (iface->callback != NULL) {
-            iface->callback(&msg);
+        if (GETP(iface->callback) != NULL) {
+            GETP(iface->callback)(&msg);
         }
-        if (msg.value != 0xFFFFFFFF && ((Event *)event)->def->sound != 0 && msg.handled == 0) {
-            SoundSequence_Play(PTR(((Event *)event)->def->sound), 0);
+        if (msg.value != 0xFFFFFFFF && GETP(((Event *)event)->def)->sound != 0 && msg.handled == 0) {
+            SoundSequence_Play(PTR(GETP(((Event *)event)->def)->sound), 0);
         }
         if (msg.result == 4) {
             InterfaceManager_SetLoadState(iface, 1);
@@ -1545,9 +1545,9 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         if (msg.value == 0xFFFFFFFF) {
             break;
         }
-        iface->flags = ((Event *)event)->def->flags;
-        iface->targets[0] = (u16 *)PTR(msg.value);
-        if (!stateSet && iface->targets[0] != NULL) {
+        iface->flags = GETP(((Event *)event)->def)->flags;
+        SETP(iface->targets[0], (u16 *)PTR(msg.value));
+        if (!stateSet && GETP(iface->targets[0]) != NULL) {
             InterfaceManager_SetLoadState(iface, 1);
             if (iface->flags & 1) {
                 iface->unk10 = 0;
@@ -1561,20 +1561,20 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
 
         msg.index = iface->id;
         msg.type = 0xD;
-        msg.id = ((Event *)event)->def->id;
+        msg.id = GETP(((Event *)event)->def)->id;
         msg.arg = arg;
         msg.value = 0;
         msg.objState = 0;
         msg.handled = 0;
-        if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+        if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
         }
-        msg.data[0] = ((Event *)event)->def->bytes[0];
-        msg.data[1] = ((Event *)event)->def->bytes[1];
-        msg.data[2] = ((Event *)event)->def->bytes[2];
-        msg.values = (u32 *)iface->values;
-        if (iface->callback != NULL) {
-            iface->callback(&msg);
+        msg.data[0] = GETP(GETP(((Event *)event)->def)->bytes)[0];
+        msg.data[1] = GETP(GETP(((Event *)event)->def)->bytes)[1];
+        msg.data[2] = GETP(GETP(((Event *)event)->def)->bytes)[2];
+        SETP(msg.values, (u32 *)iface->values);
+        if (GETP(iface->callback) != NULL) {
+            GETP(iface->callback)(&msg);
         }
         break;
     }
@@ -1583,34 +1583,34 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
 
         msg.index = iface->id;
         msg.type = 0xE;
-        msg.id = ((Event *)event)->def->id;
+        msg.id = GETP(((Event *)event)->def)->id;
         msg.arg = arg;
         msg.value = 0;
         msg.objState = 0;
         msg.handled = 0;
-        if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+        if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
         }
-        msg.data[0] = ((Event *)event)->def->bytes[0];
-        msg.values = (u32 *)iface->values;
-        if (iface->callback != NULL) {
-            iface->callback(&msg);
+        msg.data[0] = GETP(GETP(((Event *)event)->def)->bytes)[0];
+        SETP(msg.values, (u32 *)iface->values);
+        if (GETP(iface->callback) != NULL) {
+            GETP(iface->callback)(&msg);
         }
         break;
     }
     case 0xB:
-        InterfaceManager_ExecuteActions(iface, ((Event *)event)->def->target);
+        InterfaceManager_ExecuteActions(iface, GETP(GETP(((Event *)event)->def)->target));
         break;
     case 0xF:
-        if (((EventArg **)((Event *)event)->def->args)[0]->isVar) {
-            a = iface->values[((EventArg **)((Event *)event)->def->args)[0]->value];
+        if (((EventArg **)GETP(GETP(((Event *)event)->def)->args))[0]->isVar) {
+            a = iface->values[((EventArg **)GETP(GETP(((Event *)event)->def)->args))[0]->value];
         } else {
-            a = ((EventArg **)((Event *)event)->def->args)[0]->value;
+            a = ((EventArg **)GETP(GETP(((Event *)event)->def)->args))[0]->value;
         }
-        if (((EventArg **)((Event *)event)->def->args)[1]->isVar) {
-            b = iface->values[((EventArg **)((Event *)event)->def->args)[1]->value];
+        if (((EventArg **)GETP(GETP(((Event *)event)->def)->args))[1]->isVar) {
+            b = iface->values[((EventArg **)GETP(GETP(((Event *)event)->def)->args))[1]->value];
         } else {
-            b = ((EventArg **)((Event *)event)->def->args)[1]->value;
+            b = ((EventArg **)GETP(GETP(((Event *)event)->def)->args))[1]->value;
         }
         StateProgressionManager_SetProgressionID(a, b);
         break;
@@ -1619,20 +1619,20 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
 
         msg.index = iface->id;
         msg.type = 0x11;
-        msg.id = ((Event *)event)->def->id;
+        msg.id = GETP(((Event *)event)->def)->id;
         msg.arg = arg;
-        msg.value = (u32)HND(iface->header);
+        msg.value = (u32)HND(GETP(iface->header));
         msg.objState = 0;
         msg.handled = 0;
-        if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+        if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
         }
-        if (iface->callback != NULL) {
-            iface->callback(&msg);
+        if (GETP(iface->callback) != NULL) {
+            GETP(iface->callback)(&msg);
         }
         if (msg.result == 4) {
             InterfaceManager_ReleaseInterface(iface->id);
-            StateMovie_SetMovieToPlay(((Event *)event)->def->movie);
+            StateMovie_SetMovieToPlay(GETP(((Event *)event)->def)->movie);
             StateManager_QueueChange(3);
         }
         break;
@@ -1640,31 +1640,31 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
     case 0x11: {
         InterfaceEventMsg msg;
 
-        if (((EventArg *)((Event *)event)->def->args)->isVar) {
-            a = iface->values[((EventArg *)((Event *)event)->def->args)->value];
+        if (((EventArg *)GETP(GETP(((Event *)event)->def)->args))->isVar) {
+            a = iface->values[((EventArg *)GETP(GETP(((Event *)event)->def)->args))->value];
         } else {
-            a = ((EventArg *)((Event *)event)->def->args)->value;
+            a = ((EventArg *)GETP(GETP(((Event *)event)->def)->args))->value;
         }
         msg.index = iface->id;
         msg.type = 0xF;
-        msg.id = ((Event *)event)->def->id;
+        msg.id = GETP(((Event *)event)->def)->id;
         msg.arg = arg;
         msg.value = 0;
         msg.objState = 0;
         msg.handled = 0;
         msg.slotId = 0xFFFF;
         msg.result = 0;
-        if (iface->parentObj != NULL && SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) != NULL) {
-            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (iface->parentObj + 0x25C)) + 0x44));
+        if (GETP(iface->parentObj) != NULL && SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) != NULL) {
+            msg.objState = *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(iface->parentObj) + 0x25C)) + 0x44));
         }
-        msg.values = (u32 *)iface->values;
-        if (iface->callback != NULL) {
-            iface->callback(&msg);
+        SETP(msg.values, (u32 *)iface->values);
+        if (GETP(iface->callback) != NULL) {
+            GETP(iface->callback)(&msg);
         }
         if (msg.result == 0xB) {
             break;
         }
-        switch (*iface->header) {
+        switch (*GETP(iface->header)) {
         case 2:
             if (GameSettings_GetCodeVariable(100, a)) {
                 GameSettings_SetCodeVariable(0xCB, iface->player, a);
@@ -1681,7 +1681,7 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         break;
     }
     case 0x12:
-        GameSettings_SetCodeVariable(0x1F7, 0, ((Event *)event)->def->id);
+        GameSettings_SetCodeVariable(0x1F7, 0, GETP(((Event *)event)->def)->id);
         break;
     case 0x13:
         GameSettings_SaveGame();
@@ -1690,12 +1690,12 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         GameSettings_LoadGame();
         break;
     case 0x15:
-        GameSettings_SetSaveGameName(&iface->values[((Event *)event)->def->id]);
+        GameSettings_SetSaveGameName(&iface->values[GETP(((Event *)event)->def)->id]);
         g_bMemoryCardHWHack = 1;
         break;
     case 0x16:
         v = GameSettings_GetCodeVariable(0xCF, 0);
-        v += ((Event *)event)->def->delta;
+        v += GETP(((Event *)event)->def)->delta;
         if (v > 100) {
             v = 100;
         } else if (v < 0) {
@@ -1705,7 +1705,7 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         break;
     case 0x17:
         v = GameSettings_GetCodeVariable(0xD0, 0);
-        v += ((Event *)event)->def->delta;
+        v += GETP(((Event *)event)->def)->delta;
         if (v > 100) {
             v = 100;
         } else if (v < 0) {
@@ -1736,19 +1736,19 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
         }
         break;
     case 0x1F:
-        InterfaceManager_Create(((Event *)event)->def->target, 0, 0);
+        InterfaceManager_Create(GETP(GETP(((Event *)event)->def)->target), 0, 0);
         break;
     case 0x21:
         GameSettings_DeleteGameFile();
         break;
     }
 
-    for (i = 0; i < ((Event *)event)->def->numMods; i++) {
-        mod = ((Event *)event)->def->mods;
+    for (i = 0; i < GETP(((Event *)event)->def)->numMods; i++) {
+        mod = GETP(GETP(((Event *)event)->def)->mods);
         slot = mod->slot;
         if (slot < iface->numValues) {
             iface->values[slot] += mod->delta;
-            vdefs = SLOT_LOAD(ValueDef *, (SLOT_LOAD(u8 *, ((u8 *)iface->header + 0x1C)) + 4));
+            vdefs = SLOT_LOAD(ValueDef *, (SLOT_LOAD(u8 *, ((u8 *)GETP(iface->header) + 0x1C)) + 4));
             if (iface->values[slot] > vdefs[slot].max) {
                 iface->values[slot] = __abs(iface->values[slot] - vdefs[slot].max) + vdefs[slot].min - 1;
             } else if (iface->values[slot] < vdefs[slot].min) {
@@ -1808,18 +1808,18 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
     typedef struct DialogChar {
         s32 valueA;
         s32 valueB;
-        u8 *info;
-        u32 *color;
+        PTR32(u8) info;
+        PTR32(u32) color;
         u32 numIdle;
-        DialogAnim *idle;
+        PTR32(DialogAnim) idle;
         u32 numTalk;
-        DialogAnim *talk;
+        PTR32(DialogAnim) talk;
         u8 state;
         s32 key;
         s32 style;
         u8 pad2C[0x30 - 0x2C];
-        DialogAnim *special;
-        DialogQuad *quad;
+        PTR32(DialogAnim) special;
+        PTR32(DialogQuad) quad;
     } DialogChar;
     typedef struct DialogEntry {
         u8 active;
@@ -1828,18 +1828,18 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
         u8 specialKey;
         s32 time;
         u32 soundID;
-        char *soundName;
-        char **text;
-        DialogChar *chr;
+        PTR32(char) soundName;
+        PTR32(char *) text;
+        PTR32(DialogChar) chr;
         u8 actions[8];
     } DialogEntry;
     typedef struct DialogList {
         u32 count;
-        DialogEntry *entries;
+        PTR32(DialogEntry) entries;
     } DialogList;
     typedef struct SoundPack {
         s32 id;
-        u8 *data;
+        PTR32(u8) data;
     } SoundPack;
     extern u32 g_numInterfaceDialogSoundPacks;
     extern u32 g_curInterfaceDialogSoundPack;
@@ -1866,8 +1866,8 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
         }
         if (*(s8 *)(obj + 0x2D8) != 0) {
             *(s8 *)(obj + 0x2D8) = 0;
-            *(s32 *)(obj + 0x2C8) = list->entries[*(u32 *)(obj + 0x2C4)].time;
-            SLOT_STORE((obj + 0x2DC), list->entries[*(u32 *)(obj + 0x2C4)].chr);
+            *(s32 *)(obj + 0x2C8) = GETP(list->entries)[*(u32 *)(obj + 0x2C4)].time;
+            SLOT_STORE((obj + 0x2DC), GETP(GETP(list->entries)[*(u32 *)(obj + 0x2C4)].chr));
             for (i = 0; i < *(u32 *)iface; i++) {
                 slot = SLOT_LOAD(u8 *, (iface + 0x88)) + i * 0x300;
                 if (SLOT_LOAD(u8 *, (slot + 0x254)) == NULL) {
@@ -1877,19 +1877,19 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
                 switch (object[0]) {
                 case 0x21:
                     if (slot[0x243] == 5) {
-                        if (list->entries[*(u32 *)(SLOT_LOAD(u8 *, (iface + 0x158)) + 0x2C4)].text != NULL) {
+                        if (GETP(GETP(list->entries)[*(u32 *)(SLOT_LOAD(u8 *, (iface + 0x158)) + 0x2C4)].text) != NULL) {
                             chr = SLOT_LOAD(DialogChar *, (obj + 0x2DC));
                             slot[0x1B0] = chr->style;
-                            SLOT_STORE((SLOT_LOAD(u8 *, (slot + 0x258)) + 4), (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->info);
+                            SLOT_STORE((SLOT_LOAD(u8 *, (slot + 0x258)) + 4), GETP((SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->info));
                             *(u32 *)(SLOT_LOAD(u8 *, (slot + 0x254)) + 0x10) = 0;
                             *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (slot + 0x25C)) + 0x60)) + 0x18) = 1;
-                            *SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (slot + 0x25C)) + 0x60)) + 0x1C)) = *(SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->color;
-                            if ((SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->quad != NULL) {
+                            *SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (slot + 0x25C)) + 0x60)) + 0x1C)) = *GETP((SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->color);
+                            if (GETP((SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->quad) != NULL) {
                                 *(u32 *)(SLOT_LOAD(u8 *, (slot + 0x254)) + 0x18) = 0;
                                 *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (slot + 0x25C)) + 0x60)) + 0x10) = 1;
-                                *SLOT_LOAD(DialogQuad *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (slot + 0x25C)) + 0x60)) + 0x14)) = *(SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->quad;
+                                *SLOT_LOAD(DialogQuad *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (slot + 0x25C)) + 0x60)) + 0x14)) = *GETP((SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->quad);
                             }
-                            **(char ****)(slot + 0x258) = list->entries[*(u32 *)(SLOT_LOAD(u8 *, (iface + 0x158)) + 0x2C4)].text;
+                            **(char ****)(slot + 0x258) = GETP(GETP(list->entries)[*(u32 *)(SLOT_LOAD(u8 *, (iface + 0x158)) + 0x2C4)].text);
                             InterfaceManager_SetObjectText(slot, **(char ****)(slot + 0x258));
                         } else {
                             **(char ****)(slot + 0x258) = NULL;
@@ -1899,14 +1899,14 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
                     break;
                 case 0x22:
                     if (slot[0x243] == 0) {
-                        if (list->entries[*(u32 *)(obj + 0x2C4)].active && *(u16 *)(object + 0xA) == list->entries[*(u32 *)(obj + 0x2C4)].id) {
+                        if (GETP(list->entries)[*(u32 *)(obj + 0x2C4)].active && *(u16 *)(object + 0xA) == GETP(list->entries)[*(u32 *)(obj + 0x2C4)].id) {
                             SLOT_STORE((slot + 0x2DC), SLOT_LOAD(DialogChar *, (obj + 0x2DC)));
                         }
                     }
                     break;
                 case 0x23:
                     if (slot[0x243] == 5) {
-                        if (list->entries[*(u32 *)(obj + 0x2C4)].active && *(u16 *)(object + 0xA) == list->entries[*(u32 *)(obj + 0x2C4)].id) {
+                        if (GETP(list->entries)[*(u32 *)(obj + 0x2C4)].active && *(u16 *)(object + 0xA) == GETP(list->entries)[*(u32 *)(obj + 0x2C4)].id) {
                             *SLOT_LOAD(s32 *, (object + 0x14)) = (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->valueA;
                             InterfaceManager_SetObjectText(slot, **(char ****)(obj + 0x258));
                         }
@@ -1914,7 +1914,7 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
                     break;
                 case 0x24:
                     if (slot[0x243] == 5) {
-                        if (list->entries[*(u32 *)(obj + 0x2C4)].active && *(u16 *)(object + 0xA) == list->entries[*(u32 *)(obj + 0x2C4)].id) {
+                        if (GETP(list->entries)[*(u32 *)(obj + 0x2C4)].active && *(u16 *)(object + 0xA) == GETP(list->entries)[*(u32 *)(obj + 0x2C4)].id) {
                             *SLOT_LOAD(s32 *, (object + 0x14)) = (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->valueB;
                             InterfaceManager_SetObjectText(slot, **(char ****)(obj + 0x258));
                         }
@@ -1923,18 +1923,18 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
                 }
             }
             *(s8 *)(obj + 0x2D9) = 0;
-            if (list->entries[*(u32 *)(obj + 0x2C4)].special) {
+            if (GETP(list->entries)[*(u32 *)(obj + 0x2C4)].special) {
                 (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->state = 5;
-                (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->key = list->entries[*(u32 *)(obj + 0x2C4)].specialKey;
+                (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->key = GETP(list->entries)[*(u32 *)(obj + 0x2C4)].specialKey;
             } else {
                 (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->state = 1;
             }
-            InterfaceManager_ExecuteActions(iface, list->entries[*(u32 *)(obj + 0x2C4)].actions);
+            InterfaceManager_ExecuteActions(iface, GETP(list->entries)[*(u32 *)(obj + 0x2C4)].actions);
         } else {
             *(s32 *)(obj + 0x2C8) -= (s32)dt;
             if (*(s8 *)(obj + 0x2D9) == 0 && (SLOT_LOAD(DialogChar *, (obj + 0x2DC)))->state == 2) {
                 *(s8 *)(obj + 0x2D9) = 1;
-                if (list->entries[*(u32 *)(obj + 0x2C4)].soundName != NULL) {
+                if (GETP(GETP(list->entries)[*(u32 *)(obj + 0x2C4)].soundName) != NULL) {
                     released = 0;
                     if (SLOT_LOAD(u8 *, (obj + 0x2D0)) != NULL) {
                         SoundSequence_Stop(*(s32 *)(obj + 0x2D4));
@@ -1945,23 +1945,23 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
                     if (g_curInterfaceDialogSoundPack == 15) {
                         g_curInterfaceDialogSoundPack = 0;
                     }
-                    SLOT_STORE((obj + 0x2D0), DataPack_GetScript(g_interfaceDialogSoundPacks[g_curInterfaceDialogSoundPack].data, list->entries[*(u32 *)(obj + 0x2C4)].soundID));
+                    SLOT_STORE((obj + 0x2D0), DataPack_GetScript(GETP(g_interfaceDialogSoundPacks[g_curInterfaceDialogSoundPack].data), GETP(list->entries)[*(u32 *)(obj + 0x2C4)].soundID));
                     if (SLOT_LOAD(u8 *, (obj + 0x2D0)) != NULL) {
                         *(s32 *)(obj + 0x2D4) = SoundSequence_Play(SLOT_LOAD(s8 *, (obj + 0x2D0)), NULL);
                     }
                     g_curInterfaceDialogSoundPack++;
                     if (released) {
-                        while (g_curInterfaceDialogSoundIndex < list->count && list->entries[g_curInterfaceDialogSoundIndex].soundName == NULL) {
+                        while (g_curInterfaceDialogSoundIndex < list->count && GETP(GETP(list->entries)[g_curInterfaceDialogSoundIndex].soundName) == NULL) {
                             g_curInterfaceDialogSoundIndex++;
                         }
                         if (g_curInterfaceDialogSoundIndex < list->count) {
-                            pack = FileStreaming_LoadDataPack(list->entries[g_curInterfaceDialogSoundIndex].soundName, 9, list->entries[g_curInterfaceDialogSoundIndex].soundID, 0);
+                            pack = FileStreaming_LoadDataPack(GETP(GETP(list->entries)[g_curInterfaceDialogSoundIndex].soundName), 9, GETP(list->entries)[g_curInterfaceDialogSoundIndex].soundID, 0);
                             data = FileStreaming_InitializeDataPack(pack, 9, 1);
                             if (g_numInterfaceDialogSoundPacks == 15) {
                                 g_numInterfaceDialogSoundPacks = 0;
                             }
                             g_interfaceDialogSoundPacks[g_numInterfaceDialogSoundPacks].id = pack;
-                            g_interfaceDialogSoundPacks[g_numInterfaceDialogSoundPacks].data = data;
+                            SETP(g_interfaceDialogSoundPacks[g_numInterfaceDialogSoundPacks].data, data);
                             g_curInterfaceDialogSoundIndex++;
                             g_numInterfaceDialogSoundPacks++;
                         }
@@ -1971,8 +1971,8 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
             if (*(s32 *)(obj + 0x2C8) <= 0) {
                 chr = SLOT_LOAD(DialogChar *, (obj + 0x2DC));
                 if (chr->state == 5 || chr->state == 1 || chr->state == 4) {
-                    if (list->entries[*(u32 *)(obj + 0x2C4)].chr != NULL) {
-                        list->entries[*(u32 *)(obj + 0x2C4)].chr->state = 0;
+                    if (GETP(GETP(list->entries)[*(u32 *)(obj + 0x2C4)].chr) != NULL) {
+                        GETP(GETP(list->entries)[*(u32 *)(obj + 0x2C4)].chr)->state = 0;
                     }
                     (*(u32 *)(obj + 0x2C4))++;
                     if (*(u32 *)(obj + 0x2C4) < list->count) {
@@ -2001,23 +2001,23 @@ void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt) {
                 obj[0x2E0] = chr->state;
                 if (obj[0x2E0] != 3 && obj[0x2E0] != 4) {
                     if (obj[0x2E0] == 5) {
-                        *(s32 *)(obj + 0x2E4) = chr->special[chr->key].anim.frameTime * chr->special[chr->key].anim.numKeys;
+                        *(s32 *)(obj + 0x2E4) = GETP(chr->special)[chr->key].anim.frameTime * GETP(chr->special)[chr->key].anim.numKeys;
                     } else if (obj[0x2E0] == 2) {
                         chr->key = RandomNumberGenerator_GetRandomInteger(0, chr->numTalk);
-                        *(s32 *)(obj + 0x2E4) = chr->talk[chr->key].anim.frameTime * chr->talk[chr->key].anim.numKeys;
+                        *(s32 *)(obj + 0x2E4) = GETP(chr->talk)[chr->key].anim.frameTime * GETP(chr->talk)[chr->key].anim.numKeys;
                     } else if (obj[0x2E0] == 0) {
                         chr->key = RandomNumberGenerator_GetRandomInteger(0, chr->numIdle);
-                        *(s32 *)(obj + 0x2E4) = chr->idle[chr->key].anim.frameTime * chr->idle[chr->key].anim.numKeys;
+                        *(s32 *)(obj + 0x2E4) = GETP(chr->idle)[chr->key].anim.frameTime * GETP(chr->idle)[chr->key].anim.numKeys;
                     }
                     obj[0x2F0] = 1;
                 }
             }
             if (chr->state == 5) {
-                ExtractTextureKey(&chr->special[chr->key].anim, (TextureKeyState *)(obj + 0x2E8), dt);
+                ExtractTextureKey(&GETP(chr->special)[chr->key].anim, (TextureKeyState *)(obj + 0x2E8), dt);
             } else if (chr->state == 2 || chr->state == 3 || chr->state == 4) {
-                ExtractTextureKey(&chr->talk[chr->key].anim, (TextureKeyState *)(obj + 0x2E8), dt);
+                ExtractTextureKey(&GETP(chr->talk)[chr->key].anim, (TextureKeyState *)(obj + 0x2E8), dt);
             } else {
-                ExtractTextureKey(&chr->idle[chr->key].anim, (TextureKeyState *)(obj + 0x2E8), dt);
+                ExtractTextureKey(&GETP(chr->idle)[chr->key].anim, (TextureKeyState *)(obj + 0x2E8), dt);
             }
             *(u16 *)(obj + 0x24A) = ((TextureKeyState *)(obj + 0x2E8))->texture;
         }
@@ -2131,19 +2131,19 @@ void InterfaceManager_CheckConditions(u8 *iface, u8 *obj) {
     } CondValue;
     typedef struct {
         s32 id;
-        CondValue *val;
+        PTR32(CondValue) val;
     } CodeVar;
     typedef struct {
         u8 type;
         u8 pad1[3];
         s32 value;
-        void *data;
+        PTR32(void) data;
         u8 padC[0x1C - 0xC];
     } Condition;
     typedef struct {
         u8 type;
         u32 count;
-        Condition *conds;
+        PTR32(Condition) conds;
     } ConditionList;
     typedef struct {
         u8 type;
@@ -2151,16 +2151,16 @@ void InterfaceManager_CheckConditions(u8 *iface, u8 *obj) {
         s32 min;
         s32 max;
         s32 offset;
-        CodeVar *data;
+        PTR32(CodeVar) data;
         u8 pad14[0x34 - 0x14];
     } Variable;
     typedef struct {
         u32 count;
         u32 state;
         u8 pad8[0x20 - 0x8];
-        u8 *header;
+        PTR32(u8) header;
         u8 pad24[0x88 - 0x24];
-        u8 *objs;
+        PTR32(u8) objs;
         u8 pad8C[0x98 - 0x8C];
         s32 vars[30];
         u32 numVars;
@@ -2174,7 +2174,7 @@ void InterfaceManager_CheckConditions(u8 *iface, u8 *obj) {
     typedef struct {
         u8 pad0[0x48];
         u32 numVars;
-        WorldVar **vars;
+        PTR32(WorldVar *) vars;
     } World;
     u32 i;
     ConditionList *list;
@@ -2206,19 +2206,19 @@ void InterfaceManager_CheckConditions(u8 *iface, u8 *obj) {
     }
     for (i = 0; i < list->count; i++) {
         pass = 1;
-        switch (list->conds[i].type) {
+        switch (GETP(list->conds)[i].type) {
         case 1:
-            if (((CondValue *)list->conds[i].data)->isVar) {
-                if (((Iface *)iface)->vars[((Iface *)iface)->vars[((CondValue *)list->conds[i].data)->value]] != list->conds[i].value) {
+            if (((CondValue *)GETP(GETP(list->conds)[i].data))->isVar) {
+                if (((Iface *)iface)->vars[((Iface *)iface)->vars[((CondValue *)GETP(GETP(list->conds)[i].data))->value]] != GETP(list->conds)[i].value) {
                     pass = 0;
                 }
-            } else if (((Iface *)iface)->vars[((CondValue *)list->conds[i].data)->value] != list->conds[i].value) {
+            } else if (((Iface *)iface)->vars[((CondValue *)GETP(GETP(list->conds)[i].data))->value] != GETP(list->conds)[i].value) {
                 pass = 0;
             }
             break;
         case 2:
-            cv = list->conds[i].data;
-            if (GameSettings_GetCodeVariable(cv->id, cv->val->isVar ? ((Iface *)iface)->vars[cv->val->value] : cv->val->value) != list->conds[i].value) {
+            cv = GETP(GETP(list->conds)[i].data);
+            if (GameSettings_GetCodeVariable(cv->id, GETP(cv->val)->isVar ? ((Iface *)iface)->vars[GETP(cv->val)->value] : GETP(cv->val)->value) != GETP(list->conds)[i].value) {
                 pass = 0;
             }
             break;
@@ -2234,7 +2234,7 @@ void InterfaceManager_CheckConditions(u8 *iface, u8 *obj) {
                 for (j = 0; j < *(u32 *)(info + 0x100); j++) {
                     sum += *(s32 *)(SLOT_LOAD(u8 *, (info + 0x104)) + j * 0x50 + 0x34);
                 }
-                if (sum != list->conds[i].value) {
+                if (sum != GETP(list->conds)[i].value) {
                     pass = 0;
                 }
             } else {
@@ -2279,27 +2279,27 @@ void InterfaceManager_CheckConditions(u8 *iface, u8 *obj) {
         }
         if (changed) {
             for (i = 0; i < ifc->numVars; i++) {
-                switch ((SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].type) {
+                switch ((SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].type) {
                 case 1:
-                    cv = (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].data;
-                    if (cv->val->isVar) {
-                        ifc->vars[i] = GameSettings_GetCodeVariable(cv->id, ifc->vars[cv->val->value]);
+                    cv = GETP((SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].data);
+                    if (GETP(cv->val)->isVar) {
+                        ifc->vars[i] = GameSettings_GetCodeVariable(cv->id, ifc->vars[GETP(cv->val)->value]);
                     } else {
-                        ifc->vars[i] = GameSettings_GetCodeVariable(cv->id, cv->val->value);
+                        ifc->vars[i] = GameSettings_GetCodeVariable(cv->id, GETP(cv->val)->value);
                     }
-                    ifc->vars[i] += (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].offset;
-                    if (ifc->vars[i] > (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].max) {
-                        ifc->vars[i] = ifc->vars[i] - (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].max - 1 + (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].min;
-                    } else if (ifc->vars[i] < (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].min) {
-                        ifc->vars[i] = (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].max - ((SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].min - ifc->vars[i] - 1);
+                    ifc->vars[i] += (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].offset;
+                    if (ifc->vars[i] > (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].max) {
+                        ifc->vars[i] = ifc->vars[i] - (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].max - 1 + (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].min;
+                    } else if (ifc->vars[i] < (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].min) {
+                        ifc->vars[i] = (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].max - ((SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].min - ifc->vars[i] - 1);
                     }
                     break;
                 case 4:
-                    if ((World *)g_worldData.world != NULL) {
+                    if ((World *)GETP(g_worldData.world) != NULL) {
                         ifc->vars[0] = 0;
-                        for (k = 0; k < ((World *)g_worldData.world)->numVars; k++) {
-                            if (((World *)g_worldData.world)->vars[k]->id == (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (ifc->header + 0x1C)) + 4)))[i].offset) {
-                                ifc->vars[k] = ((World *)g_worldData.world)->vars[k]->value;
+                        for (k = 0; k < ((World *)GETP(g_worldData.world))->numVars; k++) {
+                            if (GETP(((World *)GETP(g_worldData.world))->vars)[k]->id == (SLOT_LOAD(Variable *, (SLOT_LOAD(u8 *, (GETP(ifc->header) + 0x1C)) + 4)))[i].offset) {
+                                ifc->vars[k] = GETP(((World *)GETP(g_worldData.world))->vars)[k]->value;
                             }
                         }
                     }
@@ -2307,7 +2307,7 @@ void InterfaceManager_CheckConditions(u8 *iface, u8 *obj) {
                 }
             }
             for (i = 0; i < ifc->count; i++) {
-                InterfaceManager_CheckConditions((u8 *)ifc, ifc->objs + i * 0x300);
+                InterfaceManager_CheckConditions((u8 *)ifc, GETP(ifc->objs) + i * 0x300);
             }
         }
     } else {
@@ -2531,12 +2531,12 @@ typedef struct RenderFontData {
     u8 pad0[0x9];
     u8 spacing;
     u8 padA[0x1C - 0xA];
-    f32 *width;
+    PTR32(f32) width;
 } RenderFontData;
 
 typedef struct RenderFontInfo {
     u8 pad0[0x4];
-    RenderFontData *data;
+    PTR32(RenderFontData) data;
     u8 pad8[0xF - 0x8];
     u8 useScale;
     u8 hidden;
@@ -2546,7 +2546,7 @@ typedef struct RenderObject {
     u8 unk0;
     u8 type;
     u8 pad2[0x14 - 0x2];
-    RenderFontInfo *font;
+    PTR32(RenderFontInfo) font;
     u8 pad18[0x30 - 0x18];
     f32 align;
 } RenderObject;
@@ -2557,7 +2557,7 @@ typedef struct RenderSlot {
     u8 pad70[0x180 - 0x70];
     f32 scale;
     u8 pad184[0x1A4 - 0x184];
-    char *textPtr;
+    PTR32(char) textPtr;
     u8 pad1A8[0x1C0 - 0x1A8];
     char text[0x80];
     u8 hidden;
@@ -2566,14 +2566,14 @@ typedef struct RenderSlot {
     u8 pad244;
     u8 kind;
     u8 pad246[0x25C - 0x246];
-    RenderObject *object;
+    PTR32(RenderObject) object;
     u8 pad260[0x300 - 0x260];
 } RenderSlot;
 
 typedef struct RenderInterface {
     u32 count;
     u8 pad4[0xC - 0x4];
-    RenderSlot *parent;
+    PTR32(RenderSlot) parent;
     u8 pad10[0x60 - 0x10];
     Vector4 offset;
     u8 pad70[0x7F - 0x70];
@@ -2582,7 +2582,7 @@ typedef struct RenderInterface {
     u8 hasOffset;
     u8 paused;
     u8 pad84[0x88 - 0x84];
-    RenderSlot *slots;
+    PTR32(RenderSlot) slots;
 } RenderInterface;
 
 void InterfaceManager_Render(void) {
@@ -2616,7 +2616,7 @@ void InterfaceManager_RenderInterface(RenderInterface *iface) {
         return;
     }
     for (i = 0; i < iface->count; i++) {
-        slot = &iface->slots[i];
+        slot = &GETP(iface->slots)[i];
         if (iface->hasOffset) {
             saved = slot->pos;
             slot->pos.x += iface->offset.x;
@@ -2624,33 +2624,33 @@ void InterfaceManager_RenderInterface(RenderInterface *iface) {
             slot->pos.z += iface->offset.z;
         }
         if (slot->kind == 3) {
-            if (iface->parent != NULL && iface->parent->hidden) {
+            if (GETP(iface->parent) != NULL && GETP(iface->parent)->hidden) {
                 continue;
             }
             if (slot->type == 6) {
                 InterfaceManager_RenderObject(iface, i);
-            } else if (iface->parent != NULL) {
+            } else if (GETP(iface->parent) != NULL) {
                 parentSaved = slot->pos;
-                slot->pos.x += iface->parent->pos.x;
-                slot->pos.y += iface->parent->pos.y;
-                slot->pos.z += iface->parent->pos.z;
-                if (iface->parent->object->type == 1 && slot->object->align) {
-                    font = iface->parent->object->font;
+                slot->pos.x += GETP(iface->parent)->pos.x;
+                slot->pos.y += GETP(iface->parent)->pos.y;
+                slot->pos.z += GETP(iface->parent)->pos.z;
+                if (GETP(GETP(iface->parent)->object)->type == 1 && GETP(slot->object)->align) {
+                    font = GETP(GETP(GETP(iface->parent)->object)->font);
                     if (font != NULL && !font->hidden) {
                         scale = 1.0f;
-                        if (iface->parent->textPtr != NULL) {
-                            len = strlen(iface->parent->textPtr);
+                        if (GETP(GETP(iface->parent)->textPtr) != NULL) {
+                            len = strlen(GETP(GETP(iface->parent)->textPtr));
                         } else {
-                            len = strlen(iface->parent->text);
+                            len = strlen(GETP(iface->parent)->text);
                         }
-                        fontData = font->data;
-                        width = *fontData->width;
+                        fontData = GETP(font->data);
+                        width = *GETP(fontData->width);
                         if (font->useScale) {
-                            scale = iface->parent->scale;
+                            scale = GETP(iface->parent)->scale;
                         }
                         slot->pos.x = scale * (f32)(len * (fontData->spacing + width)) *
-                                          (slot->object->align <= 0.0f ? -(0.5f * iface->parent->object->align + 0.5f)
-                                                                       : -(0.5f * iface->parent->object->align - 0.5f)) +
+                                          (GETP(slot->object)->align <= 0.0f ? -(0.5f * GETP(GETP(iface->parent)->object)->align + 0.5f)
+                                                                       : -(0.5f * GETP(GETP(iface->parent)->object)->align - 0.5f)) +
                                       slot->pos.x;
                     }
                 }
@@ -2680,7 +2680,7 @@ void InterfaceManager_DrawObject_Standard_Geometry(u8 *object, u8 *iface) {
         u8 padA0[0x245 - 0xA0];
         u8 type;                /* 0x245 */
         u8 pad246[0x268 - 0x246];
-        void *geom;             /* 0x268 */
+        PTR32(void) geom;             /* 0x268 */
         u8 pad26C[0x300 - 0x26C];
     } InterfaceObject;
     extern s32 g_TargetArrow[7];
@@ -2708,7 +2708,7 @@ void InterfaceManager_DrawObject_Standard_Geometry(u8 *object, u8 *iface) {
     f32 sinA;
     f32 s;
 
-    if (obj->geom == NULL) {
+    if (GETP(obj->geom) == NULL) {
         return;
     }
     if (obj->type == 0x1F) {
@@ -2767,7 +2767,7 @@ void InterfaceManager_DrawObject_Standard_Geometry(u8 *object, u8 *iface) {
         rot.v[2].x = sinA * scale;
         rot.v[2].z = cosA * scale;
         MultiplyMatrix(&rot, &mtx, &out);
-        Gfx_DrawGeometry(HND(obj->geom), HND(&out));
+        Gfx_DrawGeometry(HND(GETP(obj->geom)), HND(&out));
         return;
     }
     parent = NULL;
@@ -2815,7 +2815,7 @@ void InterfaceManager_DrawObject_Standard_Geometry(u8 *object, u8 *iface) {
     mtx.v[2].z = obj->scale.z;
     MultiplyMatrix(&mtx, &rot, &tmp);
     MultiplyMatrix(&tmp, &view, &out);
-    Gfx_DrawGeometry(HND(obj->geom), HND(&out));
+    Gfx_DrawGeometry(HND(GETP(obj->geom)), HND(&out));
 }
 
 void InterfaceManager_DrawObject_Standard_Image(u8 *obj) {
@@ -2935,7 +2935,7 @@ void InterfaceManager_DrawRadarBlips(f32 *centre, u8 *obj) {
         u8 unk0[0x74];
         u32 flags;
         u8 unk78[0xB0 - 0x78];
-        u8 *desc;
+        PTR32(u8) desc;
         u8 unkB4[0xC0 - 0xB4];
         f32 x;
         f32 y;
@@ -2985,7 +2985,7 @@ void InterfaceManager_DrawRadarBlips(f32 *centre, u8 *obj) {
         thing = &((BlipManager *)&g_thingManager_DARYL)->things[i];
         dx = 0.05f * (thing->x - *(f32 *)(player + 0x40));
         dz = 0.05f * (thing->z - *(f32 *)(player + 0x48));
-        colour = *SLOT_LOAD(Colour *, (thing->desc + 0x1C));
+        colour = *SLOT_LOAD(Colour *, (GETP(thing->desc) + 0x1C));
         rect = Gfx_Add2DRectangle();
         dist = dx * dx + dz * dz;
         if (dist > 2209.0f) {
@@ -3011,7 +3011,7 @@ void InterfaceManager_DrawRadarBlips(f32 *centre, u8 *obj) {
         rect->v[2].color = *(u32 *)&colour;
         rect->v[3].color = *(u32 *)&colour;
         rect->blendMode = 2;
-        rect->tex = *(u32 *)(thing->desc + 0x14);
+        rect->tex = *(u32 *)(GETP(thing->desc) + 0x14);
         rect->v[0].s = u0;
         rect->v[0].t = 0.75f;
         rect->v[1].s = u1;
@@ -3146,15 +3146,15 @@ s32 ActionTargetArrowSetTarget(void *params) {
     extern Vector4 g_zeroVector;
     typedef struct {
         u8 unk0[0x10];
-        u8 *unk10;
+        PTR32(u8) unk10;
         u8 unk14[0x10];
-        u8 *unk24;
-        u8 *unk28;
-        u8 *unk2C;
+        PTR32(u8) unk24;
+        PTR32(u8) unk28;
+        PTR32(u8) unk2C;
     } TargetObject;
     typedef struct {
         u32 type;
-        TargetObject *obj;
+        PTR32(TargetObject) obj;
     } TargetParams;
     TargetParams *p = params;
     void *target;
@@ -3162,36 +3162,36 @@ s32 ActionTargetArrowSetTarget(void *params) {
     g_TargetArrow[3] = 0;
     switch (p->type) {
     case 1:
-        if (p->obj->unk28 != NULL) {
-            target = p->obj->unk28 + 0x40;
+        if (GETP(GETP(p->obj)->unk28) != NULL) {
+            target = GETP(GETP(p->obj)->unk28) + 0x40;
         } else {
-            target = p->obj;
+            target = GETP(p->obj);
         }
         break;
     case 4:
-        if (p->obj->unk10 != NULL) {
-            target = p->obj->unk10 + 0x40;
+        if (GETP(GETP(p->obj)->unk10) != NULL) {
+            target = GETP(GETP(p->obj)->unk10) + 0x40;
         } else {
             target = &g_zeroVector;
         }
         break;
     case 2:
-        if (p->obj->unk2C != NULL) {
-            target = p->obj->unk2C + 0x40;
+        if (GETP(GETP(p->obj)->unk2C) != NULL) {
+            target = GETP(GETP(p->obj)->unk2C) + 0x40;
         } else {
-            target = p->obj;
+            target = GETP(p->obj);
         }
         break;
     case 3:
-        if (p->obj->unk24 != NULL) {
-            g_TargetArrow[3] = (s32)HND(p->obj->unk24);
-            target = p->obj->unk24 + 0x40;
+        if (GETP(GETP(p->obj)->unk24) != NULL) {
+            g_TargetArrow[3] = (s32)HND(GETP(GETP(p->obj)->unk24));
+            target = GETP(GETP(p->obj)->unk24) + 0x40;
         } else {
-            target = p->obj;
+            target = GETP(p->obj);
         }
         break;
     case 6:
-        target = p->obj;
+        target = GETP(p->obj);
         break;
     case 0:
     case 5:
@@ -3251,7 +3251,7 @@ void DropShip_StartChildInterface(s32 index, u32 id) {
         u8 pad0[0x243];
         u8 type;
         u8 pad244[0x25C - 0x244];
-        u8 *anim;
+        PTR32(u8) anim;
         u8 pad260[0x270 - 0x260];
         s32 child;
         u8 pad274[0x300 - 0x274];
@@ -3262,7 +3262,7 @@ void DropShip_StartChildInterface(s32 index, u32 id) {
         u8 pad8[0x83 - 0x8];
         u8 flag83;
         u8 pad84[0x88 - 0x84];
-        DropShipSlot *slots;
+        PTR32(DropShipSlot) slots;
         u8 pad8C[0x170 - 0x8C];
     } Interface;
     extern Interface g_interface[];
@@ -3272,14 +3272,14 @@ void DropShip_StartChildInterface(s32 index, u32 id) {
 
     iface = &g_interface[index];
     for (i = 0; i < iface->count; i++) {
-        if (iface->slots[i].type == 6) {
-            animId = *(u16 *)(iface->slots[i].anim + 0xA);
-            if ((animId == id) && (g_interface[iface->slots[i].child].loadState != 0)) {
-                g_interface[iface->slots[i].child].flag83 = 0;
-                InterfaceManager_SetLoadState(&g_interface[iface->slots[i].child], 0);
+        if (GETP(iface->slots)[i].type == 6) {
+            animId = *(u16 *)(GETP(GETP(iface->slots)[i].anim) + 0xA);
+            if ((animId == id) && (g_interface[GETP(iface->slots)[i].child].loadState != 0)) {
+                g_interface[GETP(iface->slots)[i].child].flag83 = 0;
+                InterfaceManager_SetLoadState(&g_interface[GETP(iface->slots)[i].child], 0);
             } else {
-                g_interface[iface->slots[i].child].flag83 = 1;
-                g_interface[iface->slots[i].child].loadState = 2;
+                g_interface[GETP(iface->slots)[i].child].flag83 = 1;
+                g_interface[GETP(iface->slots)[i].child].loadState = 2;
             }
         }
     }
@@ -3293,7 +3293,7 @@ void DropShip_EndChildInterface(s32 index, u32 id)
         u8 pad0[0x243];
         u8 type;
         u8 pad244[0x25C - 0x244];
-        u8 *anim;
+        PTR32(u8) anim;
         u8 pad260[0x270 - 0x260];
         s32 child;
         u8 pad274[0x300 - 0x274];
@@ -3306,7 +3306,7 @@ void DropShip_EndChildInterface(s32 index, u32 id)
     for (i = 0; i < *(u32 *)iface; i++)
     {
         slot = &(SLOT_LOAD(DropShipSlot *, (iface + 0x88)))[i];
-        if (slot->type == 6 && *(u16 *)(slot->anim + 0xA) == id &&
+        if (slot->type == 6 && *(u16 *)(GETP(slot->anim) + 0xA) == id &&
             *(u32 *)(g_interface[slot->child] + 4) != 1)
         {
             InterfaceManager_SetLoadState(g_interface[slot->child], 1);
@@ -3341,16 +3341,16 @@ void DropShip_PullCameraBack(s32 index) {
         u8 pad0[0x245];
         u8 type;
         u8 pad246[0x25C - 0x246];
-        u8 *object;
+        PTR32(u8) object;
         u8 pad260[0x300 - 0x260];
     } InterfaceSlot;
     typedef struct Interface {
         u32 count;
         u8 pad4[0x18 - 0x4];
         f32 camDistance;
-        u8 *ptr1C;
+        PTR32(u8) ptr1C;
         u8 pad20[0x88 - 0x20];
-        InterfaceSlot *slots;
+        PTR32(InterfaceSlot) slots;
         u8 pad8C[0x170 - 0x8C];
     } Interface;
     extern Interface g_interface[];
@@ -3362,16 +3362,16 @@ void DropShip_PullCameraBack(s32 index) {
 
     iface = &g_interface[index];
     for (i = 0; i < iface->count; i++) {
-        if (iface->slots[i].type == 4) {
-            InterfaceManager_SetObjectState(iface, &iface->slots[i], 2, 0);
-            info = (ObjectInfo *)iface->slots[i].object;
+        if (GETP(iface->slots)[i].type == 4) {
+            InterfaceManager_SetObjectState(iface, &GETP(iface->slots)[i], 2, 0);
+            info = (ObjectInfo *)GETP(GETP(iface->slots)[i].object);
             for (j = 0; j < info->count; j++) {
-                if ((SLOT_LOAD(ObjectEntry *, (iface->slots[i].object + 0x68)))[j].type == 2) {
-                    iface->camDistance = (f32)(SLOT_LOAD(ObjectEntry *, (iface->slots[i].object + 0x68)))[j].value;
+                if ((SLOT_LOAD(ObjectEntry *, (GETP(GETP(iface->slots)[i].object) + 0x68)))[j].type == 2) {
+                    iface->camDistance = (f32)(SLOT_LOAD(ObjectEntry *, (GETP(GETP(iface->slots)[i].object) + 0x68)))[j].value;
                     break;
                 }
             }
-            *(u16 *)(SLOT_LOAD(u8 *, (iface->ptr1C + 8)) + 6) = 9;
+            *(u16 *)(SLOT_LOAD(u8 *, (GETP(iface->ptr1C) + 8)) + 6) = 9;
         }
     }
 }
@@ -3394,7 +3394,7 @@ void DropShip_PullCameraForward(s32 index) {
         u8 pad241[0x245 - 0x241];
         u8 type;
         u8 pad246[0x25C - 0x246];
-        u8 *object;
+        PTR32(u8) object;
         u8 pad260[0x300 - 0x260];
     } InterfaceSlot;
     typedef struct Interface {
@@ -3402,9 +3402,9 @@ void DropShip_PullCameraForward(s32 index) {
         u32 field4;
         u8 pad8[0x18 - 0x8];
         f32 camDistance;
-        u8 *ptr1C;
+        PTR32(u8) ptr1C;
         u8 pad20[0x88 - 0x20];
-        InterfaceSlot *slots;
+        PTR32(InterfaceSlot) slots;
         u8 pad8C[0x170 - 0x8C];
     } Interface;
     extern Interface g_interface[];
@@ -3416,17 +3416,17 @@ void DropShip_PullCameraForward(s32 index) {
 
     iface = &g_interface[index];
     for (i = 0; i < iface->count; i++) {
-        if (iface->slots[i].type == 4) {
-            InterfaceManager_SetObjectState(iface, &iface->slots[i], 3, 0);
-            iface->slots[i].flag = 0;
-            info = (ObjectInfo *)iface->slots[i].object;
+        if (GETP(iface->slots)[i].type == 4) {
+            InterfaceManager_SetObjectState(iface, &GETP(iface->slots)[i], 3, 0);
+            GETP(iface->slots)[i].flag = 0;
+            info = (ObjectInfo *)GETP(GETP(iface->slots)[i].object);
             for (j = 0; j < info->count; j++) {
-                if ((SLOT_LOAD(ObjectEntry *, (iface->slots[i].object + 0x68)))[j].type == 3) {
-                    iface->camDistance = (f32)(SLOT_LOAD(ObjectEntry *, (iface->slots[i].object + 0x68)))[j].value;
+                if ((SLOT_LOAD(ObjectEntry *, (GETP(GETP(iface->slots)[i].object) + 0x68)))[j].type == 3) {
+                    iface->camDistance = (f32)(SLOT_LOAD(ObjectEntry *, (GETP(GETP(iface->slots)[i].object) + 0x68)))[j].value;
                     break;
                 }
             }
-            *(u16 *)(SLOT_LOAD(u8 *, (iface->ptr1C + 8)) + 6) = 10;
+            *(u16 *)(SLOT_LOAD(u8 *, (GETP(iface->ptr1C) + 8)) + 6) = 10;
             iface->field4 = 2;
         }
     }
@@ -3439,7 +3439,7 @@ f32 DropShip_GetLRTime(s32 index)
         u8 pad0[0x245];
         u8 state;
         u8 pad246[0x25C - 0x246];
-        u8 *anim;
+        PTR32(u8) anim;
         u8 pad260[0x300 - 0x260];
     } DropShipSlot;
     extern u8 g_interface[][0x170];
@@ -3450,7 +3450,7 @@ f32 DropShip_GetLRTime(s32 index)
     {
         if ((SLOT_LOAD(DropShipSlot *, (iface + 0x88)))[i].state == 5)
         {
-            return (f32)*(u16 *)((SLOT_LOAD(DropShipSlot *, (iface + 0x88)))[i].anim + 0xA);
+            return (f32)*(u16 *)(GETP((SLOT_LOAD(DropShipSlot *, (iface + 0x88)))[i].anim) + 0xA);
         }
     }
     return 0.0f;
@@ -3539,14 +3539,14 @@ void InterfaceManager_RestoreMissionObjString(u8 *mgr)
     {
         return;
     }
-    if (g_worldData.world == NULL)
+    if (GETP(g_worldData.world) == NULL)
     {
         return;
     }
     zero = 0.0f;
-    for (i = 0; i < *(u32 *)((char *)g_worldData.world + 0x58); i++)
+    for (i = 0; i < *(u32 *)((char *)GETP(g_worldData.world) + 0x58); i++)
     {
-        obj = SLOT_LOAD(u8 *, ((char *)SLOT_LOAD(u8 *, ((char *)g_worldData.world + 0x5c)) + i * 8 + 4));
+        obj = SLOT_LOAD(u8 *, ((char *)SLOT_LOAD(u8 *, ((char *)GETP(g_worldData.world) + 0x5c)) + i * 8 + 4));
         if (obj[2] == id)
         {
             if (*(f32 *)((char *)SLOT_LOAD(f32 *, ((char *)obj + 0xc)) + 4) != zero)

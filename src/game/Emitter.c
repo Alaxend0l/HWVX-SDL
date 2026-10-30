@@ -8,14 +8,14 @@ typedef struct ActionFX {
 
 typedef struct ActionFXPoint {
     u8 pad0[0x30];
-    ActionFX *fx; /* 0x30 */
+    PTR32(ActionFX) fx; /* 0x30 */
     s32 mode;     /* 0x34 */
 } ActionFXPoint;
 
 typedef struct ActionFXList {
     s32 mode;          /* 0x00 */
     u32 pointCount;    /* 0x04 */
-    ActionFXPoint *points[1]; /* 0x08 */
+    PTR32(ActionFXPoint) points[1]; /* 0x08 */
 } ActionFXList;
 
 void *g_emitterVTable[17];
@@ -32,7 +32,7 @@ typedef struct EmitterData {
     f32 range;         /* 0x10 */
     f32 speedScale;    /* 0x14 */
     u32 fxCount;       /* 0x18 */
-    u32 *fxIds;        /* 0x1C */
+    PTR32(u32) fxIds;        /* 0x1C */
     u32 seq;           /* 0x20 */
 } EmitterData;
 
@@ -43,11 +43,11 @@ typedef struct Emitter {
     u8 pad60[0x14];
     u32 flags;         /* 0x74 */
     u8 pad78[0x14];
-    void *vtable;      /* 0x8C */
-    void *thingSlot;   /* 0x90 */
+    PTR32(void) vtable;      /* 0x8C */
+    PTR32(void) thingSlot;   /* 0x90 */
     u32 thingParam1;   /* 0x94 */
     u8 pad98[0x18];
-    EmitterData *fx;   /* 0xB0 */
+    PTR32(EmitterData) fx;   /* 0xB0 */
     u32 fxId;          /* 0xB4 */
     u32 padB8;         /* 0xB8 */
     u32 timeToNextFx;  /* 0xBC */
@@ -110,15 +110,15 @@ s32 Emitter_Move(Emitter *emitter) {
         return 1;
     }
     emitter->flags |= 0x10;
-    if (emitter->fx->speedScale > 0.0f) {
-        dt = g_fDeltaTimeMS * (emitter->fx->speedScale * MagnitudeVector(emitter) + 1.0f);
+    if (GETP(emitter->fx)->speedScale > 0.0f) {
+        dt = g_fDeltaTimeMS * (GETP(emitter->fx)->speedScale * MagnitudeVector(emitter) + 1.0f);
         if (dt > 1000) {
             dt = 1000;
         }
     } else {
         dt = g_fDeltaTimeMS;
     }
-    if (emitter->fx->fxCount != 0) {
+    if (GETP(emitter->fx)->fxCount != 0) {
         for (;;) {
             if (emitter->timeToNextFx != 0) {
                 if (dt > emitter->timeToNextFx) {
@@ -128,17 +128,17 @@ s32 Emitter_Move(Emitter *emitter) {
                     return 1;
                 }
             }
-            emitter->timeToNextFx = RandomAdd_s32(emitter->fx->delayBase, emitter->fx->delayRange);
-            if (emitter->fx->fxCount != 0) {
-                if (emitter->fx->pickMode == 1) {
-                    emitter->fxIndex = RandomAdd_s32(0, emitter->fx->fxCount);
-                } else if (emitter->fx->pickMode == 2) {
+            emitter->timeToNextFx = RandomAdd_s32(GETP(emitter->fx)->delayBase, GETP(emitter->fx)->delayRange);
+            if (GETP(emitter->fx)->fxCount != 0) {
+                if (GETP(emitter->fx)->pickMode == 1) {
+                    emitter->fxIndex = RandomAdd_s32(0, GETP(emitter->fx)->fxCount);
+                } else if (GETP(emitter->fx)->pickMode == 2) {
                     emitter->fxIndex++;
-                    if (emitter->fxIndex >= emitter->fx->fxCount) {
+                    if (emitter->fxIndex >= GETP(emitter->fx)->fxCount) {
                         emitter->fxIndex = 0;
                     }
                 }
-                emitter->fxId = emitter->fx->fxIds[emitter->fxIndex];
+                emitter->fxId = GETP(GETP(emitter->fx)->fxIds)[emitter->fxIndex];
             }
             if (emitter->fxId != 0 && Emitter_InCameraRange(emitter, emitter->range)) {
                 struct { Vector4 pos; Vector4 quat; Vector4 row; Vector4 vel; u32 id; u32 unk54; f32 speed; f32 unk5C; } params __attribute__((aligned(16)));
@@ -148,7 +148,7 @@ s32 Emitter_Move(Emitter *emitter) {
                 params.quat = emitter->quat;
                 params.row = *(Vector4 *)emitter->pad0;
                 params.unk54 = emitter->thingParam1;
-                params.speed = emitter->fx->speedScale;
+                params.speed = GETP(emitter->fx)->speedScale;
                 params.unk5C = 0.0f;
                 params.vel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(1, &params);
@@ -168,10 +168,10 @@ s32 Emitter_Move(Emitter *emitter) {
 void Emitter_Release(Emitter *emitter) {
     void *slot;
 
-    if (emitter->vtable == g_emitterVTable) {
-        slot = emitter->thingSlot;
+    if (GETP(emitter->vtable) == g_emitterVTable) {
+        slot = GETP(emitter->thingSlot);
         if (slot != NULL) {
-            emitter->thingSlot = NULL;
+            SETP(emitter->thingSlot, NULL);
             SLOT_STORE((u32 *)(slot) + (0x0C), NULL);
         }
     }
@@ -212,8 +212,8 @@ s32 ActionFXPointChangeMode(ActionFXList *list) {
     u32 i;
 
     for (i = 0; i < count; i++) {
-        ActionFXPoint *point = list->points[i];
-        ActionFX *fx = point->fx;
+        ActionFXPoint *point = GETP(list->points[i]);
+        ActionFX *fx = GETP(point->fx);
 
         switch (mode) {
         case 0:
@@ -244,7 +244,7 @@ s32 ActionFXPointChangeMode(ActionFXList *list) {
 }
 
 s32 Emitter_Invalidate(Emitter *emitter, u32 start, u32 end) {
-    if ((u32)HND(emitter->fx) >= start && (u32)HND(emitter->fx) < end) {
+    if ((u32)HND(GETP(emitter->fx)) >= start && (u32)HND(GETP(emitter->fx)) < end) {
         return 1;
     }
     return 0;

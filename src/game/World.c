@@ -7,12 +7,12 @@ s32 World_Create(void) {
     extern s32 g_drawShadowsFlag;
     m_VertIn = 0;
     g_drawShadowsFlag = 1;
-    g_worldData.world = NULL;
+    SETP(g_worldData.world, NULL);
     return 1;
 }
 
 void World_Destroy(void) {
-    if (g_worldData.world != NULL) {
+    if (GETP(g_worldData.world) != NULL) {
         World_Unload();
     }
 }
@@ -35,14 +35,14 @@ void World_Refresh(void) {
         u32 envmapA;
         u32 envmapB;
         u8 unk94[0xC0 - 0x94];
-        GXColor *fogColor;
+        PTR32(GXColor) fogColor;
     } WorldGameData;
     WorldGameData *gameData = World_GetGameData();
     GXColor color;
 
     if (gameData != NULL) {
         Gfx_SetEnvmap(gameData->envmapA, gameData->envmapB, 1, gameData->envmapX, gameData->envmapY);
-        color = *gameData->fogColor;
+        color = *GETP(gameData->fogColor);
         Gfx_SetFog(&color, 0, gameData->fogStart, gameData->fogEnd);
         SongManager_PlaySong();
         Gfx_SetFarClippingPlane(gameData->farPlane);
@@ -63,7 +63,7 @@ void World_Unload(void) {
     FileStreaming_ReleaseAllDataPacks(8, 1);
     FileStreaming_ReleaseAllDataPacks(1, 1);
     FileStreaming_ReleaseAllDataPacks(9, 1);
-    g_worldData.world = NULL;
+    SETP(g_worldData.world, NULL);
     g_worldData.unk8[0] = 0;
     g_worldData.unk8[1] = 0;
     g_worldData.unk8[2] = 0;
@@ -76,9 +76,9 @@ void World_Unload(void) {
 void World_Render(void) {
     typedef struct Quad {
         u8 pad0[0x1C];
-        void *bsp;
+        PTR32(void) bsp;
         u32 numNeighbors;
-        u32 *neighbors;
+        PTR32(u32) neighbors;
         u8 pad28[0x34 - 0x28];
         s8 loaded;
         s8 visible;
@@ -87,7 +87,7 @@ void World_Render(void) {
     typedef struct QuadWorld {
         u8 pad[0x20];
         u32 numQuads;
-        Quad *quads;
+        PTR32(Quad) quads;
     } QuadWorld;
     u32 Gfx_GetCameraPositions(Vector4 *positions);
     s8 BSPN0_CollideWithVector(void *bsp, Vector4 *point);
@@ -106,14 +106,14 @@ void World_Render(void) {
     Quad *active[20];
     Vector4 positions[5] __attribute__((aligned(16)));
 
-    if (g_worldData.world == NULL) {
+    if (GETP(g_worldData.world) == NULL) {
         return;
     }
     if (*(s8 *)&g_worldData.unk8[3]) {
         *(s8 *)&g_worldData.unk8[3] = 0;
-        for (i = 0; i < ((QuadWorld *)g_worldData.world)->numQuads; i++) {
-            if (((QuadWorld *)g_worldData.world)->quads[i].bsp == NULL) {
-                pWorldQuadrant = &((QuadWorld *)g_worldData.world)->quads[i];
+        for (i = 0; i < ((QuadWorld *)GETP(g_worldData.world))->numQuads; i++) {
+            if (GETP(GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].bsp) == NULL) {
+                pWorldQuadrant = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i];
                 break;
             }
         }
@@ -125,23 +125,23 @@ void World_Render(void) {
         pCurrentQuadrant[3] = NULL;
         pCurrentQuadrant[4] = NULL;
     }
-    for (i = 0; i < ((QuadWorld *)g_worldData.world)->numQuads; i++) {
-        ((QuadWorld *)g_worldData.world)->quads[i].visible = 0;
+    for (i = 0; i < ((QuadWorld *)GETP(g_worldData.world))->numQuads; i++) {
+        GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].visible = 0;
     }
     numCameras = Gfx_GetCameraPositions(positions);
     for (i = 0; i < numCameras; i++) {
         VolumeManager_SetReverbLevel(&positions[i]);
         VolumeManager_SetFogLevel(&positions[i]);
-        if (pCurrentQuadrant[i] != NULL && BSPN0_CollideWithVector(pCurrentQuadrant[i]->bsp, &positions[i])) {
+        if (pCurrentQuadrant[i] != NULL && BSPN0_CollideWithVector(GETP(pCurrentQuadrant[i]->bsp), &positions[i])) {
             pCurrentQuadrant[i]->visible = 1;
             for (j = 0; j < pCurrentQuadrant[i]->numNeighbors; j++) {
-                ((QuadWorld *)g_worldData.world)->quads[pCurrentQuadrant[i]->neighbors[j]].visible = 1;
+                GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]].visible = 1;
             }
         } else if (pCurrentQuadrant[i] != NULL) {
             count = pCurrentQuadrant[i]->numNeighbors;
             for (j = 0; j < count; j++) {
-                quad = &((QuadWorld *)g_worldData.world)->quads[pCurrentQuadrant[i]->neighbors[j]];
-                if (BSPN0_CollideWithVector(quad->bsp, &positions[i])) {
+                quad = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]];
+                if (BSPN0_CollideWithVector(GETP(quad->bsp), &positions[i])) {
                     pCurrentQuadrant[i] = quad;
                     break;
                 }
@@ -151,15 +151,15 @@ void World_Render(void) {
             } else {
                 pCurrentQuadrant[i]->visible = 1;
                 for (j = 0; j < pCurrentQuadrant[i]->numNeighbors; j++) {
-                    ((QuadWorld *)g_worldData.world)->quads[pCurrentQuadrant[i]->neighbors[j]].visible = 1;
+                    GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]].visible = 1;
                 }
             }
         }
         if (pCurrentQuadrant[i] == NULL) {
             threaded = 0;
-            for (j = 0; j < ((QuadWorld *)g_worldData.world)->numQuads; j++) {
-                quad = &((QuadWorld *)g_worldData.world)->quads[j];
-                if (quad != pWorldQuadrant && BSPN0_CollideWithVector(quad->bsp, &positions[i])) {
+            for (j = 0; j < ((QuadWorld *)GETP(g_worldData.world))->numQuads; j++) {
+                quad = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[j];
+                if (quad != pWorldQuadrant && BSPN0_CollideWithVector(GETP(quad->bsp), &positions[i])) {
                     pCurrentQuadrant[i] = quad;
                     break;
                 }
@@ -167,18 +167,18 @@ void World_Render(void) {
             if (pCurrentQuadrant[i] != NULL) {
                 pCurrentQuadrant[i]->visible = 1;
                 for (j = 0; j < pCurrentQuadrant[i]->numNeighbors; j++) {
-                    ((QuadWorld *)g_worldData.world)->quads[pCurrentQuadrant[i]->neighbors[j]].visible = 1;
+                    GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]].visible = 1;
                 }
             }
         }
     }
-    for (i = 0; i < ((QuadWorld *)g_worldData.world)->numQuads; i++) {
-        if (((QuadWorld *)g_worldData.world)->quads[i].visible) {
-            active[numActive++] = &((QuadWorld *)g_worldData.world)->quads[i];
-            if (!((QuadWorld *)g_worldData.world)->quads[i].loaded) {
-                load[numLoad++] = &((QuadWorld *)g_worldData.world)->quads[i];
+    for (i = 0; i < ((QuadWorld *)GETP(g_worldData.world))->numQuads; i++) {
+        if (GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].visible) {
+            active[numActive++] = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i];
+            if (!GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].loaded) {
+                load[numLoad++] = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i];
             } else {
-                RenderQuadrant(&((QuadWorld *)g_worldData.world)->quads[i]);
+                RenderQuadrant(&GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i]);
             }
         }
     }
@@ -194,15 +194,15 @@ void World_Render(void) {
 }
 
 u32 World_GetTotalTiles_Car(void) {
-    return M2C_FIELD(g_worldData.world, u32 *, 0x8);
+    return M2C_FIELD(GETP(g_worldData.world), u32 *, 0x8);
 }
 
 u32 World_GetTotalTiles_Creature(void) {
-    return M2C_FIELD(g_worldData.world, u32 *, 0x40);
+    return M2C_FIELD(GETP(g_worldData.world), u32 *, 0x40);
 }
 
 void *World_GetTileCar(u32 index) {
-    void *world = g_worldData.world;
+    void *world = GETP(g_worldData.world);
     if (index < M2C_FIELD(world, u32 *, 0x8)) {
         return SLOT_LOAD(u8 *, (u8 *)(world) + 0xC) + index * 0x60;
     }
@@ -210,7 +210,7 @@ void *World_GetTileCar(u32 index) {
 }
 
 void *World_GetTileCreature(u32 index) {
-    void *world = g_worldData.world;
+    void *world = GETP(g_worldData.world);
     if (index < M2C_FIELD(world, u32 *, 0x40)) {
         return SLOT_LOAD(u8 *, (u8 *)(world) + 0x44) + index * 0x40;
     }
@@ -218,28 +218,28 @@ void *World_GetTileCreature(u32 index) {
 }
 
 void *World_GetTilePath(u32 index) {
-    if (index < M2C_FIELD(g_worldData.world, u32 *, 0x10)) {
-        return SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0x14) + index * 0x20;
+    if (index < M2C_FIELD(GETP(g_worldData.world), u32 *, 0x10)) {
+        return SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x14) + index * 0x20;
     }
     return NULL;
 }
 
 void *World_GetTileSpeaker(u32 index) {
-    if (index < M2C_FIELD(g_worldData.world, u32 *, 0x28)) {
-        return SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0x2C) + index * 0x40;
+    if (index < M2C_FIELD(GETP(g_worldData.world), u32 *, 0x28)) {
+        return SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x2C) + index * 0x40;
     }
     return NULL;
 }
 
 void *World_GetTileLight(u32 index) {
-    if (index < M2C_FIELD(g_worldData.world, u32 *, 0x38)) {
-        return SLOT_LOAD(u8 *, (u8 *)(g_worldData.world) + 0x3C) + index * 0x20;
+    if (index < M2C_FIELD(GETP(g_worldData.world), u32 *, 0x38)) {
+        return SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x3C) + index * 0x20;
     }
     return NULL;
 }
 
 void *World_GetVolume(u32 index) {
-    void *world = g_worldData.world;
+    void *world = GETP(g_worldData.world);
     if (index < M2C_FIELD(world, u32 *, 0x68)) {
         return SLOT_LOAD(u8 *, (u8 *)(world) + 0x6C) + index * 0x30;
     }
@@ -247,11 +247,11 @@ void *World_GetVolume(u32 index) {
 }
 
 void *World_GetNavHolder(void) {
-    return SLOT_LOAD(void *, (u8 *)(g_worldData.world) + 0x78);
+    return SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x78);
 }
 
 void *World_GetGameData(void) {
-    void *world = g_worldData.world;
+    void *world = GETP(g_worldData.world);
     if (world != NULL) {
         return SLOT_LOAD(void *, (u8 *)(world) + 0x9C);
     }
@@ -262,14 +262,14 @@ void World_ClearSweep(void) {
     u32 i;
     void *data;
 
-    data = SLOT_LOAD(void *, (u8 *)(g_worldData.world) + 0x0);
+    data = SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0);
     if (M2C_FIELD(data, u32 *, 0x58) == 0) {
-        for (i = 0; i < M2C_FIELD(SLOT_LOAD(void *, (u8 *)(g_worldData.world) + 0x0), u32 *, 0x48); i++) {
-            M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(void *, (u8 *)(g_worldData.world) + 0x0)) + 0x4C) + i * 0x20, s32 *, 0x18) = 0;
+        for (i = 0; i < M2C_FIELD(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0), u32 *, 0x48); i++) {
+            M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0)) + 0x4C) + i * 0x20, s32 *, 0x18) = 0;
         }
     } else if (M2C_FIELD(data, u32 *, 0x58) == 1) {
-        for (i = 0; i < M2C_FIELD(SLOT_LOAD(void *, (u8 *)(g_worldData.world) + 0x0), u32 *, 0x50); i++) {
-            M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(void *, (u8 *)(g_worldData.world) + 0x0)) + 0x54) + i * 0x30, s32 *, 0x20) = 0;
+        for (i = 0; i < M2C_FIELD(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0), u32 *, 0x50); i++) {
+            M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0)) + 0x54) + i * 0x30, s32 *, 0x20) = 0;
         }
     }
     g_worldData.unk4 = 1;
@@ -287,13 +287,13 @@ void World_InitTeleporters(void) {
         u8 unk40[0x8];
         u32 model;
         u8 unk4C[0x14];
-        void *thing;
+        PTR32(void) thing;
         u8 unk64[0xC];
     } Teleporter;
     typedef struct TeleporterWorld {
         u8 unk0[0x30];
         u32 numTeleporters;
-        Teleporter *teleporters;
+        PTR32(Teleporter) teleporters;
     } TeleporterWorld;
     struct {
         Vector4 pos;
@@ -306,8 +306,8 @@ void World_InitTeleporters(void) {
     u32 i;
     Teleporter *teleporter;
 
-    for (i = 0; i < ((TeleporterWorld *)g_worldData.world)->numTeleporters; i++) {
-        teleporter = &((TeleporterWorld *)g_worldData.world)->teleporters[i];
+    for (i = 0; i < ((TeleporterWorld *)GETP(g_worldData.world))->numTeleporters; i++) {
+        teleporter = &GETP(((TeleporterWorld *)GETP(g_worldData.world))->teleporters)[i];
         if (teleporter->model != 0) {
             params.model = teleporter->model;
             params.unk38 = 0.0f;
@@ -315,7 +315,7 @@ void World_InitTeleporters(void) {
             params.vel.x = params.vel.y = params.vel.z = 0.0f;
             SubMatrixToQuaternion(teleporter, &params.quat);
             params.unk34 = 0;
-            teleporter->thing = ThingManager_DARYL_CreateThing(2, &params);
+            SETP(teleporter->thing, ThingManager_DARYL_CreateThing(2, &params));
         }
     }
 }
@@ -359,8 +359,8 @@ s32 ActionItemChangeMode(u32 *action) {
 }
 
 void RenderQuadrant(u8 *quadrant) {
-    typedef struct { void *pad0; void *pad4; void *geom; } StaticGeom;
-    typedef struct { u8 *geom; u8 noDraw; u8 pad5; u8 hasDist; u8 visible; f32 dist; u8 padC[0xC]; u32 slaves[2]; } Model;
+    typedef struct { PTR32(void) pad0; void *pad4; void *geom; } StaticGeom;
+    typedef struct { PTR32(u8) geom; u8 noDraw; u8 pad5; u8 hasDist; u8 visible; f32 dist; u8 padC[0xC]; u32 slaves[2]; } Model;
     typedef struct { Vector4 pos; Vector4 quat; u8 pad20[4]; Model *model; f32 dist; u8 pad2C[8]; u8 useDist; u8 pad35[7]; f32 radius; } Instance;
     typedef struct { u32 pad0; u32 count; Instance *instances; } InstanceList;
     typedef struct { u8 pad0[0x10]; f32 mtx[3][4]; Vector4 pos; Vector4 quat; u8 pad60[0x14]; u32 unk74; u8 pad78[0x78]; } DrawThing;
@@ -406,7 +406,7 @@ void RenderQuadrant(u8 *quadrant) {
             t->pos = inst->pos;
             Thing_DrawSharedSlaves(t, model->slaves);
             if (model->noDraw == 0) {
-                Gfx_DrawGeometry(HND(model->geom), HND(t->mtx));
+                Gfx_DrawGeometry(HND(GETP(model->geom)), HND(t->mtx));
             }
         }
     }
@@ -423,12 +423,12 @@ void TimerManager_Heartbeat(void) {
         u8 countUp;
         u8 unk4[4];
         f32 time;
-        TimerDef *def;
+        PTR32(TimerDef) def;
     } Timer;
     typedef struct {
         u8 unk0[0x50];
         u32 numTimers;
-        Timer **timers;
+        PTR32(Timer *) timers;
     } TimerWorld;
     TimerWorld *world;
     Timer *timer;
@@ -437,15 +437,15 @@ void TimerManager_Heartbeat(void) {
     Timer **timers;
     u32 dt;
 
-    world = g_worldData.world;
+    world = GETP(g_worldData.world);
     if (world == NULL) {
         return;
     }
     speed = GameSettings_GetCodeVariable(0x6C, 7);
     for (i = 0; i < world->numTimers; i++) {
-        timers = world->timers;
+        timers = GETP(world->timers);
         timer = timers[i];
-        if (timer->def->type == 7) {
+        if (GETP(timer->def)->type == 7) {
             continue;
         }
         dt = g_iDeltaTimeMS;

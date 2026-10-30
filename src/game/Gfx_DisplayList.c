@@ -71,7 +71,7 @@ typedef struct GDLGroupTri {
 } GDLGroupTri;
 
 typedef struct GDLAlphaEntry {
-    void (*func)(u16);
+    FPTR32(void, (u16)) func;
     u16 arg;
     u16 next;
 } GDLAlphaEntry;
@@ -128,9 +128,9 @@ typedef struct GfxWindow {
 GfxWindow *GetRenderWindow(void);
 
 typedef struct DLSkinGroup {
-    void *lod;
+    PTR32(void) lod;
     s32 lightState;
-    f32 *matrices;
+    PTR32(f32) matrices;
     u32 count;
     u16 matrix;
     u8 group;
@@ -138,7 +138,7 @@ typedef struct DLSkinGroup {
 } DLSkinGroup;
 
 typedef struct DLGroup {
-    void *geometry;
+    PTR32(void) geometry;
     s32 lightState;
     u16 matrix;
     u16 unkA;
@@ -205,11 +205,11 @@ typedef struct GDLGeomGroup {
 
 typedef struct GDLGeom {
     u8 unk0[0x8];
-    GDLGeomGroup *groups;
+    PTR32(GDLGeomGroup) groups;
 } GDLGeom;
 
 typedef struct GDLDrawEntry {
-    void *geometry;
+    PTR32(void) geometry;
     GXColor color;
     u32 matrix;
     s32 lightState;
@@ -220,7 +220,7 @@ typedef struct GDLDrawEntry {
 } GDLDrawEntry;
 
 typedef struct GDLLODEntry {
-    void *geometry;
+    PTR32(void) geometry;
     u32 matrix;
 } GDLLODEntry;
 
@@ -276,15 +276,15 @@ typedef struct GDL {
     u8 unkEBCC0[0xEDCC0 - 0xEBCC0];
     u8 unkEDCC0[0xF3A80 - 0xEDCC0];
     GDLEnvmapState envmapStates[0x20];
-    void *matrices[0x578];
+    PTR32(void) matrices[0x578];
     u8 unkF51E0[2][0x4E200];
     u8 unk1915E0[2][0x27100];
     u8 unk1DF7E0[2][0x36B00];
-    void *unk24CDE0;
-    GDLGroupTri *groupTris;
-    void *unk24CDE8;
-    void *unk24CDEC;
-    void *unk24CDF0;
+    PTR32(void) unk24CDE0;
+    PTR32(GDLGroupTri) groupTris;
+    PTR32(void) unk24CDE8;
+    PTR32(void) unk24CDEC;
+    PTR32(void) unk24CDF0;
     u16 spriteHeads[0x1FF];
     u8 unk24D1F2;
 } GDL;
@@ -321,16 +321,16 @@ void Render_InitDisplayList(void) {
     memset(g_pDL->unk11DE0, 0xFF, 0x3FE);
     memset(g_pDL->unk121DE, 0xFF, 0x3FE);
     if (g_DLBufferOn) {
-        g_pGDL->unk24CDEC = g_pGDL->unk1DF7E0[0];
-        g_pGDL->unk24CDE0 = g_pGDL->unkF51E0[0];
-        g_pGDL->unk24CDE8 = g_pGDL->unk1915E0[0];
+        SETP(g_pGDL->unk24CDEC, g_pGDL->unk1DF7E0[0]);
+        SETP(g_pGDL->unk24CDE0, g_pGDL->unkF51E0[0]);
+        SETP(g_pGDL->unk24CDE8, g_pGDL->unk1915E0[0]);
     } else {
-        g_pGDL->unk24CDEC = g_pGDL->unk1DF7E0[1];
-        g_pGDL->unk24CDE0 = g_pGDL->unkF51E0[1];
-        g_pGDL->unk24CDE8 = g_pGDL->unk1915E0[1];
+        SETP(g_pGDL->unk24CDEC, g_pGDL->unk1DF7E0[1]);
+        SETP(g_pGDL->unk24CDE0, g_pGDL->unkF51E0[1]);
+        SETP(g_pGDL->unk24CDE8, g_pGDL->unk1915E0[1]);
     }
-    g_pGDL->groupTris = (GDLGroupTri *)g_pGDL->unkC3040;
-    g_pGDL->unk24CDF0 = g_pGDL->unkEDCC0;
+    SETP(g_pGDL->groupTris, (GDLGroupTri *)g_pGDL->unkC3040);
+    SETP(g_pGDL->unk24CDF0, g_pGDL->unkEDCC0);
     g_DLBufferOn = !g_DLBufferOn;
     Gfx_SetRenderWindow(0);
     GetRenderWindow()->overlayMode = 0;
@@ -379,22 +379,22 @@ void *Gfx_Begin_GroupTriFlat(u16 tex, u16 arg1, u8 arg2) {
         n = 0;
         g_pGDL->numGroupTris = 0;
     }
-    if (n != 0 && g_pGDL->groupTris[n - 1].type == 0 && g_pGDL->groupTris[n - 1].unk10 >= 0xFFFE &&
-        tex == g_pGDL->groupTris[n - 1].tex && arg1 == g_pGDL->groupTris[n - 1].unk6) {
+    if (n != 0 && GETP(g_pGDL->groupTris)[n - 1].type == 0 && GETP(g_pGDL->groupTris)[n - 1].unk10 >= 0xFFFE &&
+        tex == GETP(g_pGDL->groupTris)[n - 1].tex && arg1 == GETP(g_pGDL->groupTris)[n - 1].unk6) {
         g_pGDL->numGroupTris--;
     } else {
-        g_pGDL->groupTris[n].type = 0;
-        g_pGDL->groupTris[n].unk1 = 0;
-        g_pGDL->groupTris[n].unk2 = arg2;
-        g_pGDL->groupTris[n].unk8 = g_pGDL->unk38;
-        g_pGDL->groupTris[n].count = 0;
-        g_pGDL->groupTris[n].tex = tex;
-        g_pGDL->groupTris[n].unk6 = arg1;
-        g_pGDL->groupTris[n].unk10 = 0xFFFE;
-        g_pGDL->groupTris[n].unk18 = 0.0f;
-        g_pGDL->groupTris[n].unk1C = 0.0f;
+        GETP(g_pGDL->groupTris)[n].type = 0;
+        GETP(g_pGDL->groupTris)[n].unk1 = 0;
+        GETP(g_pGDL->groupTris)[n].unk2 = arg2;
+        GETP(g_pGDL->groupTris)[n].unk8 = g_pGDL->unk38;
+        GETP(g_pGDL->groupTris)[n].count = 0;
+        GETP(g_pGDL->groupTris)[n].tex = tex;
+        GETP(g_pGDL->groupTris)[n].unk6 = arg1;
+        GETP(g_pGDL->groupTris)[n].unk10 = 0xFFFE;
+        GETP(g_pGDL->groupTris)[n].unk18 = 0.0f;
+        GETP(g_pGDL->groupTris)[n].unk1C = 0.0f;
     }
-    return (u8 *)g_pGDL->unk24CDE0 + g_pGDL->unk38 * 0x50;
+    return (u8 *)GETP(g_pGDL->unk24CDE0) + g_pGDL->unk38 * 0x50;
 }
 
 void *Gfx_Begin_GroupQuadFlat(u16 tex, u16 arg1, u8 arg2) {
@@ -406,22 +406,22 @@ void *Gfx_Begin_GroupQuadFlat(u16 tex, u16 arg1, u8 arg2) {
         n = 0;
         g_pGDL->numGroupTris = 0;
     }
-    if (n != 0 && (&g_pGDL->groupTris[n])[-1].type == 4 && (&g_pGDL->groupTris[n])[-1].unk10 >= 0xFFFE &&
-        tex == (&g_pGDL->groupTris[n])[-1].tex && arg1 == (&g_pGDL->groupTris[n])[-1].unk6) {
+    if (n != 0 && (&GETP(g_pGDL->groupTris)[n])[-1].type == 4 && (&GETP(g_pGDL->groupTris)[n])[-1].unk10 >= 0xFFFE &&
+        tex == (&GETP(g_pGDL->groupTris)[n])[-1].tex && arg1 == (&GETP(g_pGDL->groupTris)[n])[-1].unk6) {
         g_pGDL->numGroupTris--;
     } else {
-        g_pGDL->groupTris[n].type = 4;
-        g_pGDL->groupTris[n].unk1 = 0;
-        g_pGDL->groupTris[n].unk2 = arg2;
-        g_pGDL->groupTris[n].unk8 = g_pGDL->unk40;
-        g_pGDL->groupTris[n].count = 0;
-        g_pGDL->groupTris[n].tex = tex;
-        g_pGDL->groupTris[n].unk6 = arg1;
-        g_pGDL->groupTris[n].unk10 = 0xFFFE;
-        g_pGDL->groupTris[n].unk18 = 0.0f;
-        g_pGDL->groupTris[n].unk1C = 0.0f;
+        GETP(g_pGDL->groupTris)[n].type = 4;
+        GETP(g_pGDL->groupTris)[n].unk1 = 0;
+        GETP(g_pGDL->groupTris)[n].unk2 = arg2;
+        GETP(g_pGDL->groupTris)[n].unk8 = g_pGDL->unk40;
+        GETP(g_pGDL->groupTris)[n].count = 0;
+        GETP(g_pGDL->groupTris)[n].tex = tex;
+        GETP(g_pGDL->groupTris)[n].unk6 = arg1;
+        GETP(g_pGDL->groupTris)[n].unk10 = 0xFFFE;
+        GETP(g_pGDL->groupTris)[n].unk18 = 0.0f;
+        GETP(g_pGDL->groupTris)[n].unk1C = 0.0f;
     }
-    return (u8 *)g_pGDL->unk24CDE8 + g_pGDL->unk40 * 0x50;
+    return (u8 *)GETP(g_pGDL->unk24CDE8) + g_pGDL->unk40 * 0x50;
 }
 
 void *Gfx_Begin_GroupTriShaded(u16 tex, u16 arg1, u8 arg2) {
@@ -432,28 +432,28 @@ void *Gfx_Begin_GroupTriShaded(u16 tex, u16 arg1, u8 arg2) {
         n = 0;
         g_pGDL->numGroupTris = 0;
     }
-    if (n != 0 && g_pGDL->groupTris[n - 1].type == 1 && g_pGDL->groupTris[n - 1].unk10 >= 0xFFFE &&
-        tex == g_pGDL->groupTris[n - 1].tex && arg1 == g_pGDL->groupTris[n - 1].unk6) {
+    if (n != 0 && GETP(g_pGDL->groupTris)[n - 1].type == 1 && GETP(g_pGDL->groupTris)[n - 1].unk10 >= 0xFFFE &&
+        tex == GETP(g_pGDL->groupTris)[n - 1].tex && arg1 == GETP(g_pGDL->groupTris)[n - 1].unk6) {
         g_pGDL->numGroupTris--;
     } else {
-        g_pGDL->groupTris[n].type = 1;
-        g_pGDL->groupTris[n].unk1 = 0;
-        g_pGDL->groupTris[n].unk2 = arg2;
-        g_pGDL->groupTris[n].unk8 = g_pGDL->unk3C;
-        g_pGDL->groupTris[n].count = 0;
-        g_pGDL->groupTris[n].tex = tex;
-        g_pGDL->groupTris[n].unk6 = arg1;
-        g_pGDL->groupTris[n].unk10 = 0xFFFE;
-        g_pGDL->groupTris[n].unk18 = 0.0f;
-        g_pGDL->groupTris[n].unk1C = 0.0f;
+        GETP(g_pGDL->groupTris)[n].type = 1;
+        GETP(g_pGDL->groupTris)[n].unk1 = 0;
+        GETP(g_pGDL->groupTris)[n].unk2 = arg2;
+        GETP(g_pGDL->groupTris)[n].unk8 = g_pGDL->unk3C;
+        GETP(g_pGDL->groupTris)[n].count = 0;
+        GETP(g_pGDL->groupTris)[n].tex = tex;
+        GETP(g_pGDL->groupTris)[n].unk6 = arg1;
+        GETP(g_pGDL->groupTris)[n].unk10 = 0xFFFE;
+        GETP(g_pGDL->groupTris)[n].unk18 = 0.0f;
+        GETP(g_pGDL->groupTris)[n].unk1C = 0.0f;
     }
-    return (u8 *)g_pGDL->unk24CDEC + g_pGDL->unk3C * 0x70;
+    return (u8 *)GETP(g_pGDL->unk24CDEC) + g_pGDL->unk3C * 0x70;
 }
 
 void Gfx_End_GroupTri(s32 n) {
-    g_pGDL->groupTris[g_pGDL->numGroupTris].count += n;
-    if (g_pGDL->groupTris[g_pGDL->numGroupTris].count != 0) {
-        switch (g_pGDL->groupTris[g_pGDL->numGroupTris].type) {
+    GETP(g_pGDL->groupTris)[g_pGDL->numGroupTris].count += n;
+    if (GETP(g_pGDL->groupTris)[g_pGDL->numGroupTris].count != 0) {
+        switch (GETP(g_pGDL->groupTris)[g_pGDL->numGroupTris].type) {
         case 0:
             g_pGDL->unk38 += n;
             break;
@@ -577,7 +577,7 @@ void Gfx_SortAlpha(void) {
         XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[1], (Vector4 *)&g_pGDL->tris[i].v[1]);
         XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[2], (Vector4 *)&g_pGDL->tris[i].v[2]);
         z = 0.333333f * (g_pGDL->tris[i].v[2].z + (g_pGDL->tris[i].v[0].z + g_pGDL->tris[i].v[1].z));
-        g_pGDL->alphaEntries[g_pGDL->numAlphaEntries].func = Render_DrawAlphaTriangle;
+        SETP(g_pGDL->alphaEntries[g_pGDL->numAlphaEntries].func, Render_DrawAlphaTriangle);
         g_pGDL->alphaEntries[g_pGDL->numAlphaEntries].arg = i;
         Gfx_LinkAlphaEntry(g_pGDL->numAlphaEntries++, z);
     }
@@ -585,7 +585,7 @@ void Gfx_SortAlpha(void) {
     grp = g_pGDL->alphaGroups;
     memset(heads, -1, sizeof(heads));
     for (i = 0; i < g_pGDL->numAlphaGroups; i++, grp++) {
-        key = ((GDLGeom *)PTR(grp->unk40))->groups[grp->unk44].sortKey;
+        key = GETP(((GDLGeom *)PTR(grp->unk40))->groups)[grp->unk44].sortKey;
         grp->next = heads[key];
         heads[key] = i;
     }
@@ -597,7 +597,7 @@ void Gfx_SortAlpha(void) {
             key = heads[i];
             while (key != 0xFFFF) {
                 grp = &g_pGDL->alphaGroups[key];
-                entry->func = Render_DrawAlphaGroup;
+                SETP(entry->func, Render_DrawAlphaGroup);
                 entry->arg = key;
                 Gfx_LinkAlphaEntry(count++, 0.0f);
                 entry++;
@@ -615,7 +615,7 @@ void DrawAlphaTable(void) {
 
     for (i = 0; i < 0x100; i++) {
         for (idx = g_pGDL->alphaTable[i]; idx != 0; idx = g_pGDL->alphaEntries[idx].next) {
-            g_pGDL->alphaEntries[idx].func(g_pGDL->alphaEntries[idx].arg);
+            GETP(g_pGDL->alphaEntries[idx].func)(g_pGDL->alphaEntries[idx].arg);
         }
     }
 }
@@ -686,7 +686,7 @@ u32 Gfx_AddWorldMatrixState_NonCached(void *matrix) {
     if (g_pGDL->numMatrices >= 0x578) {
         g_pGDL->numMatrices = 0;
     }
-    g_pGDL->matrices[g_pGDL->numMatrices] = matrix;
+    SETP(g_pGDL->matrices[g_pGDL->numMatrices], matrix);
     return g_pGDL->numMatrices++;
 }
 
@@ -701,7 +701,7 @@ u32 Gfx_AddWorldMatrixState_CacheMatrix(f32 (*matrix)[4]) {
         g_pGDL->numCachedMatrices = 0;
     }
     CopyMatrix(g_pGDL->cachedMatrices[g_pGDL->numCachedMatrices], matrix);
-    g_pGDL->matrices[g_pGDL->numMatrices] = g_pGDL->cachedMatrices[g_pGDL->numCachedMatrices];
+    SETP(g_pGDL->matrices[g_pGDL->numMatrices], g_pGDL->cachedMatrices[g_pGDL->numCachedMatrices]);
     g_pGDL->numCachedMatrices++;
     return g_pGDL->numMatrices++;
 }
@@ -719,7 +719,7 @@ u32 Gfx_AddWorldMatrixState_CacheMatrixQuaternionScalePos(void *quat, void *scal
         ScaleMatrix(g_pGDL->cachedMatrices[g_pGDL->numCachedMatrices], scale);
     }
     CopyVector((Vector4 *)g_pGDL->cachedMatrices[g_pGDL->numCachedMatrices][3], pos);
-    g_pGDL->matrices[g_pGDL->numMatrices] = g_pGDL->cachedMatrices[g_pGDL->numCachedMatrices];
+    SETP(g_pGDL->matrices[g_pGDL->numMatrices], g_pGDL->cachedMatrices[g_pGDL->numCachedMatrices]);
     g_pGDL->numCachedMatrices++;
     return g_pGDL->numMatrices++;
 }
@@ -728,7 +728,7 @@ typedef struct GeometryGroup {
     u16 unk0;
     u16 flags;
     u8 unk4[0x10 - 0x4];
-    void *data;
+    PTR32(void) data;
     u16 unk14;
     u8 unk16[0x18 - 0x16];
     u16 unk18;
@@ -748,8 +748,8 @@ typedef struct Geometry {
     u16 numGroups;
     u16 unk4;
     u16 unk6;
-    GeometryGroup *groups;
-    GeometryVertex *verts;
+    PTR32(GeometryGroup) groups;
+    PTR32(GeometryVertex) verts;
 } Geometry;
 
 static inline void Gfx_Add3DLine(Vector4 *p0, Vector4 *p1, GXColor *color) {
@@ -766,7 +766,7 @@ void *Gfx_GetWorldMatrixState(u32 index) {
     if (index == 0xFFFF) {
         return &GetRenderWindow()->viewMatrix;
     }
-    return g_pGDL->matrices[index];
+    return GETP(g_pGDL->matrices[index]);
 }
 
 void XformVec(void *m, Vector4 *v, Vector4 *out);
@@ -778,15 +778,15 @@ void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix) {
     u32 count;
     s32 j;
 
-    grp = &geometry->groups[group];
-    count = (u32)HND(grp->data);
+    grp = &GETP(geometry->groups)[group];
+    count = (u32)HND(GETP(grp->data));
     for (i = 0; i < count; i++) {
         for (j = 0; j < 3; j++) {
-            XformVec(matrix, &geometry->verts[grp->tris[i][j]].pos, &v[j]);
+            XformVec(matrix, &GETP(geometry->verts)[grp->tris[i][j]].pos, &v[j]);
         }
-        Gfx_Add3DLine(&v[0], &v[1], &geometry->verts[grp->tris[i][0]].color);
-        Gfx_Add3DLine(&v[1], &v[2], &geometry->verts[grp->tris[i][1]].color);
-        Gfx_Add3DLine(&v[2], &v[0], &geometry->verts[grp->tris[i][2]].color);
+        Gfx_Add3DLine(&v[0], &v[1], &GETP(geometry->verts)[grp->tris[i][0]].color);
+        Gfx_Add3DLine(&v[1], &v[2], &GETP(geometry->verts)[grp->tris[i][1]].color);
+        Gfx_Add3DLine(&v[2], &v[0], &GETP(geometry->verts)[grp->tris[i][2]].color);
     }
 }
 
@@ -913,14 +913,14 @@ void DisplayList_RenderGXList(void) {
     if (g_CurrentViews == 1) {
         for (j = 0; j < g_pGDL->numDrawEntries; j++) {
             matrix = Gfx_GetWorldMatrixState(g_pGDL->drawEntries[j].matrix);
-            geometry = Gfx_GetCullLODGX(g_pGDL->drawEntries[j].geometry, matrix, &lod, g_pGDL->drawEntries[j].unk11);
+            geometry = Gfx_GetCullLODGX(GETP(g_pGDL->drawEntries[j].geometry), matrix, &lod, g_pGDL->drawEntries[j].unk11);
             if (geometry) {
                 DisplayList_AddGeometry(geometry, g_pGDL->drawEntries[j].matrix, g_pGDL->drawEntries[j].lightState,
                                         lod, g_pGDL->drawEntries[j].unk10, g_pGDL->drawEntries[j].color);
             }
         }
         for (j = 0; j < g_pGDL->numLODEntries; j++) {
-            DisplayList_AddGeometry((u32)HND(g_pGDL->lodEntries[j].geometry), g_pGDL->lodEntries[j].matrix, -1, 1, 0, color);
+            DisplayList_AddGeometry((u32)HND(GETP(g_pGDL->lodEntries[j].geometry)), g_pGDL->lodEntries[j].matrix, -1, 1, 0, color);
         }
     } else {
         for (i = 0; i < g_pGDL->numDrawEntries; i++) {
@@ -928,7 +928,7 @@ void DisplayList_RenderGXList(void) {
             for (view = 1; view < 5; view++) {
                 if (g_CurrentViews & (1 << view)) {
                     Gfx_SetRenderWindow(view);
-                    geometry = Gfx_GetCullLODGX(g_pGDL->drawEntries[i].geometry, matrix, &lod2, g_pGDL->drawEntries[i].unk11);
+                    geometry = Gfx_GetCullLODGX(GETP(g_pGDL->drawEntries[i].geometry), matrix, &lod2, g_pGDL->drawEntries[i].unk11);
                     if (geometry) {
                         DisplayList_AddGeometry(geometry, g_pGDL->drawEntries[i].matrix,
                                                 g_pGDL->drawEntries[i].lightState, lod2, g_pGDL->drawEntries[i].unk10,
@@ -941,7 +941,7 @@ void DisplayList_RenderGXList(void) {
             for (view = 1; view < 5; view++) {
                 if (g_CurrentViews & (1 << view)) {
                     Gfx_SetRenderWindow(view);
-                    DisplayList_AddGeometry((u32)HND(g_pGDL->lodEntries[i].geometry), g_pGDL->lodEntries[i].matrix, -1, 1, 0, color);
+                    DisplayList_AddGeometry((u32)HND(GETP(g_pGDL->lodEntries[i].geometry)), g_pGDL->lodEntries[i].matrix, -1, 1, 0, color);
                 }
             }
         }
@@ -955,12 +955,12 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
     u16 flags;
     u8 unkE;
 
-    if (geom->groups[0].flags & 0x4000) {
+    if (GETP(geom->groups)[0].flags & 0x4000) {
         for (i = 0; i < geom->numGroups; i++) {
-            if (geom->groups[i].data != NULL) {
+            if (GETP(GETP(geom->groups)[i].data) != NULL) {
                 group = DisplayList_AddGroup_Overlay();
                 if (group != NULL) {
-                    group->geometry = geom;
+                    SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
                     group->unkE = 0;
@@ -972,15 +972,15 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
         return;
     }
     for (i = 0; i < geom->numGroups; i++) {
-        if (geom->groups[i].data == NULL) {
+        if (GETP(GETP(geom->groups)[i].data) == NULL) {
             continue;
         }
-        flags = geom->groups[i].flags;
-        unkE = geom->groups[i].unk14;
+        flags = GETP(geom->groups)[i].flags;
+        unkE = GETP(geom->groups)[i].unk14;
         if (flags & 2) {
             group = DisplayList_AddGroup_Alpha();
             if (group != NULL) {
-                group->geometry = geom;
+                SETP(group->geometry, geom);
                 group->group = i;
                 group->matrix = matrix;
                 group->unkE = unkE;
@@ -994,9 +994,9 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
             DisplayList_AddGeometryAlphaGroup(geom, i, matrix, flag, color);
         } else if (!(flags & 0x40)) {
             if ((flags & 4) || (flags & 0x10)) {
-                group = DisplayList_AddGroup_Lit(geom->groups[i].unk18);
+                group = DisplayList_AddGroup_Lit(GETP(geom->groups)[i].unk18);
                 if (group != NULL) {
-                    group->geometry = geom;
+                    SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
                     group->unkE = unkE;
@@ -1007,7 +1007,7 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
             } else if (flags & 0x100) {
                 group = DisplayList_AddGroup_Decal();
                 if (group != NULL) {
-                    group->geometry = geom;
+                    SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
                     group->unkE = unkE;
@@ -1015,9 +1015,9 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
                     group->window = g_currentWindow;
                 }
             } else {
-                group = DisplayList_AddGroup_Opaque(geom->groups[i].unk18);
+                group = DisplayList_AddGroup_Opaque(GETP(geom->groups)[i].unk18);
                 if (group != NULL) {
-                    group->geometry = geom;
+                    SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
                     group->unkE = unkE;
@@ -1026,10 +1026,10 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
                 }
             }
         }
-        if (geom->groups[i].flags & 0x10) {
+        if (GETP(geom->groups)[i].flags & 0x10) {
             group = DisplayList_AddGroup_Shadow();
             if (group != NULL) {
-                group->geometry = geom;
+                SETP(group->geometry, geom);
                 group->group = i;
                 group->matrix = matrix;
                 group->unkE = unkE;

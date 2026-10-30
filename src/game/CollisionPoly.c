@@ -3,7 +3,7 @@
 
 typedef struct Poly {
     Vector4 plane;   /* 0x00 */
-    Vector4 *verts;  /* 0x10: w holds the index of the opposite vertex */
+    PTR32(Vector4) verts;  /* 0x10: w holds the index of the opposite vertex */
     u32 numVerts;    /* 0x14 */
 } Poly;
 
@@ -33,11 +33,11 @@ f32 RayHitsPoly(Vector4 *start, Vector4 *dir, Poly *p, f32 t) {
     }
     prev = p->numVerts - 1;
     for (i = 0; i < p->numVerts; i++) {
-        PSVECSubtract(&p->verts[i], &p->verts[prev], &edge);
+        PSVECSubtract(&GETP(p->verts)[i], &GETP(p->verts)[prev], &edge);
         PSVECCrossProduct(dir, &edge, &normal);
         base = PSVECDotProduct(&normal, start);
-        a = PSVECDotProduct(&normal, &p->verts[i]);
-        b = PSVECDotProduct(&normal, &p->verts[(u32)p->verts[i].w]);
+        a = PSVECDotProduct(&normal, &GETP(p->verts)[i]);
+        b = PSVECDotProduct(&normal, &GETP(p->verts)[(u32)GETP(p->verts)[i].w]);
         if ((a - base) * (b - base) > 0.0f) {
             return t;
         }

@@ -18,19 +18,19 @@ s32 StateGameManager_Heartbeat(void) {
     typedef struct { s32 name; s32 script; } PackRef;
     typedef struct { u8 type; void *movie; PackRef *pack; } Step;
     typedef struct { u8 pad0[4]; s32 menuName; u8 pad8[0x20]; s32 menuFile; u32 numSteps; Step *steps; } MCP;
-    extern struct { MCP *mcp; u32 step; } g_GameManagerState;
+    extern struct { PTR32(MCP) mcp; u32 step; } g_GameManagerState;
     extern s8 g_bInterfacePlaying;
     extern s32 g_interfacePackID;
     s8 loadDefaults = 0;
     Step *step;
     void *pack;
 
-    if (g_GameManagerState.mcp == NULL) {
+    if (GETP(g_GameManagerState.mcp) == NULL) {
         StateManager_GotoState(0xB);
         return 1;
     }
-    if (g_GameManagerState.step < g_GameManagerState.mcp->numSteps) {
-        step = &g_GameManagerState.mcp->steps[g_GameManagerState.step];
+    if (g_GameManagerState.step < GETP(g_GameManagerState.mcp)->numSteps) {
+        step = &GETP(g_GameManagerState.mcp)->steps[g_GameManagerState.step];
         switch (step->type) {
         case 0:
             if (step->movie != NULL) {
@@ -47,8 +47,8 @@ s32 StateGameManager_Heartbeat(void) {
                     InterfaceManager_Create(DataPack_GetScript(pack, step->pack->script), 0, StateGameManager_InterfaceHandler);
                     g_bInterfacePlaying = 1;
                 }
-                if (g_GameManagerState.step == g_GameManagerState.mcp->numSteps - 1) {
-                    FileStreaming_LoadDataPack(PTR(g_GameManagerState.mcp->menuName), 1, g_GameManagerState.mcp->menuFile, 0);
+                if (g_GameManagerState.step == GETP(g_GameManagerState.mcp)->numSteps - 1) {
+                    FileStreaming_LoadDataPack(PTR(GETP(g_GameManagerState.mcp)->menuName), 1, GETP(g_GameManagerState.mcp)->menuFile, 0);
                 }
             }
             ShowStats_StartFrame();
@@ -75,7 +75,7 @@ s32 StateGameManager_Heartbeat(void) {
             g_GameManagerState.step++;
         }
     } else {
-        StateTitleScreen_SetMenuFile(PTR(g_GameManagerState.mcp->menuName), g_GameManagerState.mcp->menuFile);
+        StateTitleScreen_SetMenuFile(PTR(GETP(g_GameManagerState.mcp)->menuName), GETP(g_GameManagerState.mcp)->menuFile);
         StateManager_QueueChange(2);
     }
     return 1;
@@ -96,18 +96,18 @@ void StateGameManager_Release(void) {
 }
 
 s32 StateGameManager_GetProgScript(u32 index) {
-    extern struct { u8 *mcp; s32 unk4; } g_GameManagerState;
+    extern struct { PTR32(u8) mcp; s32 unk4; } g_GameManagerState;
 
     if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
-        if (g_GameManagerState.mcp != NULL) {
-            return M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(g_GameManagerState.mcp) + 0x24), s32 *, 8);
+        if (GETP(g_GameManagerState.mcp) != NULL) {
+            return M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(GETP(g_GameManagerState.mcp)) + 0x24), s32 *, 8);
         }
         return 0;
     }
-    if (g_GameManagerState.mcp == NULL || index >= M2C_FIELD(g_GameManagerState.mcp, u32 *, 0x34)) {
+    if (GETP(g_GameManagerState.mcp) == NULL || index >= M2C_FIELD(GETP(g_GameManagerState.mcp), u32 *, 0x34)) {
         return 0;
     }
-    return SLOT_LOAD(s32 *, (u8 *)(g_GameManagerState.mcp) + 0x38)[index];
+    return SLOT_LOAD(s32 *, (u8 *)(GETP(g_GameManagerState.mcp)) + 0x38)[index];
 }
 
 void StateGameManager_InterfaceHandler(void *event) {

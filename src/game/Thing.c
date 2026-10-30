@@ -16,7 +16,7 @@ typedef struct Thing {
     u8 unk83;          /* 0x83 */
     s32 unk84;         /* 0x84 */
     s32 unk88;         /* 0x88 */
-    void **vtable;     /* 0x8C */
+    PTR32(void *) vtable;     /* 0x8C */
     u8 pad90[4];
     s32 unk94;         /* 0x94 */
 } Thing;
@@ -162,7 +162,7 @@ s32 Thing_GetSource(void *arg0) {
 }
 
 s8 Thing_HasThing(Thing *thing, void *target) {
-    u8 *vtable = (u8 *)thing->vtable;
+    u8 *vtable = (u8 *)GETP(thing->vtable);
     s8 found;
 
     if (vtable == g_carAVTable) {
@@ -488,7 +488,7 @@ s32 ActionVehicleTeleport(u32 *action) {
         u8 pad78[0x8C - 0x78];
         void (**vtbl)(void *);
         u8 pad90[0x94 - 0x90];
-        u8 *player;
+        PTR32(u8) player;
         u8 pad98[0x3B0 - 0x98];
         s32 unk3B0;
     } Car;
@@ -515,18 +515,18 @@ s32 ActionVehicleTeleport(u32 *action) {
         if (data->flags & 2) {
             InverseXformVecOrientation(&car->mtx, &car->vel, &local);
             XformVecOrientation(data, &local, &car->vel);
-        } else if (car->player != NULL && SLOT_LOAD(Car *, (car->player + 0x2C)) != NULL &&
-                   SLOT_LOAD(Car *, (car->player + 0x2C)) == car) {
-            car->player[0x32] = 5;
+        } else if (GETP(car->player) != NULL && SLOT_LOAD(Car *, (GETP(car->player) + 0x2C)) != NULL &&
+                   SLOT_LOAD(Car *, (GETP(car->player) + 0x2C)) == car) {
+            GETP(car->player)[0x32] = 5;
         }
         car->mtx = data->mtx;
         SubMatrixToQuaternion(&car->mtx, &car->quat);
         car->vtbl[3](car);
         car->flags |= 0x800;
         car->unk3B0 = -1;
-        if (!Player_IsHuman(car->player)) {
-            *(s32 *)(car->player + 0x4A4) = 0x20;
-            *(s32 *)(car->player + 0x634) = -0x78;
+        if (!Player_IsHuman(GETP(car->player))) {
+            *(s32 *)(GETP(car->player) + 0x4A4) = 0x20;
+            *(s32 *)(GETP(car->player) + 0x634) = -0x78;
         }
     }
     return 1;
@@ -605,9 +605,9 @@ void Thing_MoveSlaves(Thing *thing) {
     ThingManagerList_RemoveReleasedThings(&thing->unk88);
 }
 
-void Thing_InitAllSlavesNow(s32 arg0) {
-    M2C_UNK ThingManagerList_InitAllSlavesNow(s32);
-    ThingManagerList_InitAllSlavesNow(arg0 + 0x88);
+void Thing_InitAllSlavesNow(s32 arg0, void *data, s32 mask) {
+    void ThingManagerList_InitAllSlavesNow(void *list, void *data, s32 mask);
+    ThingManagerList_InitAllSlavesNow(PTR(arg0 + 0x88), data, mask);
 }
 
 void Thing_SlaveTransform(Thing *thing, Matrix4 *mtx) {
@@ -720,11 +720,11 @@ void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand
         break;
     case 1:
         if (thing->flags & 8) {
-            thing = ((Thing *(*)(Thing *))thing->vtable[0x10])(thing);
+            thing = ((Thing *(*)(Thing *))GETP(thing->vtable)[0x10])(thing);
             CopyVector(min, (Vector4 *)((u8 *)thing + 0xD0));
             CopyVector(max, (Vector4 *)((u8 *)thing + 0xE0));
         } else {
-            box = ((Box *(*)(Thing *))thing->vtable[0x10])(thing);
+            box = ((Box *(*)(Thing *))GETP(thing->vtable)[0x10])(thing);
             for (i = 0; i < 8; i++) {
                 p1 = box->corners[i];
                 MinMaxVec(min, max, &p1);
@@ -850,7 +850,7 @@ void Thing_ProcessEndEvent(u8 *thing, u8 *event, u8 *collision, Vector4 *vel) {
         Vector4 quat;
         Vector4 origin;
         Vector4 vel;
-        void *data;
+        PTR32(void) data;
         s32 owner;
         f32 a;
         f32 b;
@@ -863,7 +863,7 @@ void Thing_ProcessEndEvent(u8 *thing, u8 *event, u8 *collision, Vector4 *vel) {
         data = SLOT_LOAD(void *, (u32 *)SLOT_LOAD(void *, (event + 0x38)) + (RandomAdd_s32(0, *(u32 *)(event + 0x34))));
     }
     if (data != NULL) {
-        params.data = data;
+        SETP(params.data, data);
         params.pos = *(Vector4 *)(thing + 0x40);
         params.quat = *(Vector4 *)(thing + 0x50);
         params.origin = *(Vector4 *)(thing + 0x0);
@@ -905,7 +905,7 @@ s32 Thing_GetOrientedCollision(void) {
 s32 Thing_HitsTerrain(void *thing, void *arg1, void *arg2) {
     s32 OBoxHitsTerrain(void *obox, void *thing, void *arg1, void *arg2);
 
-    if (g_worldData.world == NULL) {
+    if (GETP(g_worldData.world) == NULL) {
         return 0;
     }
     switch (M2C_FIELD(thing, s16 *, 0x80)) {
@@ -917,7 +917,7 @@ s32 Thing_HitsTerrain(void *thing, void *arg1, void *arg2) {
     return 0;
 }
 
-void Thing_PassiveTargeting(void)
+void Thing_PassiveTargeting(void *thing)
 {
 }
 

@@ -133,7 +133,7 @@ GfxWindow *GetRenderWindow(void);
 
 
 typedef struct GDLDrawEntry {
-    void *geometry;
+    PTR32(void) geometry;
     GXColor color;
     u32 matrix;
     s32 lightState;
@@ -867,18 +867,18 @@ void Render_DrawShadows(void) {
         u8 unk4[0x10 - 0x4];
         u32 numEdges;
         u8 unk14[0x1C - 0x14];
-        SilhouetteEdge *edges;
+        PTR32(SilhouetteEdge) edges;
     } ShadowGroup;
     typedef struct ShadowGeometry {
         u16 unk0;
         u16 numGroups;
         u8 unk4[0x8 - 0x4];
-        ShadowGroup *groups;
+        PTR32(ShadowGroup) groups;
         f32 (*verts)[3];
     } ShadowGeometry;
     typedef struct ShadowModel {
         u8 unk0[0x8];
-        ShadowGeometry *geometry;
+        PTR32(ShadowGeometry) geometry;
     } ShadowModel;
     void InverseXformVecOrientation(void *m, Vector *v, Vector *out);
     Vector dir __attribute__((aligned(16)));
@@ -898,14 +898,14 @@ void Render_DrawShadows(void) {
     GXSetVtxAttrFmt(0, 0xB, 1, 5, 0);
     m_VtxDescFlag = 0;
     for (i = 0; i < g_pGDL->numDrawEntries; i++) {
-        model = (ShadowModel *)g_pGDL->drawEntries[i].geometry;
+        model = (ShadowModel *)GETP(g_pGDL->drawEntries[i].geometry);
         matrix = Gfx_GetWorldMatrixState(g_pGDL->drawEntries[i].matrix);
-        if (model->geometry->groups->flags & 0x4000) {
+        if (GETP(GETP(model->geometry)->groups)->flags & 0x4000) {
             numShadows++;
             Gfx_SetWorldMatrix(matrix);
             InverseXformVecOrientation(GetRenderWindow(), &lightDir, &dir);
-            for (j = 0; j < model->geometry->numGroups; j++) {
-                CreateSilhouette(model->geometry->groups[j].edges, model->geometry->groups[j].numEdges, &dir.x);
+            for (j = 0; j < GETP(model->geometry)->numGroups; j++) {
+                CreateSilhouette(GETP(GETP(GETP(model->geometry)->groups)[j].edges), GETP(GETP(model->geometry)->groups)[j].numEdges, &dir.x);
             }
             GXSetColorUpdate(0);
             GXSetZMode(1, 1, 0);
@@ -914,14 +914,14 @@ void Render_DrawShadows(void) {
             GXSetNumTexGens(0);
             GXSetTevOrder(0, 0xFF, 0xFF, 4);
             GXSetBlendMode(1, 1, 1, 5);
-            for (j = 0; j < model->geometry->numGroups; j++) {
-                DrawVolume(model->geometry->verts, model->geometry->groups[j].edges, model->geometry->groups[j].numEdges,
+            for (j = 0; j < GETP(model->geometry)->numGroups; j++) {
+                DrawVolume(GETP(model->geometry)->verts, GETP(GETP(GETP(model->geometry)->groups)[j].edges), GETP(GETP(model->geometry)->groups)[j].numEdges,
                            300.0f * dir.x, 300.0f * dir.y, 300.0f * dir.z);
             }
             GXSetBlendMode(1, 0, 3, 5);
             GXSetCullMode(2);
-            for (j = 0; j < model->geometry->numGroups; j++) {
-                DrawVolume(model->geometry->verts, model->geometry->groups[j].edges, model->geometry->groups[j].numEdges,
+            for (j = 0; j < GETP(model->geometry)->numGroups; j++) {
+                DrawVolume(GETP(model->geometry)->verts, GETP(GETP(GETP(model->geometry)->groups)[j].edges), GETP(GETP(model->geometry)->groups)[j].numEdges,
                            300.0f * dir.x, 300.0f * dir.y, 300.0f * dir.z);
             }
             GXSetCullMode(1);

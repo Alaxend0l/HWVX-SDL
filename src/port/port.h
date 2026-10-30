@@ -133,6 +133,16 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 #define SLOT_LOAD(type, addr) ((type)PTR(*(u32 *)PORT_ADDR(addr)))
 #define SLOT_STORE(addr, p) (*(u32 *)PORT_ADDR(addr) = HND(p))
 
+/* Pointer fields in game structs. `T *field;` is declared `PTR32(T) field;`:
+ * 4 bytes holding a handle, with the pointee type carried by a zero-length
+ * array so GETP() can hand back a properly typed pointer. Being a union, any
+ * use that skips GETP/SETP (arithmetic, comparison, assignment) fails to
+ * compile instead of silently doing integer math on a handle. */
+#define PTR32(T) union __attribute__((packed, aligned(4))) { u32 h; T *_t[0]; }
+#define FPTR32(R, ARGS) union __attribute__((packed, aligned(4))) { u32 h; R(*_t[0]) ARGS; }
+#define GETP(f) ((__typeof__((f)._t[0]))Port_HandleToPtr((f).h))
+#define SETP(f, p) ((f).h = Port_PtrToHandle(p))
+
 /* Size checks from the decomp only hold where pointers are 4 bytes. */
 #if UINTPTR_MAX == 0xFFFFFFFFu
 #define PORT_PTR32 1

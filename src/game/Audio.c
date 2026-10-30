@@ -50,7 +50,7 @@ void Audio_Destroy(void)
 	g_init = 0;
 }
 
-void Audio_Update(void)
+void Audio_Update(u32 unused)
 {
 	if (SongUpdate != NULL)
 	{

@@ -15,12 +15,12 @@ typedef struct CoronaData {
     s32 spin;           /* 0x10 */
     u32 texture;        /* 0x14 */
     u8 colorTrack[8];   /* 0x18 */
-    void *lens;         /* 0x20 */
+    PTR32(void) lens;         /* 0x20 */
 } CoronaData;
 
 /* An emitter's corona: its colour track and the interpolation state. */
 typedef struct Corona {
-    CoronaData *track;  /* 0x00 */
+    PTR32(CoronaData) track;  /* 0x00 */
     u8 pad04[0x0C];     /* 0x04 */
     Vector4 pos;        /* 0x10 */
     f32 color[4];       /* 0x20 */
@@ -52,7 +52,7 @@ s32 CoronaHolder_Add(CoronaData *corona, Vector4 *pos)
     if (corona == NULL) {
         return -1;
     }
-    g_aCorona[g_totalCoronas].track = corona;
+    SETP(g_aCorona[g_totalCoronas].track, corona);
     {
         Corona *c = &g_aCorona[g_totalCoronas];
         c->pos = *pos;
@@ -60,8 +60,8 @@ s32 CoronaHolder_Add(CoronaData *corona, Vector4 *pos)
         c->playing = 0;
         c->time = 0;
         c->active = 1;
-        if (corona->lens != NULL) {
-            c->flare = LensFlare_Add(corona->lens, 0, pos);
+        if (GETP(corona->lens) != NULL) {
+            c->flare = LensFlare_Add(GETP(corona->lens), 0, pos);
         }
     }
     return g_totalCoronas++;
@@ -93,9 +93,9 @@ void CoronaHolder_Render(void) {
             c->time = 0;
             continue;
         }
-        if (c->track->distCheck && GameSettings_GetNumOfPlayers() == 1) {
+        if (GETP(c->track)->distCheck && GameSettings_GetNumOfPlayers() == 1) {
             DistanceXYZ(&c->pos, &camera, &dist);
-            if (dist > c->track->maxDist) {
+            if (dist > GETP(c->track)->maxDist) {
                 continue;
             }
         }
@@ -110,11 +110,11 @@ void CoronaHolder_Render(void) {
         }
         if (c->time && c->playing) {
             rot = 0.0f;
-            if (c->track->rotate) {
-                rot = (screen.x - 320.0f) * (0.017453292f * (0.25f * -(f32)c->track->spin));
+            if (GETP(c->track)->rotate) {
+                rot = (screen.x - 320.0f) * (0.017453292f * (0.25f * -(f32)GETP(c->track)->spin));
             }
             color = c->rgba;
-            Gfx_Add2DSprite(&screen, c->track->texture, color, c->track->size, c->track->type, rot);
+            Gfx_Add2DSprite(&screen, GETP(c->track)->texture, color, GETP(c->track)->size, GETP(c->track)->type, rot);
         }
     }
 }
@@ -128,16 +128,16 @@ void CoronaHolder_Heartbeat(void) {
     for (i = 0; i < g_totalCoronas; i++) {
         corona = &g_aCorona[i];
         if (corona->playing) {
-            if (corona->time < corona->track->fadeTime) {
+            if (corona->time < GETP(corona->track)->fadeTime) {
                 corona->active = 1;
                 corona->time += delta;
-                ExtractColorKey(corona->track->colorTrack, corona->color, corona->time);
+                ExtractColorKey(GETP(corona->track)->colorTrack, corona->color, corona->time);
             }
         } else if (corona->time != 0) {
             corona->active = 1;
             if (delta < corona->time) {
                 corona->time -= delta;
-                ExtractColorKey(corona->track->colorTrack, corona->color, corona->time);
+                ExtractColorKey(GETP(corona->track)->colorTrack, corona->color, corona->time);
             } else {
                 corona->time = 0;
             }

@@ -33,7 +33,7 @@ s32 ShaderHolder_AddShader(ShaderDef *def) {
     u32 n;
 
     for (i = 0; i < g_pShaderHolder->numShaders; i++) {
-        if (((Shader *)g_pShaderHolder->shaders[i])->def == def) {
+        if (GETP(((Shader *)GETP(g_pShaderHolder->shaders[i]))->def) == def) {
             return i;
         }
     }
@@ -44,15 +44,15 @@ s32 ShaderHolder_AddShader(ShaderDef *def) {
         }
     }
     n = g_pShaderHolder->numShaders++;
-    g_pShaderHolder->shaders[n] = &g_pShaderHolder->slots[slot];
-    ((Shader *)g_pShaderHolder->shaders[n])->def = def;
-    ((Shader *)g_pShaderHolder->shaders[n])->unk2C = 1;
-    ((Shader *)g_pShaderHolder->shaders[n])->unk38 = 1;
-    ((Shader *)g_pShaderHolder->shaders[n])->unk58 = 1;
-    ((Shader *)g_pShaderHolder->shaders[n])->hasColorKey = def->numColorKeys > 1;
-    ((Shader *)g_pShaderHolder->shaders[n])->hasTextureKey = *def->textureKeys != 0;
-    ((Shader *)g_pShaderHolder->shaders[n])->hasPointKey = def->numPointKeys > 1;
-    ((Shader *)g_pShaderHolder->shaders[n])->refCount = 1;
+    SETP(g_pShaderHolder->shaders[n], &g_pShaderHolder->slots[slot]);
+    SETP(((Shader *)GETP(g_pShaderHolder->shaders[n]))->def, def);
+    ((Shader *)GETP(g_pShaderHolder->shaders[n]))->unk2C = 1;
+    ((Shader *)GETP(g_pShaderHolder->shaders[n]))->unk38 = 1;
+    ((Shader *)GETP(g_pShaderHolder->shaders[n]))->unk58 = 1;
+    ((Shader *)GETP(g_pShaderHolder->shaders[n]))->hasColorKey = def->numColorKeys > 1;
+    ((Shader *)GETP(g_pShaderHolder->shaders[n]))->hasTextureKey = *GETP(def->textureKeys) != 0;
+    ((Shader *)GETP(g_pShaderHolder->shaders[n]))->hasPointKey = def->numPointKeys > 1;
+    ((Shader *)GETP(g_pShaderHolder->shaders[n]))->refCount = 1;
     return n;
 }
 
@@ -64,10 +64,10 @@ void ShaderHolder_RemoveShader(void *id) {
         return;
     }
     for (i = 0; i < g_pShaderHolder->numShaders; i++) {
-        if (SLOT_LOAD(void *, (u8 *)(g_pShaderHolder->shaders[i]) + 0x5C) == id) {
-            if (--M2C_FIELD(g_pShaderHolder->shaders[i], s32 *, 0x64) == 0) {
+        if (SLOT_LOAD(void *, (u8 *)(GETP(g_pShaderHolder->shaders[i])) + 0x5C) == id) {
+            if (--M2C_FIELD(GETP(g_pShaderHolder->shaders[i]), s32 *, 0x64) == 0) {
                 g_pShaderHolder->numShaders--;
-                g_pShaderHolder->shaders[i] = g_pShaderHolder->shaders[g_pShaderHolder->numShaders];
+                SETP(g_pShaderHolder->shaders[i], GETP(g_pShaderHolder->shaders[g_pShaderHolder->numShaders]));
             }
             return;
         }
@@ -83,13 +83,13 @@ void ShaderHolder_AddGX(void *gx, u32 index) {
         return;
     }
     for (i = 0; i < g_pShaderHolder->numGX; i++) {
-        if (g_pShaderHolder->gx[i].gx == gx) {
+        if (GETP(g_pShaderHolder->gx[i].gx) == gx) {
             return;
         }
     }
     n = g_pShaderHolder->numGX++;
-    g_pShaderHolder->gx[n].gx = gx;
-    g_pShaderHolder->gx[n].shader = g_pShaderHolder->shaders[index];
+    SETP(g_pShaderHolder->gx[n].gx, gx);
+    SETP(g_pShaderHolder->gx[n].shader, GETP(g_pShaderHolder->shaders[index]));
 }
 
 void ShaderHolder_RemoveGX(s32 gx) {
@@ -100,7 +100,7 @@ void ShaderHolder_RemoveGX(s32 gx) {
         return;
     }
     for (i = 0; i < g_pShaderHolder->numGX; i++) {
-        if (g_pShaderHolder->gx[i].gx == (void *)PTR(gx)) {
+        if (GETP(g_pShaderHolder->gx[i].gx) == (void *)PTR(gx)) {
             g_pShaderHolder->numGX--;
             g_pShaderHolder->gx[i] = g_pShaderHolder->gx[g_pShaderHolder->numGX];
             return;
@@ -116,19 +116,19 @@ void ShaderHolder_Heartbeat(void) {
 
     dt = g_fDeltaTimeMS;
     for (i = 0; i < g_pShaderHolder->numShaders; i++) {
-        if (((u8 *)g_pShaderHolder->shaders[i])[0x60] != 0) {
-            ExtractColorKey(SLOT_LOAD(u8 *, ((u8 *)g_pShaderHolder->shaders[i] + 0x5C)) + 4, g_pShaderHolder->shaders[i], dt);
+        if (((u8 *)GETP(g_pShaderHolder->shaders[i]))[0x60] != 0) {
+            ExtractColorKey(SLOT_LOAD(u8 *, ((u8 *)GETP(g_pShaderHolder->shaders[i]) + 0x5C)) + 4, GETP(g_pShaderHolder->shaders[i]), dt);
         }
-        if (((u8 *)g_pShaderHolder->shaders[i])[0x62] != 0) {
-            ExtractPointKey(SLOT_LOAD(u8 *, ((u8 *)g_pShaderHolder->shaders[i] + 0x5C)) + 0xC, (u8 *)g_pShaderHolder->shaders[i] + 0x40, dt);
+        if (((u8 *)GETP(g_pShaderHolder->shaders[i]))[0x62] != 0) {
+            ExtractPointKey(SLOT_LOAD(u8 *, ((u8 *)GETP(g_pShaderHolder->shaders[i]) + 0x5C)) + 0xC, (u8 *)GETP(g_pShaderHolder->shaders[i]) + 0x40, dt);
         }
-        if (((u8 *)g_pShaderHolder->shaders[i])[0x61] != 0) {
-            ExtractTextureKey(SLOT_LOAD(TextureKeyAnim *, (SLOT_LOAD(u8 *, ((u8 *)g_pShaderHolder->shaders[i] + 0x5C)) + 0x14)), (TextureKeyState *)((u8 *)g_pShaderHolder->shaders[i] + 0x30), dt);
+        if (((u8 *)GETP(g_pShaderHolder->shaders[i]))[0x61] != 0) {
+            ExtractTextureKey(SLOT_LOAD(TextureKeyAnim *, (SLOT_LOAD(u8 *, ((u8 *)GETP(g_pShaderHolder->shaders[i]) + 0x5C)) + 0x14)), (TextureKeyState *)((u8 *)GETP(g_pShaderHolder->shaders[i]) + 0x30), dt);
         }
     }
     for (i = 0; i < g_pShaderHolder->numGX; i++) {
-        u8 *shader = g_pShaderHolder->gx[i].shader;
-        u8 *gx = g_pShaderHolder->gx[i].gx;
+        u8 *shader = GETP(g_pShaderHolder->gx[i].shader);
+        u8 *gx = GETP(g_pShaderHolder->gx[i].gx);
         u8 *mtx = SLOT_LOAD(u8 *, (gx + 0xC));
 
         if (*SLOT_LOAD(u8 *, (shader + 0x5C)) != 0) {

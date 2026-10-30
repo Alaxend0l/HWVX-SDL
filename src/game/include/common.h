@@ -34,17 +34,17 @@ typedef union Matrix4 {
 
 
 typedef struct GameInfo {
-  const char *name;
-  const char *id;
-  const char *title;
-  const char *fileName;
-  const char *icon;
+  PTR32(const char) name;
+  PTR32(const char) id;
+  PTR32(const char) title;
+  PTR32(const char) fileName;
+  PTR32(const char) icon;
   s32 unk14;
   s32 unk18;
 } GameInfo;
 
 typedef struct WorldData {
-  void *world;
+  PTR32(void) world;
   s32 unk4;
   s32 unk8[4];
 } WorldData;
@@ -57,7 +57,7 @@ typedef struct CameraListener {
 } CameraListener;
 
 typedef struct Camera {
-  struct Player *player;    /* 0x00 */
+  PTR32(struct Player) player;    /* 0x00 */
   u8 pad4[0xC];
   Matrix4 mtx;              /* 0x10 v[3] = position */
   u8 pad50[0x10];
@@ -67,7 +67,7 @@ typedef struct Camera {
   Vector4 up;               /* 0x90 */
   Vector4 right;            /* 0xA0 */
   u8 padB0[4];
-  u32 *mode;                /* 0xB4 */
+  PTR32(u32) mode;                /* 0xB4 */
   f32 modeTime;             /* 0xB8 */
   f32 trim;                 /* 0xBC */
   u8 padC0[0x20];
@@ -81,7 +81,7 @@ typedef struct Camera {
   Vector4 tiltUpVel;        /* 0x160 */
   u8 pad170[0xC];
   s32 flipTimer;            /* 0x17C */
-  CameraListener *listener; /* 0x180 */
+  PTR32(CameraListener) listener; /* 0x180 */
   u8 pad184[0x190 - 0x184];
 } Camera;
 
@@ -97,8 +97,8 @@ typedef struct GXLightObjInt {
 } GXLightObjInt;
 
 typedef struct ShaderHolderGX {
-  void *gx;
-  void *shader;
+  PTR32(void) gx;
+  PTR32(void) shader;
 } ShaderHolderGX;
 
 typedef struct ShaderDef {
@@ -107,7 +107,7 @@ typedef struct ShaderDef {
   u8 pad8[4];
   u32 numPointKeys;
   u8 pad10[4];
-  u32 *textureKeys;
+  PTR32(u32) textureKeys;
 } ShaderDef;
 
 typedef struct Shader {
@@ -118,7 +118,7 @@ typedef struct Shader {
   u8 pad39[0x58 - 0x39];
   u8 unk58;
   u8 pad59[0x5C - 0x59];
-  ShaderDef *def;
+  PTR32(ShaderDef) def;
   u8 hasColorKey;
   u8 hasTextureKey;
   u8 hasPointKey;
@@ -128,7 +128,7 @@ typedef struct Shader {
 } Shader;
 
 typedef struct ShaderHolder {
-  void *shaders[0x40];
+  PTR32(void) shaders[0x40];
   Shader slots[0x40];
   ShaderHolderGX gx[0x80];
   u32 numShaders;
@@ -146,13 +146,13 @@ typedef struct DividingAxis {
 } DividingAxis;
 
 typedef struct DVDQueue {
-  struct DVDQueue *next;
-  struct DVDQueue *prev;
+  PTR32(struct DVDQueue) next;
+  PTR32(struct DVDQueue) prev;
 } DVDQueue;
 
 typedef struct TextureKeyAnim {
   u32 numKeys;
-  u32 *keys;
+  PTR32(u32) keys;
   u32 frameTime;
 } TextureKeyAnim;
 
@@ -195,16 +195,16 @@ typedef struct DestructibleInfo {
   s32 surfaceScript; /* 0x30 */
   u8 pad34[8];       /* 0x34 */
   u32 numDebris;     /* 0x3C */
-  u32 *debris;       /* 0x40 thing ids spawned when destroyed */
-  OBox *box;         /* 0x44 */
-  ConvexHull *hull;  /* 0x48 */
+  PTR32(u32) debris;       /* 0x40 thing ids spawned when destroyed */
+  PTR32(OBox) box;         /* 0x44 */
+  PTR32(ConvexHull) hull;  /* 0x48 */
 } DestructibleInfo;
 
 typedef struct ThingRecord {
-  void *geometry;         /* 0x00 */
+  PTR32(void) geometry;         /* 0x00 */
   u8 noDraw;              /* 0x04 */
   u8 pad05[0xB];          /* 0x05 */
-  DestructibleInfo *info; /* 0x10 */
+  PTR32(DestructibleInfo) info; /* 0x10 */
   u8 pad14[4];            /* 0x14 */
   u8 slaves[4];           /* 0x18 shared slaves */
 } ThingRecord;
@@ -217,22 +217,22 @@ typedef struct Destructible {
   u32 flags;           /* 0x74 */
   s32 health;          /* 0x78 */
   u8 pad7C[0xC];       /* 0x7C */
-  void *slaves;        /* 0x88 slave things list */
-  void *vtable;        /* 0x8C */
-  u8 *trigger;         /* 0x90 */
-  void *player;        /* 0x94 */
+  PTR32(void) slaves;        /* 0x88 slave things list */
+  PTR32(void) vtable;        /* 0x8C */
+  PTR32(u8) trigger;         /* 0x90 */
+  PTR32(void) player;        /* 0x94 */
   u8 pad98[0x28];      /* 0x98 */
-  ThingRecord *record; /* 0xC0 */
+  PTR32(ThingRecord) record; /* 0xC0 */
   f32 drawDist;        /* 0xC4 */
   s32 deathTimer;      /* 0xC8 ms until a dead destructible is released */
-  ConvexHull *hull;    /* 0xCC */
-  OBox *orientedBox;   /* 0xD0 */
+  PTR32(ConvexHull) hull;    /* 0xCC */
+  PTR32(OBox) orientedBox;   /* 0xD0 */
 } Destructible;
 
 typedef struct OConvexHull {
   Vector4 verts[32];        /* 0x00 */
   Vector4 planes[16];       /* 0x200 */
-  void *hull;               /* 0x300 */
+  PTR32(void) hull;               /* 0x300 */
   u8 pad304[0x3E0 - 0x304]; /* 0x304 */
 } OConvexHull;
 
@@ -260,7 +260,7 @@ typedef struct Creature {
   u8 unk82[0xB0 - 0x82];
   f32 unkB0;
   f32 unkB4;
-  u8 *anims;
+  PTR32(u8) anims;
   u8 unkBC[0xBF - 0xBC];
   u8 unkBF;
   f32 unkC0;
@@ -284,19 +284,19 @@ typedef struct InterfaceCallBackData {
 } InterfaceCallBackData;
 
 typedef struct InterfacePackEntry {
-  char *name;
+  PTR32(char) name;
   u32 id;
   u32 unk8;
 } InterfacePackEntry;
 
 typedef struct PlayerLink {
   u8 unk0[0x20];
-  void (*controlReader)();
-  void (*init)();
-  void (*heartbeat)();
+  FPTR32(void, (void)) controlReader;
+  FPTR32(void, (void)) init;
+  FPTR32(void, (void)) heartbeat;
   u8 unk2C[0xB0 - 0x2C];
-  struct PlayerLink *next;
-  struct PlayerLink *prev;
+  PTR32(struct PlayerLink) next;
+  PTR32(struct PlayerLink) prev;
 } PlayerLink;
 
 typedef struct GXDataTev {
@@ -331,7 +331,7 @@ typedef struct FileTOCCacheEntry {
 extern FileTOCCacheEntry g_fileTOCCache[11];
 
 typedef struct MatrixCacheEntry {
-  void *mtx;
+  PTR32(void) mtx;
   u32 key;
 } MatrixCacheEntry;
 
@@ -342,28 +342,28 @@ typedef struct MatrixCacheData {
 } MatrixCacheData;
 
 typedef struct SharedSlaveHolder {
-  void *key;
-  void *slaves;
+  PTR32(void) key;
+  PTR32(void) slaves;
 } SharedSlaveHolder;
 
 typedef struct ThingManagerDARYL {
   u8 unk0[0x6AD10];
   u8 looker[0xFE60];
-  void *activeList;
-  void *freeList[19];
+  PTR32(void) activeList;
+  PTR32(void) freeList[19];
 } ThingManagerDARYL;
 
 extern ThingManagerDARYL g_thingManager_DARYL;
 
 typedef struct NavData {
-  u8 *nodes;
+  PTR32(u8) nodes;
   u32 numNodes;
-  void *firstWayPoint;
+  PTR32(void) firstWayPoint;
 } NavData;
 
 typedef struct NavHolder {
-  NavData *data;
-  void **objects;
+  PTR32(NavData) data;
+  PTR32(void *) objects;
 } NavHolder;
 
 typedef struct NavLink {
@@ -371,9 +371,9 @@ typedef struct NavLink {
   u8 pad0C[4];
   u32 numPrev;
   u8 pad14[4];
-  s32 *prev;
+  PTR32(s32) prev;
   u32 numNext;
-  s32 *next;
+  PTR32(s32) next;
   u8 pad24[4];
   s32 index;
   u8 pad2C[0x24];
@@ -386,15 +386,15 @@ typedef struct CarPart {
   u8 pad2[2];
   u16 mtxIndex;
   u8 pad6[2];
-  void *geom;
-  Vector4 *offset;
-  Vector4 *slavePos;        /* 0x10 NULL: g_zeroVector */
+  PTR32(void) geom;
+  PTR32(Vector4) offset;
+  PTR32(Vector4) slavePos;        /* 0x10 NULL: g_zeroVector */
   u32 debris;               /* 0x14 thing spawned when the part breaks off */
-  void *slaveInfo;          /* 0x18 */
+  PTR32(void) slaveInfo;          /* 0x18 */
 } CarPart;
 typedef struct CarPartList {
   u32 count;
-  CarPart *parts;
+  PTR32(CarPart) parts;
 } CarPartList;
 typedef struct CarTrailBone {
   f32 offset;
@@ -420,7 +420,7 @@ typedef struct CarTrailBone {
 
 typedef struct CarNavPath {
   u8 pad[0x568];
-  u8 *path[7];
+  PTR32(u8) path[7];
 } CarNavPath;
 
 typedef struct ControllerSettings {
@@ -465,7 +465,7 @@ typedef struct CodeVariables {
   s8 unk109[0x111 - 0x109];
   s8 unk111;
   u8 unk112[0x114 - 0x112];
-  char *device;
+  PTR32(char) device;
   s32 fileIndex;
   s8 unk11C[3];
   s8 bOverwritingFile;
@@ -478,17 +478,17 @@ typedef struct SIControl {
   s32 chan;
   u32 poll;
   u32 inputBytes;
-  void *input;
-  void *callback;
+  PTR32(void) input;
+  PTR32(void) callback;
 } SIControl;
 
 typedef struct SIPacket {
   s32 chan;
-  void *output;
+  PTR32(void) output;
   u32 outputBytes;
-  void *input;
+  PTR32(void) input;
   u32 inputBytes;
-  void *callback;
+  PTR32(void) callback;
   s64 fire;
 } SIPacket;
 
@@ -534,18 +534,18 @@ typedef struct TRKEventQueue {
 typedef struct GXObject {
   u8 pad0[0x1C];
   u32 count;       /* 0x1C */
-  s32 *shaderList; /* 0x20 */
+  PTR32(s32) shaderList; /* 0x20 */
 } GXObject;
 
 typedef struct QuadPack {
   u8 pad00[0xC];
   u32 enabled;    /* 0x0C */
-  void *data;     /* 0x10 */
-  void *vertices; /* 0x14 */
+  PTR32(void) data;     /* 0x10 */
+  PTR32(void) vertices; /* 0x14 */
   u8 pad18[0x10];
   union {
-    GXObject *gxObject;            /* 0x28 */
-    struct QuadPackHeader *header; /* 0x28 */
+    PTR32(GXObject) gxObject;            /* 0x28 */
+    PTR32(struct QuadPackHeader) header; /* 0x28 */
   };
   s32 gxBase;         /* 0x2C */
   u8 pad30[0x4];
@@ -553,7 +553,7 @@ typedef struct QuadPack {
   u8 pad35[0x7];
   s32 fileOffset; /* 0x3C */
   u32 size;       /* 0x40 */
-  void *alloc;    /* 0x44 */
+  PTR32(void) alloc;    /* 0x44 */
 } QuadPack;
 
 typedef struct DataPackShader {
@@ -564,35 +564,35 @@ typedef struct DataPackShader {
 typedef struct DataPackRef {
   char name[0xC];        /* 0x00 */
   u32 id;                /* 0x0C */
-  struct DataPack *pack; /* 0x10 */
+  PTR32(struct DataPack) pack; /* 0x10 */
 } DataPackRef;
 
 typedef struct DataPack {
-  u8 *base;                /* 0x00 */
+  PTR32(u8) base;                /* 0x00 */
   u32 numRelocs;           /* 0x04 */
-  s32 *relocs;             /* 0x08 */
+  PTR32(s32) relocs;             /* 0x08 */
   u32 numSoundRelocs;      /* 0x0C */
-  u32 *soundRelocs;        /* 0x10 */
-  void *palettes;          /* 0x14 */
+  PTR32(u32) soundRelocs;        /* 0x10 */
+  PTR32(void) palettes;          /* 0x14 */
   u32 numShaders;          /* 0x18 */
   u32 numGX;               /* 0x1C */
-  u16 *shaderIDs;          /* 0x20 */
-  u32 *gxList;             /* 0x24 */
+  PTR32(u16) shaderIDs;          /* 0x20 */
+  PTR32(u32) gxList;             /* 0x24 */
   u32 dataSize;            /* 0x28 */
   u32 numTextures;         /* 0x2C */
-  u16 *textureIDs;         /* 0x30 */
+  PTR32(u16) textureIDs;         /* 0x30 */
   u32 numSounds;           /* 0x34 */
-  u16 *soundIDs;           /* 0x38 */
-  void *soundData;         /* 0x3C */
-  u8 *soundBase;           /* 0x40 */
+  PTR32(u16) soundIDs;           /* 0x38 */
+  PTR32(void) soundData;         /* 0x3C */
+  PTR32(u8) soundBase;           /* 0x40 */
   u32 textureData;         /* 0x44 */
-  u8 *sfxData;             /* 0x48 */
-  void *paletteData;       /* 0x4C */
-  DataPackShader *shaders; /* 0x50 */
+  PTR32(u8) sfxData;             /* 0x48 */
+  PTR32(void) paletteData;       /* 0x4C */
+  PTR32(DataPackShader) shaders; /* 0x50 */
   u32 numTriggers;         /* 0x54 */
-  u8 *triggers;            /* 0x58 */
-  void *song;              /* 0x5C */
-  void *songBank;          /* 0x60 */
+  PTR32(u8) triggers;            /* 0x58 */
+  PTR32(void) song;              /* 0x5C */
+  PTR32(void) songBank;          /* 0x60 */
   s8 songLoaded;           /* 0x64 */
   u8 pad65[3];             /* 0x65 */
   DataPackRef refs[2];     /* 0x68 */
@@ -629,44 +629,44 @@ typedef struct GRElemB {
 typedef struct GRSub {
   u32 unk0;
   u32 numB;
-  GRElemB *b;
+  PTR32(GRElemB) b;
   u32 numA;
-  GRElem *a;
+  PTR32(GRElem) a;
   u32 numC;
-  GRElem *c;
+  PTR32(GRElem) c;
 } GRSub;
 typedef struct {
-  char *name;
+  PTR32(char) name;
   s32 id;
 } ProgPack;
 typedef struct {
   u8 type;
   u8 pad[3];
-  void *data;
+  PTR32(void) data;
 } ProgStep;
 typedef struct {
   u32 count;
-  ProgStep *steps;
+  PTR32(ProgStep) steps;
   u16 advance;
 } ProgSequence;
 typedef struct {
   u32 count;
-  ProgSequence *seqs;
+  PTR32(ProgSequence) seqs;
 } ProgSeqList;
 typedef struct {
   u32 count;
-  ProgStep *steps;
-  ProgPack *pack;
-  char *world;
+  PTR32(ProgStep) steps;
+  PTR32(ProgPack) pack;
+  PTR32(char) world;
   ProgSeqList win;
   ProgSeqList lose;
 } ProgLevel;
 typedef struct {
   s32 count;
-  ProgLevel *levels;
+  PTR32(ProgLevel) levels;
 } ProgScript;
 typedef struct {
-  ProgScript *script;
+  PTR32(ProgScript) script;
   s32 phase;
   s32 index;
   u32 step;
@@ -680,8 +680,8 @@ typedef struct {
 } PackRef;
 typedef struct {
   u8 type;
-  void *movie;
-  PackRef *pack;
+  PTR32(void) movie;
+  PTR32(PackRef) pack;
 } Step;
 typedef struct {
   u8 pad0[4];
@@ -689,7 +689,7 @@ typedef struct {
   u8 pad8[0x20];
   s32 menuFile;
   u32 numSteps;
-  Step *steps;
+  PTR32(Step) steps;
 } MCP;
 typedef struct PodPart {
   u8 flags;
@@ -697,17 +697,17 @@ typedef struct PodPart {
   u8 pad2[2];
   u16 mtxIndex;
   u8 pad6[2];
-  void *geom;
-  Vector4 *offset;
+  PTR32(void) geom;
+  PTR32(Vector4) offset;
   u8 pad10[0xC];
 } PodPart;
 typedef struct PodPartList {
   u32 count;
-  PodPart *parts;
+  PTR32(PodPart) parts;
 } PodPartList;
 typedef struct GRZone {
   u8 unk0[0x30];
-  GRSub *sub;
+  PTR32(GRSub) sub;
   u8 unk34[0x1C];
 } GRZone;
 typedef struct StuntParams {
@@ -737,10 +737,10 @@ typedef struct {
 typedef struct GRWorld {
   u8 unk0[0x20];
   u32 numZones;
-  GRZone *zones;
+  PTR32(GRZone) zones;
   u8 unk28[0x28];
   u32 numTriggers;
-  GRTrigger **triggers;
+  PTR32(GRTrigger *) triggers;
 } GRWorld;
 typedef struct SpawnPoint {
   Vector4 pos;
@@ -748,16 +748,16 @@ typedef struct SpawnPoint {
   f32 rotY;
   f32 rotZ;
   u8 pad1C[0x24 - 0x1C];
-  u8 *info;
-  u8 *thing;
+  PTR32(u8) info;
+  PTR32(u8) thing;
 } SpawnPoint;
 typedef struct CarParams {
   Vector4 pos;
   Vector4 quat;
   Vector4 vel;
-  u8 *info;
+  PTR32(u8) info;
   u8 pad34[0x3C - 0x34];
-  u8 *player;
+  PTR32(u8) player;
 } CarParams;
 typedef struct VehicleInterfaceData {
   u32 iface;
@@ -768,8 +768,8 @@ typedef struct VehicleInterfaceData {
   u32 selection;
   s8 active;
   u8 unk19[0x1C - 0x19];
-  u8 *players[2];
-  u8 *cars[2];
+  PTR32(u8) players[2];
+  PTR32(u8) cars[2];
   u32 objects[2];
   s8 locked;
   u8 unk35[0x38 - 0x35];
@@ -784,16 +784,16 @@ typedef struct InterfaceMsg {
   u8 unk28[0x30 - 0x28];
   u32 selection;
   u32 objects[2];
-  u32 *list;
+  PTR32(u32) list;
   u16 nextState;
 } InterfaceMsg;
 typedef struct CreateCarParams {
   Vector4 pos;
   Vector4 rot;
   Vector4 vel;
-  void *script;
+  PTR32(void) script;
   u8 unk44[0x4C - 0x44];
-  void *player;
+  PTR32(void) player;
 } CreateCarParams;
 typedef struct FlashDef {
   u8 unk0;
@@ -801,7 +801,7 @@ typedef struct FlashDef {
   u8 unk2[0xC - 0x2];
   s32 duration;
   u8 unk10[0x20 - 0x10];
-  u8 *colorKey;
+  PTR32(u8) colorKey;
   u8 unk24[0x2C - 0x24];
   u8 pointKey[4];
 } FlashDef;
@@ -816,7 +816,7 @@ typedef struct Flash {
   u8 pointOut[0x58 - 0x40];
   u8 visible;
   u8 unk59[0x5C - 0x59];
-  FlashDef *flash;
+  PTR32(FlashDef) flash;
   s32 unk60;
   u8 unk64[0x68 - 0x64];
   u32 remaining;
@@ -840,7 +840,7 @@ typedef struct BulletHole {
 typedef struct QuadPackRef {
   char name[0xC]; /* 0x00 */
   u32 id;         /* 0x0C */
-  DataPack *pack; /* 0x10 */
+  PTR32(DataPack) pack; /* 0x10 */
 } QuadPackRef;
 
 /* The quad pack's header carries its pack references inline, at 0x2C. */
@@ -848,10 +848,10 @@ typedef struct QuadPackHeader {
   u32 valid;           /* 0x00 */
   u32 numPointers;     /* 0x04 */
   u32 numRelocs;       /* 0x08 */
-  s32 *relocs;         /* 0x0C */
+  PTR32(s32) relocs;         /* 0x0C */
   u32 pad10[3];        /* 0x10 */
   u32 numShaders;      /* 0x1C */
-  s32 *shaderList;     /* 0x20 */
+  PTR32(s32) shaderList;     /* 0x20 */
   u32 dataSize;        /* 0x24 */
   u32 numTexRelocs;    /* 0x28 */
   QuadPackRef refs[2]; /* 0x2C */
@@ -875,14 +875,14 @@ typedef struct Volume {
   f32 innerDist;            /* 0x20 */
   f32 outerDist;            /* 0x24 */
   u8 unk28[4];
-  Light *light;             /* 0x2C */
+  PTR32(Light) light;             /* 0x2C */
 } Volume;
 typedef struct LightWorld {
   u32 unk0;
   u8 unk4[0x60];
-  u8 *lights;
+  PTR32(u8) lights;
   u32 numVolumes;
-  u8 *volumes;
+  PTR32(u8) volumes;
 } LightWorld;
 typedef struct TracerPoint {
   f32 pos[4];
@@ -891,11 +891,11 @@ typedef struct TracerPoint {
   f32 unk30[4];
   f32 unk40;
   u8 color[4];
-  struct TracerPoint *next;
+  PTR32(struct TracerPoint) next;
   u8 unk4C[4];
 } TracerPoint;
 typedef struct SpawnVolume {
-  u8 *volume;
+  PTR32(u8) volume;
   u32 unk4;
   u32 index;
   u32 counts[32];
@@ -907,7 +907,7 @@ typedef struct Vec {
   f32 w;
 } Vec;
 typedef struct NearestCar {
-  u8 *car;
+  PTR32(u8) car;
   u8 pad4[0x10 - 0x4];
   Vec pos;
   f32 speed;
@@ -923,8 +923,8 @@ typedef struct {
 typedef struct CreatureParams {
   Vector4 pos;
   f32 angle;
-  u8 *info;
-  u8 *player;
+  PTR32(u8) info;
+  PTR32(u8) player;
 } CreatureParams;
 typedef struct {
   PlayerLink base;
@@ -943,8 +943,8 @@ typedef struct {
   CarPlayer cars[4];
   CreaturePlayer creature;
   PlayerLink null;
-  PlayerLink *active;
-  PlayerLink *free;
+  PTR32(PlayerLink) active;
+  PTR32(PlayerLink) free;
 } PlayerMgr;
 typedef struct {
   u8 unk0;
@@ -955,18 +955,18 @@ typedef struct {
   u8 countUp;
   u8 unk4[4];
   f32 time;
-  TimerDef *def;
+  PTR32(TimerDef) def;
 } Timer;
 typedef struct {
   u8 unk0[0x50];
   u32 numTimers;
-  Timer **timers;
+  PTR32(Timer *) timers;
 } TimerWorld;
 typedef struct Quad {
   u8 pad0[0x1C];
-  void *bsp;
+  PTR32(void) bsp;
   u32 numNeighbors;
-  u32 *neighbors;
+  PTR32(u32) neighbors;
   u8 pad28[0x34 - 0x28];
   s8 loaded;
   s8 visible;
@@ -975,17 +975,17 @@ typedef struct Quad {
 typedef struct QuadWorld {
   u8 pad[0x20];
   u32 numQuads;
-  Quad *quads;
+  PTR32(Quad) quads;
 } QuadWorld;
 typedef struct WildCard {
   u8 pad0[0x1E];
   u8 unk1E;
   u8 pad1F[0x24 - 0x1F];
-  f32 *unk24;
-  f32 *unk28;
+  PTR32(f32) unk24;
+  PTR32(f32) unk28;
 } WildCard;
 typedef struct WildCardData {
-  WildCard *card;
+  PTR32(WildCard) card;
   u8 pad4[0x28 - 0x4];
   s32 max;
 } WildCardData;
@@ -999,7 +999,7 @@ typedef struct WildcardData {
 } WildcardData;
 typedef struct WildCardItem {
   u8 pad0[0x30];
-  WildCardData *data;
+  PTR32(WildCardData) data;
 } WildCardItem;
 typedef struct WildcardInfo {
   u8 unk0[0x18];
@@ -1009,18 +1009,18 @@ typedef struct WildcardAnim {
   u8 unk0[0x1E];
   u8 loop;
   u8 unk1F[0x24 - 0x1F];
-  f32 *times;
+  PTR32(f32) times;
 } WildcardAnim;
 typedef struct WildcardThing {
   u8 unk0[0x30];
-  WildcardData *data;
+  PTR32(WildcardData) data;
 } WildcardThing;
 typedef struct WildcardSlot {
-  WildcardInfo *info;
+  PTR32(WildcardInfo) info;
   u8 unk4[0x10 - 0x4];
-  Matrix4 *matrices;
+  PTR32(Matrix4) matrices;
   u8 unk14[0x18 - 0x14];
-  WildcardAnim *anim;
+  PTR32(WildcardAnim) anim;
   u8 mode;
   u8 state;
   u8 unk1E[0x20 - 0x1E];
@@ -1030,14 +1030,14 @@ typedef struct WildcardSlot {
   u8 unk42[0x44 - 0x42];
   f32 scale;
   f32 angle;
-  WildcardThing *thing;
+  PTR32(WildcardThing) thing;
 } WildcardSlot;
 typedef struct WildCardSlot {
-  void *card;
+  PTR32(void) card;
   u8 pad4[0x44 - 0x4];
   f32 unk44;
   u8 pad48[0x4C - 0x48];
-  void *unk4C;
+  PTR32(void) unk4C;
 } WildCardSlot;
 typedef struct WildCardRack {
   u8 pad0[0x74];
@@ -1047,7 +1047,7 @@ typedef struct WildCardRack {
   u8 unk470;
 } WildCardRack;
 typedef struct {
-  void *motion;
+  PTR32(void) motion;
   u8 pad4[0x40];
   f32 scale;
   u8 pad48[0x8];
@@ -1057,26 +1057,26 @@ typedef struct {
   RackState states[1];
 } Rack;
 typedef struct {
-  void *pad0;
-  void *pad4;
-  void *geom;
+  PTR32(void) pad0;
+  PTR32(void) pad4;
+  PTR32(void) geom;
 } StaticGeom;
 typedef struct {
-  u8 *geom;
+  PTR32(u8) geom;
   u8 noDraw;
   u8 pad5;
   u8 hasDist;
   u8 visible;
   f32 dist;
   u8 padC[0x8];
-  u32 *numBones;            /* 0x14 bone count, the key frames an animation extracts */
+  PTR32(u32) numBones;            /* 0x14 bone count, the key frames an animation extracts */
   u32 slaves[2];
 } Model;
 typedef struct {
   Vector4 pos;
   Vector4 quat;
   u8 pad20[4];
-  Model *model;
+  PTR32(Model) model;
   f32 dist;
   u8 pad2C[8];
   u8 useDist;
@@ -1086,7 +1086,7 @@ typedef struct {
 typedef struct {
   u32 pad0;
   u32 count;
-  Instance *instances;
+  PTR32(Instance) instances;
 } InstanceList;
 typedef struct {
   u8 pad0[0x10];
@@ -1102,12 +1102,12 @@ typedef struct PathNode {
     f32 pos[3];
     u8 pad0C[0x10 - 0xC];
     u32 numLinks;
-    f32 *costs;
-    s32 *links;
+    PTR32(f32) costs;
+    PTR32(s32) links;
     u8 pad1C[0x37 - 0x1C];
     u8 flags;
-    struct PathNode *parent;
-    struct PathNode *next;
+    PTR32(struct PathNode) parent;
+    PTR32(struct PathNode) next;
     f32 g;
     f32 h;
     f32 f;
@@ -1166,7 +1166,7 @@ typedef s32 M2C_UNK32;
 #define M2C_OVERFLOW(a) (0)
 #endif
 
-/* Forward typedefs for types whose bodies live in other headers or in .c
+/* Forward typedefs for types whose bodies live in other headers or GETP(in .c)
  * files, so game_protos.h can name them. C11 allows the later full typedef. */
 typedef struct CarA CarA;
 typedef struct Player Player;

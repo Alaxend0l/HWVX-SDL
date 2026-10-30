@@ -24,7 +24,7 @@ f32 OBoxHitsSegment(void *, Vector4 *, void *, f32, void *);
 typedef struct TerrainGrid {
     Vector4 origin;
     u8 unk10[0x20 - 0x10];
-    u8 *cells;
+    PTR32(u8) cells;
     u8 unk24[0x28 - 0x24];
     f32 sizeX;
     f32 sizeY;
@@ -32,7 +32,7 @@ typedef struct TerrainGrid {
     s32 numX;
     s32 numY;
     s32 numZ;
-    s32 *cellIndex;
+    PTR32(s32) cellIndex;
 } TerrainGrid;
 
 static inline u8 *TerrainGrid_GetCellXYZ(TerrainGrid *grid, s32 x, s32 y, s32 z) {
@@ -47,7 +47,7 @@ static inline u8 *TerrainGrid_GetCellXYZ(TerrainGrid *grid, s32 x, s32 y, s32 z)
     } else {
         index = z * grid->numX + grid->numZ * (y * grid->numX) + x;
     }
-    return index == -1 ? grid->cells : grid->cells + grid->cellIndex[index] * 0x50;
+    return index == -1 ? GETP(grid->cells) : GETP(grid->cells) + GETP(grid->cellIndex)[index] * 0x50;
 }
 
 s8 RayHitsTerrain(Vector4 *start, Vector4 *end, void *arg2, void *arg3)
@@ -80,10 +80,10 @@ s8 OBoxHitsTerrainZeroTimeEdgesOnly(void *obox, void *arg1) {
     s32 z1;
     u32 i;
 
-    if (g_worldData.world == NULL || SLOT_LOAD(TerrainGrid *, g_worldData.world) == NULL) {
+    if (GETP(g_worldData.world) == NULL || SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)) == NULL) {
         return 0;
     }
-    grid = SLOT_LOAD(TerrainGrid *, g_worldData.world);
+    grid = SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world));
     ox = grid->origin.x;
     oy = grid->origin.y;
     oz = grid->origin.z;
@@ -110,7 +110,7 @@ s8 OBoxHitsTerrainZeroTimeEdgesOnly(void *obox, void *arg1) {
     for (x = (bounds[0].x - ox) / sx; x <= x1; x++) {
         for (y = y0; y <= y1; y++) {
             for (z = z0; z <= z1; z++) {
-                if (OBoxHitsCellZeroTimeEdgesOnly(obox, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, g_worldData.world), x, y, z), arg1)) {
+                if (OBoxHitsCellZeroTimeEdgesOnly(obox, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)), x, y, z), arg1)) {
                     return 1;
                 }
             }
@@ -134,7 +134,7 @@ s8 OBoxHitsCellZeroTimeEdgesOnly(void *obox, void *cell, void *arg2)
     *(f32 *)((char *)obox + 0xc0) = 0.0f;
     *(f32 *)((char *)obox + 0xc4) = 0.0f;
     *(f32 *)((char *)obox + 0xc8) = 0.0f;
-    if (*(u32 *)((char *)(SLOT_LOAD(u32 *, g_worldData.world)) + 0x58) == 1)
+    if (*(u32 *)((char *)(SLOT_LOAD(u32 *, GETP(g_worldData.world))) + 0x58) == 1)
     {
         hit = OBoxHitsBSPZeroTimeEdgesOnly(obox, cell, arg2);
     }
@@ -142,7 +142,7 @@ s8 OBoxHitsCellZeroTimeEdgesOnly(void *obox, void *cell, void *arg2)
     {
         for (i = 0; i < *(u32 *)((char *)cell + 0x3c); i++)
         {
-            poly = (u8 *)PTR((*(u32 *)((char *)(SLOT_LOAD(u32 *, g_worldData.world)) + 0x4c) +
+            poly = (u8 *)PTR((*(u32 *)((char *)(SLOT_LOAD(u32 *, GETP(g_worldData.world))) + 0x4c) +
                           (SLOT_LOAD(u32 *, ((char *)cell + 0x38)))[i] * 0x20));
             if (*(u32 *)(poly + 0x18) != g_worldData.unk4)
             {
@@ -171,7 +171,7 @@ static inline s8 OBoxHitsCellZeroTime(void *obox, void *cell, void *arg2)
     *(f32 *)((char *)obox + 0xc0) = 0.0f;
     *(f32 *)((char *)obox + 0xc4) = 0.0f;
     *(f32 *)((char *)obox + 0xc8) = 0.0f;
-    if (*(u32 *)((char *)(SLOT_LOAD(u32 *, g_worldData.world)) + 0x58) == 1)
+    if (*(u32 *)((char *)(SLOT_LOAD(u32 *, GETP(g_worldData.world))) + 0x58) == 1)
     {
         hit = OBoxHitsBSPZeroTime(obox, cell, arg2);
     }
@@ -179,7 +179,7 @@ static inline s8 OBoxHitsCellZeroTime(void *obox, void *cell, void *arg2)
     {
         for (i = 0; i < *(u32 *)((char *)cell + 0x3c); i++)
         {
-            poly = (u8 *)PTR((*(u32 *)((char *)(SLOT_LOAD(u32 *, g_worldData.world)) + 0x4c) +
+            poly = (u8 *)PTR((*(u32 *)((char *)(SLOT_LOAD(u32 *, GETP(g_worldData.world))) + 0x4c) +
                           (SLOT_LOAD(u32 *, ((char *)cell + 0x38)))[i] * 0x20));
             if (*(u32 *)(poly + 0x18) != g_worldData.unk4)
             {
@@ -213,12 +213,12 @@ s8 OBoxHitsCell(void *obox, Vector4 *vel, void *cell, f32 *time, void *arg4) {
     *(f32 *)((u8 *)obox + 0xC0) = -PSVECDotProduct(SLOT_LOAD(void *, ((u8 *)obox + 0xA0)), vel);
     *(f32 *)((u8 *)obox + 0xC4) = -PSVECDotProduct(SLOT_LOAD(void *, ((u8 *)obox + 0xA4)), vel);
     *(f32 *)((u8 *)obox + 0xC8) = -PSVECDotProduct(SLOT_LOAD(void *, ((u8 *)obox + 0xA8)), vel);
-    if (*(u32 *)((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x58) == 1) {
+    if (*(u32 *)((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x58) == 1) {
         hit = OBoxHitsBSP(obox, vel, cell, time, arg4);
     } else {
         best = *time;
         for (i = 0; i < *(u32 *)((u8 *)cell + 0x3C); i++) {
-            poly = SLOT_LOAD(u8 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x4C)) + (SLOT_LOAD(u32 *, ((u8 *)cell + 0x38)))[i] * 0x20;
+            poly = SLOT_LOAD(u8 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x4C)) + (SLOT_LOAD(u32 *, ((u8 *)cell + 0x38)))[i] * 0x20;
             if (*(u32 *)(poly + 0x18) != g_worldData.unk4) {
                 *(u32 *)(poly + 0x18) = g_worldData.unk4;
                 t = OOBHitsPoly(obox, poly, vel, arg4, best);
@@ -259,7 +259,7 @@ s8 OBoxHitsBSP(void *obox, Vector4 *vel, void *bsp, f32 *time, void *arg4)
     }
     for (i = 0; i < *(u32 *)((u8 *)bsp + 0x40) && t > 0.0f; i++)
     {
-        edge = (u8 *)(SLOT_LOAD(u8 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x54)) +
+        edge = (u8 *)(SLOT_LOAD(u8 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x54)) +
                       (SLOT_LOAD(u16 *, ((u8 *)bsp + 0x44)))[i] * 0x30);
         if (*(u32 *)(edge + 0x20) != g_worldData.unk4)
         {
@@ -271,8 +271,7 @@ s8 OBoxHitsBSP(void *obox, Vector4 *vel, void *bsp, f32 *time, void *arg4)
                 hitEdge = 1;
                 if (arg4 != NULL)
                 {
-                    ((CollisionInfo *)arg4)->material =
-                        (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x5c)))[*(u32 *)(edge + 0x24)];
+                    ((CollisionInfo *)arg4)->material = (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x5c)))[*(u32 *)(edge + 0x24)];
                 }
             }
         }
@@ -337,7 +336,7 @@ s8 OBoxHitsBSPZeroTime(void *obox, void *bsp, void *arg2) {
         return 0;
     }
     for (i = 0; i < *(u32 *)((u8 *)bsp + 0x40); i++) {
-        edge = SLOT_LOAD(u8 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x54)) + (SLOT_LOAD(u16 *, ((u8 *)bsp + 0x44)))[i] * 0x30;
+        edge = SLOT_LOAD(u8 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x54)) + (SLOT_LOAD(u16 *, ((u8 *)bsp + 0x44)))[i] * 0x30;
         if (*(u32 *)(edge + 0x20) != g_worldData.unk4) {
             *(u32 *)(edge + 0x20) = g_worldData.unk4;
             if (OBoxHitsSegmentZeroTime(obox, edge, arg2)) {
@@ -364,7 +363,7 @@ s8 OBoxHitsBSPZeroTimeEdgesOnly(void *obox, void *bsp, void *arg2)
     }
     for (i = 0; i < *(u32 *)((char *)bsp + 0x40); i++)
     {
-        edge = (u8 *)(SLOT_LOAD(u8 *, ((char *)SLOT_LOAD(void *, g_worldData.world) + 0x54)) +
+        edge = (u8 *)(SLOT_LOAD(u8 *, ((char *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x54)) +
                       (SLOT_LOAD(u16 *, ((char *)bsp + 0x44)))[i] * 0x30);
         if (*(u32 *)(edge + 0x20) != g_worldData.unk4)
         {
@@ -427,7 +426,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
                     *hit = mid;
                     *t = frac;
                     *(Vector4 *)plane = n->plane;
-                    return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x5C)))[n->material];
+                    return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x5C)))[n->material];
                 }
                 return result;
             }
@@ -436,7 +435,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
         *hit = mid;
         *t = frac;
         *(Vector4 *)plane = n->plane;
-        return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x5C)))[n->material];
+        return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x5C)))[n->material];
     }
     if (d0 < 0.0f && d1 > 0.0f) {
         Vector4 dir __attribute__((aligned(16)));
@@ -460,7 +459,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
             *hit = mid;
             *t = frac;
             *(Vector4 *)plane = n->plane;
-            return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x5C)))[n->material];
+            return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x5C)))[n->material];
         }
         if (n->front != 0xFFFF) {
             result = RayHitsBSP2(&mid, end, bsp, (void *)PTR(n->front), depth + 1, plane, t, hit);
@@ -470,7 +469,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
                     *hit = mid;
                     *t = frac;
                     *(Vector4 *)plane = n->plane;
-                    return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x5C)))[n->material];
+                    return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x5C)))[n->material];
                 }
                 return result;
             }
@@ -489,7 +488,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 dept
     *hit = *start;
     *t = 0.0f;
     *(Vector4 *)plane = n->plane;
-    return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, g_worldData.world) + 0x5C)))[n->material];
+    return (SLOT_LOAD(u32 *, ((u8 *)SLOT_LOAD(void *, GETP(g_worldData.world)) + 0x5C)))[n->material];
 }
 
 u32 RayHitsBSP(Vector4 *start, Vector4 *dir, void *bbox, f32 *time, void *bsp) {
@@ -539,7 +538,7 @@ s32 RayHitsCell(Vector4 *start, Vector4 *dir, u8 *cell, f32 *time, u8 *out) {
     Vector4 normal __attribute__((aligned(16)));
 
     hitAny = 0;
-    if (*(u32 *)(SLOT_LOAD(u8 *, g_worldData.world) + 0x58) == 1) {
+    if (*(u32 *)(SLOT_LOAD(u8 *, GETP(g_worldData.world)) + 0x58) == 1) {
         if (*(u32 *)(cell + 0x30) != 0) {
             result = RayHitsBSP(start, dir, (Vector4 *)cell, time, &normal);
             if (result) {
@@ -558,7 +557,7 @@ s32 RayHitsCell(Vector4 *start, Vector4 *dir, u8 *cell, f32 *time, u8 *out) {
         minT = *time;
         best = NULL;
         for (i = 0; i < *(u32 *)(cell + 0x3C); i++) {
-            poly = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, g_worldData.world) + 0x4C)) + (SLOT_LOAD(u32 *, (cell + 0x38)))[i] * 0x20;
+            poly = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, GETP(g_worldData.world)) + 0x4C)) + (SLOT_LOAD(u32 *, (cell + 0x38)))[i] * 0x20;
             if (*(u32 *)(poly + 0x18) != (u32)g_worldData.unk4) {
                 *(u32 *)(poly + 0x18) = g_worldData.unk4;
                 t = RayHitsPoly(start, dir, (Vector4 *)poly, minT);
@@ -575,7 +574,7 @@ s32 RayHitsCell(Vector4 *start, Vector4 *dir, u8 *cell, f32 *time, u8 *out) {
                 ((Vector4 *)out)->x = start->x + dir->x * *time;
                 ((Vector4 *)out)->y = start->y + dir->y * *time;
                 ((Vector4 *)out)->z = start->z + dir->z * *time;
-                *(u32 *)(out + 0x28) = (SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, g_worldData.world) + 0x5C)))[*(u32 *)(best + 0x1C)];
+                *(u32 *)(out + 0x28) = (SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, GETP(g_worldData.world)) + 0x5C)))[*(u32 *)(best + 0x1C)];
                 *(Vector4 *)(out + 0x30) = g_zeroVector;
             }
             hitAny = 1;
@@ -593,10 +592,10 @@ s8 VectorHitsTerrain(Vector4 *point) {
     u32 node;
     u8 *cell;
 
-    if (g_worldData.world == NULL || SLOT_LOAD(TerrainGrid *, g_worldData.world) == NULL) {
+    if (GETP(g_worldData.world) == NULL || SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)) == NULL) {
         return 0;
     }
-    grid = SLOT_LOAD(TerrainGrid *, g_worldData.world);
+    grid = SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world));
     x = (point->x - grid->origin.x) / grid->sizeX;
     y = (point->y - grid->origin.y) / grid->sizeY;
     z = (point->z - grid->origin.z) / grid->sizeZ;
@@ -609,7 +608,7 @@ s8 VectorHitsTerrain(Vector4 *point) {
     } else {
         index = z * grid->numX + grid->numZ * (y * grid->numX) + x;
     }
-    cell = index == -1 ? grid->cells : grid->cells + grid->cellIndex[index] * 0x50;
+    cell = index == -1 ? GETP(grid->cells) : GETP(grid->cells) + GETP(grid->cellIndex)[index] * 0x50;
     node = 0;
     if (SLOT_LOAD(u8 *, (cell + 0x30)) == NULL) {
         return 0;
@@ -652,10 +651,10 @@ s8 RayHitsTerrain_Aux3(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
     f32 ty;
     f32 dty;
 
-    if (g_worldData.world == NULL || SLOT_LOAD(TerrainGrid *, g_worldData.world) == NULL) {
+    if (GETP(g_worldData.world) == NULL || SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)) == NULL) {
         return 0;
     }
-    grid = SLOT_LOAD(TerrainGrid *, g_worldData.world);
+    grid = SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world));
     numX = grid->numX;
     numY = grid->numY;
     numZ = grid->numZ;
@@ -670,7 +669,7 @@ s8 RayHitsTerrain_Aux3(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
     x = (start->x - ox) / sx;
     y = (start->y - oy) / sy;
     z = (start->z - oz) / sz;
-    if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, g_worldData.world), x, y, z), t, info)) {
+    if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)), x, y, z), t, info)) {
         return 1;
     }
     tx = ty = tz = dtx = *t;
@@ -725,7 +724,7 @@ s8 RayHitsTerrain_Aux3(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
                 }
             }
             if (n >= 0 && n < numX) {
-                if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, g_worldData.world), n, y, z), t, info)) {
+                if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)), n, y, z), t, info)) {
                     return 1;
                 }
             }
@@ -745,7 +744,7 @@ s8 RayHitsTerrain_Aux3(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
                 }
             }
             if (n >= 0 && n < numZ) {
-                if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, g_worldData.world), x, y, n), t, info)) {
+                if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)), x, y, n), t, info)) {
                     return 1;
                 }
             }
@@ -765,7 +764,7 @@ s8 RayHitsTerrain_Aux3(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
                 }
             }
             if (n >= 0 && n < numY) {
-                if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, g_worldData.world), x, n, z), t, info)) {
+                if ((s8)RayHitsCell(start, dir, TerrainGrid_GetCellXYZ(SLOT_LOAD(TerrainGrid *, GETP(g_worldData.world)), x, n, z), t, info)) {
                     return 1;
                 }
             }
@@ -841,7 +840,7 @@ void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot) {
     typedef struct HullFace {
         Vector4 normal;
         u8 unk10[4];
-        u32 *verts;
+        PTR32(u32) verts;
         u8 unk18[8];
     } HullFace;
     typedef struct Hull {
@@ -849,13 +848,13 @@ void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot) {
         u32 numFaces;
         u32 numVerts;
         u8 unk10[8];
-        HullFace *faces;
-        Vector4 *verts;
+        PTR32(HullFace) faces;
+        PTR32(Vector4) verts;
     } Hull;
     typedef struct OConvexHull {
         Vector4 verts[32];
         Vector4 planes[16];
-        Hull *hull;
+        PTR32(Hull) hull;
         u8 unk304[0x3C4 - 0x304];
         s32 unk3C4;
         s32 unk3C8;
@@ -874,17 +873,17 @@ void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot) {
     local = *(struct Local *)pos;
     XformVec(pos, rot, &local.d[6]);
     for (i = 0; i < ((Hull *)hull)->numVerts; i++) {
-        XformVec(&local, &((Hull *)hull)->verts[i], &((OConvexHull *)out)->verts[i]);
+        XformVec(&local, &GETP(((Hull *)hull)->verts)[i], &((OConvexHull *)out)->verts[i]);
     }
     {
         OConvexHull *o = (OConvexHull *)out;
         for (i = 0; i < ((Hull *)hull)->numFaces; i++) {
-            XformVecOrientation(&local, &((Hull *)hull)->faces[i].normal, &normal);
+            XformVecOrientation(&local, &GETP(((Hull *)hull)->faces)[i].normal, &normal);
             Create_Plane3(&o->planes[i], &normal,
-                          &((OConvexHull *)out)->verts[*((Hull *)hull)->faces[i].verts]);
+                          &((OConvexHull *)out)->verts[*GETP(GETP(((Hull *)hull)->faces)[i].verts)]);
         }
     }
-    ((OConvexHull *)out)->hull = hull;
+    SETP(((OConvexHull *)out)->hull, hull);
     ((OConvexHull *)out)->unk3C8 = 0;
     ((OConvexHull *)out)->unk3C4 = 0;
     ((OConvexHull *)out)->pos = *(Vector4 *)&local.d[6];

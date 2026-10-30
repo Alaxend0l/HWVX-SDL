@@ -10,7 +10,7 @@ typedef struct DroneProps {
 
 typedef struct DroneInfo {
     u8 pad00[0x10];
-    DroneProps *props;      /* 0x10 */
+    PTR32(DroneProps) props;      /* 0x10 */
 } DroneInfo;
 
 typedef struct DroneAnim {
@@ -26,11 +26,11 @@ typedef struct Drone {
     u8 pad50[0x24];         /* 0x50 */
     u32 flags;              /* 0x74 */
     u8 pad78[0x1C];         /* 0x78 */
-    s8 *input;              /* 0x94 */
+    PTR32(s8) input;              /* 0x94 */
     u8 pad98[0x28];         /* 0x98 */
-    DroneInfo *info;        /* 0xC0 */
+    PTR32(DroneInfo) info;        /* 0xC0 */
     u8 padC4[0x10];         /* 0xC4 */
-    DroneAnim *anim;        /* 0xD4 */
+    PTR32(DroneAnim) anim;        /* 0xD4 */
     u8 padD8[8];            /* 0xD8 */
     Quaternion rot;         /* 0xE0 */
     Vector4 force;          /* 0xF0 */
@@ -85,7 +85,7 @@ s32 Drone_Init(u8 *drone, u8 *data) {
         u8 pad18[0x20 - 0x18];
         f32 mass;
         u8 pad24[0x44 - 0x24];
-        ABox *box;
+        PTR32(ABox) box;
     } DroneInfoEx;
     ABox box;
     DroneInfoEx *info;
@@ -109,7 +109,7 @@ s32 Drone_Init(u8 *drone, u8 *data) {
     info = SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10));
     switch (info->type) {
     case 0:
-        *(f32 *)(drone + 0x70) = info->box->v[2].x;
+        *(f32 *)(drone + 0x70) = GETP(info->box)->v[2].x;
         *(u16 *)(drone + 0x80) = 1;
         break;
     case 1:
@@ -124,7 +124,7 @@ s32 Drone_Init(u8 *drone, u8 *data) {
     info = SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10));
     switch (info->type) {
     case 0:
-        box = *info->box;
+        box = *GETP(info->box);
         break;
     case 1:
         break;
@@ -159,7 +159,7 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
         Vector4 pos;
         Vector4 normal;
         u8 pad20[8];
-        u8 *material;
+        PTR32(u8) material;
         u8 pad2C[4];
         Vector4 unk30;
         u8 pad40[0x10];
@@ -239,7 +239,7 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
                     } else if (grip > 1.0f) {
                         grip = 1.0f;
                     }
-                    scale = grip * (*(f32 *)(hit.material + 0x14) * spring) / mag;
+                    scale = grip * (*(f32 *)(GETP(hit.material) + 0x14) * spring) / mag;
                     friction.x = -slip.x * scale;
                     friction.y = -slip.y * scale;
                     friction.z = -slip.z * scale;
@@ -249,7 +249,7 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
         }
         drone->suspension[i] = compression;
     }
-    gravity = -drone->info->props->spinDamping;
+    gravity = -GETP(GETP(drone->info)->props)->spinDamping;
     drone->baseForce.x += gravity * drone->angVel.x;
     drone->baseForce.y += gravity * drone->angVel.y;
     drone->baseForce.z += gravity * drone->angVel.z;
@@ -257,7 +257,7 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
         if (drone->state == 1) {
             ProjectVectorToNormal(&drone->mtx, &drone->velocity);
             drone->speed = PSVECDotProduct(&drone->velocity, &drone->mtx.v[2]);
-            input = drone->input;
+            input = GETP(drone->input);
             if (input != NULL) {
                 thrust = 12.1f * (f32)input[1];
                 turn = 10.0f * (f32)-input[0];
@@ -294,7 +294,7 @@ s32 Drone_PreMove(Drone *drone) {
     f32 angle;
 
     if (drone->state == 2) {
-        Gfx_AnimExtractKeyFrame(drone->anim, drone->animTime, &key, 1);
+        Gfx_AnimExtractKeyFrame(GETP(drone->anim), drone->animTime, &key, 1);
         drone->velocity.x = (key.pos.x - drone->mtx.v[3].x) / g_fDeltaTimeSec;
         drone->velocity.y = (key.pos.y - drone->mtx.v[3].y) / g_fDeltaTimeSec;
         drone->velocity.z = (key.pos.z - drone->mtx.v[3].z) / g_fDeltaTimeSec;
@@ -313,13 +313,13 @@ s32 Drone_PreMove(Drone *drone) {
         drone->angVel.z *= angle;
         drone->flags &= ~0x10;
         drone->animTime += g_fDeltaTimeSec;
-        if (drone->animTime > drone->anim->end) {
-            drone->animTime = drone->anim->start;
+        if (drone->animTime > GETP(drone->anim)->end) {
+            drone->animTime = GETP(drone->anim)->start;
         }
     } else {
         drone->baseForce = g_zeroVector;
         drone->force = drone->baseForce;
-        drone->force.y += drone->info->props->gravity * drone->info->props->mass;
+        drone->force.y += GETP(GETP(drone->info)->props)->gravity * GETP(GETP(drone->info)->props)->mass;
         Drone_ComputeSuspensionForces(drone);
         PhysicalObject_IntegrateNonLateral(drone);
     }
@@ -370,7 +370,7 @@ void Drone_DynamicCollideImpact(u8 *drone, u8 *collision, f32 force)
     }
 }
 
-void Drone_DynamicRotation(u8 *drone) {
+void Drone_DynamicRotation(u8 *drone, f32 dt) {
     typedef struct Drone {
         u8 pad0[0x10];
         Matrix4 mtx;
@@ -398,7 +398,7 @@ void Drone_DynamicRotation(u8 *drone) {
             d->mtx = mtx;
         }
     } else {
-        PhysicalObject_DynamicRotation(drone);
+        PhysicalObject_DynamicRotation(drone, dt);
     }
 }
 

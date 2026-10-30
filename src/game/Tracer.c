@@ -9,10 +9,10 @@ struct Thing {
 typedef struct Tracer {
     TracerPoint points[14];
     u8 unk460[0x48];
-    TracerPoint *unk4A8;
+    PTR32(TracerPoint) unk4A8;
     u8 unk4AC[4];
-    TracerPoint *head;
-    TracerPoint *tail;
+    PTR32(TracerPoint) head;
+    PTR32(TracerPoint) tail;
     s8 unk4B8[0x4];
     f32 unk4BC;
     f32 unk4C0;
@@ -80,7 +80,7 @@ s32 Tracer_Move(u8 *thing) {
     s32 i;
     TracerPoint *p;
 
-    p = tracers[*(u32 *)(thing + 0xB4)].head;
+    p = GETP(tracers[*(u32 *)(thing + 0xB4)].head);
     for (i = 0; i < tracers[*(u32 *)(thing + 0xB4)].unk4CC; i++) {
         s32 c;
         p->pos[0] += p->unk20[0];
@@ -118,29 +118,29 @@ s32 Tracer_Move(u8 *thing) {
             c = 255;
         }
         p->color[3] = c;
-        p = p->next;
+        p = GETP(p->next);
     }
     switch (*(u8 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x21)) {
     case 0:
-        AccumulateVector(thing + 0x10, thing + 0x40, tracers[*(u32 *)(thing + 0xB4)].tail->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        AccumulateVector(thing + 0x10, thing + 0x40, tracers[*(u32 *)(thing + 0xB4)].tail->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        PSVECScale(thing + 0x10, tracers[*(u32 *)(thing + 0xB4)].tail->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
-        PSVECScale(thing + 0x10, tracers[*(u32 *)(thing + 0xB4)].tail->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        AccumulateVector(thing + 0x10, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
+        AccumulateVector(thing + 0x10, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
+        PSVECScale(thing + 0x10, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        PSVECScale(thing + 0x10, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
         break;
     case 1:
-        AccumulateVector(thing + 0x20, thing + 0x40, tracers[*(u32 *)(thing + 0xB4)].tail->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        AccumulateVector(thing + 0x20, thing + 0x40, tracers[*(u32 *)(thing + 0xB4)].tail->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        PSVECScale(thing + 0x20, tracers[*(u32 *)(thing + 0xB4)].tail->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
-        PSVECScale(thing + 0x20, tracers[*(u32 *)(thing + 0xB4)].tail->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        AccumulateVector(thing + 0x20, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
+        AccumulateVector(thing + 0x20, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
+        PSVECScale(thing + 0x20, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        PSVECScale(thing + 0x20, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
         break;
     case 2:
-        AccumulateVector(thing + 0x30, thing + 0x40, tracers[*(u32 *)(thing + 0xB4)].tail->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        AccumulateVector(thing + 0x30, thing + 0x40, tracers[*(u32 *)(thing + 0xB4)].tail->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        PSVECScale(thing + 0x30, tracers[*(u32 *)(thing + 0xB4)].tail->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
-        PSVECScale(thing + 0x30, tracers[*(u32 *)(thing + 0xB4)].tail->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        AccumulateVector(thing + 0x30, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
+        AccumulateVector(thing + 0x30, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
+        PSVECScale(thing + 0x30, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        PSVECScale(thing + 0x30, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
         break;
     }
-    tracers[*(u32 *)(thing + 0xB4)].tail->unk40 = tracers[*(u32 *)(thing + 0xB4)].unk4C0;
+    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk40 = tracers[*(u32 *)(thing + 0xB4)].unk4C0;
     tracers[*(u32 *)(thing + 0xB4)].unk4C0 += g_fDeltaTimeSec * *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x38);
     colour.reset = 1;
     colour2.reset = 1;
@@ -156,17 +156,17 @@ s32 Tracer_Move(u8 *thing) {
         }
         tracers[*(u32 *)(thing + 0xB4)].unk4D0 = (SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x58)))[tracers[*(u32 *)(thing + 0xB4)].unk4D4];
     }
-    tracers[*(u32 *)(thing + 0xB4)].tail->color[0] = colour.c[0];
-    tracers[*(u32 *)(thing + 0xB4)].tail->color[1] = colour.c[1];
-    tracers[*(u32 *)(thing + 0xB4)].tail->color[2] = colour.c[2];
-    tracers[*(u32 *)(thing + 0xB4)].tail->color[3] = colour.c[3];
+    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[0] = colour.c[0];
+    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[1] = colour.c[1];
+    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[2] = colour.c[2];
+    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[3] = colour.c[3];
     tracers[*(u32 *)(thing + 0xB4)].unk4B8[0] = -(colour.c[0] - colour2.c[0]) / 15;
     tracers[*(u32 *)(thing + 0xB4)].unk4B8[1] = -(colour.c[1] - colour2.c[1]) / 15;
     tracers[*(u32 *)(thing + 0xB4)].unk4B8[2] = -(colour.c[2] - colour2.c[2]) / 15;
     tracers[*(u32 *)(thing + 0xB4)].unk4B8[3] = -(colour.c[3] - colour2.c[3]) / 15;
-    tracers[*(u32 *)(thing + 0xB4)].tail = tracers[*(u32 *)(thing + 0xB4)].tail->next;
-    if (tracers[*(u32 *)(thing + 0xB4)].tail == tracers[*(u32 *)(thing + 0xB4)].head) {
-        tracers[*(u32 *)(thing + 0xB4)].head = tracers[*(u32 *)(thing + 0xB4)].head->next;
+    SETP(tracers[*(u32 *)(thing + 0xB4)].tail, GETP(GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->next));
+    if (GETP(tracers[*(u32 *)(thing + 0xB4)].tail) == GETP(tracers[*(u32 *)(thing + 0xB4)].head)) {
+        SETP(tracers[*(u32 *)(thing + 0xB4)].head, GETP(GETP(tracers[*(u32 *)(thing + 0xB4)].head)->next));
     }
     if (tracers[*(u32 *)(thing + 0xB4)].unk4CC < 15) {
         tracers[*(u32 *)(thing + 0xB4)].unk4CC++;
@@ -185,18 +185,18 @@ void Tracer_ClearTracer(s32 index) {
     Tracer *tracer = &tracers[index];
     u32 i;
 
-    tracer->head = tracer->points;
-    tracer->tail = tracer->head;
+    SETP(tracer->head, tracer->points);
+    SETP(tracer->tail, GETP(tracer->head));
     tracer->unk4CC = 0;
     tracer->active = 0;
     tracer->unk4D0 = 0xFFFF;
     for (i = 0; i < 14; i++) {
-        tracer->points[i].next = &tracer->points[i + 1];
+        SETP(tracer->points[i].next, &tracer->points[i + 1]);
         tracer->points[i].pos[3] = 1.0f;
         tracer->points[i].vel[3] = 1.0f;
         tracer->points[i].unk40 = 1.0f;
     }
-    tracers[index].unk4A8 = tracer->points;
+    SETP(tracers[index].unk4A8, tracer->points);
 }
 
 void Tracer_Render(u8 *thing) {
@@ -213,7 +213,7 @@ void Tracer_Render(u8 *thing) {
 
     idx = *(u32 *)(thing + 0xB4);
     if (tracers[idx].active != 0 && tracers[idx].unk4CC > 1) {
-        p = tracers[idx].head;
+        p = GETP(tracers[idx].head);
         n = 0;
         tri = Gfx_Begin_GroupTriShaded(tracers[idx].unk4D0, tracers[idx].unk4D2, 0);
         for (i = 0; i < (tracers[idx].unk4CC == 15 ? tracers[idx].unk4CC - 2 : tracers[idx].unk4CC - 1); i++) {
@@ -235,34 +235,34 @@ void Tracer_Render(u8 *thing) {
             tri[0].pos[1][2] = p->vel[2];
             tri[0].uv[0] = *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x3C);
             tri[0].uv[1] = p->unk40;
-            tri[0].color[2][0] = p->next->color[0];
-            tri[0].color[2][1] = p->next->color[1];
-            tri[0].color[2][2] = p->next->color[2];
-            tri[0].color[2][3] = p->next->color[3];
-            tri[0].pos[2][0] = p->next->vel[0];
-            tri[0].pos[2][1] = p->next->vel[1];
-            tri[0].pos[2][2] = p->next->vel[2];
+            tri[0].color[2][0] = GETP(p->next)->color[0];
+            tri[0].color[2][1] = GETP(p->next)->color[1];
+            tri[0].color[2][2] = GETP(p->next)->color[2];
+            tri[0].color[2][3] = GETP(p->next)->color[3];
+            tri[0].pos[2][0] = GETP(p->next)->vel[0];
+            tri[0].pos[2][1] = GETP(p->next)->vel[1];
+            tri[0].pos[2][2] = GETP(p->next)->vel[2];
             tri[0].uv[2] = *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x3C);
-            tri[0].uv[3] = p->next->unk40;
+            tri[0].uv[3] = GETP(p->next)->unk40;
 
-            tri[1].color[0][0] = p->next->color[0];
-            tri[1].color[0][1] = p->next->color[1];
-            tri[1].color[0][2] = p->next->color[2];
-            tri[1].color[0][3] = p->next->color[3];
-            tri[1].pos[0][0] = p->next->pos[0];
-            tri[1].pos[0][1] = p->next->pos[1];
-            tri[1].pos[0][2] = p->next->pos[2];
+            tri[1].color[0][0] = GETP(p->next)->color[0];
+            tri[1].color[0][1] = GETP(p->next)->color[1];
+            tri[1].color[0][2] = GETP(p->next)->color[2];
+            tri[1].color[0][3] = GETP(p->next)->color[3];
+            tri[1].pos[0][0] = GETP(p->next)->pos[0];
+            tri[1].pos[0][1] = GETP(p->next)->pos[1];
+            tri[1].pos[0][2] = GETP(p->next)->pos[2];
             tri[1].pos[0][3] = 0.0f;
-            tri[1].pos[1][3] = p->next->unk40;
-            tri[1].color[2][0] = p->next->color[0];
-            tri[1].color[2][1] = p->next->color[1];
-            tri[1].color[2][2] = p->next->color[2];
-            tri[1].color[2][3] = p->next->color[3];
-            tri[1].pos[2][0] = p->next->vel[0];
-            tri[1].pos[2][1] = p->next->vel[1];
-            tri[1].pos[2][2] = p->next->vel[2];
+            tri[1].pos[1][3] = GETP(p->next)->unk40;
+            tri[1].color[2][0] = GETP(p->next)->color[0];
+            tri[1].color[2][1] = GETP(p->next)->color[1];
+            tri[1].color[2][2] = GETP(p->next)->color[2];
+            tri[1].color[2][3] = GETP(p->next)->color[3];
+            tri[1].pos[2][0] = GETP(p->next)->vel[0];
+            tri[1].pos[2][1] = GETP(p->next)->vel[1];
+            tri[1].pos[2][2] = GETP(p->next)->vel[2];
             tri[1].uv[2] = *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x3C);
-            tri[1].uv[3] = p->next->unk40;
+            tri[1].uv[3] = GETP(p->next)->unk40;
             tri[1].color[1][0] = p->color[0];
             tri[1].color[1][1] = p->color[1];
             tri[1].color[1][2] = p->color[2];
@@ -274,7 +274,7 @@ void Tracer_Render(u8 *thing) {
             tri[1].uv[1] = p->unk40;
             tri += 2;
             n += 2;
-            p = p->next;
+            p = GETP(p->next);
         }
         Gfx_End_GroupTri(n);
     }

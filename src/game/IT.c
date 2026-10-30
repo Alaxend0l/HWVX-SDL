@@ -7,7 +7,7 @@ typedef struct IT_VOICE
     u8 byte0;
     u8 track;
     u8 pad_2_3[2];
-    struct IT_VOICE *next;
+    PTR32(struct IT_VOICE) next;
     u8 pad_8_3B[0x34];
     s32 vol;
     s32 pan;
@@ -16,10 +16,10 @@ typedef struct IT_VOICE
 
 typedef struct IT_TRACK
 {
-    struct IT_VOICE *head;   /* 0x00 */
-    struct IT_VOICE *active; /* 0x04 */
-    u8 *smp;                 /* 0x08 */
-    u8 *ins;                 /* 0x0C */
+    PTR32(struct IT_VOICE) head;   /* 0x00 */
+    PTR32(struct IT_VOICE) active; /* 0x04 */
+    PTR32(u8) smp;                 /* 0x08 */
+    PTR32(u8) ins;                 /* 0x0C */
     u8 index;                /* 0x10 */
     u8 state;                /* 0x11 */
     u8 priority;             /* 0x12 */
@@ -107,14 +107,14 @@ s32 AudioIT_Init(void)
     trk = g_trk;
     for (i = 0x20; i != 0; i--)
     {
-        trk->head = NULL;
-        trk->active = NULL;
+        SETP(trk->head, NULL);
+        SETP(trk->active, NULL);
     }
     return 1;
 }
 
 
-void AudioIT_Destroy(void) {
+void AudioIT_Destroy(s32 unused) {
 
 }
 
@@ -214,7 +214,7 @@ s32 SetITState(s32 state)
     {
         for (i = 0; i < 0x20; i++)
         {
-            for (voice = g_trk[i].head; voice != NULL; voice = voice->next)
+            for (voice = GETP(g_trk[i].head); voice != NULL; voice = GETP(voice->next))
             {
                 SetVoiceState_(voice, 2);
             }
@@ -226,12 +226,12 @@ s32 SetITState(s32 state)
         g_song[1] = 0;
         for (i = 0; i < 0x20; i++)
         {
-            voice = g_trk[i].head;
-            g_trk[i].head = NULL;
-            g_trk[i].active = NULL;
+            voice = GETP(g_trk[i].head);
+            SETP(g_trk[i].head, NULL);
+            SETP(g_trk[i].active, NULL);
             while (voice != NULL)
             {
-                next = voice->next;
+                next = GETP(voice->next);
                 SetVoiceState_(voice, 3);
                 voice = next;
             }
@@ -254,8 +254,8 @@ s32 SetITState(s32 state)
             {
                 memset(trk, 0, sizeof(IT_TRACK));
                 trk->index = i;
-                trk->ins = g_pIns[0];
-                trk->smp = g_pSmp[0];
+                SETP(trk->ins, g_pIns[0]);
+                SETP(trk->smp, g_pSmp[0]);
                 trk->note = 0x3C;
                 trk->chVol = g_pHdr[0x80 + i];
                 trk->vol = 0x8000;
@@ -282,7 +282,7 @@ s32 SetITState(s32 state)
         {
             for (i = 0; i < 0x20; i++)
             {
-                for (voice = g_trk[i].head; voice != NULL; voice = voice->next)
+                for (voice = GETP(g_trk[i].head); voice != NULL; voice = GETP(voice->next))
                 {
                     SetVoiceState_(voice, 1);
                 }
@@ -308,10 +308,10 @@ void SetITVol(void)
 
     for (trk = g_trk, i = 0x20; i != 0; trk++, i--)
     {
-        voice = trk->head;
+        voice = GETP(trk->head);
         gvol = GetITGVol_(g_song, trk);
         trk->gvol = gvol;
-        for (; voice != NULL; voice = voice->next)
+        for (; voice != NULL; voice = GETP(voice->next))
         {
             SetVoiceVol_(voice, gvol);
         }
@@ -385,7 +385,7 @@ void SetITTrackPriority(s32 track, s32 priority)
 
     priority *= 2;
     g_trk[track].priority = priority;
-    voice = g_trk[track].active;
+    voice = GETP(g_trk[track].active);
     if (voice != NULL)
     {
         *(u8 *)((u8 *)voice + 0x14) = priority;
@@ -394,7 +394,7 @@ void SetITTrackPriority(s32 track, s32 priority)
     }
     else
     {
-        voice = g_trk[track].head;
+        voice = GETP(g_trk[track].head);
     }
     priority--;
     while (voice != NULL)
@@ -444,12 +444,12 @@ void SetITTrackOff(u32 mask, s8 deferred)
         if (mask & 1)
         {
             trk->state = 0;
-            voice = trk->head;
-            trk->head = NULL;
-            trk->active = NULL;
+            voice = GETP(trk->head);
+            SETP(trk->head, NULL);
+            SETP(trk->active, NULL);
             while (voice)
             {
-                next = voice->next;
+                next = GETP(voice->next);
                 SetVoiceState_(voice, 3);
                 voice = next;
             }
@@ -466,11 +466,11 @@ void SetITTrackVol(u32 track, s32 vol)
     IT_VOICE *voice;
     s32 gvol;
 
-    voice = g_trk[track].head;
+    voice = GETP(g_trk[track].head);
     g_trk[track].vol = vol;
     gvol = GetITGVol_(g_song, &g_trk[track]);
     g_trk[track].gvol = gvol;
-    for (; voice != NULL; voice = voice->next)
+    for (; voice != NULL; voice = GETP(voice->next))
     {
         SetVoiceVol_(voice, gvol);
     }
@@ -503,7 +503,7 @@ void ProcessIT(u32 ticks)
         {
             for (i = 0; i < 0x20; i++)
             {
-                if (g_trk[i].active == NULL)
+                if (GETP(g_trk[i].active) == NULL)
                 {
                     continue;
                 }
@@ -524,10 +524,10 @@ void ProcessIT(u32 ticks)
                         StopActive(trk);
                         continue;
                     }
-                    *(u32 *)((u8 *)trk->active + 0x30) = (u32)(*(s32 *)(trk->smp + 0x3C) * 0x6B0) / trk->period;
-                    if (!SetVoiceRate_(trk->active))
+                    *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                    if (!SetVoiceRate_(GETP(trk->active)))
                     {
-                        trk->active = NULL;
+                        SETP(trk->active, NULL);
                     }
                 }
                 else if (trk->flags & 0x20)
@@ -538,10 +538,10 @@ void ProcessIT(u32 ticks)
                         trk->period = trk->targetPeriod;
                         trk->flags &= ~0xA0;
                     }
-                    *(u32 *)((u8 *)trk->active + 0x30) = (u32)(*(s32 *)(trk->smp + 0x3C) * 0x6B0) / trk->period;
-                    if (!SetVoiceRate_(trk->active))
+                    *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                    if (!SetVoiceRate_(GETP(trk->active)))
                     {
-                        trk->active = NULL;
+                        SETP(trk->active, NULL);
                     }
                 }
             }
@@ -550,7 +550,7 @@ void ProcessIT(u32 ticks)
         {
             for (trk = g_trk, i = 0; i < 0x20; i++, trk++)
             {
-                if (trk->active != NULL && (trk->flags & 0x10))
+                if (GETP(trk->active) != NULL && (trk->flags & 0x10))
                 {
                     trk->curVol = trk->volBase + trk->volSlide;
                     if (trk->curVol < 0)
@@ -561,7 +561,7 @@ void ProcessIT(u32 ticks)
                     {
                         trk->curVol = 0x7FFF;
                     }
-                    *(s32 *)((u8 *)trk->active + 0x38) = trk->curVol;
+                    *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
                 }
                 trk->prevFlags = trk->flags;
                 trk->flags = 0;
@@ -615,12 +615,12 @@ void ProcessIT(u32 ticks)
                     trk->insNum = *pPtrn++ - 1;
                     if (*(u16 *)(g_pHdr + 0x2C) & 4)
                     {
-                        trk->ins = g_pIns[trk->insNum];
-                        trk->smp = g_pSmp[trk->ins[trk->note * 2 + 0x41]];
+                        SETP(trk->ins, g_pIns[trk->insNum]);
+                        SETP(trk->smp, g_pSmp[GETP(trk->ins)[trk->note * 2 + 0x41]]);
                     }
                     else
                     {
-                        trk->smp = g_pSmp[trk->insNum];
+                        SETP(trk->smp, g_pSmp[trk->insNum]);
                     }
                 }
                 if (mask & 4)
@@ -640,7 +640,7 @@ void ProcessIT(u32 ticks)
                         {
                             if (*(u16 *)(g_pHdr + 0x2C) & 4)
                             {
-                                trk->realNote = trk->ins[trk->note * 2 + 0x40];
+                                trk->realNote = GETP(trk->ins)[trk->note * 2 + 0x40];
                             }
                             else
                             {
@@ -648,7 +648,7 @@ void ProcessIT(u32 ticks)
                             }
                             if (!(mask & 0x88) || trk->cmd != 7)
                             {
-                                trk->curVol = ((mask & 0x44) ? trk->volCol : trk->smp[0x13]) << 9;
+                                trk->curVol = ((mask & 0x44) ? trk->volCol : GETP(trk->smp)[0x13]) << 9;
                                 if (trk->curVol >= 0x8000)
                                 {
                                     trk->curVol = 0x7FFF;
@@ -660,7 +660,7 @@ void ProcessIT(u32 ticks)
                         }
                         else
                         {
-                            if (trk->active != NULL)
+                            if (GETP(trk->active) != NULL)
                             {
                                 StopActive(trk);
                             }
@@ -674,19 +674,19 @@ void ProcessIT(u32 ticks)
                         {
                             trk->curVol = 0x7FFF;
                         }
-                        if (trk->active != NULL)
+                        if (GETP(trk->active) != NULL)
                         {
-                            *(s32 *)((u8 *)trk->active + 0x38) = trk->curVol;
-                            SetVoiceVol_(trk->active, trk->gvol);
+                            *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
+                            SetVoiceVol_(GETP(trk->active), trk->gvol);
                         }
                     }
                     else if (mask & 0x20)
                     {
-                        trk->curVol = trk->smp[0x13] << 9;
-                        if (trk->active != NULL)
+                        trk->curVol = GETP(trk->smp)[0x13] << 9;
+                        if (GETP(trk->active) != NULL)
                         {
-                            *(s32 *)((u8 *)trk->active + 0x38) = trk->curVol;
-                            SetVoiceVol_(trk->active, trk->gvol);
+                            *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
+                            SetVoiceVol_(GETP(trk->active), trk->gvol);
                         }
                     }
                 }
@@ -763,10 +763,10 @@ void ProcessIT(u32 ticks)
                         {
                             trk->period += trk->memPitchSlide & 0xF;
                         }
-                        *(u32 *)((u8 *)trk->active + 0x30) = (u32)(*(s32 *)(trk->smp + 0x3C) * 0x6B0) / trk->period;
-                        if (trk->active != NULL && !SetVoiceRate_(trk->active))
+                        *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                        if (GETP(trk->active) != NULL && !SetVoiceRate_(GETP(trk->active)))
                         {
-                            trk->active = NULL;
+                            SETP(trk->active, NULL);
                         }
                     }
                     break;
@@ -790,10 +790,10 @@ void ProcessIT(u32 ticks)
                         {
                             trk->period += trk->memPitchSlide & 0xF;
                         }
-                        *(u32 *)((u8 *)trk->active + 0x30) = (u32)(*(s32 *)(trk->smp + 0x3C) * 0x6B0) / trk->period;
-                        if (trk->active != NULL && !SetVoiceRate_(trk->active))
+                        *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                        if (GETP(trk->active) != NULL && !SetVoiceRate_(GETP(trk->active)))
                         {
-                            trk->active = NULL;
+                            SETP(trk->active, NULL);
                         }
                     }
                     break;
@@ -832,9 +832,9 @@ void ProcessIT(u32 ticks)
                     {
                         trk->memOffset = trk->param;
                     }
-                    if (trk->active != NULL)
+                    if (GETP(trk->active) != NULL)
                     {
-                        SetVoiceOffset_(trk->active, trk->memOffset << 8);
+                        SetVoiceOffset_(GETP(trk->active), trk->memOffset << 8);
                     }
                     break;
                 case 9:
@@ -961,7 +961,7 @@ void ProcessIT(u32 ticks)
     pos = (s32)((((u32)g_song[2] << 16) + (u32)g_song[1]) / (u32)g_song[8]) >> 1;
     for (trk = g_trk, i = 0; i < 0x20; trk++, i++)
     {
-        if (trk->active != NULL && (trk->flags & 0x10))
+        if (GETP(trk->active) != NULL && (trk->flags & 0x10))
         {
             trk->curVol = trk->volBase + ((trk->volSlide * pos) >> 15);
             if (trk->curVol < 0)
@@ -974,8 +974,8 @@ void ProcessIT(u32 ticks)
                 trk->curVol = 0x7FFF;
                 trk->flags &= ~0x10;
             }
-            *(s32 *)((u8 *)trk->active + 0x38) = trk->curVol;
-            SetVoiceVol_(trk->active, trk->gvol);
+            *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
+            SetVoiceVol_(GETP(trk->active), trk->gvol);
         }
     }
 }
@@ -989,30 +989,30 @@ s32 PlayNote(IT_TRACK *trk)
     u8 *song;
 
     stolen = 0;
-    rate = GetNoteRate_(*(u32 *)(trk->smp + 0x3C), trk->realNote);
+    rate = GetNoteRate_(*(u32 *)(GETP(trk->smp) + 0x3C), trk->realNote);
     if (rate > 0x2EE00 || rate < 0x60)
     {
-        if (!stolen && trk->active != NULL)
+        if (!stolen && GETP(trk->active) != NULL)
         {
             StopActive(trk);
         }
         return 0;
     }
-    if (trk->active == NULL)
+    if (GETP(trk->active) == NULL)
     {
-        trk->active = (IT_VOICE *)GetVoice_(0, trk->priority);
-        if (trk->active == NULL)
+        SETP(trk->active, (IT_VOICE *)GetVoice_(0, trk->priority));
+        if (GETP(trk->active) == NULL)
         {
             return 0;
         }
-        trk->active->track = trk->index;
-        trk->active->pad_2_3[0] = trk->note;
-        trk->active->next = trk->head;
-        trk->head = trk->active;
+        GETP(trk->active)->track = trk->index;
+        GETP(trk->active)->pad_2_3[0] = trk->note;
+        SETP(GETP(trk->active)->next, GETP(trk->head));
+        SETP(trk->head, GETP(trk->active));
     }
-    voice = (u8 *)trk->active;
-    *(u32 *)(voice + 0x10) = (u32)HND(trk->smp);
-    song = trk->smp;
+    voice = (u8 *)GETP(trk->active);
+    *(u32 *)(voice + 0x10) = (u32)HND(GETP(trk->smp));
+    song = GETP(trk->smp);
     *(u32 *)(voice + 0x20) = *(u32 *)(song + 0x48);
     *(s32 *)(voice + 0x24) = (song[0x12] & 0x10) ? *(s32 *)(song + 0x34) : -1;
     *(s32 *)(voice + 0x28) = (song[0x12] & 0x10) ? *(s32 *)(song + 0x38) : *(s32 *)(song + 0x30);
@@ -1032,7 +1032,7 @@ void SetTrackVol(IT_TRACK *trk)
 {
     IT_VOICE *voice;
 
-    for (voice = trk->head; voice != NULL; voice = voice->next)
+    for (voice = GETP(trk->head); voice != NULL; voice = GETP(voice->next))
     {
         SetVoiceVol_(voice, trk->gvol);
     }
@@ -1042,7 +1042,7 @@ void SetTrackPan(IT_TRACK *trk)
 {
     IT_VOICE *voice;
 
-    for (voice = trk->head; voice != NULL; voice = voice->next)
+    for (voice = GETP(trk->head); voice != NULL; voice = GETP(voice->next))
     {
         voice->pan = trk->pan;
         SetVoiceVol_(voice, trk->gvol);
@@ -1051,9 +1051,9 @@ void SetTrackPan(IT_TRACK *trk)
 
 void StopActive(IT_TRACK *trk)
 {
-    trk->head = trk->head->next;
-    SetVoiceState_(trk->active, 3);
-    trk->active = NULL;
+    SETP(trk->head, GETP(GETP(trk->head)->next));
+    SetVoiceState_(GETP(trk->active), 3);
+    SETP(trk->active, NULL);
 }
 
 
@@ -1068,17 +1068,17 @@ void DestroyITVoice(IT_VOICE *voice)
         return;
     }
     trk = &g_trk[voice->track];
-    if (trk->active == voice)
+    if (GETP(trk->active) == voice)
     {
-        trk->active = NULL;
-        trk->head = voice->next;
+        SETP(trk->active, NULL);
+        SETP(trk->head, GETP(voice->next));
         return;
     }
-    v = trk->head;
-    while (v->next != voice)
+    v = GETP(trk->head);
+    while (GETP(v->next) != voice)
     {
-        v = v->next;
+        v = GETP(v->next);
     }
-    v->next = voice->next;
+    SETP(v->next, GETP(voice->next));
 }
 

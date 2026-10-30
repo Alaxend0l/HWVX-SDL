@@ -14,7 +14,7 @@ typedef struct FontChar {
 typedef struct Font {
     f32 height;
     f32 width;
-    char *letters;
+    PTR32(char) letters;
     u16 texture;
     u8 caseMode;
     u8 unkF;
@@ -84,7 +84,7 @@ extern GfxState g_state;
 
 typedef struct Texture {
     u8 unk0[0x24];
-    void *data;
+    PTR32(void) data;
     u32 unk28;
     f32 unk2C;
     u16 unk30;
@@ -180,13 +180,13 @@ u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f3
         default:
         case 0:
         case 2:
-            font->letters = g_lettersNoLowerCaseE;
+            SETP(font->letters, g_lettersNoLowerCaseE);
             break;
         case 1:
-            font->letters = g_lettersNoLowerCaseF;
+            SETP(font->letters, g_lettersNoLowerCaseF);
             break;
         case 3:
-            font->letters = g_lettersNoLowerCaseG;
+            SETP(font->letters, g_lettersNoLowerCaseG);
             break;
         }
         break;
@@ -195,13 +195,13 @@ u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f3
         default:
         case 0:
         case 2:
-            font->letters = g_lettersNoNumE;
+            SETP(font->letters, g_lettersNoNumE);
             break;
         case 1:
-            font->letters = g_lettersNoNumF;
+            SETP(font->letters, g_lettersNoNumF);
             break;
         case 3:
-            font->letters = g_lettersNoNumG;
+            SETP(font->letters, g_lettersNoNumG);
             break;
         }
         break;
@@ -210,13 +210,13 @@ u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f3
         default:
         case 0:
         case 2:
-            font->letters = g_lettersNoLowerCaseNoNumsE;
+            SETP(font->letters, g_lettersNoLowerCaseNoNumsE);
             break;
         case 1:
-            font->letters = g_lettersNoLowerCaseNoNumsF;
+            SETP(font->letters, g_lettersNoLowerCaseNoNumsF);
             break;
         case 3:
-            font->letters = g_lettersNoLowerCaseNoNumsG;
+            SETP(font->letters, g_lettersNoLowerCaseNoNumsG);
             break;
         }
         break;
@@ -225,18 +225,18 @@ u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f3
         default:
         case 0:
         case 2:
-            font->letters = g_lettersE;
+            SETP(font->letters, g_lettersE);
             break;
         case 1:
-            font->letters = g_lettersF;
+            SETP(font->letters, g_lettersF);
             break;
         case 3:
-            font->letters = g_lettersG;
+            SETP(font->letters, g_lettersG);
             break;
         }
         break;
     }
-    font->unkF = strlen(font->letters);
+    font->unkF = strlen(GETP(font->letters));
     for (i = 0; i < 128; i++) {
         font->chars[i].spacingX = 0;
     }
@@ -246,11 +246,11 @@ u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f3
     dv = height / texSize;
     font->chars[' '].spacingX = spacing;
     for (i = 0; i < font->unkF; i++) {
-        font->chars[(u8)font->letters[i]].spacingX = spacing;
-        font->chars[(u8)font->letters[i]].unk0 = u;
-        font->chars[(u8)font->letters[i]].unk4 = v;
-        font->chars[(u8)font->letters[i]].unk8 = u + spacing / texSize;
-        font->chars[(u8)font->letters[i]].unkC = v - dv;
+        font->chars[(u8)GETP(font->letters)[i]].spacingX = spacing;
+        font->chars[(u8)GETP(font->letters)[i]].unk0 = u;
+        font->chars[(u8)GETP(font->letters)[i]].unk4 = v;
+        font->chars[(u8)GETP(font->letters)[i]].unk8 = u + spacing / texSize;
+        font->chars[(u8)GETP(font->letters)[i]].unkC = v - dv;
         u += du;
         if (u + du > 1.0f) {
             u = 0.0f;

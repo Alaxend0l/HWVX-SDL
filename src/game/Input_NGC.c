@@ -17,7 +17,7 @@ typedef struct InputUnk108 {
 
 /* TODO: these belong in .bss (original names, in order: rumbleStatus, g_mouse, g_padDown, g_padUp,
  * g_pKeyToDI, ngcPad, ngcPadLast, Wheels). Plain statics get laid out in first-use order, which breaks
- * Input_Init's offsets; the {0} initialisers keep declaration order but put them in .data. */
+ * Input_Init's offsets; the {0} initialisers keep declaration order but put them GETP(in .data). */
 static RumbleStatus rumbleStatus[4] = {0};
 static s32 s_rumbleTime[4] = {0};
 static u8 s_unk30[0x40] = {0};
@@ -148,7 +148,7 @@ void Input_Heartbeat(void) {
 }
 
 
-void Input_SetForceFeedback(s32 chan, f32 strength, f32 duration) {
+void Input_SetForceFeedback(s32 chan, s32 type, f32 strength, f32 duration) {
     if (g_VirtualPad[chan].forceFeedbackActive) {
         rumbleStatus[chan].duration = 32.0f * duration * strength;
         rumbleStatus[chan].active = 1;
@@ -156,11 +156,11 @@ void Input_SetForceFeedback(s32 chan, f32 strength, f32 duration) {
     }
 }
 
-void Input_SetAlternativeForceFeedback(void) {
+void Input_SetAlternativeForceFeedback(s32 chan, f32 a, f32 b) {
 
 }
 
-void Input_ForceFeedbackPause(void) {
+void Input_ForceFeedbackPause(s32 pause) {
 
 }
 

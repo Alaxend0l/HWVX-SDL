@@ -14,13 +14,13 @@ typedef struct LineDef {
 
 typedef struct LineInfo {
     u8 pad0[4];
-    LineDef *data;
+    PTR32(LineDef) data;
     s32 life;
     s32 lifeRange;
     u8 pad10[4];
     u8 colourKeys[8];
     u32 numFx;
-    u32 *fx;
+    PTR32(u32) fx;
 } LineInfo;
 
 typedef struct Line {
@@ -29,7 +29,7 @@ typedef struct Line {
     Vector4 vel;            /* 0x20 */
     Vector4 dir;            /* 0x30 */
     Vector4 accel;          /* 0x40 */
-    LineInfo *info;         /* 0x50 NULL: free slot */
+    PTR32(LineInfo) info;         /* 0x50 NULL: free slot */
     u8 colourKey[0x24];     /* 0x54 ExtractColorKey state */
     u32 colour;             /* 0x78 */
     u8 pad7C[4];            /* 0x7C */
@@ -60,7 +60,7 @@ void LineManager_Init(void) {
     u32 i;
 
     for (i = 0; i < 128; i++) {
-        g_lineManager[i].info = NULL;
+        SETP(g_lineManager[i].info, NULL);
     }
 }
 
@@ -71,8 +71,8 @@ void LineManager_Add(void *arg, Vector4 *start, Vector4 *dir, Vector4 *accel) {
     LineDef *data;
 
     for (i = 0; i < 128; i++) {
-        if (g_lineManager[i].info == NULL) {
-            data = info->data;
+        if (GETP(g_lineManager[i].info) == NULL) {
+            data = GETP(info->data);
             g_lineManager[i].life = RandomAdd_s32(info->life, info->lifeRange);
             g_lineManager[i].rate = 1.0f;
             if (info->life && info->lifeRange) {
@@ -85,7 +85,7 @@ void LineManager_Add(void *arg, Vector4 *start, Vector4 *dir, Vector4 *accel) {
                 PSVECNormalize(&g_lineManager[i].dir, &g_lineManager[i].dir);
             }
             g_lineManager[i].accel = *accel;
-            g_lineManager[i].info = info;
+            SETP(g_lineManager[i].info, info);
             g_lineManager[i].unkE0 = data->unk0;
             g_lineManager[i].unk80 = 1;
             g_lineManager[i].unkB0 = 1;
@@ -135,15 +135,15 @@ void LineManager_Heartbeat(void) {
         return;
     }
     for (i = 0; i < 128; i++) {
-        if (g_lineManager[i].info == NULL) {
+        if (GETP(g_lineManager[i].info) == NULL) {
             continue;
         }
         dt = g_fDeltaTimeMS;
-        data = g_lineManager[i].info->data;
+        data = GETP(GETP(g_lineManager[i].info)->data);
         if (g_lineManager[i].life < dt) {
-            if (g_lineManager[i].info->numFx != 0) {
-                s32 idx = RandomAdd_s32(0, g_lineManager[i].info->numFx);
-                data = (LineDef *)PTR(g_lineManager[i].info->fx[idx]);
+            if (GETP(g_lineManager[i].info)->numFx != 0) {
+                s32 idx = RandomAdd_s32(0, GETP(g_lineManager[i].info)->numFx);
+                data = (LineDef *)PTR(GETP(GETP(g_lineManager[i].info)->fx)[idx]);
                 if (data != NULL) {
                     params.id = (u32)HND(data);
                     params.pos = g_lineManager[i].start;
@@ -159,13 +159,13 @@ void LineManager_Heartbeat(void) {
                     ThingManager_DARYL_CreateThing(1, &params);
                 }
             }
-            g_lineManager[i].info = NULL;
+            SETP(g_lineManager[i].info, NULL);
         } else {
             g_lineManager[i].life -= dt;
             PSVECScale(&g_lineManager[i].vel, &delta, dt);
             AccumulateVector(&g_lineManager[i].accel, &g_lineManager[i].vel, &g_lineManager[i].vel, dt);
             PSVECAdd(&delta, &g_lineManager[i].start, &g_lineManager[i].start);
-            ExtractColorKey(g_lineManager[i].info->colourKeys, g_lineManager[i].colourKey, dt * g_lineManager[i].rate);
+            ExtractColorKey(GETP(g_lineManager[i].info)->colourKeys, g_lineManager[i].colourKey, dt * g_lineManager[i].rate);
             ExtractColorKey(data->colourKeys, g_lineManager[i].colour2Key, dt * g_lineManager[i].rate);
             if (g_lineManager[i].unkE2) {
                 if (data->unk1) {
@@ -200,7 +200,7 @@ void LineManager_Render(void) {
     LineFX *fx;
 
     for (i = 0; i < 128; i++) {
-        if (g_lineManager[i].info != NULL) {
+        if (GETP(g_lineManager[i].info) != NULL) {
             fx = Gfx_Add3DLineFX();
             fx->start = g_lineManager[i].start;
             fx->end = g_lineManager[i].end;

@@ -19,7 +19,7 @@ s32 Looker_Init(u8 *looker, u8 *init) {
         slave[0x83] = 0;
         ThingManagerList_Append((void **)(looker + 0x88), slave);
     }
-    world = g_worldData.world;
+    world = GETP(g_worldData.world);
     if (M2C_FIELD(world, u32 *, 0x8) != 0) {
         M2C_FIELD(looker, Vec4 *, 0x40) = *SLOT_LOAD(Vec4 *, (u8 *)(world) + 0xC);
     }
@@ -57,11 +57,11 @@ s32 Looker_PreMove(u8 *thing) {
         Vector4 pos;
         Vector4 quat;
         u8 unk60[0x34];
-        LookerInput *player;
+        PTR32(LookerInput) player;
         u8 unk98[0x1C];
         f32 yaw;
         f32 pitch;
-        struct Looker *host;
+        PTR32(struct Looker) host;
     } Looker;
     extern f32 g_fDeltaTimeSec;
     Looker *looker = (Looker *)thing;
@@ -73,49 +73,49 @@ s32 Looker_PreMove(u8 *thing) {
     s32 x;
 
     speed = 11000.0f * g_fDeltaTimeSec;
-    if (looker->player == NULL) {
+    if (GETP(looker->player) == NULL) {
         return 0;
     }
-    if (!Player_IsHuman(looker->player)) {
+    if (!Player_IsHuman(GETP(looker->player))) {
         return 0;
     }
-    if (looker->player->fast) {
+    if (GETP(looker->player)->fast) {
         speed *= 0.1f;
     }
-    switch (looker->player->pressed) {
+    switch (GETP(looker->player)->pressed) {
     case 7:
-        if (looker->host != NULL) {
-            looker->host = NULL;
+        if (GETP(looker->host) != NULL) {
+            SETP(looker->host, NULL);
         } else {
-            looker->host = FindHost(&looker->pos, &looker->forward);
-            if (looker->host == looker) {
-                looker->host = NULL;
+            SETP(looker->host, FindHost(&looker->pos, &looker->forward));
+            if (GETP(looker->host) == looker) {
+                SETP(looker->host, NULL);
             }
         }
         break;
     }
-    looker->player->pressed = 0;
+    GETP(looker->player)->pressed = 0;
     looker->vel.x = 0.0f;
     looker->vel.y = 0.0f;
     looker->vel.z = 0.0f;
-    x = looker->player->moveX;
+    x = GETP(looker->player)->moveX;
     if (x > 32 || x < -32) {
         f = 120.0f * (f32)-x * g_fDeltaTimeSec;
         looker->vel.x += f * looker->right.x;
         looker->vel.y += f * looker->right.y;
         looker->vel.z += f * looker->right.z;
     }
-    if (looker->player->moveY > 32 || looker->player->moveY < -32) {
-        f = 120.0f * (f32)looker->player->moveY * g_fDeltaTimeSec;
+    if (GETP(looker->player)->moveY > 32 || GETP(looker->player)->moveY < -32) {
+        f = 120.0f * (f32)GETP(looker->player)->moveY * g_fDeltaTimeSec;
         looker->vel.x += f * looker->forward.x;
         looker->vel.y += f * looker->forward.y;
         looker->vel.z += f * looker->forward.z;
     }
-    if (looker->player->lookX > 32 || looker->player->lookX < -32) {
-        looker->yaw -= 0.015f * (f32)looker->player->lookX * g_fDeltaTimeSec;
+    if (GETP(looker->player)->lookX > 32 || GETP(looker->player)->lookX < -32) {
+        looker->yaw -= 0.015f * (f32)GETP(looker->player)->lookX * g_fDeltaTimeSec;
     }
-    if (looker->player->lookY > 32 || looker->player->lookY < -32) {
-        looker->pitch -= 0.015f * (f32)looker->player->lookY * g_fDeltaTimeSec;
+    if (GETP(looker->player)->lookY > 32 || GETP(looker->player)->lookY < -32) {
+        looker->pitch -= 0.015f * (f32)GETP(looker->player)->lookY * g_fDeltaTimeSec;
         if (looker->pitch > 80.0f) {
             looker->pitch = 80.0f;
         }
@@ -125,22 +125,22 @@ s32 Looker_PreMove(u8 *thing) {
     }
     SetOrientation(&looker->right, looker->yaw, looker->pitch, 0.0f);
     SubMatrixToQuaternion(&looker->right, &looker->quat);
-    if (!looker->player->locked && looker->player->forward) {
+    if (!GETP(looker->player)->locked && GETP(looker->player)->forward) {
         looker->vel.x += speed * looker->forward.x;
         looker->vel.y += speed * looker->forward.y;
         looker->vel.z += speed * looker->forward.z;
     }
-    if (!looker->player->locked && looker->player->back) {
+    if (!GETP(looker->player)->locked && GETP(looker->player)->back) {
         looker->vel.x -= speed * looker->forward.x;
         looker->vel.y -= speed * looker->forward.y;
         looker->vel.z -= speed * looker->forward.z;
     }
-    if (!looker->player->locked && looker->player->right) {
+    if (!GETP(looker->player)->locked && GETP(looker->player)->right) {
         looker->vel.x += speed * looker->right.x;
         looker->vel.y += speed * looker->right.y;
         looker->vel.z += speed * looker->right.z;
     }
-    if (!looker->player->locked && looker->player->left) {
+    if (!GETP(looker->player)->locked && GETP(looker->player)->left) {
         looker->vel.x -= speed * looker->right.x;
         looker->vel.y -= speed * looker->right.y;
         looker->vel.z -= speed * looker->right.z;
@@ -176,7 +176,7 @@ void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info) {
         Vector4 pos;
         Matrix4 orient;
         u8 unk50[0x6C];
-        LookerCamera *camera;
+        PTR32(LookerCamera) camera;
         u8 unkC0[0xC];
         f32 fov;
     } Looker;
@@ -192,12 +192,12 @@ void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info) {
     } OrientationInfo;
     Looker *l = (Looker *)looker;
     OrientationInfo *o = (OrientationInfo *)info;
-    LookerCamera *cam = l->camera;
+    LookerCamera *cam = GETP(l->camera);
 
     if (cam != NULL) {
         l->orient = cam->orient;
-        l->pos = l->camera->pos;
-        l->camera->vtable->getOrientationInfo(l->camera, arg1, info);
+        l->pos = GETP(l->camera)->pos;
+        GETP(l->camera)->vtable->getOrientationInfo(GETP(l->camera), arg1, info);
         return;
     }
     o->fov = l->fov;

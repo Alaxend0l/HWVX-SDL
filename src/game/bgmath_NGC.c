@@ -106,8 +106,8 @@ void SinCosRad(f32 *s, f32 *c, f32 rad)
     *c = cos(r);
 }
 
-float ArcTan(float x) {
-    return (float)atan2(x);
+float ArcTan(float y, float x) {
+    return (float)atan2(y, x);
 }
 
 f32 Sqrt(f64 x)
@@ -491,7 +491,7 @@ void SubMatrixToQuaternion(Matrix4 *m, Quaternion *q)
 void GetComponentOfVector(void *arg0, void *arg1) {
     f32 temp_f1;
 
-    temp_f1 = PSVECDotProduct();
+    temp_f1 = PSVECDotProduct(arg0, arg1);
     M2C_FIELD(arg1, f32 *, 0) = (f32) (temp_f1 * M2C_FIELD(arg0, f32 *, 0));
     M2C_FIELD(arg1, f32 *, 4) = (f32) (temp_f1 * M2C_FIELD(arg0, f32 *, 4));
     M2C_FIELD(arg1, f32 *, 8) = (f32) (temp_f1 * M2C_FIELD(arg0, f32 *, 8));

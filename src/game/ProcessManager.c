@@ -2,8 +2,8 @@
 #include "common.h"
 
 typedef struct Process {
-    void (*init)(void);
-    void (*update)(void);
+    FPTR32(void, (void)) init;
+    FPTR32(void, (void)) update;
     s32 arg;
     u32 flags;
     s32 unk10;
@@ -44,8 +44,8 @@ void ProcessManager_Add(char *name, void (*init)(void), void (*update)(void), s3
     if (init != NULL) {
         init();
     }
-    g_processManager.processes[index].init = init;
-    g_processManager.processes[index].update = update;
+    SETP(g_processManager.processes[index].init, init);
+    SETP(g_processManager.processes[index].update, update);
     g_processManager.processes[index].arg = arg;
     g_processManager.processes[index].flags = flags;
     g_processManager.processes[index].unk10 = 0;
@@ -76,8 +76,8 @@ void ProcessManager_Heartbeat(u32 activeOnly) {
     FileStreaming_HeartBeat();
     for (i = 0; i < g_processManager.count; i++) {
         if (activeOnly == 0 || (g_processManager.processes[i].flags & 1) != 0) {
-            if (g_processManager.processes[i].update != NULL) {
-                g_processManager.processes[i].update();
+            if (GETP(g_processManager.processes[i].update) != NULL) {
+                GETP(g_processManager.processes[i].update)();
             }
         }
     }

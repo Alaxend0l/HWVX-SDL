@@ -14,7 +14,7 @@ typedef struct WorldFog {
     f32 nearDistance;
     f32 farDistance;
     u8 pad1C[0xC0 - 0x1C];
-    GXColor *color;
+    PTR32(GXColor) color;
 } WorldFog;
 
 typedef struct VolumeShape {
@@ -24,13 +24,13 @@ typedef struct VolumeShape {
     Vector4 center;
     f32 radius;
     f32 radiusSq;
-    void *bsp;
-    FogSettings *fog;
+    PTR32(void) bsp;
+    PTR32(FogSettings) fog;
 } VolumeShape;
 
 typedef struct VolumeList {
     u32 count;
-    VolumeShape **volumes;
+    PTR32(VolumeShape *) volumes;
 } VolumeList;
 
 typedef struct VolumeCell {
@@ -46,8 +46,8 @@ typedef struct VolumeVec3 {
 typedef struct VolumeHolder {
     VolumeVec3 origin;      /* 0x00 */
     u8 padC[4];
-    VolumeCell *cells;      /* 0x10 */
-    s32 *cellIndex;         /* 0x14 */
+    PTR32(VolumeCell) cells;      /* 0x10 */
+    PTR32(s32) cellIndex;         /* 0x14 */
     u8 pad18[8];
     VolumeVec3 cellSize;    /* 0x20 */
     s32 numX;               /* 0x2C */
@@ -62,7 +62,7 @@ static inline s8 VolumeManager_IsPointInVolume(Vector4 *point, VolumeShape *shap
 
     switch (shape->type) {
     case 0:
-        return BSPN0_CollideWithVector(shape->bsp, point);
+        return BSPN0_CollideWithVector(GETP(shape->bsp), point);
     case 1:
         PSVECSubtract(point, &shape->center, &diff);
         if (PSVECSquareMag(&diff) < shape->radiusSq) {
@@ -82,8 +82,8 @@ void VolumeManager_Create(void) {
 void VolumeManager_Release(void) {
     extern s32 g_VolumeHolder;
     g_VolumeHolder = 0;
-    SetReverb(0, 0, 0, 0);
-    SetReverb(1, 0, 0, 0);
+    SetReverb(0, 0); /* 3rd/4th args were ignored on GC */
+    SetReverb(1, 0); /* 3rd/4th args were ignored on GC */
 }
 
 void VolumeManager_Initialize(void) {
@@ -94,7 +94,7 @@ void VolumeManager_Initialize(void) {
     extern s32 g_VolumeHolder;
     extern u8 g_bReset;
     VolumeManager_Release();
-    g_VolumeHolder = ((World *)g_worldData.world)->volumeHolder;
+    g_VolumeHolder = ((World *)GETP(g_worldData.world))->volumeHolder;
     g_bReset = 1;
 }
 
@@ -118,7 +118,7 @@ static inline s32 VolumeManager_GetCell(VolumeHolder *holder, Vector4 *point) {
     if (z < 0 || z >= holder->numZ) {
         return 0;
     }
-    return holder->cellIndex[z * holder->numX + holder->numZ * (y * holder->numX) + x];
+    return GETP(holder->cellIndex)[z * holder->numX + holder->numZ * (y * holder->numX) + x];
 }
 
 
@@ -156,14 +156,14 @@ s32 VolumeManager_GetNumVolumesOfType(u32 type) {
     typedef struct World {
         u8 pad0[0x68];
         u32 numVolumes;
-        Volume *volumes;
+        PTR32(Volume) volumes;
     } World;
-    World *world = g_worldData.world;
+    World *world = GETP(g_worldData.world);
     s32 count = 0;
     u32 i;
 
     for (i = 0; i < world->numVolumes; i++) {
-        if (type == world->volumes[i].type) {
+        if (type == GETP(world->volumes)[i].type) {
             count++;
         }
     }
@@ -179,15 +179,15 @@ void *VolumeManager_GetVolumeTypeByIndex(u32 type, u32 index) {
     typedef struct World {
         u8 pad0[0x68];
         u32 numVolumes;
-        Volume *volumes;
+        PTR32(Volume) volumes;
     } World;
-    World *world = g_worldData.world;
+    World *world = GETP(g_worldData.world);
     u32 i;
 
     for (i = 0; i < world->numVolumes; i++) {
-        if (world->volumes[i].type == type) {
+        if (GETP(world->volumes)[i].type == type) {
             if (index == 0) {
-                return world->volumes + i;
+                return GETP(world->volumes) + i;
             }
             index--;
         }
@@ -206,14 +206,14 @@ s32 VolumeManager_GetNumVolumesOfTypeByCell(s32 type, s32 cell) {
 s32 VolumeManager_GetVolumeTypeByIndexByCell(s32 type, s32 index, s32 cell) {
     typedef struct VolumeList {
         s32 count;
-        s32 *volumes;
+        PTR32(s32) volumes;
     } VolumeList;
     typedef struct VolumeCell {
         VolumeList types[7];
     } VolumeCell;
     extern s32 g_VolumeHolder;
     VolumeCell *cells = SLOT_LOAD(VolumeCell *, (u8 *)(g_VolumeHolder) + 0x10);
-    return cells[cell].types[type].volumes[index];
+    return GETP(cells[cell].types[type].volumes)[index];
 }
 
 s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq) {
@@ -224,7 +224,7 @@ s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq) {
         Vector4 center;
         f32 radius;
         f32 radiusSq;
-        void *bsp;
+        PTR32(void) bsp;
     } Shape;
     s8 BSPN0_CollideWithVector(void *bsp, Vector4 *point);
     Shape *shape = volume;
@@ -232,7 +232,7 @@ s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq) {
 
     switch (shape->type) {
     case 0:
-        return BSPN0_CollideWithVector(shape->bsp, point);
+        return BSPN0_CollideWithVector(GETP(shape->bsp), point);
     case 1:
         PSVECSubtract(point, &shape->center, &diff);
         *distSq = PSVECSquareMag(&diff);
@@ -250,10 +250,10 @@ VolumeShape *IsPointWithinForceBox(Vector4 *point) {
     s32 cell;
 
     cell = VolumeManager_GetCell(g_VolumeHolder, point);
-    count = g_VolumeHolder != NULL ? g_VolumeHolder->cells[cell].types[1].count : 0;
+    count = g_VolumeHolder != NULL ? GETP(g_VolumeHolder->cells)[cell].types[1].count : 0;
     i = 0;
     while (i < count) {
-        volume = g_VolumeHolder->cells[cell].types[1].volumes[i];
+        volume = GETP(GETP(g_VolumeHolder->cells)[cell].types[1].volumes)[i];
         if (VolumeManager_IsPointInVolume(point, volume)) {
             return volume;
         }
@@ -277,7 +277,7 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
     } WorldReverb;
     typedef struct World {
         u8 pad0[0x9C];
-        WorldReverb *reverb;
+        PTR32(WorldReverb) reverb;
     } World;
     extern VolumeHolder *g_VolumeHolder;
     extern s8 g_bReset;
@@ -294,37 +294,37 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
     u32 i;
     s32 cell;
 
-    settings = ((World *)g_worldData.world)->reverb;
+    settings = GETP(((World *)GETP(g_worldData.world))->reverb);
     level = 32767.0f * settings->level;
     feedback = 32767.0f * settings->feedback;
     delay = settings->delay;
     cell = VolumeManager_GetCell(g_VolumeHolder, point);
-    count = g_VolumeHolder != NULL ? g_VolumeHolder->cells[cell].types[2].count : 0;
+    count = g_VolumeHolder != NULL ? GETP(g_VolumeHolder->cells)[cell].types[2].count : 0;
     for (i = 0; i < count; i++) {
-        volume = g_VolumeHolder->cells[cell].types[2].volumes[i];
+        volume = GETP(GETP(g_VolumeHolder->cells)[cell].types[2].volumes)[i];
         if (VolumeManager_IsPointInVolume(point, volume)) {
-            ReverbSettings *reverb = (ReverbSettings *)volume->fog;
+            ReverbSettings *reverb = (ReverbSettings *)GETP(volume->fog);
 
             if (reverb->type == 0) {
                 if (reverb->volume != music_volume || reverb->feedback != music_feedback) {
-                    SetReverb(0, reverb->volume, reverb->feedback, (u16)delay);
+                    SetReverb(0, reverb->volume); /* 3rd/4th args were ignored on GC */
                     music_volume = reverb->volume;
                     music_feedback = reverb->feedback;
                 }
             } else if (reverb->type == 1) {
                 if (reverb->volume != sfx_volume || reverb->feedback != sfx_feedback) {
-                    SetReverb(1, reverb->volume, reverb->feedback, (u16)delay);
+                    SetReverb(1, reverb->volume); /* 3rd/4th args were ignored on GC */
                     sfx_volume = reverb->volume;
                     sfx_feedback = reverb->feedback;
                 }
             } else {
                 if (reverb->volume != music_volume || reverb->feedback != music_feedback) {
-                    SetReverb(0, (u16)level, reverb->feedback, (u16)delay);
+                    SetReverb(0, (u16)level); /* 3rd/4th args were ignored on GC */
                     music_volume = reverb->volume;
                     music_feedback = reverb->feedback;
                 }
                 if (reverb->volume != sfx_volume || reverb->feedback != sfx_feedback) {
-                    SetReverb(1, (u16)level, reverb->feedback, (u16)delay);
+                    SetReverb(1, (u16)level); /* 3rd/4th args were ignored on GC */
                     sfx_volume = reverb->volume;
                     sfx_feedback = reverb->feedback;
                 }
@@ -333,12 +333,12 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
         }
     }
     if (g_bReset || (u16)level != music_volume || (u16)feedback != music_feedback) {
-        SetReverb(0, (u16)level, (u16)feedback, (u16)delay);
+        SetReverb(0, (u16)level); /* 3rd/4th args were ignored on GC */
         music_volume = level;
         music_feedback = feedback;
     }
     if (g_bReset || (u16)level != sfx_volume || (u16)feedback != sfx_feedback) {
-        SetReverb(1, (u16)level, (u16)feedback, (u16)delay);
+        SetReverb(1, (u16)level); /* 3rd/4th args were ignored on GC */
         sfx_volume = level;
         sfx_feedback = feedback;
     }
@@ -350,7 +350,7 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
 void VolumeManager_SetFogLevel(Vector4 *point) {
     typedef struct World {
         u8 pad0[0x9C];
-        WorldFog *fog;
+        PTR32(WorldFog) fog;
     } World;
     extern VolumeHolder *g_VolumeHolder;
     static u32 fogColor;
@@ -365,13 +365,13 @@ void VolumeManager_SetFogLevel(Vector4 *point) {
     GXColor color;
     GXColor worldColor;
 
-    settings = ((World *)g_worldData.world)->fog;
+    settings = GETP(((World *)GETP(g_worldData.world))->fog);
     cell = VolumeManager_GetCell(g_VolumeHolder, point);
-    count = g_VolumeHolder != NULL ? g_VolumeHolder->cells[cell].types[4].count : 0;
+    count = g_VolumeHolder != NULL ? GETP(g_VolumeHolder->cells)[cell].types[4].count : 0;
     for (i = 0; i < count; i++) {
-        volume = g_VolumeHolder->cells[cell].types[4].volumes[i];
+        volume = GETP(GETP(g_VolumeHolder->cells)[cell].types[4].volumes)[i];
         if (VolumeManager_IsPointInVolume(point, volume)) {
-            FogSettings *fog = volume->fog;
+            FogSettings *fog = GETP(volume->fog);
 
             if (*(u32 *)&fog->color != fogColor || fogType != fog->type || fogNearDistance != fog->nearDistance || fogFarDistance != fog->farDistance) {
                 color = fog->color;
@@ -384,10 +384,10 @@ void VolumeManager_SetFogLevel(Vector4 *point) {
             return;
         }
     }
-    if (*(u32 *)settings->color != fogColor || fogType != settings->type || fogNearDistance != settings->nearDistance || fogFarDistance != settings->farDistance) {
-        worldColor = *settings->color;
+    if (*(u32 *)GETP(settings->color) != fogColor || fogType != settings->type || fogNearDistance != settings->nearDistance || fogFarDistance != settings->farDistance) {
+        worldColor = *GETP(settings->color);
         Gfx_SetFog(&worldColor, settings->type, settings->nearDistance, settings->farDistance);
-        fogColor = *(u32 *)settings->color;
+        fogColor = *(u32 *)GETP(settings->color);
         fogType = settings->type;
         fogNearDistance = settings->nearDistance;
         fogFarDistance = settings->farDistance;

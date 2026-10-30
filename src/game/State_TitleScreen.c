@@ -3,12 +3,12 @@
 typedef struct DemoSettings {
     u8 bRandom;
     u8 pad1[7];
-    u32 *demoList;
+    PTR32(u32) demoList;
 } DemoSettings;
 
 typedef struct MCPSettings {
     u8 pad0[0x24];
-    DemoSettings *demos;
+    PTR32(DemoSettings) demos;
 } MCPSettings;
 
 void GameSettings_SetCodeVariable(s32 code, s32 arg, s32 value);
@@ -180,15 +180,15 @@ void TitleScreen_RunDemoLoop(void) {
     u32 index;
 
     mcp = GameSettings_GetMCP();
-    if (mcp == NULL || mcp->demos->demoList == NULL) {
+    if (mcp == NULL || GETP(GETP(mcp->demos)->demoList) == NULL) {
         return;
     }
-    if (mcp->demos->bRandom) {
-        index = RandomNumberGenerator_GetRandomInteger(0, *mcp->demos->demoList);
+    if (GETP(mcp->demos)->bRandom) {
+        index = RandomNumberGenerator_GetRandomInteger(0, *GETP(GETP(mcp->demos)->demoList));
     } else {
         index = progressionIndex++;
     }
-    if (index >= *mcp->demos->demoList) {
+    if (index >= *GETP(GETP(mcp->demos)->demoList)) {
         index = 0;
         progressionIndex = 1;
     }

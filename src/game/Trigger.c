@@ -223,7 +223,7 @@ s32 Trigger_ReleaseTrigger(s32 *trigger) {
 s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds) {
     typedef struct TriggerCondition {
         u32 type;
-        void *param;
+        PTR32(void) param;
         u8 unk8[0x2C - 0x8];
     } TriggerCondition;
     extern s8 (*pTriggerFuncArray_800D3DA8[])(void *param);
@@ -236,28 +236,28 @@ s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds) {
     switch (mode) {
     case 0:
         for (i = 0; i < count; i++) {
-            if (!pTriggerFuncArray_800D3DA8[cond[i].type](cond[i].param)) {
+            if (!pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
                 return 0;
             }
         }
         return 1;
     case 1:
         for (i = 0; i < count; i++) {
-            if (pTriggerFuncArray_800D3DA8[cond[i].type](cond[i].param)) {
+            if (pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
                 return 1;
             }
         }
         return 0;
     case 2:
         for (i = 0; i < count; i++) {
-            if (!pTriggerFuncArray_800D3DA8[cond[i].type](cond[i].param)) {
+            if (!pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
                 return 1;
             }
         }
         return 0;
     case 3:
         for (i = 0; i < count; i++) {
-            if (pTriggerFuncArray_800D3DA8[cond[i].type](cond[i].param)) {
+            if (pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
                 return 0;
             }
         }

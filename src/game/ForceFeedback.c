@@ -1,7 +1,7 @@
 #include "common.h"
 
 typedef struct ForceFeedback {
-    void *effect;                 /* 0x00 */
+    PTR32(void) effect;                 /* 0x00 */
     f32 point[0x1C / 4 - 1];      /* 0x04 */
     u8 active;                    /* 0x1C */
     u8 pad1D[0x20 - 0x1D];        /* 0x1D */
@@ -28,7 +28,7 @@ void ForceFeedback_Init(void)
 
     for (i = 0; i < 24; i++)
     {
-        g_forcefeedback[i].effect = 0;
+        SETP(g_forcefeedback[i].effect, 0);
     }
 }
 
@@ -36,8 +36,8 @@ void ForceFeedback_Play(void *effect, Vector4 *dir) {
     u32 i;
 
     for (i = 0; i < 24; i++) {
-        if (g_forcefeedback[i].effect == 0) {
-            g_forcefeedback[i].effect = effect;
+        if (GETP(g_forcefeedback[i].effect) == 0) {
+            SETP(g_forcefeedback[i].effect, effect);
             g_forcefeedback[i].active = 1;
             g_forcefeedback[i].playing = 1;
             g_forcefeedback[i].dir = *dir;
@@ -57,9 +57,9 @@ void ForceFeedback_Heartbeat(void)
     for (i = 0; i < 24; i++)
     {
         ff = &g_forcefeedback[i];
-        if (ff->effect != NULL)
+        if (GETP(ff->effect) != NULL)
         {
-            ExtractPointKey((char *)ff->effect + 0x2C, ff->point, g_fDeltaTimeMS);
+            ExtractPointKey((char *)GETP(ff->effect) + 0x2C, ff->point, g_fDeltaTimeMS);
             if (ff->unk54 > 0)
             {
                 ff->unk54 -= g_iDeltaTimeMS;
@@ -69,7 +69,7 @@ void ForceFeedback_Heartbeat(void)
                 ff->unk58 -= g_iDeltaTimeMS;
                 if (ff->unk58 >= 0)
                 {
-                    ExtractF32Key(SLOT_LOAD(u8 *, ((char *)ff->effect + 0x28)), &ff->value, g_fDeltaTimeMS);
+                    ExtractF32Key(SLOT_LOAD(u8 *, ((char *)GETP(ff->effect) + 0x28)), &ff->value, g_fDeltaTimeMS);
                 }
             }
             if (ff->magnitude > 0)
@@ -77,13 +77,13 @@ void ForceFeedback_Heartbeat(void)
                 ff->magnitude -= g_iDeltaTimeMS;
                 if (ff->magnitude >= 0)
                 {
-                    ExtractF32Key(SLOT_LOAD(u8 *, ((char *)ff->effect + 0x24)), &ff->value, g_fDeltaTimeMS);
+                    ExtractF32Key(SLOT_LOAD(u8 *, ((char *)GETP(ff->effect) + 0x24)), &ff->value, g_fDeltaTimeMS);
                 }
             }
         }
         if (ff->unk54 <= 0 && ff->unk58 <= 0 && ff->magnitude <= 0)
         {
-            ff->effect = NULL;
+            SETP(ff->effect, NULL);
         }
     }
 }
@@ -107,7 +107,7 @@ void ForceFeedback_GetForce(void *ff, u8 *a, u8 *b, f32 *c)
         for (i = 0; i < 24; i++)
         {
             fe = &g_forcefeedback[i];
-            if (fe->effect != NULL)
+            if (GETP(fe->effect) != NULL)
             {
                 DistanceXYZ(ff, &fe->dir, &dist);
                 if (fe->unk54 > 0 && dist < fe->point[1])

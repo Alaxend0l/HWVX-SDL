@@ -1,11 +1,11 @@
 #include "common.h"
 #include "CarA.h"
 
-/* A camera sub-mode a vehicle hands out (CameraInfo.subMode). */
+/* A camera sub-mode a vehicle hands out (GETP(CameraInfo.subMode)). */
 typedef struct CameraSubMode {
     u8 type;                /* 0x00 0: default, 2: zoom, 3: orbit, 4: bone */
     u8 pad1[3];
-    void *params;           /* 0x04 */
+    PTR32(void) params;           /* 0x04 */
 } CameraSubMode;
 
 typedef struct CameraOrbitParams {
@@ -37,7 +37,7 @@ typedef struct CameraInfo {
     Vector4 target;         /* 0x60 */
     Vector4 from;           /* 0x70 */
     u8 pad80[4];
-    CameraSubMode *subMode; /* 0x84 */
+    PTR32(CameraSubMode) subMode; /* 0x84 */
     u32 cameraCount;        /* 0x88 */
     f32 lookAhead;          /* 0x8C */
 } CameraInfo;
@@ -49,7 +49,7 @@ typedef struct CameraWorldScale {
 
 typedef struct CameraWorld {
     u8 pad0[0x9C];
-    CameraWorldScale *unk9C; /* 0x9C */
+    PTR32(CameraWorldScale) unk9C; /* 0x9C */
 } CameraWorld;
 
 
@@ -201,14 +201,14 @@ s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info
         if (other->flags & 2) {
             continue;
         }
-        if ((u8 *)other->vtable == g_destructibleVTable && other->record->info->type == 0) {
-            box = other->record->info->box;
+        if ((u8 *)GETP(other->vtable) == g_destructibleVTable && GETP(GETP(other->record)->info)->type == 0) {
+            box = GETP(GETP(GETP(other->record)->info)->box);
             if ((box->v[1].x - box->v[0].x) * (box->v[1].z - box->v[0].z) < 100.0f) {
                 continue;
             }
         }
         if (SegmentVsSphere(&other->offsetPos, start, &end, *(f32 *)((u8 *)other + 0x70))) {
-            hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)other->vtable + 0x38))(other, start, dir, info, best);
+            hit = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))((u8 *)GETP(other->vtable) + 0x38))(other, start, dir, info, best);
             if (hit < *t) {
                 best = hit;
             }
@@ -421,12 +421,12 @@ void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
     u32 count;
     s8 inVolume;
 
-    car = cam->player->vehicle;
+    car = GETP(GETP(cam->player)->vehicle);
     scale = 1.0f;
-    car->vtable->getCameraInfo(car, cam->player->cameraIndex, &info);
+    GETP(GETP(car->vtable)->getCameraInfo)(car, GETP(cam->player)->cameraIndex, &info);
     target = info.target;
     if (info.lookAhead != 0.0f) {
-        car = cam->player->vehicle;
+        car = GETP(GETP(cam->player)->vehicle);
         if (car->worldMatrix.v[2].y < -0.4f && car->worldMatrix.v[1].y < 0.6f) {
             cam->flipTimer = 700;
         }
@@ -440,7 +440,7 @@ void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
         cam->flipTimer -= g_iDeltaTimeMS;
         scale = 0.0f;
     }
-    car = cam->player->vehicle;
+    car = GETP(GETP(cam->player)->vehicle);
     k = 350.0f * scale * info.lookAhead + 0.1f;
     lookPt.x = car->worldMatrix.v[2].x * k + car->velocity.x;
     lookPt.y = car->worldMatrix.v[2].y * k + car->velocity.y;
@@ -456,14 +456,14 @@ void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
         cam->lookDir = dir;
     }
     inVolume = 0;
-    cell = VolumeManager_GetVolumeCellIndex(&((CarA *)cam->player->vehicle)->worldMatrix.v[3]);
+    cell = VolumeManager_GetVolumeCellIndex(&((CarA *)GETP(GETP(cam->player)->vehicle))->worldMatrix.v[3]);
     count = VolumeManager_GetNumVolumesOfTypeByCell(3, cell);
-    car = cam->player->vehicle;
-    if ((u8 *)car->vtable != g_carAVTable || car->unk460 == 0) {
+    car = GETP(GETP(cam->player)->vehicle);
+    if ((u8 *)GETP(car->vtable) != g_carAVTable || car->unk460 == 0) {
         for (i = 0; i < count; i++) {
             f32 dist = 0.0f;
             volume = PTR(VolumeManager_GetVolumeTypeByIndexByCell(3, i, cell));
-            if (IsPointWithinVolume(&((CarA *)cam->player->vehicle)->worldMatrix.v[3], volume, &dist)) {
+            if (IsPointWithinVolume(&((CarA *)GETP(GETP(cam->player)->vehicle))->worldMatrix.v[3], volume, &dist)) {
                 inVolume = 1;
             }
         }
@@ -627,13 +627,13 @@ void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
     cam->pos.x = cam->tiltUp.x * mode[2] + (target.x - mode[1] * cam->dir.x);
     cam->pos.y = cam->tiltUp.y * mode[2] + (target.y - mode[1] * cam->dir.y);
     cam->pos.z = cam->tiltUp.z * mode[2] + (target.z - mode[1] * cam->dir.z);
-    car = cam->player->vehicle;
-    if ((u8 *)car->vtable == g_carAVTable) {
+    car = GETP(GETP(cam->player)->vehicle);
+    if ((u8 *)GETP(car->vtable) == g_carAVTable) {
         Vector4 toTarget __attribute__((aligned(16)));
         Vector4 blend __attribute__((aligned(16)));
         s32 bone;
         mtx = car->worldMatrix;
-        bone = *(s32 *)((u8 *)car->vehicleIface->collider + 0x44);
+        bone = *(s32 *)((u8 *)GETP(GETP(car->vehicleIface)->collider) + 0x44);
         XformVec(&car->worldMatrix, &car->bodyOffset, &mtx.v[3]);
         GetTrimmedCameraPos2(&info.from, &cam->pos, &cam->trim, bone, &mtx);
         PSVECSubtract(&target, &cam->pos, &toTarget);
@@ -759,7 +759,7 @@ static inline void Camera_ZoomOnVehicle(Camera *cam, u8 *params) {
     f32 t;
     Vector4 *nav;
 
-    ((CarA *)cam->player->vehicle)->vtable->getTargetPos(cam->player->vehicle, &target);
+    GETP(GETP(((CarA *)GETP(GETP(cam->player)->vehicle))->vtable)->getTargetPos)(GETP(GETP(cam->player)->vehicle), &target);
     PSVECSubtract(&target, &cam->pos, &delta);
     t = 1.0f;
     if (RayHitsTerrainAndObjects(&cam->pos, &delta, &t, NULL)) {
@@ -768,7 +768,7 @@ static inline void Camera_ZoomOnVehicle(Camera *cam, u8 *params) {
             cam->pos = *nav;
         }
     }
-    Camera_UpdatePosition_Zoom_Generic((u8 *)cam, params, &cam->pos, &target, ((CarA *)cam->player->vehicle)->unk70, 0.0f);
+    Camera_UpdatePosition_Zoom_Generic((u8 *)cam, params, &cam->pos, &target, ((CarA *)GETP(GETP(cam->player)->vehicle))->unk70, 0.0f);
 }
 
 static inline void Camera_OrbitWithParams(Camera *cam, Vector4 *center, CameraOrbitParams *params) {
@@ -811,8 +811,8 @@ static inline void Camera_OrbitVehicle(Camera *cam, CameraOrbitParams *params) {
 
     cam->modeTime += params->speed * g_fDeltaTimeSec;
     SinCosRad(&s, &c, cam->modeTime);
-    if (cam->player->vehicle != NULL) {
-        ((CarA *)cam->player->vehicle)->vtable->getTargetPos(cam->player->vehicle, &targetPos);
+    if (GETP(GETP(cam->player)->vehicle) != NULL) {
+        GETP(GETP(((CarA *)GETP(GETP(cam->player)->vehicle))->vtable)->getTargetPos)(GETP(GETP(cam->player)->vehicle), &targetPos);
         center = &targetPos;
     } else {
         center = &cam->mtx.v[3];
@@ -900,23 +900,23 @@ void Camera_UpdatePosition(Camera *cam) {
     u32 *mode;
 
     oldPos = cam->pos;
-    info.subMode = NULL;
+    SETP(info.subMode, NULL);
     info.fov = 60.0f;
     info.mtx = g_identity;
-    if (cam->player != NULL) {
-        cam->player->flags &= ~0x80;
+    if (GETP(cam->player) != NULL) {
+        GETP(cam->player)->flags &= ~0x80;
     }
-    switch (*(mode = cam->mode)) {
+    switch (*(mode = GETP(cam->mode))) {
     case 30:
-        if (cam->player != NULL) {
-            if (cam->player->vehicle != NULL) {
-                g_pNoRayCollideThing = cam->player->vehicle;
-                if (!(((CarA *)cam->player->vehicle)->collDirtyFlags & 0x201000)) {
-                    ((CarA *)cam->player->vehicle)->vtable->getCameraInfo(cam->player->vehicle, cam->player->cameraIndex, &info);
-                    if (cam->player->cameraIndex > info.cameraCount) {
-                        cam->player->cameraIndex -= (u8)info.cameraCount;
+        if (GETP(cam->player) != NULL) {
+            if (GETP(GETP(cam->player)->vehicle) != NULL) {
+                g_pNoRayCollideThing = GETP(GETP(cam->player)->vehicle);
+                if (!(((CarA *)GETP(GETP(cam->player)->vehicle))->collDirtyFlags & 0x201000)) {
+                    GETP(GETP(((CarA *)GETP(GETP(cam->player)->vehicle))->vtable)->getCameraInfo)(GETP(GETP(cam->player)->vehicle), GETP(cam->player)->cameraIndex, &info);
+                    if (GETP(cam->player)->cameraIndex > info.cameraCount) {
+                        GETP(cam->player)->cameraIndex -= (u8)info.cameraCount;
                     }
-                    cam->mtx = ((CarA *)cam->player->vehicle)->worldMatrix;
+                    cam->mtx = ((CarA *)GETP(GETP(cam->player)->vehicle))->worldMatrix;
                 } else {
                     info.mtx = cam->mtx;
                 }
@@ -925,56 +925,56 @@ void Camera_UpdatePosition(Camera *cam) {
                 return;
             }
         }
-        if (info.subMode == NULL) {
+        if (GETP(info.subMode) == NULL) {
             g_pNoRayCollideThing = NULL;
             cam->right = info.mtx.v[0];
             cam->up = info.mtx.v[1];
             cam->dir = info.mtx.v[2];
             cam->pos = info.mtx.v[3];
             Gfx_SetProjectionMatrix(info.fov);
-            if (cam->listener != NULL && cam->player != NULL && cam->player->vehicle != NULL) {
-                f32 scale = ((CameraWorld *)g_worldData.world)->unk9C->scale;
-                cam->listener->pos.x = ((CarA *)cam->player->vehicle)->velocity.x * scale + cam->pos.x;
-                cam->listener->pos.y = ((CarA *)cam->player->vehicle)->velocity.y * scale + cam->pos.y;
-                cam->listener->pos.z = ((CarA *)cam->player->vehicle)->velocity.z * scale + cam->pos.z;
+            if (GETP(cam->listener) != NULL && GETP(cam->player) != NULL && GETP(GETP(cam->player)->vehicle) != NULL) {
+                f32 scale = GETP(((CameraWorld *)GETP(g_worldData.world))->unk9C)->scale;
+                GETP(cam->listener)->pos.x = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.x * scale + cam->pos.x;
+                GETP(cam->listener)->pos.y = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.y * scale + cam->pos.y;
+                GETP(cam->listener)->pos.z = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.z * scale + cam->pos.z;
             }
             return;
         }
-        switch (info.subMode->type) {
+        switch (GETP(info.subMode)->type) {
         case 0:
-            Camera_UpdatePosition_Default(cam, info.subMode->params);
-            cam->vel = ((CarA *)cam->player->vehicle)->velocity;
+            Camera_UpdatePosition_Default(cam, GETP(GETP(info.subMode)->params));
+            cam->vel = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity;
             break;
         case 2:
-            Camera_ZoomOnVehicle(cam, info.subMode->params);
+            Camera_ZoomOnVehicle(cam, GETP(GETP(info.subMode)->params));
             PSVECSubtract(&cam->pos, &oldPos, &cam->vel);
             break;
         case 3:
-            Camera_OrbitVehicle(cam, info.subMode->params);
+            Camera_OrbitVehicle(cam, GETP(GETP(info.subMode)->params));
             cam->vel = g_zeroVector;
             break;
         case 4: {
-            CameraBoneParams *params = info.subMode->params;
-            CarA *car = cam->player->vehicle;
+            CameraBoneParams *params = GETP(GETP(info.subMode)->params);
+            CarA *car = GETP(GETP(cam->player)->vehicle);
 
-            if ((u8 *)car->vtable == g_carAVTable) {
-                cam->right = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 0];
-                cam->up = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 1];
-                cam->dir = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 2];
-                cam->pos = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 3];
-                XformVec(&car->motionState.animMatrices[params->bone], &params->offset, &cam->pos);
-            } else if ((u8 *)car->vtable == g_lookerVTable) {
-                car = car->unkBC;
-                if (car->motionState.animMatrices != NULL) {
-                    cam->right = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 0];
-                    cam->up = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 1];
-                    cam->dir = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 2];
-                    cam->pos = ((Vector4 *)car->motionState.animMatrices)[params->bone * 4 + 3];
-                    XformVec(&car->motionState.animMatrices[params->bone], &params->offset, &cam->pos);
+            if ((u8 *)GETP(car->vtable) == g_carAVTable) {
+                cam->right = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 0];
+                cam->up = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 1];
+                cam->dir = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 2];
+                cam->pos = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 3];
+                XformVec(&GETP(car->motionState.animMatrices)[params->bone], &params->offset, &cam->pos);
+            } else if ((u8 *)GETP(car->vtable) == g_lookerVTable) {
+                car = GETP(car->unkBC);
+                if (GETP(car->motionState.animMatrices) != NULL) {
+                    cam->right = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 0];
+                    cam->up = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 1];
+                    cam->dir = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 2];
+                    cam->pos = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 3];
+                    XformVec(&GETP(car->motionState.animMatrices)[params->bone], &params->offset, &cam->pos);
                 }
             }
             Gfx_SetProjectionMatrix(60.0f);
-            cam->vel = ((CarA *)cam->player->vehicle)->velocity;
+            cam->vel = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity;
             break;
         }
         }
@@ -1020,20 +1020,20 @@ void Camera_UpdatePosition(Camera *cam) {
         i += Camera_TriggerActionGetLocation((u8 *)cam, &mode[i], &center);
         Camera_TriggerActionGetLocation((u8 *)cam, &mode[i], &target);
         Camera_Orbit(cam, &center, &target, radius, height, speed, fov);
-        car = cam->player->vehicle;
-        if (car != NULL && (u8 *)car->vtable == g_carAVTable && (car->stuckCounter > 0 || car->unk460 <= 0) &&
+        car = GETP(GETP(cam->player)->vehicle);
+        if (car != NULL && (u8 *)GETP(car->vtable) == g_carAVTable && (car->stuckCounter > 0 || car->unk460 <= 0) &&
             car->worldMatrix.v[1].y < 0.5f) {
-            cam->mode = &g_triggerAction_params_default;
+            SETP(cam->mode, &g_triggerAction_params_default);
         }
         break;
     }
     }
     g_pNoRayCollideThing = NULL;
-    if (cam->listener != NULL && cam->player != NULL && cam->player->vehicle != NULL) {
-        f32 scale = ((CameraWorld *)g_worldData.world)->unk9C->scale;
-        cam->listener->pos.x = ((CarA *)cam->player->vehicle)->velocity.x * scale + cam->pos.x;
-        cam->listener->pos.y = ((CarA *)cam->player->vehicle)->velocity.y * scale + cam->pos.y;
-        cam->listener->pos.z = ((CarA *)cam->player->vehicle)->velocity.z * scale + cam->pos.z;
+    if (GETP(cam->listener) != NULL && GETP(cam->player) != NULL && GETP(GETP(cam->player)->vehicle) != NULL) {
+        f32 scale = GETP(((CameraWorld *)GETP(g_worldData.world))->unk9C)->scale;
+        GETP(cam->listener)->pos.x = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.x * scale + cam->pos.x;
+        GETP(cam->listener)->pos.y = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.y * scale + cam->pos.y;
+        GETP(cam->listener)->pos.z = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.z * scale + cam->pos.z;
     }
 }
 
@@ -1043,11 +1043,11 @@ void Camera_SetPlayer(Camera *camera, Player *player) {
     Camera *cam;
     Player *p;
 
-    camera->player = player;
+    SETP(camera->player, player);
     PlayerManager_ClearAllCameraFlags_PRIVATE();
     cam = (Camera *)g_cameraManager;
     for (i = 0; i < g_cameraManager[0x640]; i++) {
-        p = cam->player;
+        p = GETP(cam->player);
         if (p != NULL) {
             p->flags |= 0x10;
         }
@@ -1072,12 +1072,12 @@ void CameraManager_SetCameraGlobalMode(u32 *mode) {
     u32 i;
 
     if (mode[0] >= 1 && mode[0] <= 4) {
-        ((Camera *)g_cameraManager)[mode[0] - 1].mode = mode + 1;
+        SETP(((Camera *)g_cameraManager)[mode[0] - 1].mode, mode + 1);
         ((Camera *)g_cameraManager)[mode[0] - 1].modeTime = 0.0f;
         return;
     }
     for (i = 0; i < g_cameraManager[0x640]; i++) {
-        ((Camera *)g_cameraManager)[i].mode = mode + (mode[0] == 0);
+        SETP(((Camera *)g_cameraManager)[i].mode, mode + (mode[0] == 0));
         ((Camera *)g_cameraManager)[i].modeTime = 0.0f;
     }
 }
@@ -1101,9 +1101,9 @@ void CameraManager_ReleaseAllEmitters(void) {
 
     cam = (Camera *)g_cameraManager;
     for (i = 0; i < g_cameraManager[0x640]; i++) {
-        if (cam->listener != NULL) {
-            (*(void (***)(void *))((u8 *)cam->listener + 0x8C))[1](cam->listener);
-            cam->listener = NULL;
+        if (GETP(cam->listener) != NULL) {
+            (*(void (***)(void *))((u8 *)GETP(cam->listener) + 0x8C))[1](GETP(cam->listener));
+            SETP(cam->listener, NULL);
         }
         cam++;
     }

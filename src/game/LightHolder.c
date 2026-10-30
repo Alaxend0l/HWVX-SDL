@@ -22,8 +22,8 @@ typedef struct LightHolderLight {
     u8 unk44[0xC];
     u8 unk50;
     u8 unk51[0xF];
-    LightHolderDef *def;
-    u8 *thing;
+    PTR32(LightHolderDef) def;
+    PTR32(u8) thing;
     u32 unk68;
     u32 life;
     u32 unk70;
@@ -41,7 +41,7 @@ void LightHolder_Init(void) {
     u32 i;
 
     for (i = 0; i < 16; i++) {
-        g_pLight[i].def = NULL;
+        SETP(g_pLight[i].def, NULL);
     }
 }
 
@@ -56,10 +56,10 @@ s32 LightHolder_Add(LightHolderDef *def, Vector4 *pos, void *thing) {
     s32 i;
 
     for (i = 0; i < 16; i++) {
-        if (g_pLight[i].def == NULL) {
-            g_pLight[i].def = def;
+        if (GETP(g_pLight[i].def) == NULL) {
+            SETP(g_pLight[i].def, def);
             g_pLight[i].pos = *pos;
-            g_pLight[i].thing = thing;
+            SETP(g_pLight[i].thing, thing);
             g_pLight[i].life = RandomAdd_s32(def->lifeMin, def->lifeRange);
             g_pLight[i].rate = 1.0f;
             if (def->lifeMin != 0 && def->lifeRange != 0) {
@@ -76,7 +76,7 @@ s32 LightHolder_Add(LightHolderDef *def, Vector4 *pos, void *thing) {
 void LightHolder_Delete(s32 index) {
     extern LightHolderLight g_pLight[16];
     if (index >= 0) {
-        g_pLight[index].def = NULL;
+        SETP(g_pLight[index].def, NULL);
     }
 }
 
@@ -94,10 +94,10 @@ void LightHolder_Render(void) {
     Gfx_GetCameraPosition(&camera);
     for (i = 0; i < 16; i++) {
         light = &g_pLight[i];
-        def = light->def;
+        def = GETP(light->def);
         if (def != NULL) {
-            if (light->thing != NULL) {
-                pos = light->thing + 0x40;
+            if (GETP(light->thing) != NULL) {
+                pos = GETP(light->thing) + 0x40;
             } else {
                 pos = (u8 *)light;
             }
@@ -105,7 +105,7 @@ void LightHolder_Render(void) {
                 DistanceXYZ(&camera, pos, &dist);
                 if (dist <= light->radius) {
                     color = light->color;
-                    Gfx_ScreenOverlay(&color, light->def->overlayMode);
+                    Gfx_ScreenOverlay(&color, GETP(light->def)->overlayMode);
                 }
             }
         }
@@ -123,13 +123,13 @@ void LightHolder_Heartbeat(void) {
     delta = g_iDeltaTimeMS;
     for (i = 0; i < 16; i++) {
         light = &g_pLight[i];
-        if (light->def != NULL) {
+        if (GETP(light->def) != NULL) {
             if (light->life == 0 || light->life > delta) {
                 if (light->life != 0) {
                     light->life -= delta;
                 }
-                ExtractColorKey(light->def->colorKeys, light->unk10, g_fDeltaTimeMS * light->rate);
-                ExtractF32Key(light->def->radiusKeys, &light->radius, g_fDeltaTimeMS * light->rate);
+                ExtractColorKey(GETP(light->def)->colorKeys, light->unk10, g_fDeltaTimeMS * light->rate);
+                ExtractF32Key(GETP(light->def)->radiusKeys, &light->radius, g_fDeltaTimeMS * light->rate);
             } else {
                 LightHolder_Delete(i);
             }
@@ -150,10 +150,10 @@ void LightHolder_SetRenderState(void *camera) {
     Gfx_RemovePointLights();
     for (i = 0; i < 16; i++) {
         light = &g_pLight[i];
-        def = light->def;
+        def = GETP(light->def);
         if (def != NULL && def->pointLight != 0) {
-            if (light->thing != NULL) {
-                pos = light->thing + 0x40;
+            if (GETP(light->thing) != NULL) {
+                pos = GETP(light->thing) + 0x40;
             } else {
                 pos = (u8 *)light;
             }

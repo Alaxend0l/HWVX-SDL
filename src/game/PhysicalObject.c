@@ -14,7 +14,7 @@ void Mover_GetTrackPos(void *mover, f32 *pos, f32 time) {
     pos[2] = keyFrame[6];
 }
 
-void PhysicalObject_ProcessForce(u8 *obj, Vector4 *force, Vector4 *dir)
+void PhysicalObject_ProcessForce(u8 *obj, Vector4 *force, Vector4 *dir, f32 scale)
 {
 
     Vector4 pointVel;
@@ -25,7 +25,7 @@ void PhysicalObject_ProcessForce(u8 *obj, Vector4 *force, Vector4 *dir)
     Vector4 scaled __attribute__((aligned(16)));
 
     objVel = *(Vector4 *)obj;
-    PSVECScale(dir, &scaled, *(u32 *)(obj + 8));
+    PSVECScale(dir, &scaled, scale); /* f1: the 4th argument */
     PSVECSubtract(force, (Vector4 *)(obj + 0x40), &r);
     GetComponentOfVector(dir, &objVel);
     PSVECCrossProduct((Vector4 *)(obj + 0x130), &r, &cross);
@@ -48,7 +48,7 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
         u8 pad0[0xC];
         u32 count;
         u8 pad10[0x1C - 0x10];
-        Vector4 *verts;
+        PTR32(Vector4) verts;
     } Mesh;
     typedef struct DestructibleInfo {
         f32 inertia[3];
@@ -57,8 +57,8 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
         u8 pad11[0x20 - 0x11];
         f32 mass;
         u8 pad24[0x44 - 0x24];
-        ABox *box;
-        Mesh *mesh;
+        PTR32(ABox) box;
+        PTR32(Mesh) mesh;
     } DestructibleInfo;
     void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
@@ -81,14 +81,14 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
     info = SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10));
     switch (info->type) {
     case 0:
-        box = *info->box;
+        box = *GETP(info->box);
         *(f32 *)(obj + 0x120) = 1.0f / (info->inertia[0] * info->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
         *(f32 *)(obj + 0x124) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[1] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].z * box.v[1].z));
         *(f32 *)(obj + 0x128) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[2] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].y * box.v[1].y));
         break;
     case 1:
     case 6:
-        mesh = info->mesh;
+        mesh = GETP(info->mesh);
         box.v[0].x = 9999.9f;
         box.v[0].y = 9999.9f;
         box.v[0].z = 9999.9f;
@@ -96,23 +96,23 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
         box.v[1].y = -9999.9f;
         box.v[1].z = -9999.9f;
         for (i = 0; i < mesh->count; i++) {
-            if (box.v[0].x > mesh->verts[i].x) {
-                box.v[0].x = mesh->verts[i].x;
+            if (box.v[0].x > GETP(mesh->verts)[i].x) {
+                box.v[0].x = GETP(mesh->verts)[i].x;
             }
-            if (box.v[0].y > mesh->verts[i].y) {
-                box.v[0].y = mesh->verts[i].y;
+            if (box.v[0].y > GETP(mesh->verts)[i].y) {
+                box.v[0].y = GETP(mesh->verts)[i].y;
             }
-            if (box.v[0].z > mesh->verts[i].z) {
-                box.v[0].z = mesh->verts[i].z;
+            if (box.v[0].z > GETP(mesh->verts)[i].z) {
+                box.v[0].z = GETP(mesh->verts)[i].z;
             }
-            if (box.v[1].x < mesh->verts[i].x) {
-                box.v[1].x = mesh->verts[i].x;
+            if (box.v[1].x < GETP(mesh->verts)[i].x) {
+                box.v[1].x = GETP(mesh->verts)[i].x;
             }
-            if (box.v[1].y < mesh->verts[i].y) {
-                box.v[1].y = mesh->verts[i].y;
+            if (box.v[1].y < GETP(mesh->verts)[i].y) {
+                box.v[1].y = GETP(mesh->verts)[i].y;
             }
-            if (box.v[1].z < mesh->verts[i].z) {
-                box.v[1].z = mesh->verts[i].z;
+            if (box.v[1].z < GETP(mesh->verts)[i].z) {
+                box.v[1].z = GETP(mesh->verts)[i].z;
             }
         }
         *(f32 *)(obj + 0x120) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[0] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
@@ -219,22 +219,22 @@ u8 PhysicalObject_Move(u8 *obj) {
     } Material;
     typedef struct {
         u8 pad0[0x4];
-        void (*stop)(u8 *obj);
+        FPTR32(void, (u8 *obj)) stop;
         u8 pad8[0x14 - 0x8];
-        f32 (*getMass)(u8 *obj);
-        void (*applyImpulse)(u8 *obj, void *hit, s32 arg2, f32 impulse);
+        FPTR32(f32, (u8 *obj)) getMass;
+        FPTR32(void, (u8 *obj, void *hit, s32 arg2, f32 impulse)) applyImpulse;
         u8 pad1C[0x28 - 0x1C];
-        Material *(*getMaterial)(u8 *obj);
+        FPTR32(Material *, (u8 *obj)) getMaterial;
         u8 pad2C[0x30 - 0x2C];
-        void (*getInverseInertia)(u8 *obj, Vector4 *out);
-        void (*integrate)(u8 *obj, f32 dt);
+        FPTR32(void, (u8 *obj, Vector4 *out)) getInverseInertia;
+        FPTR32(void, (u8 *obj, f32 dt)) integrate;
     } VTable;
     typedef struct {
         Vector4 pos;
         Vector4 normal;
-        u8 *thing;
+        PTR32(u8) thing;
         s32 unk24;
-        Material *material;
+        PTR32(Material) material;
         u8 pad2C[0x40 - 0x2C];
         u8 type;
     } CollisionInfo;
@@ -281,19 +281,19 @@ u8 PhysicalObject_Move(u8 *obj) {
             ((Vector4 *)(obj + 0x40))->y += ((Vector4 *)obj)->y * dt;
             ((Vector4 *)(obj + 0x40))->z += ((Vector4 *)obj)->z * dt;
             *(u32 *)(obj + 0x74) |= 0x100;
-            (SLOT_LOAD(VTable *, (obj + 0x8C)))->integrate(obj, dt);
-            hit.thing = obj;
+            GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->integrate)(obj, dt);
+            SETP(hit.thing, obj);
             hit.unk24 = 0;
             if (0.0f == dt) {
-                (SLOT_LOAD(VTable *, (obj + 0x8C)))->stop(obj);
+                GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->stop)(obj);
                 return 0;
             }
             if ((s8)hitTerrain) {
-                invMass = 1.0f / (SLOT_LOAD(VTable *, (obj + 0x8C)))->getMass(obj);
-                vn = PSVECDotProduct(&hit.normal, (Vector4 *)hit.thing);
-                e1 = (SLOT_LOAD(VTable *, (hit.thing + 0x8C)))->getMaterial(hit.thing)->restitution;
-                e2 = hit.material->restitution;
-                friction = 0.3f * hit.material->friction * (SLOT_LOAD(VTable *, (hit.thing + 0x8C)))->getMaterial(hit.thing)->friction;
+                invMass = 1.0f / GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->getMass)(obj);
+                vn = PSVECDotProduct(&hit.normal, (Vector4 *)GETP(hit.thing));
+                e1 = GETP((SLOT_LOAD(VTable *, (GETP(hit.thing) + 0x8C)))->getMaterial)(GETP(hit.thing))->restitution;
+                e2 = GETP(hit.material)->restitution;
+                friction = 0.3f * GETP(hit.material)->friction * GETP((SLOT_LOAD(VTable *, (GETP(hit.thing) + 0x8C)))->getMaterial)(GETP(hit.thing))->friction;
                 negVel.x = -((Vector4 *)obj)->x;
                 negVel.y = -((Vector4 *)obj)->y;
                 negVel.z = -((Vector4 *)obj)->z;
@@ -311,21 +311,21 @@ u8 PhysicalObject_Move(u8 *obj) {
                         PSVECNormalize(&hit.normal, &hit.normal);
                     }
                 }
-                PSVECSubtract(&hit.pos, (Vector4 *)(hit.thing + 0x40), &r);
+                PSVECSubtract(&hit.pos, (Vector4 *)(GETP(hit.thing) + 0x40), &r);
                 PSVECCrossProduct(&r, &hit.normal, &rxn);
-                (SLOT_LOAD(VTable *, (hit.thing + 0x8C)))->getInverseInertia(hit.thing, &invInertia);
-                InverseXformVecOrientation(hit.thing + 0x10, &rxn, &local);
+                GETP((SLOT_LOAD(VTable *, (GETP(hit.thing) + 0x8C)))->getInverseInertia)(GETP(hit.thing), &invInertia);
+                InverseXformVecOrientation(GETP(hit.thing) + 0x10, &rxn, &local);
                 scaled.x = invInertia.x * local.x;
                 scaled.y = invInertia.y * local.y;
                 scaled.z = invInertia.z * local.z;
-                XformVecOrientation(hit.thing + 0x10, &scaled, &angVel);
+                XformVecOrientation(GETP(hit.thing) + 0x10, &scaled, &angVel);
                 PSVECCrossProduct(&angVel, &r, &tmp);
                 friction = PSVECDotProduct(&tmp, &hit.normal);
                 friction = invMass * PSVECDotProduct(&hit.normal, &hit.normal) + friction;
                 ((Vector4 *)(obj + 0x40))->x += 0.03f * hit.normal.x;
                 ((Vector4 *)(obj + 0x40))->y += 0.03f * hit.normal.y;
                 ((Vector4 *)(obj + 0x40))->z += 0.03f * hit.normal.z;
-                (SLOT_LOAD(VTable *, (obj + 0x8C)))->applyImpulse(obj, &hit, 0, vn * -(e1 * e2 + 1.0f) / friction);
+                GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->applyImpulse)(obj, &hit, 0, vn * -(e1 * e2 + 1.0f) / friction);
             }
             if (*(u32 *)(obj + 0x74) & 0x200000) {
                 elapsed = g_fDeltaTimeSec;
@@ -407,16 +407,16 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
         u8 pad90[0xD];
         u8 valid;
         u8 pad9E[2];
-        void *row2;
-        void *row0;
-        void *row1;
+        PTR32(void) row2;
+        PTR32(void) row0;
+        PTR32(void) row1;
         u8 padAC[0xF0 - 0xAC];
     } OBox;
     typedef struct RayHit {
         Vector4 pos;
         Vector4 normal;
         u8 pad20[8];
-        u8 *surface;
+        PTR32(u8) surface;
         u8 pad2C[0x24];
     } RayHit;
     typedef struct PhysProps {
@@ -425,13 +425,13 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
         u8 pad11[0x20 - 0x11];
         f32 mass;
         u8 pad24[0x30 - 0x24];
-        u8 *material;
+        PTR32(u8) material;
         u8 pad34[0x44 - 0x34];
-        void *box;
+        PTR32(void) box;
     } PhysProps;
     typedef struct PhysInfo {
         u8 pad0[0x10];
-        PhysProps *props;
+        PTR32(PhysProps) props;
     } PhysInfo;
     typedef struct PhysObj {
         Vector4 vel;
@@ -440,9 +440,9 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
         u8 pad60[0x74 - 0x60];
         u32 flags;
         u8 pad78[0xC0 - 0x78];
-        PhysInfo *info;
+        PTR32(PhysInfo) info;
         u8 padC4[0xD0 - 0xC4];
-        OBox *obox;
+        PTR32(OBox) obox;
         u8 padD4[0x110 - 0xD4];
         Vector4 angMomentum;
         Vector4 invInertia;
@@ -514,9 +514,9 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
         obj->mtx = mtx;
         return;
     }
-    switch (obj->info->props->type) {
+    switch (GETP(GETP(obj->info)->props)->type) {
     case 0:
-        box = obj->info->props->box;
+        box = GETP(GETP(GETP(obj->info)->props)->box);
         old = Destructible_GetOrientedCollision(obj);
         obox.valid = 1;
         BuildOOB(box, &mtx, &obox);
@@ -532,10 +532,10 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
                 }
                 obj->flags &= ~2;
                 if (hitTerrain) {
-                    e1 = *(f32 *)(hit.surface + 0x18);
+                    e1 = *(f32 *)(GETP(hit.surface) + 0x18);
                     vel = dir;
                     PSVECSubtract(&hit.pos, &obj->mtx.v[3], &r);
-                    num = -(e1 * *(f32 *)(obj->info->props->material + 0x18) + 1.0f) * PSVECDotProduct(&vel, &hit.normal);
+                    num = -(e1 * *(f32 *)(GETP(GETP(GETP(obj->info)->props)->material) + 0x18) + 1.0f) * PSVECDotProduct(&vel, &hit.normal);
                     PSVECCrossProduct(&r, &hit.normal, &rxn);
                     InverseXformVecOrientation(&obj->mtx, &rxn, bLocal);
                     bScaled[0] = obj->invInertia.x * bLocal[0];
@@ -543,13 +543,13 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
                     bScaled[2] = obj->invInertia.z * bLocal[2];
                     XformVecOrientation(&obj->mtx, bScaled, &angVel);
                     PSVECCrossProduct(&angVel, &r, &tmp);
-                    j = num / (1.0f / obj->info->props->mass + PSVECDotProduct(&tmp, &hit.normal));
+                    j = num / (1.0f / GETP(GETP(obj->info)->props)->mass + PSVECDotProduct(&tmp, &hit.normal));
                     impulse.x = j * hit.normal.x;
                     impulse.y = j * hit.normal.y;
                     impulse.z = j * hit.normal.z;
-                    obj->vel.x += impulse.x / obj->info->props->mass;
-                    obj->vel.y += impulse.y / obj->info->props->mass;
-                    obj->vel.z += impulse.z / obj->info->props->mass;
+                    obj->vel.x += impulse.x / GETP(GETP(obj->info)->props)->mass;
+                    obj->vel.y += impulse.y / GETP(GETP(obj->info)->props)->mass;
+                    obj->vel.z += impulse.z / GETP(GETP(obj->info)->props)->mass;
                     obj->mtx.v[3].x += 0.03f * hit.normal.x;
                     obj->mtx.v[3].y += 0.03f * hit.normal.y;
                     obj->mtx.v[3].z += 0.03f * hit.normal.z;
@@ -568,10 +568,10 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
         if (!OBoxHitsTerrainAndObjectsZeroTime(&obox, obj, NULL)) {
             obj->quat = newQ;
             obj->mtx = mtx;
-            *obj->obox = obox;
-            obj->obox->row2 = &obj->mtx.v[2];
-            obj->obox->row0 = &obj->mtx.v[0];
-            obj->obox->row1 = &obj->mtx.v[1];
+            *GETP(obj->obox) = obox;
+            SETP(GETP(obj->obox)->row2, &obj->mtx.v[2]);
+            SETP(GETP(obj->obox)->row0, &obj->mtx.v[0]);
+            SETP(GETP(obj->obox)->row1, &obj->mtx.v[1]);
             obj->flags &= ~0x180;
         }
         break;

@@ -17,7 +17,7 @@ void PlayerHuman_Init(void *player) {
         u8 pad70[0xC8 - 0x70];
         s32 wheelChannel;
         u8 padCC[0x114 - 0xCC];
-        void *bindings;
+        PTR32(void) bindings;
         u8 bindingData[4];
     } PlayerHuman;
     PlayerHuman *human = player;
@@ -26,7 +26,7 @@ void PlayerHuman_Init(void *player) {
     human->wheelChannel = 0;
     PlayerHuman_SetDefaultControls(player, 0);
     human->flags = 0;
-    human->bindings = human->bindingData;
+    SETP(human->bindings, human->bindingData);
 }
 
 void Player_Init(void *player, s32 arg1) {
@@ -66,7 +66,7 @@ void Player_RefreshInterface(void *arg0) {
     } Thing;
     typedef struct Player {
         u8 pad0[0x2C];
-        Thing *thing;
+        PTR32(Thing) thing;
         u8 pad30[0x68 - 0x30];
         u32 interfaceIndex;
         u32 flags;
@@ -75,7 +75,7 @@ void Player_RefreshInterface(void *arg0) {
     } Player;
     struct {
         u32 unk0;
-        u8 *script;
+        PTR32(u8) script;
         u32 x;
         u32 y;
         u8 unk10[0xC0];
@@ -83,17 +83,17 @@ void Player_RefreshInterface(void *arg0) {
     Player *player = arg0;
     Thing *thing;
 
-    if (player->thing != NULL && (player->flags & 0x10)) {
+    if (GETP(player->thing) != NULL && (player->flags & 0x10)) {
         memset(&info, 0, sizeof(info));
         player->flags |= 0x200;
-        thing = player->thing;
+        thing = GETP(player->thing);
         ((void (*)(Thing *, void *))thing->vtable[8])(thing, &info);
         if (player->interfaceIndex < 0xFFFFFFFF) {
             InterfaceManager_ReleaseInterface(player->interfaceIndex);
             player->interfaceIndex = 0xFFFFFFFF;
         }
-        if (info.script != NULL) {
-            player->interfaceIndex = InterfaceManager_Create(info.script, player, 0);
+        if (GETP(info.script) != NULL) {
+            player->interfaceIndex = InterfaceManager_Create(GETP(info.script), player, 0);
             InterfaceManager_SetOffset(player->interfaceIndex, info.x, info.y);
             player->nameDirty = 1;
         }
@@ -145,7 +145,7 @@ void Player_GetInterfaceInfo(void *arg0, void *arg1) {
     } Thing;
     typedef struct Player {
         u8 pad0[0x2C];
-        Thing *thing;
+        PTR32(Thing) thing;
         u8 attached;
         u8 pad31[0x71 - 0x31];
         u8 nameDirty;
@@ -161,9 +161,9 @@ void Player_GetInterfaceInfo(void *arg0, void *arg1) {
     InterfaceInfo *info = arg1;
     Thing *thing;
 
-    if (player->thing != NULL) {
+    if (GETP(player->thing) != NULL) {
         info->state = 0;
-        thing = player->thing;
+        thing = GETP(player->thing);
         ((void (*)(Thing *, InterfaceInfo *))thing->vtable[8])(thing, info);
     } else {
         info->state = 2;

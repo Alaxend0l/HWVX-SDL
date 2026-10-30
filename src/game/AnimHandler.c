@@ -5,14 +5,14 @@
 void MotionState_Init(void *arg0, s8 reset) {
     typedef struct {
         u8 pad0[0x14];
-        u32 *skel;
+        PTR32(u32) skel;
         u8 pad18[4];
         u8 loop[3];
         u8 pad1F;
-        f32 *time[3];
+        PTR32(f32) time[3];
     } Anim;
     typedef struct {
-        Anim *anim;
+        PTR32(Anim) anim;
         u8 mode;
         u8 unk5;
         u8 unk6;
@@ -21,7 +21,7 @@ void MotionState_Init(void *arg0, s8 reset) {
         f32 time;
     } MotionState;
     typedef struct {
-        Anim *anim;
+        PTR32(Anim) anim;
         u8 mode;
         u8 unk5;
         u8 unk6;
@@ -44,36 +44,36 @@ void MotionState_Init(void *arg0, s8 reset) {
     motion->cur.unk6 = 0;
     motion->cur.mode = 0;
     motion->cur.mode = 0;
-    if (motion->cur.anim == NULL) {
+    if (GETP(motion->cur.anim) == NULL) {
         return;
     }
-    if (!motion->cur.anim->loop[0]) {
+    if (!GETP(motion->cur.anim)->loop[0]) {
         motion->cur.mode++;
-        if (!motion->cur.anim->loop[1]) {
+        if (!GETP(motion->cur.anim)->loop[1]) {
             motion->cur.mode++;
-            if (motion->cur.anim->loop[2]) {
-                motion->cur.time = *motion->cur.anim->time[2];
+            if (GETP(motion->cur.anim)->loop[2]) {
+                motion->cur.time = *GETP(GETP(motion->cur.anim)->time[2]);
             }
         } else {
-            motion->cur.time = *motion->cur.anim->time[1];
+            motion->cur.time = *GETP(GETP(motion->cur.anim)->time[1]);
         }
     } else {
-        motion->cur.time = *motion->cur.anim->time[0];
+        motion->cur.time = *GETP(GETP(motion->cur.anim)->time[0]);
     }
     for (;;) {
         switch (motion->cur.mode) {
         case 0:
-            if (motion->cur.anim->loop[0]) {
+            if (GETP(motion->cur.anim)->loop[0]) {
                 goto done;
             }
             motion->cur.mode = 1;
         case 1:
-            if (motion->cur.anim->loop[1]) {
+            if (GETP(motion->cur.anim)->loop[1]) {
                 goto done;
             }
             motion->cur.mode = 2;
         case 2:
-            if (motion->cur.anim->loop[2]) {
+            if (GETP(motion->cur.anim)->loop[2]) {
                 goto done;
             }
             motion->cur.mode = 0;
@@ -88,12 +88,12 @@ done:
     } else {
         motion->hist[0].blend = 1.0f;
     }
-    motion->hist[0].anim = motion->cur.anim;
+    SETP(motion->hist[0].anim, GETP(motion->cur.anim));
     motion->hist[0].mode = motion->cur.mode;
     motion->hist[0].unk5 = motion->cur.unk5;
     motion->hist[0].unk6 = motion->cur.unk6;
     motion->hist[0].time = motion->cur.time;
-    skel = motion->cur.anim->skel;
+    skel = GETP(GETP(motion->cur.anim)->skel);
     if (motion->cur.unk7 < *skel) {
         if (motion->cur.unk7) {
             MatrixCache_Free(motion->matrices);
@@ -113,7 +113,7 @@ void MotionState_ReleaseSlavesByType(s32 state, u8 type) {
         u8 pad84[0x8C - 0x84];
         void (**vtbl)(struct SlaveThing *);
         u8 pad90[0xA4 - 0x90];
-        struct SlaveThing *next;
+        PTR32(struct SlaveThing) next;
         s32 pool;
     } SlaveThing;
     SlaveThing *thing;
@@ -121,7 +121,7 @@ void MotionState_ReleaseSlavesByType(s32 state, u8 type) {
 
     thing = SLOT_LOAD(SlaveThing *, (state + 0x14));
     while (thing != NULL) {
-        next = thing->next;
+        next = GETP(thing->next);
         if (thing->type == type) {
             thing->vtbl[1](thing);
             ThingManagerList_Remove((void **)PTR((state + 0x14)), thing);
@@ -174,22 +174,22 @@ void MotionState_Draw(void *state) {
 
 void MotionState_Draw2(void *state, s32 mtx, u8 *matrices) {
     typedef struct GeomEntry {
-        void *geom;
+        PTR32(void) geom;
         u16 matrix;
         u16 pad6;
     } GeomEntry;
     typedef struct AnimData {
         u32 numAux;
-        void **aux;
+        PTR32(void *) aux;
         u32 numGeom;
-        GeomEntry *geom;
+        PTR32(GeomEntry) geom;
         u8 pad10[4];
-        s32 *skel;
+        PTR32(s32) skel;
     } AnimData;
     typedef struct DrawState {
-        AnimData *anim;
+        PTR32(AnimData) anim;
         u8 pad4[0xC];
-        u8 *cached;
+        PTR32(u8) cached;
     } DrawState;
     void Gfx_DrawAnimGeometryAux(void *geom, void *mtx, s32 skel, s32 arg3);
     DrawState *ds = state;
@@ -201,28 +201,28 @@ void MotionState_Draw2(void *state, s32 mtx, u8 *matrices) {
     Matrix4 out;
     u8 frames[0x800];
 
-    skel = ds->anim->skel;
-    if (ds->cached == NULL) {
+    skel = GETP(GETP(ds->anim)->skel);
+    if (GETP(ds->cached) == NULL) {
         MotionState_ExtractBlendedKeyFrame(state, frames);
         SubMatrixToQuaternion((void *)PTR(mtx), &quat);
         TEST_AnimTraverseHeirarchyToMatricesWorld(&quat, (void *)PTR((mtx + 0x30)), frames, *skel, matrices, 1.0f);
-        for (i = 0; i < ds->anim->numAux; i++) {
-            Gfx_DrawAnimGeometryAux(ds->anim->aux[i], matrices, *skel, 0);
+        for (i = 0; i < GETP(ds->anim)->numAux; i++) {
+            Gfx_DrawAnimGeometryAux(GETP(GETP(ds->anim)->aux)[i], matrices, *skel, 0);
         }
-        for (i = 0; i < ds->anim->numGeom; i++) {
-            e = &ds->anim->geom[i];
-            Gfx_DrawGeometry(HND(e->geom), HND(matrices + (e->matrix << 6)));
+        for (i = 0; i < GETP(ds->anim)->numGeom; i++) {
+            e = &GETP(GETP(ds->anim)->geom)[i];
+            Gfx_DrawGeometry(HND(GETP(e->geom)), HND(matrices + (e->matrix << 6)));
         }
         MotionState_DrawSlaves(state, 0);
     } else {
-        cached = ds->cached;
-        for (i = 0; i < ds->anim->numAux; i++) {
-            Gfx_DrawAnimGeometryAux(ds->anim->aux[i], cached, *skel, mtx);
+        cached = GETP(ds->cached);
+        for (i = 0; i < GETP(ds->anim)->numAux; i++) {
+            Gfx_DrawAnimGeometryAux(GETP(GETP(ds->anim)->aux)[i], cached, *skel, mtx);
         }
-        for (i = 0; i < ds->anim->numGeom; i++) {
+        for (i = 0; i < GETP(ds->anim)->numGeom; i++) {
             void *geom;
-            e = &ds->anim->geom[i];
-            geom = e->geom;
+            e = &GETP(GETP(ds->anim)->geom)[i];
+            geom = GETP(e->geom);
             MultiplyMatrix((Matrix4 *)(cached + (e->matrix << 6)), (void *)PTR(mtx), &out);
             Gfx_DrawGeometry(HND(geom), HND(&out));
         }
@@ -236,7 +236,7 @@ void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player) {
     } SlaveTrigger;
     typedef struct SlaveList {
         u32 count;
-        SlaveTrigger *triggers;
+        PTR32(SlaveTrigger) triggers;
     } SlaveList;
     extern Vector4 g_zeroVector;
     void ThingManagerList_TriggerSlaves(void **list, u8 *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u8 player);
@@ -247,7 +247,7 @@ void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player) {
     for (i = 0; i < list->count; i++) {
         Vector4 dir = {0.0f, 0.0f, 0.0f, 1.0f};
 
-        ThingManagerList_TriggerSlaves((void **)PTR((state + 0x14)), (u8 *)&list->triggers[i], (Vector4 *)&list->triggers[i], &dir, &g_zeroVector, player);
+        ThingManagerList_TriggerSlaves((void **)PTR((state + 0x14)), (u8 *)&GETP(list->triggers)[i], (Vector4 *)&GETP(list->triggers)[i], &dir, &g_zeroVector, player);
     }
 }
 
@@ -262,12 +262,12 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
         u8 loopMode;
         u8 pingPong;
         u8 maxLoops;
-        MotionRange *intro;
-        MotionRange *loop;
-        MotionRange *outro;
+        PTR32(MotionRange) intro;
+        PTR32(MotionRange) loop;
+        PTR32(MotionRange) outro;
     } MotionAnim;
     typedef struct {
-        MotionAnim *anim;
+        PTR32(MotionAnim) anim;
         u8 phase;
         u8 loops;
         s8 reverse;
@@ -303,15 +303,15 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
     wrapped = 0;
     switch (l->phase) {
     case 0:
-        start = l->anim->intro->start;
-        end = l->anim->intro->end;
+        start = GETP(GETP(l->anim)->intro)->start;
+        end = GETP(GETP(l->anim)->intro)->end;
         break;
     case 1:
-        start = l->anim->loop->start;
-        end = l->anim->loop->end;
-        switch (l->anim->loopMode) {
+        start = GETP(GETP(l->anim)->loop)->start;
+        end = GETP(GETP(l->anim)->loop)->end;
+        switch (GETP(l->anim)->loopMode) {
         case 1:
-            if (l->anim->maxLoops == 0 || l->loops < l->anim->maxLoops) {
+            if (GETP(l->anim)->maxLoops == 0 || l->loops < GETP(l->anim)->maxLoops) {
                 type |= 2;
             }
             break;
@@ -321,8 +321,8 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
         }
         break;
     case 2:
-        start = l->anim->outro->start;
-        end = l->anim->outro->end;
+        start = GETP(GETP(l->anim)->outro)->start;
+        end = GETP(GETP(l->anim)->outro)->end;
         break;
     }
     step = fps * g_fDeltaTimeSec;
@@ -392,21 +392,21 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
     switch (l->phase) {
     case 0:
         if (wrapped) {
-            if (l->anim->loopMode & ((u8)mode != 0)) {
+            if (GETP(l->anim)->loopMode & ((u8)mode != 0)) {
                 l->phase = 1;
-            } else if (l->anim->pingPong & ((u8)mode > 1)) {
+            } else if (GETP(l->anim)->pingPong & ((u8)mode > 1)) {
                 l->phase = 2;
             }
         }
         break;
     case 1:
         l->loops += wrapped;
-        if (l->anim->maxLoops != 0 && l->loops >= l->anim->maxLoops) {
-            l->loops = l->anim->maxLoops;
-            if (l->anim->pingPong & ((u8)mode > 1)) {
+        if (GETP(l->anim)->maxLoops != 0 && l->loops >= GETP(l->anim)->maxLoops) {
+            l->loops = GETP(l->anim)->maxLoops;
+            if (GETP(l->anim)->pingPong & ((u8)mode > 1)) {
                 l->phase = 2;
             } else {
-                l->time = l->anim->loop->end;
+                l->time = GETP(GETP(l->anim)->loop)->end;
                 l->done = 1;
             }
         }
@@ -420,13 +420,13 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
     if (l->phase != oldPhase) {
         switch (l->phase) {
         case 0:
-            l->time = l->anim->intro->start + over;
+            l->time = GETP(GETP(l->anim)->intro)->start + over;
             break;
         case 1:
-            l->time = l->anim->loop->start + over;
+            l->time = GETP(GETP(l->anim)->loop)->start + over;
             break;
         case 2:
-            l->time = l->anim->outro->start + over;
+            l->time = GETP(GETP(l->anim)->outro)->start + over;
             break;
         }
     }
@@ -446,12 +446,12 @@ void MotionState_DrawSlaves(void *state, s32 arg1) {
         u8 pad83[0x8C - 0x83];
         void (**vtbl)();
         u8 pad90[0xA4 - 0x90];
-        struct SlaveThing *next;
+        PTR32(struct SlaveThing) next;
     } SlaveThing;
     typedef struct {
         u8 pad0[0x10];
-        Matrix4 *matrices;
-        SlaveThing *slaves;
+        PTR32(Matrix4) matrices;
+        PTR32(SlaveThing) slaves;
     } State;
     Matrix4 *matrix = (Matrix4 *)PTR(arg1);
     SlaveThing *slave;
@@ -459,15 +459,15 @@ void MotionState_DrawSlaves(void *state, s32 arg1) {
     Matrix4 mtx __attribute__((aligned(16)));
     Matrix4 out __attribute__((aligned(16)));
 
-    slave = ((State *)state)->slaves;
+    slave = GETP(((State *)state)->slaves);
     if (matrix != NULL && matrix != &g_identity) {
-        for (; slave != NULL; slave = slave->next) {
+        for (; slave != NULL; slave = GETP(slave->next)) {
             if (slave->flags & 0x200200) {
                 continue;
             }
             CopyVector(&quat, &slave->quat);
             CopyMatrix(&mtx, &slave->mtx);
-            MultiplyMatrix(&((State *)state)->matrices[slave->bone], matrix, &out);
+            MultiplyMatrix(&GETP(((State *)state)->matrices)[slave->bone], matrix, &out);
             slave->vtbl[9](slave, &out);
             slave->vtbl[4](slave);
             Thing_DrawSlaves(slave);
@@ -475,13 +475,13 @@ void MotionState_DrawSlaves(void *state, s32 arg1) {
             CopyMatrix(&slave->mtx, &mtx);
         }
     } else {
-        for (; slave != NULL; slave = slave->next) {
+        for (; slave != NULL; slave = GETP(slave->next)) {
             if (slave->flags & 0x200200) {
                 continue;
             }
             CopyVector(&quat, &slave->quat);
             CopyMatrix(&mtx, &slave->mtx);
-            slave->vtbl[9](slave, &((State *)state)->matrices[slave->bone]);
+            slave->vtbl[9](slave, &GETP(((State *)state)->matrices)[slave->bone]);
             slave->vtbl[4](slave);
             Thing_DrawSlaves(slave);
             CopyVector(&slave->quat, &quat);
@@ -505,12 +505,12 @@ void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1) {
         u8 pad83[0x8C - 0x83];
         void (**vtbl)();
         u8 pad90[0xA4 - 0x90];
-        struct SlaveThing *next;
+        PTR32(struct SlaveThing) next;
     } SlaveThing;
     typedef struct {
         u8 pad0[0x10];
-        Matrix4 *matrices;
-        SlaveThing *slaves;
+        PTR32(Matrix4) matrices;
+        PTR32(SlaveThing) slaves;
     } State;
     Matrix4 *matrix = (Matrix4 *)PTR(arg1);
     SlaveThing *slave;
@@ -518,13 +518,13 @@ void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1) {
     Matrix4 mtx __attribute__((aligned(16)));
     Matrix4 out __attribute__((aligned(16)));
 
-    slave = ((State *)state)->slaves;
+    slave = GETP(((State *)state)->slaves);
     if (matrix != NULL && matrix != &g_identity) {
-        for (; slave != NULL; slave = slave->next) {
+        for (; slave != NULL; slave = GETP(slave->next)) {
             if (!(slave->flags & 0x200200) && slave->vtbl == (void *)g_attachVTable) {
                 CopyVector(&quat, &slave->quat);
                 CopyMatrix(&mtx, &slave->mtx);
-                MultiplyMatrix(&((State *)state)->matrices[slave->bone], matrix, &out);
+                MultiplyMatrix(&GETP(((State *)state)->matrices)[slave->bone], matrix, &out);
                 slave->vtbl[9](slave, &out);
                 slave->vtbl[4](slave);
                 Thing_DrawSlaves(slave);
@@ -533,11 +533,11 @@ void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1) {
             }
         }
     } else {
-        for (; slave != NULL; slave = slave->next) {
+        for (; slave != NULL; slave = GETP(slave->next)) {
             if (!(slave->flags & 0x200200) && slave->vtbl == (void *)g_attachVTable) {
                 CopyVector(&quat, &slave->quat);
                 CopyMatrix(&mtx, &slave->mtx);
-                slave->vtbl[9](slave, &((State *)state)->matrices[slave->bone]);
+                slave->vtbl[9](slave, &GETP(((State *)state)->matrices)[slave->bone]);
                 slave->vtbl[4](slave);
                 Thing_DrawSlaves(slave);
                 CopyVector(&slave->quat, &quat);
@@ -575,19 +575,19 @@ void Motion_HeartbeatB2(void *state, Vector4 *vel) {
         u8 pad83[0x8C - 0x83];
         void (**vtbl)();
         u8 pad90[0xA4 - 0x90];
-        struct SlaveThing *next;
+        PTR32(struct SlaveThing) next;
     } SlaveThing;
     typedef struct {
-        u8 *anim;
+        PTR32(u8) anim;
         u8 pad4[0x10 - 0x4];
-        Matrix4 *matrices;
-        SlaveThing *slaves;
+        PTR32(Matrix4) matrices;
+        PTR32(SlaveThing) slaves;
     } State;
     Matrix4 *matrices;
     SlaveThing *slave;
 
-    MotionState_BlendTriggerEvents(state, ((State *)state)->anim + 0x2C, vel);
-    matrices = ((State *)state)->matrices;
+    MotionState_BlendTriggerEvents(state, GETP(((State *)state)->anim) + 0x2C, vel);
+    matrices = GETP(((State *)state)->matrices);
     {
         Vector4 v __attribute__((aligned(16))) = {0};
         Vector4 pos __attribute__((aligned(16)));
@@ -597,7 +597,7 @@ void Motion_HeartbeatB2(void *state, Vector4 *vel) {
         if (vel != NULL) {
             v = *vel;
         }
-        for (slave = ((State *)state)->slaves; slave != NULL; slave = slave->next) {
+        for (slave = GETP(((State *)state)->slaves); slave != NULL; slave = GETP(slave->next)) {
             if (slave->flags & 0x201000) {
                 continue;
             }

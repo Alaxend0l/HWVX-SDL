@@ -2,7 +2,7 @@
 
 typedef struct Texture {
     u8 unk0[0x24];
-    void *data;
+    PTR32(void) data;
     u32 unk28;
     f32 unk2C;
     u16 unk30;
@@ -43,8 +43,8 @@ void Gfx_TextureHandler_Destroy(void) {
 
     for (i = 1; i < m_totalTextures; i++) {
         Render_DestroyTextureSlot(i);
-        if (m_texture[i].data != NULL && m_texture[i].unk3A == 0) {
-            Deallocate(m_texture[i].data);
+        if (GETP(m_texture[i].data) != NULL && m_texture[i].unk3A == 0) {
+            Deallocate(GETP(m_texture[i].data));
         }
     }
     Deallocate(m_texture);
@@ -56,14 +56,14 @@ void Gfx_TextureManager_Init(void) {
 
     for (i = 1; i < m_totalTextures; i++) {
         Render_DestroyTextureSlot(i);
-        if (m_texture[i].data != NULL && m_texture[i].unk3A == 0) {
-            Deallocate(m_texture[i].data);
+        if (GETP(m_texture[i].data) != NULL && m_texture[i].unk3A == 0) {
+            Deallocate(GETP(m_texture[i].data));
         }
         memset(&m_texture[i], 0, 0x20);
         m_texture[i].refCount = 0;
         m_texture[i].unk30 = 0;
         m_texture[i].width = 0;
-        m_texture[i].data = NULL;
+        SETP(m_texture[i].data, NULL);
     }
     Gfx_FontManager_Init();
 }
@@ -104,7 +104,7 @@ u16 Gfx_LoadTexture(char *name) {
     }
 
     for (i = 1; i < m_totalTextures; i++) {
-        if (m_texture[i].data == NULL) {
+        if (GETP(m_texture[i].data) == NULL) {
             break;
         }
     }
@@ -203,7 +203,7 @@ s32 LoadBTF(const char *name, u32 id) {
     case 12:
         size /= 2;
         p = Allocate(size, 0, "");
-        m_texture[id].data = p;
+        SETP(m_texture[id].data, p);
         buf = Allocate(size, 0, "");
         m_texture[id].unk38 = 4;
         File_Read(handle, size, p);
@@ -211,7 +211,7 @@ s32 LoadBTF(const char *name, u32 id) {
     case 32:
         n = size * 4;
         dst = Allocate(n, 0, "");
-        m_texture[id].data = dst;
+        SETP(m_texture[id].data, dst);
         src = buf = Allocate(n, 0, "");
         m_texture[id].unk38 = 1;
         File_Read(handle, n, src);
@@ -227,7 +227,7 @@ s32 LoadBTF(const char *name, u32 id) {
     case 24:
         n = size * 3;
         dst = Allocate(n, 0, "");
-        m_texture[id].data = dst;
+        SETP(m_texture[id].data, dst);
         src = buf = Allocate(n, 0, "");
         m_texture[id].unk38 = 0;
         File_Read(handle, n, src);
@@ -241,7 +241,7 @@ s32 LoadBTF(const char *name, u32 id) {
         break;
     case 9:
         dst = Allocate(size * 4, 0, "");
-        m_texture[id].data = dst;
+        SETP(m_texture[id].data, dst);
         src = buf = Allocate(size, 0, "");
         m_texture[id].unk38 = 1;
         memset(palette, 0, 0x400);
@@ -269,7 +269,7 @@ s32 LoadBTF(const char *name, u32 id) {
         break;
     case 8:
         dst = Allocate(size * 3, 0, "");
-        m_texture[id].data = dst;
+        SETP(m_texture[id].data, dst);
         src = buf = Allocate(size, 0, "");
         m_texture[id].unk38 = 0;
         memset(palette, 0, 0x300);
@@ -337,7 +337,7 @@ s32 LoadTGA(const char *name, u32 id) {
         bpp = 4;
     }
     dst = Allocate(i * bpp, 0, "");
-    m_texture[id].data = dst;
+    SETP(m_texture[id].data, dst);
     size = (header[16] >> 3) * (m_texture[id].unk30 * m_texture[id].width);
     src = buf = Allocate(size, 0, "");
     switch (header[16]) {
@@ -392,7 +392,7 @@ u16 Gfx_LoadTexture_RAM(u8 **data) {
     u16 i;
 
     for (i = 1; i < m_totalTextures; i++) {
-        if (m_texture[i].data == NULL) {
+        if (GETP(m_texture[i].data) == NULL) {
             break;
         }
     }
@@ -418,7 +418,7 @@ void Gfx_SetTextureWrapMode(u16 id, u16 mode) {
     Render_CreateTextureSlot(id, 1, tex);
 }
 
-void Gfx_LoadPalettes_RAM(void) {
+void Gfx_LoadPalettes_RAM(void *data, u32 count) {
 
 }
 
@@ -427,13 +427,13 @@ void Gfx_UnLoadTexture(u16 id) {
         if (--m_texture[id].refCount == 0) {
             Render_DestroyTextureSlot(id);
             if (m_texture[id].unk3A == 0) {
-                Deallocate(m_texture[id].data);
+                Deallocate(GETP(m_texture[id].data));
             }
             memset(&m_texture[id], 0, 0x20);
             m_texture[id].refCount = 0;
             m_texture[id].unk30 = 0;
             m_texture[id].width = 0;
-            m_texture[id].data = NULL;
+            SETP(m_texture[id].data, NULL);
         }
     }
 }

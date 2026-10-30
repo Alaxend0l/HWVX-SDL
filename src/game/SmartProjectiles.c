@@ -33,7 +33,7 @@ typedef struct SmartProjInfo {
   u8 pad48[0x74 - 0x48];
   u32 slaveId;
   u8 pad78[0xA8 - 0x78];
-  SmartProjParams *params;
+  PTR32(SmartProjParams) params;
 } SmartProjInfo;
 
 typedef struct SmartTarget {
@@ -43,14 +43,14 @@ typedef struct SmartTarget {
   Vector4 pos;
   u8 pad50[0x88 - 0x50];
   u32 list;
-  void **vtable;
+  PTR32(void *) vtable;
 } SmartTarget;
 
 typedef struct SmartProjVTable {
   u8 pad0[0x18];
-  void (*applyImpulse)(SmartTarget *obj, void *hit, f32 impulse, s32 damage);
+  FPTR32(void, (SmartTarget *obj, void *hit, f32 impulse, s32 damage)) applyImpulse;
   u8 pad1C[0x3C - 0x1C];
-  void (*getPos)(SmartTarget *obj, Vector4 *out);
+  FPTR32(void, (SmartTarget *obj, Vector4 *out)) getPos;
 } SmartProjVTable;
 
 typedef struct CreateSlaveParams {
@@ -67,8 +67,8 @@ typedef struct CreateSlaveParams {
 typedef struct HitRecord {
   Vector4 pos;
   Vector4 normal;
-  u8 *thing;
-  u8 *other;
+  PTR32(u8) thing;
+  PTR32(u8) other;
   s32 time;
   u8 pad2C[0x50 - 0x2C];
 } HitRecord;
@@ -84,9 +84,9 @@ typedef struct SmartProjectile {
   u8 pad78[0x94 - 0x78];
   s32 player;
   u8 pad98[0x120 - 0x98];
-  SmartProjInfo *info;
+  PTR32(SmartProjInfo) info;
   u8 pad124[0x14C - 0x124];
-  SmartTarget *target;
+  PTR32(SmartTarget) target;
   f32 turnX;
   f32 turnY;
   f32 turnZ;
@@ -113,18 +113,18 @@ void SmartProjectileA_AquireTarget(SmartProjectile *proj) {
     bestIdx = count;
     for (i = 0; i < count; i++) {
         dist = PSVECSquareDistance(&proj->pos, &targets[i]->pos);
-        pos = ((Vector4 *(*)(SmartTarget *))targets[i]->vtable[0x40 / 4])(targets[i]);
+        pos = ((Vector4 *(*)(SmartTarget *))GETP(targets[i]->vtable)[0x40 / 4])(targets[i]);
         t = 1.0f;
         if (targets[i] != (SmartTarget *)proj && targets[i] != source &&
-            !(dist < proj->info->params->minRange * proj->info->params->minRange) &&
+            !(dist < GETP(GETP(proj->info)->params)->minRange * GETP(GETP(proj->info)->params)->minRange) &&
             !RayHitsTerrain(&proj->pos, pos, &t, NULL)) {
             InverseXformVec(proj->mtx, pos, &local);
-            if (proj->info->params->invertZ) {
+            if (GETP(GETP(proj->info)->params)->invertZ) {
                 local.z *= -1.0f;
             }
             if (!(local.z < 1.0f)) {
                 angle = atan2(Sqrt(local.x * local.x + local.y * local.y), local.z);
-                if (!(angle > 0.5f * (0.017453292f * proj->info->params->fov)) && angle < best) {
+                if (!(angle > 0.5f * (0.017453292f * GETP(GETP(proj->info)->params)->fov)) && angle < best) {
                     best = angle;
                     bestIdx = i;
                 }
@@ -132,9 +132,9 @@ void SmartProjectileA_AquireTarget(SmartProjectile *proj) {
         }
     }
     if (bestIdx < count) {
-        proj->target = targets[bestIdx];
+        SETP(proj->target, targets[bestIdx]);
     } else {
-        proj->target = NULL;
+        SETP(proj->target, NULL);
     }
 }
 
@@ -172,42 +172,42 @@ s32 SmartProjectileA_PreMove(SmartProjectile *proj) {
       QuaternionToSubMatrix(&proj->quat, &proj->mtx[0]);
     }
   }
-  ns = proj->info->speedGain * g_fDeltaTimeSec + speed;
-  if (ns > proj->info->maxSpeed)
-    ns = proj->info->maxSpeed;
+  ns = GETP(proj->info)->speedGain * g_fDeltaTimeSec + speed;
+  if (ns > GETP(proj->info)->maxSpeed)
+    ns = GETP(proj->info)->maxSpeed;
   proj->timer -= (u16)g_iDeltaTimeMS;
   if (proj->timer > 0) {
     proj->timer = -1;
     return 0;
   }
-  if (proj->target) {
-    tO = proj->info->params->turnOut;
-    tI = proj->info->params->turnIn;
-    mt = proj->info->params->turnMax;
-    dist = Sqrt(PSVECSquareDistance(&proj->pos, &proj->target->pos));
+  if (GETP(proj->target)) {
+    tO = GETP(GETP(proj->info)->params)->turnOut;
+    tI = GETP(GETP(proj->info)->params)->turnIn;
+    mt = GETP(GETP(proj->info)->params)->turnMax;
+    dist = Sqrt(PSVECSquareDistance(&proj->pos, &GETP(proj->target)->pos));
     if (ns)
       lead = dist / ns;
     else
       lead = 0.0f;
-    ((SmartProjVTable *)proj->target->vtable)->getPos(proj->target, &aim);
+    GETP(((SmartProjVTable *)GETP(GETP(proj->target)->vtable))->getPos)(GETP(proj->target), &aim);
     if (lead > 2.0f)
       lead = 0.3f * (lead - 2.0f) + 2.0f;
     if (lead > 0.2f)
       lead = 0.2f;
-    aim.x += proj->target->vec00.x * lead;
-    aim.y += proj->target->vec00.y * lead;
-    aim.z += proj->target->vec00.z * lead;
+    aim.x += GETP(proj->target)->vec00.x * lead;
+    aim.y += GETP(proj->target)->vec00.y * lead;
+    aim.z += GETP(proj->target)->vec00.z * lead;
     InverseXformVec(&proj->mtx[0], &aim, &local);
     if (local.z < 0.0f) {
       cnt = ThingManager_GetActiveCars(cars, 16);
       fnd = 0;
       for (i = 0; i < cnt; i++)
-        if (cars[i] == (u8 *)proj->target) {
+        if (cars[i] == (u8 *)GETP(proj->target)) {
           fnd = 1;
           break;
         }
-      if (fnd && dist < proj->info->f34) {
-        id = proj->info->slaveId;
+      if (fnd && dist < GETP(proj->info)->f34) {
+        id = GETP(proj->info)->slaveId;
         if (id) {
           p.id = id;
           p.b = proj->quat;
@@ -215,28 +215,28 @@ s32 SmartProjectileA_PreMove(SmartProjectile *proj) {
           p.f0 = 0.0f;
           p.f1 = 0.0f;
           p.zero = g_zeroVector;
-          InverseXformVec(&proj->target->mtx[0], &proj->pos, &p.a);
+          InverseXformVec(&GETP(proj->target)->mtx[0], &proj->pos, &p.a);
           s = ThingManager_DARYL_CreateSlave(1, &p, 0xFF);
           if (s) {
             s[0x83] = 0;
-            ThingManagerList_Append(&proj->target->list, s);
+            ThingManagerList_Append(&GETP(proj->target)->list, s);
           }
         }
-        h.thing = (u8 *)proj;
-        h.other = (u8 *)proj->target;
+        SETP(h.thing, (u8 *)proj);
+        SETP(h.other, (u8 *)GETP(proj->target));
         h.time = 0;
         h.pos = proj->pos;
-        PSVECSubtract(&proj->pos, &proj->target->pos, &h.normal);
+        PSVECSubtract(&proj->pos, &GETP(proj->target)->pos, &h.normal);
         if (PSVECSquareMag(&h.normal))
           PSVECNormalize(&h.normal, &h.normal);
-        ((SmartProjVTable *)proj->target->vtable)
-            ->applyImpulse(proj->target, &h, 0.0f, proj->info->damage);
+        GETP(((SmartProjVTable *)GETP(GETP(proj->target)->vtable))->applyImpulse)(
+            GETP(proj->target), &h, 0.0f, GETP(proj->info)->damage);
         Projectile_Release((u8 *)proj);
         proj->flags |= 2;
       } else
-        proj->target = NULL;
+        SETP(proj->target, NULL);
     } else {
-      if (dist > proj->info->params->dropRange) {
+      if (dist > GETP(GETP(proj->info)->params)->dropRange) {
         proj->turnZ = 0.8f;
         local.x /= local.z;
         local.y /= local.z;
@@ -249,7 +249,7 @@ s32 SmartProjectileA_PreMove(SmartProjectile *proj) {
         else
           proj->turnY += g_fDeltaTimeSec * (-tO * local.y);
       } else if (local.z > 0.0f) {
-        gain = proj->info->params->gain;
+        gain = GETP(GETP(proj->info)->params)->gain;
         inv = 1.0f / local.z;
         proj->turnX = inv * (g_fDeltaTimeSec * (gain * local.x));
         proj->turnY = inv * (g_fDeltaTimeSec * (-gain * local.y));

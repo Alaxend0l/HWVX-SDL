@@ -67,6 +67,12 @@ Conversions are explicit in the code:
 | `P(Type, h)` | typed `PTR` |
 | `SLOT_LOAD(T *, addr)` | read a pointer from the 4-byte slot at `addr` (was `*(T **)addr`) |
 | `SLOT_STORE(addr, p)` | write a pointer into the slot at `addr` |
+| `PTR32(T)`, `FPTR32(R, (A))` | a pointer *field* in a game struct (4 bytes) |
+| `GETP(x->f)` / `SETP(x->f, p)` | read / write such a field as a typed pointer |
+
+`PTR32` fields are unions, so any use that bypasses `GETP`/`SETP` (pointer
+arithmetic, comparison, assignment) is a compile error rather than silent
+integer math on a handle.
 
 The build makes `-Wint-to-pointer-cast`, `-Wpointer-to-int-cast` and
 `-Wint-conversion` errors, so every place that squeezes a pointer into an
@@ -100,6 +106,13 @@ Run in this order on freshly imported sources (each is idempotent):
    `SLOT_LOAD`/`SLOT_STORE`.
 5. `tools/fix_casts.py BUILD_DIR`: wrap pointer↔integer conversions reported
    by GCC in `PTR`/`HND` (see the script for the SARIF build setup).
+6. `tools/fieldify.py src/game/*.c src/game/include/*.h`: pointer fields →
+   `PTR32`, accesses → `GETP`/`SETP`; then repeat
+   `ninja -C build -k 0 > build.log 2>&1; tools/fieldify.py --revert build.log`
+   until it reverts nothing (undoes same-named non-pointer fields).
+7. `tools/gen_data.py NAME...`: C definitions for globals that exist only in
+   the decomp's split data sections (needs the decomp built, for
+   `build/HOTWHE/asm`). Pointer entries become handles at startup.
 
 ## Status
 
@@ -108,8 +121,22 @@ Work in progress; it does not run yet.
 - [x] Build system, platform layer: window/GL context, VI frame pacing,
       threads, heap arena + handles, DVD → data dir, CARD → save files,
       PAD → SDL gamepad/keyboard, AX mixer → miniaudio, MTX/VEC
-- [ ] Game sources compiling on 64-bit (pointer slots, prototype fixes)
-- [ ] Struct pointer fields → 4-byte handles
+- [x] Pointer slots, pointer↔integer conversions and struct pointer fields
+      converted to 32-bit handles (tool-driven, ~9k sites)
+- [ ] Game sources compiling on 64-bit: 57/114 files; remaining errors are
+      decomp prototype inconsistencies and per-function m2c draft issues
+- [ ] Missing game code (see below)
+- [ ] Globals from the original data sections (`gen_data.py` is ready)
 - [ ] Byte-swapping of asset formats on load
 - [ ] GX → OpenGL renderer (vertex decoding, display lists, textures, TEV)
 - [ ] THP movies, aux-bus reverb, ADPCM
+
+### Missing game code
+
+The decomp is not complete. Functions in the game's code ranges:
+
+- 45 exist only as m2c drafts in the decomp's `src/auto/` dumps;
+- 16 (~35 KB of PowerPC) have no C at all, including
+  `ThingManager_MoveThings_DARYL_SUBTICK` (physics tick),
+  `InterfaceManager_RenderObject`/`MoveInterface` (UI), `Player_Heartbeat`,
+  `CarA_ProcessItemPickup` and five `AI_Car_*` functions.

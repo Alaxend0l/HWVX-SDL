@@ -4,7 +4,7 @@
 
 s32 WildCardRack_Init(void *thing, void *data) {
     typedef struct WildCardSlot {
-        void *card;
+        PTR32(void) card;
         u8 pad4[0x40 - 0x4];
         u16 unk40;
         u16 unk42;
@@ -37,7 +37,7 @@ s32 WildCardRack_Init(void *thing, void *data) {
     rack->unk472 = 0;
     for (i = 0; i < 12; i++) {
         rack->slots[i].unk40 = 0;
-        rack->slots[i].card = NULL;
+        SETP(rack->slots[i].card, NULL);
         rack->slots[i].unk42 = 0;
         rack->slots[i].unk48 = 0.0f;
         rack->slots[i].unk4C = 0;
@@ -76,24 +76,24 @@ s32 WildCardRack_Move(void *thing) {
     } WildcardData;
     typedef struct WildcardThing {
         u8 unk0[0x30];
-        WildcardData *data;
+        PTR32(WildcardData) data;
     } WildcardThing;
     typedef struct WildcardAnim {
         u8 unk0[0x1E];
         u8 loop;
         u8 unk1F[0x24 - 0x1F];
-        f32 *times;
+        PTR32(f32) times;
     } WildcardAnim;
     typedef struct WildcardInfo {
         u8 unk0[0x18];
         f32 unk18;
     } WildcardInfo;
     typedef struct WildcardSlot {
-        WildcardInfo *info;
+        PTR32(WildcardInfo) info;
         u8 unk4[0x10 - 0x4];
-        Matrix4 *matrices;
+        PTR32(Matrix4) matrices;
         u8 unk14[0x18 - 0x14];
-        WildcardAnim *anim;
+        PTR32(WildcardAnim) anim;
         u8 mode;
         u8 state;
         u8 unk1E[0x20 - 0x1E];
@@ -103,7 +103,7 @@ s32 WildCardRack_Move(void *thing) {
         u8 unk42[0x44 - 0x42];
         f32 scale;
         f32 angle;
-        WildcardThing *thing;
+        PTR32(WildcardThing) thing;
     } WildcardSlot;
     typedef struct WildcardRack {
         u8 unk0[0x10];
@@ -113,14 +113,14 @@ s32 WildCardRack_Move(void *thing) {
         u8 unk60[0x74 - 0x60];
         u32 flags;
         u8 unk78[0x94 - 0x78];
-        u8 *player;
+        PTR32(u8) player;
         u8 unk98[0xB0 - 0x98];
         WildcardSlot slots[12];
         u8 cur;
         u8 unk471;
         u8 unk472;
         u8 unk473[0x478 - 0x473];
-        u8 *target;
+        PTR32(u8) target;
         f32 unk47C;
     } WildcardRack;
     void *targets[32];
@@ -137,45 +137,45 @@ s32 WildCardRack_Move(void *thing) {
     WildcardRack *rack = thing;
     u8 *car;
 
-    if (rack->player != NULL) {
-        car = SLOT_LOAD(u8 *, (rack->player + 0x2C));
+    if (GETP(rack->player) != NULL) {
+        car = SLOT_LOAD(u8 *, (GETP(rack->player) + 0x2C));
         if (car != NULL && SLOT_LOAD(u8 *, (car + 0x8C)) == g_carAVTable && ThingManagerList_GetByType(car + 0x344, 4) != NULL) {
             return 1;
         }
     }
-    if (rack->player != NULL && !(rack->flags & 0x200000)) {
-        if (rack->slots[rack->cur].thing != NULL) {
+    if (GETP(rack->player) != NULL && !(rack->flags & 0x200000)) {
+        if (GETP(rack->slots[rack->cur].thing) != NULL) {
             s8 ready = 0;
 
-            if (rack->slots[rack->cur].info != NULL && rack->slots[rack->cur].scale > 0.6f) {
-                if (rack->slots[rack->cur].anim->loop) {
+            if (GETP(rack->slots[rack->cur].info) != NULL && rack->slots[rack->cur].scale > 0.6f) {
+                if (GETP(rack->slots[rack->cur].anim)->loop) {
                     ready = rack->slots[rack->cur].mode == 2;
                 } else {
                     ready = rack->slots[rack->cur].state > 1;
                 }
             }
             if (ready &&
-                ((u32)rack->slots[rack->cur].count >= rack->slots[rack->cur].thing->data->numFrames || GameSettings_IsCheatEnabled(0)) &&
-                !rack->unk472 && rack->player[0x1B]) {
+                ((u32)rack->slots[rack->cur].count >= GETP(GETP(rack->slots[rack->cur].thing)->data)->numFrames || GameSettings_IsCheatEnabled(0)) &&
+                !rack->unk472 && GETP(rack->player)[0x1B]) {
                 rack->slots[rack->cur].state = 0;
                 if (GameSettings_IsCheatEnabled(0) ||
-                    rack->slots[rack->cur].count >= (s16)rack->slots[rack->cur].thing->data->numFrames) {
+                    rack->slots[rack->cur].count >= (s16)GETP(GETP(rack->slots[rack->cur].thing)->data)->numFrames) {
                     if (!GameSettings_IsCheatEnabled(0)) {
-                        rack->slots[rack->cur].count -= (s16)rack->slots[rack->cur].thing->data->numFrames;
+                        rack->slots[rack->cur].count -= (s16)GETP(GETP(rack->slots[rack->cur].thing)->data)->numFrames;
                     } else {
-                        rack->slots[rack->cur].count = rack->slots[rack->cur].thing->data->unk28;
+                        rack->slots[rack->cur].count = GETP(GETP(rack->slots[rack->cur].thing)->data)->unk28;
                     }
-                    rack->slots[rack->cur].time = rack->slots[rack->cur].anim->times[1];
+                    rack->slots[rack->cur].time = GETP(GETP(rack->slots[rack->cur].anim)->times)[1];
                     rack->slots[rack->cur].mode = 1;
                 }
             }
         }
-        if (*(u32 *)(rack->player + 0xC) & 2) {
+        if (*(u32 *)(GETP(rack->player) + 0xC) & 2) {
             u8 old = rack->cur;
 
             slot = &rack->slots[old];
-            if (slot->info == NULL || slot->mode == 2 || slot->time > *slot->anim->times + slot->info->unk18) {
-                while (++rack->cur <= 24 && rack->slots[rack->cur % 12].info == NULL) {
+            if (GETP(slot->info) == NULL || slot->mode == 2 || slot->time > *GETP(GETP(slot->anim)->times) + GETP(slot->info)->unk18) {
+                while (++rack->cur <= 24 && GETP(rack->slots[rack->cur % 12].info) == NULL) {
                 }
                 rack->cur = rack->cur % 12;
             }
@@ -184,21 +184,21 @@ s32 WildCardRack_Move(void *thing) {
             }
         }
     }
-    if (rack->slots[rack->cur].thing != NULL) {
+    if (GETP(rack->slots[rack->cur].thing) != NULL) {
         u8 type;
 
         rack->slots[rack->cur].scale += 6.0f * g_fDeltaTimeSec;
         if (rack->slots[rack->cur].scale > 1.0f) {
             rack->slots[rack->cur].scale = 1.0f;
         }
-        type = rack->slots[rack->cur].thing->data->spinType;
+        type = GETP(GETP(rack->slots[rack->cur].thing)->data)->spinType;
         if (type == 3) {
-            if (rack->target != NULL) {
-                if (*(s32 *)(rack->target + 0x78) < 0 || (*(u32 *)(rack->target + 0x74) & 0x1000)) {
-                    rack->target = NULL;
+            if (GETP(rack->target) != NULL) {
+                if (*(s32 *)(GETP(rack->target) + 0x78) < 0 || (*(u32 *)(GETP(rack->target) + 0x74) & 0x1000)) {
+                    SETP(rack->target, NULL);
                     rack->unk47C = -1.0f;
                 } else {
-                    (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, (rack->target + 0x8C)) + 0x3C))(rack->target, &targetPos);
+                    (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, (GETP(rack->target) + 0x8C)) + 0x3C))(GETP(rack->target), &targetPos);
                     PSVECSubtract(&targetPos, &rack->pos, &rack->mtx[2]);
                     PSVECCrossProduct(&rack->mtx[1], &rack->mtx[2], &rack->mtx[0]);
                     PSVECCrossProduct(&rack->mtx[2], &rack->mtx[0], &rack->mtx[1]);
@@ -231,12 +231,12 @@ s32 WildCardRack_Move(void *thing) {
                 count = GetAllTargets(targets);
                 bestDist = 999999.875f;
                 best = -1;
-                if (rack->target != NULL && rack->unk47C > 0.0f) {
-                    targets[count++] = rack->target;
+                if (GETP(rack->target) != NULL && rack->unk47C > 0.0f) {
+                    targets[count++] = GETP(rack->target);
                 }
                 for (i = 0; i < count; i++) {
                     t = 1.0f;
-                    if (targets[i] != rack && (rack->player == NULL || targets[i] != SLOT_LOAD(void *, (rack->player + 0x2C)))) {
+                    if (targets[i] != rack && (GETP(rack->player) == NULL || targets[i] != SLOT_LOAD(void *, (GETP(rack->player) + 0x2C)))) {
                         (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, ((u8 *)targets[i] + 0x8C)) + 0x3C))(targets[i], &pos);
                         InverseXformVec(&rack->mtx[0], &pos, &local);
                         dist = _fabs(local.z * (local.x * local.y));
@@ -248,15 +248,15 @@ s32 WildCardRack_Move(void *thing) {
                     }
                 }
                 if (best < count) {
-                    rack->target = targets[best];
+                    SETP(rack->target, targets[best]);
                 } else {
-                    rack->target = NULL;
+                    SETP(rack->target, NULL);
                 }
             }
-            if (rack->target != NULL) {
+            if (GETP(rack->target) != NULL) {
                 mtx = *(Matrix4 *)&rack->mtx[0];
-                mtx.v[3] = rack->slots[rack->cur].matrices[rack->slots[rack->cur].thing->data->spinBone].v[3];
-                (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, (rack->target + 0x8C)) + 0x3C))(rack->target, &pos2);
+                mtx.v[3] = GETP(rack->slots[rack->cur].matrices)[GETP(GETP(rack->slots[rack->cur].thing)->data)->spinBone].v[3];
+                (*(GetTargetPosFn *)(SLOT_LOAD(u8 *, (GETP(rack->target) + 0x8C)) + 0x3C))(GETP(rack->target), &pos2);
                 InverseXformVec(&mtx, &pos2, &local2);
                 angle = -atan2(local2.y, local2.z);
             }
@@ -267,24 +267,24 @@ s32 WildCardRack_Move(void *thing) {
             } else {
                 slot->angle += step;
             }
-            if (slot->angle > 0.017453292f * slot->thing->data->spinLimit) {
-                slot->angle = 0.017453292f * slot->thing->data->spinLimit;
-            } else if (slot->angle < 0.017453292f * -slot->thing->data->spinLimit) {
-                slot->angle = 0.017453292f * -slot->thing->data->spinLimit;
+            if (slot->angle > 0.017453292f * GETP(GETP(slot->thing)->data)->spinLimit) {
+                slot->angle = 0.017453292f * GETP(GETP(slot->thing)->data)->spinLimit;
+            } else if (slot->angle < 0.017453292f * -GETP(GETP(slot->thing)->data)->spinLimit) {
+                slot->angle = 0.017453292f * -GETP(GETP(slot->thing)->data)->spinLimit;
             }
         } else if (type == 1) {
-            if (rack->player != NULL && *(s8 *)(rack->player + 1) != 0) {
+            if (GETP(rack->player) != NULL && *(s8 *)(GETP(rack->player) + 1) != 0) {
                 WildcardSlot *s = &rack->slots[rack->cur];
 
-                s->angle += 0.017453292f * (*(s8 *)(rack->player + 1) * g_fDeltaTimeSec);
-                if (s->angle > 0.017453292f * s->thing->data->spinLimit) {
-                    s->angle = 0.017453292f * s->thing->data->spinLimit;
-                } else if (s->angle < 0.017453292f * -s->thing->data->spinLimit) {
-                    s->angle = 0.017453292f * -s->thing->data->spinLimit;
+                s->angle += 0.017453292f * (*(s8 *)(GETP(rack->player) + 1) * g_fDeltaTimeSec);
+                if (s->angle > 0.017453292f * GETP(GETP(s->thing)->data)->spinLimit) {
+                    s->angle = 0.017453292f * GETP(GETP(s->thing)->data)->spinLimit;
+                } else if (s->angle < 0.017453292f * -GETP(GETP(s->thing)->data)->spinLimit) {
+                    s->angle = 0.017453292f * -GETP(GETP(s->thing)->data)->spinLimit;
                 }
             }
         }
-        if (rack->slots[rack->cur].info != NULL && rack->slots[rack->cur].scale < 1.0f) {
+        if (GETP(rack->slots[rack->cur].info) != NULL && rack->slots[rack->cur].scale < 1.0f) {
             Vector4 axis __attribute__((aligned(16))) = {1.0f, 0.0f, 0.0f, 0.0f};
 
             GenerateQuaternion(&axis, &q, 3.1415927f * (rack->slots[rack->cur].scale - 1.0f));
@@ -299,7 +299,7 @@ s32 WildCardRack_Move(void *thing) {
 extern Matrix4 g_identity;
 void WildCardRack_Draw(u8 *rack) {
     typedef struct {
-        void *motion;
+        PTR32(void) motion;
         u8 pad4[0x40];
         f32 scale;
         u8 pad48[0x8];
@@ -314,7 +314,7 @@ void WildCardRack_Draw(u8 *rack) {
     Matrix4 out;
     f32 s;
 
-    if (((RackState *)(rack + 0xB0))[rack[0x470]].motion != NULL) {
+    if (GETP(((RackState *)(rack + 0xB0))[rack[0x470]].motion) != NULL) {
         QuaternionToSubMatrix(rack + 0x50, rack + 0x10);
         s = ((RackState *)(rack + 0xB0))[rack[0x470]].scale;
         if (s < 1.0f) {
@@ -350,11 +350,11 @@ void WildCardRack_JettisonAll(void *rack) {
 
 void WildCardRack_Jettison(void *thing, u8 slot) {
     typedef struct WildCardSlot {
-        void *card;
+        PTR32(void) card;
         u8 pad4[0x44 - 0x4];
         f32 unk44;
         u8 pad48[0x4C - 0x48];
-        void *unk4C;
+        PTR32(void) unk4C;
     } WildCardSlot;
     typedef struct WildCardRack {
         u8 pad0[0xB0];
@@ -364,11 +364,11 @@ void WildCardRack_Jettison(void *thing, u8 slot) {
     WildCardRack *rack = thing;
     u32 i;
 
-    if (rack->slots[slot].card != NULL) {
-        rack->slots[slot].unk4C = NULL;
-        rack->slots[slot].card = NULL;
+    if (GETP(rack->slots[slot].card) != NULL) {
+        SETP(rack->slots[slot].unk4C, NULL);
+        SETP(rack->slots[slot].card, NULL);
         for (i = 0; i < 12; i++) {
-            if (rack->slots[i].unk4C != NULL && rack->slots[i].card != NULL) {
+            if (GETP(rack->slots[i].unk4C) != NULL && GETP(rack->slots[i].card) != NULL) {
                 rack->unk470 = i;
                 rack->slots[i].unk44 = 0.0f;
             }
@@ -381,20 +381,20 @@ void WildCardRack_Add(void *thing, u8 *item, s16 count) {
         u8 pad0[0x1E];
         u8 unk1E;
         u8 pad1F[0x24 - 0x1F];
-        f32 *unk24;
-        f32 *unk28;
+        PTR32(f32) unk24;
+        PTR32(f32) unk28;
     } WildCard;
     typedef struct WildCardData {
-        WildCard *card;
+        PTR32(WildCard) card;
         u8 pad4[0x28 - 0x4];
         s32 max;
     } WildCardData;
     typedef struct WildCardItem {
         u8 pad0[0x30];
-        WildCardData *data;
+        PTR32(WildCardData) data;
     } WildCardItem;
     typedef struct WildCardSlot {
-        WildCard *card;
+        PTR32(WildCard) card;
         u8 pad4[0x1C - 0x4];
         u8 unk1C;
         u8 unk1D;
@@ -406,7 +406,7 @@ void WildCardRack_Add(void *thing, u8 *item, s16 count) {
         u8 pad42[0x44 - 0x42];
         f32 unk44;
         f32 unk48;
-        WildCardItem *item;
+        PTR32(WildCardItem) item;
     } WildCardSlot;
     typedef struct WildCardRack {
         u8 pad0[0x74];
@@ -423,15 +423,15 @@ void WildCardRack_Add(void *thing, u8 *item, s16 count) {
     WildCardSlot *s;
 
     if (rack->flags & 0x10) {
-        if (rack->slots[rack->unk470].item != NULL) {
-            if (rack->slots[rack->unk470].item->data == it->data) {
+        if (GETP(rack->slots[rack->unk470].item) != NULL) {
+            if (GETP(GETP(rack->slots[rack->unk470].item)->data) == GETP(it->data)) {
                 if (rack->slots[rack->unk470].count == 0) {
                     rack->slots[rack->unk470].unk1C = 1;
-                    rack->slots[rack->unk470].unk20 = rack->slots[rack->unk470].card->unk24[1];
+                    rack->slots[rack->unk470].unk20 = GETP(GETP(rack->slots[rack->unk470].card)->unk24)[1];
                 }
                 rack->slots[rack->unk470].count += (s16)count;
-                if (rack->slots[rack->unk470].count > (s16)it->data->max) {
-                    rack->slots[rack->unk470].count = it->data->max;
+                if (rack->slots[rack->unk470].count > (s16)GETP(it->data)->max) {
+                    rack->slots[rack->unk470].count = GETP(it->data)->max;
                 }
                 found = 1;
             } else {
@@ -440,14 +440,14 @@ void WildCardRack_Add(void *thing, u8 *item, s16 count) {
         }
     } else {
         for (i = 0; i < 12; i++) {
-            if (rack->slots[i].item != NULL && rack->slots[i].item->data == it->data) {
+            if (GETP(rack->slots[i].item) != NULL && GETP(GETP(rack->slots[i].item)->data) == GETP(it->data)) {
                 if (rack->slots[i].count == 0) {
                     rack->slots[i].unk1C = 1;
-                    rack->slots[i].unk20 = rack->slots[i].card->unk24[1];
+                    rack->slots[i].unk20 = GETP(GETP(rack->slots[i].card)->unk24)[1];
                 }
                 rack->slots[i].count += (s16)count;
-                if (rack->slots[i].count > (s16)it->data->max) {
-                    rack->slots[i].count = it->data->max;
+                if (rack->slots[i].count > (s16)GETP(it->data)->max) {
+                    rack->slots[i].count = GETP(it->data)->max;
                 }
                 found = 1;
                 if (rack->unk470 != i) {
@@ -456,27 +456,27 @@ void WildCardRack_Add(void *thing, u8 *item, s16 count) {
                 }
                 break;
             }
-            if (rack->slots[i].item == NULL || rack->slots[i].card == NULL) {
+            if (GETP(rack->slots[i].item) == NULL || GETP(rack->slots[i].card) == NULL) {
                 slot = i;
             }
         }
     }
     if (!found) {
-        rack->slots[slot].card = it->data->card;
+        SETP(rack->slots[slot].card, GETP(GETP(it->data)->card));
         s = &rack->slots[slot];
         rack->slots[slot].count = count;
-        if (rack->slots[slot].count > (s16)it->data->max) {
-            rack->slots[slot].count = it->data->max;
+        if (rack->slots[slot].count > (s16)GETP(it->data)->max) {
+            rack->slots[slot].count = GETP(it->data)->max;
         }
-        rack->slots[slot].item = it;
+        SETP(rack->slots[slot].item, it);
         s->unk24 = 0.0f;
         MotionState_Init(s, 0);
-        if (s->card != NULL) {
-            if (s->card->unk1E) {
-                rack->slots[slot].unk20 = *s->card->unk28;
+        if (GETP(s->card) != NULL) {
+            if (GETP(s->card)->unk1E) {
+                rack->slots[slot].unk20 = *GETP(GETP(s->card)->unk28);
                 rack->slots[slot].unk1C = 2;
             } else {
-                rack->slots[slot].unk20 = s->card->unk24[1];
+                rack->slots[slot].unk20 = GETP(GETP(s->card)->unk24)[1];
             }
             rack->slots[slot].unk1D = 1;
             rack->slots[slot].unk44 = 0.0f;
@@ -490,7 +490,7 @@ s8 Thing_HasThing(u8 *thing, void *target);
 s32 TriggerItemPickup(u32 *trigger) {
     typedef struct WildCardSlot {
         u8 pad0[0x4C];
-        u8 *item;
+        PTR32(u8) item;
     } WildCardSlot;
     typedef struct WildCardRack {
         u8 pad0[0xB0];
@@ -517,8 +517,8 @@ s32 TriggerItemPickup(u32 *trigger) {
                 }
                 rack = ThingManagerList_GetByType(thing + 0x344, 8);
                 for (k = 0; rack != NULL && k < 12; k++) {
-                    if (rack->slots[k].item != NULL &&
-                        *(u32 *)(SLOT_LOAD(u8 *, (item + 0x1C)) + 0x30) == *(u32 *)(rack->slots[k].item + 0x30)) {
+                    if (GETP(rack->slots[k].item) != NULL &&
+                        *(u32 *)(SLOT_LOAD(u8 *, (item + 0x1C)) + 0x30) == *(u32 *)(GETP(rack->slots[k].item) + 0x30)) {
                         found = 1;
                     }
                 }

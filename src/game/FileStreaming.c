@@ -37,9 +37,9 @@ typedef struct ItemThing {
     u32 flags;
     u8 pad78[0x8C - 0x78];
     void (**vtbl)(struct ItemThing *);
-    void *owner;
+    PTR32(void) owner;
     u8 pad94[0xD0 - 0x94];
-    void *respawnItem;
+    PTR32(void) respawnItem;
 } ItemThing;
 
 typedef struct QuadItem {
@@ -47,9 +47,9 @@ typedef struct QuadItem {
     u8 pad10[0x4];
     s32 respawn;
     s32 timer;
-    ItemInfo *info;
+    PTR32(ItemInfo) info;
     f32 value;
-    ItemThing *thing;
+    PTR32(ItemThing) thing;
     u32 type;
     u8 pad2C[0x34 - 0x2C];
     u8 hasValue;
@@ -62,9 +62,9 @@ typedef struct QuadItem {
 
 typedef struct QuadStatic {
     u8 pad0[0x24];
-    u8 *info;
+    PTR32(u8) info;
     u8 pad28[0x2C - 0x28];
-    ItemThing *thing;
+    PTR32(ItemThing) thing;
     s32 active;
     u8 pad34[0x36 - 0x34];
     u8 defActive;
@@ -73,7 +73,7 @@ typedef struct QuadStatic {
 
 typedef struct QuadDynamic {
     u8 pad0[0x30];
-    ItemThing *thing;
+    PTR32(ItemThing) thing;
     s32 active;
     u8 pad38[0x39 - 0x38];
     u8 defActive;
@@ -83,23 +83,23 @@ typedef struct QuadDynamic {
 typedef struct QuadItemList {
     s8 dirty;
     u32 numStatics;
-    QuadStatic *statics;
+    PTR32(QuadStatic) statics;
     u32 numDynamics;
-    QuadDynamic *dynamics;
+    PTR32(QuadDynamic) dynamics;
     u32 count;
-    QuadItem *items;
+    PTR32(QuadItem) items;
 } QuadItemList;
 
 typedef struct QuadrantEntry {
     u8 pad0[0x30];
-    QuadItemList *data;
+    PTR32(QuadItemList) data;
     u8 pad34[0x50 - 0x34];
 } QuadrantEntry;
 
 typedef struct QuadrantWorld {
     u8 pad[0x20];
     u32 numQuads;
-    QuadrantEntry *quads;
+    PTR32(QuadrantEntry) quads;
 } QuadrantWorld;
 
 
@@ -111,7 +111,7 @@ typedef struct ItemThingParams {
     f32 unk34;
     f32 unk38;
     u32 unk3C;
-    ItemInfo *info;
+    PTR32(ItemInfo) info;
     f32 value;
     s8 subtype;
 } ItemThingParams;
@@ -123,7 +123,7 @@ typedef struct EffectThingParams {
     Vector4 vel;
     Vector4 angVel;
     u32 id;
-    void *player;
+    PTR32(void) player;
     f32 unk48;
     f32 unk4C;
 } EffectThingParams;
@@ -212,27 +212,27 @@ void FileStreaming_InitializeAllQuads(void)
         u8 pad[0x18];
         u32 unk1C;
         u32 numNeighbors;
-        u32 *neighbors;
+        PTR32(u32) neighbors;
         u8 pad2[0x28];
     } Quad;
     typedef struct QuadWorld
     {
         u8 pad[0x20];
         u32 numQuads;
-        Quad *quads;
+        PTR32(Quad) quads;
     } QuadWorld;
     u32 i;
     u32 j;
     u32 k;
     Quad *quad;
 
-    if (g_worldData.world == NULL)
+    if (GETP(g_worldData.world) == NULL)
     {
         return;
     }
-    for (i = 0; i < ((QuadWorld *)g_worldData.world)->numQuads; i++)
+    for (i = 0; i < ((QuadWorld *)GETP(g_worldData.world))->numQuads; i++)
     {
-        quad = &((QuadWorld *)g_worldData.world)->quads[i];
+        quad = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i];
         if (quad->unk1C == 0)
         {
             g_pWorldQuadrant = quad;
@@ -241,11 +241,11 @@ void FileStreaming_InitializeAllQuads(void)
         {
             for (j = 0; j < quad->numNeighbors; j++)
             {
-                for (k = 0; k < ((QuadWorld *)g_worldData.world)->numQuads; k++)
+                for (k = 0; k < ((QuadWorld *)GETP(g_worldData.world))->numQuads; k++)
                 {
-                    if (k != i && ((QuadWorld *)g_worldData.world)->quads[k].id == quad->neighbors[j])
+                    if (k != i && GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[k].id == GETP(quad->neighbors)[j])
                     {
-                        quad->neighbors[j] = k;
+                        GETP(quad->neighbors)[j] = k;
                         break;
                     }
                 }
@@ -271,42 +271,42 @@ void FileStreaming_ResetQuadResources(void)
         if (g_LoadedQuadrants[i] != NULL && (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->dirty) {
             (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->dirty = 0;
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->numStatics; j++) {
-                st = &(SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->statics[j];
-                if (st->thing != NULL && st->info[7] == 0) {
-                    st->thing->vtbl[1](st->thing);
-                    st->thing = NULL;
+                st = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->statics)[j];
+                if (GETP(st->thing) != NULL && GETP(st->info)[7] == 0) {
+                    GETP(st->thing)->vtbl[1](GETP(st->thing));
+                    SETP(st->thing, NULL);
                     st->active = 1;
                 }
             }
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->numDynamics; j++) {
-                dyn = &(SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->dynamics[j];
-                if (dyn->thing != NULL) {
-                    dyn->thing->vtbl[1](dyn->thing);
-                    dyn->thing = NULL;
+                dyn = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->dynamics)[j];
+                if (GETP(dyn->thing) != NULL) {
+                    GETP(dyn->thing)->vtbl[1](GETP(dyn->thing));
+                    SETP(dyn->thing, NULL);
                     dyn->active = 1;
                 }
             }
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->count; j++) {
-                item = &(SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->items[j];
-                if (item->thing != NULL) {
-                    item->thing->vtbl[1](item->thing);
-                    item->thing = NULL;
+                item = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->items)[j];
+                if (GETP(item->thing) != NULL) {
+                    GETP(item->thing)->vtbl[1](GETP(item->thing));
+                    SETP(item->thing, NULL);
                     item->type = 1;
                 }
             }
         }
     }
-    for (i = 0; i < ((QuadrantWorld *)g_worldData.world)->numQuads; i++) {
-        quad = &((QuadrantWorld *)g_worldData.world)->quads[i];
-        for (j = 0; j < quad->data->numDynamics; j++) {
-            quad->data->dynamics[j].active = quad->data->dynamics[j].defActive;
+    for (i = 0; i < ((QuadrantWorld *)GETP(g_worldData.world))->numQuads; i++) {
+        quad = &GETP(((QuadrantWorld *)GETP(g_worldData.world))->quads)[i];
+        for (j = 0; j < GETP(quad->data)->numDynamics; j++) {
+            GETP(GETP(quad->data)->dynamics)[j].active = GETP(GETP(quad->data)->dynamics)[j].defActive;
         }
-        for (j = 0; j < quad->data->count; j++) {
-            quad->data->items[j].type = quad->data->items[j].defType;
-            quad->data->items[j].spawned = 0;
+        for (j = 0; j < GETP(quad->data)->count; j++) {
+            GETP(GETP(quad->data)->items)[j].type = GETP(GETP(quad->data)->items)[j].defType;
+            GETP(GETP(quad->data)->items)[j].spawned = 0;
         }
-        for (j = 0; j < quad->data->numStatics; j++) {
-            quad->data->statics[j].active = quad->data->statics[j].defActive;
+        for (j = 0; j < GETP(quad->data)->numStatics; j++) {
+            GETP(GETP(quad->data)->statics)[j].active = GETP(GETP(quad->data)->statics)[j].defActive;
         }
     }
     FileStreaming_SetActiveQuadrants((void **)g_LoadedQuadrants, g_numQuadPacksInMemory + 1);
@@ -328,17 +328,17 @@ void FileStreaming_HeartBeatItems(void)
         g_itemTimer -= 1500;
         for (i = 0; i < g_numQuadPacksInMemory + 1; i++) {
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->count; j++) {
-                item = &(SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->items[j];
-                if ((item->timer != 0 || !item->spawned) && item->info != NULL && item->thing == NULL && item->type == 1) {
+                item = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->items)[j];
+                if ((item->timer != 0 || !item->spawned) && GETP(item->info) != NULL && GETP(item->thing) == NULL && item->type == 1) {
                     item->timer -= 1500;
                     if (item->timer <= 0) {
                         item->timer = 0;
                         params.pos = item->pos;
-                        params.pos.y += item->info->height;
+                        params.pos.y += GETP(item->info)->height;
                         params.unk30 = 0.0f;
                         params.unk34 = 0.0f;
                         params.unk38 = 0.0f;
-                        params.info = item->info;
+                        SETP(params.info, GETP(item->info));
                         params.rot.w = 1.0f;
                         params.rot.x = 0.0f;
                         params.rot.y = 0.0f;
@@ -353,21 +353,21 @@ void FileStreaming_HeartBeatItems(void)
                             if (GameSettings_GetCodeVariable(0x12D, 0) && !GameSettings_GetCodeVariable(0x136, 0)) {
                                 item->respawn = 0;
                             }
-                            item->thing = thing;
-                            thing->respawnItem = item;
-                            thing->owner = item;
+                            SETP(item->thing, thing);
+                            SETP(thing->respawnItem, item);
+                            SETP(thing->owner, item);
                             thing->flags |= 1;
                             if (item->respawn) {
-                                thing->respawnItem = item;
+                                SETP(thing->respawnItem, item);
                             }
-                            if (item->info->effect) {
-                                p.id = item->info->effect;
+                            if (GETP(item->info)->effect) {
+                                p.id = GETP(item->info)->effect;
                                 p.pos = item->pos;
                                 p.animRefPos = *(Vector4 *)&params.rot;
                                 p.vel.z = 0.0f;
                                 p.vel.y = 0.0f;
                                 p.vel.x = 0.0f;
-                                p.player = NULL;
+                                SETP(p.player, NULL);
                                 p.unk48 = 0.0f;
                                 p.unk4C = 0.0f;
                                 p.angVel = g_zeroVector;
@@ -459,16 +459,16 @@ void LoadQuadrants(s8 refresh) {
     typedef struct World {
         u8 pad0[0x20];
         u32 numQuads;
-        Quad *quads;
+        PTR32(Quad) quads;
         u8 pad28[0x7C - 0x28];
-        char *fileName;
+        PTR32(char) fileName;
         u8 pad80[0x8C - 0x80];
-        char *name;
+        PTR32(char) name;
         u32 id;
     } World;
     typedef struct QuadPack {
         u8 pad0[0x10];
-        void *loaded;
+        PTR32(void) loaded;
         u8 pad14[0x34 - 0x14];
         s8 inMemory;
     } QuadPack;
@@ -483,8 +483,8 @@ void LoadQuadrants(s8 refresh) {
     Quad *quad;
     u32 alt;
 
-    strcpy(name, ((World *)g_worldData.world)->name);
-    strcpy(path, ((World *)g_worldData.world)->name);
+    strcpy(name, GETP(((World *)GETP(g_worldData.world))->name));
+    strcpy(path, GETP(((World *)GETP(g_worldData.world))->name));
     strcat(path, ".xgc");
     if (g_quadFileID == -1) {
         error = 0;
@@ -494,30 +494,30 @@ void LoadQuadrants(s8 refresh) {
             if (tocHeader[0].version != 0x020100A0 || tocHeader[0].type != 0x040100AE) {
                 error = 1;
             } else if (tocHeader[0].world != 0xB7) {
-                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", ((World *)g_worldData.world)->fileName, tocHeader[0].world, 0xB7);
+                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->fileName), tocHeader[0].world, 0xB7);
                 error = 1;
             } else {
                 count = tocHeader[0].id;
                 File_Read(g_quadFileID, count * sizeof(TocEntry), tocHeader);
-                for (i = 0; i < ((World *)g_worldData.world)->numQuads; i++) {
-                    quad = &((World *)g_worldData.world)->quads[i];
+                for (i = 0; i < ((World *)GETP(g_worldData.world))->numQuads; i++) {
+                    quad = &GETP(((World *)GETP(g_worldData.world))->quads)[i];
                     alt = 0;
                     for (j = 0; j < count; j++) {
                         u32 id = tocHeader[j].id;
                         u32 type = tocHeader[j].type;
                         u32 index = id >> 16;
 
-                        if (type == 7 && ((World *)g_worldData.world)->id == tocHeader[j].world &&
+                        if (type == 7 && ((World *)GETP(g_worldData.world))->id == tocHeader[j].world &&
                             quad->id == id && index == quad->index) {
                             if (tocHeader[j].version != 0xB7) {
-                                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", ((World *)g_worldData.world)->name, tocHeader[j].version, 0xB7);
+                                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->name), tocHeader[j].version, 0xB7);
                             } else {
                                 quad->size = tocHeader[j].size;
                                 quad->fileOffset = (count * sizeof(TocEntry) + 0x10) + tocHeader[j].offset;
                             }
                             break;
                         }
-                        if (type == 7 && ((World *)g_worldData.world)->id == tocHeader[j].world &&
+                        if (type == 7 && ((World *)GETP(g_worldData.world))->id == tocHeader[j].world &&
                             (u16)quad->id == (u16)id) {
                             alt = index;
                         }
@@ -539,8 +539,8 @@ void LoadQuadrants(s8 refresh) {
         }
     }
     for (i = 0; i < g_numQuadPacksToLoad; i++) {
-        if (((QuadPack *)g_QuadrantsToLoad[i])->loaded == NULL) {
-            DataPack_LoadQuadPack(g_quadFileID, g_QuadrantsToLoad[i], ((World *)g_worldData.world)->id);
+        if (GETP(((QuadPack *)g_QuadrantsToLoad[i])->loaded) == NULL) {
+            DataPack_LoadQuadPack(g_quadFileID, g_QuadrantsToLoad[i], ((World *)GETP(g_worldData.world))->id);
             if (refresh) {
                 DataPack_RefreshQuadPackPtrs(PTR(g_worldData.unk8[2]), g_QuadrantsToLoad[i]);
                 ((QuadPack *)g_QuadrantsToLoad[i])->inMemory = 1;
@@ -555,12 +555,12 @@ s32 FileStreaming_LoadDataPack(void *name, s32 type, u32 id, s8 threaded) {
         s8 used;
         u8 unk1;
         u8 unk2;
-        char *name;
+        PTR32(char) name;
         u32 id;
         u32 refs;
         u8 unk10;
         u8 pad11[0x4C - 0x11];
-        void *data;
+        PTR32(void) data;
         u8 pad50[0xA8 - 0x50];
     } DataPack;
     u32 i;
@@ -575,9 +575,9 @@ s32 FileStreaming_LoadDataPack(void *name, s32 type, u32 id, s8 threaded) {
     }
     for (i = 0; i < g_MaxStreamingDataPacks[type]; i++) {
         if (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].used && id == SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].id
-            && strcmp(name, SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].name) == 0
+            && strcmp(name, GETP(SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].name)) == 0
             && SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].refs != 0) {
-            if (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].data == NULL) {
+            if (GETP(SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].data) == NULL) {
                 SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].used = 0;
                 SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].refs = 0;
                 SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].unk1 = 0;
@@ -597,7 +597,7 @@ s32 FileStreaming_LoadDataPack(void *name, s32 type, u32 id, s8 threaded) {
     SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[slot].used = 1;
     (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->unk1 = 0;
     (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->unk2 = 0;
-    (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->name = name;
+    SETP((SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->name, name);
     (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->id = id;
     (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->refs = 1;
     (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->unk10 = 0;

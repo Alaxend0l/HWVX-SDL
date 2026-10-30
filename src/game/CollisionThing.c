@@ -15,7 +15,7 @@ typedef struct CollisionOBox {
     Vector4 corners[8];           /* 0x10 */
     f32 extent[3];                /* 0x90 */
     u8 pad9C[4];                  /* 0x9C */
-    Vector4 *axis[3];             /* 0xA0 */
+    PTR32(Vector4) axis[3];             /* 0xA0 */
     u8 padAC[4];                  /* 0xAC */
     f32 centerProj[3];            /* 0xB0 */
     u8 padBC[4];                  /* 0xBC */
@@ -44,7 +44,7 @@ void OConvexHullHolder_Init(void)
 
     for (i = 0; i < 8; i++)
     {
-        g_aOConvexHull[i].hull = NULL;
+        SETP(g_aOConvexHull[i].hull, NULL);
     }
 }
 
@@ -52,8 +52,8 @@ OConvexHull *OConvexHullHolder_Get(void *owner) {
     u32 i;
 
     for (i = 0; i < 8; i++) {
-        if (g_aOConvexHull[i].hull == NULL) {
-            g_aOConvexHull[i].hull = owner;
+        if (GETP(g_aOConvexHull[i].hull) == NULL) {
+            SETP(g_aOConvexHull[i].hull, owner);
             return &g_aOConvexHull[i];
         }
     }
@@ -63,7 +63,7 @@ OConvexHull *OConvexHullHolder_Get(void *owner) {
 
 void OConvexHullHolder_Release(OConvexHull *hull) {
     if (hull != NULL) {
-        hull->hull = NULL;
+        SETP(hull->hull, NULL);
     }
 }
 
@@ -440,9 +440,9 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
         f32 c;
         f32 lo;
         f32 hi;
-        minB = maxB = PSVECDotProduct(a->axis[i], &b->corners[0]);
+        minB = maxB = PSVECDotProduct(GETP(a->axis[i]), &b->corners[0]);
         for (k = 1; k < 8; k++) {
-            d = PSVECDotProduct(a->axis[i], &b->corners[k]);
+            d = PSVECDotProduct(GETP(a->axis[i]), &b->corners[k]);
             if (d < minB) {
                 minB = d;
                 minIdx = k;
@@ -451,7 +451,7 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
                 maxB = d;
             }
         }
-        c = PSVECDotProduct(a->axis[i], a);
+        c = PSVECDotProduct(GETP(a->axis[i]), a);
         lo = c - a->extent[i];
         hi = a->extent[i] + c;
         if (maxB < lo || hi < minB) {
@@ -479,9 +479,9 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
         f32 c;
         f32 lo;
         f32 hi;
-        minA = maxA = PSVECDotProduct(b->axis[i], &a->corners[0]);
+        minA = maxA = PSVECDotProduct(GETP(b->axis[i]), &a->corners[0]);
         for (k = 1; k < 8; k++) {
-            d = PSVECDotProduct(b->axis[i], &a->corners[k]);
+            d = PSVECDotProduct(GETP(b->axis[i]), &a->corners[k]);
             if (d < minA) {
                 minA = d;
                 minIdx = k;
@@ -490,7 +490,7 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
                 maxA = d;
             }
         }
-        c = PSVECDotProduct(b->axis[i], b);
+        c = PSVECDotProduct(GETP(b->axis[i]), b);
         hi = b->extent[i] + c;
         lo = c - b->extent[i];
         if (hi < minA || maxA < lo) {
@@ -521,7 +521,7 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
                 u8 maxAIdx = 0;
                 u8 minBIdx = 0;
                 u8 maxBIdx = 0;
-                PSVECCrossProduct(a->axis[ia], b->axis[ib], &n);
+                PSVECCrossProduct(GETP(a->axis[ia]), GETP(b->axis[ib]), &n);
                 maxA = minA = PSVECDotProduct(&a->corners[0], &n);
                 maxB = minB = PSVECDotProduct(&b->corners[0], &n);
                 for (k = 1; k < 8; k++) {
@@ -568,7 +568,7 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
         switch (type) {
         case 1:
             hit->pos = b->corners[feature];
-            hit->normal = *a->axis[axisA];
+            hit->normal = *GETP(a->axis[axisA]);
             if (flip) {
                 hit->normal.x *= -1.0f;
                 hit->normal.y *= -1.0f;
@@ -577,7 +577,7 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
             break;
         case 2:
             hit->pos = a->corners[feature];
-            hit->normal = *b->axis[axisA];
+            hit->normal = *GETP(b->axis[axisA]);
             if (flip) {
                 hit->normal.x *= -1.0f;
                 hit->normal.y *= -1.0f;
@@ -587,19 +587,19 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
         case 3:
             pt = a->corners[feature];
             edgePt = b->corners[feature2];
-            PSVECCrossProduct(b->axis[axisB], a->axis[axisA], &c1);
-            PSVECCrossProduct(b->axis[axisB], &c1, &c2);
+            PSVECCrossProduct(GETP(b->axis[axisB]), GETP(a->axis[axisA]), &c1);
+            PSVECCrossProduct(GETP(b->axis[axisB]), &c1, &c2);
             Create_Plane(&plane, &c2, &edgePt);
             d = Distance_Plane(&plane, &pt);
-            dot = PSVECDotProduct(&plane, a->axis[axisA]);
+            dot = PSVECDotProduct(&plane, GETP(a->axis[axisA]));
             if (dot) {
                 t = -d / dot;
             } else {
                 t = 0.0f;
             }
-            pt.x += a->axis[axisA]->x * t;
-            pt.y += a->axis[axisA]->y * t;
-            pt.z += a->axis[axisA]->z * t;
+            pt.x += GETP(a->axis[axisA])->x * t;
+            pt.y += GETP(a->axis[axisA])->y * t;
+            pt.z += GETP(a->axis[axisA])->z * t;
             hit->pos = pt;
             hit->normal = c1;
             if (PSVECSquareMag(&hit->normal)) {
@@ -646,8 +646,8 @@ f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, Co
     axisIdx = 0;
     vert = 99;
     for (i = 0; i < 3; i++) {
-        a = PSVECDotProduct(box->axis[i], &seg[0]);
-        b = PSVECDotProduct(box->axis[i], &seg[1]);
+        a = PSVECDotProduct(GETP(box->axis[i]), &seg[0]);
+        b = PSVECDotProduct(GETP(box->axis[i]), &seg[1]);
         if (a > b) {
             da.minA = b;
             hiIdx = 1;
@@ -681,7 +681,7 @@ f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, Co
     for (j = 0; j < 3; j++) {
         maxIdx = 0;
         minIdx = 0;
-        PSVECCrossProduct(box->axis[j], &dir, &axis);
+        PSVECCrossProduct(GETP(box->axis[j]), &dir, &axis);
         da.minB = da.maxB = PSVECDotProduct(&axis, &box->corners[0]);
         for (k = 1; k < 8; k++) {
             d = PSVECDotProduct(&axis, &box->corners[k]);
@@ -717,7 +717,7 @@ f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, Co
         switch (type) {
         case 1:
             hit->pos = seg[vert];
-            hit->normal = *box->axis[axisIdx % 3];
+            hit->normal = *GETP(box->axis[axisIdx % 3]);
             if (axisIdx >= 3) {
                 hit->normal.x *= -1.0f;
                 hit->normal.y *= -1.0f;
@@ -726,7 +726,7 @@ f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, Co
             CollisionTriCache_Set((u32)HND(box), (u32)HND(seg), &hit->pos, &hit->normal);
             break;
         case 3:
-            PSVECCrossProduct(box->axis[axisIdx], vel, &cross);
+            PSVECCrossProduct(GETP(box->axis[axisIdx]), vel, &cross);
             Create_Plane(&plane, &cross, &box->corners[corner]);
             a = Distance_Plane(&plane, &seg[0]);
             b = Distance_Plane(&plane, &seg[1]);
@@ -744,7 +744,7 @@ f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, Co
                 hit->pos.x = diff.x * d + seg[0].x;
                 hit->pos.y = diff.y * d + seg[0].y;
                 hit->pos.z = diff.z * d + seg[0].z;
-                PSVECCrossProduct(box->axis[axisIdx], &diff, &hit->normal);
+                PSVECCrossProduct(GETP(box->axis[axisIdx]), &diff, &hit->normal);
                 if (PSVECSquareMag(&hit->normal)) {
                     PSVECNormalize(&hit->normal, &hit->normal);
                 }
@@ -797,8 +797,8 @@ s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit)
     type = 0;
     axisIdx = 0;
     for (i = 0; i < 3; i++) {
-        hi = PSVECDotProduct(box->axis[i], &seg[0]);
-        d = PSVECDotProduct(box->axis[i], &seg[1]);
+        hi = PSVECDotProduct(GETP(box->axis[i]), &seg[0]);
+        d = PSVECDotProduct(GETP(box->axis[i]), &seg[1]);
         if (hi > d) {
             lo = d;
             idx = 1;
@@ -807,7 +807,7 @@ s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit)
             idx = 0;
             hi = d;
         }
-        c = PSVECDotProduct(box->axis[i], &box->center);
+        c = PSVECDotProduct(GETP(box->axis[i]), &box->center);
         boxMin = c - box->extent[i];
         c = c + box->extent[i];
         if (hi < boxMin || c < lo) {
@@ -819,7 +819,7 @@ s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit)
                 best = d;
                 if (hit != NULL) {
                     hit->pos = seg[idx];
-                    hit->normal = *box->axis[i];
+                    hit->normal = *GETP(box->axis[i]);
                     Reverse_Plane(&hit->normal);
                 }
             }
@@ -830,7 +830,7 @@ s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit)
                 best = d;
                 if (hit != NULL) {
                     hit->pos = seg[idx];
-                    hit->normal = *box->axis[i];
+                    hit->normal = *GETP(box->axis[i]);
                 }
             }
         }
@@ -839,7 +839,7 @@ s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit)
     for (j = 0; j < 3; j++) {
         maxIdx = 0;
         minIdx = 0;
-        PSVECCrossProduct(box->axis[j], &dir, &axis);
+        PSVECCrossProduct(GETP(box->axis[j]), &dir, &axis);
         if (PSVECSquareMag(&axis)) {
             PSVECNormalize(&axis, &axis);
         }
@@ -883,14 +883,14 @@ s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit)
         case 3:
             point = box->corners[corner];
             PSVECSubtract(&seg[1], &seg[0], &segDir);
-            PSVECCrossProduct(&segDir, box->axis[axisIdx], &normal);
+            PSVECCrossProduct(&segDir, GETP(box->axis[axisIdx]), &normal);
             PSVECCrossProduct(&segDir, &normal, &perp);
             Create_Plane(&plane, &perp, &seg[0]);
             d = Distance_Plane(&plane, &point);
-            t = -d / PSVECDotProduct(&plane, box->axis[axisIdx]);
-            point.x += box->axis[axisIdx]->x * t;
-            point.y += box->axis[axisIdx]->y * t;
-            point.z += box->axis[axisIdx]->z * t;
+            t = -d / PSVECDotProduct(&plane, GETP(box->axis[axisIdx]));
+            point.x += GETP(box->axis[axisIdx])->x * t;
+            point.y += GETP(box->axis[axisIdx])->y * t;
+            point.z += GETP(box->axis[axisIdx])->z * t;
             hit->pos = point;
             hit->normal = normal;
             if (PSVECSquareMag(&hit->normal)) {

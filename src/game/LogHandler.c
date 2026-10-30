@@ -1,7 +1,7 @@
 #include "common.h"
 
 
-s32 LogHandler_Create(void) {
+s32 LogHandler_Create(const char *name, s32 mode) {
     return 0;
 }
 

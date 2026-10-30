@@ -13,17 +13,17 @@ void MatrixCache_Create(void) {
     buf = (u8 *)g_pMatrixCacheData + sizeof(MatrixCacheData);
     for (i = 0; i < 0x60; i++) {
         g_pMatrixCacheData->small[i].key = (u32)HND(buf);
-        g_pMatrixCacheData->small[i].mtx = NULL;
+        SETP(g_pMatrixCacheData->small[i].mtx, NULL);
         buf += 0x100;
     }
     for (i = 0; i < 0x80; i++) {
         g_pMatrixCacheData->medium[i].key = (u32)HND(buf);
-        g_pMatrixCacheData->medium[i].mtx = NULL;
+        SETP(g_pMatrixCacheData->medium[i].mtx, NULL);
         buf += 0x400;
     }
     for (i = 0; i < 4; i++) {
         g_pMatrixCacheData->large[i].key = (u32)HND(buf);
-        g_pMatrixCacheData->large[i].mtx = NULL;
+        SETP(g_pMatrixCacheData->large[i].mtx, NULL);
         buf += 0x1000;
     }
 }
@@ -42,22 +42,22 @@ u32 MatrixCache_Get(u32 size, void *mtx) {
 
     if (size > 0x10) {
         for (i = 0; i < 4; i++) {
-            if (g_pMatrixCacheData->large[i].mtx == NULL) {
-                g_pMatrixCacheData->large[i].mtx = mtx;
+            if (GETP(g_pMatrixCacheData->large[i].mtx) == NULL) {
+                SETP(g_pMatrixCacheData->large[i].mtx, mtx);
                 return g_pMatrixCacheData->large[i].key;
             }
         }
     } else if (size > 4) {
         for (i = 0; i < 0x80; i++) {
-            if (g_pMatrixCacheData->medium[i].mtx == NULL) {
-                g_pMatrixCacheData->medium[i].mtx = mtx;
+            if (GETP(g_pMatrixCacheData->medium[i].mtx) == NULL) {
+                SETP(g_pMatrixCacheData->medium[i].mtx, mtx);
                 return g_pMatrixCacheData->medium[i].key;
             }
         }
     } else {
         for (i = 0; i < 0x60; i++) {
-            if (g_pMatrixCacheData->small[i].mtx == NULL) {
-                g_pMatrixCacheData->small[i].mtx = mtx;
+            if (GETP(g_pMatrixCacheData->small[i].mtx) == NULL) {
+                SETP(g_pMatrixCacheData->small[i].mtx, mtx);
                 return g_pMatrixCacheData->small[i].key;
             }
         }
@@ -70,19 +70,19 @@ void MatrixCache_Free(u32 key) {
 
     for (i = 0; i < 4; i++) {
         if (g_pMatrixCacheData->large[i].key == key) {
-            g_pMatrixCacheData->large[i].mtx = NULL;
+            SETP(g_pMatrixCacheData->large[i].mtx, NULL);
             return;
         }
     }
     for (i = 0; i < 0x80; i++) {
         if (g_pMatrixCacheData->medium[i].key == key) {
-            g_pMatrixCacheData->medium[i].mtx = NULL;
+            SETP(g_pMatrixCacheData->medium[i].mtx, NULL);
             return;
         }
     }
     for (i = 0; i < 0x60; i++) {
         if (g_pMatrixCacheData->small[i].key == key) {
-            g_pMatrixCacheData->small[i].mtx = NULL;
+            SETP(g_pMatrixCacheData->small[i].mtx, NULL);
             return;
         }
     }

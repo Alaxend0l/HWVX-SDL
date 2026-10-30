@@ -2,7 +2,7 @@
 
 extern int __OSCurrHeap;
 
-void *Allocate(unsigned long size)
+void *Allocate(u32 size, u32 flags, const char *name)
 {
     void *ptr;
 
@@ -23,9 +23,9 @@ void Deallocate(void *ptr)
     }
 }
 
-void MemCpy32(void)
+void MemCpy32(void *dst, const void *src, u32 size)
 {
-    memcpy();
+    memcpy(dst, src, size);
 }
 
 void MemClr32(void *dst, unsigned long size)
