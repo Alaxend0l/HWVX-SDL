@@ -210,7 +210,6 @@ void Creature_MotionStateInit(void *arg0, s32 state, u8 reset, u8 keepTime)
 }
 
 
-void Thing_Init(void *a, s32 b);
 s32 Creature_Init(Creature *arg0, CreatureInit *arg1)
 {
     CreatureInit *init;
@@ -290,7 +289,6 @@ void Creature_PartialGibb(Creature *creature, u32 count, s32 unused) {
         PTR32(AnimNode) nodes;
     } AnimNodeList;
     extern Vector4 g_zeroVector;
-    void XformVec(void *mtx, void *in, Vector4 *out);
     AnimNode nodes[64];
     PartParams partParams;
     DebrisParams debrisParams;
@@ -474,7 +472,6 @@ s32 Creature_Move(Creature *creature)
 {
     extern s32 g_iDeltaTimeMS;
     extern f32 g_fDeltaTimeMS;
-    f32 Gfx_GetMinCameraDistSquared(void *pos);
     f32 dt;
     f32 dist;
 

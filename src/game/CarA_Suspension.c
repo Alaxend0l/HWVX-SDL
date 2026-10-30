@@ -33,7 +33,7 @@ typedef struct SuspRayHit {
     u8 pad40[0x10];
 } SuspRayHit;
 
-/* ThingManager_DARYL_CreateThing(1, ...) parameters (same as GETP(CarA_HW.c)'s). */
+/* ThingManager_DARYL_CreateThing(1, ...) parameters (same as CarA_HW.c's). */
 typedef struct SuspThingParams {
     Vector4 pos;
     Vector4 animRefPos;
@@ -51,10 +51,6 @@ extern u32 g_iLastDeltaTimeMS;
 extern CarA *g_pNoRayCollideThing;
 extern Vector4 g_zeroVector __attribute__((aligned(16)));
 
-f32 MagnitudeVector(void *v);
-void XformVec(void *mtx, Vector4 *in, Vector4 *out);
-void ProjectVectorToNormal(void *normal, void *v);
-f32 Gfx_GetMinCameraDistSquared(Vector4 *pos);
 
 
 f32 GetDampFactor(u8 type, u32 n) {

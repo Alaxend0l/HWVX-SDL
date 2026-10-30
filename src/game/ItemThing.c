@@ -2,7 +2,6 @@
 
 
 s32 Item_Init(u8 *item, u8 *data) {
-    void GenerateQuaternionXYZ(Vector4 *euler, Vector4 *quat);
     Vector4 euler __attribute__((aligned(16)));
     Vector4 quat __attribute__((aligned(16)));
     u8 *info;
@@ -150,7 +149,6 @@ s8 Item_Move(u8 *item) {
 }
 
 void Item_Draw(u8 *item) {
-    f32 Gfx_GetMinCameraDistSquared(void *pos);
 
     if (*(f32 *)(item + 0xC8)) {
         if (Gfx_GetMinCameraDistSquared(item + 0x40) > *(f32 *)(item + 0xC8) * *(f32 *)(item + 0xC8)) {
@@ -176,8 +174,6 @@ s32 Item_Invalidate(void *arg0, u32 arg1, u32 arg2) {
     }
     return 0;
 }
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransform();
 
 void *g_itemVTable[] = {
     Item_Init,

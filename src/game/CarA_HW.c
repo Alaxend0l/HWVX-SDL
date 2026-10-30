@@ -42,7 +42,6 @@ s8 CarA_DoFreeStyleStunts(CarA *car) {
 }
 
 void CarA_StuntImpulse(CarA *car, Vector4 *linImpulse, Vector4 *angImpulse) {
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     Vector4 lin;
     Vector4 ang;
     Vector4 scaled __attribute__((aligned(16)));
@@ -68,9 +67,6 @@ void CarA_StuntImpulse(CarA *car, Vector4 *linImpulse, Vector4 *angImpulse) {
 
 
 s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t) {
-    f32 MagnitudeVector(Vector4 *v);
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     Vector4 accum __attribute__((aligned(16))) = {0.0f, 0.0f, 0.0f, 0.0f};
     Quaternion q;
     Quaternion newQ;
@@ -237,7 +233,6 @@ void CarA_StuntFail(CarA *car) {
 }
 
 void CarA_SlaveWeaponHeartbeat(CarA *car) {
-    void MotionState_InitSlavesTimed(MotionState *state, void *slaves, u8 type, s32 time);
     u32 i;
     s32 *rpm;
 

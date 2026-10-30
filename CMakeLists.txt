@@ -52,6 +52,13 @@ target_compile_options(hwvx PRIVATE
 set_source_files_properties(${GAME_SOURCES} PROPERTIES COMPILE_OPTIONS
     "-Wno-unused-value;-Wno-maybe-uninitialized;-Wno-sign-compare;-Wno-incompatible-pointer-types")
 
+# game_protos.h hides a file's own functions that use its file-local types.
+foreach(src ${GAME_SOURCES})
+    get_filename_component(stem ${src} NAME_WE)
+    string(MAKE_C_IDENTIFIER ${stem} stem)
+    set_property(SOURCE ${src} APPEND PROPERTY COMPILE_DEFINITIONS HWVX_SRC_${stem})
+endforeach()
+
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/port/miniaudio_impl.c PROPERTIES COMPILE_OPTIONS "-w")
 
 option(HWVX_ASAN "Build with AddressSanitizer/UBSan" OFF)

@@ -112,7 +112,6 @@ void Input_Destroy(void) {
 
 void Input_Heartbeat(void) {
     void GBAConnectivityLoop__Fv(void);
-    void pollControllers__Fv(void);
     extern s32 g_iDeltaTimeMS;
     s32 i;
     s32 j;
@@ -246,6 +245,163 @@ void PadSamplingCallback__Fv(void) {
         if (pads[i].err != -3) {
             memcpy(&ngcPad[i], &pads[i], sizeof(PADStatus));
         }
+    }
+}
+
+typedef struct LGPosition {
+    u16 button;
+    s8 unk2;
+    s8 wheel;
+    u8 accelerator;
+    u8 brake;
+    u8 unk6;
+    u8 unk7;
+    u8 unk8;
+    s8 err;
+} LGPosition;
+
+static LGPosition s_lgStatus[4];
+
+void pollControllers__Fv(void) {
+    typedef struct LGWheelsNonLin {
+        u8 pad0[0x128];
+        s16 nonLin[4][0x100];
+    } LGWheelsNonLin;
+    extern u32 WheelHandles[4];
+    extern u32 PadChanMask_800DBC08[4];
+    s32 LGRead(void *status);
+    s32 LGOpen(s32 chan, u32 *handle);
+    void ReadAll__8LGWheelsFv(void *wheels);
+    u8 PedalsConnected__8LGWheelsFl(void *wheels, s32 chan);
+    u32 SIProbe(s32 chan);
+    void PADReset(u32 mask);
+    PADStatus pads[4];
+    u16 down;
+    u16 up;
+    u8 chan;
+    u32 resetMask;
+    s32 i;
+
+    resetMask = 0;
+    LGRead(s_lgStatus);
+    ReadAll__8LGWheelsFv(wheels);
+    for (chan = 0; chan < 4; chan++) {
+        down = 0;
+        up = 0;
+        switch (SIProbe(chan)) {
+        case 0x08000000:
+            if (WheelHandles[chan] == 0xFFFFFFFF) {
+                OSReport("opening wheel on channel %d\n", chan);
+                LGOpen(chan, &WheelHandles[chan]);
+                s_lgStatus[chan].err = 0;
+            } else if (WheelHandles[chan] != 0xFFFFFFFF) {
+                switch (s_lgStatus[chan].err) {
+                case 0: {
+                    u16 cur;
+                    u16 prev;
+                    if (((LGPosition *)wheels)[chan].accelerator) {
+                        ((LGPosition *)wheels)[chan].button |= 0x100;
+                    }
+                    if (((LGPosition *)wheels)[chan].brake) {
+                        ((LGPosition *)wheels)[chan].button |= 0x400;
+                    }
+                    cur = ((LGPosition *)wheels)[chan].button;
+                    prev = s_unk108[chan].button;
+                    s_unk108[chan].button = cur;
+                    down = cur & (prev ^ cur);
+                    up = prev & (prev ^ cur);
+                    s_unk108[chan].unk6 = ((LGPosition *)wheels)[chan].unk7;
+                    s_unk108[chan].unk7 = ((LGPosition *)wheels)[chan].unk8;
+                    s_unk108[chan].unkA = ((LGPosition *)wheels)[chan].err;
+                    if (PedalsConnected__8LGWheelsFl(wheels, chan)) {
+                        if (((LGPosition *)wheels)[chan].accelerator) {
+                            g_VirtualPad[chan].keyValue[9] = ((LGPosition *)wheels)[chan].accelerator;
+                        }
+                        if (((LGPosition *)wheels)[chan].brake) {
+                            g_VirtualPad[chan].keyValue[7] = ((LGPosition *)wheels)[chan].brake;
+                        }
+                    }
+                    g_VirtualPad[chan].keyValue[0x10] = ((LGWheelsNonLin *)wheels)->nonLin[chan][((LGPosition *)wheels)[chan].wheel];
+                    break;
+                }
+                case -1:
+                    break;
+                }
+            }
+            break;
+        case 0x09000000:
+        case 0x8B100000:
+            if (s_unkD8[chan].err == -1) {
+                resetMask |= PadChanMask_800DBC08[chan];
+                s_unk108[chan].unkA = -1;
+            } else {
+                u16 prev = s_unk108[chan].button;
+                u16 cur = s_unkD8[chan].button;
+                down = cur & (prev ^ cur);
+                up = prev & (prev ^ cur);
+                memcpy(&s_unk108[chan], &s_unkD8[chan], sizeof(PADStatus));
+                g_VirtualPad[chan].keyValue[0x10] = 1.68919f * s_unkD8[chan].stickX;
+                g_VirtualPad[chan].keyValue[0x11] = 1.68919f * s_unkD8[chan].stickY;
+                g_VirtualPad[chan].keyValue[0x12] = 1.68919f * s_unkD8[chan].substickX;
+                g_VirtualPad[chan].keyValue[0x13] = 1.68919f * s_unkD8[chan].substickY;
+            }
+            break;
+        default:
+            resetMask |= PadChanMask_800DBC08[chan];
+            g_VirtualPad[chan].keyDown = g_VirtualPad[chan].keyPress = g_VirtualPad[chan].keyRelease = 0;
+            g_VirtualPad[chan].keyValue[0x10] = g_VirtualPad[chan].keyValue[0x11] =
+                g_VirtualPad[chan].keyValue[0x12] = g_VirtualPad[chan].keyValue[0x13] = 0;
+            break;
+        }
+        if (down) {
+            for (i = 0; i < 16; i++) {
+                if (down & (1 << i)) {
+                    ((u16 (*)[8])s_unk30)[chan][g_padDownPos[chan]] = 1 << i;
+                    g_padDownPos[chan]++;
+                }
+            }
+        }
+        if (up) {
+            for (i = 0; i < 16; i++) {
+                if (up & (1 << i)) {
+                    ((u16 (*)[8])s_unk70)[chan][g_padUpPos[chan]] = 1 << i;
+                    g_padUpPos[chan]++;
+                }
+            }
+        }
+        for (i = 0; i < 16; i++) {
+            g_VirtualPad[chan].keyValue[i] = 0xFF;
+        }
+        if (down && chan == 0) {
+            ((u8 *)&s_rumbleTime[3])[0] = 1;
+        }
+        if (up && chan == 0) {
+            ((u8 *)&s_rumbleTime[3])[0] = 0;
+        }
+    }
+    if (resetMask) {
+        PADReset(resetMask);
+        PADRead(pads);
+        PADClamp(pads);
+        for (i = 0; i < 4; i++) {
+            if (pads[i].err != -3) {
+                memcpy(&s_unkD8[i], &pads[i], sizeof(PADStatus));
+            }
+        }
+    }
+    s_rumbleTime[1] = s_rumbleTime[1] - (s8)g_VirtualPad[0].keyValue[0x13] / 10.0f;
+    s_rumbleTime[0] = s_rumbleTime[0] + (s8)g_VirtualPad[0].keyValue[0x12] / 10.0f;
+    if (s_rumbleTime[1] > 480) {
+        s_rumbleTime[1] = 480;
+    }
+    if (s_rumbleTime[1] < 0) {
+        s_rumbleTime[1] = 0;
+    }
+    if (s_rumbleTime[0] > 640) {
+        s_rumbleTime[0] = 640;
+    }
+    if (s_rumbleTime[0] < 0) {
+        s_rumbleTime[0] = 0;
     }
 }
 

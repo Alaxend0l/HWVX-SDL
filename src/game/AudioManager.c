@@ -17,6 +17,8 @@ void SoundManager_Create(void) {
     g_tracks_803C6F30 = HND(Allocate(0x500, 0, ""));
 }
 
+extern u8 g_nextSource[];  /* typed per function below */
+extern u8 g_listener[];  /* typed per function below */
 
 void SoundManager_Init(void) {
     typedef struct SoundSource {
@@ -60,9 +62,9 @@ void SoundManager_Init(void) {
     extern MusicFade g_globalMusic[3];
     extern MusicTrack *g_tracks;
     extern SoundSource *g_sources;
-    extern s32 g_nextSource;
+    #define g_nextSource (*(s32 *)(void *)&g_nextSource)
     extern s32 g_numListeners;
-    extern SoundListener g_listener[4];
+    #define g_listener ((SoundListener *)(void *)&g_listener)
     extern Matrix4 g_identity;
     extern Vector4 g_zeroVector;
     Vector4 fwd __attribute__((aligned(16))) = {1.0f, 0.0f, 0.0f, 0.0f};
@@ -91,6 +93,8 @@ void SoundManager_Init(void) {
         g_tracks[i].active = 1;
     }
     g_paused = 0;
+#undef g_listener
+#undef g_nextSource
 }
 
 
@@ -152,7 +156,7 @@ s32 SoundManager_CreateSource(u32 owner) {
         u8 unk4A[0x50 - 0x4A];
     } SoundSource;
     extern SoundSource *g_sources;
-    extern u32 g_nextSource;
+    #define g_nextSource (*(u32 *)(void *)&g_nextSource)
     extern Vector4 g_zeroVector;
     u32 start;
 
@@ -176,6 +180,7 @@ s32 SoundManager_CreateSource(u32 owner) {
     g_sources[g_nextSource].paused = 0;
     g_sources[g_nextSource].playing = 0;
     return ++g_nextSource - 1;
+#undef g_nextSource
 }
 
 void SoundManager_Heartbeat(void) {
@@ -213,12 +218,10 @@ void SFX_ProcessSource(u32 index) {
     } SoundListener;
     extern s8 g_paused;
     extern SoundSource *g_sources;
-    extern SoundListener g_listener[4];
+    #define g_listener ((SoundListener *)(void *)&g_listener)
     extern s32 g_numListeners;
     extern s32 g_sscount;
     extern Vector4 g_zeroVector;
-    void DistanceXYZ(void *a, void *b, f32 *dist);
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     SoundSource *src;
     s32 pan;
     u32 i;
@@ -331,6 +334,7 @@ void SFX_ProcessSource(u32 index) {
         src->voice = -1;
         src->unk24 = 0.0f;
     }
+#undef g_listener
 }
 
 void SFX_Heartbeat(void) {
@@ -344,6 +348,7 @@ void SFX_Heartbeat(void) {
         var_r31 += 1;
     } while (var_r31 < 0x64U);
 }
+extern u8 g_globalMusic_800DBE30[];  /* typed per function below */
 
 void MusicHearbeat(void) {
     typedef struct MusicFade {
@@ -359,7 +364,7 @@ void MusicHearbeat(void) {
         u8 pad10[0x28 - 0x10];
     } MusicTrack;
     extern s8 g_paused_803C6F2D;
-    extern MusicFade g_globalMusic_800DBE30[3];
+    #define g_globalMusic_800DBE30 ((MusicFade *)(void *)&g_globalMusic_800DBE30)
     extern MusicTrack *g_tracks_803C6F30;
     extern f32 g_fDeltaTimeMS;
     extern void (*SetMusicPitch)(u32);
@@ -404,6 +409,7 @@ void MusicHearbeat(void) {
             SetMusicTrackVol(i, 32767.0f * g_tracks_803C6F30[i].vol);
         }
     }
+#undef g_globalMusic_800DBE30
 }
 
 void SoundListener_Set(s32 listener, s32 param, void *value) {
@@ -413,7 +419,7 @@ void SoundListener_Set(s32 listener, s32 param, void *value) {
         u8 unk20[0x30];
         u8 mtx[0x40];
     } SoundListener;
-    extern SoundListener g_listener[4];
+    #define g_listener ((SoundListener *)(void *)&g_listener)
 
     switch (param) {
     case 5:
@@ -426,6 +432,7 @@ void SoundListener_Set(s32 listener, s32 param, void *value) {
         memcpy(g_listener[listener].mtx, value, 0x40);
         break;
     }
+#undef g_listener
 }
 
 void SoundListener_SetTotalListeners(u32 arg0) {
@@ -495,7 +502,7 @@ void *SoundAudioSample_Play(void *sample) {
     if (sample == NULL) {
         return NULL;
     }
-    voice = (void *)HND(PTR(GetVoice(sample, (u8)(rand() % 10 + 5))));
+    voice = (void *)HND(PTR(GetVoice(HND(sample), (u8)(rand() % 10 + 5))));
     if (voice != NULL) {
         SetVoiceState(HND(voice), 1);
         return voice;
@@ -569,12 +576,13 @@ void SongManager_LoadSong(u8 *data, u32 size) {
 void SongManager_PlaySong(void) {
     extern s8 g_songLoaded_803C6F2C;
     extern void (*SetMusicState)(s32);
-    extern f32 g_globalMusic_800DBE30[];
+    #define g_globalMusic_800DBE30 ((f32 *)(void *)&g_globalMusic_800DBE30)
 
     if (g_songLoaded_803C6F2C) {
         SetMusicState(1);
         SetMusicVol(32767.0 * g_globalMusic_800DBE30[0]);
     }
+#undef g_globalMusic_800DBE30
 }
 
 s32 ActionMusicChange(void *data) {
@@ -627,7 +635,7 @@ s32 ActionMusicChange(void *data) {
     } MusicScale;
     extern s8 g_paused_803C6F2D;
     extern s8 g_songLoaded_803C6F2C;
-    extern MusicFade g_globalMusic_800DBE30[3];
+    #define g_globalMusic_800DBE30 ((MusicFade *)(void *)&g_globalMusic_800DBE30)
     extern MusicTrack *g_tracks_803C6F30;
     extern void (*SetMusicPitch)(u32);
     extern void (*SetMusicTempo)(u32);
@@ -688,6 +696,7 @@ s32 ActionMusicChange(void *data) {
         }
     }
     return 1;
+#undef g_globalMusic_800DBE30
 }
 
 s32 ActionMusicSetSong(void) {

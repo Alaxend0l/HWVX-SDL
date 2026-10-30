@@ -1,7 +1,6 @@
 #include "common.h"
 
 
-s8 OBoxHitsSegmentZeroTime(void *, void *, void *);
 
 typedef struct OBoxCorners
 {
@@ -19,7 +18,6 @@ typedef struct CollisionInfo
     u8 type;
 } CollisionInfo;
 
-f32 OBoxHitsSegment(void *, Vector4 *, void *, f32, void *);
 
 typedef struct TerrainGrid {
     Vector4 origin;
@@ -56,6 +54,302 @@ s8 RayHitsTerrain(Vector4 *start, Vector4 *end, void *arg2, void *arg3)
 
     PSVECSubtract(end, start, &dir);
     return RayHitsTerrain_Aux3(start, &dir, arg2, arg3);
+}
+
+s8 OBoxHitsTerrain(void *obox, Vector4 *vel, f32 *t, void *info) {
+    typedef struct {
+        Vector4 origin;
+        u8 unk10[0x20 - 0x10];
+        PTR32(u8) cells;
+        u8 unk24[0x28 - 0x24];
+        f32 sizeX;
+        f32 sizeY;
+        f32 sizeZ;
+        s32 numX;
+        s32 numY;
+        s32 numZ;
+        PTR32(s32) cellIndex;
+    } Grid;
+    Vector4 bounds[2];
+    f32 best;
+    s32 numX;
+    s32 numY;
+    s32 numZ;
+    s32 x0;
+    s32 x1;
+    s32 y0;
+    s32 y1;
+    s32 z0;
+    s32 z1;
+    s32 x;
+    s32 y;
+    s32 z;
+    s32 n;
+    s32 index;
+    u32 i;
+    Grid *grid;
+    s8 hit;
+    f32 oy;
+    f32 dtz;
+    f32 ox;
+    f32 dtx;
+    f32 oz;
+    f32 dty;
+    f32 sx;
+    f32 sy;
+    f32 spanX;
+    f32 sz;
+    f32 spanZ;
+    f32 tx;
+    f32 tz;
+    f32 spanY;
+    f32 ty;
+
+    grid = SLOT_LOAD(Grid *, GETP(g_worldData.world));
+    if (GETP(g_worldData.world) == NULL || grid == NULL) {
+        return 0;
+    }
+    numX = grid->numX;
+    numY = grid->numY;
+    numZ = grid->numZ;
+    hit = 0;
+    ox = grid->origin.x;
+    oy = grid->origin.y;
+    oz = grid->origin.z;
+    sx = grid->sizeX;
+    sy = grid->sizeY;
+    sz = grid->sizeZ;
+    bounds[0].x = 99999.0f;
+    bounds[0].y = 99999.0f;
+    bounds[0].z = 99999.0f;
+    bounds[1].x = -99999.0f;
+    bounds[1].y = -99999.0f;
+    bounds[1].z = -99999.0f;
+    for (i = 0; i < 8; i++) {
+        MinMaxVec(&bounds[0], &bounds[1], (Vector4 *)obox + 1 + i);
+    }
+    World_NextSweep();
+    best = *t;
+    x0 = (bounds[0].x - ox) / sx;
+    x1 = (bounds[1].x - ox) / sx;
+    y0 = (bounds[0].y - oy) / sy;
+    y1 = (bounds[1].y - oy) / sy;
+    z0 = (bounds[0].z - oz) / sz;
+    z1 = (bounds[1].z - oz) / sz;
+    if (x1 < 0) {
+        return 0;
+    }
+    if ((u32)x1 > (u32)grid->numX) {
+        x1 = grid->numX - 1;
+    }
+    if (x0 < 0) {
+        x0 = 0;
+    } else if (x0 > x1) {
+        x0 = x1;
+    }
+    if (y1 < 0) {
+        return 0;
+    }
+    if ((u32)y1 > (u32)grid->numY) {
+        y1 = grid->numY - 1;
+    }
+    if (y0 < 0) {
+        y0 = 0;
+    } else if (y0 > y1) {
+        y0 = y1;
+    }
+    if (z1 < 0) {
+        return 0;
+    }
+    if ((u32)z1 > (u32)grid->numZ) {
+        z1 = grid->numZ - 1;
+    }
+    if (z0 < 0) {
+        z0 = 0;
+    } else if (z0 > z1) {
+        z0 = z1;
+    }
+    for (x = x0; x <= x1; x++) {
+        for (y = y0; y <= y1; y++) {
+            for (z = z0; z <= z1; z++) {
+                grid = SLOT_LOAD(Grid *, GETP(g_worldData.world));
+                if (x < 0 || x >= grid->numX) {
+                    index = -1;
+                } else if (y < 0 || y >= grid->numY) {
+                    index = -1;
+                } else if (z < 0 || z >= grid->numZ) {
+                    index = -1;
+                } else {
+                    index = z * grid->numX + grid->numZ * (y * grid->numX) + x;
+                }
+                if (OBoxHitsCell(obox, vel, index == -1 ? GETP(grid->cells) : GETP(grid->cells) + GETP(grid->cellIndex)[index] * 0x50, &best, info)) {
+                    hit = 1;
+                }
+            }
+        }
+    }
+    if (hit) {
+        *t = best;
+        return 1;
+    }
+    tx = ty = tz = *t;
+    if (vel->x >= 0.0f) {
+        if (x1 < numX - 1 && 0.0f != vel->x) {
+            tx = (ox + ((f32)(x1 + 1) * sx - bounds[1].x)) / vel->x;
+        }
+    } else if (x0 > 0) {
+        tx = (ox + ((f32)x0 * sx - bounds[0].x)) / vel->x;
+    }
+    if (vel->y >= 0.0f) {
+        if (y1 < numY - 1 && 0.0f != vel->y) {
+            ty = (oy + ((f32)(y1 + 1) * sy - bounds[1].y)) / vel->y;
+        }
+    } else if (y0 > 0) {
+        ty = (oy + ((f32)y0 * sy - bounds[0].y)) / vel->y;
+    }
+    if (vel->z >= 0.0f) {
+        if (z1 < numZ - 1 && 0.0f != vel->z) {
+            tz = (oz + ((f32)(z1 + 1) * sz - bounds[1].z)) / vel->z;
+        }
+    } else if (z0 > 0) {
+        tz = (oz + ((f32)z0 * sz - bounds[0].z)) / vel->z;
+    }
+    spanX = (bounds[1].x - bounds[0].x) / sx;
+    spanY = (bounds[1].y = bounds[0].y) / sy;
+    spanZ = (bounds[1].z - bounds[0].z) / sz;
+    if (0.0f != vel->x) {
+        dtx = _fabs(sx / vel->x);
+    } else {
+        dtx = *t;
+    }
+    if (0.0f != vel->y) {
+        dty = _fabs(sx / vel->y);
+    } else {
+        dty = *t;
+    }
+    if (0.0f != vel->z) {
+        dtz = _fabs(sz / vel->z);
+    } else {
+        dtz = *t;
+    }
+    while (tx < best || ty < best || tz < best) {
+        if (tx < tz && tx < ty) {
+            tx += dtx;
+            if (vel->x > 0.0f) {
+                n = ++x1;
+                x0 = (f32)x1 - spanX;
+                if (x1 >= numX) {
+                    tx = best;
+                }
+            } else {
+                n = --x0;
+                x1 = (f32)x0 + spanX;
+                if (x0 <= 0) {
+                    tx = best;
+                }
+            }
+            if (n >= 0 && n < numX) {
+                for (y = y0; y <= y1; y++) {
+                    for (z = z0; z <= z1; z++) {
+                        grid = SLOT_LOAD(Grid *, GETP(g_worldData.world));
+                        if (n < 0 || n >= grid->numX) {
+                            index = -1;
+                        } else if (y < 0 || y >= grid->numY) {
+                            index = -1;
+                        } else if (z < 0 || z >= grid->numZ) {
+                            index = -1;
+                        } else {
+                            index = z * grid->numX + grid->numZ * (y * grid->numX) + n;
+                        }
+                        if (OBoxHitsCell(obox, vel, index == -1 ? GETP(grid->cells) : GETP(grid->cells) + GETP(grid->cellIndex)[index] * 0x50, &best, info)) {
+                            hit = 1;
+                        }
+                    }
+                }
+                if (hit) {
+                    *t = best;
+                    return 1;
+                }
+            }
+        } else if (tz < tx && tz < ty) {
+            tz += dtz;
+            if (vel->z > 0.0f) {
+                n = ++z1;
+                z0 = (f32)z1 - spanZ;
+                if (z1 >= numZ) {
+                    tz = best;
+                }
+            } else {
+                n = --z0;
+                z1 = (f32)z0 + spanZ;
+                if (z0 <= 0) {
+                    tz = best;
+                }
+            }
+            if (n >= 0 && n < numZ) {
+                for (x = x0; x <= x1; x++) {
+                    for (y = y0; y <= y1; y++) {
+                        grid = SLOT_LOAD(Grid *, GETP(g_worldData.world));
+                        if (x < 0 || x >= grid->numX) {
+                            index = -1;
+                        } else if (y < 0 || y >= grid->numY) {
+                            index = -1;
+                        } else if (n < 0 || n >= grid->numZ) {
+                            index = -1;
+                        } else {
+                            index = n * grid->numX + grid->numZ * (y * grid->numX) + x;
+                        }
+                        if (OBoxHitsCell(obox, vel, index == -1 ? GETP(grid->cells) : GETP(grid->cells) + GETP(grid->cellIndex)[index] * 0x50, &best, info)) {
+                            hit = 1;
+                        }
+                    }
+                }
+                if (hit) {
+                    *t = best;
+                    return 1;
+                }
+            }
+        } else {
+            ty += dty;
+            if (vel->y > 0.0f) {
+                n = ++y1;
+                y0 = (f32)y1 - spanY;
+                if (y1 >= numY) {
+                    ty = best;
+                }
+            } else {
+                n = --y0;
+                y1 = (f32)y0 + spanY;
+                if (y0 <= 0) {
+                    ty = best;
+                }
+            }
+            if (n >= 0 && n < numY) {
+                for (x = x0; x <= x1; x++) {
+                    for (z = z0; z <= z1; z++) {
+                        grid = SLOT_LOAD(Grid *, GETP(g_worldData.world));
+                        if (x < 0 || x >= grid->numX) {
+                            index = -1;
+                        } else if (n < 0 || n >= grid->numY) {
+                            index = -1;
+                        } else if (z < 0 || z >= grid->numZ) {
+                            index = -1;
+                        } else {
+                            index = z * grid->numX + grid->numZ * (n * grid->numX) + x;
+                        }
+                        if (OBoxHitsCell(obox, vel, index == -1 ? GETP(grid->cells) : GETP(grid->cells) + GETP(grid->cellIndex)[index] * 0x50, &best, info)) {
+                            hit = 1;
+                        }
+                    }
+                }
+                if (hit) {
+                    *t = best;
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 
@@ -123,7 +417,6 @@ s8 OBoxHitsTerrainZeroTimeEdgesOnly(void *obox, void *arg1) {
 
 s8 OBoxHitsCellZeroTimeEdgesOnly(void *obox, void *cell, void *arg2)
 {
-    s8 OBoxHitsPolyZeroTime(void *, void *, void *);
     s8 hit = 0;
     u32 i;
     u8 *poly;
@@ -160,7 +453,6 @@ s8 OBoxHitsCellZeroTimeEdgesOnly(void *obox, void *cell, void *arg2)
 
 static inline s8 OBoxHitsCellZeroTime(void *obox, void *cell, void *arg2)
 {
-    s8 OBoxHitsPolyZeroTime(void *, void *, void *);
     s8 hit = 0;
     u32 i;
     u8 *poly;
@@ -196,7 +488,6 @@ static inline s8 OBoxHitsCellZeroTime(void *obox, void *cell, void *arg2)
 }
 
 s8 OBoxHitsCell(void *obox, Vector4 *vel, void *cell, f32 *time, void *arg4) {
-    f32 OOBHitsPoly(void *obox, void *poly, Vector4 *vel, void *arg4, f32 t);
     extern Vector4 g_zeroVector;
     s8 hit = 0;
     u32 i;
@@ -527,7 +818,6 @@ u32 RayHitsBSP(Vector4 *start, Vector4 *dir, void *bbox, f32 *time, void *bsp) {
 
 s32 RayHitsCell(Vector4 *start, Vector4 *dir, u8 *cell, f32 *time, u8 *out) {
     extern Vector4 g_zeroVector;
-    f32 RayHitsPoly(Vector4 *start, Vector4 *dir, Vector4 *poly, f32 t);
     s32 hitAny;
     u8 *poly;
     u8 *best;
@@ -822,7 +1112,6 @@ void BuildOOB(Vector4 *bounds, Matrix4 *mtx, u8 *oob) {
 
 void BuildOOBOffset(void *oob, void *pos, void *rot, void *out)
 {
-    void XformVec(void *, void *, void *);
     struct Local {
         double d[8];
     };
@@ -864,8 +1153,6 @@ void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot) {
     struct Local {
         double d[8];
     };
-    void XformVec(void *, void *, void *);
-    void XformVecOrientation(void *, Vector4 *, Vector4 *);
     Vector4 normal;
     struct Local local __attribute__((aligned(16)));
     u32 i;

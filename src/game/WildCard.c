@@ -63,8 +63,6 @@ void WildCardRack_Release(s32 arg0) {
 
 s32 WildCardRack_Move(void *thing) {
     extern f32 g_fDeltaTimeSec;
-    void InverseXformVec(void *mtx, Vector4 *in, Vector4 *out);
-    void WildcardState_Heartbeat(void *state, u8 *mtx, void *thing);
     typedef void (*GetTargetPosFn)(void *thing, Vector4 *pos);
     typedef struct WildcardData {
         u8 unk0[0x24];
@@ -486,7 +484,6 @@ void WildCardRack_Add(void *thing, u8 *item, s16 count) {
     }
 }
 
-s8 Thing_HasThing(u8 *thing, void *target);
 s32 TriggerItemPickup(u32 *trigger) {
     typedef struct WildCardSlot {
         u8 pad0[0x4C];
@@ -544,8 +541,6 @@ s32 WildCardRack_Invalidate(u8 *rack, u32 start, u32 end) {
     return 0;
 }
 
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransform();
 
 void *g_wildCardRackVTable[] = {
     WildCardRack_Init,

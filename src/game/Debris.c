@@ -126,7 +126,6 @@ s32 Debris_Move(u8 *debris) {
     extern s32 g_iDeltaTimeMS;
     extern f32 g_fDeltaTimeMS;
     extern f32 g_fDeltaTimeSec;
-    f32 Gfx_GetMinCameraDistSquared(void *pos);
     Quaternion result;
     Quaternion rot;
     f32 dt;
@@ -183,8 +182,6 @@ void Debris_Draw(Debris *debris) {
 f32 Debris_GetMass(Debris *debris) {
     return debris->mass;
 }
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransform();
 
 void *g_debrisVTable[] = {
     Debris_Init,

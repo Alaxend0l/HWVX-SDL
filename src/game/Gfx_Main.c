@@ -104,7 +104,6 @@ void Gfx_BeginScene(void) {
 }
 
 void Gfx_EndScene(void) {
-    void Render_EndScene(void);
     extern s8 g_screenTextX;
     extern s8 g_screenTextY;
 

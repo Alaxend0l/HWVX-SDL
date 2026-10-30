@@ -35,7 +35,6 @@ typedef struct DLSkinGroup {
     u8 window;
 } DLSkinGroup;
 
-void AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices);
 void *GetRenderWindow(void);
 
 /* Both forward their arguments unchanged. Callers pass a bone count as a 4th
@@ -57,7 +56,6 @@ void Gfx_DrawAnimGeometryAux(Geometry *geometry, f32 *matrices, u32 count, f32 *
     extern f32 g_identity[];
     extern u8 g_CurrentViews;
     extern s32 g_currentWindow;
-    s32 Gfx_CalcGeometryLOD(Geometry *geometry, f32 *matrix);
     DLSkinGroup *DisplayList_AddGroup_Skin(void);
     f32 world[16] __attribute__((aligned(16)));
     DLSkinGroup *group;
@@ -104,8 +102,6 @@ void Gfx_DrawAnimGeometryAux_(Geometry *geometry, f32 *matrices, u32 count, f32 
     extern f32 g_identity[];
     extern u32 matrixlookup[];
     extern s32 g_IsAnim;
-    s32 Gfx_CalcGeometryLOD(Geometry *geometry, f32 *matrix);
-    void Gfx_DrawGeometryLOD_Immediate(Geometry *geometry, void *matrix);
     f32 world[16] __attribute__((aligned(16)));
     f32 bone[3][4] __attribute__((aligned(16)));
     f32 result[3][4] __attribute__((aligned(16)));

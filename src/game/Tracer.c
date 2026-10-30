@@ -40,7 +40,6 @@ static inline u32 Tracer_FindFree(void) {
 }
 
 s32 Tracer_Init(u8 *thing, u8 *data) {
-    s32 Thing_Init(void *thing, s32 arg1);
     u8 *params;
 
     Thing_Init(thing, 0);
@@ -290,8 +289,6 @@ s32 Tracer_Invalidate(void *arg0, u32 arg1, u32 arg2) {
     return 0;
 }
 
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransform();
 
 void *g_tracerVTable[] = {
     Tracer_Init,

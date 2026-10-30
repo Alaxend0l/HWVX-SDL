@@ -11,7 +11,6 @@ typedef struct MCPSettings {
     PTR32(DemoSettings) demos;
 } MCPSettings;
 
-void GameSettings_SetCodeVariable(s32 code, s32 arg, s32 value);
 void *g_mainMenuFile;
 void *g_pInterfaceScript;
 s8 g_bPlayingFMV;
@@ -34,8 +33,6 @@ s32 StateTitleScreen_Init(s32 prevState) {
     extern void *g_mainMenuFile;
     extern s32 g_mainMenuFileID;
     extern s8 g_clearTextureCache;
-    void ParticleManager_Render(void);
-    void *CameraManager_GetNewCamera(void);
     void *camera;
     void *script;
     Vector4 min __attribute__((aligned(16)));

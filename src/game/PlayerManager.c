@@ -103,7 +103,6 @@ void PlayerManager_Init(void) {
         PTR32(PMPlayer) free;
     } PlayerMgr;
     extern s32 g_aiHoldIndex;
-    void AI_Car_Heartbeat();
     PlayerMgr *pm = (PlayerMgr *)g_playerManager;
     PMPlayer *player;
     s32 i;

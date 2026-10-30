@@ -5,8 +5,6 @@ extern f32 g_fDeltaTimeSec;
 extern s32 g_iDeltaTimeMS;
 extern Vector4 g_zeroVector;
 
-f32 MagnitudeVector(Vector4 *v);
-void InverseXformVec(u8 *mtx, Vector4 *in, Vector4 *out);
 
 typedef struct SmartProjParams {
   u8 unk0;
@@ -296,7 +294,6 @@ s32 SmartProjectileA_Move(SmartProjectile *proj) {
 }
 
 void SmartProjectileA_DynamicCollideImpact(u8 *proj, u8 *other, void *arg2, f32 arg3) {
-    f32 MagnitudeVector(void *v);
     Vector4 q __attribute__((aligned(16)));
     Vector4 result __attribute__((aligned(16)));
     Vector4 axis __attribute__((aligned(16)));
@@ -328,9 +325,6 @@ void SmartProjectileA_DynamicCollideImpact(u8 *proj, u8 *other, void *arg2, f32 
     }
     Projectile_DynamicCollideImpact(proj, other, HND(arg2), arg3);
 }
-void Projectile_Init();
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransform();
 
 void *g_smartProjectileAVTable[] = {
     Projectile_Init,

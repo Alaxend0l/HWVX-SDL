@@ -17,7 +17,6 @@ extern s32 g_dataPackToLoadType;
 extern u8 *g_LoadedQuadrants[11];
 extern void *g_pWorldQuadrant;
 extern s32 g_quadFileID;
-void FileStreaming_SetActiveQuadrants(void **quads, u32 count);
 extern void (*DestroyMusic)(void);
 void EndThread(void);
 
@@ -312,6 +311,237 @@ void FileStreaming_ResetQuadResources(void)
     FileStreaming_SetActiveQuadrants((void **)g_LoadedQuadrants, g_numQuadPacksInMemory + 1);
     Trigger_PauseTACSystem(paused);
 }
+
+
+void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
+    typedef struct Thing {
+        u8 pad0[0x8C];
+        void (**vtbl)(struct Thing *);
+        PTR32(u8) owner;
+    } Thing;
+    typedef struct SlaveInfo {
+        u8 pad0[0x18];
+        PTR32(u32) shared;
+        u8 pad1C[0x20 - 0x1C];
+    } SlaveInfo;
+    typedef struct StaticInfo {
+        PTR32(u8) box;
+        u8 noRadius;
+        u8 pad5[2];
+        u8 isStatic;
+        u8 pad8[0x18 - 0x8];
+        u32 numSlaves;
+        PTR32(SlaveInfo) slaves;
+    } StaticInfo;
+    typedef struct StaticEntry {
+        Vector4 pos;
+        Vector4 rot;
+        u8 pad20[0x24 - 0x20];
+        PTR32(StaticInfo) info;
+        f32 scale;
+        PTR32(Thing) thing;
+        u32 active;
+        u8 hasScale;
+        s8 respawn;
+        u8 pad36[0x3C - 0x36];
+        f32 radius;
+    } StaticEntry;
+    typedef struct DynamicEntry {
+        Vector4 pos;
+        Vector4 rot;
+        u8 pad20[0x24 - 0x20];
+        PTR32(void) info;
+        PTR32(void) corona;
+        f32 scale;
+        PTR32(Thing) thing;
+        u32 mode;
+        u8 hasScale;
+        u8 pad39[0x40 - 0x39];
+    } DynamicEntry;
+    typedef struct ItemEntry {
+        u8 pad0[0x18];
+        s32 timer;
+        PTR32(u8) info;
+        u8 pad20[0x24 - 0x20];
+        PTR32(Thing) thing;
+        u8 pad28[0x38 - 0x28];
+        s8 spawned;
+        u8 pad39[0x40 - 0x39];
+    } ItemEntry;
+    typedef struct QuadData {
+        s8 dirty;
+        u32 numStatics;
+        PTR32(StaticEntry) statics;
+        u32 numDynamics;
+        PTR32(DynamicEntry) dynamics;
+        u32 numItems;
+        PTR32(ItemEntry) items;
+    } QuadData;
+    typedef struct Quad {
+        u8 pad0[0x1C];
+        PTR32(void) loaded;
+        u8 pad20[0x30 - 0x20];
+        PTR32(QuadData) data;
+        s8 releasable;
+    } Quad;
+    typedef struct StaticParams {
+        Vector4 pos;
+        Vector4 vel;
+        Vector4 angVel;
+        Vector4 rot;
+        PTR32(StaticInfo) info;
+        u32 unk44;
+        f32 scale;
+        u32 unk4C;
+        u32 unk50;
+    } StaticParams;
+    typedef struct DynamicParams {
+        Vector4 pos;
+        Vector4 rot;
+        u8 pad20[0x30 - 0x20];
+        PTR32(void) info;
+        u32 unk34;
+        f32 scale;
+    } DynamicParams;
+    typedef struct ModeAction {
+        u32 mode;
+        s32 set;
+        PTR32(void) entry;
+    } ModeAction;
+    StaticParams sp __attribute__((aligned(16)));
+    Quad *release[12];
+    DynamicParams dp __attribute__((aligned(16)));
+    ModeAction destAction;
+    ModeAction fxAction;
+    u32 numRelease;
+    u32 i;
+    u32 k;
+    u32 j;
+    Quad *quad;
+    s8 paused;
+
+    numRelease = 0;
+    paused = Trigger_IsTACSystemPaused();
+    for (i = 0; i < g_numQuadPacksInMemory; i++) {
+        quad = SLOT_LOAD(Quad *, (u32 *)(g_LoadedQuadrants) + (i));
+        for (j = 0; j < count; j++) {
+            if (quad == SLOT_LOAD(Quad *, (u32 *)(quads) + (j))) {
+                break;
+            }
+        }
+        if (j == count && GETP(quad->loaded) != NULL) {
+            release[numRelease++] = quad;
+        }
+    }
+    Trigger_PauseTACSystem(1);
+    for (i = 0; i < numRelease; i++) {
+        quad = release[i];
+        if (GETP(quad->data)->dirty) {
+            GETP(quad->data)->dirty = 0;
+            for (j = 0; j < GETP(quad->data)->numStatics; j++) {
+                StaticEntry *st = &GETP(GETP(release[i]->data)->statics)[j];
+
+                if (GETP(st->thing) != NULL && GETP(st->info)->isStatic == 0) {
+                    GETP(st->thing)->vtbl[1](GETP(st->thing));
+                    SETP(st->thing, NULL);
+                }
+            }
+            for (j = 0; j < GETP(release[i]->data)->numDynamics; j++) {
+                DynamicEntry *dyn = &GETP(GETP(release[i]->data)->dynamics)[j];
+
+                if (GETP(dyn->thing) != NULL) {
+                    GETP(dyn->thing)->vtbl[1](GETP(dyn->thing));
+                    SETP(dyn->thing, NULL);
+                }
+            }
+            for (j = 0; j < GETP(release[i]->data)->numItems; j++) {
+                ItemEntry *item = &GETP(GETP(release[i]->data)->items)[j];
+
+                if (GETP(item->thing) != NULL && GETP(item->info)[0] != 7) {
+                    if (item->timer == 0) {
+                        item->spawned = 0;
+                    }
+                    GETP(item->thing)->vtbl[1](GETP(item->thing));
+                    SETP(item->thing, NULL);
+                }
+            }
+            if (release[i]->releasable) {
+                g_pQuadPackToBeReleased[g_numQuadPacksToRelease++] = release[i];
+            }
+        }
+    }
+    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
+    Trigger_PauseTACSystem(paused);
+    g_numQuadPacksInMemory = 0;
+    for (i = 0; i < count; i++) {
+        if (GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->loaded) != NULL) {
+            SLOT_STORE((u32 *)(g_LoadedQuadrants) + (g_numQuadPacksInMemory++), SLOT_LOAD(Quad *, (u32 *)(quads) + (i)));
+        }
+        if (!GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->dirty) {
+            GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->dirty = 1;
+            for (j = 0; j < GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->numStatics; j++) {
+                StaticEntry *st = &GETP(GETP(((Quad **)quads)[i]->data)->statics)[j];
+
+                if (st->active == 3 && st->respawn) {
+                    st->active = 1;
+                } else if (st->active == 3) {
+                    continue;
+                } else if (GETP(st->info)->isStatic) {
+                    for (k = 0; k < GETP(st->info)->numSlaves; k++) {
+                        u32 *shared = GETP(GETP(GETP(st->info)->slaves)[k].shared);
+
+                        if (shared[0] == 0) {
+                            shared[0] = 1;
+                            ((u8 *)PTR(shared[2]))[0x1D] = SharedSlaveHolder_Get(shared);
+                        }
+                    }
+                    if (GETP(st->info)->noRadius == 0) {
+                        st->radius = GetBoundingBoxRadius((Vector4 *)(GETP(GETP(st->info)->box) + 0x10), &g_zeroVector);
+                    } else {
+                        st->radius = 1000000.0f;
+                    }
+                    continue;
+                }
+                sp.unk4C = 0;
+                sp.unk50 = 0;
+                sp.scale = st->hasScale ? st->scale : 1.0f;
+                sp.pos = st->pos;
+                SETP(sp.info, GETP(st->info));
+                sp.rot = st->rot;
+                sp.angVel = g_zeroVector;
+                sp.vel = g_zeroVector;
+                SETP(st->thing, ThingManager_DARYL_CreateThing(3, &sp));
+                if (GETP(st->thing) != NULL) {
+                    SETP(GETP(st->thing)->owner, (u8 *)st);
+                    destAction.mode = st->active;
+                    destAction.set = 1;
+                    SETP(destAction.entry, st);
+                    ActionDestructibleChangeMode((u32 *)&destAction);
+                }
+            }
+            for (j = 0; j < GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->numDynamics; j++) {
+                DynamicEntry *dyn = &GETP(GETP(((Quad **)quads)[i]->data)->dynamics)[j];
+
+                if (GETP(dyn->info) != NULL) {
+                    dp.pos = dyn->pos;
+                    SETP(dp.info, GETP(dyn->info));
+                    dp.rot = dyn->rot;
+                    dp.scale = dyn->hasScale ? dyn->scale : 1.0f;
+                    dp.unk34 = 0;
+                    SETP(dyn->thing, ThingManager_DARYL_CreateThing(2, &dp));
+                }
+                if (GETP(dyn->corona) != NULL) {
+                    CoronaHolder_Add(GETP(dyn->corona), (Vector4 *)dyn);
+                }
+                fxAction.mode = dyn->mode;
+                fxAction.set = 1;
+                SETP(fxAction.entry, dyn);
+                ActionFXPointChangeMode((s32 *)&fxAction);
+            }
+        }
+    }
+}
+
 
 void FileStreaming_HeartBeatItems(void)
 {

@@ -91,7 +91,6 @@ void Trail_Render(void) {
 
 
 void Trail_AddSegment(u32 *handle, f32 *pos, f32 *dir, u16 texture, GXColor color, s32 life, f32 width0, f32 width1) {
-    void DistanceXYZ(void *a, void *b, f32 *dist);
     s32 i;
     s32 last;
     f32 dist;

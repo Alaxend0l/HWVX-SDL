@@ -1,7 +1,7 @@
 /* Layout of the Logitech wheel object (main/LLGWheels' "LGWheels" class).
  * One object per wheel port, holding the Wheels, Force and Condition subobjects
  * the LG SDK uses back to back, plus the per-channel force parameters that were
- * last played on the port.  Offsets come from the raw accesses in src/GETP(LGWheels.c). */
+ * last played on the port.  Offsets come from the raw accesses in src/LGWheels.c. */
 #ifndef LGWHEELS_H
 #define LGWHEELS_H
 

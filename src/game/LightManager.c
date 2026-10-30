@@ -98,7 +98,6 @@ void LightManager_Initialize(void) {
 
 
 void LightManager_LightThing(CarA *thing) {
-    void Gfx_SetParallelLight(GXColor color, s32 unk);
     Vector4 normal __attribute__((aligned(16)));
     GXColor ambient;
     GXColor parallel;

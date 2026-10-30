@@ -82,7 +82,6 @@ void LightHolder_Delete(s32 index) {
 
 void LightHolder_Render(void) {
     extern LightHolderLight g_pLight[16];
-    void DistanceXYZ(void *a, void *b, f32 *dist);
     Vector4 camera __attribute__((aligned(16)));
     f32 dist;
     GXColor color;
@@ -139,8 +138,6 @@ void LightHolder_Heartbeat(void) {
 
 void LightHolder_SetRenderState(void *camera) {
     extern LightHolderLight g_pLight[16];
-    u32 CompareDistances(void *arg0, void *arg1, f32 farg0);
-    void Gfx_AddPointLight(GXColor *color, void *position, f32 radius);
     LightHolderLight *light;
     u32 i;
     u8 *pos;

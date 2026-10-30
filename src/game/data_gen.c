@@ -30,14 +30,14 @@ extern void CarA_Move(void);
 extern void CarA_PreMove(void);
 extern void CarA_Release(void);
 extern void Thing_SlaveTransform(void);
-/* g_carAVTable (GETP(.data), CarA.s) */
+/* g_carAVTable (.data, CarA.s) */
 u8 g_carAVTable[68] __attribute__((aligned(8))) = {
     [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
     [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
     [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
 };
 
-/* g_frictionTable (GETP(.data), CarA_Suspension.s) */
+/* g_frictionTable (.data, CarA_Suspension.s) */
 u8 g_frictionTable[360] __attribute__((aligned(8))) = {
     [0] = W32(0x3F800000), [4] = W32(0x3F7FFD61), [8] = W32(0x3F7FFAC2), [12] = W32(0x3F7FF823), [16] = W32(0x3F7FF584), [20] = W32(0x3F7FF2E5),
     [24] = W32(0x3F7FF046), [28] = W32(0x3F7FEDA7), [32] = W32(0x3F7FEB08), [36] = W32(0x3F7FE869), [40] = W32(0x3F800000), [44] = W32(0x3F7FCB92),

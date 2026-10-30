@@ -6,7 +6,7 @@
 struct Thing;
 
 
-/* GETP(AI.c) */
+/* AI.c */
 void AI_AddEvent(void *arg0);
 f32 AI_AngleToTarget(u8 *ai, Vector4 *target);
 void AI_AsyncHeartbeat(void *arg0);
@@ -19,26 +19,23 @@ s32 AI_ProcessEvent(void);
 void AI_Reset(void *arg0);
 u32 AI_UpdateTimer(u32 *arg0);
 
-/* GETP(AI_CarA.c) */
+/* AI_CarA.c */
 void AI_Car_AsyncHeartbeat(u8 *ai);
 void AI_Car_AsyncProcess(void);
 void AI_Car_AsyncScanDestructibles(u8 *car);
-void AI_Car_Cheat_80008A60(u8 *ai);
 s32 AI_Car_CheckIfStuck(u8 *ai);
 s32 AI_Car_CheckLocalStats(u8 *ai, u8 *node);
-void AI_Car_ClearedNavPoint_800087C8(u8 *car, s8 arg1);
 s32 AI_Car_DetermineState(u8 *car);
 s8 AI_Car_DetermineStateBranch(u8 *car, void *arg, s8 skip);
 s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot);
 void AI_Car_DriveToTarget(u8 *ai, Vector4 *target, f32 speed);
 s8 AI_Car_EnterState(u8 *ai, u8 *branch, s32 slot);
+void AI_Car_Heartbeat(u8 *ai);
 void AI_Car_Init(u8 *car, u8 *params);
-s8 AI_Car_IsTargetValid_800094EC(u8 *ai, u8 *target, f32 maxDist, f32 minDist, f32 center, f32 range);
 s32 AI_Car_PrepareNavPath(u8 *car, void *holder, s32 dest);
 void AI_Car_Reset(u8 *car);
-void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai);
 
-/* GETP(AI_Creature.c) */
+/* AI_Creature.c */
 void AI_Creature_AsyncHeartbeat(u8 *creature);
 void AI_Creature_AsyncProcess(void);
 s32 AI_Creature_Deactivate(u8 *creature);
@@ -48,7 +45,7 @@ void AI_Creature_PopulateVolumes(void);
 s8 AI_Creature_Spawn(u8 *creature, u8 *spawner, u32 index);
 void AI_Creature_VolumeState(u8 *creature);
 
-/* GETP(Action.c) */
+/* Action.c */
 s32 ActionCameraSetTargets(u32 *mode);
 s32 ActionCodeVariableModifyValue(u32 *data);
 s32 ActionCreatureChangeMode(u32 *action);
@@ -67,7 +64,7 @@ s32 ActionSpeakerChangeMode(void);
 s32 ActionSwapAIScript(u32 *action);
 void ActionUnloadInterfacePack(s32 *arg0);
 s32 ActionVehicleAISetNamedPath(void);
-void ActionVehicleChangeMode(void);
+s32 ActionVehicleChangeMode(u32 *action);
 s32 ActionVehicleGiveItem(void *arg);
 s32 ActionVehicleRemoveCreature(void);
 s32 ActionVehicleRemoveItem(u32 *action);
@@ -78,26 +75,32 @@ void Action_Heartbeat(void);
 void Action_Init(void);
 void Action_ReleaseAllActions(void);
 
-/* GETP(Anim.c) */
+/* Anim.c */
 void AnimExtractKeyFrame(void *anim, f32 time, void *out);
+void AnimExtractKeyFrame_Hybrid(void *animp, void *outp, f32 time);
 
-/* GETP(AnimHandler.c) */
+/* AnimHandler.c */
 s32 AnimNodes_BlowBranch(u8 *node);
+void MotionState_BlendTriggerEvents(s32 state, void *events, Vector4 *vel);
 void MotionState_BuildMatricesWorld(void *arg0, void *arg1, void *motionState, f32 time);
 void MotionState_Draw(void *state);
 void MotionState_Draw2(void *state, s32 mtx, u8 *matrices);
 void MotionState_DrawSlaves(void *state, s32 arg1);
 void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1);
 void MotionState_ExtractBlendedKeyFrame(u8 *state, void *keyFrame);
+void MotionState_Heartbeat(void *state, void *arg1, void *thing);
 void MotionState_Init(void *arg0, s8 reset);
 void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player);
+void MotionState_InitSlavesTimed(u8 *state, void *slaves, u8 player, u32 time);
+void MotionState_MoveSlaves(void *state, Matrix4 *matrix, Vector4 *vel);
 void MotionState_Release(s32 state);
 void MotionState_ReleaseSlavesByType(s32 state, u8 type);
 void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps);
 void Motion_HeartbeatB2(void *state, Vector4 *vel);
 void TEST_AnimTraverseHeirarchyToMatricesWorld(Vector4 *quat, void *pos0, void *frames, s32 skel, void *matrices, f32 time);
+void WildcardState_Heartbeat(void *state, u8 *mtx, void *thing);
 
-/* GETP(AttachThing.c) */
+/* AttachThing.c */
 void AttachGeometry_Draw(void *thing);
 s32 AttachGeometry_Move(void *arg0);
 void AttachThing_Draw(void *arg0);
@@ -109,13 +112,13 @@ void AttachThing_SlaveTransform(u8 *attach, Matrix4 *mtx);
 s32 RadarBlip_Init(void *blip, void *init);
 s32 RadarBlip_Move(void *blip);
 
-/* GETP(Audio.c) */
+/* Audio.c */
 s8 Audio_Create(void);
 void Audio_Destroy(void);
 s8 Audio_Init(void);
 void Audio_Update(u32 unused);
 
-/* GETP(AudioManager.c) */
+/* AudioManager.c */
 s32 ActionMusicChange(void *data);
 s32 ActionMusicSetSong(void);
 void MusicHearbeat(void);
@@ -140,7 +143,7 @@ void SoundSource_Play(s32 index);
 void SoundSource_Set(u32 index, u32 type, void *data);
 void SoundSource_Stop(s32 index);
 
-/* GETP(Audio_.c) */
+/* Audio_.c */
 s32 Audio_Create_(void);
 void Audio_Destroy_(void);
 s32 Audio_Init_(void);
@@ -152,18 +155,19 @@ u32 MemCpyA_(u32 dst, u32 src, u32 len);
 void MemCpyDone(void);
 s32 Mul16_(u32 a, u32 b);
 
-/* GETP(BulletHoles.c) */
+/* BulletHoles.c */
 void BulletHole_AddSegment(Matrix4 *mtx, u16 texture, GXColor color, s32 life, f32 size);
 void BulletHole_Heartbeat(void);
 void BulletHole_Init(void);
 void BulletHole_Render(void);
 
-/* GETP(CameraManager.c) */
+/* CameraManager.c */
 s32 CameraManager_Create(void);
 void CameraManager_Destroy(void);
 u8 CameraManager_GetActiveCameras(void);
 void * CameraManager_GetCameraByIndex(u32 arg0);
 void * CameraManager_GetCameraFromPlayer(void *player);
+void * CameraManager_GetNewCamera(void);
 void CameraManager_Init(void);
 void CameraManager_Pause(s8 arg0);
 void CameraManager_ReleaseAllEmitters(void);
@@ -181,7 +185,7 @@ void GetTrimmedCameraPos(u8 *camera, Vector4 *from, Vector4 *dir, f32 *trim, f32
 void GetTrimmedCameraPos2(Vector4 *from, Vector4 *to, f32 *trim, s32 bone, Matrix4 *mtx);
 s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 
-/* GETP(CarA.c) */
+/* CarA.c */
 void CarA_ComputeForces(CarA *car);
 void CarA_Draw(u8 *car);
 void CarA_DrawReflection(void *thing);
@@ -198,6 +202,7 @@ s32 CarA_GetNearestNavPoint(CarA *car);
 void * CarA_GetOrientedCollision(u8 *car);
 s32 CarA_GetSurfaceScript(u8 *car);
 void CarA_GetTargetPos(u8 *car, Vector4 *pos);
+s32 CarA_Init(void *arg0, void *arg1);
 void CarA_InitInverseBodyInertiaTensor(CarA *car);
 s32 CarA_Invalidate(void *arg0, u32 arg1, u32 arg2);
 s32 CarA_Move(void *thing);
@@ -205,19 +210,19 @@ s32 CarA_PreMove(void *thing);
 void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse);
 void CarA_ProcessForce(CarA *car, Vector4 *pos, Vector4 *dir, f32 scale);
 void CarA_ProcessImpulse(void *thing, Vector4 *normal, Vector4 *pos, Vector4 *pointVel, f32 restitution);
-void CarA_ProcessItemPickup(void);
+s8 CarA_ProcessItemPickup(CarA *car, void *thing);
 void CarA_Release(u8 *car);
 void CarA_SetSlavePlayers(u8 *car);
 f32 CarA_Transmission_GetTorqueAtWheels(u8 *car);
 
-/* GETP(CarA_AR.c) */
+/* CarA_AR.c */
 void Pod_Draw(u8 *pod);
 s32 Pod_Init(u8 *pod, u8 *init);
 s32 Pod_Invalidate(s32 arg0, u32 arg1, u32 arg2);
 s32 Pod_Move(u8 *pod);
 void Pod_Release(s32 arg0);
 
-/* GETP(CarA_HW.c) */
+/* CarA_HW.c */
 s8 CarA_DoFreeStyleStunts(CarA *car);
 s32 CarA_PreMove_Control_HW(void *thing);
 void CarA_SlaveWeaponHeartbeat(CarA *car);
@@ -226,19 +231,19 @@ void CarA_StuntFail(CarA *car);
 void CarA_StuntImpulse(CarA *car, Vector4 *linImpulse, Vector4 *angImpulse);
 s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t);
 
-/* GETP(CarA_Stunts.c) */
+/* CarA_Stunts.c */
 void Drone_DynamicCollideImpact(u8 *drone, u8 *collision, f32 force);
 void Drone_DynamicRotation(u8 *drone, f32 dt);
 void Drone_GetCameraOrientationInfo(void *drone, void *camera, void *info);
 s32 Drone_Init(u8 *drone, u8 *data);
 
-/* GETP(CarA_Suspension.c) */
+/* CarA_Suspension.c */
 void CarA_ComputeSuspensionForces(void *thing);
 void CarA_ComputeSuspensionForces_Aux1(CarA *car);
 f32 CarA_GetImpactMultiplier(void *car, void *other, f32 scale);
 f32 GetDampFactor(u8 type, u32 n);
 
-/* GETP(CollisionTerrain.c) */
+/* CollisionTerrain.c */
 void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot);
 void BuildOOB(Vector4 *bounds, Matrix4 *mtx, u8 *oob);
 void BuildOOBOffset(void *oob, void *pos, void *rot, void *out);
@@ -247,6 +252,7 @@ s8 OBoxHitsBSPZeroTime(void *obox, void *bsp, void *arg2);
 s8 OBoxHitsBSPZeroTimeEdgesOnly(void *obox, void *bsp, void *arg2);
 s8 OBoxHitsCell(void *obox, Vector4 *vel, void *cell, f32 *time, void *arg4);
 s8 OBoxHitsCellZeroTimeEdgesOnly(void *obox, void *cell, void *arg2);
+s8 OBoxHitsTerrain(void *obox, Vector4 *vel, f32 *t, void *info);
 s8 OBoxHitsTerrainZeroTimeEdgesOnly(void *obox, void *arg1);
 u32 RayHitsBSP(Vector4 *start, Vector4 *dir, void *bbox, f32 *time, void *bsp);
 u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, void *node, s32 depth, void *plane, f32 *t, Vector4 *hit);
@@ -255,10 +261,11 @@ s8 RayHitsTerrain(Vector4 *start, Vector4 *end, void *arg2, void *arg3);
 s8 RayHitsTerrain_Aux3(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 s8 VectorHitsTerrain(Vector4 *point);
 
-/* GETP(CollisionThing.c) */
+/* CollisionThing.c */
 void CollisionPairCache_Clear(void);
 void CollisionPairCache_Heartbeat(void);
 void OBoxCache_Set(u32 box0, u32 box1, Vector4 *pos, Vector4 *normal);
+f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hitInfo, f32 maxT);
 void OBoxHolder_Init(void);
 OConvexHull * OConvexHullHolder_Get(void *owner);
 void OConvexHullHolder_Init(void);
@@ -267,22 +274,22 @@ f32 PhysicalProperties_CollideWithRay(u8 *props, void *mtx, Vector4 *start, Vect
 f32 RayBoxTest(Vector4 *start, Vector4 *dir, Vector4 *box, f32 t, Vector4 *hit);
 f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32 t, u8 *hit);
 
-/* GETP(CollisionTriangle.c) */
+/* CollisionTriangle.c */
 void CollisionTriCache_Clear(void);
 s32 CollisionTriCache_Get(u32 triId0, u32 triId1, Vector4 *pos, Vector4 *normal);
 void CollisionTriCache_Heartbeat(void);
 void CollisionTriCache_Set(u32 triId0, u32 triId1, Vector4 *pos, Vector4 *normal);
 s32 Collision_ProcessDividingAxis(DividingAxis *axis);
 
-/* GETP(Control.c) */
+/* Control.c */
 void Control_ClearControl(void * control);
 
-/* GETP(CoronaHolder.c) */
+/* CoronaHolder.c */
 void CoronaHolder_Heartbeat(void);
 void CoronaHolder_Init(void);
 void CoronaHolder_Render(void);
 
-/* GETP(Creature.c) */
+/* Creature.c */
 void Creature_Draw(Creature *creature);
 f32 Creature_GetMass(Creature *creature);
 void Creature_GetTargetPos(Creature *creature, Vector4 *pos);
@@ -297,15 +304,16 @@ void Creature_PartialGibb(Creature *creature, u32 count, s32 unused);
 s32 Creature_ProcessItemPickup(u8 *creature, void *item);
 void Creature_Release(Creature *creature);
 
-/* GETP(DataChunk.c) */
+/* DataChunk.c */
 void * LoadDataChunkFile(const char *name);
 void UpdatePointers(u32 *offsets, u32 count, u8 *base);
 
-/* GETP(DataGamePackLoad.c) */
+/* DataGamePackLoad.c */
 void DataPack_CloseFiles(void);
 void DataPack_EnableLoadingSounds(s8 enabled);
 u8 * DataPack_GetScript(void *pack, s32 id);
 void DataPack_Initialize(void);
+void DataPack_LoadDataPack(s32 file, DataPack *pack);
 s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id);
 void DataPack_LoadQuadPack(s32 file, QuadPack *quad);
 void DataPack_RefreshPtrs(DataPack *pack);
@@ -314,15 +322,15 @@ void DataPack_RefreshTextures(DataPack *pack);
 void DataPack_ReleaseDataPack(DataPack *pack);
 void DataPack_ReleaseQuadPack(QuadPack *pack);
 
-/* GETP(Debris.c) */
+/* Debris.c */
 s32 Debris_Init(u8 *debris, u8 *data);
 void Debris_MacroStep(void *debris, f32 dt);
 s32 Debris_Move(u8 *debris);
 
-/* GETP(Debug_NGC.c) */
+/* Debug_NGC.c */
 void Dprintf(char *str, ...);
 
-/* GETP(Destructible.c) */
+/* Destructible.c */
 s32 ActionDestructibleChangeMode(u32 *action);
 s32 ActionMoveableChangeMode(u32 *action);
 void Destructible_CollideWithRay(Destructible *destructible, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist);
@@ -332,27 +340,27 @@ f32 Destructible_GetMass(Destructible *destructible);
 void * Destructible_GetOrientedCollision(Destructible *destructible);
 s32 Destructible_GetSurfaceScript(Destructible *destructible);
 void Destructible_GetTargetPos(Destructible *destructible, Vector4 *pos);
-void Destructible_Init(void);
+s32 Destructible_Init(Destructible *destructible, void *data);
 u32 Destructible_Invalidate(Destructible *destructible, u32 start, u32 end);
 s32 Destructible_Move(Destructible *destructible);
 void Destructible_Release(Destructible *destructible);
 f32 GetBoundingBoxRadius(Vector4 *box, Vector4 *offset);
 
-/* GETP(Emitter.c) */
+/* Emitter.c */
 s32 Emitter_Init(u8 *emitter, u8 *data);
 
-/* GETP(EventSequence.c) */
+/* EventSequence.c */
 void Blast_Action(u8 *blast, Vector4 *pos, u8 *source);
 void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel);
 void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel);
 void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out);
-s32 EventSeq_InCameraRange(u8 *seq, f32 range);
+u32 EventSeq_InCameraRange(u8 *seq, f32 range);
 s32 EventSeq_Init(u8 *seq, u8 *data);
 s32 EventSeq_Invalidate(void *arg0, u32 arg1, u32 arg2);
-s32 EventSeq_Move(void *thing);
+s32 EventSeq_Move(u8 *seq);
 void EventSeq_Release(void *arg0);
 
-/* GETP(ExtractKeys.c) */
+/* ExtractKeys.c */
 void ExtractActiveKey(u8 *track, u8 *state, f32 dt);
 void ExtractColorKey(void *track, void *state, f32 dt);
 void ExtractF32Key(u8 *track, u8 *state, f32 dt);
@@ -362,14 +370,14 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt);
 void ExtractTextureKey(TextureKeyAnim *anim, TextureKeyState *state, f32 dt);
 void ExtractUVKey(void *track, void *state, f32 dt);
 
-/* GETP(FileManager.c) */
+/* FileManager.c */
 s32 FileManager_Create(void);
 void FileManager_Destroy(void);
 s32 FileManager_GetChecksum(u32 size, u8 *data);
 void FileManager_Release(void);
 void FileManager_SetAppInfo(const char *a, const char *b, const char *c, const char *d, const char *e);
 
-/* GETP(FileManager_NGC.c) */
+/* FileManager_NGC.c */
 s8 FileManager_FormatDevice(s32 device);
 s32 FileManager_GetDeviceFreeSpace(s32 device, u32 *freeBytes, u32 *totalBytes);
 s32 FileManager_GetDeviceLastError(u32 device);
@@ -389,7 +397,7 @@ s32 MemCard_Read__FUllPv(u32 device, s32 size, void *data);
 s32 MemCard_Write__FUllPv(u32 id, s32 size, void *data);
 s32 stricmp(const char *s1, const char *s2);
 
-/* GETP(FileStreaming.c) */
+/* FileStreaming.c */
 void FileStreaming_Destroy(void);
 s32 FileStreaming_GetNumAvailableQuadPacks(void);
 s32 FileStreaming_GetPackID(char *name, s32 type, u32 id);
@@ -405,17 +413,18 @@ s32 FileStreaming_ReleaseAllDataPacks(s32 type, s8 wait);
 s32 FileStreaming_ReleaseDataPack(u32 index, s32 type);
 void FileStreaming_ReleaseQuadPacks(void);
 void FileStreaming_ResetQuadResources(void);
+void FileStreaming_SetActiveQuadrants(void **quads, u32 count);
 u8 IsLoadingThreadRunning(void);
 void LoadDataPack(void);
 void LoadQuadrants(s8 refresh);
 
-/* GETP(FlashHolder.c) */
+/* FlashHolder.c */
 s32 FlashHolder_Add(FlashDef *flash, Vector4 *pos, s32 arg2, f32 time);
 void FlashHolder_Heartbeat(void);
 void FlashHolder_Init(void);
 void FlashHolder_Render(void);
 
-/* GETP(FontManager.c) */
+/* FontManager.c */
 void FontManager_Create(void);
 void FontManager_Destroy(void);
 u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f32 spacing);
@@ -428,20 +437,20 @@ s32 Gfx_FontManager_ReleaseFont(s32 id);
 void Gfx_FontManager_SetCharacterSpacing(s32 id, u8 c, f32 x, f32 y);
 void Gfx_SetDebugFont(s16 font);
 
-/* GETP(ForceFeedback.c) */
+/* ForceFeedback.c */
 void ForceFeedback_GetForce(void *ff, u8 *a, u8 *b, f32 *c);
 void ForceFeedback_Heartbeat(void);
 void ForceFeedback_Init(void);
 void ForceFeedback_Play(void *effect, Vector4 *dir);
 
-/* GETP(GameRules.c) */
+/* GameRules.c */
 void GameRules_ForceRoundEnd(u32 arg0);
 void GameRules_HeartBeat(void);
 void GameRules_Init(void);
 void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison);
 void GameRules_SetPlayerOrder(u32 *order, u32 count);
 
-/* GETP(GameSettings.c) */
+/* GameSettings.c */
 void GameSetting_Init(void);
 void GameSettings_ApplyDefaultGameData(void);
 s32 GameSettings_DeleteGameFile(void);
@@ -473,26 +482,28 @@ void GameSettings_RestoreGameData(void);
 void GameSettings_RestorePlayerStats(void);
 u8 GameSettings_SaveGame(void);
 u8 GameSettings_SaveGeneralGameData(void);
+void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val);
 void GameSettings_SetDefaultControllerState(void);
 void GameSettings_SetSaveGameName(u32 *letters);
 
-/* GETP(GameSpecificInterfaces.c) */
+/* GameSpecificInterfaces.c */
 void GSI_Init(void);
 void GSI_VehicleItemInit(void);
+void GSI_VehicleItemSelection(void *arg);
 void GSI_VehicleSelectionInfo(u8 *info);
 
-/* GETP(GeometryHandler.c) */
+/* GeometryHandler.c */
 s32 Geometry_Create(void);
 void Geometry_Destroy(void);
 void Geometry_FreeGeometry(void *geometry);
 void * Geometry_Get(char *name);
 void Geometry_Init(s8 clear);
 
-/* GETP(Gfx_Anim.c) */
+/* Gfx_Anim.c */
 void Gfx_AnimExtractKeyFrame(void *anim, f32 time, void *out, s32 count);
 void Gfx_AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices);
 
-/* GETP(Gfx_DisplayList.c) */
+/* Gfx_DisplayList.c */
 void DisplayList_AddAlphaGroup(s32 arg0, s32 arg1, u32 matrix, u8 arg3, GXColor *color);
 void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u8 flag, GXColor color);
 void DisplayList_RenderGXList(void);
@@ -520,12 +531,12 @@ void Gfx_SetEnvmap(u16 a, u16 b, s8 flag, f32 x, f32 y);
 void Gfx_SortAlpha(void);
 void Render_InitDisplayList(void);
 
-/* GETP(Gfx_GeometryHandler.c) */
+/* Gfx_GeometryHandler.c */
 void Gfx_DrawGeometry(s32 geometry, s32 matrix);
 void Gfx_DrawGeometry_MatrixNotCached(s32 geometry, s32 matrix);
 void Gfx_DrawGeometry_QuaternionScalePos(s32 geometry, s32 quat, s32 scale, s32 pos);
 
-/* GETP(Gfx_Main.c) */
+/* Gfx_Main.c */
 void Gfx_BeginScene(void);
 void Gfx_ClearScreen(void);
 s32 Gfx_Create(void);
@@ -545,7 +556,7 @@ void Gfx_SetRenderWindow(s32 window);
 void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4);
 void RenderState_Init(void);
 
-/* GETP(Gfx_TextureHandler.c) */
+/* Gfx_TextureHandler.c */
 void Gfx_LoadPalettes_RAM(void *data, u32 count);
 u16 Gfx_LoadTexture(char *name);
 u16 Gfx_LoadTexture_RAM(u8 **data);
@@ -555,15 +566,16 @@ void Gfx_TextureHandler_Destroy(void);
 void Gfx_TextureManager_Init(void);
 void Gfx_UnLoadTexture(u16 id);
 s32 LoadBTF(const char *name, u32 id);
+u8 * LoadBTF_RAM(u8 *data, u32 id);
 s32 LoadTGA(const char *name, u32 id);
 
-/* GETP(GridManager.c) */
+/* GridManager.c */
 u32 Grid_GetNearestObjects(Vector4 *min, Vector4 *max, u32 typeMask, GridResult *results, u32 maxResults, s8 (*filter)(GridNode *, s32), s32 filterArg);
 u32 Grid_GetObjects(Vector4 *min, Vector4 *max, u32 typeMask, GridResult *results, u32 maxResults);
 void Grid_Init(Vector4 *min, Vector4 *max, u32 numX, u32 numZ);
 void Grid_Release(void);
 
-/* GETP(IT.c) */
+/* IT.c */
 s32 AudioIT_Create(void);
 void AudioIT_Destroy(s32 unused);
 s32 AudioIT_Init(void);
@@ -580,17 +592,17 @@ void SetITTrackPriority(s32 track, s32 priority);
 void SetITTrackVol(u32 track, s32 vol);
 void SetITVol(void);
 
-/* GETP(IT_.c) */
+/* IT_.c */
 void DestroyIT_(void *data);
 
-/* GETP(Input.c) */
+/* Input.c */
 s32 Input_GetAnalog(s32 chan, s16 *stickX, s16 *stickY, s16 *substickX, s16 *substickY);
 s32 Input_GetPlayerDevice(s32 player);
 u8 Input_KeyDown(s32 chan, u8 key);
 s8 Input_KeyPress(s32 chan, u8 key);
 void Input_SetForceFeedbackActive(s32 chan, u8 active);
 
-/* GETP(Input_NGC.c) */
+/* Input_NGC.c */
 void InitTables__Fv(void);
 s32 Input_Create(void);
 void Input_Destroy(void);
@@ -609,8 +621,9 @@ void Wheel_PlayDamperForce(s32 chan, s32 coefficient, s32 offset);
 void Wheel_PlayFrontalCollisionForce(s32 chan, u8 force);
 void Wheel_PlaySpringForce(s32 chan, s8 offset, u8 saturation, s16 coefficient);
 void Wheel_StopCarAirborne(s32 chan);
+void pollControllers__Fv(void);
 
-/* GETP(InterfaceManager.c) */
+/* InterfaceManager.c */
 s32 ActionEndInterface(void *action);
 s32 ActionHUDChangeMode(u32 *action);
 s32 ActionInterfacePlay(s32 *arg0);
@@ -624,7 +637,7 @@ void DropShip_PullCameraForward(s32 index);
 void DropShip_StartChildInterface(s32 index, u32 id);
 s32 InterfaceManager_AddFont(u8 *font);
 void InterfaceManager_AddInterfaceToRender(u32 index, u32 priority);
-void InterfaceManager_AddObject(void);
+void InterfaceManager_AddObject(void *interface, void *object);
 void InterfaceManager_Backup_Key(u8 *iface, u8 *key, u8 flags);
 void InterfaceManager_CheckConditions(u8 *iface, u8 *obj);
 s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg));
@@ -636,22 +649,22 @@ void InterfaceManager_DrawObject_Standard_Image(u8 *obj);
 void InterfaceManager_DrawRadarBlips(f32 *centre, u8 *obj);
 void InterfaceManager_EndInterface(s32 index);
 void InterfaceManager_ExecuteActions(u8 *iface, u8 *list);
+void * InterfaceManager_GetInterfaceObjects(u32 num);
 s32 InterfaceManager_GetTargetArrowNearestNavPoint(void);
 s32 InterfaceManager_GetTotalActiveInterfaces(void);
 void InterfaceManager_Heartbeat(void);
 void InterfaceManager_Init(void);
 void InterfaceManager_LinkThingToObject(s32 index, u32 id, void *thing);
 void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt);
-void InterfaceManager_MoveInterface(void *iface, f32 dt);
-void InterfaceManager_MoveObject(void *iface, void *obj, void *data, f32 dt);
+void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt);
 void InterfaceManager_PauseAllInterface(u8 pause);
+void InterfaceManager_PauseInterface(u32 pause, s32 index);
 void InterfaceManager_PreprocessInterface(u8 *iface);
 void InterfaceManager_ReleaseAllInterfaces(void);
 void InterfaceManager_ReleaseAllUnpausedInterfaces(void);
 void InterfaceManager_ReleaseInterface(u32 index);
 void InterfaceManager_RemoveInterfaceFromRender(u32 id);
 void InterfaceManager_Render(void);
-void InterfaceManager_RenderObject(u8 *iface, s32 index);
 void InterfaceManager_RestoreMissionObjString(u8 *mgr);
 void InterfaceManager_SetCallBackRoutine(s32 index, void *callback);
 void InterfaceManager_SetControllerConfigInputString(void);
@@ -660,13 +673,15 @@ void InterfaceManager_SetInput(s32 index, s32 input);
 void InterfaceManager_SetLoadState(u8 *iface, s32 state);
 void InterfaceManager_SetMissionObjectiveText(u8 *obj, u8 **data);
 void InterfaceManager_SetObjectReactive(u8 *iface, u32 onId, u32 offId);
+void InterfaceManager_SetObjectReference(u8 *iface, u32 id, u32 state);
+void InterfaceManager_SetObjectState(u8 *iface, u8 *obj, s32 state, s32 arg3);
 void InterfaceManager_SetObjectString(u8 *obj, char *str);
 void InterfaceManager_SetObjectText(u8 *obj, char **text);
 void InterfaceManager_SetOffset(s32 index, f32 x, f32 y);
 void InterfaceManager_SetPlayerMessage(void *message, u32 player);
 void InterfaceManager_SetRadarBlip(u16 arg0);
 
-/* GETP(ItemThing.c) */
+/* ItemThing.c */
 void Item_Draw(u8 *item);
 s32 Item_GetNearestNavPoint(void *arg0);
 s32 Item_Init(u8 *item, u8 *data);
@@ -675,12 +690,12 @@ s8 Item_Move(u8 *item);
 s32 Item_PreMove(void);
 void Item_Release(void *item);
 
-/* GETP(LensFlare.c) */
+/* LensFlare.c */
 void LensFlare_Delete(s32 arg0);
 void LensFlare_Init(void);
 void LensFlare_Render(void);
 
-/* GETP(LightHolder.c) */
+/* LightHolder.c */
 void LightHolder_Delete(s32 index);
 void LightHolder_Heartbeat(void);
 void LightHolder_Init(void);
@@ -688,27 +703,27 @@ void LightHolder_Render(void);
 void LightHolder_SetRenderState(void *camera);
 void LightHolder_SetTexture(u16 index);
 
-/* GETP(LightManager.c) */
+/* LightManager.c */
 void LightManager_Initialize(void);
 void LightManager_LightThing(CarA *thing);
 
-/* GETP(LineManager.c) */
+/* LineManager.c */
 void LineManager_Add(void *arg, Vector4 *start, Vector4 *dir, Vector4 *accel);
 void LineManager_Heartbeat(void);
 void LineManager_Init(void);
 void LineManager_Render(void);
 
-/* GETP(LogHandler.c) */
+/* LogHandler.c */
 s32 LogHandler_Create(const char *name, s32 mode);
 void LogHandler_Destroy(void);
 
-/* GETP(Looker.c) */
+/* Looker.c */
 void Looker_Draw(void);
 void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info);
 s32 Looker_Init(u8 *looker, u8 *init);
 s32 Looker_PreMove(u8 *thing);
 
-/* GETP(MIDI.c) */
+/* MIDI.c */
 s32 AudioMIDI_Create(void);
 void AudioMIDI_Destroy(void);
 s32 AudioMIDI_Init(void);
@@ -730,42 +745,42 @@ void SetMIDITrackPriority(void);
 void SetMIDITrackVol(void);
 void SetMIDIVol(void);
 
-/* GETP(MIDI_.c) */
+/* MIDI_.c */
 void DestroyMIDI_(void *data);
 u32 GetPitchWheel_(u8 note, u8 count);
 u32 ReadVar_(u8 **pp);
 
-/* GETP(Main.c) */
+/* Main.c */
 s32 Main_Init(void);
 s32 Main_Loop(void);
 s32 Main_Shutdown(void);
 
-/* GETP(MatrixCache.c) */
+/* MatrixCache.c */
 void MatrixCache_Create(void);
 void MatrixCache_Destroy(void);
 void MatrixCache_Free(u32 key);
 u32 MatrixCache_Get(u32 size, void *mtx);
 void MatrixCache_Init(void);
 
-/* GETP(MemoryManager.c) */
+/* MemoryManager.c */
 void * Allocate(u32 size, u32 flags, const char *name);
 void Deallocate(void *ptr);
 void HeapDump(void);
 void MemClr32(void *dst, unsigned long size);
 void MemCpy32(void *dst, const void *src, u32 size);
 
-/* GETP(Motion.c) */
+/* Motion.c */
 void Motion_Draw(u8 *motion);
 s32 Motion_Init(u8 *motion, u8 *init);
 s32 Motion_Invalidate(void *arg0, u32 arg1, u32 arg2);
 s32 Motion_Move(u8 *motion);
 void Motion_Release(s32 arg0);
 
-/* GETP(MovieManager.c) */
+/* MovieManager.c */
 void MovieManager_Destroy(void);
 s32 MovieManager_GetTextureIndex(void);
 
-/* GETP(Music.c) */
+/* Music.c */
 s32 AudioMusic_Create(void);
 s32 AudioMusic_Init(void);
 s32 AudioVoid(void);
@@ -773,12 +788,13 @@ void CreateMusic(u8 *data, u32 size);
 void SetMusicGVol(u32 vol);
 void SetMusicVol(u32 vol);
 
-/* GETP(Music_.c) */
+/* Music_.c */
 u32 GetNoteRate_(u32 rate, u8 note);
 
-/* GETP(NavHolder.c) */
+/* NavHolder.c */
 s8 NavHolder_CreatePath(u8 *goal, u8 *start);
 void NavHolder_FillPointerArrayPath(u8 *point, u8 **array, u32 max);
+s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
 s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint);
 u8 * NavHolder_FindPath(s32 from, s32 to);
 void * NavHolder_GetFirstWayPoint(void);
@@ -790,7 +806,7 @@ s32 NavHolder_IsNavLinkNearer(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
 void NavHolder_Release(void);
 void NavHolder_UseMainRouteOnly(void);
 
-/* GETP(ParticleManager.c) */
+/* ParticleManager.c */
 void CreateParticle(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age);
 void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age);
 void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owner, u8 *info, f32 speed, f32 age);
@@ -799,10 +815,11 @@ void ParticleGX_Render(u8 *particle);
 s8 ParticleManager_CanCreatureParticle(void *creature);
 void ParticleManager_Heartbeat(void);
 void ParticleManager_Init(void);
+void ParticleManager_Render(void);
 void ParticleSprite_Move(u8 *sprite, void *sprites);
 void ParticleSprite_Render(u8 *sprite);
 
-/* GETP(PhysicalObject.c) */
+/* PhysicalObject.c */
 void Mover_DynamicRotation(u8 *mover);
 void Mover_GetTrackPos(void *mover, f32 *pos, f32 time);
 void Mover_Init(void);
@@ -817,17 +834,17 @@ u8 PhysicalObject_Move(u8 *obj);
 s32 PhysicalObject_PreMove(u8 *obj);
 void PhysicalObject_ProcessForce(u8 *obj, Vector4 *force, Vector4 *dir, f32 scale);
 
-/* GETP(Plane.c) */
+/* Plane.c */
 void Create_Plane(Vector4 *plane, Vector4 *normal, Vector4 *point);
 void Create_Plane3(Vector4 *plane, Vector4 *normal, Vector4 *point);
 f32 Distance_Plane(Vector4 *plane, Vector4 *point);
 void Reverse_Plane(Vector4 *plane);
 
-/* GETP(Playback.c) */
+/* Playback.c */
 s32 Playback_GetElement(void);
 void Playback_PutElement(s32 element);
 
-/* GETP(Player.c) */
+/* Player.c */
 s32 ActionVehicleChangeControl(u32 *action);
 void PlayerHuman_EvaluateCombo(u8 *player);
 void PlayerHuman_Heartbeat(void *player);
@@ -835,10 +852,10 @@ void PlayerHuman_Init(void *player);
 void PlayerHuman_SetControlBinding(void *arg0, void *arg1);
 void PlayerHuman_SetDefaultControls(void *arg0, s32 index);
 s32 Player_AIControlReader(s8 *ctrl);
-void Player_DefaultControlReader(void);
+s32 Player_DefaultControlReader(void *arg0);
 void Player_DetachThingDeath(void *arg0);
 void Player_GetInterfaceInfo(void *arg0, void *arg1);
-void Player_Heartbeat(void);
+void Player_Heartbeat(void *arg0);
 void Player_Init(void *player, s32 arg1);
 s32 Player_InputHeartbeat(void *arg0);
 s8 Player_IsHuman(void *player);
@@ -848,7 +865,7 @@ void Player_ReleaseInterface(void *player);
 void Player_SetName(void *player, s32 port, const char *name);
 void Player_SetThing(void *player, void *thing);
 
-/* GETP(PlayerManager.c) */
+/* PlayerManager.c */
 void PlayerManager_ClearAllCameraFlags_PRIVATE(void);
 void PlayerManager_Create(void);
 void PlayerManager_Destroy(void);
@@ -864,7 +881,7 @@ void PlayerManager_Release(void);
 s32 PlayerManager_RemovePlayer(void *player);
 void PlayerManager_Render_DEBUG(void);
 
-/* GETP(ProcessManager.c) */
+/* ProcessManager.c */
 void ProcessManager_Add(char *name, void (*init)(void), void (*update)(void), s32 arg, u32 flags);
 void ProcessManager_Create(void);
 void ProcessManager_Heartbeat(u32 activeOnly);
@@ -872,10 +889,12 @@ void ProcessManager_Init(void);
 void ProcessManager_Release(char *name);
 void ProcessManager_Render(u32 all);
 
-/* GETP(Projectile.c) */
+/* Projectile.c */
 void Projectile_Draw(u8 *proj);
 void Projectile_DynamicCollideImpact(void * proj, void * dir, s32 damage, f32 force);
+void Projectile_DynamicCollisionCorrection(u8 *proj, u8 *hit);
 f32 Projectile_GetMass(void * arg0);
+s32 Projectile_Init(u8 *proj, u8 *params);
 s32 Projectile_Invalidate(void * arg0, u32 arg1, u32 arg2);
 s32 Projectile_Move(u8 *proj);
 void Projectile_MoveBase(u8 *proj);
@@ -884,11 +903,13 @@ void Projectile_ProximityDetection(u8 *proj);
 void Projectile_Release(void * projectile);
 void Projectile_YAim(u8 *proj, Vector4 *target);
 
-/* GETP(RIFF_.c) */
+/* RIFF_.c */
 s8 CmpID_(u8 *chunk, s32 type);
 s8 CmpType_(u8 *chunk, s32 type);
+s32 GetID_(u8 *chunk);
+s32 GetType_(u8 *chunk);
 
-/* GETP(Random.c) */
+/* Random.c */
 f32 RandomAdd(f32 base, f32 range);
 s32 RandomAdd_s32(s32 base, s32 range);
 f32 RandomDirVar(f32 base, f32 var);
@@ -899,7 +920,7 @@ void RandomNumberGenerator_GetRandomSubMatrix(Vector4 *m);
 void RandomNumberGenerator_GetRandomVector(Vector4 *v);
 void RandomNumberGenerator_Init(void);
 
-/* GETP(Render_.c) */
+/* Render_.c */
 s32 DisplayList_Create(void);
 void DisplayList_Init(void);
 s32 DrawChar(s32 x, s32 y, u16 code);
@@ -914,6 +935,7 @@ void Render_Create(void);
 s32 Render_CreateView(s32 view, u32 width, u32 height);
 void Render_Destroy(void);
 void Render_DrawShadows(void);
+void Render_EndScene(void);
 void Render_FlipBuffers(void);
 void Render_StateAlphaBlendEnable(s32 enable);
 void Render_StateBlendMode(u32 mode);
@@ -927,7 +949,7 @@ void Set2DRectVtxDesc(void);
 void Set3DRectVtxDesc(void);
 void SetTriFlatVtxDesc(void);
 
-/* GETP(Render_Geometry_.c) */
+/* Render_Geometry_.c */
 void Render_DrawAlphaGroup(u16 index);
 void Render_DrawBoundingBoxes(void);
 void Render_DrawSpheres(void);
@@ -943,13 +965,13 @@ void SetTriVtxDescIdx(void);
 void SetTriVtxDescIdxAlpha(void);
 void SetVertexBuffer(u32 *vb, u16 flags, u16 unk);
 
-/* GETP(Render_Lines_.c) */
+/* Render_Lines_.c */
 void Render_Draw3DFXLines(void);
 void Render_Draw3DLines(void);
 void Set2DLineVtxDesc(void);
 void Set3DLineVtxDesc(void);
 
-/* GETP(Render_Matrix_.c) */
+/* Render_Matrix_.c */
 f32 Gfx_GetProjectionMatrix(void);
 void Gfx_SetCameraMatrix(Vector4 *pos, Vector4 *right, Vector4 *up, Vector4 *at);
 void Gfx_SetOrthoMatrix(void);
@@ -963,7 +985,7 @@ void Render_SaveCamera(void);
 void Render_SetClipPlanes(f32 fov);
 s32 isInWindow(f32 *pos);
 
-/* GETP(Render_QuadTri_.c) */
+/* Render_QuadTri_.c */
 u32 FontManager_Print(char *str, f32 x, f32 y, s32 id);
 void Gfx_SetTextColor(u8 r, u8 g, u8 b, u8 a);
 void Render_DrawAlphaTriangle(u16 index);
@@ -976,12 +998,12 @@ void Render_DrawTriGroup(void);
 void Render_Print(void);
 void Render_ScreenFlash(void);
 
-/* GETP(Render_Texture_.c) */
+/* Render_Texture_.c */
 void Render_CreateTextureSlot(u32 id);
 void Render_DestroyTextureSlot(u32 id);
 void Render_SetTextureHandle(u16 id);
 
-/* GETP(ShaderHolder.c) */
+/* ShaderHolder.c */
 void ShaderHolder_AddGX(void *gx, u32 index);
 s32 ShaderHolder_AddShader(ShaderDef *def);
 void ShaderHolder_Create(void);
@@ -991,7 +1013,7 @@ void ShaderHolder_Init(void);
 void ShaderHolder_RemoveGX(s32 gx);
 void ShaderHolder_RemoveShader(void *id);
 
-/* GETP(ShowStats.c) */
+/* ShowStats.c */
 void Render_TimeBars(void *bar);
 void ShowStats(void);
 void ShowStats_BeginScene(void);
@@ -1001,10 +1023,10 @@ void ShowStats_Init(void);
 void ShowStats_Release(void);
 void ShowStats_StartFrame(void);
 
-/* GETP(SmartProjectiles.c) */
+/* SmartProjectiles.c */
 void SmartProjectileA_DynamicCollideImpact(u8 *proj, u8 *other, void *arg2, f32 arg3);
 
-/* GETP(SoundSequence.c) */
+/* SoundSequence.c */
 s32 SoundSeq_Init(u8 *seq, u8 *data);
 s32 SoundSeq_Move(void *thing);
 void SoundSeq_Release(void *thing);
@@ -1014,7 +1036,7 @@ s32 SoundSequence_Play(s8 *seq, Vector4 *pos);
 s32 SoundSequence_PlayQueued(s8 *seq, Vector4 *pos);
 void SoundSequence_Stop(u32 handle);
 
-/* GETP(StateManager.c) */
+/* StateManager.c */
 void StateManager_Create(void);
 s32 StateManager_CurrState(void);
 void StateManager_Destroy(void);
@@ -1023,19 +1045,20 @@ s32 StateManager_QueueChange(s32 state);
 s32 StateManager_QueuedState(void);
 void State_GetGameStateStr(s32 state, char *str);
 
-/* GETP(State_GameManager.c) */
+/* State_GameManager.c */
 s32 StateGameManager_GetProgScript(u32 index);
 s32 StateGameManager_Heartbeat(void);
+s32 StateGameManager_Init(void);
 void StateGameManager_InterfaceHandler(void *event);
 void StateGameManager_RefreshMCPTextures(void);
 void StateGameManager_Release(void);
 s32 StateGameManager_Shutdown(void);
 
-/* GETP(State_GamePlay.c) */
+/* State_GamePlay.c */
 s32 ActionEndInterfacePack(u32 *pack);
 s32 ActionPauseGame(u32 *action);
 s32 ActionPlayInterfacePack(u32 *pack);
-void ArmageddonDropShip(void);
+void ArmageddonDropShip(void *arg0);
 void ArmageddonDropShipInfo(void *info);
 void ExitStateGamePlay(s32 arg0);
 void GamePlay_Interface(void *msg);
@@ -1058,32 +1081,33 @@ void StateGamePlay_Pause(s32 pause);
 s32 StateGamePlay_Shutdown(void);
 s32 TriggerInterfacePackEnd(u32 *pack);
 
-/* GETP(State_Movie.c) */
+/* State_Movie.c */
 s32 StateMovie_Heartbeat(void);
 s32 StateMovie_Init(s32 returnState);
 void StateMovie_SetMovieToPlay(s32 arg0);
 s32 StateMovie_Shutdown(void);
 
-/* GETP(State_ProgressionManager.c) */
+/* State_ProgressionManager.c */
 s32 ActionEndLevel(s32 *arg0);
 s32 LoadWorldProcess(char *world, s8 loaded);
 void StateProgressionManager_GetProgressionID(s32 *id, s32 *subID);
 s32 StateProgressionManager_Heartbeat(void);
+s32 StateProgressionManager_Init(s32 prevState);
 void StateProgressionManager_RestartCurrentLevel(void);
 void StateProgressionManager_SetProgressionID(s32 id, s32 subID);
 s32 StateProgressionManager_Shutdown(void);
 
-/* GETP(State_RenderTest.c) */
+/* State_RenderTest.c */
 s32 StateRenderTest_Heartbeat(void);
 s32 StateRenderTest_Init(void);
 s32 StateRenderTest_Shutdown(void);
 
-/* GETP(State_Shutdown.c) */
+/* State_Shutdown.c */
 s32 StateShutdown_Heartbeat(void);
 s32 StateShutdown_Init(void);
 s32 StateShutdown_Shutdown(void);
 
-/* GETP(State_TitleScreen.c) */
+/* State_TitleScreen.c */
 s32 StateTitleScreen_Heartbeat(void);
 s32 StateTitleScreen_Init(s32 prevState);
 void StateTitleScreen_SetMenuFile(void *file, s32 fileID);
@@ -1091,7 +1115,7 @@ s32 StateTitleScreen_Shutdown(void);
 void TitleScreen_Interface(InterfaceMsg *msg);
 void TitleScreen_RunDemoLoop(void);
 
-/* GETP(Thing.c) */
+/* Thing.c */
 s32 ActionAirboxChangeMode(s32 *data);
 s32 ActionVehicleTeleport(u32 *action);
 u32 CollisionInfo_GetOther(void *arg0, u32 arg1);
@@ -1099,6 +1123,7 @@ s32 Thing_AddToGrid(void *thing, s32 type);
 void Thing_CollideWithForceBoxes(u8 *thing);
 void Thing_CollideWithItems(u8 *thing);
 void Thing_CollideWithRay(void);
+s8 Thing_CollideWithTeleporters(u8 *thing);
 void Thing_Draw(void);
 void Thing_DynamicCollideImpact(void);
 void Thing_DynamicGridMove(void *thing, f32 expand);
@@ -1123,6 +1148,7 @@ void Thing_Release(s32 thing);
 void Thing_RotationalGridMove(void *thing);
 void Thing_SetSlavePlayers(void *thing);
 void Thing_StaticGridMove(void *thing);
+s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit);
 s32 TriggerAirboxEntered(u32 *trigger);
 s32 TriggerAirboxExited(u32 *trigger);
 s32 TriggerAirboxStopIn(u32 *trigger);
@@ -1131,19 +1157,22 @@ s32 TriggerItemVolumeEntered(u32 *trigger);
 s32 TriggerMovableVolumeEntered(u32 *trigger);
 s32 TriggerP2PActivated(u32 *data);
 
-/* GETP(ThingManager.c) */
+/* ThingManager.c */
 void * FindHost(Vector4 *pos, Vector4 *dir);
 s32 GetAllTargets(void **targets);
+s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info);
 s8 OBoxHitsTerrainAndObjectsZeroTimeEdgesOnly(void *obox, void *thing, void *arg2);
 s32 OBox_CollideAllThingsZeroTime(void *obox, void *thing, void *info);
 s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s8 dynamics);
 s8 RayHitsTerrainAndObjects(void *arg0, void *arg1, void *arg2, void *arg3);
 s32 SharedSlaveHolder_Get(void *shared);
+void SharedSlaveHolder_Release(void);
 void ThingManagerList_Append(void **arg0, void *arg1);
 void ThingManagerList_EmancipateSlaves(void *mtx, void **list);
 s32 ThingManagerList_Get(void *list, void *target);
 void * ThingManagerList_GetByType(void *list, s32 type);
+void ThingManagerList_InitAllSlavesNow(void *list, void *slaves, u8 player);
 void ThingManagerList_ReleaseAll(void **list);
 void ThingManagerList_ReleaseAndRemoveAll(void **list);
 void ThingManagerList_ReleaseSlavesBySlaveType(void **list, u8 type);
@@ -1169,12 +1198,12 @@ s32 TriggerPlayerVehicleGear(u32 *params);
 s32 TriggerPlayerVehicleInAir(u32 *params);
 s8 TriggerVehicleDamage(u32 *params);
 
-/* GETP(TimeHandler.c) */
+/* TimeHandler.c */
 void TimeHandler_SetSlowMotion(void);
 void Timer_Heartbeat(void);
 s8 Timer_Interrupt300(void);
 
-/* GETP(TimeHandler_NGC.c) */
+/* TimeHandler_NGC.c */
 void Performance_End(void);
 void Performance_Start(void);
 void Release_Performance_Diff(u32 *arg0);
@@ -1183,7 +1212,7 @@ void TimeHandler_Heartbeat(void);
 void TimeHandler_Init(void);
 void TimeHandler_SetTimeElapsedSec_f32(f32 sec);
 
-/* GETP(Tracer.c) */
+/* Tracer.c */
 void Tracer_ClearTracer(s32 index);
 s32 Tracer_Init(u8 *thing, u8 *data);
 s32 Tracer_Invalidate(void *arg0, u32 arg1, u32 arg2);
@@ -1191,14 +1220,14 @@ s32 Tracer_Move(u8 *thing);
 void Tracer_Release(struct Thing *thing);
 void Tracer_Render(u8 *thing);
 
-/* GETP(Trail.c) */
+/* Trail.c */
 void Trail_AddSegment(u32 *handle, f32 *pos, f32 *dir, u16 texture, GXColor color, s32 life, f32 width0, f32 width1);
 void Trail_Create(void);
 void Trail_Heartbeat(void);
 void Trail_Init(void);
 void Trail_Render(void);
 
-/* GETP(Trigger.c) */
+/* Trigger.c */
 f32 GetCodeVariable(s32 var, u8 *thing);
 void SetCodeVariable(s32 var, u8 *obj, f32 value);
 s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds);
@@ -1236,7 +1265,7 @@ void Trigger_SaveActions(s32 *saved, u32 count);
 void Trigger_SoundSequenceQueueEmptied(void);
 void Trigger_VehicleKilled(void *vehicle);
 
-/* GETP(VertexColorSeqManager.c) */
+/* VertexColorSeqManager.c */
 s32 ActionVertexColorSeqChangeMode(s32 *data);
 void VertexColorSeqManager_AddVertices(void *vertices);
 void VertexColorSeqManager_Create(void);
@@ -1247,7 +1276,7 @@ void VertexColorSeqManager_Heartbeat(void);
 void VertexColorSeqManager_Init(void);
 void VertexColorSeqManager_RemoveVertices(void *vertices);
 
-/* GETP(ViewManager.c) */
+/* ViewManager.c */
 void ViewManager_EnableView(s32 arg0, s8 arg1);
 s32 ViewManager_GetViewFormat(void);
 void ViewManager_Init(void);
@@ -1258,7 +1287,7 @@ void ViewManager_SetSinglePlayer(void);
 void ViewManager_SetThreePlayer(void);
 void ViewManager_SetTwoPlayerHorizontal(void);
 
-/* GETP(Voice.c) */
+/* Voice.c */
 void AudioVoice_Create(void);
 void AudioVoice_Destroy(void);
 s32 AudioVoice_Init(void);
@@ -1276,7 +1305,7 @@ s32 SetVoicePos(u32 id, s16 x, s16 y);
 s32 SetVoiceState(u32 id, s32 state);
 s32 SetVoiceVol(u32 id, s32 vol);
 
-/* GETP(Voice_.c) */
+/* Voice_.c */
 s32 AudioVoice_Create_(void *voices);
 void AudioVoice_Destroy_(void);
 s32 AudioVoice_Init_(void);
@@ -1285,7 +1314,7 @@ void ProcessVoice_(void);
 void SetReverb_(u32 idx, u32 output, u32 feedback, u32 delay);
 void SetVoiceVol_(u8 *v, u32 vol);
 
-/* GETP(VolumeManager.c) */
+/* VolumeManager.c */
 s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq);
 void VolumeManager_Create(void);
 s32 VolumeManager_GetNumVolumesOfType(u32 type);
@@ -1298,7 +1327,7 @@ void VolumeManager_Release(void);
 void VolumeManager_SetFogLevel(Vector4 *point);
 void VolumeManager_SetReverbLevel(Vector4 *point);
 
-/* GETP(WildCard.c) */
+/* WildCard.c */
 s32 TriggerItemPickup(u32 *trigger);
 void WildCardRack_Add(void *thing, u8 *item, s16 count);
 void WildCardRack_Draw(u8 *rack);
@@ -1309,7 +1338,7 @@ void WildCardRack_JettisonAll(void *rack);
 s32 WildCardRack_Move(void *thing);
 void WildCardRack_Release(s32 arg0);
 
-/* GETP(World.c) */
+/* World.c */
 s32 ActionItemChangeMode(u32 *action);
 s32 ActionTimerChangeMode(u32 *action);
 s32 ActionTimerChangeValue(u32 *action);
@@ -1339,7 +1368,7 @@ void World_Refresh(void);
 void World_Render(void);
 void World_Unload(void);
 
-/* GETP(bgmath_NGC.c) */
+/* bgmath_NGC.c */
 void AccumulateVector(void *arg0, void *arg1, void *arg2, f32 farg0);
 float ArcTan(float y, float x);
 void CopyMatrix(Matrix4 *dst, Matrix4 *src);
@@ -1364,109 +1393,211 @@ void SubMatrixToQuaternion(Matrix4 *m, Quaternion *q);
 void TransposeSubMatrix(Matrix4 *m);
 f32 _fabs(f32 x);
 
+/* Signatures using a type local to their file, with pointers to it as void *.
+ * Hidden from that file and from files declaring them with their own copy of
+ * the type (HWVX_SRC_<file> is defined per source by CMake). */
+#if !defined(HWVX_SRC_AI_CarA)
+void AI_Car_ResetState(void *car, void *state);
+#endif
+#if !defined(HWVX_SRC_Anim)
+void AnimExtractKeyFrame_Compound(void *anim, void *outp, f32 time);
+void AnimExtractKeyFrame_CompoundHybrid(void *anim, void *outp, f32 time);
+void AnimExtractKeyFrame_NonCompound(void *anim, void *outp, f32 time);
+void AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices);
+#endif
+#if !defined(HWVX_SRC_AttachThing)
+void RadarBlip_Draw(void *blip);
+#endif
+#if !defined(HWVX_SRC_BSPN0)
+Vector4 *BSPN0_CollideWithSegment(void *node, Vector4 *hit, Vector4 *p0, Vector4 *p1);
+s8 BSPN0_CollideWithVector(void *node, Vector4 *point);
+#endif
+#if !defined(HWVX_SRC_CarA)
+void CarA_Extract_Keyframes(CarA *car, void *frames);
+#endif
+#if !defined(HWVX_SRC_CarA_Stunts)
+void Drone_ComputeSuspensionForces(void *obj);
+s32 Drone_PreMove(void *drone);
+#endif
+#if !defined(HWVX_SRC_CollisionPoly)
+s8 OBoxHitsPolyZeroTime(void *box, void *p, void *hit);
+f32 OOBHitsPoly(void *box, void *poly, Vector4 *vel, void *hit, f32 maxT);
+f32 RayHitsPoly(Vector4 *start, Vector4 *dir, void *p, f32 t);
+#endif
+#if !defined(HWVX_SRC_CollisionThing)
+s8 OBoxHitsOBoxZeroTime(void *a, void *b, void *hit);
+f32 OBoxHitsSegment(void *box, Vector4 *vel, Vector4 *seg, f32 maxT, void *hit);
+s8 OBoxHitsSegmentZeroTime(void *box, Vector4 *seg, void *hit);
+#endif
+#if !defined(HWVX_SRC_CollisionThing) && !defined(HWVX_SRC_Destructible)
+void *OBoxHolder_Get(void);
+#endif
+#if !defined(HWVX_SRC_CollisionThing)
+void OBoxHolder_Release(void *obox);
+#endif
+#if !defined(HWVX_SRC_CoronaHolder)
+s32 CoronaHolder_Add(void *corona, Vector4 *pos);
+#endif
+#if !defined(HWVX_SRC_Creature)
+s32 Creature_Init(Creature *arg0, void *arg1);
+#endif
+#if !defined(HWVX_SRC_Debris)
+void Debris_Draw(void *debris);
+f32 Debris_GetMass(void *debris);
+#endif
+#if !defined(HWVX_SRC_Emitter)
+s32 ActionFXPointChangeMode(void *list);
+u32 Emitter_InCameraRange(void *emitter, f32 range);
+s32 Emitter_Invalidate(void *emitter, u32 start, u32 end);
+s32 Emitter_Move(void *emitter);
+void Emitter_Release(void *emitter);
+#endif
+#if !defined(HWVX_SRC_Gfx_Anim)
+void Gfx_DrawAnimGeometryAux(void *geometry, f32 *matrices, u32 count, f32 *matrix);
+void Gfx_DrawAnimGeometryAux_(void *geometry, f32 *matrices, u32 count, f32 *matrix);
+#endif
+#if !defined(HWVX_SRC_Gfx_Anim) && !defined(HWVX_SRC_Gfx_DisplayList)
+void *DisplayList_AddGroup_Skin(void);
+#endif
+#if !defined(HWVX_SRC_Gfx_DisplayList)
+void DrawGroupWireframe(void *geometry, u32 group, void *matrix);
+#endif
+#if !defined(HWVX_SRC_FontManager) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_InterfaceManager) && !defined(HWVX_SRC_ShowStats)
+void *Gfx_Add2DRectangle(void);
+#endif
+#if !defined(HWVX_SRC_AttachThing) && !defined(HWVX_SRC_Gfx_DisplayList)
+void *Gfx_Add2DRectangleRenderWindow(void);
+#endif
+#if !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_LineManager)
+void *Gfx_Add3DLineFX(void);
+#endif
+#if !defined(HWVX_SRC_AttachThing) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_ParticleManager) && !defined(HWVX_SRC_Projectile)
+void *Gfx_AddBillBoardSprite(u16 tex);
+#endif
+#if !defined(HWVX_SRC_Gfx_GeometryHandler)
+s32 Gfx_CalcGeometryLOD(void *geometry, f32 *matrix);
+s32 Gfx_FrustrumCullSphereTest(void *center, f32 radius);
+s32 Gfx_FrustrumCullSphereTestAllWindows(void *center, f32 radius);
+u32 Gfx_GetCullLODGX(void *geometry, void *matrix, u8 *lod, u8 flag);
+#endif
+#if !defined(HWVX_SRC_Gfx_Anim) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_Gfx_GeometryHandler) && !defined(HWVX_SRC_Gfx_Main) && !defined(HWVX_SRC_Render_) && !defined(HWVX_SRC_Render_Geometry_) && !defined(HWVX_SRC_Render_Matrix_) && !defined(HWVX_SRC_Render_QuadTri_)
+void *GetRenderWindow(void);
+#endif
+#if !defined(HWVX_SRC_Gfx_Main)
+void Gfx_AddPointLight(GXColor *color, void *pos, f32 radius);
+s32 Gfx_GetCameraPositions(void *out);
+f32 Gfx_GetMinCameraDistSquared(void *pos);
+void Gfx_SetParallelLight(GXColor *color, void *dir);
+#endif
+#if !defined(HWVX_SRC_GridManager) && !defined(HWVX_SRC_Thing)
+void *Grid_AddObject(u32 data, u32 id, void *min, void *max);
+#endif
+#if !defined(HWVX_SRC_GridManager)
+void Grid_FreeObject(void *obj);
+void Grid_MoveObject(void *obj, Vector4 *min, Vector4 *max);
+#endif
+#if !defined(HWVX_SRC_IT)
+void DestroyITVoice(void *voice);
+s32 PlayNote(void *trk);
+void SetTrackPan(void *trk);
+void SetTrackVol(void *trk);
+void StopActive(void *trk);
+#endif
+#if !defined(HWVX_SRC_IT_)
+s32 CreateIT_(void *hdr, void **smp);
+u32 GetITGVol_(void *trk, void *ch);
+#endif
+#if !defined(HWVX_SRC_InterfaceManager)
+u32 InterfaceManager_KeyPress(void *im, s32 pad, u8 key);
+void InterfaceManager_MoveInterface(void *iface, f32 dt);
+s32 InterfaceManager_PlayEvent(void *iface, u8 *obj, u8 *event, u16 arg);
+s32 InterfaceManager_ProcessInput(void *iface, void *obj, u32 *events);
+void InterfaceManager_RenderInterface(void *iface);
+void InterfaceManager_RenderObject(void *iface, s32 index);
+#endif
+#if !defined(HWVX_SRC_LensFlare)
+s32 LensFlare_Add(void *flare, u8 *thing, Vector4 *pos);
+#endif
+#if !defined(HWVX_SRC_LightHolder)
+s32 LightHolder_Add(void *def, Vector4 *pos, void *thing);
+#endif
+#if !defined(HWVX_SRC_MIDI)
+void DestroyMIDIVoice(void *voice);
+void *DestroyVoice(void *voice);
+void SetGVol(void *chn);
+#endif
+#if !defined(HWVX_SRC_MIDI_)
+s32 CreateMIDI_(void *hdr);
+#endif
+#if !defined(HWVX_SRC_Render_)
+void CreateSilhouette(void *edges, u32 count, f32 *dir);
+void DrawVolume(f32 (*verts)[3], void *edges, u32 numEdges, f32 dx, f32 dy, f32 dz);
+void Gfx_GetRenderStats(void *stats);
+#endif
+#if !defined(HWVX_SRC_Render_Geometry_)
+void EnvMap(void *geometry, u32 group, void *matrix, s32 mode);
+void Gfx_DrawGeometryLOD_Immediate(void *geometry, f32 (*matrix)[4]);
+void RenderGroup(void *geometry, u32 group, f32 (*matrix)[4]);
+void Render_DrawOpaqueGroup(void *geometry, u32 group, void *matrix);
+void Render_Geometry(void *geom, f32 *m);
+#endif
+#if !defined(HWVX_SRC_Render_Lines_)
+void Render_DrawLine2D(void *line);
+#endif
+#if !defined(HWVX_SRC_Render_QuadTri_)
+void Render_DrawRectangle(void *rect);
+#endif
+#if !defined(HWVX_SRC_SmartProjectiles)
+void SmartProjectileA_AquireTarget(void *proj);
+s32 SmartProjectileA_Move(void *proj);
+s32 SmartProjectileA_PreMove(void *proj);
+#endif
+#if !defined(HWVX_SRC_SoundSequence)
+s32 SoundSeq_Invalidate(void *seq, u32 start, u32 end);
+#endif
+#if !defined(HWVX_SRC_Thing)
+void Thing_DrawSlaves(void *thing);
+void Thing_GetCameraOrientationInfo(void *thing, u32 index, void *out);
+void Thing_GetDynamicMinMax(void *thing, Vector4 *min, Vector4 *max, f32 expand);
+s8 Thing_HasThing(void *thing, void *target);
+s32 Thing_Init(void *thing, s32 arg1);
+void Thing_MoveSlaves(void *thing);
+void Thing_SlaveTransform(void *thing, Matrix4 *mtx);
+void Thing_SlaveTransformQuaternionOnly(void *thing, Matrix4 *mtx);
+#endif
+#if !defined(HWVX_SRC_Voice_)
+void DestroyVoice_(void *axv);
+#endif
+#if !defined(HWVX_SRC_IT) && !defined(HWVX_SRC_MIDI) && !defined(HWVX_SRC_Voice) && !defined(HWVX_SRC_Voice_)
+void *GetVoice_(u8 kind, u32 priority);
+#endif
+#if !defined(HWVX_SRC_Voice_)
+s32 SetVoiceOffset_(void *voice, u32 offset);
+void SetVoicePriority_(void *voice);
+s8 SetVoiceRate_(void *voice);
+void SetVoiceState_(void *voice, s32 state);
+void StartVoice_(void *voice);
+#endif
+#if !defined(HWVX_SRC_Thing) && !defined(HWVX_SRC_VolumeManager)
+void *IsPointWithinForceBox(Vector4 *point);
+#endif
+#if !defined(HWVX_SRC_bgmath_NGC)
+s32 CompareDistances(void *a, void *b, f32 dist);
+void DistanceXYZ(void *a, void *b, f32 *dist);
+void GenerateQuaternionXYZ(void *angles, Quaternion *q);
+void InverseXformVec(Matrix4 *m, void *v, void *out);
+void InverseXformVecOrientation(Matrix4 *m, void *v, void *out);
+f32 LinearPointTest(void *point, void *start, void *end);
+f32 MagnitudeVector(void *v);
+void ProjectVectorTangential(void *v, void *n, void *out);
+void ProjectVectorToNormal(void *n, void *v);
+s8 SegmentVsSphere(void *start, void *end, void *center, f32 radius);
+void XformVec(Matrix4 *m, void *v, void *out);
+void XformVec4x4(Matrix4 *m, void *v, void *out);
+void XformVecOrientation(Matrix4 *m, void *v, void *out);
+#endif
+
 /* Not declared here (signature uses a file-local type):
- *   ActionFXPointChangeMode (GETP(Emitter.c): ActionFXList)
- *   AnimExtractKeyFrame_Compound (GETP(Anim.c): Anim AnimBone)
- *   AnimExtractKeyFrame_CompoundHybrid (GETP(Anim.c): Anim AnimBone)
- *   AnimExtractKeyFrame_NonCompound (GETP(Anim.c): Anim AnimBone)
- *   BSPN0_CollideWithSegment (GETP(BSPN0.c): BSPNode)
- *   BSPN0_CollideWithVector (GETP(BSPN0.c): BSPNode)
- *   CarA_Extract_Keyframes (GETP(CarA.c): AnimKeyFrame)
- *   CompareDistances (GETP(bgmath_NGC.c): Vector)
- *   CoronaHolder_Add (GETP(CoronaHolder.c): CoronaData)
- *   CreateIT_ (GETP(IT_.c): ITHeader ITSample)
- *   CreateMIDI_ (GETP(MIDI_.c): MIDIHeader_)
- *   CreateSilhouette (GETP(Render_.c): SilhouetteEdge)
- *   Creature_Init (GETP(Creature.c): CreatureInit)
- *   Debris_Draw (GETP(Debris.c): Debris)
- *   Debris_GetMass (GETP(Debris.c): Debris)
- *   DestroyITVoice (GETP(IT.c): IT_VOICE)
- *   DestroyMIDIVoice (GETP(MIDI.c): MIDI_VOICE)
- *   DestroyVoice (GETP(MIDI.c): MIDI_VOICE)
- *   DestroyVoice_ (GETP(Voice_.c): AXVPB)
- *   DisplayList_AddGroup_Skin (GETP(Gfx_DisplayList.c): DLSkinGroup)
- *   DistanceXYZ (GETP(bgmath_NGC.c): Vector)
- *   DrawGroupWireframe (GETP(Gfx_DisplayList.c): Geometry)
- *   DrawVolume (GETP(Render_.c): SilhouetteEdge)
- *   Drone_ComputeSuspensionForces (GETP(CarA_Stunts.c): Drone)
- *   Drone_PreMove (GETP(CarA_Stunts.c): Drone)
- *   Emitter_InCameraRange (GETP(Emitter.c): Emitter)
- *   Emitter_Invalidate (GETP(Emitter.c): Emitter)
- *   Emitter_Move (GETP(Emitter.c): Emitter)
- *   Emitter_Release (GETP(Emitter.c): Emitter)
- *   EnvMap (GETP(Render_Geometry_.c): Geometry)
- *   GenerateQuaternionXYZ (GETP(bgmath_NGC.c): Vector)
- *   GetITGVol_ (GETP(IT_.c): ITChannel ITTrack)
- *   GetRenderWindow (GETP(Gfx_Main.c): GfxWindow)
- *   GetVoice_ (GETP(Voice_.c): VoiceHW)
- *   Gfx_Add2DRectangle (GETP(Gfx_DisplayList.c): GDLRect)
- *   Gfx_Add2DRectangleRenderWindow (GETP(Gfx_DisplayList.c): GDLRect)
- *   Gfx_Add3DLineFX (GETP(Gfx_DisplayList.c): GDLLine)
- *   Gfx_AddBillBoardSprite (GETP(Gfx_DisplayList.c): GDLSprite)
- *   Gfx_AddPointLight (GETP(Gfx_Main.c): Vector)
- *   Gfx_CalcGeometryLOD (GETP(Gfx_GeometryHandler.c): Geometry)
- *   Gfx_DrawAnimGeometryAux (GETP(Gfx_Anim.c): Geometry)
- *   Gfx_DrawAnimGeometryAux_ (GETP(Gfx_Anim.c): Geometry)
- *   Gfx_DrawGeometryLOD_Immediate (GETP(Render_Geometry_.c): Geometry)
- *   Gfx_FrustrumCullSphereTest (GETP(Gfx_GeometryHandler.c): Vector)
- *   Gfx_FrustrumCullSphereTestAllWindows (GETP(Gfx_GeometryHandler.c): Vector)
- *   Gfx_GetCameraPositions (GETP(Gfx_Main.c): Vector)
- *   Gfx_GetCullLODGX (GETP(Gfx_GeometryHandler.c): Geometry Vector)
- *   Gfx_GetMinCameraDistSquared (GETP(Gfx_Main.c): Vector)
- *   Gfx_GetRenderStats (GETP(Render_.c): RenderStats)
- *   Gfx_SetParallelLight (GETP(Gfx_Main.c): Vector)
- *   Grid_AddObject (GETP(GridManager.c): GridObject)
- *   Grid_FreeObject (GETP(GridManager.c): GridObject)
- *   Grid_MoveObject (GETP(GridManager.c): GridObject)
- *   InterfaceManager_KeyPress (GETP(InterfaceManager.c): InterfaceKeyState)
- *   InterfaceManager_PlayEvent (GETP(InterfaceManager.c): InterfaceState)
- *   InterfaceManager_RenderInterface (GETP(InterfaceManager.c): RenderInterface)
- *   InverseXformVec (GETP(bgmath_NGC.c): Vector)
- *   InverseXformVecOrientation (GETP(bgmath_NGC.c): Vector)
- *   IsPointWithinForceBox (GETP(VolumeManager.c): VolumeShape)
- *   LensFlare_Add (GETP(LensFlare.c): FlareData)
- *   LightHolder_Add (GETP(LightHolder.c): LightHolderDef)
- *   LinearPointTest (GETP(bgmath_NGC.c): Vector)
- *   MagnitudeVector (GETP(bgmath_NGC.c): Vector)
- *   OBoxHitsOBoxZeroTime (GETP(CollisionThing.c): CollisionInfo CollisionOBox)
- *   OBoxHitsSegment (GETP(CollisionThing.c): CollisionInfo CollisionOBox)
- *   OBoxHitsSegmentZeroTime (GETP(CollisionThing.c): CollisionInfo CollisionOBox)
- *   OBoxHolder_Get (GETP(CollisionThing.c): OBoxHolder)
- *   OBoxHolder_Release (GETP(CollisionThing.c): OBoxHolder)
- *   PlayNote (GETP(IT.c): IT_TRACK)
- *   ProjectVectorTangential (GETP(bgmath_NGC.c): Vector)
- *   ProjectVectorToNormal (GETP(bgmath_NGC.c): Vector)
- *   RadarBlip_Draw (GETP(AttachThing.c): RadarBlip)
- *   RayHitsPoly (GETP(CollisionPoly.c): Poly)
- *   RenderGroup (GETP(Render_Geometry_.c): Geometry)
- *   Render_DrawLine2D (GETP(Render_Lines_.c): Line2D)
- *   Render_DrawOpaqueGroup (GETP(Render_Geometry_.c): Geometry)
- *   Render_DrawRectangle (GETP(Render_QuadTri_.c): GDLRect)
- *   Render_Geometry (GETP(Render_Geometry_.c): Geometry)
- *   SegmentVsSphere (GETP(bgmath_NGC.c): Vector)
- *   SetGVol (GETP(MIDI.c): MIDI_CHN)
- *   SetTrackPan (GETP(IT.c): IT_TRACK)
- *   SetTrackVol (GETP(IT.c): IT_TRACK)
- *   SetVoiceOffset_ (GETP(Voice_.c): VoiceHW)
- *   SetVoicePriority_ (GETP(Voice_.c): VoiceHW)
- *   SetVoiceRate_ (GETP(Voice_.c): VoiceHW)
- *   SetVoiceState_ (GETP(Voice_.c): VoiceHW)
- *   SmartProjectileA_AquireTarget (GETP(SmartProjectiles.c): SmartProjectile)
- *   SmartProjectileA_Move (GETP(SmartProjectiles.c): SmartProjectile)
- *   SmartProjectileA_PreMove (GETP(SmartProjectiles.c): SmartProjectile)
- *   SoundSeq_Invalidate (GETP(SoundSequence.c): SoundSequence)
- *   StartVoice_ (GETP(Voice_.c): VoiceHW)
- *   StopActive (GETP(IT.c): IT_TRACK)
- *   Thing_DrawSlaves (GETP(Thing.c): Thing)
- *   Thing_GetDynamicMinMax (GETP(Thing.c): Thing)
- *   Thing_HasThing (GETP(Thing.c): Thing)
- *   Thing_Init (GETP(Thing.c): Thing)
- *   Thing_MoveSlaves (GETP(Thing.c): Thing)
- *   Thing_SlaveTransform (GETP(Thing.c): Thing)
- *   Thing_SlaveTransformQuaternionOnly (GETP(Thing.c): Thing)
- *   XformVec (GETP(bgmath_NGC.c): Vector)
- *   XformVec4x4 (GETP(bgmath_NGC.c): Vector)
- *   XformVecOrientation (GETP(bgmath_NGC.c): Vector)
  */
 
 #endif

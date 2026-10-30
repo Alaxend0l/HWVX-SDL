@@ -104,7 +104,6 @@ u32 gap_08_803771B4[1];
 MIDI_SND *g_pSnd;
 void *g_pHdr;
 
-void SetVoiceState_(MIDI_VOICE *voice, s32 state);
 
 s32 AudioMIDI_Create(void)
 {
@@ -142,7 +141,6 @@ void CreateMIDI(u8 *hdr, u8 *snd)
     extern s32 g_musicState;
     extern void (*DestroySongVoice)();
     extern s32 __OSCurrHeap;
-    s32 CreateMIDI_(MIDI_SND *snd);
     void DestroyMIDIVoice();
     u32 i;
     s32 j;
@@ -276,7 +274,6 @@ void SetMIDIPitch(u32 pitch)
     MIDI_CHN *chn;
     MIDI_VOICE *voice;
     extern u8 g_song[0x24];
-    s8 SetVoiceRate_(void *voice);
 
     *(u32 *)(g_song + 0x20) = pitch;
     for (chn = g_chn, i = 0x10; i != 0; chn++, i--)
@@ -379,11 +376,8 @@ void ProcessMIDI(s32 time)
     extern u8 g_musicTitle[0x20];
     extern void *g_pHdr;
     MIDI_VOICE *DestroyVoice(MIDI_VOICE *voice);
-    void SetVoicePriority_(void *voice);
     MIDI_VOICE *GetVoice_(u8 type, u32 priority);
-    void StartVoice_(void *voice);
     void SetGVol(void *chn);
-    s8 SetVoiceRate_(void *voice);
     MIDI_CHN *chn;
     u32 mask;
     u32 i;
@@ -832,7 +826,6 @@ void SetGVol(MIDI_CHN *chn)
 
 void ReleaseMIDIVoice(void *voice)
 {
-    void SetVoicePriority_(void *voice);
     u32 rate;
 
     if (*(u8 *)((u8 *)voice + 0x16) != 4)
@@ -1008,7 +1001,6 @@ void JumpToMarker(void)
 {
     extern u32 g_trkOn;
     extern u32 g_trkOff;
-    void SetVoicePriority_(void *voice);
     MIDI_CHN *chn;
     MIDI_VOICE *voice;
     u32 i;

@@ -50,9 +50,6 @@ extern s8 g_speakers;
 extern void (*VoiceUpdate)(void);
 extern s32 g_sfxState;
 
-void SetVoiceState_(Voice *voice, s32 state);
-void StartVoice_(Voice *voice);
-s8 SetVoiceRate_(Voice *voice);
 
 void AudioVoice_Create(void) {
     memset(g_voice, 0, sizeof(g_voice));
@@ -232,7 +229,6 @@ void ReleaseVoice(u32 id) {
 }
 
 extern s32 g_sfxState;
-void StartVoice_(Voice *voice);
 s32 SetVoiceState(u32 id, s32 state) {
     Voice *voice = &g_voice[(u8)id];
 

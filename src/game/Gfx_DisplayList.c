@@ -561,7 +561,6 @@ void DisplayList_AddAlphaGroup(s32 arg0, s32 arg1, u32 matrix, u8 arg3, GXColor 
 }
 
 void Gfx_SortAlpha(void) {
-    void XformVec4x4(Matrix4 *m, Vector4 *v, Vector4 *out);
     u16 heads[0x1FF];
     GDLAlphaGroup *grp;
     u16 key;
@@ -769,7 +768,6 @@ void *Gfx_GetWorldMatrixState(u32 index) {
     return GETP(g_pGDL->matrices[index]);
 }
 
-void XformVec(void *m, Vector4 *v, Vector4 *out);
 
 void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix) {
     Vector4 v[3] __attribute__((aligned(16)));
@@ -898,7 +896,6 @@ static inline void DisplayList_AddGeometryAlphaGroup(Geometry *geom, u16 group, 
     DisplayList_AddAlphaGroup((s32)HND(geom), group, matrix, flag, &color);
 }
 
-u32 Gfx_GetCullLODGX(void *geometry, void *matrix, u8 *lod, u8 flag);
 
 void DisplayList_RenderGXList(void) {
     GXColor color = {0, 0, 0, 0};

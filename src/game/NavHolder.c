@@ -100,9 +100,63 @@ void NavHolder_Release(void) {
     M2C_FIELD(&gs_NavHolder_803C6CD8, s32 *, 4) = 0;
 }
 
+
+/* NavHolder_IsNavLinkNearer with its recursion step (FindIndexOfNearestNavLink) expanded once;
+   FindIndexOfNearestNavLink inlines it. */
+static inline s32 NavHolder_IsNavLinkNearer_Expanded(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
+    extern s32 gs_aLinksDepth3[64];
+    s32 result = -1;
+    s32 i;
+    s32 found;
+    s32 best;
+    u32 j;
+    f32 dist;
+
+    if (!link->enabled) {
+        return -1;
+    }
+    for (i = 0; i < 64; i++) {
+        if (link->index == gs_aLinksDepth3[i]) {
+            return -1;
+        }
+        if (gs_aLinksDepth3[i] == -0x8000) {
+            break;
+        }
+    }
+    gs_aLinksDepth3[i] = link->index;
+    gs_aLinksDepth3[i + 1] = -0x8000;
+    dist = PSVECSquareDistance(pos, link->pos);
+    if (*nearest > dist) {
+        *nearest = dist;
+        result = link->index;
+    }
+    if (depth < 3) {
+        best = -1;
+        for (j = 0; j < link->numPrev; j++) {
+            if (GETP(link->prev)[j] != -0x8000) {
+                found = NavHolder_IsNavLinkNearer(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->prev)[j]), nearest, depth + 1);
+                if (found != -1) {
+                    best = found;
+                }
+            }
+        }
+        for (j = 0; j < link->numNext; j++) {
+            if (GETP(link->next)[j] != -0x8000) {
+                found = NavHolder_IsNavLinkNearer(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->next)[j]), nearest, depth + 1);
+                if (found != -1) {
+                    best = found;
+                }
+            }
+        }
+        if (best != -1) {
+            result = best;
+        }
+    }
+    return result;
+}
+
 s32 NavHolder_IsNavLinkNearer(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
     extern s32 gs_aLinksDepth3[64];
-    s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
     s32 result = -1;
     s32 i;
     s32 found;
@@ -135,10 +189,34 @@ s32 NavHolder_IsNavLinkNearer(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
     return result;
 }
 
+#pragma always_inline on
+
+s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
+    s32 result = -1;
+    s32 found;
+    u32 i;
+
+    for (i = 0; i < link->numPrev; i++) {
+        if (GETP(link->prev)[i] != -0x8000) {
+            found = NavHolder_IsNavLinkNearer_Expanded(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->prev)[i]), nearest, depth);
+            if (found != -1) {
+                result = found;
+            }
+        }
+    }
+    for (i = 0; i < link->numNext; i++) {
+        if (GETP(link->next)[i] != -0x8000) {
+            found = NavHolder_IsNavLinkNearer_Expanded(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->next)[i]), nearest, depth);
+            if (found != -1) {
+                result = found;
+            }
+        }
+    }
+    return result;
+}
+
 s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint) {
     extern s32 gs_aLinksDepth3[64];
-    s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
-    u32 Grid_GetNearestObjects(Vector4 *min, Vector4 *max, u32 typeMask, GridResult *results, u32 maxResults, void *filter, s32 filterArg);
     typedef struct NavPoint {
         f32 pos[3];
         u8 pad0C[0x10 - 0xC];

@@ -8,12 +8,15 @@ so by default this refuses to overwrite files that already exist.
   tools/import_decomp.py            # import files that are missing
   tools/import_decomp.py --force X  # re-import file X (discards local edits)
   tools/import_decomp.py --diff     # print the decomp commit this was taken from
+  tools/import_decomp.py --merge    # three-way merge decomp changes since
+                                    # DECOMP_REVISION into the patched files
 """
 import argparse
 import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DECOMP = ROOT / "HWVX-GC-Decomp"
@@ -58,10 +61,46 @@ def transform(text):
     return text
 
 
+def show(rev, rel):
+    r = subprocess.run(["git", "-C", str(DECOMP), "show", f"{rev}:{rel}"],
+                       capture_output=True)
+    return r.stdout.decode(errors="replace") if r.returncode == 0 else None
+
+
+def merge(files, old, new):
+    """Apply decomp changes old..new to the local copies. The local file is
+    "ours", the old decomp file the base: local rewrites survive, new decomp
+    code arrives unrewritten (rerun the tools afterwards). Conflicts are left
+    as markers."""
+    conflicts = []
+    for rel, dst in files:
+        base, theirs = show(old, rel), show(new, rel)
+        if theirs is None or base == theirs:
+            continue
+        theirs = transform(theirs)
+        if not dst.exists():
+            dst.write_text(theirs)
+            print(f"new      {dst.relative_to(ROOT)}")
+            continue
+        with tempfile.TemporaryDirectory() as tmp:
+            b = pathlib.Path(tmp) / "base"
+            t = pathlib.Path(tmp) / "theirs"
+            b.write_text(transform(base or ""))
+            t.write_text(theirs)
+            r = subprocess.run(["git", "merge-file", "-L", "port", "-L", old[:10],
+                                "-L", new[:10], str(dst), str(b), str(t)])
+        status = "merged" if r.returncode == 0 else f"CONFLICT ({r.returncode})"
+        if r.returncode:
+            conflicts.append(dst)
+        print(f"{status:8} {dst.relative_to(ROOT)}")
+    return conflicts
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", nargs="*", default=[])
     ap.add_argument("--diff", action="store_true")
+    ap.add_argument("--merge", action="store_true")
     args = ap.parse_args()
 
     rev = subprocess.run(["git", "-C", str(DECOMP), "rev-parse", "HEAD"],
@@ -75,6 +114,13 @@ def main():
     files = [("src/" + f, DEST / f) for f in game_objects() if f not in EXCLUDE]
     files += [("include/" + p.name, DEST / "include" / p.name)
               for p in (DECOMP / "include").glob("*.h")]
+    if args.merge:
+        old = (DEST / "DECOMP_REVISION").read_text().strip()
+        conflicts = merge(files, old, rev)
+        (DEST / "DECOMP_REVISION").write_text(rev + "\n")
+        if conflicts:
+            sys.exit(f"{len(conflicts)} file(s) with conflicts")
+        return
     n = 0
     for rel, dst in files:
         if dst.exists() and dst.name not in args.force:

@@ -1,6 +1,6 @@
 /* Layout of the CarA vehicle object (the Thing-derived class behind every
- * driveable car), reconstructed from the raw-offset accesses in src/GETP(CarA.c),
- * src/GETP(CarA_Suspension.c) and src/GETP(AI_CarA.c) (vehicle side, reached through
+ * driveable car), reconstructed from the raw-offset accesses in src/CarA.c,
+ * src/CarA_Suspension.c and src/AI_CarA.c (vehicle side, reached through
  * *(u8 **)(aiCar + 0x2C)).  sizeof(CarA) is exactly 0x560; the CarNavPath
  * hack in CarA_Release shows path[] lives at 0x568, i.e. outside this block. */
 #ifndef CARA_H
@@ -95,6 +95,7 @@ typedef struct CarAEngine {
   f32 unk64;                /* 0x64 */
   f32 unk68;                /* 0x68 */
   f32 unk6C;                /* 0x6C */
+  f32 itemHeight;           /* 0x70 picked-up items ride this high above the rack */
 } CarAEngine;
 
 typedef struct CarAMaterial {
@@ -246,7 +247,9 @@ typedef struct CarAInfo {
   PTR32(u8) slaves;               /* 0xE4 */
   u32 numSlaveWeapons;      /* 0xE8 */
   PTR32(u8) slaveWeapons;         /* 0xEC 12-byte entries, slave list at +4 */
-  u8 padF0[0x20];           /* 0xF0 */
+  u32 numPickupSlaves;      /* 0xF0 */
+  PTR32(u8) pickupSlaves;         /* 0xF4 12-byte entries, slave list at +4, indexed by item value */
+  u8 padF8[0x18];           /* 0xF8 */
   u32 numShiftSounds;       /* 0x110 */
   PTR32(u32) shiftSounds;         /* 0x114 */
   u32 numSoundSets;         /* 0x118 */
@@ -334,10 +337,11 @@ typedef struct CarA {
   u8 stuntAxis;             /* 0x491 0: none, 1: pitch (stickX), 2: roll (stickY) */
   u8 pad492[2];             /* 0x492 */
   PTR32(char *) stuntPopup;        /* 0x494 */
-  u8 pad498[4];             /* 0x498 */
+  u32 pickupId;             /* 0x498 last picked-up item's id */
   PTR32(char *) stuntScoreMessage; /* 0x49C */
   PTR32(char *) stuntMessage;      /* 0x4A0 */
-  u8 pad4A4[0xC];           /* 0x4A4 */
+  s32 pickupCount;          /* 0x4A4 type 9 items picked up */
+  u8 pad4A8[8];             /* 0x4A8 */
   Vector4 stuntSpin;        /* 0x4B0 zeroed when a stunt fails */
   f32 torquePolyCoeffs[4];  /* 0x4C0 Horner polynomial in rpm */
   u8 pad4D0[0x10];          /* 0x4D0 */

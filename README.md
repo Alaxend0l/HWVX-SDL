@@ -110,9 +110,24 @@ Run in this order on freshly imported sources (each is idempotent):
    `PTR32`, accesses → `GETP`/`SETP`; then repeat
    `ninja -C build -k 0 > build.log 2>&1; tools/fieldify.py --revert build.log`
    until it reverts nothing (undoes same-named non-pointer fields).
-7. `tools/gen_data.py NAME...`: C definitions for globals that exist only in
+7. `tools/view_externs.py build.log`: where functions in one file declare
+   the same global with different types (CodeWarrior allowed it, GCC
+   doesn't), keep each function's type as a function-local view macro.
+8. `tools/gen_data.py NAME...`: C definitions for globals that exist only in
    the decomp's split data sections (needs the decomp built, for
    `build/HOTWHE/asm`). Pointer entries become handles at startup.
+
+`gen_protos.py` also declares functions whose signatures use a type local to
+their own file, with those pointers as `void *`; the declaration is hidden from
+that file and from files that declare the function with their own copy of the
+type (CMake defines `HWVX_SRC_<file>` for each game source).
+
+### Updating from the decomp
+
+`tools/import_decomp.py --merge` three-way merges the decomp's changes since
+`src/game/DECOMP_REVISION` into the patched files (base: old decomp file,
+ours: `src/game`, theirs: new decomp file). New code arrives unrewritten;
+resolve any conflicts, then rerun steps 2–7 (all idempotent).
 
 ## Status
 
@@ -123,9 +138,11 @@ Work in progress; it does not run yet.
       PAD → SDL gamepad/keyboard, AX mixer → miniaudio, MTX/VEC
 - [x] Pointer slots, pointer↔integer conversions and struct pointer fields
       converted to 32-bit handles (tool-driven, ~9k sites)
-- [ ] Game sources compiling on 64-bit: 57/114 files; remaining errors are
-      decomp prototype inconsistencies and per-function m2c draft issues
-- [ ] Missing game code (see below)
+- [ ] Game sources compiling on 64-bit: 66/115 files (177 errors); the rest
+      are call sites disagreeing with definitions, pointer/integer mixes the
+      tools can't decide, and initializers needing handles
+- [x] Decomp code merged in up to the latest decomp commit (see
+      `src/game/DECOMP_REVISION`)
 - [ ] Globals from the original data sections (`gen_data.py` is ready)
 - [ ] Byte-swapping of asset formats on load
 - [ ] GX → OpenGL renderer (vertex decoding, display lists, textures, TEV)
@@ -133,10 +150,5 @@ Work in progress; it does not run yet.
 
 ### Missing game code
 
-The decomp is not complete. Functions in the game's code ranges:
-
-- 45 exist only as m2c drafts in the decomp's `src/auto/` dumps;
-- 16 (~35 KB of PowerPC) have no C at all, including
-  `ThingManager_MoveThings_DARYL_SUBTICK` (physics tick),
-  `InterfaceManager_RenderObject`/`MoveInterface` (UI), `Player_Heartbeat`,
-  `CarA_ProcessItemPickup` and five `AI_Car_*` functions.
+The decomp now has C for every game function; a few are still m2c-quality
+drafts that need checking against the assembly when they misbehave.

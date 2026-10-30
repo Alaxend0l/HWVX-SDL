@@ -189,7 +189,7 @@ typedef struct DestructibleInfo {
   u8 pad12[2];       /* 0x12 */
   s32 maxHealth;     /* 0x14 */
   s32 armour;        /* 0x18 */
-  u8 pad1C[4];       /* 0x1C */
+  s32 deathTime;     /* 0x1C ms before a destroyed one is released, <0 never */
   f32 mass;          /* 0x20 */
   u8 pad24[0x0C];    /* 0x24 */
   s32 surfaceScript; /* 0x30 */
@@ -203,7 +203,11 @@ typedef struct DestructibleInfo {
 typedef struct ThingRecord {
   PTR32(void) geometry;         /* 0x00 */
   u8 noDraw;              /* 0x04 */
-  u8 pad05[0xB];          /* 0x05 */
+  u8 collides;            /* 0x05 */
+  u8 hasDrawDist;         /* 0x06 */
+  u8 pad07;               /* 0x07 */
+  f32 drawDist;           /* 0x08 */
+  u8 pad0C[4];            /* 0x0C */
   PTR32(DestructibleInfo) info; /* 0x10 */
   u8 pad14[4];            /* 0x14 */
   u8 slaves[4];           /* 0x18 shared slaves */
@@ -213,10 +217,13 @@ typedef struct Destructible {
   Vector4 pos;         /* 0x00 */
   f32 matrix[12];      /* 0x10 */
   Vector4 offsetPos;   /* 0x40 */
-  u8 pad50[0x24];      /* 0x50 */
+  u8 pad50[0x20];      /* 0x50 orientation quaternion first */
+  f32 radius;          /* 0x70 */
   u32 flags;           /* 0x74 */
   s32 health;          /* 0x78 */
-  u8 pad7C[0xC];       /* 0x7C */
+  u32 unk7C;           /* 0x7C */
+  s16 collisionType;   /* 0x80 */
+  u8 pad82[6];         /* 0x82 */
   PTR32(void) slaves;        /* 0x88 slave things list */
   PTR32(void) vtable;        /* 0x8C */
   PTR32(u8) trigger;         /* 0x90 */
@@ -227,6 +234,9 @@ typedef struct Destructible {
   s32 deathTimer;      /* 0xC8 ms until a dead destructible is released */
   PTR32(ConvexHull) hull;    /* 0xCC */
   PTR32(OBox) orientedBox;   /* 0xD0 */
+  PTR32(void) anim;          /* 0xD4 movers: track animation */
+  f32 speed;           /* 0xD8 */
+  f32 trackPos;        /* 0xDC */
 } Destructible;
 
 typedef struct OConvexHull {

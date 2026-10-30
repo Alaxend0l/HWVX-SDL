@@ -16,12 +16,14 @@ typedef struct AIEvent {
 AIStats g_AI_Stats;
 s16 g_AI_FramesSinceAsyncEventProcessed;
 
+extern u8 gs_pAsyncEventTail_803C6F04[];  /* typed per function below */
+extern u8 gs_pAsyncEventHead_803C6F08[];  /* typed per function below */
 
 void AI_Create(void)
 {
     extern s32 g_volumeTotal;
-    extern void *gs_pAsyncEventHead_803C6F08;
-    extern void *gs_pAsyncEventTail_803C6F04;
+    #define gs_pAsyncEventHead_803C6F08 (*(void **)(void *)&gs_pAsyncEventHead_803C6F08)
+    #define gs_pAsyncEventTail_803C6F04 (*(void **)(void *)&gs_pAsyncEventTail_803C6F04)
     extern u32 g_attackDelay;
     u32 var;
 
@@ -33,6 +35,8 @@ void AI_Create(void)
     {
         g_attackDelay = 8000;
     }
+#undef gs_pAsyncEventHead_803C6F08
+#undef gs_pAsyncEventTail_803C6F04
 }
 
 void AI_Reset(void *arg0) {
@@ -41,11 +45,12 @@ void AI_Reset(void *arg0) {
 }
 
 void AI_Init(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+
+    Player_Init();
 }
 
 void AI_AsyncProcess_80006C80(void) {
+
     AI_Car_AsyncProcess();
     AI_Creature_AsyncProcess();
 }
@@ -62,7 +67,6 @@ u32 AI_UpdateTimer(u32 *arg0) {
 }
 
 f32 AI_AngleToTarget(u8 *ai, Vector4 *target) {
-    void ProjectVectorTangential(Vector4 *v, Vector4 *n, Vector4 *out);
     Vector4 dir __attribute__((aligned(16)));
     Vector4 cross __attribute__((aligned(16)));
     f32 dot;
@@ -115,8 +119,8 @@ s8 AI_CheckAngleInRange(f32 angle, f32 center, f32 range) {
 s32 AI_ProcessEvent(void) {
     extern s16 g_AI_FramesSinceAsyncEventProcessed;
     extern AIStats g_AI_Stats;
-    extern AIEvent *gs_pAsyncEventHead_803C6F08;
-    extern AIEvent *gs_pAsyncEventTail_803C6F04;
+    #define gs_pAsyncEventHead_803C6F08 (*(AIEvent **)(void *)&gs_pAsyncEventHead_803C6F08)
+    #define gs_pAsyncEventTail_803C6F04 (*(AIEvent **)(void *)&gs_pAsyncEventTail_803C6F04)
     AIEvent *event;
 
     if (g_AI_FramesSinceAsyncEventProcessed <= 5 && g_AI_Stats.unk1C >= 250) {
@@ -138,11 +142,13 @@ s32 AI_ProcessEvent(void) {
         return 1;
     }
     return 0;
+#undef gs_pAsyncEventHead_803C6F08
+#undef gs_pAsyncEventTail_803C6F04
 }
 
 void AI_AddEvent(void *arg0) {
-    extern void *gs_pAsyncEventHead_803C6F08;
-    extern void *gs_pAsyncEventTail_803C6F04;
+    #define gs_pAsyncEventHead_803C6F08 (*(void **)(void *)&gs_pAsyncEventHead_803C6F08)
+    #define gs_pAsyncEventTail_803C6F04 (*(void **)(void *)&gs_pAsyncEventTail_803C6F04)
     if ((s8) M2C_FIELD(arg0, u8 *, 0xC) == 0) {
         M2C_FIELD(arg0, s32 *, 8) = 0;
         if ((void *) gs_pAsyncEventTail_803C6F04 != NULL) {
@@ -153,6 +159,8 @@ void AI_AddEvent(void *arg0) {
         gs_pAsyncEventTail_803C6F04 = arg0;
         M2C_FIELD(arg0, u8 *, 0xC) = 1U;
     }
+#undef gs_pAsyncEventHead_803C6F08
+#undef gs_pAsyncEventTail_803C6F04
 }
 
 s32 AI_Heartbeat(u8 *ai) {

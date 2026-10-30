@@ -17,7 +17,6 @@ typedef struct SoundSequence {
 
 s32 SoundSeq_Init(u8 *seq, u8 *data) {
     extern Matrix4 g_identity;
-    s32 Thing_Init(void *thing, s32 arg1);
     u8 *list[0x80];
     u8 *params;
     s16 count;

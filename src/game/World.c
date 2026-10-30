@@ -89,9 +89,6 @@ void World_Render(void) {
         u32 numQuads;
         PTR32(Quad) quads;
     } QuadWorld;
-    u32 Gfx_GetCameraPositions(Vector4 *positions);
-    s8 BSPN0_CollideWithVector(void *bsp, Vector4 *point);
-    void FileStreaming_SetActiveQuadrants(void **quads, s32 count);
     static Quad *pCurrentQuadrant[5];
     static Quad *pWorldQuadrant;
     u32 numLoad = 0;
@@ -364,8 +361,6 @@ void RenderQuadrant(u8 *quadrant) {
     typedef struct { Vector4 pos; Vector4 quat; u8 pad20[4]; Model *model; f32 dist; u8 pad2C[8]; u8 useDist; u8 pad35[7]; f32 radius; } Instance;
     typedef struct { u32 pad0; u32 count; Instance *instances; } InstanceList;
     typedef struct { u8 pad0[0x10]; f32 mtx[3][4]; Vector4 pos; Vector4 quat; u8 pad60[0x14]; u32 unk74; u8 pad78[0x78]; } DrawThing;
-    f32 Gfx_GetMinCameraDistSquared(void *pos);
-    s32 Gfx_FrustrumCullSphereTestAllWindows(void *, f32);
     u32 i;
     u32 j;
     Instance *inst;

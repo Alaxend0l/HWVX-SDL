@@ -387,7 +387,6 @@ s32 LoadTGA(const char *name, u32 id) {
 
 u16 Gfx_LoadTexture_RAM(u8 **data) {
     extern s32 m_currentView;
-    u8 *LoadBTF_RAM(u8 *data, s32 id);
     char buf[32];
     u16 i;
 
@@ -408,6 +407,25 @@ u16 Gfx_LoadTexture_RAM(u8 **data) {
     m_texture[i].unk3A = 1;
     m_texture[i].wrapMode = 0;
     return i;
+}
+
+u8 *LoadBTF_RAM(u8 *data, u32 id) {
+    Texture *tex;
+
+    tex = &((Texture *)m_texture)[id];
+    tex->width = ((*(u16 *)(data + 4) & 0xFF00) / 256) | (*(u16 *)(data + 4) * 256);
+    tex = &((Texture *)m_texture)[id];
+    __sthbrx(*(u16 *)(data + 2), &tex->unk30, 0);
+    tex = &((Texture *)m_texture)[id];
+    __sthbrx(*(u16 *)(data + 6), &tex->height, 0);
+    tex = &((Texture *)m_texture)[id];
+    SETP(tex->data, SLOT_LOAD(void *, (data + 8)));
+    tex = &((Texture *)m_texture)[id];
+    tex->unk28 = *(u32 *)(data + 0xC);
+    tex = &((Texture *)m_texture)[id];
+    __sthbrx(*(u16 *)(data + 0), &tex->unk38, 0);
+    Render_CreateTextureSlot(id, 1, tex);
+    return data + 0x10;
 }
 
 

@@ -94,6 +94,105 @@ void CameraManager_Init(void) {
     memset(g_springProxy + 0xC0, 0, 0x20);
     M2C_FIELD(g_springProxy, s32 *, 0x1C4) = 0;
 }
+extern u8 g_triggerAction_params_default[];  /* typed per function below */
+
+void *CameraManager_GetNewCamera(void) {
+    typedef struct Camera {
+        PTR32(void) player;
+        u8 pad4[0x60 - 0x4];
+        Vector4 pos;
+        u8 pad70[0x80 - 0x70];
+        Vector4 fwd;
+        Vector4 up;
+        Vector4 right;
+        u8 padB0[0xB4 - 0xB0];
+        PTR32(u32) mode;
+        f32 modeTime;
+        f32 unkBC;
+        Vector4 unkC0;
+        Vector4 unkD0;
+        Vector4 unkE0;
+        u8 padF0[0x100 - 0xF0];
+        s32 unk100;
+        u8 pad104[0x110 - 0x104];
+        Vector4 unk110;
+        Vector4 unk120;
+        Vector4 unk130;
+        Vector4 unk140;
+        Vector4 unk150;
+        Vector4 unk160;
+        u8 pad170[0x17C - 0x170];
+        s32 unk17C;
+        PTR32(void) emitter;
+        u8 pad184[0x190 - 0x184];
+    } Camera;
+    typedef struct {
+        Vector4 a;
+        Vector4 b;
+        Vector4 c;
+        PTR32(void) id;
+        s32 unk34;
+        f32 unk38;
+    } EmitterParams;
+    extern u8 g_cameraManager[];
+    #define g_triggerAction_params_default (*(u32 *)(void *)&g_triggerAction_params_default)
+    extern Vector4 g_zeroVector;
+    Camera *cam;
+    void *id;
+    EmitterParams params;
+
+    if (g_cameraManager[0x640] < 4) {
+        cam = &((Camera *)g_cameraManager)[g_cameraManager[0x640]++];
+        SoundListener_SetTotalListeners(g_cameraManager[0x640]);
+        cam->pos.x = 0.0f;
+        cam->pos.y = 0.0f;
+        cam->pos.z = 0.0f;
+        cam->fwd.x = 0.0f;
+        cam->fwd.y = 0.0f;
+        cam->fwd.z = 1.0f;
+        cam->up.x = 0.0f;
+        cam->up.y = 1.0f;
+        cam->up.z = 0.0f;
+        cam->right.x = 1.0f;
+        cam->right.y = 0.0f;
+        cam->right.z = 0.0f;
+        SETP(cam->mode, &g_triggerAction_params_default);
+        cam->modeTime = 0.0f;
+        cam->unkBC = 0.0f;
+        cam->unkE0.x = 0.0f;
+        cam->unkE0.y = 0.0f;
+        cam->unkE0.z = 10.0f;
+        cam->unk110.x = 0.0f;
+        cam->unk110.y = 0.0f;
+        cam->unk110.z = 1.0f;
+        cam->unk120 = g_zeroVector;
+        cam->unkC0 = g_zeroVector;
+        cam->unkD0 = g_zeroVector;
+        cam->unk140 = g_zeroVector;
+        cam->unk160 = g_zeroVector;
+        cam->unk130.x = 0.0f;
+        cam->unk130.y = 1.0f;
+        cam->unk130.z = 0.0f;
+        cam->unk150 = cam->unk130;
+        if (GETP(g_worldData.world) != NULL) {
+            id = SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xC4);
+            if (id != NULL) {
+                SETP(params.id, id);
+                params.unk38 = 0.0f;
+                params.b = g_zeroVector;
+                params.a = g_zeroVector;
+                params.unk34 = 0;
+                params.c = params.a;
+                SETP(cam->emitter, ThingManager_DARYL_CreateThing(2, &params));
+            }
+        }
+        cam->unk100 = -1;
+        cam->unk17C = -1;
+        return cam;
+    }
+    return NULL;
+#undef g_triggerAction_params_default
+}
 
 void CameraManager_ResetAllCameras(void) {
     extern u8 g_cameraManager[];
@@ -159,7 +258,6 @@ void Camera_PrepareForRender(Camera *camera) {
 
 s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
     extern u8 g_destructibleVTable[];
-    s8 SegmentVsSphere(void *center, Vector4 *start, Vector4 *end, f32 radius);
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
     Vector4 end __attribute__((aligned(16)));
@@ -202,7 +300,7 @@ s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info
             continue;
         }
         if ((u8 *)GETP(other->vtable) == g_destructibleVTable && GETP(GETP(other->record)->info)->type == 0) {
-            box = GETP(GETP(GETP(other->record)->info)->box);
+            box = GETP(GETP(other->record)->info->box);
             if ((box->v[1].x - box->v[0].x) * (box->v[1].z - box->v[0].z) < 100.0f) {
                 continue;
             }
@@ -222,7 +320,6 @@ s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info
 }
 
 
-f32 MagnitudeVector(void *v);
 
 static inline s8 RayHitsTerrainAndObjects_Camera(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
     s8 hit;
@@ -385,8 +482,6 @@ void GetTrimmedCameraPos2(Vector4 *from, Vector4 *to, f32 *trim, s32 bone, Matri
 void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
     extern f32 g_fDeltaTimeSec;
     extern s32 g_iDeltaTimeMS;
-    void XformVecOrientation(void *m, void *in, void *out);
-    void XformVec(void *mtx, Vector4 *in, Vector4 *out);
     CameraInfo info __attribute__((aligned(16)));
     Matrix4 sub1;
     Matrix4 sub2;
@@ -660,7 +755,6 @@ void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
 
 void Camera_UpdatePosition_Zoom_Generic(u8 *cam, u8 *mode, Vector4 *target, Vector4 *eye, f32 zoom, f32 shake) {
     extern f32 g_fDeltaTimeSec;
-    f32 MagnitudeVector(void *v);
     Vector4 pos __attribute__((aligned(16)));
 
     pos = *target;
@@ -819,11 +913,11 @@ static inline void Camera_OrbitVehicle(Camera *cam, CameraOrbitParams *params) {
     }
     Camera_OrbitWithParams(cam, center, params);
 }
+extern u8 g_pNoRayCollideThing[];  /* typed per function below */
 
 s32 Camera_TriggerActionGetLocation(u8 *cam, u32 *data, Vector4 *out) {
-    extern u8 *g_pNoRayCollideThing;
-    extern s32 g_triggerAction_params_default;
-    void XformVec(void *mtx, Vector4 *in, Vector4 *out);
+    #define g_pNoRayCollideThing (*(u8 **)(void *)&g_pNoRayCollideThing)
+    #define g_triggerAction_params_default (*(s32 *)(void *)&g_triggerAction_params_default)
     Vector4 offset __attribute__((aligned(16)));
     Vector4 local __attribute__((aligned(16)));
     u8 *thing;
@@ -883,16 +977,17 @@ s32 Camera_TriggerActionGetLocation(u8 *cam, u32 *data, Vector4 *out) {
         break;
     }
     return i;
+#undef g_pNoRayCollideThing
+#undef g_triggerAction_params_default
 }
 
 
 void Camera_UpdatePosition(Camera *cam) {
-    extern CarA *g_pNoRayCollideThing;
+    #define g_pNoRayCollideThing (*(CarA **)(void *)&g_pNoRayCollideThing)
     extern Matrix4 g_identity;
     extern Vector4 g_zeroVector;
     extern u8 g_lookerVTable[];
-    extern u32 g_triggerAction_params_default;
-    void XformVec(void *mtx, Vector4 *in, Vector4 *out);
+    #define g_triggerAction_params_default (*(u32 *)(void *)&g_triggerAction_params_default)
     Vector4 oldPos __attribute__((aligned(16)));
     CameraZoomParams zoom __attribute__((aligned(16)));
     CameraInfo info;
@@ -1035,6 +1130,8 @@ void Camera_UpdatePosition(Camera *cam) {
         GETP(cam->listener)->pos.y = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.y * scale + cam->pos.y;
         GETP(cam->listener)->pos.z = ((CarA *)GETP(GETP(cam->player)->vehicle))->velocity.z * scale + cam->pos.z;
     }
+#undef g_pNoRayCollideThing
+#undef g_triggerAction_params_default
 }
 
 void Camera_SetPlayer(Camera *camera, Player *player) {
@@ -1058,12 +1155,13 @@ void Camera_SetPlayer(Camera *camera, Player *player) {
 
 void CameraManager_ReturnAllToPlayer(void) {
     extern u8 g_cameraManager[];
-    extern u32 g_triggerAction_params_default;
+    #define g_triggerAction_params_default (*(u32 *)(void *)&g_triggerAction_params_default)
     u32 i;
 
     for (i = 0; i < g_cameraManager[0x640]; i++) {
         SLOT_STORE((u8 *)(g_cameraManager + i * 0x190) + 0xB4, &g_triggerAction_params_default);
     }
+#undef g_triggerAction_params_default
 }
 
 void CameraManager_SetCameraGlobalMode(u32 *mode) {

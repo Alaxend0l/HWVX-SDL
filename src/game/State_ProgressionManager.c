@@ -74,27 +74,132 @@ typedef struct LWMCP {
     PTR32(char) name;      /* 0x10 */
 } LWMCP;
 
-s8 BSPN0_CollideWithVector(void *bsp, void *pos);
 
+extern u8 g_GameProgressionState[];  /* typed per function below */
 
 void StateProgressionManager_SetProgressionID(s32 id, s32 subID) {
     extern s32 g_GameProgressionID;
-    extern s32 g_GameProgressionState[8];
+    #define g_GameProgressionState ((s32 *)(void *)&g_GameProgressionState)
     g_GameProgressionID = id;
     g_GameProgressionState[2] = subID;
+#undef g_GameProgressionState
 }
 
 void StateProgressionManager_GetProgressionID(s32 *id, s32 *subID) {
     extern s32 g_GameProgressionID;
-    extern s32 g_GameProgressionState[8];
+    #define g_GameProgressionState ((s32 *)(void *)&g_GameProgressionState)
     *id = g_GameProgressionID;
     *subID = g_GameProgressionState[2];
+#undef g_GameProgressionState
 }
+extern u8 g_bRestartCurrentLevel[];  /* typed per function below */
 
 void StateProgressionManager_RestartCurrentLevel(void) {
-    extern u8 g_bRestartCurrentLevel;
+    #define g_bRestartCurrentLevel (*(u8 *)(void *)&g_bRestartCurrentLevel)
     g_bRestartCurrentLevel = 1;
     ExitStateGamePlay(0xB);
+#undef g_bRestartCurrentLevel
+}
+extern u8 g_GameProgressionEndState[];  /* typed per function below */
+
+s32 StateProgressionManager_Init(s32 prevState) {
+    extern s32 g_GameProgressionID;
+    #define g_GameProgressionState ((s32 *)(void *)&g_GameProgressionState)
+    #define g_GameProgressionEndState ((s32 *)(void *)&g_GameProgressionEndState)
+    #define g_bRestartCurrentLevel (*(s8 *)(void *)&g_bRestartCurrentLevel)
+    void *camera;
+    s32 *script;
+    Vector4 min;
+    Vector4 max;
+
+    ShowStats_Init();
+    Gfx_TextureManager_Init();
+    StateGameManager_RefreshMCPTextures();
+    ProcessManager_Init();
+    ProcessManager_Add("TimeHandler", NULL, TimeHandler_Heartbeat, 0, 0);
+    ProcessManager_Add("Input", Input_Init, Input_Heartbeat, 0, 1);
+    ProcessManager_Add("SoundManager", SoundManager_Init, SoundManager_Heartbeat, 0, 1);
+    ProcessManager_Add("Interface", InterfaceManager_Init, InterfaceManager_Heartbeat, (s32)HND(InterfaceManager_Render), 1);
+    ProcessManager_Add("Particles", ParticleManager_Init, ParticleManager_Heartbeat, (s32)HND(ParticleManager_Render), 0);
+    ProcessManager_Add("Shader", NULL, ShaderHolder_Heartbeat, 0, 0);
+    ProcessManager_Add("ThingManager", ThingManager_DARYL_Init, ThingManager_DARYL_Heartbeat, (s32)HND(ThingManager_DARYL_Render), 0);
+    ProcessManager_Add("LidHandler", LidHandler_Init, LidHandler_Heartbeat, 0, 1);
+    Gfx_FontManager_Init();
+    Gfx_SetEnviroMapMode(1);
+    CameraManager_Init();
+    ViewManager_Init();
+    PlayerManager_Init();
+    PlayerManager_NewHumanPlayer();
+    min.x = min.y = min.z = -500.0f;
+    max.x = max.y = max.z = 500.0f;
+    Grid_Init(&min, &max, 0x10, 0x10);
+    if (M2C_FIELD(GetCameraManager(), u8 *, 0x640) == 0) {
+        camera = CameraManager_GetNewCamera();
+    }
+    ViewManager_SetCamera(camera, 0);
+    GameSettings_GetMCP();
+    if (GameSettings_GetCodeVariable(0x12D, 0) == 4) {
+        GameSettings_SetCodeVariable(0x12D, 0, 0);
+    }
+    if (prevState == 0xC && GameSettings_GetCodeVariable(0x198, 0) != 0) {
+        prevState = 2;
+    }
+    switch (prevState) {
+    case 2:
+    case 11:
+        script = (s32 *)PTR(StateGameManager_GetProgScript(g_GameProgressionID));
+        g_GameProgressionState[0] = (s32)HND(script);
+        g_GameProgressionState[1] = 0;
+        g_GameProgressionState[3] = 0;
+        *(u8 *)&g_GameProgressionState[4] = 0;
+        g_GameProgressionState[5] = 0;
+        if (g_GameProgressionState[2] >= script[0]) {
+            g_GameProgressionState[2] = 0;
+        }
+        g_GameProgressionEndState[0] = 4;
+        g_GameProgressionEndState[1] = 0;
+        break;
+    case 5:
+        g_GameProgressionState[5] = 0;
+        if ((u32)g_GameProgressionState[0] == 0) {
+            return 1;
+        }
+        if (g_bRestartCurrentLevel) {
+            g_GameProgressionState[1] = 0;
+            g_GameProgressionState[3] = 0;
+        } else {
+            g_GameProgressionState[3] = 0;
+            g_GameProgressionState[1] = 2;
+        }
+        break;
+    case 3:
+        if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
+            StateManager_QueueChange(2);
+            return 1;
+        }
+        if ((u32)g_GameProgressionState[0] == 0) {
+            return 0;
+        }
+        switch (g_GameProgressionState[1]) {
+        case 0:
+        case 2:
+            g_GameProgressionState[3]++;
+            break;
+        case 1:
+            break;
+        }
+        break;
+    case 12:
+        g_GameProgressionState[1] = 1;
+        g_GameProgressionState[5] = 0;
+        break;
+    default:
+        return 0;
+    }
+    return 1;
+#undef g_GameProgressionEndState
+#undef g_GameProgressionState
+#undef g_bRestartCurrentLevel
 }
 
 s32 StateProgressionManager_Heartbeat(void) {
@@ -137,8 +242,8 @@ s32 StateProgressionManager_Heartbeat(void) {
         u8 pad[3];
         s32 worldState;
     } ProgState;
-    extern ProgState g_GameProgressionState;
-    extern u32 g_GameProgressionEndState[2];
+    #define g_GameProgressionState (*(ProgState *)(void *)&g_GameProgressionState)
+    #define g_GameProgressionEndState ((u32 *)(void *)&g_GameProgressionEndState)
     extern s8 g_bLoadingDemoLand;
     static s32 loadingInterfaceID;
     char buf[512];
@@ -201,7 +306,7 @@ s32 StateProgressionManager_Heartbeat(void) {
                 StateManager_QueueChange(3);
                 break;
             case 1:
-                if (!GETP(g_GameProgressionState.loaded)) {
+                if (!g_GameProgressionState.loaded) {
                     pack = GETP(GETP(seq->steps)[g_GameProgressionState.step].data);
                     GameSettings_GetMCP();
                     dataPack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(GETP(pack->name), 1, pack->id, 0), 1, 1);
@@ -212,7 +317,7 @@ s32 StateProgressionManager_Heartbeat(void) {
                     g_GameProgressionState.loaded = 1;
                 } else if (InterfaceManager_GetTotalActiveInterfaces() == 0) {
                     pack = GETP(GETP(seq->steps)[g_GameProgressionState.step].data);
-                    SETP(g_GameProgressionState.loaded, 0);
+                    g_GameProgressionState.loaded = 0;
                     g_GameProgressionState.step++;
                     FileStreaming_ReleaseDataPack(FileStreaming_GetPackID(GETP(pack->name), 1, pack->id), 1);
                     FileStreaming_HeartBeat();
@@ -230,7 +335,7 @@ s32 StateProgressionManager_Heartbeat(void) {
         }
         break;
     case 1:
-        if (GETP(g_GameProgressionState.script) != NULL && !GETP(g_GameProgressionState.loaded) && GETP(GETP(level->pack)->name) != NULL) {
+        if (GETP(g_GameProgressionState.script) != NULL && !g_GameProgressionState.loaded && GETP(GETP(level->pack)->name) != NULL) {
             ProcessManager_Release("XXXXXXX");
             DataPack_EnableLoadingSounds(0);
             id = FileStreaming_LoadDataPack(GETP(GETP(level->pack)->name), 1, GETP(level->pack)->id, 0);
@@ -244,21 +349,21 @@ s32 StateProgressionManager_Heartbeat(void) {
         ProcessManager_Render(1);
         ShowStats_EndScene();
         if (g_GameProgressionState.worldState != 7) {
-            g_GameProgressionState.worldState = LoadWorldProcess(world, GETP(g_GameProgressionState.loaded));
+            g_GameProgressionState.worldState = LoadWorldProcess(world, g_GameProgressionState.loaded);
             switch (g_GameProgressionState.worldState) {
             case 8:
                 g_GameProgressionState.worldState = 7;
                 break;
             case 7:
-                if (GETP(g_GameProgressionState.loaded)) {
+                if (g_GameProgressionState.loaded) {
                     InterfaceManager_EndInterface(loadingInterfaceID);
                 }
                 break;
             }
         } else if (g_GameProgressionState.worldState == 7 && InterfaceManager_GetTotalActiveInterfaces() == 0) {
-            if (GETP(g_GameProgressionState.loaded)) {
+            if (g_GameProgressionState.loaded) {
                 FileStreaming_ReleaseDataPack(FileStreaming_GetPackID(GETP(GETP(level->pack)->name), 1, GETP(level->pack)->id), 1);
-                SETP(g_GameProgressionState.loaded, 0);
+                g_GameProgressionState.loaded = 0;
             }
             DataPack_CloseFiles();
             StateManager_QueueChange(5);
@@ -266,10 +371,12 @@ s32 StateProgressionManager_Heartbeat(void) {
         break;
     }
     return 1;
+#undef g_GameProgressionEndState
+#undef g_GameProgressionState
 }
 
 s32 StateProgressionManager_Shutdown(void) {
-    extern M2C_UNK g_GameProgressionState;
+    #define g_GameProgressionState (*(M2C_UNK *)(void *)&g_GameProgressionState)
     u32 var_r31;
 
     PlayerManager_Release();
@@ -288,12 +395,13 @@ s32 StateProgressionManager_Shutdown(void) {
         } while (var_r31 < 0xBU);
     }
     return 1;
+#undef g_GameProgressionState
 }
 
 s32 ActionEndLevel(s32 *arg0)
 {
-    extern u8 g_bRestartCurrentLevel;
-    extern s32 g_GameProgressionEndState[2];
+    #define g_bRestartCurrentLevel (*(u8 *)(void *)&g_bRestartCurrentLevel)
+    #define g_GameProgressionEndState ((s32 *)(void *)&g_GameProgressionEndState)
 
     if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
         ExitStateGamePlay(0xC);
@@ -304,6 +412,8 @@ s32 ActionEndLevel(s32 *arg0)
         ExitStateGamePlay(0xB);
     }
     return 1;
+#undef g_GameProgressionEndState
+#undef g_bRestartCurrentLevel
 }
 
 s32 LoadWorldProcess(char *world, s8 loaded)

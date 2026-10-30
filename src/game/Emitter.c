@@ -59,7 +59,6 @@ typedef struct Emitter {
 
 u32 Emitter_InCameraRange(Emitter *emitter, f32 range);
 
-u32 Gfx_GetCameraPositions(Vector4 *positions);
 extern u8 g_CurrentViews;
 s32 Emitter_Init(u8 *emitter, u8 *data) {
     struct { Vector4 pos; u32 seq; u8 flag; } params __attribute__((aligned(16)));
@@ -103,7 +102,6 @@ s32 Emitter_Init(u8 *emitter, u8 *data) {
 s32 Emitter_Move(Emitter *emitter) {
     extern f32 g_fDeltaTimeMS;
     extern Vector4 g_zeroVector;
-    f32 MagnitudeVector(void *v);
     u32 dt;
 
     if (emitter->flags & 0x02000000) {

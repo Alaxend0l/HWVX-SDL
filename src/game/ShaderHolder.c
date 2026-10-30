@@ -1,33 +1,37 @@
 #include "common.h"
 
+extern u8 g_pShaderHolder[];  /* typed per function below */
 
 void ShaderHolder_Create(void) {
-    extern ShaderHolder *g_pShaderHolder;
+    #define g_pShaderHolder (*(ShaderHolder **)(void *)&g_pShaderHolder)
     if (g_pShaderHolder != NULL) {
         Deallocate(g_pShaderHolder);
     }
     g_pShaderHolder = Allocate(0x2008, 0, "");
     memset(g_pShaderHolder, 0, 0x2008);
     ShaderHolder_Init();
+#undef g_pShaderHolder
 }
 
 void ShaderHolder_Destroy(void) {
-    extern void *g_pShaderHolder;
+    #define g_pShaderHolder (*(void **)(void *)&g_pShaderHolder)
     if (g_pShaderHolder != NULL) {
         Deallocate(g_pShaderHolder);
         g_pShaderHolder = NULL;
     }
+#undef g_pShaderHolder
 }
 
 void ShaderHolder_Init(void) {
-    extern ShaderHolder *g_pShaderHolder;
+    #define g_pShaderHolder (*(ShaderHolder **)(void *)&g_pShaderHolder)
 
     g_pShaderHolder->numShaders = 0;
     g_pShaderHolder->numGX = 0;
+#undef g_pShaderHolder
 }
 
 s32 ShaderHolder_AddShader(ShaderDef *def) {
-    extern ShaderHolder *g_pShaderHolder;
+    #define g_pShaderHolder (*(ShaderHolder **)(void *)&g_pShaderHolder)
     u32 i;
     s32 slot = -1;
     u32 n;
@@ -54,10 +58,11 @@ s32 ShaderHolder_AddShader(ShaderDef *def) {
     ((Shader *)GETP(g_pShaderHolder->shaders[n]))->hasPointKey = def->numPointKeys > 1;
     ((Shader *)GETP(g_pShaderHolder->shaders[n]))->refCount = 1;
     return n;
+#undef g_pShaderHolder
 }
 
 void ShaderHolder_RemoveShader(void *id) {
-    extern ShaderHolder *g_pShaderHolder;
+    #define g_pShaderHolder (*(ShaderHolder **)(void *)&g_pShaderHolder)
     u32 i;
 
     if (g_pShaderHolder == NULL) {
@@ -72,10 +77,11 @@ void ShaderHolder_RemoveShader(void *id) {
             return;
         }
     }
+#undef g_pShaderHolder
 }
 
 void ShaderHolder_AddGX(void *gx, u32 index) {
-    extern ShaderHolder *g_pShaderHolder;
+    #define g_pShaderHolder (*(ShaderHolder **)(void *)&g_pShaderHolder)
     u32 i;
     u32 n;
 
@@ -90,10 +96,11 @@ void ShaderHolder_AddGX(void *gx, u32 index) {
     n = g_pShaderHolder->numGX++;
     SETP(g_pShaderHolder->gx[n].gx, gx);
     SETP(g_pShaderHolder->gx[n].shader, GETP(g_pShaderHolder->shaders[index]));
+#undef g_pShaderHolder
 }
 
 void ShaderHolder_RemoveGX(s32 gx) {
-    extern ShaderHolder *g_pShaderHolder;
+    #define g_pShaderHolder (*(ShaderHolder **)(void *)&g_pShaderHolder)
     u32 i;
 
     if (g_pShaderHolder == NULL) {
@@ -106,10 +113,11 @@ void ShaderHolder_RemoveGX(s32 gx) {
             return;
         }
     }
+#undef g_pShaderHolder
 }
 
 void ShaderHolder_Heartbeat(void) {
-    extern ShaderHolder *g_pShaderHolder;
+    #define g_pShaderHolder (*(ShaderHolder **)(void *)&g_pShaderHolder)
     extern f32 g_fDeltaTimeMS;
     u32 i;
     f32 dt;
@@ -148,5 +156,6 @@ void ShaderHolder_Heartbeat(void) {
             }
         }
     }
+#undef g_pShaderHolder
 }
 

@@ -27,7 +27,6 @@ static inline void Anim_AddKeyFrames(AnimKeyFrame *dst, AnimKeyFrame *src, u32 c
 /* Moves the body offset (centre of mass) to (x, y, z), shifting the car's
    position so the body stays where it is in the world. */
 static inline void CarA_SetBodyOffset(CarA *car, f32 x, f32 y, f32 z) {
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     Vector4 world __attribute__((aligned(16)));
     Vector4 delta __attribute__((aligned(16)));
 
@@ -47,8 +46,6 @@ static inline void CarA_SetBodyOffset(CarA *car, f32 x, f32 y, f32 z) {
 /* Angular velocity (CarA.localAxis) from angular momentum and the inverse
    body inertia tensor. */
 static inline void CarA_UpdateAngularVelocity(CarA *car) {
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     Vector4 local __attribute__((aligned(16)));
     Vector4 scaled __attribute__((aligned(16)));
 
@@ -193,6 +190,230 @@ void CarA_InitInverseBodyInertiaTensor(CarA *car) {
 
 void CarA_GetAngularVelocity(void *car, Vector4 *vel) {
     *vel = M2C_FIELD(car, Vector4 *, 0x410);
+}
+
+static inline void CarA_FitCubic(f32 *coef, f32 x0, f32 x1, f32 y0, f32 y1, f32 m0, f32 m1) {
+    f32 dx = x0 - x1;
+    f32 dy = y0 - y1;
+    f32 a;
+    f32 b;
+    f32 c;
+
+    a = ((m0 + m1) - 2.0f * dy / dx) / (dx * dx);
+    coef[0] = a;
+    b = (m0 - dy / dx) / dx - a * (x0 + x1);
+    coef[1] = b;
+    c = m0 - 3.0f * a * x0 * x0 - 2.0f * b * x0;
+    coef[2] = c;
+    coef[3] = y0 - a * x0 * x0 * x0 - b * x0 * x0 - c * x0;
+}
+
+s32 CarA_Init(void *arg0, void *arg1) {
+    extern Matrix4 g_identity;
+    extern Vector4 g_zeroVector;
+    extern void *g_pSourcePlayer;
+    struct SlaveParams {
+        Vector4 pos;
+        Vector4 quat;
+        PTR32(u8) info;
+    } params;
+    Vector4 pos;
+    u8 frames[0x800];
+    u32 sample;
+    f32 volume;
+    u8 *info;
+    u8 *hull;
+    u8 *snd;
+    u8 *rack;
+    u8 *slave;
+    s32 *skel;
+    u32 i;
+    u8 *init = arg1;
+    u8 *car = arg0;
+
+    Thing_Init(car, (s32)HND(init));
+    *(u32 *)(car + 0x94) = *(u32 *)(init + 0x3C);
+    SLOT_STORE((car + 0x3BC), SLOT_LOAD(u8 *, (init + 0x30)));
+    *(Vector4 *)(car + 0x40) = *(Vector4 *)init;
+    QuaternionToSubMatrix(init + 0x10, car + 0x10);
+    *(Vector4 *)(car + 0x50) = *(Vector4 *)(init + 0x10);
+    SLOT_STORE((car + 0x370), NULL);
+    info = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0));
+    switch (info[0x10]) {
+    case 0:
+        hull = SLOT_LOAD(u8 *, (info + 0x44));
+        *(Vector4 *)(car + 0x540) = *(Vector4 *)hull;
+        *(f32 *)(car + 0x70) = *(f32 *)(hull + 0x20);
+        *(s16 *)(car + 0x80) = 1;
+        break;
+    case 1:
+        hull = SLOT_LOAD(u8 *, (info + 0x48));
+        *(f32 *)(car + 0x540) = 9999.9f;
+        *(f32 *)(car + 0x544) = 9999.9f;
+        *(f32 *)(car + 0x548) = 9999.9f;
+        *(f32 *)(car + 0x70) = 9999.9f;
+        for (i = 0; i < *(u32 *)(hull + 0xC); i++) {
+            if (*(f32 *)(car + 0x540) > (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].x) {
+                *(f32 *)(car + 0x540) = (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].x;
+            }
+            if (*(f32 *)(car + 0x544) > (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].y) {
+                *(f32 *)(car + 0x544) = (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].y;
+            }
+            if (*(f32 *)(car + 0x548) > (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].z) {
+                *(f32 *)(car + 0x548) = (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].z;
+            }
+        }
+        SLOT_STORE((car + 0x370), OConvexHullHolder_Get(SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x48))));
+        *(f32 *)(car + 0x70) = 13.0f;
+        *(s16 *)(car + 0x80) = 4;
+        break;
+    }
+    *(u32 *)(car + 0x78) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x14);
+    *(f32 *)(car + 0x468) = *SLOT_LOAD(f32 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x7C));
+    *(s32 *)(car + 0x400) = -1;
+    *(u32 *)(car + 0x48C) = 0;
+    *(u32 *)(car + 0x330) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x78)) + 0x10);
+    *(f32 *)(car + 0x354) = 0.0f;
+    MotionState_Init(car + 0x330, 0);
+    car[0x490] = 0;
+    *(Vector4 *)(car + 0x520) = *SLOT_LOAD(Vector4 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80));
+    *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80)) + 0xC) = 1.0f;
+    skel = SLOT_LOAD(s32 *, (SLOT_LOAD(u8 *, (car + 0x330)) + 0x14));
+    CarA_Extract_Keyframes((CarA *)car, frames);
+    XformVec(car + 0x10, (Vector4 *)(car + 0x520), &pos);
+    TEST_AnimTraverseHeirarchyToMatricesWorld((Vector4 *)(car + 0x50), &pos, frames, *skel, SLOT_LOAD(void *, (car + 0x340)), 1.0f);
+    if (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xE0) >= 1) {
+        g_pSourcePlayer = SLOT_LOAD(void *, (car + 0x94));
+        MotionState_InitAllSlavesNow(HND(car + 0x330), SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xE4)) + 4, 0);
+        g_pSourcePlayer = NULL;
+    }
+    rack = ThingManagerList_GetByType(car + 0x344, 8);
+    if (rack != NULL) {
+        *(u32 *)(rack + 0x94) = *(u32 *)(car + 0x94);
+        for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x108); i++) {
+            u8 *item = (*(u8 ***)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x10C))[i];
+            if (item != NULL) {
+                WildCardRack_Add(rack, item, *(s32 *)(SLOT_LOAD(u8 *, (item + 0x30)) + 0x20));
+            }
+        }
+    }
+    for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xD0); i++) {
+        *(f32 *)(car + i * 0x30 + 0x1B0) = 0.0f;
+        *(u32 *)(car + i * 0x30 + 0x1B8) = 0;
+        *(u16 *)(car + i * 0x30 + 0x1B4) = 0;
+        *(u16 *)(car + i * 0x30 + 0x1B6) = 0;
+        car[i * 0x30 + 0x1C7] = 0;
+        *(f32 *)(car + i * 0x30 + 0x1C0) = 0.0f;
+        *(f32 *)(car + i * 0x30 + 0x1BC) = 0.0f;
+        *(Vector4 *)(car + i * 0x30 + 0x1D0) = g_zeroVector;
+    }
+    *(f32 *)(car + 0x458) = 0.0f;
+    *(f32 *)(car + 0x4E0) = 0.0f;
+    *(f32 *)(car + 0x4E4) = 0.0f;
+    car[0x4E8] = 1;
+    if (*(u8 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x11) == 2) {
+        CarA_FitCubic((f32 *)(car + 0x4C0), 0.0f, *(f32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x1C),
+                      *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80)) + 0x24), 0.0f, 1e-7f, 0.0f);
+    } else {
+        u8 *curve = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80));
+
+        CarA_FitCubic((f32 *)(car + 0x4C0), 0.0f, *(f32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x1C), *(f32 *)(curve + 0x24),
+                      *(f32 *)(curve + 0x28), *(f32 *)(curve + 0x2C), *(f32 *)(curve + 0x30));
+    }
+    sample = 0;
+    volume = 0.0f;
+    snd = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xDC)) + 0xC));
+    *(s32 *)(car + 0x4F0) = -1;
+    if (snd != NULL) {
+        *(s32 *)(car + 0x4F0) = SoundManager_CreateSource(1);
+        sample = *(u32 *)(snd + 0x14);
+        SoundSource_Set(*(s32 *)(car + 0x4F0), 8, &sample);
+        SoundSource_Set(*(s32 *)(car + 0x4F0), 5, car + 0x40);
+        if (snd[0] == 0) {
+            SoundSource_Set(*(s32 *)(car + 0x4F0), 2, SLOT_LOAD(u8 *, (snd + 0x18)));
+            SoundSource_Set(*(s32 *)(car + 0x4F0), 3, SLOT_LOAD(u8 *, (snd + 0x18)) + 4);
+        }
+        SoundSource_Play(*(s32 *)(car + 0x4F0));
+    }
+    *(s32 *)(car + 0x4F4) = -1;
+    if (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x11C)) != NULL && (snd = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x11C)) + 4))) != NULL) {
+        *(s32 *)(car + 0x4F4) = SoundManager_CreateSource(1);
+        sample = *(u32 *)(snd + 0x14);
+        SoundSource_Set(*(s32 *)(car + 0x4F4), 8, &sample);
+        SoundSource_Set(*(s32 *)(car + 0x4F4), 5, car + 0x40);
+        if (snd[0] == 0) {
+            SoundSource_Set(*(s32 *)(car + 0x4F4), 2, SLOT_LOAD(u8 *, (snd + 0x18)));
+            SoundSource_Set(*(s32 *)(car + 0x4F4), 3, SLOT_LOAD(u8 *, (snd + 0x18)) + 4);
+        }
+        SoundSource_Play(*(s32 *)(car + 0x4F4));
+    }
+    snd = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x60));
+    *(s32 *)(car + 0x4F8) = -1;
+    if (snd != NULL) {
+        *(s32 *)(car + 0x4F8) = SoundManager_CreateSource(1);
+        SoundSource_Set(*(s32 *)(car + 0x4F8), 5, car + 0x40);
+        SoundSource_Set(*(s32 *)(car + 0x4F8), 0, &volume);
+        if (*SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x60)) == 0) {
+            SoundSource_Set(*(s32 *)(car + 0x4F8), 2, SLOT_LOAD(u8 *, (snd + 0x18)));
+            SoundSource_Set(*(s32 *)(car + 0x4F8), 3, SLOT_LOAD(u8 *, (snd + 0x18)) + 4);
+        }
+        SoundSource_Play(*(s32 *)(car + 0x4F8));
+    }
+    *(s32 *)(car + 0x550) = -1;
+    *(Vector4 *)(car + 0x3A0) = g_zeroVector;
+    *(Vector4 *)(car + 0x390) = *(Vector4 *)(car + 0x3A0);
+    *(u32 *)(car + 0x500) = 0;
+    *(u32 *)(car + 0x374) = 0;
+    *(u32 *)(car + 0x460) = 0;
+    *(u32 *)(car + 0x45C) = 0;
+    *(u32 *)(car + 0x464) = 0;
+    *(u32 *)(car + 0x404) = 0;
+    *(Matrix4 *)(car + 0x3C0) = g_identity;
+    *(f32 *)(car + 0x508) = 0.0f;
+    *(u32 *)(car + 0x4A4) = 0;
+    *(u32 *)(car + 0x494) = 0;
+    *(u32 *)(car + 0x498) = 0;
+    *(u32 *)(car + 0x49C) = 0;
+    *(u32 *)(car + 0x4A0) = 0;
+    *(f32 *)(car + 0x4B0) = 0.0f;
+    *(f32 *)(car + 0x4B4) = 0.0f;
+    *(f32 *)(car + 0x4B8) = 0.0f;
+    car[0x491] = 0;
+    *(s32 *)(car + 0x450) = 99999;
+    *(s32 *)(car + 0x46C) = 10001;
+    *(s32 *)(car + 0x470) = 10001;
+    *(s32 *)(car + 0x474) = 10001;
+    *(s32 *)(car + 0x478) = 10001;
+    *(s32 *)(car + 0x47C) = 10001;
+    *(s32 *)(car + 0x480) = 10001;
+    *(s32 *)(car + 0x484) = 10001;
+    *(s32 *)(car + 0x488) = 10001;
+    *(u32 *)(car + 0x504) = 0;
+    *(f32 *)(car + 0x50C) = 0.0f;
+    car[0x15D] = 1;
+    *(f32 *)(car + 0x554) = 0.0f;
+    CarA_InitInverseBodyInertiaTensor(car);
+    *(Vector4 *)(car + 0x380) = g_zeroVector;
+    *(Vector4 *)(car + 0x410) = g_zeroVector;
+    *(u32 *)(car + 0x454) = 0;
+    *(u32 *)(car + 0x3B4) = 0;
+    *(s32 *)(car + 0x3B0) = -1;
+    *(u32 *)(car + 0x74) |= 4;
+    *(u32 *)(car + 0x74) |= 0x80;
+    *(u32 *)(car + 0x568) = 0;
+    *(u32 *)(car + 0x55C) = 0;
+    Thing_AddToGrid(car, 0);
+    for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x100); i++) {
+        params.quat = params.pos = g_zeroVector;
+        SETP(params.info, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x104)) + i * 0x50);
+        if (GETP(params.info) != NULL && *(u32 *)(GETP(params.info) + 0x3C) != 0) {
+            slave = ThingManager_DARYL_CreateSlave(0xD, &params, *(u16 *)(GETP(params.info) + 0x32));
+            *(u32 *)(slave + 0x94) = *(u32 *)(car + 0x94);
+            ThingManagerList_Append(car + 0x344, slave);
+        }
+    }
+    *(f32 *)(car + 0x4FC) = 1.0f;
+    return 1;
 }
 
 void CarA_Release(u8 *car) {
@@ -414,8 +635,6 @@ static void CarA_ApplyWheelLoads(void *thing) {
 }
 
 void CarA_ProcessImpulse(void *thing, Vector4 *normal, Vector4 *pos, Vector4 *pointVel, f32 restitution) {
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     CarA *car = thing;
     Vector4 impulse __attribute__((aligned(16)));
     Vector4 r __attribute__((aligned(16)));
@@ -484,7 +703,6 @@ void CarA_ComputeForces(CarA *car) {
         u8 pad2C[0x24];
     } RayHit;
     extern Vector4 g_zeroVector;
-    void XformVec(void *mtx, void *in, Vector4 *out);
     RayHit hit __attribute__((aligned(16)));
     f32 worldPos[4];
     f32 down[4];
@@ -774,9 +992,6 @@ s32 CarA_Move(void *thing) {
     } HealthSlave;
     extern Matrix4 g_identity;
     extern void *g_pSourcePlayer;
-    s8 Thing_CollideWithTeleporters(void *thing);
-    void XformVec(void *mtx, Vector4 *in, Vector4 *out);
-    void MotionState_Heartbeat(MotionState *state, Matrix4 *mtx, void *thing);
     CarA *car = thing;
     HealthSlave *slave;
     u32 *numBones;
@@ -890,7 +1105,6 @@ void CarA_DrawReflection(void *thing) {
         u8 pad10[4];
         PTR32(s32) skel;
     } CarModel;
-    void CarA_Extract_Keyframes(CarA *car, void *frames, void *state);
     Matrix4 matrices[64];
     u8 frames[0x800];
     u8 frames2[0x800];
@@ -910,7 +1124,7 @@ void CarA_DrawReflection(void *thing) {
         SETP(car->motionState.animMatrices, matrices);
         {
             s32 *skel = GETP(((CarModel *)GETP(car->motionState.model))->skel);
-            CarA_Extract_Keyframes(car, frames, GETP(car->motionState.model));
+            CarA_Extract_Keyframes(car, frames);
             XformVec(&car->worldMatrix, &car->bodyOffset, &pos);
             TEST_AnimTraverseHeirarchyToMatricesWorld(&car->animRefPos, &pos, frames, *skel, matrices, 1.0f);
         }
@@ -956,7 +1170,7 @@ void CarA_DrawReflection(void *thing) {
         {
             u32 i;
             s32 *skel = GETP(((CarModel *)GETP(car->motionState.model))->skel);
-            CarA_Extract_Keyframes(car, frames2, GETP(car->motionState.model));
+            CarA_Extract_Keyframes(car, frames2);
             Gfx_AnimTraverseHeirarchyToMatrices(frames2, *skel, matrices);
             mtx.v[1].x *= -1.0f;
             mtx.v[1].y *= -1.0f;
@@ -1036,7 +1250,6 @@ void CarA_DrawScript(u8 *car) {
         u32 count;
         PTR32(CarPart) parts;
     } CarPartList;
-    void Gfx_DrawAnimGeometryAux(void *geom, void *mtx, s32 skel, s32 arg3);
     Matrix4 *matrices;
     u32 i;
     s32 *skel;
@@ -1082,11 +1295,11 @@ void CarA_DrawScript(u8 *car) {
         }
     }
 }
+extern u8 g_pNoRayCollideThing[];  /* typed per function below */
 
 void CarA_Draw(u8 *car)
 {
-    void XformVec(void *, Vector4 *, Vector4 *);
-    extern void *g_pNoRayCollideThing;
+    #define g_pNoRayCollideThing (*(void **)(void *)&g_pNoRayCollideThing)
     Matrix4 mtx __attribute__((aligned(16)));
     u8 *p2;
 
@@ -1108,6 +1321,7 @@ void CarA_Draw(u8 *car)
     g_pNoRayCollideThing = car;
     MotionState_DrawSlaves(car + 0x330, 0);
     g_pNoRayCollideThing = NULL;
+#undef g_pNoRayCollideThing
 }
 
 f32 CarA_GetMass(u8 *car)
@@ -1132,8 +1346,7 @@ void CarA_DynamicRotation(u8 *car, f32 dt) {
         PTR32(u8) surface;
         u8 pad2C[0x24];
     } RayHit;
-    extern u8 *g_pNoRayCollideThing;
-    f32 MagnitudeVector(Vector4 *v);
+    #define g_pNoRayCollideThing (*(u8 **)(void *)&g_pNoRayCollideThing)
     OBox obox;
     RayHit hit;
     Matrix4 mtx;
@@ -1201,6 +1414,7 @@ void CarA_DynamicRotation(u8 *car, f32 dt) {
     case 1:
         break;
     }
+#undef g_pNoRayCollideThing
 }
 
 void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse) {
@@ -1236,7 +1450,6 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
         u8 pad3C[4];
     } SlaveParams;
     extern Vector4 g_zeroVector;
-    void XformVec(void *mtx, void *in, Vector4 *out);
     PartParams partParams;
     DebrisParams debrisParams;
     SlaveParams slaveParams;
@@ -1541,12 +1754,6 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     extern u8 g_destructibleVTable[];
     extern u8 g_physicalObjectVTable[];
     extern Vector4 g_zeroVector;
-    f32 MagnitudeVector(Vector4 *v);
-    void ProjectVectorToNormal(void *normal, void *v);
-    void XformVec(void *mtx, void *in, Vector4 *out);
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    f32 Gfx_GetMinCameraDistSquared(Vector4 *pos);
     CollideInfo *coll = collision;
     CarA *car = thing;
     SpawnParams sp;
@@ -2001,8 +2208,6 @@ s32 CarA_GetSurfaceScript(u8 *car)
 }
 
 void CarA_GetCameraOrientationInfo(CarA *car, u32 index, void *out) {
-    void Thing_GetCameraOrientationInfo(void *thing, u32 index, void *out);
-    void XformVec(void *mtx, void *in, Vector4 *out);
     typedef struct CameraOrientationInfo {
         u8 pad00[0x30];
         Vector4 up;
@@ -2064,7 +2269,6 @@ s32 CarA_GetNearestNavPoint(CarA *car) {
 }
 
 void CarA_CollideWithRay(CarA *car, void *start, void *end, struct RayHit { u8 pad0[0x30]; Vector4 normal; } *hit, f32 maxDist) {
-    void XformVec(void *mtx, void *in, Vector4 *out);
     Matrix4 local;
     f32 dist;
 
@@ -2076,8 +2280,217 @@ void CarA_CollideWithRay(CarA *car, void *start, void *end, struct RayHit { u8 p
     }
 }
 
-void CarA_ProcessItemPickup()
-{
+
+s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
+    typedef struct PickupDef {
+        u8 type;
+        u8 pad1;
+        u16 value;
+        u8 pad4[0x10 - 0x4];
+        f32 height;
+        u8 pad14[0x20 - 0x14];
+        u32 id;
+    } PickupDef;
+    typedef struct PickupSpawner {
+        u8 pad0[0x14];
+        s32 respawnTime;
+        s32 timer;
+    } PickupSpawner;
+    typedef struct PickupItem {
+        Vector4 velocity;
+        Matrix4 mtx;
+        Vector4 quat;
+        u8 pad60[0x74 - 0x60];
+        u32 flags;
+        u8 pad78[0x82 - 0x78];
+        u8 bone;
+        u8 unk83;
+        PTR32(void) gridObj;
+        u8 pad88[0x90 - 0x88];
+        PTR32(void) tileData;
+        PTR32(Player) player;
+        u8 pad98[0xC0 - 0x98];
+        PTR32(PickupDef) def;
+        u8 padC4[0xCE - 0xC4];
+        s16 count;
+        PTR32(PickupSpawner) spawner;
+    } PickupItem;
+    typedef struct SlotAnim {
+        u8 pad0[0x1E];
+        u8 loop;
+        u8 pad1F[0x24 - 0x1F];
+        PTR32(f32) times;
+        PTR32(f32) loopTimes;
+    } SlotAnim;
+    typedef struct SlotData {
+        u8 pad0[0x28];
+        s32 max;
+    } SlotData;
+    typedef struct SlotThing {
+        u8 pad0[0x30];
+        PTR32(SlotData) data;
+    } SlotThing;
+    typedef struct RackSlot {
+        PTR32(SlotAnim) anim;
+        u8 pad4[0x1C - 0x4];
+        u8 mode;
+        u8 state;
+        u8 pad1E[0x20 - 0x1E];
+        f32 time;
+        u8 pad24[0x40 - 0x24];
+        s16 count;
+        u8 pad42[0x44 - 0x42];
+        f32 scale;
+        u8 pad48[0x4C - 0x48];
+        PTR32(SlotThing) thing;
+    } RackSlot;
+    typedef struct PickupRack {
+        u8 pad0[0x40];
+        Vector4 pos;
+        u8 pad50[0x74 - 0x50];
+        u32 flags;
+        u8 pad78[0x82 - 0x78];
+        u8 bone;
+        u8 pad83[0xB0 - 0x83];
+        RackSlot slots[12];
+        u8 current;
+    } PickupRack;
+    extern Vector4 g_zeroVector;
+    extern char stunt_msg_buffer[];
+    extern char *g_stuntLossString;
+    Vector4 pos __attribute__((aligned(16)));
+    u8 current;
+    PickupRack *rack;
+    s8 picked;
+    PickupRack *wcRack;
+    u32 points;
+    PickupItem *item = thing;
+    u32 i;
+    s16 ammo;
+
+    picked = 0;
+    Trigger_ItemPickedUp(car, item);
+    car->pickupId = GETP(item->def)->id;
+    switch (GETP(item->def)->type) {
+    case 1:
+    case 2:
+    case 3:
+    case 6:
+        rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
+        if (rack != NULL) {
+            WildCardRack_Add(rack, GETP(item->def), item->count);
+            Item_Release(item);
+            if (GETP(item->spawner) != NULL) {
+                GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+            }
+            picked = 1;
+        }
+        break;
+    case 7:
+        if (ThingManagerList_GetByType(&car->motionState.slaves, 4) == NULL) {
+            rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
+            pos.x = rack->pos.x;
+            pos.y = GETP(GETP(car->vehicleIface)->engine)->itemHeight + (rack->pos.y + GETP(item->def)->height);
+            pos.z = rack->pos.z;
+            pos.w = 1.0f;
+            ThingManagerList_Remove(&g_thingManager_DARYL.activeList, item);
+            ThingManagerList_Append(&car->motionState.slaves, item);
+            item->bone = rack->bone;
+            item->unk83 = 0xEF;
+            item->quat.w = 1.0f;
+            item->quat.x = 0.0f;
+            item->quat.y = 0.0f;
+            item->quat.z = 0.0f;
+            QuaternionToSubMatrix(&item->quat, &item->mtx);
+            item->mtx.v[3] = pos;
+            item->mtx.v[3].w = 1.0f;
+            item->velocity = g_zeroVector;
+            Grid_FreeObject(GETP(item->gridObj));
+            SETP(item->player, GETP(car->player));
+            SETP(item->gridObj, NULL);
+            picked = 1;
+            SETP(item->tileData, GETP(item->spawner));
+            rack->flags |= 0x400200;
+            item->flags |= 8;
+        }
+        break;
+    case 8:
+        if (GETP(car->vehicleIface)->numPickupSlaves > GETP(item->def)->value) {
+            MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->pickupSlaves) + GETP(item->def)->value * 12 + 4,
+                                         GETP(item->def)->value);
+        }
+        Item_Release(item);
+        if (GETP(item->spawner) != NULL) {
+            GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+        }
+        picked = 1;
+        break;
+    case 9:
+        car->pickupCount++;
+        Item_Release(item);
+        if (GETP(item->spawner) != NULL) {
+            GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+        }
+        picked = 1;
+        break;
+    case 10:
+        if (Player_IsHuman(GETP(car->player))) {
+            Item_Release(item);
+            if (GETP(item->spawner) != NULL) {
+                GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+            }
+            picked = 1;
+        }
+        break;
+    case 11:
+        if (GETP(car->player) != NULL) {
+            if (Player_IsHuman(GETP(car->player))) {
+                wcRack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
+                current = wcRack->current;
+                points = GETP(item->def)->value;
+                GETP(car->player)->stuntScored = 1;
+                GETP(car->player)->stuntPoints += points;
+                if (GETP(car->player)->stuntPoints > 99999) {
+                    GETP(car->player)->stuntPoints = 99999;
+                }
+                sprintf(stunt_msg_buffer, "Points +%d", points);
+                SETP(car->stuntPopup, &g_stuntLossString);
+                car->turboTime += (s32)(points * GETP(GETP(car->vehicleIface)->stunt)->turboPerPoint);
+                if (car->turboTime > 30000) {
+                    car->turboTime = 30000;
+                }
+                ammo = points;
+                for (i = 0; i < 12; i++) {
+                    RackSlot *slot = &wcRack->slots[i];
+
+                    if (GETP(slot->thing) != NULL) {
+                        if (slot->count < (s16)GETP(GETP(slot->thing)->data)->max) {
+                            if (GETP(slot->anim)->loop) {
+                                slot->time = GETP(GETP(slot->anim)->loopTimes)[0];
+                                slot->mode = 2;
+                            } else {
+                                slot->time = GETP(GETP(slot->anim)->times)[1];
+                            }
+                            slot->state = 1;
+                        }
+                        slot->count += ammo;
+                        if (slot->count > (s16)GETP(GETP(slot->thing)->data)->max) {
+                            slot->count = GETP(GETP(slot->thing)->data)->max;
+                        }
+                    }
+                }
+                wcRack->current = current;
+                wcRack->slots[current].scale = 1.0f;
+            }
+            Item_Release(item);
+            if (GETP(item->spawner) != NULL) {
+                GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+            }
+            picked = 1;
+        }
+        break;
+    }
+    return picked;
 }
 
 s32 CarA_Invalidate(void *arg0, u32 arg1, u32 arg2) {

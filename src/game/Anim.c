@@ -1,5 +1,8 @@
 #include "common.h"
 
+/* The drafts moved in from src/auto use the dump's Vector; same layout. */
+typedef Vector4 Vector;
+
 typedef struct Anim {
     u8 pad0[8];
     f32 minTime;
@@ -283,8 +286,103 @@ void AnimExtractKeyFrame_CompoundHybrid(Anim *anim, AnimBone *outp, f32 time) {
     }
 }
 
+static inline AnimTrack *AnimTrack_Eval3s(AnimTrack *track, f32 time, f32 *out) {
+    s32 numKeys = track->numKeys;
+    f32 *times = GETP(track->times);
+    u32 step = numKeys;
+    s32 key = 1;
 
-void AnimExtractKeyFrame_Hybrid(Anim *anim, AnimBone *outp, f32 time);
+    while (1) {
+        step = (step + 1) >> 1;
+        if (time > times[key]) {
+            key += step;
+            if (key >= numKeys) {
+                key = numKeys - 1;
+                break;
+            }
+        } else if (time <= times[key - 1]) {
+            key -= step;
+        } else {
+            break;
+        }
+        if (key <= 0) {
+            key = 0;
+            break;
+        }
+    }
+    out[0] = time * (time * (time * track->coefs[key][0] + track->coefs[key][1]) + track->coefs[key][2]) + track->coefs[key][3];
+    out[1] = time * (time * (time * track->coefs[key][4] + track->coefs[key][5]) + track->coefs[key][6]) + track->coefs[key][7];
+    out[2] = time * (time * (time * track->coefs[key][8] + track->coefs[key][9]) + track->coefs[key][10]) + track->coefs[key][11];
+    return GETP(track->next);
+}
+
+void AnimExtractKeyFrame_Hybrid(void *animp, void *outp, f32 time) {
+    typedef struct {
+        u8 pad0[8];
+        f32 minTime;
+        f32 maxTime;
+        u32 numBones;
+        u32 numKeysPerFrame;
+        PTR32(u32) mask;
+        PTR32(u16) flags;
+        PTR32(f32) times;
+        PTR32(AnimTrack) data;
+    } Anim;
+    typedef struct {
+        Vector rot;
+        f32 pos[3];
+        u32 info;
+    } Bone;
+    u32 i;
+    u16 *flags;
+    Bone *out;
+    u32 bit;
+    AnimTrack *track;
+    Anim *anim;
+
+    anim = (Anim *)animp;
+    out = (Bone *)outp;
+    flags = GETP(anim->flags);
+    track = GETP(anim->data);
+    bit = 1;
+    if (time < anim->minTime) {
+        time = anim->minTime;
+    }
+    if (time > anim->maxTime) {
+        time = anim->maxTime;
+    }
+    for (i = 0; i < anim->numBones; i++) {
+        if (*flags & 1 | 2 | 4) {
+            if (track->type == 3) {
+                track = AnimTrack_Eval3s(track, time, out->pos);
+            } else {
+                out->pos[0] = track->value[0];
+                out->pos[1] = track->value[1];
+                out->pos[2] = track->value[2];
+                track++;
+            }
+            bit++;
+            if (bit >= 32) {
+                bit &= 31;
+            }
+        }
+        if (*flags++ & 0x10 | 0x20 | 0x40 | 0x8) {
+            if (track->type == 3) {
+                track = AnimTrack_Eval4(track, time, (f32 *)&out->rot);
+            } else {
+                CopyVector(&out->rot, (Vector *)track->value);
+                track++;
+            }
+            bit++;
+            if (bit >= 32) {
+                bit &= 31;
+            }
+        }
+        out++;
+    }
+}
+
+
 
 /* r3 = anim, f1 = time, r4 = output bones; forwarded unchanged. */
 void AnimExtractKeyFrame(void *anim, f32 time, void *out) {
@@ -300,5 +398,59 @@ void AnimExtractKeyFrame(void *anim, f32 time, void *out) {
         AnimExtractKeyFrame_Hybrid(anim, out, time);
     } else {
         AnimExtractKeyFrame_NonCompound(anim, out, time);
+    }
+}
+
+void AnimTraverseHeirarchyToMatrices(AnimBone *bones, u32 count, f32 *matrices) {
+    Vector posStack[64] __attribute__((aligned(16)));
+    Vector rotStack[64];
+    Vector rot;
+    Vector q;
+    Vector pos;
+    f32 *mtx;
+    u32 i;
+    Vector *posSp;
+    Vector *rotSp;
+    AnimBone *bone;
+    u32 n;
+    Vector *p;
+    AnimBone *child;
+    u32 j;
+
+    mtx = matrices;
+    bone = bones;
+    posSp = posStack;
+    rotSp = rotStack;
+    rot.w = 1.0f;
+    rot.x = rot.y = rot.z = 0.0f;
+    memcpy(&pos, bones->pos, 12);
+    for (i = 0; i < count; i++) {
+        QuaternionMult(&rot, (Vector *)&bone->rot, &q);
+        rot = q;
+        QuaternionToSubMatrix(&q, mtx);
+        mtx[12] = pos.x;
+        mtx[13] = pos.y;
+        mtx[14] = pos.z;
+        if (bone->numChildren != 0) {
+            child = &bone[1];
+            n = bone->numChildren - 1;
+            XformVec((Vector *)mtx, (Vector *)child->pos, &pos);
+            if (n != 0) {
+                posSp += n;
+                p = posSp;
+                child = &child[child->next];
+                *rotSp++ = q;
+                for (j = 0; j < n; j++) {
+                    XformVec((Vector *)mtx, (Vector *)child->pos, --p);
+                    child = &child[child->next];
+                }
+            }
+        } else {
+            pos = *--posSp;
+            rotSp -= bone->pop + 1;
+            rot = *rotSp++;
+        }
+        bone++;
+        mtx += 16;
     }
 }

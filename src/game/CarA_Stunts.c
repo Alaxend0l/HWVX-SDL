@@ -165,9 +165,6 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
         u8 pad40[0x10];
     } WheelHit;
     extern u32 g_iLastDeltaTimeMS;
-    void XformVec(void *mtx, Vector4 *in, Vector4 *out);
-    void ProjectVectorToNormal(void *n, void *v);
-    f32 MagnitudeVector(void *v);
     Drone *drone = obj;
     WheelHit hit __attribute__((aligned(16)));
     Vector4 dir __attribute__((aligned(16)));
@@ -328,8 +325,6 @@ s32 Drone_PreMove(Drone *drone) {
 
 void Drone_DynamicCollideImpact(u8 *drone, u8 *collision, f32 force)
 {
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     Vector4 normal;
     Vector4 pos;
     Vector4 impulse;

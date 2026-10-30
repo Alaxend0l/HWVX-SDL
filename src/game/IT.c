@@ -66,20 +66,19 @@ static u8 *g_pIns[100];
 static u8 *g_pSmp[100];
 static u8 *g_pPtrn[200];
 
-void SetVoiceState_(IT_VOICE *voice, s32 state);
 void StopActive(IT_TRACK *trk);
-void StartVoice_(void *voice);
 void *GetVoice_(u8 type, u32 priority);
-s32 PlayNote(IT_TRACK *trk);
-void SetTrackVol(IT_TRACK *trk);
 void SetTrackPan(IT_TRACK *trk);
+void SetTrackVol(IT_TRACK *trk);
+s32 PlayNote(IT_TRACK *trk);
 
 
 
+extern u8 g_pHdr[];  /* typed per function below */
 
 s32 AudioIT_Create(void)
 {
-    extern void *g_pHdr;
+    #define g_pHdr (*(void **)(void *)&g_pHdr)
     u8 i;
 
     memset(g_song, 0, sizeof(g_song));
@@ -90,12 +89,13 @@ s32 AudioIT_Create(void)
     }
     g_pHdr = NULL;
     return 1;
+#undef g_pHdr
 }
 
 
 s32 AudioIT_Init(void)
 {
-    extern void *g_pHdr;
+    #define g_pHdr (*(void **)(void *)&g_pHdr)
     u32 i;
     IT_TRACK *trk;
 
@@ -111,6 +111,7 @@ s32 AudioIT_Init(void)
         SETP(trk->active, NULL);
     }
     return 1;
+#undef g_pHdr
 }
 
 
@@ -121,12 +122,11 @@ void AudioIT_Destroy(s32 unused) {
 
 void CreateIT(u8 *data, u32 arg1)
 {
-    extern u8 *g_pHdr;
+    #define g_pHdr (*(u8 **)(void *)&g_pHdr)
     extern u8 *g_pOrder;
     extern u8 g_musicTitle[0x20];
     extern void (*DestroySongVoice)(IT_VOICE *voice);
     extern s32 __OSCurrHeap;
-    void CreateIT_(u8 *hdr, u8 **smp);
     void DestroyITVoice(IT_VOICE *voice);
     s32 i;
     u32 *insOff;
@@ -164,13 +164,14 @@ void CreateIT(u8 *data, u32 arg1)
     memcpy(g_musicTitle, g_pHdr + 4, 0x1A);
     g_musicTitle[0x1A] = 0;
     DestroySongVoice = DestroyITVoice;
+#undef g_pHdr
 }
 
 
 
 void DestroyIT(void)
 {
-    extern void *g_pHdr;
+    #define g_pHdr (*(void **)(void *)&g_pHdr)
     extern u8 g_musicTitle[0x20];
 
     if (g_pHdr == NULL)
@@ -181,13 +182,14 @@ void DestroyIT(void)
     DestroyIT_(g_pHdr);
     g_pHdr = NULL;
     memset(g_musicTitle, 0, 0x20);
+#undef g_pHdr
 }
 
 
 
 s32 SetITState(s32 state)
 {
-    extern u8 *g_pHdr;
+    #define g_pHdr (*(u8 **)(void *)&g_pHdr)
     extern s32 g_musicState;
     extern void (*SongUpdate)(u32 ticks);
     extern u32 g_trkOn;
@@ -294,13 +296,13 @@ s32 SetITState(s32 state)
     old = g_musicState;
     g_musicState = state;
     return old;
+#undef g_pHdr
 }
 
 
 
 void SetITVol(void)
 {
-    u16 GetITGVol_(s32 *song, IT_TRACK *trk);
     IT_TRACK *trk;
     IT_VOICE *voice;
     s32 i;
@@ -324,7 +326,6 @@ void SetITVol(void)
 void SetITPitch(s32 pitch)
 {
     extern IT_VOICE g_voice[0x20];
-    void SetVoiceRate_(IT_VOICE *voice);
     IT_VOICE *voice;
     s32 i;
 
@@ -360,7 +361,7 @@ void SetITTempo(u32 tempo)
 
 void SetITOrder(u8 order, s8 deferred)
 {
-    extern void *g_pHdr;
+    #define g_pHdr (*(void **)(void *)&g_pHdr)
 
     if (g_pHdr == NULL)
     {
@@ -374,12 +375,12 @@ void SetITOrder(u8 order, s8 deferred)
             g_song[4] = 1;
         }
     }
+#undef g_pHdr
 }
 
 
 void SetITTrackPriority(s32 track, s32 priority)
 {
-    void SetVoicePriority_(void *voice);
     void *voice;
     void *next;
 
@@ -462,7 +463,6 @@ void SetITTrackOff(u32 mask, s8 deferred)
 
 void SetITTrackVol(u32 track, s32 vol)
 {
-    u16 GetITGVol_(s32 *song, IT_TRACK *trk);
     IT_VOICE *voice;
     s32 gvol;
 
@@ -483,11 +483,8 @@ void ProcessIT(u32 ticks)
     extern u8 *g_pOrder;
     extern u32 g_trkOff;
     extern u32 g_trkOn;
-    extern u8 *g_pHdr;
+    #define g_pHdr (*(u8 **)(void *)&g_pHdr)
     extern const s32 g_amigaNote[120];
-    s8 SetVoiceRate_(IT_VOICE *voice);
-    void SetVoiceOffset_(IT_VOICE *voice, u32 offset);
-    s16 GetITGVol_(s32 *song, IT_TRACK *trk);
     static u8 *pPtrn;
     s32 i;
     IT_TRACK *trk;
@@ -978,6 +975,7 @@ void ProcessIT(u32 ticks)
             SetVoiceVol_(GETP(trk->active), trk->gvol);
         }
     }
+#undef g_pHdr
 }
 
 

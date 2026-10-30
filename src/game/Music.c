@@ -24,12 +24,8 @@ s32 (*SetMusicTrackOn)(void);
 s32 (*SetMusicTrackOff)(void);
 s32 (*SetMusicTrackVol)(void);
 
-extern s32 DestroyMIDI(), SetMIDIState(), SetMIDIVol(), SetMIDIPitch(),
-    SetMIDITempo(), SetMIDIMarker(), SetMIDITrackPriority(), SetMIDITrackOn(),
-    SetMIDITrackOff(), SetMIDITrackVol();
-extern s32 DestroyIT(), SetITState(), SetITVol(), SetITPitch(), SetITTempo(),
-    SetITOrder(), SetITTrackPriority(), SetITTrackOn(), SetITTrackOff(),
-    SetITTrackVol();
+/* MIDI.c / IT.c entry points come from game_protos.h; the table above
+   stores them as s32 (*)(void), as the original did. */
 
 
 s32 AudioMusic_Create(void) {

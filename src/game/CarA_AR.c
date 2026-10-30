@@ -32,7 +32,6 @@ s32 Pod_Move(u8 *pod) {
         u16 counts[7];
     } PodPlayer;
     extern Matrix4 g_identity;
-    void MotionState_Heartbeat(void *state, void *arg1, void *thing);
     u8 *creature;
     u8 *next;
     Vector4 pos __attribute__((aligned(16)));

@@ -18,8 +18,6 @@ typedef struct StateManager {
 StateManager *g_pStateManager;
 
 void StateManager_Create(void) {
-    s8 StateProgressionManager_Init(s32 prev);
-    s8 StateGameManager_Init(s32 prev);
     extern StateManager *g_pStateManager;
     s32 i;
 

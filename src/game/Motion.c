@@ -24,7 +24,6 @@ void Motion_Release(s32 arg0) {
 }
 
 s32 Motion_Move(u8 *motion) {
-    void MotionState_Heartbeat(void *state, void *arg1, void *thing);
     MotionState_BuildMatricesWorld(motion + 0x50, motion + 0x40, motion + 0xB0, 1.0f);
     MotionState_Heartbeat(motion + 0xB0, motion + 0x10, motion);
     return 1;
@@ -50,8 +49,6 @@ s32 Motion_Invalidate(void *arg0, u32 arg1, u32 arg2) {
 }
 u8 g_aMatStack[4096];
 
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransform();
 
 void *g_motionVTable[] = {
     Motion_Init,

@@ -37,7 +37,6 @@ typedef struct Corona {
 
 Corona g_aCorona[64];
 extern u32 g_iDeltaTimeMS;
-void DistanceXYZ(void *a, void *b, f32 *dist);
 
 void CoronaHolder_Init(void) {
     g_coronaRayTest = 0;

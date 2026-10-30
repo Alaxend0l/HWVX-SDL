@@ -60,8 +60,6 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
         PTR32(ABox) box;
         PTR32(Mesh) mesh;
     } DestructibleInfo;
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     u8 hit[0x50];
     ABox box;
     Vector4 scaled __attribute__((aligned(16)));
@@ -144,8 +142,6 @@ void Mover_Init(void) {
 void PhysicalObject_IntegrateNonLateral(u8 *obj) {
     extern Vector4 g_zeroVector;
     extern f32 g_fDeltaTimeSec;
-    void XformVecOrientation(void *mtx, f32 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, f32 *out);
     f32 scaled[4];
     f32 local[4];
     f32 invMass;
@@ -169,8 +165,6 @@ void PhysicalObject_IntegrateNonLateral(u8 *obj) {
 s32 PhysicalObject_PreMove(u8 *obj) {
     extern Vector4 g_zeroVector;
     extern f32 g_fDeltaTimeSec;
-    void XformVecOrientation(void *mtx, f32 *in, f32 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, f32 *out);
     f32 angVel[4];
     f32 scaled[4];
     f32 local[4];
@@ -239,8 +233,6 @@ u8 PhysicalObject_Move(u8 *obj) {
         u8 type;
     } CollisionInfo;
     extern f32 g_fDeltaTimeSec;
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     CollisionInfo hit __attribute__((aligned(16)));
     Vector4 tmp __attribute__((aligned(16)));
     Vector4 negVel __attribute__((aligned(16)));
@@ -448,10 +440,6 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
         Vector4 invInertia;
         Vector4 angVel;
     } PhysObj;
-    f32 MagnitudeVector(Vector4 *v);
-    void XformVecOrientation(void *mtx, void *in, void *out);
-    void InverseXformVecOrientation(void *mtx, void *in, void *out);
-    s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info);
     OBox obox;
     RayHit hit;
     Matrix4 mtx;
@@ -609,9 +597,6 @@ void Mover_DynamicRotation(u8 *mover) {
 
 void PhysicalObject_DynamicCollideImpact(u8 *obj, u8 *collision, f32 force) {
     extern Vector4 g_zeroVector;
-    void ProjectVectorToNormal(void *normal, void *v);
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     typedef struct {
         Vector4 center;
         Vector4 corners[8];
@@ -751,8 +736,6 @@ f32 PhysicalObject_CollideWithRay(u8 *obj, Vector4 *start, Vector4 *end, Vector4
     }
     return dist;
 }
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransform();
 
 void *g_physicalObjectVTable[] = {
     PhysicalObject_Init,

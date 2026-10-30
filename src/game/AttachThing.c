@@ -43,11 +43,13 @@ typedef struct RadarBlip {
     f32 health;
 } RadarBlip;
 
+extern void *g_attachVTable[];
+extern void *g_attachGeometryVTable[];
 
 s32 AttachThing_Init(void *attach, void *data)
 {
-    extern u8 g_attachGeometryVTable[];
-    extern u8 g_attachVTable[];
+    #define g_attachGeometryVTable ((u8 *)(void *)&g_attachGeometryVTable)
+    #define g_attachVTable ((u8 *)(void *)&g_attachVTable)
     typedef struct { u32 x, y, z, w; } Vec4;
 
     Thing_Init(attach, (s32)HND(data));
@@ -91,6 +93,8 @@ s32 AttachThing_Init(void *attach, void *data)
         SLOT_STORE((u8 *)(attach) + 0x8C, (void *)g_attachVTable);
     }
     return 1;
+#undef g_attachGeometryVTable
+#undef g_attachVTable
 }
 
 s32 AttachThing_Move(void *thing) {
@@ -271,7 +275,6 @@ void AttachThing_SlaveTransform(u8 *attach, Matrix4 *mtx) {
         u8 padB8[4];
         f32 fade;
     } AttachThing;
-    void XformVecOrientation(Matrix4 *mtx, void *in, Vector4 *out);
     AttachThing *thing = (AttachThing *)attach;
     Vector4 pos __attribute__((aligned(16)));
     Vector4 camera __attribute__((aligned(16)));
@@ -311,7 +314,6 @@ s32 AttachThing_Invalidate(void *arg0, u32 arg1, u32 arg2) {
 }
 
 s32 RadarBlip_Init(void *blip, void *init) {
-    s32 Thing_Init(void *, s32);
     typedef struct { u32 x, y, z, w; } Vec4;
 
     Thing_Init(blip, 0);
@@ -450,8 +452,6 @@ void RadarBlip_Draw(RadarBlip *blip) {
         }
     }
 }
-void Thing_GetCameraOrientationInfo();
-void Thing_SlaveTransformQuaternionOnly();
 
 void *g_attachVTable[] = {
     AttachThing_Init,

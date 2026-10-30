@@ -104,7 +104,6 @@ f32 RayBoxTest(Vector4 *start, Vector4 *dir, Vector4 *box, f32 t, Vector4 *hit) 
         u8 pad;
         s16 next;
     } __attribute__((aligned(16))) BoxNode;
-    Vector4 *BSPN0_CollideWithSegment(BoxNode *nodes, s32 node, Vector4 *p0, Vector4 *p1);
     Vector4 end __attribute__((aligned(16)));
     Vector4 endPt __attribute__((aligned(16)));
     BoxNode nodes[6] = {
@@ -144,7 +143,6 @@ f32 RayBoxTest(Vector4 *start, Vector4 *dir, Vector4 *box, f32 t, Vector4 *hit) 
 }
 
 f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32 t, u8 *hit) {
-    f32 MagnitudeVector(Vector4 *v);
     Vector4 end __attribute__((aligned(16)));
     Vector4 seg __attribute__((aligned(16)));
     Vector4 toCenter __attribute__((aligned(16)));
@@ -222,7 +220,6 @@ typedef struct BoxPlane {
 } BoxPlane;
 
 static inline f32 RayBoxTestLocal(Vector4 *start, Vector4 *dir, Vector4 *box, f32 t, Vector4 *hit) {
-    Vector4 *BSPN0_CollideWithSegment(BoxPlane *node, Vector4 *hit, Vector4 *p0, Vector4 *p1);
     BoxPlane planes[6] = {
         { { 1.0f, 0.0f, 0.0f, 0.0f }, 2, 0, 1 },
         { { 0.0f, 1.0f, 0.0f, 0.0f }, 2, 0, 1 },
@@ -265,10 +262,6 @@ f32 PhysicalProperties_CollideWithRay(u8 *props, void *mtx, Vector4 *start, Vect
         Vector4 normal;
         u8 pad[0x30];
     } RayHit;
-    void XformVec(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVec(void *mtx, Vector4 *in, Vector4 *out);
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     f32 result = t;
 
     switch (props[0x10]) {
@@ -400,6 +393,290 @@ void OBoxCache_Set(u32 box0, u32 box1, Vector4 *pos, Vector4 *normal)
     g_aCollisionPairCache[slot].pos = *pos;
     g_aCollisionPairCache[slot].objectA = box0;
     g_aCollisionPairCache[slot].objectB = box1;
+}
+
+static inline s8 OBoxCache_Get(u32 box0, u32 box1, Vector4 *pos, Vector4 *normal) {
+    s32 i;
+
+    for (i = 0; i < 4; i++) {
+        if (box0 == g_aCollisionPairCache[i].objectA && box1 == g_aCollisionPairCache[i].objectB) {
+            *pos = g_aCollisionPairCache[i].pos;
+            *normal = g_aCollisionPairCache[i].normal;
+            g_aCollisionPairCache[i].time = 0;
+            return 1;
+        }
+        if (box1 == g_aCollisionPairCache[i].objectA && box0 == g_aCollisionPairCache[i].objectB) {
+            *pos = g_aCollisionPairCache[i].pos;
+            normal->x = -g_aCollisionPairCache[i].normal.x;
+            normal->y = -g_aCollisionPairCache[i].normal.y;
+            normal->z = -g_aCollisionPairCache[i].normal.z;
+            g_aCollisionPairCache[i].time = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hitInfo, f32 maxT) {
+    typedef struct OBB {
+        Vector4 center;
+        Vector4 corners[8];
+        f32 extent[3];
+        u8 pad9C[4];
+        PTR32(Vector4) axis[3];
+    } OBB;
+    typedef struct OBBHit {
+        Vector4 pos;
+        Vector4 normal;
+        u8 pad20[0x20];
+        u8 type;
+    } OBBHit;
+    DividingAxis da;
+    Vector4 rel;
+    Vector4 n;
+    Vector4 pA;
+    Vector4 pB;
+    Vector4 plane;
+    Vector4 q;
+    Vector4 diff;
+    u8 maxIdx2;
+    u8 minIdx2;
+    s32 i;
+    s32 k;
+    u8 minIdx;
+    u8 maxIdx;
+    s32 j;
+    s32 ia;
+    u8 axisIdx;
+    u8 corner;
+    u8 type;
+    f32 d;
+    f32 s;
+    f32 d1;
+    f32 denom;
+    f32 mag;
+    u8 featB;
+    u8 axisB;
+    OBBHit *hit = hitInfo;
+    OBB *b = boxB;
+    OBB *a = boxA;
+
+    featB = 0;
+    da.tEnter = 0.0f;
+    type = 0;
+    corner = 0;
+    da.tExit = maxT;
+    axisIdx = 0;
+    axisB = 0;
+    PSVECSubtract(velB, velA, &rel);
+    MagnitudeVector(&rel);
+    if (hit != NULL) {
+        hit->type = 0;
+    }
+    for (i = 0; i < 3; i++) {
+        minIdx = 0;
+        maxIdx = 0;
+        da.minA = da.maxA = PSVECDotProduct(GETP(a->axis[i]), &b->corners[0]);
+        for (k = 1; k < 8; k++) {
+            d = PSVECDotProduct(GETP(a->axis[i]), &b->corners[k]);
+            if (d < da.minA) {
+                da.minA = d;
+                minIdx = k;
+            } else if (d > da.maxA) {
+                maxIdx = k;
+                da.maxA = d;
+            }
+        }
+        da.dir = PSVECDotProduct(GETP(a->axis[i]), &rel);
+        d = PSVECDotProduct(GETP(a->axis[i]), &a->center);
+        da.maxB = d + a->extent[i];
+        da.minB = d - a->extent[i];
+        switch ((u8)Collision_ProcessDividingAxis(&da)) {
+        case 0:
+            return maxT;
+        case 2:
+            corner = minIdx;
+            axisIdx = i + 3;
+            type = 1;
+            break;
+        case 3:
+            corner = maxIdx;
+            axisIdx = i;
+            type = 1;
+            break;
+        }
+    }
+    for (i = 0; i < 3; i++) {
+        minIdx = 0;
+        maxIdx = 0;
+        da.minB = da.maxB = PSVECDotProduct(GETP(b->axis[i]), &a->corners[0]);
+        for (k = 1; k < 8; k++) {
+            d = PSVECDotProduct(GETP(b->axis[i]), &a->corners[k]);
+            if (d < da.minB) {
+                da.minB = d;
+                minIdx = k;
+            } else if (d > da.maxB) {
+                maxIdx = k;
+                da.maxB = d;
+            }
+        }
+        da.dir = PSVECDotProduct(GETP(b->axis[i]), &rel);
+        d = PSVECDotProduct(GETP(b->axis[i]), &b->center);
+        da.maxA = d + b->extent[i];
+        da.minA = d - b->extent[i];
+        switch ((u8)Collision_ProcessDividingAxis(&da)) {
+        case 0:
+            return maxT;
+        case 2:
+            corner = maxIdx;
+            axisIdx = i + 3;
+            type = 2;
+            break;
+        case 3:
+            corner = minIdx;
+            axisIdx = i;
+            type = 2;
+            break;
+        }
+    }
+    for (ia = 0; ia < 3; ia++) {
+        for (j = 0; j < 3; j++) {
+            minIdx = 0;
+            maxIdx = 0;
+            minIdx2 = 0;
+            maxIdx2 = 0;
+            PSVECCrossProduct(GETP(a->axis[ia]), GETP(b->axis[j]), &n);
+            if (PSVECDotProduct(&n, &n) < 0.0001) {
+                continue;
+            }
+            da.minB = da.maxB = PSVECDotProduct(&a->corners[0], &n);
+            da.minA = da.maxA = PSVECDotProduct(&b->corners[0], &n);
+            for (k = 1; k < 8; k++) {
+                d = PSVECDotProduct(&a->corners[k], &n);
+                if (d < da.minB) {
+                    da.minB = d;
+                    minIdx = k;
+                } else if (d > da.maxB) {
+                    maxIdx = k;
+                    da.maxB = d;
+                }
+                d = PSVECDotProduct(&b->corners[k], &n);
+                if (d < da.minA) {
+                    da.minA = d;
+                    minIdx2 = k;
+                } else if (d > da.maxA) {
+                    maxIdx2 = k;
+                    da.maxA = d;
+                }
+            }
+            da.dir = PSVECDotProduct(&n, &rel);
+            switch ((u8)Collision_ProcessDividingAxis(&da)) {
+            case 0:
+                return maxT;
+            case 2:
+                featB = minIdx2;
+                corner = maxIdx;
+                axisIdx = ia;
+                axisB = j;
+                type = 3;
+                break;
+            case 3:
+                featB = maxIdx2;
+                corner = minIdx;
+                axisIdx = ia + 3;
+                axisB = j;
+                type = 3;
+                break;
+            }
+        }
+    }
+    if (hit != NULL && da.tEnter < maxT) {
+        hit->type = type;
+        switch (type) {
+        case 1:
+            hit->pos = b->corners[corner];
+            hit->pos.x += velB->x * da.tEnter;
+            hit->pos.y += velB->y * da.tEnter;
+            hit->pos.z += velB->z * da.tEnter;
+            hit->normal = *GETP(a->axis[axisIdx % 3]);
+            if (axisIdx >= 3) {
+                hit->normal.x *= -1.0f;
+                hit->normal.y *= -1.0f;
+                hit->normal.z *= -1.0f;
+            }
+            OBoxCache_Set((u32)HND(a), (u32)HND(b), &hit->pos, &hit->normal);
+            break;
+        case 2:
+            hit->pos = a->corners[corner];
+            hit->pos.x += velA->x * da.tEnter;
+            hit->pos.y += velA->y * da.tEnter;
+            hit->pos.z += velA->z * da.tEnter;
+            hit->normal = *GETP(b->axis[axisIdx % 3]);
+            if (axisIdx >= 3) {
+                hit->normal.x *= -1.0f;
+                hit->normal.y *= -1.0f;
+                hit->normal.z *= -1.0f;
+            }
+            OBoxCache_Set((u32)HND(a), (u32)HND(b), &hit->pos, &hit->normal);
+            break;
+        case 3:
+            pA = a->corners[corner];
+            pB = b->corners[featB];
+            pA.x += velA->x * da.tEnter;
+            pA.y += velA->y * da.tEnter;
+            pA.z += velA->z * da.tEnter;
+            pB.x += velB->x * da.tEnter;
+            pB.y += velB->y * da.tEnter;
+            pB.z += velB->z * da.tEnter;
+            PSVECCrossProduct(GETP(b->axis[axisB]), GETP(a->axis[axisIdx % 3]), &hit->normal);
+            mag = PSVECSquareMag(&hit->normal);
+            if (!FloatsEqual(mag, 1.0f, 0.0001f)) {
+                s = 1.0f / Sqrt(mag);
+                hit->normal.x *= s;
+                hit->normal.y *= s;
+                hit->normal.z *= s;
+            }
+            if (axisIdx >= 3) {
+                axisIdx -= 3;
+                hit->normal.x *= -1.0f;
+                hit->normal.y *= -1.0f;
+                hit->normal.z *= -1.0f;
+            }
+            q.x = 100.0f * GETP(a->axis[axisIdx])->x + pA.x;
+            q.y = 100.0f * GETP(a->axis[axisIdx])->y + pA.y;
+            q.z = 100.0f * GETP(a->axis[axisIdx])->z + pA.z;
+            Create_Plane(&plane, GETP(b->axis[(axisB + 1) % 3]), &pB);
+            d1 = Distance_Plane(&plane, &pA);
+            denom = d1 - Distance_Plane(&plane, &q);
+            if (_fabs(denom) > 0.0f) {
+                s = d1 / denom;
+                hit->pos.x = s * (q.x - pA.x) + pA.x;
+                hit->pos.y = s * (q.y - pA.y) + pA.y;
+                hit->pos.z = s * (q.z - pA.z) + pA.z;
+            } else {
+                hit->pos = pA;
+            }
+            OBoxCache_Set((u32)HND(a), (u32)HND(b), &hit->pos, &hit->normal);
+            break;
+        default:
+            if (!OBoxCache_Get((u32)HND(a), (u32)HND(b), &hit->pos, &hit->normal)) {
+                diff.x = a->center.x - b->center.x;
+                diff.y = a->center.y - b->center.y;
+                diff.z = a->center.z - b->center.z;
+                if (PSVECSquareMag(&diff)) {
+                    PSVECNormalize(&diff, &diff);
+                }
+                hit->normal = diff;
+                hit->pos.x = 0.5f * (b->center.x + a->center.x);
+                hit->pos.y = 0.5f * (b->center.y + a->center.y);
+                hit->pos.z = 0.5f * (b->center.z + a->center.z);
+                OBoxCache_Set((u32)HND(a), (u32)HND(b), &hit->pos, &hit->normal);
+            }
+            hit->type = 0xFF;
+            break;
+        }
+    }
+    return da.tEnter;
 }
 
 s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) {

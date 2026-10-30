@@ -12,7 +12,6 @@ void GameRules_Init(void) {
     extern s8 g_bInit_803C71C4;
     extern s32 g_savedActions_802E12E0[];
     extern GRTrigger **g_pTimer_803C71C0;
-    void GameSettings_SetCodeVariable(s32 var, s32 value, s32 arg2);
     u32 j;
     GRZone *zone;
     u32 i;
@@ -83,7 +82,6 @@ void GameRules_HeartBeat(void) {
     extern s8 g_bWaitingForRoundReset;
     extern s8 g_bInit_803C71C4;
     extern GRTrigger **g_pTimer_803C71C0;
-    void GameSettings_SetCodeVariable(s32 var, s32 value, s32 arg2);
     static u32 s_requiredNumWins = -1;
     s8 useWins;
     u32 numPlayers;
@@ -309,7 +307,6 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
     extern GRTrigger **g_pTimer_803C71C0;
     extern u32 g_attackDelay;
     extern Vector4 g_zeroVector;
-    void GameSettings_SetCodeVariable(s32 var, s32 value, s32 arg2);
     u32 numPlayers;
     u32 i;
     SpawnPoint *spawn;

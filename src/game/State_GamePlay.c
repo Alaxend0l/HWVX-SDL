@@ -25,7 +25,7 @@ typedef struct GPTileCar {
     PTR32(GPAIScripts) aiScripts; /* 0x24 */
     PTR32(CarA) creature;         /* 0x28 */
     u32 mode;               /* 0x2C */
-    u8 pad30[4];
+    u32 vehicle;            /* 0x30 */
     u8 unk34;               /* 0x34 */
     u8 port;                /* 0x35 1-4: human player slot */
     u8 pad36[2];
@@ -43,7 +43,8 @@ typedef struct GPWorldInfo {
     u32 radarBlip;          /* 0x7C */
     u8 pad80[8];
     u32 lightTexture;       /* 0x88 */
-    u8 pad8C[0x18];
+    u8 pad8C[0x14];
+    PTR32(void) vehiclePackList;  /* 0xA0 */
     PTR32(void) packList;         /* 0xA4 */
 } GPWorldInfo;
 
@@ -116,19 +117,17 @@ void ExitStateGamePlay(s32 arg0) {
 }
 
 
+extern u8 g_pauseState[];  /* typed per function below */
 
 s32 StateGamePlay_Init(void) {
     extern s32 g_gamePlayCallback;
     extern u32 g_DemoModeCurrentPlayer;
     extern s8 g_bExitStateGamePlay;
-    extern u32 g_pauseState;
+    #define g_pauseState (*(u32 *)(void *)&g_pauseState)
     extern u32 g_DemoModeCounter;
     extern s32 g_DemoModeSwitchCameraTime;
     extern s32 g_DemoModeSwitchVehicleTime;
     extern Vector4 g_zeroVector;
-    void ParticleManager_Render(void);
-    void LightHolder_Add(void *light, void *tile, s32 arg);
-    void **CameraManager_GetNewCamera(void);
     static s32 countAI;
     struct {
         Vector4 pos;
@@ -555,6 +554,7 @@ s32 StateGamePlay_Init(void) {
     SetPlayerControls();
     GameSettings_RestorePlayerStats();
     return 1;
+#undef g_pauseState
 }
 
 void SetPlayerControls(void) {
@@ -599,7 +599,7 @@ void SetPlayerControls(void) {
 
 s32 StateGamePlay_Heartbeat(void) {
     extern Vector4 g_lastCamPos;
-    extern u32 g_pauseState;
+    #define g_pauseState (*(u32 *)(void *)&g_pauseState)
     extern u32 g_StopInput;
     extern u8 g_bFreezeWorld;
     extern u32 g_DemoModeCounter;
@@ -611,7 +611,6 @@ s32 StateGamePlay_Heartbeat(void) {
     extern s32 g_targetGameState;
     extern s32 g_gamePlayCallback;
     extern s8 g_bRenderWorld;
-    void GameSettings_SetCodeVariable(s32 var, s32 value, s32 arg2);
     static s32 cameraIndex;
     static u32 pauseInterfaceID = 0xFFFFFFFF;
     static s8 bControllerRemoved;
@@ -773,6 +772,7 @@ s32 StateGamePlay_Heartbeat(void) {
         break;
     }
     return 1;
+#undef g_pauseState
 }
 
 void StateGamePlay_Pause(s32 pause) {
@@ -791,7 +791,6 @@ s32 StateGamePlay_Shutdown(void) {
     extern s8 g_iTimeShift;
     extern u8 g_bFreezeWorld;
     extern void (*DestroyMusic)(void);
-    void GameSettings_SetCodeVariable(s32 var, s32 value, s32 arg2);
 
     Trigger_PauseTACSystem(1);
     while ((s8)IsLoadingThreadRunning()) {
@@ -924,7 +923,7 @@ void GamePlay_PauseOptions_HandleInput(void *msg) {
 }
 
 s32 ActionPauseGame(u32 *action) {
-    extern s32 g_pauseState;
+    #define g_pauseState (*(s32 *)(void *)&g_pauseState)
     extern s32 g_gamePlayCallback;
     extern u8 g_bFreezeWorld;
     ControllerSettings *settings;
@@ -965,6 +964,7 @@ s32 ActionPauseGame(u32 *action) {
         }
     }
     return 1;
+#undef g_pauseState
 }
 
 s32 TriggerInterfacePackEnd(u32 *pack) {
@@ -1038,7 +1038,6 @@ void InterfaceHasEnded(u32 handle) {
 }
 
 void InterfaceDataPackRouter(void *arg0) {
-    M2C_UNK GSI_VehicleItemSelection(void *);
 
     switch (M2C_FIELD(arg0, u16 *, 6)) {
     case 0:
@@ -1069,8 +1068,262 @@ void InterfaceDataPackRouter(void *arg0) {
     }
 }
 
-void ArmageddonDropShip()
-{
+void ArmageddonDropShip(void *arg0) {
+    typedef struct DropShipData {
+        s32 index;
+        u16 type;
+        u16 button;
+    } DropShipData;
+    typedef struct PackData {
+        u32 start;
+        u8 pad4[0x24];
+        u32 size;
+    } PackData;
+    #define g_pauseState (*(u32 *)(void *)&g_pauseState)
+    extern s8 g_bRenderWorld;
+    extern u8 g_bFreezeWorld;
+    static u32 vehicleSelectIndex;
+    static u32 MaxVehicleIndex = 6;
+    static f32 MAXTIMEINDEX = 7000.0f;
+    static f32 minCount = -1.0f;
+    static f32 maxCount = -1.0f;
+    static s8 bReady;
+    static s8 bWaitingForCamera;
+    static u16 WaitingButton;
+    static s8 bLeftMovement;
+    static s8 bRightMovement;
+    static Player *pPlayer;
+    GPWorld *world;
+    GPTileCar *entry;
+    void *list;
+    DropShipData *data = arg0;
+    u32 i;
+    f32 lr;
+
+    world = (GPWorld *)GETP(g_worldData.world);
+    entry = NULL;
+    for (i = 0; i < world->numTileCars; i++) {
+        if (GETP(world->tileCars)[i].port == 1) {
+            entry = &GETP(world->tileCars)[i];
+            break;
+        }
+    }
+    if (data->type == 5) {
+        g_pauseState = 0;
+        g_bRenderWorld = 1;
+        StateGamePlay_Pause(0);
+    } else if (data->type == 4) {
+        bReady = 1;
+        DropShip_PullCameraForward(data->index);
+        bWaitingForCamera = 1;
+    } else if (data->type == 3) {
+        Vector4 forward __attribute__((aligned(16)));
+        Vector4 up __attribute__((aligned(16)));
+        Vector4 right __attribute__((aligned(16)));
+        u8 *camera;
+        f32 count;
+        u32 id;
+        PackData *pack;
+
+        list = GETP(GETP(world->info)->vehiclePackList);
+        g_pauseState = 1;
+        g_bRenderWorld = 0;
+        StateGamePlay_Pause(1);
+        SoundManager_Pause(0);
+        InterfaceManager_PauseInterface(0, data->index);
+        InterfaceManager_SetInfoCallBackRoutine(data->index, ArmageddonDropShipInfo);
+        InterfaceInputAnimator_Initialize();
+        pPlayer = GETP(entry->creature->player);
+        forward.x = 0.0f;
+        forward.y = 0.0f;
+        forward.z = 1.0f;
+        up.x = 0.0f;
+        up.y = 1.0f;
+        up.z = 0.0f;
+        right.x = 1.0f;
+        right.y = 0.0f;
+        right.z = 0.0f;
+        camera = CameraManager_GetCameraFromPlayer(pPlayer);
+        *(Vector4 *)(camera + 0x80) = forward;
+        *(Vector4 *)(camera + 0x90) = up;
+        *(Vector4 *)(camera + 0xA0) = right;
+        maxCount = -1.0f;
+        minCount = -1.0f;
+        bReady = 0;
+        bWaitingForCamera = 0;
+        bLeftMovement = 0;
+        bRightMovement = 0;
+        MAXTIMEINDEX = DropShip_GetLRTime(data->index);
+        DropShip_StartChildInterface(data->index, -1);
+        vehicleSelectIndex = entry->vehicle;
+        if (vehicleSelectIndex > MaxVehicleIndex) {
+            vehicleSelectIndex = 0;
+        }
+        count = (f32)vehicleSelectIndex / (f32)(MaxVehicleIndex + 1);
+        count *= MAXTIMEINDEX;
+        InterfaceInputAnimator_Count(0, 0, count);
+        InterfaceInputAnimator_SetCounter(0, count);
+        id = FileStreaming_GetPackID(list, 0, entry->vehicle);
+        if (id != 0xFFFFFFFF) {
+            pack = FileStreaming_InitializeDataPack(HND((void *)PTR(id)), 0, 1);
+            if (pack != NULL) {
+                ThingManager_Invalidate(pack->start, pack->start + pack->size);
+                FileStreaming_ReleaseDataPack(id, 0);
+            }
+        }
+    } else if (data->type == 12) {
+    } else {
+        switch (data->button) {
+        case 8:
+            g_bRenderWorld = 0;
+            break;
+        case 9:
+            bWaitingForCamera = 0;
+            data->type = 0x65;
+            data->button = WaitingButton;
+            ArmageddonDropShip(data);
+            break;
+        case 10:
+            DropShip_StartChildInterface(data->index, vehicleSelectIndex + 1);
+            bWaitingForCamera = 0;
+            break;
+        case 1:
+            lr = InterfaceInputAnimator_GetLRCounter();
+            if (bReady && !bWaitingForCamera && !bRightMovement) {
+                maxCount = -1.0f;
+                if (minCount == -1.0f || lr == minCount) {
+                    if (DropShip_IsChildInterfaceReady(data->index)) {
+                        if ((s32)data->type == 100) {
+                            DropShip_PullCameraForward(data->index);
+                            bWaitingForCamera = 1;
+                            bLeftMovement = 0;
+                            InterfaceInputAnimator_SetCallBack(NULL, NULL);
+                        } else {
+                            DropShip_EndChildInterface(data->index, vehicleSelectIndex + 1);
+                            if (!DropShip_IsChildInterfaceReady(data->index)) {
+                                InterfaceInputAnimator_SetCallBack(ArmageddonDropShip, (InterfaceCallBackData *)data);
+                            } else {
+                                InterfaceInputAnimator_SetCallBack(NULL, NULL);
+                                if ((s32)data->type != 0x65) {
+                                    DropShip_PullCameraBack(data->index);
+                                    WaitingButton = 1;
+                                    bWaitingForCamera = 1;
+                                } else {
+                                    if (vehicleSelectIndex == 0) {
+                                        vehicleSelectIndex = MaxVehicleIndex;
+                                        InterfaceInputAnimator_SetCounter(0, MAXTIMEINDEX);
+                                        minCount = (f32)vehicleSelectIndex / (f32)(MaxVehicleIndex + 1);
+                                    } else {
+                                        vehicleSelectIndex--;
+                                        minCount = (f32)vehicleSelectIndex / (f32)(MaxVehicleIndex + 1);
+                                    }
+                                    minCount *= MAXTIMEINDEX;
+                                    InterfaceInputAnimator_Count(0, 1, minCount);
+                                    bLeftMovement = 1;
+                                    data->type = 100;
+                                    InterfaceInputAnimator_SetCallBack(ArmageddonDropShip, (InterfaceCallBackData *)data);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        case 2:
+            lr = InterfaceInputAnimator_GetLRCounter();
+            if (bReady && !bWaitingForCamera && !bLeftMovement) {
+                minCount = -1.0f;
+                if (maxCount == -1.0f || lr == maxCount) {
+                    if (DropShip_IsChildInterfaceReady(data->index)) {
+                        if ((s32)data->type == 100) {
+                            DropShip_PullCameraForward(data->index);
+                            bWaitingForCamera = 1;
+                            bRightMovement = 0;
+                            InterfaceInputAnimator_SetCallBack(NULL, NULL);
+                        } else {
+                            DropShip_EndChildInterface(data->index, vehicleSelectIndex + 1);
+                            if (!DropShip_IsChildInterfaceReady(data->index)) {
+                                InterfaceInputAnimator_SetCallBack(ArmageddonDropShip, (InterfaceCallBackData *)data);
+                            } else {
+                                InterfaceInputAnimator_SetCallBack(NULL, NULL);
+                                if ((s32)data->type != 0x65) {
+                                    DropShip_PullCameraBack(data->index);
+                                    WaitingButton = 2;
+                                    bWaitingForCamera = 1;
+                                } else {
+                                    if (vehicleSelectIndex == MaxVehicleIndex) {
+                                        vehicleSelectIndex = 0;
+                                        maxCount = 1.0f;
+                                    } else {
+                                        if (vehicleSelectIndex == 0) {
+                                            InterfaceInputAnimator_SetCounter(0, 0.0f);
+                                        }
+                                        vehicleSelectIndex++;
+                                        maxCount = (f32)vehicleSelectIndex / (f32)(MaxVehicleIndex + 1);
+                                    }
+                                    maxCount *= MAXTIMEINDEX;
+                                    InterfaceInputAnimator_Count(0, 0, maxCount);
+                                    bRightMovement = 1;
+                                    data->type = 100;
+                                    InterfaceInputAnimator_SetCallBack(ArmageddonDropShip, (InterfaceCallBackData *)data);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        case 5:
+            list = GETP(GETP(world->info)->vehiclePackList);
+            if (bReady && !bWaitingForCamera) {
+                lr = InterfaceInputAnimator_GetLRCounter();
+                if ((maxCount == -1.0f || lr == maxCount) && (minCount == -1.0f || lr == minCount)) {
+                    if (DropShip_IsChildInterfaceReady(data->index)) {
+                        DropShip_EndChildInterface(data->index, vehicleSelectIndex + 1);
+                        if (!DropShip_IsChildInterfaceReady(data->index)) {
+                            InterfaceInputAnimator_SetCallBack(ArmageddonDropShip, (InterfaceCallBackData *)data);
+                        } else {
+                            InterfaceInputAnimator_SetCallBack(NULL, NULL);
+                            if ((s32)data->type != 0x65) {
+                                DropShip_PullCameraBack(data->index);
+                                WaitingButton = 5;
+                                bWaitingForCamera = 1;
+                            } else {
+                                GPCreatureParams params;
+                                u32 hud[3];
+                                void *dp;
+
+                                InterfaceInputAnimator_Release();
+                                dp = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(list, 0, vehicleSelectIndex, 0), 0, 1);
+                                params.pos = entry->pos;
+                                params.pos.y += 10.0f;
+                                SETP(params.player, pPlayer);
+                                params.quat.w = 1.0f;
+                                params.quat.z = 0.0f;
+                                params.quat.y = 0.0f;
+                                params.quat.x = 0.0f;
+                                SETP(params.aiScripts, (GPAIScripts *)DataPack_GetScript(dp, vehicleSelectIndex));
+                                params.vel.x = 0.0f;
+                                params.vel.y = 0.0f;
+                                params.vel.z = 0.0f;
+                                SETP(entry->creature, ThingManager_DARYL_CreateThing(9, &params));
+                                Player_SetThing(pPlayer, GETP(entry->creature));
+                                hud[0] = 1;
+                                hud[1] = 0;
+                                hud[2] = 0;
+                                ActionHUDChangeMode(hud);
+                                entry->vehicle = vehicleSelectIndex;
+                                DropShip_EndInterface(data->index);
+                                ParticleManager_Init();
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+#undef g_pauseState
 }
 
 void ArmageddonDropShipInfo(void *info) {

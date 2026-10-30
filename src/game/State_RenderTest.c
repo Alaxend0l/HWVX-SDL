@@ -20,14 +20,13 @@ s32 StateRenderTest_Init(void) {
     extern s32 pCar;
     extern u16 g_dirt;
     extern s32 g_debugDataFlag;
-    s32 CameraManager_GetNewCamera(void);
     s32 j;
     s32 i;
 
     Geometry_Init(1);
     Gfx_SetEnviroMapMode(1);
     CameraManager_Init();
-    g_pCamera = CameraManager_GetNewCamera();
+    g_pCamera = HND(CameraManager_GetNewCamera());
     g_cameraManagerPause = 1;
     Gfx_SetProjectionMatrix(90.0f);
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
@@ -63,7 +62,6 @@ s32 StateRenderTest_Heartbeat(void) {
     extern f32 g_yaw;
     extern Vector4 g_jBasis;
     extern Matrix4 g_identity;
-    void Gfx_GetRenderStats(void *stats);
     Matrix4 mtx;
     u8 stats[0x100];
     f32 *tri;

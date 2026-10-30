@@ -167,7 +167,6 @@ s32 File_Read(u32 id, s32 size, void *data) {
     extern s32 m_cd_drive_status;
     extern u32 shithack;
     s8 isInThread(void);
-    void Render_EndScene(void);
     char msg[0x100];
     s8 device = (u8)(id >> 16);
     s8 idx;

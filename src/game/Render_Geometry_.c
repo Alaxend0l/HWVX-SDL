@@ -172,7 +172,6 @@ extern u8 m_totalLights;
 
 static inline void Render_InitDirLight(void *lt_obj, Vector4 *dir, Vector4 *lightDir, GXColor *rgb) {
     void *GetRenderWindow();
-    void InverseXformVecOrientation(void *m, Vector4 *v, Vector4 *out);
     GXColor color;
 
     color.r = rgb->r;
@@ -282,10 +281,10 @@ extern u32 m_pointLightMask;
 
 extern s32 m_curLightState;
 extern s32 m_curEnvmapState;
-void Render_Geometry(Geometry *geom, f32 *m);
-void Gfx_DrawGeometryLOD_Immediate(Geometry *geometry, f32 (*matrix)[4]);
-void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode);
 void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix);
+void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode);
+void Gfx_DrawGeometryLOD_Immediate(Geometry *geometry, f32 (*matrix)[4]);
+void Render_Geometry(Geometry *geom, f32 *m);
 
 static inline void RenderOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     Render_DrawOpaqueGroup(geometry, group, matrix);
@@ -371,8 +370,6 @@ void Render_GeometryList(void) {
     }
 }
 
-s32 Gfx_FrustrumCullSphereTest(Vector4 *center, f32 radius);
-void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
 void *GetRenderWindow(void);
 void Render_Geometry(Geometry *geom, f32 *m) {
     Vector4 *bmin = (Vector4 *)geom->bboxMin;
@@ -449,9 +446,8 @@ void Gfx_DrawGeometryLOD_Immediate(Geometry *geometry, f32 (*matrix)[4]) {
     }
 }
 
-void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix);
-void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode);
 void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix);
+void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode);
 void RenderGroup(Geometry *geometry, u32 group, f32 (*matrix)[4]) {
     if (GETP(geometry->groups)[group].flags & 0x4000) {
         return;

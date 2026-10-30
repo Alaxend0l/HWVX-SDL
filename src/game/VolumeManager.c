@@ -55,7 +55,6 @@ typedef struct VolumeHolder {
     s32 numZ;               /* 0x34 */
 } VolumeHolder;
 
-s8 BSPN0_CollideWithVector(void *bsp, Vector4 *point);
 
 static inline s8 VolumeManager_IsPointInVolume(Vector4 *point, VolumeShape *shape) {
     Vector4 diff;
@@ -85,6 +84,7 @@ void VolumeManager_Release(void) {
     SetReverb(0, 0); /* 3rd/4th args were ignored on GC */
     SetReverb(1, 0); /* 3rd/4th args were ignored on GC */
 }
+extern u8 g_bReset[];  /* typed per function below */
 
 void VolumeManager_Initialize(void) {
     typedef struct World {
@@ -92,10 +92,11 @@ void VolumeManager_Initialize(void) {
         s32 volumeHolder;
     } World;
     extern s32 g_VolumeHolder;
-    extern u8 g_bReset;
+    #define g_bReset (*(u8 *)(void *)&g_bReset)
     VolumeManager_Release();
     g_VolumeHolder = ((World *)GETP(g_worldData.world))->volumeHolder;
     g_bReset = 1;
+#undef g_bReset
 }
 
 static inline s32 VolumeManager_GetCell(VolumeHolder *holder, Vector4 *point) {
@@ -226,7 +227,6 @@ s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq) {
         f32 radiusSq;
         PTR32(void) bsp;
     } Shape;
-    s8 BSPN0_CollideWithVector(void *bsp, Vector4 *point);
     Shape *shape = volume;
     Vector4 diff __attribute__((aligned(16)));
 
@@ -280,7 +280,7 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
         PTR32(WorldReverb) reverb;
     } World;
     extern VolumeHolder *g_VolumeHolder;
-    extern s8 g_bReset;
+    #define g_bReset (*(s8 *)(void *)&g_bReset)
     static u16 sfx_volume = 0xFFFF;
     static u16 sfx_feedback = 0xFFFF;
     static u16 music_volume = 0xFFFF;
@@ -343,6 +343,7 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
         sfx_feedback = feedback;
     }
     g_bReset = 0;
+#undef g_bReset
 }
 
 

@@ -83,7 +83,6 @@ extern GfxState g_state;
 extern u8 g_CurrentViews;
 
 void *GetRenderWindow();
-void XformVec(Vector *m, Vector *v, Vector *out);
 
 s32 Gfx_FrustrumCullSphereTestAllWindows(Vector *center, f32 radius) {
     s32 Gfx_FrustrumCullSphereTest(Vector *center, f32 radius);

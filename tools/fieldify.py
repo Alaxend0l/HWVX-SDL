@@ -17,7 +17,11 @@ Pass 2 - accesses `x->name` / `x.name` of converted fields:
   `fieldify.py --revert build.log` undoes exactly those sites.
 
   tools/fieldify.py src/game/*.c src/game/include/*.h
+
+Idempotent: existing PTR32 fields are picked up and already wrapped accesses
+are left alone, so it can be rerun after merging new decomp code.
 """
+import bisect
 import pathlib
 import re
 import sys
@@ -115,6 +119,14 @@ def convert_line(line, fields, review, where):
     return "\n".join(lines)
 
 
+EXISTING = re.compile(r"^[ \t]*F?PTR32\((?:[^()]|\([^()]*\))*\)\s*(\w+)\s*(\[[^;]*\])?\s*;", re.M)
+
+
+def note_existing(text, fields, fname):
+    for m in EXISTING.finditer(text):
+        note_field(fields, m.group(1), bool(m.group(2)), fname)
+
+
 def convert_decls(text, fields, review, fname):
     spans = []
     for m in OPEN.finditer(text):
@@ -208,6 +220,19 @@ def assignment_rhs(s, j):
     return k, e
 
 
+NONCODE = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.S)
+
+
+def noncode_spans(text):
+    """Start/end offsets of comments and string/char literals."""
+    return [(m.start(), m.end()) for m in NONCODE.finditer(text)]
+
+
+def in_spans(spans, i):
+    k = bisect.bisect_right(spans, (i, float("inf"))) - 1
+    return k >= 0 and spans[k][0] <= i < spans[k][1]
+
+
 def rewrite_accesses(text, fields, review, fname, line_base=0):
     names = "|".join(sorted(map(re.escape, fields), key=len, reverse=True))
     if not names:
@@ -217,9 +242,12 @@ def rewrite_accesses(text, fields, review, fname, line_base=0):
     while changed:
         changed = False
         # Left to right, so a->b->c becomes GETP(GETP(a->b)->c).
+        noncode = noncode_spans(text)
         for m in acc.finditer(text):
             name = m.group(2)
             op_i = m.start()
+            if in_spans(noncode, op_i):
+                continue
             # already wrapped by an earlier rewrite
             if re.search(r"(GETP|SETP)\(\s*$", text[:postfix_start(text, op_i)][-12:]):
                 continue
@@ -289,8 +317,9 @@ def main():
     review = []
     texts = {p: pathlib.Path(p).read_text() for p in args}
     for p in args:
-        if "PTR32(" in texts[p]:
-            continue
+        # Fields converted by an earlier run still need their new accesses
+        # rewritten (e.g. code merged in from the decomp since).
+        note_existing(texts[p], fields, pathlib.Path(p).name)
         texts[p] = convert_decls(texts[p], fields, review, pathlib.Path(p).name)
     for p in args:
         out = rewrite_accesses_file(texts[p], fields, review, pathlib.Path(p).name)

@@ -73,7 +73,6 @@ s32 Thing_Init(Thing *thing, s32 arg1) {
 }
 
 void Thing_Release(s32 thing) {
-    M2C_UNK Grid_FreeObject(void *);
     void *player;
 
     M2C_FIELD(thing, u32 *, 0x74) |= 0x200;
@@ -137,6 +136,222 @@ void Thing_Draw(void)
 
 }
 
+static inline s8 Thing_SweptSpheresTouch(u8 *a, u8 *b, f32 t) {
+    Vector4 end;
+    f32 dx = ((f32 *)a)[0] - ((f32 *)b)[0];
+    f32 dy = ((f32 *)a)[1] - ((f32 *)b)[1];
+    f32 dz = ((f32 *)a)[2] - ((f32 *)b)[2];
+
+    end.x = t * dx + ((Vector4 *)(a + 0x40))->x;
+    end.y = t * dy + ((Vector4 *)(a + 0x40))->y;
+    end.z = t * dz + ((Vector4 *)(a + 0x40))->z;
+    return SegmentVsSphere(b + 0x40, (Vector4 *)(a + 0x40), &end, *(f32 *)(a + 0x70) + *(f32 *)(b + 0x70));
+}
+
+s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
+    typedef struct CollisionBox {
+        Vector4 min;
+        Vector4 max;
+        Vector4 extra;
+    } CollisionBox;
+    typedef struct RayHit {
+        Vector4 pos;
+        Vector4 normal;
+        u8 pad[0x30];
+    } RayHit;
+    f32 best;
+
+    best = *t;
+    switch (*(s16 *)(a + 0x80)) {
+    case 3:
+        best = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))(SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))(b, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
+        break;
+    case 1:
+        switch (*(s16 *)(b + 0x80)) {
+        case 3:
+            best = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))(SLOT_LOAD(u8 *, (a + 0x8C)) + 0x38))(a, (Vector4 *)(b + 0x40), (Vector4 *)b, hit, *t);
+            break;
+        case 1: {
+            void *boxA;
+            void *boxB;
+
+            boxA = (*(void *(**)(void *))(SLOT_LOAD(u8 *, (a + 0x8C)) + 0x40))(a);
+            boxB = (*(void *(**)(void *))(SLOT_LOAD(u8 *, (b + 0x8C)) + 0x40))(b);
+            if (!Thing_SweptSpheresTouch(a, b, *t)) {
+                return 0;
+            }
+            best = OBoxHitsOBox(boxA, a, boxB, b, hit, *t);
+            break;
+        }
+        case 6: {
+            RayHit rayHit;
+            RayHit contact;
+            CollisionBox bounds;
+            Vector4 relLocal;
+            Vector4 rel;
+            Vector4 world;
+            Vector4 local;
+            Vector4 p;
+            Vector4 n;
+            CollisionBox *box;
+            u32 *list;
+            u32 i;
+            f32 d;
+            f32 r;
+
+            box = (CollisionBox *)PTR(Thing_GetLocalCollision(a));
+            list = (u32 *)PTR(Thing_GetLocalCollision(b));
+            PSVECSubtract(b, a, &rel);
+            InverseXformVecOrientation(a + 0x10, &rel, &relLocal);
+            for (i = 0; i < list[0]; i++) {
+                bounds = *box;
+                r = ((Vector4 *)PTR((list[1] + i * 0x20)))[1].x;
+                bounds.max.x += r;
+                bounds.max.y += r;
+                bounds.max.z += r;
+                bounds.min.x -= r;
+                bounds.min.y -= r;
+                bounds.min.z -= r;
+                XformVec(b + 0x10, (Vector4 *)PTR((list[1] + i * 0x20)), &world);
+                InverseXformVec(a + 0x10, &world, &local);
+                d = RayBoxTest(&local, &relLocal, &bounds.min, *t, &rayHit.pos);
+                if (d < best && d > 0.0f) {
+                    if (hit != NULL) {
+                        p.x = d * relLocal.x + local.x;
+                        p.y = d * relLocal.y + local.y;
+                        p.z = d * relLocal.z + local.z;
+                        contact.pos = p;
+                        if (contact.pos.x < box->min.x) {
+                            contact.pos.x = box->min.x;
+                        }
+                        if (contact.pos.y < box->min.y) {
+                            contact.pos.y = box->min.y;
+                        }
+                        if (contact.pos.z < box->min.z) {
+                            contact.pos.z = box->min.z;
+                        }
+                        if (contact.pos.w < box->min.w) {
+                            contact.pos.w = box->min.w;
+                        }
+                        if (contact.pos.x > box->max.x) {
+                            contact.pos.x = box->max.x;
+                        }
+                        if (contact.pos.y > box->max.y) {
+                            contact.pos.y = box->max.y;
+                        }
+                        if (contact.pos.z > box->max.z) {
+                            contact.pos.z = box->max.z;
+                        }
+                        if (contact.pos.w > box->max.w) {
+                            contact.pos.w = box->max.w;
+                        }
+                        PSVECSubtract(&contact.pos, &p, &n);
+                        contact.normal = n;
+                        if (PSVECSquareMag(&contact.normal)) {
+                            PSVECNormalize(&contact.normal, &contact.normal);
+                        }
+                        XformVec(a + 0x10, &contact.pos, (Vector4 *)hit);
+                        XformVecOrientation(a + 0x10, &contact.normal, (Vector4 *)(hit + 0x10));
+                    }
+                    best = d;
+                }
+            }
+            break;
+        }
+        }
+        break;
+    case 6:
+        switch (*(s16 *)(b + 0x80)) {
+        case 3:
+            best = (*(f32 (**)(void *, Vector4 *, Vector4 *, void *, f32))(SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))(a, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
+            break;
+        case 1: {
+            RayHit rayHit;
+            RayHit contact;
+            CollisionBox bounds;
+            Vector4 relLocal;
+            Vector4 rel;
+            Vector4 world;
+            Vector4 local;
+            Vector4 p;
+            Vector4 n;
+            CollisionBox *box;
+            u32 *list;
+            u32 i;
+            f32 d;
+            f32 r;
+
+            box = (CollisionBox *)PTR(Thing_GetLocalCollision(b));
+            list = (u32 *)PTR(Thing_GetLocalCollision(a));
+            PSVECSubtract(a, b, &rel);
+            InverseXformVecOrientation(b + 0x10, &rel, &relLocal);
+            for (i = 0; i < list[0]; i++) {
+                bounds = *box;
+                r = ((Vector4 *)PTR((list[1] + i * 0x20)))[1].x;
+                bounds.max.x += r;
+                bounds.max.y += r;
+                bounds.max.z += r;
+                bounds.min.x -= r;
+                bounds.min.y -= r;
+                bounds.min.z -= r;
+                XformVec(a + 0x10, (Vector4 *)PTR((list[1] + i * 0x20)), &world);
+                InverseXformVec(b + 0x10, &world, &local);
+                d = RayBoxTest(&local, &relLocal, &bounds.min, *t, &rayHit.pos);
+                if (d < best) {
+                    if (hit != NULL) {
+                        p.x = d * relLocal.x + local.x;
+                        p.y = d * relLocal.y + local.y;
+                        p.z = d * relLocal.z + local.z;
+                        contact.pos = p;
+                        if (contact.pos.x < box->min.x) {
+                            contact.pos.x = box->min.x;
+                        }
+                        if (contact.pos.y < box->min.y) {
+                            contact.pos.y = box->min.y;
+                        }
+                        if (contact.pos.z < box->min.z) {
+                            contact.pos.z = box->min.z;
+                        }
+                        if (contact.pos.w < box->min.w) {
+                            contact.pos.w = box->min.w;
+                        }
+                        if (contact.pos.x > box->max.x) {
+                            contact.pos.x = box->max.x;
+                        }
+                        if (contact.pos.y > box->max.y) {
+                            contact.pos.y = box->max.y;
+                        }
+                        if (contact.pos.z > box->max.z) {
+                            contact.pos.z = box->max.z;
+                        }
+                        if (contact.pos.w > box->max.w) {
+                            contact.pos.w = box->max.w;
+                        }
+                        PSVECSubtract(&contact.pos, &p, &n);
+                        contact.normal = n;
+                        if (PSVECSquareMag(&contact.normal)) {
+                            PSVECNormalize(&contact.normal, &contact.normal);
+                        }
+                        XformVec(b + 0x10, &contact.pos, (Vector4 *)hit);
+                        XformVecOrientation(b + 0x10, &contact.normal, (Vector4 *)(hit + 0x10));
+                    }
+                    best = d;
+                }
+            }
+            break;
+        }
+        case 6:
+            break;
+        }
+        break;
+    }
+    if (best < *t) {
+        *t = best;
+        return 1;
+    }
+    return 0;
+}
+
 f32 Thing_GetMass(void) {
     extern f32 g_LR_Counter;
     return g_LR_Counter;
@@ -175,6 +390,51 @@ s8 Thing_HasThing(Thing *thing, void *target) {
         }
     }
     return ThingManagerList_Get(&thing->unk88, target);
+}
+
+void Thing_GetCameraOrientationInfo(Thing *thing, u32 index, void *out) {
+    typedef struct CameraOrientationInfo {
+        u8 pad00[0x8];
+        f32 unk8;
+        f32 unkC;
+        f32 unk10;
+        f32 unk14;
+        u8 pad18[0x8];
+        Matrix4 mtx;
+        Vector4 pos;
+        u8 pad70[0x10];
+        s32 unk80;
+        PTR32(u8) unk84;
+        u32 unk88;
+        f32 unk8C;
+    } CameraOrientationInfo;
+    CameraOrientationInfo *info = out;
+    u32 *cams;
+
+    cams = (u32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0x100);
+    info->unk88 = cams[0];
+    switch (ViewManager_GetViewFormat()) {
+    case 2:
+        cams = (u32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0x108);
+        break;
+    }
+    if (cams[0] == 0) {
+        info->unk80 = 0;
+        SETP(info->unk84, NULL);
+        info->mtx = thing->mtx;
+    } else {
+        SETP(info->unk84, (u8 *)PTR(cams[1]) + (index % cams[0]) * 0xC);
+        info->unk8C = 1.0f;
+        info->mtx.v[1].x = 0.0f;
+        info->mtx.v[1].y = 1.0f;
+        info->mtx.v[1].z = 0.0f;
+        info->unk14 = 90.0f;
+        info->pos = thing->mtx.v[3];
+        info->unk8 = 5.0f;
+        info->unkC = 5.0f;
+        info->unk10 = 90.0f;
+        info->mtx = thing->mtx;
+    }
 }
 
 s32 TriggerAirboxEntered(u32 *trigger) {
@@ -348,7 +608,6 @@ void Thing_CollideWithForceBoxes(u8 *thing) {
     } ForceBox;
     extern u8 g_carAVTable[];
     u8 *IsPointWithinForceBox(Vector4 *point);
-    f32 MagnitudeVector(void *v);
     Vector4 *vel = (Vector4 *)thing;
     ForceBox *box;
     u8 *volume;
@@ -442,6 +701,147 @@ void Thing_CollideWithForceBoxes(u8 *thing) {
     }
 }
 
+static inline u8 Teleporter_Contains(u8 *tp, u8 *thing) {
+
+    if (*(u32 *)(tp + 0x54) & 4) {
+        s32 hit = 0;
+
+        if (*(f32 *)(thing + 0x44) < *(f32 *)(tp + 0x34) || MagnitudeVector(thing + 0x40) > 10000.0f) {
+            hit = 1;
+        }
+        return hit;
+    }
+    return *(f32 *)(tp + 0x4C) * *(f32 *)(tp + 0x4C) > PSVECSquareDistance(tp + 0x30, thing + 0x40);
+}
+
+static inline u8 *World_GetTeleporter(u32 index) {
+    return SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x34)) + index * 0x70;
+}
+
+s8 Thing_CollideWithTeleporters(u8 *thing) {
+    typedef struct Teleporter {
+        Matrix4 mtx;
+        u8 pad40[4];
+        u32 debris;
+        u8 pad48[4];
+        f32 radius;
+        u32 numDest;
+        u32 flags;
+        PTR32(u32) dest;
+        s32 damage;
+        u8 pad60[0x10];
+    } Teleporter;
+    typedef struct DebrisParams {
+        Vector4 pos;
+        Vector4 quat;
+        Vector4 vel;
+        Vector4 zero;
+        u32 debris;
+        u32 unk44;
+        f32 unk48;
+        f32 unk4C;
+    } DebrisParams;
+    extern Vector4 g_zeroVector;
+    DebrisParams destParams;
+    DebrisParams srcParams;
+    Matrix4 inv;
+    Matrix4 rel;
+    Vector4 vel;
+    Vector4 rotated;
+    Vector4 neg;
+    u32 i;
+    Teleporter *tp;
+    Teleporter *dest;
+    u32 wasInside;
+
+    wasInside = (*(u32 *)(thing + 0x74) >> 11) & 1;
+    *(u32 *)(thing + 0x74) &= ~0x800;
+    if (GETP(g_worldData.world) == NULL) {
+        return 0;
+    }
+    for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x30); i++) {
+        tp = (Teleporter *)World_GetTeleporter(i);
+        if (tp->numDest == 0 || !Teleporter_Contains((u8 *)tp, thing)) {
+            continue;
+        }
+        if (!wasInside) {
+            inv = tp->mtx;
+            rel = *(Matrix4 *)(thing + 0x10);
+            vel = *(Vector4 *)thing;
+            neg.x = -tp->mtx.v[3].x;
+            neg.y = -tp->mtx.v[3].y;
+            neg.z = -tp->mtx.v[3].z;
+            dest = (Teleporter *)World_GetTeleporter(GETP(tp->dest)[RandomNumberGenerator_GetRandomInteger(0, tp->numDest)]);
+            TransposeSubMatrix(&inv);
+            XformVecOrientation(&inv, &neg, &rotated);
+            inv.v[3].x = rotated.x;
+            inv.v[3].y = rotated.y;
+            inv.v[3].z = rotated.z;
+            MultiplyMatrix((Matrix4 *)(thing + 0x10), &inv, &rel);
+            XformVecOrientation(&inv, (Vector4 *)thing, &vel);
+            if (tp->damage != 0) {
+                *(s32 *)(thing + 0x78) -= tp->damage;
+                if (*(s32 *)(thing + 0x78) < 1) {
+                    *(s32 *)(thing + 0x78) = 1;
+                }
+            }
+            if (dest->flags & 1) {
+                MultiplyMatrix(&rel, dest, (Matrix4 *)(thing + 0x10));
+                SubMatrixToQuaternion(thing + 0x10, (Vector4 *)(thing + 0x50));
+                XformVecOrientation(dest, &vel, (Vector4 *)thing);
+                if (!(dest->flags & 8)) {
+                    *(f32 *)(thing + 0x40) = dest->mtx.v[3].x;
+                    *(f32 *)(thing + 0x44) = dest->mtx.v[3].y;
+                    *(f32 *)(thing + 0x48) = dest->mtx.v[3].z;
+                }
+            } else {
+                *(Matrix4 *)(thing + 0x10) = dest->mtx;
+                SubMatrixToQuaternion(thing + 0x10, (Vector4 *)(thing + 0x50));
+                if (dest->flags & 8) {
+                    XformVec(dest, &rel.v[3], (Vector4 *)(thing + 0x40));
+                }
+            }
+            if (!(dest->flags & 2)) {
+                ((Vector4 *)thing)->x = 0.0f;
+                ((Vector4 *)thing)->y = 0.0f;
+                ((Vector4 *)thing)->z = 0.0f;
+            }
+            if (dest->debris != 0) {
+                destParams.debris = dest->debris;
+                destParams.pos = dest->mtx.v[3];
+                SubMatrixToQuaternion(dest, &destParams.quat);
+                destParams.vel.x = destParams.vel.y = destParams.vel.z = 0.0f;
+                destParams.unk44 = 0;
+                destParams.unk48 = 0.0f;
+                destParams.unk4C = 0.0f;
+                destParams.zero = g_zeroVector;
+                ThingManager_DARYL_CreateThing(1, &destParams);
+            }
+            if (tp->debris != 0) {
+                srcParams.debris = tp->debris;
+                srcParams.pos = tp->mtx.v[3];
+                SubMatrixToQuaternion(tp, &srcParams.quat);
+                srcParams.vel.x = srcParams.vel.y = srcParams.vel.z = 0.0f;
+                srcParams.unk44 = 0;
+                srcParams.unk48 = 0.0f;
+                srcParams.unk4C = 0.0f;
+                srcParams.zero = g_zeroVector;
+                ThingManager_DARYL_CreateThing(1, &srcParams);
+            }
+            if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
+                *(s32 *)(thing + 0x3B0) = -1;
+                if (!Player_IsHuman(SLOT_LOAD(void *, (thing + 0x94)))) {
+                    *(s32 *)(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x4A4) = 0x20;
+                    *(s32 *)(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x634) = -0x78;
+                }
+            }
+        }
+        *(u32 *)(thing + 0x74) |= 0x800;
+        return 1;
+    }
+    return 0;
+}
+
 s32 TriggerP2PActivated(u32 *data) {
     u32 n = data[0];
     u32 i;
@@ -460,8 +860,6 @@ s32 TriggerP2PActivated(u32 *data) {
 
 s32 ActionVehicleTeleport(u32 *action) {
     extern Vector4 g_zeroVector;
-    void InverseXformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
-    void XformVecOrientation(void *mtx, Vector4 *in, Vector4 *out);
     typedef struct {
         Matrix4 mtx;
         u8 pad40[0x44 - 0x40];
@@ -532,7 +930,6 @@ s32 ActionVehicleTeleport(u32 *action) {
     return 1;
 }
 
-f32 MagnitudeVector(void *v);
 void Thing_GetInterfaceInfo(void *thing, void *info) {
     typedef struct InterfaceInfo {
         s32 unk0;
@@ -606,7 +1003,6 @@ void Thing_MoveSlaves(Thing *thing) {
 }
 
 void Thing_InitAllSlavesNow(s32 arg0, void *data, s32 mask) {
-    void ThingManagerList_InitAllSlavesNow(void *list, void *data, s32 mask);
     ThingManagerList_InitAllSlavesNow(PTR(arg0 + 0x88), data, mask);
 }
 
@@ -750,7 +1146,6 @@ void Thing_GetStaticRotationalMinMax(void *thing, Vector4 *min, Vector4 *max) {
 }
 
 void Thing_DynamicGridMove(void *thing, f32 expand) {
-    void Grid_MoveObject(s32 obj, Vector4 *min, Vector4 *max);
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
 
@@ -761,7 +1156,6 @@ void Thing_DynamicGridMove(void *thing, f32 expand) {
 }
 
 void Thing_StaticGridMove(void *thing) {
-    void Grid_MoveObject(s32 obj, Vector4 *min, Vector4 *max);
     void Thing_GetDynamicMinMax(void *thing, Vector4 *min, Vector4 *max, f32 expand);
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
@@ -773,7 +1167,6 @@ void Thing_StaticGridMove(void *thing) {
 }
 
 void Thing_RotationalGridMove(void *thing) {
-    void Grid_MoveObject(s32 obj, Vector4 *min, Vector4 *max);
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
 
@@ -903,7 +1296,6 @@ s32 Thing_GetOrientedCollision(void) {
 }
 
 s32 Thing_HitsTerrain(void *thing, void *arg1, void *arg2) {
-    s32 OBoxHitsTerrain(void *obox, void *thing, void *arg1, void *arg2);
 
     if (GETP(g_worldData.world) == NULL) {
         return 0;

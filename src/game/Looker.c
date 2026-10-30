@@ -208,7 +208,6 @@ void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info) {
     o->target = l->orient.v[3];
 }
 
-void Thing_SlaveTransform();
 
 void *g_lookerVTable[] = {
     Looker_Init,

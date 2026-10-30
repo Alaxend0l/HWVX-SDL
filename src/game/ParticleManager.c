@@ -1,6 +1,8 @@
 #include "common.h"
 
 
+extern u8 g_particleManager[];  /* typed per function below */
+extern u8 g_numParticlesCreatedThisFrame[];  /* typed per function below */
 
 void ParticleManager_Init(void) {
     typedef struct {
@@ -24,8 +26,8 @@ void ParticleManager_Init(void) {
         s32 unk8E030;
         u8 unk8E034[0xC];
     } ParticleManager;
-    extern ParticleManager g_particleManager;
-    extern s32 g_numParticlesCreatedThisFrame;
+    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
+    #define g_numParticlesCreatedThisFrame (*(s32 *)(void *)&g_numParticlesCreatedThisFrame)
     ParticleManager *pm = &g_particleManager;
     u32 j;
     u32 i;
@@ -42,10 +44,12 @@ void ParticleManager_Init(void) {
     }
     pm->unk8E030 = 0;
     g_numParticlesCreatedThisFrame = 0;
+#undef g_numParticlesCreatedThisFrame
+#undef g_particleManager
 }
 
 s8 ParticleManager_CanCreatureParticle(void *creature) {
-    extern u32 g_numParticlesCreatedThisFrame;
+    #define g_numParticlesCreatedThisFrame (*(u32 *)(void *)&g_numParticlesCreatedThisFrame)
     u32 count;
 
     count = ++g_numParticlesCreatedThisFrame;
@@ -68,6 +72,7 @@ s8 ParticleManager_CanCreatureParticle(void *creature) {
         return ((u8 *)creature)[3] <= 1;
     }
     return 0;
+#undef g_numParticlesCreatedThisFrame
 }
 
 void CreateParticle(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age) {
@@ -134,7 +139,7 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
         ParticleGroup groups[3];
         u8 unk78030[0x16010];
     } ParticleManager;
-    extern ParticleManager g_particleManager;
+    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
     static s8 which;
     ParticleGroup *group;
     ParticleGX *particle;
@@ -250,6 +255,7 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
             }
         }
     }
+#undef g_particleManager
 }
 
 void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owner, u8 *info, f32 speed, f32 age) {
@@ -292,7 +298,7 @@ void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owne
         SpriteList spriteList;
         u8 unk8E034[0xC];
     } ParticleManager;
-    extern ParticleManager g_particleManager;
+    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
     SpriteList *list;
     ParticleSprite *sprite;
     u8 *anim;
@@ -350,6 +356,7 @@ void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owne
             }
         }
     }
+#undef g_particleManager
 }
 
 void ParticleGX_Move();
@@ -377,7 +384,7 @@ void ParticleManager_Heartbeat(void) {
         ParticleSprite sprites[0x200];
         u8 unk8E030[0x10];
     } ParticleManager;
-    extern ParticleManager g_particleManager;
+    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
     ParticleManager *pm;
     u32 j;
     u32 i;
@@ -410,6 +417,7 @@ void ParticleManager_Heartbeat(void) {
             }
         }
     }
+#undef g_particleManager
 }
 
 void ParticleGX_Move(struct ParticleGX_Move_t {
@@ -419,7 +427,6 @@ void ParticleGX_Move(struct ParticleGX_Move_t {
         Vector4 targetPos;
     } *particle) {
     extern s32 g_iDeltaTimeMS;
-    f32 Gfx_GetMinCameraDistSquared(void *pos);
     void ParticleGX_MacroStep(void *particle);
     f32 distSq;
 
@@ -701,6 +708,49 @@ void ParticleSprite_Move(u8 *sprite, void *sprites) {
     if (*(f32 *)(sprite + 0x84)) {
         *(f32 *)(sprite + 0x80) += *(f32 *)(sprite + 0x98) * (*(f32 *)(sprite + 0x84) * g_fDeltaTimeSec);
     }
+}
+
+void ParticleManager_Render(void) {
+    typedef struct {
+        u8 unk0[0x94];
+        u8 flags;
+        u8 unk95[0xB0 - 0x95];
+    } ParticleSprite;
+    typedef struct {
+        u8 unk0[0xB4];
+        u8 flags;
+        u8 unkB5[0x100 - 0xB5];
+    } ParticleGX;
+    typedef struct {
+        struct {
+            ParticleGX particles[0x280];
+            u8 unk28000[0x10];
+        } groups[3];
+        ParticleSprite sprites[0x200];
+        u8 unk8E030[0x10];
+    } ParticleManager;
+    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
+    #define g_numParticlesCreatedThisFrame (*(s32 *)(void *)&g_numParticlesCreatedThisFrame)
+    ParticleManager *pm = &g_particleManager;
+    u32 j;
+    u32 i;
+    ParticleSprite *sprite;
+
+    for (i = 0; i < 3; i++) {
+        for (j = 0; j < 0x280; j++) {
+            if (!(pm->groups[i].particles[j].flags & 8)) {
+                ParticleGX_Render(&pm->groups[i].particles[j]);
+            }
+        }
+    }
+    for (j = 0, sprite = pm->sprites; j < 0x200; j++, sprite++) {
+        if (!(pm->sprites[j].flags & 8)) {
+            ParticleSprite_Render(sprite);
+        }
+    }
+    g_numParticlesCreatedThisFrame = 0;
+#undef g_numParticlesCreatedThisFrame
+#undef g_particleManager
 }
 
 void ParticleGX_Render(u8 *particle) {

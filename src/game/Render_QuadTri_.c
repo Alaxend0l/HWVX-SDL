@@ -136,7 +136,6 @@ typedef struct GDL {
 
 extern GDL *g_pGDL;
 extern s32 g_debugTriCount;
-void XformVec4x4(Matrix4 *m, Vector4 *v, Vector4 *out);
 
 static inline void GXPosition3f32(f32 x, f32 y, f32 z) {
     GXWGFifo_f32(x);

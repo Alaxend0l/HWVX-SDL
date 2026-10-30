@@ -77,11 +77,60 @@ def idents(s):
     return set(re.findall(r"[A-Za-z_]\w*", s))
 
 
+def decl_re(names):
+    return re.compile(
+        r"^[ \t]*(?:extern[ \t]+)?(?!(?:return|else|case|goto|do|typedef)\b)(?:(?:const|struct|unsigned|signed)[ \t]+)*\w+[\w \t\*]*?\b(" +
+        "|".join(map(re.escape, names)) + r")[ \t]*\([^;{}=()]*(?:\([^;{}=()]*\)[^;{}=()]*)*\)[ \t]*;[ \t]*(?://[^\n]*)?\n", re.M)
+
+
+def guard(fname):
+    return re.sub(r"\W", "_", fname.rsplit(".", 1)[0])
+
+
+def split_params(params):
+    out, depth, cur = [], 0, ""
+    for c in params:
+        if c == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+            continue
+        depth += c in "(["
+        depth -= c in ")]"
+        cur += c
+    return out + [cur]
+
+
+def erase(ret, name, params, unknown):
+    """Signature with pointers to unknown types turned into void *, or None
+    if an unknown type is used by value or inside a function pointer."""
+    def fix(decl):
+        if not idents(decl) & unknown:
+            return decl.strip()
+        if "(" in decl or "*" not in decl:
+            return None
+        m = re.match(r"^(.*?)(\**)\s*(\w*)\s*(\[.*\])?\s*$", decl.strip())
+        if not m or not m.group(2):
+            return None
+        return f"void {m.group(2)}{m.group(3)}{m.group(4) or ''}"
+    r = ret
+    if idents(ret) & unknown:
+        if "*" not in ret:
+            return None
+        r = "void " + "*" * ret.count("*")
+    ps = [fix(p) for p in split_params(params)] if params.strip() not in ("", "void") else ["void"]
+    if None in ps:
+        return None
+    sep = "" if r.endswith("*") else " "
+    return f"{r}{sep}{name}({', '.join(ps)});"
+
+
 def main():
     strip = "--strip" in sys.argv
     known = header_types() | BUILTIN
     protos = {}
     skipped = []
+    erased = {}
+    plain_ret = set()  # erased ones whose return type is unchanged
     for f in sorted(GAME.glob("*.c")):
         for ret, name, params in definitions(f.read_text()):
             # Decomp naming: types are CapitalCase, parameter names lowercase.
@@ -90,7 +139,13 @@ def main():
                        if w[0].isupper() and w not in known and w not in tagged and w != name}
             sig = f"{ret} {name}({params or 'void'});"
             if unknown:
-                skipped.append(f"{name} ({f.name}: {' '.join(sorted(unknown))})")
+                esig = erase(ret, name, params, unknown)
+                if esig and name not in protos and name not in erased:
+                    erased[name] = (esig, f.name)
+                    if not idents(ret) & unknown:
+                        plain_ret.add(name)
+                else:
+                    skipped.append(f"{name} ({f.name}: {' '.join(sorted(unknown))})")
             elif name in protos and protos[name][0] != sig:
                 skipped.append(f"{name} (defined twice: {protos[name][1]}, {f.name})")
                 del protos[name]
@@ -110,22 +165,51 @@ def main():
             lines.append(f"\n/* {fname} */")
             cur = fname
         lines.append(sig)
+    lines += ["", "/* Signatures using a type local to their file, with pointers to it as void *.",
+              " * Hidden from that file and from files declaring them with their own copy of",
+              " * the type (HWVX_SRC_<file> is defined per source by CMake). */"]
+    # Files that declare an erased function themselves (with their own copy
+    # of the type) keep that declaration and don't see the erased one.
+    declared = {n: set() for n in erased}
+    if erased:
+        dre = decl_re(sorted(erased))
+        for f in sorted(GAME.glob("*.c")):
+            for m in dre.finditer(f.read_text()):
+                if not (strip and m.group(1) in plain_ret):  # stripped below
+                    declared[m.group(1)].add(f.name)
+    cur = None
+    for name, (sig, fname) in sorted(erased.items(), key=lambda kv: (kv[1][1], kv[0])):
+        files = sorted({fname} | declared[name])
+        cond = " && ".join(f"!defined(HWVX_SRC_{guard(x)})" for x in files)
+        if cond != cur:
+            if cur:
+                lines.append("#endif")
+            lines.append(f"#if {cond}")
+            cur = cond
+        lines.append(sig)
+    if cur:
+        lines.append("#endif")
     lines += ["", "/* Not declared here (signature uses a file-local type):"]
     lines += [" *   " + s for s in sorted(skipped)]
     lines += [" */", "", "#endif", ""]
     OUT.write_text("\n".join(lines))
-    print(f"{len(protos)} prototypes, {len(skipped)} skipped", file=sys.stderr)
+    print(f"{len(protos)} prototypes, {len(erased)} with void * params, {len(skipped)} skipped",
+          file=sys.stderr)
 
     if strip:
-        names = sorted(protos)
-        decl = re.compile(
-            r"^[ \t]*(?:extern[ \t]+)?(?!(?:return|else|case|goto|do|typedef)\b)(?:(?:const|struct|unsigned|signed)[ \t]+)*\w+[\w \t\*]*?\b(" +
-            "|".join(map(re.escape, names)) + r")[ \t]*\([^;{}=()]*(?:\([^;{}=()]*\)[^;{}=()]*)*\)[ \t]*;[ \t]*(?://[^\n]*)?\n", re.M)
+        # Local declarations of erased functions only add value where the
+        # return type was erased (callers use the struct it points to); the
+        # void * parameters accept whatever the call sites pass. The defining
+        # file doesn't see the erased prototype, so it keeps its own.
+        decl = decl_re(sorted(protos))
         for f in sorted(GAME.glob("*.c")) + sorted((GAME / "include").glob("*.h")):
-            if f == OUT:
+            if f == OUT or f.name == "data_gen.c":  # generated, doesn't include protos
                 continue
             src = f.read_text()
             out = decl.sub("", src)
+            others = [n for n in plain_ret if erased[n][1] != f.name]
+            if others:
+                out = decl_re(sorted(others)).sub("", out)
             if out != src:
                 f.write_text(out)
 

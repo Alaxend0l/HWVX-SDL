@@ -182,7 +182,6 @@ void Render_LoadCamera(void) {
     Gfx_SetProjectionMatrix(Gfx_GetProjectionMatrix());
 }
 
-void XformVecOrientation(Matrix4 *mtx, Vector4 *in, Vector4 *out);
 void Render_SetClipPlanes(f32 fov) {
     Vector4 out __attribute__((aligned(16)));
     Vector4 in __attribute__((aligned(16)));

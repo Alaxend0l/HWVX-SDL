@@ -1,0 +1,354 @@
+InterfaceManager.c:260: vars: IMWorldVar ** field -> PTR32(IMWorldVar *)
+InterfaceManager.c:980: text: char ** field -> PTR32(char *)
+InterfaceManager.c:995: header: void ** field -> PTR32(void *)
+CarA.h:339: stuntPopup: char ** field -> PTR32(char *)
+CarA.h:341: stuntScoreMessage: char ** field -> PTR32(char *)
+CarA.h:342: stuntMessage: char ** field -> PTR32(char *)
+Action.c:386: arithmetic update of flags
+Action.c:452: address of slaves
+Action.c:462: arithmetic update of flags
+Action.c:562: arithmetic update of flags
+AI_CarA.c:169: address of slaves
+AI_CarA.c:789: address of slaves
+AI_CarA.c:1179: address of slaves
+AI_CarA.c:1980: arithmetic update of unk10
+AnimHandler.c:58: arithmetic update of mode
+AnimHandler.c:60: arithmetic update of mode
+AnimHandler.c:135: arithmetic update of flags
+AnimHandler.c:136: arithmetic update of flags
+AnimHandler.c:137: address of freeList
+AnimHandler.c:607: address of mtx
+AnimHandler.c:617: address of base
+AnimHandler.c:619: address of mtx
+AnimHandler.c:664: address of mtx
+AnimHandler.c:670: address of mtx
+AnimHandler.c:678: address of mtx
+AnimHandler.c:683: address of mtx
+AnimHandler.c:721: address of mtx
+AnimHandler.c:727: address of mtx
+AnimHandler.c:734: address of mtx
+AnimHandler.c:739: address of mtx
+AnimHandler.c:800: address of mtx
+AnimHandler.c:807: address of mtx
+AttachThing.c:165: arithmetic update of flags
+AttachThing.c:168: arithmetic update of flags
+AttachThing.c:286: arithmetic update of flags
+AttachThing.c:296: arithmetic update of flags
+AudioManager.c:375: arithmetic update of time
+AudioManager.c:383: arithmetic update of time
+AudioManager.c:391: arithmetic update of time
+AudioManager.c:400: arithmetic update of time
+CameraManager.c:234: address of right
+CameraManager.c:748: address of right
+CameraManager.c:749: address of right
+CameraManager.c:750: address of right
+CameraManager.c:751: address of right
+CameraManager.c:824: address of right
+CameraManager.c:825: address of right
+CameraManager.c:826: address of right
+CameraManager.c:827: address of right
+CameraManager.c:843: address of right
+CameraManager.c:844: address of right
+CameraManager.c:845: address of right
+CameraManager.c:846: address of right
+CameraManager.c:891: address of right
+CameraManager.c:892: address of right
+CameraManager.c:893: address of right
+CameraManager.c:894: address of right
+CameraManager.c:1004: arithmetic update of flags
+CameraManager.c:1062: address of offset
+CameraManager.c:1070: address of offset
+CameraManager.c:1149: arithmetic update of flags
+CameraManager.c:1207: address of activeList
+CarA_AR.c:64: address of activeList
+CarA.c:100: address of slaves
+CarA.c:1024: address of slaves
+CarA.c:1530: address of axis
+CarA.c:1904: address of slaves
+CarA.c:1907: address of slaves
+CarA.c:1908: arithmetic update of flags
+CarA.c:1912: address of slaves
+CarA.c:1913: address of mtx
+CarA.c:1915: address of activeList
+CarA.c:1917: arithmetic update of flags
+CarA.c:2161: arithmetic update of flags
+CarA.c:2163: arithmetic update of flags
+CarA.c:2190: address of slaves
+CarA.c:2399: address of slaves
+CarA.c:2410: address of slaves
+CarA.c:2411: address of slaves
+CarA.c:2416: address of activeList
+CarA.c:2417: address of slaves
+CarA.c:2424: address of mtx
+CarA.c:2433: arithmetic update of flags
+CarA.c:2434: arithmetic update of flags
+CarA.c:2468: address of slaves
+CarA_HW.c:179: address of stuntScoreText
+CarA_HW.c:247: address of slaves
+CarA_HW.c:257: address of slaves
+CarA_Stunts.c:203: address of mtx
+CarA_Stunts.c:258: address of mtx
+CarA_Stunts.c:274: address of mtx
+CarA_Stunts.c:307: address of mtx
+CarA_Stunts.c:314: arithmetic update of flags
+CarA_Stunts.c:391: arithmetic update of flags
+CarA_Suspension.c:293: address of slaves
+CollisionThing.c:345: arithmetic update of time
+CollisionTriangle.c:27: arithmetic update of time
+CoronaHolder.c:133: arithmetic update of time
+CoronaHolder.c:139: arithmetic update of time
+Creature.c:106: arithmetic update of flags
+Creature.c:138: arithmetic update of flags
+Creature.c:161: arithmetic update of flags
+Creature.c:165: arithmetic update of flags
+Creature.c:172: arithmetic update of flags
+Creature.c:176: arithmetic update of flags
+Creature.c:181: arithmetic update of flags
+Creature.c:185: arithmetic update of flags
+Creature.c:322: arithmetic update of flags
+Creature.c:371: address of axis
+Creature.c:518: arithmetic update of flags
+Creature.c:562: arithmetic update of flags
+Creature.c:890: address of anim
+Creature.c:892: arithmetic update of flags
+Creature.c:895: address of model
+Creature.c:918: address of model
+Creature.c:936: arithmetic update of flags
+Debris.c:107: arithmetic update of flags
+Destructible.c:135: arithmetic update of flags
+Destructible.c:141: arithmetic update of flags
+Destructible.c:185: arithmetic update of flags
+Destructible.c:208: arithmetic update of flags
+Destructible.c:209: arithmetic update of flags
+Destructible.c:214: arithmetic update of flags
+Destructible.c:217: arithmetic update of flags
+Destructible.c:220: arithmetic update of flags
+Destructible.c:221: arithmetic update of flags
+Destructible.c:224: arithmetic update of flags
+Destructible.c:225: arithmetic update of flags
+Destructible.c:232: arithmetic update of flags
+Destructible.c:233: arithmetic update of flags
+Destructible.c:234: arithmetic update of flags
+Destructible.c:235: arithmetic update of flags
+Destructible.c:236: arithmetic update of flags
+Destructible.c:241: arithmetic update of flags
+Destructible.c:242: arithmetic update of flags
+Destructible.c:243: arithmetic update of flags
+Destructible.c:244: arithmetic update of flags
+Destructible.c:250: arithmetic update of flags
+Destructible.c:264: arithmetic update of flags
+Destructible.c:284: address of slaves
+Destructible.c:293: arithmetic update of flags
+Destructible.c:350: address of slaves
+Destructible.c:386: address of slaves
+Destructible.c:547: address of slaves
+Destructible.c:548: arithmetic update of flags
+Destructible.c:549: arithmetic update of flags
+Destructible.c:553: arithmetic update of flags
+Destructible.c:554: arithmetic update of flags
+Destructible.c:560: address of slaves
+Destructible.c:562: arithmetic update of flags
+Destructible.c:563: arithmetic update of flags
+Destructible.c:656: arithmetic update of flags
+Emitter.c:112: arithmetic update of flags
+Emitter.c:204: arithmetic update of flags
+Emitter.c:221: arithmetic update of flags
+Emitter.c:226: arithmetic update of flags
+Emitter.c:232: arithmetic update of flags
+Emitter.c:236: arithmetic update of flags
+EventSequence.c:387: address of mtx
+EventSequence.c:390: address of mtx
+EventSequence.c:398: address of mtx
+EventSequence.c:399: address of mtx
+EventSequence.c:423: address of mtx
+EventSequence.c:424: address of mtx
+EventSequence.c:425: address of mtx
+EventSequence.c:438: address of mtx
+EventSequence.c:442: address of mtx
+EventSequence.c:464: address of mtx
+EventSequence.c:482: address of mtx
+EventSequence.c:483: address of mtx
+EventSequence.c:569: address of mtx
+EventSequence.c:570: address of mtx
+EventSequence.c:571: address of mtx
+EventSequence.c:605: address of mtx
+EventSequence.c:608: address of mtx
+EventSequence.c:616: address of mtx
+EventSequence.c:617: address of mtx
+EventSequence.c:630: address of mtx
+EventSequence.c:641: address of mtx
+EventSequence.c:642: address of mtx
+EventSequence.c:654: address of mtx
+EventSequence.c:658: address of mtx
+EventSequence.c:680: address of mtx
+EventSequence.c:698: address of mtx
+EventSequence.c:699: address of mtx
+EventSequence.c:742: address of mtx
+EventSequence.c:753: address of mtx
+EventSequence.c:754: address of mtx
+EventSequence.c:1047: address of axis
+ExtractKeys.c:41: arithmetic update of time
+ExtractKeys.c:49: arithmetic update of time
+ExtractKeys.c:143: arithmetic update of time
+ExtractKeys.c:151: arithmetic update of time
+ExtractKeys.c:258: arithmetic update of time
+ExtractKeys.c:266: arithmetic update of time
+ExtractKeys.c:361: arithmetic update of time
+ExtractKeys.c:369: arithmetic update of time
+ExtractKeys.c:450: arithmetic update of time
+ExtractKeys.c:460: arithmetic update of time
+ExtractKeys.c:532: arithmetic update of time
+ExtractKeys.c:540: arithmetic update of time
+ExtractKeys.c:610: arithmetic update of time
+ExtractKeys.c:612: arithmetic update of key
+ExtractKeys.c:617: arithmetic update of time
+ExtractKeys.c:672: arithmetic update of time
+ExtractKeys.c:702: address of volume
+ExtractKeys.c:715: arithmetic update of time
+FileStreaming.c:475: address of activeList
+FileStreaming.c:591: arithmetic update of flags
+Gfx_DisplayList.c:787: address of color
+Gfx_DisplayList.c:788: address of color
+Gfx_DisplayList.c:789: address of color
+InterfaceManager.c:1129: address of color
+InterfaceManager.c:2156: address of events
+InterfaceManager.c:3458: address of anim
+InterfaceManager.c:3460: address of anim
+InterfaceManager.c:3462: address of anim
+IT.c:519: arithmetic update of flags
+IT.c:539: arithmetic update of flags
+IT.c:704: arithmetic update of flags
+IT.c:708: arithmetic update of flags
+IT.c:715: arithmetic update of flags
+IT.c:743: arithmetic update of flags
+IT.c:753: arithmetic update of flags
+IT.c:780: arithmetic update of flags
+IT.c:810: arithmetic update of flags
+IT.c:970: arithmetic update of flags
+IT.c:975: arithmetic update of flags
+IT_.c:48: arithmetic update of data
+IT_.c:50: arithmetic update of data
+LightManager.c:397: arithmetic update of b
+LightManager.c:399: arithmetic update of b
+LightManager.c:418: arithmetic update of b
+LightManager.c:420: arithmetic update of b
+LineManager.c:166: address of accel
+Looker.c:126: address of right
+Looker.c:127: address of right
+MIDI.c:1034: address of field_14
+MIDI_.c:45: arithmetic update of loop
+NavHolder.c:54: arithmetic update of flags
+NavHolder.c:339: arithmetic update of flags
+NavHolder.c:354: arithmetic update of flags
+NavHolder.c:365: arithmetic update of flags
+NavHolder.c:382: arithmetic update of flags
+NavHolder.c:385: arithmetic update of flags
+NavHolder.c:392: arithmetic update of flags
+ParticleManager.c:35: arithmetic update of flags
+ParticleManager.c:41: arithmetic update of flags
+ParticleManager.c:161: arithmetic update of next
+ParticleManager.c:205: arithmetic update of flags
+ParticleManager.c:207: arithmetic update of flags
+ParticleManager.c:226: address of axis
+ParticleManager.c:312: arithmetic update of next
+ParticleManager.c:321: arithmetic update of flags
+ParticleManager.c:408: address of accel
+ParticleManager.c:470: address of axis
+ParticleManager.c:550: arithmetic update of flags
+ParticleManager.c:570: address of accel
+ParticleManager.c:592: arithmetic update of flags
+ParticleManager.c:619: arithmetic update of flags
+ParticleManager.c:629: address of axis
+PhysicalObject.c:493: address of mtx
+PhysicalObject.c:497: address of mtx
+PhysicalObject.c:528: arithmetic update of flags
+PhysicalObject.c:532: arithmetic update of flags
+PhysicalObject.c:539: address of mtx
+PhysicalObject.c:543: address of mtx
+PhysicalObject.c:559: address of mtx
+PhysicalObject.c:563: address of mtx
+PhysicalObject.c:574: arithmetic update of flags
+PhysicalObject.c:598: arithmetic update of flags
+Player.c:88: arithmetic update of flags
+Player.c:100: arithmetic update of flags
+Player.c:445: arithmetic update of flags
+Player.c:477: arithmetic update of flags
+Player.c:528: address of slaves
+PlayerManager.c:113: address of base
+PlayerManager.c:120: address of base
+PlayerManager.c:127: address of base
+Projectile.c:266: address of a
+Projectile.c:359: address of a
+Projectile.c:465: address of a
+Projectile.c:640: address of activeList
+Projectile.c:661: address of b
+Projectile.c:671: address of b
+Projectile.c:678: address of b
+Projectile.c:692: address of b
+Projectile.c:703: address of a
+Render_Geometry_.c:445: arithmetic update of flags
+Render_Geometry_.c:447: arithmetic update of flags
+Render_Geometry_.c:599: address of color
+Render_Geometry_.c:676: address of color
+Render_Geometry_.c:678: address of color
+Render_Geometry_.c:689: address of color
+SmartProjectiles.c:218: address of a
+SmartProjectiles.c:222: address of list
+SmartProjectiles.c:235: arithmetic update of flags
+SmartProjectiles.c:292: arithmetic update of flags
+SmartProjectiles.c:293: arithmetic update of flags
+SoundSequence.c:75: arithmetic update of flags
+SoundSequence.c:127: arithmetic update of flags
+SoundSequence.c:137: arithmetic update of flags
+SoundSequence.c:257: arithmetic update of flags
+Thing.c:925: address of mtx
+Thing.c:932: address of mtx
+Thing.c:934: arithmetic update of flags
+Thing.c:980: address of mtx
+Thing.c:1001: address of unk0
+Thing.c:1003: address of mtx
+Thing.c:1008: address of unk0
+Thing.c:1025: address of mtx
+Thing.c:1026: address of mtx
+ThingManager.c:76: arithmetic update of flags
+ThingManager.c:152: address of freeList
+ThingManager.c:174: address of freeList
+ThingManager.c:175: arithmetic update of flags
+ThingManager.c:176: arithmetic update of flags
+ThingManager.c:193: arithmetic update of flags
+ThingManager.c:194: arithmetic update of flags
+ThingManager.c:246: address of mtx
+ThingManager.c:256: arithmetic update of flags
+ThingManager.c:278: address of slaves
+ThingManager.c:298: address of slaves
+ThingManager.c:537: address of thing
+ThingManager.c:539: arithmetic update of flags
+ThingManager.c:543: address of freeList
+ThingManager.c:573: address of thing
+ThingManager.c:576: arithmetic update of flags
+ThingManager.c:580: address of freeList
+ThingManager.c:638: address of activeList
+ThingManager.c:639: address of activeList
+ThingManager.c:654: address of activeList
+ThingManager.c:852: arithmetic update of flags
+ThingManager.c:875: arithmetic update of flags
+ThingManager.c:893: arithmetic update of flags
+ThingManager.c:931: arithmetic update of flags
+ThingManager.c:937: arithmetic update of flags
+ThingManager.c:999: arithmetic update of flags
+ThingManager.c:1000: arithmetic update of flags
+ThingManager.c:1003: arithmetic update of flags
+ThingManager.c:1007: arithmetic update of flags
+ThingManager.c:1045: arithmetic update of flags
+ThingManager.c:1051: arithmetic update of flags
+ThingManager.c:1062: arithmetic update of flags
+ThingManager.c:1144: address of mtx
+ThingManager.c:1148: address of mtx
+ThingManager.c:1214: address of mtx
+ThingManager.c:1273: arithmetic update of flags
+ThingManager.c:1331: address of activeList
+ThingManager.c:1896: address of activeList
+VolumeManager.c:376: address of color
+VolumeManager.c:379: address of color
+World.c:457: arithmetic update of time
+World.c:462: arithmetic update of time

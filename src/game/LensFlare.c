@@ -109,7 +109,6 @@ void LensFlare_Render(void) {
     extern Flare g_pFlare[64];
     extern u32 g_activeFlares;
     extern u32 g_LensFlareRayTest;
-    void XformVec(void *mtx, Vector4 *in, Vector4 *out);
     f32 mtx[4][4] __attribute__((aligned(16)));
     Vector4 dir __attribute__((aligned(16)));
     Vector4 screen __attribute__((aligned(16)));
