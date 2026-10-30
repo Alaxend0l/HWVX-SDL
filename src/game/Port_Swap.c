@@ -359,13 +359,14 @@ static void Claim_Font(Swapper *s, u32 off) {
 }
 
 /* Key tracks by key type (ExtractKeys.c). */
-enum { KEYS_ACTIVE, KEYS_VEC4, KEYS_COLOR, KEYS_UV };
+enum { KEYS_ACTIVE, KEYS_VEC4, KEYS_COLOR, KEYS_UV, KEYS_F32 };
 
 static void Claim_Track(Swapper *s, u32 track, int kind) {
     switch (kind) {
     case KEYS_ACTIVE: Claim_KeyTrack(s, track, 0x08, 0x00); break; /* u8 value, active; f32 duration */
     case KEYS_VEC4: Claim_KeyTrack(s, track, 0x20, 0x10); break;   /* Vector4; u8 active, interp */
     case KEYS_UV: Claim_KeyTrack(s, track, 0x28, 0x20); break;     /* 8 f32; u8 active, interp */
+    case KEYS_F32: Claim_KeyTrack(s, track, 0x0C, 0x04); break;    /* f32; u8 active, interp */
     case KEYS_COLOR:                                                /* RGBA8; u8 active, interp */
         Claim_KeyTrack(s, track, 0x0C, 0x00);
         Claim_KeyTrack(s, track, 0x0C, 0x04);
@@ -984,7 +985,7 @@ static void Claim_Sound(Swapper *s, u32 off) {
 /* Slave trigger list { count; triggers (0x20 each: Vector4 pos, u8 type 0x10,
  * u8, u16 id 0x12, f32 time 0x14, data 0x18) } (ThingManager.c, AnimHandler.c) */
 /* A slave trigger's data, by trigger type (ThingManagerList_TriggerSlaves):
- * 2 emitter (EmitterData: u8 x4), 3 sound sequence, 5/6 attach (u8 x4,
+ * 2 emitter (EmitterData: u8 x4), 3 sound sequence, 7 tracer, 5/6 attach (u8 x4,
  * scale keys 0xC and 0x14, color keys 0x1C), 8 motion (animated model),
  * 9 radar blip (u8 x4). */
 /* Event sequence (EventSequence.c, slave type 1): script { count, entries
@@ -998,6 +999,18 @@ static void Claim_Sound(Swapper *s, u32 off) {
  * a by type: 1 particle (u8 0x0), 5 blast (u8 0x0-0x4), 10 sound (u8 0x0),
  * 26 sound sequence. */
 static void Claim_SoundSeq(Swapper *s, u32 off);
+
+/* LineDef (LineManager.c): u8 0x0-0x2, f32 0x4-0x8, length keys 0xC (f32),
+ * colour keys 0x14 */
+static void Claim_LineDef(Swapper *s, u32 d) {
+    if (d == ~0u || s->claim[d] == CLAIM_BYTES) {
+        return;
+    }
+    ClaimBytes(s, d, 4);
+    Claim_Track(s, d + 0xC, KEYS_F32);
+    Claim_Track(s, d + 0x14, KEYS_COLOR);
+}
+
 static void Claim_EventSeq(Swapper *s, u32 script) {
     u32 entries, n, i;
 
@@ -1027,10 +1040,28 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
                 }
             }
             if (Word(s, e) == 1 && a != ~0u) {
-                u32 anim = Target(s, a + 4);   /* particle: u8 0x0, anim 0x4 -> u8 x4 */
+                /* particle (ParticleManager.c): u8 kind 0x0 (0 GX particle,
+                 * 1 sprite, 2 line), anim 0x4 -> { u8 x4, size keys 0x28:
+                 * Vector4 for particles, f32 for sprites }, colour keys 0x14 */
+                u32 anim = Target(s, a + 4);
+                u8 kind = s->base[a];
                 ClaimBytes(s, a, 4);
-                if (anim != ~0u) {
+                if (kind <= 2) {
+                    Claim_Track(s, a + 0x14, KEYS_COLOR);
+                }
+                if (kind == 2) {
+                    /* line (LineManager.c): 0x4 is a LineDef, plus LineDefs
+                     * in the fx table 0x20 (count 0x1C) */
+                    u32 fx = Target(s, a + 0x20), k;
+                    Claim_LineDef(s, anim);
+                    for (k = 0; fx != ~0u && k < Word(s, a + 0x1C) && k < 0x40; k++) {
+                        Claim_LineDef(s, Target(s, fx + k * 4));
+                    }
+                } else if (anim != ~0u) {
                     ClaimBytes(s, anim, 4);
+                    if (kind <= 1) {
+                        Claim_Track(s, anim + 0x28, kind == 0 ? KEYS_VEC4 : KEYS_F32);
+                    }
                 }
             }
             break;
@@ -1120,6 +1151,11 @@ static void Claim_SlaveData(Swapper *s, u8 type, u32 data) {
         Claim_Track(s, data + 0xC, KEYS_VEC4);
         Claim_Track(s, data + 0x14, KEYS_VEC4);
         Claim_Track(s, data + 0x1C, KEYS_COLOR);
+        break;
+    case 7:   /* tracer (Tracer.c): u8 blend 0x20, axis 0x21; colour keys 0x44, 0x4C */
+        ClaimBytes(s, data + 0x20, 4);
+        Claim_Track(s, data + 0x44, KEYS_COLOR);
+        Claim_Track(s, data + 0x4C, KEYS_COLOR);
         break;
     case 8:
         Claim_MotionAnim(s, data);

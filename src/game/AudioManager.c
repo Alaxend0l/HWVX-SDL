@@ -112,34 +112,32 @@ void SoundManager_Destroy(void) {
 #undef g_tracks
 }
 
+/* port: cases as in the original's jump table (the decomp had them shifted,
+ * so a source's sample and volume were never set and cars made no sound) */
 void SoundSource_Set(u32 index, u32 type, void *data) {
     #define g_sources (*(u8 **)(void *)&g_sources)
 
     switch (type) {
-    case 0:
-        break;
-    case 1:
-        memcpy((u8 *)g_sources + index * 0x50, data, 0x10);
-        break;
-    case 2:
-        memcpy((u8 *)g_sources + index * 0x50 + 0x10, data, 0x10);
-        break;
-    case 3:
+    case 0:  /* volume */
         memcpy((u8 *)g_sources + index * 0x50 + 0x24, data, 4);
         break;
-    case 4:
+    case 1:  /* pitch */
         memcpy((u8 *)g_sources + index * 0x50 + 0x20, data, 4);
         break;
-    case 5:
-        memcpy((u8 *)g_sources + index * 0x50 + 0x28, data, 4);
-        break;
-    case 6:
+    case 2:  /* full-volume distance */
         memcpy((u8 *)g_sources + index * 0x50 + 0x34, data, 4);
         break;
-    case 7:
+    case 3:  /* audible distance */
         memcpy((u8 *)g_sources + index * 0x50 + 0x38, data, 4);
         break;
-    case 8:
+    case 5:  /* position */
+        memcpy((u8 *)g_sources + index * 0x50, data, 0x10);
+        break;
+    case 6:  /* velocity */
+        memcpy((u8 *)g_sources + index * 0x50 + 0x10, data, 0x10);
+        break;
+    case 8:  /* sample (sound effect id) */
+        memcpy((u8 *)g_sources + index * 0x50 + 0x28, data, 4);
         break;
     }
 #undef g_sources
