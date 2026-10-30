@@ -385,7 +385,7 @@ static void Claim_Font(Swapper *s, u32 off) {
 }
 
 /* Key tracks by key type (ExtractKeys.c). */
-enum { KEYS_ACTIVE, KEYS_VEC4, KEYS_COLOR, KEYS_UV, KEYS_F32 };
+enum { KEYS_ACTIVE, KEYS_VEC4, KEYS_COLOR, KEYS_UV, KEYS_F32, KEYS_POINT };
 
 static void Claim_Track(Swapper *s, u32 track, int kind) {
     switch (kind) {
@@ -393,6 +393,7 @@ static void Claim_Track(Swapper *s, u32 track, int kind) {
     case KEYS_VEC4: Claim_KeyTrack(s, track, 0x20, 0x10); break;   /* Vector4; u8 active, interp */
     case KEYS_UV: Claim_KeyTrack(s, track, 0x28, 0x20); break;     /* 8 f32; u8 active, interp */
     case KEYS_F32: Claim_KeyTrack(s, track, 0x0C, 0x04); break;    /* f32; u8 active, interp */
+    case KEYS_POINT: Claim_KeyTrack(s, track, 0x10, 0x0C); break;  /* f32 x, y, duration; u8 active, interp (ExtractPointKey) */
     case KEYS_COLOR:                                                /* RGBA8; u8 active, interp */
         Claim_KeyTrack(s, track, 0x0C, 0x00);
         Claim_KeyTrack(s, track, 0x0C, 0x04);
@@ -1283,9 +1284,19 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
             }
             if (a != ~0u) {
                 switch (Word(s, e)) {
-                case 5:   /* blast: u8 0x0-0x4; damage 0x1C -> { u8 flags, u8 } */
+                case 5:   /* blast: u8 0x0-0x4; damage 0x1C -> { u8 flags, u8 };
+                           * flash (FlashDef): colour 0x20 -> { u8 type, colour
+                           * keys 0x4 }, point keys 0x2C (also ForceFeedback) */
                     ClaimBytes(s, a, 8);
                     ClaimBytes(s, Target(s, a + 0x1C), 4);
+                    {
+                        u32 c = Target(s, a + 0x20);
+                        if (c != ~0u) {
+                            ClaimBytes(s, c, 4);
+                            Claim_Track(s, c + 4, KEYS_COLOR);
+                        }
+                    }
+                    Claim_Track(s, a + 0x2C, KEYS_POINT);
                     break;
                 case 6:   /* a destructible record (Destructible_Init) */
                     Claim_ThingRecord(s, a);
@@ -1721,10 +1732,42 @@ static void Claim_VertexBuffer(Swapper *s, u32 vb) {
     }
 }
 
+/* Shadow volume model (Render_DrawShadows): same header as a geometry, but
+ * 0x8 -> groups (0x20 each: u16 0x0, u16 flags 0x2 (0x4000), u8 colour 0x4-0x7,
+ * numEdges 0x10, edges 0x1C) and 0xC -> f32[3] positions. Edges (0x20): f32
+ * normal 0x0, u16 v0 0xC, u16 v1 0xE, f32 normal 0x10, s32 type 0x1C. */
+static int IsShadowGeometry(Swapper *s, u32 g) {
+    u32 groups = Target(s, g + 8);
+    return groups != ~0u && (Half(s, groups + 2) & 0x4000) != 0;
+}
+
+static void Claim_ShadowGeometry(Swapper *s, u32 g) {
+    u32 n = Half(s, g + 2), groups = Target(s, g + 8), i, j;
+
+    ClaimU16(s, g);
+    ClaimU16(s, g + 2);
+    ClaimU16(s, g + 4);
+    ClaimU16(s, g + 6);
+    for (i = 0; groups != ~0u && i < n && i < 0x100; i++) {
+        u32 grp = groups + i * 0x20, edges = Target(s, grp + 0x1C), ne = Word(s, grp + 0x10);
+        ClaimU16(s, grp);
+        ClaimU16(s, grp + 2);
+        ClaimBytes(s, grp + 4, 4);
+        for (j = 0; edges != ~0u && j < ne && j < 0x10000; j++) {
+            ClaimU16(s, edges + j * 0x20 + 0xC);
+            ClaimU16(s, edges + j * 0x20 + 0xE);
+        }
+    }
+}
+
 static void Claim_Geometry(Swapper *s, u32 g) {
     u32 n, lods, i, j;
 
     if (s->claim[g] == CLAIM_U16) {
+        return;
+    }
+    if (IsShadowGeometry(s, g)) {
+        Claim_ShadowGeometry(s, g);
         return;
     }
     ClaimU16(s, g);

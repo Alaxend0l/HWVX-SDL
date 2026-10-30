@@ -558,7 +558,8 @@ static void DumpEFB(void) {
     Port_Log("frame %d: %u draws, %u vertices since last dump, GL error 0x%X", count - 1, s_statDraws, s_statVerts,
              glGetError());
     s_statDraws = s_statVerts = 0;
-    surf = SDL_CreateSurface(s.efbW, s.efbH, SDL_PIXELFORMAT_ABGR8888);
+    /* XBGR: the EFB alpha is game scratch (shadow volumes), not opacity */
+    surf = SDL_CreateSurface(s.efbW, s.efbH, SDL_PIXELFORMAT_XBGR8888);
     if (surf == NULL) {
         return;
     }
