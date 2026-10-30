@@ -46,7 +46,7 @@ static inline u8 *GameSettings_LoadMCP(void)
     if (bFirstTime)
     {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL)
         {
             return NULL;
@@ -81,13 +81,13 @@ typedef struct DDRescueGameData {
 } DDRescueGameData;
 
 
-static inline u32 GameSettings_GetSaveFileChecksum(char *device, const char *name, u32 size)
+static inline u32 GameSettings_GetSaveFileChecksum(u32 device, const char *name, u32 size)
 {
     extern u8 *g_pSavedGameData;
     u8 *data = g_pSavedGameData;
     s32 handle;
 
-    if ((handle = File_Open(HND(device + 0xA), name, 0, NULL)) != -1)
+    if ((handle = File_Open(device + 0xA, name, 0, NULL)) != -1)
     {
         File_Read(handle, size * 8 + 0x15C, data);
         File_Close(handle);
@@ -105,7 +105,7 @@ void GameSetting_Init(void) {
 
     g_bGameSettingsInitialized = 1;
     memset(&g_codeVariables, 0, sizeof(CodeVariables));
-    SETP(g_codeVariables.device, (char *)1);
+    g_codeVariables.device = 1;
     GameSettings_SetDefaultControllerState();
     GameSettings_ResetPlayerVehicleItem();
     GameSettings_ResetGame();
@@ -225,7 +225,7 @@ u8 *GameSettings_GetMCP(void)
     if (bFirstTime)
     {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL)
         {
             return NULL;
@@ -246,7 +246,7 @@ void GameSettings_ResetControllerConfig(s32 player)
     if (bFirstTime)
     {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL)
         {
             mcp = NULL;
@@ -523,7 +523,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         g_codeVariables.unk109[1] = val != 0;
         break;
     case 0x1F7:
-        SETP(g_codeVariables.device, (char *)PTR(val));
+        g_codeVariables.device = val;  /* port: a slot number, not a pointer */
         break;
     case 0x1F8:
         g_codeVariables.fileIndex = val;
@@ -573,7 +573,7 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
 
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -876,7 +876,7 @@ done:
     case 0x1F6:
         return GameSettings_GetMemoryCardStatus(arg, 0);
     case 0x1F7:
-        return (u32)HND(GETP(g_codeVariables.device));
+        return g_codeVariables.device;
     case 0x1F8:
         return g_codeVariables.fileIndex;
     case 0x1F9:
@@ -912,7 +912,7 @@ void GameSettings_GameBoyConnected(void) {
 
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -957,7 +957,7 @@ s8 GameSettings_IsCheatEnabled(s32 cheat) {
 
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -1012,7 +1012,7 @@ void GameSettings_GetGameInfo(void *info) {
 
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -1062,7 +1062,7 @@ void GameSettings_GetLoadedProgression(s32 *arg0, s32 *arg1)
     if (bFirstTime)
     {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL)
         {
             mcp = NULL;
@@ -1103,7 +1103,7 @@ void GameSettings_RestorePlayerStats(void) {
 
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -1169,7 +1169,7 @@ void GameSettings_GatherGameData(void) {
     nSwitches = 0;
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -1289,7 +1289,7 @@ void GameSettings_RestoreGameData(void) {
     nSwitches = 0;
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -1441,7 +1441,7 @@ s32 GameSettings_GetDefaultMemoryCardStatus(s32 *device, s8 bForce)
 
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
     typedef struct SaveFile {
-        PTR32(char) device;
+        u32 device;
         PTR32(u8) data;
         PTR32(const char) name;
         u32 version;
@@ -1620,7 +1620,7 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     extern u8 *g_pSavedGameData;
     #define g_saveFileCheckSum (*(s32 *)(void *)&g_saveFileCheckSum)
     extern GameInfo g_gameInfo[2];
-    char *device;
+    u32 device;
     GameInfo info;
     u8 *data;
     s32 index;
@@ -1629,7 +1629,7 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     s32 sum;
     s32 i;
 
-    device = GETP(g_codeVariables.device);
+    device = g_codeVariables.device;
     for (i = 0; i < 10; i++) {
         if (letters[i] < 26) {
             g_saveFileName[i] = (s8)letters[i] + 'A';
@@ -1649,7 +1649,7 @@ void GameSettings_SetSaveGameName(u32 *letters) {
         index = 0;
     }
     data = g_pSavedGameData;
-    handle = File_Open(HND(device + 0xA), GETP(info.fileName), 0, 0);
+    handle = File_Open(device + 0xA, GETP(info.fileName), 0, 0);
     if (handle != -1) {
         File_Read(handle, index * 8 + 0x15C, data);
         File_Close(handle);
@@ -1679,14 +1679,14 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
     } SaveData;
     extern u8 *g_pSavedGameData;
     static s32 cachedStatus = -1;
-    static char *cachedMemorySlot = (char *)-1;
+    static u32 cachedMemorySlot = (u32)-1;
     u32 i;
     u32 size;
     u32 version;
     u8 *data;
     s32 handle;
     s8 ok;
-    char *slot;
+    u32 slot;  /* port: memory card slot number */
     s32 status;
     GameInfo info;
     u8 *mcp;
@@ -1694,8 +1694,8 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
     u32 hour;
     u32 hour12;
 
-    slot = GETP(g_codeVariables.device) - 1;
-    status = GameSettings_GetMemoryCardStatus((s32)HND(GETP(g_codeVariables.device)), 0);
+    slot = g_codeVariables.device - 1;
+    status = GameSettings_GetMemoryCardStatus((s32)g_codeVariables.device, 0);
     if (cachedMemorySlot != slot || status != cachedStatus || g_bRefreshMC_FileList) {
         cachedMemorySlot = slot;
         cachedStatus = status;
@@ -1715,7 +1715,7 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
             }
             data = g_pSavedGameData;
             ok = 0;
-            if ((handle = File_Open(HND(slot + 0xB), GETP(info.fileName), 0, NULL)) != -1) {
+            if ((handle = File_Open(slot + 0xB, GETP(info.fileName), 0, NULL)) != -1) {
                 File_Read(handle, size * 8 + 0x15C, data);
                 if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
                     ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
@@ -1768,10 +1768,10 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
         SaveSlot slots[8];
     } SaveData;
     static s32 cachedStatus = -1;
-    static char *cachedMemorySlot = (char *)-1;
+    static u32 cachedMemorySlot = (u32)-1;
     static u32 cachedFileSlot = -1;
     static char levelDetails[256];
-    char *slot;
+    u32 slot;  /* port: memory card slot number */
     s32 status;
     u32 fileSlot;
     SaveData *data;
@@ -1785,8 +1785,8 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
     u32 battles;
     u32 races;
 
-    slot = GETP(g_codeVariables.device) - 1;
-    status = GameSettings_GetMemoryCardStatus((s32)HND(GETP(g_codeVariables.device)), 0);
+    slot = g_codeVariables.device - 1;
+    status = GameSettings_GetMemoryCardStatus((s32)g_codeVariables.device, 0);
     fileSlot = g_codeVariables.fileIndex - 1;
     if (cachedMemorySlot != slot || status != cachedStatus) {
         g_bRefreshMC_FileInfo = 1;
@@ -1892,7 +1892,7 @@ u8 GameSettings_SaveGeneralGameData(void) {
     }
     data = g_pSavedGameData;
     ok = 0;
-    if ((handle = File_Open(HND((char *)PTR((device + 0xA))), GETP(info.fileName), 0, NULL)) != -1) {
+    if ((handle = File_Open(device + 0xA, GETP(info.fileName), 0, NULL)) != -1) {
         File_Read(handle, size * 8 + 0x15C, data);
         if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
             ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
@@ -1907,7 +1907,7 @@ u8 GameSettings_SaveGeneralGameData(void) {
     memcpy(data + 0xC, &g_generalGameSettings, 0x150);
     data = g_pSavedGameData;
     ok = 0;
-    if ((handle = File_Open(HND((char *)PTR((device + 0xA))), GETP(info.fileName), 5, NULL)) != -1) {
+    if ((handle = File_Open(device + 0xA, GETP(info.fileName), 5, NULL)) != -1) {
         ((u32 *)data)[0] = 4;
         ((u32 *)data)[1] = version;
         ((u32 *)data)[2] = FileManager_GetChecksum(version, data + 0xC);
@@ -1941,7 +1941,7 @@ u8 GameSettings_SaveGame(void) {
         SaveSlot slots[8];
     } SaveData;
     typedef struct SaveFile {
-        PTR32(char) device;
+        u32 device;
         PTR32(const char) name;
         u32 version;
         u32 size;
@@ -1958,9 +1958,9 @@ u8 GameSettings_SaveGame(void) {
     s32 handle;
     u8 *mcp;
 
-    SETP(file.device, GETP(g_codeVariables.device));
+    file.device = g_codeVariables.device;
     slot = g_codeVariables.fileIndex - 1;
-    status = GameSettings_GetMemoryCardStatus(HND(GETP(file.device)), 1);
+    status = GameSettings_GetMemoryCardStatus(file.device, 1);
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         SETP(file.name, GETP(g_gameInfo[mcp[1]].fileName));
@@ -1971,13 +1971,13 @@ u8 GameSettings_SaveGame(void) {
         file.version = 0;
         file.size = file.version;
     }
-    if ((status != 0 && status != 1) || g_saveFileCheckSum != GameSettings_GetSaveFileChecksum(GETP(file.device), GETP(file.name), file.size)) {
+    if ((status != 0 && status != 1) || g_saveFileCheckSum != GameSettings_GetSaveFileChecksum(file.device, GETP(file.name), file.size)) {
         g_codeVariables.unk11C[0] = 0;
         return 0;
     }
     data = g_pSavedGameData;
     ok = 0;
-    if ((handle = File_Open(HND(GETP(file.device) + 0xA), GETP(file.name), 0, NULL)) != -1) {
+    if ((handle = File_Open(file.device + 0xA, GETP(file.name), 0, NULL)) != -1) {
         File_Read(handle, file.size * 8 + 0x15C, data);
         if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == file.version &&
             ((u32 *)data)[2] == FileManager_GetChecksum(file.version, data + 0xC)) {
@@ -2008,7 +2008,7 @@ u8 GameSettings_SaveGame(void) {
         u8 *wdata;
         wdata = g_pSavedGameData;
         wok = 0;
-        if ((whandle = File_Open(HND(GETP(file.device) + 0xA), GETP(file.name), 5, NULL)) != -1) {
+        if ((whandle = File_Open(file.device + 0xA, GETP(file.name), 5, NULL)) != -1) {
             ((u32 *)wdata)[0] = 4;
             ((u32 *)wdata)[1] = file.version;
             ((u32 *)wdata)[2] = FileManager_GetChecksum(file.version, wdata + 0xC);
@@ -2039,7 +2039,7 @@ u8 GameSettings_LoadGame(void) {
     extern u8 *g_pGameData;
     extern GameInfo g_gameInfo[2];
     s32 slot;
-    char *device;
+    u32 device;
     s32 handle;
     s8 ok;
     u8 *data;
@@ -2050,7 +2050,7 @@ u8 GameSettings_LoadGame(void) {
     u8 *mcp;
     u32 i;
 
-    device = GETP(g_codeVariables.device);
+    device = g_codeVariables.device;
     slot = g_codeVariables.fileIndex - 1;
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
@@ -2064,7 +2064,7 @@ u8 GameSettings_LoadGame(void) {
     }
     data = g_pSavedGameData;
     ok = 0;
-    if ((handle = File_Open(HND(device + 0xA), GETP(info.fileName), 0, NULL)) != -1) {
+    if ((handle = File_Open(device + 0xA, GETP(info.fileName), 0, NULL)) != -1) {
         File_Read(handle, size * 8 + 0x15C, data);
         if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
             ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
@@ -2094,7 +2094,7 @@ s32 GameSettings_FormatMemoryCard(void)
 {
     u8 result;
 
-    result = FileManager_FormatDevice(HND(GETP(g_codeVariables.device) + 0xA));
+    result = FileManager_FormatDevice(g_codeVariables.device + 0xA);
     g_codeVariables.unk11C[2] = result;
     g_bRefreshMC = 1;
     g_bRefreshMC_FileList = 1;
@@ -2108,16 +2108,16 @@ s32 GameSettings_DeleteGameFile(void) {
     extern GameInfo g_gameInfo[2];
     static s8 bFirstTime = 1;
     static u8 *pMCP;
-    char *device;
+    u32 device;
     u8 *mcp;
     void *pack;
     const char *name;
     u8 result;
 
-    device = GETP(g_codeVariables.device) + 0xA;
+    device = g_codeVariables.device + 0xA;
     if (bFirstTime) {
         bFirstTime = 0;
-        pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+        pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
         if (pack == NULL) {
             mcp = NULL;
             goto done;
@@ -2127,7 +2127,7 @@ s32 GameSettings_DeleteGameFile(void) {
     mcp = pMCP;
 done:
     name = (mcp != NULL) ? GETP(g_gameInfo[mcp[1]].fileName) : "saveFile";
-    result = File_Delete(HND(device), name);
+    result = File_Delete(device, name);
     g_bRefreshMC = 1;
     g_codeVariables.unk11C[2] = result;
     g_bRefreshMC_FileList = 1;

@@ -1239,8 +1239,8 @@ void Trail_Init(void);
 void Trail_Render(void);
 
 /* Trigger.c */
-f32 GetCodeVariable(s32 var, u8 *thing);
-void SetCodeVariable(s32 var, u8 *obj, f32 value);
+f32 GetCodeVariable(s32 var, u32 arg);
+void SetCodeVariable(s32 var, u32 arg, f32 value);
 s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds);
 s32 TriggerCodeVariableValueCheck(u32 *data);
 s32 TriggerCreatureDroppedOff(void);

@@ -5,7 +5,7 @@ void StateGameManager_RefreshMCPTextures(void) {
     void *pack;
     u32 i;
 
-    pack = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_LoadDataPack("mcp", 3, 0, 0))), 3, 1);
+    pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
     if (pack != NULL) {
         for (i = 0; i < M2C_FIELD(pack, u32 *, 0x2C); i++) {
             Gfx_UnLoadTexture(SLOT_LOAD(u16 *, (u8 *)(pack) + 0x30)[i]);

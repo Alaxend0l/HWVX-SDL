@@ -315,7 +315,11 @@ s32 TriggerLevelStart(void) {
     return 1;
 }
 
-f32 GetCodeVariable(s32 var, u8 *thing) {
+/* port: `arg` is a 32-bit value: a thing handle for the per-vehicle
+ * variables (1-27), otherwise a plain argument for the game settings (e.g. a
+ * player number), so it only becomes a pointer where one is used. */
+f32 GetCodeVariable(s32 var, u32 arg) {
+    u8 *thing = var >= 1 && var <= 27 ? (u8 *)PTR(arg) : NULL;
     u8 *vehicle;
     u8 *player;
     u16 index;
@@ -354,12 +358,13 @@ f32 GetCodeVariable(s32 var, u8 *thing) {
         }
         break;
     default:
-        return GameSettings_GetCodeVariable(var, (s32)HND(thing));
+        return GameSettings_GetCodeVariable(var, arg);
     }
     return 0.0f;
 }
 
-void SetCodeVariable(s32 var, u8 *obj, f32 value) {
+void SetCodeVariable(s32 var, u32 arg, f32 value) {
+    u8 *obj = var >= 1 && var <= 27 ? (u8 *)PTR(arg) : NULL;  /* port: see GetCodeVariable */
     u8 *thing;
     u8 *data;
     u8 idx;
@@ -410,7 +415,7 @@ void SetCodeVariable(s32 var, u8 *obj, f32 value) {
         }
         break;
     default:
-        GameSettings_SetCodeVariable(var, (s32)HND(obj), (u32)value);
+        GameSettings_SetCodeVariable(var, arg, (u32)value);
         break;
     }
 }
@@ -422,7 +427,7 @@ s32 TriggerCodeVariableValueCheck(u32 *data) {
 
     if (data[1] < 100) {
         for (i = 0; i < data[2]; i++) {
-            value = GetCodeVariable(data[1], (u8 *)PTR(data[i + 3]));
+            value = GetCodeVariable(data[1], data[i + 3]);
             switch (data[data[2] + 3]) {
             case 0:
                 operand = *(f32 *)&data[data[2] + 4];
@@ -433,13 +438,13 @@ s32 TriggerCodeVariableValueCheck(u32 *data) {
                 TRIGGER_COMPARE_RETURN(data[0], value, operand);
                 break;
             case 2:
-                operand = GetCodeVariable(data[data[2] + 4], (u8 *)PTR(data[data[2] + 5]));
+                operand = GetCodeVariable(data[data[2] + 4], data[data[2] + 5]);
                 TRIGGER_COMPARE_RETURN(data[0], value, operand);
                 break;
             }
         }
     } else {
-        value = GetCodeVariable(data[1], (u8 *)PTR(data[2]));
+        value = GetCodeVariable(data[1], data[2]);
         switch (data[3]) {
         case 0:
             operand = *(f32 *)&data[4];
@@ -450,7 +455,7 @@ s32 TriggerCodeVariableValueCheck(u32 *data) {
             TRIGGER_COMPARE_RETURN(data[0], value, operand);
             break;
         case 2:
-            operand = GetCodeVariable(data[4], (u8 *)PTR(data[5]));
+            operand = GetCodeVariable(data[4], data[5]);
             TRIGGER_COMPARE_RETURN(data[0], value, operand);
             break;
         }

@@ -475,7 +475,7 @@ typedef struct CodeVariables {
   s8 unk109[0x111 - 0x109];
   s8 unk111;
   u8 unk112[0x114 - 0x112];
-  PTR32(char) device;
+  u32 device;             /* memory card slot (1, 2); the decomp typed it char * */
   s32 fileIndex;
   s8 unk11C[3];
   s8 bOverwritingFile;

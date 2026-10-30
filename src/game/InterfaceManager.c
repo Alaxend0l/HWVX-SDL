@@ -5991,9 +5991,9 @@ void InterfaceManager_SetMissionObjectiveText(u8 *obj, u8 **data) {
         u32 *var = SLOT_LOAD(u32 *, (info + 0x10));
         u32 value;
         if (var[0] < 10) {
-            value = GetCodeVariable(var[0], (u8 *)PTR(*(u32 *)objective));
+            value = GetCodeVariable(var[0], *(u32 *)objective);
         } else {
-            value = GetCodeVariable(var[0], (u8 *)PTR(var[1]));
+            value = GetCodeVariable(var[0], var[1]);
         }
         sprintf(buf, "%d", value);
     }

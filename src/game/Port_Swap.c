@@ -190,9 +190,26 @@ static void Claim_Textures(Swapper *s, u32 off, u32 count) {
  * text punctuation ('|' is the fonts' line break: "|A valid Memory Card...";
  * '+' starts the time bonus "+10 Sec"),
  * and mostly letters and digits (floats like 0.7f read as "?333", so '?' and
- * '@' can't start one). */
+ * '@' can't start one). Runs of 8+ printable characters are text whatever
+ * they hold ("New File      --/--/---- 00:00 PM"); float data never makes
+ * runs that long. */
 static int IsWordChar(u8 c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+/* A string known to be one from where it is referenced: any length. */
+static void Claim_CString(Swapper *s, u32 off) {
+    u32 n = 0;
+
+    if (off == ~0u) {
+        return;
+    }
+    while (off + n < s->size && s->base[off + n] != 0) {
+        n++;
+    }
+    if (off + n < s->size) {
+        ClaimBytes(s, off, n + 1);
+    }
 }
 
 static void Claim_StringTargets(Swapper *s, const u32 *pointers, u32 numPointers) {
@@ -214,7 +231,7 @@ static void Claim_StringTargets(Swapper *s, const u32 *pointers, u32 numPointers
             word += IsWordChar(s->base[t + n]);
             n++;
         }
-        if (n >= 3 && word * 2 > n && t + n < s->size && s->base[t + n] == 0) {
+        if (n >= 3 && (word * 2 > n || n >= 8) && t + n < s->size && s->base[t + n] == 0) {
             ClaimBytes(s, t, n + 1);
         }
     }
@@ -569,11 +586,21 @@ static void Claim_IMObject(Swapper *s, u32 off) {
             ClaimU16(s, sub + 0x14);
             ClaimU16(s, sub + 0x16);
             if (s->base[sub + 0x10] == 1) {
-                /* string list (MoveObject): 0x8 -> { ..., u8 0x8, u16 0xA } */
+                /* string list (MoveObject): 0x8 -> { count, texts 0x4 (slots
+                 * -> text: string slots), u8 0x8, u16 variable 0xA }. The
+                 * strings can be one character (the name entry's letters),
+                 * too short for Claim_StringTargets, so claim them here. */
                 u32 list = Target(s, sub + 8);
                 if (list != ~0u) {
+                    u32 texts = Target(s, list + 4), k;
                     ClaimBytes(s, list + 8, 2);
                     ClaimU16(s, list + 0xA);
+                    for (k = 0; texts != ~0u && k < Word(s, list) && k < 0x400; k++) {
+                        u32 text = Target(s, texts + k * 4);
+                        if (text != ~0u) {
+                            Claim_CString(s, Target(s, text));
+                        }
+                    }
                 }
             }
             Claim_Font(s, Target(s, sub + (s->base[off + 1] == 10 ? 0x10 : 4)));

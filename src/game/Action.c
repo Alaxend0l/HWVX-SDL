@@ -224,11 +224,11 @@ s32 ActionCodeVariableModifyValue(u32 *data) {
             value = *(f32 *)(SLOT_LOAD(u8 *, data[data[2] + 4]) + 4);
             break;
         case 2:
-            value = GetCodeVariable(data[data[2] + 4], (u8 *)PTR(data[data[2] + 5]));
+            value = GetCodeVariable(data[data[2] + 4], data[data[2] + 5]);
             break;
         }
         for (i = 0; i < data[2]; i++) {
-            cur = GetCodeVariable(data[1], (u8 *)PTR(data[i + 3]));
+            cur = GetCodeVariable(data[1], data[i + 3]);
             switch (data[0]) {
             case 15:
                 cur += value;
@@ -248,10 +248,10 @@ s32 ActionCodeVariableModifyValue(u32 *data) {
                 cur = value;
                 break;
             }
-            SetCodeVariable(data[1], (u8 *)PTR(data[i + 3]), cur);
+            SetCodeVariable(data[1], data[i + 3], cur);
         }
     } else {
-        value = GetCodeVariable(data[1], (u8 *)PTR(data[2]));
+        value = GetCodeVariable(data[1], data[2]);
         switch (data[3]) {
         case 0:
             operand = *(f32 *)&data[4];
@@ -260,7 +260,7 @@ s32 ActionCodeVariableModifyValue(u32 *data) {
             operand = *(f32 *)(SLOT_LOAD(u8 *, data[4]) + 4);
             break;
         case 2:
-            operand = GetCodeVariable(data[4], (u8 *)PTR(data[5]));
+            operand = GetCodeVariable(data[4], data[5]);
             break;
         }
         switch (data[0]) {
@@ -282,7 +282,7 @@ s32 ActionCodeVariableModifyValue(u32 *data) {
             value = operand;
             break;
         }
-        SetCodeVariable(data[1], (u8 *)PTR(data[2]), value);
+        SetCodeVariable(data[1], data[2], value);
     }
     return 1;
 }

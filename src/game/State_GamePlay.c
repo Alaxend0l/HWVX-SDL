@@ -994,7 +994,7 @@ s32 ActionPlayInterfacePack(u32 *pack) {
     s32 result;
 
     id = pack[0];
-    data = FileStreaming_InitializeDataPack(HND((void *)PTR(FileStreaming_GetPackID((char *)(pack + 1), 1, id))), 1, 1);
+    data = FileStreaming_InitializeDataPack(FileStreaming_GetPackID((char *)(pack + 1), 1, id), 1, 1);
     if (data == NULL) {
         result = 0;
     } else {
@@ -1170,7 +1170,7 @@ void ArmageddonDropShip(void *arg0) {
         InterfaceInputAnimator_SetCounter(0, count);
         id = FileStreaming_GetPackID(list, 0, entry->vehicle);
         if (id != 0xFFFFFFFF) {
-            pack = FileStreaming_InitializeDataPack(HND((void *)PTR(id)), 0, 1);
+            pack = FileStreaming_InitializeDataPack(id, 0, 1);
             if (pack != NULL) {
                 ThingManager_Invalidate(pack->start, pack->start + pack->size);
                 FileStreaming_ReleaseDataPack(id, 0);

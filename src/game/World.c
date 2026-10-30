@@ -474,7 +474,7 @@ s32 TriggerVariableValueCheck(u32 *data) {
         value = *(f32 *)(SLOT_LOAD(u8 *, data[data[0] + 2]) + 4);
         break;
     case 2:
-        value = GetCodeVariable(data[data[0] + 2], (u8 *)PTR(data[data[0] + 3]));
+        value = GetCodeVariable(data[data[0] + 2], data[data[0] + 3]);
         if (data[data[0] + 2] < 20) {
             op = data[data[0] + 4];
         } else {
@@ -528,7 +528,7 @@ s32 ActionVariableChangeValue(u32 *action) {
         value = *(f32 *)(SLOT_LOAD(u8 *, action[action[1] + 3]) + 4);
         break;
     case 2:
-        value = GetCodeVariable(action[action[1] + 3], (u8 *)PTR(action[action[1] + 4]));
+        value = GetCodeVariable(action[action[1] + 3], action[action[1] + 4]);
         break;
     }
     for (i = 0; i < action[1]; i++) {
@@ -582,7 +582,7 @@ s32 ActionTimerChangeValue(u32 *action) {
         value = *(f32 *)(SLOT_LOAD(u8 *, action[action[1] + 3]) + 4);
         break;
     case 2:
-        value = GetCodeVariable(action[action[1] + 3], (u8 *)PTR(action[action[1] + 4]));
+        value = GetCodeVariable(action[action[1] + 3], action[action[1] + 4]);
         break;
     }
     for (i = 0; i < action[1]; i++) {
@@ -638,7 +638,7 @@ s32 TriggerTimerValueCheck(u32 *data) {
         value = *(f32 *)(SLOT_LOAD(u8 *, data[data[0] + 2]) + 4);
         break;
     case 2:
-        value = GetCodeVariable(data[data[0] + 2], (u8 *)PTR(data[data[0] + 3]));
+        value = GetCodeVariable(data[data[0] + 2], data[data[0] + 3]);
         if (data[data[0] + 2] < 20) {
             op = data[data[0] + 4];
         } else {
