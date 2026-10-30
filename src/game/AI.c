@@ -8,7 +8,7 @@ typedef struct AIStats {
 
 typedef struct AIEvent {
     PTR32(void) data;
-    FPTR32(void, (void)) func;
+    FPTR32(void, ()) func;   /* called with or without data */
     PTR32(struct AIEvent) next;
     s8 queued;
 } AIEvent;
@@ -16,27 +16,28 @@ typedef struct AIEvent {
 AIStats g_AI_Stats;
 s16 g_AI_FramesSinceAsyncEventProcessed;
 
-extern u8 gs_pAsyncEventTail_803C6F04[];  /* typed per function below */
-extern u8 gs_pAsyncEventHead_803C6F08[];  /* typed per function below */
+/* .sbss in the original (local to AI.o); host pointers, typed per function below */
+void *gs_pAsyncEventTail;
+void *gs_pAsyncEventHead;
 
 void AI_Create(void)
 {
     extern s32 g_volumeTotal;
-    #define gs_pAsyncEventHead_803C6F08 (*(void **)(void *)&gs_pAsyncEventHead_803C6F08)
-    #define gs_pAsyncEventTail_803C6F04 (*(void **)(void *)&gs_pAsyncEventTail_803C6F04)
+    #define gs_pAsyncEventHead (*(void **)(void *)&gs_pAsyncEventHead)
+    #define gs_pAsyncEventTail (*(void **)(void *)&gs_pAsyncEventTail)
     extern u32 g_attackDelay;
     u32 var;
 
     g_volumeTotal = -1;
-    gs_pAsyncEventHead_803C6F08 = NULL;
-    gs_pAsyncEventTail_803C6F04 = NULL;
+    gs_pAsyncEventHead = NULL;
+    gs_pAsyncEventTail = NULL;
     var = GameSettings_GetCodeVariable(0x12d, 0);
     if (var >= 3)
     {
         g_attackDelay = 8000;
     }
-#undef gs_pAsyncEventHead_803C6F08
-#undef gs_pAsyncEventTail_803C6F04
+#undef gs_pAsyncEventHead
+#undef gs_pAsyncEventTail
 }
 
 void AI_Reset(void *arg0) {
@@ -44,9 +45,9 @@ void AI_Reset(void *arg0) {
     M2C_FIELD(arg0, s8 *, 0xCC) = 0;
 }
 
-void AI_Init(void) {
-
-    Player_Init();
+void AI_Init(void *player, s32 arg1) {
+    /* passes its arguments straight on (asm); the decomp has (void) */
+    Player_Init(player, arg1);
 }
 
 void AI_AsyncProcess_80006C80(void) {
@@ -119,19 +120,19 @@ s8 AI_CheckAngleInRange(f32 angle, f32 center, f32 range) {
 s32 AI_ProcessEvent(void) {
     extern s16 g_AI_FramesSinceAsyncEventProcessed;
     extern AIStats g_AI_Stats;
-    #define gs_pAsyncEventHead_803C6F08 (*(AIEvent **)(void *)&gs_pAsyncEventHead_803C6F08)
-    #define gs_pAsyncEventTail_803C6F04 (*(AIEvent **)(void *)&gs_pAsyncEventTail_803C6F04)
+    #define gs_pAsyncEventHead (*(AIEvent **)(void *)&gs_pAsyncEventHead)
+    #define gs_pAsyncEventTail (*(AIEvent **)(void *)&gs_pAsyncEventTail)
     AIEvent *event;
 
     if (g_AI_FramesSinceAsyncEventProcessed <= 5 && g_AI_Stats.unk1C >= 250) {
         return 0;
     }
-    event = gs_pAsyncEventHead_803C6F08;
+    event = gs_pAsyncEventHead;
     g_AI_FramesSinceAsyncEventProcessed = 0;
     if (event != NULL) {
-        gs_pAsyncEventHead_803C6F08 = GETP(event->next);
-        if (gs_pAsyncEventHead_803C6F08 == NULL) {
-            gs_pAsyncEventTail_803C6F04 = NULL;
+        gs_pAsyncEventHead = GETP(event->next);
+        if (gs_pAsyncEventHead == NULL) {
+            gs_pAsyncEventTail = NULL;
         }
         event->queued = 0;
         if (GETP(event->data) != NULL) {
@@ -142,25 +143,25 @@ s32 AI_ProcessEvent(void) {
         return 1;
     }
     return 0;
-#undef gs_pAsyncEventHead_803C6F08
-#undef gs_pAsyncEventTail_803C6F04
+#undef gs_pAsyncEventHead
+#undef gs_pAsyncEventTail
 }
 
 void AI_AddEvent(void *arg0) {
-    #define gs_pAsyncEventHead_803C6F08 (*(void **)(void *)&gs_pAsyncEventHead_803C6F08)
-    #define gs_pAsyncEventTail_803C6F04 (*(void **)(void *)&gs_pAsyncEventTail_803C6F04)
+    #define gs_pAsyncEventHead (*(void **)(void *)&gs_pAsyncEventHead)
+    #define gs_pAsyncEventTail (*(void **)(void *)&gs_pAsyncEventTail)
     if ((s8) M2C_FIELD(arg0, u8 *, 0xC) == 0) {
         M2C_FIELD(arg0, s32 *, 8) = 0;
-        if ((void *) gs_pAsyncEventTail_803C6F04 != NULL) {
-            SLOT_STORE((u8 *)(gs_pAsyncEventTail_803C6F04) + 8, arg0);
+        if ((void *) gs_pAsyncEventTail != NULL) {
+            SLOT_STORE((u8 *)(gs_pAsyncEventTail) + 8, arg0);
         } else {
-            gs_pAsyncEventHead_803C6F08 = arg0;
+            gs_pAsyncEventHead = arg0;
         }
-        gs_pAsyncEventTail_803C6F04 = arg0;
+        gs_pAsyncEventTail = arg0;
         M2C_FIELD(arg0, u8 *, 0xC) = 1U;
     }
-#undef gs_pAsyncEventHead_803C6F08
-#undef gs_pAsyncEventTail_803C6F04
+#undef gs_pAsyncEventHead
+#undef gs_pAsyncEventTail
 }
 
 s32 AI_Heartbeat(u8 *ai) {

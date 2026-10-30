@@ -195,7 +195,7 @@ void Blast_Action(u8 *blast, Vector4 *pos, u8 *source) {
 s32 EventSeq_Init(u8 *seq, u8 *data)
 {
 
-    Thing_Init(seq, data);
+    Thing_Init(seq, HND(data));
     *(Vector4 *)(seq + 0x0) = *(Vector4 *)(data + 0x20);
     *(Vector4 *)(seq + 0x50) = *(Vector4 *)(data + 0x10);
     *(s32 *)(seq + 0x94) = *(s32 *)(data + 0x44);

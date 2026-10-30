@@ -1,10 +1,24 @@
 #include "common.h"
 
 
-GameInfo g_gameInfo[2] = {
-    { "Hot Wheels(TM)   Velocity X", "HotWheels.elf", "hwvx", "hwvx", "hw.ico", 0, 0 },
-    { "Dooms Day Rescue", "SLUS_001.00", "DoomsDayRescue", "DoomsDayRescue", "ddr.ico", 0, 0 },
-};
+GameInfo g_gameInfo[2];
+
+/* The string fields are 4-byte handles, which can't be static initializers. */
+__attribute__((constructor)) static void GameSettings_InitGameInfo(void) {
+    static const char *const strings[2][5] = {
+        { "Hot Wheels(TM)   Velocity X", "HotWheels.elf", "hwvx", "hwvx", "hw.ico" },
+        { "Dooms Day Rescue", "SLUS_001.00", "DoomsDayRescue", "DoomsDayRescue", "ddr.ico" },
+    };
+    s32 i;
+
+    for (i = 0; i < 2; i++) {
+        SETP(g_gameInfo[i].name, strings[i][0]);
+        SETP(g_gameInfo[i].id, strings[i][1]);
+        SETP(g_gameInfo[i].title, strings[i][2]);
+        SETP(g_gameInfo[i].fileName, strings[i][3]);
+        SETP(g_gameInfo[i].icon, strings[i][4]);
+    }
+}
 
 char g_saveFileName[11];
 char g_fileNames[8][41];
@@ -1740,7 +1754,7 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
 
 char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
     extern u8 *g_pSavedGameData;
-    extern s8 g_bRefreshMC_FileInfo_803C6F7A;
+    extern s8 g_bRefreshMC_FileInfo;
     typedef struct SaveSlot {
         s8 valid;
         u8 unk1[0x1F];
@@ -1771,9 +1785,9 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
     status = GameSettings_GetMemoryCardStatus((s32)HND(GETP(g_codeVariables.device)), 0);
     fileSlot = g_codeVariables.fileIndex - 1;
     if (cachedMemorySlot != slot || status != cachedStatus) {
-        g_bRefreshMC_FileInfo_803C6F7A = 1;
+        g_bRefreshMC_FileInfo = 1;
     }
-    if (cachedFileSlot != fileSlot || g_bRefreshMC_FileInfo_803C6F7A) {
+    if (cachedFileSlot != fileSlot || g_bRefreshMC_FileInfo) {
         cachedMemorySlot = slot;
         cachedFileSlot = fileSlot;
         cachedStatus = status;

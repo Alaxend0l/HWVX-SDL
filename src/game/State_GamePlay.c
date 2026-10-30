@@ -363,7 +363,7 @@ s32 StateGamePlay_Init(void) {
             speakerAction[0] = speaker->mode;
             speakerAction[1] = 1;
             speakerAction[2] = (u32)HND(speaker);
-            ActionSpeakerChangeMode(speakerAction);
+            ActionSpeakerChangeMode();
             if (speaker->emitter != 0) {
                 speakerParams.unk14 = 0;
                 speakerParams.pos = speaker->pos;
@@ -820,12 +820,14 @@ s32 StateGamePlay_Shutdown(void) {
     Gfx_ClearScreen();
     return 1;
 }
+typedef struct {
+    FPTR32(void, (void *msg)) handleInput;
+    FPTR32(void, (void *msg)) update;
+} GPInterfaceHandler;
+extern GPInterfaceHandler g_handleInterfaceGP;
+
 
 void GamePlay_Interface(void *msg) {
-    extern struct {
-        FPTR32(void, (void *msg)) handleInput;
-        FPTR32(void, (void *msg)) update;
-    } g_handleInterfaceGP;
 
     switch (M2C_FIELD(msg, u16 *, 4)) {
     case 3:
@@ -849,10 +851,6 @@ void GamePlay_Interface(void *msg) {
 }
 
 void GamePlay_Startup(void) {
-    extern struct {
-        FPTR32(void, (void *msg)) handleInput;
-        FPTR32(void, (void)) update;
-    } g_handleInterfaceGP;
 
     SETP(g_handleInterfaceGP.handleInput, GamePlay_PauseOptions_HandleInput);
     SETP(g_handleInterfaceGP.update, NULL);
@@ -1000,7 +998,7 @@ s32 ActionPlayInterfacePack(u32 *pack) {
             SLOT_STORE(((u8 *)g_InterfacePackData + g_NumInterfacesPlaying * sizeof(InterfacePackEntry)), (char *)(pack + 1));
             g_InterfacePackData[g_NumInterfacesPlaying].id = id;
             g_InterfacePackData[g_NumInterfacesPlaying].unk8 =
-                InterfaceManager_Create(script, 0, InterfaceDataPackRouter, g_InterfacePackData + g_NumInterfacesPlaying, pack + 1);
+                InterfaceManager_Create(script, 0, InterfaceDataPackRouter);
             g_NumInterfacesPlaying++;
             result = 1;
         }
@@ -1133,7 +1131,7 @@ void ArmageddonDropShip(void *arg0) {
         InterfaceManager_PauseInterface(0, data->index);
         InterfaceManager_SetInfoCallBackRoutine(data->index, ArmageddonDropShipInfo);
         InterfaceInputAnimator_Initialize();
-        pPlayer = GETP(entry->creature->player);
+        pPlayer = GETP(GETP(entry->creature)->player);
         forward.x = 0.0f;
         forward.y = 0.0f;
         forward.z = 1.0f;

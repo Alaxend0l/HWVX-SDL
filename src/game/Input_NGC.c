@@ -30,9 +30,6 @@ extern u8 g_padUpPos[4];
 extern u8 g_padDownPos[4];
 extern u32 g_StopInput;
 extern void *wheels;
-u8 IsOpened__8LGWheelsFl(void *wheels, s32 chan);
-void PlaySpringForce__8LGWheelsFlScUcs(void *wheels, s32 chan, s8 offset, u8 saturation, s16 coefficient);
-void PlayFrontalCollisionForce__8LGWheelsFlUc(void *wheels, s32 chan, u8 force);
 
 static inline void Input_SetKeyDown(VirtualPad *pad, u16 key) {
     s32 k;
@@ -57,9 +54,6 @@ static inline void Input_SetKeyUp(VirtualPad *pad, u16 key) {
 }
 
 s32 Input_Create(void) {
-    void *__nw__FUl(u32 size);
-    void *__ct__8LGWheelsFv(void *self);
-    void GenerateNonLinValues__8LGWheelsFlUc(void *self, s32 chan, u8 value);
     void GBAConnectivityInit__Fv(void);
     void *w;
 
@@ -268,13 +262,7 @@ void pollControllers__Fv(void) {
         s16 nonLin[4][0x100];
     } LGWheelsNonLin;
     extern u32 WheelHandles[4];
-    extern u32 PadChanMask_800DBC08[4];
-    s32 LGRead(void *status);
-    s32 LGOpen(s32 chan, u32 *handle);
-    void ReadAll__8LGWheelsFv(void *wheels);
-    u8 PedalsConnected__8LGWheelsFl(void *wheels, s32 chan);
-    u32 SIProbe(s32 chan);
-    void PADReset(u32 mask);
+    extern u32 PadChanMask[4];
     PADStatus pads[4];
     u16 down;
     u16 up;
@@ -332,7 +320,7 @@ void pollControllers__Fv(void) {
         case 0x09000000:
         case 0x8B100000:
             if (s_unkD8[chan].err == -1) {
-                resetMask |= PadChanMask_800DBC08[chan];
+                resetMask |= PadChanMask[chan];
                 s_unk108[chan].unkA = -1;
             } else {
                 u16 prev = s_unk108[chan].button;
@@ -347,7 +335,7 @@ void pollControllers__Fv(void) {
             }
             break;
         default:
-            resetMask |= PadChanMask_800DBC08[chan];
+            resetMask |= PadChanMask[chan];
             g_VirtualPad[chan].keyDown = g_VirtualPad[chan].keyPress = g_VirtualPad[chan].keyRelease = 0;
             g_VirtualPad[chan].keyValue[0x10] = g_VirtualPad[chan].keyValue[0x11] =
                 g_VirtualPad[chan].keyValue[0x12] = g_VirtualPad[chan].keyValue[0x13] = 0;

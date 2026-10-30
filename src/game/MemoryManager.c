@@ -1,5 +1,4 @@
-
-
+#include "common.h"
 extern int __OSCurrHeap;
 
 void *Allocate(u32 size, u32 flags, const char *name)
@@ -9,7 +8,7 @@ void *Allocate(u32 size, u32 flags, const char *name)
     if (size == 0) {
         return 0;
     }
-    ptr = PTR(OSAllocFromHeap(__OSCurrHeap, size));
+    ptr = OSAllocFromHeap(__OSCurrHeap, size);
     if (ptr == 0) {
         Dprintf("ALLOCATE ERROR Could not allocate the requested memory, going to crash!!\n");
     }

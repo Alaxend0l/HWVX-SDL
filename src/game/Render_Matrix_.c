@@ -156,7 +156,7 @@ f32 Gfx_GetProjectionMatrix(void) {
 
 void Gfx_SetOrthoMatrix(void) {
     f32 mtx[3][4];
-    f32 proj[3][4];
+    f32 proj[4][4];  /* C_MTXOrtho writes a 4x4 matrix */
     f32 width;
 
     width = GetRenderWindow()->width;

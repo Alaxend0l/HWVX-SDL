@@ -101,8 +101,8 @@ extern Texture *m_texture;
 
 
 void FontManager_Create(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 void FontManager_Destroy(void) {

@@ -78,14 +78,14 @@ void Thing_Release(s32 thing) {
     M2C_FIELD(thing, u32 *, 0x74) |= 0x200;
     M2C_FIELD(thing, u32 *, 0x74) |= 2;
     M2C_FIELD(thing, u32 *, 0x74) |= 0x200000;
-    if (SLOT_LOAD(void *, (u8 *)(thing) + 0x84) != NULL) {
-        Grid_FreeObject(SLOT_LOAD(void *, (u8 *)(thing) + 0x84));
+    if (SLOT_LOAD(void *, (u8 *)PTR(thing) + 0x84) != NULL) {
+        Grid_FreeObject(SLOT_LOAD(void *, (u8 *)PTR(thing) + 0x84));
     }
-    SLOT_STORE((u8 *)(thing) + 0x84, NULL);
+    SLOT_STORE((u8 *)PTR(thing) + 0x84, NULL);
     ThingManagerList_EmancipateSlaves(PTR(thing + 0x10), PTR(thing + 0x88));
     ThingManagerList_ReleaseAll(PTR(thing + 0x88));
     ThingManagerList_RemoveReleasedThings(PTR(thing + 0x88));
-    player = SLOT_LOAD(void *, (u8 *)(thing) + 0x94);
+    player = SLOT_LOAD(void *, (u8 *)PTR(thing) + 0x94);
     if (player != NULL && SLOT_LOAD(void *, (u8 *)(player) + 0x2C) == (void *)PTR(thing)) {
         Player_DetachThingDeath(player);
     }
@@ -450,7 +450,7 @@ s32 TriggerAirboxEntered(u32 *trigger) {
         thing = (u8 *)PTR(trigger[i + 1]);
         if (M2C_FIELD(thing, u32 *, 4) == 1) {
             for (j = 0; j < trigger[numThings + 1]; j++) {
-                volume = SLOT_LOAD(u8 *, (u8 *)(trigger[numThings + 2 + j]) + 0x28);
+                volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x28);
                 if (volume != NULL && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
                     return 1;
                 }
@@ -473,7 +473,7 @@ s32 TriggerCreatureVolumeEntered(u32 *trigger) {
         thing = (u8 *)PTR(trigger[i + 1]);
         if (M2C_FIELD(thing, u32 *, 4) == 1) {
             for (j = 0; j < trigger[numThings + 1]; j++) {
-                volume = SLOT_LOAD(u8 *, (u8 *)(trigger[numThings + 2 + j]) + 0x1C);
+                volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x1C);
                 if (volume != NULL && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
                     return 1;
                 }
@@ -495,7 +495,7 @@ s32 TriggerItemVolumeEntered(u32 *trigger) {
     for (i = 0; i < numThings; i++) {
         thing = (u8 *)PTR(trigger[i + 1]);
         for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)(trigger[numThings + 2 + j]) + 0x24);
+            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x24);
             if (volume != NULL) {
                 if (SLOT_LOAD(u8 *, (u8 *)(volume) + 0x94) != NULL && SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(volume) + 0x94)) + 0x2C) != NULL) {
                     volume = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(volume) + 0x94)) + 0x2C);
@@ -521,7 +521,7 @@ s32 TriggerMovableVolumeEntered(u32 *trigger) {
     for (i = 0; i < numThings; i++) {
         thing = (u8 *)PTR(trigger[i + 1]);
         for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)(trigger[numThings + 2 + j]) + 0x10);
+            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x10);
             if (volume != NULL && M2C_FIELD(thing, u32 *, 4) == 1 && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
                 return 1;
             }
@@ -542,7 +542,7 @@ s32 TriggerAirboxStopIn(u32 *trigger) {
     for (i = 0; i < numThings; i++) {
         thing = (u8 *)PTR(trigger[i + 1]);
         for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)(trigger[numThings + 2 + j]) + 0x28);
+            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x28);
             if (M2C_FIELD(thing, u32 *, 4) == 1 && PSVECSquareMag((Vector4 *)volume) < 50.0f && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
                 return 1;
             }
@@ -563,7 +563,7 @@ s32 TriggerAirboxExited(u32 *trigger) {
     for (i = 0; i < numThings; i++) {
         thing = (u8 *)PTR(trigger[i + 1]);
         for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)(trigger[numThings + 2 + j]) + 0x28);
+            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x28);
             if (M2C_FIELD(thing, u32 *, 4) == 1 && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
                 return 0;
             }
@@ -1040,9 +1040,9 @@ void Thing_GetInverseLocalInertiaTensor(void *thing, f32 *tensor) {
 s32 Thing_GetNearestNavPoint(void) {
     return -1;
 }
+void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand);
 
 s32 Thing_AddToGrid(void *thing, s32 type) {
-    void Thing_GetDynamicMinMax(void *thing, Vector4 *min, Vector4 *max, f32 expand);
     s32 Grid_AddObject(s32 type, void *thing, Vector4 *min, Vector4 *max);
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
@@ -1151,18 +1151,17 @@ void Thing_DynamicGridMove(void *thing, f32 expand) {
 
     if (*(u32 *)((u8 *)thing + 0x84) != 0) {
         Thing_GetDynamicMinMax(thing, &min, &max, expand);
-        Grid_MoveObject(*(s32 *)((u8 *)thing + 0x84), &min, &max);
+        Grid_MoveObject(PTR(*(s32 *)((u8 *)thing + 0x84)), &min, &max);
     }
 }
 
 void Thing_StaticGridMove(void *thing) {
-    void Thing_GetDynamicMinMax(void *thing, Vector4 *min, Vector4 *max, f32 expand);
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
 
     if (*(u32 *)((u8 *)thing + 0x84) != 0) {
         Thing_GetDynamicMinMax(thing, &min, &max, 0.0f);
-        Grid_MoveObject(*(s32 *)((u8 *)thing + 0x84), &min, &max);
+        Grid_MoveObject(PTR(*(s32 *)((u8 *)thing + 0x84)), &min, &max);
     }
 }
 
@@ -1172,7 +1171,7 @@ void Thing_RotationalGridMove(void *thing) {
 
     if (M2C_FIELD(thing, u32 *, 0x84) != 0) {
         Thing_GetStaticRotationalMinMax(thing, &min, &max);
-        Grid_MoveObject(M2C_FIELD(thing, s32 *, 0x84), &min, &max);
+        Grid_MoveObject(SLOT_LOAD(void *, (u8 *)PORT_ADDR(thing) + 0x84), &min, &max);
     }
 }
 
@@ -1304,7 +1303,7 @@ s32 Thing_HitsTerrain(void *thing, void *arg1, void *arg2) {
     case 3:
         return RayHitsTerrain_Aux3((u8 *)thing + 0x40, thing, arg1, arg2);
     case 1:
-        return OBoxHitsTerrain(M2C_FIELD(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C), void *(**)(void *), 0x40)(thing), thing, arg1, arg2);
+        return OBoxHitsTerrain(((void * (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 0x40))(thing), thing, arg1, arg2);
     }
     return 0;
 }

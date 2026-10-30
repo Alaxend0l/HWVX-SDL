@@ -19,11 +19,11 @@ static char *StateMovie_GetNextMovieName(void) {
 	if (g_moviePlaybackName == 0) {
 		return NULL;
 	}
-	len = strlen((char *)g_moviePlaybackName);
+	len = strlen((char *)PTR(g_moviePlaybackName));
 	if (g_curMovieIndex >= len) {
 		return NULL;
 	}
-	src = (char *)g_moviePlaybackName + g_curMovieIndex;
+	src = (char *)PTR(g_moviePlaybackName) + g_curMovieIndex;
 	while (g_curMovieIndex < len) {
 		if (*src != ',') {
 			buffer[n++] = *src;

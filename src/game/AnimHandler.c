@@ -167,7 +167,7 @@ void MotionState_Draw(void *state) {
 
     skel = SLOT_LOAD(s32 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0)) + 0x14);
     for (i = 0; i < M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0), u32 *, 0x0); i++) {
-        Gfx_DrawAnimGeometryAux(M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0), void ***, 0x4)[i],
+        Gfx_DrawAnimGeometryAux(SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0)) + 0x4) + (i)),
                                 SLOT_LOAD(void *, (u8 *)(state) + 0x10), *skel, 0);
     }
     for (i = 0; i < M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0), u32 *, 0x8); i++) {
@@ -222,7 +222,7 @@ void MotionState_Draw2(void *state, s32 mtx, u8 *matrices) {
     } else {
         cached = GETP(ds->cached);
         for (i = 0; i < GETP(ds->anim)->numAux; i++) {
-            Gfx_DrawAnimGeometryAux(GETP(GETP(ds->anim)->aux)[i], cached, *skel, mtx);
+            Gfx_DrawAnimGeometryAux(GETP(GETP(ds->anim)->aux)[i], cached, *skel, PTR(mtx));
         }
         for (i = 0; i < GETP(ds->anim)->numGeom; i++) {
             void *geom;
@@ -244,7 +244,6 @@ void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player) {
         PTR32(SlaveTrigger) triggers;
     } SlaveList;
     extern Vector4 g_zeroVector;
-    void ThingManagerList_TriggerSlaves(void **list, u8 *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u8 player);
     SlaveList *list = slaves;
     u32 i;
 
@@ -259,7 +258,6 @@ void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player) {
 void MotionState_InitSlavesTimed(u8 *state, void *slaves, u8 player, u32 time) {
     extern u32 g_iDeltaTimeMS;
     extern Vector4 g_zeroVector;
-    void ThingManagerList_TriggerSlaves(void **list, u8 *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u8 player);
     typedef struct {
         u8 unk0[0x14];
         f32 time;
@@ -282,7 +280,6 @@ void MotionState_InitSlavesTimed(u8 *state, void *slaves, u8 player, u32 time) {
 }
 
 void MotionState_BlendTriggerEvents(s32 state, void *events, Vector4 *vel) {
-    void ThingManagerList_TriggerSlaves(void **list, u8 *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u8 player);
     typedef struct {
         u8 unk0[0x14];
         f32 time;

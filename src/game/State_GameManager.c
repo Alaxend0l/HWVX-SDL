@@ -13,9 +13,11 @@ void StateGameManager_RefreshMCPTextures(void) {
         DataPack_RefreshTextures(pack);
     }
 }
+typedef struct { PTR32(u8) mcp; s32 unk4; } GameManagerState;
+extern GameManagerState g_GameManagerState;
+
 
 s32 StateGameManager_Init(void) {
-    extern struct { PTR32(u8) mcp; s32 unk4; } g_GameManagerState;
     extern s32 g_gameDifficulty;
     void *camera = NULL;
     Vector4 min;
@@ -63,7 +65,7 @@ s32 StateGameManager_Heartbeat(void) {
     typedef struct { s32 name; s32 script; } PackRef;
     typedef struct { u8 type; void *movie; PackRef *pack; } Step;
     typedef struct { u8 pad0[4]; s32 menuName; u8 pad8[0x20]; s32 menuFile; u32 numSteps; Step *steps; } MCP;
-    extern struct { PTR32(MCP) mcp; u32 step; } g_GameManagerState;
+    #define g_GameManagerState (*(struct { PTR32(MCP) mcp; u32 step; } *)(void *)&g_GameManagerState)
     #define g_bInterfacePlaying (*(s8 *)(void *)&g_bInterfacePlaying)
     extern s32 g_interfacePackID;
     s8 loadDefaults = 0;
@@ -125,6 +127,7 @@ s32 StateGameManager_Heartbeat(void) {
     }
     return 1;
 #undef g_bInterfacePlaying
+#undef g_GameManagerState
 }
 
 s32 StateGameManager_Shutdown(void) {
@@ -142,7 +145,6 @@ void StateGameManager_Release(void) {
 }
 
 s32 StateGameManager_GetProgScript(u32 index) {
-    extern struct { PTR32(u8) mcp; s32 unk4; } g_GameManagerState;
 
     if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
         if (GETP(g_GameManagerState.mcp) != NULL) {

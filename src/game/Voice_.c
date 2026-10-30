@@ -429,7 +429,7 @@ void ProcessVoice_(void) {
 }
 
 void SetVoiceVol_(u8 *v, u32 vol) {
-    extern s32 g_speakers_803C789C;
+    extern s32 g_speakers;
     extern const u16 g_panTab[128];
     u8 *axv;
     s32 pan;
@@ -447,7 +447,7 @@ void SetVoiceVol_(u8 *v, u32 vol) {
     *(u32 *)(axv + 0x1C) &= ~0x10;
     v[0x56] = 0;
     v[0x57] = 0;
-    if (g_speakers_803C789C >= 1) {
+    if (g_speakers >= 1) {
         pan = ((*(u32 *)(v + 0x40) >> 9) & 0x7F) ^ 0x40;
     }
     l = g_panTab[0x7F - pan];
@@ -549,25 +549,26 @@ void SetReverb_(u32 idx, u32 output, u32 feedback, u32 delay) {
         u32 feedback[3];
         u32 output[3];
     } AXFX_DELAY;
-    extern AXFX_DELAY g_reverb_803715B0[2];
+    #define g_reverb ((AXFX_DELAY *)(void *)&g_reverb)
 
     if (delay < 10) {
         delay = 10;
     }
-    g_reverb_803715B0[idx].delay[0] = delay;
-    g_reverb_803715B0[idx].delay[1] = delay;
+    g_reverb[idx].delay[0] = delay;
+    g_reverb[idx].delay[1] = delay;
     feedback = (feedback * 100) >> 15;
-    g_reverb_803715B0[idx].feedback[0] = feedback;
-    g_reverb_803715B0[idx].feedback[1] = feedback;
+    g_reverb[idx].feedback[0] = feedback;
+    g_reverb[idx].feedback[1] = feedback;
     if (idx == 1) {
         output = (output * 100) >> 15;
-        g_reverb_803715B0[0].output[0] = output;
-        g_reverb_803715B0[0].output[1] = output;
-        AXFXDelaySettings(&g_reverb_803715B0[1]);
+        g_reverb[0].output[0] = output;
+        g_reverb[0].output[1] = output;
+        AXFXDelaySettings(&g_reverb[1]);
     } else {
-        g_reverb_803715B0[1].output[0] = 100;
-        g_reverb_803715B0[1].output[1] = 100;
-        AXFXDelaySettings(&g_reverb_803715B0[0]);
+        g_reverb[1].output[0] = 100;
+        g_reverb[1].output[1] = 100;
+        AXFXDelaySettings(&g_reverb[0]);
     }
+#undef g_reverb
 }
 

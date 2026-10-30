@@ -41,7 +41,7 @@ typedef struct Heap {
 #define MAX_HEAPS 4
 static Heap s_heaps[MAX_HEAPS];
 static int s_numHeaps;
-volatile int __OSCurrHeap = -1;
+int __OSCurrHeap = -1;
 static SDL_Mutex *s_heapLock;
 
 void *OSInitAlloc(void *arenaStart, void *arenaEnd, int maxHeaps) {

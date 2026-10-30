@@ -79,7 +79,6 @@ static inline void CarA_UpdateDamageSlaves(CarA *car) {
         PTR32(DamageSlave) slaves;
     } DamageSlaves;
     extern Vector4 g_zeroVector;
-    void ThingManagerList_TriggerSlaves(void *list, void *key, void *slave, Vector4 *color, Vector4 *vel, s32 type);
     MotionState *ms;
     u32 i;
     DamageSlaves *slaves;
@@ -1040,7 +1039,7 @@ s32 CarA_Move(void *thing) {
     numBones = GETP(GETP(car->motionState.model)->numBones);
     CarA_Extract_Keyframes(car, frames);
     XformVec(&car->worldMatrix, &car->bodyOffset, &pos);
-    TEST_AnimTraverseHeirarchyToMatricesWorld(&car->animRefPos, &pos, frames, *numBones, 1.0f, GETP(car->motionState.animMatrices));
+    TEST_AnimTraverseHeirarchyToMatricesWorld(&car->animRefPos, &pos, frames, *numBones, GETP(car->motionState.animMatrices), 1.0f);
     for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
         wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
         if (wheel->parent != 0) {
@@ -1074,7 +1073,7 @@ s32 CarA_Move(void *thing) {
             trailPos.z = t * dz + GETP(car->motionState.animMatrices)[wheel->bone].v[3].z;
             color = car->wheelStates[i].skidColor;
             Trail_AddSegment(&car->wheelStates[i].skidTrail, &trailPos, &GETP(car->motionState.animMatrices)[wheel->bone - 1].v[2],
-                             GETP(car->vehicleIface)->skidsEnabled, &color, wheel->width0, wheel->width1, car->wheelStates[i].skidTexture);
+                             GETP(car->vehicleIface)->skidsEnabled, color, car->wheelStates[i].skidTexture, wheel->width0, wheel->width1);
         } else {
             car->wheelStates[i].skidTrail = -1;
         }
@@ -2274,7 +2273,7 @@ void CarA_CollideWithRay(CarA *car, void *start, void *end, struct RayHit { u8 p
 
     local = car->worldMatrix;
     XformVec(&car->worldMatrix, &car->bodyOffset, &local.v[3]);
-    dist = PhysicalProperties_CollideWithRay(GETP(GETP(car->vehicleIface)->collider), &local, start, end, hit, maxDist);
+    dist = PhysicalProperties_CollideWithRay(GETP(GETP(car->vehicleIface)->collider), &local, start, end, maxDist, hit);
     if (hit != NULL && dist < maxDist) {
         hit->normal = car->velocity;
     }

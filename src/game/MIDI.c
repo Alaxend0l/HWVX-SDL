@@ -203,7 +203,7 @@ s32 SetMIDIState(s32 state) {
  typedef struct MIDI_VOICE *MV; typedef struct MIDI_CHN MC;
  extern void *g_pHdr; extern s32 g_musicState; extern u32 SongUpdate, g_trkOn, g_trkOff;
  extern u8 g_song[0x24];
-     void ProcessMIDI(s32); void SetVoiceState_(MV, s32); u32 ReadVar_(u8 **pp);
+     void ProcessMIDI(s32); u32 ReadVar_(u8 **pp);
  MC *chn; MV voice, next; u32 i; s32 old;
  if (g_pHdr == NULL) return -1;
  if (state == 0 || g_pHdr == NULL) return g_musicState;
@@ -248,13 +248,13 @@ s32 SetMIDIState(s32 state) {
  }
  old = g_musicState; g_musicState = state; return old;
 }
+void SetGVol(MIDI_CHN *chn);
 
 void SetMIDIVol(void)
 {
     MIDI_CHN *chn;
     MIDI_VOICE *voice;
     s32 i;
-    void SetGVol(void *chn);
 
     for (chn = g_chn, i = 0x10; i != 0; chn++, i--)
     {
@@ -377,7 +377,6 @@ void ProcessMIDI(s32 time)
     extern void *g_pHdr;
     MIDI_VOICE *DestroyVoice(MIDI_VOICE *voice);
     MIDI_VOICE *GetVoice_(u8 type, u32 priority);
-    void SetGVol(void *chn);
     MIDI_CHN *chn;
     u32 mask;
     u32 i;

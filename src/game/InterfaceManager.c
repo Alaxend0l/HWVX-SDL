@@ -1813,6 +1813,8 @@ void InterfaceManager_LinkThingToObject(s32 index, u32 id, void *thing) {
     }
 #undef g_interface
 }
+void InterfaceManager_MoveInterface(IMInterface *iface, f32 dt);
+s32 InterfaceManager_ProcessInput(IMInterface *iface, IMSlot *obj, u32 *events);
 
 void InterfaceManager_Heartbeat(void) {
     #define g_interface ((u8 (*)[0x170])(void *)&g_interface)
@@ -1857,12 +1859,11 @@ void InterfaceManager_Heartbeat(void) {
     }
 #undef g_interface
 }
+s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 arg);
+u32 InterfaceManager_KeyPress(InterfaceKeyState *im, s32 pad, u8 key);
 
 void InterfaceManager_MoveInterface(IMInterface *iface, f32 dt) {
     extern char *g_curMusicPackName;
-    u32 InterfaceManager_KeyPress(InterfaceKeyState *im, s32 pad, u8 key);
-    u32 InterfaceManager_ProcessInput(IMInterface *iface, IMSlot *obj, void *events);
-    void InterfaceManager_PlayEvent(IMInterface *iface, IMSlot *obj, void *event, u32 arg);
     #define g_curMusicPackID (*(u32 *)(void *)&g_curMusicPackID)
     #define g_bUnloadMusicPack (*(u8 *)(void *)&g_bUnloadMusicPack)
     #define g_interface ((IMInterface *)(void *)&g_interface)
@@ -2597,8 +2598,6 @@ s32 InterfaceManager_ProcessInput(IMInterface *iface, IMSlot *obj, u32 *events) 
         u8 pad1[7];
         PTR32(InputEventDef) def;
     } InputEvent;
-    u32 InterfaceManager_PlayEvent(IMInterface *iface, IMSlot *obj, InputEvent *event, u16 events);
-    u32 InterfaceManager_KeyPress(IMInterface *iface, s32 input, s32 key);
     #define g_interface ((IMInterface *)(void *)&g_interface)
     InterfaceEventMsg msg;
     u32 i;
@@ -2795,7 +2794,7 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
             if (GETP(((Event *)event)->def)->type == 0x20) {
                 iface = &g_interface[iface->parent];
             } else {
-                return;
+                return 0;  /* bare return in the decomp */
             }
         }
         {
@@ -3008,7 +3007,7 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
             msg.id = GETP(((Event *)event)->def)->id;
             InterfaceManager_ReleaseInterface(iface->id);
             StateManager_QueueChange(2);
-            return;
+            return 0;  /* bare return in the decomp */
         } else if (GETP(((Event *)event)->def)->type == 10) {
             msg.type = 10;
             msg.id = GETP(((Event *)event)->def)->id;
@@ -3969,7 +3968,7 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 value = GameSettings_GetCodeVariable(0xCF, 0);
                 break;
             case 104:
-                InterfaceManager_SetControllerConfigInputString(iface, obj);
+                InterfaceManager_SetControllerConfigInputString();
                 break;
             }
         }
@@ -4645,11 +4644,11 @@ typedef struct RenderInterface {
     u8 pad84[0x88 - 0x84];
     PTR32(RenderSlot) slots;
 } RenderInterface;
+void InterfaceManager_RenderInterface(RenderInterface *iface);
 
 void InterfaceManager_Render(void) {
     #define g_interface ((u8 (*)[0x170])(void *)&g_interface)
     extern u32 g_interfaceRenderOrder[0x12];
-    void InterfaceManager_RenderInterface(RenderInterface *iface);
     #define g_numInterfacesToRender (*(s32 *)(void *)&g_numInterfacesToRender)
     u32 i;
     u8 *iface;
@@ -4663,6 +4662,7 @@ void InterfaceManager_Render(void) {
 #undef g_interface
 #undef g_numInterfacesToRender
 }
+void InterfaceManager_RenderObject(IMInterface *iface, s32 index);
 
 void InterfaceManager_RenderInterface(RenderInterface *iface) {
     u32 i;
@@ -4770,7 +4770,6 @@ void InterfaceManager_RenderObject(IMInterface *iface, s32 index) {
     extern u8 g_carAVTable[];
     extern Matrix4 g_identity;
     extern Vector4 g_zeroVector;
-    void InterfaceManager_RenderInterface(IMInterface *iface);
     #define g_interface ((IMInterface *)(void *)&g_interface)
     char text[0x200];
     FxParams fx;
@@ -4813,7 +4812,7 @@ void InterfaceManager_RenderObject(IMInterface *iface, s32 index) {
         case 4:
             slot->unk244 = 0;
             if (GETP(slot->thing) != NULL) {
-                Thing_Release(GETP(slot->thing));
+                Thing_Release(HND(GETP(slot->thing)));
                 SETP(slot->thing, NULL);
             }
             break;
@@ -5316,7 +5315,6 @@ void InterfaceManager_DrawObject_Standard_Image(u8 *obj) {
         u8 blendMode;
         u8 window;
     } Rect;
-    Rect *Gfx_Add2DRectangle(void);
     Rect local;
     Rect *rect;
     f32 x0, y0;
@@ -5428,7 +5426,6 @@ void InterfaceManager_DrawRadarBlips(f32 *centre, u8 *obj) {
         BlipThing things[64];
     } BlipManager;
     extern u32 g_radarBlip;
-    Rect *Gfx_Add2DRectangle(void);
     void *targets[32];
     f32 c, s;
     Colour colour;
@@ -5544,7 +5541,6 @@ void InterfaceManager_DrawMap(u8 *obj, u8 *iface) {
     typedef struct Colour {
         u8 r, g, b, a;
     } Colour;
-    Rect *Gfx_Add2DRectangle(void);
     Colour colour;
     f32 s;
     f32 c;

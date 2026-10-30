@@ -136,6 +136,10 @@ def rewrite(src, fname, report):
                 addr = f"(u8 *)({args[0]}) + {args[2]}"
                 cands.append((m.start(), close_i + 1, t, addr))
         for m in DEREF_CAST.finditer(out):
+            # #define lines are view macros over host objects (view_externs.py)
+            ls = out.rfind("\n", 0, m.start()) + 1
+            if out[ls:m.start()].lstrip().startswith("#define"):
+                continue
             j = operand_end(out, m.end())
             if j is None:
                 continue

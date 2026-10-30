@@ -54,23 +54,23 @@ s32 ActionScriptLightChangeMode(void) {
 }
 
 void Action_Create(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 void Action_Destroy(void) {
 
 }
-extern u8 m_Actions_800DBC80[];  /* typed per function below */
+extern u8 m_Actions[];  /* typed per function below */
 
 void Action_Init(void) {
-    #define m_Actions_800DBC80 ((void **)(void *)&m_Actions_800DBC80)
+    #define m_Actions ((void **)(void *)&m_Actions)
     u32 i;
 
     for (i = 0; i < 80; i++) {
-        m_Actions_800DBC80[i] = NULL;
+        m_Actions[i] = NULL;
     }
-#undef m_Actions_800DBC80
+#undef m_Actions
 }
 
 void Action_Heartbeat(void) {
@@ -82,29 +82,29 @@ void Action_Heartbeat(void) {
         s32 unk10;
         s32 delay;
     } Action;
-    #define m_Actions_800DBC80 ((Action **)(void *)&m_Actions_800DBC80)
-    extern void (*pActionFuncArray_800CF500[])(void *);
+    #define m_Actions ((Action **)(void *)&m_Actions)
+    extern void (*pActionFuncArray[])(void *);
     extern s32 g_iDeltaTimeMS;
     u32 i;
 
     for (i = 0; i < 80; i++) {
-        Action *action = m_Actions_800DBC80[i];
+        Action *action = m_Actions[i];
         if (action != NULL && action->delay <= 0) {
-            pActionFuncArray_800CF500[action->type](GETP(action->data));
-            if (m_Actions_800DBC80[i]->type != 0x14 || SLOT_LOAD(void *, (u32 *)(GETP(m_Actions_800DBC80[i]->data)) + (1)) == NULL) {
-                m_Actions_800DBC80[i] = NULL;
+            pActionFuncArray[action->type](GETP(action->data));
+            if (m_Actions[i]->type != 0x14 || SLOT_LOAD(void *, (u32 *)(GETP(m_Actions[i]->data)) + (1)) == NULL) {
+                m_Actions[i] = NULL;
             }
         } else if (action != NULL) {
             action->delay -= g_iDeltaTimeMS;
         }
     }
-#undef m_Actions_800DBC80
+#undef m_Actions
 }
 
 void Action_ReleaseAllActions(void) {
-    #define m_Actions_800DBC80 ((u8 *)(void *)&m_Actions_800DBC80)
-    memset(m_Actions_800DBC80, 0, 0x140);
-#undef m_Actions_800DBC80
+    #define m_Actions ((u8 *)(void *)&m_Actions)
+    memset(m_Actions, 0, 0x140);
+#undef m_Actions
 }
 
 s32 Action_AddAction(void *arg0) {
@@ -116,12 +116,12 @@ s32 Action_AddAction(void *arg0) {
         u32 count;
         s32 delay;
     } Action;
-    #define m_Actions_800DBC80 ((Action **)(void *)&m_Actions_800DBC80)
+    #define m_Actions ((Action **)(void *)&m_Actions)
     Action *action = arg0;
     u32 i;
 
     for (i = 0; i < 80; i++) {
-        if (m_Actions_800DBC80[i] == NULL) {
+        if (m_Actions[i] == NULL) {
             break;
         }
     }
@@ -132,13 +132,13 @@ s32 Action_AddAction(void *arg0) {
     if (action->count != 0xFFFFFFFF) {
         action->count--;
     }
-    m_Actions_800DBC80[i] = action;
-    m_Actions_800DBC80[i]->delay = m_Actions_800DBC80[i]->delayInit;
+    m_Actions[i] = action;
+    m_Actions[i]->delay = m_Actions[i]->delayInit;
     if (action->count != 0) {
         return 1;
     }
     return 0;
-#undef m_Actions_800DBC80
+#undef m_Actions
 }
 
 
@@ -291,7 +291,7 @@ s32 ActionMissionObjChangeMode(u32 *action) {
     u32 i;
 
     for (i = 0; i < action[1]; i++) {
-        M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(action[i + 2]) + 4), u8 *, 1) = action[0];
+        M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)PTR(action[i + 2]) + 4), u8 *, 1) = action[0];
     }
     return 1;
 }
@@ -632,7 +632,7 @@ s32 ActionVehicleGiveItem(void *arg) {
     case 0:
         item = GETP(action->item);
         if (item == NULL) {
-            return;
+            return 0;
         }
         if (GETP(item->info)->type == 7) {
             numPlayers = PlayerManager_PlayerCount();
@@ -749,10 +749,11 @@ s32 ActionPlaySoundSequence(void *arg0) {
     } else {
         for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
             if (SLOT_LOAD(u8 *, (u8 *)(thing) + 0x8C) == g_soundSeqVTable && M2C_FIELD(thing, u32 *, 0xB0) == id) {
-                ((void (*)(void *))(M2C_FIELD(thing, void ***, 0x8C))[1])(thing);
+                ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (1)))(thing);
             }
         }
     }
+    return 0;  /* the original returns whatever the last call left in r3 */
 }
 
 s32 ActionCreatureChangeMode(u32 *action) {

@@ -380,7 +380,7 @@ void RadarBlip_Draw(RadarBlip *blip) {
             spritePos = screen;
             spritePos.y -= GETP(blip->data)->height;
             if (GETP(blip->data)->showSprite && screen.w > 50.0f) {
-                Gfx_Add2DSprite(&spritePos, GETP(blip->data)->texture, color, GETP(blip->data)->size, 5, 3.1415927f);
+                Gfx_Add2DSprite(&spritePos, GETP(blip->data)->texture, &color, 5, GETP(blip->data)->size, 3.1415927f);
             }
             barPos = screen;
             barPos.y -= 12.0f;

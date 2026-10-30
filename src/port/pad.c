@@ -150,9 +150,6 @@ u32 PADRead(struct PADStatus *status) {
         }
     }
     ReadKeyboard(&st[0]);
-    if (s_samplingCallback != NULL) {
-        s_samplingCallback();
-    }
     return motorMask;
 }
 
@@ -174,7 +171,36 @@ void *PADSetSamplingCallback(void (*callback)(void)) {
     return old;
 }
 
+/* On the GameCube the sampling callback ran from the SI interrupt after each
+ * controller poll; here it runs once per retrace (vi.c). The game's callback
+ * calls PADRead itself, so it must not run from inside PADRead. */
+void Pad_PortSample(void) {
+    static int running;
+    if (s_samplingCallback != NULL && !running) {
+        running = 1;
+        s_samplingCallback();
+        running = 0;
+    }
+}
+
 void SIInit(void) {}
+
+/* Device type on a controller port: a standard pad wherever SDL has one (and
+ * on port 1, which the keyboard drives), nothing elsewhere. Wheels are never
+ * reported (see lgwheels.c). */
+#define SI_GC_CONTROLLER 0x09000000u
+#define SI_ERROR_NO_RESPONSE 0x00000008u
+u32 SIProbe(s32 chan) {
+    if (chan < 0 || chan >= PAD_MAX_CONTROLLERS) {
+        return SI_ERROR_NO_RESPONSE;
+    }
+    return (s_pads[chan] != NULL || chan == 0) ? SI_GC_CONTROLLER : SI_ERROR_NO_RESPONSE;
+}
+
+BOOL PADReset(u32 mask) {
+    (void)mask; /* SDL re-opens gamepads itself on (re)connect */
+    return TRUE;
+}
 void SISetSamplingRate(u32 msec) { (void)msec; }
 
 /* No Logitech wheel support; the game falls back to the controller. */

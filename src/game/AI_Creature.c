@@ -546,7 +546,7 @@ end:
 
 void AI_Creature_Init(u8 *creature, u8 *params) {
 
-    AI_Init();
+    AI_Init(creature, (s32)HND(params));  /* r3/r4 passed on unchanged (asm) */
     *(s32 *)(creature + 0xD0) = *(s32 *)(params + 0x0);
     SLOT_STORE((creature + 0xB8), creature);
     SLOT_STORE((creature + 0xBC), AI_Creature_AsyncHeartbeat);

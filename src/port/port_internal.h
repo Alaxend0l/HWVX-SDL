@@ -37,12 +37,13 @@ void Port_PumpEvents(void);
 void GX_PortBeginFrame(void);
 void GX_PortPresent(void);
 void Pad_PortHandleEvent(const SDL_Event *ev);
+void Pad_PortSample(void);
 void Audio_PortShutdown(void);
 
 /* Game entry points (src/game) */
 s32 Main_Init(void);
 s32 Main_Loop(void);
 s32 Main_Shutdown(void);
-s32 Gfx_CreateView(s32 a, s32 w, s32 h, s32 d, s32 e, s32 f);
+s32 Gfx_CreateView(s32 view, u32 width, u32 height);
 
 #endif

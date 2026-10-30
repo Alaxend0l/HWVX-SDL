@@ -168,7 +168,7 @@ void *PlayerManager_NewHumanPlayer(void) {
     if (player == NULL) {
         return NULL;
     }
-    M2C_FIELD(player, void (**)(void *, s32), 0x24)(player, 0);
+    ((void (*)(void *, s32))SLOT_LOAD(void *, (u8 *)PORT_ADDR(player) + 0x24))(player, 0);
     SLOT_STORE((u8 *)(player) + 0xB0, SLOT_LOAD(u8 *, (u8 *)(g_playerManager) + 0x20D8));
     SLOT_STORE((u8 *)(player) + 0xB4, NULL);
     if (SLOT_LOAD(u8 *, (u8 *)(player) + 0xB0) != NULL) {
@@ -304,7 +304,7 @@ void PlayerManager_Heartbeat(void) {
     }
     for (player = SLOT_LOAD(void *, (u8 *)(g_pPlayerManager) + 0x20D8); player != NULL; player = next) {
         next = SLOT_LOAD(void *, (u8 *)(player) + 0xB0);
-        M2C_FIELD(player, void (**)(void *), 0x28)(player);
+        ((void (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(player) + 0x28))(player);
     }
 }
 

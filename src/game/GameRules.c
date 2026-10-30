@@ -6,41 +6,41 @@ extern u32 g_playerNumThatWon;
 
 
 void GameRules_Init(void) {
-    extern s8 g_bRoundEnd_803C71CC;
-    extern u32 g_playerNumThatWon_803C71C8;
+    extern s8 g_bRoundEnd;
+    extern u32 g_playerNumThatWon;
     extern s8 g_bWaitingForRoundReset;
-    extern s8 g_bInit_803C71C4;
-    extern s32 g_savedActions_802E12E0[];
-    extern GRTrigger **g_pTimer_803C71C0;
+    extern s8 g_bInit;
+    extern s32 g_savedActions[];
+    extern GRTrigger **g_pTimer;
     u32 j;
     GRZone *zone;
     u32 i;
     u8 *mcp;
     GRTrigger **slot;
 
-    g_bRoundEnd_803C71CC = 0;
-    g_playerNumThatWon_803C71C8 = 1;
+    g_bRoundEnd = 0;
+    g_playerNumThatWon = 1;
     g_bWaitingForRoundReset = 0;
-    g_bInit_803C71C4 = 1;
+    g_bInit = 1;
     GameSettings_SetCodeVariable(0x197, 0, 0);
     GameSettings_SetCodeVariable(0x190, 0, 1);
     for (i = 1; i < 5; i++) {
         GameSettings_SetCodeVariable(0x191, i, 0);
         GameSettings_SetCodeVariable(0x194, i, 0);
     }
-    Trigger_SaveActions(g_savedActions_802E12E0, 100);
+    Trigger_SaveActions(g_savedActions, 100);
     GameSettings_SetCodeVariable(0x190, 0, 1);
-    g_pTimer_803C71C0 = NULL;
+    g_pTimer = NULL;
     switch (GameSettings_GetCodeVariable(0x12D, 0)) {
     case 1:
     case 2:
         for (i = 0; i < ((GRWorld *)GETP(g_worldData.world))->numTriggers; i++) {
             slot = &GETP(((GRWorld *)GETP(g_worldData.world))->triggers)[i];
             if ((*slot)->type == 0xC) {
-                g_pTimer_803C71C0 = slot;
-                (*g_pTimer_803C71C0)->time = GameSettings_GetCodeVariable(0x12E, 0);
-                if ((*g_pTimer_803C71C0)->time == 0.0f) {
-                    g_pTimer_803C71C0 = NULL;
+                g_pTimer = slot;
+                (*g_pTimer)->time = GameSettings_GetCodeVariable(0x12E, 0);
+                if ((*g_pTimer)->time == 0.0f) {
+                    g_pTimer = NULL;
                 }
                 break;
             }
@@ -77,11 +77,11 @@ void GameRules_Init(void) {
 }
 
 void GameRules_HeartBeat(void) {
-    extern s8 g_bRoundEnd_803C71CC;
-    extern u32 g_playerNumThatWon_803C71C8;
+    extern s8 g_bRoundEnd;
+    extern u32 g_playerNumThatWon;
     extern s8 g_bWaitingForRoundReset;
-    extern s8 g_bInit_803C71C4;
-    extern GRTrigger **g_pTimer_803C71C0;
+    extern s8 g_bInit;
+    extern GRTrigger **g_pTimer;
     static u32 s_requiredNumWins = -1;
     s8 useWins;
     u32 numPlayers;
@@ -96,7 +96,7 @@ void GameRules_HeartBeat(void) {
     roundOver = 0;
     if (!g_bWaitingForRoundReset && GameSettings_GetCodeVariable(0x12C, 0) != 0) {
         winner = -1;
-        if (g_bInit_803C71C4) {
+        if (g_bInit) {
             s8 used[4] = {0, 0, 0, 0};
 
             numPlayers = PlayerManager_PlayerHumanCount();
@@ -117,13 +117,13 @@ void GameRules_HeartBeat(void) {
                     }
                 }
             }
-            g_bInit_803C71C4 = 0;
+            g_bInit = 0;
         }
-        if (g_bRoundEnd_803C71CC) {
-            winner = g_playerNumThatWon_803C71C8;
-            g_bRoundEnd_803C71CC = 0;
+        if (g_bRoundEnd) {
+            winner = g_playerNumThatWon;
+            g_bRoundEnd = 0;
             roundOver = 1;
-        } else if (g_pTimer_803C71C0 != NULL && (*g_pTimer_803C71C0)->time == 0.0f) {
+        } else if (g_pTimer != NULL && (*g_pTimer)->time == 0.0f) {
             roundOver = 1;
         } else {
             switch (GameSettings_GetCodeVariable(0x12D, 0)) {
@@ -303,8 +303,8 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
         PTR32(u8) player;
     } CarParams;
     extern s8 g_bWaitingForRoundReset;
-    extern s32 g_savedActions_802E12E0[];
-    extern GRTrigger **g_pTimer_803C71C0;
+    extern s32 g_savedActions[];
+    extern GRTrigger **g_pTimer;
     extern u32 g_attackDelay;
     extern Vector4 g_zeroVector;
     u32 numPlayers;
@@ -320,10 +320,10 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
     GameSettings_SetCodeVariable(0x190, 0, GameSettings_GetCodeVariable(0x190, 0) + 1);
     g_bWaitingForRoundReset = 0;
     FileStreaming_ResetQuadResources();
-    Trigger_RestoreActions(g_savedActions_802E12E0, 100);
+    Trigger_RestoreActions(g_savedActions, 100);
     InterfaceManager_ReleaseAllInterfaces();
-    if (g_pTimer_803C71C0 != NULL) {
-        (*g_pTimer_803C71C0)->time = GameSettings_GetCodeVariable(0x12E, 0);
+    if (g_pTimer != NULL) {
+        (*g_pTimer)->time = GameSettings_GetCodeVariable(0x12E, 0);
     }
     if (GameSettings_GetCodeVariable(0x12D, 0) >= 3) {
         g_attackDelay = 8000;

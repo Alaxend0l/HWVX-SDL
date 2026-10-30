@@ -31,7 +31,7 @@ s32 FileManager_GetDeviceLastError(u32 device) {
         if (chan < 0) {
             return 0;
         }
-        switch (m_memcardstatus_803C7970[chan]) {
+        switch (m_memcardstatus[chan]) {
         case -6:
             return -3;
         case -128:
@@ -73,16 +73,18 @@ s32 FileManager_GetDeviceFreeSpace(s32 device, u32 *freeBytes, u32 *totalBytes) 
 }
 
 s8 FileManager_IsDeviceFormatted(s32 device) {
-    return m_memcardstatus_803C7970[device - 11] == 0;
+    return m_memcardstatus[device - 11] == 0;
 }
 
 s8 FileManager_FormatDevice(s32 device) {
-    m_memcardstatus_803C7970[device - 11] = CARDFormat(device - 11);
-    return m_memcardstatus_803C7970[device - 11] == 0 ? 1 : 0;
+    m_memcardstatus[device - 11] = CARDFormat(device - 11);
+    return m_memcardstatus[device - 11] == 0 ? 1 : 0;
 }
+typedef struct { s32 fileInfo; char name[0x100]; } FileDataPC;
+extern FileDataPC g_filedata_PC[4];
+
 
 s32 File_Open(u32 dev, const char *name, u32 flags, s32 *size) {
-    extern struct { s32 fileInfo; char name[0x100]; } g_filedata_PC[4];
     char *p;
     s32 i;
     s8 ok;
@@ -130,7 +132,6 @@ s32 File_Open(u32 dev, const char *name, u32 flags, s32 *size) {
 }
 
 void File_Close(s32 handle) {
-    extern struct { s32 fileInfo; u8 pad[0x100]; } g_filedata_PC[4];
     s32 slot = (s8)(u8)((u32)handle >> 8);
     s32 idx = (s8)(u8)handle;
     s32 device = (s8)(u8)((u32)handle >> 16);
@@ -161,7 +162,6 @@ s32 File_Seek(s32 handle, s32 offset, s8 mode) {
 }
 
 s32 File_Read(u32 id, s32 size, void *data) {
-    extern struct { s32 fileInfo; char name[0x100]; } g_filedata_PC[4];
     extern s64 g_resetTicks;
     extern s32 m_reset;
     extern s32 m_cd_drive_status;
@@ -215,7 +215,7 @@ s32 File_Read(u32 id, s32 size, void *data) {
                         VIWaitForRetrace();
                         VIFlush();
                         VIWaitForRetrace();
-                        if ((OSGetTime() - g_resetTicks) / (*(u32 *)0x800000F8 / 4) < 8) {
+                        if ((OSGetTime() - g_resetTicks) / OS_TIMER_CLOCK < 8) {
                             OSResetSystem(1, 0, 0);
                         } else {
                             OSResetSystem(0, 0, 0);
@@ -255,7 +255,7 @@ s32 File_Read(u32 id, s32 size, void *data) {
                         VIWaitForRetrace();
                         VIFlush();
                         VIWaitForRetrace();
-                        if ((OSGetTime() - g_resetTicks) / (*(u32 *)0x800000F8 / 4) < 8) {
+                        if ((OSGetTime() - g_resetTicks) / OS_TIMER_CLOCK < 8) {
                             OSResetSystem(1, 0, 0);
                         } else {
                             OSResetSystem(0, 0, 0);
@@ -307,27 +307,27 @@ u32 FileManager_GetDeviceStatus(u32 device) {
     if (device == 11 || device == 12) {
         result = CARDProbeEx(device - 11, &memSize, &sectorSize);
         if (result != 0) {
-            m_memcardstatus_803C7970[device - 11] = result;
+            m_memcardstatus[device - 11] = result;
             return 3;
         }
         if (sectorSize != 0x2000) {
-            m_memcardstatus_803C7970[device - 11] = -100;
+            m_memcardstatus[device - 11] = -100;
             return 3;
         }
         result = CARDMount(device - 11, CardWorkArea, 0);
         if (result == -6) {
-            if (m_memcardstatus_803C7970[device - 11] != -5) {
+            if (m_memcardstatus[device - 11] != -5) {
                 result = CARDCheck(device - 11);
             } else {
-                result = m_memcardstatus_803C7970[device - 11];
+                result = m_memcardstatus[device - 11];
             }
         }
-        if ((m_memcardstatus_803C7970[device - 11] = result) != 0) {
+        if ((m_memcardstatus[device - 11] = result) != 0) {
             return 3;
         }
         CARDGetEncoding(device - 11, &encoding);
         if (encoding != 0) {
-            m_memcardstatus_803C7970[device - 11] = -13;
+            m_memcardstatus[device - 11] = -13;
             CARDUnmount(device - 11);
             return 3;
         }
@@ -338,7 +338,7 @@ u32 FileManager_GetDeviceStatus(u32 device) {
         }
         CARDUnmount(device - 11);
         if (result == -4 && (bytesNotUsed == 0 || filesNotUsed == 0)) {
-            m_memcardstatus_803C7970[device - 11] = -9;
+            m_memcardstatus[device - 11] = -9;
             return 3;
         }
         return 1;
@@ -358,29 +358,29 @@ s32 MemCard_Open__FUlPCScUlPl(u32 device, const char *fileName, u32 flags, s32 *
         return 0;
     }
     chan = device - 11;
-    m_memcardstatus_803C7970[chan] = CARDMount(chan, CardWorkArea, 0);
+    m_memcardstatus[chan] = CARDMount(chan, CardWorkArea, 0);
     OSReport("CARDMount\n");
-    if (m_memcardstatus_803C7970[chan] < 0) {
-        OSReport("failed. (%d)\n", m_memcardstatus_803C7970[chan]);
+    if (m_memcardstatus[chan] < 0) {
+        OSReport("failed. (%d)\n", m_memcardstatus[chan]);
         return 0;
     }
     blockSize = &memCardBlockSize[chan];
     CARDGetSectorSize(chan, blockSize);
     fileInfo = &memCardfileInfo[chan];
-    m_memcardstatus_803C7970[chan] = CARDOpen(chan, fileName, fileInfo);
-    if (m_memcardstatus_803C7970[chan] == 0) {
+    m_memcardstatus[chan] = CARDOpen(chan, fileName, fileInfo);
+    if (m_memcardstatus[chan] == 0) {
         return 1;
     }
-    if (m_memcardstatus_803C7970[chan] == -4 && (flags & 1)) {
-        m_memcardstatus_803C7970[chan] = CARDCreate(chan, fileName, *blockSize, fileInfo);
-        if (m_memcardstatus_803C7970[chan] < 0) {
-            m_memcardstatus_803C7970[chan] = CARDUnmount(chan);
-            OSReport("failed. (%d)\n", m_memcardstatus_803C7970[chan]);
+    if (m_memcardstatus[chan] == -4 && (flags & 1)) {
+        m_memcardstatus[chan] = CARDCreate(chan, fileName, *blockSize, fileInfo);
+        if (m_memcardstatus[chan] < 0) {
+            m_memcardstatus[chan] = CARDUnmount(chan);
+            OSReport("failed. (%d)\n", m_memcardstatus[chan]);
             return 0;
         }
         OSReport("CARDCreate\n");
     } else {
-        m_memcardstatus_803C7970[chan] = CARDUnmount(chan);
+        m_memcardstatus[chan] = CARDUnmount(chan);
         return 0;
     }
     return 1;
@@ -389,8 +389,8 @@ s32 MemCard_Open__FUlPCScUlPl(u32 device, const char *fileName, u32 flags, s32 *
 void MemCard_Close__Fl(s32 device) {
     s32 chan = device - 11;
 
-    m_memcardstatus_803C7970[chan] = CARDClose(&memCardfileInfo[chan]);
-    m_memcardstatus_803C7970[chan] = CARDUnmount(chan);
+    m_memcardstatus[chan] = CARDClose(&memCardfileInfo[chan]);
+    m_memcardstatus[chan] = CARDUnmount(chan);
     OSReport("CARDClose\n");
 }
 
@@ -398,7 +398,7 @@ s32 MemCard_Read__FUllPv(u32 device, s32 size, void *data) {
     u8 buffer[0x2000] __attribute__((aligned(32)));
     s32 chan = device - 11;
 
-    m_memcardstatus_803C7970[chan] = CARDRead(&memCardfileInfo[chan], buffer, memCardBlockSize[chan], 0);
+    m_memcardstatus[chan] = CARDRead(&memCardfileInfo[chan], buffer, memCardBlockSize[chan], 0);
     memcpy(data, buffer + 0x840, size);
     return size;
 }
@@ -422,7 +422,7 @@ s32 MemCard_Write__FUllPv(u32 id, s32 size, void *data) {
         u32 offsetIconTlut;
         u32 offsetData;
     } CARDStat;
-    extern u8 rawData_800DB404[0x800];
+    extern u8 rawData[0x800];
     CARDStat stat;
     u8 buffer[0x2000] __attribute__((aligned(32)));
     s32 chan = id - 11;
@@ -430,19 +430,19 @@ s32 MemCard_Write__FUllPv(u32 id, s32 size, void *data) {
     memset(buffer, 0, 0x40);
     sprintf((char *)buffer, "Hot Wheels Velocity X Save");
     sprintf((char *)buffer + 0x20, "Game Data");
-    memcpy(buffer + 0x40, rawData_800DB404, 0x800);
+    memcpy(buffer + 0x40, rawData, 0x800);
     memcpy(buffer + 0x840, data, size);
-    m_memcardstatus_803C7970[chan] = CARDWrite(&memCardfileInfo[chan], buffer, memCardBlockSize[chan], 0);
-    if (m_memcardstatus_803C7970[chan] < 0) {
-        if (m_memcardstatus_803C7970[chan] == -5) {
+    m_memcardstatus[chan] = CARDWrite(&memCardfileInfo[chan], buffer, memCardBlockSize[chan], 0);
+    if (m_memcardstatus[chan] < 0) {
+        if (m_memcardstatus[chan] == -5) {
             CARDDelete(chan, g_appInfo[3]);
         }
-        m_memcardstatus_803C7970[chan] = CARDUnmount(chan);
-        OSReport("failed. (%d)\n", m_memcardstatus_803C7970[chan]);
+        m_memcardstatus[chan] = CARDUnmount(chan);
+        OSReport("failed. (%d)\n", m_memcardstatus[chan]);
         return 0;
     }
     OSReport("CARDWrite\n");
-    m_memcardstatus_803C7970[chan] = CARDGetStatus(chan, memCardfileInfo[chan].fileNo, &stat);
+    m_memcardstatus[chan] = CARDGetStatus(chan, memCardfileInfo[chan].fileNo, &stat);
     stat.commentAddr = 0;
     stat.iconAddr = 0x40;
     stat.bannerFormat = (u8)((stat.bannerFormat & ~3) | 0);
@@ -450,33 +450,33 @@ s32 MemCard_Write__FUllPv(u32 id, s32 size, void *data) {
     stat.iconFormat = (u16)((stat.iconFormat & ~3) | 2);
     stat.iconSpeed = (u16)((stat.iconSpeed & ~3) | 3);
     stat.iconSpeed = (u16)((stat.iconSpeed & ~(3 << 2)) | (0 << 2));
-    m_memcardstatus_803C7970[chan] = CARDSetStatus(chan, memCardfileInfo[chan].fileNo, &stat);
+    m_memcardstatus[chan] = CARDSetStatus(chan, memCardfileInfo[chan].fileNo, &stat);
     return 1;
 }
 
 void LidHandler_Init(void) {
-    extern u32 m_isopen_803C7984;
-    extern u32 m_curtime_803C7988;
-    extern u8 m_fileInfo_803867E0[0x3C];
+    extern u32 m_isopen;
+    extern u32 m_curtime;
+    extern u8 m_fileInfo[0x3C];
 
-    if (!m_isopen_803C7984) {
-        DVDOpen("bsfile", m_fileInfo_803867E0);
-        m_isopen_803C7984 = 1;
-        m_curtime_803C7988 = 0;
+    if (!m_isopen) {
+        DVDOpen("bsfile", m_fileInfo);
+        m_isopen = 1;
+        m_curtime = 0;
     }
 }
 
 void LidHandler_Heartbeat(void) {
     extern u8 cd_test_block[0x20];
     extern s32 g_iDeltaTimeMS;
-    extern u32 m_curtime_803C7988;
-    extern u8 m_fileInfo_803867E0[0x3C];
+    extern u32 m_curtime;
+    extern u8 m_fileInfo[0x3C];
 
-    m_curtime_803C7988 += g_iDeltaTimeMS;
-    if (m_curtime_803C7988 > 500) {
-        if (DVDGetCommandBlockStatus(m_fileInfo_803867E0) == 0) {
-            DVDReadAsyncPrio(m_fileInfo_803867E0, cd_test_block, 0x20, 0, NULL, 2);
-            m_curtime_803C7988 = 0;
+    m_curtime += g_iDeltaTimeMS;
+    if (m_curtime > 500) {
+        if (DVDGetCommandBlockStatus(m_fileInfo) == 0) {
+            DVDReadAsyncPrio(m_fileInfo, cd_test_block, 0x20, 0, NULL, 2);
+            m_curtime = 0;
         }
     }
 }

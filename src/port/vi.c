@@ -74,6 +74,7 @@ void VIWaitForRetrace(void) {
     Port_GiantLock();
 
     s_retraceCount++;
+    Pad_PortSample();
     if (s_postRetrace != NULL) {
         s_postRetrace(s_retraceCount);
     }

@@ -13,6 +13,51 @@
 #endif
 #define W8(v) (v)
 
+extern char AI_AsyncProcess_80006C80[];
+extern void ActionAirboxChangeMode(void);
+extern void ActionCameraSetTargets(void);
+extern void ActionCodeVariableModifyValue(void);
+extern void ActionCreatureChangeMode(void);
+extern void ActionDestructibleChangeMode(void);
+extern void ActionEndInterface(void);
+extern void ActionEndInterfacePack(void);
+extern void ActionEndLevel(void);
+extern void ActionFXPointChangeMode(void);
+extern void ActionHUDChangeMode(void);
+extern void ActionInterfacePlay(void);
+extern void ActionItemChangeMode(void);
+extern void ActionLoadInterfacePack(void);
+extern void ActionMissionObjChangeMode(void);
+extern void ActionMoveableChangeMode(void);
+extern void ActionMusicChange(void);
+extern void ActionMusicSetSong(void);
+extern void ActionNavPointChangeMode(void);
+extern void ActionPauseGame(void);
+extern void ActionPauseTACSystem(void);
+extern void ActionPlayInterfacePack(void);
+extern void ActionPlaySoundSequence(void);
+extern void ActionPrintDebugString(void);
+extern void ActionResetGameRound(void);
+extern void ActionRoundComplete(void);
+extern void ActionScriptLightChangeMode(void);
+extern void ActionSetPlayerOrder(void);
+extern void ActionSetPlayerVehicle(void);
+extern void ActionSpeakerChangeMode(void);
+extern void ActionSwapAIScript(void);
+extern void ActionTargetArrowSetTarget(void);
+extern void ActionTimerChangeMode(void);
+extern void ActionTimerChangeValue(void);
+extern void ActionUnloadInterfacePack(void);
+extern void ActionVariableChangeMode(void);
+extern void ActionVariableChangeValue(void);
+extern void ActionVehicleAISetNamedPath(void);
+extern void ActionVehicleChangeControl(void);
+extern void ActionVehicleChangeMode(void);
+extern void ActionVehicleGiveItem(void);
+extern void ActionVehicleRemoveCreature(void);
+extern void ActionVehicleRemoveItem(void);
+extern void ActionVehicleTeleport(void);
+extern void ActionVertexColorSeqChangeMode(void);
 extern void CarA_CollideWithRay(void);
 extern void CarA_Draw(void);
 extern void CarA_DynamicCollideImpact(void);
@@ -29,7 +74,85 @@ extern void CarA_Init(void);
 extern void CarA_Move(void);
 extern void CarA_PreMove(void);
 extern void CarA_Release(void);
+extern void Creature_Draw(void);
+extern void Creature_GetMass(void);
+extern void Creature_GetTargetPos(void);
+extern void Creature_Init(void);
+extern void Creature_Move(void);
+extern void Creature_Release(void);
+extern void Destructible_CollideWithRay(void);
+extern void Destructible_Draw(void);
+extern void Destructible_GetMass(void);
+extern void Destructible_GetOrientedCollision(void);
+extern void Destructible_GetSurfaceScript(void);
+extern void Drone_DynamicCollideImpact(void);
+extern void Drone_DynamicRotation(void);
+extern void Drone_GetCameraOrientationInfo(void);
+extern void Drone_Init(void);
+extern void Drone_PreMove(void);
+extern void EventSeq_Init(void);
+extern void EventSeq_Move(void);
+extern void EventSeq_Release(void);
+extern void PhysicalObject_GetInverseLocalInertiaTensor(void);
+extern void Pod_Draw(void);
+extern void Pod_Init(void);
+extern void Pod_Move(void);
+extern void Pod_Release(void);
+extern void Projectile_Draw(void);
+extern void Projectile_DynamicCollideImpact(void);
+extern void Projectile_GetMass(void);
+extern void Projectile_Init(void);
+extern void Projectile_Move(void);
+extern void Projectile_PreMove(void);
+extern void Projectile_Release(void);
+extern void SoundSeq_Init(void);
+extern void SoundSeq_Move(void);
+extern void SoundSeq_Release(void);
+extern void Thing_CollideWithRay(void);
+extern void Thing_Draw(void);
+extern void Thing_DynamicCollideImpact(void);
+extern void Thing_DynamicRotation(void);
+extern void Thing_GetCameraOrientationInfo(void);
+extern void Thing_GetInterfaceInfo(void);
+extern void Thing_GetInverseLocalInertiaTensor(void);
+extern void Thing_GetMass(void);
+extern void Thing_GetNearestNavPoint(void);
+extern void Thing_GetOrientedCollision(void);
+extern void Thing_GetSurfaceScript(void);
+extern void Thing_GetTargetPos(void);
+extern void Thing_Move(void);
+extern void Thing_PreMove(void);
+extern void Thing_Release(void);
 extern void Thing_SlaveTransform(void);
+extern void Thing_SlaveTransformQuaternionOnly(void);
+extern void TriggerAirboxEntered(void);
+extern void TriggerAirboxExited(void);
+extern void TriggerAirboxStopIn(void);
+extern void TriggerCodeVariableValueCheck(void);
+extern void TriggerCreatureDroppedOff(void);
+extern void TriggerCreatureKilled(void);
+extern void TriggerCreaturePickedUp(void);
+extern void TriggerCreatureVolumeEntered(void);
+extern void TriggerDesructibleKilled(void);
+extern void TriggerGameRoundXComplete(void);
+extern void TriggerGameRoundsComplete(void);
+extern void TriggerInterfaceEnd(void);
+extern void TriggerInterfacePackEnd(void);
+extern void TriggerItemDropped(void);
+extern void TriggerItemPickup(void);
+extern void TriggerItemVolumeEntered(void);
+extern void TriggerLevelStart(void);
+extern void TriggerMovableVolumeEntered(void);
+extern void TriggerMoveableEnd(void);
+extern void TriggerP2PActivated(void);
+extern void TriggerPlayerVehicleGear(void);
+extern void TriggerPlayerVehicleInAir(void);
+extern void TriggerSoundSeqQueueEnd(void);
+extern void TriggerTimerValueCheck(void);
+extern void TriggerTrue(void);
+extern void TriggerVariableValueCheck(void);
+extern void TriggerVehicleDamage(void);
+extern void TriggerVehicleKilled(void);
 /* g_carAVTable (.data, CarA.s) */
 u8 g_carAVTable[68] __attribute__((aligned(8))) = {
     [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
@@ -71,6 +194,1919 @@ u8 g_panTab[256] __attribute__((aligned(8))) = {
     [240] = W32(0x7C6B7CEF), [244] = W32(0x7D737DF6), [248] = W32(0x7E797EFC), [252] = W32(0x7F7D7FFF),
 };
 
+/* black (.sdata, Render_Geometry_.s) */
+u8 black[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x0),
+};
+
+/* cd_test_block (.bss, FileManager_NGC.s) */
+u8 cd_test_block[64] __attribute__((aligned(16)));  /* original size 0x20 */
+
+/* DestroySongVoice (.sbss, Voice.s) */
+u8 DestroySongVoice[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* __float_nan (.sdata, float.s) */
+u8 __float_nan[4] __attribute__((aligned(8))) = {
+    [0] = W32(0x7FFFFFFF),
+};
+
+/* g_aCI (.bss, ThingManager.s) */
+u8 g_aCI[1280] __attribute__((aligned(16)));  /* original size 0x280 */
+
+/* g_aCollisionPairCache (.bss, CollisionThing.s) */
+u8 g_aCollisionPairCache[384] __attribute__((aligned(16)));  /* original size 0xC0 */
+
+/* g_active (.sbss, Voice_.s) */
+u8 g_active[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_AI_AsyncProcess (.data, auto_07_800CF5B0_data.s) */
+u8 g_AI_AsyncProcess[16] __attribute__((aligned(4))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0),
+};
+
+/* g_aiHoldIndex (.sbss, Player.s) */
+u8 g_aiHoldIndex[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_AlphaScale (.sbss, Gfx_DisplayList.s) */
+u8 g_AlphaScale[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_AlphaTestMax (.sdata, Gfx_DisplayList.s) */
+u8 g_AlphaTestMax[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x41200000),
+};
+
+/* g_alphaTestMin (.sdata, Gfx_DisplayList.s) */
+u8 g_alphaTestMin[4] __attribute__((aligned(8))) = {
+    [0] = W32(0xC1200000),
+};
+
+/* g_amigaNote (.rodata, IT.s) */
+u8 g_amigaNote[480] __attribute__((aligned(8))) = {
+    [0] = W32(0xD600), [4] = W32(0xCA00), [8] = W32(0xBE80), [12] = W32(0xB400), [16] = W32(0xA980), [20] = W32(0xA000),
+    [24] = W32(0x9700), [28] = W32(0x8E80), [32] = W32(0x8680), [36] = W32(0x7F00), [40] = W32(0x7800), [44] = W32(0x7140),
+    [48] = W32(0x6B00), [52] = W32(0x6500), [56] = W32(0x5F40), [60] = W32(0x5A00), [64] = W32(0x54C0), [68] = W32(0x5000),
+    [72] = W32(0x4B80), [76] = W32(0x4740), [80] = W32(0x4340), [84] = W32(0x3F80), [88] = W32(0x3C00), [92] = W32(0x38A0),
+    [96] = W32(0x3580), [100] = W32(0x3280), [104] = W32(0x2FA0), [108] = W32(0x2D00), [112] = W32(0x2A60), [116] = W32(0x2800),
+    [120] = W32(0x25C0), [124] = W32(0x23A0), [128] = W32(0x21A0), [132] = W32(0x1FC0), [136] = W32(0x1E00), [140] = W32(0x1C50),
+    [144] = W32(0x1AC0), [148] = W32(0x1940), [152] = W32(0x17D0), [156] = W32(0x1680), [160] = W32(0x1530), [164] = W32(0x1400),
+    [168] = W32(0x12E0), [172] = W32(0x11D0), [176] = W32(0x10D0), [180] = W32(0xFE0), [184] = W32(0xF00), [188] = W32(0xE28),
+    [192] = W32(0xD60), [196] = W32(0xCA0), [200] = W32(0xBE8), [204] = W32(0xB40), [208] = W32(0xA98), [212] = W32(0xA00),
+    [216] = W32(0x970), [220] = W32(0x8E8), [224] = W32(0x868), [228] = W32(0x7F0), [232] = W32(0x780), [236] = W32(0x714),
+    [240] = W32(0x6B0), [244] = W32(0x650), [248] = W32(0x5F4), [252] = W32(0x5A0), [256] = W32(0x54C), [260] = W32(0x500),
+    [264] = W32(0x4B8), [268] = W32(0x474), [272] = W32(0x434), [276] = W32(0x3F8), [280] = W32(0x3C0), [284] = W32(0x38A),
+    [288] = W32(0x358), [292] = W32(0x328), [296] = W32(0x2FA), [300] = W32(0x2D0), [304] = W32(0x2A6), [308] = W32(0x280),
+    [312] = W32(0x25C), [316] = W32(0x23A), [320] = W32(0x21A), [324] = W32(0x1FC), [328] = W32(0x1E0), [332] = W32(0x1C5),
+    [336] = W32(0x1AC), [340] = W32(0x194), [344] = W32(0x17D), [348] = W32(0x168), [352] = W32(0x153), [356] = W32(0x140),
+    [360] = W32(0x12E), [364] = W32(0x11D), [368] = W32(0x10D), [372] = W32(0xFE), [376] = W32(0xF0), [380] = W32(0xE2),
+    [384] = W32(0xD6), [388] = W32(0xCA), [392] = W32(0xBE), [396] = W32(0xB4), [400] = W32(0xA9), [404] = W32(0xA0),
+    [408] = W32(0x97), [412] = W32(0x8E), [416] = W32(0x86), [420] = W32(0x7F), [424] = W32(0x78), [428] = W32(0x71),
+    [432] = W32(0x6B), [436] = W32(0x65), [440] = W32(0x5F), [444] = W32(0x5A), [448] = W32(0x54), [452] = W32(0x50),
+    [456] = W32(0x4B), [460] = W32(0x47), [464] = W32(0x43), [468] = W32(0x3F), [472] = W32(0x3C), [476] = W32(0x38),
+};
+
+/* g_aOBox (.bss, CollisionThing.s) */
+u8 g_aOBox[245760] __attribute__((aligned(16)));  /* original size 0x1E000 */
+
+/* g_aOConvexHull (.bss, CollisionThing.s) */
+u8 g_aOConvexHull[15872] __attribute__((aligned(16)));  /* original size 0x1F00 */
+
+/* g_appInfo (.bss, FileManager.s) */
+u8 g_appInfo[640] __attribute__((aligned(16)));  /* original size 0x140 */
+
+/* g_aSharedSlaveHolder (.bss, ThingManager.s) */
+u8 g_aSharedSlaveHolder[1024] __attribute__((aligned(16)));  /* original size 0x200 */
+
+/* g_attackDelay (.sbss, AI_CarA.s) */
+u8 g_attackDelay[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_bExitStateGamePlay (.sbss, State_GamePlay.s) */
+u8 g_bExitStateGamePlay[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bFreezeWorld (.sbss, ThingManager.s) */
+u8 g_bFreezeWorld[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bGameSettingsInitialized (.sbss, GameSettings.s) */
+u8 g_bGameSettingsInitialized[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bInit (.sbss, GameRules.s) */
+u8 g_bInit[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bInterfacePlaying (.sbss, State_GameManager.s) */
+u8 g_bInterfacePlaying[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bLoadDataPack (.sbss, FileStreaming.s) */
+u8 g_bLoadDataPack[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bLoadingDemoLand (.sbss, State_ProgressionManager.s) */
+u8 g_bLoadingDemoLand[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bLoadingThreadRunning (.sbss, FileStreaming.s) */
+u8 g_bLoadingThreadRunning[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bLoadQuadrants (.sbss, FileStreaming.s) */
+u8 g_bLoadQuadrants[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bMemoryCardHWHack (.sbss, InterfaceManager.s) */
+u8 g_bMemoryCardHWHack[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bRefreshMC (.sbss, GameSettings.s) */
+u8 g_bRefreshMC[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bRefreshMC_FileInfo (.sbss, GameSettings.s) */
+u8 g_bRefreshMC_FileInfo[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bRefreshMC_FileList (.sbss, GameSettings.s) */
+u8 g_bRefreshMC_FileList[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bRenderCenterPoints (.sbss, InterfaceManager.s) */
+u8 g_bRenderCenterPoints[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bRenderInterfaceHelpers (.sbss, InterfaceManager.s) */
+u8 g_bRenderInterfaceHelpers[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bRenderWorld (.sdata, State_GamePlay.s) */
+u8 g_bRenderWorld[1] __attribute__((aligned(8))) = {
+    [0] = W8(0x1),
+};
+
+/* g_bReset (.sdata, VolumeManager.s) */
+u8 g_bReset[1] __attribute__((aligned(8))) = {
+    [0] = W8(0x1),
+};
+
+/* g_bRestartCurrentLevel (.sbss, State_ProgressionManager.s) */
+u8 g_bRestartCurrentLevel[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bRoundEnd (.sbss, GameRules.s) */
+u8 g_bRoundEnd[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_bSoundLoadingEnabled (.sdata, DataGamePackLoad.s) */
+u8 g_bSoundLoadingEnabled[1] __attribute__((aligned(8))) = {
+    [0] = W8(0x1),
+};
+
+/* g_bTACSystemPaused (.sbss, Trigger.s) */
+u8 g_bTACSystemPaused[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_buffer (.bss, DataGamePackLoad.s) */
+u8 g_buffer[4096] __attribute__((aligned(16)));  /* original size 0x800 */
+
+/* g_bUnloadMusicPack (.sdata, InterfaceManager.s) */
+u8 g_bUnloadMusicPack[1] __attribute__((aligned(8))) = {
+    [0] = W8(0x1),
+};
+
+/* g_bValidFileName (.sdata, GameSettings.s) */
+u8 g_bValidFileName[8] __attribute__((aligned(4))) = {
+    [0] = W8(0x0), [1] = W8(0x0), [2] = W8(0x0), [3] = W8(0x0), [4] = W8(0x0), [5] = W8(0x0),
+    [6] = W8(0x0), [7] = W8(0x0),
+};
+
+/* g_bWaitingForRoundReset (.sbss, GameRules.s) */
+u8 g_bWaitingForRoundReset[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_CallBackData (.bss, State_GamePlay.s) */
+u8 g_CallBackData[136] __attribute__((aligned(16)));  /* original size 0x44 */
+
+/* g_cameraManager (.bss, CameraManager.s) */
+u8 g_cameraManager[3232] __attribute__((aligned(16)));  /* original size 0x650 */
+
+/* g_cameraManagerPause (.sbss, CameraManager.s) */
+u8 g_cameraManagerPause[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_creatureVTable (.data, Creature.s) */
+u8 g_creatureVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
+/* g_curInterfaceDialogSoundIndex (.sbss, InterfaceManager.s) */
+u8 g_curInterfaceDialogSoundIndex[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_curInterfaceDialogSoundPack (.sbss, InterfaceManager.s) */
+u8 g_curInterfaceDialogSoundPack[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_curMusicPackID (.sbss, InterfaceManager.s) */
+u8 g_curMusicPackID[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_curMusicPackName (.sbss, InterfaceManager.s) */
+u8 g_curMusicPackName[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_CurrentViews (.sbss, Gfx_Main.s) */
+u8 g_CurrentViews[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_currentWindow (.sbss, Gfx_Main.s) */
+u8 g_currentWindow[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_dataPackToLoadType (.sdata, FileStreaming.s) */
+u8 g_dataPackToLoadType[4] __attribute__((aligned(8))) = {
+    [0] = W32(0xB),
+};
+
+/* g_debugTriCount (.sbss, Render_.s) */
+u8 g_debugTriCount[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_defaultSurfaceScript (.data, Thing.s) */
+u8 g_defaultSurfaceScript[84] __attribute__((aligned(4))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x3F800000), [12] = W32(0x0), [16] = W32(0x3F800000), [20] = W32(0x3F800000),
+    [24] = W32(0x3F19999A), [28] = W32(0x428C0000), [32] = W32(0x3F800000), [36] = W32(0x3F800000), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0), [68] = W32(0x0),
+    [72] = W32(0x0), [76] = W32(0x0), [80] = W32(0x0),
+};
+
+/* g_DemoModeCounter (.sbss, State_GamePlay.s) */
+u8 g_DemoModeCounter[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_DemoModeCurrentPlayer (.sbss, State_GamePlay.s) */
+u8 g_DemoModeCurrentPlayer[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_DemoModeSwitchCameraTime (.sbss, State_GamePlay.s) */
+u8 g_DemoModeSwitchCameraTime[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_DemoModeSwitchVehicleTime (.sbss, State_GamePlay.s) */
+u8 g_DemoModeSwitchVehicleTime[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_DLBufferOn (.sbss, Gfx_DisplayList.s) */
+u8 g_DLBufferOn[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_drawShadowsFlag (.sbss, World.s) */
+u8 g_drawShadowsFlag[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_droneVTable (.data, CarA_Stunts.s) */
+u8 g_droneVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
+/* g_envelope (.rodata, MIDI.s) */
+u8 g_envelope[512] __attribute__((aligned(8))) = {
+    [0] = W32(0x7FFF7A92), [4] = W32(0x75607066), [8] = W32(0x6BA26712), [12] = W32(0x62B35E84), [16] = W32(0x5A8256AC), [20] = W32(0x52FF4F7A),
+    [24] = W32(0x4C1B48E1), [28] = W32(0x45CA42D5), [32] = W32(0x40003D49), [36] = W32(0x3AB03833), [40] = W32(0x35D13389), [44] = W32(0x31592F42),
+    [48] = W32(0x2D412B56), [52] = W32(0x297F27BD), [56] = W32(0x260D2470), [60] = W32(0x22E5216A), [64] = W32(0x20001EA4), [68] = W32(0x1D581C19),
+    [72] = W32(0x1AE819C4), [76] = W32(0x18AC17A1), [80] = W32(0x16A015AB), [84] = W32(0x14BF13DE), [88] = W32(0x13061238), [92] = W32(0x117210B5),
+    [96] = W32(0x10000F52), [100] = W32(0xEAC0E0C), [104] = W32(0xD740CE2), [108] = W32(0xC560BD0), [112] = W32(0xB500AD5), [116] = W32(0xA5F09EF),
+    [120] = W32(0x983091C), [124] = W32(0x8B9085A), [128] = W32(0x80007A9), [132] = W32(0x7560706), [136] = W32(0x6BA0671), [140] = W32(0x62B05E8),
+    [144] = W32(0x5A8056A), [148] = W32(0x52F04F7), [152] = W32(0x4C1048E), [156] = W32(0x45C042D), [160] = W32(0x40003D4), [164] = W32(0x3AB0383),
+    [168] = W32(0x35D0338), [172] = W32(0x31502F4), [176] = W32(0x2D402B5), [180] = W32(0x297027B), [184] = W32(0x2600247), [188] = W32(0x22E0216),
+    [192] = W32(0x20001EA), [196] = W32(0x1D501C1), [200] = W32(0x1AE019C), [204] = W32(0x18A017A), [208] = W32(0x16A015A), [212] = W32(0x14B013D),
+    [216] = W32(0x1300123), [220] = W32(0x117010B), [224] = W32(0x10000F5), [228] = W32(0xEA00E0), [232] = W32(0xD700CE), [236] = W32(0xC500BD),
+    [240] = W32(0xB500AD), [244] = W32(0xA5009E), [248] = W32(0x980091), [252] = W32(0x8B0085), [256] = W32(0x80007A), [260] = W32(0x750070),
+    [264] = W32(0x6B0067), [268] = W32(0x62005E), [272] = W32(0x5A0056), [276] = W32(0x52004F), [280] = W32(0x4C0048), [284] = W32(0x450042),
+    [288] = W32(0x40003D), [292] = W32(0x3A0038), [296] = W32(0x350033), [300] = W32(0x31002F), [304] = W32(0x2D002B), [308] = W32(0x290027),
+    [312] = W32(0x260024), [316] = W32(0x220021), [320] = W32(0x20001E), [324] = W32(0x1D001C), [328] = W32(0x1A0019), [332] = W32(0x180017),
+    [336] = W32(0x160015), [340] = W32(0x140013), [344] = W32(0x130012), [348] = W32(0x110010), [352] = W32(0x10000F), [356] = W32(0xE000E),
+    [360] = W32(0xD000C), [364] = W32(0xC000B), [368] = W32(0xB000A), [372] = W32(0xA0009), [376] = W32(0x90009), [380] = W32(0x80008),
+    [384] = W32(0x80007), [388] = W32(0x70007), [392] = W32(0x60006), [396] = W32(0x60005), [400] = W32(0x50005), [404] = W32(0x50004),
+    [408] = W32(0x40004), [412] = W32(0x40004), [416] = W32(0x40003), [420] = W32(0x30003), [424] = W32(0x30003), [428] = W32(0x30002),
+    [432] = W32(0x20002), [436] = W32(0x20002), [440] = W32(0x20002), [444] = W32(0x20002), [448] = W32(0x20001), [452] = W32(0x10001),
+    [456] = W32(0x10001), [460] = W32(0x10001), [464] = W32(0x10001), [468] = W32(0x10001), [472] = W32(0x10001), [476] = W32(0x10001),
+    [480] = W32(0x10000), [484] = W32(0x0), [488] = W32(0x0), [492] = W32(0x0), [496] = W32(0x0), [500] = W32(0x0),
+    [504] = W32(0x0), [508] = W32(0x0),
+};
+
+/* g_eventSeqVTable (.data, EventSequence.s) */
+u8 g_eventSeqVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
+/* g_filedata_PC (.bss, FileManager_NGC.s) */
+u8 g_filedata_PC[2080] __attribute__((aligned(16)));  /* original size 0x410 */
+
+/* g_fileID (.sdata, DataGamePackLoad.s) */
+u8 g_fileID[4] __attribute__((aligned(4))) = {
+    [0] = W32(0xFFFFFFFF),
+};
+
+/* g_files (.bss, FileManager_NGC.s) */
+u8 g_files[224] __attribute__((aligned(16)));  /* original size 0x70 */
+
+/* g_fileTOCCache (.data, DataGamePackLoad.s) */
+u8 g_fileTOCCache[14080] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0), [68] = W32(0x0),
+    [72] = W32(0x0), [76] = W32(0x0), [80] = W32(0x0), [84] = W32(0x0), [88] = W32(0x0), [92] = W32(0x0),
+    [96] = W32(0x0), [100] = W32(0x0), [104] = W32(0x0), [108] = W32(0x0), [112] = W32(0x0), [116] = W32(0x0),
+    [120] = W32(0x0), [124] = W32(0x0), [128] = W32(0x0), [132] = W32(0x0), [136] = W32(0x0), [140] = W32(0x0),
+    [144] = W32(0x0), [148] = W32(0x0), [152] = W32(0x0), [156] = W32(0x0), [160] = W32(0x0), [164] = W32(0x0),
+    [168] = W32(0x0), [172] = W32(0x0), [176] = W32(0x0), [180] = W32(0x0), [184] = W32(0x0), [188] = W32(0x0),
+    [192] = W32(0x0), [196] = W32(0x0), [200] = W32(0x0), [204] = W32(0x0), [208] = W32(0x0), [212] = W32(0x0),
+    [216] = W32(0x0), [220] = W32(0x0), [224] = W32(0x0), [228] = W32(0x0), [232] = W32(0x0), [236] = W32(0x0),
+    [240] = W32(0x0), [244] = W32(0x0), [248] = W32(0x0), [252] = W32(0x0), [256] = W32(0x0), [260] = W32(0x0),
+    [264] = W32(0x0), [268] = W32(0x0), [272] = W32(0x0), [276] = W32(0x0), [280] = W32(0x0), [284] = W32(0x0),
+    [288] = W32(0x0), [292] = W32(0x0), [296] = W32(0x0), [300] = W32(0x0), [304] = W32(0x0), [308] = W32(0x0),
+    [312] = W32(0x0), [316] = W32(0x0), [320] = W32(0x0), [324] = W32(0x0), [328] = W32(0x0), [332] = W32(0x0),
+    [336] = W32(0x0), [340] = W32(0x0), [344] = W32(0x0), [348] = W32(0x0), [352] = W32(0x0), [356] = W32(0x0),
+    [360] = W32(0x0), [364] = W32(0x0), [368] = W32(0x0), [372] = W32(0x0), [376] = W32(0x0), [380] = W32(0x0),
+    [384] = W32(0x0), [388] = W32(0x0), [392] = W32(0x0), [396] = W32(0x0), [400] = W32(0x0), [404] = W32(0x0),
+    [408] = W32(0x0), [412] = W32(0x0), [416] = W32(0x0), [420] = W32(0x0), [424] = W32(0x0), [428] = W32(0x0),
+    [432] = W32(0x0), [436] = W32(0x0), [440] = W32(0x0), [444] = W32(0x0), [448] = W32(0x0), [452] = W32(0x0),
+    [456] = W32(0x0), [460] = W32(0x0), [464] = W32(0x0), [468] = W32(0x0), [472] = W32(0x0), [476] = W32(0x0),
+    [480] = W32(0x0), [484] = W32(0x0), [488] = W32(0x0), [492] = W32(0x0), [496] = W32(0x0), [500] = W32(0x0),
+    [504] = W32(0x0), [508] = W32(0x0), [512] = W32(0x0), [516] = W32(0x0), [520] = W32(0x0), [524] = W32(0x0),
+    [528] = W32(0x0), [532] = W32(0x0), [536] = W32(0x0), [540] = W32(0x0), [544] = W32(0x0), [548] = W32(0x0),
+    [552] = W32(0x0), [556] = W32(0x0), [560] = W32(0x0), [564] = W32(0x0), [568] = W32(0x0), [572] = W32(0x0),
+    [576] = W32(0x0), [580] = W32(0x0), [584] = W32(0x0), [588] = W32(0x0), [592] = W32(0x0), [596] = W32(0x0),
+    [600] = W32(0x0), [604] = W32(0x0), [608] = W32(0x0), [612] = W32(0x0), [616] = W32(0x0), [620] = W32(0x0),
+    [624] = W32(0x0), [628] = W32(0x0), [632] = W32(0x0), [636] = W32(0x0), [640] = W32(0x0), [644] = W32(0x0),
+    [648] = W32(0x0), [652] = W32(0x0), [656] = W32(0x0), [660] = W32(0x0), [664] = W32(0x0), [668] = W32(0x0),
+    [672] = W32(0x0), [676] = W32(0x0), [680] = W32(0x0), [684] = W32(0x0), [688] = W32(0x0), [692] = W32(0x0),
+    [696] = W32(0x0), [700] = W32(0x0), [704] = W32(0x0), [708] = W32(0x0), [712] = W32(0x0), [716] = W32(0x0),
+    [720] = W32(0x0), [724] = W32(0x0), [728] = W32(0x0), [732] = W32(0x0), [736] = W32(0x0), [740] = W32(0x0),
+    [744] = W32(0x0), [748] = W32(0x0), [752] = W32(0x0), [756] = W32(0x0), [760] = W32(0x0), [764] = W32(0x0),
+    [768] = W32(0x0), [772] = W32(0x0), [776] = W32(0x0), [780] = W32(0x0), [784] = W32(0x0), [788] = W32(0x0),
+    [792] = W32(0x0), [796] = W32(0x0), [800] = W32(0x0), [804] = W32(0x0), [808] = W32(0x0), [812] = W32(0x0),
+    [816] = W32(0x0), [820] = W32(0x0), [824] = W32(0x0), [828] = W32(0x0), [832] = W32(0x0), [836] = W32(0x0),
+    [840] = W32(0x0), [844] = W32(0x0), [848] = W32(0x0), [852] = W32(0x0), [856] = W32(0x0), [860] = W32(0x0),
+    [864] = W32(0x0), [868] = W32(0x0), [872] = W32(0x0), [876] = W32(0x0), [880] = W32(0x0), [884] = W32(0x0),
+    [888] = W32(0x0), [892] = W32(0x0), [896] = W32(0x0), [900] = W32(0x0), [904] = W32(0x0), [908] = W32(0x0),
+    [912] = W32(0x0), [916] = W32(0x0), [920] = W32(0x0), [924] = W32(0x0), [928] = W32(0x0), [932] = W32(0x0),
+    [936] = W32(0x0), [940] = W32(0x0), [944] = W32(0x0), [948] = W32(0x0), [952] = W32(0x0), [956] = W32(0x0),
+    [960] = W32(0x0), [964] = W32(0x0), [968] = W32(0x0), [972] = W32(0x0), [976] = W32(0x0), [980] = W32(0x0),
+    [984] = W32(0x0), [988] = W32(0x0), [992] = W32(0x0), [996] = W32(0x0), [1000] = W32(0x0), [1004] = W32(0x0),
+    [1008] = W32(0x0), [1012] = W32(0x0), [1016] = W32(0x0), [1020] = W32(0x0), [1024] = W32(0x0), [1028] = W32(0x0),
+    [1032] = W32(0x0), [1036] = W32(0x0), [1040] = W32(0x0), [1044] = W32(0x0), [1048] = W32(0x0), [1052] = W32(0x0),
+    [1056] = W32(0x0), [1060] = W32(0x0), [1064] = W32(0x0), [1068] = W32(0x0), [1072] = W32(0x0), [1076] = W32(0x0),
+    [1080] = W32(0x0), [1084] = W32(0x0), [1088] = W32(0x0), [1092] = W32(0x0), [1096] = W32(0x0), [1100] = W32(0x0),
+    [1104] = W32(0x0), [1108] = W32(0x0), [1112] = W32(0x0), [1116] = W32(0x0), [1120] = W32(0x0), [1124] = W32(0x0),
+    [1128] = W32(0x0), [1132] = W32(0x0), [1136] = W32(0x0), [1140] = W32(0x0), [1144] = W32(0x0), [1148] = W32(0x0),
+    [1152] = W32(0x0), [1156] = W32(0x0), [1160] = W32(0x0), [1164] = W32(0x0), [1168] = W32(0x0), [1172] = W32(0x0),
+    [1176] = W32(0x0), [1180] = W32(0x0), [1184] = W32(0x0), [1188] = W32(0x0), [1192] = W32(0x0), [1196] = W32(0x0),
+    [1200] = W32(0x0), [1204] = W32(0x0), [1208] = W32(0x0), [1212] = W32(0x0), [1216] = W32(0x0), [1220] = W32(0x0),
+    [1224] = W32(0x0), [1228] = W32(0x0), [1232] = W32(0x0), [1236] = W32(0x0), [1240] = W32(0x0), [1244] = W32(0x0),
+    [1248] = W32(0x0), [1252] = W32(0x0), [1256] = W32(0x0), [1260] = W32(0x0), [1264] = W32(0x0), [1268] = W32(0x0),
+    [1272] = W32(0x0), [1276] = W32(0x0), [1280] = W32(0x0), [1284] = W32(0x0), [1288] = W32(0x0), [1292] = W32(0x0),
+    [1296] = W32(0x0), [1300] = W32(0x0), [1304] = W32(0x0), [1308] = W32(0x0), [1312] = W32(0x0), [1316] = W32(0x0),
+    [1320] = W32(0x0), [1324] = W32(0x0), [1328] = W32(0x0), [1332] = W32(0x0), [1336] = W32(0x0), [1340] = W32(0x0),
+    [1344] = W32(0x0), [1348] = W32(0x0), [1352] = W32(0x0), [1356] = W32(0x0), [1360] = W32(0x0), [1364] = W32(0x0),
+    [1368] = W32(0x0), [1372] = W32(0x0), [1376] = W32(0x0), [1380] = W32(0x0), [1384] = W32(0x0), [1388] = W32(0x0),
+    [1392] = W32(0x0), [1396] = W32(0x0), [1400] = W32(0x0), [1404] = W32(0x0), [1408] = W32(0x0), [1412] = W32(0x0),
+    [1416] = W32(0x0), [1420] = W32(0x0), [1424] = W32(0x0), [1428] = W32(0x0), [1432] = W32(0x0), [1436] = W32(0x0),
+    [1440] = W32(0x0), [1444] = W32(0x0), [1448] = W32(0x0), [1452] = W32(0x0), [1456] = W32(0x0), [1460] = W32(0x0),
+    [1464] = W32(0x0), [1468] = W32(0x0), [1472] = W32(0x0), [1476] = W32(0x0), [1480] = W32(0x0), [1484] = W32(0x0),
+    [1488] = W32(0x0), [1492] = W32(0x0), [1496] = W32(0x0), [1500] = W32(0x0), [1504] = W32(0x0), [1508] = W32(0x0),
+    [1512] = W32(0x0), [1516] = W32(0x0), [1520] = W32(0x0), [1524] = W32(0x0), [1528] = W32(0x0), [1532] = W32(0x0),
+    [1536] = W32(0x0), [1540] = W32(0x0), [1544] = W32(0x0), [1548] = W32(0x0), [1552] = W32(0x0), [1556] = W32(0x0),
+    [1560] = W32(0x0), [1564] = W32(0x0), [1568] = W32(0x0), [1572] = W32(0x0), [1576] = W32(0x0), [1580] = W32(0x0),
+    [1584] = W32(0x0), [1588] = W32(0x0), [1592] = W32(0x0), [1596] = W32(0x0), [1600] = W32(0x0), [1604] = W32(0x0),
+    [1608] = W32(0x0), [1612] = W32(0x0), [1616] = W32(0x0), [1620] = W32(0x0), [1624] = W32(0x0), [1628] = W32(0x0),
+    [1632] = W32(0x0), [1636] = W32(0x0), [1640] = W32(0x0), [1644] = W32(0x0), [1648] = W32(0x0), [1652] = W32(0x0),
+    [1656] = W32(0x0), [1660] = W32(0x0), [1664] = W32(0x0), [1668] = W32(0x0), [1672] = W32(0x0), [1676] = W32(0x0),
+    [1680] = W32(0x0), [1684] = W32(0x0), [1688] = W32(0x0), [1692] = W32(0x0), [1696] = W32(0x0), [1700] = W32(0x0),
+    [1704] = W32(0x0), [1708] = W32(0x0), [1712] = W32(0x0), [1716] = W32(0x0), [1720] = W32(0x0), [1724] = W32(0x0),
+    [1728] = W32(0x0), [1732] = W32(0x0), [1736] = W32(0x0), [1740] = W32(0x0), [1744] = W32(0x0), [1748] = W32(0x0),
+    [1752] = W32(0x0), [1756] = W32(0x0), [1760] = W32(0x0), [1764] = W32(0x0), [1768] = W32(0x0), [1772] = W32(0x0),
+    [1776] = W32(0x0), [1780] = W32(0x0), [1784] = W32(0x0), [1788] = W32(0x0), [1792] = W32(0x0), [1796] = W32(0x0),
+    [1800] = W32(0x0), [1804] = W32(0x0), [1808] = W32(0x0), [1812] = W32(0x0), [1816] = W32(0x0), [1820] = W32(0x0),
+    [1824] = W32(0x0), [1828] = W32(0x0), [1832] = W32(0x0), [1836] = W32(0x0), [1840] = W32(0x0), [1844] = W32(0x0),
+    [1848] = W32(0x0), [1852] = W32(0x0), [1856] = W32(0x0), [1860] = W32(0x0), [1864] = W32(0x0), [1868] = W32(0x0),
+    [1872] = W32(0x0), [1876] = W32(0x0), [1880] = W32(0x0), [1884] = W32(0x0), [1888] = W32(0x0), [1892] = W32(0x0),
+    [1896] = W32(0x0), [1900] = W32(0x0), [1904] = W32(0x0), [1908] = W32(0x0), [1912] = W32(0x0), [1916] = W32(0x0),
+    [1920] = W32(0x0), [1924] = W32(0x0), [1928] = W32(0x0), [1932] = W32(0x0), [1936] = W32(0x0), [1940] = W32(0x0),
+    [1944] = W32(0x0), [1948] = W32(0x0), [1952] = W32(0x0), [1956] = W32(0x0), [1960] = W32(0x0), [1964] = W32(0x0),
+    [1968] = W32(0x0), [1972] = W32(0x0), [1976] = W32(0x0), [1980] = W32(0x0), [1984] = W32(0x0), [1988] = W32(0x0),
+    [1992] = W32(0x0), [1996] = W32(0x0), [2000] = W32(0x0), [2004] = W32(0x0), [2008] = W32(0x0), [2012] = W32(0x0),
+    [2016] = W32(0x0), [2020] = W32(0x0), [2024] = W32(0x0), [2028] = W32(0x0), [2032] = W32(0x0), [2036] = W32(0x0),
+    [2040] = W32(0x0), [2044] = W32(0x0), [2048] = W32(0x0), [2052] = W32(0x0), [2056] = W32(0x0), [2060] = W32(0x0),
+    [2064] = W32(0x0), [2068] = W32(0x0), [2072] = W32(0x0), [2076] = W32(0x0), [2080] = W32(0x0), [2084] = W32(0x0),
+    [2088] = W32(0x0), [2092] = W32(0x0), [2096] = W32(0x0), [2100] = W32(0x0), [2104] = W32(0x0), [2108] = W32(0x0),
+    [2112] = W32(0x0), [2116] = W32(0x0), [2120] = W32(0x0), [2124] = W32(0x0), [2128] = W32(0x0), [2132] = W32(0x0),
+    [2136] = W32(0x0), [2140] = W32(0x0), [2144] = W32(0x0), [2148] = W32(0x0), [2152] = W32(0x0), [2156] = W32(0x0),
+    [2160] = W32(0x0), [2164] = W32(0x0), [2168] = W32(0x0), [2172] = W32(0x0), [2176] = W32(0x0), [2180] = W32(0x0),
+    [2184] = W32(0x0), [2188] = W32(0x0), [2192] = W32(0x0), [2196] = W32(0x0), [2200] = W32(0x0), [2204] = W32(0x0),
+    [2208] = W32(0x0), [2212] = W32(0x0), [2216] = W32(0x0), [2220] = W32(0x0), [2224] = W32(0x0), [2228] = W32(0x0),
+    [2232] = W32(0x0), [2236] = W32(0x0), [2240] = W32(0x0), [2244] = W32(0x0), [2248] = W32(0x0), [2252] = W32(0x0),
+    [2256] = W32(0x0), [2260] = W32(0x0), [2264] = W32(0x0), [2268] = W32(0x0), [2272] = W32(0x0), [2276] = W32(0x0),
+    [2280] = W32(0x0), [2284] = W32(0x0), [2288] = W32(0x0), [2292] = W32(0x0), [2296] = W32(0x0), [2300] = W32(0x0),
+    [2304] = W32(0x0), [2308] = W32(0x0), [2312] = W32(0x0), [2316] = W32(0x0), [2320] = W32(0x0), [2324] = W32(0x0),
+    [2328] = W32(0x0), [2332] = W32(0x0), [2336] = W32(0x0), [2340] = W32(0x0), [2344] = W32(0x0), [2348] = W32(0x0),
+    [2352] = W32(0x0), [2356] = W32(0x0), [2360] = W32(0x0), [2364] = W32(0x0), [2368] = W32(0x0), [2372] = W32(0x0),
+    [2376] = W32(0x0), [2380] = W32(0x0), [2384] = W32(0x0), [2388] = W32(0x0), [2392] = W32(0x0), [2396] = W32(0x0),
+    [2400] = W32(0x0), [2404] = W32(0x0), [2408] = W32(0x0), [2412] = W32(0x0), [2416] = W32(0x0), [2420] = W32(0x0),
+    [2424] = W32(0x0), [2428] = W32(0x0), [2432] = W32(0x0), [2436] = W32(0x0), [2440] = W32(0x0), [2444] = W32(0x0),
+    [2448] = W32(0x0), [2452] = W32(0x0), [2456] = W32(0x0), [2460] = W32(0x0), [2464] = W32(0x0), [2468] = W32(0x0),
+    [2472] = W32(0x0), [2476] = W32(0x0), [2480] = W32(0x0), [2484] = W32(0x0), [2488] = W32(0x0), [2492] = W32(0x0),
+    [2496] = W32(0x0), [2500] = W32(0x0), [2504] = W32(0x0), [2508] = W32(0x0), [2512] = W32(0x0), [2516] = W32(0x0),
+    [2520] = W32(0x0), [2524] = W32(0x0), [2528] = W32(0x0), [2532] = W32(0x0), [2536] = W32(0x0), [2540] = W32(0x0),
+    [2544] = W32(0x0), [2548] = W32(0x0), [2552] = W32(0x0), [2556] = W32(0x0), [2560] = W32(0x0), [2564] = W32(0x0),
+    [2568] = W32(0x0), [2572] = W32(0x0), [2576] = W32(0x0), [2580] = W32(0x0), [2584] = W32(0x0), [2588] = W32(0x0),
+    [2592] = W32(0x0), [2596] = W32(0x0), [2600] = W32(0x0), [2604] = W32(0x0), [2608] = W32(0x0), [2612] = W32(0x0),
+    [2616] = W32(0x0), [2620] = W32(0x0), [2624] = W32(0x0), [2628] = W32(0x0), [2632] = W32(0x0), [2636] = W32(0x0),
+    [2640] = W32(0x0), [2644] = W32(0x0), [2648] = W32(0x0), [2652] = W32(0x0), [2656] = W32(0x0), [2660] = W32(0x0),
+    [2664] = W32(0x0), [2668] = W32(0x0), [2672] = W32(0x0), [2676] = W32(0x0), [2680] = W32(0x0), [2684] = W32(0x0),
+    [2688] = W32(0x0), [2692] = W32(0x0), [2696] = W32(0x0), [2700] = W32(0x0), [2704] = W32(0x0), [2708] = W32(0x0),
+    [2712] = W32(0x0), [2716] = W32(0x0), [2720] = W32(0x0), [2724] = W32(0x0), [2728] = W32(0x0), [2732] = W32(0x0),
+    [2736] = W32(0x0), [2740] = W32(0x0), [2744] = W32(0x0), [2748] = W32(0x0), [2752] = W32(0x0), [2756] = W32(0x0),
+    [2760] = W32(0x0), [2764] = W32(0x0), [2768] = W32(0x0), [2772] = W32(0x0), [2776] = W32(0x0), [2780] = W32(0x0),
+    [2784] = W32(0x0), [2788] = W32(0x0), [2792] = W32(0x0), [2796] = W32(0x0), [2800] = W32(0x0), [2804] = W32(0x0),
+    [2808] = W32(0x0), [2812] = W32(0x0), [2816] = W32(0x0), [2820] = W32(0x0), [2824] = W32(0x0), [2828] = W32(0x0),
+    [2832] = W32(0x0), [2836] = W32(0x0), [2840] = W32(0x0), [2844] = W32(0x0), [2848] = W32(0x0), [2852] = W32(0x0),
+    [2856] = W32(0x0), [2860] = W32(0x0), [2864] = W32(0x0), [2868] = W32(0x0), [2872] = W32(0x0), [2876] = W32(0x0),
+    [2880] = W32(0x0), [2884] = W32(0x0), [2888] = W32(0x0), [2892] = W32(0x0), [2896] = W32(0x0), [2900] = W32(0x0),
+    [2904] = W32(0x0), [2908] = W32(0x0), [2912] = W32(0x0), [2916] = W32(0x0), [2920] = W32(0x0), [2924] = W32(0x0),
+    [2928] = W32(0x0), [2932] = W32(0x0), [2936] = W32(0x0), [2940] = W32(0x0), [2944] = W32(0x0), [2948] = W32(0x0),
+    [2952] = W32(0x0), [2956] = W32(0x0), [2960] = W32(0x0), [2964] = W32(0x0), [2968] = W32(0x0), [2972] = W32(0x0),
+    [2976] = W32(0x0), [2980] = W32(0x0), [2984] = W32(0x0), [2988] = W32(0x0), [2992] = W32(0x0), [2996] = W32(0x0),
+    [3000] = W32(0x0), [3004] = W32(0x0), [3008] = W32(0x0), [3012] = W32(0x0), [3016] = W32(0x0), [3020] = W32(0x0),
+    [3024] = W32(0x0), [3028] = W32(0x0), [3032] = W32(0x0), [3036] = W32(0x0), [3040] = W32(0x0), [3044] = W32(0x0),
+    [3048] = W32(0x0), [3052] = W32(0x0), [3056] = W32(0x0), [3060] = W32(0x0), [3064] = W32(0x0), [3068] = W32(0x0),
+    [3072] = W32(0x0), [3076] = W32(0x0), [3080] = W32(0x0), [3084] = W32(0x0), [3088] = W32(0x0), [3092] = W32(0x0),
+    [3096] = W32(0x0), [3100] = W32(0x0), [3104] = W32(0x0), [3108] = W32(0x0), [3112] = W32(0x0), [3116] = W32(0x0),
+    [3120] = W32(0x0), [3124] = W32(0x0), [3128] = W32(0x0), [3132] = W32(0x0), [3136] = W32(0x0), [3140] = W32(0x0),
+    [3144] = W32(0x0), [3148] = W32(0x0), [3152] = W32(0x0), [3156] = W32(0x0), [3160] = W32(0x0), [3164] = W32(0x0),
+    [3168] = W32(0x0), [3172] = W32(0x0), [3176] = W32(0x0), [3180] = W32(0x0), [3184] = W32(0x0), [3188] = W32(0x0),
+    [3192] = W32(0x0), [3196] = W32(0x0), [3200] = W32(0x0), [3204] = W32(0x0), [3208] = W32(0x0), [3212] = W32(0x0),
+    [3216] = W32(0x0), [3220] = W32(0x0), [3224] = W32(0x0), [3228] = W32(0x0), [3232] = W32(0x0), [3236] = W32(0x0),
+    [3240] = W32(0x0), [3244] = W32(0x0), [3248] = W32(0x0), [3252] = W32(0x0), [3256] = W32(0x0), [3260] = W32(0x0),
+    [3264] = W32(0x0), [3268] = W32(0x0), [3272] = W32(0x0), [3276] = W32(0x0), [3280] = W32(0x0), [3284] = W32(0x0),
+    [3288] = W32(0x0), [3292] = W32(0x0), [3296] = W32(0x0), [3300] = W32(0x0), [3304] = W32(0x0), [3308] = W32(0x0),
+    [3312] = W32(0x0), [3316] = W32(0x0), [3320] = W32(0x0), [3324] = W32(0x0), [3328] = W32(0x0), [3332] = W32(0x0),
+    [3336] = W32(0x0), [3340] = W32(0x0), [3344] = W32(0x0), [3348] = W32(0x0), [3352] = W32(0x0), [3356] = W32(0x0),
+    [3360] = W32(0x0), [3364] = W32(0x0), [3368] = W32(0x0), [3372] = W32(0x0), [3376] = W32(0x0), [3380] = W32(0x0),
+    [3384] = W32(0x0), [3388] = W32(0x0), [3392] = W32(0x0), [3396] = W32(0x0), [3400] = W32(0x0), [3404] = W32(0x0),
+    [3408] = W32(0x0), [3412] = W32(0x0), [3416] = W32(0x0), [3420] = W32(0x0), [3424] = W32(0x0), [3428] = W32(0x0),
+    [3432] = W32(0x0), [3436] = W32(0x0), [3440] = W32(0x0), [3444] = W32(0x0), [3448] = W32(0x0), [3452] = W32(0x0),
+    [3456] = W32(0x0), [3460] = W32(0x0), [3464] = W32(0x0), [3468] = W32(0x0), [3472] = W32(0x0), [3476] = W32(0x0),
+    [3480] = W32(0x0), [3484] = W32(0x0), [3488] = W32(0x0), [3492] = W32(0x0), [3496] = W32(0x0), [3500] = W32(0x0),
+    [3504] = W32(0x0), [3508] = W32(0x0), [3512] = W32(0x0), [3516] = W32(0x0), [3520] = W32(0x0), [3524] = W32(0x0),
+    [3528] = W32(0x0), [3532] = W32(0x0), [3536] = W32(0x0), [3540] = W32(0x0), [3544] = W32(0x0), [3548] = W32(0x0),
+    [3552] = W32(0x0), [3556] = W32(0x0), [3560] = W32(0x0), [3564] = W32(0x0), [3568] = W32(0x0), [3572] = W32(0x0),
+    [3576] = W32(0x0), [3580] = W32(0x0), [3584] = W32(0x0), [3588] = W32(0x0), [3592] = W32(0x0), [3596] = W32(0x0),
+    [3600] = W32(0x0), [3604] = W32(0x0), [3608] = W32(0x0), [3612] = W32(0x0), [3616] = W32(0x0), [3620] = W32(0x0),
+    [3624] = W32(0x0), [3628] = W32(0x0), [3632] = W32(0x0), [3636] = W32(0x0), [3640] = W32(0x0), [3644] = W32(0x0),
+    [3648] = W32(0x0), [3652] = W32(0x0), [3656] = W32(0x0), [3660] = W32(0x0), [3664] = W32(0x0), [3668] = W32(0x0),
+    [3672] = W32(0x0), [3676] = W32(0x0), [3680] = W32(0x0), [3684] = W32(0x0), [3688] = W32(0x0), [3692] = W32(0x0),
+    [3696] = W32(0x0), [3700] = W32(0x0), [3704] = W32(0x0), [3708] = W32(0x0), [3712] = W32(0x0), [3716] = W32(0x0),
+    [3720] = W32(0x0), [3724] = W32(0x0), [3728] = W32(0x0), [3732] = W32(0x0), [3736] = W32(0x0), [3740] = W32(0x0),
+    [3744] = W32(0x0), [3748] = W32(0x0), [3752] = W32(0x0), [3756] = W32(0x0), [3760] = W32(0x0), [3764] = W32(0x0),
+    [3768] = W32(0x0), [3772] = W32(0x0), [3776] = W32(0x0), [3780] = W32(0x0), [3784] = W32(0x0), [3788] = W32(0x0),
+    [3792] = W32(0x0), [3796] = W32(0x0), [3800] = W32(0x0), [3804] = W32(0x0), [3808] = W32(0x0), [3812] = W32(0x0),
+    [3816] = W32(0x0), [3820] = W32(0x0), [3824] = W32(0x0), [3828] = W32(0x0), [3832] = W32(0x0), [3836] = W32(0x0),
+    [3840] = W32(0x0), [3844] = W32(0x0), [3848] = W32(0x0), [3852] = W32(0x0), [3856] = W32(0x0), [3860] = W32(0x0),
+    [3864] = W32(0x0), [3868] = W32(0x0), [3872] = W32(0x0), [3876] = W32(0x0), [3880] = W32(0x0), [3884] = W32(0x0),
+    [3888] = W32(0x0), [3892] = W32(0x0), [3896] = W32(0x0), [3900] = W32(0x0), [3904] = W32(0x0), [3908] = W32(0x0),
+    [3912] = W32(0x0), [3916] = W32(0x0), [3920] = W32(0x0), [3924] = W32(0x0), [3928] = W32(0x0), [3932] = W32(0x0),
+    [3936] = W32(0x0), [3940] = W32(0x0), [3944] = W32(0x0), [3948] = W32(0x0), [3952] = W32(0x0), [3956] = W32(0x0),
+    [3960] = W32(0x0), [3964] = W32(0x0), [3968] = W32(0x0), [3972] = W32(0x0), [3976] = W32(0x0), [3980] = W32(0x0),
+    [3984] = W32(0x0), [3988] = W32(0x0), [3992] = W32(0x0), [3996] = W32(0x0), [4000] = W32(0x0), [4004] = W32(0x0),
+    [4008] = W32(0x0), [4012] = W32(0x0), [4016] = W32(0x0), [4020] = W32(0x0), [4024] = W32(0x0), [4028] = W32(0x0),
+    [4032] = W32(0x0), [4036] = W32(0x0), [4040] = W32(0x0), [4044] = W32(0x0), [4048] = W32(0x0), [4052] = W32(0x0),
+    [4056] = W32(0x0), [4060] = W32(0x0), [4064] = W32(0x0), [4068] = W32(0x0), [4072] = W32(0x0), [4076] = W32(0x0),
+    [4080] = W32(0x0), [4084] = W32(0x0), [4088] = W32(0x0), [4092] = W32(0x0), [4096] = W32(0x0), [4100] = W32(0x0),
+    [4104] = W32(0x0), [4108] = W32(0x0), [4112] = W32(0x0), [4116] = W32(0x0), [4120] = W32(0x0), [4124] = W32(0x0),
+    [4128] = W32(0x0), [4132] = W32(0x0), [4136] = W32(0x0), [4140] = W32(0x0), [4144] = W32(0x0), [4148] = W32(0x0),
+    [4152] = W32(0x0), [4156] = W32(0x0), [4160] = W32(0x0), [4164] = W32(0x0), [4168] = W32(0x0), [4172] = W32(0x0),
+    [4176] = W32(0x0), [4180] = W32(0x0), [4184] = W32(0x0), [4188] = W32(0x0), [4192] = W32(0x0), [4196] = W32(0x0),
+    [4200] = W32(0x0), [4204] = W32(0x0), [4208] = W32(0x0), [4212] = W32(0x0), [4216] = W32(0x0), [4220] = W32(0x0),
+    [4224] = W32(0x0), [4228] = W32(0x0), [4232] = W32(0x0), [4236] = W32(0x0), [4240] = W32(0x0), [4244] = W32(0x0),
+    [4248] = W32(0x0), [4252] = W32(0x0), [4256] = W32(0x0), [4260] = W32(0x0), [4264] = W32(0x0), [4268] = W32(0x0),
+    [4272] = W32(0x0), [4276] = W32(0x0), [4280] = W32(0x0), [4284] = W32(0x0), [4288] = W32(0x0), [4292] = W32(0x0),
+    [4296] = W32(0x0), [4300] = W32(0x0), [4304] = W32(0x0), [4308] = W32(0x0), [4312] = W32(0x0), [4316] = W32(0x0),
+    [4320] = W32(0x0), [4324] = W32(0x0), [4328] = W32(0x0), [4332] = W32(0x0), [4336] = W32(0x0), [4340] = W32(0x0),
+    [4344] = W32(0x0), [4348] = W32(0x0), [4352] = W32(0x0), [4356] = W32(0x0), [4360] = W32(0x0), [4364] = W32(0x0),
+    [4368] = W32(0x0), [4372] = W32(0x0), [4376] = W32(0x0), [4380] = W32(0x0), [4384] = W32(0x0), [4388] = W32(0x0),
+    [4392] = W32(0x0), [4396] = W32(0x0), [4400] = W32(0x0), [4404] = W32(0x0), [4408] = W32(0x0), [4412] = W32(0x0),
+    [4416] = W32(0x0), [4420] = W32(0x0), [4424] = W32(0x0), [4428] = W32(0x0), [4432] = W32(0x0), [4436] = W32(0x0),
+    [4440] = W32(0x0), [4444] = W32(0x0), [4448] = W32(0x0), [4452] = W32(0x0), [4456] = W32(0x0), [4460] = W32(0x0),
+    [4464] = W32(0x0), [4468] = W32(0x0), [4472] = W32(0x0), [4476] = W32(0x0), [4480] = W32(0x0), [4484] = W32(0x0),
+    [4488] = W32(0x0), [4492] = W32(0x0), [4496] = W32(0x0), [4500] = W32(0x0), [4504] = W32(0x0), [4508] = W32(0x0),
+    [4512] = W32(0x0), [4516] = W32(0x0), [4520] = W32(0x0), [4524] = W32(0x0), [4528] = W32(0x0), [4532] = W32(0x0),
+    [4536] = W32(0x0), [4540] = W32(0x0), [4544] = W32(0x0), [4548] = W32(0x0), [4552] = W32(0x0), [4556] = W32(0x0),
+    [4560] = W32(0x0), [4564] = W32(0x0), [4568] = W32(0x0), [4572] = W32(0x0), [4576] = W32(0x0), [4580] = W32(0x0),
+    [4584] = W32(0x0), [4588] = W32(0x0), [4592] = W32(0x0), [4596] = W32(0x0), [4600] = W32(0x0), [4604] = W32(0x0),
+    [4608] = W32(0x0), [4612] = W32(0x0), [4616] = W32(0x0), [4620] = W32(0x0), [4624] = W32(0x0), [4628] = W32(0x0),
+    [4632] = W32(0x0), [4636] = W32(0x0), [4640] = W32(0x0), [4644] = W32(0x0), [4648] = W32(0x0), [4652] = W32(0x0),
+    [4656] = W32(0x0), [4660] = W32(0x0), [4664] = W32(0x0), [4668] = W32(0x0), [4672] = W32(0x0), [4676] = W32(0x0),
+    [4680] = W32(0x0), [4684] = W32(0x0), [4688] = W32(0x0), [4692] = W32(0x0), [4696] = W32(0x0), [4700] = W32(0x0),
+    [4704] = W32(0x0), [4708] = W32(0x0), [4712] = W32(0x0), [4716] = W32(0x0), [4720] = W32(0x0), [4724] = W32(0x0),
+    [4728] = W32(0x0), [4732] = W32(0x0), [4736] = W32(0x0), [4740] = W32(0x0), [4744] = W32(0x0), [4748] = W32(0x0),
+    [4752] = W32(0x0), [4756] = W32(0x0), [4760] = W32(0x0), [4764] = W32(0x0), [4768] = W32(0x0), [4772] = W32(0x0),
+    [4776] = W32(0x0), [4780] = W32(0x0), [4784] = W32(0x0), [4788] = W32(0x0), [4792] = W32(0x0), [4796] = W32(0x0),
+    [4800] = W32(0x0), [4804] = W32(0x0), [4808] = W32(0x0), [4812] = W32(0x0), [4816] = W32(0x0), [4820] = W32(0x0),
+    [4824] = W32(0x0), [4828] = W32(0x0), [4832] = W32(0x0), [4836] = W32(0x0), [4840] = W32(0x0), [4844] = W32(0x0),
+    [4848] = W32(0x0), [4852] = W32(0x0), [4856] = W32(0x0), [4860] = W32(0x0), [4864] = W32(0x0), [4868] = W32(0x0),
+    [4872] = W32(0x0), [4876] = W32(0x0), [4880] = W32(0x0), [4884] = W32(0x0), [4888] = W32(0x0), [4892] = W32(0x0),
+    [4896] = W32(0x0), [4900] = W32(0x0), [4904] = W32(0x0), [4908] = W32(0x0), [4912] = W32(0x0), [4916] = W32(0x0),
+    [4920] = W32(0x0), [4924] = W32(0x0), [4928] = W32(0x0), [4932] = W32(0x0), [4936] = W32(0x0), [4940] = W32(0x0),
+    [4944] = W32(0x0), [4948] = W32(0x0), [4952] = W32(0x0), [4956] = W32(0x0), [4960] = W32(0x0), [4964] = W32(0x0),
+    [4968] = W32(0x0), [4972] = W32(0x0), [4976] = W32(0x0), [4980] = W32(0x0), [4984] = W32(0x0), [4988] = W32(0x0),
+    [4992] = W32(0x0), [4996] = W32(0x0), [5000] = W32(0x0), [5004] = W32(0x0), [5008] = W32(0x0), [5012] = W32(0x0),
+    [5016] = W32(0x0), [5020] = W32(0x0), [5024] = W32(0x0), [5028] = W32(0x0), [5032] = W32(0x0), [5036] = W32(0x0),
+    [5040] = W32(0x0), [5044] = W32(0x0), [5048] = W32(0x0), [5052] = W32(0x0), [5056] = W32(0x0), [5060] = W32(0x0),
+    [5064] = W32(0x0), [5068] = W32(0x0), [5072] = W32(0x0), [5076] = W32(0x0), [5080] = W32(0x0), [5084] = W32(0x0),
+    [5088] = W32(0x0), [5092] = W32(0x0), [5096] = W32(0x0), [5100] = W32(0x0), [5104] = W32(0x0), [5108] = W32(0x0),
+    [5112] = W32(0x0), [5116] = W32(0x0), [5120] = W32(0x0), [5124] = W32(0x0), [5128] = W32(0x0), [5132] = W32(0x0),
+    [5136] = W32(0x0), [5140] = W32(0x0), [5144] = W32(0x0), [5148] = W32(0x0), [5152] = W32(0x0), [5156] = W32(0x0),
+    [5160] = W32(0x0), [5164] = W32(0x0), [5168] = W32(0x0), [5172] = W32(0x0), [5176] = W32(0x0), [5180] = W32(0x0),
+    [5184] = W32(0x0), [5188] = W32(0x0), [5192] = W32(0x0), [5196] = W32(0x0), [5200] = W32(0x0), [5204] = W32(0x0),
+    [5208] = W32(0x0), [5212] = W32(0x0), [5216] = W32(0x0), [5220] = W32(0x0), [5224] = W32(0x0), [5228] = W32(0x0),
+    [5232] = W32(0x0), [5236] = W32(0x0), [5240] = W32(0x0), [5244] = W32(0x0), [5248] = W32(0x0), [5252] = W32(0x0),
+    [5256] = W32(0x0), [5260] = W32(0x0), [5264] = W32(0x0), [5268] = W32(0x0), [5272] = W32(0x0), [5276] = W32(0x0),
+    [5280] = W32(0x0), [5284] = W32(0x0), [5288] = W32(0x0), [5292] = W32(0x0), [5296] = W32(0x0), [5300] = W32(0x0),
+    [5304] = W32(0x0), [5308] = W32(0x0), [5312] = W32(0x0), [5316] = W32(0x0), [5320] = W32(0x0), [5324] = W32(0x0),
+    [5328] = W32(0x0), [5332] = W32(0x0), [5336] = W32(0x0), [5340] = W32(0x0), [5344] = W32(0x0), [5348] = W32(0x0),
+    [5352] = W32(0x0), [5356] = W32(0x0), [5360] = W32(0x0), [5364] = W32(0x0), [5368] = W32(0x0), [5372] = W32(0x0),
+    [5376] = W32(0x0), [5380] = W32(0x0), [5384] = W32(0x0), [5388] = W32(0x0), [5392] = W32(0x0), [5396] = W32(0x0),
+    [5400] = W32(0x0), [5404] = W32(0x0), [5408] = W32(0x0), [5412] = W32(0x0), [5416] = W32(0x0), [5420] = W32(0x0),
+    [5424] = W32(0x0), [5428] = W32(0x0), [5432] = W32(0x0), [5436] = W32(0x0), [5440] = W32(0x0), [5444] = W32(0x0),
+    [5448] = W32(0x0), [5452] = W32(0x0), [5456] = W32(0x0), [5460] = W32(0x0), [5464] = W32(0x0), [5468] = W32(0x0),
+    [5472] = W32(0x0), [5476] = W32(0x0), [5480] = W32(0x0), [5484] = W32(0x0), [5488] = W32(0x0), [5492] = W32(0x0),
+    [5496] = W32(0x0), [5500] = W32(0x0), [5504] = W32(0x0), [5508] = W32(0x0), [5512] = W32(0x0), [5516] = W32(0x0),
+    [5520] = W32(0x0), [5524] = W32(0x0), [5528] = W32(0x0), [5532] = W32(0x0), [5536] = W32(0x0), [5540] = W32(0x0),
+    [5544] = W32(0x0), [5548] = W32(0x0), [5552] = W32(0x0), [5556] = W32(0x0), [5560] = W32(0x0), [5564] = W32(0x0),
+    [5568] = W32(0x0), [5572] = W32(0x0), [5576] = W32(0x0), [5580] = W32(0x0), [5584] = W32(0x0), [5588] = W32(0x0),
+    [5592] = W32(0x0), [5596] = W32(0x0), [5600] = W32(0x0), [5604] = W32(0x0), [5608] = W32(0x0), [5612] = W32(0x0),
+    [5616] = W32(0x0), [5620] = W32(0x0), [5624] = W32(0x0), [5628] = W32(0x0), [5632] = W32(0x0), [5636] = W32(0x0),
+    [5640] = W32(0x0), [5644] = W32(0x0), [5648] = W32(0x0), [5652] = W32(0x0), [5656] = W32(0x0), [5660] = W32(0x0),
+    [5664] = W32(0x0), [5668] = W32(0x0), [5672] = W32(0x0), [5676] = W32(0x0), [5680] = W32(0x0), [5684] = W32(0x0),
+    [5688] = W32(0x0), [5692] = W32(0x0), [5696] = W32(0x0), [5700] = W32(0x0), [5704] = W32(0x0), [5708] = W32(0x0),
+    [5712] = W32(0x0), [5716] = W32(0x0), [5720] = W32(0x0), [5724] = W32(0x0), [5728] = W32(0x0), [5732] = W32(0x0),
+    [5736] = W32(0x0), [5740] = W32(0x0), [5744] = W32(0x0), [5748] = W32(0x0), [5752] = W32(0x0), [5756] = W32(0x0),
+    [5760] = W32(0x0), [5764] = W32(0x0), [5768] = W32(0x0), [5772] = W32(0x0), [5776] = W32(0x0), [5780] = W32(0x0),
+    [5784] = W32(0x0), [5788] = W32(0x0), [5792] = W32(0x0), [5796] = W32(0x0), [5800] = W32(0x0), [5804] = W32(0x0),
+    [5808] = W32(0x0), [5812] = W32(0x0), [5816] = W32(0x0), [5820] = W32(0x0), [5824] = W32(0x0), [5828] = W32(0x0),
+    [5832] = W32(0x0), [5836] = W32(0x0), [5840] = W32(0x0), [5844] = W32(0x0), [5848] = W32(0x0), [5852] = W32(0x0),
+    [5856] = W32(0x0), [5860] = W32(0x0), [5864] = W32(0x0), [5868] = W32(0x0), [5872] = W32(0x0), [5876] = W32(0x0),
+    [5880] = W32(0x0), [5884] = W32(0x0), [5888] = W32(0x0), [5892] = W32(0x0), [5896] = W32(0x0), [5900] = W32(0x0),
+    [5904] = W32(0x0), [5908] = W32(0x0), [5912] = W32(0x0), [5916] = W32(0x0), [5920] = W32(0x0), [5924] = W32(0x0),
+    [5928] = W32(0x0), [5932] = W32(0x0), [5936] = W32(0x0), [5940] = W32(0x0), [5944] = W32(0x0), [5948] = W32(0x0),
+    [5952] = W32(0x0), [5956] = W32(0x0), [5960] = W32(0x0), [5964] = W32(0x0), [5968] = W32(0x0), [5972] = W32(0x0),
+    [5976] = W32(0x0), [5980] = W32(0x0), [5984] = W32(0x0), [5988] = W32(0x0), [5992] = W32(0x0), [5996] = W32(0x0),
+    [6000] = W32(0x0), [6004] = W32(0x0), [6008] = W32(0x0), [6012] = W32(0x0), [6016] = W32(0x0), [6020] = W32(0x0),
+    [6024] = W32(0x0), [6028] = W32(0x0), [6032] = W32(0x0), [6036] = W32(0x0), [6040] = W32(0x0), [6044] = W32(0x0),
+    [6048] = W32(0x0), [6052] = W32(0x0), [6056] = W32(0x0), [6060] = W32(0x0), [6064] = W32(0x0), [6068] = W32(0x0),
+    [6072] = W32(0x0), [6076] = W32(0x0), [6080] = W32(0x0), [6084] = W32(0x0), [6088] = W32(0x0), [6092] = W32(0x0),
+    [6096] = W32(0x0), [6100] = W32(0x0), [6104] = W32(0x0), [6108] = W32(0x0), [6112] = W32(0x0), [6116] = W32(0x0),
+    [6120] = W32(0x0), [6124] = W32(0x0), [6128] = W32(0x0), [6132] = W32(0x0), [6136] = W32(0x0), [6140] = W32(0x0),
+    [6144] = W32(0x0), [6148] = W32(0x0), [6152] = W32(0x0), [6156] = W32(0x0), [6160] = W32(0x0), [6164] = W32(0x0),
+    [6168] = W32(0x0), [6172] = W32(0x0), [6176] = W32(0x0), [6180] = W32(0x0), [6184] = W32(0x0), [6188] = W32(0x0),
+    [6192] = W32(0x0), [6196] = W32(0x0), [6200] = W32(0x0), [6204] = W32(0x0), [6208] = W32(0x0), [6212] = W32(0x0),
+    [6216] = W32(0x0), [6220] = W32(0x0), [6224] = W32(0x0), [6228] = W32(0x0), [6232] = W32(0x0), [6236] = W32(0x0),
+    [6240] = W32(0x0), [6244] = W32(0x0), [6248] = W32(0x0), [6252] = W32(0x0), [6256] = W32(0x0), [6260] = W32(0x0),
+    [6264] = W32(0x0), [6268] = W32(0x0), [6272] = W32(0x0), [6276] = W32(0x0), [6280] = W32(0x0), [6284] = W32(0x0),
+    [6288] = W32(0x0), [6292] = W32(0x0), [6296] = W32(0x0), [6300] = W32(0x0), [6304] = W32(0x0), [6308] = W32(0x0),
+    [6312] = W32(0x0), [6316] = W32(0x0), [6320] = W32(0x0), [6324] = W32(0x0), [6328] = W32(0x0), [6332] = W32(0x0),
+    [6336] = W32(0x0), [6340] = W32(0x0), [6344] = W32(0x0), [6348] = W32(0x0), [6352] = W32(0x0), [6356] = W32(0x0),
+    [6360] = W32(0x0), [6364] = W32(0x0), [6368] = W32(0x0), [6372] = W32(0x0), [6376] = W32(0x0), [6380] = W32(0x0),
+    [6384] = W32(0x0), [6388] = W32(0x0), [6392] = W32(0x0), [6396] = W32(0x0), [6400] = W32(0x0), [6404] = W32(0x0),
+    [6408] = W32(0x0), [6412] = W32(0x0), [6416] = W32(0x0), [6420] = W32(0x0), [6424] = W32(0x0), [6428] = W32(0x0),
+    [6432] = W32(0x0), [6436] = W32(0x0), [6440] = W32(0x0), [6444] = W32(0x0), [6448] = W32(0x0), [6452] = W32(0x0),
+    [6456] = W32(0x0), [6460] = W32(0x0), [6464] = W32(0x0), [6468] = W32(0x0), [6472] = W32(0x0), [6476] = W32(0x0),
+    [6480] = W32(0x0), [6484] = W32(0x0), [6488] = W32(0x0), [6492] = W32(0x0), [6496] = W32(0x0), [6500] = W32(0x0),
+    [6504] = W32(0x0), [6508] = W32(0x0), [6512] = W32(0x0), [6516] = W32(0x0), [6520] = W32(0x0), [6524] = W32(0x0),
+    [6528] = W32(0x0), [6532] = W32(0x0), [6536] = W32(0x0), [6540] = W32(0x0), [6544] = W32(0x0), [6548] = W32(0x0),
+    [6552] = W32(0x0), [6556] = W32(0x0), [6560] = W32(0x0), [6564] = W32(0x0), [6568] = W32(0x0), [6572] = W32(0x0),
+    [6576] = W32(0x0), [6580] = W32(0x0), [6584] = W32(0x0), [6588] = W32(0x0), [6592] = W32(0x0), [6596] = W32(0x0),
+    [6600] = W32(0x0), [6604] = W32(0x0), [6608] = W32(0x0), [6612] = W32(0x0), [6616] = W32(0x0), [6620] = W32(0x0),
+    [6624] = W32(0x0), [6628] = W32(0x0), [6632] = W32(0x0), [6636] = W32(0x0), [6640] = W32(0x0), [6644] = W32(0x0),
+    [6648] = W32(0x0), [6652] = W32(0x0), [6656] = W32(0x0), [6660] = W32(0x0), [6664] = W32(0x0), [6668] = W32(0x0),
+    [6672] = W32(0x0), [6676] = W32(0x0), [6680] = W32(0x0), [6684] = W32(0x0), [6688] = W32(0x0), [6692] = W32(0x0),
+    [6696] = W32(0x0), [6700] = W32(0x0), [6704] = W32(0x0), [6708] = W32(0x0), [6712] = W32(0x0), [6716] = W32(0x0),
+    [6720] = W32(0x0), [6724] = W32(0x0), [6728] = W32(0x0), [6732] = W32(0x0), [6736] = W32(0x0), [6740] = W32(0x0),
+    [6744] = W32(0x0), [6748] = W32(0x0), [6752] = W32(0x0), [6756] = W32(0x0), [6760] = W32(0x0), [6764] = W32(0x0),
+    [6768] = W32(0x0), [6772] = W32(0x0), [6776] = W32(0x0), [6780] = W32(0x0), [6784] = W32(0x0), [6788] = W32(0x0),
+    [6792] = W32(0x0), [6796] = W32(0x0), [6800] = W32(0x0), [6804] = W32(0x0), [6808] = W32(0x0), [6812] = W32(0x0),
+    [6816] = W32(0x0), [6820] = W32(0x0), [6824] = W32(0x0), [6828] = W32(0x0), [6832] = W32(0x0), [6836] = W32(0x0),
+    [6840] = W32(0x0), [6844] = W32(0x0), [6848] = W32(0x0), [6852] = W32(0x0), [6856] = W32(0x0), [6860] = W32(0x0),
+    [6864] = W32(0x0), [6868] = W32(0x0), [6872] = W32(0x0), [6876] = W32(0x0), [6880] = W32(0x0), [6884] = W32(0x0),
+    [6888] = W32(0x0), [6892] = W32(0x0), [6896] = W32(0x0), [6900] = W32(0x0), [6904] = W32(0x0), [6908] = W32(0x0),
+    [6912] = W32(0x0), [6916] = W32(0x0), [6920] = W32(0x0), [6924] = W32(0x0), [6928] = W32(0x0), [6932] = W32(0x0),
+    [6936] = W32(0x0), [6940] = W32(0x0), [6944] = W32(0x0), [6948] = W32(0x0), [6952] = W32(0x0), [6956] = W32(0x0),
+    [6960] = W32(0x0), [6964] = W32(0x0), [6968] = W32(0x0), [6972] = W32(0x0), [6976] = W32(0x0), [6980] = W32(0x0),
+    [6984] = W32(0x0), [6988] = W32(0x0), [6992] = W32(0x0), [6996] = W32(0x0), [7000] = W32(0x0), [7004] = W32(0x0),
+    [7008] = W32(0x0), [7012] = W32(0x0), [7016] = W32(0x0), [7020] = W32(0x0), [7024] = W32(0x0), [7028] = W32(0x0),
+    [7032] = W32(0x0), [7036] = W32(0x0), [7040] = W32(0x0), [7044] = W32(0x0), [7048] = W32(0x0), [7052] = W32(0x0),
+    [7056] = W32(0x0), [7060] = W32(0x0), [7064] = W32(0x0), [7068] = W32(0x0), [7072] = W32(0x0), [7076] = W32(0x0),
+    [7080] = W32(0x0), [7084] = W32(0x0), [7088] = W32(0x0), [7092] = W32(0x0), [7096] = W32(0x0), [7100] = W32(0x0),
+    [7104] = W32(0x0), [7108] = W32(0x0), [7112] = W32(0x0), [7116] = W32(0x0), [7120] = W32(0x0), [7124] = W32(0x0),
+    [7128] = W32(0x0), [7132] = W32(0x0), [7136] = W32(0x0), [7140] = W32(0x0), [7144] = W32(0x0), [7148] = W32(0x0),
+    [7152] = W32(0x0), [7156] = W32(0x0), [7160] = W32(0x0), [7164] = W32(0x0), [7168] = W32(0x0), [7172] = W32(0x0),
+    [7176] = W32(0x0), [7180] = W32(0x0), [7184] = W32(0x0), [7188] = W32(0x0), [7192] = W32(0x0), [7196] = W32(0x0),
+    [7200] = W32(0x0), [7204] = W32(0x0), [7208] = W32(0x0), [7212] = W32(0x0), [7216] = W32(0x0), [7220] = W32(0x0),
+    [7224] = W32(0x0), [7228] = W32(0x0), [7232] = W32(0x0), [7236] = W32(0x0), [7240] = W32(0x0), [7244] = W32(0x0),
+    [7248] = W32(0x0), [7252] = W32(0x0), [7256] = W32(0x0), [7260] = W32(0x0), [7264] = W32(0x0), [7268] = W32(0x0),
+    [7272] = W32(0x0), [7276] = W32(0x0), [7280] = W32(0x0), [7284] = W32(0x0), [7288] = W32(0x0), [7292] = W32(0x0),
+    [7296] = W32(0x0), [7300] = W32(0x0), [7304] = W32(0x0), [7308] = W32(0x0), [7312] = W32(0x0), [7316] = W32(0x0),
+    [7320] = W32(0x0), [7324] = W32(0x0), [7328] = W32(0x0), [7332] = W32(0x0), [7336] = W32(0x0), [7340] = W32(0x0),
+    [7344] = W32(0x0), [7348] = W32(0x0), [7352] = W32(0x0), [7356] = W32(0x0), [7360] = W32(0x0), [7364] = W32(0x0),
+    [7368] = W32(0x0), [7372] = W32(0x0), [7376] = W32(0x0), [7380] = W32(0x0), [7384] = W32(0x0), [7388] = W32(0x0),
+    [7392] = W32(0x0), [7396] = W32(0x0), [7400] = W32(0x0), [7404] = W32(0x0), [7408] = W32(0x0), [7412] = W32(0x0),
+    [7416] = W32(0x0), [7420] = W32(0x0), [7424] = W32(0x0), [7428] = W32(0x0), [7432] = W32(0x0), [7436] = W32(0x0),
+    [7440] = W32(0x0), [7444] = W32(0x0), [7448] = W32(0x0), [7452] = W32(0x0), [7456] = W32(0x0), [7460] = W32(0x0),
+    [7464] = W32(0x0), [7468] = W32(0x0), [7472] = W32(0x0), [7476] = W32(0x0), [7480] = W32(0x0), [7484] = W32(0x0),
+    [7488] = W32(0x0), [7492] = W32(0x0), [7496] = W32(0x0), [7500] = W32(0x0), [7504] = W32(0x0), [7508] = W32(0x0),
+    [7512] = W32(0x0), [7516] = W32(0x0), [7520] = W32(0x0), [7524] = W32(0x0), [7528] = W32(0x0), [7532] = W32(0x0),
+    [7536] = W32(0x0), [7540] = W32(0x0), [7544] = W32(0x0), [7548] = W32(0x0), [7552] = W32(0x0), [7556] = W32(0x0),
+    [7560] = W32(0x0), [7564] = W32(0x0), [7568] = W32(0x0), [7572] = W32(0x0), [7576] = W32(0x0), [7580] = W32(0x0),
+    [7584] = W32(0x0), [7588] = W32(0x0), [7592] = W32(0x0), [7596] = W32(0x0), [7600] = W32(0x0), [7604] = W32(0x0),
+    [7608] = W32(0x0), [7612] = W32(0x0), [7616] = W32(0x0), [7620] = W32(0x0), [7624] = W32(0x0), [7628] = W32(0x0),
+    [7632] = W32(0x0), [7636] = W32(0x0), [7640] = W32(0x0), [7644] = W32(0x0), [7648] = W32(0x0), [7652] = W32(0x0),
+    [7656] = W32(0x0), [7660] = W32(0x0), [7664] = W32(0x0), [7668] = W32(0x0), [7672] = W32(0x0), [7676] = W32(0x0),
+    [7680] = W32(0x0), [7684] = W32(0x0), [7688] = W32(0x0), [7692] = W32(0x0), [7696] = W32(0x0), [7700] = W32(0x0),
+    [7704] = W32(0x0), [7708] = W32(0x0), [7712] = W32(0x0), [7716] = W32(0x0), [7720] = W32(0x0), [7724] = W32(0x0),
+    [7728] = W32(0x0), [7732] = W32(0x0), [7736] = W32(0x0), [7740] = W32(0x0), [7744] = W32(0x0), [7748] = W32(0x0),
+    [7752] = W32(0x0), [7756] = W32(0x0), [7760] = W32(0x0), [7764] = W32(0x0), [7768] = W32(0x0), [7772] = W32(0x0),
+    [7776] = W32(0x0), [7780] = W32(0x0), [7784] = W32(0x0), [7788] = W32(0x0), [7792] = W32(0x0), [7796] = W32(0x0),
+    [7800] = W32(0x0), [7804] = W32(0x0), [7808] = W32(0x0), [7812] = W32(0x0), [7816] = W32(0x0), [7820] = W32(0x0),
+    [7824] = W32(0x0), [7828] = W32(0x0), [7832] = W32(0x0), [7836] = W32(0x0), [7840] = W32(0x0), [7844] = W32(0x0),
+    [7848] = W32(0x0), [7852] = W32(0x0), [7856] = W32(0x0), [7860] = W32(0x0), [7864] = W32(0x0), [7868] = W32(0x0),
+    [7872] = W32(0x0), [7876] = W32(0x0), [7880] = W32(0x0), [7884] = W32(0x0), [7888] = W32(0x0), [7892] = W32(0x0),
+    [7896] = W32(0x0), [7900] = W32(0x0), [7904] = W32(0x0), [7908] = W32(0x0), [7912] = W32(0x0), [7916] = W32(0x0),
+    [7920] = W32(0x0), [7924] = W32(0x0), [7928] = W32(0x0), [7932] = W32(0x0), [7936] = W32(0x0), [7940] = W32(0x0),
+    [7944] = W32(0x0), [7948] = W32(0x0), [7952] = W32(0x0), [7956] = W32(0x0), [7960] = W32(0x0), [7964] = W32(0x0),
+    [7968] = W32(0x0), [7972] = W32(0x0), [7976] = W32(0x0), [7980] = W32(0x0), [7984] = W32(0x0), [7988] = W32(0x0),
+    [7992] = W32(0x0), [7996] = W32(0x0), [8000] = W32(0x0), [8004] = W32(0x0), [8008] = W32(0x0), [8012] = W32(0x0),
+    [8016] = W32(0x0), [8020] = W32(0x0), [8024] = W32(0x0), [8028] = W32(0x0), [8032] = W32(0x0), [8036] = W32(0x0),
+    [8040] = W32(0x0), [8044] = W32(0x0), [8048] = W32(0x0), [8052] = W32(0x0), [8056] = W32(0x0), [8060] = W32(0x0),
+    [8064] = W32(0x0), [8068] = W32(0x0), [8072] = W32(0x0), [8076] = W32(0x0), [8080] = W32(0x0), [8084] = W32(0x0),
+    [8088] = W32(0x0), [8092] = W32(0x0), [8096] = W32(0x0), [8100] = W32(0x0), [8104] = W32(0x0), [8108] = W32(0x0),
+    [8112] = W32(0x0), [8116] = W32(0x0), [8120] = W32(0x0), [8124] = W32(0x0), [8128] = W32(0x0), [8132] = W32(0x0),
+    [8136] = W32(0x0), [8140] = W32(0x0), [8144] = W32(0x0), [8148] = W32(0x0), [8152] = W32(0x0), [8156] = W32(0x0),
+    [8160] = W32(0x0), [8164] = W32(0x0), [8168] = W32(0x0), [8172] = W32(0x0), [8176] = W32(0x0), [8180] = W32(0x0),
+    [8184] = W32(0x0), [8188] = W32(0x0), [8192] = W32(0x0), [8196] = W32(0x0), [8200] = W32(0x0), [8204] = W32(0x0),
+    [8208] = W32(0x0), [8212] = W32(0x0), [8216] = W32(0x0), [8220] = W32(0x0), [8224] = W32(0x0), [8228] = W32(0x0),
+    [8232] = W32(0x0), [8236] = W32(0x0), [8240] = W32(0x0), [8244] = W32(0x0), [8248] = W32(0x0), [8252] = W32(0x0),
+    [8256] = W32(0x0), [8260] = W32(0x0), [8264] = W32(0x0), [8268] = W32(0x0), [8272] = W32(0x0), [8276] = W32(0x0),
+    [8280] = W32(0x0), [8284] = W32(0x0), [8288] = W32(0x0), [8292] = W32(0x0), [8296] = W32(0x0), [8300] = W32(0x0),
+    [8304] = W32(0x0), [8308] = W32(0x0), [8312] = W32(0x0), [8316] = W32(0x0), [8320] = W32(0x0), [8324] = W32(0x0),
+    [8328] = W32(0x0), [8332] = W32(0x0), [8336] = W32(0x0), [8340] = W32(0x0), [8344] = W32(0x0), [8348] = W32(0x0),
+    [8352] = W32(0x0), [8356] = W32(0x0), [8360] = W32(0x0), [8364] = W32(0x0), [8368] = W32(0x0), [8372] = W32(0x0),
+    [8376] = W32(0x0), [8380] = W32(0x0), [8384] = W32(0x0), [8388] = W32(0x0), [8392] = W32(0x0), [8396] = W32(0x0),
+    [8400] = W32(0x0), [8404] = W32(0x0), [8408] = W32(0x0), [8412] = W32(0x0), [8416] = W32(0x0), [8420] = W32(0x0),
+    [8424] = W32(0x0), [8428] = W32(0x0), [8432] = W32(0x0), [8436] = W32(0x0), [8440] = W32(0x0), [8444] = W32(0x0),
+    [8448] = W32(0x0), [8452] = W32(0x0), [8456] = W32(0x0), [8460] = W32(0x0), [8464] = W32(0x0), [8468] = W32(0x0),
+    [8472] = W32(0x0), [8476] = W32(0x0), [8480] = W32(0x0), [8484] = W32(0x0), [8488] = W32(0x0), [8492] = W32(0x0),
+    [8496] = W32(0x0), [8500] = W32(0x0), [8504] = W32(0x0), [8508] = W32(0x0), [8512] = W32(0x0), [8516] = W32(0x0),
+    [8520] = W32(0x0), [8524] = W32(0x0), [8528] = W32(0x0), [8532] = W32(0x0), [8536] = W32(0x0), [8540] = W32(0x0),
+    [8544] = W32(0x0), [8548] = W32(0x0), [8552] = W32(0x0), [8556] = W32(0x0), [8560] = W32(0x0), [8564] = W32(0x0),
+    [8568] = W32(0x0), [8572] = W32(0x0), [8576] = W32(0x0), [8580] = W32(0x0), [8584] = W32(0x0), [8588] = W32(0x0),
+    [8592] = W32(0x0), [8596] = W32(0x0), [8600] = W32(0x0), [8604] = W32(0x0), [8608] = W32(0x0), [8612] = W32(0x0),
+    [8616] = W32(0x0), [8620] = W32(0x0), [8624] = W32(0x0), [8628] = W32(0x0), [8632] = W32(0x0), [8636] = W32(0x0),
+    [8640] = W32(0x0), [8644] = W32(0x0), [8648] = W32(0x0), [8652] = W32(0x0), [8656] = W32(0x0), [8660] = W32(0x0),
+    [8664] = W32(0x0), [8668] = W32(0x0), [8672] = W32(0x0), [8676] = W32(0x0), [8680] = W32(0x0), [8684] = W32(0x0),
+    [8688] = W32(0x0), [8692] = W32(0x0), [8696] = W32(0x0), [8700] = W32(0x0), [8704] = W32(0x0), [8708] = W32(0x0),
+    [8712] = W32(0x0), [8716] = W32(0x0), [8720] = W32(0x0), [8724] = W32(0x0), [8728] = W32(0x0), [8732] = W32(0x0),
+    [8736] = W32(0x0), [8740] = W32(0x0), [8744] = W32(0x0), [8748] = W32(0x0), [8752] = W32(0x0), [8756] = W32(0x0),
+    [8760] = W32(0x0), [8764] = W32(0x0), [8768] = W32(0x0), [8772] = W32(0x0), [8776] = W32(0x0), [8780] = W32(0x0),
+    [8784] = W32(0x0), [8788] = W32(0x0), [8792] = W32(0x0), [8796] = W32(0x0), [8800] = W32(0x0), [8804] = W32(0x0),
+    [8808] = W32(0x0), [8812] = W32(0x0), [8816] = W32(0x0), [8820] = W32(0x0), [8824] = W32(0x0), [8828] = W32(0x0),
+    [8832] = W32(0x0), [8836] = W32(0x0), [8840] = W32(0x0), [8844] = W32(0x0), [8848] = W32(0x0), [8852] = W32(0x0),
+    [8856] = W32(0x0), [8860] = W32(0x0), [8864] = W32(0x0), [8868] = W32(0x0), [8872] = W32(0x0), [8876] = W32(0x0),
+    [8880] = W32(0x0), [8884] = W32(0x0), [8888] = W32(0x0), [8892] = W32(0x0), [8896] = W32(0x0), [8900] = W32(0x0),
+    [8904] = W32(0x0), [8908] = W32(0x0), [8912] = W32(0x0), [8916] = W32(0x0), [8920] = W32(0x0), [8924] = W32(0x0),
+    [8928] = W32(0x0), [8932] = W32(0x0), [8936] = W32(0x0), [8940] = W32(0x0), [8944] = W32(0x0), [8948] = W32(0x0),
+    [8952] = W32(0x0), [8956] = W32(0x0), [8960] = W32(0x0), [8964] = W32(0x0), [8968] = W32(0x0), [8972] = W32(0x0),
+    [8976] = W32(0x0), [8980] = W32(0x0), [8984] = W32(0x0), [8988] = W32(0x0), [8992] = W32(0x0), [8996] = W32(0x0),
+    [9000] = W32(0x0), [9004] = W32(0x0), [9008] = W32(0x0), [9012] = W32(0x0), [9016] = W32(0x0), [9020] = W32(0x0),
+    [9024] = W32(0x0), [9028] = W32(0x0), [9032] = W32(0x0), [9036] = W32(0x0), [9040] = W32(0x0), [9044] = W32(0x0),
+    [9048] = W32(0x0), [9052] = W32(0x0), [9056] = W32(0x0), [9060] = W32(0x0), [9064] = W32(0x0), [9068] = W32(0x0),
+    [9072] = W32(0x0), [9076] = W32(0x0), [9080] = W32(0x0), [9084] = W32(0x0), [9088] = W32(0x0), [9092] = W32(0x0),
+    [9096] = W32(0x0), [9100] = W32(0x0), [9104] = W32(0x0), [9108] = W32(0x0), [9112] = W32(0x0), [9116] = W32(0x0),
+    [9120] = W32(0x0), [9124] = W32(0x0), [9128] = W32(0x0), [9132] = W32(0x0), [9136] = W32(0x0), [9140] = W32(0x0),
+    [9144] = W32(0x0), [9148] = W32(0x0), [9152] = W32(0x0), [9156] = W32(0x0), [9160] = W32(0x0), [9164] = W32(0x0),
+    [9168] = W32(0x0), [9172] = W32(0x0), [9176] = W32(0x0), [9180] = W32(0x0), [9184] = W32(0x0), [9188] = W32(0x0),
+    [9192] = W32(0x0), [9196] = W32(0x0), [9200] = W32(0x0), [9204] = W32(0x0), [9208] = W32(0x0), [9212] = W32(0x0),
+    [9216] = W32(0x0), [9220] = W32(0x0), [9224] = W32(0x0), [9228] = W32(0x0), [9232] = W32(0x0), [9236] = W32(0x0),
+    [9240] = W32(0x0), [9244] = W32(0x0), [9248] = W32(0x0), [9252] = W32(0x0), [9256] = W32(0x0), [9260] = W32(0x0),
+    [9264] = W32(0x0), [9268] = W32(0x0), [9272] = W32(0x0), [9276] = W32(0x0), [9280] = W32(0x0), [9284] = W32(0x0),
+    [9288] = W32(0x0), [9292] = W32(0x0), [9296] = W32(0x0), [9300] = W32(0x0), [9304] = W32(0x0), [9308] = W32(0x0),
+    [9312] = W32(0x0), [9316] = W32(0x0), [9320] = W32(0x0), [9324] = W32(0x0), [9328] = W32(0x0), [9332] = W32(0x0),
+    [9336] = W32(0x0), [9340] = W32(0x0), [9344] = W32(0x0), [9348] = W32(0x0), [9352] = W32(0x0), [9356] = W32(0x0),
+    [9360] = W32(0x0), [9364] = W32(0x0), [9368] = W32(0x0), [9372] = W32(0x0), [9376] = W32(0x0), [9380] = W32(0x0),
+    [9384] = W32(0x0), [9388] = W32(0x0), [9392] = W32(0x0), [9396] = W32(0x0), [9400] = W32(0x0), [9404] = W32(0x0),
+    [9408] = W32(0x0), [9412] = W32(0x0), [9416] = W32(0x0), [9420] = W32(0x0), [9424] = W32(0x0), [9428] = W32(0x0),
+    [9432] = W32(0x0), [9436] = W32(0x0), [9440] = W32(0x0), [9444] = W32(0x0), [9448] = W32(0x0), [9452] = W32(0x0),
+    [9456] = W32(0x0), [9460] = W32(0x0), [9464] = W32(0x0), [9468] = W32(0x0), [9472] = W32(0x0), [9476] = W32(0x0),
+    [9480] = W32(0x0), [9484] = W32(0x0), [9488] = W32(0x0), [9492] = W32(0x0), [9496] = W32(0x0), [9500] = W32(0x0),
+    [9504] = W32(0x0), [9508] = W32(0x0), [9512] = W32(0x0), [9516] = W32(0x0), [9520] = W32(0x0), [9524] = W32(0x0),
+    [9528] = W32(0x0), [9532] = W32(0x0), [9536] = W32(0x0), [9540] = W32(0x0), [9544] = W32(0x0), [9548] = W32(0x0),
+    [9552] = W32(0x0), [9556] = W32(0x0), [9560] = W32(0x0), [9564] = W32(0x0), [9568] = W32(0x0), [9572] = W32(0x0),
+    [9576] = W32(0x0), [9580] = W32(0x0), [9584] = W32(0x0), [9588] = W32(0x0), [9592] = W32(0x0), [9596] = W32(0x0),
+    [9600] = W32(0x0), [9604] = W32(0x0), [9608] = W32(0x0), [9612] = W32(0x0), [9616] = W32(0x0), [9620] = W32(0x0),
+    [9624] = W32(0x0), [9628] = W32(0x0), [9632] = W32(0x0), [9636] = W32(0x0), [9640] = W32(0x0), [9644] = W32(0x0),
+    [9648] = W32(0x0), [9652] = W32(0x0), [9656] = W32(0x0), [9660] = W32(0x0), [9664] = W32(0x0), [9668] = W32(0x0),
+    [9672] = W32(0x0), [9676] = W32(0x0), [9680] = W32(0x0), [9684] = W32(0x0), [9688] = W32(0x0), [9692] = W32(0x0),
+    [9696] = W32(0x0), [9700] = W32(0x0), [9704] = W32(0x0), [9708] = W32(0x0), [9712] = W32(0x0), [9716] = W32(0x0),
+    [9720] = W32(0x0), [9724] = W32(0x0), [9728] = W32(0x0), [9732] = W32(0x0), [9736] = W32(0x0), [9740] = W32(0x0),
+    [9744] = W32(0x0), [9748] = W32(0x0), [9752] = W32(0x0), [9756] = W32(0x0), [9760] = W32(0x0), [9764] = W32(0x0),
+    [9768] = W32(0x0), [9772] = W32(0x0), [9776] = W32(0x0), [9780] = W32(0x0), [9784] = W32(0x0), [9788] = W32(0x0),
+    [9792] = W32(0x0), [9796] = W32(0x0), [9800] = W32(0x0), [9804] = W32(0x0), [9808] = W32(0x0), [9812] = W32(0x0),
+    [9816] = W32(0x0), [9820] = W32(0x0), [9824] = W32(0x0), [9828] = W32(0x0), [9832] = W32(0x0), [9836] = W32(0x0),
+    [9840] = W32(0x0), [9844] = W32(0x0), [9848] = W32(0x0), [9852] = W32(0x0), [9856] = W32(0x0), [9860] = W32(0x0),
+    [9864] = W32(0x0), [9868] = W32(0x0), [9872] = W32(0x0), [9876] = W32(0x0), [9880] = W32(0x0), [9884] = W32(0x0),
+    [9888] = W32(0x0), [9892] = W32(0x0), [9896] = W32(0x0), [9900] = W32(0x0), [9904] = W32(0x0), [9908] = W32(0x0),
+    [9912] = W32(0x0), [9916] = W32(0x0), [9920] = W32(0x0), [9924] = W32(0x0), [9928] = W32(0x0), [9932] = W32(0x0),
+    [9936] = W32(0x0), [9940] = W32(0x0), [9944] = W32(0x0), [9948] = W32(0x0), [9952] = W32(0x0), [9956] = W32(0x0),
+    [9960] = W32(0x0), [9964] = W32(0x0), [9968] = W32(0x0), [9972] = W32(0x0), [9976] = W32(0x0), [9980] = W32(0x0),
+    [9984] = W32(0x0), [9988] = W32(0x0), [9992] = W32(0x0), [9996] = W32(0x0), [10000] = W32(0x0), [10004] = W32(0x0),
+    [10008] = W32(0x0), [10012] = W32(0x0), [10016] = W32(0x0), [10020] = W32(0x0), [10024] = W32(0x0), [10028] = W32(0x0),
+    [10032] = W32(0x0), [10036] = W32(0x0), [10040] = W32(0x0), [10044] = W32(0x0), [10048] = W32(0x0), [10052] = W32(0x0),
+    [10056] = W32(0x0), [10060] = W32(0x0), [10064] = W32(0x0), [10068] = W32(0x0), [10072] = W32(0x0), [10076] = W32(0x0),
+    [10080] = W32(0x0), [10084] = W32(0x0), [10088] = W32(0x0), [10092] = W32(0x0), [10096] = W32(0x0), [10100] = W32(0x0),
+    [10104] = W32(0x0), [10108] = W32(0x0), [10112] = W32(0x0), [10116] = W32(0x0), [10120] = W32(0x0), [10124] = W32(0x0),
+    [10128] = W32(0x0), [10132] = W32(0x0), [10136] = W32(0x0), [10140] = W32(0x0), [10144] = W32(0x0), [10148] = W32(0x0),
+    [10152] = W32(0x0), [10156] = W32(0x0), [10160] = W32(0x0), [10164] = W32(0x0), [10168] = W32(0x0), [10172] = W32(0x0),
+    [10176] = W32(0x0), [10180] = W32(0x0), [10184] = W32(0x0), [10188] = W32(0x0), [10192] = W32(0x0), [10196] = W32(0x0),
+    [10200] = W32(0x0), [10204] = W32(0x0), [10208] = W32(0x0), [10212] = W32(0x0), [10216] = W32(0x0), [10220] = W32(0x0),
+    [10224] = W32(0x0), [10228] = W32(0x0), [10232] = W32(0x0), [10236] = W32(0x0), [10240] = W32(0x0), [10244] = W32(0x0),
+    [10248] = W32(0x0), [10252] = W32(0x0), [10256] = W32(0x0), [10260] = W32(0x0), [10264] = W32(0x0), [10268] = W32(0x0),
+    [10272] = W32(0x0), [10276] = W32(0x0), [10280] = W32(0x0), [10284] = W32(0x0), [10288] = W32(0x0), [10292] = W32(0x0),
+    [10296] = W32(0x0), [10300] = W32(0x0), [10304] = W32(0x0), [10308] = W32(0x0), [10312] = W32(0x0), [10316] = W32(0x0),
+    [10320] = W32(0x0), [10324] = W32(0x0), [10328] = W32(0x0), [10332] = W32(0x0), [10336] = W32(0x0), [10340] = W32(0x0),
+    [10344] = W32(0x0), [10348] = W32(0x0), [10352] = W32(0x0), [10356] = W32(0x0), [10360] = W32(0x0), [10364] = W32(0x0),
+    [10368] = W32(0x0), [10372] = W32(0x0), [10376] = W32(0x0), [10380] = W32(0x0), [10384] = W32(0x0), [10388] = W32(0x0),
+    [10392] = W32(0x0), [10396] = W32(0x0), [10400] = W32(0x0), [10404] = W32(0x0), [10408] = W32(0x0), [10412] = W32(0x0),
+    [10416] = W32(0x0), [10420] = W32(0x0), [10424] = W32(0x0), [10428] = W32(0x0), [10432] = W32(0x0), [10436] = W32(0x0),
+    [10440] = W32(0x0), [10444] = W32(0x0), [10448] = W32(0x0), [10452] = W32(0x0), [10456] = W32(0x0), [10460] = W32(0x0),
+    [10464] = W32(0x0), [10468] = W32(0x0), [10472] = W32(0x0), [10476] = W32(0x0), [10480] = W32(0x0), [10484] = W32(0x0),
+    [10488] = W32(0x0), [10492] = W32(0x0), [10496] = W32(0x0), [10500] = W32(0x0), [10504] = W32(0x0), [10508] = W32(0x0),
+    [10512] = W32(0x0), [10516] = W32(0x0), [10520] = W32(0x0), [10524] = W32(0x0), [10528] = W32(0x0), [10532] = W32(0x0),
+    [10536] = W32(0x0), [10540] = W32(0x0), [10544] = W32(0x0), [10548] = W32(0x0), [10552] = W32(0x0), [10556] = W32(0x0),
+    [10560] = W32(0x0), [10564] = W32(0x0), [10568] = W32(0x0), [10572] = W32(0x0), [10576] = W32(0x0), [10580] = W32(0x0),
+    [10584] = W32(0x0), [10588] = W32(0x0), [10592] = W32(0x0), [10596] = W32(0x0), [10600] = W32(0x0), [10604] = W32(0x0),
+    [10608] = W32(0x0), [10612] = W32(0x0), [10616] = W32(0x0), [10620] = W32(0x0), [10624] = W32(0x0), [10628] = W32(0x0),
+    [10632] = W32(0x0), [10636] = W32(0x0), [10640] = W32(0x0), [10644] = W32(0x0), [10648] = W32(0x0), [10652] = W32(0x0),
+    [10656] = W32(0x0), [10660] = W32(0x0), [10664] = W32(0x0), [10668] = W32(0x0), [10672] = W32(0x0), [10676] = W32(0x0),
+    [10680] = W32(0x0), [10684] = W32(0x0), [10688] = W32(0x0), [10692] = W32(0x0), [10696] = W32(0x0), [10700] = W32(0x0),
+    [10704] = W32(0x0), [10708] = W32(0x0), [10712] = W32(0x0), [10716] = W32(0x0), [10720] = W32(0x0), [10724] = W32(0x0),
+    [10728] = W32(0x0), [10732] = W32(0x0), [10736] = W32(0x0), [10740] = W32(0x0), [10744] = W32(0x0), [10748] = W32(0x0),
+    [10752] = W32(0x0), [10756] = W32(0x0), [10760] = W32(0x0), [10764] = W32(0x0), [10768] = W32(0x0), [10772] = W32(0x0),
+    [10776] = W32(0x0), [10780] = W32(0x0), [10784] = W32(0x0), [10788] = W32(0x0), [10792] = W32(0x0), [10796] = W32(0x0),
+    [10800] = W32(0x0), [10804] = W32(0x0), [10808] = W32(0x0), [10812] = W32(0x0), [10816] = W32(0x0), [10820] = W32(0x0),
+    [10824] = W32(0x0), [10828] = W32(0x0), [10832] = W32(0x0), [10836] = W32(0x0), [10840] = W32(0x0), [10844] = W32(0x0),
+    [10848] = W32(0x0), [10852] = W32(0x0), [10856] = W32(0x0), [10860] = W32(0x0), [10864] = W32(0x0), [10868] = W32(0x0),
+    [10872] = W32(0x0), [10876] = W32(0x0), [10880] = W32(0x0), [10884] = W32(0x0), [10888] = W32(0x0), [10892] = W32(0x0),
+    [10896] = W32(0x0), [10900] = W32(0x0), [10904] = W32(0x0), [10908] = W32(0x0), [10912] = W32(0x0), [10916] = W32(0x0),
+    [10920] = W32(0x0), [10924] = W32(0x0), [10928] = W32(0x0), [10932] = W32(0x0), [10936] = W32(0x0), [10940] = W32(0x0),
+    [10944] = W32(0x0), [10948] = W32(0x0), [10952] = W32(0x0), [10956] = W32(0x0), [10960] = W32(0x0), [10964] = W32(0x0),
+    [10968] = W32(0x0), [10972] = W32(0x0), [10976] = W32(0x0), [10980] = W32(0x0), [10984] = W32(0x0), [10988] = W32(0x0),
+    [10992] = W32(0x0), [10996] = W32(0x0), [11000] = W32(0x0), [11004] = W32(0x0), [11008] = W32(0x0), [11012] = W32(0x0),
+    [11016] = W32(0x0), [11020] = W32(0x0), [11024] = W32(0x0), [11028] = W32(0x0), [11032] = W32(0x0), [11036] = W32(0x0),
+    [11040] = W32(0x0), [11044] = W32(0x0), [11048] = W32(0x0), [11052] = W32(0x0), [11056] = W32(0x0), [11060] = W32(0x0),
+    [11064] = W32(0x0), [11068] = W32(0x0), [11072] = W32(0x0), [11076] = W32(0x0), [11080] = W32(0x0), [11084] = W32(0x0),
+    [11088] = W32(0x0), [11092] = W32(0x0), [11096] = W32(0x0), [11100] = W32(0x0), [11104] = W32(0x0), [11108] = W32(0x0),
+    [11112] = W32(0x0), [11116] = W32(0x0), [11120] = W32(0x0), [11124] = W32(0x0), [11128] = W32(0x0), [11132] = W32(0x0),
+    [11136] = W32(0x0), [11140] = W32(0x0), [11144] = W32(0x0), [11148] = W32(0x0), [11152] = W32(0x0), [11156] = W32(0x0),
+    [11160] = W32(0x0), [11164] = W32(0x0), [11168] = W32(0x0), [11172] = W32(0x0), [11176] = W32(0x0), [11180] = W32(0x0),
+    [11184] = W32(0x0), [11188] = W32(0x0), [11192] = W32(0x0), [11196] = W32(0x0), [11200] = W32(0x0), [11204] = W32(0x0),
+    [11208] = W32(0x0), [11212] = W32(0x0), [11216] = W32(0x0), [11220] = W32(0x0), [11224] = W32(0x0), [11228] = W32(0x0),
+    [11232] = W32(0x0), [11236] = W32(0x0), [11240] = W32(0x0), [11244] = W32(0x0), [11248] = W32(0x0), [11252] = W32(0x0),
+    [11256] = W32(0x0), [11260] = W32(0x0), [11264] = W32(0x0), [11268] = W32(0x0), [11272] = W32(0x0), [11276] = W32(0x0),
+    [11280] = W32(0x0), [11284] = W32(0x0), [11288] = W32(0x0), [11292] = W32(0x0), [11296] = W32(0x0), [11300] = W32(0x0),
+    [11304] = W32(0x0), [11308] = W32(0x0), [11312] = W32(0x0), [11316] = W32(0x0), [11320] = W32(0x0), [11324] = W32(0x0),
+    [11328] = W32(0x0), [11332] = W32(0x0), [11336] = W32(0x0), [11340] = W32(0x0), [11344] = W32(0x0), [11348] = W32(0x0),
+    [11352] = W32(0x0), [11356] = W32(0x0), [11360] = W32(0x0), [11364] = W32(0x0), [11368] = W32(0x0), [11372] = W32(0x0),
+    [11376] = W32(0x0), [11380] = W32(0x0), [11384] = W32(0x0), [11388] = W32(0x0), [11392] = W32(0x0), [11396] = W32(0x0),
+    [11400] = W32(0x0), [11404] = W32(0x0), [11408] = W32(0x0), [11412] = W32(0x0), [11416] = W32(0x0), [11420] = W32(0x0),
+    [11424] = W32(0x0), [11428] = W32(0x0), [11432] = W32(0x0), [11436] = W32(0x0), [11440] = W32(0x0), [11444] = W32(0x0),
+    [11448] = W32(0x0), [11452] = W32(0x0), [11456] = W32(0x0), [11460] = W32(0x0), [11464] = W32(0x0), [11468] = W32(0x0),
+    [11472] = W32(0x0), [11476] = W32(0x0), [11480] = W32(0x0), [11484] = W32(0x0), [11488] = W32(0x0), [11492] = W32(0x0),
+    [11496] = W32(0x0), [11500] = W32(0x0), [11504] = W32(0x0), [11508] = W32(0x0), [11512] = W32(0x0), [11516] = W32(0x0),
+    [11520] = W32(0x0), [11524] = W32(0x0), [11528] = W32(0x0), [11532] = W32(0x0), [11536] = W32(0x0), [11540] = W32(0x0),
+    [11544] = W32(0x0), [11548] = W32(0x0), [11552] = W32(0x0), [11556] = W32(0x0), [11560] = W32(0x0), [11564] = W32(0x0),
+    [11568] = W32(0x0), [11572] = W32(0x0), [11576] = W32(0x0), [11580] = W32(0x0), [11584] = W32(0x0), [11588] = W32(0x0),
+    [11592] = W32(0x0), [11596] = W32(0x0), [11600] = W32(0x0), [11604] = W32(0x0), [11608] = W32(0x0), [11612] = W32(0x0),
+    [11616] = W32(0x0), [11620] = W32(0x0), [11624] = W32(0x0), [11628] = W32(0x0), [11632] = W32(0x0), [11636] = W32(0x0),
+    [11640] = W32(0x0), [11644] = W32(0x0), [11648] = W32(0x0), [11652] = W32(0x0), [11656] = W32(0x0), [11660] = W32(0x0),
+    [11664] = W32(0x0), [11668] = W32(0x0), [11672] = W32(0x0), [11676] = W32(0x0), [11680] = W32(0x0), [11684] = W32(0x0),
+    [11688] = W32(0x0), [11692] = W32(0x0), [11696] = W32(0x0), [11700] = W32(0x0), [11704] = W32(0x0), [11708] = W32(0x0),
+    [11712] = W32(0x0), [11716] = W32(0x0), [11720] = W32(0x0), [11724] = W32(0x0), [11728] = W32(0x0), [11732] = W32(0x0),
+    [11736] = W32(0x0), [11740] = W32(0x0), [11744] = W32(0x0), [11748] = W32(0x0), [11752] = W32(0x0), [11756] = W32(0x0),
+    [11760] = W32(0x0), [11764] = W32(0x0), [11768] = W32(0x0), [11772] = W32(0x0), [11776] = W32(0x0), [11780] = W32(0x0),
+    [11784] = W32(0x0), [11788] = W32(0x0), [11792] = W32(0x0), [11796] = W32(0x0), [11800] = W32(0x0), [11804] = W32(0x0),
+    [11808] = W32(0x0), [11812] = W32(0x0), [11816] = W32(0x0), [11820] = W32(0x0), [11824] = W32(0x0), [11828] = W32(0x0),
+    [11832] = W32(0x0), [11836] = W32(0x0), [11840] = W32(0x0), [11844] = W32(0x0), [11848] = W32(0x0), [11852] = W32(0x0),
+    [11856] = W32(0x0), [11860] = W32(0x0), [11864] = W32(0x0), [11868] = W32(0x0), [11872] = W32(0x0), [11876] = W32(0x0),
+    [11880] = W32(0x0), [11884] = W32(0x0), [11888] = W32(0x0), [11892] = W32(0x0), [11896] = W32(0x0), [11900] = W32(0x0),
+    [11904] = W32(0x0), [11908] = W32(0x0), [11912] = W32(0x0), [11916] = W32(0x0), [11920] = W32(0x0), [11924] = W32(0x0),
+    [11928] = W32(0x0), [11932] = W32(0x0), [11936] = W32(0x0), [11940] = W32(0x0), [11944] = W32(0x0), [11948] = W32(0x0),
+    [11952] = W32(0x0), [11956] = W32(0x0), [11960] = W32(0x0), [11964] = W32(0x0), [11968] = W32(0x0), [11972] = W32(0x0),
+    [11976] = W32(0x0), [11980] = W32(0x0), [11984] = W32(0x0), [11988] = W32(0x0), [11992] = W32(0x0), [11996] = W32(0x0),
+    [12000] = W32(0x0), [12004] = W32(0x0), [12008] = W32(0x0), [12012] = W32(0x0), [12016] = W32(0x0), [12020] = W32(0x0),
+    [12024] = W32(0x0), [12028] = W32(0x0), [12032] = W32(0x0), [12036] = W32(0x0), [12040] = W32(0x0), [12044] = W32(0x0),
+    [12048] = W32(0x0), [12052] = W32(0x0), [12056] = W32(0x0), [12060] = W32(0x0), [12064] = W32(0x0), [12068] = W32(0x0),
+    [12072] = W32(0x0), [12076] = W32(0x0), [12080] = W32(0x0), [12084] = W32(0x0), [12088] = W32(0x0), [12092] = W32(0x0),
+    [12096] = W32(0x0), [12100] = W32(0x0), [12104] = W32(0x0), [12108] = W32(0x0), [12112] = W32(0x0), [12116] = W32(0x0),
+    [12120] = W32(0x0), [12124] = W32(0x0), [12128] = W32(0x0), [12132] = W32(0x0), [12136] = W32(0x0), [12140] = W32(0x0),
+    [12144] = W32(0x0), [12148] = W32(0x0), [12152] = W32(0x0), [12156] = W32(0x0), [12160] = W32(0x0), [12164] = W32(0x0),
+    [12168] = W32(0x0), [12172] = W32(0x0), [12176] = W32(0x0), [12180] = W32(0x0), [12184] = W32(0x0), [12188] = W32(0x0),
+    [12192] = W32(0x0), [12196] = W32(0x0), [12200] = W32(0x0), [12204] = W32(0x0), [12208] = W32(0x0), [12212] = W32(0x0),
+    [12216] = W32(0x0), [12220] = W32(0x0), [12224] = W32(0x0), [12228] = W32(0x0), [12232] = W32(0x0), [12236] = W32(0x0),
+    [12240] = W32(0x0), [12244] = W32(0x0), [12248] = W32(0x0), [12252] = W32(0x0), [12256] = W32(0x0), [12260] = W32(0x0),
+    [12264] = W32(0x0), [12268] = W32(0x0), [12272] = W32(0x0), [12276] = W32(0x0), [12280] = W32(0x0), [12284] = W32(0x0),
+    [12288] = W32(0x0), [12292] = W32(0x0), [12296] = W32(0x0), [12300] = W32(0x0), [12304] = W32(0x0), [12308] = W32(0x0),
+    [12312] = W32(0x0), [12316] = W32(0x0), [12320] = W32(0x0), [12324] = W32(0x0), [12328] = W32(0x0), [12332] = W32(0x0),
+    [12336] = W32(0x0), [12340] = W32(0x0), [12344] = W32(0x0), [12348] = W32(0x0), [12352] = W32(0x0), [12356] = W32(0x0),
+    [12360] = W32(0x0), [12364] = W32(0x0), [12368] = W32(0x0), [12372] = W32(0x0), [12376] = W32(0x0), [12380] = W32(0x0),
+    [12384] = W32(0x0), [12388] = W32(0x0), [12392] = W32(0x0), [12396] = W32(0x0), [12400] = W32(0x0), [12404] = W32(0x0),
+    [12408] = W32(0x0), [12412] = W32(0x0), [12416] = W32(0x0), [12420] = W32(0x0), [12424] = W32(0x0), [12428] = W32(0x0),
+    [12432] = W32(0x0), [12436] = W32(0x0), [12440] = W32(0x0), [12444] = W32(0x0), [12448] = W32(0x0), [12452] = W32(0x0),
+    [12456] = W32(0x0), [12460] = W32(0x0), [12464] = W32(0x0), [12468] = W32(0x0), [12472] = W32(0x0), [12476] = W32(0x0),
+    [12480] = W32(0x0), [12484] = W32(0x0), [12488] = W32(0x0), [12492] = W32(0x0), [12496] = W32(0x0), [12500] = W32(0x0),
+    [12504] = W32(0x0), [12508] = W32(0x0), [12512] = W32(0x0), [12516] = W32(0x0), [12520] = W32(0x0), [12524] = W32(0x0),
+    [12528] = W32(0x0), [12532] = W32(0x0), [12536] = W32(0x0), [12540] = W32(0x0), [12544] = W32(0x0), [12548] = W32(0x0),
+    [12552] = W32(0x0), [12556] = W32(0x0), [12560] = W32(0x0), [12564] = W32(0x0), [12568] = W32(0x0), [12572] = W32(0x0),
+    [12576] = W32(0x0), [12580] = W32(0x0), [12584] = W32(0x0), [12588] = W32(0x0), [12592] = W32(0x0), [12596] = W32(0x0),
+    [12600] = W32(0x0), [12604] = W32(0x0), [12608] = W32(0x0), [12612] = W32(0x0), [12616] = W32(0x0), [12620] = W32(0x0),
+    [12624] = W32(0x0), [12628] = W32(0x0), [12632] = W32(0x0), [12636] = W32(0x0), [12640] = W32(0x0), [12644] = W32(0x0),
+    [12648] = W32(0x0), [12652] = W32(0x0), [12656] = W32(0x0), [12660] = W32(0x0), [12664] = W32(0x0), [12668] = W32(0x0),
+    [12672] = W32(0x0), [12676] = W32(0x0), [12680] = W32(0x0), [12684] = W32(0x0), [12688] = W32(0x0), [12692] = W32(0x0),
+    [12696] = W32(0x0), [12700] = W32(0x0), [12704] = W32(0x0), [12708] = W32(0x0), [12712] = W32(0x0), [12716] = W32(0x0),
+    [12720] = W32(0x0), [12724] = W32(0x0), [12728] = W32(0x0), [12732] = W32(0x0), [12736] = W32(0x0), [12740] = W32(0x0),
+    [12744] = W32(0x0), [12748] = W32(0x0), [12752] = W32(0x0), [12756] = W32(0x0), [12760] = W32(0x0), [12764] = W32(0x0),
+    [12768] = W32(0x0), [12772] = W32(0x0), [12776] = W32(0x0), [12780] = W32(0x0), [12784] = W32(0x0), [12788] = W32(0x0),
+    [12792] = W32(0x0), [12796] = W32(0x0), [12800] = W32(0x0), [12804] = W32(0x0), [12808] = W32(0x0), [12812] = W32(0x0),
+    [12816] = W32(0x0), [12820] = W32(0x0), [12824] = W32(0x0), [12828] = W32(0x0), [12832] = W32(0x0), [12836] = W32(0x0),
+    [12840] = W32(0x0), [12844] = W32(0x0), [12848] = W32(0x0), [12852] = W32(0x0), [12856] = W32(0x0), [12860] = W32(0x0),
+    [12864] = W32(0x0), [12868] = W32(0x0), [12872] = W32(0x0), [12876] = W32(0x0), [12880] = W32(0x0), [12884] = W32(0x0),
+    [12888] = W32(0x0), [12892] = W32(0x0), [12896] = W32(0x0), [12900] = W32(0x0), [12904] = W32(0x0), [12908] = W32(0x0),
+    [12912] = W32(0x0), [12916] = W32(0x0), [12920] = W32(0x0), [12924] = W32(0x0), [12928] = W32(0x0), [12932] = W32(0x0),
+    [12936] = W32(0x0), [12940] = W32(0x0), [12944] = W32(0x0), [12948] = W32(0x0), [12952] = W32(0x0), [12956] = W32(0x0),
+    [12960] = W32(0x0), [12964] = W32(0x0), [12968] = W32(0x0), [12972] = W32(0x0), [12976] = W32(0x0), [12980] = W32(0x0),
+    [12984] = W32(0x0), [12988] = W32(0x0), [12992] = W32(0x0), [12996] = W32(0x0), [13000] = W32(0x0), [13004] = W32(0x0),
+    [13008] = W32(0x0), [13012] = W32(0x0), [13016] = W32(0x0), [13020] = W32(0x0), [13024] = W32(0x0), [13028] = W32(0x0),
+    [13032] = W32(0x0), [13036] = W32(0x0), [13040] = W32(0x0), [13044] = W32(0x0), [13048] = W32(0x0), [13052] = W32(0x0),
+    [13056] = W32(0x0), [13060] = W32(0x0), [13064] = W32(0x0), [13068] = W32(0x0), [13072] = W32(0x0), [13076] = W32(0x0),
+    [13080] = W32(0x0), [13084] = W32(0x0), [13088] = W32(0x0), [13092] = W32(0x0), [13096] = W32(0x0), [13100] = W32(0x0),
+    [13104] = W32(0x0), [13108] = W32(0x0), [13112] = W32(0x0), [13116] = W32(0x0), [13120] = W32(0x0), [13124] = W32(0x0),
+    [13128] = W32(0x0), [13132] = W32(0x0), [13136] = W32(0x0), [13140] = W32(0x0), [13144] = W32(0x0), [13148] = W32(0x0),
+    [13152] = W32(0x0), [13156] = W32(0x0), [13160] = W32(0x0), [13164] = W32(0x0), [13168] = W32(0x0), [13172] = W32(0x0),
+    [13176] = W32(0x0), [13180] = W32(0x0), [13184] = W32(0x0), [13188] = W32(0x0), [13192] = W32(0x0), [13196] = W32(0x0),
+    [13200] = W32(0x0), [13204] = W32(0x0), [13208] = W32(0x0), [13212] = W32(0x0), [13216] = W32(0x0), [13220] = W32(0x0),
+    [13224] = W32(0x0), [13228] = W32(0x0), [13232] = W32(0x0), [13236] = W32(0x0), [13240] = W32(0x0), [13244] = W32(0x0),
+    [13248] = W32(0x0), [13252] = W32(0x0), [13256] = W32(0x0), [13260] = W32(0x0), [13264] = W32(0x0), [13268] = W32(0x0),
+    [13272] = W32(0x0), [13276] = W32(0x0), [13280] = W32(0x0), [13284] = W32(0x0), [13288] = W32(0x0), [13292] = W32(0x0),
+    [13296] = W32(0x0), [13300] = W32(0x0), [13304] = W32(0x0), [13308] = W32(0x0), [13312] = W32(0x0), [13316] = W32(0x0),
+    [13320] = W32(0x0), [13324] = W32(0x0), [13328] = W32(0x0), [13332] = W32(0x0), [13336] = W32(0x0), [13340] = W32(0x0),
+    [13344] = W32(0x0), [13348] = W32(0x0), [13352] = W32(0x0), [13356] = W32(0x0), [13360] = W32(0x0), [13364] = W32(0x0),
+    [13368] = W32(0x0), [13372] = W32(0x0), [13376] = W32(0x0), [13380] = W32(0x0), [13384] = W32(0x0), [13388] = W32(0x0),
+    [13392] = W32(0x0), [13396] = W32(0x0), [13400] = W32(0x0), [13404] = W32(0x0), [13408] = W32(0x0), [13412] = W32(0x0),
+    [13416] = W32(0x0), [13420] = W32(0x0), [13424] = W32(0x0), [13428] = W32(0x0), [13432] = W32(0x0), [13436] = W32(0x0),
+    [13440] = W32(0x0), [13444] = W32(0x0), [13448] = W32(0x0), [13452] = W32(0x0), [13456] = W32(0x0), [13460] = W32(0x0),
+    [13464] = W32(0x0), [13468] = W32(0x0), [13472] = W32(0x0), [13476] = W32(0x0), [13480] = W32(0x0), [13484] = W32(0x0),
+    [13488] = W32(0x0), [13492] = W32(0x0), [13496] = W32(0x0), [13500] = W32(0x0), [13504] = W32(0x0), [13508] = W32(0x0),
+    [13512] = W32(0x0), [13516] = W32(0x0), [13520] = W32(0x0), [13524] = W32(0x0), [13528] = W32(0x0), [13532] = W32(0x0),
+    [13536] = W32(0x0), [13540] = W32(0x0), [13544] = W32(0x0), [13548] = W32(0x0), [13552] = W32(0x0), [13556] = W32(0x0),
+    [13560] = W32(0x0), [13564] = W32(0x0), [13568] = W32(0x0), [13572] = W32(0x0), [13576] = W32(0x0), [13580] = W32(0x0),
+    [13584] = W32(0x0), [13588] = W32(0x0), [13592] = W32(0x0), [13596] = W32(0x0), [13600] = W32(0x0), [13604] = W32(0x0),
+    [13608] = W32(0x0), [13612] = W32(0x0), [13616] = W32(0x0), [13620] = W32(0x0), [13624] = W32(0x0), [13628] = W32(0x0),
+    [13632] = W32(0x0), [13636] = W32(0x0), [13640] = W32(0x0), [13644] = W32(0x0), [13648] = W32(0x0), [13652] = W32(0x0),
+    [13656] = W32(0x0), [13660] = W32(0x0), [13664] = W32(0x0), [13668] = W32(0x0), [13672] = W32(0x0), [13676] = W32(0x0),
+    [13680] = W32(0x0), [13684] = W32(0x0), [13688] = W32(0x0), [13692] = W32(0x0), [13696] = W32(0x0), [13700] = W32(0x0),
+    [13704] = W32(0x0), [13708] = W32(0x0), [13712] = W32(0x0), [13716] = W32(0x0), [13720] = W32(0x0), [13724] = W32(0x0),
+    [13728] = W32(0x0), [13732] = W32(0x0), [13736] = W32(0x0), [13740] = W32(0x0), [13744] = W32(0x0), [13748] = W32(0x0),
+    [13752] = W32(0x0), [13756] = W32(0x0), [13760] = W32(0x0), [13764] = W32(0x0), [13768] = W32(0x0), [13772] = W32(0x0),
+    [13776] = W32(0x0), [13780] = W32(0x0), [13784] = W32(0x0), [13788] = W32(0x0), [13792] = W32(0x0), [13796] = W32(0x0),
+    [13800] = W32(0x0), [13804] = W32(0x0), [13808] = W32(0x0), [13812] = W32(0x0), [13816] = W32(0x0), [13820] = W32(0x0),
+    [13824] = W32(0x0), [13828] = W32(0x0), [13832] = W32(0x0), [13836] = W32(0x0), [13840] = W32(0x0), [13844] = W32(0x0),
+    [13848] = W32(0x0), [13852] = W32(0x0), [13856] = W32(0x0), [13860] = W32(0x0), [13864] = W32(0x0), [13868] = W32(0x0),
+    [13872] = W32(0x0), [13876] = W32(0x0), [13880] = W32(0x0), [13884] = W32(0x0), [13888] = W32(0x0), [13892] = W32(0x0),
+    [13896] = W32(0x0), [13900] = W32(0x0), [13904] = W32(0x0), [13908] = W32(0x0), [13912] = W32(0x0), [13916] = W32(0x0),
+    [13920] = W32(0x0), [13924] = W32(0x0), [13928] = W32(0x0), [13932] = W32(0x0), [13936] = W32(0x0), [13940] = W32(0x0),
+    [13944] = W32(0x0), [13948] = W32(0x0), [13952] = W32(0x0), [13956] = W32(0x0), [13960] = W32(0x0), [13964] = W32(0x0),
+    [13968] = W32(0x0), [13972] = W32(0x0), [13976] = W32(0x0), [13980] = W32(0x0), [13984] = W32(0x0), [13988] = W32(0x0),
+    [13992] = W32(0x0), [13996] = W32(0x0), [14000] = W32(0x0), [14004] = W32(0x0), [14008] = W32(0x0), [14012] = W32(0x0),
+    [14016] = W32(0x0), [14020] = W32(0x0), [14024] = W32(0x0), [14028] = W32(0x0), [14032] = W32(0x0), [14036] = W32(0x0),
+    [14040] = W32(0x0), [14044] = W32(0x0), [14048] = W32(0x0), [14052] = W32(0x0), [14056] = W32(0x0), [14060] = W32(0x0),
+    [14064] = W32(0x0), [14068] = W32(0x0), [14072] = W32(0x0), [14076] = W32(0x0),
+};
+
+/* g_frameCounter (.sbss, ThingManager.s) */
+u8 g_frameCounter[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_freeSound (.sbss, Voice.s) */
+u8 g_freeSound[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_gameLanguage (.sbss, FileManager.s) */
+u8 g_gameLanguage[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_GameManagerState (.sdata, State_GameManager.s) */
+u8 g_GameManagerState[8] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0),
+};
+
+/* g_gamePlayCallback (.sbss, State_GamePlay.s) */
+u8 g_gamePlayCallback[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_GameProgressionEndState (.sdata, State_ProgressionManager.s) */
+u8 g_GameProgressionEndState[8] __attribute__((aligned(8))) = {
+    [0] = W32(0x4), [4] = W32(0x0),
+};
+
+/* g_GameProgressionID (.sbss, State_ProgressionManager.s) */
+u8 g_GameProgressionID[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_GameProgressionState (.data, State_ProgressionManager.s) */
+u8 g_GameProgressionState[32] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0),
+};
+
+/* g_globalMusic (.bss, AudioManager.s) */
+u8 g_globalMusic[72] __attribute__((aligned(16)));  /* original size 0x24 */
+
+/* g_handleInterfaceGP (.sbss, State_GamePlay.s) */
+u8 g_handleInterfaceGP[16] __attribute__((aligned(16)));  /* original size 0x8 */
+
+/* g_interface (.bss, InterfaceManager.s) */
+u8 g_interface[13248] __attribute__((aligned(16)));  /* original size 0x19E0 */
+
+/* g_interfaceDialogSoundPacks (.bss, InterfaceManager.s) */
+u8 g_interfaceDialogSoundPacks[240] __attribute__((aligned(16)));  /* original size 0x78 */
+
+/* g_InterfacePackData (.bss, State_GamePlay.s) */
+u8 g_InterfacePackData[240] __attribute__((aligned(16)));  /* original size 0x78 */
+
+/* g_interfacePackID (.sdata, State_GameManager.s) */
+u8 g_interfacePackID[4] __attribute__((aligned(4))) = {
+    [0] = W32(0xFFFFFFFF),
+};
+
+/* g_interfaceRenderOrder (.bss, InterfaceManager.s) */
+u8 g_interfaceRenderOrder[144] __attribute__((aligned(16)));  /* original size 0x48 */
+
+/* g_IsAnim (.sbss, Gfx_Anim.s) */
+u8 g_IsAnim[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_itemTimer (.sdata, FileStreaming.s) */
+u8 g_itemTimer[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x5DC),
+};
+
+/* g_keyBinding (.data, Player.s) */
+u8 g_keyBinding[144] __attribute__((aligned(8))) = {
+    [0] = W32(0x1), [4] = W32(0x2030405), [8] = W32(0x6070809), [12] = W32(0xA0B0C0D), [16] = W32(0x1000A0B), [20] = W32(0x9070806),
+    [24] = W32(0x4050302), [28] = W32(0xC0D010F), [32] = W32(0x4000A0B), [36] = W32(0x6070809), [40] = W32(0xFF050302), [44] = W32(0xC0D010F),
+    [48] = W32(0x3000807), [52] = W32(0xA0C0B0D), [56] = W32(0x4050302), [60] = W32(0x906010F), [64] = W32(0xB0A), [68] = W32(0x6070809),
+    [72] = W32(0x4050302), [76] = W32(0xD0C010E), [80] = W32(0x1020B0A), [84] = W32(0x6070809), [88] = W32(0xFFFF0302), [92] = W32(0xD0C01FF),
+    [96] = W32(0x1020807), [100] = W32(0xA0C0B0D), [104] = W32(0xFFFF0302), [108] = W32(0x90601FF), [112] = W32(0x807), [116] = W32(0xA0C0B0D),
+    [120] = W32(0xFF050302), [124] = W32(0x906010E), [128] = W32(0x3000A0B), [132] = W32(0x9060807), [136] = W32(0x4050302), [140] = W32(0xC0D010F),
+};
+
+/* g_lastCamPos (.bss, State_GamePlay.s) */
+u8 g_lastCamPos[32] __attribute__((aligned(16)));  /* original size 0x10 */
+
+/* g_listener (.bss, AudioManager.s) */
+u8 g_listener[1152] __attribute__((aligned(16)));  /* original size 0x240 */
+
+/* g_LoadedQuadrants (.bss, FileStreaming.s) */
+u8 g_LoadedQuadrants[88] __attribute__((aligned(16)));  /* original size 0x2C */
+
+/* g_loadingThreadID (.sbss, FileStreaming.s) */
+u8 g_loadingThreadID[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_LR_Counter (.sbss, State_GamePlay.s) */
+u8 g_LR_Counter[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_LR_Direction (.sbss, State_GamePlay.s) */
+u8 g_LR_Direction[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_LR_Max_Min (.sbss, State_GamePlay.s) */
+u8 g_LR_Max_Min[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_MasterInterfaceObjectList (.bss, InterfaceManager.s) */
+u8 g_MasterInterfaceObjectList[768000] __attribute__((aligned(16)));  /* original size 0x5DC00 */
+
+/* g_MaxStreamingDataPacks (.data, FileStreaming.s) */
+u8 g_MaxStreamingDataPacks[44] __attribute__((aligned(8))) = {
+    [0] = W32(0x8), [4] = W32(0x2), [8] = W32(0x28), [12] = W32(0x1), [16] = W32(0x1), [20] = W32(0x2),
+    [24] = W32(0x2), [28] = W32(0xB), [32] = W32(0x3), [36] = W32(0x14), [40] = W32(0x5),
+};
+
+/* g_nextSource (.sbss, AudioManager.s) */
+u8 g_nextSource[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numDataPacksToRelease (.sbss, FileStreaming.s) */
+u8 g_numDataPacksToRelease[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numInterfaceDialogSoundPacks (.sbss, InterfaceManager.s) */
+u8 g_numInterfaceDialogSoundPacks[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numInterfaceObjectAllocations (.sbss, InterfaceManager.s) */
+u8 g_numInterfaceObjectAllocations[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numInterfaceObjectsAllocated (.sbss, InterfaceManager.s) */
+u8 g_numInterfaceObjectsAllocated[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_NumInterfacesPlaying (.sbss, State_GamePlay.s) */
+u8 g_NumInterfacesPlaying[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numInterfacesToRender (.sbss, InterfaceManager.s) */
+u8 g_numInterfacesToRender[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numListeners (.sbss, AudioManager.s) */
+u8 g_numListeners[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numParticlesCreatedThisFrame (.sbss, ParticleManager.s) */
+u8 g_numParticlesCreatedThisFrame[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numQuadPacksInMemory (.sbss, FileStreaming.s) */
+u8 g_numQuadPacksInMemory[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numQuadPacksToLoad (.sbss, FileStreaming.s) */
+u8 g_numQuadPacksToLoad[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_numQuadPacksToRelease (.sbss, FileStreaming.s) */
+u8 g_numQuadPacksToRelease[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_objectAllocations (.bss, InterfaceManager.s) */
+u8 g_objectAllocations[672] __attribute__((aligned(16)));  /* original size 0x150 */
+
+/* g_onebitflag (.sbss, Render_.s) */
+u8 g_onebitflag[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_openFileDataPackType (.sdata, DataGamePackLoad.s) */
+u8 g_openFileDataPackType[4] __attribute__((aligned(4))) = {
+    [0] = W32(0xB),
+};
+
+/* g_padDownPos (.sbss, Input_NGC.s) */
+u8 g_padDownPos[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_padUpPos (.sbss, Input_NGC.s) */
+u8 g_padUpPos[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_particleManager (.bss, ParticleManager.s) */
+u8 g_particleManager[1163392] __attribute__((aligned(16)));  /* original size 0x8E040 */
+
+/* g_paused (.sbss, AudioManager.s) */
+u8 g_paused[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_pCallBack (.sbss, State_GamePlay.s) */
+u8 g_pCallBack[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pDataPackToLoad (.sbss, FileStreaming.s) */
+u8 g_pDataPackToLoad[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pDL (.sbss, Gfx_DisplayList.s) */
+u8 g_pDL[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pFree (.sbss, Voice_.s) */
+u8 g_pFree[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pGameData (.sbss, GameSettings.s) */
+u8 g_pGameData[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pGDL (.sbss, Gfx_DisplayList.s) */
+u8 g_pGDL[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pInterfaceToEnd (.sbss, InterfaceManager.s) */
+u8 g_pInterfaceToEnd[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pitchTab (.rodata, MIDI.s) */
+u8 g_pitchTab[512] __attribute__((aligned(4))) = {
+    [0] = W32(0x3C686FCE), [4] = W32(0x3C766676), [8] = W32(0x3C846058), [12] = W32(0x3C925D75), [16] = W32(0x3CA05DCF), [20] = W32(0x3CAE6164),
+    [24] = W32(0x3CBC6837), [28] = W32(0x3CCA7248), [32] = W32(0x3CD87F98), [36] = W32(0x3CE69027), [40] = W32(0x3CF4A3F7), [44] = W32(0x3D02BB08),
+    [48] = W32(0x3D10D55A), [52] = W32(0x3D1EF2EF), [56] = W32(0x3D2D13C7), [60] = W32(0x3D3B37E4), [64] = W32(0x3D495F45), [68] = W32(0x3D5789EB),
+    [72] = W32(0x3D65B7D8), [76] = W32(0x3D73E90C), [80] = W32(0x3D821D88), [84] = W32(0x3D90554D), [88] = W32(0x3D9E905B), [92] = W32(0x3DACCEB3),
+    [96] = W32(0x3DBB1055), [100] = W32(0x3DC95544), [104] = W32(0x3DD79D7E), [108] = W32(0x3DE5E906), [112] = W32(0x3DF437DC), [116] = W32(0x3E028A01),
+    [120] = W32(0x3E10DF75), [124] = W32(0x3E1F3839), [128] = W32(0x3E2D944E), [132] = W32(0x3E3BF3B5), [136] = W32(0x3E4A566E), [140] = W32(0x3E58BC7B),
+    [144] = W32(0x3E6725DC), [148] = W32(0x3E759291), [152] = W32(0x3E84029C), [156] = W32(0x3E9275FE), [160] = W32(0x3EA0ECB6), [164] = W32(0x3EAF66C7),
+    [168] = W32(0x3EBDE430), [172] = W32(0x3ECC64F3), [176] = W32(0x3EDAE90F), [180] = W32(0x3EE97087), [184] = W32(0x3EF7FB5B), [188] = W32(0x3F06898B),
+    [192] = W32(0x3F151B18), [196] = W32(0x3F23B004), [200] = W32(0x3F32484E), [204] = W32(0x3F40E3F8), [208] = W32(0x3F4F8303), [212] = W32(0x3F5E256E),
+    [216] = W32(0x3F6CCB3C), [220] = W32(0x3F7B746D), [224] = W32(0x3F8A2101), [228] = W32(0x3F98D0F9), [232] = W32(0x3FA78457), [236] = W32(0x3FB63B1A),
+    [240] = W32(0x3FC4F544), [244] = W32(0x3FD3B2D6), [248] = W32(0x3FE273D0), [252] = W32(0x3FF13833), [256] = W32(0x40000000), [260] = W32(0x400ECB37),
+    [264] = W32(0x401D99DA), [268] = W32(0x402C6BE9), [272] = W32(0x403B4165), [276] = W32(0x404A1A4F), [280] = W32(0x4058F6A7), [284] = W32(0x4067D66F),
+    [288] = W32(0x4076B9A7), [292] = W32(0x4085A050), [296] = W32(0x40948A6B), [300] = W32(0x40A377F9), [304] = W32(0x40B268F9), [308] = W32(0x40C15D6E),
+    [312] = W32(0x40D05558), [316] = W32(0x40DF50B8), [320] = W32(0x40EE4F8E), [324] = W32(0x40FD51DC), [328] = W32(0x410C57A1), [332] = W32(0x411B60E0),
+    [336] = W32(0x412A6D98), [340] = W32(0x41397DCB), [344] = W32(0x4148917A), [348] = W32(0x4157A8A4), [352] = W32(0x4166C34C), [356] = W32(0x4175E171),
+    [360] = W32(0x41850315), [364] = W32(0x41942838), [368] = W32(0x41A350DC), [372] = W32(0x41B27D01), [376] = W32(0x41C1ACA7), [380] = W32(0x41D0DFD0),
+    [384] = W32(0x41E0167D), [388] = W32(0x41EF50AD), [392] = W32(0x41FE8E63), [396] = W32(0x420DCF9F), [400] = W32(0x421D1461), [404] = W32(0x422C5CAB),
+    [408] = W32(0x423BA87E), [412] = W32(0x424AF7D9), [416] = W32(0x425A4ABF), [420] = W32(0x4269A12F), [424] = W32(0x4278FB2B), [428] = W32(0x428858B3),
+    [432] = W32(0x4297B9C8), [436] = W32(0x42A71E6C), [440] = W32(0x42B6869E), [444] = W32(0x42C5F261), [448] = W32(0x42D561B3), [452] = W32(0x42E4D497),
+    [456] = W32(0x42F44B0E), [460] = W32(0x4303C517), [464] = W32(0x431342B4), [468] = W32(0x4322C3E6), [472] = W32(0x433248AD), [476] = W32(0x4341D10B),
+    [480] = W32(0x43515D00), [484] = W32(0x4360EC8C), [488] = W32(0x43707FB2), [492] = W32(0x43801671), [496] = W32(0x438FB0CB), [500] = W32(0x439F4EC0),
+    [504] = W32(0x43AEF051), [508] = W32(0x43BE957F),
+};
+
+/* g_pKeyToDI (.bss, Input_NGC.s) */
+u8 g_pKeyToDI[80] __attribute__((aligned(16)));  /* original size 0x28 */
+
+/* g_playerIndex (.sdata, InterfaceManager.s) */
+u8 g_playerIndex[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x1),
+};
+
+/* g_playerManager (.bss, PlayerManager.s) */
+u8 g_playerManager[16832] __attribute__((aligned(16)));  /* original size 0x20E0 */
+
+/* g_playerMessage1 (.sbss, InterfaceManager.s) */
+u8 g_playerMessage1[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_playerMessage2 (.sbss, InterfaceManager.s) */
+u8 g_playerMessage2[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_playerMessage3 (.sbss, InterfaceManager.s) */
+u8 g_playerMessage3[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_playerNumThatWon (.sbss, GameRules.s) */
+u8 g_playerNumThatWon[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pNoRayCollideThing (.sbss, ThingManager.s) */
+u8 g_pNoRayCollideThing[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_podVTable (.data, CarA_AR.s) */
+u8 g_podVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
+/* g_pOrder (.sbss, IT.s) */
+u8 g_pOrder[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pPacksToBeReleased (.bss, FileStreaming.s) */
+u8 g_pPacksToBeReleased[80] __attribute__((aligned(16)));  /* original size 0x28 */
+
+/* g_pPlayerManager (.sdata, PlayerManager.s) */
+u8 g_pPlayerManager[4] __attribute__((aligned(8))) = {
+    [0] = W32(0x0),
+};
+
+/* g_pQuadPackToBeReleased (.bss, FileStreaming.s) */
+u8 g_pQuadPackToBeReleased[88] __attribute__((aligned(16)));  /* original size 0x2C */
+
+/* g_priority (.rodata, MIDI.s) */
+u8 g_priority[16] __attribute__((aligned(4))) = {
+    [0] = W32(0xF0E0D0C), [4] = W32(0xB0A0908), [8] = W32(0x7100605), [12] = W32(0x4030201),
+};
+
+/* g_projectileVTable (.data, Projectile.s) */
+u8 g_projectileVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
+/* g_pSavedGameData (.sbss, GameSettings.s) */
+u8 g_pSavedGameData[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pShaderHolder (.sbss, ShaderHolder.s) */
+u8 g_pShaderHolder[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pSourcePlayer (.sbss, AnimHandler.s) */
+u8 g_pSourcePlayer[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pTimer (.sbss, GameRules.s) */
+u8 g_pTimer[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pWindow (.sbss, Gfx_Main.s) */
+u8 g_pWindow[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_pWorldQuadrant (.sbss, FileStreaming.s) */
+u8 g_pWorldQuadrant[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_quadFileID (.sdata, FileStreaming.s) */
+u8 g_quadFileID[4] __attribute__((aligned(4))) = {
+    [0] = W32(0xFFFFFFFF),
+};
+
+/* g_QuadrantsToLoad (.bss, FileStreaming.s) */
+u8 g_QuadrantsToLoad[88] __attribute__((aligned(16)));  /* original size 0x2C */
+
+/* g_radarBlip (.sbss, InterfaceManager.s) */
+u8 g_radarBlip[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_radarTextureIndex (.sbss, InterfaceManager.s) */
+u8 g_radarTextureIndex[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_renderStats (.bss, Gfx_Main.s) */
+u8 g_renderStats[512] __attribute__((aligned(16)));  /* original size 0x100 */
+
+/* g_reverb (.bss, Voice_.s) */
+u8 g_reverb[384] __attribute__((aligned(16)));  /* original size 0xC0 */
+
+/* g_rndNumber (.sdata, InterfaceManager.s) */
+u8 g_rndNumber[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x0),
+};
+
+/* gs_aLinksDepth3 (.bss, NavHolder.s) */
+u8 gs_aLinksDepth3[512] __attribute__((aligned(16)));  /* original size 0x100 */
+
+/* gs_aNearestCars (.bss, AI_Creature.s) */
+u8 gs_aNearestCars[768] __attribute__((aligned(16)));  /* original size 0x180 */
+
+/* g_savedActions (.bss, GameRules.s) */
+u8 g_savedActions[800] __attribute__((aligned(16)));  /* original size 0x190 */
+
+/* g_saveFileCheckSum (.sdata, GameSettings.s) */
+u8 g_saveFileCheckSum[4] __attribute__((aligned(4))) = {
+    [0] = W32(0xFFFFFFFF),
+};
+
+/* g_screenText (.bss, Gfx_Main.s) */
+u8 g_screenText[5120] __attribute__((aligned(16)));  /* original size 0xA00 */
+
+/* g_screenTextX (.sbss, Gfx_Main.s) */
+u8 g_screenTextX[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_screenTextY (.sbss, Gfx_Main.s) */
+u8 g_screenTextY[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_sfxState (.sbss, Voice.s) */
+u8 g_sfxState[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_sfxvol (.sbss, Voice.s) */
+u8 g_sfxvol[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* gs_NavHolder (.sdata, NavHolder.s) */
+u8 gs_NavHolder[8] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0),
+};
+
+/* g_songLoaded (.sbss, AudioManager.s) */
+u8 g_songLoaded[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_sound (.bss, Voice.s) */
+u8 g_sound[16256] __attribute__((aligned(16)));  /* original size 0x1FC0 */
+
+/* g_soundLst (.bss, Voice.s) */
+u8 g_soundLst[508] __attribute__((aligned(16)));  /* original size 0xFE */
+
+/* g_soundSeqVTable (.data, SoundSequence.s) */
+u8 g_soundSeqVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
+/* g_sources (.sbss, AudioManager.s) */
+u8 g_sources[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* gs_pClosedListHead (.sbss, NavHolder.s) */
+u8 gs_pClosedListHead[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_speakers (.sbss, Voice.s) */
+u8 g_speakers[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* gs_pOpenListHead (.sbss, NavHolder.s) */
+u8 gs_pOpenListHead[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_springProxy (.bss, CameraManager.s) */
+u8 g_springProxy[928] __attribute__((aligned(16)));  /* original size 0x1D0 */
+
+/* g_sscount (.sbss, AudioManager.s) */
+u8 g_sscount[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_state (.bss, Gfx_Main.s) */
+u8 g_state[320] __attribute__((aligned(16)));  /* original size 0xA0 */
+
+/* g_StopInput (.sbss, Input_NGC.s) */
+u8 g_StopInput[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_StreamingDataPacks (.bss, FileStreaming.s) */
+u8 g_StreamingDataPacks[88] __attribute__((aligned(16)));  /* original size 0x2C */
+
+/* g_stunt1localString (.sdata, CarA.s) */
+u8 g_stunt1localString[4] __attribute__((aligned(8))) = {
+    [0] = W32(0x0),
+};
+
+/* g_stuntLossString (.sdata, CarA.s) */
+u8 g_stuntLossString[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x0),
+};
+
+/* g_stuntMessageLocalString (.sdata, CarA_Suspension.s) */
+u8 g_stuntMessageLocalString[4] __attribute__((aligned(8))) = {
+    [0] = W32(0x0),
+};
+
+/* gs_useMainRouteOnly (.sbss, NavHolder.s) */
+u8 gs_useMainRouteOnly[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* g_TargetArrow (.data, InterfaceManager.s) */
+u8 g_TargetArrow[28] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0),
+};
+
+/* g_targetGameState (.sbss, State_GamePlay.s) */
+u8 g_targetGameState[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_textcolor (.sbss, Render_QuadTri_.s) */
+u8 g_textcolor[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_thingManager_DARYL (.bss, ThingManager.s) */
+u8 g_thingManager_DARYL[1005440] __attribute__((aligned(16)));  /* original size 0x7ABC0 */
+
+/* g_tracks (.sbss, AudioManager.s) */
+u8 g_tracks[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_triggerAction_params_default (.sdata, CameraManager.s) */
+u8 g_triggerAction_params_default[4] __attribute__((aligned(8))) = {
+    [0] = W32(0x1E),
+};
+
+/* g_TripleBufferSleepQTime (.sbss, Render_.s) */
+u8 g_TripleBufferSleepQTime[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_UD_Counter (.sbss, State_GamePlay.s) */
+u8 g_UD_Counter[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_UD_Direction (.sbss, State_GamePlay.s) */
+u8 g_UD_Direction[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_UD_Max_Min (.sbss, State_GamePlay.s) */
+u8 g_UD_Max_Min[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_vehicleInterfaceData (.bss, GameSpecificInterfaces.s) */
+u8 g_vehicleInterfaceData[448] __attribute__((aligned(16)));  /* original size 0xE0 */
+
+/* g_viewFormat (.sbss, ViewManager.s) */
+u8 g_viewFormat[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_voice (.bss, Voice.s) */
+u8 g_voice[7168] __attribute__((aligned(16)));  /* original size 0xE00 */
+
+/* g_volTab (.rodata, Voice_.s) */
+u8 g_volTab[128] __attribute__((aligned(4))) = {
+    [0] = W32(0x7FFF7FFF), [4] = W32(0x7FFF7FFF), [8] = W32(0x727C6882), [12] = W32(0x60C25A82), [16] = W32(0x555550F4), [20] = W32(0x4D2F49E6),
+    [24] = W32(0x4700446B), [28] = W32(0x42194000), [32] = W32(0x3E163C56), [36] = W32(0x3ABA393E), [40] = W32(0x37DD3694), [44] = W32(0x35613441),
+    [48] = W32(0x33333234), [52] = W32(0x31443061), [56] = W32(0x2F892EBD), [60] = W32(0x2DFA2D41), [64] = W32(0x2C902BE7), [68] = W32(0x2B452AAA),
+    [72] = W32(0x2A162987), [76] = W32(0x28FE287A), [80] = W32(0x27FB2780), [84] = W32(0x270A2697), [88] = W32(0x262925BE), [92] = W32(0x255724F3),
+    [96] = W32(0x24922434), [100] = W32(0x23D82380), [104] = W32(0x232A22D6), [108] = W32(0x22842235), [112] = W32(0x21E8219D), [116] = W32(0x2154210C),
+    [120] = W32(0x20C72083), [124] = W32(0x20402000),
+};
+
+/* g_VolumeHolder (.sbss, VolumeManager.s) */
+u8 g_VolumeHolder[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* g_window (.bss, Gfx_Main.s) */
+u8 g_window[7200] __attribute__((aligned(16)));  /* original size 0xE10 */
+
+/* g_worldData (.bss, World.s) */
+u8 g_worldData[48] __attribute__((aligned(16)));  /* original size 0x18 */
+
+/* Heartbeat_Process (.sbss, Main.s) */
+u8 Heartbeat_Process[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* Interrupt_Process (.sbss, Main.s) */
+u8 Interrupt_Process[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_Actions (.bss, Action.s) */
+u8 m_Actions[640] __attribute__((aligned(16)));  /* original size 0x140 */
+
+/* matrixlookup (.data, Gfx_Anim.s) */
+u8 matrixlookup[160] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x3), [8] = W32(0x6), [12] = W32(0x9), [16] = W32(0xC), [20] = W32(0xF),
+    [24] = W32(0x12), [28] = W32(0x15), [32] = W32(0x18), [36] = W32(0x1B), [40] = W32(0x1E), [44] = W32(0x21),
+    [48] = W32(0x24), [52] = W32(0x27), [56] = W32(0x2A), [60] = W32(0x2D), [64] = W32(0x30), [68] = W32(0x33),
+    [72] = W32(0x36), [76] = W32(0x39), [80] = W32(0x40), [84] = W32(0x43), [88] = W32(0x46), [92] = W32(0x49),
+    [96] = W32(0x4C), [100] = W32(0x4F), [104] = W32(0x52), [108] = W32(0x55), [112] = W32(0x58), [116] = W32(0x5B),
+    [120] = W32(0x5E), [124] = W32(0x61), [128] = W32(0x64), [132] = W32(0x67), [136] = W32(0x6A), [140] = W32(0x6D),
+    [144] = W32(0x70), [148] = W32(0x73), [152] = W32(0x76), [156] = W32(0x79),
+};
+
+/* m_blendMode (.sbss, Render_.s) */
+u8 m_blendMode[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_clearColor (.sbss, Render_.s) */
+u8 m_clearColor[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_cullMode (.sbss, Render_.s) */
+u8 m_cullMode[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_curEnvmapState (.sbss, Render_Geometry_.s) */
+u8 m_curEnvmapState[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_curLightState (.sbss, Render_.s) */
+u8 m_curLightState[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_currentView (.sbss, Render_.s) */
+u8 m_currentView[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_curtime (.sbss, FileManager_NGC.s) */
+u8 m_curtime[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_defaultFifo (.sbss, Render_.s) */
+u8 m_defaultFifo[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_defaultFifoObj (.sbss, Render_.s) */
+u8 m_defaultFifoObj[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_dstBlend (.sbss, Render_.s) */
+u8 m_dstBlend[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* memCardBlockSize (.sbss, FileManager_NGC.s) */
+u8 memCardBlockSize[16] __attribute__((aligned(16)));  /* original size 0x8 */
+
+/* memCardfileInfo (.bss, FileManager_NGC.s) */
+u8 memCardfileInfo[80] __attribute__((aligned(16)));  /* original size 0x28 */
+
+/* m_fileInfo (.bss, FileManager_NGC.s) */
+u8 m_fileInfo[120] __attribute__((aligned(16)));  /* original size 0x3C */
+
+/* m_fillMode (.sbss, Render_.s) */
+u8 m_fillMode[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_firstFrame (.sdata, Render_.s) */
+u8 m_firstFrame[1] __attribute__((aligned(8))) = {
+    [0] = W8(0x1),
+};
+
+/* m_fogColor (.sbss, Render_.s) */
+u8 m_fogColor[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_fogMode (.sbss, Render_.s) */
+u8 m_fogMode[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_fogRange1 (.sbss, Render_.s) */
+u8 m_fogRange1[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_fogRange2 (.sbss, Render_.s) */
+u8 m_fogRange2[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_fogType (.sbss, Render_.s) */
+u8 m_fogType[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* m_InitOnce (.sbss, Voice_.s) */
+u8 m_InitOnce[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_interfaces (.bss, Trigger.s) */
+u8 m_interfaces[160] __attribute__((aligned(16)));  /* original size 0x50 */
+
+/* m_isopen (.sbss, FileManager_NGC.s) */
+u8 m_isopen[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_memcardstatus (.sbss, FileManager_NGC.s) */
+u8 m_memcardstatus[16] __attribute__((aligned(16)));  /* original size 0x8 */
+
+/* m_pointLightMask (.sbss, Render_Geometry_.s) */
+u8 m_pointLightMask[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_ReleasedInterface (.sbss, Trigger.s) */
+u8 m_ReleasedInterface[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_srcBlend (.sbss, Render_.s) */
+u8 m_srcBlend[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_texture (.sbss, Gfx_TextureHandler.s) */
+u8 m_texture[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_totalLights (.sbss, Render_Geometry_.s) */
+u8 m_totalLights[8] __attribute__((aligned(16)));  /* original size 0x1 */
+
+/* m_totalTextures (.sbss, Gfx_TextureHandler.s) */
+u8 m_totalTextures[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_triCount (.sbss, Render_Geometry_.s) */
+u8 m_triCount[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_triggerData (.sbss, Trigger.s) */
+u8 m_triggerData[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_Triggers (.bss, Trigger.s) */
+u8 m_Triggers[224] __attribute__((aligned(16)));  /* original size 0x70 */
+
+/* m_vertexBuffer (.sbss, Render_.s) */
+u8 m_vertexBuffer[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_VertIn (.sbss, World.s) */
+u8 m_VertIn[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_Views (.bss, ViewManager.s) */
+u8 m_Views[40] __attribute__((aligned(16)));  /* original size 0x14 */
+
+/* m_VtxDescFlag (.sbss, Render_.s) */
+u8 m_VtxDescFlag[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_zmode (.sbss, Render_.s) */
+u8 m_zmode[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_zstate (.sbss, Render_.s) */
+u8 m_zstate[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* m_zwrite (.sbss, Render_.s) */
+u8 m_zwrite[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* ngcPad (.bss, Input_NGC.s) */
+u8 ngcPad[96] __attribute__((aligned(16)));  /* original size 0x30 */
+
+/* pActionFuncArray (.data, Action.s) */
+u8 pActionFuncArray[176] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0), [68] = W32(0x0),
+    [72] = W32(0x0), [76] = W32(0x0), [80] = W32(0x0), [84] = W32(0x0), [88] = W32(0x0), [92] = W32(0x0),
+    [96] = W32(0x0), [100] = W32(0x0), [104] = W32(0x0), [108] = W32(0x0), [112] = W32(0x0), [116] = W32(0x0),
+    [120] = W32(0x0), [124] = W32(0x0), [128] = W32(0x0), [132] = W32(0x0), [136] = W32(0x0), [140] = W32(0x0),
+    [144] = W32(0x0), [148] = W32(0x0), [152] = W32(0x0), [156] = W32(0x0), [160] = W32(0x0), [164] = W32(0x0),
+    [168] = W32(0x0), [172] = W32(0x0),
+};
+
+/* PadChanMask (.data, Input_NGC.s) */
+u8 PadChanMask[16] __attribute__((aligned(8))) = {
+    [0] = W32(0x80000000), [4] = W32(0x40000000), [8] = W32(0x20000000), [12] = W32(0x10000000),
+};
+
+/* pShadowImage (.bss, Render_.s) */
+u8 pShadowImage[573440] __attribute__((aligned(16)));  /* original size 0x46000 */
+
+/* pTriggerFuncArray (.data, Trigger.s) */
+u8 pTriggerFuncArray[112] __attribute__((aligned(4))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0), [68] = W32(0x0),
+    [72] = W32(0x0), [76] = W32(0x0), [80] = W32(0x0), [84] = W32(0x0), [88] = W32(0x0), [92] = W32(0x0),
+    [96] = W32(0x0), [100] = W32(0x0), [104] = W32(0x0), [108] = W32(0x0),
+};
+
+/* rawData (.data, FileManager_NGC.s) */
+u8 rawData[2048] __attribute__((aligned(4))) = {
+    [0] = W32(0x80008000), [4] = W32(0x80008000), [8] = W32(0x80008000), [12] = W32(0x80008000), [16] = W32(0x80008000), [20] = W32(0x80008000),
+    [24] = W32(0x80008000), [28] = W32(0x80008000), [32] = W32(0x80008000), [36] = W32(0x80008000), [40] = W32(0x80008000), [44] = W32(0x80008000),
+    [48] = W32(0x80008000), [52] = W32(0x80008000), [56] = W32(0x80008000), [60] = W32(0x80008000), [64] = W32(0x80008000), [68] = W32(0x80008000),
+    [72] = W32(0x80008000), [76] = W32(0x80008000), [80] = W32(0x80008000), [84] = W32(0x80008000), [88] = W32(0x80008000), [92] = W32(0x80008000),
+    [96] = W32(0x80008000), [100] = W32(0x80008000), [104] = W32(0x80008000), [108] = W32(0x80008000), [112] = W32(0x80008000), [116] = W32(0x80008000),
+    [120] = W32(0x80008000), [124] = W32(0x80008000), [128] = W32(0x80008000), [132] = W32(0x80008000), [136] = W32(0x80008000), [140] = W32(0x80008000),
+    [144] = W32(0x80008000), [148] = W32(0x80008000), [152] = W32(0x80008000), [156] = W32(0x80008000), [160] = W32(0x80008000), [164] = W32(0x80008000),
+    [168] = W32(0x80008000), [172] = W32(0x80008000), [176] = W32(0x80008000), [180] = W32(0x80008000), [184] = W32(0x80008000), [188] = W32(0x9D67BACC),
+    [192] = W32(0x80008000), [196] = W32(0x80008000), [200] = W32(0x80008000), [204] = W32(0x80008000), [208] = W32(0x80008000), [212] = W32(0x80008000),
+    [216] = W32(0xBF0FBF0F), [220] = W32(0xAE0BA5C8), [224] = W32(0x80008000), [228] = W32(0x80008000), [232] = W32(0x80008000), [236] = W32(0x80008000),
+    [240] = W32(0x80008000), [244] = W32(0x80008000), [248] = W32(0x8CC28000), [252] = W32(0x80008000), [256] = W32(0x80008000), [260] = W32(0x80008000),
+    [264] = W32(0x80008000), [268] = W32(0x80008000), [272] = W32(0x80008000), [276] = W32(0x80008000), [280] = W32(0x80008000), [284] = W32(0x80008000),
+    [288] = W32(0x80008000), [292] = W32(0x80008000), [296] = W32(0x80008000), [300] = W32(0x80008000), [304] = W32(0x80008000), [308] = W32(0x80008000),
+    [312] = W32(0x80008000), [316] = W32(0x80008000), [320] = W32(0x80008000), [324] = W32(0x80008000), [328] = W32(0x80008000), [332] = W32(0x80008000),
+    [336] = W32(0x80008000), [340] = W32(0x80008000), [344] = W32(0x80008000), [348] = W32(0x80008000), [352] = W32(0x80008000), [356] = W32(0x80008000),
+    [360] = W32(0x80008000), [364] = W32(0x80008000), [368] = W32(0x80008000), [372] = W32(0x80208CE0), [376] = W32(0x8000A621), [380] = W32(0xC7A9D7ED),
+    [384] = W32(0x80008000), [388] = W32(0x80008000), [392] = W32(0x80008000), [396] = W32(0x80008000), [400] = W32(0x9980A621), [404] = W32(0xA621A621),
+    [408] = W32(0xE3F1E3F1), [412] = W32(0xD7D0D7ED), [416] = W32(0x800090E3), [420] = W32(0x9D8790E5), [424] = W32(0x80008460), [428] = W32(0x80208000),
+    [432] = W32(0xAA279D49), [436] = W32(0xB68EB28A), [440] = W32(0xC7A9AA2A), [444] = W32(0x946B98E9), [448] = W32(0x9D67AE2A), [452] = W32(0xBF0FBF0F),
+    [456] = W32(0x80008000), [460] = W32(0x84219D89), [464] = W32(0xAA4AA1C6), [468] = W32(0x88A28000), [472] = W32(0xBA13C6F5), [476] = W32(0xB6EB9103),
+    [480] = W32(0xBF0F9D85), [484] = W32(0x80008000), [488] = W32(0xB68EB28D), [492] = W32(0x80008000), [496] = W32(0x886394E7), [500] = W32(0x80008000),
+    [504] = W32(0x91038000), [508] = W32(0x80008000), [512] = W32(0x80008000), [516] = W32(0x80008000), [520] = W32(0x80008000), [524] = W32(0x80008000),
+    [528] = W32(0x80008000), [532] = W32(0x80008000), [536] = W32(0x80008000), [540] = W32(0x80008000), [544] = W32(0x80008000), [548] = W32(0x80008000),
+    [552] = W32(0x80008000), [556] = W32(0x80008000), [560] = W32(0x80008000), [564] = W32(0x80008000), [568] = W32(0x80008000), [572] = W32(0x80008000),
+    [576] = W32(0x80008000), [580] = W32(0x80008020), [584] = W32(0x80008000), [588] = W32(0x8020A127), [592] = W32(0x80008000), [596] = W32(0x99049464),
+    [600] = W32(0x80008CC0), [604] = W32(0x9CE59464), [608] = W32(0x9D28B28D), [612] = W32(0xCBB2F3F8), [616] = W32(0x98EB9914), [620] = W32(0x99149952),
+    [624] = W32(0x94ED9952), [628] = W32(0x99529914), [632] = W32(0x94ED90EE), [636] = W32(0x990F990F), [640] = W32(0xFFFDFFFD), [644] = W32(0xFFFDF3F8),
+    [648] = W32(0xB672CB32), [652] = W32(0xDBD4E7F5), [656] = W32(0x94D28890), [660] = W32(0xBF0FBF0F), [664] = W32(0x94D2A170), [668] = W32(0xB28D8890),
+    [672] = W32(0xE3F1D7ED), [676] = W32(0xB28AAA09), [680] = W32(0xDBD4A5ED), [684] = W32(0xB289A5ED), [688] = W32(0x88908C69), [692] = W32(0x9024A1C9),
+    [696] = W32(0x90EE9087), [700] = W32(0x90249D67), [704] = W32(0x9DA8A5CB), [708] = W32(0xBACCC7A9), [712] = W32(0x90C8AA2B), [716] = W32(0xB6EB9D87),
+    [720] = W32(0xA62AA62A), [724] = W32(0x9D879549), [728] = W32(0xA249A1E9), [732] = W32(0xA1C9BDE5), [736] = W32(0xCF8E9D87), [740] = W32(0x80008000),
+    [744] = W32(0x9929A58A), [748] = W32(0x88618000), [752] = W32(0xA589A587), [756] = W32(0x90A08000), [760] = W32(0xAD888CC2), [764] = W32(0x98E08000),
+    [768] = W32(0x80008000), [772] = W32(0x80008000), [776] = W32(0x80008000), [780] = W32(0x80009D87), [784] = W32(0x80008000), [788] = W32(0x90E3A5ED),
+    [792] = W32(0x80008000), [796] = W32(0x994A9D67), [800] = W32(0x88A2A1C8), [804] = W32(0xB28ABB05), [808] = W32(0xB28DB289), [812] = W32(0xBF03D7AA),
+    [816] = W32(0x9D85BAA1), [820] = W32(0xCB26CB6B), [824] = W32(0xB222B1EC), [828] = W32(0xA9F1B672), [832] = W32(0xCBC6CB26), [836] = W32(0x88439464),
+    [840] = W32(0xEFEFEFEF), [844] = W32(0xBF038842), [848] = W32(0xCBC6CBC6), [852] = W32(0xCBC6CBC6), [856] = W32(0xCF59CF59), [860] = W32(0xEBD9FFFD),
+    [864] = W32(0x90C890EE), [868] = W32(0x90EE90EE), [872] = W32(0x88239065), [876] = W32(0x94A8908A), [880] = W32(0xA1C69083), [884] = W32(0x88438822),
+    [888] = W32(0xFBD6FFD1), [892] = W32(0xEFACB6EB), [896] = W32(0x90EEB28D), [900] = W32(0x954E90EE), [904] = W32(0x994BAE6C), [908] = W32(0x8C699046),
+    [912] = W32(0xA9EBA5CB), [916] = W32(0x902398C6), [920] = W32(0xBB4CA1CA), [924] = W32(0x9D8BA62B), [928] = W32(0x90879065), [932] = W32(0xA1AAA64A),
+    [936] = W32(0x98C6A62A), [940] = W32(0xAA2BA9EB), [944] = W32(0xA64AA60A), [948] = W32(0x9D49A562), [952] = W32(0xAE0A9D49), [956] = W32(0xC1A2B960),
+    [960] = W32(0xCEAFC627), [964] = W32(0xC1A2B960), [968] = W32(0xAD63B920), [972] = W32(0xAD618460), [976] = W32(0xB960A521), [980] = W32(0xA5628C62),
+    [984] = W32(0x9D219D41), [988] = W32(0x8C869087), [992] = W32(0x84218842), [996] = W32(0x94C08000), [1000] = W32(0xA10BB16E), [1004] = W32(0x80008000),
+    [1008] = W32(0xA94EA94E), [1012] = W32(0x80008000), [1016] = W32(0xA551A94E), [1020] = W32(0x80008000), [1024] = W32(0x80008844), [1028] = W32(0x994AA1A2),
+    [1032] = W32(0x800094EA), [1036] = W32(0x9505A1A2), [1040] = W32(0x80209509), [1044] = W32(0x9D85A1C8), [1048] = W32(0x80008CA5), [1052] = W32(0xA62A9D89),
+    [1056] = W32(0xB1EDB672), [1060] = W32(0xB672E7F5), [1064] = W32(0xA60AAA89), [1068] = W32(0xB6EBD70C), [1072] = W32(0xA1C9A62B), [1076] = W32(0xAA2AA1EB),
+    [1080] = W32(0x9DAAA1CA), [1084] = W32(0xA1CAA1CA), [1088] = W32(0xE7F5FFD1), [1092] = W32(0xFFD1FBD6), [1096] = W32(0xD70CD70C), [1100] = W32(0xE34DEFAC),
+    [1104] = W32(0xA1EBA62B), [1108] = W32(0x9DCA9DAA), [1112] = W32(0xA5CBA1AA), [1116] = W32(0x99499D6A), [1120] = W32(0xFBD6CF8E), [1124] = W32(0xE3F1FFFD),
+    [1128] = W32(0xCB6BBB4C), [1132] = W32(0xD7D0E3F1), [1136] = W32(0x9DAA9D89), [1140] = W32(0x9DAA8D27), [1144] = W32(0x9D89A1AA), [1148] = W32(0x8CA58000),
+    [1152] = W32(0xCF8EA209), [1156] = W32(0xA5CBAD8A), [1160] = W32(0xAE6CA9C9), [1164] = W32(0xA58AB1CB), [1168] = W32(0xA589A58A), [1172] = W32(0xAD88AD88),
+    [1176] = W32(0x8000A587), [1180] = W32(0xC1A2A0C5), [1184] = W32(0x9D89C1A2), [1188] = W32(0xB141A122), [1192] = W32(0xBDE5B121), [1196] = W32(0xB5629D21),
+    [1200] = W32(0xAD21A922), [1204] = W32(0xA5219D41), [1208] = W32(0x9D029D41), [1212] = W32(0x9D20A127), [1216] = W32(0xA56190E5), [1220] = W32(0x800398A8),
+    [1224] = W32(0x9D418865), [1228] = W32(0x8001AD92), [1232] = W32(0xA96A8424), [1236] = W32(0x8000A10B), [1240] = W32(0x84468422), [1244] = W32(0x80018000),
+    [1248] = W32(0xA55194A8), [1252] = W32(0x80008000), [1256] = W32(0xCA9A8422), [1260] = W32(0x80008000), [1264] = W32(0xBA138000), [1268] = W32(0x80008000),
+    [1272] = W32(0x80008000), [1276] = W32(0x80008000), [1280] = W32(0x800088A2), [1284] = W32(0x9DAAA1C8), [1288] = W32(0x80008880), [1292] = W32(0x94E7A5ED),
+    [1296] = W32(0x80008460), [1300] = W32(0x88C08864), [1304] = W32(0x80008863), [1308] = W32(0x8CE08861), [1312] = W32(0x9929994A), [1316] = W32(0x994A9D6A),
+    [1320] = W32(0xA5E9A1CA), [1324] = W32(0x9D899929), [1328] = W32(0x9D6AA1CA), [1332] = W32(0xA1CA94EA), [1336] = W32(0x80218864), [1340] = W32(0x8C8694EA),
+    [1344] = W32(0x9D699549), [1348] = W32(0x99699D69), [1352] = W32(0x950994EA), [1356] = W32(0x94EA9968), [1360] = W32(0x990F94AC), [1364] = W32(0x94ED9969),
+    [1368] = W32(0x98EB94ED), [1372] = W32(0x990C9505), [1376] = W32(0x9D8990E5), [1380] = W32(0x884498E9), [1384] = W32(0x95278865), [1388] = W32(0xB16EB16E),
+    [1392] = W32(0x8CE6B5D4), [1396] = W32(0xB16EB16E), [1400] = W32(0x94E7AD92), [1404] = W32(0x908AA10B), [1408] = W32(0x800098A0), [1412] = W32(0xB562A524),
+    [1416] = W32(0x98A88020), [1420] = W32(0xAD889D20), [1424] = W32(0xA10B8000), [1428] = W32(0x8C699083), [1432] = W32(0x9CE78000), [1436] = W32(0x84238002),
+    [1440] = W32(0x9D219D20), [1444] = W32(0xA5248C66), [1448] = W32(0x9D0194C0), [1452] = W32(0x8C668000), [1456] = W32(0x8CA08000), [1460] = W32(0x80008000),
+    [1464] = W32(0x80008000), [1468] = W32(0x80008000), [1472] = W32(0x80018000), [1476] = W32(0x80008000), [1480] = W32(0x80008000), [1484] = W32(0x80008000),
+    [1488] = W32(0x80008000), [1492] = W32(0x80008000), [1496] = W32(0x80008000), [1500] = W32(0x80008000), [1504] = W32(0x80008000), [1508] = W32(0x80008000),
+    [1512] = W32(0x80008000), [1516] = W32(0x80008000), [1520] = W32(0x80008000), [1524] = W32(0x80008000), [1528] = W32(0x80008000), [1532] = W32(0x80008000),
+    [1536] = W32(0x80008422), [1540] = W32(0x8C859D09), [1544] = W32(0x80008000), [1548] = W32(0x90A69CE8), [1552] = W32(0x80008000), [1556] = W32(0x800098C6),
+    [1560] = W32(0x80008000), [1564] = W32(0x80008001), [1568] = W32(0x90A68424), [1572] = W32(0x80208460), [1576] = W32(0x9D098C66), [1580] = W32(0x80208CA0),
+    [1584] = W32(0x9CE89CE8), [1588] = W32(0x8C6488C0), [1592] = W32(0x90A69CE8), [1596] = W32(0x9D098880), [1600] = W32(0x88A290E3), [1604] = W32(0x8CE08020),
+    [1608] = W32(0x84608460), [1612] = W32(0x8CA08880), [1616] = W32(0x88808460), [1620] = W32(0x88808060), [1624] = W32(0x8CE08460), [1628] = W32(0x84448864),
+    [1632] = W32(0x9CE7A94E), [1636] = W32(0x98EBA170), [1640] = W32(0x8020A10B), [1644] = W32(0x990CAD92), [1648] = W32(0x98C6CA9A), [1652] = W32(0xCA9AA551),
+    [1656] = W32(0x8001CA9A), [1660] = W32(0xEB7C8422), [1664] = W32(0x98C98000), [1668] = W32(0x80218000), [1672] = W32(0x8C668000), [1676] = W32(0x80008000),
+    [1680] = W32(0x80018000), [1684] = W32(0x80008000), [1688] = W32(0x80008000), [1692] = W32(0x80008000), [1696] = W32(0x80008000), [1700] = W32(0x80008000),
+    [1704] = W32(0x80008000), [1708] = W32(0x80008000), [1712] = W32(0x80008000), [1716] = W32(0x80008000), [1720] = W32(0x80008000), [1724] = W32(0x80008000),
+    [1728] = W32(0x80008000), [1732] = W32(0x80008000), [1736] = W32(0x80008000), [1740] = W32(0x80008000), [1744] = W32(0x80008000), [1748] = W32(0x80008000),
+    [1752] = W32(0x80008000), [1756] = W32(0x80008000), [1760] = W32(0x80008000), [1764] = W32(0x80008000), [1768] = W32(0x80008000), [1772] = W32(0x80008000),
+    [1776] = W32(0x80008000), [1780] = W32(0x80008000), [1784] = W32(0x80008000), [1788] = W32(0x80008000), [1792] = W32(0x80008000), [1796] = W32(0x80008000),
+    [1800] = W32(0x80008000), [1804] = W32(0x80008000), [1808] = W32(0x80008000), [1812] = W32(0x80008000), [1816] = W32(0x80008000), [1820] = W32(0x80008000),
+    [1824] = W32(0x80009084), [1828] = W32(0x98A89943), [1832] = W32(0x80008000), [1836] = W32(0x842290A6), [1840] = W32(0x80008000), [1844] = W32(0x80008000),
+    [1848] = W32(0x80008000), [1852] = W32(0x80008000), [1856] = W32(0xB6858023), [1860] = W32(0x84248422), [1864] = W32(0x88638002), [1868] = W32(0x84228001),
+    [1872] = W32(0x80018000), [1876] = W32(0x80008000), [1880] = W32(0x80008000), [1884] = W32(0x80008000), [1888] = W32(0x80008424), [1892] = W32(0x84228000),
+    [1896] = W32(0x80008000), [1900] = W32(0x80008000), [1904] = W32(0x80008000), [1908] = W32(0x80008000), [1912] = W32(0x80008000), [1916] = W32(0x80008000),
+    [1920] = W32(0x80008000), [1924] = W32(0x80008000), [1928] = W32(0x80008000), [1932] = W32(0x80008000), [1936] = W32(0x80008000), [1940] = W32(0x80008000),
+    [1944] = W32(0x80008000), [1948] = W32(0x80008000), [1952] = W32(0x80008000), [1956] = W32(0x80008000), [1960] = W32(0x80008000), [1964] = W32(0x80008000),
+    [1968] = W32(0x80008000), [1972] = W32(0x80008000), [1976] = W32(0x80008000), [1980] = W32(0x80008000), [1984] = W32(0x80008000), [1988] = W32(0x80008000),
+    [1992] = W32(0x80008000), [1996] = W32(0x80008000), [2000] = W32(0x80008000), [2004] = W32(0x80008000), [2008] = W32(0x80008000), [2012] = W32(0x80008000),
+    [2016] = W32(0x80008000), [2020] = W32(0x80008000), [2024] = W32(0x80008000), [2028] = W32(0x80008000), [2032] = W32(0x80008000), [2036] = W32(0x80008000),
+    [2040] = W32(0x80008000), [2044] = W32(0x80008000),
+};
+
+/* rndNumberBuffer (.bss, InterfaceManager.s) */
+u8 rndNumberBuffer[32] __attribute__((aligned(16)));  /* original size 0x10 */
+
+/* ShadowTexture (.bss, Render_.s) */
+u8 ShadowTexture[64] __attribute__((aligned(16)));  /* original size 0x20 */
+
+/* stunt_msg_buffer (.bss, CarA.s) */
+u8 stunt_msg_buffer[128] __attribute__((aligned(16)));  /* original size 0x40 */
+
+/* stunt_msg_buffer_second (.bss, CarA_Suspension.s) */
+u8 stunt_msg_buffer_second[512] __attribute__((aligned(16)));  /* original size 0x100 */
+
+/* triggerLabelsArray (.data, Trigger.s) */
+u8 triggerLabelsArray[112] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0), [68] = W32(0x0),
+    [72] = W32(0x0), [76] = W32(0x0), [80] = W32(0x0), [84] = W32(0x0), [88] = W32(0x0), [92] = W32(0x0),
+    [96] = W32(0x0), [100] = W32(0x0), [104] = W32(0x0), [108] = W32(0x0),
+};
+
+/* TriggerStats (.data, Trigger.s) */
+u8 TriggerStats[336] __attribute__((aligned(4))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x10000), [12] = W32(0x0), [16] = W32(0x28), [20] = W32(0x10000),
+    [24] = W32(0x0), [28] = W32(0x14), [32] = W32(0x10000), [36] = W32(0x0), [40] = W32(0xA), [44] = W32(0x10000),
+    [48] = W32(0x0), [52] = W32(0x14), [56] = W32(0x1010000), [60] = W32(0x0), [64] = W32(0x14), [68] = W32(0x1010000),
+    [72] = W32(0x0), [76] = W32(0xA), [80] = W32(0x1010000), [84] = W32(0x0), [88] = W32(0x28), [92] = W32(0x1010000),
+    [96] = W32(0x0), [100] = W32(0xA), [104] = W32(0x10000), [108] = W32(0x0), [112] = W32(0xA), [116] = W32(0x10000),
+    [120] = W32(0x0), [124] = W32(0xA), [128] = W32(0x10000), [132] = W32(0x0), [136] = W32(0x3C), [140] = W32(0x10000),
+    [144] = W32(0x0), [148] = W32(0xA), [152] = W32(0x1010000), [156] = W32(0x0), [160] = W32(0xA), [164] = W32(0x10000),
+    [168] = W32(0x0), [172] = W32(0xA), [176] = W32(0x1010000), [180] = W32(0x0), [184] = W32(0x5), [188] = W32(0x10000),
+    [192] = W32(0x0), [196] = W32(0xA), [200] = W32(0x10000), [204] = W32(0x0), [208] = W32(0xA), [212] = W32(0x10000),
+    [216] = W32(0x0), [220] = W32(0xA), [224] = W32(0x10000), [228] = W32(0x0), [232] = W32(0x5), [236] = W32(0x10000),
+    [240] = W32(0x0), [244] = W32(0xA), [248] = W32(0x0), [252] = W32(0x0), [256] = W32(0xA), [260] = W32(0x1010000),
+    [264] = W32(0x0), [268] = W32(0x5), [272] = W32(0x1010000), [276] = W32(0x0), [280] = W32(0x5), [284] = W32(0x1010000),
+    [288] = W32(0x0), [292] = W32(0x5), [296] = W32(0x1010000), [300] = W32(0x0), [304] = W32(0xA), [308] = W32(0x10000),
+    [312] = W32(0x0), [316] = W32(0xA), [320] = W32(0x1010000), [324] = W32(0x0), [328] = W32(0x28), [332] = W32(0x10000),
+};
+
+/* WheelHandles (.data, Input_NGC.s) */
+u8 WheelHandles[16] __attribute__((aligned(4))) = {
+    [0] = W32(0xFFFFFFFF), [4] = W32(0xFFFFFFFF), [8] = W32(0xFFFFFFFF), [12] = W32(0xFFFFFFFF),
+};
+
+/* wheels (.sbss, Input_NGC.s) */
+u8 wheels[8] __attribute__((aligned(16)));  /* original size 0x4 */
+
+/* white (.sdata, Render_Geometry_.s) */
+u8 white[4] __attribute__((aligned(8))) = {
+    [0] = W32(0xFFFFFFFF),
+};
+
+/* "@639" (.sdata2, CarA.s) */
+static u8 s_CarA___639_[5] __attribute__((aligned(4))) = {
+    [0] = W8(0x73), [1] = W8(0x70), [2] = W8(0x69), [3] = W8(0x6E), [4] = W8(0x0),
+};
+
+/* "@299" (.rodata, Trigger.s) */
+static u8 s_Trigger___299_[13] __attribute__((aligned(8))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x54), [9] = W8(0x72), [10] = W8(0x75), [11] = W8(0x65),
+    [12] = W8(0x0),
+};
+
+/* "@300" (.rodata, Trigger.s) */
+static u8 s_Trigger___300_[23] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x41), [9] = W8(0x69), [10] = W8(0x72), [11] = W8(0x62),
+    [12] = W8(0x6F), [13] = W8(0x78), [14] = W8(0x20), [15] = W8(0x45), [16] = W8(0x6E), [17] = W8(0x74),
+    [18] = W8(0x65), [19] = W8(0x72), [20] = W8(0x65), [21] = W8(0x64), [22] = W8(0x0),
+};
+
+/* "@301" (.rodata, Trigger.s) */
+static u8 s_Trigger___301_[22] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x41), [9] = W8(0x69), [10] = W8(0x72), [11] = W8(0x62),
+    [12] = W8(0x6F), [13] = W8(0x78), [14] = W8(0x20), [15] = W8(0x45), [16] = W8(0x78), [17] = W8(0x69),
+    [18] = W8(0x74), [19] = W8(0x65), [20] = W8(0x64), [21] = W8(0x0),
+};
+
+/* "@302" (.rodata, Trigger.s) */
+static u8 s_Trigger___302_[22] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x41), [9] = W8(0x69), [10] = W8(0x72), [11] = W8(0x62),
+    [12] = W8(0x6F), [13] = W8(0x78), [14] = W8(0x20), [15] = W8(0x53), [16] = W8(0x74), [17] = W8(0x6F),
+    [18] = W8(0x70), [19] = W8(0x49), [20] = W8(0x6E), [21] = W8(0x0),
+};
+
+/* "@303" (.rodata, Trigger.s) */
+static u8 s_Trigger___303_[27] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x44), [9] = W8(0x65), [10] = W8(0x73), [11] = W8(0x72),
+    [12] = W8(0x75), [13] = W8(0x63), [14] = W8(0x74), [15] = W8(0x69), [16] = W8(0x62), [17] = W8(0x6C),
+    [18] = W8(0x65), [19] = W8(0x20), [20] = W8(0x4B), [21] = W8(0x69), [22] = W8(0x6C), [23] = W8(0x6C),
+    [24] = W8(0x65), [25] = W8(0x64), [26] = W8(0x0),
+};
+
+/* "@304" (.rodata, Trigger.s) */
+static u8 s_Trigger___304_[24] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x43), [9] = W8(0x72), [10] = W8(0x65), [11] = W8(0x61),
+    [12] = W8(0x74), [13] = W8(0x75), [14] = W8(0x72), [15] = W8(0x65), [16] = W8(0x20), [17] = W8(0x4B),
+    [18] = W8(0x69), [19] = W8(0x6C), [20] = W8(0x6C), [21] = W8(0x65), [22] = W8(0x64), [23] = W8(0x0),
+};
+
+/* "@305" (.rodata, Trigger.s) */
+static u8 s_Trigger___305_[20] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x49), [9] = W8(0x74), [10] = W8(0x65), [11] = W8(0x6D),
+    [12] = W8(0x20), [13] = W8(0x50), [14] = W8(0x69), [15] = W8(0x63), [16] = W8(0x6B), [17] = W8(0x75),
+    [18] = W8(0x70), [19] = W8(0x0),
+};
+
+/* "@306" (.rodata, Trigger.s) */
+static u8 s_Trigger___306_[22] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x49), [9] = W8(0x6E), [10] = W8(0x74), [11] = W8(0x65),
+    [12] = W8(0x72), [13] = W8(0x66), [14] = W8(0x61), [15] = W8(0x63), [16] = W8(0x65), [17] = W8(0x20),
+    [18] = W8(0x45), [19] = W8(0x6E), [20] = W8(0x64), [21] = W8(0x0),
+};
+
+/* "@307" (.rodata, Trigger.s) */
+static u8 s_Trigger___307_[20] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x4C), [9] = W8(0x65), [10] = W8(0x76), [11] = W8(0x65),
+    [12] = W8(0x6C), [13] = W8(0x20), [14] = W8(0x53), [15] = W8(0x74), [16] = W8(0x61), [17] = W8(0x72),
+    [18] = W8(0x74), [19] = W8(0x0),
+};
+
+/* "@308" (.rodata, Trigger.s) */
+static u8 s_Trigger___308_[26] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x54), [9] = W8(0x69), [10] = W8(0x6D), [11] = W8(0x65),
+    [12] = W8(0x72), [13] = W8(0x20), [14] = W8(0x56), [15] = W8(0x61), [16] = W8(0x6C), [17] = W8(0x75),
+    [18] = W8(0x65), [19] = W8(0x20), [20] = W8(0x43), [21] = W8(0x68), [22] = W8(0x65), [23] = W8(0x63),
+    [24] = W8(0x6B), [25] = W8(0x0),
+};
+
+/* "@309" (.rodata, Trigger.s) */
+static u8 s_Trigger___309_[21] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x4D), [9] = W8(0x6F), [10] = W8(0x76), [11] = W8(0x65),
+    [12] = W8(0x61), [13] = W8(0x62), [14] = W8(0x6C), [15] = W8(0x65), [16] = W8(0x20), [17] = W8(0x45),
+    [18] = W8(0x6E), [19] = W8(0x64), [20] = W8(0x0),
+};
+
+/* "@310" (.rodata, Trigger.s) */
+static u8 s_Trigger___310_[29] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x56), [9] = W8(0x61), [10] = W8(0x72), [11] = W8(0x69),
+    [12] = W8(0x61), [13] = W8(0x62), [14] = W8(0x6C), [15] = W8(0x65), [16] = W8(0x20), [17] = W8(0x56),
+    [18] = W8(0x61), [19] = W8(0x6C), [20] = W8(0x75), [21] = W8(0x65), [22] = W8(0x20), [23] = W8(0x43),
+    [24] = W8(0x68), [25] = W8(0x65), [26] = W8(0x63), [27] = W8(0x6B), [28] = W8(0x0),
+};
+
+/* "@311" (.rodata, Trigger.s) */
+static u8 s_Trigger___311_[23] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x56), [9] = W8(0x65), [10] = W8(0x68), [11] = W8(0x69),
+    [12] = W8(0x63), [13] = W8(0x6C), [14] = W8(0x65), [15] = W8(0x20), [16] = W8(0x4B), [17] = W8(0x69),
+    [18] = W8(0x6C), [19] = W8(0x6C), [20] = W8(0x65), [21] = W8(0x64), [22] = W8(0x0),
+};
+
+/* "@312" (.rodata, Trigger.s) */
+static u8 s_Trigger___312_[22] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x50), [9] = W8(0x32), [10] = W8(0x50), [11] = W8(0x20),
+    [12] = W8(0x41), [13] = W8(0x63), [14] = W8(0x74), [15] = W8(0x69), [16] = W8(0x76), [17] = W8(0x61),
+    [18] = W8(0x74), [19] = W8(0x65), [20] = W8(0x64), [21] = W8(0x0),
+};
+
+/* "@313" (.rodata, Trigger.s) */
+static u8 s_Trigger___313_[29] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x43), [9] = W8(0x72), [10] = W8(0x65), [11] = W8(0x61),
+    [12] = W8(0x74), [13] = W8(0x75), [14] = W8(0x72), [15] = W8(0x65), [16] = W8(0x20), [17] = W8(0x44),
+    [18] = W8(0x72), [19] = W8(0x6F), [20] = W8(0x70), [21] = W8(0x70), [22] = W8(0x65), [23] = W8(0x64),
+    [24] = W8(0x20), [25] = W8(0x4F), [26] = W8(0x66), [27] = W8(0x66), [28] = W8(0x0),
+};
+
+/* "@314" (.rodata, Trigger.s) */
+static u8 s_Trigger___314_[27] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x49), [9] = W8(0x6E), [10] = W8(0x74), [11] = W8(0x65),
+    [12] = W8(0x72), [13] = W8(0x66), [14] = W8(0x61), [15] = W8(0x63), [16] = W8(0x65), [17] = W8(0x20),
+    [18] = W8(0x50), [19] = W8(0x61), [20] = W8(0x63), [21] = W8(0x6B), [22] = W8(0x20), [23] = W8(0x45),
+    [24] = W8(0x6E), [25] = W8(0x64), [26] = W8(0x0),
+};
+
+/* "@315" (.rodata, Trigger.s) */
+static u8 s_Trigger___315_[23] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x56), [9] = W8(0x65), [10] = W8(0x68), [11] = W8(0x69),
+    [12] = W8(0x63), [13] = W8(0x6C), [14] = W8(0x65), [15] = W8(0x20), [16] = W8(0x44), [17] = W8(0x61),
+    [18] = W8(0x6D), [19] = W8(0x61), [20] = W8(0x67), [21] = W8(0x65), [22] = W8(0x0),
+};
+
+/* "@316" (.rodata, Trigger.s) */
+static u8 s_Trigger___316_[28] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x50), [9] = W8(0x6C), [10] = W8(0x61), [11] = W8(0x79),
+    [12] = W8(0x65), [13] = W8(0x72), [14] = W8(0x20), [15] = W8(0x56), [16] = W8(0x65), [17] = W8(0x68),
+    [18] = W8(0x69), [19] = W8(0x63), [20] = W8(0x6C), [21] = W8(0x65), [22] = W8(0x20), [23] = W8(0x47),
+    [24] = W8(0x65), [25] = W8(0x61), [26] = W8(0x72), [27] = W8(0x0),
+};
+
+/* "@317" (.rodata, Trigger.s) */
+static u8 s_Trigger___317_[29] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x50), [9] = W8(0x6C), [10] = W8(0x61), [11] = W8(0x79),
+    [12] = W8(0x65), [13] = W8(0x72), [14] = W8(0x20), [15] = W8(0x56), [16] = W8(0x65), [17] = W8(0x68),
+    [18] = W8(0x69), [19] = W8(0x63), [20] = W8(0x6C), [21] = W8(0x65), [22] = W8(0x20), [23] = W8(0x49),
+    [24] = W8(0x6E), [25] = W8(0x41), [26] = W8(0x69), [27] = W8(0x72), [28] = W8(0x0),
+};
+
+/* "@318" (.rodata, Trigger.s) */
+static u8 s_Trigger___318_[28] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x49), [9] = W8(0x74), [10] = W8(0x65), [11] = W8(0x6D),
+    [12] = W8(0x20), [13] = W8(0x56), [14] = W8(0x6F), [15] = W8(0x6C), [16] = W8(0x75), [17] = W8(0x6D),
+    [18] = W8(0x65), [19] = W8(0x20), [20] = W8(0x45), [21] = W8(0x6E), [22] = W8(0x74), [23] = W8(0x65),
+    [24] = W8(0x72), [25] = W8(0x65), [26] = W8(0x64), [27] = W8(0x0),
+};
+
+/* "@319" (.rodata, Trigger.s) */
+static u8 s_Trigger___319_[34] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x43), [9] = W8(0x6F), [10] = W8(0x64), [11] = W8(0x65),
+    [12] = W8(0x20), [13] = W8(0x56), [14] = W8(0x61), [15] = W8(0x72), [16] = W8(0x69), [17] = W8(0x61),
+    [18] = W8(0x62), [19] = W8(0x6C), [20] = W8(0x65), [21] = W8(0x20), [22] = W8(0x56), [23] = W8(0x61),
+    [24] = W8(0x6C), [25] = W8(0x75), [26] = W8(0x65), [27] = W8(0x20), [28] = W8(0x43), [29] = W8(0x68),
+    [30] = W8(0x65), [31] = W8(0x63), [32] = W8(0x6B), [33] = W8(0x0),
+};
+
+/* "@320" (.rodata, Trigger.s) */
+static u8 s_Trigger___320_[27] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x43), [9] = W8(0x72), [10] = W8(0x65), [11] = W8(0x61),
+    [12] = W8(0x74), [13] = W8(0x75), [14] = W8(0x72), [15] = W8(0x65), [16] = W8(0x20), [17] = W8(0x50),
+    [18] = W8(0x69), [19] = W8(0x63), [20] = W8(0x6B), [21] = W8(0x65), [22] = W8(0x64), [23] = W8(0x20),
+    [24] = W8(0x55), [25] = W8(0x70), [26] = W8(0x0),
+};
+
+/* "@321" (.rodata, Trigger.s) */
+static u8 s_Trigger___321_[29] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x47), [9] = W8(0x61), [10] = W8(0x6D), [11] = W8(0x65),
+    [12] = W8(0x20), [13] = W8(0x52), [14] = W8(0x6F), [15] = W8(0x75), [16] = W8(0x6E), [17] = W8(0x64),
+    [18] = W8(0x73), [19] = W8(0x20), [20] = W8(0x43), [21] = W8(0x6F), [22] = W8(0x6D), [23] = W8(0x70),
+    [24] = W8(0x6C), [25] = W8(0x65), [26] = W8(0x74), [27] = W8(0x65), [28] = W8(0x0),
+};
+
+/* "@322" (.rodata, Trigger.s) */
+static u8 s_Trigger___322_[32] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x47), [9] = W8(0x61), [10] = W8(0x6D), [11] = W8(0x65),
+    [12] = W8(0x20), [13] = W8(0x52), [14] = W8(0x6F), [15] = W8(0x75), [16] = W8(0x6E), [17] = W8(0x64),
+    [18] = W8(0x20), [19] = W8(0x27), [20] = W8(0x58), [21] = W8(0x27), [22] = W8(0x20), [23] = W8(0x43),
+    [24] = W8(0x6F), [25] = W8(0x6D), [26] = W8(0x70), [27] = W8(0x6C), [28] = W8(0x65), [29] = W8(0x74),
+    [30] = W8(0x65), [31] = W8(0x0),
+};
+
+/* "@323" (.rodata, Trigger.s) */
+static u8 s_Trigger___323_[21] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x49), [9] = W8(0x74), [10] = W8(0x65), [11] = W8(0x6D),
+    [12] = W8(0x20), [13] = W8(0x44), [14] = W8(0x72), [15] = W8(0x6F), [16] = W8(0x70), [17] = W8(0x70),
+    [18] = W8(0x65), [19] = W8(0x64), [20] = W8(0x0),
+};
+
+/* "@324" (.rodata, Trigger.s) */
+static u8 s_Trigger___324_[31] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x4D), [9] = W8(0x6F), [10] = W8(0x76), [11] = W8(0x61),
+    [12] = W8(0x62), [13] = W8(0x6C), [14] = W8(0x65), [15] = W8(0x20), [16] = W8(0x56), [17] = W8(0x6F),
+    [18] = W8(0x6C), [19] = W8(0x75), [20] = W8(0x6D), [21] = W8(0x65), [22] = W8(0x20), [23] = W8(0x45),
+    [24] = W8(0x6E), [25] = W8(0x74), [26] = W8(0x65), [27] = W8(0x72), [28] = W8(0x65), [29] = W8(0x64),
+    [30] = W8(0x0),
+};
+
+/* "@325" (.rodata, Trigger.s) */
+static u8 s_Trigger___325_[33] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x53), [9] = W8(0x6F), [10] = W8(0x75), [11] = W8(0x6E),
+    [12] = W8(0x64), [13] = W8(0x20), [14] = W8(0x53), [15] = W8(0x65), [16] = W8(0x71), [17] = W8(0x75),
+    [18] = W8(0x65), [19] = W8(0x6E), [20] = W8(0x63), [21] = W8(0x65), [22] = W8(0x20), [23] = W8(0x51),
+    [24] = W8(0x75), [25] = W8(0x65), [26] = W8(0x75), [27] = W8(0x65), [28] = W8(0x20), [29] = W8(0x45),
+    [30] = W8(0x6E), [31] = W8(0x64), [32] = W8(0x0),
+};
+
+/* "@326" (.rodata, Trigger.s) */
+static u8 s_Trigger___326_[32] __attribute__((aligned(4))) = {
+    [0] = W8(0x54), [1] = W8(0x72), [2] = W8(0x69), [3] = W8(0x67), [4] = W8(0x67), [5] = W8(0x65),
+    [6] = W8(0x72), [7] = W8(0x20), [8] = W8(0x43), [9] = W8(0x72), [10] = W8(0x65), [11] = W8(0x61),
+    [12] = W8(0x74), [13] = W8(0x75), [14] = W8(0x72), [15] = W8(0x65), [16] = W8(0x20), [17] = W8(0x56),
+    [18] = W8(0x6F), [19] = W8(0x6C), [20] = W8(0x75), [21] = W8(0x6D), [22] = W8(0x65), [23] = W8(0x20),
+    [24] = W8(0x45), [25] = W8(0x6E), [26] = W8(0x74), [27] = W8(0x65), [28] = W8(0x72), [29] = W8(0x65),
+    [30] = W8(0x64), [31] = W8(0x0),
+};
+
 /* Fill pointer slots with handles once, before main(). */
 __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_carAVTable + 0x0, (u8 *)&CarA_Init + 0);
@@ -90,4 +2126,212 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_carAVTable + 0x38, (u8 *)&CarA_CollideWithRay + 0);
     SLOT_STORE(g_carAVTable + 0x3C, (u8 *)&CarA_GetTargetPos + 0);
     SLOT_STORE(g_carAVTable + 0x40, (u8 *)&CarA_GetOrientedCollision + 0);
+    SLOT_STORE(g_AI_AsyncProcess + 0x4, (u8 *)&AI_AsyncProcess_80006C80 + 0);
+    SLOT_STORE(g_creatureVTable + 0x0, (u8 *)&Creature_Init + 0);
+    SLOT_STORE(g_creatureVTable + 0x4, (u8 *)&Creature_Release + 0);
+    SLOT_STORE(g_creatureVTable + 0x8, (u8 *)&Thing_PreMove + 0);
+    SLOT_STORE(g_creatureVTable + 0xC, (u8 *)&Creature_Move + 0);
+    SLOT_STORE(g_creatureVTable + 0x10, (u8 *)&Creature_Draw + 0);
+    SLOT_STORE(g_creatureVTable + 0x14, (u8 *)&Creature_GetMass + 0);
+    SLOT_STORE(g_creatureVTable + 0x18, (u8 *)&Thing_DynamicCollideImpact + 0);
+    SLOT_STORE(g_creatureVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_creatureVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_creatureVTable + 0x24, (u8 *)&Thing_SlaveTransform + 0);
+    SLOT_STORE(g_creatureVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
+    SLOT_STORE(g_creatureVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_creatureVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_creatureVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
+    SLOT_STORE(g_creatureVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
+    SLOT_STORE(g_creatureVTable + 0x3C, (u8 *)&Creature_GetTargetPos + 0);
+    SLOT_STORE(g_creatureVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
+    SLOT_STORE(g_droneVTable + 0x0, (u8 *)&Drone_Init + 0);
+    SLOT_STORE(g_droneVTable + 0x4, (u8 *)&Thing_Release + 0);
+    SLOT_STORE(g_droneVTable + 0x8, (u8 *)&Drone_PreMove + 0);
+    SLOT_STORE(g_droneVTable + 0xC, (u8 *)&Thing_Move + 0);
+    SLOT_STORE(g_droneVTable + 0x10, (u8 *)&Destructible_Draw + 0);
+    SLOT_STORE(g_droneVTable + 0x14, (u8 *)&Destructible_GetMass + 0);
+    SLOT_STORE(g_droneVTable + 0x18, (u8 *)&Drone_DynamicCollideImpact + 0);
+    SLOT_STORE(g_droneVTable + 0x1C, (u8 *)&Drone_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_droneVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_droneVTable + 0x24, (u8 *)&Thing_SlaveTransform + 0);
+    SLOT_STORE(g_droneVTable + 0x28, (u8 *)&Destructible_GetSurfaceScript + 0);
+    SLOT_STORE(g_droneVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_droneVTable + 0x30, (u8 *)&PhysicalObject_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_droneVTable + 0x34, (u8 *)&Drone_DynamicRotation + 0);
+    SLOT_STORE(g_droneVTable + 0x38, (u8 *)&Destructible_CollideWithRay + 0);
+    SLOT_STORE(g_droneVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
+    SLOT_STORE(g_droneVTable + 0x40, (u8 *)&Destructible_GetOrientedCollision + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x0, (u8 *)&EventSeq_Init + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x4, (u8 *)&EventSeq_Release + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x8, (u8 *)&Thing_PreMove + 0);
+    SLOT_STORE(g_eventSeqVTable + 0xC, (u8 *)&EventSeq_Move + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x10, (u8 *)&Thing_Draw + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x14, (u8 *)&Thing_GetMass + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x18, (u8 *)&Thing_DynamicCollideImpact + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x24, (u8 *)&Thing_SlaveTransformQuaternionOnly + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
+    SLOT_STORE(g_eventSeqVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
+    SLOT_STORE(g_podVTable + 0x0, (u8 *)&Pod_Init + 0);
+    SLOT_STORE(g_podVTable + 0x4, (u8 *)&Pod_Release + 0);
+    SLOT_STORE(g_podVTable + 0x8, (u8 *)&Thing_PreMove + 0);
+    SLOT_STORE(g_podVTable + 0xC, (u8 *)&Pod_Move + 0);
+    SLOT_STORE(g_podVTable + 0x10, (u8 *)&Pod_Draw + 0);
+    SLOT_STORE(g_podVTable + 0x14, (u8 *)&Thing_GetMass + 0);
+    SLOT_STORE(g_podVTable + 0x18, (u8 *)&Thing_DynamicCollideImpact + 0);
+    SLOT_STORE(g_podVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_podVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_podVTable + 0x24, (u8 *)&Thing_SlaveTransform + 0);
+    SLOT_STORE(g_podVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
+    SLOT_STORE(g_podVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_podVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_podVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
+    SLOT_STORE(g_podVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
+    SLOT_STORE(g_podVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
+    SLOT_STORE(g_podVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
+    SLOT_STORE(g_pPlayerManager + 0x0, (u8 *)g_playerManager + 0);
+    SLOT_STORE(g_projectileVTable + 0x0, (u8 *)&Projectile_Init + 0);
+    SLOT_STORE(g_projectileVTable + 0x4, (u8 *)&Projectile_Release + 0);
+    SLOT_STORE(g_projectileVTable + 0x8, (u8 *)&Projectile_PreMove + 0);
+    SLOT_STORE(g_projectileVTable + 0xC, (u8 *)&Projectile_Move + 0);
+    SLOT_STORE(g_projectileVTable + 0x10, (u8 *)&Projectile_Draw + 0);
+    SLOT_STORE(g_projectileVTable + 0x14, (u8 *)&Projectile_GetMass + 0);
+    SLOT_STORE(g_projectileVTable + 0x18, (u8 *)&Projectile_DynamicCollideImpact + 0);
+    SLOT_STORE(g_projectileVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_projectileVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_projectileVTable + 0x24, (u8 *)&Thing_SlaveTransform + 0);
+    SLOT_STORE(g_projectileVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
+    SLOT_STORE(g_projectileVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_projectileVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_projectileVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
+    SLOT_STORE(g_projectileVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
+    SLOT_STORE(g_projectileVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
+    SLOT_STORE(g_projectileVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
+    SLOT_STORE(g_rndNumber + 0x0, (u8 *)rndNumberBuffer + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x0, (u8 *)&SoundSeq_Init + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x4, (u8 *)&SoundSeq_Release + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x8, (u8 *)&Thing_PreMove + 0);
+    SLOT_STORE(g_soundSeqVTable + 0xC, (u8 *)&SoundSeq_Move + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x10, (u8 *)&Thing_Draw + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x14, (u8 *)&Thing_GetMass + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x18, (u8 *)&Thing_DynamicCollideImpact + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x24, (u8 *)&Thing_SlaveTransformQuaternionOnly + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
+    SLOT_STORE(g_soundSeqVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
+    SLOT_STORE(g_stunt1localString + 0x0, (u8 *)s_CarA___639_ + 0);
+    SLOT_STORE(g_stuntLossString + 0x0, (u8 *)stunt_msg_buffer + 0);
+    SLOT_STORE(g_stuntMessageLocalString + 0x0, (u8 *)stunt_msg_buffer_second + 0);
+    SLOT_STORE(pActionFuncArray + 0x0, (u8 *)&ActionAirboxChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x4, (u8 *)&ActionCameraSetTargets + 0);
+    SLOT_STORE(pActionFuncArray + 0x8, (u8 *)&ActionDestructibleChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0xC, (u8 *)&ActionFXPointChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x10, (u8 *)&ActionInterfacePlay + 0);
+    SLOT_STORE(pActionFuncArray + 0x14, (u8 *)&ActionItemChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x18, (u8 *)&ActionEndLevel + 0);
+    SLOT_STORE(pActionFuncArray + 0x1C, (u8 *)&ActionTimerChangeValue + 0);
+    SLOT_STORE(pActionFuncArray + 0x20, (u8 *)&ActionTimerChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x24, (u8 *)&ActionMoveableChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x28, (u8 *)&ActionMusicChange + 0);
+    SLOT_STORE(pActionFuncArray + 0x2C, (u8 *)&ActionMusicSetSong + 0);
+    SLOT_STORE(pActionFuncArray + 0x30, (u8 *)&ActionNavPointChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x34, (u8 *)&ActionPauseGame + 0);
+    SLOT_STORE(pActionFuncArray + 0x38, (u8 *)&ActionSpeakerChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x3C, (u8 *)&ActionTargetArrowSetTarget + 0);
+    SLOT_STORE(pActionFuncArray + 0x40, (u8 *)&ActionVariableChangeValue + 0);
+    SLOT_STORE(pActionFuncArray + 0x44, (u8 *)&ActionVehicleChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x48, (u8 *)&ActionVehicleAISetNamedPath + 0);
+    SLOT_STORE(pActionFuncArray + 0x4C, (u8 *)&ActionVertexColorSeqChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x50, (u8 *)&ActionPrintDebugString + 0);
+    SLOT_STORE(pActionFuncArray + 0x54, (u8 *)&ActionVehicleTeleport + 0);
+    SLOT_STORE(pActionFuncArray + 0x58, (u8 *)&ActionVehicleChangeControl + 0);
+    SLOT_STORE(pActionFuncArray + 0x5C, (u8 *)&ActionSetPlayerVehicle + 0);
+    SLOT_STORE(pActionFuncArray + 0x60, (u8 *)&ActionVehicleRemoveItem + 0);
+    SLOT_STORE(pActionFuncArray + 0x64, (u8 *)&ActionVehicleRemoveCreature + 0);
+    SLOT_STORE(pActionFuncArray + 0x68, (u8 *)&ActionVariableChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x6C, (u8 *)&ActionLoadInterfacePack + 0);
+    SLOT_STORE(pActionFuncArray + 0x70, (u8 *)&ActionPlayInterfacePack + 0);
+    SLOT_STORE(pActionFuncArray + 0x74, (u8 *)&ActionUnloadInterfacePack + 0);
+    SLOT_STORE(pActionFuncArray + 0x78, (u8 *)&ActionEndInterfacePack + 0);
+    SLOT_STORE(pActionFuncArray + 0x7C, (u8 *)&ActionEndInterface + 0);
+    SLOT_STORE(pActionFuncArray + 0x80, (u8 *)&ActionHUDChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x84, (u8 *)&ActionScriptLightChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x88, (u8 *)&ActionCodeVariableModifyValue + 0);
+    SLOT_STORE(pActionFuncArray + 0x8C, (u8 *)&ActionMissionObjChangeMode + 0);
+    SLOT_STORE(pActionFuncArray + 0x90, (u8 *)&ActionPauseTACSystem + 0);
+    SLOT_STORE(pActionFuncArray + 0x94, (u8 *)&ActionSwapAIScript + 0);
+    SLOT_STORE(pActionFuncArray + 0x98, (u8 *)&ActionResetGameRound + 0);
+    SLOT_STORE(pActionFuncArray + 0x9C, (u8 *)&ActionRoundComplete + 0);
+    SLOT_STORE(pActionFuncArray + 0xA0, (u8 *)&ActionVehicleGiveItem + 0);
+    SLOT_STORE(pActionFuncArray + 0xA4, (u8 *)&ActionSetPlayerOrder + 0);
+    SLOT_STORE(pActionFuncArray + 0xA8, (u8 *)&ActionPlaySoundSequence + 0);
+    SLOT_STORE(pActionFuncArray + 0xAC, (u8 *)&ActionCreatureChangeMode + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x0, (u8 *)&TriggerTrue + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x4, (u8 *)&TriggerAirboxEntered + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x8, (u8 *)&TriggerAirboxExited + 0);
+    SLOT_STORE(pTriggerFuncArray + 0xC, (u8 *)&TriggerAirboxStopIn + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x10, (u8 *)&TriggerDesructibleKilled + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x14, (u8 *)&TriggerCreatureKilled + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x18, (u8 *)&TriggerItemPickup + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x1C, (u8 *)&TriggerInterfaceEnd + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x20, (u8 *)&TriggerLevelStart + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x24, (u8 *)&TriggerTimerValueCheck + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x28, (u8 *)&TriggerMoveableEnd + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x2C, (u8 *)&TriggerVariableValueCheck + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x30, (u8 *)&TriggerVehicleKilled + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x34, (u8 *)&TriggerP2PActivated + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x38, (u8 *)&TriggerCreatureDroppedOff + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x3C, (u8 *)&TriggerInterfacePackEnd + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x40, (u8 *)&TriggerVehicleDamage + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x44, (u8 *)&TriggerPlayerVehicleGear + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x48, (u8 *)&TriggerPlayerVehicleInAir + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x4C, (u8 *)&TriggerItemVolumeEntered + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x50, (u8 *)&TriggerCodeVariableValueCheck + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x54, (u8 *)&TriggerCreaturePickedUp + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x58, (u8 *)&TriggerGameRoundsComplete + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x5C, (u8 *)&TriggerGameRoundXComplete + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x60, (u8 *)&TriggerItemDropped + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x64, (u8 *)&TriggerMovableVolumeEntered + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x68, (u8 *)&TriggerSoundSeqQueueEnd + 0);
+    SLOT_STORE(pTriggerFuncArray + 0x6C, (u8 *)&TriggerCreatureVolumeEntered + 0);
+    SLOT_STORE(triggerLabelsArray + 0x0, (u8 *)s_Trigger___299_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x4, (u8 *)s_Trigger___300_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x8, (u8 *)s_Trigger___301_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0xC, (u8 *)s_Trigger___302_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x10, (u8 *)s_Trigger___303_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x14, (u8 *)s_Trigger___304_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x18, (u8 *)s_Trigger___305_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x1C, (u8 *)s_Trigger___306_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x20, (u8 *)s_Trigger___307_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x24, (u8 *)s_Trigger___308_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x28, (u8 *)s_Trigger___309_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x2C, (u8 *)s_Trigger___310_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x30, (u8 *)s_Trigger___311_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x34, (u8 *)s_Trigger___312_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x38, (u8 *)s_Trigger___313_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x3C, (u8 *)s_Trigger___314_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x40, (u8 *)s_Trigger___315_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x44, (u8 *)s_Trigger___316_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x48, (u8 *)s_Trigger___317_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x4C, (u8 *)s_Trigger___318_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x50, (u8 *)s_Trigger___319_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x54, (u8 *)s_Trigger___320_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x58, (u8 *)s_Trigger___321_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x5C, (u8 *)s_Trigger___322_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x60, (u8 *)s_Trigger___323_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x64, (u8 *)s_Trigger___324_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x68, (u8 *)s_Trigger___325_ + 0);
+    SLOT_STORE(triggerLabelsArray + 0x6C, (u8 *)s_Trigger___326_ + 0);
 }

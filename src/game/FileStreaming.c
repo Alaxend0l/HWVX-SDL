@@ -423,9 +423,9 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
     numRelease = 0;
     paused = Trigger_IsTACSystemPaused();
     for (i = 0; i < g_numQuadPacksInMemory; i++) {
-        quad = SLOT_LOAD(Quad *, (u32 *)(g_LoadedQuadrants) + (i));
+        quad = ((Quad *)g_LoadedQuadrants[i]);
         for (j = 0; j < count; j++) {
-            if (quad == SLOT_LOAD(Quad *, (u32 *)(quads) + (j))) {
+            if (quad == ((Quad **)quads)[j]) {
                 break;
             }
         }
@@ -474,12 +474,12 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
     Trigger_PauseTACSystem(paused);
     g_numQuadPacksInMemory = 0;
     for (i = 0; i < count; i++) {
-        if (GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->loaded) != NULL) {
-            SLOT_STORE((u32 *)(g_LoadedQuadrants) + (g_numQuadPacksInMemory++), SLOT_LOAD(Quad *, (u32 *)(quads) + (i)));
+        if (GETP(((Quad **)quads)[i]->loaded) != NULL) {
+            (g_LoadedQuadrants[g_numQuadPacksInMemory++] = (u8 *)((Quad **)quads)[i]);
         }
-        if (!GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->dirty) {
-            GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->dirty = 1;
-            for (j = 0; j < GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->numStatics; j++) {
+        if (!GETP(((Quad **)quads)[i]->data)->dirty) {
+            GETP(((Quad **)quads)[i]->data)->dirty = 1;
+            for (j = 0; j < GETP(((Quad **)quads)[i]->data)->numStatics; j++) {
                 StaticEntry *st = &GETP(GETP(((Quad **)quads)[i]->data)->statics)[j];
 
                 if (st->active == 3 && st->respawn) {
@@ -519,7 +519,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                     ActionDestructibleChangeMode((u32 *)&destAction);
                 }
             }
-            for (j = 0; j < GETP(SLOT_LOAD(Quad *, (u32 *)(quads) + (i))->data)->numDynamics; j++) {
+            for (j = 0; j < GETP(((Quad **)quads)[i]->data)->numDynamics; j++) {
                 DynamicEntry *dyn = &GETP(GETP(((Quad **)quads)[i]->data)->dynamics)[j];
 
                 if (GETP(dyn->info) != NULL) {
@@ -770,7 +770,7 @@ void LoadQuadrants(s8 refresh) {
     }
     for (i = 0; i < g_numQuadPacksToLoad; i++) {
         if (GETP(((QuadPack *)g_QuadrantsToLoad[i])->loaded) == NULL) {
-            DataPack_LoadQuadPack(g_quadFileID, g_QuadrantsToLoad[i], ((World *)GETP(g_worldData.world))->id);
+            DataPack_LoadQuadPack(g_quadFileID, g_QuadrantsToLoad[i]);
             if (refresh) {
                 DataPack_RefreshQuadPackPtrs(PTR(g_worldData.unk8[2]), g_QuadrantsToLoad[i]);
                 ((QuadPack *)g_QuadrantsToLoad[i])->inMemory = 1;
@@ -800,39 +800,39 @@ s32 FileStreaming_LoadDataPack(void *name, s32 type, u32 id, s8 threaded) {
     if (type >= 11 || (g_bLoadingThreadRunning && threaded)) {
         return -1;
     }
-    if (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) == NULL) {
+    if (((DataPack *)g_StreamingDataPacks[type]) == NULL) {
         FileStreaming_Initialize();
     }
     for (i = 0; i < g_MaxStreamingDataPacks[type]; i++) {
-        if (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].used && id == SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].id
-            && strcmp(name, GETP(SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].name)) == 0
-            && SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].refs != 0) {
-            if (GETP(SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].data) == NULL) {
-                SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].used = 0;
-                SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].refs = 0;
-                SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].unk1 = 0;
-                SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].unk2 = 0;
+        if (((DataPack *)g_StreamingDataPacks[type])[i].used && id == ((DataPack *)g_StreamingDataPacks[type])[i].id
+            && strcmp(name, GETP(((DataPack *)g_StreamingDataPacks[type])[i].name)) == 0
+            && ((DataPack *)g_StreamingDataPacks[type])[i].refs != 0) {
+            if (GETP(((DataPack *)g_StreamingDataPacks[type])[i].data) == NULL) {
+                ((DataPack *)g_StreamingDataPacks[type])[i].used = 0;
+                ((DataPack *)g_StreamingDataPacks[type])[i].refs = 0;
+                ((DataPack *)g_StreamingDataPacks[type])[i].unk1 = 0;
+                ((DataPack *)g_StreamingDataPacks[type])[i].unk2 = 0;
             } else {
-                (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + i)->refs++;
+                (((DataPack *)g_StreamingDataPacks[type]) + i)->refs++;
                 return i;
             }
         }
-        if (slot == -1 && !SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[i].used) {
+        if (slot == -1 && !((DataPack *)g_StreamingDataPacks[type])[i].used) {
             slot = i;
         }
     }
     if (slot == -1) {
         return -1;
     }
-    SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type))[slot].used = 1;
-    (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->unk1 = 0;
-    (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->unk2 = 0;
-    SETP((SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->name, name);
-    (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->id = id;
-    (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->refs = 1;
-    (SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot)->unk10 = 0;
+    ((DataPack *)g_StreamingDataPacks[type])[slot].used = 1;
+    (((DataPack *)g_StreamingDataPacks[type]) + slot)->unk1 = 0;
+    (((DataPack *)g_StreamingDataPacks[type]) + slot)->unk2 = 0;
+    SETP((((DataPack *)g_StreamingDataPacks[type]) + slot)->name, name);
+    (((DataPack *)g_StreamingDataPacks[type]) + slot)->id = id;
+    (((DataPack *)g_StreamingDataPacks[type]) + slot)->refs = 1;
+    (((DataPack *)g_StreamingDataPacks[type]) + slot)->unk10 = 0;
     g_dataPackToLoadType = type;
-    g_pDataPackToLoad = SLOT_LOAD(DataPack *, (u32 *)(g_StreamingDataPacks) + (type)) + slot;
+    g_pDataPackToLoad = ((DataPack *)g_StreamingDataPacks[type]) + slot;
     if (threaded) {
         if (!g_bLoadingThreadRunning) {
             g_bLoadDataPack = 1;
@@ -979,6 +979,6 @@ void LoadDataPack(void)
     {
         g_pDataPackToLoad = NULL;
         pack[1] = 1;
-        DataPack_LoadFile(PTR(M2C_FIELD(pack, s32 *, 4)), HND(pack + 0x14), g_dataPackToLoadType, M2C_FIELD(pack, s32 *, 8), &result);
+        DataPack_LoadFile(PTR(M2C_FIELD(pack, s32 *, 4)), HND(pack + 0x14), g_dataPackToLoadType, M2C_FIELD(pack, s32 *, 8));
     }
 }

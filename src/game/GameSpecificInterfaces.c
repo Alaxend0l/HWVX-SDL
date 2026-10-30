@@ -158,7 +158,7 @@ void GSI_VehicleItemSelection(void *arg) {
         } else {
             return;
         }
-        Input_SetForceFeedbackActive(0, *GameSettings_GetControllerSettings(1));
+        Input_SetForceFeedbackActive(0, GameSettings_GetControllerSettings(1)->data[0]);
         if (GETP(g_worldData.world) != NULL) {
             s_pColGrid = SLOT_LOAD(void *, GETP(g_worldData.world));
             SLOT_STORE(GETP(g_worldData.world), NULL);

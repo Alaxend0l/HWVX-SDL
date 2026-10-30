@@ -133,7 +133,7 @@ void Player_SetThing(void *player, void *thing) {
 }
 
 s32 Player_InputHeartbeat(void *arg0) {
-    return M2C_FIELD(arg0, s8 (**)(), 0x20)() != 0;
+    return ((s8 (*)())SLOT_LOAD(void *, (u8 *)PORT_ADDR(arg0) + 0x20))() != 0;
 }
 
 void Player_GetInterfaceInfo(void *arg0, void *arg1) {
@@ -385,9 +385,9 @@ void Player_Heartbeat(void *arg0) {
             s32 cur;
 
             cur = GETP(GETP(thing->vtable)->getNearestNavPoint)(thing);
-            dest = HND(NavHolder_GetFirstWayPoint());
-            while (NavHolder_GetNavPoint(dest)->type == 1) {
-                dest = GETP(NavHolder_GetNavPoint(dest)->next);
+            dest = NavHolder_GetFirstWayPoint();
+            while (((NavPoint *)NavHolder_GetNavPoint(dest))->type == 1) {
+                dest = ((NavPoint *)NavHolder_GetNavPoint(dest))->next;
             }
             if (dest != -1 && cur != -1) {
                 NavHolder_UseMainRouteOnly();
@@ -412,7 +412,7 @@ void Player_Heartbeat(void *arg0) {
             if (GameSettings_GetCodeVariable(0x12D, 0) >= 3 && player->deathNavPoint != -1) {
                 u8 attempt = 0;
 
-                params.pos = NavHolder_GetNavPoint(player->deathNavPoint)->pos;
+                params.pos = ((NavPoint *)NavHolder_GetNavPoint(player->deathNavPoint))->pos;
                 memcpy(mtx, &g_identity, sizeof(mtx));
                 if (player->respawnNavPoint != -1) {
                     a = NavHolder_GetNavPoint(player->deathNavPoint);
@@ -871,7 +871,7 @@ s32 ActionVehicleChangeControl(u32 *action) {
                 isHuman = 1;
             }
             if (isHuman) {
-                Input_SetForceFeedbackActive(*(s32 *)(player + 0xC8), *GameSettings_GetControllerSettings(*(s32 *)(player + 0x60)));
+                Input_SetForceFeedbackActive(*(s32 *)(player + 0xC8), GameSettings_GetControllerSettings(*(s32 *)(player + 0x60))->data[0]);
             }
             *(u32 *)(player + 0x6C) &= ~1;
         }

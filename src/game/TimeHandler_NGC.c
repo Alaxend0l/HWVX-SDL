@@ -20,11 +20,11 @@ u32 m_iDeltaTimeUs;
 u32 m_iLastTimeUs;
 
 static inline u32 TimeHandler_GetTimeUs(void) {
-    return (OSGetTick() * 8) / ((*(u32 *)0x800000F8 / 4) / 125000);
+    return (OSGetTick() * 8) / (OS_TIMER_CLOCK / 125000);
 }
 
 void TimeHandler_Init(void) {
-    u32 now = (OSGetTick() * 8) / ((*(u32 *)0x800000F8 / 4) / 125000);
+    u32 now = (OSGetTick() * 8) / (OS_TIMER_CLOCK / 125000);
 
     m_iDeltaTimeUs = 1;
     m_iLastTimeUs = now;
@@ -89,14 +89,14 @@ void Performance_End(void) {
 }
 
 void Release_Performance_Get(u32 *arg0) {
-    *arg0 = (OSGetTick() * 8) / ((*(u32 *)0x800000F8 / 4) / 125000);
+    *arg0 = (OSGetTick() * 8) / (OS_TIMER_CLOCK / 125000);
 }
 
 void Release_Performance_Diff(u32 *arg0) {
     extern u32 max_time;
     u32 now;
 
-    now = (OSGetTick() * 8) / ((*(u32 *)0x800000F8 / 4) / 125000);
+    now = (OSGetTick() * 8) / (OS_TIMER_CLOCK / 125000);
     if (now < *arg0) {
         now += max_time;
     }

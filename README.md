@@ -117,6 +117,10 @@ Run in this order on freshly imported sources (each is idempotent):
    the decomp's split data sections (needs the decomp built, for
    `build/HOTWHE/asm`). Pointer entries become handles at startup.
 
+`tools/asm_args.py NAME...` reports which argument registers a function reads
+in the original, and which it passes straight on to a call; use it to settle
+call sites that disagree with a definition.
+
 `gen_protos.py` also declares functions whose signatures use a type local to
 their own file, with those pointers as `void *`; the declaration is hidden from
 that file and from files that declare the function with their own copy of the
@@ -127,26 +131,30 @@ type (CMake defines `HWVX_SRC_<file>` for each game source).
 `tools/import_decomp.py --merge` three-way merges the decomp's changes since
 `src/game/DECOMP_REVISION` into the patched files (base: old decomp file,
 ours: `src/game`, theirs: new decomp file). New code arrives unrewritten;
-resolve any conflicts, then rerun steps 2–7 (all idempotent).
+resolve any conflicts, then rerun steps 2–7 (all idempotent). Run `fieldify.py`
+with `--only <merged files>` so files the merge didn't touch keep their hand
+fixes (the script prints the command).
 
 ## Status
 
-Work in progress; it does not run yet.
+Work in progress: it builds and boots into the game's state machine, but
+nothing is drawn and asset data is not byte-swapped yet.
 
 - [x] Build system, platform layer: window/GL context, VI frame pacing,
       threads, heap arena + handles, DVD → data dir, CARD → save files,
       PAD → SDL gamepad/keyboard, AX mixer → miniaudio, MTX/VEC
 - [x] Pointer slots, pointer↔integer conversions and struct pointer fields
       converted to 32-bit handles (tool-driven, ~9k sites)
-- [ ] Game sources compiling on 64-bit: 66/115 files (177 errors); the rest
-      are call sites disagreeing with definitions, pointer/integer mixes the
-      tools can't decide, and initializers needing handles
+- [x] Game sources compile and link on 64-bit (x86-64 Linux, GCC)
 - [x] Decomp code merged in up to the latest decomp commit (see
       `src/game/DECOMP_REVISION`)
-- [ ] Globals from the original data sections (`gen_data.py` is ready)
-- [ ] Byte-swapping of asset formats on load
+- [x] Globals from the original data sections (`src/game/data_gen.c`)
+- [ ] Byte-swapping of asset formats on load (next: the game boots, loads
+      `mcp.xgc` and runs its state machine, but reads big-endian fields as-is)
 - [ ] GX → OpenGL renderer (vertex decoding, display lists, textures, TEV)
-- [ ] THP movies, aux-bus reverb, ADPCM
+- [ ] THP movies (skipped for now), aux-bus reverb, ADPCM
+- [ ] Logitech wheels / force feedback via SDL haptics (no wheel reported yet)
+- [ ] IPL ROM font for the debug text printer (empty font for now)
 
 ### Missing game code
 

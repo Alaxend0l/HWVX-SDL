@@ -302,7 +302,7 @@ s32 StateProgressionManager_Heartbeat(void) {
         } else {
             switch (GETP(seq->steps)[g_GameProgressionState.step].type) {
             case 0:
-                StateMovie_SetMovieToPlay(GETP(GETP(seq->steps)[g_GameProgressionState.step].data));
+                StateMovie_SetMovieToPlay(HND(GETP(GETP(seq->steps)[g_GameProgressionState.step].data)));
                 StateManager_QueueChange(3);
                 break;
             case 1:
@@ -381,7 +381,7 @@ s32 StateProgressionManager_Shutdown(void) {
 
     PlayerManager_Release();
     if ((s8) M2C_FIELD(&g_GameProgressionState, u8 *, 0x10) != 0) {
-        FileStreaming_ReleaseDataPack(FileStreaming_GetPackID(M2C_FIELD(&g_GameProgressionState, s32 *, 0x1C), 1, (s8) M2C_FIELD(&g_GameProgressionState, u8 *, 0x10)), 1);
+        FileStreaming_ReleaseDataPack(FileStreaming_GetPackID(PTR(M2C_FIELD(&g_GameProgressionState, s32 *, 0x1C)), 1, (s8) M2C_FIELD(&g_GameProgressionState, u8 *, 0x10)), 1);
         M2C_FIELD(&g_GameProgressionState, u8 *, 0x10) = 0U;
     }
     FileStreaming_ReleaseAllDataPacks(1, 1);
@@ -842,5 +842,6 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         }
         return curLoadingState;
     }
+    return 1;  /* asm */
 }
 

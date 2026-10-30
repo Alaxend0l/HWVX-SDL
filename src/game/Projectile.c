@@ -202,7 +202,7 @@ s32 Projectile_Init(u8 *proj, u8 *params) {
         }
         if (SLOT_LOAD(u8 *, (proj + 0x14C)) != NULL) {
             GETP((SLOT_LOAD(VTable *, (SLOT_LOAD(u8 *, (proj + 0x14C)) + 0x8C)))->getPosition)(SLOT_LOAD(u8 *, (proj + 0x14C)), &targetPos);
-            Projectile_YAim(proj, &targetPos, 10.0f, 0.34906584f);
+            Projectile_YAim(proj, &targetPos);
         }
         break;
     }
@@ -769,7 +769,7 @@ void Projectile_DynamicCollideImpact(void * proj, void * dir, s32 damage, f32 fo
         ((f32 *)proj)[0] = ((f32 *)dir)[4] * scale + ((f32 *)proj)[0];
         ((f32 *)proj)[1] = ((f32 *)dir)[5] * scale + ((f32 *)proj)[1];
         ((f32 *)proj)[2] = ((f32 *)dir)[6] * scale + ((f32 *)proj)[2];
-        Projectile_DynamicCollisionCorrection(proj);
+        Projectile_DynamicCollisionCorrection(proj, dir);
     }
 }
 

@@ -12,7 +12,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-HEADERS = [ROOT / "src/port/sdk.h", ROOT / "src/port/gx.h"]
+HEADERS = [ROOT / "src/port/sdk.h", ROOT / "src/port/gx.h", ROOT / "src/port/lgwheels.h"]
 
 LIBC = """memset memcpy memmove memcmp strlen strcpy strncpy strcat strcmp strncmp strchr
 strrchr strstr sprintf snprintf vsprintf printf tolower toupper rand srand atan atan2 sin

@@ -44,8 +44,8 @@ typedef struct TimeBarRect {
 
 
 void ShowStats_Create(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 void ShowStats_Init(void) {

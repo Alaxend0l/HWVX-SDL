@@ -135,8 +135,8 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
 }
 
 void Mover_Init(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 void PhysicalObject_IntegrateNonLateral(u8 *obj) {

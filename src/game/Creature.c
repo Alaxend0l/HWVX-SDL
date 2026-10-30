@@ -884,7 +884,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
         if (GETP(creature->controls) != NULL && (GETP(creature->controls)->flags & 0x100)) {
             b *= GETP(creature->controls)->speed;
         }
-        Motion_BlendHeartbeat_FPS(&creature->anim, 2, b);
+        Motion_BlendHeartbeat_FPS(&creature->anim, 2, NULL, b);
         if (creature->unkFC != 0) {
             creature->flags &= ~0x10;
         }

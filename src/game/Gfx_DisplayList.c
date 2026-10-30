@@ -517,9 +517,10 @@ GDLRect *Gfx_Add2DRectangle(void) {
     return &g_pGDL->rects2D[g_pGDL->numRects2D++];
 }
 
-void Gfx_Add2DRectangleBack(void)
+/* passes its argument straight on (asm); the decomp has (void) */
+void Gfx_Add2DRectangleBack(void *rect)
 {
-    Render_DrawRectangle();
+    Render_DrawRectangle(rect);
 }
 
 extern f32 g_alphaTestMin;

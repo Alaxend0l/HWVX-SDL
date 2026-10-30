@@ -18,6 +18,10 @@ Pass 2 - accesses `x->name` / `x.name` of converted fields:
 
   tools/fieldify.py src/game/*.c src/game/include/*.h
 
+After a decomp merge, rewrite only the merged files (names still come from all):
+
+  tools/fieldify.py --only src/game/A.c,src/game/B.c src/game/*.c src/game/include/*.h
+
 Idempotent: existing PTR32 fields are picked up and already wrapped accesses
 are left alone, so it can be rerun after merging new decomp code.
 """
@@ -313,6 +317,10 @@ def main():
     if args and args[0] == "--revert":
         revert(args[1])
         return
+    only = None
+    if args and args[0] == "--only":
+        only = {pathlib.Path(p).resolve() for p in args[1].split(",")}
+        args = args[2:]
     fields = {}
     review = []
     texts = {p: pathlib.Path(p).read_text() for p in args}
@@ -325,7 +333,8 @@ def main():
         out = rewrite_accesses_file(texts[p], fields, review, pathlib.Path(p).name)
         texts[p] = out
     for p, t in texts.items():
-        pathlib.Path(p).write_text(t)
+        if only is None or pathlib.Path(p).resolve() in only:
+            pathlib.Path(p).write_text(t)
     review = list(dict.fromkeys(review))
     pathlib.Path("fieldify_review.txt").write_text("\n".join(review) + "\n")
     print(f"{len(fields)} pointer field names converted; {len(review)} sites to review "

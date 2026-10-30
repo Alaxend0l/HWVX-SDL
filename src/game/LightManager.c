@@ -129,8 +129,8 @@ void LightManager_LightThing(CarA *thing) {
         whiteParallel.r = 0xFF;
         whiteParallel.g = 0xFF;
         whiteParallel.b = 0xFF;
-        Gfx_SetAmbientColor(whiteAmbient);
-        Gfx_SetParallelLight(whiteParallel, 0);
+        Gfx_SetAmbientColor(&whiteAmbient);
+        Gfx_SetParallelLight(&whiteParallel, NULL);
         return;
     }
     *(u32 *)&ambient = 0;
@@ -423,13 +423,13 @@ void LightManager_LightThing(CarA *thing) {
         }
     }
     if (tracked) {
-        Gfx_SetAmbientColor(data->ambient);
-        Gfx_SetParallelLight(data->parallel, 0);
+        Gfx_SetAmbientColor(&data->ambient);
+        Gfx_SetParallelLight(&data->parallel, NULL);
         LightHolder_SetRenderState(&thing->worldMatrix.v[3]);
         return;
     }
-    Gfx_SetAmbientColor(ambient);
-    Gfx_SetParallelLight(parallel, 0);
+    Gfx_SetAmbientColor(&ambient);
+    Gfx_SetParallelLight(&parallel, NULL);
     LightHolder_SetRenderState(&thing->worldMatrix.v[3]);
 }
 

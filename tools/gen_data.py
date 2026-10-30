@@ -6,7 +6,8 @@ The decomp keeps much of .data/.bss in split assembly rather than C. This reads
 the objects from HWVX-GC-Decomp/build/HOTWHE/asm/*.s (produced by the decomp's
 build) and writes src/game/data_gen.c:
 
-- zero-initialised objects (.bss/.sbss) become sized, aligned byte arrays;
+- zero-initialised objects (.bss/.sbss) become aligned byte arrays twice the
+  original size (room for host pointers where the original had 4 bytes);
 - initialised objects become byte arrays in *host* byte order (W16/W32/W64
   macros pick the order at compile time, so the file is endian-portable);
 - every `.4byte symbol+addend` becomes a 4-byte slot filled at startup with
@@ -17,6 +18,7 @@ Local objects those tables point at (string literals, nested tables) are
 pulled in automatically.
 
   tools/gen_data.py NAME...        # or: tools/gen_data.py @names.txt
+  tools/gen_data.py --raw rawData NAME...  # rawData's "pointers" are image data
 """
 import pathlib
 import re
@@ -68,6 +70,27 @@ def load_objects():
             if cur is not None and line.startswith("."):
                 cur["lines"].append(line)
     return objs
+
+
+def load_addresses():
+    out = {}
+    for line in SYMBOLS.read_text().splitlines():
+        m = re.match(r"(\S+) = \.\w+:0x(\w+);", line)
+        if m:
+            out[m.group(1)] = int(m.group(2), 16)
+    return out
+
+
+ADDRESSES = load_addresses()
+
+
+def address_of(sym):
+    if sym in ADDRESSES:
+        return ADDRESSES[sym]
+    m = re.search(r"_([0-9A-F]{8})$", sym)  # asm built before a rename: Name_ADDR
+    if m:
+        return int(m.group(1), 16)
+    raise KeyError(sym)
 
 
 def load_functions():
@@ -125,6 +148,8 @@ class Emitter:
         self.done = {}
         self.queue = []
         self.missing = []
+        self.exported = set()  # local objects the game's C refers to by name
+        self.raw = set()       # objects whose "pointers" are really plain data
 
     def resolve(self, name, file):
         """Find the object for a reference made from `file`."""
@@ -140,7 +165,7 @@ class Emitter:
 
     def c_ident(self, key):
         obj = self.objs[key]
-        if obj["scope"] == "local":
+        if obj["scope"] == "local" and key not in self.exported:
             return "s_" + cname(obj["file"].replace(".s", "")) + "_" + cname(obj["name"])
         return cname(obj["name"])
 
@@ -153,6 +178,8 @@ class Emitter:
         for line in obj["lines"]:
             d, _, arg = line.partition(" ")
             arg = arg.strip()
+            if d in (".4byte", ".2byte", ".byte", ".float", ".double"):
+                arg = arg.split("#")[0].strip()  # e.g. `.4byte 0x7FFFFFFF # NaN`
             if d == ".4byte":
                 for a in [x.strip() for x in arg.split(",")]:
                     if re.fullmatch(r"-?(0x[0-9A-Fa-f]+|\d+)", a):
@@ -160,8 +187,12 @@ class Emitter:
                     else:
                         m = re.fullmatch(r"([^+\-]+)([+\-]0x[0-9A-Fa-f]+|[+\-]\d+)?", a)
                         sym, add = m.group(1), int(m.group(2), 0) if m.group(2) else 0
-                        fixups.append((size, sym, add))
-                        items.append(("W32", 0))
+                        if obj["name"] in self.raw:
+                            # not a pointer: data that happens to look like an address
+                            items.append(("W32", (address_of(sym) + add) & 0xFFFFFFFF))
+                        else:
+                            fixups.append((size, sym, add))
+                            items.append(("W32", 0))
                     size += 4
             elif d == ".2byte":
                 for a in arg.split(","):
@@ -212,12 +243,16 @@ class Emitter:
             else:
                 resolved.append((off, "sym", sym, add))
 
-        storage = "static " if obj["scope"] == "local" else ""
+        storage = "static " if obj["scope"] == "local" and key not in self.exported else ""
         is_bss = obj["section"] in BSS or all(i[0] == "ZERO" for i in items)
         decl = f"{storage}u8 {ident}[{max(size, 1)}] __attribute__((aligned({max(obj['align'], 4)})))"
         out = [f"/* {obj['name']} ({obj['section']}, {obj['file']}) */"]
         if is_bss and not resolved:
-            out.append(decl + ";")
+            # Zero-initialised globals are often host pointers (or arrays of
+            # them) in the game code, which take 8 bytes where the original
+            # had 4; twice the size leaves room for that.
+            decl = f"{storage}u8 {ident}[{max(size * 2, 8)}] __attribute__((aligned(16)))"
+            out.append(decl + ";  /* original size 0x%X */" % size)
         else:
             # Designated indices skip zero runs (.skip) without spelling them
             # out; `[pos] = W32(x)` initialises bytes pos..pos+3.
@@ -240,6 +275,10 @@ class Emitter:
 def main():
     args = sys.argv[1:]
     names = []
+    raw = set()
+    while args and args[0] == "--raw":
+        raw.add(args[1])
+        args = args[2:]
     for a in args:
         if a.startswith("@"):
             names += pathlib.Path(a[1:]).read_text().split()
@@ -247,11 +286,18 @@ def main():
             names.append(a)
     objs = load_objects()
     em = Emitter(objs)
+    em.raw = raw
     functions = load_functions()
     not_found = []
     for n in names:
         if n in objs:
             em.want(n)
+            continue
+        # file-local in the original, but the port's C names it from elsewhere
+        local = [k for k in objs if k.endswith(":" + n)]
+        if len(local) == 1:
+            em.exported.add(local[0])
+            em.want(local[0])
         else:
             not_found.append(n)
     chunks = []

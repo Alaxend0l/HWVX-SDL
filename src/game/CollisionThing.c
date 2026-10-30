@@ -893,9 +893,9 @@ s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit) 
     }
     return 1;
 }
+s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit);
 
 f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, CollisionInfo *hit) {
-    s8 OBoxHitsSegmentZeroTime(void *obox, void *edge, void *arg2);
     DividingAxis da;
     Vector4 dir __attribute__((aligned(16)));
     Vector4 axis __attribute__((aligned(16)));

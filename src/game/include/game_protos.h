@@ -3,6 +3,8 @@
 #ifndef GAME_PROTOS_H
 #define GAME_PROTOS_H
 
+struct ParticleGX_MacroStep_t;
+struct ParticleGX_Move_t;
 struct Thing;
 
 
@@ -14,7 +16,7 @@ void AI_AsyncProcess_80006C80(void);
 s8 AI_CheckAngleInRange(f32 angle, f32 center, f32 range);
 void AI_Create(void);
 s32 AI_Heartbeat(u8 *ai);
-void AI_Init(void);
+void AI_Init(void *player, s32 arg1);
 s32 AI_ProcessEvent(void);
 void AI_Reset(void *arg0);
 u32 AI_UpdateTimer(u32 *arg0);
@@ -124,7 +126,7 @@ s32 ActionMusicSetSong(void);
 void MusicHearbeat(void);
 void SFX_Heartbeat(void);
 void SFX_ProcessSource(u32 index);
-void SongManager_LoadSong(u8 *data, u32 size);
+void SongManager_LoadSong(u8 *data, u8 *bank);
 void SongManager_PlaySong(void);
 void SongManager_StopBKSong(void);
 void * SoundAudioSample_Play(void *sample);
@@ -509,7 +511,7 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
 void DisplayList_RenderGXList(void);
 void DrawAlphaTable(void);
 void Gfx_Add2DFXLine(Vector4 *p0, Vector4 *p1, GXColor *c0, GXColor *c1, u8 flag);
-void Gfx_Add2DRectangleBack(void);
+void Gfx_Add2DRectangleBack(void *rect);
 void Gfx_Add2DSprite(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b);
 void Gfx_AddCorona(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b);
 u32 Gfx_AddWorldMatrixState_CacheMatrix(f32 (*matrix)[4]);
@@ -540,7 +542,7 @@ void Gfx_DrawGeometry_QuaternionScalePos(s32 geometry, s32 quat, s32 scale, s32 
 void Gfx_BeginScene(void);
 void Gfx_ClearScreen(void);
 s32 Gfx_Create(void);
-void Gfx_CreateView(void);
+s32 Gfx_CreateView(s32 view, u32 width, u32 height);
 void Gfx_Destroy(void);
 void Gfx_DisableState(s32 arg0);
 void Gfx_EnableState(s32 arg0);
@@ -579,7 +581,7 @@ void Grid_Release(void);
 s32 AudioIT_Create(void);
 void AudioIT_Destroy(s32 unused);
 s32 AudioIT_Init(void);
-void CreateIT(u8 *data, u32 arg1);
+void CreateIT(u8 *data, u8 *arg1);
 void DestroyIT(void);
 void ProcessIT(u32 ticks);
 void SetITOrder(u8 order, s8 deferred);
@@ -784,7 +786,7 @@ s32 MovieManager_GetTextureIndex(void);
 s32 AudioMusic_Create(void);
 s32 AudioMusic_Init(void);
 s32 AudioVoid(void);
-void CreateMusic(u8 *data, u32 size);
+void CreateMusic(u8 *data, u8 *bank);
 void SetMusicGVol(u32 vol);
 void SetMusicVol(u32 vol);
 
@@ -797,7 +799,7 @@ void NavHolder_FillPointerArrayPath(u8 *point, u8 **array, u32 max);
 s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
 s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint);
 u8 * NavHolder_FindPath(s32 from, s32 to);
-void * NavHolder_GetFirstWayPoint(void);
+s32 NavHolder_GetFirstWayPoint(void);
 u8 * NavHolder_GetNavPoint(s32 index);
 u32 NavHolder_GetTotalNavPoints(void);
 void NavHolder_Init(NavData *data);
@@ -810,7 +812,9 @@ void NavHolder_UseMainRouteOnly(void);
 void CreateParticle(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age);
 void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age);
 void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owner, u8 *info, f32 speed, f32 age);
+void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t *particle);
 void ParticleGX_MicroStep(void *arg0);
+void ParticleGX_Move(struct ParticleGX_Move_t *particle);
 void ParticleGX_Render(u8 *particle);
 s8 ParticleManager_CanCreatureParticle(void *creature);
 void ParticleManager_Heartbeat(void);
@@ -1162,7 +1166,6 @@ void * FindHost(Vector4 *pos, Vector4 *dir);
 s32 GetAllTargets(void **targets);
 s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info);
 s8 OBoxHitsTerrainAndObjectsZeroTimeEdgesOnly(void *obox, void *thing, void *arg2);
-s32 OBox_CollideAllThingsZeroTime(void *obox, void *thing, void *info);
 s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s8 dynamics);
 s8 RayHitsTerrainAndObjects(void *arg0, void *arg1, void *arg2, void *arg3);
@@ -1288,7 +1291,7 @@ void ViewManager_SetThreePlayer(void);
 void ViewManager_SetTwoPlayerHorizontal(void);
 
 /* Voice.c */
-void AudioVoice_Create(void);
+s32 AudioVoice_Create(void);
 void AudioVoice_Destroy(void);
 s32 AudioVoice_Init(void);
 u32 CreateSFX(void *desc);
@@ -1462,7 +1465,7 @@ void *DisplayList_AddGroup_Skin(void);
 #if !defined(HWVX_SRC_Gfx_DisplayList)
 void DrawGroupWireframe(void *geometry, u32 group, void *matrix);
 #endif
-#if !defined(HWVX_SRC_FontManager) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_InterfaceManager) && !defined(HWVX_SRC_ShowStats)
+#if !defined(HWVX_SRC_FontManager) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_ShowStats)
 void *Gfx_Add2DRectangle(void);
 #endif
 #if !defined(HWVX_SRC_AttachThing) && !defined(HWVX_SRC_Gfx_DisplayList)
@@ -1564,6 +1567,10 @@ s32 Thing_Init(void *thing, s32 arg1);
 void Thing_MoveSlaves(void *thing);
 void Thing_SlaveTransform(void *thing, Matrix4 *mtx);
 void Thing_SlaveTransformQuaternionOnly(void *thing, Matrix4 *mtx);
+#endif
+#if !defined(HWVX_SRC_ThingManager)
+s32 OBox_CollideAllThingsZeroTime(void *obox, void *thing, void *info);
+void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player);
 #endif
 #if !defined(HWVX_SRC_Voice_)
 void DestroyVoice_(void *axv);

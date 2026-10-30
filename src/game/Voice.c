@@ -51,11 +51,11 @@ extern void (*VoiceUpdate)(void);
 extern s32 g_sfxState;
 
 
-void AudioVoice_Create(void) {
+s32 AudioVoice_Create(void) {
     memset(g_voice, 0, sizeof(g_voice));
     g_sfxvol = 0x7FFF;
     g_speakers = 1;
-    AudioVoice_Create_(g_voice);
+    return AudioVoice_Create_(g_voice);  /* its result is passed on (asm) */
 }
 
 
@@ -70,7 +70,9 @@ s32 AudioVoice_Init(void) {
     g_soundLst[0xFD] = 0xFF;
     g_freeSound = 0;
     AudioVoice_Init_();
-    return StartVoiceUpdate();
+    /* inlined in the original (no such function in the symbol map) */
+    VoiceUpdate = ProcessVoice;
+    return 1;
 }
 
 

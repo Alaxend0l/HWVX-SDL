@@ -193,7 +193,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     pack->songLoaded = 0;
     pack->dataSize = header.dataSize;
     memcpy(pack->refs, header.refs, sizeof(header.refs));
-    size = header.numRelocs * 8 + ((pack->numSounds + pack->numTextures) * 2 + (s32)pack->numShaders * 2 + header.numGX * 8 + header.numSoundRelocs * 8 + header.dataSize + 0x60) + (relocSize = header.numTexRelocs * 8 + header.numPointers * 4);
+    size = header.numRelocs * 8 + (pack->numSounds + pack->numTextures) * 2 + pack->numShaders * 2 + header.numGX * 8 + header.numSoundRelocs * 8 + header.dataSize + 0x60;
+    relocSize = header.numTexRelocs * 8 + header.numPointers * 4;
+    size += relocSize;
     alloc = Allocate(size, 0, "");
     if (alloc == NULL) {
         return;
@@ -218,12 +220,12 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         sfx += header.numSoundPointers * 4;
         SETP(pack->soundBase, (u8 *)PTR((((u32)HND(sfx) + 0x1F) & ~0x1F)));
         UpdatePointers((u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
-        SETP(pack->sfxData, (u8 *)(header.sfxOffset + (u32)GETP(pack->soundBase)));
+        SETP(pack->sfxData, (u8 *)((u8 *)GETP(pack->soundBase) + header.sfxOffset));
         if (header.songOffset != 0 || (header.soundDataSize != 0 && header.numSoundRelocs == 0)) {
-            SETP(pack->song, (void *)(header.songOffset + (u32)GETP(pack->soundBase)));
+            SETP(pack->song, (void *)((u8 *)GETP(pack->soundBase) + header.songOffset));
         }
         if (header.songBankOffset != 0) {
-            SETP(pack->songBank, (void *)(header.songBankOffset + (u32)GETP(pack->soundBase)));
+            SETP(pack->songBank, (void *)((u8 *)GETP(pack->soundBase) + header.songBankOffset));
         }
         pack->soundDataSize = header.soundDataSize;
         if (GETP(pack->song) != NULL && GETP(pack->songBank) != NULL && g_bSoundLoadingEnabled) {
@@ -260,10 +262,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     SETP(pack->textureIDs, (u16 *)(alloc + soundIDsSize));
     offset = soundIDsSize + pack->numTextures * 2;
     SETP(pack->shaderIDs, (u16 *)(alloc + offset));
+    offset += pack->numShaders * 2;
     readSize = header.numRelocs * 8 + header.numGX * 8 + header.numSoundRelocs * 8;
     pad = readSize & 0x1F;
     pad = pad == 0 ? 0 : 0x20 - pad;
-    offset += pack->numShaders * 2;
     data = alloc + offset;
     data = (u8 *)PTR((((u32)HND(data) + 0x3F) & ~0x3F));
     readSize += pad;
@@ -277,8 +279,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     SETP(pack->soundRelocs, (u32 *)(data + offset));
     offset += header.numSoundRelocs * 8;
     SETP(pack->base, data + offset);
-    SETP(pack->base, (u8 *)(((u32)GETP(pack->base) + 0x1F) & ~0x1F));
     offset = header.dataSize + offset;
+    SETP(pack->base, PTR((HND(GETP(pack->base)) + 0x1F) & ~0x1F));
     offset = pad + offset;
     reloc = (u32 *)(data + offset);
     pointers = reloc + header.numTexRelocs * 2;
@@ -297,10 +299,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         reloc += 2;
     }
     UpdatePointers(pointers, header.numPointers, GETP(pack->base));
-    SETP(pack->paletteData, (void *)(header.paletteOffset + (u32)GETP(pack->base)));
-    SETP(pack->shaders, (DataPackShader *)(header.shaderOffset + (u32)GETP(pack->base)));
+    SETP(pack->paletteData, (void *)((u8 *)GETP(pack->base) + header.paletteOffset));
+    SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->base) + header.shaderOffset));
     pack->textureData = header.textureDataOffset + (u32)HND(GETP(pack->base));
-    SETP(pack->triggers, (u8 *)(header.triggerOffset + (u32)GETP(pack->base)));
+    SETP(pack->triggers, (u8 *)((u8 *)GETP(pack->base) + header.triggerOffset));
 }
 
 
@@ -442,7 +444,7 @@ void DataPack_RefreshTextures(DataPack *pack) {
     u32 texID;
 
     base = GETP(pack->base);
-    Gfx_LoadPalettes_RAM(GETP(pack->paletteData), GETP(pack->palettes));
+    Gfx_LoadPalettes_RAM(GETP(pack->paletteData), HND(GETP(pack->palettes)));
     texData = pack->textureData;
     for (i = 0; i < pack->numTextures; i++) {
         GETP(pack->textureIDs)[i] = Gfx_LoadTexture_RAM(&texData);

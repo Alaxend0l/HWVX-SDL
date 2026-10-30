@@ -297,7 +297,7 @@ s32 LoadBTF(const char *name, u32 id) {
     }
     Deallocate(buf);
     File_Close(handle);
-    Render_CreateTextureSlot(id, header.numMips > 0);
+    Render_CreateTextureSlot(id);
     return 1;
 }
 
@@ -380,7 +380,7 @@ s32 LoadTGA(const char *name, u32 id) {
     }
     File_Close(handle);
     Deallocate(buf);
-    Render_CreateTextureSlot(id, 1);
+    Render_CreateTextureSlot(id);
     return 1;
 }
 
@@ -424,7 +424,7 @@ u8 *LoadBTF_RAM(u8 *data, u32 id) {
     tex->unk28 = *(u32 *)(data + 0xC);
     tex = &((Texture *)m_texture)[id];
     __sthbrx(*(u16 *)(data + 0), &tex->unk38, 0);
-    Render_CreateTextureSlot(id, 1, tex);
+    Render_CreateTextureSlot(id);
     return data + 0x10;
 }
 
@@ -433,7 +433,7 @@ void Gfx_SetTextureWrapMode(u16 id, u16 mode) {
     Texture *tex = &m_texture[id];
 
     tex->wrapMode = mode;
-    Render_CreateTextureSlot(id, 1, tex);
+    Render_CreateTextureSlot(id);
 }
 
 void Gfx_LoadPalettes_RAM(void *data, u32 count) {

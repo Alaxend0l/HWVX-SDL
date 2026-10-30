@@ -31,53 +31,53 @@ s32 TriggerItemDropped(void) {
 }
 
 void Trigger_Create(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 void Trigger_Destroy(void) {
-    extern s32 m_triggerData_803C7120;
-    Deallocate(PTR(m_triggerData_803C7120));
-    m_triggerData_803C7120 = 0;
+    extern s32 m_triggerData;
+    Deallocate(PTR(m_triggerData));
+    m_triggerData = 0;
 }
-extern u8 m_Triggers_802C1890[];  /* typed per function below */
-extern u8 g_bTACSystemPaused_803C7124[];  /* typed per function below */
+extern u8 m_Triggers[];  /* typed per function below */
+extern u8 g_bTACSystemPaused[];  /* typed per function below */
 
 void Trigger_Init(void) {
-    extern s32 m_triggerData_803C7120;
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    extern u32 m_interfaces_802C1900[][2];
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern s32 m_triggerData;
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    extern u32 m_interfaces[][2];
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 offset = 0;
     u32 total = 0;
 
-    if ((u32)m_triggerData_803C7120 != 0) {
-        Deallocate(PTR(m_triggerData_803C7120));
-        m_triggerData_803C7120 = 0;
+    if ((u32)m_triggerData != 0) {
+        Deallocate(PTR(m_triggerData));
+        m_triggerData = 0;
     }
     for (i = 0; i < 28; i++) {
-        TriggerStats_800D3C58[i][0] = 0;
-        total += TriggerStats_800D3C58[i][1];
+        TriggerStats[i][0] = 0;
+        total += TriggerStats[i][1];
     }
-    m_triggerData_803C7120 = (s32)HND(Allocate(total * 4, 0, ""));
+    m_triggerData = (s32)HND(Allocate(total * 4, 0, ""));
     for (i = 0; i < 28; i++) {
-        m_Triggers_802C1890[i] = (u32 **)PTR((m_triggerData_803C7120 + offset * 4));
-        offset += TriggerStats_800D3C58[i][1];
+        m_Triggers[i] = (u32 **)PTR((m_triggerData + offset * 4));
+        offset += TriggerStats[i][1];
     }
     for (i = 0; i < 10; i++) {
-        m_interfaces_802C1900[i][0] = 0;
+        m_interfaces[i][0] = 0;
     }
-    g_bTACSystemPaused_803C7124 = 0;
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+    g_bTACSystemPaused = 0;
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 void Trigger_SaveActions(s32 *saved, u32 count) {
     typedef struct { u32 pad[4]; u32 value; u32 pad2; } TrigAction;
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
     u32 type;
     u32 i;
     u32 j;
@@ -85,24 +85,24 @@ void Trigger_SaveActions(s32 *saved, u32 count) {
 
     n = 0;
     for (type = 0; type < 28; type++) {
-        for (i = 0; i < TriggerStats_800D3C58[type][0]; i++) {
-            for (j = 0; j < m_Triggers_802C1890[type][i][7]; j++) {
+        for (i = 0; i < TriggerStats[type][0]; i++) {
+            for (j = 0; j < m_Triggers[type][i][7]; j++) {
                 if (n >= count) {
                     return;
                 }
-                if (((TrigAction *)PTR(m_Triggers_802C1890[type][i][5]))[j].value != 0xFFFFFFFF) {
-                    saved[n++] = ((TrigAction *)PTR(m_Triggers_802C1890[type][i][5]))[j].value;
+                if (((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value != 0xFFFFFFFF) {
+                    saved[n++] = ((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value;
                 }
             }
         }
     }
-#undef m_Triggers_802C1890
+#undef m_Triggers
 }
 
 void Trigger_RestoreActions(s32 *saved, u32 count) {
     typedef struct { u32 pad[4]; u32 value; u32 pad2; } TrigAction;
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
     u32 type;
     u32 i;
     u32 j;
@@ -110,127 +110,127 @@ void Trigger_RestoreActions(s32 *saved, u32 count) {
 
     n = 0;
     for (type = 0; type < 28; type++) {
-        for (i = 0; i < TriggerStats_800D3C58[type][0]; i++) {
-            for (j = 0; j < m_Triggers_802C1890[type][i][7] && n < count; j++) {
-                if (((TrigAction *)PTR(m_Triggers_802C1890[type][i][5]))[j].value != 0xFFFFFFFF) {
-                    ((TrigAction *)PTR(m_Triggers_802C1890[type][i][5]))[j].value = saved[n++];
+        for (i = 0; i < TriggerStats[type][0]; i++) {
+            for (j = 0; j < m_Triggers[type][i][7] && n < count; j++) {
+                if (((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value != 0xFFFFFFFF) {
+                    ((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value = saved[n++];
                 }
             }
             if (type == 8) {
-                m_Triggers_802C1890[type][i][9] = 1;
+                m_Triggers[type][i][9] = 1;
             } else {
-                m_Triggers_802C1890[type][i][9] = 0x10;
+                m_Triggers[type][i][9] = 0x10;
             }
         }
     }
-#undef m_Triggers_802C1890
+#undef m_Triggers
 }
 
 void Trigger_PauseTACSystem(s8 arg0) {
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
-    g_bTACSystemPaused_803C7124 = arg0;
-#undef g_bTACSystemPaused_803C7124
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
+    g_bTACSystemPaused = arg0;
+#undef g_bTACSystemPaused
 }
 
 u8 Trigger_IsTACSystemPaused(void) {
-    #define g_bTACSystemPaused_803C7124 (*(u8 *)(void *)&g_bTACSystemPaused_803C7124)
-    return g_bTACSystemPaused_803C7124;
-#undef g_bTACSystemPaused_803C7124
+    #define g_bTACSystemPaused (*(u8 *)(void *)&g_bTACSystemPaused)
+    return g_bTACSystemPaused;
+#undef g_bTACSystemPaused
 }
 
 void Trigger_Heartbeat(void) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
-    extern s8 (*pTriggerFuncArray_800D3DA8[])(void *param);
-    extern s32 m_ReleasedInterface_803C7128;
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
+    extern s8 (*pTriggerFuncArray[])(void *param);
+    extern s32 m_ReleasedInterface;
     u32 type;
     u32 i;
     u32 j;
     u32 actions;
     u32 *trigger;
 
-    if (!g_bTACSystemPaused_803C7124) {
+    if (!g_bTACSystemPaused) {
         for (type = 0; type < 28; type++) {
-            if (*(s8 *)&TriggerStats_800D3C58[type][2]) {
+            if (*(s8 *)&TriggerStats[type][2]) {
                 continue;
             }
-            for (i = 0; i < TriggerStats_800D3C58[type][0]; i++) {
-                trigger = m_Triggers_802C1890[type][i];
-                if ((trigger[9] & 1) && pTriggerFuncArray_800D3DA8[trigger[0]]((void *)PTR(trigger[1]))) {
-                    trigger = m_Triggers_802C1890[type][i];
+            for (i = 0; i < TriggerStats[type][0]; i++) {
+                trigger = m_Triggers[type][i];
+                if ((trigger[9] & 1) && pTriggerFuncArray[trigger[0]]((void *)PTR(trigger[1]))) {
+                    trigger = m_Triggers[type][i];
                     if (TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                         actions = 0;
-                        trigger = m_Triggers_802C1890[type][i];
+                        trigger = m_Triggers[type][i];
                         if ((s32)trigger[0] == 0x12 && ((u32 *)PTR(trigger[1]))[2] == 0) {
-                            for (j = 0; j < m_Triggers_802C1890[type][i][8]; j++) {
-                                actions += Action_AddAction(PTR((s32)HND(((u8 *)PTR(m_Triggers_802C1890[type][i][6]) + j * 0x18))));
+                            for (j = 0; j < m_Triggers[type][i][8]; j++) {
+                                actions += Action_AddAction(PTR((s32)HND(((u8 *)PTR(m_Triggers[type][i][6]) + j * 0x18))));
                             }
                         } else {
-                            for (j = 0; j < m_Triggers_802C1890[type][i][7]; j++) {
-                                actions += Action_AddAction(PTR((s32)HND(((u8 *)PTR(m_Triggers_802C1890[type][i][5]) + j * 0x18))));
+                            for (j = 0; j < m_Triggers[type][i][7]; j++) {
+                                actions += Action_AddAction(PTR((s32)HND(((u8 *)PTR(m_Triggers[type][i][5]) + j * 0x18))));
                             }
                         }
                         if (actions == 0) {
-                            m_Triggers_802C1890[type][i][9] = 2;
+                            m_Triggers[type][i][9] = 2;
                         } else {
-                            m_Triggers_802C1890[type][i][9] = 0x10;
+                            m_Triggers[type][i][9] = 0x10;
                         }
                     } else {
-                        m_Triggers_802C1890[type][i][9] = 0x10;
+                        m_Triggers[type][i][9] = 0x10;
                     }
                 }
-                trigger = m_Triggers_802C1890[type][i];
-                if ((trigger[9] & 0x10) && !pTriggerFuncArray_800D3DA8[trigger[0]]((void *)PTR(trigger[1]))) {
-                    m_Triggers_802C1890[type][i][9] |= 1;
-                    m_Triggers_802C1890[type][i][9] &= ~0x10;
+                trigger = m_Triggers[type][i];
+                if ((trigger[9] & 0x10) && !pTriggerFuncArray[trigger[0]]((void *)PTR(trigger[1]))) {
+                    m_Triggers[type][i][9] |= 1;
+                    m_Triggers[type][i][9] &= ~0x10;
                 }
             }
         }
-        m_ReleasedInterface_803C7128 = -1;
+        m_ReleasedInterface = -1;
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 s32 Trigger_AddTrigger(s32 *trigger) {
-    extern u32 TriggerStats_800D3C58[][3];
-    extern char *triggerLabelsArray_800D3BE8[];
-    #define m_Triggers_802C1890 ((s32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    extern char *triggerLabelsArray[];
+    #define m_Triggers ((s32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     char buf[0x200];
     s32 type = trigger[0];
 
-    if (TriggerStats_800D3C58[type][0] == TriggerStats_800D3C58[type][1]) {
-        sprintf(buf, "Could not add the trigger: \"%s\", please notify Peter.", triggerLabelsArray_800D3BE8[type]);
+    if (TriggerStats[type][0] == TriggerStats[type][1]) {
+        sprintf(buf, "Could not add the trigger: \"%s\", please notify Peter.", triggerLabelsArray[type]);
         return 0;
     }
-    m_Triggers_802C1890[type][TriggerStats_800D3C58[type][0]++] = trigger;
+    m_Triggers[type][TriggerStats[type][0]++] = trigger;
     if (trigger[0] == 8) {
         trigger[9] = 1;
     } else {
         trigger[9] = 0x10;
     }
-    g_bTACSystemPaused_803C7124 = 0;
+    g_bTACSystemPaused = 0;
     return 1;
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 s32 Trigger_ReleaseTrigger(s32 *trigger) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((s32 ***)(void *)&m_Triggers_802C1890)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((s32 ***)(void *)&m_Triggers)
     u32 i;
 
-    for (i = 0; i < TriggerStats_800D3C58[trigger[0]][0]; i++) {
-        if (m_Triggers_802C1890[trigger[0]][i] == trigger) {
-            TriggerStats_800D3C58[trigger[0]][0]--;
-            m_Triggers_802C1890[trigger[0]][i] = m_Triggers_802C1890[trigger[0]][TriggerStats_800D3C58[trigger[0]][0]];
+    for (i = 0; i < TriggerStats[trigger[0]][0]; i++) {
+        if (m_Triggers[trigger[0]][i] == trigger) {
+            TriggerStats[trigger[0]][0]--;
+            m_Triggers[trigger[0]][i] = m_Triggers[trigger[0]][TriggerStats[trigger[0]][0]];
             return 1;
         }
     }
     return 0;
-#undef m_Triggers_802C1890
+#undef m_Triggers
 }
 
 s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds) {
@@ -239,7 +239,7 @@ s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds) {
         PTR32(void) param;
         u8 unk8[0x2C - 0x8];
     } TriggerCondition;
-    extern s8 (*pTriggerFuncArray_800D3DA8[])(void *param);
+    extern s8 (*pTriggerFuncArray[])(void *param);
     TriggerCondition *cond = (TriggerCondition *)PTR(conds);
     u32 i;
 
@@ -249,28 +249,28 @@ s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds) {
     switch (mode) {
     case 0:
         for (i = 0; i < count; i++) {
-            if (!pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
+            if (!pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 0;
             }
         }
         return 1;
     case 1:
         for (i = 0; i < count; i++) {
-            if (pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
+            if (pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 1;
             }
         }
         return 0;
     case 2:
         for (i = 0; i < count; i++) {
-            if (!pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
+            if (!pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 1;
             }
         }
         return 0;
     case 3:
         for (i = 0; i < count; i++) {
-            if (pTriggerFuncArray_800D3DA8[cond[i].type](GETP(cond[i].param))) {
+            if (pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 0;
             }
         }
@@ -458,9 +458,9 @@ s32 TriggerCodeVariableValueCheck(u32 *data) {
 }
 
 void Trigger_ItemPickedUp(void *vehicle, void *item) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 actions;
     u32 *trigger;
@@ -471,9 +471,9 @@ void Trigger_ItemPickedUp(void *vehicle, void *item) {
     u32 count;
     u32 count2;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[6][0]; i++) {
-            trigger = m_Triggers_802C1890[6][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[6][0]; i++) {
+            trigger = m_Triggers[6][i];
             list = (u32 *)PTR(trigger[1]);
             count = list[0];
             count2 = list[count + 1];
@@ -481,37 +481,37 @@ void Trigger_ItemPickedUp(void *vehicle, void *item) {
                 foundItem = 0;
                 foundVehicle = 0;
                 for (j = 0; j < count && !foundItem; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers_802C1890[6][i][1]) + 1)[j])) + (9)) == item) {
+                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[6][i][1]) + 1)[j])) + (9)) == item) {
                         foundItem = 1;
                     }
                 }
                 if (foundItem) {
                     for (j = 0; j < count2 && !foundVehicle; j++) {
-                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers_802C1890[6][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
+                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers[6][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
                             foundVehicle = 1;
                         }
                     }
                     if (foundVehicle && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                         actions = 0;
-                        for (j = 0; j < m_Triggers_802C1890[6][i][7]; j++) {
-                            actions += Action_AddAction(PTR(m_Triggers_802C1890[6][i][5] + j * 0x18));
+                        for (j = 0; j < m_Triggers[6][i][7]; j++) {
+                            actions += Action_AddAction(PTR(m_Triggers[6][i][5] + j * 0x18));
                         }
                         if (actions == 0) {
-                            m_Triggers_802C1890[6][i][9] = 2;
+                            m_Triggers[6][i][9] = 2;
                         }
                     }
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 void Trigger_ItemDropped(void *vehicle, void *item) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 actions;
     u32 *trigger;
@@ -522,9 +522,9 @@ void Trigger_ItemDropped(void *vehicle, void *item) {
     u32 count;
     u32 count2;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[24][0]; i++) {
-            trigger = m_Triggers_802C1890[24][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[24][0]; i++) {
+            trigger = m_Triggers[24][i];
             list = (u32 *)PTR(trigger[1]);
             count = list[0];
             count2 = list[count + 1];
@@ -532,31 +532,31 @@ void Trigger_ItemDropped(void *vehicle, void *item) {
                 foundItem = 0;
                 foundVehicle = 0;
                 for (j = 0; j < count && !foundItem; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers_802C1890[24][i][1]) + 1)[j])) + (9)) == item) {
+                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[24][i][1]) + 1)[j])) + (9)) == item) {
                         foundItem = 1;
                     }
                 }
                 if (foundItem) {
                     for (j = 0; j < count2 && !foundVehicle; j++) {
-                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers_802C1890[24][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
+                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers[24][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
                             foundVehicle = 1;
                         }
                     }
                     if (foundVehicle && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                         actions = 0;
-                        for (j = 0; j < m_Triggers_802C1890[24][i][7]; j++) {
-                            actions += Action_AddAction(PTR(m_Triggers_802C1890[24][i][5] + j * 0x18));
+                        for (j = 0; j < m_Triggers[24][i][7]; j++) {
+                            actions += Action_AddAction(PTR(m_Triggers[24][i][5] + j * 0x18));
                         }
                         if (actions == 0) {
-                            m_Triggers_802C1890[24][i][9] = 2;
+                            m_Triggers[24][i][9] = 2;
                         }
                     }
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 s32 TriggerInterfaceEnd(void) {
@@ -564,37 +564,37 @@ s32 TriggerInterfaceEnd(void) {
 }
 
 void Trigger_InterfaceEnd(u32 id) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 j;
     u32 actions;
     u32 i;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[7][0]; i++) {
-            u32 *trigger = m_Triggers_802C1890[7][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[7][0]; i++) {
+            u32 *trigger = m_Triggers[7][i];
             u32 param = *(u32 *)PTR(trigger[1]);
             if (trigger[9] != 2 && param == id && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                 actions = 0;
-                for (j = 0; j < m_Triggers_802C1890[7][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers_802C1890[7][i][5] + j * 0x18));
+                for (j = 0; j < m_Triggers[7][i][7]; j++) {
+                    actions += Action_AddAction(PTR(m_Triggers[7][i][5] + j * 0x18));
                 }
                 if (actions == 0) {
-                    m_Triggers_802C1890[7][i][9] = 2;
+                    m_Triggers[7][i][9] = 2;
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 s32 TriggerVehicleKilled(u32 *data) {
     u32 i;
 
     for (i = 0; i < data[0]; i++) {
-        u8 *vehicle = SLOT_LOAD(u8 *, (u8 *)((data + 1)[i]) + 0x28);
+        u8 *vehicle = SLOT_LOAD(u8 *, (u8 *)PTR((data + 1)[i]) + 0x28);
         if (vehicle != NULL && (M2C_FIELD(vehicle, s32 *, 0x74) & 2)) {
             return 1;
         }
@@ -603,9 +603,9 @@ s32 TriggerVehicleKilled(u32 *data) {
 }
 
 void Trigger_VehicleKilled(void *vehicle) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 actions;
     u32 *trigger;
@@ -613,31 +613,31 @@ void Trigger_VehicleKilled(void *vehicle) {
     s8 found;
     u32 count;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[12][0]; i++) {
-            trigger = m_Triggers_802C1890[12][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[12][0]; i++) {
+            trigger = m_Triggers[12][i];
             count = *(u32 *)PTR(trigger[1]);
             if (trigger[9] != 2) {
                 found = 0;
                 for (j = 0; j < count && !found; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers_802C1890[12][i][1]) + 1)[j])) + (10)) == vehicle) {
+                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[12][i][1]) + 1)[j])) + (10)) == vehicle) {
                         found = 1;
                     }
                 }
                 if (found && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                     actions = 0;
-                    for (j = 0; j < m_Triggers_802C1890[12][i][7]; j++) {
-                        actions += Action_AddAction(PTR(m_Triggers_802C1890[12][i][5] + j * 0x18));
+                    for (j = 0; j < m_Triggers[12][i][7]; j++) {
+                        actions += Action_AddAction(PTR(m_Triggers[12][i][5] + j * 0x18));
                     }
                     if (actions == 0) {
-                        m_Triggers_802C1890[12][i][9] = 2;
+                        m_Triggers[12][i][9] = 2;
                     }
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 s32 TriggerDesructibleKilled(u32 *data) {
@@ -652,9 +652,9 @@ s32 TriggerDesructibleKilled(u32 *data) {
 }
 
 void Trigger_DestructibleKilled(void *thing) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 actions;
     u32 *trigger;
@@ -664,15 +664,15 @@ void Trigger_DestructibleKilled(void *thing) {
     u32 count;
     u32 mode;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[4][0]; i++) {
-            trigger = m_Triggers_802C1890[4][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[4][0]; i++) {
+            trigger = m_Triggers[4][i];
             list = (u32 *)PTR(trigger[1]);
             count = list[0];
             if (trigger[9] != 2) {
                 found = 0;
                 for (j = 0; j < count; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers_802C1890[4][i][1]) + 1)[j])) + (11)) == thing) {
+                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[4][i][1]) + 1)[j])) + (11)) == thing) {
                         mode = list[count + 1];
                         if (mode == 3) {
                             found = 1;
@@ -686,18 +686,18 @@ void Trigger_DestructibleKilled(void *thing) {
                 }
                 if (found && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                     actions = 0;
-                    for (j = 0; j < m_Triggers_802C1890[4][i][7]; j++) {
-                        actions += Action_AddAction(PTR(m_Triggers_802C1890[4][i][5] + j * 0x18));
+                    for (j = 0; j < m_Triggers[4][i][7]; j++) {
+                        actions += Action_AddAction(PTR(m_Triggers[4][i][5] + j * 0x18));
                     }
                     if (actions == 0) {
-                        m_Triggers_802C1890[4][i][9] = 2;
+                        m_Triggers[4][i][9] = 2;
                     }
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 s32 TriggerCreatureKilled(void) {
@@ -709,9 +709,9 @@ s32 TriggerCreatureDroppedOff(void) {
 }
 
 void Trigger_CreatureDroppedOff(void *vehicle, void *creature) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 actions;
     u32 *trigger;
@@ -722,9 +722,9 @@ void Trigger_CreatureDroppedOff(void *vehicle, void *creature) {
     u32 count;
     u32 count2;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[14][0]; i++) {
-            trigger = m_Triggers_802C1890[14][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[14][0]; i++) {
+            trigger = m_Triggers[14][i];
             list = (u32 *)PTR(trigger[1]);
             count = list[0];
             count2 = list[count + 1];
@@ -732,109 +732,109 @@ void Trigger_CreatureDroppedOff(void *vehicle, void *creature) {
                 foundCreature = 0;
                 foundVehicle = 0;
                 for (j = 0; j < count && !foundCreature; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers_802C1890[14][i][1]) + 1)[j])) + (7)) == creature) {
+                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[14][i][1]) + 1)[j])) + (7)) == creature) {
                         foundCreature = 1;
                     }
                 }
                 if (foundCreature) {
                     for (j = 0; j < count2 && !foundVehicle; j++) {
-                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers_802C1890[14][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
+                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers[14][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
                             foundVehicle = 1;
                         }
                     }
                     if (foundVehicle && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                         actions = 0;
-                        for (j = 0; j < m_Triggers_802C1890[14][i][7]; j++) {
-                            actions += Action_AddAction(PTR(m_Triggers_802C1890[14][i][5] + j * 0x18));
+                        for (j = 0; j < m_Triggers[14][i][7]; j++) {
+                            actions += Action_AddAction(PTR(m_Triggers[14][i][5] + j * 0x18));
                         }
                         if (actions == 0) {
-                            m_Triggers_802C1890[14][i][9] = 2;
+                            m_Triggers[14][i][9] = 2;
                         }
                     }
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 
 void Trigger_GameRoundsComplete(void) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 j;
     u32 actions;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[22][0]; i++) {
-            u32 *trigger = m_Triggers_802C1890[22][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[22][0]; i++) {
+            u32 *trigger = m_Triggers[22][i];
             if (trigger[9] != 2 && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                 actions = 0;
-                for (j = 0; j < m_Triggers_802C1890[22][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers_802C1890[22][i][5] + j * 0x18));
+                for (j = 0; j < m_Triggers[22][i][7]; j++) {
+                    actions += Action_AddAction(PTR(m_Triggers[22][i][5] + j * 0x18));
                 }
                 if (actions == 0) {
-                    m_Triggers_802C1890[22][i][9] = 2;
+                    m_Triggers[22][i][9] = 2;
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 void Trigger_GameRoundXComplete(void) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 j;
     u32 actions;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[23][0]; i++) {
-            u32 *trigger = m_Triggers_802C1890[23][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[23][0]; i++) {
+            u32 *trigger = m_Triggers[23][i];
             if (trigger[9] != 2 && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                 actions = 0;
-                for (j = 0; j < m_Triggers_802C1890[23][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers_802C1890[23][i][5] + j * 0x18));
+                for (j = 0; j < m_Triggers[23][i][7]; j++) {
+                    actions += Action_AddAction(PTR(m_Triggers[23][i][5] + j * 0x18));
                 }
                 if (actions == 0) {
-                    m_Triggers_802C1890[23][i][9] = 2;
+                    m_Triggers[23][i][9] = 2;
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 
 void Trigger_SoundSequenceQueueEmptied(void) {
-    extern u32 TriggerStats_800D3C58[][3];
-    #define m_Triggers_802C1890 ((u32 ***)(void *)&m_Triggers_802C1890)
-    #define g_bTACSystemPaused_803C7124 (*(s8 *)(void *)&g_bTACSystemPaused_803C7124)
+    extern u32 TriggerStats[][3];
+    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
+    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 j;
     u32 actions;
 
-    if (!g_bTACSystemPaused_803C7124) {
-        for (i = 0; i < TriggerStats_800D3C58[26][0]; i++) {
-            u32 *trigger = m_Triggers_802C1890[26][i];
+    if (!g_bTACSystemPaused) {
+        for (i = 0; i < TriggerStats[26][0]; i++) {
+            u32 *trigger = m_Triggers[26][i];
             if (trigger[9] != 2 && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
                 actions = 0;
-                for (j = 0; j < m_Triggers_802C1890[26][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers_802C1890[26][i][5] + j * 0x18));
+                for (j = 0; j < m_Triggers[26][i][7]; j++) {
+                    actions += Action_AddAction(PTR(m_Triggers[26][i][5] + j * 0x18));
                 }
                 if (actions == 0) {
-                    m_Triggers_802C1890[26][i][9] = 2;
+                    m_Triggers[26][i][9] = 2;
                 }
             }
         }
     }
-#undef g_bTACSystemPaused_803C7124
-#undef m_Triggers_802C1890
+#undef g_bTACSystemPaused
+#undef m_Triggers
 }
 

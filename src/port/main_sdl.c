@@ -19,6 +19,24 @@ void *g_frameBuffer1;
 void *g_frameBuffer2;
 void *g_currentBuffer;
 
+/* GXNtsc480IntDf, the mode the original picks for an NTSC console
+ * (InitRenderMode in Main_NGC.c). Layout of GXRenderModeObj, 0x3C bytes. */
+static struct {
+    u32 viTVmode;
+    u16 fbWidth, efbHeight, xfbHeight;
+    u16 viXOrigin, viYOrigin, viWidth, viHeight;
+    u32 xFBmode;
+    u8 field_rendering, aa;
+    u8 sample_pattern[12][2];
+    u8 vfilter[7];
+} s_renderMode = {
+    0, 640, 480, 480, 40, 0, 640, 480, 1, 0, 0,
+    { {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6},
+      {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6} },
+    { 0, 0, 21, 22, 21, 0, 0 },
+};
+void *rmode = &s_renderMode;
+
 PortState g_port;
 
 static void ParseArgs(int argc, char **argv) {
@@ -91,7 +109,7 @@ void ForceIPLReset(void) {
 }
 
 s32 Init_Display(void) {
-    g_viewID = Gfx_CreateView(0, 640, 480, 16, 0, 0);
+    g_viewID = Gfx_CreateView(0, 640, 480);
     return g_viewID >= 0;
 }
 

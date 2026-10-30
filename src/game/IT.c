@@ -120,7 +120,7 @@ void AudioIT_Destroy(s32 unused) {
 }
 
 
-void CreateIT(u8 *data, u32 arg1)
+void CreateIT(u8 *data, u8 *arg1)
 {
     #define g_pHdr (*(u8 **)(void *)&g_pHdr)
     extern u8 *g_pOrder;
@@ -159,7 +159,7 @@ void CreateIT(u8 *data, u32 arg1)
     {
         g_pPtrn[i] = data + patOff[i];
     }
-    *(u32 *)(g_pSmp[0] + 0x48) = arg1;
+    SLOT_STORE(g_pSmp[0] + 0x48, arg1);  /* sample data pointer, inside the song data */
     CreateIT_(g_pHdr, g_pSmp);
     memcpy(g_musicTitle, g_pHdr + 4, 0x1A);
     g_musicTitle[0x1A] = 0;

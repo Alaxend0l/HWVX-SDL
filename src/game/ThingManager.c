@@ -2,12 +2,12 @@
 
 
 void ThingManagerList_Append(void **arg0, void *arg1) {
-    SLOT_STORE((u8 *)(arg1) + 0xA4, (void *) *arg0);
+    SLOT_STORE((u8 *)(arg1) + 0xA4, SLOT_LOAD(void *, arg0));
     M2C_FIELD(arg1, s32 *, 0xA0) = 0;
     if (SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4) != NULL) {
         SLOT_STORE((u8 *)(SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4)) + 0xA0, arg1);
     }
-    *arg0 = arg1;
+    SLOT_STORE(arg0, arg1);
 }
 
 /* The fields every pooled Thing shares. */
@@ -101,7 +101,7 @@ void ThingManagerList_Remove(void **arg0, void *arg1) {
 
     temp_r5 = SLOT_LOAD(void *, (u8 *)(arg1) + 0xA0);
     if (temp_r5 == NULL) {
-        *arg0 = SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4);
+        SLOT_STORE(arg0, SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4));
     } else {
         SLOT_STORE((u8 *)(temp_r5) + 0xA4, (void *) SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4));
     }
@@ -141,11 +141,11 @@ void ThingManagerList_ReleaseSlavesBySlaveType(void **list, u8 type) {
     void **freeList;
     void *head;
 
-    thing = *list;
+    thing = SLOT_LOAD(void *, list);
     while (thing != NULL) {
         next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
         if (M2C_FIELD(thing, u8 *, 0x83) == type) {
-            M2C_FIELD(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C), void (**)(void *), 4)(thing);
+            ((void (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 4))(thing);
             ThingManagerList_Remove(list, thing);
             M2C_FIELD(thing, u32 *, 0x74) &= ~0x200000;
             M2C_FIELD(thing, u32 *, 0x74) |= 0x1000;
@@ -166,7 +166,7 @@ void ThingManagerList_RemoveReleasedThings(void **list) {
     ThingHeader *thing;
     ThingHeader *next;
 
-    for (thing = *list; thing != NULL; thing = next) {
+    for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = next) {
         next = GETP(thing->next);
         if (thing->flags & 0x200000) {
             ThingManagerList_ReleaseAndRemoveAll(&thing->unk88);
@@ -183,7 +183,7 @@ void ThingManagerList_ReleaseAndRemoveAll(void **list) {
     ThingHeader *next;
 
     ThingManagerList_ReleaseAll(list);
-    for (thing = *list; thing != NULL; thing = next) {
+    for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = next) {
         next = GETP(thing->next);
         if ((thing->flags & 0x200000) != 0) {
             void **children;
@@ -200,10 +200,10 @@ void ThingManagerList_ReleaseAll(void **list) {
     void *thing;
     void *next;
 
-    thing = *list;
+    thing = SLOT_LOAD(void *, list);
     while (thing != NULL) {
         next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-        M2C_FIELD(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C), void (**)(void *), 4)(thing);
+        ((void (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 4))(thing);
         thing = next;
     }
 }
@@ -229,12 +229,12 @@ void ThingManagerList_EmancipateSlaves(void *mtx, void **list) {
     SlaveThing *thing;
     SlaveThing *next;
 
-    thing = *list;
+    thing = SLOT_LOAD(void *, list);
     while (thing != NULL) {
         next = GETP(thing->next);
         if (thing->slavePlayer == 0xEF) {
             if (GETP(thing->prev) == NULL) {
-                *list = GETP(thing->next);
+                SLOT_STORE(list, GETP(thing->next));
             } else {
                 SETP(GETP(thing->prev)->next, GETP(thing->next));
             }
@@ -273,7 +273,7 @@ void SharedSlaveHolder_Release(void) {
         if (GETP(holder->key) != NULL) {
             for (thing = GETP(holder->slaves); thing != NULL; thing = next) {
                 next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-                ((void (*)(void *))(M2C_FIELD(thing, void ***, 0x8C))[1])(thing);
+                ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (1)))(thing);
             }
             ThingManagerList_RemoveReleasedThings(PTR((s32)HND(&holder->slaves)));
             SETP(holder->key, NULL);
@@ -340,14 +340,17 @@ void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
     }
 }
 
-void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
+struct SlaveTrigger {
         Vector4 pos;
         u8 type;
         u8 pad11;
         u16 id;
         u8 pad14[4];
         PTR32(void) data;
-    } *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player) {
+    };
+void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player);
+
+void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player) {
     typedef struct SharedSlaves {
         u32 active;
         u8 pad4[4];
@@ -473,7 +476,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
     case 99:
         id = trigger->id;
         pl = player;
-        for (thing = *list; thing != NULL; thing = GETP(thing->next)) {
+        for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = GETP(thing->next)) {
             if (thing->slaveId == id && thing->slavePlayer == pl) {
                 ((void (**)(ThingHeader *))GETP(thing->vtable))[1](thing);
             }
@@ -483,18 +486,17 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger {
 
     if (slave != NULL) {
         slave->slavePlayer = player;
-        SETP(slave->next, *list);
+        SETP(slave->next, SLOT_LOAD(void *, list));
         SETP(slave->prev, NULL);
         if (GETP(slave->next) != NULL) {
             SETP(GETP(slave->next)->prev, slave);
         }
-        *list = slave;
+        SLOT_STORE(list, slave);
     }
 }
 
 void ThingManagerList_InitAllSlavesNow(void *list, void *slaves, u8 player) {
     extern Vector4 g_zeroVector;
-    void ThingManagerList_TriggerSlaves(void **list, u8 *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u8 player);
     typedef struct { f32 x, y, z, w; } Vec4;
     typedef struct {
         u8 unk0[0x20];
@@ -513,7 +515,7 @@ void ThingManagerList_InitAllSlavesNow(void *list, void *slaves, u8 player) {
     while (thing != NULL) {
         next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
         if (M2C_FIELD(thing, u8 *, 0x83) == player) {
-            M2C_FIELD(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C), void (**)(void *), 4)(thing);
+            ((void (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 4))(thing);
             ThingManagerList_Remove(list, thing);
             M2C_FIELD(thing, u32 *, 0x74) &= ~0x200000;
             M2C_FIELD(thing, u32 *, 0x74) |= 0x1000;
@@ -616,7 +618,7 @@ void ThingManager_DARYL_Destroy(void) {
     u32 i;
 
     for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
-        ((void (*)(void *))(M2C_FIELD(thing, void ***, 0x8C))[1])(thing);
+        ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (1)))(thing);
     }
     SETP(g_thingManager_DARYL.activeList, NULL);
     for (i = 0; i < 18; i++) {
@@ -645,10 +647,10 @@ void ThingManager_MoveLookerOnly(void) {
     extern u8 g_soundSeqVTable[];
     void *thing;
 
-    ((void (*)(void *))(M2C_FIELD(&g_thingManager_DARYL, void ***, 0x6AD9C))[2])(g_thingManager_DARYL.looker);
+    ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(&g_thingManager_DARYL) + 0x6AD9C) + (2)))(g_thingManager_DARYL.looker);
     for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
         if (SLOT_LOAD(u8 *, (u8 *)(thing) + 0x8C) == g_soundSeqVTable && (M2C_FIELD(thing, u32 *, 0x74) & 0x100000)) {
-            ((void (*)(void *))(M2C_FIELD(thing, void ***, 0x8C))[3])(thing);
+            ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (3)))(thing);
         }
     }
     ThingManagerList_RemoveReleasedThings(PTR((s32)HND(&g_thingManager_DARYL.activeList)));
@@ -1360,7 +1362,7 @@ void *ThingManager_DARYL_CreateThing(s32 type, void *params) {
             SLOT_STORE((u8 *)(SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) + 0xA0, thing);
         }
         SETP(g_thingManager_DARYL.activeList, thing);
-        ((void (*)(void *, void *))(M2C_FIELD(thing, void ***, 0x8C))[0])(thing, params);
+        ((void (*)(void *, void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (0)))(thing, params);
         return thing;
     }
     return NULL;
@@ -1379,7 +1381,7 @@ void *ThingManager_DARYL_CreateSlave(s32 type, void *params, u8 id) {
         SLOT_STORE((u8 *)(slave) + 0xA4, NULL);
     }
     if (slave != NULL) {
-        ((void (*)(void *, void *))(M2C_FIELD(slave, void ***, 0x8C))[0])(slave, params);
+        ((void (*)(void *, void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(slave) + 0x8C) + (0)))(slave, params);
         M2C_FIELD(slave, u8 *, 0x82) = id;
         M2C_FIELD(slave, u32 *, 0x74) |= 0x20000000;
         return slave;
@@ -1387,13 +1389,13 @@ void *ThingManager_DARYL_CreateSlave(s32 type, void *params, u8 id) {
     return NULL;
 }
 
-s32 OBox_CollideAllThingsZeroTime(void *obox, void *thing, void *info) {
-    Vector4 min;
-    Vector4 max;
+s32 OBox_CollideAllThingsZeroTime(void *obox, ThingHeader *thing, void *info) {
+    Vector4 min __attribute__((aligned(16)));
+    Vector4 max __attribute__((aligned(16)));
     GridResult results[256];
     u32 count;
     u32 i;
-    u8 *other;
+    ThingHeader *other;
     f32 t;
     f32 dist;
     f32 r;
@@ -1402,14 +1404,14 @@ s32 OBox_CollideAllThingsZeroTime(void *obox, void *thing, void *info) {
     Thing_GetStaticRotationalMinMax(thing, &min, &max);
     count = Grid_GetObjects(&min, &max, 5, results, 0x100);
     for (i = 0; i < count; i++) {
-        other = (u8 *)PTR(results[i].id);
-        if (!(*(u32 *)(other + 0x74) & 2) && *(s16 *)(other + 0x80) != 0 && other != thing) {
-            dist = PSVECSquareDistance((f32 *)((u8 *)thing + 0x40), (f32 *)(other + 0x40));
-            r = *(f32 *)(other + 0x70) + *(f32 *)((u8 *)thing + 0x70);
+        other = (ThingHeader *)PTR(results[i].id);
+        if (!(other->flags & 2) && *(s16 *)((u8 *)other + 0x80) != 0 && other != thing) {
+            dist = PSVECSquareDistance(thing->unk40, other->unk40);
+            r = other->unk70 + thing->unk70;
             if (r * r > dist) {
                 t = 1.0f;
-                if (*(s16 *)(other + 0x80) == 1) {
-                    otherBox = (*(void *(**)(void *))(SLOT_LOAD(u8 *, (other + 0x8C)) + 0x40))(other);
+                if (*(s16 *)((u8 *)other + 0x80) == 1) {
+                    otherBox = ((void *(*)(void *))SLOT_LOAD(void *, (u32 *)GETP(other->vtable) + 0x10))(other);
                     if (OBoxHitsOBoxZeroTime(obox, otherBox, info)) {
                         if (info != NULL) {
                             SLOT_STORE(((u8 *)info + 0x20), thing);
@@ -1717,7 +1719,7 @@ void *FindHost(Vector4 *pos, Vector4 *dir) {
     u32 k;
     u32 m;
 
-    count = ThingManager_GetActiveCars(cars);
+    count = ThingManager_GetActiveCars(cars, 8);
     for (i = 0; i < count; i++) {
         PSVECSubtract((Vector4 *)((u8 *)cars[i] + 0x40), pos, &diff1);
         dir1 = diff1;

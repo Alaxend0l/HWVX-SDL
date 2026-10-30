@@ -359,7 +359,7 @@ void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owne
 #undef g_particleManager
 }
 
-void ParticleGX_Move();
+struct ParticleGX_Move_t;
 void ParticleManager_Heartbeat(void) {
     extern s8 g_bFreezeWorld;
     extern f32 g_fDeltaTimeMS;
@@ -420,14 +420,43 @@ void ParticleManager_Heartbeat(void) {
 #undef g_particleManager
 }
 
-void ParticleGX_Move(struct ParticleGX_Move_t {
-        Vector4 pos;
-        u8 unk10[0xDC - 0x10];
-        s32 timer;
-        Vector4 targetPos;
-    } *particle) {
+struct ParticleGX_Move_t {
+    Vector4 pos;
+    u8 unk10[0xDC - 0x10];
+    s32 timer;
+    Vector4 targetPos;
+};
+
+struct ParticleGX_MacroStep_t {
+    Vector4 pos;
+    Vector4 vel;
+    Vector4 accel;
+    Vector4 quat;
+    Vector4 axis;
+    u8 colour[0x30];
+    u8 scale[0x30];
+    f32 bounce;
+    u8 flags;
+    u8 unkB5;
+    u8 visible;
+    u8 frame;
+    f32 speed;
+    PTR32(u8) info;
+    PTR32(void) texture;
+    f32 unkC4;
+    f32 spin;
+    s32 life;
+    f32 rate;
+    s32 frameTimer;
+    f32 unkD8;
+    s32 timer;
+    Vector4 targetPos;
+    Vector4 targetVel;
+};
+
+
+void ParticleGX_Move(struct ParticleGX_Move_t *particle) {
     extern s32 g_iDeltaTimeMS;
-    void ParticleGX_MacroStep(void *particle);
     f32 distSq;
 
     if (particle->timer <= 0) {
@@ -480,32 +509,7 @@ void ParticleGX_MicroStep(void *arg0) {
     }
 }
 
-void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t {
-        Vector4 pos;
-        Vector4 vel;
-        Vector4 accel;
-        Vector4 quat;
-        Vector4 axis;
-        u8 colour[0x30];
-        u8 scale[0x30];
-        f32 bounce;
-        u8 flags;
-        u8 unkB5;
-        u8 visible;
-        u8 frame;
-        f32 speed;
-        PTR32(u8) info;
-        PTR32(void) texture;
-        f32 unkC4;
-        f32 spin;
-        s32 life;
-        f32 rate;
-        s32 frameTimer;
-        f32 unkD8;
-        s32 timer;
-        Vector4 targetPos;
-        Vector4 targetVel;
-    } *particle) {
+void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t *particle) {
     extern Vector4 g_zeroVector;
     typedef struct {
         Vector4 pos;

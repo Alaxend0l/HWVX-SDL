@@ -113,7 +113,7 @@ void CoronaHolder_Render(void) {
                 rot = (screen.x - 320.0f) * (0.017453292f * (0.25f * -(f32)GETP(c->track)->spin));
             }
             color = c->rgba;
-            Gfx_Add2DSprite(&screen, GETP(c->track)->texture, color, GETP(c->track)->size, GETP(c->track)->type, rot);
+            Gfx_Add2DSprite(&screen, GETP(c->track)->texture, &color, GETP(c->track)->type, GETP(c->track)->size, rot);
         }
     }
 }

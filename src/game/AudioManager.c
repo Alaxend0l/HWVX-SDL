@@ -1,24 +1,27 @@
 #include "common.h"
 
 
-extern s32 g_sources_803C6F38;
+extern u8 *g_sources;
+extern u8 g_tracks[];  /* typed per function below */
 
 void SoundManager_Create(void) {
-    extern s8 g_songLoaded_803C6F2C;
-    extern s32 g_tracks_803C6F30;
+    extern s8 g_songLoaded;
+    #define g_tracks (*(u8 **)(void *)&g_tracks)
 
     Dprintf("SoundManager_Create()");
     if (!Audio_Create()) {
         printf("AudioManager :: Audio_Create Failed\n");
     }
     Dprintf("SoundManager_Create() 1");
-    g_songLoaded_803C6F2C = 0;
-    g_sources_803C6F38 = HND(Allocate(0x1F40, 0, ""));
-    g_tracks_803C6F30 = HND(Allocate(0x500, 0, ""));
+    g_songLoaded = 0;
+    g_sources = Allocate(0x1F40, 0, "");
+    g_tracks = Allocate(0x500, 0, "");
+#undef g_tracks
 }
 
 extern u8 g_nextSource[];  /* typed per function below */
 extern u8 g_listener[];  /* typed per function below */
+extern u8 g_globalMusic[];
 
 void SoundManager_Init(void) {
     typedef struct SoundSource {
@@ -59,9 +62,9 @@ void SoundManager_Init(void) {
         u8 pad10[0x28 - 0x10];
     } MusicTrack;
     extern s8 g_paused;
-    extern MusicFade g_globalMusic[3];
-    extern MusicTrack *g_tracks;
-    extern SoundSource *g_sources;
+    #define g_globalMusic ((MusicFade *)(void *)&g_globalMusic)
+    #define g_tracks (*(MusicTrack **)(void *)&g_tracks)
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
     #define g_nextSource (*(s32 *)(void *)&g_nextSource)
     extern s32 g_numListeners;
     #define g_listener ((SoundListener *)(void *)&g_listener)
@@ -95,18 +98,22 @@ void SoundManager_Init(void) {
     g_paused = 0;
 #undef g_listener
 #undef g_nextSource
+#undef g_sources
+#undef g_globalMusic
+#undef g_tracks
 }
 
 
 void SoundManager_Destroy(void) {
-    extern s32 g_tracks_803C6F30;
+    #define g_tracks (*(u8 **)(void *)&g_tracks)
     Audio_Destroy();
-    Deallocate(PTR(g_sources_803C6F38));
-    Deallocate(PTR(g_tracks_803C6F30));
+    Deallocate(g_sources);
+    Deallocate(g_tracks);
+#undef g_tracks
 }
 
 void SoundSource_Set(u32 index, u32 type, void *data) {
-    extern s32 g_sources;
+    #define g_sources (*(u8 **)(void *)&g_sources)
 
     switch (type) {
     case 0:
@@ -135,6 +142,7 @@ void SoundSource_Set(u32 index, u32 type, void *data) {
     case 8:
         break;
     }
+#undef g_sources
 }
 
 s32 SoundManager_CreateSource(u32 owner) {
@@ -155,7 +163,7 @@ s32 SoundManager_CreateSource(u32 owner) {
         s8 playing;
         u8 unk4A[0x50 - 0x4A];
     } SoundSource;
-    extern SoundSource *g_sources;
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
     #define g_nextSource (*(u32 *)(void *)&g_nextSource)
     extern Vector4 g_zeroVector;
     u32 start;
@@ -181,6 +189,7 @@ s32 SoundManager_CreateSource(u32 owner) {
     g_sources[g_nextSource].playing = 0;
     return ++g_nextSource - 1;
 #undef g_nextSource
+#undef g_sources
 }
 
 void SoundManager_Heartbeat(void) {
@@ -217,7 +226,7 @@ void SFX_ProcessSource(u32 index) {
         u8 mtx[0x40];
     } SoundListener;
     extern s8 g_paused;
-    extern SoundSource *g_sources;
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
     #define g_listener ((SoundListener *)(void *)&g_listener)
     extern s32 g_numListeners;
     extern s32 g_sscount;
@@ -335,6 +344,7 @@ void SFX_ProcessSource(u32 index) {
         src->unk24 = 0.0f;
     }
 #undef g_listener
+#undef g_sources
 }
 
 void SFX_Heartbeat(void) {
@@ -348,7 +358,7 @@ void SFX_Heartbeat(void) {
         var_r31 += 1;
     } while (var_r31 < 0x64U);
 }
-extern u8 g_globalMusic_800DBE30[];  /* typed per function below */
+extern u8 g_globalMusic[];  /* typed per function below */
 
 void MusicHearbeat(void) {
     typedef struct MusicFade {
@@ -363,53 +373,54 @@ void MusicHearbeat(void) {
         f32 time;
         u8 pad10[0x28 - 0x10];
     } MusicTrack;
-    extern s8 g_paused_803C6F2D;
-    #define g_globalMusic_800DBE30 ((MusicFade *)(void *)&g_globalMusic_800DBE30)
-    extern MusicTrack *g_tracks_803C6F30;
+    extern s8 g_paused;
+    #define g_globalMusic ((MusicFade *)(void *)&g_globalMusic)
+    #define g_tracks (*(MusicTrack **)(void *)&g_tracks)
     extern f32 g_fDeltaTimeMS;
     extern void (*SetMusicPitch)(u32);
     extern void (*SetMusicTempo)(u32);
     extern void (*SetMusicTrackVol)(u32, u32);
     u32 i;
 
-    if (g_paused_803C6F2D) {
+    if (g_paused) {
         return;
     }
-    if (g_globalMusic_800DBE30[0].time > 0.0f && g_globalMusic_800DBE30[0].cur != g_globalMusic_800DBE30[0].target) {
-        g_globalMusic_800DBE30[0].cur = (g_globalMusic_800DBE30[0].target - g_globalMusic_800DBE30[0].cur) * (g_fDeltaTimeMS / g_globalMusic_800DBE30[0].time) + g_globalMusic_800DBE30[0].cur;
-        g_globalMusic_800DBE30[0].time -= g_fDeltaTimeMS;
-        if (g_globalMusic_800DBE30[0].cur < 0.0f) {
-            g_globalMusic_800DBE30[0].cur = 0.0f;
+    if (g_globalMusic[0].time > 0.0f && g_globalMusic[0].cur != g_globalMusic[0].target) {
+        g_globalMusic[0].cur = (g_globalMusic[0].target - g_globalMusic[0].cur) * (g_fDeltaTimeMS / g_globalMusic[0].time) + g_globalMusic[0].cur;
+        g_globalMusic[0].time -= g_fDeltaTimeMS;
+        if (g_globalMusic[0].cur < 0.0f) {
+            g_globalMusic[0].cur = 0.0f;
         }
-        SetMusicVol(32767.0f * g_globalMusic_800DBE30[0].cur);
+        SetMusicVol(32767.0f * g_globalMusic[0].cur);
     }
-    if (g_globalMusic_800DBE30[1].time > 0.0f && g_globalMusic_800DBE30[1].cur != g_globalMusic_800DBE30[1].target) {
-        g_globalMusic_800DBE30[1].cur = (g_globalMusic_800DBE30[1].target - g_globalMusic_800DBE30[1].cur) * (g_fDeltaTimeMS / g_globalMusic_800DBE30[1].time) + g_globalMusic_800DBE30[1].cur;
-        g_globalMusic_800DBE30[1].time -= g_fDeltaTimeMS;
-        if (g_globalMusic_800DBE30[1].cur < 0.0f) {
-            g_globalMusic_800DBE30[1].cur = 0.0f;
+    if (g_globalMusic[1].time > 0.0f && g_globalMusic[1].cur != g_globalMusic[1].target) {
+        g_globalMusic[1].cur = (g_globalMusic[1].target - g_globalMusic[1].cur) * (g_fDeltaTimeMS / g_globalMusic[1].time) + g_globalMusic[1].cur;
+        g_globalMusic[1].time -= g_fDeltaTimeMS;
+        if (g_globalMusic[1].cur < 0.0f) {
+            g_globalMusic[1].cur = 0.0f;
         }
-        SetMusicPitch(65536.0f * g_globalMusic_800DBE30[1].cur);
+        SetMusicPitch(65536.0f * g_globalMusic[1].cur);
     }
-    if (g_globalMusic_800DBE30[2].time > 0.0f && g_globalMusic_800DBE30[2].cur != g_globalMusic_800DBE30[2].target) {
-        g_globalMusic_800DBE30[2].cur = (g_globalMusic_800DBE30[2].target - g_globalMusic_800DBE30[2].cur) * (g_fDeltaTimeMS / g_globalMusic_800DBE30[2].time) + g_globalMusic_800DBE30[2].cur;
-        g_globalMusic_800DBE30[2].time -= g_fDeltaTimeMS;
-        if (g_globalMusic_800DBE30[2].cur < 0.0f) {
-            g_globalMusic_800DBE30[2].cur = 0.0f;
+    if (g_globalMusic[2].time > 0.0f && g_globalMusic[2].cur != g_globalMusic[2].target) {
+        g_globalMusic[2].cur = (g_globalMusic[2].target - g_globalMusic[2].cur) * (g_fDeltaTimeMS / g_globalMusic[2].time) + g_globalMusic[2].cur;
+        g_globalMusic[2].time -= g_fDeltaTimeMS;
+        if (g_globalMusic[2].cur < 0.0f) {
+            g_globalMusic[2].cur = 0.0f;
         }
-        SetMusicTempo(65536.0f * g_globalMusic_800DBE30[2].cur);
+        SetMusicTempo(65536.0f * g_globalMusic[2].cur);
     }
     for (i = 0; i < 32; i++) {
-        if (GETP(g_tracks_803C6F30[i].active) && GETP(g_tracks_803C6F30[i].time) > 0.0f && g_tracks_803C6F30[i].vol != GETP(g_tracks_803C6F30[i].target)) {
-            g_tracks_803C6F30[i].vol = (g_fDeltaTimeMS / GETP(g_tracks_803C6F30[i].time)) * (GETP(g_tracks_803C6F30[i].target) - g_tracks_803C6F30[i].vol) + g_tracks_803C6F30[i].vol;
-            g_tracks_803C6F30[i].time -= g_fDeltaTimeMS;
-            if (g_tracks_803C6F30[i].vol < 0.0f) {
-                g_tracks_803C6F30[i].vol = 0.0f;
+        if (g_tracks[i].active && g_tracks[i].time > 0.0f && g_tracks[i].vol != g_tracks[i].target) {
+            g_tracks[i].vol = (g_fDeltaTimeMS / g_tracks[i].time) * (g_tracks[i].target - g_tracks[i].vol) + g_tracks[i].vol;
+            g_tracks[i].time -= g_fDeltaTimeMS;
+            if (g_tracks[i].vol < 0.0f) {
+                g_tracks[i].vol = 0.0f;
             }
-            SetMusicTrackVol(i, 32767.0f * g_tracks_803C6F30[i].vol);
+            SetMusicTrackVol(i, 32767.0f * g_tracks[i].vol);
         }
     }
-#undef g_globalMusic_800DBE30
+#undef g_globalMusic
+#undef g_tracks
 }
 
 void SoundListener_Set(s32 listener, s32 param, void *value) {
@@ -448,9 +459,10 @@ void SoundSource_Play(s32 index) {
         s8 playing;
         u8 pad4A[0x50 - 0x4A];
     } SoundSource;
-    extern SoundSource *g_sources;
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
 
     g_sources[index].playing = 1;
+#undef g_sources
 }
 
 
@@ -463,15 +475,16 @@ void SoundSource_Stop(s32 index) {
         u32 looping;
         u8 pad34[0x50 - 0x34];
     } SoundSource;
-    extern SoundSource *g_sources;
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
 
-    if (GETP(g_sources[index].voice) > 0) {
-        ReleaseVoice(GETP(g_sources[index].voice));
+    if (g_sources[index].voice > 0) {
+        ReleaseVoice(g_sources[index].voice);
         g_sources[index].voice = -1;
         g_sources[index].unk24 = 0.0f;
         g_sources[index].looping = FALSE;
     }
     return;
+#undef g_sources
 }
 
 s8 SoundSource_IsActive(s32 index) {
@@ -480,9 +493,10 @@ s8 SoundSource_IsActive(s32 index) {
         s32 voice;
         u8 pad30[0x50 - 0x30];
     } SoundSource;
-    extern SoundSource *g_sources;
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
 
-    return GETP(g_sources[index].voice) != -1;
+    return g_sources[index].voice != -1;
+#undef g_sources
 }
 
 s8 SoundSource_IsLooping(s32 index) {
@@ -491,9 +505,10 @@ s8 SoundSource_IsLooping(s32 index) {
         s32 looping;
         u8 pad34[0x50 - 0x34];
     } SoundSource;
-    extern SoundSource *g_sources;
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
 
     return g_sources[index].looping;
+#undef g_sources
 }
 
 void *SoundAudioSample_Play(void *sample) {
@@ -502,7 +517,7 @@ void *SoundAudioSample_Play(void *sample) {
     if (sample == NULL) {
         return NULL;
     }
-    voice = (void *)HND(PTR(GetVoice(HND(sample), (u8)(rand() % 10 + 5))));
+    voice = PTR(GetVoice(HND(sample), (u8)(rand() % 10 + 5)));
     if (voice != NULL) {
         SetVoiceState(HND(voice), 1);
         return voice;
@@ -549,7 +564,7 @@ void SoundManager_Pause(s32 paused) {
         u8 unk4A[0x50 - 0x4A];
     } SoundSource;
     extern s8 g_paused;
-    extern SoundSource *g_sources;
+    #define g_sources (*(SoundSource **)(void *)&g_sources)
     extern void (*SetMusicState)(s32);
     u32 i;
 
@@ -565,24 +580,25 @@ void SoundManager_Pause(s32 paused) {
     for (i = 0; i < 100; i++) {
         g_sources[i].paused = paused;
     }
+#undef g_sources
 }
 
-void SongManager_LoadSong(u8 *data, u32 size) {
-    extern s8 g_songLoaded_803C6F2C;
-    CreateMusic(data, size);
-    g_songLoaded_803C6F2C = 1;
+void SongManager_LoadSong(u8 *data, u8 *bank) {
+    extern s8 g_songLoaded;
+    CreateMusic(data, bank);
+    g_songLoaded = 1;
 }
 
 void SongManager_PlaySong(void) {
-    extern s8 g_songLoaded_803C6F2C;
+    extern s8 g_songLoaded;
     extern void (*SetMusicState)(s32);
-    #define g_globalMusic_800DBE30 ((f32 *)(void *)&g_globalMusic_800DBE30)
+    #define g_globalMusic ((f32 *)(void *)&g_globalMusic)
 
-    if (g_songLoaded_803C6F2C) {
+    if (g_songLoaded) {
         SetMusicState(1);
-        SetMusicVol(32767.0 * g_globalMusic_800DBE30[0]);
+        SetMusicVol(32767.0 * g_globalMusic[0]);
     }
-#undef g_globalMusic_800DBE30
+#undef g_globalMusic
 }
 
 s32 ActionMusicChange(void *data) {
@@ -633,10 +649,10 @@ s32 ActionMusicChange(void *data) {
         f32 pitch;
         f32 tempo;
     } MusicScale;
-    extern s8 g_paused_803C6F2D;
-    extern s8 g_songLoaded_803C6F2C;
-    #define g_globalMusic_800DBE30 ((MusicFade *)(void *)&g_globalMusic_800DBE30)
-    extern MusicTrack *g_tracks_803C6F30;
+    extern s8 g_paused;
+    extern s8 g_songLoaded;
+    #define g_globalMusic ((MusicFade *)(void *)&g_globalMusic)
+    #define g_tracks (*(MusicTrack **)(void *)&g_tracks)
     extern void (*SetMusicPitch)(u32);
     extern void (*SetMusicTempo)(u32);
     extern void (*SetMusicOrder)(u8, s8);
@@ -644,59 +660,60 @@ s32 ActionMusicChange(void *data) {
     u32 i;
     f32 vol;
 
-    if (g_paused_803C6F2D) {
+    if (g_paused) {
         return 0;
     }
-    if (!g_songLoaded_803C6F2C) {
+    if (!g_songLoaded) {
         return 0;
     }
     if (action->volTime == 0) {
-        g_globalMusic_800DBE30[0].cur = action->vol;
+        g_globalMusic[0].cur = action->vol;
         if (GETP(g_worldData.world) != NULL) {
-            g_globalMusic_800DBE30[0].cur = action->vol * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->vol;
+            g_globalMusic[0].cur = action->vol * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->vol;
         }
-        SetMusicVol(32767.0f * g_globalMusic_800DBE30[0].cur);
+        SetMusicVol(32767.0f * g_globalMusic[0].cur);
     } else {
-        g_globalMusic_800DBE30[0].target = action->vol;
+        g_globalMusic[0].target = action->vol;
     }
-    g_globalMusic_800DBE30[0].time = *(f32 *)&action->volTime;
+    g_globalMusic[0].time = *(f32 *)&action->volTime;
     if (action->pitchTime == 0) {
-        g_globalMusic_800DBE30[1].cur = action->pitch;
+        g_globalMusic[1].cur = action->pitch;
         if (GETP(g_worldData.world) != NULL) {
-            g_globalMusic_800DBE30[1].cur = action->pitch * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->pitch;
+            g_globalMusic[1].cur = action->pitch * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->pitch;
         }
-        SetMusicPitch(65536.0f * g_globalMusic_800DBE30[1].cur);
+        SetMusicPitch(65536.0f * g_globalMusic[1].cur);
     } else {
-        g_globalMusic_800DBE30[1].target = action->pitch;
+        g_globalMusic[1].target = action->pitch;
     }
-    g_globalMusic_800DBE30[1].time = *(f32 *)&action->pitchTime;
+    g_globalMusic[1].time = *(f32 *)&action->pitchTime;
     if (action->tempoTime == 0) {
-        g_globalMusic_800DBE30[2].cur = action->tempo;
+        g_globalMusic[2].cur = action->tempo;
         if (GETP(g_worldData.world) != NULL) {
-            g_globalMusic_800DBE30[2].cur = action->tempo * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->tempo;
+            g_globalMusic[2].cur = action->tempo * (SLOT_LOAD(MusicScale *, ((u8 *)GETP(g_worldData.world) + 0x9C)))->tempo;
         }
-        SetMusicTempo(65536.0f * g_globalMusic_800DBE30[2].cur);
+        SetMusicTempo(65536.0f * g_globalMusic[2].cur);
     } else {
-        g_globalMusic_800DBE30[2].target = action->tempo;
+        g_globalMusic[2].target = action->tempo;
     }
-    g_globalMusic_800DBE30[2].time = *(f32 *)&action->tempoTime;
+    g_globalMusic[2].time = *(f32 *)&action->tempoTime;
     if (action->orderMode == 0x29) {
         SetMusicOrder(action->order, action->orderType == 0x27);
         for (i = 0; i < 15; i++) {
-            SETP(g_tracks_803C6F30[i].active, 0);
+            g_tracks[i].active = 0;
         }
     }
     for (i = 0; i < action->numTracks; i++) {
-        g_tracks_803C6F30[action->u.old[i].track].active = action->u.old[i].active;
-        g_tracks_803C6F30[action->u.tracks[i].track].active = action->u.tracks[i].active;
+        g_tracks[action->u.old[i].track].active = action->u.old[i].active;
+        g_tracks[action->u.tracks[i].track].active = action->u.tracks[i].active;
         vol = *(f32 *)&((u32 *)data)[i * 10 + 13];
         if (vol > 0.0f) {
-            g_tracks_803C6F30[action->u.tracks[i].track].target = vol;
-            g_tracks_803C6F30[action->u.tracks[i].track].time = vol;
+            g_tracks[action->u.tracks[i].track].target = vol;
+            g_tracks[action->u.tracks[i].track].time = vol;
         }
     }
     return 1;
-#undef g_globalMusic_800DBE30
+#undef g_globalMusic
+#undef g_tracks
 }
 
 s32 ActionMusicSetSong(void) {

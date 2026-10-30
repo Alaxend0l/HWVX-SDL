@@ -86,9 +86,10 @@ void Gfx_Destroy(void) {
     Render_Destroy();
 }
 
-void Gfx_CreateView(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+/* The decomp has an m2c placeholder here; the original passes its arguments
+ * straight on to Render_CreateView (asm). */
+s32 Gfx_CreateView(s32 view, u32 width, u32 height) {
+    return Render_CreateView(view, width, height);
 }
 
 GfxWindow *GetRenderWindow(void);
@@ -270,7 +271,9 @@ void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4) {
     win->centerY = (marginY >> 1) * 16;
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
     memcpy((u8 *)&g_window[g_currentWindow] + 0x140, (u8 *)&g_window[g_currentWindow] + 0x40, 0x40);
-    Gfx_ResetWindowFov();
+    /* inlined in the original (no such function in the symbol map) */
+    win->unk2C4 = 0;
+    win->fov = ((Window *)&g_window[0])->fov;
 }
 
 s32 Gfx_GetCameraPositions(Vector *out) {

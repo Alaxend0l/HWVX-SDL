@@ -72,17 +72,20 @@ static inline s8 VolumeManager_IsPointInVolume(Vector4 *point, VolumeShape *shap
     return 0;
 }
 
+extern u8 g_VolumeHolder[];  /* typed per function below */
 
 void VolumeManager_Create(void) {
-    extern s32 g_VolumeHolder;
-    g_VolumeHolder = 0;
+    #define g_VolumeHolder (*(u8 **)(void *)&g_VolumeHolder)
+    g_VolumeHolder = NULL;
+#undef g_VolumeHolder
 }
 
 void VolumeManager_Release(void) {
-    extern s32 g_VolumeHolder;
-    g_VolumeHolder = 0;
+    #define g_VolumeHolder (*(u8 **)(void *)&g_VolumeHolder)
+    g_VolumeHolder = NULL;
     SetReverb(0, 0); /* 3rd/4th args were ignored on GC */
     SetReverb(1, 0); /* 3rd/4th args were ignored on GC */
+#undef g_VolumeHolder
 }
 extern u8 g_bReset[];  /* typed per function below */
 
@@ -91,12 +94,13 @@ void VolumeManager_Initialize(void) {
         u8 pad0[0x4];
         s32 volumeHolder;
     } World;
-    extern s32 g_VolumeHolder;
+    #define g_VolumeHolder (*(u8 **)(void *)&g_VolumeHolder)
     #define g_bReset (*(u8 *)(void *)&g_bReset)
     VolumeManager_Release();
-    g_VolumeHolder = ((World *)GETP(g_worldData.world))->volumeHolder;
+    g_VolumeHolder = PTR(((World *)GETP(g_worldData.world))->volumeHolder);
     g_bReset = 1;
 #undef g_bReset
+#undef g_VolumeHolder
 }
 
 static inline s32 VolumeManager_GetCell(VolumeHolder *holder, Vector4 *point) {
@@ -124,7 +128,7 @@ static inline s32 VolumeManager_GetCell(VolumeHolder *holder, Vector4 *point) {
 
 
 s32 VolumeManager_GetVolumeCellIndex(Vector4 *point) {
-    extern u8 *g_VolumeHolder;
+    #define g_VolumeHolder (*(u8 **)(void *)&g_VolumeHolder)
     u8 *holder = g_VolumeHolder;
     s32 x;
     s32 y;
@@ -146,6 +150,7 @@ s32 VolumeManager_GetVolumeCellIndex(Vector4 *point) {
         return 0;
     }
     return SLOT_LOAD(s32 *, (u8 *)(holder) + 0x14)[z * M2C_FIELD(holder, s32 *, 0x2C) + M2C_FIELD(holder, s32 *, 0x34) * (y * M2C_FIELD(holder, s32 *, 0x2C)) + x];
+#undef g_VolumeHolder
 }
 
 s32 VolumeManager_GetNumVolumesOfType(u32 type) {
@@ -197,11 +202,12 @@ void *VolumeManager_GetVolumeTypeByIndex(u32 type, u32 index) {
 }
 
 s32 VolumeManager_GetNumVolumesOfTypeByCell(s32 type, s32 cell) {
-    extern s32 g_VolumeHolder;
-    if ((void *)g_VolumeHolder != NULL) {
+    #define g_VolumeHolder (*(u8 **)(void *)&g_VolumeHolder)
+    if (g_VolumeHolder != NULL) {
         return M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(g_VolumeHolder) + 0x10) + cell * 0x38 + type * 8, s32 *, 0x0);
     }
     return 0;
+#undef g_VolumeHolder
 }
 
 s32 VolumeManager_GetVolumeTypeByIndexByCell(s32 type, s32 index, s32 cell) {
@@ -212,9 +218,10 @@ s32 VolumeManager_GetVolumeTypeByIndexByCell(s32 type, s32 index, s32 cell) {
     typedef struct VolumeCell {
         VolumeList types[7];
     } VolumeCell;
-    extern s32 g_VolumeHolder;
+    #define g_VolumeHolder (*(u8 **)(void *)&g_VolumeHolder)
     VolumeCell *cells = SLOT_LOAD(VolumeCell *, (u8 *)(g_VolumeHolder) + 0x10);
     return GETP(cells[cell].types[type].volumes)[index];
+#undef g_VolumeHolder
 }
 
 s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq) {
@@ -243,7 +250,7 @@ s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq) {
 
 
 VolumeShape *IsPointWithinForceBox(Vector4 *point) {
-    extern VolumeHolder *g_VolumeHolder;
+    #define g_VolumeHolder (*(VolumeHolder **)(void *)&g_VolumeHolder)
     VolumeShape *volume;
     u32 count;
     s32 i;
@@ -260,6 +267,7 @@ VolumeShape *IsPointWithinForceBox(Vector4 *point) {
         i++;
     }
     return NULL;
+#undef g_VolumeHolder
 }
 
 
@@ -279,7 +287,7 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
         u8 pad0[0x9C];
         PTR32(WorldReverb) reverb;
     } World;
-    extern VolumeHolder *g_VolumeHolder;
+    #define g_VolumeHolder (*(VolumeHolder **)(void *)&g_VolumeHolder)
     #define g_bReset (*(s8 *)(void *)&g_bReset)
     static u16 sfx_volume = 0xFFFF;
     static u16 sfx_feedback = 0xFFFF;
@@ -344,6 +352,7 @@ void VolumeManager_SetReverbLevel(Vector4 *point) {
     }
     g_bReset = 0;
 #undef g_bReset
+#undef g_VolumeHolder
 }
 
 
@@ -353,7 +362,7 @@ void VolumeManager_SetFogLevel(Vector4 *point) {
         u8 pad0[0x9C];
         PTR32(WorldFog) fog;
     } World;
-    extern VolumeHolder *g_VolumeHolder;
+    #define g_VolumeHolder (*(VolumeHolder **)(void *)&g_VolumeHolder)
     static u32 fogColor;
     static u8 fogType = 0xFF;
     static f32 fogNearDistance = -1.0f;
@@ -393,6 +402,7 @@ void VolumeManager_SetFogLevel(Vector4 *point) {
         fogNearDistance = settings->nearDistance;
         fogFarDistance = settings->farDistance;
     }
+#undef g_VolumeHolder
 }
 
 

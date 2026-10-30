@@ -8,6 +8,8 @@
 #ifndef SDK_H
 #define SDK_H
 
+#include <math.h>
+
 #include "port.h"
 
 #ifdef __cplusplus
@@ -53,7 +55,7 @@ int OSCreateHeap(void *start, void *end);
 int OSSetCurrentHeap(int heap);
 void *OSAllocFromHeap(int heap, u32 size);
 void OSFreeToHeap(int heap, void *ptr);
-extern volatile int __OSCurrHeap;
+extern int __OSCurrHeap;
 
 BOOL OSDisableInterrupts(void);
 BOOL OSEnableInterrupts(void);
@@ -158,6 +160,8 @@ void *VISetPostRetraceCallback(void (*callback)(u32));
 #define PAD_BUTTON_START 0x1000
 
 BOOL PADInit(void);
+BOOL PADReset(u32 mask);
+u32 SIProbe(s32 chan);
 u32 PADRead(struct PADStatus *status);
 void PADClamp(struct PADStatus *status);
 void PADControlMotor(s32 chan, u32 command);
@@ -267,12 +271,28 @@ f32 PSVECSquareDistance(const void *a, const void *b);
 /* ---- GX (emulated on OpenGL 3.3) -------------------------------------- */
 
 #include "gx.h"
+#include "lgwheels.h"
 
 /* ---- misc -------------------------------------------------------------- */
 
 void EXIInit(void);
 void GBAConnectivityInit(void);
 void GBAConnectivityLoop(void);
+
+/* ---- CodeWarrior PowerPC intrinsics -------------------------------------- */
+
+static inline f64 __fabs(f64 x) { return fabs(x); }
+static inline f32 __fabsf(f32 x) { return fabsf(x); }
+static inline int __abs(int x) { return x < 0 ? -x : x; }
+/* frsqrte is a ~5-bit estimate the game refines with Newton steps; exact is fine. */
+static inline f64 __frsqrte(f64 x) { return 1.0 / sqrt(x); }
+static inline u32 __mulhwu(u32 a, u32 b) { return (u32)(((u64)a * b) >> 32); }
+/* store halfword byte-reversed, i.e. little-endian, at base + off */
+static inline void __sthbrx(u16 v, void *base, int off) {
+    u8 *p = (u8 *)base + off;
+    p[0] = (u8)v;
+    p[1] = (u8)(v >> 8);
+}
 
 #ifdef __cplusplus
 }

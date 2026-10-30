@@ -520,7 +520,7 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
     } WeaponHolder;
     extern u32 g_attackDelay;
     extern u8 g_itemVTable[];
-    extern const char g_jetBoostersName_800CC3E4[];
+    static const char g_jetBoostersName_800CC3E4[] = "Jet Boosters";  /* @832 in .rodata */
     u8 *cars[8];
     u8 *target;
     WeaponHolder *holder;
@@ -973,7 +973,7 @@ void AI_Car_AsyncScanDestructibles(u8 *car) {
         SLOT_STORE((u8 *)(car) + 0x3E8, NULL);
         if (target != NULL) {
             dist = 1.0f;
-            PTR(SLOT_STORE((u8 *)(car) + 0x3E8, RayHitsObjects_GetObject(SLOT_LOAD(u8 *, (u8 *)(car) + 0x2C) + 0x40, target, &dist, 1, 0)));
+            SLOT_STORE((u8 *)(car) + 0x3E8, PTR(RayHitsObjects_GetObject(SLOT_LOAD(u8 *, (u8 *)(car) + 0x2C) + 0x40, target, &dist, 1, 0)));
             M2C_FIELD(car, s32 *, 0x608) = RandomAdd_s32(400, 400);
         }
     }
@@ -1481,7 +1481,7 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
         }
     } else if (type == 14) {
         if (((AIData *)ai)->wayPoint != 0xFFFFFFFF) {
-            index = HND(NavHolder_GetFirstWayPoint());
+            index = NavHolder_GetFirstWayPoint();
         } else {
             index = 0xFFFFFFFF;
         }
@@ -1848,7 +1848,6 @@ void AI_Car_Reset(u8 *car) {
         AICarTarget targets[16];
         u8 unk0[0x4B0];
     } AICarTargets;
-    void AI_Car_ResetState(u8 *car, void *state);
     register u8 *vehicle;
     u16 i;
 
@@ -1886,7 +1885,7 @@ void AI_Car_Reset(u8 *car) {
 void AI_Car_Init(u8 *car, u8 *params) {
 
     M2C_FIELD(car, s32 *, 0xD0) = M2C_FIELD(params, s32 *, 0x0);
-    AI_Init();
+    AI_Init(car, (s32)HND(params));  /* r3/r4 passed on unchanged (asm) */
     SLOT_STORE((u8 *)(car) + 0xB8, car);
     SLOT_STORE((u8 *)(car) + 0xBC, AI_Car_AsyncHeartbeat);
     M2C_FIELD(car, u8 *, 0xC4) = 0;

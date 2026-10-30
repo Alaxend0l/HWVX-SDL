@@ -126,7 +126,7 @@ typedef struct OSFontHeader {
 } OSFontHeader;
 
 
-extern OSFontHeader *FontData;
+OSFontHeader *FontData;  /* .sbss in the original (local to Render_.o) */
 extern s32 __OSCurrHeap;
 
 GfxWindow *GetRenderWindow(void);
@@ -229,7 +229,6 @@ extern RenderStats g_renderStats;
 extern s32 g_debugTriCount;
 
 
-extern u8 FontData_803C76A4[];  /* typed per function below */
 
 s32 DrawChar(s32 x, s32 y, u16 code) {
     typedef struct {
@@ -245,7 +244,7 @@ s32 DrawChar(s32 x, s32 y, u16 code) {
         u16 sheetWidth;
         u16 sheetHeight;
     } FontHeader;
-    #define FontData_803C76A4 (*(FontHeader **)(void *)&FontData_803C76A4)
+    #define FontData (*(FontHeader **)(void *)&FontData)
     f32 mtx[3][4];
     GXTexObj tobj;
     char str[4];
@@ -274,17 +273,17 @@ s32 DrawChar(s32 x, s32 y, u16 code) {
         str[2] = 0;
     }
     OSGetFontTexture(str, &image, &s, &t, &width);
-    GXInitTexObj(&tobj, image, FontData_803C76A4->sheetWidth, FontData_803C76A4->sheetHeight, FontData_803C76A4->sheetFormat, 0, 0, 0);
+    GXInitTexObj(&tobj, image, FontData->sheetWidth, FontData->sheetHeight, FontData->sheetFormat, 0, 0, 0);
     GXInitTexObjLOD(&tobj, 1, 1, 0.0f, 0.0f, 0.0f, 0, 0, 0);
     GXLoadTexObj(&tobj, 0);
-    PSMTXScale(mtx, 1.0f / FontData_803C76A4->sheetWidth, 1.0f / FontData_803C76A4->sheetHeight, 1.0f);
+    PSMTXScale(mtx, 1.0f / FontData->sheetWidth, 1.0f / FontData->sheetHeight, 1.0f);
     GXLoadTexMtxImm(mtx, 30, 1);
     GXSetTexCoordGen2(0, 1, 4, 30, 0, 125);
     x0 = x;
     y0 = y;
     t0 = t;
-    cw = FontData_803C76A4->cellWidth;
-    ch = FontData_803C76A4->cellHeight;
+    cw = FontData->cellWidth;
+    ch = FontData->cellHeight;
     s0 = s;
     x1 = x0 + cw;
     y1 = y0 + ch;
@@ -310,7 +309,7 @@ s32 DrawChar(s32 x, s32 y, u16 code) {
     GXWGFifo_s16(s0);
     GXWGFifo_s16(t0 + ch);
     return width;
-#undef FontData_803C76A4
+#undef FontData
 }
 
 
@@ -328,7 +327,7 @@ s32 DrawString(s32 x, s32 y, char *string) {
         u16 sheetWidth;
         u16 sheetHeight;
     } FontHeader;
-    #define FontData_803C76A4 (*(FontHeader **)(void *)&FontData_803C76A4)
+    #define FontData (*(FontHeader **)(void *)&FontData)
     f32 mtx[3][4];
     GXTexObj tobj;
     void *image;
@@ -347,17 +346,17 @@ s32 DrawString(s32 x, s32 y, char *string) {
 
     while (*string != 0) {
         string = OSGetFontTexture(string, &image, &s, &t, &width);
-        GXInitTexObj(&tobj, image, FontData_803C76A4->sheetWidth, FontData_803C76A4->sheetHeight, FontData_803C76A4->sheetFormat, 0, 0, 0);
+        GXInitTexObj(&tobj, image, FontData->sheetWidth, FontData->sheetHeight, FontData->sheetFormat, 0, 0, 0);
         GXInitTexObjLOD(&tobj, 1, 1, 0.0f, 0.0f, 0.0f, 0, 0, 0);
         GXLoadTexObj(&tobj, 0);
-        PSMTXScale(mtx, 1.0f / FontData_803C76A4->sheetWidth, 1.0f / FontData_803C76A4->sheetHeight, 1.0f);
+        PSMTXScale(mtx, 1.0f / FontData->sheetWidth, 1.0f / FontData->sheetHeight, 1.0f);
         GXLoadTexMtxImm(mtx, 30, 1);
         GXSetTexCoordGen2(0, 1, 4, 30, 0, 125);
         x0 = x + total;
         y0 = y;
         t0 = t;
-        cw = FontData_803C76A4->cellWidth;
-        ch = FontData_803C76A4->cellHeight;
+        cw = FontData->cellWidth;
+        ch = FontData->cellHeight;
         s0 = s;
         x1 = x0 + cw;
         y1 = y0 + ch;
@@ -373,7 +372,7 @@ s32 DrawString(s32 x, s32 y, char *string) {
         total += width;
     }
     return total;
-#undef FontData_803C76A4
+#undef FontData
 }
 
 
@@ -674,7 +673,7 @@ static inline void Render_SetWindowViewport(void) {
 void Render_EndScene(void) {
     extern GDL *g_pGDL;
     extern u8 g_CurrentViews;
-    extern u32 m_fogMode_803C76CC;
+    #define m_fogMode (*(u32 *)(void *)&m_fogMode)
     extern s32 m_cullMode;
     extern s32 g_onebitflag;
     s32 cull;
@@ -684,7 +683,7 @@ void Render_EndScene(void) {
     u16 v;
     u16 j;
 
-    fog = m_fogMode_803C76CC;
+    fog = m_fogMode;
     if (g_CurrentViews != 1) {
         DisplayList_RenderGXList();
         Render_GeometryListSplitScreen();
@@ -812,6 +811,7 @@ void Render_EndScene(void) {
         Render_StateFogEnable(1);
     }
     Render_ScreenFlash();
+#undef m_fogMode
 }
 
 void Render_FlipBuffers(void) {
@@ -1003,38 +1003,38 @@ void SetTriFlatVtxDesc(void) {
 }
 
 void Gfx_SetFog(GXColor *color, u8 type, f32 start, f32 end) {
-    extern GXColor m_fogColor_803C76C8;
-    extern u8 m_fogType_803C76C4;
-    extern f32 m_fogRange1_803C76C0;
-    extern f32 m_fogRange2_803C76BC;
+    extern GXColor m_fogColor;
+    extern u8 m_fogType;
+    extern f32 m_fogRange1;
+    extern f32 m_fogRange2;
     u8 r, g, b, a;
     f32 scale;
     switch (type) {
     case 0:
-        m_fogType_803C76C4 = 2;
+        m_fogType = 2;
         break;
     case 1:
-        m_fogType_803C76C4 = 4;
+        m_fogType = 4;
         break;
     case 2:
-        m_fogType_803C76C4 = 5;
+        m_fogType = 5;
         break;
     }
     a = color->a;
     b = color->b;
     g = color->g;
     r = color->r;
-    m_fogColor_803C76C8.g = g;
-    m_fogColor_803C76C8.r = r;
-    m_fogColor_803C76C8.b = b;
-    m_fogColor_803C76C8.a = 0xFF;
+    m_fogColor.g = g;
+    m_fogColor.r = r;
+    m_fogColor.b = b;
+    m_fogColor.a = 0xFF;
     if (a != 0) {
         scale = a / 255.0f;
-        m_fogRange2_803C76BC = end / scale;
-        m_fogRange1_803C76C0 = start / scale;
+        m_fogRange2 = end / scale;
+        m_fogRange1 = start / scale;
     } else {
-        m_fogRange1_803C76C0 = 1.0f;
-        m_fogRange2_803C76BC = 1.0f;
+        m_fogRange1 = 1.0f;
+        m_fogRange2 = 1.0f;
     }
 }
 

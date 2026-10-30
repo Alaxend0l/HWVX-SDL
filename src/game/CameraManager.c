@@ -63,8 +63,8 @@ s32 CameraManager_Create(void) {
 }
 
 void CameraManager_Destroy(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 u8 CameraManager_GetActiveCameras(void) {
@@ -300,7 +300,7 @@ s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info
             continue;
         }
         if ((u8 *)GETP(other->vtable) == g_destructibleVTable && GETP(GETP(other->record)->info)->type == 0) {
-            box = GETP(GETP(other->record)->info->box);
+            box = GETP(GETP(GETP(other->record)->info)->box);
             if ((box->v[1].x - box->v[0].x) * (box->v[1].z - box->v[0].z) < 100.0f) {
                 continue;
             }

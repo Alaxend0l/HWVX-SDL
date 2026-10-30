@@ -73,11 +73,10 @@ void SetMusicGVol(u32 vol) {
 s32 AudioVoid(void) { return 0; }
 
 
-void CreateMusic(u8 *data, u32 size) {
+void CreateMusic(u8 *data, u8 *bank) {
   s8 CmpType_(u8 * chunk, s32 type), CmpID_(u8 * chunk, s32 id);
-  void CreateMIDI(u8 * data, u32 size), CreateIT(u8 * data, u32 size);
 
-  if (data == 0 || size == 0) {
+  if (data == 0 || bank == 0) {
     return;
   }
   if (CmpType_(data, 'MIDI')) {
@@ -91,7 +90,7 @@ void CreateMusic(u8 *data, u32 size) {
     SetMusicTrackOn = SetMIDITrackOn;
     SetMusicTrackOff = SetMIDITrackOff;
     SetMusicTrackVol = SetMIDITrackVol;
-    (CreateMIDI)(data, size);
+    (CreateMIDI)(data, bank);
   } else if (CmpID_(data, 'IMPM')) {
     (DestroyMusic) = DestroyIT;
     (SetMusicState) = SetITState;
@@ -103,7 +102,7 @@ void CreateMusic(u8 *data, u32 size) {
     (SetMusicTrackOn) = SetITTrackOn;
     (SetMusicTrackOff) = SetITTrackOff;
     (SetMusicTrackVol) = SetITTrackVol;
-    (CreateIT)(data, size);
+    (CreateIT)(data, bank);
   }
 }
 

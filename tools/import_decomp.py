@@ -72,7 +72,7 @@ def merge(files, old, new):
     "ours", the old decomp file the base: local rewrites survive, new decomp
     code arrives unrewritten (rerun the tools afterwards). Conflicts are left
     as markers."""
-    conflicts = []
+    conflicts, changed = [], []
     for rel, dst in files:
         base, theirs = show(old, rel), show(new, rel)
         if theirs is None or base == theirs:
@@ -81,6 +81,7 @@ def merge(files, old, new):
         if not dst.exists():
             dst.write_text(theirs)
             print(f"new      {dst.relative_to(ROOT)}")
+            changed.append(dst)
             continue
         with tempfile.TemporaryDirectory() as tmp:
             b = pathlib.Path(tmp) / "base"
@@ -89,11 +90,12 @@ def merge(files, old, new):
             t.write_text(theirs)
             r = subprocess.run(["git", "merge-file", "-L", "port", "-L", old[:10],
                                 "-L", new[:10], str(dst), str(b), str(t)])
+        changed.append(dst)
         status = "merged" if r.returncode == 0 else f"CONFLICT ({r.returncode})"
         if r.returncode:
             conflicts.append(dst)
         print(f"{status:8} {dst.relative_to(ROOT)}")
-    return conflicts
+    return conflicts, changed
 
 
 def main():
@@ -116,8 +118,12 @@ def main():
               for p in (DECOMP / "include").glob("*.h")]
     if args.merge:
         old = (DEST / "DECOMP_REVISION").read_text().strip()
-        conflicts = merge(files, old, rev)
+        conflicts, changed = merge(files, old, rev)
         (DEST / "DECOMP_REVISION").write_text(rev + "\n")
+        if changed:
+            print("then rewrite the merged files (see README, Updating from the decomp):\n"
+                  "  tools/fieldify.py --only " + ",".join(str(c.relative_to(ROOT)) for c in changed) +
+                  " src/game/*.c src/game/include/*.h")
         if conflicts:
             sys.exit(f"{len(conflicts)} file(s) with conflicts")
         return

@@ -14,8 +14,8 @@ u32 g_nextTrail;
 f32 g_trailTimer;
 
 void Trail_Create(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 void Trail_Init(void) {

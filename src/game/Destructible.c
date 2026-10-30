@@ -497,7 +497,7 @@ void Destructible_DynamicCollideImpact(u8 *destructible, u8 *collision, s32 dama
         *(u32 *)(destructible + 0x74) |= 2;
         return;
     }
-    other = HND(PTR(CollisionInfo_GetOther(collision, HND(destructible))));
+    other = PTR(CollisionInfo_GetOther(collision, HND(destructible)));
     if (other != NULL && SLOT_LOAD(void *, (other + 0x94)) != NULL && Player_IsHuman(SLOT_LOAD(void *, (other + 0x94)))) {
         *(u32 *)(destructible + 0x74) |= 0x20;
     }

@@ -18,8 +18,8 @@ void World_Destroy(void) {
 }
 
 void World_Init(void) {
-    M2C_UNK fn_800957D4();
-    fn_800957D4();
+    M2C_UNK EnableEXI2Interrupts();
+    EnableEXI2Interrupts();
 }
 
 void World_Refresh(void) {

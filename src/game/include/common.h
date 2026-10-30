@@ -368,7 +368,7 @@ extern ThingManagerDARYL g_thingManager_DARYL;
 typedef struct NavData {
   PTR32(u8) nodes;
   u32 numNodes;
-  PTR32(void) firstWayPoint;
+  s32 firstWayPoint;          /* index of a nav node (callers pass it to GetNavPoint) */
 } NavData;
 
 typedef struct NavHolder {
@@ -1153,7 +1153,7 @@ extern char g_appInfo[5][0x40];
 extern u8 CardWorkArea[0xA000];
 extern CARDFileInfo memCardfileInfo[2];
 extern s32 memCardBlockSize[2];
-extern s32 m_memcardstatus_803C7970[2];
+extern s32 m_memcardstatus[2];
 
 extern InterfaceCallBackData g_CallBackData;
 extern InterfacePackEntry g_InterfacePackData[10];
