@@ -186,8 +186,10 @@ static void Claim_Textures(Swapper *s, u32 off, u32 count) {
 }
 
 /* Strings: a pointer target that looks like text: at least 3 printable
- * characters and a NUL, starting with a letter, digit or path character, and
- * mostly letters and digits (floats like 0.7f read as "?333"). */
+ * characters and a NUL, starting with a letter, digit, path character or
+ * text punctuation ('|' is the fonts' line break: "|A valid Memory Card..."),
+ * and mostly letters and digits (floats like 0.7f read as "?333", so '?' and
+ * '@' can't start one). */
 static int IsWordChar(u8 c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 }
@@ -204,7 +206,7 @@ static void Claim_StringTargets(Swapper *s, const u32 *pointers, u32 numPointers
             continue;
         }
         c0 = s->base[t];
-        if (!IsWordChar(c0) && c0 != '\\' && c0 != '/' && c0 != '.') {
+        if (!IsWordChar(c0) && (c0 == 0 || strchr("\\/.|[(\"'-#*<!", c0) == NULL)) {
             continue;
         }
         while (t + n < s->size && s->base[t + n] >= 0x20 && s->base[t + n] < 0x7F) {
