@@ -103,9 +103,16 @@ BOOL DVDClose(DVDFileInfo *fi) {
     return TRUE;
 }
 
+/* Bumped on every data read (not the game's 0x20-byte disc-check polls of
+ * bsfile); HWVX_AUTOINPUT waits for the disc to go quiet. */
+volatile u32 g_portDiscReads;
+
 s32 DVDReadPrio(DVDFileInfo *fi, void *addr, s32 length, s32 offset, s32 prio) {
     size_t got;
     (void)prio;
+    if (length > 0x20) {
+        g_portDiscReads++;
+    }
     if (SDL_SeekIO(fi->host, offset, SDL_IO_SEEK_SET) < 0) {
         return -1;
     }

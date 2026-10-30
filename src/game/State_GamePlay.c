@@ -588,7 +588,12 @@ void SetPlayerControls(void) {
             if (settings->data[1] >= mcp->numBindings) {
                 settings->data[1] = 0;
             }
-            PlayerHuman_SetControlBinding(player, PTR((*GETP(mcp->bindings)[settings->data[1]])->binding));
+            {
+                /* bindings[i] -> slot -> ControlBinding; binding 0x8 -> key table */
+                u8 *slot = SLOT_LOAD(u8 *, (u8 *)GETP(mcp->bindings) + settings->data[1] * 4);
+                ControlBinding *cb = SLOT_LOAD(ControlBinding *, slot);
+                PlayerHuman_SetControlBinding(player, PTR((u32)cb->binding));
+            }
         } else {
             PlayerHuman_SetDefaultControls(player, settings->data[1]);
         }
@@ -954,7 +959,7 @@ s32 ActionPauseGame(u32 *action) {
                 if (settings->data[1] >= *(u32 *)(mcp + 0x3C)) {
                     settings->data[1] = 0;
                 }
-                PlayerHuman_SetControlBinding(player, PTR(*(s32 *)PTR((SLOT_LOAD(u8 *, (*(u8 ***)(mcp + 0x40)))[settings->data[1]] + 0x8))));
+                PlayerHuman_SetControlBinding(player, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (mcp + 0x40)) + settings->data[1])) + 0x8)));
             } else {
                 PlayerHuman_SetDefaultControls(player, settings->data[1]);
             }

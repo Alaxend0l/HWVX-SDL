@@ -62,7 +62,7 @@ void Player_SetName(void *player, s32 port, const char *name) {
 void Player_RefreshInterface(void *arg0) {
     typedef struct Thing {
         u8 pad0[0x8C];
-        void (**vtable)();
+        PTR32(u32) vtable;  /* port: vtable of 4-byte slots; entries void (*)() */
     } Thing;
     typedef struct Player {
         u8 pad0[0x2C];
@@ -87,7 +87,7 @@ void Player_RefreshInterface(void *arg0) {
         memset(&info, 0, sizeof(info));
         player->flags |= 0x200;
         thing = GETP(player->thing);
-        ((void (*)(Thing *, void *))thing->vtable[8])(thing, &info);
+        ((void (*)(Thing *, void *))PTR(GETP(thing->vtable)[8]))(thing, &info);
         if (player->interfaceIndex < 0xFFFFFFFF) {
             InterfaceManager_ReleaseInterface(player->interfaceIndex);
             player->interfaceIndex = 0xFFFFFFFF;
@@ -133,13 +133,13 @@ void Player_SetThing(void *player, void *thing) {
 }
 
 s32 Player_InputHeartbeat(void *arg0) {
-    return ((s8 (*)())SLOT_LOAD(void *, (u8 *)PORT_ADDR(arg0) + 0x20))() != 0;
+    return ((s8 (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(arg0) + 0x20))(arg0) != 0;
 }
 
 void Player_GetInterfaceInfo(void *arg0, void *arg1) {
     typedef struct Thing {
         u8 pad0[0x8C];
-        void (**vtable)();
+        PTR32(u32) vtable;  /* port: vtable of 4-byte slots; entries void (*)() */
     } Thing;
     typedef struct Player {
         u8 pad0[0x2C];
@@ -162,7 +162,7 @@ void Player_GetInterfaceInfo(void *arg0, void *arg1) {
     if (GETP(player->thing) != NULL) {
         info->state = 0;
         thing = GETP(player->thing);
-        ((void (*)(Thing *, InterfaceInfo *))thing->vtable[8])(thing, info);
+        ((void (*)(Thing *, InterfaceInfo *))PTR(GETP(thing->vtable)[8]))(thing, info);
     } else {
         info->state = 2;
         if (player->attached != 0) {

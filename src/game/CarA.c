@@ -1305,7 +1305,7 @@ void CarA_Draw(u8 *car)
     if (SLOT_LOAD(u8 *, (car + 0x94)) != NULL && (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x6C) & 0x10) &&
         !(*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x6C) & 0x80) && ViewManager_GetViewFormat() <= 1) {
         p2 = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80));
-        if ((*((u8 **)(p2 + 0x84)))[((SLOT_LOAD(u8 *, (car + 0x94)))[0x31] % *(u32 *)(p2 + 0x80)) * 0xC] == 4) {
+        if ((SLOT_LOAD(u8 *, (p2 + 0x84)))[((SLOT_LOAD(u8 *, (car + 0x94)))[0x31] % *(u32 *)(p2 + 0x80)) * 0xC] == 4) {
             return;
         }
     }

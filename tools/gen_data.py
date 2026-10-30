@@ -19,6 +19,7 @@ pulled in automatically.
 
   tools/gen_data.py NAME...        # or: tools/gen_data.py @names.txt
   tools/gen_data.py --raw rawData NAME...  # rawData's "pointers" are image data
+  tools/gen_data.py --hostptr g_pX NAME... # g_pX is `T *g_pX` in the C code
 """
 import pathlib
 import re
@@ -150,6 +151,8 @@ class Emitter:
         self.missing = []
         self.exported = set()  # local objects the game's C refers to by name
         self.raw = set()       # objects whose "pointers" are really plain data
+        self.hostptr = set()   # objects the C code declares as host pointers
+        self.late = []
 
     def resolve(self, name, file):
         """Find the object for a reference made from `file`."""
@@ -244,6 +247,13 @@ class Emitter:
                 resolved.append((off, "sym", sym, add))
 
         storage = "static " if obj["scope"] == "local" and key not in self.exported else ""
+        if obj["name"] in self.hostptr and resolved and len(resolved) * 4 == size:
+            # The game's C declares this as host pointer(s) (`T *name`), so
+            # emit real pointers with constant initialisers; placed after the
+            # other objects so the targets are declared (see main()).
+            self.late.append((key, ident, storage, resolved))
+            self.done[key] = (ident, [], obj)
+            return ""
         is_bss = obj["section"] in BSS or all(i[0] == "ZERO" for i in items)
         decl = f"{storage}u8 {ident}[{max(size, 1)}] __attribute__((aligned({max(obj['align'], 4)})))"
         out = [f"/* {obj['name']} ({obj['section']}, {obj['file']}) */"]
@@ -276,8 +286,9 @@ def main():
     args = sys.argv[1:]
     names = []
     raw = set()
-    while args and args[0] == "--raw":
-        raw.add(args[1])
+    hostptr = set()
+    while args and args[0] in ("--raw", "--hostptr"):
+        (raw if args[0] == "--raw" else hostptr).add(args[1])
         args = args[2:]
     for a in args:
         if a.startswith("@"):
@@ -287,6 +298,7 @@ def main():
     objs = load_objects()
     em = Emitter(objs)
     em.raw = raw
+    em.hostptr = hostptr
     functions = load_functions()
     not_found = []
     for n in names:
@@ -329,8 +341,21 @@ def main():
            '#define W64(v) W32((v) & 0xFFFFFFFFu), W32((v) >> 32)',
            '#endif',
            '#define W8(v) (v)', '']
+    for key, ident, storage, resolved in em.late:
+        vals = []
+        for off, kind, target, add in sorted(resolved):
+            if kind == "obj":
+                t = em.done[target][0] if target in em.done else em.c_ident(target)
+                vals.append(f"(u8 *){t} + {add}")
+            else:
+                externs.add(target)
+                vals.append(f"(u8 *)&{target} + {add}")
+        chunks.append(f"/* {em.objs[key]['name']}: host pointer(s) */\n"
+                      f"{storage}void *{ident}[{len(vals)}] = {{ {', '.join(vals)} }};")
+    # after the late (host pointer) objects, which can add externs too
     hdr += [f"extern void {s}(void);" if s in functions else f"extern char {s}[];"
             for s in sorted(externs)] + [""]
+    chunks = [c for c in chunks if c]
     body = "\n\n".join(chunks)
     tail = ["", "/* Fill pointer slots with handles once, before main(). */",
             "__attribute__((constructor)) static void DataGen_Fixups(void) {"] + fix_lines + ["}", ""]

@@ -885,7 +885,7 @@ s32 ActionVehicleTeleport(u32 *action) {
         u8 pad60[0x74 - 0x60];
         u32 flags;
         u8 pad78[0x8C - 0x78];
-        void (**vtbl)(void *);
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(void *) */
         u8 pad90[0x94 - 0x90];
         PTR32(u8) player;
         u8 pad98[0x3B0 - 0x98];
@@ -920,7 +920,7 @@ s32 ActionVehicleTeleport(u32 *action) {
         }
         car->mtx = data->mtx;
         SubMatrixToQuaternion(&car->mtx, &car->quat);
-        car->vtbl[3](car);
+        ((void (*)(void *))PTR(GETP(car->vtbl)[3]))(car);
         car->flags |= 0x800;
         car->unk3B0 = -1;
         if (!Player_IsHuman(GETP(car->player))) {
@@ -967,7 +967,7 @@ void Thing_DrawSlaves(Thing *thing) {
             pos = slave->mtx.v[3];
             QuaternionMult(&thing->quat, &quat, &slave->quat);
             XformVec(&thing->mtx, &pos, &slave->mtx.v[3]);
-            (*(void (***)(Thing *))((u8 *)slave + 0x8C))[4](slave);
+            ((void (*)(Thing *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, ((u8 *)slave + 0x8C)) + 4 * 4)))(slave);
             slave->quat = quat;
             slave->mtx.v[3] = pos;
         }
@@ -991,12 +991,12 @@ void Thing_MoveSlaves(Thing *thing) {
                 QuaternionMult(&thing->quat, &quat, &slave->quat);
                 XformVec(&thing->mtx, &trans, &slave->mtx.v[3]);
                 slave->unk0 = thing->unk0;
-                (*(void (***)(Thing *))((u8 *)slave + 0x8C))[3](slave);
+                ((void (*)(Thing *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, ((u8 *)slave + 0x8C)) + 3 * 4)))(slave);
                 CopyVector(&slave->quat, &quat);
                 CopyVector(&slave->mtx.v[3], &trans);
                 CopyVector(&slave->unk0, &pos);
             } else {
-                (*(void (***)(Thing *))((u8 *)slave + 0x8C))[3](slave);
+                ((void (*)(Thing *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, ((u8 *)slave + 0x8C)) + 3 * 4)))(slave);
             }
         }
     }

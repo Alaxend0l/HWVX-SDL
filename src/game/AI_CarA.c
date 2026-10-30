@@ -726,7 +726,7 @@ s32 AI_Car_PrepareNavPath(u8 *car, void *holder, s32 dest) {
     *(u32 *)(car + 0x4A4) = 0;
     point = NavHolder_FindPath(HND(holder), dest);
     if (point != NULL) {
-        NavHolder_FillPointerArrayPath(point, (u8 **)(car + 0x420), 0x20);
+        NavHolder_FillPointerArrayPath(point, car + 0x420, 0x20);
         *(s32 *)(car + 0x4A8) = dest;
         AI_Car_ClearedNavPoint_800087C8(car, 1);
         while (*(u32 *)(car + 0x4A4) < 31) {
@@ -804,11 +804,11 @@ static void AI_Car_Cheat_80008A60(u8 *ai) {
     }
     if (1e9f != best) {
         for (i = 0; i < 4; i++) {
-            item = *(u8 ***)(ai + 0x3D4 + i * 4);
-            if (item == NULL || *item == NULL) {
+            item = SLOT_LOAD(u8 **, (ai + 0x3D4 + i * 4));
+            if (item == NULL || SLOT_LOAD(u8 *, item) == NULL) {
                 break;
             }
-            if (**item == 0xE) {
+            if (*SLOT_LOAD(u8 *, item) == 0xE) {
                 cheat = (*(f32 *)((u8 *)car + 0x564) - *(f32 *)(SLOT_LOAD(u8 *, (nearest + 0x2C)) + 0x564)) / 750.0f;
                 break;
             }
@@ -885,11 +885,11 @@ void AI_Car_AsyncHeartbeat(u8 *ai) {
     }
     if (SLOT_LOAD(u8 *, (ai + 0x3E4)) != NULL && (ai + 0x3D4) != NULL) {
         for (i = 0; i < 4; i++) {
-            u8 **item = *(u8 ***)(ai + 0x3D4 + i * 4);
+            u8 *item = SLOT_LOAD(u8 *, (ai + 0x3D4 + i * 4));
             if (item == NULL) {
                 break;
             }
-            time = RandomAdd_s32(*(s32 *)(*item + 0x40), *(s32 *)(*item + 0x44));
+            time = RandomAdd_s32(*(s32 *)(SLOT_LOAD(u8 *, item) + 0x40), *(s32 *)(SLOT_LOAD(u8 *, item) + 0x44));
             if (*(u32 *)(ai + 0xC8) > time) {
                 *(u32 *)(ai + 0xC8) = time;
             }

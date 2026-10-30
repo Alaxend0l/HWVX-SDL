@@ -229,10 +229,11 @@ void Camera_PrepareForRender(Camera *camera) {
     if (window != 0) {
         window--;
     }
-    if (g_cameraManagerPause) {
-        return;
+    /* paused cameras hold still but are still applied (the vehicle select's
+     * reset camera faces +z, where the turntable car is) */
+    if (!g_cameraManagerPause) {
+        Camera_UpdatePosition(camera);
     }
-    Camera_UpdatePosition(camera);
     Gfx_SetCameraMatrix(&camera->pos, &camera->dir, &camera->up, &camera->right);
     mtx.v[0].x = camera->right.x;
     mtx.v[1].x = camera->right.y;
@@ -1200,7 +1201,7 @@ void CameraManager_ReleaseAllEmitters(void) {
     cam = (Camera *)g_cameraManager;
     for (i = 0; i < g_cameraManager[0x640]; i++) {
         if (GETP(cam->listener) != NULL) {
-            (*(void (***)(void *))((u8 *)GETP(cam->listener) + 0x8C))[1](GETP(cam->listener));
+            ((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, ((u8 *)GETP(cam->listener) + 0x8C)) + 1 * 4)))(GETP(cam->listener));
             SETP(cam->listener, NULL);
         }
         cam++;

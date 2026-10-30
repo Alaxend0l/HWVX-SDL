@@ -796,7 +796,7 @@ u32 GetNoteRate_(u32 rate, u8 note);
 
 /* NavHolder.c */
 s8 NavHolder_CreatePath(u8 *goal, u8 *start);
-void NavHolder_FillPointerArrayPath(u8 *point, u8 **array, u32 max);
+void NavHolder_FillPointerArrayPath(u8 *point, void *array, u32 max);
 s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
 s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint);
 u8 * NavHolder_FindPath(s32 from, s32 to);
@@ -887,8 +887,9 @@ s32 PlayerManager_RemovePlayer(void *player);
 void PlayerManager_Render_DEBUG(void);
 
 /* Port_Swap.c */
-void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize, u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers, u32 textureDataOffset, u32 numTextures, u32 shaderOffset, u32 numShaders);
+void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize, u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers, u32 textureDataOffset, u32 numTextures, u32 shaderOffset, u32 numShaders, u32 triggerOffset, u32 numTriggers);
 void PortSwap_PackHeader(u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
+void PortSwap_QuadPack(u8 *data, u32 size, u32 index);
 void PortSwap_SFXDescriptors(u8 *sfx, u32 count);
 void PortSwap_TOC(u32 *buf, u32 bufWords);
 

@@ -103,7 +103,7 @@ void Action_Heartbeat(void) {
 
 void Action_ReleaseAllActions(void) {
     #define m_Actions ((u8 *)(void *)&m_Actions)
-    memset(m_Actions, 0, 0x140);
+    memset(m_Actions, 0, 80 * sizeof(void *));  /* port: host pointers (0x140 on the GC) */
 #undef m_Actions
 }
 
@@ -536,7 +536,7 @@ s32 ActionVehicleRemoveItem(u32 *action) {
         u8 unk0[0x74];
         u32 flags;
         u8 unk78[0x8C - 0x78];
-        void (**vtable)(struct ItemThing *);
+        PTR32(u32) vtable;  /* port: vtable of 4-byte slots; entries void (*)(struct ItemThing *) */
     } ItemThing;
     typedef struct Vehicle {
         u8 unk0[0x28];
@@ -560,7 +560,7 @@ s32 ActionVehicleRemoveItem(u32 *action) {
             case 1:
                 item = ThingManagerList_GetByType(list, 4);
                 if (item != NULL) {
-                    item->vtable[1](item);
+                    ((void (*)(struct ItemThing *))PTR(GETP(item->vtable)[1]))(item);
                 }
                 break;
             }

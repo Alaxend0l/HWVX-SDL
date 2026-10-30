@@ -118,7 +118,7 @@ void MotionState_ReleaseSlavesByType(s32 state, u8 type) {
         u8 pad78[0x83 - 0x78];
         u8 type;
         u8 pad84[0x8C - 0x84];
-        void (**vtbl)(struct SlaveThing *);
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(struct SlaveThing *) */
         u8 pad90[0xA4 - 0x90];
         PTR32(struct SlaveThing) next;
         s32 pool;
@@ -130,7 +130,7 @@ void MotionState_ReleaseSlavesByType(s32 state, u8 type) {
     while (thing != NULL) {
         next = GETP(thing->next);
         if (thing->type == type) {
-            thing->vtbl[1](thing);
+            ((void (*)())PTR(GETP(thing->vtbl)[1]))(thing);
             ThingManagerList_Remove((void **)PTR((state + 0x14)), thing);
             thing->flags &= ~0x200000;
             thing->flags |= 0x1000;
@@ -566,7 +566,7 @@ void MotionState_MoveSlaves(void *state, Matrix4 *matrix, Vector4 *vel) {
         u8 pad78[0x82 - 0x78];
         u8 bone;
         u8 pad83[0x8C - 0x83];
-        void (**vtbl)();
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)() */
         u8 pad90[0xA4 - 0x90];
         PTR32(struct SlaveThing) next;
     } SlaveThing;
@@ -601,19 +601,19 @@ void MotionState_MoveSlaves(void *state, Matrix4 *matrix, Vector4 *vel) {
                 CopyMatrix(&saved, &slave->base.mtx);
                 if (mtx != NULL) {
                     MultiplyMatrix(&matrices[slave->bone], mtx, &out);
-                    slave->vtbl[9](slave, &out);
+                    ((void (*)())PTR(GETP(slave->vtbl)[9]))(slave, &out);
                 } else {
-                    slave->vtbl[9](slave, &matrices[slave->bone]);
+                    ((void (*)())PTR(GETP(slave->vtbl)[9]))(slave, &matrices[slave->bone]);
                 }
                 pos = slave->base.pos;
                 slave->base.pos = v;
-                slave->vtbl[3](slave);
+                ((void (*)())PTR(GETP(slave->vtbl)[3]))(slave);
                 Thing_MoveSlaves(&slave->base);
                 CopyVector(&slave->base.quat, &quat);
                 CopyMatrix(&slave->base.mtx, &saved);
                 CopyVector(&slave->base.pos, &pos);
             } else {
-                slave->vtbl[3](slave);
+                ((void (*)())PTR(GETP(slave->vtbl)[3]))(slave);
             }
         }
         slave = next;
@@ -632,7 +632,7 @@ void MotionState_DrawSlaves(void *state, s32 arg1) {
         u8 pad78[0x82 - 0x78];
         u8 bone;
         u8 pad83[0x8C - 0x83];
-        void (**vtbl)();
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)() */
         u8 pad90[0xA4 - 0x90];
         PTR32(struct SlaveThing) next;
     } SlaveThing;
@@ -656,8 +656,8 @@ void MotionState_DrawSlaves(void *state, s32 arg1) {
             CopyVector(&quat, &slave->quat);
             CopyMatrix(&mtx, &slave->mtx);
             MultiplyMatrix(&GETP(((State *)state)->matrices)[slave->bone], matrix, &out);
-            slave->vtbl[9](slave, &out);
-            slave->vtbl[4](slave);
+            ((void (*)())PTR(GETP(slave->vtbl)[9]))(slave, &out);
+            ((void (*)())PTR(GETP(slave->vtbl)[4]))(slave);
             Thing_DrawSlaves(slave);
             CopyVector(&slave->quat, &quat);
             CopyMatrix(&slave->mtx, &mtx);
@@ -669,8 +669,8 @@ void MotionState_DrawSlaves(void *state, s32 arg1) {
             }
             CopyVector(&quat, &slave->quat);
             CopyMatrix(&mtx, &slave->mtx);
-            slave->vtbl[9](slave, &GETP(((State *)state)->matrices)[slave->bone]);
-            slave->vtbl[4](slave);
+            ((void (*)())PTR(GETP(slave->vtbl)[9]))(slave, &GETP(((State *)state)->matrices)[slave->bone]);
+            ((void (*)())PTR(GETP(slave->vtbl)[4]))(slave);
             Thing_DrawSlaves(slave);
             CopyVector(&slave->quat, &quat);
             CopyMatrix(&slave->mtx, &mtx);
@@ -690,7 +690,7 @@ void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1) {
         u8 pad78[0x82 - 0x78];
         u8 bone;
         u8 pad83[0x8C - 0x83];
-        void (**vtbl)();
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)() */
         u8 pad90[0xA4 - 0x90];
         PTR32(struct SlaveThing) next;
     } SlaveThing;
@@ -708,12 +708,12 @@ void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1) {
     slave = GETP(((State *)state)->slaves);
     if (matrix != NULL && matrix != &g_identity) {
         for (; slave != NULL; slave = GETP(slave->next)) {
-            if (!(slave->flags & 0x200200) && slave->vtbl == (void *)g_attachVTable) {
+            if (!(slave->flags & 0x200200) && (void *)GETP(slave->vtbl) == (void *)g_attachVTable) {
                 CopyVector(&quat, &slave->quat);
                 CopyMatrix(&mtx, &slave->mtx);
                 MultiplyMatrix(&GETP(((State *)state)->matrices)[slave->bone], matrix, &out);
-                slave->vtbl[9](slave, &out);
-                slave->vtbl[4](slave);
+                ((void (*)())PTR(GETP(slave->vtbl)[9]))(slave, &out);
+                ((void (*)())PTR(GETP(slave->vtbl)[4]))(slave);
                 Thing_DrawSlaves(slave);
                 CopyVector(&slave->quat, &quat);
                 CopyMatrix(&slave->mtx, &mtx);
@@ -721,11 +721,11 @@ void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1) {
         }
     } else {
         for (; slave != NULL; slave = GETP(slave->next)) {
-            if (!(slave->flags & 0x200200) && slave->vtbl == (void *)g_attachVTable) {
+            if (!(slave->flags & 0x200200) && (void *)GETP(slave->vtbl) == (void *)g_attachVTable) {
                 CopyVector(&quat, &slave->quat);
                 CopyMatrix(&mtx, &slave->mtx);
-                slave->vtbl[9](slave, &GETP(((State *)state)->matrices)[slave->bone]);
-                slave->vtbl[4](slave);
+                ((void (*)())PTR(GETP(slave->vtbl)[9]))(slave, &GETP(((State *)state)->matrices)[slave->bone]);
+                ((void (*)())PTR(GETP(slave->vtbl)[4]))(slave);
                 Thing_DrawSlaves(slave);
                 CopyVector(&slave->quat, &quat);
                 CopyMatrix(&slave->mtx, &mtx);
@@ -758,7 +758,7 @@ void Motion_HeartbeatB2(void *state, Vector4 *vel) {
         u8 pad78[0x82 - 0x78];
         u8 bone;
         u8 pad83[0x8C - 0x83];
-        void (**vtbl)();
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)() */
         u8 pad90[0xA4 - 0x90];
         PTR32(struct SlaveThing) next;
     } SlaveThing;
@@ -789,16 +789,16 @@ void Motion_HeartbeatB2(void *state, Vector4 *vel) {
             if (!(slave->flags & 0x400000)) {
                 CopyVector(&pos, &slave->pos);
                 CopyMatrix(&mtx, &slave->mtx);
-                slave->vtbl[9](slave, &matrices[slave->bone]);
+                ((void (*)())PTR(GETP(slave->vtbl)[9]))(slave, &matrices[slave->bone]);
                 oldVel = slave->vel;
                 slave->vel = v;
-                slave->vtbl[3](slave);
+                ((void (*)())PTR(GETP(slave->vtbl)[3]))(slave);
                 Thing_MoveSlaves(slave);
                 CopyVector(&slave->pos, &pos);
                 CopyMatrix(&slave->mtx, &mtx);
                 CopyVector(&slave->vel, &oldVel);
             } else {
-                slave->vtbl[3](slave);
+                ((void (*)())PTR(GETP(slave->vtbl)[3]))(slave);
             }
         }
     }

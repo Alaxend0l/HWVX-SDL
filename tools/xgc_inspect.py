@@ -3,7 +3,11 @@
 relocation tables, and the root table of each pack's data blob. Helps work out
 the formats the port has to byte-swap (src/game/Port_Swap.c).
 
-  tools/xgc_inspect.py orig/files/mcp.xgc [--dump OFFSET [N]]
+  tools/xgc_inspect.py orig/files/mcp.xgc [--pack N] [--dump OFFSET [N]] [--refs OFFSET]
+
+--refs: pointer slots aimed at OFFSET or just before it (the object holding
+OFFSET), then the slots aimed at those slots' objects, a few levels up: shows
+which structure a swap checker report belongs to.
 """
 import struct
 import sys
@@ -43,6 +47,26 @@ class Pack:
                           for i in range(h["numTexRelocs"])]
 
 
+def refs(p, off, window=0x80, depth=3):
+    """Slots pointing into [off - window, off], nearest target first, then
+    the slots pointing at the objects holding those slots."""
+    targets = {}
+    for slot in p.pointers:
+        if slot + 4 <= len(p.blob):
+            targets.setdefault(be32(p.blob, slot), []).append(slot)
+
+    def walk(o, level, seen):
+        hits = sorted(((o - t, t) for t in targets if o - window <= t <= o))[:3]
+        for dist, t in hits:
+            for slot in targets[t][:4]:
+                print("%s0x%X+0x%X <- slot 0x%X" % ("  " * level, t, dist, slot))
+                if level + 1 < depth and slot not in seen:
+                    walk(slot, level + 1, seen | {slot})
+
+    print("refs to 0x%X:" % off)
+    walk(off, 0, set())
+
+
 def main():
     d = open(sys.argv[1], "rb").read()
     magic = struct.unpack_from(">4I", d, 0)
@@ -64,12 +88,18 @@ def main():
             cnt, tab = be32(b, 0), be32(b, 4)
             print("    root: count %d table @0x%X (ptr: %s)" % (cnt, tab, 4 in ptrs))
             for k in range(min(cnt, 20)):
+                if tab + 8 * k + 8 > len(b):
+                    break
                 print("      [%d] obj @0x%X id %d" % (k, be32(b, tab + 8 * k), be32(b, tab + 8 * k + 4)))
+    p = packs[0]
+    if "--pack" in sys.argv:
+        p = packs[int(sys.argv[sys.argv.index("--pack") + 1], 0)]
+    if "--refs" in sys.argv:
+        refs(p, int(sys.argv[sys.argv.index("--refs") + 1], 0))
     if "--dump" in sys.argv:
         i = sys.argv.index("--dump")
         o = int(sys.argv[i + 1], 0)
         cnt = int(sys.argv[i + 2], 0) if len(sys.argv) > i + 2 else 64
-        p = packs[0]
         ptrs = set(p.pointers)
         for a in range(o, o + cnt * 4, 4):
             w = be32(p.blob, a)

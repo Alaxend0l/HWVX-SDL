@@ -35,7 +35,7 @@ typedef struct ItemThing {
     u8 pad0[0x74];
     u32 flags;
     u8 pad78[0x8C - 0x78];
-    void (**vtbl)(struct ItemThing *);
+    PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(struct ItemThing *) */
     PTR32(void) owner;
     u8 pad94[0xD0 - 0x94];
     PTR32(void) respawnItem;
@@ -272,7 +272,7 @@ void FileStreaming_ResetQuadResources(void)
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->numStatics; j++) {
                 st = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->statics)[j];
                 if (GETP(st->thing) != NULL && GETP(st->info)[7] == 0) {
-                    GETP(st->thing)->vtbl[1](GETP(st->thing));
+                    ((void (*)(struct Thing *))PTR(GETP(GETP(st->thing)->vtbl)[1]))(GETP(st->thing));
                     SETP(st->thing, NULL);
                     st->active = 1;
                 }
@@ -280,7 +280,7 @@ void FileStreaming_ResetQuadResources(void)
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->numDynamics; j++) {
                 dyn = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->dynamics)[j];
                 if (GETP(dyn->thing) != NULL) {
-                    GETP(dyn->thing)->vtbl[1](GETP(dyn->thing));
+                    ((void (*)(struct Thing *))PTR(GETP(GETP(dyn->thing)->vtbl)[1]))(GETP(dyn->thing));
                     SETP(dyn->thing, NULL);
                     dyn->active = 1;
                 }
@@ -288,7 +288,7 @@ void FileStreaming_ResetQuadResources(void)
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->count; j++) {
                 item = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->items)[j];
                 if (GETP(item->thing) != NULL) {
-                    GETP(item->thing)->vtbl[1](GETP(item->thing));
+                    ((void (*)(struct Thing *))PTR(GETP(GETP(item->thing)->vtbl)[1]))(GETP(item->thing));
                     SETP(item->thing, NULL);
                     item->type = 1;
                 }
@@ -316,7 +316,7 @@ void FileStreaming_ResetQuadResources(void)
 void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
     typedef struct Thing {
         u8 pad0[0x8C];
-        void (**vtbl)(struct Thing *);
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(struct Thing *) */
         PTR32(u8) owner;
     } Thing;
     typedef struct SlaveInfo {
@@ -442,7 +442,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                 StaticEntry *st = &GETP(GETP(release[i]->data)->statics)[j];
 
                 if (GETP(st->thing) != NULL && GETP(st->info)->isStatic == 0) {
-                    GETP(st->thing)->vtbl[1](GETP(st->thing));
+                    ((void (*)(struct Thing *))PTR(GETP(GETP(st->thing)->vtbl)[1]))(GETP(st->thing));
                     SETP(st->thing, NULL);
                 }
             }
@@ -450,7 +450,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                 DynamicEntry *dyn = &GETP(GETP(release[i]->data)->dynamics)[j];
 
                 if (GETP(dyn->thing) != NULL) {
-                    GETP(dyn->thing)->vtbl[1](GETP(dyn->thing));
+                    ((void (*)(struct Thing *))PTR(GETP(GETP(dyn->thing)->vtbl)[1]))(GETP(dyn->thing));
                     SETP(dyn->thing, NULL);
                 }
             }
@@ -461,7 +461,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                     if (item->timer == 0) {
                         item->spawned = 0;
                     }
-                    GETP(item->thing)->vtbl[1](GETP(item->thing));
+                    ((void (*)(struct Thing *))PTR(GETP(GETP(item->thing)->vtbl)[1]))(GETP(item->thing));
                     SETP(item->thing, NULL);
                 }
             }
@@ -627,7 +627,7 @@ void FileStreaming_LoadQuadPacks(void **quads, u32 count, s8 threaded)
             DataPack_RefreshQuadPackPtrs(PTR(g_worldData.unk8[2]), quads[i]);
             M2C_FIELD(quads[i], s8 *, 0x34) = 1;
         }
-        else if (SLOT_LOAD(void *, (u8 *)(quad) + 0xC) == NULL)
+        else if (*(u32 *)((u8 *)(quad) + 0xC) == 0)  /* index (num GX), not a pointer */
         {
             M2C_FIELD(quad, s8 *, 0x34) = 1;
         }
@@ -721,6 +721,7 @@ void LoadQuadrants(s8 refresh) {
         g_quadFileID = File_Open(0, path, 0, NULL);
         if (g_quadFileID != -1) {
             File_Read(g_quadFileID, 0x10, tocHeader);
+            Port_SwapArray32(tocHeader, 4);  /* big-endian file */
             if (tocHeader[0].version != 0x020100A0 || tocHeader[0].type != 0x040100AE) {
                 error = 1;
             } else if (tocHeader[0].world != 0xB7) {
@@ -729,6 +730,7 @@ void LoadQuadrants(s8 refresh) {
             } else {
                 count = tocHeader[0].id;
                 File_Read(g_quadFileID, count * sizeof(TocEntry), tocHeader);
+                Port_SwapArray32(tocHeader, count * sizeof(TocEntry) / 4);
                 for (i = 0; i < ((World *)GETP(g_worldData.world))->numQuads; i++) {
                     quad = &GETP(((World *)GETP(g_worldData.world))->quads)[i];
                     alt = 0;

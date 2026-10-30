@@ -289,16 +289,17 @@ s32 NavHolder_IsLinked(s32 from, s32 to) {
     return 0;
 }
 
-void NavHolder_FillPointerArrayPath(u8 *point, u8 **array, u32 max) {
-    u8 **out = array;
+/* port: `array` is a table of 4-byte pointer slots (Player navPath, AI 0x420) */
+void NavHolder_FillPointerArrayPath(u8 *point, void *array, u32 max) {
+    u32 *out = array;
     u32 i = 0;
     while (point != NULL && i < max) {
-        *out++ = point;
+        SLOT_STORE(out + i, point);
         i++;
         point = SLOT_LOAD(u8 *, (point + 0x38));
     }
     if (i < max) {
-        array[i] = NULL;
+        out[i] = 0;
     }
 }
 

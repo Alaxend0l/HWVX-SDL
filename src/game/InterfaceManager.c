@@ -3889,16 +3889,16 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 if (world != NULL) {
                     valid = 0;
                     for (j = 0; j < *(u32 *)(world + 0x50); j++) {
-                        e = (*(u8 ***)(world + 0x54))[j];
+                        e = SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x54)) + j);
                         if (e[1] != 0 && id == e[2]) {
-                            if (*SLOT_LOAD(u8 *, ((*(u8 ***)(world + 0x54))[j] + 0xC)) == 0x17) {
+                            if (*SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x54)) + j) + 0xC)) == 0x17) {
                                 valid = 1;
                             }
                             obj[0x84] = 1;
                             obj[0x130] = 1;
                             obj[0x54] = 1;
                             obj[0x2C] = 1;
-                            value = *(f32 *)((*(u8 ***)((u8 *)GETP(g_worldData.world) + 0x54))[j] + 0x8);
+                            value = *(f32 *)(SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x54)) + j) + 0x8);
                             break;
                         }
                     }
@@ -3917,16 +3917,16 @@ void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt) {
                 if (world != NULL) {
                     valid = 0;
                     for (j = 0; j < *(u32 *)(world + 0x48); j++) {
-                        e = (*(u8 ***)(world + 0x4C))[j];
+                        e = SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x4C)) + j);
                         if (e[1] != 0 && id == e[2]) {
-                            if (*SLOT_LOAD(u8 *, ((*(u8 ***)(world + 0x4C))[j] + 0xC)) == 0x17) {
+                            if (*SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x4C)) + j) + 0xC)) == 0x17) {
                                 valid = 1;
                             }
                             obj[0x84] = 1;
                             obj[0x130] = 1;
                             obj[0x54] = 1;
                             obj[0x2C] = 1;
-                            value = *(f32 *)((*(u8 ***)((u8 *)GETP(g_worldData.world) + 0x4C))[j] + 0x4);
+                            value = *(f32 *)(SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x4C)) + j) + 0x4);
                             break;
                         }
                     }

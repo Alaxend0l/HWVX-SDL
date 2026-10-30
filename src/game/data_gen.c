@@ -156,47 +156,6 @@ extern void TriggerTrue(void);
 extern void TriggerVariableValueCheck(void);
 extern void TriggerVehicleDamage(void);
 extern void TriggerVehicleKilled(void);
-/* g_carAVTable (.data, CarA.s) */
-u8 g_carAVTable[68] __attribute__((aligned(8))) = {
-    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
-    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
-    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
-};
-
-/* g_frictionTable (.data, CarA_Suspension.s) */
-u8 g_frictionTable[360] __attribute__((aligned(8))) = {
-    [0] = W32(0x3F800000), [4] = W32(0x3F7FFD61), [8] = W32(0x3F7FFAC2), [12] = W32(0x3F7FF823), [16] = W32(0x3F7FF584), [20] = W32(0x3F7FF2E5),
-    [24] = W32(0x3F7FF046), [28] = W32(0x3F7FEDA7), [32] = W32(0x3F7FEB08), [36] = W32(0x3F7FE869), [40] = W32(0x3F800000), [44] = W32(0x3F7FCB92),
-    [48] = W32(0x3F7F972F), [52] = W32(0x3F7F62D6), [56] = W32(0x3F7F2E88), [60] = W32(0x3F7EFA45), [64] = W32(0x3F7EC60D), [68] = W32(0x3F7E91DF),
-    [72] = W32(0x3F7E5DBC), [76] = W32(0x3F7E29A4), [80] = W32(0x3F800000), [84] = W32(0x3F7FB15B), [88] = W32(0x3F7F62CE), [92] = W32(0x3F7F1459),
-    [96] = W32(0x3F7EC5FC), [100] = W32(0x3F7E77B7), [104] = W32(0x3F7E298B), [108] = W32(0x3F7DDB77), [112] = W32(0x3F7D8D7B), [116] = W32(0x3F7D3F96),
-    [120] = W32(0x3F800000), [124] = W32(0x3F7F9724), [128] = W32(0x3F7F2E73), [132] = W32(0x3F7EC5ED), [136] = W32(0x3F7E5D92), [140] = W32(0x3F7DF561),
-    [144] = W32(0x3F7D8D5B), [148] = W32(0x3F7D2580), [152] = W32(0x3F7CBDCF), [156] = W32(0x3F7C5649), [160] = W32(0x3F800000), [164] = W32(0x3F7F7CEE),
-    [168] = W32(0x3F7EFA1F), [172] = W32(0x3F7E7793), [176] = W32(0x3F7DF54A), [180] = W32(0x3F7D7344), [184] = W32(0x3F7CF180), [188] = W32(0x3F7C6FFF),
-    [192] = W32(0x3F7BEEC0), [196] = W32(0x3F7B6DC3), [200] = W32(0x3F800000), [204] = W32(0x3F7F62B7), [208] = W32(0x3F7EC5CF), [212] = W32(0x3F7E2947),
-    [216] = W32(0x3F7D8D1F), [220] = W32(0x3F7CF157), [224] = W32(0x3F7C55EF), [228] = W32(0x3F7BBAE6), [232] = W32(0x3F7B203D), [236] = W32(0x3F7A85F3),
-    [240] = W32(0x3F800000), [244] = W32(0x3F7F4880), [248] = W32(0x3F7E9184), [252] = W32(0x3F7DDB0B), [256] = W32(0x3F7D2514), [260] = W32(0x3F7C6FA0),
-    [264] = W32(0x3F7BBAAE), [268] = W32(0x3F7B063E), [272] = W32(0x3F7A524F), [276] = W32(0x3F799EE1), [280] = W32(0x3F800000), [284] = W32(0x3F7F2E49),
-    [288] = W32(0x3F7E5D3E), [292] = W32(0x3F7D8CDE), [296] = W32(0x3F7CBD29), [300] = W32(0x3F7BEE1E), [304] = W32(0x3F7B1FBD), [308] = W32(0x3F7A5205),
-    [312] = W32(0x3F7984F5), [316] = W32(0x3F78B88D), [320] = W32(0x3F800000), [324] = W32(0x3F7EDFA4), [328] = W32(0x3F7DC08D), [332] = W32(0x3F7CA2B9),
-    [336] = W32(0x3F7B8627), [340] = W32(0x3F7A6AD6), [344] = W32(0x3F7950C4), [348] = W32(0x3F7837F0), [352] = W32(0x3F772058), [356] = W32(0x3F7609FB),
-};
-
-/* g_panTab (.rodata, Voice_.s) */
-u8 g_panTab[256] __attribute__((aligned(8))) = {
-    [0] = W32(0xB5B), [4] = W32(0x100F13AC), [8] = W32(0x16B71965), [12] = W32(0x1BD21E0C), [16] = W32(0x201F2212), [20] = W32(0x23EA25AB),
-    [24] = W32(0x275828F3), [28] = W32(0x2A7F2BFD), [32] = W32(0x2D6E2ED4), [36] = W32(0x302F3181), [40] = W32(0x32CB340C), [44] = W32(0x35453678),
-    [48] = W32(0x37A438CA), [52] = W32(0x39E93B04), [56] = W32(0x3C193D29), [60] = W32(0x3E353F3C), [64] = W32(0x403F413E), [68] = W32(0x423A4331),
-    [72] = W32(0x44254516), [76] = W32(0x460346EE), [80] = W32(0x47D548B9), [84] = W32(0x499B4A7A), [88] = W32(0x4B564C30), [92] = W32(0x4D084DDD),
-    [96] = W32(0x4EB04F81), [100] = W32(0x504F511C), [104] = W32(0x51E752AF), [108] = W32(0x5376543B), [112] = W32(0x54FE55BF), [116] = W32(0x567F573D),
-    [120] = W32(0x57FA58B5), [124] = W32(0x596E5A26), [128] = W32(0x5ADC5B91), [132] = W32(0x5C455CF7), [136] = W32(0x5DA85E58), [140] = W32(0x5F065FB3),
-    [144] = W32(0x605F610A), [148] = W32(0x61B4625C), [152] = W32(0x630363AA), [156] = W32(0x644F64F3), [160] = W32(0x65966638), [164] = W32(0x66D96779),
-    [168] = W32(0x681868B6), [172] = W32(0x695469F0), [176] = W32(0x6A8B6B26), [180] = W32(0x6BBF6C58), [184] = W32(0x6CF06D87), [188] = W32(0x6E1E6EB3),
-    [192] = W32(0x6F486FDC), [196] = W32(0x706F7102), [200] = W32(0x71947225), [204] = W32(0x72B57344), [208] = W32(0x73D37462), [212] = W32(0x74EF757C),
-    [216] = W32(0x76087694), [220] = W32(0x771F77A9), [224] = W32(0x783378BC), [228] = W32(0x794479CC), [232] = W32(0x7A537ADA), [236] = W32(0x7B607BE6),
-    [240] = W32(0x7C6B7CEF), [244] = W32(0x7D737DF6), [248] = W32(0x7E797EFC), [252] = W32(0x7F7D7FFF),
-};
-
 /* black (.sdata, Render_Geometry_.s) */
 u8 black[4] __attribute__((aligned(4))) = {
     [0] = W32(0x0),
@@ -377,6 +336,13 @@ u8 g_cameraManager[3232] __attribute__((aligned(16)));  /* original size 0x650 *
 /* g_cameraManagerPause (.sbss, CameraManager.s) */
 u8 g_cameraManagerPause[8] __attribute__((aligned(16)));  /* original size 0x1 */
 
+/* g_carAVTable (.data, CarA.s) */
+u8 g_carAVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
 /* g_creatureVTable (.data, Creature.s) */
 u8 g_creatureVTable[68] __attribute__((aligned(8))) = {
     [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
@@ -438,6 +404,13 @@ u8 g_drawShadowsFlag[8] __attribute__((aligned(16)));  /* original size 0x4 */
 
 /* g_droneVTable (.data, CarA_Stunts.s) */
 u8 g_droneVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
+/* g_emitterVTable (.data, Emitter.s) */
+u8 g_emitterVTable[68] __attribute__((aligned(8))) = {
     [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
     [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
     [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
@@ -1084,6 +1057,25 @@ u8 g_frameCounter[8] __attribute__((aligned(16)));  /* original size 0x4 */
 /* g_freeSound (.sbss, Voice.s) */
 u8 g_freeSound[8] __attribute__((aligned(16)));  /* original size 0x4 */
 
+/* g_frictionTable (.data, CarA_Suspension.s) */
+u8 g_frictionTable[360] __attribute__((aligned(8))) = {
+    [0] = W32(0x3F800000), [4] = W32(0x3F7FFD61), [8] = W32(0x3F7FFAC2), [12] = W32(0x3F7FF823), [16] = W32(0x3F7FF584), [20] = W32(0x3F7FF2E5),
+    [24] = W32(0x3F7FF046), [28] = W32(0x3F7FEDA7), [32] = W32(0x3F7FEB08), [36] = W32(0x3F7FE869), [40] = W32(0x3F800000), [44] = W32(0x3F7FCB92),
+    [48] = W32(0x3F7F972F), [52] = W32(0x3F7F62D6), [56] = W32(0x3F7F2E88), [60] = W32(0x3F7EFA45), [64] = W32(0x3F7EC60D), [68] = W32(0x3F7E91DF),
+    [72] = W32(0x3F7E5DBC), [76] = W32(0x3F7E29A4), [80] = W32(0x3F800000), [84] = W32(0x3F7FB15B), [88] = W32(0x3F7F62CE), [92] = W32(0x3F7F1459),
+    [96] = W32(0x3F7EC5FC), [100] = W32(0x3F7E77B7), [104] = W32(0x3F7E298B), [108] = W32(0x3F7DDB77), [112] = W32(0x3F7D8D7B), [116] = W32(0x3F7D3F96),
+    [120] = W32(0x3F800000), [124] = W32(0x3F7F9724), [128] = W32(0x3F7F2E73), [132] = W32(0x3F7EC5ED), [136] = W32(0x3F7E5D92), [140] = W32(0x3F7DF561),
+    [144] = W32(0x3F7D8D5B), [148] = W32(0x3F7D2580), [152] = W32(0x3F7CBDCF), [156] = W32(0x3F7C5649), [160] = W32(0x3F800000), [164] = W32(0x3F7F7CEE),
+    [168] = W32(0x3F7EFA1F), [172] = W32(0x3F7E7793), [176] = W32(0x3F7DF54A), [180] = W32(0x3F7D7344), [184] = W32(0x3F7CF180), [188] = W32(0x3F7C6FFF),
+    [192] = W32(0x3F7BEEC0), [196] = W32(0x3F7B6DC3), [200] = W32(0x3F800000), [204] = W32(0x3F7F62B7), [208] = W32(0x3F7EC5CF), [212] = W32(0x3F7E2947),
+    [216] = W32(0x3F7D8D1F), [220] = W32(0x3F7CF157), [224] = W32(0x3F7C55EF), [228] = W32(0x3F7BBAE6), [232] = W32(0x3F7B203D), [236] = W32(0x3F7A85F3),
+    [240] = W32(0x3F800000), [244] = W32(0x3F7F4880), [248] = W32(0x3F7E9184), [252] = W32(0x3F7DDB0B), [256] = W32(0x3F7D2514), [260] = W32(0x3F7C6FA0),
+    [264] = W32(0x3F7BBAAE), [268] = W32(0x3F7B063E), [272] = W32(0x3F7A524F), [276] = W32(0x3F799EE1), [280] = W32(0x3F800000), [284] = W32(0x3F7F2E49),
+    [288] = W32(0x3F7E5D3E), [292] = W32(0x3F7D8CDE), [296] = W32(0x3F7CBD29), [300] = W32(0x3F7BEE1E), [304] = W32(0x3F7B1FBD), [308] = W32(0x3F7A5205),
+    [312] = W32(0x3F7984F5), [316] = W32(0x3F78B88D), [320] = W32(0x3F800000), [324] = W32(0x3F7EDFA4), [328] = W32(0x3F7DC08D), [332] = W32(0x3F7CA2B9),
+    [336] = W32(0x3F7B8627), [340] = W32(0x3F7A6AD6), [344] = W32(0x3F7950C4), [348] = W32(0x3F7837F0), [352] = W32(0x3F772058), [356] = W32(0x3F7609FB),
+};
+
 /* g_gameLanguage (.sbss, FileManager.s) */
 u8 g_gameLanguage[8] __attribute__((aligned(16)));  /* original size 0x4 */
 
@@ -1233,6 +1225,21 @@ u8 g_padDownPos[8] __attribute__((aligned(16)));  /* original size 0x4 */
 /* g_padUpPos (.sbss, Input_NGC.s) */
 u8 g_padUpPos[8] __attribute__((aligned(16)));  /* original size 0x4 */
 
+/* g_panTab (.rodata, Voice_.s) */
+u8 g_panTab[256] __attribute__((aligned(8))) = {
+    [0] = W32(0xB5B), [4] = W32(0x100F13AC), [8] = W32(0x16B71965), [12] = W32(0x1BD21E0C), [16] = W32(0x201F2212), [20] = W32(0x23EA25AB),
+    [24] = W32(0x275828F3), [28] = W32(0x2A7F2BFD), [32] = W32(0x2D6E2ED4), [36] = W32(0x302F3181), [40] = W32(0x32CB340C), [44] = W32(0x35453678),
+    [48] = W32(0x37A438CA), [52] = W32(0x39E93B04), [56] = W32(0x3C193D29), [60] = W32(0x3E353F3C), [64] = W32(0x403F413E), [68] = W32(0x423A4331),
+    [72] = W32(0x44254516), [76] = W32(0x460346EE), [80] = W32(0x47D548B9), [84] = W32(0x499B4A7A), [88] = W32(0x4B564C30), [92] = W32(0x4D084DDD),
+    [96] = W32(0x4EB04F81), [100] = W32(0x504F511C), [104] = W32(0x51E752AF), [108] = W32(0x5376543B), [112] = W32(0x54FE55BF), [116] = W32(0x567F573D),
+    [120] = W32(0x57FA58B5), [124] = W32(0x596E5A26), [128] = W32(0x5ADC5B91), [132] = W32(0x5C455CF7), [136] = W32(0x5DA85E58), [140] = W32(0x5F065FB3),
+    [144] = W32(0x605F610A), [148] = W32(0x61B4625C), [152] = W32(0x630363AA), [156] = W32(0x644F64F3), [160] = W32(0x65966638), [164] = W32(0x66D96779),
+    [168] = W32(0x681868B6), [172] = W32(0x695469F0), [176] = W32(0x6A8B6B26), [180] = W32(0x6BBF6C58), [184] = W32(0x6CF06D87), [188] = W32(0x6E1E6EB3),
+    [192] = W32(0x6F486FDC), [196] = W32(0x706F7102), [200] = W32(0x71947225), [204] = W32(0x72B57344), [208] = W32(0x73D37462), [212] = W32(0x74EF757C),
+    [216] = W32(0x76087694), [220] = W32(0x771F77A9), [224] = W32(0x783378BC), [228] = W32(0x794479CC), [232] = W32(0x7A537ADA), [236] = W32(0x7B607BE6),
+    [240] = W32(0x7C6B7CEF), [244] = W32(0x7D737DF6), [248] = W32(0x7E797EFC), [252] = W32(0x7F7D7FFF),
+};
+
 /* g_particleManager (.bss, ParticleManager.s) */
 u8 g_particleManager[1163392] __attribute__((aligned(16)));  /* original size 0x8E040 */
 
@@ -1325,11 +1332,6 @@ u8 g_pOrder[8] __attribute__((aligned(16)));  /* original size 0x4 */
 /* g_pPacksToBeReleased (.bss, FileStreaming.s) */
 u8 g_pPacksToBeReleased[80] __attribute__((aligned(16)));  /* original size 0x28 */
 
-/* g_pPlayerManager (.sdata, PlayerManager.s) */
-u8 g_pPlayerManager[4] __attribute__((aligned(8))) = {
-    [0] = W32(0x0),
-};
-
 /* g_pQuadPackToBeReleased (.bss, FileStreaming.s) */
 u8 g_pQuadPackToBeReleased[88] __attribute__((aligned(16)));  /* original size 0x2C */
 
@@ -1382,11 +1384,6 @@ u8 g_renderStats[512] __attribute__((aligned(16)));  /* original size 0x100 */
 
 /* g_reverb (.bss, Voice_.s) */
 u8 g_reverb[384] __attribute__((aligned(16)));  /* original size 0xC0 */
-
-/* g_rndNumber (.sdata, InterfaceManager.s) */
-u8 g_rndNumber[4] __attribute__((aligned(4))) = {
-    [0] = W32(0x0),
-};
 
 /* gs_aLinksDepth3 (.bss, NavHolder.s) */
 u8 gs_aLinksDepth3[512] __attribute__((aligned(16)));  /* original size 0x100 */
@@ -1464,21 +1461,6 @@ u8 g_StopInput[8] __attribute__((aligned(16)));  /* original size 0x4 */
 
 /* g_StreamingDataPacks (.bss, FileStreaming.s) */
 u8 g_StreamingDataPacks[88] __attribute__((aligned(16)));  /* original size 0x2C */
-
-/* g_stunt1localString (.sdata, CarA.s) */
-u8 g_stunt1localString[4] __attribute__((aligned(8))) = {
-    [0] = W32(0x0),
-};
-
-/* g_stuntLossString (.sdata, CarA.s) */
-u8 g_stuntLossString[4] __attribute__((aligned(4))) = {
-    [0] = W32(0x0),
-};
-
-/* g_stuntMessageLocalString (.sdata, CarA_Suspension.s) */
-u8 g_stuntMessageLocalString[4] __attribute__((aligned(8))) = {
-    [0] = W32(0x0),
-};
 
 /* gs_useMainRouteOnly (.sbss, NavHolder.s) */
 u8 gs_useMainRouteOnly[8] __attribute__((aligned(16)));  /* original size 0x1 */
@@ -1691,18 +1673,6 @@ u8 m_zwrite[8] __attribute__((aligned(16)));  /* original size 0x4 */
 /* ngcPad (.bss, Input_NGC.s) */
 u8 ngcPad[96] __attribute__((aligned(16)));  /* original size 0x30 */
 
-/* pActionFuncArray (.data, Action.s) */
-u8 pActionFuncArray[176] __attribute__((aligned(8))) = {
-    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
-    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
-    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0), [68] = W32(0x0),
-    [72] = W32(0x0), [76] = W32(0x0), [80] = W32(0x0), [84] = W32(0x0), [88] = W32(0x0), [92] = W32(0x0),
-    [96] = W32(0x0), [100] = W32(0x0), [104] = W32(0x0), [108] = W32(0x0), [112] = W32(0x0), [116] = W32(0x0),
-    [120] = W32(0x0), [124] = W32(0x0), [128] = W32(0x0), [132] = W32(0x0), [136] = W32(0x0), [140] = W32(0x0),
-    [144] = W32(0x0), [148] = W32(0x0), [152] = W32(0x0), [156] = W32(0x0), [160] = W32(0x0), [164] = W32(0x0),
-    [168] = W32(0x0), [172] = W32(0x0),
-};
-
 /* PadChanMask (.data, Input_NGC.s) */
 u8 PadChanMask[16] __attribute__((aligned(8))) = {
     [0] = W32(0x80000000), [4] = W32(0x40000000), [8] = W32(0x20000000), [12] = W32(0x10000000),
@@ -1710,15 +1680,6 @@ u8 PadChanMask[16] __attribute__((aligned(8))) = {
 
 /* pShadowImage (.bss, Render_.s) */
 u8 pShadowImage[573440] __attribute__((aligned(16)));  /* original size 0x46000 */
-
-/* pTriggerFuncArray (.data, Trigger.s) */
-u8 pTriggerFuncArray[112] __attribute__((aligned(4))) = {
-    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
-    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
-    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0), [68] = W32(0x0),
-    [72] = W32(0x0), [76] = W32(0x0), [80] = W32(0x0), [84] = W32(0x0), [88] = W32(0x0), [92] = W32(0x0),
-    [96] = W32(0x0), [100] = W32(0x0), [104] = W32(0x0), [108] = W32(0x0),
-};
 
 /* rawData (.data, FileManager_NGC.s) */
 u8 rawData[2048] __attribute__((aligned(4))) = {
@@ -1860,13 +1821,6 @@ u8 wheels[8] __attribute__((aligned(16)));  /* original size 0x4 */
 /* white (.sdata, Render_Geometry_.s) */
 u8 white[4] __attribute__((aligned(8))) = {
     [0] = W32(0xFFFFFFFF),
-};
-
-/* g_emitterVTable (.data, Emitter.s) */
-u8 g_emitterVTable[68] __attribute__((aligned(8))) = {
-    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
-    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
-    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
 };
 
 /* "@639" (.sdata2, CarA.s) */
@@ -2117,8 +2071,30 @@ static u8 s_Trigger___326_[32] __attribute__((aligned(4))) = {
     [30] = W8(0x64), [31] = W8(0x0),
 };
 
+/* g_pPlayerManager: host pointer(s) */
+void *g_pPlayerManager[1] = { (u8 *)g_playerManager + 0 };
+
+/* g_rndNumber: host pointer(s) */
+void *g_rndNumber[1] = { (u8 *)rndNumberBuffer + 0 };
+
+/* g_stunt1localString: host pointer(s) */
+void *g_stunt1localString[1] = { (u8 *)s_CarA___639_ + 0 };
+
+/* g_stuntLossString: host pointer(s) */
+void *g_stuntLossString[1] = { (u8 *)stunt_msg_buffer + 0 };
+
+/* g_stuntMessageLocalString: host pointer(s) */
+void *g_stuntMessageLocalString[1] = { (u8 *)stunt_msg_buffer_second + 0 };
+
+/* pActionFuncArray: host pointer(s) */
+void *pActionFuncArray[44] = { (u8 *)&ActionAirboxChangeMode + 0, (u8 *)&ActionCameraSetTargets + 0, (u8 *)&ActionDestructibleChangeMode + 0, (u8 *)&ActionFXPointChangeMode + 0, (u8 *)&ActionInterfacePlay + 0, (u8 *)&ActionItemChangeMode + 0, (u8 *)&ActionEndLevel + 0, (u8 *)&ActionTimerChangeValue + 0, (u8 *)&ActionTimerChangeMode + 0, (u8 *)&ActionMoveableChangeMode + 0, (u8 *)&ActionMusicChange + 0, (u8 *)&ActionMusicSetSong + 0, (u8 *)&ActionNavPointChangeMode + 0, (u8 *)&ActionPauseGame + 0, (u8 *)&ActionSpeakerChangeMode + 0, (u8 *)&ActionTargetArrowSetTarget + 0, (u8 *)&ActionVariableChangeValue + 0, (u8 *)&ActionVehicleChangeMode + 0, (u8 *)&ActionVehicleAISetNamedPath + 0, (u8 *)&ActionVertexColorSeqChangeMode + 0, (u8 *)&ActionPrintDebugString + 0, (u8 *)&ActionVehicleTeleport + 0, (u8 *)&ActionVehicleChangeControl + 0, (u8 *)&ActionSetPlayerVehicle + 0, (u8 *)&ActionVehicleRemoveItem + 0, (u8 *)&ActionVehicleRemoveCreature + 0, (u8 *)&ActionVariableChangeMode + 0, (u8 *)&ActionLoadInterfacePack + 0, (u8 *)&ActionPlayInterfacePack + 0, (u8 *)&ActionUnloadInterfacePack + 0, (u8 *)&ActionEndInterfacePack + 0, (u8 *)&ActionEndInterface + 0, (u8 *)&ActionHUDChangeMode + 0, (u8 *)&ActionScriptLightChangeMode + 0, (u8 *)&ActionCodeVariableModifyValue + 0, (u8 *)&ActionMissionObjChangeMode + 0, (u8 *)&ActionPauseTACSystem + 0, (u8 *)&ActionSwapAIScript + 0, (u8 *)&ActionResetGameRound + 0, (u8 *)&ActionRoundComplete + 0, (u8 *)&ActionVehicleGiveItem + 0, (u8 *)&ActionSetPlayerOrder + 0, (u8 *)&ActionPlaySoundSequence + 0, (u8 *)&ActionCreatureChangeMode + 0 };
+
+/* pTriggerFuncArray: host pointer(s) */
+void *pTriggerFuncArray[28] = { (u8 *)&TriggerTrue + 0, (u8 *)&TriggerAirboxEntered + 0, (u8 *)&TriggerAirboxExited + 0, (u8 *)&TriggerAirboxStopIn + 0, (u8 *)&TriggerDesructibleKilled + 0, (u8 *)&TriggerCreatureKilled + 0, (u8 *)&TriggerItemPickup + 0, (u8 *)&TriggerInterfaceEnd + 0, (u8 *)&TriggerLevelStart + 0, (u8 *)&TriggerTimerValueCheck + 0, (u8 *)&TriggerMoveableEnd + 0, (u8 *)&TriggerVariableValueCheck + 0, (u8 *)&TriggerVehicleKilled + 0, (u8 *)&TriggerP2PActivated + 0, (u8 *)&TriggerCreatureDroppedOff + 0, (u8 *)&TriggerInterfacePackEnd + 0, (u8 *)&TriggerVehicleDamage + 0, (u8 *)&TriggerPlayerVehicleGear + 0, (u8 *)&TriggerPlayerVehicleInAir + 0, (u8 *)&TriggerItemVolumeEntered + 0, (u8 *)&TriggerCodeVariableValueCheck + 0, (u8 *)&TriggerCreaturePickedUp + 0, (u8 *)&TriggerGameRoundsComplete + 0, (u8 *)&TriggerGameRoundXComplete + 0, (u8 *)&TriggerItemDropped + 0, (u8 *)&TriggerMovableVolumeEntered + 0, (u8 *)&TriggerSoundSeqQueueEnd + 0, (u8 *)&TriggerCreatureVolumeEntered + 0 };
+
 /* Fill pointer slots with handles once, before main(). */
 __attribute__((constructor)) static void DataGen_Fixups(void) {
+    SLOT_STORE(g_AI_AsyncProcess + 0x4, (u8 *)&AI_AsyncProcess_80006C80 + 0);
     SLOT_STORE(g_carAVTable + 0x0, (u8 *)&CarA_Init + 0);
     SLOT_STORE(g_carAVTable + 0x4, (u8 *)&CarA_Release + 0);
     SLOT_STORE(g_carAVTable + 0x8, (u8 *)&CarA_PreMove + 0);
@@ -2136,7 +2112,6 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_carAVTable + 0x38, (u8 *)&CarA_CollideWithRay + 0);
     SLOT_STORE(g_carAVTable + 0x3C, (u8 *)&CarA_GetTargetPos + 0);
     SLOT_STORE(g_carAVTable + 0x40, (u8 *)&CarA_GetOrientedCollision + 0);
-    SLOT_STORE(g_AI_AsyncProcess + 0x4, (u8 *)&AI_AsyncProcess_80006C80 + 0);
     SLOT_STORE(g_creatureVTable + 0x0, (u8 *)&Creature_Init + 0);
     SLOT_STORE(g_creatureVTable + 0x4, (u8 *)&Creature_Release + 0);
     SLOT_STORE(g_creatureVTable + 0x8, (u8 *)&Thing_PreMove + 0);
@@ -2171,6 +2146,23 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_droneVTable + 0x38, (u8 *)&Destructible_CollideWithRay + 0);
     SLOT_STORE(g_droneVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
     SLOT_STORE(g_droneVTable + 0x40, (u8 *)&Destructible_GetOrientedCollision + 0);
+    SLOT_STORE(g_emitterVTable + 0x0, (u8 *)&Emitter_Init + 0);
+    SLOT_STORE(g_emitterVTable + 0x4, (u8 *)&Emitter_Release + 0);
+    SLOT_STORE(g_emitterVTable + 0x8, (u8 *)&Thing_PreMove + 0);
+    SLOT_STORE(g_emitterVTable + 0xC, (u8 *)&Emitter_Move + 0);
+    SLOT_STORE(g_emitterVTable + 0x10, (u8 *)&Thing_Draw + 0);
+    SLOT_STORE(g_emitterVTable + 0x14, (u8 *)&Thing_GetMass + 0);
+    SLOT_STORE(g_emitterVTable + 0x18, (u8 *)&Thing_DynamicCollideImpact + 0);
+    SLOT_STORE(g_emitterVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_emitterVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_emitterVTable + 0x24, (u8 *)&Thing_SlaveTransformQuaternionOnly + 0);
+    SLOT_STORE(g_emitterVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
+    SLOT_STORE(g_emitterVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_emitterVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_emitterVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
+    SLOT_STORE(g_emitterVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
+    SLOT_STORE(g_emitterVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
+    SLOT_STORE(g_emitterVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
     SLOT_STORE(g_eventSeqVTable + 0x0, (u8 *)&EventSeq_Init + 0);
     SLOT_STORE(g_eventSeqVTable + 0x4, (u8 *)&EventSeq_Release + 0);
     SLOT_STORE(g_eventSeqVTable + 0x8, (u8 *)&Thing_PreMove + 0);
@@ -2205,7 +2197,6 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_podVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
     SLOT_STORE(g_podVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
     SLOT_STORE(g_podVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
-    SLOT_STORE(g_pPlayerManager + 0x0, (u8 *)g_playerManager + 0);
     SLOT_STORE(g_projectileVTable + 0x0, (u8 *)&Projectile_Init + 0);
     SLOT_STORE(g_projectileVTable + 0x4, (u8 *)&Projectile_Release + 0);
     SLOT_STORE(g_projectileVTable + 0x8, (u8 *)&Projectile_PreMove + 0);
@@ -2223,7 +2214,6 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_projectileVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
     SLOT_STORE(g_projectileVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
     SLOT_STORE(g_projectileVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
-    SLOT_STORE(g_rndNumber + 0x0, (u8 *)rndNumberBuffer + 0);
     SLOT_STORE(g_soundSeqVTable + 0x0, (u8 *)&SoundSeq_Init + 0);
     SLOT_STORE(g_soundSeqVTable + 0x4, (u8 *)&SoundSeq_Release + 0);
     SLOT_STORE(g_soundSeqVTable + 0x8, (u8 *)&Thing_PreMove + 0);
@@ -2241,81 +2231,6 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(g_soundSeqVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
     SLOT_STORE(g_soundSeqVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
     SLOT_STORE(g_soundSeqVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
-    SLOT_STORE(g_stunt1localString + 0x0, (u8 *)s_CarA___639_ + 0);
-    SLOT_STORE(g_stuntLossString + 0x0, (u8 *)stunt_msg_buffer + 0);
-    SLOT_STORE(g_stuntMessageLocalString + 0x0, (u8 *)stunt_msg_buffer_second + 0);
-    SLOT_STORE(pActionFuncArray + 0x0, (u8 *)&ActionAirboxChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x4, (u8 *)&ActionCameraSetTargets + 0);
-    SLOT_STORE(pActionFuncArray + 0x8, (u8 *)&ActionDestructibleChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0xC, (u8 *)&ActionFXPointChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x10, (u8 *)&ActionInterfacePlay + 0);
-    SLOT_STORE(pActionFuncArray + 0x14, (u8 *)&ActionItemChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x18, (u8 *)&ActionEndLevel + 0);
-    SLOT_STORE(pActionFuncArray + 0x1C, (u8 *)&ActionTimerChangeValue + 0);
-    SLOT_STORE(pActionFuncArray + 0x20, (u8 *)&ActionTimerChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x24, (u8 *)&ActionMoveableChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x28, (u8 *)&ActionMusicChange + 0);
-    SLOT_STORE(pActionFuncArray + 0x2C, (u8 *)&ActionMusicSetSong + 0);
-    SLOT_STORE(pActionFuncArray + 0x30, (u8 *)&ActionNavPointChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x34, (u8 *)&ActionPauseGame + 0);
-    SLOT_STORE(pActionFuncArray + 0x38, (u8 *)&ActionSpeakerChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x3C, (u8 *)&ActionTargetArrowSetTarget + 0);
-    SLOT_STORE(pActionFuncArray + 0x40, (u8 *)&ActionVariableChangeValue + 0);
-    SLOT_STORE(pActionFuncArray + 0x44, (u8 *)&ActionVehicleChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x48, (u8 *)&ActionVehicleAISetNamedPath + 0);
-    SLOT_STORE(pActionFuncArray + 0x4C, (u8 *)&ActionVertexColorSeqChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x50, (u8 *)&ActionPrintDebugString + 0);
-    SLOT_STORE(pActionFuncArray + 0x54, (u8 *)&ActionVehicleTeleport + 0);
-    SLOT_STORE(pActionFuncArray + 0x58, (u8 *)&ActionVehicleChangeControl + 0);
-    SLOT_STORE(pActionFuncArray + 0x5C, (u8 *)&ActionSetPlayerVehicle + 0);
-    SLOT_STORE(pActionFuncArray + 0x60, (u8 *)&ActionVehicleRemoveItem + 0);
-    SLOT_STORE(pActionFuncArray + 0x64, (u8 *)&ActionVehicleRemoveCreature + 0);
-    SLOT_STORE(pActionFuncArray + 0x68, (u8 *)&ActionVariableChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x6C, (u8 *)&ActionLoadInterfacePack + 0);
-    SLOT_STORE(pActionFuncArray + 0x70, (u8 *)&ActionPlayInterfacePack + 0);
-    SLOT_STORE(pActionFuncArray + 0x74, (u8 *)&ActionUnloadInterfacePack + 0);
-    SLOT_STORE(pActionFuncArray + 0x78, (u8 *)&ActionEndInterfacePack + 0);
-    SLOT_STORE(pActionFuncArray + 0x7C, (u8 *)&ActionEndInterface + 0);
-    SLOT_STORE(pActionFuncArray + 0x80, (u8 *)&ActionHUDChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x84, (u8 *)&ActionScriptLightChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x88, (u8 *)&ActionCodeVariableModifyValue + 0);
-    SLOT_STORE(pActionFuncArray + 0x8C, (u8 *)&ActionMissionObjChangeMode + 0);
-    SLOT_STORE(pActionFuncArray + 0x90, (u8 *)&ActionPauseTACSystem + 0);
-    SLOT_STORE(pActionFuncArray + 0x94, (u8 *)&ActionSwapAIScript + 0);
-    SLOT_STORE(pActionFuncArray + 0x98, (u8 *)&ActionResetGameRound + 0);
-    SLOT_STORE(pActionFuncArray + 0x9C, (u8 *)&ActionRoundComplete + 0);
-    SLOT_STORE(pActionFuncArray + 0xA0, (u8 *)&ActionVehicleGiveItem + 0);
-    SLOT_STORE(pActionFuncArray + 0xA4, (u8 *)&ActionSetPlayerOrder + 0);
-    SLOT_STORE(pActionFuncArray + 0xA8, (u8 *)&ActionPlaySoundSequence + 0);
-    SLOT_STORE(pActionFuncArray + 0xAC, (u8 *)&ActionCreatureChangeMode + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x0, (u8 *)&TriggerTrue + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x4, (u8 *)&TriggerAirboxEntered + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x8, (u8 *)&TriggerAirboxExited + 0);
-    SLOT_STORE(pTriggerFuncArray + 0xC, (u8 *)&TriggerAirboxStopIn + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x10, (u8 *)&TriggerDesructibleKilled + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x14, (u8 *)&TriggerCreatureKilled + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x18, (u8 *)&TriggerItemPickup + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x1C, (u8 *)&TriggerInterfaceEnd + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x20, (u8 *)&TriggerLevelStart + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x24, (u8 *)&TriggerTimerValueCheck + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x28, (u8 *)&TriggerMoveableEnd + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x2C, (u8 *)&TriggerVariableValueCheck + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x30, (u8 *)&TriggerVehicleKilled + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x34, (u8 *)&TriggerP2PActivated + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x38, (u8 *)&TriggerCreatureDroppedOff + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x3C, (u8 *)&TriggerInterfacePackEnd + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x40, (u8 *)&TriggerVehicleDamage + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x44, (u8 *)&TriggerPlayerVehicleGear + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x48, (u8 *)&TriggerPlayerVehicleInAir + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x4C, (u8 *)&TriggerItemVolumeEntered + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x50, (u8 *)&TriggerCodeVariableValueCheck + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x54, (u8 *)&TriggerCreaturePickedUp + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x58, (u8 *)&TriggerGameRoundsComplete + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x5C, (u8 *)&TriggerGameRoundXComplete + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x60, (u8 *)&TriggerItemDropped + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x64, (u8 *)&TriggerMovableVolumeEntered + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x68, (u8 *)&TriggerSoundSeqQueueEnd + 0);
-    SLOT_STORE(pTriggerFuncArray + 0x6C, (u8 *)&TriggerCreatureVolumeEntered + 0);
     SLOT_STORE(triggerLabelsArray + 0x0, (u8 *)s_Trigger___299_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x4, (u8 *)s_Trigger___300_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x8, (u8 *)s_Trigger___301_ + 0);
@@ -2344,21 +2259,4 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(triggerLabelsArray + 0x64, (u8 *)s_Trigger___324_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x68, (u8 *)s_Trigger___325_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x6C, (u8 *)s_Trigger___326_ + 0);
-    SLOT_STORE(g_emitterVTable + 0x0, (u8 *)&Emitter_Init + 0);
-    SLOT_STORE(g_emitterVTable + 0x4, (u8 *)&Emitter_Release + 0);
-    SLOT_STORE(g_emitterVTable + 0x8, (u8 *)&Thing_PreMove + 0);
-    SLOT_STORE(g_emitterVTable + 0xC, (u8 *)&Emitter_Move + 0);
-    SLOT_STORE(g_emitterVTable + 0x10, (u8 *)&Thing_Draw + 0);
-    SLOT_STORE(g_emitterVTable + 0x14, (u8 *)&Thing_GetMass + 0);
-    SLOT_STORE(g_emitterVTable + 0x18, (u8 *)&Thing_DynamicCollideImpact + 0);
-    SLOT_STORE(g_emitterVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
-    SLOT_STORE(g_emitterVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
-    SLOT_STORE(g_emitterVTable + 0x24, (u8 *)&Thing_SlaveTransformQuaternionOnly + 0);
-    SLOT_STORE(g_emitterVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
-    SLOT_STORE(g_emitterVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
-    SLOT_STORE(g_emitterVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
-    SLOT_STORE(g_emitterVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
-    SLOT_STORE(g_emitterVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
-    SLOT_STORE(g_emitterVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
-    SLOT_STORE(g_emitterVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
 }

@@ -78,13 +78,13 @@ static inline void ThingManager_InitFreeThing(ThingHeader *thing, void *vtable, 
     SETP(thing->next, NULL);
     thing->type = type;
     freeList = g_thingManager_DARYL.freeList + thing->type;
-    SETP(thing->next, *freeList);
+    SETP(thing->next, SLOT_LOAD(void *, freeList));
     SETP(thing->prev, NULL);
     head = GETP(thing->next);
     if (head != NULL) {
         SETP(head->prev, thing);
     }
-    *freeList = thing;
+    SLOT_STORE(freeList, thing);
 }
 
 static inline void ThingManager_InitPool(void *pool, u32 count, u32 size, void *vtable, u32 type) {
@@ -150,13 +150,13 @@ void ThingManagerList_ReleaseSlavesBySlaveType(void **list, u8 type) {
             M2C_FIELD(thing, u32 *, 0x74) &= ~0x200000;
             M2C_FIELD(thing, u32 *, 0x74) |= 0x1000;
             freeList = &g_thingManager_DARYL.freeList[M2C_FIELD(thing, s32 *, 0xA8)];
-            SLOT_STORE((u8 *)(thing) + 0xA4, *freeList);
+            SLOT_STORE((u8 *)(thing) + 0xA4, SLOT_LOAD(void *, freeList));
             SLOT_STORE((u8 *)(thing) + 0xA0, NULL);
             head = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
             if (head != NULL) {
                 SLOT_STORE((u8 *)(head) + 0xA0, thing);
             }
-            *freeList = thing;
+            SLOT_STORE(freeList, thing);
         }
         thing = next;
     }
@@ -309,7 +309,7 @@ void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
         Matrix4 mtx;
         Quaternion quat;
         u8 pad60[0x2C];
-        void (**vtbl)(struct SlaveThing *);
+        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(struct SlaveThing *) */
         u8 pad90[0x14];
         PTR32(struct SlaveThing) next;
     } SlaveThing;
@@ -331,7 +331,7 @@ void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
                     pos = slave->mtx.v[3];
                     QuaternionMult((Quaternion *)(thing + 0x50), &quat, &slave->quat);
                     XformVec((Matrix4 *)(thing + 0x10), &pos, &slave->mtx.v[3]);
-                    slave->vtbl[4](slave);
+                    ((void (*)(struct SlaveThing *))PTR(GETP(slave->vtbl)[4]))(slave);
                     slave->quat = quat;
                     slave->mtx.v[3] = pos;
                 }
@@ -478,7 +478,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
         pl = player;
         for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = GETP(thing->next)) {
             if (thing->slaveId == id && thing->slavePlayer == pl) {
-                ((void (**)(ThingHeader *))GETP(thing->vtable))[1](thing);
+                ((void (*)(ThingHeader *))SLOT_LOAD(void *, (u8 *)GETP(thing->vtable) + 1 * 4))(thing);
             }
         }
         break;
@@ -1335,7 +1335,7 @@ void ThingManager_DARYL_Render(void) {
 
     for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
         if (!(thing->flags & 0x200200) && Gfx_FrustrumCullSphereTestAllWindows(thing->unk40, thing->unk70)) {
-            ((void (**)(void *))GETP(thing->vtable))[4](thing);
+            ((void (*)(void *))SLOT_LOAD(void *, (u8 *)GETP(thing->vtable) + 4 * 4))(thing);
             g_pNoRayCollideThing = thing;
             Thing_DrawSlaves(thing);
         }

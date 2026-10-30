@@ -135,10 +135,17 @@ static void ReadKeyboard(PADStatus *st) {
     st->err = PAD_ERR_NONE;
 }
 
-/* Debugging: HWVX_AUTOINPUT="frame:button,..." holds a button on port 1 for
- * 10 frames from that frame (frames = retraces). Buttons: a b x y start z l r
- * up down left right. */
+/* Debugging: HWVX_AUTOINPUT="entry,..." presses buttons on port 1, each held
+ * for 10 frames (frames = retraces). Entries run in order:
+ *   N:btn   press at frame N after boot;
+ *   +N:btn  press once the game has run N frames in a row without reading
+ *           the disc since the previous press was released, so loading
+ *           times don't shift the schedule (use this for menu navigation).
+ * Buttons: a b x y start z l r up down left right; main stick: sup sdown
+ * sleft sright. Each press is logged with its frame. */
 static u32 s_frame;
+
+static int s_autoStickX, s_autoStickY;
 
 static u16 AutoInput(void) {
     static const struct { const char *name; u16 bit; } names[] = {
@@ -146,26 +153,58 @@ static u16 AutoInput(void) {
         { "start", PAD_BUTTON_START }, { "z", PAD_TRIGGER_Z }, { "l", PAD_TRIGGER_L }, { "r", PAD_TRIGGER_R },
         { "up", PAD_BUTTON_UP }, { "down", PAD_BUTTON_DOWN }, { "left", PAD_BUTTON_LEFT }, { "right", PAD_BUTTON_RIGHT },
     };
-    const char *e = SDL_getenv("HWVX_AUTOINPUT");
+    static const char *next;      /* next entry to run */
+    static u32 pressEnd, lastReads, lastFrame, quiet;
+    static char held[16];
+    static int started;
     u16 bits = 0;
+    int i;
 
-    while (e != NULL && *e) {
+    s_autoStickX = s_autoStickY = 0;
+    if (!started) {
+        started = 1;
+        next = SDL_getenv("HWVX_AUTOINPUT");
+    }
+    if (s_frame != lastFrame) {   /* PADRead may run more than once a frame */
+        lastFrame = s_frame;
+        if (g_portDiscReads != lastReads) {
+            lastReads = g_portDiscReads;
+            quiet = 0;
+        } else {
+            quiet++;
+        }
+    }
+    if (held[0] == 0 && next != NULL && *next) {
         char name[16];
         unsigned frame = 0;
-        int n = 0, i;
-        if (SDL_sscanf(e, "%u:%15[a-z]%n", &frame, name, &n) != 2) {
-            break;
-        }
-        if (s_frame >= frame && s_frame < frame + 10) {
-            for (i = 0; i < (int)SDL_arraysize(names); i++) {
-                if (SDL_strcmp(name, names[i].name) == 0) {
-                    bits |= names[i].bit;
-                }
+        int n = 0, rel = *next == '+';
+        if (SDL_sscanf(next + rel, "%u:%15[a-z]%n", &frame, name, &n) != 2) {
+            Port_Log("HWVX_AUTOINPUT: can't parse \"%s\"", next);
+            next = NULL;
+        } else if (rel ? (s_frame >= pressEnd && quiet >= frame) : s_frame >= frame) {
+            SDL_strlcpy(held, name, sizeof(held));
+            pressEnd = s_frame + 10;
+            Port_Log("autoinput: %s at frame %u", held, (unsigned)s_frame);
+            next += rel + n;
+            if (*next == ',') {
+                next++;
             }
         }
-        e += n;
-        if (*e == ',') {
-            e++;
+    }
+    if (held[0] != 0) {
+        for (i = 0; i < (int)SDL_arraysize(names); i++) {
+            if (SDL_strcmp(held, names[i].name) == 0) {
+                bits |= names[i].bit;
+            }
+        }
+        /* main stick, as the keyboard sets it */
+        if (SDL_strcmp(held, "sup") == 0) s_autoStickY = 100;
+        if (SDL_strcmp(held, "sdown") == 0) s_autoStickY = -100;
+        if (SDL_strcmp(held, "sleft") == 0) s_autoStickX = -100;
+        if (SDL_strcmp(held, "sright") == 0) s_autoStickX = 100;
+        if (s_frame + 1 >= pressEnd) {
+            held[0] = 0;
+            quiet = 0;   /* count quiet frames from the release */
         }
     }
     return bits;
@@ -187,14 +226,66 @@ u32 PADRead(struct PADStatus *status) {
     }
     ReadKeyboard(&st[0]);
     st[0].button |= AutoInput();
+    if (s_autoStickX) st[0].stickX = (s8)s_autoStickX;
+    if (s_autoStickY) st[0].stickY = (s8)s_autoStickY;
     if (st[0].button) {
         st[0].err = PAD_ERR_NONE;
     }
     return motorMask;
 }
 
+/* PADClamp as in the SDK: dead zones, then the sticks limited to an octagon
+ * (main stick at most 72, C stick 59) and triggers to 0..150. The game relies
+ * on these ranges (Input_NGC.c scales the stick by 1.68919 into a signed
+ * byte, which only fits after clamping). */
+static void ClampStick(s8 *px, s8 *py, int max, int xy, int min) {
+    int x = *px, y = *py, sx = 1, sy = 1, d;
+
+    if (x < 0) { sx = -1; x = -x; }
+    if (y < 0) { sy = -1; y = -y; }
+    x = x <= min ? 0 : x - min;
+    y = y <= min ? 0 : y - min;
+    if (x == 0 && y == 0) {
+        *px = *py = 0;
+        return;
+    }
+    if (xy * y <= xy * x) {
+        d = xy * x + (max - xy) * y;
+    } else {
+        d = xy * y + (max - xy) * x;
+    }
+    if (xy * max < d) {
+        x = xy * max * x / d;
+        y = xy * max * y / d;
+    }
+    *px = (s8)(sx * x);
+    *py = (s8)(sy * y);
+}
+
+static void ClampTrigger(u8 *t, int min, int max) {
+    if (*t <= min) {
+        *t = 0;
+    } else {
+        if (*t > max) {
+            *t = (u8)max;
+        }
+        *t = (u8)(*t - min);
+    }
+}
+
 void PADClamp(struct PADStatus *status) {
-    (void)status; /* values are already in range */
+    PADStatus *st = (PADStatus *)status;
+    int i;
+
+    for (i = 0; i < PAD_MAX_CONTROLLERS; i++) {
+        if (st[i].err != PAD_ERR_NONE) {
+            continue;
+        }
+        ClampStick(&st[i].stickX, &st[i].stickY, 72, 40, 15);
+        ClampStick(&st[i].substickX, &st[i].substickY, 59, 31, 15);
+        ClampTrigger(&st[i].triggerLeft, 30, 180);
+        ClampTrigger(&st[i].triggerRight, 30, 180);
+    }
 }
 
 void PADControlMotor(s32 chan, u32 command) {

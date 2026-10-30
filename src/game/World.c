@@ -486,27 +486,27 @@ s32 TriggerVariableValueCheck(u32 *data) {
         var = (u8 **)PTR(data[i + 1]);
         switch (op) {
         case 20:
-            if (*(f32 *)(*var + 4) < value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) < value) {
                 return 1;
             }
             break;
         case 21:
-            if (*(f32 *)(*var + 4) > value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) > value) {
                 return 1;
             }
             break;
         case 22:
-            if (*(f32 *)(*var + 4) == value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) == value) {
                 return 1;
             }
             break;
         case 47:
-            if (*(f32 *)(*var + 4) >= value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) >= value) {
                 return 1;
             }
             break;
         case 48:
-            if (*(f32 *)(*var + 4) <= value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) <= value) {
                 return 1;
             }
             break;
@@ -535,21 +535,21 @@ s32 ActionVariableChangeValue(u32 *action) {
         var = (u8 **)PTR(action[i + 2]);
         switch (action[0]) {
         case 0xF:
-            *(f32 *)(*var + 4) += value;
+            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) += value;
             break;
         case 0x10:
-            *(f32 *)(*var + 4) -= value;
+            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) -= value;
             break;
         case 0x2D:
-            *(f32 *)(*var + 4) *= value;
+            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) *= value;
             break;
         case 0x2E:
             if (value) {
-                *(f32 *)(*var + 4) /= value;
+                *(f32 *)(SLOT_LOAD(u8 *, var) + 4) /= value;
             }
             break;
         case 0x11:
-            *(f32 *)(*var + 4) = value;
+            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) = value;
             break;
         }
     }
@@ -589,21 +589,21 @@ s32 ActionTimerChangeValue(u32 *action) {
         timer = (u8 **)PTR(action[i + 2]);
         switch (action[0]) {
         case 0xF:
-            *(f32 *)(*timer + 8) += value;
+            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) += value;
             break;
         case 0x10:
-            *(f32 *)(*timer + 8) -= value;
+            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) -= value;
             break;
         case 0x2D:
-            *(f32 *)(*timer + 8) *= value;
+            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) *= value;
             break;
         case 0x2E:
             if (value) {
-                *(f32 *)(*timer + 8) /= value;
+                *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) /= value;
             }
             break;
         case 0x11:
-            *(f32 *)(*timer + 8) = value;
+            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) = value;
             break;
         }
     }
@@ -616,8 +616,8 @@ s32 ActionTimerChangeMode(u32 *action) {
 
     for (i = 0; i < action[2]; i++) {
         item = (u8 **)PTR(action[i + 3]);
-        M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(*item) + 0xC), u8 *, 0) = action[0];
-        M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(*item) + 0xC), u8 *, 1) = action[1];
+        M2C_FIELD(SLOT_LOAD(u8 *, SLOT_LOAD(u8 *, item) + 0xC), u8 *, 0) = action[0];
+        M2C_FIELD(SLOT_LOAD(u8 *, SLOT_LOAD(u8 *, item) + 0xC), u8 *, 1) = action[1];
     }
     return 1;
 }
@@ -650,27 +650,27 @@ s32 TriggerTimerValueCheck(u32 *data) {
         timer = (u8 **)PTR(data[i + 1]);
         switch (op) {
         case 20:
-            if (*(f32 *)(*timer + 8) < value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) < value) {
                 return 1;
             }
             break;
         case 21:
-            if (*(f32 *)(*timer + 8) > value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) > value) {
                 return 1;
             }
             break;
         case 22:
-            if (*(f32 *)(*timer + 8) == value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) == value) {
                 return 1;
             }
             break;
         case 47:
-            if (*(f32 *)(*timer + 8) >= value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) >= value) {
                 return 1;
             }
             break;
         case 48:
-            if (*(f32 *)(*timer + 8) <= value) {
+            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) <= value) {
                 return 1;
             }
             break;

@@ -135,7 +135,11 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         return 0;
     }
     g_portSwapPackType = type;  /* port: picks the swap walker */
-    g_portSwapPackName = name;
+    {
+        static char label[0x60];  /* "name#id" for the swap checker's reports */
+        snprintf(label, sizeof(label), "%s#%u", name, id);
+        g_portSwapPackName = label;
+    }
     Port_Log("data pack %s: type %u id %u", name, type, id);
     DataPack_LoadDataPack(g_fileID, PTR(arg1));
     g_portSwapPackType = -1;
@@ -296,7 +300,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         PortSwap_PackData(data, rs / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
                           texRelocs + header.numTexRelocs * 2, header.numPointers,
                           header.textureDataOffset, header.numTextures,
-                          header.shaderOffset, header.numShaders);
+                          header.shaderOffset, header.numShaders,
+                          header.triggerOffset, header.numTriggers);
     }
     SETP(pack->relocs, (s32 *)data);
     offset = header.numRelocs * 8;
@@ -358,6 +363,7 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
         if (alloc != NULL) {
             data = (u8 *)PTR((((u32)HND(alloc) + 0x3F) & ~0x3F));
             File_Read(file, quad->size, data);
+            PortSwap_QuadPack(data, quad->size, quad->enabled);  /* port: big-endian file */
             SETP(quad->header, (QuadPackHeader *)data);
             offset = 0x54;
             header = GETP(quad->header);
