@@ -13,9 +13,9 @@ s32 FileManager_Create(void) {
     return 1;
 }
 
+/* The decomp has an m2c placeholder here; the original calls FileManager_Release (asm). */
 void FileManager_Destroy(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    FileManager_Release();
 }
 
 void FileManager_Release(void) {

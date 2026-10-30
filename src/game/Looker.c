@@ -209,23 +209,34 @@ void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info) {
 }
 
 
-void *g_lookerVTable[] = {
-    Looker_Init,
-    Thing_Release,
-    Looker_PreMove,
-    Thing_Move,
-    Looker_Draw,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Looker_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_lookerVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_lookerVTable(void) {
+    static void *const fns[] = {
+        (void *)Looker_Init,
+        (void *)Thing_Release,
+        (void *)Looker_PreMove,
+        (void *)Thing_Move,
+        (void *)Looker_Draw,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Looker_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_lookerVTable[i] = HND(fns[i]);
+    }
+}
 

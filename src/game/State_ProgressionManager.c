@@ -495,7 +495,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             {
                 return 8;
             }
-            if (GETP((SLOT_LOAD(LWWorld *, dp))->quads) != (LWQuad *)0xD)
+            if ((SLOT_LOAD(LWWorld *, dp))->quads.h != 0xD)  /* port: a format number, not a pointer */
             {
                 return 8;
             }

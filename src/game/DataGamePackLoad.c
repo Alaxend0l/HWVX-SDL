@@ -295,7 +295,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
 
         PortSwap_PackData(data, rs / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
                           texRelocs + header.numTexRelocs * 2, header.numPointers,
-                          header.textureDataOffset, header.numTextures);
+                          header.textureDataOffset, header.numTextures,
+                          header.shaderOffset, header.numShaders);
     }
     SETP(pack->relocs, (s32 *)data);
     offset = header.numRelocs * 8;

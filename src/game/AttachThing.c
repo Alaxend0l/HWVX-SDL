@@ -43,8 +43,8 @@ typedef struct RadarBlip {
     f32 health;
 } RadarBlip;
 
-extern void *g_attachVTable[];
-extern void *g_attachGeometryVTable[];
+extern u32 g_attachVTable[];
+extern u32 g_attachGeometryVTable[];
 
 s32 AttachThing_Init(void *attach, void *data)
 {
@@ -151,7 +151,7 @@ void AttachThing_DrawCorona(void *arg0) {
     f32 fade;
 
     if (ViewManager_GetViewFormat() > 1) {
-        Thing_Release(HND(thing));
+        Thing_Release(thing);
         return;
     }
     farDist = GETP(GETP(thing->data)->range)[1];
@@ -453,62 +453,95 @@ void RadarBlip_Draw(RadarBlip *blip) {
     }
 }
 
-void *g_attachVTable[] = {
-    AttachThing_Init,
-    Thing_Release,
-    Thing_PreMove,
-    AttachThing_Move,
-    AttachThing_Draw,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    AttachThing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_attachVTable[17];
 
-void *g_attachGeometryVTable[] = {
-    AttachThing_Init,
-    Thing_Release,
-    Thing_PreMove,
-    AttachGeometry_Move,
-    AttachGeometry_Draw,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransformQuaternionOnly,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+__attribute__((constructor)) static void PortInit_g_attachVTable(void) {
+    static void *const fns[] = {
+        (void *)AttachThing_Init,
+        (void *)Thing_Release,
+        (void *)Thing_PreMove,
+        (void *)AttachThing_Move,
+        (void *)AttachThing_Draw,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)AttachThing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
 
-void *g_radarBlipVTable[] = {
-    RadarBlip_Init,
-    Thing_Release,
-    Thing_PreMove,
-    RadarBlip_Move,
-    RadarBlip_Draw,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransformQuaternionOnly,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_attachVTable[i] = HND(fns[i]);
+    }
+}
+
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_attachGeometryVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_attachGeometryVTable(void) {
+    static void *const fns[] = {
+        (void *)AttachThing_Init,
+        (void *)Thing_Release,
+        (void *)Thing_PreMove,
+        (void *)AttachGeometry_Move,
+        (void *)AttachGeometry_Draw,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransformQuaternionOnly,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_attachGeometryVTable[i] = HND(fns[i]);
+    }
+}
+
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_radarBlipVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_radarBlipVTable(void) {
+    static void *const fns[] = {
+        (void *)RadarBlip_Init,
+        (void *)Thing_Release,
+        (void *)Thing_PreMove,
+        (void *)RadarBlip_Move,
+        (void *)RadarBlip_Draw,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransformQuaternionOnly,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_radarBlipVTable[i] = HND(fns[i]);
+    }
+}

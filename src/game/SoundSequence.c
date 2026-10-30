@@ -91,7 +91,7 @@ void SoundSeq_Release(void *thing) {
         }
         seq->sources[i] = -1;
     }
-    Thing_Release(HND(thing));
+    Thing_Release(thing);
 }
 
 
@@ -150,7 +150,7 @@ s32 SoundSeq_Move(void *thing) {
         }
     }
     if (!playing && (seq->flags & 0x20) && !(seq->flags & 0x40000000)) {
-        Thing_Release(HND(thing));
+        Thing_Release(thing);
     }
     return 1;
 }

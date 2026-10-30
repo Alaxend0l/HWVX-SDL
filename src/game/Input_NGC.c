@@ -22,8 +22,10 @@ static RumbleStatus rumbleStatus[4] = {0};
 static s32 s_rumbleTime[4] = {0};
 static u8 s_unk30[0x40] = {0};
 static u8 s_unk70[0x40] = {0};
-static u16 s_keyMap[20] = {0};
-static PADStatus s_unkD8[4] = {0};
+/* port: these are the same objects as the externs the other functions use
+ * (see the comment above), so name them that way */
+#define s_keyMap g_pKeyToDI
+#define s_unkD8 ngcPad
 static InputUnk108 s_unk108[4] = {0};
 extern u16 g_pKeyToDI[20];
 extern u8 g_padUpPos[4];

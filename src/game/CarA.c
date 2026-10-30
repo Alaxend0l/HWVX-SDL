@@ -290,7 +290,7 @@ s32 CarA_Init(void *arg0, void *arg1) {
     if (rack != NULL) {
         *(u32 *)(rack + 0x94) = *(u32 *)(car + 0x94);
         for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x108); i++) {
-            u8 *item = (*(u8 ***)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x10C))[i];
+            u8 *item = SLOT_LOAD(u8 *, SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x10C)) + i);  /* port: table of slots */
             if (item != NULL) {
                 WildCardRack_Add(rack, item, *(s32 *)(SLOT_LOAD(u8 *, (item + 0x30)) + 0x20));
             }
@@ -450,7 +450,7 @@ void CarA_Release(u8 *car) {
     *(s32 *)(car + 0x4F4) = -1;
     *(s32 *)(car + 0x4F8) = -1;
     MotionState_Release(HND(car + 0x330));
-    Thing_Release(HND(car));
+    Thing_Release(car);
 }
 
 void CarA_GetInverseLocalInertiaTensor(void *arg0, void *arg1) {

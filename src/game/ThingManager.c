@@ -1881,7 +1881,7 @@ void ThingManager_Invalidate(u32 start, u32 end) {
                 }
                 seq->sources[j] = -1;
             }
-            Thing_Release((s32)HND(seq));
+            Thing_Release(seq);
         }
     }
     ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);

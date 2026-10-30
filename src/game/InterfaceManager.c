@@ -1647,7 +1647,7 @@ void InterfaceManager_SetObjectState(u8 *iface, u8 *obj, s32 state, s32 arg3) {
         *(s32 *)(obj + 0x250) = -1;
     }
     if (*(u32 *)(obj + 0x26C) != 0) {
-        Thing_Release(*(s32 *)(obj + 0x26C));
+        Thing_Release(SLOT_LOAD(void *, (obj + 0x26C)));
         *(u32 *)(obj + 0x26C) = 0;
         obj[0x244] = 0;
     }
@@ -2983,17 +2983,17 @@ s32 InterfaceManager_PlayEvent(InterfaceState *iface, u8 *obj, u8 *event, u16 ar
             u32 progB;
 
             if (GETP(((Event *)event)->def)->type == 6) {
-                EventArg **args = GETP(GETP(((Event *)event)->def)->args);
+                u32 *args = (u32 *)GETP(GETP(((Event *)event)->def)->args);  /* port: table of pointer slots */
 
-                if (args[0]->isVar) {
-                    progA = iface->values[args[0]->value];
+                if (((EventArg *)PTR(args[0]))->isVar) {
+                    progA = iface->values[((EventArg *)PTR(args[0]))->value];
                 } else {
-                    progA = args[0]->value;
+                    progA = ((EventArg *)PTR(args[0]))->value;
                 }
-                if (args[1]->isVar) {
-                    progB = iface->values[args[1]->value];
+                if (((EventArg *)PTR(args[1]))->isVar) {
+                    progB = iface->values[((EventArg *)PTR(args[1]))->value];
                 } else {
-                    progB = args[1]->value;
+                    progB = ((EventArg *)PTR(args[1]))->value;
                 }
             } else {
                 GameSettings_GetLoadedProgression(&progA, &progB);
@@ -4812,7 +4812,7 @@ void InterfaceManager_RenderObject(IMInterface *iface, s32 index) {
         case 4:
             slot->unk244 = 0;
             if (GETP(slot->thing) != NULL) {
-                Thing_Release(HND(GETP(slot->thing)));
+                Thing_Release(GETP(slot->thing));
                 SETP(slot->thing, NULL);
             }
             break;

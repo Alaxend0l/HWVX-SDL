@@ -218,7 +218,7 @@ void Projectile_Release(void * projectile)
     extern u8 g_projectileVTable[];
 
     LensFlare_Delete(((s32 *)projectile)[0x4c]);
-    Thing_Release((s32)HND(projectile));
+    Thing_Release(projectile);
     LightHolder_Delete(((s32 *)projectile)[0x4d]);
     ((s32 *)projectile)[0x23] = (s32)HND(g_projectileVTable);
 }
@@ -264,7 +264,7 @@ q.zero = g_zeroVector;
 ThingManager_DARYL_CreateThing(1, &q);
 }
 LensFlare_Delete(((s32 *)proj)[0x4C]);
-Thing_Release((s32)HND(proj));
+Thing_Release(proj);
 LightHolder_Delete(((s32 *)proj)[0x4D]);
 SLOT_STORE((proj + 0x8C), g_projectileVTable);
 }
@@ -369,7 +369,7 @@ void Projectile_ProximityDetection(u8 *proj)
                     ((Vector4 *)proj)->y = 0.0f;
                     ((Vector4 *)proj)->z = 0.0f;
                     LensFlare_Delete(((s32 *)proj)[0x4C]);
-                    Thing_Release((s32)HND(proj));
+                    Thing_Release(proj);
                     LightHolder_Delete(((s32 *)proj)[0x4D]);
                     SLOT_STORE((proj + 0x8C), g_projectileVTable);
                     ((u32 *)proj)[0x1D] |= 2;
@@ -461,7 +461,7 @@ q.zero = g_zeroVector;
 ThingManager_DARYL_CreateThing(1, &q);
 }
 LensFlare_Delete(((s32 *)proj)[0x4C]);
-Thing_Release((s32)HND(proj));
+Thing_Release(proj);
 LightHolder_Delete(((s32 *)proj)[0x4D]);
 SLOT_STORE((proj + 0x8C), g_projectileVTable);
 }
@@ -739,7 +739,7 @@ void Projectile_DynamicCollisionCorrection(u8 *proj, u8 *hit) {
                 }
             }
             LensFlare_Delete(*(s32 *)(proj + 0x130));
-            Thing_Release((s32)HND(proj));
+            Thing_Release(proj);
             LightHolder_Delete(*(s32 *)(proj + 0x134));
             SLOT_STORE((proj + 0x8C), g_projectileVTable);
             *(u32 *)(proj + 0x74) |= 2;

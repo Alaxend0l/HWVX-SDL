@@ -277,6 +277,8 @@ static void Claim_ObjAnim(Swapper *s, u32 off) {
     Claim_Track(s, off + 0x20, KEYS_UV);
 }
 
+static void Claim_ActionList(Swapper *s, u32 off);
+
 /* Object state animation (MoveObject, obj + 0x254): active, pos, color,
  * scale, uv, rot. */
 static void Claim_StateAnim(Swapper *s, u32 off) {
@@ -289,9 +291,63 @@ static void Claim_StateAnim(Swapper *s, u32 off) {
     Claim_Track(s, off + 0x18, KEYS_VEC4);
     Claim_Track(s, off + 0x20, KEYS_UV);
     Claim_Track(s, off + 0x28, KEYS_VEC4);
+    Claim_SoundSeq(s, Target(s, off + 0x30));   /* played on entering the state */
+    Claim_ActionList(s, off + 0x34);            /* run on entering the state */
 }
 
-/* Input event definition (PlayEvent: EventDef): target 0x0, u8 flags 0x4,
+static void Claim_IMHeader(Swapper *s, u32 off);
+
+/* { s8 isVar; u8 var; u16 value } (conditions, actions, event args) */
+static void Claim_VarValue(Swapper *s, u32 off) {
+    if (off != ~0u) {
+        ClaimBytes(s, off, 2);
+        ClaimU16(s, off + 2);
+    }
+}
+
+/* Action list (ExecuteActions): { count; actions (8 each: u8 type, data) }.
+ *   type 1: data { u8, u8, u16, u32 }
+ *   type 2: data { code var -> { id, value }, value }
+ *   type 3: data is a { s8, u8, u16 } assignment */
+static void Claim_ActionList(Swapper *s, u32 off) {
+    u32 list, n, i;
+
+    if (off == ~0u) {
+        return;
+    }
+    list = Target(s, off + 4);
+    n = Word(s, off);
+    for (i = 0; list != ~0u && i < n && i < 0x400; i++) {
+        u32 a = list + i * 8;
+        u32 data = Target(s, a + 4);
+        u8 type = s->base[a];   /* still big-endian */
+
+        ClaimBytes(s, a, 4);
+        if (data == ~0u) {
+            continue;
+        }
+        switch (type) {
+        case 1:
+            ClaimBytes(s, data, 2);
+            ClaimU16(s, data + 2);
+            break;
+        case 2: {
+            u32 cv = Target(s, data);
+            if (cv != ~0u) {
+                Claim_VarValue(s, Target(s, cv + 4));
+            }
+            Claim_VarValue(s, Target(s, data + 4));
+            break;
+        }
+        case 3:
+            Claim_VarValue(s, data);
+            break;
+        }
+    }
+}
+
+/* Input event definition (PlayEvent: EventDef): target 0x0 (the header of the
+ * interface it opens), u8 flags 0x4,
  * u8 type 0x5, u16 id 0x6, args 0x8 -> { s8 isVar, u8, u16 value },
  * bytes 0x18, numMods 0x1C, mods 0x20 (8 each: u8 slot, s32 delta). */
 static void Claim_EventDef(Swapper *s, u32 off) {
@@ -300,12 +356,23 @@ static void Claim_EventDef(Swapper *s, u32 off) {
     if (off == ~0u || s->claim[off + 4] == CLAIM_BYTES) {
         return;
     }
+    /* target 0x0: an interface header (types 1, 0x20) or an action list (0xB) */
+    switch (s->base[off + 5]) {
+    case 1:
+    case 0x20:
+        Claim_IMHeader(s, Target(s, off));
+        break;
+    case 0xB:
+        Claim_ActionList(s, Target(s, off));
+        break;
+    }
     ClaimBytes(s, off + 4, 2);
     ClaimU16(s, off + 6);
+    /* args 0x8: a table of pointers to { s8, u8, u16 } values */
     args = Target(s, off + 8);
     if (args != ~0u) {
-        ClaimBytes(s, args, 2);
-        ClaimU16(s, args + 2);
+        Claim_VarValue(s, Target(s, args));
+        Claim_VarValue(s, Target(s, args + 4));
     }
     mods = Target(s, off + 0x20);
     n = Word(s, off + 0x1C);
@@ -325,8 +392,6 @@ static void Claim_EventList(Swapper *s, u32 countOff, u32 listOff) {
         Claim_EventDef(s, Target(s, list + i * 0xC + 8));
     }
 }
-
-static void Claim_IMHeader(Swapper *s, u32 off);
 
 /* IMObjectData: u8 id + next[4] (0x0-0x7), numSteps 0x8, steps 0xC (0x28
  * each: var, val[4], u8 set[4] at 0x14), numEvents 0x10, events 0x14. */
@@ -361,6 +426,15 @@ static void Claim_IMObject(Swapper *s, u32 off) {
         /* The bytes are still big-endian here: byte 1 is the object type. */
         switch (s->base[off + 1]) {
         case 0:
+            /* ObjSub: u8 type, u8; value 0x4; data 0x10. Sub type 3: data is a
+             * texture key animation { numKeys, keys, frameTime, u8 0xC, u16 0xE } */
+            if (s->base[sub] == 3) {
+                u32 anim = Target(s, sub + 0x10);
+                if (anim != ~0u) {
+                    ClaimBytes(s, anim + 0xC, 2);
+                    ClaimU16(s, anim + 0xE);
+                }
+            }
             ClaimBytes(s, sub, 4);
             break;
         case 6:
@@ -403,12 +477,19 @@ static void Claim_IMObject(Swapper *s, u32 off) {
             u32 c = Target(s, cl + 8), n = Word(s, cl + 4), i;
             ClaimBytes(s, cl, 4);
             for (i = 0; c != ~0u && i < n && i < 0x100; i++) {
-                u32 val = Target(s, c + i * 0x1C + 8);
-                ClaimBytes(s, c + i * 0x1C, 4);
-                if (val != ~0u) {   /* { s8 isVar, u8, u16 value } */
-                    ClaimBytes(s, val, 2);
-                    ClaimU16(s, val + 2);
+                u32 cond = c + i * 0x1C;
+                u32 data = Target(s, cond + 8);
+                switch (s->base[cond]) {   /* still big-endian: u8 type */
+                case 1:  /* data: { s8 isVar, u8, u16 value } */
+                    Claim_VarValue(s, data);
+                    break;
+                case 2:  /* data: code variable { id, value -> { s8, u8, u16 } } */
+                    if (data != ~0u) {
+                        Claim_VarValue(s, Target(s, data + 4));
+                    }
+                    break;
                 }
+                ClaimBytes(s, cond, 4);
             }
         }
     }
@@ -468,12 +549,193 @@ static void Claim_IMHeader(Swapper *s, u32 off) {
     }
 }
 
+/* ---- worlds (pack type 4; State_ProgressionManager.c, State_GamePlay.c,
+ *      LightManager.c, ShowStats.c, World.c) ----------------------------
+ *   0x08 numCars, 0x0C cars (0x60 each: u8 0x34-0x37 incl. type/port 0x35,
+ *        u8 0x58-0x5F incl. pack2 0x5D, pack3 0x5E)
+ *   0x20 numQuads, 0x24 quads (0x50 each: items 0x30 -> { count 0x14,
+ *        items 0x18 (0x40 each: u16 id 0x30, u16 0x32, u8 0x34-0x37 lo/hi) })
+ *   0x68 numVolumes, 0x6C volumes (0x30 each: light 0x2C -> { u8 rgb 0x10-0x13,
+ *        u8 type 0x18, s8 subtract 0x19 })
+ *   0x9C game data: debug font 0xC8 (u8 0x4-0xB), fog color 0xC0 (GXColor) */
+static void Claim_World(Swapper *s, u32 off) {
+    u32 list, n, i;
+
+    list = Target(s, off + 0x0C);
+    n = Word(s, off + 0x08);
+    for (i = 0; list != ~0u && i < n && i < 0x100; i++) {
+        ClaimBytes(s, list + i * 0x60 + 0x34, 4);
+        ClaimBytes(s, list + i * 0x60 + 0x58, 8);
+    }
+    list = Target(s, off + 0x24);
+    n = Word(s, off + 0x20);
+    for (i = 0; list != ~0u && i < n && i < 0x1000; i++) {
+        u32 il = Target(s, list + i * 0x50 + 0x30);
+        if (il != ~0u) {
+            u32 items = Target(s, il + 0x18), m = Word(s, il + 0x14), j;
+            for (j = 0; items != ~0u && j < m && j < 0x1000; j++) {
+                ClaimU16(s, items + j * 0x40 + 0x30);
+                ClaimU16(s, items + j * 0x40 + 0x32);
+                ClaimBytes(s, items + j * 0x40 + 0x34, 4);
+            }
+        }
+    }
+    list = Target(s, off + 0x6C);
+    n = Word(s, off + 0x68);
+    for (i = 0; list != ~0u && i < n && i < 0x1000; i++) {
+        u32 light = Target(s, list + i * 0x30 + 0x2C);
+        if (light != ~0u) {
+            ClaimBytes(s, light + 0x10, 4);
+            ClaimBytes(s, light + 0x18, 4);
+        }
+    }
+    {
+        u32 gd = Target(s, off + 0x9C);
+        if (gd != ~0u) {
+            u32 font = Target(s, gd + 0xC8);
+            u32 fog = Target(s, gd + 0xC0);
+            if (font != ~0u) {
+                ClaimBytes(s, font + 4, 8);
+            }
+            if (fog != ~0u) {
+                ClaimBytes(s, fog, 4);
+            }
+        }
+    }
+}
+
+/* ---- cars (pack type 0; CarA.c, CarA.h, AnimHandler.c) ------------------
+ * Root objects are CarAInfo:
+ *   u8 0x10-0x13 (damagePercent, driveMode), u16 skidTexture 0x14, u16 0x16
+ *   skidColor 0x6C (GXColor), modelRef 0x78 -> { data 0x10 -> motion anim }
+ *   collider 0xA0 (u8 type 0x10), forcePoints 0xA4 -> { count 0x4, points 0x8
+ *   (0x30 each: u8 ray 0x10) }, wheels 0xD0/0xD4 (CarTrailBone, 0x50 each:
+ *   u8 driven/skids/parent 0x3C-0x3F, u16 bone 0x40, u8 dusts 0x42-0x43)
+ * Motion animation: u8 loop[3]/loopMode/pingPong/maxLoops at 0x1C-0x1F. */
+/* Sound (ExtractKeys.c: Sound): u8 type, u8[2], u8 owner, u8[4]; f32 volume,
+ * pitch, pitch range; sample id 0x14; range 0x18 */
+static void Claim_Sound(Swapper *s, u32 off) {
+    if (off != ~0u) {
+        ClaimBytes(s, off, 8);
+    }
+}
+
+/* Slave trigger list { count; triggers (0x20 each: Vector4 pos, u8 type 0x10,
+ * u8, u16 id 0x12, f32 time 0x14, data 0x18) } (ThingManager.c, AnimHandler.c) */
+static void Claim_SlaveList(Swapper *s, u32 off) {
+    u32 t = Target(s, off + 4), n = Word(s, off), i;
+
+    for (i = 0; t != ~0u && i < n && i < 0x400; i++) {
+        ClaimBytes(s, t + i * 0x20 + 0x10, 2);
+        ClaimU16(s, t + i * 0x20 + 0x12);
+    }
+}
+
+static void Claim_MotionAnim(Swapper *s, u32 off) {
+    if (off != ~0u) {
+        ClaimBytes(s, off + 0x1C, 4);
+    }
+}
+
+static void Claim_CarAInfo(Swapper *s, u32 off) {
+    u32 p, n, i;
+
+    ClaimBytes(s, off + 0x10, 4);
+    ClaimU16(s, off + 0x14);
+    ClaimU16(s, off + 0x16);
+    p = Target(s, off + 0x6C);
+    if (p != ~0u) {
+        ClaimBytes(s, p, 4);
+    }
+    p = Target(s, off + 0x78);
+    if (p != ~0u) {
+        Claim_MotionAnim(s, Target(s, p + 0x10));
+    }
+    p = Target(s, off + 0xA0);
+    if (p != ~0u) {
+        ClaimBytes(s, p + 0x10, 4);
+    }
+    p = Target(s, off + 0xA4);
+    if (p != ~0u) {
+        u32 pts = Target(s, p + 8);
+        n = Word(s, p + 4);
+        for (i = 0; pts != ~0u && i < n && i < 0x100; i++) {
+            ClaimBytes(s, pts + i * 0x30 + 0x10, 4);
+        }
+    }
+    /* slaves: 0xE4 -> list at +4; weapon (0xE8/0xEC) and pickup (0xF0/0xF4) slaves,
+     * 12-byte entries with a list at +4 */
+    p = Target(s, off + 0xE4);
+    if (p != ~0u) {
+        Claim_SlaveList(s, p + 4);  /* MotionState_InitAllSlavesNow(info->slaves + 4) */
+    }
+    p = Target(s, off + 0xEC);
+    n = Word(s, off + 0xE8);
+    for (i = 0; p != ~0u && i < n && i < 0x40; i++) {
+        Claim_SlaveList(s, p + i * 12 + 4);
+    }
+    p = Target(s, off + 0xF4);
+    n = Word(s, off + 0xF0);
+    for (i = 0; p != ~0u && i < n && i < 0x40; i++) {
+        Claim_SlaveList(s, p + i * 12 + 4);
+    }
+    /* sounds: 0x60, gears 0xDC -> +0xC, sound sets 0x118/0x11C (pointer table) */
+    Claim_Sound(s, Target(s, off + 0x60));
+    p = Target(s, off + 0xDC);
+    if (p != ~0u) {
+        Claim_Sound(s, Target(s, p + 0xC));
+    }
+    p = Target(s, off + 0x11C);
+    n = Word(s, off + 0x118);
+    for (i = 0; p != ~0u && i < n && i < 0x40; i++) {
+        Claim_Sound(s, Target(s, p + i * 4));
+    }
+    p = Target(s, off + 0xD4);
+    n = Word(s, off + 0xD0);
+    for (i = 0; p != ~0u && i < n && i < 0x20; i++) {
+        u32 w = p + i * 0x50;
+        ClaimBytes(s, w + 0x3C, 4);
+        ClaimU16(s, w + 0x40);
+        ClaimBytes(s, w + 0x42, 2);
+    }
+}
+
+/* ---- shaders (every pack; ShaderHolder.c) ---------------------------------
+ * The pack's shader table (shaderOffset, numShaders; 0xC each) points at
+ * definitions: u8 0x0 (movie texture), color keys 0x4 (count, keys),
+ * point keys 0xC (0x10 each: x, y, duration, u8 active 0xC, interp 0xD),
+ * texture key animation 0x14 { numKeys, keys, frameTime, u8 0xC, u16 0xE }. */
+static void Claim_Shaders(Swapper *s, u32 table, u32 count) {
+    u32 i;
+
+    for (i = 0; i < count && i < 0x1000; i++) {
+        u32 def = Target(s, table + i * 0xC);
+        u32 tex;
+
+        if (def == ~0u || s->claim[def] == CLAIM_BYTES) {
+            continue;
+        }
+        ClaimBytes(s, def, 4);
+        Claim_Track(s, def + 0x4, KEYS_COLOR);
+        Claim_KeyTrack(s, def + 0xC, 0x10, 0xC);
+        tex = Target(s, def + 0x14);
+        if (tex != ~0u) {
+            ClaimBytes(s, tex + 0xC, 2);
+            ClaimU16(s, tex + 0xE);
+        }
+    }
+}
+
 /* Root of every pack: { u32 count; entries -> { object, u32 id }[count] }. */
 static void Claim_Roots(Swapper *s) {
     u32 table = Target(s, 4);
     u32 n = Word(s, 0);
     u32 i;
 
+    if (s->packType == 4) {
+        Claim_World(s, 0);  /* world packs: the world itself is at the base */
+        return;
+    }
     for (i = 0; table != ~0u && i < n; i++) {
         u32 obj = Target(s, table + i * 8);
 
@@ -484,9 +746,13 @@ static void Claim_Roots(Swapper *s) {
         case 3: /* scripts: the MCP */
             Claim_MCP(s, obj);
             break;
+        case 0: /* cars */
+            Claim_CarAInfo(s, obj);
+            break;
         case 1: /* interface packs */
             Claim_IMHeader(s, obj);
             break;
+
         default:
             break;
         }
@@ -497,7 +763,7 @@ static void Claim_Roots(Swapper *s) {
 
 void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize,
                        u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers,
-                       u32 textureDataOffset, u32 numTextures) {
+                       u32 textureDataOffset, u32 numTextures, u32 shaderOffset, u32 numShaders) {
     Swapper s;
     u32 i;
 
@@ -533,6 +799,7 @@ void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataS
         Claim_Textures(&s, textureDataOffset, numTextures);
     }
     Claim_Roots(&s);
+    Claim_Shaders(&s, shaderOffset, numShaders);
     Claim_StringTargets(&s, pointers, numPointers);
 
     for (i = 0; i + 4 <= dataSize; i += 4) {

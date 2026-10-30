@@ -44,7 +44,7 @@ s32 Item_Init(u8 *item, u8 *data) {
 }
 
 void Item_Release(void *item) {
-    extern void *g_itemVTable[];
+    extern u32 g_itemVTable[];
     void *slot;
 
     if (SLOT_LOAD(void *, (u8 *)(item) + 0x8C) == g_itemVTable) {
@@ -54,7 +54,7 @@ void Item_Release(void *item) {
             SLOT_STORE((u8 *)(slot) + 0x24, NULL);
         }
     }
-    Thing_Release((s32)HND(item));
+    Thing_Release(item);
 }
 
 s32 Item_PreMove(void) {
@@ -175,22 +175,33 @@ s32 Item_Invalidate(void *arg0, u32 arg1, u32 arg2) {
     return 0;
 }
 
-void *g_itemVTable[] = {
-    Item_Init,
-    Item_Release,
-    Item_PreMove,
-    Item_Move,
-    Item_Draw,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Item_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_itemVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_itemVTable(void) {
+    static void *const fns[] = {
+        (void *)Item_Init,
+        (void *)Item_Release,
+        (void *)Item_PreMove,
+        (void *)Item_Move,
+        (void *)Item_Draw,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Item_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_itemVTable[i] = HND(fns[i]);
+    }
+}

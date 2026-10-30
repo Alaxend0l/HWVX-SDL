@@ -18,8 +18,9 @@ s32 Motion_Init(u8 *motion, u8 *init) {
     return 1;
 }
 
-void Motion_Release(s32 arg0) {
-    MotionState_Release(arg0 + 0xB0);
+/* port: takes a pointer, as the vtable calls it; the decomp has s32 */
+void Motion_Release(void *arg0) {
+    MotionState_Release((s32)HND((u8 *)arg0 + 0xB0));
     Thing_Release(arg0);
 }
 
@@ -50,22 +51,33 @@ s32 Motion_Invalidate(void *arg0, u32 arg1, u32 arg2) {
 u8 g_aMatStack[4096];
 
 
-void *g_motionVTable[] = {
-    Motion_Init,
-    Motion_Release,
-    Thing_PreMove,
-    Motion_Move,
-    Motion_Draw,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_motionVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_motionVTable(void) {
+    static void *const fns[] = {
+        (void *)Motion_Init,
+        (void *)Motion_Release,
+        (void *)Thing_PreMove,
+        (void *)Motion_Move,
+        (void *)Motion_Draw,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_motionVTable[i] = HND(fns[i]);
+    }
+}

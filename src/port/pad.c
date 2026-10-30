@@ -135,6 +135,42 @@ static void ReadKeyboard(PADStatus *st) {
     st->err = PAD_ERR_NONE;
 }
 
+/* Debugging: HWVX_AUTOINPUT="frame:button,..." holds a button on port 1 for
+ * 10 frames from that frame (frames = retraces). Buttons: a b x y start z l r
+ * up down left right. */
+static u32 s_frame;
+
+static u16 AutoInput(void) {
+    static const struct { const char *name; u16 bit; } names[] = {
+        { "a", PAD_BUTTON_A }, { "b", PAD_BUTTON_B }, { "x", PAD_BUTTON_X }, { "y", PAD_BUTTON_Y },
+        { "start", PAD_BUTTON_START }, { "z", PAD_TRIGGER_Z }, { "l", PAD_TRIGGER_L }, { "r", PAD_TRIGGER_R },
+        { "up", PAD_BUTTON_UP }, { "down", PAD_BUTTON_DOWN }, { "left", PAD_BUTTON_LEFT }, { "right", PAD_BUTTON_RIGHT },
+    };
+    const char *e = SDL_getenv("HWVX_AUTOINPUT");
+    u16 bits = 0;
+
+    while (e != NULL && *e) {
+        char name[16];
+        unsigned frame = 0;
+        int n = 0, i;
+        if (SDL_sscanf(e, "%u:%15[a-z]%n", &frame, name, &n) != 2) {
+            break;
+        }
+        if (s_frame >= frame && s_frame < frame + 10) {
+            for (i = 0; i < (int)SDL_arraysize(names); i++) {
+                if (SDL_strcmp(name, names[i].name) == 0) {
+                    bits |= names[i].bit;
+                }
+            }
+        }
+        e += n;
+        if (*e == ',') {
+            e++;
+        }
+    }
+    return bits;
+}
+
 u32 PADRead(struct PADStatus *status) {
     PADStatus *st = (PADStatus *)status;
     u32 motorMask = 0;
@@ -150,6 +186,10 @@ u32 PADRead(struct PADStatus *status) {
         }
     }
     ReadKeyboard(&st[0]);
+    st[0].button |= AutoInput();
+    if (st[0].button) {
+        st[0].err = PAD_ERR_NONE;
+    }
     return motorMask;
 }
 
@@ -176,6 +216,7 @@ void *PADSetSamplingCallback(void (*callback)(void)) {
  * calls PADRead itself, so it must not run from inside PADRead. */
 void Pad_PortSample(void) {
     static int running;
+    s_frame++;
     if (s_samplingCallback != NULL && !running) {
         running = 1;
         s_samplingCallback();

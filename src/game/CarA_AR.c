@@ -21,8 +21,9 @@ s32 Pod_Init(u8 *pod, u8 *init) {
     return 1;
 }
 
-void Pod_Release(s32 arg0) {
-    MotionState_Release(arg0 + 0xB0);
+/* port: takes a pointer, as the vtable calls it; the decomp has s32 */
+void Pod_Release(void *arg0) {
+    MotionState_Release((s32)HND((u8 *)arg0 + 0xB0));
     Thing_Release(arg0);
 }
 

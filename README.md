@@ -122,6 +122,8 @@ Debugging aids:
 - `cmake -DHWVX_SWAPCHECK=ON` (in its own build dir): every game read of pack
   data is checked against how it was swapped; mismatches are logged once per
   code address with the pack offset (`addr2line -e hwvx -f -i -p PC`).
+- `HWVX_AUTOINPUT="700:start,900:a"` holds a button on controller 1 for 10
+  frames from each given frame (scripted test runs);
 - `HWVX_DUMP=dir` saves every 60th frame as a BMP; `HWVX_GXDEBUG=1` draws all
   geometry magenta with depth, blending and culling off.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
@@ -150,9 +152,9 @@ fixes (the script prints the command).
 
 ## Status
 
-Work in progress: it boots through the memory card check and the legal
-screen to the title screen ("Press Start"), drawn by the GX emulation. Level
-loading (the attract-mode demo starts after a while) is the next step.
+Work in progress: it boots to the title screen, the menus work with gamepad
+or keyboard, and choosing One Player loads the first mission and creates the
+cars; it currently stops while running the level's scripted triggers/actions.
 
 - [x] Build system, platform layer: window/GL context, VI frame pacing,
       threads, heap arena + handles, DVD → data dir, CARD → save files,
@@ -164,8 +166,9 @@ loading (the attract-mode demo starts after a while) is the next step.
       `src/game/DECOMP_REVISION`)
 - [x] Globals from the original data sections (`src/game/data_gen.c`)
 - [ ] Byte-swapping of asset formats on load (`src/game/Port_Swap.c`): pack
-      container and tables, textures, SFX, the MCP and interfaces are done;
-      worlds/geometry/cars are next
+      container and tables, textures, SFX, shaders, the MCP, interfaces,
+      worlds (cars, quads, items, lights) and cars are done; triggers/actions,
+      animation key data and geometry are next
 - [x] GX → OpenGL renderer: FIFO/display-list vertex decoding, all texture
       formats, matrices, texgen, lighting channels, TEV, blending, fog
       (no render-to-texture or indirect texturing yet)

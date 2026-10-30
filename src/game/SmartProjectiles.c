@@ -326,22 +326,33 @@ void SmartProjectileA_DynamicCollideImpact(u8 *proj, u8 *other, void *arg2, f32 
     Projectile_DynamicCollideImpact(proj, other, HND(arg2), arg3);
 }
 
-void *g_smartProjectileAVTable[] = {
-    Projectile_Init,
-    Projectile_Release,
-    SmartProjectileA_PreMove,
-    SmartProjectileA_Move,
-    Projectile_Draw,
-    Projectile_GetMass,
-    SmartProjectileA_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_smartProjectileAVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_smartProjectileAVTable(void) {
+    static void *const fns[] = {
+        (void *)Projectile_Init,
+        (void *)Projectile_Release,
+        (void *)SmartProjectileA_PreMove,
+        (void *)SmartProjectileA_Move,
+        (void *)Projectile_Draw,
+        (void *)Projectile_GetMass,
+        (void *)SmartProjectileA_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_smartProjectileAVTable[i] = HND(fns[i]);
+    }
+}

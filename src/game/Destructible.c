@@ -2,7 +2,7 @@
 
 
 extern f32 g_zeroVector[4];
-extern void *g_destructibleVTable[];
+extern u32 g_destructibleVTable[];
 
 
 f32 GetBoundingBoxRadius(Vector4 *box, Vector4 *offset)
@@ -313,7 +313,7 @@ void Destructible_Release(Destructible *destructible) {
     SETP(destructible->orientedBox, NULL);
     OConvexHullHolder_Release(GETP(destructible->hull));
     SETP(destructible->hull, NULL);
-    Thing_Release(HND(destructible));
+    Thing_Release(destructible);
 }
 
 s32 Destructible_Move(Destructible *destructible) {
@@ -659,22 +659,33 @@ void *Destructible_GetOrientedCollision(Destructible *destructible) {
 }
 
 
-void *g_destructibleVTable[] = {
-    Destructible_Init,
-    Destructible_Release,
-    Thing_PreMove,
-    Destructible_Move,
-    Destructible_Draw,
-    Destructible_GetMass,
-    Destructible_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Destructible_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Destructible_CollideWithRay,
-    Destructible_GetTargetPos,
-    Destructible_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_destructibleVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_destructibleVTable(void) {
+    static void *const fns[] = {
+        (void *)Destructible_Init,
+        (void *)Destructible_Release,
+        (void *)Thing_PreMove,
+        (void *)Destructible_Move,
+        (void *)Destructible_Draw,
+        (void *)Destructible_GetMass,
+        (void *)Destructible_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Destructible_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Destructible_CollideWithRay,
+        (void *)Destructible_GetTargetPos,
+        (void *)Destructible_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_destructibleVTable[i] = HND(fns[i]);
+    }
+}

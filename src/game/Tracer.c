@@ -177,7 +177,7 @@ void Tracer_Release(struct Thing *thing) {
 
     tracers[thing->tracerIndex].active = 0;
     thing->tracer = 0;
-    Thing_Release(HND(thing));
+    Thing_Release(thing);
 }
 
 void Tracer_ClearTracer(s32 index) {
@@ -290,22 +290,33 @@ s32 Tracer_Invalidate(void *arg0, u32 arg1, u32 arg2) {
 }
 
 
-void *g_tracerVTable[] = {
-    Tracer_Init,
-    Tracer_Release,
-    Thing_PreMove,
-    Tracer_Move,
-    Tracer_Render,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_tracerVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_tracerVTable(void) {
+    static void *const fns[] = {
+        (void *)Tracer_Init,
+        (void *)Tracer_Release,
+        (void *)Thing_PreMove,
+        (void *)Tracer_Move,
+        (void *)Tracer_Render,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_tracerVTable[i] = HND(fns[i]);
+    }
+}

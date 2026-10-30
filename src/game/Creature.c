@@ -244,7 +244,7 @@ s32 Creature_Init(Creature *arg0, CreatureInit *arg1)
 
 void Creature_Release(Creature *creature) {
     MotionState_Release(HND(creature->motion));
-    Thing_Release(HND(creature));
+    Thing_Release(creature);
 }
 
 void Creature_PartialGibb(Creature *creature, u32 count, s32 unused) {
@@ -517,7 +517,7 @@ s32 Creature_Move(Creature *creature)
         if (creature->unk1B4 > 20000)
         {
             MotionState_Release(HND(creature->motion));
-            Thing_Release(HND(creature));
+            Thing_Release(creature);
             return 0;
         }
     }

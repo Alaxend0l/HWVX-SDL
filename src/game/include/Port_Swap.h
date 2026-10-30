@@ -9,7 +9,6 @@
 extern s32 g_portSwapPackType;
 extern const char *g_portSwapPackName;
 
-
-/* SFX descriptors (0x20 each) in a pack's sound data; samples stay big-endian. */
+/* The PortSwap_* functions are declared in game_protos.h (generated). */
 
 #endif

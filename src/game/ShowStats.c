@@ -43,9 +43,9 @@ typedef struct TimeBarRect {
 } TimeBarRect;
 
 
+/* The decomp has an m2c placeholder here; the original calls ShowStats_Init (asm). */
 void ShowStats_Create(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    ShowStats_Init();
 }
 
 void ShowStats_Init(void) {

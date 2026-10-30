@@ -223,7 +223,7 @@ void Pod_Draw(u8 *pod);
 s32 Pod_Init(u8 *pod, u8 *init);
 s32 Pod_Invalidate(s32 arg0, u32 arg1, u32 arg2);
 s32 Pod_Move(u8 *pod);
-void Pod_Release(s32 arg0);
+void Pod_Release(void *arg0);
 
 /* CarA_HW.c */
 s8 CarA_DoFreeStyleStunts(CarA *car);
@@ -777,7 +777,7 @@ void Motion_Draw(u8 *motion);
 s32 Motion_Init(u8 *motion, u8 *init);
 s32 Motion_Invalidate(void *arg0, u32 arg1, u32 arg2);
 s32 Motion_Move(u8 *motion);
-void Motion_Release(s32 arg0);
+void Motion_Release(void *arg0);
 
 /* MovieManager.c */
 void MovieManager_Destroy(void);
@@ -827,7 +827,7 @@ void ParticleSprite_Render(u8 *sprite);
 /* PhysicalObject.c */
 void Mover_DynamicRotation(u8 *mover);
 void Mover_GetTrackPos(void *mover, f32 *pos, f32 time);
-void Mover_Init(void);
+s32 Mover_Init(u8 *obj, u8 *data);
 s32 Mover_PreMove(u8 *mover);
 f32 PhysicalObject_CollideWithRay(u8 *obj, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist);
 void PhysicalObject_DynamicCollideImpact(u8 *obj, u8 *collision, f32 force);
@@ -887,7 +887,7 @@ s32 PlayerManager_RemovePlayer(void *player);
 void PlayerManager_Render_DEBUG(void);
 
 /* Port_Swap.c */
-void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize, u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers, u32 textureDataOffset, u32 numTextures);
+void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize, u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers, u32 textureDataOffset, u32 numTextures, u32 shaderOffset, u32 numShaders);
 void PortSwap_PackHeader(u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
 void PortSwap_SFXDescriptors(u8 *sfx, u32 count);
 void PortSwap_TOC(u32 *buf, u32 bufWords);
@@ -1155,7 +1155,7 @@ s32 Thing_Move(void);
 void Thing_PassiveTargeting(void *thing);
 s32 Thing_PreMove(void);
 void Thing_ProcessEndEvent(u8 *thing, u8 *event, u8 *collision, Vector4 *vel);
-void Thing_Release(s32 thing);
+void Thing_Release(void *thing);
 void Thing_RotationalGridMove(void *thing);
 void Thing_SetSlavePlayers(void *thing);
 void Thing_StaticGridMove(void *thing);
@@ -1346,7 +1346,7 @@ s32 WildCardRack_Invalidate(u8 *rack, u32 start, u32 end);
 void WildCardRack_Jettison(void *thing, u8 slot);
 void WildCardRack_JettisonAll(void *rack);
 s32 WildCardRack_Move(void *thing);
-void WildCardRack_Release(s32 arg0);
+void WildCardRack_Release(void *arg0);
 
 /* World.c */
 s32 ActionItemChangeMode(u32 *action);
@@ -1499,10 +1499,8 @@ s32 Gfx_GetCameraPositions(void *out);
 f32 Gfx_GetMinCameraDistSquared(void *pos);
 void Gfx_SetParallelLight(GXColor *color, void *dir);
 #endif
-#if !defined(HWVX_SRC_GridManager) && !defined(HWVX_SRC_Thing)
-void *Grid_AddObject(u32 data, u32 id, void *min, void *max);
-#endif
 #if !defined(HWVX_SRC_GridManager)
+void *Grid_AddObject(u32 data, u32 id, void *min, void *max);
 void Grid_FreeObject(void *obj);
 void Grid_MoveObject(void *obj, Vector4 *min, Vector4 *max);
 #endif

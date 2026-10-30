@@ -358,7 +358,7 @@ void Drone_DynamicCollideImpact(u8 *drone, u8 *collision, f32 force)
         if (*(s32 *)(drone + 0x78) <= 0)
         {
             Thing_ProcessEndEvent(drone, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)), collision, (Vector4 *)(drone + 0x130));
-            Thing_Release(HND(drone));
+            Thing_Release(drone);
         }
         *(f32 *)(drone + 0x180) = 0.0f;
         *(s32 *)(drone + 0x17C) = 0;

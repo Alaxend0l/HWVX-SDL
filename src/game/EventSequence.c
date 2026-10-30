@@ -216,7 +216,7 @@ s32 EventSeq_Init(u8 *seq, u8 *data)
 
 void EventSeq_Release(void *arg0)
 {
-    Thing_Release(HND(arg0));
+    Thing_Release(arg0);
 }
 
 void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
@@ -803,7 +803,7 @@ s32 EventSeq_Move(u8 *seq) {
         }
         script = SLOT_LOAD(Script *, (seq + 0xD0));
         if (*(u32 *)(seq + 0xD4) >= script->count) {
-            Thing_Release(HND(seq));
+            Thing_Release(seq);
             break;
         }
         entry = &GETP(script->entries)[*(u32 *)(seq + 0xD4)];

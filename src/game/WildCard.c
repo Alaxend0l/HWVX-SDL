@@ -47,14 +47,15 @@ s32 WildCardRack_Init(void *thing, void *data) {
     return 0;
 }
 
-void WildCardRack_Release(s32 arg0) {
-    s32 var_r31;
+/* port: takes a pointer, as the vtable calls it; the decomp has s32 */
+void WildCardRack_Release(void *arg0) {
+    u8 *var_r31;
     u32 var_r30;
 
     var_r30 = 0U;
     var_r31 = arg0;
     do {
-        MotionState_Release(var_r31 + 0xB0);
+        MotionState_Release((s32)HND(var_r31 + 0xB0));
         var_r30 += 1;
         var_r31 += 0x50;
     } while (var_r30 < 0xCU);
@@ -542,23 +543,34 @@ s32 WildCardRack_Invalidate(u8 *rack, u32 start, u32 end) {
 }
 
 
-void *g_wildCardRackVTable[] = {
-    WildCardRack_Init,
-    WildCardRack_Release,
-    Thing_PreMove,
-    WildCardRack_Move,
-    WildCardRack_Draw,
-    Thing_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_wildCardRackVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_wildCardRackVTable(void) {
+    static void *const fns[] = {
+        (void *)WildCardRack_Init,
+        (void *)WildCardRack_Release,
+        (void *)Thing_PreMove,
+        (void *)WildCardRack_Move,
+        (void *)WildCardRack_Draw,
+        (void *)Thing_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_wildCardRackVTable[i] = HND(fns[i]);
+    }
+}
 

@@ -30,9 +30,9 @@ s32 TriggerItemDropped(void) {
     return 1;
 }
 
+/* The decomp has an m2c placeholder here; the original calls Trigger_Init (asm). */
 void Trigger_Create(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    Trigger_Init();
 }
 
 void Trigger_Destroy(void) {
@@ -61,9 +61,10 @@ void Trigger_Init(void) {
         TriggerStats[i][0] = 0;
         total += TriggerStats[i][1];
     }
-    m_triggerData = (s32)HND(Allocate(total * 4, 0, ""));
+    /* port: runtime lists of trigger pointers, so host pointer sized */
+    m_triggerData = (s32)HND(Allocate(total * sizeof(void *), 0, ""));
     for (i = 0; i < 28; i++) {
-        m_Triggers[i] = (u32 **)PTR((m_triggerData + offset * 4));
+        m_Triggers[i] = (u32 **)((u8 *)PTR(m_triggerData) + offset * sizeof(void *));
         offset += TriggerStats[i][1];
     }
     for (i = 0; i < 10; i++) {

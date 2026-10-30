@@ -18,7 +18,7 @@ typedef struct ActionFXList {
     PTR32(ActionFXPoint) points[1]; /* 0x08 */
 } ActionFXList;
 
-void *g_emitterVTable[17];
+extern u32 g_emitterVTable[17];  /* port: generated from the original .data (data_gen.c) */
 
 /* emitter description (EMIX data) an emitter spawns effects from */
 typedef struct EmitterData {
@@ -153,7 +153,7 @@ s32 Emitter_Move(Emitter *emitter) {
             }
             if (emitter->fxCount > 0) {
                 if (emitter->fxCount == 1) {
-                    Thing_Release((s32)HND(emitter));
+                    Thing_Release(emitter);
                     break;
                 }
                 emitter->fxCount--;
@@ -173,7 +173,7 @@ void Emitter_Release(Emitter *emitter) {
             SLOT_STORE((u32 *)(slot) + (0x0C), NULL);
         }
     }
-    Thing_Release((s32)HND(emitter));
+    Thing_Release(emitter);
 }
 
 u32 Emitter_InCameraRange(Emitter *emitter, f32 range) {

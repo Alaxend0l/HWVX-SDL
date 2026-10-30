@@ -53,9 +53,9 @@ s32 ActionScriptLightChangeMode(void) {
     return 1;
 }
 
+/* The decomp has an m2c placeholder here; the original calls Action_Init (asm). */
 void Action_Create(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    Action_Init();
 }
 
 void Action_Destroy(void) {

@@ -160,7 +160,7 @@ s32 Debris_Move(u8 *debris) {
     *(Quaternion *)(debris + 0x50) = result;
     *(s32 *)(debris + 0xF0) -= g_iDeltaTimeMS;
     if (*(s32 *)(debris + 0xC8) < 0) {
-        Thing_Release((s32)HND(debris));
+        Thing_Release(debris);
         return 0;
     }
     *(s32 *)(debris + 0xC8) -= g_iDeltaTimeMS;
@@ -183,22 +183,33 @@ f32 Debris_GetMass(Debris *debris) {
     return debris->mass;
 }
 
-void *g_debrisVTable[] = {
-    Debris_Init,
-    Thing_Release,
-    Thing_PreMove,
-    Debris_Move,
-    Debris_Draw,
-    Debris_GetMass,
-    Thing_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Thing_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Thing_DynamicRotation,
-    Thing_CollideWithRay,
-    Thing_GetTargetPos,
-    Thing_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_debrisVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_debrisVTable(void) {
+    static void *const fns[] = {
+        (void *)Debris_Init,
+        (void *)Thing_Release,
+        (void *)Thing_PreMove,
+        (void *)Debris_Move,
+        (void *)Debris_Draw,
+        (void *)Debris_GetMass,
+        (void *)Thing_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Thing_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Thing_DynamicRotation,
+        (void *)Thing_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Thing_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_debrisVTable[i] = HND(fns[i]);
+    }
+}

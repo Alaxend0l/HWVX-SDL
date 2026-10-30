@@ -213,7 +213,8 @@ void *PlayerManager_NewAIPlayer(u8 *desc) {
     if (player == NULL) {
         return NULL;
     }
-    (((void (*)(void *))SLOT_LOAD(void *, (player + 0x24))))(player);
+    /* the original leaves desc in r4: AI init functions take (player, desc) */
+    (((void (*)(void *, void *))SLOT_LOAD(void *, (player + 0x24))))(player, desc);
     SLOT_STORE((player + 0xB0), SLOT_LOAD(u8 *, (g_playerManager + 0x20D8)));
     SLOT_STORE((player + 0xB4), NULL);
     if (SLOT_LOAD(u8 *, (player + 0xB0)) != NULL) {

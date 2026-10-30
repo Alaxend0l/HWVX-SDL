@@ -134,9 +134,10 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
     return 1;
 }
 
-void Mover_Init(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+/* The decomp has an m2c placeholder here; the original passes its arguments
+ * on to PhysicalObject_Init and returns its result (asm). */
+s32 Mover_Init(u8 *obj, u8 *data) {
+    return PhysicalObject_Init(obj, data);
 }
 
 void PhysicalObject_IntegrateNonLateral(u8 *obj) {
@@ -737,42 +738,64 @@ f32 PhysicalObject_CollideWithRay(u8 *obj, Vector4 *start, Vector4 *end, Vector4
     return dist;
 }
 
-void *g_physicalObjectVTable[] = {
-    PhysicalObject_Init,
-    Destructible_Release,
-    PhysicalObject_PreMove,
-    PhysicalObject_Move,
-    Destructible_Draw,
-    Destructible_GetMass,
-    PhysicalObject_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Destructible_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    PhysicalObject_GetInverseLocalInertiaTensor,
-    PhysicalObject_DynamicRotation,
-    PhysicalObject_CollideWithRay,
-    Thing_GetTargetPos,
-    Destructible_GetOrientedCollision,
-};
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_physicalObjectVTable[17];
 
-void *g_moverVTable[] = {
-    Mover_Init,
-    Destructible_Release,
-    Mover_PreMove,
-    Destructible_Move,
-    Destructible_Draw,
-    Destructible_GetMass,
-    Destructible_DynamicCollideImpact,
-    Thing_GetCameraOrientationInfo,
-    Thing_GetInterfaceInfo,
-    Thing_SlaveTransform,
-    Destructible_GetSurfaceScript,
-    Thing_GetNearestNavPoint,
-    Thing_GetInverseLocalInertiaTensor,
-    Mover_DynamicRotation,
-    PhysicalObject_CollideWithRay,
-    Thing_GetTargetPos,
-    Destructible_GetOrientedCollision,
-};
+__attribute__((constructor)) static void PortInit_g_physicalObjectVTable(void) {
+    static void *const fns[] = {
+        (void *)PhysicalObject_Init,
+        (void *)Destructible_Release,
+        (void *)PhysicalObject_PreMove,
+        (void *)PhysicalObject_Move,
+        (void *)Destructible_Draw,
+        (void *)Destructible_GetMass,
+        (void *)PhysicalObject_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Destructible_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)PhysicalObject_GetInverseLocalInertiaTensor,
+        (void *)PhysicalObject_DynamicRotation,
+        (void *)PhysicalObject_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Destructible_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_physicalObjectVTable[i] = HND(fns[i]);
+    }
+}
+
+/* port: vtables hold 32-bit handles, like every pointer slot the game reads
+ * (the callers load entries with SLOT_LOAD); filled in at startup. */
+u32 g_moverVTable[17];
+
+__attribute__((constructor)) static void PortInit_g_moverVTable(void) {
+    static void *const fns[] = {
+        (void *)Mover_Init,
+        (void *)Destructible_Release,
+        (void *)Mover_PreMove,
+        (void *)Destructible_Move,
+        (void *)Destructible_Draw,
+        (void *)Destructible_GetMass,
+        (void *)Destructible_DynamicCollideImpact,
+        (void *)Thing_GetCameraOrientationInfo,
+        (void *)Thing_GetInterfaceInfo,
+        (void *)Thing_SlaveTransform,
+        (void *)Destructible_GetSurfaceScript,
+        (void *)Thing_GetNearestNavPoint,
+        (void *)Thing_GetInverseLocalInertiaTensor,
+        (void *)Mover_DynamicRotation,
+        (void *)PhysicalObject_CollideWithRay,
+        (void *)Thing_GetTargetPos,
+        (void *)Destructible_GetOrientedCollision,
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        g_moverVTable[i] = HND(fns[i]);
+    }
+}

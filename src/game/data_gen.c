@@ -90,6 +90,9 @@ extern void Drone_DynamicRotation(void);
 extern void Drone_GetCameraOrientationInfo(void);
 extern void Drone_Init(void);
 extern void Drone_PreMove(void);
+extern void Emitter_Init(void);
+extern void Emitter_Move(void);
+extern void Emitter_Release(void);
 extern void EventSeq_Init(void);
 extern void EventSeq_Move(void);
 extern void EventSeq_Release(void);
@@ -1859,6 +1862,13 @@ u8 white[4] __attribute__((aligned(8))) = {
     [0] = W32(0xFFFFFFFF),
 };
 
+/* g_emitterVTable (.data, Emitter.s) */
+u8 g_emitterVTable[68] __attribute__((aligned(8))) = {
+    [0] = W32(0x0), [4] = W32(0x0), [8] = W32(0x0), [12] = W32(0x0), [16] = W32(0x0), [20] = W32(0x0),
+    [24] = W32(0x0), [28] = W32(0x0), [32] = W32(0x0), [36] = W32(0x0), [40] = W32(0x0), [44] = W32(0x0),
+    [48] = W32(0x0), [52] = W32(0x0), [56] = W32(0x0), [60] = W32(0x0), [64] = W32(0x0),
+};
+
 /* "@639" (.sdata2, CarA.s) */
 static u8 s_CarA___639_[5] __attribute__((aligned(4))) = {
     [0] = W8(0x73), [1] = W8(0x70), [2] = W8(0x69), [3] = W8(0x6E), [4] = W8(0x0),
@@ -2334,4 +2344,21 @@ __attribute__((constructor)) static void DataGen_Fixups(void) {
     SLOT_STORE(triggerLabelsArray + 0x64, (u8 *)s_Trigger___324_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x68, (u8 *)s_Trigger___325_ + 0);
     SLOT_STORE(triggerLabelsArray + 0x6C, (u8 *)s_Trigger___326_ + 0);
+    SLOT_STORE(g_emitterVTable + 0x0, (u8 *)&Emitter_Init + 0);
+    SLOT_STORE(g_emitterVTable + 0x4, (u8 *)&Emitter_Release + 0);
+    SLOT_STORE(g_emitterVTable + 0x8, (u8 *)&Thing_PreMove + 0);
+    SLOT_STORE(g_emitterVTable + 0xC, (u8 *)&Emitter_Move + 0);
+    SLOT_STORE(g_emitterVTable + 0x10, (u8 *)&Thing_Draw + 0);
+    SLOT_STORE(g_emitterVTable + 0x14, (u8 *)&Thing_GetMass + 0);
+    SLOT_STORE(g_emitterVTable + 0x18, (u8 *)&Thing_DynamicCollideImpact + 0);
+    SLOT_STORE(g_emitterVTable + 0x1C, (u8 *)&Thing_GetCameraOrientationInfo + 0);
+    SLOT_STORE(g_emitterVTable + 0x20, (u8 *)&Thing_GetInterfaceInfo + 0);
+    SLOT_STORE(g_emitterVTable + 0x24, (u8 *)&Thing_SlaveTransformQuaternionOnly + 0);
+    SLOT_STORE(g_emitterVTable + 0x28, (u8 *)&Thing_GetSurfaceScript + 0);
+    SLOT_STORE(g_emitterVTable + 0x2C, (u8 *)&Thing_GetNearestNavPoint + 0);
+    SLOT_STORE(g_emitterVTable + 0x30, (u8 *)&Thing_GetInverseLocalInertiaTensor + 0);
+    SLOT_STORE(g_emitterVTable + 0x34, (u8 *)&Thing_DynamicRotation + 0);
+    SLOT_STORE(g_emitterVTable + 0x38, (u8 *)&Thing_CollideWithRay + 0);
+    SLOT_STORE(g_emitterVTable + 0x3C, (u8 *)&Thing_GetTargetPos + 0);
+    SLOT_STORE(g_emitterVTable + 0x40, (u8 *)&Thing_GetOrientedCollision + 0);
 }

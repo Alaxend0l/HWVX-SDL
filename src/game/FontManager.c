@@ -100,9 +100,9 @@ typedef struct Texture {
 extern Texture *m_texture;
 
 
+/* The decomp has an m2c placeholder here; the original calls Gfx_FontManager_Init (asm). */
 void FontManager_Create(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    Gfx_FontManager_Init();
 }
 
 void FontManager_Destroy(void) {

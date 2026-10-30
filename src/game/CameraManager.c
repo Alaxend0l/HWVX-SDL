@@ -62,9 +62,9 @@ s32 CameraManager_Create(void) {
     return 1;
 }
 
+/* The decomp has an m2c placeholder here; the original calls CameraManager_Init (asm). */
 void CameraManager_Destroy(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    CameraManager_Init();
 }
 
 u8 CameraManager_GetActiveCameras(void) {

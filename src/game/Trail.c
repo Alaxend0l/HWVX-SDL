@@ -13,9 +13,9 @@ TrailSegment g_TrialData[1000];
 u32 g_nextTrail;
 f32 g_trailTimer;
 
+/* The decomp has an m2c placeholder here; the original calls Trail_Init (asm). */
 void Trail_Create(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    Trail_Init();
 }
 
 void Trail_Init(void) {

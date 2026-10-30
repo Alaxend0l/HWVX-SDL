@@ -72,21 +72,22 @@ s32 Thing_Init(Thing *thing, s32 arg1) {
     return 1;
 }
 
-void Thing_Release(s32 thing) {
+/* port: takes a pointer, as the vtable calls it; the decomp has s32 */
+void Thing_Release(void *thing) {
     void *player;
 
     M2C_FIELD(thing, u32 *, 0x74) |= 0x200;
     M2C_FIELD(thing, u32 *, 0x74) |= 2;
     M2C_FIELD(thing, u32 *, 0x74) |= 0x200000;
-    if (SLOT_LOAD(void *, (u8 *)PTR(thing) + 0x84) != NULL) {
-        Grid_FreeObject(SLOT_LOAD(void *, (u8 *)PTR(thing) + 0x84));
+    if (SLOT_LOAD(void *, (u8 *)thing + 0x84) != NULL) {
+        Grid_FreeObject(SLOT_LOAD(void *, (u8 *)thing + 0x84));
     }
-    SLOT_STORE((u8 *)PTR(thing) + 0x84, NULL);
-    ThingManagerList_EmancipateSlaves(PTR(thing + 0x10), PTR(thing + 0x88));
-    ThingManagerList_ReleaseAll(PTR(thing + 0x88));
-    ThingManagerList_RemoveReleasedThings(PTR(thing + 0x88));
-    player = SLOT_LOAD(void *, (u8 *)PTR(thing) + 0x94);
-    if (player != NULL && SLOT_LOAD(void *, (u8 *)(player) + 0x2C) == (void *)PTR(thing)) {
+    SLOT_STORE((u8 *)thing + 0x84, NULL);
+    ThingManagerList_EmancipateSlaves((u8 *)thing + 0x10, (void **)((u8 *)thing + 0x88));
+    ThingManagerList_ReleaseAll((void **)((u8 *)thing + 0x88));
+    ThingManagerList_RemoveReleasedThings((void **)((u8 *)thing + 0x88));
+    player = SLOT_LOAD(void *, (u8 *)thing + 0x94);
+    if (player != NULL && SLOT_LOAD(void *, (u8 *)(player) + 0x2C) == thing) {
         Player_DetachThingDeath(player);
     }
 }
@@ -1043,12 +1044,12 @@ s32 Thing_GetNearestNavPoint(void) {
 void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand);
 
 s32 Thing_AddToGrid(void *thing, s32 type) {
-    s32 Grid_AddObject(s32 type, void *thing, Vector4 *min, Vector4 *max);
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
 
     Thing_GetDynamicMinMax(thing, &min, &max, 0.0f);
-    *(s32 *)((u8 *)thing + 0x84) = Grid_AddObject(type, thing, &min, &max);
+    /* port: the grid keeps the thing as a 32-bit id; the object pointer goes in a slot */
+    SLOT_STORE((u8 *)thing + 0x84, Grid_AddObject(type, HND(thing), &min, &max));
     return *(s32 *)((u8 *)thing + 0x84);
 }
 

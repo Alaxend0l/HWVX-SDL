@@ -17,9 +17,9 @@ void World_Destroy(void) {
     }
 }
 
+/* The decomp has an m2c placeholder here; the original calls World_ClearSweep (asm). */
 void World_Init(void) {
-    M2C_UNK EnableEXI2Interrupts();
-    EnableEXI2Interrupts();
+    World_ClearSweep();
 }
 
 void World_Refresh(void) {
