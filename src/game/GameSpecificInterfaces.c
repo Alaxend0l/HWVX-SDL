@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Interface.h"
 
 extern VehicleInterfaceData g_vehicleInterfaceData[4];
 
