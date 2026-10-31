@@ -1062,6 +1062,12 @@ typedef struct Player Player;
 typedef struct CameraInfo CameraInfo;
 typedef struct WildCardRack WildCardRack;
 typedef struct GridNode GridNode;
+typedef struct Voice Voice;
+typedef struct SFX SFX;
+typedef struct ITHeader ITHeader;
+typedef struct ITSample ITSample;
+typedef struct ITSong ITSong;
+typedef struct ITTrack ITTrack;
 
 #include "game_protos.h"
 

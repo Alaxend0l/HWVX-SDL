@@ -1,45 +1,7 @@
 
 
 #include "common.h"
-
-typedef struct SFX {
-    u32 data;  /* sample address in ARAM once created (CreateSFX_) */
-    u32 unk4;
-    u32 unk8;
-    u32 unkC;
-    u8 unk10;
-    u8 unk11;
-    u16 unk12;
-    u8 unk14[0xC];
-} SFX;
-
-typedef struct Voice {
-    union {
-        u32 id;
-        struct {
-            u8 kind;
-            u8 sfxIndex;
-            u8 serial;
-        };
-    };
-    u8 unk4[0xC];
-    PTR32(SFX) sfx;
-    u8 unk14;
-    u8 state;
-    u8 unk16[0xA];
-    u32 unk20;
-    u32 unk24;
-    u32 unk28;
-    u8 unk2C;
-    u32 unk30;
-    s32 pitch;
-    s32 vol;
-    u32 unk3C;
-    s32 posX;
-    s32 posY;
-    s32 unk48;
-    u8 unk4C[0x24];
-} Voice;
+#include "Voice.h"
 
 /* port: a voice id is the struct's first four bytes read big-endian, as on
  * the GameCube: kind, sfxIndex, serial, then the voice index in the low byte
@@ -47,7 +9,6 @@ typedef struct Voice {
  * low byte and every sound effect voice would look like voice 1. */
 #define VOICE_ID(v) BE32((v)->id)
 
-extern Voice g_voice[0x20];
 extern SFX g_sound[0xFE];
 extern u8 g_soundLst[0xFE];
 extern u32 g_freeSound;
@@ -139,7 +100,7 @@ void SetSFXVol(s32 vol) {
 
     g_sfxvol = vol;
     for (voice = g_voice, i = 0x20; i != 0; voice++, i--) {
-        if (voice->kind == 1 && voice->state == 1) {
+        if (voice->kind == VOICE_KIND_SFX && voice->state == VOICE_STATE_PLAYING) {
             SetVoiceVol_(voice, g_sfxvol);
         }
     }
@@ -160,14 +121,14 @@ s32 SetSFXState(s32 state) {
     switch (state) {
     case 2:
         for (i = 0x20; i != 0; voice++, i--) {
-            if (voice->kind == 1 && voice->state == 1) {
+            if (voice->kind == VOICE_KIND_SFX && voice->state == VOICE_STATE_PLAYING) {
                 SetVoiceState_(voice, 2);
             }
         }
         break;
     case 3:
         for (i = 0x20; i != 0; voice++, i--) {
-            if (voice->kind == 1 && voice->state != 0) {
+            if (voice->kind == VOICE_KIND_SFX && voice->state != VOICE_STATE_FREE) {
                 SetVoiceState_(voice, 2);
                 voice->state = 3;
             }
@@ -175,15 +136,15 @@ s32 SetSFXState(s32 state) {
         break;
     case 4:
         for (i = 0x20; i != 0; voice++, i--) {
-            if (voice->kind == 1) {
+            if (voice->kind == VOICE_KIND_SFX) {
                 voice->state = 3;
             }
         }
         voice = g_voice;
     case 1:
         for (i = 0x20; i != 0; voice++, i--) {
-            if (voice->kind == 1) {
-                if (voice->state == 2) {
+            if (voice->kind == VOICE_KIND_SFX) {
+                if (voice->state == VOICE_STATE_PAUSED) {
                     SetVoiceState_(voice, 1);
                 } else if (voice->state == 3) {
                     StartVoice_(voice);
@@ -200,7 +161,6 @@ s32 SetSFXState(s32 state) {
     return old;
 }
 
-Voice *GetVoice_(s32 type, s32 priority);
 u32 GetVoice(u32 handle, u8 priority) {
     Voice *voice;
     SFX *sfx;
@@ -211,18 +171,18 @@ u32 GetVoice(u32 handle, u8 priority) {
         voice = GetVoice_(1, priority * 2);
         if (voice != NULL) {
             SETP(voice->sfx, sfx);
-            voice->unk20 = sfx->data;
-            voice->unk28 = sfx->unk4;
-            voice->unk24 = sfx->unk8;
-            voice->unk30 = sfx->unkC;
+            voice->addr = sfx->data;
+            voice->length = sfx->length;
+            voice->loop = sfx->loop;
+            voice->rate = sfx->rate;
             voice->pitch = 0x10000;
-            voice->unk2C = sfx->unk11;
+            voice->bits = sfx->bits;
             voice->vol = 0x7FFF;
-            voice->unk3C = sfx->unk12;
-            voice->unk48 = 0x7FFF;
-            voice->posX = 0;
-            voice->posY = -0x7FFF;
-            voice->sfxIndex = handle;
+            voice->mixVol = sfx->vol;
+            voice->auxVol = 0x7FFF;
+            voice->pan = 0;
+            voice->span = -0x7FFF;
+            voice->owner = handle;
             voice->serial++;
             return VOICE_ID(voice);
         }
@@ -246,7 +206,7 @@ s32 SetVoiceState(u32 id, s32 state) {
         }
         switch (state) {
         case 1:
-            if (voice->state == 2) {
+            if (voice->state == VOICE_STATE_PAUSED) {
                 SetVoiceState_(voice, 1);
                 g_sfxState = 1;
                 break;
@@ -271,7 +231,7 @@ s32 SetVoiceVol(u32 id, s32 vol) {
 
     if (VOICE_ID(voice) == id) {
         voice->vol = vol;
-        if (voice->state == 1) {
+        if (voice->state == VOICE_STATE_PLAYING) {
             SetVoiceVol_(voice, g_sfxvol);
         }
         return 1;
@@ -283,9 +243,9 @@ s32 SetVoicePos(u32 id, s16 x, s16 y) {
     Voice *voice = &g_voice[(u8)id];
 
     if (VOICE_ID(voice) == id) {
-        voice->posX = x;
-        voice->posY = y;
-        if (voice->state == 1) {
+        voice->pan = x;
+        voice->span = y;
+        if (voice->state == VOICE_STATE_PLAYING) {
             SetVoiceVol_(voice, g_sfxvol);
         }
         return 1;

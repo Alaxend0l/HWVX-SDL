@@ -596,6 +596,8 @@ void AudioIT_Destroy(s32 unused);
 s32 AudioIT_Init(void);
 void CreateIT(u8 *data, u8 *arg1);
 void DestroyIT(void);
+void DestroyITVoice(Voice *voice);
+s32 PlayNote(ITTrack *trk);
 void ProcessIT(u32 ticks);
 void SetITOrder(u8 order, s8 deferred);
 void SetITPitch(s32 pitch);
@@ -606,9 +608,14 @@ void SetITTrackOn(u32 mask, s8 deferred);
 void SetITTrackPriority(s32 track, s32 priority);
 void SetITTrackVol(u32 track, s32 vol);
 void SetITVol(void);
+void SetTrackPan(ITTrack *trk);
+void SetTrackVol(ITTrack *trk);
+void StopActive(ITTrack *trk);
 
 /* IT_.c */
+s32 CreateIT_(ITHeader *hdr, ITSample **smp);
 void DestroyIT_(void *data);
+u32 GetITGVol_(ITSong *song, ITTrack *trk);
 
 /* Input.c */
 s32 Input_GetAnalog(s32 chan, s16 *stickX, s16 *stickY, s16 *substickX, s16 *substickY);
@@ -742,11 +749,13 @@ s32 AudioMIDI_Init(void);
 void ChannelOff(void *chn);
 void CreateMIDI(u8 *hdr, u8 *snd);
 void DestroyMIDI(void);
+void DestroyMIDIVoice(Voice *voice);
+Voice * DestroyVoice(Voice *voice);
 void FindMarkers(u8 *p);
 u32 GetEnvRate(u16 arg0);
 void JumpToMarker(void);
 void ProcessMIDI(s32 time);
-void ReleaseMIDIVoice(void *voice);
+void ReleaseMIDIVoice(Voice *voice);
 void SetMIDIMarker(u8 marker, s8 keep);
 void SetMIDIPitch(u32 pitch);
 s32 SetMIDIState(s32 state);
@@ -1337,10 +1346,17 @@ s32 SetVoiceVol(u32 id, s32 vol);
 s32 AudioVoice_Create_(void *voices);
 void AudioVoice_Destroy_(void);
 s32 AudioVoice_Init_(void);
-u32 CreateSFX_(u32 *sfx);
+u32 CreateSFX_(SFX *sfx);
+void DestroyVoice_(AXVPB *axv);
+Voice * GetVoice_(u8 kind, u32 priority);
 void ProcessVoice_(void);
 void SetReverb_(u32 idx, u32 output, u32 feedback, u32 delay);
-void SetVoiceVol_(u8 *v, u32 vol);
+s32 SetVoiceOffset_(Voice *voice, u32 offset);
+void SetVoicePriority_(Voice *voice);
+s8 SetVoiceRate_(Voice *voice);
+void SetVoiceState_(Voice *voice, s32 state);
+void SetVoiceVol_(Voice *v, u32 vol);
+void StartVoice_(Voice *voice);
 
 /* VolumeManager.c */
 u8 * IsPointWithinForceBox(Vector4 *point);
@@ -1522,17 +1538,6 @@ void *Grid_AddObject(u32 data, u32 id, void *min, void *max);
 void Grid_FreeObject(void *obj);
 void Grid_MoveObject(void *obj, Vector4 *min, Vector4 *max);
 #endif
-#if !defined(HWVX_SRC_IT)
-void DestroyITVoice(void *voice);
-s32 PlayNote(void *trk);
-void SetTrackPan(void *trk);
-void SetTrackVol(void *trk);
-void StopActive(void *trk);
-#endif
-#if !defined(HWVX_SRC_IT_)
-s32 CreateIT_(void *hdr, void **smp);
-u32 GetITGVol_(void *trk, void *ch);
-#endif
 #if !defined(HWVX_SRC_InterfaceManager)
 u32 InterfaceManager_KeyPress(void *im, s32 pad, u8 key);
 void InterfaceManager_MoveInterface(void *iface, f32 dt);
@@ -1553,8 +1558,6 @@ s32 Looker_Init(void *looker, u8 *init);
 s32 Looker_PreMove(void *looker);
 #endif
 #if !defined(HWVX_SRC_MIDI)
-void DestroyMIDIVoice(void *voice);
-void *DestroyVoice(void *voice);
 void SetGVol(void *chn);
 #endif
 #if !defined(HWVX_SRC_MIDI_)
@@ -1590,19 +1593,6 @@ s32 Tracer_Invalidate(void *thing, u32 start, u32 end);
 s32 Tracer_Move(void *thing);
 void Tracer_Release(void *thing);
 void Tracer_Render(void *thing);
-#endif
-#if !defined(HWVX_SRC_Voice_)
-void DestroyVoice_(void *axv);
-#endif
-#if !defined(HWVX_SRC_IT) && !defined(HWVX_SRC_MIDI) && !defined(HWVX_SRC_Voice) && !defined(HWVX_SRC_Voice_)
-void *GetVoice_(u8 kind, u32 priority);
-#endif
-#if !defined(HWVX_SRC_Voice_)
-s32 SetVoiceOffset_(void *voice, u32 offset);
-void SetVoicePriority_(void *voice);
-s8 SetVoiceRate_(void *voice);
-void SetVoiceState_(void *voice, s32 state);
-void StartVoice_(void *voice);
 #endif
 #if !defined(HWVX_SRC_bgmath_NGC)
 s32 CompareDistances(void *a, void *b, f32 dist);

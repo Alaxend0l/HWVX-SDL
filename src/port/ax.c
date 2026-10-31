@@ -1,8 +1,8 @@
 /* AX/AI/ARAM audio replacement on SDL3 audio.
  *
  * The game's sound engine (Voice_.c) programs DSP voice parameter blocks
- * (AXVPB) directly by byte offset, so voices here are raw 0x200-byte blocks in
- * GameCube layout which this software mixer interprets every AX frame.
+ * (AXVPB, sdk.h) directly, in GameCube layout, and this software mixer
+ * interprets them every AX frame.
  *
  * Threads: the game's AX frame callback is game code, so it must run under the
  * giant lock. A dedicated AX thread runs callback + mixer and queues each
@@ -22,38 +22,12 @@ void Port_GiantUnlock(void);
  * envelopes by 3333 us per frame. */
 #define AX_FRAME_SAMPLES 160
 #define AX_MAX_VOICES 64
-#define AX_VPB_SIZE 0x200
 #define ARAM_SIZE (16u << 20)
 #define ARAM_BASE 0x4000u /* the SDK reserves the first 16 KB for the DSP */
 #define RING_FRAMES (AX_FRAME_SAMPLES * 12) /* samples: 40 ms */
 
-/* Byte offsets inside an AXVPB (GameCube layout). */
-#define VPB_PRIORITY 0x0C
-#define VPB_USERCTX 0x14
-#define VPB_INDEX 0x18
-#define VPB_SYNC 0x1C
-#define VPB_MIXERCTRL 0x144
-#define VPB_STATE 0x146
-#define VPB_VL 0x14A
-#define VPB_VDELTAL 0x14C
-#define VPB_VR 0x14E
-#define VPB_VDELTAR 0x150
-#define VPB_VE 0x19C
-#define VPB_VEDELTA 0x19E
-#define VPB_LOOPFLAG 0x1A6
-#define VPB_FORMAT 0x1A8
-#define VPB_LOOPADDR 0x1AA
-#define VPB_ENDADDR 0x1AE
-#define VPB_CURADDR 0x1B2
-#define VPB_RATIO 0x1DE
-#define VPB_FRAC 0x1E2
-
-#define FMT_ADPCM 0x00
-#define FMT_PCM16 0x0A
-#define FMT_PCM8 0x19
-
 static u8 *s_aram;
-static u8 s_vpbs[AX_MAX_VOICES][AX_VPB_SIZE] __attribute__((aligned(32)));
+static AXVPB s_vpbs[AX_MAX_VOICES] __attribute__((aligned(32)));
 static void (*s_voiceCallbacks[AX_MAX_VOICES])(void *);
 static int s_voiceInUse[AX_MAX_VOICES];
 static AXCallback s_frameCallback;
@@ -64,10 +38,6 @@ static SDL_AudioStream *s_stream;  /* NULL: no output device */
 static SDL_Thread *s_axThread;
 static SDL_Semaphore *s_ringSpace;
 static volatile int s_running;
-
-#define RD16(p, o) (*(u16 *)((u8 *)(p) + (o)))
-#define RDS16(p, o) (*(s16 *)((u8 *)(p) + (o)))
-#define RD32(p, o) (*(u32 *)((u8 *)(p) + (o)))
 
 /* ---- ARAM -------------------------------------------------------------- */
 
@@ -126,7 +96,7 @@ void AISetDSPSampleRate(u32 rate) {
 
 /* ---- voices ------------------------------------------------------------ */
 
-struct AXVPB *AXAcquireVoice(u32 priority, void (*callback)(void *), u32 userContext) {
+AXVPB *AXAcquireVoice(u32 priority, void (*callback)(void *), u32 userContext) {
     int i;
     int victim = -1;
     u32 lowest = priority;
@@ -140,7 +110,7 @@ struct AXVPB *AXAcquireVoice(u32 priority, void (*callback)(void *), u32 userCon
     if (victim < 0) {
         /* Steal the lowest-priority voice below ours. */
         for (i = 0; i < AX_MAX_VOICES; i++) {
-            u32 p = RD32(s_vpbs[i], VPB_PRIORITY);
+            u32 p = s_vpbs[i].priority;
             if (p < lowest) {
                 lowest = p;
                 victim = i;
@@ -150,36 +120,36 @@ struct AXVPB *AXAcquireVoice(u32 priority, void (*callback)(void *), u32 userCon
             return NULL;
         }
         if (s_voiceCallbacks[victim] != NULL) {
-            s_voiceCallbacks[victim](s_vpbs[victim]);
+            s_voiceCallbacks[victim](&s_vpbs[victim]);
         }
     }
-    memset(s_vpbs[victim], 0, AX_VPB_SIZE);
-    RD32(s_vpbs[victim], VPB_PRIORITY) = priority;
-    RD32(s_vpbs[victim], VPB_USERCTX) = userContext;
-    RD32(s_vpbs[victim], VPB_INDEX) = (u32)victim;
+    memset(&s_vpbs[victim], 0, sizeof(AXVPB));
+    s_vpbs[victim].priority = priority;
+    s_vpbs[victim].userContext = userContext;
+    s_vpbs[victim].index = (u32)victim;
     s_voiceCallbacks[victim] = callback;
     s_voiceInUse[victim] = 1;
-    return (struct AXVPB *)s_vpbs[victim];
+    return &s_vpbs[victim];
 }
 
-static int VoiceIndex(struct AXVPB *p) {
-    ptrdiff_t i = ((u8 *)p - &s_vpbs[0][0]) / AX_VPB_SIZE;
+static int VoiceIndex(AXVPB *p) {
+    ptrdiff_t i = p - s_vpbs;
     if (i < 0 || i >= AX_MAX_VOICES) {
         Port_Fatal("not an AX voice: %p", (void *)p);
     }
     return (int)i;
 }
 
-void AXFreeVoice(struct AXVPB *p) {
+void AXFreeVoice(AXVPB *p) {
     int i = VoiceIndex(p);
-    RD16(p, VPB_STATE) = 0;
-    RD32(p, VPB_PRIORITY) = 0;
+    p->state = 0;
+    p->priority = 0;
     s_voiceCallbacks[i] = NULL;
     s_voiceInUse[i] = 0;
 }
 
-void AXSetVoicePriority(struct AXVPB *p, u32 priority) {
-    RD32(p, VPB_PRIORITY) = priority;
+void AXSetVoicePriority(AXVPB *p, u32 priority) {
+    p->priority = priority;
 }
 
 AXCallback AXRegisterCallback(AXCallback callback) {
@@ -207,35 +177,35 @@ void AXFXDelayCallback(void *data, void *context) { (void)data; (void)context; }
 /* ---- mixer ------------------------------------------------------------- */
 
 static float FetchSample(u16 format, u32 addr) {
-    if (format == FMT_PCM16) {
+    if (format == AX_FORMAT_PCM16) {
         u32 b = addr * 2;
         return b + 1 < ARAM_SIZE ? (s16)Port_ReadBE16(s_aram + b) * (1.0f / 32768.0f) : 0.0f;
     }
-    if (format == FMT_PCM8) {
+    if (format == AX_FORMAT_PCM8) {
         return addr < ARAM_SIZE ? (s8)s_aram[addr] * (1.0f / 128.0f) : 0.0f;
     }
     return 0.0f;
 }
 
-static void MixVoice(u8 *vpb, float *out) {
-    u16 format = RD16(vpb, VPB_FORMAT);
-    u32 cur = RD32(vpb, VPB_CURADDR);
-    u32 end = RD32(vpb, VPB_ENDADDR);
-    u32 loop = RD32(vpb, VPB_LOOPADDR);
-    u16 loopFlag = RD16(vpb, VPB_LOOPFLAG);
-    u32 ratio = RD32(vpb, VPB_RATIO); /* 16.16 */
-    u32 frac = RD16(vpb, VPB_FRAC);
-    s32 vl = RDS16(vpb, VPB_VL);
-    s32 vr = RDS16(vpb, VPB_VR);
-    s32 dl = RDS16(vpb, VPB_VDELTAL);
-    s32 dr = RDS16(vpb, VPB_VDELTAR);
-    s32 ve = RD16(vpb, VPB_VE);
-    s32 ved = RDS16(vpb, VPB_VEDELTA);
+static void MixVoice(AXVPB *vpb, float *out) {
+    u16 format = vpb->format;
+    u32 cur = vpb->currentAddress;
+    u32 end = vpb->endAddress;
+    u32 loop = vpb->loopAddress;
+    u16 loopFlag = vpb->loopFlag;
+    u32 ratio = vpb->ratio; /* 16.16 */
+    u32 frac = vpb->currentAddressFrac;
+    s32 vl = vpb->vL;
+    s32 vr = vpb->vR;
+    s32 dl = vpb->vDeltaL;
+    s32 dr = vpb->vDeltaR;
+    s32 ve = vpb->ve;
+    s32 ved = vpb->veDelta;
     int i;
 
-    if (format == FMT_ADPCM) {
+    if (format == AX_FORMAT_ADPCM) {
         PORT_TODO("ADPCM voices");
-        RD16(vpb, VPB_STATE) = 0;
+        vpb->state = 0;
         return;
     }
     for (i = 0; i < AX_FRAME_SAMPLES; i++) {
@@ -257,17 +227,17 @@ static void MixVoice(u8 *vpb, float *out) {
             if (loopFlag) {
                 cur = loop + (cur - end - 1);
             } else {
-                RD16(vpb, VPB_STATE) = 0;
+                vpb->state = 0;
                 break;
             }
         }
     }
-    RD32(vpb, VPB_CURADDR) = cur;
-    RD16(vpb, VPB_FRAC) = (u16)frac;
-    RD16(vpb, VPB_VL) = (u16)vl;
-    RD16(vpb, VPB_VR) = (u16)vr;
-    RD16(vpb, VPB_VE) = (u16)ve;
-    RD32(vpb, VPB_SYNC) = 0;
+    vpb->currentAddress = cur;
+    vpb->currentAddressFrac = (u16)frac;
+    vpb->vL = (s16)vl;
+    vpb->vR = (s16)vr;
+    vpb->ve = (u16)ve;
+    vpb->sync = 0;
 }
 
 static void RunAXFrame(float *out) {
@@ -278,8 +248,8 @@ static void RunAXFrame(float *out) {
         s_frameCallback();
     }
     for (i = 0; i < AX_MAX_VOICES; i++) {
-        if (s_voiceInUse[i] && RD16(s_vpbs[i], VPB_STATE) == 1) {
-            MixVoice(s_vpbs[i], out);
+        if (s_voiceInUse[i] && s_vpbs[i].state == 1) {
+            MixVoice(&s_vpbs[i], out);
         }
     }
     for (i = 0; i < AX_FRAME_SAMPLES * 2; i++) {

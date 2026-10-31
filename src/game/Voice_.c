@@ -1,81 +1,9 @@
 #include "common.h"
+#include "Voice.h"
 
 
-typedef struct AXVPB {
-    PTR32(struct AXVPB) next;
-    PTR32(struct AXVPB) prev;
-    PTR32(struct AXVPB) next1;
-    u32 priority;
-    PTR32(void) callback;
-    PTR32(void) userContext;
-    u32 index;
-    u32 sync;
-    u8 unk20[0x144 - 0x20];
-    u16 mixerCtrl;
-    u16 state;
-    u8 unk148[2];
-    s16 vL;
-    s16 vDeltaL;
-    s16 vR;
-    s16 vDeltaR;
-    s16 vAuxAL;
-    s16 vAuxADeltaL;
-    s16 vAuxAR;
-    s16 vAuxADeltaR;
-    s16 vAuxBL;
-    s16 vAuxBDeltaL;
-    s16 vAuxBR;
-    s16 vAuxBDeltaR;
-    u8 unk162[0x19C - 0x162];
-    s16 ve;
-    s16 veDelta;
-    u8 unk1A0[0x1B2 - 0x1A0];
-    u16 currentAddressHi;
-    u16 currentAddressLo;
-    u8 unk1B6[0x1DE - 0x1B6];
-    u16 ratioHi;
-    u16 ratioLo;
-} AXVPB;
-
-typedef struct VoiceHW {
-    u8 kind;
-    u8 id;
-    u8 unk2[2];
-    PTR32(struct VoiceHW) next;
-    u8 unk8[0xC];
-    u8 priority;
-    u8 state;
-    u8 unk16[0xA];
-    u32 addr;
-    u8 unk24[4];
-    u32 length;
-    u8 unk2C[4];
-    u32 rate;
-    u32 pitch;
-    s32 vol;
-    u8 unk3C[0xC];
-    s32 unk48;
-    u8 unk4C[4];
-    PTR32(AXVPB) axv;
-    u8 unk54;
-    u8 unk55;
-    u8 unk56;
-    u8 unk57;
-    u8 unk58[2];
-    s16 unk5A;
-    u8 unk5C[4];
-    s16 unk60;
-    s16 unk62;
-    s16 unk64;
-    s16 unk66;
-    s16 unk68;
-    s16 unk6A;
-    s16 unk6C;
-    s16 unk6E;
-} VoiceHW;
-
-extern void (*DestroySongVoice)(VoiceHW *voice);
-extern VoiceHW *g_pFree;
+extern void (*DestroySongVoice)(Voice *voice);
+extern Voice *g_pFree;
 
 typedef struct AXFX_DELAY {
     PTR32(s32) left;
@@ -91,14 +19,13 @@ typedef struct AXFX_DELAY {
 } AXFX_DELAY;
 
 extern AXFX_DELAY g_reverb[2];
-extern VoiceHW g_voice[0x20];
 extern u32 m_InitOnce;
 extern s32 g_active;
 
 
 
 
-void SetVoiceState_(VoiceHW *voice, s32 state);
+void SetVoiceState_(Voice *voice, s32 state);
 
 
 s32 AudioVoice_Create_(void *voices) {
@@ -106,8 +33,8 @@ s32 AudioVoice_Create_(void *voices) {
 
     for (i = 0; i < 0x20; i++) {
         SETP(g_voice[i].axv, NULL);
-        *(u32 *)&g_voice[i] = BE32(i);  /* port: the index is the id's low byte, last in memory (Voice.c VOICE_ID) */
-        g_voice[i].id = 0xFF;
+        g_voice[i].id = BE32(i);  /* port: the index is the id's low byte, last in memory (Voice.c VOICE_ID) */
+        g_voice[i].owner = VOICE_OWNER_NONE;
     }
     m_InitOnce = 1;
     return 1;
@@ -144,23 +71,24 @@ s32 AudioVoice_Init_(void) {
     return 1;
 }
 
-u32 CreateSFX_(u32 *sfx) {
+u32 CreateSFX_(SFX *sfx) {
     u32 size;
     u32 data;
 
-    size = (sfx[1] + 0x1F) & ~0x1F;
+    size = (sfx->length + 0x1F) & ~0x1F;
     data = MAllocA_(size);
     if (data == 0) {
         return 0;
     }
-    DCFlushRange((void *)PTR(sfx[0]), size);
-    MemCpyA_(data, sfx[0], size);
-    if (((u8 *)sfx)[0x11] == 0x10) {
-        sfx[1] >>= 1;
-        *(u32 *)&data = data >> 1;
-        ((s32 *)sfx)[2] >>= 1;
+    DCFlushRange((void *)PTR(sfx->data), size);
+    MemCpyA_(data, sfx->data, size);
+    /* AX addresses 16-bit samples in samples, not bytes */
+    if (sfx->bits == 16) {
+        sfx->length >>= 1;
+        data >>= 1;
+        sfx->loop = (s32)sfx->loop >> 1;
     }
-    sfx[0] = data;
+    sfx->data = data;
     return data;
 }
 
@@ -173,8 +101,8 @@ void AudioVoice_Destroy_(void) {
 
 void DestroyVoice_(AXVPB *axv);
 
-VoiceHW *GetVoice_(u8 kind, u32 priority) {
-    VoiceHW *voice;
+Voice *GetVoice_(u8 kind, u32 priority) {
+    Voice *voice;
     AXVPB *axv;
     s32 level;
 
@@ -192,88 +120,89 @@ VoiceHW *GetVoice_(u8 kind, u32 priority) {
     SETP(voice->next, NULL);
     SETP(voice->axv, axv);
     voice->kind = kind;
-    voice->state = 3;
+    voice->state = VOICE_STATE_STOPPED;
     voice->priority = priority;
-    voice->unk54 = 1;
-    voice->unk5A = -1;
-    voice->unk64 = -1;
-    voice->unk6C = -1;
+    voice->fresh = 1;
+    voice->curEnvVol = -1;
+    voice->curVolL = -1;
+    voice->curAuxL = -1;
     voice->unk55 = 0;
-    voice->unk56 = 0;
-    voice->unk57 = 0;
-    voice->unk48 = 0x7FFF;
+    voice->volRamp = 0;
+    voice->auxRamp = 0;
+    voice->auxVol = 0x7FFF;
     OSRestoreInterrupts(level);
     return voice;
 }
 
 
-void StartVoice_(VoiceHW *voice) {
+void StartVoice_(Voice *voice) {
     extern u32 g_silence;
-    u8 *axv;
+    AXVPB *axv;
     s32 level;
 
     level = OSDisableInterrupts();
-    axv = (u8 *)GETP(voice->axv);
-    switch (voice->unk2C[0]) {
+    axv = GETP(voice->axv);
+    switch (voice->bits) {
     case 8:
-        *(u16 *)(axv + 0x1D6) = 0x100;
-        *(u16 *)(axv + 0x1A8) = 0x19;
+        axv->gain = 0x100;
+        axv->format = AX_FORMAT_PCM8;
         break;
     case 16:
-        *(u16 *)(axv + 0x1D6) = 0x800;
-        *(u16 *)(axv + 0x1A8) = 0xA;
+        axv->gain = 0x800;
+        axv->format = AX_FORMAT_PCM16;
         break;
     default:
-        *(u16 *)(axv + 0x1D6) = 0;
-        *(u16 *)(axv + 0x1A8) = 0;
+        axv->gain = 0;
+        axv->format = AX_FORMAT_ADPCM;
         break;
     }
-    *(u32 *)(axv + 0x1C) |= 0x20000;
-    *(u32 *)(axv + 0x1B2) = voice->addr;
-    *(u32 *)(axv + 0x1AE) = voice->addr + (s32)voice->length - 1;
-    if (*(u32 *)voice->unk24 != 0xFFFFFFFF) {
-        *(u16 *)(axv + 0x1A6) = 1;
-        *(u32 *)(axv + 0x1AA) = voice->addr + *(u32 *)voice->unk24;
+    axv->sync |= AX_SYNC_ADPCM;
+    axv->currentAddress = voice->addr;
+    axv->endAddress = voice->addr + (s32)voice->length - 1;
+    if (voice->loop != 0xFFFFFFFF) {
+        axv->loopFlag = 1;
+        axv->loopAddress = voice->addr + voice->loop;
     } else {
-        *(u16 *)(axv + 0x1A6) = 0;
-        *(u32 *)(axv + 0x1AA) = g_silence;
-        if (voice->unk2C[0] == 16) {
-            *(u32 *)(axv + 0x1AA) >>= 1;
+        /* one-shot: the DSP still needs a loop address, so point it at silence */
+        axv->loopFlag = 0;
+        axv->loopAddress = g_silence;
+        if (voice->bits == 16) {
+            axv->loopAddress >>= 1;
         }
     }
-    *(u32 *)(axv + 0x1C) |= 0x1000;
-    *(u16 *)(axv + 0x140) = 0;
-    *(u16 *)(axv + 0x142) = 2;
-    *(u32 *)(axv + 0x1DE) = (1.0f / 48000.0f) * ((f32)voice->rate * (f32)voice->pitch);
-    *(u16 *)(axv + 0x1E2) = 0;
-    if (voice->unk54) {
-        *(u16 *)(axv + 0x1E4) = 0;
-        *(u16 *)(axv + 0x1E6) = 0;
-        *(u16 *)(axv + 0x1E8) = 0;
-        *(u16 *)(axv + 0x1EA) = 0;
-        *(u32 *)(axv + 0x1C) |= 0x40000 | 1;
+    axv->sync |= AX_SYNC_ADDR;
+    axv->srcSelect = 0;
+    axv->coefSelect = 2;
+    axv->ratio = (1.0f / 48000.0f) * ((f32)voice->rate * (f32)voice->pitch);
+    axv->currentAddressFrac = 0;
+    if (voice->fresh) {
+        axv->lastSamples[0] = 0;
+        axv->lastSamples[1] = 0;
+        axv->lastSamples[2] = 0;
+        axv->lastSamples[3] = 0;
+        axv->sync |= AX_SYNC_SRC | AX_SYNC_SELECT;
     } else {
-        *(u32 *)(axv + 0x1C) |= 0x80000 | 1;
+        axv->sync |= AX_SYNC_RATIO | AX_SYNC_SELECT;
     }
-    if (voice->kind) {
-        *(u16 *)(axv + 0x144) = 0x203;
+    if (voice->kind != VOICE_KIND_SONG) {
+        axv->mixerCtrl = 0x203;
     } else {
-        *(u16 *)(axv + 0x144) = 0x13;
+        axv->mixerCtrl = 0x13;
     }
-    *(u16 *)(axv + 0x152) = 0;
-    *(u16 *)(axv + 0x156) = 0;
-    *(u16 *)(axv + 0x15A) = 0;
-    *(u16 *)(axv + 0x15E) = 0;
-    *(u32 *)(axv + 0x1C) |= 2;
-    *(u16 *)(axv + 0x146) = 1;
-    *(u32 *)(axv + 0x1C) |= 4;
-    voice->unk54 = 0;
-    voice->state = 1;
+    axv->vAuxAL = 0;
+    axv->vAuxAR = 0;
+    axv->vAuxBL = 0;
+    axv->vAuxBR = 0;
+    axv->sync |= AX_SYNC_MIXERCTRL;
+    axv->state = 1;
+    axv->sync |= AX_SYNC_STATE;
+    voice->fresh = 0;
+    voice->state = VOICE_STATE_PLAYING;
     OSRestoreInterrupts(level);
 }
 
 
-void SetVoiceState_(VoiceHW *voice, s32 state) {
+void SetVoiceState_(Voice *voice, s32 state) {
     s32 level;
     s32 level2;
 
@@ -281,7 +210,7 @@ void SetVoiceState_(VoiceHW *voice, s32 state) {
     case 3:
         level = OSDisableInterrupts();
         voice->state = 0;
-        voice->id = 0xFE;
+        voice->owner = VOICE_OWNER_FREED;
         if (GETP(voice->axv) != NULL) {
             level2 = OSDisableInterrupts();
             if (GETP(voice->axv)->priority != 0) {
@@ -297,17 +226,17 @@ void SetVoiceState_(VoiceHW *voice, s32 state) {
     case 2:
         voice->state = 2;
         GETP(voice->axv)->state = 0;
-        GETP(voice->axv)->sync |= 4;
+        GETP(voice->axv)->sync |= AX_SYNC_STATE;
         break;
     case 1:
         voice->state = 1;
         GETP(voice->axv)->state = 1;
-        GETP(voice->axv)->sync |= 4;
+        GETP(voice->axv)->sync |= AX_SYNC_STATE;
         break;
     }
 }
 
-void SetVoicePriority_(VoiceHW *voice) {
+void SetVoicePriority_(Voice *voice) {
     s32 level;
 
     level = OSDisableInterrupts();
@@ -316,16 +245,16 @@ void SetVoicePriority_(VoiceHW *voice) {
 }
 
 void DestroyVoice_(AXVPB *axv) {
-    VoiceHW *voice;
+    Voice *voice;
     s32 level;
 
     level = OSDisableInterrupts();
-    voice = GETP(axv->userContext);
-    if (voice->kind == 0) {
+    voice = (Voice *)PTR(axv->userContext);
+    if (voice->kind == VOICE_KIND_SONG) {
         DestroySongVoice(voice);
     }
     voice->state = 0;
-    voice->id = 0xFD;
+    voice->owner = VOICE_OWNER_STOLEN;
     SETP(voice->axv, NULL);
     SETP(voice->next, g_pFree);
     g_pFree = voice;
@@ -334,7 +263,7 @@ void DestroyVoice_(AXVPB *axv) {
 
 void ProcessVoice_(void) {
     extern const u16 g_volTab[];
-    VoiceHW *voice;
+    Voice *voice;
     AXVPB *axv;
     s32 i;
     s32 level2;
@@ -356,12 +285,12 @@ void ProcessVoice_(void) {
         }
         axv = GETP(voice->axv);
         if (axv->state == 0) {
-            if (voice->kind == 0) {
+            if (voice->kind == VOICE_KIND_SONG) {
                 DestroySongVoice(voice);
             }
             level = OSDisableInterrupts();
             voice->state = 0;
-            voice->id = 0xFE;
+            voice->owner = VOICE_OWNER_FREED;
             if (GETP(voice->axv) != NULL) {
                 level2 = OSDisableInterrupts();
                 if (GETP(voice->axv)->priority != 0) {
@@ -377,61 +306,65 @@ void ProcessVoice_(void) {
         }
 
         axv->sync |= 0x200;
-        if (voice->unk5A < 0) {
-            voice->unk5A = (voice->vol * g_volTab[g_active]) >> 15;
-            axv->ve = voice->unk5A;
+        if (voice->curEnvVol < 0) {
+            voice->curEnvVol = (voice->vol * g_volTab[g_active]) >> 15;
+            axv->ve = voice->curEnvVol;
             axv->veDelta = 0;
         } else {
-            steps = (((voice->vol * g_volTab[g_active]) >> 15) - voice->unk5A) / 160;
+            steps = (((voice->vol * g_volTab[g_active]) >> 15) - voice->curEnvVol) / 160;
             if (steps != 0) {
-                axv->ve = voice->unk5A;
+                axv->ve = voice->curEnvVol;
                 axv->veDelta = (u16)steps;
-                voice->unk5A += steps * 160;
+                voice->curEnvVol += steps * 160;
             } else {
-                voice->unk5A = (voice->vol * g_volTab[g_active]) >> 15;
-                axv->ve = voice->unk5A;
+                voice->curEnvVol = (voice->vol * g_volTab[g_active]) >> 15;
+                axv->ve = voice->curEnvVol;
                 axv->veDelta = 0;
             }
         }
 
-        if (voice->unk56 != 0) {
-            voice->unk56 = 0;
-            voice->unk64 = voice->unk60;
-            voice->unk66 = voice->unk62;
-            axv->vL = voice->unk60;
-            axv->vR = voice->unk62;
+        /* the ramps SetVoiceVol_ started took one frame: land on the targets */
+        if (voice->volRamp != 0) {
+            voice->volRamp = 0;
+            voice->curVolL = voice->volL;
+            voice->curVolR = voice->volR;
+            axv->vL = voice->volL;
+            axv->vR = voice->volR;
             axv->vDeltaL = 0;
             axv->vDeltaR = 0;
             axv->mixerCtrl &= ~0x8;
-            axv->sync |= 0x12;
+            axv->sync |= AX_SYNC_MIX | AX_SYNC_MIXERCTRL;
         }
 
-        if (voice->unk57 != 0) {
-            voice->unk57 = 0;
-            voice->unk6C = voice->unk68;
-            voice->unk6E = voice->unk6A;
-            if (voice->kind != 0) {
-                axv->vAuxBL = voice->unk68;
-                axv->vAuxBR = voice->unk6A;
-                axv->vAuxBDeltaL = 0;
-                axv->vAuxBDeltaR = 0;
+        if (voice->auxRamp != 0) {
+            voice->auxRamp = 0;
+            voice->curAuxL = voice->auxL;
+            voice->curAuxR = voice->auxR;
+            if (voice->kind != VOICE_KIND_SONG) {
+                axv->vAuxBL = voice->auxL;
+                axv->vAuxBR = voice->auxR;
+                axv->vDeltaAuxBL = 0;
+                axv->vDeltaAuxBR = 0;
                 axv->mixerCtrl &= ~0x800;
             } else {
-                axv->vAuxAL = voice->unk68;
-                axv->vAuxAR = voice->unk6A;
-                axv->vAuxADeltaL = 0;
-                axv->vAuxADeltaR = 0;
+                axv->vAuxAL = voice->auxL;
+                axv->vAuxAR = voice->auxR;
+                axv->vDeltaAuxAL = 0;
+                axv->vDeltaAuxAR = 0;
                 axv->mixerCtrl &= ~0x40;
             }
-            axv->sync |= 0x12;
+            axv->sync |= AX_SYNC_MIX | AX_SYNC_MIXERCTRL;
         }
     }
 }
 
-void SetVoiceVol_(u8 *v, u32 vol) {
+/* Sets the speaker volumes (and, for songs, the reverb send) from vol, the
+ * voice's own volume and its pan. Changes ramp over one AX frame (160
+ * samples); ProcessVoice_ lands them on the next frame. */
+void SetVoiceVol_(Voice *v, u32 vol) {
     extern s32 g_speakers;
     extern const u16 g_panTab[128];
-    u8 *axv;
+    AXVPB *axv;
     s32 pan;
     u32 amp;
     s32 l;
@@ -439,118 +372,110 @@ void SetVoiceVol_(u8 *v, u32 vol) {
     s16 dl;
     s16 dr;
 
-    axv = SLOT_LOAD(u8 *, (v + 0x50));
-    if (axv == (u8 *)0xFFFFFFFF) {
+    axv = GETP(v->axv);
+    if (axv == (AXVPB *)0xFFFFFFFF) {
         return;
     }
     pan = 0x40;
-    *(u32 *)(axv + 0x1C) &= ~0x10;
-    v[0x56] = 0;
-    v[0x57] = 0;
+    axv->sync &= ~AX_SYNC_MIX;
+    v->volRamp = 0;
+    v->auxRamp = 0;
     if (g_speakers >= 1) {
-        pan = ((*(u32 *)(v + 0x40) >> 9) & 0x7F) ^ 0x40;
+        pan = (((u32)v->pan >> 9) & 0x7F) ^ 0x40;
     }
     l = g_panTab[0x7F - pan];
     r = g_panTab[pan];
-    vol = *(u32 *)(v + 0x3C) * vol;
+    vol = v->mixVol * vol;
     amp = vol >> 15;
     l = (s32)(l * amp) >> 17;
     r = (s32)(r * amp) >> 17;
-    if (l != *(s16 *)(v + 0x64) || r != *(s16 *)(v + 0x66)) {
-        *(u32 *)(axv + 0x1C) |= 0x12;
-        if (*(s16 *)(v + 0x64) < 0) {
+    if (l != v->curVolL || r != v->curVolR) {
+        axv->sync |= AX_SYNC_MIX | AX_SYNC_MIXERCTRL;
+        if (v->curVolL < 0) {
             dl = 0;
-            v[0x56] = 1;
+            v->volRamp = 1;
             dr = 0;
         } else {
-            dl = (l - *(s16 *)(v + 0x64)) / 160;
-            dr = (r - *(s16 *)(v + 0x66)) / 160;
+            dl = (l - v->curVolL) / 160;
+            dr = (r - v->curVolR) / 160;
         }
-        *(s16 *)(v + 0x60) = l;
-        *(s16 *)(v + 0x62) = r;
+        v->volL = l;
+        v->volR = r;
         if (dl | dr) {
-            v[0x56] = 1;
-            *(s16 *)(axv + 0x14C) = dl;
-            *(s16 *)(axv + 0x150) = dr;
-            *(u16 *)(axv + 0x144) |= 8;
+            v->volRamp = 1;
+            axv->vDeltaL = dl;
+            axv->vDeltaR = dr;
+            axv->mixerCtrl |= 8;
         } else {
-            *(s16 *)(axv + 0x14A) = l;
-            *(s16 *)(axv + 0x14E) = r;
-            *(u16 *)(axv + 0x144) &= ~8;
+            axv->vL = l;
+            axv->vR = r;
+            axv->mixerCtrl &= ~8;
         }
     }
-    if (v[0] == 1) {
+    if (v->kind == VOICE_KIND_SFX) {
         return;
     }
-    l = (u32)(l * *(s32 *)(v + 0x48)) >> 15;
-    r = (u32)(r * *(s32 *)(v + 0x48)) >> 15;
-    if (l == *(s16 *)(v + 0x6C) && r == *(s16 *)(v + 0x6E)) {
+    l = (u32)(l * v->auxVol) >> 15;
+    r = (u32)(r * v->auxVol) >> 15;
+    if (l == v->curAuxL && r == v->curAuxR) {
         return;
     }
-    *(u32 *)(axv + 0x1C) |= 0x12;
-    if (*(s16 *)(v + 0x6C) < 0) {
+    axv->sync |= AX_SYNC_MIX | AX_SYNC_MIXERCTRL;
+    if (v->curAuxL < 0) {
         dl = 0;
-        v[0x57] = 1;
+        v->auxRamp = 1;
         dr = 0;
     } else {
-        dl = (l - *(s16 *)(v + 0x6C)) / 160;
-        dr = (r - *(s16 *)(v + 0x6E)) / 160;
+        dl = (l - v->curAuxL) / 160;
+        dr = (r - v->curAuxR) / 160;
     }
-    *(s16 *)(v + 0x68) = l;
-    *(s16 *)(v + 0x6A) = r;
+    v->auxL = l;
+    v->auxR = r;
     if (dl | dr) {
-        v[0x57] = 1;
-        if (v[0]) {
-            *(s16 *)(axv + 0x15C) = dl;
-            *(s16 *)(axv + 0x160) = dr;
-            *(u16 *)(axv + 0x144) |= 0x800;
+        v->auxRamp = 1;
+        if (v->kind != VOICE_KIND_SONG) {
+            axv->vDeltaAuxBL = dl;
+            axv->vDeltaAuxBR = dr;
+            axv->mixerCtrl |= 0x800;
         } else {
-            *(s16 *)(axv + 0x154) = dl;
-            *(s16 *)(axv + 0x158) = dr;
-            *(u16 *)(axv + 0x144) |= 0x40;
+            axv->vDeltaAuxAL = dl;
+            axv->vDeltaAuxAR = dr;
+            axv->mixerCtrl |= 0x40;
         }
-    } else if (v[0]) {
-        *(s16 *)(axv + 0x15A) = l;
-        *(s16 *)(axv + 0x15E) = r;
-        *(u16 *)(axv + 0x144) &= ~0x800;
+    } else if (v->kind != VOICE_KIND_SONG) {
+        axv->vAuxBL = l;
+        axv->vAuxBR = r;
+        axv->mixerCtrl &= ~0x800;
     } else {
-        *(s16 *)(axv + 0x152) = l;
-        *(s16 *)(axv + 0x156) = r;
-        *(u16 *)(axv + 0x144) &= ~0x40;
+        axv->vAuxAL = l;
+        axv->vAuxAR = r;
+        axv->mixerCtrl &= ~0x40;
     }
 }
 
-s8 SetVoiceRate_(VoiceHW *voice) {
+s8 SetVoiceRate_(Voice *voice) {
     u32 rate = (1.0f / 48000.0f) * ((f32)voice->rate * (f32)voice->pitch);
 
     if (rate <= 0x2EE00 && rate >= 0x60) {
-        *(u32 *)&GETP(voice->axv)->ratioHi = rate;
-        GETP(voice->axv)->sync |= 0x80000;
+        GETP(voice->axv)->ratio = rate;
+        GETP(voice->axv)->sync |= AX_SYNC_RATIO;
         return 1;
     }
     return 0;
 }
-s32 SetVoiceOffset_(VoiceHW *voice, u32 offset) {
+s32 SetVoiceOffset_(Voice *voice, u32 offset) {
     AXVPB *axv;
 
     if (offset < voice->length) {
         axv = GETP(voice->axv);
-        *(u32 *)&axv->currentAddressHi = voice->addr + offset;
-        axv->sync |= 0x1000;
+        axv->currentAddress = voice->addr + offset;
+        axv->sync |= AX_SYNC_ADDR;
         return 1;
     }
     return 0;
 }
 
 void SetReverb_(u32 idx, u32 output, u32 feedback, u32 delay) {
-    typedef struct {
-        u8 unk0[0x3C];
-        u32 delay[3];
-        u32 feedback[3];
-        u32 output[3];
-    } AXFX_DELAY;
-    #define g_reverb ((AXFX_DELAY *)(void *)&g_reverb)
-
     if (delay < 10) {
         delay = 10;
     }
@@ -569,6 +494,5 @@ void SetReverb_(u32 idx, u32 output, u32 feedback, u32 delay) {
         g_reverb[1].output[1] = 100;
         AXFXDelaySettings(&g_reverb[0]);
     }
-#undef g_reverb
 }
 

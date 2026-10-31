@@ -1,38 +1,9 @@
 #include "common.h"
-
-typedef struct MIDI_VOICE
-{
-    u8 type;
-    u8 channel;
-    u8 byte2;
-    u8 byte3;
-    PTR32(struct MIDI_VOICE) next;
-    u8 pad_8_F[8];
-    PTR32(struct MIDI_INST) prog;
-    u8 priority;
-    u8 state;
-    u8 state2;
-    s8 byte17;
-    u32 rate;
-    u32 count;
-    u32 field_20;
-    u32 field_24;
-    u32 field_28;
-    u8 byte2C;
-    u8 pad_2D_30[3];
-    u32 noteRate;
-    u32 pitch2;
-    s32 field_38;
-    s32 field_3C;
-    s32 field_40;
-    s32 field_44;
-    s32 field_48;
-    u8 pad_4C_50[4];
-} MIDI_VOICE;
+#include "Voice.h"
 
 typedef struct MIDI_CHN
 {
-    PTR32(struct MIDI_VOICE) voice;
+    PTR32(struct Voice) voice;
     s8 field_4;
     u8 field_5;
     u8 prog;
@@ -70,21 +41,22 @@ u8 g_song[0x24];
 
 typedef struct MIDI_INST
 {
-    u32 field_0;
-    u32 field_4;
-    u32 field_8;
-    u32 field_C;
-    u8 field_10;
-    u8 field_11;
-    u8 field_12;
-    u8 field_13;
-    u8 prog;
-    u8 field_15;
-    u8 lo;
-    u8 hi;
-    u16 field_18;
-    u16 field_1A;
-    u16 field_1C;
+    u32 addr;                   /* 0x00 sample, as SFX */
+    u32 length;                 /* 0x04 */
+    u32 loop;                   /* 0x08 */
+    u32 rate;                   /* 0x0C at the base note (GetNoteRate_) */
+    u8 field_10;                /* 0x10 */
+    u8 bits;                    /* 0x11 */
+    u8 field_12;                /* 0x12 */
+    u8 field_13;                /* 0x13 */
+    u8 prog;                    /* 0x14 */
+    u8 field_15;                /* 0x15 */
+    u8 lo;                      /* 0x16 note range */
+    u8 hi;                      /* 0x17 */
+    u16 attack;                 /* 0x18 envelope rates (GetEnvRate), and the sustain level */
+    u16 decay;                  /* 0x1A */
+    u16 sustain;                /* 0x1C */
+    u16 release;                /* 0x1E */
 } MIDI_INST;
 
 typedef struct MIDI_SND
@@ -141,7 +113,6 @@ void CreateMIDI(u8 *hdr, u8 *snd)
     extern s32 g_musicState;
     extern void (*DestroySongVoice)();
     extern s32 __OSCurrHeap;
-    void DestroyMIDIVoice();
     u32 i;
     s32 j;
 
@@ -203,7 +174,7 @@ void DestroyMIDI(void)
 
 
 s32 SetMIDIState(s32 state) {
- typedef struct MIDI_VOICE *MV; typedef struct MIDI_CHN MC;
+ typedef struct Voice *MV; typedef struct MIDI_CHN MC;
  extern void *g_pHdr; extern s32 g_musicState; extern u32 g_trkOn, g_trkOff;
  extern void (*volatile SongUpdate)(void);  /* port: a host function pointer (Audio.c) */
  extern u8 g_song[0x24];
@@ -261,7 +232,7 @@ void SetGVol(MIDI_CHN *chn);
 void SetMIDIVol(void)
 {
     MIDI_CHN *chn;
-    MIDI_VOICE *voice;
+    Voice *voice;
     s32 i;
 
     for (chn = g_chn, i = 0x10; i != 0; chn++, i--)
@@ -280,7 +251,7 @@ void SetMIDIPitch(u32 pitch)
 {
     u32 i;
     MIDI_CHN *chn;
-    MIDI_VOICE *voice;
+    Voice *voice;
     extern u8 g_song[0x24];
 
     *(u32 *)(g_song + 0x20) = pitch;
@@ -289,7 +260,7 @@ void SetMIDIPitch(u32 pitch)
         chn->pitch = Mul16_(GetPitchWheel_(chn->note, chn->count), pitch);
         for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
         {
-            *(s32 *)((u8 *)voice + 0x34) = chn->pitch;
+            voice->pitch = chn->pitch;
             SetVoiceRate_(voice);
         }
     }
@@ -383,13 +354,12 @@ void ProcessMIDI(s32 time)
     extern u8 g_priority[0x10];
     extern u8 g_musicTitle[0x20];
     extern void *g_pHdr;
-    MIDI_VOICE *DestroyVoice(MIDI_VOICE *voice);
-    MIDI_VOICE *GetVoice_(u8 type, u32 priority);
+    Voice *DestroyVoice(Voice *voice);
     MIDI_CHN *chn;
     u32 mask;
     u32 i;
     MIDI_INST *inst;
-    MIDI_VOICE *voice;
+    Voice *voice;
     u32 rate;
     u8 *p;
 
@@ -403,53 +373,53 @@ void ProcessMIDI(s32 time)
         voice = GETP(chn->voice);
         while (voice != NULL)
         {
-            if (voice->state2 == 3)
+            if (voice->envStage == 3)
             {
                 voice = GETP(voice->next);
                 continue;
             }
-            voice->count += Mul16_(voice->rate, time);
-            switch (voice->state2)
+            voice->envCount += Mul16_(voice->envRate, time);
+            switch (voice->envStage)
             {
             case 1:
-                if (voice->count < 0x10000)
+                if (voice->envCount < 0x10000)
                 {
-                    voice->field_38 = voice->count >> 1;
+                    voice->vol = voice->envCount >> 1;
                     break;
                 }
-                rate = GetEnvRate(GETP(voice->prog)->field_1A);
+                rate = GetEnvRate(GETP(voice->inst)->decay);
                 if (rate != -1U)
                 {
-                    voice->rate = rate;
-                    voice->count = 0;
-                    voice->field_38 = 0x7FFF;
-                    voice->state2 = 2;
+                    voice->envRate = rate;
+                    voice->envCount = 0;
+                    voice->vol = 0x7FFF;
+                    voice->envStage = 2;
                     break;
                 }
                 goto sustain;
             case 2:
-                if (voice->count < 0x10000)
+                if (voice->envCount < 0x10000)
                 {
-                    voice->field_38 = g_envelope[voice->count >> 8];
-                    if (voice->field_38 > GETP(voice->prog)->field_1C)
+                    voice->vol = g_envelope[voice->envCount >> 8];
+                    if (voice->vol > GETP(voice->inst)->sustain)
                     {
                         break;
                     }
                 }
             sustain:
-                voice->field_38 = GETP(voice->prog)->field_1C;
-                if (voice->field_38 > 0)
+                voice->vol = GETP(voice->inst)->sustain;
+                if (voice->vol > 0)
                 {
-                    voice->state2 = 3;
+                    voice->envStage = 3;
                     break;
                 }
                 voice = DestroyVoice(voice);
                 continue;
             case 4:
-                if (voice->count < 0x10000)
+                if (voice->envCount < 0x10000)
                 {
-                    voice->field_38 = g_envelope[voice->count >> 8];
-                    if (voice->field_38 > 0)
+                    voice->vol = g_envelope[voice->envCount >> 8];
+                    if (voice->vol > 0)
                     {
                         break;
                     }
@@ -487,14 +457,14 @@ restart:
             {
             case 8:
             noteoff:
-                for (voice = GETP(chn->voice); voice != NULL && voice->byte2 != (s8)*p; voice = GETP(voice->next))
+                for (voice = GETP(chn->voice); voice != NULL && voice->note != (s8)*p; voice = GETP(voice->next))
                 {
                 }
                 if (voice != NULL)
                 {
                     if (chn->field_1F)
                     {
-                        voice->byte17 = 1;
+                        voice->released = 1;
                     }
                     else
                     {
@@ -538,7 +508,7 @@ restart:
                 }
                 if (inst != NULL)
                 {
-                    for (voice = GETP(chn->voice); voice != NULL && voice->byte2 != (s8)*p; voice = GETP(voice->next))
+                    for (voice = GETP(chn->voice); voice != NULL && voice->note != (s8)*p; voice = GETP(voice->next))
                     {
                     }
                     if (voice == NULL)
@@ -551,56 +521,56 @@ restart:
                         }
                         SETP(voice->next, GETP(chn->voice));
                         SETP(chn->voice, voice);
-                        voice->pitch2 = chn->pitch;
+                        voice->pitch = chn->pitch;
                     }
                     else
                     {
-                        if (voice->state2 == 4)
+                        if (voice->envStage == 4)
                         {
                             voice->priority += 15;
                             SetVoicePriority_(voice);
                         }
-                        if (GETP(voice->prog) == inst)
+                        if (GETP(voice->inst) == inst)
                         {
                             goto start;
                         }
                     }
-                    voice->channel = g_song[0x1D];
-                    voice->byte2 = *p;
-                    voice->byte2C = inst->field_11;
-                    voice->field_20 = inst->field_0;
-                    voice->field_24 = inst->field_8;
-                    voice->field_28 = inst->field_4;
-                    SETP(voice->prog, inst);
+                    voice->owner = g_song[0x1D];
+                    voice->note = *p;
+                    voice->bits = inst->bits;
+                    voice->addr = inst->addr;
+                    voice->loop = inst->loop;
+                    voice->length = inst->length;
+                    SETP(voice->inst, inst);
                 start:
-                    voice->noteRate = GetNoteRate_(inst->field_C, *p);
-                    rate = GetEnvRate(inst->field_18);
+                    voice->rate = GetNoteRate_(inst->rate, *p);
+                    rate = GetEnvRate(inst->attack);
                     if (rate != -1U)
                     {
-                        voice->state2 = 1;
-                        voice->field_38 = 0;
+                        voice->envStage = 1;
+                        voice->vol = 0;
                     }
                     else
                     {
-                        rate = GetEnvRate(inst->field_1A);
+                        rate = GetEnvRate(inst->decay);
                         if (rate != -1U)
                         {
-                            voice->state2 = 2;
-                            voice->field_38 = 0x7FFF;
+                            voice->envStage = 2;
+                            voice->vol = 0x7FFF;
                         }
                         else
                         {
-                            voice->state2 = 3;
+                            voice->envStage = 3;
                             rate = 0;
-                            voice->field_38 = inst->field_1C;
+                            voice->vol = inst->sustain;
                         }
                     }
-                    voice->count = 0;
-                    voice->rate = rate;
-                    voice->field_3C = (s8)p[1] << 8;
-                    voice->field_40 = chn->field_C;
-                    voice->field_44 = -0x7FFF;
-                    voice->field_48 = chn->field_10;
+                    voice->envCount = 0;
+                    voice->envRate = rate;
+                    voice->mixVol = (s8)p[1] << 8;
+                    voice->pan = chn->field_C;
+                    voice->span = -0x7FFF;
+                    voice->auxVol = chn->field_10;
                     StartVoice_(voice);
                     SetVoiceVol_(voice, chn->vol);
                 }
@@ -642,7 +612,7 @@ restart:
                     {
                         for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                         {
-                            if (voice->byte17)
+                            if (voice->released)
                             {
                                 ReleaseMIDIVoice(voice);
                             }
@@ -654,7 +624,7 @@ restart:
                     chn->field_10 = (s8)*p << 8;
                     for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                     {
-                        voice->field_48 = chn->field_10;
+                        voice->auxVol = chn->field_10;
                     }
                     mask |= 1 << g_song[0x1D];
                     break;
@@ -694,7 +664,7 @@ restart:
                     {
                         for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                         {
-                            if (voice->byte17)
+                            if (voice->released)
                             {
                                 ReleaseMIDIVoice(voice);
                             }
@@ -710,7 +680,7 @@ restart:
                     {
                         for (; voice != NULL; voice = GETP(voice->next))
                         {
-                            voice->byte17 = 1;
+                            voice->released = 1;
                         }
                     }
                     else
@@ -733,7 +703,7 @@ restart:
                 p += 2;
                 for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
                 {
-                    voice->pitch2 = chn->pitch;
+                    voice->pitch = chn->pitch;
                     SetVoiceRate_(voice);
                 }
                 break;
@@ -831,22 +801,22 @@ void SetGVol(MIDI_CHN *chn)
 }
 
 
-void ReleaseMIDIVoice(void *voice)
+void ReleaseMIDIVoice(Voice *voice)
 {
     u32 rate;
 
-    if (*(u8 *)((u8 *)voice + 0x16) != 4)
+    if (voice->envStage != 4)
     {
-        *(u8 *)((u8 *)voice + 0x16) = 4;
-        *(u8 *)((u8 *)voice + 0x17) = 0;
-        rate = GetEnvRate(*(u16 *)((u8 *)PTR((*(u32 *)((u8 *)voice + 0x10))) + 0x1E));
+        voice->envStage = 4;
+        voice->released = 0;
+        rate = GetEnvRate(GETP(voice->inst)->release);
         if (rate + 0x10000 == 0xFFFF)
         {
             rate = 0;
-            *(s32 *)((u8 *)voice + 0x1C) = 0x10000;
+            voice->envCount = 0x10000;
         }
-        *(u32 *)((u8 *)voice + 0x18) = rate;
-        *(u8 *)((u8 *)voice + 0x14) -= 15;
+        voice->envRate = rate;
+        voice->priority -= 15;
         SetVoicePriority_(voice);
     }
 }
@@ -854,9 +824,9 @@ void ReleaseMIDIVoice(void *voice)
 
 void ChannelOff(void *chn)
 {
-    void *v;
+    Voice *v;
 
-    for (v = SLOT_LOAD(void *, chn); v != NULL; v = SLOT_LOAD(void *, ((u8 *)v + 4)))
+    for (v = GETP(((MIDI_CHN *)chn)->voice); v != NULL; v = GETP(v->next))
     {
         ReleaseMIDIVoice(v);
     }
@@ -865,14 +835,14 @@ void ChannelOff(void *chn)
 
 
 
-void DestroyMIDIVoice(MIDI_VOICE *voice)
+void DestroyMIDIVoice(Voice *voice)
 {
-    MIDI_VOICE *v;
+    Voice *v;
 
-    v = GETP(g_chn[voice->channel].voice);
+    v = GETP(g_chn[voice->owner].voice);
     if (v == voice)
     {
-        SETP(g_chn[voice->channel].voice, GETP(voice->next));
+        SETP(g_chn[voice->owner].voice, GETP(voice->next));
     }
     else
     {
@@ -882,18 +852,18 @@ void DestroyMIDIVoice(MIDI_VOICE *voice)
         SETP(v->next, GETP(voice->next));
     }
     voice->state = 0;
-    voice->channel = 0xFF;
+    voice->owner = 0xFF;
 }
-MIDI_VOICE *DestroyVoice(MIDI_VOICE *voice)
+Voice *DestroyVoice(Voice *voice)
 {
-    MIDI_VOICE *next;
-    MIDI_VOICE *v;
+    Voice *next;
+    Voice *v;
 
     next = GETP(voice->next);
-    v = GETP(g_chn[voice->channel].voice);
+    v = GETP(g_chn[voice->owner].voice);
     if (v == voice)
     {
-        SETP(g_chn[voice->channel].voice, next);
+        SETP(g_chn[voice->owner].voice, next);
     }
     else
     {
@@ -1009,7 +979,7 @@ void JumpToMarker(void)
     extern u32 g_trkOn;
     extern u32 g_trkOff;
     MIDI_CHN *chn;
-    MIDI_VOICE *voice;
+    Voice *voice;
     u32 i;
     u32 rate;
     u16 env;
@@ -1041,11 +1011,11 @@ void JumpToMarker(void)
     {
         for (voice = GETP(chn->voice); voice != NULL; voice = GETP(voice->next))
         {
-            if (voice->state2 != 4)
+            if (voice->envStage != 4)
             {
-                voice->state2 = 4;
-                voice->byte17 = 0;
-                env = *(u16 *)((u8 *)GETP(voice->prog) + 0x1E);
+                voice->envStage = 4;
+                voice->released = 0;
+                env = GETP(voice->inst)->release;
                 if (env != 0)
                 {
                     rate = -1U / (u32)(env * 0x3E8);
@@ -1056,10 +1026,10 @@ void JumpToMarker(void)
                 }
                 if (rate + 0x10000 == 0xFFFF)
                 {
-                    voice->count = 0x10000;
+                    voice->envCount = 0x10000;
                     rate = 0;
                 }
-                voice->rate = rate;
+                voice->envRate = rate;
                 voice->priority -= 15;
                 SetVoicePriority_(voice);
             }
