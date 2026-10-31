@@ -5,10 +5,13 @@
 
 struct AttachParams;
 struct AttachThing;
+struct BlastInfo;
 struct Debris;
 struct DebrisPartParams;
 struct DestructibleParams;
 struct EmitterParams;
+struct EventSeq;
+struct EventSeqEmit;
 struct ParticleGX;
 struct ParticleInfo;
 struct ParticleSprite;
@@ -362,14 +365,14 @@ void Destructible_Release(Destructible *destructible);
 f32 GetBoundingBoxRadius(Vector4 *box, Vector4 *offset);
 
 /* EventSequence.c */
-void Blast_Action(u8 *blast, Vector4 *pos, u8 *source);
-void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel);
-void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel);
-void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out);
-u32 EventSeq_InCameraRange(u8 *seq, f32 range);
-s32 EventSeq_Init(u8 *seq, u8 *data);
-s32 EventSeq_Invalidate(void *arg0, u32 arg1, u32 arg2);
-s32 EventSeq_Move(u8 *seq);
+void Blast_Action(struct BlastInfo *blast, Vector4 *pos, Thing *source);
+void EventSeq_Advanced_GetInitData(struct EventSeqEmit *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel);
+void EventSeq_Advanced_GetInitData_NonDirectional(struct EventSeqEmit *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel);
+void EventSeq_Advanced_GetOffset(struct EventSeqEmit *emit, void *arg1, Vector4 *out);
+u32 EventSeq_InCameraRange(struct EventSeq *seq, f32 range);
+s32 EventSeq_Init(struct EventSeq *seq, DebrisParams *data);
+s32 EventSeq_Invalidate(struct EventSeq *seq, u32 start, u32 end);
+s32 EventSeq_Move(struct EventSeq *seq);
 void EventSeq_Release(void *arg0);
 
 /* ExtractKeys.c */

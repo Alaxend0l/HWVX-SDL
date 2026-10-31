@@ -32,7 +32,7 @@ typedef struct ParticleInfo {
     PTR32(void) anim;           /* 0x04 ParticleGXAnim / ParticleSpriteAnim */
     s32 lifeBase;               /* 0x08 ms */
     s32 lifeRange;              /* 0x0C */
-    u8 pad10[4];                /* 0x10 */
+    f32 range;                  /* 0x10 made only this near a camera (split screen: always), 0: anywhere */
     KeyTrack colorKeys;         /* 0x14 */
     u32 numDeathFx;             /* 0x1C effects (DebrisParams.debris) spawned when it dies */
     PTR32(u32) deathFx;         /* 0x20 */
