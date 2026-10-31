@@ -4,6 +4,7 @@
 #include "CarA.h"
 #include "World.h"
 #include "Trigger.h"
+#include "Nav.h"
 
 /* The AI scripts of a vehicle record, one per difficulty (CarAInfo 0x90). */
 #define CARINFO_AI_SCRIPTS(info) ((u32 *)((u8 *)(info) + 0x90))
@@ -445,12 +446,12 @@ s32 ActionVehicleChangeMode(u32 *action) {
 }
 
 
-/* action: { enabled, count, NavLink handles } */
+/* action: { enabled, count, NavPoint handles } */
 s32 ActionNavPointChangeMode(u32 *action) {
     u32 i;
 
     for (i = 0; i < action[1]; i++) {
-        ACTION_RECORD(NavLink, action[i + 2])->enabled = action[0];
+        ACTION_RECORD(NavPoint, action[i + 2])->enabled = action[0];
     }
     return 1;
 }

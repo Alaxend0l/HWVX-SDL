@@ -1519,7 +1519,7 @@ void CarA_GetTargetPos(CarA *car, Vector4 *pos)
         *pos = car->orientedBox.center;
         break;
     case 1:
-        *pos = ((ConvexHull *)GETP(car->hull))->point;
+        *pos = ((OConvexHull *)GETP(car->hull))->pos;
         break;
     }
 }

@@ -25,19 +25,27 @@ typedef struct TileCar {
     f32 rotY;                   /* 0x14 */
     f32 rotZ;                   /* 0x18 */
     u8 pad1C[8];                /* 0x1C */
-    PTR32(struct CarAInfo) info; /* 0x24 the vehicle; AI scripts per difficulty at 0x90 */
+    union {
+        PTR32(struct CarAInfo) info;          /* 0x24 the vehicle; AI scripts per difficulty at 0x90 */
+        PTR32(struct AIScriptSet) aiScripts;  /*      the same, as the AI reads it */
+    };
     PTR32(struct CarA) car;     /* 0x28 the spawned car, NULL if none */
     u32 mode;                   /* 0x2C last ActionVehicleChangeMode mode */
     u32 vehicle;                /* 0x30 */
-    u8 unk34;                   /* 0x34 nonzero: not spawned by mode 1/10; AIPlayerDesc.unkC */
-    u8 port;                    /* 0x35 1-4: human player slot */
+    union {
+        u8 unk34;               /* 0x34 nonzero: not spawned by mode 1/10; AIPlayerDesc.unkC */
+        u8 dynamic;             /*      AIPlayerParams.dynamic */
+    };
+    u8 port;                    /* 0x35 1-4: human player slot; AI cars spawn only when > 4 */
     u8 pad36[2];                /* 0x36 */
     f32 nearDist;               /* 0x38 AI ranges */
     f32 farDist;                /* 0x3C */
     u32 scripts[4];             /* 0x40 AI script per difficulty, 0: the vehicle's */
     u8 pad50[4];                /* 0x50 */
     PTR32(ItemRecord) item;     /* 0x54 wildcard the car starts with, NULL: none */
-    u8 pad58[8];                /* 0x58 */
+    u8 pad58[4];                /* 0x58 */
+    s8 respawn;                 /* 0x5C freed (car = NULL) when its AI car is removed */
+    u8 pad5D[3];                /* 0x5D */
 } TileCar;
 
 WORLD_ASSERT(TileCar, info, 0x24);
@@ -50,10 +58,20 @@ _Static_assert(sizeof(TileCar) == 0x60, "TileCar size");
 
 /* A creature placed in the world (World_GetTileCreature). */
 typedef struct TileCreature {
-    u8 pad0[0x1C];              /* 0x00 */
-    u32 thing;                  /* 0x1C the spawned creature (handle), 0: none */
-    u32 mode;                   /* 0x20 1: alive (ActionCreatureChangeMode) */
-    u8 pad24[0x1C];             /* 0x24 */
+    Vector4 pos;                /* 0x00 */
+    u8 pad10[4];                /* 0x10 */
+    f32 angle;                  /* 0x14 */
+    PTR32(void) info;           /* 0x18 CreatureInfo */
+    union {
+        u32 thing;              /* 0x1C the spawned creature (handle), 0: none */
+        PTR32(void) creature;   /*      the same, as a pointer field */
+    };
+    union {
+        u32 mode;               /* 0x20 1: alive (ActionCreatureChangeMode) */
+        u32 spawnable;          /*      as the AI reads it */
+    };
+    u32 scripts[4];             /* 0x24 per difficulty, 0: CreatureInfo.aiScripts */
+    u8 pad34[0xC];              /* 0x34 */
 } TileCreature;
 
 WORLD_ASSERT(TileCreature, thing, 0x1C);
@@ -194,7 +212,7 @@ enum {
 
 /* ThingRecord byte 0x07 (common.h pad07): the object is static scenery, drawn
  * by RenderQuadrant instead of being spawned as a thing. */
-#define THINGRECORD_IS_STATIC(rec) ((rec)->pad07)
+#define THINGRECORD_IS_STATIC(rec) ((rec)->isStatic)
 
 /* A placed object of a quadrant: drawn directly when its record is static,
  * otherwise spawned as a destructible (type 3) while the quadrant is active.

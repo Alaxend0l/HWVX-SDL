@@ -3,39 +3,50 @@
 #ifndef GAME_PROTOS_H
 #define GAME_PROTOS_H
 
+struct AttachParams;
+struct AttachThing;
+struct Debris;
+struct DebrisPartParams;
+struct DestructibleParams;
 struct ParticleGX_MacroStep_t;
 struct ParticleGX_Move_t;
+struct PhysicalObject;
+struct Projectile;
+struct ProjectileParams;
+struct RadarBlip;
+struct RadarBlipParams;
 struct SlaveTrigger;
 
 
 /* AI.c */
-void AI_AddEvent(void *arg0);
-f32 AI_AngleToTarget(u8 *ai, Vector4 *target);
-void AI_AsyncHeartbeat(void *arg0);
+void AI_AddEvent(void *arg);
+f32 AI_AngleToTarget(void *thing, Vector4 *target);
+void AI_AsyncHeartbeat(AIPlayer *ai);
 void AI_AsyncProcess_80006C80(void);
 s8 AI_CheckAngleInRange(f32 angle, f32 center, f32 range);
 void AI_Create(void);
-s32 AI_Heartbeat(u8 *ai);
+s32 AI_Heartbeat(AIPlayer *ai);
 void AI_Init(void *player, s32 arg1);
 s32 AI_ProcessEvent(void);
-void AI_Reset(void *arg0);
-u32 AI_UpdateTimer(u32 *arg0);
+void AI_Reset(AIPlayer *ai);
+u32 AI_UpdateTimer(u32 *timer);
 
 /* AI_CarA.c */
-void AI_Car_AsyncHeartbeat(u8 *ai);
+void AI_Car_AsyncHeartbeat(AICar *ai);
 void AI_Car_AsyncProcess(void);
-void AI_Car_AsyncScanDestructibles(u8 *car);
-s32 AI_Car_CheckIfStuck(u8 *ai);
-s32 AI_Car_CheckLocalStats(u8 *ai, u8 *node);
-s32 AI_Car_DetermineState(u8 *car);
-s8 AI_Car_DetermineStateBranch(u8 *car, void *arg, s8 skip);
-s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot);
-void AI_Car_DriveToTarget(u8 *ai, Vector4 *target, f32 speed);
-s8 AI_Car_EnterState(u8 *ai, u8 *branch, s32 slot);
-void AI_Car_Heartbeat(u8 *ai);
-void AI_Car_Init(u8 *car, u8 *params);
-s32 AI_Car_PrepareNavPath(u8 *car, s32 from, s32 dest);
-void AI_Car_Reset(u8 *car);
+void AI_Car_AsyncScanDestructibles(AICar *ai);
+s32 AI_Car_CheckIfStuck(AICar *ai);
+s32 AI_Car_CheckLocalStats(AICar *ai, AIStateInfo *info);
+s32 AI_Car_DetermineState(AICar *ai);
+s8 AI_Car_DetermineStateBranch(AICar *ai, AIStateNode *state, s8 skip);
+s8 AI_Car_DetermineTarget(AICar *ai, AIStateSlot *branch, u8 level);
+void AI_Car_DriveToTarget(AICar *ai, Vector4 *target, f32 speed);
+s8 AI_Car_EnterState(AICar *ai, AIStateSlot *branch, s32 level);
+void AI_Car_Heartbeat(AICar *ai);
+void AI_Car_Init(AICar *ai, AIPlayerParams *params);
+s32 AI_Car_PrepareNavPath(AICar *ai, s32 from, s32 dest);
+void AI_Car_Reset(void *player);
+void AI_Car_ResetState(AICar *ai, AIStateNode *state);
 
 /* AI_Creature.c */
 void AI_Creature_AsyncHeartbeat(u8 *creature);
@@ -103,16 +114,17 @@ void TEST_AnimTraverseHeirarchyToMatricesWorld(Vector4 *quat, void *pos0, void *
 void WildcardState_Heartbeat(void *state, u8 *mtx, void *thing);
 
 /* AttachThing.c */
-void AttachGeometry_Draw(void *thing);
-s32 AttachGeometry_Move(void *arg0);
-void AttachThing_Draw(void *arg0);
-void AttachThing_DrawCorona(void *arg0);
-s32 AttachThing_Init(void *attach, void *data);
-s32 AttachThing_Invalidate(void *arg0, u32 arg1, u32 arg2);
-s32 AttachThing_Move(void *thing);
-void AttachThing_SlaveTransform(u8 *attach, Matrix4 *mtx);
-s32 RadarBlip_Init(void *blip, void *init);
-s32 RadarBlip_Move(void *blip);
+void AttachGeometry_Draw(struct AttachThing *attach);
+s32 AttachGeometry_Move(struct AttachThing *attach);
+void AttachThing_Draw(struct AttachThing *attach);
+void AttachThing_DrawCorona(struct AttachThing *attach);
+s32 AttachThing_Init(struct AttachThing *attach, struct AttachParams *data);
+s32 AttachThing_Invalidate(struct AttachThing *attach, u32 start, u32 end);
+s32 AttachThing_Move(struct AttachThing *attach);
+void AttachThing_SlaveTransform(struct AttachThing *attach, Matrix4 *mtx);
+void RadarBlip_Draw(struct RadarBlip *blip);
+s32 RadarBlip_Init(struct RadarBlip *blip, struct RadarBlipParams *init);
+s32 RadarBlip_Move(struct RadarBlip *blip);
 
 /* Audio.c */
 s8 Audio_Create(void);
@@ -190,33 +202,33 @@ s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info
 /* CarA.c */
 f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDist);
 void CarA_ComputeForces(CarA *car);
-void CarA_Draw(u8 *car);
+void CarA_Draw(CarA *car);
 void CarA_DrawReflection(void *thing);
-void CarA_DrawScript(u8 *car);
+void CarA_DrawScript(CarA *car);
 void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 impulse);
-void CarA_DynamicRotation(u8 *car, f32 dt);
+void CarA_DynamicRotation(CarA *car, f32 dt);
 void CarA_ExecuteCombo(CarA *car);
-void CarA_GetAngularVelocity(void *car, Vector4 *vel);
+void CarA_GetAngularVelocity(CarA *car, Vector4 *vel);
 void CarA_GetCameraOrientationInfo(CarA *car, u32 index, void *out);
-void CarA_GetInterfaceInfo(u8 *car, u8 *info);
-void CarA_GetInverseLocalInertiaTensor(void *arg0, void *arg1);
-f32 CarA_GetMass(u8 *car);
+void CarA_GetInterfaceInfo(CarA *car, u8 *info);
+void CarA_GetInverseLocalInertiaTensor(CarA *car, Vector4 *out);
+f32 CarA_GetMass(CarA *car);
 s32 CarA_GetNearestNavPoint(CarA *car);
-void * CarA_GetOrientedCollision(u8 *car);
-void * CarA_GetSurfaceScript(u8 *car);
-void CarA_GetTargetPos(u8 *car, Vector4 *pos);
-s32 CarA_Init(void *arg0, void *arg1);
+void * CarA_GetOrientedCollision(CarA *car);
+void * CarA_GetSurfaceScript(CarA *car);
+void CarA_GetTargetPos(CarA *car, Vector4 *pos);
+s32 CarA_Init(void *thing, void *arg1);
 void CarA_InitInverseBodyInertiaTensor(CarA *car);
-s32 CarA_Invalidate(void *arg0, u32 arg1, u32 arg2);
+s32 CarA_Invalidate(CarA *car, u32 start, u32 end);
 s32 CarA_Move(void *thing);
 s32 CarA_PreMove(void *thing);
 void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse);
 void CarA_ProcessForce(CarA *car, Vector4 *pos, Vector4 *dir, f32 scale);
 void CarA_ProcessImpulse(void *thing, Vector4 *normal, Vector4 *pos, Vector4 *pointVel, f32 restitution);
 s8 CarA_ProcessItemPickup(CarA *car, void *thing);
-void CarA_Release(u8 *car);
-void CarA_SetSlavePlayers(u8 *car);
-f32 CarA_Transmission_GetTorqueAtWheels(u8 *car);
+void CarA_Release(CarA *car);
+void CarA_SetSlavePlayers(CarA *car);
+f32 CarA_Transmission_GetTorqueAtWheels(CarA *car);
 
 /* CarA_AR.c */
 void Pod_Draw(u8 *pod);
@@ -233,12 +245,6 @@ void CarA_SlaveWeaponStop(CarA *car, s32 weapon);
 void CarA_StuntFail(CarA *car);
 void CarA_StuntImpulse(CarA *car, Vector4 *linImpulse, Vector4 *angImpulse);
 s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t);
-
-/* CarA_Stunts.c */
-void Drone_DynamicCollideImpact(u8 *drone, u8 *collision, f32 force);
-void Drone_DynamicRotation(u8 *drone, f32 dt);
-void Drone_GetCameraOrientationInfo(void *drone, void *camera, void *info);
-s32 Drone_Init(u8 *drone, u8 *data);
 
 /* CarA_Suspension.c */
 void CarA_ComputeSuspensionForces(void *thing);
@@ -301,6 +307,7 @@ void CoronaHolder_Render(void);
 void Creature_Draw(Creature *creature);
 f32 Creature_GetMass(Creature *creature);
 void Creature_GetTargetPos(Creature *creature, Vector4 *pos);
+s32 Creature_Init(Creature *creature, CreatureInit *init);
 void Creature_InterpretControls(void *arg0);
 u32 Creature_Invalidate(Creature *creature, u32 start, u32 end);
 void Creature_MacroStep(void *arg0, f32 dt);
@@ -331,9 +338,11 @@ void DataPack_ReleaseDataPack(DataPack *pack);
 void DataPack_ReleaseQuadPack(QuadPack *pack);
 
 /* Debris.c */
-s32 Debris_Init(u8 *debris, u8 *data);
-void Debris_MacroStep(void *debris, f32 dt);
-s32 Debris_Move(u8 *debris);
+void Debris_Draw(struct Debris *debris);
+f32 Debris_GetMass(struct Debris *debris);
+s32 Debris_Init(struct Debris *debris, struct DebrisPartParams *data);
+void Debris_MacroStep(struct Debris *debris, f32 dt);
+s32 Debris_Move(struct Debris *debris);
 
 /* Debug_NGC.c */
 void Dprintf(char *str, ...);
@@ -343,7 +352,7 @@ s32 ActionDestructibleChangeMode(u32 *action);
 s32 ActionMoveableChangeMode(u32 *action);
 f32 Destructible_CollideWithRay(Destructible *destructible, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist);
 void Destructible_Draw(Destructible *destructible);
-void Destructible_DynamicCollideImpact(u8 *destructible, u8 *collision, s32 damage, f32 force);
+void Destructible_DynamicCollideImpact(Destructible *destructible, CollisionInfo *collision, s32 damage, f32 force);
 f32 Destructible_GetMass(Destructible *destructible);
 void * Destructible_GetOrientedCollision(Destructible *destructible);
 void * Destructible_GetSurfaceScript(Destructible *destructible);
@@ -800,17 +809,17 @@ void SetMusicVol(u32 vol);
 u32 GetNoteRate_(u32 rate, u8 note);
 
 /* NavHolder.c */
-s8 NavHolder_CreatePath(u8 *goal, u8 *start);
-void NavHolder_FillPointerArrayPath(u8 *point, void *array, u32 max);
-s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
+s8 NavHolder_CreatePath(NavPoint *goal, NavPoint *start);
+void NavHolder_FillPointerArrayPath(void *point, void *array, u32 max);
+s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavPoint *link, f32 *nearest, u8 depth);
 s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint);
-u8 * NavHolder_FindPath(s32 from, s32 to);
+void * NavHolder_FindPath(s32 from, s32 to);
 s32 NavHolder_GetFirstWayPoint(void);
-u8 * NavHolder_GetNavPoint(s32 index);
+void * NavHolder_GetNavPoint(s32 index);
 u32 NavHolder_GetTotalNavPoints(void);
 void NavHolder_Init(NavData *data);
 s32 NavHolder_IsLinked(s32 from, s32 to);
-s32 NavHolder_IsNavLinkNearer(f32 *pos, NavLink *link, f32 *nearest, u8 depth);
+s32 NavHolder_IsNavLinkNearer(f32 *pos, NavPoint *link, f32 *nearest, u8 depth);
 void NavHolder_Release(void);
 void NavHolder_UseMainRouteOnly(void);
 
@@ -830,19 +839,19 @@ void ParticleSprite_Move(u8 *sprite, void *sprites);
 void ParticleSprite_Render(u8 *sprite);
 
 /* PhysicalObject.c */
-void Mover_DynamicRotation(u8 *mover);
-void Mover_GetTrackPos(void *mover, f32 *pos, f32 time);
-s32 Mover_Init(u8 *obj, u8 *data);
-s32 Mover_PreMove(u8 *mover);
-f32 PhysicalObject_CollideWithRay(u8 *obj, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist);
-void PhysicalObject_DynamicCollideImpact(u8 *obj, u8 *collision, f32 force);
-void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt);
-void PhysicalObject_GetInverseLocalInertiaTensor(void *obj, Quaternion *out);
-s32 PhysicalObject_Init(u8 *obj, u8 *data);
-void PhysicalObject_IntegrateNonLateral(u8 *obj);
-u8 PhysicalObject_Move(u8 *obj);
-s32 PhysicalObject_PreMove(u8 *obj);
-void PhysicalObject_ProcessForce(u8 *obj, Vector4 *force, Vector4 *dir, f32 scale);
+void Mover_DynamicRotation(struct PhysicalObject *mover);
+void Mover_GetTrackPos(Destructible *mover, f32 *pos, f32 time);
+s32 Mover_Init(struct PhysicalObject *obj, struct DestructibleParams *data);
+s32 Mover_PreMove(struct PhysicalObject *mover);
+f32 PhysicalObject_CollideWithRay(struct PhysicalObject *obj, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist);
+void PhysicalObject_DynamicCollideImpact(struct PhysicalObject *obj, CollisionInfo *collision, f32 force);
+void PhysicalObject_DynamicRotation(struct PhysicalObject *obj, f32 dt);
+void PhysicalObject_GetInverseLocalInertiaTensor(struct PhysicalObject *obj, Quaternion *out);
+s32 PhysicalObject_Init(struct PhysicalObject *obj, struct DestructibleParams *data);
+void PhysicalObject_IntegrateNonLateral(struct PhysicalObject *obj);
+u8 PhysicalObject_Move(struct PhysicalObject *obj);
+s32 PhysicalObject_PreMove(struct PhysicalObject *obj);
+void PhysicalObject_ProcessForce(struct PhysicalObject *obj, Vector4 *point, Vector4 *dir, f32 scale);
 
 /* Plane.c */
 void Create_Plane(Vector4 *plane, Vector4 *normal, Vector4 *point);
@@ -908,18 +917,18 @@ void ProcessManager_Release(char *name);
 void ProcessManager_Render(u32 all);
 
 /* Projectile.c */
-void Projectile_Draw(u8 *proj);
-void Projectile_DynamicCollideImpact(void * proj, void * dir, s32 damage, f32 force);
-void Projectile_DynamicCollisionCorrection(u8 *proj, u8 *hit);
-f32 Projectile_GetMass(void * arg0);
-s32 Projectile_Init(u8 *proj, u8 *params);
-s32 Projectile_Invalidate(void * arg0, u32 arg1, u32 arg2);
-s32 Projectile_Move(u8 *proj);
-void Projectile_MoveBase(u8 *proj);
-s32 Projectile_PreMove(u8 *proj);
-void Projectile_ProximityDetection(u8 *proj);
-void Projectile_Release(void * projectile);
-void Projectile_YAim(u8 *proj, Vector4 *target);
+void Projectile_Draw(struct Projectile *proj);
+void Projectile_DynamicCollideImpact(struct Projectile *proj, CollisionInfo *hit, s32 damage, f32 force);
+void Projectile_DynamicCollisionCorrection(struct Projectile *proj, CollisionInfo *hit);
+f32 Projectile_GetMass(struct Projectile *proj);
+s32 Projectile_Init(struct Projectile *proj, struct ProjectileParams *params);
+s32 Projectile_Invalidate(struct Projectile *proj, u32 start, u32 end);
+s32 Projectile_Move(struct Projectile *proj);
+void Projectile_MoveBase(struct Projectile *proj);
+s32 Projectile_PreMove(struct Projectile *proj);
+void Projectile_ProximityDetection(struct Projectile *proj);
+void Projectile_Release(struct Projectile *proj);
+void Projectile_YAim(struct Projectile *proj, Vector4 *target);
 
 /* RIFF_.c */
 s8 CmpID_(u8 *chunk, s32 type);
@@ -1042,7 +1051,10 @@ void ShowStats_Release(void);
 void ShowStats_StartFrame(void);
 
 /* SmartProjectiles.c */
-void SmartProjectileA_DynamicCollideImpact(u8 *proj, u8 *other, void *arg2, f32 arg3);
+void SmartProjectileA_AquireTarget(struct Projectile *proj);
+void SmartProjectileA_DynamicCollideImpact(struct Projectile *proj, CollisionInfo *other, s32 damage, f32 force);
+s32 SmartProjectileA_Move(struct Projectile *proj);
+s32 SmartProjectileA_PreMove(struct Projectile *proj);
 
 /* SoundSequence.c */
 s32 SoundSeq_Init(u8 *seq, u8 *data);
@@ -1186,8 +1198,9 @@ s32 TriggerP2PActivated(u32 *data);
 /* ThingManager.c */
 void * FindHost(Vector4 *pos, Vector4 *dir);
 s32 GetAllTargets(void **targets);
-s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info);
+s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *arg, void *info);
 s8 OBoxHitsTerrainAndObjectsZeroTimeEdgesOnly(void *obox, void *thing, void *arg2);
+s32 OBox_CollideAllThingsZeroTime(void *obox, Thing *thing, void *info);
 s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s8 dynamics);
 s8 RayHitsTerrainAndObjects(void *arg0, void *arg1, void *arg2, void *arg3);
@@ -1203,6 +1216,7 @@ void ThingManagerList_ReleaseAndRemoveAll(void **list);
 void ThingManagerList_ReleaseSlavesBySlaveType(void **list, u8 type);
 void ThingManagerList_Remove(void **arg0, void *arg1);
 void ThingManagerList_RemoveReleasedThings(void **list);
+void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player);
 void ThingManager_DARYL_Create(void);
 void ThingManager_DARYL_CreateMain(void);
 void * ThingManager_DARYL_CreateSlave(s32 type, void *params, u8 id);
@@ -1218,7 +1232,7 @@ s32 ThingManager_GetActiveSoundSequences(void **seqs, s32 max);
 void ThingManager_Invalidate(u32 start, u32 end);
 void ThingManager_MoveLookerOnly(void);
 void ThingManager_MoveThings_DARYL_SUBTICK(void);
-void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers);
+void Thing_DrawSharedSlaves(u8 *arg, u32 *triggers);
 s32 TriggerPlayerVehicleGear(u32 *params);
 s32 TriggerPlayerVehicleInAir(u32 *params);
 s8 TriggerVehicleDamage(u32 *params);
@@ -1265,11 +1279,11 @@ s32 TriggerMoveableEnd(void);
 s8 TriggerSoundSeqQueueEnd(void);
 s32 TriggerTrue(void);
 s32 TriggerVehicleKilled(u32 *data);
-s32 Trigger_AddTrigger(s32 *trigger);
+s32 Trigger_AddTrigger(s32 *arg);
 void Trigger_Create(void);
 void Trigger_CreatureDroppedOff(void *vehicle, void *creature);
 void Trigger_Destroy(void);
-void Trigger_DestructibleKilled(void *thing);
+void Trigger_DestructibleKilled(void *arg);
 void Trigger_GameRoundXComplete(void);
 void Trigger_GameRoundsComplete(void);
 void Trigger_Heartbeat(void);
@@ -1279,7 +1293,7 @@ u8 Trigger_IsTACSystemPaused(void);
 void Trigger_ItemDropped(void *vehicle, void *item);
 void Trigger_ItemPickedUp(void *vehicle, void *item);
 void Trigger_PauseTACSystem(s8 arg0);
-s32 Trigger_ReleaseTrigger(s32 *trigger);
+s32 Trigger_ReleaseTrigger(s32 *arg);
 void Trigger_RestoreActions(s32 *saved, u32 count);
 void Trigger_SaveActions(s32 *saved, u32 count);
 void Trigger_SoundSequenceQueueEmptied(void);
@@ -1335,7 +1349,8 @@ void SetReverb_(u32 idx, u32 output, u32 feedback, u32 delay);
 void SetVoiceVol_(u8 *v, u32 vol);
 
 /* VolumeManager.c */
-s8 IsPointWithinVolume(Vector4 *point, void *volume, f32 *distSq);
+u8 * IsPointWithinForceBox(Vector4 *point);
+s8 IsPointWithinVolume(Vector4 *point, void *arg, f32 *distSq);
 void VolumeManager_Create(void);
 s32 VolumeManager_GetNumVolumesOfType(u32 type);
 s32 VolumeManager_GetNumVolumesOfTypeByCell(s32 type, s32 cell);
@@ -1416,17 +1431,11 @@ f32 _fabs(f32 x);
 /* Signatures using a type local to their file, with pointers to it as void *.
  * Hidden from that file and from files declaring them with their own copy of
  * the type (HWVX_SRC_<file> is defined per source by CMake). */
-#if !defined(HWVX_SRC_AI_CarA)
-void AI_Car_ResetState(void *car, void *state);
-#endif
 #if !defined(HWVX_SRC_Anim)
 void AnimExtractKeyFrame_Compound(void *anim, void *outp, f32 time);
 void AnimExtractKeyFrame_CompoundHybrid(void *anim, void *outp, f32 time);
 void AnimExtractKeyFrame_NonCompound(void *anim, void *outp, f32 time);
 void AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices);
-#endif
-#if !defined(HWVX_SRC_AttachThing)
-void RadarBlip_Draw(void *blip);
 #endif
 #if !defined(HWVX_SRC_BSPN0)
 Vector4 *BSPN0_CollideWithSegment(void *node, Vector4 *hit, Vector4 *p0, Vector4 *p1);
@@ -1439,6 +1448,10 @@ void CarA_Extract_Keyframes(CarA *car, void *frames);
 void Drone_ComputeSuspensionForces(void *obj);
 #endif
 #if !defined(HWVX_SRC_CarA_Stunts) && !defined(HWVX_SRC_data_gen)
+void Drone_DynamicCollideImpact(void *drone, CollisionInfo *collision, f32 force);
+void Drone_DynamicRotation(void *drone, f32 dt);
+void Drone_GetCameraOrientationInfo(void *drone, void *camera, void *out);
+s32 Drone_Init(void *drone, void *data);
 s32 Drone_PreMove(void *drone);
 #endif
 #if !defined(HWVX_SRC_CollisionPoly)
@@ -1448,13 +1461,6 @@ f32 RayHitsPoly(Vector4 *start, Vector4 *dir, void *p, f32 t);
 #endif
 #if !defined(HWVX_SRC_CoronaHolder)
 s32 CoronaHolder_Add(void *corona, Vector4 *pos);
-#endif
-#if !defined(HWVX_SRC_Creature) && !defined(HWVX_SRC_data_gen)
-s32 Creature_Init(Creature *arg0, void *arg1);
-#endif
-#if !defined(HWVX_SRC_Debris)
-void Debris_Draw(void *debris);
-f32 Debris_GetMass(void *debris);
 #endif
 #if !defined(HWVX_SRC_Emitter) && !defined(HWVX_SRC_data_gen)
 s32 ActionFXPointChangeMode(void *list);
@@ -1486,7 +1492,7 @@ void *Gfx_Add2DRectangleRenderWindow(void);
 #if !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_LineManager)
 void *Gfx_Add3DLineFX(void);
 #endif
-#if !defined(HWVX_SRC_AttachThing) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_ParticleManager) && !defined(HWVX_SRC_Projectile)
+#if !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_ParticleManager)
 void *Gfx_AddBillBoardSprite(u16 tex);
 #endif
 #if !defined(HWVX_SRC_Gfx_GeometryHandler)
@@ -1560,17 +1566,8 @@ void Render_DrawLine2D(void *line);
 #if !defined(HWVX_SRC_Render_QuadTri_)
 void Render_DrawRectangle(void *rect);
 #endif
-#if !defined(HWVX_SRC_SmartProjectiles)
-void SmartProjectileA_AquireTarget(void *proj);
-s32 SmartProjectileA_Move(void *proj);
-s32 SmartProjectileA_PreMove(void *proj);
-#endif
 #if !defined(HWVX_SRC_SoundSequence)
 s32 SoundSeq_Invalidate(void *seq, u32 start, u32 end);
-#endif
-#if !defined(HWVX_SRC_ThingManager)
-s32 OBox_CollideAllThingsZeroTime(void *obox, void *thing, void *info);
-void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player);
 #endif
 #if !defined(HWVX_SRC_Tracer)
 s32 Tracer_Init(void *thing, u8 *data);
@@ -1591,9 +1588,6 @@ void SetVoicePriority_(void *voice);
 s8 SetVoiceRate_(void *voice);
 void SetVoiceState_(void *voice, s32 state);
 void StartVoice_(void *voice);
-#endif
-#if !defined(HWVX_SRC_Thing) && !defined(HWVX_SRC_VolumeManager)
-void *IsPointWithinForceBox(Vector4 *point);
 #endif
 #if !defined(HWVX_SRC_bgmath_NGC)
 s32 CompareDistances(void *a, void *b, f32 dist);

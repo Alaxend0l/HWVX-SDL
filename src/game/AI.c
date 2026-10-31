@@ -1,4 +1,9 @@
+/* What the car and creature AI share (AI.h): the AIPlayer header, the event
+ * queue that spreads the expensive "async" work over frames, and steering
+ * helpers. */
 #include "common.h"
+#include "CarA.h"
+#include "AI.h"
 
 typedef struct AIStats {
     u32 unk0[7];
@@ -6,25 +11,18 @@ typedef struct AIStats {
     u32 unk20[19];
 } AIStats;
 
-typedef struct AIEvent {
-    PTR32(void) data;
-    FPTR32(void, ()) func;   /* called with or without data */
-    PTR32(struct AIEvent) next;
-    s8 queued;
-} AIEvent;
-
 AIStats g_AI_Stats;
 s16 g_AI_FramesSinceAsyncEventProcessed;
 
-/* .sbss in the original (local to AI.o); host pointers, typed per function below */
-void *gs_pAsyncEventTail;
-void *gs_pAsyncEventHead;
+/* .sbss in the original (local to AI.o) */
+AIEvent *gs_pAsyncEventTail;
+AIEvent *gs_pAsyncEventHead;
 
+/* Level start: empties the event queue; the creature AI sets itself up again
+ * (g_volumeTotal = -1). */
 void AI_Create(void)
 {
     extern s32 g_volumeTotal;
-    #define gs_pAsyncEventHead (*(void **)(void *)&gs_pAsyncEventHead)
-    #define gs_pAsyncEventTail (*(void **)(void *)&gs_pAsyncEventTail)
     extern u32 g_attackDelay;
     u32 var;
 
@@ -36,13 +34,11 @@ void AI_Create(void)
     {
         g_attackDelay = 8000;
     }
-#undef gs_pAsyncEventHead
-#undef gs_pAsyncEventTail
 }
 
-void AI_Reset(void *arg0) {
-    M2C_FIELD(arg0, s32 *, 0xC8) = 1;
-    M2C_FIELD(arg0, s8 *, 0xCC) = 0;
+void AI_Reset(AIPlayer *ai) {
+    ai->heartbeatTimer = 1;
+    ai->reset = 0;
 }
 
 void AI_Init(void *player, s32 arg1) {
@@ -56,42 +52,48 @@ void AI_AsyncProcess_80006C80(void) {
     AI_Creature_AsyncProcess();
 }
 
-u32 AI_UpdateTimer(u32 *arg0) {
+/* Counts a ms timer down by the frame time, to 0; returns what's left. */
+u32 AI_UpdateTimer(u32 *timer) {
     extern u32 g_iDeltaTimeMS;
 
-    if (*arg0 > g_iDeltaTimeMS) {
-        *arg0 -= g_iDeltaTimeMS;
+    if (*timer > g_iDeltaTimeMS) {
+        *timer -= g_iDeltaTimeMS;
     } else {
-        *arg0 = 0;
+        *timer = 0;
     }
-    return *arg0;
+    return *timer;
 }
 
-f32 AI_AngleToTarget(u8 *ai, Vector4 *target) {
+/* Signed angle (radians) from the thing's forward axis to target, in its
+ * horizontal plane; negative to the left of it (by the up axis). */
+f32 AI_AngleToTarget(void *thing, Vector4 *target) {
+    Thing *t = thing;
     Vector4 dir __attribute__((aligned(16)));
     Vector4 cross __attribute__((aligned(16)));
     f32 dot;
     f32 angle;
 
-    PSVECSubtract(target, (Vector4 *)(ai + 0x40), &dir);
-    ProjectVectorTangential(&dir, (Vector4 *)(ai + 0x20), &dir);
+    PSVECSubtract(target, &t->pos, &dir);
+    ProjectVectorTangential(&dir, &t->axis[1], &dir);
     if (PSVECSquareMag(&dir)) {
         PSVECNormalize(&dir, &dir);
     }
-    dot = PSVECDotProduct(ai + 0x30, &dir);
+    dot = PSVECDotProduct(&t->axis[2], &dir);
     if (dot > 1.0f) {
         dot = 1.0f;
     } else if (dot < -1.0f) {
         dot = -1.0f;
     }
     angle = acos(dot);
-    PSVECCrossProduct((Vector4 *)(ai + 0x30), &dir, &cross);
-    if (Distance_Plane(ai + 0x20, &cross) < 0.0f) {
+    PSVECCrossProduct(&t->axis[2], &dir, &cross);
+    if (Distance_Plane(&t->axis[1], &cross) < 0.0f) {
         angle = -angle;
     }
     return angle;
 }
 
+/* Whether angle is within center +- range (degrees); 0/0 or a range of 180
+ * means any angle. */
 s8 AI_CheckAngleInRange(f32 angle, f32 center, f32 range) {
     s8 inRange = 0;
     f32 diff;
@@ -117,11 +119,11 @@ s8 AI_CheckAngleInRange(f32 angle, f32 center, f32 range) {
     return inRange;
 }
 
+/* Runs the first queued event; returns whether it did. Skipped for up to 5
+ * frames while g_AI_Stats.unk1C >= 250. */
 s32 AI_ProcessEvent(void) {
     extern s16 g_AI_FramesSinceAsyncEventProcessed;
     extern AIStats g_AI_Stats;
-    #define gs_pAsyncEventHead (*(AIEvent **)(void *)&gs_pAsyncEventHead)
-    #define gs_pAsyncEventTail (*(AIEvent **)(void *)&gs_pAsyncEventTail)
     AIEvent *event;
 
     if (g_AI_FramesSinceAsyncEventProcessed <= 5 && g_AI_Stats.unk1C >= 250) {
@@ -143,49 +145,49 @@ s32 AI_ProcessEvent(void) {
         return 1;
     }
     return 0;
-#undef gs_pAsyncEventHead
-#undef gs_pAsyncEventTail
 }
 
-void AI_AddEvent(void *arg0) {
-    #define gs_pAsyncEventHead (*(void **)(void *)&gs_pAsyncEventHead)
-    #define gs_pAsyncEventTail (*(void **)(void *)&gs_pAsyncEventTail)
-    if ((s8) M2C_FIELD(arg0, u8 *, 0xC) == 0) {
-        M2C_FIELD(arg0, s32 *, 8) = 0;
-        if ((void *) gs_pAsyncEventTail != NULL) {
-            SLOT_STORE((u8 *)(gs_pAsyncEventTail) + 8, arg0);
+/* Queues an AIEvent unless it is queued already. */
+void AI_AddEvent(void *arg) {
+    AIEvent *event = arg;
+
+    if (event->queued == 0) {
+        SETP(event->next, NULL);
+        if (gs_pAsyncEventTail != NULL) {
+            SETP(gs_pAsyncEventTail->next, event);
         } else {
-            gs_pAsyncEventHead = arg0;
+            gs_pAsyncEventHead = event;
         }
-        gs_pAsyncEventTail = arg0;
-        M2C_FIELD(arg0, u8 *, 0xC) = 1U;
+        gs_pAsyncEventTail = event;
+        event->queued = 1;
     }
-#undef gs_pAsyncEventHead
-#undef gs_pAsyncEventTail
 }
 
-s32 AI_Heartbeat(u8 *ai) {
+/* The per-frame part every AI kind runs: queues the AsyncHeartbeat when its
+ * timer runs out; an active AI that lost its vehicle is reset. Returns 0 if
+ * the player's controls aren't the AI's to set. */
+s32 AI_Heartbeat(AIPlayer *ai) {
 
-    if (!Player_AIControlReader(ai)) {
+    if (!Player_AIControlReader((s8 *)ai)) {
         return 0;
     }
-    M2C_FIELD(ai, u8 *, 0x1C) = 0;
-    if (M2C_FIELD(ai, u8 *, 0xCD) != 0 && SLOT_LOAD(void *, (u8 *)(ai) + 0x2C) == NULL) {
-        M2C_FIELD(ai, s8 *, 0xCC) = 1;
+    PLAYER_BUTTON1C(ai) = 0;
+    if (ai->state != AI_STATE_OFF && GETP(AI_PLAYER(ai)->vehicle) == NULL) {
+        ai->reset = 1;
     }
-    if (M2C_FIELD(ai, u32 *, 0xC8) != 0) {
-        AI_UpdateTimer((u32 *)(ai + 0xC8));
-        if (M2C_FIELD(ai, u32 *, 0xC8) == 0) {
-            AI_AddEvent(ai + 0xB8);
+    if (ai->heartbeatTimer != 0) {
+        AI_UpdateTimer(&ai->heartbeatTimer);
+        if (ai->heartbeatTimer == 0) {
+            AI_AddEvent(&ai->heartbeat);
         }
     }
-    if (M2C_FIELD(ai, s8 *, 0xCC) || !M2C_FIELD(ai, u8 *, 0xCD)) {
+    if (ai->reset || !ai->state) {
         return 1;
     }
     return 1;
 }
 
-void AI_AsyncHeartbeat(void *arg0) {
-    M2C_FIELD(arg0, s32 *, 0xC8) = 0x1F4;
+/* Every AsyncHeartbeat starts with this: next one in 500 ms by default. */
+void AI_AsyncHeartbeat(AIPlayer *ai) {
+    ai->heartbeatTimer = 500;
 }
-

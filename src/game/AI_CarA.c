@@ -1,99 +1,143 @@
+/* The car AI (AICar, AI.h): spawns AI cars from the world's car tiles, picks
+ * a state of its script (a tree of AIStateInfo) with a target, paths to it
+ * over the nav graph and drives there through the player controls; weapons
+ * and obstacle scans run as async events. */
 #include "common.h"
 #include "CarA.h"
+#include "AI.h"
 
-static inline s8 AI_Car_CanTarget(u8 *ai, u8 *def) {
+#define CAR_THING(car) ((Thing *)(car))
+#define THING_FLAG_FREE 0x1000          /* Thing.flags: in the pool, not spawned */
+
+/* Past sizeof(CarA): the distance left to its goal along the nav path
+ * (Player.c's navDist, the target arrow). */
+#define CAR_NAV_DIST(car) (*(f32 *)((u8 *)(car) + 0x564))
+
+static inline CarA *AI_Car_Vehicle(AICar *ai) {
+    return GETP(AI_PLAYER(ai)->vehicle);
+}
+
+/* CarAInfo.driveMode of the AI's car (1 and 2 drive differently below). */
+static inline u8 AI_Car_DriveMode(AICar *ai) {
+    return GETP(AI_Car_Vehicle(ai)->vehicleIface)->driveMode;
+}
+
+/* path[i], NULL past the end. */
+static inline NavPoint *AI_Car_PathPoint(AICar *ai, u32 i) {
+    return i < 32 ? GETP(ai->path[i]) : NULL;
+}
+
+static inline AICarScript *AI_Car_Script(AICar *ai) {
+    return GETP(ai->base.script);
+}
+
+/* The nearest nav point of a thing (vtable). */
+static inline s32 AI_Car_NearestNavPoint(Thing *thing) {
+    return THING_VFN(thing, THING_V_GET_NEAREST_NAV_POINT, s32 (*)(Thing *))(thing);
+}
+
+static inline s8 AI_Car_CanTarget(AICar *ai, AIStateInfo *def) {
     s8 ok = 1;
 
     if (ai == NULL) {
         ok = 0;
-    } else if (def[1] == 2) {
+    } else if (def->subtype == AI_SUBTYPE_NO_TARGET) {
         ok = 0;
     }
     return ok;
 }
 
+/* AI_SUBTYPE_TARGET_LIMITS: whether `thing` passes the limits, by its
+ * record (records[] ends at the first empty one). Written out twice in the
+ * decomp (AI_Car_IsTargetValid, AI_Car_DetermineTarget). */
+static inline s8 AI_Car_PassesLimits(AICar *ai, AITargetLimits *limits, void *thing) {
+    AITargetRecord *rec;
+    s8 valid = limits->mode != 1;
+    s16 i;
+
+    for (i = 0; i < 16 && GETP(ai->records[i].thing) != NULL; i++) {
+        rec = &ai->records[i];
+        if (GETP(rec->thing) == thing) {
+            if (limits->compare == 1) {
+                if ((limits->limit[2] > 0 && rec->stats[2] > limits->limit[2]) ||
+                    (limits->limit[3] > 0 && rec->stats[3] > limits->limit[3]) ||
+                    (limits->limit[0] > 0 && rec->stats[0] > limits->limit[0]) ||
+                    (limits->limit[1] > 0 && rec->stats[1] > limits->limit[1])) {
+                    valid = limits->mode == 1;
+                }
+            } else {
+                if ((limits->limit[2] == 0 || rec->stats[2] > limits->limit[2]) &&
+                    (limits->limit[3] == 0 || rec->stats[3] > limits->limit[3]) &&
+                    (limits->limit[0] == 0 || rec->stats[0] > limits->limit[0]) &&
+                    (limits->limit[1] == 0 || rec->stats[1] > limits->limit[1])) {
+                    valid = limits->mode == 1;
+                }
+            }
+            break;
+        }
+    }
+    return valid;
+}
+
+/* Where to aim at an item: itself, or for a carried item the car of its
+ * carrier, if that is a human (NULL otherwise). */
+static inline Vector4 *AI_Car_ItemPos(ItemThing *item) {
+    Thing *carrier;
+
+    if (GETP(item->record)->type == ITEM_TYPE_CARRIED && GETP(item->base.player) != NULL &&
+        GETP(((Player *)GETP(item->base.player))->vehicle) != NULL) {
+        if (Player_IsHuman(GETP(item->base.player))) {
+            carrier = GETP(((Player *)GETP(item->base.player))->vehicle);
+            return &carrier->pos;
+        }
+        return NULL;
+    }
+    return &item->base.pos;
+}
+
+/* Spawns at most one AI car per call, cycling over the car tiles: a tile with
+ * scripts, no car yet and a mode spawns when the nearest camera is between
+ * its near and far distances. */
 void AI_Car_AsyncProcess(void) {
-    typedef struct AIScripts {
-        u8 pad0[0x90];
-        u32 scripts[4];
-    } AIScripts;
-    typedef struct ItemParams {
-        u8 pad0[0x20];
-        s32 count;
-    } ItemParams;
-    typedef struct TileItem {
-        u8 pad0[0x30];
-        PTR32(ItemParams) params;
-    } TileItem;
-    typedef struct TileCar {
-        Vector4 pos;
-        f32 rotX;
-        f32 rotY;
-        f32 rotZ;
-        u8 pad1C[0x24 - 0x1C];
-        PTR32(AIScripts) aiScripts;
-        PTR32(CarA) creature;
-        u32 mode;
-        u8 pad30[0x34 - 0x30];
-        u8 unk34;
-        u8 unk35;
-        u8 pad36[0x38 - 0x36];
-        f32 nearDist;
-        f32 farDist;
-        u32 scripts[4];
-        u8 pad50[0x54 - 0x50];
-        PTR32(TileItem) item;
-    } TileCar;
-    typedef struct CreatureParams {
+    /* ThingManager_DARYL_CreateThing(9) parameters */
+    typedef struct CarSpawnParams {
         Vector4 pos;
         Vector4 quat;
         Vector4 vel;
-        PTR32(AIScripts) aiScripts;
+        PTR32(AIScriptSet) aiScripts;
         u8 pad34[0x3C - 0x34];
         PTR32(void) player;
-    } CreatureParams;
-    typedef struct AIPlayerDesc {
-        u32 script;
-        f32 nearSq;
-        f32 farSq;
-        u8 unkC;
-        u8 unkD;
-    } AIPlayerDesc;
-    typedef struct AIPlayer {
-        u8 pad0[0x3C];
-        PTR32(AIScripts) aiScripts;
-        u8 pad40[0xA8 - 0x40];
-        PTR32(TileCar) tileCar;
-    } AIPlayer;
+    } CarSpawnParams;
     static u32 carTile;
-    extern u8 g_cameraManager[];
     extern Vector4 g_zeroVector;
-    CreatureParams params;
+    CarSpawnParams params;
     Matrix4 mtx;
     u32 action[3];
-    AIPlayerDesc desc;
-    TileCar *car;
+    AIPlayerParams desc;
+    TileCar *tile;
+    CarA *car;
+    AIScriptSet *scripts;
     u32 script;
     s32 difficulty;
-    u8 *cam;
     u32 i;
     f32 farSq;
     f32 nearSq;
     f32 minDist;
     void *rack;
-    AIPlayer *player;
+    Player *player;
 
-    car = World_GetTileCar(carTile);
-    if (car != NULL) {
-        if (GETP(car->aiScripts) != NULL && GETP(car->creature) == NULL && car->unk35 > 4 && car->unk34 != 0 && car->mode != 0) {
-            farSq = car->farDist * car->farDist;
-            nearSq = car->nearDist * car->nearDist;
+    tile = World_GetTileCar(carTile);
+    if (tile != NULL) {
+        if (GETP(tile->aiScripts) != NULL && GETP(tile->car) == NULL && tile->port > 4 && tile->dynamic != 0 && tile->mode != 0) {
+            farSq = tile->farDist * tile->farDist;
+            nearSq = tile->nearDist * tile->nearDist;
             minDist = farSq;
             difficulty = GameSettings_GetDifficulty();
-            SETP(params.aiScripts, GETP(car->aiScripts));
+            SETP(params.aiScripts, GETP(tile->aiScripts));
+            scripts = GETP(params.aiScripts);
             script = 0;
-            for (i = 0; i < g_cameraManager[0x640]; i++) {
-                f32 dist = PSVECSquareDistance(g_cameraManager + i * 0x190 + 0x60, car);
+            for (i = 0; i < AI_NUM_CAMERAS; i++) {
+                f32 dist = PSVECSquareDistance(&AI_CAMERA(i)->pos, &tile->pos);
                 if (dist < minDist) {
                     minDist = dist;
                 }
@@ -102,77 +146,81 @@ void AI_Car_AsyncProcess(void) {
                 carTile++;
                 return;
             }
+            /* the tile's script for the difficulty, else the set's; the set
+             * is used only if its easy script is there (all difficulties) */
             if (difficulty == 0) {
-                if (car->scripts[0] != 0) {
-                    script = car->scripts[0];
-                } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                    script = GETP(params.aiScripts)->scripts[0];
+                if (tile->scripts[0] != 0) {
+                    script = tile->scripts[0];
+                } else if (scripts->scripts[0] != 0) {
+                    script = scripts->scripts[0];
                 }
             } else if (difficulty == 1) {
-                if (car->scripts[1] != 0) {
-                    script = car->scripts[1];
-                } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                    script = GETP(params.aiScripts)->scripts[1];
+                if (tile->scripts[1] != 0) {
+                    script = tile->scripts[1];
+                } else if (scripts->scripts[0] != 0) {
+                    script = scripts->scripts[1];
                 }
             } else if (difficulty == 2) {
-                if (car->scripts[2] != 0) {
-                    script = car->scripts[2];
-                } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                    script = GETP(params.aiScripts)->scripts[2];
+                if (tile->scripts[2] != 0) {
+                    script = tile->scripts[2];
+                } else if (scripts->scripts[0] != 0) {
+                    script = scripts->scripts[2];
                 }
             } else if (difficulty == 3) {
-                if (car->scripts[3] != 0) {
-                    script = car->scripts[3];
-                } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                    script = GETP(params.aiScripts)->scripts[3];
+                if (tile->scripts[3] != 0) {
+                    script = tile->scripts[3];
+                } else if (scripts->scripts[0] != 0) {
+                    script = scripts->scripts[3];
                 }
             }
             if (script == 0) {
-                if (GETP(params.aiScripts)->scripts[0] != 0) {
-                    script = GETP(params.aiScripts)->scripts[0];
-                } else if (GETP(params.aiScripts)->scripts[1] != 0) {
-                    script = GETP(params.aiScripts)->scripts[1];
-                } else if (GETP(params.aiScripts)->scripts[2] != 0) {
-                    script = GETP(params.aiScripts)->scripts[2];
+                if (scripts->scripts[0] != 0) {
+                    script = scripts->scripts[0];
+                } else if (scripts->scripts[1] != 0) {
+                    script = scripts->scripts[1];
+                } else if (scripts->scripts[2] != 0) {
+                    script = scripts->scripts[2];
                 } else {
-                    script = GETP(params.aiScripts)->scripts[3];
+                    script = scripts->scripts[3];
                 }
             }
             desc.script = script;
-            desc.unkD = 0;
-            desc.unkC = car->unk34;
-            desc.nearSq = car->nearDist * car->nearDist;
-            desc.farSq = car->farDist * car->farDist;
-            player = PlayerManager_NewAIPlayer(&desc);
+            desc.kind = AI_KIND_CAR;
+            desc.dynamic = tile->dynamic;
+            desc.nearSq = tile->nearDist * tile->nearDist;
+            desc.farSq = tile->farDist * tile->farDist;
+            player = PlayerManager_NewAIPlayer((u8 *)&desc);
             if (player == NULL) {
                 carTile++;
                 return;
             }
-            SETP(player->tileCar, car);
-            params.pos = car->pos;
+            SETP(player->tileCar, tile);
+            params.pos = tile->pos;
             params.pos.y += 10.0f;
             SETP(params.player, player);
             params.vel = g_zeroVector;
-            SetOrientation(&mtx, car->rotY, car->rotX, car->rotZ);
+            SetOrientation(&mtx, tile->rotY, tile->rotX, tile->rotZ);
             SubMatrixToQuaternion(&mtx, &params.quat);
-            if ((SETP(car->creature, ThingManager_DARYL_CreateThing(9, &params))) == NULL) {
+            SETP(tile->car, ThingManager_DARYL_CreateThing(9, &params));
+            if (GETP(tile->car) == NULL) {
                 PlayerManager_RemovePlayer(player);
                 carTile++;
                 return;
             }
-            SETP(GETP(car->creature)->base.trigger, car);
+            car = GETP(tile->car);
+            SETP(CAR_THING(car)->trigger, tile);
             Player_SetName(player, -1, "Dynamic AI");
-            Player_SetThing(player, GETP(car->creature));
-            SETP(player->aiScripts, GETP(car->aiScripts));
-            SETP(player->tileCar, car);
-            if (GETP(car->item) != NULL) {
-                rack = ThingManagerList_GetByType(&GETP(car->creature)->motionState.slaves, 8);
+            Player_SetThing(player, car);
+            SETP(player->aiScripts, GETP(tile->aiScripts));
+            SETP(player->tileCar, tile);
+            if (GETP(tile->item) != NULL) {
+                rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
                 WildCardRack_JettisonAll(rack);
-                WildCardRack_Add(rack, GETP(car->item), GETP(GETP(car->item)->params)->count);
+                WildCardRack_Add(rack, (u8 *)GETP(tile->item), AI_ITEM_WEAPON(GETP(tile->item))->ammo);
             }
-            action[0] = car->mode;
+            action[0] = tile->mode;
             action[1] = 1;
-            action[2] = (u32)HND(car);
+            action[2] = (u32)HND(tile);
             ActionVehicleChangeMode(action);
         }
         carTile++;
@@ -181,45 +229,50 @@ void AI_Car_AsyncProcess(void) {
     }
 }
 
-s32 AI_Car_CheckIfStuck(u8 *ai) {
-    u8 *car = SLOT_LOAD(u8 *, (ai + 0x2C));
+/* Unsticks the car: once it hasn't moved for 10 frames it turns at full lock
+ * for 120 frames (reversing, by drive mode), then holds off for 120 frames.
+ * Returns 1 while it is doing that (the controls are set). */
+s32 AI_Car_CheckIfStuck(AICar *ai) {
+    CarA *car = AI_Car_Vehicle(ai);
+    Player *pl = AI_PLAYER(ai);
     s32 timer;
     u8 mode;
     f32 dot;
 
-    if (*(s32 *)(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x464) > 600) {
-        ai[0] = 0x7F;
+    if (car->stuckCounter > 600) {
+        pl->stickX = 0x7F;
         return 1;
     }
-    timer = *(s32 *)(ai + 0x634);
+    timer = ai->stuckTimer;
     if (timer == 0) {
-        if (*(s32 *)(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x404) < 500 && PSVECSquareDistance(ai + 0x620, SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40) < 0.5f) {
-            (*(u32 *)(ai + 0x630))++;
-            if (*(u32 *)(ai + 0x630) >= 10) {
-                *(s32 *)(ai + 0x634) = 120;
-                *(s16 *)(ai + 0x640) = AI_AngleToTarget(car, (Vector4 *)(ai + 0x400)) < 0.0f ? -127 : 127;
-                *(Quaternion *)(ai + 0x610) = *(Quaternion *)(car + 0x30);
+        if (car->lowSpeedFlag < 500 && PSVECSquareDistance(&ai->lastPos, &CAR_THING(car)->pos) < 0.5f) {
+            ai->stillFrames++;
+            if (ai->stillFrames >= 10) {
+                ai->stuckTimer = 120;
+                ai->steer = AI_AngleToTarget(car, &ai->steerPoint) < 0.0f ? -127 : 127;
+                ai->stuckForward = CAR_THING(car)->axis[2];
             }
         } else {
-            *(u32 *)(ai + 0x630) = 0;
+            ai->stillFrames = 0;
         }
-        *(Quaternion *)(ai + 0x620) = *(Quaternion *)(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40);
-        if (*(s32 *)(ai + 0x634) == 0) {
+        ai->lastPos = CAR_THING(car)->pos;
+        if (ai->stuckTimer == 0) {
             return 0;
         }
     } else if (timer < 0) {
-        *(s32 *)(ai + 0x634) = timer + 1;
+        ai->stuckTimer = timer + 1;
         return 0;
     }
-    ai[0] = *(s16 *)(ai + 0x640);
-    (*(s32 *)(ai + 0x634))--;
-    if (*(s32 *)(ai + 0x634) == 0) {
-        *(s32 *)(ai + 0x634) = -120;
+    pl->stickX = ai->steer;
+    ai->stuckTimer--;
+    if (ai->stuckTimer == 0) {
+        ai->stuckTimer = -120;
     }
-    mode = (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x3BC)))[0x11];
+    mode = AI_Car_DriveMode(ai);
     if (mode == 1) {
-        ai[0x13] = 0xFF;
-        dot = PSVECDotProduct(car + 0x30, ai + 0x610);
+        /* reverse until turned by 30 degrees */
+        pl->brake = 0xFF;
+        dot = PSVECDotProduct(&CAR_THING(car)->axis[2], &ai->stuckForward);
         if (dot > 1.0f) {
             dot = 1.0f;
         }
@@ -227,11 +280,11 @@ s32 AI_Car_CheckIfStuck(u8 *ai) {
             dot = -1.0f;
         }
         if (30.0 <= 57.29578f * acos(dot)) {
-            *(s32 *)(ai + 0x634) = -120;
+            ai->stuckTimer = -120;
         }
     } else if (mode == 2) {
-        ai[0x14] = 0xFF;
-        dot = PSVECDotProduct(car + 0x30, ai + 0x610);
+        pl->button14 = 0xFF;
+        dot = PSVECDotProduct(&CAR_THING(car)->axis[2], &ai->stuckForward);
         if (dot > 1.0f) {
             dot = 1.0f;
         }
@@ -239,18 +292,23 @@ s32 AI_Car_CheckIfStuck(u8 *ai) {
             dot = -1.0f;
         }
         if (45.0 <= 57.29578f * acos(dot)) {
-            *(s32 *)(ai + 0x634) = -180;
+            ai->stuckTimer = -180;
         }
     }
     return 1;
 }
 
-void AI_Car_DriveToTarget(u8 *ai, Vector4 *target, f32 speed) {
+/* Sets the controls to drive towards steerPoint: steering from the angle to
+ * it and the car's yaw rate, throttle and brake slowing down near `target`
+ * (the current state's approach distances) and above `speed` (0: none;
+ * speedLimit caps it). */
+void AI_Car_DriveToTarget(AICar *ai, Vector4 *target, f32 speed) {
     Vector4 angVel __attribute__((aligned(16)));
+    Player *pl = AI_PLAYER(ai);
     f32 dist;
     f32 angle;
-    u8 *car;
-    u8 *range;
+    CarA *car;
+    AIStateInfo *info;
     f32 distSq;
     f32 velSq;
     f32 vel;
@@ -267,41 +325,45 @@ void AI_Car_DriveToTarget(u8 *ai, Vector4 *target, f32 speed) {
     s32 v;
     s16 s;
     s8 full;
-    u8 brake;
-    u8 reverse;
-    u8 accel;
+    u8 throttle;    /* Player.throttle */
+    u8 button15;    /* with full lock: a sliding turn */
+    u8 brake;       /* Player.brake */
 
-    car = SLOT_LOAD(u8 *, (ai + 0x2C));
+    car = AI_Car_Vehicle(ai);
+    throttle = 0;
+    button15 = 0;
     brake = 0;
-    reverse = 0;
-    accel = 0;
-    distSq = PSVECSquareDistance(ai + 0x400, car + 0x40);
-    velSq = PSVECSquareMag(car);
+    distSq = PSVECSquareDistance(&ai->steerPoint, &CAR_THING(car)->pos);
+    velSq = PSVECSquareMag(&CAR_THING(car)->vel);
     vel = Sqrt(velSq);
-    angle = AI_AngleToTarget(car, (Vector4 *)(ai + 0x400));
+    angle = AI_AngleToTarget(car, &ai->steerPoint);
     deg = 57.29578f * angle;
     if (__fabs(deg) <= 5.0 || 0.0f == velSq) {
-        brake = 0xFF;
-        *(s16 *)(ai + 0x640) = (s8)(-6.0f * deg);
-        ai[0] = *(s16 *)(ai + 0x640);
+        /* straight ahead */
+        throttle = 0xFF;
+        ai->steer = (s8)(-6.0f * deg);
+        pl->stickX = ai->steer;
     } else if (velSq < 1600.0f && __fabs(deg) >= 100.0 && __fabs(deg) <= 125.0 && distSq < 900.0f) {
-        accel = 0xFF;
-        if ((SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x3BC)))[0x11] == 1) {
-            *(s32 *)(ai + 0x634) = 80;
+        /* slow, near and well off to the side: reverse round (as when stuck) */
+        brake = 0xFF;
+        if (AI_Car_DriveMode(ai) == 1) {
+            ai->stuckTimer = 80;
         } else {
-            *(s32 *)(ai + 0x634) = 120;
+            ai->stuckTimer = 120;
         }
-        *(s16 *)(ai + 0x640) = deg < 0.0f ? -127 : 127;
-        *(Quaternion *)(ai + 0x610) = *(Quaternion *)(car + 0x30);
+        ai->steer = deg < 0.0f ? -127 : 127;
+        ai->stuckForward = CAR_THING(car)->axis[2];
     } else if (velSq > 1600.0f && __fabs(deg) >= 45.0 && distSq < 5625.0f) {
-        accel = 0xFF;
-        reverse = 0xFF;
-        *(s16 *)(ai + 0x640) = deg < 0.0f ? 127 : -127;
-        ai[0] = *(s16 *)(ai + 0x640);
+        brake = 0xFF;
+        button15 = 0xFF;
+        ai->steer = deg < 0.0f ? 127 : -127;
+        pl->stickX = ai->steer;
     } else {
+        /* steer so the yaw rate turns the car onto the point in the time
+         * it takes to get there */
         t = Sqrt(distSq / velSq);
         CarA_GetAngularVelocity(car, &angVel);
-        yaw = PSVECDotProduct(car + 0x20, &angVel);
+        yaw = PSVECDotProduct(&CAR_THING(car)->axis[1], &angVel);
         if (yaw <= 0.01f) {
             yaw = 0.01f;
         }
@@ -311,137 +373,144 @@ void AI_Car_DriveToTarget(u8 *ai, Vector4 *target, f32 speed) {
             r += yaw * (yaw >= 0.0f ? 3.0f : -3.0f);
         }
         r /= t;
-        if (*(s16 *)(ai + 0x640) == 0 || ((*(s16 *)(ai + 0x640) << 16) ^ *(s32 *)&angle) < 0) {
-            *(s16 *)(ai + 0x640) = -40.425358f * angle;
+        if (ai->steer == 0 || ((ai->steer << 16) ^ *(s32 *)&angle) < 0) {
+            ai->steer = -40.425358f * angle;
         }
         full = angle > 0.0f ? -127 : 127;
         if (r <= 1.0f) {
-            brake = 0xFF;
-            *(s16 *)(ai + 0x640) = r * (f32)(full - *(s16 *)(ai + 0x640)) + (f32)*(s16 *)(ai + 0x640);
+            throttle = 0xFF;
+            ai->steer = r * (f32)(full - ai->steer) + (f32)ai->steer;
         } else {
-            s = r * (f32)*(s16 *)(ai + 0x640);
+            s = r * (f32)ai->steer;
             if (_fabs(s) < _fabs(full)) {
-                *(s16 *)(ai + 0x640) = s;
-                brake = 0xFF;
+                ai->steer = s;
+                throttle = 0xFF;
             } else {
-                *(s16 *)(ai + 0x640) = full;
-                reverse = 0xFF;
-                brake = 0xFF;
+                ai->steer = full;
+                button15 = 0xFF;
+                throttle = 0xFF;
             }
         }
     }
-    DistanceXYZ(car + 0x40, target, &dist);
-    range = SLOT_LOAD(u8 *, SLOT_LOAD(void *, (ai + 0x3E4)));
-    far = *(f32 *)(range + 0x28);
-    near = *(f32 *)(range + 0x24);
+    DistanceXYZ(&CAR_THING(car)->pos, target, &dist);
+    info = GETP(GETP(ai->current)->info);
+    far = info->approachFar;
+    near = info->approachNear;
     mid = (far - near) / 2.0f + near;
-    if (dist < mid && accel != 0xFF) {
+    if (dist < mid && brake != 0xFF) {
         v = 255 - (s32)(255.0f * ((dist - near) / (mid - near)));
         if (v > 255) {
             v = 255;
         }
-        if (accel < v) {
-            accel = v;
-        }
-        brake = 0;
-    } else if (dist < far && brake) {
-        v = 255.0f * ((dist - mid) / (far - mid));
-        if (brake > v) {
+        if (brake < v) {
             brake = v;
         }
+        throttle = 0;
+    } else if (dist < far && throttle) {
+        v = 255.0f * ((dist - mid) / (far - mid));
+        if (throttle > v) {
+            throttle = v;
+        }
     }
-    if (*(f32 *)(ai + 0x63C) && (!speed || *(f32 *)(ai + 0x63C) < speed)) {
-        speed = *(f32 *)(ai + 0x63C);
+    if (ai->speedLimit && (!speed || ai->speedLimit < speed)) {
+        speed = ai->speedLimit;
     }
     margin = 0.1f * speed;
     hi = speed + margin;
     lo = speed - margin;
-    if (speed && vel > speed && accel != 0xFF) {
+    if (speed && vel > speed && brake != 0xFF) {
         v = 255.0f * ((vel - speed) / (hi - speed));
         if (v > 255) {
             v = 255;
         }
-        if (accel < v) {
-            accel = v;
-        }
-        brake = 0;
-    } else if (speed && vel > lo && brake) {
-        v = 255 - (s32)(255.0f * ((vel - lo) / (speed - lo)));
-        if (brake > v) {
+        if (brake < v) {
             brake = v;
         }
+        throttle = 0;
+    } else if (speed && vel > lo && throttle) {
+        v = 255 - (s32)(255.0f * ((vel - lo) / (speed - lo)));
+        if (throttle > v) {
+            throttle = v;
+        }
     }
-    if (velSq < 100.0f || *(f32 *)(car + 0x458) < 0.0f) {
-        brake = 0xFF;
-        accel = 0;
+    if (velSq < 100.0f || car->gradeOrReverse < 0.0f) {
+        throttle = 0xFF;
+        brake = 0;
     }
-    if (*(s16 *)(ai + 0x640) > 127) {
-        *(s16 *)(ai + 0x640) = 127;
-    } else if (*(s16 *)(ai + 0x640) < -127) {
-        *(s16 *)(ai + 0x640) = -127;
+    if (ai->steer > 127) {
+        ai->steer = 127;
+    } else if (ai->steer < -127) {
+        ai->steer = -127;
     }
-    ai[0] = *(s16 *)(ai + 0x640);
-    if (brake) {
-        ai[0x12] = brake;
-    } else if (accel) {
-        ai[0x13] = accel;
+    pl->stickX = ai->steer;
+    if (throttle) {
+        pl->throttle = throttle;
+    } else if (brake) {
+        pl->brake = brake;
     }
-    if (reverse) {
-        ai[0x15] = reverse;
+    if (button15) {
+        pl->button15 = button15;
     }
 }
-static inline void AI_Car_LeadTarget(u8 *ai) {
+
+/* steerPoint for a moving target (the obstacle, else targetThing): where it
+ * will be when the car gets there; drive mode 1 aims 15 to its side (to hit
+ * it side-on). Halved towards the car beyond 20. */
+static inline void AI_Car_LeadTarget(AICar *ai) {
     Vector4 lead;
-    u8 *myPos;
-    u8 *thing;
-    u8 *thingPos;
-    u8 *car;
+    Vector4 *myPos;
+    Thing *thing;
+    Vector4 *thingPos;
+    CarA *car;
     f32 dist;
     f32 t;
 
-    myPos = SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40;
-    thing = SLOT_LOAD(u8 *, (ai + 0x3E8)) != NULL ? SLOT_LOAD(u8 *, (ai + 0x3E8)) : SLOT_LOAD(u8 *, (ai + 0x3EC));
-    thingPos = thing + 0x40;
-    if (PSVECSquareMag(thing) < 1.0f) {
-        *(Vector4 *)(ai + 0x400) = *(Vector4 *)thingPos;
+    myPos = &CAR_THING(AI_Car_Vehicle(ai))->pos;
+    thing = GETP(ai->obstacle) != NULL ? GETP(ai->obstacle) : GETP(ai->targetThing);
+    thingPos = &thing->pos;
+    if (PSVECSquareMag(&thing->vel) < 1.0f) {
+        ai->steerPoint = *thingPos;
     } else {
-        car = SLOT_LOAD(u8 *, (ai + 0x2C));
+        car = AI_Car_Vehicle(ai);
         dist = PSVECSquareDistance(thingPos, myPos);
-        t = Sqrt(dist / PSVECSquareMag(car));
-        PSVECScale(thing, &lead, t);
+        t = Sqrt(dist / PSVECSquareMag(&CAR_THING(car)->vel));
+        PSVECScale(&thing->vel, &lead, t);
         PSVECAdd(&lead, thingPos, &lead);
-        PSVECScale(thing, &lead, t * Sqrt(PSVECSquareDistance(&lead, myPos) / dist));
-        PSVECAdd(&lead, thingPos, ai + 0x400);
-        if ((SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x3BC)))[0x11] == 1) {
-            PSVECSubtract(ai + 0x400, myPos, &lead);
-            PSVECScale(thing + 0x10, &lead,
-                       PSVECDotProduct(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x10, &lead) >= 0.0f ? -15.0f : 15.0f);
-            PSVECAdd(ai + 0x400, &lead, ai + 0x400);
+        PSVECScale(&thing->vel, &lead, t * Sqrt(PSVECSquareDistance(&lead, myPos) / dist));
+        PSVECAdd(&lead, thingPos, &ai->steerPoint);
+        if (AI_Car_DriveMode(ai) == 1) {
+            PSVECSubtract(&ai->steerPoint, myPos, &lead);
+            PSVECScale(&thing->axis[0], &lead,
+                       PSVECDotProduct(&CAR_THING(AI_Car_Vehicle(ai))->axis[0], &lead) >= 0.0f ? -15.0f : 15.0f);
+            PSVECAdd(&ai->steerPoint, &lead, &ai->steerPoint);
         }
     }
-    if (PSVECSquareDistance(myPos, ai + 0x400) > 400.0f) {
-        PSVECSubtract(ai + 0x400, myPos, ai + 0x400);
-        PSVECScale(ai + 0x400, ai + 0x400, 0.5f);
-        PSVECAdd(ai + 0x400, myPos, ai + 0x400);
+    if (PSVECSquareDistance(myPos, &ai->steerPoint) > 400.0f) {
+        PSVECSubtract(&ai->steerPoint, myPos, &ai->steerPoint);
+        PSVECScale(&ai->steerPoint, &ai->steerPoint, 0.5f);
+        PSVECAdd(&ai->steerPoint, myPos, &ai->steerPoint);
     }
 }
 
-static inline void AI_Car_SteerAlongPath(u8 *ai, u32 i) {
+/* steerPoint for following the path at point i: cuts the corner towards the
+ * point after it (or halfway to the point, if it is the last). */
+static inline void AI_Car_SteerAlongPath(AICar *ai, u32 i) {
     Vector4 a;
     Vector4 b;
-    u8 *myPos;
+    Vector4 *myPos;
     Vector4 *p0;
     Vector4 *p1;
     f32 ma;
     f32 mb;
 
-    p0 = SLOT_LOAD(Vector4 *, (u32 *)((ai + 0x420)) + (i));
-    myPos = SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40;
-    if (i + 1 >= 32 || (p1 = SLOT_LOAD(Vector4 *, (u32 *)((ai + 0x420)) + (i + 1))) == NULL) {
-        PSVECSubtract(myPos, p0, ai + 0x400);
-        PSVECScale(ai + 0x400, ai + 0x400, 0.5f);
-        PSVECAdd(ai + 0x400, p0, ai + 0x400);
+    p0 = &GETP(ai->path[i])->pos;
+    myPos = &CAR_THING(AI_Car_Vehicle(ai))->pos;
+    if (i + 1 >= 32 || GETP(ai->path[i + 1]) == NULL) {
+        PSVECSubtract(myPos, p0, &ai->steerPoint);
+        PSVECScale(&ai->steerPoint, &ai->steerPoint, 0.5f);
+        PSVECAdd(&ai->steerPoint, p0, &ai->steerPoint);
     } else {
+        p1 = &GETP(ai->path[i + 1])->pos;
         PSVECSubtract(myPos, p0, &a);
         PSVECSubtract(p1, p0, &b);
         ma = MagnitudeVector(&a);
@@ -449,89 +518,70 @@ static inline void AI_Car_SteerAlongPath(u8 *ai, u32 i) {
         PSVECScale(&a, &a, mb / ma);
         PSVECScale(&b, &b, ma / mb);
         PSVECScale(&a, &a, -1.0f);
-        PSVECAdd(&a, &b, ai + 0x400);
-        PSVECScale(ai + 0x400, ai + 0x400, -(0.5f * ma / MagnitudeVector(ai + 0x400)));
-        PSVECAdd(ai + 0x400, p0, ai + 0x400);
+        PSVECAdd(&a, &b, &ai->steerPoint);
+        PSVECScale(&ai->steerPoint, &ai->steerPoint, -(0.5f * ma / MagnitudeVector(&ai->steerPoint)));
+        PSVECAdd(&ai->steerPoint, p0, &ai->steerPoint);
     }
 }
 
-static void AI_Car_SeekPoint(u8 *ai) {
+/* Drives to the obstacle, else along the path, else to targetThing; with
+ * none of them it just brakes (and targetNav is dropped). */
+static void AI_Car_SeekPoint(AICar *ai) {
+    Player *pl = AI_PLAYER(ai);
     Vector4 target;
     f32 speed;
     u32 i;
 
     speed = 0.0f;
-    if (SLOT_LOAD(u8 *, (ai + 0x3E8)) != NULL) {
+    if (GETP(ai->obstacle) != NULL) {
         AI_Car_LeadTarget(ai);
-    } else if ((i = *(u32 *)(ai + 0x4A4)) < 32 && SLOT_LOAD(Vector4 *, (u32 *)((ai + 0x420)) + (i)) != NULL) {
+    } else if ((i = ai->pathIndex) < 32 && GETP(ai->path[i]) != NULL) {
         AI_Car_SteerAlongPath(ai, i);
-        speed = *(f32 *)((u8 *)SLOT_LOAD(Vector4 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4))) + 0x2C);
-    } else if (SLOT_LOAD(u8 *, (ai + 0x3EC)) != NULL) {
+        speed = GETP(ai->path[ai->pathIndex])->speed;
+    } else if (GETP(ai->targetThing) != NULL) {
         AI_Car_LeadTarget(ai);
     } else {
-        ai[0x13] = 0xFF;
-        if ((SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x3BC)))[0x11] == 1) {
-            ai[0x12] = 0xFF;
+        pl->brake = 0xFF;
+        if (AI_Car_DriveMode(ai) == 1) {
+            pl->throttle = 0xFF;
         }
-        *(u32 *)(ai + 0x3F0) = 0;
+        SETP(ai->targetNav, NULL);
         return;
     }
-    if (SLOT_LOAD(u8 *, (ai + 0x3EC)) != NULL) {
-        target = *(Vector4 *)(SLOT_LOAD(u8 *, (ai + 0x3EC)) + 0x40);
-    } else if (*(u32 *)(ai + 0x4A4) < 32 && SLOT_LOAD(Vector4 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4))) != NULL) {
-        target = *SLOT_LOAD(Vector4 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4)));
-    } else if (SLOT_LOAD(u8 *, (ai + 0x3E8)) != NULL) {
-        target = *(Vector4 *)(SLOT_LOAD(u8 *, (ai + 0x3E8)) + 0x40);
+    if (GETP(ai->targetThing) != NULL) {
+        target = GETP(ai->targetThing)->pos;
+    } else if (AI_Car_PathPoint(ai, ai->pathIndex) != NULL) {
+        target = GETP(ai->path[ai->pathIndex])->pos;
+    } else if (GETP(ai->obstacle) != NULL) {
+        target = GETP(ai->obstacle)->pos;
     }
     AI_Car_DriveToTarget(ai, &target, speed);
 }
 
-static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
-    typedef struct WeaponParams {
-        u8 pad0[0x24];
-        u32 minAmmo;
-        u8 pad28[0x30 - 0x28];
-        u32 reloadTime;
-        u8 priority;
-        u8 pad35[3];
-        f32 minRange;
-        f32 maxRange;
-        f32 aimAngle;
-        f32 farAngle;
-        f32 nearAngle;
-    } WeaponParams;
-    typedef struct WeaponDef {
-        u8 type;
-        u8 pad1[0x20 - 0x1];
-        PTR32(PTR32(char)) name;
-        u8 pad24[0x30 - 0x24];
-        PTR32(WeaponParams) params;
-    } WeaponDef;
-    typedef struct WeaponSlot {
-        u8 pad0[0x40];
-        s16 ammo;
-        u8 pad42[0x4C - 0x42];
-        PTR32(WeaponDef) def;
-    } WeaponSlot;
-    typedef struct WeaponHolder {
-        u8 pad0[0xB0];
-        WeaponSlot slots[12];
-        u8 current;
-    } WeaponHolder;
+/* Async: picks the weapon for the target (any nearest car with code
+ * variable 0x12D >= 3, else obstacle, targetThing if a car or wildcard
+ * item): side attacks when close, fires the selected weapon when it is the
+ * best for range/angle/priority (a heal weapon when low on health), else
+ * switches; then waits a reload time. */
+static void AI_Car_WeaponAsyncHeartbeat_80008210(AICar *ai) {
     extern u32 g_attackDelay;
     extern u8 g_itemVTable[];
     static const char g_jetBoostersName_800CC3E4[] = "Jet Boosters";  /* @832 in .rodata */
-    u8 *cars[8];
-    u8 *target;
-    WeaponHolder *holder;
-    WeaponParams *params;
+    Player *pl = AI_PLAYER(ai);
+    AICarScript *script = AI_Car_Script(ai);
+    Thing *cars[8];
+    Thing *target;
+    Thing *thing;
+    CarA *car;
+    AIWeaponRack *holder;
+    AIWeaponInfo *params;
     s16 i;
     s8 lowHealth;
     s16 best;
     s16 preferred;
-    WeaponSlot *slot;
-    WeaponParams *reload;
-    WeaponDef *def;
+    AIWeaponSlot *slot;
+    AIWeaponInfo *reload;
+    ItemRecord *def;
     Vector4 *targetPos;
     f32 nearest;
     f32 distSq;
@@ -544,61 +594,62 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
 
     target = NULL;
     lowHealth = 0;
-    if (SLOT_LOAD(u8 *, (ai + 0x2C)) == NULL) {
+    car = AI_Car_Vehicle(ai);
+    if (car == NULL) {
         return;
     }
     if (GameSettings_GetCodeVariable(0x12D, 0) >= 3) {
-        numCars = ThingManager_GetActiveCars(cars, 8);
+        numCars = ThingManager_GetActiveCars((void **)cars, 8);
         nearest = 1e10f;
         for (n = 0; n < numCars; n++) {
-            if (cars[n] != SLOT_LOAD(u8 *, (ai + 0x2C)) && !(*(u32 *)(cars[n] + 0x74) & 0x1000) &&
-                (GameSettings_GetCodeVariable(0x12D, 0) != 4 || Player_IsHuman(SLOT_LOAD(void *, (cars[n] + 0x94))))) {
-                distSq = PSVECSquareDistance(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40, cars[n] + 0x40);
+            if (cars[n] != CAR_THING(car) && !(cars[n]->flags & THING_FLAG_FREE) &&
+                (GameSettings_GetCodeVariable(0x12D, 0) != 4 || Player_IsHuman(GETP(cars[n]->player)))) {
+                distSq = PSVECSquareDistance(&CAR_THING(car)->pos, &cars[n]->pos);
                 if (nearest > distSq) {
                     nearest = distSq;
                     target = cars[n];
                 }
             }
         }
-    } else if (SLOT_LOAD(u8 *, (ai + 0x3E8)) != NULL) {
-        target = SLOT_LOAD(u8 *, (ai + 0x3E8));
-    } else if (SLOT_LOAD(u8 *, (ai + 0x3EC)) != NULL &&
-               (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x3EC)) + 0x8C)) == g_carAVTable ||
-                (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x3EC)) + 0x8C)) == g_itemVTable && *SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x3EC)) + 0xC0)) == 2))) {
-        target = SLOT_LOAD(u8 *, (ai + 0x3EC));
+    } else if (GETP(ai->obstacle) != NULL) {
+        target = GETP(ai->obstacle);
+    } else if ((thing = GETP(ai->targetThing)) != NULL &&
+               (GETP(thing->vtable) == (u32 *)g_carAVTable ||
+                (GETP(thing->vtable) == (u32 *)g_itemVTable && GETP(((ItemThing *)thing)->record)->type == 2))) {
+        target = thing;
     }
-    if (target != NULL && SLOT_LOAD(u8 *, (ai + 0x2C)) != NULL) {
-        targetPos = (Vector4 *)(target + 0x40);
+    car = AI_Car_Vehicle(ai);
+    if (target != NULL && car != NULL) {
+        targetPos = &target->pos;
         best = -1;
         preferred = -1;
-        distSq = PSVECSquareDistance(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40, targetPos);
+        distSq = PSVECSquareDistance(&CAR_THING(car)->pos, targetPos);
         dist = Sqrt(distSq);
-        angle = 57.29578f * AI_AngleToTarget(SLOT_LOAD(u8 *, (ai + 0x2C)), targetPos);
-        if ((SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x3BC)))[0x11] == 1 && g_attackDelay == 0 && distSq < 400.0f) {
+        angle = 57.29578f * AI_AngleToTarget(car, targetPos);
+        if (AI_Car_DriveMode(ai) == 1 && g_attackDelay == 0 && distSq < 400.0f) {
             if (AI_CheckAngleInRange(angle, 90.0f, 12.5f)) {
-                ai[0x10] = 0xFF;
-                *(u32 *)(ai + 0xC) |= 1;
+                pl->button10 = 0xFF;
+                pl->buttonsHeld |= 1;
             } else if (AI_CheckAngleInRange(angle, 270.0f, 12.5f)) {
-                ai[0x1A] = 0xFF;
-                *(u32 *)(ai + 0xC) |= 0x400;
+                pl->button1A = 0xFF;
+                pl->buttonsHeld |= 0x400;
             }
         }
-        if ((f32)*(s32 *)(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x78) <
-            0.3f * ((f32)*(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x3BC)) + 0xA0)) + 0x14) *
-                    *SLOT_LOAD(f32 *, (ai + 0xD0)))) {
+        if ((f32)CAR_THING(car)->health <
+            0.3f * ((f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth * script->healthScale)) {
             lowHealth = 1;
         }
-        holder = ThingManagerList_GetByType(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x344, 8);
+        holder = ThingManagerList_GetByType(&car->motionState.slaves, 8);
         for (i = 0; holder != NULL && i < 12; i++) {
             slot = &holder->slots[i];
-            if (slot == NULL || GETP(slot->def) == NULL) {
+            if (slot == NULL || GETP(slot->record) == NULL) {
                 continue;
             }
-            params = GETP(GETP(slot->def)->params);
+            params = AI_ITEM_WEAPON(GETP(slot->record));
             if (slot->ammo < params->minAmmo) {
                 continue;
             }
-            type = GETP(slot->def)->type;
+            type = GETP(slot->record)->type;
             if (type == 1) {
                 if (lowHealth) {
                     best = i;
@@ -614,8 +665,8 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
             if (preferred != -1) {
                 continue;
             }
-            if (best != -1 && params->priority != (SLOT_LOAD(u8 *, (ai + 0xD0)))[0x26] &&
-                GETP(GETP(holder->slots[best].def)->params)->priority <= params->priority) {
+            if (best != -1 && params->priority != script->preferredWeapon &&
+                AI_ITEM_WEAPON(GETP(holder->slots[best].record))->priority <= params->priority) {
                 continue;
             }
             if ((params->maxRange || params->minRange) &&
@@ -629,7 +680,7 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
                 continue;
             }
             best = i;
-            if (params->priority == (SLOT_LOAD(u8 *, (ai + 0xD0)))[0x26]) {
+            if (params->priority == script->preferredWeapon) {
                 preferred = i;
             }
         }
@@ -637,142 +688,128 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(u8 *ai) {
             best = preferred;
         }
         if (holder->current == best) {
-            def = GETP(holder->slots[best].def);
+            def = GETP(holder->slots[best].record);
             if (g_attackDelay == 0 || RandomAdd_s32(0, 50) == 0 || def->type != 3 ||
-                strcmp(GETP(GETP(def->name)[0]), g_jetBoostersName_800CC3E4) == 0) {
-                ai[0x1B] = 0xFF;
-                *(u32 *)(ai + 0xC) |= 0x800;
+                strcmp(GETP(GETP(AI_ITEM_NAME(def))[0]), g_jetBoostersName_800CC3E4) == 0) {
+                PLAYER_BUTTON1B(pl) = 0xFF;
+                pl->buttonsHeld |= 0x800;
             }
-        } else if (best != -1 && *(u32 *)(ai + 0x658) == 0) {
-            ai[0x11] = 0xFF;
-            *(u32 *)(ai + 0xC) |= 2;
-            *(u32 *)(ai + 0x658) = 3000;
+        } else if (best != -1 && ai->weaponSwitchTimer == 0) {
+            PLAYER_BUTTON11(pl) = 0xFF;
+            pl->buttonsHeld |= 2;
+            ai->weaponSwitchTimer = 3000;
         }
         reload = NULL;
         if (best != -1) {
-            reload = GETP(GETP(holder->slots[best].def)->params);
-        } else if (GETP(holder->slots[holder->current].def) != NULL) {
-            reload = GETP(GETP(holder->slots[holder->current].def)->params);
+            reload = AI_ITEM_WEAPON(GETP(holder->slots[best].record));
+        } else if (GETP(holder->slots[holder->current].record) != NULL) {
+            reload = AI_ITEM_WEAPON(GETP(holder->slots[holder->current].record));
         }
         if (reload != NULL) {
-            *(u32 *)(ai + 0x654) = (f32)reload->reloadTime *
-                                   RandomAdd(*(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0x14), *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0x18));
+            ai->weaponTimer = (f32)reload->reloadTime * RandomAdd(script->reloadScale[0], script->reloadScale[1]);
         }
     }
-    if (*(u32 *)(ai + 0x654) == 0) {
-        *(u32 *)(ai + 0x654) =
-            300.0f * RandomAdd(*(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0x14), *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0x18));
+    if (ai->weaponTimer == 0) {
+        ai->weaponTimer = 300.0f * RandomAdd(script->reloadScale[0], script->reloadScale[1]);
     }
 }
 
-static void AI_Car_ClearedNavPoint_800087C8(u8 *car, s8 arg1) {
-    u8 *point;
-    u8 *nav;
-    u8 *thing;
-    u8 *target;
+/* The car reached path[pathIndex] (initial: just set the path timer): moves
+ * on along the way point chain if it was the next way point, and to the next
+ * point; repaths when 30 points in. Then sets pathTimer by the speed ahead. */
+static void AI_Car_ClearedNavPoint_800087C8(AICar *ai, s8 initial) {
+    NavPoint *point;
+    NavPoint *nav;
+    Thing *thing;
+    AIStateSlot *current;
     s32 holder;   /* port: nearest nav point index (vtable 0x2C); the decomp keeps it in a void * */
     s32 dest;
     f32 dist;
 
-    if (!arg1) {
-        if (*(u32 *)(car + 0x4A0) < NavHolder_GetTotalNavPoints()) {
-            nav = NavHolder_GetNavPoint(*(u32 *)(car + 0x4A0));
-            point = SLOT_LOAD(u8 *, (u32 *)((car + 0x420)) + (*(u32 *)(car + 0x4A4)));
+    if (!initial) {
+        if ((u32)ai->wayPoint < NavHolder_GetTotalNavPoints()) {
+            nav = NavHolder_GetNavPoint(ai->wayPoint);
+            point = GETP(ai->path[ai->pathIndex]);
             if (point == nav) {
-                if (*(u8 *)(point + 0x51) == 1) {
-                    *(s32 *)(car + 0x4A0) = *(s32 *)(point + 0x4C);
+                if (point->type == NAV_TYPE_WAYPOINT) {
+                    ai->wayPoint = point->nextWayPoint;
                 } else {
-                    *(s32 *)(car + 0x4A0) = -1;
+                    ai->wayPoint = -1;
                 }
             }
         }
-        (*(u32 *)(car + 0x4A4))++;
-        if (SLOT_LOAD(u8 *, (car + 0x3E4)) != NULL && *(u32 *)(car + 0x4A4) >= 30) {
-            thing = SLOT_LOAD(u8 *, (car + 0x2C));
-            holder = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
-            target = SLOT_LOAD(u8 *, (car + 0x3E4));
-            if (*SLOT_LOAD(u8 *, target) == 10 || *SLOT_LOAD(u8 *, target) == 14) {
-                dest = *(s32 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x28);
+        ai->pathIndex++;
+        if (GETP(ai->current) != NULL && ai->pathIndex >= 30) {
+            holder = AI_Car_NearestNavPoint(CAR_THING(AI_Car_Vehicle(ai)));
+            current = GETP(ai->current);
+            if (GETP(current->info)->type == AI_TARGET_NAV_POINT || GETP(current->info)->type == AI_TARGET_WAY_POINT) {
+                dest = ((NavPoint *)GETP(current->target))->index;
             } else {
-                thing = SLOT_LOAD(u8 *, (target + 0x10));
-                dest = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
+                thing = GETP(current->target);
+                dest = AI_Car_NearestNavPoint(thing);
             }
-            AI_Car_PrepareNavPath(car, holder, dest);
+            AI_Car_PrepareNavPath(ai, holder, dest);
         }
     }
-    if (*(u32 *)(car + 0x4A4) < 32) {
-        point = SLOT_LOAD(u8 *, (u32 *)((car + 0x420)) + (*(u32 *)(car + 0x4A4)));
+    if (ai->pathIndex < 32) {
+        point = GETP(ai->path[ai->pathIndex]);
         if (point != NULL) {
-            dist = *(f32 *)(SLOT_LOAD(u8 *, (car + 0xD0)) + 0xC);
-            if (*(f32 *)(point + 0x2C) < dist) {
-                dist = *(f32 *)(point + 0x2C);
+            dist = AI_Car_Script(ai)->speed;
+            if (point->speed < dist) {
+                dist = point->speed;
             }
             if (dist > 150.0f || 0.0f == dist) {
-                *(s32 *)(car + 0x4AC) = 3000;
+                ai->pathTimer = 3000;
             } else if (dist > 100.0f) {
-                *(s32 *)(car + 0x4AC) = 4500;
+                ai->pathTimer = 4500;
             } else {
-                *(s32 *)(car + 0x4AC) = 6000;
+                ai->pathTimer = 6000;
             }
         }
     }
 }
 
-s32 AI_Car_PrepareNavPath(u8 *car, s32 from, s32 dest) {
+/* Fills path[] with a path between two nav point indices and skips the
+ * points the car is already past. 0: no path (pathDest = -1). */
+s32 AI_Car_PrepareNavPath(AICar *ai, s32 from, s32 dest) {
     s32 result = 1;
-    u8 *point;
+    NavPoint *point;
 
-    memset(car + 0x420, 0, 0x80);
-    *(u32 *)(car + 0x4A4) = 0;
+    memset(ai->path, 0, sizeof(ai->path));
+    ai->pathIndex = 0;
     point = NavHolder_FindPath(from, dest);
     if (point != NULL) {
-        NavHolder_FillPointerArrayPath(point, car + 0x420, 0x20);
-        *(s32 *)(car + 0x4A8) = dest;
-        AI_Car_ClearedNavPoint_800087C8(car, 1);
-        while (*(u32 *)(car + 0x4A4) < 31) {
-            u8 *a = SLOT_LOAD(u8 *, (u32 *)((car + 0x420)) + (*(u32 *)(car + 0x4A4)));
-            u8 *b = SLOT_LOAD(u8 *, (u32 *)((car + 0x420)) + (*(u32 *)(car + 0x4A4) + 1));
+        NavHolder_FillPointerArrayPath(point, ai->path, 32);
+        ai->pathDest = dest;
+        AI_Car_ClearedNavPoint_800087C8(ai, 1);
+        while (ai->pathIndex < 31) {
+            NavPoint *a = GETP(ai->path[ai->pathIndex]);
+            NavPoint *b = GETP(ai->path[ai->pathIndex + 1]);
             if (a == NULL || b == NULL) {
                 break;
             }
-            if (LinearPointTest(SLOT_LOAD(u8 *, (car + 0x2C)) + 0x40, a, b) < 0.0f) {
+            if (LinearPointTest(&CAR_THING(AI_Car_Vehicle(ai))->pos, a, b) < 0.0f) {
                 break;
             }
-            AI_Car_ClearedNavPoint_800087C8(car, 0);
+            AI_Car_ClearedNavPoint_800087C8(ai, 0);
         }
     } else {
         result = 0;
-        *(s32 *)(car + 0x4A8) = -1;
+        ai->pathDest = -1;
     }
     return result;
 }
 
-static void AI_Car_Cheat_80008A60(u8 *ai) {
-    typedef struct WeaponParams {
-        u8 pad0[0x28];
-        u32 maxAmmo;
-    } WeaponParams;
-    typedef struct WeaponDef {
-        u8 type;
-        u8 pad1[0x30 - 0x1];
-        PTR32(WeaponParams) params;
-    } WeaponDef;
-    typedef struct WeaponSlot {
-        u8 pad0[0x40];
-        s16 ammo;
-        u8 pad42[0x4C - 0x42];
-        PTR32(WeaponDef) def;
-    } WeaponSlot;
-    typedef struct WeaponHolder {
-        u8 pad0[0xB0];
-        WeaponSlot slots[12];
-    } WeaponHolder;
-    extern u8 g_cameraManager[];
+/* Catch-up for drive mode 1 in way point races: refills the type 3 weapons,
+ * then by the distance left to the goal compared with a car driver's (cheat
+ * in -1..1, > 0: behind) raises the speed limit and gives turbo, or lowers it. */
+static void AI_Car_Cheat_80008A60(AICar *ai) {
+    AICarScript *script = AI_Car_Script(ai);
     CarA *car;
-    u8 *nearest;
-    WeaponHolder *holder;
-    u8 *cam;
-    u8 **item;
+    Player *nearest;
+    AIWeaponRack *holder;
+    AIStateSlot *slot;
+    Camera *cam;
     Vector4 *pos;
     u32 i;
     u32 j;
@@ -781,35 +818,36 @@ static void AI_Car_Cheat_80008A60(u8 *ai) {
     f32 cheat;
 
     cheat = 0.0f;
-    car = SLOT_LOAD(CarA *, (ai + 0x2C));
+    car = AI_Car_Vehicle(ai);
     nearest = NULL;
     holder = ThingManagerList_GetByType(&car->motionState.slaves, 8);
     for (i = 0; i < 12; i++) {
-        if (GETP(holder->slots[i].def) != NULL && GETP(holder->slots[i].def)->type == 3) {
-            holder->slots[i].ammo = GETP(GETP(holder->slots[i].def)->params)->maxAmmo;
+        if (GETP(holder->slots[i].record) != NULL && GETP(holder->slots[i].record)->type == 3) {
+            holder->slots[i].ammo = AI_ITEM_WEAPON(GETP(holder->slots[i].record))->maxAmmo;
         }
     }
     best = 1e9f;
-    pos = &car->base.pos;
-    cam = g_cameraManager;
-    for (j = 0; j < g_cameraManager[0x640]; cam += 0x190, j++) {
-        nearest = SLOT_LOAD(u8 *, cam);
-        if (nearest != NULL && SLOT_LOAD(u8 *, (nearest + 0x2C)) != NULL && *(u32 *)(nearest + 0x38) == 9) {
-            dist = PSVECSquareDistance(pos, cam + 0x60);
+    pos = &CAR_THING(car)->pos;
+    cam = AI_CAMERA(0);
+    for (j = 0; j < AI_NUM_CAMERAS; cam++, j++) {
+        nearest = GETP(cam->player);
+        if (nearest != NULL && GETP(nearest->vehicle) != NULL && PLAYER_TYPE(nearest) == 9) {
+            dist = PSVECSquareDistance(pos, &cam->pos);
             if (best > dist) {
                 best = dist;
-                nearest = SLOT_LOAD(u8 *, cam);
+                nearest = GETP(cam->player);
             }
         }
     }
+    /* quirk of the original: `nearest` ends up as the last camera's player */
     if (1e9f != best) {
         for (i = 0; i < 4; i++) {
-            item = SLOT_LOAD(u8 **, (ai + 0x3D4 + i * 4));
-            if (item == NULL || SLOT_LOAD(u8 *, item) == NULL) {
+            slot = GETP(ai->active[i]);
+            if (slot == NULL || GETP(slot->info) == NULL) {
                 break;
             }
-            if (*SLOT_LOAD(u8 *, item) == 0xE) {
-                cheat = (*(f32 *)((u8 *)car + 0x564) - *(f32 *)(SLOT_LOAD(u8 *, (nearest + 0x2C)) + 0x564)) / 750.0f;
+            if (GETP(slot->info)->type == AI_TARGET_WAY_POINT) {
+                cheat = (CAR_NAV_DIST(car) - CAR_NAV_DIST(GETP(nearest->vehicle))) / 750.0f;
                 break;
             }
         }
@@ -820,112 +858,116 @@ static void AI_Car_Cheat_80008A60(u8 *ai) {
         cheat = -1.0f;
     }
     if (cheat > 0.0f) {
-        *(f32 *)(ai + 0x63C) = *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0xC) * cheat + *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0xC);
+        ai->speedLimit = script->speed * cheat + script->speed;
         car->transmissionFlags |= 0x1000;
         car->turboTime = 10000;
     } else {
         if (GameSettings_GetCodeVariable(0x12D, 0) >= 3) {
-            *(f32 *)(ai + 0x63C) = *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0xC) - 0.2f * *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0xC) * -cheat;
+            ai->speedLimit = script->speed - 0.2f * script->speed * -cheat;
         } else {
-            *(f32 *)(ai + 0x63C) = *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0xC) - 0.333f * *(f32 *)(SLOT_LOAD(u8 *, (ai + 0xD0)) + 0xC) * -cheat;
+            ai->speedLimit = script->speed - 0.333f * script->speed * -cheat;
         }
         car->transmissionFlags &= ~0x1000;
         car->turboTime = 0;
     }
 }
 
-void AI_Car_AsyncHeartbeat(u8 *ai) {
-    extern u8 g_cameraManager[];
-    u8 *car;
+/* Async, every 500 ms or a state's heartbeat time: removes a dynamic car out
+ * of every camera's far distance; repaths to the current target when needed;
+ * turns a just-spawned car to face where it goes; runs the cheat. */
+void AI_Car_AsyncHeartbeat(AICar *ai) {
+    CarA *car;
     s8 repath;
     s32 dest;
     s32 holder;   /* port: nearest nav point index (vtable 0x2C); the decomp keeps it in a void * */
     s32 paused;
-    u8 *target;
-    u8 *thing;
+    AIStateSlot *target;
+    AIStateSlot *slot;
+    NavPoint *nav;
+    Thing *thing;
     s32 time;
     u32 j;
-    u8 *tac;
+    TileCar *tac;
     u8 i;
     f32 dist;
     f32 radius;
     f32 angle;
 
-    car = SLOT_LOAD(u8 *, (ai + 0x2C));
-    if (car != NULL && SLOT_LOAD(u8 *, (car + 0x8C)) != g_carAVTable) {
+    car = AI_Car_Vehicle(ai);
+    if (car != NULL && GETP(CAR_THING(car)->vtable) != (u32 *)g_carAVTable) {
         return;
     }
-    AI_AsyncHeartbeat(ai);
-    if (*(s8 *)(ai + 0xCC) || SLOT_LOAD(u8 *, (ai + 0x2C)) == NULL) {
-        ai[0x1B] = 0xFF;
+    AI_AsyncHeartbeat(&ai->base);
+    if (ai->base.reset || AI_Car_Vehicle(ai) == NULL) {
+        PLAYER_BUTTON1B(ai) = 0xFF;
         return;
     }
-    if (ai[0xCD] != 3) {
-        dist = *(f32 *)(ai + 0x660);
+    if (ai->base.state != AI_STATE_STATIC) {
+        dist = ai->farSq;
         j = 0;
         do {
-            radius = PSVECSquareDistance(g_cameraManager + j * 0x190 + 0x60, SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40);
+            radius = PSVECSquareDistance(&AI_CAMERA(j)->pos, &CAR_THING(AI_Car_Vehicle(ai))->pos);
             if (radius < dist) {
                 dist = radius;
             }
             j++;
-        } while (j < g_cameraManager[0x640]);
-        if (dist >= *(f32 *)(ai + 0x660)) {
-            tac = SLOT_LOAD(u8 *, (ai + 0xA8));
+        } while (j < AI_NUM_CAMERAS);
+        if (dist >= ai->farSq) {
+            tac = GETP(AI_PLAYER(ai)->tileCar);
             paused = Trigger_IsTACSystemPaused();
             Trigger_PauseTACSystem(1);
-            CarA_Release(SLOT_LOAD(u8 *, (ai + 0x2C)));
+            CarA_Release((void *)AI_Car_Vehicle(ai));
             PlayerManager_RemovePlayer(ai);
-            if (*(s8 *)(tac + 0x5C)) {
-                *(u32 *)(tac + 0x28) = 0;
+            if (tac->respawn) {
+                SETP(tac->car, NULL);
             }
             Trigger_PauseTACSystem(paused);
             return;
         }
     }
-    if (SLOT_LOAD(u8 *, (ai + 0x3E4)) != NULL && (ai + 0x3D4) != NULL) {
+    /* decomp: also tested &ai->active != NULL (always true) */
+    if (GETP(ai->current) != NULL) {
         for (i = 0; i < 4; i++) {
-            u8 *item = SLOT_LOAD(u8 *, (ai + 0x3D4 + i * 4));
-            if (item == NULL) {
+            slot = GETP(ai->active[i]);
+            if (slot == NULL) {
                 break;
             }
-            time = RandomAdd_s32(*(s32 *)(SLOT_LOAD(u8 *, item) + 0x40), *(s32 *)(SLOT_LOAD(u8 *, item) + 0x44));
-            if (*(u32 *)(ai + 0xC8) > time) {
-                *(u32 *)(ai + 0xC8) = time;
+            time = RandomAdd_s32(GETP(slot->info)->heartbeat[0], GETP(slot->info)->heartbeat[1]);
+            if (ai->base.heartbeatTimer > time) {
+                ai->base.heartbeatTimer = time;
             }
         }
-        thing = SLOT_LOAD(u8 *, (ai + 0x2C));
+        thing = CAR_THING(AI_Car_Vehicle(ai));
         repath = 0;
-        holder = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
-        target = SLOT_LOAD(u8 *, (ai + 0x3E4));
-        if (*SLOT_LOAD(u8 *, target) == 10 || *SLOT_LOAD(u8 *, target) == 14) {
-            dest = *(s32 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x28);
-            if (*(u32 *)(ai + 0x4A4) >= 32 || SLOT_LOAD(u8 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4))) == NULL ||
-                *(u32 *)(ai + 0x4AC) == 0) {
+        holder = AI_Car_NearestNavPoint(thing);
+        target = GETP(ai->current);
+        if (GETP(target->info)->type == AI_TARGET_NAV_POINT || GETP(target->info)->type == AI_TARGET_WAY_POINT) {
+            dest = ((NavPoint *)GETP(target->target))->index;
+            if (AI_Car_PathPoint(ai, ai->pathIndex) == NULL || ai->pathTimer == 0) {
                 repath = 1;
             }
         } else {
-            thing = SLOT_LOAD(u8 *, (target + 0x10));
-            if (!(*(u32 *)(thing + 0x74) & 0x1000)) {
-                dest = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x2C))))(thing);
+            thing = GETP(target->target);
+            if (!(thing->flags & THING_FLAG_FREE)) {
+                dest = AI_Car_NearestNavPoint(thing);
                 if ((s8)NavHolder_IsLinked(holder, dest)) {
-                    *(u32 *)(ai + 0x4A4) = 32;
-                    if (*(u32 *)(ai + 0x4A0) < NavHolder_GetTotalNavPoints()) {
-                        dist = PSVECSquareDistance(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40, NavHolder_GetNavPoint(*(u32 *)(ai + 0x4A0)));
-                        if (dist < *(f32 *)(NavHolder_GetNavPoint(*(u32 *)(ai + 0x4A0)) + 0x24) *
-                                       *(f32 *)(NavHolder_GetNavPoint(*(u32 *)(ai + 0x4A0)) + 0x24)) {
-                            if (*(u8 *)(NavHolder_GetNavPoint(*(u32 *)(ai + 0x4A0)) + 0x51) == 1) {
-                                *(s32 *)(ai + 0x4A0) = *(s32 *)(NavHolder_GetNavPoint(*(u32 *)(ai + 0x4A0)) + 0x4C);
+                    /* next to it: drive straight there */
+                    ai->pathIndex = 32;
+                    if ((u32)ai->wayPoint < NavHolder_GetTotalNavPoints()) {
+                        dist = PSVECSquareDistance(&CAR_THING(AI_Car_Vehicle(ai))->pos, NavHolder_GetNavPoint(ai->wayPoint));
+                        nav = NavHolder_GetNavPoint(ai->wayPoint);
+                        if (dist < nav->radius * nav->radius) {
+                            if (nav->type == NAV_TYPE_WAYPOINT) {
+                                ai->wayPoint = nav->nextWayPoint;
                             } else {
-                                *(s32 *)(ai + 0x4A0) = -1;
+                                ai->wayPoint = -1;
                             }
                         }
                     }
-                } else if (*(u32 *)(ai + 0x4A4) >= 32 || SLOT_LOAD(u8 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4))) == NULL ||
-                           *(u32 *)(ai + 0x4AC) == 0) {
+                } else if (AI_Car_PathPoint(ai, ai->pathIndex) == NULL || ai->pathTimer == 0) {
                     repath = 1;
-                } else if (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x3E4)) + 0x10)) + 0x8C)) == g_carAVTable &&
-                           dest != *(s32 *)(ai + 0x4A8)) {
+                } else if (GETP(((Thing *)GETP(GETP(ai->current)->target))->vtable) == (u32 *)g_carAVTable &&
+                           dest != ai->pathDest) {
                     repath = 1;
                 }
             }
@@ -933,163 +975,113 @@ void AI_Car_AsyncHeartbeat(u8 *ai) {
         if (repath) {
             AI_Car_PrepareNavPath(ai, holder, dest);
         }
-        if (*(u32 *)(ai + 0x3EC) != 0 || *(u32 *)(ai + 0x3F0) != 0) {
-            if (ai[0xCD] == 1) {
+        if (GETP(ai->targetThing) != NULL || GETP(ai->targetNav) != NULL) {
+            if (ai->base.state == AI_STATE_SPAWNED) {
                 Vector4 out __attribute__((aligned(16)));
-                Vector4 quat __attribute__((aligned(16))) = *(Vector4 *)(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x50);
+                Vector4 quat __attribute__((aligned(16))) = *(Vector4 *)&CAR_THING(AI_Car_Vehicle(ai))->quat;
                 Vector4 axis __attribute__((aligned(16))) = {0.0f, 1.0f, 0.0f, 0.0f};
 
-                if (*(u32 *)(ai + 0x4A4) < 32 && SLOT_LOAD(u8 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4))) != NULL) {
-                    angle = AI_AngleToTarget(SLOT_LOAD(u8 *, (ai + 0x2C)), (Vector4 *)SLOT_LOAD(u8 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4))));
-                } else if (SLOT_LOAD(u8 *, (ai + 0x3EC)) != NULL) {
-                    angle = AI_AngleToTarget(SLOT_LOAD(u8 *, (ai + 0x2C)), (Vector4 *)(SLOT_LOAD(u8 *, (ai + 0x3EC)) + 0x40));
-                } else if (SLOT_LOAD(u8 *, (ai + 0x3F0)) != NULL) {
-                    angle = AI_AngleToTarget(SLOT_LOAD(u8 *, (ai + 0x2C)), SLOT_LOAD(Vector4 *, (ai + 0x3F0)));
+                if (AI_Car_PathPoint(ai, ai->pathIndex) != NULL) {
+                    angle = AI_AngleToTarget(AI_Car_Vehicle(ai), &GETP(ai->path[ai->pathIndex])->pos);
+                } else if (GETP(ai->targetThing) != NULL) {
+                    angle = AI_AngleToTarget(AI_Car_Vehicle(ai), &GETP(ai->targetThing)->pos);
+                } else if (GETP(ai->targetNav) != NULL) {
+                    angle = AI_AngleToTarget(AI_Car_Vehicle(ai), &GETP(ai->targetNav)->pos);
                 }
                 GenerateQuaternion(&axis, &out, angle);
-                QuaternionMult(&out, &quat, (Vector4 *)(SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x50));
-                ai[0xCD] = 2;
+                QuaternionMult(&out, &quat, (Vector4 *)&CAR_THING(AI_Car_Vehicle(ai))->quat);
+                ai->base.state = AI_STATE_ACTIVE;
             }
-            if ((SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x3BC)))[0x11] == 1 && GameSettings_GetCodeVariable(0x198, 0) == 0) {
+            if (AI_Car_DriveMode(ai) == 1 && GameSettings_GetCodeVariable(0x198, 0) == 0) {
                 AI_Car_Cheat_80008A60(ai);
             }
         }
     }
 }
 
-void AI_Car_AsyncScanDestructibles(u8 *car) {
+/* Async, every 400..800 ms: the destructible (if any) between the car and
+ * the next path point or targetThing becomes the obstacle to drive at. */
+void AI_Car_AsyncScanDestructibles(AICar *ai) {
     f32 dist;
-    u8 *target;
+    Vector4 *target;
     u32 index;
 
-    if (SLOT_LOAD(u8 *, (u8 *)(car) + 0x2C) != NULL) {
-        index = M2C_FIELD(car, u32 *, 0x4A4);
+    if (AI_Car_Vehicle(ai) != NULL) {
+        index = ai->pathIndex;
         target = NULL;
-        if (index < 32 && SLOT_LOAD(u8 *, (u32 *)((car + 0x420)) + (index)) != NULL) {
-            target = SLOT_LOAD(u8 *, (u32 *)((car + 0x420)) + (index));
-        } else if (SLOT_LOAD(u8 *, (u8 *)(car) + 0x3EC) != NULL) {
-            target = SLOT_LOAD(u8 *, (u8 *)(car) + 0x3EC) + 0x40;
+        if (index < 32 && GETP(ai->path[index]) != NULL) {
+            target = &GETP(ai->path[index])->pos;
+        } else if (GETP(ai->targetThing) != NULL) {
+            target = &GETP(ai->targetThing)->pos;
         }
-        SLOT_STORE((u8 *)(car) + 0x3E8, NULL);
+        SETP(ai->obstacle, NULL);
         if (target != NULL) {
             dist = 1.0f;
-            SLOT_STORE((u8 *)(car) + 0x3E8, PTR(RayHitsObjects_GetObject(SLOT_LOAD(u8 *, (u8 *)(car) + 0x2C) + 0x40, target, &dist, 1, 0)));
-            M2C_FIELD(car, s32 *, 0x608) = RandomAdd_s32(400, 400);
+            SETP(ai->obstacle, PTR(RayHitsObjects_GetObject(&CAR_THING(AI_Car_Vehicle(ai))->pos, target, &dist, 1, 0)));
+            ai->scanTimer = RandomAdd_s32(400, 400);
         }
     }
 }
 
-static s8 AI_Car_IsTargetValid_800094EC(u8 *ai, u8 *target, f32 maxDist, f32 minDist, f32 center, f32 range) {
+/* Whether the active state's target (slot->target) is still good: in
+ * range and angle, alive, passing the limits. Way point states move their
+ * target on to the next way point. */
+static s8 AI_Car_IsTargetValid_800094EC(AICar *ai, AIStateSlot *slot, f32 maxDist, f32 minDist, f32 center, f32 range) {
     extern u8 g_itemVTable[];
-    typedef struct {
-        s32 limit0;
-        s32 limit4;
-        s32 limit8;
-        s32 limitC;
-        u8 mode;
-        u8 compare;
-    } TargetLimits;
-    typedef struct {
-        u8 type;
-        u8 subtype;
-        u8 pad2[3];
-        u8 unk5;
-        u8 pad6[0x58 - 6];
-        PTR32(TargetLimits) limits;
-    } TargetDef;
-    typedef struct {
-        PTR32(u8) thing;
-        s16 v4;
-        s16 v6;
-        s16 v8;
-        s16 vA;
-        u8 padC[8];
-    } TargetEntry;
-    typedef struct {
-        u8 pad0[0x4B0];
-        TargetEntry entries[16];
-    } AIData;
-    s16 i;
     s8 valid;
-    TargetLimits *limits;
-    u8 *pos;
-    u8 *thing;
+    Vector4 *pos;
+    Thing *thing;
+    NavPoint *nav;
     u8 type;
-    TargetDef *def;
+    AIStateInfo *def;
     f32 dist;
 
-    def = SLOT_LOAD(TargetDef *, target);
+    def = GETP(slot->info);
     type = def->type;
-    if (type == 6 || (u8)(type - 7) <= 2 || type == 11 || type == 13) {
-        thing = SLOT_LOAD(u8 *, (target + 0x10));
-        if (thing != NULL && SLOT_LOAD(u8 *, (thing + 0x8C)) == g_itemVTable && !(*(u32 *)(thing + 0x74) & 0x1000)) {
-            pos = NULL;
-            if (*SLOT_LOAD(u8 *, (thing + 0xC0)) == 7 && SLOT_LOAD(u8 *, (thing + 0x94)) != NULL && *(u32 *)(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x2C) != 0) {
-                if (Player_IsHuman(SLOT_LOAD(u8 *, (thing + 0x94)))) {
-                    pos = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (target + 0x10)) + 0x94)) + 0x2C)) + 0x40;
-                }
-            } else {
-                pos = thing + 0x40;
-            }
+    if (type == AI_TARGET_ITEM || (u8)(type - AI_TARGET_ITEM_1_6) <= 2 || type == AI_TARGET_CARRIED_ITEM ||
+        type == AI_TARGET_ITEM_6) {
+        thing = GETP(slot->target);
+        if (thing != NULL && GETP(thing->vtable) == (u32 *)g_itemVTable && !(thing->flags & THING_FLAG_FREE)) {
+            pos = AI_Car_ItemPos((ItemThing *)thing);
             if (pos != NULL) {
-                dist = PSVECSquareDistance(pos, SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40);
+                dist = PSVECSquareDistance(pos, &CAR_THING(AI_Car_Vehicle(ai))->pos);
                 if ((!minDist && !maxDist) || (dist <= maxDist && dist >= minDist)) {
-                    if (AI_CheckAngleInRange(57.29578f * AI_AngleToTarget(SLOT_LOAD(u8 *, (ai + 0x2C)), (Vector4 *)pos), center, range)) {
+                    if (AI_CheckAngleInRange(57.29578f * AI_AngleToTarget(AI_Car_Vehicle(ai), pos), center, range)) {
                         return 1;
                     }
                 }
             }
         }
-    } else if ((u8)(type - 1) <= 1 || type == 3) {
+    } else if ((u8)(type - AI_TARGET_HUMAN_CAR) <= 1 || type == AI_TARGET_CAR) {
+        thing = GETP(slot->target);
         valid = 1;
-        if ((*(u32 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x74) & 0x1000) || !AI_Car_CanTarget(ai, (u8 *)def)) {
+        if ((thing->flags & THING_FLAG_FREE) || !AI_Car_CanTarget(ai, def)) {
             return 0;
         }
-        if (def->subtype == 3) {
-            limits = GETP(def->limits);
-            valid = limits->mode != 1;
-            for (i = 0; i < 16 && GETP(((AIData *)ai)->entries[i].thing) != NULL; i++) {
-                if (GETP(((AIData *)ai)->entries[i].thing) == SLOT_LOAD(u8 *, (target + 0x10))) {
-                    if (limits->compare == 1) {
-                        if ((limits->limit8 > 0 && ((TargetEntry *)(ai + 0x4B0))[i].v8 > limits->limit8) ||
-                            (limits->limitC > 0 && ((TargetEntry *)(ai + 0x4B0))[i].vA > limits->limitC) ||
-                            (limits->limit0 > 0 && ((TargetEntry *)(ai + 0x4B0))[i].v4 > limits->limit0) ||
-                            (limits->limit4 > 0 && ((TargetEntry *)(ai + 0x4B0))[i].v6 > limits->limit4)) {
-                            valid = limits->mode == 1;
-                        }
-                    } else {
-                        if ((limits->limit8 == 0 || ((TargetEntry *)(ai + 0x4B0))[i].v8 > limits->limit8) &&
-                            (limits->limitC == 0 || ((TargetEntry *)(ai + 0x4B0))[i].vA > limits->limitC) &&
-                            (limits->limit0 == 0 || ((TargetEntry *)(ai + 0x4B0))[i].v4 > limits->limit0) &&
-                            (limits->limit4 == 0 || ((TargetEntry *)(ai + 0x4B0))[i].v6 > limits->limit4)) {
-                            valid = limits->mode == 1;
-                        }
-                    }
-                    break;
-                }
-            }
+        if (def->subtype == AI_SUBTYPE_TARGET_LIMITS) {
+            valid = AI_Car_PassesLimits(ai, GETP(def->limits), thing);
         }
         if (valid) {
-            dist = PSVECSquareDistance(SLOT_LOAD(u8 *, (target + 0x10)) + 0x40, SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40);
+            dist = PSVECSquareDistance(&thing->pos, &CAR_THING(AI_Car_Vehicle(ai))->pos);
             if ((!minDist && !maxDist) || (dist <= maxDist && dist >= minDist)) {
-                if (AI_CheckAngleInRange(57.29578f * AI_AngleToTarget(SLOT_LOAD(u8 *, (ai + 0x2C)), (Vector4 *)(SLOT_LOAD(u8 *, (target + 0x10)) + 0x40)), center, range)) {
+                if (AI_CheckAngleInRange(57.29578f * AI_AngleToTarget(AI_Car_Vehicle(ai), &thing->pos), center, range)) {
                     return 1;
                 }
             }
         }
         return 0;
-    } else if (type == 10) {
-        u8 *nav = SLOT_LOAD(u8 *, (target + 0x10));
+    } else if (type == AI_TARGET_NAV_POINT) {
+        nav = GETP(slot->target);
 
-        if (nav != NULL && nav[0x50] != 0) {
-            if (def->unk5 != 0 || PSVECSquareDistance(nav, SLOT_LOAD(u8 *, (ai + 0x2C)) + 0x40) > *(f32 *)(nav + 0x24) * *(f32 *)(nav + 0x24)) {
+        if (nav != NULL && nav->enabled != 0) {
+            if (def->unk5 != 0 || PSVECSquareDistance(&nav->pos, &CAR_THING(AI_Car_Vehicle(ai))->pos) > nav->radius * nav->radius) {
                 return 1;
             }
         }
-    } else if (type == 14) {
-        if (SLOT_LOAD(u8 *, (target + 0x10)) != NULL) {
-            if (*(u32 *)(ai + 0x4A0) < NavHolder_GetTotalNavPoints()) {
-                SLOT_STORE((target + 0x10), NavHolder_GetNavPoint(*(u32 *)(ai + 0x4A0)));
+    } else if (type == AI_TARGET_WAY_POINT) {
+        if (GETP(slot->target) != NULL) {
+            if ((u32)ai->wayPoint < NavHolder_GetTotalNavPoints()) {
+                SETP(slot->target, NavHolder_GetNavPoint(ai->wayPoint));
                 return 1;
             }
         }
@@ -1097,53 +1089,21 @@ static s8 AI_Car_IsTargetValid_800094EC(u8 *ai, u8 *target, f32 maxDist, f32 min
     return 0;
 }
 
-s32 AI_Car_CheckLocalStats(u8 *ai, u8 *node) {
-    typedef struct LocalStats {
-        u8 health;
-        u8 grip;
-        u8 weapons;
-        u8 pad3[3];
-        u16 weaponCount;
-        s32 healthValue;
-        f32 gripValue;
-    } LocalStats;
-    typedef struct StatsNode {
-        u8 pad0;
-        u8 type;
-        u8 pad2[0x58 - 2];
-        PTR32(LocalStats) stats;
-    } StatsNode;
-    typedef struct WeaponParams {
-        u8 pad0[0x24];
-        u32 minAmmo;
-    } WeaponParams;
-    typedef struct WeaponDef {
-        u8 type;
-        u8 pad1[0x30 - 0x1];
-        PTR32(WeaponParams) params;
-    } WeaponDef;
-    typedef struct WeaponSlot {
-        u8 pad0[0x40];
-        s16 ammo;
-        u8 pad42[0x4C - 0x42];
-        PTR32(WeaponDef) def;
-    } WeaponSlot;
-    typedef struct WeaponHolder {
-        u8 pad0[0xB0];
-        WeaponSlot slots[12];
-    } WeaponHolder;
-    LocalStats *stats = GETP(((StatsNode *)node)->stats);
-    CarA *car = SLOT_LOAD(CarA *, (ai + 0x2C));
+/* AI_SUBTYPE_LOCAL_STATS: whether the own car's health, grip and loaded
+ * weapons meet the state's conditions (other subtypes: 1). */
+s32 AI_Car_CheckLocalStats(AICar *ai, AIStateInfo *info) {
+    AILocalStats *stats = GETP(info->stats);
+    CarA *car = AI_Car_Vehicle(ai);
     s32 health;
     u16 count;
     u16 i;
-    WeaponHolder *holder;
+    AIWeaponRack *holder;
 
-    if (((StatsNode *)node)->type != 1) {
+    if (info->subtype != AI_SUBTYPE_LOCAL_STATS) {
         return 1;
     }
     if (stats->health != 0) {
-        health = (f32)car->base.health / (100.0f * (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth);
+        health = (f32)CAR_THING(car)->health / (100.0f * (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth);
         switch (stats->health) {
         case 1:
             if (health >= stats->healthValue) {
@@ -1175,8 +1135,8 @@ s32 AI_Car_CheckLocalStats(u8 *ai, u8 *node) {
         count = 0;
         holder = ThingManagerList_GetByType(&car->motionState.slaves, 8);
         for (i = 0; holder != NULL && i < 12; i++) {
-            if (GETP(holder->slots[i].def) != NULL && GETP(holder->slots[i].def)->type == 3 &&
-                holder->slots[i].ammo > GETP(GETP(holder->slots[i].def)->params)->minAmmo) {
+            if (GETP(holder->slots[i].record) != NULL && GETP(holder->slots[i].record)->type == 3 &&
+                holder->slots[i].ammo > AI_ITEM_WEAPON(GETP(holder->slots[i].record))->minAmmo) {
                 count++;
             }
         }
@@ -1196,74 +1156,22 @@ s32 AI_Car_CheckLocalStats(u8 *ai, u8 *node) {
     return 1;
 }
 
-s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
+/* Finds the target for a state entered at depth `level` of the active
+ * branch (whose distance/angle limits narrow those of the levels above):
+ * keeps the current one if still valid, else picks among the candidates of
+ * its type by sortMode. Sets targetThing / targetNav and the limits. */
+s8 AI_Car_DetermineTarget(AICar *ai, AIStateSlot *branch, u8 level) {
     typedef struct {
-        s32 limit0;
-        s32 limit4;
-        s32 limit8;
-        s32 limitC;
-        u8 mode;
-        u8 compare;
-    } TargetLimits;
-    typedef struct {
-        u8 type;
-        u8 subtype;
-        u8 sortMode;
-        u8 pad3[2];
-        u8 unk5;
-        u8 pad6[0x14 - 6];
-        f32 minDist;
-        f32 maxDist;
-        f32 center;
-        f32 range;
-        u8 pad24[0x34 - 0x24];
-        u32 unk34;
-        u8 pad38[0x58 - 0x38];
-        PTR32(TargetLimits) limits;
-    } TargetDef;
-    typedef struct {
-        PTR32(TargetDef) def;
-        u8 pad4[8];
-        u32 unkC;
-        PTR32(u8) target;
-    } AIBranch;
-    typedef struct {
-        PTR32(u8) thing;
-        s16 v4;
-        s16 v6;
-        s16 v8;
-        s16 vA;
-        u8 padC[8];
-    } TargetEntry;
-    typedef struct {
-        PTR32(u8) thing;
+        PTR32(void) thing;
         f32 dist;
         f32 angle;
         u8 padC[4];
     } Candidate;
-    typedef struct {
-        u8 pad0[0x2C];
-        PTR32(u8) car;
-        u8 pad30[0xD0 - 0x30];
-        PTR32(u8) unkD0;
-        u8 padD4[0x3EC - 0xD4];
-        PTR32(u8) targetThing;
-        PTR32(u8) targetNav;
-        u8 pad3F4[0x410 - 0x3F4];
-        f32 targetDist;
-        f32 minDist;
-        f32 center;
-        f32 range;
-        u8 pad420[0x4A0 - 0x420];
-        u32 wayPoint;
-        u8 pad4A4[0x4B0 - 0x4A4];
-        TargetEntry entries[16];
-    } AIData;
     s8 valid;
-    u8 *cars[8];
-    u8 *items[0x60];
+    Thing *cars[8];
+    ItemThing *items[0x60];
     Candidate cands[0x80];
-    TargetDef *def;
+    AIStateInfo *def;
     f32 maxDist;
     f32 minDist;
     f32 center;
@@ -1275,25 +1183,24 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
     f32 dist;
     f32 angle;
     Candidate *closest;
-    u8 *thing;
-    u8 *other;
-    u8 *nav;
-    u8 *path;
-    TargetLimits *limits;
+    Thing *thing;
+    Thing *other;
+    NavPoint *nav;
+    NavPoint *path;
     u32 num;
     u32 n;
-    u8 *pos;
+    Vector4 *pos;
     u8 i;
-    s16 k;
     u16 j;
     u8 type;
     u32 index;
-    u8 *car;
+    CarA *car;
     u16 count;
     Candidate *best;
+#define AI_Car_CandidateWeapon(cand) AI_ITEM_WEAPON(GETP(((ItemThing *)GETP((cand)->thing))->record))
 
-    def = GETP(((AIBranch *)branch)->def);
-    car = GETP(((AIData *)ai)->car);
+    def = GETP(branch->info);
+    car = AI_Car_Vehicle(ai);
     valid = 0;
     maxDist = def->maxDist * def->maxDist;
     center = def->center;
@@ -1301,23 +1208,24 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
     range = def->range;
     count = 0;
     best = NULL;
-    if (slot) {
-        if (((AIData *)ai)->targetDist || ((AIData *)ai)->minDist) {
-            if (maxDist > ((AIData *)ai)->targetDist) {
-                maxDist = ((AIData *)ai)->targetDist;
+    if (level) {
+        if (ai->targetDistSq || ai->minDistSq) {
+            if (maxDist > ai->targetDistSq) {
+                maxDist = ai->targetDistSq;
             }
-            if (minDist < ((AIData *)ai)->minDist) {
-                minDist = ((AIData *)ai)->minDist;
+            if (minDist < ai->minDistSq) {
+                minDist = ai->minDistSq;
             }
         }
         if (!center && !range) {
-            center = ((AIData *)ai)->center;
-            range = ((AIData *)ai)->range;
-        } else if (((AIData *)ai)->center || ((AIData *)ai)->range) {
+            center = ai->center;
+            range = ai->range;
+        } else if (ai->center || ai->range) {
+            /* intersect the two angle ranges */
             c = center + range;
             d = center - range;
-            a = ((AIData *)ai)->center + ((AIData *)ai)->range;
-            b = ((AIData *)ai)->center - ((AIData *)ai)->range;
+            a = ai->center + ai->range;
+            b = ai->center - ai->range;
             if (a >= 360.0f) {
                 a -= 360.0f;
             }
@@ -1344,80 +1252,61 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
         }
     }
 
-    if (branch == SLOT_LOAD(u8 *, (u32 *)((ai + 0x3D4)) + (slot)) &&
+    if (branch == GETP(ai->active[level]) &&
         AI_Car_IsTargetValid_800094EC(ai, branch, maxDist, minDist, center, range) &&
-        (GETP(((AIBranch *)branch)->def)->unk5 == 0 || ((AIBranch *)branch)->unkC != 0)) {
-        type = GETP(((AIBranch *)branch)->def)->type;
-        if (type == 10 || type == 14) {
-            SETP(((AIData *)ai)->targetThing, NULL);
-            SETP(((AIData *)ai)->targetNav, GETP(((AIBranch *)branch)->target));
-            ((AIData *)ai)->targetDist = PSVECSquareDistance(GETP(((AIData *)ai)->car) + 0x40, GETP(((AIData *)ai)->targetNav));
+        (GETP(branch->info)->unk5 == 0 || branch->retargetTimer != 0)) {
+        /* keeps its target */
+        type = GETP(branch->info)->type;
+        if (type == AI_TARGET_NAV_POINT || type == AI_TARGET_WAY_POINT) {
+            SETP(ai->targetThing, NULL);
+            SETP(ai->targetNav, GETP(branch->target));
+            ai->targetDistSq = PSVECSquareDistance(&CAR_THING(AI_Car_Vehicle(ai))->pos, &GETP(ai->targetNav)->pos);
         } else {
-            if ((type == 6 || type == 11) && *SLOT_LOAD(u8 *, (GETP(((AIBranch *)branch)->target) + 0xC0)) == 7 &&
-                SLOT_LOAD(u8 *, (GETP(((AIBranch *)branch)->target) + 0x94)) != NULL &&
-                SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(((AIBranch *)branch)->target) + 0x94)) + 0x2C)) != NULL) {
-                SETP(((AIData *)ai)->targetThing, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(((AIBranch *)branch)->target) + 0x94)) + 0x2C)));
+            thing = GETP(branch->target);
+            if ((type == AI_TARGET_ITEM || type == AI_TARGET_CARRIED_ITEM) &&
+                GETP(((ItemThing *)thing)->record)->type == ITEM_TYPE_CARRIED &&
+                GETP(thing->player) != NULL && GETP(((Player *)GETP(thing->player))->vehicle) != NULL) {
+                SETP(ai->targetThing, GETP(((Player *)GETP(thing->player))->vehicle));
             } else {
-                SETP(((AIData *)ai)->targetThing, GETP(((AIBranch *)branch)->target));
+                SETP(ai->targetThing, thing);
             }
-            SETP(((AIData *)ai)->targetNav, NULL);
-            ((AIData *)ai)->targetDist = PSVECSquareDistance(GETP(((AIData *)ai)->car) + 0x40, GETP(((AIData *)ai)->targetThing) + 0x40);
+            SETP(ai->targetNav, NULL);
+            ai->targetDistSq = PSVECSquareDistance(&CAR_THING(AI_Car_Vehicle(ai))->pos, &GETP(ai->targetThing)->pos);
         }
-        ((AIData *)ai)->minDist = minDist;
-        ((AIData *)ai)->center = center;
-        ((AIData *)ai)->range = range;
+        ai->minDistSq = minDist;
+        ai->center = center;
+        ai->range = range;
         return 1;
     }
 
-    type = GETP(((AIBranch *)branch)->def)->type;
-    if (type == 1 || type == 3) {
-        num = ThingManager_GetActiveCars(cars, 8);
+    type = GETP(branch->info)->type;
+    if (type == AI_TARGET_HUMAN_CAR || type == AI_TARGET_CAR) {
+        num = ThingManager_GetActiveCars((void **)cars, 8);
         for (i = 0; i < num; i++) {
-            if (*(u32 *)(cars[i] + 0x74) & 0x1000) {
+            if (cars[i]->flags & THING_FLAG_FREE) {
                 continue;
             }
-            if (GETP(((AIBranch *)branch)->def)->type == 1 && !Player_IsHuman(SLOT_LOAD(u8 *, (cars[i] + 0x94)))) {
+            if (GETP(branch->info)->type == AI_TARGET_HUMAN_CAR && !Player_IsHuman(GETP(cars[i]->player))) {
                 continue;
             }
             thing = cars[i];
-            other = GETP(((AIData *)ai)->car);
+            other = CAR_THING(AI_Car_Vehicle(ai));
             if (thing == other) {
                 continue;
             }
-            def = GETP(((AIBranch *)branch)->def);
-            if (!AI_Car_CanTarget(ai, (u8 *)def)) {
+            def = GETP(branch->info);
+            if (!AI_Car_CanTarget(ai, def)) {
                 continue;
             }
             valid = 1;
-            if (def->subtype == 3) {
-                limits = GETP(def->limits);
-                valid = limits->mode != 1;
-                for (k = 0; k < 16 && GETP(((AIData *)ai)->entries[k].thing) != NULL; k++) {
-                    if (GETP(((AIData *)ai)->entries[k].thing) == cars[i]) {
-                        if (limits->compare == 1) {
-                            if ((limits->limit8 > 0 && ((AIData *)ai)->entries[k].v8 > limits->limit8) ||
-                                (limits->limitC > 0 && ((AIData *)ai)->entries[k].vA > limits->limitC) ||
-                                (limits->limit0 > 0 && ((AIData *)ai)->entries[k].v4 > limits->limit0) ||
-                                (limits->limit4 > 0 && ((AIData *)ai)->entries[k].v6 > limits->limit4)) {
-                                valid = limits->mode == 1;
-                            }
-                        } else {
-                            if ((limits->limit8 == 0 || ((AIData *)ai)->entries[k].v8 > limits->limit8) &&
-                                (limits->limitC == 0 || ((AIData *)ai)->entries[k].vA > limits->limitC) &&
-                                (limits->limit0 == 0 || ((AIData *)ai)->entries[k].v4 > limits->limit0) &&
-                                (limits->limit4 == 0 || ((AIData *)ai)->entries[k].v6 > limits->limit4)) {
-                                valid = limits->mode == 1;
-                            }
-                        }
-                        break;
-                    }
-                }
+            if (def->subtype == AI_SUBTYPE_TARGET_LIMITS) {
+                valid = AI_Car_PassesLimits(ai, GETP(def->limits), cars[i]);
             }
             if (valid == 1) {
-                dist = PSVECSquareDistance(thing + 0x40, other + 0x40);
+                dist = PSVECSquareDistance(&thing->pos, &other->pos);
                 valid = 0;
                 if ((!minDist && !maxDist) || (dist <= maxDist && dist >= minDist)) {
-                    angle = 57.29578f * AI_AngleToTarget(car, (Vector4 *)(cars[i] + 0x40));
+                    angle = 57.29578f * AI_AngleToTarget(car, &cars[i]->pos);
                     if (AI_CheckAngleInRange(angle, center, range) && count < 0x80) {
                         cands[count].angle = angle;
                         valid = 1;
@@ -1428,48 +1317,45 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
                 }
             }
         }
-    } else if (type == 2) {
-    } else if ((u8)(type - 6) <= 3 || type == 11 || type == 13) {
-        num = ThingManager_GetActiveItems(items, 0x60);
+    } else if (type == AI_TARGET_2) {
+    } else if ((u8)(type - AI_TARGET_ITEM) <= 3 || type == AI_TARGET_CARRIED_ITEM || type == AI_TARGET_ITEM_6) {
+        num = ThingManager_GetActiveItems((void **)items, 0x60);
         for (n = 0; n < num; n++) {
-            thing = items[n];
-            if (thing[0xE0] != 1) {
+            ItemThing *item = items[n];
+            u8 itemType;
+
+            if (item->unkE0 != 1) {
                 continue;
             }
-            type = GETP(((AIBranch *)branch)->def)->type;
-            if (type == 6 || (type == 7 && (*SLOT_LOAD(u8 *, (thing + 0xC0)) == 1 || *SLOT_LOAD(u8 *, (thing + 0xC0)) == 6)) ||
-                (type == 8 && *SLOT_LOAD(u8 *, (thing + 0xC0)) == 2) || (type == 9 && *SLOT_LOAD(u8 *, (thing + 0xC0)) == 3) ||
-                (type == 11 && *SLOT_LOAD(u8 *, (thing + 0xC0)) == 7) || (type == 13 && *SLOT_LOAD(u8 *, (thing + 0xC0)) == 6)) {
-                pos = NULL;
-                if (*SLOT_LOAD(u8 *, (thing + 0xC0)) == 7 && SLOT_LOAD(u8 *, (thing + 0x94)) != NULL && *(u32 *)(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x2C) != 0) {
-                    if (Player_IsHuman(SLOT_LOAD(u8 *, (thing + 0x94)))) {
-                        pos = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (items[n] + 0x94)) + 0x2C)) + 0x40;
-                    }
-                } else {
-                    pos = thing + 0x40;
-                }
+            type = GETP(branch->info)->type;
+            itemType = GETP(item->record)->type;
+            if (type == AI_TARGET_ITEM || (type == AI_TARGET_ITEM_1_6 && (itemType == 1 || itemType == 6)) ||
+                (type == AI_TARGET_ITEM_2 && itemType == 2) || (type == AI_TARGET_WILDCARD && itemType == ITEM_TYPE_WILDCARD) ||
+                (type == AI_TARGET_CARRIED_ITEM && itemType == ITEM_TYPE_CARRIED) || (type == AI_TARGET_ITEM_6 && itemType == 6)) {
+                pos = AI_Car_ItemPos(item);
                 if (pos != NULL) {
-                    dist = PSVECSquareDistance(pos, GETP(((AIData *)ai)->car) + 0x40);
+                    dist = PSVECSquareDistance(pos, &CAR_THING(AI_Car_Vehicle(ai))->pos);
                     if ((!minDist && !maxDist) || (dist <= maxDist && dist >= minDist)) {
-                        angle = 57.29578f * AI_AngleToTarget(GETP(((AIData *)ai)->car), (Vector4 *)pos);
+                        angle = 57.29578f * AI_AngleToTarget(AI_Car_Vehicle(ai), pos);
                         if (AI_CheckAngleInRange(angle, center, range)) {
+                            /* no count < 0x80 check here (as the original) */
                             cands[count].angle = angle;
                             cands[count].dist = dist;
-                            SETP(cands[count].thing, thing);
+                            SETP(cands[count].thing, item);
                             count++;
                         }
                     }
                 }
             }
         }
-    } else if (type == 10) {
+    } else if (type == AI_TARGET_NAV_POINT) {
         num = NavHolder_GetTotalNavPoints();
         for (n = 0; n < num; n++) {
             nav = NavHolder_GetNavPoint(n);
-            if (nav != NULL && nav[0x50] != 0 && RandomAdd_s32(0, 100) < nav[0x35]) {
-                dist = PSVECSquareDistance(nav, GETP(((AIData *)ai)->car) + 0x40);
+            if (nav != NULL && nav->enabled != 0 && RandomAdd_s32(0, 100) < nav->chance) {
+                dist = PSVECSquareDistance(&nav->pos, &CAR_THING(AI_Car_Vehicle(ai))->pos);
                 if ((!minDist && !maxDist) || (dist <= maxDist && dist >= minDist)) {
-                    angle = 57.29578f * AI_AngleToTarget(car, (Vector4 *)nav);
+                    angle = 57.29578f * AI_AngleToTarget(car, &nav->pos);
                     if (AI_CheckAngleInRange(angle, center, range) && count < 0x80) {
                         cands[count].angle = angle;
                         cands[count].dist = dist;
@@ -1479,20 +1365,21 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
                 }
             }
         }
-    } else if (type == 14) {
-        if (((AIData *)ai)->wayPoint != 0xFFFFFFFF) {
+    } else if (type == AI_TARGET_WAY_POINT) {
+        /* the way point chain, from the first */
+        if (ai->wayPoint != -1) {
             index = NavHolder_GetFirstWayPoint();
         } else {
             index = 0xFFFFFFFF;
         }
         while (index != 0xFFFFFFFF) {
             nav = NavHolder_GetNavPoint(index);
-            if (nav == NULL || nav[0x50] == 0) {
+            if (nav == NULL || nav->enabled == 0) {
                 break;
             }
-            dist = PSVECSquareDistance(nav, GETP(((AIData *)ai)->car) + 0x40);
+            dist = PSVECSquareDistance(&nav->pos, &CAR_THING(AI_Car_Vehicle(ai))->pos);
             if ((!minDist && !maxDist) || (dist <= maxDist && dist >= minDist)) {
-                angle = 57.29578f * AI_AngleToTarget(car, (Vector4 *)nav);
+                angle = 57.29578f * AI_AngleToTarget(car, &nav->pos);
                 if (AI_CheckAngleInRange(angle, center, range) && count < 0x80) {
                     cands[count].angle = angle;
                     cands[count].dist = dist;
@@ -1500,27 +1387,27 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
                     count++;
                 }
             }
-            if (nav[0x51] != 1) {
+            if (nav->type != NAV_TYPE_WAYPOINT) {
                 break;
             }
-            index = *(u32 *)(nav + 0x4C);
+            index = nav->nextWayPoint;
         }
     }
 
     if (count != 0) {
         best = &cands[0];
         if (count > 1) {
-            def = GETP(((AIBranch *)branch)->def);
-            if (def->sortMode == 0) {
-                if (def->type != 14) {
+            def = GETP(branch->info);
+            if (def->sortMode == AI_SORT_NEAREST) {
+                if (def->type != AI_TARGET_WAY_POINT) {
                     for (j = 1; j < count; j++) {
                         if (cands[j].dist < best->dist) {
                             best = &cands[j];
                         }
                     }
                 }
-            } else if (def->sortMode == 1) {
-                if (def->type != 14) {
+            } else if (def->sortMode == AI_SORT_FARTHEST) {
+                if (def->type != AI_TARGET_WAY_POINT) {
                     for (j = 1; j < count; j++) {
                         if (cands[j].dist > best->dist) {
                             best = &cands[j];
@@ -1529,29 +1416,30 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
                 } else {
                     best += count - 1;
                 }
-            } else if (def->sortMode == 2) {
+            } else if (def->sortMode == AI_SORT_RANDOM) {
                 best += RandomAdd_s32(0, count - 1);
-            } else if (def->sortMode == 3) {
-                if (def->type == 7 || def->type == 8 || def->type == 9) {
+            } else if (def->sortMode == AI_SORT_SPECIAL) {
+                if (def->type == AI_TARGET_ITEM_1_6 || def->type == AI_TARGET_ITEM_2 || def->type == AI_TARGET_WILDCARD) {
+                    /* wildcards: the nearest of the preferred weapon, else the
+                     * lowest priority (nearest of those) */
                     closest = NULL;
                     for (j = 1; j < count; j++) {
-                        u8 *info = SLOT_LOAD(u8 *, (GETP(cands[j].thing) + 0xC0));
-                        u8 *owner;
+                        ItemRecord *info = GETP(((ItemThing *)GETP(cands[j].thing))->record);
+                        AIWeaponInfo *owner;
 
-                        switch (info[0]) {
-                        case 3:
-                            owner = SLOT_LOAD(u8 *, (info + 0x30));
+                        switch (info->type) {
+                        case ITEM_TYPE_WILDCARD:
+                            owner = AI_ITEM_WEAPON(info);
                             if (owner != NULL) {
                                 if (closest != NULL) {
-                                    if (owner[0x34] == GETP(((AIData *)ai)->unkD0)[0x26] && cands[j].dist < closest->dist) {
+                                    if (owner->priority == AI_Car_Script(ai)->preferredWeapon && cands[j].dist < closest->dist) {
                                         closest = &cands[j];
                                     }
-                                } else if (owner[0x34] == GETP(((AIData *)ai)->unkD0)[0x26]) {
+                                } else if (owner->priority == AI_Car_Script(ai)->preferredWeapon) {
                                     closest = &cands[j];
-                                } else if (owner[0x34] < (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(best->thing) + 0xC0)) + 0x30)))[0x34]) {
+                                } else if (owner->priority < AI_Car_CandidateWeapon(best)->priority) {
                                     best = &cands[j];
-                                } else if (owner[0x34] == (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(best->thing) + 0xC0)) + 0x30)))[0x34] &&
-                                           cands[j].dist < best->dist) {
+                                } else if (owner->priority == AI_Car_CandidateWeapon(best)->priority && cands[j].dist < best->dist) {
                                     best = &cands[j];
                                 }
                             }
@@ -1561,9 +1449,10 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
                     if (closest != NULL) {
                         best = closest;
                     }
-                } else if (def->type == 14) {
-                    path = NavHolder_FindPath(SLOT_LOAD(s32 (*)(u8 *), SLOT_LOAD(u8 *, (GETP(((AIData *)ai)->car) + 0x8C)) + 0x2C)(GETP(((AIData *)ai)->car)),
-                                              *(s32 *)(GETP(cands[count - 1].thing) + 0x28));
+                } else if (def->type == AI_TARGET_WAY_POINT) {
+                    /* the first candidate on the path to the last one */
+                    path = NavHolder_FindPath(AI_Car_NearestNavPoint(CAR_THING(AI_Car_Vehicle(ai))),
+                                              ((NavPoint *)GETP(cands[count - 1].thing))->index);
                     best = NULL;
                     while (path != NULL && best == NULL) {
                         for (j = 0; j < count; j++) {
@@ -1572,7 +1461,7 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
                                 break;
                             }
                         }
-                        path = SLOT_LOAD(u8 *, (path + 0x38));
+                        path = GETP(path->parent);
                     }
                 } else {
                     for (j = 1; j < count; j++) {
@@ -1586,139 +1475,125 @@ s8 AI_Car_DetermineTarget(u8 *ai, u8 *branch, u8 slot) {
         if (best == NULL) {
             return 0;
         }
-        type = GETP(((AIBranch *)branch)->def)->type;
-        if (type == 10 || type == 14) {
-            SETP(((AIData *)ai)->targetNav, GETP(best->thing));
-            SETP(((AIData *)ai)->targetThing, NULL);
-            if (GETP(((AIBranch *)branch)->def)->type == 14 && ((AIData *)ai)->wayPoint == 0xFFFFFFFE) {
-                ((AIData *)ai)->wayPoint = *(u32 *)(GETP(((AIData *)ai)->targetNav) + 0x28);
+        type = GETP(branch->info)->type;
+        if (type == AI_TARGET_NAV_POINT || type == AI_TARGET_WAY_POINT) {
+            SETP(ai->targetNav, GETP(best->thing));
+            SETP(ai->targetThing, NULL);
+            if (GETP(branch->info)->type == AI_TARGET_WAY_POINT && ai->wayPoint == -2) {
+                ai->wayPoint = GETP(ai->targetNav)->index;
             }
         } else {
-            if ((type == 6 || type == 11) && *SLOT_LOAD(u8 *, (GETP(best->thing) + 0xC0)) == 7 && SLOT_LOAD(u8 *, (GETP(best->thing) + 0x94)) != NULL &&
-                SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(best->thing) + 0x94)) + 0x2C)) != NULL) {
-                SETP(((AIData *)ai)->targetThing, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (GETP(best->thing) + 0x94)) + 0x2C)));
+            thing = GETP(best->thing);
+            if ((type == AI_TARGET_ITEM || type == AI_TARGET_CARRIED_ITEM) &&
+                GETP(((ItemThing *)thing)->record)->type == ITEM_TYPE_CARRIED && GETP(thing->player) != NULL &&
+                GETP(((Player *)GETP(thing->player))->vehicle) != NULL) {
+                SETP(ai->targetThing, GETP(((Player *)GETP(thing->player))->vehicle));
             } else {
-                SETP(((AIData *)ai)->targetThing, GETP(best->thing));
+                SETP(ai->targetThing, thing);
             }
-            SETP(((AIData *)ai)->targetNav, NULL);
+            SETP(ai->targetNav, NULL);
         }
         valid = 1;
     }
     if (valid) {
-        ((AIData *)ai)->targetDist = best->dist;
-        ((AIData *)ai)->minDist = minDist;
-        ((AIData *)ai)->center = center;
-        ((AIData *)ai)->range = range;
-        ((AIBranch *)branch)->unkC = GETP(((AIBranch *)branch)->def)->unk34;
-        SETP(((AIBranch *)branch)->target, GETP(best->thing));
+        ai->targetDistSq = best->dist;
+        ai->minDistSq = minDist;
+        ai->center = center;
+        ai->range = range;
+        branch->retargetTimer = GETP(branch->info)->retargetTime;
+        SETP(branch->target, GETP(best->thing));
     }
     return valid;
+#undef AI_Car_CandidateWeapon
 }
-s8 AI_Car_EnterState(u8 *ai, u8 *branch, s32 slot) {
-    typedef struct { PTR32(u8) info; u32 timer0; u32 timer1; u32 timer2; u8 pad10[4]; u8 count; } AIBranch;
+
+/* Tries a state at depth `level` of the active branch. If it is the one
+ * active there it stays while its duration runs, its stats hold and it has a
+ * target; otherwise it is entered if it has uses left, isn't cooling down,
+ * its stats hold and it finds a target (spawning its debris effect). On
+ * leaving, it and the states below it start cooling down. */
+s8 AI_Car_EnterState(AICar *ai, AIStateSlot *branch, s32 level) {
     extern Vector4 g_zeroVector;
-    struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; u32 id; PTR32(u8) player; f32 f0; f32 f1; } p __attribute__((aligned(16)));
-    u32 id;
-    u8 *car;
+    DebrisParams p __attribute__((aligned(16)));
+    AIStateInfo *info = GETP(branch->info);
+    AIStateSlot *slot;
+    Thing *car;
     u8 i;
     s8 done;
 
     done = 0;
-    if (branch == SLOT_LOAD(u8 *, (u32 *)((ai + 0x3D4)) + ((u8)slot))) {
-        if (*(u32 *)(branch + 4) != 0) {
-            AI_UpdateTimer((u32 *)PTR(((u32)HND(branch) + 4)));
+    if (branch == GETP(ai->active[(u8)level])) {
+        if (branch->durationTimer != 0) {
+            AI_UpdateTimer(&branch->durationTimer);
         }
-        if (*(u32 *)(branch + 4) == 0 && (*(u32 *)(GETP(((AIBranch *)branch)->info) + 0x48) != 0 || *(u32 *)(GETP(((AIBranch *)branch)->info) + 0x4C) != 0)) {
+        if (branch->durationTimer == 0 && (info->cooldown[0] != 0 || info->cooldown[1] != 0)) {
             done = 1;
-        } else if (!(s8)AI_Car_CheckLocalStats(ai, GETP(((AIBranch *)branch)->info))) {
+        } else if (!(s8)AI_Car_CheckLocalStats(ai, info)) {
             done = 1;
-        } else if (!AI_Car_DetermineTarget(ai, branch, slot)) {
+        } else if (!AI_Car_DetermineTarget(ai, branch, level)) {
             done = 1;
         }
         if (done) {
             branch = NULL;
         }
     } else {
-        if (GETP(((AIBranch *)branch)->info)[6] != 0 && ((AIBranch *)branch)->count == 0) {
+        if (info->uses != 0 && branch->usesLeft == 0) {
             return 0;
         }
-        if (((AIBranch *)branch)->timer1 != 0) {
+        if (branch->cooldownTimer != 0) {
             return 0;
         }
-        if (!(s8)AI_Car_CheckLocalStats(ai, GETP(((AIBranch *)branch)->info))) {
+        if (!(s8)AI_Car_CheckLocalStats(ai, info)) {
             return 0;
         }
-        if (!AI_Car_DetermineTarget(ai, branch, slot)) {
+        if (!AI_Car_DetermineTarget(ai, branch, level)) {
             return 0;
         }
-        if (((AIBranch *)branch)->count != 0) {
-            ((AIBranch *)branch)->count--;
+        if (branch->usesLeft != 0) {
+            branch->usesLeft--;
         }
-        id = *(u32 *)(GETP(((AIBranch *)branch)->info) + 0x5C);
-        if (id != 0) {
-            p.id = id;
-            car = SLOT_LOAD(u8 *, (ai + 0x2C));
-            p.a = *(Vector4 *)(car + 0x40);
-            p.b = *(Vector4 *)(car + 0x50);
-            p.c = *(Vector4 *)(car + 0x0);
-            SETP(p.player, ai);
-            p.f0 = 0.0f;
-            p.zero = g_zeroVector;
+        if (info->debris != 0) {
+            p.debris = info->debris;
+            car = CAR_THING(AI_Car_Vehicle(ai));
+            p.pos = car->pos;
+            p.quat = *(Vector4 *)&car->quat;
+            p.vel = car->vel;
+            p.owner = (s32)HND(ai);
+            p.unk48 = 0.0f;   /* unk4C is left unset, as in the original */
+            p.angVel = g_zeroVector;
             ThingManager_DARYL_CreateThing(1, &p);
         }
-        ((AIBranch *)branch)->timer0 = RandomAdd_s32(*(s32 *)(GETP(((AIBranch *)branch)->info) + 0x38), *(s32 *)(GETP(((AIBranch *)branch)->info) + 0x3C));
+        branch->durationTimer = RandomAdd_s32(info->duration[0], info->duration[1]);
         done = 1;
     }
     if (done) {
-        for (i = slot; i < 4; i++) {
-            if (SLOT_LOAD(AIBranch *, (ai + 0x3D4 + i * 4)) == NULL) {
+        for (i = level; i < 4; i++) {
+            slot = GETP(ai->active[i]);
+            if (slot == NULL) {
                 break;
             }
-            (SLOT_LOAD(AIBranch *, (ai + 0x3D4 + i * 4)))->timer1 = RandomAdd_s32(*(s32 *)(GETP((SLOT_LOAD(AIBranch *, (ai + 0x3D4 + i * 4)))->info) + 0x48), *(s32 *)(GETP((SLOT_LOAD(AIBranch *, (ai + 0x3D4 + i * 4)))->info) + 0x4C));
-            SLOT_STORE((ai + 0x3D4 + i * 4), NULL);
+            slot->cooldownTimer = RandomAdd_s32(GETP(slot->info)->cooldown[0], GETP(slot->info)->cooldown[1]);
+            SETP(ai->active[i], NULL);
         }
     }
     return branch != NULL;
 }
 
-s8 AI_Car_DetermineStateBranch(u8 *car, void *arg, s8 skip) {
-    typedef struct AIStateInfo {
-        u8 unk0[6];
-        u8 unk6;
-    } AIStateInfo;
-    typedef struct AIState {
-        PTR32(AIStateInfo) info;
-        u32 numChildren;
-        PTR32(struct AIState) children;
-    } AIState;
-    typedef struct AIStateSlot {
-        PTR32(AIStateInfo) info;
-        s32 unk4;
-        s32 unk8;
-        s32 unkC;
-        u8 unk10[4];
-        u8 unk14;
-    } AIStateSlot;
-    typedef struct AICar {
-        u8 pad0[0xD0];
-        PTR32(u8) params;
-        AIStateSlot slots[32];
-        PTR32(AIStateSlot) active[4];
-        PTR32(AIStateSlot) current;
-    } AICar;
+/* Walks the state tree depth first, entering the first state that can be
+ * at each depth; the deepest one entered becomes current. Recursive; the
+ * slot and depth counters are static. */
+s8 AI_Car_DetermineStateBranch(AICar *ai, AIStateNode *state, s8 skip) {
     static u8 iTotal;
     static u8 iValid;
-    AICar *ai = (AICar *)car;
-    AIState *state = arg;
     AIStateInfo *found = NULL;
     u8 i;
 
-    if (state == (AIState *)(GETP(ai->params) + 0x28)) {
+    if (state == &AI_Car_Script(ai)->root) {
         iTotal = 0;
         iValid = 0;
     }
     if (GETP(state->info) != NULL) {
-        if (!skip && AI_Car_EnterState(car, (u8 *)&ai->slots[iTotal], iValid)) {
+        if (!skip && AI_Car_EnterState(ai, &ai->slots[iTotal], iValid)) {
             found = GETP(state->info);
             SETP(ai->active[iValid++], &ai->slots[iTotal]);
         }
@@ -1726,7 +1601,7 @@ s8 AI_Car_DetermineStateBranch(u8 *car, void *arg, s8 skip) {
     }
     skip = (!skip && (GETP(state->info) == NULL || found != NULL)) == 0;
     for (i = 0; i < state->numChildren; i++) {
-        if (AI_Car_DetermineStateBranch(car, &GETP(state->children)[i], skip)) {
+        if (AI_Car_DetermineStateBranch(ai, &GETP(state->children)[i], skip)) {
             return 1;
         }
     }
@@ -1735,43 +1610,41 @@ s8 AI_Car_DetermineStateBranch(u8 *car, void *arg, s8 skip) {
     }
     if (found != NULL) {
         SETP(ai->current, GETP(ai->active[iValid - 1]));
-        SETP(ai->active[iValid], NULL);
+        SETP(ai->active[iValid], NULL);   /* active[4] is `current` */
         return 1;
     }
     return 0;
 }
 
-s32 AI_Car_DetermineState(u8 *car) {
-    typedef struct { PTR32(u8) info; u32 timer0; u32 timer1; u32 timer2; u8 pad10[8]; } AIBranch;
-    typedef struct { u8 pad0[0xD4]; AIBranch branches[32]; } AICarBranches;
-    typedef s32 (*GetNavHolderFn)(void *thing);   /* nearest nav point index */
+/* Counts the state timers down and picks the state; a new target starts a
+ * new path (or a heartbeat soon, for a thing). 0: no state. */
+s32 AI_Car_DetermineState(AICar *ai) {
     u32 i;
-    u32 prev;
+    void *prev;
 
-    if (SLOT_LOAD(u8 *, (car + 0x3E4)) != NULL) {
-        prev = *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3E4)) + 0x10);
+    if (GETP(ai->current) != NULL) {
+        prev = GETP(GETP(ai->current)->target);
     } else {
-        prev = 0;
+        prev = NULL;
     }
     for (i = 0; i < 32; i++) {
-        if (GETP(((AICarBranches *)car)->branches[i].info) == NULL) {
+        if (GETP(ai->slots[i].info) == NULL) {
             break;
         }
-        AI_UpdateTimer(&((AICarBranches *)car)->branches[i].timer0);
-        AI_UpdateTimer(&((AICarBranches *)car)->branches[i].timer1);
-        if (GETP(((AICarBranches *)car)->branches[i].info)[5] != 0) {
-            AI_UpdateTimer(&((AICarBranches *)car)->branches[i].timer2);
+        AI_UpdateTimer(&ai->slots[i].durationTimer);
+        AI_UpdateTimer(&ai->slots[i].cooldownTimer);
+        if (GETP(ai->slots[i].info)->unk5 != 0) {
+            AI_UpdateTimer(&ai->slots[i].retargetTimer);
         }
     }
-    if (AI_Car_DetermineStateBranch(car, SLOT_LOAD(u8 *, (car + 0xD0)) + 0x28, 0)) {
-        if (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x3E4)) + 0x10) != prev) {
-            if (*(u32 *)(car + 0x3EC) != 0) {
-                *(u32 *)(car + 0x4A4) = 0x20;
-                *(u32 *)(car + 0xC8) = 1;
-            } else if (SLOT_LOAD(u8 *, (car + 0x3F0)) != NULL) {
-                AI_Car_PrepareNavPath(car,
-                    SLOT_LOAD(GetNavHolderFn, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x2C)) + 0x8C)) + 0x2C))(SLOT_LOAD(u8 *, (car + 0x2C))),
-                    *(s32 *)(SLOT_LOAD(u8 *, (car + 0x3F0)) + 0x28));
+    if (AI_Car_DetermineStateBranch(ai, &AI_Car_Script(ai)->root, 0)) {
+        if (GETP(GETP(ai->current)->target) != prev) {
+            if (GETP(ai->targetThing) != NULL) {
+                ai->pathIndex = 32;
+                ai->base.heartbeatTimer = 1;
+            } else if (GETP(ai->targetNav) != NULL) {
+                AI_Car_PrepareNavPath(ai, AI_Car_NearestNavPoint(CAR_THING(AI_Car_Vehicle(ai))),
+                                      GETP(ai->targetNav)->index);
             }
         }
         return 1;
@@ -1779,207 +1652,166 @@ s32 AI_Car_DetermineState(u8 *car) {
     return 0;
 }
 
-typedef struct AIResetStateInfo {
-    u8 unk0[6];
-    u8 unk6;
-} AIResetStateInfo;
-typedef struct AIResetState {
-    PTR32(AIResetStateInfo) info;
-    u32 numChildren;
-    PTR32(struct AIResetState) children;
-} AIResetState;
-typedef struct AIResetStateSlot {
-    PTR32(AIResetStateInfo) info;
-    s32 unk4;
-    s32 unk8;
-    s32 unkC;
-    u8 unk10[4];
-    u8 unk14;
-} AIResetStateSlot;
-typedef struct AIResetParams {
-    u8 pad0[0x28];
-    AIResetState state;
-} AIResetParams;
-typedef struct AIResetCar {
-    u8 pad0[0xD0];
-    PTR32(AIResetParams) params;
-    AIResetStateSlot slots[1];
-} AIResetCar;
-
-#pragma inline_max_size(600)
-void AI_Car_ResetState(AIResetCar *car, AIResetState *state) {
+/* Gives every state of the tree its slot, in depth-first order, and ends
+ * the slots with a NULL info. */
+void AI_Car_ResetState(AICar *ai, AIStateNode *state) {
     static u8 iTotal;
     u8 i;
 
-    if (state == &GETP(car->params)->state) {
+    if (state == &AI_Car_Script(ai)->root) {
         iTotal = 0;
     }
     if (GETP(state->info) != NULL) {
-        SETP(car->slots[iTotal].info, GETP(state->info));
-        car->slots[iTotal].unk4 = 0;
-        car->slots[iTotal].unk8 = 0;
-        car->slots[iTotal].unkC = 0;
-        car->slots[iTotal].unk14 = GETP(state->info)->unk6;
+        SETP(ai->slots[iTotal].info, GETP(state->info));
+        ai->slots[iTotal].durationTimer = 0;
+        ai->slots[iTotal].cooldownTimer = 0;
+        ai->slots[iTotal].retargetTimer = 0;
+        ai->slots[iTotal].usesLeft = GETP(state->info)->uses;
         iTotal++;
     }
     for (i = 0; i < state->numChildren; i++) {
-        AI_Car_ResetState(car, &GETP(state->children)[i]);
+        AI_Car_ResetState(ai, &GETP(state->children)[i]);
     }
-    if (state == &GETP(car->params)->state) {
-        SETP(car->slots[iTotal].info, NULL);
+    if (state == &AI_Car_Script(ai)->root) {
+        SETP(ai->slots[iTotal].info, NULL);
     }
 }
 
-
-void AI_Car_Reset(u8 *car) {
-    typedef struct AICarParams {
-        f32 speedScale;
-        f32 gripScale;
-        u8 unk8[4];
-        f32 unkC;
-        u8 unk10[0x18];
-        u8 state[1];
-    } AICarParams;
-    typedef struct AICarTarget {
-        int value;
-        u8 unk4[0x10];
-    } AICarTarget;
-    typedef struct AICarTargets {
-        u8 unk0[0x4B0];
-        AICarTarget targets[16];   /* 0x4B0 (asm); the decomp had them at 0 */
-    } AICarTargets;
-    register u8 *vehicle;
+/* (Re)starts the AI: scales the car's health and grip by the script, resets
+ * the states, path, targets and timers. Called with the player; note
+ * ActionSwapAIScript passes the address of the car's Thing.player field
+ * instead (as the original). */
+void AI_Car_Reset(void *player) {
+    AICar *ai = player;
+    AICarScript *script = AI_Car_Script(ai);
+    CarA *vehicle;
     u16 i;
 
-    AI_Reset(car);
-    if (SLOT_LOAD(AICarParams *, (car + 0xD0)) != NULL) {
-        *(f32 *)(car + 0x63C) = (SLOT_LOAD(AICarParams *, (car + 0xD0)))->unkC;
-        vehicle = SLOT_LOAD(u8 *, (car + 0x2C));
+    AI_Reset(&ai->base);
+    if (script != NULL) {
+        ai->speedLimit = script->speed;
+        vehicle = AI_Car_Vehicle(ai);
         if (vehicle != NULL) {
-            *(s32 *)(vehicle + 0x78) = *(s32 *)(vehicle + 0x78) * (SLOT_LOAD(AICarParams *, (car + 0xD0)))->speedScale;
-            *(f32 *)(SLOT_LOAD(u8 *, (car + 0x2C)) + 0x468) *= (SLOT_LOAD(AICarParams *, (car + 0xD0)))->gripScale;
+            CAR_THING(vehicle)->health = CAR_THING(vehicle)->health * script->healthScale;
+            AI_Car_Vehicle(ai)->gripScale *= script->gripScale;
         }
-        AI_Car_ResetState(car, (SLOT_LOAD(AICarParams *, (car + 0xD0)))->state);
+        AI_Car_ResetState(ai, &script->root);
     }
-    *(s32 *)(car + 0x3EC) = 0;
-    *(s32 *)(car + 0x3F0) = 0;
-    *(s32 *)(car + 0x5F0) = 0;
-    *(s32 *)(car + 0x5F4) = 0;
-    *(s32 *)(car + 0x4A8) = -1;
-    *(s32 *)(car + 0x4A4) = 0;
-    *(s32 *)(car + 0x4AC) = 0;
-    *(s32 *)(car + 0x4A0) = -2;
-    memset(car + 0x420, 0, 0x80);
+    SETP(ai->targetThing, NULL);
+    SETP(ai->targetNav, NULL);
+    ai->unk5F0 = 0;
+    ai->unk5F4 = 0;
+    ai->pathDest = -1;
+    ai->pathIndex = 0;
+    ai->pathTimer = 0;
+    ai->wayPoint = -2;
+    memset(ai->path, 0, sizeof(ai->path));
     for (i = 0; i < 16; i++) {
-        ((AICarTargets *)car)->targets[i].value = 0;
+        SETP(ai->records[i].thing, NULL);
     }
-    *(s32 *)(car + 0x608) = RandomAdd_s32(1000, 1000);
-    *(s32 *)(car + 0x3E8) = 0;
-    *(s32 *)(car + 0x3E4) = 0;
-    *(s32 *)(car + 0x630) = 0;
-    *(s32 *)(car + 0x634) = -120;
-    *(s32 *)(car + 0x654) = 1;
-    *(s32 *)(car + 0x658) = 3000;
+    ai->scanTimer = RandomAdd_s32(1000, 1000);
+    SETP(ai->obstacle, NULL);
+    SETP(ai->current, NULL);
+    ai->stillFrames = 0;
+    ai->stuckTimer = -120;
+    ai->weaponTimer = 1;
+    ai->weaponSwitchTimer = 3000;
 }
 
-void AI_Car_Init(u8 *car, u8 *params) {
+/* PlayerManager_NewAIPlayer init for AI_KIND_CAR; the AI is reset on its
+ * first heartbeat (once it has a car). */
+void AI_Car_Init(AICar *ai, AIPlayerParams *params) {
 
-    M2C_FIELD(car, s32 *, 0xD0) = M2C_FIELD(params, s32 *, 0x0);
-    AI_Init(car, (s32)HND(params));  /* r3/r4 passed on unchanged (asm) */
-    SLOT_STORE((u8 *)(car) + 0xB8, car);
-    SLOT_STORE((u8 *)(car) + 0xBC, AI_Car_AsyncHeartbeat);
-    M2C_FIELD(car, u8 *, 0xC4) = 0;
-    SLOT_STORE((u8 *)(car) + 0x644, car);
-    SLOT_STORE((u8 *)(car) + 0x648, AI_Car_WeaponAsyncHeartbeat_80008210);
-    M2C_FIELD(car, u8 *, 0x650) = 0;
-    SLOT_STORE((u8 *)(car) + 0x5F8, car);
-    SLOT_STORE((u8 *)(car) + 0x5FC, AI_Car_AsyncScanDestructibles);
-    M2C_FIELD(car, u8 *, 0x604) = 0;
-    if (M2C_FIELD(params, s8 *, 0xC)) {
-        M2C_FIELD(car, u8 *, 0xCD) = 1;
+    ai->base.script.h = params->script;
+    AI_Init(ai, (s32)HND(params));  /* r3/r4 passed on unchanged (asm) */
+    SETP(ai->base.heartbeat.data, ai);
+    SETP(ai->base.heartbeat.func, AI_Car_AsyncHeartbeat);
+    ai->base.heartbeat.queued = 0;
+    SETP(ai->weaponEvent.data, ai);
+    SETP(ai->weaponEvent.func, AI_Car_WeaponAsyncHeartbeat_80008210);
+    ai->weaponEvent.queued = 0;
+    SETP(ai->scanEvent.data, ai);
+    SETP(ai->scanEvent.func, AI_Car_AsyncScanDestructibles);
+    ai->scanEvent.queued = 0;
+    if (params->dynamic) {
+        ai->base.state = AI_STATE_SPAWNED;
     } else {
-        M2C_FIELD(car, u8 *, 0xCD) = 3;
+        ai->base.state = AI_STATE_STATIC;
     }
-    M2C_FIELD(car, f32 *, 0x65C) = M2C_FIELD(params, f32 *, 0x4);
-    M2C_FIELD(car, f32 *, 0x660) = M2C_FIELD(params, f32 *, 0x8);
-    M2C_FIELD(car, s32 *, 0x4A0) = -2;
-    memset(car + 0x3D4, 0, 0x60);
-    M2C_FIELD(car, u8 *, 0xCC) = 1;
+    ai->nearSq = params->nearSq;
+    ai->farSq = params->farSq;
+    ai->wayPoint = -2;
+    memset(ai->active, 0, 0x60);   /* active[] up to path[3] */
+    ai->base.reset = 1;
 }
 
-void AI_Car_Heartbeat(u8 *ai) {
-    typedef struct AICarTarget {
-        u32 timer;
-        u8 unk4[8];
-        f32 unkC;
-        f32 unk10;
-    } AICarTarget;
-    typedef struct AICarTargets {
-        u8 unk0[0x4B0];
-        AICarTarget targets[16];
-    } AICarTargets;
+/* The player's control reader: clears the controls and sets them from the
+ * state, path and target each frame; queues the async events. */
+void AI_Car_Heartbeat(AICar *ai) {
     extern u32 g_iDeltaTimeMS;
+    Player *pl = AI_PLAYER(ai);
     s8 cleared;
-    u8 *pos;
-    u8 *point;
-    u8 *car;
+    Vector4 *pos;
+    NavPoint *point;
+    CarA *car;
     u16 i;
     s16 j;
     s8 done;
 
-    car = SLOT_LOAD(u8 *, (ai + 0x2C));
-    if (car != NULL && SLOT_LOAD(u8 *, (car + 0x8C)) != g_carAVTable) {
+    car = AI_Car_Vehicle(ai);
+    if (car != NULL && GETP(CAR_THING(car)->vtable) != (u32 *)g_carAVTable) {
         return;
     }
     Control_ClearControl(ai);
-    if (!AI_Heartbeat(ai)) {
+    if (!AI_Heartbeat(&ai->base)) {
         return;
     }
-    if (*(s8 *)(ai + 0xCC) && car != NULL) {
+    if (ai->base.reset && car != NULL) {
         AI_Car_Reset(ai);
     }
-    if (*(s8 *)(ai + 0xCC)) {
+    if (ai->base.reset) {
         return;
     }
-    if (*(u32 *)(ai + 0xD0) != 0) {
+    if (GETP(ai->base.script) != NULL) {
         AI_Car_DetermineState(ai);
-        if (*(u32 *)(ai + 0x3E4) == 0 || (*(u32 *)(ai + 0x3EC) == 0 && *(u32 *)(ai + 0x3F0) == 0)) {
-            ai[0x13] = 0xFF;
-            if ((SLOT_LOAD(u8 *, (car + 0x3BC)))[0x11] == 1) {
-                ai[0x12] = 0xFF;
+        if (GETP(ai->current) == NULL || (GETP(ai->targetThing) == NULL && GETP(ai->targetNav) == NULL)) {
+            pl->brake = 0xFF;
+            if (GETP(car->vehicleIface)->driveMode == 1) {
+                pl->throttle = 0xFF;
             }
             return;
         }
-        if (*(u32 *)(ai + 0x608) != 0 && AI_UpdateTimer((u32 *)(ai + 0x608)) == 0) {
-            AI_AddEvent(ai + 0x5F8);
+        if (ai->scanTimer != 0 && AI_UpdateTimer(&ai->scanTimer) == 0) {
+            AI_AddEvent(&ai->scanEvent);
         }
-        if (*(u32 *)(ai + 0x4AC) != 0) {
-            AI_UpdateTimer((u32 *)(ai + 0x4AC));
+        if (ai->pathTimer != 0) {
+            AI_UpdateTimer(&ai->pathTimer);
         }
-        if (*(u32 *)(ai + 0x4A4) < 32 && SLOT_LOAD(u8 *, (u32 *)((ai + 0x420)) + (*(u32 *)(ai + 0x4A4))) != NULL) {
-            pos = SLOT_LOAD(u8 *, (ai + 0x2C));
+        if (AI_Car_PathPoint(ai, ai->pathIndex) != NULL) {
+            pos = &CAR_THING(AI_Car_Vehicle(ai))->pos;
             cleared = 1;
-            while (cleared && *(u32 *)(ai + 0x4A4) < 32 && (point = SLOT_LOAD(u8 *, (ai + 0x420 + *(u32 *)(ai + 0x4A4) * 4))) != NULL) {
+            while (cleared && (point = AI_Car_PathPoint(ai, ai->pathIndex)) != NULL) {
                 cleared = 0;
-                if (PSVECSquareDistance(point, pos + 0x40) < *(f32 *)(point + 0x24) * *(f32 *)(point + 0x24)) {
+                if (PSVECSquareDistance(&point->pos, pos) < point->radius * point->radius) {
                     AI_Car_ClearedNavPoint_800087C8(ai, 0);
                     cleared = 1;
                 }
             }
         }
-        for (i = 0; i < 16 && ((AICarTargets *)ai)->targets[i].timer != 0; i++) {
+        /* drop records older than 30 s */
+        for (i = 0; i < 16 && GETP(ai->records[i].thing) != NULL; i++) {
             done = 0;
             while (!done) {
                 done = 1;
-                if (((AICarTargets *)ai)->targets[i].timer != 0) {
-                    ((AICarTargets *)ai)->targets[i].unkC += g_iDeltaTimeMS;
-                    ((AICarTargets *)ai)->targets[i].unk10 += g_iDeltaTimeMS;
-                    if (((AICarTargets *)ai)->targets[i].unkC > 30000.0f && ((AICarTargets *)ai)->targets[i].unk10 > 30000.0f) {
-                        for (j = i; j < 16 && ((AICarTargets *)ai)->targets[j].timer != 0; j++) {
+                if (GETP(ai->records[i].thing) != NULL) {
+                    ai->records[i].age[0] += g_iDeltaTimeMS;
+                    ai->records[i].age[1] += g_iDeltaTimeMS;
+                    if (ai->records[i].age[0] > 30000.0f && ai->records[i].age[1] > 30000.0f) {
+                        for (j = i; j < 16 && GETP(ai->records[j].thing) != NULL; j++) {
                             if (j == 15) {
-                                ((AICarTargets *)ai)->targets[j].timer = 0;
+                                SETP(ai->records[j].thing, NULL);
                             } else {
-                                ((AICarTargets *)ai)->targets[j] = ((AICarTargets *)ai)->targets[j + 1];
+                                ai->records[j] = ai->records[j + 1];
                             }
                         }
                         done = 0;
@@ -1987,21 +1819,22 @@ void AI_Car_Heartbeat(u8 *ai) {
                 }
             }
         }
-        *(u32 *)(ai + 0x5F0) = 0;
-        *(u32 *)(ai + 0x5F4) = 0;
-        if (*(u32 *)(ai + 0x5F0) != 0) {
-            *(u32 *)(ai + 0x5F4) += g_iDeltaTimeMS;
-            if (*(u32 *)(ai + 0x5F4) > 20000) {
-                *(u32 *)(ai + 0x5F4) = 0;
-                *(u32 *)(ai + 0x5F0) = 0;
+        /* a dead timer: zeroed right before it would count */
+        ai->unk5F0 = 0;
+        ai->unk5F4 = 0;
+        if (ai->unk5F0 != 0) {
+            ai->unk5F4 += g_iDeltaTimeMS;
+            if (ai->unk5F4 > 20000) {
+                ai->unk5F4 = 0;
+                ai->unk5F0 = 0;
             }
         }
         if (!AI_Car_CheckIfStuck(ai)) {
             AI_Car_SeekPoint(ai);
         }
-        AI_UpdateTimer((u32 *)(ai + 0x658));
-        if (*(u32 *)(ai + 0x654) != 0 && AI_UpdateTimer((u32 *)(ai + 0x654)) == 0) {
-            AI_AddEvent(ai + 0x644);
+        AI_UpdateTimer(&ai->weaponSwitchTimer);
+        if (ai->weaponTimer != 0 && AI_UpdateTimer(&ai->weaponTimer) == 0) {
+            AI_AddEvent(&ai->weaponEvent);
         }
     }
 }
