@@ -540,6 +540,38 @@ void GX_DrawBeginFrame(void) {
     }
 }
 
+/* Movie frames (thp.c): an RGBA image, top row first, stretched over the
+ * whole EFB. Texture bindings and the scissor are reapplied by the next draw. */
+void GX_PortDrawImage(const u8 *rgba, int width, int height) {
+    static GLuint tex, readFbo;
+    static int texW, texH;
+
+    if (tex == 0) {
+        glGenTextures(1, &tex);
+        glGenFramebuffers(1, &readFbo);
+    }
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (width != texW || height != texH) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        texW = width;
+        texH = height;
+        glBindFramebuffer(GL_FRAMEBUFFER, readFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    } else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    }
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, readFbo);
+    glBindFramebuffer(0x8CA9 /* GL_DRAW_FRAMEBUFFER */, s.fbo);
+    /* image rows are top-down, GL's bottom-up: flip while copying */
+    glBlitFramebuffer(0, 0, width, height, 0, s.efbH, s.efbW, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+    GX_DrawCopyDisp(0);   /* movies never call GXCopyDisp: copy to the window here */
+}
+
 /* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp. */
 static void DumpEFB(void) {
     static const char *dir;

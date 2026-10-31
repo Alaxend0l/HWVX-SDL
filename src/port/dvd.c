@@ -69,6 +69,8 @@ static char *ResolveCase(const char *name) {
     return dir;
 }
 
+SDL_IOStream *Port_OpenDiscFile(const char *name);
+
 static SDL_IOStream *OpenDiscFile(const char *name) {
     char *path = JoinPath(name);
     SDL_IOStream *io = SDL_IOFromFile(path, "rb");
@@ -79,6 +81,11 @@ static SDL_IOStream *OpenDiscFile(const char *name) {
         SDL_free(path);
     }
     return io;
+}
+
+/* For readers outside the DVD API (thp.c). */
+SDL_IOStream *Port_OpenDiscFile(const char *name) {
+    return OpenDiscFile(name);
 }
 
 void DVDInit(void) {}

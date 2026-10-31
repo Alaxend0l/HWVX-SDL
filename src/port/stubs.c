@@ -48,19 +48,4 @@ char *OSGetFontTexture(char *string, void **image, s32 *x, s32 *y, s32 *width) {
     return *string ? string + 1 : string;
 }
 
-/* ---- Movies (THP) --------------------------------------------------------
- * The original streamed THP (Motion-JPEG + ADPCM) files. Until a decoder is
- * written, every movie ends at once: Mpeg_Heartbeat() returning 0 makes
- * State_Movie move on to the next movie and then back to the game.
- * TODO: THP demuxer + JPEG decode into a GL texture, audio into the mixer. */
-
-s32 Mpeg_Create(void) { return 1; }
-s32 Mpeg_Destroy(void) { return 1; }
-s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
-    (void)volume; (void)volumeScale;
-    Port_Log("movie %s skipped (THP playback not implemented)", name ? name : "(null)");
-    return 1;
-}
-s32 Mpeg_StopMovie(void) { return 1; }
-s32 Mpeg_Heartbeat(void) { return 0; }
-s32 Mpeg_Render(void) { return 1; }
+/* Movies (THP): src/port/thp.c */
