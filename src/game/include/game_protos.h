@@ -9,8 +9,9 @@ struct Debris;
 struct DebrisPartParams;
 struct DestructibleParams;
 struct EmitterParams;
-struct ParticleGX_MacroStep_t;
-struct ParticleGX_Move_t;
+struct ParticleGX;
+struct ParticleInfo;
+struct ParticleSprite;
 struct PhysicalObject;
 struct Projectile;
 struct ProjectileParams;
@@ -815,19 +816,19 @@ void NavHolder_Release(void);
 void NavHolder_UseMainRouteOnly(void);
 
 /* ParticleManager.c */
-void CreateParticle(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age);
-void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age);
-void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owner, u8 *info, f32 speed, f32 age);
-void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t *particle);
-void ParticleGX_MicroStep(void *arg0);
-void ParticleGX_Move(struct ParticleGX_Move_t *particle);
-void ParticleGX_Render(u8 *particle);
-s8 ParticleManager_CanCreatureParticle(void *creature);
+void CreateParticle(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, struct ParticleInfo *info, f32 speed, f32 age);
+void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, struct ParticleInfo *info, f32 speed, f32 age);
+void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owner, struct ParticleInfo *info, f32 speed, f32 age);
+void ParticleGX_MacroStep(struct ParticleGX *particle);
+void ParticleGX_MicroStep(struct ParticleGX *particle);
+void ParticleGX_Move(struct ParticleGX *particle);
+void ParticleGX_Render(struct ParticleGX *particle);
+s8 ParticleManager_CanCreatureParticle(struct ParticleInfo *info);
 void ParticleManager_Heartbeat(void);
 void ParticleManager_Init(void);
 void ParticleManager_Render(void);
-void ParticleSprite_Move(u8 *sprite, void *sprites);
-void ParticleSprite_Render(u8 *sprite);
+void ParticleSprite_Move(struct ParticleSprite *sprite, void *sprites);
+void ParticleSprite_Render(struct ParticleSprite *sprite);
 
 /* PhysicalObject.c */
 void Mover_DynamicRotation(struct PhysicalObject *mover);
