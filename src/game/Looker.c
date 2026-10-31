@@ -1,70 +1,62 @@
+/* The looker: a free-flying debug camera thing, steered with the pads; it can
+ * attach to a host thing and look through that thing's camera. */
 #include "common.h"
+#include "CarA.h"
 
+typedef struct Looker {
+    Thing base;                 /* 0x00 */
+    u8 padAC[8];                /* 0xAC */
+    f32 yaw;                    /* 0xB4 degrees */
+    f32 pitch;                  /* 0xB8 degrees, within +-80 */
+    PTR32(Thing) host;          /* 0xBC thing whose camera it uses, or NULL */
+    u8 padC0[4];                /* 0xC0 */
+    s32 unkC4;                  /* 0xC4 */
+    s32 unkC8;                  /* 0xC8 */
+    f32 fov;                    /* 0xCC */
+} Looker;
 
-s32 Looker_Init(u8 *looker, u8 *init) {
-    typedef struct { f32 x, y, z, w; } Vec4;
+_Static_assert(offsetof(Looker, yaw) == 0xB4, "Looker.yaw");
+_Static_assert(offsetof(Looker, fov) == 0xCC, "Looker.fov");
+_Static_assert(sizeof(Looker) == 0xD0, "Looker size (ThingPools.looker)");
+
+s32 Looker_Init(Looker *looker, u8 *init) {
     Vector4 params __attribute__((aligned(16)));
-    u8 *slave;
+    Thing *slave;
     void *world;
 
-    Thing_Init(looker, 0);
-    M2C_FIELD(looker, u32 *, 0x74) |= 2;
-    M2C_FIELD(looker, f32 *, 0xB4) = 0.0f;
-    M2C_FIELD(looker, f32 *, 0xB8) = 0.0f;
+    Thing_Init(&looker->base, 0);
+    looker->base.flags |= THING_FLAG_DEAD;
+    looker->yaw = 0.0f;
+    looker->pitch = 0.0f;
+    /* its wildcard rack */
     params.x = 0.0f;
     params.y = 2.0f;
     params.z = 1.0f;
-    slave = ThingManager_DARYL_CreateSlave(8, &params, 0xFF);
+    slave = ThingManager_DARYL_CreateSlave(THING_TYPE_WILDCARD_RACK, &params, 0xFF);
     if (slave != NULL) {
-        slave[0x83] = 0;
-        ThingManagerList_Append((void **)(looker + 0x88), slave);
+        slave->slaveTag = 0;
+        ThingManagerList_Append(&looker->base.slaves, slave);
     }
+    /* start at the world's first start point, if it has one */
     world = GETP(g_worldData.world);
     if (M2C_FIELD(world, u32 *, 0x8) != 0) {
-        M2C_FIELD(looker, Vec4 *, 0x40) = *SLOT_LOAD(Vec4 *, (u8 *)(world) + 0xC);
+        looker->base.pos = *SLOT_LOAD(Vector4 *, (u8 *)(world) + 0xC);
     }
-    M2C_FIELD(looker, s16 *, 0x80) = 3;
-    M2C_FIELD(looker, s32 *, 0xBC) = 0;
-    M2C_FIELD(looker, f32 *, 0xCC) = 60.0f;
-    M2C_FIELD(looker, s32 *, 0xC4) = -1;
-    M2C_FIELD(looker, s32 *, 0xC8) = -1;
+    looker->base.collisionType = THING_COLLIDE_RAY;
+    SETP(looker->host, NULL);
+    looker->fov = 60.0f;
+    looker->unkC4 = -1;
+    looker->unkC8 = -1;
     return 1;
 }
 
-s32 Looker_PreMove(u8 *thing) {
-    typedef struct {
-        s8 lookX;
-        s8 lookY;
-        s8 moveX;
-        s8 moveY;
-        u8 unk4[0xC];
-        u8 locked;
-        u8 unk11;
-        u8 back;
-        u8 left;
-        u8 forward;
-        u8 right;
-        u8 unk16[4];
-        u8 fast;
-        u8 unk1B[0x17];
-        u8 pressed;
-    } LookerInput;
-    typedef struct Looker {
-        Vector4 vel;
-        Vector4 right;
-        Vector4 up;
-        Vector4 forward;
-        Vector4 pos;
-        Vector4 quat;
-        u8 unk60[0x34];
-        PTR32(LookerInput) player;
-        u8 unk98[0x1C];
-        f32 yaw;
-        f32 pitch;
-        PTR32(struct Looker) host;
-    } Looker;
+/* Fly by the player's input: left stick looks, second stick and the four
+ * direction buttons move (button 0x1A slows down, 0x10 locks the buttons);
+ * combo 7 toggles attaching to the thing it looks at. */
+s32 Looker_PreMove(Looker *looker) {
     extern f32 g_fDeltaTimeSec;
-    Looker *looker = (Looker *)thing;
+    Thing *thing = &looker->base;
+    Player *player = GETP(thing->player);
     f32 speed;
     f32 f;
     f32 t;
@@ -73,49 +65,49 @@ s32 Looker_PreMove(u8 *thing) {
     s32 x;
 
     speed = 11000.0f * g_fDeltaTimeSec;
-    if (GETP(looker->player) == NULL) {
+    if (player == NULL) {
         return 0;
     }
-    if (!Player_IsHuman(GETP(looker->player))) {
+    if (!Player_IsHuman(player)) {
         return 0;
     }
-    if (GETP(looker->player)->fast) {
+    if (player->button1A) {
         speed *= 0.1f;
     }
-    switch (GETP(looker->player)->pressed) {
+    switch (player->combo) {
     case 7:
         if (GETP(looker->host) != NULL) {
             SETP(looker->host, NULL);
         } else {
-            SETP(looker->host, FindHost(&looker->pos, &looker->forward));
-            if (GETP(looker->host) == looker) {
+            SETP(looker->host, FindHost(&thing->pos, &thing->axis[2]));
+            if (GETP(looker->host) == thing) {
                 SETP(looker->host, NULL);
             }
         }
         break;
     }
-    GETP(looker->player)->pressed = 0;
-    looker->vel.x = 0.0f;
-    looker->vel.y = 0.0f;
-    looker->vel.z = 0.0f;
-    x = GETP(looker->player)->moveX;
+    player->combo = 0;
+    thing->vel.x = 0.0f;
+    thing->vel.y = 0.0f;
+    thing->vel.z = 0.0f;
+    x = player->stick2X;
     if (x > 32 || x < -32) {
         f = 120.0f * (f32)-x * g_fDeltaTimeSec;
-        looker->vel.x += f * looker->right.x;
-        looker->vel.y += f * looker->right.y;
-        looker->vel.z += f * looker->right.z;
+        thing->vel.x += f * thing->axis[0].x;
+        thing->vel.y += f * thing->axis[0].y;
+        thing->vel.z += f * thing->axis[0].z;
     }
-    if (GETP(looker->player)->moveY > 32 || GETP(looker->player)->moveY < -32) {
-        f = 120.0f * (f32)GETP(looker->player)->moveY * g_fDeltaTimeSec;
-        looker->vel.x += f * looker->forward.x;
-        looker->vel.y += f * looker->forward.y;
-        looker->vel.z += f * looker->forward.z;
+    if (player->stick2Y > 32 || player->stick2Y < -32) {
+        f = 120.0f * (f32)player->stick2Y * g_fDeltaTimeSec;
+        thing->vel.x += f * thing->axis[2].x;
+        thing->vel.y += f * thing->axis[2].y;
+        thing->vel.z += f * thing->axis[2].z;
     }
-    if (GETP(looker->player)->lookX > 32 || GETP(looker->player)->lookX < -32) {
-        looker->yaw -= 0.015f * (f32)GETP(looker->player)->lookX * g_fDeltaTimeSec;
+    if (player->stickX > 32 || player->stickX < -32) {
+        looker->yaw -= 0.015f * (f32)player->stickX * g_fDeltaTimeSec;
     }
-    if (GETP(looker->player)->lookY > 32 || GETP(looker->player)->lookY < -32) {
-        looker->pitch -= 0.015f * (f32)GETP(looker->player)->lookY * g_fDeltaTimeSec;
+    if (player->stickY > 32 || player->stickY < -32) {
+        looker->pitch -= 0.015f * (f32)player->stickY * g_fDeltaTimeSec;
         if (looker->pitch > 80.0f) {
             looker->pitch = 80.0f;
         }
@@ -123,35 +115,37 @@ s32 Looker_PreMove(u8 *thing) {
             looker->pitch = -80.0f;
         }
     }
-    SetOrientation(&looker->right, looker->yaw, looker->pitch, 0.0f);
-    SubMatrixToQuaternion(&looker->right, &looker->quat);
-    if (!GETP(looker->player)->locked && GETP(looker->player)->forward) {
-        looker->vel.x += speed * looker->forward.x;
-        looker->vel.y += speed * looker->forward.y;
-        looker->vel.z += speed * looker->forward.z;
+    SetOrientation(THING_MTX(thing), looker->yaw, looker->pitch, 0.0f);
+    SubMatrixToQuaternion(THING_MTX(thing), &thing->quat);
+    /* buttons: 0x14 forward, 0x12 back, 0x15 right, 0x13 left */
+    if (!player->button10 && player->button14) {
+        thing->vel.x += speed * thing->axis[2].x;
+        thing->vel.y += speed * thing->axis[2].y;
+        thing->vel.z += speed * thing->axis[2].z;
     }
-    if (!GETP(looker->player)->locked && GETP(looker->player)->back) {
-        looker->vel.x -= speed * looker->forward.x;
-        looker->vel.y -= speed * looker->forward.y;
-        looker->vel.z -= speed * looker->forward.z;
+    if (!player->button10 && player->throttle) {
+        thing->vel.x -= speed * thing->axis[2].x;
+        thing->vel.y -= speed * thing->axis[2].y;
+        thing->vel.z -= speed * thing->axis[2].z;
     }
-    if (!GETP(looker->player)->locked && GETP(looker->player)->right) {
-        looker->vel.x += speed * looker->right.x;
-        looker->vel.y += speed * looker->right.y;
-        looker->vel.z += speed * looker->right.z;
+    if (!player->button10 && player->button15) {
+        thing->vel.x += speed * thing->axis[0].x;
+        thing->vel.y += speed * thing->axis[0].y;
+        thing->vel.z += speed * thing->axis[0].z;
     }
-    if (!GETP(looker->player)->locked && GETP(looker->player)->left) {
-        looker->vel.x -= speed * looker->right.x;
-        looker->vel.y -= speed * looker->right.y;
-        looker->vel.z -= speed * looker->right.z;
+    if (!player->button10 && player->brake) {
+        thing->vel.x -= speed * thing->axis[0].x;
+        thing->vel.y -= speed * thing->axis[0].y;
+        thing->vel.z -= speed * thing->axis[0].z;
     }
+    /* move in up to 8 steps (the loop always finishes in one) */
     t = 0.0f;
     i = 0;
     do {
         step = g_fDeltaTimeSec - t;
-        looker->pos.x += looker->vel.x * step;
-        looker->pos.y += looker->vel.y * step;
-        looker->pos.z += looker->vel.z * step;
+        thing->pos.x += thing->vel.x * step;
+        thing->pos.y += thing->vel.y * step;
+        thing->pos.z += thing->vel.z * step;
         t += step;
         if (i++ > 6) {
             t = g_fDeltaTimeSec;
@@ -165,47 +159,23 @@ void Looker_Draw(void)
 {
 }
 
-void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info) {
-    typedef struct LookerCamera {
-        Vector4 pos;
-        Matrix4 orient;
-        u8 unk50[0x3C];
-        PTR32(struct { u8 unk0[0x1C]; FPTR32(void, (struct LookerCamera *, void *, u8 *)) getOrientationInfo; }) vtable;
-    } LookerCamera;
-    typedef struct {
-        Vector4 pos;
-        Matrix4 orient;
-        u8 unk50[0x6C];
-        PTR32(LookerCamera) camera;
-        u8 unkC0[0xC];
-        f32 fov;
-    } Looker;
-    typedef struct {
-        u8 unk0[0x14];
-        f32 fov;
-        u8 unk18[0x8];
-        Matrix4 orient;
-        Vector4 eye;
-        Vector4 target;
-        s32 unk80;
-        s32 unk84;
-    } OrientationInfo;
-    Looker *l = (Looker *)looker;
-    OrientationInfo *o = (OrientationInfo *)info;
-    LookerCamera *cam = GETP(l->camera);
+/* Attached: take the host's transform and velocity and use its camera.
+ * Otherwise look from the looker's own transform. */
+void Looker_GetCameraOrientationInfo(Looker *looker, void *arg1, CameraInfo *info) {
+    Thing *host = GETP(looker->host);
 
-    if (cam != NULL) {
-        l->orient = cam->orient;
-        l->pos = GETP(l->camera)->pos;
-        GETP(GETP(GETP(l->camera)->vtable)->getOrientationInfo)(GETP(l->camera), arg1, info);
+    if (host != NULL) {
+        *THING_MTX(&looker->base) = *THING_MTX(host);
+        looker->base.vel = host->vel;
+        THING_VFN(host, THING_V_GET_CAMERA_ORIENTATION, void (*)(Thing *, void *, CameraInfo *))(host, arg1, info);
         return;
     }
-    o->fov = l->fov;
-    o->unk80 = 0;
-    o->unk84 = 0;
-    o->orient = l->orient;
-    o->eye = l->orient.v[3];
-    o->target = l->orient.v[3];
+    info->fov = looker->fov;
+    info->unk80 = 0;
+    SETP(info->subMode, NULL);
+    info->mtx = *THING_MTX(&looker->base);
+    info->target = looker->base.pos;
+    info->from = looker->base.pos;
 }
 
 

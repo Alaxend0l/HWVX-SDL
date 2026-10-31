@@ -11,13 +11,17 @@ enum {
     ITEM_TYPE_CARRIED = 7,      /* follows its carrier's nav point */
 };
 
-/* A weapon's description (ItemRecord.weapon): ammo and how the AI uses it. */
+/* A weapon's description (ItemRecord.weapon): its model, ammo, aiming and
+ * how the AI uses it. */
 typedef struct WeaponInfo {
-    u8 pad00[0x20];             /* 0x00 */
+    PTR32(struct MotionAnim) anim; /* 0x00 wildcard: the rack slot's model */
+    u8 pad04[0x1C];             /* 0x04 */
     s32 ammo;                   /* 0x20 picked up with the item */
-    u32 minAmmo;                /* 0x24 the AI doesn't use it with less */
-    u32 maxAmmo;                /* 0x28 */
-    u8 pad2C[4];                /* 0x2C */
+    u32 ammoPerShot;            /* 0x24 the AI doesn't use it with less */
+    s32 maxAmmo;                /* 0x28 */
+    u8 aimMode;                 /* 0x2C 1: by the stick, 2: auto-aims at targets, 3: faces the target */
+    u8 aimLimit;                /* 0x2D degrees */
+    u16 aimBone;                /* 0x2E */
     u32 reloadTime;             /* 0x30 ms */
     u8 priority;                /* 0x34 */
     u8 pad35[3];                /* 0x35 */
@@ -89,6 +93,7 @@ _Static_assert(offsetof(ItemRecord, names) == 0x20, "ItemRecord.names");
 _Static_assert(offsetof(ItemRecord, pickupDebris) == 0x24, "ItemRecord.pickupDebris");
 _Static_assert(offsetof(ItemRecord, weapon) == 0x30, "ItemRecord.weapon");
 _Static_assert(offsetof(WeaponInfo, ammo) == 0x20, "WeaponInfo.ammo");
+_Static_assert(offsetof(WeaponInfo, aimBone) == 0x2E, "WeaponInfo.aimBone");
 _Static_assert(offsetof(WeaponInfo, nearAngle) == 0x48, "WeaponInfo.nearAngle");
 _Static_assert(offsetof(ItemRecord, sharedSlaves) == 0x38, "ItemRecord.sharedSlaves");
 _Static_assert(offsetof(ItemParams, drawDist) == 0x34, "ItemParams.drawDist");

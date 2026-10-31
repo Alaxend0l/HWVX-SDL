@@ -8,6 +8,7 @@ struct AttachThing;
 struct Debris;
 struct DebrisPartParams;
 struct DestructibleParams;
+struct EmitterParams;
 struct ParticleGX_MacroStep_t;
 struct ParticleGX_Move_t;
 struct PhysicalObject;
@@ -362,9 +363,6 @@ u32 Destructible_Invalidate(Destructible *destructible, u32 start, u32 end);
 s32 Destructible_Move(Destructible *destructible);
 void Destructible_Release(Destructible *destructible);
 f32 GetBoundingBoxRadius(Vector4 *box, Vector4 *offset);
-
-/* Emitter.c */
-s32 Emitter_Init(u8 *emitter, u8 *data);
 
 /* EventSequence.c */
 void Blast_Action(u8 *blast, Vector4 *pos, u8 *source);
@@ -736,9 +734,6 @@ void LogHandler_Destroy(void);
 
 /* Looker.c */
 void Looker_Draw(void);
-void Looker_GetCameraOrientationInfo(u8 *looker, void *arg1, u8 *info);
-s32 Looker_Init(u8 *looker, u8 *init);
-s32 Looker_PreMove(u8 *thing);
 
 /* MIDI.c */
 s32 AudioMIDI_Create(void);
@@ -1364,14 +1359,14 @@ void VolumeManager_SetReverbLevel(Vector4 *point);
 
 /* WildCard.c */
 s32 TriggerItemPickup(u32 *trigger);
-void WildCardRack_Add(void *thing, u8 *item, s16 count);
-void WildCardRack_Draw(u8 *rack);
-s32 WildCardRack_Init(void *thing, void *data);
-s32 WildCardRack_Invalidate(u8 *rack, u32 start, u32 end);
-void WildCardRack_Jettison(void *thing, u8 slot);
+void WildCardRack_Add(WildCardRack *rack, ItemRecord *item, s16 count);
+void WildCardRack_Draw(WildCardRack *rack);
+s32 WildCardRack_Init(WildCardRack *rack, Vector4 *pos);
+s32 WildCardRack_Invalidate(WildCardRack *rack, u32 start, u32 end);
+void WildCardRack_Jettison(WildCardRack *rack, u8 slot);
 void WildCardRack_JettisonAll(void *rack);
-s32 WildCardRack_Move(void *thing);
-void WildCardRack_Release(void *arg0);
+s32 WildCardRack_Move(WildCardRack *rack);
+void WildCardRack_Release(void *arg);
 
 /* World.c */
 s32 ActionItemChangeMode(u32 *action);
@@ -1467,6 +1462,11 @@ s32 ActionFXPointChangeMode(void *list);
 #endif
 #if !defined(HWVX_SRC_Emitter)
 u32 Emitter_InCameraRange(void *emitter, f32 range);
+#endif
+#if !defined(HWVX_SRC_Emitter) && !defined(HWVX_SRC_data_gen)
+s32 Emitter_Init(void *emitter, struct EmitterParams *data);
+#endif
+#if !defined(HWVX_SRC_Emitter)
 s32 Emitter_Invalidate(void *emitter, u32 start, u32 end);
 #endif
 #if !defined(HWVX_SRC_Emitter) && !defined(HWVX_SRC_data_gen)
@@ -1539,6 +1539,11 @@ s32 LensFlare_Add(void *flare, u8 *thing, Vector4 *pos);
 #endif
 #if !defined(HWVX_SRC_LightHolder)
 s32 LightHolder_Add(void *def, Vector4 *pos, void *thing);
+#endif
+#if !defined(HWVX_SRC_Looker)
+void Looker_GetCameraOrientationInfo(void *looker, void *arg1, CameraInfo *info);
+s32 Looker_Init(void *looker, u8 *init);
+s32 Looker_PreMove(void *looker);
 #endif
 #if !defined(HWVX_SRC_MIDI)
 void DestroyMIDIVoice(void *voice);

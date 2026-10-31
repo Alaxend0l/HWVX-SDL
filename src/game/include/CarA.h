@@ -13,8 +13,8 @@
 typedef struct MotionAnim {
   u8 pad00[0x14];           /* 0x00 */
   PTR32(u32) numBones;      /* 0x14 */
-  u8 pad18[4];              /* 0x18 */
-  u8 loop[3];               /* 0x1C */
+  f32 fps;                  /* 0x18 */
+  u8 loop[3];               /* 0x1C per phase */
   u8 pad1F;                 /* 0x1F */
   PTR32(f32) times[3];      /* 0x20 key times of its three phases */
 } MotionAnim;
@@ -30,8 +30,9 @@ typedef struct MotionState {
   PTR32(Matrix4) animMatrices;   /* 0x10 */
   ThingList slaves;              /* 0x14 attached slave things */
   PTR32(MotionAnim) prevAnim;    /* 0x18 the animation blended from */
-  u8 prevMode;                   /* 0x1C */
-  u8 pad1D[3];                   /* 0x1D */
+  u8 prevMode;                   /* 0x1C phase of prevAnim */
+  u8 prevState;                  /* 0x1D */
+  u8 pad1E[2];                   /* 0x1E */
   f32 prevTime;                  /* 0x20 */
   f32 blend;                     /* 0x24 */
   u8 pad28[0x10];                /* 0x28 */
@@ -128,7 +129,7 @@ typedef struct CameraInfo {
   Matrix4 mtx;              /* 0x20 v[1]: the up vector */
   Vector4 target;           /* 0x60 looked at */
   Vector4 from;             /* 0x70 trims the camera position */
-  u8 pad80[4];              /* 0x80 */
+  s32 unk80;                /* 0x80 */
   PTR32(CameraSubMode) subMode; /* 0x84 NULL: mtx is the camera */
   u32 cameraCount;          /* 0x88 modes the player can cycle through */
   f32 lookAhead;            /* 0x8C */

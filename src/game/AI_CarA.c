@@ -646,7 +646,7 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(AICar *ai) {
                 continue;
             }
             params = GETP((GETP(slot->record))->weapon);
-            if (slot->ammo < params->minAmmo) {
+            if (slot->ammo < params->ammoPerShot) {
                 continue;
             }
             type = GETP(slot->record)->type;
@@ -1136,7 +1136,7 @@ s32 AI_Car_CheckLocalStats(AICar *ai, AIStateInfo *info) {
         holder = ThingManagerList_GetByType(&car->motionState.slaves, 8);
         for (i = 0; holder != NULL && i < 12; i++) {
             if (GETP(holder->slots[i].record) != NULL && GETP(holder->slots[i].record)->type == 3 &&
-                holder->slots[i].ammo > GETP((GETP(holder->slots[i].record))->weapon)->minAmmo) {
+                holder->slots[i].ammo > GETP((GETP(holder->slots[i].record))->weapon)->ammoPerShot) {
                 count++;
             }
         }

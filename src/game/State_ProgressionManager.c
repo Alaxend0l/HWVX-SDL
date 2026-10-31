@@ -459,7 +459,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             {
                 return 8;
             }
-            if ((SETP(g_worldData.world, SLOT_LOAD(void *, dp))) == NULL)
+            if ((SETP(g_worldData.world, SLOT_LOAD(void *, dp))) == 0)
             {
                 return 8;
             }

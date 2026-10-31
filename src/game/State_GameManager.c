@@ -47,7 +47,7 @@ s32 StateGameManager_Init(void) {
     }
     if (GETP(g_GameManagerState.mcp) == NULL) {
         GameSetting_Init();
-        if ((SETP(g_GameManagerState.mcp, GameSettings_GetMCP())) == NULL) {
+        if ((SETP(g_GameManagerState.mcp, GameSettings_GetMCP())) == 0) {
             StateManager_QueueChange(0xB);
             return 1;
         }

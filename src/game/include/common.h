@@ -884,85 +884,6 @@ typedef struct QuadWorld {
   u32 numQuads;
   PTR32(Quad) quads;
 } QuadWorld;
-typedef struct WildCard {
-  u8 pad0[0x1E];
-  u8 unk1E;
-  u8 pad1F[0x24 - 0x1F];
-  PTR32(f32) unk24;
-  PTR32(f32) unk28;
-} WildCard;
-typedef struct WildCardData {
-  PTR32(WildCard) card;
-  u8 pad4[0x28 - 0x4];
-  s32 max;
-} WildCardData;
-typedef struct WildcardData {
-  u8 unk0[0x24];
-  u32 numFrames;
-  s32 unk28;
-  u8 spinType;
-  u8 spinLimit;
-  u16 spinBone;
-} WildcardData;
-typedef struct WildCardItem {
-  u8 pad0[0x30];
-  PTR32(WildCardData) data;
-} WildCardItem;
-typedef struct WildcardInfo {
-  u8 unk0[0x18];
-  f32 unk18;
-} WildcardInfo;
-typedef struct WildcardAnim {
-  u8 unk0[0x1E];
-  u8 loop;
-  u8 unk1F[0x24 - 0x1F];
-  PTR32(f32) times;
-} WildcardAnim;
-typedef struct WildcardThing {
-  u8 unk0[0x30];
-  PTR32(WildcardData) data;
-} WildcardThing;
-typedef struct WildcardSlot {
-  PTR32(WildcardInfo) info;
-  u8 unk4[0x10 - 0x4];
-  PTR32(Matrix4) matrices;
-  u8 unk14[0x18 - 0x14];
-  PTR32(WildcardAnim) anim;
-  u8 mode;
-  u8 state;
-  u8 unk1E[0x20 - 0x1E];
-  f32 time;
-  u8 unk24[0x40 - 0x24];
-  s16 count;
-  u8 unk42[0x44 - 0x42];
-  f32 scale;
-  f32 angle;
-  PTR32(WildcardThing) thing;
-} WildcardSlot;
-typedef struct WildCardSlot {
-  PTR32(void) card;
-  u8 pad4[0x44 - 0x4];
-  f32 unk44;
-  u8 pad48[0x4C - 0x48];
-  PTR32(void) unk4C;
-} WildCardSlot;
-typedef struct WildCardRack {
-  u8 pad0[0x74];
-  u32 flags;
-  u8 pad78[0xB0 - 0x78];
-  WildCardSlot slots[12];
-  u8 unk470;
-} WildCardRack;
-typedef struct {
-  PTR32(void) motion;
-  u8 pad4[0x40];
-  f32 scale;
-  u8 pad48[0x8];
-} RackState;
-typedef struct {
-  u8 pad0[0xB0];
-  RackState states[1];
-} Rack;
 typedef struct {
   PTR32(void) pad0;
   PTR32(void) pad4;
@@ -1046,6 +967,8 @@ typedef s32 M2C_UNK32;
  * files, so game_protos.h can name them. C11 allows the later full typedef. */
 typedef struct CarA CarA;
 typedef struct Player Player;
+typedef struct CameraInfo CameraInfo;
+typedef struct WildCardRack WildCardRack;
 typedef struct GridNode GridNode;
 
 #include "game_protos.h"
