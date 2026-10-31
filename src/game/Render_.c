@@ -639,13 +639,13 @@ static inline void Render_BeginView(u16 view) {
 
     Gfx_SetRenderWindow(view);
     Gfx_SetProjectionMatrix(*(f32 *)((u8 *)GetRenderWindow() + 0x270));
-    ht = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
+    ht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
     wd = *(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    top = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
+    top = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
     GXSetViewport(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), top, wd, ht, 0.0f, 1.0f);
-    sht = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
+    sht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
     swd = (f32)*(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    stop = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
+    stop = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
     GXSetScissor(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), stop, swd, sht);
     g_state.unk93 = 0;
     Gfx_SetWorldMatrix(NULL);
@@ -660,13 +660,13 @@ static inline void Render_SetWindowViewport(void) {
     u32 sht;
 
     Gfx_SetProjectionMatrix(*(f32 *)((u8 *)GetRenderWindow() + 0x270));
-    ht = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
+    ht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
     wd = *(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    top = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
+    top = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
     GXSetViewport(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), top, wd, ht, 0.0f, 1.0f);
-    sht = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
+    sht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
     swd = (f32)*(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    stop = 0.5f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
+    stop = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
     GXSetScissor(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), stop, swd, sht);
 }
 
@@ -1033,8 +1033,8 @@ void Gfx_SetFog(GXColor *color, u8 type, f32 start, f32 end) {
         m_fogRange2 = end / scale;
         m_fogRange1 = start / scale;
     } else {
-        m_fogRange1 = 1.0f;
-        m_fogRange2 = 1.0f;
+        m_fogRange1 = 0.0f;
+        m_fogRange2 = 0.0f;
     }
 }
 

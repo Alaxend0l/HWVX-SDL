@@ -919,7 +919,7 @@ void WildcardState_Heartbeat(void *state, u8 *mtx, void *thing) {
         MotionState_ExtractBlendedKeyFrame(state, frames);
         if (GETP((SLOT_LOAD(WildcardThing *, ((u8 *)state + 0x4C)))->data)->spinType == 1 ||
             GETP((SLOT_LOAD(WildcardThing *, ((u8 *)state + 0x4C)))->data)->spinType == 2) {
-            angle = 6.2831855f * *(f32 *)((u8 *)state + 0x48) * *(f32 *)((u8 *)state + 0x44);
+            angle = 0.5f * *(f32 *)((u8 *)state + 0x48) * *(f32 *)((u8 *)state + 0x44);
             rot.w = cos(angle);
             rot.x = sin(angle);
             rot.y = 0.0f;

@@ -330,10 +330,10 @@ void pollControllers__Fv(void) {
                 down = cur & (prev ^ cur);
                 up = prev & (prev ^ cur);
                 memcpy(&s_unk108[chan], &s_unkD8[chan], sizeof(PADStatus));
-                g_VirtualPad[chan].keyValue[0x10] = 1.68919f * s_unkD8[chan].stickX;
-                g_VirtualPad[chan].keyValue[0x11] = 1.68919f * s_unkD8[chan].stickY;
-                g_VirtualPad[chan].keyValue[0x12] = 1.68919f * s_unkD8[chan].substickX;
-                g_VirtualPad[chan].keyValue[0x13] = 1.68919f * s_unkD8[chan].substickY;
+                g_VirtualPad[chan].keyValue[0x10] = 1.6891892f * s_unkD8[chan].stickX;
+                g_VirtualPad[chan].keyValue[0x11] = 1.6891892f * s_unkD8[chan].stickY;
+                g_VirtualPad[chan].keyValue[0x12] = 1.6891892f * s_unkD8[chan].substickX;
+                g_VirtualPad[chan].keyValue[0x13] = 1.6891892f * s_unkD8[chan].substickY;
             }
             break;
         default:

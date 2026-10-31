@@ -550,7 +550,7 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
             bMin = 0;
             bMax = 0;
             PSVECCrossProduct(GETP(a->axis[ia]), GETP(b->axis[j]), &n);
-            if (PSVECDotProduct(&n, &n) < 0.0001) {
+            if (PSVECDotProduct(&n, &n) < 1e-10) {
                 continue;
             }
             da.minB = da.maxB = PSVECDotProduct(&a->corners[0], &n);
@@ -634,7 +634,7 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
             pB.z += velB->z * da.tEnter;
             PSVECCrossProduct(GETP(b->axis[axisB]), GETP(a->axis[axisIdx % 3]), &hit->normal);
             mag = PSVECSquareMag(&hit->normal);
-            if (!FloatsEqual(mag, 1.0f, 0.0001f)) {
+            if (!FloatsEqual(mag, 1.0f, 0.001f)) {
                 s = 1.0f / Sqrt(mag);
                 hit->normal.x *= s;
                 hit->normal.y *= s;
@@ -646,9 +646,9 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
                 hit->normal.y *= -1.0f;
                 hit->normal.z *= -1.0f;
             }
-            q.x = 100.0f * GETP(a->axis[axisIdx])->x + pA.x;
-            q.y = 100.0f * GETP(a->axis[axisIdx])->y + pA.y;
-            q.z = 100.0f * GETP(a->axis[axisIdx])->z + pA.z;
+            q.x = 10.0f * GETP(a->axis[axisIdx])->x + pA.x;
+            q.y = 10.0f * GETP(a->axis[axisIdx])->y + pA.y;
+            q.z = 10.0f * GETP(a->axis[axisIdx])->z + pA.z;
             Create_Plane(&plane, GETP(b->axis[(axisB + 1) % 3]), &pB);
             d1 = Distance_Plane(&plane, &pA);
             denom = d1 - Distance_Plane(&plane, &q);

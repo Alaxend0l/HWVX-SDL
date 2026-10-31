@@ -1974,7 +1974,7 @@ void AI_Car_Heartbeat(u8 *ai) {
                 if (((AICarTargets *)ai)->targets[i].timer != 0) {
                     ((AICarTargets *)ai)->targets[i].unkC += g_iDeltaTimeMS;
                     ((AICarTargets *)ai)->targets[i].unk10 += g_iDeltaTimeMS;
-                    if (((AICarTargets *)ai)->targets[i].unkC > 500.0f && ((AICarTargets *)ai)->targets[i].unk10 > 500.0f) {
+                    if (((AICarTargets *)ai)->targets[i].unkC > 30000.0f && ((AICarTargets *)ai)->targets[i].unk10 > 30000.0f) {
                         for (j = i; j < 16 && ((AICarTargets *)ai)->targets[j].timer != 0; j++) {
                             if (j == 15) {
                                 ((AICarTargets *)ai)->targets[j].timer = 0;

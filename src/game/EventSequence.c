@@ -839,7 +839,7 @@ s32 EventSeq_Move(u8 *seq) {
                     ang.x *= 0.001f;
                     ang.y *= 0.001f;
                     ang.z *= 0.001f;
-                    ang.y += 9.666667e-7f * RandomAdd(*(f32 *)(emit + 0x18), *(f32 *)(emit + 0x1C));
+                    ang.y += 9.6667e-7f * RandomAdd(*(f32 *)(emit + 0x18), *(f32 *)(emit + 0x1C));
                     CreateParticle(&pos, &vel, &ang, &quat, p, scale, 0.0f);
                 }
             }

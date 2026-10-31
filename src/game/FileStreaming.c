@@ -498,13 +498,16 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                     if (GETP(st->info)->noRadius == 0) {
                         st->radius = GetBoundingBoxRadius((Vector4 *)(GETP(GETP(st->info)->box) + 0x10), &g_zeroVector);
                     } else {
-                        st->radius = 1000000.0f;
+                        st->radius = 1.0f;   /* port: the original loads 1.0f here (@661); the decomp had 1000000.0f */
                     }
                     continue;
                 }
                 sp.unk4C = 0;
                 sp.unk50 = 0;
-                sp.scale = st->hasScale ? st->scale : 1.0f;
+                /* the original passes 0.0f (@662), i.e. "no per-instance draw distance":
+                 * Destructible_Init reads this word as drawDist and then falls back to
+                 * the record's. The decomp had 1.0f, which culled them beyond 1 unit. */
+                sp.scale = st->hasScale ? st->scale : 0.0f;
                 sp.pos = st->pos;
                 SETP(sp.info, GETP(st->info));
                 sp.rot = st->rot;
@@ -526,7 +529,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                     dp.pos = dyn->pos;
                     SETP(dp.info, GETP(dyn->info));
                     dp.rot = dyn->rot;
-                    dp.scale = dyn->hasScale ? dyn->scale : 1.0f;
+                    dp.scale = dyn->hasScale ? dyn->scale : 0.0f;   /* port: 0.0f in the original (@662) */
                     dp.unk34 = 0;
                     SETP(dyn->thing, ThingManager_DARYL_CreateThing(2, &dp));
                 }

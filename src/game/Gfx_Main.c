@@ -265,8 +265,8 @@ void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4) {
     win->sizeY = (height * 16) / 480.0f;
     win->offsetX = ((marginX >> 1) - x0) * 16;
     win->offsetY = ((marginY >> 1) - y0) * 16;
-    win->unk2A0 = 1.0f;
-    win->unk2A4 = 2.0f;
+    win->unk2A0 = 16.0f;
+    win->unk2A4 = 15.966666f;
     win->centerX = (marginX >> 1) * 16;
     win->centerY = (marginY >> 1) * 16;
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);

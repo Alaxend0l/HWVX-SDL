@@ -278,7 +278,7 @@ f32 OOBHitsPoly(PolyOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *hit, 
             cornerEnd.z = corner.z + GETP(box->axis[axisIdx])->z;
             d = Distance_Plane(&poly->plane, &corner);
             d2 = Distance_Plane(&poly->plane, &cornerEnd);
-            if (FloatsEqual(d, 0.0f, 0.001f) && FloatsEqual(d2, 0.0f, 0.001f)) {
+            if (FloatsEqual(d, 0.0f, 0.1f) && FloatsEqual(d2, 0.0f, 0.1f)) {
                 hit->pos = box->corners[cornerIdx];
                 hit->pos.x += vel->x * da.tEnter;
                 hit->pos.y += vel->y * da.tEnter;
@@ -286,7 +286,7 @@ f32 OOBHitsPoly(PolyOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *hit, 
                 hit->normal = poly->plane;
                 CollisionTriCache_Set((u32)HND(box), (u32)HND(poly), &hit->pos, &hit->normal);
             } else {
-                if (FloatsEqual(a - b, 0.0f, 0.0001f)) {
+                if (FloatsEqual(a - b, 0.0f, 0.00001f)) {
                     hit->pos = GETP(poly->verts)[edgeVert];
                     hit->normal.x = -vel->x;
                     hit->normal.y = -vel->y;

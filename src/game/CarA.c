@@ -1823,13 +1823,13 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 CarA_StuntFail(car);
             }
             car->unk45C = 100;
-            car->angularMomentum.x *= 0.5f;
-            car->angularMomentum.y *= 0.5f;
-            car->angularMomentum.z *= 0.5f;
+            car->angularMomentum.x *= 0.9f;
+            car->angularMomentum.y *= 0.9f;
+            car->angularMomentum.z *= 0.9f;
             CarA_UpdateAngularVelocity(car);
-            car->velocity.x *= 0.5f;
-            car->velocity.y *= 0.5f;
-            car->velocity.z *= 0.5f;
+            car->velocity.x *= 0.9f;
+            car->velocity.y *= 0.9f;
+            car->velocity.z *= 0.9f;
         }
         if (_fabs(PSVECDotProduct(&car->worldMatrix.v[0], &n)) > 0.7f) {
             car->unk45C = 100;
@@ -1853,7 +1853,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         car->transmissionFlags &= ~0x80000;
         MotionState_ReleaseSlavesByType(HND(&car->motionState), 8);
     }
-    if (GETP(coll->thingB) == NULL && PSVECDotProduct(&coll->normal, &car->worldMatrix.v[2]) < -0.7f) {
+    if (GETP(coll->thingB) == NULL && PSVECDotProduct(&coll->normal, &car->worldMatrix.v[2]) < -0.85f) {
         Create_Plane(&plane, &car->worldMatrix.v[1], &car->worldMatrix.v[3]);
         dist = Distance_Plane(&plane, &p);
         if (dist < 5.0f && dist > 0.0f) {
@@ -1899,7 +1899,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 item->timer = 1000;
                 item->flags &= 0xFFFBFFF5;
                 item->velocity = car->velocity;
-                item->velocity.y += 2.0f;
+                item->velocity.y += 30.0f;
                 if (item->gridCell != 0 && (u8 *)GETP(item->vtable) == g_itemVTable) {
                     Thing_AddToGrid(item, 3);
                 }
@@ -1912,7 +1912,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     car->velocity.y += n.y * dv;
     car->velocity.z += n.z * dv;
     if (GETP(car->player) != NULL && Player_IsHuman(GETP(car->player)) && adv > 0.0f) {
-        mag = 0.01f * adv;
+        mag = 0.06f * adv;
         player = GETP(car->player);
         dur = 0.3f;
         rem = mag;
@@ -1921,13 +1921,13 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         }
         if (rem > 2.0f) {
             rem -= 1.0f;
-            Input_SetForceFeedback(player->wheelChannel, 0, 1.0f, 0.1f);
+            Input_SetForceFeedback(player->wheelChannel, 0, 1.0f, 0.15f);
         }
         while (rem > 1.0f) {
             rem *= 0.5f;
             dur += 0.2f;
-            if (dur > 1.5f) {
-                dur = 1.5f;
+            if (dur > 0.8f) {
+                dur = 0.8f;
                 break;
             }
         }
@@ -1942,9 +1942,9 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             }
         }
         if (impulse > 0.0f) {
-            bounce = 0.5f * -GETP(coll->surface)->bounce;
+            bounce = 0.02f * -GETP(coll->surface)->bounce;
         } else {
-            bounce = 0.5f * GETP(coll->surface)->bounce;
+            bounce = 0.02f * GETP(coll->surface)->bounce;
         }
         if (0.0f != impulse && PSVECDotProduct(&coll->normal, &car->worldMatrix.v[1]) < 0.5f) {
             bx = car->velocity.x * bounce;
@@ -1957,7 +1957,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             n.y += 0.1f * by;
             n.z += 0.1f * bz;
         }
-        if (GETP(coll->thingB) == NULL && Gfx_GetMinCameraDistSquared(&car->worldMatrix.v[3]) < 250000.0f) {
+        if (GETP(coll->thingB) == NULL && Gfx_GetMinCameraDistSquared(&car->worldMatrix.v[3]) < 10000.0f) {
             {
                 Vector4 up = {0.0f, 1.0f, 0.0f, 0.0f};
                 Vector4 side = {1.0f, 0.0f, 0.0f, 0.0f};
@@ -1986,9 +1986,9 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 }
             }
             if (id != 0) {
-                if (cosA < -0.99f) {
+                if (cosA < -0.98f) {
                     GenerateQuaternion(&axis, &sp.quat, 3.1415927f);
-                } else if (cosA > 0.99f) {
+                } else if (cosA > 0.98f) {
                     sp.quat.x = sp.quat.y = sp.quat.z = 0.0f;
                     sp.quat.w = 1.0f;
                 } else {
@@ -2044,11 +2044,11 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 sgn = -1.0f;
                 tw *= sgn;
             }
-            if (tw < 50.0f) {
-                tw = 50.0f;
+            if (tw < 1200.0f) {
+                tw = 1200.0f;
             }
-            if (tw > 500.0f) {
-                tw = 500.0f;
+            if (tw > 4500.0f) {
+                tw = 4500.0f;
             }
             tw *= sgn;
             torque.x = torque.x - tw * car->worldMatrix.v[1].x;
@@ -2064,7 +2064,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         }
     } else if (_fabs(impulse) > 10.0f && GETP(coll->thingB) == NULL && car->numWheelsGrounded != 0) {
         if (_fabs(PSVECDotProduct(&car->worldMatrix.v[1], &coll->normal)) < 0.3f) {
-            if (_fabs(PSVECDotProduct(&car->worldMatrix.v[0], &coll->normal)) < 0.3f && c > 0.0f) {
+            if (_fabs(PSVECDotProduct(&car->worldMatrix.v[0], &coll->normal)) < 0.99f && c > 0.0f) {
                 car->transmissionFlags |= 0x2000;
             }
         }
@@ -2074,7 +2074,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     car->angularMomentum.z += torque.z;
     if (GETP(car->player) != NULL && Player_IsHuman(GETP(car->player)) && !(car->transmissionFlags & 0x10000)) {
         nn = coll->normal;
-        fb = 255.0f * _fabs(impulse / 1000.0f);
+        fb = 200.0f * _fabs(impulse / 1000.0f);
         ProjectVectorToNormal(&car->worldMatrix.v[0], &nn);
         fb = fb * MagnitudeVector(&nn);
         if (fb > 20.0f) {

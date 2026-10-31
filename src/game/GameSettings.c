@@ -1741,7 +1741,7 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
                     } else if (hour > 12) {
                         hour12 = hour - 12;
                     }
-                    sprintf(g_fileNames[i], "%s %d/%d/%d %d:%02d %s", save->slots[i].name,
+                    sprintf(g_fileNames[i], "%10s    %2d/%2d/%4d %2d:%02d %s", save->slots[i].name,
                             save->slots[i].month, save->slots[i].day, save->slots[i].year, hour12,
                             save->slots[i].minute, hour >= 12 ? "PM" : "AM");
                 }
