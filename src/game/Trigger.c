@@ -393,7 +393,7 @@ void SetCodeVariable(s32 var, u32 arg, f32 value) {
         car = GETP(tile->car);
         if (car != NULL) {
             ((Player *)GETP(((Thing *)car)->player))->stuntPoints = (u32)value;
-            ((Player *)GETP(((Thing *)car)->player))->stuntScored = 1;
+            ((Player *)GETP(((Thing *)car)->player))->scoreDirty = 1;
         }
         break;
     case 3:

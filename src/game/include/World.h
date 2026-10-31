@@ -45,7 +45,8 @@ typedef struct TileCar {
     PTR32(ItemRecord) item;     /* 0x54 wildcard the car starts with, NULL: none */
     u8 pad58[4];                /* 0x58 */
     s8 respawn;                 /* 0x5C freed (car = NULL) when its AI car is removed */
-    u8 pad5D[3];                /* 0x5D */
+    u8 pad5D[2];                /* 0x5D */
+    u8 unk5F;                   /* 0x5F nonzero: always spawned at round start */
 } TileCar;
 
 WORLD_ASSERT(TileCar, info, 0x24);
@@ -201,6 +202,55 @@ typedef struct VolumeHolder {
 WORLD_ASSERT(VolumeHolder, cells, 0x10);
 WORLD_ASSERT(VolumeHolder, cellSize, 0x20);
 WORLD_ASSERT(VolumeHolder, numZ, 0x34);
+
+/* A placed light (World_GetTileLight), 0x20 bytes. */
+typedef struct TileLight {
+    Vector4 pos;                /* 0x00 */
+    PTR32(void) desc;           /* 0x10 LightHolder_Add */
+    u8 pad14[0xC];              /* 0x14 */
+} TileLight;
+
+_Static_assert(sizeof(TileLight) == 0x20, "TileLight size");
+
+/* A placed sound source (World_GetTileSpeaker), 0x40 bytes. */
+typedef struct TileSpeakerSound {
+    u8 type;                    /* 0x00 0: positional (range below) */
+    u8 pad1[7];                 /* 0x01 */
+    u8 unk8[4];                 /* 0x08 SoundSource_Set 0 */
+    u8 unkC[8];                 /* 0x0C SoundSource_Set 1 */
+    s32 sound;                  /* 0x14 */
+    PTR32(f32) range;           /* 0x18 two floats: SoundSource_Set 2 and 3 */
+} TileSpeakerSound;
+
+typedef struct TileSpeaker {
+    Vector4 pos;                /* 0x00 */
+    u8 pad10[4];                /* 0x10 */
+    PTR32(TileSpeakerSound) sound; /* 0x14 */
+    u8 pad18[4];                /* 0x18 */
+    u32 mode;                   /* 0x1C ActionSpeakerChangeMode */
+    u8 pad20[0xC];              /* 0x20 */
+    u32 soundSeq;               /* 0x2C sound sequence started there, 0: none */
+    u8 pad30[0x10];             /* 0x30 */
+} TileSpeaker;
+
+/* A mover placed on a track (World_GetTilePath), 0x20 bytes: spawned as a
+ * physical object (DESTRUCTIBLE_MOVER) at round start. */
+typedef struct TilePath {
+    u8 pad0[4];                 /* 0x00 */
+    u32 anim;                   /* 0x04 the track (DestructibleParams.anim) */
+    f32 speed;                  /* 0x08 */
+    u32 record;                 /* 0x0C ThingRecord handle */
+    PTR32(Thing) thing;         /* 0x10 the spawned mover */
+    u32 enabled;                /* 0x14 0: not spawned */
+    u8 pad18;                   /* 0x18 */
+    u8 hasDrawDist;             /* 0x19 */
+    u8 pad1A[2];                /* 0x1A */
+    f32 drawDist;               /* 0x1C */
+} TilePath;
+
+WORLD_ASSERT(TileSpeaker, soundSeq, 0x2C);
+_Static_assert(sizeof(TileSpeaker) == 0x40, "TileSpeaker size");
+_Static_assert(sizeof(TilePath) == 0x20, "TilePath size");
 
 /* ---- streaming quadrants (FileStreaming.c, World_Render) ------------------ */
 
@@ -362,14 +412,20 @@ typedef struct WorldGameData {
     u8 pad30[0x38];             /* 0x30 music volume/pitch/tempo scales, radar map... */
     f32 impactFxMinVel;         /* 0x68 car-car impact effects, by relative speed */
     f32 impactFxMaxVel;         /* 0x6C */
-    u8 pad70[0x1C];             /* 0x70 */
+    u8 pad70[0xC];              /* 0x70 */
+    u32 radarBlip;              /* 0x7C InterfaceManager_SetRadarBlip */
+    u8 pad80[8];                /* 0x80 */
+    u32 lightTexture;           /* 0x88 LightHolder_SetTexture */
     u32 envmapA;                /* 0x8C */
     u32 envmapB;                /* 0x90 */
-    u8 pad94[0x10];             /* 0x94 */
+    u8 pad94[0xC];              /* 0x94 */
+    PTR32(void) vehiclePackList; /* 0xA0 */
     PTR32(char) itemPack;       /* 0xA4 name of the world's item pack (type 2) */
     u8 padA8[0x18];             /* 0xA8 */
     PTR32(GXColor) fogColor;    /* 0xC0 */
-    u8 padC4[0x2C];             /* 0xC4 */
+    u8 padC4[8];                /* 0xC4 */
+    PTR32(void) pauseInterface; /* 0xCC interface script of the pause menu */
+    u8 padD0[0x20];             /* 0xD0 */
     u32 numImpactFx;            /* 0xF0 */
     PTR32(u32) impactFx;        /* 0xF4 debris ids, by speed */
 } WorldGameData;
@@ -387,7 +443,9 @@ WORLD_ASSERT(WorldGameData, impactFx, 0xF4);
  * only the parts World_ClearSweep uses. Polys and edges carry a sweep stamp
  * (g_worldData.sweep) so a query tests each once. */
 typedef struct WorldCollision {
-    u8 pad0[0x48];              /* 0x00 grid */
+    Vector4 min;                /* 0x00 world bounds (Grid_Init) */
+    Vector4 max;                /* 0x10 */
+    u8 pad20[0x28];             /* 0x20 grid */
     u32 numPolys;               /* 0x48 */
     PTR32(u8) polys;            /* 0x4C 0x20 each, stamp at 0x18 */
     u32 numEdges;               /* 0x50 */
@@ -404,16 +462,16 @@ typedef struct World {
     u32 numTileCars;            /* 0x08 */
     PTR32(TileCar) tileCars;    /* 0x0C */
     u32 numTilePaths;           /* 0x10 */
-    PTR32(u8) tilePaths;        /* 0x14 0x20 each */
+    PTR32(struct TilePath) tilePaths; /* 0x14 */
     u8 pad18[8];                /* 0x18 */
     u32 numQuads;               /* 0x20 */
     PTR32(WorldQuad) quads;     /* 0x24 */
     u32 numSpeakers;            /* 0x28 */
-    PTR32(u8) speakers;         /* 0x2C 0x40 each */
+    PTR32(struct TileSpeaker) speakers; /* 0x2C */
     u32 numTeleporters;         /* 0x30 */
     PTR32(Teleporter) teleporters; /* 0x34 */
     u32 numTileLights;          /* 0x38 */
-    PTR32(u8) tileLights;       /* 0x3C 0x20 each */
+    PTR32(struct TileLight) tileLights; /* 0x3C */
     u32 numTileCreatures;       /* 0x40 */
     PTR32(TileCreature) tileCreatures; /* 0x44 */
     u32 numVariables;           /* 0x48 */

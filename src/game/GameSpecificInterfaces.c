@@ -70,7 +70,7 @@ void GSI_VehicleItemSelection(void *arg) {
     static void *s_pColGrid;
     InterfaceMsg *msg = arg;
     VehicleInterfaceData *data;
-    u8 *mcp;
+    MCP *mcp;
     u8 *car;
     u8 *rack;
     u8 *pack;
@@ -122,11 +122,11 @@ void GSI_VehicleItemSelection(void *arg) {
             }
             data->active = 1;
             if (mcp != NULL) {
-                if (SLOT_LOAD(void *, (mcp + 0x10)) != NULL) {
-                    FileStreaming_LoadDataPack(SLOT_LOAD(void *, (mcp + 0x10)), 8, 1, 0);
+                if (GETP(mcp->sharePack) != NULL) {
+                    FileStreaming_LoadDataPack(GETP(mcp->sharePack), 8, 1, 0);
                 }
-                if (SLOT_LOAD(void *, (mcp + 0x8)) != NULL) {
-                    FileStreaming_LoadDataPack(SLOT_LOAD(void *, (mcp + 0x8)), 8, 2, 0);
+                if (GETP(mcp->carsPack) != NULL) {
+                    FileStreaming_LoadDataPack(GETP(mcp->carsPack), 8, 2, 0);
                 }
             }
             lockedID = -1;
@@ -152,8 +152,8 @@ void GSI_VehicleItemSelection(void *arg) {
             }
             bReleaseAllPacks = 1;
             bReleaseThings = 1;
-            if (mcp != NULL && SLOT_LOAD(void *, (mcp + 0xC)) != NULL) {
-                FileStreaming_LoadDataPack(SLOT_LOAD(void *, (mcp + 0xC)), 8, 3, 0);
+            if (mcp != NULL && GETP(mcp->itemsPack) != NULL) {
+                FileStreaming_LoadDataPack(GETP(mcp->itemsPack), 8, 3, 0);
             }
             lockedID = -1;
         } else {
@@ -171,7 +171,7 @@ void GSI_VehicleItemSelection(void *arg) {
         CameraManager_ResetAllCameras();
         CameraManager_Pause(1);
         if (mcp != NULL) {
-            Gfx_SetEnvmap(*(u32 *)(mcp + 0x14), *(u32 *)(mcp + 0x18), 1, 100.0f, 100.0f);
+            Gfx_SetEnvmap(mcp->envmapX, mcp->envmapY, 1, 100.0f, 100.0f);
             Gfx_SetEnviroMapMode(1);
         }
         InterfaceManager_SetInfoCallBackRoutine(msg->iface, GSI_VehicleSelectionInfo);
@@ -290,9 +290,9 @@ void GSI_VehicleItemSelection(void *arg) {
             if (mcp == NULL || id == data->packID) {
                 break;
             }
-            FileStreaming_InitializeDataPack(FileStreaming_GetPackID(SLOT_LOAD(void *, (mcp + 0x8)), 8, 2), 8, 1);
+            FileStreaming_InitializeDataPack(FileStreaming_GetPackID(GETP(mcp->carsPack), 8, 2), 8, 1);
             DataPack_EnableLoadingSounds(0);
-            data->packIndex = FileStreaming_LoadDataPack(SLOT_LOAD(void *, (mcp + 0x8)), 0, id, 1);
+            data->packIndex = FileStreaming_LoadDataPack(GETP(mcp->carsPack), 0, id, 1);
             if (data->packIndex != -1) {
                 data->packID = id;
             }
@@ -363,7 +363,7 @@ void GSI_VehicleItemSelection(void *arg) {
             lockedID = data->iface;
             mcp = GameSettings_GetMCP();
             if (mcp != NULL) {
-                data->itemPack = FileStreaming_LoadDataPack(SLOT_LOAD(void *, (mcp + 0xC)), 2, id, 0);
+                data->itemPack = FileStreaming_LoadDataPack(GETP(mcp->itemsPack), 2, id, 0);
                 if (data->itemPack != -1) {
                     data->itemID = id;
                 }

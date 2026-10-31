@@ -11,7 +11,7 @@
 
 /* Past sizeof(CarA): the distance left to its goal along the nav path
  * (Player.c's navDist, the target arrow). */
-#define CAR_NAV_DIST(car) (*(f32 *)((u8 *)(car) + 0x564))
+#define CAR_NAV_DIST(car) (((CarA *)(car))->navDist)
 
 static inline CarA *AI_Car_Vehicle(AICar *ai) {
     return GETP(AI_PLAYER(ai)->vehicle);

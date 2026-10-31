@@ -68,13 +68,6 @@ typedef struct LWWorld {
     PTR32(LWPacks) packs;  /* 0x9C */
 } LWWorld;
 
-typedef struct LWMCP {
-    u8 flag;
-    u8 pad1[0xF];
-    PTR32(char) name;      /* 0x10 */
-} LWMCP;
-
-
 extern u8 g_GameProgressionState[];  /* typed per function below */
 
 void StateProgressionManager_SetProgressionID(s32 id, s32 subID) {
@@ -434,7 +427,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     u32 id;
     char *name;
     LWCar *car;
-    LWMCP *mcp;
+    MCP *mcp;
     u32 cnt;
     u32 i;
     u32 j;
@@ -578,10 +571,10 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             switch (iterationNum)
             {
             case 0:
-                mcp = (LWMCP *)GameSettings_GetMCP();
+                mcp = GameSettings_GetMCP();
                 if (mcp != NULL)
                 {
-                    name = GETP(mcp->name);
+                    name = GETP(mcp->sharePack);
                 }
                 break;
             case 1:
@@ -606,7 +599,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     case 5:
         if (newLoadingState != curLoadingState)
         {
-            mcp = (LWMCP *)GameSettings_GetMCP();
+            mcp = GameSettings_GetMCP();
             quadrantNum = 0;
             iterationNum = 0;
             bLoadingItems = 1;
@@ -614,7 +607,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             DataPack_RefreshPtrs((void *)PTR(g_worldData.unk8[0]));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.unk8[2]));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.unk8[1]));
-            if (mcp != NULL && GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->itemPack) != NULL && mcp->flag == 0)
+            if (mcp != NULL && GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->itemPack) != NULL && mcp->unk0 == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->itemPack), 8, 3, 0);
             }
@@ -730,7 +723,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     case 6:
         if (newLoadingState != curLoadingState)
         {
-            mcp = (LWMCP *)GameSettings_GetMCP();
+            mcp = GameSettings_GetMCP();
             iterationNum = 0;
             curLoadingState = newLoadingState;
             if ((s32)GameSettings_GetCodeVariable(0x12D, 0) != 0)
@@ -776,7 +769,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                 numAIToActivate = 100000;
             }
             randOffset = RandomNumberGenerator_GetRandomInteger(0, 0x24);
-            if (mcp != NULL && GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->aiPack) != NULL && mcp->flag == 0)
+            if (mcp != NULL && GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->aiPack) != NULL && mcp->unk0 == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->aiPack), 8, 2, 0);
             }

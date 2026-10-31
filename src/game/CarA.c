@@ -408,7 +408,7 @@ s32 CarA_Init(void *thing, void *arg1) {
     car->base.flags |= 4;
     car->base.flags |= 0x80;
     car->path[0].h = 0;
-    car->unk55C = 0;
+    car->navTimer = 0;
     Thing_AddToGrid(car, 0);
     for (i = 0; i < GETP(car->vehicleIface)->numStartSlaves; i++) {
         params.quat = params.pos = g_zeroVector;
@@ -435,7 +435,7 @@ void CarA_Release(CarA *car) {
                 break;
             }
             if (NavHolder_GetNavPoint(car->navPointIndex) == GETP(car->path[i])) {
-                CARA_PLAYER(car)->respawnNavPoint = *(s32 *)(GETP(car->path[i + 1]) + 0x28);
+                CARA_PLAYER(car)->respawnNavPoint = GETP(car->path[i + 1])->index;
                 break;
             }
         }
@@ -1873,7 +1873,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         }
         if (rem > 2.0f) {
             rem -= 1.0f;
-            Input_SetForceFeedback(player->wheelChannel, 0, 1.0f, 0.15f);
+            Input_SetForceFeedback(player->device, 0, 1.0f, 0.15f);
         }
         while (rem > 1.0f) {
             rem *= 0.5f;
@@ -1883,7 +1883,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 break;
             }
         }
-        Input_SetForceFeedback(player->wheelChannel, 1, mag, dur);
+        Input_SetForceFeedback(player->device, 1, mag, dur);
     }
     if (P(CollideSurface, coll->material) != NULL || P(CarA, coll->thingB) != NULL) {
         if (P(CollideSurface, coll->material) == NULL) {
@@ -2031,8 +2031,8 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         fb = fb * MagnitudeVector(&nn);
         if (fb > 20.0f) {
             player = GETP(car->base.player);
-            Wheel_StopCarAirborne(player->wheelChannel);
-            Wheel_PlayFrontalCollisionForce(player->wheelChannel, fb <= 255.0f ? fb : 255.0f);
+            Wheel_StopCarAirborne(player->device);
+            Wheel_PlayFrontalCollisionForce(player->device, fb <= 255.0f ? fb : 255.0f);
             car->transmissionFlags |= 0x10000;
         }
     }
@@ -2365,7 +2365,7 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
                 wcRack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
                 current = wcRack->current;
                 points = def->value;
-                CARA_PLAYER(car)->stuntScored = 1;
+                CARA_PLAYER(car)->scoreDirty = 1;
                 CARA_PLAYER(car)->stuntPoints += points;
                 if (CARA_PLAYER(car)->stuntPoints > 99999) {
                     CARA_PLAYER(car)->stuntPoints = 99999;

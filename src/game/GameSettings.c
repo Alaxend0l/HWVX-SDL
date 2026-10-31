@@ -34,13 +34,13 @@ extern s8 g_bRefreshMC_FileList;
 extern s8 g_bRefreshMC_FileInfo;
 
 static s8 bFirstTime = 1;
-static u8 *pMCP;
+static MCP *pMCP;
 
 
-static inline u8 *GameSettings_LoadMCP(void)
+static inline MCP *GameSettings_LoadMCP(void)
 {
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
+    static MCP *pMCP;
     void *pack;
 
     if (bFirstTime)
@@ -208,17 +208,17 @@ void GameSettings_ResetPlayerVehicleItem(void) {
 
 u8 GameSettings_GetGameType(void)
 {
-    u8 *mcp;
+    MCP *mcp;
 
     mcp = GameSettings_GetMCP();
     if (mcp != NULL)
     {
-        return mcp[1];
+        return mcp->gameType;
     }
     return 0;
 }
 
-u8 *GameSettings_GetMCP(void)
+MCP *GameSettings_GetMCP(void)
 {
     void *pack;
 
@@ -238,7 +238,7 @@ u8 *GameSettings_GetMCP(void)
 
 void GameSettings_ResetControllerConfig(s32 player)
 {
-    u8 *mcp;
+    MCP *mcp;
     void *pack;
     ControllerSettings *settings;
     u8 *src;
@@ -257,13 +257,13 @@ void GameSettings_ResetControllerConfig(s32 player)
     mcp = pMCP;
 done:
     settings = GameSettings_GetControllerSettings(player);
-    if (mcp == NULL || *(u32 *)((char *)mcp + 0x3c) == 0)
+    if (mcp == NULL || mcp->numBindings == 0)
     {
         memset(&settings->data[2], 0, 0x10);
     }
     else
     {
-        src = (u8 *)PTR(*(u32 *)((char *)PTR(*(u32 *)((char *)PTR(*(u32 *)((char *)PTR(*(u32 *)((char *)mcp + 0x40)) + 0)) + 0)) + 4));
+        src = GETP(MCP_BINDING(mcp, 0)->settings);
         memcpy(&settings->data[2], src, 0x10);
     }
 }
@@ -274,11 +274,11 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     extern s8 g_bGameSettingsInitialized;
     extern s8 g_bBlockReset;
     s32 type;
-    u8 *mcp;
+    MCP *mcp;
 
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
-        type = mcp[1];
+        type = mcp->gameType;
     } else {
         type = 0;
     }
@@ -557,9 +557,9 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     } World;
     extern s8 g_bGameSettingsInitialized;
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
+    static MCP *pMCP;
     s32 type;
-    u8 *mcp;
+    MCP *mcp;
     void *pack;
     u32 i;
     u8 count;
@@ -583,7 +583,7 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     mcp = pMCP;
 done:
     if (mcp != NULL) {
-        type = mcp[1];
+        type = mcp->gameType;
     } else {
         type = 0;
     }
@@ -906,7 +906,7 @@ done:
     return 0;
 }
 void GameSettings_GameBoyConnected(void) {
-    u8 *mcp;
+    MCP *mcp;
     void *pack;
     s32 state;
 
@@ -922,7 +922,7 @@ void GameSettings_GameBoyConnected(void) {
     mcp = pMCP;
 done:
     if (mcp != NULL) {
-        state = mcp[1];
+        state = mcp->gameType;
     } else {
         state = 0;
     }
@@ -947,8 +947,8 @@ u8 GameSettings_GetNumOfPlayers(void) {
 
 s8 GameSettings_IsCheatEnabled(s32 cheat) {
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
-    u8 *mcp;
+    static MCP *pMCP;
+    MCP *mcp;
     void *pack;
     s32 type;
     s8 *cheats;
@@ -970,7 +970,7 @@ s8 GameSettings_IsCheatEnabled(s32 cheat) {
     mcp = pMCP;
 done:
     if (mcp != NULL) {
-        type = mcp[1];
+        type = mcp->gameType;
     } else {
         type = 0;
     }
@@ -1009,8 +1009,8 @@ ControllerSettings *GameSettings_GetControllerSettings(s32 player) {
 void GameSettings_GetGameInfo(void *info) {
     extern GameInfo g_gameInfo[2];
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
-    u8 *mcp;
+    static MCP *pMCP;
+    MCP *mcp;
     void *pack;
 
     if (bFirstTime) {
@@ -1025,13 +1025,13 @@ void GameSettings_GetGameInfo(void *info) {
     mcp = pMCP;
 done:
     if (mcp != NULL) {
-        SETP(((GameInfo *)info)->name, GETP(g_gameInfo[mcp[1]].name));
-        SETP(((GameInfo *)info)->id, GETP(g_gameInfo[mcp[1]].id));
-        SETP(((GameInfo *)info)->title, GETP(g_gameInfo[mcp[1]].title));
-        SETP(((GameInfo *)info)->fileName, GETP(g_gameInfo[mcp[1]].fileName));
-        SETP(((GameInfo *)info)->icon, GETP(g_gameInfo[mcp[1]].icon));
-        ((GameInfo *)info)->unk14 = g_gameInfo[mcp[1]].unk14;
-        ((GameInfo *)info)->unk18 = g_gameInfo[mcp[1]].unk18;
+        SETP(((GameInfo *)info)->name, GETP(g_gameInfo[mcp->gameType].name));
+        SETP(((GameInfo *)info)->id, GETP(g_gameInfo[mcp->gameType].id));
+        SETP(((GameInfo *)info)->title, GETP(g_gameInfo[mcp->gameType].title));
+        SETP(((GameInfo *)info)->fileName, GETP(g_gameInfo[mcp->gameType].fileName));
+        SETP(((GameInfo *)info)->icon, GETP(g_gameInfo[mcp->gameType].icon));
+        ((GameInfo *)info)->unk14 = g_gameInfo[mcp->gameType].unk14;
+        ((GameInfo *)info)->unk18 = g_gameInfo[mcp->gameType].unk18;
     } else {
         SETP(((GameInfo *)info)->name, "BrainCore Engine");
         SETP(((GameInfo *)info)->id, "SLUS_001.00");
@@ -1058,7 +1058,7 @@ void GameSettings_ApplyDefaultGameData(void)
 
 void GameSettings_GetLoadedProgression(s32 *arg0, s32 *arg1)
 {
-    u8 *mcp;
+    MCP *mcp;
     void *pack;
     s32 state;
 
@@ -1077,7 +1077,7 @@ void GameSettings_GetLoadedProgression(s32 *arg0, s32 *arg1)
 done:
     if (mcp != NULL)
     {
-        state = mcp[1];
+        state = mcp->gameType;
     }
     else
     {
@@ -1099,8 +1099,8 @@ done:
 
 void GameSettings_RestorePlayerStats(void) {
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
-    u8 *mcp;
+    static MCP *pMCP;
+    MCP *mcp;
     void *pack;
     s32 state;
 
@@ -1116,7 +1116,7 @@ void GameSettings_RestorePlayerStats(void) {
     mcp = pMCP;
 done:
     if (mcp != NULL) {
-        state = mcp[1];
+        state = mcp->gameType;
     } else {
         state = 0;
     }
@@ -1156,8 +1156,8 @@ void GameSettings_GatherGameData(void) {
         s32 item;
     } DDRescueGameData;
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
-    u8 *mcp;
+    static MCP *pMCP;
+    MCP *mcp;
     void *pack;
     s32 state;
     u8 *world;
@@ -1182,7 +1182,7 @@ void GameSettings_GatherGameData(void) {
     mcp = pMCP;
 done:
     if (mcp != NULL) {
-        state = mcp[1];
+        state = mcp->gameType;
     } else {
         state = 0;
     }
@@ -1278,8 +1278,8 @@ void GameSettings_RestoreGameData(void) {
         s32 item;
     } DDRescueGameData;
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
-    u8 *mcp;
+    static MCP *pMCP;
+    MCP *mcp;
     void *pack;
     s32 state;
     u8 *group;
@@ -1302,7 +1302,7 @@ void GameSettings_RestoreGameData(void) {
     mcp = pMCP;
 done:
     if (mcp != NULL) {
-        state = mcp[1];
+        state = mcp->gameType;
     } else {
         state = 0;
     }
@@ -1365,7 +1365,7 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
     u32 version;
     u32 size;
     GameInfo info;
-    u8 *mcp;
+    MCP *mcp;
 
     status = GameSettings_GetDefaultMemoryCardStatus(&device, 1);
     if (status != 1 && status != 0) {
@@ -1374,9 +1374,9 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
     device--;
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
-        SETP(info.fileName, GETP(g_gameInfo[mcp[1]].fileName));
-        version = g_gameInfo[mcp[1]].unk14;
-        size = g_gameInfo[mcp[1]].unk18;
+        SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
+        version = g_gameInfo[mcp->gameType].unk14;
+        size = g_gameInfo[mcp->gameType].unk18;
     } else {
         SETP(info.fileName, "saveFile");
         info.unk14 = 0;
@@ -1458,7 +1458,7 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
     s32 status;
     s32 prevDevice;
     s32 handle;
-    u8 *mcp;
+    MCP *mcp;
     s8 ok;
     SaveFile file;
     u32 prevMemStatus;
@@ -1484,9 +1484,9 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
             }
             mcp = GameSettings_LoadMCP();
             if (mcp != NULL) {
-                SETP(file.name, GETP(g_gameInfo[mcp[1]].fileName));
-                file.version = g_gameInfo[mcp[1]].unk14;
-                file.size = g_gameInfo[mcp[1]].unk18;
+                SETP(file.name, GETP(g_gameInfo[mcp->gameType].fileName));
+                file.version = g_gameInfo[mcp->gameType].unk14;
+                file.size = g_gameInfo[mcp->gameType].unk18;
             } else {
                 SETP(file.name, "saveFile");
                 file.version = 0;
@@ -1585,7 +1585,7 @@ void GameSettings_DetermineIfOverwritingFile(void)
 
 
 void GameSettings_GetSaveGameName(s32 *letters) {
-    u8 *mcp;
+    MCP *mcp;
     char name[12];
     s32 i;
 
@@ -1593,7 +1593,7 @@ void GameSettings_GetSaveGameName(s32 *letters) {
         strncpy(name, g_fileNames[g_codeVariables.fileIndex - 1], 11);
     } else {
         mcp = GameSettings_LoadMCP();
-        switch (mcp != NULL ? mcp[1] : 0) {
+        switch (mcp != NULL ? mcp->gameType : 0) {
         case 0:
             sprintf(name, "HW VEL X %d", g_codeVariables.fileIndex);
             break;
@@ -1627,7 +1627,7 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     GameInfo info;
     u8 *data;
     s32 index;
-    u8 *mcp;
+    MCP *mcp;
     s32 handle;
     s32 sum;
     s32 i;
@@ -1645,8 +1645,8 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     g_saveFileName[10] = 0;
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
-        SETP(info.fileName, GETP(g_gameInfo[mcp[1]].fileName));
-        index = g_gameInfo[mcp[1]].unk18;
+        SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
+        index = g_gameInfo[mcp->gameType].unk18;
     } else {
         SETP(info.fileName, "saveFile");
         index = 0;
@@ -1692,7 +1692,7 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
     u32 slot;  /* port: memory card slot number */
     s32 status;
     GameInfo info;
-    u8 *mcp;
+    MCP *mcp;
     SaveData *save;
     u32 hour;
     u32 hour12;
@@ -1707,9 +1707,9 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
         if (status == 1) {
             mcp = GameSettings_LoadMCP();
             if (mcp != NULL) {
-                SETP(info.fileName, GETP(g_gameInfo[mcp[1]].fileName));
-                version = g_gameInfo[mcp[1]].unk14;
-                size = g_gameInfo[mcp[1]].unk18;
+                SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
+                version = g_gameInfo[mcp->gameType].unk14;
+                size = g_gameInfo[mcp->gameType].unk18;
             } else {
                 SETP(info.fileName, "saveFile");
                 info.unk14 = 0;
@@ -1778,7 +1778,7 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
     s32 status;
     u32 fileSlot;
     SaveData *data;
-    u8 *mcp;
+    MCP *mcp;
     s8 *save;
     u32 i;
     u32 mission;
@@ -1803,7 +1803,7 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
         }
         data = (SaveData *)g_pSavedGameData;
         mcp = GameSettings_GetMCP();
-        switch (mcp != NULL ? mcp[1] : 0) {
+        switch (mcp != NULL ? mcp->gameType : 0) {
         case 0:
             save = (s8 *)(g_pSavedGameData + cachedFileSlot * 0xF4 + 0x15C);
             if (data->slots[cachedFileSlot].valid) {
@@ -1876,7 +1876,7 @@ u8 GameSettings_SaveGeneralGameData(void) {
     u32 version;
     u32 size;
     s32 device;
-    u8 *mcp;
+    MCP *mcp;
 
     status = GameSettings_GetDefaultMemoryCardStatus(&device, 1);
     if (status != 1 && status != 0) {
@@ -1884,9 +1884,9 @@ u8 GameSettings_SaveGeneralGameData(void) {
     }
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
-        SETP(info.fileName, GETP(g_gameInfo[mcp[1]].fileName));
-        version = g_gameInfo[mcp[1]].unk14;
-        size = g_gameInfo[mcp[1]].unk18;
+        SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
+        version = g_gameInfo[mcp->gameType].unk14;
+        size = g_gameInfo[mcp->gameType].unk18;
     } else {
         SETP(info.fileName, "saveFile");
         info.unk14 = 0;
@@ -1959,16 +1959,16 @@ u8 GameSettings_SaveGame(void) {
     s32 status;
     s8 ok;
     s32 handle;
-    u8 *mcp;
+    MCP *mcp;
 
     file.device = g_codeVariables.device;
     slot = g_codeVariables.fileIndex - 1;
     status = GameSettings_GetMemoryCardStatus(file.device, 1);
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
-        SETP(file.name, GETP(g_gameInfo[mcp[1]].fileName));
-        file.version = g_gameInfo[mcp[1]].unk14;
-        file.size = g_gameInfo[mcp[1]].unk18;
+        SETP(file.name, GETP(g_gameInfo[mcp->gameType].fileName));
+        file.version = g_gameInfo[mcp->gameType].unk14;
+        file.size = g_gameInfo[mcp->gameType].unk18;
     } else {
         SETP(file.name, "saveFile");
         file.version = 0;
@@ -2050,16 +2050,16 @@ u8 GameSettings_LoadGame(void) {
     u8 *saved;
     u32 size;
     GameInfo info;
-    u8 *mcp;
+    MCP *mcp;
     u32 i;
 
     device = g_codeVariables.device;
     slot = g_codeVariables.fileIndex - 1;
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
-        SETP(info.fileName, GETP(g_gameInfo[mcp[1]].fileName));
-        version = g_gameInfo[mcp[1]].unk14;
-        size = g_gameInfo[mcp[1]].unk18;
+        SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
+        version = g_gameInfo[mcp->gameType].unk14;
+        size = g_gameInfo[mcp->gameType].unk18;
     } else {
         SETP(info.fileName, "saveFile");
         version = 0;
@@ -2110,9 +2110,9 @@ s32 GameSettings_FormatMemoryCard(void)
 s32 GameSettings_DeleteGameFile(void) {
     extern GameInfo g_gameInfo[2];
     static s8 bFirstTime = 1;
-    static u8 *pMCP;
+    static MCP *pMCP;
     u32 device;
-    u8 *mcp;
+    MCP *mcp;
     void *pack;
     const char *name;
     u8 result;
@@ -2129,7 +2129,7 @@ s32 GameSettings_DeleteGameFile(void) {
     }
     mcp = pMCP;
 done:
-    name = (mcp != NULL) ? GETP(g_gameInfo[mcp[1]].fileName) : "saveFile";
+    name = (mcp != NULL) ? GETP(g_gameInfo[mcp->gameType].fileName) : "saveFile";
     result = File_Delete(device, name);
     g_bRefreshMC = 1;
     g_codeVariables.unk11C[2] = result;

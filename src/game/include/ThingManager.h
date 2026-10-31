@@ -97,6 +97,13 @@ typedef struct SharedSlaves {
 
 /* ---- ThingManager_DARYL_CreateThing parameters --------------------------- */
 
+/* ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, ...) parameters. */
+typedef struct SoundSeqParams {
+    Vector4 pos;                /* 0x00 */
+    u32 seq;                    /* 0x10 */
+    u8 flag;                    /* 0x14 */
+} SoundSeqParams;
+
 /* THING_TYPE_EMITTER */
 typedef struct EmitterParams {
     Vector4 pos;                /* 0x00 */

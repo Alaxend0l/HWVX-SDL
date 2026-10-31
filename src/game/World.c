@@ -209,21 +209,21 @@ void *World_GetTileCreature(u32 index) {
 
 void *World_GetTilePath(u32 index) {
     if (index < WORLD()->numTilePaths) {
-        return GETP(WORLD()->tilePaths) + index * 0x20;
+        return &GETP(WORLD()->tilePaths)[index];
     }
     return NULL;
 }
 
 void *World_GetTileSpeaker(u32 index) {
     if (index < WORLD()->numSpeakers) {
-        return GETP(WORLD()->speakers) + index * 0x40;
+        return &GETP(WORLD()->speakers)[index];
     }
     return NULL;
 }
 
 void *World_GetTileLight(u32 index) {
     if (index < WORLD()->numTileLights) {
-        return GETP(WORLD()->tileLights) + index * 0x20;
+        return &GETP(WORLD()->tileLights)[index];
     }
     return NULL;
 }

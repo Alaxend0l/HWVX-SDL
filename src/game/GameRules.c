@@ -26,7 +26,7 @@ void GameRules_Init(void) {
     u32 j;
     QuadContents *contents;
     u32 i;
-    u8 *mcp;
+    MCP *mcp;
     WorldTimerSlot *slot;
 
     g_bRoundEnd = 0;
@@ -64,7 +64,7 @@ void GameRules_Init(void) {
                 slot = &GETP(WORLD()->timers)[i];
                 if (GETP(*slot)->type == 0xC) {
                     if (GETP(*slot)->time == 0.0f) {
-                        GETP(*slot)->time = (SLOT_LOAD(u32 *, (mcp + 0x24)))[1];  /* MCP 0x24: settings, time at [1] */
+                        GETP(*slot)->time = GETP(mcp->demo)->time;
                     }
                     break;
                 }

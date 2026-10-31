@@ -51,35 +51,42 @@ typedef struct Player {
   s8 stick2Y;               /* 0x03 */
   f32 aiHeading;            /* 0x04 radians; creatures use it when flags & PLAYER_FLAG_AI_HEADING */
   f32 aiSpeed;              /* 0x08 animation speed scale, likewise */
-  u32 buttonsHeld;          /* 0x0C & 4: turbo button */
-  u8 button10;              /* 0x10 */
-  u8 buttonSwitch;          /* 0x11 weapon switch (buttonsHeld & 2) */
-  u8 throttle;              /* 0x12 */
-  u8 brake;                 /* 0x13 */
-  u8 button14;              /* 0x14 */
-  u8 button15;              /* 0x15 */
-  u8 pad16[4];              /* 0x16 */
-  u8 button1A;              /* 0x1A */
-  u8 buttonFire;            /* 0x1B fire (buttonsHeld & 0x800); creatures: attack */
-  u8 control1C;             /* 0x1C cleared by AI_Heartbeat */
-  u8 pad1D[3];              /* 0x1D */
+  u32 buttonsHeld;          /* 0x0C pressed this frame: bit per down[] entry (4: turbo) */
+  union {
+    u8 down[14];            /* 0x10 analog/held value per button (Player_DefaultControlReader) */
+    struct {
+      u8 button10;          /* 0x10 */
+      u8 buttonSwitch;      /* 0x11 weapon switch (buttonsHeld & 2) */
+      u8 throttle;          /* 0x12 */
+      u8 brake;             /* 0x13 */
+      u8 button14;          /* 0x14 */
+      u8 button15;          /* 0x15 */
+      u8 pad16[4];          /* 0x16 */
+      u8 button1A;          /* 0x1A */
+      u8 buttonFire;        /* 0x1B fire (buttonsHeld & 0x800); creatures: attack */
+      u8 control1C;         /* 0x1C cleared by AI_Heartbeat */
+      u8 button1D;          /* 0x1D */
+    };
+  };
+  u8 pad1E[2];              /* 0x1E */
   FPTR32(void, (void *player)) controlReader;  /* 0x20 fills the input fields (pad, AI) */
   FPTR32(void, (void *player, void *desc)) init; /* 0x24 PlayerManager_New*Player */
   FPTR32(void, (void *player)) heartbeat;      /* 0x28 */
   PTR32(void) vehicle;            /* 0x2C the Thing the player drives */
-  u8 pad30;                 /* 0x30 */
+  s8 thingLost;             /* 0x30 its thing died (Player_DetachThingDeath) */
   u8 cameraIndex;           /* 0x31 passed to the vehicle's getCameraInfo */
   u8 combo;                 /* 0x32 pending combo/cheat action, run by CarA_ExecuteCombo */
-  u8 pad33[5];              /* 0x33 */
+  u8 pad33;                 /* 0x33 */
+  u32 deadTime;             /* 0x34 ms since its thing was lost */
   u32 type;                 /* 0x38 PLAYER_TYPE_* */
-  PTR32(void) aiScripts;          /* 0x3C AI players: the tile car's script table */
-  u8 pad40[0x20];           /* 0x40 */
+  PTR32(void) aiScripts;          /* 0x3C its thing's info (CarA.vehicleIface, Creature.info): AI scripts at 0x90 */
+  char name[0x20];          /* 0x40 */
   u32 port;                 /* 0x60 human players: controller port, 1-based */
   u32 view;                 /* 0x64 viewport, 1-based */
   u32 interfaceIndex;       /* 0x68 its HUD interface */
   u32 flags;                /* 0x6C & 0x80 cleared every camera update */
-  u8 pad70;                 /* 0x70 */
-  u8 stuntScored;           /* 0x71 set when a landed stunt scores */
+  u8 pad70;                 /* 0x70 0x70-0xA7: stats, cleared by Player_Init */
+  u8 scoreDirty;            /* 0x71 score changed: refresh the HUD text */
   u8 pad72[6];              /* 0x72 */
   s32 kills;                /* 0x78 */
   u32 stuntPoints;          /* 0x7C capped at 99999 */
@@ -89,17 +96,22 @@ typedef struct Player {
   u16 counters[8];          /* 0x94 pod: creatures collected, by type */
   u8 countersChanged;       /* 0xA4 */
   u8 padA5[3];              /* 0xA5 */
-  PTR32(void) tileCar;            /* 0xA8 the world tile car it was spawned from */
+  PTR32(struct TileCar) tileCar;  /* 0xA8 the world tile car it was spawned from */
   s16 deathNavPoint;        /* 0xAC */
   s16 respawnNavPoint;      /* 0xAE */
   PTR32(struct Player) next; /* 0xB0 PlayerManager active / free list */
   PTR32(struct Player) prev; /* 0xB4 */
-  u8 padB8[0x10];           /* 0xB8 the null player ends here */
-  s32 wheelChannel;         /* 0xC8 force-feedback wheel channel */
-  u8 padCC[4];              /* 0xCC */
+  /* 0xB8-0x113: human players (the null player ends at 0xB8); AI players
+   * keep their AIPlayer fields here instead (AI.h), aiScript among them. */
+  u8 keys[14];              /* 0xB8 key binding per action (Input_KeyDown) */
+  u8 stickMode;             /* 0xC6 */
+  u8 substickMode;          /* 0xC7 */
+  s32 device;               /* 0xC8 controller channel: pad input, force feedback */
+  u32 comboCount;           /* 0xCC */
   PTR32(struct AICarScript) aiScript; /* 0xD0 AI players: the script driving it (AI.h) */
-  u8 padD4[0x40];           /* 0xD4 */
-  PTR32(char) stuntScoreText;     /* 0x114 */
+  u32 comboInputs[16];      /* 0xD4 recent inputs, matched against cheat combos */
+  PTR32(char) stuntScoreText;     /* 0x114 human players: -> stuntScoreBuf */
+  char stuntScoreBuf[0x40]; /* 0x118 "Points +n" */
 } Player;
 
 enum {
@@ -117,8 +129,11 @@ _Static_assert(offsetof(Player, interfaceIndex) == 0x68, "Player.interfaceIndex"
 _Static_assert(offsetof(Player, damageDealt) == 0x8C, "Player.damageDealt");
 _Static_assert(offsetof(Player, counters) == 0x94, "Player.counters");
 _Static_assert(offsetof(Player, tileCar) == 0xA8, "Player.tileCar");
+_Static_assert(offsetof(Player, device) == 0xC8, "Player.device");
 _Static_assert(offsetof(Player, aiScript) == 0xD0, "Player.aiScript");
 _Static_assert(offsetof(Player, stuntScoreText) == 0x114, "Player.stuntScoreText");
+_Static_assert(offsetof(Player, name) == 0x40, "Player.name");
+_Static_assert(sizeof(Player) == 0x158, "Player size (human players)");
 
 /* A camera mode a vehicle hands out (GETP(CameraInfo.subMode)); the cars'
  * CarACameras entries (12 bytes) start like this. */
@@ -370,7 +385,7 @@ typedef struct CarAInfo {
   PTR32(CarAHud) hud;             /* 0x84 */
   PTR32(CarAAccel) accel;         /* 0x88 */
   PTR32(CarAStuntInfo) stunt;     /* 0x8C */
-  u8 pad90[0x10];           /* 0x90 */
+  u32 aiScripts[4];         /* 0x90 AICarScript handles, per difficulty */
   PTR32(CarACollider) collider;   /* 0xA0 */
   PTR32(struct CarAForcePoints) forcePoints; /* 0xA4 extra force points (CarA_ComputeForces) */
   u8 padA8[8];              /* 0xA8 */
@@ -415,9 +430,10 @@ typedef struct CarAWheelState {
 typedef struct CarAParams {
   Vector4 pos;              /* 0x00 */
   Quaternion quat;          /* 0x10 */
-  u8 pad20[0x10];           /* 0x20 */
+  Vector4 vel;              /* 0x20 */
   PTR32(CarAInfo) info;     /* 0x30 */
-  u8 pad34[8];              /* 0x34 */
+  f32 unk34;                /* 0x34 */
+  u32 unk38;                /* 0x38 */
   PTR32(Player) player;     /* 0x3C */
 } CarAParams;
 
@@ -510,9 +526,10 @@ typedef struct CarA {
   s32 turboCooldown;        /* 0x550 ms */
   f32 stuntTime;            /* 0x554 */
   u8 pad558[4];             /* 0x558 */
-  u32 unk55C;               /* 0x55C */
-  u8 pad560[8];             /* 0x560 */
-  PTR32(u8) path[7];        /* 0x568 nav points (s16 index at 0x28) of the path the
+  s32 navTimer;             /* 0x55C ms until the path to the target arrow is searched again */
+  f32 pathLength;           /* 0x560 of the path found */
+  f32 navDist;              /* 0x564 left along it (Player_Heartbeat) */
+  PTR32(struct NavPoint) path[7]; /* 0x568 nav points (s16 index at 0x28) of the path the
                                car follows, NULL-terminated (CarA_Release) */
   /* 0x584-0x58C: speedometer smoothing (GetInterfaceInfo): the shown speed
      follows a change of direction only after more than 5 frames */
@@ -580,7 +597,8 @@ CARA_ASSERT_OFFSET(tiltX, 0x540);
 CARA_ASSERT_OFFSET(unk548, 0x548);
 CARA_ASSERT_OFFSET(turboCooldown, 0x550);
 CARA_ASSERT_OFFSET(stuntTime, 0x554);
-CARA_ASSERT_OFFSET(unk55C, 0x55C);
+CARA_ASSERT_OFFSET(navTimer, 0x55C);
+CARA_ASSERT_OFFSET(navDist, 0x564);
 CARA_ASSERT_OFFSET(path, 0x568);
 CARA_ASSERT_OFFSET(speedoRising, 0x584);
 CARA_ASSERT_OFFSET(speedoCount, 0x588);

@@ -45,13 +45,6 @@ typedef struct Emitter {
 _Static_assert(offsetof(Emitter, desc) == 0xB0, "Emitter.desc");
 _Static_assert(sizeof(Emitter) == 0xD0, "Emitter size (ThingPools.emitters)");
 
-/* ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, ...) parameters. */
-typedef struct SoundSeqParams {
-    Vector4 pos;                /* 0x00 */
-    u32 seq;                    /* 0x10 */
-    u8 flag;                    /* 0x14 */
-} SoundSeqParams;
-
 typedef struct ActionFXList {
     s32 mode;                   /* 0x00 0: disable, 1: enable, 2: toggle */
     u32 pointCount;             /* 0x04 */

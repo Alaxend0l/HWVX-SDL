@@ -483,7 +483,7 @@ s32 GameSettings_GetDifficulty(void);
 void GameSettings_GetGameInfo(void *info);
 u8 GameSettings_GetGameType(void);
 void GameSettings_GetLoadedProgression(s32 *arg0, s32 *arg1);
-u8 * GameSettings_GetMCP(void);
+MCP * GameSettings_GetMCP(void);
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce);
 u8 GameSettings_GetNumOfPlayers(void);
 void GameSettings_GetSaveGameName(s32 *letters);
@@ -860,24 +860,23 @@ void Playback_PutElement(s32 element);
 
 /* Player.c */
 s32 ActionVehicleChangeControl(u32 *action);
-void PlayerHuman_EvaluateCombo(u8 *player);
-void PlayerHuman_Heartbeat(void *player);
-void PlayerHuman_Init(void *player);
-void PlayerHuman_SetControlBinding(void *arg0, void *arg1);
-void PlayerHuman_SetDefaultControls(void *arg0, s32 index);
-s32 Player_AIControlReader(s8 *ctrl);
+void PlayerHuman_EvaluateCombo(Player *player);
+void PlayerHuman_Heartbeat(Player *player);
+void PlayerHuman_Init(Player *player);
+void PlayerHuman_SetDefaultControls(Player *player, s32 index);
+s32 Player_AIControlReader(Player *player);
 s32 Player_DefaultControlReader(void *arg0);
-void Player_DetachThingDeath(void *arg0);
+void Player_DetachThingDeath(Player *player);
 void Player_GetInterfaceInfo(void *arg0, void *arg1);
 void Player_Heartbeat(void *arg0);
-void Player_Init(void *player, s32 arg1);
-s32 Player_InputHeartbeat(void *arg0);
+void Player_Init(Player *player, s32 arg1);
+s32 Player_InputHeartbeat(Player *player);
 s8 Player_IsHuman(void *player);
 s32 Player_NULL(void);
 void Player_RefreshInterface(void *arg0);
-void Player_ReleaseInterface(void *player);
-void Player_SetName(void *player, s32 port, const char *name);
-void Player_SetThing(void *player, void *thing);
+void Player_ReleaseInterface(Player *player);
+void Player_SetName(Player *player, s32 port, const char *name);
+void Player_SetThing(Player *player, Thing *thing);
 
 /* PlayerManager.c */
 void PlayerManager_ClearAllCameraFlags_PRIVATE(void);
@@ -1552,6 +1551,9 @@ void SetGVol(void *chn);
 #endif
 #if !defined(HWVX_SRC_MIDI_)
 s32 CreateMIDI_(void *hdr);
+#endif
+#if !defined(HWVX_SRC_Player)
+void PlayerHuman_SetControlBinding(Player *player, void *binding);
 #endif
 #if !defined(HWVX_SRC_Render_)
 void CreateSilhouette(void *edges, u32 count, f32 *dir);

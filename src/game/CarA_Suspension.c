@@ -258,7 +258,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
                             }
                         }
                     }
-                    CARA_PLAYER(car)->stuntScored = 1;
+                    CARA_PLAYER(car)->scoreDirty = 1;
                     CARA_PLAYER(car)->stuntPoints += points;
                     if (CARA_PLAYER(car)->stuntPoints > 99999) {
                         CARA_PLAYER(car)->stuntPoints = 99999;
@@ -404,8 +404,8 @@ void CarA_ComputeSuspensionForces(void *thing) {
         fric = 0.0f >= fric ? 0.0f : fric;
         fwdSpeed = _fabs(PSVECDotProduct(&car->base.vel, &car->base.axis[2]));
         sideSpeed = _fabs(PSVECDotProduct(&car->base.vel, &car->base.axis[0]));
-        Wheel_PlaySpringForce(player->wheelChannel, 0, 40.0f * compression, 40.0f * compression);
-        Wheel_PlayDamperForce(player->wheelChannel, 130.0f * fric, 0xFF);
+        Wheel_PlaySpringForce(player->device, 0, 40.0f * compression, 40.0f * compression);
+        Wheel_PlayDamperForce(player->device, 130.0f * fric, 0xFF);
         if (CARA_PLAYER(car)->throttle == 0 && !(car->transmissionFlags & 0x8020)) {
             if (sideSpeed < 2.0f || fwdSpeed > 1.7f * sideSpeed) {
                 if (speed < 70.0f && car->gradeOrReverse < 70.0f) {
@@ -693,18 +693,18 @@ void CarA_ComputeSuspensionForces(void *thing) {
         if (sideSum > 0.0f) {
             force = 180.0f * (sideSum / 30.0f);
             force = 180.0f <= force ? 180.0f : force;
-            Wheel_PlayConstantForce(player->wheelChannel, force, 0x10E);
+            Wheel_PlayConstantForce(player->device, force, 0x10E);
         } else {
             force = 180.0f * (-sideSum / 30.0f);
             force = 180.0f <= force ? 180.0f : force;
-            Wheel_PlayConstantForce(player->wheelChannel, force, 0x5A);
+            Wheel_PlayConstantForce(player->device, force, 0x5A);
         }
         if (0.0f == sideSum) {
             if (!(car->transmissionFlags & 0x10000)) {
-                Wheel_PlayCarAirborne(player->wheelChannel);
+                Wheel_PlayCarAirborne(player->device);
             }
         } else {
-            Wheel_StopCarAirborne(player->wheelChannel);
+            Wheel_StopCarAirborne(player->device);
         }
     }
     player = GETP(car->base.player);

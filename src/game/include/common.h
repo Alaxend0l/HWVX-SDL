@@ -628,14 +628,48 @@ typedef struct {
   PTR32(void) movie;
   PTR32(PackRef) pack;
 } Step;
-typedef struct {
-  u8 pad0[4];
-  s32 menuName;
-  u8 pad8[0x20];
-  s32 menuFile;
-  u32 numSteps;
-  PTR32(Step) steps;
+/* MCP demo settings (MCP.demo). */
+typedef struct MCPDemo {
+  u8 pad0[4];               /* 0x00 */
+  u32 time;                 /* 0x04 ms the attract demo / rounds last */
+  PTR32(ProgScript) script; /* 0x08 */
+} MCPDemo;
+
+/* A controller layout (MCP.bindings): pad settings and key bindings. */
+typedef struct ControlBinding {
+  PTR32(char) name;         /* 0x00 */
+  PTR32(u8) settings;       /* 0x04 16 bytes */
+  PTR32(void) keys;         /* 0x08 KeyBinding, 16 bytes */
+} ControlBinding;
+
+/* The master control program (mcp.xgc): which game this is and what it
+ * loads (Port_Swap.c Claim_MCP has the swapping). */
+typedef struct MCP {
+  u8 unk0;                  /* 0x00 0: load the world's item and AI packs */
+  u8 gameType;              /* 0x01 index into g_gameInfo (0: Hot Wheels, 1: DD Rescue) */
+  u8 pad2[2];               /* 0x02 */
+  s32 menuName;             /* 0x04 */
+  PTR32(char) carsPack;     /* 0x08 shared pack 2 (HW_Cars) */
+  PTR32(char) itemsPack;    /* 0x0C shared pack 3 (HW_Items) */
+  PTR32(char) sharePack;    /* 0x10 shared pack 1 (HW_share) */
+  u32 envmapX;              /* 0x14 Gfx_SetEnvmap */
+  u32 envmapY;              /* 0x18 */
+  u8 pad1C[8];              /* 0x1C */
+  PTR32(MCPDemo) demo;      /* 0x24 */
+  s32 menuFile;             /* 0x28 */
+  u32 numSteps;             /* 0x2C */
+  PTR32(Step) steps;        /* 0x30 0xC each */
+  u32 numScripts;           /* 0x34 progression scripts */
+  PTR32(PTR32(ProgScript)) scripts; /* 0x38 */
+  u32 numBindings;          /* 0x3C */
+  PTR32(PTR32(PTR32(ControlBinding))) bindings; /* 0x40 table -> slot -> binding */
 } MCP;
+
+_Static_assert(offsetof(MCP, demo) == 0x24, "MCP.demo");
+_Static_assert(offsetof(MCP, bindings) == 0x40, "MCP.bindings");
+
+/* The binding in MCP.bindings[i] (each entry is a slot holding it). */
+#define MCP_BINDING(mcp, i) GETP(*GETP(GETP((mcp)->bindings)[i]))
 typedef struct PodPart {
   u8 flags;
   u8 xform;
