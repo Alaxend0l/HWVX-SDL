@@ -396,9 +396,10 @@ void FileStreaming_HeartBeatItems(void)
                         params.quat.x = 0.0f;
                         params.quat.y = 0.0f;
                         params.quat.z = 0.0f;
-                        if (item->hasDrawDist != 0) {
-                            params.drawDist = item->drawDist;
-                        }
+                        /* port: the original always stores it, 0.0f ("the default")
+                         * unless the point has its own; the decomp left it unset,
+                         * so items got stack garbage and could be culled at once */
+                        params.drawDist = item->hasDrawDist ? item->drawDist : 0.0f;
                         params.unk38 = item->unk35;
                         thing = (ItemThing *)ThingManager_DARYL_CreateThing(THING_TYPE_ITEM, &params);
                         if (thing) {
