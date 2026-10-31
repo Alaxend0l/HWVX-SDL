@@ -3,9 +3,9 @@ Turning the GC Decompilation of HWVX into a portable codebase for modding and po
 
 The game code comes from the [HWVX-GC-Decomp](HWVX-GC-Decomp) submodule. The
 GameCube SDK it was written against (OS, GX, DVD, PAD, CARD, AX...) is replaced
-by a platform layer on **SDL3** (window, input, files, threads),
-**OpenGL 3.3** (graphics); sound goes through SDL3's audio streams. Everything is C, built
-with GCC.
+by a platform layer on **SDL3** (window, input, files, threads) and
+**OpenGL 3.3** or **SDL_GPU** (Vulkan, Metal, Direct3D 12) for graphics; sound
+goes through SDL3's audio streams. Everything is C, built with GCC.
 
 ## Building
 
@@ -26,7 +26,12 @@ Extract Entire Disc) and either put it at `orig/files/` or point the game at it:
 ./build/hwvx --data /path/to/files
 ```
 
-Options: `--data DIR`, `--scale N` (window = 640×480×N), `--fullscreen`.
+Options: `--data DIR`, `--scale N` (window = 640×480×N), `--fullscreen`,
+`--renderer NAME`.
+
+Renderers (`--renderer`): `opengl` (default, OpenGL 3.3 core), and through
+SDL_GPU `vulkan`, `metal` (macOS) and `d3d12` (Windows). The SDL_GPU
+renderers are experimental.
 F11 or Alt+Enter toggles fullscreen. Saves go to SDL's per-user preferences
 folder (`memcardA/*.sav`).
 
@@ -45,6 +50,9 @@ D-pad, T/F/G/H or keypad 8/4/2/6 = C-stick.
 | `src/port/` | Platform layer replacing the Dolphin SDK |
 | `src/port/port.h` | Fixed-width types, endian helpers, 32-bit handles |
 | `src/port/sdk.h`, `gx.h` | The SDK API surface the game uses |
+| `src/port/gx_render.h` | Renderer interface; `gx_gl.c` (OpenGL) and `gx_sdlgpu.c` (SDL_GPU) implement it |
+| `src/port/shaders/` | Shader sources (GLSL), shared by every renderer |
+| `src/port/gx_shaders.h` | Generated: the shaders as GLSL, SPIR-V, MSL and DXIL |
 | `tools/` | Import and rewrite scripts (below) |
 
 ## Porting notes
@@ -190,10 +198,21 @@ Debugging aids:
   instead of 10;
 - `HWVX_DUMP=dir` saves every 60th frame as a BMP; `HWVX_GXDEBUG=1` draws all
   geometry magenta with depth, blending and culling off.
+- `HWVX_GPUDEBUG=1` creates the SDL_GPU device in debug mode (Vulkan
+  validation layers, D3D12 debug layer) for the SDL_GPU renderers.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
 - `HWVX_FPSLOG=1` logs the frame rate (capped at 60 Hz) and the game's average frame delta every 5 s.
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
+
+`tools/gen_shaders.py` regenerates `src/port/gx_shaders.h` after a change in
+`src/port/shaders/`: GLSL for OpenGL, and glslang → SPIR-V (Vulkan),
+SPIRV-Cross → MSL (Metal) and HLSL → DXC → DXIL (Direct3D 12). The header is
+committed, so building the game needs none of these tools. It looks for them
+on `PATH` and in `~/.local/opt/shadertools/{bin,dxc/bin}` (`--tools DIR`);
+glslang and SPIRV-Cross build from the Khronos sources with CMake, and DXC
+has prebuilt Linux releases (keep its `lib/` next to `bin/`: `libdxil.so`
+signs the DXIL, which Direct3D 12 requires).
 
 `tools/xgc_inspect.py FILE.xgc [--dump OFFSET N]` shows a data pack's TOC,
 header, root objects and which words are pointers; use it when writing swap
@@ -236,9 +255,11 @@ demo) run with graphics, sound and music.
       container and tables, textures, SFX, shaders, the MCP, interfaces,
       worlds (cars, quads, items, lights) and cars are done; triggers/actions,
       animation key data and geometry are next
-- [x] GX → OpenGL renderer: FIFO/display-list vertex decoding, all texture
+- [x] GX renderer: FIFO/display-list vertex decoding, all texture
       formats, matrices, texgen, lighting channels, TEV, blending, fog
-      (no render-to-texture or indirect texturing yet)
+      (no render-to-texture or indirect texturing yet), on OpenGL
+- [ ] SDL_GPU renderers: Vulkan tested on Linux; Metal and Direct3D 12
+      untested
 - [x] Music
 - [x] THP movies
 - [ ] Aux-bus reverb, ADPCM

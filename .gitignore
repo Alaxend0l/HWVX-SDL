@@ -2,6 +2,7 @@
 build/
 build-*/
 orig/
+tools/__pycache__
 
 # Prerequisites
 *.d

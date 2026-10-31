@@ -1,5 +1,5 @@
 /* State shared by the GX emulation (gx.c API, gx_fifo.c vertex decoding,
- * gx_tex.c textures, gx_draw.c OpenGL). */
+ * gx_tex.c textures, gx_draw.c rendering). */
 #ifndef GX_INTERNAL_H
 #define GX_INTERNAL_H
 
@@ -64,7 +64,7 @@ typedef struct GXState {
     GXColor ambColor[2], matColor[2];
     GXLightState light[GX_NUM_LIGHTS];
 
-    /* textures: decoded GL names bound per map */
+    /* textures bound per map */
     GXTexObj texObj[8];
     u8 texLoaded[8];
 
@@ -91,7 +91,7 @@ typedef struct GXState {
 
 extern GXState g_gx;
 
-/* One decoded vertex, as uploaded to GL. */
+/* One decoded vertex, as uploaded to the renderer. */
 typedef struct GXVertex {
     f32 pos[3];
     f32 nrm[3];
@@ -112,7 +112,6 @@ void GX_DrawBeginFrame(void);
 void GX_DrawCopyDisp(int clear);
 void GX_DrawPresent(void);
 
-/* gx_tex.c */
-GLuint GX_TexGet(const GXTexObj *obj);
+/* gx_tex.c: GX_TexGet is in gx_render.h */
 
 #endif

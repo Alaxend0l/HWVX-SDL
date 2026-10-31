@@ -21,12 +21,15 @@ typedef struct PortState {
     int fullscreen;
     volatile int quit;
     SDL_Window *window;
-    SDL_GLContext gl;
+    const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
 } PortState;
 
 extern PortState g_port;
 
 void Port_InitHandles(u32 arenaSize);
+
+/* Creates g_port.window with the renderer's flags (gx_render.h open). */
+void Port_CreateWindow(SDL_WindowFlags flags);
 
 /* Called once per displayed frame from VIWaitForRetrace: presents, pumps
  * events, paces to 60 Hz. */

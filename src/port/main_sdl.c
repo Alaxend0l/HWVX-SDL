@@ -1,6 +1,6 @@
 /* SDL3 entry point. Replaces the GameCube main() and Main_NGC.c: sets up the
- * window, GL context and game arena, then runs the game's Main_Init/Main_Loop. */
-#include "port_internal.h"
+ * window, renderer and game arena, then runs the game's Main_Init/Main_Loop. */
+#include "gx_render.h"
 
 #include <SDL3/SDL_main.h>
 
@@ -43,6 +43,31 @@ void *rmode = &s_renderMode;
 
 PortState g_port;
 
+/* --renderer NAME: the backend, and for SDL_GPU the driver it asks for. */
+static const struct {
+    const char *name;
+    const GXRenderer *renderer;
+    const char *gpuDriver;
+} s_renderers[] = {
+    { "opengl", &g_gxGL, NULL },
+    { "vulkan", &g_gxSDLGPU, "vulkan" },
+    { "metal", &g_gxSDLGPU, "metal" },
+    { "d3d12", &g_gxSDLGPU, "direct3d12" },
+};
+
+static int SetRenderer(const char *name) {
+    size_t i;
+
+    for (i = 0; i < sizeof(s_renderers) / sizeof(s_renderers[0]); i++) {
+        if (SDL_strcasecmp(name, s_renderers[i].name) == 0) {
+            g_gxr = s_renderers[i].renderer;
+            g_port.gpuDriver = s_renderers[i].gpuDriver;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void ParseArgs(int argc, char **argv) {
     int i;
 
@@ -55,9 +80,12 @@ static void ParseArgs(int argc, char **argv) {
             g_port.scale = SDL_atoi(argv[++i]);
         } else if (SDL_strcmp(argv[i], "--fullscreen") == 0) {
             g_port.fullscreen = 1;
+        } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
+            i++;
         } else {
-            SDL_Log("usage: %s [--data DIR] [--scale N] [--fullscreen]", argv[0]);
-            SDL_Log("  --data DIR   extracted disc files (default: orig/files)");
+            SDL_Log("usage: %s [--data DIR] [--scale N] [--fullscreen] [--renderer NAME]", argv[0]);
+            SDL_Log("  --data DIR       extracted disc files (default: orig/files)");
+            SDL_Log("  --renderer NAME  opengl (default), vulkan, metal or d3d12");
             exit(1);
         }
     }
@@ -78,31 +106,16 @@ static void CheckDataDir(void) {
     }
 }
 
-static void InitWindow(void) {
-    SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-
+void Port_CreateWindow(SDL_WindowFlags flags) {
+    flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (g_port.fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN;
     }
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-
     g_port.window = SDL_CreateWindow("Hot Wheels: Velocity X", 640 * g_port.scale,
                                      480 * g_port.scale, flags);
     if (g_port.window == NULL) {
         Port_Fatal("SDL_CreateWindow failed: %s", SDL_GetError());
     }
-    g_port.gl = SDL_GL_CreateContext(g_port.window);
-    if (g_port.gl == NULL) {
-        Port_Fatal("OpenGL 3.3 core context unavailable: %s", SDL_GetError());
-    }
-    SDL_GL_MakeCurrent(g_port.window, g_port.gl);
-    SDL_GL_SetSwapInterval(1);
-    GL_Load();
 }
 
 /* ---- Main_NGC.c replacements ------------------------------------------- */
@@ -189,7 +202,7 @@ int main(int argc, char **argv) {
     }
     CheckDataDir();
     Port_InitHandles(PORT_ARENA_SIZE);
-    InitWindow();
+    g_gxr->open();
 
     OSInit();
     DVDInit();
@@ -217,7 +230,7 @@ int main(int argc, char **argv) {
     Main_Shutdown_NGC();
 
     Audio_PortShutdown();
-    SDL_GL_DestroyContext(g_port.gl);
+    g_gxr->close();
     SDL_DestroyWindow(g_port.window);
     SDL_Quit();
     return 0;

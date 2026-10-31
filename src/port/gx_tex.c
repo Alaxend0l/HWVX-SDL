@@ -1,9 +1,9 @@
-/* GameCube texture formats -> RGBA8 OpenGL textures.
+/* GameCube texture formats -> RGBA8 renderer textures (gx_render.h).
  *
  * Texture data is big-endian and tiled (the data packs keep pixel data as it
  * is on the disc). Decoded textures are cached by address, format, size and a
  * hash of their first bytes, since packs reuse memory for other textures. */
-#include "gx_internal.h"
+#include "gx_render.h"
 
 enum {
     TF_I4 = 0, TF_I8 = 1, TF_IA4 = 2, TF_IA8 = 3, TF_RGB565 = 4, TF_RGB5A3 = 5,
@@ -12,7 +12,7 @@ enum {
 
 typedef struct TexEntry {
     u32 image, key, hash;
-    GLuint name;
+    void *tex;
     u32 lastUse;
 } TexEntry;
 
@@ -188,22 +188,41 @@ static u32 Hash(const u8 *p, u32 n) {
     return h;
 }
 
-static GLenum WrapMode(u32 w) {
-    return w == 1 ? GL_REPEAT : w == 2 ? GL_MIRRORED_REPEAT : GL_CLAMP_TO_EDGE;
-}
-
 /* GXInitTexObj layout (gx.c): [0] image handle, [1] w<<16|h, [2] format,
  * [3] wrapS<<8|wrapT, [4] mipmap, [5] minFilt<<8|magFilt, [6] max LOD. */
-GLuint GX_TexGet(const GXTexObj *obj) {
+static void Sampler(const u32 *d, int levels, GXSampler *samp) {
+    u32 minf = (d[5] >> 8) & 0xFF, magf = d[5] & 0xFF;
+
+    if (levels > 1) {
+        /* NEAREST/NEAR_MIP_NEAR: nearest texel, nearest level; others linear */
+        int nearest = minf == 0 || minf == 2;
+        samp->minLinear = !nearest;
+        samp->mip = nearest ? 1 : 2;
+    } else {
+        samp->minLinear = minf != 0;
+        samp->mip = 0;
+    }
+    samp->magLinear = magf != 0;
+    if (d[5] == 0) {
+        samp->minLinear = samp->magLinear = 1;
+        samp->mip = levels > 1 ? 2 : 0;
+    }
+    samp->wrapS = (d[3] >> 8) & 0xFF;
+    samp->wrapT = d[3] & 0xFF;
+    if (samp->wrapS > 2) samp->wrapS = 0;
+    if (samp->wrapT > 2) samp->wrapT = 0;
+}
+
+void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     const u32 *d = obj->dummy;
     u8 *image = PTR(d[0]);
     int w = (int)(d[1] >> 16), h = (int)(d[1] & 0xFFFF), fmt = (int)d[2];
     int levels = 1, l;
-    u32 key = d[1] ^ (u32)fmt << 28, hash, slot, oldest = 0, i;
+    u32 key = d[1] ^ (u32)fmt << 28, hash, oldest = 0, i;
     u8 *rgba;
 
     if (image == NULL || w == 0 || h == 0 || w > 1024 || h > 1024) {
-        return 0;
+        return NULL;
     }
     if (d[4]) {
         f32 maxLod;
@@ -213,29 +232,33 @@ GLuint GX_TexGet(const GXTexObj *obj) {
             levels = 1;
         }
     }
+    Sampler(d, levels, samp);
     hash = Hash(image, LevelSize(fmt, w, h) < 256 ? LevelSize(fmt, w, h) : 256) ^ (u32)levels;
     s_useClock++;
     for (i = 0; i < TEX_CACHE; i++) {
         TexEntry *e = &s_cache[i];
-        if (e->name != 0 && e->image == d[0] && e->key == key && e->hash == hash) {
+        if (e->tex != NULL && e->image == d[0] && e->key == key && e->hash == hash) {
             e->lastUse = s_useClock;
-            goto bind;
+            return e->tex;
         }
         if (s_cache[i].lastUse < s_cache[oldest].lastUse) {
             oldest = i;
         }
     }
-    slot = oldest;
     {
-        TexEntry *e = &s_cache[slot];
-        if (e->name == 0) {
-            glGenTextures(1, &e->name);
+        TexEntry *e = &s_cache[oldest];
+        if (e->tex != NULL) {
+            g_gxr->texDestroy(e->tex);
+        }
+        e->tex = g_gxr->texCreate(w, h, levels);
+        if (e->tex == NULL) {
+            e->lastUse = 0;
+            return NULL;
         }
         e->image = d[0];
         e->key = key;
         e->hash = hash;
         e->lastUse = s_useClock;
-        glBindTexture(GL_TEXTURE_2D, e->name);
         rgba = SDL_malloc((size_t)w * h * 4);
         for (l = 0; l < levels; l++) {
             int lw = w >> l, lh = h >> l;
@@ -243,27 +266,10 @@ GLuint GX_TexGet(const GXTexObj *obj) {
             if (lh < 1) lh = 1;
             memset(rgba, 0, (size_t)lw * lh * 4);
             DecodeLevel(fmt, image, lw, lh, rgba);
-            glTexImage2D(GL_TEXTURE_2D, l, GL_RGBA8, lw, lh, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+            g_gxr->texUpload(e->tex, l, lw, lh, rgba);
             image += LevelSize(fmt, lw, lh);
         }
         SDL_free(rgba);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
-        i = slot;
+        return e->tex;
     }
-bind:
-    {
-        u32 minf = (d[5] >> 8) & 0xFF, magf = d[5] & 0xFF;
-        GLenum min = levels > 1 ? (minf == 0 || minf == 2 ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_LINEAR)
-                                : (minf == 0 ? GL_NEAREST : GL_LINEAR);
-        if (d[5] == 0) {
-            min = levels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
-            magf = 1;
-        }
-        glBindTexture(GL_TEXTURE_2D, s_cache[i].name);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)min);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magf == 0 ? GL_NEAREST : GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)WrapMode((d[3] >> 8) & 0xFF));
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)WrapMode(d[3] & 0xFF));
-    }
-    return s_cache[i].name;
 }
