@@ -175,70 +175,103 @@ typedef struct CollisionTri {
   u8 pad2C[4];    /* 0x2C */
 } CollisionTri;
 
+/* A local axis-aligned box as stored in the data (DestructibleInfo.box):
+ * v[0] min corner, v[1] max corner, v[2].x bounding radius
+ * (GetBoundingBoxRadius). BuildOOB turns it into a CollisionOBox. */
 typedef struct OBox {
   Vector4 v[3];
 } OBox;
 
+/* A convex hull in the data (DestructibleInfo.hull). */
 typedef struct ConvexHull {
-  u8 pad0[0x3D0];
-  Vector4 point; /* 0x3D0 */
+  u8 pad00[8];             /* 0x00 */
+  u32 numFaces;            /* 0x08 */
+  u32 numVerts;            /* 0x0C */
+  u8 pad10[8];             /* 0x10 */
+  PTR32(void) faces;       /* 0x18 */
+  PTR32(Vector4) verts;    /* 0x1C local space */
 } ConvexHull;
 
+/* Physical properties of destructibles, physical objects and drones
+ * (ThingRecord.info); cars read the same layout (CarACollider). */
 typedef struct DestructibleInfo {
-  f32 inertia[3];    /* 0x00 */
+  f32 inertia[3];    /* 0x00 per-axis factor of the inertia tensor */
   u8 pad0C[4];       /* 0x0C */
-  u8 type;           /* 0x10 */
+  u8 type;           /* 0x10 collision: 0 box, 1 hull, 3 box from the geometry
+                        bounds (becomes 0), 4 none, 6 hull, 7 spheres */
   u8 takesDamage;    /* 0x11 */
   u8 pad12[2];       /* 0x12 */
   s32 maxHealth;     /* 0x14 */
-  s32 armour;        /* 0x18 */
+  s32 armour;        /* 0x18 subtracted from each hit's damage */
   s32 deathTime;     /* 0x1C ms before a destroyed one is released, <0 never */
   f32 mass;          /* 0x20 */
-  u8 pad24[0x0C];    /* 0x24 */
-  s32 surfaceScript; /* 0x30 */
-  u8 pad34[8];       /* 0x34 */
-  u32 numDebris;     /* 0x3C */
-  PTR32(u32) debris;       /* 0x40 thing ids spawned when destroyed */
-  PTR32(OBox) box;         /* 0x44 */
-  PTR32(ConvexHull) hull;  /* 0x48 */
+  f32 gravityScale;  /* 0x24 physical objects: force.y += gravityScale * mass */
+  u8 pad28[4];       /* 0x28 */
+  f32 angDamping;    /* 0x2C physical objects */
+  PTR32(struct SurfaceMaterial) material; /* 0x30 (Destructible.h; vtable GetSurfaceScript) */
+  u32 numEndDebris;  /* 0x34 effects spawned when destroyed (Thing_ProcessEndEvent) */
+  PTR32(u32) endDebris;    /* 0x38 */
+  u32 numDebris;     /* 0x3C effects spawned when the death timer runs out */
+  PTR32(u32) debris;       /* 0x40 */
+  PTR32(OBox) box;         /* 0x44 type 0, 3 */
+  PTR32(ConvexHull) hull;  /* 0x48 type 1, 6 */
 } DestructibleInfo;
 
+/* A placed object's record in the data pack (destructibles, movers...). */
 typedef struct ThingRecord {
-  PTR32(void) geometry;         /* 0x00 */
-  u8 noDraw;              /* 0x04 */
+  PTR32(void) geometry;   /* 0x00 noDraw 1: a motion model instead */
+  u8 noDraw;              /* 0x04 0: draw geometry, 1: run it as a motion slave */
   u8 collides;            /* 0x05 */
   u8 hasDrawDist;         /* 0x06 */
-  u8 pad07;               /* 0x07 */
+  u8 isStatic;            /* 0x07 */
   f32 drawDist;           /* 0x08 */
   u8 pad0C[4];            /* 0x0C */
   PTR32(DestructibleInfo) info; /* 0x10 */
   u8 pad14[4];            /* 0x14 */
-  u8 slaves[4];           /* 0x18 shared slaves */
+  u8 slaves[8];           /* 0x18 shared slaves (count, triggers) */
 } ThingRecord;
 
-/* Destructibles, movers, physical objects and drones (Destructible.c). */
+/* A convex hull in world space, built from a ConvexHull and a transform
+ * (BuildOConvexHullOffset). Pooled in g_aOConvexHull (OConvexHullHolder_*). */
+typedef struct OConvexHull {
+  Vector4 verts[32];        /* 0x00 */
+  Vector4 planes[16];       /* 0x200 one per face */
+  PTR32(ConvexHull) hull;   /* 0x300 the source; NULL: pool slot free */
+  u8 pad304[0xC0];          /* 0x304 */
+  s32 unk3C4;               /* 0x3C4 */
+  s32 unk3C8;               /* 0x3C8 */
+  u8 unk3CC;                /* 0x3CC Destructible_Init: 0 for type 1, 1 for type 6 */
+  u8 pad3CD[3];             /* 0x3CD */
+  Vector4 pos;              /* 0x3D0 translation of the transform */
+} OConvexHull;
+
+/* Destructibles, movers, physical objects and drones (Destructible.c,
+ * PhysicalObject.c; Destructible.h has PhysicalObject). */
 typedef struct Destructible {
   Thing base;                /* 0x00 */
   u8 padAC[0x14];            /* 0xAC */
   PTR32(ThingRecord) record; /* 0xC0 */
   f32 drawDist;              /* 0xC4 */
   s32 deathTimer;            /* 0xC8 ms until a dead destructible is released */
-  PTR32(ConvexHull) hull;    /* 0xCC */
-  PTR32(CollisionOBox) orientedBox; /* 0xD0 */
-  PTR32(void) anim;          /* 0xD4 movers: track animation */
-  f32 speed;                 /* 0xD8 */
-  f32 trackPos;              /* 0xDC */
+  PTR32(OConvexHull) hull;   /* 0xCC type 1, 6 */
+  PTR32(CollisionOBox) orientedBox; /* 0xD0 type 0, 3 */
+  PTR32(struct MoverAnim) anim; /* 0xD4 movers: track animation (Destructible.h) */
+  f32 speed;                 /* 0xD8 movers: track time per second */
+  f32 trackPos;              /* 0xDC movers: time on the track */
+  Quaternion moverRot;       /* 0xE0 movers: orientation for Mover_DynamicRotation */
 } Destructible;
 
 _Static_assert(offsetof(Destructible, record) == 0xC0, "Destructible.record");
 _Static_assert(offsetof(Destructible, trackPos) == 0xDC, "Destructible.trackPos");
-
-typedef struct OConvexHull {
-  Vector4 verts[32];        /* 0x00 */
-  Vector4 planes[16];       /* 0x200 */
-  PTR32(void) hull;               /* 0x300 */
-  u8 pad304[0x3E0 - 0x304]; /* 0x304 */
-} OConvexHull;
+_Static_assert(offsetof(Destructible, moverRot) == 0xE0, "Destructible.moverRot");
+_Static_assert(sizeof(Destructible) == 0xF0, "Destructible size");
+_Static_assert(offsetof(DestructibleInfo, material) == 0x30, "DestructibleInfo.material");
+_Static_assert(offsetof(DestructibleInfo, hull) == 0x48, "DestructibleInfo.hull");
+_Static_assert(offsetof(ThingRecord, slaves) == 0x18, "ThingRecord.slaves");
+_Static_assert(offsetof(ConvexHull, verts) == 0x1C, "ConvexHull.verts");
+_Static_assert(offsetof(OConvexHull, hull) == 0x300, "OConvexHull.hull");
+_Static_assert(offsetof(OConvexHull, pos) == 0x3D0, "OConvexHull.pos");
+_Static_assert(sizeof(OConvexHull) == 0x3E0, "OConvexHull size");
 
 typedef struct CollisionPair {
   Vector4 pos;    /* 0x00 */

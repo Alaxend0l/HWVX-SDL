@@ -1,20 +1,27 @@
+/* Physical objects: destructibles moved as rigid bodies (gravity, impulses,
+ * bouncing off the terrain), and movers: destructibles that follow an
+ * animation track. Both use the PhysicalObject layout (Destructible.h). */
 #include "common.h"
+#include "Destructible.h"
 
 
-static inline void Mover_SetRotation(u8 *mover, Quaternion quat) {
-    *(Quaternion *)(mover + 0xE0) = quat;
+static inline void Mover_SetRotation(struct PhysicalObject *mover, Quaternion quat) {
+    mover->d.moverRot = quat;
 }
 
-void Mover_GetTrackPos(void *mover, f32 *pos, f32 time) {
-    f32 keyFrame[8];
+/* The position on the mover's track at `time`. */
+void Mover_GetTrackPos(Destructible *mover, f32 *pos, f32 time) {
+    MoverKey key;
 
-    Gfx_AnimExtractKeyFrame(SLOT_LOAD(void *, (u8 *)(mover) + 0xD4), time, keyFrame, 1);
-    pos[0] = keyFrame[4];
-    pos[1] = keyFrame[5];
-    pos[2] = keyFrame[6];
+    Gfx_AnimExtractKeyFrame(GETP(mover->anim), time, &key, 1);
+    pos[0] = key.pos.x;
+    pos[1] = key.pos.y;
+    pos[2] = key.pos.z;
 }
 
-void PhysicalObject_ProcessForce(u8 *obj, Vector4 *force, Vector4 *dir, f32 scale)
+/* Add a force along `dir` (scaled), applied at `point`: to the force and
+ * the torque accumulated this step. Also used by the drone (CarA_Stunts.c). */
+void PhysicalObject_ProcessForce(struct PhysicalObject *obj, Vector4 *point, Vector4 *dir, f32 scale)
 {
 
     Vector4 pointVel;
@@ -23,77 +30,76 @@ void PhysicalObject_ProcessForce(u8 *obj, Vector4 *force, Vector4 *dir, f32 scal
     Vector4 torque;
     Vector4 objVel;
     Vector4 scaled __attribute__((aligned(16)));
+    Thing *thing = &obj->d.base;
 
-    objVel = *(Vector4 *)obj;
+    objVel = thing->vel;
     PSVECScale(dir, &scaled, scale); /* f1: the 4th argument */
-    PSVECSubtract(force, (Vector4 *)(obj + 0x40), &r);
+    PSVECSubtract(point, &thing->pos, &r);
     GetComponentOfVector(dir, &objVel);
-    PSVECCrossProduct((Vector4 *)(obj + 0x130), &r, &cross);
-    PSVECAdd((Vector4 *)obj, &cross, &pointVel);
+    PSVECCrossProduct(&obj->angVel, &r, &cross);
+    PSVECAdd(&thing->vel, &cross, &pointVel);
     PSVECCrossProduct(&r, &scaled, &torque);
 
-    *(f32 *)(obj + 0xF0) += scaled.x;
-    *(f32 *)(obj + 0xF4) += scaled.y;
-    *(f32 *)(obj + 0xF8) += scaled.z;
-    *(f32 *)(obj + 0x100) += torque.x;
-    *(f32 *)(obj + 0x104) += torque.y;
-    *(f32 *)(obj + 0x108) += torque.z;
+    obj->force.x += scaled.x;
+    obj->force.y += scaled.y;
+    obj->force.z += scaled.z;
+    obj->torque.x += torque.x;
+    obj->torque.y += torque.y;
+    obj->torque.z += torque.z;
 }
 
-s32 PhysicalObject_Init(u8 *obj, u8 *data) {
-    typedef struct ABox {
-        Vector4 v[3];
-    } __attribute__((aligned(16))) ABox;
-    typedef struct Mesh {
-        u8 pad0[0xC];
-        u32 count;
-        u8 pad10[0x1C - 0x10];
-        PTR32(Vector4) verts;
-    } Mesh;
-    typedef struct DestructibleInfo {
-        f32 inertia[3];
-        u8 pad0C[0x10 - 0xC];
-        u8 type;
-        u8 pad11[0x20 - 0x11];
-        f32 mass;
-        u8 pad24[0x44 - 0x24];
-        PTR32(ABox) box;
-        PTR32(Mesh) mesh;
-    } DestructibleInfo;
-    u8 hit[0x50];
-    ABox box;
+/* angVel = the world angular velocity for the angular momentum
+ * (R * invInertia * R^T * angMomentum). */
+static inline void PhysicalObject_UpdateAngVel(struct PhysicalObject *obj, Vector4 *out) {
+    f32 scaled[4];
+    f32 local[4];
+
+    InverseXformVecOrientation(THING_MTX(&obj->d.base), &obj->angMomentum, local);
+    scaled[0] = obj->invInertia.x * local[0];
+    scaled[1] = obj->invInertia.y * local[1];
+    scaled[2] = obj->invInertia.z * local[2];
+    XformVecOrientation(THING_MTX(&obj->d.base), scaled, out);
+}
+
+/* A destructible plus rigid body: the inverse inertia tensor from the
+ * collision box (or the hull's bounds), the initial spin, and released at
+ * once if it starts inside the terrain. */
+s32 PhysicalObject_Init(struct PhysicalObject *obj, struct DestructibleParams *data) {
+    CollisionInfo hit __attribute__((aligned(16)));
+    OBox box;
     Vector4 scaled __attribute__((aligned(16)));
     Vector4 local __attribute__((aligned(16)));
     f32 dist;
     DestructibleInfo *info;
-    Mesh *mesh;
+    ConvexHull *mesh;
     u32 i;
+    Thing *thing = &obj->d.base;
 
-    *(f32 *)(data + 4) += 0.2f;
-    Destructible_Init(obj, data);
-    *(u32 *)(obj + 0x74) &= ~8;
-    *(u32 *)(obj + 0x74) &= ~0x200;
-    if (SLOT_LOAD(u8 *, (data + 0x5C)) != NULL) {
-        *(f32 *)(obj + 0xDC) = 1.0f + *(f32 *)(SLOT_LOAD(u8 *, (data + 0x5C)) + 0xC);
+    data->pos.y += 0.2f;
+    Destructible_Init(&obj->d, data);
+    thing->flags &= ~THING_FLAG_AT_REST;
+    thing->flags &= ~0x200;
+    if (GETP(data->anim) != NULL) {
+        obj->d.trackPos = 1.0f + GETP(data->anim)->end;
     }
-    info = SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10));
+    info = GETP(GETP(obj->d.record)->info);
     switch (info->type) {
     case 0:
         box = *GETP(info->box);
-        *(f32 *)(obj + 0x120) = 1.0f / (info->inertia[0] * info->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
-        *(f32 *)(obj + 0x124) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[1] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].z * box.v[1].z));
-        *(f32 *)(obj + 0x128) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[2] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].y * box.v[1].y));
+        obj->invInertia.x = 1.0f / (info->inertia[0] * info->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
+        obj->invInertia.y = 1.0f / (GETP(GETP(obj->d.record)->info)->inertia[1] * GETP(GETP(obj->d.record)->info)->mass * (box.v[1].x * box.v[1].x + box.v[1].z * box.v[1].z));
+        obj->invInertia.z = 1.0f / (GETP(GETP(obj->d.record)->info)->inertia[2] * GETP(GETP(obj->d.record)->info)->mass * (box.v[1].x * box.v[1].x + box.v[1].y * box.v[1].y));
         break;
     case 1:
     case 6:
-        mesh = GETP(info->mesh);
+        mesh = GETP(info->hull);
         box.v[0].x = 9999.9f;
         box.v[0].y = 9999.9f;
         box.v[0].z = 9999.9f;
         box.v[1].x = -9999.9f;
         box.v[1].y = -9999.9f;
         box.v[1].z = -9999.9f;
-        for (i = 0; i < mesh->count; i++) {
+        for (i = 0; i < mesh->numVerts; i++) {
             if (box.v[0].x > GETP(mesh->verts)[i].x) {
                 box.v[0].x = GETP(mesh->verts)[i].x;
             }
@@ -113,22 +119,22 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
                 box.v[1].z = GETP(mesh->verts)[i].z;
             }
         }
-        *(f32 *)(obj + 0x120) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[0] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
-        *(f32 *)(obj + 0x124) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[1] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].z * box.v[1].z));
-        *(f32 *)(obj + 0x128) = 1.0f / ((SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->inertia[2] * (SLOT_LOAD(DestructibleInfo *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].y * box.v[1].y));
+        obj->invInertia.x = 1.0f / (GETP(GETP(obj->d.record)->info)->inertia[0] * GETP(GETP(obj->d.record)->info)->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
+        obj->invInertia.y = 1.0f / (GETP(GETP(obj->d.record)->info)->inertia[1] * GETP(GETP(obj->d.record)->info)->mass * (box.v[1].x * box.v[1].x + box.v[1].z * box.v[1].z));
+        obj->invInertia.z = 1.0f / (GETP(GETP(obj->d.record)->info)->inertia[2] * GETP(GETP(obj->d.record)->info)->mass * (box.v[1].x * box.v[1].x + box.v[1].y * box.v[1].y));
         break;
     }
-    if (((Vector4 *)(data + 0x20))->x || ((Vector4 *)(data + 0x20))->y || ((Vector4 *)(data + 0x20))->z) {
-        InverseXformVecOrientation(obj + 0x10, (Vector4 *)(data + 0x20), &local);
-        scaled.x = local.x / *(f32 *)(obj + 0x120);
-        scaled.y = local.y / *(f32 *)(obj + 0x124);
-        scaled.z = local.z / *(f32 *)(obj + 0x128);
-        XformVecOrientation(obj + 0x10, &scaled, (Vector4 *)(obj + 0x110));
+    if (data->angVel.x || data->angVel.y || data->angVel.z) {
+        InverseXformVecOrientation(THING_MTX(thing), &data->angVel, &local);
+        scaled.x = local.x / obj->invInertia.x;
+        scaled.y = local.y / obj->invInertia.y;
+        scaled.z = local.z / obj->invInertia.z;
+        XformVecOrientation(THING_MTX(thing), &scaled, &obj->angMomentum);
     }
-    if (!(*(u32 *)(obj + 0x74) & 0x40002)) {
+    if (!(thing->flags & (THING_FLAG_NO_TERRAIN_HITS | 2))) {
         dist = 1.0f;
-        if ((s8)Thing_HitsTerrain(obj, &dist, hit) && 0.0f == dist) {
-            (((void (*)(u8 *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))))(obj);
+        if ((s8)Thing_HitsTerrain(thing, &dist, &hit) && 0.0f == dist) {
+            THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
         }
     }
     return 1;
@@ -136,103 +142,68 @@ s32 PhysicalObject_Init(u8 *obj, u8 *data) {
 
 /* The decomp has an m2c placeholder here; the original passes its arguments
  * on to PhysicalObject_Init and returns its result (asm). */
-s32 Mover_Init(u8 *obj, u8 *data) {
+s32 Mover_Init(struct PhysicalObject *obj, struct DestructibleParams *data) {
     return PhysicalObject_Init(obj, data);
 }
 
-void PhysicalObject_IntegrateNonLateral(u8 *obj) {
+/* Apply the accumulated force and torque for this frame (no gravity or
+ * damping, see PhysicalObject_PreMove), then clear them. */
+void PhysicalObject_IntegrateNonLateral(struct PhysicalObject *obj) {
     extern Vector4 g_zeroVector;
     extern f32 g_fDeltaTimeSec;
-    f32 scaled[4];
-    f32 local[4];
     f32 invMass;
+    Thing *thing = &obj->d.base;
 
-    invMass = g_fDeltaTimeSec / *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)) + 0x20);
-    ((Vector4 *)obj)->x += invMass * ((Vector4 *)(obj + 0xF0))->x;
-    ((Vector4 *)obj)->y += invMass * ((Vector4 *)(obj + 0xF0))->y;
-    ((Vector4 *)obj)->z += invMass * ((Vector4 *)(obj + 0xF0))->z;
-    ((Vector4 *)(obj + 0x110))->x += g_fDeltaTimeSec * ((Vector4 *)(obj + 0x100))->x;
-    ((Vector4 *)(obj + 0x110))->y += g_fDeltaTimeSec * ((Vector4 *)(obj + 0x100))->y;
-    ((Vector4 *)(obj + 0x110))->z += g_fDeltaTimeSec * ((Vector4 *)(obj + 0x100))->z;
-    *(Vector4 *)(obj + 0x100) = g_zeroVector;
-    *(Vector4 *)(obj + 0xF0) = *(Vector4 *)(obj + 0x100);
-    InverseXformVecOrientation(obj + 0x10, (Vector4 *)(obj + 0x110), local);
-    scaled[0] = ((Vector4 *)(obj + 0x120))->x * local[0];
-    scaled[1] = ((Vector4 *)(obj + 0x120))->y * local[1];
-    scaled[2] = ((Vector4 *)(obj + 0x120))->z * local[2];
-    XformVecOrientation(obj + 0x10, scaled, (Vector4 *)(obj + 0x130));
+    invMass = g_fDeltaTimeSec / GETP(GETP(obj->d.record)->info)->mass;
+    thing->vel.x += invMass * obj->force.x;
+    thing->vel.y += invMass * obj->force.y;
+    thing->vel.z += invMass * obj->force.z;
+    obj->angMomentum.x += g_fDeltaTimeSec * obj->torque.x;
+    obj->angMomentum.y += g_fDeltaTimeSec * obj->torque.y;
+    obj->angMomentum.z += g_fDeltaTimeSec * obj->torque.z;
+    obj->torque = g_zeroVector;
+    obj->force = obj->torque;
+    PhysicalObject_UpdateAngVel(obj, &obj->angVel);
 }
 
-s32 PhysicalObject_PreMove(u8 *obj) {
+/* Gravity and angular damping, integrated into the velocities. */
+s32 PhysicalObject_PreMove(struct PhysicalObject *obj) {
     extern Vector4 g_zeroVector;
     extern f32 g_fDeltaTimeSec;
     f32 angVel[4];
-    f32 scaled[4];
-    f32 local[4];
     f32 damping;
-    f32 scaled2[4];
-    f32 local2[4];
     f32 invMass;
+    Thing *thing = &obj->d.base;
+    DestructibleInfo *info;
 
-    if (!(*(u32 *)(obj + 0x74) & 8)) {
-        *(Vector4 *)(obj + 0x100) = g_zeroVector;
-        *(Vector4 *)(obj + 0xF0) = *(Vector4 *)(obj + 0x100);
-        ((Vector4 *)(obj + 0xF0))->y += *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)) + 0x24) *
-                                        *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)) + 0x20);
-        damping = *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)) + 0x2C);
-        InverseXformVecOrientation(obj + 0x10, (Vector4 *)(obj + 0x110), local);
-        scaled[0] = ((Vector4 *)(obj + 0x120))->x * local[0];
-        scaled[1] = ((Vector4 *)(obj + 0x120))->y * local[1];
-        scaled[2] = ((Vector4 *)(obj + 0x120))->z * local[2];
-        XformVecOrientation(obj + 0x10, scaled, angVel);
-        ((Vector4 *)(obj + 0x100))->x += -damping * angVel[0];
-        ((Vector4 *)(obj + 0x100))->y += -damping * angVel[1];
-        ((Vector4 *)(obj + 0x100))->z += -damping * angVel[2];
-        invMass = g_fDeltaTimeSec / *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)) + 0x20);
-        ((Vector4 *)obj)->x += invMass * ((Vector4 *)(obj + 0xF0))->x;
-        ((Vector4 *)obj)->y += invMass * ((Vector4 *)(obj + 0xF0))->y;
-        ((Vector4 *)obj)->z += invMass * ((Vector4 *)(obj + 0xF0))->z;
-        ((Vector4 *)(obj + 0x110))->x += g_fDeltaTimeSec * ((Vector4 *)(obj + 0x100))->x;
-        ((Vector4 *)(obj + 0x110))->y += g_fDeltaTimeSec * ((Vector4 *)(obj + 0x100))->y;
-        ((Vector4 *)(obj + 0x110))->z += g_fDeltaTimeSec * ((Vector4 *)(obj + 0x100))->z;
-        *(Vector4 *)(obj + 0x100) = g_zeroVector;
-        *(Vector4 *)(obj + 0xF0) = *(Vector4 *)(obj + 0x100);
-        InverseXformVecOrientation(obj + 0x10, (Vector4 *)(obj + 0x110), local2);
-        scaled2[0] = ((Vector4 *)(obj + 0x120))->x * local2[0];
-        scaled2[1] = ((Vector4 *)(obj + 0x120))->y * local2[1];
-        scaled2[2] = ((Vector4 *)(obj + 0x120))->z * local2[2];
-        XformVecOrientation(obj + 0x10, scaled2, (f32 *)(obj + 0x130));
+    if (!(thing->flags & THING_FLAG_AT_REST)) {
+        obj->torque = g_zeroVector;
+        obj->force = obj->torque;
+        info = GETP(GETP(obj->d.record)->info);
+        obj->force.y += info->gravityScale * info->mass;
+        damping = GETP(GETP(obj->d.record)->info)->angDamping;
+        PhysicalObject_UpdateAngVel(obj, (Vector4 *)angVel);
+        obj->torque.x += -damping * angVel[0];
+        obj->torque.y += -damping * angVel[1];
+        obj->torque.z += -damping * angVel[2];
+        invMass = g_fDeltaTimeSec / GETP(GETP(obj->d.record)->info)->mass;
+        thing->vel.x += invMass * obj->force.x;
+        thing->vel.y += invMass * obj->force.y;
+        thing->vel.z += invMass * obj->force.z;
+        obj->angMomentum.x += g_fDeltaTimeSec * obj->torque.x;
+        obj->angMomentum.y += g_fDeltaTimeSec * obj->torque.y;
+        obj->angMomentum.z += g_fDeltaTimeSec * obj->torque.z;
+        obj->torque = g_zeroVector;
+        obj->force = obj->torque;
+        PhysicalObject_UpdateAngVel(obj, &obj->angVel);
     }
     return 1;
 }
 
-u8 PhysicalObject_Move(u8 *obj) {
-    typedef struct {
-        u8 pad0[0x14];
-        f32 friction;
-        f32 restitution;
-    } Material;
-    typedef struct {
-        u8 pad0[0x4];
-        FPTR32(void, (u8 *obj)) stop;
-        u8 pad8[0x14 - 0x8];
-        FPTR32(f32, (u8 *obj)) getMass;
-        FPTR32(void, (u8 *obj, void *hit, s32 arg2, f32 impulse)) applyImpulse;
-        u8 pad1C[0x28 - 0x1C];
-        FPTR32(Material *, (u8 *obj)) getMaterial;
-        u8 pad2C[0x30 - 0x2C];
-        FPTR32(void, (u8 *obj, Vector4 *out)) getInverseInertia;
-        FPTR32(void, (u8 *obj, f32 dt)) integrate;
-    } VTable;
-    typedef struct {
-        Vector4 pos;
-        Vector4 normal;
-        PTR32(u8) thing;
-        s32 unk24;
-        PTR32(Material) material;
-        u8 pad2C[0x40 - 0x2C];
-        u8 type;
-    } CollisionInfo;
+/* Move through the frame in up to 8 sub-steps, stopping at each terrain
+ * contact to bounce (impulse from restitution and friction of both
+ * surfaces), rotating via the vtable's DynamicRotation. Released if stuck. */
+u8 PhysicalObject_Move(struct PhysicalObject *obj) {
     extern f32 g_fDeltaTimeSec;
     CollisionInfo hit __attribute__((aligned(16)));
     Vector4 tmp __attribute__((aligned(16)));
@@ -253,44 +224,50 @@ u8 PhysicalObject_Move(u8 *obj) {
     f32 inv;
     u32 iter;
     s32 hitTerrain;
+    Thing *thing = &obj->d.base;
+    Thing *self;
 
-    if (!(*(u32 *)(obj + 0x74) & 0xD)) {
+    if (!(thing->flags & (1 | 4 | THING_FLAG_AT_REST))) {
         elapsed = 0.0f;
         iter = 0;
         if (Timer_Interrupt300()) {
-            inv = 1.0f / Sqrt(((Vector4 *)(obj + 0x50))->x * ((Vector4 *)(obj + 0x50))->x +
-                              ((Vector4 *)(obj + 0x50))->y * ((Vector4 *)(obj + 0x50))->y +
-                              ((Vector4 *)(obj + 0x50))->z * ((Vector4 *)(obj + 0x50))->z +
-                              ((Vector4 *)(obj + 0x50))->w * ((Vector4 *)(obj + 0x50))->w);
-            ((Vector4 *)(obj + 0x50))->x *= inv;
-            ((Vector4 *)(obj + 0x50))->y *= inv;
-            ((Vector4 *)(obj + 0x50))->z *= inv;
-            ((Vector4 *)(obj + 0x50))->w *= inv;
+            /* renormalise the orientation now and then */
+            inv = 1.0f / Sqrt(thing->quat.x * thing->quat.x +
+                              thing->quat.y * thing->quat.y +
+                              thing->quat.z * thing->quat.z +
+                              thing->quat.w * thing->quat.w);
+            thing->quat.x *= inv;
+            thing->quat.y *= inv;
+            thing->quat.z *= inv;
+            thing->quat.w *= inv;
         }
         do {
             dt = g_fDeltaTimeSec - elapsed;
-            hitTerrain = Thing_HitsTerrain(obj, &dt, &hit);
-            ((Vector4 *)(obj + 0x40))->x += ((Vector4 *)obj)->x * dt;
-            ((Vector4 *)(obj + 0x40))->y += ((Vector4 *)obj)->y * dt;
-            ((Vector4 *)(obj + 0x40))->z += ((Vector4 *)obj)->z * dt;
-            *(u32 *)(obj + 0x74) |= 0x100;
-            GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->integrate)(obj, dt);
-            SETP(hit.thing, obj);
-            hit.unk24 = 0;
+            hitTerrain = Thing_HitsTerrain(thing, &dt, &hit);
+            thing->pos.x += thing->vel.x * dt;
+            thing->pos.y += thing->vel.y * dt;
+            thing->pos.z += thing->vel.z * dt;
+            thing->flags |= 0x100;
+            THING_VFN(thing, THING_V_DYNAMIC_ROTATION, void (*)(Thing *, f32))(thing, dt);
+            hit.thingA = HND(obj);
+            hit.thingB = 0;
             if (0.0f == dt) {
-                GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->stop)(obj);
+                THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
                 return 0;
             }
             if ((s8)hitTerrain) {
-                invMass = 1.0f / GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->getMass)(obj);
-                vn = PSVECDotProduct(&hit.normal, (Vector4 *)GETP(hit.thing));
-                e1 = GETP((SLOT_LOAD(VTable *, (GETP(hit.thing) + 0x8C)))->getMaterial)(GETP(hit.thing))->restitution;
-                e2 = GETP(hit.material)->restitution;
-                friction = 0.3f * GETP(hit.material)->friction * GETP((SLOT_LOAD(VTable *, (GETP(hit.thing) + 0x8C)))->getMaterial)(GETP(hit.thing))->friction;
-                negVel.x = -((Vector4 *)obj)->x;
-                negVel.y = -((Vector4 *)obj)->y;
-                negVel.z = -((Vector4 *)obj)->z;
+                self = PTR(hit.thingA);
+                invMass = 1.0f / THING_VFN(thing, THING_V_GET_MASS, f32 (*)(Thing *))(thing);
+                vn = PSVECDotProduct(&hit.normal, &self->vel);
+                e1 = THING_VFN(self, THING_V_GET_SURFACE_SCRIPT, SurfaceMaterial *(*)(Thing *))(self)->restitution;
+                e2 = ((SurfaceMaterial *)PTR(hit.material))->restitution;
+                friction = 0.3f * ((SurfaceMaterial *)PTR(hit.material))->friction *
+                           THING_VFN(self, THING_V_GET_SURFACE_SCRIPT, SurfaceMaterial *(*)(Thing *))(self)->friction;
+                negVel.x = -thing->vel.x;
+                negVel.y = -thing->vel.y;
+                negVel.z = -thing->vel.z;
                 if (PSVECSquareMag(&negVel) > 0.0f) {
+                    /* friction tilts the impulse against the motion */
                     if (friction > 1.0f) {
                         friction = 1.0f;
                     }
@@ -304,23 +281,24 @@ u8 PhysicalObject_Move(u8 *obj) {
                         PSVECNormalize(&hit.normal, &hit.normal);
                     }
                 }
-                PSVECSubtract(&hit.pos, (Vector4 *)(GETP(hit.thing) + 0x40), &r);
+                PSVECSubtract(&hit.pos, &self->pos, &r);
                 PSVECCrossProduct(&r, &hit.normal, &rxn);
-                GETP((SLOT_LOAD(VTable *, (GETP(hit.thing) + 0x8C)))->getInverseInertia)(GETP(hit.thing), &invInertia);
-                InverseXformVecOrientation(GETP(hit.thing) + 0x10, &rxn, &local);
+                THING_VFN(self, THING_V_GET_INV_INERTIA_TENSOR, void (*)(Thing *, Vector4 *))(self, &invInertia);
+                InverseXformVecOrientation(THING_MTX(self), &rxn, &local);
                 scaled.x = invInertia.x * local.x;
                 scaled.y = invInertia.y * local.y;
                 scaled.z = invInertia.z * local.z;
-                XformVecOrientation(GETP(hit.thing) + 0x10, &scaled, &angVel);
+                XformVecOrientation(THING_MTX(self), &scaled, &angVel);
                 PSVECCrossProduct(&angVel, &r, &tmp);
                 friction = PSVECDotProduct(&tmp, &hit.normal);
                 friction = invMass * PSVECDotProduct(&hit.normal, &hit.normal) + friction;
-                ((Vector4 *)(obj + 0x40))->x += 0.03f * hit.normal.x;
-                ((Vector4 *)(obj + 0x40))->y += 0.03f * hit.normal.y;
-                ((Vector4 *)(obj + 0x40))->z += 0.03f * hit.normal.z;
-                GETP((SLOT_LOAD(VTable *, (obj + 0x8C)))->applyImpulse)(obj, &hit, 0, vn * -(e1 * e2 + 1.0f) / friction);
+                thing->pos.x += 0.03f * hit.normal.x;
+                thing->pos.y += 0.03f * hit.normal.y;
+                thing->pos.z += 0.03f * hit.normal.z;
+                THING_VFN(thing, THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(Thing *, CollisionInfo *, s32, f32))(
+                    thing, &hit, 0, vn * -(e1 * e2 + 1.0f) / friction);
             }
-            if (*(u32 *)(obj + 0x74) & 0x200000) {
+            if (thing->flags & 0x200000) {
                 elapsed = g_fDeltaTimeSec;
             }
             if (iter++ > 6) {
@@ -329,120 +307,78 @@ u8 PhysicalObject_Move(u8 *obj) {
             elapsed += dt;
         } while (elapsed < g_fDeltaTimeSec);
     }
-    return Destructible_Move(obj);
+    return Destructible_Move(&obj->d);
 }
 
-s32 Mover_PreMove(u8 *mover) {
+/* Follow the track: advance trackPos (looping), then either set the
+ * transform directly or, for colliding movers (flags 4), turn the step
+ * into a velocity and angular velocity for the collision code. Stopped
+ * movers (flags 0x4000) stand still. */
+s32 Mover_PreMove(struct PhysicalObject *mover) {
     extern Vector4 g_zeroVector;
     extern f32 g_fDeltaTimeSec;
-    typedef struct {
-        Quaternion rot;
-        Vector4 pos;
-    } KeyFrame;
     Matrix4 inv;
     Matrix4 rel;
     Matrix4 rot;
-    KeyFrame start __attribute__((aligned(16)));
-    KeyFrame key __attribute__((aligned(16)));
+    MoverKey start __attribute__((aligned(16)));
+    MoverKey key __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
     Quaternion quat;
     Quaternion delta;
     f32 angle;
+    Destructible *d = &mover->d;
+    Thing *thing = &mover->d.base;
 
-    if (!(*(u32 *)(mover + 0x74) & 0x4000)) {
-        *(f32 *)(mover + 0xDC) += *(f32 *)(mover + 0xD8) * g_fDeltaTimeSec;
-        if (*(f32 *)(mover + 0xDC) > *(f32 *)(SLOT_LOAD(u8 *, (mover + 0xD4)) + 0xC)) {
-            *(f32 *)(mover + 0xDC) -= *(f32 *)(SLOT_LOAD(u8 *, (mover + 0xD4)) + 0xC) - *(f32 *)(SLOT_LOAD(u8 *, (mover + 0xD4)) + 0x8);
-            Gfx_AnimExtractKeyFrame(SLOT_LOAD(void *, (mover + 0xD4)), *(f32 *)(SLOT_LOAD(u8 *, (mover + 0xD4)) + 0x8), &start, 1);
-            ((Matrix4 *)(mover + 0x10))->v[3].x = start.pos.x;
-            ((Matrix4 *)(mover + 0x10))->v[3].y = start.pos.y;
-            ((Matrix4 *)(mover + 0x10))->v[3].z = start.pos.z;
+    if (!(thing->flags & 0x4000)) {
+        d->trackPos += d->speed * g_fDeltaTimeSec;
+        if (d->trackPos > GETP(d->anim)->end) {
+            d->trackPos -= GETP(d->anim)->end - GETP(d->anim)->start;
+            Gfx_AnimExtractKeyFrame(GETP(d->anim), GETP(d->anim)->start, &start, 1);
+            thing->pos.x = start.pos.x;
+            thing->pos.y = start.pos.y;
+            thing->pos.z = start.pos.z;
         }
-        Gfx_AnimExtractKeyFrame(SLOT_LOAD(void *, (mover + 0xD4)), *(f32 *)(mover + 0xDC), &key, 1);
+        Gfx_AnimExtractKeyFrame(GETP(d->anim), d->trackPos, &key, 1);
         quat = key.rot;
         pos.x = key.pos.x;
         pos.y = key.pos.y;
         pos.z = key.pos.z;
-        if (*(u32 *)(mover + 0x74) & 4) {
-            ((Vector4 *)mover)->x = (pos.x - ((Matrix4 *)(mover + 0x10))->v[3].x) / g_fDeltaTimeSec;
-            ((Vector4 *)mover)->y = (pos.y - ((Matrix4 *)(mover + 0x10))->v[3].y) / g_fDeltaTimeSec;
-            ((Vector4 *)mover)->z = (pos.z - ((Matrix4 *)(mover + 0x10))->v[3].z) / g_fDeltaTimeSec;
-            inv = *(Matrix4 *)(mover + 0x10);
+        if (thing->flags & 4) {
+            thing->vel.x = (pos.x - thing->pos.x) / g_fDeltaTimeSec;
+            thing->vel.y = (pos.y - thing->pos.y) / g_fDeltaTimeSec;
+            thing->vel.z = (pos.z - thing->pos.z) / g_fDeltaTimeSec;
+            inv = *THING_MTX(thing);
             Mover_SetRotation(mover, quat);
             QuaternionToSubMatrix(&quat, &rot);
             TransposeSubMatrix(&inv);
             MultiplySubMatrix(&inv, &rot, &rel);
             SubMatrixToQuaternion(&rel, &delta);
-            GenerateSpinAngleFromQuaternion(&delta, (Vector4 *)(mover + 0x130), &angle);
+            GenerateSpinAngleFromQuaternion(&delta, &mover->angVel, &angle);
             angle /= g_fDeltaTimeSec;
-            *(f32 *)(mover + 0x130) *= angle;
-            *(f32 *)(mover + 0x134) *= angle;
-            *(f32 *)(mover + 0x138) *= angle;
+            mover->angVel.x *= angle;
+            mover->angVel.y *= angle;
+            mover->angVel.z *= angle;
         } else {
-            QuaternionToSubMatrix(&quat, mover + 0x10);
-            ((Matrix4 *)(mover + 0x10))->v[3] = pos;
-            *(Quaternion *)(mover + 0x50) = quat;
+            QuaternionToSubMatrix(&quat, THING_MTX(thing));
+            thing->pos = pos;
+            thing->quat = quat;
             Mover_SetRotation(mover, quat);
         }
-        *(u32 *)(mover + 0x74) &= ~0x10;
+        thing->flags &= ~0x10;
     } else {
-        *(Vector4 *)mover = g_zeroVector;
-        Mover_SetRotation(mover, *(Quaternion *)(mover + 0x50));
-        *(Vector4 *)(mover + 0x130) = g_zeroVector;
+        thing->vel = g_zeroVector;
+        Mover_SetRotation(mover, thing->quat);
+        mover->angVel = g_zeroVector;
     }
     return 1;
 }
 
-void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
-    typedef struct OBox {
-        Vector4 center;
-        Vector4 corners[8];
-        u8 pad90[0xD];
-        u8 valid;
-        u8 pad9E[2];
-        PTR32(void) row2;
-        PTR32(void) row0;
-        PTR32(void) row1;
-        u8 padAC[0xF0 - 0xAC];
-    } OBox;
-    typedef struct RayHit {
-        Vector4 pos;
-        Vector4 normal;
-        u8 pad20[8];
-        PTR32(u8) surface;
-        u8 pad2C[0x24];
-    } RayHit;
-    typedef struct PhysProps {
-        u8 pad0[0x10];
-        u8 type;
-        u8 pad11[0x20 - 0x11];
-        f32 mass;
-        u8 pad24[0x30 - 0x24];
-        PTR32(u8) material;
-        u8 pad34[0x44 - 0x34];
-        PTR32(void) box;
-    } PhysProps;
-    typedef struct PhysInfo {
-        u8 pad0[0x10];
-        PTR32(PhysProps) props;
-    } PhysInfo;
-    typedef struct PhysObj {
-        Vector4 vel;
-        Matrix4 mtx;
-        Quaternion quat;
-        u8 pad60[0x74 - 0x60];
-        u32 flags;
-        u8 pad78[0xC0 - 0x78];
-        PTR32(PhysInfo) info;
-        u8 padC4[0xD0 - 0xC4];
-        PTR32(OBox) obox;
-        u8 padD4[0x110 - 0xD4];
-        Vector4 angMomentum;
-        Vector4 invInertia;
-        Vector4 angVel;
-    } PhysObj;
-    OBox obox;
-    RayHit hit;
+/* Rotate by the angular velocity over dt. A box checks its corners' paths
+ * against the terrain, bouncing off what they hit, and only takes the new
+ * orientation if it is then clear of terrain and things. */
+void PhysicalObject_DynamicRotation(struct PhysicalObject *obj, f32 dt) {
+    CollisionOBox obox;
+    CollisionInfo hit;
     Matrix4 mtx;
     Vector4 spin __attribute__((aligned(16)));
     Quaternion q __attribute__((aligned(16)));
@@ -460,31 +396,30 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
     Vector4 vel;
     Vector4 r;
     Vector4 impulse;
-    f32 scaled3[4];
-    f32 local3[4];
     f32 t;
     f32 mag;
     u32 i;
-    PhysObj *obj = (PhysObj *)arg0;
-    void *box;
-    OBox *old;
+    Thing *thing = &obj->d.base;
+    DestructibleInfo *info;
+    OBox *box;
+    CollisionOBox *old;
     s8 hitTerrain;
     f32 e1;
     f32 num;
     f32 j;
 
     t = dt;
-    if (obj->flags & 8) {
+    if (thing->flags & THING_FLAG_AT_REST) {
         return;
     }
-    if (obj->flags & 0x200000) {
+    if (thing->flags & 0x200000) {
         return;
     }
-    InverseXformVecOrientation(&obj->mtx, &obj->angMomentum, local);
+    InverseXformVecOrientation(THING_MTX(thing), &obj->angMomentum, local);
     scaled[0] = obj->invInertia.x * local[0];
     scaled[1] = obj->invInertia.y * local[1];
     scaled[2] = obj->invInertia.z * local[2];
-    XformVecOrientation(&obj->mtx, scaled, &spin);
+    XformVecOrientation(THING_MTX(thing), scaled, &spin);
     axis = spin;
     mag = MagnitudeVector(&axis);
     if (mag > 0.0001f) {
@@ -493,75 +428,73 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
         axis.z /= mag;
     }
     GenerateQuaternion(&axis, &q, mag * t);
-    QuaternionMult((Vector4 *)&q, (Vector4 *)&obj->quat, (Vector4 *)&newQ);
+    QuaternionMult(&q, &thing->quat, &newQ);
     QuaternionToSubMatrix(&newQ, &mtx);
-    mtx.v[3].x = obj->mtx.v[3].x;
-    mtx.v[3].y = obj->mtx.v[3].y;
-    mtx.v[3].z = obj->mtx.v[3].z;
-    if (obj->flags & 2) {
-        obj->quat = newQ;
-        obj->mtx = mtx;
+    mtx.v[3].x = thing->pos.x;
+    mtx.v[3].y = thing->pos.y;
+    mtx.v[3].z = thing->pos.z;
+    if (thing->flags & 2) {
+        thing->quat = newQ;
+        *THING_MTX(thing) = mtx;
         return;
     }
-    switch (GETP(GETP(obj->info)->props)->type) {
+    info = GETP(GETP(obj->d.record)->info);
+    switch (info->type) {
     case 0:
-        box = GETP(GETP(GETP(obj->info)->props)->box);
-        old = Destructible_GetOrientedCollision(obj);
-        obox.valid = 1;
-        BuildOOB(box, &mtx, &obox);
+        box = GETP(GETP(GETP(obj->d.record)->info)->box);
+        old = Destructible_GetOrientedCollision(&obj->d);
+        obox.inUse = 1;
+        BuildOOB(box->v, &mtx, &obox);
         for (i = 0; i < 8; i++) {
             if (t > 0.00005f) {
                 dir.x = (obox.corners[i].x - old->corners[i].x) / dt;
                 dir.y = (obox.corners[i].y - old->corners[i].y) / dt;
                 dir.z = (obox.corners[i].z - old->corners[i].z) / dt;
                 hitTerrain = 0;
-                obj->flags |= 2;
-                if (!(obj->flags & 0x40000)) {
+                thing->flags |= 2;
+                if (!(thing->flags & THING_FLAG_NO_TERRAIN_HITS)) {
                     hitTerrain = RayHitsTerrain_Aux3(&old->corners[i], &dir, &t, &hit);
                 }
-                obj->flags &= ~2;
+                thing->flags &= ~2;
                 if (hitTerrain) {
-                    e1 = *(f32 *)(GETP(hit.surface) + 0x18);
+                    e1 = ((SurfaceMaterial *)PTR(hit.material))->restitution;
                     vel = dir;
-                    PSVECSubtract(&hit.pos, &obj->mtx.v[3], &r);
-                    num = -(e1 * *(f32 *)(GETP(GETP(GETP(obj->info)->props)->material) + 0x18) + 1.0f) * PSVECDotProduct(&vel, &hit.normal);
+                    PSVECSubtract(&hit.pos, &thing->pos, &r);
+                    num = -(e1 * GETP(GETP(GETP(obj->d.record)->info)->material)->restitution + 1.0f) * PSVECDotProduct(&vel, &hit.normal);
                     PSVECCrossProduct(&r, &hit.normal, &rxn);
-                    InverseXformVecOrientation(&obj->mtx, &rxn, bLocal);
+                    InverseXformVecOrientation(THING_MTX(thing), &rxn, bLocal);
                     bScaled[0] = obj->invInertia.x * bLocal[0];
                     bScaled[1] = obj->invInertia.y * bLocal[1];
                     bScaled[2] = obj->invInertia.z * bLocal[2];
-                    XformVecOrientation(&obj->mtx, bScaled, &angVel);
+                    XformVecOrientation(THING_MTX(thing), bScaled, &angVel);
                     PSVECCrossProduct(&angVel, &r, &tmp);
-                    j = num / (1.0f / GETP(GETP(obj->info)->props)->mass + PSVECDotProduct(&tmp, &hit.normal));
+                    j = num / (1.0f / GETP(GETP(obj->d.record)->info)->mass + PSVECDotProduct(&tmp, &hit.normal));
                     impulse.x = j * hit.normal.x;
                     impulse.y = j * hit.normal.y;
                     impulse.z = j * hit.normal.z;
-                    obj->vel.x += impulse.x / GETP(GETP(obj->info)->props)->mass;
-                    obj->vel.y += impulse.y / GETP(GETP(obj->info)->props)->mass;
-                    obj->vel.z += impulse.z / GETP(GETP(obj->info)->props)->mass;
-                    obj->mtx.v[3].x += 0.03f * hit.normal.x;
-                    obj->mtx.v[3].y += 0.03f * hit.normal.y;
-                    obj->mtx.v[3].z += 0.03f * hit.normal.z;
+                    thing->vel.x += impulse.x / GETP(GETP(obj->d.record)->info)->mass;
+                    thing->vel.y += impulse.y / GETP(GETP(obj->d.record)->info)->mass;
+                    thing->vel.z += impulse.z / GETP(GETP(obj->d.record)->info)->mass;
+                    thing->pos.x += 0.03f * hit.normal.x;
+                    thing->pos.y += 0.03f * hit.normal.y;
+                    thing->pos.z += 0.03f * hit.normal.z;
                     PSVECCrossProduct(&r, &impulse, &torque);
                     obj->angMomentum.x += torque.x;
                     obj->angMomentum.y += torque.y;
                     obj->angMomentum.z += torque.z;
-                    InverseXformVecOrientation(&obj->mtx, &obj->angMomentum, local3);
-                    scaled3[0] = obj->invInertia.x * local3[0];
-                    scaled3[1] = obj->invInertia.y * local3[1];
-                    scaled3[2] = obj->invInertia.z * local3[2];
-                    XformVecOrientation(&obj->mtx, scaled3, &obj->angVel);
+                    PhysicalObject_UpdateAngVel(obj, &obj->angVel);
                 }
             }
         }
-        if (!OBoxHitsTerrainAndObjectsZeroTime(&obox, obj, NULL)) {
-            obj->quat = newQ;
-            obj->mtx = mtx;
-            *GETP(obj->obox) = obox;
-            SETP(GETP(obj->obox)->row2, &obj->mtx.v[2]);
-            SETP(GETP(obj->obox)->row0, &obj->mtx.v[0]);
-            SETP(GETP(obj->obox)->row1, &obj->mtx.v[1]);
-            obj->flags &= ~0x180;
+        if (!OBoxHitsTerrainAndObjectsZeroTime(&obox, thing, NULL)) {
+            thing->quat = newQ;
+            *THING_MTX(thing) = mtx;
+            *GETP(obj->d.orientedBox) = obox;
+            /* the box's axes point into the thing's matrix (as BuildOOB orders them) */
+            SETP(GETP(obj->d.orientedBox)->axis[0], &thing->axis[2]);
+            SETP(GETP(obj->d.orientedBox)->axis[1], &thing->axis[0]);
+            SETP(GETP(obj->d.orientedBox)->axis[2], &thing->axis[1]);
+            thing->flags &= ~0x180;
         }
         break;
     case 1:
@@ -570,39 +503,30 @@ void PhysicalObject_DynamicRotation(u8 *arg0, f32 dt) {
     }
 }
 
-void Mover_DynamicRotation(u8 *mover) {
-    typedef struct Mover {
-        u8 pad0[0x10];
-        Matrix4 mtx;
-        Quaternion quat;
-        u8 pad60[0x74 - 0x60];
-        u32 flags;
-        u8 pad78[0xE0 - 0x78];
-        Quaternion rot;
-    } Mover;
-    Mover *m = (Mover *)mover;
+/* Movers: take the orientation Mover_PreMove set, once per frame. */
+void Mover_DynamicRotation(struct PhysicalObject *mover) {
     Quaternion quat __attribute__((aligned(16)));
     Matrix4 mtx;
+    Thing *thing = &mover->d.base;
 
-    if (!(m->flags & 0x10)) {
-        m->flags |= 0x10;
-        quat = m->rot;
+    if (!(thing->flags & 0x10)) {
+        thing->flags |= 0x10;
+        quat = mover->d.moverRot;
         QuaternionToSubMatrix(&quat, &mtx);
-        mtx.v[3].x = m->mtx.v[3].x;
-        mtx.v[3].y = m->mtx.v[3].y;
-        mtx.v[3].z = m->mtx.v[3].z;
-        m->quat = quat;
-        m->mtx = mtx;
+        mtx.v[3].x = thing->pos.x;
+        mtx.v[3].y = thing->pos.y;
+        mtx.v[3].z = thing->pos.z;
+        thing->quat = quat;
+        *THING_MTX(thing) = mtx;
     }
 }
 
-void PhysicalObject_DynamicCollideImpact(u8 *obj, u8 *collision, f32 force) {
+/* An impulse at the contact. Something pushable (flags 0x100000) that has
+ * come to rest flat on the ground or a resting thing turns into a static
+ * destructible; otherwise the impulse changes its velocity and spin. */
+void PhysicalObject_DynamicCollideImpact(struct PhysicalObject *obj, CollisionInfo *collision, f32 force) {
     extern Vector4 g_zeroVector;
-    typedef struct {
-        Vector4 center;
-        Vector4 corners[8];
-    } OBox;
-    struct { Vector4 pos; Vector4 vel; Vector4 spin; Vector4 quat; PTR32(void) info; u32 unk44; u32 unk48; u32 unk4C; u32 unk50; } params __attribute__((aligned(16)));
+    DestructibleParams params __attribute__((aligned(16)));
     Vector4 normal __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
     Vector4 center __attribute__((aligned(16)));
@@ -617,123 +541,131 @@ void PhysicalObject_DynamicCollideImpact(u8 *obj, u8 *collision, f32 force) {
     Vector4 scaled3 __attribute__((aligned(16)));
     Vector4 local3 __attribute__((aligned(16)));
     f32 scale;
-    u8 *other;
+    Thing *other;
     u32 i;
-    u8 *hull;
+    ConvexHull *hull;
     f32 weight;
     f32 d;
     f32 w;
     f32 inv;
     f32 mag;
+    Thing *thing = &obj->d.base;
 
-    normal = *(Vector4 *)(collision + 0x10);
-    pos = *(Vector4 *)collision;
-    scale = force / *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)) + 0x20);
-    if (*(u32 *)(obj + 0x74) & 0x200000) {
+    normal = collision->normal;
+    pos = collision->pos;
+    scale = force / GETP(GETP(obj->d.record)->info)->mass;
+    if (thing->flags & 0x200000) {
         return;
     }
-    if ((*(u32 *)(obj + 0x74) & 0x100000) && normal.y > 0.9f && _fabs(scale) < 2.0f &&
-        ((other = SLOT_LOAD(u8 *, (collision + 0x24))) == NULL || (*(u32 *)(other + 0x74) & 8))) {
+    if ((thing->flags & 0x100000) && normal.y > 0.9f && _fabs(scale) < 2.0f &&
+        ((other = PTR(collision->thingB)) == NULL || (other->flags & THING_FLAG_AT_REST))) {
         Vector4 zero = {0.0f, 0.0f, 0.0f, 0.0f};
 
+        /* how much of it lies on the contact plane */
         weight = 0.0f;
         center = zero;
-        Create_Plane(&plane, &normal, (Vector4 *)collision);
-        switch ((SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)))[0x10]) {
+        Create_Plane(&plane, &normal, &collision->pos);
+        switch (GETP(GETP(obj->d.record)->info)->type) {
         case 0:
             for (i = 0; i < 8; i++) {
-                d = Distance_Plane(&plane, &(SLOT_LOAD(OBox *, (obj + 0xD0)))->corners[i]);
+                d = Distance_Plane(&plane, &GETP(obj->d.orientedBox)->corners[i]);
                 if (d < 0.15f) {
                     w = (0.15f - d) / 0.15f;
-                    center.x += (SLOT_LOAD(OBox *, (obj + 0xD0)))->corners[i].x * w;
-                    center.y += (SLOT_LOAD(OBox *, (obj + 0xD0)))->corners[i].y * w;
-                    center.z += (SLOT_LOAD(OBox *, (obj + 0xD0)))->corners[i].z * w;
+                    center.x += GETP(obj->d.orientedBox)->corners[i].x * w;
+                    center.y += GETP(obj->d.orientedBox)->corners[i].y * w;
+                    center.z += GETP(obj->d.orientedBox)->corners[i].z * w;
                     weight += w;
                 }
             }
             break;
         case 1:
         case 6:
-            hull = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (obj + 0xC0)) + 0x10)) + 0x48));
-            for (i = 0; i < *(u32 *)(hull + 0xC); i++) {
-                d = Distance_Plane(&plane, &(SLOT_LOAD(Vector4 *, (obj + 0xCC)))[i]);
+            hull = GETP(GETP(GETP(obj->d.record)->info)->hull);
+            for (i = 0; i < hull->numVerts; i++) {
+                d = Distance_Plane(&plane, &GETP(obj->d.hull)->verts[i]);
                 if (d < 0.15f) {
                     w = (0.15f - d) / 0.15f;
-                    center.x += w * (SLOT_LOAD(Vector4 *, (obj + 0xCC)))[i].x;
-                    center.y += w * (SLOT_LOAD(Vector4 *, (obj + 0xCC)))[i].y;
-                    center.z += w * (SLOT_LOAD(Vector4 *, (obj + 0xCC)))[i].z;
+                    center.x += w * GETP(obj->d.hull)->verts[i].x;
+                    center.y += w * GETP(obj->d.hull)->verts[i].y;
+                    center.z += w * GETP(obj->d.hull)->verts[i].z;
                     weight += w;
                 }
             }
             break;
         }
         if (weight >= 3.0f) {
-            ProjectVectorToNormal(collision + 0x10, obj + 0x110);
-            InverseXformVecOrientation(obj + 0x10, (Vector4 *)(obj + 0x110), &local1);
-            scaled1.x = ((Vector4 *)(obj + 0x120))->x * local1.x;
-            scaled1.y = ((Vector4 *)(obj + 0x120))->y * local1.y;
-            scaled1.z = ((Vector4 *)(obj + 0x120))->z * local1.z;
-            XformVecOrientation(obj + 0x10, &scaled1, (Vector4 *)(obj + 0x130));
-            if (PSVECSquareMag(obj + 0x130) < 1.0f && PSVECSquareMag(obj) < 25.0f) {
-                params.pos = *(Vector4 *)(obj + 0x40);
-                params.unk50 = 0;
+            ProjectVectorToNormal(&collision->normal, &obj->angMomentum);
+            InverseXformVecOrientation(THING_MTX(thing), &obj->angMomentum, &local1);
+            scaled1.x = obj->invInertia.x * local1.x;
+            scaled1.y = obj->invInertia.y * local1.y;
+            scaled1.z = obj->invInertia.z * local1.z;
+            XformVecOrientation(THING_MTX(thing), &scaled1, &obj->angVel);
+            if (PSVECSquareMag(&obj->angVel) < 1.0f && PSVECSquareMag(&thing->vel) < 25.0f) {
+                /* settled: replace by a static destructible (the rest of
+                 * params is left unset, as in the original) */
+                params.pos = thing->pos;
+                params.moveType = DESTRUCTIBLE_STATIC;
                 params.unk4C = 0;
                 params.vel = g_zeroVector;
-                SETP(params.info, SLOT_LOAD(void *, (obj + 0xC0)));
-                params.quat = *(Vector4 *)(obj + 0x50);
-                params.spin = *(Vector4 *)(obj + 0x130);
+                SETP(params.record, GETP(obj->d.record));
+                params.quat = thing->quat;
+                params.angVel = obj->angVel;
                 ThingManager_DARYL_CreateThing(3, &params);
-                Destructible_Release(obj);
+                Destructible_Release(&obj->d);
             }
         }
     }
-    ((Vector4 *)obj)->x += normal.x * scale;
-    ((Vector4 *)obj)->y += normal.y * scale;
-    ((Vector4 *)obj)->z += normal.z * scale;
-    PSVECSubtract(&pos, (Vector4 *)(obj + 0x40), &r);
+    thing->vel.x += normal.x * scale;
+    thing->vel.y += normal.y * scale;
+    thing->vel.z += normal.z * scale;
+    PSVECSubtract(&pos, &thing->pos, &r);
     PSVECScale(&normal, &impulse, force);
     PSVECCrossProduct(&r, &impulse, &torque);
-    ((Vector4 *)(obj + 0x110))->x += torque.x;
-    ((Vector4 *)(obj + 0x110))->y += torque.y;
-    ((Vector4 *)(obj + 0x110))->z += torque.z;
-    InverseXformVecOrientation(obj + 0x10, (Vector4 *)(obj + 0x110), &local2);
-    angVel.x = ((Vector4 *)(obj + 0x120))->x * local2.x;
-    angVel.y = ((Vector4 *)(obj + 0x120))->y * local2.y;
-    angVel.z = ((Vector4 *)(obj + 0x120))->z * local2.z;
+    obj->angMomentum.x += torque.x;
+    obj->angMomentum.y += torque.y;
+    obj->angMomentum.z += torque.z;
+    InverseXformVecOrientation(THING_MTX(thing), &obj->angMomentum, &local2);
+    angVel.x = obj->invInertia.x * local2.x;
+    angVel.y = obj->invInertia.y * local2.y;
+    angVel.z = obj->invInertia.z * local2.z;
     mag = PSVECSquareMag(&angVel);
     if (mag > 10000.0f) {
+        /* cap the spin at 100 rad/s */
         inv = 100.0f / Sqrt(mag);
         angVel.x *= inv;
         angVel.y *= inv;
         angVel.z *= inv;
-        local2.x = angVel.x / ((Vector4 *)(obj + 0x120))->x;
-        local2.y = angVel.y / ((Vector4 *)(obj + 0x120))->y;
-        local2.z = angVel.z / ((Vector4 *)(obj + 0x120))->z;
-        XformVecOrientation(obj + 0x10, &local2, (Vector4 *)(obj + 0x110));
+        local2.x = angVel.x / obj->invInertia.x;
+        local2.y = angVel.y / obj->invInertia.y;
+        local2.z = angVel.z / obj->invInertia.z;
+        XformVecOrientation(THING_MTX(thing), &local2, &obj->angMomentum);
     }
-    InverseXformVecOrientation(obj + 0x10, (Vector4 *)(obj + 0x110), &local3);
-    scaled3.x = ((Vector4 *)(obj + 0x120))->x * local3.x;
-    scaled3.y = ((Vector4 *)(obj + 0x120))->y * local3.y;
-    scaled3.z = ((Vector4 *)(obj + 0x120))->z * local3.z;
-    XformVecOrientation(obj + 0x10, &scaled3, (Vector4 *)(obj + 0x130));
+    InverseXformVecOrientation(THING_MTX(thing), &obj->angMomentum, &local3);
+    scaled3.x = obj->invInertia.x * local3.x;
+    scaled3.y = obj->invInertia.y * local3.y;
+    scaled3.z = obj->invInertia.z * local3.z;
+    XformVecOrientation(THING_MTX(thing), &scaled3, &obj->angVel);
 }
 
-void PhysicalObject_GetInverseLocalInertiaTensor(void *obj, Quaternion *out) {
-    *out = *(Quaternion *)((u8 *)obj + 0x120);
+void PhysicalObject_GetInverseLocalInertiaTensor(struct PhysicalObject *obj, Quaternion *out) {
+    *out = *(Quaternion *)&obj->invInertia;
 }
 
-f32 PhysicalObject_CollideWithRay(u8 *obj, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist) {
+/* As Destructible_CollideWithRay, with the velocity at the hit point
+ * including the spin. */
+f32 PhysicalObject_CollideWithRay(struct PhysicalObject *obj, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist) {
     Vector4 cross __attribute__((aligned(16)));
     Vector4 offset __attribute__((aligned(16)));
     Vector4 angVel __attribute__((aligned(16)));
     f32 dist;
+    Thing *thing = &obj->d.base;
 
-    dist = PhysicalProperties_CollideWithRay(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(void *, (u8 *)(obj) + 0xC0)) + 0x10), obj + 0x10, start, end, maxDist, hit);
+    dist = PhysicalProperties_CollideWithRay(GETP(GETP(obj->d.record)->info), THING_MTX(thing), start, end, maxDist, hit);
     if (hit != NULL && dist < maxDist) {
-        angVel = *(Vector4 *)(obj + 0x130);
-        PSVECSubtract(hit, (Vector4 *)(obj + 0x40), &offset);
+        angVel = obj->angVel;
+        PSVECSubtract(hit, &thing->pos, &offset);
         PSVECCrossProduct(&angVel, &offset, &cross);
-        PSVECAdd((Vector4 *)obj, &cross, (Vector4 *)((u8 *)hit + 0x30));
+        PSVECAdd(&thing->vel, &cross, &hit[3]);
     }
     return dist;
 }
