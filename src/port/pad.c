@@ -110,11 +110,12 @@ static void ReadGamepad(SDL_Gamepad *gp, PADStatus *st) {
 static int s_keyStickX, s_keyStickY;
 
 /* Keyboard: arrows/WASD steer, Space/Z = A, X = B, C = X, V = Y, Enter = Start,
- * Q/E = L/R triggers, Shift = Z. */
+ * Q/E = L/R triggers, Shift = Z, IJKL = D-pad, TFGH or keypad 8/4/2/6 =
+ * C-stick. */
 static void ReadKeyboard(PADStatus *st) {
     const bool *k = SDL_GetKeyboardState(NULL);
     u16 b = 0;
-    int x = 0, y = 0;
+    int x = 0, y = 0, cx = 0, cy = 0;
 
     if (k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_Z]) b |= PAD_BUTTON_A;
     if (k[SDL_SCANCODE_X]) b |= PAD_BUTTON_B;
@@ -132,10 +133,16 @@ static void ReadKeyboard(PADStatus *st) {
     if (k[SDL_SCANCODE_K]) b |= PAD_BUTTON_DOWN;
     if (k[SDL_SCANCODE_J]) b |= PAD_BUTTON_LEFT;
     if (k[SDL_SCANCODE_L]) b |= PAD_BUTTON_RIGHT;
+    if (k[SDL_SCANCODE_F] || k[SDL_SCANCODE_KP_4]) cx -= 100;
+    if (k[SDL_SCANCODE_H] || k[SDL_SCANCODE_KP_6]) cx += 100;
+    if (k[SDL_SCANCODE_T] || k[SDL_SCANCODE_KP_8]) cy += 100;
+    if (k[SDL_SCANCODE_G] || k[SDL_SCANCODE_KP_2]) cy -= 100;
 
     st->button |= b;
     if (x != 0) st->stickX = (s8)x;
     if (y != 0) st->stickY = (s8)y;
+    if (cx != 0) st->substickX = (s8)cx;
+    if (cy != 0) st->substickY = (s8)cy;
     if (b & PAD_BUTTON_A) st->analogA = 0xFF;
     if (b & PAD_BUTTON_B) st->analogB = 0xFF;
     st->err = PAD_ERR_NONE;

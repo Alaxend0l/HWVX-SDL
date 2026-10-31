@@ -181,6 +181,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     u8 *alloc;
     u32 i;
     u32 readSize;
+    u32 tablesSize;
     u32 size;
     u32 pad;
     u8 *data;
@@ -283,22 +284,18 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     offset = soundIDsSize + pack->numTextures * 2;
     SETP(pack->shaderIDs, (u16 *)(alloc + offset));
     offset += pack->numShaders * 2;
-    readSize = header.numRelocs * 8 + header.numGX * 8 + header.numSoundRelocs * 8;
-    pad = readSize & 0x1F;
-    pad = pad == 0 ? 0 : 0x20 - pad;
+    tablesSize = (header.numRelocs + header.numGX + header.numSoundRelocs) * 8;
+    pad = -tablesSize & 0x1F;
     data = alloc + offset;
     data = (u8 *)PTR((((u32)HND(data) + 0x3F) & ~0x3F));
-    readSize += pad;
-    readSize += header.dataSize;
-    readSize += relocSize;
+    readSize = tablesSize + pad + header.dataSize + relocSize;
     File_Read(file, readSize, data);
     {
         /* port: swap tables and data blob before the relocations below */
-        u32 rs = header.numRelocs * 8 + header.numGX * 8 + header.numSoundRelocs * 8;
-        u8 *blob = data + rs + pad;
+        u8 *blob = data + tablesSize + pad;
         u32 *texRelocs = (u32 *)(blob + header.dataSize);
 
-        PortSwap_PackData(data, rs / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
+        PortSwap_PackData(data, tablesSize / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
                           texRelocs + header.numTexRelocs * 2, header.numPointers,
                           header.textureDataOffset, header.numTextures,
                           header.shaderOffset, header.numShaders,

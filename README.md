@@ -32,7 +32,8 @@ folder (`memcardA/*.sav`).
 
 Controls: any SDL-supported gamepad (A/B/X/Y by position, triggers = L/R,
 right shoulder = Z), or keyboard on player 1: arrows/WASD steer, Space/Z = A,
-X = B, C = X, V = Y, Q/E = L/R, Shift = Z, Enter = Start.
+X = B, C = X, V = Y, Q/E = L/R, Shift = Z, Enter = Start, I/J/K/L =
+D-pad, T/F/G/H or keypad 8/4/2/6 = C-stick.
 
 ## Layout
 
