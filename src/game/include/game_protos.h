@@ -51,14 +51,14 @@ void AI_Car_Reset(void *player);
 void AI_Car_ResetState(AICar *ai, AIStateNode *state);
 
 /* AI_Creature.c */
-void AI_Creature_AsyncHeartbeat(u8 *creature);
+void AI_Creature_AsyncHeartbeat(AICreature *ai);
 void AI_Creature_AsyncProcess(void);
-s32 AI_Creature_Deactivate(u8 *creature);
+s32 AI_Creature_Deactivate(AICreature *ai);
 void AI_Creature_Heartbeat(void);
-void AI_Creature_Init(u8 *creature, u8 *params);
+void AI_Creature_Init(AICreature *ai, AIPlayerParams *params);
 void AI_Creature_PopulateVolumes(void);
-s8 AI_Creature_Spawn(u8 *creature, u8 *spawner, u32 index);
-void AI_Creature_VolumeState(u8 *creature);
+s8 AI_Creature_Spawn(AICreature *ai, void *spawner, u32 index);
+void AI_Creature_VolumeState(AICreature *ai);
 
 /* Action.c */
 s32 ActionCameraSetTargets(u32 *mode);

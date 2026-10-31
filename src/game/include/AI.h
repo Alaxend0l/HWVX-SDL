@@ -300,6 +300,24 @@ typedef struct CreatureVolume {
 
 /* TileCreature is in World.h. */
 
+/* A creature volume being populated (gs_aSpawnVolumes, AI_Creature.c). */
+typedef struct SpawnVolume {
+    PTR32(CreatureVolume) volume;      /* 0x00 */
+    s32 alive;                         /* 0x04 creatures spawned in it */
+    u32 index;                         /* 0x08 node to try next */
+    s32 counts[32];                    /* 0x0C creatures per node */
+} SpawnVolume;
+
+/* A car the creature AIs watch (gs_aNearestCars). */
+typedef struct NearestCar {
+    PTR32(Thing) car;                  /* 0x00 NULL: end of the list */
+    u8 pad4[0xC];                      /* 0x04 */
+    Vector4 pos;                       /* 0x10 a little ahead of the car */
+    f32 speed;                         /* 0x20 squared */
+    f32 range;                         /* 0x24 shrinks with speed */
+    u8 pad28[8];                       /* 0x28 */
+} NearestCar;
+
 /* The creature AI player (0x100 bytes, PlayerMgr.creature): drives one
  * creature at a time, spawned from a tile or a volume. */
 typedef struct AICreature {

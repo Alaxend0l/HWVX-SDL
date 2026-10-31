@@ -844,32 +844,6 @@ typedef struct TracerPoint {
   PTR32(struct TracerPoint) next;
   u8 unk4C[4];
 } TracerPoint;
-typedef struct SpawnVolume {
-  PTR32(u8) volume;
-  u32 unk4;
-  u32 index;
-  u32 counts[32];
-} SpawnVolume;
-typedef struct Vec {
-  f32 x;
-  f32 y;
-  f32 z;
-  f32 w;
-} Vec;
-typedef struct NearestCar {
-  PTR32(u8) car;
-  u8 pad4[0x10 - 0x4];
-  Vec pos;
-  f32 speed;
-  f32 range;
-  u8 pad28[0x30 - 0x28];
-} NearestCar;
-typedef struct {
-  s32 unk0;
-  u8 pad4[0xD - 0x4];
-  u8 unkD;
-  u8 padE[0x10 - 0xE];
-} AIPlayerDesc;
 typedef struct {
   PlayerLink base;
   u8 unkB8[0x158 - 0xB8];
