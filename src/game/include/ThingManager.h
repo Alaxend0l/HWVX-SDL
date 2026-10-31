@@ -8,6 +8,7 @@
 #define THINGMANAGER_H
 
 #include <stddef.h>
+#include "Destructible.h"
 
 /* THING_TYPE_* and THING_FLAG_* are in Thing.h. */
 
@@ -106,21 +107,7 @@ typedef struct EmitterParams {
     f32 drawDist;               /* 0x38 0: the description's */
 } EmitterParams;
 
-/* THING_TYPE_DESTRUCTIBLE, THING_TYPE_PHYSICAL_OBJECT (Destructible_Init) */
-typedef struct DestructibleParams {
-    Vector4 pos;                /* 0x00 */
-    Vector4 vel;                /* 0x10 */
-    Vector4 angVel;             /* 0x20 */
-    Quaternion quat;            /* 0x30 */
-    PTR32(ThingRecord) record;  /* 0x40 */
-    u32 owner;                  /* 0x44 */
-    f32 drawDist;               /* 0x48 0: the record's */
-    u32 unk4C;                  /* 0x4C */
-    s32 moveType;               /* 0x50 */
-    f32 speed;                  /* 0x54 */
-    u32 unk58;                  /* 0x58 */
-    PTR32(void) anim;           /* 0x5C */
-} DestructibleParams;
+/* DestructibleParams (THING_TYPE_DESTRUCTIBLE / _PHYSICAL_OBJECT) is in Destructible.h. */
 
 _Static_assert(offsetof(EmitterParams, drawDist) == 0x38, "EmitterParams.drawDist");
 _Static_assert(offsetof(DestructibleParams, record) == 0x40, "DestructibleParams.record");

@@ -36,7 +36,7 @@ typedef struct DestructibleParams {
     Vector4 angVel;             /* 0x20 physical objects: initial spin */
     Quaternion quat;            /* 0x30 */
     PTR32(ThingRecord) record;  /* 0x40 */
-    u32 unk44;                  /* 0x44 */
+    u32 owner;                  /* 0x44 Player handle */
     f32 drawDist;               /* 0x48 0: the record's */
     u32 unk4C;                  /* 0x4C */
     s32 moveType;               /* 0x50 DESTRUCTIBLE_* */
