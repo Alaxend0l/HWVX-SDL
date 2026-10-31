@@ -173,6 +173,23 @@ void Render_SetClipPlanes(f32 fov) {
     fov = 0.75f * s / c;
     vAngle = atan(fov);
     hAngle = atan(fov * (4096.0f / GetRenderWindow()->width));
+    {   /* port: widescreen. The view is drawn wider (or taller) than 4:3
+         * (Port_ViewWiden); widen the side planes (c, s), the top/bottom
+         * planes (vAngle) and the shadow planes (hAngle) to match. */
+        f32 wx, wy, h;
+        Port_ViewWiden(&wx, &wy);
+        if (wx > 1.0f) {
+            h = atan(wx * s / c);
+            c = cos(h);
+            s = sin(h);
+        }
+        if (wy > 1.0f) {
+            vAngle = atan(wy * fov);
+        }
+        if (wx > 1.0f || wy > 1.0f) {
+            hAngle = atan((wx > wy ? wx : wy) * tan(hAngle));
+        }
+    }
     vc = cos(vAngle);
     vs = sin(vAngle);
     hc = cos(hAngle);
@@ -316,10 +333,17 @@ void MatrixToMtxTranspose(f32 dst[3][4], f32 src[4][4]) {
 }
 
 s32 isInWindow(f32 *pos) {
-    if (GetRenderWindow()->left > pos[0] || GetRenderWindow()->right < pos[0]) {
+    f32 wx, wy, ex, ey;
+
+    /* port: widescreen. Positions projected for 4:3 (Gfx_TransformVector)
+     * beyond the window's sides are still on a wider screen (Port_ViewWiden). */
+    Port_ViewWiden(&wx, &wy);
+    ex = 0.5f * (wx - 1.0f) * GetRenderWindow()->width;
+    ey = 0.5f * (wy - 1.0f) * GetRenderWindow()->height;
+    if (GetRenderWindow()->left - ex > pos[0] || GetRenderWindow()->right + ex < pos[0]) {
         return 0;
     }
-    if (GetRenderWindow()->top > pos[1] || GetRenderWindow()->bottom < pos[1]) {
+    if (GetRenderWindow()->top - ey > pos[1] || GetRenderWindow()->bottom + ey < pos[1]) {
         return 0;
     }
     pos[0] -= GetRenderWindow()->left;

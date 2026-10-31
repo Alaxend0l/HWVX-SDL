@@ -253,6 +253,7 @@ void InterfaceManager_ReleaseInterface(u32 index) {
         FileStreaming_ReleaseAllDataPacks(10, 1);
         g_curMusicPackName = NULL;
     }
+    Port_MenuReleased(GETP(iface->header));   /* port: apply graphics settings */
     Trigger_InterfaceEnd(HND(GETP(iface->header)));
     InterfaceHasEnded(index);
     InterfaceManager_ReleaseInterfaceObjects(GETP(g_interfaces[index].objects));
@@ -340,6 +341,7 @@ void InterfaceManager_SetOffset(s32 index, f32 x, f32 y) {
 }
 
 s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callback)(void *msg)) {
+    Port_MenuPatch(header);   /* port: the Options screen's Graphics menu */
     if (header != NULL) {  /* port: trace interface creation */
         Port_Log("interface create: header id %u, %u objects%s", header->id, header->numObjects,
                  owner != NULL ? " (player)" : "");

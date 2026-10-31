@@ -832,4 +832,8 @@ _Static_assert(sizeof(InterfaceHudInfo) == 0xD0, "InterfaceHudInfo size");
 extern u8 g_interface[];
 #define g_interfaces ((Interface *)(void *)g_interface)
 
+/* Port_Menu.c: the Options screen's Graphics menu. */
+void Port_MenuPatch(InterfaceHeader *header);
+void Port_MenuReleased(InterfaceHeader *header);
+
 #endif

@@ -7,8 +7,9 @@
  * - gx_sdlgpu.c: SDL_GPU, which runs on Vulkan, Metal or Direct3D 12
  *   (--renderer vulkan|metal|d3d12).
  *
- * Coordinates handed to a backend have a top-left origin: GX units (640x480)
- * for viewport and scissor, EFB pixels for rectangles. */
+ * The EFB has the window's size and shape. Coordinates handed to a backend
+ * are EFB pixels with a top-left origin; gx_draw.c maps the game's 640x448
+ * screen into them (see "screen mapping" there). */
 #ifndef GX_RENDER_H
 #define GX_RENDER_H
 
@@ -76,8 +77,8 @@ typedef struct GXDrawCall {
     const GXFSUniforms *fs;
     void *tex[8];             /* backend textures (texCreate), NULL: none */
     GXSampler samp[8];
-    f32 viewport[6];          /* left, top, width, height, near, far (GX units) */
-    u32 scissor[4];           /* left, top, width, height (GX units) */
+    f32 viewport[6];          /* left, top, width, height (EFB pixels), near, far */
+    int scissor[4];           /* left, top, width, height (EFB pixels, inside the EFB) */
     u8 blend, blendSrc, blendDst, blendRevSub;   /* blendRevSub: dst - src, factors ONE */
     u8 depthTest, depthFunc, depthWrite;          /* depthFunc: GX_NEVER..GX_ALWAYS */
     u8 colorWrite, alphaWrite;
@@ -92,6 +93,8 @@ typedef struct GXRenderer {
     void (*close)(void);
     /* GXInit: create the EFB (efbW x efbH pixels) and pipeline objects. */
     void (*init)(int efbW, int efbH);
+    /* Between frames: a new EFB size; its contents may be lost. */
+    void (*resize)(int efbW, int efbH);
     /* Textures: RGBA8, top row first. A texture is uploaded once, all its
      * levels before its first draw, and never changed afterwards. */
     void *(*texCreate)(int w, int h, int levels);
@@ -112,8 +115,9 @@ extern const GXRenderer g_gxGL;
 extern const GXRenderer g_gxSDLGPU;
 extern const GXRenderer *g_gxr;
 
-/* The 4:3 area of a w x h window: x, y, width, height (top-left origin). */
-void GX_Letterbox(int w, int h, int out[4]);
+/* The largest area of aspect aw:ah centred in a w x h window: x, y, width,
+ * height (top-left origin). */
+void GX_Letterbox(int w, int h, int aw, int ah, int out[4]);
 
 /* gx_tex.c: the decoded texture for a texture object, and its sampler. */
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp);

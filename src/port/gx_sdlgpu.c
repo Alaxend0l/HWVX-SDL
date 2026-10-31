@@ -209,6 +209,15 @@ static void CreatePresentPipeline(void) {
     }
 }
 
+static void CreateEFB(void) {
+    s.efb = CreateTexture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                          SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, s.efbW, s.efbH, 1);
+    s.efbDepth = CreateTexture(s.depthFmt, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET, s.efbW, s.efbH, 1);
+    if (s.efb == NULL || s.efbDepth == NULL) {
+        Port_Fatal("Could not create the EFB: %s", SDL_GetError());
+    }
+}
+
 static void GPU_Init(int efbW, int efbH) {
     static const u8 black[4] = { 0, 0, 0, 255 };
     SDL_GPUSamplerCreateInfo sci;
@@ -224,12 +233,7 @@ static void GPU_Init(int efbW, int efbH) {
     s.depthFmt = SDL_GPUTextureSupportsFormat(s.dev, SDL_GPU_TEXTUREFORMAT_D24_UNORM, SDL_GPU_TEXTURETYPE_2D,
                                               SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
                      ? SDL_GPU_TEXTUREFORMAT_D24_UNORM : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
-    s.efb = CreateTexture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-                          SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, efbW, efbH, 1);
-    s.efbDepth = CreateTexture(s.depthFmt, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET, efbW, efbH, 1);
-    if (s.efb == NULL || s.efbDepth == NULL) {
-        Port_Fatal("Could not create the EFB: %s", SDL_GetError());
-    }
+    CreateEFB();
     /* unbound texture maps sample opaque black, as GL's texture 0 does */
     s.black = GPU_TexCreate(1, 1, 1);
     GPU_TexUpload(s.black, 0, 1, 1, black);
@@ -244,6 +248,19 @@ static void GPU_Init(int efbW, int efbH) {
     s.clearPending = 1;
     s.clearColor.a = 1.0f;
     s.clearDepth = 1.0f;
+}
+
+static void Flush(void);
+
+/* Recorded work may still use the old EFB: SDL releases it once that is done. */
+static void GPU_Resize(int efbW, int efbH) {
+    Flush();
+    SDL_ReleaseGPUTexture(s.dev, s.efb);
+    SDL_ReleaseGPUTexture(s.dev, s.efbDepth);
+    s.efbW = efbW;
+    s.efbH = efbH;
+    CreateEFB();
+    s.clearPending = 1;
 }
 
 static void GPU_Close(void) {
@@ -609,26 +626,13 @@ static void GPU_Draw(const GXDrawCall *dc) {
         SDL_GPU_PRIMITIVETYPE_TRIANGLELIST, SDL_GPU_PRIMITIVETYPE_TRIANGLESTRIP, SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         SDL_GPU_PRIMITIVETYPE_LINELIST, SDL_GPU_PRIMITIVETYPE_LINESTRIP, SDL_GPU_PRIMITIVETYPE_POINTLIST,
     };
-    f32 sx = s.efbW / 640.0f, sy = s.efbH / 480.0f;
     const f32 *vp = dc->viewport;
-    const u32 *sc = dc->scissor;
-    int x0, y0, x1, y1, i;
+    int i;
     u32 first = s.nVerts, n, key;
     Draw *d;
 
     /* GL culls every polygon with GL_FRONT_AND_BACK (lines and points stay) */
     if (dc->cull == 3 && dc->prim <= GXR_TRIANGLEFAN) {
-        return;
-    }
-    x0 = (int)(sc[0] * sx);
-    y0 = (int)(sc[1] * sy);
-    x1 = x0 + (int)(sc[2] * sx);
-    y1 = y0 + (int)(sc[3] * sy);
-    if (x0 < 0) x0 = 0;
-    if (y0 < 0) y0 = 0;
-    if (x1 > s.efbW) x1 = s.efbW;
-    if (y1 > s.efbH) y1 = s.efbH;
-    if (x1 <= x0 || y1 <= y0 || (int)(vp[2] * sx) <= 0 || (int)(vp[3] * sy) <= 0) {
         return;
     }
 
@@ -668,16 +672,16 @@ static void GPU_Draw(const GXDrawCall *dc) {
         d->tex[i] = dc->tex[i] != NULL ? dc->tex[i] : s.black;
         d->samp[i] = dc->tex[i] != NULL ? GetSampler(&dc->samp[i]) : s.linearClamp;
     }
-    d->viewport.x = (f32)(int)(vp[0] * sx);
-    d->viewport.y = (f32)(int)(vp[1] * sy);
-    d->viewport.w = (f32)(int)(vp[2] * sx);
-    d->viewport.h = (f32)(int)(vp[3] * sy);
+    d->viewport.x = vp[0];
+    d->viewport.y = vp[1];
+    d->viewport.w = vp[2];
+    d->viewport.h = vp[3];
     d->viewport.min_depth = SDL_clamp(vp[4], 0.0f, 1.0f);
     d->viewport.max_depth = SDL_clamp(vp[5], 0.0f, 1.0f);
-    d->scissor.x = x0;
-    d->scissor.y = y0;
-    d->scissor.w = x1 - x0;
-    d->scissor.h = y1 - y0;
+    d->scissor.x = dc->scissor[0];
+    d->scissor.y = dc->scissor[1];
+    d->scissor.w = dc->scissor[2];
+    d->scissor.h = dc->scissor[3];
     key = prims[dc->prim] | (u32)(dc->blend != 0) << 3 | (u32)(dc->blendSrc & 15) << 4 |
           (u32)(dc->blendDst & 15) << 8 | (u32)(dc->blendRevSub != 0) << 12 | (u32)(dc->depthTest != 0) << 13 |
           (u32)(dc->depthFunc & 7) << 14 | (u32)(dc->depthWrite != 0) << 17 | (u32)(dc->colorWrite != 0) << 18 |
@@ -744,7 +748,7 @@ static void GPU_CopyDisp(const int src[4]) {
             return;
         }
     }
-    GX_Letterbox((int)s.swapW, (int)s.swapH, lb);
+    GX_Letterbox((int)s.swapW, (int)s.swapH, src[2] - src[0], src[3] - src[1], lb);
     SDL_zero(ct);
     ct.texture = s.swapTex;
     ct.load_op = SDL_GPU_LOADOP_CLEAR;
@@ -833,6 +837,6 @@ static void GPU_Present(void) {
 }
 
 const GXRenderer g_gxSDLGPU = {
-    "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
+    "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
     GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_ReadEFB, GPU_Present,
 };

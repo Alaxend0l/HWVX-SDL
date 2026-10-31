@@ -53,6 +53,11 @@ static GLuint Compile(GLenum type, const char *src) {
 }
 
 static void CreateEFB(void) {
+    if (s.fbo != 0) {
+        glDeleteFramebuffers(1, &s.fbo);
+        glDeleteTextures(1, &s.fboColor);
+        glDeleteRenderbuffers(1, &s.fboDepth);
+    }
     glGenFramebuffers(1, &s.fbo);
     glGenTextures(1, &s.fboColor);
     glBindTexture(GL_TEXTURE_2D, s.fboColor);
@@ -128,6 +133,12 @@ static void GL_Init(int efbW, int efbH) {
     CreateEFB();
 }
 
+static void GL_Resize(int efbW, int efbH) {
+    s.efbW = efbW;
+    s.efbH = efbH;
+    CreateEFB();
+}
+
 /* ---- textures ------------------------------------------------------------ */
 
 static void *GL_TexCreate(int w, int h, int levels) {
@@ -194,19 +205,19 @@ static void GL_Draw(const GXDrawCall *dc) {
     static const GLenum modes[] = {
         GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN, GL_LINES, GL_LINE_STRIP, GL_POINTS,
     };
-    f32 sx = s.efbW / 640.0f, sy = s.efbH / 480.0f;
     const f32 *vp = dc->viewport;
-    const u32 *sc = dc->scissor;
+    const int *sc = dc->scissor;
     int i;
 
     glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
     glUseProgram(s.prog);
     glBindVertexArray(s.vao);
 
-    glViewport((GLint)(vp[0] * sx), (GLint)(s.efbH - (vp[1] + vp[3]) * sy), (GLsizei)(vp[2] * sx), (GLsizei)(vp[3] * sy));
+    /* GL rows are bottom-up */
+    glViewport((GLint)vp[0], (GLint)(s.efbH - vp[1] - vp[3]), (GLsizei)vp[2], (GLsizei)vp[3]);
     glDepthRange(vp[4], vp[5]);
     glEnable(GL_SCISSOR_TEST);
-    glScissor((GLint)(sc[0] * sx), (GLint)(s.efbH - (sc[1] + sc[3]) * sy), (GLsizei)(sc[2] * sx), (GLsizei)(sc[3] * sy));
+    glScissor(sc[0], s.efbH - sc[1] - sc[3], sc[2], sc[3]);
 
     UploadUniforms(dc);
     for (i = 0; i < 8; i++) {
@@ -293,7 +304,7 @@ static void GL_CopyDisp(const int src[4]) {
     int w, h, lb[4];
 
     SDL_GetWindowSizeInPixels(g_port.window, &w, &h);
-    GX_Letterbox(w, h, lb);
+    GX_Letterbox(w, h, src[2] - src[0], src[3] - src[1], lb);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -343,6 +354,6 @@ static void GL_Present(void) {
 }
 
 const GXRenderer g_gxGL = {
-    "opengl", GL_Open, GL_Close, GL_Init, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
+    "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
     GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_ReadEFB, GL_Present,
 };

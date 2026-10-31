@@ -255,6 +255,11 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     s32 type;
     MCP *mcp;
 
+    if (PORT_IS_CODEVAR(var)) {   /* port: graphics settings (Port_Menu.c) */
+        Port_GfxSet(var, val);
+        return;
+    }
+
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         type = mcp->gameType;
@@ -541,6 +546,9 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     s32 status;
     World *world;
 
+    if (PORT_IS_CODEVAR(var)) {   /* port: graphics settings (Port_Menu.c) */
+        return Port_GfxGet(var);
+    }
     if (bFirstTime) {
         bFirstTime = 0;
         pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);

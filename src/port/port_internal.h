@@ -18,6 +18,7 @@
 typedef struct PortState {
     const char *dataDir;
     int scale;
+    int winW, winH;          /* --window WxH (0: 640x480 times scale) */
     int fullscreen;
     volatile int quit;
     SDL_Window *window;
@@ -30,6 +31,10 @@ void Port_InitHandles(u32 arenaSize);
 
 /* Creates g_port.window with the renderer's flags (gx_render.h open). */
 void Port_CreateWindow(SDL_WindowFlags flags);
+
+/* gfx_settings.c: graphics.cfg fills in what the command line left unset. */
+void Port_GfxLoadConfig(int haveSize, int haveFullscreen);
+void Port_GfxSetFullscreenMode(int w, int h);
 
 /* Called once per displayed frame from VIWaitForRetrace: presents, pumps
  * events, paces to 60 Hz. */

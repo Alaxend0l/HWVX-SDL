@@ -26,8 +26,16 @@ Extract Entire Disc) and either put it at `orig/files/` or point the game at it:
 ./build/hwvx --data /path/to/files
 ```
 
-Options: `--data DIR`, `--scale N` (window = 640×480×N), `--fullscreen`,
-`--renderer NAME`.
+Options: `--data DIR`, `--scale N` (window = 640×480×N), `--window WxH`
+(any size and shape), `--fullscreen`, `--renderer NAME`.
+
+Resolution: the game renders at the window's size and shape, and the window
+can be resized. On a screen wider than 4:3 the 3D view widens to fill it while
+the HUD and menus keep their 4:3 layout in the middle (taller screens work the
+same way vertically); split screen stays 4:3. Options → Graphics (a menu the
+port adds) picks a resolution from the display's modes and windowed or
+fullscreen; it is applied when you leave that menu and kept in `graphics.cfg`
+in the save folder. Command-line options override it.
 
 Renderers (`--renderer`): `opengl` (default, OpenGL 3.3 core), and through
 SDL_GPU `vulkan`, `metal` (macOS) and `d3d12` (Windows). The SDL_GPU

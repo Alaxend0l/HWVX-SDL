@@ -156,6 +156,23 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 
 void Port_Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 int Port_AllCheats(void);
+/* Widescreen (gx_draw.c): how much wider (wx) and taller (wy) than 4:3 the
+ * game's single view is drawn; 1, 1 in split screen. The game's culling and
+ * on-screen tests (Render_SetClipPlanes, isInWindow) widen by these. */
+void Port_ViewWiden(f32 *wx, f32 *wy);
+
+/* Graphics settings (gfx_settings.c), edited by the Options screen's
+ * "Graphics" menu (src/game/Port_Menu.c) through these code variables
+ * (GameSettings_Get/SetCodeVariable). */
+#define PORT_CODEVAR_RESOLUTION 0x1000   /* index into the mode list */
+#define PORT_CODEVAR_DISPLAY 0x1001      /* 0 windowed, 1 fullscreen */
+#define PORT_IS_CODEVAR(id) ((id) == PORT_CODEVAR_RESOLUTION || (id) == PORT_CODEVAR_DISPLAY)
+u32 Port_GfxGet(s32 id);
+void Port_GfxSet(s32 id, u32 value);
+void Port_GfxMenuOpened(void);
+u32 Port_GfxModeCount(void);
+const char *Port_GfxModeName(u32 i);
+void Port_GfxApply(void);
 void Port_Fatal(const char *fmt, ...) __attribute__((format(printf, 1, 2), noreturn));
 #define PORT_TODO(what) Port_Todo(__func__, what)
 void Port_Todo(const char *func, const char *what);
