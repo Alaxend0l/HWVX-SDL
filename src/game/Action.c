@@ -302,7 +302,7 @@ s32 ActionMissionObjChangeMode(u32 *action) {
     u32 i;
 
     for (i = 0; i < action[1]; i++) {
-        GETP(ACTION_RECORD(WorldObjective, action[i + 2])->info)[1] = action[0];
+        GETP(ACTION_RECORD(WorldObjective, action[i + 2])->info)->mode = action[0];
     }
     return 1;
 }

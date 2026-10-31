@@ -1040,6 +1040,16 @@ typedef struct Geometry Geometry;
 typedef struct GeometryGroup GeometryGroup;
 typedef struct QuadPack QuadPack;
 typedef struct GfxState GfxState;
+typedef struct Interface Interface;
+typedef struct InterfaceObject InterfaceObject;
+typedef struct InterfaceHeader InterfaceHeader;
+typedef struct IfaceObjectDef IfaceObjectDef;
+typedef struct IfaceStateAnim IfaceStateAnim;
+typedef struct IfaceActionList IfaceActionList;
+typedef struct IfaceEvent IfaceEvent;
+typedef struct IfaceFont IfaceFont;
+typedef struct WorldObjective WorldObjective;
+typedef struct GDLRect GDLRect;
 
 #include "game_protos.h"
 

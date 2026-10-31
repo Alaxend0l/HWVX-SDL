@@ -104,7 +104,8 @@ _Static_assert(sizeof(Teleporter) == 0x70, "Teleporter size");
 
 /* A script variable (world + 0x48/0x4C), referenced by triggers/actions. */
 typedef struct WorldVariable {
-    u8 pad0[2];                 /* 0x00 */
+    u8 pad0;                    /* 0x00 */
+    u8 active;                  /* 0x01 shown by HUD role 51 */
     u8 id;                      /* 0x02 interfaces bind to it by id */
     u8 pad3;                    /* 0x03 */
     f32 value;                  /* 0x04 */
@@ -123,8 +124,9 @@ typedef struct WorldTimerMode {
 
 /* A script timer (world + 0x50/0x54), counted in ms by TimerManager_Heartbeat. */
 typedef struct WorldTimer {
-    u8 pad0[2];                 /* 0x00 */
-    u8 type;                    /* 0x02 0xC: the round timer (GameRules) */
+    u8 pad0;                    /* 0x00 */
+    u8 active;                  /* 0x01 shown by HUD role 50 */
+    u8 type;                    /* 0x02 id interfaces bind to; 0xC: the round timer (GameRules) */
     u8 countUp;                 /* 0x03 0: counts down to 0 */
     u8 pad4[4];                 /* 0x04 */
     f32 time;                   /* 0x08 ms */
@@ -142,12 +144,25 @@ typedef PTR32(WorldTimer) WorldTimerSlot;
 #define WORLD_VARIABLE(h) GETP(*(WorldVariableSlot *)PTR(h))
 #define WORLD_TIMER(h) GETP(*(WorldTimerSlot *)PTR(h))
 
+/* What a mission objective shows (InterfaceManager_SetMissionObjectiveText).
+ * Port_Swap leaves the first four bytes in pack order. */
+typedef struct WorldObjectiveInfo {
+    u8 type;                    /* 0x00 the value put in the text's '#'s: 0 none, 1 counter,
+                                 *      2 timer (mm:ss), 3 code variable */
+    u8 mode;                    /* 0x01 0x17: shown (ActionMissionObjChangeMode) */
+    u8 id;                      /* 0x02 IfaceObjectDef.id of the HUD object showing it */
+    u8 pad3[9];
+    PTR32(WorldVariable) done;  /* 0x0C value != 0: `doneText`, NULL: `text` if any */
+    PTR32(void) value;          /* 0x10 type 1: WorldVariable, 2: WorldTimer,
+                                 *      3: { code variable id, argument } */
+    PTR32(PTR32(char)) text;    /* 0x14 string table */
+    PTR32(PTR32(char)) doneText; /* 0x18 */
+} WorldObjectiveInfo;
+
 /* A mission objective (world + 0x58/0x5C). */
 typedef struct WorldObjective {
-    u32 arg;                    /* 0x00 */
-    PTR32(u8) info;             /* 0x04 big-endian word type at 0 ([1] mode
-                                 * (ActionMissionObjChangeMode), 0x17: shown, '#' text;
-                                 * [2] id), value slots 0xC/0x10, string tables 0x14/0x18 */
+    u32 arg;                    /* 0x00 argument of a type 3 code variable below 10 */
+    PTR32(WorldObjectiveInfo) info; /* 0x04 */
 } WorldObjective;
 
 /* ---- volumes (VolumeManager.c) ------------------------------------------- */
@@ -422,10 +437,15 @@ typedef struct WorldGameData {
     f32 musicPitch;             /* 0x34 */
     f32 musicTempo;             /* 0x38 */
     f32 cameraFxLead;           /* 0x3C cameraFx is kept this many seconds of car travel ahead */
-    u8 pad40[0x28];             /* 0x40 radar map... */
+    u8 pad40[0x18];             /* 0x40 */
+    f32 mapOffsetX;             /* 0x58 radar map: texture coordinates of the origin */
+    f32 mapOffsetZ;             /* 0x5C */
+    f32 mapHalfW;               /* 0x60 half the area shown, in texture coordinates */
+    f32 mapHalfH;               /* 0x64 */
     f32 impactFxMinVel;         /* 0x68 car-car impact effects, by relative speed */
     f32 impactFxMaxVel;         /* 0x6C */
-    u8 pad70[0xC];              /* 0x70 */
+    u8 pad70[8];                /* 0x70 */
+    u32 mapTexture;             /* 0x78 radar map, 0: none (InterfaceManager_DrawMap) */
     u32 radarBlip;              /* 0x7C InterfaceManager_SetRadarBlip */
     u8 pad80[8];                /* 0x80 */
     u32 lightTexture;           /* 0x88 LightHolder_SetTexture */
@@ -452,6 +472,11 @@ typedef struct WorldGameData {
 WORLD_ASSERT(WorldGameData, fogFar, 0x18);
 WORLD_ASSERT(WorldGameData, farPlane, 0x20);
 WORLD_ASSERT(WorldGameData, reverbLevel, 0x24);
+WORLD_ASSERT(WorldGameData, mapOffsetX, 0x58);
+WORLD_ASSERT(WorldGameData, mapHalfH, 0x64);
+WORLD_ASSERT(WorldGameData, impactFxMinVel, 0x68);
+WORLD_ASSERT(WorldGameData, mapTexture, 0x78);
+WORLD_ASSERT(WorldGameData, radarBlip, 0x7C);
 WORLD_ASSERT(WorldGameData, impactFxMinVel, 0x68);
 WORLD_ASSERT(WorldGameData, envmapA, 0x8C);
 WORLD_ASSERT(WorldGameData, itemPack, 0xA4);
@@ -560,6 +585,8 @@ typedef struct StreamingPack {
 
 WORLD_ASSERT(StreamingPack, refs, 0x0C);
 WORLD_ASSERT(StreamingPack, pack, 0x14);
+WORLD_ASSERT(WorldObjectiveInfo, done, 0x0C);
+WORLD_ASSERT(WorldObjectiveInfo, doneText, 0x18);
 _Static_assert(sizeof(StreamingPack) == 0xA8, "StreamingPack size");
 
 #undef WORLD_ASSERT

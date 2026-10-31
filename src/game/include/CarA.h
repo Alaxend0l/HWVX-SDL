@@ -306,7 +306,8 @@ typedef struct CarASlaveSet {
 typedef struct CarAStartSlave {
   u8 pad00[0x32];           /* 0x00 */
   u16 tag;                  /* 0x32 slave tag (ThingManager_DARYL_CreateSlave) */
-  u8 pad34[8];              /* 0x34 */
+  s32 count;                /* 0x34 summed by interface condition 4 (InterfaceManager_CheckConditions) */
+  u8 pad38[4];              /* 0x38 */
   u32 enabled;              /* 0x3C 0: skipped */
   u8 pad40[0x10];           /* 0x40 */
 } CarAStartSlave;
@@ -335,7 +336,9 @@ typedef struct CarAForcePoints {
 } CarAForcePoints;
 
 typedef struct CarAInfo {
-  u8 pad00[0x10];           /* 0x00 */
+  f32 viewOffset[3];        /* 0x00 shifts the car when an interface shows it
+                             *      (InterfaceManager_RenderObject) */
+  u8 pad0C[4];              /* 0x0C */
   u8 damagePercent;         /* 0x10 health % below which parts break off */
   u8 driveMode;             /* 0x11 1: human-controlled */
   u8 pad12[2];              /* 0x12 */

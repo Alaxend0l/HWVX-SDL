@@ -2,28 +2,10 @@
  * on other things as slaves (lights, glows); and radar blips, the markers
  * with a health bar drawn over cars. */
 #include "common.h"
+#include "Gfx.h"
 #include "AttachThing.h"
 #include "Particle.h"
 
-typedef struct GDLRectVtx {
-    f32 x;
-    f32 y;
-    f32 z;
-    u8 unkC[0x10 - 0xC];
-    f32 s;
-    f32 t;
-    GXColor color;
-    u8 unk1C[0x20 - 0x1C];
-} GDLRectVtx;
-
-typedef struct GDLRect {
-    GDLRectVtx v[4];
-    u16 tex;
-    u8 blendMode;
-    u8 window;
-} GDLRect;
-
-GDLRect *Gfx_Add2DRectangleRenderWindow(void);
 
 extern u32 g_attachVTable[];
 extern u32 g_attachGeometryVTable[];

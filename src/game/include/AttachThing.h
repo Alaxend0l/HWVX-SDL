@@ -66,9 +66,10 @@ typedef struct RadarBlipData {
     u8 showSprite;              /* 0x03 0: the blip thing isn't drawn at all (Thing flag 0x200) */
     f32 size;                   /* 0x04 */
     f32 height;                 /* 0x08 above the position, in pixels */
-    u8 pad0C[0xC];              /* 0x0C */
+    u8 pad0C[8];                /* 0x0C */
+    u32 radarTexture;           /* 0x14 its dot on the HUD radar (InterfaceManager_DrawRadarBlips) */
     u32 texture;                /* 0x18 */
-    u8 pad1C[4];                /* 0x1C */
+    PTR32(GXColor) radarColor;  /* 0x1C */
     PTR32(GXColor) color;       /* 0x20 */
 } RadarBlipData;
 
@@ -100,7 +101,9 @@ _Static_assert(offsetof(AttachThing, scale) == 0xD0, "AttachThing.scale");
 _Static_assert(offsetof(AttachThing, scale2) == 0x100, "AttachThing.scale2");
 _Static_assert(offsetof(AttachThing, color) == 0x130, "AttachThing.color");
 _Static_assert(sizeof(AttachThing) == 0x160, "AttachThing size");
+_Static_assert(offsetof(RadarBlipData, radarTexture) == 0x14, "RadarBlipData.radarTexture");
 _Static_assert(offsetof(RadarBlipData, texture) == 0x18, "RadarBlipData.texture");
+_Static_assert(offsetof(RadarBlipData, radarColor) == 0x1C, "RadarBlipData.radarColor");
 _Static_assert(offsetof(RadarBlipData, color) == 0x20, "RadarBlipData.color");
 _Static_assert(offsetof(RadarBlip, data) == 0xB0, "RadarBlip.data");
 _Static_assert(offsetof(RadarBlip, health) == 0xB8, "RadarBlip.health");

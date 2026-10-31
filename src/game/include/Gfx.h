@@ -136,4 +136,24 @@ _Static_assert(sizeof(GeometryGroup) == 0x20, "GeometryGroup size");
 _Static_assert(offsetof(Geometry, bboxMin) == 0x10, "Geometry.bboxMin");
 _Static_assert(offsetof(Geometry, center) == 0x30, "Geometry.center");
 
+/* A vertex of a queued 2D primitive. */
+typedef struct GDL2DVtx {
+    f32 x, y, z;                /* 0x00 screen position, z: depth */
+    f32 w;                      /* 0x0C */
+    f32 s, t;                   /* 0x10 texture coordinates */
+    GXColor color;              /* 0x18 */
+    u8 pad1C[4];
+} GDL2DVtx;
+
+/* A 2D rectangle queued by Gfx_Add2DRectangle* (drawn by Render_QuadTri_.c). */
+typedef struct GDLRect {
+    GDL2DVtx v[4];              /* 0x00 */
+    u16 tex;                    /* 0x80 texture, 0xFFFF: none */
+    u8 blendMode;               /* 0x82 */
+    u8 window;                  /* 0x83 render window */
+} GDLRect;
+
+_Static_assert(sizeof(GDL2DVtx) == 0x20, "GDL2DVtx size");
+_Static_assert(offsetof(GDLRect, window) == 0x83, "GDLRect.window");
+
 #endif

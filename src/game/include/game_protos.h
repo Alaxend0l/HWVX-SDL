@@ -531,7 +531,9 @@ void DisplayList_RenderGXList(void);
 void DrawAlphaTable(void);
 void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix);
 void Gfx_Add2DFXLine(Vector4 *p0, Vector4 *p1, GXColor *c0, GXColor *c1, u8 flag);
+GDLRect * Gfx_Add2DRectangle(void);
 void Gfx_Add2DRectangleBack(void *rect);
+GDLRect * Gfx_Add2DRectangleRenderWindow(void);
 void Gfx_Add2DSprite(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b);
 void Gfx_AddCorona(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b);
 u32 Gfx_AddWorldMatrixState_CacheMatrix(f32 (*matrix)[4]);
@@ -673,48 +675,53 @@ s32 DropShip_IsChildInterfaceReady(s32 index);
 void DropShip_PullCameraBack(s32 index);
 void DropShip_PullCameraForward(s32 index);
 void DropShip_StartChildInterface(s32 index, u32 id);
-s32 InterfaceManager_AddFont(u8 *font);
+s32 InterfaceManager_AddFont(IfaceFont *font);
 void InterfaceManager_AddInterfaceToRender(u32 index, u32 priority);
 void InterfaceManager_AddObject(void *interface, void *object);
-void InterfaceManager_Backup_Key(u8 *iface, u8 *key, u8 flags);
-void InterfaceManager_CheckConditions(u8 *iface, u8 *obj);
-s32 InterfaceManager_Create(u8 *header, u8 *owner, void (*callback)(void *msg));
-void InterfaceManager_DrawBox(u8 *obj);
-void InterfaceManager_DrawLine(u8 *obj);
-void InterfaceManager_DrawMap(u8 *obj, u8 *iface);
-void InterfaceManager_DrawObject_Standard_Geometry(u8 *object, u8 *iface);
-void InterfaceManager_DrawObject_Standard_Image(u8 *obj);
-void InterfaceManager_DrawRadarBlips(f32 *centre, u8 *obj);
+void InterfaceManager_Backup_Key(Interface *iface, IfaceEvent *key, u8 flags);
+void InterfaceManager_CheckConditions(Interface *iface, InterfaceObject *obj);
+s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callback)(void *msg));
+void InterfaceManager_DrawBox(InterfaceObject *obj);
+void InterfaceManager_DrawLine(InterfaceObject *obj);
+void InterfaceManager_DrawMap(InterfaceObject *obj, Interface *iface);
+void InterfaceManager_DrawObject_Standard_Geometry(InterfaceObject *object, Interface *iface);
+void InterfaceManager_DrawObject_Standard_Image(InterfaceObject *obj);
+void InterfaceManager_DrawRadarBlips(f32 *centre, Interface *iface);
 void InterfaceManager_EndInterface(s32 index);
-void InterfaceManager_ExecuteActions(u8 *iface, u8 *list);
+void InterfaceManager_ExecuteActions(Interface *iface, IfaceActionList *list);
 void * InterfaceManager_GetInterfaceObjects(u32 num);
 s32 InterfaceManager_GetTargetArrowNearestNavPoint(void);
 s32 InterfaceManager_GetTotalActiveInterfaces(void);
 void InterfaceManager_Heartbeat(void);
 void InterfaceManager_Init(void);
+u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key);
 void InterfaceManager_LinkThingToObject(s32 index, u32 id, void *thing);
-void InterfaceManager_MoveDialogSystem(u8 *iface, u8 *obj, f32 dt);
-void InterfaceManager_MoveObject(u8 *iface, u8 *obj, u8 *data, f32 dt);
+void InterfaceManager_MoveDialogSystem(Interface *iface, InterfaceObject *obj, f32 dt);
+void InterfaceManager_MoveInterface(Interface *iface, f32 dt);
+void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, InterfaceHudInfo *data, f32 dt);
 void InterfaceManager_PauseAllInterface(u8 pause);
 void InterfaceManager_PauseInterface(u32 pause, s32 index);
-void InterfaceManager_PreprocessInterface(u8 *iface);
+s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event, u16 arg);
+void InterfaceManager_PreprocessInterface(Interface *iface);
+s32 InterfaceManager_ProcessInput(Interface *iface, InterfaceObject *obj, u32 *events);
 void InterfaceManager_ReleaseAllInterfaces(void);
 void InterfaceManager_ReleaseAllUnpausedInterfaces(void);
 void InterfaceManager_ReleaseInterface(u32 index);
 void InterfaceManager_RemoveInterfaceFromRender(u32 id);
 void InterfaceManager_Render(void);
-void InterfaceManager_RestoreMissionObjString(u8 *mgr);
+void InterfaceManager_RenderObject(Interface *iface, s32 index);
+void InterfaceManager_RestoreMissionObjString(InterfaceObject *obj);
 void InterfaceManager_SetCallBackRoutine(s32 index, void *callback);
 void InterfaceManager_SetControllerConfigInputString(void);
 void InterfaceManager_SetInfoCallBackRoutine(s32 index, void *callback);
 void InterfaceManager_SetInput(s32 index, s32 input);
-void InterfaceManager_SetLoadState(u8 *iface, s32 state);
-void InterfaceManager_SetMissionObjectiveText(u8 *obj, u8 **data);
-void InterfaceManager_SetObjectReactive(u8 *iface, u32 onId, u32 offId);
-void InterfaceManager_SetObjectReference(u8 *iface, u32 id, u32 state);
-void InterfaceManager_SetObjectState(u8 *iface, u8 *obj, s32 state, s32 arg3);
-void InterfaceManager_SetObjectString(u8 *obj, char *str);
-void InterfaceManager_SetObjectText(u8 *obj, char **text);
+void InterfaceManager_SetLoadState(Interface *iface, s32 state);
+void InterfaceManager_SetMissionObjectiveText(InterfaceObject *obj, WorldObjective *objective);
+void InterfaceManager_SetObjectReactive(Interface *iface, u32 onId, u32 offId);
+void InterfaceManager_SetObjectReference(Interface *iface, u32 id, u32 state);
+void InterfaceManager_SetObjectState(Interface *iface, InterfaceObject *obj, s32 state, s32 arg3);
+void InterfaceManager_SetObjectString(InterfaceObject *obj, char *str);
+void InterfaceManager_SetObjectText(InterfaceObject *obj, char **text);
 void InterfaceManager_SetOffset(s32 index, f32 x, f32 y);
 void InterfaceManager_SetPlayerMessage(void *message, u32 player);
 void InterfaceManager_SetRadarBlip(u16 arg0);
@@ -1042,6 +1049,7 @@ void Gfx_SetTextColor(u8 r, u8 g, u8 b, u8 a);
 void Render_DrawAlphaTriangle(u16 index);
 void Render_DrawNewBBSprites(void);
 void Render_DrawPointSprites(void);
+void Render_DrawRectangle(GDLRect *rect);
 void Render_DrawRectangles(void);
 void Render_DrawRectanglesWindow(void);
 void Render_DrawSprite(void);
@@ -1519,12 +1527,6 @@ void ForceFeedback_Play(void *effect, Vector4 *dir);
 #if !defined(HWVX_SRC_Gfx_Anim) && !defined(HWVX_SRC_Gfx_DisplayList)
 void *DisplayList_AddGroup_Skin(void);
 #endif
-#if !defined(HWVX_SRC_FontManager) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_ShowStats)
-void *Gfx_Add2DRectangle(void);
-#endif
-#if !defined(HWVX_SRC_AttachThing) && !defined(HWVX_SRC_Gfx_DisplayList)
-void *Gfx_Add2DRectangleRenderWindow(void);
-#endif
 #if !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_LineManager)
 void *Gfx_Add3DLineFX(void);
 #endif
@@ -1537,12 +1539,7 @@ void Grid_FreeObject(void *obj);
 void Grid_MoveObject(void *obj, Vector4 *min, Vector4 *max);
 #endif
 #if !defined(HWVX_SRC_InterfaceManager)
-u32 InterfaceManager_KeyPress(void *im, s32 pad, u8 key);
-void InterfaceManager_MoveInterface(void *iface, f32 dt);
-s32 InterfaceManager_PlayEvent(void *iface, u8 *obj, u8 *event, u16 arg);
-s32 InterfaceManager_ProcessInput(void *iface, void *obj, u32 *events);
 void InterfaceManager_RenderInterface(void *iface);
-void InterfaceManager_RenderObject(void *iface, s32 index);
 #endif
 #if !defined(HWVX_SRC_LensFlare)
 s32 LensFlare_Add(void *flare, Thing *thing, Vector4 *pos);
@@ -1571,9 +1568,6 @@ void Gfx_GetRenderStats(void *stats);
 #endif
 #if !defined(HWVX_SRC_Render_Lines_)
 void Render_DrawLine2D(void *line);
-#endif
-#if !defined(HWVX_SRC_Render_QuadTri_)
-void Render_DrawRectangle(void *rect);
 #endif
 #if !defined(HWVX_SRC_Tracer)
 s32 Tracer_Init(void *thing, TracerParams *data);

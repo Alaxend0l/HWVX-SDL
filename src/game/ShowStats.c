@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 
@@ -31,24 +32,6 @@ s32 g_timeBarOn;
 u32 g_debugDataFlag;
 s32 debugFont;
 u32 g_bDrawTimeBars;
-
-typedef struct TimeBarVtx {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
-    f32 s;
-    f32 t;
-    GXColor color;
-    u8 pad[4];
-} TimeBarVtx;
-
-typedef struct TimeBarRect {
-    TimeBarVtx v[4];
-    u16 tex;
-    u8 blendMode;
-    u8 window;
-} TimeBarRect;
 
 
 /* The decomp has an m2c placeholder here; the original calls ShowStats_Init (asm). */
@@ -115,10 +98,9 @@ void ShowStats(void) {
 }
 
 void Render_TimeBars(void *bar) {
-    TimeBarRect *Gfx_Add2DRectangle(void);
     u32 *times = bar;
-    TimeBarVtx v[4];
-    TimeBarRect *rect;
+    GDL2DVtx v[4];
+    GDLRect *rect;
     f32 x;
     u32 i;
 

@@ -343,6 +343,14 @@ typedef struct IfaceTypeSound {
 } IfaceTypeSound;
 
 /* A font (InterfaceManager_AddFont). */
+/* Per-character spacing of an interface font (IfaceFont.chars). */
+typedef struct IfaceFontChar {
+    u8 c;                       /* 0x0 */
+    u8 pad1[3];
+    f32 spacingX;               /* 0x4 */
+    f32 spacingY;               /* 0x8 */
+} IfaceFontChar;
+
 typedef struct IfaceFont {
     u32 texture;                /* 0x00 */
     PTR32(IfaceTypeSound) typeSound; /* 0x04 */
@@ -354,7 +362,7 @@ typedef struct IfaceFont {
     s32 typeDelay;              /* 0x14 ms per typed character, 0: show at once */
     IfaceKeyTrack size;         /* 0x18 text size (ExtractScaleKey; .x) */
     u32 numChars;               /* 0x20 */
-    PTR32(u8) chars;            /* 0x24 0xC each: u8 char, f32 x, f32 y spacing */
+    PTR32(IfaceFontChar) chars; /* 0x24 */
     f32 spacing;                /* 0x28 */
 } IfaceFont;
 
@@ -707,21 +715,11 @@ struct InterfaceHudInfo {
     u8 padCD[3];
 };
 
-/* World goals (counters at world + 0x48, timers at 0x50: lists of slots). */
-typedef struct WorldGoal {
-    u8 unk0;
-    u8 active;                  /* 0x1 */
-    u8 id;                      /* 0x2 IfaceObjectDef.id of the HUD object */
-    u8 pad3;
-    f32 count;                  /* 0x4 counters */
-    f32 time;                   /* 0x8 timers, ms */
-    PTR32(u8) info;             /* 0xC [0] == 0x17: shown */
-} WorldGoal;
-
-/* WorldObjective (world + 0x58) is in World.h. */
+/* The world variables, timers and objectives the HUD shows are in World.h. */
 
 #define IFACE_ASSERT(T, f, off) _Static_assert(offsetof(T, f) == (off), #T "." #f)
 IFACE_ASSERT(IfaceVar, code, 0x10);
+_Static_assert(sizeof(IfaceFontChar) == 0xC, "IfaceFontChar size");
 _Static_assert(sizeof(IfaceVar) == 0x34, "IfaceVar size");
 IFACE_ASSERT(IfaceEventDef, sound, 0x14);
 IFACE_ASSERT(IfaceEventDef, mods, 0x20);
@@ -827,7 +825,6 @@ IFACE_ASSERT(InterfaceHudInfo, unk82, 0x82);
 IFACE_ASSERT(InterfaceHudInfo, values, 0xC4);
 IFACE_ASSERT(InterfaceHudInfo, carStats, 0xC9);
 _Static_assert(sizeof(InterfaceHudInfo) == 0xD0, "InterfaceHudInfo size");
-IFACE_ASSERT(WorldGoal, info, 0xC);
 #undef IFACE_ASSERT
 
 /* The 0x12 interfaces (data_gen.c defines the storage as bytes). */

@@ -95,7 +95,8 @@ wrong layout fails to compile:
 | `World.h`, `Trigger.h`, `ThingManager.h` | the world (tiles, teleporters, volumes, quads), triggers/actions, thing pools |
 | `AI.h`, `Nav.h`, `Creature.h` | AI drivers, nav points, creatures |
 | `Projectile.h`, `Debris.h`, `AttachThing.h`, `Destructible.h`, `KeyState.h` | weapons and effects |
-| `Interface.h`, `Particle.h`, `WildCard.h` | menus/HUD, particles, wildcard racks (headers ready, code not converted yet) |
+| `Interface.h`, `Particle.h`, `WildCard.h` | menus/HUD (interfaces, their objects and definitions), particles, wildcard racks |
+| `Gfx.h` | render window and state, geometry, queued 2D rectangles (`GDLRect`) |
 
 Conventions:
 
@@ -117,12 +118,15 @@ Conventions:
   leftover `GETP(x->field) + 0x24` byte offsets would now step whole structs
   (this caused an integer division by zero, SIGFPE on x86 Linux, that ARM64
   silently ignores; `-fsanitize=integer-divide-by-zero` catches those on a Mac).
+- `tools/offsets_to_fields.py` rewrites a function's byte offsets into field
+  accesses from the layouts clang computes (`-Xclang -fdump-record-layouts`);
+  read its diff, since it trusts the variable types it is given.
 
-Status: every game file uses structs except `InterfaceManager.c`, the
-last one (`Interface.h` is written for it). `tools/check_ptr_offsets.py
---bytes` lists the byte offsets still used as struct accesses; besides
-`InterfaceManager.c` it reports only `data_gen.c` (generated tables) and
-`Port_Swap.c` (which walks raw big-endian pack data on purpose).
+Status: every game file uses structs. `tools/check_ptr_offsets.py --bytes`
+lists the byte offsets still used as struct accesses; it reports only
+`data_gen.c` (generated tables) and `Port_Swap.c` (which walks raw big-endian
+pack data on purpose). Some globals are still declared as byte arrays in
+`data_gen.c` and given their type by a `#define` in the function using them.
 
 Shared layouts live in the headers: `Thing.h`, `CarA.h` (cars, players),
 `Motion.h` (animated models and `MotionState`), `World.h`, `Collision.h`,

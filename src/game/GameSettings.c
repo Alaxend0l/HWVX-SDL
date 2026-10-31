@@ -740,7 +740,7 @@ done:
             n = 0;
             /* objectives in mode 0x17 */
             for (port = 0; port < world->numObjectives; port++) {
-                if (GETP(GETP(world->objectives)[port].info)[1] == 0x17) {
+                if (GETP(GETP(world->objectives)[port].info)->mode == 0x17) {
                     n++;
                 }
             }
