@@ -1304,8 +1304,10 @@ void Thing_GetTargetPos(void *thing, Quaternion *pos) {
     *pos = *(Quaternion *)((u8 *)thing + 0x40);
 }
 
-s32 Thing_GetOrientedCollision(void) {
-    return 0;
+/* No collision box (vtable 0x40): callers read a pointer. */
+void *Thing_GetOrientedCollision(void *thing) {
+    (void)thing;
+    return NULL;
 }
 
 s32 Thing_HitsTerrain(void *thing, void *arg1, void *arg2) {

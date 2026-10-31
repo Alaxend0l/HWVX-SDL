@@ -1146,7 +1146,7 @@ void Thing_GetInverseLocalInertiaTensor(void *thing, f32 *tensor);
 s32 Thing_GetLocalCollision(u8 *thing);
 f32 Thing_GetMass(void);
 s32 Thing_GetNearestNavPoint(void);
-s32 Thing_GetOrientedCollision(void);
+void *Thing_GetOrientedCollision(void *thing);
 s32 Thing_GetSource(void *arg0);
 void Thing_GetStaticRotationalMinMax(void *thing, Vector4 *min, Vector4 *max);
 void * Thing_GetSurfaceScript(void);
