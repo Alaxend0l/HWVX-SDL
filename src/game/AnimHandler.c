@@ -221,7 +221,7 @@ void MotionState_BlendTriggerEvents(MotionState *ms, SlaveList *events, Vector4 
     }
     start = ms->layer.prevTime;
     end = ms->layer.rawTime;
-    for (i = 0; i < GETP(ms->layer.anim)->numEvents; i++) {
+    for (i = 0; i < GETP(ms->layer.anim)->events.count; i++) {
         SlaveTrigger *trigger = &GETP(list->triggers)[i];
         f32 time = trigger->time;
         s8 hit = 0;
@@ -613,7 +613,7 @@ void Motion_HeartbeatB2(MotionState *ms, Vector4 *vel) {
     Matrix4 *matrices;
     Thing *slave;
 
-    MotionState_BlendTriggerEvents(ms, (SlaveList *)&GETP(ms->model)->numEvents, vel);
+    MotionState_BlendTriggerEvents(ms, &GETP(ms->model)->events, vel);
     matrices = GETP(ms->animMatrices);
     {
         Vector4 v __attribute__((aligned(16))) = {0};
@@ -673,7 +673,7 @@ void MotionState_Heartbeat(MotionState *ms, void *arg1, void *thing) {
         i++;
     }
     if (arg1 != NULL) {
-        MotionState_BlendTriggerEvents(ms, (SlaveList *)&GETP(ms->model)->numEvents, thing);
+        MotionState_BlendTriggerEvents(ms, &GETP(ms->model)->events, thing);
         MotionState_MoveSlaves(ms, arg1, thing);
     }
 }
@@ -729,7 +729,7 @@ void WildcardState_Heartbeat(WildCardSlot *slot, u8 *mtx, void *thing) {
         SubMatrixToQuaternion(mtx, (Vector4 *)&quat);
         TEST_AnimTraverseHeirarchyToMatricesWorld((Vector4 *)&quat, &((Matrix4 *)mtx)->v[3], frames, *skel, GETP(ms->animMatrices), 1.0f);
     }
-    MotionState_BlendTriggerEvents(ms, (SlaveList *)&GETP(ms->model)->numEvents, thing);
+    MotionState_BlendTriggerEvents(ms, &GETP(ms->model)->events, thing);
     MotionState_MoveSlaves(ms, NULL, thing);
 }
 
@@ -800,18 +800,19 @@ void TEST_AnimTraverseHeirarchyToMatricesWorld(Vector4 *quat, void *pos0, void *
 
 
 
-s32 AnimNodes_BlowBranch(u8 *node) {
+/* Mark a bone and its subtree as just blown off; returns how many. */
+s32 AnimNodes_BlowBranch(AnimNode *node) {
     s32 count = 1;
     u32 i;
-    u8 *child = node + 0x20;
+    AnimNode *child = node + 1;
 
-    if (node[0x1F] & 3) {
+    if (node->flags & 3) {
         return 0;
     }
-    node[0x1F] |= 2;
-    for (i = 0; i < node[0x1C]; i++) {
+    node->flags |= 2;
+    for (i = 0; i < node->numChildren; i++) {
         count += AnimNodes_BlowBranch(child);
-        child += child[0x1E] << 5;
+        child += child->next;
     }
     return count;
 }

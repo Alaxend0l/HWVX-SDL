@@ -1,6 +1,7 @@
 /* Debris: loose pieces (car parts, gibs) that fly, spin and bounce off the
  * terrain until they come to rest, and are released when their life is up. */
 #include "common.h"
+#include "Gfx.h"
 #include "Debris.h"
 
 
@@ -27,7 +28,7 @@ s32 Debris_Init(struct Debris *debris, struct DebrisPartParams *data)
     thing->flags |= 0x01000000;
     if (GETP(debris->geometry) != NULL) {
         /* the geometry's bounding radius */
-        thing->radius = *(f32 *)((u8 *)GETP(debris->geometry) + 0x1C);
+        thing->radius = ((Geometry *)GETP(debris->geometry))->bboxMin[3];
     }
     return 1;
 }

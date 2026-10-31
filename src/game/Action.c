@@ -1,13 +1,14 @@
 /* The action half of the scripting system: the queue of pending actions and
  * the action functions of pActionFuncArray kept here. See Trigger.h. */
 #include "common.h"
+#include "AI.h"
+#include "SoundSequence.h"
 #include "CarA.h"
 #include "World.h"
 #include "Trigger.h"
 #include "Nav.h"
 
 /* The AI scripts of a vehicle record, one per difficulty (CarAInfo 0x90). */
-#define CARINFO_AI_SCRIPTS(info) ((u32 *)((u8 *)(info) + 0x90))
 
 /* An action parameter word: the handle of a world record. */
 #define ACTION_RECORD(type, h) ((type *)PTR(h))
@@ -312,17 +313,10 @@ s32 ActionMissionObjChangeMode(u32 *action) {
  * position kept for a respawn), 1/10 spawn it with an AI player if absent,
  * 3 kill it, 9 set the AI player's flag 1 (cleared by 1/10). */
 s32 ActionVehicleChangeMode(u32 *action) {
-    typedef struct AIPlayerDesc {
-        u32 script;
-        f32 nearSq;
-        f32 farSq;
-        u8 unkC;
-        u8 unkD;
-    } AIPlayerDesc;
     extern Vector4 g_zeroVector;
-    CarParams params;
+    CarAParams params;
     Matrix4 mtx;
-    AIPlayerDesc desc;
+    AIPlayerParams desc;
     Player *player;
     u32 mode;
     u32 count;
@@ -377,7 +371,7 @@ s32 ActionVehicleChangeMode(u32 *action) {
                 SubMatrixToQuaternion(&mtx, &params.quat);
                 /* the tile's script for the difficulty, else the vehicle's
                  * (as in the original, tested by its first entry) */
-                scripts = CARINFO_AI_SCRIPTS(GETP(params.info));
+                scripts = GETP(params.info)->aiScripts;
                 if (difficulty == 0) {
                     if (spawn->scripts[0] != 0) {
                         script = spawn->scripts[0];
@@ -410,14 +404,14 @@ s32 ActionVehicleChangeMode(u32 *action) {
                     script = scripts[2];
                 }
                 desc.script = script;
-                desc.unkD = 0;
-                desc.unkC = spawn->unk34;
+                desc.kind = 0;
+                desc.dynamic = spawn->unk34;
                 desc.nearSq = spawn->nearDist * spawn->nearDist;
                 desc.farSq = spawn->farDist * spawn->farDist;
-                ai = PlayerManager_NewAIPlayer((u8 *)&desc);
+                ai = PlayerManager_NewAIPlayer(&desc);
                 if (ai != NULL) {
                     SETP(params.player, ai);
-                    SETP(spawn->car, ThingManager_DARYL_CreateThing(9, &params));
+                    SETP(spawn->car, ThingManager_DARYL_CreateThing(THING_TYPE_CAR, &params));
                     thing = (Thing *)GETP(spawn->car);
                     if (thing != NULL) {
                         SETP(thing->trigger, spawn);    /* the car's tile */
@@ -690,8 +684,7 @@ s32 ActionPlaySoundSequence(void *arg0) {
         SoundSequence_ClearQueue();
     } else {
         for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
-            /* sound sequence thing 0xB0: its sequence */
-            if ((u8 *)GETP(thing->vtable) == g_soundSeqVTable && *(u32 *)((u8 *)thing + 0xB0) == id) {
+            if ((u8 *)GETP(thing->vtable) == g_soundSeqVTable && ((SoundSequence *)thing)->info.h == id) {
                 THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             }
         }

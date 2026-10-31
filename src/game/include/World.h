@@ -33,20 +33,22 @@ typedef struct TileCar {
     u32 mode;                   /* 0x2C last ActionVehicleChangeMode mode */
     u32 vehicle;                /* 0x30 */
     union {
-        u8 unk34;               /* 0x34 nonzero: not spawned by mode 1/10; AIPlayerDesc.unkC */
+        u8 unk34;               /* 0x34 nonzero: not spawned by mode 1/10; AIPlayerParams.dynamic */
         u8 dynamic;             /*      AIPlayerParams.dynamic */
     };
     u8 port;                    /* 0x35 1-4: human player slot; AI cars spawn only when > 4 */
-    u8 pad36[2];                /* 0x36 */
+    u8 pad36;                   /* 0x36 */
+    u8 maxVehicle;              /* 0x37 AI cars pick a vehicle in 0..maxVehicle */
     f32 nearDist;               /* 0x38 AI ranges */
     f32 farDist;                /* 0x3C */
     u32 scripts[4];             /* 0x40 AI script per difficulty, 0: the vehicle's */
-    u8 pad50[4];                /* 0x50 */
+    PTR32(ItemRecord) item2;    /* 0x50 a second item it starts with (LoadWorldProcess) */
     PTR32(ItemRecord) item;     /* 0x54 wildcard the car starts with, NULL: none */
     f32 health;                 /* 0x58 fraction of the maximum, kept across DD Rescue missions
                                  * (GameSettings_RestoreGameData) */
     s8 respawn;                 /* 0x5C freed (car = NULL) when its AI car is removed */
-    u8 pad5D[2];                /* 0x5D */
+    u8 item2ID;                 /* 0x5D item pack ids of item2 and item, 0xFF: none */
+    u8 itemID;                  /* 0x5E */
     u8 unk5F;                   /* 0x5F nonzero: always spawned at round start; DD Rescue sets it
                                  * for cars that were spawned when the mission was left */
 } TileCar;
@@ -328,10 +330,13 @@ typedef struct QuadItem {
     f32 drawDist;               /* 0x20 used if hasDrawDist */
     PTR32(ItemThing) thing;     /* 0x24 the spawned item */
     u32 mode;                   /* 0x28 QUAD_ITEM_* */
-    u8 pad2C[8];                /* 0x2C */
+    u8 pad2C[4];                /* 0x2C */
+    u16 id;                     /* 0x30 in the world's item pack, 0xFFFF: random in lo..hi */
+    u8 pad32[2];                /* 0x32 */
     u8 hasDrawDist;             /* 0x34 */
     u8 unk35;                   /* 0x35 ItemParams.unk38 */
-    u8 pad36[2];                /* 0x36 */
+    u8 lo;                      /* 0x36 */
+    u8 hi;                      /* 0x37 */
     s8 spawned;                 /* 0x38 */
     u8 defMode;                 /* 0x39 mode at round start */
     u8 pad3A[6];                /* 0x3A */
@@ -461,7 +466,7 @@ typedef struct WorldCollision {
     Vector4 min;                /* 0x00 world bounds (Grid_Init) */
     Vector4 max;                /* 0x10 */
     PTR32(TerrainCell) cells;   /* 0x20 cells[0]: outside the grid */
-    u8 pad24[4];                /* 0x24 */
+    u32 version;                /* 0x24 format, 0xD (LoadWorldProcess) */
     f32 cellSize[3];            /* 0x28 */
     s32 numX;                   /* 0x34 */
     s32 numY;                   /* 0x38 */
@@ -510,8 +515,10 @@ typedef struct World {
     PTR32(WorldVolume) volumes; /* 0x6C */
     u8 pad70[8];                /* 0x70 */
     PTR32(void) nav;            /* 0x78 NavHolder */
-    PTR32(char) fileName;       /* 0x7C */
-    u8 pad80[0xC];              /* 0x80 */
+    PTR32(char) collisionPackName; /* 0x7C the world's collision pack (type 5) */
+    s32 collisionPackID;        /* 0x80 */
+    PTR32(char) quadPackName;   /* 0x84 its quadrants' geometry pack (type 6) */
+    s32 quadPackID;             /* 0x88 */
     PTR32(char) name;           /* 0x8C the quad packs are in <name>.xgc */
     u32 id;                     /* 0x90 */
     u8 pad94[8];                /* 0x94 */

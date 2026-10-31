@@ -721,7 +721,7 @@ s32 ActionVehicleChangeControl(u32 *action) {
     s32 isHuman;
 
     for (i = 0; i < action[2]; i++) {
-        vehicle = SLOT_LOAD(Thing *, (action[i + 3] + 0x28));
+        vehicle = (Thing *)GETP(((TileCar *)PTR(action[i + 3]))->car);
         if (vehicle == NULL) {
             continue;
         }

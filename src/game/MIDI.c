@@ -152,11 +152,11 @@ void CreateMIDI(u8 *hdr, u8 *snd)
     }
     /* port: the song (RIFX 'MIDI') and bank (RIFX 'sndb') are big-endian in
      * the pack; only the copies below are swapped (PortSwap_MIDI) */
-    i = Port_ReadBE32(hdr + 4) + 8;
-    g_pHdr = OSAllocFromHeap(__OSCurrHeap, i + Port_ReadBE32(snd + 0x14));
+    i = Port_ReadBE32(hdr + offsetof(MIDIHeader, size)) + 8;
+    g_pHdr = OSAllocFromHeap(__OSCurrHeap, i + Port_ReadBE32(snd + offsetof(MIDI_SND, size)));
     g_pSnd = (MIDI_SND *)((u8 *)g_pHdr + i);
     memcpy(g_pHdr, hdr, i);
-    memcpy((u8 *)g_pSnd, snd, Port_ReadBE32(snd + 0x14));
+    memcpy((u8 *)g_pSnd, snd, Port_ReadBE32(snd + offsetof(MIDI_SND, size)));
     PortSwap_MIDI(g_pHdr, (u8 *)g_pSnd);
     g_pSnd->size += (u32)HND(snd);
     FindMarkers(g_pHdr->track);

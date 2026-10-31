@@ -49,18 +49,7 @@ extern u8 ShadowTexture[];
 extern u8 pShadowImage[];
 
 
-typedef struct GfxState {
-    u8 unk0[0x60];
-    f32 lightDir[4];
-    GXColor lightColor;
-    GXColor unk74;
-    GXColor ambientColor;
-    u8 unk7C[0x93 - 0x7C];
-    u8 unk93;
-    u8 unk94[0xA0 - 0x94];
-} GfxState;
 
-extern GfxState g_state;
 extern f32 g_identity[4][4];
 extern GXColor g_textcolor;
 extern GXColor m_clearColor;
@@ -111,6 +100,14 @@ typedef struct GDLDrawEntry {
     u8 unk13;
 } GDLDrawEntry;
 
+/* A 2D line (Render_DrawLine2D), in a 3D line slot. */
+typedef struct GDLLine2D {
+    Vector4 p0;               /* 0x00 */
+    Vector4 p1;               /* 0x10 */
+    GXColor color;            /* 0x20 */
+    u8 pad24[0xC];            /* 0x24 */
+} GDLLine2D;
+
 typedef struct GDL {
     u32 numAlphaEntries;      /* 0x00 */
     u8 unk4[0xC - 0x4];
@@ -118,19 +115,17 @@ typedef struct GDL {
     u8 unk10[0x14 - 0x10];
     s32 numTris;              /* 0x14 */
     u8 unk18[0x28 - 0x18];
-    u8 unk28[0x2C - 0x28];    /* 0x28 */
+    u32 num2DLines;           /* 0x28 */
     u8 unk2C[0x54 - 0x2C];
-    u32 numDrawEntries;
-    u8 unk58[0xDFCC0 - 0x58];
-    GDLDrawEntry drawEntries[0x800];
+    u32 numDrawEntries;       /* 0x54 */
+    u8 unk58[0xAE700 - 0x58];
+    GDLLine2D lines2D[1000];  /* 0xAE700 the second half of the 3D line buffer */
+    u8 unkBA280[0xDFCC0 - 0xBA280];
+    GDLDrawEntry drawEntries[0x800]; /* 0xDFCC0 */
 } GDL;
+_Static_assert(offsetof(GDL, lines2D) == 0xAE700, "GDL.lines2D");
+_Static_assert(offsetof(GDL, drawEntries) == 0xDFCC0, "GDL.drawEntries");
 
-typedef struct Vector {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
-} Vector;
 
 
 typedef struct RenderStats {
@@ -464,7 +459,7 @@ void Render_Create(void) {
     m_currentView = 0;
     GetRenderWindow()->fov = 90.0f;
     memset(GetRenderWindow()->projection, 0, 0x40);
-    g_state.unk93 = 0;
+    g_state.worldIsIdentity = 0;
     memset(g_identity, 0, 0x40);
     g_identity[3][3] = 1.0f;
     g_identity[2][2] = 1.0f;
@@ -491,9 +486,9 @@ void Render_Create(void) {
     g_state.lightColor.g = 0xC8;
     g_state.lightColor.b = 0xC8;
     g_state.lightColor.a = 0xFF;
-    g_state.lightDir[0] = 0.5f;
-    g_state.lightDir[1] = 0.5f;
-    g_state.lightDir[2] = 0.0f;
+    g_state.lightDir.x = 0.5f;
+    g_state.lightDir.y = 0.5f;
+    g_state.lightDir.z = 0.0f;
     m_curLightState = -1;
     m_curTexture = 0;
     m_zmode = 3;
@@ -597,7 +592,6 @@ void Render_BeginScene(void) {
 }
 
 static inline void Render_BeginView(u16 view) {
-    extern GfxState g_state;
     f32 ht;
     f32 wd;
     f32 top;
@@ -615,7 +609,7 @@ static inline void Render_BeginView(u16 view) {
     swd = (f32)GetRenderWindow()->width;
     stop = 0.93333334f * (u32)GetRenderWindow()->top;
     GXSetScissor((u32)GetRenderWindow()->left, stop, swd, sht);
-    g_state.unk93 = 0;
+    g_state.worldIsIdentity = 0;
     Gfx_SetWorldMatrix(NULL);
 }
 
@@ -766,8 +760,8 @@ void Render_EndScene(void) {
     Render_DrawRectanglesWindow();
     Render_DrawRectangles();
     Render_SetTextureHandle(0xFFFF);
-    for (j = 0; j < *(u32 *)g_pGDL->unk28; j++) {
-        Render_DrawLine2D((u8 *)g_pGDL + 0xAE700 + j * 0x30);
+    for (j = 0; j < g_pGDL->num2DLines; j++) {
+        Render_DrawLine2D(&g_pGDL->lines2D[j]);
     }
     Render_StateZWriteEnable(1);
     GXSetBlendMode(1, 4, 5, 5);
@@ -1041,8 +1035,8 @@ void Render_DrawShadows(void) {
         u8 unk0[0x8];
         PTR32(ShadowGeometry) geometry;
     } ShadowModel;
-    Vector dir __attribute__((aligned(16)));
-    Vector lightDir __attribute__((aligned(16))) = { 0.707f, -0.707f, 0.0f, 0.0f };
+    Vector4 dir __attribute__((aligned(16)));
+    Vector4 lightDir __attribute__((aligned(16))) = { 0.707f, -0.707f, 0.0f, 0.0f };
     GXColor color;
     u32 i;
     u32 numShadows;

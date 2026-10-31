@@ -2,13 +2,7 @@
 #include "Gfx.h"
 
 
-typedef struct GfxState {
-    u8 unk0[0x93];
-    u8 unk93;
-    u8 unk94[0xA0 - 0x94];
-} GfxState;
 
-extern GfxState g_state;
 extern f32 g_identity[4][4];
 static f32 GXCameraSpace[3][4];
 Vector4 g_cameraPos_Backup;
@@ -19,13 +13,13 @@ Vector4 g_cameraRight_BackUp;
 
 void Gfx_SetWorldMatrix(f32 (*matrix)[4]) {
     if (matrix == NULL) {
-        if (g_state.unk93) {
+        if (g_state.worldIsIdentity) {
             return;
         }
-        g_state.unk93 = 1;
+        g_state.worldIsIdentity = 1;
         matrix = g_identity;
     } else {
-        g_state.unk93 = 0;
+        g_state.worldIsIdentity = 0;
     }
     memcpy(GetRenderWindow()->world, matrix, 0x40);
     MultiplyMatrix4x4(GetRenderWindow()->world, GetRenderWindow()->view, GetRenderWindow()->worldView);
@@ -89,7 +83,7 @@ void Gfx_SetCameraMatrix(Vector4 *pos, Vector4 *right, Vector4 *up, Vector4 *at)
     GXLoadPosMtxImm(GXCameraSpace, 0);
     GXSetCurrentMtx(0);
     Render_SetClipPlanes(GetRenderWindow()->fov);
-    g_state.unk93 = 0;
+    g_state.worldIsIdentity = 0;
 }
 
 void Gfx_SetProjectionMatrix(f32 fov) {

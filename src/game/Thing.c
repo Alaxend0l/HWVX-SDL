@@ -872,7 +872,7 @@ s32 ActionVehicleTeleport(u32 *action) {
 
     data = (Teleporter *)PTR(action[1]);
     for (i = 0; i < action[2]; i++) {
-        car = SLOT_LOAD(Thing *, (action[i + 3] + 0x28));
+        car = (Thing *)GETP(((TileCar *)PTR(action[i + 3]))->car);
         player = GETP(car->player);
         if (data->debris != 0) {
             Teleporter_SpawnDebris(data);

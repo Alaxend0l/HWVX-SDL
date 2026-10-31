@@ -71,10 +71,11 @@ f32 GetDampFactor(u8 type, u32 n) {
     return f * GetDampFactor(type, n);
 }
 
-f32 CarA_GetImpactMultiplier(void *car, void *other, f32 scale) {
+/* How square the hit is against the car's up axis (scale: the side). */
+f32 CarA_GetImpactMultiplier(Thing *car, CollisionInfo *other, f32 scale) {
     f32 impact;
 
-    impact = scale * PSVECDotProduct((u8 *)car + 0x20, (u8 *)other + 0x10);
+    impact = scale * PSVECDotProduct(&car->axis[1], &other->normal);
     if (impact < 0.0f) {
         return 1.0f;
     }
@@ -153,7 +154,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
         if (!(car->transmissionFlags & 0x80000)) {
             info = GETP(car->vehicleIface);
             if (info->numSlaves > 8 && car->unk460 > GETP(info->engine)->selfRightDelay) {
-                MotionState_InitAllSlavesNow(&car->motionState, GETP(info->slaves) + 0x64, 8);
+                MotionState_InitAllSlavesNow(&car->motionState, &GETP(info->slaves)[8].list, 8);
                 car->transmissionFlags |= 0x80000;
             }
         }
@@ -205,7 +206,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
                 if (GETP(car->vehicleIface)->numSlaves > 5 && dot > 30.0f) {
                     MotionState_ReleaseSlavesByType(&car->motionState, 5);
                     MotionState_ReleaseSlavesByType(&car->motionState, 6);
-                    MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x40, 5);
+                    MotionState_InitAllSlavesNow(&car->motionState, &GETP(GETP(car->vehicleIface)->slaves)[5].list, 5);
                 }
             }
             if ((CARA_PLAYER(car)->buttonsHeld & 0x400) && dot > 0.0f && car->forwardAccel > -0.1f) {
@@ -214,7 +215,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
                 if (GETP(car->vehicleIface)->numSlaves > 5 && dot > 30.0f) {
                     MotionState_ReleaseSlavesByType(&car->motionState, 5);
                     MotionState_ReleaseSlavesByType(&car->motionState, 6);
-                    MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x4C, 6);
+                    MotionState_InitAllSlavesNow(&car->motionState, &GETP(GETP(car->vehicleIface)->slaves)[6].list, 6);
                 }
             }
             g_pSourcePlayer = NULL;
@@ -224,7 +225,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
             if (car->stuntTime > GETP(info->stunt)->minFailTime) {
                 points = car->stuntTime;
                 if (info->numSlaves > 7) {
-                    MotionState_InitAllSlavesNow(&car->motionState, GETP(info->slaves) + 0x58, 7);
+                    MotionState_InitAllSlavesNow(&car->motionState, &GETP(info->slaves)[7].list, 7);
                 }
                 MotionState_ReleaseSlavesByType(&car->motionState, 8);
                 stunt = GETP(GETP(car->vehicleIface)->stunt);

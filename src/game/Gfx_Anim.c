@@ -3,28 +3,7 @@
 #include "common.h"
 #include "Gfx.h"
 
-typedef struct GeometryGroup {
-    u16 unk0;
-    u16 flags;
-    u8 unk4[0x10 - 0x4];
-    PTR32(void) data;
-    u16 unk14;
-    u8 unk16[0x18 - 0x16];
-    u16 unk18;
-    u8 unk1A[0x20 - 0x1A];
-} GeometryGroup;
 
-typedef struct Geometry {
-    u16 unk0;
-    u16 numGroups;
-    u16 unk4;
-    u16 unk6;
-    PTR32(GeometryGroup) groups;
-    PTR32(f32) lodDistances;
-    f32 bboxMin[4];
-    f32 bboxMax[4];
-    f32 center[4];
-} Geometry;
 
 typedef struct DLSkinGroup {
     PTR32(Geometry) lod;

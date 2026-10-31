@@ -1,44 +1,9 @@
 #include "common.h"
 #include "Gfx.h"
 
-typedef struct Vector {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
-} Vector;
 
-typedef struct GfxPointLight {
-    Vector position;
-    f32 radius;
-    GXColor color;
-    u8 unk18[0x20 - 0x18];
-} GfxPointLight;
 
-typedef struct GfxState {
-    GfxPointLight pointLights[3];
-    Vector lightDir;
-    GXColor lightColor;
-    GXColor unk74;
-    GXColor ambientColor;
-    u32 unk7C;
-    f32 unk80;
-    s32 unk84;
-    s32 unk88;
-    u16 debugFont;
-    s8 lightChanged;
-    s8 unk8F;
-    u8 numPointLights;
-    u8 unk91;
-    u8 unk92;
-    u8 unk93;
-    u8 enviroMapMode;
-    u8 unk95[0x98 - 0x95];
-    f32 farClippingPlane;
-    u8 unk9C[0xA0 - 0x9C];
-} GfxState;
 
-extern GfxState g_state;
 
 
 
@@ -87,7 +52,7 @@ s32 Gfx_CreateView(s32 view, u32 width, u32 height) {
 void Gfx_BeginScene(void) {
     extern u8 g_renderStats[0x100];
 
-    g_state.unk7C = 0;
+    g_state.flags = 0;
     Render_BeginScene();
     Render_InitDisplayList();
     memset(g_renderStats, 0, sizeof(g_renderStats));
@@ -112,7 +77,7 @@ void Gfx_FlipBuffers(void) {
 }
 
 void RenderState_Init(void) {
-    g_state.unk7C = 1;
+    g_state.flags = 1;
     g_state.numPointLights = 0;
     g_state.unk80 = 64.0f;
     g_state.unk91 = 0xFF;
@@ -125,11 +90,11 @@ void RenderState_Init(void) {
 }
 
 void Gfx_EnableState(s32 arg0) {
-    M2C_FIELD(&g_state, s32 *, 0x7C) = (s32) (M2C_FIELD(&g_state, s32 *, 0x7C) | arg0);
+    g_state.flags |= arg0;
 }
 
 void Gfx_DisableState(s32 arg0) {
-    M2C_FIELD(&g_state, s32 *, 0x7C) = (s32) (M2C_FIELD(&g_state, s32 *, 0x7C) & ~arg0);
+    g_state.flags &= ~arg0;
 }
 
 void Gfx_SetEnviroMapMode(u8 mode) {
@@ -141,13 +106,13 @@ void Gfx_SetFarClippingPlane(f32 farPlane) {
 }
 
 void Gfx_RemovePointLights(void) {
-    if ((u8) M2C_FIELD(&g_state, u8 *, 0x90) != 0) {
-        M2C_FIELD(&g_state, u8 *, 0x90) = 0U;
-        M2C_FIELD(&g_state, s8 *, 0x8E) = 1;
+    if (g_state.numPointLights != 0) {
+        g_state.numPointLights = 0;
+        g_state.lightChanged = 1;
     }
 }
 
-void Gfx_AddPointLight(GXColor *color, Vector *pos, f32 radius) {
+void Gfx_AddPointLight(GXColor *color, Vector4 *pos, f32 radius) {
     if (g_state.numPointLights < 3) {
         g_state.pointLights[g_state.numPointLights].color = *color;
         g_state.pointLights[g_state.numPointLights].position = *pos;
@@ -157,8 +122,8 @@ void Gfx_AddPointLight(GXColor *color, Vector *pos, f32 radius) {
     }
 }
 
-void Gfx_SetParallelLight(GXColor *color, Vector *dir) {
-    Vector *lightDir;
+void Gfx_SetParallelLight(GXColor *color, Vector4 *dir) {
+    Vector4 *lightDir;
 
     g_state.lightColor = *color;
     if (dir != NULL) {
@@ -176,7 +141,7 @@ void Gfx_SetAmbientColor(GXColor *color) {
 }
 
 void Gfx_SetBaseColor(GXColor *color) {
-    g_state.unk74 = *color;
+    g_state.baseColor = *color;
 }
 
 void Gfx_SetRenderWindow(s32 window) {

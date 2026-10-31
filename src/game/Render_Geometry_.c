@@ -29,19 +29,6 @@ static inline void GXColor4u8(const u8 r, const u8 g, const u8 b, const u8 a) {
 
 extern s32 m_triCount;
 
-typedef struct GeometryGroup {
-    u16 unk0;
-    u16 flags;
-    GXColor color;
-    u8 unk8[0xC - 0x8];
-    PTR32(struct UVScroll) uvScroll;
-    u32 dlSize;
-    u16 unk14;
-    u8 unk16[0x18 - 0x16];
-    u16 unk18;
-    u16 unk1A;
-    PTR32(void) displayList;
-} GeometryGroup;
 
 typedef struct UVScroll {
     f32 u;
@@ -50,15 +37,6 @@ typedef struct UVScroll {
     u32 flags;
 } UVScroll;
 
-typedef struct GfxState {
-    u8 unk0[0x74];
-    GXColor constColor;
-    u8 unk78[0x7C - 0x78];
-    u32 flags;
-    u8 unk80[0x93 - 0x80];
-    u8 unk93;
-    u8 unk94[0xA0 - 0x94];
-} GfxState;
 
 typedef struct Texture {
     u8 unk0[0x24];
@@ -91,20 +69,8 @@ typedef struct GDLAlphaGroup {
     u16 next;
 } GDLAlphaGroup;
 
-extern GfxState g_state;
 extern s32 g_debugTriCount;
 
-typedef struct Geometry {
-    u16 unk0;
-    u16 numGroups;
-    u16 unk4;
-    u16 unk6;
-    PTR32(GeometryGroup) groups;
-    PTR32(f32) lodDistances;
-    f32 bboxMin[4];
-    f32 bboxMax[4];
-    f32 center[4];
-} Geometry;
 
 typedef struct GDLSphere {
     f32 x;
@@ -452,10 +418,10 @@ void RenderGroup(Geometry *geometry, u32 group, f32 (*matrix)[4]) {
         return;
     }
     if (GETP(geometry->groups)[group].flags & 0x80) {
-        GXColor color = g_state.constColor;
+        GXColor color = g_state.baseColor;
         DisplayList_AddAlphaGroup((s32)HND(geometry), group, 0, (g_state.flags >> 4) & 1, &color);
     } else if (GETP(geometry->groups)[group].flags & 1) {
-        GXColor color = g_state.constColor;
+        GXColor color = g_state.baseColor;
         DisplayList_AddAlphaGroup((s32)HND(geometry), group, 0, (g_state.flags >> 4) & 1, &color);
     } else if (GETP(geometry->groups)[group].flags & 2) {
         EnvMap(geometry, group, matrix, 1);
@@ -542,8 +508,8 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     }
     g_debugTriCount += grp->dlSize;
     if ((g_state.flags & 0x10) || (g_state.flags & 0x40000)) {
-        g_state.constColor.a = 0xFF;
-        Render_SetConstColor(&g_state.constColor);
+        g_state.baseColor.a = 0xFF;
+        Render_SetConstColor(&g_state.baseColor);
         SetTriVtxDescIdx();
         SetVertexBuffer((u32 *)vb, grp->flags, geometry->unk4);
         DCFlushRange(dl, grp->dlSize);
@@ -653,7 +619,7 @@ void Render_DrawAlphaGroup(u16 index) {
     MatrixToMtxTranspose(mtx, ag->matrix);
     GXLoadPosMtxImm(mtx, 0);
     GXSetCurrentMtx(0);
-    g_state.unk93 = 0;
+    g_state.worldIsIdentity = 0;
     scroll = GETP(grp->uvScroll);
     dl = GETP(grp->displayList);
     if (scroll != NULL) {

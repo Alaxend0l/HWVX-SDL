@@ -145,10 +145,15 @@ f32 _fabs(f32 x) {
     return result;
 }
 
-void AccumulateVector(void *arg0, void *arg1, void *arg2, f32 farg0) {
-    M2C_FIELD(arg2, f32 *, 0) = (f32) ((M2C_FIELD(arg0, f32 *, 0) * farg0) + M2C_FIELD(arg1, f32 *, 0));
-    M2C_FIELD(arg2, f32 *, 4) = (f32) ((M2C_FIELD(arg0, f32 *, 4) * farg0) + M2C_FIELD(arg1, f32 *, 4));
-    M2C_FIELD(arg2, f32 *, 8) = (f32) ((M2C_FIELD(arg0, f32 *, 8) * farg0) + M2C_FIELD(arg1, f32 *, 8));
+/* out = v * scale + base (x, y, z). */
+void AccumulateVector(void *v, void *base, void *out, f32 scale) {
+    Vector *a = v;
+    Vector *b = base;
+    Vector *o = out;
+
+    o->x = a->x * scale + b->x;
+    o->y = a->y * scale + b->y;
+    o->z = a->z * scale + b->z;
 }
 
 void ProjectVectorTangential(Vector *v, Vector *n, Vector *out) {
@@ -488,13 +493,16 @@ void SubMatrixToQuaternion(Matrix4 *m, Quaternion *q)
     q->z = s * (m->v[0].y - m->v[1].x);
 }
 
-void GetComponentOfVector(void *arg0, void *arg1) {
-    f32 temp_f1;
+/* v = its component along the unit vector n. */
+void GetComponentOfVector(void *n, void *v) {
+    Vector *axis = n;
+    Vector *out = v;
+    f32 dot;
 
-    temp_f1 = PSVECDotProduct(arg0, arg1);
-    M2C_FIELD(arg1, f32 *, 0) = (f32) (temp_f1 * M2C_FIELD(arg0, f32 *, 0));
-    M2C_FIELD(arg1, f32 *, 4) = (f32) (temp_f1 * M2C_FIELD(arg0, f32 *, 4));
-    M2C_FIELD(arg1, f32 *, 8) = (f32) (temp_f1 * M2C_FIELD(arg0, f32 *, 8));
+    dot = PSVECDotProduct(n, v);
+    out->x = dot * axis->x;
+    out->y = dot * axis->y;
+    out->z = dot * axis->z;
 }
 
 void ProjectVectorToNormal(Vector *n, Vector *v) {

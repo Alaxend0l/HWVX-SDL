@@ -61,7 +61,7 @@ void CarA_StuntImpulse(CarA *car, Vector4 *linImpulse, Vector4 *angImpulse) {
     car->transmissionFlags |= 2;
     info = GETP(car->vehicleIface);
     if (info->numSlaves > 4) {
-        MotionState_InitAllSlavesNow(&car->motionState, GETP(info->slaves) + 0x34, 4);
+        MotionState_InitAllSlavesNow(&car->motionState, &GETP(info->slaves)[4].list, 4);
     }
 }
 
@@ -202,7 +202,7 @@ void CarA_StuntFail(CarA *car) {
             SETP(car->stuntMessage, &g_stuntLossString);
         }
         if (GETP(car->vehicleIface)->numSlaves > 10) {
-            MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x7C, 10);
+            MotionState_InitAllSlavesNow(&car->motionState, &GETP(GETP(car->vehicleIface)->slaves)[10].list, 10);
         }
         if (count != 0 && (f32)secs > minTime) {
             idx = 0;
@@ -239,7 +239,7 @@ void CarA_SlaveWeaponHeartbeat(CarA *car) {
     for (i = 0; i < GETP(car->vehicleIface)->numSlaveWeapons; i++) {
         rpm = &car->slaveWeaponRpm[i];
         if (*rpm < 10000) {
-            MotionState_InitSlavesTimed(&car->motionState, GETP(GETP(car->vehicleIface)->slaveWeapons) + i * 0xC + 4, i + 0xF0, *rpm);
+            MotionState_InitSlavesTimed(&car->motionState, &GETP(GETP(car->vehicleIface)->slaveWeapons)[i].list, i + 0xF0, *rpm);
             ThingManagerList_RemoveReleasedThings(&car->motionState.slaves);
             *rpm += g_iDeltaTimeMS;
         }
@@ -453,7 +453,7 @@ s32 CarA_PreMove_Control_HW(void *thing) {
         if (!(car->transmissionFlags & 0x20) && mode == 1) {
             car->transmissionFlags |= 0x20;
             if (GETP(car->vehicleIface)->numSlaves >= 3) {
-                MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x28, 3);
+                MotionState_InitAllSlavesNow(&car->motionState, &GETP(GETP(car->vehicleIface)->slaves)[3].list, 3);
             }
         } else if (mode == 2 && (car->transmissionFlags & 0x20)) {
             car->transmissionFlags &= ~0x20;

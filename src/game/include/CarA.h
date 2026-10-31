@@ -293,8 +293,13 @@ typedef struct CarASlave {
  * takes &set->count. Set 0: always on, 1: turbo, 2: damage, 9: frontal hit. */
 typedef struct CarASlaveSet {
   u32 unk0;                 /* 0x00 */
-  u32 count;                /* 0x04 */
-  PTR32(CarASlave) slaves;  /* 0x08 */
+  union {
+    SlaveList list;         /* 0x04 as MotionState_InitAllSlavesNow takes it */
+    struct {
+      u32 count;            /* 0x04 */
+      PTR32(CarASlave) slaves; /* 0x08 the damage set's view (thresholds) */
+    };
+  };
 } CarASlaveSet;
 
 /* Slave things a car starts with (CarAInfo.startSlaves), 0x50 bytes each. */
@@ -370,11 +375,11 @@ typedef struct CarAInfo {
   u32 numGears;             /* 0xD8 */
   PTR32(CarAGear) gears;          /* 0xDC torque curve table */
   u32 numSlaves;            /* 0xE0 */
-  PTR32(u8) slaves;               /* 0xE4 CarASlaveSet[numSlaves] */
+  PTR32(CarASlaveSet) slaves;     /* 0xE4 [numSlaves] */
   u32 numSlaveWeapons;      /* 0xE8 */
-  PTR32(u8) slaveWeapons;         /* 0xEC 12-byte entries, slave list at +4 */
+  PTR32(CarASlaveSet) slaveWeapons; /* 0xEC */
   u32 numPickupSlaves;      /* 0xF0 */
-  PTR32(u8) pickupSlaves;         /* 0xF4 12-byte entries, slave list at +4, indexed by item value */
+  PTR32(CarASlaveSet) pickupSlaves; /* 0xF4 indexed by item value */
   u8 padF8[8];              /* 0xF8 */
   u32 numStartSlaves;       /* 0x100 */
   PTR32(CarAStartSlave) startSlaves; /* 0x104 */

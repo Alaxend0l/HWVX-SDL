@@ -9,11 +9,39 @@
 #include <stddef.h>
 #include "Thing.h"
 
+/* A slave trigger: creates a slave thing (an effect attached to a thing, or
+ * to a bone of its animation) of a kind given by `type`
+ * (ThingManagerList_TriggerSlaves). */
+typedef struct SlaveTrigger {
+    Vector4 pos;                /* 0x00 offset */
+    u8 type;                    /* 0x10 */
+    u8 unk11;                   /* 0x11 */
+    u16 id;                     /* 0x12 -> Thing.slaveBone of the slave */
+    f32 time;                   /* 0x14 */
+    PTR32(void) data;           /* 0x18 by type */
+    u8 unk1C;                   /* 0x1C */
+    u8 holder;                  /* 0x1D first trigger of shared slaves: g_aSharedSlaveHolder index */
+    u8 pad1E[2];                /* 0x1E */
+} SlaveTrigger;
+
+_Static_assert(offsetof(SlaveTrigger, data) == 0x18, "SlaveTrigger.data");
+_Static_assert(sizeof(SlaveTrigger) == 0x20, "SlaveTrigger size");
+
+typedef struct SlaveList {
+    u32 count;
+    PTR32(SlaveTrigger) triggers;
+} SlaveList;
+
 /* A model's skeleton (MotionAnim.skeleton): its bones' base pose. */
 typedef struct AnimNode {
-    u8 pad00[0x1F];                    /* 0x00 */
+    Quaternion rot;                    /* 0x00 base pose */
+    f32 pos[3];                        /* 0x10 */
+    u8 numChildren;                    /* 0x1C the children follow it */
+    u8 pop;                            /* 0x1D */
+    u8 next;                           /* 0x1E nodes to its next sibling (its subtree's size) */
     u8 flags;                          /* 0x1F 1: blown off, 2: just blown (AnimNodes_BlowBranch) */
 } AnimNode;
+_Static_assert(sizeof(AnimNode) == 0x20, "AnimNode size");
 
 typedef struct CreatureSkeleton {
     u32 numBones;                      /* 0x00 */
@@ -56,8 +84,8 @@ typedef struct MotionAnim {
   u8 hasOutro;              /* 0x1E */
   u8 maxLoops;              /* 0x1F */
   PTR32(MotionRange) phases[3]; /* 0x20 intro, loop, outro */
-  u32 numEvents;            /* 0x2C slave triggers fired as their times pass */
-  PTR32(struct SlaveTrigger) events; /* 0x30 (MotionState_BlendTriggerEvents) */
+  SlaveList events;         /* 0x2C slave triggers fired as their times pass
+                             * (MotionState_BlendTriggerEvents) */
   u8 pad34[4];              /* 0x34 */
   PTR32(struct CarPartList) parts; /* 0x38 cars: parts that break off (CarA.partVisMask) */
 } MotionAnim;

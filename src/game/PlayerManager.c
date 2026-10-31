@@ -1,6 +1,7 @@
 /* The player manager: fixed pools of human, AI-car, creature-AI and null
  * players, kept in an active and a free list (Player.next/prev). */
 #include "common.h"
+#include "AI.h"
 #include "CarA.h"
 
 extern u8 g_playerManager[0x20E0];
@@ -58,8 +59,8 @@ static inline void PlayerManager_Push(PTR32(Player) *head, Player *player) {
     SETP(*head, player);
 }
 
-static inline void *PlayerManager_GetAIInit(void *desc) {
-    switch (((u8 *)desc)[0xD]) {
+static inline void *PlayerManager_GetAIInit(AIPlayerParams *desc) {
+    switch (desc->kind) {
     case 0:
         return AI_Car_Init;
     case 1:
@@ -164,13 +165,13 @@ void *PlayerManager_NewHumanPlayer(void) {
 
 /* Take the first free AI player of the kind desc asks for (byte 0x0D: 0 car,
  * 1 creature), init it from desc and make it active. */
-void *PlayerManager_NewAIPlayer(u8 *desc) {
+void *PlayerManager_NewAIPlayer(AIPlayerParams *desc) {
     PlayerPools *pm = PLAYER_POOLS;
     void (*init)(void *);
     Player *player;
 
     player = GETP(pm->free);
-    switch (desc[0xD]) {
+    switch (desc->kind) {
     case 0:
         init = AI_Car_Init;
         break;
@@ -251,7 +252,7 @@ void PlayerManager_Heartbeat(void) {
     extern u32 g_attackDelay;
     extern u32 g_iDeltaTimeMS;
     extern s16 g_AI_FramesSinceAsyncEventProcessed;
-    extern u8 g_AI_AsyncProcess[16];
+    extern AIEvent g_AI_AsyncProcess;
     Player *player;
     Player *next;
 
@@ -265,8 +266,8 @@ void PlayerManager_Heartbeat(void) {
     }
     g_AI_FramesSinceAsyncEventProcessed++;
     if (GETP(g_worldData.world) != NULL) {
-        if ((s8)g_AI_AsyncProcess[0xC] == 0) {
-            AI_AddEvent(g_AI_AsyncProcess);
+        if (!g_AI_AsyncProcess.queued) {
+            AI_AddEvent(&g_AI_AsyncProcess);
         }
         while ((s8)AI_ProcessEvent()) {
         }

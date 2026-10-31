@@ -98,7 +98,7 @@ void AnimExtractKeyFrame(void *anim, f32 time, void *out);
 void AnimExtractKeyFrame_Hybrid(void *animp, void *outp, f32 time);
 
 /* AnimHandler.c */
-s32 AnimNodes_BlowBranch(u8 *node);
+s32 AnimNodes_BlowBranch(AnimNode *node);
 void MotionState_BlendTriggerEvents(MotionState *ms, SlaveList *events, Vector4 *vel);
 void MotionState_BuildMatricesWorld(void *arg0, void *arg1, MotionState *ms, f32 time);
 void MotionState_Draw(MotionState *ms);
@@ -250,7 +250,7 @@ s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t);
 /* CarA_Suspension.c */
 void CarA_ComputeSuspensionForces(void *thing);
 void CarA_ComputeSuspensionForces_Aux1(CarA *car);
-f32 CarA_GetImpactMultiplier(void *car, void *other, f32 scale);
+f32 CarA_GetImpactMultiplier(Thing *car, CollisionInfo *other, f32 scale);
 f32 GetDampFactor(u8 type, u32 n);
 
 /* CollisionPoly.c */
@@ -332,13 +332,13 @@ void UpdatePointers(u32 *offsets, u32 count, u8 *base);
 /* DataGamePackLoad.c */
 void DataPack_CloseFiles(void);
 void DataPack_EnableLoadingSounds(s8 enabled);
-u8 * DataPack_GetScript(void *pack, s32 id);
+u8 * DataPack_GetScript(DataPack *pack, s32 id);
 void DataPack_Initialize(void);
 void DataPack_LoadDataPack(s32 file, DataPack *pack);
 s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id);
 void DataPack_LoadQuadPack(s32 file, QuadPack *quad);
 void DataPack_RefreshPtrs(DataPack *pack);
-void DataPack_RefreshQuadPackPtrs(DataPack *pack, void *quad);
+void DataPack_RefreshQuadPackPtrs(DataPack *pack, QuadPack *quad);
 void DataPack_RefreshTextures(DataPack *pack);
 void DataPack_ReleaseDataPack(DataPack *pack);
 void DataPack_ReleaseQuadPack(QuadPack *pack);
@@ -521,12 +521,15 @@ void Geometry_Init(s8 clear);
 /* Gfx_Anim.c */
 void Gfx_AnimExtractKeyFrame(void *anim, f32 time, void *out, s32 count);
 void Gfx_AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices);
+void Gfx_DrawAnimGeometryAux(Geometry *geometry, f32 *matrices, u32 count, f32 *matrix);
+void Gfx_DrawAnimGeometryAux_(Geometry *geometry, f32 *matrices, u32 count, f32 *matrix);
 
 /* Gfx_DisplayList.c */
 void DisplayList_AddAlphaGroup(s32 arg0, s32 arg1, u32 matrix, u8 arg3, GXColor *color);
 void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u8 flag, GXColor color);
 void DisplayList_RenderGXList(void);
 void DrawAlphaTable(void);
+void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix);
 void Gfx_Add2DFXLine(Vector4 *p0, Vector4 *p1, GXColor *c0, GXColor *c1, u8 flag);
 void Gfx_Add2DRectangleBack(void *rect);
 void Gfx_Add2DSprite(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b);
@@ -551,12 +554,17 @@ void Gfx_SortAlpha(void);
 void Render_InitDisplayList(void);
 
 /* Gfx_GeometryHandler.c */
+s32 Gfx_CalcGeometryLOD(Geometry *geometry, f32 *matrix);
 void Gfx_DrawGeometry(s32 geometry, s32 matrix);
 void Gfx_DrawGeometry_MatrixNotCached(s32 geometry, s32 matrix);
 void Gfx_DrawGeometry_QuaternionScalePos(s32 geometry, s32 quat, s32 scale, s32 pos);
+s32 Gfx_FrustrumCullSphereTest(Vector4 *center, f32 radius);
+s32 Gfx_FrustrumCullSphereTestAllWindows(Vector4 *center, f32 radius);
+u32 Gfx_GetCullLODGX(Geometry *geometry, Vector4 *matrix, u8 *lod, u8 flag);
 
 /* Gfx_Main.c */
 GfxWindow * GetRenderWindow(void);
+void Gfx_AddPointLight(GXColor *color, Vector4 *pos, f32 radius);
 void Gfx_BeginScene(void);
 void Gfx_ClearScreen(void);
 s32 Gfx_Create(void);
@@ -574,6 +582,7 @@ void Gfx_SetAmbientColor(GXColor *color);
 void Gfx_SetBaseColor(GXColor *color);
 void Gfx_SetEnviroMapMode(u8 mode);
 void Gfx_SetFarClippingPlane(f32 farPlane);
+void Gfx_SetParallelLight(GXColor *color, Vector4 *dir);
 void Gfx_SetRenderWindow(s32 window);
 void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4);
 void RenderState_Init(void);
@@ -902,7 +911,7 @@ void * PlayerManager_GetHumanPlayerByIndex(u8 index);
 void * PlayerManager_GetPlayerByIndex(u8 index);
 void PlayerManager_Heartbeat(void);
 void PlayerManager_Init(void);
-void * PlayerManager_NewAIPlayer(u8 *desc);
+void * PlayerManager_NewAIPlayer(AIPlayerParams *desc);
 void * PlayerManager_NewHumanPlayer(void);
 u8 PlayerManager_PlayerCount(void);
 u8 PlayerManager_PlayerHumanCount(void);
@@ -987,9 +996,14 @@ void Set3DRectVtxDesc(void);
 void SetTriFlatVtxDesc(void);
 
 /* Render_Geometry_.c */
+void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode);
+void Gfx_DrawGeometryLOD_Immediate(Geometry *geometry, f32 (*matrix)[4]);
+void RenderGroup(Geometry *geometry, u32 group, f32 (*matrix)[4]);
 void Render_DrawAlphaGroup(u16 index);
 void Render_DrawBoundingBoxes(void);
+void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix);
 void Render_DrawSpheres(void);
+void Render_Geometry(Geometry *geom, f32 *m);
 void Render_GeometryList(void);
 void Render_GeometryListSplitScreen(void);
 void Render_SetConstColor(GXColor *color);
@@ -1422,7 +1436,7 @@ void World_Render(void);
 void World_Unload(void);
 
 /* bgmath_NGC.c */
-void AccumulateVector(void *arg0, void *arg1, void *arg2, f32 farg0);
+void AccumulateVector(void *v, void *base, void *out, f32 scale);
 float ArcTan(float y, float x);
 void CopyMatrix(Matrix4 *dst, Matrix4 *src);
 void CopyVector(Vector4 *dst, Vector4 *src);
@@ -1430,7 +1444,7 @@ void Distance_Plane_4(Vector4 *planes, Vector4 *point, f32 *out);
 s32 FloatsEqual(f32 a, f32 b, f32 c);
 void GenerateQuaternion(Vector4 *axis, Quaternion *q, f32 angle);
 void GenerateSpinAngleFromQuaternion(Quaternion *q, Vector4 *axis, f32 *angle);
-void GetComponentOfVector(void *arg0, void *arg1);
+void GetComponentOfVector(void *n, void *v);
 void Init_Math3D(void);
 void MinMaxVec(Vector4 *min, Vector4 *max, Vector4 *v);
 void MultiplyMatrix(Matrix4 *a, Matrix4 *b, Matrix4 *out);
@@ -1502,15 +1516,8 @@ void Emitter_Release(void *emitter);
 #if !defined(HWVX_SRC_ForceFeedback)
 void ForceFeedback_Play(void *effect, Vector4 *dir);
 #endif
-#if !defined(HWVX_SRC_Gfx_Anim)
-void Gfx_DrawAnimGeometryAux(void *geometry, f32 *matrices, u32 count, f32 *matrix);
-void Gfx_DrawAnimGeometryAux_(void *geometry, f32 *matrices, u32 count, f32 *matrix);
-#endif
 #if !defined(HWVX_SRC_Gfx_Anim) && !defined(HWVX_SRC_Gfx_DisplayList)
 void *DisplayList_AddGroup_Skin(void);
-#endif
-#if !defined(HWVX_SRC_Gfx_DisplayList)
-void DrawGroupWireframe(void *geometry, u32 group, void *matrix);
 #endif
 #if !defined(HWVX_SRC_FontManager) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_ShowStats)
 void *Gfx_Add2DRectangle(void);
@@ -1523,16 +1530,6 @@ void *Gfx_Add3DLineFX(void);
 #endif
 #if !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_ParticleManager)
 void *Gfx_AddBillBoardSprite(u16 tex);
-#endif
-#if !defined(HWVX_SRC_Gfx_GeometryHandler)
-s32 Gfx_CalcGeometryLOD(void *geometry, f32 *matrix);
-s32 Gfx_FrustrumCullSphereTest(void *center, f32 radius);
-s32 Gfx_FrustrumCullSphereTestAllWindows(void *center, f32 radius);
-u32 Gfx_GetCullLODGX(void *geometry, void *matrix, u8 *lod, u8 flag);
-#endif
-#if !defined(HWVX_SRC_Gfx_Main)
-void Gfx_AddPointLight(GXColor *color, void *pos, f32 radius);
-void Gfx_SetParallelLight(GXColor *color, void *dir);
 #endif
 #if !defined(HWVX_SRC_GridManager)
 void *Grid_AddObject(u32 data, u32 id, void *min, void *max);
@@ -1548,7 +1545,7 @@ void InterfaceManager_RenderInterface(void *iface);
 void InterfaceManager_RenderObject(void *iface, s32 index);
 #endif
 #if !defined(HWVX_SRC_LensFlare)
-s32 LensFlare_Add(void *flare, u8 *thing, Vector4 *pos);
+s32 LensFlare_Add(void *flare, Thing *thing, Vector4 *pos);
 #endif
 #if !defined(HWVX_SRC_LightHolder)
 s32 LightHolder_Add(void *def, Vector4 *pos, void *thing);
@@ -1572,13 +1569,6 @@ void CreateSilhouette(void *edges, u32 count, f32 *dir);
 void DrawVolume(f32 (*verts)[3], void *edges, u32 numEdges, f32 dx, f32 dy, f32 dz);
 void Gfx_GetRenderStats(void *stats);
 #endif
-#if !defined(HWVX_SRC_Render_Geometry_)
-void EnvMap(void *geometry, u32 group, void *matrix, s32 mode);
-void Gfx_DrawGeometryLOD_Immediate(void *geometry, f32 (*matrix)[4]);
-void RenderGroup(void *geometry, u32 group, f32 (*matrix)[4]);
-void Render_DrawOpaqueGroup(void *geometry, u32 group, void *matrix);
-void Render_Geometry(void *geom, f32 *m);
-#endif
 #if !defined(HWVX_SRC_Render_Lines_)
 void Render_DrawLine2D(void *line);
 #endif
@@ -1586,7 +1576,7 @@ void Render_DrawLine2D(void *line);
 void Render_DrawRectangle(void *rect);
 #endif
 #if !defined(HWVX_SRC_Tracer)
-s32 Tracer_Init(void *thing, u8 *data);
+s32 Tracer_Init(void *thing, TracerParams *data);
 s32 Tracer_Invalidate(void *thing, u32 start, u32 end);
 s32 Tracer_Move(void *thing);
 void Tracer_Release(void *thing);

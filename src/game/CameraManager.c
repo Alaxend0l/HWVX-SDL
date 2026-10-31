@@ -51,18 +51,34 @@ void *CameraManager_GetCameraByIndex(u32 index) {
     return &CAMERA_MANAGER->cameras[index];
 }
 
+/* Camera spring state (g_springProxy): only ever cleared, by CameraManager_Init. */
+typedef struct SpringProxy {
+    u8 pad00[0x40];             /* 0x000 */
+    Vector4 unk40[2];           /* 0x040 */
+    Vector4 unk60[2];           /* 0x060 */
+    u8 pad80[0x40];             /* 0x080 */
+    Vector4 unkC0[2];           /* 0x0C0 */
+    u8 padE0[0x60];             /* 0x0E0 */
+    Vector4 unk140[2];          /* 0x140 */
+    u8 pad160[0x60];            /* 0x160 */
+    s32 unk1C0;                 /* 0x1C0 */
+    s32 unk1C4;                 /* 0x1C4 */
+    u8 pad1C8[8];               /* 0x1C8 */
+} SpringProxy;
+_Static_assert(sizeof(SpringProxy) == 0x1D0, "SpringProxy size");
+extern SpringProxy g_springProxy;
+
 void CameraManager_Init(void) {
     extern s8 g_cameraManagerPause;
-    extern u8 g_springProxy[];   /* only ever cleared here */
     g_cameraManagerPause = 0;
     CAMERA_MANAGER->count = 0;
     SoundListener_SetTotalListeners(0);
-    memset(g_springProxy + 0x60, 0, 0x20);
-    memset(g_springProxy + 0x40, 0, 0x20);
-    M2C_FIELD(g_springProxy, s32 *, 0x1C0) = 0;
-    memset(g_springProxy + 0x140, 0, 0x20);
-    memset(g_springProxy + 0xC0, 0, 0x20);
-    M2C_FIELD(g_springProxy, s32 *, 0x1C4) = 0;
+    memset(g_springProxy.unk60, 0, sizeof(g_springProxy.unk60));
+    memset(g_springProxy.unk40, 0, sizeof(g_springProxy.unk40));
+    g_springProxy.unk1C0 = 0;
+    memset(g_springProxy.unk140, 0, sizeof(g_springProxy.unk140));
+    memset(g_springProxy.unkC0, 0, sizeof(g_springProxy.unkC0));
+    g_springProxy.unk1C4 = 0;
 }
 extern u8 g_triggerAction_params_default[];  /* typed per function below */
 
@@ -659,11 +675,11 @@ void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
     if ((u8 *)GETP(car->base.vtable) == g_carAVTable) {
         Vector4 toTarget __attribute__((aligned(16)));
         Vector4 blend __attribute__((aligned(16)));
-        s32 bone;
+        s32 box;
         mtx = *THING_MTX(&car->base);
-        bone = *(s32 *)((u8 *)GETP(GETP(car->vehicleIface)->collider) + 0x44);
+        box = GETP(GETP(car->vehicleIface)->collider)->box.h;  /* passed on, never read */
         XformVec(THING_MTX(&car->base), &car->bodyOffset, &mtx.v[3]);
-        GetTrimmedCameraPos2(&info.from, &cam->pos, &cam->trim, bone, &mtx);
+        GetTrimmedCameraPos2(&info.from, &cam->pos, &cam->trim, box, &mtx);
         PSVECSubtract(&target, &cam->pos, &toTarget);
         if (PSVECSquareMag(&toTarget)) {
             PSVECNormalize(&toTarget, &toTarget);

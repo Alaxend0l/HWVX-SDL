@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 typedef struct FontChar {
@@ -50,11 +51,6 @@ typedef struct GDLRect {
     u8 window;
 } GDLRect;
 
-typedef struct GfxState {
-    u8 unk0[0x8C];
-    u16 debugFont;
-    u8 unk8E[0xA0 - 0x8E];
-} GfxState;
 
 /* The letters a font texture holds, in order, per language (E/F/G) and case mode. */
 char g_lettersE[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?abcdefghijklmnopqrstuvwxyz;:+-*/=%\"()&#'";
@@ -80,7 +76,6 @@ u8 g_letterWidth[100] = {
 };
 
 FontManager g_fontManager;
-extern GfxState g_state;
 
 typedef struct Texture {
     u8 unk0[0x24];

@@ -53,4 +53,87 @@ _Static_assert(offsetof(GfxWindow, left) == 0x2B0, "GfxWindow.left");
 _Static_assert(offsetof(GfxWindow, overlayColor) == 0x2C0, "GfxWindow.overlayColor");
 _Static_assert(sizeof(GfxWindow) == 0x2D0, "GfxWindow size");
 
+/* A point light (Gfx_AddPointLight). */
+typedef struct GfxPointLight {
+    Vector4 position;           /* 0x00 */
+    f32 radius;                 /* 0x10 */
+    GXColor color;              /* 0x14 */
+    u8 pad18[8];                /* 0x18 */
+} GfxPointLight;
+
+/* GfxState.flags (Gfx_EnableState / Gfx_DisableState) */
+
+/* The render state (g_state). */
+typedef struct GfxState {
+    GfxPointLight pointLights[3]; /* 0x00 */
+    Vector4 lightDir;           /* 0x60 parallel light (Gfx_SetParallelLight) */
+    GXColor lightColor;         /* 0x70 */
+    GXColor baseColor;          /* 0x74 Gfx_SetBaseColor: geometry constant colour */
+    GXColor ambientColor;       /* 0x78 */
+    u32 flags;                  /* 0x7C Gfx_EnableState bits */
+    f32 unk80;                  /* 0x80 */
+    s32 unk84;                  /* 0x84 */
+    s32 unk88;                  /* 0x88 */
+    u16 debugFont;              /* 0x8C */
+    s8 lightChanged;            /* 0x8E a new GDL light state is needed */
+    s8 unk8F;                   /* 0x8F */
+    u8 numPointLights;          /* 0x90 */
+    u8 unk91;                   /* 0x91 */
+    u8 unk92;                   /* 0x92 */
+    u8 worldIsIdentity;         /* 0x93 the world matrix is the identity (Gfx_SetWorldMatrix) */
+    u8 enviroMapMode;           /* 0x94 */
+    u8 pad95[3];                /* 0x95 */
+    f32 farClippingPlane;       /* 0x98 */
+    u8 pad9C[4];                /* 0x9C */
+} GfxState;
+
+_Static_assert(sizeof(GfxPointLight) == 0x20, "GfxPointLight size");
+_Static_assert(offsetof(GfxState, lightColor) == 0x70, "GfxState.lightColor");
+_Static_assert(offsetof(GfxState, flags) == 0x7C, "GfxState.flags");
+_Static_assert(offsetof(GfxState, debugFont) == 0x8C, "GfxState.debugFont");
+_Static_assert(offsetof(GfxState, worldIsIdentity) == 0x93, "GfxState.worldIsIdentity");
+_Static_assert(sizeof(GfxState) == 0xA0, "GfxState size");
+
+extern GfxState g_state;
+
+/* A geometry (pack data): groups of display lists with bounds and LODs. */
+typedef struct GeometryGroup {
+    u16 unk0;                   /* 0x00 */
+    u16 flags;                  /* 0x02 */
+    GXColor color;              /* 0x04 */
+    u8 pad08[4];                /* 0x08 */
+    PTR32(struct UVScroll) uvScroll; /* 0x0C */
+    union {
+        u32 dlSize;             /* 0x10 display list bytes */
+        PTR32(void) data;       /*      the same, as some views read it */
+    };
+    u16 unk14;                  /* 0x14 */
+    u8 pad16[2];                /* 0x16 */
+    u16 unk18;                  /* 0x18 */
+    u16 unk1A;                  /* 0x1A */
+    union {
+        PTR32(void) displayList; /* 0x1C */
+        PTR32(__typeof__(u16[3])) tris; /* triangles (Gfx_DisplayList.c) */
+    };
+} GeometryGroup;
+
+typedef struct Geometry {
+    u16 unk0;                   /* 0x00 */
+    u16 numGroups;              /* 0x02 */
+    u16 unk4;                   /* 0x04 */
+    u16 unk6;                   /* 0x06 */
+    PTR32(GeometryGroup) groups; /* 0x08 */
+    union {
+        PTR32(f32) lodDistances; /* 0x0C */
+        PTR32(struct GeometryVertex) verts;
+    };
+    f32 bboxMin[4];             /* 0x10 w: bounding radius */
+    f32 bboxMax[4];             /* 0x20 */
+    f32 center[4];              /* 0x30 */
+} Geometry;
+
+_Static_assert(sizeof(GeometryGroup) == 0x20, "GeometryGroup size");
+_Static_assert(offsetof(Geometry, bboxMin) == 0x10, "Geometry.bboxMin");
+_Static_assert(offsetof(Geometry, center) == 0x30, "Geometry.center");
+
 #endif

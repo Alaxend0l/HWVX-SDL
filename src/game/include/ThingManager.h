@@ -66,28 +66,7 @@ _Static_assert(sizeof(ThingPools) == sizeof(ThingManagerDARYL), "ThingPools size
 
 /* ---- slaves -------------------------------------------------------------- */
 
-/* A slave trigger: creates a slave thing (an effect attached to a thing, or
- * to a bone of its animation) of a kind given by `type`
- * (ThingManagerList_TriggerSlaves). */
-typedef struct SlaveTrigger {
-    Vector4 pos;                /* 0x00 offset */
-    u8 type;                    /* 0x10 */
-    u8 unk11;                   /* 0x11 */
-    u16 id;                     /* 0x12 -> Thing.slaveBone of the slave */
-    f32 time;                   /* 0x14 */
-    PTR32(void) data;           /* 0x18 by type */
-    u8 unk1C;                   /* 0x1C */
-    u8 holder;                  /* 0x1D first trigger of shared slaves: g_aSharedSlaveHolder index */
-    u8 pad1E[2];                /* 0x1E */
-} SlaveTrigger;
-
-_Static_assert(offsetof(SlaveTrigger, data) == 0x18, "SlaveTrigger.data");
-_Static_assert(sizeof(SlaveTrigger) == 0x20, "SlaveTrigger size");
-
-typedef struct SlaveList {
-    u32 count;
-    PTR32(SlaveTrigger) triggers;
-} SlaveList;
+/* SlaveTrigger and SlaveList are in Motion.h. */
 
 /* Slaves shared by every instance of a model (trigger type 10): created once
  * in a g_aSharedSlaveHolder entry and drawn at each instance. */
@@ -118,6 +97,17 @@ typedef struct MotionParams {
 _Static_assert(offsetof(MotionThing, state) == 0xB0, "MotionThing.state");
 _Static_assert(sizeof(MotionThing) == 0xF0, "MotionThing size");
 _Static_assert(offsetof(MotionParams, slaves) == 0x34, "MotionParams.slaves");
+
+/* THING_TYPE_TRACER (slave trigger type 7). */
+typedef struct TracerParams {
+    Vector4 pos;                /* 0x00 */
+    Vector4 dir;                /* 0x10 */
+    Vector4 vel;                /* 0x20 */
+    PTR32(struct TracerDef) def; /* 0x30 */
+    s32 time;                   /* 0x34 */
+    PTR32(void) player;         /* 0x38 */
+    f32 unk3C;                  /* 0x3C */
+} TracerParams;
 
 /* ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, ...) parameters. */
 typedef struct SoundSeqParams {

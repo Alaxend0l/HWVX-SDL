@@ -6,6 +6,7 @@
  * projectiles, effects, debris, emitters, lights and sounds around itself,
  * with waits, repeats and random sections. */
 #include "common.h"
+#include "SoundSequence.h"
 #include "ThingManager.h"
 #include "Projectile.h"
 #include "Debris.h"
@@ -848,7 +849,7 @@ void EventSeq_Advanced_GetInitData_NonDirectional(struct EventSeqEmit *emit, voi
         speed = RandomAdd(emit->speedBase, emit->speedRange);
         spin = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         RandomNumberGenerator_GetRandomVector(&dir4);
-        switch (((u8 *)GETP(emit->dirData))[0x10]) {
+        switch (((EventSeqDir *)GETP(emit->dirData))->axis) {
         case 4:
             if (dir4.x < 0.0f) {
                 dir4.x *= -1.0f;
@@ -1373,12 +1374,12 @@ s32 EventSeq_Move(struct EventSeq *seq) {
             break;
         }
         case 26: {
-            u8 *p = GETP(entry->a);   /* a sound sequence: s8 0x4 plays for every player */
+            SoundSeqInfo *p = GETP(entry->a);   /* a sound sequence */
             Player *player;
 
             if (p == NULL) break;
             player = GETP(seq->base.player);
-            if (player != NULL && !(player->flags & 0x40) && *(s8 *)(p + 4) == 0) break;
+            if (player != NULL && !(player->flags & 0x40) && p->allPlayers == 0) break;
             {
                 EventSeqEmit *emit = GETP(entry->b);
                 Vector4 tmp;

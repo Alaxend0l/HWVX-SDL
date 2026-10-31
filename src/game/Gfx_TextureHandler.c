@@ -409,23 +409,35 @@ u16 Gfx_LoadTexture_RAM(u8 **data) {
     return i;
 }
 
+/* A texture's header in a data pack (LoadBTF_RAM); its u16s are little-endian. */
+typedef struct BTFPackHeader {
+    u16 unk0;                   /* 0x00 -> Texture.unk38 */
+    u16 unk2;                   /* 0x02 -> Texture.unk30 */
+    u16 width;                  /* 0x04 */
+    u16 height;                 /* 0x06 */
+    PTR32(void) data;           /* 0x08 */
+    u32 unkC;                   /* 0x0C -> Texture.unk28 */
+} BTFPackHeader;
+
+/* Fill texture slot `id` from the BTF at data; returns the end of its header. */
 u8 *LoadBTF_RAM(u8 *data, u32 id) {
+    BTFPackHeader *hdr = (BTFPackHeader *)data;
     Texture *tex;
 
     tex = &((Texture *)m_texture)[id];
-    tex->width = ((*(u16 *)(data + 4) & 0xFF00) / 256) | (*(u16 *)(data + 4) * 256);
+    tex->width = ((hdr->width & 0xFF00) / 256) | (hdr->width * 256);
     tex = &((Texture *)m_texture)[id];
-    __sthbrx(*(u16 *)(data + 2), &tex->unk30, 0);
+    __sthbrx(hdr->unk2, &tex->unk30, 0);
     tex = &((Texture *)m_texture)[id];
-    __sthbrx(*(u16 *)(data + 6), &tex->height, 0);
+    __sthbrx(hdr->height, &tex->height, 0);
     tex = &((Texture *)m_texture)[id];
-    SETP(tex->data, SLOT_LOAD(void *, (data + 8)));
+    SETP(tex->data, GETP(hdr->data));
     tex = &((Texture *)m_texture)[id];
-    tex->unk28 = *(u32 *)(data + 0xC);
+    tex->unk28 = hdr->unkC;
     tex = &((Texture *)m_texture)[id];
-    __sthbrx(*(u16 *)(data + 0), &tex->unk38, 0);
+    __sthbrx(hdr->unk0, &tex->unk38, 0);
     Render_CreateTextureSlot(id);
-    return data + 0x10;
+    return (u8 *)(hdr + 1);
 }
 
 

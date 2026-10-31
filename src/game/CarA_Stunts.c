@@ -3,6 +3,7 @@
  * flown along the NPP.ANI animation in state 2. */
 #include "common.h"
 #include "CarA.h"
+#include "Destructible.h"
 
 /* The drone's description (DroneInfo.props). */
 typedef struct DroneProps {
@@ -183,18 +184,9 @@ s32 Drone_Init(Drone *drone, DroneParams *data) {
    the player's stick turns and pushes it; settling on four wheels slowly
    enough switches to state 1, losing them all back to 0. */
 void Drone_ComputeSuspensionForces(Drone *obj) {
-    typedef struct {
-        Vector4 pos;
-        Vector4 normal;
-        u8 pad20[8];
-        PTR32(u8) material;
-        u8 pad2C[4];
-        Vector4 unk30;
-        u8 pad40[0x10];
-    } WheelHit;
     extern u32 g_iLastDeltaTimeMS;
     Drone *drone = obj;
-    WheelHit hit __attribute__((aligned(16)));
+    CollisionInfo hit __attribute__((aligned(16)));
     Vector4 dir __attribute__((aligned(16)));
     Vector4 point __attribute__((aligned(16)));
     Vector4 start __attribute__((aligned(16)));
@@ -224,7 +216,7 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
         dir.x = -drone->base.axis[1].x;
         dir.y = -drone->base.axis[1].y;
         dir.z = -drone->base.axis[1].z;
-        hit.unk30 = g_zeroVector;
+        hit.vel = g_zeroVector;
         XformVec(THING_MTX(&drone->base), &drone->wheels[i], &start);
         start.x += 2.0f * drone->base.axis[1].x;
         start.y += 2.0f * drone->base.axis[1].y;
@@ -264,7 +256,7 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
                     } else if (grip > 1.0f) {
                         grip = 1.0f;
                     }
-                    scale = grip * (*(f32 *)(GETP(hit.material) + 0x14) * spring) / mag;
+                    scale = grip * (((SurfaceMaterial *)PTR(hit.material))->friction * spring) / mag;
                     friction.x = -slip.x * scale;
                     friction.y = -slip.y * scale;
                     friction.z = -slip.z * scale;

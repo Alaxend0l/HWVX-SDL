@@ -19,8 +19,8 @@ s32 FlashHolder_Add(FlashDef *flash, Vector4 *pos, s32 arg2, f32 time) {
             g_pFlash[i].pos = *pos;
             g_pFlash[i].unk60 = arg2;
             g_pFlash[i].remaining = flash->duration;
-            g_pFlash[i].active = 1;
-            g_pFlash[i].visible = 1;
+            g_pFlash[i].colorState.reset = 1;
+            g_pFlash[i].pointState.reset = 1;
             g_pFlash[i].time = time;
             return i;
         }
@@ -49,14 +49,14 @@ void FlashHolder_Heartbeat(void) {
                 if (flash->remaining != 0) {
                     flash->remaining -= delta;
                 }
-                ExtractColorKey(GETP(GETP(flash->flash)->colorKey) + 4, flash->colorOut, g_fDeltaTimeMS);
-                ExtractPointKey(GETP(flash->flash)->pointKey, flash->pointOut, g_fDeltaTimeMS);
-                if (*GETP(GETP(flash->flash)->colorKey) == 5) {
-                    flash->color.a = flash->color.a * flash->time;
+                ExtractColorKey(&GETP(GETP(flash->flash)->colorKey)->keys, &flash->colorState, g_fDeltaTimeMS);
+                ExtractPointKey((u8 *)&GETP(flash->flash)->pointKey, (u8 *)&flash->pointState, g_fDeltaTimeMS);
+                if (GETP(GETP(flash->flash)->colorKey)->mode == 5) {
+                    flash->colorState.color.a = flash->colorState.color.a * flash->time;
                 } else {
-                    flash->color.r = flash->color.r * flash->time;
-                    flash->color.g = flash->color.g * flash->time;
-                    flash->color.b = flash->color.b * flash->time;
+                    flash->colorState.color.r = flash->colorState.color.r * flash->time;
+                    flash->colorState.color.g = flash->colorState.color.g * flash->time;
+                    flash->colorState.color.b = flash->colorState.color.b * flash->time;
                 }
             } else {
                 FlashHolder_Remove(i);
@@ -77,8 +77,8 @@ void FlashHolder_Render(void) {
         flash = &g_pFlash[i];
         owner = GETP(flash->flash);
         if (owner != NULL && owner->enabled != 0) {
-            color = flash->color;
-            Gfx_ScreenOverlay(&color, *GETP(owner->colorKey));
+            color = flash->colorState.color;
+            Gfx_ScreenOverlay(&color, GETP(owner->colorKey)->mode);
         }
     }
 }

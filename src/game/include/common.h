@@ -29,6 +29,7 @@ typedef union Matrix4 {
 } Matrix4 __attribute__((aligned(16)));
 #include "Thing.h"
 #include "Motion.h"
+#include "KeyState.h"
 #include "Collision.h"
 #include "ItemThing.h"
 #include "Creature.h"
@@ -758,14 +759,6 @@ typedef struct SpawnPoint {
   PTR32(u8) info;
   PTR32(u8) thing;
 } SpawnPoint;
-typedef struct CarParams {
-  Vector4 pos;
-  Vector4 quat;
-  Vector4 vel;
-  PTR32(u8) info;
-  u8 pad34[0x3C - 0x34];
-  PTR32(u8) player;
-} CarParams;
 typedef struct VehicleInterfaceData {
   u32 iface;
   u32 packID;
@@ -794,43 +787,41 @@ typedef struct InterfaceMsg {
   PTR32(u32) list;
   u16 nextState;
 } InterfaceMsg;
-typedef struct CreateCarParams {
-  Vector4 pos;
-  Vector4 rot;
-  Vector4 vel;
-  PTR32(void) script;
-  u8 unk44[0x4C - 0x44];
-  PTR32(void) player;
-} CreateCarParams;
+/* A screen flash's colour track: the overlay blend mode, then the keys. */
+typedef struct FlashColor {
+  u8 mode;                  /* 0x00 Gfx_ScreenOverlay mode; 5: fade by alpha */
+  u8 pad1[3];               /* 0x01 */
+  KeyTrack keys;            /* 0x04 ExtractColorKey */
+} FlashColor;
+
+/* A screen flash (FlashHolder_Add). */
 typedef struct FlashDef {
-  u8 unk0;
-  u8 enabled;
-  u8 unk2[0xC - 0x2];
-  s32 duration;
-  u8 unk10[0x20 - 0x10];
-  PTR32(u8) colorKey;
-  u8 unk24[0x2C - 0x24];
-  u8 pointKey[4];
+  u8 unk0;                  /* 0x00 */
+  u8 enabled;               /* 0x01 */
+  u8 unk2[0xA];             /* 0x02 */
+  s32 duration;             /* 0x0C ms, 0: until removed */
+  u8 unk10[0x10];           /* 0x10 */
+  PTR32(FlashColor) colorKey; /* 0x20 */
+  u8 unk24[8];              /* 0x24 */
+  KeyTrack pointKey;        /* 0x2C ExtractPointKey */
 } FlashDef;
 
 typedef struct Flash {
-  Vector4 pos;
-  u8 colorOut[0x34 - 0x10];
-  GXColor color;
-  u8 unk38[0x3C - 0x38];
-  u8 active;
-  u8 unk3D[0x40 - 0x3D];
-  u8 pointOut[0x58 - 0x40];
-  u8 visible;
-  u8 unk59[0x5C - 0x59];
-  PTR32(FlashDef) flash;
-  s32 unk60;
-  u8 unk64[0x68 - 0x64];
-  u32 remaining;
-  u8 unk6C[0x74 - 0x6C];
-  f32 time;
-  u8 unk78[0x80 - 0x78];
+  Vector4 pos;              /* 0x00 */
+  KeyColorState colorState; /* 0x10 color: the overlay colour */
+  KeyPointState pointState; /* 0x40 */
+  PTR32(FlashDef) flash;    /* 0x5C NULL: free */
+  s32 unk60;                /* 0x60 */
+  u8 unk64[4];              /* 0x64 */
+  u32 remaining;            /* 0x68 ms */
+  u8 unk6C[8];              /* 0x6C */
+  f32 time;                 /* 0x74 fade, 0-1 */
+  u8 unk78[8];              /* 0x78 */
 } Flash;
+_Static_assert(offsetof(Flash, flash) == 0x5C, "Flash.flash");
+_Static_assert(offsetof(Flash, remaining) == 0x68, "Flash.remaining");
+_Static_assert(sizeof(Flash) == 0x80, "Flash size");
+_Static_assert(offsetof(FlashDef, pointKey) == 0x2C, "FlashDef.pointKey");
 
 typedef struct BulletHole {
   u32 r;
@@ -1044,6 +1035,11 @@ typedef struct MotionParams MotionParams;
 typedef struct CarACollider CarACollider;
 typedef struct ShaderDef ShaderDef;
 typedef struct GfxWindow GfxWindow;
+typedef struct TracerParams TracerParams;
+typedef struct Geometry Geometry;
+typedef struct GeometryGroup GeometryGroup;
+typedef struct QuadPack QuadPack;
+typedef struct GfxState GfxState;
 
 #include "game_protos.h"
 

@@ -46,7 +46,7 @@ enum {
     THING_TYPE_DEBRIS = 6,
     THING_TYPE_CREATURE = 7,
     THING_TYPE_WILDCARD_RACK = 8,
-    THING_TYPE_CAR = 9,             /* params: CarParams */
+    THING_TYPE_CAR = 9,             /* params: CarAParams (CarA.h) */
     THING_TYPE_PHYSICAL_OBJECT = 10, /* params: DestructibleParams */
     THING_TYPE_LOOKER = 11,
     THING_TYPE_TRACER = 12,

@@ -294,11 +294,12 @@ s32 StateGamePlay_Init(void) {
         }
     }
     {
-        u8 *volume;
+        WorldVolume *volume;
 
         i = 0;
+        /* re-apply every airbox's mode */
         while ((volume = World_GetVolume(i)) != NULL) {
-            airAction[0] = *(u32 *)(volume + 4);
+            airAction[0] = volume->enabled;
             airAction[1] = 1;
             airAction[2] = (u32)HND(volume);
             ActionAirboxChangeMode(airAction);

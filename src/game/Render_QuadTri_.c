@@ -157,15 +157,7 @@ static inline void GXTexCoord2f32(f32 s, f32 t) {
 }
 
 
-typedef struct GfxState {
-    u8 unk0[0x84];
-    s32 unk84;
-    u8 unk88[0x8C - 0x88];
-    u16 debugFont;
-    u8 unk8E[0xA0 - 0x8E];
-} GfxState;
 
-extern GfxState g_state;
 extern u8 g_screenText[0xA00];
 
 extern GXColor g_textcolor;

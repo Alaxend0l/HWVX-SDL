@@ -316,7 +316,7 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
     Player *player;
     CarA *car;
     void *rack;
-    CarParams params;
+    CarAParams params;
     Matrix4 mtx;
 
     GameSettings_SetCodeVariable(0x190, 0, GameSettings_GetCodeVariable(0x190, 0) + 1);

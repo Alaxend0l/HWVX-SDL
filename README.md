@@ -118,19 +118,18 @@ Conventions:
   (this caused an integer division by zero, SIGFPE on x86 Linux, that ARM64
   silently ignores; `-fsanitize=integer-divide-by-zero` catches those on a Mac).
 
-Converted so far: things and items, tracers, lookers, emitters, wildcard
-racks, pods, particles, collision types, slaves (`AnimHandler.c`), cars
-(`CarA.c` mostly, `CarA_Stunts.c`, `CarA_Suspension.c`), players and the
-player manager, cameras, AI and nav (`AI.c`, `AI_CarA.c`, `NavHolder.c`,
-most of `Creature.c`), projectiles, debris, attach things, destructibles and
-physical objects, the world/trigger/action/streaming/ThingManager code,
-`State_GamePlay.c`, the MCP, event sequences, creature AI, and the save data
-and memory card file (`GameSettings.c`), sound sequences, the terrain
-collision (`CollisionTerrain.c`, `CollisionPoly.c`). The voices (`Voice.h`),
-the IT player (`IT.h`) and the AX voice block (`AXVPB` in `sdk.h`, shared with
-the port's mixer) are structs. Still on offsets: `InterfaceManager.c`
-(`Interface.h` is written), the rest of `MIDI.c` (channels, song) and smaller
-leftovers.
+Status: every game file uses structs except `InterfaceManager.c`, the
+last one (`Interface.h` is written for it). `tools/check_ptr_offsets.py
+--bytes` lists the byte offsets still used as struct accesses; besides
+`InterfaceManager.c` it reports only `data_gen.c` (generated tables) and
+`Port_Swap.c` (which walks raw big-endian pack data on purpose).
+
+Shared layouts live in the headers: `Thing.h`, `CarA.h` (cars, players),
+`Motion.h` (animated models and `MotionState`), `World.h`, `Collision.h`,
+`AI.h`, `Creature.h`, `Gfx.h` (render window and state, geometry),
+`Shader.h`, `Voice.h`, `IT.h`, `SoundSequence.h`, `Interface.h`, and the
+rest of `common.h`. Before writing a local `typedef struct` view of an
+object, check whether one of them already has it.
 
 Restructured functions no longer match the decomp text, so
 `import_decomp.py --merge` will conflict on them; resolve those by hand.

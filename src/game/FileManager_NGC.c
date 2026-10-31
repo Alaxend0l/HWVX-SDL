@@ -123,7 +123,7 @@ s32 File_Open(u32 dev, const char *name, u32 flags, s32 *size) {
     g_files[i].slot = 1;
     g_files[i].position = 0;
     if (dev < 11) {
-        g_files[i].size = *(s32 *)PTR((g_filedata_PC[i].fileInfo + 0x34));
+        g_files[i].size = ((DVDFileInfo *)PTR(g_filedata_PC[i].fileInfo))->length;
     }
     strcpy(g_filedata_PC[i].name, name);
     if (size != NULL) {
@@ -398,12 +398,22 @@ void MemCard_Close__Fl(s32 device) {
     OSReport("CARDClose\n");
 }
 
+/* The memory card file: its card-menu name and comment, the banner and
+ * icon images (rawData), then the game's data. */
+typedef struct CardFile {
+    char name[0x20];            /* 0x000 */
+    char comment[0x20];         /* 0x020 */
+    u8 images[0x800];           /* 0x040 */
+    u8 data[0x2000 - 0x840];    /* 0x840 */
+} CardFile;
+_Static_assert(offsetof(CardFile, data) == 0x840, "CardFile.data");
+
 s32 MemCard_Read__FUllPv(u32 device, s32 size, void *data) {
-    u8 buffer[0x2000] __attribute__((aligned(32)));
+    CardFile buffer __attribute__((aligned(32)));
     s32 chan = device - 11;
 
-    m_memcardstatus[chan] = CARDRead(&memCardfileInfo[chan], buffer, memCardBlockSize[chan], 0);
-    memcpy(data, buffer + 0x840, size);
+    m_memcardstatus[chan] = CARDRead(&memCardfileInfo[chan], &buffer, memCardBlockSize[chan], 0);
+    memcpy(data, buffer.data, size);
     return size;
 }
 
@@ -428,15 +438,15 @@ s32 MemCard_Write__FUllPv(u32 id, s32 size, void *data) {
     } CARDStat;
     extern u8 rawData[0x800];
     CARDStat stat;
-    u8 buffer[0x2000] __attribute__((aligned(32)));
+    CardFile buffer __attribute__((aligned(32)));
     s32 chan = id - 11;
 
-    memset(buffer, 0, 0x40);
-    sprintf((char *)buffer, "Hot Wheels Velocity X Save");
-    sprintf((char *)buffer + 0x20, "Game Data");
-    memcpy(buffer + 0x40, rawData, 0x800);
-    memcpy(buffer + 0x840, data, size);
-    m_memcardstatus[chan] = CARDWrite(&memCardfileInfo[chan], buffer, memCardBlockSize[chan], 0);
+    memset(&buffer, 0, offsetof(CardFile, images));
+    sprintf(buffer.name, "Hot Wheels Velocity X Save");
+    sprintf(buffer.comment, "Game Data");
+    memcpy(buffer.images, rawData, 0x800);
+    memcpy(buffer.data, data, size);
+    m_memcardstatus[chan] = CARDWrite(&memCardfileInfo[chan], &buffer, memCardBlockSize[chan], 0);
     if (m_memcardstatus[chan] < 0) {
         if (m_memcardstatus[chan] == -5) {
             CARDDelete(chan, g_appInfo[3]);

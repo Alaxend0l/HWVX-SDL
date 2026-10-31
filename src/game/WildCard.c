@@ -393,7 +393,7 @@ s32 TriggerItemPickup(u32 *trigger) {
         item = (QuadItem *)PTR(trigger[i + 1]);
         for (j = 0; j < trigger[numItems]; j++) {
             found = 0;
-            thing = SLOT_LOAD(Thing *, (trigger[j + numItems + 1] + 0x28));
+            thing = (Thing *)GETP(((TileCar *)PTR(trigger[j + numItems + 1]))->car);
             if (thing != NULL) {
                 if (Thing_HasThing(thing, GETP(item->thing))) {
                     return 1;

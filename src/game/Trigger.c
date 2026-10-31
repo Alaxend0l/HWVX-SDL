@@ -366,7 +366,7 @@ f32 GetCodeVariable(s32 var, u32 arg) {
         if (car != NULL) {
             player = GETP(((Thing *)car)->player);
             if (player != NULL) {
-                return ((u16 *)((u8 *)player + 0x94))[index];   /* Player 0x94: u16 counters[8] */
+                return player->counters[index];
             }
         }
         break;
@@ -423,8 +423,8 @@ void SetCodeVariable(s32 var, u32 arg, f32 value) {
         if (car != NULL) {
             player = GETP(((Thing *)car)->player);
             if (player != NULL) {
-                ((s16 *)((u8 *)player + 0x94))[idx] = (s16)value;   /* Player 0x94: counters[8] */
-                *((u8 *)GETP(((Thing *)car)->player) + 0xA4) = 1;    /* Player 0xA4: counters changed */
+                player->counters[idx] = (s16)value;
+                ((Player *)GETP(((Thing *)car)->player))->countersChanged = 1;
             }
         }
         break;

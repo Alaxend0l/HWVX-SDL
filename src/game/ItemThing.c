@@ -1,6 +1,7 @@
 /* Item things: pickups lying in the world. They fall and bounce until they
  * come to rest, spin in place, and are collected by Thing_CollideWithItems. */
 #include "common.h"
+#include "World.h"
 #include "CarA.h"
 
 
@@ -8,7 +9,7 @@ s32 Item_Init(ItemThing *item, ItemParams *data) {
     Vector4 euler __attribute__((aligned(16)));
     Vector4 quat __attribute__((aligned(16)));
     ItemRecord *record = GETP(data->record);
-    u8 *weapon;
+    WeaponInfo *weapon;
 
     Thing_Init(&item->base, (s32)HND(data));
     item->navPoint = -1;
@@ -32,7 +33,7 @@ s32 Item_Init(ItemThing *item, ItemParams *data) {
     SETP(item->record, record);
     weapon = GETP(GETP(item->record)->weapon);
     if (weapon != NULL) {
-        item->ammo = *(s32 *)(weapon + 0x20);
+        item->ammo = weapon->ammo;
     }
     /* a random spin around y */
     euler.x = 0.0f;
@@ -51,14 +52,14 @@ s32 Item_Init(ItemThing *item, ItemParams *data) {
 void Item_Release(void *arg) {
     extern u32 g_itemVTable[];
     ItemThing *item = arg;
-    u8 *slot;
+    QuadItem *slot;
 
     if (GETP(item->base.vtable) == g_itemVTable) {
-        /* detach from its spawn entry (QuadItem.thing) */
+        /* detach from its spawn entry */
         slot = GETP(item->base.trigger);
-        if (slot != NULL && SLOT_LOAD(void *, slot + 0x24) != NULL) {
+        if (slot != NULL && GETP(slot->thing) != NULL) {
             SETP(item->base.trigger, NULL);
-            SLOT_STORE(slot + 0x24, NULL);
+            SETP(slot->thing, NULL);
         }
     }
     Thing_Release(item);

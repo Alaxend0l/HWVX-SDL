@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Voice.h"
 #include "Port_Swap.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
@@ -259,10 +260,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
                 GETP(pack->soundIDs)[i] = 0;
             }
             if (GETP(pack->soundIDs)[i] == 0 && g_bSoundLoadingEnabled) {
-                sprintf(msg, "Could not load the SFX, out of sound space.  SFX size = %d\n", *(u32 *)(sfx + 4));
+                sprintf(msg, "Could not load the SFX, out of sound space.  SFX size = %d\n", ((SFX *)sfx)->length);
                 Dprintf(msg);
             }
-            sfx += 0x20;
+            sfx += sizeof(SFX);
         }
         if (freeData) {
             Deallocate(GETP(pack->soundData));
@@ -416,7 +417,9 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
     }
 }
 
-void DataPack_RefreshQuadPackPtrs(DataPack *pack, void *quad)
+/* A quadrant pack (WorldQuad, as QuadPack) is back: patch its texture ids
+ * and shaders. */
+void DataPack_RefreshQuadPackPtrs(DataPack *pack, QuadPack *quad)
 {
     s32 *reloc;
     s32 *shader;
@@ -427,8 +430,8 @@ void DataPack_RefreshQuadPackPtrs(DataPack *pack, void *quad)
     u32 idx;
     u32 texID;
 
-    header = SLOT_LOAD(QuadPackHeader *, ((u8 *)quad + 0x28));
-    base = SLOT_LOAD(u8 *, ((u8 *)quad + 0x2C));
+    header = GETP(quad->header);
+    base = (u8 *)PTR(quad->gxBase);
     reloc = header != NULL ? GETP(header->relocs) : NULL;
     shader = header != NULL ? GETP(header->shaderList) : NULL;
     if (header != NULL)
@@ -459,9 +462,9 @@ void DataPack_RefreshQuadPackPtrs(DataPack *pack, void *quad)
             ShaderHolder_AddGX(base + shader[0], GETP(pack->shaderIDs)[shader[1]]);
             shader += 2;
         }
-        if (SLOT_LOAD(void *, ((u8 *)quad + 0x14)) != NULL)
+        if (GETP(quad->vertices) != NULL)
         {
-            VertexColorSeqManager_AddVertices(SLOT_LOAD(void *, ((u8 *)quad + 0x14)));
+            VertexColorSeqManager_AddVertices(GETP(quad->vertices));
         }
     }
 }
@@ -610,22 +613,33 @@ void DataPack_ReleaseQuadPack(QuadPack *pack)
     }
 }
 
-u8 *DataPack_GetScript(void *pack, s32 id)
+/* A pack's scripts (DataPack.base): the records the game asks for by id. */
+typedef struct DataPackScript {
+    PTR32(u8) script;           /* 0x00 */
+    u32 id;                     /* 0x04 */
+} DataPackScript;
+
+typedef struct DataPackScripts {
+    u32 count;                  /* 0x00 */
+    PTR32(DataPackScript) entries; /* 0x04 */
+} DataPackScripts;
+
+u8 *DataPack_GetScript(DataPack *pack, s32 id)
 {
-    u32 *entries;
+    DataPackScript *entries;
     u32 i;
-    u8 *table = SLOT_LOAD(u8 *, pack);
+    DataPackScripts *table = (DataPackScripts *)GETP(pack->base);
 
     if (table == NULL)
     {
         return NULL;
     }
-    for (i = 0; i < M2C_FIELD(table, u32 *, 0); i++)
+    for (i = 0; i < table->count; i++)
     {
-        entries = SLOT_LOAD(u32 *, (u8 *)(table) + 4);
-        if (id == entries[i * 2 + 1])
+        entries = GETP(table->entries);
+        if (id == entries[i].id)
         {
-            return (u8 *)PTR(entries[i * 2]);
+            return GETP(entries[i].script);
         }
     }
     return NULL;

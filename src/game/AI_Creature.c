@@ -306,7 +306,7 @@ void AI_Creature_AsyncProcess(void) {
         for (i = 0; i < 1; i++) {
             desc.script = 0;
             desc.kind = AI_KIND_CREATURE;
-            player = PlayerManager_NewAIPlayer((u8 *)&desc);
+            player = PlayerManager_NewAIPlayer(&desc);
             if (gs_pCurrentAICreature == NULL) {
                 gs_pCurrentAICreature = player;
                 SETP(player->next, player);

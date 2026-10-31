@@ -3,6 +3,7 @@
  * become active/inactive, and their item spawn points respawn pickups. Also
  * the pool of streamed data packs (g_StreamingDataPacks). */
 #include "common.h"
+#include "Gfx.h"
 #include "World.h"
 #include "ThingManager.h"
 
@@ -312,7 +313,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                         }
                     }
                     if (record->noDraw == 0) {
-                        st->radius = GetBoundingBoxRadius((Vector4 *)((u8 *)GETP(record->geometry) + 0x10), &g_zeroVector);
+                        st->radius = GetBoundingBoxRadius((Vector4 *)((Geometry *)GETP(record->geometry))->bboxMin, &g_zeroVector);
                     } else {
                         st->radius = 1.0f;   /* port: the original loads 1.0f here (@661); the decomp had 1000000.0f */
                     }
@@ -525,7 +526,7 @@ void LoadQuadrants(s8 refresh) {
             if (tocHeader[0].version != 0x020100A0 || tocHeader[0].type != 0x040100AE) {
                 error = 1;
             } else if (tocHeader[0].world != 0xB7) {
-                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->fileName), tocHeader[0].world, 0xB7);
+                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->collisionPackName), tocHeader[0].world, 0xB7);
                 error = 1;
             } else {
                 count = tocHeader[0].id;

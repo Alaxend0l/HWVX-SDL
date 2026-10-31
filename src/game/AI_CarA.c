@@ -189,7 +189,7 @@ void AI_Car_AsyncProcess(void) {
             desc.dynamic = tile->dynamic;
             desc.nearSq = tile->nearDist * tile->nearDist;
             desc.farSq = tile->farDist * tile->farDist;
-            player = PlayerManager_NewAIPlayer((u8 *)&desc);
+            player = PlayerManager_NewAIPlayer(&desc);
             if (player == NULL) {
                 carTile++;
                 return;

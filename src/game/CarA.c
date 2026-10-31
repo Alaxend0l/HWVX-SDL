@@ -70,7 +70,7 @@ static inline Vector4 Vector4_OrZero(Vector4 *v) {
 
 /* Slave set i of the car's description (CarASlaveSet). */
 static inline CarASlaveSet *CarA_SlaveSet(CarA *car, u32 i) {
-    return &((CarASlaveSet *)GETP(GETP(car->vehicleIface)->slaves))[i];
+    return &GETP(GETP(car->vehicleIface)->slaves)[i];
 }
 
 /* Releases the damage-state slaves (set 2) and re-triggers the ones whose
@@ -296,7 +296,7 @@ s32 CarA_Init(void *thing, void *arg1) {
     TEST_AnimTraverseHeirarchyToMatricesWorld(&car->base.quat, &pos, frames, *skel, GETP(car->motionState.animMatrices), 1.0f);
     if (GETP(car->vehicleIface)->numSlaves >= 1) {
         g_pSourcePlayer = GETP(car->base.player);
-        MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 0)->count, 0);
+        MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 0)->list, 0);
         g_pSourcePlayer = NULL;
     }
     rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
@@ -821,7 +821,7 @@ s32 CarA_PreMove(void *thing) {
                     THING_VFN(GETP(CARA_PLAYER(car)->vehicle), THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(void *, void *, s32, f32))(GETP(CARA_PLAYER(car)->vehicle), &fx, 0, 280.0f);
                 }
                 if (GETP(car->vehicleIface)->numSlaves > 1) {
-                    MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 1)->count, 1);
+                    MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 1)->list, 1);
                 }
             }
             car->turboCooldown -= g_iDeltaTimeMS;
@@ -892,7 +892,7 @@ s32 CarA_PreMove(void *thing) {
         }
     } else if (!(car->transmissionFlags & 0x4000)) {
         if (GETP(car->vehicleIface)->numSlaves > 9) {
-            MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 9)->count, 9);
+            MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 9)->list, 9);
             car->transmissionFlags |= 0x4000;
         }
     }
@@ -2322,7 +2322,7 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
         break;
     case 8:
         if (GETP(car->vehicleIface)->numPickupSlaves > def->value) {
-            MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->pickupSlaves) + def->value * 12 + 4,
+            MotionState_InitAllSlavesNow(&car->motionState, &GETP(GETP(car->vehicleIface)->pickupSlaves)[def->value].list,
                                          def->value);
         }
         Item_Release(item);

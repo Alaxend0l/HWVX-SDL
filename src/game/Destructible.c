@@ -4,6 +4,7 @@
 #include "CarA.h"
 #include "AttachThing.h"
 #include "Destructible.h"
+#include "World.h"
 
 
 extern f32 g_zeroVector[4];
@@ -288,17 +289,17 @@ s32 Destructible_Init(Destructible *destructible, void *data) {
  * clears its spawn entry (FileStreaming StaticEntry: thing 0x2C, active 0x30). */
 void Destructible_Release(Destructible *destructible) {
     s8 paused;
-    u8 *entry;
+    QuadInstance *entry;
 
     Trigger_DestructibleKilled(destructible);
     if (GETP(destructible->base.vtable) == g_destructibleVTable) {
         entry = GETP(destructible->base.trigger);
         if (entry != NULL) {
             SETP(destructible->base.trigger, NULL);
-            *(u32 *)(entry + 0x2C) = 0;
+            entry->thing.h = 0;
             paused = Trigger_IsTACSystemPaused();
             if (paused == 0) {
-                *(u32 *)(entry + 0x30) = 0;
+                entry->mode = 0;
             }
         }
     }
@@ -428,7 +429,7 @@ void Destructible_DynamicCollideImpact(Destructible *destructible, CollisionInfo
     f32 inertia;
     Thing *other;
     Thing *thing = &destructible->base;
-    u8 *entry;
+    QuadInstance *entry;
 
     info = GETP(GETP(destructible->record)->info);
     damage -= info->armour;
@@ -472,10 +473,10 @@ void Destructible_DynamicCollideImpact(Destructible *destructible, CollisionInfo
     scaled.y = invY * local.y;
     scaled.z = invZ * local.z;
     XformVecOrientation(THING_MTX(thing), &scaled, &angVel);
-    Thing_ProcessEndEvent(thing, (u8 *)GETP(GETP(destructible->record)->info), collision, &angVel);
-    /* spawn entry (FileStreaming StaticEntry) active 0x30 == 0x1A: kept, hidden */
+    Thing_ProcessEndEvent(thing, (CarACollider *)GETP(GETP(destructible->record)->info), collision, &angVel);
+    /* its quadrant entry in mode 26: kept, hidden */
     entry = GETP(thing->trigger);
-    if (entry != NULL && *(u32 *)(entry + 0x30) == 0x1A) {
+    if (entry != NULL && entry->mode == 0x1A) {
         thing->flags |= 0x200;
         thing->flags |= 2;
         return;
@@ -487,7 +488,7 @@ void Destructible_DynamicCollideImpact(Destructible *destructible, CollisionInfo
     Destructible_Release(destructible);
     entry = GETP(thing->trigger);
     if (entry != NULL) {
-        *(u32 *)(entry + 0x30) = 3;
+        entry->mode = 3;
     }
 }
 
@@ -510,19 +511,19 @@ s32 ActionDestructibleChangeMode(u32 *action) {
     s32 mode;
     u32 count;
     u32 i;
-    u8 *entry;
+    QuadInstance *entry;
     Destructible *destructible;
 
     mode = action[0];
     count = action[1];
     for (i = 0; i < count; i++) {
-        entry = (u8 *)PTR(action[i + 2]);
-        destructible = SLOT_LOAD(Destructible *, (entry + 0x2C));
+        entry = (QuadInstance *)PTR(action[i + 2]);
+        destructible = (Destructible *)GETP(entry->thing);
         if (destructible != NULL) {
             switch (mode) {
             case 3:
                 /* destroy */
-                Thing_ProcessEndEvent(&destructible->base, (u8 *)GETP(GETP(destructible->record)->info), NULL, NULL);
+                Thing_ProcessEndEvent(&destructible->base, (CarACollider *)GETP(GETP(destructible->record)->info), NULL, NULL);
                 Destructible_Release(destructible);
                 break;
             case 0:
@@ -543,13 +544,13 @@ s32 ActionDestructibleChangeMode(u32 *action) {
             case 26:
                 /* destroyed, but kept hidden */
                 ThingManagerList_ReleaseSlavesBySlaveType(&destructible->base.slaves, 0xFF);
-                Thing_ProcessEndEvent(&destructible->base, (u8 *)GETP(GETP(destructible->record)->info), NULL, NULL);
+                Thing_ProcessEndEvent(&destructible->base, (CarACollider *)GETP(GETP(destructible->record)->info), NULL, NULL);
                 destructible->base.flags |= 0x200;
                 destructible->base.flags |= 0x2;
                 break;
             }
         }
-        *(s32 *)(entry + 0x30) = mode;
+        entry->mode = mode;
     }
     return 1;
 }

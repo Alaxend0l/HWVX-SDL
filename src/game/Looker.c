@@ -1,6 +1,7 @@
 /* The looker: a free-flying debug camera thing, steered with the pads; it can
  * attach to a host thing and look through that thing's camera. */
 #include "common.h"
+#include "World.h"
 #include "CarA.h"
 
 typedef struct Looker {
@@ -22,7 +23,7 @@ _Static_assert(sizeof(Looker) == 0xD0, "Looker size (ThingPools.looker)");
 s32 Looker_Init(Looker *looker, u8 *init) {
     Vector4 params __attribute__((aligned(16)));
     Thing *slave;
-    void *world;
+    World *world;
 
     Thing_Init(&looker->base, 0);
     looker->base.flags |= THING_FLAG_DEAD;
@@ -39,8 +40,8 @@ s32 Looker_Init(Looker *looker, u8 *init) {
     }
     /* start at the world's first start point, if it has one */
     world = GETP(g_worldData.world);
-    if (M2C_FIELD(world, u32 *, 0x8) != 0) {
-        looker->base.pos = *SLOT_LOAD(Vector4 *, (u8 *)(world) + 0xC);
+    if (world->numTileCars != 0) {
+        looker->base.pos = GETP(world->tileCars)[0].pos;
     }
     looker->base.collisionType = THING_COLLIDE_RAY;
     SETP(looker->host, NULL);

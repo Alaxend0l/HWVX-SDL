@@ -259,7 +259,7 @@ void ThingManagerList_TriggerSlaves(ThingList *list, struct SlaveTrigger *trigge
     struct { Vector4 a; PTR32(void) data; u8 flag; } p3 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p5 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p6 __attribute__((aligned(16)));
-    struct { Vector4 a; Vector4 b; Vector4 c; PTR32(void) data; s32 time; PTR32(void) player; f32 f; } p7 __attribute__((aligned(16)));
+    TracerParams p7 __attribute__((aligned(16)));
     MotionParams p8 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 a; } p9 __attribute__((aligned(16)));
     DebrisParams p1 __attribute__((aligned(16)));
@@ -336,14 +336,14 @@ void ThingManagerList_TriggerSlaves(ThingList *list, struct SlaveTrigger *trigge
         break;
     case 7:
         if (GETP(trigger->data) != NULL) {
-            SETP(p7.data, GETP(trigger->data));
-            p7.f = 0.0f;
+            SETP(p7.def, GETP(trigger->data));
+            p7.unk3C = 0.0f;
             p7.time = 20;
-            p7.c = *c;
+            p7.vel = *c;
             SETP(p7.player, g_pSourcePlayer);
-            p7.a = *a;
-            p7.a.w = 1.0f;
-            p7.b = *b;
+            p7.pos = *a;
+            p7.pos.w = 1.0f;
+            p7.dir = *b;
             slave = ThingManager_DARYL_CreateSlave(THING_TYPE_TRACER, &p7, trigger->id);
         }
         break;

@@ -21,24 +21,31 @@ s32 g_iTotalVertexColorTiles;
 s32 g_iTotalVertexColorSeq;
 
 
+/* A vertex colour sequence of the world's geometry (in a quadrant pack). */
+typedef struct VertexColorSeq {
+    u8 pad00[8];                /* 0x00 */
+    u32 enabled;                /* 0x08 */
+} VertexColorSeq;
+
+/* data: { mode (0 off, 1 on, 2 toggle), count, sequence handles... } */
 s32 ActionVertexColorSeqChangeMode(s32 *data) {
     u32 count = data[1];
     u32 i;
 
     for (i = 0; i < count; i++) {
-        u8 *seq = (u8 *)PTR(data[i + 2]);
+        VertexColorSeq *seq = (VertexColorSeq *)PTR(data[i + 2]);
         switch (data[0]) {
         case 0:
-            *(u32 *)(seq + 8) = 0;
+            seq->enabled = 0;
             break;
         case 1:
-            *(u32 *)(seq + 8) = 1;
+            seq->enabled = 1;
             break;
         case 2:
-            if (*(u32 *)(seq + 8) == 0) {
-                *(u32 *)(seq + 8) = 1;
+            if (seq->enabled == 0) {
+                seq->enabled = 1;
             } else {
-                *(u32 *)(seq + 8) = 0;
+                seq->enabled = 0;
             }
             break;
         }

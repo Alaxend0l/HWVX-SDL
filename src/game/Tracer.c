@@ -1,4 +1,5 @@
 #include "common.h"
+#include "ThingManager.h"
 
 /* A tracer's description in the data pack. */
 typedef struct TracerDef {
@@ -63,13 +64,13 @@ static inline u32 Tracer_FindFree(void) {
     return i;
 }
 
-s32 Tracer_Init(TracerThing *thing, u8 *data) {
+s32 Tracer_Init(TracerThing *thing, TracerParams *data) {
     TracerDef *def;
     Tracer *tr;
 
     Thing_Init(thing, 0);
-    SETP(thing->def, SLOT_LOAD(TracerDef *, (data + 0x30)));
-    thing->base.pos = *(Vector4 *)data;
+    SETP(thing->def, GETP(data->def));
+    thing->base.pos = data->pos;
     thing->index = Tracer_FindFree();
     Tracer_ClearTracer(thing->index);
     tr = &tracers[thing->index];
