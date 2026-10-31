@@ -410,7 +410,10 @@ static void ApplyState(void) {
     glUniform4fv(s.u[U_REG], 4, buf);
     glUniform4iv(s.u[U_ALPHACOMP], 1, (GLint[4]){ g->alphaComp[0], g->alphaComp[1], g->alphaComp[2], g->alphaComp[3] });
     glUniform1i(s.u[U_ALPHAREF1], g->alphaComp[4]);
-    glUniform4iv(s.u[U_FOG], 1, (GLint[4]){ g->fogType, 0, 0, 0 });
+    /* GXSetFog: with startz == endz (or nearz == farz) the SDK programs A = C = 0,
+     * so the fog value is 0 everywhere: no fog. Gfx_SetFog does that for a fog
+     * colour with alpha 0 (ranges 0, 0), e.g. after leaving gameplay. */
+    glUniform4iv(s.u[U_FOG], 1, (GLint[4]){ (g->fogEnd == g->fogStart || g->fogFar == g->fogNear) ? 0 : g->fogType, 0, 0, 0 });
     glUniform4fv(s.u[U_FOGPARAM], 1, (f32[4]){ g->fogStart, g->fogEnd, g->fogNear, g->fogFar });
     Color4(&g->fogColor, buf);
     glUniform4fv(s.u[U_FOGCOLOR], 1, buf);

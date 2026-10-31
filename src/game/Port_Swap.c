@@ -977,6 +977,10 @@ static void Claim_Collision(Swapper *s) {
  * at 0x28, 1 = sphere) are referenced from trigger parameter lists and other
  * records, so BSP volumes are found by shape: type 0 and a root node whose
  * plane normal is unit length. */
+static int IsDenormalWord(u32 w) {
+    return (w & 0x7F800000) == 0 && (w & 0x007FFFFF) != 0;
+}
+
 static void Claim_VolumeShapeScan(Swapper *s, const u32 *pointers, u32 numPointers) {
     u32 i;
 
@@ -989,6 +993,13 @@ static void Claim_VolumeShapeScan(Swapper *s, const u32 *pointers, u32 numPointe
         }
         root = Target(s, v + 0x28);
         if (root == ~0u || !InBlob(s, root, 0x20) || s->base[root + 0x10] > 3) {
+            continue;
+        }
+        /* a real plane normal has no denormal components; small integers read
+         * as floats do (an effect record { 1, 0, 1.0f } passed for a unit
+         * normal and the walk claimed its floats as bytes) */
+        if (IsDenormalWord(Word(s, root)) || IsDenormalWord(Word(s, root + 4)) ||
+            IsDenormalWord(Word(s, root + 8))) {
             continue;
         }
         x = BEFloatAt(s, root);
@@ -1776,6 +1787,11 @@ static void Claim_Geometry(Swapper *s, u32 g) {
     ClaimU16(s, g + 6);
     n = Half(s, g + 2);
     lods = Target(s, g + 8);
+    /* f32 LOD distances, one per level: claim them, or the string heuristic
+     * can take one for text (1e9f is "Nnk(\0" in a weapon flame) */
+    if (Target(s, g + 0xC) != ~0u) {
+        Claim(s, Target(s, g + 0xC), n * 4, CLAIM_U32);
+    }
     for (i = 0; i < n; i++) {
         u32 lod = lods + i * 0x18;
         u32 ng = Half(s, lod + 2), grp = Target(s, lod + 8);

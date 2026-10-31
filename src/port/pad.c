@@ -103,6 +103,12 @@ static void ReadGamepad(SDL_Gamepad *gp, PADStatus *st) {
     st->err = PAD_ERR_NONE;
 }
 
+/* Main stick directions pressed on the keyboard (or by HWVX_AUTOINPUT) for pad
+ * 0: -1, 0, 1 per axis. PADClamp gives these the full gate value on each axis,
+ * so two keys make a full diagonal instead of the octagon's corner (40, 40),
+ * which the menus (|x| > 100 after Input_NGC's scaling) don't count. */
+static int s_keyStickX, s_keyStickY;
+
 /* Keyboard: arrows/WASD steer, Space/Z = A, X = B, C = X, V = Y, Enter = Start,
  * Q/E = L/R triggers, Shift = Z. */
 static void ReadKeyboard(PADStatus *st) {
@@ -234,6 +240,13 @@ u32 PADRead(struct PADStatus *status) {
     st[0].button |= AutoInput();
     if (s_autoStickX) st[0].stickX = (s8)s_autoStickX;
     if (s_autoStickY) st[0].stickY = (s8)s_autoStickY;
+    {
+        const bool *k = SDL_GetKeyboardState(NULL);
+        int kx = (k[SDL_SCANCODE_RIGHT] || k[SDL_SCANCODE_D]) - (k[SDL_SCANCODE_LEFT] || k[SDL_SCANCODE_A]);
+        int ky = (k[SDL_SCANCODE_UP] || k[SDL_SCANCODE_W]) - (k[SDL_SCANCODE_DOWN] || k[SDL_SCANCODE_S]);
+        s_keyStickX = s_autoStickX ? (s_autoStickX > 0 ? 1 : -1) : kx;
+        s_keyStickY = s_autoStickY ? (s_autoStickY > 0 ? 1 : -1) : ky;
+    }
     if (st[0].button) {
         st[0].err = PAD_ERR_NONE;
     }
@@ -288,6 +301,10 @@ void PADClamp(struct PADStatus *status) {
             continue;
         }
         ClampStick(&st[i].stickX, &st[i].stickY, 72, 40, 15);
+        if (i == 0) {   /* keyboard directions: full on each axis (see s_keyStickX) */
+            if (s_keyStickX) st[i].stickX = (s8)(72 * s_keyStickX);
+            if (s_keyStickY) st[i].stickY = (s8)(72 * s_keyStickY);
+        }
         ClampStick(&st[i].substickX, &st[i].substickY, 59, 31, 15);
         ClampTrigger(&st[i].triggerLeft, 30, 180);
         ClampTrigger(&st[i].triggerRight, 30, 180);
