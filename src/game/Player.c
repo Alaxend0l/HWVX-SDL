@@ -245,7 +245,10 @@ void Player_Heartbeat(void *arg0) {
             if (Player_IsHuman(player)) {
                 while (dist < 300.0f) {
                     a = GETP(thing->path[i]);
-                    b = GETP(thing->path[i + 1]);
+                    /* port: when the loop above passed all six segments of a
+                     * full path, i is 6 and the original reads path[7], past
+                     * the array (a garbage pointer); end the path there */
+                    b = i + 1 < 7 ? GETP(thing->path[i + 1]) : NULL;
                     if (a == NULL || b == NULL) {
                         if ((NavPoint *)PTR(g_TargetArrow[1]) != NULL) {
                             g_TargetArrow[2] = g_TargetArrow[1];
