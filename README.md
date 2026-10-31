@@ -118,16 +118,16 @@ Conventions:
   (this caused an integer division by zero, SIGFPE on x86 Linux, that ARM64
   silently ignores; `-fsanitize=integer-divide-by-zero` catches those on a Mac).
 
-Converted so far: things and items, tracers, collision types, slaves
-(`AnimHandler.c`), cars (`CarA.c`, `CarA_Stunts.c`, `CarA_Suspension.c`),
-AI and nav (`AI.c`, `AI_CarA.c`, `NavHolder.c`, most of `Creature.c`),
-projectiles, debris, attach things, destructibles and physical objects, and
-the world/trigger/action/ThingManager code. Headers for the rest are written
-but not yet applied: `Interface.h` (InterfaceManager.c), `Particle.h` /
-`WildCard.h` (ParticleManager.c, WildCard.c); still on offsets as well:
-`CarA_AR.c`, `Player.c`, `PlayerManager.c`, `CameraManager.c`,
-`AI_Creature.c`, `Looker.c`, `EventSequence.c`, `FileStreaming.c`,
-`Emitter.c`, `GameSettings.c`, `State_GamePlay.c` and the audio code.
+Converted so far: things and items, tracers, lookers, emitters, wildcard
+racks, pods, particles, collision types, slaves (`AnimHandler.c`), cars
+(`CarA.c` mostly, `CarA_Stunts.c`, `CarA_Suspension.c`), players and the
+player manager, cameras, AI and nav (`AI.c`, `AI_CarA.c`, `NavHolder.c`,
+most of `Creature.c`), projectiles, debris, attach things, destructibles and
+physical objects, the world/trigger/action/streaming/ThingManager code,
+`State_GamePlay.c` and the MCP. Still on offsets: `InterfaceManager.c`
+(`Interface.h` is written), `EventSequence.c`, `AI_Creature.c`,
+`GameSettings.c`, the audio code (`Voice_`, `MIDI`, `IT`, `SoundSequence`)
+and smaller leftovers.
 
 Restructured functions no longer match the decomp text, so
 `import_decomp.py --merge` will conflict on them; resolve those by hand.
