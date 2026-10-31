@@ -40,6 +40,7 @@ X = B, C = X, V = Y, Q/E = L/R, Shift = Z, Enter = Start.
 |------|------|
 | `src/game/` | Game sources imported from the decomp, patched for portability |
 | `src/game/include/game_protos.h` | Generated: one prototype per game function |
+| `src/game/include/Thing.h`, `Collision.h`, ... | Shared game structs (see "Game structs") |
 | `src/port/` | Platform layer replacing the Dolphin SDK |
 | `src/port/port.h` | Fixed-width types, endian helpers, 32-bit handles |
 | `src/port/sdk.h`, `gx.h` | The SDK API surface the game uses |
@@ -77,6 +78,65 @@ integer math on a handle.
 The build makes `-Wint-to-pointer-cast`, `-Wpointer-to-int-cast` and
 `-Wint-conversion` errors, so every place that squeezes a pointer into an
 integer, or the reverse, has to go through these.
+
+### Game structs instead of offsets
+
+The decomp reaches into objects by byte offset (`*(u32 *)(thing + 0x74)`).
+Those are being replaced by structs in `src/game/include/`, one shared
+definition per object, with `_Static_assert` on every known offset so a
+wrong layout fails to compile:
+
+| Header | What |
+|--------|------|
+| `Thing.h` | `Thing`, the 0xAC-byte header of every game object (velocity, transform, flags, slaves, vtable, list links); `ThingVSlot` + `THING_VFN` for vtable calls; `DebrisParams` |
+| `Collision.h` | `CollisionOBox` (the pooled oriented box), `CollisionInfo` (a contact) |
+| `ItemThing.h` | pickups: `ItemThing`, `ItemRecord`, `ItemParams` |
+| `CarA.h` | cars, players, `MotionState`, cameras |
+| `World.h`, `Trigger.h`, `ThingManager.h` | the world (tiles, teleporters, volumes, quads), triggers/actions, thing pools |
+| `AI.h`, `Nav.h`, `Creature.h` | AI drivers, nav points, creatures |
+| `Projectile.h`, `Debris.h`, `AttachThing.h`, `Destructible.h`, `KeyState.h` | weapons and effects |
+| `Interface.h`, `Particle.h`, `WildCard.h` | menus/HUD (interfaces, their objects and definitions), particles, wildcard racks |
+| `Gfx.h` | render window and state, geometry, queued 2D rectangles (`GDLRect`) |
+
+Conventions:
+
+- An object kind embeds the header as its first member: `Thing base;`
+  (`Destructible`, `ItemThing`, `TracerThing`...); pass `&x->base` (or the
+  object itself) where a `Thing *` is wanted.
+- The world transform is `Vector4 mtxRows[4]` inside `Thing` (a `Matrix4`
+  member would pad the struct to 0xB0); use `THING_MTX(t)` for the matrix and
+  `t->pos` / `t->axis[i]` for its rows.
+- Vtable calls: `THING_VFN(t, THING_V_MOVE, void (*)(Thing *))(t)`, not
+  `SLOT_LOAD(void *, vtable + 0xC)`.
+- Name a field only from what the code does with it; keep `unkXX` / `padXX`
+  (with the offset in the comment) when that isn't clear. Note quirks of the
+  original rather than fixing them, and mark deliberate deviations with
+  `port:` (e.g. a value the original read from an uninitialised register).
+- After changing signatures, regenerate `game_protos.h`
+  (`tools/gen_protos.py`).
+- After giving a pointer field a struct type, run `tools/check_ptr_offsets.py`:
+  leftover `GETP(x->field) + 0x24` byte offsets would now step whole structs
+  (this caused an integer division by zero, SIGFPE on x86 Linux, that ARM64
+  silently ignores; `-fsanitize=integer-divide-by-zero` catches those on a Mac).
+- `tools/offsets_to_fields.py` rewrites a function's byte offsets into field
+  accesses from the layouts clang computes (`-Xclang -fdump-record-layouts`);
+  read its diff, since it trusts the variable types it is given.
+
+Status: every game file uses structs. `tools/check_ptr_offsets.py --bytes`
+lists the byte offsets still used as struct accesses; it reports only
+`data_gen.c` (generated tables) and `Port_Swap.c` (which walks raw big-endian
+pack data on purpose). Some globals are still declared as byte arrays in
+`data_gen.c` and given their type by a `#define` in the function using them.
+
+Shared layouts live in the headers: `Thing.h`, `CarA.h` (cars, players),
+`Motion.h` (animated models and `MotionState`), `World.h`, `Collision.h`,
+`AI.h`, `Creature.h`, `Gfx.h` (render window and state, geometry),
+`Shader.h`, `Voice.h`, `IT.h`, `SoundSequence.h`, `Interface.h`, and the
+rest of `common.h`. Before writing a local `typedef struct` view of an
+object, check whether one of them already has it.
+
+Restructured functions no longer match the decomp text, so
+`import_decomp.py --merge` will conflict on them; resolve those by hand.
 
 ### Big-endian data
 
@@ -158,9 +218,9 @@ fixes (the script prints the command).
 
 ## Status
 
-Work in progress: it boots to the title screen, the menus work with gamepad
-or keyboard, and choosing One Player loads the first mission and creates the
-cars; it currently stops while running the level's scripted triggers/actions.
+Work in progress: it plays the intro movies, boots to the title screen, the
+menus work with gamepad or keyboard, and races (including the attract-mode
+demo) run with graphics, sound and music.
 
 - [x] Build system, platform layer: window/GL context, VI frame pacing,
       threads, heap arena + handles, DVD → data dir, CARD → save files,
@@ -178,8 +238,9 @@ cars; it currently stops while running the level's scripted triggers/actions.
 - [x] GX → OpenGL renderer: FIFO/display-list vertex decoding, all texture
       formats, matrices, texgen, lighting channels, TEV, blending, fog
       (no render-to-texture or indirect texturing yet)
-- [ ] Music: the MIDI/IT players read big-endian RIFX data; disabled for now
-- [ ] THP movies (skipped for now), aux-bus reverb, ADPCM
+- [x] Music
+- [x] THP movies
+- [ ] Aux-bus reverb, ADPCM
 - [ ] Logitech wheels / force feedback via SDL haptics (no wheel reported yet)
 - [ ] IPL ROM font for the debug text printer (empty font for now)
 

@@ -2,8 +2,9 @@
  * src/port on top of SDL3 (window, input, audio) and OpenGL.
  *
  * Signatures follow the real SDK; enum parameters are plain integers. Structs
- * the game defines itself (AXVPB, PADStatus, CARDStat, ...) are only referred
- * to by tag here so the game's own layouts stay authoritative.
+ * the game defines itself (PADStatus, CARDStat, ...) are only referred to by
+ * tag here so the game's own layouts stay authoritative. AXVPB is defined
+ * here: the game (Voice_.c) writes it and the port's mixer (ax.c) reads it.
  */
 #ifndef SDK_H
 #define SDK_H
@@ -26,7 +27,6 @@ typedef f32 (*MtxPtr)[4];
 typedef s64 OSTime;
 typedef u32 OSTick;
 
-struct AXVPB;
 struct PADStatus;
 struct CARDStat;
 struct CARDFileInfo;
@@ -238,6 +238,90 @@ void ARQPostRequest(void *task, u32 owner, u32 type, u32 priority, u32 source, u
 void ARQFlushQueue(void);
 /* ARAM is emulated in host memory; port helper to reach it. */
 u8 *Port_ARAMBase(void);
+
+/* An AX voice parameter block, in the GameCube SDK layout of the game's era
+ * (the DSP's AXPB at 0x138). On the DSP every address and the resampling ratio
+ * are hi/lo u16 pairs; the game stores them as one u32 and so does the port, in
+ * host order, so the struct is packed to keep those u32s at their offsets. */
+typedef struct __attribute__((packed, aligned(4))) AXVPB {
+    PTR32(struct AXVPB) next;   /* 0x000 */
+    PTR32(struct AXVPB) prev;   /* 0x004 */
+    PTR32(struct AXVPB) next1;  /* 0x008 */
+    u32 priority;               /* 0x00C */
+    PTR32(void) callback;       /* 0x010 */
+    u32 userContext;            /* 0x014 */
+    u32 index;                  /* 0x018 */
+    u32 sync;                   /* 0x01C AX_SYNC_*: fields the DSP must pick up */
+    u32 depop;                  /* 0x020 */
+    u32 updateMS;               /* 0x024 */
+    u32 updateCounter;          /* 0x028 */
+    u32 updateTotal;            /* 0x02C */
+    PTR32(u16) updateWrite;     /* 0x030 */
+    u16 updateData[128];        /* 0x034 */
+    PTR32(void) itdBuffer;      /* 0x134 */
+    /* AXPB, as the DSP sees it */
+    u16 nextHi, nextLo;         /* 0x138 */
+    u16 currHi, currLo;         /* 0x13C */
+    u16 srcSelect;              /* 0x140 AX_SRC_TYPE_*: 0 none, 1 linear, 2 4-tap */
+    u16 coefSelect;             /* 0x142 */
+    u16 mixerCtrl;              /* 0x144 */
+    u16 state;                  /* 0x146 1: playing */
+    u16 type;                   /* 0x148 */
+    s16 vL, vDeltaL;            /* 0x14A volumes, 1.15 */
+    s16 vR, vDeltaR;            /* 0x14E */
+    s16 vAuxAL, vDeltaAuxAL;    /* 0x152 */
+    s16 vAuxAR, vDeltaAuxAR;    /* 0x156 */
+    s16 vAuxBL, vDeltaAuxBL;    /* 0x15A */
+    s16 vAuxBR, vDeltaAuxBR;    /* 0x15E */
+    s16 vAuxBS, vDeltaAuxBS;    /* 0x162 */
+    s16 vS, vDeltaS;            /* 0x166 */
+    s16 vAuxAS, vDeltaAuxAS;    /* 0x16A */
+    u16 itd[7];                 /* 0x16E */
+    u16 update[7];              /* 0x17C */
+    u16 dpop[9];                /* 0x18A */
+    u16 ve;                     /* 0x19C envelope volume */
+    s16 veDelta;                /* 0x19E */
+    u16 fir[3];                 /* 0x1A0 */
+    u16 loopFlag;               /* 0x1A6 */
+    u16 format;                 /* 0x1A8 AX_FORMAT_* */
+    u32 loopAddress;            /* 0x1AA in samples (ADPCM: nibbles) */
+    u32 endAddress;             /* 0x1AE last sample */
+    u32 currentAddress;         /* 0x1B2 */
+    u16 adpcmCoefs[16];         /* 0x1B6 */
+    u16 gain;                   /* 0x1D6 */
+    u16 predScale;              /* 0x1D8 */
+    s16 yn1, yn2;               /* 0x1DA */
+    u32 ratio;                  /* 0x1DE 16.16 step per output sample */
+    u16 currentAddressFrac;     /* 0x1E2 */
+    s16 lastSamples[4];         /* 0x1E4 */
+    u16 loopPredScale;          /* 0x1EC */
+    s16 loopYn1, loopYn2;       /* 0x1EE */
+    u16 pad1F2[3];              /* 0x1F2 */
+} AXVPB;
+_Static_assert(__builtin_offsetof(AXVPB, mixerCtrl) == 0x144, "AXVPB.mixerCtrl");
+_Static_assert(__builtin_offsetof(AXVPB, vL) == 0x14A, "AXVPB.vL");
+_Static_assert(__builtin_offsetof(AXVPB, vAuxBR) == 0x15E, "AXVPB.vAuxBR");
+_Static_assert(__builtin_offsetof(AXVPB, ve) == 0x19C, "AXVPB.ve");
+_Static_assert(__builtin_offsetof(AXVPB, currentAddress) == 0x1B2, "AXVPB.currentAddress");
+_Static_assert(__builtin_offsetof(AXVPB, gain) == 0x1D6, "AXVPB.gain");
+_Static_assert(__builtin_offsetof(AXVPB, ratio) == 0x1DE, "AXVPB.ratio");
+_Static_assert(__builtin_offsetof(AXVPB, lastSamples) == 0x1E4, "AXVPB.lastSamples");
+_Static_assert(sizeof(AXVPB) == 0x1F8, "AXVPB size");
+
+/* AXVPB.sync */
+#define AX_SYNC_SELECT 0x1
+#define AX_SYNC_MIXERCTRL 0x2
+#define AX_SYNC_STATE 0x4
+#define AX_SYNC_MIX 0x10
+#define AX_SYNC_ADDR 0x1000
+#define AX_SYNC_ADPCM 0x20000
+#define AX_SYNC_SRC 0x40000
+#define AX_SYNC_RATIO 0x80000
+
+/* AXVPB.format */
+#define AX_FORMAT_ADPCM 0x00
+#define AX_FORMAT_PCM16 0x0A
+#define AX_FORMAT_PCM8 0x19
 
 typedef void (*AXCallback)(void);
 typedef void (*AXAuxCallback)(void *data, void *context);

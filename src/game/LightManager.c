@@ -25,18 +25,18 @@ static inline s8 LightManager_AddThing(CarA *thing, u32 numSteps) {
     static u32 offsetCount;
 
     if (g_numThingsToLight >= 0x400) {
-        thing->lightIndex = -1;
+        ((Thing *)(thing))->lightIndex = -1;
         return 0;
     }
-    if (thing->lightIndex < g_numThingsToLight && GETP(g_ThingLightingData[thing->lightIndex].thing) == thing) {
-        g_ThingLightingData[thing->lightIndex].dirty = 1;
+    if (((Thing *)(thing))->lightIndex < g_numThingsToLight && GETP(g_ThingLightingData[((Thing *)(thing))->lightIndex].thing) == thing) {
+        g_ThingLightingData[((Thing *)(thing))->lightIndex].dirty = 1;
         return 1;
     }
     SETP(g_ThingLightingData[g_numThingsToLight].thing, thing);
     g_ThingLightingData[g_numThingsToLight].numSteps = numSteps;
     g_ThingLightingData[g_numThingsToLight].step = offsetCount % numSteps;
     g_ThingLightingData[g_numThingsToLight].dirty = 1;
-    thing->lightIndex = g_numThingsToLight;
+    ((Thing *)(thing))->lightIndex = g_numThingsToLight;
     g_numThingsToLight++;
     offsetCount += 5;
     if (offsetCount == 0xFFFFFFFF) {
@@ -135,8 +135,8 @@ void LightManager_LightThing(CarA *thing) {
     }
     *(u32 *)&ambient = 0;
     *(u32 *)&parallel = 0;
-    if (thing->lightIndex >= g_numThingsToLight || GETP(g_ThingLightingData[thing->lightIndex].thing) != thing) {
-        if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
+    if (((Thing *)(thing))->lightIndex >= g_numThingsToLight || GETP(g_ThingLightingData[((Thing *)(thing))->lightIndex].thing) != thing) {
+        if ((u8 *)GETP(thing->base.vtable) == g_carAVTable) {
             tracked = LightManager_AddThing(thing, 10);
         } else {
             tracked = LightManager_AddThing(thing, 0xFFFFFFFF);
@@ -144,10 +144,10 @@ void LightManager_LightThing(CarA *thing) {
         isNew = 1;
     }
     if (tracked) {
-        data = &g_ThingLightingData[thing->lightIndex];
+        data = &g_ThingLightingData[((Thing *)(thing))->lightIndex];
     }
     if (isNew || data->dirty || data->step == data->numSteps) {
-        cell = VolumeManager_GetVolumeCellIndex(&thing->worldMatrix.v[3]);
+        cell = VolumeManager_GetVolumeCellIndex(&thing->base.pos);
         numVolumes = VolumeManager_GetNumVolumesOfTypeByCell(6, cell);
         r = g_ambientColor.r;
         g = g_ambientColor.g;
@@ -158,7 +158,7 @@ void LightManager_LightThing(CarA *thing) {
         }
         for (i = 0; i < numVolumes; i++) {
             volume = PTR(VolumeManager_GetVolumeTypeByIndexByCell(6, i, cell));
-            if (IsPointWithinVolume(&thing->worldMatrix.v[3], volume, &dist)) {
+            if (IsPointWithinVolume(&thing->base.pos, volume, &dist)) {
                 light = GETP(volume->light);
                 if (volume->falloff == 0 || dist < volume->innerDist) {
                     if (light->type == 3) {
@@ -280,7 +280,7 @@ void LightManager_LightThing(CarA *thing) {
         }
         g = b = r = 100.0f;
         for (i = 0; i < g_numDirectionalLights; i++) {
-            normal = thing->worldMatrix.v[2];
+            normal = thing->base.axis[2];
             f = PSVECDotProduct(g_directionalLights[i], &normal);
             if (f <= 0.0f) {
                 continue;
@@ -425,11 +425,11 @@ void LightManager_LightThing(CarA *thing) {
     if (tracked) {
         Gfx_SetAmbientColor(&data->ambient);
         Gfx_SetParallelLight(&data->parallel, NULL);
-        LightHolder_SetRenderState(&thing->worldMatrix.v[3]);
+        LightHolder_SetRenderState(&thing->base.pos);
         return;
     }
     Gfx_SetAmbientColor(&ambient);
     Gfx_SetParallelLight(&parallel, NULL);
-    LightHolder_SetRenderState(&thing->worldMatrix.v[3]);
+    LightHolder_SetRenderState(&thing->base.pos);
 }
 

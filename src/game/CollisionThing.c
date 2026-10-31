@@ -1,39 +1,8 @@
 #include "common.h"
+#include "CarA.h"
 
 
-typedef struct OBoxHolder {
-    Vector4 v[3];                 /* 0x00 */
-    u8 pad30[0x9D - 0x30];        /* 0x30 */
-    s8 inUse;                     /* 0x9D */
-    u8 pad9E[0xF0 - 0x9E];        /* 0x9E */
-} OBoxHolder;
-
-/* an oriented box as the segment tests see it: corners, half extents,
-   axes and the box's projections onto its own axes */
-typedef struct CollisionOBox {
-    Vector4 center;               /* 0x00 */
-    Vector4 corners[8];           /* 0x10 */
-    f32 extent[3];                /* 0x90 */
-    u8 pad9C[4];                  /* 0x9C */
-    PTR32(Vector4) axis[3];             /* 0xA0 */
-    u8 padAC[4];                  /* 0xAC */
-    f32 centerProj[3];            /* 0xB0 */
-    u8 padBC[4];                  /* 0xBC */
-    f32 velProj[3];               /* 0xC0 */
-    u32 unkCC;                    /* 0xCC */
-} CollisionOBox;
-
-typedef struct CollisionInfo {
-    Vector4 pos;
-    Vector4 normal;
-    s32 unk20;
-    s32 unk24;
-    u32 material;
-    u8 pad2C[0x40 - 0x2C];
-    u8 type;
-} CollisionInfo;
-
-extern OBoxHolder g_aOBox[0x200];
+extern CollisionOBox g_aOBox[0x200];
 extern OConvexHull g_aOConvexHull[8];
 extern CollisionPair g_aCollisionPairCache[4];
 extern s32 g_iDeltaTimeMS;
@@ -78,7 +47,7 @@ void OBoxHolder_Init(void)
     }
 }
 
-OBoxHolder *OBoxHolder_Get(void) {
+CollisionOBox *OBoxHolder_Get(void) {
     u32 i;
 
     for (i = 0; i < 0x200; i++) {
@@ -91,7 +60,7 @@ OBoxHolder *OBoxHolder_Get(void) {
     return NULL;
 }
 
-void OBoxHolder_Release(OBoxHolder *obox) {
+void OBoxHolder_Release(CollisionOBox *obox) {
     if (obox != NULL) {
         obox->inUse = 0;
     }
@@ -142,7 +111,7 @@ f32 RayBoxTest(Vector4 *start, Vector4 *dir, Vector4 *box, f32 t, Vector4 *hit) 
     return frac;
 }
 
-f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32 t, u8 *hit) {
+f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32 t, CollisionInfo *hit) {
     Vector4 end __attribute__((aligned(16)));
     Vector4 seg __attribute__((aligned(16)));
     Vector4 toCenter __attribute__((aligned(16)));
@@ -161,10 +130,10 @@ f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32
     PSVECSubtract(center, start, &toCenter);
     if (PSVECSquareMag(&toCenter) < radiusSq) {
         if (hit != NULL) {
-            *(Vector4 *)hit = *start;
-            PSVECSubtract((Vector4 *)hit, center, (Vector4 *)(hit + 0x10));
-            if (PSVECSquareMag((Vector4 *)(hit + 0x10))) {
-                PSVECNormalize((Vector4 *)(hit + 0x10), (Vector4 *)(hit + 0x10));
+            hit->pos = *start;
+            PSVECSubtract(&hit->pos, center, &hit->normal);
+            if (PSVECSquareMag(&hit->normal)) {
+                PSVECNormalize(&hit->normal, &hit->normal);
             }
         }
         return 0.0f;
@@ -200,12 +169,12 @@ f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32
         return t;
     }
     if (hit != NULL) {
-        ((Vector4 *)hit)->x = dist * dir->x + start->x;
-        ((Vector4 *)hit)->y = dist * dir->y + start->y;
-        ((Vector4 *)hit)->z = dist * dir->z + start->z;
-        PSVECSubtract((Vector4 *)hit, center, (Vector4 *)(hit + 0x10));
-        if (PSVECSquareMag((Vector4 *)(hit + 0x10))) {
-            PSVECNormalize((Vector4 *)(hit + 0x10), (Vector4 *)(hit + 0x10));
+        hit->pos.x = dist * dir->x + start->x;
+        hit->pos.y = dist * dir->y + start->y;
+        hit->pos.z = dist * dir->z + start->z;
+        PSVECSubtract(&hit->pos, center, &hit->normal);
+        if (PSVECSquareMag(&hit->normal)) {
+            PSVECNormalize(&hit->normal, &hit->normal);
         }
     }
     return dist;
@@ -256,7 +225,9 @@ static inline f32 RayBoxTestLocal(Vector4 *start, Vector4 *dir, Vector4 *box, f3
     return t;
 }
 
-f32 PhysicalProperties_CollideWithRay(u8 *props, void *mtx, Vector4 *start, Vector4 *dir, f32 t, u8 *hit) {
+/* A ray against a collider in mtx's space: a box (type 0), a convex hull (1:
+ * never hits here) or spheres (7). */
+f32 PhysicalProperties_CollideWithRay(CarACollider *props, void *mtx, Vector4 *start, Vector4 *dir, f32 t, CollisionInfo *hit) {
     typedef struct RayHit {
         Vector4 pos;
         Vector4 normal;
@@ -264,9 +235,9 @@ f32 PhysicalProperties_CollideWithRay(u8 *props, void *mtx, Vector4 *start, Vect
     } RayHit;
     f32 result = t;
 
-    switch (props[0x10]) {
+    switch (props->type) {
     case 0: {
-        Vector4 *box = SLOT_LOAD(Vector4 *, (props + 0x44));
+        Vector4 *box = GETP(props->box);
         Vector4 localDir __attribute__((aligned(16)));
         Vector4 localStart __attribute__((aligned(16)));
         RayHit localHit __attribute__((aligned(16)));
@@ -275,9 +246,9 @@ f32 PhysicalProperties_CollideWithRay(u8 *props, void *mtx, Vector4 *start, Vect
         InverseXformVecOrientation(mtx, dir, &localDir);
         result = RayBoxTestLocal(&localStart, &localDir, box, t, &localHit.pos);
         if (hit != NULL && result < t) {
-            XformVec(mtx, &localHit.pos, (Vector4 *)hit);
-            XformVecOrientation(mtx, &localHit.normal, (Vector4 *)(hit + 0x10));
-            *(s32 *)(hit + 0x28) = *(s32 *)(props + 0x30);
+            XformVec(mtx, &localHit.pos, &hit->pos);
+            XformVecOrientation(mtx, &localHit.normal, &hit->normal);
+            hit->material = props->material.h;
         }
         break;
     }
@@ -290,25 +261,25 @@ f32 PhysicalProperties_CollideWithRay(u8 *props, void *mtx, Vector4 *start, Vect
         InverseXformVec(mtx, start, &localStart);
         InverseXformVecOrientation(mtx, dir, &localDir);
         if (hit != NULL && d < t) {
-            XformVec(mtx, &localHit.pos, (Vector4 *)hit);
-            XformVecOrientation(mtx, &localHit.normal, (Vector4 *)(hit + 0x10));
-            *(s32 *)(hit + 0x28) = *(s32 *)(props + 0x30);
+            XformVec(mtx, &localHit.pos, &hit->pos);
+            XformVecOrientation(mtx, &localHit.normal, &hit->normal);
+            hit->material = props->material.h;
         }
         break;
     }
     case 7: {
-        u32 *list = SLOT_LOAD(u32 *, (props + 0x44));
+        CollisionSpheres *list = GETP(props->spheres);
         u32 i;
         Vector4 center __attribute__((aligned(16)));
         f32 d;
 
-        for (i = 0; i < list[0]; i++) {
-            Vector4 *sphere = (Vector4 *)PTR((list[1] + i * 0x20));
-            XformVec(mtx, sphere, &center);
-            d = RaySphereTest(start, dir, &center, sphere[1].x, result, hit);
+        for (i = 0; i < list->count; i++) {
+            CollisionSphere *sphere = &GETP(list->list)[i];
+            XformVec(mtx, &sphere->center, &center);
+            d = RaySphereTest(start, dir, &center, sphere->radius.x, result, hit);
             if (hit != NULL && d < result) {
                 result = d;
-                *(s32 *)(hit + 0x28) = *(s32 *)(props + 0x30);
+                hit->material = props->material.h;
             }
         }
         break;
@@ -994,7 +965,7 @@ f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, Co
     if (hit != NULL && da.tEnter < maxT) {
         hit->type = type;
         hit->material = 0;
-        box->unkCC = 0;
+        box->cachedPoly = 0;
         switch (type) {
         case 1:
             hit->pos = seg[vert];

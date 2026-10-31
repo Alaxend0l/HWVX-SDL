@@ -1,5 +1,10 @@
+/* The world: loading state, quadrant visibility and rendering, accessors for
+ * its records (World.h), and the script functions for its items, variables
+ * and timers. */
 #include "common.h"
-
+#include "World.h"
+#include "Trigger.h"
+#include "ThingManager.h"
 
 
 s32 World_Create(void) {
@@ -12,7 +17,7 @@ s32 World_Create(void) {
 }
 
 void World_Destroy(void) {
-    if (GETP(g_worldData.world) != NULL) {
+    if (WORLD() != NULL) {
         World_Unload();
     }
 }
@@ -22,28 +27,15 @@ void World_Init(void) {
     World_ClearSweep();
 }
 
+/* Applies the world's envmap, fog, music and far plane. */
 void World_Refresh(void) {
-    typedef struct WorldGameData {
-        u8 unk0[0xC];
-        f32 envmapX;
-        f32 envmapY;
-        f32 fogStart;
-        f32 fogEnd;
-        u8 unk1C[0x4];
-        f32 farPlane;
-        u8 unk24[0x8C - 0x24];
-        u32 envmapA;
-        u32 envmapB;
-        u8 unk94[0xC0 - 0x94];
-        PTR32(GXColor) fogColor;
-    } WorldGameData;
     WorldGameData *gameData = World_GetGameData();
     GXColor color;
 
     if (gameData != NULL) {
         Gfx_SetEnvmap(gameData->envmapA, gameData->envmapB, 1, gameData->envmapX, gameData->envmapY);
         color = *GETP(gameData->fogColor);
-        Gfx_SetFog(&color, 0, gameData->fogStart, gameData->fogEnd);
+        Gfx_SetFog(&color, 0, gameData->fogNear, gameData->fogFar);
         SongManager_PlaySong();
         Gfx_SetFarClippingPlane(gameData->farPlane);
     } else {
@@ -64,33 +56,34 @@ void World_Unload(void) {
     FileStreaming_ReleaseAllDataPacks(1, 1);
     FileStreaming_ReleaseAllDataPacks(9, 1);
     SETP(g_worldData.world, NULL);
-    g_worldData.unk8[0] = 0;
-    g_worldData.unk8[1] = 0;
-    g_worldData.unk8[2] = 0;
+    g_worldData.worldPack = 0;
+    g_worldData.collisionPack = 0;
+    g_worldData.quadPack = 0;
     VolumeManager_Release();
     color[1] = 0;
     color[0] = 0;
     Gfx_SetFog((GXColor *)color, 0, 1.0f, 0.0f);
 }
 
+/* Marks the quadrant a camera is in and its neighbours visible. */
+static inline void World_ShowQuadrant(World *world, WorldQuad *quad) {
+    u32 j;
+
+    quad->visible = 1;
+    for (j = 0; j < quad->numNeighbors; j++) {
+        GETP(world->quads)[GETP(quad->neighbors)[j]].visible = 1;
+    }
+}
+
+/* Finds each camera's quadrant (keeping last frame's while the camera stays
+ * in it or moves to a neighbour), sets the volume reverb/fog for the
+ * cameras, renders the visible loaded quadrants and the world quadrant, and
+ * streams in the visible ones not loaded yet (in the loading thread unless a
+ * camera had to search all quadrants). */
 void World_Render(void) {
-    typedef struct Quad {
-        u8 pad0[0x1C];
-        PTR32(void) bsp;
-        u32 numNeighbors;
-        PTR32(u32) neighbors;
-        u8 pad28[0x34 - 0x28];
-        s8 loaded;
-        s8 visible;
-        u8 pad36[0x50 - 0x36];
-    } Quad;
-    typedef struct QuadWorld {
-        u8 pad[0x20];
-        u32 numQuads;
-        PTR32(Quad) quads;
-    } QuadWorld;
-    static Quad *pCurrentQuadrant[5];
-    static Quad *pWorldQuadrant;
+    static WorldQuad *pCurrentQuadrant[5];
+    static WorldQuad *pWorldQuadrant;
+    World *world = WORLD();
     u32 numLoad = 0;
     u32 numActive = 0;
     s8 threaded = 1;
@@ -98,19 +91,19 @@ void World_Render(void) {
     u32 i;
     u32 j;
     u32 count;
-    Quad *quad;
-    Quad *load[20];
-    Quad *active[20];
+    WorldQuad *quad;
+    WorldQuad *load[20];
+    WorldQuad *active[20];
     Vector4 positions[5] __attribute__((aligned(16)));
 
-    if (GETP(g_worldData.world) == NULL) {
+    if (world == NULL) {
         return;
     }
-    if (*(s8 *)&g_worldData.unk8[3]) {
-        *(s8 *)&g_worldData.unk8[3] = 0;
-        for (i = 0; i < ((QuadWorld *)GETP(g_worldData.world))->numQuads; i++) {
-            if (GETP(GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].bsp) == NULL) {
-                pWorldQuadrant = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i];
+    if (g_worldData.resetQuads) {
+        g_worldData.resetQuads = 0;
+        for (i = 0; i < world->numQuads; i++) {
+            if (GETP(GETP(world->quads)[i].bsp) == NULL) {
+                pWorldQuadrant = &GETP(world->quads)[i];
                 break;
             }
         }
@@ -122,22 +115,19 @@ void World_Render(void) {
         pCurrentQuadrant[3] = NULL;
         pCurrentQuadrant[4] = NULL;
     }
-    for (i = 0; i < ((QuadWorld *)GETP(g_worldData.world))->numQuads; i++) {
-        GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].visible = 0;
+    for (i = 0; i < world->numQuads; i++) {
+        GETP(world->quads)[i].visible = 0;
     }
     numCameras = Gfx_GetCameraPositions(positions);
     for (i = 0; i < numCameras; i++) {
         VolumeManager_SetReverbLevel(&positions[i]);
         VolumeManager_SetFogLevel(&positions[i]);
         if (pCurrentQuadrant[i] != NULL && BSPN0_CollideWithVector(GETP(pCurrentQuadrant[i]->bsp), &positions[i])) {
-            pCurrentQuadrant[i]->visible = 1;
-            for (j = 0; j < pCurrentQuadrant[i]->numNeighbors; j++) {
-                GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]].visible = 1;
-            }
+            World_ShowQuadrant(world, pCurrentQuadrant[i]);
         } else if (pCurrentQuadrant[i] != NULL) {
             count = pCurrentQuadrant[i]->numNeighbors;
             for (j = 0; j < count; j++) {
-                quad = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]];
+                quad = &GETP(world->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]];
                 if (BSPN0_CollideWithVector(GETP(quad->bsp), &positions[i])) {
                     pCurrentQuadrant[i] = quad;
                     break;
@@ -146,36 +136,31 @@ void World_Render(void) {
             if (j == count) {
                 pCurrentQuadrant[i] = NULL;
             } else {
-                pCurrentQuadrant[i]->visible = 1;
-                for (j = 0; j < pCurrentQuadrant[i]->numNeighbors; j++) {
-                    GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]].visible = 1;
-                }
+                World_ShowQuadrant(world, pCurrentQuadrant[i]);
             }
         }
         if (pCurrentQuadrant[i] == NULL) {
             threaded = 0;
-            for (j = 0; j < ((QuadWorld *)GETP(g_worldData.world))->numQuads; j++) {
-                quad = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[j];
+            for (j = 0; j < world->numQuads; j++) {
+                quad = &GETP(world->quads)[j];
                 if (quad != pWorldQuadrant && BSPN0_CollideWithVector(GETP(quad->bsp), &positions[i])) {
                     pCurrentQuadrant[i] = quad;
                     break;
                 }
             }
             if (pCurrentQuadrant[i] != NULL) {
-                pCurrentQuadrant[i]->visible = 1;
-                for (j = 0; j < pCurrentQuadrant[i]->numNeighbors; j++) {
-                    GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[GETP(pCurrentQuadrant[i]->neighbors)[j]].visible = 1;
-                }
+                World_ShowQuadrant(world, pCurrentQuadrant[i]);
             }
         }
     }
-    for (i = 0; i < ((QuadWorld *)GETP(g_worldData.world))->numQuads; i++) {
-        if (GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].visible) {
-            active[numActive++] = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i];
-            if (!GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i].loaded) {
-                load[numLoad++] = &GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i];
+    for (i = 0; i < world->numQuads; i++) {
+        quad = &GETP(world->quads)[i];
+        if (quad->visible) {
+            active[numActive++] = quad;
+            if (!quad->loaded) {
+                load[numLoad++] = quad;
             } else {
-                RenderQuadrant(&GETP(((QuadWorld *)GETP(g_worldData.world))->quads)[i]);
+                RenderQuadrant((u8 *)quad);
             }
         }
     }
@@ -184,201 +169,192 @@ void World_Render(void) {
         FileStreaming_LoadQuadPacks((void **)load, numLoad, threaded);
     }
     if (pWorldQuadrant != NULL && pWorldQuadrant->loaded) {
-        RenderQuadrant(pWorldQuadrant);
+        RenderQuadrant((u8 *)pWorldQuadrant);
     } else if (pWorldQuadrant != NULL) {
         FileStreaming_LoadQuadPacks((void **)&pWorldQuadrant, 1, 0);
     }
 }
 
 u32 World_GetTotalTiles_Car(void) {
-    return M2C_FIELD(GETP(g_worldData.world), u32 *, 0x8);
+    return WORLD()->numTileCars;
 }
 
 u32 World_GetTotalTiles_Creature(void) {
-    return M2C_FIELD(GETP(g_worldData.world), u32 *, 0x40);
+    return WORLD()->numTileCreatures;
 }
 
+/* The tile accessors return NULL past the end. */
 void *World_GetTileCar(u32 index) {
-    void *world = GETP(g_worldData.world);
-    if (index < M2C_FIELD(world, u32 *, 0x8)) {
-        return SLOT_LOAD(u8 *, (u8 *)(world) + 0xC) + index * 0x60;
+    World *world = WORLD();
+    if (index < world->numTileCars) {
+        return &GETP(world->tileCars)[index];
     }
     return NULL;
 }
 
 void *World_GetTileCreature(u32 index) {
-    void *world = GETP(g_worldData.world);
-    if (index < M2C_FIELD(world, u32 *, 0x40)) {
-        return SLOT_LOAD(u8 *, (u8 *)(world) + 0x44) + index * 0x40;
+    World *world = WORLD();
+    if (index < world->numTileCreatures) {
+        return &GETP(world->tileCreatures)[index];
     }
     return NULL;
 }
 
 void *World_GetTilePath(u32 index) {
-    if (index < M2C_FIELD(GETP(g_worldData.world), u32 *, 0x10)) {
-        return SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x14) + index * 0x20;
+    if (index < WORLD()->numTilePaths) {
+        return &GETP(WORLD()->tilePaths)[index];
     }
     return NULL;
 }
 
 void *World_GetTileSpeaker(u32 index) {
-    if (index < M2C_FIELD(GETP(g_worldData.world), u32 *, 0x28)) {
-        return SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x2C) + index * 0x40;
+    if (index < WORLD()->numSpeakers) {
+        return &GETP(WORLD()->speakers)[index];
     }
     return NULL;
 }
 
 void *World_GetTileLight(u32 index) {
-    if (index < M2C_FIELD(GETP(g_worldData.world), u32 *, 0x38)) {
-        return SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x3C) + index * 0x20;
+    if (index < WORLD()->numTileLights) {
+        return &GETP(WORLD()->tileLights)[index];
     }
     return NULL;
 }
 
 void *World_GetVolume(u32 index) {
-    void *world = GETP(g_worldData.world);
-    if (index < M2C_FIELD(world, u32 *, 0x68)) {
-        return SLOT_LOAD(u8 *, (u8 *)(world) + 0x6C) + index * 0x30;
+    World *world = WORLD();
+    if (index < world->numVolumes) {
+        return &GETP(world->volumes)[index];
     }
     return NULL;
 }
 
 void *World_GetNavHolder(void) {
-    return SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x78);
+    return GETP(WORLD()->nav);
 }
 
 void *World_GetGameData(void) {
-    void *world = GETP(g_worldData.world);
+    World *world = WORLD();
     if (world != NULL) {
-        return SLOT_LOAD(void *, (u8 *)(world) + 0x9C);
+        return GETP(world->gameData);
     }
     return NULL;
 }
 
+/* Clears the sweep stamps of the collision polys (mode 0) or edges (mode 1)
+ * and restarts the stamp at 1. */
 void World_ClearSweep(void) {
     u32 i;
-    void *data;
+    WorldCollision *collision;
 
-    data = SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0);
-    if (M2C_FIELD(data, u32 *, 0x58) == 0) {
-        for (i = 0; i < M2C_FIELD(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0), u32 *, 0x48); i++) {
-            M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0)) + 0x4C) + i * 0x20, s32 *, 0x18) = 0;
+    collision = GETP(WORLD()->collision);
+    if (collision->mode == 0) {
+        for (i = 0; i < GETP(WORLD()->collision)->numPolys; i++) {
+            GETP(GETP(WORLD()->collision)->polys)[i].sweep = 0;
         }
-    } else if (M2C_FIELD(data, u32 *, 0x58) == 1) {
-        for (i = 0; i < M2C_FIELD(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0), u32 *, 0x50); i++) {
-            M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(void *, (u8 *)(GETP(g_worldData.world)) + 0x0)) + 0x54) + i * 0x30, s32 *, 0x20) = 0;
+    } else if (collision->mode == 1) {
+        for (i = 0; i < GETP(WORLD()->collision)->numEdges; i++) {
+            GETP(GETP(WORLD()->collision)->edges)[i].sweep = 0;
         }
     }
-    g_worldData.unk4 = 1;
+    g_worldData.sweep = 1;
 }
 
+/* Next sweep stamp; on wrap-around the stamps are cleared. */
 void World_NextSweep(void) {
-    if (++g_worldData.unk4 == 0) {
+    if (++g_worldData.sweep == 0) {
         World_ClearSweep();
     }
 }
 
+/* Spawns the emitter shown at each teleporter that has one. */
 void World_InitTeleporters(void) {
-    typedef struct Teleporter {
-        Matrix4 mtx;
-        u8 unk40[0x8];
-        u32 model;
-        u8 unk4C[0x14];
-        PTR32(void) thing;
-        u8 unk64[0xC];
-    } Teleporter;
-    typedef struct TeleporterWorld {
-        u8 unk0[0x30];
-        u32 numTeleporters;
-        PTR32(Teleporter) teleporters;
-    } TeleporterWorld;
-    struct {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        u32 model;
-        s32 unk34;
-        f32 unk38;
-    } params __attribute__((aligned(16)));
+    EmitterParams params __attribute__((aligned(16)));
     u32 i;
     Teleporter *teleporter;
 
-    for (i = 0; i < ((TeleporterWorld *)GETP(g_worldData.world))->numTeleporters; i++) {
-        teleporter = &GETP(((TeleporterWorld *)GETP(g_worldData.world))->teleporters)[i];
-        if (teleporter->model != 0) {
-            params.model = teleporter->model;
-            params.unk38 = 0.0f;
+    for (i = 0; i < WORLD()->numTeleporters; i++) {
+        teleporter = &GETP(WORLD()->teleporters)[i];
+        if (teleporter->emitter != 0) {
+            params.emitter.h = teleporter->emitter;
+            params.drawDist = 0.0f;
             params.pos = teleporter->mtx.v[3];
             params.vel.x = params.vel.y = params.vel.z = 0.0f;
-            SubMatrixToQuaternion(teleporter, &params.quat);
-            params.unk34 = 0;
-            SETP(teleporter->thing, ThingManager_DARYL_CreateThing(2, &params));
+            SubMatrixToQuaternion(&teleporter->mtx, (Quaternion *)&params.quat);
+            params.owner = 0;
+            SETP(teleporter->thing, ThingManager_DARYL_CreateThing(THING_TYPE_EMITTER, &params));
         }
     }
 }
 
+/* Takes away a QuadItem's spawned item and restarts its respawn timer. */
+static inline void World_RemoveItem(QuadItem *item) {
+    ItemThing *obj = GETP(item->thing);
+
+    if (obj != NULL) {
+        THING_VFN(obj, THING_V_RELEASE, void (*)(ItemThing *))(obj);
+        item->timer = item->respawn;
+        SETP(item->thing, NULL);
+    }
+}
+
+/* action: { mode, count, QuadItem handles }: mode 0 turns the spawn points
+ * off (removing their items), 1 on (spawning soon), 2 toggles. */
 s32 ActionItemChangeMode(u32 *action) {
     u32 i;
-    u8 *item;
-    u8 *obj;
+    QuadItem *item;
 
     for (i = 0; i < action[1]; i++) {
-        item = (u8 *)PTR(action[i + 2]);
+        item = (QuadItem *)PTR(action[i + 2]);
         if (action[0] == 2) {
-            if (*(u32 *)(item + 0x28) == 1) {
-                *(u32 *)(item + 0x28) = 0;
-                obj = SLOT_LOAD(u8 *, (item + 0x24));
-                if (obj != NULL) {
-                    (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))))(obj);
-                    *(u32 *)(item + 0x18) = *(u32 *)(item + 0x14);
-                    SLOT_STORE((item + 0x24), NULL);
-                }
+            if (item->mode == QUAD_ITEM_ON) {
+                item->mode = QUAD_ITEM_OFF;
+                World_RemoveItem(item);
             } else {
-                *(u32 *)(item + 0x28) = 1;
-                *(u32 *)(item + 0x18) = 1;
+                item->mode = QUAD_ITEM_ON;
+                item->timer = 1;
             }
         } else {
-            *(u32 *)(item + 0x28) = action[0];
-            if (action[0] == 1) {
-                *(u32 *)(item + 0x18) = 1;
+            item->mode = action[0];
+            if (action[0] == QUAD_ITEM_ON) {
+                item->timer = 1;
             }
-            if (action[0] == 0) {
-                obj = SLOT_LOAD(u8 *, (item + 0x24));
-                if (obj != NULL) {
-                    (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 4))))(obj);
-                    *(u32 *)(item + 0x18) = *(u32 *)(item + 0x14);
-                    SLOT_STORE((item + 0x24), NULL);
-                }
+            if (action[0] == QUAD_ITEM_OFF) {
+                World_RemoveItem(item);
             }
         }
     }
     return 1;
 }
 
+/* Draws a loaded quadrant: its geometry, then its static instances within
+ * their draw distance (doubled in split screen) and in view, with their
+ * shared slaves. */
 void RenderQuadrant(u8 *quadrant) {
-    typedef struct { PTR32(void) pad0; PTR32(void) pad4; PTR32(void) geom; } StaticGeom;
-    typedef struct { PTR32(u8) geom; u8 noDraw; u8 pad5; u8 hasDist; u8 visible; f32 dist; u8 padC[0xC]; u32 slaves[2]; } Model;
-    typedef struct { Vector4 pos; Vector4 quat; u8 pad20[4]; PTR32(Model) model; f32 dist; u8 pad2C[8]; u8 useDist; u8 pad35[7]; f32 radius; } Instance;
-    typedef struct { u32 pad0; u32 count; PTR32(Instance) instances; } InstanceList;
-    typedef struct { u8 pad0[0x10]; f32 mtx[3][4]; Vector4 pos; Vector4 quat; u8 pad60[0x14]; u32 unk74; u8 pad78[0x78]; } DrawThing;
+    /* A stand-in thing for the instance's transform (0xF0, as the original). */
+    typedef struct DrawThing {
+        Thing base;
+        u8 padAC[0x44];
+    } DrawThing;
+    WorldQuad *quad = (WorldQuad *)quadrant;
     u32 i;
     u32 j;
-    Instance *inst;
-    Model *model;
+    QuadInstance *inst;
+    ThingRecord *model;
     DrawThing *t;
     f32 distSq;
     DrawThing thing __attribute__((aligned(16)));
 
-    if (quadrant == NULL || *(s8 *)(quadrant + 0x34) == 0 || SLOT_LOAD(StaticGeom *, (quadrant + 0x10)) == NULL) {
+    if (quad == NULL || quad->loaded == 0 || GETP(quad->geoms) == NULL) {
         return;
     }
-    for (i = 0; i < *(u32 *)(quadrant + 0xC); i++) {
-        Gfx_DrawGeometry(HND(GETP((SLOT_LOAD(StaticGeom *, (quadrant + 0x10)))[i].geom)), HND(NULL));
+    for (i = 0; i < quad->numGeoms; i++) {
+        Gfx_DrawGeometry(HND(GETP(GETP(quad->geoms)[i].geom)), HND(NULL));
     }
-    for (j = 0; j < (SLOT_LOAD(InstanceList *, (quadrant + 0x30)))->count; j++) {
-        inst = &GETP((SLOT_LOAD(InstanceList *, (quadrant + 0x30)))->instances)[j];
-        model = GETP(inst->model);
-        if (model->visible == 0) {
+    for (j = 0; j < GETP(quad->contents)->numInstances; j++) {
+        inst = &GETP(GETP(quad->contents)->instances)[j];
+        model = GETP(inst->record);
+        if (THINGRECORD_IS_STATIC(model) == 0) {
             continue;
         }
         t = &thing;
@@ -386,59 +362,45 @@ void RenderQuadrant(u8 *quadrant) {
         if ((u32)ViewManager_GetViewFormat() > 1) {
             distSq *= 4.0f;
         }
-        if (inst->useDist) {
-            if (distSq > inst->dist * inst->dist) {
+        if (inst->hasDrawDist) {
+            if (distSq > inst->drawDist * inst->drawDist) {
                 continue;
             }
-        } else if (GETP(inst->model)->hasDist && distSq > GETP(inst->model)->dist * GETP(inst->model)->dist) {
+        } else if (GETP(inst->record)->hasDrawDist && distSq > GETP(inst->record)->drawDist * GETP(inst->record)->drawDist) {
             continue;
         }
         if (Gfx_FrustrumCullSphereTestAllWindows(inst, inst->radius)) {
-            t->unk74 = 0;
-            t->quat = inst->quat;
-            QuaternionToSubMatrix(&t->quat, t->mtx);
+            t->base.flags = 0;
+            t->base.quat = inst->quat;
+            QuaternionToSubMatrix(&t->base.quat, THING_MTX(&t->base));
             inst->pos.w = 1.0f;
-            t->pos = inst->pos;
-            Thing_DrawSharedSlaves(t, model->slaves);
+            t->base.pos = inst->pos;
+            Thing_DrawSharedSlaves((u8 *)t, (u32 *)model->slaves);
             if (model->noDraw == 0) {
-                Gfx_DrawGeometry(HND(GETP(model->geom)), HND(t->mtx));
+                Gfx_DrawGeometry(HND(GETP(model->geometry)), HND(THING_MTX(&t->base)));
             }
         }
     }
 }
 
+/* Counts the script timers by the frame time (halved / a tenth with game
+ * speed setting 1 / 2), except stopped ones (mode type 7). */
 void TimerManager_Heartbeat(void) {
     extern u32 g_iDeltaTimeMS;
-    typedef struct {
-        u8 unk0;
-        u8 type;
-    } TimerDef;
-    typedef struct {
-        u8 unk0[3];
-        u8 countUp;
-        u8 unk4[4];
-        f32 time;
-        PTR32(TimerDef) def;
-    } Timer;
-    typedef struct {
-        u8 unk0[0x50];
-        u32 numTimers;
-        PTR32(PTR32(Timer)) timers;
-    } TimerWorld;
-    TimerWorld *world;
-    Timer *timer;
+    World *world;
+    WorldTimer *timer;
     u32 i;
     u8 speed;
     u32 dt;
 
-    world = GETP(g_worldData.world);
+    world = WORLD();
     if (world == NULL) {
         return;
     }
     speed = GameSettings_GetCodeVariable(0x6C, 7);
     for (i = 0; i < world->numTimers; i++) {
         timer = GETP(GETP(world->timers)[i]);  /* port: a table of pointer slots */
-        if (GETP(timer->def)->type == 7) {
+        if (GETP(timer->mode)->type == 7) {
             continue;
         }
         dt = g_iDeltaTimeMS;
@@ -458,22 +420,26 @@ void TimerManager_Heartbeat(void) {
     }
 }
 
+/* data: { count, variable slot handles, operand }: operand { OPERAND_*,
+ * value words, op }. The op follows the operand, except for a code variable
+ * >= 20 where it is read from the arg's word (as in the original). True if a
+ * variable compares true. */
 s32 TriggerVariableValueCheck(u32 *data) {
     u32 i;
     f32 value;
     s32 op;
-    u8 **var;
+    WorldVariable *var;
 
     switch (data[data[0] + 1]) {
-    case 0:
+    case OPERAND_CONSTANT:
         op = data[data[0] + 3];
         value = *(f32 *)&data[data[0] + 2];
         break;
-    case 1:
+    case OPERAND_VARIABLE:
         op = data[data[0] + 3];
-        value = *(f32 *)(SLOT_LOAD(u8 *, data[data[0] + 2]) + 4);
+        value = WORLD_VARIABLE(data[data[0] + 2])->value;
         break;
-    case 2:
+    case OPERAND_CODE_VARIABLE:
         value = GetCodeVariable(data[data[0] + 2], data[data[0] + 3]);
         if (data[data[0] + 2] < 20) {
             op = data[data[0] + 4];
@@ -483,30 +449,30 @@ s32 TriggerVariableValueCheck(u32 *data) {
         break;
     }
     for (i = 0; i < data[0]; i++) {
-        var = (u8 **)PTR(data[i + 1]);
+        var = WORLD_VARIABLE(data[i + 1]);
         switch (op) {
-        case 20:
-            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) < value) {
+        case TRIGGER_OP_LESS:
+            if (var->value < value) {
                 return 1;
             }
             break;
-        case 21:
-            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) > value) {
+        case TRIGGER_OP_GREATER:
+            if (var->value > value) {
                 return 1;
             }
             break;
-        case 22:
-            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) == value) {
+        case TRIGGER_OP_EQUAL:
+            if (var->value == value) {
                 return 1;
             }
             break;
-        case 47:
-            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) >= value) {
+        case TRIGGER_OP_GREATER_EQUAL:
+            if (var->value >= value) {
                 return 1;
             }
             break;
-        case 48:
-            if (*(f32 *)(SLOT_LOAD(u8 *, var) + 4) <= value) {
+        case TRIGGER_OP_LESS_EQUAL:
+            if (var->value <= value) {
                 return 1;
             }
             break;
@@ -515,129 +481,132 @@ s32 TriggerVariableValueCheck(u32 *data) {
     return 0;
 }
 
+/* action: { op (ACTION_OP_*), count, variable slot handles, operand }. */
 s32 ActionVariableChangeValue(u32 *action) {
     u32 i;
     f32 value;
-    u8 **var;
+    WorldVariable *var;
 
     switch (action[action[1] + 2]) {
-    case 0:
+    case OPERAND_CONSTANT:
         value = *(f32 *)&action[action[1] + 3];
         break;
-    case 1:
-        value = *(f32 *)(SLOT_LOAD(u8 *, action[action[1] + 3]) + 4);
+    case OPERAND_VARIABLE:
+        value = WORLD_VARIABLE(action[action[1] + 3])->value;
         break;
-    case 2:
+    case OPERAND_CODE_VARIABLE:
         value = GetCodeVariable(action[action[1] + 3], action[action[1] + 4]);
         break;
     }
     for (i = 0; i < action[1]; i++) {
-        var = (u8 **)PTR(action[i + 2]);
+        var = WORLD_VARIABLE(action[i + 2]);
         switch (action[0]) {
-        case 0xF:
-            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) += value;
+        case ACTION_OP_ADD:
+            var->value += value;
             break;
-        case 0x10:
-            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) -= value;
+        case ACTION_OP_SUB:
+            var->value -= value;
             break;
-        case 0x2D:
-            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) *= value;
+        case ACTION_OP_MUL:
+            var->value *= value;
             break;
-        case 0x2E:
+        case ACTION_OP_DIV:
             if (value) {
-                *(f32 *)(SLOT_LOAD(u8 *, var) + 4) /= value;
+                var->value /= value;
             }
             break;
-        case 0x11:
-            *(f32 *)(SLOT_LOAD(u8 *, var) + 4) = value;
+        case ACTION_OP_SET:
+            var->value = value;
             break;
         }
     }
     return 1;
 }
 
+/* action: { mode, count, variable slot handles } */
 s32 ActionVariableChangeMode(u32 *action) {
     u32 i;
-    u8 *var;
+    u8 *mode;
 
     for (i = 0; i < action[1]; i++) {
-        var = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(void *, action[i + 2])) + 0xC);
-        if (var != NULL) {
-            *var = action[0];
+        mode = GETP(WORLD_VARIABLE(action[i + 2])->mode);
+        if (mode != NULL) {
+            *mode = action[0];
         }
     }
     return 1;
 }
 
+/* action: { op (ACTION_OP_*), count, timer slot handles, operand } */
 s32 ActionTimerChangeValue(u32 *action) {
     u32 i;
     f32 value;
-    u8 **timer;
+    WorldTimer *timer;
 
     switch (action[action[1] + 2]) {
-    case 0:
+    case OPERAND_CONSTANT:
         value = *(f32 *)&action[action[1] + 3];
         break;
-    case 1:
-        value = *(f32 *)(SLOT_LOAD(u8 *, action[action[1] + 3]) + 4);
+    case OPERAND_VARIABLE:
+        value = WORLD_VARIABLE(action[action[1] + 3])->value;
         break;
-    case 2:
+    case OPERAND_CODE_VARIABLE:
         value = GetCodeVariable(action[action[1] + 3], action[action[1] + 4]);
         break;
     }
     for (i = 0; i < action[1]; i++) {
-        timer = (u8 **)PTR(action[i + 2]);
+        timer = WORLD_TIMER(action[i + 2]);
         switch (action[0]) {
-        case 0xF:
-            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) += value;
+        case ACTION_OP_ADD:
+            timer->time += value;
             break;
-        case 0x10:
-            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) -= value;
+        case ACTION_OP_SUB:
+            timer->time -= value;
             break;
-        case 0x2D:
-            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) *= value;
+        case ACTION_OP_MUL:
+            timer->time *= value;
             break;
-        case 0x2E:
+        case ACTION_OP_DIV:
             if (value) {
-                *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) /= value;
+                timer->time /= value;
             }
             break;
-        case 0x11:
-            *(f32 *)(SLOT_LOAD(u8 *, timer) + 8) = value;
+        case ACTION_OP_SET:
+            timer->time = value;
             break;
         }
     }
     return 1;
 }
 
+/* action: { mode, type, count, timer slot handles } */
 s32 ActionTimerChangeMode(u32 *action) {
-    u8 **item;
     u32 i;
 
     for (i = 0; i < action[2]; i++) {
-        item = (u8 **)PTR(action[i + 3]);
-        M2C_FIELD(SLOT_LOAD(u8 *, SLOT_LOAD(u8 *, item) + 0xC), u8 *, 0) = action[0];
-        M2C_FIELD(SLOT_LOAD(u8 *, SLOT_LOAD(u8 *, item) + 0xC), u8 *, 1) = action[1];
+        GETP(WORLD_TIMER(action[i + 3])->mode)->mode = action[0];
+        GETP(WORLD_TIMER(action[i + 3])->mode)->type = action[1];
     }
     return 1;
 }
 
+/* As TriggerVariableValueCheck, for timers' times. */
 s32 TriggerTimerValueCheck(u32 *data) {
     u32 i;
     f32 value;
     s32 op;
-    u8 **timer;
+    WorldTimer *timer;
 
     switch (data[data[0] + 1]) {
-    case 0:
+    case OPERAND_CONSTANT:
         op = data[data[0] + 3];
         value = *(f32 *)&data[data[0] + 2];
         break;
-    case 1:
+    case OPERAND_VARIABLE:
         op = data[data[0] + 3];
-        value = *(f32 *)(SLOT_LOAD(u8 *, data[data[0] + 2]) + 4);
+        value = WORLD_VARIABLE(data[data[0] + 2])->value;
         break;
-    case 2:
+    case OPERAND_CODE_VARIABLE:
         value = GetCodeVariable(data[data[0] + 2], data[data[0] + 3]);
         if (data[data[0] + 2] < 20) {
             op = data[data[0] + 4];
@@ -647,30 +616,30 @@ s32 TriggerTimerValueCheck(u32 *data) {
         break;
     }
     for (i = 0; i < data[0]; i++) {
-        timer = (u8 **)PTR(data[i + 1]);
+        timer = WORLD_TIMER(data[i + 1]);
         switch (op) {
-        case 20:
-            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) < value) {
+        case TRIGGER_OP_LESS:
+            if (timer->time < value) {
                 return 1;
             }
             break;
-        case 21:
-            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) > value) {
+        case TRIGGER_OP_GREATER:
+            if (timer->time > value) {
                 return 1;
             }
             break;
-        case 22:
-            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) == value) {
+        case TRIGGER_OP_EQUAL:
+            if (timer->time == value) {
                 return 1;
             }
             break;
-        case 47:
-            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) >= value) {
+        case TRIGGER_OP_GREATER_EQUAL:
+            if (timer->time >= value) {
                 return 1;
             }
             break;
-        case 48:
-            if (*(f32 *)(SLOT_LOAD(u8 *, timer) + 8) <= value) {
+        case TRIGGER_OP_LESS_EQUAL:
+            if (timer->time <= value) {
                 return 1;
             }
             break;
@@ -678,4 +647,3 @@ s32 TriggerTimerValueCheck(u32 *data) {
     }
     return 0;
 }
-

@@ -1,170 +1,105 @@
+/* Attach things: billboard sprites, coronas and small spinning models hung
+ * on other things as slaves (lights, glows); and radar blips, the markers
+ * with a health bar drawn over cars. */
 #include "common.h"
+#include "Gfx.h"
+#include "AttachThing.h"
+#include "Particle.h"
 
-typedef struct GDLRectVtx {
-    f32 x;
-    f32 y;
-    f32 z;
-    u8 unkC[0x10 - 0xC];
-    f32 s;
-    f32 t;
-    GXColor color;
-    u8 unk1C[0x20 - 0x1C];
-} GDLRectVtx;
-
-typedef struct GDLRect {
-    GDLRectVtx v[4];
-    u16 tex;
-    u8 blendMode;
-    u8 window;
-} GDLRect;
-
-GDLRect *Gfx_Add2DRectangleRenderWindow(void);
-
-typedef struct RadarBlipData {
-    u8 unk0[2];
-    u8 showBar;
-    u8 showSprite;
-    f32 size;
-    f32 height;
-    u8 unkC[0x18 - 0xC];
-    u32 texture;
-    u8 unk1C[0x20 - 0x1C];
-    PTR32(GXColor) color;
-} RadarBlipData;
-
-typedef struct RadarBlip {
-    u8 unk0[0x40];
-    Vector4 pos;
-    u8 unk50[0x94 - 0x50];
-    PTR32(void) player;
-    u8 unk98[0xB0 - 0x98];
-    PTR32(RadarBlipData) data;
-    s32 unkB4;
-    f32 health;
-} RadarBlip;
 
 extern u32 g_attachVTable[];
 extern u32 g_attachGeometryVTable[];
 
-s32 AttachThing_Init(void *attach, void *data)
+/* Set up from AttachParams: key tracks, cone, spin, and the vtable (plain
+ * or geometry). Keys of at most one entry each never change (flag 0x4000). */
+s32 AttachThing_Init(struct AttachThing *attach, struct AttachParams *data)
 {
-    #define g_attachGeometryVTable ((u8 *)(void *)&g_attachGeometryVTable)
-    #define g_attachVTable ((u8 *)(void *)&g_attachVTable)
-    typedef struct { u32 x, y, z, w; } Vec4;
+    Thing *thing = &attach->base;
+    AttachInfo *info;
 
-    Thing_Init(attach, (s32)HND(data));
-    M2C_FIELD(attach, u32 *, 0x94) = M2C_FIELD(data, u32 *, 0x24);
-    *(Vec4 *)((u8 *)attach + 0x40) = *(Vec4 *)((u8 *)data + 0x10);
-    SLOT_STORE((u8 *)(attach) + 0xB4, SLOT_LOAD(void *, (u8 *)(data) + 0));
-    M2C_FIELD(attach, u8 *, 0x124) = 1;
-    M2C_FIELD(attach, u8 *, 0xF4) = 1;
-    M2C_FIELD(attach, u8 *, 0x15C) = 1;
-    if (SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4)) + 0x2C))
-    {
-        M2C_FIELD(attach, f32 *, 0xC0) = RandomAdd(*(f32 *)((u8 *)SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4)) + 0x2C) + 0x10),
-                                                   *(f32 *)((u8 *)SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4)) + 0x2C) + 0x14));
+    Thing_Init(thing, (s32)HND(data));
+    thing->player.h = data->player.h;
+    thing->pos = data->pos;
+    SETP(attach->info, GETP(data->info));
+    attach->scale2.reset = 1;
+    attach->scale.reset = 1;
+    attach->color.reset = 1;
+    info = GETP(attach->info);
+    if (GETP(info->spin)) {
+        attach->spin = RandomAdd(GETP(info->spin)->speedBase, GETP(info->spin)->speedRange);
     }
-    if ((M2C_FIELD(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4), u32 *, 0x1C) <= 1) &&
-        (M2C_FIELD(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4), u32 *, 0x14) <= 1) &&
-        (M2C_FIELD(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4), u32 *, 0xC) <= 1))
-    {
-        M2C_FIELD(attach, u32 *, 0x74) |= 0x4000;
+    if (info->colorKeys.count <= 1 && info->scaleKeys.count <= 1 && info->scale2Keys.count <= 1) {
+        thing->flags |= 0x4000;
     }
-    if (M2C_FIELD(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4), u8 *, 2) == 1)
-    {
-        M2C_FIELD(attach, f32 *, 0xB0) = (f32)cos(0.01745329238474369f * M2C_FIELD(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(void *, (u8 *)(attach) + 0xB4)) + 0x28), f32 *, 0x10));
+    if (info->directional == 1) {
+        attach->minDot = (f32)cos(0.01745329238474369f * GETP(info->cone)->angle);
     }
-    ExtractColorKey((u8 *)SLOT_LOAD(void *, (u8 *)(attach) + 0xB4) + 0x1C, (u8 *)attach + 0x130, 0.0f);
-    ExtractScaleKey((u8 *)SLOT_LOAD(void *, (u8 *)(attach) + 0xB4) + 0x14, (u8 *)attach + 0xD0, 0.0f);
-    ExtractScaleKey((u8 *)SLOT_LOAD(void *, (u8 *)(attach) + 0xB4) + 0xC, (u8 *)attach + 0x100, 0.0f);
-    M2C_FIELD(attach, u32 *, 0x74) |= 0x400000;
-    M2C_FIELD(attach, u32 *, 0x74) |= 2;
-    M2C_FIELD(attach, u32 *, 0xB8) = 100;
-    M2C_FIELD(attach, f32 *, 0xBC) = 1.0f;
-    M2C_FIELD(attach, f32 *, 0) = 0.0f;
-    M2C_FIELD(attach, f32 *, 4) = 0.0f;
-    M2C_FIELD(attach, f32 *, 8) = 1.0f;
-    if (M2C_FIELD(data, u32 *, 0x20) != 0)
+    ExtractColorKey(&info->colorKeys, &attach->color, 0.0f);
+    ExtractScaleKey(&info->scaleKeys, &attach->scale, 0.0f);
+    ExtractScaleKey(&info->scale2Keys, &attach->scale2, 0.0f);
+    thing->flags |= 0x400000;
+    thing->flags |= 2;
+    attach->timer = 100;
+    attach->fade = 1.0f;
+    thing->vel.x = 0.0f;
+    thing->vel.y = 0.0f;
+    thing->vel.z = 1.0f;
+    if (data->geometry != 0)
     {
-        SLOT_STORE((u8 *)(attach) + 0x8C, (void *)g_attachGeometryVTable);
+        SETP(thing->vtable, g_attachGeometryVTable);
     }
     else
     {
-        SLOT_STORE((u8 *)(attach) + 0x8C, (void *)g_attachVTable);
+        SETP(thing->vtable, g_attachVTable);
     }
     return 1;
-#undef g_attachGeometryVTable
-#undef g_attachVTable
 }
 
-s32 AttachThing_Move(void *thing) {
+/* Play the key tracks (unless they never change). */
+s32 AttachThing_Move(struct AttachThing *attach) {
     extern f32 g_fDeltaTimeMS;
-    if (!(M2C_FIELD(thing, u32 *, 0x74) & 0x4000)) {
-        ExtractColorKey(SLOT_LOAD(u8 *, (u8 *)(thing) + 0xB4) + 0x1C, (u8 *)thing + 0x130, g_fDeltaTimeMS);
-        ExtractScaleKey(SLOT_LOAD(u8 *, (u8 *)(thing) + 0xB4) + 0x14, (u8 *)thing + 0xD0, g_fDeltaTimeMS);
-        ExtractScaleKey(SLOT_LOAD(u8 *, (u8 *)(thing) + 0xB4) + 0xC, (u8 *)thing + 0x100, g_fDeltaTimeMS);
+    AttachInfo *info = GETP(attach->info);
+
+    if (!(attach->base.flags & 0x4000)) {
+        ExtractColorKey(&info->colorKeys, &attach->color, g_fDeltaTimeMS);
+        ExtractScaleKey(&info->scaleKeys, &attach->scale, g_fDeltaTimeMS);
+        ExtractScaleKey(&info->scale2Keys, &attach->scale2, g_fDeltaTimeMS);
     }
     return 1;
 }
 
-void AttachThing_DrawCorona(void *arg0) {
+/* A corona: faded with distance (range) and the cone, hidden while a ray
+ * from the camera is blocked (checked every 100 ms; flag 0x20). Single
+ * view only: released in split screen. */
+void AttachThing_DrawCorona(struct AttachThing *attach) {
     extern s32 g_iDeltaTimeMS;
-    typedef struct CoronaColor {
-        u8 r;
-        u8 g;
-        u8 b;
-        u8 a;
-    } CoronaColor;
-    struct AttachData {
-        u8 type;
-        u8 blend;
-        u8 pad2[0x8 - 0x2];
-        u32 texture;
-        u8 padC[0x24 - 0xC];
-        PTR32(f32) range;
-    };
-    struct AttachCorona {
-        u8 pad00[0x40];
-        Vector4 pos;
-        u8 pad50[0x74 - 0x50];
-        u32 flags;
-        u8 pad78[0xB4 - 0x78];
-        PTR32(struct AttachData) data;
-        s32 timer;
-        f32 fade;
-        u8 padC0[0xD0 - 0xC0];
-        f32 scaleX;
-        u8 padD4[0x100 - 0xD4];
-        f32 scaleY;
-        u8 pad104[0x154 - 0x104];
-        CoronaColor color;
-    } *thing = arg0;
     Vector4 screen __attribute__((aligned(16)));
     Vector4 camera __attribute__((aligned(16)));
     Vector4 dir __attribute__((aligned(16)));
     f32 dist;
-    CoronaColor scaled;
-    CoronaColor color;
+    GXColor scaled;
+    GXColor color;
     f32 farDist;
     f32 nearDist;
     f32 depth;
     f32 fade;
+    Thing *thing = &attach->base;
 
     if (ViewManager_GetViewFormat() > 1) {
-        Thing_Release(thing);
+        Thing_Release(attach);
         return;
     }
-    farDist = GETP(GETP(thing->data)->range)[1];
-    nearDist = GETP(GETP(thing->data)->range)[0];
+    farDist = GETP(GETP(attach->info)->range)[1];
+    nearDist = GETP(GETP(attach->info)->range)[0];
     Gfx_TransformVector(&thing->pos, &screen);
     depth = screen.w;
     if (!(depth < 0.0f) && !(depth > farDist)) {
-        thing->timer -= g_iDeltaTimeMS;
-        if (thing->timer < 0) {
+        attach->timer -= g_iDeltaTimeMS;
+        if (attach->timer < 0) {
             dist = 1.0f;
             Gfx_GetCameraPosition(&camera);
             PSVECSubtract(&thing->pos, &camera, &dir);
-            thing->timer = 100;
+            attach->timer = 100;
             if (RayHitsTerrainAndObjects(&camera, &dir, &dist, NULL)) {
                 thing->flags |= 0x20;
                 return;
@@ -173,171 +108,147 @@ void AttachThing_DrawCorona(void *arg0) {
         }
         if (!(thing->flags & 0x20)) {
             if (depth > nearDist) {
-                fade = thing->fade * (1.0f - (depth - nearDist) / (farDist - nearDist));
+                fade = attach->fade * (1.0f - (depth - nearDist) / (farDist - nearDist));
             } else {
-                fade = thing->fade;
+                fade = attach->fade;
             }
-            scaled.r = thing->color.r * fade;
-            scaled.g = thing->color.g * fade;
-            scaled.b = thing->color.b * fade;
-            scaled.a = thing->color.a;
+            scaled.r = attach->color.color.r * fade;
+            scaled.g = attach->color.color.g * fade;
+            scaled.b = attach->color.color.b * fade;
+            scaled.a = attach->color.color.a;
             color = scaled;
             /* port: GC passes ints and floats in separate registers, so the decomp's
              * (scaleX, scaleY, blend) order reaches (flag, a, b) as (blend, scaleX, scaleY) */
-            Gfx_AddCorona(&screen, GETP(thing->data)->texture, &color, GETP(thing->data)->blend, thing->scaleX, thing->scaleY);
+            Gfx_AddCorona(&screen, GETP(attach->info)->visual, &color, GETP(attach->info)->blend,
+                          attach->scale.v.x, attach->scale2.v.x);
         }
     }
 }
 
-void AttachThing_Draw(void *arg0) {
-    void *Gfx_AddBillBoardSprite(u16);
-    u8 temp_r0;
-    void *temp_r3;
-    void *temp_r3_2;
+/* Billboard sprite or corona, unless hidden by the cone (flag 0x10). */
+void AttachThing_Draw(struct AttachThing *attach) {
+    FxBillboard *sprite;
+    AttachInfo *info;
 
-    if (!(M2C_FIELD(arg0, s32 *, 0x74) & 0x10)) {
+    if (!(attach->base.flags & 0x10)) {
         Gfx_SetWorldMatrix(0);
-        temp_r3 = SLOT_LOAD(void *, (u8 *)(arg0) + 0xB4);
-        temp_r0 = M2C_FIELD(temp_r3, u8 *, 0);
-        switch ((s32) temp_r0) {                    /* irregular */
+        info = GETP(attach->info);
+        switch (info->type) {
         case 0:
-            temp_r3_2 = Gfx_AddBillBoardSprite((u16) M2C_FIELD(temp_r3, s32 *, 8));
-            M2C_FIELD(temp_r3_2, u8 *, 0x2A) = (u8) M2C_FIELD(SLOT_LOAD(void *, (u8 *)(arg0) + 0xB4), u8 *, 1);
-            M2C_FIELD(temp_r3_2, s32 *, 0x24) = (s32) M2C_FIELD(arg0, s32 *, 0x154);
-            M2C_FIELD(temp_r3_2, f32 *, 0x1C) = (f32) M2C_FIELD(arg0, f32 *, 0x100);
-            M2C_FIELD(temp_r3_2, f32 *, 0xC) = (f32) M2C_FIELD(arg0, f32 *, 0xD0);
-            M2C_FIELD(temp_r3_2, f32 *, 0) = (f32) M2C_FIELD(arg0, f32 *, 0x40);
-            M2C_FIELD(temp_r3_2, f32 *, 4) = (f32) M2C_FIELD(arg0, f32 *, 0x44);
-            M2C_FIELD(temp_r3_2, f32 *, 8) = (f32) M2C_FIELD(arg0, f32 *, 0x48);
+            sprite = Gfx_AddBillBoardSprite((u16)info->visual);
+            sprite->blend = GETP(attach->info)->blend;
+            sprite->color = attach->color.color;
+            sprite->rot = attach->scale2.v.x;
+            sprite->size = attach->scale.v.x;
+            sprite->x = attach->base.pos.x;
+            sprite->y = attach->base.pos.y;
+            sprite->z = attach->base.pos.z;
             return;
         case 1:
-            AttachThing_DrawCorona(arg0);
+            AttachThing_DrawCorona(attach);
             break;
         }
     }
 }
 
-void AttachGeometry_Draw(void *thing) {
-    u8 *data;
+/* Attach geometry: the model at the thing's orientation, scale and position. */
+void AttachGeometry_Draw(struct AttachThing *attach) {
+    AttachInfo *info;
     void *geom;
-    u32 color;
+    GXColor color;
 
-    data = SLOT_LOAD(u8 *, (u8 *)(thing) + 0xB4);
-    geom = SLOT_LOAD(void *, (u8 *)(data) + 0x8);
-    if (M2C_FIELD(data, u32 *, 0x1C) != 0) {
-        color = M2C_FIELD(thing, u32 *, 0x154);
+    info = GETP(attach->info);
+    geom = PTR(info->visual);
+    if (info->colorKeys.count != 0) {
+        color = attach->color.color;
         Gfx_SetBaseColor(&color);
         Gfx_EnableState(0x10);
     }
-    M2C_FIELD(thing, f32 *, 0xDC) = 1.0f;
-    Gfx_DrawGeometry_QuaternionScalePos(HND(geom), HND((u8 *)thing + 0x50), HND((u8 *)thing + 0xD0), HND((u8 *)thing + 0x40));
+    attach->scale.v.w = 1.0f;
+    Gfx_DrawGeometry_QuaternionScalePos(HND(geom), HND(&attach->base.quat), HND(&attach->scale.v), HND(&attach->base.pos));
     Gfx_DisableState(0x10);
 }
 
-s32 AttachGeometry_Move(void *arg0) {
+/* Attach geometry: colour and scale keys, and the spin. */
+s32 AttachGeometry_Move(struct AttachThing *attach) {
     extern f32 g_fDeltaTimeMS;
     extern f32 g_fDeltaTimeSec;
-    struct AttachGeomData {
-        u8 pad0[0x14];
-        u8 scale[0x1C - 0x14];
-        u8 color[0x2C - 0x1C];
-        PTR32(Vector4) axis;
-    };
-    struct AttachGeom {
-        u8 pad0[0x50];
-        Quaternion rot;
-        u8 pad60[0xB4 - 0x60];
-        PTR32(struct AttachGeomData) data;
-        u8 padB8[0xC0 - 0xB8];
-        f32 spin;
-        u8 padC4[0xD0 - 0xC4];
-        u8 scale[0x130 - 0xD0];
-        u8 color[4];
-    } *thing = arg0;
     Quaternion rot;
     Quaternion out;
+    AttachInfo *info = GETP(attach->info);
 
-    ExtractColorKey(GETP(thing->data)->color, thing->color, g_fDeltaTimeMS);
-    ExtractScaleKey(GETP(thing->data)->scale, thing->scale, g_fDeltaTimeMS);
-    GenerateQuaternion(GETP(GETP(thing->data)->axis), &rot, 0.01745329238474369f * thing->spin * g_fDeltaTimeSec);
-    QuaternionMult(&rot, &thing->rot, &out);
-    thing->rot = out;
+    ExtractColorKey(&info->colorKeys, &attach->color, g_fDeltaTimeMS);
+    ExtractScaleKey(&info->scaleKeys, &attach->scale, g_fDeltaTimeMS);
+    GenerateQuaternion(&GETP(GETP(attach->info)->spin)->axis, &rot, 0.01745329238474369f * attach->spin * g_fDeltaTimeSec);
+    QuaternionMult(&rot, &attach->base.quat, &out);
+    attach->base.quat = out;
     return 1;
 }
 
-void AttachThing_SlaveTransform(u8 *attach, Matrix4 *mtx) {
-    typedef struct AttachThing {
-        u8 pad0[0x10];
-        Matrix4 mtx;
-        u8 pad50[0x74 - 0x50];
-        u32 flags;
-        u8 pad78[0xB0 - 0x78];
-        f32 minDot;
-        PTR32(u8) data;
-        u8 padB8[4];
-        f32 fade;
-    } AttachThing;
-    AttachThing *thing = (AttachThing *)attach;
+/* Follow the master (mtx); a directional one is hidden (flag 0x10) when
+ * the camera is outside its cone, and faded towards the cone's edge. */
+void AttachThing_SlaveTransform(struct AttachThing *attach, Matrix4 *mtx) {
     Vector4 pos __attribute__((aligned(16)));
     Vector4 camera __attribute__((aligned(16)));
     Vector4 toCamera __attribute__((aligned(16)));
     Vector4 dir __attribute__((aligned(16)));
     f32 dot;
     f32 minDot;
+    Thing *thing = &attach->base;
 
-    pos = thing->mtx.v[3];
-    XformVec(mtx, &pos, &thing->mtx.v[3]);
-    if (GETP(thing->data)[2] == 1) {
+    pos = thing->pos;
+    XformVec(mtx, &pos, &thing->pos);
+    if (GETP(attach->info)->directional == 1) {
         thing->flags &= ~0x10;
         Gfx_GetCameraPosition(&camera);
-        PSVECSubtract(&thing->mtx.v[3], &camera, &toCamera);
+        PSVECSubtract(&thing->pos, &camera, &toCamera);
         if (PSVECSquareMag(&toCamera)) {
             PSVECNormalize(&toCamera, &toCamera);
         }
-        XformVecOrientation(mtx, SLOT_LOAD(void *, (GETP(thing->data) + 0x28)), &dir);
+        XformVecOrientation(mtx, &GETP(GETP(attach->info)->cone)->dir, &dir);
         dot = -PSVECDotProduct(&dir, &toCamera);
-        minDot = thing->minDot;
+        minDot = attach->minDot;
         if (dot < minDot) {
             thing->flags |= 0x10;
         } else {
-            thing->fade = (dot - minDot) / (1.0f - minDot);
+            attach->fade = (dot - minDot) / (1.0f - minDot);
         }
     }
 }
 
-s32 AttachThing_Invalidate(void *arg0, u32 arg1, u32 arg2) {
-    u32 temp_r0;
+/* Whether its info lies in [start, end) (a data pack being unloaded). */
+s32 AttachThing_Invalidate(struct AttachThing *attach, u32 start, u32 end) {
+    u32 info;
 
-    temp_r0 = M2C_FIELD(arg0, u32 *, 0xB4);
-    if ((temp_r0 >= arg1) && (temp_r0 < arg2)) {
+    info = attach->info.h;
+    if ((info >= start) && (info < end)) {
         return 1;
     }
     return 0;
 }
 
-s32 RadarBlip_Init(void *blip, void *init) {
-    typedef struct { u32 x, y, z, w; } Vec4;
-
-    Thing_Init(blip, 0);
-    *(Vec4 *)((u8 *)blip + 0x40) = *(Vec4 *)((u8 *)init + 0x10);
-    SLOT_STORE((u8 *)(blip) + 0xB0, SLOT_LOAD(void *, (u8 *)(init) + 0));
-    M2C_FIELD(blip, s32 *, 0xB4) = 0;
-    M2C_FIELD(blip, f32 *, 0xB8) = 1.0f;
-    if (M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(blip) + 0xB0), u8 *, 0x3) == 0) {
-        M2C_FIELD(blip, u32 *, 0x74) |= 0x200;
+s32 RadarBlip_Init(struct RadarBlip *blip, struct RadarBlipParams *init) {
+    Thing_Init(&blip->base, 0);
+    blip->base.pos = init->pos;
+    SETP(blip->data, GETP(init->data));
+    blip->unkB4 = 0;
+    blip->health = 1.0f;
+    if (GETP(blip->data)->showSprite == 0) {
+        blip->base.flags |= 0x200;
     }
     return 1;
 }
 
-s32 RadarBlip_Move(void *blip)
+s32 RadarBlip_Move(struct RadarBlip *blip)
 {
-    typedef struct { u32 x, y, z, w; } Vec4;
-
-    *(Vec4 *)((u8 *)blip + 0xC0) = *(Vec4 *)((u8 *)blip + 0x40);
+    blip->lastPos = blip->base.pos;
     return 1;
 }
 
-void RadarBlip_Draw(RadarBlip *blip) {
+/* The blip sprite and health bar over the master, in each view. In a
+ * single view only for computer players (all with code variable 0x198),
+ * and only in game state 5. */
+void RadarBlip_Draw(struct RadarBlip *blip) {
     extern u8 g_CurrentViews;
     extern u32 g_pauseState;
     Vector4 pos;
@@ -350,11 +261,12 @@ void RadarBlip_Draw(RadarBlip *blip) {
     u32 i;
     f32 width;
     f32 barWidth;
+    void *player = GETP(blip->base.player);
 
     single = 0;
-    pos = blip->pos;
+    pos = blip->base.pos;
     if (g_CurrentViews == 1) {
-        if (!((GETP(blip->player) == NULL || (!Player_IsHuman(GETP(blip->player)) && !GameSettings_GetCodeVariable(0x198, 0))) && StateManager_CurrState() == 5)) {
+        if (!((player == NULL || (!Player_IsHuman(player) && !GameSettings_GetCodeVariable(0x198, 0))) && StateManager_CurrState() == 5)) {
             return;
         }
     }

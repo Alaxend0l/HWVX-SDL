@@ -1,24 +1,33 @@
+/* Game rules of the multi-round modes: round timer, winners and round
+ * resets. The mode and its limits are game settings code variables:
+ *   0x12C rules on, 0x12D mode (1: points, 2: kills, 3+: no target),
+ *   0x12E round time, 0x12F kills / 0x130 points to win, 0x131 rounds,
+ *   0x132 count wins, 0x135 jettison wildcards on reset, 0x198 (MCP game);
+ *   per player 0x191 wins, 0x192 points, 0x193 kills, 0x194 won the round;
+ *   0x190 current round, 0x197 all rounds complete. */
 #include "common.h"
-
-typedef PTR32(GRTrigger) GRTriggerSlot; /* entry of GRWorld.triggers */
-
+#include "CarA.h"
+#include "World.h"
+#include "ThingManager.h"
 
 extern s8 g_bRoundEnd;
 extern u32 g_playerNumThatWon;
 
+/* The world timer used as the round timer (type 0xC), or NULL. */
+extern WorldTimerSlot *g_pTimer;
 
+/* Starts a series of rounds: resets the round state, saves the trigger
+ * action counts for round resets, finds the round timer and records each
+ * quadrant object's mode as its round-start mode. */
 void GameRules_Init(void) {
-    extern s8 g_bRoundEnd;
-    extern u32 g_playerNumThatWon;
     extern s8 g_bWaitingForRoundReset;
     extern s8 g_bInit;
     extern s32 g_savedActions[];
-    extern GRTriggerSlot *g_pTimer;
     u32 j;
-    GRZone *zone;
+    QuadContents *contents;
     u32 i;
-    u8 *mcp;
-    GRTriggerSlot *slot;
+    MCP *mcp;
+    WorldTimerSlot *slot;
 
     g_bRoundEnd = 0;
     g_playerNumThatWon = 1;
@@ -36,8 +45,8 @@ void GameRules_Init(void) {
     switch (GameSettings_GetCodeVariable(0x12D, 0)) {
     case 1:
     case 2:
-        for (i = 0; i < ((GRWorld *)GETP(g_worldData.world))->numTriggers; i++) {
-            slot = &GETP(((GRWorld *)GETP(g_worldData.world))->triggers)[i];
+        for (i = 0; i < WORLD()->numTimers; i++) {
+            slot = &GETP(WORLD()->timers)[i];
             if (GETP(*slot)->type == 0xC) {
                 g_pTimer = slot;
                 GETP(*g_pTimer)->time = GameSettings_GetCodeVariable(0x12E, 0);
@@ -51,11 +60,11 @@ void GameRules_Init(void) {
     case 3:
         mcp = GameSettings_GetMCP();
         if (mcp != NULL && GameSettings_GetCodeVariable(0x198, 0) != 0) {
-            for (i = 0; i < ((GRWorld *)GETP(g_worldData.world))->numTriggers; i++) {
-                slot = &GETP(((GRWorld *)GETP(g_worldData.world))->triggers)[i];
+            for (i = 0; i < WORLD()->numTimers; i++) {
+                slot = &GETP(WORLD()->timers)[i];
                 if (GETP(*slot)->type == 0xC) {
                     if (GETP(*slot)->time == 0.0f) {
-                        GETP(*slot)->time = (SLOT_LOAD(u32 *, (mcp + 0x24)))[1];
+                        GETP(*slot)->time = GETP(mcp->demo)->time;
                     }
                     break;
                 }
@@ -63,27 +72,28 @@ void GameRules_Init(void) {
         }
         break;
     }
-    for (i = 0; i < ((GRWorld *)GETP(g_worldData.world))->numZones; i++) {
-        zone = &GETP(((GRWorld *)GETP(g_worldData.world))->zones)[i];
-        for (j = 0; j < GETP(zone->sub)->numA; j++) {
-            GETP(GETP(zone->sub)->a)[j].unk39 = GETP(GETP(zone->sub)->a)[j].unk34;
+    for (i = 0; i < WORLD()->numQuads; i++) {
+        contents = GETP(GETP(WORLD()->quads)[i].contents);
+        for (j = 0; j < contents->numFxPoints; j++) {
+            GETP(contents->fxPoints)[j].defMode = GETP(contents->fxPoints)[j].mode;
         }
-        for (j = 0; j < GETP(zone->sub)->numC; j++) {
-            GETP(GETP(zone->sub)->c)[j].unk39 = GETP(GETP(zone->sub)->c)[j].unk28;
-            GETP(GETP(zone->sub)->c)[j].unk38 = 0;
+        for (j = 0; j < contents->numItems; j++) {
+            GETP(contents->items)[j].defMode = GETP(contents->items)[j].mode;
+            GETP(contents->items)[j].spawned = 0;
         }
-        for (j = 0; j < GETP(zone->sub)->numB; j++) {
-            GETP(GETP(zone->sub)->b)[j].unk36 = GETP(GETP(zone->sub)->b)[j].unk30;
+        for (j = 0; j < contents->numInstances; j++) {
+            GETP(contents->instances)[j].defMode = GETP(contents->instances)[j].mode;
         }
     }
 }
 
+/* Ends the round when a player reached the target, the timer ran out or a
+ * script forced it; scores it (wins, per-player results) and fires the
+ * GameRoundXComplete / GameRoundsComplete triggers. Waits for
+ * GameRules_ResetRound before checking again. */
 void GameRules_HeartBeat(void) {
-    extern s8 g_bRoundEnd;
-    extern u32 g_playerNumThatWon;
     extern s8 g_bWaitingForRoundReset;
     extern s8 g_bInit;
-    extern GRTriggerSlot *g_pTimer;
     static u32 s_requiredNumWins = -1;
     s8 useWins;
     u32 numPlayers;
@@ -92,28 +102,29 @@ void GameRules_HeartBeat(void) {
     s8 roundOver;
     u32 winner;
     u32 count;
-    u8 *player;
+    Player *player;
     u32 wins;
 
     roundOver = 0;
     if (!g_bWaitingForRoundReset && GameSettings_GetCodeVariable(0x12C, 0) != 0) {
         winner = -1;
         if (g_bInit) {
+            /* give the players without a controller port (AI) a free one */
             s8 used[4] = {0, 0, 0, 0};
 
             numPlayers = PlayerManager_PlayerHumanCount();
             for (i = 0; i < numPlayers; i++) {
-                used[*(s32 *)((u8 *)PlayerManager_GetHumanPlayerByIndex(i) + 0x60) - 1] = 1;
+                used[(s32)((Player *)PlayerManager_GetHumanPlayerByIndex(i))->port - 1] = 1;
             }
             numPlayers = PlayerManager_PlayerCount();
             for (i = 0; i < numPlayers; i++) {
                 player = PlayerManager_GetPlayerByIndex(i);
-                if (*(u32 *)(player + 0x60) > 4) {
+                if (player->port > 4) {
                     s32 j;
                     for (j = 0; j < 4; j++) {
                         if (!used[j]) {
                             used[j] = 1;
-                            *(u32 *)(player + 0x60) = j + 1;
+                            player->port = j + 1;
                             break;
                         }
                     }
@@ -134,8 +145,8 @@ void GameRules_HeartBeat(void) {
                 numPlayers = PlayerManager_PlayerCount();
                 for (i = 0; i < numPlayers; i++) {
                     player = PlayerManager_GetPlayerByIndex(i);
-                    if (*(u32 *)(player + 0x7C) >= numRounds) {
-                        winner = *(u32 *)(player + 0x60);
+                    if (player->stuntPoints >= numRounds) {
+                        winner = player->port;
                         roundOver = 1;
                         break;
                     }
@@ -146,12 +157,12 @@ void GameRules_HeartBeat(void) {
                 numPlayers = PlayerManager_PlayerCount();
                 for (i = 0; i < numPlayers; i++) {
                     player = PlayerManager_GetPlayerByIndex(i);
-                    if (*(u32 *)(player + 0x78) >= numRounds) {
-                        winner = *(u32 *)(player + 0x60);
+                    if ((u32)player->kills >= numRounds) {
+                        winner = player->port;
                         roundOver = 1;
                         break;
                     }
-                    GameSettings_SetCodeVariable(0x193, *(u32 *)(player + 0x60), *(u32 *)(player + 0x78));
+                    GameSettings_SetCodeVariable(0x193, player->port, player->kills);
                 }
                 break;
             }
@@ -167,9 +178,9 @@ void GameRules_HeartBeat(void) {
             u32 max = 0;
             for (i = 0; i < count; i++) {
                 player = PlayerManager_GetPlayerByIndex(i);
-                if (*(u32 *)(player + 0x7C) > max) {
-                    max = *(u32 *)(player + 0x7C);
-                    winner = *(u32 *)(player + 0x60);
+                if (player->stuntPoints > max) {
+                    max = player->stuntPoints;
+                    winner = player->port;
                 }
             }
             switch (GameSettings_GetCodeVariable(0x12D, 0)) {
@@ -177,9 +188,9 @@ void GameRules_HeartBeat(void) {
                 u32 max = 0;
                 for (i = 0; i < count; i++) {
                     player = PlayerManager_GetPlayerByIndex(i);
-                    if (*(u32 *)(player + 0x7C) > max) {
-                        max = *(u32 *)(player + 0x7C);
-                        winner = *(u32 *)(player + 0x60);
+                    if (player->stuntPoints > max) {
+                        max = player->stuntPoints;
+                        winner = player->port;
                     }
                 }
                 break;
@@ -188,9 +199,9 @@ void GameRules_HeartBeat(void) {
                 u32 max = 0;
                 for (i = 0; i < count; i++) {
                     player = PlayerManager_GetPlayerByIndex(i);
-                    if (*(u32 *)(player + 0x78) > max) {
-                        max = *(u32 *)(player + 0x78);
-                        winner = *(u32 *)(player + 0x60);
+                    if ((u32)player->kills > max) {
+                        max = player->kills;
+                        winner = player->port;
                     }
                 }
                 break;
@@ -202,14 +213,14 @@ void GameRules_HeartBeat(void) {
         }
         for (i = 0; i < count; i++) {
             player = PlayerManager_GetPlayerByIndex(i);
-            GameSettings_SetCodeVariable(0x192, *(u32 *)(player + 0x60), *(u32 *)(player + 0x7C));
-            GameSettings_SetCodeVariable(0x193, *(u32 *)(player + 0x60), *(u32 *)(player + 0x78));
-            if (*(u32 *)(player + 0x60) == winner) {
-                GameSettings_SetCodeVariable(0x191, *(u32 *)(player + 0x60),
-                                             GameSettings_GetCodeVariable(0x191, *(u32 *)(player + 0x60)) + 1);
-                GameSettings_SetCodeVariable(0x194, *(u32 *)(player + 0x60), 1);
+            GameSettings_SetCodeVariable(0x192, player->port, player->stuntPoints);
+            GameSettings_SetCodeVariable(0x193, player->port, player->kills);
+            if (player->port == winner) {
+                GameSettings_SetCodeVariable(0x191, player->port,
+                                             GameSettings_GetCodeVariable(0x191, player->port) + 1);
+                GameSettings_SetCodeVariable(0x194, player->port, 1);
             } else {
-                GameSettings_SetCodeVariable(0x194, *(u32 *)(player + 0x60), 0);
+                GameSettings_SetCodeVariable(0x194, player->port, 0);
             }
         }
         if (useWins) {
@@ -218,7 +229,7 @@ void GameRules_HeartBeat(void) {
                 s_requiredNumWins = numRounds;
             }
             for (i = 0; i < count; i++) {
-                wins = GameSettings_GetCodeVariable(0x191, *(u32 *)((u8 *)PlayerManager_GetPlayerByIndex(i) + 0x60));
+                wins = GameSettings_GetCodeVariable(0x191, ((Player *)PlayerManager_GetPlayerByIndex(i))->port);
                 if (wins >= s_requiredNumWins) {
                     roundOver = 1;
                     s_requiredNumWins = -1;
@@ -232,20 +243,21 @@ void GameRules_HeartBeat(void) {
             roundOver = 1;
         }
         if (roundOver) {
+            /* the series is over: the players with the most wins won */
             u32 max = 0;
             for (i = 0; i < count; i++) {
                 player = PlayerManager_GetPlayerByIndex(i);
-                wins = GameSettings_GetCodeVariable(0x191, *(u32 *)(player + 0x60));
+                wins = GameSettings_GetCodeVariable(0x191, player->port);
                 if (wins >= max) {
                     max = wins;
                 }
-                GameSettings_SetCodeVariable(0x194, *(u32 *)(player + 0x60), 0);
+                GameSettings_SetCodeVariable(0x194, player->port, 0);
             }
             for (i = 0; i < count; i++) {
                 player = PlayerManager_GetPlayerByIndex(i);
-                wins = GameSettings_GetCodeVariable(0x191, *(u32 *)(player + 0x60));
+                wins = GameSettings_GetCodeVariable(0x191, player->port);
                 if (wins == max) {
-                    GameSettings_SetCodeVariable(0x194, *(u32 *)(player + 0x60), 1);
+                    GameSettings_SetCodeVariable(0x194, player->port, 1);
                 }
             }
             GameSettings_SetCodeVariable(0x197, 0, 1);
@@ -260,63 +272,51 @@ void GameRules_HeartBeat(void) {
     }
 }
 
+/* Ends the round with player `arg0` (1-4) as the winner. */
 void GameRules_ForceRoundEnd(u32 arg0) {
     g_bRoundEnd = 1;
     g_playerNumThatWon = arg0;
-    if ((arg0 < 1U) && (arg0 > 4U)) {
+    if ((arg0 < 1U) && (arg0 > 4U)) {   /* as in the original: never true */
         g_playerNumThatWon = -1U;
     }
 }
 
+/* Renumbers the players' ports by the order of their tile cars in `order`. */
 void GameRules_SetPlayerOrder(u32 *order, u32 count) {
     u32 i;
     u32 numPlayers;
     u32 j;
-    void *player;
+    Player *player;
 
     numPlayers = PlayerManager_PlayerCount();
     for (i = 0; i < numPlayers; i++) {
         player = PlayerManager_GetPlayerByIndex(i);
         for (j = 0; j < count; j++) {
-            if (M2C_FIELD(player, u32 *, 0xA8) == order[j]) {
-                M2C_FIELD(player, s32 *, 0x60) = j + 1;
+            if (player->tileCar.h == order[j]) {
+                player->port = j + 1;
                 break;
             }
         }
     }
 }
 
+/* Starts the next round: restores the quadrants and trigger actions, the
+ * round timer and the players' scores; respawns missing cars at their tile,
+ * and optionally repairs them, puts them back on their tile and jettisons
+ * their wildcards. */
 void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
-    typedef struct SpawnPoint {
-        Vector4 pos;
-        f32 rotX;
-        f32 rotY;
-        f32 rotZ;
-        u8 pad1C[0x24 - 0x1C];
-        PTR32(u8) info;
-        PTR32(u8) thing;
-    } SpawnPoint;
-    typedef struct CarParams {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        PTR32(u8) info;
-        u8 pad34[0x3C - 0x34];
-        PTR32(u8) player;
-    } CarParams;
     extern s8 g_bWaitingForRoundReset;
     extern s32 g_savedActions[];
-    extern GRTriggerSlot *g_pTimer;
     extern u32 g_attackDelay;
     extern Vector4 g_zeroVector;
     u32 numPlayers;
     u32 i;
-    SpawnPoint *spawn;
-    SpawnPoint *sp;
-    u8 *player;
-    u8 *car;
+    TileCar *spawn;
+    TileCar *sp;
+    Player *player;
+    CarA *car;
     void *rack;
-    CarParams params;
+    CarAParams params;
     Matrix4 mtx;
 
     GameSettings_SetCodeVariable(0x190, 0, GameSettings_GetCodeVariable(0x190, 0) + 1);
@@ -333,13 +333,13 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
     numPlayers = PlayerManager_PlayerCount();
     for (i = 0; i < numPlayers; i++) {
         player = PlayerManager_GetPlayerByIndex(i);
-        GameSettings_SetCodeVariable(0x194, *(s32 *)(player + 0x60), 0);
-        GameSettings_SetCodeVariable(0x193, *(s32 *)(player + 0x60), 0);
-        *(s32 *)(player + 0x78) = 0;
-        *(s32 *)(player + 0x7C) = 0;
-        spawn = SLOT_LOAD(SpawnPoint *, (player + 0xA8));
+        GameSettings_SetCodeVariable(0x194, player->port, 0);
+        GameSettings_SetCodeVariable(0x193, player->port, 0);
+        player->kills = 0;
+        player->stuntPoints = 0;
+        spawn = GETP(player->tileCar);
         if (spawn != NULL) {
-            if (SLOT_LOAD(u8 *, (player + 0x2C)) == NULL) {
+            if (GETP(player->vehicle) == NULL) {
                 params.pos = spawn->pos;
                 params.pos.y += 10.0f;
                 SETP(params.player, player);
@@ -347,48 +347,50 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
                 params.vel = g_zeroVector;
                 SetOrientation(&mtx, spawn->rotY, spawn->rotX, spawn->rotZ);
                 SubMatrixToQuaternion(&mtx, &params.quat);
-                SETP(spawn->thing, ThingManager_DARYL_CreateThing(9, &params));
-                Player_SetThing(player, GETP(spawn->thing));
-                SLOT_STORE((GETP(spawn->thing) + 0x90), SLOT_LOAD(u8 *, (player + 0xA8)));
+                SETP(spawn->car, ThingManager_DARYL_CreateThing(THING_TYPE_CAR, &params));
+                Player_SetThing(player, GETP(spawn->car));
+                SETP(((Thing *)GETP(spawn->car))->trigger, GETP(player->tileCar));
             }
-            sp = SLOT_LOAD(SpawnPoint *, (player + 0xA8));
-            car = SLOT_LOAD(u8 *, (player + 0x2C));
+            sp = GETP(player->tileCar);
+            car = GETP(player->vehicle);
             if (resetMotion) {
-                *(u32 *)(car + 0x78) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x14);
-                *(u32 *)(car + 0x374) = 0;
-                MotionState_ReleaseSlavesByType((s32)HND((car + 0x330)), 2);
+                ((Thing *)car)->health = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+                car->partVisMask = 0;
+                MotionState_ReleaseSlavesByType(&car->motionState, 2);
             }
             if (resetPosition) {
-                car = SLOT_LOAD(u8 *, (player + 0x2C));
-                SetOrientation(car + 0x10, sp->rotY, sp->rotX, sp->rotZ);
-                SubMatrixToQuaternion(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x10, (Vector4 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x50));
-                *(f32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x40) = sp->pos.x;
-                *(f32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x44) = 10.0f + sp->pos.y;
-                *(f32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x48) = sp->pos.z;
-                *(f32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x0) = 0.0f;
-                *(f32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x4) = 0.0f;
-                *(f32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x8) = 0.0f;
-                *(Vector4 *)(car + 0x390) = g_zeroVector;
-                *(Vector4 *)(car + 0x380) = g_zeroVector;
-                *(Vector4 *)(car + 0x410) = g_zeroVector;
-                *(f32 *)(car + 0x4E4) = 0.0f;
-                *(f32 *)(car + 0x458) = 0.0f;
-                *(u8 *)(car + 0x4E8) = 1;
-                *(s32 *)(car + 0x3B0) = -1;
-                *(s32 *)(car + 0x3B4) = 1;
-                (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (player + 0x2C)) + 0x8C)) + 0xC))))(SLOT_LOAD(u8 *, (player + 0x2C)));
-                *(u32 *)(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x74) |= 0x800;
+                Thing *thing;
+
+                car = GETP(player->vehicle);
+                thing = (Thing *)car;
+                SetOrientation(THING_MTX(thing), sp->rotY, sp->rotX, sp->rotZ);
+                SubMatrixToQuaternion(THING_MTX(thing), &thing->quat);
+                thing->pos.x = sp->pos.x;
+                thing->pos.y = 10.0f + sp->pos.y;
+                thing->pos.z = sp->pos.z;
+                thing->vel.x = 0.0f;
+                thing->vel.y = 0.0f;
+                thing->vel.z = 0.0f;
+                car->forceAccum = g_zeroVector;
+                car->angularMomentum = g_zeroVector;
+                car->localAxis = g_zeroVector;
+                car->rpm = 0.0f;
+                car->gradeOrReverse = 0.0f;
+                car->curveTableIdx = 1;
+                car->navPointIndex = -1;
+                car->navUpdateTimer = 1;
+                THING_VFN(thing, THING_V_MOVE, void (*)(Thing *))(thing);
+                thing->flags |= THING_FLAG_IN_TELEPORTER;   /* don't teleport straight away */
             }
             if (jettison || GameSettings_GetCodeVariable(0x135, 0) != 0) {
-                rack = ThingManagerList_GetByType(SLOT_LOAD(u8 *, (player + 0x2C)) + 0x344, 8);
+                rack = ThingManagerList_GetByType(&((CarA *)GETP(player->vehicle))->motionState.slaves, THING_TYPE_WILDCARD_RACK);
                 if (rack != NULL) {
                     WildCardRack_JettisonAll(rack);
                 }
             }
             if (!Player_IsHuman(player)) {
-                AI_Car_Reset(player);
+                AI_Car_Reset((u8 *)player);
             }
         }
     }
 }
-

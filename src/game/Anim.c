@@ -4,7 +4,8 @@
 typedef Vector4 Vector;
 
 typedef struct Anim {
-    u8 pad0[8];
+    u8 pad0[4];
+    s32 kind;           /* 0x04 & 2: compound, & 8: hybrid (AnimExtractKeyFrame) */
     f32 minTime;
     f32 maxTime;
     u32 numBones;
@@ -17,6 +18,12 @@ typedef struct Anim {
     PTR32(f32) staticData;
     u32 numCompound;
 } Anim;
+
+/* A bone's constant rotation in the key data (0x20 bytes). */
+typedef struct AnimStaticRot {
+    Vector4 unk0;
+    Quaternion rot;             /* 0x10 */
+} AnimStaticRot;
 
 typedef struct AnimBone {
     Quaternion rot;
@@ -274,7 +281,7 @@ void AnimExtractKeyFrame_CompoundHybrid(Anim *anim, AnimBone *outp, f32 time) {
                 Distance_Plane_4((Vector4 *)data, &tv, &out->rot);
                 data += 0x40;
             } else {
-                CopyVector((Vector4 *)&out->rot, (Vector4 *)(data + 0x10));
+                CopyVector((Vector4 *)&out->rot, (Vector4 *)&((AnimStaticRot *)data)->rot);
                 data += 0x20;
             }
             if (bit == 32) {
@@ -386,7 +393,7 @@ void AnimExtractKeyFrame_Hybrid(void *animp, void *outp, f32 time) {
 
 /* r3 = anim, f1 = time, r4 = output bones; forwarded unchanged. */
 void AnimExtractKeyFrame(void *anim, f32 time, void *out) {
-    s32 flags = *(s32 *)((u8 *)anim + 4);
+    s32 flags = ((Anim *)anim)->kind;
 
     if (flags & 2) {
         if (flags & 8) {

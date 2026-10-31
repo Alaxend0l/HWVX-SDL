@@ -1,223 +1,169 @@
+/* Particles: pooled geometry particles (three rings of ParticleGX, the first
+ * for the ones that collide) and billboard sprites, created from a
+ * ParticleInfo and run outside the Thing system. Geometry particles are
+ * simulated in "macro steps" whose length grows with the distance to the
+ * cameras, and glide in between. */
 #include "common.h"
+#include "Particle.h"
 
+extern u8 g_particleManager[];
+extern u8 g_numParticlesCreatedThisFrame[];
 
-extern u8 g_particleManager[];  /* typed per function below */
-extern u8 g_numParticlesCreatedThisFrame[];  /* typed per function below */
+#define PARTICLES ((ParticleManager *)(void *)g_particleManager)
+#define NUM_CREATED_THIS_FRAME (*(u32 *)(void *)g_numParticlesCreatedThisFrame)
 
 void ParticleManager_Init(void) {
-    typedef struct {
-        u8 unk0[0x94];
-        u8 flags;
-        u8 unk95[0xB0 - 0x95];
-    } ParticleSprite;
-    typedef struct {
-        u8 unk0[0xB4];
-        u8 flags;
-        u8 unkB5[0x100 - 0xB5];
-    } ParticleGX;
-    typedef struct {
-        struct {
-            ParticleGX particles[0x280];
-            s32 unk28000;
-            s32 unk28004;
-            u8 unk28008[0x8];
-        } groups[3];
-        ParticleSprite sprites[0x200];
-        s32 unk8E030;
-        u8 unk8E034[0xC];
-    } ParticleManager;
-    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
-    #define g_numParticlesCreatedThisFrame (*(s32 *)(void *)&g_numParticlesCreatedThisFrame)
-    ParticleManager *pm = &g_particleManager;
+    ParticleManager *pm = PARTICLES;
     u32 j;
     u32 i;
 
     for (i = 0; i < 3; i++) {
-        for (j = 0; j < 0x280; j++) {
-            pm->groups[i].particles[j].flags |= 0xC;
+        for (j = 0; j < PARTICLE_GX_COUNT; j++) {
+            pm->groups[i].particles[j].flags |= PARTICLE_FLAG_AT_REST | PARTICLE_FLAG_FREE;
         }
         pm->groups[i].unk28004 = 0;
-        pm->groups[i].unk28000 = 0;
+        pm->groups[i].next = 0;
     }
-    for (j = 0; j < 0x200; j++) {
-        pm->sprites[j].flags |= 0xC;
+    for (j = 0; j < PARTICLE_SPRITE_COUNT; j++) {
+        pm->sprites[j].flags |= PARTICLE_FLAG_AT_REST | PARTICLE_FLAG_FREE;
     }
-    pm->unk8E030 = 0;
-    g_numParticlesCreatedThisFrame = 0;
-#undef g_numParticlesCreatedThisFrame
-#undef g_particleManager
+    pm->spriteNext = 0;
+    NUM_CREATED_THIS_FRAME = 0;
 }
 
-s8 ParticleManager_CanCreatureParticle(void *creature) {
-    #define g_numParticlesCreatedThisFrame (*(u32 *)(void *)&g_numParticlesCreatedThisFrame)
+/* Whether another particle may be made this frame: the more have been, the
+ * fewer of the low-priority ones (high priority value) get through. */
+s8 ParticleManager_CanCreatureParticle(struct ParticleInfo *info) {
     u32 count;
 
-    count = ++g_numParticlesCreatedThisFrame;
+    count = ++NUM_CREATED_THIS_FRAME;
     if (count <= 11) {
         return 1;
     }
     if (count <= 21) {
-        return ((u8 *)creature)[3] <= 8;
+        return info->priority <= 8;
     }
     if (count <= 31) {
-        return ((u8 *)creature)[3] <= 6;
+        return info->priority <= 6;
     }
     if (count <= 41) {
-        return ((u8 *)creature)[3] <= 4;
+        return info->priority <= 4;
     }
     if (count <= 51) {
-        return ((u8 *)creature)[3] <= 2;
+        return info->priority <= 2;
     }
     if (count <= 101) {
-        return ((u8 *)creature)[3] <= 1;
+        return info->priority <= 1;
     }
     return 0;
-#undef g_numParticlesCreatedThisFrame
 }
 
-void CreateParticle(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age) {
-    switch (*info) {
-    case 3:
+void CreateParticle(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, struct ParticleInfo *info, f32 speed, f32 age) {
+    switch (info->type) {
+    case PARTICLE_NONE:
         break;
-    case 0:
+    case PARTICLE_GX:
         CreateParticleGX(pos, vel, accel, quat, info, speed, age);
         break;
-    case 1:
+    case PARTICLE_SPRITE:
         CreateParticleSprite(pos, vel, accel, quat, info, speed, age);
         break;
-    case 2:
+    case PARTICLE_LINE:
         LineManager_Add(info, pos, vel, accel);
         break;
     }
 }
 
-void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, u8 *info, f32 speed, f32 age) {
+/* Whether a particle needs colouring: not when the colour track has no keys
+ * or a single white one. */
+static inline u8 Particle_Tinted(ParticleInfo *info) {
+    GXColor c;
+
+    if (info->colorKeys.count == 0) {
+        return 0;
+    } else if (info->colorKeys.count == 1) {
+        c = *(GXColor *)GETP(info->colorKeys.keys);
+        if (c.r == 0xFF && c.b == 0xFF && c.g == 0xFF) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Take the next slot of a ring (overwriting the oldest particle) and start
+ * it `age` (0-1) through its life. */
+void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat, struct ParticleInfo *info, f32 speed, f32 age) {
     extern Vector4 g_zeroVector;
     extern s32 g_iDeltaTimeMS;
-    typedef struct {
-        u8 r;
-        u8 g;
-        u8 b;
-        u8 a;
-    } Colour;
-    typedef struct {
-        Vector4 pos;
-        Vector4 vel;
-        Vector4 accel;
-        Vector4 quat;
-        Vector4 axis;
-        u8 colour[0x2C];
-        u8 colourActive;
-        u8 unk7D[0x3];
-        u8 scale[0x24];
-        u8 scaleActive;
-        u8 unkA5[0xB];
-        f32 unkB0;
-        u8 flags;
-        u8 unkB5;
-        u8 visible;
-        u8 frame;
-        f32 speed;
-        PTR32(u8) info;
-        PTR32(void) texture;
-        f32 unkC4;
-        f32 spin;
-        s32 life;
-        f32 rate;
-        s32 frameTimer;
-        f32 unkD8;
-        s32 timer;
-        Vector4 targetPos;
-        Vector4 targetVel;
-    } ParticleGX;
-    typedef struct {
-        ParticleGX particles[0x280];
-        u32 next;
-        u8 unk28004[0xC];
-    } ParticleGroup;
-    typedef struct {
-        ParticleGroup groups[3];
-        u8 unk78030[0x16010];
-    } ParticleManager;
-    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
     static s8 which;
     ParticleGroup *group;
     ParticleGX *particle;
-    u8 *anim;
+    ParticleGXAnim *anim;
     s32 life;
     f32 lifeF;
     u32 time;
     u32 idx;
-    Colour c;
     f32 rate;
 
-    life = RandomAdd_s32(*(s32 *)(info + 0x8), *(s32 *)(info + 0xC));
+    life = RandomAdd_s32(info->lifeBase, info->lifeRange);
     lifeF = life;
-    anim = SLOT_LOAD(u8 *, (info + 0x4));
+    anim = GETP(info->anim);
     time = age * lifeF;
     if (anim != NULL) {
-        if (anim[1] & 3) {
-            group = &g_particleManager.groups[0];
+        if (anim->collide & 3) {
+            group = &PARTICLES->groups[0];
         } else if (which++ & 1) {
-            group = &g_particleManager.groups[1];
+            group = &PARTICLES->groups[1];
         } else {
-            group = &g_particleManager.groups[2];
+            group = &PARTICLES->groups[2];
         }
         idx = group->next++;
-        if (group->next >= 0x280) {
+        if (group->next >= PARTICLE_GX_COUNT) {
             group->next = 0;
         }
         particle = &group->particles[idx];
-        if (anim[3] != 0) {
+        if (anim->animated != 0) {
             particle->frame = 0;
-            particle->frameTimer = *(s32 *)(anim + 0x14);
+            particle->frameTimer = anim->frameTime;
         } else {
-            particle->frame = RandomAdd_s32(0, *(s32 *)(anim + 0x20));
+            particle->frame = RandomAdd_s32(0, anim->numFrames);
         }
-        SETP(particle->texture, SLOT_LOAD(void *, (u32 *)SLOT_LOAD(void *, (anim + 0x24)) + (particle->frame)));
-        if (GETP(particle->texture) != NULL) {
+        particle->geometry.h = GETP(anim->frames)[particle->frame];
+        if (GETP(particle->geometry) != NULL) {
             particle->speed = speed;
             particle->pos = *pos;
             particle->vel = *vel;
             particle->accel = *accel;
             SETP(particle->info, info);
             rate = 1.0f;
-            particle->unkC4 = rate;
+            particle->scaleMul = rate;
             particle->life = life - time;
             particle->timer = g_iDeltaTimeMS;
-            particle->targetVel = g_zeroVector;
-            particle->targetPos = *pos;
+            particle->macroVel = g_zeroVector;
+            particle->macroPos = *pos;
             particle->rate = rate;
-            if (*(s32 *)(info + 0xC) != 0 && *(s32 *)(info + 0x8) != 0) {
-                particle->rate = rate / (lifeF / *(s32 *)(info + 0x8));
+            if (info->lifeRange != 0 && info->lifeBase != 0) {
+                particle->rate = rate / (lifeF / info->lifeBase);
             }
-            particle->scaleActive = 1;
-            particle->colourActive = 1;
-            ExtractColorKey(GETP(particle->info) + 0x14, particle->colour, time);
-            particle->unkD8 = RandomAdd(*(f32 *)(anim + 0xC), *(f32 *)(anim + 0x10));
-            ExtractScaleKey(anim + 0x28, particle->scale, time);
-            particle->visible = 1;
-            if (*(u32 *)(GETP(particle->info) + 0x14) == 0) {
-                particle->visible = 0;
-            } else if (*(u32 *)(GETP(particle->info) + 0x14) == 1) {
-                c = *SLOT_LOAD(Colour *, (GETP(particle->info) + 0x18));
-                if (c.r == 0xFF && c.b == 0xFF && c.g == 0xFF) {
-                    particle->visible = 0;
-                }
+            particle->scale.reset = 1;
+            particle->color.reset = 1;
+            ExtractColorKey(&GETP(particle->info)->colorKeys, &particle->color, time);
+            particle->size = RandomAdd(anim->sizeBase, anim->sizeRange);
+            ExtractScaleKey(&anim->scaleKeys, &particle->scale, time);
+            particle->tinted = Particle_Tinted(GETP(particle->info));
+            particle->flags = anim->collide != 0;
+            if (anim->collide > 1) {
+                particle->flags |= PARTICLE_FLAG_BOUNCES;
             }
-            particle->flags = anim[1] != 0;
-            if (anim[1] > 1) {
-                particle->flags |= 2;
-            }
-            particle->flags &= ~0xC;
-            if (anim[1] == 3) {
-                particle->unkB0 = 0.0f;
+            particle->flags &= ~(PARTICLE_FLAG_AT_REST | PARTICLE_FLAG_FREE);
+            if (anim->collide == 3) {
+                particle->bounce = 0.0f;
             } else {
-                particle->unkB0 = 0.75f;
+                particle->bounce = 0.75f;
             }
-            if (anim[0] == 0) {
-                particle->quat = *quat;
-            } else if (anim[0] == 1) {
+            if (anim->orient == 0) {
+                particle->quat = *(Quaternion *)quat;
+            } else if (anim->orient == 1) {
                 RandomNumberGenerator_GetRandomQuaternion(&particle->quat);
             } else {
                 particle->quat.x = quat->x = 0.0f;
@@ -225,8 +171,8 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
                 particle->quat.z = quat->z = 0.0f;
                 particle->quat.w = quat->w = 1.0f;
             }
-            if (*(f32 *)(anim + 0x4) || *(f32 *)(anim + 0x8)) {
-                switch (anim[2]) {
+            if (anim->spinBase || anim->spinRange) {
+                switch (anim->spinAxis) {
                 case 0:
                     RandomNumberGenerator_GetRandomVector(&particle->axis);
                     break;
@@ -246,7 +192,7 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
                     particle->axis.z = 1.0f;
                     break;
                 }
-                particle->spin = 0.1f * (0.017453292f * RandomAdd(*(f32 *)(anim + 0x4), *(f32 *)(anim + 0x8)));
+                particle->spin = 0.1f * (0.017453292f * RandomAdd(anim->spinBase, anim->spinRange));
             } else {
                 particle->spin = 0.0f;
                 particle->axis.x = 1.0f;
@@ -255,136 +201,61 @@ void CreateParticleGX(Vector4 *pos, Vector4 *vel, Vector4 *accel, Vector4 *quat,
             }
         }
     }
-#undef g_particleManager
 }
 
-void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owner, u8 *info, f32 speed, f32 age) {
-    typedef struct {
-        u8 r;
-        u8 g;
-        u8 b;
-        u8 a;
-    } Colour;
-    typedef struct {
-        Vector4 pos;
-        Vector4 vel;
-        Vector4 accel;
-        u8 colour[0x2C];
-        u8 colourActive;
-        u8 unk5D[0x3];
-        u8 size[0x10];
-        u8 sizeActive;
-        u8 unk71[0xF];
-        f32 rot;
-        f32 rotSpeed;
-        s32 life;
-        f32 unk8C;
-        PTR32(u8) info;
-        u8 flags;
-        u8 type;
-        u8 visible;
-        u8 frame;
-        f32 speed;
-        f32 rate;
-        s32 frameTimer;
-        u8 unkA4[0xC];
-    } ParticleSprite;
-    typedef struct {
-        ParticleSprite sprites[0x200];
-        u32 next;
-    } SpriteList;
-    typedef struct {
-        u8 unk0[0x78030];
-        SpriteList spriteList;
-        u8 unk8E034[0xC];
-    } ParticleManager;
-    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
-    SpriteList *list;
+void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owner, struct ParticleInfo *info, f32 speed, f32 age) {
+    ParticleManager *pm = PARTICLES;
     ParticleSprite *sprite;
-    u8 *anim;
+    ParticleSpriteAnim *anim;
     s32 life;
     f32 lifeF;
     u32 time;
     u32 idx;
-    Colour c;
     f32 rate;
 
-    life = RandomAdd_s32(*(s32 *)(info + 0x8), *(s32 *)(info + 0xC));
+    life = RandomAdd_s32(info->lifeBase, info->lifeRange);
     lifeF = life;
     time = age * lifeF;
-    anim = SLOT_LOAD(u8 *, (info + 0x4));
+    anim = GETP(info->anim);
     if (anim != NULL) {
-        list = &g_particleManager.spriteList;
-        idx = list->next++;
-        if (idx + 1 >= 0x200) {
-            list->next = 0;
+        idx = pm->spriteNext++;
+        if (idx + 1 >= PARTICLE_SPRITE_COUNT) {
+            pm->spriteNext = 0;
         }
-        sprite = &list->sprites[idx];
+        sprite = &pm->sprites[idx];
         sprite->pos = *pos;
         sprite->vel = *vel;
         sprite->accel = *accel;
         SETP(sprite->info, info);
-        sprite->flags &= ~0xC;
-        if (anim[1] != 0) {
+        sprite->flags &= ~(PARTICLE_FLAG_AT_REST | PARTICLE_FLAG_FREE);
+        if (anim->animated != 0) {
             sprite->frame = 0;
-            sprite->frameTimer = *(s32 *)(anim + 0x1C);
+            sprite->frameTimer = anim->frameTime;
         } else {
-            sprite->frame = RandomAdd_s32(0, *(s32 *)(anim + 0x20));
+            sprite->frame = RandomAdd_s32(0, anim->numFrames);
         }
         sprite->life = life;
         sprite->speed = speed;
         rate = 1.0f;
         sprite->rate = rate;
-        if (*(s32 *)(info + 0xC) != 0 && *(s32 *)(info + 0x8) != 0) {
-            sprite->rate = rate / (lifeF / *(s32 *)(info + 0x8));
+        if (info->lifeRange != 0 && info->lifeBase != 0) {
+            sprite->rate = rate / (lifeF / info->lifeBase);
         }
-        sprite->type = anim[0];
-        sprite->sizeActive = 1;
-        sprite->colourActive = 1;
-        ExtractColorKey(GETP(sprite->info) + 0x14, sprite->colour, time);
-        sprite->unk8C = RandomAdd(*(f32 *)(anim + 0x14), *(f32 *)(anim + 0x18));
-        ExtractF32Key(anim + 0x28, sprite->size, time);
-        sprite->rot = RandomDirVar(*(f32 *)(anim + 0x4), *(f32 *)(anim + 0x8));
-        sprite->rotSpeed = RandomAdd(*(f32 *)(anim + 0xC), *(f32 *)(anim + 0x10));
-        sprite->visible = 1;
-        if (*(u32 *)(GETP(sprite->info) + 0x14) == 0) {
-            sprite->visible = 0;
-        } else if (*(u32 *)(GETP(sprite->info) + 0x14) == 1) {
-            c = *SLOT_LOAD(Colour *, (GETP(sprite->info) + 0x18));
-            if (c.r == 0xFF && c.b == 0xFF && c.g == 0xFF) {
-                sprite->visible = 0;
-            }
-        }
+        sprite->blend = anim->blend;
+        sprite->size.reset = 1;
+        sprite->color.reset = 1;
+        ExtractColorKey(&GETP(sprite->info)->colorKeys, &sprite->color, time);
+        sprite->sizeMul = RandomAdd(anim->sizeBase, anim->sizeRange);
+        ExtractF32Key(&anim->sizeKeys, &sprite->size, time);
+        sprite->rot = RandomDirVar(anim->rotBase, anim->rotRange);
+        sprite->rotSpeed = RandomAdd(anim->rotSpeedBase, anim->rotSpeedRange);
+        sprite->tinted = Particle_Tinted(GETP(sprite->info));
     }
-#undef g_particleManager
 }
 
-struct ParticleGX_Move_t;
 void ParticleManager_Heartbeat(void) {
     extern s8 g_bFreezeWorld;
     extern f32 g_fDeltaTimeMS;
-    typedef struct {
-        Vector4 pos;
-        Vector4 vel;
-        Vector4 accel;
-        u8 unk30[0x94 - 0x30];
-        u8 flags;
-        u8 unk95[0xB0 - 0x95];
-    } ParticleSprite;
-    typedef struct {
-        u8 unk0[0xB4];
-        u8 flags;
-        u8 unkB5[0x100 - 0xB5];
-    } ParticleGX;
-    typedef struct {
-        struct {
-            ParticleGX particles[0x280];
-            u8 unk28000[0x10];
-        } groups[3];
-        ParticleSprite sprites[0x200];
-        u8 unk8E030[0x10];
-    } ParticleManager;
-    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
     ParticleManager *pm;
     u32 j;
     u32 i;
@@ -393,10 +264,10 @@ void ParticleManager_Heartbeat(void) {
     f32 dt;
 
     if (!g_bFreezeWorld) {
-        pm = &g_particleManager;
+        pm = PARTICLES;
         for (i = 0; i < 3; i++) {
-            for (j = 0; j < 0x280; j++) {
-                if (!(pm->groups[i].particles[j].flags & 8)) {
+            for (j = 0; j < PARTICLE_GX_COUNT; j++) {
+                if (!(pm->groups[i].particles[j].flags & PARTICLE_FLAG_FREE)) {
                     ParticleGX_Move(&pm->groups[i].particles[j]);
                 }
             }
@@ -404,64 +275,30 @@ void ParticleManager_Heartbeat(void) {
         dt = g_fDeltaTimeMS;
         sprites = pm->sprites;
         sprite = pm->sprites;
-        for (j = 0; j < 0x200; j++) {
-            if (!(pm->sprites[j].flags & 8)) {
+        for (j = 0; j < PARTICLE_SPRITE_COUNT; j++) {
+            if (!(pm->sprites[j].flags & PARTICLE_FLAG_FREE)) {
                 ParticleSprite_Move(&sprite[j], sprites);
             }
         }
         sprite = pm->sprites;
-        for (j = 0; j < 0x200; j++) {
-            if (!(pm->sprites[j].flags & 8)) {
+        for (j = 0; j < PARTICLE_SPRITE_COUNT; j++) {
+            if (!(pm->sprites[j].flags & PARTICLE_FLAG_FREE)) {
                 AccumulateVector(&sprite[j].accel, &sprite[j].vel, &sprite[j].vel, dt);
                 AccumulateVector(&sprite[j].vel, &sprite[j].pos, &sprite[j].pos, dt);
             }
         }
     }
-#undef g_particleManager
 }
 
-struct ParticleGX_Move_t {
-    Vector4 pos;
-    u8 unk10[0xDC - 0x10];
-    s32 timer;
-    Vector4 targetPos;
-};
-
-struct ParticleGX_MacroStep_t {
-    Vector4 pos;
-    Vector4 vel;
-    Vector4 accel;
-    Vector4 quat;
-    Vector4 axis;
-    u8 colour[0x30];
-    u8 scale[0x30];
-    f32 bounce;
-    u8 flags;
-    u8 unkB5;
-    u8 visible;
-    u8 frame;
-    f32 speed;
-    PTR32(u8) info;
-    PTR32(void) texture;
-    f32 unkC4;
-    f32 spin;
-    s32 life;
-    f32 rate;
-    s32 frameTimer;
-    f32 unkD8;
-    s32 timer;
-    Vector4 targetPos;
-    Vector4 targetVel;
-};
-
-
-void ParticleGX_Move(struct ParticleGX_Move_t *particle) {
+/* Start a macro step when the last one is over: arrive at its end, pick the
+ * next length from the camera distance (up to 700 ms at 1000 units). */
+void ParticleGX_Move(struct ParticleGX *particle) {
     extern s32 g_iDeltaTimeMS;
     f32 distSq;
 
     if (particle->timer <= 0) {
-        particle->pos = particle->targetPos;
-        distSq = Gfx_GetMinCameraDistSquared(particle);
+        particle->pos = particle->macroPos;
+        distSq = Gfx_GetMinCameraDistSquared(&particle->pos);
         if ((u32)ViewManager_GetViewFormat() > 1) {
             distSq *= 4.0f;
         }
@@ -482,132 +319,107 @@ void ParticleGX_Move(struct ParticleGX_Move_t *particle) {
     particle->timer -= g_iDeltaTimeMS;
 }
 
-void ParticleGX_MicroStep(void *arg0) {
+/* Glide towards the macro step's end and spin. */
+void ParticleGX_MicroStep(struct ParticleGX *particle) {
     extern f32 g_fDeltaTimeMS;
-    struct ParticleGX {
-        Vector4 pos;
-        u8 unk10[0x30 - 0x10];
-        Vector4 quat;
-        Vector4 axis;
-        u8 unk50[0xB8 - 0x50];
-        f32 spinRate;
-        u8 unkBC[0xC8 - 0xBC];
-        f32 spin;
-        u8 unkCC[0xF0 - 0xCC];
-        Vector4 vel;
-    } *particle = arg0;
     Vector4 pos __attribute__((aligned(16)));
-    Vector4 rot __attribute__((aligned(16)));
-    Vector4 out __attribute__((aligned(16)));
+    Quaternion rot __attribute__((aligned(16)));
+    Quaternion out __attribute__((aligned(16)));
 
-    AccumulateVector(&particle->vel, &particle->pos, &pos, g_fDeltaTimeMS);
+    AccumulateVector(&particle->macroVel, &particle->pos, &pos, g_fDeltaTimeMS);
     particle->pos = pos;
     if (particle->spin) {
-        GenerateQuaternion(&particle->axis, &rot, 0.01f * (g_fDeltaTimeMS * (particle->spinRate * particle->spin)));
+        GenerateQuaternion(&particle->axis, &rot, 0.01f * (g_fDeltaTimeMS * (particle->speed * particle->spin)));
         QuaternionMult(&particle->quat, &rot, &out);
         particle->quat = out;
     }
 }
 
-void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t *particle) {
+/* One of the info's death effects (DebrisParams.debris), at random. */
+static inline void Particle_SpawnDeathFx(ParticleInfo *info, s32 idx, Vector4 *pos, Vector4 *vel, Quaternion *quat) {
     extern Vector4 g_zeroVector;
-    typedef struct {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        Vector4 angVel;
-        u32 id;
-        s32 unk44;
-        f32 unk48;
-        f32 unk4C;
-    } FxParams;
+    DebrisParams params __attribute__((aligned(16)));
+    u32 fx;
+
+    if (info->numDeathFx != 0) {
+        fx = GETP(info->deathFx)[idx];
+        if (fx != 0) {
+            params.debris = fx;
+            params.pos = *pos;
+            params.vel = *vel;
+            params.quat = *(Vector4 *)quat;
+            params.owner = 0;
+            params.unk48 = 0.0f;
+            params.unk4C = 0.0f;
+            params.angVel = g_zeroVector;
+            ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
+        }
+    }
+}
+
+/* Simulate the particle over the macro step (timer ms): age it (dying with
+ * a death effect), animate it, move it and collide with the terrain by its
+ * anim's collide mode; then set the glide towards where it ends up. */
+void ParticleGX_MacroStep(struct ParticleGX *particle) {
     typedef struct {
         Vector4 pos;
         Vector4 normal;
         u8 pad20[0x30];
     } RayHit;
-    FxParams params __attribute__((aligned(16)));
     RayHit hit __attribute__((aligned(16)));
-    FxParams params2 __attribute__((aligned(16)));
     Vector4 newPos __attribute__((aligned(16)));
+    ParticleInfo *info = GETP(particle->info);
     f32 t;
     f32 dt;
     f32 d;
     f32 rest;
-    u8 *anim;
-    u32 fx;
+    ParticleGXAnim *anim;
     s32 idx;
     u32 sound;
     u8 bounced;
 
-    anim = SLOT_LOAD(u8 *, (GETP(particle->info) + 0x4));
-    idx = RandomAdd_s32(0, *(s32 *)(GETP(particle->info) + 0x1C));
+    anim = GETP(info->anim);
+    idx = RandomAdd_s32(0, info->numDeathFx);
     dt = particle->timer;
     if (particle->life < 0) {
-        if (*(u32 *)(GETP(particle->info) + 0x1C) != 0) {
-            fx = (SLOT_LOAD(u32 *, (GETP(particle->info) + 0x20)))[idx];
-            if (fx != 0) {
-                params.id = fx;
-                params.pos = particle->pos;
-                params.vel = particle->vel;
-                params.quat = particle->quat;
-                params.unk44 = 0;
-                params.unk48 = 0.0f;
-                params.unk4C = 0.0f;
-                params.angVel = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &params);
-            }
-        }
-        particle->flags |= 8;
+        Particle_SpawnDeathFx(info, idx, &particle->pos, &particle->vel, &particle->quat);
+        particle->flags |= PARTICLE_FLAG_FREE;
         return;
     }
     particle->life -= particle->timer;
-    if (anim[3] != 0) {
+    if (anim->animated != 0) {
         if (particle->frameTimer < 0) {
-            particle->frameTimer = *(s32 *)(anim + 0x14);
+            particle->frameTimer = anim->frameTime;
             particle->frame++;
-            if (particle->frame >= *(u32 *)(anim + 0x20)) {
+            if (particle->frame >= anim->numFrames) {
                 particle->frame = 0;
             }
         } else {
             particle->frameTimer -= particle->timer;
         }
     }
-    ExtractColorKey(GETP(particle->info) + 0x14, particle->colour, dt * particle->rate);
-    ExtractScaleKey(anim + 0x28, particle->scale, dt * particle->rate);
-    if (anim[1] & 4) {
+    ExtractColorKey(&info->colorKeys, &particle->color, dt * particle->rate);
+    ExtractScaleKey(&anim->scaleKeys, &particle->scale, dt * particle->rate);
+    if (anim->collide & 4) {
         return;
     }
     AccumulateVector(&particle->accel, &particle->vel, &particle->vel, dt);
     AccumulateVector(&particle->vel, &particle->pos, &newPos, dt);
-    if (particle->flags & 1) {
+    if (particle->flags & PARTICLE_FLAG_COLLIDES) {
         t = 1.0f;
         bounced = 0;
-        if (RayHitsTerrain(particle, &newPos, &t, &hit)) {
+        if (RayHitsTerrain(&particle->pos, &newPos, &t, &hit)) {
             AccumulateVector(&particle->vel, &particle->pos, &particle->pos, t * dt);
-            if (anim[1] == 1) {
-                if (*(u32 *)(GETP(particle->info) + 0x1C) != 0) {
-                    fx = (SLOT_LOAD(u32 *, (GETP(particle->info) + 0x20)))[idx];
-                    if (fx != 0) {
-                        params2.id = fx;
-                        params2.pos = particle->pos;
-                        params2.vel = particle->vel;
-                        params2.quat = particle->quat;
-                        params2.unk44 = 0;
-                        params2.unk48 = 0.0f;
-                        params2.unk4C = 0.0f;
-                        params2.angVel = g_zeroVector;
-                        ThingManager_DARYL_CreateThing(1, &params2);
-                    }
-                }
-                particle->flags |= 8;
+            if (anim->collide == 1) {
+                Particle_SpawnDeathFx(info, idx, &particle->pos, &particle->vel, &particle->quat);
+                particle->flags |= PARTICLE_FLAG_FREE;
                 return;
             }
-            if (anim[1] == 3) {
+            if (anim->collide == 3) {
                 bounced = 1;
             } else {
                 bounced = 1;
-                sound = *(u32 *)(anim + 0x18);
+                sound = anim->bounceSound;
                 rest = (1.0f - t) * dt;
                 d = 2.0f * (particle->vel.x * hit.normal.x + particle->vel.y * hit.normal.y + particle->vel.z * hit.normal.z);
                 particle->vel.x -= d * hit.normal.x;
@@ -623,15 +435,15 @@ void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t *particle) {
             }
         }
         if (bounced) {
-            if (!(particle->flags & 2) ||
+            if (!(particle->flags & PARTICLE_FLAG_BOUNCES) ||
                 particle->vel.x * particle->vel.x + particle->vel.y * particle->vel.y + particle->vel.z * particle->vel.z < 0.0001f ||
-                anim[1] == 3) {
+                anim->collide == 3) {
                 particle->vel.x = particle->vel.y = particle->vel.z = particle->spin = 0.0f;
-                particle->flags |= 4;
-                if (anim[1] == 3) {
+                particle->flags |= PARTICLE_FLAG_AT_REST;
+                if (anim->collide == 3) {
                     particle->accel.x = 0.0f;
                     particle->accel.y = 0.0f;
-                    particle->accel.x = 0.0f;
+                    particle->accel.x = 0.0f;   /* sic: z is left as it is */
                 }
             } else if (particle->vel.x * particle->vel.x + particle->vel.z * particle->vel.z > 2e-05f) {
                 if (particle->bounce < 0.7f) {
@@ -643,151 +455,103 @@ void ParticleGX_MacroStep(struct ParticleGX_MacroStep_t *particle) {
             }
         }
     }
-    particle->targetPos = newPos;
-    particle->targetVel.x = (particle->targetPos.x - particle->pos.x) / particle->timer;
-    particle->targetVel.y = (particle->targetPos.y - particle->pos.y) / particle->timer;
-    particle->targetVel.z = (particle->targetPos.z - particle->pos.z) / particle->timer;
+    particle->macroPos = newPos;
+    particle->macroVel.x = (particle->macroPos.x - particle->pos.x) / particle->timer;
+    particle->macroVel.y = (particle->macroPos.y - particle->pos.y) / particle->timer;
+    particle->macroVel.z = (particle->macroPos.z - particle->pos.z) / particle->timer;
 }
 
-void ParticleSprite_Move(u8 *sprite, void *sprites) {
-    extern Vector4 g_zeroVector;
+/* Age, animate and spin a sprite (it moves in ParticleManager_Heartbeat). */
+void ParticleSprite_Move(struct ParticleSprite *sprite, void *sprites) {
     extern f32 g_fDeltaTimeMS;
     extern f32 g_fDeltaTimeSec;
-    typedef struct {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        Vector4 angVel;
-        u32 id;
-        s32 unk44;
-        f32 unk48;
-        f32 unk4C;
-    } FxParams;
-    FxParams params __attribute__((aligned(16)));
+    Quaternion identity = {0.0f, 0.0f, 0.0f, 1.0f};
+    ParticleInfo *info = GETP(sprite->info);
     f32 dt;
-    u8 *anim;
+    ParticleSpriteAnim *anim;
     s32 idx;
-    u32 fx;
     s32 step;
 
-    dt = g_fDeltaTimeMS * *(f32 *)(sprite + 0x98);
-    anim = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (sprite + 0x90)) + 0x4));
-    idx = RandomAdd_s32(0, *(s32 *)(SLOT_LOAD(u8 *, (sprite + 0x90)) + 0x1C));
-    if (*(s32 *)(sprite + 0x88) < 0) {
-        if (*(u32 *)(SLOT_LOAD(u8 *, (sprite + 0x90)) + 0x1C) != 0) {
-            fx = (SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (sprite + 0x90)) + 0x20)))[idx];
-            if (fx != 0) {
-                params.id = fx;
-                params.pos = *(Vector4 *)(sprite + 0x0);
-                params.vel = *(Vector4 *)(sprite + 0x10);
-                params.quat.x = 0.0f;
-                params.quat.y = 0.0f;
-                params.quat.z = 0.0f;
-                params.quat.w = 1.0f;
-                params.unk44 = 0;
-                params.unk48 = 0.0f;
-                params.unk4C = 0.0f;
-                params.angVel = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &params);
-            }
-        }
-        sprite[0x94] |= 8;
+    dt = g_fDeltaTimeMS * sprite->speed;
+    anim = GETP(info->anim);
+    idx = RandomAdd_s32(0, info->numDeathFx);
+    if (sprite->life < 0) {
+        Particle_SpawnDeathFx(info, idx, &sprite->pos, &sprite->vel, &identity);
+        sprite->flags |= PARTICLE_FLAG_FREE;
         return;
     }
     step = dt;
-    *(s32 *)(sprite + 0x88) -= step;
-    if (anim != NULL && anim[1] != 0) {
-        if (*(s32 *)(sprite + 0xA0) < 0) {
-            *(s32 *)(sprite + 0xA0) = *(s32 *)(anim + 0x1C);
-            sprite[0x97]++;
-            if (sprite[0x97] >= *(u32 *)(anim + 0x20)) {
-                sprite[0x97] = 0;
+    sprite->life -= step;
+    if (anim != NULL && anim->animated != 0) {
+        if (sprite->frameTimer < 0) {
+            sprite->frameTimer = anim->frameTime;
+            sprite->frame++;
+            if (sprite->frame >= anim->numFrames) {
+                sprite->frame = 0;
             }
         } else {
-            *(s32 *)(sprite + 0xA0) -= step;
+            sprite->frameTimer -= step;
         }
     }
-    ExtractColorKey(SLOT_LOAD(u8 *, (sprite + 0x90)) + 0x14, sprite + 0x30, dt * *(f32 *)(sprite + 0x9C));
-    ExtractF32Key(anim + 0x28, sprite + 0x60, dt * *(f32 *)(sprite + 0x9C));
-    if (*(f32 *)(sprite + 0x84)) {
-        *(f32 *)(sprite + 0x80) += *(f32 *)(sprite + 0x98) * (*(f32 *)(sprite + 0x84) * g_fDeltaTimeSec);
+    ExtractColorKey(&info->colorKeys, &sprite->color, dt * sprite->rate);
+    ExtractF32Key(&anim->sizeKeys, &sprite->size, dt * sprite->rate);
+    if (sprite->rotSpeed) {
+        sprite->rot += sprite->speed * (sprite->rotSpeed * g_fDeltaTimeSec);
     }
 }
 
 void ParticleManager_Render(void) {
-    typedef struct {
-        u8 unk0[0x94];
-        u8 flags;
-        u8 unk95[0xB0 - 0x95];
-    } ParticleSprite;
-    typedef struct {
-        u8 unk0[0xB4];
-        u8 flags;
-        u8 unkB5[0x100 - 0xB5];
-    } ParticleGX;
-    typedef struct {
-        struct {
-            ParticleGX particles[0x280];
-            u8 unk28000[0x10];
-        } groups[3];
-        ParticleSprite sprites[0x200];
-        u8 unk8E030[0x10];
-    } ParticleManager;
-    #define g_particleManager (*(ParticleManager *)(void *)&g_particleManager)
-    #define g_numParticlesCreatedThisFrame (*(s32 *)(void *)&g_numParticlesCreatedThisFrame)
-    ParticleManager *pm = &g_particleManager;
+    ParticleManager *pm = PARTICLES;
     u32 j;
     u32 i;
     ParticleSprite *sprite;
 
     for (i = 0; i < 3; i++) {
-        for (j = 0; j < 0x280; j++) {
-            if (!(pm->groups[i].particles[j].flags & 8)) {
+        for (j = 0; j < PARTICLE_GX_COUNT; j++) {
+            if (!(pm->groups[i].particles[j].flags & PARTICLE_FLAG_FREE)) {
                 ParticleGX_Render(&pm->groups[i].particles[j]);
             }
         }
     }
-    for (j = 0, sprite = pm->sprites; j < 0x200; j++, sprite++) {
-        if (!(pm->sprites[j].flags & 8)) {
+    for (j = 0, sprite = pm->sprites; j < PARTICLE_SPRITE_COUNT; j++, sprite++) {
+        if (!(pm->sprites[j].flags & PARTICLE_FLAG_FREE)) {
             ParticleSprite_Render(sprite);
         }
     }
-    g_numParticlesCreatedThisFrame = 0;
-#undef g_numParticlesCreatedThisFrame
-#undef g_particleManager
+    NUM_CREATED_THIS_FRAME = 0;
 }
 
-void ParticleGX_Render(u8 *particle) {
+void ParticleGX_Render(struct ParticleGX *particle) {
     u32 color;
     Vector4 scale __attribute__((aligned(16)));
 
-    SLOT_STORE((particle + 0xC0), SLOT_LOAD(void *, (u32 *)SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (particle + 0xBC)) + 0x4)) + 0x24)) + (particle[0xB7])));
-    if (particle[0xB6] != 0) {
-        color = *(u32 *)(particle + 0x74);
+    particle->geometry.h = GETP(((ParticleGXAnim *)GETP(GETP(particle->info)->anim))->frames)[particle->frame];
+    if (particle->tinted != 0) {
+        color = *(u32 *)&particle->color.color;
         Gfx_SetBaseColor(&color);
         Gfx_EnableState(0x10);
     }
-    *(f32 *)(particle + 0xC) = 1.0f;
-    scale.x = *(f32 *)(particle + 0xD8) * (*(f32 *)(particle + 0x80) * *(f32 *)(particle + 0xC4));
-    scale.y = *(f32 *)(particle + 0xD8) * (*(f32 *)(particle + 0x84) * *(f32 *)(particle + 0xC4));
-    scale.z = *(f32 *)(particle + 0xD8) * (*(f32 *)(particle + 0x88) * *(f32 *)(particle + 0xC4));
+    particle->pos.w = 1.0f;
+    scale.x = particle->size * (particle->scale.v.x * particle->scaleMul);
+    scale.y = particle->size * (particle->scale.v.y * particle->scaleMul);
+    scale.z = particle->size * (particle->scale.v.z * particle->scaleMul);
     scale.w = 1.0f;
-    Gfx_DrawGeometry_QuaternionScalePos(HND(SLOT_LOAD(void *, (particle + 0xC0))), HND(particle + 0x30), HND(&scale), HND(particle));
-    if (particle[0xB6] != 0) {
+    Gfx_DrawGeometry_QuaternionScalePos(particle->geometry.h, HND(&particle->quat), HND(&scale), HND(&particle->pos));
+    if (particle->tinted != 0) {
         Gfx_DisableState(0x10);
     }
 }
 
-void ParticleSprite_Render(u8 *sprite) {
-    u8 *Gfx_AddBillBoardSprite(u16);
-    u8 *bb;
+void ParticleSprite_Render(struct ParticleSprite *sprite) {
+    FxBillboard *Gfx_AddBillBoardSprite(u16);
+    FxBillboard *bb;
 
-    bb = Gfx_AddBillBoardSprite((SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (sprite + 0x90)) + 0x4)) + 0x24)))[sprite[0x97]]);
-    bb[0x2A] = sprite[0x95];
-    *(s32 *)(bb + 0x24) = *(s32 *)(sprite + 0x54);
-    *(f32 *)(bb + 0x1C) = 360.0f - *(f32 *)(sprite + 0x80);
-    *(f32 *)(bb + 0xC) = *(f32 *)(sprite + 0x60) * *(f32 *)(sprite + 0x8C);
-    *(f32 *)(bb + 0x0) = *(f32 *)(sprite + 0x0);
-    *(f32 *)(bb + 0x4) = *(f32 *)(sprite + 0x4);
-    *(f32 *)(bb + 0x8) = *(f32 *)(sprite + 0x8);
+    bb = Gfx_AddBillBoardSprite(GETP(((ParticleSpriteAnim *)GETP(GETP(sprite->info)->anim))->frames)[sprite->frame]);
+    bb->blend = sprite->blend;
+    bb->color = sprite->color.color;
+    bb->rot = 360.0f - sprite->rot;
+    bb->size = sprite->size.value * sprite->sizeMul;
+    bb->x = sprite->pos.x;
+    bb->y = sprite->pos.y;
+    bb->z = sprite->pos.z;
 }

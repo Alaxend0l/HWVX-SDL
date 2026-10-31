@@ -2,18 +2,18 @@
 
 
 void StateGameManager_RefreshMCPTextures(void) {
-    void *pack;
+    DataPack *pack;
     u32 i;
 
     pack = FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack("mcp", 3, 0, 0), 3, 1);
     if (pack != NULL) {
-        for (i = 0; i < M2C_FIELD(pack, u32 *, 0x2C); i++) {
-            Gfx_UnLoadTexture(SLOT_LOAD(u16 *, (u8 *)(pack) + 0x30)[i]);
+        for (i = 0; i < pack->numTextures; i++) {
+            Gfx_UnLoadTexture(GETP(pack->textureIDs)[i]);
         }
         DataPack_RefreshTextures(pack);
     }
 }
-typedef struct { PTR32(u8) mcp; s32 unk4; } GameManagerState;
+typedef struct { PTR32(MCP) mcp; s32 unk4; } GameManagerState;
 extern GameManagerState g_GameManagerState;
 
 
@@ -36,22 +36,22 @@ s32 StateGameManager_Init(void) {
     min.x = min.y = min.z = -500.0f;
     max.x = max.y = max.z = 500.0f;
     Grid_Init(&min, &max, 0x10, 0x10);
-    if (M2C_FIELD(GetCameraManager(), u8 *, 0x640) == 0) {
+    if (CAMERA_MANAGER->count == 0) {
         camera = CameraManager_GetNewCamera();
     }
     ViewManager_SetCamera(camera, 0);
     if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
         GameSettings_SetCodeVariable(0xC8, 0, g_gameDifficulty);
         GameSettings_SetCodeVariable(0x198, 0, 0);
-        g_GameManagerState.unk4 = M2C_FIELD(GETP(g_GameManagerState.mcp), s32 *, 0x2C) - 1;
+        g_GameManagerState.unk4 = GETP(g_GameManagerState.mcp)->numSteps - 1;
     }
     if (GETP(g_GameManagerState.mcp) == NULL) {
         GameSetting_Init();
-        if ((SETP(g_GameManagerState.mcp, GameSettings_GetMCP())) == NULL) {
+        if ((SETP(g_GameManagerState.mcp, GameSettings_GetMCP())) == 0) {
             StateManager_QueueChange(0xB);
             return 1;
         }
-        if (*GETP(g_GameManagerState.mcp) != 0) {
+        if (GETP(g_GameManagerState.mcp)->unk0 != 0) {
             StateManager_QueueChange(0xB);
             return 1;
         }
@@ -148,19 +148,19 @@ s32 StateGameManager_GetProgScript(u32 index) {
 
     if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
         if (GETP(g_GameManagerState.mcp) != NULL) {
-            return M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(GETP(g_GameManagerState.mcp)) + 0x24), s32 *, 8);
+            return GETP(GETP(g_GameManagerState.mcp)->demo)->script.h;
         }
         return 0;
     }
-    if (GETP(g_GameManagerState.mcp) == NULL || index >= M2C_FIELD(GETP(g_GameManagerState.mcp), u32 *, 0x34)) {
+    if (GETP(g_GameManagerState.mcp) == NULL || index >= GETP(g_GameManagerState.mcp)->numScripts) {
         return 0;
     }
-    return SLOT_LOAD(s32 *, (u8 *)(GETP(g_GameManagerState.mcp)) + 0x38)[index];
+    return GETP(GETP(g_GameManagerState.mcp)->scripts)[index].h;
 }
 
-void StateGameManager_InterfaceHandler(void *event) {
+void StateGameManager_InterfaceHandler(InterfaceMsg *event) {
     #define g_bInterfacePlaying (*(u8 *)(void *)&g_bInterfacePlaying)
-    switch (M2C_FIELD(event, u16 *, 4)) {
+    switch (event->type) {
     case 5:
         if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
             StateManager_QueueChange(0xB);

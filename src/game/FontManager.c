@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 typedef struct FontChar {
@@ -29,32 +30,6 @@ typedef struct FontManager {
     Font fonts[16];
 } FontManager;
 
-typedef struct GDLRectVtx {
-    f32 x;
-    f32 y;
-    f32 z;
-    u8 unkC[0x10 - 0xC];
-    f32 s;
-    f32 t;
-    u8 r;
-    u8 g;
-    u8 b;
-    u8 a;
-    u8 unk1C[0x20 - 0x1C];
-} GDLRectVtx;
-
-typedef struct GDLRect {
-    GDLRectVtx v[4];
-    u16 tex;
-    u8 blendMode;
-    u8 window;
-} GDLRect;
-
-typedef struct GfxState {
-    u8 unk0[0x8C];
-    u16 debugFont;
-    u8 unk8E[0xA0 - 0x8E];
-} GfxState;
 
 /* The letters a font texture holds, in order, per language (E/F/G) and case mode. */
 char g_lettersE[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?abcdefghijklmnopqrstuvwxyz;:+-*/=%\"()&#'";
@@ -80,7 +55,6 @@ u8 g_letterWidth[100] = {
 };
 
 FontManager g_fontManager;
-extern GfxState g_state;
 
 typedef struct Texture {
     u8 unk0[0x24];
@@ -275,7 +249,6 @@ void Gfx_FontManager_SetCharacterSpacing(s32 id, u8 c, f32 x, f32 y) {
 
 u32 Gfx_FontManager_Print(char *str, u32 id, u8 blendMode, f32 x, f32 y, f32 spacing) {
     extern GXColor g_textcolor;
-    GDLRect *Gfx_Add2DRectangle(void);
     u32 i;
     Font *font = &g_fontManager.fonts[id];
     GXColor color = g_textcolor;
@@ -298,10 +271,10 @@ u32 Gfx_FontManager_Print(char *str, u32 id, u8 blendMode, f32 x, f32 y, f32 spa
             rect = Gfx_Add2DRectangle();
             rect->blendMode = blendMode;
             rect->tex = font->texture;
-            *(GXColor *)&rect->v[0].r = color;
-            *(GXColor *)&rect->v[1].r = color;
-            *(GXColor *)&rect->v[2].r = color;
-            *(GXColor *)&rect->v[3].r = color;
+            rect->v[0].color = color;
+            rect->v[1].color = color;
+            rect->v[2].color = color;
+            rect->v[3].color = color;
             rect->v[0].s = font->chars[c].unk0;
             rect->v[0].t = font->chars[c].unk4;
             rect->v[1].s = font->chars[c].unk0;
@@ -444,7 +417,6 @@ void Gfx_FontManager_PrintParagraph(char *str, u32 maxChars, s32 id, u8 blendMod
 
 void Gfx_FontManager_PrintScale(char *str, s32 id, f32 *scale, u8 blendMode, f32 x, f32 y, f32 spacing) {
     extern GXColor g_textcolor;
-    GDLRect *Gfx_Add2DRectangle(void);
     u32 i;
     Font *font = &g_fontManager.fonts[id];
     GXColor color = g_textcolor;
@@ -464,10 +436,10 @@ void Gfx_FontManager_PrintScale(char *str, s32 id, f32 *scale, u8 blendMode, f32
             rect = Gfx_Add2DRectangle();
             rect->blendMode = blendMode;
             rect->tex = font->texture;
-            *(GXColor *)&rect->v[0].r = color;
-            *(GXColor *)&rect->v[1].r = color;
-            *(GXColor *)&rect->v[2].r = color;
-            *(GXColor *)&rect->v[3].r = color;
+            rect->v[0].color = color;
+            rect->v[1].color = color;
+            rect->v[2].color = color;
+            rect->v[3].color = color;
             rect->v[0].s = font->chars[c].unk0;
             rect->v[0].t = font->chars[c].unk4;
             rect->v[1].s = font->chars[c].unk0;

@@ -30,7 +30,7 @@ typedef struct FlareData {
 
 typedef struct Flare {
     PTR32(FlareData) flare;
-    PTR32(u8) thing;
+    PTR32(Thing) thing;
     u8 unk8[0x10 - 0x8];
     Vector4 pos;
     s8 visible;
@@ -42,9 +42,9 @@ u32 g_LensFlareRayTest;
 u32 g_activeFlares;
 
 /* a flare follows its thing when it has one, else sits at its own position */
-static inline Vector4 LensFlare_GetPos(u8 *thing, Vector4 *pos) {
+static inline Vector4 LensFlare_GetPos(Thing *thing, Vector4 *pos) {
     if (thing != NULL) {
-        return *(Vector4 *)(thing + 0x40);
+        return thing->pos;
     }
     return *pos;
 }
@@ -62,7 +62,7 @@ void LensFlare_Init(void) {
     g_LensFlareRayTest = 1;
 }
 
-s32 LensFlare_Add(FlareData *flare, u8 *thing, Vector4 *pos) {
+s32 LensFlare_Add(FlareData *flare, Thing *thing, Vector4 *pos) {
     extern Flare g_pFlare[64];
     extern u32 g_activeFlares;
     u32 i;

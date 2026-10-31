@@ -97,7 +97,7 @@ s32 StateTitleScreen_Init(s32 prevState) {
     min.x = min.y = min.z = -500.0f;
     max.x = max.y = max.z = 500.0f;
     Grid_Init(&min, &max, 0x10, 0x10);
-    if (((u8 *)GetCameraManager())[0x640] == 0) {
+    if (CAMERA_MANAGER->count == 0) {
         camera = CameraManager_GetNewCamera();
     }
     ViewManager_SetCamera(camera, 0);

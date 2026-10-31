@@ -1,87 +1,29 @@
 
 
 #include "common.h"
+#include "Voice.h"
+#include "IT.h"
 
-typedef struct IT_VOICE
-{
-    u8 byte0;
-    u8 track;
-    u8 pad_2_3[2];
-    PTR32(struct IT_VOICE) next;
-    u8 pad_8_3B[0x34];
-    s32 vol;
-    s32 pan;
-    u8 pad_44_6F[0x2C];
-} IT_VOICE;
-
-typedef struct IT_TRACK
-{
-    PTR32(struct IT_VOICE) head;   /* 0x00 */
-    PTR32(struct IT_VOICE) active; /* 0x04 */
-    PTR32(u8) smp;                 /* 0x08 */
-    PTR32(u8) ins;                 /* 0x0C */
-    u8 index;                /* 0x10 */
-    u8 state;                /* 0x11 */
-    u8 priority;             /* 0x12 */
-    u8 mask;                 /* 0x13 */
-    u8 note;                 /* 0x14 */
-    u8 insNum;               /* 0x15 */
-    u8 volCol;               /* 0x16 */
-    u8 cmd;                  /* 0x17 */
-    u8 param;                /* 0x18 */
-    u8 realNote;             /* 0x19 */
-    s16 gvol;                /* 0x1A */
-    s32 chVol;               /* 0x1C */
-    u8 pad_20_27[8];
-    s32 vol;                 /* 0x28 */
-    s32 pan;                 /* 0x2C */
-    u8 pad_30_37[8];
-    s32 panSep;              /* 0x38 */
-    u8 pad_3C_43[8];
-    s32 curVol;              /* 0x44 */
-    s32 volBase;             /* 0x48 */
-    s32 volSlide;            /* 0x4C */
-    s32 period;              /* 0x50 */
-    s32 slideSpeed;          /* 0x54 */
-    s32 targetPeriod;        /* 0x58 */
-    u8 memVolSlide;          /* 0x5C */
-    u8 memChVolSlide;        /* 0x5D */
-    u8 memPanSlide;          /* 0x5E */
-    u8 memPitchSlide;        /* 0x5F */
-    u8 memArp;               /* 0x60 */
-    u8 memVibrato;           /* 0x61 */
-    u8 pad_62;
-    u8 memTremor;            /* 0x63 */
-    u8 memOffset;            /* 0x64 */
-    u8 memTempo;             /* 0x65 */
-    u8 memSpecial;           /* 0x66 */
-    u8 pad_67;
-    u32 flags;               /* 0x68 */
-    u32 prevFlags;           /* 0x6C */
-} IT_TRACK;
-
-static s32 g_song[0xC];
-static IT_TRACK g_trk[0x20];
-static u8 *g_pIns[100];
-static u8 *g_pSmp[100];
+static ITSong g_song;
+static ITTrack g_trk[0x20];
+static ITInstrument *g_pIns[100];
+static ITSample *g_pSmp[100];
 static u8 *g_pPtrn[200];
 
-void StopActive(IT_TRACK *trk);
-void *GetVoice_(u8 type, u32 priority);
-void SetTrackPan(IT_TRACK *trk);
-void SetTrackVol(IT_TRACK *trk);
-s32 PlayNote(IT_TRACK *trk);
+void StopActive(ITTrack *trk);
+void SetTrackPan(ITTrack *trk);
+void SetTrackVol(ITTrack *trk);
+s32 PlayNote(ITTrack *trk);
 
 
 
-extern u8 g_pHdr[];  /* typed per function below */
+extern ITHeader *g_pHdr;  /* the playing module, NULL: none */
 
 s32 AudioIT_Create(void)
 {
-    #define g_pHdr (*(void **)(void *)&g_pHdr)
     u8 i;
 
-    memset(g_song, 0, sizeof(g_song));
+    memset(&g_song, 0, sizeof(g_song));
     memset(g_trk, 0, sizeof(g_trk));
     for (i = 0; i < 0x20; i++)
     {
@@ -89,21 +31,19 @@ s32 AudioIT_Create(void)
     }
     g_pHdr = NULL;
     return 1;
-#undef g_pHdr
 }
 
 
 s32 AudioIT_Init(void)
 {
-    #define g_pHdr (*(void **)(void *)&g_pHdr)
     u32 i;
-    IT_TRACK *trk;
+    ITTrack *trk;
 
     if (g_pHdr != NULL)
     {
         DestroyIT();
     }
-    g_song[7] = 0x10000;
+    g_song.pitch = 0x10000;
     trk = g_trk;
     for (i = 0x20; i != 0; i--)
     {
@@ -111,7 +51,6 @@ s32 AudioIT_Init(void)
         SETP(trk->active, NULL);
     }
     return 1;
-#undef g_pHdr
 }
 
 
@@ -122,12 +61,11 @@ void AudioIT_Destroy(s32 unused) {
 
 void CreateIT(u8 *data, u8 *arg1)
 {
-    #define g_pHdr (*(u8 **)(void *)&g_pHdr)
     extern u8 *g_pOrder;
     extern u8 g_musicTitle[0x20];
-    extern void (*DestroySongVoice)(IT_VOICE *voice);
+    extern void (*DestroySongVoice)(Voice *voice);
     extern s32 __OSCurrHeap;
-    void DestroyITVoice(IT_VOICE *voice);
+    void DestroyITVoice(Voice *voice);
     s32 i;
     u32 *insOff;
     u32 *smpOff;
@@ -137,41 +75,39 @@ void CreateIT(u8 *data, u8 *arg1)
     {
         return;
     }
-    i = *(u32 *)(data + 0x38);
+    i = ((ITHeader *)data)->size;
     g_pHdr = OSAllocFromHeap(__OSCurrHeap, i);
     memcpy(g_pHdr, data, i);
-    data = g_pHdr;
-    *(s32 *)(g_pHdr + 0x3C) = 1;
-    g_pOrder = data + 0xC0;
-    insOff = (u32 *)(data + *(u16 *)(g_pHdr + 0x20));
-    insOff += 0x30;
-    smpOff = insOff + *(u16 *)(g_pHdr + 0x22);
-    patOff = smpOff + *(u16 *)(g_pHdr + 0x24);
-    for (i = 0; i < *(u16 *)(g_pHdr + 0x22); i++)
+    data = (u8 *)g_pHdr;
+    g_pHdr->loaded = 1;
+    g_pOrder = g_pHdr->orders;
+    /* the order list is followed by the instrument, sample and pattern offsets */
+    insOff = (u32 *)(g_pHdr->orders + g_pHdr->numOrders);
+    smpOff = insOff + g_pHdr->numInstruments;
+    patOff = smpOff + g_pHdr->numSamples;
+    for (i = 0; i < g_pHdr->numInstruments; i++)
     {
-        g_pIns[i] = data + insOff[i];
+        g_pIns[i] = (ITInstrument *)(data + insOff[i]);
     }
-    for (i = 0; i < *(u16 *)(g_pHdr + 0x24); i++)
+    for (i = 0; i < g_pHdr->numSamples; i++)
     {
-        g_pSmp[i] = data + smpOff[i];
+        g_pSmp[i] = (ITSample *)(data + smpOff[i]);
     }
-    for (i = 0; i < *(u16 *)(g_pHdr + 0x26); i++)
+    for (i = 0; i < g_pHdr->numPatterns; i++)
     {
         g_pPtrn[i] = data + patOff[i];
     }
-    SLOT_STORE(g_pSmp[0] + 0x48, arg1);  /* sample data pointer, inside the song data */
+    SLOT_STORE(&g_pSmp[0]->data, arg1);  /* the sample data, kept apart from the module */
     CreateIT_(g_pHdr, g_pSmp);
-    memcpy(g_musicTitle, g_pHdr + 4, 0x1A);
+    memcpy(g_musicTitle, g_pHdr->title, sizeof(g_pHdr->title));
     g_musicTitle[0x1A] = 0;
     DestroySongVoice = DestroyITVoice;
-#undef g_pHdr
 }
 
 
 
 void DestroyIT(void)
 {
-    #define g_pHdr (*(void **)(void *)&g_pHdr)
     extern u8 g_musicTitle[0x20];
 
     if (g_pHdr == NULL)
@@ -182,22 +118,20 @@ void DestroyIT(void)
     DestroyIT_(g_pHdr);
     g_pHdr = NULL;
     memset(g_musicTitle, 0, 0x20);
-#undef g_pHdr
 }
 
 
 
 s32 SetITState(s32 state)
 {
-    #define g_pHdr (*(u8 **)(void *)&g_pHdr)
     extern s32 g_musicState;
     extern void (*SongUpdate)(u32 ticks);
     extern u32 g_trkOn;
     extern u32 g_trkOff;
-    IT_VOICE *voice;
-    IT_VOICE *next;
+    Voice *voice;
+    Voice *next;
     u32 i;
-    IT_TRACK *trk;
+    ITTrack *trk;
     s32 old;
 
     if (g_pHdr == NULL)
@@ -224,8 +158,8 @@ s32 SetITState(s32 state)
     }
     if (state == 3 || state == 4)
     {
-        g_song[0] = 0;
-        g_song[1] = 0;
+        g_song.tickStep = 0;
+        g_song.tickFrac = 0;
         for (i = 0; i < 0x20; i++)
         {
             voice = GETP(g_trk[i].head);
@@ -243,36 +177,36 @@ s32 SetITState(s32 state)
     {
         if (g_musicState == 3 || state == 4 || g_musicState == 0)
         {
-            g_song[8] = g_pHdr[0x32];
-            g_song[9] = g_pHdr[0x33];
-            g_song[0xA] = 0x10000;
-            g_song[2] = 0;
-            g_song[4] = 1;
-            *((u8 *)g_song + 0x14) = 0;
-            *((u8 *)g_song + 0x15) = 0xFF;
-            g_song[6] = g_pHdr[0x30];
-            g_song[0] = ((u32)g_song[0xA] << 0xF) / (0x1C9C380U / ((u32)g_song[9] * 0x18));
+            g_song.speed = g_pHdr->speed;
+            g_song.tempo = g_pHdr->tempo;
+            g_song.tempoScale = 0x10000;
+            g_song.tick = 0;
+            g_song.rowsLeft = 1;
+            g_song.order = 0;
+            g_song.nextOrder = -1;
+            g_song.globalVol = g_pHdr->globalVol;
+            g_song.tickStep = (g_song.tempoScale << 0xF) / (0x1C9C380U / (g_song.tempo * 0x18));
             for (trk = g_trk, i = 0; i < 0x20; trk++, i++)
             {
-                memset(trk, 0, sizeof(IT_TRACK));
+                memset(trk, 0, sizeof(ITTrack));
                 trk->index = i;
                 SETP(trk->ins, g_pIns[0]);
                 SETP(trk->smp, g_pSmp[0]);
                 trk->note = 0x3C;
-                trk->chVol = g_pHdr[0x80 + i];
+                trk->chVol = g_pHdr->chnVol[i];
                 trk->vol = 0x8000;
                 trk->panSep = -0x8000;
                 trk->priority = 0x10;
-                if ((s8)g_pHdr[0x40 + i] >= 0)
+                if (g_pHdr->chnPan[i] >= 0)
                 {
                     trk->state = 1;
-                    if ((s8)g_pHdr[0x40 + i] == 100)
+                    if (g_pHdr->chnPan[i] == 100)
                     {
                         trk->panSep = 0x7FFF;
                     }
                     else
                     {
-                        trk->pan = ((s8)g_pHdr[0x40 + i] << 10) - 0x8000;
+                        trk->pan = (g_pHdr->chnPan[i] << 10) - 0x8000;
                         trk->pan -= trk->pan >> 15;
                     }
                 }
@@ -296,22 +230,21 @@ s32 SetITState(s32 state)
     old = g_musicState;
     g_musicState = state;
     return old;
-#undef g_pHdr
 }
 
 
 
 void SetITVol(void)
 {
-    IT_TRACK *trk;
-    IT_VOICE *voice;
+    ITTrack *trk;
+    Voice *voice;
     s32 i;
     s32 gvol;
 
     for (trk = g_trk, i = 0x20; i != 0; trk++, i--)
     {
         voice = GETP(trk->head);
-        gvol = GetITGVol_(g_song, trk);
+        gvol = GetITGVol_(&g_song, trk);
         trk->gvol = gvol;
         for (; voice != NULL; voice = GETP(voice->next))
         {
@@ -325,22 +258,22 @@ void SetITVol(void)
 
 void SetITPitch(s32 pitch)
 {
-    extern IT_VOICE g_voice[0x20];
-    IT_VOICE *voice;
+    extern Voice g_voice[0x20];
+    Voice *voice;
     s32 i;
 
-    g_song[7] = pitch;
+    g_song.pitch = pitch;
     for (voice = g_voice, i = 0x20; i != 0; voice++, i--)
     {
-        if (voice->pad_8_3B[0x0D] == 0)
+        if (voice->state == VOICE_STATE_FREE)
         {
             continue;
         }
-        if (voice->byte0 != 0)
+        if (voice->kind != VOICE_KIND_SONG)
         {
             continue;
         }
-        *(s32 *)((u8 *)voice + 0x34) = pitch;
+        voice->pitch = pitch;
         SetVoiceRate_(voice);
     }
 }
@@ -352,8 +285,8 @@ void SetITTempo(u32 tempo)
     {
         tempo = 0x1FFFF;
     }
-    g_song[0xA] = tempo;
-    g_song[0] = ((u32)g_song[0xA] << 0xF) / (0x1C9C380U / ((u32)g_song[9] * 0x18));
+    g_song.tempoScale = tempo;
+    g_song.tickStep = (g_song.tempoScale << 0xF) / (0x1C9C380U / (g_song.tempo * 0x18));
 }
 
 
@@ -361,37 +294,37 @@ void SetITTempo(u32 tempo)
 
 void SetITOrder(u8 order, s8 deferred)
 {
-    #define g_pHdr (*(void **)(void *)&g_pHdr)
 
     if (g_pHdr == NULL)
     {
         return;
     }
-    if (order < *(u16 *)((u8 *)g_pHdr + 0x20))
+    if (order < g_pHdr->numOrders)
     {
-        *((u8 *)g_song + 0x15) = order;
+        g_song.nextOrder = order;
         if (deferred == 0)
         {
-            g_song[4] = 1;
+            g_song.rowsLeft = 1;
         }
     }
-#undef g_pHdr
 }
 
 
 void SetITTrackPriority(s32 track, s32 priority)
 {
-    void *voice;
-    void *next;
+    Voice *voice;
+    Voice *next;
 
     priority *= 2;
     g_trk[track].priority = priority;
     voice = GETP(g_trk[track].active);
     if (voice != NULL)
     {
-        *(u8 *)((u8 *)voice + 0x14) = priority;
+        voice->priority = priority;
         SetVoicePriority_(voice);
-        voice = SLOT_LOAD(void *, ((u8 *)voice + 0x08));
+        /* sic: 0x08 is never set, so only the active voice gets the new
+         * priority; it heads the list, and `next` (0x04) looks meant */
+        voice = GETP(voice->unk08);
     }
     else
     {
@@ -400,8 +333,8 @@ void SetITTrackPriority(s32 track, s32 priority)
     priority--;
     while (voice != NULL)
     {
-        next = SLOT_LOAD(void *, ((u8 *)voice + 0x04));
-        *(u8 *)((u8 *)voice + 0x14) = priority;
+        next = GETP(voice->next);
+        voice->priority = priority;
         SetVoicePriority_(voice);
         voice = next;
     }
@@ -412,7 +345,7 @@ void SetITTrackPriority(s32 track, s32 priority)
 void SetITTrackOn(u32 mask, s8 deferred)
 {
     extern u32 g_trkOn;
-    IT_TRACK *trk;
+    ITTrack *trk;
 
     if (deferred)
     {
@@ -431,9 +364,9 @@ void SetITTrackOn(u32 mask, s8 deferred)
 void SetITTrackOff(u32 mask, s8 deferred)
 {
     extern u32 g_trkOff;
-    IT_TRACK *trk;
-    IT_VOICE *voice;
-    IT_VOICE *next;
+    ITTrack *trk;
+    Voice *voice;
+    Voice *next;
 
     if (deferred)
     {
@@ -463,12 +396,12 @@ void SetITTrackOff(u32 mask, s8 deferred)
 
 void SetITTrackVol(u32 track, s32 vol)
 {
-    IT_VOICE *voice;
+    Voice *voice;
     s32 gvol;
 
     voice = GETP(g_trk[track].head);
     g_trk[track].vol = vol;
-    gvol = GetITGVol_(g_song, &g_trk[track]);
+    gvol = GetITGVol_(&g_song, &g_trk[track]);
     g_trk[track].gvol = gvol;
     for (; voice != NULL; voice = GETP(voice->next))
     {
@@ -483,20 +416,19 @@ void ProcessIT(u32 ticks)
     extern u8 *g_pOrder;
     extern u32 g_trkOff;
     extern u32 g_trkOn;
-    #define g_pHdr (*(u8 **)(void *)&g_pHdr)
     extern const s32 g_amigaNote[120];
     static u8 *pPtrn;
     s32 i;
-    IT_TRACK *trk;
+    ITTrack *trk;
     s32 pos;
     s32 c;
     u8 mask;
 
-    g_song[1] += (u32)(g_song[0] * ticks) >> 16;
-    if ((u32)g_song[1] >> 16)
+    g_song.tickFrac += (u32)(g_song.tickStep * ticks) >> 16;
+    if (g_song.tickFrac >> 16)
     {
-        g_song[1] &= 0xFFFF;
-        if ((u32)++g_song[2] < (u32)g_song[8])
+        g_song.tickFrac &= 0xFFFF;
+        if (++g_song.tick < g_song.speed)
         {
             for (i = 0; i < 0x20; i++)
             {
@@ -521,7 +453,7 @@ void ProcessIT(u32 ticks)
                         StopActive(trk);
                         continue;
                     }
-                    *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                    GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
                     if (!SetVoiceRate_(GETP(trk->active)))
                     {
                         SETP(trk->active, NULL);
@@ -535,7 +467,7 @@ void ProcessIT(u32 ticks)
                         trk->period = trk->targetPeriod;
                         trk->flags &= ~0xA0;
                     }
-                    *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                    GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
                     if (!SetVoiceRate_(GETP(trk->active)))
                     {
                         SETP(trk->active, NULL);
@@ -558,29 +490,29 @@ void ProcessIT(u32 ticks)
                     {
                         trk->curVol = 0x7FFF;
                     }
-                    *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
+                    GETP(trk->active)->vol = trk->curVol;
                 }
                 trk->prevFlags = trk->flags;
                 trk->flags = 0;
             }
-            g_song[2] = 0;
-            if (--g_song[4] == 0)
+            g_song.tick = 0;
+            if (--g_song.rowsLeft == 0)
             {
-                if ((s8)*((u8 *)g_song + 0x15) != -1)
+                if (g_song.nextOrder != -1)
                 {
-                    *((u8 *)g_song + 0x14) = *((u8 *)g_song + 0x15);
-                    *((u8 *)g_song + 0x15) = 0xFF;
+                    g_song.order = g_song.nextOrder;
+                    g_song.nextOrder = -1;
                 }
                 do
                 {
-                    c = g_pOrder[(*((u8 *)g_song + 0x14))++];
+                    c = g_pOrder[g_song.order++];
                     if (c == 0xFF)
                     {
-                        *((u8 *)g_song + 0x14) = 0;
+                        g_song.order = 0;
                     }
                 } while (c > 199);
                 pPtrn = g_pPtrn[c];
-                g_song[4] = *(u16 *)(pPtrn + 2);
+                g_song.rowsLeft = *(u16 *)(pPtrn + 2);
                 pPtrn += 8;
                 g_trkOff &= ~g_trkOn;
                 if (g_trkOff != 0)
@@ -610,10 +542,10 @@ void ProcessIT(u32 ticks)
                 if (mask & 2)
                 {
                     trk->insNum = *pPtrn++ - 1;
-                    if (*(u16 *)(g_pHdr + 0x2C) & 4)
+                    if (g_pHdr->flags & IT_FLAG_INSTRUMENTS)
                     {
                         SETP(trk->ins, g_pIns[trk->insNum]);
-                        SETP(trk->smp, g_pSmp[GETP(trk->ins)[trk->note * 2 + 0x41]]);
+                        SETP(trk->smp, g_pSmp[GETP(trk->ins)->keyboard[trk->note][1]]);
                     }
                     else
                     {
@@ -635,9 +567,9 @@ void ProcessIT(u32 ticks)
                     {
                         if (trk->note < 0x78)
                         {
-                            if (*(u16 *)(g_pHdr + 0x2C) & 4)
+                            if (g_pHdr->flags & IT_FLAG_INSTRUMENTS)
                             {
-                                trk->realNote = GETP(trk->ins)[trk->note * 2 + 0x40];
+                                trk->realNote = GETP(trk->ins)->keyboard[trk->note][0];
                             }
                             else
                             {
@@ -645,7 +577,7 @@ void ProcessIT(u32 ticks)
                             }
                             if (!(mask & 0x88) || trk->cmd != 7)
                             {
-                                trk->curVol = ((mask & 0x44) ? trk->volCol : GETP(trk->smp)[0x13]) << 9;
+                                trk->curVol = ((mask & 0x44) ? trk->volCol : GETP(trk->smp)->vol) << 9;
                                 if (trk->curVol >= 0x8000)
                                 {
                                     trk->curVol = 0x7FFF;
@@ -673,16 +605,16 @@ void ProcessIT(u32 ticks)
                         }
                         if (GETP(trk->active) != NULL)
                         {
-                            *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
+                            GETP(trk->active)->vol = trk->curVol;
                             SetVoiceVol_(GETP(trk->active), trk->gvol);
                         }
                     }
                     else if (mask & 0x20)
                     {
-                        trk->curVol = GETP(trk->smp)[0x13] << 9;
+                        trk->curVol = GETP(trk->smp)->vol << 9;
                         if (GETP(trk->active) != NULL)
                         {
-                            *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
+                            GETP(trk->active)->vol = trk->curVol;
                             SetVoiceVol_(GETP(trk->active), trk->gvol);
                         }
                     }
@@ -713,7 +645,7 @@ void ProcessIT(u32 ticks)
                     trk->volBase = trk->curVol;
                     if ((trk->memVolSlide & 0xF) == 0)
                     {
-                        trk->volSlide = (trk->memVolSlide << 5) * (g_song[8] - 1);
+                        trk->volSlide = (trk->memVolSlide << 5) * (g_song.speed - 1);
                         if (trk->memVolSlide == 0xF0)
                         {
                             trk->volSlide += trk->memVolSlide << 5;
@@ -721,7 +653,7 @@ void ProcessIT(u32 ticks)
                     }
                     else if ((trk->memVolSlide & 0xF0) == 0)
                     {
-                        trk->volSlide = -((trk->memVolSlide << 9) * (g_song[8] - 1));
+                        trk->volSlide = -((trk->memVolSlide << 9) * (g_song.speed - 1));
                         if (trk->memVolSlide == 0xF)
                         {
                             trk->volSlide -= trk->memVolSlide << 9;
@@ -760,7 +692,7 @@ void ProcessIT(u32 ticks)
                         {
                             trk->period += trk->memPitchSlide & 0xF;
                         }
-                        *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                        GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
                         if (GETP(trk->active) != NULL && !SetVoiceRate_(GETP(trk->active)))
                         {
                             SETP(trk->active, NULL);
@@ -787,7 +719,7 @@ void ProcessIT(u32 ticks)
                         {
                             trk->period += trk->memPitchSlide & 0xF;
                         }
-                        *(u32 *)((u8 *)GETP(trk->active) + 0x30) = (u32)(*(s32 *)(GETP(trk->smp) + 0x3C) * 0x6B0) / trk->period;
+                        GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
                         if (GETP(trk->active) != NULL && !SetVoiceRate_(GETP(trk->active)))
                         {
                             SETP(trk->active, NULL);
@@ -849,7 +781,7 @@ void ProcessIT(u32 ticks)
                     {
                         trk->chVol = trk->param;
                     }
-                    trk->gvol = GetITGVol_(g_song, trk);
+                    trk->gvol = GetITGVol_(&g_song, trk);
                     SetTrackVol(trk);
                     break;
                 case 24:
@@ -902,7 +834,7 @@ void ProcessIT(u32 ticks)
                     }
                     break;
                 case 1:
-                    g_song[8] = trk->param;
+                    g_song.speed = trk->param;
                     break;
                 case 20:
                     if (trk->param)
@@ -911,34 +843,34 @@ void ProcessIT(u32 ticks)
                     }
                     if (trk->memTempo > 0x1F)
                     {
-                        g_song[9] = trk->memTempo;
-                        g_song[0] = ((u32)g_song[0xA] << 0xF) / (0x1C9C380U / ((u32)g_song[9] * 0x18));
+                        g_song.tempo = trk->memTempo;
+                        g_song.tickStep = (g_song.tempoScale << 0xF) / (0x1C9C380U / (g_song.tempo * 0x18));
                     }
                     else if (trk->memTempo & 0xF0)
                     {
-                        g_song[0xB] = trk->memTempo & 0xF;
+                        g_song.tempoSlide = trk->memTempo & 0xF;
                     }
                     else
                     {
-                        g_song[0xB] = -(s8)trk->memTempo;
+                        g_song.tempoSlide = -(s8)trk->memTempo;
                     }
                     break;
                 case 2:
-                    if (trk->param < *(u16 *)(g_pHdr + 0x20))
+                    if (trk->param < g_pHdr->numOrders)
                     {
-                        *((u8 *)g_song + 0x14) = trk->param;
-                        g_song[4] = 1;
+                        g_song.order = trk->param;
+                        g_song.rowsLeft = 1;
                     }
                     break;
                 case 3:
-                    g_song[4] = 1;
-                    *((u8 *)g_song + 0xD) = trk->param;
-                    *((u8 *)g_song + 0xF) |= 8;
+                    g_song.rowsLeft = 1;
+                    g_song.breakRow = trk->param;
+                    g_song.flags |= 8;
                     break;
                 case 22:
                     if (trk->param <= 0x80)
                     {
-                        g_song[6] = trk->param;
+                        g_song.globalVol = trk->param;
                     }
                     break;
                 case 23:
@@ -946,7 +878,7 @@ void ProcessIT(u32 ticks)
                     {
                         trk->memPanSlide = trk->param;
                     }
-                    *((u8 *)g_song + 0xE) = trk->memPanSlide;
+                    g_song.panSlide = trk->memPanSlide;
                     break;
                 case 26:
                     break;
@@ -955,7 +887,7 @@ void ProcessIT(u32 ticks)
             return;
         }
     }
-    pos = (s32)((((u32)g_song[2] << 16) + (u32)g_song[1]) / (u32)g_song[8]) >> 1;
+    pos = (s32)(((g_song.tick << 16) + g_song.tickFrac) / g_song.speed) >> 1;
     for (trk = g_trk, i = 0; i < 0x20; trk++, i++)
     {
         if (GETP(trk->active) != NULL && (trk->flags & 0x10))
@@ -971,23 +903,22 @@ void ProcessIT(u32 ticks)
                 trk->curVol = 0x7FFF;
                 trk->flags &= ~0x10;
             }
-            *(s32 *)((u8 *)GETP(trk->active) + 0x38) = trk->curVol;
+            GETP(trk->active)->vol = trk->curVol;
             SetVoiceVol_(GETP(trk->active), trk->gvol);
         }
     }
-#undef g_pHdr
 }
 
 
-s32 PlayNote(IT_TRACK *trk)
+s32 PlayNote(ITTrack *trk)
 {
     u32 rate;
     u8 stolen;
-    u8 *voice;
-    u8 *song;
+    Voice *voice;
+    ITSample *smp;
 
     stolen = 0;
-    rate = GetNoteRate_(*(u32 *)(GETP(trk->smp) + 0x3C), trk->realNote);
+    rate = GetNoteRate_(GETP(trk->smp)->c5Speed, trk->realNote);
     if (rate > 0x2EE00 || rate < 0x60)
     {
         if (!stolen && GETP(trk->active) != NULL)
@@ -998,37 +929,37 @@ s32 PlayNote(IT_TRACK *trk)
     }
     if (GETP(trk->active) == NULL)
     {
-        SETP(trk->active, (IT_VOICE *)GetVoice_(0, trk->priority));
+        SETP(trk->active, (Voice *)GetVoice_(0, trk->priority));
         if (GETP(trk->active) == NULL)
         {
             return 0;
         }
-        GETP(trk->active)->track = trk->index;
-        GETP(trk->active)->pad_2_3[0] = trk->note;
+        GETP(trk->active)->owner = trk->index;
+        GETP(trk->active)->note = trk->note;
         SETP(GETP(trk->active)->next, GETP(trk->head));
         SETP(trk->head, GETP(trk->active));
     }
-    voice = (u8 *)GETP(trk->active);
-    *(u32 *)(voice + 0x10) = (u32)HND(GETP(trk->smp));
-    song = GETP(trk->smp);
-    *(u32 *)(voice + 0x20) = *(u32 *)(song + 0x48);
-    *(s32 *)(voice + 0x24) = (song[0x12] & 0x10) ? *(s32 *)(song + 0x34) : -1;
-    *(s32 *)(voice + 0x28) = (song[0x12] & 0x10) ? *(s32 *)(song + 0x38) : *(s32 *)(song + 0x30);
-    voice[0x2C] = (song[0x12] & 2) ? 0x10 : 8;
-    *(u32 *)(voice + 0x30) = rate;
-    *(s32 *)(voice + 0x34) = g_song[7];
-    *(u32 *)(voice + 0x38) = trk->curVol;
-    *(s32 *)(voice + 0x3C) = song[0x11] << 9;
-    *(s32 *)(voice + 0x40) = trk->pan;
-    *(s32 *)(voice + 0x44) = -0x7FFF;
-    StartVoice_((void *)voice);
-    SetVoiceVol_((IT_VOICE *)voice, trk->gvol);
+    voice = GETP(trk->active);
+    SETP(voice->itSample, GETP(trk->smp));
+    smp = GETP(trk->smp);
+    voice->addr = smp->data;
+    voice->loop = (smp->flags & IT_SAMPLE_LOOP) ? smp->loopBegin : -1;
+    voice->length = (smp->flags & IT_SAMPLE_LOOP) ? smp->loopEnd : smp->length;
+    voice->bits = (smp->flags & IT_SAMPLE_16BIT) ? 16 : 8;
+    voice->rate = rate;
+    voice->pitch = g_song.pitch;
+    voice->vol = trk->curVol;
+    voice->mixVol = smp->globalVol << 9;
+    voice->pan = trk->pan;
+    voice->span = -0x7FFF;
+    StartVoice_(voice);
+    SetVoiceVol_(voice, trk->gvol);
     return 1;
 }
 
-void SetTrackVol(IT_TRACK *trk)
+void SetTrackVol(ITTrack *trk)
 {
-    IT_VOICE *voice;
+    Voice *voice;
 
     for (voice = GETP(trk->head); voice != NULL; voice = GETP(voice->next))
     {
@@ -1036,9 +967,9 @@ void SetTrackVol(IT_TRACK *trk)
     }
 }
 
-void SetTrackPan(IT_TRACK *trk)
+void SetTrackPan(ITTrack *trk)
 {
-    IT_VOICE *voice;
+    Voice *voice;
 
     for (voice = GETP(trk->head); voice != NULL; voice = GETP(voice->next))
     {
@@ -1047,7 +978,7 @@ void SetTrackPan(IT_TRACK *trk)
     }
 }
 
-void StopActive(IT_TRACK *trk)
+void StopActive(ITTrack *trk)
 {
     SETP(trk->head, GETP(GETP(trk->head)->next));
     SetVoiceState_(GETP(trk->active), 3);
@@ -1056,16 +987,16 @@ void StopActive(IT_TRACK *trk)
 
 
 
-void DestroyITVoice(IT_VOICE *voice)
+void DestroyITVoice(Voice *voice)
 {
-    IT_TRACK *trk;
-    IT_VOICE *v;
+    ITTrack *trk;
+    Voice *v;
 
-    if (voice->track > 0x20)
+    if (voice->owner > 0x20)
     {
         return;
     }
-    trk = &g_trk[voice->track];
+    trk = &g_trk[voice->owner];
     if (GETP(trk->active) == voice)
     {
         SETP(trk->active, NULL);

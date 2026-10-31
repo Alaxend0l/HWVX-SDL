@@ -1,29 +1,9 @@
 
 
 #include "common.h"
+#include "Gfx.h"
 
-typedef struct GeometryGroup {
-    u16 unk0;
-    u16 flags;
-    u8 unk4[0x10 - 0x4];
-    PTR32(void) data;
-    u16 unk14;
-    u8 unk16[0x18 - 0x16];
-    u16 unk18;
-    u8 unk1A[0x20 - 0x1A];
-} GeometryGroup;
 
-typedef struct Geometry {
-    u16 unk0;
-    u16 numGroups;
-    u16 unk4;
-    u16 unk6;
-    PTR32(GeometryGroup) groups;
-    PTR32(f32) lodDistances;
-    f32 bboxMin[4];
-    f32 bboxMax[4];
-    f32 center[4];
-} Geometry;
 
 typedef struct DLSkinGroup {
     PTR32(Geometry) lod;
@@ -35,7 +15,6 @@ typedef struct DLSkinGroup {
     u8 window;
 } DLSkinGroup;
 
-void *GetRenderWindow(void);
 
 /* Both forward their arguments unchanged. Callers pass a bone count as a 4th
  * argument that AnimExtractKeyFrame never read (it reuses r5). */
@@ -117,7 +96,7 @@ void Gfx_DrawAnimGeometryAux_(Geometry *geometry, f32 *matrices, u32 count, f32 
         level = Gfx_CalcGeometryLOD(geometry, world);
     }
     lod = (Geometry *)((u8 *)GETP(geometry->groups) + level * 0x18);
-    MatrixToMtxTranspose(view, (u8 *)GetRenderWindow() + 0x40);
+    MatrixToMtxTranspose(view, GetRenderWindow()->view);
     for (i = 0; i < count; i++) {
         MatrixToMtxTranspose(bone, matrices + i * 16);
         PSMTXConcat(view, bone, result);

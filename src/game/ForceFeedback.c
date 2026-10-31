@@ -1,20 +1,35 @@
 #include "common.h"
+#include "KeyState.h"
+
+/* A force feedback effect in the data pack (ForceFeedback_Play): within a
+ * range of its position it can set the pad's "active" flag, rumble, and push
+ * the wheel, each for its own time. */
+typedef struct ForceFeedbackEffect {
+    u8 pad00[0x10];             /* 0x00 */
+    s32 forceTime;              /* 0x10 ms */
+    s32 activeTime;             /* 0x14 */
+    s32 rumbleTime;             /* 0x18 */
+    u8 pad1C[8];                /* 0x1C */
+    PTR32(KeyTrack) forceKeys;  /* 0x24 ExtractF32Key: strength */
+    PTR32(KeyTrack) rumbleKeys; /* 0x28 */
+    KeyTrack rangeKeys;         /* 0x2C ExtractPointKey: near (x) and far (y) range */
+} ForceFeedbackEffect;
 
 typedef struct ForceFeedback {
-    PTR32(void) effect;                 /* 0x00 */
-    f32 point[0x1C / 4 - 1];      /* 0x04 */
-    u8 active;                    /* 0x1C */
-    u8 pad1D[0x20 - 0x1D];        /* 0x1D */
-    f32 value;                    /* 0x20 */
-    u8 pad24[0x30 - 0x24];        /* 0x24 */
-    u8 playing;                   /* 0x30 */
-    u8 pad31[0x40 - 0x31];        /* 0x31 */
-    Vector4 dir;                  /* 0x40 */
-    s32 magnitude;                /* 0x50 */
-    s32 unk54;                    /* 0x54 */
-    s32 unk58;                    /* 0x58 */
-    u8 pad5C[0x60 - 0x5C];        /* 0x5C */
+    PTR32(ForceFeedbackEffect) effect; /* 0x00 NULL: slot free */
+    KeyPointState range;        /* 0x04 x: full strength within, y: none beyond */
+    KeyF32State value;          /* 0x20 strength, 0-1 */
+    Vector4 pos;                /* 0x40 */
+    s32 forceTime;              /* 0x50 ms left */
+    s32 activeTime;             /* 0x54 */
+    s32 rumbleTime;             /* 0x58 */
+    u8 pad5C[4];                /* 0x5C */
 } ForceFeedback;
+
+_Static_assert(offsetof(ForceFeedbackEffect, rangeKeys) == 0x2C, "ForceFeedbackEffect.rangeKeys");
+_Static_assert(offsetof(ForceFeedback, value) == 0x20, "ForceFeedback.value");
+_Static_assert(offsetof(ForceFeedback, pos) == 0x40, "ForceFeedback.pos");
+_Static_assert(sizeof(ForceFeedback) == 0x60, "ForceFeedback size");
 
 ForceFeedback g_forcefeedback[24];
 
@@ -31,18 +46,18 @@ void ForceFeedback_Init(void)
     }
 }
 
-void ForceFeedback_Play(void *effect, Vector4 *dir) {
+void ForceFeedback_Play(ForceFeedbackEffect *effect, Vector4 *dir) {
     u32 i;
 
     for (i = 0; i < 24; i++) {
         if (GETP(g_forcefeedback[i].effect) == 0) {
             SETP(g_forcefeedback[i].effect, effect);
-            g_forcefeedback[i].active = 1;
-            g_forcefeedback[i].playing = 1;
-            g_forcefeedback[i].dir = *dir;
-            g_forcefeedback[i].unk54 = M2C_FIELD(effect, s32 *, 0x14);
-            g_forcefeedback[i].unk58 = M2C_FIELD(effect, s32 *, 0x18);
-            g_forcefeedback[i].magnitude = M2C_FIELD(effect, s32 *, 0x10);
+            g_forcefeedback[i].range.reset = 1;
+            g_forcefeedback[i].value.reset = 1;
+            g_forcefeedback[i].pos = *dir;
+            g_forcefeedback[i].activeTime = effect->activeTime;
+            g_forcefeedback[i].rumbleTime = effect->rumbleTime;
+            g_forcefeedback[i].forceTime = effect->forceTime;
             return;
         }
     }
@@ -58,29 +73,29 @@ void ForceFeedback_Heartbeat(void)
         ff = &g_forcefeedback[i];
         if (GETP(ff->effect) != NULL)
         {
-            ExtractPointKey((char *)GETP(ff->effect) + 0x2C, ff->point, g_fDeltaTimeMS);
-            if (ff->unk54 > 0)
+            ExtractPointKey((u8 *)&GETP(ff->effect)->rangeKeys, (u8 *)&ff->range, g_fDeltaTimeMS);
+            if (ff->activeTime > 0)
             {
-                ff->unk54 -= g_iDeltaTimeMS;
+                ff->activeTime -= g_iDeltaTimeMS;
             }
-            if (ff->unk58 > 0)
+            if (ff->rumbleTime > 0)
             {
-                ff->unk58 -= g_iDeltaTimeMS;
-                if (ff->unk58 >= 0)
+                ff->rumbleTime -= g_iDeltaTimeMS;
+                if (ff->rumbleTime >= 0)
                 {
-                    ExtractF32Key(SLOT_LOAD(u8 *, ((char *)GETP(ff->effect) + 0x28)), &ff->value, g_fDeltaTimeMS);
+                    ExtractF32Key((u8 *)GETP(GETP(ff->effect)->rumbleKeys), (u8 *)&ff->value, g_fDeltaTimeMS);
                 }
             }
-            if (ff->magnitude > 0)
+            if (ff->forceTime > 0)
             {
-                ff->magnitude -= g_iDeltaTimeMS;
-                if (ff->magnitude >= 0)
+                ff->forceTime -= g_iDeltaTimeMS;
+                if (ff->forceTime >= 0)
                 {
-                    ExtractF32Key(SLOT_LOAD(u8 *, ((char *)GETP(ff->effect) + 0x24)), &ff->value, g_fDeltaTimeMS);
+                    ExtractF32Key((u8 *)GETP(GETP(ff->effect)->forceKeys), (u8 *)&ff->value, g_fDeltaTimeMS);
                 }
             }
         }
-        if (ff->unk54 <= 0 && ff->unk58 <= 0 && ff->magnitude <= 0)
+        if (ff->activeTime <= 0 && ff->rumbleTime <= 0 && ff->forceTime <= 0)
         {
             SETP(ff->effect, NULL);
         }
@@ -108,24 +123,24 @@ void ForceFeedback_GetForce(void *ff, u8 *a, u8 *b, f32 *c)
             fe = &g_forcefeedback[i];
             if (GETP(fe->effect) != NULL)
             {
-                DistanceXYZ(ff, &fe->dir, &dist);
-                if (fe->unk54 > 0 && dist < fe->point[1])
+                DistanceXYZ(ff, &fe->pos, &dist);
+                if (fe->activeTime > 0 && dist < fe->range.y)
                 {
                     active = 1;
                 }
-                if (fe->unk58 > 0 && dist < fe->point[1])
+                if (fe->rumbleTime > 0 && dist < fe->range.y)
                 {
-                    scale = (fe->point[1] - dist) / (fe->point[1] - fe->point[0]);
-                    scale *= fe->value;
+                    scale = (fe->range.y - dist) / (fe->range.y - fe->range.x);
+                    scale *= fe->value.value;
                     scale *= 255.0f;
                     if (scale > rumble)
                     {
                         rumble = scale;
                     }
                 }
-                if (fe->magnitude > 0 && dist < fe->point[1])
+                if (fe->forceTime > 0 && dist < fe->range.y)
                 {
-                    scale = (fe->point[1] - dist) / (fe->point[1] - fe->point[0]);
+                    scale = (fe->range.y - dist) / (fe->range.y - fe->range.x);
                     if (scale > force)
                     {
                         force = scale;

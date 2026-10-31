@@ -1,5 +1,10 @@
+/* The trigger half of the scripting system: the active trigger lists, the
+ * polling heartbeat, event triggers and the code variables tests read. See
+ * Trigger.h for the data. */
 #include "common.h"
-
+#include "CarA.h"
+#include "World.h"
+#include "Trigger.h"
 
 
 s8 TriggerSoundSeqQueueEnd(void) {
@@ -40,15 +45,44 @@ void Trigger_Destroy(void) {
     Deallocate(PTR(m_triggerData));
     m_triggerData = 0;
 }
-extern u8 m_Triggers[];  /* typed per function below */
-extern u8 g_bTACSystemPaused[];  /* typed per function below */
+
+/* m_Triggers[type]: the active triggers of each type, TriggerStats[type].count
+ * of them, in one block (m_triggerData) sized by TriggerStats[].max.
+ * port: host pointers, so the table and the lists are pointer sized. */
+extern u8 m_Triggers[];
+extern u8 TriggerStats[];
+extern u8 g_bTACSystemPaused[];  /* s8: the whole system is paused */
+#define TRIGGER_LISTS ((Trigger ***)(void *)m_Triggers)
+#define TRIGGER_STATS ((TriggerStat *)(void *)TriggerStats)
+#define TAC_PAUSED (*(s8 *)(void *)g_bTACSystemPaused)
+
+/* A trigger parameter word: the handle of a world record. */
+#define TRIGGER_RECORD(type, h) ((type *)PTR(h))
+
+/* Queues `count` actions; returns how many of them can run again. */
+static inline u32 Trigger_QueueActions(TriggerAction *actions, u32 count) {
+    u32 queued = 0;
+    u32 j;
+
+    for (j = 0; j < count; j++) {
+        queued += Action_AddAction(&actions[j]);
+    }
+    return queued;
+}
+
+/* An event trigger whose test matched: if its conditions hold, queue its
+ * actions; once none of them can run again it is done. */
+static inline void Trigger_FireEvent(Trigger *trigger) {
+    if (TriggerCheckConditions(trigger->mode, trigger->numConditions, trigger->conditions.h)) {
+        if (Trigger_QueueActions(GETP(trigger->actions), trigger->numActions) == 0) {
+            trigger->state = TRIGGER_STATE_DONE;
+        }
+    }
+}
 
 void Trigger_Init(void) {
     extern s32 m_triggerData;
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
     extern u32 m_interfaces[][2];
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
     u32 offset = 0;
     u32 total = 0;
@@ -57,222 +91,197 @@ void Trigger_Init(void) {
         Deallocate(PTR(m_triggerData));
         m_triggerData = 0;
     }
-    for (i = 0; i < 28; i++) {
-        TriggerStats[i][0] = 0;
-        total += TriggerStats[i][1];
+    for (i = 0; i < TRIGGER_NUM_TYPES; i++) {
+        TRIGGER_STATS[i].count = 0;
+        total += TRIGGER_STATS[i].max;
     }
     /* port: runtime lists of trigger pointers, so host pointer sized */
     m_triggerData = (s32)HND(Allocate(total * sizeof(void *), 0, ""));
-    for (i = 0; i < 28; i++) {
-        m_Triggers[i] = (u32 **)((u8 *)PTR(m_triggerData) + offset * sizeof(void *));
-        offset += TriggerStats[i][1];
+    for (i = 0; i < TRIGGER_NUM_TYPES; i++) {
+        TRIGGER_LISTS[i] = (Trigger **)((u8 *)PTR(m_triggerData) + offset * sizeof(void *));
+        offset += TRIGGER_STATS[i].max;
     }
     for (i = 0; i < 10; i++) {
         m_interfaces[i][0] = 0;
     }
-    g_bTACSystemPaused = 0;
-#undef g_bTACSystemPaused
-#undef m_Triggers
+    TAC_PAUSED = 0;
 }
 
+/* Saves the remaining run counts of the active triggers' actions (unlimited
+ * ones skipped), at most `count`, for Trigger_RestoreActions. */
 void Trigger_SaveActions(s32 *saved, u32 count) {
-    typedef struct { u32 pad[4]; u32 value; u32 pad2; } TrigAction;
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
     u32 type;
     u32 i;
     u32 j;
     u32 n;
 
     n = 0;
-    for (type = 0; type < 28; type++) {
-        for (i = 0; i < TriggerStats[type][0]; i++) {
-            for (j = 0; j < m_Triggers[type][i][7]; j++) {
+    for (type = 0; type < TRIGGER_NUM_TYPES; type++) {
+        for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+            for (j = 0; j < TRIGGER_LISTS[type][i]->numActions; j++) {
                 if (n >= count) {
                     return;
                 }
-                if (((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value != 0xFFFFFFFF) {
-                    saved[n++] = ((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value;
+                if (GETP(TRIGGER_LISTS[type][i]->actions)[j].count != 0xFFFFFFFF) {
+                    saved[n++] = GETP(TRIGGER_LISTS[type][i]->actions)[j].count;
                 }
             }
         }
     }
-#undef m_Triggers
 }
 
+/* Puts back the counts saved by Trigger_SaveActions and resets every
+ * trigger's state as Trigger_AddTrigger does. */
 void Trigger_RestoreActions(s32 *saved, u32 count) {
-    typedef struct { u32 pad[4]; u32 value; u32 pad2; } TrigAction;
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
     u32 type;
     u32 i;
     u32 j;
     u32 n;
 
     n = 0;
-    for (type = 0; type < 28; type++) {
-        for (i = 0; i < TriggerStats[type][0]; i++) {
-            for (j = 0; j < m_Triggers[type][i][7] && n < count; j++) {
-                if (((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value != 0xFFFFFFFF) {
-                    ((TrigAction *)PTR(m_Triggers[type][i][5]))[j].value = saved[n++];
+    for (type = 0; type < TRIGGER_NUM_TYPES; type++) {
+        for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+            for (j = 0; j < TRIGGER_LISTS[type][i]->numActions && n < count; j++) {
+                if (GETP(TRIGGER_LISTS[type][i]->actions)[j].count != 0xFFFFFFFF) {
+                    GETP(TRIGGER_LISTS[type][i]->actions)[j].count = saved[n++];
                 }
             }
-            if (type == 8) {
-                m_Triggers[type][i][9] = 1;
+            if (type == TRIGGER_LEVEL_START) {
+                TRIGGER_LISTS[type][i]->state = TRIGGER_STATE_ARMED;
             } else {
-                m_Triggers[type][i][9] = 0x10;
+                TRIGGER_LISTS[type][i]->state = TRIGGER_STATE_FIRED;
             }
         }
     }
-#undef m_Triggers
 }
 
 void Trigger_PauseTACSystem(s8 arg0) {
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
-    g_bTACSystemPaused = arg0;
-#undef g_bTACSystemPaused
+    TAC_PAUSED = arg0;
 }
 
 u8 Trigger_IsTACSystemPaused(void) {
-    #define g_bTACSystemPaused (*(u8 *)(void *)&g_bTACSystemPaused)
-    return g_bTACSystemPaused;
-#undef g_bTACSystemPaused
+    return (u8)TAC_PAUSED;
 }
 
+/* Polls the triggers of the polled types. An armed trigger whose test holds
+ * fires: if its conditions hold its actions are queued (PlayerVehicleInAir:
+ * its else-actions when the car landed). A fired trigger is re-armed once its
+ * test is false again; one whose actions are used up is done. */
 void Trigger_Heartbeat(void) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     extern s8 (*pTriggerFuncArray[])(void *param);
     extern s32 m_ReleasedInterface;
     u32 type;
     u32 i;
-    u32 j;
     u32 actions;
-    u32 *trigger;
+    Trigger *trigger;
 
-    if (!g_bTACSystemPaused) {
-        for (type = 0; type < 28; type++) {
-            /* port: the GC reads the first (big-endian high) byte of this
-             * word: set for event-driven types (vehicle killed, ...), which
-             * fire from their events, not from polling here */
-            if ((s8)(TriggerStats[type][2] >> 24)) {
+    if (!TAC_PAUSED) {
+        for (type = 0; type < TRIGGER_NUM_TYPES; type++) {
+            if (TRIGGER_STAT_EVENT(&TRIGGER_STATS[type])) {
                 continue;
             }
-            for (i = 0; i < TriggerStats[type][0]; i++) {
-                trigger = m_Triggers[type][i];
-                if ((trigger[9] & 1) && pTriggerFuncArray[trigger[0]]((void *)PTR(trigger[1]))) {
-                    trigger = m_Triggers[type][i];
-                    if (TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                        actions = 0;
-                        trigger = m_Triggers[type][i];
-                        if ((s32)trigger[0] == 0x12 && ((u32 *)PTR(trigger[1]))[2] == 0) {
-                            for (j = 0; j < m_Triggers[type][i][8]; j++) {
-                                actions += Action_AddAction(PTR((s32)HND(((u8 *)PTR(m_Triggers[type][i][6]) + j * 0x18))));
-                            }
+            for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+                /* the list entry is re-read after each call, as in the original */
+                trigger = TRIGGER_LISTS[type][i];
+                if ((trigger->state & TRIGGER_STATE_ARMED) && pTriggerFuncArray[trigger->type](GETP(trigger->param))) {
+                    trigger = TRIGGER_LISTS[type][i];
+                    if (TriggerCheckConditions(trigger->mode, trigger->numConditions, trigger->conditions.h)) {
+                        trigger = TRIGGER_LISTS[type][i];
+                        if (trigger->type == TRIGGER_PLAYER_VEHICLE_IN_AIR && GETP(trigger->param)[2] == 0) {
+                            actions = Trigger_QueueActions(GETP(trigger->elseActions), trigger->numElseActions);
                         } else {
-                            for (j = 0; j < m_Triggers[type][i][7]; j++) {
-                                actions += Action_AddAction(PTR((s32)HND(((u8 *)PTR(m_Triggers[type][i][5]) + j * 0x18))));
-                            }
+                            actions = Trigger_QueueActions(GETP(trigger->actions), trigger->numActions);
                         }
                         if (actions == 0) {
-                            m_Triggers[type][i][9] = 2;
+                            TRIGGER_LISTS[type][i]->state = TRIGGER_STATE_DONE;
                         } else {
-                            m_Triggers[type][i][9] = 0x10;
+                            TRIGGER_LISTS[type][i]->state = TRIGGER_STATE_FIRED;
                         }
                     } else {
-                        m_Triggers[type][i][9] = 0x10;
+                        TRIGGER_LISTS[type][i]->state = TRIGGER_STATE_FIRED;
                     }
                 }
-                trigger = m_Triggers[type][i];
-                if ((trigger[9] & 0x10) && !pTriggerFuncArray[trigger[0]]((void *)PTR(trigger[1]))) {
-                    m_Triggers[type][i][9] |= 1;
-                    m_Triggers[type][i][9] &= ~0x10;
+                trigger = TRIGGER_LISTS[type][i];
+                if ((trigger->state & TRIGGER_STATE_FIRED) && !pTriggerFuncArray[trigger->type](GETP(trigger->param))) {
+                    TRIGGER_LISTS[type][i]->state |= TRIGGER_STATE_ARMED;
+                    TRIGGER_LISTS[type][i]->state &= ~TRIGGER_STATE_FIRED;
                 }
             }
         }
         m_ReleasedInterface = -1;
     }
-#undef g_bTACSystemPaused
-#undef m_Triggers
 }
 
-s32 Trigger_AddTrigger(s32 *trigger) {
-    extern u32 TriggerStats[][3];
+/* Activates a trigger of a loaded pack (a Trigger record); 0 if its type's
+ * list is full. Also unpauses the system. */
+s32 Trigger_AddTrigger(s32 *arg) {
     extern char *triggerLabelsArray[];
-    #define m_Triggers ((s32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
+    Trigger *trigger = (Trigger *)arg;
     char buf[0x200];
-    s32 type = trigger[0];
+    s32 type = trigger->type;
 
-    if (TriggerStats[type][0] == TriggerStats[type][1]) {
+    if (TRIGGER_STATS[type].count == TRIGGER_STATS[type].max) {
         sprintf(buf, "Could not add the trigger: \"%s\", please notify Peter.", triggerLabelsArray[type]);
         return 0;
     }
-    m_Triggers[type][TriggerStats[type][0]++] = trigger;
-    if (trigger[0] == 8) {
-        trigger[9] = 1;
+    TRIGGER_LISTS[type][TRIGGER_STATS[type].count++] = trigger;
+    if (trigger->type == TRIGGER_LEVEL_START) {
+        trigger->state = TRIGGER_STATE_ARMED;
     } else {
-        trigger[9] = 0x10;
+        trigger->state = TRIGGER_STATE_FIRED;
     }
-    g_bTACSystemPaused = 0;
+    TAC_PAUSED = 0;
     return 1;
-#undef g_bTACSystemPaused
-#undef m_Triggers
 }
 
-s32 Trigger_ReleaseTrigger(s32 *trigger) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((s32 ***)(void *)&m_Triggers)
+/* Deactivates a trigger: the last one of its list takes its place. */
+s32 Trigger_ReleaseTrigger(s32 *arg) {
+    Trigger *trigger = (Trigger *)arg;
     u32 i;
 
-    for (i = 0; i < TriggerStats[trigger[0]][0]; i++) {
-        if (m_Triggers[trigger[0]][i] == trigger) {
-            TriggerStats[trigger[0]][0]--;
-            m_Triggers[trigger[0]][i] = m_Triggers[trigger[0]][TriggerStats[trigger[0]][0]];
+    for (i = 0; i < TRIGGER_STATS[trigger->type].count; i++) {
+        if (TRIGGER_LISTS[trigger->type][i] == trigger) {
+            TRIGGER_STATS[trigger->type].count--;
+            TRIGGER_LISTS[trigger->type][i] = TRIGGER_LISTS[trigger->type][TRIGGER_STATS[trigger->type].count];
             return 1;
         }
     }
     return 0;
-#undef m_Triggers
 }
 
+/* Tests `count` conditions (Trigger records at handle `conds`), combined by
+ * `mode` (TRIGGER_COND_*). No conditions: true. */
 s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds) {
-    typedef struct TriggerCondition {
-        u32 type;
-        PTR32(void) param;
-        u8 unk8[0x2C - 0x8];
-    } TriggerCondition;
     extern s8 (*pTriggerFuncArray[])(void *param);
-    TriggerCondition *cond = (TriggerCondition *)PTR(conds);
+    Trigger *cond = (Trigger *)PTR(conds);
     u32 i;
 
     if (count == 0) {
         return 1;
     }
     switch (mode) {
-    case 0:
+    case TRIGGER_COND_ALL:
         for (i = 0; i < count; i++) {
             if (!pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 0;
             }
         }
         return 1;
-    case 1:
+    case TRIGGER_COND_ANY:
         for (i = 0; i < count; i++) {
             if (pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 1;
             }
         }
         return 0;
-    case 2:
+    case TRIGGER_COND_NOT_ALL:
         for (i = 0; i < count; i++) {
             if (!pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 1;
             }
         }
         return 0;
-    case 3:
+    case TRIGGER_COND_NONE:
         for (i = 0; i < count; i++) {
             if (pTriggerFuncArray[cond[i].type](GETP(cond[i].param))) {
                 return 0;
@@ -283,31 +292,30 @@ s8 TriggerCheckConditions(u8 mode, s32 count, s32 conds) {
     return 0;
 }
 
-/* Returns 1 from the calling trigger check when `a op b` holds
-   (op: 21 >, 20 <, 22 ==, 47 >=, 48 <=). */
+/* Returns 1 from the calling trigger check when `a op b` holds (TRIGGER_OP_*). */
 #define TRIGGER_COMPARE_RETURN(op, a, b) \
     switch (op) {                        \
-    case 21:                             \
+    case TRIGGER_OP_GREATER:             \
         if ((a) > (b)) {                 \
             return 1;                    \
         }                                \
         break;                           \
-    case 20:                             \
+    case TRIGGER_OP_LESS:                \
         if ((a) < (b)) {                 \
             return 1;                    \
         }                                \
         break;                           \
-    case 22:                             \
+    case TRIGGER_OP_EQUAL:               \
         if ((a) == (b)) {                \
             return 1;                    \
         }                                \
         break;                           \
-    case 47:                             \
+    case TRIGGER_OP_GREATER_EQUAL:       \
         if ((a) >= (b)) {                \
             return 1;                    \
         }                                \
         break;                           \
-    case 48:                             \
+    case TRIGGER_OP_LESS_EQUAL:          \
         if ((a) <= (b)) {                \
             return 1;                    \
         }                                \
@@ -318,26 +326,28 @@ s32 TriggerLevelStart(void) {
     return 1;
 }
 
-/* port: `arg` is a 32-bit value: a thing handle for the per-vehicle
- * variables (1-27), otherwise a plain argument for the game settings (e.g. a
- * player number), so it only becomes a pointer where one is used. */
+/* Code variables: 1 health, 2 stunt points, 3 turbo (write only), 20-27 a
+ * player's counters, of the car of a TileCar; the rest are game settings.
+ * port: `arg` is a 32-bit value: the TileCar handle for 1-27, otherwise a
+ * plain argument for the game settings (e.g. a player number), so it only
+ * becomes a pointer where one is used. */
 f32 GetCodeVariable(s32 var, u32 arg) {
-    u8 *thing = var >= 1 && var <= 27 ? (u8 *)PTR(arg) : NULL;
-    u8 *vehicle;
-    u8 *player;
+    TileCar *tile = var >= 1 && var <= 27 ? TRIGGER_RECORD(TileCar, arg) : NULL;
+    CarA *car;
+    Player *player;
     u16 index;
 
     switch (var) {
     case 1:
-        vehicle = SLOT_LOAD(u8 *, (thing + 0x28));
-        if (vehicle != NULL) {
-            return *(s32 *)(vehicle + 0x78);
+        car = GETP(tile->car);
+        if (car != NULL) {
+            return ((Thing *)car)->health;
         }
         break;
     case 2:
-        vehicle = SLOT_LOAD(u8 *, (thing + 0x28));
-        if (vehicle != NULL) {
-            return *(u32 *)(SLOT_LOAD(u8 *, (vehicle + 0x94)) + 0x7C);
+        car = GETP(tile->car);
+        if (car != NULL) {
+            return (u32)((Player *)GETP(((Thing *)car)->player))->stuntPoints;
         }
         break;
     case 3:
@@ -351,12 +361,12 @@ f32 GetCodeVariable(s32 var, u32 arg) {
     case 25:
     case 26:
     case 27:
-        vehicle = SLOT_LOAD(u8 *, (thing + 0x28));
+        car = GETP(tile->car);
         index = (u16)var - 20;
-        if (vehicle != NULL) {
-            player = SLOT_LOAD(u8 *, (vehicle + 0x94));
+        if (car != NULL) {
+            player = GETP(((Thing *)car)->player);
             if (player != NULL) {
-                return ((u16 *)(player + 0x94))[index];
+                return player->counters[index];
             }
         }
         break;
@@ -367,33 +377,34 @@ f32 GetCodeVariable(s32 var, u32 arg) {
 }
 
 void SetCodeVariable(s32 var, u32 arg, f32 value) {
-    u8 *obj = var >= 1 && var <= 27 ? (u8 *)PTR(arg) : NULL;  /* port: see GetCodeVariable */
-    u8 *thing;
-    u8 *data;
+    TileCar *tile = var >= 1 && var <= 27 ? TRIGGER_RECORD(TileCar, arg) : NULL;  /* port: see GetCodeVariable */
+    CarA *car;
+    Player *player;
     u8 idx;
 
     switch (var) {
     case 1:
-        thing = SLOT_LOAD(u8 *, (obj + 0x28));
-        if (thing != NULL) {
-            *(s32 *)(thing + 0x78) = (s32)value;
+        car = GETP(tile->car);
+        if (car != NULL) {
+            ((Thing *)car)->health = (s32)value;
         }
         break;
     case 2:
-        thing = SLOT_LOAD(u8 *, (obj + 0x28));
-        if (thing != NULL) {
-            *(u32 *)(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x7C) = (u32)value;
-            *(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x71) = 1;
+        car = GETP(tile->car);
+        if (car != NULL) {
+            ((Player *)GETP(((Thing *)car)->player))->stuntPoints = (u32)value;
+            ((Player *)GETP(((Thing *)car)->player))->scoreDirty = 1;
         }
         break;
     case 3:
-        thing = SLOT_LOAD(u8 *, (obj + 0x28));
-        if (thing != NULL) {
+        car = GETP(tile->car);
+        if (car != NULL) {
             s32 max;
-            *(s32 *)(thing + 0x400) = (s32)value;
-            max = *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (thing + 0x3BC)) + 0xA0)) + 0x14);
-            if (*(s32 *)(thing + 0x78) > max) {
-                *(s32 *)(thing + 0x78) = max;
+            car->turboTime = (s32)value;
+            /* as in the original: clamps the health, not the turbo */
+            max = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+            if (((Thing *)car)->health > max) {
+                ((Thing *)car)->health = max;
             }
         }
         break;
@@ -407,13 +418,13 @@ void SetCodeVariable(s32 var, u32 arg, f32 value) {
     case 25:
     case 26:
     case 27:
-        thing = SLOT_LOAD(u8 *, (obj + 0x28));
+        car = GETP(tile->car);
         idx = (u8)var - 20;
-        if (thing != NULL) {
-            data = SLOT_LOAD(u8 *, (thing + 0x94));
-            if (data != NULL) {
-                ((s16 *)(data + 0x94))[idx] = (s16)value;
-                *(SLOT_LOAD(u8 *, (thing + 0x94)) + 0xA4) = 1;
+        if (car != NULL) {
+            player = GETP(((Thing *)car)->player);
+            if (player != NULL) {
+                player->counters[idx] = (s16)value;
+                ((Player *)GETP(((Thing *)car)->player))->countersChanged = 1;
             }
         }
         break;
@@ -423,6 +434,9 @@ void SetCodeVariable(s32 var, u32 arg, f32 value) {
     }
 }
 
+/* data: { op, var, then for var < 100: count, TileCar handles[count],
+ * operand } or for var >= 100: { arg, operand }; operand: { OPERAND_*, value
+ * words }. True if any tested value compares true. */
 s32 TriggerCodeVariableValueCheck(u32 *data) {
     f32 value;
     f32 operand;
@@ -432,15 +446,15 @@ s32 TriggerCodeVariableValueCheck(u32 *data) {
         for (i = 0; i < data[2]; i++) {
             value = GetCodeVariable(data[1], data[i + 3]);
             switch (data[data[2] + 3]) {
-            case 0:
+            case OPERAND_CONSTANT:
                 operand = *(f32 *)&data[data[2] + 4];
                 TRIGGER_COMPARE_RETURN(data[0], value, operand);
                 break;
-            case 1:
-                operand = *(f32 *)(SLOT_LOAD(u8 *, data[data[2] + 4]) + 4);
+            case OPERAND_VARIABLE:
+                operand = WORLD_VARIABLE(data[data[2] + 4])->value;
                 TRIGGER_COMPARE_RETURN(data[0], value, operand);
                 break;
-            case 2:
+            case OPERAND_CODE_VARIABLE:
                 operand = GetCodeVariable(data[data[2] + 4], data[data[2] + 5]);
                 TRIGGER_COMPARE_RETURN(data[0], value, operand);
                 break;
@@ -449,15 +463,15 @@ s32 TriggerCodeVariableValueCheck(u32 *data) {
     } else {
         value = GetCodeVariable(data[1], data[2]);
         switch (data[3]) {
-        case 0:
+        case OPERAND_CONSTANT:
             operand = *(f32 *)&data[4];
             TRIGGER_COMPARE_RETURN(data[0], value, operand);
             break;
-        case 1:
-            operand = *(f32 *)(SLOT_LOAD(u8 *, data[4]) + 4);
+        case OPERAND_VARIABLE:
+            operand = WORLD_VARIABLE(data[4])->value;
             TRIGGER_COMPARE_RETURN(data[0], value, operand);
             break;
-        case 2:
+        case OPERAND_CODE_VARIABLE:
             operand = GetCodeVariable(data[4], data[5]);
             TRIGGER_COMPARE_RETURN(data[0], value, operand);
             break;
@@ -466,13 +480,12 @@ s32 TriggerCodeVariableValueCheck(u32 *data) {
     return 0;
 }
 
-void Trigger_ItemPickedUp(void *vehicle, void *item) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
+/* Item picked up / dropped triggers: param { numItems, QuadItem handles,
+ * numCars, TileCar handles }; fire when one of the items and one of the cars
+ * match. */
+static inline void Trigger_ItemEvent(u32 type, void *vehicle, void *item) {
     u32 i;
-    u32 actions;
-    u32 *trigger;
+    Trigger *trigger;
     u32 j;
     u32 *list;
     s8 foundItem;
@@ -480,233 +493,152 @@ void Trigger_ItemPickedUp(void *vehicle, void *item) {
     u32 count;
     u32 count2;
 
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[6][0]; i++) {
-            trigger = m_Triggers[6][i];
-            list = (u32 *)PTR(trigger[1]);
+    if (!TAC_PAUSED) {
+        for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+            trigger = TRIGGER_LISTS[type][i];
+            list = GETP(trigger->param);
             count = list[0];
             count2 = list[count + 1];
-            if (trigger[9] != 2) {
+            if (trigger->state != TRIGGER_STATE_DONE) {
                 foundItem = 0;
                 foundVehicle = 0;
                 for (j = 0; j < count && !foundItem; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[6][i][1]) + 1)[j])) + (9)) == item) {
+                    if ((void *)GETP(TRIGGER_RECORD(QuadItem, list[1 + j])->thing) == item) {
                         foundItem = 1;
                     }
                 }
                 if (foundItem) {
                     for (j = 0; j < count2 && !foundVehicle; j++) {
-                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers[6][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
+                        if ((void *)GETP(TRIGGER_RECORD(TileCar, list[2 + count + j])->car) == vehicle) {
                             foundVehicle = 1;
                         }
                     }
-                    if (foundVehicle && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                        actions = 0;
-                        for (j = 0; j < m_Triggers[6][i][7]; j++) {
-                            actions += Action_AddAction(PTR(m_Triggers[6][i][5] + j * 0x18));
-                        }
-                        if (actions == 0) {
-                            m_Triggers[6][i][9] = 2;
-                        }
+                    if (foundVehicle) {
+                        Trigger_FireEvent(trigger);
                     }
                 }
             }
         }
     }
-#undef g_bTACSystemPaused
-#undef m_Triggers
+}
+
+void Trigger_ItemPickedUp(void *vehicle, void *item) {
+    Trigger_ItemEvent(TRIGGER_ITEM_PICKUP, vehicle, item);
 }
 
 void Trigger_ItemDropped(void *vehicle, void *item) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
-    u32 i;
-    u32 actions;
-    u32 *trigger;
-    u32 j;
-    u32 *list;
-    s8 foundItem;
-    s8 foundVehicle;
-    u32 count;
-    u32 count2;
-
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[24][0]; i++) {
-            trigger = m_Triggers[24][i];
-            list = (u32 *)PTR(trigger[1]);
-            count = list[0];
-            count2 = list[count + 1];
-            if (trigger[9] != 2) {
-                foundItem = 0;
-                foundVehicle = 0;
-                for (j = 0; j < count && !foundItem; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[24][i][1]) + 1)[j])) + (9)) == item) {
-                        foundItem = 1;
-                    }
-                }
-                if (foundItem) {
-                    for (j = 0; j < count2 && !foundVehicle; j++) {
-                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers[24][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
-                            foundVehicle = 1;
-                        }
-                    }
-                    if (foundVehicle && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                        actions = 0;
-                        for (j = 0; j < m_Triggers[24][i][7]; j++) {
-                            actions += Action_AddAction(PTR(m_Triggers[24][i][5] + j * 0x18));
-                        }
-                        if (actions == 0) {
-                            m_Triggers[24][i][9] = 2;
-                        }
-                    }
-                }
-            }
-        }
-    }
-#undef g_bTACSystemPaused
-#undef m_Triggers
+    Trigger_ItemEvent(TRIGGER_ITEM_DROPPED, vehicle, item);
 }
 
 s32 TriggerInterfaceEnd(void) {
     return 1;
 }
 
+/* Interface `id` ended: fires the InterfaceEnd triggers with param { id }. */
 void Trigger_InterfaceEnd(u32 id) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
-    u32 j;
-    u32 actions;
     u32 i;
 
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[7][0]; i++) {
-            u32 *trigger = m_Triggers[7][i];
-            u32 param = *(u32 *)PTR(trigger[1]);
-            if (trigger[9] != 2 && param == id && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                actions = 0;
-                for (j = 0; j < m_Triggers[7][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers[7][i][5] + j * 0x18));
-                }
-                if (actions == 0) {
-                    m_Triggers[7][i][9] = 2;
-                }
+    if (!TAC_PAUSED) {
+        for (i = 0; i < TRIGGER_STATS[TRIGGER_INTERFACE_END].count; i++) {
+            Trigger *trigger = TRIGGER_LISTS[TRIGGER_INTERFACE_END][i];
+            u32 param = GETP(trigger->param)[0];
+            if (trigger->state != TRIGGER_STATE_DONE && param == id) {
+                Trigger_FireEvent(trigger);
             }
         }
     }
-#undef g_bTACSystemPaused
-#undef m_Triggers
 }
 
+/* data: { count, TileCar handles }: true if one of the cars is dead. */
 s32 TriggerVehicleKilled(u32 *data) {
     u32 i;
 
     for (i = 0; i < data[0]; i++) {
-        u8 *vehicle = SLOT_LOAD(u8 *, (u8 *)PTR((data + 1)[i]) + 0x28);
-        if (vehicle != NULL && (M2C_FIELD(vehicle, s32 *, 0x74) & 2)) {
+        Thing *vehicle = (Thing *)GETP(TRIGGER_RECORD(TileCar, data[1 + i])->car);
+        if (vehicle != NULL && (vehicle->flags & 2)) {   /* Thing flag 2: dead */
             return 1;
         }
     }
     return 0;
 }
 
+/* param { count, TileCar handles }. */
 void Trigger_VehicleKilled(void *vehicle) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
-    u32 actions;
-    u32 *trigger;
+    Trigger *trigger;
     u32 j;
     s8 found;
     u32 count;
 
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[12][0]; i++) {
-            trigger = m_Triggers[12][i];
-            count = *(u32 *)PTR(trigger[1]);
-            if (trigger[9] != 2) {
+    if (!TAC_PAUSED) {
+        for (i = 0; i < TRIGGER_STATS[TRIGGER_VEHICLE_KILLED].count; i++) {
+            trigger = TRIGGER_LISTS[TRIGGER_VEHICLE_KILLED][i];
+            count = GETP(trigger->param)[0];
+            if (trigger->state != TRIGGER_STATE_DONE) {
                 found = 0;
                 for (j = 0; j < count && !found; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[12][i][1]) + 1)[j])) + (10)) == vehicle) {
+                    if ((void *)GETP(TRIGGER_RECORD(TileCar, GETP(trigger->param)[1 + j])->car) == vehicle) {
                         found = 1;
                     }
                 }
-                if (found && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                    actions = 0;
-                    for (j = 0; j < m_Triggers[12][i][7]; j++) {
-                        actions += Action_AddAction(PTR(m_Triggers[12][i][5] + j * 0x18));
-                    }
-                    if (actions == 0) {
-                        m_Triggers[12][i][9] = 2;
-                    }
+                if (found) {
+                    Trigger_FireEvent(trigger);
                 }
             }
         }
     }
-#undef g_bTACSystemPaused
-#undef m_Triggers
 }
 
+/* data: { count, QuadInstance handles }: true if one was destroyed. */
 s32 TriggerDesructibleKilled(u32 *data) {
     u32 i;
 
     for (i = 0; i < data[0]; i++) {
-        if (M2C_FIELD((data + 1)[i], u32 *, 0x30) == 3) {
+        if (TRIGGER_RECORD(QuadInstance, data[1 + i])->mode == QUAD_OBJECT_DESTROYED) {
             return 1;
         }
     }
     return 0;
 }
 
-void Trigger_DestructibleKilled(void *thing) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
+/* param { count, QuadInstance handles, how }: `how` 3 fires on any kill, 2
+ * when the thing doesn't have flag 0x20, other values when it does. */
+void Trigger_DestructibleKilled(void *arg) {
+    Thing *thing = arg;
     u32 i;
-    u32 actions;
-    u32 *trigger;
+    Trigger *trigger;
     u32 j;
     u32 *list;
     s8 found;
     u32 count;
     u32 mode;
 
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[4][0]; i++) {
-            trigger = m_Triggers[4][i];
-            list = (u32 *)PTR(trigger[1]);
+    if (!TAC_PAUSED) {
+        for (i = 0; i < TRIGGER_STATS[TRIGGER_DESTRUCTIBLE_KILLED].count; i++) {
+            trigger = TRIGGER_LISTS[TRIGGER_DESTRUCTIBLE_KILLED][i];
+            list = GETP(trigger->param);
             count = list[0];
-            if (trigger[9] != 2) {
+            if (trigger->state != TRIGGER_STATE_DONE) {
                 found = 0;
                 for (j = 0; j < count; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[4][i][1]) + 1)[j])) + (11)) == thing) {
+                    if (GETP(TRIGGER_RECORD(QuadInstance, list[1 + j])->thing) == thing) {
                         mode = list[count + 1];
                         if (mode == 3) {
                             found = 1;
                         } else if (mode == 2) {
-                            found = !(M2C_FIELD(thing, u32 *, 0x74) & 0x20);
+                            found = !(thing->flags & 0x20);
                         } else {
-                            found = M2C_FIELD(thing, u32 *, 0x74) & 0x20;
+                            found = thing->flags & 0x20;
                         }
                         break;
                     }
                 }
-                if (found && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                    actions = 0;
-                    for (j = 0; j < m_Triggers[4][i][7]; j++) {
-                        actions += Action_AddAction(PTR(m_Triggers[4][i][5] + j * 0x18));
-                    }
-                    if (actions == 0) {
-                        m_Triggers[4][i][9] = 2;
-                    }
+                if (found) {
+                    Trigger_FireEvent(trigger);
                 }
             }
         }
     }
-#undef g_bTACSystemPaused
-#undef m_Triggers
 }
 
 s32 TriggerCreatureKilled(void) {
@@ -717,13 +649,10 @@ s32 TriggerCreatureDroppedOff(void) {
     return 0;
 }
 
+/* param { numCreatures, TileCreature handles, numCars, TileCar handles }. */
 void Trigger_CreatureDroppedOff(void *vehicle, void *creature) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
     u32 i;
-    u32 actions;
-    u32 *trigger;
+    Trigger *trigger;
     u32 j;
     u32 *list;
     s8 foundCreature;
@@ -731,119 +660,57 @@ void Trigger_CreatureDroppedOff(void *vehicle, void *creature) {
     u32 count;
     u32 count2;
 
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[14][0]; i++) {
-            trigger = m_Triggers[14][i];
-            list = (u32 *)PTR(trigger[1]);
+    if (!TAC_PAUSED) {
+        for (i = 0; i < TRIGGER_STATS[TRIGGER_CREATURE_DROPPED_OFF].count; i++) {
+            trigger = TRIGGER_LISTS[TRIGGER_CREATURE_DROPPED_OFF][i];
+            list = GETP(trigger->param);
             count = list[0];
             count2 = list[count + 1];
-            if (trigger[9] != 2) {
+            if (trigger->state != TRIGGER_STATE_DONE) {
                 foundCreature = 0;
                 foundVehicle = 0;
                 for (j = 0; j < count && !foundCreature; j++) {
-                    if (SLOT_LOAD(void *, (u32 *)(PTR(((u32 *)PTR(m_Triggers[14][i][1]) + 1)[j])) + (7)) == creature) {
+                    if (PTR(TRIGGER_RECORD(TileCreature, list[1 + j])->thing) == creature) {
                         foundCreature = 1;
                     }
                 }
                 if (foundCreature) {
                     for (j = 0; j < count2 && !foundVehicle; j++) {
-                        if (SLOT_LOAD(void *, (u32 *)(PTR(*(u32 *)PTR((m_Triggers[14][i][1] + (2 + count + j) * 4)))) + (10)) == vehicle) {
+                        if ((void *)GETP(TRIGGER_RECORD(TileCar, list[2 + count + j])->car) == vehicle) {
                             foundVehicle = 1;
                         }
                     }
-                    if (foundVehicle && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                        actions = 0;
-                        for (j = 0; j < m_Triggers[14][i][7]; j++) {
-                            actions += Action_AddAction(PTR(m_Triggers[14][i][5] + j * 0x18));
-                        }
-                        if (actions == 0) {
-                            m_Triggers[14][i][9] = 2;
-                        }
+                    if (foundVehicle) {
+                        Trigger_FireEvent(trigger);
                     }
                 }
             }
         }
     }
-#undef g_bTACSystemPaused
-#undef m_Triggers
 }
 
-
-void Trigger_GameRoundsComplete(void) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
+/* Fires the active triggers of an event type that has no parameters. */
+static inline void Trigger_FireAll(u32 type) {
     u32 i;
-    u32 j;
-    u32 actions;
 
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[22][0]; i++) {
-            u32 *trigger = m_Triggers[22][i];
-            if (trigger[9] != 2 && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                actions = 0;
-                for (j = 0; j < m_Triggers[22][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers[22][i][5] + j * 0x18));
-                }
-                if (actions == 0) {
-                    m_Triggers[22][i][9] = 2;
-                }
+    if (!TAC_PAUSED) {
+        for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+            Trigger *trigger = TRIGGER_LISTS[type][i];
+            if (trigger->state != TRIGGER_STATE_DONE) {
+                Trigger_FireEvent(trigger);
             }
         }
     }
-#undef g_bTACSystemPaused
-#undef m_Triggers
+}
+
+void Trigger_GameRoundsComplete(void) {
+    Trigger_FireAll(TRIGGER_GAME_ROUNDS_COMPLETE);
 }
 
 void Trigger_GameRoundXComplete(void) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
-    u32 i;
-    u32 j;
-    u32 actions;
-
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[23][0]; i++) {
-            u32 *trigger = m_Triggers[23][i];
-            if (trigger[9] != 2 && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                actions = 0;
-                for (j = 0; j < m_Triggers[23][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers[23][i][5] + j * 0x18));
-                }
-                if (actions == 0) {
-                    m_Triggers[23][i][9] = 2;
-                }
-            }
-        }
-    }
-#undef g_bTACSystemPaused
-#undef m_Triggers
+    Trigger_FireAll(TRIGGER_GAME_ROUND_X_COMPLETE);
 }
 
 void Trigger_SoundSequenceQueueEmptied(void) {
-    extern u32 TriggerStats[][3];
-    #define m_Triggers ((u32 ***)(void *)&m_Triggers)
-    #define g_bTACSystemPaused (*(s8 *)(void *)&g_bTACSystemPaused)
-    u32 i;
-    u32 j;
-    u32 actions;
-
-    if (!g_bTACSystemPaused) {
-        for (i = 0; i < TriggerStats[26][0]; i++) {
-            u32 *trigger = m_Triggers[26][i];
-            if (trigger[9] != 2 && TriggerCheckConditions(((u8 *)trigger)[0x28], trigger[4], trigger[3])) {
-                actions = 0;
-                for (j = 0; j < m_Triggers[26][i][7]; j++) {
-                    actions += Action_AddAction(PTR(m_Triggers[26][i][5] + j * 0x18));
-                }
-                if (actions == 0) {
-                    m_Triggers[26][i][9] = 2;
-                }
-            }
-        }
-    }
-#undef g_bTACSystemPaused
-#undef m_Triggers
+    Trigger_FireAll(TRIGGER_SOUND_SEQ_QUEUE_END);
 }
-

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 extern u32 m_VtxDescFlag;
@@ -24,38 +25,6 @@ extern s32 m_fogMode;
 extern s32 m_cullMode;
 extern s32 m_blendMode;
 
-typedef struct GfxWindow {
-    f32 unk0[4][4];
-    f32 unk40[4][4];
-    f32 unk80[4][4];
-    f32 unkC0[4][4];
-    f32 unk100[4][4];
-    f32 unk140[4][4];
-    u8 unk180[0x270 - 0x180];
-    f32 fov;
-    u8 unk274[0x278 - 0x274];
-    f32 unk278;
-    f32 unk27C;
-    u32 width;
-    u32 height;
-    u32 halfWidth;
-    u32 halfHeight;
-    f32 unk290;
-    f32 unk294;
-    f32 unk298;
-    f32 unk29C;
-    f32 unk2A0;
-    f32 unk2A4;
-    f32 unk2A8;
-    f32 unk2AC;
-    u32 unk2B0;
-    u32 unk2B4;
-    u32 unk2B8;
-    u32 unk2BC;
-    u8 unk2C0[4];
-    u32 unk2C4;
-    u8 unk2C8[0x2D0 - 0x2C8];
-} GfxWindow;
 
 typedef struct GXRenderModeObj {
     u32 viTVmode;
@@ -80,18 +49,7 @@ extern u8 ShadowTexture[];
 extern u8 pShadowImage[];
 
 
-typedef struct GfxState {
-    u8 unk0[0x60];
-    f32 lightDir[4];
-    GXColor lightColor;
-    GXColor unk74;
-    GXColor ambientColor;
-    u8 unk7C[0x93 - 0x7C];
-    u8 unk93;
-    u8 unk94[0xA0 - 0x94];
-} GfxState;
 
-extern GfxState g_state;
 extern f32 g_identity[4][4];
 extern GXColor g_textcolor;
 extern GXColor m_clearColor;
@@ -129,7 +87,6 @@ typedef struct OSFontHeader {
 OSFontHeader *FontData;  /* .sbss in the original (local to Render_.o) */
 extern s32 __OSCurrHeap;
 
-GfxWindow *GetRenderWindow(void);
 
 
 typedef struct GDLDrawEntry {
@@ -143,6 +100,14 @@ typedef struct GDLDrawEntry {
     u8 unk13;
 } GDLDrawEntry;
 
+/* A 2D line (Render_DrawLine2D), in a 3D line slot. */
+typedef struct GDLLine2D {
+    Vector4 p0;               /* 0x00 */
+    Vector4 p1;               /* 0x10 */
+    GXColor color;            /* 0x20 */
+    u8 pad24[0xC];            /* 0x24 */
+} GDLLine2D;
+
 typedef struct GDL {
     u32 numAlphaEntries;      /* 0x00 */
     u8 unk4[0xC - 0x4];
@@ -150,19 +115,17 @@ typedef struct GDL {
     u8 unk10[0x14 - 0x10];
     s32 numTris;              /* 0x14 */
     u8 unk18[0x28 - 0x18];
-    u8 unk28[0x2C - 0x28];    /* 0x28 */
+    u32 num2DLines;           /* 0x28 */
     u8 unk2C[0x54 - 0x2C];
-    u32 numDrawEntries;
-    u8 unk58[0xDFCC0 - 0x58];
-    GDLDrawEntry drawEntries[0x800];
+    u32 numDrawEntries;       /* 0x54 */
+    u8 unk58[0xAE700 - 0x58];
+    GDLLine2D lines2D[1000];  /* 0xAE700 the second half of the 3D line buffer */
+    u8 unkBA280[0xDFCC0 - 0xBA280];
+    GDLDrawEntry drawEntries[0x800]; /* 0xDFCC0 */
 } GDL;
+_Static_assert(offsetof(GDL, lines2D) == 0xAE700, "GDL.lines2D");
+_Static_assert(offsetof(GDL, drawEntries) == 0xDFCC0, "GDL.drawEntries");
 
-typedef struct Vector {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
-} Vector;
 
 
 typedef struct RenderStats {
@@ -495,17 +458,17 @@ void Render_Create(void) {
     m_fillMode = 0;
     m_currentView = 0;
     GetRenderWindow()->fov = 90.0f;
-    memset(GetRenderWindow()->unkC0, 0, 0x40);
-    g_state.unk93 = 0;
+    memset(GetRenderWindow()->projection, 0, 0x40);
+    g_state.worldIsIdentity = 0;
     memset(g_identity, 0, 0x40);
     g_identity[3][3] = 1.0f;
     g_identity[2][2] = 1.0f;
     g_identity[1][1] = 1.0f;
     g_identity[0][0] = 1.0f;
-    memcpy(GetRenderWindow()->unk0, g_identity, 0x40);
-    memcpy(GetRenderWindow()->unk40, g_identity, 0x40);
-    memcpy(GetRenderWindow()->unk80, g_identity, 0x40);
-    memcpy(GetRenderWindow()->unk100, g_identity, 0x40);
+    memcpy(GetRenderWindow()->world, g_identity, 0x40);
+    memcpy(GetRenderWindow()->view, g_identity, 0x40);
+    memcpy(GetRenderWindow()->worldView, g_identity, 0x40);
+    memcpy(GetRenderWindow()->worldViewProj, g_identity, 0x40);
     m_blendMode = 1;
     g_textcolor.a = 0xFF;
     g_textcolor.b = 0xFF;
@@ -523,9 +486,9 @@ void Render_Create(void) {
     g_state.lightColor.g = 0xC8;
     g_state.lightColor.b = 0xC8;
     g_state.lightColor.a = 0xFF;
-    g_state.lightDir[0] = 0.5f;
-    g_state.lightDir[1] = 0.5f;
-    g_state.lightDir[2] = 0.0f;
+    g_state.lightDir.x = 0.5f;
+    g_state.lightDir.y = 0.5f;
+    g_state.lightDir.z = 0.0f;
     m_curLightState = -1;
     m_curTexture = 0;
     m_zmode = 3;
@@ -552,23 +515,23 @@ s32 Render_CreateView(s32 view, u32 width, u32 height) {
     GetRenderWindow()->halfWidth = width >> 1;
     GetRenderWindow()->height = height;
     GetRenderWindow()->halfHeight = height >> 1;
-    GetRenderWindow()->unk278 = 0.0f;
-    GetRenderWindow()->unk27C = 0.0f;
-    GetRenderWindow()->unk298 = (width * 16) / 640.0f;
-    GetRenderWindow()->unk29C = (height * 16) / 480.0f;
-    GetRenderWindow()->unk290 = ((0x1000 - width) >> 1) * 16;
-    GetRenderWindow()->unk294 = ((0x1000 - height) >> 1) * 16;
-    GetRenderWindow()->unk2A0 = GetRenderWindow()->unk298;
-    GetRenderWindow()->unk2A4 = GetRenderWindow()->unk29C;
-    GetRenderWindow()->unk2A8 = GetRenderWindow()->unk290;
-    GetRenderWindow()->unk2AC = GetRenderWindow()->unk294;
-    GetRenderWindow()->unk2B0 = 0;
-    GetRenderWindow()->unk2B8 = 0;
-    GetRenderWindow()->unk2B4 = width - 1;
-    GetRenderWindow()->unk2BC = height - 1;
-    GetRenderWindow()->unk2C4 = 0;
+    GetRenderWindow()->scaleX = 0.0f;
+    GetRenderWindow()->scaleY = 0.0f;
+    GetRenderWindow()->sizeX = (width * 16) / 640.0f;
+    GetRenderWindow()->sizeY = (height * 16) / 480.0f;
+    GetRenderWindow()->offsetX = ((0x1000 - width) >> 1) * 16;
+    GetRenderWindow()->offsetY = ((0x1000 - height) >> 1) * 16;
+    GetRenderWindow()->unk2A0 = GetRenderWindow()->sizeX;
+    GetRenderWindow()->unk2A4 = GetRenderWindow()->sizeY;
+    GetRenderWindow()->centerX = GetRenderWindow()->offsetX;
+    GetRenderWindow()->centerY = GetRenderWindow()->offsetY;
+    GetRenderWindow()->left = 0;
+    GetRenderWindow()->top = 0;
+    GetRenderWindow()->right = width - 1;
+    GetRenderWindow()->bottom = height - 1;
+    GetRenderWindow()->overlayMode = 0;
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
-    memcpy(GetRenderWindow()->unk140, GetRenderWindow()->unk40, 0x40);
+    memcpy(GetRenderWindow()->viewMatrix, GetRenderWindow()->view, 0x40);
     DisplayList_Create();
     GXSetNumChans(1);
     GXSetNumTexGens(1);
@@ -590,9 +553,9 @@ void Render_StateSetScissor(void) {
     Gfx_SetProjectionMatrix(GetRenderWindow()->fov);
     ht = 0.93333334f * GetRenderWindow()->height;
     wd = GetRenderWindow()->width;
-    top = 0.93333334f * GetRenderWindow()->unk2B8;
-    GXSetViewport(GetRenderWindow()->unk2B0, top, wd, ht, 0.0f, 1.0f);
-    GXSetScissor(GetRenderWindow()->unk2B0, 0.93333334f * GetRenderWindow()->unk2B8, (f32)GetRenderWindow()->width, 0.93333334f * GetRenderWindow()->height);
+    top = 0.93333334f * GetRenderWindow()->top;
+    GXSetViewport(GetRenderWindow()->left, top, wd, ht, 0.0f, 1.0f);
+    GXSetScissor(GetRenderWindow()->left, 0.93333334f * GetRenderWindow()->top, (f32)GetRenderWindow()->width, 0.93333334f * GetRenderWindow()->height);
 }
 
 extern u8 g_CurrentViews;
@@ -605,9 +568,9 @@ void Render_BeginScene(void) {
     Gfx_SetProjectionMatrix(GetRenderWindow()->fov);
     ht = 0.93333334f * GetRenderWindow()->height;
     wd = GetRenderWindow()->width;
-    top = 0.93333334f * GetRenderWindow()->unk2B8;
-    GXSetViewport(GetRenderWindow()->unk2B0, top, wd, ht, 0.0f, 1.0f);
-    GXSetScissor(GetRenderWindow()->unk2B0, 0.93333334f * GetRenderWindow()->unk2B8, (f32)GetRenderWindow()->width, 0.93333334f * GetRenderWindow()->height);
+    top = 0.93333334f * GetRenderWindow()->top;
+    GXSetViewport(GetRenderWindow()->left, top, wd, ht, 0.0f, 1.0f);
+    GXSetScissor(GetRenderWindow()->left, 0.93333334f * GetRenderWindow()->top, (f32)GetRenderWindow()->width, 0.93333334f * GetRenderWindow()->height);
     GXInvalidateVtxCache();
     GXInvalidateTexAll();
     GXSetCopyClear(m_clearColor, 0xFFFFFF);
@@ -629,7 +592,6 @@ void Render_BeginScene(void) {
 }
 
 static inline void Render_BeginView(u16 view) {
-    extern GfxState g_state;
     f32 ht;
     f32 wd;
     f32 top;
@@ -638,16 +600,16 @@ static inline void Render_BeginView(u16 view) {
     u32 stop;
 
     Gfx_SetRenderWindow(view);
-    Gfx_SetProjectionMatrix(*(f32 *)((u8 *)GetRenderWindow() + 0x270));
-    ht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
-    wd = *(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    top = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
-    GXSetViewport(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), top, wd, ht, 0.0f, 1.0f);
-    sht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
-    swd = (f32)*(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    stop = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
-    GXSetScissor(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), stop, swd, sht);
-    g_state.unk93 = 0;
+    Gfx_SetProjectionMatrix(GetRenderWindow()->fov);
+    ht = 0.93333334f * GetRenderWindow()->height;
+    wd = GetRenderWindow()->width;
+    top = 0.93333334f * (u32)GetRenderWindow()->top;
+    GXSetViewport((u32)GetRenderWindow()->left, top, wd, ht, 0.0f, 1.0f);
+    sht = 0.93333334f * GetRenderWindow()->height;
+    swd = (f32)GetRenderWindow()->width;
+    stop = 0.93333334f * (u32)GetRenderWindow()->top;
+    GXSetScissor((u32)GetRenderWindow()->left, stop, swd, sht);
+    g_state.worldIsIdentity = 0;
     Gfx_SetWorldMatrix(NULL);
 }
 
@@ -659,15 +621,15 @@ static inline void Render_SetWindowViewport(void) {
     u32 swd;
     u32 sht;
 
-    Gfx_SetProjectionMatrix(*(f32 *)((u8 *)GetRenderWindow() + 0x270));
-    ht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
-    wd = *(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    top = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
-    GXSetViewport(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), top, wd, ht, 0.0f, 1.0f);
-    sht = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x284);
-    swd = (f32)*(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    stop = 0.93333334f * *(u32 *)((u8 *)GetRenderWindow() + 0x2B8);
-    GXSetScissor(*(u32 *)((u8 *)GetRenderWindow() + 0x2B0), stop, swd, sht);
+    Gfx_SetProjectionMatrix(GetRenderWindow()->fov);
+    ht = 0.93333334f * GetRenderWindow()->height;
+    wd = GetRenderWindow()->width;
+    top = 0.93333334f * (u32)GetRenderWindow()->top;
+    GXSetViewport((u32)GetRenderWindow()->left, top, wd, ht, 0.0f, 1.0f);
+    sht = 0.93333334f * GetRenderWindow()->height;
+    swd = (f32)GetRenderWindow()->width;
+    stop = 0.93333334f * (u32)GetRenderWindow()->top;
+    GXSetScissor((u32)GetRenderWindow()->left, stop, swd, sht);
 }
 
 void Render_EndScene(void) {
@@ -798,8 +760,8 @@ void Render_EndScene(void) {
     Render_DrawRectanglesWindow();
     Render_DrawRectangles();
     Render_SetTextureHandle(0xFFFF);
-    for (j = 0; j < *(u32 *)g_pGDL->unk28; j++) {
-        Render_DrawLine2D((u8 *)g_pGDL + 0xAE700 + j * 0x30);
+    for (j = 0; j < g_pGDL->num2DLines; j++) {
+        Render_DrawLine2D(&g_pGDL->lines2D[j]);
     }
     Render_StateZWriteEnable(1);
     GXSetBlendMode(1, 4, 5, 5);
@@ -1073,8 +1035,8 @@ void Render_DrawShadows(void) {
         u8 unk0[0x8];
         PTR32(ShadowGeometry) geometry;
     } ShadowModel;
-    Vector dir __attribute__((aligned(16)));
-    Vector lightDir __attribute__((aligned(16))) = { 0.707f, -0.707f, 0.0f, 0.0f };
+    Vector4 dir __attribute__((aligned(16)));
+    Vector4 lightDir __attribute__((aligned(16))) = { 0.707f, -0.707f, 0.0f, 0.0f };
     GXColor color;
     u32 i;
     u32 numShadows;

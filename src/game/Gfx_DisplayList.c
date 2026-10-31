@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 typedef struct GDLSprite {
@@ -76,56 +77,21 @@ typedef struct GDLAlphaEntry {
     u16 next;
 } GDLAlphaEntry;
 
-typedef struct GfxPointLight {
-    Vector4 position;
-    f32 radius;
-    GXColor color;
-    u8 unk18[0x20 - 0x18];
-} GfxPointLight;
 
-typedef struct GfxState {
-    GfxPointLight pointLights[3];
-    Vector4 lightDir;
-    GXColor ambientColor;
-    u8 unk74[0x78 - 0x74];
-    GXColor lightColor;
-    u8 unk7C[0x8E - 0x7C];
-    s8 lightChanged;
-    s8 unk8F;
-    u8 numPointLights;
-    u8 unk91[0xA0 - 0x91];
-} GfxState;
 
 typedef struct GDLLightState {
     Vector4 pointLights[3];
     Vector4 lightDir;
     u32 numPointLights;
     GXColor pointColors[3];
-    GXColor ambientColor;
-    GXColor lightColor;
+    GXColor lightColor;         /* 0x50 as Render_Geometry_.c reads it */
+    GXColor ambientColor;       /* 0x54 */
     u8 unk58[0x60 - 0x58];
 } GDLLightState;
 
-extern GfxState g_state;
 extern Matrix4 g_identity;
 
-typedef struct GfxWindow {
-    u8 unk0[0x80];
-    Matrix4 unk80;
-    u8 unkC0[0x140 - 0xC0];
-    Matrix4 viewMatrix;
-    Vector4 cameraPos;
-    Vector4 cameraRight;
-    Vector4 cameraUp;
-    Vector4 cameraAt;
-    u8 unk1C0[0x2C0 - 0x1C0];
-    GXColor overlayColor;
-    u32 overlayMode;
-    u8 unk2C8[0x2CC - 0x2C8];
-    f32 unk2CC;
-} GfxWindow;
 
-GfxWindow *GetRenderWindow(void);
 
 typedef struct DLSkinGroup {
     PTR32(void) lod;
@@ -169,11 +135,6 @@ typedef struct DisplayList {
     u16 unk11DE0[0x1FF];
     u16 unk121DE[0x1FF];
 } DisplayList;
-
-typedef struct GDLRect {
-    u8 unk0[0x83];
-    u8 window;
-} GDLRect;
 
 extern s32 g_currentWindow;
 extern u8 g_CurrentViews;
@@ -493,7 +454,7 @@ void Gfx_AddCorona(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b)
     g_pGDL->sprites2D[g_pGDL->num2DSprites].x = pos->x;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].y = pos->y;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].z = pos->z;
-    g_pGDL->sprites2D[g_pGDL->num2DSprites].unkC = a * GetRenderWindow()->unk2CC;
+    g_pGDL->sprites2D[g_pGDL->num2DSprites].unkC = a * GetRenderWindow()->invSinHalfFov;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].unk1C = b;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].color = *color;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].tex = tex;
@@ -555,7 +516,7 @@ void DisplayList_AddAlphaGroup(s32 arg0, s32 arg1, u32 matrix, u8 arg3, GXColor 
     if (g_CurrentViews != 1) {
         Gfx_SetWorldMatrix(Gfx_GetWorldMatrixState(matrix));
     }
-    memcpy(g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].matrix, &GetRenderWindow()->unk80, 0x40);
+    memcpy(g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].matrix, GetRenderWindow()->worldView, 0x40);
     g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].unk50 = arg3;
     g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].color = *color;
     g_pGDL->numAlphaGroups++;
@@ -573,9 +534,9 @@ void Gfx_SortAlpha(void) {
     MemClr32(g_pGDL->alphaTable, 0x200);
     g_pGDL->numAlphaEntries = 1;
     for (i = 0; i < g_pGDL->numTris; i++) {
-        XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[0], (Vector4 *)&g_pGDL->tris[i].v[0]);
-        XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[1], (Vector4 *)&g_pGDL->tris[i].v[1]);
-        XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[2], (Vector4 *)&g_pGDL->tris[i].v[2]);
+        XformVec4x4((Matrix4 *)GetRenderWindow()->view, (Vector4 *)&g_pGDL->tris[i].v[0], (Vector4 *)&g_pGDL->tris[i].v[0]);
+        XformVec4x4((Matrix4 *)GetRenderWindow()->view, (Vector4 *)&g_pGDL->tris[i].v[1], (Vector4 *)&g_pGDL->tris[i].v[1]);
+        XformVec4x4((Matrix4 *)GetRenderWindow()->view, (Vector4 *)&g_pGDL->tris[i].v[2], (Vector4 *)&g_pGDL->tris[i].v[2]);
         z = 0.333333f * (g_pGDL->tris[i].v[2].z + (g_pGDL->tris[i].v[0].z + g_pGDL->tris[i].v[1].z));
         SETP(g_pGDL->alphaEntries[g_pGDL->numAlphaEntries].func, Render_DrawAlphaTriangle);
         g_pGDL->alphaEntries[g_pGDL->numAlphaEntries].arg = i;
@@ -724,17 +685,6 @@ u32 Gfx_AddWorldMatrixState_CacheMatrixQuaternionScalePos(void *quat, void *scal
     return g_pGDL->numMatrices++;
 }
 
-typedef struct GeometryGroup {
-    u16 unk0;
-    u16 flags;
-    u8 unk4[0x10 - 0x4];
-    PTR32(void) data;
-    u16 unk14;
-    u8 unk16[0x18 - 0x16];
-    u16 unk18;
-    u8 unk1A[0x1C - 0x1A];
-    PTR32(__typeof__(u16[3])) tris;
-} GeometryGroup;
 
 typedef struct GeometryVertex {
     Vector4 pos;
@@ -743,14 +693,6 @@ typedef struct GeometryVertex {
     u8 unk20[0x30 - 0x20];
 } GeometryVertex;
 
-typedef struct Geometry {
-    u16 unk0;
-    u16 numGroups;
-    u16 unk4;
-    u16 unk6;
-    PTR32(GeometryGroup) groups;
-    PTR32(GeometryVertex) verts;
-} Geometry;
 
 static inline void Gfx_Add3DLine(Vector4 *p0, Vector4 *p1, GXColor *color) {
     g_pGDL->lines3D[g_pGDL->num3DLines].p0 = *p0;
@@ -764,7 +706,7 @@ void *Gfx_GetWorldMatrixState(u32 index) {
         return &g_identity;
     }
     if (index == 0xFFFF) {
-        return &GetRenderWindow()->viewMatrix;
+        return GetRenderWindow()->viewMatrix;
     }
     return GETP(g_pGDL->matrices[index]);
 }

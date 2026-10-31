@@ -1,49 +1,54 @@
 #include "common.h"
+#include "CarA.h"
+#include "ThingManager.h"
 
 
-s32 Motion_Init(u8 *motion, u8 *init) {
-    u8 *state = motion + 0xB0;
+/* Motion things (THING_TYPE_MOTION): an animated model at a place,
+ * e.g. scenery a slave trigger starts. */
+s32 Motion_Init(MotionThing *motion, MotionParams *init) {
+    MotionState *state = &motion->state;
 
-    Thing_Init(motion, (s32)HND(init));
-    M2C_FIELD(motion, Vector4 *, 0x40) = M2C_FIELD(init, Vector4 *, 0x10);
-    M2C_FIELD(motion, Vector4 *, 0x50) = M2C_FIELD(init, Vector4 *, 0x20);
-    QuaternionToSubMatrix(motion + 0x50, motion + 0x10);
-    M2C_FIELD(state, s32 *, 0x0) = M2C_FIELD(init, s32 *, 0x30);
-    M2C_FIELD(state, f32 *, 0x24) = 0.0f;
+    Thing_Init(&motion->base, (s32)HND(init));
+    motion->base.pos = init->pos;
+    motion->base.quat = init->quat;
+    QuaternionToSubMatrix(&motion->base.quat, THING_MTX(&motion->base));
+    SETP(state->model, GETP(init->model));
+    state->layer.blend = 0.0f;
     MotionState_Init(state, 0);
-    MotionState_BuildMatricesWorld(motion + 0x50, motion + 0x40, state, 1.0f);
-    if (SLOT_LOAD(void *, (u8 *)(init) + 0x34) != NULL) {
-        MotionState_InitAllSlavesNow(HND(state), SLOT_LOAD(void *, (u8 *)(init) + 0x34), 0xFF);
+    MotionState_BuildMatricesWorld(&motion->base.quat, &motion->base.pos, state, 1.0f);
+    if (GETP(init->slaves) != NULL) {
+        MotionState_InitAllSlavesNow(state, GETP(init->slaves), 0xFF);
     }
     return 1;
 }
 
 /* port: takes a pointer, as the vtable calls it; the decomp has s32 */
-void Motion_Release(void *arg0) {
-    MotionState_Release((s32)HND((u8 *)arg0 + 0xB0));
-    Thing_Release(arg0);
+void Motion_Release(MotionThing *motion) {
+    MotionState_Release(&motion->state);
+    Thing_Release(&motion->base);
 }
 
-s32 Motion_Move(u8 *motion) {
-    MotionState_BuildMatricesWorld(motion + 0x50, motion + 0x40, motion + 0xB0, 1.0f);
-    MotionState_Heartbeat(motion + 0xB0, motion + 0x10, motion);
+s32 Motion_Move(MotionThing *motion) {
+    MotionState_BuildMatricesWorld(&motion->base.quat, &motion->base.pos, &motion->state, 1.0f);
+    MotionState_Heartbeat(&motion->state, THING_MTX(&motion->base), motion);
     return 1;
 }
 
-void Motion_Draw(u8 *motion) {
+void Motion_Draw(MotionThing *motion) {
     extern u8 g_aMatStack[4096];
-    if (M2C_FIELD(motion, u32 *, 0xC0) != 0) {
-        MotionState_Draw(motion + 0xB0);
+    if (GETP(motion->state.animMatrices) != NULL) {
+        MotionState_Draw(&motion->state);
     } else {
-        MotionState_Draw2(motion + 0xB0, HND(motion + 0x10), g_aMatStack);
+        MotionState_Draw2(&motion->state, HND(THING_MTX(&motion->base)), g_aMatStack);
     }
 }
 
-s32 Motion_Invalidate(void *arg0, u32 arg1, u32 arg2) {
-    u32 temp_r0;
+/* The data pack in [start, end) is going away: is the model in it? */
+s32 Motion_Invalidate(MotionThing *motion, u32 start, u32 end) {
+    u32 model;
 
-    temp_r0 = M2C_FIELD(arg0, u32 *, 0xB0);
-    if ((temp_r0 >= arg1) && (temp_r0 < arg2)) {
+    model = motion->state.model.h;
+    if ((model >= start) && (model < end)) {
         return 1;
     }
     return 0;

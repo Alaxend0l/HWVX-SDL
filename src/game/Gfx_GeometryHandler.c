@@ -1,41 +1,8 @@
 #include "common.h"
+#include "Gfx.h"
 
-typedef struct Vector {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
-} Vector;
 
-typedef struct GfxPointLight {
-    Vector position;
-    f32 radius;
-    GXColor color;
-    u8 unk18[0x20 - 0x18];
-} GfxPointLight;
 
-typedef struct GfxState {
-    GfxPointLight pointLights[3];
-    Vector lightDir;
-    GXColor lightColor;
-    GXColor unk74;
-    GXColor ambientColor;
-    u32 unk7C;
-    f32 unk80;
-    s32 unk84;
-    s32 unk88;
-    u16 debugFont;
-    s8 lightChanged;
-    s8 unk8F;
-    u8 numPointLights;
-    u8 unk91;
-    u8 unk92;
-    u8 unk93;
-    u8 enviroMapMode;
-    u8 unk95[0x98 - 0x95];
-    f32 farClippingPlane;
-    u8 unk9C[0xA0 - 0x9C];
-} GfxState;
 
 typedef struct GDLDrawEntry {
     s32 geometry;
@@ -55,37 +22,14 @@ typedef struct GDL {
     GDLDrawEntry drawEntries[(0xE9CC0 - 0xDFCC0) / 0x14];
 } GDL;
 
-typedef struct GeometryGroup {
-    u16 unk0;
-    u16 flags;
-    u8 unk4[0x10 - 0x4];
-    PTR32(void) data;
-    u16 unk14;
-    u8 unk16[0x18 - 0x16];
-    u16 unk18;
-    u8 unk1A[0x20 - 0x1A];
-} GeometryGroup;
 
-typedef struct Geometry {
-    u16 unk0;
-    u16 numGroups;
-    u16 unk4;
-    u16 unk6;
-    PTR32(GeometryGroup) groups;
-    PTR32(f32) lodDistances;
-    f32 bboxMin[4];
-    f32 bboxMax[4];
-    f32 center[4];
-} Geometry;
 
 extern GDL *g_pGDL;
-extern GfxState g_state;
 extern u8 g_CurrentViews;
 
-void *GetRenderWindow();
 
-s32 Gfx_FrustrumCullSphereTestAllWindows(Vector *center, f32 radius) {
-    s32 Gfx_FrustrumCullSphereTest(Vector *center, f32 radius);
+s32 Gfx_FrustrumCullSphereTestAllWindows(Vector4 *center, f32 radius) {
+    s32 Gfx_FrustrumCullSphereTest(Vector4 *center, f32 radius);
     u32 i;
     s32 ret = 0;  /* port: the original returns a stale r4 if no window is tested */
 
@@ -104,18 +48,18 @@ s32 Gfx_FrustrumCullSphereTestAllWindows(Vector *center, f32 radius) {
     return Gfx_FrustrumCullSphereTest(center, radius);
 }
 
-s32 Gfx_FrustrumCullSphereTest(Vector *center, f32 radius) {
-    Vector normal __attribute__((aligned(16)));
+s32 Gfx_FrustrumCullSphereTest(Vector4 *center, f32 radius) {
+    Vector4 normal __attribute__((aligned(16)));
     s32 result;
     u32 i;
     f32 dist;
 
     result = 2;
     for (i = 0; i < 5; i++) {
-        normal.x = ((f32 *)GetRenderWindow())[i * 4 + 0x70];
-        normal.y = ((f32 *)GetRenderWindow())[i * 4 + 0x71];
-        normal.z = ((f32 *)GetRenderWindow())[i * 4 + 0x72];
-        dist = PSVECDotProduct(center, &normal) + ((f32 *)GetRenderWindow())[i * 4 + 0x73];
+        normal.x = GetRenderWindow()->clipPlanes[i].x;
+        normal.y = GetRenderWindow()->clipPlanes[i].y;
+        normal.z = GetRenderWindow()->clipPlanes[i].z;
+        dist = PSVECDotProduct(center, &normal) + GetRenderWindow()->clipPlanes[i].w;
         if (dist > radius) {
             return 0;
         }
@@ -126,15 +70,15 @@ s32 Gfx_FrustrumCullSphereTest(Vector *center, f32 radius) {
     return result;
 }
 
-u32 Gfx_GetCullLODGX(Geometry *geometry, Vector *matrix, u8 *lod, u8 flag) {
-    Vector diff __attribute__((aligned(16)));
-    Vector center __attribute__((aligned(16)));
-    Vector pos __attribute__((aligned(16)));
+u32 Gfx_GetCullLODGX(Geometry *geometry, Vector4 *matrix, u8 *lod, u8 flag) {
+    Vector4 diff __attribute__((aligned(16)));
+    Vector4 center __attribute__((aligned(16)));
+    Vector4 pos __attribute__((aligned(16)));
     f32 dist;
     f32 radius;
     f32 a;
     f32 b;
-    void *window;
+    GfxWindow *window;
     u16 i;
 
     window = GetRenderWindow();
@@ -153,9 +97,9 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector *matrix, u8 *lod, u8 flag) {
                 : PSVECSquareMag(&matrix[2]);
         radius = geometry->bboxMax[3] * Sqrt(b);
     }
-    PSVECSubtract(&center, (Vector *)((u8 *)window + 0x180), &diff);
-    dist = PSVECDotProduct(&diff, (Vector *)((u8 *)window + 0x190));
-    dist *= ((f32 *)window)[0x9D];
+    PSVECSubtract(&center, (Vector4 *)&window->cameraPos, &diff);
+    dist = PSVECDotProduct(&diff, (Vector4 *)&window->cameraRight);
+    dist *= window->sinHalfFov;
     if (!(GETP(((Geometry *)GETP(geometry->groups))->groups)->flags & 0x8000) && g_state.farClippingPlane > 0.0f &&
         dist >= g_state.farClippingPlane) {
         return 0;
@@ -191,8 +135,8 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector *matrix, u8 *lod, u8 flag) {
 void Gfx_DrawGeometry(s32 geometry, s32 matrix) {
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].geometry = geometry;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].matrix = Gfx_AddWorldMatrixState_CacheMatrix(PTR(matrix));
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.unk7C >> 4) & 1;
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.unk74;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.flags >> 4) & 1;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.baseColor;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].lightState = Gfx_GetLightState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].envmapState = Gfx_GetEnvmapState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk11 = 0;
@@ -202,8 +146,8 @@ void Gfx_DrawGeometry(s32 geometry, s32 matrix) {
 void Gfx_DrawGeometry_MatrixNotCached(s32 geometry, s32 matrix) {
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].geometry = geometry;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].matrix = Gfx_AddWorldMatrixState_NonCached(PTR(matrix));
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.unk7C >> 4) & 1;
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.unk74;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.flags >> 4) & 1;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.baseColor;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].lightState = Gfx_GetLightState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].envmapState = Gfx_GetEnvmapState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk11 = 0;
@@ -213,8 +157,8 @@ void Gfx_DrawGeometry_MatrixNotCached(s32 geometry, s32 matrix) {
 void Gfx_DrawGeometry_QuaternionScalePos(s32 geometry, s32 quat, s32 scale, s32 pos) {
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].geometry = geometry;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].matrix = Gfx_AddWorldMatrixState_CacheMatrixQuaternionScalePos(PTR(quat), PTR(scale), PTR(pos));
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.unk7C >> 4) & 1;
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.unk74;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.flags >> 4) & 1;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.baseColor;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].lightState = Gfx_GetLightState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].envmapState = Gfx_GetEnvmapState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk11 = 0;
@@ -222,22 +166,22 @@ void Gfx_DrawGeometry_QuaternionScalePos(s32 geometry, s32 quat, s32 scale, s32 
 }
 
 s32 Gfx_CalcGeometryLOD(Geometry *geometry, f32 *matrix) {
-    Vector min __attribute__((aligned(16)));
-    Vector max __attribute__((aligned(16)));
-    Vector center __attribute__((aligned(16)));
+    Vector4 min __attribute__((aligned(16)));
+    Vector4 max __attribute__((aligned(16)));
+    Vector4 center __attribute__((aligned(16)));
     f32 dist;
     u16 i;
 
     if (geometry->numGroups == 1) {
         return 0;
     }
-    PSVECAdd((Vector *)&matrix[12], (Vector *)geometry->bboxMin, &min);
-    PSVECAdd((Vector *)&matrix[12], (Vector *)geometry->bboxMax, &max);
+    PSVECAdd((Vector4 *)&matrix[12], (Vector4 *)geometry->bboxMin, &min);
+    PSVECAdd((Vector4 *)&matrix[12], (Vector4 *)geometry->bboxMax, &max);
     PSVECAdd(&min, &max, &center);
     PSVECScale(&center, &center, 0.5f);
-    PSVECSubtract(&center, (Vector *)((u8 *)GetRenderWindow() + 0x180), &min);
-    dist = PSVECDotProduct(&min, (Vector *)((u8 *)GetRenderWindow() + 0x190));
-    dist *= ((f32 *)GetRenderWindow())[0x9D];
+    PSVECSubtract(&center, (Vector4 *)&GetRenderWindow()->cameraPos, &min);
+    dist = PSVECDotProduct(&min, (Vector4 *)&GetRenderWindow()->cameraRight);
+    dist *= GetRenderWindow()->sinHalfFov;
     for (i = 0; i < geometry->numGroups; i++) {
         if (dist < GETP(geometry->lodDistances)[i]) {
             break;

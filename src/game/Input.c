@@ -82,6 +82,8 @@ u8 Input_KeyDown(s32 chan, u8 key) {
     if (chan == -1) {
         for (i = 0; i < 4; i++) {
             if ((g_VirtualPad[i].keyDown >> key) & 1) {
+                /* sic: [chan], i.e. [-1], in the original too; unreached, as
+                 * players read with their device 0-3 */
                 return g_VirtualPad[chan].keyValue[key];
             }
         }

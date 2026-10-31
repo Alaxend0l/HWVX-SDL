@@ -1,10 +1,35 @@
 #include "common.h"
+#include "ThingManager.h"
 
-struct Thing {
-    u8 pad0[0xB0];
-    s32 tracer;
-    s32 tracerIndex;
-};
+/* A tracer's description in the data pack. */
+typedef struct TracerDef {
+    u8 pad00[0x20];             /* 0x00 */
+    u8 unk20;                   /* 0x20 */
+    u8 axis;                    /* 0x21 trail along the thing's axis 0/1/2 */
+    u8 pad22[0xE];              /* 0x22 */
+    f32 length;                 /* 0x30 */
+    f32 endLength;              /* 0x34 */
+    f32 scrollSpeed;            /* 0x38 */
+    f32 uvScale;                /* 0x3C */
+    f32 fade;                   /* 0x40 */
+    u8 headColour[8];           /* 0x44 colour keys (ExtractColorKey) */
+    u8 tailColour[8];           /* 0x4C */
+    u32 numFrames;              /* 0x54 */
+    PTR32(u32) frames;          /* 0x58 */
+} TracerDef;
+
+_Static_assert(offsetof(TracerDef, length) == 0x30, "TracerDef.length");
+_Static_assert(offsetof(TracerDef, frames) == 0x58, "TracerDef.frames");
+
+/* A tracer thing: a Thing driving one of the trails in tracers[]. */
+typedef struct TracerThing {
+    Thing base;                 /* 0x00 */
+    u8 padAC[4];                /* 0xAC */
+    PTR32(TracerDef) def;       /* 0xB0 */
+    u32 index;                  /* 0xB4 into tracers[] */
+} TracerThing;
+
+_Static_assert(offsetof(TracerThing, def) == 0xB0, "TracerThing.def");
 
 typedef struct Tracer {
     TracerPoint points[14];
@@ -39,30 +64,32 @@ static inline u32 Tracer_FindFree(void) {
     return i;
 }
 
-s32 Tracer_Init(u8 *thing, u8 *data) {
-    u8 *params;
+s32 Tracer_Init(TracerThing *thing, TracerParams *data) {
+    TracerDef *def;
+    Tracer *tr;
 
     Thing_Init(thing, 0);
-    SLOT_STORE((thing + 0xB0), SLOT_LOAD(u8 *, (data + 0x30)));
-    *(Vector4 *)(thing + 0x40) = *(Vector4 *)data;
-    *(u32 *)(thing + 0xB4) = Tracer_FindFree();
-    Tracer_ClearTracer(*(u32 *)(thing + 0xB4));
-    tracers[*(u32 *)(thing + 0xB4)].active = 1;
-    params = SLOT_LOAD(u8 *, (thing + 0xB0));
-    if (*(u32 *)(params + 0x54) != 0) {
-        tracers[*(u32 *)(thing + 0xB4)].unk4D0 = *SLOT_LOAD(u32 *, (params + 0x58));
+    SETP(thing->def, GETP(data->def));
+    thing->base.pos = data->pos;
+    thing->index = Tracer_FindFree();
+    Tracer_ClearTracer(thing->index);
+    tr = &tracers[thing->index];
+    tr->active = 1;
+    def = GETP(thing->def);
+    if (def->numFrames != 0) {
+        tr->unk4D0 = *GETP(def->frames);
     } else {
-        tracers[*(u32 *)(thing + 0xB4)].unk4D0 = 0xFFFF;
+        tr->unk4D0 = 0xFFFF;
     }
-    tracers[*(u32 *)(thing + 0xB4)].unk4D2 = *(u8 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x20);
-    tracers[*(u32 *)(thing + 0xB4)].unk4BC = -1.0f * *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x40) / 14.0f;
-    tracers[*(u32 *)(thing + 0xB4)].unk4C4 = 0;
-    tracers[*(u32 *)(thing + 0xB4)].unk4C8 = 0;
-    tracers[*(u32 *)(thing + 0xB4)].unk4C0 = 0.0f;
+    tr->unk4D2 = def->unk20;
+    tr->unk4BC = -1.0f * def->fade / 14.0f;
+    tr->unk4C4 = 0;
+    tr->unk4C8 = 0;
+    tr->unk4C0 = 0.0f;
     return 1;
 }
 
-s32 Tracer_Move(u8 *thing) {
+s32 Tracer_Move(TracerThing *thing) {
     typedef struct KeyState {
         f32 slope[4];
         f32 value[4];
@@ -78,9 +105,11 @@ s32 Tracer_Move(u8 *thing) {
     KeyState colour2;
     s32 i;
     TracerPoint *p;
+    Tracer *tr = &tracers[thing->index];
+    TracerDef *def = GETP(thing->def);
 
-    p = GETP(tracers[*(u32 *)(thing + 0xB4)].head);
-    for (i = 0; i < tracers[*(u32 *)(thing + 0xB4)].unk4CC; i++) {
+    p = GETP(tr->head);
+    for (i = 0; i < tr->unk4CC; i++) {
         s32 c;
         p->pos[0] += p->unk20[0];
         p->pos[1] += p->unk20[1];
@@ -88,29 +117,29 @@ s32 Tracer_Move(u8 *thing) {
         p->vel[0] += p->unk30[0];
         p->vel[1] += p->unk30[1];
         p->vel[2] += p->unk30[2];
-        p->unk40 += tracers[*(u32 *)(thing + 0xB4)].unk4BC;
-        c = p->color[0] + tracers[*(u32 *)(thing + 0xB4)].unk4B8[0];
+        p->unk40 += tr->unk4BC;
+        c = p->color[0] + tr->unk4B8[0];
         if (c < 0) {
             c = 0;
         } else if (c > 255) {
             c = 255;
         }
         p->color[0] = c;
-        c = p->color[1] + tracers[*(u32 *)(thing + 0xB4)].unk4B8[1];
+        c = p->color[1] + tr->unk4B8[1];
         if (c < 0) {
             c = 0;
         } else if (c > 255) {
             c = 255;
         }
         p->color[1] = c;
-        c = p->color[2] + tracers[*(u32 *)(thing + 0xB4)].unk4B8[2];
+        c = p->color[2] + tr->unk4B8[2];
         if (c < 0) {
             c = 0;
         } else if (c > 255) {
             c = 255;
         }
         p->color[2] = c;
-        c = p->color[3] + tracers[*(u32 *)(thing + 0xB4)].unk4B8[3];
+        c = p->color[3] + tr->unk4B8[3];
         if (c < 0) {
             c = 0;
         } else if (c > 255) {
@@ -119,64 +148,63 @@ s32 Tracer_Move(u8 *thing) {
         p->color[3] = c;
         p = GETP(p->next);
     }
-    switch (*(u8 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x21)) {
+    switch (def->axis) {
     case 0:
-        AccumulateVector(thing + 0x10, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        AccumulateVector(thing + 0x10, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        PSVECScale(thing + 0x10, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
-        PSVECScale(thing + 0x10, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        AccumulateVector(&thing->base.axis[0], &thing->base.pos, GETP(tr->tail)->pos, def->length);
+        AccumulateVector(&thing->base.axis[0], &thing->base.pos, GETP(tr->tail)->vel, -def->length);
+        PSVECScale(&thing->base.axis[0], GETP(tr->tail)->unk20, -(def->length - def->endLength) / 14.0f);
+        PSVECScale(&thing->base.axis[0], GETP(tr->tail)->unk30, (def->length - def->endLength) / 14.0f);
         break;
     case 1:
-        AccumulateVector(thing + 0x20, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        AccumulateVector(thing + 0x20, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        PSVECScale(thing + 0x20, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
-        PSVECScale(thing + 0x20, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        AccumulateVector(&thing->base.axis[1], &thing->base.pos, GETP(tr->tail)->pos, def->length);
+        AccumulateVector(&thing->base.axis[1], &thing->base.pos, GETP(tr->tail)->vel, -def->length);
+        PSVECScale(&thing->base.axis[1], GETP(tr->tail)->unk20, -(def->length - def->endLength) / 14.0f);
+        PSVECScale(&thing->base.axis[1], GETP(tr->tail)->unk30, (def->length - def->endLength) / 14.0f);
         break;
     case 2:
-        AccumulateVector(thing + 0x30, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->pos, *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        AccumulateVector(thing + 0x30, thing + 0x40, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->vel, -*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30));
-        PSVECScale(thing + 0x30, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk20, -(*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
-        PSVECScale(thing + 0x30, GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk30, (*(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x30) - *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x34)) / 14.0f);
+        AccumulateVector(&thing->base.axis[2], &thing->base.pos, GETP(tr->tail)->pos, def->length);
+        AccumulateVector(&thing->base.axis[2], &thing->base.pos, GETP(tr->tail)->vel, -def->length);
+        PSVECScale(&thing->base.axis[2], GETP(tr->tail)->unk20, -(def->length - def->endLength) / 14.0f);
+        PSVECScale(&thing->base.axis[2], GETP(tr->tail)->unk30, (def->length - def->endLength) / 14.0f);
         break;
     }
-    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->unk40 = tracers[*(u32 *)(thing + 0xB4)].unk4C0;
-    tracers[*(u32 *)(thing + 0xB4)].unk4C0 += g_fDeltaTimeSec * *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x38);
+    GETP(tr->tail)->unk40 = tr->unk4C0;
+    tr->unk4C0 += g_fDeltaTimeSec * def->scrollSpeed;
     colour.reset = 1;
     colour2.reset = 1;
-    ExtractColorKey(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x44, &colour, tracers[*(u32 *)(thing + 0xB4)].unk4C4);
-    ExtractColorKey(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x4C, &colour2, tracers[*(u32 *)(thing + 0xB4)].unk4C4);
-    tracers[*(u32 *)(thing + 0xB4)].unk4C4 += g_iDeltaTimeMS;
-    if (tracers[*(u32 *)(thing + 0xB4)].unk4D0 != 0xFFFF) {
-        tracers[*(u32 *)(thing + 0xB4)].unk4C8 += g_iDeltaTimeMS;
-        tracers[*(u32 *)(thing + 0xB4)].unk4D4 = tracers[*(u32 *)(thing + 0xB4)].unk4C8 >> 4;
-        if (tracers[*(u32 *)(thing + 0xB4)].unk4D4 >= *(u32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x54)) {
-            tracers[*(u32 *)(thing + 0xB4)].unk4C8 = 0;
-            tracers[*(u32 *)(thing + 0xB4)].unk4D4 = 0;
+    ExtractColorKey(def->headColour, &colour, tr->unk4C4);
+    ExtractColorKey(def->tailColour, &colour2, tr->unk4C4);
+    tr->unk4C4 += g_iDeltaTimeMS;
+    if (tr->unk4D0 != 0xFFFF) {
+        tr->unk4C8 += g_iDeltaTimeMS;
+        tr->unk4D4 = tr->unk4C8 >> 4;
+        if (tr->unk4D4 >= def->numFrames) {
+            tr->unk4C8 = 0;
+            tr->unk4D4 = 0;
         }
-        tracers[*(u32 *)(thing + 0xB4)].unk4D0 = (SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x58)))[tracers[*(u32 *)(thing + 0xB4)].unk4D4];
+        tr->unk4D0 = GETP(def->frames)[tr->unk4D4];
     }
-    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[0] = colour.c[0];
-    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[1] = colour.c[1];
-    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[2] = colour.c[2];
-    GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->color[3] = colour.c[3];
-    tracers[*(u32 *)(thing + 0xB4)].unk4B8[0] = -(colour.c[0] - colour2.c[0]) / 15;
-    tracers[*(u32 *)(thing + 0xB4)].unk4B8[1] = -(colour.c[1] - colour2.c[1]) / 15;
-    tracers[*(u32 *)(thing + 0xB4)].unk4B8[2] = -(colour.c[2] - colour2.c[2]) / 15;
-    tracers[*(u32 *)(thing + 0xB4)].unk4B8[3] = -(colour.c[3] - colour2.c[3]) / 15;
-    SETP(tracers[*(u32 *)(thing + 0xB4)].tail, GETP(GETP(tracers[*(u32 *)(thing + 0xB4)].tail)->next));
-    if (GETP(tracers[*(u32 *)(thing + 0xB4)].tail) == GETP(tracers[*(u32 *)(thing + 0xB4)].head)) {
-        SETP(tracers[*(u32 *)(thing + 0xB4)].head, GETP(GETP(tracers[*(u32 *)(thing + 0xB4)].head)->next));
+    GETP(tr->tail)->color[0] = colour.c[0];
+    GETP(tr->tail)->color[1] = colour.c[1];
+    GETP(tr->tail)->color[2] = colour.c[2];
+    GETP(tr->tail)->color[3] = colour.c[3];
+    tr->unk4B8[0] = -(colour.c[0] - colour2.c[0]) / 15;
+    tr->unk4B8[1] = -(colour.c[1] - colour2.c[1]) / 15;
+    tr->unk4B8[2] = -(colour.c[2] - colour2.c[2]) / 15;
+    tr->unk4B8[3] = -(colour.c[3] - colour2.c[3]) / 15;
+    SETP(tr->tail, GETP(GETP(tr->tail)->next));
+    if (GETP(tr->tail) == GETP(tr->head)) {
+        SETP(tr->head, GETP(GETP(tr->head)->next));
     }
-    if (tracers[*(u32 *)(thing + 0xB4)].unk4CC < 15) {
-        tracers[*(u32 *)(thing + 0xB4)].unk4CC++;
+    if (tr->unk4CC < 15) {
+        tr->unk4CC++;
     }
     return 1;
 }
 
-void Tracer_Release(struct Thing *thing) {
-
-    tracers[thing->tracerIndex].active = 0;
-    thing->tracer = 0;
+void Tracer_Release(TracerThing *thing) {
+    tracers[thing->index].active = 0;
+    SETP(thing->def, NULL);
     Thing_Release(thing);
 }
 
@@ -198,7 +226,7 @@ void Tracer_ClearTracer(s32 index) {
     SETP(tracers[index].unk4A8, tracer->points);
 }
 
-void Tracer_Render(u8 *thing) {
+void Tracer_Render(TracerThing *thing) {
     typedef struct TriShaded {
         s32 color[3][4];
         f32 pos[3][4];
@@ -209,8 +237,9 @@ void Tracer_Render(u8 *thing) {
     u32 idx;
     TriShaded *tri;
     s32 n;
+    TracerDef *def = GETP(thing->def);
 
-    idx = *(u32 *)(thing + 0xB4);
+    idx = thing->index;
     if (tracers[idx].active != 0 && tracers[idx].unk4CC > 1) {
         p = GETP(tracers[idx].head);
         n = 0;
@@ -232,7 +261,7 @@ void Tracer_Render(u8 *thing) {
             tri[0].pos[1][0] = p->vel[0];
             tri[0].pos[1][1] = p->vel[1];
             tri[0].pos[1][2] = p->vel[2];
-            tri[0].uv[0] = *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x3C);
+            tri[0].uv[0] = def->uvScale;
             tri[0].uv[1] = p->unk40;
             tri[0].color[2][0] = GETP(p->next)->color[0];
             tri[0].color[2][1] = GETP(p->next)->color[1];
@@ -241,7 +270,7 @@ void Tracer_Render(u8 *thing) {
             tri[0].pos[2][0] = GETP(p->next)->vel[0];
             tri[0].pos[2][1] = GETP(p->next)->vel[1];
             tri[0].pos[2][2] = GETP(p->next)->vel[2];
-            tri[0].uv[2] = *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x3C);
+            tri[0].uv[2] = def->uvScale;
             tri[0].uv[3] = GETP(p->next)->unk40;
 
             tri[1].color[0][0] = GETP(p->next)->color[0];
@@ -260,7 +289,7 @@ void Tracer_Render(u8 *thing) {
             tri[1].pos[2][0] = GETP(p->next)->vel[0];
             tri[1].pos[2][1] = GETP(p->next)->vel[1];
             tri[1].pos[2][2] = GETP(p->next)->vel[2];
-            tri[1].uv[2] = *(f32 *)(SLOT_LOAD(u8 *, (thing + 0xB0)) + 0x3C);
+            tri[1].uv[2] = def->uvScale;
             tri[1].uv[3] = GETP(p->next)->unk40;
             tri[1].color[1][0] = p->color[0];
             tri[1].color[1][1] = p->color[1];
@@ -279,11 +308,12 @@ void Tracer_Render(u8 *thing) {
     }
 }
 
-s32 Tracer_Invalidate(void *arg0, u32 arg1, u32 arg2) {
-    u32 temp_r0;
+/* Whether the tracer's description lies in [start, end) (a data pack being
+ * unloaded). */
+s32 Tracer_Invalidate(TracerThing *thing, u32 start, u32 end) {
+    u32 def = thing->def.h;
 
-    temp_r0 = M2C_FIELD(arg0, u32 *, 0xB0);
-    if ((temp_r0 >= arg1) && (temp_r0 < arg2)) {
+    if ((def >= start) && (def < end)) {
         return 1;
     }
     return 0;

@@ -1,174 +1,183 @@
+/* The creature AI: one AI player (a ring of them, AICreature.next) that
+ * drives one creature at a time. It spawns creatures near the cameras from
+ * the world's creature tiles and creature volumes, walks them between the
+ * volume's nodes or wanders, makes them notice passing cars, and removes
+ * them once no camera is near. */
 #include "common.h"
-
+#include "CarA.h"
+#include "World.h"
+#include "AI.h"
 
 SpawnVolume gs_aSpawnVolumes[256];
-u8 *gs_pCurrentAICreature;
+AICreature *gs_pCurrentAICreature;
 u32 g_volumeTotal;
 u32 gs_currentVolume;
 
-s32 AI_Creature_Deactivate(u8 *creature) {
-    extern u8 g_cameraManager[];
-    u8 *thing;
-    u8 *spawner;
-    u8 *cam;
-    u32 i;
-    u8 *pos;
-    f32 dist;
-    f32 minDist;
-    Vector4 p __attribute__((aligned(16)));
+#define AI_THING(ai) ((Creature *)GETP(AI_PLAYER(ai)->vehicle))
 
-    thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-    if (thing != NULL && !(*(u32 *)(thing + 0x74) & 0x1000)) {
-        minDist = 360000.0f;
-        pos = thing + 0x40;
-        cam = g_cameraManager;
-        for (i = 0; i < g_cameraManager[0x640]; cam += 0x190, i++) {
-            PSVECScale((Vector4 *)(cam + 0x80), &p, 150.0f);
-            PSVECAdd((Vector4 *)(cam + 0x60), &p, &p);
-            dist = PSVECSquareDistance(&p, pos);
-            if (minDist > dist) {
-                minDist = dist;
-            }
+/* The squared distance from p to the nearest camera's look point (150 in
+ * front of it), at most `limit`. */
+static inline f32 AI_Creature_CameraDistSq(Vector4 *p, f32 limit) {
+    Vector4 look __attribute__((aligned(16)));
+    f32 minDist = limit;
+    f32 dist;
+    u32 i;
+
+    for (i = 0; i < CAMERA_MANAGER->count; i++) {
+        PSVECScale(&CAMERA_MANAGER->cameras[i].dir, &look, 150.0f);
+        PSVECAdd(&CAMERA_MANAGER->cameras[i].pos, &look, &look);
+        dist = PSVECSquareDistance(&look, p);
+        if (minDist > dist) {
+            minDist = dist;
         }
-        if (360000.0f == minDist) {
-            *(u8 *)(creature + 0xCD) = 0;
-            spawner = SLOT_LOAD(u8 *, (creature + 0xD8));
+    }
+    return minDist;
+}
+
+/* Free the AI and its creature once no camera looks within 600 of it (or
+ * the creature is gone); the spawn counts / tile are given back. */
+s32 AI_Creature_Deactivate(AICreature *ai) {
+    Creature *thing;
+    SpawnVolume *spawner;
+    TileCreature *tile;
+
+    thing = AI_THING(ai);
+    if (thing != NULL && !(thing->base.flags & THING_FLAG_FREE)) {
+        if (360000.0f == AI_Creature_CameraDistSq(&thing->base.pos, 360000.0f)) {
+            ai->base.state = AI_STATE_OFF;
+            spawner = GETP(ai->volume);
             if (spawner != NULL) {
-                (*(s32 *)(spawner + 0x4))--;
-                ((s32 *)(SLOT_LOAD(u8 *, (creature + 0xD8)) + 0xC))[*(s32 *)(creature + 0xDC)]--;
+                spawner->alive--;
+                GETP(ai->volume)->counts[ai->volumeNode]--;
             } else {
-                thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-                spawner = SLOT_LOAD(u8 *, (thing + 0x90));
-                if (spawner != NULL && *(s32 *)(thing + 0x1B4) == 0 && *(u32 *)(creature + 0xF8) == 0) {
-                    *(s32 *)(spawner + 0x20) = 1;
-                    *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x90)) + 0x1C) = 0;
+                thing = AI_THING(ai);
+                tile = GETP(thing->base.trigger);
+                if (tile != NULL && thing->deadTime == 0 && ai->leaving == 0) {
+                    /* alive and unseen: the tile may spawn it again */
+                    tile->mode = 1;
+                    ((TileCreature *)GETP(AI_THING(ai)->base.trigger))->thing = 0;
                 }
             }
-            Creature_Release(PTR(*(s32 *)(creature + 0x2C)));
+            Creature_Release(AI_THING(ai));
             return 1;
         }
     } else {
-        *(u8 *)(creature + 0xCD) = 0;
-        spawner = SLOT_LOAD(u8 *, (creature + 0xD8));
+        ai->base.state = AI_STATE_OFF;
+        spawner = GETP(ai->volume);
         if (spawner != NULL) {
-            (*(s32 *)(spawner + 0x4))--;
-            ((s32 *)(SLOT_LOAD(u8 *, (creature + 0xD8)) + 0xC))[*(s32 *)(creature + 0xDC)]--;
+            spawner->alive--;
+            GETP(ai->volume)->counts[ai->volumeNode]--;
         }
         return 1;
     }
     return 0;
 }
 
-s8 AI_Creature_Spawn(u8 *creature, u8 *spawner, u32 index) {
-    typedef struct CreatureParams {
-        Vector4 pos;
-        f32 angle;
-        PTR32(u8) info;
-        PTR32(u8) player;
-    } CreatureParams;
-    CreatureParams params __attribute__((aligned(16)));
-    u8 *info;
-    u8 *list;
-    u8 *thing;
+/* Spawn a creature for the AI: at node `index` of a spawn volume (a random
+ * creature of the volume), or, with index -1, from a TileCreature. */
+s8 AI_Creature_Spawn(AICreature *ai, void *spawner, u32 index) {
+    CreatureInit params __attribute__((aligned(16)));
+    CreatureVolumeInfo *info;
+    u32 *list;
+    Creature *thing;
+    TileCreature *tile = spawner;
 
-    AI_Reset(creature);
-    *(s32 *)(creature + 0xE4) = 0;
-    *(u8 *)(creature + 0xEC) = 0;
-    *(s32 *)(creature + 0xFC) = 0;
-    *(s32 *)(creature + 0xF8) = 0;
-    *(u8 *)(creature + 0xCD) = 0;
-    *(s32 *)(creature + 0xC8) = 0;
-    *(s32 *)(creature + 0xD8) = 0;
-    *(s32 *)(creature + 0xDC) = -1;
-    *(s32 *)(creature + 0xE0) = 0;
-    *(f32 *)(creature + 0xF0) = (f32)(rand() % 251 + 750) / 1000.0f;
+    AI_Reset(ai);
+    SETP(ai->nearestCar, NULL);
+    ai->wanderTime = 0;
+    ai->unkFC = 0;
+    ai->leaving = 0;
+    ai->base.state = AI_STATE_OFF;
+    ai->base.heartbeatTimer = 0;
+    SETP(ai->volume, NULL);
+    ai->volumeNode = -1;
+    SETP(ai->node, NULL);
+    ai->speed = (f32)(rand() % 251 + 750) / 1000.0f;
     if (rand() % 4) {
-        *(u8 *)(creature + 0xED) = 1;
+        ai->run = 1;
     } else {
-        *(u8 *)(creature + 0xED) = 0;
+        ai->run = 0;
     }
-    *(u32 *)(creature + 0xD0) = 0;
+    ai->base.script.h = 0;
     if (index != -1) {
-        SLOT_STORE((creature + 0xD8), spawner);
-        info = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, spawner) + 0x2C));
-        SLOT_STORE((creature + 0xE0), SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (info + 0x10)) + (index)));
-        list = SLOT_LOAD(u8 *, (info + 0x8));
-        SETP(params.info, SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (list + 4)) + (rand() % *(u32 *)list)));
-        params.pos = *SLOT_LOAD(Vector4 *, (creature + 0xE0));
-        params.angle = 0.017453292f * (f32)(rand() % 360);
-        SLOT_STORE((creature + 0xA8), NULL);
+        SETP(ai->volume, spawner);
+        info = GETP(GETP(((SpawnVolume *)spawner)->volume)->info);
+        SETP(ai->node, GETP(GETP(info->nodes)[index]));
+        list = GETP(info->creatures);
+        params.info.h = ((u32 *)PTR(list[1]))[rand() % list[0]];
+        params.pos = GETP(ai->node)->pos;
+        params.heading = 0.017453292f * (f32)(rand() % 360);
+        SETP(AI_PLAYER(ai)->tileCar, NULL);
     } else {
-        SETP(params.info, SLOT_LOAD(u8 *, (spawner + 0x18)));
-        params.pos = *(Vector4 *)spawner;
-        params.angle = *(f32 *)(spawner + 0x14);
-        SLOT_STORE((creature + 0xD8), NULL);
-        SLOT_STORE((creature + 0xA8), spawner);
+        SETP(params.info, GETP(tile->info));
+        params.pos = tile->pos;
+        params.heading = tile->angle;
+        SETP(ai->volume, NULL);
+        AI_PLAYER(ai)->tileCar.h = HND(tile);   /* creature AIs: their TileCreature */
         switch (GameSettings_GetDifficulty()) {
         case 0:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(spawner + 0x24);
+            ai->base.script.h = tile->scripts[0];
             break;
         case 1:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(spawner + 0x28);
+            ai->base.script.h = tile->scripts[1];
             break;
         case 2:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(spawner + 0x2C);
+            ai->base.script.h = tile->scripts[2];
             break;
         case 3:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(spawner + 0x30);
+            ai->base.script.h = tile->scripts[3];
             break;
         }
     }
-    SETP(params.player, creature);
+    SETP(params.player, ai);
     params.pos.y += 0.1f;
-    if (*(u32 *)(creature + 0xD0) == 0 && GETP(params.info) != NULL) {
+    if (ai->base.script.h == 0 && GETP(params.info) != NULL) {
         switch (GameSettings_GetDifficulty()) {
         case 0:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x44);
+            ai->base.script.h = GETP(params.info)->aiScripts[0];
             break;
         case 1:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x48);
+            ai->base.script.h = GETP(params.info)->aiScripts[1];
             break;
         case 2:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x4C);
+            ai->base.script.h = GETP(params.info)->aiScripts[2];
             break;
         case 3:
-            *(u32 *)(creature + 0xD0) = *(u32 *)(GETP(params.info) + 0x50);
+            ai->base.script.h = GETP(params.info)->aiScripts[3];
             break;
         }
     }
-    thing = ThingManager_DARYL_CreateThing(7, &params);
+    thing = ThingManager_DARYL_CreateThing(THING_TYPE_CREATURE, &params);
     if (thing != NULL) {
-        *(u8 *)(creature + 0xCD) = 2;
-        *(s32 *)(creature + 0xC8) = 1;
-        *(u32 *)(creature + 0xDC) = index;
+        ai->base.state = AI_STATE_ACTIVE;
+        ai->base.heartbeatTimer = 1;
+        ai->volumeNode = index;
         Player_SetThing(GETP(params.player), thing);
-        *(u32 *)(creature + 0x6C) |= 0x100;
-        SLOT_STORE((thing + 0x90), SLOT_LOAD(u8 *, (creature + 0xA8)));
+        AI_PLAYER(ai)->flags |= PLAYER_FLAG_AI_HEADING;
+        thing->base.trigger.h = AI_PLAYER(ai)->tileCar.h;
         return 1;
     }
     return 0;
 }
 
+/* With the AIs all busy, nothing; else spawn into the next volume that
+ * isn't full, at a node 400-600 from the nearest camera. */
 void AI_Creature_PopulateVolumes(void) {
-    extern u8 g_cameraManager[];
     u32 v;
     u32 idx;
-    u8 *info;
-    u8 *spawner;
-    u8 *creature;
-    u32 i;
-    f32 dist;
+    CreatureVolumeInfo *info;
+    CreatureNode *node;
+    AICreature *ai;
     f32 minDist;
-    Vector4 p __attribute__((aligned(16)));
 
-    creature = gs_pCurrentAICreature;
+    ai = gs_pCurrentAICreature;
     do {
-        if (creature[0xCD] == 0) {
+        if (ai->base.state == AI_STATE_OFF) {
             break;
         }
-        creature = SLOT_LOAD(u8 *, (creature + 0xD4));
-    } while (creature != gs_pCurrentAICreature);
-    if (creature[0xCD] != 0) {
+        ai = GETP(ai->next);
+    } while (ai != gs_pCurrentAICreature);
+    if (ai->base.state != AI_STATE_OFF) {
         return;
     }
     v = gs_currentVolume;
@@ -176,34 +185,26 @@ void AI_Creature_PopulateVolumes(void) {
         if (++v == g_volumeTotal) {
             v = 0;
         }
-        info = SLOT_LOAD(u8 *, (GETP(gs_aSpawnVolumes[v].volume) + 0x2C));
-        if (*(u32 *)(GETP(gs_aSpawnVolumes[v].volume) + 4) == 0 || *(u32 *)(info + 4) == gs_aSpawnVolumes[v].unk4 || *(u32 *)(info + 0xC) == 0 || info[0] != 0) {
+        info = GETP(GETP(gs_aSpawnVolumes[v].volume)->info);
+        if (GETP(gs_aSpawnVolumes[v].volume)->active == 0 || info->maxAlive == gs_aSpawnVolumes[v].alive || info->numNodes == 0 || info->disabled != 0) {
             continue;
         }
         idx = gs_aSpawnVolumes[v].index;
         do {
-            if (++idx == *(u32 *)(info + 0xC)) {
+            if (++idx == info->numNodes) {
                 idx = 0;
             }
-            spawner = SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (info + 0x10)) + (idx));
-            if (*(u32 *)(spawner + 0x14) == 0 || (f32)gs_aSpawnVolumes[v].counts[idx] >= 1.0f + (f32)(*(u32 *)(info + 4) / *(u32 *)(info + 0xC))) {
+            node = GETP(GETP(info->nodes)[idx]);
+            if (node->enabled == 0 || (f32)gs_aSpawnVolumes[v].counts[idx] >= 1.0f + (f32)(info->maxAlive / info->numNodes)) {
                 continue;
             }
-            minDist = 360000.0f;
-            for (i = 0; i < g_cameraManager[0x640]; i++) {
-                PSVECScale((Vector4 *)(g_cameraManager + i * 0x190 + 0x80), &p, 150.0f);
-                PSVECAdd((Vector4 *)(g_cameraManager + i * 0x190 + 0x60), &p, &p);
-                dist = PSVECSquareDistance(&p, spawner);
-                if (minDist > dist) {
-                    minDist = dist;
-                }
-            }
+            minDist = AI_Creature_CameraDistSq(&node->pos, 360000.0f);
             if (minDist > 160000.0f && minDist < 360000.0f) {
                 gs_currentVolume = v;
                 gs_aSpawnVolumes[v].index = idx;
-                if (AI_Creature_Spawn(creature, (u8 *)&gs_aSpawnVolumes[v], idx)) {
-                    (*(s32 *)(SLOT_LOAD(u8 *, (creature + 0xD8)) + 4))++;
-                    ((s32 *)(SLOT_LOAD(u8 *, (creature + 0xD8)) + 0xC))[idx]++;
+                if (AI_Creature_Spawn(ai, &gs_aSpawnVolumes[v], idx)) {
+                    GETP(ai->volume)->alive++;
+                    GETP(ai->volume)->counts[idx]++;
                 }
                 return;
             }
@@ -221,10 +222,12 @@ static inline void AI_Creature_InitSpawnVolumes(void) {
     }
 }
 
+/* Track up to 8 cars: a point ahead of each, and (one car per call) how
+ * far creatures notice it, less the faster it goes. */
 static inline void AI_Creature_UpdateNearestCars(void) {
     extern NearestCar gs_aNearestCars[8];
     static u32 s_currentCar;
-    u8 *cars[8];
+    Thing *cars[8];
     u32 count;
     u32 i;
 
@@ -232,8 +235,8 @@ static inline void AI_Creature_UpdateNearestCars(void) {
     if (count != 0) {
         for (i = 0; i < count; i++) {
             SETP(gs_aNearestCars[i].car, cars[i]);
-            PSVECScale(cars[i], &gs_aNearestCars[i].pos, 0.18f);
-            PSVECAdd(cars[i] + 0x40, &gs_aNearestCars[i].pos, &gs_aNearestCars[i].pos);
+            PSVECScale(&cars[i]->vel, &gs_aNearestCars[i].pos, 0.18f);
+            PSVECAdd(&cars[i]->pos, &gs_aNearestCars[i].pos, &gs_aNearestCars[i].pos);
         }
         if (i < 8) {
             SETP(gs_aNearestCars[i].car, NULL);
@@ -241,7 +244,7 @@ static inline void AI_Creature_UpdateNearestCars(void) {
         if (s_currentCar >= count) {
             s_currentCar = 0;
         }
-        gs_aNearestCars[s_currentCar].speed = PSVECSquareMag(GETP(gs_aNearestCars[s_currentCar].car));
+        gs_aNearestCars[s_currentCar].speed = PSVECSquareMag(&GETP(gs_aNearestCars[s_currentCar].car)->vel);
         if (gs_aNearestCars[s_currentCar].speed > 1.0f) {
             gs_aNearestCars[s_currentCar].range = 400.0f * (1.0f - gs_aNearestCars[s_currentCar].speed / 100000.0f);
         } else {
@@ -251,26 +254,28 @@ static inline void AI_Creature_UpdateNearestCars(void) {
     }
 }
 
-static inline void AI_Creature_FindNearestCar(u8 *creature) {
+/* Notice the nearest car within the script's distance (a new one makes the
+ * creature pick a new speed and react at once). */
+static inline void AI_Creature_FindNearestCar(AICreature *ai) {
     extern NearestCar gs_aNearestCars[8];
     f32 best;
     f32 dist;
     u32 i;
 
-    best = *(f32 *)(SLOT_LOAD(u8 *, (creature + 0xD0)) + 0x18);
+    best = ((CreatureAIScript *)GETP(ai->base.script))->noticeDistSq;
     for (i = 0; i < 8; i++) {
         if (GETP(gs_aNearestCars[i].car) == NULL) {
             break;
         }
-        dist = PSVECSquareDistance(SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x40, &gs_aNearestCars[i].pos);
+        dist = PSVECSquareDistance(&AI_THING(ai)->base.pos, &gs_aNearestCars[i].pos);
         if (best > dist) {
-            if (SLOT_LOAD(NearestCar *, (creature + 0xE4)) != &gs_aNearestCars[i]) {
-                SLOT_STORE((creature + 0xE4), &gs_aNearestCars[i]);
-                *(f32 *)(creature + 0xF0) = (f32)(rand() % 501 + 750) / 1000.0f;
-                creature[0xEC] = 0;
-                *(s32 *)(creature + 0xC8) = 1;
+            if (GETP(ai->nearestCar) != &gs_aNearestCars[i]) {
+                SETP(ai->nearestCar, &gs_aNearestCars[i]);
+                ai->speed = (f32)(rand() % 501 + 750) / 1000.0f;
+                ai->wanderTime = 0;
+                ai->base.heartbeatTimer = 1;
             }
-            *(f32 *)(creature + 0xE8) = best;
+            ai->nearestDistSq = best;
             best = dist;
         }
     }
@@ -278,19 +283,18 @@ static inline void AI_Creature_FindNearestCar(u8 *creature) {
 
 void AI_Creature_AsyncProcess(void) {
     extern NearestCar gs_aNearestCars[8];
-    extern u8 g_cameraManager[];
     static u32 gs_creatureTile;
-    u8 *creature;
-    u8 *tile;
+    AICreature *ai;
+    TileCreature *tile;
     u32 j;
     u32 i;
     u32 n;
-    u8 *cam;
-    u8 *player;
-    AIPlayerDesc desc;
-    Vec p;
+    AICreature *player;
+    AIPlayerParams desc;
+    Vector4 p;
 
     if (g_volumeTotal == -1) {
+        /* first call in a world: the volumes and the AI ring */
         gs_pCurrentAICreature = NULL;
         g_volumeTotal = VolumeManager_GetNumVolumesOfType(5);
         if (g_volumeTotal != 0) {
@@ -300,17 +304,17 @@ void AI_Creature_AsyncProcess(void) {
         }
         MemClr32(gs_aNearestCars, sizeof(gs_aNearestCars));
         for (i = 0; i < 1; i++) {
-            desc.unk0 = 0;
-            desc.unkD = 1;
-            player = PlayerManager_NewAIPlayer((u8 *)&desc);
+            desc.script = 0;
+            desc.kind = AI_KIND_CREATURE;
+            player = PlayerManager_NewAIPlayer(&desc);
             if (gs_pCurrentAICreature == NULL) {
                 gs_pCurrentAICreature = player;
-                SLOT_STORE((player + 0xD4), player);
+                SETP(player->next, player);
             } else {
-                SLOT_STORE((player + 0xD4), SLOT_LOAD(u8 *, (gs_pCurrentAICreature + 0xD4)));
-                SLOT_STORE((gs_pCurrentAICreature + 0xD4), player);
+                SETP(player->next, GETP(gs_pCurrentAICreature->next));
+                SETP(gs_pCurrentAICreature->next, player);
             }
-            player[0xCD] = 0;
+            player->base.state = AI_STATE_OFF;
         }
     }
 update:
@@ -319,36 +323,36 @@ update:
     }
     AI_Creature_UpdateNearestCars();
     for (n = 0; n < 10; n++) {
-        if (gs_pCurrentAICreature[0xCD] != 0 && *(u32 *)(gs_pCurrentAICreature + 0xF8) == 0 &&
+        if (gs_pCurrentAICreature->base.state != AI_STATE_OFF && gs_pCurrentAICreature->leaving == 0 &&
             !(s8)AI_Creature_Deactivate(gs_pCurrentAICreature)) {
             AI_Creature_FindNearestCar(gs_pCurrentAICreature);
         }
-        gs_pCurrentAICreature = SLOT_LOAD(u8 *, (gs_pCurrentAICreature + 0xD4));
+        gs_pCurrentAICreature = GETP(gs_pCurrentAICreature->next);
     }
     if (World_GetTotalTiles_Creature() != 0) {
-        creature = gs_pCurrentAICreature;
+        /* a free AI spawns the next live creature tile that a camera nears */
+        ai = gs_pCurrentAICreature;
         do {
-            if (creature[0xCD] == 0) {
+            if (ai->base.state == AI_STATE_OFF) {
                 break;
             }
-            creature = SLOT_LOAD(u8 *, (creature + 0xD4));
-        } while (creature != gs_pCurrentAICreature);
-        if (creature[0xCD] == 0) {
+            ai = GETP(ai->next);
+        } while (ai != gs_pCurrentAICreature);
+        if (ai->base.state == AI_STATE_OFF) {
             gs_creatureTile++;
             if (gs_creatureTile >= World_GetTotalTiles_Creature()) {
                 gs_creatureTile = 0;
             }
             tile = World_GetTileCreature(gs_creatureTile);
-            if (*(u32 *)(tile + 0x20) != 0 && SLOT_LOAD(u8 *, (tile + 0x1C)) == NULL) {
-                cam = g_cameraManager;
-                for (j = 0; j < g_cameraManager[0x640]; cam += 0x190, j++) {
-                    PSVECScale(cam + 0x80, &p, 150.0f);
-                    PSVECAdd(cam + 0x60, &p, &p);
-                    if (360000.0f > PSVECSquareDistance(&p, tile)) {
-                        if (AI_Creature_Spawn(creature, tile, -1)) {
-                            SLOT_STORE((SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x90), tile);
-                            SLOT_STORE((tile + 0x1C), SLOT_LOAD(u8 *, (creature + 0x2C)));
-                            *(u32 *)(tile + 0x20) = 0;
+            if (tile->mode != 0 && GETP(tile->creature) == NULL) {
+                for (j = 0; j < CAMERA_MANAGER->count; j++) {
+                    PSVECScale(&CAMERA_MANAGER->cameras[j].dir, &p, 150.0f);
+                    PSVECAdd(&CAMERA_MANAGER->cameras[j].pos, &p, &p);
+                    if (360000.0f > PSVECSquareDistance(&p, &tile->pos)) {
+                        if (AI_Creature_Spawn(ai, tile, -1)) {
+                            SETP(AI_THING(ai)->base.trigger, tile);
+                            SETP(tile->creature, AI_THING(ai));
+                            tile->mode = 0;
                         }
                         break;
                     }
@@ -364,209 +368,186 @@ update:
 void AI_Creature_Heartbeat(void) {
 }
 
-void AI_Creature_VolumeState(u8 *creature) {
-    u8 *thing;
-    u8 *target;
-    f32 dist;
+/* Head for the next node, unless at it (or it's disabled) or inside the
+ * volume, where it wanders: mostly forward at a random heading, now and then
+ * a short way backwards. */
+static inline void AI_Creature_HeadFor(AICreature *ai, Vector4 *target) {
+    Player *p = AI_PLAYER(ai);
+    Thing *thing = &AI_THING(ai)->base;
     f32 angle;
     f32 diff;
-    u8 r;
 
-    thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-    if (IsPointWithinVolume((Vector4 *)(thing + 0x40), SLOT_LOAD(u8 *, SLOT_LOAD(void *, (creature + 0xD8))), &dist) || *(u32 *)(SLOT_LOAD(u8 *, (creature + 0xE0)) + 0x14) == 0) {
-        if (*(u8 *)(creature + 0xEC) == 0) {
-            r = rand() % 50;
-            if (r == 0) {
-                *(f32 *)(creature + 0xF0) = (f32)(rand() % 501 + 500) / -1000.0f;
-                *(f32 *)(creature + 0xF4) = 0.017453292f * (f32)(rand() % 360 - 180);
-                *(u8 *)(creature + 0xED) = 0;
-            } else if (r < 3) {
-                *(f32 *)(creature + 0xF0) = (f32)(rand() % 251 + 750) / 1000.0f;
-                *(u8 *)(creature + 0xED) = 0;
-            } else {
-                *(f32 *)(creature + 0xF0) = (f32)(rand() % 251 + 750) / 1000.0f;
-                *(f32 *)(creature + 0xF4) = 0.017453292f * (f32)(rand() % 360 - 180);
-                if (rand() % 4) {
-                    *(u8 *)(creature + 0xED) = 1;
-                } else {
-                    *(u8 *)(creature + 0xED) = 0;
-                }
-            }
-            *(u8 *)(creature + 0xEC) = rand() % 128 + 127;
-        }
-        *(f32 *)(creature + 0x4) = *(f32 *)(creature + 0xF4);
-        *(s8 *)(creature + 0x1) = 127.0f * *(f32 *)(creature + 0xF0);
-    } else {
-        if (*(f32 *)(creature + 0xF0) <= 0.75f) {
-            *(f32 *)(creature + 0xF0) = (f32)(rand() % 251 + 750) / 1000.0f;
-        }
-        *(s32 *)(creature + 0xC8) = 0xFA;
-        target = SLOT_LOAD(u8 *, (creature + 0xE0));
-        thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-        angle = ArcTan(*(f32 *)(target + 0x0) - *(f32 *)(thing + 0x40), *(f32 *)(target + 0x8) - *(f32 *)(thing + 0x48));
-        *(f32 *)(creature + 0x4) = angle;
-        thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-        diff = ArcTan(*(f32 *)(thing + 0x30), *(f32 *)(thing + 0x38)) - angle;
-        while (diff > 3.1415927f) {
-            diff -= 6.2831855f;
-        }
-        while (diff < -3.1415927f) {
-            diff += 6.2831855f;
-        }
-        if (*(f32 *)(creature + 0xF0) >= 0.0f) {
-            *(s8 *)(creature + 0x1) = 127;
-        } else {
-            *(s8 *)(creature + 0x1) = -127;
-        }
-        *(u8 *)(creature + 0xEC) = rand() % 128 + 127;
-        *(f32 *)(creature + 0xF4) = *(f32 *)(creature + 0x4);
+    angle = ArcTan(target->x - thing->pos.x, target->z - thing->pos.z);
+    p->aiHeading = angle;
+    thing = &AI_THING(ai)->base;
+    diff = ArcTan(thing->axis[2].x, thing->axis[2].z) - angle;   /* unused (as in the original) */
+    while (diff > 3.1415927f) {
+        diff -= 6.2831855f;
     }
-    if (*(s8 *)(creature + 0xED)) {
-        *(u8 *)(creature + 0x14) = 0xFF;
+    while (diff < -3.1415927f) {
+        diff += 6.2831855f;
+    }
+    if (ai->speed >= 0.0f) {
+        p->stickY = 127;
+    } else {
+        p->stickY = -127;
     }
 }
 
-void AI_Creature_AsyncHeartbeat(u8 *creature) {
-    u8 *list;
-    u8 *thing;
-    u8 *node;
-    u8 *next;
-    u8 *spawner;
-    f32 angle;
-    f32 diff;
+void AI_Creature_VolumeState(AICreature *ai) {
+    Player *p = AI_PLAYER(ai);
+    Creature *thing;
+    f32 dist;
+    u8 r;
 
-    if (*(u8 *)(creature + 0xCD) == 0 || *(s8 *)(creature + 0xCC) || SLOT_LOAD(u8 *, (creature + 0x2C)) == NULL) {
-        *(s32 *)(creature + 0xC8) = 0;
+    thing = AI_THING(ai);
+    if (IsPointWithinVolume(&thing->base.pos, GETP(GETP(ai->volume)->volume), &dist) || GETP(ai->node)->enabled == 0) {
+        if (ai->wanderTime == 0) {
+            r = rand() % 50;
+            if (r == 0) {
+                ai->speed = (f32)(rand() % 501 + 500) / -1000.0f;
+                ai->heading = 0.017453292f * (f32)(rand() % 360 - 180);
+                ai->run = 0;
+            } else if (r < 3) {
+                ai->speed = (f32)(rand() % 251 + 750) / 1000.0f;
+                ai->run = 0;
+            } else {
+                ai->speed = (f32)(rand() % 251 + 750) / 1000.0f;
+                ai->heading = 0.017453292f * (f32)(rand() % 360 - 180);
+                if (rand() % 4) {
+                    ai->run = 1;
+                } else {
+                    ai->run = 0;
+                }
+            }
+            ai->wanderTime = rand() % 128 + 127;
+        }
+        p->aiHeading = ai->heading;
+        p->stickY = 127.0f * ai->speed;
+    } else {
+        if (ai->speed <= 0.75f) {
+            ai->speed = (f32)(rand() % 251 + 750) / 1000.0f;
+        }
+        ai->base.heartbeatTimer = 0xFA;
+        AI_Creature_HeadFor(ai, &GETP(ai->node)->pos);
+        ai->wanderTime = rand() % 128 + 127;
+        ai->heading = p->aiHeading;
+    }
+    if (ai->run) {
+        p->button14 = 0xFF;
+    }
+}
+
+void AI_Creature_AsyncHeartbeat(AICreature *ai) {
+    Player *p = AI_PLAYER(ai);
+    NearestCar *seen;
+    Creature *thing;
+    CreatureNode *node;
+    CreatureNode *next;
+    CreatureVolumeInfo *volInfo;
+
+    if (ai->base.state == AI_STATE_OFF || ai->base.reset || GETP(p->vehicle) == NULL) {
+        ai->base.heartbeatTimer = 0;
         return;
     }
-    AI_AsyncHeartbeat(creature);
-    Control_ClearControl(creature);
-    node = SLOT_LOAD(u8 *, (creature + 0xE0));
-    if (node != NULL && (*(u32 *)(node + 0x14) == 0 || PSVECSquareDistance(node, SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x40) < 25.0f)) {
-        node = SLOT_LOAD(u8 *, (creature + 0xE0));
-        if (*(u32 *)(node + 0x18) != 0) {
-            next = SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (node + 0x1C)) + (rand() % *(u32 *)(node + 0x18)));
-            if (*(u32 *)(next + 0x14) != 0) {
-                SLOT_STORE((creature + 0xE0), next);
+    AI_AsyncHeartbeat(ai);
+    Control_ClearControl(ai);
+    /* at the node (or it's disabled): on to a random linked one */
+    node = GETP(ai->node);
+    if (node != NULL && (node->enabled == 0 || PSVECSquareDistance(&node->pos, &AI_THING(ai)->base.pos) < 25.0f)) {
+        node = GETP(ai->node);
+        if (node->numLinks != 0) {
+            next = GETP(GETP(node->links)[rand() % node->numLinks]);
+            if (next->enabled != 0) {
+                SETP(ai->node, next);
             }
         }
     }
-    if (*(u32 *)(creature + 0xF8) != 0) {
-        if (*(s32 *)(creature + 0xFC) != 0 || 1.0f != *(f32 *)(SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x1C0)) {
-            *(s32 *)(creature + 0xC8) = 1000;
+    if (ai->leaving != 0) {
+        /* walk to a node and vanish there */
+        if (ai->unkFC != 0 || 1.0f != AI_THING(ai)->unk1C0) {
+            ai->base.heartbeatTimer = 1000;
         } else {
-            spawner = SLOT_LOAD(u8 *, (creature + 0xD8));
-            if (SLOT_LOAD(u8 *, (creature + 0xE0)) == NULL) {
-                if (*(u32 *)(spawner + 0xC) == 0) {
+            volInfo = (CreatureVolumeInfo *)GETP(ai->volume);   /* sic: a SpawnVolume, read as its info */
+            if (GETP(ai->node) == NULL) {
+                if (volInfo->numNodes == 0) {
                     goto end;
                 }
-                SLOT_STORE((creature + 0xE0), SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (spawner + 0x10)) + (rand() % *(u32 *)(spawner + 0xC))));
+                SETP(ai->node, GETP(GETP(volInfo->nodes)[rand() % volInfo->numNodes]));
             }
-            if (PSVECSquareDistance(SLOT_LOAD(u8 *, (creature + 0xE0)), SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x40) < 25.0f) {
-                Creature_Release(PTR(*(s32 *)(creature + 0x2C)));
-                *(u8 *)(creature + 0xCD) = 0;
+            if (PSVECSquareDistance(&GETP(ai->node)->pos, &AI_THING(ai)->base.pos) < 25.0f) {
+                Creature_Release(AI_THING(ai));
+                ai->base.state = AI_STATE_OFF;
             } else {
-                *(s32 *)(creature + 0xC8) = 0xFA;
-                node = SLOT_LOAD(u8 *, (creature + 0xE0));
-                angle = ArcTan(*(f32 *)(node + 0x0) - *(f32 *)(SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x40),
-                               *(f32 *)(node + 0x8) - *(f32 *)(SLOT_LOAD(u8 *, (creature + 0x2C)) + 0x48));
-                *(f32 *)(creature + 0x4) = angle;
-                thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-                diff = ArcTan(*(f32 *)(thing + 0x30), *(f32 *)(thing + 0x38)) - angle;
-                while (diff > 3.1415927f) {
-                    diff -= 6.2831855f;
-                }
-                while (diff < -3.1415927f) {
-                    diff += 6.2831855f;
-                }
-                if (*(f32 *)(creature + 0xF0) >= 0.0f) {
-                    *(s8 *)(creature + 0x1) = 127;
-                } else {
-                    *(s8 *)(creature + 0x1) = -127;
-                }
-                *(u8 *)(creature + 0x14) = 0xFF;
+                ai->base.heartbeatTimer = 0xFA;
+                AI_Creature_HeadFor(ai, &GETP(ai->node)->pos);
+                p->button14 = 0xFF;
             }
         }
     } else {
-        thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-        if (*(u32 *)(thing + 0x1B8) & 1) {
-            if (*(u8 *)(creature + 0xEC) == 0) {
-                *(f32 *)(creature + 0xF0) = (f32)(rand() % 201 + 800) / 1000.0f;
-                *(f32 *)(creature + 0xF4) = 0.017453292f * (f32)(rand() % 360 - 180);
-                *(u8 *)(creature + 0xED) = 1;
-                *(u8 *)(creature + 0xEC) = rand() % 64 + 64;
+        thing = AI_THING(ai);
+        if (thing->unk1B8 & 1) {
+            /* running about */
+            if (ai->wanderTime == 0) {
+                ai->speed = (f32)(rand() % 201 + 800) / 1000.0f;
+                ai->heading = 0.017453292f * (f32)(rand() % 360 - 180);
+                ai->run = 1;
+                ai->wanderTime = rand() % 64 + 64;
             }
-            *(f32 *)(creature + 0x4) = *(f32 *)(creature + 0xF4);
-            if (*(f32 *)(creature + 0xF0) >= 0.0f) {
-                *(s8 *)(creature + 0x1) = 127;
+            p->aiHeading = ai->heading;
+            if (ai->speed >= 0.0f) {
+                p->stickY = 127;
             } else {
-                *(s8 *)(creature + 0x1) = -127;
+                p->stickY = -127;
             }
-            if (*(s8 *)(creature + 0xED)) {
-                *(u8 *)(creature + 0x14) = 0xFF;
+            if (ai->run) {
+                p->button14 = 0xFF;
             }
         } else {
-            list = SLOT_LOAD(u8 *, (creature + 0xE4));
-            if (list == NULL || *(u32 *)list == 0) {
-                if (*(u32 *)(creature + 0xDC) == -1) {
-                    if (PSVECSquareDistance(thing + 0x40, SLOT_LOAD(u8 *, (thing + 0x90))) > 25.0f) {
-                        thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-                        node = SLOT_LOAD(u8 *, (thing + 0x90));
-                        angle = ArcTan(*(f32 *)(node + 0x0) - *(f32 *)(thing + 0x40), *(f32 *)(node + 0x8) - *(f32 *)(thing + 0x48));
-                        *(f32 *)(creature + 0x4) = angle;
-                        thing = SLOT_LOAD(u8 *, (creature + 0x2C));
-                        diff = ArcTan(*(f32 *)(thing + 0x30), *(f32 *)(thing + 0x38)) - angle;
-                        while (diff > 3.1415927f) {
-                            diff -= 6.2831855f;
-                        }
-                        while (diff < -3.1415927f) {
-                            diff += 6.2831855f;
-                        }
-                        if (*(f32 *)(creature + 0xF0) >= 0.0f) {
-                            *(s8 *)(creature + 0x1) = 127;
-                        } else {
-                            *(s8 *)(creature + 0x1) = -127;
-                        }
-                        *(u8 *)(creature + 0x14) = 0xFF;
-                        *(s32 *)(creature + 0xC8) = 0xFA;
+            seen = GETP(ai->nearestCar);
+            if (seen == NULL || seen->car.h == 0) {
+                if (ai->volumeNode == -1) {
+                    /* from a tile: go back to it */
+                    if (PSVECSquareDistance(&thing->base.pos, &((TileCreature *)GETP(thing->base.trigger))->pos) > 25.0f) {
+                        AI_Creature_HeadFor(ai, &((TileCreature *)GETP(AI_THING(ai)->base.trigger))->pos);
+                        p->button14 = 0xFF;
+                        ai->base.heartbeatTimer = 0xFA;
                     }
                 } else {
-                    AI_Creature_VolumeState(creature);
+                    AI_Creature_VolumeState(ai);
                 }
             }
         }
     }
 end:
-    if (*(f32 *)(creature + 0xF0) >= 0.0f) {
-        *(f32 *)(creature + 0x8) = *(f32 *)(creature + 0xF0);
+    if (ai->speed >= 0.0f) {
+        p->aiSpeed = ai->speed;
     } else {
-        *(f32 *)(creature + 0x8) = -*(f32 *)(creature + 0xF0);
+        p->aiSpeed = -ai->speed;
     }
 }
 
-void AI_Creature_Init(u8 *creature, u8 *params) {
-
-    AI_Init(creature, (s32)HND(params));  /* r3/r4 passed on unchanged (asm) */
-    *(s32 *)(creature + 0xD0) = *(s32 *)(params + 0x0);
-    SLOT_STORE((creature + 0xB8), creature);
-    SLOT_STORE((creature + 0xBC), AI_Creature_AsyncHeartbeat);
-    *(u8 *)(creature + 0xC4) = 0;
-    AI_Reset(creature);
-    *(s32 *)(creature + 0xE4) = 0;
-    *(u8 *)(creature + 0xEC) = 0;
-    *(s32 *)(creature + 0xFC) = 0;
-    *(s32 *)(creature + 0xF8) = 0;
-    *(u8 *)(creature + 0xCD) = 0;
-    *(s32 *)(creature + 0xC8) = 0;
-    *(s32 *)(creature + 0xD8) = 0;
-    *(s32 *)(creature + 0xDC) = -1;
-    *(s32 *)(creature + 0xE0) = 0;
-    *(f32 *)(creature + 0xF0) = (f32)(rand() % 251 + 750) / 1000.0f;
+void AI_Creature_Init(AICreature *ai, AIPlayerParams *params) {
+    AI_Init(ai, (s32)HND(params));  /* r3/r4 passed on unchanged (asm) */
+    ai->base.script.h = params->script;
+    SETP(ai->base.heartbeat.data, ai);
+    SETP(ai->base.heartbeat.func, AI_Creature_AsyncHeartbeat);
+    ai->base.heartbeat.queued = 0;
+    AI_Reset(ai);
+    SETP(ai->nearestCar, NULL);
+    ai->wanderTime = 0;
+    ai->unkFC = 0;
+    ai->leaving = 0;
+    ai->base.state = AI_STATE_OFF;
+    ai->base.heartbeatTimer = 0;
+    SETP(ai->volume, NULL);
+    ai->volumeNode = -1;
+    SETP(ai->node, NULL);
+    ai->speed = (f32)(rand() % 251 + 750) / 1000.0f;
     if (rand() % 4) {
-        *(u8 *)(creature + 0xED) = 1;
+        ai->run = 1;
     } else {
-        *(u8 *)(creature + 0xED) = 0;
+        ai->run = 0;
     }
-    *(u8 *)(creature + 0xCD) = 3;
+    ai->base.state = AI_STATE_STATIC;
 }
-

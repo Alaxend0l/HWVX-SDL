@@ -1,46 +1,31 @@
 #include "common.h"
+#include "CarA.h"
+#include "World.h"
+#include "AI.h"
 
 
 
-/* The transform every Thing starts with. */
-typedef struct Thing {
-    Vector4 unk0;      /* 0x00 */
-    Matrix4 mtx;       /* 0x10 */
-    Quaternion quat;   /* 0x50 */
-    Vector4 unk60;     /* 0x60 */
-    f32 unk70;         /* 0x70 */
-    u32 flags;         /* 0x74 */
-    u8 pad78[8];
-    s16 unk80;         /* 0x80 */
-    u8 unk82;          /* 0x82 */
-    u8 unk83;          /* 0x83 */
-    s32 unk84;         /* 0x84 */
-    s32 unk88;         /* 0x88 */
-    PTR32(PTR32(void)) vtable;     /* 0x8C */
-    u8 pad90[4];
-    s32 unk94;         /* 0x94 */
-} Thing;
-
-
-static inline s8 Thing_ProcessItemPickup(u8 *thing, u8 *item) {
+/* Pickup by a looker: only wildcards, into its rack slave. */
+static inline s8 Thing_ProcessItemPickup(Thing *thing, ItemThing *item) {
     void *rack;
-    void *motion;
+    QuadItem *spawner;
 
-    switch (*SLOT_LOAD(u8 *, (item + 0xC0))) {
+    switch (GETP(item->record)->type) {
     case 0:
     case 1:
     case 2:
         break;
-    case 3:
-        rack = ThingManagerList_GetByType(thing + 0x88, 8);
+    case ITEM_TYPE_WILDCARD:
+        rack = ThingManagerList_GetByType(&thing->slaves, 8);
         if (rack == NULL) {
             break;
         }
-        WildCardRack_Add(rack, SLOT_LOAD(u8 *, (item + 0xC0)), *(s16 *)(item + 0xCE));
+        WildCardRack_Add(rack, GETP(item->record), item->ammo);
         Item_Release(item);
-        motion = SLOT_LOAD(void *, (item + 0xD0));
-        if (motion != NULL) {
-            *(s32 *)((u8 *)motion + 0x18) = *(s32 *)((u8 *)motion + 0x14);
+        /* restart the spawner's respawn timer */
+        spawner = GETP(item->spawner);
+        if (spawner != NULL) {
+            spawner->timer = spawner->respawn;
         }
         return 1;
     }
@@ -50,75 +35,80 @@ static inline s8 Thing_ProcessItemPickup(u8 *thing, u8 *item) {
 s32 Thing_Init(Thing *thing, s32 arg1) {
     extern Matrix4 g_identity;
 
-    thing->unk0.z = 0.0f;
-    thing->unk0.y = 0.0f;
-    thing->unk0.x = 0.0f;
-    thing->unk60.z = 0.0f;
-    thing->unk60.y = 0.0f;
-    thing->unk60.x = 0.0f;
-    thing->unk70 = 0.0f;
+    thing->vel.z = 0.0f;
+    thing->vel.y = 0.0f;
+    thing->vel.x = 0.0f;
+    thing->pushVel.z = 0.0f;
+    thing->pushVel.y = 0.0f;
+    thing->pushVel.x = 0.0f;
+    thing->radius = 0.0f;
     thing->quat.w = 1.0f;
     thing->quat.x = 0.0f;
     thing->quat.y = 0.0f;
     thing->quat.z = 0.0f;
     thing->flags = 0;
-    thing->unk80 = 0;
-    thing->mtx = g_identity;
-    thing->unk94 = 0;
-    thing->unk82 = 0xFF;
-    thing->unk83 = 0xFF;
-    thing->unk88 = 0;
-    thing->unk84 = 0;
+    thing->collisionType = THING_COLLIDE_NONE;
+    *THING_MTX(thing) = g_identity;
+    SETP(thing->player, NULL);
+    thing->slaveBone = 0xFF;
+    thing->slaveTag = 0xFF;
+    SETP(thing->slaves, NULL);
+    SETP(thing->gridObject, NULL);
     return 1;
 }
 
 /* port: takes a pointer, as the vtable calls it; the decomp has s32 */
-void Thing_Release(void *thing) {
+void Thing_Release(void *arg) {
+    Thing *thing = arg;
     void *player;
 
-    M2C_FIELD(thing, u32 *, 0x74) |= 0x200;
-    M2C_FIELD(thing, u32 *, 0x74) |= 2;
-    M2C_FIELD(thing, u32 *, 0x74) |= 0x200000;
-    if (SLOT_LOAD(void *, (u8 *)thing + 0x84) != NULL) {
-        Grid_FreeObject(SLOT_LOAD(void *, (u8 *)thing + 0x84));
+    thing->flags |= 0x200;
+    thing->flags |= 2;
+    thing->flags |= 0x200000;
+    if (GETP(thing->gridObject) != NULL) {
+        Grid_FreeObject(GETP(thing->gridObject));
     }
-    SLOT_STORE((u8 *)thing + 0x84, NULL);
-    ThingManagerList_EmancipateSlaves((u8 *)thing + 0x10, (void **)((u8 *)thing + 0x88));
-    ThingManagerList_ReleaseAll((void **)((u8 *)thing + 0x88));
-    ThingManagerList_RemoveReleasedThings((void **)((u8 *)thing + 0x88));
-    player = SLOT_LOAD(void *, (u8 *)thing + 0x94);
-    if (player != NULL && SLOT_LOAD(void *, (u8 *)(player) + 0x2C) == thing) {
+    SETP(thing->gridObject, NULL);
+    /* the slaves are released with their master, keeping its transform */
+    ThingManagerList_EmancipateSlaves(THING_MTX(thing), &thing->slaves);
+    ThingManagerList_ReleaseAll(&thing->slaves);
+    ThingManagerList_RemoveReleasedThings(&thing->slaves);
+    player = GETP(thing->player);
+    if (player != NULL && GETP(((Player *)player)->vehicle) == thing) {
         Player_DetachThingDeath(player);
     }
 }
 
+/* The collision shape handle (box or hull) from the thing's physical
+ * properties. Items have none: the original then reads through NULL, as
+ * does this (callers only ask for things that collide). */
 s32 Thing_GetLocalCollision(u8 *thing) {
     extern u8 g_destructibleVTable[];
     extern u8 g_moverVTable[];
     extern u8 g_physicalObjectVTable[];
     extern u8 g_itemVTable[];
     extern u8 g_droneVTable[];
-    u8 *vtable = SLOT_LOAD(u8 *, (u8 *)(thing) + 0x8C);
-    u8 *physics;
+    u8 *vtable = (u8 *)GETP(((Thing *)thing)->vtable);
+    DestructibleInfo *physics;
 
     if (vtable == g_carAVTable) {
-        physics = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(thing) + 0x3BC)) + 0xA0);
+        physics = (DestructibleInfo *)GETP(GETP(((CarA *)thing)->vehicleIface)->collider);
     } else if (vtable == g_destructibleVTable || vtable == g_moverVTable || vtable == g_physicalObjectVTable) {
-        physics = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(thing) + 0xC0)) + 0x10);
+        physics = GETP(GETP(((Destructible *)thing)->record)->info);
     } else if (vtable == g_itemVTable) {
         physics = NULL;
     } else if (vtable == g_droneVTable) {
-        physics = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(thing) + 0xC0)) + 0x10);
+        physics = GETP(GETP(((Destructible *)thing)->record)->info);
     } else {
         physics = NULL;
     }
-    switch (physics[0x10]) {
+    switch (physics->type) {
     case 0:
-        return M2C_FIELD(physics, s32 *, 0x44);
+        return physics->box.h;
     case 1:
-        return M2C_FIELD(physics, s32 *, 0x48);
+        return physics->hull.h;
     case 7:
-        return M2C_FIELD(physics, s32 *, 0x44);
+        return physics->box.h;
     default:
         return 0;
     }
@@ -137,19 +127,25 @@ void Thing_Draw(void)
 
 }
 
-static inline s8 Thing_SweptSpheresTouch(u8 *a, u8 *b, f32 t) {
+/* Whether a's bounding sphere, moving at the relative velocity for t
+ * seconds, touches b's. */
+static inline s8 Thing_SweptSpheresTouch(Thing *a, Thing *b, f32 t) {
     Vector4 end;
-    f32 dx = ((f32 *)a)[0] - ((f32 *)b)[0];
-    f32 dy = ((f32 *)a)[1] - ((f32 *)b)[1];
-    f32 dz = ((f32 *)a)[2] - ((f32 *)b)[2];
+    f32 dx = a->vel.x - b->vel.x;
+    f32 dy = a->vel.y - b->vel.y;
+    f32 dz = a->vel.z - b->vel.z;
 
-    end.x = t * dx + ((Vector4 *)(a + 0x40))->x;
-    end.y = t * dy + ((Vector4 *)(a + 0x40))->y;
-    end.z = t * dz + ((Vector4 *)(a + 0x40))->z;
-    return SegmentVsSphere(b + 0x40, (Vector4 *)(a + 0x40), &end, *(f32 *)(a + 0x70) + *(f32 *)(b + 0x70));
+    end.x = t * dx + a->pos.x;
+    end.y = t * dy + a->pos.y;
+    end.z = t * dz + a->pos.z;
+    return SegmentVsSphere(&b->pos, &a->pos, &end, a->radius + b->radius);
 }
 
-s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
+typedef f32 (*ThingCollideWithRayFn)(void *thing, Vector4 *start, Vector4 *dir, void *hit, f32 maxDist);
+
+/* Sweep a against b for up to *t seconds by their collision types; on a hit
+ * *t becomes the time of impact and hit (if any) the contact. */
+s8 Thing_TestThingCollision(Thing *a, Thing *b, f32 *t, CollisionInfo *hit) {
     typedef union CollisionBox {
         struct {
             Vector4 min;
@@ -166,32 +162,32 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
     f32 best;
 
     best = *t;
-    switch (*(s16 *)(a + 0x80)) {
-    case 0:
+    switch (a->collisionType) {
+    case THING_COLLIDE_NONE:
         break;
-    case 3:
-        best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))))(b, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
+    case THING_COLLIDE_RAY:
+        best = THING_VFN(b, THING_V_COLLIDE_WITH_RAY, ThingCollideWithRayFn)(b, &a->pos, &a->vel, hit, *t);
         break;
-    case 1:
-        switch (*(s16 *)(b + 0x80)) {
-        case 0:
+    case THING_COLLIDE_OBOX:
+        switch (b->collisionType) {
+        case THING_COLLIDE_NONE:
             break;
-        case 3:
-            best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (a + 0x8C)) + 0x38))))(a, (Vector4 *)(b + 0x40), (Vector4 *)b, hit, *t);
+        case THING_COLLIDE_RAY:
+            best = THING_VFN(a, THING_V_COLLIDE_WITH_RAY, ThingCollideWithRayFn)(a, &b->pos, &b->vel, hit, *t);
             break;
-        case 1: {
+        case THING_COLLIDE_OBOX: {
             void *boxA;
             void *boxB;
 
-            boxA = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (a + 0x8C)) + 0x40))))(a);
-            boxB = (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (b + 0x8C)) + 0x40))))(b);
+            boxA = THING_VFN(a, THING_V_GET_ORIENTED_COLLISION, void *(*)(void *))(a);
+            boxB = THING_VFN(b, THING_V_GET_ORIENTED_COLLISION, void *(*)(void *))(b);
             if (!Thing_SweptSpheresTouch(a, b, *t)) {
                 return 0;
             }
             best = OBoxHitsOBox(boxA, a, boxB, b, hit, *t);
             break;
         }
-        case 6: {
+        case THING_COLLIDE_SPHERES: {
             RayHit rayHit;
             RayHit contact;
             CollisionBox bounds;
@@ -207,10 +203,11 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
             f32 d;
             f32 r;
 
-            box = (CollisionBox *)PTR(Thing_GetLocalCollision(a));
-            list = (u32 *)PTR(Thing_GetLocalCollision(b));
-            PSVECSubtract(b, a, &rel);
-            InverseXformVecOrientation(a + 0x10, &rel, &relLocal);
+            /* b's spheres, moving relative to a, against a's local box */
+            box = (CollisionBox *)PTR(Thing_GetLocalCollision((u8 *)a));
+            list = (u32 *)PTR(Thing_GetLocalCollision((u8 *)b));
+            PSVECSubtract(&b->vel, &a->vel, &rel);
+            InverseXformVecOrientation(THING_MTX(a), &rel, &relLocal);
             for (i = 0; i < list[0]; i++) {
                 bounds = *box;
                 r = ((Vector4 *)PTR((list[1] + i * 0x20)))[1].x;
@@ -220,8 +217,8 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
                 bounds.min.x -= r;
                 bounds.min.y -= r;
                 bounds.min.z -= r;
-                XformVec(b + 0x10, (Vector4 *)PTR((list[1] + i * 0x20)), &world);
-                InverseXformVec(a + 0x10, &world, &local);
+                XformVec(THING_MTX(b), (Vector4 *)PTR((list[1] + i * 0x20)), &world);
+                InverseXformVec(THING_MTX(a), &world, &local);
                 d = RayBoxTest(&local, &relLocal, &bounds.min, *t, &rayHit.pos);
                 if (d < best && d > 0.0f) {
                     if (hit != NULL) {
@@ -258,8 +255,8 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
                         if (PSVECSquareMag(&contact.normal)) {
                             PSVECNormalize(&contact.normal, &contact.normal);
                         }
-                        XformVec(a + 0x10, &contact.pos, (Vector4 *)hit);
-                        XformVecOrientation(a + 0x10, &contact.normal, (Vector4 *)(hit + 0x10));
+                        XformVec(THING_MTX(a), &contact.pos, &hit->pos);
+                        XformVecOrientation(THING_MTX(a), &contact.normal, &hit->normal);
                     }
                     best = d;
                 }
@@ -268,12 +265,13 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
         }
         }
         break;
-    case 6:
-        switch (*(s16 *)(b + 0x80)) {
-        case 3:
-            best = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (b + 0x8C)) + 0x38))))(a, (Vector4 *)(a + 0x40), (Vector4 *)a, hit, *t);
+    case THING_COLLIDE_SPHERES:
+        switch (b->collisionType) {
+        case THING_COLLIDE_RAY:
+            /* sic: b's function, but with a as the thing */
+            best = THING_VFN(b, THING_V_COLLIDE_WITH_RAY, ThingCollideWithRayFn)(a, &a->pos, &a->vel, hit, *t);
             break;
-        case 1: {
+        case THING_COLLIDE_OBOX: {
             RayHit rayHit;
             RayHit contact;
             CollisionBox bounds;
@@ -289,10 +287,11 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
             f32 d;
             f32 r;
 
-            box = (CollisionBox *)PTR(Thing_GetLocalCollision(b));
-            list = (u32 *)PTR(Thing_GetLocalCollision(a));
-            PSVECSubtract(a, b, &rel);
-            InverseXformVecOrientation(b + 0x10, &rel, &relLocal);
+            /* a's spheres, moving relative to b, against b's local box */
+            box = (CollisionBox *)PTR(Thing_GetLocalCollision((u8 *)b));
+            list = (u32 *)PTR(Thing_GetLocalCollision((u8 *)a));
+            PSVECSubtract(&a->vel, &b->vel, &rel);
+            InverseXformVecOrientation(THING_MTX(b), &rel, &relLocal);
             for (i = 0; i < list[0]; i++) {
                 bounds = *box;
                 r = ((Vector4 *)PTR((list[1] + i * 0x20)))[1].x;
@@ -302,8 +301,8 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
                 bounds.min.x -= r;
                 bounds.min.y -= r;
                 bounds.min.z -= r;
-                XformVec(a + 0x10, (Vector4 *)PTR((list[1] + i * 0x20)), &world);
-                InverseXformVec(b + 0x10, &world, &local);
+                XformVec(THING_MTX(a), (Vector4 *)PTR((list[1] + i * 0x20)), &world);
+                InverseXformVec(THING_MTX(b), &world, &local);
                 d = RayBoxTest(&local, &relLocal, &bounds.min, *t, &rayHit.pos);
                 if (d < best) {
                     if (hit != NULL) {
@@ -340,15 +339,15 @@ s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit) {
                         if (PSVECSquareMag(&contact.normal)) {
                             PSVECNormalize(&contact.normal, &contact.normal);
                         }
-                        XformVec(b + 0x10, &contact.pos, (Vector4 *)hit);
-                        XformVecOrientation(b + 0x10, &contact.normal, (Vector4 *)(hit + 0x10));
+                        XformVec(THING_MTX(b), &contact.pos, &hit->pos);
+                        XformVecOrientation(THING_MTX(b), &contact.normal, &hit->normal);
                     }
                     best = d;
                 }
             }
             break;
         }
-        case 6:
+        case THING_COLLIDE_SPHERES:
             break;
         }
         break;
@@ -374,12 +373,13 @@ void Thing_DynamicRotation(void)
 
 }
 
-s32 Thing_GetSource(void *arg0) {
-    void *temp_r3;
+/* The vehicle of the thing's player (handle), or 0. */
+s32 Thing_GetSource(Thing *thing) {
+    Player *player;
 
-    temp_r3 = SLOT_LOAD(void *, (u8 *)(arg0) + 0x94);
-    if (temp_r3 != NULL) {
-        return M2C_FIELD(temp_r3, s32 *, 0x2C);
+    player = GETP(thing->player);
+    if (player != NULL) {
+        return player->vehicle.h;
     }
     return 0;
 }
@@ -389,77 +389,75 @@ s8 Thing_HasThing(Thing *thing, void *target) {
     s8 found;
 
     if (vtable == g_carAVTable) {
-        if ((found = ThingManagerList_Get((u8 *)thing + 0x344, target)) != 0) {
+        if ((found = ThingManagerList_Get(&((CarA *)thing)->motionState.slaves, target)) != 0) {
             return found;
         }
     } else if (vtable == g_creatureVTable) {
-        if ((found = ThingManagerList_Get((u8 *)thing + 0xE0, target)) != 0) {
+        if ((found = ThingManagerList_Get(&((Creature *)thing)->slaves, target)) != 0) {
             return found;
         }
     }
-    return ThingManagerList_Get(&thing->unk88, target);
+    return ThingManagerList_Get(&thing->slaves, target);
 }
 
 void Thing_GetCameraOrientationInfo(Thing *thing, u32 index, void *out) {
-    typedef struct CameraOrientationInfo {
-        u8 pad00[0x8];
-        f32 unk8;
-        f32 unkC;
-        f32 unk10;
-        f32 unk14;
-        u8 pad18[0x8];
-        Matrix4 mtx;
-        Vector4 pos;
-        u8 pad70[0x10];
-        s32 unk80;
-        PTR32(u8) unk84;
-        u32 unk88;
-        f32 unk8C;
-    } CameraOrientationInfo;
-    CameraOrientationInfo *info = out;
-    u32 *cams;
+    CameraInfo *info = out;
+    WorldGameData *data = GETP(((World *)GETP(g_worldData.world))->gameData);
+    u32 *cams;  /* { count, list handle }: the world's chase cameras */
 
-    cams = (u32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0x100);
-    info->unk88 = cams[0];
+    cams = &data->numCameras;
+    info->cameraCount = cams[0];
     switch (ViewManager_GetViewFormat()) {
     case 2:
-        cams = (u32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0x108);
+        cams = &data->numCamerasWide;
         break;
     }
     if (cams[0] == 0) {
         info->unk80 = 0;
-        SETP(info->unk84, NULL);
-        info->mtx = thing->mtx;
+        SETP(info->subMode, NULL);
+        info->mtx = *THING_MTX(thing);
     } else {
-        SETP(info->unk84, (u8 *)PTR(cams[1]) + (index % cams[0]) * 0xC);
-        info->unk8C = 1.0f;
+        SETP(info->subMode, (u8 *)PTR(cams[1]) + (index % cams[0]) * 0xC);
+        info->lookAhead = 1.0f;
         info->mtx.v[1].x = 0.0f;
         info->mtx.v[1].y = 1.0f;
         info->mtx.v[1].z = 0.0f;
-        info->unk14 = 90.0f;
-        info->pos = thing->mtx.v[3];
-        info->unk8 = 5.0f;
-        info->unkC = 5.0f;
+        info->fov = 90.0f;
+        info->target = thing->pos;
+        info->unk08 = 5.0f;
+        info->unk0C = 5.0f;
         info->unk10 = 90.0f;
-        info->mtx = thing->mtx;
+        info->mtx = *THING_MTX(thing);
     }
 }
 
+/* ---- volume triggers -----------------------------------------------------
+ * Trigger data: { numVolumes, volume handles..., numSubjects, subject
+ * handles... }. A subject holds the things to test in fixed slots (car 0x28,
+ * creature 0x1C, item 0x24, movable 0x10); a volume is enabled by
+ * ActionAirboxChangeMode. */
+
+typedef WorldVolume TriggerVolume;
+
+#define TRIGGER_VOLUME(trigger, i) ((TriggerVolume *)PTR((trigger)[(i) + 1]))
+/* The j-th subject: a TileCar, TileCreature, QuadItem or TilePath. */
+#define TRIGGER_SUBJECT(trigger, numVolumes, j) PTR((trigger)[(numVolumes) + 2 + (j)])
+
 s32 TriggerAirboxEntered(u32 *trigger) {
     f32 dist;
-    u8 *volume;
-    u8 *thing;
+    Thing *thing;
+    TriggerVolume *volume;
     u32 i;
-    u32 numThings;
+    u32 numVolumes;
     u32 j;
 
-    numThings = trigger[0];
-    for (i = 0; i < numThings; i++) {
-        thing = (u8 *)PTR(trigger[i + 1]);
-        if (M2C_FIELD(thing, u32 *, 4) == 1) {
-            for (j = 0; j < trigger[numThings + 1]; j++) {
-                volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x28);
-                if (volume != NULL && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
+    numVolumes = trigger[0];
+    for (i = 0; i < numVolumes; i++) {
+        volume = TRIGGER_VOLUME(trigger, i);
+        if (volume->enabled == 1) {
+            for (j = 0; j < trigger[numVolumes + 1]; j++) {
+                thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
+                if (thing != NULL && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                     return 1;
                 }
             }
@@ -470,19 +468,19 @@ s32 TriggerAirboxEntered(u32 *trigger) {
 
 s32 TriggerCreatureVolumeEntered(u32 *trigger) {
     f32 dist;
-    u8 *volume;
-    u8 *thing;
+    Thing *thing;
+    TriggerVolume *volume;
     u32 i;
-    u32 numThings;
+    u32 numVolumes;
     u32 j;
 
-    numThings = trigger[0];
-    for (i = 0; i < numThings; i++) {
-        thing = (u8 *)PTR(trigger[i + 1]);
-        if (M2C_FIELD(thing, u32 *, 4) == 1) {
-            for (j = 0; j < trigger[numThings + 1]; j++) {
-                volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x1C);
-                if (volume != NULL && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
+    numVolumes = trigger[0];
+    for (i = 0; i < numVolumes; i++) {
+        volume = TRIGGER_VOLUME(trigger, i);
+        if (volume->enabled == 1) {
+            for (j = 0; j < trigger[numVolumes + 1]; j++) {
+                thing = (Thing *)GETP(((TileCreature *)TRIGGER_SUBJECT(trigger, numVolumes, j))->creature);
+                if (thing != NULL && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                     return 1;
                 }
             }
@@ -493,22 +491,25 @@ s32 TriggerCreatureVolumeEntered(u32 *trigger) {
 
 s32 TriggerItemVolumeEntered(u32 *trigger) {
     f32 dist;
-    u8 *thing;
+    TriggerVolume *volume;
     u32 i;
-    u32 numThings;
+    u32 numVolumes;
     u32 j;
-    u8 *volume;
+    Thing *thing;
+    Player *player;
 
-    numThings = trigger[0];
-    for (i = 0; i < numThings; i++) {
-        thing = (u8 *)PTR(trigger[i + 1]);
-        for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x24);
-            if (volume != NULL) {
-                if (SLOT_LOAD(u8 *, (u8 *)(volume) + 0x94) != NULL && SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(volume) + 0x94)) + 0x2C) != NULL) {
-                    volume = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(volume) + 0x94)) + 0x2C);
+    numVolumes = trigger[0];
+    for (i = 0; i < numVolumes; i++) {
+        volume = TRIGGER_VOLUME(trigger, i);
+        for (j = 0; j < trigger[numVolumes + 1]; j++) {
+            thing = (Thing *)GETP(((QuadItem *)TRIGGER_SUBJECT(trigger, numVolumes, j))->thing);
+            if (thing != NULL) {
+                /* a carried item: test where its carrier is */
+                player = GETP(thing->player);
+                if (player != NULL && GETP(player->vehicle) != NULL) {
+                    thing = GETP(player->vehicle);
                 }
-                if (M2C_FIELD(thing, u32 *, 4) == 1 && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
+                if (volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                     return 1;
                 }
             }
@@ -519,18 +520,18 @@ s32 TriggerItemVolumeEntered(u32 *trigger) {
 
 s32 TriggerMovableVolumeEntered(u32 *trigger) {
     f32 dist;
-    u8 *thing;
+    TriggerVolume *volume;
     u32 i;
-    u32 numThings;
+    u32 numVolumes;
     u32 j;
-    u8 *volume;
+    Thing *thing;
 
-    numThings = trigger[0];
-    for (i = 0; i < numThings; i++) {
-        thing = (u8 *)PTR(trigger[i + 1]);
-        for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x10);
-            if (volume != NULL && M2C_FIELD(thing, u32 *, 4) == 1 && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
+    numVolumes = trigger[0];
+    for (i = 0; i < numVolumes; i++) {
+        volume = TRIGGER_VOLUME(trigger, i);
+        for (j = 0; j < trigger[numVolumes + 1]; j++) {
+            thing = GETP(((TilePath *)TRIGGER_SUBJECT(trigger, numVolumes, j))->thing);
+            if (thing != NULL && volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 1;
             }
         }
@@ -538,20 +539,21 @@ s32 TriggerMovableVolumeEntered(u32 *trigger) {
     return 0;
 }
 
+/* A car came to rest (speed^2 < 50) inside an enabled volume. */
 s32 TriggerAirboxStopIn(u32 *trigger) {
     f32 dist;
-    u8 *volume;
-    u8 *thing;
+    Thing *thing;
+    TriggerVolume *volume;
     u32 i;
-    u32 numThings;
+    u32 numVolumes;
     u32 j;
 
-    numThings = trigger[0];
-    for (i = 0; i < numThings; i++) {
-        thing = (u8 *)PTR(trigger[i + 1]);
-        for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x28);
-            if (M2C_FIELD(thing, u32 *, 4) == 1 && PSVECSquareMag((Vector4 *)volume) < 50.0f && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
+    numVolumes = trigger[0];
+    for (i = 0; i < numVolumes; i++) {
+        volume = TRIGGER_VOLUME(trigger, i);
+        for (j = 0; j < trigger[numVolumes + 1]; j++) {
+            thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
+            if (volume->enabled == 1 && PSVECSquareMag(&thing->vel) < 50.0f && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 1;
             }
         }
@@ -561,18 +563,18 @@ s32 TriggerAirboxStopIn(u32 *trigger) {
 
 s32 TriggerAirboxExited(u32 *trigger) {
     f32 dist;
-    u8 *volume;
-    u8 *thing;
+    Thing *thing;
+    TriggerVolume *volume;
     u32 i;
-    u32 numThings;
+    u32 numVolumes;
     u32 j;
 
-    numThings = trigger[0];
-    for (i = 0; i < numThings; i++) {
-        thing = (u8 *)PTR(trigger[i + 1]);
-        for (j = 0; j < trigger[numThings + 1]; j++) {
-            volume = SLOT_LOAD(u8 *, (u8 *)PTR(trigger[numThings + 2 + j]) + 0x28);
-            if (M2C_FIELD(thing, u32 *, 4) == 1 && IsPointWithinVolume((Vector4 *)(volume + 0x40), thing, &dist)) {
+    numVolumes = trigger[0];
+    for (i = 0; i < numVolumes; i++) {
+        volume = TRIGGER_VOLUME(trigger, i);
+        for (j = 0; j < trigger[numVolumes + 1]; j++) {
+            thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
+            if (volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 0;
             }
         }
@@ -580,34 +582,35 @@ s32 TriggerAirboxExited(u32 *trigger) {
     return 1;
 }
 
+/* data: { mode (0 off, 1 on, 2 toggle), count, volume handles... } */
 s32 ActionAirboxChangeMode(s32 *data) {
     u32 count = data[1];
     s32 mode = data[0];
     u32 i;
 
     for (i = 0; i < count; i++) {
-        u8 *airbox = (u8 *)PTR(data[i + 2]);
+        TriggerVolume *airbox = (TriggerVolume *)PTR(data[i + 2]);
         switch (mode) {
         case 0:
-            *(u32 *)(airbox + 4) = 0;
+            airbox->enabled = 0;
             break;
         case 2:
-            if (*(u32 *)(airbox + 4) == 1) {
-                *(u32 *)(airbox + 4) = 0;
+            if (airbox->enabled == 1) {
+                airbox->enabled = 0;
             } else {
-                *(u32 *)(airbox + 4) = 1;
+                airbox->enabled = 1;
             }
             break;
         case 1:
         default:
-            *(u32 *)(airbox + 4) = 1;
+            airbox->enabled = 1;
             break;
         }
     }
     return 1;
 }
 
-void Thing_CollideWithForceBoxes(u8 *thing) {
+void Thing_CollideWithForceBoxes(Thing *thing) {
     typedef struct ForceBox {
         Vector4 force;
         s8 oneShot;
@@ -615,10 +618,9 @@ void Thing_CollideWithForceBoxes(u8 *thing) {
         u16 type;
     } ForceBox;
     extern u8 g_carAVTable[];
-    u8 *IsPointWithinForceBox(Vector4 *point);
-    Vector4 *vel = (Vector4 *)thing;
+    Vector4 *vel = &thing->vel;
     ForceBox *box;
-    u8 *volume;
+    WorldVolume *volume;
     u32 wasInside;
     f32 mag;
     f32 dot;
@@ -629,14 +631,14 @@ void Thing_CollideWithForceBoxes(u8 *thing) {
     Vector4 velDir2 __attribute__((aligned(16)));
     Vector4 forceDir2 __attribute__((aligned(16)));
 
-    wasInside = *(u32 *)(thing + 0x74) & 0x400;
-    volume = IsPointWithinForceBox((Vector4 *)(thing + 0x40));
-    *(u32 *)(thing + 0x74) &= ~0x400;
+    wasInside = thing->flags & THING_FLAG_IN_FORCE_BOX;
+    volume = (WorldVolume *)IsPointWithinForceBox(&thing->pos);
+    thing->flags &= ~THING_FLAG_IN_FORCE_BOX;
     if (volume == NULL) {
         return;
     }
-    box = SLOT_LOAD(ForceBox *, (volume + 0x2C));
-    if (box->carOnly && SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable && *(s32 *)(thing + 0x460) != 0) {
+    box = (ForceBox *)GETP(volume->data);
+    if (box->carOnly && (u8 *)GETP(thing->vtable) == g_carAVTable && ((CarA *)thing)->unk460 != 0) {
         return;
     }
     if (box->oneShot) {
@@ -675,7 +677,7 @@ void Thing_CollideWithForceBoxes(u8 *thing) {
                 break;
             }
         }
-        *(u32 *)(thing + 0x74) |= 0x400;
+        thing->flags |= THING_FLAG_IN_FORCE_BOX;
         return;
     }
     switch (box->type) {
@@ -709,49 +711,59 @@ void Thing_CollideWithForceBoxes(u8 *thing) {
     }
 }
 
-static inline u8 Teleporter_Contains(u8 *tp, u8 *thing) {
+/* ---- teleporters --------------------------------------------------------- */
 
-    if (*(u32 *)(tp + 0x54) & 4) {
+/* Teleporter is in World.h. */
+
+enum {
+    TELEPORTER_KEEP_ROTATION = 1,  /* as destination: keep the relative orientation */
+    TELEPORTER_KEEP_SPEED = 2,     /* as destination: keep the velocity */
+    TELEPORTER_KILL_PLANE = 4,     /* as source: triggers below its height instead of a sphere */
+    TELEPORTER_KEEP_OFFSET = 8,    /* as destination: keep the position relative to it */
+};
+
+static inline u8 Teleporter_Contains(Teleporter *tp, Thing *thing) {
+    if (tp->flags & TELEPORTER_KILL_PLANE) {
         s32 hit = 0;
 
-        if (*(f32 *)(thing + 0x44) < *(f32 *)(tp + 0x34) || MagnitudeVector(thing + 0x40) > 10000.0f) {
+        if (thing->pos.y < tp->mtx.v[3].y || MagnitudeVector(&thing->pos) > 10000.0f) {
             hit = 1;
         }
         return hit;
     }
-    return *(f32 *)(tp + 0x4C) * *(f32 *)(tp + 0x4C) > PSVECSquareDistance(tp + 0x30, thing + 0x40);
+    return tp->radius * tp->radius > PSVECSquareDistance(&tp->mtx.v[3], &thing->pos);
 }
 
-static inline u8 *World_GetTeleporter(u32 index) {
-    return SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x34)) + index * 0x70;
+static inline Teleporter *World_GetTeleporter(u32 index) {
+    return &GETP(((World *)GETP(g_worldData.world))->teleporters)[index];
 }
 
-s8 Thing_CollideWithTeleporters(u8 *thing) {
-    typedef struct Teleporter {
-        Matrix4 mtx;
-        u8 pad40[4];
-        u32 debris;
-        u8 pad48[4];
-        f32 radius;
-        u32 numDest;
-        u32 flags;
-        PTR32(u32) dest;
-        s32 damage;
-        u8 pad60[0x10];
-    } Teleporter;
-    typedef struct DebrisParams {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        Vector4 zero;
-        u32 debris;
-        u32 unk44;
-        f32 unk48;
-        f32 unk4C;
-    } DebrisParams;
+static void Teleporter_SpawnDebris(Teleporter *tp) {
     extern Vector4 g_zeroVector;
-    DebrisParams destParams;
-    DebrisParams srcParams;
+    DebrisParams params;
+
+    params.debris = tp->debris;
+    params.pos = tp->mtx.v[3];
+    SubMatrixToQuaternion(tp, &params.quat);
+    params.vel.x = params.vel.y = params.vel.z = 0.0f;
+    params.owner = 0;
+    params.unk48 = 0.0f;
+    params.unk4C = 0.0f;
+    params.angVel = g_zeroVector;
+    ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
+}
+
+/* After a teleport an AI car must find its path again. */
+static void Teleporter_ResetCarNav(Thing *car) {
+    ((CarA *)car)->navPointIndex = -1;
+    if (!Player_IsHuman(GETP(car->player))) {
+        ((AICar *)GETP(car->player))->pathIndex = 0x20;   /* none */
+        ((AICar *)GETP(car->player))->stuckTimer = -0x78;
+    }
+}
+
+s8 Thing_CollideWithTeleporters(u8 *arg) {
+    Thing *thing = (Thing *)arg;
     Matrix4 inv;
     Matrix4 rel;
     Vector4 vel;
@@ -762,94 +774,77 @@ s8 Thing_CollideWithTeleporters(u8 *thing) {
     Teleporter *dest;
     u32 wasInside;
 
-    wasInside = (*(u32 *)(thing + 0x74) >> 11) & 1;
-    *(u32 *)(thing + 0x74) &= ~0x800;
+    wasInside = (thing->flags & THING_FLAG_IN_TELEPORTER) != 0;
+    thing->flags &= ~THING_FLAG_IN_TELEPORTER;
     if (GETP(g_worldData.world) == NULL) {
         return 0;
     }
-    for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x30); i++) {
-        tp = (Teleporter *)World_GetTeleporter(i);
-        if (tp->numDest == 0 || !Teleporter_Contains((u8 *)tp, thing)) {
+    for (i = 0; i < ((World *)GETP(g_worldData.world))->numTeleporters; i++) {
+        tp = World_GetTeleporter(i);
+        if (tp->numDest == 0 || !Teleporter_Contains(tp, thing)) {
             continue;
         }
         if (!wasInside) {
+            /* rel = the thing's transform relative to the source */
             inv = tp->mtx;
-            rel = *(Matrix4 *)(thing + 0x10);
-            vel = *(Vector4 *)thing;
+            rel = *THING_MTX(thing);
+            vel = thing->vel;
             neg.x = -tp->mtx.v[3].x;
             neg.y = -tp->mtx.v[3].y;
             neg.z = -tp->mtx.v[3].z;
-            dest = (Teleporter *)World_GetTeleporter(GETP(tp->dest)[RandomNumberGenerator_GetRandomInteger(0, tp->numDest)]);
+            dest = World_GetTeleporter(GETP(tp->dest)[RandomNumberGenerator_GetRandomInteger(0, tp->numDest)]);
             TransposeSubMatrix(&inv);
             XformVecOrientation(&inv, &neg, &rotated);
             inv.v[3].x = rotated.x;
             inv.v[3].y = rotated.y;
             inv.v[3].z = rotated.z;
-            MultiplyMatrix((Matrix4 *)(thing + 0x10), &inv, &rel);
-            XformVecOrientation(&inv, (Vector4 *)thing, &vel);
+            MultiplyMatrix(THING_MTX(thing), &inv, &rel);
+            XformVecOrientation(&inv, &thing->vel, &vel);
             if (tp->damage != 0) {
-                *(s32 *)(thing + 0x78) -= tp->damage;
-                if (*(s32 *)(thing + 0x78) < 1) {
-                    *(s32 *)(thing + 0x78) = 1;
+                thing->health -= tp->damage;
+                if (thing->health < 1) {
+                    thing->health = 1;
                 }
             }
-            if (dest->flags & 1) {
-                MultiplyMatrix(&rel, dest, (Matrix4 *)(thing + 0x10));
-                SubMatrixToQuaternion(thing + 0x10, (Vector4 *)(thing + 0x50));
-                XformVecOrientation(dest, &vel, (Vector4 *)thing);
-                if (!(dest->flags & 8)) {
-                    *(f32 *)(thing + 0x40) = dest->mtx.v[3].x;
-                    *(f32 *)(thing + 0x44) = dest->mtx.v[3].y;
-                    *(f32 *)(thing + 0x48) = dest->mtx.v[3].z;
+            if (dest->flags & TELEPORTER_KEEP_ROTATION) {
+                MultiplyMatrix(&rel, dest, THING_MTX(thing));
+                SubMatrixToQuaternion(THING_MTX(thing), &thing->quat);
+                XformVecOrientation(dest, &vel, &thing->vel);
+                if (!(dest->flags & TELEPORTER_KEEP_OFFSET)) {
+                    thing->pos.x = dest->mtx.v[3].x;
+                    thing->pos.y = dest->mtx.v[3].y;
+                    thing->pos.z = dest->mtx.v[3].z;
                 }
             } else {
-                *(Matrix4 *)(thing + 0x10) = dest->mtx;
-                SubMatrixToQuaternion(thing + 0x10, (Vector4 *)(thing + 0x50));
-                if (dest->flags & 8) {
-                    XformVec(dest, &rel.v[3], (Vector4 *)(thing + 0x40));
+                *THING_MTX(thing) = dest->mtx;
+                SubMatrixToQuaternion(THING_MTX(thing), &thing->quat);
+                if (dest->flags & TELEPORTER_KEEP_OFFSET) {
+                    XformVec(dest, &rel.v[3], &thing->pos);
                 }
             }
-            if (!(dest->flags & 2)) {
-                ((Vector4 *)thing)->x = 0.0f;
-                ((Vector4 *)thing)->y = 0.0f;
-                ((Vector4 *)thing)->z = 0.0f;
+            if (!(dest->flags & TELEPORTER_KEEP_SPEED)) {
+                thing->vel.x = 0.0f;
+                thing->vel.y = 0.0f;
+                thing->vel.z = 0.0f;
             }
             if (dest->debris != 0) {
-                destParams.debris = dest->debris;
-                destParams.pos = dest->mtx.v[3];
-                SubMatrixToQuaternion(dest, &destParams.quat);
-                destParams.vel.x = destParams.vel.y = destParams.vel.z = 0.0f;
-                destParams.unk44 = 0;
-                destParams.unk48 = 0.0f;
-                destParams.unk4C = 0.0f;
-                destParams.zero = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &destParams);
+                Teleporter_SpawnDebris(dest);
             }
             if (tp->debris != 0) {
-                srcParams.debris = tp->debris;
-                srcParams.pos = tp->mtx.v[3];
-                SubMatrixToQuaternion(tp, &srcParams.quat);
-                srcParams.vel.x = srcParams.vel.y = srcParams.vel.z = 0.0f;
-                srcParams.unk44 = 0;
-                srcParams.unk48 = 0.0f;
-                srcParams.unk4C = 0.0f;
-                srcParams.zero = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &srcParams);
+                Teleporter_SpawnDebris(tp);
             }
-            if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
-                *(s32 *)(thing + 0x3B0) = -1;
-                if (!Player_IsHuman(SLOT_LOAD(void *, (thing + 0x94)))) {
-                    *(s32 *)(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x4A4) = 0x20;
-                    *(s32 *)(SLOT_LOAD(u8 *, (thing + 0x94)) + 0x634) = -0x78;
-                }
+            if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
+                Teleporter_ResetCarNav(thing);
             }
         }
-        *(u32 *)(thing + 0x74) |= 0x800;
+        thing->flags |= THING_FLAG_IN_TELEPORTER;
         return 1;
     }
     return 0;
 }
 
+/* data: { n, groups of { count, thing handles... } }: any of them inside a
+ * teleporter this frame. */
 s32 TriggerP2PActivated(u32 *data) {
     u32 n = data[0];
     u32 i;
@@ -858,7 +853,7 @@ s32 TriggerP2PActivated(u32 *data) {
 
     for (i = 0; i < n; i++) {
         for (j = 0; j < data[k]; j++) {
-            if (M2C_FIELD((data + 1)[j + k], s32 *, 0x74) & 0x800) {
+            if (((Thing *)PTR((data + 1)[j + k]))->flags & THING_FLAG_IN_TELEPORTER) {
                 return 1;
             }
         }
@@ -866,74 +861,33 @@ s32 TriggerP2PActivated(u32 *data) {
     return 0;
 }
 
+/* action: { _, teleporter data, count, subject handles... } moves each
+ * subject's car onto the teleporter. */
 s32 ActionVehicleTeleport(u32 *action) {
-    extern Vector4 g_zeroVector;
-    typedef struct {
-        Matrix4 mtx;
-        u8 pad40[0x44 - 0x40];
-        u32 fx;
-        u8 pad48[0x54 - 0x48];
-        u32 flags;
-    } TeleportData;
-    typedef struct {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        Vector4 angVel;
-        u32 id;
-        s32 unk44;
-        f32 unk48;
-        f32 unk4C;
-    } FxParams;
-    typedef struct {
-        Vector4 vel;
-        Matrix4 mtx;
-        Vector4 quat;
-        u8 pad60[0x74 - 0x60];
-        u32 flags;
-        u8 pad78[0x8C - 0x78];
-        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(void *) */
-        u8 pad90[0x94 - 0x90];
-        PTR32(u8) player;
-        u8 pad98[0x3B0 - 0x98];
-        s32 unk3B0;
-    } Car;
-    TeleportData *data;
+    Teleporter *data;
     u32 i;
-    Car *car;
+    Thing *car;
+    Player *player;
     Vector4 local __attribute__((aligned(16)));
-    FxParams params __attribute__((aligned(16)));
 
-    data = (TeleportData *)PTR(action[1]);
+    data = (Teleporter *)PTR(action[1]);
     for (i = 0; i < action[2]; i++) {
-        car = SLOT_LOAD(Car *, (action[i + 3] + 0x28));
-        if (data->fx != 0) {
-            params.id = data->fx;
-            params.pos = data->mtx.v[3];
-            SubMatrixToQuaternion(data, &params.quat);
-            params.vel.x = params.vel.y = params.vel.z = 0.0f;
-            params.unk44 = 0;
-            params.unk48 = 0.0f;
-            params.unk4C = 0.0f;
-            params.angVel = g_zeroVector;
-            ThingManager_DARYL_CreateThing(1, &params);
+        car = (Thing *)GETP(((TileCar *)PTR(action[i + 3]))->car);
+        player = GETP(car->player);
+        if (data->debris != 0) {
+            Teleporter_SpawnDebris(data);
         }
-        if (data->flags & 2) {
-            InverseXformVecOrientation(&car->mtx, &car->vel, &local);
+        if (data->flags & TELEPORTER_KEEP_SPEED) {
+            InverseXformVecOrientation(THING_MTX(car), &car->vel, &local);
             XformVecOrientation(data, &local, &car->vel);
-        } else if (GETP(car->player) != NULL && SLOT_LOAD(Car *, (GETP(car->player) + 0x2C)) != NULL &&
-                   SLOT_LOAD(Car *, (GETP(car->player) + 0x2C)) == car) {
-            GETP(car->player)[0x32] = 5;
+        } else if (player != NULL && GETP(player->vehicle) != NULL && GETP(player->vehicle) == car) {
+            player->combo = 5;
         }
-        car->mtx = data->mtx;
-        SubMatrixToQuaternion(&car->mtx, &car->quat);
-        ((void (*)(void *))PTR(GETP(car->vtbl)[3]))(car);
-        car->flags |= 0x800;
-        car->unk3B0 = -1;
-        if (!Player_IsHuman(GETP(car->player))) {
-            *(s32 *)(GETP(car->player) + 0x4A4) = 0x20;
-            *(s32 *)(GETP(car->player) + 0x634) = -0x78;
-        }
+        *THING_MTX(car) = data->mtx;
+        SubMatrixToQuaternion(THING_MTX(car), &car->quat);
+        THING_VFN(car, THING_V_MOVE, void (*)(void *))(car);
+        car->flags |= THING_FLAG_IN_TELEPORTER;
+        Teleporter_ResetCarNav(car);
     }
     return 1;
 }
@@ -949,17 +903,17 @@ void Thing_GetInterfaceInfo(void *thing, void *info) {
     } InterfaceInfo;
     InterfaceInfo *ii = info;
 
-    ii->unk10 = *(s32 *)((u8 *)thing + 0x78);
+    ii->unk10 = ((Thing *)thing)->health;
     ii->speed = 0.681818f * MagnitudeVector(thing);
     ii->unk18 = 0;
     ii->unk4 = 0;
 }
 
-void Thing_SetSlavePlayers(void *thing) {
-    void *slave;
+void Thing_SetSlavePlayers(Thing *thing) {
+    Thing *slave;
 
-    for (slave = SLOT_LOAD(void *, (u8 *)(thing) + 0x88); slave != NULL; slave = SLOT_LOAD(void *, (u8 *)(slave) + 0xA4)) {
-        M2C_FIELD(slave, s32 *, 0x94) = M2C_FIELD(thing, s32 *, 0x94);
+    for (slave = GETP(thing->slaves); slave != NULL; slave = GETP(slave->next)) {
+        slave->player = thing->player;
     }
 }
 
@@ -968,15 +922,15 @@ void Thing_DrawSlaves(Thing *thing) {
     Quaternion quat __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
 
-    for (slave = (Thing *)PTR(thing->unk88); slave != NULL; slave = SLOT_LOAD(Thing *, ((u8 *)slave + 0xA4))) {
+    for (slave = GETP(thing->slaves); slave != NULL; slave = GETP(slave->next)) {
         if (!(slave->flags & 0x200200)) {
             quat = slave->quat;
-            pos = slave->mtx.v[3];
+            pos = slave->pos;
             QuaternionMult(&thing->quat, &quat, &slave->quat);
-            XformVec(&thing->mtx, &pos, &slave->mtx.v[3]);
-            ((void (*)(Thing *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, ((u8 *)slave + 0x8C)) + 4 * 4)))(slave);
+            XformVec(THING_MTX(thing), &pos, &slave->pos);
+            THING_VFN(slave, THING_V_DRAW, void (*)(Thing *))(slave);
             slave->quat = quat;
-            slave->mtx.v[3] = pos;
+            slave->pos = pos;
         }
     }
 }
@@ -988,38 +942,38 @@ void Thing_MoveSlaves(Thing *thing) {
     Vector4 trans __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
 
-    for (slave = (Thing *)PTR(thing->unk88); slave != NULL && !(thing->flags & 0x201000); slave = next) {
-        next = SLOT_LOAD(Thing *, ((u8 *)slave + 0xA4));
+    for (slave = GETP(thing->slaves); slave != NULL && !(thing->flags & 0x201000); slave = next) {
+        next = GETP(slave->next);
         if (!(slave->flags & 0x201000)) {
             if (!(slave->flags & 0x400000)) {
                 CopyVector(&quat, &slave->quat);
-                CopyVector(&trans, &slave->mtx.v[3]);
-                CopyVector(&pos, &slave->unk0);
+                CopyVector(&trans, &slave->pos);
+                CopyVector(&pos, &slave->vel);
                 QuaternionMult(&thing->quat, &quat, &slave->quat);
-                XformVec(&thing->mtx, &trans, &slave->mtx.v[3]);
-                slave->unk0 = thing->unk0;
-                ((void (*)(Thing *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, ((u8 *)slave + 0x8C)) + 3 * 4)))(slave);
+                XformVec(THING_MTX(thing), &trans, &slave->pos);
+                slave->vel = thing->vel;
+                THING_VFN(slave, THING_V_MOVE, void (*)(Thing *))(slave);
                 CopyVector(&slave->quat, &quat);
-                CopyVector(&slave->mtx.v[3], &trans);
-                CopyVector(&slave->unk0, &pos);
+                CopyVector(&slave->pos, &trans);
+                CopyVector(&slave->vel, &pos);
             } else {
-                ((void (*)(Thing *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, ((u8 *)slave + 0x8C)) + 3 * 4)))(slave);
+                THING_VFN(slave, THING_V_MOVE, void (*)(Thing *))(slave);
             }
         }
     }
-    ThingManagerList_RemoveReleasedThings(&thing->unk88);
+    ThingManagerList_RemoveReleasedThings(&thing->slaves);
 }
 
 void Thing_InitAllSlavesNow(s32 arg0, void *data, s32 mask) {
-    ThingManagerList_InitAllSlavesNow(PTR(arg0 + 0x88), data, mask);
+    ThingManagerList_InitAllSlavesNow(&((Thing *)PTR(arg0))->slaves, data, mask);
 }
 
 void Thing_SlaveTransform(Thing *thing, Matrix4 *mtx) {
     Matrix4 local;
 
-    local = thing->mtx;
-    MultiplyMatrix(&local, mtx, &thing->mtx);
-    SubMatrixToQuaternion(&thing->mtx, &thing->quat);
+    local = *THING_MTX(thing);
+    MultiplyMatrix(&local, mtx, THING_MTX(thing));
+    SubMatrixToQuaternion(THING_MTX(thing), &thing->quat);
 }
 
 void Thing_SlaveTransformQuaternionOnly(Thing *thing, Matrix4 *mtx) {
@@ -1028,8 +982,8 @@ void Thing_SlaveTransformQuaternionOnly(Thing *thing, Matrix4 *mtx) {
     Vector4 pos __attribute__((aligned(16)));
 
     quat = thing->quat;
-    pos = thing->mtx.v[3];
-    XformVec(mtx, &pos, &thing->mtx.v[3]);
+    pos = thing->pos;
+    XformVec(mtx, &pos, &thing->pos);
     SubMatrixToQuaternion(mtx, &rot);
     QuaternionMult(&rot, &quat, &thing->quat);
 }
@@ -1056,16 +1010,14 @@ s32 Thing_AddToGrid(void *thing, s32 type) {
 
     Thing_GetDynamicMinMax(thing, &min, &max, 0.0f);
     /* port: the grid keeps the thing as a 32-bit id; the object pointer goes in a slot */
-    SLOT_STORE((u8 *)thing + 0x84, Grid_AddObject(type, HND(thing), &min, &max));
-    return *(s32 *)((u8 *)thing + 0x84);
+    SETP(((Thing *)thing)->gridObject, Grid_AddObject(type, HND(thing), &min, &max));
+    return ((Thing *)thing)->gridObject.h;
 }
 
+/* The world-space bounds of `thing` over the next `expand` seconds of
+ * movement, for the grid. */
 void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand) {
-    typedef struct Box {
-        u8 pad[0x10];
-        Vector4 corners[8];
-    } Box;
-    Box *box;
+    CollisionOBox *box;
     u32 i;
     Vector4 p3 __attribute__((aligned(16)));
     Vector4 p2 __attribute__((aligned(16)));
@@ -1073,30 +1025,30 @@ void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand
 
     min->x = min->y = min->z = min->w = 99999.9f;
     max->x = max->y = max->z = max->w = -99999.9f;
-    switch (thing->unk80) {
+    switch (thing->collisionType) {
     case 0:
-        *max = thing->mtx.v[3];
+        *max = thing->pos;
         *min = *max;
         break;
     case 3:
-        CopyVector(&p3, &thing->mtx.v[3]);
-        CopyVector(min, &thing->mtx.v[3]);
-        CopyVector(max, &thing->mtx.v[3]);
-        p3.x += thing->unk0.x * expand;
-        p3.y += thing->unk0.y * expand;
-        p3.z += thing->unk0.z * expand;
+        CopyVector(&p3, &thing->pos);
+        CopyVector(min, &thing->pos);
+        CopyVector(max, &thing->pos);
+        p3.x += thing->vel.x * expand;
+        p3.y += thing->vel.y * expand;
+        p3.z += thing->vel.z * expand;
         MinMaxVec(min, max, &p3);
         break;
     case 2:
     case 4:
     case 5:
     case 6:
-        CopyVector(&p2, &thing->mtx.v[3]);
-        CopyVector(min, &thing->mtx.v[3]);
-        CopyVector(max, &thing->mtx.v[3]);
-        p2.x += thing->unk0.x * expand;
-        p2.y += thing->unk0.y * expand;
-        p2.z += thing->unk0.z * expand;
+        CopyVector(&p2, &thing->pos);
+        CopyVector(min, &thing->pos);
+        CopyVector(max, &thing->pos);
+        p2.x += thing->vel.x * expand;
+        p2.y += thing->vel.y * expand;
+        p2.z += thing->vel.z * expand;
         if (p2.x < min->x) {
             min->x = p2.x;
         }
@@ -1115,26 +1067,26 @@ void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand
         if (p2.z > max->z) {
             max->z = p2.z;
         }
-        min->x -= thing->unk70;
-        min->y -= thing->unk70;
-        min->z -= thing->unk70;
-        max->x += thing->unk70;
-        max->y += thing->unk70;
-        max->z += thing->unk70;
+        min->x -= thing->radius;
+        min->y -= thing->radius;
+        min->z -= thing->radius;
+        max->x += thing->radius;
+        max->y += thing->radius;
+        max->z += thing->radius;
         break;
     case 1:
+        box = THING_VFN(thing, THING_V_GET_ORIENTED_COLLISION, CollisionOBox *(*)(Thing *))(thing);
         if (thing->flags & 8) {
-            thing = ((Thing *(*)(Thing *))GETP(GETP(thing->vtable)[0x10]))(thing);
-            CopyVector(min, (Vector4 *)((u8 *)thing + 0xD0));
-            CopyVector(max, (Vector4 *)((u8 *)thing + 0xE0));
+            /* the box already holds its bounds */
+            CopyVector(min, &box->min);
+            CopyVector(max, &box->max);
         } else {
-            box = ((Box *(*)(Thing *))GETP(GETP(thing->vtable)[0x10]))(thing);
             for (i = 0; i < 8; i++) {
                 p1 = box->corners[i];
                 MinMaxVec(min, max, &p1);
-                p1.x += thing->unk0.x * expand;
-                p1.y += thing->unk0.y * expand;
-                p1.z += thing->unk0.z * expand;
+                p1.x += thing->vel.x * expand;
+                p1.y += thing->vel.y * expand;
+                p1.z += thing->vel.z * expand;
                 MinMaxVec(min, max, &p1);
             }
         }
@@ -1142,48 +1094,51 @@ void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand
     }
 }
 
-void Thing_GetStaticRotationalMinMax(void *thing, Vector4 *min, Vector4 *max) {
-    *max = *(Vector4 *)((u8 *)thing + 0x40);
+/* The bounds of the bounding sphere: covers any rotation. */
+void Thing_GetStaticRotationalMinMax(Thing *thing, Vector4 *min, Vector4 *max) {
+    *max = thing->pos;
     *min = *max;
-    min->x -= M2C_FIELD(thing, f32 *, 0x70);
-    min->y -= M2C_FIELD(thing, f32 *, 0x70);
-    min->z -= M2C_FIELD(thing, f32 *, 0x70);
-    max->x += M2C_FIELD(thing, f32 *, 0x70);
-    max->y += M2C_FIELD(thing, f32 *, 0x70);
-    max->z += M2C_FIELD(thing, f32 *, 0x70);
+    min->x -= thing->radius;
+    min->y -= thing->radius;
+    min->z -= thing->radius;
+    max->x += thing->radius;
+    max->y += thing->radius;
+    max->z += thing->radius;
 }
 
-void Thing_DynamicGridMove(void *thing, f32 expand) {
+void Thing_DynamicGridMove(Thing *thing, f32 expand) {
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
 
-    if (*(u32 *)((u8 *)thing + 0x84) != 0) {
+    if (thing->gridObject.h != 0) {
         Thing_GetDynamicMinMax(thing, &min, &max, expand);
-        Grid_MoveObject(PTR(*(s32 *)((u8 *)thing + 0x84)), &min, &max);
+        Grid_MoveObject(GETP(thing->gridObject), &min, &max);
     }
 }
 
-void Thing_StaticGridMove(void *thing) {
+void Thing_StaticGridMove(Thing *thing) {
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
 
-    if (*(u32 *)((u8 *)thing + 0x84) != 0) {
+    if (thing->gridObject.h != 0) {
         Thing_GetDynamicMinMax(thing, &min, &max, 0.0f);
-        Grid_MoveObject(PTR(*(s32 *)((u8 *)thing + 0x84)), &min, &max);
+        Grid_MoveObject(GETP(thing->gridObject), &min, &max);
     }
 }
 
-void Thing_RotationalGridMove(void *thing) {
+void Thing_RotationalGridMove(Thing *thing) {
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
 
-    if (M2C_FIELD(thing, u32 *, 0x84) != 0) {
+    if (thing->gridObject.h != 0) {
         Thing_GetStaticRotationalMinMax(thing, &min, &max);
-        Grid_MoveObject(SLOT_LOAD(void *, (u8 *)PORT_ADDR(thing) + 0x84), &min, &max);
+        Grid_MoveObject(GETP(thing->gridObject), &min, &max);
     }
 }
 
-void Thing_CollideWithItems(u8 *thing) {
+/* Pick up the first item within reach (by the collector's kind), spawning
+ * the item's pickup effect. */
+void Thing_CollideWithItems(Thing *thing) {
     extern Vector4 g_zeroVector;
     struct GridResult {
         u32 data;
@@ -1191,102 +1146,96 @@ void Thing_CollideWithItems(u8 *thing) {
     };
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
-    struct { Vector4 pos; Vector4 quat; Vector4 row; Vector4 vel; u32 id; u32 unk74; f32 unk78; f32 unk7C; } params __attribute__((aligned(16)));
+    DebrisParams params __attribute__((aligned(16)));
     struct GridResult results[64];
     s32 count;
     s32 i;
-    u8 *item;
+    ItemThing *item;
     s8 picked;
 
-    max = *(Vector4 *)(thing + 0x40);
+    max = thing->pos;
     min = max;
-    min.x -= *(f32 *)(thing + 0x70);
-    min.y -= *(f32 *)(thing + 0x70);
-    min.z -= *(f32 *)(thing + 0x70);
-    max.x += *(f32 *)(thing + 0x70);
-    max.y += *(f32 *)(thing + 0x70);
-    max.z += *(f32 *)(thing + 0x70);
+    min.x -= thing->radius;
+    min.y -= thing->radius;
+    min.z -= thing->radius;
+    max.x += thing->radius;
+    max.y += thing->radius;
+    max.z += thing->radius;
     count = Grid_GetObjects(&min, &max, 8, results, 0x40);
     for (i = 0; i < count; i++) {
-        item = (u8 *)PTR(results[i].id);
-        if (*(s16 *)PTR((results[i].id + 0xCC)) > 0) {
+        item = (ItemThing *)PTR(results[i].id);
+        if (item->pickupDelay > 0) {
             continue;
         }
-        if (PSVECSquareDistance((f32 *)(thing + 0x40), (f32 *)PTR((results[i].id + 0x40))) < *(f32 *)(item + 0xE8)) {
+        if (PSVECSquareDistance(&thing->pos, &item->base.pos) < item->pickupRadiusSq) {
             picked = 0;
-            switch (*(s32 *)(thing + 0xA8)) {
-            case 7:
+            switch (thing->type) {
+            case THING_TYPE_CREATURE:
                 picked = Creature_ProcessItemPickup(thing, item);
                 break;
-            case 9:
+            case THING_TYPE_CAR:
                 picked = CarA_ProcessItemPickup(thing, item);
                 break;
-            case 11:
+            case THING_TYPE_LOOKER:
                 picked = Thing_ProcessItemPickup(thing, item);
                 break;
             }
-            if (picked && *(u32 *)(SLOT_LOAD(u8 *, (item + 0xC0)) + 0x24) != 0) {
-                params.id = *(u32 *)(SLOT_LOAD(u8 *, (item + 0xC0)) + 0x24);
-                params.pos = *(Vector4 *)(thing + 0x40);
-                params.row.z = 0.0f;
-                params.row.y = 0.0f;
-                params.row.x = 0.0f;
-                params.quat = *(Vector4 *)(thing + 0x50);
-                params.unk78 = 0.0f;
-                params.unk7C = 0.0f;
-                params.unk74 = 0;
-                params.vel = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &params);
+            if (picked && GETP(item->record)->pickupDebris != 0) {
+                params.debris = GETP(item->record)->pickupDebris;
+                params.pos = thing->pos;
+                params.vel.z = 0.0f;
+                params.vel.y = 0.0f;
+                params.vel.x = 0.0f;
+                params.quat = *(Vector4 *)&thing->quat;
+                params.unk48 = 0.0f;
+                params.unk4C = 0.0f;
+                params.owner = 0;
+                params.angVel = g_zeroVector;
+                ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
             }
             return;
         }
     }
 }
 
-void Thing_ProcessEndEvent(u8 *thing, u8 *event, u8 *collision, Vector4 *vel) {
+/* A thing's end (destroyed, expired): spawn one of the event's debris
+ * effects at random, credited to whoever caused it. `event` is the thing's
+ * physical properties (CarACollider.numEndFx / endFx). */
+void Thing_ProcessEndEvent(Thing *thing, CarACollider *event, CollisionInfo *collision, Vector4 *angVel) {
     extern Vector4 g_zeroVector;
-    struct {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 origin;
-        Vector4 vel;
-        PTR32(void) data;
-        s32 owner;
-        f32 a;
-        f32 b;
-    } params __attribute__((aligned(16)));
+    DebrisParams params __attribute__((aligned(16)));
     void *data;
-    u8 *other;
+    Thing *other;
 
     data = NULL;
-    if (event != NULL && *(u32 *)(event + 0x34) != 0) {
-        data = SLOT_LOAD(void *, (u32 *)SLOT_LOAD(void *, (event + 0x38)) + (RandomAdd_s32(0, *(u32 *)(event + 0x34))));
+    if (event != NULL && event->numEndFx != 0) {
+        data = PTR(GETP(event->endFx)[RandomAdd_s32(0, event->numEndFx)]);
     }
     if (data != NULL) {
-        SETP(params.data, data);
-        params.pos = *(Vector4 *)(thing + 0x40);
-        params.quat = *(Vector4 *)(thing + 0x50);
-        params.origin = *(Vector4 *)(thing + 0x0);
-        params.owner = *(s32 *)(thing + 0x94);
-        params.a = 0.0f;
-        params.b = 0.0f;
-        if (vel != NULL) {
-            params.vel = *vel;
+        params.debris = HND(data);
+        params.pos = thing->pos;
+        params.quat = *(Vector4 *)&thing->quat;
+        params.vel = thing->vel;
+        params.owner = thing->player.h;
+        params.unk48 = 0.0f;
+        params.unk4C = 0.0f;
+        if (angVel != NULL) {
+            params.angVel = *angVel;
         } else {
-            params.vel = g_zeroVector;
+            params.angVel = g_zeroVector;
         }
         if (collision != NULL) {
-            other = SLOT_LOAD(u8 *, (collision + 0x20));
+            other = (Thing *)PTR(collision->thingA);
             if (other != NULL && other != thing) {
-                params.owner = *(s32 *)(other + 0x94);
+                params.owner = other->player.h;
             } else {
-                other = SLOT_LOAD(u8 *, (collision + 0x24));
+                other = (Thing *)PTR(collision->thingB);
                 if (other != NULL && other != thing) {
-                    params.owner = *(s32 *)(other + 0x94);
+                    params.owner = other->player.h;
                 }
             }
         }
-        ThingManager_DARYL_CreateThing(1, &params);
+        ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
     }
 }
 
@@ -1300,8 +1249,8 @@ f32 Thing_CollideWithRay(void *thing, Vector4 *start, Vector4 *dir, void *hit, f
     return maxDist;
 }
 
-void Thing_GetTargetPos(void *thing, Quaternion *pos) {
-    *pos = *(Quaternion *)((u8 *)thing + 0x40);
+void Thing_GetTargetPos(Thing *thing, Quaternion *pos) {
+    *pos = *(Quaternion *)&thing->pos;
 }
 
 /* No collision box (vtable 0x40): callers read a pointer. */
@@ -1310,16 +1259,17 @@ void *Thing_GetOrientedCollision(void *thing) {
     return NULL;
 }
 
-s32 Thing_HitsTerrain(void *thing, void *arg1, void *arg2) {
-
+/* Sweep the thing against the terrain along its velocity (arg1: time, arg2:
+ * CollisionInfo out). */
+s32 Thing_HitsTerrain(Thing *thing, void *arg1, void *arg2) {
     if (GETP(g_worldData.world) == NULL) {
         return 0;
     }
-    switch (M2C_FIELD(thing, s16 *, 0x80)) {
-    case 3:
-        return RayHitsTerrain_Aux3((u8 *)thing + 0x40, thing, arg1, arg2);
-    case 1:
-        return OBoxHitsTerrain(((void * (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 0x40))(thing), thing, arg1, arg2);
+    switch (thing->collisionType) {
+    case THING_COLLIDE_RAY:
+        return RayHitsTerrain_Aux3(&thing->pos, &thing->vel, arg1, arg2);
+    case THING_COLLIDE_OBOX:
+        return OBoxHitsTerrain(THING_VFN(thing, THING_V_GET_ORIENTED_COLLISION, void *(*)(void *))(thing), &thing->vel, arg1, arg2);
     }
     return 0;
 }
@@ -1328,13 +1278,14 @@ void Thing_PassiveTargeting(void *thing)
 {
 }
 
-u32 CollisionInfo_GetOther(void *arg0, u32 arg1) {
-    u32 temp_r0;
+/* The party of the contact that isn't `self` (Thing handles). */
+u32 CollisionInfo_GetOther(CollisionInfo *info, u32 self) {
+    u32 a;
 
-    temp_r0 = M2C_FIELD(arg0, u32 *, 0x20);
-    if (temp_r0 == arg1) {
-        return M2C_FIELD(arg0, u32 *, 0x24);
+    a = info->thingA;
+    if (a == self) {
+        return info->thingB;
     }
-    return temp_r0;
+    return a;
 }
 

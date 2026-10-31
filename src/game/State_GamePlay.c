@@ -1,114 +1,12 @@
+/* The race / mission state: sets up the world's things, players and
+ * cameras, runs the game processes, the pause menu and the attract demo. */
 #include "common.h"
 #include "CarA.h"
+#include "World.h"
+#include "AI.h"
+#include "ThingManager.h"
 
 
-typedef struct GPAIScripts {
-    u8 pad0[0x90];
-    u32 scripts[4];         /* 0x90 one per difficulty */
-} GPAIScripts;
-
-typedef struct GPItemInfo {
-    u8 pad0[0x20];
-    s32 count;              /* 0x20 */
-} GPItemInfo;
-
-typedef struct GPItem {
-    u8 pad0[0x30];
-    PTR32(GPItemInfo) info; /* 0x30 */
-} GPItem;
-
-/* A car placed in the world (World_GetTileCar), 0x60 bytes. */
-typedef struct GPTileCar {
-    Vector4 pos;            /* 0x00 */
-    f32 rotX;               /* 0x10 */
-    f32 rotY;               /* 0x14 */
-    f32 rotZ;               /* 0x18 */
-    u8 pad1C[8];
-    PTR32(GPAIScripts) aiScripts; /* 0x24 */
-    PTR32(CarA) creature;         /* 0x28 */
-    u32 mode;               /* 0x2C */
-    u32 vehicle;            /* 0x30 */
-    u8 unk34;               /* 0x34 */
-    u8 port;                /* 0x35 1-4: human player slot */
-    u8 pad36[2];
-    f32 nearDist;           /* 0x38 */
-    f32 farDist;            /* 0x3C */
-    u32 scripts[4];         /* 0x40 one per difficulty */
-    u8 pad50[4];
-    PTR32(GPItem) item;           /* 0x54 */
-    u8 pad58[7];
-    u8 unk5F;               /* 0x5F */
-} GPTileCar;
-
-typedef struct GPWorldInfo {
-    u8 pad0[0x7C];
-    u32 radarBlip;          /* 0x7C */
-    u8 pad80[8];
-    u32 lightTexture;       /* 0x88 */
-    u8 pad8C[0x14];
-    PTR32(void) vehiclePackList;  /* 0xA0 */
-    PTR32(void) packList;         /* 0xA4 */
-} GPWorldInfo;
-
-typedef struct GPWorld {
-    PTR32(u8) grid;               /* 0x00 */
-    u8 pad4[4];
-    u32 numTileCars;        /* 0x08 */
-    PTR32(GPTileCar) tileCars;    /* 0x0C */
-    u8 pad10[0x68];
-    PTR32(void) nav;              /* 0x78 */
-    u8 pad7C[0x20];
-    PTR32(GPWorldInfo) info;      /* 0x9C */
-} GPWorld;
-
-typedef struct GPCreatureParams {
-    Vector4 pos;            /* 0x00 */
-    Vector4 quat;           /* 0x10 */
-    Vector4 vel;            /* 0x20 */
-    PTR32(GPAIScripts) aiScripts; /* 0x30 */
-    u8 pad34[8];
-    PTR32(void) player;           /* 0x3C */
-} GPCreatureParams;
-
-typedef struct GPAIPlayerDesc {
-    u32 script;
-    f32 nearSq;
-    f32 farSq;
-    u8 unkC;
-    u8 unkD;
-} GPAIPlayerDesc;
-
-typedef struct GPSpeakerSound {
-    u8 type;                /* 0x00 */
-    u8 pad1[7];
-    u8 unk8[4];             /* 0x08 */
-    u8 unkC[8];             /* 0x0C */
-    s32 unk14;              /* 0x14 */
-    PTR32(u8) unk18;              /* 0x18 */
-} GPSpeakerSound;
-
-typedef struct GPTileSpeaker {
-    Vector4 pos;            /* 0x00 */
-    u8 pad10[4];
-    PTR32(GPSpeakerSound) sound;  /* 0x14 */
-    u8 pad18[4];
-    u32 mode;               /* 0x1C */
-    u8 pad20[0xC];
-    u32 emitter;            /* 0x2C */
-} GPTileSpeaker;
-
-typedef struct GPTilePath {
-    u8 pad0[4];
-    u32 unk4;               /* 0x04 */
-    f32 unk8;               /* 0x08 */
-    u32 unkC;               /* 0x0C */
-    PTR32(CarA) thing;            /* 0x10 */
-    u32 unk14;              /* 0x14 */
-    u8 pad18;
-    u8 hasSpeed;            /* 0x19 */
-    u8 pad1A[2];
-    f32 speed;              /* 0x1C */
-} GPTilePath;
 
 
 void ExitStateGamePlay(s32 arg0) {
@@ -131,30 +29,12 @@ s32 StateGamePlay_Init(void) {
     extern s32 g_DemoModeSwitchVehicleTime;
     extern Vector4 g_zeroVector;
     static s32 countAI;
-    struct {
-        Vector4 pos;
-        Vector4 vel;
-        Vector4 angVel;
-        f32 scale[3];
-        f32 unk3C;
-        u32 unk40;
-        u8 pad44[4];
-        f32 speed;
-        u32 unk4C;
-        u32 unk50;
-        f32 unk54;
-        u8 pad58[4];
-        u32 unk5C;
-    } pathParams;
-    GPCreatureParams params;
+    DestructibleParams pathParams;
+    CarAParams params;
     Matrix4 mtx;
-    struct {
-        Vector4 pos;
-        u32 emitter;
-        u8 unk14;
-    } speakerParams __attribute__((aligned(16)));
+    SoundSeqParams speakerParams __attribute__((aligned(16)));
     u32 action[3];
-    GPAIPlayerDesc desc;
+    AIPlayerParams desc;
     u32 speakerAction[3];
     u32 airAction[3];
     s32 viewOf[4];
@@ -207,14 +87,14 @@ s32 StateGamePlay_Init(void) {
     VertexColorSeqManager_Init();
     VolumeManager_Initialize();
     LightManager_Initialize();
-    Grid_Init(GETP(((GPWorld *)GETP(g_worldData.world))->grid), GETP(((GPWorld *)GETP(g_worldData.world))->grid) + 0x10, 0x10, 0x10);
-    NavHolder_Init(GETP(((GPWorld *)GETP(g_worldData.world))->nav));
-    LightHolder_SetTexture(GETP(((GPWorld *)GETP(g_worldData.world))->info)->lightTexture);
-    InterfaceManager_SetRadarBlip(GETP(((GPWorld *)GETP(g_worldData.world))->info)->radarBlip);
+    Grid_Init(&GETP(((World *)GETP(g_worldData.world))->collision)->min, &GETP(((World *)GETP(g_worldData.world))->collision)->max, 0x10, 0x10);
+    NavHolder_Init(GETP(((World *)GETP(g_worldData.world))->nav));
+    LightHolder_SetTexture(GETP(((World *)GETP(g_worldData.world))->gameData)->lightTexture);
+    InterfaceManager_SetRadarBlip(GETP(((World *)GETP(g_worldData.world))->gameData)->radarBlip);
     GameSettings_RestoreGameData();
     ThingManager_DARYL_CreateThing(0xB, NULL);
     {
-        GPTileCar *car;
+        TileCar *car;
         Player *player;
 
         i = 0;
@@ -223,7 +103,7 @@ s32 StateGamePlay_Init(void) {
                 params.pos = car->pos;
                 params.pos.y += 10.0f;
                 SETP(params.player, NULL);
-                SETP(params.aiScripts, GETP(car->aiScripts));
+                SETP(params.info, GETP(car->info));
                 params.vel = g_zeroVector;
                 if (car->port <= 4) {
                     car->unk34 = 0;
@@ -246,25 +126,25 @@ s32 StateGamePlay_Init(void) {
                             Player_SetName(player, 4, "Player 4");
                         }
                         humanUsed[car->port - 1] = 1;
-                        SETP(car->creature, ThingManager_DARYL_CreateThing(9, &params));
-                        Player_SetThing(player, GETP(car->creature));
-                        SETP(GETP(car->creature)->tileData, car);
+                        SETP(car->car, ThingManager_DARYL_CreateThing(9, &params));
+                        Player_SetThing(player, GETP(car->car));
+                        SETP(GETP(car->car)->base.trigger, car);
                         SETP(player->tileCar, car);
                         if (GameSettings_GetGameType() == 0 && script == 3 && GameSettings_IsCheatEnabled(8)) {
                             script = 0x4D;
                         }
                         if (script != 0xFFFFFFFF) {
-                            GPItem *item;
+                            ItemRecord *item;
 
                             item = DataPack_GetScript(
                                 FileStreaming_InitializeDataPack(
-                                    FileStreaming_LoadDataPack(GETP(GETP(((GPWorld *)GETP(g_worldData.world))->info)->packList), 2, script, 0), 2, 1),
+                                    FileStreaming_LoadDataPack(GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->itemPack), 2, script, 0), 2, 1),
                                 script);
                             if (item != NULL) {
-                                void *rack = ThingManagerList_GetByType((u8 *)GETP(car->creature) + 0x344, 8);
+                                void *rack = ThingManagerList_GetByType(&GETP(car->car)->motionState.slaves, THING_TYPE_WILDCARD_RACK);
 
                                 WildCardRack_JettisonAll(rack);
-                                WildCardRack_Add(rack, item, GETP(item->info)->count);
+                                WildCardRack_Add(rack, item, GETP(item->weapon)->ammo);
                             }
                         }
                     }
@@ -277,42 +157,42 @@ s32 StateGamePlay_Init(void) {
                     if (difficulty == 0) {
                         if (car->scripts[0] != 0) {
                             script = car->scripts[0];
-                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                            script = GETP(params.aiScripts)->scripts[0];
+                        } else if (GETP(params.info)->aiScripts[0] != 0) {
+                            script = GETP(params.info)->aiScripts[0];
                         }
                     } else if (difficulty == 1) {
                         if (car->scripts[1] != 0) {
                             script = car->scripts[1];
-                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                            script = GETP(params.aiScripts)->scripts[1];
+                        } else if (GETP(params.info)->aiScripts[0] != 0) {
+                            script = GETP(params.info)->aiScripts[1];
                         }
                     } else if (difficulty == 2) {
                         if (car->scripts[2] != 0) {
                             script = car->scripts[2];
-                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                            script = GETP(params.aiScripts)->scripts[2];
+                        } else if (GETP(params.info)->aiScripts[0] != 0) {
+                            script = GETP(params.info)->aiScripts[2];
                         }
                     } else if (difficulty == 3) {
                         if (car->scripts[3] != 0) {
                             script = car->scripts[3];
-                        } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                            script = GETP(params.aiScripts)->scripts[3];
+                        } else if (GETP(params.info)->aiScripts[0] != 0) {
+                            script = GETP(params.info)->aiScripts[3];
                         }
                     }
                     if (script == 0) {
-                        if (GETP(params.aiScripts)->scripts[0] != 0) {
-                            script = GETP(params.aiScripts)->scripts[0];
-                        } else if (GETP(params.aiScripts)->scripts[1] != 0) {
-                            script = GETP(params.aiScripts)->scripts[1];
-                        } else if (GETP(params.aiScripts)->scripts[2] != 0) {
-                            script = GETP(params.aiScripts)->scripts[2];
+                        if (GETP(params.info)->aiScripts[0] != 0) {
+                            script = GETP(params.info)->aiScripts[0];
+                        } else if (GETP(params.info)->aiScripts[1] != 0) {
+                            script = GETP(params.info)->aiScripts[1];
+                        } else if (GETP(params.info)->aiScripts[2] != 0) {
+                            script = GETP(params.info)->aiScripts[2];
                         } else {
-                            script = GETP(params.aiScripts)->scripts[3];
+                            script = GETP(params.info)->aiScripts[3];
                         }
                     }
                     desc.script = script;
-                    desc.unkD = 0;
-                    desc.unkC = car->unk34;
+                    desc.kind = 0;   /* AI car */
+                    desc.dynamic = car->unk34;
                     desc.nearSq = car->nearDist * car->nearDist;
                     desc.farSq = car->farDist * car->farDist;
                     aiPlayer = PlayerManager_NewAIPlayer(&desc);
@@ -320,18 +200,18 @@ s32 StateGamePlay_Init(void) {
                         i++;
                         continue;
                     }
-                    SETP(aiPlayer->aiScripts, GETP(params.aiScripts));
+                    SETP(aiPlayer->aiScripts, GETP(params.info));
                     sprintf(name, "AI %d", countAI++);
                     Player_SetName(aiPlayer, -1, name);
-                    SETP(car->creature, ThingManager_DARYL_CreateThing(9, &params));
-                    Player_SetThing(aiPlayer, GETP(car->creature));
-                    SETP(GETP(car->creature)->tileData, car);
+                    SETP(car->car, ThingManager_DARYL_CreateThing(9, &params));
+                    Player_SetThing(aiPlayer, GETP(car->car));
+                    SETP(GETP(car->car)->base.trigger, car);
                     SETP(aiPlayer->tileCar, car);
                     if (GETP(car->item) != NULL) {
-                        void *rack = ThingManagerList_GetByType((u8 *)GETP(car->creature) + 0x344, 8);
+                        void *rack = ThingManagerList_GetByType(&GETP(car->car)->motionState.slaves, THING_TYPE_WILDCARD_RACK);
 
                         WildCardRack_JettisonAll(rack);
-                        WildCardRack_Add(rack, GETP(car->item), GETP(GETP(car->item)->info)->count);
+                        WildCardRack_Add(rack, GETP(car->item), GETP(GETP(car->item)->weapon)->ammo);
                     }
                 }
                 action[0] = car->mode;
@@ -344,19 +224,19 @@ s32 StateGamePlay_Init(void) {
     }
     {
         u32 j;
-        GPTileSpeaker *speaker;
+        TileSpeaker *speaker;
         s32 source;
 
         j = 0;
         while ((speaker = World_GetTileSpeaker(j)) != NULL) {
             source = SoundManager_CreateSource(1);
-            soundId = GETP(speaker->sound)->unk14;
+            soundId = GETP(speaker->sound)->sound;
             SoundSource_Set(source, 8, &soundId);
             SoundSource_Set(source, 5, speaker);
             switch (GETP(speaker->sound)->type) {
             case 0:
-                SoundSource_Set(source, 2, GETP(GETP(speaker->sound)->unk18));
-                SoundSource_Set(source, 3, GETP(GETP(speaker->sound)->unk18) + 4);
+                SoundSource_Set(source, 2, GETP(GETP(speaker->sound)->range));
+                SoundSource_Set(source, 3, GETP(GETP(speaker->sound)->range) + 1);
                 SoundSource_Set(source, 0, GETP(speaker->sound)->unk8);
                 break;
             }
@@ -366,59 +246,60 @@ s32 StateGamePlay_Init(void) {
             speakerAction[1] = 1;
             speakerAction[2] = (u32)HND(speaker);
             ActionSpeakerChangeMode();
-            if (speaker->emitter != 0) {
-                speakerParams.unk14 = 0;
+            if (speaker->soundSeq != 0) {
+                speakerParams.flag = 0;
                 speakerParams.pos = speaker->pos;
-                speakerParams.emitter = speaker->emitter;
-                ThingManager_DARYL_CreateThing(0x10, &speakerParams);
+                SETP(speakerParams.seq, PTR(speaker->soundSeq));
+                ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, &speakerParams);
             }
             j++;
         }
     }
     {
-        u8 *light;
+        TileLight *light;
 
         i = 0;
         while ((light = World_GetTileLight(i)) != NULL) {
-            LightHolder_Add(SLOT_LOAD(void *, (light + 0x10)), light, 0);
+            LightHolder_Add(GETP(light->desc), light, 0);
             i++;
         }
     }
     {
-        GPTilePath *path;
+        TilePath *path;
 
         i = 0;
         while ((path = World_GetTilePath(i)) != NULL) {
-            if (path->unk14 == 0) {
+            if (path->enabled == 0) {
                 i++;
                 continue;
             }
             pathParams.unk4C = 0;
-            pathParams.unk50 = 1;
+            pathParams.moveType = 1;   /* a mover */
             pathParams.pos.x = 0.0f;
             pathParams.pos.y = 0.0f;
             pathParams.pos.z = 0.0f;
-            pathParams.unk40 = path->unkC;
-            pathParams.speed = path->hasSpeed ? path->speed : 0.0f;
-            pathParams.unk3C = 1.0f;
-            pathParams.scale[0] = 0.0f;
-            pathParams.scale[1] = 0.0f;
-            pathParams.scale[2] = 0.0f;
+            pathParams.record.h = path->record;
+            pathParams.drawDist = path->hasDrawDist ? path->drawDist : 0.0f;
+            pathParams.quat.w = 1.0f;
+            pathParams.quat.x = 0.0f;
+            pathParams.quat.y = 0.0f;
+            pathParams.quat.z = 0.0f;
             pathParams.angVel = g_zeroVector;
             pathParams.vel = g_zeroVector;
-            pathParams.unk5C = path->unk4;
-            pathParams.unk54 = path->unk8;
-            SETP(path->thing, ThingManager_DARYL_CreateThing(0xA, &pathParams));
-            SETP(GETP(path->thing)->tileData, path);
+            pathParams.anim.h = path->anim;
+            pathParams.speed = path->speed;
+            SETP(path->thing, ThingManager_DARYL_CreateThing(THING_TYPE_PHYSICAL_OBJECT, &pathParams));
+            SETP(GETP(path->thing)->trigger, path);
             i++;
         }
     }
     {
-        u8 *volume;
+        WorldVolume *volume;
 
         i = 0;
+        /* re-apply every airbox's mode */
         while ((volume = World_GetVolume(i)) != NULL) {
-            airAction[0] = *(u32 *)(volume + 4);
+            airAction[0] = volume->enabled;
             airAction[1] = 1;
             airAction[2] = (u32)HND(volume);
             ActionAirboxChangeMode(airAction);
@@ -426,12 +307,13 @@ s32 StateGamePlay_Init(void) {
         }
     }
     {
-        u8 *nav = World_GetNavHolder();
+        NavData *nav = World_GetNavHolder();
 
-        for (i = 0; i < *(u32 *)(nav + 4); i += 2) {
-            airAction[0] = (SLOT_LOAD(u8 *, nav))[i * 0x60 + 0x50];
+        /* sic: every other nav point */
+        for (i = 0; i < nav->numNodes; i += 2) {
+            airAction[0] = GETP(nav->nodes)[i].enabled;
             airAction[1] = 1;
-            airAction[2] = (u32)HND((SLOT_LOAD(u8 *, nav) + i * 0x60));
+            airAction[2] = (u32)HND(&GETP(nav->nodes)[i]);
             ActionNavPointChangeMode(airAction);
         }
     }
@@ -492,18 +374,18 @@ s32 StateGamePlay_Init(void) {
         }
     } else {
         u32 n;
-        void *mcp;
+        MCP *mcp;
         Player *player;
         void **camera;
 
         n = 0;
         mcp = GameSettings_GetMCP();
-        for (i = 0; i < ((GPWorld *)GETP(g_worldData.world))->numTileCars; i++) {
-            if (GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].aiScripts) != NULL &&
-                GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].port <= 4 &&
-                GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].creature) != NULL) {
+        for (i = 0; i < ((World *)GETP(g_worldData.world))->numTileCars; i++) {
+            if (GETP(GETP(((World *)GETP(g_worldData.world))->tileCars)[i].aiScripts) != NULL &&
+                GETP(((World *)GETP(g_worldData.world))->tileCars)[i].port <= 4 &&
+                GETP(GETP(((World *)GETP(g_worldData.world))->tileCars)[i].car) != NULL) {
                 viewIdx[n] = n;
-                players[n] = GETP(GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].creature)->player);
+                players[n] = GETP(GETP(GETP(((World *)GETP(g_worldData.world))->tileCars)[i].car)->base.player);
                 n++;
             }
         }
@@ -545,7 +427,7 @@ s32 StateGamePlay_Init(void) {
             Player_RefreshInterface(players[i]);
         }
         if (mcp != NULL) {
-            g_DemoModeCounter = *(u32 *)(SLOT_LOAD(u8 *, ((u8 *)mcp + 0x24)) + 4);
+            g_DemoModeCounter = GETP(mcp->demo)->time;
         } else {
             g_DemoModeCounter = 60;
         }
@@ -639,13 +521,13 @@ s32 StateGamePlay_Heartbeat(void) {
         {
             u32 i;
             u32 count;
-            void *player;
+            Player *player;
 
             count = PlayerManager_PlayerHumanCount();
             for (i = 0; i < count; i++) {
                 player = PlayerManager_GetHumanPlayerByIndex(i);
-                if (Input_KeyPress(M2C_FIELD(player, u32 *, 0xC8), 0)) {
-                    input = M2C_FIELD(player, u32 *, 0xC8);
+                if (Input_KeyPress(player->device, 0)) {
+                    input = player->device;
                     pressed = 1;
                     break;
                 }
@@ -665,19 +547,19 @@ s32 StateGamePlay_Heartbeat(void) {
             removed = 1;
         }
         if (pressed && GameSettings_GetCodeVariable(0x19B, 0)) {
-            if (g_pauseState == 0 && SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC) != NULL) {
+            if (g_pauseState == 0 && GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface) != NULL) {
                 g_pauseState = 1;
                 StateGamePlay_Pause(1);
                 g_bFreezeWorld = 1;
                 bControllerRemoved = removed;
-                pauseInterfaceID = InterfaceManager_Create(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC), 0, GamePlay_Interface);
+                pauseInterfaceID = InterfaceManager_Create(GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface), 0, GamePlay_Interface);
                 InterfaceManager_SetInput(pauseInterfaceID, input);
                 GameSettings_SetCodeVariable(0xD5, 0, input + 1);
-            } else if (SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC) != NULL && removed && !bControllerRemoved) {
+            } else if (GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface) != NULL && removed && !bControllerRemoved) {
                 s32 oldInput = GameSettings_GetCodeVariable(0xD5, 0) - 1;
                 bControllerRemoved = removed;
                 InterfaceManager_ReleaseAllUnpausedInterfaces();
-                pauseInterfaceID = InterfaceManager_Create(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0x9C)) + 0xCC), 0, GamePlay_Interface);
+                pauseInterfaceID = InterfaceManager_Create(GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface), 0, GamePlay_Interface);
                 InterfaceManager_SetInput(pauseInterfaceID, oldInput);
             }
             Wheel_PlayAllAirborne();
@@ -712,16 +594,16 @@ s32 StateGamePlay_Heartbeat(void) {
             }
             player = PlayerManager_GetPlayerByIndex(g_DemoModeCurrentPlayer);
             camera = CameraManager_GetCameraByIndex(0);
-            if (GETP(camera->player) != NULL && M2C_FIELD(GETP(camera->player), u32 *, 0x68) < 0xFFFFFFFF) {
-                InterfaceManager_ReleaseInterface(M2C_FIELD(GETP(camera->player), u32 *, 0x68));
-                M2C_FIELD(GETP(camera->player), u32 *, 0x68) = 0xFFFFFFFF;
+            if (GETP(camera->player) != NULL && GETP(camera->player)->interfaceIndex < 0xFFFFFFFF) {
+                InterfaceManager_ReleaseInterface(GETP(camera->player)->interfaceIndex);
+                GETP(camera->player)->interfaceIndex = 0xFFFFFFFF;
             }
             Camera_SetPlayer(camera, player);
         }
         if (g_DemoModeCounter < g_DemoModeSwitchCameraTime) {
             u32 i;
             u32 count;
-            u8 *player;
+            Player *player;
 
             g_DemoModeSwitchCameraTime = g_DemoModeCounter - 10000;
             if (g_DemoModeSwitchCameraTime < 0) {
@@ -730,7 +612,7 @@ s32 StateGamePlay_Heartbeat(void) {
             count = PlayerManager_PlayerCount();
             for (i = 0; i < count; i++) {
                 player = PlayerManager_GetPlayerByIndex(i);
-                player[0x31] = cameraIndex++;
+                player->cameraIndex = cameraIndex++;
             }
         }
         if (g_DemoModeCounter == 0) {
@@ -836,7 +718,7 @@ extern GPInterfaceHandler g_handleInterfaceGP;
 
 void GamePlay_Interface(void *msg) {
 
-    switch (M2C_FIELD(msg, u16 *, 4)) {
+    switch (((InterfaceMsg *)msg)->type) {
     case 3:
         GamePlay_Startup();
         if (GETP(g_handleInterfaceGP.handleInput) != NULL) {
@@ -932,8 +814,8 @@ s32 ActionPauseGame(u32 *action) {
     extern s32 g_gamePlayCallback;
     extern u8 g_bFreezeWorld;
     ControllerSettings *settings;
-    u8 *mcp;
-    u8 *player;
+    MCP *mcp;
+    Player *player;
     u32 count;
     u32 i;
 
@@ -956,16 +838,16 @@ s32 ActionPauseGame(u32 *action) {
         count = PlayerManager_PlayerHumanCount();
         for (i = 0; i < count; i++) {
             player = PlayerManager_GetHumanPlayerByIndex(i);
-            settings = GameSettings_GetControllerSettings(*(s32 *)(player + 0x60));
-            if (mcp != NULL && *(u32 *)(mcp + 0x3C) != 0) {
-                if (settings->data[1] >= *(u32 *)(mcp + 0x3C)) {
+            settings = GameSettings_GetControllerSettings(player->port);
+            if (mcp != NULL && mcp->numBindings != 0) {
+                if (settings->data[1] >= mcp->numBindings) {
                     settings->data[1] = 0;
                 }
-                PlayerHuman_SetControlBinding(player, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (mcp + 0x40)) + settings->data[1])) + 0x8)));
+                PlayerHuman_SetControlBinding(player, GETP(MCP_BINDING(mcp, settings->data[1])->keys));
             } else {
                 PlayerHuman_SetDefaultControls(player, settings->data[1]);
             }
-            Input_SetForceFeedbackActive(*(s32 *)(player + 0xC8), settings->data[0]);
+            Input_SetForceFeedbackActive(player->device, settings->data[0]);
         }
     }
     return 1;
@@ -1044,21 +926,21 @@ void InterfaceHasEnded(u32 handle) {
 
 void InterfaceDataPackRouter(void *arg0) {
 
-    switch (M2C_FIELD(arg0, u16 *, 6)) {
+    switch (((InterfaceMsg *)arg0)->sub) {
     case 0:
-        InterfaceManager_SetCallBackRoutine(M2C_FIELD(arg0, s32 *, 0), NULL);
+        InterfaceManager_SetCallBackRoutine(((InterfaceMsg *)arg0)->iface, NULL);
         break;
     case 1:
         break;
     case 2:
         if (GameSettings_GetGameType() == 0) {
             GSI_VehicleItemSelection(arg0);
-            InterfaceManager_SetCallBackRoutine(M2C_FIELD(arg0, s32 *, 0), GSI_VehicleItemSelection);
+            InterfaceManager_SetCallBackRoutine(((InterfaceMsg *)arg0)->iface, GSI_VehicleItemSelection);
         } else if (GameSettings_GetGameType() == 1) {
             ArmageddonDropShip(arg0);
-            InterfaceManager_SetCallBackRoutine(M2C_FIELD(arg0, s32 *, 0), ArmageddonDropShip);
+            InterfaceManager_SetCallBackRoutine(((InterfaceMsg *)arg0)->iface, ArmageddonDropShip);
         } else {
-            InterfaceManager_SetCallBackRoutine(M2C_FIELD(arg0, s32 *, 0), NULL);
+            InterfaceManager_SetCallBackRoutine(((InterfaceMsg *)arg0)->iface, NULL);
         }
         break;
     case 3:
@@ -1068,7 +950,7 @@ void InterfaceDataPackRouter(void *arg0) {
     case 7:
         break;
     default:
-        InterfaceManager_SetCallBackRoutine(M2C_FIELD(arg0, s32 *, 0), NULL);
+        InterfaceManager_SetCallBackRoutine(((InterfaceMsg *)arg0)->iface, NULL);
         break;
     }
 }
@@ -1098,14 +980,14 @@ void ArmageddonDropShip(void *arg0) {
     static s8 bLeftMovement;
     static s8 bRightMovement;
     static Player *pPlayer;
-    GPWorld *world;
-    GPTileCar *entry;
+    World *world;
+    TileCar *entry;
     void *list;
     DropShipData *data = arg0;
     u32 i;
     f32 lr;
 
-    world = (GPWorld *)GETP(g_worldData.world);
+    world = (World *)GETP(g_worldData.world);
     entry = NULL;
     for (i = 0; i < world->numTileCars; i++) {
         if (GETP(world->tileCars)[i].port == 1) {
@@ -1130,7 +1012,7 @@ void ArmageddonDropShip(void *arg0) {
         u32 id;
         PackData *pack;
 
-        list = GETP(GETP(world->info)->vehiclePackList);
+        list = GETP(GETP(world->gameData)->vehiclePackList);
         g_pauseState = 1;
         g_bRenderWorld = 0;
         StateGamePlay_Pause(1);
@@ -1138,7 +1020,7 @@ void ArmageddonDropShip(void *arg0) {
         InterfaceManager_PauseInterface(0, data->index);
         InterfaceManager_SetInfoCallBackRoutine(data->index, ArmageddonDropShipInfo);
         InterfaceInputAnimator_Initialize();
-        pPlayer = GETP(GETP(entry->creature)->player);
+        pPlayer = GETP(GETP(entry->car)->base.player);
         forward.x = 0.0f;
         forward.y = 0.0f;
         forward.z = 1.0f;
@@ -1149,9 +1031,9 @@ void ArmageddonDropShip(void *arg0) {
         right.y = 0.0f;
         right.z = 0.0f;
         camera = CameraManager_GetCameraFromPlayer(pPlayer);
-        *(Vector4 *)(camera + 0x80) = forward;
-        *(Vector4 *)(camera + 0x90) = up;
-        *(Vector4 *)(camera + 0xA0) = right;
+        ((Camera *)camera)->dir = forward;
+        ((Camera *)camera)->up = up;
+        ((Camera *)camera)->right = right;
         maxCount = -1.0f;
         minCount = -1.0f;
         bReady = 0;
@@ -1279,7 +1161,7 @@ void ArmageddonDropShip(void *arg0) {
             }
             break;
         case 5:
-            list = GETP(GETP(world->info)->vehiclePackList);
+            list = GETP(GETP(world->gameData)->vehiclePackList);
             if (bReady && !bWaitingForCamera) {
                 lr = InterfaceInputAnimator_GetLRCounter();
                 if ((maxCount == -1.0f || lr == maxCount) && (minCount == -1.0f || lr == minCount)) {
@@ -1294,7 +1176,7 @@ void ArmageddonDropShip(void *arg0) {
                                 WaitingButton = 5;
                                 bWaitingForCamera = 1;
                             } else {
-                                GPCreatureParams params;
+                                CarAParams params;
                                 u32 hud[3];
                                 void *dp;
 
@@ -1307,12 +1189,12 @@ void ArmageddonDropShip(void *arg0) {
                                 params.quat.z = 0.0f;
                                 params.quat.y = 0.0f;
                                 params.quat.x = 0.0f;
-                                SETP(params.aiScripts, (GPAIScripts *)DataPack_GetScript(dp, vehicleSelectIndex));
+                                SETP(params.info, (CarAInfo *)DataPack_GetScript(dp, vehicleSelectIndex));
                                 params.vel.x = 0.0f;
                                 params.vel.y = 0.0f;
                                 params.vel.z = 0.0f;
-                                SETP(entry->creature, ThingManager_DARYL_CreateThing(9, &params));
-                                Player_SetThing(pPlayer, GETP(entry->creature));
+                                SETP(entry->car, ThingManager_DARYL_CreateThing(9, &params));
+                                Player_SetThing(pPlayer, GETP(entry->car));
                                 hud[0] = 1;
                                 hud[1] = 0;
                                 hud[2] = 0;

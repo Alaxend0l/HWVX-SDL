@@ -1,101 +1,95 @@
+/* Emitters: things at a fixed spot that keep spawning effects (event
+ * sequences) from their description, e.g. the effect points of the world's
+ * quadrants and teleporters. */
 #include "common.h"
-
-/* Action/EMIX data referenced by emitters and action-FX points. */
-typedef struct ActionFX {
-    u8 pad0[0x74];
-    u32 flags; /* 0x74 */
-} ActionFX;
-
-typedef struct ActionFXPoint {
-    u8 pad0[0x30];
-    PTR32(ActionFX) fx; /* 0x30 */
-    s32 mode;     /* 0x34 */
-} ActionFXPoint;
-
-typedef struct ActionFXList {
-    s32 mode;          /* 0x00 */
-    u32 pointCount;    /* 0x04 */
-    PTR32(ActionFXPoint) points[1]; /* 0x08 */
-} ActionFXList;
+#include "ThingManager.h"
+#include "World.h"
 
 extern u32 g_emitterVTable[17];  /* port: generated from the original .data (data_gen.c) */
 
-/* emitter description (EMIX data) an emitter spawns effects from */
-typedef struct EmitterData {
-    u8 unk0;
-    u8 pickMode;       /* 0x01 */
-    u8 limited;        /* 0x02 */
-    u8 pad3;
-    s32 count;         /* 0x04 */
-    s32 delayBase;     /* 0x08 */
-    s32 delayRange;    /* 0x0C */
-    f32 range;         /* 0x10 */
-    f32 speedScale;    /* 0x14 */
-    u32 fxCount;       /* 0x18 */
-    PTR32(u32) fxIds;        /* 0x1C */
-    u32 seq;           /* 0x20 */
-} EmitterData;
+/* Emitter.flags (kind-specific bits) */
+enum {
+    EMITTER_FLAG_RANGE_DIRTY = 0x10,      /* recompute the camera distance */
+    EMITTER_FLAG_DISABLED = 0x02000000,   /* ActionFXPointChangeMode */
+};
+
+/* An emitter's description (EMIX data). */
+typedef struct EmitterDesc {
+    u8 hasRange;                /* 0x00 range is valid */
+    u8 pickMode;                /* 0x01 0: fixed, 1: random, 2: in order */
+    u8 limited;                 /* 0x02 stops after `count` effects */
+    u8 pad3;                    /* 0x03 */
+    s32 count;                  /* 0x04 */
+    s32 delayBase;              /* 0x08 ms between effects: RandomAdd(base, range) */
+    s32 delayRange;             /* 0x0C */
+    f32 range;                  /* 0x10 only emits within this of a camera, 0: always */
+    f32 speedScale;             /* 0x14 moving emitters emit faster */
+    u32 fxCount;                /* 0x18 */
+    PTR32(u32) fxIds;           /* 0x1C event sequence descriptions */
+    u32 soundSeq;               /* 0x20 sound sequence started with it, 0: none */
+} EmitterDesc;
 
 typedef struct Emitter {
-    u8 pad0[0x40];     /* 0x00 world transform */
-    Vector4 pos;       /* 0x40 */
-    Vector4 quat;      /* 0x50 */
-    u8 pad60[0x14];
-    u32 flags;         /* 0x74 */
-    u8 pad78[0x14];
-    PTR32(void) vtable;      /* 0x8C */
-    PTR32(void) thingSlot;   /* 0x90 */
-    u32 thingParam1;   /* 0x94 */
-    u8 pad98[0x18];
-    PTR32(EmitterData) fx;   /* 0xB0 */
-    u32 fxId;          /* 0xB4 */
-    u32 padB8;         /* 0xB8 */
-    u32 timeToNextFx;  /* 0xBC */
-    u32 fxIndex;       /* 0xC0 */
-    s32 fxCount;       /* 0xC4 */
-    f32 range;         /* 0xC8 */
-    f32 distSq;        /* 0xCC */
+    Thing base;                 /* 0x00 trigger (0x90): the spawning entry */
+    u8 padAC[4];                /* 0xAC */
+    PTR32(EmitterDesc) desc;    /* 0xB0 */
+    u32 fxId;                   /* 0xB4 the effect it emits next */
+    u32 padB8;                  /* 0xB8 */
+    u32 timeToNextFx;           /* 0xBC ms */
+    u32 fxIndex;                /* 0xC0 */
+    s32 fxCount;                /* 0xC4 effects left (limited), 0: unlimited */
+    f32 range;                  /* 0xC8 */
+    f32 distSq;                 /* 0xCC to the nearest camera */
 } Emitter;
+
+_Static_assert(offsetof(Emitter, desc) == 0xB0, "Emitter.desc");
+_Static_assert(sizeof(Emitter) == 0xD0, "Emitter size (ThingPools.emitters)");
+
+typedef struct ActionFXList {
+    s32 mode;                   /* 0x00 0: disable, 1: enable, 2: toggle */
+    u32 pointCount;             /* 0x04 */
+    PTR32(QuadFxPoint) points[1]; /* 0x08 */
+} ActionFXList;
 
 u32 Emitter_InCameraRange(Emitter *emitter, f32 range);
 
 extern u8 g_CurrentViews;
-s32 Emitter_Init(u8 *emitter, u8 *data) {
-    struct { Vector4 pos; u32 seq; u8 flag; } params __attribute__((aligned(16)));
-    u8 *fx;
+s32 Emitter_Init(Emitter *emitter, struct EmitterParams *data) {
+    SoundSeqParams params __attribute__((aligned(16)));
+    EmitterDesc *desc;
 
-    Thing_Init(emitter, (s32)HND(data));
-    *(u32 *)(emitter + 0x74) = 0;
-    *(u16 *)(emitter + 0x80) = 0;
-    *(Vector4 *)(emitter + 0x50) = *(Vector4 *)(data + 0x10);
-    *(Vector4 *)(emitter + 0x40) = *(Vector4 *)(data + 0x0);
-    *(f32 *)(emitter + 0x4C) = 1.0f;
-    QuaternionToSubMatrix(emitter + 0x50, emitter + 0x10);
-    SLOT_STORE((emitter + 0xB0), SLOT_LOAD(u8 *, (data + 0x30)));
-    *(u32 *)(emitter + 0xBC) = 0;
-    *(u32 *)(emitter + 0x94) = *(u32 *)(data + 0x34);
-    *(f32 *)(emitter + 0xC8) = *(f32 *)(data + 0x38);
-    if (*(f32 *)(emitter + 0xC8) == 0.0f) {
-        fx = SLOT_LOAD(u8 *, (data + 0x30));
-        *(f32 *)(emitter + 0xC8) = fx[0] ? *(f32 *)(fx + 0x10) : 0.0f;
+    Thing_Init(&emitter->base, (s32)HND(data));
+    emitter->base.flags = 0;
+    emitter->base.collisionType = THING_COLLIDE_NONE;
+    emitter->base.quat = data->quat;
+    emitter->base.pos = data->pos;
+    emitter->base.pos.w = 1.0f;
+    QuaternionToSubMatrix(&emitter->base.quat, THING_MTX(&emitter->base));
+    SETP(emitter->desc, GETP(data->emitter));
+    emitter->timeToNextFx = 0;
+    emitter->base.player.h = data->owner;
+    emitter->range = data->drawDist;
+    if (emitter->range == 0.0f) {
+        desc = GETP(data->emitter);
+        emitter->range = desc->hasRange ? desc->range : 0.0f;
     }
-    fx = SLOT_LOAD(u8 *, (emitter + 0xB0));
-    if (fx[2]) {
-        *(u32 *)(emitter + 0xC4) = *(u32 *)(fx + 4);
+    desc = GETP(emitter->desc);
+    if (desc->limited) {
+        emitter->fxCount = desc->count;
     } else {
-        *(u32 *)(emitter + 0xC4) = 0;
+        emitter->fxCount = 0;
     }
-    fx = SLOT_LOAD(u8 *, (emitter + 0xB0));
-    if (!fx[1]) {
-        *(s32 *)(emitter + 0xC0) = RandomAdd_s32(0, *(s32 *)(fx + 0x18));
+    desc = GETP(emitter->desc);
+    if (!desc->pickMode) {
+        emitter->fxIndex = RandomAdd_s32(0, desc->fxCount);
     }
-    if (*(u32 *)(SLOT_LOAD(u8 *, (emitter + 0xB0)) + 0x20) != 0) {
+    if (GETP(emitter->desc)->soundSeq != 0) {
         params.flag = 0;
-        params.pos = *(Vector4 *)(emitter + 0x40);
-        params.seq = *(u32 *)(SLOT_LOAD(u8 *, (emitter + 0xB0)) + 0x20);
-        ThingManager_DARYL_CreateThing(0x10, &params);
+        params.pos = emitter->base.pos;
+        SETP(params.seq, PTR(GETP(emitter->desc)->soundSeq));
+        ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, &params);
     }
-    *(u32 *)(emitter + 0x74) |= 0x80202;
+    emitter->base.flags |= 0x80202;
     return 1;
 }
 
@@ -104,19 +98,19 @@ s32 Emitter_Move(Emitter *emitter) {
     extern Vector4 g_zeroVector;
     u32 dt;
 
-    if (emitter->flags & 0x02000000) {
+    if (emitter->base.flags & EMITTER_FLAG_DISABLED) {
         return 1;
     }
-    emitter->flags |= 0x10;
-    if (GETP(emitter->fx)->speedScale > 0.0f) {
-        dt = g_fDeltaTimeMS * (GETP(emitter->fx)->speedScale * MagnitudeVector(emitter) + 1.0f);
+    emitter->base.flags |= EMITTER_FLAG_RANGE_DIRTY;
+    if (GETP(emitter->desc)->speedScale > 0.0f) {
+        dt = g_fDeltaTimeMS * (GETP(emitter->desc)->speedScale * MagnitudeVector(&emitter->base.vel) + 1.0f);
         if (dt > 1000) {
             dt = 1000;
         }
     } else {
         dt = g_fDeltaTimeMS;
     }
-    if (GETP(emitter->fx)->fxCount != 0) {
+    if (GETP(emitter->desc)->fxCount != 0) {
         for (;;) {
             if (emitter->timeToNextFx != 0) {
                 if (dt > emitter->timeToNextFx) {
@@ -126,30 +120,30 @@ s32 Emitter_Move(Emitter *emitter) {
                     return 1;
                 }
             }
-            emitter->timeToNextFx = RandomAdd_s32(GETP(emitter->fx)->delayBase, GETP(emitter->fx)->delayRange);
-            if (GETP(emitter->fx)->fxCount != 0) {
-                if (GETP(emitter->fx)->pickMode == 1) {
-                    emitter->fxIndex = RandomAdd_s32(0, GETP(emitter->fx)->fxCount);
-                } else if (GETP(emitter->fx)->pickMode == 2) {
+            emitter->timeToNextFx = RandomAdd_s32(GETP(emitter->desc)->delayBase, GETP(emitter->desc)->delayRange);
+            if (GETP(emitter->desc)->fxCount != 0) {
+                if (GETP(emitter->desc)->pickMode == 1) {
+                    emitter->fxIndex = RandomAdd_s32(0, GETP(emitter->desc)->fxCount);
+                } else if (GETP(emitter->desc)->pickMode == 2) {
                     emitter->fxIndex++;
-                    if (emitter->fxIndex >= GETP(emitter->fx)->fxCount) {
+                    if (emitter->fxIndex >= GETP(emitter->desc)->fxCount) {
                         emitter->fxIndex = 0;
                     }
                 }
-                emitter->fxId = GETP(GETP(emitter->fx)->fxIds)[emitter->fxIndex];
+                emitter->fxId = GETP(GETP(emitter->desc)->fxIds)[emitter->fxIndex];
             }
             if (emitter->fxId != 0 && Emitter_InCameraRange(emitter, emitter->range)) {
-                struct { Vector4 pos; Vector4 quat; Vector4 row; Vector4 vel; u32 id; u32 unk54; f32 speed; f32 unk5C; } params __attribute__((aligned(16)));
+                DebrisParams params __attribute__((aligned(16)));
 
-                params.id = emitter->fxId;
-                params.pos = emitter->pos;
-                params.quat = emitter->quat;
-                params.row = *(Vector4 *)emitter->pad0;
-                params.unk54 = emitter->thingParam1;
-                params.speed = GETP(emitter->fx)->speedScale;
-                params.unk5C = 0.0f;
-                params.vel = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &params);
+                params.debris = emitter->fxId;
+                params.pos = emitter->base.pos;
+                params.quat = *(Vector4 *)&emitter->base.quat;
+                params.vel = emitter->base.vel;
+                params.owner = emitter->base.player.h;
+                params.unk48 = GETP(emitter->desc)->speedScale;
+                params.unk4C = 0.0f;
+                params.angVel = g_zeroVector;
+                ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
             }
             if (emitter->fxCount > 0) {
                 if (emitter->fxCount == 1) {
@@ -164,13 +158,14 @@ s32 Emitter_Move(Emitter *emitter) {
 }
 
 void Emitter_Release(Emitter *emitter) {
-    void *slot;
+    QuadFxPoint *slot;
 
-    if (GETP(emitter->vtable) == g_emitterVTable) {
-        slot = GETP(emitter->thingSlot);
+    if (GETP(emitter->base.vtable) == g_emitterVTable) {
+        /* detach from its spawn entry */
+        slot = GETP(emitter->base.trigger);
         if (slot != NULL) {
-            SETP(emitter->thingSlot, NULL);
-            SLOT_STORE((u32 *)(slot) + (0x0C), NULL);
+            SETP(emitter->base.trigger, NULL);
+            SETP(slot->thing, NULL);
         }
     }
     Thing_Release(emitter);
@@ -186,20 +181,20 @@ u32 Emitter_InCameraRange(Emitter *emitter, f32 range) {
     if (range == 0.0f) {
         return 1;
     }
-    if (emitter->flags & 0x10) {
+    if (emitter->base.flags & EMITTER_FLAG_RANGE_DIRTY) {
         count = Gfx_GetCameraPositions(positions);
-        emitter->distSq = PSVECSquareDistance((f32 *)&emitter->pos, (f32 *)&positions[0]);
+        emitter->distSq = PSVECSquareDistance(&emitter->base.pos, (f32 *)&positions[0]);
         if (count > 1) {
             for (i = 0, pos = positions; i < 5; i++, pos++) {
                 if (g_CurrentViews & (1 << i)) {
-                    dist = PSVECSquareDistance((f32 *)&emitter->pos, (f32 *)pos);
+                    dist = PSVECSquareDistance(&emitter->base.pos, pos);
                     if (dist < emitter->distSq) {
                         emitter->distSq = dist;
                     }
                 }
             }
         }
-        emitter->flags &= ~0x10;
+        emitter->base.flags &= ~EMITTER_FLAG_RANGE_DIRTY;
     }
     return range * range > emitter->distSq;
 }
@@ -210,28 +205,28 @@ s32 ActionFXPointChangeMode(ActionFXList *list) {
     u32 i;
 
     for (i = 0; i < count; i++) {
-        ActionFXPoint *point = GETP(list->points[i]);
-        ActionFX *fx = GETP(point->fx);
+        QuadFxPoint *point = GETP(list->points[i]);
+        Emitter *fx = (Emitter *)GETP(point->thing);
 
         switch (mode) {
         case 0:
             if (fx != NULL) {
-                fx->flags |= 0x02000000;
+                fx->base.flags |= EMITTER_FLAG_DISABLED;
             }
             break;
         case 1:
             if (fx != NULL) {
-                fx->flags &= ~0x02000000;
+                fx->base.flags &= ~EMITTER_FLAG_DISABLED;
             }
             break;
         case 2:
-            if (fx->flags & 0x02000000) {
+            if (fx->base.flags & EMITTER_FLAG_DISABLED) {
                 if (fx != NULL) {
-                    fx->flags &= ~0x02000000;
+                    fx->base.flags &= ~EMITTER_FLAG_DISABLED;
                 }
             } else {
                 if (fx != NULL) {
-                    fx->flags |= 0x02000000;
+                    fx->base.flags |= EMITTER_FLAG_DISABLED;
                 }
             }
             break;
@@ -242,7 +237,7 @@ s32 ActionFXPointChangeMode(ActionFXList *list) {
 }
 
 s32 Emitter_Invalidate(Emitter *emitter, u32 start, u32 end) {
-    if ((u32)HND(GETP(emitter->fx)) >= start && (u32)HND(GETP(emitter->fx)) < end) {
+    if (emitter->desc.h >= start && emitter->desc.h < end) {
         return 1;
     }
     return 0;

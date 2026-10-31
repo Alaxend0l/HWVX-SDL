@@ -23,7 +23,7 @@ typedef struct LightHolderLight {
     u8 unk50;
     u8 unk51[0xF];
     PTR32(LightHolderDef) def;
-    PTR32(u8) thing;
+    PTR32(Thing) thing;
     u32 unk68;
     u32 life;
     u32 unk70;
@@ -86,7 +86,7 @@ void LightHolder_Render(void) {
     f32 dist;
     GXColor color;
     LightHolderLight *light;
-    u8 *pos;
+    Vector4 *pos;
     LightHolderDef *def;
     u32 i;
 
@@ -96,9 +96,9 @@ void LightHolder_Render(void) {
         def = GETP(light->def);
         if (def != NULL) {
             if (GETP(light->thing) != NULL) {
-                pos = GETP(light->thing) + 0x40;
+                pos = &GETP(light->thing)->pos;
             } else {
-                pos = (u8 *)light;
+                pos = &light->pos;
             }
             if (def->enabled != 0) {
                 DistanceXYZ(&camera, pos, &dist);
@@ -140,7 +140,7 @@ void LightHolder_SetRenderState(void *camera) {
     extern LightHolderLight g_pLight[16];
     LightHolderLight *light;
     u32 i;
-    u8 *pos;
+    Vector4 *pos;
     LightHolderDef *def;
     GXColor color;
 
@@ -150,9 +150,9 @@ void LightHolder_SetRenderState(void *camera) {
         def = GETP(light->def);
         if (def != NULL && def->pointLight != 0) {
             if (GETP(light->thing) != NULL) {
-                pos = GETP(light->thing) + 0x40;
+                pos = &GETP(light->thing)->pos;
             } else {
-                pos = (u8 *)light;
+                pos = &light->pos;
             }
             if (CompareDistances(camera, pos, light->radius) != 1) {
                 color = light->color;

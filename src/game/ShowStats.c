@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 
@@ -17,30 +18,20 @@ typedef struct GameDataFonts {
     PTR32(DebugFontInfo) debugFont;
 } GameDataFonts;
 
-u8 g_timeBar[0x20];
-s32 g_pActiveTimeBar;
+/* Per frame timings (Release_Performance_*), two frames alternating. */
+typedef struct TimeBar {
+    u32 frame;                  /* 0x00 start of the frame to BeginScene */
+    u32 scene;                  /* 0x04 BeginScene to EndScene */
+    u32 render;                 /* 0x08 EndScene */
+    s32 sleep;                  /* 0x0C g_TripleBufferSleepQTime */
+} TimeBar;
+
+TimeBar g_timeBar[2];
+TimeBar *g_pActiveTimeBar;
 s32 g_timeBarOn;
 u32 g_debugDataFlag;
 s32 debugFont;
 u32 g_bDrawTimeBars;
-
-typedef struct TimeBarVtx {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
-    f32 s;
-    f32 t;
-    GXColor color;
-    u8 pad[4];
-} TimeBarVtx;
-
-typedef struct TimeBarRect {
-    TimeBarVtx v[4];
-    u16 tex;
-    u8 blendMode;
-    u8 window;
-} TimeBarRect;
 
 
 /* The decomp has an m2c placeholder here; the original calls ShowStats_Init (asm). */
@@ -69,40 +60,35 @@ void ShowStats_Release(void) {
 }
 
 void ShowStats_StartFrame(void) {
-    extern u8 g_timeBar[0x20];
     extern s32 g_timeBarOn;
-    extern s32 g_pActiveTimeBar;
 
     g_timeBarOn = !g_timeBarOn;
-    g_pActiveTimeBar = (s32)HND((g_timeBar + g_timeBarOn * 0x10));
+    g_pActiveTimeBar = &g_timeBar[g_timeBarOn];
     Performance_Start();
-    Release_Performance_Get(PTR(g_pActiveTimeBar));
+    Release_Performance_Get(&g_pActiveTimeBar->frame);
 }
 
 void ShowStats_BeginScene(void) {
-    extern s32 g_pActiveTimeBar;
-    Release_Performance_Diff(PTR(g_pActiveTimeBar));
-    Release_Performance_Get(PTR(g_pActiveTimeBar + 4));
+    Release_Performance_Diff(&g_pActiveTimeBar->frame);
+    Release_Performance_Get(&g_pActiveTimeBar->scene);
     Gfx_BeginScene();
 }
 
 void ShowStats_EndScene(void) {
     extern u32 g_debugDataFlag;
-    extern u8 g_timeBar[0x20];
     extern s32 g_timeBarOn;
-    extern s32 g_pActiveTimeBar;
     extern u32 g_bDrawTimeBars;
     extern s32 g_TripleBufferSleepQTime;
-    u8 *bar = g_timeBar + !g_timeBarOn * 0x10;
+    TimeBar *bar = &g_timeBar[!g_timeBarOn];
 
     if (g_debugDataFlag != 0 && g_bDrawTimeBars != 0) {
         Render_TimeBars(bar);
     }
-    Release_Performance_Diff(PTR(g_pActiveTimeBar + 4));
-    Release_Performance_Get(PTR(g_pActiveTimeBar + 8));
+    Release_Performance_Diff(&g_pActiveTimeBar->scene);
+    Release_Performance_Get(&g_pActiveTimeBar->render);
     Gfx_EndScene();
-    Release_Performance_Diff(PTR(g_pActiveTimeBar + 8));
-    M2C_FIELD(g_pActiveTimeBar, s32 *, 0xC) = g_TripleBufferSleepQTime;
+    Release_Performance_Diff(&g_pActiveTimeBar->render);
+    g_pActiveTimeBar->sleep = g_TripleBufferSleepQTime;
     Gfx_FlipBuffers();
     ShowStats();
     Performance_End();
@@ -112,10 +98,9 @@ void ShowStats(void) {
 }
 
 void Render_TimeBars(void *bar) {
-    TimeBarRect *Gfx_Add2DRectangle(void);
     u32 *times = bar;
-    TimeBarVtx v[4];
-    TimeBarRect *rect;
+    GDL2DVtx v[4];
+    GDLRect *rect;
     f32 x;
     u32 i;
 

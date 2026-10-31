@@ -1,36 +1,187 @@
 
 
+/* Event sequences: the effect scripts behind explosions, sparks, pickup
+ * flashes... A sequence is a Thing (THING_TYPE_EVENT_SEQ, made from
+ * DebrisParams) that steps through its script, spawning particles,
+ * projectiles, effects, debris, emitters, lights and sounds around itself,
+ * with waits, repeats and random sections. */
 #include "common.h"
+#include "SoundSequence.h"
+#include "ThingManager.h"
+#include "Projectile.h"
+#include "Debris.h"
+#include "Destructible.h"
+#include "Particle.h"
+#include "CarA.h"
 
 extern u8 g_CurrentViews;
 
+/* A script entry: the kind, its object (a) and how to place it (b). */
+typedef struct EventSeqEntry {
+    u32 type;                   /* 0x00 EventSeq_Move */
+    PTR32(void) a;              /* 0x04 the description spawned, or a value (repeat count, ms) */
+    PTR32(struct EventSeqEmit) b; /* 0x08 */
+} EventSeqEntry;
+
+typedef struct EventSeqScript {
+    u32 count;
+    PTR32(EventSeqEntry) entries;
+} EventSeqScript;
+
+/* How many things an entry spawns and where: random count, speed and spin;
+ * an offset (offsetType: 1 a box, 2 advanced) and a direction (dirType).
+ * "Point" entries (lights, sounds, blasts...) read 0x18-0x1C differently. */
+typedef struct EventSeqEmit {
+    s32 countBase;              /* 0x00 */
+    s32 countRange;             /* 0x04 */
+    f32 speedBase;              /* 0x08 */
+    f32 speedRange;             /* 0x0C */
+    f32 spinBase;               /* 0x10 */
+    f32 spinRange;              /* 0x14 */
+    union {
+        struct {
+            f32 extraBase;      /* 0x18 per entry kind: gravity, life... */
+            f32 extraRange;     /* 0x1C */
+        };
+        struct {
+            u8 worldSpace;      /* 0x18 point entries: offset not rotated */
+            u8 randomOffset;    /* 0x19 add a random offset from offsetRange */
+            u8 pad1A[2];        /* 0x1A */
+            PTR32(f32) offsetRange; /* 0x1C min/max x, y, z */
+        };
+    };
+    u8 inheritVel;              /* 0x20 add the sequence's velocity... */
+    u8 offsetType;              /* 0x21 */
+    u8 dirType;                 /* 0x22 */
+    u8 pad23;                   /* 0x23 */
+    f32 inheritScale;           /* 0x24 ...times this */
+    PTR32(void) offsetData;     /* 0x28 */
+    PTR32(void) dirData;        /* 0x2C */
+} EventSeqEmit;
+
+_Static_assert(offsetof(EventSeqEmit, worldSpace) == 0x18, "EventSeqEmit.worldSpace");
+_Static_assert(offsetof(EventSeqEmit, offsetRange) == 0x1C, "EventSeqEmit.offsetRange");
+_Static_assert(offsetof(EventSeqEmit, inheritScale) == 0x24, "EventSeqEmit.inheritScale");
+_Static_assert(offsetof(EventSeqEmit, dirData) == 0x2C, "EventSeqEmit.dirData");
+
+typedef struct EventSeq {
+    Thing base;                 /* 0x00 player: the owner credited with hits */
+    u8 padAC[0x14];             /* 0xAC */
+    Vector4 angVel;             /* 0xC0 */
+    PTR32(EventSeqScript) script; /* 0xD0 */
+    u32 step;                   /* 0xD4 entry */
+    u32 loopStart;              /* 0xD8 */
+    u32 loopCount;              /* 0xDC */
+    u32 wait;                   /* 0xE0 ms */
+    u32 randCount;              /* 0xE4 random sections left */
+    u32 randStart;              /* 0xE8 */
+    u32 randLength;             /* 0xEC */
+    u8 randMode;                /* 0xF0 0: next entry, 1: jump into the section, 2: past it */
+    s8 camDirty;                /* 0xF1 camDistSq needs recomputing */
+    u8 padF2[2];                /* 0xF2 */
+    f32 camDistSq;              /* 0xF4 */
+    f32 speedScale;             /* 0xF8 moving sequences play faster */
+    u8 padFC[4];                /* 0xFC */
+} EventSeq;
+
+_Static_assert(offsetof(EventSeq, angVel) == 0xC0, "EventSeq.angVel");
+_Static_assert(offsetof(EventSeq, randMode) == 0xF0, "EventSeq.randMode");
+_Static_assert(sizeof(EventSeq) == 0x100, "EventSeq size (ThingPools.eventSeqs)");
 
 
-void Blast_Action(u8 *blast, Vector4 *pos, u8 *source) {
+
+
+/* What a blast does to the things it reaches (BlastInfo.damage). */
+typedef struct BlastDamage {
+    u8 targets;                 /* 0x00 & 1: cars, 2: statics, 4: dynamics (also ray-collided things) */
+    u8 occluded;                /* 0x01 the terrain shields */
+    u8 pad02;                   /* 0x02 */
+    u8 effect;                  /* 0x03 on cars: 2-6 stop a slave weapon (5 also repairs) */
+    u8 pad04[8];                /* 0x04 */
+    s32 damageType;             /* 0x0C */
+    f32 force;                  /* 0x10 */
+    u8 pad14[4];                /* 0x14 */
+    u32 hitDebris;              /* 0x18 event sequence at each thing hit, 0: none */
+} BlastDamage;
+
+/* A "point" script entry's object for kind 5: a blast, flash and rumble. */
+typedef struct BlastInfo {
+    u8 blast;                   /* 0x00 Blast_Action */
+    u8 flash;                   /* 0x01 FlashHolder_Add on things in range */
+    u8 rumble[3];               /* 0x02 any: ForceFeedback_Play */
+    u8 team;                    /* 0x05 0: spare the owner's things, 2: only them */
+    u8 pad06[0x16];             /* 0x06 */
+    PTR32(BlastDamage) damage;  /* 0x1C */
+    u8 pad20[0x10];             /* 0x20 */
+    PTR32(f32) radius;          /* 0x30 inner, outer: full effect inside inner */
+} BlastInfo;
+
+_Static_assert(offsetof(BlastDamage, hitDebris) == 0x18, "BlastDamage.hitDebris");
+_Static_assert(offsetof(BlastInfo, damage) == 0x1C, "BlastInfo.damage");
+_Static_assert(offsetof(BlastInfo, radius) == 0x30, "BlastInfo.radius");
+
+/* Script entry kind 10: a sound. */
+typedef struct EventSeqSound {
+    u8 type;                    /* 0x00 0: positional with a range, 1: plain sample, else positional */
+    u8 pad01[7];                /* 0x01 */
+    f32 volume;                 /* 0x08 0-1 */
+    f32 pitchMin;               /* 0x0C */
+    f32 pitchMax;               /* 0x10 */
+    u32 sample;                 /* 0x14 */
+    PTR32(f32) range;           /* 0x18 near, far */
+} EventSeqSound;
+
+/* EventSeqEmit offset/direction data selecting one axis (0x10: 0/1 +-z,
+ * 2/3 +-y, 4/5 +-x), with a scale. */
+typedef struct EventSeqDir {
+    Vector4 scale;              /* 0x00 */
+    u8 axis;                    /* 0x10 */
+} EventSeqDir;
+
+/* Script entry kind 29: debris parts flying off from the sequence. */
+typedef struct DebrisPartDesc {
+    Vector4 dir;                /* 0x00 local launch direction and offset */
+    f32 mass;                   /* 0x10 */
+    f32 spinMin;                /* 0x14 degrees/s */
+    f32 spinMax;                /* 0x18 */
+    u32 geometry;               /* 0x1C 0: skipped */
+    PTR32(void) slave;          /* 0x20 emitter description attached to it, or NULL */
+    u8 pad24[0xC];              /* 0x24 */
+} DebrisPartDesc;
+
+typedef struct DebrisPartList {
+    s32 lifeBase;               /* 0x00 ms */
+    s32 lifeRange;              /* 0x04 */
+    u32 count;                  /* 0x08 */
+    PTR32(DebrisPartDesc) parts; /* 0x0C */
+} DebrisPartList;
+
+_Static_assert(sizeof(DebrisPartDesc) == 0x30, "DebrisPartDesc size");
+
+typedef f32 (*ThingGetMassFn)(Thing *thing);
+typedef void (*ThingImpactFn)(Thing *thing, CollisionInfo *info, s32 damageType, f32 force);
+
+/* Push and damage the things around pos, falling off from the inner to the
+ * outer radius; car hits may also stop one of its slave weapons. */
+void Blast_Action(struct BlastInfo *blast, Vector4 *pos, Thing *source) {
     extern Vector4 g_zeroVector;
     struct GridResult {
         u32 data;
         u32 id;
     };
     struct GridResult results[256];
-    struct {
-        Vector4 pos;
-        Vector4 dir;
-        PTR32(u8) thing;
-        PTR32(u8) source;
-        u32 unk28;
-        u8 unk2C[0x50 - 0x2C];
-    } __attribute__((aligned(16))) impact;
-    struct { Vector4 pos; Vector4 quat; Vector4 row; Vector4 vel; u32 id; u32 unk74; f32 unk78; f32 unk7C; } __attribute__((aligned(16))) params;
+    CollisionInfo impact __attribute__((aligned(16)));
+    DebrisParams params __attribute__((aligned(16)));
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
     Vector4 dir __attribute__((aligned(16)));
+    BlastDamage *damage = GETP(blast->damage);
     f32 t;
     u32 count;
     s32 damageType;
     u32 i;
-    u8 *thing;
-    u8 *data;
+    Thing *thing;
+    BlastDamage *data;
     s8 skip;
     u32 mask;
     f32 outer;
@@ -45,10 +196,10 @@ void Blast_Action(u8 *blast, Vector4 *pos, u8 *source) {
     mask = 0;
     min = *pos;
     max = min;
-    force = *(f32 *)(SLOT_LOAD(u8 *, (blast + 0x1C)) + 0x10);
-    damageType = *(s32 *)(SLOT_LOAD(u8 *, (blast + 0x1C)) + 0xC);
-    outer = ((f32 *)SLOT_LOAD(u8 *, (blast + 0x30)))[1];
-    inner = ((f32 *)SLOT_LOAD(u8 *, (blast + 0x30)))[0];
+    force = damage->force;
+    damageType = damage->damageType;
+    outer = GETP(blast->radius)[1];
+    inner = GETP(blast->radius)[0];
     min.x -= outer;
     min.y -= outer;
     min.z -= outer;
@@ -57,113 +208,116 @@ void Blast_Action(u8 *blast, Vector4 *pos, u8 *source) {
     max.z += outer;
     innerSq = inner * inner;
     outerSq = outer * outer;
-    if (*SLOT_LOAD(u8 *, (blast + 0x1C)) & 1) {
+    if (damage->targets & 1) {
         mask |= 4;
     }
-    if (*SLOT_LOAD(u8 *, (blast + 0x1C)) & 2) {
+    if (damage->targets & 2) {
         mask |= 1;
     }
-    if (*SLOT_LOAD(u8 *, (blast + 0x1C)) & 4) {
+    if (damage->targets & 4) {
         mask |= 2;
     }
     count = Grid_GetObjects(&min, &max, mask, results, 0x100);
     range = outer - inner;
     for (i = 0; i < count; i++) {
-        thing = (u8 *)PTR(results[i].id);
+        thing = (Thing *)PTR(results[i].id);
         skip = 0;
-        if (source != NULL && *(u32 *)(source + 0x94) != 0 && *(u32 *)(thing + 0x94) == *(u32 *)(source + 0x94)) {
-            if (blast[5] == 0) {
+        if (source != NULL && source->player.h != 0 && thing->player.h == source->player.h) {
+            if (blast->team == 0) {
                 skip = 1;
             }
-        } else if (blast[5] == 2) {
+        } else if (blast->team == 2) {
             skip = 1;
         }
         if (skip) {
             continue;
         }
-        if (*(u32 *)(thing + 0x74) & 0x200000) {
+        if (thing->flags & THING_FLAG_RELEASED) {
             continue;
         }
-        if ((*(u32 *)(thing + 0x74) & 8) && damageType == 0) {
+        if ((thing->flags & THING_FLAG_AT_REST) && damageType == 0) {
             continue;
         }
-        if (*(u32 *)(thing + 0x74) & 0x01000002) {
+        if (thing->flags & 0x01000002) {
             continue;
         }
-        if (*(s16 *)(thing + 0x80) == 0) {
+        if (thing->collisionType == THING_COLLIDE_NONE) {
             continue;
         }
-        if (*(s16 *)(thing + 0x80) == 3 && !(*SLOT_LOAD(u8 *, (blast + 0x1C)) & 4)) {
+        if (thing->collisionType == THING_COLLIDE_RAY && !(damage->targets & 4)) {
             continue;
         }
-        dist = PSVECSquareDistance(pos, (Vector4 *)(thing + 0x40));
+        dist = PSVECSquareDistance(pos, &thing->pos);
         if (!(dist < outerSq)) {
             continue;
         }
         t = 1.0f;
         scale = t;
-        dir.x = *(f32 *)(thing + 0x40) - pos->x;
-        dir.y = *(f32 *)(thing + 0x44) - pos->y;
-        dir.z = *(f32 *)(thing + 0x48) - pos->z;
-        if (*(SLOT_LOAD(u8 *, (blast + 0x1C)) + 1) && RayHitsTerrain(pos, (Vector4 *)(thing + 0x40), &t, NULL)) {
+        dir.x = thing->pos.x - pos->x;
+        dir.y = thing->pos.y - pos->y;
+        dir.z = thing->pos.z - pos->z;
+        if (damage->occluded && RayHitsTerrain(pos, &thing->pos, &t, NULL)) {
             continue;
         }
         if (dist > innerSq) {
             scale = (outer - Sqrt(dist)) / range;
         }
-        data = SLOT_LOAD(u8 *, (blast + 0x1C));
+        data = GETP(blast->damage);
         if (data != NULL) {
-            switch (data[3]) {
+            CarA *car = (CarA *)thing;
+
+            switch (data->effect) {
             case 2:
-                if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
+                if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
                     Vector4 impulse __attribute__((aligned(16))) = {0.0f, -9.0f, 0.0f, 0.0f};
                     CarA_SlaveWeaponStop(thing, 0);
-                    *(s32 *)(thing + 0x46C) = 9000;
+                    car->slaveWeaponRpm[0] = 9000;
                     CarA_StuntImpulse(thing, &g_zeroVector, &impulse);
                 }
                 break;
             case 3:
-                if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
+                if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
                     CarA_SlaveWeaponStop(thing, 1);
-                    *(s32 *)(thing + 0x470) = 5000;
+                    car->slaveWeaponRpm[1] = 5000;
                 }
                 break;
             case 4:
-                if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
+                if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
                     CarA_SlaveWeaponStop(thing, 2);
-                    *(s32 *)(thing + 0x474) = 0;
+                    car->slaveWeaponRpm[2] = 0;
                 }
                 break;
             case 5:
-                if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
-                    *(s32 *)(thing + 0x78) = *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (thing + 0x3BC)) + 0xA0)) + 0x14);
-                    *(s32 *)(thing + 0x374) = 0;
-                    MotionState_ReleaseSlavesByType((s32)HND((thing + 0x330)), 2);
+                if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
+                    /* repair */
+                    thing->health = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+                    car->partVisMask = 0;
+                    MotionState_ReleaseSlavesByType(&car->motionState, 2);
                     CarA_SlaveWeaponStop(thing, 4);
-                    *(s32 *)(thing + 0x47C) = 0;
+                    car->slaveWeaponRpm[4] = 0;
                 }
                 break;
             case 6:
-                if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
+                if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
                     CarA_SlaveWeaponStop(thing, 3);
-                    *(s32 *)(thing + 0x478) = 0;
+                    car->slaveWeaponRpm[3] = 0;
                 }
                 break;
             }
-            if (*(u32 *)(SLOT_LOAD(u8 *, (blast + 0x1C)) + 0x18) != 0) {
-                params.id = *(u32 *)(SLOT_LOAD(u8 *, (blast + 0x1C)) + 0x18);
-                params.pos = *(Vector4 *)(thing + 0x40);
-                params.row = *(Vector4 *)(thing + 0x0);
-                params.quat = *(Vector4 *)(thing + 0x50);
-                params.unk74 = 0;
-                params.unk7C = params.unk78 = 0.0f;
-                params.vel = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &params);
+            if (damage->hitDebris != 0) {
+                params.debris = damage->hitDebris;
+                params.pos = thing->pos;
+                params.vel = thing->vel;
+                params.quat = *(Vector4 *)&thing->quat;
+                params.owner = 0;
+                params.unk4C = params.unk48 = 0.0f;
+                params.angVel = g_zeroVector;
+                ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
             }
         }
         force *= scale;
-        if ((((f32 (*)(u8 *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x14))))(thing) > 0.01f) {
-            force /= (((f32 (*)(u8 *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x14))))(thing);
+        if (THING_VFN(thing, THING_V_GET_MASS, ThingGetMassFn)(thing) > 0.01f) {
+            force /= THING_VFN(thing, THING_V_GET_MASS, ThingGetMassFn)(thing);
         } else {
             force *= 2000.0f;
         }
@@ -175,42 +329,42 @@ void Blast_Action(u8 *blast, Vector4 *pos, u8 *source) {
         if (force > 600.0f) {
             force = 600.0f;
         }
-        impact.dir = dir;
+        impact.normal = dir;
         impact.pos = *pos;
-        if (SLOT_LOAD(u8 *, (thing + 0x8C)) == g_carAVTable) {
-            impact.pos.x = pos->x - 4.0f * *(f32 *)(thing + 0x30);
-            impact.pos.y = pos->y - 4.0f * *(f32 *)(thing + 0x34);
-            impact.pos.z = pos->z - 4.0f * *(f32 *)(thing + 0x38);
-            impact.pos.x = 2.0f * *(f32 *)(thing + 0x20) + pos->x;
-            impact.pos.y = 2.0f * *(f32 *)(thing + 0x24) + pos->y;
-            impact.pos.z = 2.0f * *(f32 *)(thing + 0x28) + pos->z;
+        if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
+            /* sic: the first position is overwritten */
+            impact.pos.x = pos->x - 4.0f * thing->axis[2].x;
+            impact.pos.y = pos->y - 4.0f * thing->axis[2].y;
+            impact.pos.z = pos->z - 4.0f * thing->axis[2].z;
+            impact.pos.x = 2.0f * thing->axis[1].x + pos->x;
+            impact.pos.y = 2.0f * thing->axis[1].y + pos->y;
+            impact.pos.z = 2.0f * thing->axis[1].z + pos->z;
         }
-        SETP(impact.thing, thing);
-        SETP(impact.source, source);
-        impact.unk28 = 0;
-        force *= (((f32 (*)(u8 *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x14))))(thing);
-        (((void (*)(u8 *, void *, s32, f32))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 0x18))))(thing, &impact, damageType, force);
+        impact.thingA = HND(thing);
+        impact.thingB = HND(source);
+        impact.material = 0;
+        force *= THING_VFN(thing, THING_V_GET_MASS, ThingGetMassFn)(thing);
+        THING_VFN(thing, THING_V_DYNAMIC_COLLIDE_IMPACT, ThingImpactFn)(thing, &impact, damageType, force);
     }
 }
-s32 EventSeq_Init(u8 *seq, u8 *data)
+s32 EventSeq_Init(struct EventSeq *seq, DebrisParams *data)
 {
-
-    Thing_Init(seq, HND(data));
-    *(Vector4 *)(seq + 0x0) = *(Vector4 *)(data + 0x20);
-    *(Vector4 *)(seq + 0x50) = *(Vector4 *)(data + 0x10);
-    *(s32 *)(seq + 0x94) = *(s32 *)(data + 0x44);
-    *(Vector4 *)(seq + 0xC0) = *(Vector4 *)(data + 0x30);
-    *(f32 *)(seq + 0xF8) = *(f32 *)(data + 0x48);
-    QuaternionToSubMatrix(seq + 0x50, seq + 0x10);
-    *(Vector4 *)(seq + 0x40) = *(Vector4 *)(data + 0x0);
-    *(s32 *)(seq + 0xD0) = *(s32 *)(data + 0x40);
-    *(s32 *)(seq + 0xDC) = 0;
-    *(s32 *)(seq + 0xE0) = 0;
-    *(s32 *)(seq + 0xD4) = 0;
-    *(u8 *)(seq + 0xF0) = 0;
-    *(u16 *)(seq + 0x80) = 0;
-    *(Vector4 *)(seq + 0x50) = *(Vector4 *)(data + 0x10);
-    *(u32 *)(seq + 0x74) |= 0x80202;
+    Thing_Init(&seq->base, HND(data));
+    seq->base.vel = data->vel;
+    seq->base.quat = *(Quaternion *)&data->quat;
+    seq->base.player.h = data->owner;
+    seq->angVel = data->angVel;
+    seq->speedScale = data->unk48;
+    QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
+    seq->base.pos = data->pos;
+    seq->script.h = data->debris;
+    seq->loopCount = 0;
+    seq->wait = 0;
+    seq->step = 0;
+    seq->randMode = 0;
+    seq->base.collisionType = THING_COLLIDE_NONE;
+    seq->base.quat = *(Quaternion *)&data->quat;
+    seq->base.flags |= 0x80202;
     return 1;
 }
 
@@ -219,7 +373,8 @@ void EventSeq_Release(void *arg0)
     Thing_Release(arg0);
 }
 
-void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
+/* The spawn offset from the emit description (in the sequence's frame). */
+void EventSeq_Advanced_GetOffset(struct EventSeqEmit *emit, void *arg1, Vector4 *out) {
     typedef struct {
         f32 base;
         f32 range;
@@ -239,9 +394,9 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
     } EventSeqAdvanced;
     f32 scale;
 
-    switch (seq[0x21]) {
+    switch (emit->offsetType) {
     case 1: {
-        f32 *range = SLOT_LOAD(f32 *, (seq + 0x28));
+        f32 *range = (f32 *)GETP(emit->offsetData);
 
         out->x = RandomAdd(range[0], range[1]);
         out->y = RandomAdd(range[2], range[3]);
@@ -249,7 +404,7 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
         break;
     }
     case 2: {
-        EventSeqAdvanced *adv = SLOT_LOAD(EventSeqAdvanced *, (seq + 0x28));
+        EventSeqAdvanced *adv = (EventSeqAdvanced *)GETP(emit->offsetData);
 
         scale = RandomAdd(adv->base, adv->range);
         switch (adv->type) {
@@ -267,7 +422,7 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
             Vector4 mul __attribute__((aligned(16))) = {1.0f, 1.0f, 1.0f, 0.0f};
 
             RandomNumberGenerator_GetRandomVector(out);
-            switch (((u8 *)dir)[0x10]) {
+            switch (((EventSeqDir *)dir)->axis) {
             case 4:
                 if (out->x < 0.0f) {
                     out->x *= -1.0f;
@@ -364,13 +519,8 @@ void EventSeq_Advanced_GetOffset(u8 *seq, void *arg1, Vector4 *out) {
     }
 }
 
-void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel) {
-    typedef struct EventSeqThing {
-        Vector4 vel;
-        Matrix4 mtx;
-        Vector4 quat;
-    } EventSeqThing;
-    EventSeqThing *seq = arg1;
+void EventSeq_Advanced_GetInitData(struct EventSeqEmit *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel) {
+    EventSeq *seq = arg1;
     Matrix4 mtx1;
     Matrix4 res;
     Matrix4 rot;
@@ -382,29 +532,29 @@ void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *
     Vector4 offset __attribute__((aligned(16)));
     Vector4 dir3 __attribute__((aligned(16)));
 
-    EventSeq_Advanced_GetOffset(emit, &seq->mtx, &offset);
-    switch (emit[0x22]) {
+    EventSeq_Advanced_GetOffset(emit, THING_MTX(&seq->base), &offset);
+    switch (emit->dirType) {
     case 0:
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         v.x = 0.0f;
         v.y = 0.0f;
-        v.z = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
+        v.z = RandomAdd(emit->speedBase, emit->speedRange);
         a.x = 0.0f;
         a.y = 0.0f;
-        a.z = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
+        a.z = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
         if (quat != NULL) {
-            *quat = seq->quat;
+            *quat = *(Vector4 *)&seq->base.quat;
         }
         break;
     case 1: {
         f32 speed;
         f32 spin;
 
-        speed = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
-        spin = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
+        speed = RandomAdd(emit->speedBase, emit->speedRange);
+        spin = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         RandomNumberGenerator_GetRandomSubMatrix(&mtx1);
         v.x = mtx1.v[2].x * speed;
         v.y = mtx1.v[2].y * speed;
@@ -418,14 +568,14 @@ void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *
         if (quat != NULL) {
             SubMatrixToQuaternion(&mtx1, quat);
         }
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         break;
     }
     case 2: {
-        f32 *range = SLOT_LOAD(f32 *, (emit + 0x2C));
+        f32 *range = (f32 *)GETP(emit->dirData);
         f32 ry;
         f32 rx;
         f32 rz;
@@ -433,17 +583,17 @@ void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *
         ry = RandomDirVar(range[2], range[3]);
         rx = -RandomDirVar(range[0], range[1]);
         rz = RandomDirVar(range[4], range[5]);
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         SetOrientation(&rot, 0.01745329238474369f * ry, 0.01745329238474369f * rx, 0.01745329238474369f * rz);
         rot.v[3].x = rot.v[3].y = rot.v[3].z = 0.0f;
-        MultiplyMatrix(&rot, &seq->mtx, &res);
+        MultiplyMatrix(&rot, THING_MTX(&seq->base), &res);
         v.x = 0.0f;
         v.y = 0.0f;
-        v.z = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
+        v.z = RandomAdd(emit->speedBase, emit->speedRange);
         a.x = 0.0f;
         a.y = 0.0f;
-        a.z = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
+        a.z = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         if (quat != NULL) {
             SubMatrixToQuaternion(&res, quat);
         }
@@ -455,12 +605,12 @@ void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *
         f32 speed;
         f32 spin;
 
-        mtx3 = seq->mtx;
-        speed = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
-        spin = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
+        mtx3 = *THING_MTX(&seq->base);
+        speed = RandomAdd(emit->speedBase, emit->speedRange);
+        spin = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         dir3 = offset;
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         if (!dir3.x && !dir3.y && !dir3.z) {
             dir3.x = 0.0f;
             dir3.y = 0.0f;
@@ -477,8 +627,8 @@ void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *
         if (quat != NULL) {
             SubMatrixToQuaternion(&mtx3, quat);
         }
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
         break;
     }
     case 4: {
@@ -486,11 +636,11 @@ void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *
         f32 spin;
         u8 *info;
 
-        speed = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
-        spin = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
-        info = SLOT_LOAD(u8 *, (emit + 0x2C));
+        speed = RandomAdd(emit->speedBase, emit->speedRange);
+        spin = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
+        info = (u8 *)GETP(emit->dirData);
         RandomNumberGenerator_GetRandomSubMatrix(&mtx4);
-        switch (info[0x10]) {
+        switch (((EventSeqDir *)info)->axis) {
         case 4:
             if (mtx4.v[2].x < 0.0f) {
                 mtx4.v[1].x *= -1.0f;
@@ -564,28 +714,23 @@ void EventSeq_Advanced_GetInitData(u8 *emit, void *arg1, Vector4 *vel, Vector4 *
         if (quat != NULL) {
             SubMatrixToQuaternion(&mtx4, quat);
         }
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         break;
     }
     }
-    if (emit[0x20]) {
-        vel->x += seq->vel.x * *(f32 *)(emit + 0x24);
-        vel->y += seq->vel.y * *(f32 *)(emit + 0x24);
-        vel->z += seq->vel.z * *(f32 *)(emit + 0x24);
+    if (emit->inheritVel) {
+        vel->x += seq->base.vel.x * emit->inheritScale;
+        vel->y += seq->base.vel.y * emit->inheritScale;
+        vel->z += seq->base.vel.z * emit->inheritScale;
     }
     pos->w = 1.0f;
 }
 
-void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel) {
-    typedef struct EventSeqThing {
-        Vector4 vel;
-        Matrix4 mtx;
-        Vector4 quat;
-    } EventSeqThing;
-    EventSeqThing *seq = arg1;
+void EventSeq_Advanced_GetInitData_NonDirectional(struct EventSeqEmit *emit, void *arg1, Vector4 *vel, Vector4 *pos, Vector4 *quat, Vector4 *angVel) {
+    EventSeq *seq = arg1;
     Matrix4 mtx1;
     Matrix4 res;
     Matrix4 rot;
@@ -599,33 +744,33 @@ void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 
     Vector4 dir3 __attribute__((aligned(16)));
     Vector4 dir4 __attribute__((aligned(16)));
 
-    EventSeq_Advanced_GetOffset(emit, &seq->mtx, &offset);
-    switch (emit[0x22]) {
+    EventSeq_Advanced_GetOffset(emit, THING_MTX(&seq->base), &offset);
+    switch (emit->dirType) {
     case 0:
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         v.x = 0.0f;
         v.y = 0.0f;
-        v.z = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
+        v.z = RandomAdd(emit->speedBase, emit->speedRange);
         a.x = 0.0f;
         a.y = 0.0f;
-        a.z = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
+        a.z = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
         if (quat != NULL) {
-            *quat = seq->quat;
+            *quat = *(Vector4 *)&seq->base.quat;
         }
         break;
     case 1: {
         f32 speed;
         f32 spin;
 
-        mtx1 = seq->mtx;
-        speed = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
-        spin = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
+        mtx1 = *THING_MTX(&seq->base);
+        speed = RandomAdd(emit->speedBase, emit->speedRange);
+        spin = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         RandomNumberGenerator_GetRandomVector(&dir1);
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         v.x = dir1.x * speed;
         v.y = dir1.y * speed;
         v.z = dir1.z * speed;
@@ -635,12 +780,12 @@ void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 
         if (quat != NULL) {
             SubMatrixToQuaternion(&mtx1, quat);
         }
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
         break;
     }
     case 2: {
-        f32 *range = SLOT_LOAD(f32 *, (emit + 0x2C));
+        f32 *range = (f32 *)GETP(emit->dirData);
         f32 ry;
         f32 rx;
         f32 rz;
@@ -648,17 +793,17 @@ void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 
         ry = RandomDirVar(range[2], range[3]);
         rx = -RandomDirVar(range[0], range[1]);
         rz = RandomDirVar(range[4], range[5]);
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         SetOrientation(&rot, 0.01745329238474369f * ry, 0.01745329238474369f * rx, 0.01745329238474369f * rz);
         rot.v[3].x = rot.v[3].y = rot.v[3].z = 0.0f;
-        MultiplyMatrix(&rot, &seq->mtx, &res);
+        MultiplyMatrix(&rot, THING_MTX(&seq->base), &res);
         v.x = 0.0f;
         v.y = 0.0f;
-        v.z = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
+        v.z = RandomAdd(emit->speedBase, emit->speedRange);
         a.x = 0.0f;
         a.y = 0.0f;
-        a.z = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
+        a.z = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         if (quat != NULL) {
             SubMatrixToQuaternion(&res, quat);
         }
@@ -670,12 +815,12 @@ void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 
         f32 speed;
         f32 spin;
 
-        mtx3 = seq->mtx;
-        speed = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
-        spin = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
+        mtx3 = *THING_MTX(&seq->base);
+        speed = RandomAdd(emit->speedBase, emit->speedRange);
+        spin = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         dir3 = offset;
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         if (!dir3.x && !dir3.y && !dir3.z) {
             dir3.x = 0.0f;
             dir3.y = 0.0f;
@@ -692,19 +837,19 @@ void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 
         if (quat != NULL) {
             SubMatrixToQuaternion(&mtx3, quat);
         }
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
         break;
     }
     case 4: {
         f32 speed;
         f32 spin;
 
-        mtx4 = seq->mtx;
-        speed = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC));
-        spin = 0.001f * RandomAdd(*(f32 *)(emit + 0x10), *(f32 *)(emit + 0x14));
+        mtx4 = *THING_MTX(&seq->base);
+        speed = RandomAdd(emit->speedBase, emit->speedRange);
+        spin = 0.001f * RandomAdd(emit->spinBase, emit->spinRange);
         RandomNumberGenerator_GetRandomVector(&dir4);
-        switch ((SLOT_LOAD(u8 *, (emit + 0x2C)))[0x10]) {
+        switch (((EventSeqDir *)GETP(emit->dirData))->axis) {
         case 4:
             if (dir4.x < 0.0f) {
                 dir4.x *= -1.0f;
@@ -736,8 +881,8 @@ void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 
             }
             break;
         }
-        XformVecOrientation(&seq->mtx, &offset, &tmp);
-        PSVECAdd(&seq->mtx.v[3], &tmp, pos);
+        XformVecOrientation(THING_MTX(&seq->base), &offset, &tmp);
+        PSVECAdd(&seq->base.pos, &tmp, pos);
         v.x = dir4.x * speed;
         v.y = dir4.y * speed;
         v.z = dir4.z * speed;
@@ -747,71 +892,62 @@ void EventSeq_Advanced_GetInitData_NonDirectional(u8 *emit, void *arg1, Vector4 
         if (quat != NULL) {
             SubMatrixToQuaternion(&mtx4, quat);
         }
-        XformVecOrientation(&seq->mtx, &v, vel);
-        XformVecOrientation(&seq->mtx, &a, angVel);
+        XformVecOrientation(THING_MTX(&seq->base), &v, vel);
+        XformVecOrientation(THING_MTX(&seq->base), &a, angVel);
         break;
     }
     }
-    if (emit[0x20]) {
-        vel->x += seq->vel.x * *(f32 *)(emit + 0x24);
-        vel->y += seq->vel.y * *(f32 *)(emit + 0x24);
-        vel->z += seq->vel.z * *(f32 *)(emit + 0x24);
+    if (emit->inheritVel) {
+        vel->x += seq->base.vel.x * emit->inheritScale;
+        vel->y += seq->base.vel.y * emit->inheritScale;
+        vel->z += seq->base.vel.z * emit->inheritScale;
     }
     pos->w = 1.0f;
 }
-s32 EventSeq_Move(u8 *seq) {
+/* Run the script for this frame: entries until a wait or the end. */
+s32 EventSeq_Move(struct EventSeq *seq) {
     extern f32 g_fDeltaTimeMS;
     extern Vector4 g_zeroVector;
     extern Matrix4 g_identity;
-    typedef struct { u32 type; PTR32(void) a; PTR32(void) b; } Entry;
-    typedef struct { u32 count; PTR32(Entry) entries; } Script;
-    typedef struct { Vector4 pos; Vector4 vel; f32 unk20; Vector4 quat; PTR32(u8) p; u32 id; } Params0;
-    typedef struct { Vector4 pos; Vector4 quat; Vector4 vel; Vector4 angVel; PTR32(u8) p; u32 id; f32 unk48; f32 unk4C; } Params1;
-    typedef struct { Vector4 pos; Vector4 quat; Vector4 vel; PTR32(u8) p; u32 id; f32 unk38; } Params2;
-    typedef struct { Vector4 pos; Vector4 vel; Vector4 row; Vector4 quat; PTR32(u8) p; u32 unk44; f32 unk48; u32 unk4C; u32 unk50; u32 unk54; u32 unk58; u32 unk5C; } Params3;
-    typedef struct { Vector4 quat; Vector4 pos; Vector4 vel; PTR32(u8) p; f32 unk34; } Params4;
-    typedef struct { Vector4 pos; Vector4 quat; Vector4 axis; Vector4 vel; f32 unk40; u32 id; s32 unk48; f32 unk4C; u32 unk50; } Params6;
-    typedef struct { Vector4 dir; f32 unk10; f32 unk14; f32 unk18; u32 id; PTR32(u8) slave; u8 pad24[0xC]; } Spawn;
-    typedef struct { s32 base; s32 range; u32 count; PTR32(Spawn) spawns; } SpawnList;
     f32 scale;
     u32 dt;
     u32 sample;  /* sound effect id (pack sound relocation); SoundSource_Set copies 4 bytes */
     f32 pitch;
-    Entry *entry;
-    Script *script;
+    EventSeqEntry *entry;
+    EventSeqScript *script;
 
     scale = 1.0f;
-    if (*(f32 *)(seq + 0xF8) != 0.0f) {
-        scale = *(f32 *)(seq + 0xF8) * MagnitudeVector(seq) + 1.0f;
+    if (seq->speedScale != 0.0f) {
+        scale = seq->speedScale * MagnitudeVector(&seq->base.vel) + 1.0f;
         dt = g_fDeltaTimeMS * scale;
     } else {
         dt = g_fDeltaTimeMS;
     }
-    if (SLOT_LOAD(Script *, (seq + 0xD0)) == NULL) {
+    if (GETP(seq->script) == NULL) {
         return 0;
     }
-    seq[0xF1] = 1;
+    seq->camDirty = 1;
     while (1) {
-        if (*(u32 *)(seq + 0xE0) != 0) {
-            if (dt > *(u32 *)(seq + 0xE0)) {
-                dt -= *(u32 *)(seq + 0xE0);
-                *(u32 *)(seq + 0xE0) = 0;
+        if (seq->wait != 0) {
+            if (dt > seq->wait) {
+                dt -= seq->wait;
+                seq->wait = 0;
             } else {
-                *(u32 *)(seq + 0xE0) -= dt;
+                seq->wait -= dt;
                 return 1;
             }
         }
-        script = SLOT_LOAD(Script *, (seq + 0xD0));
-        if (*(u32 *)(seq + 0xD4) >= script->count) {
+        script = GETP(seq->script);
+        if (seq->step >= script->count) {
             Thing_Release(seq);
             break;
         }
-        entry = &GETP(script->entries)[*(u32 *)(seq + 0xD4)];
+        entry = &GETP(script->entries)[seq->step];
         switch (entry->type) {
         case 0:
             break;
         case 1: {
-            u8 *p = GETP(entry->a);
+            ParticleInfo *p = GETP(entry->a);
 
             if (p == NULL) break;
             if (!ParticleManager_CanCreatureParticle(p)) break;
@@ -820,15 +956,15 @@ s32 EventSeq_Move(u8 *seq) {
                 Vector4 vel = {0.0f, 0.0f, 0.0f, 0.0f};
                 Vector4 pos;
                 Vector4 quat = {0.0f, 0.0f, 0.0f, 1.0f};
-                u8 *emit = GETP(GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].b);
-                u32 n = RandomAdd_s32(((s32 *)emit)[0], ((s32 *)emit)[1]);
+                EventSeqEmit *emit = GETP(GETP(GETP(seq->script)->entries)[seq->step].b);
+                u32 n = RandomAdd_s32(emit->countBase, emit->countRange);
                 u32 i;
 
-                if (!EventSeq_InCameraRange(seq, *(f32 *)(p + 0x10)) && GameSettings_GetNumOfPlayers() != 1) break;
-                QuaternionToSubMatrix(seq + 0x50, seq + 0x10);
+                if (!EventSeq_InCameraRange(seq, p->range) && GameSettings_GetNumOfPlayers() != 1) break;
+                QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
                 if (n == 0) n = 1;
                 for (i = 0; i < n; i++) {
-                    if (p[0] == 0) {
+                    if (p->type == PARTICLE_GX) {
                         EventSeq_Advanced_GetInitData(emit, seq, &vel, &pos, &quat, &ang);
                     } else {
                         EventSeq_Advanced_GetInitData_NonDirectional(emit, seq, &vel, &pos, &quat, &ang);
@@ -839,7 +975,7 @@ s32 EventSeq_Move(u8 *seq) {
                     ang.x *= 0.001f;
                     ang.y *= 0.001f;
                     ang.z *= 0.001f;
-                    ang.y += 9.6667e-7f * RandomAdd(*(f32 *)(emit + 0x18), *(f32 *)(emit + 0x1C));
+                    ang.y += 9.6667e-7f * RandomAdd(emit->extraBase, emit->extraRange);
                     CreateParticle(&pos, &vel, &ang, &quat, p, scale, 0.0f);
                 }
             }
@@ -847,216 +983,217 @@ s32 EventSeq_Move(u8 *seq) {
         }
         case 2: {
             u8 *p = GETP(entry->a);
-            u8 *emit;
+            EventSeqEmit *emit;
             u32 n, i;
-            Params0 prm __attribute__((aligned(16)));
+            ProjectileParams prm __attribute__((aligned(16)));
             Vector4 ang;
 
             if (p == NULL) break;
             emit = GETP(entry->b);
-            n = RandomAdd_s32(((s32 *)emit)[0], ((s32 *)emit)[1]);
-            SETP(prm.p, p);
-            prm.id = *(u32 *)(seq + 0x94);
-            QuaternionToSubMatrix(seq + 0x50, seq + 0x10);
+            n = RandomAdd_s32(emit->countBase, emit->countRange);
+            SETP(prm.info, p);
+            prm.player.h = seq->base.player.h;
+            QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
             if (n == 0) n = 1;
             for (i = 0; i < n; i++) {
-                EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &prm.pos, &prm.quat, &ang);
-                prm.unk20 = RandomAdd(*(f32 *)(emit + 0x18), *(f32 *)(emit + 0x1C));
-                ThingManager_DARYL_CreateThing(0, &prm);
+                EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &prm.pos, (Vector4 *)&prm.quat, &ang);
+                prm.gravity = RandomAdd(emit->extraBase, emit->extraRange);
+                ThingManager_DARYL_CreateThing(THING_TYPE_PROJECTILE, &prm);
             }
             break;
         }
         case 3: {
             u8 *p = GETP(entry->a);
-            u8 *emit;
+            EventSeqEmit *emit;
             u32 n, i;
-            Params1 prm __attribute__((aligned(16)));
+            DebrisParams prm __attribute__((aligned(16)));
             Vector4 ang;
 
             if (p == NULL) break;
             emit = GETP(entry->b);
-            n = RandomAdd_s32(((s32 *)emit)[0], ((s32 *)emit)[1]);
-            QuaternionToSubMatrix(seq + 0x50, seq + 0x10);
-            prm.id = *(u32 *)(seq + 0x94);
+            n = RandomAdd_s32(emit->countBase, emit->countRange);
+            QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
+            prm.owner = seq->base.player.h;
             prm.unk48 = 0.0f;
             prm.unk4C = 0.0f;
-            SETP(prm.p, p);
+            prm.debris = HND(p);
             prm.angVel = g_zeroVector;
             if (n == 0) n = 1;
             for (i = 0; i < n; i++) {
                 EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &prm.pos, &prm.quat, &ang);
-                ThingManager_DARYL_CreateThing(1, &prm);
+                ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &prm);
             }
             break;
         }
         case 4: {
             u8 *p = GETP(entry->a);
-            u8 *emit;
+            EventSeqEmit *emit;
             u32 n, i;
-            Params2 prm __attribute__((aligned(16)));
+            EmitterParams prm __attribute__((aligned(16)));
             Vector4 ang;
 
             if (p == NULL) break;
             emit = GETP(entry->b);
-            n = RandomAdd_s32(((s32 *)emit)[0], ((s32 *)emit)[1]);
-            QuaternionToSubMatrix(seq + 0x50, seq + 0x10);
+            n = RandomAdd_s32(emit->countBase, emit->countRange);
+            QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
             if (n == 0) n = 1;
             for (i = 0; i < n; i++) {
-                SETP(prm.p, p);
-                prm.unk38 = 0.0f;
-                EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &prm.pos, &prm.quat, &ang);
-                prm.id = *(u32 *)(seq + 0x94);
-                ThingManager_DARYL_CreateThing(2, &prm);
+                SETP(prm.emitter, p);
+                prm.drawDist = 0.0f;
+                EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &prm.pos, (Vector4 *)&prm.quat, &ang);
+                prm.owner = seq->base.player.h;
+                ThingManager_DARYL_CreateThing(THING_TYPE_EMITTER, &prm);
             }
             break;
         }
         case 6: {
-            u8 *p = GETP(entry->a);
+            ThingRecord *p = GETP(entry->a);
 
             if (p == NULL) break;
             {
                 Vector4 pos;
                 Vector4 tmp;
                 Vector4 off = {0.0f, 0.0f, 0.0f, 0.0f};
-                u8 *emit = GETP(GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].b);
+                EventSeqEmit *emit = GETP(GETP(GETP(seq->script)->entries)[seq->step].b);
                 Matrix4 m;
-                Params3 prm __attribute__((aligned(16)));
+                DestructibleParams prm __attribute__((aligned(16)));
 
-                if (emit[0x18] == 1) {
+                if (emit->worldSpace == 1) {
                     m = g_identity;
-                    *(f32 *)(seq + 0x50) = 0.0f;
-                    *(f32 *)(seq + 0x54) = 0.0f;
-                    *(f32 *)(seq + 0x58) = 0.0f;
-                    *(f32 *)(seq + 0x5C) = 1.0f;
+                    seq->base.quat.x = 0.0f;
+                    seq->base.quat.y = 0.0f;
+                    seq->base.quat.z = 0.0f;
+                    seq->base.quat.w = 1.0f;
                 } else {
-                    QuaternionToSubMatrix(seq + 0x50, &m);
+                    QuaternionToSubMatrix(&seq->base.quat, &m);
                 }
-                pos = *(Vector4 *)(seq + 0x40);
-                if (emit[0x19]) {
-                    f32 *r = SLOT_LOAD(f32 *, (emit + 0x1C));
+                pos = seq->base.pos;
+                if (emit->randomOffset) {
+                    f32 *r = GETP(emit->offsetRange);
                     off.x = RandomAdd(r[0], r[1]);
                     off.y = RandomAdd(r[2], r[3]);
                     off.z = RandomAdd(r[4], r[5]);
                 }
                 XformVecOrientation(&m, &off, &tmp);
                 PSVECAdd(&pos, &tmp, &pos);
-                SETP(prm.p, p);
+                SETP(prm.record, p);
                 prm.unk4C = 0;
-                prm.unk50 = 0;
+                prm.moveType = 0;
                 prm.pos = pos;
-                prm.quat = *(Vector4 *)(seq + 0x50);
-                prm.vel = prm.row = g_zeroVector;
+                prm.quat = seq->base.quat;
+                prm.vel = prm.angVel = g_zeroVector;
                 prm.unk58 = 0;
-                prm.unk5C = 0;
-                if (p[6]) {
-                    prm.unk48 = *(f32 *)(p + 8);
+                prm.anim.h = 0;
+                if (p->hasDrawDist) {
+                    prm.drawDist = p->drawDist;
                 } else {
-                    prm.unk48 = 0.0f;
+                    prm.drawDist = 0.0f;
                 }
-                ThingManager_DARYL_CreateThing(3, &prm);
+                ThingManager_DARYL_CreateThing(THING_TYPE_DESTRUCTIBLE, &prm);
             }
             break;
         }
         case 7: {
             u8 *p = GETP(entry->a);
-            u8 *emit;
+            EventSeqEmit *emit;
             u32 n, i;
-            Params3 prm __attribute__((aligned(16)));
+            DestructibleParams prm __attribute__((aligned(16)));
             Vector4 ang;
 
             if (p == NULL) break;
             emit = GETP(entry->b);
-            n = RandomAdd_s32(((s32 *)emit)[0], ((s32 *)emit)[1]);
-            QuaternionToSubMatrix(seq + 0x50, seq + 0x10);
+            n = RandomAdd_s32(emit->countBase, emit->countRange);
+            QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
             prm.unk4C = 0;
-            prm.unk50 = 2;
-            prm.row = *(Vector4 *)(seq + 0xC0);
-            prm.unk5C = 0;
+            prm.moveType = 2;
+            prm.angVel = seq->angVel;
+            prm.anim.h = 0;
             if (n == 0) n = 1;
             for (i = 0; i < n; i++) {
-                SETP(prm.p, p);
-                prm.unk48 = 0.0f;
-                EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &prm.pos, &prm.quat, &ang);
-                ThingManager_DARYL_CreateThing(10, &prm);
+                SETP(prm.record, p);
+                prm.drawDist = 0.0f;
+                EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &prm.pos, (Vector4 *)&prm.quat, &ang);
+                ThingManager_DARYL_CreateThing(THING_TYPE_PHYSICAL_OBJECT, &prm);
             }
             break;
         }
         case 29: {
-            SpawnList *p = GETP(entry->a);
+            DebrisPartList *p = GETP(entry->a);
 
             if (p == NULL) break;
             {
-                u8 *emit = GETP(entry->b);
-                u32 n = RandomAdd_s32(((s32 *)emit)[0], ((s32 *)emit)[1]);
+                EventSeqEmit *emit = GETP(entry->b);
+                u32 n = RandomAdd_s32(emit->countBase, emit->countRange);
                 Vector4 base = {0.0f, 0.0f, 0.0f, 0.0f};
                 Vector4 ang;
                 Vector4 rnd;
-                Params6 prm __attribute__((aligned(16)));
-                Params2 sp __attribute__((aligned(16)));
+                DebrisPartParams prm __attribute__((aligned(16)));
+                EmitterParams sp __attribute__((aligned(16)));
                 u32 i, j;
 
-                QuaternionToSubMatrix(seq + 0x50, seq + 0x10);
+                QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
                 if (n == 0) n = 1;
                 for (i = 0; i < n; i++) {
-                    EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &base, &prm.quat, &ang);
+                    EventSeq_Advanced_GetInitData(emit, seq, &prm.vel, &base, (Vector4 *)&prm.quat, &ang);
                     for (j = 0; j < p->count; j++) {
-                        f32 mag = PSVECSquareMag(&GETP(p->spawns)[j].dir);
+                        f32 mag = PSVECSquareMag(&GETP(p->parts)[j].dir);
                         f32 s;
-                        u8 *thing;
+                        Thing *thing;
 
                         if (mag <= 0.0001f) {
                             prm.vel.x = 0.0f;
                             prm.vel.y = mag = 1.0f;
                             prm.vel.z = 0.0f;
                         } else {
-                            XformVecOrientation(seq + 0x10, &GETP(p->spawns)[j].dir, &prm.vel);
+                            XformVecOrientation(THING_MTX(&seq->base), &GETP(p->parts)[j].dir, &prm.vel);
                         }
-                        s = RandomAdd(*(f32 *)(emit + 0x8), *(f32 *)(emit + 0xC)) / mag;
+                        s = RandomAdd(emit->speedBase, emit->speedRange) / mag;
                         prm.vel.x *= s;
                         prm.vel.y *= s;
                         prm.vel.z *= s;
                         RandomNumberGenerator_GetRandomVector(&rnd);
-                        if ((prm.id = GETP(p->spawns)[j].id) == 0) continue;
-                        prm.unk40 = RandomAdd(*(f32 *)(emit + 0x18), *(f32 *)(emit + 0x1C));
-                        XformVecOrientation(seq + 0x10, &GETP(p->spawns)[j].dir, &prm.pos);
-                        prm.quat = *(Vector4 *)(seq + 0x50);
+                        if ((prm.geometry.h = GETP(p->parts)[j].geometry) == 0) continue;
+                        prm.gravity = RandomAdd(emit->extraBase, emit->extraRange);
+                        XformVecOrientation(THING_MTX(&seq->base), &GETP(p->parts)[j].dir, &prm.pos);
+                        prm.quat = seq->base.quat;
                         prm.pos.x += base.x;
                         prm.pos.y += base.y;
                         prm.pos.z += base.z;
-                        prm.vel.x += rnd.x * *(f32 *)(emit + 0x8);
-                        prm.vel.y += rnd.y * *(f32 *)(emit + 0x8);
-                        prm.vel.z += rnd.z * *(f32 *)(emit + 0x8);
-                        if (emit[0x20]) {
-                            prm.vel.x += *(f32 *)(seq + 0x0) * *(f32 *)(emit + 0x24);
-                            prm.vel.y += *(f32 *)(seq + 0x4) * *(f32 *)(emit + 0x24);
-                            prm.vel.z += *(f32 *)(seq + 0x8) * *(f32 *)(emit + 0x24);
+                        prm.vel.x += rnd.x * emit->speedBase;
+                        prm.vel.y += rnd.y * emit->speedBase;
+                        prm.vel.z += rnd.z * emit->speedBase;
+                        if (emit->inheritVel) {
+                            prm.vel.x += seq->base.vel.x * emit->inheritScale;
+                            prm.vel.y += seq->base.vel.y * emit->inheritScale;
+                            prm.vel.z += seq->base.vel.z * emit->inheritScale;
                         }
-                        prm.unk48 = RandomAdd_s32(p->base, p->range);
-                        prm.unk4C = GETP(p->spawns)[j].unk10;
-                        if (prm.unk48 < (s32)(0.5f * p->base)) {
-                            prm.unk50 = 0;
+                        prm.life = RandomAdd_s32(p->lifeBase, p->lifeRange);
+                        prm.mass = GETP(p->parts)[j].mass;
+                        /* short-lived ones stay put */
+                        if (prm.life < (s32)(0.5f * p->lifeBase)) {
+                            prm.moves = 0;
                         } else {
-                            prm.unk50 = 1;
+                            prm.moves = 1;
                         }
-                        RandomNumberGenerator_GetRandomVector(&prm.axis);
-                        prm.axis.w = 0.017453292f * RandomAdd(GETP(p->spawns)[j].unk14, GETP(p->spawns)[j].unk18);
-                        thing = ThingManager_DARYL_CreateThing(6, &prm);
-                        if (thing != NULL && GETP(GETP(p->spawns)[j].slave) != NULL) {
-                            u8 *slave;
+                        RandomNumberGenerator_GetRandomVector(&prm.spinAxis);
+                        prm.spinAxis.w = 0.017453292f * RandomAdd(GETP(p->parts)[j].spinMin, GETP(p->parts)[j].spinMax);
+                        thing = ThingManager_DARYL_CreateThing(THING_TYPE_DEBRIS, &prm);
+                        if (thing != NULL && GETP(GETP(p->parts)[j].slave) != NULL) {
+                            Thing *slave;
 
-                            sp.unk38 = 0.0f;
+                            sp.drawDist = 0.0f;
                             sp.quat.w = 1.0f;
                             sp.quat.x = 0.0f;
                             sp.quat.y = 0.0f;
                             sp.quat.z = 0.0f;
                             sp.pos = g_zeroVector;
-                            SETP(sp.p, GETP(GETP(p->spawns)[j].slave));
-                            sp.id = *(u32 *)(seq + 0x94);
+                            SETP(sp.emitter, GETP(GETP(p->parts)[j].slave));
+                            sp.owner = seq->base.player.h;
                             sp.vel = g_zeroVector;
-                            slave = ThingManager_DARYL_CreateSlave(2, &sp, 0xFF);
+                            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_EMITTER, &sp, 0xFF);
                             if (slave != NULL) {
-                                slave[0x83] = 0xFF;
-                                ThingManagerList_Append(thing + 0x88, slave);
+                                slave->slaveTag = 0xFF;
+                                ThingManagerList_Append(&thing->slaves, slave);
                             }
                         }
                     }
@@ -1065,23 +1202,23 @@ s32 EventSeq_Move(u8 *seq) {
             break;
         }
         case 25: {
-            u8 *p = GETP(entry->a);
+            ItemRecord *p = GETP(entry->a);
 
             if (p == NULL) break;
             {
-                u8 *emit = GETP(entry->b);
-                Vector4 pos = *(Vector4 *)(seq + 0x40);
-                Params4 prm __attribute__((aligned(16)));
+                EventSeqEmit *emit = GETP(entry->b);
+                Vector4 pos = seq->base.pos;
+                ItemParams prm __attribute__((aligned(16)));
 
-                if (emit[0x19]) {
-                    f32 *r = SLOT_LOAD(f32 *, (emit + 0x1C));
+                if (emit->randomOffset) {
+                    f32 *r = GETP(emit->offsetRange);
                     pos.x += RandomAdd(r[0], r[1]);
                     pos.y += RandomAdd(r[2], r[3]);
                     pos.z += RandomAdd(r[4], r[5]);
                 }
-                SETP(prm.p, p);
+                SETP(prm.record, p);
                 prm.pos = pos;
-                prm.unk34 = 0.0f;
+                prm.drawDist = 0.0f;
                 prm.quat.w = 1.0f;
                 prm.quat.x = 0.0f;
                 prm.quat.y = 0.0f;
@@ -1089,7 +1226,7 @@ s32 EventSeq_Move(u8 *seq) {
                 prm.vel.x = 0.0f;
                 prm.vel.y = 0.0f;
                 prm.vel.z = 0.0f;
-                ThingManager_DARYL_CreateThing(4, &prm);
+                ThingManager_DARYL_CreateThing(THING_TYPE_ITEM, &prm);
             }
             break;
         }
@@ -1101,16 +1238,16 @@ s32 EventSeq_Move(u8 *seq) {
                 Vector4 pos;
                 Vector4 tmp;
                 Vector4 off = {0.0f, 0.0f, 0.0f, 0.0f};
-                u8 *emit = GETP(GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].b);
+                EventSeqEmit *emit = GETP(GETP(GETP(seq->script)->entries)[seq->step].b);
                 Matrix4 m;
 
-                if (emit[0x18] == 1) {
+                if (emit->worldSpace == 1) {
                     m = g_identity;
                 }
-                QuaternionToSubMatrix(seq + 0x50, &m);
-                pos = *(Vector4 *)(seq + 0x40);
-                if (emit[0x19]) {
-                    f32 *r = SLOT_LOAD(f32 *, (emit + 0x1C));
+                QuaternionToSubMatrix(&seq->base.quat, &m);
+                pos = seq->base.pos;
+                if (emit->randomOffset) {
+                    f32 *r = GETP(emit->offsetRange);
                     off.x = RandomAdd(r[0], r[1]);
                     off.y = RandomAdd(r[2], r[3]);
                     off.z = RandomAdd(r[4], r[5]);
@@ -1122,21 +1259,21 @@ s32 EventSeq_Move(u8 *seq) {
             break;
         }
         case 10: {
-            u8 *p = GETP(entry->a);
+            EventSeqSound *p = GETP(entry->a);
 
             if (p == NULL) break;
-            if (p[0] == 1) {
-                f32 pitch = RandomAdd(*(f32 *)(p + 0xC), *(f32 *)(p + 0x10));
-                void *voice = SoundAudioSample_Play(*(u32 *)(p + 0x14));
+            if (p->type == 1) {
+                f32 pitch = RandomAdd(p->pitchMin, p->pitchMax);
+                void *voice = SoundAudioSample_Play(p->sample);
 
-                SoundAudioSample_Set(voice, 0, 32767.0f * *(f32 *)(p + 0x8));
+                SoundAudioSample_Set(voice, 0, 32767.0f * p->volume);
                 SoundAudioSample_Set(voice, 1, 65536.0f * pitch);
             } else {
-                u8 *emit = GETP(entry->b);
+                EventSeqEmit *emit = GETP(entry->b);
                 s32 src = SoundManager_CreateSource(0);
 
-                sample = *(u32 *)(p + 0x14);
-                pitch = RandomAdd(*(f32 *)(p + 0xC), *(f32 *)(p + 0x10));
+                sample = p->sample;
+                pitch = RandomAdd(p->pitchMin, p->pitchMax);
                 {
                     Vector4 tmp;
                     Vector4 pos;
@@ -1144,15 +1281,15 @@ s32 EventSeq_Move(u8 *seq) {
                     Vector4 off = {0.0f, 0.0f, 0.0f, 0.0f};
                     Matrix4 m;
 
-                    vel = *(Vector4 *)(seq + 0x0);
-                    if (emit[0x18] == 1) {
+                    vel = seq->base.vel;
+                    if (emit->worldSpace == 1) {
                         m = g_identity;
                         vel.x = vel.y = vel.z = 0.0f;
                     }
-                    QuaternionToSubMatrix(seq + 0x50, &m);
-                    pos = *(Vector4 *)(seq + 0x40);
-                    if (emit[0x19]) {
-                        f32 *r = SLOT_LOAD(f32 *, (emit + 0x1C));
+                    QuaternionToSubMatrix(&seq->base.quat, &m);
+                    pos = seq->base.pos;
+                    if (emit->randomOffset) {
+                        f32 *r = GETP(emit->offsetRange);
                         off.x = RandomAdd(r[0], r[1]);
                         off.y = RandomAdd(r[2], r[3]);
                         off.z = RandomAdd(r[4], r[5]);
@@ -1162,11 +1299,11 @@ s32 EventSeq_Move(u8 *seq) {
                     SoundSource_Set(src, 8, &sample);
                     SoundSource_Set(src, 5, &pos);
                     SoundSource_Set(src, 6, &vel);
-                    SoundSource_Set(src, 0, p + 0x8);
+                    SoundSource_Set(src, 0, &p->volume);
                     SoundSource_Set(src, 1, &pitch);
-                    if (p[0] == 0) {
-                        SoundSource_Set(src, 2, SLOT_LOAD(u8 *, (p + 0x18)));
-                        SoundSource_Set(src, 3, SLOT_LOAD(u8 *, (p + 0x18)) + 4);
+                    if (p->type == 0) {
+                        SoundSource_Set(src, 2, &GETP(p->range)[0]);
+                        SoundSource_Set(src, 3, &GETP(p->range)[1]);
                     }
                     SoundSource_Play(src);
                 }
@@ -1174,53 +1311,53 @@ s32 EventSeq_Move(u8 *seq) {
             break;
         }
         case 5: {
-            u8 *p = GETP(entry->a);
+            BlastInfo *p = GETP(entry->a);
 
             if (p == NULL) break;
             {
-                u8 *emit = GETP(entry->b);
+                EventSeqEmit *emit = GETP(entry->b);
                 Vector4 tmp;
                 Vector4 pos;
                 Vector4 off = {0.0f, 0.0f, 0.0f, 0.0f};
                 Matrix4 m;
 
-                if (emit[0x18] == 1) {
+                if (emit->worldSpace == 1) {
                     m = g_identity;
                 }
-                QuaternionToSubMatrix(seq + 0x50, &m);
-                pos = *(Vector4 *)(seq + 0x40);
-                if (emit[0x19]) {
-                    f32 *r = SLOT_LOAD(f32 *, (emit + 0x1C));
+                QuaternionToSubMatrix(&seq->base.quat, &m);
+                pos = seq->base.pos;
+                if (emit->randomOffset) {
+                    f32 *r = GETP(emit->offsetRange);
                     off.x = RandomAdd(r[0], r[1]);
                     off.y = RandomAdd(r[2], r[3]);
                     off.z = RandomAdd(r[4], r[5]);
                 }
                 XformVecOrientation(&m, &off, &tmp);
                 PSVECAdd(&pos, &tmp, &pos);
-                if (p[0]) {
-                    Blast_Action(p, &pos, seq);
+                if (p->blast) {
+                    Blast_Action(p, &pos, &seq->base);
                 }
-                if (!GameSettings_GetCodeVariable(0x198, 0) && (p[2] || p[3] || p[4])) {
+                if (!GameSettings_GetCodeVariable(0x198, 0) && (p->rumble[0] || p->rumble[1] || p->rumble[2])) {
                     ForceFeedback_Play(p, &pos);
                 }
-                if (p[1]) {
-                    f32 *range = SLOT_LOAD(f32 *, (p + 0x30));
+                if (p->flash) {
+                    f32 *range = GETP(p->radius);
                     f32 lo = range[0];
                     f32 hi = range[1];
                     f32 loSq = lo * lo;
                     f32 hiSq = hi * hi;
                     f32 span = hi - lo;
-                    s8 skip = 0;
-                    u8 *t;
+                    s8 skip = 0;   /* sic: never reset, once set every later thing is skipped */
+                    Thing *t;
 
-                    for (t = GETP(g_thingManager_DARYL.activeList); t != NULL; t = SLOT_LOAD(u8 *, (t + 0xA4))) {
-                        if (*(u32 *)(t + 0x94) == *(u32 *)(seq + 0x94)) {
-                            if (p[5] == 0) skip = 1;
+                    for (t = GETP(g_thingManager_DARYL.activeList); t != NULL; t = GETP(t->next)) {
+                        if (t->player.h == seq->base.player.h) {
+                            if (p->team == 0) skip = 1;
                         } else {
-                            if (p[5] == 2) skip = 1;
+                            if (p->team == 2) skip = 1;
                         }
-                        if (!skip && !(*(u32 *)(t + 0x74) & 0x200000) && *(s16 *)(t + 0x80) != 0) {
-                            f32 d = PSVECSquareDistance((f32 *)&pos, (f32 *)(t + 0x40));
+                        if (!skip && !(t->flags & THING_FLAG_RELEASED) && t->collisionType != THING_COLLIDE_NONE) {
+                            f32 d = PSVECSquareDistance(&pos, &t->pos);
 
                             if (d < hiSq) {
                                 f32 f = 1.0f;
@@ -1237,26 +1374,26 @@ s32 EventSeq_Move(u8 *seq) {
             break;
         }
         case 26: {
-            u8 *p = GETP(entry->a);
-            u8 *player;
+            SoundSeqInfo *p = GETP(entry->a);   /* a sound sequence */
+            Player *player;
 
             if (p == NULL) break;
-            player = SLOT_LOAD(u8 *, (seq + 0x94));
-            if (player != NULL && !(*(u32 *)(player + 0x6C) & 0x40) && *(s8 *)(p + 4) == 0) break;
+            player = GETP(seq->base.player);
+            if (player != NULL && !(player->flags & 0x40) && p->allPlayers == 0) break;
             {
-                u8 *emit = GETP(entry->b);
+                EventSeqEmit *emit = GETP(entry->b);
                 Vector4 tmp;
                 Vector4 pos;
                 Vector4 off __attribute__((aligned(16))) = {0.0f, 0.0f, 0.0f, 0.0f};
                 Matrix4 m;
 
-                if (emit[0x18] == 1) {
+                if (emit->worldSpace == 1) {
                     m = g_identity;
                 }
-                QuaternionToSubMatrix(seq + 0x50, &m);
-                pos = *(Vector4 *)(seq + 0x40);
-                if (emit[0x19]) {
-                    f32 *r = SLOT_LOAD(f32 *, (emit + 0x1C));
+                QuaternionToSubMatrix(&seq->base.quat, &m);
+                pos = seq->base.pos;
+                if (emit->randomOffset) {
+                    f32 *r = GETP(emit->offsetRange);
                     off.x = RandomAdd(r[0], r[1]);
                     off.y = RandomAdd(r[2], r[3]);
                     off.z = RandomAdd(r[4], r[5]);
@@ -1268,35 +1405,35 @@ s32 EventSeq_Move(u8 *seq) {
             break;
         }
         case 11:
-            *(u32 *)(seq + 0xD8) = *(u32 *)(seq + 0xD4);
-            *(u32 *)(seq + 0xDC) = GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].a.h  /* port: a value (repeat count), not a pointer */;
+            seq->loopStart = seq->step;
+            seq->loopCount = GETP(GETP(seq->script)->entries)[seq->step].a.h  /* port: a value (repeat count), not a pointer */;
             break;
         case 12:
-            if (*(u32 *)(seq + 0xDC) != 0) {
-                *(u32 *)(seq + 0xDC) -= 1;
-                *(u32 *)(seq + 0xD4) = *(u32 *)(seq + 0xD8);
+            if (seq->loopCount != 0) {
+                seq->loopCount -= 1;
+                seq->step = seq->loopStart;
             }
             break;
         case 15:
-            *(u32 *)(seq + 0xE0) = entry->a.h;  /* port: a value, not a pointer */
+            seq->wait = entry->a.h;  /* port: a value, not a pointer */
             break;
         case 13: {
             u32 i;
 
-            *(u32 *)(seq + 0xE8) = i = *(u32 *)(seq + 0xD4) + 1;
-            *(u32 *)(seq + 0xE4) = GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[*(u32 *)(seq + 0xD4)].a.h  /* port: a value (repeat count), not a pointer */;
-            *(u32 *)(seq + 0xEC) = 0;
-            for (; i < (SLOT_LOAD(Script *, (seq + 0xD0)))->count; i++) {
-                if (GETP((SLOT_LOAD(Script *, (seq + 0xD0)))->entries)[i].type == 14) break;
-                *(u32 *)(seq + 0xEC) += 1;
+            seq->randStart = i = seq->step + 1;
+            seq->randCount = GETP(GETP(seq->script)->entries)[seq->step].a.h  /* port: a value (repeat count), not a pointer */;
+            seq->randLength = 0;
+            for (; i < GETP(seq->script)->count; i++) {
+                if (GETP(GETP(seq->script)->entries)[i].type == 14) break;
+                seq->randLength += 1;
             }
-            seq[0xF0] = 1;
+            seq->randMode = 1;
             break;
         }
         case 14:
-            if (*(u32 *)(seq + 0xE4) > 1) {
-                *(u32 *)(seq + 0xE4) -= 1;
-                seq[0xF0] = 1;
+            if (seq->randCount > 1) {
+                seq->randCount -= 1;
+                seq->randMode = 1;
             }
             break;
         case 30:
@@ -1304,24 +1441,24 @@ s32 EventSeq_Move(u8 *seq) {
         default:
             return 0;
         }
-        switch (seq[0xF0]) {
+        switch (seq->randMode) {
         case 0:
-            *(u32 *)(seq + 0xD4) += 1;
+            seq->step += 1;
             break;
         case 1:
-            *(u32 *)(seq + 0xD4) = RandomAdd_s32(*(s32 *)(seq + 0xE8), *(s32 *)(seq + 0xEC));
-            seq[0xF0] = 2;
+            seq->step = RandomAdd_s32(seq->randStart, seq->randLength);
+            seq->randMode = 2;
             break;
         case 2:
-            *(u32 *)(seq + 0xD4) = *(u32 *)(seq + 0xE8) + *(u32 *)(seq + 0xEC);
-            seq[0xF0] = 0;
+            seq->step = seq->randStart + seq->randLength;
+            seq->randMode = 0;
             break;
         }
     }
     return 1;
 }
 
-u32 EventSeq_InCameraRange(u8 *seq, f32 range)
+u32 EventSeq_InCameraRange(struct EventSeq *seq, f32 range)
 {
     Vector4 positions[5] __attribute__((aligned(16)));
     Vector4 *pos;
@@ -1333,35 +1470,35 @@ u32 EventSeq_InCameraRange(u8 *seq, f32 range)
     {
         return 1;
     }
-    if (*(s8 *)(seq + 0xF1))
+    if (seq->camDirty)
     {
         count = Gfx_GetCameraPositions(positions);
-        *(f32 *)(seq + 0xF4) = PSVECSquareDistance((f32 *)(seq + 0x40), (f32 *)&positions[0]);
+        seq->camDistSq = PSVECSquareDistance(&seq->base.pos, (f32 *)&positions[0]);
         if (count > 1)
         {
             for (i = 0, pos = positions; i < 5; i++, pos++)
             {
                 if (g_CurrentViews & (1 << i))
                 {
-                    dist = PSVECSquareDistance((f32 *)(seq + 0x40), (f32 *)pos);
-                    if (dist < *(f32 *)(seq + 0xF4))
+                    dist = PSVECSquareDistance(&seq->base.pos, (f32 *)pos);
+                    if (dist < seq->camDistSq)
                     {
-                        *(f32 *)(seq + 0xF4) = dist;
+                        seq->camDistSq = dist;
                     }
                 }
             }
         }
-        *(s8 *)(seq + 0xF1) = 0;
+        seq->camDirty = 0;
     }
-    return range * range > *(f32 *)(seq + 0xF4);
+    return range * range > seq->camDistSq;
 }
 
-s32 EventSeq_Invalidate(void *arg0, u32 arg1, u32 arg2)
+/* Whether the script lies in [start, end) (a data pack being unloaded). */
+s32 EventSeq_Invalidate(struct EventSeq *seq, u32 start, u32 end)
 {
-    u32 field;
+    u32 script = seq->script.h;
 
-    field = M2C_FIELD(arg0, u32 *, 0xD0);
-    if (field >= arg1 && field < arg2)
+    if (script >= start && script < end)
     {
         return 1;
     }

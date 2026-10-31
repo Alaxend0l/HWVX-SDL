@@ -1,39 +1,8 @@
 #include "common.h"
+#include "Gfx.h"
 
-typedef struct GfxWindow {
-    f32 unk0[4][4];
-    f32 unk40[4][4];
-    f32 unk80[4][4];
-    f32 unkC0[4][4];
-    f32 unk100[4][4];
-    u8 unk140[0x180 - 0x140];
-    Vector4 cameraPos;
-    Vector4 cameraRight;
-    Vector4 cameraUp;
-    Vector4 cameraAt;
-    Vector4 clipPlanes[6];
-    Vector4 shadowClipPlanes[5];
-    f32 fov;
-    f32 unk274;
-    u8 unk278[0x280 - 0x278];
-    u32 width;
-    u32 height;
-    u8 unk288[0x2B0 - 0x288];
-    u32 unk2B0;
-    u32 unk2B4;
-    u32 unk2B8;
-    u32 unk2BC;
-    u8 unk2C0[0x2CC - 0x2C0];
-    f32 unk2CC;
-} GfxWindow;
 
-typedef struct GfxState {
-    u8 unk0[0x93];
-    u8 unk93;
-    u8 unk94[0xA0 - 0x94];
-} GfxState;
 
-extern GfxState g_state;
 extern f32 g_identity[4][4];
 static f32 GXCameraSpace[3][4];
 Vector4 g_cameraPos_Backup;
@@ -41,22 +10,21 @@ Vector4 g_cameraFacing_BackUp;
 Vector4 g_cameraUp_BackUp;
 Vector4 g_cameraRight_BackUp;
 
-GfxWindow *GetRenderWindow(void);
 
 void Gfx_SetWorldMatrix(f32 (*matrix)[4]) {
     if (matrix == NULL) {
-        if (g_state.unk93) {
+        if (g_state.worldIsIdentity) {
             return;
         }
-        g_state.unk93 = 1;
+        g_state.worldIsIdentity = 1;
         matrix = g_identity;
     } else {
-        g_state.unk93 = 0;
+        g_state.worldIsIdentity = 0;
     }
-    memcpy(GetRenderWindow()->unk0, matrix, 0x40);
-    MultiplyMatrix4x4(GetRenderWindow()->unk0, GetRenderWindow()->unk40, GetRenderWindow()->unk80);
-    MultiplyMatrix4x4(GetRenderWindow()->unk80, GetRenderWindow()->unkC0, GetRenderWindow()->unk100);
-    MatrixToMtxTranspose(GXCameraSpace, GetRenderWindow()->unk80);
+    memcpy(GetRenderWindow()->world, matrix, 0x40);
+    MultiplyMatrix4x4(GetRenderWindow()->world, GetRenderWindow()->view, GetRenderWindow()->worldView);
+    MultiplyMatrix4x4(GetRenderWindow()->worldView, GetRenderWindow()->projection, GetRenderWindow()->worldViewProj);
+    MatrixToMtxTranspose(GXCameraSpace, GetRenderWindow()->worldView);
     GXLoadPosMtxImm(GXCameraSpace, 0);
     GXSetCurrentMtx(0);
 }
@@ -108,14 +76,14 @@ void Gfx_SetCameraMatrix(Vector4 *pos, Vector4 *right, Vector4 *up, Vector4 *at)
     m[1][3] = 0.0f;
     m[0][3] = 0.0f;
     m[3][3] = 1.0f;
-    memcpy(GetRenderWindow()->unk40, m, 0x40);
-    MultiplyMatrix4x4(GetRenderWindow()->unk0, GetRenderWindow()->unk40, GetRenderWindow()->unk80);
-    MultiplyMatrix4x4(GetRenderWindow()->unk80, GetRenderWindow()->unkC0, GetRenderWindow()->unk100);
-    MatrixToMtxTranspose(GXCameraSpace, GetRenderWindow()->unk80);
+    memcpy(GetRenderWindow()->view, m, 0x40);
+    MultiplyMatrix4x4(GetRenderWindow()->world, GetRenderWindow()->view, GetRenderWindow()->worldView);
+    MultiplyMatrix4x4(GetRenderWindow()->worldView, GetRenderWindow()->projection, GetRenderWindow()->worldViewProj);
+    MatrixToMtxTranspose(GXCameraSpace, GetRenderWindow()->worldView);
     GXLoadPosMtxImm(GXCameraSpace, 0);
     GXSetCurrentMtx(0);
     Render_SetClipPlanes(GetRenderWindow()->fov);
-    g_state.unk93 = 0;
+    g_state.worldIsIdentity = 0;
 }
 
 void Gfx_SetProjectionMatrix(f32 fov) {
@@ -125,28 +93,28 @@ void Gfx_SetProjectionMatrix(f32 fov) {
 
     angle = fov;
     value = sin(0.017453292f * (0.9f * fov));
-    *(f32 *)((u8 *)GetRenderWindow() + 0x274) = value;
-    *(f32 *)((u8 *)GetRenderWindow() + 0x270) = fov;
+    GetRenderWindow()->sinHalfFov = value;
+    GetRenderWindow()->fov = fov;
     fov = 90.0f / fov;
-    value = -(fov * *(u32 *)((u8 *)GetRenderWindow() + 0x2B4));
-    *(f32 *)((u8 *)GetRenderWindow() + 0xC0) = value;
-    value = 1.333f * (fov * *(u32 *)((u8 *)GetRenderWindow() + 0x2BC));
-    *(f32 *)((u8 *)GetRenderWindow() + 0xD4) = value;
+    value = -(fov * (u32)GetRenderWindow()->right);
+    GetRenderWindow()->projection[0][0] = value;
+    value = 1.333f * (fov * (u32)GetRenderWindow()->bottom);
+    GetRenderWindow()->projection[1][1] = value;
     value = 1.0f;
-    *(f32 *)((u8 *)GetRenderWindow() + 0xEC) = value;
+    GetRenderWindow()->projection[2][3] = value;
     value = 20000.0f;
-    *(f32 *)((u8 *)GetRenderWindow() + 0xF8) = value;
-    value = *(u32 *)((u8 *)GetRenderWindow() + 0x2B4);
-    *(f32 *)((u8 *)GetRenderWindow() + 0xE0) = value;
-    value = *(u32 *)((u8 *)GetRenderWindow() + 0x2BC);
-    *(f32 *)((u8 *)GetRenderWindow() + 0xE4) = value;
-    Gfx_SetCameraMatrix((u8 *)GetRenderWindow() + 0x180, (u8 *)GetRenderWindow() + 0x190, (u8 *)GetRenderWindow() + 0x1A0, (u8 *)GetRenderWindow() + 0x1B0);
+    GetRenderWindow()->projection[3][2] = value;
+    value = (u32)GetRenderWindow()->right;
+    GetRenderWindow()->projection[2][0] = value;
+    value = (u32)GetRenderWindow()->bottom;
+    GetRenderWindow()->projection[2][1] = value;
+    Gfx_SetCameraMatrix(&GetRenderWindow()->cameraPos, &GetRenderWindow()->cameraRight, &GetRenderWindow()->cameraUp, &GetRenderWindow()->cameraAt);
     value = 1.0 / sin(0.008726646f * Gfx_GetProjectionMatrix());
-    *(f32 *)((u8 *)GetRenderWindow() + 0x2CC) = value;
-    value = *(u32 *)((u8 *)GetRenderWindow() + 0x284);
-    value = *(u32 *)((u8 *)GetRenderWindow() + 0x280) / value;
-    fov = *(u32 *)((u8 *)GetRenderWindow() + 0x280);
-    C_MTXPerspective(mtx, 1.0714285f * angle * *(u32 *)((u8 *)GetRenderWindow() + 0x284) / fov, value, 1.0f, 20000.0f);
+    GetRenderWindow()->invSinHalfFov = value;
+    value = GetRenderWindow()->height;
+    value = GetRenderWindow()->width / value;
+    fov = GetRenderWindow()->width;
+    C_MTXPerspective(mtx, 1.0714285f * angle * GetRenderWindow()->height / fov, value, 1.0f, 20000.0f);
     GXSetProjection(mtx, 0);
 }
 
@@ -348,14 +316,14 @@ void MatrixToMtxTranspose(f32 dst[3][4], f32 src[4][4]) {
 }
 
 s32 isInWindow(f32 *pos) {
-    if (GetRenderWindow()->unk2B0 > pos[0] || GetRenderWindow()->unk2B4 < pos[0]) {
+    if (GetRenderWindow()->left > pos[0] || GetRenderWindow()->right < pos[0]) {
         return 0;
     }
-    if (GetRenderWindow()->unk2B8 > pos[1] || GetRenderWindow()->unk2BC < pos[1]) {
+    if (GetRenderWindow()->top > pos[1] || GetRenderWindow()->bottom < pos[1]) {
         return 0;
     }
-    pos[0] -= GetRenderWindow()->unk2B0;
-    pos[1] -= GetRenderWindow()->unk2B8;
+    pos[0] -= GetRenderWindow()->left;
+    pos[1] -= GetRenderWindow()->top;
     return 1;
 }
 
@@ -369,9 +337,9 @@ void Gfx_TransformVector(f32 *in, f32 *out) {
     GXGetProjectionv(pm);
     vp[3] *= 1.0714f;
     GXProject(in[0], in[1], in[2], GXCameraSpace, pm, vp, &out[0], &out[1], &out[2]);
-    out[3] = -(GetRenderWindow()->unk100[3][3] +
-               (in[2] * GetRenderWindow()->unk100[2][3] +
-                (in[0] * GetRenderWindow()->unk100[0][3] +
-                 in[1] * GetRenderWindow()->unk100[1][3])));
+    out[3] = -(GetRenderWindow()->worldViewProj[3][3] +
+               (in[2] * GetRenderWindow()->worldViewProj[2][3] +
+                (in[0] * GetRenderWindow()->worldViewProj[0][3] +
+                 in[1] * GetRenderWindow()->worldViewProj[1][3])));
 }
 
