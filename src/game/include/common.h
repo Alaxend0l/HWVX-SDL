@@ -28,6 +28,7 @@ typedef union Matrix4 {
   f64 d[8];                 /* the game copies matrices as doubles */
 } Matrix4 __attribute__((aligned(16)));
 #include "Thing.h"
+#include "Motion.h"
 #include "Collision.h"
 #include "ItemThing.h"
 #include "Creature.h"
@@ -119,44 +120,7 @@ typedef struct GXLightObjInt {
   f32 ldir[3];
 } GXLightObjInt;
 
-typedef struct ShaderHolderGX {
-  PTR32(void) gx;
-  PTR32(void) shader;
-} ShaderHolderGX;
-
-typedef struct ShaderDef {
-  u8 pad0[4];
-  u32 numColorKeys;
-  u8 pad8[4];
-  u32 numPointKeys;
-  u8 pad10[4];
-  PTR32(u32) textureKeys;
-} ShaderDef;
-
-typedef struct Shader {
-  u8 pad0[0x2C];
-  u8 unk2C;
-  u8 pad2D[0x38 - 0x2D];
-  u8 unk38;
-  u8 pad39[0x58 - 0x39];
-  u8 unk58;
-  u8 pad59[0x5C - 0x59];
-  PTR32(ShaderDef) def;
-  u8 hasColorKey;
-  u8 hasTextureKey;
-  u8 hasPointKey;
-  u8 pad63;
-  u32 refCount;
-  u8 pad68[4];
-} Shader;
-
-typedef struct ShaderHolder {
-  PTR32(void) shaders[0x40];
-  Shader slots[0x40];
-  ShaderHolderGX gx[0x80];
-  u32 numShaders;
-  u32 numGX;
-} ShaderHolder;
+/* Shaders: Shader.h. */
 
 typedef struct DividingAxis {
   f32 dir;
@@ -811,8 +775,8 @@ typedef struct VehicleInterfaceData {
   u32 selection;
   s8 active;
   u8 unk19[0x1C - 0x19];
-  PTR32(u8) players[2];
-  PTR32(u8) cars[2];
+  PTR32(struct Player) players[2];
+  PTR32(struct CarA) cars[2];  /* shown on the select screen */
   u32 objects[2];
   s8 locked;
   u8 unk35[0x38 - 0x35];
@@ -1077,6 +1041,9 @@ typedef struct SlaveList SlaveList;
 typedef struct WildCardSlot WildCardSlot;
 typedef struct MotionThing MotionThing;
 typedef struct MotionParams MotionParams;
+typedef struct CarACollider CarACollider;
+typedef struct ShaderDef ShaderDef;
+typedef struct GfxWindow GfxWindow;
 
 #include "game_protos.h"
 

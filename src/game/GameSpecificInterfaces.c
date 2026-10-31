@@ -1,5 +1,7 @@
 #include "common.h"
 #include "Interface.h"
+#include "CarA.h"
+#include "WildCard.h"
 
 extern VehicleInterfaceData g_vehicleInterfaceData[4];
 
@@ -25,18 +27,19 @@ void GSI_VehicleItemInit(void)
     PlayerManager_Init();
 }
 
-void GSI_VehicleSelectionInfo(u8 *info)
+/* Interface info callback of the vehicle select: the shown car's stat bars. */
+void GSI_VehicleSelectionInfo(InterfaceHudInfo *info)
 {
     u32 i;
-    u8 *vehicle;
+    CarAInfo *vehicle;
 
     for (i = 0; i < 4; i++) {
-        if (*(u32 *)info == g_vehicleInterfaceData[i].iface && GETP(g_vehicleInterfaceData[i].cars[0]) != NULL) {
-            vehicle = SLOT_LOAD(u8 *, (GETP(g_vehicleInterfaceData[i].cars[0]) + 0x3BC));
-            info[0xC9] = *(u8 *)(SLOT_LOAD(u8 *, (vehicle + 0x84)) + 0x34);
-            info[0xCA] = *(u8 *)(SLOT_LOAD(u8 *, (vehicle + 0x84)) + 0x35);
-            info[0xCB] = *(u8 *)(SLOT_LOAD(u8 *, (vehicle + 0x84)) + 0x36);
-            info[0xCC] = *(u8 *)(SLOT_LOAD(u8 *, (vehicle + 0x84)) + 0x37);
+        if (info->index == g_vehicleInterfaceData[i].iface && GETP(g_vehicleInterfaceData[i].cars[0]) != NULL) {
+            vehicle = GETP(GETP(g_vehicleInterfaceData[i].cars[0])->vehicleIface);
+            info->carStats[0] = GETP(vehicle->hud)->stats[0];
+            info->carStats[1] = GETP(vehicle->hud)->stats[1];
+            info->carStats[2] = GETP(vehicle->hud)->stats[2];
+            info->carStats[3] = GETP(vehicle->hud)->stats[3];
             return;
         }
     }
@@ -55,31 +58,23 @@ void GSI_VehicleItemSelection(void *arg) {
         PTR32(u32) list;
         u16 nextState;
     } InterfaceMsg;
-    typedef struct CreateCarParams {
-        Vector4 pos;
-        Vector4 rot;
-        Vector4 vel;
-        PTR32(void) script;
-        u8 unk44[0x4C - 0x44];
-        PTR32(void) player;
-    } CreateCarParams;
     extern Vector4 g_zeroVector;
     static s8 bReleaseThings = 1;
     static s8 bReleaseAllPacks = 1;
     static u32 lockedID = 0xFFFFFFFF;
-    static void *s_pColGrid;
+    static WorldCollision *s_pColGrid;  /* the world's collision, off while the cars are shown */
     InterfaceMsg *msg = arg;
     VehicleInterfaceData *data;
     MCP *mcp;
-    u8 *car;
-    u8 *rack;
+    CarA *car;
+    WildCardRack *rack;
     u8 *pack;
-    u8 *script;
+    void *script;
     u32 id;
     u32 i;
     u32 j;
     s8 busy;
-    CreateCarParams params;
+    CarAParams params;
 
     data = NULL;
     if (msg->type != 3) {
@@ -161,8 +156,8 @@ void GSI_VehicleItemSelection(void *arg) {
         }
         Input_SetForceFeedbackActive(0, GameSettings_GetControllerSettings(1)->data[0]);
         if (GETP(g_worldData.world) != NULL) {
-            s_pColGrid = SLOT_LOAD(void *, GETP(g_worldData.world));
-            SLOT_STORE(GETP(g_worldData.world), NULL);
+            s_pColGrid = GETP(((World *)GETP(g_worldData.world))->collision);
+            SETP(((World *)GETP(g_worldData.world))->collision, NULL);
         } else {
             s_pColGrid = NULL;
         }
@@ -183,7 +178,7 @@ void GSI_VehicleItemSelection(void *arg) {
         if (bReleaseAllPacks) {
             for (i = 0; i < 2; i++) {
                 if (GETP(data->cars[i]) != NULL) {
-                    WildCardRack_JettisonAll(ThingManagerList_GetByType(GETP(data->cars[i]) + 0x344, 8));
+                    WildCardRack_JettisonAll(ThingManagerList_GetByType(&GETP(data->cars[i])->motionState.slaves, THING_TYPE_WILDCARD_RACK));
                     CarA_Release(GETP(data->cars[i]));
                 }
             }
@@ -192,7 +187,7 @@ void GSI_VehicleItemSelection(void *arg) {
         } else {
             for (i = 0; i < 2; i++) {
                 if (GETP(data->cars[i]) != NULL) {
-                    WildCardRack_JettisonAll(ThingManagerList_GetByType(GETP(data->cars[i]) + 0x344, 8));
+                    WildCardRack_JettisonAll(ThingManagerList_GetByType(&GETP(data->cars[i])->motionState.slaves, THING_TYPE_WILDCARD_RACK));
                     CarA_Release(GETP(data->cars[i]));
                     SETP(data->cars[i], NULL);
                 }
@@ -211,7 +206,7 @@ void GSI_VehicleItemSelection(void *arg) {
             FileStreaming_ReleaseAllDataPacks(8, 0);
         }
         if (GETP(g_worldData.world) != NULL) {
-            SLOT_STORE(GETP(g_worldData.world), s_pColGrid);
+            SETP(((World *)GETP(g_worldData.world))->collision, s_pColGrid);
         }
         break;
     case 0:
@@ -223,11 +218,12 @@ void GSI_VehicleItemSelection(void *arg) {
                     break;
                 }
                 if (GETP(data->cars[i]) != NULL) {
-                    rack = ThingManagerList_GetByType(GETP(data->cars[i]) + 0x344, 8);
+                    rack = ThingManagerList_GetByType(&GETP(data->cars[i])->motionState.slaves, THING_TYPE_WILDCARD_RACK);
                     if (rack != NULL) {
-                        *(u16 *)(rack + rack[0x470] * 0x50 + 0xF0) = 10000;
-                        *(s32 *)(GETP(data->cars[i]) + 0x78) = 10000;
-                        (SLOT_LOAD(u8 *, (GETP(data->cars[i]) + 0x94)))[0x1B] = 0xFF;
+                        /* the demo fire: full ammo and health, fire held */
+                        rack->slots[rack->cur].ammo = 10000;
+                        GETP(data->cars[i])->base.health = 10000;
+                        ((Player *)GETP(GETP(data->cars[i])->base.player))->buttonFire = 0xFF;
                     }
                 }
             }
@@ -239,16 +235,16 @@ void GSI_VehicleItemSelection(void *arg) {
             car = GETP(data->cars[i]);
             if (car != NULL) {
                 if (!data->locked) {
-                    Control_ClearControl(SLOT_LOAD(void *, (car + 0x94)));
+                    Control_ClearControl(GETP(car->base.player));
                 }
-                *(s32 *)(car + 0x460) = 0;
-                *(f32 *)(car + 0x458) = 10.0f;
-                ((f32 *)GETP(data->cars[i]))[0] = 0.0f;
-                ((f32 *)GETP(data->cars[i]))[1] = 0.0f;
-                ((f32 *)GETP(data->cars[i]))[2] = 0.0f;
-                *(Vector4 *)(car + 0x390) = g_zeroVector;
-                *(Vector4 *)(car + 0x380) = g_zeroVector;
-                *(Vector4 *)(car + 0x410) = g_zeroVector;
+                car->unk460 = 0;
+                car->gradeOrReverse = 10.0f;
+                GETP(data->cars[i])->base.vel.x = 0.0f;
+                GETP(data->cars[i])->base.vel.y = 0.0f;
+                GETP(data->cars[i])->base.vel.z = 0.0f;
+                car->forceAccum = g_zeroVector;
+                car->angularMomentum = g_zeroVector;
+                car->localAxis = g_zeroVector;
             }
         }
         data->locked = 0;
@@ -262,7 +258,7 @@ void GSI_VehicleItemSelection(void *arg) {
         if (id != data->packID || (GETP(data->cars[0]) == NULL && lockedID == -1)) {
             for (i = 0; i < 2; i++) {
                 if (GETP(data->cars[i]) != NULL) {
-                    rack = ThingManagerList_GetByType(GETP(data->cars[i]) + 0x344, 8);
+                    rack = ThingManagerList_GetByType(&GETP(data->cars[i])->motionState.slaves, THING_TYPE_WILDCARD_RACK);
                     if (rack != NULL) {
                         WildCardRack_JettisonAll(rack);
                     }
@@ -323,25 +319,26 @@ void GSI_VehicleItemSelection(void *arg) {
             params.pos.y = -7.0f;
             params.pos.z = 30.0f;
             SETP(params.player, GETP(data->players[0]));
-            params.rot.x = 0.0f;
-            params.rot.y = 0.0f;
-            params.rot.z = 0.0f;
-            params.rot.w = 1.0f;
-            SETP(params.script, script);
+            params.quat.x = 0.0f;
+            params.quat.y = 0.0f;
+            params.quat.z = 0.0f;
+            params.quat.w = 1.0f;
+            SETP(params.info, script);
             params.vel.x = 0.0f;
             params.vel.y = 0.0f;
             params.vel.z = 0.0f;
-            for (i = 0; i < *(u32 *)(script + 0xD0); i++) {
-                *(f32 *)(SLOT_LOAD(u8 *, (script + 0xD4)) + i * 0x50 + 0xC) = 0.3f;
+            /* the show cars sit lower on their springs */
+            for (i = 0; i < ((CarAInfo *)script)->numWheels; i++) {
+                GETP(((CarAInfo *)script)->wheels)[i].restLength = 0.3f;
             }
-            SETP(data->cars[0], ThingManager_DARYL_CreateThing(9, &params));
-            *(u32 *)(GETP(data->cars[0]) + 0x90) = 0;
+            SETP(data->cars[0], ThingManager_DARYL_CreateThing(THING_TYPE_CAR, &params));
+            GETP(data->cars[0])->base.trigger.h = 0;
             data->objects[0] = msg->objects[0];
             Player_SetThing(GETP(data->players[0]), GETP(data->cars[0]));
-            *(u32 *)(GETP(data->players[0]) + 0xA8) = 0;
-            *(u32 *)(GETP(data->cars[0]) + 0x74) |= 0x60200;
+            GETP(data->players[0])->tileCar.h = 0;
+            GETP(data->cars[0])->base.flags |= THING_FLAG_NO_TERRAIN_HITS | THING_FLAG_NO_OBJECT_HITS | THING_FLAG_HIDDEN;
             if (j == 1) {
-                *(u32 *)(GETP(data->cars[0]) + 0x74) |= 2;
+                GETP(data->cars[0])->base.flags |= THING_FLAG_DEAD;
             }
         } else {
             InterfaceManager_LinkThingToObject(msg->iface, msg->objects[0], GETP(data->cars[0]));
@@ -368,7 +365,7 @@ void GSI_VehicleItemSelection(void *arg) {
                     data->itemID = id;
                 }
             }
-            Control_ClearControl(SLOT_LOAD(void *, (GETP(data->cars[0]) + 0x94)));
+            Control_ClearControl(GETP(GETP(data->cars[0])->base.player));
             data->locked = 0;
         }
         if (lockedID == -1 || lockedID != data->iface) {
@@ -383,12 +380,12 @@ void GSI_VehicleItemSelection(void *arg) {
         if (script == NULL || GETP(data->cars[0]) == NULL) {
             break;
         }
-        rack = ThingManagerList_GetByType(GETP(data->cars[0]) + 0x344, 8);
+        rack = ThingManagerList_GetByType(&GETP(data->cars[0])->motionState.slaves, THING_TYPE_WILDCARD_RACK);
         if (rack == NULL) {
             break;
         }
         WildCardRack_JettisonAll(rack);
-        WildCardRack_Add(rack, script, *(s32 *)(SLOT_LOAD(u8 *, (script + 0x30)) + 0x20));
+        WildCardRack_Add(rack, script, GETP(((ItemRecord *)script)->weapon)->ammo);
         break;
     case 15:
         busy = 0;

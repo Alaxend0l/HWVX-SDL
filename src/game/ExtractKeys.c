@@ -331,18 +331,8 @@ void ExtractPointKey(u8 *track, u8 *state, f32 dt) {
         u32 count;
         PTR32(Key) keys;
     } KeyTrack;
-    typedef struct KeyState {
-        f32 x;
-        f32 y;
-        f32 slopeX;
-        f32 slopeY;
-        f32 time;
-        u16 index;
-        u16 current;
-        u8 reset;
-    } KeyState;
     KeyTrack *t = (KeyTrack *)track;
-    KeyState *s = (KeyState *)state;
+    KeyPointState *s = (KeyPointState *)state;
     u32 reset;
     u16 i;
     Key *keys;

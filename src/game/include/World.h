@@ -413,7 +413,9 @@ typedef struct WorldGameData {
     f32 reverbLevel;            /* 0x24 outside reverb volumes */
     f32 reverbDelay;            /* 0x28 */
     f32 reverbFeedback;         /* 0x2C */
-    u8 pad30[0xC];              /* 0x30 music volume/pitch/tempo scales... */
+    f32 musicVol;               /* 0x30 scales of the music actions (Music_Change) */
+    f32 musicPitch;             /* 0x34 */
+    f32 musicTempo;             /* 0x38 */
     f32 cameraFxLead;           /* 0x3C cameraFx is kept this many seconds of car travel ahead */
     u8 pad40[0x28];             /* 0x40 radar map... */
     f32 impactFxMinVel;         /* 0x68 car-car impact effects, by relative speed */
@@ -435,6 +437,11 @@ typedef struct WorldGameData {
     u8 padD0[0x20];             /* 0xD0 */
     u32 numImpactFx;            /* 0xF0 */
     PTR32(u32) impactFx;        /* 0xF4 debris ids, by speed */
+    u8 padF8[8];                /* 0xF8 */
+    u32 numCameras;             /* 0x100 chase cameras of things without their own */
+    PTR32(u8) cameras;          /* 0x104 12 bytes each (CarACameras) */
+    u32 numCamerasWide;         /* 0x108 the same for view format 2 */
+    PTR32(u8) camerasWide;      /* 0x10C */
 } WorldGameData;
 
 WORLD_ASSERT(WorldGameData, fogFar, 0x18);
@@ -445,6 +452,7 @@ WORLD_ASSERT(WorldGameData, envmapA, 0x8C);
 WORLD_ASSERT(WorldGameData, itemPack, 0xA4);
 WORLD_ASSERT(WorldGameData, fogColor, 0xC0);
 WORLD_ASSERT(WorldGameData, impactFx, 0xF4);
+WORLD_ASSERT(WorldGameData, numCameras, 0x100);
 
 /* The world's collision pack (world + 0x0; CollisionTerrain.c TerrainGrid):
  * only the parts World_ClearSweep uses. Polys and edges carry a sweep stamp

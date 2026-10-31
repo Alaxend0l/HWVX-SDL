@@ -75,7 +75,7 @@ typedef struct ItemThing {
     f32 drawDist;               /* 0xC8 */
     s16 pickupDelay;            /* 0xCC ms before it can be picked up (again) */
     s16 ammo;                   /* 0xCE */
-    PTR32(u8) spawner;          /* 0xD0 FileStreaming QuadItem (respawn time 0x14 -> timer 0x18), or NULL */
+    PTR32(struct QuadItem) spawner; /* 0xD0 the quadrant item it came from (respawned), or NULL */
     s32 navPoint;               /* 0xD4 nearest nav point, -1: none */
     u32 timerActive;            /* 0xD8 */
     s32 timer;                  /* 0xDC ms */

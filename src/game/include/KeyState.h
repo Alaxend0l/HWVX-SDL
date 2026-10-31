@@ -48,6 +48,20 @@ typedef struct KeyF32State {
     u8 pad11[0xF];              /* 0x11 */
 } KeyF32State;
 
+/* ExtractPointKey state: a 2D point (shader texture scroll). */
+typedef struct KeyPointState {
+    f32 x;                      /* 0x00 */
+    f32 y;                      /* 0x04 */
+    f32 slopeX;                 /* 0x08 per ms */
+    f32 slopeY;                 /* 0x0C */
+    f32 time;                   /* 0x10 into the current key */
+    u16 index;                  /* 0x14 */
+    u16 current;                /* 0x16 */
+    u8 reset;                   /* 0x18 */
+    u8 pad19[3];                /* 0x19 */
+} KeyPointState;
+
+_Static_assert(sizeof(KeyPointState) == 0x1C, "KeyPointState size");
 _Static_assert(offsetof(KeyColorState, color) == 0x24, "KeyColorState.color");
 _Static_assert(offsetof(KeyColorState, reset) == 0x2C, "KeyColorState.reset");
 _Static_assert(sizeof(KeyColorState) == 0x30, "KeyColorState size");

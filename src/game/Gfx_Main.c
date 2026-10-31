@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 typedef struct Vector {
     f32 x;
@@ -39,15 +40,6 @@ typedef struct GfxState {
 
 extern GfxState g_state;
 
-typedef struct GfxWindow {
-    u8 unk0[0x180];
-    Vector cameraPos;
-    u8 unk190[0x270 - 0x190];
-    f32 fov;
-    u8 unk274[0x2C4 - 0x274];
-    s32 unk2C4;
-    u8 unk2C8[0x2D0 - 0x2C8];
-} GfxWindow;
 
 
 
@@ -92,7 +84,6 @@ s32 Gfx_CreateView(s32 view, u32 width, u32 height) {
     return Render_CreateView(view, width, height);
 }
 
-GfxWindow *GetRenderWindow(void);
 void Gfx_BeginScene(void) {
     extern u8 g_renderStats[0x100];
 
@@ -209,42 +200,9 @@ GfxWindow *GetRenderWindow(void) {
 }
 
 void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4) {
-    typedef struct {
-        f32 unk0[4][4];
-        f32 unk40[4][4];
-        f32 unk80[4][4];
-        f32 unkC0[4][4];
-        f32 unk100[4][4];
-        f32 unk140[4][4];
-        u8 unk180[0x270 - 0x180];
-        f32 fov;
-        u8 unk274[4];
-        f32 scaleX;
-        f32 scaleY;
-        u32 width;
-        u32 height;
-        u32 halfWidth;
-        u32 halfHeight;
-        f32 offsetX;
-        f32 offsetY;
-        f32 sizeX;
-        f32 sizeY;
-        f32 unk2A0;
-        f32 unk2A4;
-        f32 centerX;
-        f32 centerY;
-        s32 left;
-        s32 right;
-        s32 top;
-        s32 bottom;
-        u8 unk2C0[4];
-        s32 unk2C4;
-        s32 unk2C8;
-        u8 unk2CC[4];
-    } Window;
     extern GfxWindow g_window[];
     extern s32 g_currentWindow;
-    Window *win = (Window *)&g_window[g_currentWindow];
+    GfxWindow *win = &g_window[g_currentWindow];
     u32 width = x1 - x0;
     u32 height = y1 - y0;
     u32 marginX = 0x1000 - width;
@@ -270,13 +228,13 @@ void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4) {
     win->centerX = (marginX >> 1) * 16;
     win->centerY = (marginY >> 1) * 16;
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
-    memcpy((u8 *)&g_window[g_currentWindow] + 0x140, (u8 *)&g_window[g_currentWindow] + 0x40, 0x40);
+    memcpy(g_window[g_currentWindow].viewMatrix, g_window[g_currentWindow].view, 0x40);
     /* inlined in the original (no such function in the symbol map) */
-    win->unk2C4 = 0;
-    win->fov = ((Window *)&g_window[0])->fov;
+    win->overlayMode = 0;
+    win->fov = g_window[0].fov;
 }
 
-s32 Gfx_GetCameraPositions(Vector *out) {
+s32 Gfx_GetCameraPositions(Vector4 *out) {
     extern u8 g_CurrentViews;
     extern GfxWindow g_window[];
     u32 i;
@@ -290,7 +248,7 @@ s32 Gfx_GetCameraPositions(Vector *out) {
     return count;
 }
 
-f32 Gfx_GetMinCameraDistSquared(Vector *pos) {
+f32 Gfx_GetMinCameraDistSquared(Vector4 *pos) {
     extern u8 g_CurrentViews;
     extern GfxWindow g_window[];
     f32 minDist;

@@ -93,25 +93,9 @@ typedef struct CreatureInfo {
     PTR32(DamagePartList) damageParts; /* 0x70 NULL: can't be gibbed */
 } CreatureInfo;
 
-/* Animation data a MotionState plays. */
-typedef struct CreatureAnim {
-    u8 pad00[0x18];                    /* 0x00 */
-    f32 fps;                           /* 0x18 */
-    u8 pad1C[0xC];                     /* 0x1C */
-    PTR32(f32) unk28;                  /* 0x28 [1]: time hit animations play uninterrupted */
-} CreatureAnim;
+/* Creatures play MotionAnims (Motion.h). */
 
-/* A Model's skeleton (Model.numBones points to it). */
-typedef struct AnimNode {
-    u8 pad00[0x1F];                    /* 0x00 */
-    u8 flags;                          /* 0x1F 1: blown off, 2: just blown (AnimNodes_BlowBranch) */
-} AnimNode;
-
-typedef struct CreatureSkeleton {
-    u32 numBones;                      /* 0x00 */
-    u8 pad04[0xC];                     /* 0x04 */
-    PTR32(AnimNode) nodes;             /* 0x10 */
-} CreatureSkeleton;
+/* AnimNode and CreatureSkeleton are in Motion.h. */
 
 /* Parameters of ThingManager_DARYL_CreateThing(7) / Creature_Init. */
 typedef struct CreatureInit {
@@ -133,23 +117,27 @@ typedef struct Creature {
     f32 unkC0;                         /* 0xC0 */
     s32 animState;                     /* 0xC4 Creature_MotionStateInit state */
     f32 blendRate;                     /* 0xC8 per second, blends in a new animation */
-    /* 0xCC: its MotionState (CarA.h): model, animMatrices, slaves, then the
-     * blend layers (Motion_BlendHeartbeat_FPS(&anim, 2, ...)). */
-    PTR32(void) model;                 /* 0xCC Model */
-    u8 padD0[0xC];                     /* 0xD0 */
-    PTR32(Matrix4) bones;              /* 0xDC world matrix per bone */
-    PTR32(Thing) slaves;               /* 0xE0 attached slave things */
-    PTR32(CreatureAnim) anim;          /* 0xE4 the animation playing */
-    u8 animStatus;                     /* 0xE8 2: finished */
-    u8 unkE9;                          /* 0xE9 */
-    u8 padEA[2];                       /* 0xEA */
-    f32 animTime;                      /* 0xEC */
-    f32 animWeight;                    /* 0xF0 blend weight of anim */
-    f32 animPrevTime;                  /* 0xF4 this frame's time window: entry->start */
-    f32 animCurTime;                   /* 0xF8 crossing it fires an impulse */
-    u32 animLooped;                    /* 0xFC set: ends CREATURE_FLAG_BUSY */
-    u8 pad100[4];                      /* 0x100 */
-    PTR32(CreatureAnim) prevAnim;      /* 0x104 the animation blended out */
+    union {
+        MotionState motion;            /* 0xCC its animation (MotionState_*) */
+        struct {                       /*      the same, by the names Creature.c uses */
+            PTR32(MotionAnim) model;   /* 0xCC */
+            u8 padD0[0xC];             /* 0xD0 */
+            PTR32(Matrix4) bones;      /* 0xDC world matrix per bone (motion.animMatrices) */
+            ThingList slaves;          /* 0xE0 attached slave things */
+            PTR32(MotionAnim) anim;    /* 0xE4 the animation playing (motion.layer) */
+            u8 animStatus;             /* 0xE8 phase, 2: finished */
+            u8 unkE9;                  /* 0xE9 */
+            u8 padEA[2];               /* 0xEA */
+            f32 animTime;              /* 0xEC */
+            f32 animWeight;            /* 0xF0 blend weight of anim */
+            f32 animPrevTime;          /* 0xF4 this frame's time window: entry->start */
+            f32 animCurTime;           /* 0xF8 crossing it fires an impulse */
+            u32 animLooped;            /* 0xFC set: ends CREATURE_FLAG_BUSY */
+            u8 pad100[4];              /* 0x100 */
+        };
+    };
+    /* 0x104: a second layer, only its animation and weight used */
+    PTR32(MotionAnim) prevAnim;        /* 0x104 the animation blended out */
     u8 pad108[8];                      /* 0x108 */
     f32 prevAnimWeight;                /* 0x110 */
     s32 animIndex;                     /* 0x114 into CreatureInfo.anims / deathAnims */
@@ -178,6 +166,7 @@ CREATURE_ASSERT(info, 0xB8);
 CREATURE_ASSERT(onGround, 0xBF);
 CREATURE_ASSERT(animState, 0xC4);
 CREATURE_ASSERT(model, 0xCC);
+CREATURE_ASSERT(motion, 0xCC);
 CREATURE_ASSERT(bones, 0xDC);
 CREATURE_ASSERT(slaves, 0xE0);
 CREATURE_ASSERT(anim, 0xE4);

@@ -290,9 +290,9 @@ void OBoxHolder_Release(CollisionOBox *obox);
 OConvexHull * OConvexHullHolder_Get(void *owner);
 void OConvexHullHolder_Init(void);
 void OConvexHullHolder_Release(OConvexHull *hull);
-f32 PhysicalProperties_CollideWithRay(u8 *props, void *mtx, Vector4 *start, Vector4 *dir, f32 t, u8 *hit);
+f32 PhysicalProperties_CollideWithRay(CarACollider *props, void *mtx, Vector4 *start, Vector4 *dir, f32 t, CollisionInfo *hit);
 f32 RayBoxTest(Vector4 *start, Vector4 *dir, Vector4 *box, f32 t, Vector4 *hit);
-f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32 t, u8 *hit);
+f32 RaySphereTest(Vector4 *start, Vector4 *dir, Vector4 *center, f32 radius, f32 t, CollisionInfo *hit);
 
 /* CollisionTriangle.c */
 void CollisionTriCache_Clear(void);
@@ -322,7 +322,7 @@ void Creature_MotionStateInit(void *arg0, s32 state, u8 reset, u8 keepTime);
 void Creature_MotionStateInitDeath(Creature *creature);
 s32 Creature_Move(Creature *creature);
 void Creature_PartialGibb(Creature *creature, u32 count, s32 unused);
-s32 Creature_ProcessItemPickup(u8 *creature, void *item);
+s32 Creature_ProcessItemPickup(Creature *creature, ItemThing *item);
 void Creature_Release(Creature *creature);
 
 /* DataChunk.c */
@@ -461,7 +461,6 @@ void Gfx_SetDebugFont(s16 font);
 void ForceFeedback_GetForce(void *ff, u8 *a, u8 *b, f32 *c);
 void ForceFeedback_Heartbeat(void);
 void ForceFeedback_Init(void);
-void ForceFeedback_Play(void *effect, Vector4 *dir);
 
 /* GameRules.c */
 void GameRules_ForceRoundEnd(u32 arg0);
@@ -510,7 +509,7 @@ void GameSettings_SetSaveGameName(u32 *letters);
 void GSI_Init(void);
 void GSI_VehicleItemInit(void);
 void GSI_VehicleItemSelection(void *arg);
-void GSI_VehicleSelectionInfo(u8 *info);
+void GSI_VehicleSelectionInfo(InterfaceHudInfo *info);
 
 /* GeometryHandler.c */
 s32 Geometry_Create(void);
@@ -557,6 +556,7 @@ void Gfx_DrawGeometry_MatrixNotCached(s32 geometry, s32 matrix);
 void Gfx_DrawGeometry_QuaternionScalePos(s32 geometry, s32 quat, s32 scale, s32 pos);
 
 /* Gfx_Main.c */
+GfxWindow * GetRenderWindow(void);
 void Gfx_BeginScene(void);
 void Gfx_ClearScreen(void);
 s32 Gfx_Create(void);
@@ -566,6 +566,8 @@ void Gfx_DisableState(s32 arg0);
 void Gfx_EnableState(s32 arg0);
 void Gfx_EndScene(void);
 void Gfx_FlipBuffers(void);
+s32 Gfx_GetCameraPositions(Vector4 *out);
+f32 Gfx_GetMinCameraDistSquared(Vector4 *pos);
 s32 Gfx_GetRenderWindowIndex(void);
 void Gfx_RemovePointLights(void);
 void Gfx_SetAmbientColor(GXColor *color);
@@ -1088,7 +1090,7 @@ void State_GetGameStateStr(s32 state, char *str);
 s32 StateGameManager_GetProgScript(u32 index);
 s32 StateGameManager_Heartbeat(void);
 s32 StateGameManager_Init(void);
-void StateGameManager_InterfaceHandler(void *event);
+void StateGameManager_InterfaceHandler(InterfaceMsg *event);
 void StateGameManager_RefreshMCPTextures(void);
 void StateGameManager_Release(void);
 s32 StateGameManager_Shutdown(void);
@@ -1188,7 +1190,7 @@ s32 Thing_Move(void);
 void Thing_MoveSlaves(Thing *thing);
 void Thing_PassiveTargeting(void *thing);
 s32 Thing_PreMove(void);
-void Thing_ProcessEndEvent(Thing *thing, u8 *event, CollisionInfo *collision, Vector4 *angVel);
+void Thing_ProcessEndEvent(Thing *thing, CarACollider *event, CollisionInfo *collision, Vector4 *angVel);
 void Thing_Release(void *arg);
 void Thing_RotationalGridMove(Thing *thing);
 void Thing_SetSlavePlayers(Thing *thing);
@@ -1497,6 +1499,9 @@ s32 Emitter_Invalidate(void *emitter, u32 start, u32 end);
 s32 Emitter_Move(void *emitter);
 void Emitter_Release(void *emitter);
 #endif
+#if !defined(HWVX_SRC_ForceFeedback)
+void ForceFeedback_Play(void *effect, Vector4 *dir);
+#endif
 #if !defined(HWVX_SRC_Gfx_Anim)
 void Gfx_DrawAnimGeometryAux(void *geometry, f32 *matrices, u32 count, f32 *matrix);
 void Gfx_DrawAnimGeometryAux_(void *geometry, f32 *matrices, u32 count, f32 *matrix);
@@ -1525,13 +1530,8 @@ s32 Gfx_FrustrumCullSphereTest(void *center, f32 radius);
 s32 Gfx_FrustrumCullSphereTestAllWindows(void *center, f32 radius);
 u32 Gfx_GetCullLODGX(void *geometry, void *matrix, u8 *lod, u8 flag);
 #endif
-#if !defined(HWVX_SRC_Gfx_Anim) && !defined(HWVX_SRC_Gfx_DisplayList) && !defined(HWVX_SRC_Gfx_GeometryHandler) && !defined(HWVX_SRC_Gfx_Main) && !defined(HWVX_SRC_Render_) && !defined(HWVX_SRC_Render_Geometry_) && !defined(HWVX_SRC_Render_Matrix_) && !defined(HWVX_SRC_Render_QuadTri_)
-void *GetRenderWindow(void);
-#endif
 #if !defined(HWVX_SRC_Gfx_Main)
 void Gfx_AddPointLight(GXColor *color, void *pos, f32 radius);
-s32 Gfx_GetCameraPositions(void *out);
-f32 Gfx_GetMinCameraDistSquared(void *pos);
 void Gfx_SetParallelLight(GXColor *color, void *dir);
 #endif
 #if !defined(HWVX_SRC_GridManager)

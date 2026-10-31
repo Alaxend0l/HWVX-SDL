@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 typedef union {
     u8 u8;
@@ -199,19 +200,7 @@ typedef struct FontManager {
 
 extern FontManager g_fontManager;
 
-typedef struct GfxWindow {
-    u8 unk0[0x2B0];
-    u32 unk2B0;
-    u8 unk2B4[0x2B8 - 0x2B4];
-    u32 unk2B8;
-    u8 unk2BC[0x2C0 - 0x2BC];
-    GXColor overlayColor;
-    u32 overlayMode;
-    u8 unk2C8[0x2CC - 0x2C8];
-    f32 unk2CC;
-} GfxWindow;
 
-GfxWindow *GetRenderWindow(void);
 extern u8 g_CurrentViews;
 
 static inline void GXPosition2f32(f32 x, f32 y) {
@@ -316,14 +305,14 @@ void Render_ScreenFlash(void) {
         GXPosition2f32(zero, zero);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        GXPosition2f32(zero, GetRenderWindow()->unk2B8);
+        GXPosition2f32(zero, GetRenderWindow()->top);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        w = GetRenderWindow()->unk2B0;
-        GXPosition2f32(w, GetRenderWindow()->unk2B8);
+        w = GetRenderWindow()->left;
+        GXPosition2f32(w, GetRenderWindow()->top);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        GXPosition2f32(GetRenderWindow()->unk2B0, zero);
+        GXPosition2f32(GetRenderWindow()->left, zero);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
         Render_StateZWriteEnable(1);
@@ -440,7 +429,7 @@ void Render_DrawNewBBSprites(void) {
         while (idx < 0xFFFF) {
             cur = idx;
             idx = g_pGDL->sprites[cur].next;
-            XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), &g_pGDL->sprites[cur].pos, &out);
+            XformVec4x4((Matrix4 *)GetRenderWindow()->view, &g_pGDL->sprites[cur].pos, &out);
             if (out.z > -2.0f) {
                 continue;
             }

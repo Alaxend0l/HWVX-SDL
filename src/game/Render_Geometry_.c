@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 extern GXColor white;
@@ -171,7 +172,6 @@ static inline GXColor Render_MakeColor(u8 r, u8 g, u8 b) {
 extern u8 m_totalLights;
 
 static inline void Render_InitDirLight(void *lt_obj, Vector4 *dir, Vector4 *lightDir, GXColor *rgb) {
-    void *GetRenderWindow();
     GXColor color;
 
     color.r = rgb->r;
@@ -370,7 +370,6 @@ void Render_GeometryList(void) {
     }
 }
 
-void *GetRenderWindow(void);
 void Render_Geometry(Geometry *geom, f32 *m) {
     Vector4 *bmin = (Vector4 *)geom->bboxMin;
     Vector4 *bmax = (Vector4 *)geom->bboxMax;
@@ -411,9 +410,9 @@ void Render_Geometry(Geometry *geom, f32 *m) {
         default:
             return;
         }
-        PSVECSubtract(&center, (Vector4 *)((u8 *)GetRenderWindow() + 0x180), &min);
-        radius = PSVECDotProduct(&min, (Vector4 *)((u8 *)GetRenderWindow() + 0x190));
-        radius *= ((f32 *)GetRenderWindow())[0x9D];
+        PSVECSubtract(&center, &GetRenderWindow()->cameraPos, &min);
+        radius = PSVECDotProduct(&min, &GetRenderWindow()->cameraRight);
+        radius *= GetRenderWindow()->sinHalfFov;
         for (i = 0; i < geom->numGroups; i++) {
             if (radius < GETP(geom->lodDistances)[i]) {
                 break;
@@ -492,13 +491,13 @@ void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode) {
         }
         Render_StateAlphaBlendEnable(1);
         Render_StateBlendMode(blend);
-        MatrixToMtxTranspose(mtx, (u8 *)GetRenderWindow() + 0x80);
+        MatrixToMtxTranspose(mtx, GetRenderWindow()->worldView);
         color.r = grp->color.r >> 2;
         color.g = grp->color.g >> 2;
         color.b = grp->color.b >> 2;
     } else {
         Render_SetTextureHandle(g_pGDL->envmapStates[m_curEnvmapState].unkA);
-        MatrixToMtxTranspose(mtx, (u8 *)GetRenderWindow() + 0x80);
+        MatrixToMtxTranspose(mtx, GetRenderWindow()->worldView);
     }
     mtx[0][0] *= 0.5f;
     mtx[0][1] *= 0.5f;

@@ -1,12 +1,14 @@
 #include "common.h"
 #include "CarA.h"
+#include "World.h"
+#include "AI.h"
 
 
 
 /* Pickup by a looker: only wildcards, into its rack slave. */
 static inline s8 Thing_ProcessItemPickup(Thing *thing, ItemThing *item) {
     void *rack;
-    u8 *spawner;
+    QuadItem *spawner;
 
     switch (GETP(item->record)->type) {
     case 0:
@@ -23,7 +25,7 @@ static inline s8 Thing_ProcessItemPickup(Thing *thing, ItemThing *item) {
         /* restart the spawner's respawn timer */
         spawner = GETP(item->spawner);
         if (spawner != NULL) {
-            *(s32 *)(spawner + 0x18) = *(s32 *)(spawner + 0x14);
+            spawner->timer = spawner->respawn;
         }
         return 1;
     }
@@ -387,11 +389,11 @@ s8 Thing_HasThing(Thing *thing, void *target) {
     s8 found;
 
     if (vtable == g_carAVTable) {
-        if ((found = ThingManagerList_Get((u8 *)thing + 0x344, target)) != 0) {
+        if ((found = ThingManagerList_Get(&((CarA *)thing)->motionState.slaves, target)) != 0) {
             return found;
         }
     } else if (vtable == g_creatureVTable) {
-        if ((found = ThingManagerList_Get((u8 *)thing + 0xE0, target)) != 0) {
+        if ((found = ThingManagerList_Get(&((Creature *)thing)->slaves, target)) != 0) {
             return found;
         }
     }
@@ -399,45 +401,31 @@ s8 Thing_HasThing(Thing *thing, void *target) {
 }
 
 void Thing_GetCameraOrientationInfo(Thing *thing, u32 index, void *out) {
-    typedef struct CameraOrientationInfo {
-        u8 pad00[0x8];
-        f32 unk8;
-        f32 unkC;
-        f32 unk10;
-        f32 unk14;
-        u8 pad18[0x8];
-        Matrix4 mtx;
-        Vector4 pos;
-        u8 pad70[0x10];
-        s32 unk80;
-        PTR32(u8) unk84;
-        u32 unk88;
-        f32 unk8C;
-    } CameraOrientationInfo;
-    CameraOrientationInfo *info = out;
-    u32 *cams;
+    CameraInfo *info = out;
+    WorldGameData *data = GETP(((World *)GETP(g_worldData.world))->gameData);
+    u32 *cams;  /* { count, list handle }: the world's chase cameras */
 
-    cams = (u32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0x100);
-    info->unk88 = cams[0];
+    cams = &data->numCameras;
+    info->cameraCount = cams[0];
     switch (ViewManager_GetViewFormat()) {
     case 2:
-        cams = (u32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0x108);
+        cams = &data->numCamerasWide;
         break;
     }
     if (cams[0] == 0) {
         info->unk80 = 0;
-        SETP(info->unk84, NULL);
+        SETP(info->subMode, NULL);
         info->mtx = *THING_MTX(thing);
     } else {
-        SETP(info->unk84, (u8 *)PTR(cams[1]) + (index % cams[0]) * 0xC);
-        info->unk8C = 1.0f;
+        SETP(info->subMode, (u8 *)PTR(cams[1]) + (index % cams[0]) * 0xC);
+        info->lookAhead = 1.0f;
         info->mtx.v[1].x = 0.0f;
         info->mtx.v[1].y = 1.0f;
         info->mtx.v[1].z = 0.0f;
-        info->unk14 = 90.0f;
-        info->pos = thing->pos;
-        info->unk8 = 5.0f;
-        info->unkC = 5.0f;
+        info->fov = 90.0f;
+        info->target = thing->pos;
+        info->unk08 = 5.0f;
+        info->unk0C = 5.0f;
         info->unk10 = 90.0f;
         info->mtx = *THING_MTX(thing);
     }
@@ -449,14 +437,11 @@ void Thing_GetCameraOrientationInfo(Thing *thing, u32 index, void *out) {
  * creature 0x1C, item 0x24, movable 0x10); a volume is enabled by
  * ActionAirboxChangeMode. */
 
-typedef struct TriggerVolume {
-    u8 pad0[4];
-    u32 enabled;                /* 0x04 */
-} TriggerVolume;
+typedef WorldVolume TriggerVolume;
 
 #define TRIGGER_VOLUME(trigger, i) ((TriggerVolume *)PTR((trigger)[(i) + 1]))
-#define TRIGGER_SUBJECT_THING(trigger, numVolumes, j, slot) \
-    SLOT_LOAD(Thing *, (u8 *)PTR((trigger)[(numVolumes) + 2 + (j)]) + (slot))
+/* The j-th subject: a TileCar, TileCreature, QuadItem or TilePath. */
+#define TRIGGER_SUBJECT(trigger, numVolumes, j) PTR((trigger)[(numVolumes) + 2 + (j)])
 
 s32 TriggerAirboxEntered(u32 *trigger) {
     f32 dist;
@@ -471,7 +456,7 @@ s32 TriggerAirboxEntered(u32 *trigger) {
         volume = TRIGGER_VOLUME(trigger, i);
         if (volume->enabled == 1) {
             for (j = 0; j < trigger[numVolumes + 1]; j++) {
-                thing = TRIGGER_SUBJECT_THING(trigger, numVolumes, j, 0x28);
+                thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
                 if (thing != NULL && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                     return 1;
                 }
@@ -494,7 +479,7 @@ s32 TriggerCreatureVolumeEntered(u32 *trigger) {
         volume = TRIGGER_VOLUME(trigger, i);
         if (volume->enabled == 1) {
             for (j = 0; j < trigger[numVolumes + 1]; j++) {
-                thing = TRIGGER_SUBJECT_THING(trigger, numVolumes, j, 0x1C);
+                thing = (Thing *)GETP(((TileCreature *)TRIGGER_SUBJECT(trigger, numVolumes, j))->creature);
                 if (thing != NULL && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                     return 1;
                 }
@@ -517,7 +502,7 @@ s32 TriggerItemVolumeEntered(u32 *trigger) {
     for (i = 0; i < numVolumes; i++) {
         volume = TRIGGER_VOLUME(trigger, i);
         for (j = 0; j < trigger[numVolumes + 1]; j++) {
-            thing = TRIGGER_SUBJECT_THING(trigger, numVolumes, j, 0x24);
+            thing = (Thing *)GETP(((QuadItem *)TRIGGER_SUBJECT(trigger, numVolumes, j))->thing);
             if (thing != NULL) {
                 /* a carried item: test where its carrier is */
                 player = GETP(thing->player);
@@ -545,7 +530,7 @@ s32 TriggerMovableVolumeEntered(u32 *trigger) {
     for (i = 0; i < numVolumes; i++) {
         volume = TRIGGER_VOLUME(trigger, i);
         for (j = 0; j < trigger[numVolumes + 1]; j++) {
-            thing = TRIGGER_SUBJECT_THING(trigger, numVolumes, j, 0x10);
+            thing = GETP(((TilePath *)TRIGGER_SUBJECT(trigger, numVolumes, j))->thing);
             if (thing != NULL && volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 1;
             }
@@ -567,7 +552,7 @@ s32 TriggerAirboxStopIn(u32 *trigger) {
     for (i = 0; i < numVolumes; i++) {
         volume = TRIGGER_VOLUME(trigger, i);
         for (j = 0; j < trigger[numVolumes + 1]; j++) {
-            thing = TRIGGER_SUBJECT_THING(trigger, numVolumes, j, 0x28);
+            thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
             if (volume->enabled == 1 && PSVECSquareMag(&thing->vel) < 50.0f && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 1;
             }
@@ -588,7 +573,7 @@ s32 TriggerAirboxExited(u32 *trigger) {
     for (i = 0; i < numVolumes; i++) {
         volume = TRIGGER_VOLUME(trigger, i);
         for (j = 0; j < trigger[numVolumes + 1]; j++) {
-            thing = TRIGGER_SUBJECT_THING(trigger, numVolumes, j, 0x28);
+            thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
             if (volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 0;
             }
@@ -633,10 +618,9 @@ void Thing_CollideWithForceBoxes(Thing *thing) {
         u16 type;
     } ForceBox;
     extern u8 g_carAVTable[];
-    u8 *IsPointWithinForceBox(Vector4 *point);
     Vector4 *vel = &thing->vel;
     ForceBox *box;
-    u8 *volume;
+    WorldVolume *volume;
     u32 wasInside;
     f32 mag;
     f32 dot;
@@ -648,12 +632,12 @@ void Thing_CollideWithForceBoxes(Thing *thing) {
     Vector4 forceDir2 __attribute__((aligned(16)));
 
     wasInside = thing->flags & THING_FLAG_IN_FORCE_BOX;
-    volume = IsPointWithinForceBox(&thing->pos);
+    volume = (WorldVolume *)IsPointWithinForceBox(&thing->pos);
     thing->flags &= ~THING_FLAG_IN_FORCE_BOX;
     if (volume == NULL) {
         return;
     }
-    box = SLOT_LOAD(ForceBox *, (volume + 0x2C));
+    box = (ForceBox *)GETP(volume->data);
     if (box->carOnly && (u8 *)GETP(thing->vtable) == g_carAVTable && ((CarA *)thing)->unk460 != 0) {
         return;
     }
@@ -729,20 +713,7 @@ void Thing_CollideWithForceBoxes(Thing *thing) {
 
 /* ---- teleporters --------------------------------------------------------- */
 
-/* A world teleporter (world + 0x34, world + 0x30 of them); also the data of
- * ActionVehicleTeleport. */
-typedef struct Teleporter {
-    Matrix4 mtx;                /* 0x00 v[3] is the position */
-    u8 pad40[4];                /* 0x40 */
-    u32 debris;                 /* 0x44 effect spawned on use, 0: none */
-    u8 pad48[4];                /* 0x48 */
-    f32 radius;                 /* 0x4C */
-    u32 numDest;                /* 0x50 */
-    u32 flags;                  /* 0x54 TELEPORTER_* */
-    PTR32(u32) dest;            /* 0x58 teleporter indices, one picked at random */
-    s32 damage;                 /* 0x5C */
-    u8 pad60[0x10];             /* 0x60 */
-} Teleporter;
+/* Teleporter is in World.h. */
 
 enum {
     TELEPORTER_KEEP_ROTATION = 1,  /* as destination: keep the relative orientation */
@@ -764,7 +735,7 @@ static inline u8 Teleporter_Contains(Teleporter *tp, Thing *thing) {
 }
 
 static inline Teleporter *World_GetTeleporter(u32 index) {
-    return SLOT_LOAD(Teleporter *, ((u8 *)GETP(g_worldData.world) + 0x34)) + index;
+    return &GETP(((World *)GETP(g_worldData.world))->teleporters)[index];
 }
 
 static void Teleporter_SpawnDebris(Teleporter *tp) {
@@ -786,8 +757,8 @@ static void Teleporter_SpawnDebris(Teleporter *tp) {
 static void Teleporter_ResetCarNav(Thing *car) {
     ((CarA *)car)->navPointIndex = -1;
     if (!Player_IsHuman(GETP(car->player))) {
-        *(s32 *)((u8 *)GETP(car->player) + 0x4A4) = 0x20;   /* AI: path index, none */
-        *(s32 *)((u8 *)GETP(car->player) + 0x634) = -0x78;
+        ((AICar *)GETP(car->player))->pathIndex = 0x20;   /* none */
+        ((AICar *)GETP(car->player))->stuckTimer = -0x78;
     }
 }
 
@@ -808,7 +779,7 @@ s8 Thing_CollideWithTeleporters(u8 *arg) {
     if (GETP(g_worldData.world) == NULL) {
         return 0;
     }
-    for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x30); i++) {
+    for (i = 0; i < ((World *)GETP(g_worldData.world))->numTeleporters; i++) {
         tp = World_GetTeleporter(i);
         if (tp->numDest == 0 || !Teleporter_Contains(tp, thing)) {
             continue;
@@ -1229,16 +1200,16 @@ void Thing_CollideWithItems(Thing *thing) {
 
 /* A thing's end (destroyed, expired): spawn one of the event's debris
  * effects at random, credited to whoever caused it. `event` is the thing's
- * physical properties (DestructibleInfo: 0x34 count, 0x38 debris list). */
-void Thing_ProcessEndEvent(Thing *thing, u8 *event, CollisionInfo *collision, Vector4 *angVel) {
+ * physical properties (CarACollider.numEndFx / endFx). */
+void Thing_ProcessEndEvent(Thing *thing, CarACollider *event, CollisionInfo *collision, Vector4 *angVel) {
     extern Vector4 g_zeroVector;
     DebrisParams params __attribute__((aligned(16)));
     void *data;
     Thing *other;
 
     data = NULL;
-    if (event != NULL && *(u32 *)(event + 0x34) != 0) {
-        data = SLOT_LOAD(void *, (u32 *)SLOT_LOAD(void *, (event + 0x38)) + (RandomAdd_s32(0, *(u32 *)(event + 0x34))));
+    if (event != NULL && event->numEndFx != 0) {
+        data = PTR(GETP(event->endFx)[RandomAdd_s32(0, event->numEndFx)]);
     }
     if (data != NULL) {
         params.debris = HND(data);

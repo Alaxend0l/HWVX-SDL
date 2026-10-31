@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 
 typedef struct GDLSprite {
@@ -109,23 +110,7 @@ typedef struct GDLLightState {
 extern GfxState g_state;
 extern Matrix4 g_identity;
 
-typedef struct GfxWindow {
-    u8 unk0[0x80];
-    Matrix4 unk80;
-    u8 unkC0[0x140 - 0xC0];
-    Matrix4 viewMatrix;
-    Vector4 cameraPos;
-    Vector4 cameraRight;
-    Vector4 cameraUp;
-    Vector4 cameraAt;
-    u8 unk1C0[0x2C0 - 0x1C0];
-    GXColor overlayColor;
-    u32 overlayMode;
-    u8 unk2C8[0x2CC - 0x2C8];
-    f32 unk2CC;
-} GfxWindow;
 
-GfxWindow *GetRenderWindow(void);
 
 typedef struct DLSkinGroup {
     PTR32(void) lod;
@@ -493,7 +478,7 @@ void Gfx_AddCorona(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b)
     g_pGDL->sprites2D[g_pGDL->num2DSprites].x = pos->x;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].y = pos->y;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].z = pos->z;
-    g_pGDL->sprites2D[g_pGDL->num2DSprites].unkC = a * GetRenderWindow()->unk2CC;
+    g_pGDL->sprites2D[g_pGDL->num2DSprites].unkC = a * GetRenderWindow()->invSinHalfFov;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].unk1C = b;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].color = *color;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].tex = tex;
@@ -555,7 +540,7 @@ void DisplayList_AddAlphaGroup(s32 arg0, s32 arg1, u32 matrix, u8 arg3, GXColor 
     if (g_CurrentViews != 1) {
         Gfx_SetWorldMatrix(Gfx_GetWorldMatrixState(matrix));
     }
-    memcpy(g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].matrix, &GetRenderWindow()->unk80, 0x40);
+    memcpy(g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].matrix, GetRenderWindow()->worldView, 0x40);
     g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].unk50 = arg3;
     g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].color = *color;
     g_pGDL->numAlphaGroups++;
@@ -573,9 +558,9 @@ void Gfx_SortAlpha(void) {
     MemClr32(g_pGDL->alphaTable, 0x200);
     g_pGDL->numAlphaEntries = 1;
     for (i = 0; i < g_pGDL->numTris; i++) {
-        XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[0], (Vector4 *)&g_pGDL->tris[i].v[0]);
-        XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[1], (Vector4 *)&g_pGDL->tris[i].v[1]);
-        XformVec4x4((Matrix4 *)((u8 *)GetRenderWindow() + 0x40), (Vector4 *)&g_pGDL->tris[i].v[2], (Vector4 *)&g_pGDL->tris[i].v[2]);
+        XformVec4x4((Matrix4 *)GetRenderWindow()->view, (Vector4 *)&g_pGDL->tris[i].v[0], (Vector4 *)&g_pGDL->tris[i].v[0]);
+        XformVec4x4((Matrix4 *)GetRenderWindow()->view, (Vector4 *)&g_pGDL->tris[i].v[1], (Vector4 *)&g_pGDL->tris[i].v[1]);
+        XformVec4x4((Matrix4 *)GetRenderWindow()->view, (Vector4 *)&g_pGDL->tris[i].v[2], (Vector4 *)&g_pGDL->tris[i].v[2]);
         z = 0.333333f * (g_pGDL->tris[i].v[2].z + (g_pGDL->tris[i].v[0].z + g_pGDL->tris[i].v[1].z));
         SETP(g_pGDL->alphaEntries[g_pGDL->numAlphaEntries].func, Render_DrawAlphaTriangle);
         g_pGDL->alphaEntries[g_pGDL->numAlphaEntries].arg = i;
@@ -764,7 +749,7 @@ void *Gfx_GetWorldMatrixState(u32 index) {
         return &g_identity;
     }
     if (index == 0xFFFF) {
-        return &GetRenderWindow()->viewMatrix;
+        return GetRenderWindow()->viewMatrix;
     }
     return GETP(g_pGDL->matrices[index]);
 }

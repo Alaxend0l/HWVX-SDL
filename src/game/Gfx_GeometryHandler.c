@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Gfx.h"
 
 typedef struct Vector {
     f32 x;
@@ -82,7 +83,6 @@ extern GDL *g_pGDL;
 extern GfxState g_state;
 extern u8 g_CurrentViews;
 
-void *GetRenderWindow();
 
 s32 Gfx_FrustrumCullSphereTestAllWindows(Vector *center, f32 radius) {
     s32 Gfx_FrustrumCullSphereTest(Vector *center, f32 radius);
@@ -112,10 +112,10 @@ s32 Gfx_FrustrumCullSphereTest(Vector *center, f32 radius) {
 
     result = 2;
     for (i = 0; i < 5; i++) {
-        normal.x = ((f32 *)GetRenderWindow())[i * 4 + 0x70];
-        normal.y = ((f32 *)GetRenderWindow())[i * 4 + 0x71];
-        normal.z = ((f32 *)GetRenderWindow())[i * 4 + 0x72];
-        dist = PSVECDotProduct(center, &normal) + ((f32 *)GetRenderWindow())[i * 4 + 0x73];
+        normal.x = GetRenderWindow()->clipPlanes[i].x;
+        normal.y = GetRenderWindow()->clipPlanes[i].y;
+        normal.z = GetRenderWindow()->clipPlanes[i].z;
+        dist = PSVECDotProduct(center, &normal) + GetRenderWindow()->clipPlanes[i].w;
         if (dist > radius) {
             return 0;
         }
@@ -134,7 +134,7 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector *matrix, u8 *lod, u8 flag) {
     f32 radius;
     f32 a;
     f32 b;
-    void *window;
+    GfxWindow *window;
     u16 i;
 
     window = GetRenderWindow();
@@ -153,9 +153,9 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector *matrix, u8 *lod, u8 flag) {
                 : PSVECSquareMag(&matrix[2]);
         radius = geometry->bboxMax[3] * Sqrt(b);
     }
-    PSVECSubtract(&center, (Vector *)((u8 *)window + 0x180), &diff);
-    dist = PSVECDotProduct(&diff, (Vector *)((u8 *)window + 0x190));
-    dist *= ((f32 *)window)[0x9D];
+    PSVECSubtract(&center, (Vector *)&window->cameraPos, &diff);
+    dist = PSVECDotProduct(&diff, (Vector *)&window->cameraRight);
+    dist *= window->sinHalfFov;
     if (!(GETP(((Geometry *)GETP(geometry->groups))->groups)->flags & 0x8000) && g_state.farClippingPlane > 0.0f &&
         dist >= g_state.farClippingPlane) {
         return 0;
@@ -235,9 +235,9 @@ s32 Gfx_CalcGeometryLOD(Geometry *geometry, f32 *matrix) {
     PSVECAdd((Vector *)&matrix[12], (Vector *)geometry->bboxMax, &max);
     PSVECAdd(&min, &max, &center);
     PSVECScale(&center, &center, 0.5f);
-    PSVECSubtract(&center, (Vector *)((u8 *)GetRenderWindow() + 0x180), &min);
-    dist = PSVECDotProduct(&min, (Vector *)((u8 *)GetRenderWindow() + 0x190));
-    dist *= ((f32 *)GetRenderWindow())[0x9D];
+    PSVECSubtract(&center, (Vector *)&GetRenderWindow()->cameraPos, &min);
+    dist = PSVECDotProduct(&min, (Vector *)&GetRenderWindow()->cameraRight);
+    dist *= GetRenderWindow()->sinHalfFov;
     for (i = 0; i < geometry->numGroups; i++) {
         if (dist < GETP(geometry->lodDistances)[i]) {
             break;

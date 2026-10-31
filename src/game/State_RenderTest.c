@@ -3,7 +3,8 @@
 
 u16 g_dirt;
 s32 pCar;
-s32 g_pCamera;
+s32 g_pCamera;  /* Camera handle */
+#define CAM ((Camera *)PTR(g_pCamera))
 f32 g_cameraAngle;
 f32 g_yaw;
 f32 g_cameraRange = 60.0f;
@@ -87,18 +88,18 @@ s32 StateRenderTest_Heartbeat(void) {
     if (Input_KeyDown(0, 5)) {
         g_cameraRange += 1.0f;
     }
-    *(f32 *)((u8 *)PTR(g_pCamera) + 0x64) = 0.0f;
-    *(f32 *)((u8 *)PTR(g_pCamera) + 0x60) = g_cameraRange * (f32)sin(g_cameraAngle) + 50.0f;
-    *(f32 *)((u8 *)PTR(g_pCamera) + 0x68) = g_cameraRange * (f32)cos(g_cameraAngle) + 120.0f;
-    PSVECSubtract(&g_carCamPos, (Vector4 *)((u8 *)PTR(g_pCamera) + 0x60), (Vector4 *)((u8 *)PTR(g_pCamera) + 0x80));
-    if (PSVECSquareMag((Vector4 *)((u8 *)PTR(g_pCamera) + 0x80))) {
-        PSVECNormalize((Vector4 *)((u8 *)PTR(g_pCamera) + 0x80), (Vector4 *)((u8 *)PTR(g_pCamera) + 0x80));
+    CAM->pos.y = 0.0f;
+    CAM->pos.x = g_cameraRange * (f32)sin(g_cameraAngle) + 50.0f;
+    CAM->pos.z = g_cameraRange * (f32)cos(g_cameraAngle) + 120.0f;
+    PSVECSubtract(&g_carCamPos, &CAM->pos, &CAM->dir);
+    if (PSVECSquareMag(&CAM->dir)) {
+        PSVECNormalize(&CAM->dir, &CAM->dir);
     }
-    AccumulateVector((Vector4 *)((u8 *)PTR(g_pCamera) + 0x80), &g_jBasis, (Vector4 *)((u8 *)PTR(g_pCamera) + 0x90), -*(f32 *)((u8 *)PTR(g_pCamera) + 0x84));
-    if (PSVECSquareMag((Vector4 *)((u8 *)PTR(g_pCamera) + 0x90))) {
-        PSVECNormalize((Vector4 *)((u8 *)PTR(g_pCamera) + 0x90), (Vector4 *)((u8 *)PTR(g_pCamera) + 0x90));
+    AccumulateVector(&CAM->dir, &g_jBasis, &CAM->up, -CAM->dir.y);
+    if (PSVECSquareMag(&CAM->up)) {
+        PSVECNormalize(&CAM->up, &CAM->up);
     }
-    PSVECCrossProduct((Vector4 *)((u8 *)PTR(g_pCamera) + 0x90), (Vector4 *)((u8 *)PTR(g_pCamera) + 0x80), (Vector4 *)((u8 *)PTR(g_pCamera) + 0xA0));
+    PSVECCrossProduct(&CAM->up, &CAM->dir, &CAM->right);
     g_yaw += 0.01f;
     if (g_yaw > 6.2831855f) {
         g_yaw -= 6.2831855f;
