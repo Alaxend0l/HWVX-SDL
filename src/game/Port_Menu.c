@@ -16,6 +16,14 @@
  *   ForceIPLReset) closes the game on PC, and its two buttons take Start as
  *   well as A, like the other menus' rows.
  * - Options: "Graphics" (a copy of "Controller") opens the Graphics screen.
+ * - Memory card screens (saves are files on PC, always "slot A"): Load Game
+ *   and Save Game start on slot A's file list (no Slot A/B picker), without
+ *   the card warnings, and B leaves them. Port_MenuEventTarget skips the rest
+ *   where an interface switch is decided: "Loading..."/"Saving..." load or
+ *   save at once and go to the main menu (their failure screens remain), Load
+ *   Game does nothing without a save, and leaving Options, where the "Be sure
+ *   to save" reminder came up after a setting changed, autosaves instead
+ *   (GameSettings_PortAutoSave).
  * - Graphics: a copy of the Options screen with the same 40 objects (object
  *   indices in actions stay valid). The rows it doesn't use are hidden; the
  *   "Difficulty" row becomes "Resolution" and the "Sound Mode" row "Display",
@@ -83,6 +91,22 @@ enum { REC_ONE_PLAYER = 1, REC_EXTRAS = 5, REC_DESKTOP = 7 };
  * HW_IPack.xgc pack 6, the menu pack (MCP menuFile). */
 #define PACK_MAIN_MENU 0x6ECC60u
 #define PACK_QUIT_SCREEN 0x83A8A0u
+#define PACK_LOAD_SCREEN 0x7FE220u      /* Load Game: slot picker / file list (46 objects) */
+#define PACK_LOAD_PROGRESS 0x825C20u    /* "Loading from Memory Card..." (15) */
+#define PACK_SAVE_SCREEN 0x835980u      /* Save Game: slot picker / file list (48) */
+#define PACK_SAVE_PROGRESS 0x8484A0u    /* "Saving data to the Memory Card..." (14) */
+#define PACK_REMINDER 0x85BC00u         /* "Be sure to save your game..." (12) */
+
+/* The Load/Save Game screens: var 4 is the phase (0: slot picker, 1: file
+ * list), object 11 the card warnings. */
+enum { CARD_VAR_PHASE = 4, CARD_WARNING = 11 };
+enum { CODEVAR_SETTINGS_CHANGED = 0xCA, CODEVAR_DEVICE = 0x1F7, CODEVAR_FILE_INDEX = 0x1F8 };
+enum { EVENT_GOTO = 1, EVENT_BACK = 2, EVENT_NOTHING = 0xC };
+
+void GameSettings_PortAutoSave(void);
+s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce);
+u8 GameSettings_LoadGame(void);
+u8 GameSettings_SaveGame(void);
 #define OPT_ROWS 16             /* Controller .. SFX: 16 to 34 */
 #define OPT_ROWS_END 35
 #define MAX_EVENTS 4
@@ -126,6 +150,7 @@ static AnimCopy s_mainRowAnim[MAIN_ROWS_END - MAIN_ROWS], s_desktopAnim;
 static TextCopy s_desktopText;
 static RecordCopy s_desktopRec;
 static PTR32(char) s_quitWarning;
+static InterfaceHeader *s_main, *s_loadScreen, *s_loadProgress, *s_saveScreen, *s_saveProgress, *s_reminder;
 static IfaceEvent s_quitEvents[2][2];
 
 static IfaceObjectDef s_optObjs[OPT_NUM_OBJECTS + 1];
@@ -368,12 +393,109 @@ static InterfaceHeader *QuitScreen(InterfaceHeader *main) {
     return q;
 }
 
+/* A screen of the menu pack, at `offset` there if it has `numObjects`. */
+static InterfaceHeader *PackScreen(InterfaceHeader *main, u32 offset, u32 numObjects) {
+    InterfaceHeader *h = (InterfaceHeader *)((u8 *)main - PACK_MAIN_MENU + offset);
+
+    if (h->numObjects != numObjects || GETP(h->objects) == NULL) {
+        Port_Log("menu: no screen at 0x%X", offset);
+        return NULL;
+    }
+    return h;
+}
+
+static void FindCardScreens(InterfaceHeader *main) {
+    IfaceObjectDef *objs;
+    const char *t;
+
+    s_main = main;
+    s_loadScreen = PackScreen(main, PACK_LOAD_SCREEN, 46);
+    s_loadProgress = PackScreen(main, PACK_LOAD_PROGRESS, 15);
+    s_saveScreen = PackScreen(main, PACK_SAVE_SCREEN, 48);
+    s_saveProgress = PackScreen(main, PACK_SAVE_PROGRESS, 14);
+    s_reminder = PackScreen(main, PACK_REMINDER, 12);
+    if (s_reminder != NULL) {
+        objs = GETP(s_reminder->objects);
+        t = DefText(&objs[11]);
+        if (t == NULL || strncmp(t, "Be sure to save", 15) != 0) {
+            s_reminder = NULL;
+        }
+    }
+}
+
+/* Load/Save Game: slot A's file list from the start, no card warnings, and
+ * B (back to the slot picker) and the automatic return to it leave instead. */
+static void PatchCardScreen(InterfaceHeader *h) {
+    IfaceObjectDef *objs = GETP(h->objects);
+    IfaceVarList *vars = GETP(h->vars);
+    u32 i, j, k;
+
+    if (vars != NULL && vars->count > CARD_VAR_PHASE) {
+        GETP(vars->vars)[CARD_VAR_PHASE].offset = 1;
+    }
+    GameSettings_SetCodeVariable(CODEVAR_DEVICE, 0, 1);
+    GameSettings_SetCodeVariable(CODEVAR_FILE_INDEX, 0, 1);
+    s_hideAll.type = 0;
+    s_hideAll.count = 0;
+    SETP(objs[CARD_WARNING].conditions, &s_hideAll);
+    for (i = 0; i < h->numObjects; i++) {
+        IfaceRecord *rec = GETP(objs[i].record);
+        if (rec == NULL) {
+            continue;
+        }
+        for (j = 0; j < rec->events.count; j++) {
+            IfaceEventDef *def = GETP(GETP(rec->events.events)[j].def);
+            if (def == NULL || def->type != EVENT_NOTHING) {
+                continue;
+            }
+            for (k = 0; k < def->numMods; k++) {
+                IfaceEventMod *mod = &GETP(def->mods)[k];
+                if (mod->var == CARD_VAR_PHASE && mod->delta < 0) {
+                    def->type = EVENT_BACK;
+                    def->id = 1;
+                    def->numMods = 0;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/* InterfaceManager_PlayEvent: an event is about to switch to `target` (go-to
+ * events, types 1 and 0x20). Returns where to go instead, NULL for nowhere. */
+InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target) {
+    extern s8 g_bMemoryCardHWHack;
+
+    if (target == NULL || s_main == NULL) {
+        return target;
+    }
+    if (target == s_reminder) {
+        if (GameSettings_GetCodeVariable(CODEVAR_SETTINGS_CHANGED, 0)) {
+            GameSettings_PortAutoSave();
+        }
+        return s_main;
+    }
+    if (target == s_loadScreen && GameSettings_GetMemoryCardStatus(1, 1) != 1) {
+        return NULL;   /* no save to load */
+    }
+    if (target == s_loadProgress) {
+        return GameSettings_LoadGame() ? s_main : target;
+    }
+    if (target == s_saveProgress) {
+        g_bMemoryCardHWHack = 0;
+        return GameSettings_SaveGame() ? s_main : target;
+    }
+    return target;
+}
+
 static void PatchMainMenu(InterfaceHeader *h) {
     IfaceObjectDef *objs = GETP(h->objects);
     IfaceObjectDef *entry;
     InterfaceHeader *quit = QuitScreen(h);
     IfaceText *warning;
     u32 i;
+
+    FindCardScreens(h);
 
     if (quit == NULL) {
         Port_Log("menu: quit screen not found, no Quit Game entry");
@@ -429,6 +551,10 @@ void Port_MenuPatch(InterfaceHeader *h) {
     }
     if (IsMainMenu(h)) {
         PatchMainMenu(h);
+        return;
+    }
+    if (h == s_loadScreen || h == s_saveScreen) {
+        PatchCardScreen(h);
         return;
     }
     if (!IsOptions(h)) {

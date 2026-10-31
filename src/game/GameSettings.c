@@ -23,6 +23,13 @@ __attribute__((constructor)) static void GameSettings_InitGameInfo(void) {
 }
 
 char g_saveFileName[11];
+void GameSettings_PortAutoLoad(u32 device);
+void GameSettings_PortAutoSave(void);
+void GameSettings_PortNoteUnlock(s32 var, u32 arg, u32 val);
+static s8 s_portUnlocked;
+/* port: the save in use (autoloaded, loaded or saved last): its slot + 1
+ * (slot 0 is the newest), 0: none yet. GameSettings_PortAutoSave writes it. */
+static s32 s_portSaveIndex;
 char g_fileNames[8][41];
 u8 g_DDRsavedGameData[SAVE_FILE_SIZE(sizeof(DDRescueGameData))];
 DDRescueGameData g_DDRescueGameData;
@@ -259,6 +266,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         Port_GfxSet(var, val);
         return;
     }
+    GameSettings_PortNoteUnlock(var, arg, val);   /* port: autosave */
 
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
@@ -1342,7 +1350,31 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
     }
     memcpy(&g_generalGameSettings, &((SaveFile *)g_pSavedGameData)->settings, sizeof(GeneralGameSettings));
     GameSettings_ApplyDefaultGameData();
+    GameSettings_PortAutoLoad(device + 1);   /* port */
     return 1;
+}
+
+/* port: at startup, load the most recent save (the game keeps saves newest
+ * first: GameSettings_SaveGame puts a save in slot 0), as the PC version
+ * does; Load Game in the menu still picks another. Once, after the saved
+ * settings are loaded (GameSettings_LoadDefaultMemoryCardData). The loaded
+ * game data is applied when gameplay starts (GameSettings_RestoreGameData). */
+void GameSettings_PortAutoLoad(u32 device) {
+    static s8 done;
+
+    if (done) {
+        return;
+    }
+    done = 1;
+    if (!g_generalGameSettings.slots[0].valid) {
+        return;
+    }
+    g_codeVariables.device = device;
+    g_codeVariables.fileIndex = 1;
+    if (GameSettings_LoadGame()) {
+        strncpy(g_saveFileName, g_generalGameSettings.slots[0].name, sizeof(g_saveFileName) - 1);
+        Port_Log("autoload: save \"%s\"", g_saveFileName);
+    }
 }
 
 
@@ -1939,8 +1971,102 @@ u8 GameSettings_SaveGame(void) {
     g_bRefreshMC = 1;
     g_bRefreshMC_FileList = 1;
     g_bRefreshMC_FileInfo = 1;
+    if (g_codeVariables.unk11C[0]) {
+        s_portSaveIndex = 1;   /* port: a save goes to slot 0 */
+    }
     return g_codeVariables.unk11C[0];
 #undef g_saveFileCheckSum
+}
+
+/* port: something was unlocked (a car, track or item: code variables 0x64,
+ * 0x65, 0x66, 0x68, set from the game's data, e.g. race results): autosave
+ * at the end of the frame (GameSettings_PortAutoSaveUnlocks). Read the stored
+ * flags, not GetCodeVariable, which reports everything unlocked under the
+ * unlock-all cheats. */
+void GameSettings_PortNoteUnlock(s32 var, u32 arg, u32 val) {
+    MCP *mcp;
+    s8 old;
+
+    if (val == 0 || (var != 0x64 && var != 0x65 && var != 0x66 && var != 0x68)) {
+        return;
+    }
+    mcp = GameSettings_LoadMCP();
+    switch (mcp != NULL ? mcp->gameType : 0) {
+    case 0:
+        old = var == 0x64 ? (arg < 0x21 ? g_HotWheelsGameData.cars[arg] : 1)
+            : var == 0x65 ? (arg < 0x39 ? g_HotWheelsGameData.tracks[arg] : 1)
+            : var == 0x66 ? (arg < 0xC ? g_HotWheelsGameData.items[arg] : 1)
+            : (arg < 5 ? g_HotWheelsGameData.unkAA[arg] : 1);
+        break;
+    case 1:
+        old = var == 0x64 ? (arg < 0x14 ? g_DDRescueGameData.cars[arg] : 1)
+            : var == 0x65 ? (arg < 0xA ? g_DDRescueGameData.missions[arg] : 1)
+            : var == 0x68 ? (arg < 5 ? g_DDRescueGameData.unk29[arg] : 1) : 1;
+        break;
+    default:
+        old = 1;
+        break;
+    }
+    if (!old) {
+        s_portUnlocked = 1;
+    }
+}
+
+/* Main_Loop, once a frame: save after new unlocks (not in the attract-mode
+ * demo, code variable 0x198). One save for several unlocks at once. */
+void GameSettings_PortAutoSaveUnlocks(void) {
+    if (!s_portUnlocked) {
+        return;
+    }
+    s_portUnlocked = 0;
+    if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
+        return;
+    }
+    Port_Log("autosave: unlocked something");
+    GameSettings_PortAutoSave();
+}
+
+/* port: autosave, where the game would remind the player to save (leaving
+ * Options after changing a setting: Port_Menu.c). Saves over the save in use,
+ * as choosing it in Save Game would (it moves to slot 0), or makes a new one
+ * with the game's default name ahead of the others. */
+void GameSettings_PortAutoSave(void) {
+    #define g_saveFileCheckSum (*(u32 *)(void *)&g_saveFileCheckSum)
+    const char *name = "saveFile";
+    u32 size = 0;
+    s32 status;
+    s32 n;
+    MCP *mcp;
+
+    status = GameSettings_GetMemoryCardStatus(1, 1);
+    if (status != 0 && status != 1) {
+        Port_Log("autosave: save file unusable (status %d)", status);
+        return;
+    }
+    mcp = GameSettings_LoadMCP();
+    if (mcp != NULL) {
+        name = GETP(g_gameInfo[mcp->gameType].fileName);
+        size = g_gameInfo[mcp->gameType].unk18;
+    }
+    g_codeVariables.device = 1;
+    if (s_portSaveIndex == 0 || g_saveFileName[0] == 0) {
+        for (n = 0; n < SAVE_FILE_SLOTS - 1 && g_generalGameSettings.slots[n].valid; n++) {
+        }
+        g_codeVariables.fileIndex = n + 1;
+        if (g_saveFileName[0] == 0) {
+            snprintf(g_saveFileName, sizeof(g_saveFileName), "HW VEL X %d", (int)(n + 1));
+        }
+    } else {
+        g_codeVariables.fileIndex = s_portSaveIndex;
+    }
+    /* SaveGame refuses a file that changed since the game last read it */
+    g_saveFileCheckSum = GameSettings_GetSaveFileChecksum(1, name, size);
+    if (GameSettings_SaveGame()) {
+        Port_Log("autosave: \"%s\"", g_saveFileName);
+    } else {
+        Port_Log("autosave: failed");
+    }
+    #undef g_saveFileCheckSum
 }
 
 
@@ -1993,6 +2119,7 @@ u8 GameSettings_LoadGame(void) {
     memcpy(g_pGameData, SAVE_FILE_GAME_DATA(saved, size, slot), size);
     memcpy(&g_generalGameSettings, &saved->settings, sizeof(GeneralGameSettings));
     g_codeVariables.unk11C[1] = 1;
+    s_portSaveIndex = g_codeVariables.fileIndex;   /* port: the save in use */
     g_bRefreshMC = 1;
     g_bRefreshMC_FileList = 1;
     g_bRefreshMC_FileInfo = 1;

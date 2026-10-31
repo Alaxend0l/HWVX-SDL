@@ -87,6 +87,14 @@ s32 StateGameManager_Heartbeat(void) {
             break;
         case 1:
             loadDefaults = 1;
+            /* port: this step shows the "Memory Card Status" screen (a check of
+             * the GameCube's card slots, with format/retry options) before
+             * loading the saved settings. Saves are files on PC: load them
+             * without the screen (the code after the switch does, and moves
+             * on). The last step also loads the menu pack: keep that one. */
+            if (g_GameManagerState.step != GETP(g_GameManagerState.mcp)->numSteps - 1) {
+                break;
+            }
         case 4:
             if (!g_bInterfacePlaying) {
                 g_interfacePackID = FileStreaming_LoadDataPack(PTR(GETP(step->pack)->name), 1, GETP(step->pack)->script, 0);

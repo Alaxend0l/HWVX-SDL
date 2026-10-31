@@ -835,5 +835,6 @@ extern u8 g_interface[];
 /* Port_Menu.c: the Options screen's Graphics menu. */
 void Port_MenuPatch(InterfaceHeader *header);
 void Port_MenuReleased(InterfaceHeader *header);
+InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target);
 
 #endif

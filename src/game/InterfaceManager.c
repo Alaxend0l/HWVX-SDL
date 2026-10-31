@@ -2137,7 +2137,8 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
             SoundSequence_Play(GETP(GETP(((IfaceEvent *)event)->def)->sound), 0);
         }
         iface->flags = GETP(((IfaceEvent *)event)->def)->flags;
-        SETP(iface->next, GETP(GETP(((IfaceEvent *)event)->def)->target));
+        /* port: memory card screens skipped, autosave (Port_Menu.c) */
+        SETP(iface->next, Port_MenuEventTarget((InterfaceHeader *)GETP(GETP(((IfaceEvent *)event)->def)->target)));
         if (!stateSet && GETP(iface->next) != NULL) {
             InterfaceManager_SetLoadState(iface, 1);
             if (iface->flags & 1) {

@@ -39,6 +39,13 @@ in the save folder. Command-line options override it. The main menu also gets
 a "Quit Game" entry (with the game's own Confirm Quit screen); both
 port entries are built from the menu data at load time (`src/game/Port_Menu.c`).
 
+Saves: there's no memory card on PC, so the GameCube's card screens are
+skipped: the startup card check, the Slot A/B picker (saves always go to the
+save file), the "do not touch" loading/saving notices and the card warnings
+(error screens still appear if loading or saving fails). The most recent save
+loads at startup, and leaving Options after changing a setting autosaves over
+the save in use (or makes one) instead of reminding you to save.
+
 Renderers (`--renderer`): `opengl` (default, OpenGL 3.3 core), and through
 SDL_GPU `vulkan`, `metal` (macOS) and `d3d12` (Windows). The SDL_GPU
 renderers are experimental.
