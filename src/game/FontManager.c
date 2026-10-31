@@ -332,7 +332,7 @@ void Gfx_FontManager_PrintParagraph(char *str, u32 maxChars, s32 id, u8 blendMod
   f32 right;
   f32 lineY = 0.0f;
   u32 pos = 0;
-  s8 more;
+  s8 more = 1;
   u32 len = strlen(str);
   f32 sx = (scale) ? (scale[0]) : (1.0f);
   f32 sy = (scale) ? (scale[1]) : (1.0f);
@@ -409,7 +409,6 @@ void Gfx_FontManager_PrintParagraph(char *str, u32 maxChars, s32 id, u8 blendMod
 
       }
       lineW -= (-spacing) * sx;
-      more = 1;
       buf[n] = 0;
       pos += n;
       switch (align)

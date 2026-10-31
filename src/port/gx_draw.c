@@ -662,6 +662,13 @@ void GX_DrawCopyDisp(int clear) {
                           GL_COLOR_BUFFER_BIT, GL_LINEAR);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    /* The EFB alpha is game scratch (shadow volumes), not opacity, and the
+     * blit copied it. Compositors that honour window alpha (macOS) would show
+     * those frames as transparent/black; X11 ignores it. Make the window
+     * opaque on every platform. */
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     DumpEFB();
     if (clear) {
         ClearEFB();
@@ -669,5 +676,9 @@ void GX_DrawCopyDisp(int clear) {
 }
 
 void GX_DrawPresent(void) {
+    /* GXCopyDisp(clear) leaves the EFB bound (ClearEFB). Present from the
+     * window's own framebuffer: Apple's GL only shows the swapped image when
+     * it is bound; Mesa doesn't care. Draws rebind the EFB themselves. */
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     SDL_GL_SwapWindow(g_port.window);
 }

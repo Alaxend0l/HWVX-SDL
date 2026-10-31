@@ -443,9 +443,12 @@ void Destructible_DynamicCollideImpact(u8 *destructible, u8 *collision, s32 dama
     Vector4 local __attribute__((aligned(16)));
     Vector4 scaled __attribute__((aligned(16)));
     f32 scale;
-    f32 invX;
-    f32 invY;
-    f32 invZ;
+    /* port: the original leaves these unset for hull types (1, 6), so the
+     * impulse there was scaled by whatever the caller left in f29-f31. Use
+     * 0 (no spin) rather than garbage/NaN. */
+    f32 invX = 0.0f;
+    f32 invY = 0.0f;
+    f32 invZ = 0.0f;
     f32 inertia;
     u8 *other;
 

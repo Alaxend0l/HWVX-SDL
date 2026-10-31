@@ -87,7 +87,7 @@ void *GetRenderWindow();
 s32 Gfx_FrustrumCullSphereTestAllWindows(Vector *center, f32 radius) {
     s32 Gfx_FrustrumCullSphereTest(Vector *center, f32 radius);
     u32 i;
-    s32 ret;
+    s32 ret = 0;  /* port: the original returns a stale r4 if no window is tested */
 
     if (g_CurrentViews != 1) {
         for (i = 1; i < 5; i++) {

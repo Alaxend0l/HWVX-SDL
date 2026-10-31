@@ -1524,7 +1524,10 @@ s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info) {
     u32 count;
     u32 i;
     u8 *other;
-    f32 t;
+    /* port: only OBox objects (type 1) set t; the original reuses f31 for the
+     * others: the previous object's t (>= 1, no hit) or the caller's f31 if
+     * none came before. Start at "no hit" so the latter is defined too. */
+    f32 t = 1.0f;
     s32 hit;
 
     time = 1.0f;
