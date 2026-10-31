@@ -133,9 +133,12 @@ void Port_CreateWindow(SDL_WindowFlags flags) {
 
 /* ---- Main_NGC.c replacements ------------------------------------------- */
 
+/* The GameCube's reset to the system menu ("Yes, Quit" on the quit screen,
+ * interface event 0x19): on PC, back to the desktop. */
 void ForceIPLReset(void) {
     m_ilpreset_803C7620 = 1;
     m_reset = 1;
+    g_port.quit = 1;
 }
 
 s32 Init_Display(void) {

@@ -1,15 +1,21 @@
-/* A "Graphics" entry in the Options screen and the Graphics screen it opens
- * (resolution, windowed/fullscreen: src/port/gfx_settings.c). Port-only
- * file.
+/* Port menu entries: "Quit Game" in the main menu, and a "Graphics"
+ * entry in the Options screen with the Graphics screen it opens (resolution,
+ * windowed/fullscreen: src/port/gfx_settings.c). Port-only file.
  *
- * Menus are data (HW_IPack.xgc), so both are built from the Options screen's
- * own definitions when it is created (Port_MenuPatch, from
- * InterfaceManager_Create); nothing is added to the pack files.
+ * Menus are data (HW_IPack.xgc), so these are built from the screens' own
+ * definitions when they are created (Port_MenuPatch, from
+ * InterfaceManager_Create); nothing is added to the pack files. A new entry
+ * is a copy of an existing row (a text whose A/Start events go to another
+ * interface), relabelled and retargeted, added as a seventh row; the rows are
+ * respaced (ROW_*) so the seven fit where the six were, and it joins the
+ * up/down ring between the last row and the first.
  *
- * - Options: a 41st object, a copy of the "Controller" row (a text whose
- *   A/Start events go to another interface) moved one row below "SFX",
- *   labelled "Graphics" and going to the Graphics screen. It joins the
- *   up/down ring between "SFX" and "Controller".
+ * - Main menu: "Quit Game" (a copy of "Extras") opens the game's
+ *   "Quit Game / Confirm Quit" screen, made for the GameCube's exit to the
+ *   system menu; its warning is reworded, its "Yes, Quit" (event 0x19,
+ *   ForceIPLReset) closes the game on PC, and its two buttons take Start as
+ *   well as A, like the other menus' rows.
+ * - Options: "Graphics" (a copy of "Controller") opens the Graphics screen.
  * - Graphics: a copy of the Options screen with the same 40 objects (object
  *   indices in actions stay valid). The rows it doesn't use are hidden; the
  *   "Difficulty" row becomes "Resolution" and the "Sound Mode" row "Display",
@@ -46,16 +52,46 @@ enum {
 
 enum { REC_CONTROLLER = 1, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6 };
 
-#define ROW_FIRST_Y 198.0f      /* Controller */
-#define ROW_STEP_Y 26.0f
-#define ROW_GRAPHICS_Y 354.0f   /* below SFX (328) */
+/* Menu rows in the pack: the first (Controller, One Player) at 198, 26 apart.
+ * With the port's seventh row they sit a little closer, row k at
+ * ROW_Y + k * ROW_STEP, centred in the menu panel: the panel's inside spans
+ * about 170 to 360 (main menu and Options alike, measured in frame dumps),
+ * centre 265; the seven rows' centre is ROW_Y + 3 * ROW_STEP. */
+#define PACK_ROW_FIRST_Y 198.0f
+#define PACK_ROW_STEP_Y 26.0f
+#define ROW_Y 195.0f
+#define ROW_STEP 23.0f
+#define ROW_NEW 6               /* the port's row, after the pack's six */
+
+/* The main menu's objects, and the quit screen's. */
+enum {
+    MAIN_NUM_OBJECTS = 26,
+    MAIN_TITLE = 4,             /* "Main Menu" */
+    MAIN_ROWS = 12,             /* One Player .. Extras: 12 to 21 */
+    MAIN_ROWS_END = 22,
+    MAIN_EXTRAS = 21,
+    QUIT_NUM_OBJECTS = 27,
+    QUIT_WARNING = 19,
+    QUIT_CONFIRM = 18,
+    QUIT_YES = 21,
+    QUIT_NO = 22,
+};
+/* IfaceEvent.type: the buttons menu rows answer to */
+enum { EVENT_A = 0x4, EVENT_START = 0x15 };
+enum { REC_ONE_PLAYER = 1, REC_EXTRAS = 5, REC_DESKTOP = 7 };
+/* Blob offsets of the main menu (the pack's root) and the quit screen in
+ * HW_IPack.xgc pack 6, the menu pack (MCP menuFile). */
+#define PACK_MAIN_MENU 0x6ECC60u
+#define PACK_QUIT_SCREEN 0x83A8A0u
+#define OPT_ROWS 16             /* Controller .. SFX: 16 to 34 */
+#define OPT_ROWS_END 35
 #define MAX_EVENTS 4
 #define MAX_MODES 48
 
 typedef struct TextCopy {
     IfaceText text;
     PTR32(char) slot;
-    char str[24];
+    char str[64];
 } TextCopy;
 
 typedef struct AnimCopy {
@@ -85,7 +121,15 @@ typedef struct ListCopy {
     PTR32(char) slots[MAX_MODES];
 } ListCopy;
 
+static IfaceObjectDef s_mainObjs[MAIN_NUM_OBJECTS + 1];
+static AnimCopy s_mainRowAnim[MAIN_ROWS_END - MAIN_ROWS], s_desktopAnim;
+static TextCopy s_desktopText;
+static RecordCopy s_desktopRec;
+static PTR32(char) s_quitWarning;
+static IfaceEvent s_quitEvents[2][2];
+
 static IfaceObjectDef s_optObjs[OPT_NUM_OBJECTS + 1];
+static AnimCopy s_optRowAnim[OPT_ROWS_END - OPT_ROWS];
 static AnimCopy s_entryAnim;
 static TextCopy s_entryText;
 static RecordCopy s_entryRec;
@@ -135,6 +179,14 @@ static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
     key[1] = y;
     SETP(c->anim.pos.keys, c->pos);
     SETP(d->anim, &c->anim);
+}
+
+/* d, an object of the pack's row k, to row k of the respaced menu. */
+static void MoveRow(AnimCopy *c, IfaceObjectDef *d) {
+    f32 y = ((f32 *)GETP(GETP(d->anim)->pos.keys))[1];
+    s32 k = (s32)((y - PACK_ROW_FIRST_Y) / PACK_ROW_STEP_Y + 0.5f);
+
+    MoveTo(c, d, ROW_Y + k * ROW_STEP);
 }
 
 /* A copy of d's record (and its events) with a new id and up/down links. */
@@ -272,8 +324,8 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
 
     /* the two rows, moved to the top */
     for (i = 0; i < 4; i++) {
-        MoveTo(&s_rowAnim[i], &s_gfxObjs[OPT_DIFFICULTY + i], ROW_FIRST_Y);
-        MoveTo(&s_rowAnim[4 + i], &s_gfxObjs[OPT_SOUND + i], ROW_FIRST_Y + ROW_STEP_Y);
+        MoveTo(&s_rowAnim[i], &s_gfxObjs[OPT_DIFFICULTY + i], ROW_Y);
+        MoveTo(&s_rowAnim[4 + i], &s_gfxObjs[OPT_SOUND + i], ROW_Y + ROW_STEP);
     }
     SetText(&s_gfxText[1], &s_gfxObjs[OPT_DIFFICULTY], "Resolution");
     SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_SOUND, REC_SOUND),
@@ -295,6 +347,74 @@ static int IsOptions(InterfaceHeader *h) {
            GETP(objs[OPT_CONTROLLER].record) != NULL && GETP(objs[OPT_SFX].record) != NULL;
 }
 
+/* The main menu, still as in the pack? */
+static int IsMainMenu(InterfaceHeader *h) {
+    IfaceObjectDef *objs = GETP(h->objects);
+
+    return h->numObjects == MAIN_NUM_OBJECTS && objs != NULL && TextIs(&objs[MAIN_TITLE], "Main Menu") &&
+           TextIs(&objs[MAIN_ROWS], "One Player") && TextIs(&objs[MAIN_EXTRAS], "Extras") &&
+           GETP(objs[MAIN_ROWS].record) != NULL && GETP(objs[MAIN_EXTRAS].record) != NULL;
+}
+
+/* The quit screen, found from the main menu (both in the menu pack). */
+static InterfaceHeader *QuitScreen(InterfaceHeader *main) {
+    InterfaceHeader *q = (InterfaceHeader *)((u8 *)main - PACK_MAIN_MENU + PACK_QUIT_SCREEN);
+    IfaceObjectDef *objs = GETP(q->objects);
+
+    if (q->numObjects != QUIT_NUM_OBJECTS || objs == NULL || !TextIs(&objs[QUIT_CONFIRM], "Confirm Quit") ||
+        !TextIs(&objs[QUIT_YES], "Yes, Quit") || DefText(&objs[QUIT_WARNING]) == NULL) {
+        return NULL;
+    }
+    return q;
+}
+
+static void PatchMainMenu(InterfaceHeader *h) {
+    IfaceObjectDef *objs = GETP(h->objects);
+    IfaceObjectDef *entry;
+    InterfaceHeader *quit = QuitScreen(h);
+    IfaceText *warning;
+    u32 i;
+
+    if (quit == NULL) {
+        Port_Log("menu: quit screen not found, no Quit Game entry");
+        return;
+    }
+    /* Yes/No: Start does what A does */
+    for (i = 0; i < 2; i++) {
+        IfaceRecord *rec = GETP(GETP(quit->objects)[i == 0 ? QUIT_YES : QUIT_NO].record);
+        if (rec->events.count == 1 && GETP(rec->events.events)[0].type == EVENT_A) {
+            s_quitEvents[i][0] = GETP(rec->events.events)[0];
+            s_quitEvents[i][1] = s_quitEvents[i][0];
+            s_quitEvents[i][1].type = EVENT_START;
+            rec->events.count = 2;
+            SETP(rec->events.events, s_quitEvents[i]);
+        }
+    }
+    warning = GETP(GETP(quit->objects)[QUIT_WARNING].sub);
+    SETP(s_quitWarning, "Warning:|Any unsaved progress will be lost.");
+    SETP(warning->strings, &s_quitWarning);
+
+    memcpy(s_mainObjs, objs, MAIN_NUM_OBJECTS * sizeof(IfaceObjectDef));
+    for (i = MAIN_ROWS; i < MAIN_ROWS_END; i++) {
+        MoveRow(&s_mainRowAnim[i - MAIN_ROWS], &s_mainObjs[i]);
+    }
+    entry = &s_mainObjs[MAIN_NUM_OBJECTS];
+    *entry = objs[MAIN_EXTRAS];
+    MoveTo(&s_desktopAnim, entry, ROW_Y + ROW_NEW * ROW_STEP);
+    SetText(&s_desktopText, entry, "Quit Game");
+    CopyRecord(&s_desktopRec, entry, REC_DESKTOP, REC_EXTRAS, REC_ONE_PLAYER);
+    for (i = 0; i < s_desktopRec.rec.events.count; i++) {
+        if (s_desktopRec.defs[i].type == 1) {
+            SETP(s_desktopRec.defs[i].target, quit);
+        }
+    }
+    /* into the ring: Extras -> Quit Game -> One Player */
+    GETP(objs[MAIN_EXTRAS].record)->next[1] = REC_DESKTOP;
+    GETP(objs[MAIN_ROWS].record)->next[0] = REC_DESKTOP;
+    h->numObjects = MAIN_NUM_OBJECTS + 1;
+    SETP(h->objects, s_mainObjs);
+}
+
 void Port_MenuPatch(InterfaceHeader *h) {
     IfaceObjectDef *objs;
     IfaceObjectDef *entry;
@@ -307,6 +427,10 @@ void Port_MenuPatch(InterfaceHeader *h) {
         RefreshModes();
         return;
     }
+    if (IsMainMenu(h)) {
+        PatchMainMenu(h);
+        return;
+    }
     if (!IsOptions(h)) {
         return;
     }
@@ -314,9 +438,12 @@ void Port_MenuPatch(InterfaceHeader *h) {
     BuildGraphicsScreen(h, objs);
 
     memcpy(s_optObjs, objs, OPT_NUM_OBJECTS * sizeof(IfaceObjectDef));
+    for (i = OPT_ROWS; i < OPT_ROWS_END; i++) {
+        MoveRow(&s_optRowAnim[i - OPT_ROWS], &s_optObjs[i]);
+    }
     entry = &s_optObjs[OPT_NUM_OBJECTS];
     *entry = objs[OPT_CONTROLLER];
-    MoveTo(&s_entryAnim, entry, ROW_GRAPHICS_Y);
+    MoveTo(&s_entryAnim, entry, ROW_Y + ROW_NEW * ROW_STEP);
     SetText(&s_entryText, entry, "Graphics");
     CopyRecord(&s_entryRec, entry, REC_GRAPHICS, REC_SFX, REC_CONTROLLER);
     for (i = 0; i < s_entryRec.rec.events.count; i++) {

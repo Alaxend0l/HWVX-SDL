@@ -35,7 +35,9 @@ the HUD and menus keep their 4:3 layout in the middle (taller screens work the
 same way vertically); split screen stays 4:3. Options → Graphics (a menu the
 port adds) picks a resolution from the display's modes and windowed or
 fullscreen; it is applied when you leave that menu and kept in `graphics.cfg`
-in the save folder. Command-line options override it.
+in the save folder. Command-line options override it. The main menu also gets
+a "Quit Game" entry (with the game's own Confirm Quit screen); both
+port entries are built from the menu data at load time (`src/game/Port_Menu.c`).
 
 Renderers (`--renderer`): `opengl` (default, OpenGL 3.3 core), and through
 SDL_GPU `vulkan`, `metal` (macOS) and `d3d12` (Windows). The SDL_GPU
