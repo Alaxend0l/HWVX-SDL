@@ -62,7 +62,10 @@ typedef struct Player {
   u8 button1A;              /* 0x1A */
   u8 buttonFire;            /* 0x1B fire (buttonsHeld & 0x800); creatures: attack */
   u8 control1C;             /* 0x1C cleared by AI_Heartbeat */
-  u8 pad1D[0xF];            /* 0x1D */
+  u8 pad1D[3];              /* 0x1D */
+  FPTR32(void, (void *player)) controlReader;  /* 0x20 fills the input fields (pad, AI) */
+  FPTR32(void, (void *player, void *desc)) init; /* 0x24 PlayerManager_New*Player */
+  FPTR32(void, (void *player)) heartbeat;      /* 0x28 */
   PTR32(void) vehicle;            /* 0x2C the Thing the player drives */
   u8 pad30;                 /* 0x30 */
   u8 cameraIndex;           /* 0x31 passed to the vehicle's getCameraInfo */
@@ -89,7 +92,9 @@ typedef struct Player {
   PTR32(void) tileCar;            /* 0xA8 the world tile car it was spawned from */
   s16 deathNavPoint;        /* 0xAC */
   s16 respawnNavPoint;      /* 0xAE */
-  u8 padB0[0x18];           /* 0xB0 */
+  PTR32(struct Player) next; /* 0xB0 PlayerManager active / free list */
+  PTR32(struct Player) prev; /* 0xB4 */
+  u8 padB8[0x10];           /* 0xB8 the null player ends here */
   s32 wheelChannel;         /* 0xC8 force-feedback wheel channel */
   u8 padCC[4];              /* 0xCC */
   PTR32(struct AICarScript) aiScript; /* 0xD0 AI players: the script driving it (AI.h) */
@@ -104,7 +109,9 @@ enum {
 
 _Static_assert(offsetof(Player, aiHeading) == 0x04, "Player.aiHeading");
 _Static_assert(offsetof(Player, buttonFire) == 0x1B, "Player.buttonFire");
+_Static_assert(offsetof(Player, heartbeat) == 0x28, "Player.heartbeat");
 _Static_assert(offsetof(Player, vehicle) == 0x2C, "Player.vehicle");
+_Static_assert(offsetof(Player, next) == 0xB0, "Player.next");
 _Static_assert(offsetof(Player, type) == 0x38, "Player.type");
 _Static_assert(offsetof(Player, interfaceIndex) == 0x68, "Player.interfaceIndex");
 _Static_assert(offsetof(Player, damageDealt) == 0x8C, "Player.damageDealt");
