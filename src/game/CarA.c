@@ -33,14 +33,14 @@ static inline void CarA_SetBodyOffset(CarA *car, f32 x, f32 y, f32 z) {
     delta.x = x - car->bodyOffset.x;
     delta.y = y - car->bodyOffset.y;
     delta.z = z - car->bodyOffset.z;
-    XformVecOrientation(&car->worldMatrix, &delta, &world);
-    car->worldMatrix.v[3].x -= world.x;
-    car->worldMatrix.v[3].y -= world.y;
-    car->worldMatrix.v[3].z -= world.z;
+    XformVecOrientation(THING_MTX(&car->base), &delta, &world);
+    car->base.pos.x -= world.x;
+    car->base.pos.y -= world.y;
+    car->base.pos.z -= world.z;
     car->bodyOffset.x = x;
     car->bodyOffset.y = y;
     car->bodyOffset.z = z;
-    car->collDirtyFlags |= 0x100;
+    car->base.flags |= 0x100;
 }
 
 /* Angular velocity (CarA.localAxis) from angular momentum and the inverse
@@ -49,11 +49,11 @@ static inline void CarA_UpdateAngularVelocity(CarA *car) {
     Vector4 local __attribute__((aligned(16)));
     Vector4 scaled __attribute__((aligned(16)));
 
-    InverseXformVecOrientation(&car->worldMatrix, &car->angularMomentum, &local);
+    InverseXformVecOrientation(THING_MTX(&car->base), &car->angularMomentum, &local);
     scaled.x = car->inverseBodyInertia.v[0].x * local.x;
     scaled.y = car->inverseBodyInertia.v[1].y * local.y;
     scaled.z = car->inverseBodyInertia.v[2].z * local.z;
-    XformVecOrientation(&car->worldMatrix, &scaled, &car->localAxis);
+    XformVecOrientation(THING_MTX(&car->base), &scaled, &car->localAxis);
 }
 
 static inline Vector4 Vector4_OrZero(Vector4 *v) {
@@ -65,40 +65,37 @@ static inline Vector4 Vector4_OrZero(Vector4 *v) {
     return g_zeroVector;
 }
 
-/* Releases the damage-state slaves and re-triggers the ones whose health
-   threshold the car has dropped below. */
+/* Slave set i of the car's description (CarASlaveSet). */
+static inline CarASlaveSet *CarA_SlaveSet(CarA *car, u32 i) {
+    return &((CarASlaveSet *)GETP(GETP(car->vehicleIface)->slaves))[i];
+}
+
+/* Releases the damage-state slaves (set 2) and re-triggers the ones whose
+   health threshold the car has dropped below. */
 static inline void CarA_UpdateDamageSlaves(CarA *car) {
-    typedef struct DamageSlave {
-        u8 pad00[0x14];
-        f32 threshold;
-        u8 pad18[8];
-    } DamageSlave;
-    typedef struct DamageSlaves {
-        u8 pad00[0x1C];
-        u32 count;
-        PTR32(DamageSlave) slaves;
-    } DamageSlaves;
     extern Vector4 g_zeroVector;
     MotionState *ms;
     u32 i;
-    DamageSlaves *slaves;
+    CarASlaveSet *set;
     f32 frac;
 
     if (GETP(car->vehicleIface)->numSlaves >= 2) {
         ms = &car->motionState;
-        slaves = (DamageSlaves *)GETP(GETP(car->vehicleIface)->slaves);
-        frac = 100.0f * (f32)car->speed / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+        set = CarA_SlaveSet(car, 2);
+        frac = 100.0f * (f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
         MotionState_ReleaseSlavesByType(HND(ms), 2);
-        for (i = 0; i < slaves->count; i++) {
+        for (i = 0; i < set->count; i++) {
             Vector4 color = {0.0f, 0.0f, 0.0f, 0.0f};
 
-            if (&GETP(slaves->slaves)[i] != NULL && frac < GETP(slaves->slaves)[i].threshold) {
-                ThingManagerList_TriggerSlaves(&ms->slaves, &GETP(slaves->slaves)[i], &GETP(slaves->slaves)[i], &color, &g_zeroVector, 2);
+            if (&GETP(set->slaves)[i] != NULL && frac < GETP(set->slaves)[i].threshold) {
+                ThingManagerList_TriggerSlaves(&ms->slaves, &GETP(set->slaves)[i], &GETP(set->slaves)[i], &color, &g_zeroVector, 2);
             }
         }
     }
 }
 
+/* The car's pose: the blended MotionState key frames, wheels spun by their
+   rotation, then the steering and the three additive animations on top. */
 void CarA_Extract_Keyframes(CarA *car, AnimKeyFrame *frames) {
     u32 *numBones;
     u32 i;
@@ -133,6 +130,8 @@ void CarA_Extract_Keyframes(CarA *car, AnimKeyFrame *frames) {
     }
 }
 
+/* Inverse inertia of a box around the collider (box corners or hull
+   bounds, shifted by the body offset), scaled per axis by the collider. */
 void CarA_InitInverseBodyInertiaTensor(CarA *car) {
     extern Matrix4 g_identity;
     Vector4 ext[4] __attribute__((aligned(16)));
@@ -187,10 +186,13 @@ void CarA_InitInverseBodyInertiaTensor(CarA *car) {
     car->inverseBodyInertia.v[2].z = 1.0f / (GETP(GETP(car->vehicleIface)->collider)->inertiaScale[2] * GETP(GETP(car->vehicleIface)->collider)->mass * (ext[2].x * ext[2].x + ext[2].y * ext[2].y));
 }
 
-void CarA_GetAngularVelocity(void *car, Vector4 *vel) {
-    *vel = M2C_FIELD(car, Vector4 *, 0x410);
+/* Angular velocity, as PhysicalObject callers ask for it. */
+void CarA_GetAngularVelocity(CarA *car, Vector4 *vel) {
+    *vel = car->localAxis;
 }
 
+/* The cubic through (x0, y0) and (x1, y1) with slopes m0 and m1 there:
+   coef[0..3] = a, b, c, d of a*x^3 + b*x^2 + c*x + d. */
 static inline void CarA_FitCubic(f32 *coef, f32 x0, f32 x1, f32 y0, f32 y1, f32 m0, f32 m1) {
     f32 dx = x0 - x1;
     f32 dy = y0 - y1;
@@ -207,261 +209,265 @@ static inline void CarA_FitCubic(f32 *coef, f32 x0, f32 x1, f32 y0, f32 y1, f32 
     coef[3] = y0 - a * x0 * x0 * x0 - b * x0 * x0 - c * x0;
 }
 
-s32 CarA_Init(void *arg0, void *arg1) {
+/* Vtable Init: sets the car up from its description (CarAParams.info):
+   transform, collider bounds, model, wheels, torque curve, sounds and the
+   slave things it starts with. */
+s32 CarA_Init(void *thing, void *arg1) {
     extern Matrix4 g_identity;
     extern Vector4 g_zeroVector;
     extern void *g_pSourcePlayer;
     struct SlaveParams {
         Vector4 pos;
         Vector4 quat;
-        PTR32(u8) info;
+        PTR32(CarAStartSlave) info;
     } params;
     Vector4 pos;
     u8 frames[0x800];
     u32 sample;
     f32 volume;
-    u8 *info;
-    u8 *hull;
-    u8 *snd;
-    u8 *rack;
-    u8 *slave;
-    s32 *skel;
+    CarACollider *coll;
+    Vector4 *box;
+    CarAHull *hull;
+    CarAEngine *engine;
+    CarASoundSet *snd;
+    Thing *rack;
+    Thing *slave;
+    u32 *skel;
     u32 i;
-    u8 *init = arg1;
-    u8 *car = arg0;
+    CarAParams *init = arg1;
+    CarA *car = thing;
 
-    Thing_Init(car, (s32)HND(init));
-    *(u32 *)(car + 0x94) = *(u32 *)(init + 0x3C);
-    SLOT_STORE((car + 0x3BC), SLOT_LOAD(u8 *, (init + 0x30)));
-    *(Vector4 *)(car + 0x40) = *(Vector4 *)init;
-    QuaternionToSubMatrix(init + 0x10, car + 0x10);
-    *(Vector4 *)(car + 0x50) = *(Vector4 *)(init + 0x10);
-    SLOT_STORE((car + 0x370), NULL);
-    info = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0));
-    switch (info[0x10]) {
+    Thing_Init(&car->base, (s32)HND(init));
+    car->base.player.h = init->player.h;
+    SETP(car->vehicleIface, GETP(init->info));
+    car->base.pos = init->pos;
+    QuaternionToSubMatrix(&init->quat, THING_MTX(&car->base));
+    car->base.quat = init->quat;
+    SETP(car->hull, NULL);
+    coll = GETP(GETP(car->vehicleIface)->collider);
+    switch (coll->type) {
     case 0:
-        hull = SLOT_LOAD(u8 *, (info + 0x44));
-        *(Vector4 *)(car + 0x540) = *(Vector4 *)hull;
-        *(f32 *)(car + 0x70) = *(f32 *)(hull + 0x20);
-        *(s16 *)(car + 0x80) = 1;
+        box = GETP(coll->box);
+        car->colliderMin = box[0];
+        car->base.radius = box[2].x;
+        car->base.collisionType = THING_COLLIDE_OBOX;
         break;
     case 1:
-        hull = SLOT_LOAD(u8 *, (info + 0x48));
-        *(f32 *)(car + 0x540) = 9999.9f;
-        *(f32 *)(car + 0x544) = 9999.9f;
-        *(f32 *)(car + 0x548) = 9999.9f;
-        *(f32 *)(car + 0x70) = 9999.9f;
-        for (i = 0; i < *(u32 *)(hull + 0xC); i++) {
-            if (*(f32 *)(car + 0x540) > (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].x) {
-                *(f32 *)(car + 0x540) = (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].x;
+        hull = GETP(coll->hull);
+        car->colliderMin.x = 9999.9f;
+        car->colliderMin.y = 9999.9f;
+        car->colliderMin.z = 9999.9f;
+        car->base.radius = 9999.9f;
+        for (i = 0; i < hull->numVerts; i++) {
+            if (car->colliderMin.x > GETP(hull->verts)[i].x) {
+                car->colliderMin.x = GETP(hull->verts)[i].x;
             }
-            if (*(f32 *)(car + 0x544) > (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].y) {
-                *(f32 *)(car + 0x544) = (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].y;
+            if (car->colliderMin.y > GETP(hull->verts)[i].y) {
+                car->colliderMin.y = GETP(hull->verts)[i].y;
             }
-            if (*(f32 *)(car + 0x548) > (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].z) {
-                *(f32 *)(car + 0x548) = (SLOT_LOAD(Vector4 *, (hull + 0x1C)))[i].z;
+            if (car->colliderMin.z > GETP(hull->verts)[i].z) {
+                car->colliderMin.z = GETP(hull->verts)[i].z;
             }
         }
-        SLOT_STORE((car + 0x370), OConvexHullHolder_Get(SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x48))));
-        *(f32 *)(car + 0x70) = 13.0f;
-        *(s16 *)(car + 0x80) = 4;
+        SETP(car->hull, OConvexHullHolder_Get(GETP(GETP(GETP(car->vehicleIface)->collider)->hull)));
+        car->base.radius = 13.0f;
+        car->base.collisionType = 4;
         break;
     }
-    *(u32 *)(car + 0x78) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x14);
-    *(f32 *)(car + 0x468) = *SLOT_LOAD(f32 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x7C));
-    *(s32 *)(car + 0x400) = -1;
-    *(u32 *)(car + 0x48C) = 0;
-    *(u32 *)(car + 0x330) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x78)) + 0x10);
-    *(f32 *)(car + 0x354) = 0.0f;
-    MotionState_Init(car + 0x330, 0);
-    car[0x490] = 0;
-    *(Vector4 *)(car + 0x520) = *SLOT_LOAD(Vector4 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80));
-    *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80)) + 0xC) = 1.0f;
-    skel = SLOT_LOAD(s32 *, (SLOT_LOAD(u8 *, (car + 0x330)) + 0x14));
-    CarA_Extract_Keyframes((CarA *)car, frames);
-    XformVec(car + 0x10, (Vector4 *)(car + 0x520), &pos);
-    TEST_AnimTraverseHeirarchyToMatricesWorld((Vector4 *)(car + 0x50), &pos, frames, *skel, SLOT_LOAD(void *, (car + 0x340)), 1.0f);
-    if (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xE0) >= 1) {
-        g_pSourcePlayer = SLOT_LOAD(void *, (car + 0x94));
-        MotionState_InitAllSlavesNow(HND(car + 0x330), SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xE4)) + 4, 0);
+    car->base.health = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+    car->gripScale = *GETP(GETP(car->vehicleIface)->gripScale);
+    car->turboTime = -1;
+    car->transmissionFlags = 0;
+    car->motionState.model.h = GETP(GETP(car->vehicleIface)->modelRef)->data.h;
+    car->motionState.blend = 0.0f;
+    MotionState_Init(&car->motionState, 0);
+    car->tiltState = 0;
+    engine = GETP(GETP(car->vehicleIface)->engine);
+    car->bodyOffset = *(Vector4 *)engine->bodyOffset;
+    GETP(GETP(car->vehicleIface)->engine)->unk0C = 1.0f;
+    skel = GETP(GETP(car->motionState.model)->numBones);
+    CarA_Extract_Keyframes(car, frames);
+    XformVec(THING_MTX(&car->base), &car->bodyOffset, &pos);
+    TEST_AnimTraverseHeirarchyToMatricesWorld(&car->base.quat, &pos, frames, *skel, GETP(car->motionState.animMatrices), 1.0f);
+    if (GETP(car->vehicleIface)->numSlaves >= 1) {
+        g_pSourcePlayer = GETP(car->base.player);
+        MotionState_InitAllSlavesNow(HND(&car->motionState), &CarA_SlaveSet(car, 0)->count, 0);
         g_pSourcePlayer = NULL;
     }
-    rack = ThingManagerList_GetByType(car + 0x344, 8);
+    rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
     if (rack != NULL) {
-        *(u32 *)(rack + 0x94) = *(u32 *)(car + 0x94);
-        for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x108); i++) {
-            u8 *item = SLOT_LOAD(u8 *, SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x10C)) + i);  /* port: table of slots */
+        rack->player.h = car->base.player.h;
+        for (i = 0; i < GETP(car->vehicleIface)->numStartItems; i++) {
+            ItemRecord *item = GETP(GETP(GETP(car->vehicleIface)->startItems)[i]);
+
             if (item != NULL) {
-                WildCardRack_Add(rack, item, *(s32 *)(SLOT_LOAD(u8 *, (item + 0x30)) + 0x20));
+                WildCardRack_Add(rack, (u8 *)item, *(s32 *)(GETP(item->weapon) + 0x20));
             }
         }
     }
-    for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xD0); i++) {
-        *(f32 *)(car + i * 0x30 + 0x1B0) = 0.0f;
-        *(u32 *)(car + i * 0x30 + 0x1B8) = 0;
-        *(u16 *)(car + i * 0x30 + 0x1B4) = 0;
-        *(u16 *)(car + i * 0x30 + 0x1B6) = 0;
-        car[i * 0x30 + 0x1C7] = 0;
-        *(f32 *)(car + i * 0x30 + 0x1C0) = 0.0f;
-        *(f32 *)(car + i * 0x30 + 0x1BC) = 0.0f;
-        *(Vector4 *)(car + i * 0x30 + 0x1D0) = g_zeroVector;
+    for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
+        car->wheelStates[i].rotation = 0.0f;
+        car->wheelStates[i].skidTrail = 0;
+        car->wheelStates[i].dustTimer = 0;
+        car->wheelStates[i].sparkTimer = 0;
+        car->wheelStates[i].skidColor.a = 0;
+        car->wheelStates[i].lastCompression = 0.0f;
+        car->wheelStates[i].compression = 0.0f;
+        car->wheelStates[i].slipVel = g_zeroVector;
     }
-    *(f32 *)(car + 0x458) = 0.0f;
-    *(f32 *)(car + 0x4E0) = 0.0f;
-    *(f32 *)(car + 0x4E4) = 0.0f;
-    car[0x4E8] = 1;
-    if (*(u8 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x11) == 2) {
-        CarA_FitCubic((f32 *)(car + 0x4C0), 0.0f, *(f32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x1C),
-                      *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80)) + 0x24), 0.0f, 1e-7f, 0.0f);
+    car->gradeOrReverse = 0.0f;
+    car->unk4E0 = 0.0f;
+    car->rpm = 0.0f;
+    car->curveTableIdx = 1;
+    engine = GETP(GETP(car->vehicleIface)->engine);
+    if (GETP(car->vehicleIface)->driveMode == 2) {
+        CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->unk1C, engine->torqueCurve[0], 0.0f, 1e-7f, 0.0f);
     } else {
-        u8 *curve = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80));
-
-        CarA_FitCubic((f32 *)(car + 0x4C0), 0.0f, *(f32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x1C), *(f32 *)(curve + 0x24),
-                      *(f32 *)(curve + 0x28), *(f32 *)(curve + 0x2C), *(f32 *)(curve + 0x30));
+        CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->unk1C, engine->torqueCurve[0],
+                      engine->torqueCurve[1], engine->torqueCurve[2], engine->torqueCurve[3]);
     }
     sample = 0;
     volume = 0.0f;
-    snd = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xDC)) + 0xC));
-    *(s32 *)(car + 0x4F0) = -1;
+    /* wind */
+    snd = SLOT_LOAD(CarASoundSet *, &GETP(GETP(car->vehicleIface)->gears)[1].unk4);
+    car->soundIds[0] = -1;
     if (snd != NULL) {
-        *(s32 *)(car + 0x4F0) = SoundManager_CreateSource(1);
-        sample = *(u32 *)(snd + 0x14);
-        SoundSource_Set(*(s32 *)(car + 0x4F0), 8, &sample);
-        SoundSource_Set(*(s32 *)(car + 0x4F0), 5, car + 0x40);
-        if (snd[0] == 0) {
-            SoundSource_Set(*(s32 *)(car + 0x4F0), 2, SLOT_LOAD(u8 *, (snd + 0x18)));
-            SoundSource_Set(*(s32 *)(car + 0x4F0), 3, SLOT_LOAD(u8 *, (snd + 0x18)) + 4);
+        car->soundIds[0] = SoundManager_CreateSource(1);
+        sample = snd->sample;
+        SoundSource_Set(car->soundIds[0], 8, &sample);
+        SoundSource_Set(car->soundIds[0], 5, &car->base.pos);
+        if (snd->type == 0) {
+            SoundSource_Set(car->soundIds[0], 2, GETP(snd->range));
+            SoundSource_Set(car->soundIds[0], 3, GETP(snd->range) + 1);
         }
-        SoundSource_Play(*(s32 *)(car + 0x4F0));
+        SoundSource_Play(car->soundIds[0]);
     }
-    *(s32 *)(car + 0x4F4) = -1;
-    if (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x11C)) != NULL && (snd = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x11C)) + 4))) != NULL) {
-        *(s32 *)(car + 0x4F4) = SoundManager_CreateSource(1);
-        sample = *(u32 *)(snd + 0x14);
-        SoundSource_Set(*(s32 *)(car + 0x4F4), 8, &sample);
-        SoundSource_Set(*(s32 *)(car + 0x4F4), 5, car + 0x40);
-        if (snd[0] == 0) {
-            SoundSource_Set(*(s32 *)(car + 0x4F4), 2, SLOT_LOAD(u8 *, (snd + 0x18)));
-            SoundSource_Set(*(s32 *)(car + 0x4F4), 3, SLOT_LOAD(u8 *, (snd + 0x18)) + 4);
+    /* engine */
+    car->soundIds[1] = -1;
+    if (GETP(GETP(car->vehicleIface)->soundSets) != NULL && (snd = GETP(GETP(GETP(car->vehicleIface)->soundSets)[1])) != NULL) {
+        car->soundIds[1] = SoundManager_CreateSource(1);
+        sample = snd->sample;
+        SoundSource_Set(car->soundIds[1], 8, &sample);
+        SoundSource_Set(car->soundIds[1], 5, &car->base.pos);
+        if (snd->type == 0) {
+            SoundSource_Set(car->soundIds[1], 2, GETP(snd->range));
+            SoundSource_Set(car->soundIds[1], 3, GETP(snd->range) + 1);
         }
-        SoundSource_Play(*(s32 *)(car + 0x4F4));
+        SoundSource_Play(car->soundIds[1]);
     }
-    snd = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x60));
-    *(s32 *)(car + 0x4F8) = -1;
+    /* rolling, silent until the wheels touch a surface */
+    snd = GETP(GETP(car->vehicleIface)->rollSound);
+    car->soundIds[2] = -1;
     if (snd != NULL) {
-        *(s32 *)(car + 0x4F8) = SoundManager_CreateSource(1);
-        SoundSource_Set(*(s32 *)(car + 0x4F8), 5, car + 0x40);
-        SoundSource_Set(*(s32 *)(car + 0x4F8), 0, &volume);
-        if (*SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x60)) == 0) {
-            SoundSource_Set(*(s32 *)(car + 0x4F8), 2, SLOT_LOAD(u8 *, (snd + 0x18)));
-            SoundSource_Set(*(s32 *)(car + 0x4F8), 3, SLOT_LOAD(u8 *, (snd + 0x18)) + 4);
+        car->soundIds[2] = SoundManager_CreateSource(1);
+        SoundSource_Set(car->soundIds[2], 5, &car->base.pos);
+        SoundSource_Set(car->soundIds[2], 0, &volume);
+        if (GETP(GETP(car->vehicleIface)->rollSound)->type == 0) {
+            SoundSource_Set(car->soundIds[2], 2, GETP(snd->range));
+            SoundSource_Set(car->soundIds[2], 3, GETP(snd->range) + 1);
         }
-        SoundSource_Play(*(s32 *)(car + 0x4F8));
+        SoundSource_Play(car->soundIds[2]);
     }
-    *(s32 *)(car + 0x550) = -1;
-    *(Vector4 *)(car + 0x3A0) = g_zeroVector;
-    *(Vector4 *)(car + 0x390) = *(Vector4 *)(car + 0x3A0);
-    *(u32 *)(car + 0x500) = 0;
-    *(u32 *)(car + 0x374) = 0;
-    *(u32 *)(car + 0x460) = 0;
-    *(u32 *)(car + 0x45C) = 0;
-    *(u32 *)(car + 0x464) = 0;
-    *(u32 *)(car + 0x404) = 0;
-    *(Matrix4 *)(car + 0x3C0) = g_identity;
-    *(f32 *)(car + 0x508) = 0.0f;
-    *(u32 *)(car + 0x4A4) = 0;
-    *(u32 *)(car + 0x494) = 0;
-    *(u32 *)(car + 0x498) = 0;
-    *(u32 *)(car + 0x49C) = 0;
-    *(u32 *)(car + 0x4A0) = 0;
-    *(f32 *)(car + 0x4B0) = 0.0f;
-    *(f32 *)(car + 0x4B4) = 0.0f;
-    *(f32 *)(car + 0x4B8) = 0.0f;
-    car[0x491] = 0;
-    *(s32 *)(car + 0x450) = 99999;
-    *(s32 *)(car + 0x46C) = 10001;
-    *(s32 *)(car + 0x470) = 10001;
-    *(s32 *)(car + 0x474) = 10001;
-    *(s32 *)(car + 0x478) = 10001;
-    *(s32 *)(car + 0x47C) = 10001;
-    *(s32 *)(car + 0x480) = 10001;
-    *(s32 *)(car + 0x484) = 10001;
-    *(s32 *)(car + 0x488) = 10001;
-    *(u32 *)(car + 0x504) = 0;
-    *(f32 *)(car + 0x50C) = 0.0f;
-    car[0x15D] = 1;
-    *(f32 *)(car + 0x554) = 0.0f;
+    car->turboCooldown = -1;
+    car->torqueAccum = g_zeroVector;
+    car->forceAccum = car->torqueAccum;
+    car->damageAccum = 0;
+    car->partVisMask = 0;
+    car->unk460 = 0;
+    car->unk45C = 0;
+    car->stuckCounter = 0;
+    car->lowSpeedFlag = 0;
+    car->inverseBodyInertia = g_identity;
+    car->groundedScale = 0.0f;
+    car->pickupCount = 0;
+    car->stuntPopup.h = 0;
+    car->pickupId = 0;
+    car->stuntScoreMessage.h = 0;
+    car->stuntMessage.h = 0;
+    car->stuntSpin.x = 0.0f;
+    car->stuntSpin.y = 0.0f;
+    car->stuntSpin.z = 0.0f;
+    car->stuntAxis = 0;
+    car->reverseTimer = 99999;
+    for (i = 0; i < 8; i++) {
+        car->slaveWeaponRpm[i] = 10001;
+    }
+    car->groundedTime = 0;
+    car->forwardAccel = 0.0f;
+    car->orientedBox.inUse = 1;     /* the box is the car's own, not from the pool */
+    car->stuntTime = 0.0f;
     CarA_InitInverseBodyInertiaTensor(car);
-    *(Vector4 *)(car + 0x380) = g_zeroVector;
-    *(Vector4 *)(car + 0x410) = g_zeroVector;
-    *(u32 *)(car + 0x454) = 0;
-    *(u32 *)(car + 0x3B4) = 0;
-    *(s32 *)(car + 0x3B0) = -1;
-    *(u32 *)(car + 0x74) |= 4;
-    *(u32 *)(car + 0x74) |= 0x80;
-    *(u32 *)(car + 0x568) = 0;
-    *(u32 *)(car + 0x55C) = 0;
+    car->angularMomentum = g_zeroVector;
+    car->localAxis = g_zeroVector;
+    car->rollSurface.h = 0;
+    car->navUpdateTimer = 0;
+    car->navPointIndex = -1;
+    car->base.flags |= 4;
+    car->base.flags |= 0x80;
+    car->path[0].h = 0;
+    car->unk55C = 0;
     Thing_AddToGrid(car, 0);
-    for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x100); i++) {
+    for (i = 0; i < GETP(car->vehicleIface)->numStartSlaves; i++) {
         params.quat = params.pos = g_zeroVector;
-        SETP(params.info, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x104)) + i * 0x50);
-        if (GETP(params.info) != NULL && *(u32 *)(GETP(params.info) + 0x3C) != 0) {
-            slave = ThingManager_DARYL_CreateSlave(0xD, &params, *(u16 *)(GETP(params.info) + 0x32));
-            *(u32 *)(slave + 0x94) = *(u32 *)(car + 0x94);
-            ThingManagerList_Append(car + 0x344, slave);
+        SETP(params.info, &GETP(GETP(car->vehicleIface)->startSlaves)[i]);
+        if (GETP(params.info) != NULL && GETP(params.info)->enabled != 0) {
+            slave = ThingManager_DARYL_CreateSlave(0xD, &params, GETP(params.info)->tag);
+            slave->player.h = car->base.player.h;
+            ThingManagerList_Append(&car->motionState.slaves, slave);
         }
     }
-    *(f32 *)(car + 0x4FC) = 1.0f;
+    car->unk4FC = 1.0f;
     return 1;
 }
 
-void CarA_Release(u8 *car) {
-    typedef struct CarNavPath {
-        u8 pad[0x568];
-        PTR32(u8) path[7];
-    } CarNavPath;
+/* Vtable Release. With code variable 0x12D >= 3 the driver remembers where
+   the car died (deathNavPoint) and where on its path to respawn. */
+void CarA_Release(CarA *car) {
     u16 i;
 
-    if (GameSettings_GetCodeVariable(0x12D, 0) >= 3 && SLOT_LOAD(u8 *, (car + 0x94)) != NULL) {
-        *(s16 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0xAC) = *(s32 *)(car + 0x3B0);
+    if (GameSettings_GetCodeVariable(0x12D, 0) >= 3 && GETP(car->base.player) != NULL) {
+        CARA_PLAYER(car)->deathNavPoint = car->navPointIndex;
         for (i = 0; i < 6; i++) {
-            if (GETP(((CarNavPath *)car)->path[i]) == NULL || GETP(((CarNavPath *)car)->path[i + 1]) == NULL) {
+            if (GETP(car->path[i]) == NULL || GETP(car->path[i + 1]) == NULL) {
                 break;
             }
-            if (NavHolder_GetNavPoint(*(s32 *)(car + 0x3B0)) == GETP(((CarNavPath *)car)->path[i])) {
-                *(s16 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0xAE) = *(s32 *)(SLOT_LOAD(u8 *, (u32 *)((car + 0x568)) + (i + 1)) + 0x28);
+            if (NavHolder_GetNavPoint(car->navPointIndex) == GETP(car->path[i])) {
+                CARA_PLAYER(car)->respawnNavPoint = *(s32 *)(GETP(car->path[i + 1]) + 0x28);
                 break;
             }
         }
     }
     Trigger_VehicleKilled(car);
-    OConvexHullHolder_Release(SLOT_LOAD(void *, (car + 0x370)));
-    SLOT_STORE((car + 0x370), NULL);
-    if (*(u32 *)(car + 0x4F0) != 0xFFFFFFFF) {
-        SoundSource_Stop(*(s32 *)(car + 0x4F0));
+    OConvexHullHolder_Release(GETP(car->hull));
+    SETP(car->hull, NULL);
+    if ((u32)car->soundIds[0] != 0xFFFFFFFF) {
+        SoundSource_Stop(car->soundIds[0]);
     }
-    if (*(u32 *)(car + 0x4F4) != 0xFFFFFFFF) {
-        SoundSource_Stop(*(s32 *)(car + 0x4F4));
+    if ((u32)car->soundIds[1] != 0xFFFFFFFF) {
+        SoundSource_Stop(car->soundIds[1]);
     }
-    if (*(u32 *)(car + 0x4F8) != 0xFFFFFFFF) {
-        SoundSource_Stop(*(s32 *)(car + 0x4F8));
+    if ((u32)car->soundIds[2] != 0xFFFFFFFF) {
+        SoundSource_Stop(car->soundIds[2]);
     }
-    *(s32 *)(car + 0x4F0) = -1;
-    *(s32 *)(car + 0x4F4) = -1;
-    *(s32 *)(car + 0x4F8) = -1;
-    MotionState_Release(HND(car + 0x330));
+    car->soundIds[0] = -1;
+    car->soundIds[1] = -1;
+    car->soundIds[2] = -1;
+    MotionState_Release(HND(&car->motionState));
     Thing_Release(car);
 }
 
-void CarA_GetInverseLocalInertiaTensor(void *arg0, void *arg1) {
-    M2C_FIELD(arg1, f32 *, 0) = (f32) M2C_FIELD(arg0, f32 *, 0x3C0);
-    M2C_FIELD(arg1, f32 *, 4) = (f32) M2C_FIELD(arg0, f32 *, 0x3D4);
-    M2C_FIELD(arg1, f32 *, 8) = (f32) M2C_FIELD(arg0, f32 *, 0x3E8);
+/* Vtable GetInvInertiaTensor: the diagonal of the inverse body inertia. */
+void CarA_GetInverseLocalInertiaTensor(CarA *car, Vector4 *out) {
+    out->x = car->inverseBodyInertia.v[0].x;
+    out->y = car->inverseBodyInertia.v[1].y;
+    out->z = car->inverseBodyInertia.v[2].z;
 }
 
-f32 CarA_Transmission_GetTorqueAtWheels(u8 *car)
+/* Engine torque at the current rpm (the cubic torque curve), divided by the
+   gear ratio. Halved while slave weapon 1 is active; 4WD turbo rescales. */
+f32 CarA_Transmission_GetTorqueAtWheels(CarA *car)
 {
-    u8 *trans;
+    CarAInfo *trans;
     f32 scale;
     f32 rpm;
     f32 d;
@@ -469,51 +475,53 @@ f32 CarA_Transmission_GetTorqueAtWheels(u8 *car)
     f32 b;
     f32 a;
 
-    a = *(f32 *)(car + 0x4C0);
-    b = *(f32 *)(car + 0x4C4);
-    c = *(f32 *)(car + 0x4C8);
-    d = *(f32 *)(car + 0x4CC);
-    rpm = *(f32 *)(car + 0x4E4);
+    a = car->torquePolyCoeffs[0];
+    b = car->torquePolyCoeffs[1];
+    c = car->torquePolyCoeffs[2];
+    d = car->torquePolyCoeffs[3];
+    rpm = car->rpm;
     scale = 1.0f;
-    if (*(s32 *)(car + 0x470) < 10000)
+    if (car->engineRpmState < 10000)
     {
         scale = 0.5f;
         rpm *= scale;
     }
-    else if (*(u32 *)(car + 0x48C) & 0x1000)
+    else if (car->transmissionFlags & 0x1000)
     {
-        trans = SLOT_LOAD(u8 *, (car + 0x3BC));
-        rpm /= *(f32 *)(trans + 0x30);
-        scale *= *(f32 *)(trans + 0x34);
+        trans = GETP(car->vehicleIface);
+        rpm /= trans->unk30;
+        scale *= trans->unk34;
     }
     if (rpm < 0.0f)
     {
         rpm *= -1.0f;
     }
-    trans = SLOT_LOAD(u8 *, (car + 0x3BC));
-    return scale * (rpm * (rpm * (a * rpm + b) + c) + d) /
-           ((f32 *)(SLOT_LOAD(u8 *, (trans + 0xDC))))[*(u8 *)(car + 0x4E8) * 2];
+    trans = GETP(car->vehicleIface);
+    return scale * (rpm * (rpm * (a * rpm + b) + c) + d) / GETP(trans->gears)[car->curveTableIdx].ratio;
 }
 
+/* Runs the driver's pending combo (Player.combo, cheats and stunt moves)
+   and clears it: 2 repair, 3 self-destruct, 4 toggle transmission bit 1,
+   5 stop, 6 full turbo, 9-16 stunt impulses (not while unk460 is set). */
 void CarA_ExecuteCombo(CarA *car) {
     extern Vector4 g_zeroVector;
     extern u8 g_stunt1localString[];  /* port: a table of string slots */
 
-    switch (GETP(car->player)->combo) {
+    switch (CARA_PLAYER(car)->combo) {
     case 2:
-        car->speed = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+        car->base.health = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
         car->partVisMask = 0;
         break;
     case 3:
-        GETP(car->player)->combo = 0;
+        CARA_PLAYER(car)->combo = 0;
         Thing_ProcessEndEvent(car, GETP(GETP(car->vehicleIface)->collider), NULL, &car->localAxis);
-        CarA_Release((u8 *)car);
+        CarA_Release(car);
         return;
     case 4:
         car->transmissionFlags ^= 1;
         break;
     case 5:
-        car->velocity = g_zeroVector;
+        car->base.vel = g_zeroVector;
         car->gradeOrReverse = 0.0f;
         car->rpm = 0.0f;
         car->curveTableIdx = 1;
@@ -523,7 +531,7 @@ void CarA_ExecuteCombo(CarA *car) {
         break;
     }
     if (car->unk460 == 0) {
-        switch (GETP(car->player)->combo) {
+        switch (CARA_PLAYER(car)->combo) {
         case 9: {
             Vector4 a __attribute__((aligned(16))) = {0.0f, 57.0f, 0.0f, 0.0f};
             Vector4 b __attribute__((aligned(16))) = {5.8f, 0.0f, 0.0f, 0.0f};
@@ -574,9 +582,11 @@ void CarA_ExecuteCombo(CarA *car) {
         }
         }
     }
-    GETP(car->player)->combo = 0;
+    CARA_PLAYER(car)->combo = 0;
 }
 
+/* Adds force dir * scale at world point pos to the force and torque
+   accumulators. */
 void CarA_ProcessForce(CarA *car, Vector4 *pos, Vector4 *dir, f32 scale)
 {
 
@@ -587,12 +597,12 @@ void CarA_ProcessForce(CarA *car, Vector4 *pos, Vector4 *dir, f32 scale)
     Vector4 carVel;
     Vector4 scaled __attribute__((aligned(16)));
 
-    carVel = car->velocity;
+    carVel = car->base.vel;
     PSVECScale(dir, &scaled, scale);
-    PSVECSubtract(pos, &car->worldMatrix.v[3], &r);
+    PSVECSubtract(pos, &car->base.pos, &r);
     GetComponentOfVector(dir, &carVel);
     PSVECCrossProduct(&car->localAxis, &r, &cross);
-    PSVECAdd(&car->velocity, &cross, &pointVel);
+    PSVECAdd(&car->base.vel, &cross, &pointVel);
     PSVECCrossProduct(&r, &scaled, &torque);
 
     car->forceAccum.x += scaled.x;
@@ -623,7 +633,7 @@ static void CarA_ApplyWheelLoads(void *thing) {
             GETP(car->motionState.animMatrices)[bone].v[3].y -= susp->wheelStates[0].compression * up->y;
             GETP(car->motionState.animMatrices)[bone].v[3].z -= susp->wheelStates[0].compression * up->z;
         } else {
-            up = &car->worldMatrix.v[1];
+            up = &car->base.axis[1];
         }
         GETP(car->motionState.animMatrices)[wheel->bone].v[3].x -= susp->wheelStates[0].compression * up->x;
         GETP(car->motionState.animMatrices)[wheel->bone].v[3].y -= susp->wheelStates[0].compression * up->y;
@@ -633,6 +643,10 @@ static void CarA_ApplyWheelLoads(void *thing) {
     car->forceAccum.y += GETP(GETP(car->vehicleIface)->collider)->gravityScale * GETP(GETP(car->vehicleIface)->collider)->mass;
 }
 
+/* Bounces the car off a contact (point pos, normal) given the velocity of
+   the point: the usual rigid-body impulse, restitution scaled by the
+   collider material's. Airborne, the angular velocity is capped at
+   engine->maxAngularVel. */
 void CarA_ProcessImpulse(void *thing, Vector4 *normal, Vector4 *pos, Vector4 *pointVel, f32 restitution) {
     CarA *car = thing;
     Vector4 impulse __attribute__((aligned(16)));
@@ -652,29 +666,29 @@ void CarA_ProcessImpulse(void *thing, Vector4 *normal, Vector4 *pos, Vector4 *po
     f32 mag;
 
     vel = *pointVel;
-    PSVECSubtract(pos, &car->worldMatrix.v[3], &r);
+    PSVECSubtract(pos, &car->base.pos, &r);
     num = -(restitution * GETP(GETP(GETP(car->vehicleIface)->collider)->material)->restitution + 1.0f) * PSVECDotProduct(&vel, normal);
     PSVECCrossProduct(&r, normal, &rxn);
-    InverseXformVecOrientation(&car->worldMatrix, &rxn, &localRxn);
+    InverseXformVecOrientation(THING_MTX(&car->base), &rxn, &localRxn);
     scaledRxn.x = car->inverseBodyInertia.v[0].x * localRxn.x;
     scaledRxn.y = car->inverseBodyInertia.v[1].y * localRxn.y;
     scaledRxn.z = car->inverseBodyInertia.v[2].z * localRxn.z;
-    XformVecOrientation(&car->worldMatrix, &scaledRxn, &ang);
+    XformVecOrientation(THING_MTX(&car->base), &scaledRxn, &ang);
     PSVECCrossProduct(&ang, &r, &angxr);
     j = num / (1.0f / GETP(GETP(car->vehicleIface)->collider)->mass + PSVECDotProduct(&angxr, normal));
     impulse.x = j * normal->x;
     impulse.y = j * normal->y;
     impulse.z = j * normal->z;
-    car->velocity.x += impulse.x / GETP(GETP(car->vehicleIface)->collider)->mass;
-    car->velocity.y += impulse.y / GETP(GETP(car->vehicleIface)->collider)->mass;
-    car->velocity.z += impulse.z / GETP(GETP(car->vehicleIface)->collider)->mass;
+    car->base.vel.x += impulse.x / GETP(GETP(car->vehicleIface)->collider)->mass;
+    car->base.vel.y += impulse.y / GETP(GETP(car->vehicleIface)->collider)->mass;
+    car->base.vel.z += impulse.z / GETP(GETP(car->vehicleIface)->collider)->mass;
     PSVECCrossProduct(&r, &impulse, &torque);
     car->angularMomentum.x += torque.x;
     car->angularMomentum.y += torque.y;
     car->angularMomentum.z += torque.z;
     if (car->numWheelsGrounded <= 1) {
         maxAng = GETP(GETP(car->vehicleIface)->engine)->maxAngularVel;
-        InverseXformVecOrientation(&car->worldMatrix, &car->angularMomentum, &localAng);
+        InverseXformVecOrientation(THING_MTX(&car->base), &car->angularMomentum, &localAng);
         scaledAng.x = car->inverseBodyInertia.v[0].x * localAng.x;
         scaledAng.y = car->inverseBodyInertia.v[1].y * localAng.y;
         scaledAng.z = car->inverseBodyInertia.v[2].z * localAng.z;
@@ -687,22 +701,17 @@ void CarA_ProcessImpulse(void *thing, Vector4 *normal, Vector4 *pos, Vector4 *po
             localAng.x = scaledAng.x / car->inverseBodyInertia.v[0].x;
             localAng.y = scaledAng.y / car->inverseBodyInertia.v[1].y;
             localAng.z = scaledAng.z / car->inverseBodyInertia.v[2].z;
-            XformVecOrientation(&car->worldMatrix, &localAng, &car->angularMomentum);
+            XformVecOrientation(THING_MTX(&car->base), &localAng, &car->angularMomentum);
         }
     }
     CarA_UpdateAngularVelocity(car);
 }
 
+/* Gathers this frame's forces: wheel loads and gravity, suspension, and the
+   downforce points (driving forwards only). */
 void CarA_ComputeForces(CarA *car) {
-    typedef struct RayHit {
-        Vector4 pos;
-        Vector4 normal;
-        u8 pad20[8];
-        PTR32(u8) surface;
-        u8 pad2C[0x24];
-    } RayHit;
     extern Vector4 g_zeroVector;
-    RayHit hit __attribute__((aligned(16)));
+    CollisionInfo hit __attribute__((aligned(16)));
     f32 worldPos[4];
     f32 down[4];
     u32 i;
@@ -714,36 +723,31 @@ void CarA_ComputeForces(CarA *car) {
     car->forceAccum = car->torqueAccum = g_zeroVector;
     CarA_ApplyWheelLoads(car);
     CarA_ComputeSuspensionForces(car);
-    dot = PSVECDotProduct(&car->worldMatrix.v[2], &car->velocity);
+    dot = PSVECDotProduct(&car->base.axis[2], &car->base.vel);
     forces = GETP(GETP(car->vehicleIface)->forcePoints);
     if (dot < 0.0f) {
         return;
     }
-    down[0] = -car->worldMatrix.v[1].x;
-    down[1] = -car->worldMatrix.v[1].y;
-    down[2] = -car->worldMatrix.v[1].z;
-    scale = 1.0f - GETP(GETP(car->vehicleIface)->engine)->unk58 * (car->worldMatrix.v[1].y - 1.0f);
+    down[0] = -car->base.axis[1].x;
+    down[1] = -car->base.axis[1].y;
+    down[2] = -car->base.axis[1].z;
+    scale = 1.0f - GETP(GETP(car->vehicleIface)->engine)->unk58 * (car->base.axis[1].y - 1.0f);
     for (i = 0; i < forces->count; i++) {
         if (GETP(forces->points)[i].ray) {
             dist = 6.0f;
-            if (car->numWheelsGrounded < GETP(car->vehicleIface)->numWheels && !RayHitsTerrainAndObjects(&car->worldMatrix.v[3], down, &dist, &hit)) {
+            if (car->numWheelsGrounded < GETP(car->vehicleIface)->numWheels && !RayHitsTerrainAndObjects(&car->base.pos, down, &dist, &hit)) {
                 continue;
             }
         }
-        XformVec(&car->worldMatrix, &GETP(forces->points)[i].pos, (Vector4 *)worldPos);
+        XformVec(THING_MTX(&car->base), &GETP(forces->points)[i].pos, (Vector4 *)worldPos);
         CarA_ProcessForce(car, (Vector4 *)worldPos, (Vector4 *)down, scale * (dot * GETP(forces->points)[i].weight));
     }
 }
 
+/* Vtable PreMove: driver input (turbo, tilting a stuck car upright),
+   forces, integration of velocity and angular momentum, nav point, engine
+   and wind sounds, wheel spin, combos. */
 s32 CarA_PreMove(void *thing) {
-    typedef struct EffectVtbl {
-        u8 pad0[0x18];
-        FPTR32(void, (void *thing, void *params, s32 arg, f32 scale)) spawn;
-    } EffectVtbl;
-    typedef struct EffectThing {
-        u8 pad0[0x8C];
-        PTR32(EffectVtbl) vtbl;
-    } EffectThing;
     typedef struct TurboFx {
         Vector4 pos;
         Vector4 dir;
@@ -771,7 +775,7 @@ s32 CarA_PreMove(void *thing) {
     CarTrailBone *wheel;
     u32 i;
 
-    car->prevVelocity = car->velocity;
+    car->prevVelocity = car->base.vel;
     car->unk4FC += g_fDeltaTimeSec;
     if (car->unk4FC >= 1.0f) {
         car->unk4FC = 1.0f;
@@ -781,7 +785,7 @@ s32 CarA_PreMove(void *thing) {
         car->transmissionFlags &= ~0x10000;
     }
 
-    if (GETP(car->player) != NULL) {
+    if (GETP(car->base.player) != NULL) {
         switch (GETP(car->vehicleIface)->driveMode) {
         case 0:
             break;
@@ -791,38 +795,39 @@ s32 CarA_PreMove(void *thing) {
         }
 
         if (car->turboCooldown >= 0) {
-            if (!(car->transmissionFlags & 0x1000) && (GETP(car->player)->buttonsHeld & 4) && car->turboTime > 0) {
+            if (!(car->transmissionFlags & 0x1000) && (CARA_PLAYER(car)->buttonsHeld & 4) && car->turboTime > 0) {
                 car->transmissionFlags |= 0x1000;
                 if (car->unk460 == 0) {
-                    SETP(fx.owner, GETP(GETP(car->player)->vehicle));
+                    SETP(fx.owner, GETP(CARA_PLAYER(car)->vehicle));
                     fx.unk24 = 0;
-                    fx.pos.x = car->worldMatrix.v[3].x - 8.0f * car->worldMatrix.v[2].x - 3.0f * car->worldMatrix.v[1].x;
-                    fx.pos.y = car->worldMatrix.v[3].y - 8.0f * car->worldMatrix.v[2].y - 3.0f * car->worldMatrix.v[1].y;
-                    fx.pos.z = car->worldMatrix.v[3].z - 8.0f * car->worldMatrix.v[2].z - 3.0f * car->worldMatrix.v[1].z;
-                    fx.dir.x = car->worldMatrix.v[2].x - 0.2f * car->worldMatrix.v[1].x;
-                    fx.dir.y = car->worldMatrix.v[2].y - 0.2f * car->worldMatrix.v[1].y;
-                    fx.dir.z = car->worldMatrix.v[2].z - 0.2f * car->worldMatrix.v[1].z;
+                    fx.pos.x = car->base.pos.x - 8.0f * car->base.axis[2].x - 3.0f * car->base.axis[1].x;
+                    fx.pos.y = car->base.pos.y - 8.0f * car->base.axis[2].y - 3.0f * car->base.axis[1].y;
+                    fx.pos.z = car->base.pos.z - 8.0f * car->base.axis[2].z - 3.0f * car->base.axis[1].z;
+                    fx.dir.x = car->base.axis[2].x - 0.2f * car->base.axis[1].x;
+                    fx.dir.y = car->base.axis[2].y - 0.2f * car->base.axis[1].y;
+                    fx.dir.z = car->base.axis[2].z - 0.2f * car->base.axis[1].z;
                     if (PSVECSquareMag(&fx.dir)) {
                         PSVECNormalize(&fx.dir, &fx.dir);
                     }
                     fx.unk28 = 0;
                     fx.vel = g_zeroVector;
                     fx.unk40 = 0;
-                    GETP(GETP(((EffectThing *)GETP(GETP(car->player)->vehicle))->vtbl)->spawn)(GETP(GETP(car->player)->vehicle), &fx, 0, 280.0f);
+                    /* turbo kick: an impact of 280 along fx.dir (fx is a contact) */
+                    THING_VFN(GETP(CARA_PLAYER(car)->vehicle), THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(void *, void *, s32, f32))(GETP(CARA_PLAYER(car)->vehicle), &fx, 0, 280.0f);
                 }
                 if (GETP(car->vehicleIface)->numSlaves > 1) {
-                    MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x10, 1);
+                    MotionState_InitAllSlavesNow(HND(&car->motionState), &CarA_SlaveSet(car, 1)->count, 1);
                 }
             }
             car->turboCooldown -= g_iDeltaTimeMS;
-        } else if (GETP(car->player)->buttonsHeld & 4) {
+        } else if (CARA_PLAYER(car)->buttonsHeld & 4) {
             car->turboCooldown = 700;
         }
 
         if (car->transmissionFlags & 0x1000) {
-            if (GETP(car->player)->throttle && !GETP(car->player)->brake) {
+            if (CARA_PLAYER(car)->throttle && !CARA_PLAYER(car)->brake) {
                 car->turboTime -= g_iDeltaTimeMS;
-                if (GameSettings_IsCheatEnabled(5) && GETP(car->player) != NULL && Player_IsHuman(GETP(car->player))) {
+                if (GameSettings_IsCheatEnabled(5) && GETP(car->base.player) != NULL && Player_IsHuman(GETP(car->base.player))) {
                     car->turboTime = 30000;
                 }
                 if (car->turboTime <= 0) {
@@ -836,13 +841,13 @@ s32 CarA_PreMove(void *thing) {
         }
 
         if (car->tiltState != 0) {
-            if (car->tiltState != 3 && GETP(car->player)->stickX < 0x40 && GETP(car->player)->stickX > -0x40) {
+            if (car->tiltState != 3 && CARA_PLAYER(car)->stickX < 0x40 && CARA_PLAYER(car)->stickX > -0x40) {
                 CarA_SetBodyOffset(car, GETP(GETP(car->vehicleIface)->engine)->bodyOffset[0],
                                    GETP(GETP(car->vehicleIface)->engine)->bodyOffset[1],
                                    GETP(GETP(car->vehicleIface)->engine)->bodyOffset[2]);
                 car->tiltState = 0;
             }
-            if (car->worldMatrix.v[1].y > 0.35f) {
+            if (car->base.axis[1].y > 0.35f) {
                 CarA_SetBodyOffset(car, GETP(GETP(car->vehicleIface)->engine)->bodyOffset[0],
                                    GETP(GETP(car->vehicleIface)->engine)->bodyOffset[1],
                                    GETP(GETP(car->vehicleIface)->engine)->bodyOffset[2]);
@@ -852,12 +857,12 @@ s32 CarA_PreMove(void *thing) {
             }
         }
         if (car->stuckCounter > 600) {
-            if (GETP(car->player)->stickX > 0x40) {
+            if (CARA_PLAYER(car)->stickX > 0x40) {
                 if (car->tiltState != 1) {
                     CarA_SetBodyOffset(car, car->tiltX - 1.0f, 1.0f - car->tiltY, 0.0f);
                     car->tiltState = 1;
                 }
-            } else if (GETP(car->player)->stickX < -0x40) {
+            } else if (CARA_PLAYER(car)->stickX < -0x40) {
                 if (car->tiltState != 2) {
                     CarA_SetBodyOffset(car, 1.0f - car->tiltX, 1.0f - car->tiltY, 0.0f);
                     car->tiltState = 2;
@@ -882,27 +887,27 @@ s32 CarA_PreMove(void *thing) {
         }
     } else if (!(car->transmissionFlags & 0x4000)) {
         if (GETP(car->vehicleIface)->numSlaves > 9) {
-            MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x70, 9);
+            MotionState_InitAllSlavesNow(HND(&car->motionState), &CarA_SlaveSet(car, 9)->count, 9);
             car->transmissionFlags |= 0x4000;
         }
     }
 
     CarA_ComputeForces(car);
-    car->velocity.x += g_fDeltaTimeSec * (car->forwardAccel * car->worldMatrix.v[0].x);
-    car->velocity.y += g_fDeltaTimeSec * (car->forwardAccel * car->worldMatrix.v[0].y);
-    car->velocity.z += g_fDeltaTimeSec * (car->forwardAccel * car->worldMatrix.v[0].z);
-    g_pSourcePlayer = GETP(car->player);
+    car->base.vel.x += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].x);
+    car->base.vel.y += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].y);
+    car->base.vel.z += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].z);
+    g_pSourcePlayer = GETP(car->base.player);
     CarA_SlaveWeaponHeartbeat(car);
     g_pSourcePlayer = NULL;
 
     invMass = g_fDeltaTimeSec / GETP(GETP(car->vehicleIface)->collider)->mass;
-    if (car->collDirtyFlags & 0x10000) {
+    if (car->base.flags & 0x10000) {
         car->torqueAccum = g_zeroVector;
         car->forceAccum = car->torqueAccum;
     } else {
-        car->velocity.x += invMass * car->forceAccum.x;
-        car->velocity.y += invMass * car->forceAccum.y;
-        car->velocity.z += invMass * car->forceAccum.z;
+        car->base.vel.x += invMass * car->forceAccum.x;
+        car->base.vel.y += invMass * car->forceAccum.y;
+        car->base.vel.z += invMass * car->forceAccum.z;
         car->angularMomentum.x += g_fDeltaTimeSec * car->torqueAccum.x;
         car->angularMomentum.y += g_fDeltaTimeSec * car->torqueAccum.y;
         car->angularMomentum.z += g_fDeltaTimeSec * car->torqueAccum.z;
@@ -914,7 +919,7 @@ s32 CarA_PreMove(void *thing) {
     Thing_CollideWithForceBoxes(car);
     car->navUpdateTimer -= g_iDeltaTimeMS;
     if (car->navUpdateTimer < 0) {
-        car->navPointIndex = NavHolder_FindIndexOfNearestNavPoint(&car->worldMatrix.v[3], car->navPointIndex);
+        car->navPointIndex = NavHolder_FindIndexOfNearestNavPoint(&car->base.pos, car->navPointIndex);
         car->navUpdateTimer = RandomAdd_s32(300, 100);
     }
     car->lowSpeedFlag += g_iDeltaTimeMS;
@@ -936,8 +941,8 @@ s32 CarA_PreMove(void *thing) {
             if (GETP(car->vehicleIface)->numSoundSets != 0) {
                 enginePitch *= GETP(GETP(GETP(car->vehicleIface)->soundSets)[1])->pitchScale;
             }
-            SoundSource_Set(car->soundIds[1], 5, &car->worldMatrix.v[3]);
-            SoundSource_Set(car->soundIds[1], 6, &car->velocity);
+            SoundSource_Set(car->soundIds[1], 5, &car->base.pos);
+            SoundSource_Set(car->soundIds[1], 6, &car->base.vel);
             SoundSource_Set(car->soundIds[1], 1, &enginePitch);
             SoundSource_Set(car->soundIds[1], 0, &engineVolume);
         }
@@ -959,14 +964,14 @@ s32 CarA_PreMove(void *thing) {
             windVolume = 1.0f;
         }
         SoundSource_Set(car->soundIds[0], 0, &windVolume);
-        SoundSource_Set(car->soundIds[0], 5, &car->worldMatrix.v[3]);
-        SoundSource_Set(car->soundIds[0], 6, &car->velocity);
+        SoundSource_Set(car->soundIds[0], 5, &car->base.pos);
+        SoundSource_Set(car->soundIds[0], 6, &car->base.vel);
         SoundSource_Set(car->soundIds[0], 1, &windPitch);
     }
 
-    speed = g_fDeltaTimeSec * PSVECDotProduct(&car->velocity, &car->worldMatrix.v[2]);
+    speed = g_fDeltaTimeSec * PSVECDotProduct(&car->base.vel, &car->base.axis[2]);
     spin = car->gradeOrReverse * g_fDeltaTimeSec;
-    if (GETP(car->player) != NULL && GETP(car->player)->brake == 0) {
+    if (GETP(car->base.player) != NULL && CARA_PLAYER(car)->brake == 0) {
         for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
             wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
             car->wheelStates[i].rotation += (wheel->unk14 * spin + (1.0f - wheel->unk14) * speed) / wheel->offset;
@@ -977,17 +982,21 @@ s32 CarA_PreMove(void *thing) {
             car->wheelStates[i].rotation += (wheel->unk14 * spin + (1.0f - wheel->unk14) * speed) / wheel->offset;
         }
     }
-    if (GETP(car->player) != NULL) {
+    if (GETP(car->base.player) != NULL) {
         CarA_ExecuteCombo(car);
     }
     Thing_PassiveTargeting(car);
     return 1;
 }
 
+/* Vtable Move: health bar slave, teleporters, item pickups, then the pose:
+   bone matrices with the wheels pushed out by their compression, skid
+   trails, and the slaves. */
 s32 CarA_Move(void *thing) {
-    typedef struct HealthSlave {
-        u8 pad00[0xB8];
-        f32 fraction;
+    typedef struct HealthSlave {    /* slave type 0x11: the health bar */
+        Thing base;
+        u8 padAC[0xC];
+        f32 fraction;               /* 0xB8 */
     } HealthSlave;
     extern Matrix4 g_identity;
     extern void *g_pSourcePlayer;
@@ -1014,22 +1023,22 @@ s32 CarA_Move(void *thing) {
     Timer_Interrupt300();
     slave = ThingManagerList_GetByType(&car->motionState.slaves, 0x11);
     if (slave != NULL) {
-        slave->fraction = (f32)car->speed / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
-        if (GETP(car->player) != NULL && !Player_IsHuman(GETP(car->player))) {
-            slave->fraction /= *GETP(GETP(car->player)->healthScale);
+        slave->fraction = (f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+        if (GETP(car->base.player) != NULL && !Player_IsHuman(GETP(car->base.player))) {
+            slave->fraction /= *GETP(CARA_PLAYER(car)->healthScale);
         }
         if (slave->fraction > 1.0f) {
             slave->fraction = 1.0f;
         }
     }
-    scale = 1.0f / Sqrt(car->animRefPos.w * car->animRefPos.w +
-                        (car->animRefPos.z * car->animRefPos.z +
-                         (car->animRefPos.x * car->animRefPos.x + car->animRefPos.y * car->animRefPos.y)));
-    car->animRefPos.x *= scale;
-    car->animRefPos.y *= scale;
-    car->animRefPos.z *= scale;
-    car->animRefPos.w *= scale;
-    if (GETP(car->player) != NULL && Player_IsHuman(GETP(car->player)) && GameSettings_IsCheatEnabled(5)) {
+    scale = 1.0f / Sqrt(car->base.quat.w * car->base.quat.w +
+                        (car->base.quat.z * car->base.quat.z +
+                         (car->base.quat.x * car->base.quat.x + car->base.quat.y * car->base.quat.y)));
+    car->base.quat.x *= scale;
+    car->base.quat.y *= scale;
+    car->base.quat.z *= scale;
+    car->base.quat.w *= scale;
+    if (GETP(car->base.player) != NULL && Player_IsHuman(GETP(car->base.player)) && GameSettings_IsCheatEnabled(5)) {
         car->turboTime = 30000;
     }
     if (Thing_CollideWithTeleporters(car)) {
@@ -1038,8 +1047,8 @@ s32 CarA_Move(void *thing) {
     Thing_CollideWithItems(car);
     numBones = GETP(GETP(car->motionState.model)->numBones);
     CarA_Extract_Keyframes(car, frames);
-    XformVec(&car->worldMatrix, &car->bodyOffset, &pos);
-    TEST_AnimTraverseHeirarchyToMatricesWorld(&car->animRefPos, &pos, frames, *numBones, GETP(car->motionState.animMatrices), 1.0f);
+    XformVec(THING_MTX(&car->base), &car->bodyOffset, &pos);
+    TEST_AnimTraverseHeirarchyToMatricesWorld(&car->base.quat, &pos, frames, *numBones, GETP(car->motionState.animMatrices), 1.0f);
     for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
         wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
         if (wheel->parent != 0) {
@@ -1058,12 +1067,12 @@ s32 CarA_Move(void *thing) {
             GETP(car->motionState.animMatrices)[wheel->bone].v[3].y += oy;
             GETP(car->motionState.animMatrices)[wheel->bone].v[3].z += oz;
         } else {
-            dx = car->worldMatrix.v[1].x;
-            dy = car->worldMatrix.v[1].y;
-            dz = car->worldMatrix.v[1].z;
+            dx = car->base.axis[1].x;
+            dy = car->base.axis[1].y;
+            dz = car->base.axis[1].z;
             GETP(car->motionState.animMatrices)[wheel->bone].v[3].x += car->wheelStates[i].compression * dx;
-            GETP(car->motionState.animMatrices)[wheel->bone].v[3].y += car->wheelStates[i].compression * car->worldMatrix.v[1].y;
-            GETP(car->motionState.animMatrices)[wheel->bone].v[3].z += car->wheelStates[i].compression * car->worldMatrix.v[1].z;
+            GETP(car->motionState.animMatrices)[wheel->bone].v[3].y += car->wheelStates[i].compression * car->base.axis[1].y;
+            GETP(car->motionState.animMatrices)[wheel->bone].v[3].z += car->wheelStates[i].compression * car->base.axis[1].z;
         }
         if (car->wheelStates[i].skidColor.a != 0) {
             wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
@@ -1078,32 +1087,26 @@ s32 CarA_Move(void *thing) {
             car->wheelStates[i].skidTrail = -1;
         }
     }
-    g_pSourcePlayer = GETP(car->player);
+    g_pSourcePlayer = GETP(car->base.player);
     MotionState_Heartbeat(&car->motionState, &g_identity, car);
     g_pSourcePlayer = NULL;
     return 1;
 }
 
-void CarA_SetSlavePlayers(u8 *car)
+/* Hands the car's driver on to all its slave things. */
+void CarA_SetSlavePlayers(CarA *car)
 {
-    u8 *slave;
+    Thing *slave;
 
-    for (slave = SLOT_LOAD(u8 *, (car + 0x344)); slave != NULL; slave = SLOT_LOAD(u8 *, (slave + 0xA4)))
+    for (slave = GETP(car->motionState.slaves); slave != NULL; slave = GETP(slave->next))
     {
-        *(s32 *)(slave + 0x94) = *(s32 *)(car + 0x94);
+        slave->player.h = car->base.player.h;
     }
 }
 
+/* Draws the car and its mirror image under it (flipped about the ground
+   plane under the first wheel), into temporary bone matrices. */
 void CarA_DrawReflection(void *thing) {
-    typedef struct { PTR32(void) geom; u16 mtxIndex; u8 pad6[2]; } ModelPart;
-    typedef struct {
-        u32 numGeoms;
-        PTR32(PTR32(void)) geoms;
-        u32 numParts;
-        PTR32(ModelPart) parts;
-        u8 pad10[4];
-        PTR32(s32) skel;
-    } CarModel;
     Matrix4 matrices[64];
     u8 frames[0x800];
     u8 frames2[0x800];
@@ -1122,18 +1125,18 @@ void CarA_DrawReflection(void *thing) {
         LightManager_LightThing(car);
         SETP(car->motionState.animMatrices, matrices);
         {
-            s32 *skel = GETP(((CarModel *)GETP(car->motionState.model))->skel);
+            u32 *skel = GETP(((CarAModelData *)GETP(car->motionState.model))->numBones);
             CarA_Extract_Keyframes(car, frames);
-            XformVec(&car->worldMatrix, &car->bodyOffset, &pos);
-            TEST_AnimTraverseHeirarchyToMatricesWorld(&car->animRefPos, &pos, frames, *skel, matrices, 1.0f);
+            XformVec(THING_MTX(&car->base), &car->bodyOffset, &pos);
+            TEST_AnimTraverseHeirarchyToMatricesWorld(&car->base.quat, &pos, frames, *skel, matrices, 1.0f);
         }
-        Create_Plane3(&plane, &car->worldMatrix.v[1], &pos);
+        Create_Plane3(&plane, &car->base.axis[1], &pos);
         h = -Distance_Plane(&plane, &matrices[GETP(GETP(car->vehicleIface)->wheels)->bone].v[3]);
         offset += 2.0f * h + 2.0f * GETP(GETP(car->vehicleIface)->wheels)->offset;
         {
             u32 i;
-            for (i = 0; i < ((CarModel *)GETP(car->motionState.model))->numParts; i++) {
-                ModelPart *e = &GETP(((CarModel *)GETP(car->motionState.model))->parts)[i];
+            for (i = 0; i < ((CarAModelData *)GETP(car->motionState.model))->numRigid; i++) {
+                CarAModelPart *e = &GETP(((CarAModelData *)GETP(car->motionState.model))->rigid)[i];
                 Gfx_DrawGeometry(HND(GETP(e->geom)), HND(&matrices[e->mtxIndex]));
             }
         }
@@ -1165,10 +1168,10 @@ void CarA_DrawReflection(void *thing) {
             }
         }
         MotionState_DrawSlaves(&car->motionState, 0);
-        mtx = car->worldMatrix;
+        mtx = *THING_MTX(&car->base);
         {
             u32 i;
-            s32 *skel = GETP(((CarModel *)GETP(car->motionState.model))->skel);
+            u32 *skel = GETP(((CarAModelData *)GETP(car->motionState.model))->numBones);
             CarA_Extract_Keyframes(car, frames2);
             Gfx_AnimTraverseHeirarchyToMatrices(frames2, *skel, matrices);
             mtx.v[1].x *= -1.0f;
@@ -1177,7 +1180,7 @@ void CarA_DrawReflection(void *thing) {
             mtx.v[0].x *= -1.0f;
             mtx.v[0].y *= -1.0f;
             mtx.v[0].z *= -1.0f;
-            XformVec(&car->worldMatrix, &car->bodyOffset, &mtx.v[3]);
+            XformVec(THING_MTX(&car->base), &car->bodyOffset, &mtx.v[3]);
             mtx.v[3].x += mtx.v[1].x * offset;
             mtx.v[3].y += mtx.v[1].y * offset;
             mtx.v[3].z += mtx.v[1].z * offset;
@@ -1188,8 +1191,8 @@ void CarA_DrawReflection(void *thing) {
         }
         {
             u32 i;
-            for (i = 0; i < ((CarModel *)GETP(car->motionState.model))->numParts; i++) {
-                ModelPart *e = &GETP(((CarModel *)GETP(car->motionState.model))->parts)[i];
+            for (i = 0; i < ((CarAModelData *)GETP(car->motionState.model))->numRigid; i++) {
+                CarAModelPart *e = &GETP(((CarAModelData *)GETP(car->motionState.model))->rigid)[i];
                 Gfx_DrawGeometry(HND(GETP(e->geom)), HND(&matrices[e->mtxIndex]));
             }
         }
@@ -1225,33 +1228,13 @@ void CarA_DrawReflection(void *thing) {
     }
 }
 
-void CarA_DrawScript(u8 *car) {
-    typedef struct { PTR32(void) geom; u16 mtxIndex; u8 pad6[2]; } ModelPart;
-    typedef struct {
-        u32 numGeoms;
-        PTR32(PTR32(void)) geoms;
-        u32 numParts;
-        PTR32(ModelPart) parts;
-        u8 pad10[4];
-        PTR32(s32) skel;
-    } Model;
-    typedef struct CarPart {
-        u8 flags;
-        u8 xform;
-        u8 pad2[2];
-        u16 mtxIndex;
-        u8 pad6[2];
-        PTR32(void) geom;
-        PTR32(Vector4) offset;
-        u8 pad10[0xC];
-    } CarPart;
-    typedef struct CarPartList {
-        u32 count;
-        PTR32(CarPart) parts;
-    } CarPartList;
+/* Draws the animated model (skinned geometry, rigid parts, and the breakable
+   parts still on, see partVisMask) from the current bone matrices. */
+void CarA_DrawScript(CarA *car) {
+    CarAModelData *model;
     Matrix4 *matrices;
     u32 i;
-    s32 *skel;
+    u32 *skel;
     u32 j;
     CarPartList *list;
     CarPart *part;
@@ -1259,25 +1242,26 @@ void CarA_DrawScript(u8 *car) {
     void *geom;
     Matrix4 mtx;
 
-    matrices = SLOT_LOAD(Matrix4 *, (car + 0x340));
+    matrices = GETP(car->motionState.animMatrices);
     if (matrices == NULL) {
         return;
     }
     LightManager_LightThing(car);
-    skel = GETP((SLOT_LOAD(Model *, (car + 0x330)))->skel);
-    for (i = 0; i < (SLOT_LOAD(Model *, (car + 0x330)))->numGeoms; i++) {
-        Gfx_DrawAnimGeometryAux(GETP(GETP((SLOT_LOAD(Model *, (car + 0x330)))->geoms)[i]), matrices, *skel, 0);
+    model = (CarAModelData *)GETP(car->motionState.model);
+    skel = GETP(model->numBones);
+    for (i = 0; i < model->numGeoms; i++) {
+        Gfx_DrawAnimGeometryAux(GETP(GETP(model->geoms)[i]), matrices, *skel, 0);
     }
-    for (i = 0; i < (SLOT_LOAD(Model *, (car + 0x330)))->numParts; i++) {
-        ModelPart *e = &GETP((SLOT_LOAD(Model *, (car + 0x330)))->parts)[i];
+    for (i = 0; i < model->numRigid; i++) {
+        CarAModelPart *e = &GETP(model->rigid)[i];
         Gfx_DrawGeometry_MatrixNotCached(HND(GETP(e->geom)), HND(&matrices[e->mtxIndex]));
     }
-    list = SLOT_LOAD(CarPartList *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x78)) + 0x10)) + 0x38));
+    list = GETP(GETP(GETP(GETP(car->vehicleIface)->modelRef)->data)->parts);
     if (list != NULL) {
         for (j = 0; j < list->count; j++) {
             part = &GETP(list->parts)[j];
             geom = GETP(part->geom);
-            bit = *(u32 *)(car + 0x374) & (1 << j);
+            bit = car->partVisMask & (1 << j);
             if (bit && !(part->flags & 1)) {
                 continue;
             }
@@ -1296,58 +1280,49 @@ void CarA_DrawScript(u8 *car) {
 }
 extern u8 g_pNoRayCollideThing[];  /* typed per function below */
 
-void CarA_Draw(u8 *car)
+/* Vtable Draw. Skipped for the driver's own viewport in an in-car camera;
+   in the garage (state 5) a human car also gets its reflection geometry. */
+void CarA_Draw(CarA *car)
 {
     #define g_pNoRayCollideThing (*(void **)(void *)&g_pNoRayCollideThing)
     Matrix4 mtx __attribute__((aligned(16)));
-    u8 *p2;
+    CarAEngine *engine;
 
-    if (SLOT_LOAD(u8 *, (car + 0x94)) != NULL && (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x6C) & 0x10) &&
-        !(*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x6C) & 0x80) && ViewManager_GetViewFormat() <= 1) {
-        p2 = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x80));
-        if ((SLOT_LOAD(u8 *, (p2 + 0x84)))[((SLOT_LOAD(u8 *, (car + 0x94)))[0x31] % *(u32 *)(p2 + 0x80)) * 0xC] == 4) {
+    if (GETP(car->base.player) != NULL && (CARA_PLAYER(car)->flags & 0x10) &&
+        !(CARA_PLAYER(car)->flags & 0x80) && ViewManager_GetViewFormat() <= 1) {
+        engine = GETP(GETP(car->vehicleIface)->engine);
+        if (GETP(engine->cameras.list)[(CARA_PLAYER(car)->cameraIndex % engine->cameras.count) * 0xC] == 4) {
             return;
         }
     }
     CarA_DrawScript(car);
-    if (SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x54)) != NULL && StateManager_CurrState() == 5) {
-        mtx = *(Matrix4 *)(car + 0x10);
-        XformVec(car + 0x10, (Vector4 *)(car + 0x520), &mtx.v[3]);
-        if (Player_IsHuman(SLOT_LOAD(void *, (car + 0x94)))) {
-            Gfx_DrawGeometry(HND(SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x54))), HND(&mtx));
+    if (GETP(GETP(car->vehicleIface)->reflectionGeom) != NULL && StateManager_CurrState() == 5) {
+        mtx = *THING_MTX(&car->base);
+        XformVec(THING_MTX(&car->base), &car->bodyOffset, &mtx.v[3]);
+        if (Player_IsHuman(GETP(car->base.player))) {
+            Gfx_DrawGeometry(HND(GETP(GETP(car->vehicleIface)->reflectionGeom)), HND(&mtx));
         }
     }
     g_pNoRayCollideThing = car;
-    MotionState_DrawSlaves(car + 0x330, 0);
+    MotionState_DrawSlaves(&car->motionState, 0);
     g_pNoRayCollideThing = NULL;
 #undef g_pNoRayCollideThing
 }
 
-f32 CarA_GetMass(u8 *car)
+/* Vtable GetMass. */
+f32 CarA_GetMass(CarA *car)
 {
-    u8 *coll;
-
-    coll = SLOT_LOAD(u8 *, (car + 0x3BC));
-    coll = SLOT_LOAD(u8 *, (coll + 0xA0));
-    return *(f32 *)(coll + 0x20);
+    return GETP(GETP(car->vehicleIface)->collider)->mass;
 }
 
-void CarA_DynamicRotation(u8 *car, f32 dt) {
-    typedef struct OBox {
-        Vector4 center;
-        Vector4 corners[8];
-        u8 pad[0x60];
-    } OBox;
-    typedef struct RayHit {
-        Vector4 pos;
-        Vector4 normal;
-        u8 pad20[8];
-        PTR32(u8) surface;
-        u8 pad2C[0x24];
-    } RayHit;
-    #define g_pNoRayCollideThing (*(u8 **)(void *)&g_pNoRayCollideThing)
-    OBox obox;
-    RayHit hit;
+/* Vtable DynamicRotation: turns the car by its angular velocity (and the
+   stunt input) over dt. The box's corners are swept by rays from the old
+   pose; any hit, or the new box touching something, bounces the car instead
+   of rotating it. Only the oriented-box collider rotates. */
+void CarA_DynamicRotation(CarA *car, f32 dt) {
+    #define g_pNoRayCollideThing (*(CarA **)(void *)&g_pNoRayCollideThing)
+    CollisionOBox obox;
+    CollisionInfo hit;
     Matrix4 mtx;
     Quaternion q __attribute__((aligned(16)));
     Quaternion newQ __attribute__((aligned(16)));
@@ -1358,12 +1333,12 @@ void CarA_DynamicRotation(u8 *car, f32 dt) {
     f32 t;
     f32 mag;
     u32 i;
-    OBox *old;
+    CollisionOBox *old;
     void *box;
     s8 hitAny;
 
     t = dt;
-    axis = *(Vector4 *)(car + 0x410);
+    axis = car->localAxis;
     mag = MagnitudeVector(&axis);
     if (mag > 0.0001f) {
         axis.x /= mag;
@@ -1371,16 +1346,16 @@ void CarA_DynamicRotation(u8 *car, f32 dt) {
         axis.z /= mag;
     }
     GenerateQuaternion(&axis, &q, mag * t);
-    QuaternionMult((Vector4 *)&q, (Vector4 *)(car + 0x50), (Vector4 *)&newQ);
+    QuaternionMult((Vector4 *)&q, (Vector4 *)&car->base.quat, (Vector4 *)&newQ);
     CarA_StuntsGetNewOrientation(car, &newQ, t);
     QuaternionToSubMatrix(&newQ, &mtx);
-    mtx.v[3] = *(Vector4 *)(car + 0x40);
-    switch ((SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)))[0x10]) {
+    mtx.v[3] = car->base.pos;
+    switch (GETP(GETP(car->vehicleIface)->collider)->type) {
     case 0:
-        box = SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x44));
+        box = GETP(GETP(GETP(car->vehicleIface)->collider)->box);
         old = CarA_GetOrientedCollision(car);
         hitAny = 0;
-        BuildOOBOffset(box, &mtx, car + 0x520, &obox);
+        BuildOOBOffset(box, &mtx, &car->bodyOffset, &obox);
         g_pNoRayCollideThing = car;
         for (i = 0; i < 8; i++) {
             if (t > 0.0f) {
@@ -1389,24 +1364,25 @@ void CarA_DynamicRotation(u8 *car, f32 dt) {
                 dir.z = (obox.corners[i].z - old->corners[i].z) / dt;
                 if (RayHitsTerrainAndObjects(&old->corners[i], &dir, &t, &hit)) {
                     hitAny = 1;
-                    CarA_ProcessImpulse(car, &hit.normal, &hit.pos, &dir, *(f32 *)(GETP(hit.surface) + 0x18));
+                    CarA_ProcessImpulse(car, &hit.normal, &hit.pos, &dir, P(CarAMaterial, hit.material)->restitution);
                 }
             }
         }
         g_pNoRayCollideThing = NULL;
         if (!hitAny) {
             if (OBoxHitsTerrainAndObjectsZeroTimeEdgesOnly(&obox, car, &hit)) {
-                PSVECSubtract(&hit.pos, car + 0x40, &r);
-                PSVECCrossProduct(car + 0x410, &r, &v);
+                PSVECSubtract(&hit.pos, &car->base.pos, &r);
+                PSVECCrossProduct(&car->localAxis, &r, &v);
                 CarA_ProcessImpulse(car, &hit.normal, &hit.pos, &v, 0.5f);
             } else {
-                *(Quaternion *)(car + 0x50) = newQ;
-                *(Matrix4 *)(car + 0x10) = mtx;
-                *(OBox *)(car + 0xC0) = obox;
-                SLOT_STORE((car + 0x160), car + 0x30);
-                SLOT_STORE((car + 0x164), car + 0x10);
-                SLOT_STORE((car + 0x168), car + 0x20);
-                *(u32 *)(car + 0x74) &= ~0x180;
+                car->base.quat = newQ;
+                *THING_MTX(&car->base) = mtx;
+                car->orientedBox = obox;
+                /* the box's axes point into the car's own matrix rows */
+                SETP(car->orientedBox.axis[0], &car->base.axis[2]);
+                SETP(car->orientedBox.axis[1], &car->base.axis[0]);
+                SETP(car->orientedBox.axis[2], &car->base.axis[1]);
+                car->base.flags &= ~0x180;
             }
         }
         break;
@@ -1416,17 +1392,10 @@ void CarA_DynamicRotation(u8 *car, f32 dt) {
 #undef g_pNoRayCollideThing
 }
 
+/* Breaks off the car parts within 5 units of a hit, once health is down to
+   damagePercent and the hit is hard enough: each flies off as a thing of
+   type 6 (with its debris effect and slave) and is hidden (partVisMask). */
 void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse) {
-    typedef struct DebrisParams {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        Vector4 angVel;
-        u32 id;
-        PTR32(void) player;
-        f32 unk48;
-        f32 unk4C;
-    } DebrisParams;
     typedef struct PartParams {
         Vector4 pos;
         Vector4 quat;
@@ -1460,8 +1429,8 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
     u32 i;
     CarPartList *list;
     f32 scale;
-    u8 *thing;
-    u8 *slave;
+    Thing *thing;
+    Thing *slave;
     f32 absImpulse;
     u32 debris;
 
@@ -1472,7 +1441,7 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
     if (GETP(car->vehicleIface)->damageLevel > level && !(absImpulse > 70.0f)) {
         return;
     }
-    if (!(100.0f * (f32)car->speed / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth <= GETP(car->vehicleIface)->damagePercent)) {
+    if (!(100.0f * (f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth <= GETP(car->vehicleIface)->damagePercent)) {
         return;
     }
     list = GETP(GETP(GETP(GETP(car->vehicleIface)->modelRef)->data)->parts);
@@ -1492,7 +1461,7 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
             if (GETP(list->parts)[i].flags == 0) {
                 scale = RandomNumberGenerator_GetRandomFloat(40.0f, 80.0f);
                 RandomNumberGenerator_GetRandomVector(&dir);
-                vel = car->velocity;
+                vel = car->base.vel;
                 vel.x = dir.x * scale + vel.x;
                 vel.y = dir.y * scale + vel.y;
                 vel.z = dir.z * scale + vel.z;
@@ -1506,11 +1475,11 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
                 partParams.quat = quat;
                 partParams.unk50 = 1;
                 if (debris != 0) {
-                    debrisParams.id = debris;
+                    debrisParams.debris = debris;
                     debrisParams.pos = pos;
                     debrisParams.quat = quat;
                     debrisParams.vel = vel;
-                    SETP(debrisParams.player, NULL);
+                    debrisParams.owner = 0;
                     debrisParams.unk48 = 0.0f;
                     debrisParams.unk4C = 0.0f;
                     debrisParams.angVel = g_zeroVector;
@@ -1531,8 +1500,8 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
                     slaveParams.vel = g_zeroVector;
                     slave = ThingManager_DARYL_CreateSlave(2, &slaveParams, 0xFF);
                     if (slave != NULL) {
-                        slave[0x83] = 0xFF;
-                        ThingManagerList_Append(thing + 0x88, slave);
+                        slave->slaveTag = 0xFF;
+                        ThingManagerList_Append(&thing->slaves, slave);
                     }
                 }
             }
@@ -1541,90 +1510,95 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
     }
 }
 
-void CarA_GetTargetPos(u8 *car, Vector4 *pos)
+/* Vtable GetTargetPos: where weapons aim, the centre of the collider. */
+void CarA_GetTargetPos(CarA *car, Vector4 *pos)
 {
-    u8 *coll;
-
-    coll = SLOT_LOAD(u8 *, (car + 0x3BC));
-    coll = SLOT_LOAD(u8 *, (coll + 0xA0));
-    switch (*(u8 *)(coll + 0x10))
+    switch (GETP(GETP(car->vehicleIface)->collider)->type)
     {
     case 0:
-        *pos = *(Vector4 *)(car + 0xC0);
+        *pos = car->orientedBox.center;
         break;
     case 1:
-        *pos = *(Vector4 *)(SLOT_LOAD(u8 *, (car + 0x370)) + 0x3D0);
+        *pos = ((ConvexHull *)GETP(car->hull))->point;
         break;
     }
 }
 
-void CarA_GetInterfaceInfo(u8 *car, u8 *info) {
+/* Vtable GetInterfaceInfo: fills the HUD block (info, the interface's
+   layout) with health %, weapon ammo, speed (smoothed), rpm, turbo, the HUD
+   layout for the number of viewports, and the pending stunt/pickup
+   messages, which are handed over once. */
+void CarA_GetInterfaceInfo(CarA *car, u8 *info) {
     typedef struct {
         u32 active;
         u8 unk4[0x3C];
         s16 ammo;
         u8 unk42[0xA];
-        PTR32(u8) item;
+        PTR32(ItemRecord) item;
     } RackSlot;
     typedef struct {
-        u8 unk0[0xB0];
+        Thing base;
+        u8 padAC[4];
         RackSlot slots[12];
         u8 current;
     } WeaponRack;
     WeaponRack *rack;
+    u8 *weapon;
     u32 count;
 
-    rack = ThingManagerList_GetByType(car + 0x344, 8);
-    *(u32 *)(info + 0x10) = 100.0f * ((f32)*(s32 *)(car + 0x78) / (f32)*(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x14));
+    rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
+    *(u32 *)(info + 0x10) = 100.0f * ((f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth);
     if (*(u32 *)(info + 0x10) > 100.0f) {
         *(u32 *)(info + 0x10) = 100;
     }
     if (rack != NULL && GETP(rack->slots[rack->current].item) != NULL) {
+        /* weapon info: max ammo at 0x28, ammo per HUD segment at 0x24 */
         if (GameSettings_IsCheatEnabled(0)) {
-            rack->slots[rack->current].ammo = *(u32 *)(SLOT_LOAD(u8 *, (GETP(rack->slots[rack->current].item) + 0x30)) + 0x28);
+            rack->slots[rack->current].ammo = *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x28);
         }
-        if (*(u32 *)(SLOT_LOAD(u8 *, (GETP(rack->slots[rack->current].item) + 0x30)) + 0x24) != 0) {
-            *(u32 *)(info + 0x38) = 100.0f * ((f32)rack->slots[rack->current].ammo / (f32)*(u32 *)(SLOT_LOAD(u8 *, (GETP(rack->slots[rack->current].item) + 0x30)) + 0x28));
-            *(u32 *)(info + 0x3C) = *(u32 *)(info + 0x38) / *(u32 *)(SLOT_LOAD(u8 *, (GETP(rack->slots[rack->current].item) + 0x30)) + 0x24);
+        weapon = GETP(GETP(rack->slots[rack->current].item)->weapon);
+        if (*(u32 *)(weapon + 0x24) != 0) {
+            *(u32 *)(info + 0x38) = 100.0f * ((f32)rack->slots[rack->current].ammo / (f32)*(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x28));
+            *(u32 *)(info + 0x3C) = *(u32 *)(info + 0x38) / *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x24);
         } else {
             *(u32 *)(info + 0x38) = 0;
             *(u32 *)(info + 0x3C) = 0;
         }
-        if (SLOT_LOAD(u8 *, (GETP(rack->slots[rack->current].item) + 0x30)) != NULL) {
-            *(u32 *)(info + 0x68) = *(u32 *)(SLOT_LOAD(u8 *, (GETP(rack->slots[rack->current].item) + 0x30)) + 0x10);
+        if (GETP(GETP(rack->slots[rack->current].item)->weapon) != NULL) {
+            *(u32 *)(info + 0x68) = *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x10);
         }
     }
-    *(u32 *)(info + 0x14) = _fabs(0.681818f * *(f32 *)(car + 0x458));
-    if (*(s8 *)(car + 0x584) && *(u32 *)(info + 0x14) < *(u32 *)(car + 0x58C)) {
-        (*(u32 *)(car + 0x588))++;
-        if (*(u32 *)(car + 0x588) > 5) {
-            *(s8 *)(car + 0x584) = 0;
-            *(u32 *)(car + 0x588) = 0;
-            *(u32 *)(car + 0x58C) = *(u32 *)(info + 0x14);
+    *(u32 *)(info + 0x14) = _fabs(0.681818f * car->gradeOrReverse);
+    if (car->speedoRising && *(u32 *)(info + 0x14) < car->speedoShown) {
+        car->speedoCount++;
+        if (car->speedoCount > 5) {
+            car->speedoRising = 0;
+            car->speedoCount = 0;
+            car->speedoShown = *(u32 *)(info + 0x14);
         } else {
-            *(u32 *)(info + 0x14) = *(u32 *)(car + 0x58C);
+            *(u32 *)(info + 0x14) = car->speedoShown;
         }
-    } else if (*(s8 *)(car + 0x584)) {
-        *(u32 *)(car + 0x588) = 0;
-        *(u32 *)(car + 0x58C) = *(u32 *)(info + 0x14);
+    } else if (car->speedoRising) {
+        car->speedoCount = 0;
+        car->speedoShown = *(u32 *)(info + 0x14);
     }
-    if (!*(s8 *)(car + 0x584) && *(u32 *)(info + 0x14) > *(u32 *)(car + 0x58C)) {
-        (*(u32 *)(car + 0x588))++;
-        if (*(u32 *)(car + 0x588) > 5) {
-            *(s8 *)(car + 0x584) = 1;
-            *(u32 *)(car + 0x588) = 0;
-            *(u32 *)(car + 0x58C) = *(u32 *)(info + 0x14);
+    if (!car->speedoRising && *(u32 *)(info + 0x14) > car->speedoShown) {
+        car->speedoCount++;
+        if (car->speedoCount > 5) {
+            car->speedoRising = 1;
+            car->speedoCount = 0;
+            car->speedoShown = *(u32 *)(info + 0x14);
         } else {
-            *(u32 *)(info + 0x14) = *(u32 *)(car + 0x58C);
+            *(u32 *)(info + 0x14) = car->speedoShown;
         }
-    } else if (!*(s8 *)(car + 0x584)) {
-        *(u32 *)(car + 0x588) = 0;
-        *(u32 *)(car + 0x58C) = *(u32 *)(info + 0x14);
+    } else if (!car->speedoRising) {
+        car->speedoCount = 0;
+        car->speedoShown = *(u32 *)(info + 0x14);
     }
-    *(u32 *)(info + 0x18) = *(f32 *)(car + 0x4E4);
-    *(f32 *)(info + 0x20) = *(s32 *)(car + 0x400) / 300;
-    *(f32 *)(info + 0x2C) = 0.2f * (100.0f + *(f32 *)(car + 0x44));
-    if (SLOT_LOAD(u8 *, (car + 0x94)) != NULL && (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x6C) & 0x200)) {
+    *(u32 *)(info + 0x18) = car->rpm;
+    *(f32 *)(info + 0x20) = car->turboTime / 300;
+    *(f32 *)(info + 0x2C) = 0.2f * (100.0f + car->base.pos.y);
+    if (GETP(car->base.player) != NULL && (CARA_PLAYER(car)->flags & 0x200)) {
         if (GameSettings_GetCodeVariable(0x198, 0)) {
             count = CameraManager_GetActiveCameras();
         } else {
@@ -1632,8 +1606,8 @@ void CarA_GetInterfaceInfo(u8 *car, u8 *info) {
         }
         if (count > 1) {
             if (count == 2) {
-                *(u32 *)(info + 0x4) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x84)) + 0x18);
-                if (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x64) == 1) {
+                *(u32 *)(info + 0x4) = GETP(GETP(car->vehicleIface)->hud)->layout2;
+                if (CARA_PLAYER(car)->view == 1) {
                     *(s32 *)(info + 0x8) = 0;
                     *(s32 *)(info + 0xC) = 10;
                 } else {
@@ -1641,14 +1615,14 @@ void CarA_GetInterfaceInfo(u8 *car, u8 *info) {
                     *(s32 *)(info + 0xC) = 230;
                 }
             } else {
-                *(u32 *)(info + 0x4) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x84)) + 0x1C);
-                if (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x64) == 1) {
+                *(u32 *)(info + 0x4) = GETP(GETP(car->vehicleIface)->hud)->layout4;
+                if (CARA_PLAYER(car)->view == 1) {
                     *(s32 *)(info + 0x8) = 10;
                     *(s32 *)(info + 0xC) = 10;
-                } else if (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x64) == 2) {
+                } else if (CARA_PLAYER(car)->view == 2) {
                     *(s32 *)(info + 0x8) = 310;
                     *(s32 *)(info + 0xC) = 10;
-                } else if (*(u32 *)(SLOT_LOAD(u8 *, (car + 0x94)) + 0x64) == 3) {
+                } else if (CARA_PLAYER(car)->view == 3) {
                     *(s32 *)(info + 0x8) = 10;
                     *(s32 *)(info + 0xC) = 230;
                 } else {
@@ -1657,34 +1631,39 @@ void CarA_GetInterfaceInfo(u8 *car, u8 *info) {
                 }
             }
         } else {
-            *(u32 *)(info + 0x4) = *(u32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0x84)) + 0x10);
+            *(u32 *)(info + 0x4) = GETP(GETP(car->vehicleIface)->hud)->layout1;
             *(s32 *)(info + 0x8) = 0;
             *(s32 *)(info + 0xC) = 0;
         }
     }
     if (rack != NULL && rack->slots[rack->current].active != 0) {
         info[0x34] = 1;
-        *(s16 *)(info + 0x6C) = *(u32 *)(SLOT_LOAD(u8 *, (GETP(rack->slots[rack->current].item) + 0x30)) + 0x18);
+        *(s16 *)(info + 0x6C) = *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x18);
     }
-    if (*(u32 *)(car + 0x494) != 0) {
-        *(u32 *)(info + 0x44) = *(u32 *)(car + 0x494);
-        *(u32 *)(car + 0x494) = 0;
+    if (car->stuntPopup.h != 0) {
+        *(u32 *)(info + 0x44) = car->stuntPopup.h;
+        car->stuntPopup.h = 0;
     }
-    if (*(u32 *)(car + 0x498) != 0) {
-        *(u32 *)(info + 0x40) = *(u32 *)(car + 0x498);
-        *(u32 *)(car + 0x498) = 0;
+    if (car->pickupId != 0) {
+        *(u32 *)(info + 0x40) = car->pickupId;
+        car->pickupId = 0;
     }
-    if (*(u32 *)(car + 0x49C) != 0) {
-        *(u32 *)(info + 0x48) = *(u32 *)(car + 0x49C);
-        *(u32 *)(car + 0x49C) = 0;
+    if (car->stuntScoreMessage.h != 0) {
+        *(u32 *)(info + 0x48) = car->stuntScoreMessage.h;
+        car->stuntScoreMessage.h = 0;
     }
-    if (*(u32 *)(car + 0x4A0) != 0) {
-        *(u32 *)(info + 0x4C) = *(u32 *)(car + 0x4A0);
-        *(u32 *)(car + 0x4A0) = 0;
+    if (car->stuntMessage.h != 0) {
+        *(u32 *)(info + 0x4C) = car->stuntMessage.h;
+        car->stuntMessage.h = 0;
     }
 }
 
 
+/* Vtable DynamicCollideImpact: the car hit something (collision is the
+   contact, impulse along its normal). Handles flipping and wall hits,
+   damage and broken parts, dropping a carried item when two cars collide,
+   force feedback, impact sounds, spin-out torque, and death (explosion,
+   kill credit, Release). */
 void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 impulse) {
     typedef struct CollideSurface {
         u8 pad00[4];
@@ -1700,26 +1679,6 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         u32 numSoundsB;
         PTR32(u32) soundsB;
     } CollideSurface;
-    typedef struct CollideInfo {
-        Vector4 pos;
-        Vector4 normal;
-        PTR32(CarA) thingA;
-        PTR32(CarA) thingB;
-        PTR32(CollideSurface) surface;
-    } CollideInfo;
-    typedef struct DropItem {
-        Vector4 velocity;
-        Matrix4 mtx;
-        u8 pad50[0x24];
-        u32 flags;
-        u8 pad78[8];
-        s16 gridCell;
-        u8 bone;
-        u8 pad83[9];
-        PTR32(ThingVTable) vtable;
-        u8 pad90[0x3C];
-        s16 timer;
-    } DropItem;
     typedef struct DeathInfo {
         u8 pad00[0x10];
         f32 height;
@@ -1738,26 +1697,16 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         f32 unk34;
         u8 unk38;
     } DeathParams;
-    typedef struct SpawnParams {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        Vector4 angVel;
-        u32 id;
-        PTR32(void) player;
-        f32 unk48;
-        f32 unk4C;
-    } SpawnParams;
     extern u8 g_carAVTable[];
     extern u8 g_itemVTable[];
     extern u8 g_destructibleVTable[];
     extern u8 g_physicalObjectVTable[];
     extern Vector4 g_zeroVector;
-    CollideInfo *coll = collision;
+    CollisionInfo *coll = collision;
     CarA *car = thing;
-    SpawnParams sp;
-    SpawnParams snd;
-    SpawnParams ex;
+    DebrisParams sp;
+    DebrisParams snd;
+    DebrisParams ex;
     Matrix4 m;
     DeathParams dp;
     Vector4 n __attribute__((aligned(16)));
@@ -1799,8 +1748,8 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     f32 mag2;
     f32 scale;
     f32 fb;
-    DropItem *item;
-    DropItem *rack;
+    ItemThing *item;
+    Thing *rack;
     DeathInfo *death;
     CarA *other;
     void *spawned;
@@ -1811,15 +1760,15 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
 
     n = coll->normal;
     p = coll->pos;
-    vel = car->velocity;
-    if (car->worldMatrix.v[1].y < 0.3f) {
-        d = PSVECDotProduct(&car->worldMatrix.v[1], &n);
-        d2 = PSVECDotProduct(&car->worldMatrix.v[1], &car->velocity);
+    vel = car->base.vel;
+    if (car->base.axis[1].y < 0.3f) {
+        d = PSVECDotProduct(&car->base.axis[1], &n);
+        d2 = PSVECDotProduct(&car->base.axis[1], &car->base.vel);
         if (impulse < 0.0f) {
             d *= -1.0f;
         }
         if (d < -0.5f && d2 > 0.0f) {
-            if (GETP(coll->thingB) == NULL || GETP(GETP(coll->thingA)->player) != GETP(GETP(coll->thingB)->player)) {
+            if (P(CarA, coll->thingB) == NULL || GETP(P(CarA, coll->thingA)->base.player) != GETP(P(CarA, coll->thingB)->base.player)) {
                 CarA_StuntFail(car);
             }
             car->unk45C = 100;
@@ -1827,14 +1776,14 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             car->angularMomentum.y *= 0.9f;
             car->angularMomentum.z *= 0.9f;
             CarA_UpdateAngularVelocity(car);
-            car->velocity.x *= 0.9f;
-            car->velocity.y *= 0.9f;
-            car->velocity.z *= 0.9f;
+            car->base.vel.x *= 0.9f;
+            car->base.vel.y *= 0.9f;
+            car->base.vel.z *= 0.9f;
         }
-        if (_fabs(PSVECDotProduct(&car->worldMatrix.v[0], &n)) > 0.7f) {
+        if (_fabs(PSVECDotProduct(&car->base.axis[0], &n)) > 0.7f) {
             car->unk45C = 100;
         }
-        if (_fabs(PSVECDotProduct(&car->worldMatrix.v[2], &n)) > 0.7f) {
+        if (_fabs(PSVECDotProduct(&car->base.axis[2], &n)) > 0.7f) {
             if (car->tiltState == 0) {
                 CarA_SetBodyOffset(car, GETP(GETP(car->vehicleIface)->engine)->bodyOffset[0], 1.0f - car->tiltY,
                                    GETP(GETP(car->vehicleIface)->engine)->bodyOffset[2]);
@@ -1853,18 +1802,18 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         car->transmissionFlags &= ~0x80000;
         MotionState_ReleaseSlavesByType(HND(&car->motionState), 8);
     }
-    if (GETP(coll->thingB) == NULL && PSVECDotProduct(&coll->normal, &car->worldMatrix.v[2]) < -0.85f) {
-        Create_Plane(&plane, &car->worldMatrix.v[1], &car->worldMatrix.v[3]);
+    if (P(CarA, coll->thingB) == NULL && PSVECDotProduct(&coll->normal, &car->base.axis[2]) < -0.85f) {
+        Create_Plane(&plane, &car->base.axis[1], &car->base.pos);
         dist = Distance_Plane(&plane, &p);
         if (dist < 5.0f && dist > 0.0f) {
-            d = PSVECDotProduct(&n, &car->worldMatrix.v[1]);
-            n.x = n.x - d * car->worldMatrix.v[1].x;
-            n.y = n.y - d * car->worldMatrix.v[1].y;
-            n.z = n.z - d * car->worldMatrix.v[1].z;
+            d = PSVECDotProduct(&n, &car->base.axis[1]);
+            n.x = n.x - d * car->base.axis[1].x;
+            n.y = n.y - d * car->base.axis[1].y;
+            n.z = n.z - d * car->base.axis[1].z;
             dist *= 0.5f;
-            p.x = p.x - car->worldMatrix.v[1].x * dist;
-            p.y = p.y - car->worldMatrix.v[1].y * dist;
-            p.z = p.z - car->worldMatrix.v[1].z * dist;
+            p.x = p.x - car->base.axis[1].x * dist;
+            p.y = p.y - car->base.axis[1].y * dist;
+            p.z = p.z - car->base.axis[1].z * dist;
         }
     }
     damage -= GETP(GETP(car->vehicleIface)->collider)->damageThreshold;
@@ -1873,34 +1822,34 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         car->damageAccum += damage;
         if (car->damageAccum > 30) {
             while (car->damageAccum > 30) {
-                car->speed -= 30;
+                car->base.health -= 30;
                 car->damageAccum -= 30;
             }
-            if (GameSettings_IsCheatEnabled(6) && GETP(car->player) != NULL && Player_IsHuman(GETP(car->player))) {
-                car->speed = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+            if (GameSettings_IsCheatEnabled(6) && GETP(car->base.player) != NULL && Player_IsHuman(GETP(car->base.player))) {
+                car->base.health = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
             }
             CarA_UpdateDamageSlaves(car);
         }
     }
-    if (GETP(coll->thingB) != NULL && (u8 *)GETP(GETP(coll->thingA)->vtable) == g_carAVTable && (u8 *)GETP(GETP(coll->thingB)->vtable) == g_carAVTable &&
+    if (P(CarA, coll->thingB) != NULL && (u8 *)GETP(P(CarA, coll->thingA)->base.vtable) == g_carAVTable && (u8 *)GETP(P(CarA, coll->thingB)->base.vtable) == g_carAVTable &&
         _fabs(impulse) > GETP(GETP(car->vehicleIface)->engine)->itemDropImpact) {
         item = ThingManagerList_GetByType(&car->motionState.slaves, 4);
         if (item != NULL) {
             t = 1.0f;
             rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
             rack->flags &= 0xFFBFFDFF;
-            XformVec(&GETP(car->motionState.animMatrices)[item->bone], &item->mtx.v[3], &itemPos);
-            if (!RayHitsTerrain(&car->worldMatrix.v[3], &itemPos, &t, NULL)) {
+            XformVec(&GETP(car->motionState.animMatrices)[item->base.slaveBone], &item->base.pos, &itemPos);
+            if (!RayHitsTerrain(&car->base.pos, &itemPos, &t, NULL)) {
                 Trigger_ItemDropped(car, item);
                 ThingManagerList_Remove(&car->motionState.slaves, item);
-                MultiplyMatrix(&item->mtx, &car->worldMatrix, &m);
-                item->mtx = m;
+                MultiplyMatrix(THING_MTX(&item->base), THING_MTX(&car->base), &m);
+                *THING_MTX(&item->base) = m;
                 ThingManagerList_Append(&g_thingManager_DARYL.activeList, item);
-                item->timer = 1000;
-                item->flags &= 0xFFFBFFF5;
-                item->velocity = car->velocity;
-                item->velocity.y += 30.0f;
-                if (item->gridCell != 0 && (u8 *)GETP(item->vtable) == g_itemVTable) {
+                item->pickupDelay = 1000;
+                item->base.flags &= 0xFFFBFFF5;
+                item->base.vel = car->base.vel;
+                item->base.vel.y += 30.0f;
+                if (item->base.collisionType != THING_COLLIDE_NONE && (u8 *)GETP(item->base.vtable) == g_itemVTable) {
                     Thing_AddToGrid(item, 3);
                 }
             }
@@ -1908,12 +1857,12 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     }
     dv = impulse / GETP(GETP(car->vehicleIface)->collider)->mass;
     adv = _fabs(dv);
-    car->velocity.x += n.x * dv;
-    car->velocity.y += n.y * dv;
-    car->velocity.z += n.z * dv;
-    if (GETP(car->player) != NULL && Player_IsHuman(GETP(car->player)) && adv > 0.0f) {
+    car->base.vel.x += n.x * dv;
+    car->base.vel.y += n.y * dv;
+    car->base.vel.z += n.z * dv;
+    if (GETP(car->base.player) != NULL && Player_IsHuman(GETP(car->base.player)) && adv > 0.0f) {
         mag = 0.06f * adv;
-        player = GETP(car->player);
+        player = GETP(car->base.player);
         dur = 0.3f;
         rem = mag;
         if (mag > 1.0f) {
@@ -1933,31 +1882,31 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         }
         Input_SetForceFeedback(player->wheelChannel, 1, mag, dur);
     }
-    if (GETP(coll->surface) != NULL || GETP(coll->thingB) != NULL) {
-        if (GETP(coll->surface) == NULL) {
-            if (GETP(coll->thingA) == car) {
-                SETP(coll->surface, GETP(GETP(GETP(coll->thingB)->vtable)->getSurface)(GETP(coll->thingB)));
+    if (P(CollideSurface, coll->material) != NULL || P(CarA, coll->thingB) != NULL) {
+        if (P(CollideSurface, coll->material) == NULL) {
+            if (P(CarA, coll->thingA) == car) {
+                coll->material = HND(THING_VFN(P(CarA, coll->thingB), THING_V_GET_SURFACE_SCRIPT, void *(*)(void *))(P(CarA, coll->thingB)));
             } else {
-                SETP(coll->surface, GETP(GETP(GETP(coll->thingA)->vtable)->getSurface)(GETP(coll->thingA)));
+                coll->material = HND(THING_VFN(P(CarA, coll->thingA), THING_V_GET_SURFACE_SCRIPT, void *(*)(void *))(P(CarA, coll->thingA)));
             }
         }
         if (impulse > 0.0f) {
-            bounce = 0.02f * -GETP(coll->surface)->bounce;
+            bounce = 0.02f * -P(CollideSurface, coll->material)->bounce;
         } else {
-            bounce = 0.02f * GETP(coll->surface)->bounce;
+            bounce = 0.02f * P(CollideSurface, coll->material)->bounce;
         }
-        if (0.0f != impulse && PSVECDotProduct(&coll->normal, &car->worldMatrix.v[1]) < 0.5f) {
-            bx = car->velocity.x * bounce;
-            by = car->velocity.y * bounce;
-            bz = car->velocity.z * bounce;
-            car->velocity.x = car->velocity.x + bx;
-            car->velocity.y = car->velocity.y + by;
-            car->velocity.z = car->velocity.z + bz;
+        if (0.0f != impulse && PSVECDotProduct(&coll->normal, &car->base.axis[1]) < 0.5f) {
+            bx = car->base.vel.x * bounce;
+            by = car->base.vel.y * bounce;
+            bz = car->base.vel.z * bounce;
+            car->base.vel.x = car->base.vel.x + bx;
+            car->base.vel.y = car->base.vel.y + by;
+            car->base.vel.z = car->base.vel.z + bz;
             n.x += 0.1f * bx;
             n.y += 0.1f * by;
             n.z += 0.1f * bz;
         }
-        if (GETP(coll->thingB) == NULL && Gfx_GetMinCameraDistSquared(&car->worldMatrix.v[3]) < 10000.0f) {
+        if (P(CarA, coll->thingB) == NULL && Gfx_GetMinCameraDistSquared(&car->base.pos) < 10000.0f) {
             {
                 Vector4 up = {0.0f, 1.0f, 0.0f, 0.0f};
                 Vector4 side = {1.0f, 0.0f, 0.0f, 0.0f};
@@ -1967,22 +1916,22 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             }
             id = 0;
             cosA = PSVECDotProduct(&coll->normal, &refUp);
-            PSVECSubtract(&coll->pos, &car->worldMatrix.v[3], &rel);
-            if (PSVECDotProduct(&car->worldMatrix.v[1], &rel) < 0.0f) {
-                idx = (s32)((f32)GETP(coll->surface)->numSoundsA * ((dv - GETP(coll->surface)->minImpactA) / (GETP(coll->surface)->maxImpactA - GETP(coll->surface)->minImpactA)) - 1.0f);
-                if (idx >= (s32)GETP(coll->surface)->numSoundsA) {
-                    idx = GETP(coll->surface)->numSoundsA - 1;
+            PSVECSubtract(&coll->pos, &car->base.pos, &rel);
+            if (PSVECDotProduct(&car->base.axis[1], &rel) < 0.0f) {
+                idx = (s32)((f32)P(CollideSurface, coll->material)->numSoundsA * ((dv - P(CollideSurface, coll->material)->minImpactA) / (P(CollideSurface, coll->material)->maxImpactA - P(CollideSurface, coll->material)->minImpactA)) - 1.0f);
+                if (idx >= (s32)P(CollideSurface, coll->material)->numSoundsA) {
+                    idx = P(CollideSurface, coll->material)->numSoundsA - 1;
                 }
-                if (idx >= 0 && GETP(coll->surface)->numSoundsA != 0) {
-                    id = GETP(GETP(coll->surface)->soundsA)[idx];
+                if (idx >= 0 && P(CollideSurface, coll->material)->numSoundsA != 0) {
+                    id = GETP(P(CollideSurface, coll->material)->soundsA)[idx];
                 }
             } else {
-                idx = (s32)((f32)GETP(coll->surface)->numSoundsB * ((dv - GETP(coll->surface)->minImpactB) / (GETP(coll->surface)->maxImpactB - GETP(coll->surface)->minImpactB)) - 1.0f);
-                if (idx >= (s32)GETP(coll->surface)->numSoundsB) {
-                    idx = GETP(coll->surface)->numSoundsB - 1;
+                idx = (s32)((f32)P(CollideSurface, coll->material)->numSoundsB * ((dv - P(CollideSurface, coll->material)->minImpactB) / (P(CollideSurface, coll->material)->maxImpactB - P(CollideSurface, coll->material)->minImpactB)) - 1.0f);
+                if (idx >= (s32)P(CollideSurface, coll->material)->numSoundsB) {
+                    idx = P(CollideSurface, coll->material)->numSoundsB - 1;
                 }
-                if (idx >= 0 && GETP(coll->surface)->numSoundsB != 0) {
-                    id = GETP(GETP(coll->surface)->soundsB)[idx];
+                if (idx >= 0 && P(CollideSurface, coll->material)->numSoundsB != 0) {
+                    id = GETP(P(CollideSurface, coll->material)->soundsB)[idx];
                 }
             }
             if (id != 0) {
@@ -1999,10 +1948,10 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                     }
                     GenerateQuaternion(&axis, &sp.quat, a);
                 }
-                sp.id = id;
+                sp.debris = id;
                 sp.pos = coll->pos;
-                sp.vel = car->velocity;
-                SETP(sp.player, GETP(car->player));
+                sp.vel = car->base.vel;
+                sp.owner = car->base.player.h;
                 sp.unk48 = 0.0f;
                 sp.unk4C = 0.0f;
                 sp.angVel = g_zeroVector;
@@ -2010,36 +1959,36 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             }
         }
     }
-    PSVECSubtract(&p, &car->worldMatrix.v[3], &r);
+    PSVECSubtract(&p, &car->base.pos, &r);
     imp.x = impulse * n.x;
     imp.y = impulse * n.y;
     imp.z = impulse * n.z;
     PSVECCrossProduct(&r, &imp, &torque);
-    a = PSVECDotProduct(&r, &car->worldMatrix.v[0]);
+    a = PSVECDotProduct(&r, &car->base.axis[0]);
     PSVECCrossProduct(&imp, &r, &c2);
-    b = PSVECDotProduct(&c2, &car->worldMatrix.v[1]);
-    c = PSVECDotProduct(&r, &car->worldMatrix.v[2]);
-    if (_fabs(PSVECDotProduct(&coll->normal, &car->worldMatrix.v[1])) < 0.3f && c > 0.0f && car->numWheelsGrounded != 0 &&
-        a * b < 0.0f && PSVECDotProduct(&vel, &car->worldMatrix.v[2]) > _fabs(PSVECDotProduct(&vel, &car->worldMatrix.v[0]))) {
-        s = PSVECDotProduct(&car->worldMatrix.v[2], &car->velocity);
-        tw = PSVECDotProduct(&car->worldMatrix.v[1], &torque);
-        if (GETP(coll->thingB) == NULL ||
-            (((CollideSurface *)GETP(GETP(GETP(coll->thingA)->vtable)->getSurface)(GETP(coll->thingA)))->grip > 0.0f &&
-             ((CollideSurface *)GETP(GETP(GETP(coll->thingB)->vtable)->getSurface)(GETP(coll->thingB)))->grip > 0.0f)) {
-            if (GETP(car->player) != NULL && GETP(car->player)->throttle == 0) {
+    b = PSVECDotProduct(&c2, &car->base.axis[1]);
+    c = PSVECDotProduct(&r, &car->base.axis[2]);
+    if (_fabs(PSVECDotProduct(&coll->normal, &car->base.axis[1])) < 0.3f && c > 0.0f && car->numWheelsGrounded != 0 &&
+        a * b < 0.0f && PSVECDotProduct(&vel, &car->base.axis[2]) > _fabs(PSVECDotProduct(&vel, &car->base.axis[0]))) {
+        s = PSVECDotProduct(&car->base.axis[2], &car->base.vel);
+        tw = PSVECDotProduct(&car->base.axis[1], &torque);
+        if (P(CarA, coll->thingB) == NULL ||
+            (((CollideSurface *)THING_VFN(P(CarA, coll->thingA), THING_V_GET_SURFACE_SCRIPT, void *(*)(void *))(P(CarA, coll->thingA)))->grip > 0.0f &&
+             ((CollideSurface *)THING_VFN(P(CarA, coll->thingB), THING_V_GET_SURFACE_SCRIPT, void *(*)(void *))(P(CarA, coll->thingB)))->grip > 0.0f)) {
+            if (GETP(car->base.player) != NULL && CARA_PLAYER(car)->throttle == 0) {
                 car->transmissionFlags |= 0x10;
             } else {
                 car->unk4FC = 0.0f;
             }
         }
-        if (GETP(coll->thingB) != NULL && (!(GETP(coll->thingA)->collDirtyFlags & 8) || GETP(coll->thingA)->speed == 0) &&
-            (!(GETP(coll->thingB)->collDirtyFlags & 8) || GETP(coll->thingB)->speed == 0)) {
-            ProjectVectorToNormal(&car->worldMatrix.v[1], &torque);
+        if (P(CarA, coll->thingB) != NULL && (!(P(CarA, coll->thingA)->base.flags & 8) || P(CarA, coll->thingA)->base.health == 0) &&
+            (!(P(CarA, coll->thingB)->base.flags & 8) || P(CarA, coll->thingB)->base.health == 0)) {
+            ProjectVectorToNormal(&car->base.axis[1], &torque);
         } else {
             sgn = 1.0f;
-            torque.x = torque.x - tw * car->worldMatrix.v[1].x;
-            torque.y = torque.y - tw * car->worldMatrix.v[1].y;
-            torque.z = torque.z - tw * car->worldMatrix.v[1].z;
+            torque.x = torque.x - tw * car->base.axis[1].x;
+            torque.y = torque.y - tw * car->base.axis[1].y;
+            torque.z = torque.z - tw * car->base.axis[1].z;
             if (tw < 0.0f) {
                 sgn = -1.0f;
                 tw *= sgn;
@@ -2051,20 +2000,20 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 tw = 4500.0f;
             }
             tw *= sgn;
-            torque.x = torque.x - tw * car->worldMatrix.v[1].x;
-            torque.y = torque.y - tw * car->worldMatrix.v[1].y;
-            torque.z = torque.z - tw * car->worldMatrix.v[1].z;
+            torque.x = torque.x - tw * car->base.axis[1].x;
+            torque.y = torque.y - tw * car->base.axis[1].y;
+            torque.z = torque.z - tw * car->base.axis[1].z;
         }
-        if (GETP(coll->thingA) == car) {
+        if (P(CarA, coll->thingA) == car) {
             if (s < 0.0f) {
-                ProjectVectorToNormal(&car->velocity, &n);
+                ProjectVectorToNormal(&car->base.vel, &n);
             }
         } else if (s > 0.0f) {
-            ProjectVectorToNormal(&car->velocity, &n);
+            ProjectVectorToNormal(&car->base.vel, &n);
         }
-    } else if (_fabs(impulse) > 10.0f && GETP(coll->thingB) == NULL && car->numWheelsGrounded != 0) {
-        if (_fabs(PSVECDotProduct(&car->worldMatrix.v[1], &coll->normal)) < 0.3f) {
-            if (_fabs(PSVECDotProduct(&car->worldMatrix.v[0], &coll->normal)) < 0.99f && c > 0.0f) {
+    } else if (_fabs(impulse) > 10.0f && P(CarA, coll->thingB) == NULL && car->numWheelsGrounded != 0) {
+        if (_fabs(PSVECDotProduct(&car->base.axis[1], &coll->normal)) < 0.3f) {
+            if (_fabs(PSVECDotProduct(&car->base.axis[0], &coll->normal)) < 0.99f && c > 0.0f) {
                 car->transmissionFlags |= 0x2000;
             }
         }
@@ -2072,13 +2021,13 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     car->angularMomentum.x += torque.x;
     car->angularMomentum.y += torque.y;
     car->angularMomentum.z += torque.z;
-    if (GETP(car->player) != NULL && Player_IsHuman(GETP(car->player)) && !(car->transmissionFlags & 0x10000)) {
+    if (GETP(car->base.player) != NULL && Player_IsHuman(GETP(car->base.player)) && !(car->transmissionFlags & 0x10000)) {
         nn = coll->normal;
         fb = 200.0f * _fabs(impulse / 1000.0f);
-        ProjectVectorToNormal(&car->worldMatrix.v[0], &nn);
+        ProjectVectorToNormal(&car->base.axis[0], &nn);
         fb = fb * MagnitudeVector(&nn);
         if (fb > 20.0f) {
-            player = GETP(car->player);
+            player = GETP(car->base.player);
             Wheel_StopCarAirborne(player->wheelChannel);
             Wheel_PlayFrontalCollisionForce(player->wheelChannel, fb <= 255.0f ? fb : 255.0f);
             car->transmissionFlags |= 0x10000;
@@ -2086,7 +2035,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     }
     if (car->numWheelsGrounded <= 1) {
         maxW = GETP(GETP(car->vehicleIface)->engine)->maxAngularVel;
-        InverseXformVecOrientation(&car->worldMatrix, &car->angularMomentum, &local);
+        InverseXformVecOrientation(THING_MTX(&car->base), &car->angularMomentum, &local);
         w.x = car->inverseBodyInertia.v[0].x * local.x;
         w.y = car->inverseBodyInertia.v[1].y * local.y;
         w.z = car->inverseBodyInertia.v[2].z * local.z;
@@ -2099,13 +2048,13 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             local.x = w.x / car->inverseBodyInertia.v[0].x;
             local.y = w.y / car->inverseBodyInertia.v[1].y;
             local.z = w.z / car->inverseBodyInertia.v[2].z;
-            XformVecOrientation(&car->worldMatrix, &local, &car->angularMomentum);
+            XformVecOrientation(THING_MTX(&car->base), &local, &car->angularMomentum);
         }
     }
     CarA_UpdateAngularVelocity(car);
-    if (car->speed <= 0) {
-        if (GETP(car->tileData) != NULL && (death = GETP(((DeathTile *)GETP(car->tileData))->death)) != NULL) {
-            dp.pos = car->worldMatrix.v[3];
+    if (car->base.health <= 0) {
+        if (GETP(car->base.trigger) != NULL && (death = GETP(((DeathTile *)GETP(car->base.trigger))->death)) != NULL) {
+            dp.pos = car->base.pos;
             dp.pos.y += death->height;
             dp.vel.x = 0.0f;
             dp.vel.y = 0.0f;
@@ -2119,55 +2068,55 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             dp.unk38 = 0;
             spawned = ThingManager_DARYL_CreateThing(4, &dp);
             if (spawned != NULL) {
-                ((CarA *)spawned)->collDirtyFlags |= 1;
+                ((Thing *)spawned)->flags |= 1;
                 if (death->sound != 0) {
-                    snd.id = death->sound;
-                    snd.pos = car->worldMatrix.v[3];
+                    snd.debris = death->sound;
+                    snd.pos = car->base.pos;
                     snd.quat = dp.quat;
                     snd.vel.z = 0.0f;
                     snd.vel.y = 0.0f;
                     snd.vel.x = 0.0f;
-                    SETP(snd.player, NULL);
+                    snd.owner = 0;
                     snd.unk48 = 0.0f;
                     snd.angVel = g_zeroVector;
                     ThingManager_DARYL_CreateThing(1, &snd);
                 }
             }
         }
-        if (GETP(coll->thingA) == car) {
-            other = GETP(coll->thingB);
+        if (P(CarA, coll->thingA) == car) {
+            other = P(CarA, coll->thingB);
         } else {
-            other = GETP(coll->thingA);
+            other = P(CarA, coll->thingA);
         }
-        if (GETP(car->player) != NULL) {
-            if (other != NULL && GETP(other->player) != NULL && Player_IsHuman(GETP(other->player))) {
-                GETP(car->player)->flags |= 0x40;
+        if (GETP(car->base.player) != NULL) {
+            if (other != NULL && GETP(other->base.player) != NULL && Player_IsHuman(GETP(other->base.player))) {
+                CARA_PLAYER(car)->flags |= 0x40;
             } else {
-                GETP(car->player)->flags &= ~0x40;
+                CARA_PLAYER(car)->flags &= ~0x40;
             }
         }
-        if (!Player_IsHuman(GETP(car->player))) {
+        if (!Player_IsHuman(GETP(car->base.player))) {
             exId = GETP(car->vehicleIface)->explosionThing;
             if (exId != 0) {
-                ex.id = exId;
-                ex.pos = car->worldMatrix.v[3];
-                ex.quat = car->animRefPos;
+                ex.debris = exId;
+                ex.pos = car->base.pos;
+                ex.quat = *(Vector4 *)&car->base.quat;
                 ex.vel = g_zeroVector;
-                SETP(ex.player, GETP(car->player));
+                ex.owner = car->base.player.h;
                 ex.unk48 = 0.0f;
                 ex.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(1, &ex);
             }
         }
         Thing_ProcessEndEvent(car, GETP(GETP(car->vehicleIface)->collider), coll, &car->localAxis);
-        if (other != NULL && GETP(other->player) != NULL) {
-            GETP(other->player)->kills++;
+        if (other != NULL && GETP(other->base.player) != NULL) {
+            CARA_PLAYER(other)->kills++;
         }
-        CarA_Release((u8 *)car);
+        CarA_Release(car);
     }
-    if (GETP(coll->thingB) == NULL || (u8 *)GETP(GETP(coll->thingA)->vtable) == g_destructibleVTable ||
-        (u8 *)GETP(GETP(coll->thingA)->vtable) == g_physicalObjectVTable || (u8 *)GETP(GETP(coll->thingB)->vtable) == g_destructibleVTable ||
-        (u8 *)GETP(GETP(coll->thingB)->vtable) == g_physicalObjectVTable) {
+    if (P(CarA, coll->thingB) == NULL || (u8 *)GETP(P(CarA, coll->thingA)->base.vtable) == g_destructibleVTable ||
+        (u8 *)GETP(P(CarA, coll->thingA)->base.vtable) == g_physicalObjectVTable || (u8 *)GETP(P(CarA, coll->thingB)->base.vtable) == g_destructibleVTable ||
+        (u8 *)GETP(P(CarA, coll->thingB)->base.vtable) == g_physicalObjectVTable) {
         car->transmissionFlags &= ~2;
         MotionState_ReleaseSlavesByType(HND(&car->motionState), 4);
         ThingManagerList_RemoveReleasedThings(&car->motionState.slaves);
@@ -2175,93 +2124,78 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     car->lowSpeedFlag = 0;
 }
 
-void *CarA_GetOrientedCollision(u8 *car)
+/* Vtable GetOrientedCollision: the collider in world space, the box rebuilt
+   if the car moved (flags & 0x180), the hull every time. */
+void *CarA_GetOrientedCollision(CarA *car)
 {
-    u8 *coll;
+    CarACollider *coll;
 
-    coll = SLOT_LOAD(u8 *, (car + 0x3BC));
-    coll = SLOT_LOAD(u8 *, (coll + 0xA0));
-    switch (*(u8 *)(coll + 0x10))
+    coll = GETP(GETP(car->vehicleIface)->collider);
+    switch (coll->type)
     {
     case 0:
-        if (*(u32 *)(car + 0x74) & 0x180)
+        if (car->base.flags & 0x180)
         {
-            BuildOOBOffset(SLOT_LOAD(u8 *, (coll + 0x44)), car + 0x10, car + 0x520, car + 0xC0);
-            *(u32 *)(car + 0x74) &= ~0x180;
+            BuildOOBOffset(GETP(coll->box), THING_MTX(&car->base), &car->bodyOffset, &car->orientedBox);
+            car->base.flags &= ~0x180;
         }
-        return car + 0xC0;
+        return &car->orientedBox;
     case 1:
-        BuildOConvexHullOffset(SLOT_LOAD(u8 *, (car + 0x370)), SLOT_LOAD(u8 *, (coll + 0x48)), car + 0x10, car + 0x520);
-        return SLOT_LOAD(u8 *, (car + 0x370));
+        BuildOConvexHullOffset(GETP(car->hull), GETP(coll->hull), THING_MTX(&car->base), &car->bodyOffset);
+        return GETP(car->hull);
     }
     return NULL;
 }
 
 /* port: returns the surface (a pointer, called through the vtable like
  * Thing_GetSurfaceScript); the decomp returned the 32-bit slot value */
-void *CarA_GetSurfaceScript(u8 *car)
+void *CarA_GetSurfaceScript(CarA *car)
 {
-    u8 *coll;
-
-    coll = SLOT_LOAD(u8 *, (car + 0x3BC));
-    coll = SLOT_LOAD(u8 *, (coll + 0xA0));
-    return SLOT_LOAD(void *, (coll + 0x30));
+    return GETP(GETP(GETP(car->vehicleIface)->collider)->material);
 }
 
+/* Vtable GetCameraOrientation: chase camera index (of the car's cameras,
+   split-screen ones when the view is split), up vector, eye and target. */
 void CarA_GetCameraOrientationInfo(CarA *car, u32 index, void *out) {
-    typedef struct CameraOrientationInfo {
-        u8 pad00[0x30];
-        Vector4 up;
-        u8 pad40[0x60 - 0x40];
-        Vector4 pos;
-        Vector4 target;
-        u8 pad80[0x84 - 0x80];
-        PTR32(u8) camera;
-        u32 numCameras;
-        f32 unk8C;
-    } CameraOrientationInfo;
-    typedef struct CarCameras {
-        u32 count;
-        PTR32(u8) list;
-    } CarCameras;
-    CameraOrientationInfo *info = out;
-    CarCameras *cams;
+    CameraInfo *info = out;
+    CarACameras *cams;
     Vector4 offset __attribute__((aligned(16)));
 
-    cams = (CarCameras *)((u8 *)GETP(GETP(car->vehicleIface)->engine) + 0x80);
+    cams = &GETP(GETP(car->vehicleIface)->engine)->cameras;
     if (ViewManager_GetViewFormat() > 1) {
-        cams = (CarCameras *)((u8 *)GETP(GETP(car->vehicleIface)->engine) + 0x88);
+        cams = &GETP(GETP(car->vehicleIface)->engine)->splitCameras;
     }
-    info->numCameras = cams->count;
+    info->cameraCount = cams->count;
     if (cams->count == 0) {
         Thing_GetCameraOrientationInfo(car, index, info);
     } else {
-        SETP(info->camera, GETP(cams->list) + (index % cams->count) * 0xC);
-        info->unk8C = car->groundedScale;
-        info->up = car->groundNormal;
-        if (info->up.x && info->up.y && info->up.z && PSVECSquareMag(&info->up)) {
-            PSVECNormalize(&info->up, &info->up);
+        SETP(info->subMode, GETP(cams->list) + (index % cams->count) * 0xC);
+        info->lookAhead = car->groundedScale;
+        info->mtx.v[1] = car->groundNormal;
+        if (info->mtx.v[1].x && info->mtx.v[1].y && info->mtx.v[1].z && PSVECSquareMag(&info->mtx.v[1])) {
+            PSVECNormalize(&info->mtx.v[1], &info->mtx.v[1]);
         }
     }
     if (car->slaveWeaponRpm[0] < 10000) {
-        info->unk8C = 0.0f;
+        info->lookAhead = 0.0f;
     }
     PSVECSubtract(&car->bodyOffset, (Vector4 *)GETP(GETP(car->vehicleIface)->engine), &offset);
-    XformVec(&car->worldMatrix, &offset, &info->pos);
+    XformVec(THING_MTX(&car->base), &offset, &info->target);
     switch (GETP(GETP(car->vehicleIface)->collider)->type) {
     case 0:
-        info->target = *(Vector4 *)CarA_GetOrientedCollision((u8 *)car);
+        info->from = ((CollisionOBox *)CarA_GetOrientedCollision(car))->center;
         break;
     case 1:
         break;
     }
 }
 
+/* Vtable GetNearestNavPoint, searched on first use. */
 s32 CarA_GetNearestNavPoint(CarA *car) {
     s32 timer;
 
     if (car->navPointIndex == 0xFFFFFFFF) {
-        car->navPointIndex = NavHolder_FindIndexOfNearestNavPoint(&car->worldMatrix.v[3], -1);
+        car->navPointIndex = NavHolder_FindIndexOfNearestNavPoint(&car->base.pos, -1);
         timer = RandomAdd_s32(300, 100);
         car->navUpdateTimer = timer;
         car->navUpdateTimer = timer;
@@ -2276,17 +2210,22 @@ f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDis
     Matrix4 local;
     f32 dist;
 
-    local = car->worldMatrix;
-    XformVec(&car->worldMatrix, &car->bodyOffset, &local.v[3]);
+    local = *THING_MTX(&car->base);
+    XformVec(THING_MTX(&car->base), &car->bodyOffset, &local.v[3]);
     dist = PhysicalProperties_CollideWithRay(GETP(GETP(car->vehicleIface)->collider), &local, start, end, maxDist, hit);
     if (hit != NULL && dist < maxDist) {
-        *(Vector4 *)((u8 *)hit + 0x30) = car->velocity;
+        *(Vector4 *)((u8 *)hit + 0x30) = car->base.vel;
     }
     return dist;
 }
 
 
+/* Picks up item thing by its type: 1-3, 6 wildcards into the rack, 7 a
+   carried item onto the rack, 8 a pickup slave set, 9 counted, 10 humans
+   only, 11 stunt points (humans) that also refill the wildcards. Returns
+   whether it was taken. */
 s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
+    /* ItemRecord fields ItemThing.h doesn't name yet */
     typedef struct PickupDef {
         u8 type;
         u8 pad1;
@@ -2296,30 +2235,12 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
         u8 pad14[0x20 - 0x14];
         u32 id;
     } PickupDef;
+    /* the FileStreaming QuadItem an item respawns from (ItemThing.spawner) */
     typedef struct PickupSpawner {
         u8 pad0[0x14];
         s32 respawnTime;
         s32 timer;
     } PickupSpawner;
-    typedef struct PickupItem {
-        Vector4 velocity;
-        Matrix4 mtx;
-        Vector4 quat;
-        u8 pad60[0x74 - 0x60];
-        u32 flags;
-        u8 pad78[0x82 - 0x78];
-        u8 bone;
-        u8 unk83;
-        PTR32(void) gridObj;
-        u8 pad88[0x90 - 0x88];
-        PTR32(void) tileData;
-        PTR32(Player) player;
-        u8 pad98[0xC0 - 0x98];
-        PTR32(PickupDef) def;
-        u8 padC4[0xCE - 0xC4];
-        s16 count;
-        PTR32(PickupSpawner) spawner;
-    } PickupItem;
     typedef struct SlotAnim {
         u8 pad0[0x1E];
         u8 loop;
@@ -2350,13 +2271,8 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
         PTR32(SlotThing) thing;
     } RackSlot;
     typedef struct PickupRack {
-        u8 pad0[0x40];
-        Vector4 pos;
-        u8 pad50[0x74 - 0x50];
-        u32 flags;
-        u8 pad78[0x82 - 0x78];
-        u8 bone;
-        u8 pad83[0xB0 - 0x83];
+        Thing base;
+        u8 padAC[4];
         RackSlot slots[12];
         u8 current;
     } PickupRack;
@@ -2369,24 +2285,26 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
     s8 picked;
     PickupRack *wcRack;
     u32 points;
-    PickupItem *item = thing;
+    ItemThing *item = thing;
+    PickupDef *def = (PickupDef *)GETP(item->record);
+    PickupSpawner *spawner;
     u32 i;
     s16 ammo;
 
     picked = 0;
     Trigger_ItemPickedUp(car, item);
-    car->pickupId = GETP(item->def)->id;
-    switch (GETP(item->def)->type) {
+    car->pickupId = def->id;
+    switch (def->type) {
     case 1:
     case 2:
     case 3:
     case 6:
         rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
         if (rack != NULL) {
-            WildCardRack_Add(rack, GETP(item->def), item->count);
+            WildCardRack_Add(rack, (u8 *)def, item->ammo);
             Item_Release(item);
-            if (GETP(item->spawner) != NULL) {
-                GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+            if ((spawner = (PickupSpawner *)GETP(item->spawner)) != NULL) {
+                spawner->timer = spawner->respawnTime;
             }
             picked = 1;
         }
@@ -2394,69 +2312,69 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
     case 7:
         if (ThingManagerList_GetByType(&car->motionState.slaves, 4) == NULL) {
             rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
-            pos.x = rack->pos.x;
-            pos.y = GETP(GETP(car->vehicleIface)->engine)->itemHeight + (rack->pos.y + GETP(item->def)->height);
-            pos.z = rack->pos.z;
+            pos.x = rack->base.pos.x;
+            pos.y = GETP(GETP(car->vehicleIface)->engine)->itemHeight + (rack->base.pos.y + def->height);
+            pos.z = rack->base.pos.z;
             pos.w = 1.0f;
             ThingManagerList_Remove(&g_thingManager_DARYL.activeList, item);
             ThingManagerList_Append(&car->motionState.slaves, item);
-            item->bone = rack->bone;
-            item->unk83 = 0xEF;
-            item->quat.w = 1.0f;
-            item->quat.x = 0.0f;
-            item->quat.y = 0.0f;
-            item->quat.z = 0.0f;
-            QuaternionToSubMatrix(&item->quat, &item->mtx);
-            item->mtx.v[3] = pos;
-            item->mtx.v[3].w = 1.0f;
-            item->velocity = g_zeroVector;
-            Grid_FreeObject(GETP(item->gridObj));
-            SETP(item->player, GETP(car->player));
-            SETP(item->gridObj, NULL);
+            item->base.slaveBone = rack->base.slaveBone;
+            item->base.slaveTag = 0xEF;
+            item->base.quat.w = 1.0f;
+            item->base.quat.x = 0.0f;
+            item->base.quat.y = 0.0f;
+            item->base.quat.z = 0.0f;
+            QuaternionToSubMatrix(&item->base.quat, THING_MTX(&item->base));
+            item->base.pos = pos;
+            item->base.pos.w = 1.0f;
+            item->base.vel = g_zeroVector;
+            Grid_FreeObject(GETP(item->base.gridObject));
+            item->base.player.h = car->base.player.h;
+            SETP(item->base.gridObject, NULL);
             picked = 1;
-            SETP(item->tileData, GETP(item->spawner));
-            rack->flags |= 0x400200;
-            item->flags |= 8;
+            item->base.trigger.h = item->spawner.h;
+            rack->base.flags |= 0x400200;
+            item->base.flags |= THING_FLAG_AT_REST;
         }
         break;
     case 8:
-        if (GETP(car->vehicleIface)->numPickupSlaves > GETP(item->def)->value) {
-            MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->pickupSlaves) + GETP(item->def)->value * 12 + 4,
-                                         GETP(item->def)->value);
+        if (GETP(car->vehicleIface)->numPickupSlaves > def->value) {
+            MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->pickupSlaves) + def->value * 12 + 4,
+                                         def->value);
         }
         Item_Release(item);
-        if (GETP(item->spawner) != NULL) {
-            GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+        if ((spawner = (PickupSpawner *)GETP(item->spawner)) != NULL) {
+            spawner->timer = spawner->respawnTime;
         }
         picked = 1;
         break;
     case 9:
         car->pickupCount++;
         Item_Release(item);
-        if (GETP(item->spawner) != NULL) {
-            GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+        if ((spawner = (PickupSpawner *)GETP(item->spawner)) != NULL) {
+            spawner->timer = spawner->respawnTime;
         }
         picked = 1;
         break;
     case 10:
-        if (Player_IsHuman(GETP(car->player))) {
+        if (Player_IsHuman(GETP(car->base.player))) {
             Item_Release(item);
-            if (GETP(item->spawner) != NULL) {
-                GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+            if ((spawner = (PickupSpawner *)GETP(item->spawner)) != NULL) {
+                spawner->timer = spawner->respawnTime;
             }
             picked = 1;
         }
         break;
     case 11:
-        if (GETP(car->player) != NULL) {
-            if (Player_IsHuman(GETP(car->player))) {
+        if (GETP(car->base.player) != NULL) {
+            if (Player_IsHuman(GETP(car->base.player))) {
                 wcRack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
                 current = wcRack->current;
-                points = GETP(item->def)->value;
-                GETP(car->player)->stuntScored = 1;
-                GETP(car->player)->stuntPoints += points;
-                if (GETP(car->player)->stuntPoints > 99999) {
-                    GETP(car->player)->stuntPoints = 99999;
+                points = def->value;
+                CARA_PLAYER(car)->stuntScored = 1;
+                CARA_PLAYER(car)->stuntPoints += points;
+                if (CARA_PLAYER(car)->stuntPoints > 99999) {
+                    CARA_PLAYER(car)->stuntPoints = 99999;
                 }
                 sprintf(stunt_msg_buffer, "Points +%d", points);
                 SETP(car->stuntPopup, &g_stuntLossString);
@@ -2488,8 +2406,8 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
                 wcRack->slots[current].scale = 1.0f;
             }
             Item_Release(item);
-            if (GETP(item->spawner) != NULL) {
-                GETP(item->spawner)->timer = GETP(item->spawner)->respawnTime;
+            if ((spawner = (PickupSpawner *)GETP(item->spawner)) != NULL) {
+                spawner->timer = spawner->respawnTime;
             }
             picked = 1;
         }
@@ -2498,11 +2416,13 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
     return picked;
 }
 
-s32 CarA_Invalidate(void *arg0, u32 arg1, u32 arg2) {
-    u32 temp_r0;
+/* Whether the car's description lies in [start, end) (handles), i.e. in
+   data being unloaded. */
+s32 CarA_Invalidate(CarA *car, u32 start, u32 end) {
+    u32 info;
 
-    temp_r0 = M2C_FIELD(arg0, u32 *, 0x3BC);
-    if ((temp_r0 >= arg1) && (temp_r0 < arg2)) {
+    info = car->vehicleIface.h;
+    if ((info >= start) && (info < end)) {
         return 1;
     }
     return 0;

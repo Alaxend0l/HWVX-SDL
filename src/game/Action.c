@@ -5,7 +5,7 @@ static inline Player *Action_GetCarPlayer(CarA *car) {
     Player *player;
 
     if (car != NULL) {
-        player = GETP(car->player);
+        player = GETP(car->base.player);
     } else {
         player = NULL;
     }
@@ -380,7 +380,7 @@ s32 ActionVehicleChangeMode(u32 *action) {
             if (creature != NULL) {
                 paused = Trigger_IsTACSystemPaused();
                 Trigger_PauseTACSystem(1);
-                spawn->pos = creature->worldMatrix.v[3];
+                spawn->pos = creature->base.pos;
                 CarA_Release(creature);
                 PlayerManager_RemovePlayer(player);
                 SETP(spawn->creature, NULL);
@@ -448,7 +448,7 @@ s32 ActionVehicleChangeMode(u32 *action) {
                     SETP(params.player, ai);
                     SETP(spawn->creature, ThingManager_DARYL_CreateThing(9, &params));
                     if (GETP(spawn->creature) != NULL) {
-                        SETP(GETP(spawn->creature)->tileData, spawn);
+                        SETP(GETP(spawn->creature)->base.trigger, spawn);
                         Player_SetThing(ai, GETP(spawn->creature));
                         Player_SetName(ai, -1, "AI");
                         SETP(ai->tileCar, spawn);

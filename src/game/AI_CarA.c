@@ -160,7 +160,7 @@ void AI_Car_AsyncProcess(void) {
                 carTile++;
                 return;
             }
-            SETP(GETP(car->creature)->tileData, car);
+            SETP(GETP(car->creature)->base.trigger, car);
             Player_SetName(player, -1, "Dynamic AI");
             Player_SetThing(player, GETP(car->creature));
             SETP(player->aiScripts, GETP(car->aiScripts));
@@ -790,7 +790,7 @@ static void AI_Car_Cheat_80008A60(u8 *ai) {
         }
     }
     best = 1e9f;
-    pos = &car->worldMatrix.v[3];
+    pos = &car->base.pos;
     cam = g_cameraManager;
     for (j = 0; j < g_cameraManager[0x640]; cam += 0x190, j++) {
         nearest = SLOT_LOAD(u8 *, cam);
@@ -1143,7 +1143,7 @@ s32 AI_Car_CheckLocalStats(u8 *ai, u8 *node) {
         return 1;
     }
     if (stats->health != 0) {
-        health = (f32)car->speed / (100.0f * (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth);
+        health = (f32)car->base.health / (100.0f * (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth);
         switch (stats->health) {
         case 1:
             if (health >= stats->healthValue) {

@@ -1,11 +1,23 @@
+/* The drone (g_droneVTable): a small remote-controlled vehicle, driven by
+ * its player's stick on four suspension rays (PhysicalObject physics), or
+ * flown along the NPP.ANI animation in state 2. */
 #include "common.h"
+#include "CarA.h"
 
+/* The drone's description (DroneInfo.props). */
 typedef struct DroneProps {
-    u8 pad00[0x20];
+    f32 inertia[3];         /* 0x00 per-axis factor of the inverse inertia */
+    u8 pad0C[4];            /* 0x0C */
+    u8 type;                /* 0x10 collider: 0 box */
+    u8 pad11[3];            /* 0x11 */
+    s32 health;             /* 0x14 */
+    u8 pad18[8];            /* 0x18 */
     f32 mass;               /* 0x20 */
     f32 gravity;            /* 0x24 */
     u8 pad28[4];            /* 0x28 */
     f32 spinDamping;        /* 0x2C */
+    u8 pad30[0x14];         /* 0x30 */
+    PTR32(OBox) box;        /* 0x44 type 0: v[1] half sizes, v[2].x radius */
 } DroneProps;
 
 typedef struct DroneInfo {
@@ -19,36 +31,59 @@ typedef struct DroneAnim {
     f32 end;                /* 0x0C */
 } DroneAnim;
 
-/* The flying drone Thing; its animation drives it in state 2. */
+/* ThingManager_DARYL_CreateThing parameters for a drone. */
+typedef struct DroneParams {
+    Vector4 pos;            /* 0x00 */
+    u8 pad10[0x20];         /* 0x10 */
+    Quaternion quat;        /* 0x30 */
+    PTR32(DroneInfo) info;  /* 0x40 */
+} DroneParams;
+
 typedef struct Drone {
-    Vector4 velocity;       /* 0x00 */
-    Matrix4 mtx;            /* 0x10 v[3] = position */
-    u8 pad50[0x24];         /* 0x50 */
-    u32 flags;              /* 0x74 */
-    u8 pad78[0x1C];         /* 0x78 */
-    PTR32(s8) input;              /* 0x94 */
-    u8 pad98[0x28];         /* 0x98 */
-    PTR32(DroneInfo) info;        /* 0xC0 */
+    Thing base;             /* 0x00 player: whose stick steers it */
+    u8 padAC[0x14];         /* 0xAC */
+    PTR32(DroneInfo) info;  /* 0xC0 */
     u8 padC4[0x10];         /* 0xC4 */
-    PTR32(DroneAnim) anim;        /* 0xD4 */
+    PTR32(DroneAnim) anim;  /* 0xD4 the flight path (state 2) */
     u8 padD8[8];            /* 0xD8 */
     Quaternion rot;         /* 0xE0 */
     Vector4 force;          /* 0xF0 */
     Vector4 baseForce;      /* 0x100 */
     Vector4 angMomentum;    /* 0x110 */
-    Vector4 invInertia;     /* 0x120 */
+    Vector4 invInertia;     /* 0x120 diagonal of the inverse inertia */
     Vector4 angVel;         /* 0x130 */
-    f32 suspension[4];      /* 0x140 */
-    u32 numContacts;        /* 0x150 */
-    u8 pad154[0x2C];        /* 0x154 */
-    f32 speed;              /* 0x180 */
-    u8 pad184[0xC];         /* 0x184 */
-    Vector4 wheels[4];      /* 0x190 */
+    f32 suspension[4];      /* 0x140 last compression per wheel */
+    u32 numContacts;        /* 0x150 wheels on the ground */
+    /* 0x154: the drone's one chase camera, a CameraSubMode-like entry handed
+       out by Drone_GetCameraOrientationInfo */
+    u8 cameraType;          /* 0x154 */
+    u8 pad155[3];           /* 0x155 */
+    PTR32(f32) cameraParams; /* 0x158 -> cameraValues */
+    s32 unk15C;             /* 0x15C */
+    f32 cameraValues[5];    /* 0x160 */
+    u8 pad174[8];           /* 0x174 */
+    s32 unk17C;             /* 0x17C */
+    f32 speed;              /* 0x180 along axis[2] */
+    s32 unk184;             /* 0x184 */
+    u8 pad188[8];           /* 0x188 */
+    Vector4 wheels[4];      /* 0x190 suspension ray starts, body space */
     u8 pad1D0[0xC];         /* 0x1D0 */
-    u8 state;               /* 0x1DC */
+    u8 state;               /* 0x1DC 0: airborne, 1: driving, 2: flying the animation */
     u8 pad1DD[7];           /* 0x1DD */
     f32 animTime;           /* 0x1E4 */
 } Drone;
+
+_Static_assert(offsetof(Drone, info) == 0xC0, "Drone.info");
+_Static_assert(offsetof(Drone, anim) == 0xD4, "Drone.anim");
+_Static_assert(offsetof(Drone, rot) == 0xE0, "Drone.rot");
+_Static_assert(offsetof(Drone, angVel) == 0x130, "Drone.angVel");
+_Static_assert(offsetof(Drone, numContacts) == 0x150, "Drone.numContacts");
+_Static_assert(offsetof(Drone, cameraType) == 0x154, "Drone.cameraType");
+_Static_assert(offsetof(Drone, cameraValues) == 0x160, "Drone.cameraValues");
+_Static_assert(offsetof(Drone, speed) == 0x180, "Drone.speed");
+_Static_assert(offsetof(Drone, wheels) == 0x190, "Drone.wheels");
+_Static_assert(offsetof(Drone, state) == 0x1DC, "Drone.state");
+_Static_assert(offsetof(Drone, animTime) == 0x1E4, "Drone.animTime");
 
 extern Vector4 g_zeroVector;
 extern f32 g_fDeltaTimeSec;
@@ -62,66 +97,55 @@ static inline void Mover_SetRotation(Drone *mover, Quaternion quat) {
     mover->rot = quat;
 }
 
+/* Vtable GetCameraOrientation: the drone's own camera, world up. */
+void Drone_GetCameraOrientationInfo(Drone *drone, void *camera, void *out) {
+    CameraInfo *info = out;
 
-void Drone_GetCameraOrientationInfo(void *drone, void *camera, void *info) {
-    M2C_FIELD(info, s32 *, 0x88) = 1;
-    SLOT_STORE((u8 *)(info) + 0x84, (u8 *)drone + 0x154);
-    M2C_FIELD(info, f32 *, 0x8C) = 1.0f;
-    M2C_FIELD(info, f32 *, 0x30) = 0.0f;
-    M2C_FIELD(info, f32 *, 0x34) = 1.0f;
-    M2C_FIELD(info, f32 *, 0x38) = 0.0f;
+    info->cameraCount = 1;
+    SETP(info->subMode, &drone->cameraType);
+    info->lookAhead = 1.0f;
+    info->mtx.v[1].x = 0.0f;
+    info->mtx.v[1].y = 1.0f;
+    info->mtx.v[1].z = 0.0f;
 }
 
-s32 Drone_Init(u8 *drone, u8 *data) {
-    typedef struct ABox {
-        Vector4 v[3];
-    } __attribute__((aligned(16))) ABox;
-    typedef struct DroneInfoEx {
-        f32 inertia[3];
-        u8 pad0C[0x10 - 0xC];
-        u8 type;
-        u8 pad11[0x14 - 0x11];
-        u32 unk14;
-        u8 pad18[0x20 - 0x18];
-        f32 mass;
-        u8 pad24[0x44 - 0x24];
-        PTR32(ABox) box;
-    } DroneInfoEx;
-    ABox box;
-    DroneInfoEx *info;
+/* Vtable Init. */
+s32 Drone_Init(Drone *drone, DroneParams *data) {
+    OBox box;
+    DroneProps *info;
 
-    Thing_Init(drone, (s32)HND(data));
-    SLOT_STORE((drone + 0xD4), LoadDataChunkFile("NPP.ANI"));
-    *(f32 *)(drone + 0x1E4) = *(f32 *)(SLOT_LOAD(u8 *, (drone + 0xD4)) + 0x8);
-    *(s32 *)(drone + 0x94) = 0;
-    *(Vector4 *)(drone + 0x40) = *(Vector4 *)data;
-    QuaternionToSubMatrix(data + 0x30, drone + 0x10);
-    *(Vector4 *)(drone + 0x50) = *(Vector4 *)(data + 0x30);
-    *(s32 *)(drone + 0x15C) = 0;
-    drone[0x154] = 0;
-    SLOT_STORE((drone + 0x158), drone + 0x160);
-    *(f32 *)(drone + 0x164) = 20.0f;
-    *(f32 *)(drone + 0x170) = 20.0f;
-    *(f32 *)(drone + 0x160) = 75.0f;
-    *(f32 *)(drone + 0x16C) = 40.0f;
-    *(f32 *)(drone + 0x168) = 5.0f;
-    SLOT_STORE((drone + 0xC0), SLOT_LOAD(void *, (data + 0x40)));
-    info = SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10));
+    Thing_Init(&drone->base, (s32)HND(data));
+    SETP(drone->anim, LoadDataChunkFile("NPP.ANI"));
+    drone->animTime = GETP(drone->anim)->start;
+    drone->base.player.h = 0;
+    drone->base.pos = data->pos;
+    QuaternionToSubMatrix(&data->quat, THING_MTX(&drone->base));
+    drone->base.quat = data->quat;
+    drone->unk15C = 0;
+    drone->cameraType = 0;
+    SETP(drone->cameraParams, drone->cameraValues);
+    drone->cameraValues[1] = 20.0f;
+    drone->cameraValues[4] = 20.0f;
+    drone->cameraValues[0] = 75.0f;
+    drone->cameraValues[3] = 40.0f;
+    drone->cameraValues[2] = 5.0f;
+    drone->info.h = data->info.h;
+    info = GETP(GETP(drone->info)->props);
     switch (info->type) {
     case 0:
-        *(f32 *)(drone + 0x70) = GETP(info->box)->v[2].x;
-        *(u16 *)(drone + 0x80) = 1;
+        drone->base.radius = GETP(info->box)->v[2].x;
+        drone->base.collisionType = THING_COLLIDE_OBOX;
         break;
     case 1:
         break;
     }
-    *(u32 *)(drone + 0x78) = (SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)))->unk14;
-    *(f32 *)(drone + 0x180) = 0.0f;
-    *(Vector4 *)(drone + 0x100) = g_zeroVector;
-    *(Vector4 *)(drone + 0xF0) = *(Vector4 *)(drone + 0x100);
-    *(s32 *)(drone + 0x184) = 0;
-    *(s32 *)(drone + 0x17C) = 0;
-    info = SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10));
+    drone->base.health = GETP(GETP(drone->info)->props)->health;
+    drone->speed = 0.0f;
+    drone->baseForce = g_zeroVector;
+    drone->force = drone->baseForce;
+    drone->unk184 = 0;
+    drone->unk17C = 0;
+    info = GETP(GETP(drone->info)->props);
     switch (info->type) {
     case 0:
         box = *GETP(info->box);
@@ -129,31 +153,35 @@ s32 Drone_Init(u8 *drone, u8 *data) {
     case 1:
         break;
     }
-    *(f32 *)(drone + 0x120) = 1.0f / (info->inertia[0] * info->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
-    *(f32 *)(drone + 0x124) = 1.0f / ((SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)))->inertia[1] * (SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].z * box.v[1].z));
-    *(f32 *)(drone + 0x128) = 1.0f / ((SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)))->inertia[2] * (SLOT_LOAD(DroneInfoEx *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)))->mass * (box.v[1].x * box.v[1].x + box.v[1].y * box.v[1].y));
+    drone->invInertia.x = 1.0f / (info->inertia[0] * info->mass * (box.v[1].y * box.v[1].y + box.v[1].z * box.v[1].z));
+    drone->invInertia.y = 1.0f / (GETP(GETP(drone->info)->props)->inertia[1] * GETP(GETP(drone->info)->props)->mass * (box.v[1].x * box.v[1].x + box.v[1].z * box.v[1].z));
+    drone->invInertia.z = 1.0f / (GETP(GETP(drone->info)->props)->inertia[2] * GETP(GETP(drone->info)->props)->mass * (box.v[1].x * box.v[1].x + box.v[1].y * box.v[1].y));
     Thing_AddToGrid(drone, 0);
-    *(Vector4 *)(drone + 0x110) = g_zeroVector;
-    *(Vector4 *)(drone + 0x130) = g_zeroVector;
-    *(u32 *)(drone + 0x74) |= 4;
-    *(u32 *)(drone + 0x74) |= 0x80;
-    *(f32 *)(drone + 0x190) = -3.39446f;
-    *(f32 *)(drone + 0x194) = -0.48040998f;
-    *(f32 *)(drone + 0x198) = -4.5236802f;
-    *(f32 *)(drone + 0x1A0) = 3.39446f;
-    *(f32 *)(drone + 0x1A4) = -0.48040998f;
-    *(f32 *)(drone + 0x1A8) = -4.5236802f;
-    *(f32 *)(drone + 0x1B0) = -3.39446f;
-    *(f32 *)(drone + 0x1B4) = -0.48040998f;
-    *(f32 *)(drone + 0x1B8) = 5.6166801f;
-    *(f32 *)(drone + 0x1C0) = 3.39446f;
-    *(f32 *)(drone + 0x1C4) = -0.48040998f;
-    *(f32 *)(drone + 0x1C8) = 5.6166801f;
-    drone[0x1DC] = 0;
+    drone->angMomentum = g_zeroVector;
+    drone->angVel = g_zeroVector;
+    drone->base.flags |= 4;
+    drone->base.flags |= 0x80;
+    drone->wheels[0].x = -3.39446f;
+    drone->wheels[0].y = -0.48040998f;
+    drone->wheels[0].z = -4.5236802f;
+    drone->wheels[1].x = 3.39446f;
+    drone->wheels[1].y = -0.48040998f;
+    drone->wheels[1].z = -4.5236802f;
+    drone->wheels[2].x = -3.39446f;
+    drone->wheels[2].y = -0.48040998f;
+    drone->wheels[2].z = 5.6166801f;
+    drone->wheels[3].x = 3.39446f;
+    drone->wheels[3].y = -0.48040998f;
+    drone->wheels[3].z = 5.6166801f;
+    drone->state = 0;
     return 1;
 }
 
 
+/* Four suspension rays: spring and damper forces, sideways friction while
+   airborne-capable (state 0), then the drive: on all four wheels in state 1
+   the player's stick turns and pushes it; settling on four wheels slowly
+   enough switches to state 1, losing them all back to 0. */
 void Drone_ComputeSuspensionForces(Drone *obj) {
     typedef struct {
         Vector4 pos;
@@ -189,18 +217,18 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
     f32 gravity;
     f32 turn;
     f32 thrust;
-    s8 *input;
+    Player *input;
 
     drone->numContacts = 0;
     for (i = 0; i < 4; i++) {
-        dir.x = -drone->mtx.v[1].x;
-        dir.y = -drone->mtx.v[1].y;
-        dir.z = -drone->mtx.v[1].z;
+        dir.x = -drone->base.axis[1].x;
+        dir.y = -drone->base.axis[1].y;
+        dir.z = -drone->base.axis[1].z;
         hit.unk30 = g_zeroVector;
-        XformVec(&drone->mtx, &drone->wheels[i], &start);
-        start.x += 2.0f * drone->mtx.v[1].x;
-        start.y += 2.0f * drone->mtx.v[1].y;
-        start.z += 2.0f * drone->mtx.v[1].z;
+        XformVec(THING_MTX(&drone->base), &drone->wheels[i], &start);
+        start.x += 2.0f * drone->base.axis[1].x;
+        start.y += 2.0f * drone->base.axis[1].y;
+        start.z += 2.0f * drone->base.axis[1].z;
         t = 5.0f;
         hitTerrain = RayHitsTerrain_Aux3(&start, &dir, &t, &hit);
         compression = 4.0f - t;
@@ -212,24 +240,24 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
             point.x = dir.x * len + start.x;
             point.y = dir.y * len + start.y;
             point.z = dir.z * len + start.z;
-            PhysicalObject_ProcessForce(drone, &point, &drone->mtx.v[1], (spring + damper) * PSVECDotProduct(&drone->mtx.v[1], &hit.normal));
+            PhysicalObject_ProcessForce(drone, &point, &drone->base.axis[1], (spring + damper) * PSVECDotProduct(&drone->base.axis[1], &hit.normal));
             if (drone->state == 0) {
-                PSVECSubtract(&point, &drone->mtx.v[3], &r);
+                PSVECSubtract(&point, &drone->base.pos, &r);
                 PSVECCrossProduct(&drone->angVel, &r, &spin);
-                PSVECAdd(&drone->velocity, &spin, &vel);
-                slip.x = vel.x - drone->mtx.v[2].x * drone->speed;
-                slip.y = vel.y - drone->mtx.v[2].y * drone->speed;
-                slip.z = vel.z - drone->mtx.v[2].z * drone->speed;
+                PSVECAdd(&drone->base.vel, &spin, &vel);
+                slip.x = vel.x - drone->base.axis[2].x * drone->speed;
+                slip.y = vel.y - drone->base.axis[2].y * drone->speed;
+                slip.z = vel.z - drone->base.axis[2].z * drone->speed;
                 ProjectVectorToNormal(&hit.normal, &slip);
                 mag = MagnitudeVector(&slip);
                 if (mag > 0.0f) {
-                    PSVECDotProduct(&drone->mtx.v[1], &hit.normal);
+                    PSVECDotProduct(&drone->base.axis[1], &hit.normal);
                     spring = 2.1f * spring;
-                    PSVECCrossProduct(&drone->mtx.v[2], &hit.normal, &side);
+                    PSVECCrossProduct(&drone->base.axis[2], &hit.normal, &side);
                     if (PSVECSquareMag(&side)) {
                         PSVECNormalize(&side, &side);
                     }
-                    grip = PSVECDotProduct(&side, &drone->mtx.v[1]);
+                    grip = PSVECDotProduct(&side, &drone->base.axis[1]);
                     grip = 1.1f * (1.0f - 1.8f * grip);
                     if (grip < 0.1f) {
                         grip = 0.1f;
@@ -252,24 +280,24 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
     drone->baseForce.z += gravity * drone->angVel.z;
     if (drone->numContacts == 4) {
         if (drone->state == 1) {
-            ProjectVectorToNormal(&drone->mtx, &drone->velocity);
-            drone->speed = PSVECDotProduct(&drone->velocity, &drone->mtx.v[2]);
-            input = GETP(drone->input);
+            ProjectVectorToNormal(&drone->base.axis[0], &drone->base.vel);
+            drone->speed = PSVECDotProduct(&drone->base.vel, &drone->base.axis[2]);
+            input = GETP(drone->base.player);
             if (input != NULL) {
-                thrust = 12.1f * (f32)input[1];
-                turn = 10.0f * (f32)-input[0];
-                ProjectVectorToNormal(&drone->mtx.v[1], &drone->angMomentum);
-                drone->angMomentum.x += turn * drone->mtx.v[1].x;
-                drone->angMomentum.y += turn * drone->mtx.v[1].y;
-                drone->angMomentum.z += turn * drone->mtx.v[1].z;
+                thrust = 12.1f * (f32)input->stickY;
+                turn = 10.0f * (f32)-input->stickX;
+                ProjectVectorToNormal(&drone->base.axis[1], &drone->angMomentum);
+                drone->angMomentum.x += turn * drone->base.axis[1].x;
+                drone->angMomentum.y += turn * drone->base.axis[1].y;
+                drone->angMomentum.z += turn * drone->base.axis[1].z;
                 if (_fabs(drone->speed) < 100.0f) {
-                    drone->force.x += drone->mtx.v[2].x * thrust;
-                    drone->force.y += drone->mtx.v[2].y * thrust;
-                    drone->force.z += drone->mtx.v[2].z * thrust;
+                    drone->force.x += drone->base.axis[2].x * thrust;
+                    drone->force.y += drone->base.axis[2].y * thrust;
+                    drone->force.z += drone->base.axis[2].z * thrust;
                 }
             }
-        } else if (_fabs(PSVECDotProduct(&drone->mtx, &drone->velocity)) < 2.0f) {
-            if (_fabs(PSVECDotProduct(&drone->mtx.v[1], &drone->angVel)) < 5.0f) {
+        } else if (_fabs(PSVECDotProduct(&drone->base.axis[0], &drone->base.vel)) < 2.0f) {
+            if (_fabs(PSVECDotProduct(&drone->base.axis[1], &drone->angVel)) < 5.0f) {
                 drone->state = 1;
             }
         }
@@ -278,8 +306,8 @@ void Drone_ComputeSuspensionForces(Drone *obj) {
     }
 }
 
-
-void Drone_ComputeSuspensionForces(Drone *drone);
+/* Vtable PreMove: in state 2 follows the animation (velocity and angular
+   velocity from the key frame), else gravity, suspension and integration. */
 s32 Drone_PreMove(Drone *drone) {
     Matrix4 inv;
     Matrix4 rel;
@@ -292,23 +320,23 @@ s32 Drone_PreMove(Drone *drone) {
 
     if (drone->state == 2) {
         Gfx_AnimExtractKeyFrame(GETP(drone->anim), drone->animTime, &key, 1);
-        drone->velocity.x = (key.pos.x - drone->mtx.v[3].x) / g_fDeltaTimeSec;
-        drone->velocity.y = (key.pos.y - drone->mtx.v[3].y) / g_fDeltaTimeSec;
-        drone->velocity.z = (key.pos.z - drone->mtx.v[3].z) / g_fDeltaTimeSec;
+        drone->base.vel.x = (key.pos.x - drone->base.pos.x) / g_fDeltaTimeSec;
+        drone->base.vel.y = (key.pos.y - drone->base.pos.y) / g_fDeltaTimeSec;
+        drone->base.vel.z = (key.pos.z - drone->base.pos.z) / g_fDeltaTimeSec;
         quat = key.rot;
-        inv = drone->mtx;
+        inv = *THING_MTX(&drone->base);
         Mover_SetRotation(drone, quat);
         QuaternionToSubMatrix(&quat, &rot);
         TransposeSubMatrix(&inv);
         MultiplySubMatrix(&inv, &rot, &rel);
-        MultiplySubMatrix(&drone->mtx, &rel, &world);
+        MultiplySubMatrix(THING_MTX(&drone->base), &rel, &world);
         SubMatrixToQuaternion(&rel, (Vector4 *)&delta);
         GenerateSpinAngleFromQuaternion((Vector4 *)&delta, &drone->angVel, &angle);
         angle /= g_fDeltaTimeSec;
         drone->angVel.x *= angle;
         drone->angVel.y *= angle;
         drone->angVel.z *= angle;
-        drone->flags &= ~0x10;
+        drone->base.flags &= ~0x10;
         drone->animTime += g_fDeltaTimeSec;
         if (drone->animTime > GETP(drone->anim)->end) {
             drone->animTime = GETP(drone->anim)->start;
@@ -323,7 +351,9 @@ s32 Drone_PreMove(Drone *drone) {
     return 1;
 }
 
-void Drone_DynamicCollideImpact(u8 *drone, u8 *collision, f32 force)
+/* Vtable DynamicCollideImpact: a push along the contact normal (not while
+   flying the animation); dies at zero health. */
+void Drone_DynamicCollideImpact(Drone *drone, CollisionInfo *collision, f32 force)
 {
     Vector4 normal;
     Vector4 pos;
@@ -334,66 +364,56 @@ void Drone_DynamicCollideImpact(u8 *drone, u8 *collision, f32 force)
     Vector4 local __attribute__((aligned(16)));
     f32 scale;
 
-    normal = *(Vector4 *)(collision + 0x10);
-    pos = *(Vector4 *)collision;
-    if (drone[0x1DC] != 2)
+    normal = collision->normal;
+    pos = collision->pos;
+    if (drone->state != 2)
     {
-        scale = force / *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)) + 0x20);
-        ((Vector4 *)drone)->x += normal.x * scale;
-        ((Vector4 *)drone)->y += normal.y * scale;
-        ((Vector4 *)drone)->z += normal.z * scale;
-        PSVECSubtract(&pos, (Vector4 *)(drone + 0x40), &r);
+        scale = force / GETP(GETP(drone->info)->props)->mass;
+        drone->base.vel.x += normal.x * scale;
+        drone->base.vel.y += normal.y * scale;
+        drone->base.vel.z += normal.z * scale;
+        PSVECSubtract(&pos, &drone->base.pos, &r);
         impulse.x = force * normal.x;
         impulse.y = force * normal.y;
         impulse.z = force * normal.z;
         PSVECCrossProduct(&r, &impulse, &torque);
-        ((Vector4 *)(drone + 0x110))->x += torque.x;
-        ((Vector4 *)(drone + 0x110))->y += torque.y;
-        ((Vector4 *)(drone + 0x110))->z += torque.z;
-        InverseXformVecOrientation(drone + 0x10, (Vector4 *)(drone + 0x110), &local);
-        scaled.x = ((Vector4 *)(drone + 0x120))->x * local.x;
-        scaled.y = ((Vector4 *)(drone + 0x120))->y * local.y;
-        scaled.z = ((Vector4 *)(drone + 0x120))->z * local.z;
-        XformVecOrientation(drone + 0x10, &scaled, (Vector4 *)(drone + 0x130));
-        if (*(s32 *)(drone + 0x78) <= 0)
+        drone->angMomentum.x += torque.x;
+        drone->angMomentum.y += torque.y;
+        drone->angMomentum.z += torque.z;
+        InverseXformVecOrientation(THING_MTX(&drone->base), &drone->angMomentum, &local);
+        scaled.x = drone->invInertia.x * local.x;
+        scaled.y = drone->invInertia.y * local.y;
+        scaled.z = drone->invInertia.z * local.z;
+        XformVecOrientation(THING_MTX(&drone->base), &scaled, &drone->angVel);
+        if (drone->base.health <= 0)
         {
-            Thing_ProcessEndEvent(drone, SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (drone + 0xC0)) + 0x10)), collision, (Vector4 *)(drone + 0x130));
+            Thing_ProcessEndEvent(&drone->base, (u8 *)GETP(GETP(drone->info)->props), collision, &drone->angVel);
             Thing_Release(drone);
         }
-        *(f32 *)(drone + 0x180) = 0.0f;
-        *(s32 *)(drone + 0x17C) = 0;
+        drone->speed = 0.0f;
+        drone->unk17C = 0;
     }
 }
 
-void Drone_DynamicRotation(u8 *drone, f32 dt) {
-    typedef struct Drone {
-        u8 pad0[0x10];
-        Matrix4 mtx;
-        Quaternion quat;
-        u8 pad60[0x74 - 0x60];
-        u32 flags;
-        u8 pad78[0xE0 - 0x78];
-        Quaternion rot;
-        u8 padF0[0x1DC - 0xF0];
-        u8 mode;
-    } Drone;
-    Drone *d = (Drone *)drone;
+/* Vtable DynamicRotation: in state 2 snaps to the animation's rotation once
+   per key (flags & 0x10), else the PhysicalObject rotation. */
+void Drone_DynamicRotation(Drone *drone, f32 dt) {
     Quaternion quat __attribute__((aligned(16)));
     Matrix4 mtx;
 
-    if (d->mode == 2) {
-        if (!(d->flags & 0x10)) {
-            d->flags |= 0x10;
-            quat = d->rot;
+    if (drone->state == 2) {
+        if (!(drone->base.flags & 0x10)) {
+            drone->base.flags |= 0x10;
+            quat = drone->rot;
             QuaternionToSubMatrix(&quat, &mtx);
-            mtx.v[3].x = d->mtx.v[3].x;
-            mtx.v[3].y = d->mtx.v[3].y;
-            mtx.v[3].z = d->mtx.v[3].z;
-            d->quat = quat;
-            d->mtx = mtx;
+            mtx.v[3].x = drone->base.pos.x;
+            mtx.v[3].y = drone->base.pos.y;
+            mtx.v[3].z = drone->base.pos.z;
+            drone->base.quat = quat;
+            *THING_MTX(&drone->base) = mtx;
         }
     } else {
-        PhysicalObject_DynamicRotation(drone, dt);
+        PhysicalObject_DynamicRotation((u8 *)drone, dt);
     }
 }
 

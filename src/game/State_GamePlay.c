@@ -248,7 +248,7 @@ s32 StateGamePlay_Init(void) {
                         humanUsed[car->port - 1] = 1;
                         SETP(car->creature, ThingManager_DARYL_CreateThing(9, &params));
                         Player_SetThing(player, GETP(car->creature));
-                        SETP(GETP(car->creature)->tileData, car);
+                        SETP(GETP(car->creature)->base.trigger, car);
                         SETP(player->tileCar, car);
                         if (GameSettings_GetGameType() == 0 && script == 3 && GameSettings_IsCheatEnabled(8)) {
                             script = 0x4D;
@@ -325,7 +325,7 @@ s32 StateGamePlay_Init(void) {
                     Player_SetName(aiPlayer, -1, name);
                     SETP(car->creature, ThingManager_DARYL_CreateThing(9, &params));
                     Player_SetThing(aiPlayer, GETP(car->creature));
-                    SETP(GETP(car->creature)->tileData, car);
+                    SETP(GETP(car->creature)->base.trigger, car);
                     SETP(aiPlayer->tileCar, car);
                     if (GETP(car->item) != NULL) {
                         void *rack = ThingManagerList_GetByType((u8 *)GETP(car->creature) + 0x344, 8);
@@ -409,7 +409,7 @@ s32 StateGamePlay_Init(void) {
             pathParams.unk5C = path->unk4;
             pathParams.unk54 = path->unk8;
             SETP(path->thing, ThingManager_DARYL_CreateThing(0xA, &pathParams));
-            SETP(GETP(path->thing)->tileData, path);
+            SETP(GETP(path->thing)->base.trigger, path);
             i++;
         }
     }
@@ -503,7 +503,7 @@ s32 StateGamePlay_Init(void) {
                 GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].port <= 4 &&
                 GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].creature) != NULL) {
                 viewIdx[n] = n;
-                players[n] = GETP(GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].creature)->player);
+                players[n] = GETP(GETP(GETP(((GPWorld *)GETP(g_worldData.world))->tileCars)[i].creature)->base.player);
                 n++;
             }
         }
@@ -1138,7 +1138,7 @@ void ArmageddonDropShip(void *arg0) {
         InterfaceManager_PauseInterface(0, data->index);
         InterfaceManager_SetInfoCallBackRoutine(data->index, ArmageddonDropShipInfo);
         InterfaceInputAnimator_Initialize();
-        pPlayer = GETP(GETP(entry->creature)->player);
+        pPlayer = GETP(GETP(entry->creature)->base.player);
         forward.x = 0.0f;
         forward.y = 0.0f;
         forward.z = 1.0f;
