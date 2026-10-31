@@ -428,7 +428,7 @@ s32 ActionVehicleChangeMode(u32 *action) {
                         if (GETP(spawn->item) != NULL) {
                             rack = ThingManagerList_GetByType(&GETP(spawn->car)->motionState.slaves, 8);
                             WildCardRack_JettisonAll(rack);
-                            WildCardRack_Add(rack, (u8 *)GETP(spawn->item), *(s32 *)(GETP(GETP(spawn->item)->weapon) + 0x20));
+                            WildCardRack_Add(rack, (u8 *)GETP(spawn->item), GETP(GETP(spawn->item)->weapon)->ammo);
                         }
                     } else {
                         PlayerManager_RemovePlayer(ai);

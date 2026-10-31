@@ -304,7 +304,7 @@ s32 CarA_Init(void *thing, void *arg1) {
             ItemRecord *item = GETP(GETP(GETP(car->vehicleIface)->startItems)[i]);
 
             if (item != NULL) {
-                WildCardRack_Add(rack, (u8 *)item, *(s32 *)(GETP(item->weapon) + 0x20));
+                WildCardRack_Add(rack, (u8 *)item, GETP(item->weapon)->ammo);
             }
         }
     }
@@ -1546,7 +1546,7 @@ void CarA_GetInterfaceInfo(CarA *car, u8 *info) {
         u8 current;
     } WeaponRack;
     WeaponRack *rack;
-    u8 *weapon;
+    WeaponInfo *weapon;
     u32 count;
 
     rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
@@ -1555,20 +1555,20 @@ void CarA_GetInterfaceInfo(CarA *car, u8 *info) {
         *(u32 *)(info + 0x10) = 100;
     }
     if (rack != NULL && GETP(rack->slots[rack->current].item) != NULL) {
-        /* weapon info: max ammo at 0x28, ammo per HUD segment at 0x24 */
+        /* ammo bar: percent of maxAmmo, and in shots */
         if (GameSettings_IsCheatEnabled(0)) {
-            rack->slots[rack->current].ammo = *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x28);
+            rack->slots[rack->current].ammo = GETP(GETP(rack->slots[rack->current].item)->weapon)->maxAmmo;
         }
         weapon = GETP(GETP(rack->slots[rack->current].item)->weapon);
-        if (*(u32 *)(weapon + 0x24) != 0) {
-            *(u32 *)(info + 0x38) = 100.0f * ((f32)rack->slots[rack->current].ammo / (f32)*(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x28));
-            *(u32 *)(info + 0x3C) = *(u32 *)(info + 0x38) / *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x24);
+        if (weapon->ammoPerShot != 0) {
+            *(u32 *)(info + 0x38) = 100.0f * ((f32)rack->slots[rack->current].ammo / (f32)weapon->maxAmmo);
+            *(u32 *)(info + 0x3C) = *(u32 *)(info + 0x38) / weapon->ammoPerShot;
         } else {
             *(u32 *)(info + 0x38) = 0;
             *(u32 *)(info + 0x3C) = 0;
         }
-        if (GETP(GETP(rack->slots[rack->current].item)->weapon) != NULL) {
-            *(u32 *)(info + 0x68) = *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x10);
+        if (weapon != NULL) {
+            *(u32 *)(info + 0x68) = weapon->unk10;
         }
     }
     *(u32 *)(info + 0x14) = _fabs(0.681818f * car->gradeOrReverse);
@@ -1641,7 +1641,7 @@ void CarA_GetInterfaceInfo(CarA *car, u8 *info) {
     }
     if (rack != NULL && rack->slots[rack->current].active != 0) {
         info[0x34] = 1;
-        *(s16 *)(info + 0x6C) = *(u32 *)(GETP(GETP(rack->slots[rack->current].item)->weapon) + 0x18);
+        *(s16 *)(info + 0x6C) = GETP(GETP(rack->slots[rack->current].item)->weapon)->unk18;
     }
     if (car->stuntPopup.h != 0) {
         *(u32 *)(info + 0x44) = car->stuntPopup.h;

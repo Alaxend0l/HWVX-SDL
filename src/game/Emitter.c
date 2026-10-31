@@ -3,6 +3,7 @@
  * quadrants and teleporters. */
 #include "common.h"
 #include "ThingManager.h"
+#include "World.h"
 
 extern u32 g_emitterVTable[17];  /* port: generated from the original .data (data_gen.c) */
 
@@ -51,17 +52,10 @@ typedef struct SoundSeqParams {
     u8 flag;                    /* 0x14 */
 } SoundSeqParams;
 
-/* An effect point as ActionFXPointChangeMode sees it (World.h QuadFxPoint). */
-typedef struct ActionFXPoint {
-    u8 pad0[0x30];
-    PTR32(Emitter) fx;          /* 0x30 */
-    s32 mode;                   /* 0x34 */
-} ActionFXPoint;
-
 typedef struct ActionFXList {
     s32 mode;                   /* 0x00 0: disable, 1: enable, 2: toggle */
     u32 pointCount;             /* 0x04 */
-    PTR32(ActionFXPoint) points[1]; /* 0x08 */
+    PTR32(QuadFxPoint) points[1]; /* 0x08 */
 } ActionFXList;
 
 u32 Emitter_InCameraRange(Emitter *emitter, f32 range);
@@ -171,14 +165,14 @@ s32 Emitter_Move(Emitter *emitter) {
 }
 
 void Emitter_Release(Emitter *emitter) {
-    void *slot;
+    QuadFxPoint *slot;
 
     if (GETP(emitter->base.vtable) == g_emitterVTable) {
-        /* detach from its spawn entry (its thing slot at 0x30) */
+        /* detach from its spawn entry */
         slot = GETP(emitter->base.trigger);
         if (slot != NULL) {
             SETP(emitter->base.trigger, NULL);
-            SLOT_STORE((u32 *)(slot) + (0x0C), NULL);
+            SETP(slot->thing, NULL);
         }
     }
     Thing_Release(emitter);
@@ -218,8 +212,8 @@ s32 ActionFXPointChangeMode(ActionFXList *list) {
     u32 i;
 
     for (i = 0; i < count; i++) {
-        ActionFXPoint *point = GETP(list->points[i]);
-        Emitter *fx = GETP(point->fx);
+        QuadFxPoint *point = GETP(list->points[i]);
+        Emitter *fx = (Emitter *)GETP(point->thing);
 
         switch (mode) {
         case 0:

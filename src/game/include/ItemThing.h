@@ -15,7 +15,11 @@ enum {
  * how the AI uses it. */
 typedef struct WeaponInfo {
     PTR32(struct MotionAnim) anim; /* 0x00 wildcard: the rack slot's model */
-    u8 pad04[0x1C];             /* 0x04 */
+    u8 pad04[0xC];              /* 0x04 */
+    u32 unk10;                  /* 0x10 HUD info 0x68 */
+    u8 pad14[4];                /* 0x14 */
+    u32 unk18;                  /* 0x18 HUD info 0x6C */
+    u8 pad1C[4];                /* 0x1C */
     s32 ammo;                   /* 0x20 picked up with the item */
     u32 ammoPerShot;            /* 0x24 the AI doesn't use it with less */
     s32 maxAmmo;                /* 0x28 */
@@ -92,6 +96,7 @@ _Static_assert(offsetof(ItemRecord, height) == 0x10, "ItemRecord.height");
 _Static_assert(offsetof(ItemRecord, names) == 0x20, "ItemRecord.names");
 _Static_assert(offsetof(ItemRecord, pickupDebris) == 0x24, "ItemRecord.pickupDebris");
 _Static_assert(offsetof(ItemRecord, weapon) == 0x30, "ItemRecord.weapon");
+_Static_assert(offsetof(WeaponInfo, unk18) == 0x18, "WeaponInfo.unk18");
 _Static_assert(offsetof(WeaponInfo, ammo) == 0x20, "WeaponInfo.ammo");
 _Static_assert(offsetof(WeaponInfo, aimBone) == 0x2E, "WeaponInfo.aimBone");
 _Static_assert(offsetof(WeaponInfo, nearAngle) == 0x48, "WeaponInfo.nearAngle");
