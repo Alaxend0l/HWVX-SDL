@@ -3974,6 +3974,52 @@ static inline void InterfaceManager_DrawDebugCross(Vector4 *pos) {
     Gfx_Add2DFXLine(&c0, &c1, white, white, 1);
 }
 
+/* port: widescreen HUD. On a screen wider than 4:3 the in-game HUD (an
+ * interface owned by a player, in gameplay) moves its left and right
+ * elements to the screen's edges: an object laid out left of LEFT_X moves
+ * left by the width of the side area (Port_ViewWiden), one right of RIGHT_X
+ * right; the middle (the target arrow, messages) stays. The side is decided
+ * by the layout position (the default animation's first key, plus the
+ * parent's or anchor's), not the animated one, so elements that fly in
+ * across the middle move as a whole. 0 in split screen and menus. */
+#define HUD_LEFT_X 192.0f
+#define HUD_RIGHT_X 448.0f
+static f32 Port_HudLayoutX(InterfaceObject *obj, u32 depth) {
+    IfaceObjAnim *anim = GETP(GETP(obj->def)->anim);
+    f32 x = obj->pos.v.x;
+
+    if (depth > 8) {
+        return x;
+    }
+    if (GETP(obj->anchor) != NULL) {
+        return Port_HudLayoutX(GETP(obj->anchor), depth + 1);
+    }
+    if (anim != NULL && anim->pos.count != 0 && GETP(anim->pos.keys) != NULL) {
+        x = ((f32 *)GETP(anim->pos.keys))[0];
+    }
+    if (GETP(obj->parent) != NULL) {
+        x += Port_HudLayoutX(GETP(obj->parent), depth + 1);
+    }
+    return x;
+}
+
+static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
+    f32 wx, wy, side, x;
+
+    /* a child interface's objects are drawn inside their parent object's
+     * draw, offset by its (already shifted) position */
+    if (GETP(iface->owner) == NULL || StateManager_CurrState() != 5 || GETP(obj->parent) != NULL) {
+        return 0.0f;
+    }
+    Port_ViewWiden(&wx, &wy);
+    if (wx <= 1.0f) {
+        return 0.0f;
+    }
+    side = 320.0f * (wx - 1.0f);
+    x = Port_HudLayoutX(obj, 0);
+    return x < HUD_LEFT_X ? -side : x > HUD_RIGHT_X ? side : 0.0f;
+}
+
 void InterfaceManager_RenderObject(Interface *iface, s32 index) {
     typedef struct { Vector4 pos; Vector4 quat; Vector4 vel; PTR32(u8) p; u32 id; f32 unk38; } RenderObjParams2;
     extern s8 g_bRenderCenterPoints;
@@ -4074,6 +4120,18 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
             slot->scale.v.x += GETP(slot->parent)->scale.v.x;
             slot->scale.v.y += GETP(slot->parent)->scale.v.y;
             slot->scale.v.z += GETP(slot->parent)->scale.v.z;
+        }
+        {   /* port: widescreen HUD, for this draw only (restored below) */
+            f32 shift = Port_HudShift(iface, slot);
+            if (shift != 0.0f) {
+                if (!restore) {
+                    restore = 1;
+                    savedPos = slot->pos.v;
+                    savedRot = slot->rot.v;
+                    savedScale = slot->scale.v;
+                }
+                slot->pos.v.x += shift;
+            }
         }
         if (GETP(slot->car) != NULL) {
             for (i = 0; i < iface->count; i++) {
