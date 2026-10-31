@@ -1290,8 +1290,14 @@ void Thing_ProcessEndEvent(u8 *thing, u8 *event, u8 *collision, Vector4 *vel) {
     }
 }
 
-void Thing_CollideWithRay(void)
-{
+/* No collision: the original is an empty function, which leaves its maxDist
+ * argument in f1 as the result ("no hit") for RayHitsObjects_Aux. */
+f32 Thing_CollideWithRay(void *thing, Vector4 *start, Vector4 *dir, void *hit, f32 maxDist) {
+    (void)thing;
+    (void)start;
+    (void)dir;
+    (void)hit;
+    return maxDist;
 }
 
 void Thing_GetTargetPos(void *thing, Quaternion *pos) {

@@ -2269,7 +2269,10 @@ s32 CarA_GetNearestNavPoint(CarA *car) {
     return car->navPointIndex;
 }
 
-void CarA_CollideWithRay(CarA *car, void *start, void *end, struct RayHit { u8 pad0[0x30]; Vector4 normal; } *hit, f32 maxDist) {
+/* Returns the hit distance (maxDist if none): the decomp has it void, but
+ * the original leaves PhysicalProperties_CollideWithRay's result in f1, and
+ * RayHitsObjects_Aux (vtable 0x38) uses it. */
+f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDist) {
     Matrix4 local;
     f32 dist;
 
@@ -2277,8 +2280,9 @@ void CarA_CollideWithRay(CarA *car, void *start, void *end, struct RayHit { u8 p
     XformVec(&car->worldMatrix, &car->bodyOffset, &local.v[3]);
     dist = PhysicalProperties_CollideWithRay(GETP(GETP(car->vehicleIface)->collider), &local, start, end, maxDist, hit);
     if (hit != NULL && dist < maxDist) {
-        hit->normal = car->velocity;
+        *(Vector4 *)((u8 *)hit + 0x30) = car->velocity;
     }
+    return dist;
 }
 
 

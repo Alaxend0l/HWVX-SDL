@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <execinfo.h>
 
 u8 *g_portArena;
 u32 g_portArenaSize;
@@ -145,6 +146,14 @@ void Port_Fatal(const char *fmt, ...) {
     SDL_vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "%s", buf);
+    {
+        /* resolve with: addr2line -f -s -i -e build/hwvx <addresses> */
+        void *frames[24];
+        int n = backtrace(frames, 24), k;
+        for (k = 1; k < n; k++) {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "  at %p", frames[k]);
+        }
+    }
     if (SDL_getenv("HWVX_NO_DIALOG") == NULL) {  /* scripted/headless runs: log only */
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Hot Wheels: Velocity X", buf, NULL);
     }

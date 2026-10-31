@@ -1108,14 +1108,28 @@ static void Claim_World(Swapper *s, u32 off) {
         Claim_ThingRecord(s, Target(s, list + i * 0x20 + 0xC));
         ClaimBytes(s, list + i * 0x20 + 0x18, 4);
     }
-    /* nav nodes 0x78 -> { nodes (0x60 each: u8 0x34-0x37, 0x50-0x53), count } */
+    /* nav nodes 0x78 -> { nodes (0x60 each: numLinks 0x10, f32 costs 0x14,
+     * s32 links 0x18 (NavHolder_CreatePath); u8 0x34-0x37, 0x50-0x53), count }.
+     * The cost and link tables are claimed as words: the string heuristic
+     * takes a one-link table for text (cost 180.41f is "C4il\0"), and the
+     * path search then follows the wrong route. */
     list = Target(s, off + 0x78);
     if (list != ~0u) {
         u32 nodes = Target(s, list);
         n = Word(s, list + 4);
         for (i = 0; nodes != ~0u && i < n && i < 0x2000; i++) {
-            ClaimBytes(s, nodes + i * 0x60 + 0x34, 4);
-            ClaimBytes(s, nodes + i * 0x60 + 0x50, 4);
+            u32 node = nodes + i * 0x60, links = Word(s, node + 0x10);
+            ClaimBytes(s, node + 0x34, 4);
+            ClaimBytes(s, node + 0x50, 4);
+            if (links < 0x100) {
+                u32 costs = Target(s, node + 0x14), ids = Target(s, node + 0x18);
+                if (costs != ~0u) {
+                    Claim(s, costs, links * 4, CLAIM_U32);
+                }
+                if (ids != ~0u) {
+                    Claim(s, ids, links * 4, CLAIM_U32);
+                }
+            }
         }
     }
     /* timer/goal tables 0x48/0x4C and 0x50/0x54: pointer tables to records

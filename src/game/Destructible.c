@@ -613,13 +613,15 @@ s32 ActionMoveableChangeMode(u32 *action) {
     return 1;
 }
 
-void Destructible_CollideWithRay(Destructible *destructible, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist) {
+/* Returns the hit distance (maxDist if none), as the original does in f1. */
+f32 Destructible_CollideWithRay(Destructible *destructible, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist) {
     f32 dist;
 
     dist = PhysicalProperties_CollideWithRay(GETP(GETP(destructible->record)->info), destructible->matrix, start, end, maxDist, hit);
     if (hit != NULL && dist < maxDist) {
         *(Vector4 *)((u8 *)hit + 0x30) = destructible->pos;
     }
+    return dist;
 }
 
 void Destructible_GetTargetPos(Destructible *destructible, Vector4 *pos) {

@@ -336,7 +336,7 @@ void Dprintf(char *str, ...);
 /* Destructible.c */
 s32 ActionDestructibleChangeMode(u32 *action);
 s32 ActionMoveableChangeMode(u32 *action);
-void Destructible_CollideWithRay(Destructible *destructible, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist);
+f32 Destructible_CollideWithRay(Destructible *destructible, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist);
 void Destructible_Draw(Destructible *destructible);
 void Destructible_DynamicCollideImpact(u8 *destructible, u8 *collision, s32 damage, f32 force);
 f32 Destructible_GetMass(Destructible *destructible);
@@ -1135,7 +1135,7 @@ u32 CollisionInfo_GetOther(void *arg0, u32 arg1);
 s32 Thing_AddToGrid(void *thing, s32 type);
 void Thing_CollideWithForceBoxes(u8 *thing);
 void Thing_CollideWithItems(u8 *thing);
-void Thing_CollideWithRay(void);
+f32 Thing_CollideWithRay(void *thing, Vector4 *start, Vector4 *dir, void *hit, f32 maxDist);
 s8 Thing_CollideWithTeleporters(u8 *thing);
 void Thing_Draw(void);
 void Thing_DynamicCollideImpact(void);
