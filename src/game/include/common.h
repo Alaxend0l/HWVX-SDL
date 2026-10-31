@@ -682,20 +682,6 @@ _Static_assert(offsetof(MCP, bindings) == 0x40, "MCP.bindings");
 
 /* The binding in MCP.bindings[i] (each entry is a slot holding it). */
 #define MCP_BINDING(mcp, i) GETP(*GETP(GETP((mcp)->bindings)[i]))
-typedef struct PodPart {
-  u8 flags;
-  u8 xform;
-  u8 pad2[2];
-  u16 mtxIndex;
-  u8 pad6[2];
-  PTR32(void) geom;
-  PTR32(Vector4) offset;
-  u8 pad10[0xC];
-} PodPart;
-typedef struct PodPartList {
-  u32 count;
-  PTR32(PodPart) parts;
-} PodPartList;
 typedef struct {
   Vector4 pos;
   Vector4 quat;

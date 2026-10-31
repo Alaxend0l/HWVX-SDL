@@ -87,7 +87,9 @@ typedef struct CreatureInfo {
     PTR32(CreatureAnimEntry) deathAnims; /* 0x30 indexed by Creature.deathAnim */
     u8 pad34[0x10];                    /* 0x34 */
     u32 aiScripts[4];                  /* 0x44 CreatureAIScript per difficulty */
-    u8 pad54[0x1C];                    /* 0x54 */
+    PTR32(s32) dropOff;                /* 0x54 dropped at a pod: [0] health bonus, [3] points */
+    u8 dropType;                       /* 0x58 Player.counters index */
+    u8 pad59[0x17];                    /* 0x59 */
     PTR32(DamagePartList) damageParts; /* 0x70 NULL: can't be gibbed */
 } CreatureInfo;
 

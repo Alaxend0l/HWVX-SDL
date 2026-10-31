@@ -231,11 +231,8 @@ void CarA_SetSlavePlayers(CarA *car);
 f32 CarA_Transmission_GetTorqueAtWheels(CarA *car);
 
 /* CarA_AR.c */
-void Pod_Draw(u8 *pod);
-s32 Pod_Init(u8 *pod, u8 *init);
-s32 Pod_Invalidate(s32 arg0, u32 arg1, u32 arg2);
-s32 Pod_Move(u8 *pod);
-void Pod_Release(void *arg0);
+s32 Pod_Invalidate(s32 arg, u32 start, u32 end);
+void Pod_Release(void *arg);
 
 /* CarA_HW.c */
 s8 CarA_DoFreeStyleStunts(CarA *car);
@@ -1439,6 +1436,11 @@ void Camera_UpdatePosition_Zoom_Generic(Camera *cam, void *mode, Vector4 *target
 #endif
 #if !defined(HWVX_SRC_CarA)
 void CarA_Extract_Keyframes(CarA *car, void *frames);
+#endif
+#if !defined(HWVX_SRC_CarA_AR) && !defined(HWVX_SRC_data_gen)
+void Pod_Draw(void *pod);
+s32 Pod_Init(void *pod, void *init);
+s32 Pod_Move(void *pod);
 #endif
 #if !defined(HWVX_SRC_CarA_Stunts)
 void Drone_ComputeSuspensionForces(void *obj);

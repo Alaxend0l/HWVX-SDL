@@ -1,178 +1,211 @@
+/* Pods (the Armageddon rescue drop-off points): an animated model whose
+ * slave creatures are let out at the drop point when the pod opens, paying
+ * out to the player who brought them. */
 #include "common.h"
+#include "CarA.h"
+#include "World.h"
+#include "AI.h"
 
+/* A pod's description (PodParams.info). */
+typedef struct PodInfo {
+    Vector4 target;             /* 0x00 local: where released creatures head */
+    Vector4 dropPoint;          /* 0x10 local: where they appear */
+    Vector4 modelOrigin;        /* 0x20 local */
+    u8 pad30[0xC];              /* 0x30 */
+    u32 model;                  /* 0x3C Model handle */
+} PodInfo;
 
+typedef struct PodParams {
+    Vector4 pos;                /* 0x00 */
+    u8 pad10[0x10];             /* 0x10 */
+    PTR32(PodInfo) info;        /* 0x20 */
+} PodParams;
 
-s32 Pod_Init(u8 *pod, u8 *init) {
-    u8 *motion;
+typedef struct Pod {
+    Thing base;                 /* 0x00 player: whose creatures it collects */
+    u8 padAC[4];                /* 0xAC */
+    MotionState motion;         /* 0xB0 */
+    u8 padE8[8];                /* 0xE8 */
+    Vector4 dropPoint;          /* 0xF0 world */
+    Vector4 target;             /* 0x100 world */
+    PTR32(PodInfo) info;        /* 0x110 */
+    u32 partMask;               /* 0x114 bit per model part: the "on" variant shows */
+    u32 count;                  /* 0x118 creatures inside */
+} Pod;
 
-    Thing_Init(pod, 0);
-    motion = pod + 0xB0;
-    SLOT_STORE((u8 *)(pod) + 0x110, SLOT_LOAD(void *, (u8 *)(init) + 0x20));
-    M2C_FIELD(pod, s32 *, 0x114) = 0;
-    M2C_FIELD(pod, s32 *, 0x118) = 0;
-    M2C_FIELD(pod, s32 *, 0x40) = M2C_FIELD(init, s32 *, 0x0);
-    M2C_FIELD(pod, s32 *, 0x44) = M2C_FIELD(init, s32 *, 0x4);
-    M2C_FIELD(pod, s32 *, 0x48) = M2C_FIELD(init, s32 *, 0x8);
-    M2C_FIELD(pod, s32 *, 0x4C) = M2C_FIELD(init, s32 *, 0xC);
-    M2C_FIELD(pod, s32 *, 0xB0) = M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(pod) + 0x110), s32 *, 0x3C);
-    M2C_FIELD(pod, f32 *, 0xD4) = 0.0f;
+_Static_assert(offsetof(Pod, motion) == 0xB0, "Pod.motion");
+_Static_assert(offsetof(Pod, dropPoint) == 0xF0, "Pod.dropPoint");
+_Static_assert(offsetof(Pod, info) == 0x110, "Pod.info");
+
+/* Thing.flags bits of a pod (kind-specific). */
+enum {
+    POD_FLAG_RELEASE = 0x100000, /* let the creatures out this frame */
+};
+
+s32 Pod_Init(Pod *pod, PodParams *init) {
+    MotionState *motion;
+
+    Thing_Init(&pod->base, 0);
+    motion = &pod->motion;
+    SETP(pod->info, GETP(init->info));
+    pod->partMask = 0;
+    pod->count = 0;
+    pod->base.pos = init->pos;
+    pod->motion.model.h = GETP(pod->info)->model;
+    pod->motion.blend = 0.0f;
     MotionState_Init(motion, 0);
-    MotionState_BuildMatricesWorld(pod + 0x50, pod + 0x40, motion, 1.0f);
+    MotionState_BuildMatricesWorld(&pod->base.quat, &pod->base.pos, motion, 1.0f);
     return 1;
 }
 
 /* port: takes a pointer, as the vtable calls it; the decomp has s32 */
-void Pod_Release(void *arg0) {
-    MotionState_Release((s32)HND((u8 *)arg0 + 0xB0));
-    Thing_Release(arg0);
+void Pod_Release(void *arg) {
+    MotionState_Release((s32)HND(&((Pod *)arg)->motion));
+    Thing_Release(arg);
 }
 
-s32 Pod_Move(u8 *pod) {
-    typedef struct {
-        u8 pad0[0x94];
-        u16 counts[8];              /* 0x94 creatures collected, by type; 0xA4 "changed" */
-    } PodPlayer;
+/* Animate the pod; on a release, let each carried creature out at the drop
+ * point heading for the target, and pay its reward to the player. */
+s32 Pod_Move(Pod *pod) {
     extern Matrix4 g_identity;
-    u8 *creature;
-    u8 *next;
+    Thing *thing = &pod->base;
+    Creature *creature;
+    Creature *next;
     Vector4 pos __attribute__((aligned(16)));
 
-    XformVec(pod + 0x10, (Vector4 *)(SLOT_LOAD(u8 *, (pod + 0x110)) + 0x10), (Vector4 *)(pod + 0xF0));
-    XformVec(pod + 0x10, SLOT_LOAD(Vector4 *, (pod + 0x110)), (Vector4 *)(pod + 0x100));
-    XformVec(pod + 0x10, (Vector4 *)(SLOT_LOAD(u8 *, (pod + 0x110)) + 0x20), &pos);
-    MotionState_BuildMatricesWorld(pod + 0x50, &pos, pod + 0xB0, 1.0f);
-    MotionState_Heartbeat(pod + 0xB0, &g_identity, pod);
+    XformVec(THING_MTX(thing), &GETP(pod->info)->dropPoint, &pod->dropPoint);
+    XformVec(THING_MTX(thing), &GETP(pod->info)->target, &pod->target);
+    XformVec(THING_MTX(thing), &GETP(pod->info)->modelOrigin, &pos);
+    MotionState_BuildMatricesWorld(&thing->quat, &pos, &pod->motion, 1.0f);
+    MotionState_Heartbeat(&pod->motion, &g_identity, pod);
 
-    if ((*(u32 *)(pod + 0x74) & 0x10) && !(*(u32 *)(pod + 0x74) & 0x20) && pod[0xCC] == 2) {
-        if (*(f32 *)(pod + 0xD0) == *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (pod + 0xC8)) + 0x28)) + 4)) {
-            pod[0xCC] = 0;
-            *(f32 *)(pod + 0xD0) = *SLOT_LOAD(f32 *, (SLOT_LOAD(u8 *, (pod + 0xC8)) + 0x20));
+    if ((thing->flags & 0x10) && !(thing->flags & 0x20) && pod->motion.prevMode == 2) {
+        /* at the end of the loop phase go back to its start */
+        MotionAnim *anim = GETP(pod->motion.prevAnim);
+
+        if (pod->motion.prevTime == GETP(anim->times[2])[1]) {
+            pod->motion.prevMode = 0;
+            pod->motion.prevTime = *GETP(anim->times[0]);
         } else {
-            *(f32 *)(pod + 0xD0) = *(f32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (pod + 0xC8)) + 0x24)) + 4);
+            pod->motion.prevTime = GETP(anim->times[1])[1];
         }
     }
 
-    if (*(u32 *)(pod + 0x74) & 0x100000) {
-        for (creature = SLOT_LOAD(u8 *, (pod + 0x88)); creature != NULL; creature = next) {
-            next = SLOT_LOAD(u8 *, (creature + 0xA4));
-            if (SLOT_LOAD(u8 *, (creature + 0x8C)) == g_creatureVTable && *(u32 *)(SLOT_LOAD(u8 *, (creature + 0x94)) + 0xD8) != 0) {
+    if (thing->flags & POD_FLAG_RELEASE) {
+        for (creature = (Creature *)GETP(thing->slaves); creature != NULL; creature = next) {
+            next = (Creature *)GETP(creature->base.next);
+            if ((u8 *)GETP(creature->base.vtable) == g_creatureVTable &&
+                GETP(((AICreature *)GETP(creature->base.player))->volume) != NULL) {   /* only spawned ones */
+                Thing *c = &creature->base;
+                Player *owner = GETP(thing->player);
+                CreatureInfo *info = GETP(creature->info);
                 Vector4 dir __attribute__((aligned(16)));
                 u8 type;
 
-                *(f32 *)(creature + 0x1C0) = 1.0f;
-                ThingManagerList_Remove((void **)(pod + 0x88), creature);
-                *(Vector4 *)(creature + 0x40) = *(Vector4 *)(pod + 0xF0);
+                creature->unk1C0 = 1.0f;
+                ThingManagerList_Remove(&thing->slaves, creature);
+                c->pos = pod->dropPoint;
                 ThingManagerList_Append(&g_thingManager_DARYL.activeList, creature);
                 Thing_AddToGrid(creature, 6);
-                *(s32 *)(creature + 0x1B0) = -1;
-                *(Vector4 *)(creature + 0x190) = *(Vector4 *)(creature + 0x40);
-                *(f32 *)(creature + 0x194) -= 1.0f;
-                PSVECSubtract((Vector4 *)(pod + 0x100), (Vector4 *)(pod + 0x40), (Vector4 *)creature);
-                *(f32 *)(creature + 0x4) = 0.0f;
-                if (PSVECSquareMag((Vector4 *)creature)) {
-                    PSVECNormalize((Vector4 *)creature, (Vector4 *)creature);
+                creature->stepTimer = -1;
+                creature->stepPos = c->pos;
+                creature->stepPos.y -= 1.0f;
+                /* face the target, on the ground plane */
+                PSVECSubtract(&pod->target, &thing->pos, &c->vel);
+                c->vel.y = 0.0f;
+                if (PSVECSquareMag(&c->vel)) {
+                    PSVECNormalize(&c->vel, &c->vel);
                 }
-                dir = *(Vector4 *)creature;
-                *(f32 *)(creature + 0xB0) = atan2(dir.x, dir.z);
-                SinCosRad((f32 *)(creature + 0x54), (f32 *)(creature + 0x5C), 0.5f * *(f32 *)(creature + 0xB0));
-                *(f32 *)(creature + 0x50) = 0.0f;
-                *(f32 *)(creature + 0x58) = 0.0f;
+                dir = c->vel;
+                creature->heading = atan2(dir.x, dir.z);
+                SinCosRad(&c->quat.y, &c->quat.w, 0.5f * creature->heading);
+                c->quat.x = 0.0f;
+                c->quat.z = 0.0f;
                 {
-                    f32 ww = *(f32 *)(creature + 0x5C) * *(f32 *)(creature + 0x5C);
-                    f32 yy = *(f32 *)(creature + 0x54) * *(f32 *)(creature + 0x54);
+                    /* the matrix of that yaw quaternion */
+                    f32 ww = c->quat.w * c->quat.w;
+                    f32 yy = c->quat.y * c->quat.y;
                     f32 inv = 1.0f / (yy + ww);
                     f32 m = inv * (ww - yy);
 
                     inv *= 2.0f;
-                    *(f32 *)(creature + 0x10) = m;
-                    *(f32 *)(creature + 0x24) = 1.0f;
-                    *(f32 *)(creature + 0x38) = m;
-                    *(f32 *)(creature + 0x14) = 0.0f;
-                    *(f32 *)(creature + 0x18) = inv * (*(f32 *)(creature + 0x5C) * *(f32 *)(creature + 0x54));
-                    *(f32 *)(creature + 0x20) = 0.0f;
-                    *(f32 *)(creature + 0x28) = 0.0f;
-                    *(f32 *)(creature + 0x30) = inv * (*(f32 *)(creature + 0x5C) * *(f32 *)(creature + 0x54));
-                    *(f32 *)(creature + 0x34) = 0.0f;
-                    *(f32 *)(creature + 0x3C) = 0.0f;
-                    *(f32 *)(creature + 0x2C) = 0.0f;
-                    *(f32 *)(creature + 0x1C) = 0.0f;
-                    *(f32 *)(creature + 0x4C) = 1.0f;
+                    c->axis[0].x = m;
+                    c->axis[1].y = 1.0f;
+                    c->axis[2].z = m;
+                    c->axis[0].y = 0.0f;
+                    c->axis[0].z = inv * (c->quat.w * c->quat.y);
+                    c->axis[1].x = 0.0f;
+                    c->axis[1].z = 0.0f;
+                    c->axis[2].x = inv * (c->quat.w * c->quat.y);
+                    c->axis[2].y = 0.0f;
+                    c->axis[2].w = 0.0f;
+                    c->axis[1].w = 0.0f;
+                    c->axis[0].w = 0.0f;
+                    c->pos.w = 1.0f;
                 }
-                MotionState_BuildMatricesWorld(creature + 0x50, creature + 0x40, creature + 0xCC, 1.0f);
-                *(f32 *)(creature + 0xB4) = 0.0f;
-                *(f32 *)(creature + 0x0) *= 15.0f;
-                *(f32 *)(creature + 0x4) = 10.0f;
-                *(f32 *)(creature + 0x8) *= 15.0f;
-                *(u32 *)(creature + 0x74) &= ~0x10;
+                MotionState_BuildMatricesWorld(&c->quat, &c->pos, &creature->model, 1.0f);
+                creature->turnRate = 0.0f;
+                c->vel.x *= 15.0f;
+                c->vel.y = 10.0f;
+                c->vel.z *= 15.0f;
+                c->flags &= ~0x10;
                 Creature_MotionStateInit(creature, 0xF, 0, 0);
-                *(u32 *)(creature + 0x74) |= 0x20000;
-                *(s32 *)(SLOT_LOAD(u8 *, (pod + 0x94)) + 0x7C) += *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (creature + 0xB8)) + 0x54)) + 0xC);
-                (SLOT_LOAD(u8 *, (pod + 0x94)))[0x71] = 1;
-                type = (SLOT_LOAD(u8 *, (creature + 0xB8)))[0x58];
+                c->flags |= THING_FLAG_NO_OBJECT_HITS;
+                /* the reward */
+                owner->stuntPoints += GETP(info->dropOff)[3];
+                owner->scoreDirty = 1;
+                type = info->dropType;
                 if (type < 7) {
-                    if ((SLOT_LOAD(PodPlayer *, (pod + 0x94)))->counts[type] != 0) {
-                        (SLOT_LOAD(PodPlayer *, (pod + 0x94)))->counts[type]--;
+                    if (owner->counters[type] != 0) {
+                        owner->counters[type]--;
                     }
                 } else {
-                    (SLOT_LOAD(PodPlayer *, (pod + 0x94)))->counts[type]++;
+                    owner->counters[type]++;
                 }
-                (SLOT_LOAD(u8 *, (pod + 0x94)))[0xA4] = 1;
-                *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (pod + 0x94)) + 0x2C)) + 0x78) += *SLOT_LOAD(s32 *, (SLOT_LOAD(u8 *, (creature + 0xB8)) + 0x54));
-                Trigger_CreatureDroppedOff(SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (pod + 0x94)) + 0x2C)), creature);
-                if (SLOT_LOAD(u8 *, (creature + 0x90)) != NULL) {
-                    *(u32 *)(SLOT_LOAD(u8 *, (creature + 0x90)) + 0x20) = 0;
+                owner->countersChanged = 1;
+                ((Thing *)GETP(owner->vehicle))->health += GETP(info->dropOff)[0];
+                Trigger_CreatureDroppedOff(GETP(owner->vehicle), creature);
+                if (GETP(c->trigger) != NULL) {
+                    ((TileCreature *)GETP(c->trigger))->mode = 0;
                 }
-                if (*(u32 *)(pod + 0x118) != 0) {
-                    (*(u32 *)(pod + 0x118))--;
+                if (pod->count != 0) {
+                    pod->count--;
                 }
-                *(u32 *)(pod + 0x74) &= ~0x20;
+                thing->flags &= ~0x20;
             }
         }
-        *(u32 *)(pod + 0x74) &= ~0x100000;
+        thing->flags &= ~POD_FLAG_RELEASE;
     }
     return 1;
 }
 
-void Pod_Draw(u8 *pod) {
-    typedef struct PodPart {
-        u8 flags;
-        u8 xform;
-        u8 pad2[2];
-        u16 mtxIndex;
-        u8 pad6[2];
-        PTR32(void) geom;
-        PTR32(Vector4) offset;
-        u8 pad10[0xC];
-    } PodPart;
-    typedef struct PodPartList {
-        u32 count;
-        PTR32(PodPart) parts;
-    } PodPartList;
-    PodPartList *list;
+/* Draw the model, then its parts: each in its on or off variant by partMask. */
+void Pod_Draw(Pod *pod) {
+    CarPartList *list;
     u32 i;
-    PodPart *part;
+    CarPart *part;
     u32 bit;
     void *geom;
     Matrix4 mtx;
 
-    if (SLOT_LOAD(Matrix4 *, (pod + 0xC0)) != NULL) {
-        MotionState_Draw(pod + 0xB0);
+    if (GETP(pod->motion.animMatrices) != NULL) {
+        MotionState_Draw(&pod->motion);
     } else {
-        MotionState_Draw2(pod + 0xB0, HND(pod + 0x10), SLOT_LOAD(Matrix4 *, (pod + 0xC0)));
+        MotionState_Draw2(&pod->motion, HND(THING_MTX(&pod->base)), GETP(pod->motion.animMatrices));
     }
-    list = SLOT_LOAD(PodPartList *, (SLOT_LOAD(u8 *, (pod + 0xB0)) + 0x38));
+    list = GETP(((CarAModelData *)GETP(pod->motion.model))->parts);
     if (list != NULL) {
         for (i = 0; i < list->count; i++) {
             part = &GETP(list->parts)[i];
             geom = GETP(part->geom);
-            bit = *(u32 *)(pod + 0x114) & (1 << i);
+            bit = pod->partMask & (1 << i);
             if (bit && !(part->flags & 1)) {
                 continue;
             }
             if (!bit && (part->flags & 1)) {
                 continue;
             }
-            mtx = (SLOT_LOAD(Matrix4 *, (pod + 0xC0)))[part->mtxIndex];
+            mtx = GETP(pod->motion.animMatrices)[part->mtxIndex];
             if (GETP(list->parts)[i].xform) {
                 XformVec(&mtx, GETP(GETP(list->parts)[i].offset), &mtx.v[3]);
             }
@@ -181,13 +214,12 @@ void Pod_Draw(u8 *pod) {
     }
 }
 
-s32 Pod_Invalidate(s32 arg0, u32 arg1, u32 arg2) {
-    u32 temp_r0;
+/* Whether the pod's description lies in [start, end) (a pack being unloaded). */
+s32 Pod_Invalidate(s32 arg, u32 start, u32 end) {
+    u32 info = ((Pod *)PTR(arg))->info.h;
 
-    temp_r0 = *(u32 *)PTR((arg0 + 0x110));
-    if ((temp_r0 >= arg1) && (temp_r0 < arg2)) {
+    if ((info >= start) && (info < end)) {
         return 1;
     }
     return 0;
 }
-
