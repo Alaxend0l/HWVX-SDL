@@ -180,7 +180,7 @@ void BulletHole_Render(void);
 s32 CameraManager_Create(void);
 void CameraManager_Destroy(void);
 u8 CameraManager_GetActiveCameras(void);
-void * CameraManager_GetCameraByIndex(u32 arg0);
+void * CameraManager_GetCameraByIndex(u32 index);
 void * CameraManager_GetCameraFromPlayer(void *player);
 void * CameraManager_GetNewCamera(void);
 void CameraManager_Init(void);
@@ -191,12 +191,11 @@ void CameraManager_ReturnAllToPlayer(void);
 void CameraManager_SetCameraGlobalMode(u32 *mode);
 void Camera_PrepareForRender(Camera *camera);
 void Camera_SetPlayer(Camera *camera, Player *player);
-s32 Camera_TriggerActionGetLocation(u8 *cam, u32 *data, Vector4 *out);
+s32 Camera_TriggerActionGetLocation(Camera *cam, u32 *data, Vector4 *out);
 void Camera_UpdatePosition(Camera *cam);
 void Camera_UpdatePosition_Default(Camera *cam, f32 *mode);
-void Camera_UpdatePosition_Zoom_Generic(u8 *cam, u8 *mode, Vector4 *target, Vector4 *eye, f32 zoom, f32 shake);
 void * GetCameraManager(void);
-void GetTrimmedCameraPos(u8 *camera, Vector4 *from, Vector4 *dir, f32 *trim, f32 dist);
+void GetTrimmedCameraPos(Camera *camera, Vector4 *from, Vector4 *dir, f32 *trim, f32 dist);
 void GetTrimmedCameraPos2(Vector4 *from, Vector4 *to, f32 *trim, s32 bone, Matrix4 *mtx);
 s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 
@@ -1434,6 +1433,9 @@ void AnimTraverseHeirarchyToMatrices(void *bones, u32 count, f32 *matrices);
 #if !defined(HWVX_SRC_BSPN0)
 Vector4 *BSPN0_CollideWithSegment(void *node, Vector4 *hit, Vector4 *p0, Vector4 *p1);
 s8 BSPN0_CollideWithVector(void *node, Vector4 *point);
+#endif
+#if !defined(HWVX_SRC_CameraManager)
+void Camera_UpdatePosition_Zoom_Generic(Camera *cam, void *mode, Vector4 *target, Vector4 *eye, f32 zoom, f32 shake);
 #endif
 #if !defined(HWVX_SRC_CarA)
 void CarA_Extract_Keyframes(CarA *car, void *frames);

@@ -409,7 +409,9 @@ typedef struct WorldGameData {
     f32 reverbLevel;            /* 0x24 outside reverb volumes */
     f32 reverbDelay;            /* 0x28 */
     f32 reverbFeedback;         /* 0x2C */
-    u8 pad30[0x38];             /* 0x30 music volume/pitch/tempo scales, radar map... */
+    u8 pad30[0xC];              /* 0x30 music volume/pitch/tempo scales... */
+    f32 cameraFxLead;           /* 0x3C cameraFx is kept this many seconds of car travel ahead */
+    u8 pad40[0x28];             /* 0x40 radar map... */
     f32 impactFxMinVel;         /* 0x68 car-car impact effects, by relative speed */
     f32 impactFxMaxVel;         /* 0x6C */
     u8 pad70[0xC];              /* 0x70 */
@@ -423,7 +425,8 @@ typedef struct WorldGameData {
     PTR32(char) itemPack;       /* 0xA4 name of the world's item pack (type 2) */
     u8 padA8[0x18];             /* 0xA8 */
     PTR32(GXColor) fogColor;    /* 0xC0 */
-    u8 padC4[8];                /* 0xC4 */
+    PTR32(void) cameraFx;       /* 0xC4 emitter description kept ahead of each camera (rain...) */
+    u8 padC8[4];                /* 0xC8 */
     PTR32(void) pauseInterface; /* 0xCC interface script of the pause menu */
     u8 padD0[0x20];             /* 0xD0 */
     u32 numImpactFx;            /* 0xF0 */

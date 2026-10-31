@@ -55,11 +55,6 @@ typedef struct WorldData {
 
 extern WorldData g_worldData;
 
-typedef struct CameraListener {
-  u8 pad0[0x40];
-  Vector4 pos;              /* 0x40 */
-} CameraListener;
-
 typedef struct Camera {
   PTR32(struct Player) player;    /* 0x00 */
   u8 pad4[0xC];
@@ -74,9 +69,12 @@ typedef struct Camera {
   PTR32(u32) mode;                /* 0xB4 */
   f32 modeTime;             /* 0xB8 */
   f32 trim;                 /* 0xBC */
-  u8 padC0[0x20];
+  Vector4 unkC0;            /* 0xC0 */
+  Vector4 unkD0;            /* 0xD0 */
   Vector4 lookDir;          /* 0xE0 */
-  u8 padF0[0x20];
+  u8 padF0[0x10];
+  s32 unk100;               /* 0x100 -1 when created */
+  u8 pad104[0xC];
   Vector4 springPos;        /* 0x110 */
   Vector4 springVel;        /* 0x120 */
   Vector4 rollUp;           /* 0x130 */
@@ -85,9 +83,23 @@ typedef struct Camera {
   Vector4 tiltUpVel;        /* 0x160 */
   u8 pad170[0xC];
   s32 flipTimer;            /* 0x17C */
-  PTR32(CameraListener) listener; /* 0x180 */
+  PTR32(Thing) cameraFx;    /* 0x180 the world's camera effect (WorldGameData.cameraFx), kept ahead of it */
   u8 pad184[0x190 - 0x184];
 } Camera;
+
+_Static_assert(sizeof(Camera) == 0x190, "Camera size");
+
+/* The cameras, one per viewport (g_cameraManager). */
+typedef struct CameraManager {
+  Camera cameras[4];        /* 0x000 */
+  u8 count;                 /* 0x640 */
+  u8 pad641[0xF];           /* 0x641 */
+} CameraManager;
+
+_Static_assert(offsetof(CameraManager, count) == 0x640, "CameraManager.count");
+
+extern u8 g_cameraManager[];
+#define CAMERA_MANAGER ((CameraManager *)(void *)g_cameraManager)
 
 
 

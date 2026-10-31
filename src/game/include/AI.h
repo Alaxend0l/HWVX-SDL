@@ -24,8 +24,8 @@
 
 /* g_cameraManager (CameraManager.c): Camera cameras[4], then the u8 count. */
 extern u8 g_cameraManager[];
-#define AI_CAMERA(i)    (&((Camera *)(void *)g_cameraManager)[i])
-#define AI_NUM_CAMERAS  (g_cameraManager[4 * sizeof(Camera)])
+#define AI_CAMERA(i)    (&CAMERA_MANAGER->cameras[i])
+#define AI_NUM_CAMERAS  (CAMERA_MANAGER->count)
 
 /* A queued call (AI_AddEvent, run one per frame or so by AI_ProcessEvent). */
 typedef struct AIEvent {
