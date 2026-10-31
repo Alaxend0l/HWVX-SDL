@@ -9,7 +9,7 @@
  * Here the keyboard (pad.c, Port_KeyboardKeys) is controller 1:
  * - in menus (and the pause menu): arrows move, Enter accepts (A, and Start,
  *   which "Press START" and many rows take, except in the pause menu, where
- *   Start resumes), Escape goes back (B); these go
+ *   Start resumes), Escape goes back (B), X is the X button (stats); these go
  *   into the slots (Port_KeyboardSlots, from Input_Heartbeat). Screens put
  *   up during gameplay that wait for buttons (the mission information window
  *   at the start, briefings) get the same, but Enter is A only there, as
@@ -46,8 +46,8 @@ static const struct {
     { PORT_KEY_S, 7 },          /* Stunt Flip Backward */
 };
 
-/* Slots (g_pKeyToDI): 0 Start, 2-5 left/right/up/down, 6 B, 9 A. */
-enum { SLOT_START = 0, SLOT_LEFT = 2, SLOT_RIGHT = 3, SLOT_UP = 4, SLOT_DOWN = 5, SLOT_B = 6, SLOT_A = 9 };
+/* Slots (g_pKeyToDI): 0 Start, 2-5 left/right/up/down, 6 B, 7 X, 9 A. */
+enum { SLOT_START = 0, SLOT_LEFT = 2, SLOT_RIGHT = 3, SLOT_UP = 4, SLOT_DOWN = 5, SLOT_B = 6, SLOT_X = 7, SLOT_A = 9 };
 
 #define KEY(k) (keys & (1u << (k)))
 
@@ -84,6 +84,7 @@ void Port_KeyboardSlots(VirtualPad *pad) {
         if (KEY(PORT_KEY_RIGHT)) now |= 1u << SLOT_RIGHT;
         if (KEY(PORT_KEY_ENTER)) now |= 1u << SLOT_A;
         if (KEY(PORT_KEY_ESCAPE)) now |= 1u << SLOT_B;
+        if (KEY(PORT_KEY_X)) now |= 1u << SLOT_X;   /* the X button (stats) */
     } else {
         if (KEY(PORT_KEY_UP)) now |= 1u << SLOT_UP;
         if (KEY(PORT_KEY_DOWN)) now |= 1u << SLOT_DOWN;
@@ -93,6 +94,7 @@ void Port_KeyboardSlots(VirtualPad *pad) {
          * menu, where Start resumes */
         if (KEY(PORT_KEY_ENTER)) now |= 1u << SLOT_A | (StateManager_CurrState() == 5 ? 0 : 1u << SLOT_START);
         if (KEY(PORT_KEY_ESCAPE)) now |= 1u << SLOT_B;
+        if (KEY(PORT_KEY_X)) now |= 1u << SLOT_X;   /* the X button (stats) */
     }
     released = held & ~now;
     pad->keyPress |= now & ~held;

@@ -58,7 +58,7 @@ controls (recovered from its executable, see `src/game/Port_Keyboard.c`):
 Up accelerate, Down brake/reverse, Left/Right steer, W/S stunt flip
 forward/backward, A/D strafe/stunt roll, Shift power slide, Space fire,
 Ctrl change weapon, ` (grave) change camera, Escape pause. In menus: arrows,
-Enter to accept, Escape to go back.
+Enter to accept, Escape to go back, X for the X button (stats).
 
 ## Layout
 

@@ -4158,16 +4158,34 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
             slot->scale.v.y += GETP(slot->parent)->scale.v.y;
             slot->scale.v.z += GETP(slot->parent)->scale.v.z;
         }
-        {   /* port: widescreen HUD, for this draw only (restored below) */
-            f32 shift = Port_HudShift(iface, slot);
-            if (shift != 0.0f) {
+        {   /* port: widescreen, for this draw only (restored below). In
+             * gameplay, images as wide as the 4:3 screen (the black bars
+             * that slide in for briefings, fades) stretch across the whole
+             * window, about its centre; the HUD's side elements move to the
+             * edges (Port_HudShift). */
+            f32 wx, wy, shift = 0.0f;
+            s8 stretch;
+
+            Port_ViewWiden(&wx, &wy);
+            stretch = wx > 1.0f && StateManager_CurrState() == 5 && GETP(slot->parent) == NULL &&
+                      (slot->kind == IFACE_KIND_IMAGE || slot->kind == IFACE_KIND_ANIM_IMAGE) &&
+                      slot->scale.v.x >= 639.0f;
+            if (!stretch) {
+                shift = Port_HudShift(iface, slot);
+            }
+            if (stretch || shift != 0.0f) {
                 if (!restore) {
                     restore = 1;
                     savedPos = slot->pos.v;
                     savedRot = slot->rot.v;
                     savedScale = slot->scale.v;
                 }
-                slot->pos.v.x += shift;
+                if (stretch) {
+                    slot->pos.v.x = 320.0f + (slot->pos.v.x - 320.0f) * wx;
+                    slot->scale.v.x *= wx;
+                } else {
+                    slot->pos.v.x += shift;
+                }
             }
         }
         if (GETP(slot->car) != NULL) {

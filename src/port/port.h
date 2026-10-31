@@ -161,7 +161,7 @@ int Port_AllCheats(void);
 enum {
     PORT_KEY_UP, PORT_KEY_DOWN, PORT_KEY_LEFT, PORT_KEY_RIGHT, PORT_KEY_ENTER, PORT_KEY_ESCAPE,
     PORT_KEY_SPACE, PORT_KEY_CTRL, PORT_KEY_SHIFT, PORT_KEY_A, PORT_KEY_D, PORT_KEY_W, PORT_KEY_S,
-    PORT_KEY_GRAVE,
+    PORT_KEY_GRAVE, PORT_KEY_X,
 };
 u32 Port_KeyboardKeys(void);
 /* Widescreen (gx_draw.c): how much wider (wx) and taller (wy) than 4:3 the

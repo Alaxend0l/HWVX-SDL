@@ -120,6 +120,7 @@ u32 Port_KeyboardKeys(void) {
         [PORT_KEY_SPACE] = SDL_SCANCODE_SPACE, [PORT_KEY_CTRL] = SDL_SCANCODE_LCTRL,
         [PORT_KEY_SHIFT] = SDL_SCANCODE_LSHIFT, [PORT_KEY_A] = SDL_SCANCODE_A, [PORT_KEY_D] = SDL_SCANCODE_D,
         [PORT_KEY_W] = SDL_SCANCODE_W, [PORT_KEY_S] = SDL_SCANCODE_S, [PORT_KEY_GRAVE] = SDL_SCANCODE_GRAVE,
+        [PORT_KEY_X] = SDL_SCANCODE_X,
     };
     const bool *k = SDL_GetKeyboardState(NULL);
     u32 bits = 0, i;
