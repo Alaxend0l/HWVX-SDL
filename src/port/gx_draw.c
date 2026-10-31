@@ -543,8 +543,11 @@ void GX_DrawBeginFrame(void) {
     }
 }
 
+static void CopySrcRect(int *x0, int *y0, int *x1, int *y1);
+
 /* Movie frames (thp.c): an RGBA image, top row first, stretched over the
- * whole EFB. Texture bindings and the scissor are reapplied by the next draw. */
+ * display copy source. Texture bindings and the scissor are reapplied by the
+ * next draw. */
 void GX_PortDrawImage(const u8 *rgba, int width, int height) {
     static GLuint tex, readFbo;
     static int texW, texH;
@@ -569,10 +572,30 @@ void GX_PortDrawImage(const u8 *rgba, int width, int height) {
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, readFbo);
     glBindFramebuffer(0x8CA9 /* GL_DRAW_FRAMEBUFFER */, s.fbo);
-    /* image rows are top-down, GL's bottom-up: flip while copying */
-    glBlitFramebuffer(0, 0, width, height, 0, s.efbH, s.efbW, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    /* into the display copy source; image rows are top-down, GL's
+     * bottom-up: flip while copying */
+    {
+        int x0, y0, x1, y1;
+        CopySrcRect(&x0, &y0, &x1, &y1);
+        glBlitFramebuffer(0, 0, width, height, x0, y1, x1, y0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
     GX_DrawCopyDisp(0);   /* movies never call GXCopyDisp: copy to the window here */
+}
+
+/* The display copy source in GL framebuffer pixels (bottom-up rows). */
+static void CopySrcRect(int *x0, int *y0, int *x1, int *y1) {
+    const u16 *r = g_gx.dispCopySrc;
+    f32 sx = s.efbW / 640.0f, sy = s.efbH / 480.0f;
+
+    if (r[2] == 0 || r[3] == 0) {
+        *x0 = 0; *y0 = 0; *x1 = s.efbW; *y1 = s.efbH;
+        return;
+    }
+    *x0 = (int)(r[0] * sx);
+    *x1 = (int)((r[0] + r[2]) * sx);
+    *y1 = s.efbH - (int)(r[1] * sy);
+    *y0 = s.efbH - (int)((r[1] + r[3]) * sy);
 }
 
 /* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp. */
@@ -629,8 +652,15 @@ void GX_DrawCopyDisp(int clear) {
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, s.fbo);
-    glBlitFramebuffer(0, 0, s.efbW, s.efbH, (w - dw) / 2, (h - dh) / 2, (w - dw) / 2 + dw, (h - dh) / 2 + dh,
-                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    {
+        /* the copy source (GXSetDispCopySrc, 448 lines after the original's
+         * overscan adjustment), stretched to the 4:3 area; GL rows are
+         * bottom-up, GX rows top-down */
+        int x0, y0, x1, y1;
+        CopySrcRect(&x0, &y0, &x1, &y1);
+        glBlitFramebuffer(x0, y0, x1, y1, (w - dw) / 2, (h - dh) / 2, (w - dw) / 2 + dw, (h - dh) / 2 + dh,
+                          GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     DumpEFB();
     if (clear) {

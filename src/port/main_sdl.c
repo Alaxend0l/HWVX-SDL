@@ -19,8 +19,12 @@ void *g_frameBuffer1;
 void *g_frameBuffer2;
 void *g_currentBuffer;
 
-/* GXNtsc480IntDf, the mode the original picks for an NTSC console
- * (InitRenderMode in Main_NGC.c). Layout of GXRenderModeObj, 0x3C bytes. */
+/* GXNtsc480IntDf as the original uses it: InitRenderMode (Main_NGC.c) passes
+ * it through GXAdjustForOverscan(rmode, rmodeobj, 0, 16), which trims 16
+ * lines top and bottom: a 448-line EFB and XFB, shown 16 lines down. The game
+ * draws its windows into those 448 lines (Render_.c: 0.93333334 = 448 / 480);
+ * GX_DrawCopyDisp stretches them to the window, as the TV's overscan hid the
+ * border. Layout of GXRenderModeObj, 0x3C bytes. */
 static struct {
     u32 viTVmode;
     u16 fbWidth, efbHeight, xfbHeight;
@@ -30,7 +34,7 @@ static struct {
     u8 sample_pattern[12][2];
     u8 vfilter[7];
 } s_renderMode = {
-    0, 640, 480, 480, 40, 0, 640, 480, 1, 0, 0,
+    0, 640, 448, 448, 40, 16, 640, 448, 1, 0, 0,
     { {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6},
       {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6}, {6, 6} },
     { 0, 0, 21, 22, 21, 0, 0 },

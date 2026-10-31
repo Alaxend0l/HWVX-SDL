@@ -86,6 +86,7 @@ typedef struct GXState {
 
     GXColor clearColor;
     u32 clearZ;
+    u16 dispCopySrc[4];   /* GXSetDispCopySrc: left, top, width, height (0 width: whole EFB) */
 } GXState;
 
 extern GXState g_gx;

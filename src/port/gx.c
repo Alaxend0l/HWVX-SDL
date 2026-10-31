@@ -83,7 +83,12 @@ void GXSetCopyClear(GXColor clearColor, u32 clearZ) {
 void GXSetCopyFilter(u8 aa, const u8 samplePattern[12][2], u8 vf, const u8 vfilter[7]) {
     (void)aa; (void)samplePattern; (void)vf; (void)vfilter;
 }
-void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht) { (void)left; (void)top; (void)wd; (void)ht; }
+void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht) {
+    g_gx.dispCopySrc[0] = left;
+    g_gx.dispCopySrc[1] = top;
+    g_gx.dispCopySrc[2] = wd;
+    g_gx.dispCopySrc[3] = ht;
+}
 void GXSetDispCopyDst(u16 wd, u16 ht) { (void)wd; (void)ht; }
 f32 GXSetDispCopyYScale(f32 vscale) { (void)vscale; return 480.0f; }
 void GXSetDispCopyGamma(int gamma) { (void)gamma; }
