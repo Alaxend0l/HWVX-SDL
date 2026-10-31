@@ -20,16 +20,7 @@
 #define AI_PLAYER(ai) ((struct Player *)(void *)(ai))
 
 /* Control bytes of the Player header that CarA.h's Player doesn't name yet. */
-#define PLAYER_BUTTON11(p)   (((u8 *)(p))[0x11])  /* weapon switch (buttonsHeld & 2) */
-#define PLAYER_BUTTON1B(p)   (((u8 *)(p))[0x1B])  /* fire (buttonsHeld & 0x800); creatures: attack */
-#define PLAYER_BUTTON1C(p)   (((u8 *)(p))[0x1C])  /* cleared by AI_Heartbeat */
-#define PLAYER_STICK2X(p)    (((s8 *)(p))[0x02])  /* second stick (Looker: move) */
-#define PLAYER_STICK2Y(p)    (((s8 *)(p))[0x03])
 /* AI creatures steer by heading instead of stickX when Player.flags & 0x100: */
-#define PLAYER_AI_HEADING(p) (*(f32 *)((u8 *)(p) + 0x04))  /* radians */
-#define PLAYER_AI_SPEED(p)   (*(f32 *)((u8 *)(p) + 0x08))  /* animation speed scale */
-#define PLAYER_TYPE(p)       (*(u32 *)((u8 *)(p) + 0x38))  /* 9: car driver */
-#define PLAYER_FLAG_AI_HEADING 0x100
 
 /* g_cameraManager (CameraManager.c): Camera cameras[4], then the u8 count. */
 extern u8 g_cameraManager[];
@@ -173,8 +164,9 @@ typedef struct AICarScript {
     f32 speed;                         /* 0x0C cruising speed (AICar.speedLimit) */
     u8 pad10[4];                       /* 0x10 */
     f32 reloadScale[2];                /* 0x14 RandomAdd(base, range) times the weapon reload */
-    u8 pad1C[0xA];                     /* 0x1C */
-    u8 preferredWeapon;                /* 0x26 AIWeaponInfo.priority it prefers */
+    f32 damageScale;                   /* 0x1C car-car bumper hits */
+    u8 pad20[6];                       /* 0x20 */
+    u8 preferredWeapon;                /* 0x26 WeaponInfo.priority it prefers */
     u8 pad27;                          /* 0x27 */
     AIStateNode root;                  /* 0x28 */
 } AICarScript;
@@ -206,22 +198,7 @@ typedef struct AIScriptSet {
 
 /* TileCar (the world tile an AI car spawns from) is in World.h. */
 
-/* A weapon's AI parameters (ItemRecord.weapon). */
-typedef struct AIWeaponInfo {
-    u8 pad00[0x20];                    /* 0x00 */
-    s32 ammo;                          /* 0x20 picked up with the item */
-    u32 minAmmo;                       /* 0x24 not used with less */
-    u32 maxAmmo;                       /* 0x28 */
-    u8 pad2C[4];                       /* 0x2C */
-    u32 reloadTime;                    /* 0x30 ms */
-    u8 priority;                       /* 0x34 */
-    u8 pad35[3];                       /* 0x35 */
-    f32 minRange;                      /* 0x38 */
-    f32 maxRange;                      /* 0x3C */
-    f32 aimAngle;                      /* 0x40 degrees */
-    f32 farAngle;                      /* 0x44 aim tolerance at maxRange */
-    f32 nearAngle;                     /* 0x48 aim tolerance at minRange */
-} AIWeaponInfo;
+/* WeaponInfo (ItemRecord.weapon) is in ItemThing.h. */
 
 /* A weapon slot of a car's wildcard rack (the slave thing of type 8). */
 typedef struct AIWeaponSlot {
@@ -238,9 +215,6 @@ typedef struct AIWeaponRack {
     u8 current;                        /* 0x470 selected slot */
 } AIWeaponRack;
 
-/* ItemRecord fields the AI reads that ItemThing.h doesn't name. */
-#define AI_ITEM_WEAPON(rec) ((AIWeaponInfo *)GETP((rec)->weapon))
-#define AI_ITEM_NAME(rec)   (*(PTR32(PTR32(char)) *)((u8 *)(rec) + 0x20))  /* string table */
 
 /* A car's AI player (0x670 bytes, PlayerMgr cars[]). */
 typedef struct AICar {
@@ -371,8 +345,6 @@ AI_ASSERT(TileCar, dynamic, 0x34);
 AI_ASSERT(TileCar, nearDist, 0x38);
 AI_ASSERT(TileCar, item, 0x54);
 AI_ASSERT(TileCar, respawn, 0x5C);
-AI_ASSERT(AIWeaponInfo, reloadTime, 0x30);
-AI_ASSERT(AIWeaponInfo, nearAngle, 0x48);
 AI_ASSERT(AIWeaponSlot, record, 0x4C);
 AI_ASSERT(AIWeaponRack, current, 0x470);
 AI_ASSERT(AICar, slots, 0xD4);

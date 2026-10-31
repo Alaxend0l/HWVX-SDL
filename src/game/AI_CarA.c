@@ -216,7 +216,7 @@ void AI_Car_AsyncProcess(void) {
             if (GETP(tile->item) != NULL) {
                 rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
                 WildCardRack_JettisonAll(rack);
-                WildCardRack_Add(rack, (u8 *)GETP(tile->item), AI_ITEM_WEAPON(GETP(tile->item))->ammo);
+                WildCardRack_Add(rack, (u8 *)GETP(tile->item), GETP((GETP(tile->item))->weapon)->ammo);
             }
             action[0] = tile->mode;
             action[1] = 1;
@@ -574,13 +574,13 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(AICar *ai) {
     Thing *thing;
     CarA *car;
     AIWeaponRack *holder;
-    AIWeaponInfo *params;
+    WeaponInfo *params;
     s16 i;
     s8 lowHealth;
     s16 best;
     s16 preferred;
     AIWeaponSlot *slot;
-    AIWeaponInfo *reload;
+    WeaponInfo *reload;
     ItemRecord *def;
     Vector4 *targetPos;
     f32 nearest;
@@ -645,7 +645,7 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(AICar *ai) {
             if (slot == NULL || GETP(slot->record) == NULL) {
                 continue;
             }
-            params = AI_ITEM_WEAPON(GETP(slot->record));
+            params = GETP((GETP(slot->record))->weapon);
             if (slot->ammo < params->minAmmo) {
                 continue;
             }
@@ -666,7 +666,7 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(AICar *ai) {
                 continue;
             }
             if (best != -1 && params->priority != script->preferredWeapon &&
-                AI_ITEM_WEAPON(GETP(holder->slots[best].record))->priority <= params->priority) {
+                GETP((GETP(holder->slots[best].record))->weapon)->priority <= params->priority) {
                 continue;
             }
             if ((params->maxRange || params->minRange) &&
@@ -690,20 +690,20 @@ static void AI_Car_WeaponAsyncHeartbeat_80008210(AICar *ai) {
         if (holder->current == best) {
             def = GETP(holder->slots[best].record);
             if (g_attackDelay == 0 || RandomAdd_s32(0, 50) == 0 || def->type != 3 ||
-                strcmp(GETP(GETP(AI_ITEM_NAME(def))[0]), g_jetBoostersName_800CC3E4) == 0) {
-                PLAYER_BUTTON1B(pl) = 0xFF;
+                strcmp(GETP(GETP((def)->names)[0]), g_jetBoostersName_800CC3E4) == 0) {
+                ((Player *)(pl))->buttonFire = 0xFF;
                 pl->buttonsHeld |= 0x800;
             }
         } else if (best != -1 && ai->weaponSwitchTimer == 0) {
-            PLAYER_BUTTON11(pl) = 0xFF;
+            ((Player *)(pl))->buttonSwitch = 0xFF;
             pl->buttonsHeld |= 2;
             ai->weaponSwitchTimer = 3000;
         }
         reload = NULL;
         if (best != -1) {
-            reload = AI_ITEM_WEAPON(GETP(holder->slots[best].record));
+            reload = GETP((GETP(holder->slots[best].record))->weapon);
         } else if (GETP(holder->slots[holder->current].record) != NULL) {
-            reload = AI_ITEM_WEAPON(GETP(holder->slots[holder->current].record));
+            reload = GETP((GETP(holder->slots[holder->current].record))->weapon);
         }
         if (reload != NULL) {
             ai->weaponTimer = (f32)reload->reloadTime * RandomAdd(script->reloadScale[0], script->reloadScale[1]);
@@ -823,7 +823,7 @@ static void AI_Car_Cheat_80008A60(AICar *ai) {
     holder = ThingManagerList_GetByType(&car->motionState.slaves, 8);
     for (i = 0; i < 12; i++) {
         if (GETP(holder->slots[i].record) != NULL && GETP(holder->slots[i].record)->type == 3) {
-            holder->slots[i].ammo = AI_ITEM_WEAPON(GETP(holder->slots[i].record))->maxAmmo;
+            holder->slots[i].ammo = GETP((GETP(holder->slots[i].record))->weapon)->maxAmmo;
         }
     }
     best = 1e9f;
@@ -831,7 +831,7 @@ static void AI_Car_Cheat_80008A60(AICar *ai) {
     cam = AI_CAMERA(0);
     for (j = 0; j < AI_NUM_CAMERAS; cam++, j++) {
         nearest = GETP(cam->player);
-        if (nearest != NULL && GETP(nearest->vehicle) != NULL && PLAYER_TYPE(nearest) == 9) {
+        if (nearest != NULL && GETP(nearest->vehicle) != NULL && ((Player *)(nearest))->type == 9) {
             dist = PSVECSquareDistance(pos, &cam->pos);
             if (best > dist) {
                 best = dist;
@@ -899,7 +899,7 @@ void AI_Car_AsyncHeartbeat(AICar *ai) {
     }
     AI_AsyncHeartbeat(&ai->base);
     if (ai->base.reset || AI_Car_Vehicle(ai) == NULL) {
-        PLAYER_BUTTON1B(ai) = 0xFF;
+        ((Player *)(ai))->buttonFire = 0xFF;
         return;
     }
     if (ai->base.state != AI_STATE_STATIC) {
@@ -1136,7 +1136,7 @@ s32 AI_Car_CheckLocalStats(AICar *ai, AIStateInfo *info) {
         holder = ThingManagerList_GetByType(&car->motionState.slaves, 8);
         for (i = 0; holder != NULL && i < 12; i++) {
             if (GETP(holder->slots[i].record) != NULL && GETP(holder->slots[i].record)->type == 3 &&
-                holder->slots[i].ammo > AI_ITEM_WEAPON(GETP(holder->slots[i].record))->minAmmo) {
+                holder->slots[i].ammo > GETP((GETP(holder->slots[i].record))->weapon)->minAmmo) {
                 count++;
             }
         }
@@ -1197,7 +1197,7 @@ s8 AI_Car_DetermineTarget(AICar *ai, AIStateSlot *branch, u8 level) {
     CarA *car;
     u16 count;
     Candidate *best;
-#define AI_Car_CandidateWeapon(cand) AI_ITEM_WEAPON(GETP(((ItemThing *)GETP((cand)->thing))->record))
+#define AI_Car_CandidateWeapon(cand) GETP(GETP(((ItemThing *)GETP((cand)->thing))->record)->weapon)
 
     def = GETP(branch->info);
     car = AI_Car_Vehicle(ai);
@@ -1425,11 +1425,11 @@ s8 AI_Car_DetermineTarget(AICar *ai, AIStateSlot *branch, u8 level) {
                     closest = NULL;
                     for (j = 1; j < count; j++) {
                         ItemRecord *info = GETP(((ItemThing *)GETP(cands[j].thing))->record);
-                        AIWeaponInfo *owner;
+                        WeaponInfo *owner;
 
                         switch (info->type) {
                         case ITEM_TYPE_WILDCARD:
-                            owner = AI_ITEM_WEAPON(info);
+                            owner = GETP((info)->weapon);
                             if (owner != NULL) {
                                 if (closest != NULL) {
                                     if (owner->priority == AI_Car_Script(ai)->preferredWeapon && cands[j].dist < closest->dist) {

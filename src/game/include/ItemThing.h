@@ -11,18 +11,39 @@ enum {
     ITEM_TYPE_CARRIED = 7,      /* follows its carrier's nav point */
 };
 
+/* A weapon's description (ItemRecord.weapon): ammo and how the AI uses it. */
+typedef struct WeaponInfo {
+    u8 pad00[0x20];             /* 0x00 */
+    s32 ammo;                   /* 0x20 picked up with the item */
+    u32 minAmmo;                /* 0x24 the AI doesn't use it with less */
+    u32 maxAmmo;                /* 0x28 */
+    u8 pad2C[4];                /* 0x2C */
+    u32 reloadTime;             /* 0x30 ms */
+    u8 priority;                /* 0x34 */
+    u8 pad35[3];                /* 0x35 */
+    f32 minRange;               /* 0x38 */
+    f32 maxRange;               /* 0x3C */
+    f32 aimAngle;               /* 0x40 degrees */
+    f32 farAngle;               /* 0x44 aim tolerance at maxRange */
+    f32 nearAngle;              /* 0x48 aim tolerance at minRange */
+} WeaponInfo;
+
 /* The item's description in the data pack. */
 typedef struct ItemRecord {
     u8 type;                    /* 0x00 ITEM_TYPE_* */
-    u8 pad01[0xB];              /* 0x01 */
+    u8 pad01;                   /* 0x01 */
+    u16 value;                  /* 0x02 points, or the car's pickup slave set */
+    u8 pad04[8];                /* 0x04 */
     f32 radius;                 /* 0x0C pickup radius */
-    u8 pad10[8];                /* 0x10 */
+    f32 height;                 /* 0x10 spawned this high above its point */
+    u8 pad14[4];                /* 0x14 */
     f32 spinMin;                /* 0x18 random spin speed range, degrees */
     f32 spinMax;                /* 0x1C */
-    u8 pad20[4];                /* 0x20 */
+    PTR32(PTR32(char)) names;   /* 0x20 name string table ([0]: the weapon name) */
     u32 pickupDebris;           /* 0x24 effect spawned when picked up, 0: none */
-    u8 pad28[8];                /* 0x28 */
-    PTR32(u8) weapon;           /* 0x30 weapon info: s32 ammo at 0x20 */
+    u32 spawnDebris;            /* 0x28 effect spawned when it appears, 0: none */
+    u8 pad2C[4];                /* 0x2C */
+    PTR32(WeaponInfo) weapon;   /* 0x30 */
     u8 pad34[4];                /* 0x34 */
     u8 sharedSlaves[4];         /* 0x38 Thing_DrawSharedSlaves triggers */
 } ItemRecord;
@@ -63,7 +84,12 @@ _Static_assert(offsetof(ItemThing, navPoint) == 0xD4, "ItemThing.navPoint");
 _Static_assert(offsetof(ItemThing, unkE0) == 0xE0, "ItemThing.unkE0");
 _Static_assert(offsetof(ItemThing, pickupRadiusSq) == 0xE8, "ItemThing.pickupRadiusSq");
 _Static_assert(sizeof(ItemThing) == 0xF0, "ItemThing size");
+_Static_assert(offsetof(ItemRecord, height) == 0x10, "ItemRecord.height");
+_Static_assert(offsetof(ItemRecord, names) == 0x20, "ItemRecord.names");
 _Static_assert(offsetof(ItemRecord, pickupDebris) == 0x24, "ItemRecord.pickupDebris");
+_Static_assert(offsetof(ItemRecord, weapon) == 0x30, "ItemRecord.weapon");
+_Static_assert(offsetof(WeaponInfo, ammo) == 0x20, "WeaponInfo.ammo");
+_Static_assert(offsetof(WeaponInfo, nearAngle) == 0x48, "WeaponInfo.nearAngle");
 _Static_assert(offsetof(ItemRecord, sharedSlaves) == 0x38, "ItemRecord.sharedSlaves");
 _Static_assert(offsetof(ItemParams, drawDist) == 0x34, "ItemParams.drawDist");
 

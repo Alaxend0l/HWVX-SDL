@@ -167,7 +167,7 @@ s32 Projectile_Init(struct Projectile *proj, struct ProjectileParams *params) {
         vn = info->recoil * vn / (invMassB + invMassA + PSVECDotProduct(&sum, &thing->axis[2]));
         THING_VFN(src, THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(Thing *, CollisionInfo *, s32, f32))(src, &hit, 0, -vn);
         if (GETP(src->player) != NULL) {
-            *(s32 *)((u8 *)GETP(src->player) + 0x8C) += thing->damage;  /* Player 0x8C: damage dealt */
+            ((Player *)GETP(src->player))->damageDealt += thing->damage;
         }
     }
     SETP(thing->vtable, g_projectileVTable);

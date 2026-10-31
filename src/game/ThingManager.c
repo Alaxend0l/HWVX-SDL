@@ -1,6 +1,7 @@
 /* ThingManager: the thing pools and lists (ThingManager.h), slaves, the
  * per-frame move/collide loop, rendering, and object queries (rays, boxes). */
 #include "common.h"
+#include "AI.h"
 #include "CarA.h"
 #include "World.h"
 #include "ThingManager.h"
@@ -568,14 +569,8 @@ typedef struct CarAEngineImpact {
     f32 damageScale;            /* 0x5C car-car bumper hits */
 } CarAEngineImpact;
 
-/* An AI player's script (Player.healthScale, 0xD0). */
-typedef struct AIScriptImpact {
-    u8 pad0[0x1C];
-    f32 damageScale;            /* 0x1C */
-} AIScriptImpact;
-
 #define CAR_ENGINE_IMPACT(car) ((CarAEngineImpact *)GETP(GETP((car)->vehicleIface)->engine))
-#define AI_DAMAGE_SCALE(player) (((AIScriptImpact *)GETP(((Player *)(player))->healthScale))->damageScale)
+#define AI_DAMAGE_SCALE(player) (GETP(((Player *)(player))->aiScript)->damageScale)
 
 #define VFN_GET_MASS(t) THING_VFN(t, THING_V_GET_MASS, f32 (*)(Thing *))(t)
 #define VFN_GET_PHYS(t) THING_VFN(t, THING_V_GET_SURFACE_SCRIPT, MovePhys *(*)(Thing *))(t)

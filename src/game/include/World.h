@@ -291,8 +291,6 @@ WORLD_ASSERT(QuadItem, spawned, 0x38);
 _Static_assert(sizeof(QuadItem) == 0x40, "QuadItem size");
 
 /* ItemRecord fields ItemThing.h doesn't name yet. */
-#define ITEMRECORD_HEIGHT(rec) (*(f32 *)((u8 *)(rec) + 0x10))   /* spawned this high above the point */
-#define ITEMRECORD_SPAWN_DEBRIS(rec) (*(u32 *)((u8 *)(rec) + 0x28))  /* effect when it spawns, 0: none */
 
 /* The objects of a quadrant. */
 typedef struct QuadContents {

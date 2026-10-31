@@ -1,4 +1,5 @@
 #include "CarA.h"
+#include "AI.h"
 #include "common.h"
 
 
@@ -1027,7 +1028,7 @@ s32 CarA_Move(void *thing) {
     if (slave != NULL) {
         slave->fraction = (f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
         if (GETP(car->base.player) != NULL && !Player_IsHuman(GETP(car->base.player))) {
-            slave->fraction /= *GETP(CARA_PLAYER(car)->healthScale);
+            slave->fraction /= GETP(CARA_PLAYER(car)->aiScript)->healthScale;
         }
         if (slave->fraction > 1.0f) {
             slave->fraction = 1.0f;
@@ -2228,15 +2229,6 @@ f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDis
    whether it was taken. */
 s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
     /* ItemRecord fields ItemThing.h doesn't name yet */
-    typedef struct PickupDef {
-        u8 type;
-        u8 pad1;
-        u16 value;
-        u8 pad4[0x10 - 0x4];
-        f32 height;
-        u8 pad14[0x20 - 0x14];
-        u32 id;
-    } PickupDef;
     /* the FileStreaming QuadItem an item respawns from (ItemThing.spawner) */
     typedef struct PickupSpawner {
         u8 pad0[0x14];
@@ -2288,14 +2280,14 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
     PickupRack *wcRack;
     u32 points;
     ItemThing *item = thing;
-    PickupDef *def = (PickupDef *)GETP(item->record);
+    ItemRecord *def = GETP(item->record);
     PickupSpawner *spawner;
     u32 i;
     s16 ammo;
 
     picked = 0;
     Trigger_ItemPickedUp(car, item);
-    car->pickupId = def->id;
+    car->pickupId = def->names.h;
     switch (def->type) {
     case 1:
     case 2:

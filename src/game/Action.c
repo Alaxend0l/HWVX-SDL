@@ -486,19 +486,19 @@ s32 ActionSwapAIScript(u32 *action) {
         tile->scripts[3] = action[3];
         car = GETP(tile->car);
         if (car != NULL) {
-            /* Player.healthScale (0xD0) is the AI player's script */
+            /* Player.aiScript: the AI's script for each difficulty */
             switch (GameSettings_GetDifficulty()) {
             case 0:
-                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[0];
+                ((Player *)GETP(((Thing *)car)->player))->aiScript.h = action[0];
                 break;
             case 1:
-                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[1];
+                ((Player *)GETP(((Thing *)car)->player))->aiScript.h = action[1];
                 break;
             case 2:
-                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[2];
+                ((Player *)GETP(((Thing *)car)->player))->aiScript.h = action[2];
                 break;
             case 3:
-                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[3];
+                ((Player *)GETP(((Thing *)car)->player))->aiScript.h = action[3];
                 break;
             }
             /* as in the original: the address of the car's player field */
@@ -588,7 +588,7 @@ s32 ActionVehicleGiveItem(void *arg) {
         if (GETP(item->thing) == NULL) {
             item->timer = 0;
             params.pos = item->pos;
-            params.pos.y += ITEMRECORD_HEIGHT(GETP(item->record));
+            params.pos.y += (GETP(item->record))->height;
             params.vel.x = 0.0f;
             params.vel.y = 0.0f;
             params.vel.z = 0.0f;
@@ -608,8 +608,8 @@ s32 ActionVehicleGiveItem(void *arg) {
                 if (item->respawn != 0) {
                     SETP(t->spawner, item);
                 }
-                if (ITEMRECORD_SPAWN_DEBRIS(GETP(item->record)) != 0) {
-                    p.debris = ITEMRECORD_SPAWN_DEBRIS(GETP(item->record));
+                if ((GETP(item->record))->spawnDebris != 0) {
+                    p.debris = (GETP(item->record))->spawnDebris;
                     p.pos = item->pos;
                     p.quat = params.quat;
                     p.vel.z = 0.0f;
@@ -640,7 +640,7 @@ s32 ActionVehicleGiveItem(void *arg) {
         }
         if (info != NULL) {
             params2.pos = g_zeroVector;
-            params2.pos.y += ITEMRECORD_HEIGHT(info);
+            params2.pos.y += (info)->height;
             params2.vel.x = 0.0f;
             params2.vel.y = 0.0f;
             params2.vel.z = 0.0f;

@@ -171,7 +171,7 @@ s32 AI_Heartbeat(AIPlayer *ai) {
     if (!Player_AIControlReader((s8 *)ai)) {
         return 0;
     }
-    PLAYER_BUTTON1C(ai) = 0;
+    ((Player *)(ai))->control1C = 0;
     if (ai->state != AI_STATE_OFF && GETP(AI_PLAYER(ai)->vehicle) == NULL) {
         ai->reset = 1;
     }

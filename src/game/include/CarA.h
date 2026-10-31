@@ -46,44 +46,71 @@ _Static_assert(sizeof(MotionState) == 0x38, "MotionState size");
 typedef struct Player {
   s8 stickX;                /* 0x00 */
   s8 stickY;                /* 0x01 */
-  u8 pad02[0xA];            /* 0x02 */
+  s8 stick2X;               /* 0x02 second stick (Looker: move) */
+  s8 stick2Y;               /* 0x03 */
+  f32 aiHeading;            /* 0x04 radians; creatures use it when flags & PLAYER_FLAG_AI_HEADING */
+  f32 aiSpeed;              /* 0x08 animation speed scale, likewise */
   u32 buttonsHeld;          /* 0x0C & 4: turbo button */
   u8 button10;              /* 0x10 */
-  u8 pad11;                 /* 0x11 */
+  u8 buttonSwitch;          /* 0x11 weapon switch (buttonsHeld & 2) */
   u8 throttle;              /* 0x12 */
   u8 brake;                 /* 0x13 */
   u8 button14;              /* 0x14 */
   u8 button15;              /* 0x15 */
   u8 pad16[4];              /* 0x16 */
   u8 button1A;              /* 0x1A */
-  u8 pad1B[0x11];           /* 0x1B */
+  u8 buttonFire;            /* 0x1B fire (buttonsHeld & 0x800); creatures: attack */
+  u8 control1C;             /* 0x1C cleared by AI_Heartbeat */
+  u8 pad1D[0xF];            /* 0x1D */
   PTR32(void) vehicle;            /* 0x2C the Thing the player drives */
   u8 pad30;                 /* 0x30 */
   u8 cameraIndex;           /* 0x31 passed to the vehicle's getCameraInfo */
   u8 combo;                 /* 0x32 pending combo/cheat action, run by CarA_ExecuteCombo */
-  u8 pad33[9];              /* 0x33 */
+  u8 pad33[5];              /* 0x33 */
+  u32 type;                 /* 0x38 PLAYER_TYPE_* */
   PTR32(void) aiScripts;          /* 0x3C AI players: the tile car's script table */
   u8 pad40[0x20];           /* 0x40 */
   u32 port;                 /* 0x60 human players: controller port, 1-based */
   u32 view;                 /* 0x64 viewport, 1-based */
-  u8 pad68[4];              /* 0x68 */
+  u32 interfaceIndex;       /* 0x68 its HUD interface */
   u32 flags;                /* 0x6C & 0x80 cleared every camera update */
   u8 pad70;                 /* 0x70 */
   u8 stuntScored;           /* 0x71 set when a landed stunt scores */
   u8 pad72[6];              /* 0x72 */
   s32 kills;                /* 0x78 */
   u32 stuntPoints;          /* 0x7C capped at 99999 */
-  u8 pad80[0x28];           /* 0x80 */
+  u8 pad80[0xC];            /* 0x80 */
+  s32 damageDealt;          /* 0x8C */
+  u8 pad90[4];              /* 0x90 */
+  u16 counters[8];          /* 0x94 pod: creatures collected, by type */
+  u8 countersChanged;       /* 0xA4 */
+  u8 padA5[3];              /* 0xA5 */
   PTR32(void) tileCar;            /* 0xA8 the world tile car it was spawned from */
   s16 deathNavPoint;        /* 0xAC */
   s16 respawnNavPoint;      /* 0xAE */
   u8 padB0[0x18];           /* 0xB0 */
   s32 wheelChannel;         /* 0xC8 force-feedback wheel channel */
   u8 padCC[4];              /* 0xCC */
-  PTR32(f32) healthScale;         /* 0xD0 AI players: divides the health-bar fraction */
+  PTR32(struct AICarScript) aiScript; /* 0xD0 AI players: the script driving it (AI.h) */
   u8 padD4[0x40];           /* 0xD4 */
   PTR32(char) stuntScoreText;     /* 0x114 */
 } Player;
+
+enum {
+  PLAYER_TYPE_CAR = 9,      /* Player.type: drives a car */
+};
+#define PLAYER_FLAG_AI_HEADING 0x100  /* Player.flags: creatures steer by aiHeading/aiSpeed */
+
+_Static_assert(offsetof(Player, aiHeading) == 0x04, "Player.aiHeading");
+_Static_assert(offsetof(Player, buttonFire) == 0x1B, "Player.buttonFire");
+_Static_assert(offsetof(Player, vehicle) == 0x2C, "Player.vehicle");
+_Static_assert(offsetof(Player, type) == 0x38, "Player.type");
+_Static_assert(offsetof(Player, interfaceIndex) == 0x68, "Player.interfaceIndex");
+_Static_assert(offsetof(Player, damageDealt) == 0x8C, "Player.damageDealt");
+_Static_assert(offsetof(Player, counters) == 0x94, "Player.counters");
+_Static_assert(offsetof(Player, tileCar) == 0xA8, "Player.tileCar");
+_Static_assert(offsetof(Player, aiScript) == 0xD0, "Player.aiScript");
+_Static_assert(offsetof(Player, stuntScoreText) == 0x114, "Player.stuntScoreText");
 
 /* A camera mode a vehicle hands out (GETP(CameraInfo.subMode)); the cars'
  * CarACameras entries (12 bytes) start like this. */

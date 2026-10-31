@@ -577,43 +577,9 @@ typedef struct DataPack {
   DataPackRef refs[2];     /* 0x68 */
   u32 soundDataSize;       /* 0x90 */
 } DataPack;
-typedef struct GRTrigger {
-  u8 unk0;
-  u8 unk1;
-  u8 type;
-  u8 unk3;
-  s32 unk4;
-  f32 time;
-} GRTrigger;
 
-typedef struct GRElem {
-  u8 unk0[0x28];
-  u32 unk28;
-  u32 unk2C;
-  u32 unk30;
-  u32 unk34;
-  u8 unk38;
-  u8 unk39;
-  u8 unk3A[6];
-} GRElem;
 
-typedef struct GRElemB {
-  u8 unk0[0x30];
-  u32 unk30;
-  u8 unk34[2];
-  u8 unk36;
-  u8 unk37[9];
-} GRElemB;
 
-typedef struct GRSub {
-  u32 unk0;
-  u32 numB;
-  PTR32(GRElemB) b;
-  u32 numA;
-  PTR32(GRElem) a;
-  u32 numC;
-  PTR32(GRElem) c;
-} GRSub;
 typedef struct {
   PTR32(char) name;
   s32 id;
@@ -684,25 +650,6 @@ typedef struct PodPartList {
   u32 count;
   PTR32(PodPart) parts;
 } PodPartList;
-typedef struct GRZone {
-  u8 unk0[0x30];
-  PTR32(GRSub) sub;
-  u8 unk34[0x1C];
-} GRZone;
-typedef struct StuntParams {
-  f32 pitchRate;
-  f32 rollRate;
-  f32 spinRate;
-  f32 maxTime;
-  u8 pad10[8];
-  f32 pitchScore;
-  f32 rollScore;
-  u8 pad20[8];
-  s32 minTime;
-  f32 scoreMax;
-  u8 pad30[0x24];
-  f32 spinScore;
-} StuntParams;
 typedef struct {
   Vector4 pos;
   Vector4 quat;
@@ -713,14 +660,6 @@ typedef struct {
   f32 unk48;
   f32 unk4C;
 } FxParams;
-typedef struct GRWorld {
-  u8 unk0[0x20];
-  u32 numZones;
-  PTR32(GRZone) zones;
-  u8 unk28[0x28];
-  u32 numTriggers;
-  PTR32(PTR32(GRTrigger)) triggers;
-} GRWorld;
 typedef struct SpawnPoint {
   Vector4 pos;
   f32 rotX;
@@ -930,11 +869,6 @@ typedef struct {
   f32 time;
   PTR32(TimerDef) def;
 } Timer;
-typedef struct {
-  u8 unk0[0x50];
-  u32 numTimers;
-  PTR32(PTR32(Timer)) timers;
-} TimerWorld;
 typedef struct Quad {
   u8 pad0[0x1C];
   PTR32(void) bsp;
@@ -1045,22 +979,6 @@ typedef struct {
   PTR32(u32) numBones;            /* 0x14 bone count, the key frames an animation extracts */
   u32 slaves[2];
 } Model;
-typedef struct {
-  Vector4 pos;
-  Vector4 quat;
-  u8 pad20[4];
-  PTR32(Model) model;
-  f32 dist;
-  u8 pad2C[8];
-  u8 useDist;
-  u8 pad35[7];
-  f32 radius;
-} Instance;
-typedef struct {
-  u32 pad0;
-  u32 count;
-  PTR32(Instance) instances;
-} InstanceList;
 typedef struct {
   u8 pad0[0x10];
   f32 mtx[3][4];
