@@ -1488,7 +1488,7 @@ s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
         other = (ThingHeader *)PTR(results[i].id);
         if (!(other->flags & 2) && other != g_pNoRayCollideThing &&
             SegmentVsSphere(other->unk40, start, &end, other->unk70)) {
-            hit = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, ((u8 *)GETP(other->vtable) + 0x38))))(other, start, dir, info, best);
+            hit = THING_VFN(other, THING_V_COLLIDE_WITH_RAY, f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))(other, start, dir, info, best);
             if (hit < *t) {
                 best = hit;
             }
@@ -1611,13 +1611,13 @@ s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s
     count = Grid_GetObjects(&min, &max, 4, results, 0x100);
     for (i = 0; i < count; i++) {
         other = (Destructible *)PTR(results[i].id);
-        if (other->flags & 2) {
+        if (other->base.flags & 2) {
             continue;
         }
         if ((statics == 1 && GETP(GETP(other->record)->info)->takesDamage == 0 && GETP(GETP(other->record)->info)->armour == 0) ||
             (dynamics == 1 && (GETP(GETP(other->record)->info)->takesDamage == 1 || GETP(GETP(other->record)->info)->armour != 0))) {
-            if (SegmentVsSphere(&other->offsetPos, start, &hitEnd, *(f32 *)((u8 *)other + 0x70))) {
-                hit = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, ((u8 *)GETP(other->vtable) + 0x38))))(other, start, &dir, info, best);
+            if (SegmentVsSphere(&other->base.pos, start, &hitEnd, other->base.radius)) {
+                hit = THING_VFN(other, THING_V_COLLIDE_WITH_RAY, f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))(other, start, &dir, info, best);
                 if (hit < *t) {
                     best = hit;
                 }

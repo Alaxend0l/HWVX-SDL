@@ -54,11 +54,10 @@ f32 GetBoundingBoxRadius(Vector4 *box, Vector4 *offset)
 extern u8 g_moverVTable[];
 extern u8 g_physicalObjectVTable[];
 extern u8 g_droneVTable[];
-OBox *OBoxHolder_Get(void);
 s32 Destructible_Init(Destructible *destructible, void *data) {
     typedef struct DestructibleParams {
-        Vector4 offsetPos;
         Vector4 pos;
+        Vector4 vel;
         Vector4 unk20;
         Vector4 quat;
         PTR32(ThingRecord) record;
@@ -112,12 +111,12 @@ s32 Destructible_Init(Destructible *destructible, void *data) {
     u8 *slave;
     f32 r;
 
-    destructible->flags = 0;
+    destructible->base.flags = 0;
     Thing_Init(destructible, (s32)HND(data));
-    *(Vector4 *)destructible->pad50 = params->quat;
-    destructible->pos = params->pos;
-    QuaternionToSubMatrix(destructible->pad50, destructible->matrix);
-    destructible->offsetPos = params->offsetPos;
+    *(Vector4 *)&destructible->base.quat = params->quat;
+    destructible->base.vel = params->vel;
+    QuaternionToSubMatrix(&destructible->base.quat, THING_MTX(&destructible->base));
+    destructible->base.pos = params->pos;
     SETP(destructible->record, GETP(params->record));
     SETP(destructible->orientedBox, NULL);
     SETP(destructible->hull, NULL);
@@ -130,13 +129,13 @@ s32 Destructible_Init(Destructible *destructible, void *data) {
         GETP(GETP(destructible->record)->info)->type = 0;
         break;
     }
-    destructible->flags |= 4;
+    destructible->base.flags |= 4;
     switch (GETP(GETP(destructible->record)->info)->type) {
     case 0: {
         u32 i;
 
-        destructible->collisionType = 1;
-        destructible->flags |= 0x80;
+        destructible->base.collisionType = 1;
+        destructible->base.flags |= 0x80;
         SETP(destructible->orientedBox, OBoxHolder_Get());
         ((CollisionOBox *)GETP(destructible->orientedBox))->unkCC = 0;
         obb = Destructible_GetOrientedCollision(destructible);
@@ -169,104 +168,104 @@ s32 Destructible_Init(Destructible *destructible, void *data) {
         }
         box = (ABox *)GETP(GETP(GETP(destructible->record)->info)->box);
         box->v[2].x = GetBoundingBoxRadius(box->v, (Vector4 *)g_zeroVector);
-        destructible->radius = box->v[2].x;
+        destructible->base.radius = box->v[2].x;
         break;
     }
     case 1:
-        destructible->collisionType = 4;
+        destructible->base.collisionType = 4;
         SETP(destructible->hull, OConvexHullHolder_Get(GETP(GETP(GETP(destructible->record)->info)->hull)));
         GETP(destructible->hull)->pad0[0x3CC] = 0;
-        destructible->radius = 30.0f;
+        destructible->base.radius = 30.0f;
         break;
     case 4:
-        destructible->collisionType = 0;
-        destructible->flags |= 0x20002;
+        destructible->base.collisionType = 0;
+        destructible->base.flags |= 0x20002;
         break;
     case 6:
-        destructible->collisionType = 5;
+        destructible->base.collisionType = 5;
         SETP(destructible->hull, OConvexHullHolder_Get(GETP(GETP(GETP(destructible->record)->info)->hull)));
         GETP(destructible->hull)->pad0[0x3CC] = 1;
-        destructible->radius = 30.0f;
+        destructible->base.radius = 30.0f;
         break;
     case 7: {
         u32 i;
 
-        destructible->collisionType = 6;
+        destructible->base.collisionType = 6;
         spheres = (CollisionSpheres *)PTR(Thing_GetLocalCollision((u8 *)destructible));
-        destructible->radius = 0.0f;
+        destructible->base.radius = 0.0f;
         for (i = 0; i < spheres->count; i++) {
             r = GETP(spheres->spheres)[i].radius + MagnitudeVector(&GETP(spheres->spheres)[i].pos);
-            if (r > destructible->radius) {
-                destructible->radius = r;
+            if (r > destructible->base.radius) {
+                destructible->base.radius = r;
             }
         }
         break;
     }
     default:
-        destructible->flags &= ~4;
-        destructible->flags |= 0x60002;
-        destructible->collisionType = 0;
-        destructible->radius = 0.0f;
+        destructible->base.flags &= ~4;
+        destructible->base.flags |= 0x60002;
+        destructible->base.collisionType = 0;
+        destructible->base.radius = 0.0f;
         break;
     }
-    destructible->flags |= 0x40000;
+    destructible->base.flags |= 0x40000;
     switch (params->moveType) {
     case 0:
-        destructible->flags |= 8;
+        destructible->base.flags |= 8;
         SETP(destructible->anim, NULL);
-        SETP(destructible->vtable, g_destructibleVTable);
-        destructible->flags |= 0x40000000;
-        destructible->flags &= ~4;
+        SETP(destructible->base.vtable, g_destructibleVTable);
+        destructible->base.flags |= 0x40000000;
+        destructible->base.flags &= ~4;
         break;
     case 1:
-        destructible->flags &= ~8;
-        destructible->flags |= 0x4000000;
+        destructible->base.flags &= ~8;
+        destructible->base.flags |= 0x4000000;
         SETP(destructible->anim, GETP(params->anim));
         destructible->trackPos = 0.0f;
         destructible->speed = params->speed;
-        SETP(destructible->vtable, g_moverVTable);
+        SETP(destructible->base.vtable, g_moverVTable);
         break;
     case 2:
-        destructible->flags |= 0x20000;
-        destructible->flags |= 0x100000;
-        destructible->flags &= ~4;
-        destructible->flags &= ~8;
-        destructible->flags &= ~0x40000;
+        destructible->base.flags |= 0x20000;
+        destructible->base.flags |= 0x100000;
+        destructible->base.flags &= ~4;
+        destructible->base.flags &= ~8;
+        destructible->base.flags &= ~0x40000;
         SETP(destructible->anim, NULL);
-        SETP(destructible->vtable, g_physicalObjectVTable);
+        SETP(destructible->base.vtable, g_physicalObjectVTable);
         break;
     case 3:
-        destructible->flags |= 0x20000;
-        destructible->flags &= ~4;
-        destructible->flags &= ~8;
-        destructible->flags &= ~0x40000;
+        destructible->base.flags |= 0x20000;
+        destructible->base.flags &= ~4;
+        destructible->base.flags &= ~8;
+        destructible->base.flags &= ~0x40000;
         SETP(destructible->anim, NULL);
-        SETP(destructible->vtable, g_droneVTable);
+        SETP(destructible->base.vtable, g_droneVTable);
         break;
     }
     if (GETP(GETP(destructible->record)->info)->deathTime < 0) {
-        destructible->flags |= 0x10000000;
+        destructible->base.flags |= 0x10000000;
     } else {
         destructible->deathTimer = GETP(GETP(destructible->record)->info)->deathTime;
     }
     if (GETP(GETP(destructible->record)->info)->takesDamage) {
-        destructible->health = GETP(GETP(destructible->record)->info)->maxHealth;
+        destructible->base.health = GETP(GETP(destructible->record)->info)->maxHealth;
     } else {
-        destructible->health = 1;
+        destructible->base.health = 1;
     }
     destructible->drawDist = params->drawDist;
     if (0.0f == params->drawDist && GETP(params->record)->hasDrawDist) {
         destructible->drawDist = GETP(params->record)->drawDist;
     }
     if (!GETP(params->record)->collides) {
-        destructible->flags |= 0x200;
+        destructible->base.flags |= 0x200;
     }
     record = GETP(destructible->record);
     switch (record->noDraw) {
     case 0:
         Thing_InitAllSlavesNow(HND(destructible), record->slaves, 0xFF);
-        if (((Geometry *)GETP(GETP(destructible->record)->geometry))->bounds.v[0].w > destructible->radius) {
-            destructible->radius = ((Geometry *)GETP(GETP(destructible->record)->geometry))->bounds.v[0].w;
+        if (((Geometry *)GETP(GETP(destructible->record)->geometry))->bounds.v[0].w > destructible->base.radius) {
+            destructible->base.radius = ((Geometry *)GETP(GETP(destructible->record)->geometry))->bounds.v[0].w;
         }
         break;
     case 1:
@@ -279,16 +278,16 @@ s32 Destructible_Init(Destructible *destructible, void *data) {
         slave = ThingManager_DARYL_CreateSlave(0xF, &slaveParams, 0xFF);
         if (slave != NULL) {
             slave[0x83] = 0;
-            ThingManagerList_Append(&destructible->slaves, slave);
+            ThingManagerList_Append(&destructible->base.slaves, slave);
         }
         break;
     }
-    destructible->unk7C = 0;
-    if (!(destructible->flags & 0x20002)) {
+    destructible->base.damage = 0;
+    if (!(destructible->base.flags & 0x20002)) {
         Thing_AddToGrid(destructible, 2);
     }
-    if (destructible->flags & 2) {
-        destructible->flags &= ~4;
+    if (destructible->base.flags & 2) {
+        destructible->base.flags &= ~4;
     }
     return 1;
 }
@@ -298,7 +297,7 @@ void Destructible_Release(Destructible *destructible) {
     u8 *trigger;
 
     Trigger_DestructibleKilled(destructible);
-    if (GETP(destructible->vtable) == g_destructibleVTable) {
+    if (GETP(destructible->base.vtable) == g_destructibleVTable) {
         trigger = SLOT_LOAD(u8 *, ((u8 *)destructible + 0x90));
         if (trigger != NULL) {
             SLOT_STORE(((u8 *)destructible + 0x90), NULL);
@@ -339,11 +338,11 @@ s32 Destructible_Move(Destructible *destructible) {
     s8 spin;
     DestructibleInfo *info;
 
-    if (destructible->flags & 0x200000) {
+    if (destructible->base.flags & 0x200000) {
         return 0;
     }
-    if (GETP(destructible->player) != NULL &&
-        (slave = ThingManagerList_GetByType(&destructible->slaves, 8)) != NULL &&
+    if (GETP(destructible->base.player) != NULL &&
+        (slave = ThingManagerList_GetByType(&destructible->base.slaves, 8)) != NULL &&
         SLOT_LOAD(u8 *, (slave + 0x94)) != NULL &&
         (spin = -*SLOT_LOAD(u8 *, (slave + 0x94))) != 0) {
         axis.x = 0.0f;
@@ -356,7 +355,7 @@ s32 Destructible_Move(Destructible *destructible) {
         *(Vector4 *)(slave + 0x50) = quat;
         QuaternionToSubMatrix(slave + 0x50, slave + 0x10);
     }
-    if (!(destructible->flags & 0x10000000)) {
+    if (!(destructible->base.flags & 0x10000000)) {
         if (destructible->deathTimer < 0) {
             id = 0;
             info = GETP(GETP(destructible->record)->info);
@@ -365,9 +364,9 @@ s32 Destructible_Move(Destructible *destructible) {
             }
             if (id != 0) {
                 params.id = id;
-                params.pos = destructible->offsetPos;
-                params.quat = *(Vector4 *)destructible->pad50;
-                params.vel = destructible->pos;
+                params.pos = destructible->base.pos;
+                params.quat = *(Vector4 *)&destructible->base.quat;
+                params.vel = destructible->base.vel;
                 params.unk44 = 0;
                 params.unk48 = 0.0f;
                 params.unk4C = 0.0f;
@@ -379,10 +378,10 @@ s32 Destructible_Move(Destructible *destructible) {
         destructible->deathTimer -= g_iDeltaTimeMS;
     }
     Timer_Interrupt300();
-    slave = ThingManagerList_GetByType(&destructible->slaves, 0x11);
+    slave = ThingManagerList_GetByType(&destructible->base.slaves, 0x11);
     if (slave != NULL) {
         if (GETP(GETP(destructible->record)->info)->maxHealth != 0) {
-            *(f32 *)(slave + 0xB8) = (f32)destructible->health / (f32)GETP(GETP(destructible->record)->info)->maxHealth;
+            *(f32 *)(slave + 0xB8) = (f32)destructible->base.health / (f32)GETP(GETP(destructible->record)->info)->maxHealth;
         } else {
             *(f32 *)(slave + 0xB8) = 0.0f;
         }
@@ -398,7 +397,7 @@ void Destructible_Draw(Destructible *destructible) {
     ThingRecord *record;
 
     if (destructible->drawDist) {
-        distSq = Gfx_GetMinCameraDistSquared(&destructible->offsetPos);
+        distSq = Gfx_GetMinCameraDistSquared(&destructible->base.pos);
         if ((u32)ViewManager_GetViewFormat() > 1) {
             distSq *= 4.0f;
         }
@@ -406,10 +405,10 @@ void Destructible_Draw(Destructible *destructible) {
             return;
         }
     }
-    QuaternionToSubMatrix(destructible->pad50, destructible->matrix);
+    QuaternionToSubMatrix(&destructible->base.quat, THING_MTX(&destructible->base));
     record = GETP(destructible->record);
     if (record->noDraw == 0) {
-        Gfx_DrawGeometry_MatrixNotCached(HND(GETP(record->geometry)), HND(destructible->matrix));
+        Gfx_DrawGeometry_MatrixNotCached(HND(GETP(record->geometry)), HND(THING_MTX(&destructible->base)));
     }
     Thing_DrawSharedSlaves(destructible, GETP(destructible->record)->slaves);
 }
@@ -541,23 +540,23 @@ s32 ActionDestructibleChangeMode(u32 *action) {
                 Destructible_Release(destructible);
                 break;
             case 0:
-                ThingManagerList_ReleaseSlavesBySlaveType(&destructible->slaves, 0xFF);
-                destructible->flags |= 0x200;
-                destructible->flags |= 0x2;
+                ThingManagerList_ReleaseSlavesBySlaveType(&destructible->base.slaves, 0xFF);
+                destructible->base.flags |= 0x200;
+                destructible->base.flags |= 0x2;
                 break;
             case 1:
                 Thing_InitAllSlavesNow(HND(destructible), (u8 *)GETP(destructible->record) + 0x18, 0xFF);
-                destructible->flags &= ~0x200;
-                destructible->flags &= ~0x2;
+                destructible->base.flags &= ~0x200;
+                destructible->base.flags &= ~0x2;
                 break;
             case 25:
                 Destructible_Release(destructible);
                 break;
             case 26:
-                ThingManagerList_ReleaseSlavesBySlaveType(&destructible->slaves, 0xFF);
+                ThingManagerList_ReleaseSlavesBySlaveType(&destructible->base.slaves, 0xFF);
                 Thing_ProcessEndEvent((u8 *)destructible, (u8 *)GETP(GETP(destructible->record)->info), NULL, NULL);
-                destructible->flags |= 0x200;
-                destructible->flags |= 0x2;
+                destructible->base.flags |= 0x200;
+                destructible->base.flags |= 0x2;
                 break;
             }
         }
@@ -620,9 +619,9 @@ s32 ActionMoveableChangeMode(u32 *action) {
 f32 Destructible_CollideWithRay(Destructible *destructible, Vector4 *start, Vector4 *end, Vector4 *hit, f32 maxDist) {
     f32 dist;
 
-    dist = PhysicalProperties_CollideWithRay(GETP(GETP(destructible->record)->info), destructible->matrix, start, end, maxDist, hit);
+    dist = PhysicalProperties_CollideWithRay(GETP(GETP(destructible->record)->info), THING_MTX(&destructible->base), start, end, maxDist, hit);
     if (hit != NULL && dist < maxDist) {
-        *(Vector4 *)((u8 *)hit + 0x30) = destructible->pos;
+        *(Vector4 *)((u8 *)hit + 0x30) = destructible->base.vel;
     }
     return dist;
 }
@@ -631,14 +630,14 @@ void Destructible_GetTargetPos(Destructible *destructible, Vector4 *pos) {
     switch (GETP(GETP(destructible->record)->info)->type) {
     case 0:
     case 3:
-        *pos = GETP(destructible->orientedBox)->v[0];
+        *pos = GETP(destructible->orientedBox)->center;
         break;
     case 1:
     case 6:
         *pos = GETP(destructible->hull)->point;
         break;
     default:
-        *pos = destructible->offsetPos;
+        *pos = destructible->base.pos;
         break;
     }
 }
@@ -650,14 +649,14 @@ void *Destructible_GetOrientedCollision(Destructible *destructible) {
     switch (info->type) {
     case 0:
     case 3:
-        if (destructible->flags & 0x180) {
-            BuildOOB(GETP(info->box), destructible->matrix, GETP(destructible->orientedBox));
-            destructible->flags &= ~0x180;
+        if (destructible->base.flags & 0x180) {
+            BuildOOB(GETP(info->box), THING_MTX(&destructible->base), GETP(destructible->orientedBox));
+            destructible->base.flags &= ~0x180;
         }
         return GETP(destructible->orientedBox);
     case 1:
     case 6:
-        BuildOConvexHullOffset(GETP(destructible->hull), GETP(info->hull), destructible->matrix, g_zeroVector);
+        BuildOConvexHullOffset(GETP(destructible->hull), GETP(info->hull), THING_MTX(&destructible->base), g_zeroVector);
         return GETP(destructible->hull);
     default:
                     return NULL;

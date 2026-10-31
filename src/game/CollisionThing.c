@@ -1,39 +1,7 @@
 #include "common.h"
 
 
-typedef struct OBoxHolder {
-    Vector4 v[3];                 /* 0x00 */
-    u8 pad30[0x9D - 0x30];        /* 0x30 */
-    s8 inUse;                     /* 0x9D */
-    u8 pad9E[0xF0 - 0x9E];        /* 0x9E */
-} OBoxHolder;
-
-/* an oriented box as the segment tests see it: corners, half extents,
-   axes and the box's projections onto its own axes */
-typedef struct CollisionOBox {
-    Vector4 center;               /* 0x00 */
-    Vector4 corners[8];           /* 0x10 */
-    f32 extent[3];                /* 0x90 */
-    u8 pad9C[4];                  /* 0x9C */
-    PTR32(Vector4) axis[3];             /* 0xA0 */
-    u8 padAC[4];                  /* 0xAC */
-    f32 centerProj[3];            /* 0xB0 */
-    u8 padBC[4];                  /* 0xBC */
-    f32 velProj[3];               /* 0xC0 */
-    u32 unkCC;                    /* 0xCC */
-} CollisionOBox;
-
-typedef struct CollisionInfo {
-    Vector4 pos;
-    Vector4 normal;
-    s32 unk20;
-    s32 unk24;
-    u32 material;
-    u8 pad2C[0x40 - 0x2C];
-    u8 type;
-} CollisionInfo;
-
-extern OBoxHolder g_aOBox[0x200];
+extern CollisionOBox g_aOBox[0x200];
 extern OConvexHull g_aOConvexHull[8];
 extern CollisionPair g_aCollisionPairCache[4];
 extern s32 g_iDeltaTimeMS;
@@ -78,7 +46,7 @@ void OBoxHolder_Init(void)
     }
 }
 
-OBoxHolder *OBoxHolder_Get(void) {
+CollisionOBox *OBoxHolder_Get(void) {
     u32 i;
 
     for (i = 0; i < 0x200; i++) {
@@ -91,7 +59,7 @@ OBoxHolder *OBoxHolder_Get(void) {
     return NULL;
 }
 
-void OBoxHolder_Release(OBoxHolder *obox) {
+void OBoxHolder_Release(CollisionOBox *obox) {
     if (obox != NULL) {
         obox->inUse = 0;
     }
@@ -994,7 +962,7 @@ f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, Co
     if (hit != NULL && da.tEnter < maxT) {
         hit->type = type;
         hit->material = 0;
-        box->unkCC = 0;
+        box->cachedPoly = 0;
         switch (type) {
         case 1:
             hit->pos = seg[vert];

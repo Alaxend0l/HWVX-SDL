@@ -1,57 +1,64 @@
+/* Item things: pickups lying in the world. They fall and bounce until they
+ * come to rest, spin in place, and are collected by Thing_CollideWithItems. */
 #include "common.h"
+#include "CarA.h"
 
 
-s32 Item_Init(u8 *item, u8 *data) {
+s32 Item_Init(ItemThing *item, ItemParams *data) {
     Vector4 euler __attribute__((aligned(16)));
     Vector4 quat __attribute__((aligned(16)));
-    u8 *info;
+    ItemRecord *record = GETP(data->record);
+    u8 *weapon;
 
-    Thing_Init(item, (s32)HND(data));
-    M2C_FIELD(item, s32 *, 0xD4) = -1;
-    M2C_FIELD(item, s32 *, 0xD0) = 0;
-    M2C_FIELD(item, u16 *, 0x80) = 2;
-    M2C_FIELD(item, f32 *, 0x70) = M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(data) + 0x30), f32 *, 0xC);
-    M2C_FIELD(item, f32 *, 0xE8) = M2C_FIELD(item, f32 *, 0x70) * M2C_FIELD(item, f32 *, 0x70);
-    M2C_FIELD(item, Vector4 *, 0x40) = M2C_FIELD(data, Vector4 *, 0x10);
-    M2C_FIELD(item, f32 *, 0x4C) = 1.0f;
-    M2C_FIELD(item, Vector4 *, 0x0) = M2C_FIELD(data, Vector4 *, 0x20);
-    M2C_FIELD(item, Vector4 *, 0x50) = M2C_FIELD(data, Vector4 *, 0x0);
-    M2C_FIELD(item, s32 *, 0xEC) = 0;
-    QuaternionToSubMatrix(item + 0x50, item + 0x10);
-    M2C_FIELD(item, f32 *, 0xC8) = M2C_FIELD(data, f32 *, 0x34);
-    M2C_FIELD(item, u8 *, 0xE0) = M2C_FIELD(data, u8 *, 0x38);
-    if (M2C_FIELD(item, f32 *, 0xC8) == 0.0f) {
-        M2C_FIELD(item, f32 *, 0xC8) = 500.0f;
+    Thing_Init(&item->base, (s32)HND(data));
+    item->navPoint = -1;
+    SETP(item->spawner, NULL);
+    item->base.collisionType = 2;
+    item->base.radius = record->radius;
+    item->pickupRadiusSq = item->base.radius * item->base.radius;
+    item->base.pos = data->pos;
+    item->base.pos.w = 1.0f;
+    item->base.vel = data->vel;
+    item->base.quat = *(Quaternion *)&data->quat;
+    item->unkEC = 0;
+    QuaternionToSubMatrix(&item->base.quat, THING_MTX(&item->base));
+    item->drawDist = data->drawDist;
+    item->unkE0 = data->unk38;
+    if (item->drawDist == 0.0f) {
+        item->drawDist = 500.0f;
     }
-    M2C_FIELD(item, s32 *, 0xD8) = 0;
-    M2C_FIELD(item, u32 *, 0x74) |= 0x1000000;
-    SLOT_STORE((u8 *)(item) + 0xC0, SLOT_LOAD(u8 *, (u8 *)(data) + 0x30));
-    info = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(item) + 0xC0)) + 0x30);
-    if (info != NULL) {
-        M2C_FIELD(item, s16 *, 0xCE) = M2C_FIELD(info, s32 *, 0x20);
+    item->timerActive = 0;
+    item->base.flags |= 0x1000000;
+    SETP(item->record, record);
+    weapon = GETP(GETP(item->record)->weapon);
+    if (weapon != NULL) {
+        item->ammo = *(s32 *)(weapon + 0x20);
     }
+    /* a random spin around y */
     euler.x = 0.0f;
-    euler.y = 0.017453292f * RandomAdd(M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(data) + 0x30), f32 *, 0x18), M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(data) + 0x30), f32 *, 0x1C));
+    euler.y = 0.017453292f * RandomAdd(record->spinMin, record->spinMax);
     euler.z = 0.0f;
     GenerateQuaternionXYZ(&euler, &quat);
-    GenerateSpinAngleFromQuaternion(&quat, item + 0xB0, (f32 *)(item + 0xC4));
-    M2C_FIELD(item, s16 *, 0xCC) = 1000;
-    Thing_InitAllSlavesNow(HND(item), SLOT_LOAD(u8 *, (u8 *)(item) + 0xC0) + 0x38, 0xFF);
-    M2C_FIELD(item, u32 *, 0x74) |= 8;
-    M2C_FIELD(item, s32 *, 0xD4) = NavHolder_FindIndexOfNearestNavPoint(item + 0x40, -1);
+    GenerateSpinAngleFromQuaternion(&quat, &item->spinAxis, &item->spinSpeed);
+    item->pickupDelay = 1000;
+    Thing_InitAllSlavesNow(HND(item), GETP(item->record)->sharedSlaves, 0xFF);
+    item->base.flags |= THING_FLAG_AT_REST;
+    item->navPoint = NavHolder_FindIndexOfNearestNavPoint(&item->base.pos, -1);
     Thing_AddToGrid(item, 3);
     return 1;
 }
 
-void Item_Release(void *item) {
+void Item_Release(void *arg) {
     extern u32 g_itemVTable[];
-    void *slot;
+    ItemThing *item = arg;
+    u8 *slot;
 
-    if (SLOT_LOAD(void *, (u8 *)(item) + 0x8C) == g_itemVTable) {
-        slot = SLOT_LOAD(void *, (u8 *)(item) + 0x90);
-        if (slot != NULL && SLOT_LOAD(void *, (u8 *)(slot) + 0x24) != NULL) {
-            SLOT_STORE((u8 *)(item) + 0x90, NULL);
-            SLOT_STORE((u8 *)(slot) + 0x24, NULL);
+    if (GETP(item->base.vtable) == g_itemVTable) {
+        /* detach from its spawn entry (QuadItem.thing) */
+        slot = GETP(item->base.trigger);
+        if (slot != NULL && SLOT_LOAD(void *, slot + 0x24) != NULL) {
+            SETP(item->base.trigger, NULL);
+            SLOT_STORE(slot + 0x24, NULL);
         }
     }
     Thing_Release(item);
@@ -61,55 +68,48 @@ s32 Item_PreMove(void) {
     return 1;
 }
 
-s8 Item_Move(u8 *item) {
-    typedef struct ItemHit {
-        Vector4 pos;
-        Vector4 normal;
-        s32 unk20;
-        s32 unk24;
-        u8 pad[0x28];
-    } ItemHit;
-    typedef struct ItemQuat {
-        f32 x, y, z, w;
-    } ItemQuat;
+s8 Item_Move(ItemThing *item) {
     extern f32 g_fDeltaTimeSec;
     extern s32 g_iDeltaTimeMS;
     extern Vector4 g_zeroVector;
     extern u8 *g_pNoRayCollideThing;
-    ItemHit hit __attribute__((aligned(16)));
-    ItemQuat q;
-    ItemQuat rot;
+    CollisionInfo hit __attribute__((aligned(16)));
+    Quaternion q;
+    Quaternion rot;
     f32 dt;
     u8 hitSomething;
     s8 hitTerrain;
     f32 d;
-    Vector4 *vel = (Vector4 *)item;
+    Thing *thing = &item->base;
+    Player *carrier = GETP(thing->player);
+    Vector4 *vel = &thing->vel;
 
-    if (!(*(u32 *)(item + 0x74) & 8)) {
+    if (!(thing->flags & THING_FLAG_AT_REST)) {
+        /* fall and bounce off whatever is hit, until resting on the ground */
         hitSomething = 0;
         dt = g_fDeltaTimeSec;
         vel->y += -130.0f * dt;
-        hitTerrain = VectorHitsTerrain(item + 0x40);
+        hitTerrain = VectorHitsTerrain(&thing->pos);
         if (hitTerrain) {
             *vel = g_zeroVector;
-            *(u32 *)(item + 0x74) |= 1;
-            *(u32 *)(item + 0x74) |= 8;
+            thing->flags |= 1;
+            thing->flags |= THING_FLAG_AT_REST;
             return hitTerrain;
         }
-        hit.unk20 = hit.unk24 = 0;
-        if (SLOT_LOAD(u8 *, (item + 0x94)) != NULL) {
-            g_pNoRayCollideThing = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (item + 0x94)) + 0x2C));
+        hit.thingA = hit.thingB = 0;
+        if (carrier != NULL) {
+            g_pNoRayCollideThing = GETP(carrier->vehicle);
         }
-        if (RayHitsTerrainAndObjects(item + 0x40, item, &dt, &hit)) {
+        if (RayHitsTerrainAndObjects(&thing->pos, item, &dt, &hit)) {
             f32 push = 0.001f;
             hitSomething = 1;
-            d = 2.0f * PSVECDotProduct(item, &hit.normal);
+            d = 2.0f * PSVECDotProduct(vel, &hit.normal);
             vel->x -= d * hit.normal.x;
             vel->y -= d * hit.normal.y;
             vel->z -= d * hit.normal.z;
-            ((Vector4 *)(item + 0x40))->x += hit.normal.x * push;
-            ((Vector4 *)(item + 0x40))->y += hit.normal.y * push;
-            ((Vector4 *)(item + 0x40))->z += hit.normal.z * push;
+            thing->pos.x += hit.normal.x * push;
+            thing->pos.y += hit.normal.y * push;
+            thing->pos.z += hit.normal.z * push;
         }
         g_pNoRayCollideThing = NULL;
         if (hitSomething) {
@@ -118,58 +118,58 @@ s8 Item_Move(u8 *item) {
             vel->z *= 0.5f;
             if (hit.normal.y > 0.7f && vel->x * vel->x + vel->y * vel->y + vel->z * vel->z < 1.0f) {
                 vel->x = vel->y = vel->z = 0.0f;
-                *(u32 *)(item + 0x74) |= 1;
-                *(u32 *)(item + 0x74) |= 8;
+                thing->flags |= 1;
+                thing->flags |= THING_FLAG_AT_REST;
             }
         }
-        AccumulateVector(item, item + 0x40, item + 0x40, dt);
+        AccumulateVector(vel, &thing->pos, &thing->pos, dt);
     }
-    if (*(s16 *)(item + 0xCC) > 0) {
-        *(s16 *)(item + 0xCC) -= (u16)g_iDeltaTimeMS;
-        if (*(s16 *)(item + 0xCC) < 0) {
-            SLOT_STORE((item + 0x94), NULL);
+    if (item->pickupDelay > 0) {
+        item->pickupDelay -= (u16)g_iDeltaTimeMS;
+        if (item->pickupDelay < 0) {
+            SETP(thing->player, NULL);
         }
     }
-    if (*(u32 *)(item + 0xD8) != 0) {
-        *(s32 *)(item + 0xDC) -= g_iDeltaTimeMS;
-        if (*(s32 *)(item + 0xDC) < 0) {
-            *(u32 *)(item + 0xD8) = 0;
+    if (item->timerActive != 0) {
+        item->timer -= g_iDeltaTimeMS;
+        if (item->timer < 0) {
+            item->timerActive = 0;
         }
     }
-    if (*(f32 *)(item + 0xC4)) {
-        GenerateQuaternion(item + 0xB0, &q, 10.0f * (*(f32 *)(item + 0xC4) * g_fDeltaTimeSec));
-        QuaternionMult(item + 0x50, &q, &rot);
-        *(ItemQuat *)(item + 0x50) = rot;
+    if (item->spinSpeed) {
+        GenerateQuaternion(&item->spinAxis, &q, 10.0f * (item->spinSpeed * g_fDeltaTimeSec));
+        QuaternionMult(&thing->quat, &q, &rot);
+        thing->quat = rot;
     }
-    if (*SLOT_LOAD(u8 *, (item + 0xC0)) == 7 && SLOT_LOAD(u8 *, (item + 0x94)) != NULL && SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (item + 0x94)) + 0x2C)) != NULL) {
-        u8 *obj = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (item + 0x94)) + 0x2C));
-        *(s32 *)(item + 0xD4) = (((s32 (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (obj + 0x8C)) + 0x2C))))(obj);
+    carrier = GETP(thing->player);
+    if (GETP(item->record)->type == ITEM_TYPE_CARRIED && carrier != NULL && GETP(carrier->vehicle) != NULL) {
+        Thing *obj = GETP(carrier->vehicle);
+        item->navPoint = THING_VFN(obj, THING_V_GET_NEAREST_NAV_POINT, s32 (*)(void *))(obj);
     }
     return 1;
 }
 
-void Item_Draw(u8 *item) {
-
-    if (*(f32 *)(item + 0xC8)) {
-        if (Gfx_GetMinCameraDistSquared(item + 0x40) > *(f32 *)(item + 0xC8) * *(f32 *)(item + 0xC8)) {
+void Item_Draw(ItemThing *item) {
+    if (item->drawDist) {
+        if (Gfx_GetMinCameraDistSquared(&item->base.pos) > item->drawDist * item->drawDist) {
             return;
         }
     }
-    if (*(u32 *)(item + 0x74) & 8) {
-        QuaternionToSubMatrix(item + 0x50, item + 0x10);
+    if (item->base.flags & THING_FLAG_AT_REST) {
+        QuaternionToSubMatrix(&item->base.quat, THING_MTX(&item->base));
     }
-    Thing_DrawSharedSlaves(item, SLOT_LOAD(u8 *, (item + 0xC0)) + 0x38);
+    Thing_DrawSharedSlaves(item, GETP(item->record)->sharedSlaves);
 }
 
-s32 Item_GetNearestNavPoint(void *arg0) {
-    return M2C_FIELD(arg0, s32 *, 0xD4);
+s32 Item_GetNearestNavPoint(ItemThing *item) {
+    return item->navPoint;
 }
 
-s32 Item_Invalidate(void *arg0, u32 arg1, u32 arg2) {
-    u32 temp_r0;
+/* Whether the item's record lies in [start, end) (a data pack being unloaded). */
+s32 Item_Invalidate(ItemThing *item, u32 start, u32 end) {
+    u32 record = item->record.h;
 
-    temp_r0 = M2C_FIELD(arg0, u32 *, 0xC0);
-    if ((temp_r0 >= arg1) && (temp_r0 < arg2)) {
+    if ((record >= start) && (record < end)) {
         return 1;
     }
     return 0;

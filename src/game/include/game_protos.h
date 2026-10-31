@@ -6,7 +6,6 @@
 struct ParticleGX_MacroStep_t;
 struct ParticleGX_Move_t;
 struct SlaveTrigger;
-struct Thing;
 
 
 /* AI.c */
@@ -97,7 +96,7 @@ void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player);
 void MotionState_InitSlavesTimed(u8 *state, void *slaves, u8 player, u32 time);
 void MotionState_MoveSlaves(void *state, Matrix4 *matrix, Vector4 *vel);
 void MotionState_Release(s32 state);
-void MotionState_ReleaseSlavesByType(s32 state, u8 type);
+void MotionState_ReleaseSlavesByType(s32 state, u8 tag);
 void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps);
 void Motion_HeartbeatB2(void *state, Vector4 *vel);
 void TEST_AnimTraverseHeirarchyToMatricesWorld(Vector4 *quat, void *pos0, void *frames, s32 skel, void *matrices, f32 time);
@@ -189,6 +188,7 @@ void GetTrimmedCameraPos2(Vector4 *from, Vector4 *to, f32 *trim, s32 bone, Matri
 s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 
 /* CarA.c */
+f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDist);
 void CarA_ComputeForces(CarA *car);
 void CarA_Draw(u8 *car);
 void CarA_DrawReflection(void *thing);
@@ -203,7 +203,7 @@ void CarA_GetInverseLocalInertiaTensor(void *arg0, void *arg1);
 f32 CarA_GetMass(u8 *car);
 s32 CarA_GetNearestNavPoint(CarA *car);
 void * CarA_GetOrientedCollision(u8 *car);
-void *CarA_GetSurfaceScript(u8 *car);
+void * CarA_GetSurfaceScript(u8 *car);
 void CarA_GetTargetPos(u8 *car, Vector4 *pos);
 s32 CarA_Init(void *arg0, void *arg1);
 void CarA_InitInverseBodyInertiaTensor(CarA *car);
@@ -269,7 +269,12 @@ void CollisionPairCache_Clear(void);
 void CollisionPairCache_Heartbeat(void);
 void OBoxCache_Set(u32 box0, u32 box1, Vector4 *pos, Vector4 *normal);
 f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hitInfo, f32 maxT);
+s8 OBoxHitsOBoxZeroTime(CollisionOBox *a, CollisionOBox *b, CollisionInfo *hit);
+f32 OBoxHitsSegment(CollisionOBox *box, Vector4 *vel, Vector4 *seg, f32 maxT, CollisionInfo *hit);
+s8 OBoxHitsSegmentZeroTime(CollisionOBox *box, Vector4 *seg, CollisionInfo *hit);
+CollisionOBox * OBoxHolder_Get(void);
 void OBoxHolder_Init(void);
+void OBoxHolder_Release(CollisionOBox *obox);
 OConvexHull * OConvexHullHolder_Get(void *owner);
 void OConvexHullHolder_Init(void);
 void OConvexHullHolder_Release(OConvexHull *hull);
@@ -341,7 +346,7 @@ void Destructible_Draw(Destructible *destructible);
 void Destructible_DynamicCollideImpact(u8 *destructible, u8 *collision, s32 damage, f32 force);
 f32 Destructible_GetMass(Destructible *destructible);
 void * Destructible_GetOrientedCollision(Destructible *destructible);
-void *Destructible_GetSurfaceScript(Destructible *destructible);
+void * Destructible_GetSurfaceScript(Destructible *destructible);
 void Destructible_GetTargetPos(Destructible *destructible, Vector4 *pos);
 s32 Destructible_Init(Destructible *destructible, void *data);
 u32 Destructible_Invalidate(Destructible *destructible, u32 start, u32 end);
@@ -685,13 +690,13 @@ void InterfaceManager_SetPlayerMessage(void *message, u32 player);
 void InterfaceManager_SetRadarBlip(u16 arg0);
 
 /* ItemThing.c */
-void Item_Draw(u8 *item);
-s32 Item_GetNearestNavPoint(void *arg0);
-s32 Item_Init(u8 *item, u8 *data);
-s32 Item_Invalidate(void *arg0, u32 arg1, u32 arg2);
-s8 Item_Move(u8 *item);
+void Item_Draw(ItemThing *item);
+s32 Item_GetNearestNavPoint(ItemThing *item);
+s32 Item_Init(ItemThing *item, ItemParams *data);
+s32 Item_Invalidate(ItemThing *item, u32 start, u32 end);
+s8 Item_Move(ItemThing *item);
 s32 Item_PreMove(void);
-void Item_Release(void *item);
+void Item_Release(void *arg);
 
 /* LensFlare.c */
 void LensFlare_Delete(s32 arg0);
@@ -887,11 +892,11 @@ s32 PlayerManager_RemovePlayer(void *player);
 void PlayerManager_Render_DEBUG(void);
 
 /* Port_Swap.c */
+void PortSwap_MIDI(u8 *song, u8 *bank);
 void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize, u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers, u32 textureDataOffset, u32 numTextures, u32 shaderOffset, u32 numShaders, u32 triggerOffset, u32 numTriggers);
 void PortSwap_PackHeader(u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
 void PortSwap_QuadPack(u8 *data, u32 size, u32 index);
 void PortSwap_SFXDescriptors(u8 *sfx, u32 count);
-void PortSwap_MIDI(u8 *song, u8 *bank);
 void PortSwap_TOC(u32 *buf, u32 bufWords);
 
 /* ProcessManager.c */
@@ -1131,37 +1136,45 @@ void TitleScreen_RunDemoLoop(void);
 /* Thing.c */
 s32 ActionAirboxChangeMode(s32 *data);
 s32 ActionVehicleTeleport(u32 *action);
-u32 CollisionInfo_GetOther(void *arg0, u32 arg1);
+u32 CollisionInfo_GetOther(CollisionInfo *info, u32 self);
 s32 Thing_AddToGrid(void *thing, s32 type);
-void Thing_CollideWithForceBoxes(u8 *thing);
-void Thing_CollideWithItems(u8 *thing);
+void Thing_CollideWithForceBoxes(Thing *thing);
+void Thing_CollideWithItems(Thing *thing);
 f32 Thing_CollideWithRay(void *thing, Vector4 *start, Vector4 *dir, void *hit, f32 maxDist);
-s8 Thing_CollideWithTeleporters(u8 *thing);
+s8 Thing_CollideWithTeleporters(u8 *arg);
 void Thing_Draw(void);
+void Thing_DrawSlaves(Thing *thing);
 void Thing_DynamicCollideImpact(void);
-void Thing_DynamicGridMove(void *thing, f32 expand);
+void Thing_DynamicGridMove(Thing *thing, f32 expand);
 void Thing_DynamicRotation(void);
+void Thing_GetCameraOrientationInfo(Thing *thing, u32 index, void *out);
+void Thing_GetDynamicMinMax(Thing *thing, Vector4 *min, Vector4 *max, f32 expand);
 void Thing_GetInterfaceInfo(void *thing, void *info);
 void Thing_GetInverseLocalInertiaTensor(void *thing, f32 *tensor);
 s32 Thing_GetLocalCollision(u8 *thing);
 f32 Thing_GetMass(void);
 s32 Thing_GetNearestNavPoint(void);
-void *Thing_GetOrientedCollision(void *thing);
-s32 Thing_GetSource(void *arg0);
-void Thing_GetStaticRotationalMinMax(void *thing, Vector4 *min, Vector4 *max);
+void * Thing_GetOrientedCollision(void *thing);
+s32 Thing_GetSource(Thing *thing);
+void Thing_GetStaticRotationalMinMax(Thing *thing, Vector4 *min, Vector4 *max);
 void * Thing_GetSurfaceScript(void);
-void Thing_GetTargetPos(void *thing, Quaternion *pos);
-s32 Thing_HitsTerrain(void *thing, void *arg1, void *arg2);
+void Thing_GetTargetPos(Thing *thing, Quaternion *pos);
+s8 Thing_HasThing(Thing *thing, void *target);
+s32 Thing_HitsTerrain(Thing *thing, void *arg1, void *arg2);
+s32 Thing_Init(Thing *thing, s32 arg1);
 void Thing_InitAllSlavesNow(s32 arg0, void *data, s32 mask);
 s32 Thing_Move(void);
+void Thing_MoveSlaves(Thing *thing);
 void Thing_PassiveTargeting(void *thing);
 s32 Thing_PreMove(void);
-void Thing_ProcessEndEvent(u8 *thing, u8 *event, u8 *collision, Vector4 *vel);
-void Thing_Release(void *thing);
-void Thing_RotationalGridMove(void *thing);
-void Thing_SetSlavePlayers(void *thing);
-void Thing_StaticGridMove(void *thing);
-s8 Thing_TestThingCollision(u8 *a, u8 *b, f32 *t, u8 *hit);
+void Thing_ProcessEndEvent(Thing *thing, u8 *event, CollisionInfo *collision, Vector4 *angVel);
+void Thing_Release(void *arg);
+void Thing_RotationalGridMove(Thing *thing);
+void Thing_SetSlavePlayers(Thing *thing);
+void Thing_SlaveTransform(Thing *thing, Matrix4 *mtx);
+void Thing_SlaveTransformQuaternionOnly(Thing *thing, Matrix4 *mtx);
+void Thing_StaticGridMove(Thing *thing);
+s8 Thing_TestThingCollision(Thing *a, Thing *b, f32 *t, CollisionInfo *hit);
 s32 TriggerAirboxEntered(u32 *trigger);
 s32 TriggerAirboxExited(u32 *trigger);
 s32 TriggerAirboxStopIn(u32 *trigger);
@@ -1226,11 +1239,6 @@ void TimeHandler_SetTimeElapsedSec_f32(f32 sec);
 
 /* Tracer.c */
 void Tracer_ClearTracer(s32 index);
-s32 Tracer_Init(u8 *thing, u8 *data);
-s32 Tracer_Invalidate(void *arg0, u32 arg1, u32 arg2);
-s32 Tracer_Move(u8 *thing);
-void Tracer_Release(struct Thing *thing);
-void Tracer_Render(u8 *thing);
 
 /* Trail.c */
 void Trail_AddSegment(u32 *handle, f32 *pos, f32 *dir, u16 texture, GXColor color, s32 life, f32 width0, f32 width1);
@@ -1429,38 +1437,33 @@ void CarA_Extract_Keyframes(CarA *car, void *frames);
 #endif
 #if !defined(HWVX_SRC_CarA_Stunts)
 void Drone_ComputeSuspensionForces(void *obj);
+#endif
+#if !defined(HWVX_SRC_CarA_Stunts) && !defined(HWVX_SRC_data_gen)
 s32 Drone_PreMove(void *drone);
 #endif
 #if !defined(HWVX_SRC_CollisionPoly)
-s8 OBoxHitsPolyZeroTime(void *box, void *p, void *hit);
-f32 OOBHitsPoly(void *box, void *poly, Vector4 *vel, void *hit, f32 maxT);
+s8 OBoxHitsPolyZeroTime(CollisionOBox *box, void *p, void *hit);
+f32 OOBHitsPoly(CollisionOBox *box, void *poly, Vector4 *vel, void *hit, f32 maxT);
 f32 RayHitsPoly(Vector4 *start, Vector4 *dir, void *p, f32 t);
-#endif
-#if !defined(HWVX_SRC_CollisionThing)
-s8 OBoxHitsOBoxZeroTime(void *a, void *b, void *hit);
-f32 OBoxHitsSegment(void *box, Vector4 *vel, Vector4 *seg, f32 maxT, void *hit);
-s8 OBoxHitsSegmentZeroTime(void *box, Vector4 *seg, void *hit);
-#endif
-#if !defined(HWVX_SRC_CollisionThing) && !defined(HWVX_SRC_Destructible)
-void *OBoxHolder_Get(void);
-#endif
-#if !defined(HWVX_SRC_CollisionThing)
-void OBoxHolder_Release(void *obox);
 #endif
 #if !defined(HWVX_SRC_CoronaHolder)
 s32 CoronaHolder_Add(void *corona, Vector4 *pos);
 #endif
-#if !defined(HWVX_SRC_Creature)
+#if !defined(HWVX_SRC_Creature) && !defined(HWVX_SRC_data_gen)
 s32 Creature_Init(Creature *arg0, void *arg1);
 #endif
 #if !defined(HWVX_SRC_Debris)
 void Debris_Draw(void *debris);
 f32 Debris_GetMass(void *debris);
 #endif
-#if !defined(HWVX_SRC_Emitter)
+#if !defined(HWVX_SRC_Emitter) && !defined(HWVX_SRC_data_gen)
 s32 ActionFXPointChangeMode(void *list);
+#endif
+#if !defined(HWVX_SRC_Emitter)
 u32 Emitter_InCameraRange(void *emitter, f32 range);
 s32 Emitter_Invalidate(void *emitter, u32 start, u32 end);
+#endif
+#if !defined(HWVX_SRC_Emitter) && !defined(HWVX_SRC_data_gen)
 s32 Emitter_Move(void *emitter);
 void Emitter_Release(void *emitter);
 #endif
@@ -1565,19 +1568,16 @@ s32 SmartProjectileA_PreMove(void *proj);
 #if !defined(HWVX_SRC_SoundSequence)
 s32 SoundSeq_Invalidate(void *seq, u32 start, u32 end);
 #endif
-#if !defined(HWVX_SRC_Thing)
-void Thing_DrawSlaves(void *thing);
-void Thing_GetCameraOrientationInfo(void *thing, u32 index, void *out);
-void Thing_GetDynamicMinMax(void *thing, Vector4 *min, Vector4 *max, f32 expand);
-s8 Thing_HasThing(void *thing, void *target);
-s32 Thing_Init(void *thing, s32 arg1);
-void Thing_MoveSlaves(void *thing);
-void Thing_SlaveTransform(void *thing, Matrix4 *mtx);
-void Thing_SlaveTransformQuaternionOnly(void *thing, Matrix4 *mtx);
-#endif
 #if !defined(HWVX_SRC_ThingManager)
 s32 OBox_CollideAllThingsZeroTime(void *obox, void *thing, void *info);
 void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player);
+#endif
+#if !defined(HWVX_SRC_Tracer)
+s32 Tracer_Init(void *thing, u8 *data);
+s32 Tracer_Invalidate(void *thing, u32 start, u32 end);
+s32 Tracer_Move(void *thing);
+void Tracer_Release(void *thing);
+void Tracer_Render(void *thing);
 #endif
 #if !defined(HWVX_SRC_Voice_)
 void DestroyVoice_(void *axv);

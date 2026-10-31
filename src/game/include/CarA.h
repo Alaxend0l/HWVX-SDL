@@ -15,7 +15,7 @@ typedef struct MotionState {
   PTR32(Model) model;            /* 0x00 */
   u8 pad[0xC];             /* 0x04 */
   PTR32(Matrix4) animMatrices;   /* 0x10 */
-  PTR32(u8) slaves;              /* 0x14 linked list, next node at +0xA4 */
+  PTR32(Thing) slaves;           /* 0x14 attached slave things (Thing.next list) */
 } MotionState;
 
 /* The player object a car is driven by (GETP(CarA.player)): its controller state

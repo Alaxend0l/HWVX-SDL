@@ -7,13 +7,6 @@ typedef struct Poly {
     u32 numVerts;    /* 0x14 */
 } Poly;
 
-typedef struct OBoxZT {
-    Vector4 center;      /* 0x00 */
-    Vector4 corners[8];  /* 0x10 */
-    f32 extents[4];      /* 0x90 */
-    PTR32(Vector4) axes[3];    /* 0xA0 */
-} OBoxZT;
-
 typedef struct HitZT {
     Vector4 pos;     /* 0x00 */
     Vector4 normal;  /* 0x10 */
@@ -26,15 +19,6 @@ typedef struct CollisionPoly {
     u32 unk18;       /* 0x18 */
     u32 material;    /* 0x1C */
 } CollisionPoly;
-
-typedef struct PolyOBox {
-    Vector4 center;      /* 0x00 */
-    Vector4 corners[8];  /* 0x10 */
-    f32 extent[4];       /* 0x90 */
-    PTR32(Vector4) axis[3];    /* 0xA0 */
-    u8 unkAC[0xCC - 0xAC];
-    u32 unkCC;           /* 0xCC */
-} PolyOBox;
 
 typedef struct PolyHit {
     Vector4 pos;     /* 0x00 */
@@ -87,7 +71,7 @@ f32 RayHitsPoly(Vector4 *start, Vector4 *dir, Poly *p, f32 t) {
     return 0.0f;
 }
 
-f32 OOBHitsPoly(PolyOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *hit, f32 maxT) {
+f32 OOBHitsPoly(CollisionOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *hit, f32 maxT) {
     f32 planeD;
     DividingAxis da;
     Vector4 edge __attribute__((aligned(16)));
@@ -242,7 +226,7 @@ f32 OOBHitsPoly(PolyOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *hit, 
     if (hit != NULL && da.tEnter < maxT) {
         hit->type = type;
         hit->unk28 = (SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, GETP(g_worldData.world)) + 0x5C)))[poly->material];
-        box->unkCC = (u32)HND(poly);
+        box->cachedPoly = (u32)HND(poly);
         switch (type) {
         case 1:
             hit->pos = GETP(poly->verts)[vert];
@@ -324,7 +308,7 @@ f32 OOBHitsPoly(PolyOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *hit, 
     return da.tEnter;
 }
 
-s8 OBoxHitsPolyZeroTime(OBoxZT *box, Poly *p, HitZT *hit) {
+s8 OBoxHitsPolyZeroTime(CollisionOBox *box, Poly *p, HitZT *hit) {
     Vector4 edgeDir __attribute__((aligned(16)));
     Vector4 n __attribute__((aligned(16)));
     Vector4 pt __attribute__((aligned(16)));
@@ -361,9 +345,9 @@ s8 OBoxHitsPolyZeroTime(OBoxZT *box, Poly *p, HitZT *hit) {
         f32 c;
         f32 lo;
         f32 hi;
-        min = max = PSVECDotProduct(GETP(box->axes[i]), &GETP(p->verts)[0]);
+        min = max = PSVECDotProduct(GETP(box->axis[i]), &GETP(p->verts)[0]);
         for (j = 1; j < p->numVerts; j++) {
-            d = PSVECDotProduct(GETP(box->axes[i]), &GETP(p->verts)[j]);
+            d = PSVECDotProduct(GETP(box->axis[i]), &GETP(p->verts)[j]);
             if (d < min) {
                 min = d;
                 minIdx = j;
@@ -372,9 +356,9 @@ s8 OBoxHitsPolyZeroTime(OBoxZT *box, Poly *p, HitZT *hit) {
                 maxIdx = j;
             }
         }
-        c = PSVECDotProduct(GETP(box->axes[i]), box);
-        lo = c - box->extents[i];
-        hi = c + box->extents[i];
+        c = PSVECDotProduct(GETP(box->axis[i]), box);
+        lo = c - box->extent[i];
+        hi = c + box->extent[i];
         if (max < lo || hi < min) {
             return 0;
         }
@@ -435,7 +419,7 @@ s8 OBoxHitsPolyZeroTime(OBoxZT *box, Poly *p, HitZT *hit) {
             f32 hi;
             f32 a;
             f32 mag;
-            PSVECCrossProduct(GETP(box->axes[k]), &edgeDir, &n);
+            PSVECCrossProduct(GETP(box->axis[k]), &edgeDir, &n);
             mag = PSVECSquareMag(&n);
             if (mag < 0.0001f) {
                 continue;
@@ -486,7 +470,7 @@ s8 OBoxHitsPolyZeroTime(OBoxZT *box, Poly *p, HitZT *hit) {
         switch (type) {
         case 1:
             hit->pos = GETP(p->verts)[feature];
-            hit->normal = *GETP(box->axes[axis]);
+            hit->normal = *GETP(box->axis[axis]);
             if (flip) {
                 hit->normal.x *= -1.0f;
                 hit->normal.y *= -1.0f;
@@ -500,14 +484,14 @@ s8 OBoxHitsPolyZeroTime(OBoxZT *box, Poly *p, HitZT *hit) {
         case 3:
             pt = box->corners[feature];
             PSVECSubtract(&GETP(p->verts)[edge], &GETP(p->verts)[(edge - 1 + p->numVerts) % p->numVerts], &e);
-            PSVECCrossProduct(&e, GETP(box->axes[axis]), &c1);
+            PSVECCrossProduct(&e, GETP(box->axis[axis]), &c1);
             PSVECCrossProduct(&e, &c1, &c2);
             Create_Plane(&plane, &c2, &GETP(p->verts)[edge]);
             d = Distance_Plane(&plane, &pt);
-            t = -d / PSVECDotProduct(&plane, GETP(box->axes[axis]));
-            pt.x += GETP(box->axes[axis])->x * t;
-            pt.y += GETP(box->axes[axis])->y * t;
-            pt.z += GETP(box->axes[axis])->z * t;
+            t = -d / PSVECDotProduct(&plane, GETP(box->axis[axis]));
+            pt.x += GETP(box->axis[axis])->x * t;
+            pt.y += GETP(box->axis[axis])->y * t;
+            pt.z += GETP(box->axis[axis])->z * t;
             hit->pos = pt;
             hit->normal = c1;
             if (PSVECSquareMag(&hit->normal)) {

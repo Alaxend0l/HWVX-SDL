@@ -27,6 +27,9 @@ typedef union Matrix4 {
   Vector4 v[4];
   f64 d[8];                 /* the game copies matrices as doubles */
 } Matrix4 __attribute__((aligned(16)));
+#include "Thing.h"
+#include "Collision.h"
+#include "ItemThing.h"
 #ifndef TRUE
 #define TRUE 1
 #define FALSE 0
@@ -213,31 +216,22 @@ typedef struct ThingRecord {
   u8 slaves[4];           /* 0x18 shared slaves */
 } ThingRecord;
 
+/* Destructibles, movers, physical objects and drones (Destructible.c). */
 typedef struct Destructible {
-  Vector4 pos;         /* 0x00 */
-  f32 matrix[12];      /* 0x10 */
-  Vector4 offsetPos;   /* 0x40 */
-  u8 pad50[0x20];      /* 0x50 orientation quaternion first */
-  f32 radius;          /* 0x70 */
-  u32 flags;           /* 0x74 */
-  s32 health;          /* 0x78 */
-  u32 unk7C;           /* 0x7C */
-  s16 collisionType;   /* 0x80 */
-  u8 pad82[6];         /* 0x82 */
-  PTR32(void) slaves;        /* 0x88 slave things list */
-  PTR32(void) vtable;        /* 0x8C */
-  PTR32(u8) trigger;         /* 0x90 */
-  PTR32(void) player;        /* 0x94 */
-  u8 pad98[0x28];      /* 0x98 */
+  Thing base;                /* 0x00 */
+  u8 padAC[0x14];            /* 0xAC */
   PTR32(ThingRecord) record; /* 0xC0 */
-  f32 drawDist;        /* 0xC4 */
-  s32 deathTimer;      /* 0xC8 ms until a dead destructible is released */
+  f32 drawDist;              /* 0xC4 */
+  s32 deathTimer;            /* 0xC8 ms until a dead destructible is released */
   PTR32(ConvexHull) hull;    /* 0xCC */
-  PTR32(OBox) orientedBox;   /* 0xD0 */
+  PTR32(CollisionOBox) orientedBox; /* 0xD0 */
   PTR32(void) anim;          /* 0xD4 movers: track animation */
-  f32 speed;           /* 0xD8 */
-  f32 trackPos;        /* 0xDC */
+  f32 speed;                 /* 0xD8 */
+  f32 trackPos;              /* 0xDC */
 } Destructible;
+
+_Static_assert(offsetof(Destructible, record) == 0xC0, "Destructible.record");
+_Static_assert(offsetof(Destructible, trackPos) == 0xDC, "Destructible.trackPos");
 
 typedef struct OConvexHull {
   Vector4 verts[32];        /* 0x00 */

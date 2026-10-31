@@ -297,17 +297,17 @@ s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info
     count = Grid_GetObjects(&min, &max, 4, results, 0x100);
     for (i = 0; i < count; i++) {
         other = (Destructible *)PTR(results[i].id);
-        if (other->flags & 2) {
+        if (other->base.flags & 2) {
             continue;
         }
-        if ((u8 *)GETP(other->vtable) == g_destructibleVTable && GETP(GETP(other->record)->info)->type == 0) {
+        if ((u8 *)GETP(other->base.vtable) == g_destructibleVTable && GETP(GETP(other->record)->info)->type == 0) {
             box = GETP(GETP(GETP(other->record)->info)->box);
             if ((box->v[1].x - box->v[0].x) * (box->v[1].z - box->v[0].z) < 100.0f) {
                 continue;
             }
         }
-        if (SegmentVsSphere(&other->offsetPos, start, &end, *(f32 *)((u8 *)other + 0x70))) {
-            hit = (((f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))SLOT_LOAD(void *, ((u8 *)GETP(other->vtable) + 0x38))))(other, start, dir, info, best);
+        if (SegmentVsSphere(&other->base.pos, start, &end, other->base.radius)) {
+            hit = THING_VFN(other, THING_V_COLLIDE_WITH_RAY, f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))(other, start, dir, info, best);
             if (hit < *t) {
                 best = hit;
             }

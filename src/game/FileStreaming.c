@@ -31,16 +31,6 @@ typedef struct ItemInfo {
     u32 effect;
 } ItemInfo;
 
-typedef struct ItemThing {
-    u8 pad0[0x74];
-    u32 flags;
-    u8 pad78[0x8C - 0x78];
-    PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(struct ItemThing *) */
-    PTR32(void) owner;
-    u8 pad94[0xD0 - 0x94];
-    PTR32(void) respawnItem;
-} ItemThing;
-
 typedef struct QuadItem {
     Vector4 pos;
     u8 pad10[0x4];
@@ -63,7 +53,7 @@ typedef struct QuadStatic {
     u8 pad0[0x24];
     PTR32(u8) info;
     u8 pad28[0x2C - 0x28];
-    PTR32(ItemThing) thing;
+    PTR32(Thing) thing;
     s32 active;
     u8 pad34[0x36 - 0x34];
     u8 defActive;
@@ -72,7 +62,7 @@ typedef struct QuadStatic {
 
 typedef struct QuadDynamic {
     u8 pad0[0x30];
-    PTR32(ItemThing) thing;
+    PTR32(Thing) thing;
     s32 active;
     u8 pad38[0x39 - 0x38];
     u8 defActive;
@@ -272,7 +262,7 @@ void FileStreaming_ResetQuadResources(void)
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->numStatics; j++) {
                 st = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->statics)[j];
                 if (GETP(st->thing) != NULL && GETP(st->info)[7] == 0) {
-                    ((void (*)(struct Thing *))PTR(GETP(GETP(st->thing)->vtbl)[1]))(GETP(st->thing));
+                    THING_VFN(GETP(st->thing), THING_V_RELEASE, void (*)(void *))(GETP(st->thing));
                     SETP(st->thing, NULL);
                     st->active = 1;
                 }
@@ -280,7 +270,7 @@ void FileStreaming_ResetQuadResources(void)
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->numDynamics; j++) {
                 dyn = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->dynamics)[j];
                 if (GETP(dyn->thing) != NULL) {
-                    ((void (*)(struct Thing *))PTR(GETP(GETP(dyn->thing)->vtbl)[1]))(GETP(dyn->thing));
+                    THING_VFN(GETP(dyn->thing), THING_V_RELEASE, void (*)(void *))(GETP(dyn->thing));
                     SETP(dyn->thing, NULL);
                     dyn->active = 1;
                 }
@@ -288,7 +278,7 @@ void FileStreaming_ResetQuadResources(void)
             for (j = 0; j < (SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->count; j++) {
                 item = &GETP((SLOT_LOAD(QuadItemList *, (g_LoadedQuadrants[i] + 0x30)))->items)[j];
                 if (GETP(item->thing) != NULL) {
-                    ((void (*)(struct Thing *))PTR(GETP(GETP(item->thing)->vtbl)[1]))(GETP(item->thing));
+                    THING_VFN(GETP(item->thing), THING_V_RELEASE, void (*)(void *))(GETP(item->thing));
                     SETP(item->thing, NULL);
                     item->type = 1;
                 }
@@ -314,11 +304,6 @@ void FileStreaming_ResetQuadResources(void)
 
 
 void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
-    typedef struct Thing {
-        u8 pad0[0x8C];
-        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(struct Thing *) */
-        PTR32(u8) owner;
-    } Thing;
     typedef struct SlaveInfo {
         u8 pad0[0x18];
         PTR32(u32) shared;
@@ -442,7 +427,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                 StaticEntry *st = &GETP(GETP(release[i]->data)->statics)[j];
 
                 if (GETP(st->thing) != NULL && GETP(st->info)->isStatic == 0) {
-                    ((void (*)(struct Thing *))PTR(GETP(GETP(st->thing)->vtbl)[1]))(GETP(st->thing));
+                    THING_VFN(GETP(st->thing), THING_V_RELEASE, void (*)(void *))(GETP(st->thing));
                     SETP(st->thing, NULL);
                 }
             }
@@ -450,7 +435,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                 DynamicEntry *dyn = &GETP(GETP(release[i]->data)->dynamics)[j];
 
                 if (GETP(dyn->thing) != NULL) {
-                    ((void (*)(struct Thing *))PTR(GETP(GETP(dyn->thing)->vtbl)[1]))(GETP(dyn->thing));
+                    THING_VFN(GETP(dyn->thing), THING_V_RELEASE, void (*)(void *))(GETP(dyn->thing));
                     SETP(dyn->thing, NULL);
                 }
             }
@@ -461,7 +446,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                     if (item->timer == 0) {
                         item->spawned = 0;
                     }
-                    ((void (*)(struct Thing *))PTR(GETP(GETP(item->thing)->vtbl)[1]))(GETP(item->thing));
+                    THING_VFN(GETP(item->thing), THING_V_RELEASE, void (*)(void *))(GETP(item->thing));
                     SETP(item->thing, NULL);
                 }
             }
@@ -515,7 +500,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                 sp.vel = g_zeroVector;
                 SETP(st->thing, ThingManager_DARYL_CreateThing(3, &sp));
                 if (GETP(st->thing) != NULL) {
-                    SETP(GETP(st->thing)->owner, (u8 *)st);
+                    SETP(GETP(st->thing)->trigger, st);  /* the thing's spawn entry */
                     destAction.mode = st->active;
                     destAction.set = 1;
                     SETP(destAction.entry, st);
@@ -587,11 +572,11 @@ void FileStreaming_HeartBeatItems(void)
                                 item->respawn = 0;
                             }
                             SETP(item->thing, thing);
-                            SETP(thing->respawnItem, item);
-                            SETP(thing->owner, item);
-                            thing->flags |= 1;
+                            SETP(thing->spawner, item);
+                            SETP(thing->base.trigger, item);
+                            thing->base.flags |= 1;
                             if (item->respawn) {
-                                SETP(thing->respawnItem, item);
+                                SETP(thing->spawner, item);
                             }
                             if (GETP(item->info)->effect) {
                                 p.id = GETP(item->info)->effect;

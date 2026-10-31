@@ -2,23 +2,6 @@
 
 
 
-typedef struct OBoxCorners
-{
-    u8 pad[0x10];
-    Vector4 corners[8];
-} OBoxCorners;
-typedef struct CollisionInfo
-{
-    Vector4 pos;
-    Vector4 normal;
-    s32 unk20;
-    s32 unk24;
-    u32 material;
-    u8 pad2C[0x40 - 0x2C];
-    u8 type;
-} CollisionInfo;
-
-
 typedef struct TerrainGrid {
     Vector4 origin;
     u8 unk10[0x20 - 0x10];
@@ -393,7 +376,7 @@ s8 OBoxHitsTerrainZeroTimeEdgesOnly(void *obox, void *arg1) {
     bounds[1].z = -99999.0f;
     bounds[1].w = -99999.0f;
     for (i = 0; i < 8; i++) {
-        MinMaxVec(&bounds[0], &bounds[1], &((OBoxCorners *)obox)->corners[i]);
+        MinMaxVec(&bounds[0], &bounds[1], &((CollisionOBox *)obox)->corners[i]);
     }
     World_NextSweep();
     x1 = (bounds[1].x - ox) / sx;
@@ -569,12 +552,12 @@ s8 OBoxHitsBSP(void *obox, Vector4 *vel, void *bsp, f32 *time, void *arg4)
     }
     for (i = 0; i < 8 && t > 0.0f; i++)
     {
-        m = RayHitsBSP(&((OBoxCorners *)obox)->corners[order[i]], vel, bsp, &t, &hitNormal);
+        m = RayHitsBSP(&((CollisionOBox *)obox)->corners[order[i]], vel, bsp, &t, &hitNormal);
         if (m != 0)
         {
             material = m;
             hitCorner = 1;
-            corner = ((OBoxCorners *)obox)->corners[order[i]];
+            corner = ((CollisionOBox *)obox)->corners[order[i]];
             normal = hitNormal;
         }
     }
@@ -589,8 +572,8 @@ s8 OBoxHitsBSP(void *obox, Vector4 *vel, void *bsp, f32 *time, void *arg4)
         ((CollisionInfo *)arg4)->pos.x = vel->x * t + corner.x;
         ((CollisionInfo *)arg4)->pos.y = vel->y * t + corner.y;
         ((CollisionInfo *)arg4)->pos.z = vel->z * t + corner.z;
-        ((CollisionInfo *)arg4)->unk20 = 0;
-        ((CollisionInfo *)arg4)->unk24 = 0;
+        ((CollisionInfo *)arg4)->thingA = 0;
+        ((CollisionInfo *)arg4)->thingB = 0;
         ((CollisionInfo *)arg4)->normal = normal;
     }
     *time = t;
@@ -636,7 +619,7 @@ s8 OBoxHitsBSPZeroTime(void *obox, void *bsp, void *arg2) {
         }
     }
     for (i = 0; i < 8; i++) {
-        if (PointInsideBSP(bsp, &((OBoxCorners *)obox)->corners[i])) {
+        if (PointInsideBSP(bsp, &((CollisionOBox *)obox)->corners[i])) {
             return 1;
         }
     }
