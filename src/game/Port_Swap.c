@@ -653,6 +653,18 @@ static void Claim_IMObject(Swapper *s, u32 off) {
             ClaimBytes(s, sub + 0xC, 8);
             ClaimU16(s, sub + 0x14);
             ClaimU16(s, sub + 0x16);
+            {
+                /* the text: 0x0 -> string slots, slot 0 shown (AddObject).
+                 * Short ones ("No" in the quit menu) are below
+                 * Claim_StringTargets' length limit. */
+                u32 str = Target(s, sub), t = str != ~0u ? Target(s, str) : ~0u, n = 0;
+                while (t != ~0u && t + n < s->size && s->base[t + n] >= 0x20 && s->base[t + n] < 0x7F) {
+                    n++;
+                }
+                if (t != ~0u && n > 0 && t + n < s->size && s->base[t + n] == 0) {
+                    ClaimBytes(s, t, n + 1);
+                }
+            }
             if (s->base[sub + 0x10] == 1) {
                 /* string list (MoveObject): 0x8 -> { count, texts 0x4 (slots
                  * -> text: string slots), u8 0x8, u16 variable 0xA }. The
@@ -1787,14 +1799,15 @@ static void Claim_Geometry(Swapper *s, u32 g) {
     ClaimU16(s, g + 6);
     n = Half(s, g + 2);
     lods = Target(s, g + 8);
-    /* f32 LOD distances, one per level: claim them, or the string heuristic
-     * can take one for text (1e9f is "Nnk(\0" in a weapon flame) */
-    if (Target(s, g + 0xC) != ~0u) {
-        Claim(s, Target(s, g + 0xC), n * 4, CLAIM_U32);
-    }
     for (i = 0; i < n; i++) {
         u32 lod = lods + i * 0x18;
         u32 ng = Half(s, lod + 2), grp = Target(s, lod + 8);
+        /* a car's shadow model is a geometry whose LOD level is the shadow
+         * volume (groups flagged 0x4000: edge lists, not display lists) */
+        if (IsShadowGeometry(s, lod)) {
+            Claim_ShadowGeometry(s, lod);
+            continue;
+        }
         ClaimU16(s, lod);
         ClaimU16(s, lod + 2);
         ClaimU16(s, lod + 4);
@@ -1824,6 +1837,28 @@ static void Claim_GeometryScan(Swapper *s, const u32 *pointers, u32 numPointers)
         u32 g = Target(s, pointers[i]);
         if (g != ~0u && IsGeometry(s, g)) {
             Claim_Geometry(s, g);
+        }
+    }
+}
+
+/* f32 LOD distances (geometry 0xC), one per level: claim them, or the string
+ * heuristic can take one for text (1e9f is "Nnk(\0" in a weapon flame). Run
+ * after the geometry walk and only over unclaimed bytes: a LOD level can pass
+ * IsGeometry too, and its 0xC is a vertex buffer that must keep its claims. */
+static void Claim_LODDistances(Swapper *s, const u32 *pointers, u32 numPointers) {
+    u32 i, k;
+
+    for (i = 0; i < numPointers; i++) {
+        /* every pointer slot that is some geometry's 0xC, however the
+         * geometry itself is reached (pointer, export reloc, import) */
+        u32 g = pointers[i] - 0xC, dist;
+        if (pointers[i] < 0xC || !IsGeometry(s, g) || (dist = Target(s, g + 0xC)) == ~0u) {
+            continue;
+        }
+        for (k = 0; k < Half(s, g + 2); k++) {
+            if (InBlob(s, dist + k * 4, 4) && s->claim[dist + k * 4] == CLAIM_DEFAULT) {
+                Claim(s, dist + k * 4, 4, CLAIM_U32);
+            }
         }
     }
 }
@@ -2063,6 +2098,7 @@ void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataS
     Claim_Roots(&s);
     Claim_TACTriggers(&s, triggerOffset, numTriggers);
     Claim_Shaders(&s, shaderOffset, numShaders);
+    Claim_LODDistances(&s, pointers, numPointers);
     Claim_StringTargets(&s, pointers, numPointers);
     Swapper_Finish(&s, g_portSwapPackName);
 }
@@ -2115,6 +2151,7 @@ void PortSwap_QuadPack(u8 *data, u32 size, u32 index) {
     Swapper_MarkSlots(&s, relocs, nRelocs, 2);
     Claim_GeometryScan(&s, pointers, nPointers);
     Claim_GeometryScanRelocs(&s, texRelocs, nTexRelocs);
+    Claim_LODDistances(&s, pointers, nPointers);
     Claim_StringTargets(&s, pointers, nPointers);
     snprintf(name, sizeof(name), "quad#%u", index);
     Swapper_Finish(&s, name);
