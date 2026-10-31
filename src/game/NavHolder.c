@@ -1,20 +1,24 @@
+/* The nav graph (Nav.h): nearest-point searches and A* paths over the nav
+ * points, used by the AI cars, the target arrow and respawning. */
 #include "common.h"
+#include "Nav.h"
 
 
 extern NavHolder gs_NavHolder;
 extern s8 gs_useMainRouteOnly;
-extern PathNode *gs_pOpenListHead;
-extern PathNode *gs_pClosedListHead;
+extern NavPoint *gs_pOpenListHead;
+extern NavPoint *gs_pClosedListHead;
 extern s32 __float_nan[];
 extern s32 __float_huge[];
 
 /* MSL's inline sqrt (frsqrte + Newton steps) came here; libm's sqrt is used instead. */
 
-static inline PathNode *NavHolder_PopLowestOpen(void) {
-    PathNode *head = gs_pOpenListHead;
-    PathNode *prev = NULL;
-    PathNode *p;
-    PathNode *best;
+/* Unlinks and returns the open point with the lowest f. */
+static inline NavPoint *NavHolder_PopLowestOpen(void) {
+    NavPoint *head = gs_pOpenListHead;
+    NavPoint *prev = NULL;
+    NavPoint *p;
+    NavPoint *best;
     f32 bestF;
 
     if (head == NULL) {
@@ -23,22 +27,25 @@ static inline PathNode *NavHolder_PopLowestOpen(void) {
     bestF = head->f;
     p = head;
     best = head;
-    for (; GETP(p->next) != NULL; p = GETP(p->next)) {
-        if (GETP(p->next)->f < bestF) {
-            bestF = GETP(p->next)->f;
+    for (; GETP(p->listNext) != NULL; p = GETP(p->listNext)) {
+        if (GETP(p->listNext)->f < bestF) {
+            bestF = GETP(p->listNext)->f;
             prev = p;
-            best = GETP(p->next);
+            best = GETP(p->listNext);
         }
     }
     if (prev == NULL) {
-        gs_pOpenListHead = GETP(head->next);
+        gs_pOpenListHead = GETP(head->listNext);
     } else {
-        SETP(prev->next, GETP(best->next));
+        SETP(prev->listNext, GETP(best->listNext));
     }
-    best->flags &= ~2;
+    best->pathFlags &= ~NAV_PATH_OPEN;
     return best;
 }
 
+/* Clears the search state. A point is usable this search if enabled and its
+ * route chance (NavPoint.chance) beats a roll of 1..100 (of 100 after
+ * NavHolder_UseMainRouteOnly). */
 static inline void NavHolder_ResetPathFlags(NavData *data) {
     u32 i;
     u32 chance = 1;
@@ -54,17 +61,18 @@ static inline void NavHolder_ResetPathFlags(NavData *data) {
     }
     for (i = 0; i < data->numNodes; i++) {
         u32 r = RandomNumberGenerator_GetRandomInteger(chance, 100);
-        u8 *node = GETP(data->nodes) + i * 0x60;
-        if (node[0x50] != 0 && node[0x35] >= r) {
-            node[0x37] |= 1;
+        NavPoint *node = &GETP(data->nodes)[i];
+        if (node->enabled != 0 && node->chance >= r) {
+            node->pathFlags |= NAV_PATH_USABLE;
         } else {
-            node[0x37] &= ~1;
+            node->pathFlags &= ~NAV_PATH_USABLE;
         }
-        GETP(data->nodes)[i * 0x60 + 0x37] &= ~6;
-        SLOT_STORE((GETP(data->nodes) + i * 0x60 + 0x38), NULL);
+        node->pathFlags &= ~(NAV_PATH_OPEN | NAV_PATH_CLOSED);
+        SETP(node->parent, NULL);
     }
 }
 
+/* Takes the world's nav data and adds every point to the grid (type 5). */
 void NavHolder_Init(NavData *data) {
     u32 i;
 
@@ -74,20 +82,21 @@ void NavHolder_Init(NavData *data) {
         SETP(gs_NavHolder.objects, (void **)Allocate(data->numNodes * 4, 0, ""));
     }
     for (i = 0; i < GETP(gs_NavHolder.data)->numNodes; i++) {
-        SETP(GETP(gs_NavHolder.objects)[i], (void *)PTR(HND(Grid_AddObject(5, i, GETP(GETP(gs_NavHolder.data)->nodes) + i * 0x60, GETP(GETP(gs_NavHolder.data)->nodes) + i * 0x60))));
+        NavPoint *point = &GETP(GETP(gs_NavHolder.data)->nodes)[i];
+        SETP(GETP(gs_NavHolder.objects)[i], Grid_AddObject(5, i, point, point));
     }
 }
 
 void NavHolder_Release(void) {
-    Deallocate(PTR(M2C_FIELD(&gs_NavHolder, s32 *, 4)));
-    M2C_FIELD(&gs_NavHolder, s32 *, 0) = 0;
-    M2C_FIELD(&gs_NavHolder, s32 *, 4) = 0;
+    Deallocate(GETP(gs_NavHolder.objects));
+    SETP(gs_NavHolder.data, NULL);
+    SETP(gs_NavHolder.objects, NULL);
 }
 
 
 /* NavHolder_IsNavLinkNearer with its recursion step (FindIndexOfNearestNavLink) expanded once;
    FindIndexOfNearestNavLink inlines it. */
-static inline s32 NavHolder_IsNavLinkNearer_Expanded(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
+static inline s32 NavHolder_IsNavLinkNearer_Expanded(f32 *pos, NavPoint *link, f32 *nearest, u8 depth) {
     extern s32 gs_aLinksDepth3[64];
     s32 result = -1;
     s32 i;
@@ -103,13 +112,13 @@ static inline s32 NavHolder_IsNavLinkNearer_Expanded(f32 *pos, NavLink *link, f3
         if (link->index == gs_aLinksDepth3[i]) {
             return -1;
         }
-        if (gs_aLinksDepth3[i] == -0x8000) {
+        if (gs_aLinksDepth3[i] == NAV_NO_LINK) {
             break;
         }
     }
     gs_aLinksDepth3[i] = link->index;
-    gs_aLinksDepth3[i + 1] = -0x8000;
-    dist = PSVECSquareDistance(pos, link->pos);
+    gs_aLinksDepth3[i + 1] = NAV_NO_LINK;
+    dist = PSVECSquareDistance(pos, &link->pos);
     if (*nearest > dist) {
         *nearest = dist;
         result = link->index;
@@ -117,16 +126,16 @@ static inline s32 NavHolder_IsNavLinkNearer_Expanded(f32 *pos, NavLink *link, f3
     if (depth < 3) {
         best = -1;
         for (j = 0; j < link->numPrev; j++) {
-            if (GETP(link->prev)[j] != -0x8000) {
-                found = NavHolder_IsNavLinkNearer(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->prev)[j]), nearest, depth + 1);
+            if (GETP(link->prev)[j] != NAV_NO_LINK) {
+                found = NavHolder_IsNavLinkNearer(pos, NavHolder_GetNavPoint(GETP(link->prev)[j]), nearest, depth + 1);
                 if (found != -1) {
                     best = found;
                 }
             }
         }
         for (j = 0; j < link->numNext; j++) {
-            if (GETP(link->next)[j] != -0x8000) {
-                found = NavHolder_IsNavLinkNearer(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->next)[j]), nearest, depth + 1);
+            if (GETP(link->next)[j] != NAV_NO_LINK) {
+                found = NavHolder_IsNavLinkNearer(pos, NavHolder_GetNavPoint(GETP(link->next)[j]), nearest, depth + 1);
                 if (found != -1) {
                     best = found;
                 }
@@ -139,7 +148,10 @@ static inline s32 NavHolder_IsNavLinkNearer_Expanded(f32 *pos, NavLink *link, f3
     return result;
 }
 
-s32 NavHolder_IsNavLinkNearer(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
+/* Index of the point nearest to pos among link and its neighbours up to
+ * depth 3, each visited once (gs_aLinksDepth3, ended by NAV_NO_LINK); -1 if
+ * none is nearer than *nearest, which it lowers. */
+s32 NavHolder_IsNavLinkNearer(f32 *pos, NavPoint *link, f32 *nearest, u8 depth) {
     extern s32 gs_aLinksDepth3[64];
     s32 result = -1;
     s32 i;
@@ -153,13 +165,13 @@ s32 NavHolder_IsNavLinkNearer(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
         if (link->index == gs_aLinksDepth3[i]) {
             return -1;
         }
-        if (gs_aLinksDepth3[i] == -0x8000) {
+        if (gs_aLinksDepth3[i] == NAV_NO_LINK) {
             break;
         }
     }
     gs_aLinksDepth3[i] = link->index;
-    gs_aLinksDepth3[i + 1] = -0x8000;
-    dist = PSVECSquareDistance(pos, link->pos);
+    gs_aLinksDepth3[i + 1] = NAV_NO_LINK;
+    dist = PSVECSquareDistance(pos, &link->pos);
     if (*nearest > dist) {
         *nearest = dist;
         result = link->index;
@@ -175,22 +187,23 @@ s32 NavHolder_IsNavLinkNearer(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
 
 #pragma always_inline on
 
-s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u8 depth) {
+/* NavHolder_IsNavLinkNearer over the prev and next links of link. */
+s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavPoint *link, f32 *nearest, u8 depth) {
     s32 result = -1;
     s32 found;
     u32 i;
 
     for (i = 0; i < link->numPrev; i++) {
-        if (GETP(link->prev)[i] != -0x8000) {
-            found = NavHolder_IsNavLinkNearer_Expanded(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->prev)[i]), nearest, depth);
+        if (GETP(link->prev)[i] != NAV_NO_LINK) {
+            found = NavHolder_IsNavLinkNearer_Expanded(pos, NavHolder_GetNavPoint(GETP(link->prev)[i]), nearest, depth);
             if (found != -1) {
                 result = found;
             }
         }
     }
     for (i = 0; i < link->numNext; i++) {
-        if (GETP(link->next)[i] != -0x8000) {
-            found = NavHolder_IsNavLinkNearer_Expanded(pos, (NavLink *)NavHolder_GetNavPoint(GETP(link->next)[i]), nearest, depth);
+        if (GETP(link->next)[i] != NAV_NO_LINK) {
+            found = NavHolder_IsNavLinkNearer_Expanded(pos, NavHolder_GetNavPoint(GETP(link->next)[i]), nearest, depth);
             if (found != -1) {
                 result = found;
             }
@@ -199,19 +212,11 @@ s32 NavHolder_FindIndexOfNearestNavLink(f32 *pos, NavLink *link, f32 *nearest, u
     return result;
 }
 
+/* Index of the linked, enabled nav point nearest to pos: searched around
+ * hint (an earlier result, -1: none) when that is within 500, else among the
+ * grid's points within 50, else among all of them. -1: none. */
 s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint) {
     extern s32 gs_aLinksDepth3[64];
-    typedef struct NavPoint {
-        f32 pos[3];
-        u8 pad0C[0x10 - 0xC];
-        u32 numPrev;
-        u8 pad14[0x1C - 0x14];
-        u32 numNext;
-        u8 pad20[0x28 - 0x20];
-        s32 index;
-        u8 pad2C[0x50 - 0x2C];
-        u8 enabled;
-    } NavPoint;
     GridResult results[64];
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
@@ -227,12 +232,12 @@ s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint) {
     found = -1;
     nearest = 250000.0f;
     if (hint != -1) {
-        nearest = PSVECSquareDistance(pos, (f32 *)NavHolder_GetNavPoint(hint));
+        nearest = PSVECSquareDistance(pos, NavHolder_GetNavPoint(hint));
     }
     if (nearest < 250000.0f) {
         gs_aLinksDepth3[0] = hint;
-        gs_aLinksDepth3[1] = -0x8000;
-        found = NavHolder_FindIndexOfNearestNavLink(pos, (NavLink *)NavHolder_GetNavPoint(hint), &nearest, 1);
+        gs_aLinksDepth3[1] = NAV_NO_LINK;
+        found = NavHolder_FindIndexOfNearestNavLink(pos, NavHolder_GetNavPoint(hint), &nearest, 1);
         if (found == -1) {
             found = hint;
         }
@@ -247,9 +252,9 @@ s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint) {
         }
         nearest = 1e10f;
         for (i = 0, result = results; i < count; result++, i++) {
-            point = (NavPoint *)NavHolder_GetNavPoint(result->id);
+            point = NavHolder_GetNavPoint(result->id);
             if (point->enabled && (point->numPrev != 0 || point->numNext != 0)) {
-                f32 dist = PSVECSquareDistance(pos, point->pos);
+                f32 dist = PSVECSquareDistance(pos, &point->pos);
                 if (nearest > dist) {
                     nearest = dist;
                     found = point->index;
@@ -258,9 +263,9 @@ s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint) {
         }
         if (1e10f == nearest) {
             for (j = 0; j < NavHolder_GetTotalNavPoints(); j++) {
-                p = (NavPoint *)NavHolder_GetNavPoint(j);
+                p = NavHolder_GetNavPoint(j);
                 if (p->enabled && (p->numPrev != 0 || p->numNext != 0)) {
-                    f32 dist = PSVECSquareDistance(pos, p->pos);
+                    f32 dist = PSVECSquareDistance(pos, &p->pos);
                     if (nearest > dist) {
                         nearest = dist;
                         found = p->index;
@@ -272,7 +277,9 @@ s32 NavHolder_FindIndexOfNearestNavPoint(f32 *pos, s32 hint) {
     return found;
 }
 
+/* Whether `to` is `from` or one of its next links. */
 s32 NavHolder_IsLinked(s32 from, s32 to) {
+    NavPoint *point;
     u8 i;
 
     if (from < 0 || to < 0) {
@@ -281,47 +288,54 @@ s32 NavHolder_IsLinked(s32 from, s32 to) {
     if (from == to) {
         return 1;
     }
-    for (i = 0; i < M2C_FIELD(GETP(GETP(gs_NavHolder.data)->nodes) + from * 0x60, u32 *, 0x1C); i++) {
-        if (to == SLOT_LOAD(s32 *, (u8 *)(GETP(GETP(gs_NavHolder.data)->nodes) + from * 0x60) + 0x20)[i]) {
+    point = &GETP(GETP(gs_NavHolder.data)->nodes)[from];
+    for (i = 0; i < point->numNext; i++) {
+        if (to == GETP(point->next)[i]) {
             return 1;
         }
     }
     return 0;
 }
 
-/* port: `array` is a table of 4-byte pointer slots (Player navPath, AI 0x420) */
-void NavHolder_FillPointerArrayPath(u8 *point, void *array, u32 max) {
+/* Writes the path starting at `point` (NavHolder_FindPath) into `array`,
+ * NULL-ended if shorter than max.
+ * port: `array` is a table of 4-byte pointer slots (Player navPath, AICar.path) */
+void NavHolder_FillPointerArrayPath(void *point, void *array, u32 max) {
+    NavPoint *p = point;
     u32 *out = array;
     u32 i = 0;
-    while (point != NULL && i < max) {
-        SLOT_STORE(out + i, point);
+    while (p != NULL && i < max) {
+        SLOT_STORE(out + i, p);
         i++;
-        point = SLOT_LOAD(u8 *, (point + 0x38));
+        p = GETP(p->parent);
     }
     if (i < max) {
         out[i] = 0;
     }
 }
 
+/* The next search uses only the points of 100% chance. */
 void NavHolder_UseMainRouteOnly(void) {
     gs_useMainRouteOnly = 1;
 }
 
-s8 NavHolder_CreatePath(u8 *goal, u8 *start) {
-    PathNode *cur;
-    PathNode *n;
+/* A* from start along the prev links until goal is reached; the parents
+ * then lead from goal back to start. 0: no path. */
+s8 NavHolder_CreatePath(NavPoint *goal, NavPoint *start) {
+    NavPoint *cur;
+    NavPoint *n;
     u8 i;
-    PathNode *end = (PathNode *)goal;
-    PathNode *node = (PathNode *)start;
-    PathNode *p;
+    NavPoint *end = goal;
+    NavPoint *node = start;
+    NavPoint *p;
     f32 g;
 
     node->g = 0.0f;
-    node->h = sqrt(PSVECSquareDistance(end->pos, node->pos));
+    node->h = sqrt(PSVECSquareDistance(&end->pos, &node->pos));
     node->f = node->g + node->h;
-    SETP(node->next, gs_pOpenListHead);
+    SETP(node->listNext, gs_pOpenListHead);
     gs_pOpenListHead = node;
-    node->flags |= 2;
+    node->pathFlags |= NAV_PATH_OPEN;
     while (1) {
         cur = NavHolder_PopLowestOpen();
         if (cur == end) {
@@ -330,32 +344,34 @@ s8 NavHolder_CreatePath(u8 *goal, u8 *start) {
         if (cur == NULL) {
             return 0;
         }
-        for (i = 0; i < cur->numLinks; i++) {
-            n = (PathNode *)NavHolder_GetNavPoint(GETP(cur->links)[i]);
-            if (n != end && !(s8)(n->flags & 1)) {
-                if (!(s8)(n->flags & 4)) {
-                    SETP(n->next, gs_pClosedListHead);
+        for (i = 0; i < cur->numPrev; i++) {
+            n = NavHolder_GetNavPoint(GETP(cur->prev)[i]);
+            if (n != end && !(s8)(n->pathFlags & NAV_PATH_USABLE)) {
+                if (!(s8)(n->pathFlags & NAV_PATH_CLOSED)) {
+                    SETP(n->listNext, gs_pClosedListHead);
                     gs_pClosedListHead = n;
-                    n->flags |= 4;
+                    n->pathFlags |= NAV_PATH_CLOSED;
                 }
             } else {
-                g = cur->g + GETP(cur->costs)[i];
-                if (!(n->flags & 6)) {
+                g = cur->g + GETP(cur->prevCosts)[i];
+                if (!(n->pathFlags & (NAV_PATH_OPEN | NAV_PATH_CLOSED))) {
                     n->g = g;
-                    n->h = sqrt(PSVECSquareDistance(end->pos, n->pos));
+                    n->h = sqrt(PSVECSquareDistance(&end->pos, &n->pos));
                     n->f = g + n->h;
                     SETP(n->parent, cur);
-                    SETP(n->next, gs_pOpenListHead);
+                    SETP(n->listNext, gs_pOpenListHead);
                     gs_pOpenListHead = n;
-                    n->flags |= 2;
+                    n->pathFlags |= NAV_PATH_OPEN;
                 } else if (n->g > g) {
                     n->g = g;
                     n->f = g + n->h;
                     SETP(n->parent, cur);
-                    if ((s8)(n->flags & 4)) {
+                    if ((s8)(n->pathFlags & NAV_PATH_CLOSED)) {
+                        /* back to the open list; the unlink below walks the
+                         * parents, not listNext (as the original does) */
                         p = gs_pClosedListHead;
                         if (n == p) {
-                            gs_pClosedListHead = GETP(p->next);
+                            gs_pClosedListHead = GETP(p->listNext);
                         } else {
                             for (; GETP(p->parent) != NULL; p = GETP(p->parent)) {
                                 if (GETP(p->parent) == n) {
@@ -364,27 +380,32 @@ s8 NavHolder_CreatePath(u8 *goal, u8 *start) {
                                 }
                             }
                         }
-                        n->flags &= ~4;
-                        SETP(n->next, gs_pOpenListHead);
+                        n->pathFlags &= ~NAV_PATH_CLOSED;
+                        SETP(n->listNext, gs_pOpenListHead);
                         gs_pOpenListHead = n;
-                        n->flags |= 2;
+                        n->pathFlags |= NAV_PATH_OPEN;
                     }
                 }
             }
         }
-        SETP(cur->next, gs_pClosedListHead);
+        SETP(cur->listNext, gs_pClosedListHead);
         gs_pClosedListHead = cur;
-        cur->flags |= 4;
+        cur->pathFlags |= NAV_PATH_CLOSED;
     }
 }
 
-u8 *NavHolder_FindPath(s32 from, s32 to) {
+/* A path between two nav point indices: the NavPoint `from`, whose parents
+ * lead to `to` (see NavHolder_FillPointerArrayPath), or NULL. */
+void *NavHolder_FindPath(s32 from, s32 to) {
+    NavPoint *nodes;
+
     if (from == -1 || to == -1) {
         return NULL;
     }
     NavHolder_ResetPathFlags(GETP(gs_NavHolder.data));
-    if (NavHolder_CreatePath(GETP(GETP(gs_NavHolder.data)->nodes) + from * 0x60, GETP(GETP(gs_NavHolder.data)->nodes) + to * 0x60)) {
-        return GETP(GETP(gs_NavHolder.data)->nodes) + from * 0x60;
+    nodes = GETP(GETP(gs_NavHolder.data)->nodes);
+    if (NavHolder_CreatePath(&nodes[from], &nodes[to])) {
+        return &nodes[from];
     }
     return NULL;
 }
@@ -393,10 +414,11 @@ u32 NavHolder_GetTotalNavPoints(void) {
     return GETP(gs_NavHolder.data)->numNodes;
 }
 
-u8 *NavHolder_GetNavPoint(s32 index) {
-    u8 *point = NULL;
+/* The NavPoint of an index, or NULL (negative indices aren't checked). */
+void *NavHolder_GetNavPoint(s32 index) {
+    NavPoint *point = NULL;
     if (GETP(gs_NavHolder.data) != NULL && index < (s32)GETP(gs_NavHolder.data)->numNodes) {
-        point = GETP(GETP(gs_NavHolder.data)->nodes) + index * 0x60;
+        point = &GETP(GETP(gs_NavHolder.data)->nodes)[index];
     }
     return point;
 }
@@ -404,4 +426,3 @@ u8 *NavHolder_GetNavPoint(s32 index) {
 s32 NavHolder_GetFirstWayPoint(void) {
     return GETP(gs_NavHolder.data)->firstWayPoint;
 }
-

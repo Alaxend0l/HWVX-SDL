@@ -1,39 +1,9 @@
+/* Creatures (Creature.h): animated walkers driven by their player's controls,
+ * with physics in distance-dependent macro steps interpolated by micro steps. */
 #include "common.h"
+#include "AI.h"
 
-
-/* animation table: the per-creature list MotionStateInit/Death index */
-typedef struct AnimEntry
-{
-    u32 anim;
-    u8 unk4[0x60 - 0x4];
-} AnimEntry;
-typedef struct AnimTable
-{
-    u8 unk0[0x14];
-    u32 count;
-    PTR32(AnimEntry) entries;
-} AnimTable;
-
-/* damage parts: pieces a creature can lose when gibbed */
-typedef struct DamagePart
-{
-    u8 spawned;
-    u8 useOffset;
-    u16 unk2;
-    u16 bone;
-    u16 unk6;
-    PTR32(void) geom;
-    PTR32(Vector4) offset;
-    PTR32(Vector4) slavePos;
-    u32 debris;
-    PTR32(void) slaveInfo;
-} DamagePart;
-typedef struct DamagePartList
-{
-    u32 count;
-    PTR32(DamagePart) parts;
-} DamagePartList;
-
+/* The index of the damage part on a bone, or -1. */
 static inline u32 Creature_FindDamagePart(DamagePartList *list, u32 bone)
 {
     u32 i;
@@ -59,19 +29,17 @@ static inline Vector4 Vector4_OrZero(Vector4 *v)
     return g_zeroVector;
 }
 
-/* parameter 2 of Creature_Init: the spawn description it copies out of */
-typedef struct CreatureInit
+/* The skeleton of the model being played (Model.numBones). */
+static inline CreatureSkeleton *Creature_Skeleton(Creature *creature)
 {
-    Vector4 pos;
-    f32 jitterBase;
-    PTR32(u8) anims;
-} CreatureInit;
+    return (CreatureSkeleton *)GETP(((Model *)GETP(creature->model))->numBones);
+}
 
 
 void Creature_GetTargetPos(Creature *creature, Vector4 *pos) {
-    pos->x = creature->pos.x;
-    pos->y = 4.0f + creature->pos.y;
-    pos->z = creature->pos.z;
+    pos->x = creature->base.pos.x;
+    pos->y = 4.0f + creature->base.pos.y;
+    pos->z = creature->base.pos.z;
     pos->w = 1.0f;
 }
 
@@ -79,63 +47,68 @@ f32 Creature_GetMass(Creature *creature) {
     return creature->mass;
 }
 
+/* Starts the death animation deathAnim (the first animation if there is
+ * none), once. */
 void Creature_MotionStateInitDeath(Creature *creature) {
-    u8 *motion;
+    void *motion;
     s32 state;
     u32 index;
-    u8 *entry;
-    u8 *anims;
+    CreatureAnimEntry *entry;
+    CreatureInfo *info;
 
-    motion = creature->motion;
-    index = *(u32 *)((u8 *)creature + 0x1CC);
+    motion = &creature->model;
+    index = creature->deathAnim;
     state = 0xFFFF;
-    if (creature->unk1B4 == 0) {
-        anims = GETP(creature->anims);
-        if (SLOT_LOAD(u32 *, (anims + 0x30)) != NULL) {
-            entry = (u8 *)SLOT_LOAD(u32 *, (anims + 0x30)) + index * 0x60;
-            if (index >= *(u32 *)(anims + 0x2C) || *(u32 *)entry == 0) {
-                entry = (u8 *)SLOT_LOAD(u32 *, (anims + 0x18));
+    if (creature->deadTime == 0) {
+        info = GETP(creature->info);
+        if (GETP(info->deathAnims) != NULL) {
+            entry = GETP(info->deathAnims) + index;
+            if (index >= info->numDeathAnims || entry->model == 0) {
+                entry = GETP(info->anims);
                 state = 0;
                 index = 0;
             }
-            *(u32 *)((u8 *)creature + 0xCC) = *(u32 *)entry;
+            creature->model.h = entry->model;
             MotionState_Init(motion, 0);
-            *(s32 *)((u8 *)creature + 0xC4) = state;
-            *(s32 *)((u8 *)creature + 0x114) = index;
-            *(u32 *)((u8 *)creature + 0x118) = (u32)HND(entry);
-            creature->flags |= 0x20;
-            if (SLOT_LOAD(u8 *, ((u8 *)creature + 0x90)) != NULL) {
-                *(s32 *)(SLOT_LOAD(u8 *, ((u8 *)creature + 0x90)) + 0x1C) = 0;
+            creature->animState = state;
+            creature->animIndex = index;
+            SETP(creature->animEntry, entry);
+            creature->base.flags |= CREATURE_FLAG_DYING;
+            if (GETP(creature->base.trigger) != NULL) {
+                SETP(((TileCreature *)GETP(creature->base.trigger))->creature, NULL);
             }
-            *(u32 *)((u8 *)creature + 0x1CC) = 0;
+            creature->deathAnim = 0;
         }
     }
 }
 
 
+/* Plays the animation of a state (CREATURE_ANIM_*). reset: blend from the
+ * current one, and do nothing if it is that state already and unfinished;
+ * keepTime: keep the animation time. Busy animations aren't interrupted. */
 void Creature_MotionStateInit(void *arg0, s32 state, u8 reset, u8 keepTime)
 {
     Creature *creature;
-    AnimTable *anims;
-    AnimEntry *entry;
+    CreatureInfo *info;
+    CreatureAnimEntry *entry;
     f32 time;
     u32 index;
-    u8 *motion;
+    void *motion;
 
     creature = arg0;
-    time = *(f32 *)(creature->motion + 0x20);
-    motion = creature->motion;
+    time = creature->animTime;
+    motion = &creature->model;
     index = 0;
-    if (reset && state == *(s32 *)((u8 *)creature + 0xC4) && *(u8 *)(creature->motion + 0x1C) != 2)
+    if (reset && state == creature->animState && creature->animStatus != 2)
     {
-        *(u8 *)(creature->motion + 0x1D) = 0;
+        creature->unkE9 = 0;
         return;
     }
-    if (creature->flags & 0x10)
+    if (creature->base.flags & CREATURE_FLAG_BUSY)
     {
         return;
     }
-    creature->flags &= ~0x20;
+    creature->base.flags &= ~CREATURE_FLAG_DYING;
     switch (state)
     {
     case 0:
@@ -158,92 +131,87 @@ void Creature_MotionStateInit(void *arg0, s32 state, u8 reset, u8 keepTime)
         break;
     case 7:
         index = 8;
-        creature->flags |= 0x10;
+        creature->base.flags |= CREATURE_FLAG_BUSY;
         break;
     case 8:
         index = 9;
-        creature->flags |= 0x10;
+        creature->base.flags |= CREATURE_FLAG_BUSY;
         break;
     case 9:
         index = 10;
         break;
     case 10:
         index = 0x10;
-        creature->flags |= 0x10;
+        creature->base.flags |= CREATURE_FLAG_BUSY;
         break;
     case 11:
         index = 0x16;
-        creature->flags |= 0x10;
+        creature->base.flags |= CREATURE_FLAG_BUSY;
         break;
     case 14:
         index = 0xE;
-        creature->unkB4 = 0.0f;
-        creature->flags |= 0x10;
+        creature->turnRate = 0.0f;
+        creature->base.flags |= CREATURE_FLAG_BUSY;
         break;
     case 15:
         index = 0xF;
-        creature->flags |= 0x10;
+        creature->base.flags |= CREATURE_FLAG_BUSY;
         break;
     }
-    anims = (AnimTable *)GETP(creature->anims);
-    entry = GETP(anims->entries) + index;
-    if (index >= anims->count || entry->anim == 0)
+    info = GETP(creature->info);
+    entry = GETP(info->anims) + index;
+    if (index >= info->numAnims || entry->model == 0)
     {
-        entry = GETP(anims->entries);
+        entry = GETP(info->anims);
         state = 0;
         index = 0;
     }
-    *(u32 *)creature->motion = entry->anim;
+    creature->model.h = entry->model;
     if (!reset)
     {
-        *(f32 *)(motion + 0x24) = 0.0f;
-        *(s32 *)((u8 *)creature + 0x114) = 0xFFFF;
+        creature->animWeight = 0.0f;
+        creature->animIndex = 0xFFFF;
     }
     MotionState_Init(motion, reset);
-    *(s32 *)((u8 *)creature + 0xC4) = state;
-    *(s32 *)((u8 *)creature + 0x114) = index;
-    *(u32 *)((u8 *)creature + 0x118) = (u32)HND(entry);
+    creature->animState = state;
+    creature->animIndex = index;
+    SETP(creature->animEntry, entry);
     if (keepTime)
     {
-        *(f32 *)((u8 *)creature + 0xEC) = time;
+        creature->animTime = time;
     }
 }
 
 
-s32 Creature_Init(Creature *arg0, CreatureInit *arg1)
+s32 Creature_Init(Creature *creature, CreatureInit *init)
 {
-    CreatureInit *init;
-    Creature *creature;
-
-    init = arg1;
-    creature = arg0;
-    Thing_Init(creature, 0);
-    SETP(creature->anims, GETP(init->anims));
-    creature->pos = init->pos;
-    creature->startPos = creature->pos;
+    Thing_Init(&creature->base, 0);
+    SETP(creature->info, GETP(init->info));
+    creature->base.pos = init->pos;
+    creature->stepPos = creature->base.pos;
     creature->mass = RandomAdd(0.002f, 0.001f);
     creature->unk1B8 = 0;
-    creature->unk1C8 = 0;
-    QuaternionToSubMatrix(&creature->quat, creature->mtx);
-    creature->unk80 = 0;
-    creature->unk70 = 11.0f;
-    creature->unkB0 = init->jitterBase;
-    creature->unkB4 = 0.0f;
+    creature->gibbedBones = 0;
+    QuaternionToSubMatrix(&creature->base.quat, creature->base.axis);
+    creature->base.collisionType = THING_COLLIDE_NONE;
+    creature->base.radius = 11.0f;
+    creature->heading = init->heading;
+    creature->turnRate = 0.0f;
     creature->unkC0 = 0.0f;
-    creature->unk1B4 = 0;
-    creature->unk78 = *(u32 *)(GETP(creature->anims) + 4);
+    creature->deadTime = 0;
+    creature->base.health = GETP(creature->info)->health;
     Creature_MotionStateInit(creature, 0, 0, 0);
-    creature->unkBF = 0;
-    creature->unk130 = 0.03f;
-    creature->unk1B0 = -1;
+    creature->onGround = 0;
+    creature->skin = 0.03f;
+    creature->stepTimer = -1;
     creature->unk1C0 = 1.0f;
     Thing_AddToGrid(creature, 6);
-    MotionState_BuildMatricesWorld(&creature->quat, &creature->pos, creature->motion, 1.0f);
+    MotionState_BuildMatricesWorld(&creature->base.quat, &creature->base.pos, &creature->model, 1.0f);
     return 1;
 }
 
 void Creature_Release(Creature *creature) {
-    MotionState_Release(HND(creature->motion));
+    MotionState_Release(HND(&creature->model));
     Thing_Release(creature);
 }
 
@@ -308,15 +276,15 @@ void Creature_PartialGibb(Creature *creature, u32 count, s32 unused) {
     u32 debris;
 
     blown = 0;
-    anim = SLOT_LOAD(AnimNodeList *, (SLOT_LOAD(u8 *, creature->motion) + 0x14));
-    list = SLOT_LOAD(DamagePartList *, (GETP(creature->anims) + 0x70));
+    anim = (AnimNodeList *)Creature_Skeleton(creature);
+    list = GETP(GETP(creature->info)->damageParts);
     if (list == NULL) {
         return;
     }
     memcpy(nodes, GETP(anim->nodes), anim->count << 5);
     for (i = 0; i < anim->count; i++) {
         nodes[i].flags = 0;
-        if (creature->unk1C8 & (1 << i)) {
+        if (creature->gibbedBones & (1 << i)) {
             nodes[i].flags |= 1;
         }
         blown++;
@@ -334,19 +302,19 @@ void Creature_PartialGibb(Creature *creature, u32 count, s32 unused) {
             continue;
         }
         if (GETP(list->parts)[j].useOffset) {
-            XformVec(SLOT_LOAD(u8 *, (creature->motion + 0x10)) + (i << 6), GETP(GETP(list->parts)[j].offset), &pos);
+            XformVec((u8 *)&GETP(creature->bones)[i], GETP(GETP(list->parts)[j].offset), &pos);
         } else {
-            pos = *(Vector4 *)(SLOT_LOAD(u8 *, (creature->motion + 0x10)) + (i << 6) + 0x30);
+            pos = *(Vector4 *)((u8 *)&GETP(creature->bones)[i] + 0x30);
         }
         if (GETP(list->parts)[j].spawned == 0) {
             scale = RandomNumberGenerator_GetRandomFloat(3.0f, 20.0f);
             RandomNumberGenerator_GetRandomVector(&dir);
-            vel = *(Vector4 *)creature;
+            vel = creature->base.vel;
             vel.x = dir.x * scale + vel.x;
             vel.y = dir.y * scale + vel.y;
             vel.z = dir.z * scale + vel.z;
-            SubMatrixToQuaternion(SLOT_LOAD(u8 *, (creature->motion + 0x10)) + (i << 6), &quat);
-            creature->unk1C8 |= 1 << i;
+            SubMatrixToQuaternion((u8 *)&GETP(creature->bones)[i], &quat);
+            creature->gibbedBones |= 1 << i;
             debris = GETP(list->parts)[j].debris;
             partParams.life = 3000;
             partParams.gravity = -50.0f;
@@ -479,44 +447,44 @@ s32 Creature_Move(Creature *creature)
     {
         return 1;
     }
-    if (creature->unk1B0 <= 0)
+    if (creature->stepTimer <= 0)
     {
         dt = 500.0f;
-        creature->pos = creature->startPos;
-        dist = Sqrt(Gfx_GetMinCameraDistSquared(&creature->pos));
+        creature->base.pos = creature->stepPos;
+        dist = Sqrt(Gfx_GetMinCameraDistSquared(&creature->base.pos));
         if (dist > 900.0f)
         {
-            creature->unk1B0 = RandomAdd_s32(500, 50);
+            creature->stepTimer = RandomAdd_s32(500, 50);
         }
         else
         {
             dt = ((dist - 60.0f) / 840.0f) * dt + RandomAdd(0.0f, 50.0f);
-            creature->unk1B0 = dt;
+            creature->stepTimer = dt;
         }
-        if (creature->unk1B0 < g_iDeltaTimeMS)
+        if (creature->stepTimer < g_iDeltaTimeMS)
         {
-            creature->unk1B0 = g_iDeltaTimeMS;
+            creature->stepTimer = g_iDeltaTimeMS;
             dt = g_fDeltaTimeMS;
         }
         Creature_MacroStep(creature, 0.001f * dt);
     }
     dt = g_fDeltaTimeMS;
-    if (creature->unk1B0 < g_iDeltaTimeMS)
+    if (creature->stepTimer < g_iDeltaTimeMS)
     {
-        dt = creature->unk1B0;
+        dt = creature->stepTimer;
     }
     Creature_MicroStep(creature, 0.001f * dt);
-    creature->unk1B0 -= g_iDeltaTimeMS;
-    if ((s32)creature->unk78 < 0)
+    creature->stepTimer -= g_iDeltaTimeMS;
+    if (creature->base.health < 0)
     {
-        creature->unk1B4 += g_iDeltaTimeMS;
-        if (*(u8 *)(creature->motion + 0x1C) == 2)
+        creature->deadTime += g_iDeltaTimeMS;
+        if (creature->animStatus == 2)
         {
-            creature->flags &= ~0x20;
+            creature->base.flags &= ~CREATURE_FLAG_DYING;
         }
-        if (creature->unk1B4 > 20000)
+        if (creature->deadTime > 20000)
         {
-            MotionState_Release(HND(creature->motion));
+            MotionState_Release(HND(&creature->model));
             Thing_Release(creature);
             return 0;
         }
@@ -928,9 +896,9 @@ void Creature_MacroStep(void *arg0, f32 dt) {
 
 void Creature_Draw(Creature *creature) {
     if (creature->unk1C0 > 0.0f) {
-        MotionState_Draw(creature->motion);
+        MotionState_Draw(&creature->model);
     }
-    creature->flags |= 0x4000;
+    creature->base.flags |= CREATURE_FLAG_DRAWN;
 }
 
 s32 Creature_ProcessItemPickup(u8 *creature, void *item)
@@ -964,7 +932,7 @@ s32 Creature_ProcessItemPickup(u8 *creature, void *item)
 }
 
 u32 Creature_Invalidate(Creature *creature, u32 start, u32 end) {
-    if ((u32)HND(GETP(creature->anims)) >= start && (u32)HND(GETP(creature->anims)) < end) {
+    if ((u32)HND(GETP(creature->info)) >= start && (u32)HND(GETP(creature->info)) < end) {
         return 1;
     }
     return 0;
