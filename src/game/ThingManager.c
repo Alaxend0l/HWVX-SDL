@@ -1,123 +1,61 @@
+/* ThingManager: the thing pools and lists (ThingManager.h), slaves, the
+ * per-frame move/collide loop, rendering, and object queries (rays, boxes). */
 #include "common.h"
+#include "CarA.h"
+#include "World.h"
+#include "ThingManager.h"
 
+extern u8 g_aSharedSlaveHolder[0x200];
+#define SHARED_SLAVE_HOLDERS ((SharedSlaveHolder *)g_aSharedSlaveHolder)
+#define NUM_SHARED_SLAVE_HOLDERS 64
 
+/* Pushes a thing onto the front of a list. */
 void ThingManagerList_Append(void **arg0, void *arg1) {
-    SLOT_STORE((u8 *)(arg1) + 0xA4, SLOT_LOAD(void *, arg0));
-    M2C_FIELD(arg1, s32 *, 0xA0) = 0;
-    if (SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4) != NULL) {
-        SLOT_STORE((u8 *)(SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4)) + 0xA0, arg1);
-    }
-    SLOT_STORE(arg0, arg1);
-}
+    ThingList *list = (ThingList *)arg0;
+    Thing *thing = arg1;
 
-/* The fields every pooled Thing shares. */
-typedef struct ThingHeader {
-    u8 pad0[0x40];
-    f32 unk40[4];               /* 0x40 bounding sphere centre */
-    u8 pad50[0x20];
-    f32 unk70;                  /* 0x70 bounding sphere radius */
-    u32 flags;                  /* 0x74 */
-    u8 pad78[0xA];
-    u8 slaveId;                 /* 0x82 trigger id of a slave */
-    u8 slavePlayer;             /* 0x83 */
-    u8 pad84[4];
-    u32 unk88;                  /* 0x88 */
-    PTR32(void) vtable;               /* 0x8C */
-    u8 pad90[0x10];
-    PTR32(struct ThingHeader) prev;   /* 0xA0 */
-    PTR32(struct ThingHeader) next;   /* 0xA4 */
-    u32 type;                   /* 0xA8 index into the free lists */
-} ThingHeader;
-
-typedef struct ThingSlotProjectile { ThingHeader thing; u8 padAC[0x84]; s32 unk130; u8 pad134[0x2C]; } ThingSlotProjectile;
-typedef struct ThingSlotD0 { ThingHeader thing; u8 pad[0xD0 - sizeof(ThingHeader)]; } ThingSlotD0;
-typedef struct ThingSlotE0 { ThingHeader thing; u8 pad[0xE0 - sizeof(ThingHeader)]; } ThingSlotE0;
-typedef struct ThingSlotF0 { ThingHeader thing; u8 pad[0xF0 - sizeof(ThingHeader)]; } ThingSlotF0;
-typedef struct ThingSlot100 { ThingHeader thing; u8 pad[0x100 - sizeof(ThingHeader)]; } ThingSlot100;
-typedef struct ThingSlot110 { ThingHeader thing; u8 pad[0x110 - sizeof(ThingHeader)]; } ThingSlot110;
-typedef struct ThingSlot120 { ThingHeader thing; u8 pad[0x120 - sizeof(ThingHeader)]; } ThingSlot120;
-typedef struct ThingSlot140 { ThingHeader thing; u8 pad[0x140 - sizeof(ThingHeader)]; } ThingSlot140;
-typedef struct ThingSlot160 { ThingHeader thing; u8 pad[0x160 - sizeof(ThingHeader)]; } ThingSlot160;
-typedef struct ThingSlot1D0 { ThingHeader thing; u8 pad[0x1D0 - sizeof(ThingHeader)]; } ThingSlot1D0;
-typedef struct ThingSlot1F0 { ThingHeader thing; u8 pad[0x1F0 - sizeof(ThingHeader)]; } ThingSlot1F0;
-typedef struct ThingSlot480 { ThingHeader thing; u8 pad[0x480 - sizeof(ThingHeader)]; } ThingSlot480;
-typedef struct ThingSlot5A0 { ThingHeader thing; u8 pad[0x5A0 - sizeof(ThingHeader)]; } ThingSlot5A0;
-
-/* g_thingManager_DARYL's thing pools, one per free list type. */
-typedef struct ThingPools {
-    ThingSlotProjectile projectiles[140]; /* 0x00000 type 0 */
-    ThingSlot100 eventSeqs[192];        /* 0x0C080 type 1 */
-    ThingSlotD0 emitters[160];          /* 0x18080 type 2 */
-    ThingSlotF0 destructibles[500];     /* 0x20280 type 3 */
-    ThingSlotF0 items[96];              /* 0x3D740 type 4 */
-    ThingSlot160 attaches[192];         /* 0x43140 type 5 */
-    ThingSlot100 debris[128];           /* 0x53940 type 6 */
-    ThingSlot1D0 creature[1];           /* 0x5B940 type 7 */
-    ThingSlot480 wildCardRacks[16];     /* 0x5BB10 type 8 */
-    ThingSlot5A0 cars[8];               /* 0x60310 type 9 */
-    ThingSlot140 physicalObjects[100];  /* 0x63010 type 10 */
-    ThingSlotD0 looker[1];              /* 0x6AD10 type 11 */
-    ThingSlot110 tracers[32];           /* 0x6ADE0 type 12 */
-    ThingSlot120 pod[1];                /* 0x6CFE0 type 13 */
-    ThingSlot1F0 drone[1];              /* 0x6D100 type 14 */
-    ThingSlotF0 motions[56];            /* 0x6D2F0 type 15 */
-    ThingSlotE0 soundSeqs[128];         /* 0x70770 type 16 */
-    ThingSlotD0 radarBlips[64];         /* 0x77770 type 17 */
-    PTR32(void) activeList;                   /* 0x7AB70 */
-    PTR32(void) freeList[19];                 /* 0x7AB74 */
-} ThingPools;
-
-static inline void ThingManager_InitFreeThing(ThingHeader *thing, void *vtable, u32 type) {
-    void **freeList;
-    ThingHeader *head;
-
-    SETP(thing->vtable, vtable);
-    thing->unk88 = 0;
-    thing->flags |= 0x1000;
+    SETP(thing->next, GETP(*list));
     SETP(thing->prev, NULL);
-    SETP(thing->next, NULL);
-    thing->type = type;
-    freeList = g_thingManager_DARYL.freeList + thing->type;
-    SETP(thing->next, SLOT_LOAD(void *, freeList));
-    SETP(thing->prev, NULL);
-    head = GETP(thing->next);
-    if (head != NULL) {
-        SETP(head->prev, thing);
+    if (GETP(thing->next) != NULL) {
+        SETP(GETP(thing->next)->prev, thing);
     }
-    SLOT_STORE(freeList, thing);
+    SETP(*list, thing);
 }
 
-static inline void ThingManager_InitPool(void *pool, u32 count, u32 size, void *vtable, u32 type) {
-    u32 i;
-
-    for (i = 0; i < count; i++) {
-        ThingManager_InitFreeThing((ThingHeader *)((u8 *)pool + i * size), vtable, type);
-    }
-}
-
+/* Unlinks a thing from a list. */
 void ThingManagerList_Remove(void **arg0, void *arg1) {
-    void *temp_r5;
-    void *temp_r5_2;
+    ThingList *list = (ThingList *)arg0;
+    Thing *thing = arg1;
+    Thing *prev;
+    Thing *next;
 
-    temp_r5 = SLOT_LOAD(void *, (u8 *)(arg1) + 0xA0);
-    if (temp_r5 == NULL) {
-        SLOT_STORE(arg0, SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4));
+    prev = GETP(thing->prev);
+    if (prev == NULL) {
+        SETP(*list, GETP(thing->next));
     } else {
-        SLOT_STORE((u8 *)(temp_r5) + 0xA4, (void *) SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4));
+        SETP(prev->next, GETP(thing->next));
     }
-    temp_r5_2 = SLOT_LOAD(void *, (u8 *)(arg1) + 0xA4);
-    if (temp_r5_2 != NULL) {
-        SLOT_STORE((u8 *)(temp_r5_2) + 0xA0, (void *) SLOT_LOAD(void *, (u8 *)(arg1) + 0xA0));
-        SLOT_STORE((u8 *)(arg1) + 0xA4, NULL);
+    next = GETP(thing->next);
+    if (next != NULL) {
+        SETP(next->prev, GETP(thing->prev));
+        SETP(thing->next, NULL);
     }
-    SLOT_STORE((u8 *)(arg1) + 0xA0, NULL);
+    SETP(thing->prev, NULL);
 }
 
-void *ThingManagerList_GetByType(void *list, s32 type) {
-    void *thing;
+/* Puts a released thing back on its type's free list. */
+static inline void ThingManager_Free(Thing *thing) {
+    thing->flags &= ~THING_FLAG_RELEASED;
+    thing->flags |= THING_FLAG_FREE;
+    ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
+}
 
-    for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
-        if (M2C_FIELD(thing, s32 *, 0xA8) == type) {
+/* The first thing of a type (THING_TYPE_*) in a list, or NULL. */
+void *ThingManagerList_GetByType(void *list, s32 type) {
+    Thing *thing;
+
+    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = GETP(thing->next)) {
+        if (thing->type == type) {
             return thing;
         }
     }
@@ -125,9 +63,9 @@ void *ThingManagerList_GetByType(void *list, s32 type) {
 }
 
 s32 ThingManagerList_Get(void *list, void *target) {
-    void *thing;
+    Thing *thing;
 
-    for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
+    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = GETP(thing->next)) {
         if (target == thing) {
             return 1;
         }
@@ -135,106 +73,85 @@ s32 ThingManagerList_Get(void *list, void *target) {
     return 0;
 }
 
+/* Releases and frees the slaves of a list with slaveTag `type`. */
 void ThingManagerList_ReleaseSlavesBySlaveType(void **list, u8 type) {
-    void *thing;
-    void *next;
-    void **freeList;
-    void *head;
+    Thing *thing;
+    Thing *next;
 
-    thing = SLOT_LOAD(void *, list);
+    thing = GETP(*(ThingList *)list);
     while (thing != NULL) {
-        next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-        if (M2C_FIELD(thing, u8 *, 0x83) == type) {
-            ((void (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 4))(thing);
+        next = GETP(thing->next);
+        if (thing->slaveTag == type) {
+            THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             ThingManagerList_Remove(list, thing);
-            M2C_FIELD(thing, u32 *, 0x74) &= ~0x200000;
-            M2C_FIELD(thing, u32 *, 0x74) |= 0x1000;
-            freeList = &g_thingManager_DARYL.freeList[M2C_FIELD(thing, s32 *, 0xA8)];
-            SLOT_STORE((u8 *)(thing) + 0xA4, SLOT_LOAD(void *, freeList));
-            SLOT_STORE((u8 *)(thing) + 0xA0, NULL);
-            head = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-            if (head != NULL) {
-                SLOT_STORE((u8 *)(head) + 0xA0, thing);
-            }
-            SLOT_STORE(freeList, thing);
+            ThingManager_Free(thing);
         }
         thing = next;
     }
 }
 
+/* Frees the released things of a list (and all their slaves). */
 void ThingManagerList_RemoveReleasedThings(void **list) {
-    ThingHeader *thing;
-    ThingHeader *next;
+    Thing *thing;
+    Thing *next;
 
-    for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = next) {
+    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = next) {
         next = GETP(thing->next);
-        if (thing->flags & 0x200000) {
-            ThingManagerList_ReleaseAndRemoveAll(&thing->unk88);
+        if (thing->flags & THING_FLAG_RELEASED) {
+            ThingManagerList_ReleaseAndRemoveAll((void **)&thing->slaves);
             ThingManagerList_Remove(list, thing);
-            ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing);
-            thing->flags &= ~0x200000;
-            thing->flags |= 0x1000;
+            ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
+            thing->flags &= ~THING_FLAG_RELEASED;
+            thing->flags |= THING_FLAG_FREE;
         }
     }
 }
 
+/* Releases every thing of a list and frees them with their slaves. */
 void ThingManagerList_ReleaseAndRemoveAll(void **list) {
-    ThingHeader *thing;
-    ThingHeader *next;
+    Thing *thing;
+    Thing *next;
 
     ThingManagerList_ReleaseAll(list);
-    for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = next) {
+    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = next) {
         next = GETP(thing->next);
-        if ((thing->flags & 0x200000) != 0) {
-            void **children;
-            ThingManagerList_ReleaseAndRemoveAll(children = (void **)&thing->unk88);
+        if ((thing->flags & THING_FLAG_RELEASED) != 0) {
+            ThingManagerList_ReleaseAndRemoveAll((void **)&thing->slaves);
             ThingManagerList_Remove(list, thing);
-            ThingManagerList_Append(g_thingManager_DARYL.freeList + thing->type, thing);
-            thing->flags &= ~0x200000;
-            thing->flags |= 0x1000;
+            ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
+            thing->flags &= ~THING_FLAG_RELEASED;
+            thing->flags |= THING_FLAG_FREE;
         }
     }
 }
 
+/* Calls Release on every thing of a list (they stay in it, flagged). */
 void ThingManagerList_ReleaseAll(void **list) {
-    void *thing;
-    void *next;
+    Thing *thing;
+    Thing *next;
 
-    thing = SLOT_LOAD(void *, list);
+    thing = GETP(*(ThingList *)list);
     while (thing != NULL) {
-        next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-        ((void (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 4))(thing);
+        next = GETP(thing->next);
+        THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
         thing = next;
     }
 }
 
+/* Detaches the slaves tagged 0xEF from a list into the active list as
+ * independent things, at their world transform (`mtx` is their master's). */
 void ThingManagerList_EmancipateSlaves(void *mtx, void **list) {
-    typedef struct SlaveThing {
-        u8 pad0[0x10];
-        Matrix4 mtx;
-        u8 pad50[0x24];
-        u32 flags;
-        u8 pad78[8];
-        s16 gridCell;
-        u8 slaveId;
-        u8 slavePlayer;
-        u8 pad84[8];
-        PTR32(void) vtable;
-        u8 pad90[0x10];
-        PTR32(struct SlaveThing) prev;
-        PTR32(struct SlaveThing) next;
-    } SlaveThing;
     extern u8 g_itemVTable[];
     Matrix4 out;
-    SlaveThing *thing;
-    SlaveThing *next;
+    Thing *thing;
+    Thing *next;
 
-    thing = SLOT_LOAD(void *, list);
+    thing = GETP(*(ThingList *)list);
     while (thing != NULL) {
         next = GETP(thing->next);
-        if (thing->slavePlayer == 0xEF) {
+        if (thing->slaveTag == 0xEF) {
             if (GETP(thing->prev) == NULL) {
-                SLOT_STORE(list, GETP(thing->next));
+                SETP(*(ThingList *)list, GETP(thing->next));
             } else {
                 SETP(GETP(thing->prev)->next, GETP(thing->next));
             }
@@ -243,161 +160,143 @@ void ThingManagerList_EmancipateSlaves(void *mtx, void **list) {
                 SETP(thing->next, NULL);
             }
             SETP(thing->prev, NULL);
-            MultiplyMatrix(&thing->mtx, mtx, &out);
-            thing->mtx = out;
+            MultiplyMatrix(THING_MTX(thing), mtx, &out);
+            *THING_MTX(thing) = out;
             SETP(thing->next, GETP(g_thingManager_DARYL.activeList));
             SETP(thing->prev, NULL);
             if (GETP(thing->next) != NULL) {
                 SETP(GETP(thing->next)->prev, thing);
             }
             SETP(g_thingManager_DARYL.activeList, thing);
-            if (thing->gridCell != 0 && (u8 *)GETP(thing->vtable) == g_itemVTable) {
+            if (thing->collisionType != THING_COLLIDE_NONE && (u8 *)GETP(thing->vtable) == g_itemVTable) {
                 Thing_AddToGrid(thing, 3);
-                thing->flags &= ~8;
+                thing->flags &= ~THING_FLAG_AT_REST;
             }
         }
         thing = next;
     }
 }
 
+/* Releases all shared slaves and empties the holders. */
 void SharedSlaveHolder_Release(void) {
-    extern u8 g_aSharedSlaveHolder[0x200];
-    void *thing;
-    void *next;
+    Thing *thing;
+    Thing *next;
     SharedSlaveHolder *holder;
     u32 i;
 
-    holder = (SharedSlaveHolder *)g_aSharedSlaveHolder;
+    holder = SHARED_SLAVE_HOLDERS;
     i = 0;
     do {
         if (GETP(holder->key) != NULL) {
             for (thing = GETP(holder->slaves); thing != NULL; thing = next) {
-                next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-                ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (1)))(thing);
+                next = GETP(thing->next);
+                THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             }
-            ThingManagerList_RemoveReleasedThings(PTR((s32)HND(&holder->slaves)));
+            ThingManagerList_RemoveReleasedThings((void **)&holder->slaves);
             SETP(holder->key, NULL);
         }
         i++;
         holder++;
-    } while (i < 64);
+    } while (i < NUM_SHARED_SLAVE_HOLDERS);
 }
 
+/* The holder of a SharedSlaves, created with its slaves on first use; 64 if
+ * all are taken. */
 s32 SharedSlaveHolder_Get(void *shared) {
-    extern u8 g_aSharedSlaveHolder[0x200];
     s32 i;
 
-    for (i = 0; i < 64; i++) {
-        if (GETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key) == shared) {
+    for (i = 0; i < NUM_SHARED_SLAVE_HOLDERS; i++) {
+        if (GETP(SHARED_SLAVE_HOLDERS[i].key) == shared) {
             return i;
         }
     }
-    for (i = 0; i < 64; i++) {
-        if (GETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key) == NULL) {
-            SETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].key, shared);
-            ThingManagerList_InitAllSlavesNow(&((SharedSlaveHolder *)g_aSharedSlaveHolder)[i].slaves, (u8 *)shared + 4, 0xFF);
+    for (i = 0; i < NUM_SHARED_SLAVE_HOLDERS; i++) {
+        if (GETP(SHARED_SLAVE_HOLDERS[i].key) == NULL) {
+            SETP(SHARED_SLAVE_HOLDERS[i].key, shared);
+            ThingManagerList_InitAllSlavesNow(&SHARED_SLAVE_HOLDERS[i].slaves, &((SharedSlaves *)shared)->list, 0xFF);
             return i;
         }
     }
     return 64;
 }
 
-void Thing_DrawSharedSlaves(u8 *thing, u32 *triggers) {
-    typedef struct { u8 pad[0x10]; u8 type; u8 pad2[7]; PTR32(u8) shared; u8 pad3[4]; } Trigger;
-    typedef struct SlaveThing {
-        u8 pad0[0x10];
-        Matrix4 mtx;
-        Quaternion quat;
-        u8 pad60[0x2C];
-        PTR32(u32) vtbl;  /* port: vtable of 4-byte slots; entries void (*)(struct SlaveThing *) */
-        u8 pad90[0x14];
-        PTR32(struct SlaveThing) next;
-    } SlaveThing;
-    extern u8 g_aSharedSlaveHolder[0x200];
+/* Draws the shared slaves (type 10 triggers of `triggers`, a SlaveList) at
+ * `thing`: each slave is moved into the thing's frame, drawn and put back. */
+void Thing_DrawSharedSlaves(u8 *arg, u32 *triggers) {
+    Thing *thing = (Thing *)arg;
+    SlaveList *list = (SlaveList *)triggers;
     u32 i;
-    SlaveThing *slave;
-    u8 *shared;
+    Thing *slave;
+    SharedSlaves *shared;
     Quaternion quat __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
 
-    for (i = 0; i < triggers[0]; i++) {
-        Trigger *trigger = &((Trigger *)PTR(triggers[1]))[i];
+    for (i = 0; i < list->count; i++) {
+        SlaveTrigger *trigger = &GETP(list->triggers)[i];
         if (trigger->type == 10) {
-            shared = GETP(trigger->shared);
-            slave = SLOT_LOAD(SlaveThing *, (g_aSharedSlaveHolder + (*(SLOT_LOAD(u8 *, (shared + 8)) + 0x1D)) * 8 + 4));
-            if (*(u32 *)shared != 0) {
+            shared = GETP(trigger->data);
+            slave = GETP(SHARED_SLAVE_HOLDERS[GETP(shared->list.triggers)->holder].slaves);
+            if (shared->active != 0) {
                 for (; slave != NULL; slave = GETP(slave->next)) {
                     quat = slave->quat;
-                    pos = slave->mtx.v[3];
-                    QuaternionMult((Quaternion *)(thing + 0x50), &quat, &slave->quat);
-                    XformVec((Matrix4 *)(thing + 0x10), &pos, &slave->mtx.v[3]);
-                    ((void (*)(struct SlaveThing *))PTR(GETP(slave->vtbl)[4]))(slave);
+                    pos = slave->pos;
+                    QuaternionMult(&thing->quat, &quat, &slave->quat);
+                    XformVec(THING_MTX(thing), &pos, &slave->pos);
+                    THING_VFN(slave, THING_V_DRAW, void (*)(Thing *))(slave);
                     slave->quat = quat;
-                    slave->mtx.v[3] = pos;
+                    slave->pos = pos;
                 }
             }
         }
     }
 }
 
-struct SlaveTrigger {
-        Vector4 pos;
-        u8 type;
-        u8 pad11;
-        u16 id;
-        u8 pad14[4];
-        PTR32(void) data;
-    };
-void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player);
-
-void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player) {
-    typedef struct SharedSlaves {
-        u32 active;
-        u8 pad4[4];
-        PTR32(u8) info;
-    } SharedSlaves;
+/* Runs a slave trigger for `list` (a thing's slaves): creates the slave it
+ * describes (a, b, c: position, orientation, velocity), tagged with
+ * `player`; type 10 sets up shared slaves, 99 releases the matching slaves. */
+void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player) {
     extern Vector4 g_zeroVector;
     extern void *g_pSourcePlayer;
-    struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; PTR32(void) data; PTR32(void) player; f32 f; } p1 __attribute__((aligned(16)));
-    struct { Vector4 a; Vector4 b; Vector4 c; PTR32(void) data; PTR32(void) player; f32 f; } p2 __attribute__((aligned(16)));
+    struct { Vector4 a; PTR32(void) data; u8 flag; } p3 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p5 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p6 __attribute__((aligned(16)));
     struct { Vector4 a; Vector4 b; Vector4 c; PTR32(void) data; s32 time; PTR32(void) player; f32 f; } p7 __attribute__((aligned(16)));
     struct { Vector4 unk; Vector4 a; Vector4 b; PTR32(void) data; s32 flag; } p8 __attribute__((aligned(16)));
-    struct { Vector4 a; PTR32(void) data; u8 flag; } p3 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 a; } p9 __attribute__((aligned(16)));
+    DebrisParams p1 __attribute__((aligned(16)));
+    EmitterParams p2 __attribute__((aligned(16)));
     Vector4 p4 __attribute__((aligned(16)));
     u8 id;
     u8 pl;
     SharedSlaves *shared;
-    ThingHeader *slave = NULL;
+    Thing *slave = NULL;
     void *data;
-    ThingHeader *thing;
+    Thing *thing;
 
     switch (trigger->type) {
     case 1:
-        SETP(p1.data, GETP(trigger->data));
-        p1.c = *c;
-        SETP(p1.player, g_pSourcePlayer);
-        p1.zero = g_zeroVector;
-        if (GETP(p1.data) != NULL && *(u32 *)GETP(p1.data) != 0) {
-            SETP(p1.player, g_pSourcePlayer);
-            p1.f = 0.0f;
-            p1.a = *a;
-            p1.b = *b;
-            slave = ThingManager_DARYL_CreateSlave(1, &p1, trigger->id);
+        p1.debris = trigger->data.h;
+        p1.vel = *c;
+        p1.owner = HND(g_pSourcePlayer);
+        p1.angVel = g_zeroVector;
+        if (PTR(p1.debris) != NULL && *(u32 *)PTR(p1.debris) != 0) {
+            p1.owner = HND(g_pSourcePlayer);
+            p1.unk48 = 0.0f;
+            p1.pos = *a;
+            p1.quat = *b;
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_EVENT_SEQ, &p1, trigger->id);
         }
         break;
     case 2:
         if (GETP(trigger->data) != NULL) {
-            SETP(p2.data, GETP(trigger->data));
-            p2.f = 0.0f;
-            p2.c = *c;
-            SETP(p2.player, g_pSourcePlayer);
-            p2.a = *a;
-            p2.a.w = 1.0f;
-            p2.b = *b;
-            slave = ThingManager_DARYL_CreateSlave(2, &p2, trigger->id);
+            SETP(p2.emitter, GETP(trigger->data));
+            p2.drawDist = 0.0f;
+            p2.vel = *c;
+            p2.owner = HND(g_pSourcePlayer);
+            p2.pos = *a;
+            p2.pos.w = 1.0f;
+            p2.quat = *(Quaternion *)b;
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_EMITTER, &p2, trigger->id);
         }
         break;
     case 3:
@@ -406,13 +305,13 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
             p3.a = *a;
             SETP(p3.data, data);
             p3.flag = 1;
-            slave = ThingManager_DARYL_CreateSlave(0x10, &p3, trigger->id);
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_SOUND_SEQ, &p3, trigger->id);
         }
         break;
     case 4:
         p4 = trigger->pos;
         p4.w = 1.0f;
-        slave = ThingManager_DARYL_CreateSlave(8, &p4, trigger->id);
+        slave = ThingManager_DARYL_CreateSlave(THING_TYPE_WILDCARD_RACK, &p4, trigger->id);
         break;
     case 5:
         if (GETP(trigger->data) != NULL) {
@@ -420,10 +319,11 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
             p5.pos = trigger->pos;
             p5.flag = 1;
             SETP(p5.player, g_pSourcePlayer);
-            slave = ThingManager_DARYL_CreateSlave(5, &p5, trigger->id);
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_ATTACH, &p5, trigger->id);
         }
         break;
     case 6:
+        /* split screen: skip the ones flagged in their data's first byte */
         if (ViewManager_GetViewFormat() > 1 && *(u8 *)GETP(trigger->data) != 0) {
             break;
         }
@@ -432,7 +332,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
             SETP(p6.player, g_pSourcePlayer);
             p6.pos = trigger->pos;
             p6.flag = 0;
-            slave = ThingManager_DARYL_CreateSlave(5, &p6, trigger->id);
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_ATTACH, &p6, trigger->id);
         }
         break;
     case 7:
@@ -445,7 +345,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
             p7.a = *a;
             p7.a.w = 1.0f;
             p7.b = *b;
-            slave = ThingManager_DARYL_CreateSlave(0xC, &p7, trigger->id);
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_TRACER, &p7, trigger->id);
         }
         break;
     case 8:
@@ -455,7 +355,7 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
             p8.b = *b;
             SETP(p8.data, data);
             p8.flag = 0;
-            slave = ThingManager_DARYL_CreateSlave(0xF, &p8, trigger->id);
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_MOTION, &p8, trigger->id);
         }
         break;
     case 9:
@@ -463,88 +363,79 @@ void ThingManagerList_TriggerSlaves(ThingHeader **list, struct SlaveTrigger *tri
         if (data != NULL) {
             p9.a = *a;
             SETP(p9.data, data);
-            slave = ThingManager_DARYL_CreateSlave(0x11, &p9, trigger->id);
+            slave = ThingManager_DARYL_CreateSlave(THING_TYPE_RADAR_BLIP, &p9, trigger->id);
         }
         break;
     case 10:
         shared = GETP(trigger->data);
         if (shared != NULL && shared->active == 0) {
             shared->active = 1;
-            GETP(shared->info)[0x1D] = SharedSlaveHolder_Get(shared);
+            GETP(shared->list.triggers)->holder = SharedSlaveHolder_Get(shared);
         }
         break;
     case 99:
         id = trigger->id;
         pl = player;
-        for (thing = SLOT_LOAD(void *, list); thing != NULL; thing = GETP(thing->next)) {
-            if (thing->slaveId == id && thing->slavePlayer == pl) {
-                ((void (*)(ThingHeader *))SLOT_LOAD(void *, (u8 *)GETP(thing->vtable) + 1 * 4))(thing);
+        for (thing = GETP(*(ThingList *)list); thing != NULL; thing = GETP(thing->next)) {
+            if (thing->slaveBone == id && thing->slaveTag == pl) {
+                THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             }
         }
         break;
     }
 
     if (slave != NULL) {
-        slave->slavePlayer = player;
-        SETP(slave->next, SLOT_LOAD(void *, list));
+        slave->slaveTag = player;
+        SETP(slave->next, GETP(*(ThingList *)list));
         SETP(slave->prev, NULL);
         if (GETP(slave->next) != NULL) {
             SETP(GETP(slave->next)->prev, slave);
         }
-        SLOT_STORE(list, slave);
+        SETP(*(ThingList *)list, slave);
     }
 }
 
+/* Frees the slaves of `list` tagged `player`, then runs all the triggers of
+ * `slaves` (a SlaveList) for it. */
 void ThingManagerList_InitAllSlavesNow(void *list, void *slaves, u8 player) {
     extern Vector4 g_zeroVector;
-    typedef struct { f32 x, y, z, w; } Vec4;
-    typedef struct {
-        u8 unk0[0x20];
-    } SlaveTrigger;
-    typedef struct {
-        u32 count;
-        PTR32(SlaveTrigger) triggers;
-    } SlaveList;
     SlaveList *sl = slaves;
     u32 i;
-    void *next;
-    void *thing;
-    void **freeList;
+    Thing *next;
+    Thing *thing;
 
-    thing = SLOT_LOAD(void *, list);
+    thing = GETP(*(ThingList *)list);
     while (thing != NULL) {
-        next = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4);
-        if (M2C_FIELD(thing, u8 *, 0x83) == player) {
-            ((void (*)(void *))SLOT_LOAD(void *, (u8 *)PORT_ADDR(SLOT_LOAD(void *, (u8 *)(thing) + 0x8C)) + 4))(thing);
+        next = GETP(thing->next);
+        if (thing->slaveTag == player) {
+            THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             ThingManagerList_Remove(list, thing);
-            M2C_FIELD(thing, u32 *, 0x74) &= ~0x200000;
-            M2C_FIELD(thing, u32 *, 0x74) |= 0x1000;
-            freeList = g_thingManager_DARYL.freeList + M2C_FIELD(thing, u32 *, 0xA8);
-            ThingManagerList_Append(freeList, thing);
+            ThingManager_Free(thing);
         }
         thing = next;
     }
     for (i = 0; i < sl->count; i++) {
-        Vec4 dir = {0.0f, 0.0f, 0.0f, 1.0f};
+        Quaternion dir = {0.0f, 0.0f, 0.0f, 1.0f};
         SlaveTrigger *trigger = &GETP(sl->triggers)[i];
 
-        ThingManagerList_TriggerSlaves(list, (u8 *)trigger, (Vector4 *)trigger, (Vector4 *)&dir, &g_zeroVector, player);
+        ThingManagerList_TriggerSlaves(list, trigger, &trigger->pos, (Vector4 *)&dir, &g_zeroVector, player);
     }
 }
 
-#define THINGPOOLS ((ThingPools *)&g_thingManager_DARYL)
-#define THINGPOOL_INIT(pool, count, vt, t)                                          \
-    for (i = 0; i < (count); i++) {                                                 \
-        SETP(THINGPOOLS->pool[i].thing.vtable, (vt));                                    \
-        thing = &THINGPOOLS->pool[i].thing;                                         \
-        THINGPOOLS->pool[i].thing.unk88 = 0;                                        \
-        THINGPOOLS->pool[i].thing.flags |= 0x1000;                                  \
-        SETP(THINGPOOLS->pool[i].thing.prev, NULL);                                      \
-        SETP(THINGPOOLS->pool[i].thing.next, NULL);                                      \
-        THINGPOOLS->pool[i].thing.type = (t);                                       \
-        ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing); \
+/* Puts every pool slot of a type on its free list. */
+#define THINGPOOL_INIT(pool, count, vt, t)                                      \
+    for (i = 0; i < (count); i++) {                                             \
+        thing = &THING_POOLS->pool[i].thing;                                    \
+        SETP(thing->vtable, (vt));                                              \
+        SETP(thing->slaves, NULL);                                              \
+        thing->flags |= THING_FLAG_FREE;                                        \
+        SETP(thing->prev, NULL);                                                \
+        SETP(thing->next, NULL);                                                \
+        thing->type = (t);                                                      \
+        ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing); \
     }
 
+/* Empties the lists and puts every slot of every pool on the free lists. */
 void ThingManager_DARYL_CreateMain(void) {
     extern u8 g_projectileVTable[];
     extern u8 g_eventSeqVTable[];
@@ -563,47 +454,45 @@ void ThingManager_DARYL_CreateMain(void) {
     extern u8 g_motionVTable[];
     extern u8 g_soundSeqVTable[];
     extern u8 g_radarBlipVTable[];
-    ThingHeader *thing;
+    Thing *thing;
     u32 i;
 
-    for (i = 0; i < 18; i++) {
-        SETP(THINGPOOLS->freeList[i], NULL);
+    for (i = 0; i < THING_NUM_TYPES; i++) {
+        SETP(THING_POOLS->freeList[i], NULL);
     }
-    SETP(THINGPOOLS->activeList, NULL);
+    SETP(THING_POOLS->activeList, NULL);
     for (i = 0; i < 140; i++) {
-        SETP(THINGPOOLS->projectiles[i].thing.vtable, g_projectileVTable);
-        thing = &THINGPOOLS->projectiles[i].thing;
-        THINGPOOLS->projectiles[i].unk130 = -1;
-        THINGPOOLS->projectiles[i].thing.unk88 = 0;
-        THINGPOOLS->projectiles[i].thing.flags |= 0x1000;
-        SETP(THINGPOOLS->projectiles[i].thing.prev, NULL);
-        SETP(THINGPOOLS->projectiles[i].thing.next, NULL);
-        THINGPOOLS->projectiles[i].thing.type = 0;
-        ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing);
+        SETP(THING_POOLS->projectiles[i].thing.vtable, g_projectileVTable);
+        thing = &THING_POOLS->projectiles[i].thing;
+        THING_POOLS->projectiles[i].unk130 = -1;
+        SETP(thing->slaves, NULL);
+        thing->flags |= THING_FLAG_FREE;
+        SETP(thing->prev, NULL);
+        SETP(thing->next, NULL);
+        thing->type = THING_TYPE_PROJECTILE;
+        ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
     }
-    THINGPOOL_INIT(eventSeqs, 192, g_eventSeqVTable, 1);
-    THINGPOOL_INIT(emitters, 160, g_emitterVTable, 2);
-    THINGPOOL_INIT(destructibles, 500, g_destructibleVTable, 3);
-    THINGPOOL_INIT(items, 96, g_itemVTable, 4);
-    THINGPOOL_INIT(attaches, 192, g_attachVTable, 5);
-    THINGPOOL_INIT(debris, 128, g_debrisVTable, 6);
-    THINGPOOL_INIT(creature, 1, g_creatureVTable, 7);
-    THINGPOOL_INIT(wildCardRacks, 16, g_wildCardRackVTable, 8);
-    THINGPOOL_INIT(cars, 8, g_carAVTable, 9);
-    THINGPOOL_INIT(physicalObjects, 100, g_physicalObjectVTable, 10);
-    THINGPOOL_INIT(looker, 1, g_lookerVTable, 11);
-    THINGPOOL_INIT(tracers, 32, g_tracerVTable, 12);
-    THINGPOOL_INIT(pod, 1, g_podVTable, 13);
-    THINGPOOL_INIT(drone, 1, g_droneVTable, 14);
-    THINGPOOL_INIT(motions, 56, g_motionVTable, 15);
-    THINGPOOL_INIT(soundSeqs, 128, g_soundSeqVTable, 16);
-    THINGPOOL_INIT(radarBlips, 64, g_radarBlipVTable, 17);
+    THINGPOOL_INIT(eventSeqs, 192, g_eventSeqVTable, THING_TYPE_EVENT_SEQ);
+    THINGPOOL_INIT(emitters, 160, g_emitterVTable, THING_TYPE_EMITTER);
+    THINGPOOL_INIT(destructibles, 500, g_destructibleVTable, THING_TYPE_DESTRUCTIBLE);
+    THINGPOOL_INIT(items, 96, g_itemVTable, THING_TYPE_ITEM);
+    THINGPOOL_INIT(attaches, 192, g_attachVTable, THING_TYPE_ATTACH);
+    THINGPOOL_INIT(debris, 128, g_debrisVTable, THING_TYPE_DEBRIS);
+    THINGPOOL_INIT(creature, 1, g_creatureVTable, THING_TYPE_CREATURE);
+    THINGPOOL_INIT(wildCardRacks, 16, g_wildCardRackVTable, THING_TYPE_WILDCARD_RACK);
+    THINGPOOL_INIT(cars, 8, g_carAVTable, THING_TYPE_CAR);
+    THINGPOOL_INIT(physicalObjects, 100, g_physicalObjectVTable, THING_TYPE_PHYSICAL_OBJECT);
+    THINGPOOL_INIT(looker, 1, g_lookerVTable, THING_TYPE_LOOKER);
+    THINGPOOL_INIT(tracers, 32, g_tracerVTable, THING_TYPE_TRACER);
+    THINGPOOL_INIT(pod, 1, g_podVTable, THING_TYPE_POD);
+    THINGPOOL_INIT(drone, 1, g_droneVTable, THING_TYPE_DRONE);
+    THINGPOOL_INIT(motions, 56, g_motionVTable, THING_TYPE_MOTION);
+    THINGPOOL_INIT(soundSeqs, 128, g_soundSeqVTable, THING_TYPE_SOUND_SEQ);
+    THINGPOOL_INIT(radarBlips, 64, g_radarBlipVTable, THING_TYPE_RADAR_BLIP);
 }
 
 #undef THINGPOOL_INIT
-#undef THINGPOOLS
 
-extern u8 g_aSharedSlaveHolder[0x200];
 void ThingManager_DARYL_Create(void) {
     OBoxHolder_Init();
     OConvexHullHolder_Init();
@@ -614,14 +503,14 @@ void ThingManager_DARYL_Create(void) {
 }
 
 void ThingManager_DARYL_Destroy(void) {
-    void *thing;
+    Thing *thing;
     u32 i;
 
-    for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
-        ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (1)))(thing);
+    for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
+        THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
     }
     SETP(g_thingManager_DARYL.activeList, NULL);
-    for (i = 0; i < 18; i++) {
+    for (i = 0; i < THING_NUM_TYPES; i++) {
         SETP(g_thingManager_DARYL.freeList[i], NULL);
     }
 }
@@ -631,29 +520,30 @@ void ThingManager_DARYL_Init(void) {
     MatrixCache_Init();
 }
 
-/* The original calls these rather than inlining them. */
-
-
+/* Releases every thing (shared slaves first) and resets the pools. */
 void ThingManager_DARYL_Release(void) {
 
     SharedSlaveHolder_Release();
-    ThingManagerList_ReleaseAndRemoveAll(&g_thingManager_DARYL.activeList);
-    ThingManagerList_ReleaseAndRemoveAll(&g_thingManager_DARYL.activeList);
+    ThingManagerList_ReleaseAndRemoveAll((void **)&g_thingManager_DARYL.activeList);
+    ThingManagerList_ReleaseAndRemoveAll((void **)&g_thingManager_DARYL.activeList);
     ThingManager_DARYL_CreateMain();
 }
 
 
+/* The world is frozen: only the looker (camera) and the sound sequences
+ * flagged 0x100000 run. */
 void ThingManager_MoveLookerOnly(void) {
     extern u8 g_soundSeqVTable[];
-    void *thing;
+    Thing *looker = &THING_POOLS->looker[0].thing;
+    Thing *thing;
 
-    ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(&g_thingManager_DARYL) + 0x6AD9C) + (2)))(g_thingManager_DARYL.looker);
-    for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
-        if (SLOT_LOAD(u8 *, (u8 *)(thing) + 0x8C) == g_soundSeqVTable && (M2C_FIELD(thing, u32 *, 0x74) & 0x100000)) {
-            ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (3)))(thing);
+    THING_VFN(looker, THING_V_PRE_MOVE, void (*)(Thing *))(looker);
+    for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
+        if ((u8 *)GETP(thing->vtable) == g_soundSeqVTable && (thing->flags & 0x100000)) {
+            THING_VFN(thing, THING_V_MOVE, void (*)(Thing *))(thing);
         }
     }
-    ThingManagerList_RemoveReleasedThings(PTR((s32)HND(&g_thingManager_DARYL.activeList)));
+    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
 }
 
 void ThingManager_DARYL_Heartbeat(void) {
@@ -665,137 +555,68 @@ void ThingManager_DARYL_Heartbeat(void) {
     ThingManager_MoveThings_DARYL_SUBTICK();
 }
 
+/* What the vtable's GetSurfaceScript returns: the thing's surface. */
 typedef struct MovePhys {
     u8 pad0[0x14];
     f32 friction;               /* 0x14 */
     f32 elasticity;             /* 0x18 */
 } MovePhys;
 
-typedef struct MoveThing {
-    Vector4 vel;                /* 0x00 */
-    Matrix4 mtx;                /* 0x10 v[3] = position */
-    Vector4 quat;               /* 0x50 */
-    Vector4 pushVel;            /* 0x60 */
-    f32 radius;                 /* 0x70 */
-    u32 flags;                  /* 0x74 */
-    s32 unk78;                  /* 0x78 */
-    s32 damage;                 /* 0x7C */
-    s16 unk80;                  /* 0x80 */
-    u8 pad82[2];
-    PTR32(void) gridData;             /* 0x84 */
-    u8 pad88[4];
-    PTR32(struct MoveThingVTable) vtable; /* 0x8C */
-    u8 pad90[4];
-    PTR32(void) player;               /* 0x94 */
-    u8 pad98[0xC];
-    PTR32(struct MoveThing) next;     /* 0xA4 */
-    s32 type;                   /* 0xA8 */
-} MoveThing;
-
-typedef struct MoveHit {
-    Vector4 pos;                /* 0x00 */
-    Vector4 normal;             /* 0x10 */
-    PTR32(MoveThing) thing;           /* 0x20 */
-    PTR32(MoveThing) other;           /* 0x24 */
-    PTR32(MovePhys) surface;          /* 0x28 */
-    u8 pad2C[0x14];
-    u8 type;                    /* 0x40 0xFF: pushed out, 0xFE: embedded */
-    u8 pad41[0xF];
-} MoveHit;
-
-typedef struct MoveThingVTable {
-    PTR32(void) fn0;
-    PTR32(void) fn4;
-    FPTR32(void, (MoveThing *)) move;                          /* 0x08 */
-    FPTR32(void, (MoveThing *)) update;                        /* 0x0C */
-    PTR32(void) fn10;
-    FPTR32(f32, (MoveThing *)) getMass;                        /* 0x14 */
-    FPTR32(void, (MoveThing *, MoveHit *, s32, f32)) collide;  /* 0x18 */
-    PTR32(void) fn1C;
-    PTR32(void) fn20;
-    PTR32(void) fn24;
-    FPTR32(MovePhys *, (MoveThing *)) getPhys;                  /* 0x28 */
-    PTR32(void) fn2C;
-    FPTR32(void, (MoveThing *, Vector4 *)) getInvInertia;      /* 0x30 */
-    FPTR32(void, (MoveThing *, f32)) postMove;                 /* 0x34 */
-} MoveThingVTable;
-
-typedef struct MoveGridEntry {
-    u32 unk0;
-    PTR32(MoveThing) thing;
-} MoveGridEntry;
-
-typedef struct MoveCarTuning {
+/* CarAEngine fields CarA.h doesn't name yet (CarAInfo.engine, 0x80). */
+typedef struct CarAEngineImpact {
     u8 pad0[0x38];
     f32 maxImpactVel;           /* 0x38 */
     u8 pad3C[0x20];
-    f32 damageScale;            /* 0x5C */
-} MoveCarTuning;
+    f32 damageScale;            /* 0x5C car-car bumper hits */
+} CarAEngineImpact;
 
-typedef struct MoveCarBody {
-    u8 pad0[0x18];
-    f32 bumperHeight;           /* 0x18 */
-} MoveCarBody;
+/* An AI player's script (Player.healthScale, 0xD0). */
+typedef struct AIScriptImpact {
+    u8 pad0[0x1C];
+    f32 damageScale;            /* 0x1C */
+} AIScriptImpact;
 
-typedef struct MoveCarIface {
-    u8 pad0[0x80];
-    PTR32(MoveCarTuning) tuning;      /* 0x80 */
-    u8 pad84[0x1C];
-    PTR32(struct { u8 pad0[0x44]; PTR32(MoveCarBody) body; }) model; /* 0xA0 */
-} MoveCarIface;
+#define CAR_ENGINE_IMPACT(car) ((CarAEngineImpact *)GETP(GETP((car)->vehicleIface)->engine))
+#define AI_DAMAGE_SCALE(player) (((AIScriptImpact *)GETP(((Player *)(player))->healthScale))->damageScale)
 
-typedef struct MoveCar {
-    MoveThing thing;
-    u8 padAC[0x3BC - sizeof(MoveThing)];  /* port: MoveThing rounds up to 0xB0 (16-byte Vector4) */
-    PTR32(MoveCarIface) iface;        /* 0x3BC */
-    u8 pad3C0[0x50C - 0x3C0];
-    f32 drag;                   /* 0x50C */
-    u8 pad510[0x18];
-    f32 rideHeight;             /* 0x528 */
-} MoveCar;
-_Static_assert(__builtin_offsetof(MoveCar, iface) == 0x3BC, "MoveCar layout");
-_Static_assert(__builtin_offsetof(MoveCar, rideHeight) == 0x528, "MoveCar layout");
+#define VFN_GET_MASS(t) THING_VFN(t, THING_V_GET_MASS, f32 (*)(Thing *))(t)
+#define VFN_GET_PHYS(t) THING_VFN(t, THING_V_GET_SURFACE_SCRIPT, MovePhys *(*)(Thing *))(t)
+#define VFN_GET_INV_INERTIA(t, out) THING_VFN(t, THING_V_GET_INV_INERTIA_TENSOR, void (*)(Thing *, Vector4 *))(t, out)
 
-typedef struct MovePlayer {
-    u8 pad0[0xD0];
-    PTR32(struct { u8 pad0[0x1C]; f32 damageScale; }) difficulty; /* 0xD0 */
-} MovePlayer;
+/* Pairs of things already pushed apart this frame (collision impulses are
+ * not applied twice). */
+extern CollisionInfo g_aCI[8];
 
-typedef struct MoveImpactFx {
-    u8 pad0[0x68];
-    f32 minVel;                 /* 0x68 */
-    f32 maxVel;                 /* 0x6C */
-    u8 pad70[0x80];
-    u32 count;                  /* 0xF0 */
-    PTR32(u32) ids;                   /* 0xF4 */
-} MoveImpactFx;
-
-extern MoveHit g_aCI[8];
-
-static inline u32 CI_Find(MoveThing *a, MoveThing *b) {
+static inline u32 CI_Find(Thing *a, Thing *b) {
     s32 i;
 
     for (i = 0; i < 8; i++) {
-        if ((GETP(g_aCI[i].thing) == a && GETP(g_aCI[i].other) == b) || (GETP(g_aCI[i].other) == a && GETP(g_aCI[i].thing) == b)) {
+        if ((P(Thing, g_aCI[i].thingA) == a && P(Thing, g_aCI[i].thingB) == b) || (P(Thing, g_aCI[i].thingB) == a && P(Thing, g_aCI[i].thingA) == b)) {
             return TRUE;
         }
     }
     return FALSE;
 }
 
-static inline void CI_Add(MoveThing *a, MoveThing *b) {
+static inline void CI_Add(Thing *a, Thing *b) {
     s32 i;
 
     for (i = 0; i < 8; i++) {
-        if (GETP(g_aCI[i].thing) == NULL) {
-            SETP(g_aCI[i].thing, a);
-            SETP(g_aCI[i].other, b);
+        if (P(Thing, g_aCI[i].thingA) == NULL) {
+            g_aCI[i].thingA = HND(a);
+            g_aCI[i].thingB = HND(b);
             return;
         }
     }
     Dprintf("out of CI slots\n");
 }
 
+/* Moves the things for a frame. PreMove on each; then the dynamic things are
+ * advanced in sub-steps: each step finds the earliest terrain or thing
+ * contact within the time left, moves everything to it, resolves that
+ * contact with an impulse (pushing apart overlapping pairs instead), and
+ * repeats until the frame's time is used up. Finally Move on each thing,
+ * slaves and shared slaves, and released things are freed. */
 void ThingManager_MoveThings_DARYL_SUBTICK(void)
 {
     extern f32 g_fDeltaTimeSec;
@@ -805,11 +626,11 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
     extern Vector4 g_zeroVector;
     static f32 offset = 0.2f;
     static f32 mult = 10.0f;
-    MoveThing *moved[0x200];
-    MoveGridEntry objs[0x200];
-    MoveHit hit;
-    MoveHit rayHit;
-    FxParams fx;
+    Thing *moved[0x200];
+    GridResult objs[0x200];
+    CollisionInfo hit;
+    CollisionInfo rayHit;
+    DebrisParams fx;
     Matrix4 invInertia;
     Matrix4 rot;
     Matrix4 inertia;
@@ -819,12 +640,11 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
     Vector4 max;
     f32 dt;
     f32 dist;
-    MoveThing *thing;
-    MoveThing *t;
-    MoveThing *other;
-    MoveThing *source;
-    MoveThing *otherSource;
-    SharedSlaveHolder *holder;
+    Thing *thing;
+    Thing *t;
+    Thing *other;
+    Thing *source;
+    Thing *otherSource;
     s32 numMoved;
     s32 count;
     s32 i;
@@ -838,6 +658,11 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
     f32 dtSave;
     f32 depth;
 
+/* the contact's parties, re-read from `hit` as the original does */
+#define HIT_A P(Thing, hit.thingA)
+#define HIT_B P(Thing, hit.thingB)
+#define HIT_SURFACE P(MovePhys, hit.material)
+
     stuck = 0;
     iters = 0;
     elapsed = 0.0f;
@@ -847,46 +672,47 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
     CollisionTriCache_Heartbeat();
     for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
         if (!(thing->flags & 0x280008)) {
-            GETP(GETP(thing->vtable)->move)(thing);
+            THING_VFN(thing, THING_V_PRE_MOVE, void (*)(Thing *))(thing);
         }
         thing->flags &= ~0x1A040;
-        if (thing->unk80 == 0) {
+        if (thing->collisionType == THING_COLLIDE_NONE) {
             continue;
         }
-        if (!(thing->flags & 4) || (thing->flags & 0x200000)) {
+        if (!(thing->flags & THING_FLAG_DYNAMIC) || (thing->flags & THING_FLAG_RELEASED)) {
             continue;
         }
         moved[numMoved++] = thing;
-        if (GETP(thing->gridData) == NULL || (thing->flags & 8)) {
+        if (GETP(thing->gridObject) == NULL || (thing->flags & THING_FLAG_AT_REST)) {
             continue;
         }
         Thing_DynamicGridMove(thing, g_fDeltaTimeSec);
     }
 
     do {
-        SETP(hit.thing, NULL);
-        SETP(hit.other, NULL);
+        hit.thingA = 0;
+        hit.thingB = 0;
         dt = dtStep = g_fDeltaTimeSec - elapsed;
-        SETP(hit.surface, NULL);
+        hit.material = 0;
         for (i = 0; i < numMoved; i++) {
             t = moved[i];
             dtSave = dt;
-            source = PTR(Thing_GetSource(t));
-            t->flags |= 0x8000;
+            source = P(Thing, Thing_GetSource(t));
+            t->flags |= THING_FLAG_IN_COLLISION_PASS;
             if (t->flags & 0x40) {
                 continue;
             }
-            if (t->flags & 0x200000) {
+            if (t->flags & THING_FLAG_RELEASED) {
                 continue;
             }
             hit.type = 0;
             if (dt && !(t->flags & 0x24000B) && Thing_HitsTerrain(t, &dt, &hit)) {
                 if (hit.type == 0xFF) {
-                    if (PSVECDotProduct(t, &hit.normal) < 0.0f) {
+                    /* touching: push out along the normal */
+                    if (PSVECDotProduct(&t->vel, &hit.normal) < 0.0f) {
                         f32 d;
 
                         depth = 0.0f;
-                        d = PSVECDotProduct(t, &hit.normal);
+                        d = PSVECDotProduct(&t->vel, &hit.normal);
                         if (d <= 15.5f) {
                             depth = -(d - 15.5f);
                         }
@@ -903,11 +729,12 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                     }
                     dt = dtSave;
                 } else if (hit.type == 0xFE) {
-                    if (Distance_Plane(&hit.normal, &hit) < -offset) {
+                    /* embedded */
+                    if (Distance_Plane(&hit.normal, &hit.pos) < -offset) {
                         dist = 1.5f;
                         rayHit.type = 0;
                         offset = 0.3f;
-                        if (RayHitsTerrain(&t->mtx.v[3], &hit, &dist, &rayHit)) {
+                        if (RayHitsTerrain(&t->pos, &hit.pos, &dist, &rayHit)) {
                             if (PSVECSquareMag(&t->pushVel) < 40000.0f) {
                                 t->vel.x += rayHit.normal.x * mult;
                                 t->vel.y += rayHit.normal.y * mult;
@@ -931,17 +758,17 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                         t->flags |= 0x10080;
                         dt = dtSave;
                     } else {
-                        t->mtx.v[3].x += hit.normal.x * offset;
-                        t->mtx.v[3].y += hit.normal.y * offset;
-                        t->mtx.v[3].z += hit.normal.z * offset;
-                        t->flags |= 0x80;
+                        t->pos.x += hit.normal.x * offset;
+                        t->pos.y += hit.normal.y * offset;
+                        t->pos.z += hit.normal.z * offset;
+                        t->flags |= THING_FLAG_MOVED;
                         hit.type = 0;
                     }
-                    SETP(hit.thing, t);
-                    SETP(hit.other, NULL);
+                    hit.thingA = HND(t);
+                    hit.thingB = 0;
                 } else {
-                    SETP(hit.thing, t);
-                    SETP(hit.other, NULL);
+                    hit.thingA = HND(t);
+                    hit.thingB = 0;
                 }
             }
             if (!(t->flags & 0x20002) && dt > 0.0f) {
@@ -953,10 +780,10 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                 count = Grid_GetObjects(&min, &max, gridFlags | 3, objs, 0x200);
                 hit.type = 0;
                 for (j = 0; j < count; j++) {
-                    other = GETP(objs[j].thing);
+                    other = P(Thing, objs[j].id);
                     dtSave = dt;
-                    otherSource = PTR(Thing_GetSource(other));
-                    if (other->flags & 0x8000) {
+                    otherSource = P(Thing, Thing_GetSource(other));
+                    if (other->flags & THING_FLAG_IN_COLLISION_PASS) {
                         continue;
                     }
                     if (source != NULL && source == other) {
@@ -974,7 +801,7 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                     if ((t->flags & 0x4000009) && (other->flags & 0x4000009)) {
                         continue;
                     }
-                    if ((other->flags & 8) && (t->flags & 8)) {
+                    if ((other->flags & THING_FLAG_AT_REST) && (t->flags & THING_FLAG_AT_REST)) {
                         continue;
                     }
                     if (CI_Find(t, other)) {
@@ -983,12 +810,14 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                     if (!Thing_TestThingCollision(t, other, &dt, &hit)) {
                         continue;
                     }
-                    if (hit.type == 0xFF && GETP(GETP(t->vtable)->getPhys)(t)->elasticity > 0.0f &&
-                        GETP(GETP(other->vtable)->getPhys)(other)->elasticity > 0.0f && t->unk78 > 0 && other->unk78 > 0) {
+                    if (hit.type == 0xFF && VFN_GET_PHYS(t)->elasticity > 0.0f &&
+                        VFN_GET_PHYS(other)->elasticity > 0.0f && t->health > 0 && other->health > 0) {
+                        /* touching: push both apart (all onto one side if
+                         * the other doesn't move) */
                         f32 pushA = 0.0f;
                         f32 pushB = 0.0f;
-                        f32 dA = PSVECDotProduct(t, &hit.normal);
-                        f32 dB = PSVECDotProduct(other, &hit.normal);
+                        f32 dA = PSVECDotProduct(&t->vel, &hit.normal);
+                        f32 dB = PSVECDotProduct(&other->vel, &hit.normal);
 
                         if (dA - 5.5f <= 0.0f) {
                             pushA = -(dA - 5.5f);
@@ -996,15 +825,15 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                         if (dB + 5.5f >= 0.0f) {
                             pushB = dB + 5.5f;
                         }
-                        t->flags |= 0x10000;
-                        other->flags |= 0x10000;
+                        t->flags |= THING_FLAG_PUSHED;
+                        other->flags |= THING_FLAG_PUSHED;
                         if (t->flags & 0x4002008) {
                             pushB += pushA;
-                            t->flags &= ~0x10000;
+                            t->flags &= ~THING_FLAG_PUSHED;
                             pushA = 0.0f;
                         } else if (other->flags & 0x4002008) {
                             pushA += pushB;
-                            other->flags &= ~0x10000;
+                            other->flags &= ~THING_FLAG_PUSHED;
                             pushB = 0.0f;
                         }
                         if (PSVECSquareMag(&t->pushVel) < 40000.0f) {
@@ -1026,57 +855,54 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                         CI_Add(t, other);
                         dt = dtSave;
                     } else {
-                        SETP(hit.thing, t);
-                        SETP(hit.other, other);
-                        SETP(hit.surface, NULL);
+                        hit.thingA = HND(t);
+                        hit.thingB = HND(other);
+                        hit.material = 0;
                     }
                 }
             }
         }
 
         if (dt <= 0.0f) {
+            /* no progress: after 10 such steps stop the things in contact */
             stuck++;
             dt = 0.0f;
             if (stuck > 10) {
-                if (GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable) {   /* PHYSDBG */
-                    Port_Log("PHYSDBG STUCK zeroing type %d other %d n %.2f %.2f %.2f vel %.2f %.2f %.2f iters %d",
-                             GETP(hit.thing)->type, GETP(hit.other) != NULL ? GETP(hit.other)->type : -1,
-                             hit.normal.x, hit.normal.y, hit.normal.z, GETP(hit.thing)->vel.x, GETP(hit.thing)->vel.y, GETP(hit.thing)->vel.z, iters);
+                if (!(HIT_A->flags & 0x4000008)) {
+                    HIT_A->vel.x = 0.0f;
+                    HIT_A->vel.y = 0.0f;
+                    HIT_A->vel.z = 0.0f;
+                    HIT_A->flags |= 0x40;
                 }
-                if (!(GETP(hit.thing)->flags & 0x4000008)) {
-                    GETP(hit.thing)->vel.x = 0.0f;
-                    GETP(hit.thing)->vel.y = 0.0f;
-                    GETP(hit.thing)->vel.z = 0.0f;
-                    GETP(hit.thing)->flags |= 0x40;
-                }
-                if (GETP(hit.other) != NULL && !(GETP(hit.other)->flags & 0x4000008)) {
-                    GETP(hit.other)->vel.x = 0.0f;
-                    GETP(hit.other)->vel.y = 0.0f;
-                    GETP(hit.other)->vel.z = 0.0f;
-                    GETP(hit.other)->flags |= 0x40;
+                if (HIT_B != NULL && !(HIT_B->flags & 0x4000008)) {
+                    HIT_B->vel.x = 0.0f;
+                    HIT_B->vel.y = 0.0f;
+                    HIT_B->vel.z = 0.0f;
+                    HIT_B->flags |= 0x40;
                 }
             }
         } else {
             stuck = 0;
             for (i = 0; i < numMoved; i++) {
                 t = moved[i];
-                if (!(t->flags & 8)) {
-                    t->mtx.v[3].x += t->vel.x * dt;
-                    t->mtx.v[3].y += t->vel.y * dt;
-                    t->mtx.v[3].z += t->vel.z * dt;
-                    t->flags |= 0x80;
+                if (!(t->flags & THING_FLAG_AT_REST)) {
+                    t->pos.x += t->vel.x * dt;
+                    t->pos.y += t->vel.y * dt;
+                    t->pos.z += t->vel.z * dt;
+                    t->flags |= THING_FLAG_MOVED;
                 }
             }
         }
 
-        if (GETP(hit.thing) != NULL) {
-            f32 vA = PSVECDotProduct(&hit.normal, GETP(hit.thing));
+        if (HIT_A != NULL) {
+            /* the impulse along the normal between A and B (or the surface) */
+            f32 vA = PSVECDotProduct(&hit.normal, &HIT_A->vel);
             f32 vB = 0.0f;
             f32 invMassA = 0.0f;
             f32 invMassB = 0.0f;
-            f32 elastA = GETP(GETP(GETP(hit.thing)->vtable)->getPhys)(GETP(hit.thing))->elasticity;
+            f32 elastA = VFN_GET_PHYS(HIT_A)->elasticity;
             s32 damageB = 0;
-            s32 damageA = GETP(hit.thing)->damage;
+            s32 damageA = HIT_A->damage;
             Vector4 crossA;
             Vector4 crossB = {0.0f, 0.0f, 0.0f, 0.0f};
             f32 elastB = 1.0f;
@@ -1095,15 +921,16 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             Vector4 armA;
             Vector4 armB __attribute__((aligned(16)));
 
-            if (GETP(hit.other) == NULL && GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable &&
-                PSVECDotProduct(&GETP(hit.thing)->mtx.v[1], &hit.normal) < 0.5f) {
-                elastA *= CarA_GetImpactMultiplier(GETP(hit.thing), &hit, 1.0f);
-                if (GETP(hit.thing)->mtx.v[1].y < 0.0f) {
-                    f32 blend = 0.6f * GETP(hit.surface)->friction * GETP(GETP(GETP(hit.thing)->vtable)->getPhys)(GETP(hit.thing))->friction;
+            if (HIT_B == NULL && (u8 *)GETP(HIT_A->vtable) == g_carAVTable &&
+                PSVECDotProduct(&HIT_A->axis[1], &hit.normal) < 0.5f) {
+                /* a car hitting the terrain with its side or roof */
+                elastA *= CarA_GetImpactMultiplier(HIT_A, &hit, 1.0f);
+                if (HIT_A->axis[1].y < 0.0f) {
+                    f32 blend = 0.6f * HIT_SURFACE->friction * VFN_GET_PHYS(HIT_A)->friction;
 
-                    negVel.x = -GETP(hit.thing)->vel.x;
-                    negVel.y = -GETP(hit.thing)->vel.y;
-                    negVel.z = -GETP(hit.thing)->vel.z;
+                    negVel.x = -HIT_A->vel.x;
+                    negVel.y = -HIT_A->vel.y;
+                    negVel.z = -HIT_A->vel.z;
                     if (blend > 1.0f) {
                         blend = 1.0f;
                     }
@@ -1118,54 +945,56 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                     }
                 }
             }
-            if (!(GETP(hit.thing)->flags & 0x4000008) || GETP(hit.thing)->unk78 == 0) {
-                invMassA = 1.0f / GETP(GETP(GETP(hit.thing)->vtable)->getMass)(GETP(hit.thing));
+            if (!(HIT_A->flags & 0x4000008) || HIT_A->health == 0) {
+                invMassA = 1.0f / VFN_GET_MASS(HIT_A);
             }
-            if (GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable &&
-                (GETP(hit.other) == NULL || (GETP(hit.other)->unk78 != 0 && (GETP(hit.other)->flags & 8) &&
-                                       GETP(GETP(GETP(hit.other)->vtable)->getPhys)(GETP(hit.other))->elasticity > 0.0f))) {
-                MoveCar *car = (MoveCar *)GETP(hit.thing);
-                f32 lim = GETP(GETP(car->iface)->tuning)->maxImpactVel * (0.7f * CarA_GetImpactMultiplier(car, &hit, 1.0f) + 0.3f);
+            if ((u8 *)GETP(HIT_A->vtable) == g_carAVTable &&
+                (HIT_B == NULL || (HIT_B->health != 0 && (HIT_B->flags & THING_FLAG_AT_REST) &&
+                                   VFN_GET_PHYS(HIT_B)->elasticity > 0.0f))) {
+                /* cap a car's speed into the contact */
+                CarA *car = (CarA *)HIT_A;
+                f32 lim = CAR_ENGINE_IMPACT(car)->maxImpactVel * (0.7f * CarA_GetImpactMultiplier(car, &hit, 1.0f) + 0.3f);
 
                 if (vA > lim) {
                     f32 d = lim - vA;
 
                     vA = lim;
-                    GETP(hit.thing)->vel.x += hit.normal.x * d;
-                    GETP(hit.thing)->vel.y += hit.normal.y * d;
-                    GETP(hit.thing)->vel.z += hit.normal.z * d;
+                    HIT_A->vel.x += hit.normal.x * d;
+                    HIT_A->vel.y += hit.normal.y * d;
+                    HIT_A->vel.z += hit.normal.z * d;
                 } else if (vA < -lim) {
                     f32 d = -lim - vA;
 
                     vA = -lim;
-                    GETP(hit.thing)->vel.x += hit.normal.x * d;
-                    GETP(hit.thing)->vel.y += hit.normal.y * d;
-                    GETP(hit.thing)->vel.z += hit.normal.z * d;
+                    HIT_A->vel.x += hit.normal.x * d;
+                    HIT_A->vel.y += hit.normal.y * d;
+                    HIT_A->vel.z += hit.normal.z * d;
                 }
             }
-            PSVECSubtract(&hit.pos, &GETP(hit.thing)->mtx.v[3], &rA);
+            PSVECSubtract(&hit.pos, &HIT_A->pos, &rA);
             PSVECCrossProduct(&rA, &hit.normal, &rxnA);
-            GETP(GETP(GETP(hit.thing)->vtable)->getInvInertia)(GETP(hit.thing), &diagA);
-            InverseXformVecOrientation(&GETP(hit.thing)->mtx, &rxnA, &localA);
+            VFN_GET_INV_INERTIA(HIT_A, &diagA);
+            InverseXformVecOrientation(THING_MTX(HIT_A), &rxnA, &localA);
             scaledA.x = diagA.x * localA.x;
             scaledA.y = diagA.y * localA.y;
             scaledA.z = diagA.z * localA.z;
-            XformVecOrientation(&GETP(hit.thing)->mtx, &scaledA, &wA);
+            XformVecOrientation(THING_MTX(HIT_A), &scaledA, &wA);
             PSVECCrossProduct(&wA, &rA, &crossA);
-            if (GETP(hit.other) != NULL) {
-                vB = PSVECDotProduct(&hit.normal, GETP(hit.other));
-                elastB = GETP(GETP(GETP(hit.other)->vtable)->getPhys)(GETP(hit.other))->elasticity;
-                if (!(GETP(hit.other)->flags & 0x4000008) || GETP(hit.other)->unk78 == 0) {
-                    invMassB = 1.0f / GETP(GETP(GETP(hit.other)->vtable)->getMass)(GETP(hit.other));
+            if (HIT_B != NULL) {
+                vB = PSVECDotProduct(&hit.normal, &HIT_B->vel);
+                elastB = VFN_GET_PHYS(HIT_B)->elasticity;
+                if (!(HIT_B->flags & 0x4000008) || HIT_B->health == 0) {
+                    invMassB = 1.0f / VFN_GET_MASS(HIT_B);
                 }
-                if (GETP(hit.other)->type == 9) {
-                    elastB *= CarA_GetImpactMultiplier(GETP(hit.other), &hit, -1.0f);
-                    if (GETP(hit.thing)->type == 9) {
-                        MoveImpactFx *fx_ = SLOT_LOAD(MoveImpactFx *, ((u8 *)GETP(g_worldData.world) + 0x9C));
+                if (HIT_B->type == THING_TYPE_CAR) {
+                    elastB *= CarA_GetImpactMultiplier(HIT_B, &hit, -1.0f);
+                    if (HIT_A->type == THING_TYPE_CAR) {
+                        /* car-car impact effect, picked by the closing speed */
+                        WorldGameData *fx_ = GETP(WORLD()->gameData);
                         f32 rel = vB - vA;
-                        f32 lo = fx_->minVel;
-                        u32 n = fx_->count;
-                        f32 hi = fx_->maxVel;
+                        f32 lo = fx_->impactFxMinVel;
+                        u32 n = fx_->numImpactFx;
+                        f32 hi = fx_->impactFxMaxVel;
 
                         if (rel > lo && hi - lo != 0.0f && n != 0) {
                             u32 idx = (f32)n * ((rel - lo) / (hi - lo));
@@ -1174,62 +1003,61 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                             if (idx > n) {
                                 idx = n;
                             }
-                            id = GETP(fx_->ids)[(s32)(idx - 1)]; /* idx 0 reads ids[-1], as the 32-bit wrap does on GC */
+                            id = GETP(fx_->impactFx)[(s32)(idx - 1)]; /* idx 0 reads ids[-1], as the 32-bit wrap does on GC */
                             if (id != 0) {
-                                fx.id = id;
+                                fx.debris = id;
                                 fx.pos = hit.pos;
                                 fx.vel = g_zeroVector;
-                                fx.unk44 = 0;
+                                fx.owner = 0;
                                 fx.unk48 = 0.0f;
                                 fx.unk4C = 0.0f;
                                 fx.angVel = g_zeroVector;
                                 fx.quat = g_zeroVector;
-                                ThingManager_DARYL_CreateThing(1, &fx);
+                                ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &fx);
                             }
                         }
                     }
                 }
-                if (GETP(hit.other)->type == 9 && (GETP(hit.thing)->flags & 8) && GETP(hit.thing)->unk78 != 0 && elastA > 0.0f) {
-                    f32 lim = GETP(GETP(((MoveCar *)GETP(hit.other))->iface)->tuning)->maxImpactVel;
+                if (HIT_B->type == THING_TYPE_CAR && (HIT_A->flags & THING_FLAG_AT_REST) && HIT_A->health != 0 && elastA > 0.0f) {
+                    f32 lim = CAR_ENGINE_IMPACT((CarA *)HIT_B)->maxImpactVel;
 
                     if (vB > lim) {
                         f32 d = lim - vB;
 
                         vB = lim;
-                        GETP(hit.other)->vel.x += hit.normal.x * d;
-                        GETP(hit.other)->vel.y += hit.normal.y * d;
-                        GETP(hit.other)->vel.z += hit.normal.z * d;
+                        HIT_B->vel.x += hit.normal.x * d;
+                        HIT_B->vel.y += hit.normal.y * d;
+                        HIT_B->vel.z += hit.normal.z * d;
                     } else if (vB < -lim) {
                         f32 d = -lim - vB;
 
                         vB = -lim;
-                        GETP(hit.other)->vel.x += hit.normal.x * d;
-                        GETP(hit.other)->vel.y += hit.normal.y * d;
-                        GETP(hit.other)->vel.z += hit.normal.z * d;
+                        HIT_B->vel.x += hit.normal.x * d;
+                        HIT_B->vel.y += hit.normal.y * d;
+                        HIT_B->vel.z += hit.normal.z * d;
                     }
                 }
-                PSVECSubtract(&hit.pos, &GETP(hit.other)->mtx.v[3], &rB);
-                rot = GETP(hit.other)->mtx;
+                PSVECSubtract(&hit.pos, &HIT_B->pos, &rB);
+                rot = *THING_MTX(HIT_B);
                 inertia = g_identity;
-                GETP(GETP(GETP(hit.other)->vtable)->getInvInertia)(GETP(hit.other), &diagB);
+                VFN_GET_INV_INERTIA(HIT_B, &diagB);
                 TransposeSubMatrix(&rot);
                 inertia.v[0].x = diagB.x;
                 inertia.v[1].y = diagB.y;
                 inertia.v[2].z = diagB.z;
-                MultiplySubMatrix(&inertia, &GETP(hit.other)->mtx, &tmp);
+                MultiplySubMatrix(&inertia, THING_MTX(HIT_B), &tmp);
                 MultiplySubMatrix(&rot, &tmp, &invInertia);
                 PSVECCrossProduct(&rB, &hit.normal, &rxnB);
                 XformVecOrientation(&invInertia, &rxnB, &wB);
                 PSVECCrossProduct(&wB, &rB, &crossB);
-                damageB = GETP(hit.other)->damage;
-            } else if (GETP(hit.surface) != NULL) {
-                elastB = GETP(hit.surface)->elasticity;
+                damageB = HIT_B->damage;
+            } else if (HIT_SURFACE != NULL) {
+                elastB = HIT_SURFACE->elasticity;
             }
-            f32 dbgV = vA - vB, dbgEA = elastA, dbgEB = elastB;   /* PHYSDBG */
-            Vector4 dbgVel = GETP(hit.thing)->vel;                /* PHYSDBG */
             vA = (vA - vB) * -(1.0f + _fabs(elastA * elastB));
             PSVECAdd(&crossA, &crossB, &sum);
             vA /= (invMassA + invMassB) * PSVECDotProduct(&hit.normal, &hit.normal) + PSVECDotProduct(&sum, &hit.normal);
+            /* elastA/B now carry the impulse each side gets */
             if (elastB < 0.0f) {
                 elastB = 0.0f;
             } else {
@@ -1240,51 +1068,45 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             } else {
                 elastA = -vA;
             }
-            if (GETP(hit.other) != NULL && GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable &&
-                GETP(GETP(hit.other)->vtable) == (MoveThingVTable *)g_carAVTable) {
-                MoveCar *car = (MoveCar *)GETP(hit.thing);
-                MoveCarBody *body = GETP(GETP(GETP(car->iface)->model)->body);
+            if (HIT_B != NULL && (u8 *)GETP(HIT_A->vtable) == g_carAVTable &&
+                (u8 *)GETP(HIT_B->vtable) == g_carAVTable) {
+                /* car-car: a hit at bumper height does damage by the impulse */
+                CarA *car = (CarA *)HIT_A;
+                Vector4 *box = GETP(GETP(GETP(car->vehicleIface)->collider)->box);
 
-                armA.x = hit.pos.x - car->thing.mtx.v[3].x;
-                armA.y = hit.pos.y - car->thing.mtx.v[3].y;
-                armA.z = hit.pos.z - car->thing.mtx.v[3].z;
-                if (FloatsEqual(PSVECDotProduct(&car->thing.mtx.v[2], &armA) - car->rideHeight, body->bumperHeight, 0.3f)) {
-                    damageA = -vA * GETP(GETP(car->iface)->tuning)->damageScale * PSVECDotProduct(&GETP(hit.thing)->mtx.v[2], &hit.normal);
-                    if (GETP(GETP(hit.thing)->player) != NULL && !Player_IsHuman(GETP(GETP(hit.thing)->player))) {
-                        damageA = (f32)damageA * GETP(((MovePlayer *)GETP(GETP(hit.thing)->player))->difficulty)->damageScale;
+                armA.x = hit.pos.x - ((Thing *)car)->pos.x;
+                armA.y = hit.pos.y - ((Thing *)car)->pos.y;
+                armA.z = hit.pos.z - ((Thing *)car)->pos.z;
+                if (FloatsEqual(PSVECDotProduct(&((Thing *)car)->axis[2], &armA) - car->bodyOffset.z, box[1].z, 0.3f)) {
+                    damageA = -vA * CAR_ENGINE_IMPACT(car)->damageScale * PSVECDotProduct(&HIT_A->axis[2], &hit.normal);
+                    if (GETP(HIT_A->player) != NULL && !Player_IsHuman(GETP(HIT_A->player))) {
+                        damageA = (f32)damageA * AI_DAMAGE_SCALE(GETP(HIT_A->player));
                     }
                 }
-                car = (MoveCar *)GETP(hit.other);
-                body = GETP(GETP(GETP(car->iface)->model)->body);
-                armB.x = hit.pos.x - car->thing.mtx.v[3].x;
-                armB.y = hit.pos.y - car->thing.mtx.v[3].y;
-                armB.z = hit.pos.z - car->thing.mtx.v[3].z;
-                if (FloatsEqual(PSVECDotProduct(&car->thing.mtx.v[2], &armB) - car->rideHeight, body->bumperHeight, 0.3f)) {
-                    damageB = vA * GETP(GETP(car->iface)->tuning)->damageScale * PSVECDotProduct(&GETP(hit.other)->mtx.v[2], &hit.normal);
-                    if (GETP(GETP(hit.other)->player) != NULL && !Player_IsHuman(GETP(GETP(hit.other)->player))) {
-                        damageB = (f32)damageB * GETP(((MovePlayer *)GETP(GETP(hit.other)->player))->difficulty)->damageScale;
+                car = (CarA *)HIT_B;
+                box = GETP(GETP(GETP(car->vehicleIface)->collider)->box);
+                armB.x = hit.pos.x - ((Thing *)car)->pos.x;
+                armB.y = hit.pos.y - ((Thing *)car)->pos.y;
+                armB.z = hit.pos.z - ((Thing *)car)->pos.z;
+                if (FloatsEqual(PSVECDotProduct(&((Thing *)car)->axis[2], &armB) - car->bodyOffset.z, box[1].z, 0.3f)) {
+                    damageB = vA * CAR_ENGINE_IMPACT(car)->damageScale * PSVECDotProduct(&HIT_B->axis[2], &hit.normal);
+                    if (GETP(HIT_B->player) != NULL && !Player_IsHuman(GETP(HIT_B->player))) {
+                        damageB = (f32)damageB * AI_DAMAGE_SCALE(GETP(HIT_B->player));
                     }
                 }
             }
-            GETP(GETP(GETP(hit.thing)->vtable)->collide)(GETP(hit.thing), &hit, damageB, elastB);
-            if (GETP(GETP(hit.thing)->vtable) == (MoveThingVTable *)g_carAVTable && GETP(GETP(hit.thing)->player) != NULL && Player_IsHuman(GETP(GETP(hit.thing)->player))) {   /* PHYSDBG */
-                Vector4 v = GETP(hit.thing)->vel;
-                Port_Log("PHYSDBG it%d dt %.4f n %.2f %.2f %.2f rel %.2f eA %.2f eB %.2f other %d invM %.4f %.4f J %.2f vel %.2f %.2f %.2f -> %.2f %.2f %.2f stuck %d",
-                         iters, dt, hit.normal.x, hit.normal.y, hit.normal.z, dbgV, dbgEA, dbgEB, GETP(hit.other) != NULL ? GETP(hit.other)->type : -1,
-                         invMassA, invMassB, vA, dbgVel.x, dbgVel.y, dbgVel.z, v.x, v.y, v.z, stuck);
-                if (GETP(hit.surface) != NULL) { u32 *sw = (u32 *)GETP(hit.surface); Port_Log("PHYSDBG surf %u %08x %08x %08x %08x %08x %08x %08x %08x", HND(sw), sw[0], sw[1], sw[2], sw[3], sw[4], sw[5], sw[6], sw[7]); }
-            }
-            Thing_DynamicGridMove(GETP(hit.thing), dtStep);
-            if (GETP(hit.other) != NULL) {
-                GETP(GETP(GETP(hit.other)->vtable)->collide)(GETP(hit.other), &hit, damageA, elastA);
-                Thing_DynamicGridMove(GETP(hit.other), dtStep);
+            THING_VFN(HIT_A, THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(Thing *, CollisionInfo *, s32, f32))(HIT_A, &hit, damageB, elastB);
+            Thing_DynamicGridMove(HIT_A, dtStep);
+            if (HIT_B != NULL) {
+                THING_VFN(HIT_B, THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(Thing *, CollisionInfo *, s32, f32))(HIT_B, &hit, damageA, elastA);
+                Thing_DynamicGridMove(HIT_B, dtStep);
             }
         }
 
         for (i = 0; i < numMoved; i++) {
             t = moved[i];
-            GETP(GETP(t->vtable)->postMove)(t, dt);
-            t->flags &= ~0x8000;
+            THING_VFN(t, THING_V_DYNAMIC_ROTATION, void (*)(Thing *, f32))(t, dt);
+            t->flags &= ~THING_FLAG_IN_COLLISION_PASS;
         }
         if (dt < 0.00001f && iters > 100) {
             elapsed = g_fDeltaTimeSec;
@@ -1293,14 +1115,18 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
         iters++;
     } while (elapsed < g_fDeltaTimeSec);
 
+#undef HIT_A
+#undef HIT_B
+#undef HIT_SURFACE
+
     g_frameCounter++;
     for (t = GETP(g_thingManager_DARYL.activeList); t != NULL; t = GETP(t->next)) {
-        if (GETP(t->gridData) != NULL && !(t->flags & 0x200008)) {
+        if (GETP(t->gridObject) != NULL && !(t->flags & 0x200008)) {
             Thing_RotationalGridMove(t);
         }
     }
     for (t = GETP(g_thingManager_DARYL.activeList); t != NULL; t = GETP(t->next)) {
-        if (!(t->flags & 0x10000)) {
+        if (!(t->flags & THING_FLAG_PUSHED)) {
             t->vel.x -= t->pushVel.x;
             t->vel.y -= t->pushVel.y;
             t->vel.z -= t->pushVel.z;
@@ -1308,27 +1134,27 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             t->pushVel.y = 0.0f;
             t->pushVel.z = 0.0f;
         }
-        if (GETP(t->vtable) == (MoveThingVTable *)g_carAVTable) {
-            t->vel.x -= g_fDeltaTimeSec * (((MoveCar *)t)->drag * t->mtx.v[0].x);
-            t->vel.y -= g_fDeltaTimeSec * (((MoveCar *)t)->drag * t->mtx.v[0].y);
-            t->vel.z -= g_fDeltaTimeSec * (((MoveCar *)t)->drag * t->mtx.v[0].z);
+        if ((u8 *)GETP(t->vtable) == g_carAVTable) {
+            t->vel.x -= g_fDeltaTimeSec * (((CarA *)t)->forwardAccel * t->axis[0].x);
+            t->vel.y -= g_fDeltaTimeSec * (((CarA *)t)->forwardAccel * t->axis[0].y);
+            t->vel.z -= g_fDeltaTimeSec * (((CarA *)t)->forwardAccel * t->axis[0].z);
         }
-        if (!(t->flags & 0x200000)) {
-            GETP(GETP(t->vtable)->update)(t);
-            if (!(t->flags & 8) && GETP(t->gridData) != NULL) {
+        if (!(t->flags & THING_FLAG_RELEASED)) {
+            THING_VFN(t, THING_V_MOVE, void (*)(Thing *))(t);
+            if (!(t->flags & THING_FLAG_AT_REST) && GETP(t->gridObject) != NULL) {
                 Thing_StaticGridMove(t);
             }
             Thing_MoveSlaves(t);
         }
     }
-    for (k = 0; k < 0x40; k++) {
-        if (GETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[k].key) != NULL) {
-            MoveThing *slave = GETP(((SharedSlaveHolder *)g_aSharedSlaveHolder)[k].slaves);
+    for (k = 0; k < NUM_SHARED_SLAVE_HOLDERS; k++) {
+        if (GETP(SHARED_SLAVE_HOLDERS[k].key) != NULL) {
+            Thing *slave = GETP(SHARED_SLAVE_HOLDERS[k].slaves);
 
             while (slave != NULL) {
-                MoveThing *next = GETP(slave->next);
+                Thing *next = GETP(slave->next);
 
-                GETP(GETP(slave->vtable)->update)(slave);
+                THING_VFN(slave, THING_V_MOVE, void (*)(Thing *))(slave);
                 if (Timer_Interrupt300()) {
                     f32 inv = 1.0f / Sqrt(slave->quat.x * slave->quat.x + slave->quat.y * slave->quat.y +
                                           slave->quat.z * slave->quat.z + slave->quat.w * slave->quat.w);
@@ -1342,16 +1168,17 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             }
         }
     }
-    ThingManagerList_RemoveReleasedThings(PTR((s32)HND(&g_thingManager_DARYL.activeList)));
+    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
 }
 
+/* Draws the visible things in view, with their slaves. */
 void ThingManager_DARYL_Render(void) {
     extern void *g_pNoRayCollideThing;
-    ThingHeader *thing;
+    Thing *thing;
 
     for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
-        if (!(thing->flags & 0x200200) && Gfx_FrustrumCullSphereTestAllWindows(thing->unk40, thing->unk70)) {
-            ((void (*)(void *))SLOT_LOAD(void *, (u8 *)GETP(thing->vtable) + 4 * 4))(thing);
+        if (!(thing->flags & (THING_FLAG_RELEASED | THING_FLAG_HIDDEN)) && Gfx_FrustrumCullSphereTestAllWindows(&thing->pos, thing->radius)) {
+            THING_VFN(thing, THING_V_DRAW, void (*)(Thing *))(thing);
             g_pNoRayCollideThing = thing;
             Thing_DrawSlaves(thing);
         }
@@ -1359,59 +1186,63 @@ void ThingManager_DARYL_Render(void) {
     g_pNoRayCollideThing = NULL;
 }
 
-void *ThingManager_DARYL_CreateThing(s32 type, void *params) {
-    void *thing = GETP(g_thingManager_DARYL.freeList[type]);
+/* Takes the first free thing of a type, or NULL. */
+static inline Thing *ThingManager_Alloc(s32 type) {
+    Thing *thing = GETP(g_thingManager_DARYL.freeList[type]);
 
     if (thing == NULL) {
         thing = NULL;
     } else {
-        SETP(g_thingManager_DARYL.freeList[type], SLOT_LOAD(void *, (u8 *)(thing) + 0xA4));
+        SETP(g_thingManager_DARYL.freeList[type], GETP(thing->next));
         if (GETP(g_thingManager_DARYL.freeList[type]) != NULL) {
-            SLOT_STORE((u8 *)(GETP(g_thingManager_DARYL.freeList[type])) + 0xA0, NULL);
+            SETP(((Thing *)GETP(g_thingManager_DARYL.freeList[type]))->prev, NULL);
         }
-        SLOT_STORE((u8 *)(thing) + 0xA4, NULL);
+        SETP(thing->next, NULL);
     }
+    return thing;
+}
+
+/* Creates a thing of a type (THING_TYPE_*) in the active list, initialised
+ * by its vtable Init from `params`; NULL if the pool is used up. */
+void *ThingManager_DARYL_CreateThing(s32 type, void *params) {
+    Thing *thing = ThingManager_Alloc(type);
+
     if (thing != NULL) {
-        SLOT_STORE((u8 *)(thing) + 0xA4, GETP(g_thingManager_DARYL.activeList));
-        SLOT_STORE((u8 *)(thing) + 0xA0, NULL);
-        if (SLOT_LOAD(void *, (u8 *)(thing) + 0xA4) != NULL) {
-            SLOT_STORE((u8 *)(SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) + 0xA0, thing);
+        SETP(thing->next, GETP(g_thingManager_DARYL.activeList));
+        SETP(thing->prev, NULL);
+        if (GETP(thing->next) != NULL) {
+            SETP(GETP(thing->next)->prev, thing);
         }
         SETP(g_thingManager_DARYL.activeList, thing);
-        ((void (*)(void *, void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (0)))(thing, params);
+        THING_VFN(thing, THING_V_INIT, void (*)(Thing *, void *))(thing, params);
         return thing;
     }
     return NULL;
 }
 
+/* As CreateThing, for a slave: not put in any list (the caller links it to
+ * its master's), slaveBone set to `id`. */
 void *ThingManager_DARYL_CreateSlave(s32 type, void *params, u8 id) {
-    void *slave = GETP(g_thingManager_DARYL.freeList[type]);
+    Thing *slave = ThingManager_Alloc(type);
 
-    if (slave == NULL) {
-        slave = NULL;
-    } else {
-        SETP(g_thingManager_DARYL.freeList[type], SLOT_LOAD(void *, (u8 *)(slave) + 0xA4));
-        if (GETP(g_thingManager_DARYL.freeList[type]) != NULL) {
-            SLOT_STORE((u8 *)(GETP(g_thingManager_DARYL.freeList[type])) + 0xA0, NULL);
-        }
-        SLOT_STORE((u8 *)(slave) + 0xA4, NULL);
-    }
     if (slave != NULL) {
-        ((void (*)(void *, void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(slave) + 0x8C) + (0)))(slave, params);
-        M2C_FIELD(slave, u8 *, 0x82) = id;
-        M2C_FIELD(slave, u32 *, 0x74) |= 0x20000000;
+        THING_VFN(slave, THING_V_INIT, void (*)(Thing *, void *))(slave, params);
+        slave->slaveBone = id;
+        slave->flags |= THING_FLAG_SLAVE;
         return slave;
     }
     return NULL;
 }
 
-s32 OBox_CollideAllThingsZeroTime(void *obox, ThingHeader *thing, void *info) {
+/* Whether an oriented box overlaps an oriented-box thing near `thing`; the
+ * pair goes in `info`. */
+s32 OBox_CollideAllThingsZeroTime(void *obox, Thing *thing, void *info) {
     Vector4 min __attribute__((aligned(16)));
     Vector4 max __attribute__((aligned(16)));
     GridResult results[256];
     u32 count;
     u32 i;
-    ThingHeader *other;
+    Thing *other;
     f32 t;
     f32 dist;
     f32 r;
@@ -1420,18 +1251,18 @@ s32 OBox_CollideAllThingsZeroTime(void *obox, ThingHeader *thing, void *info) {
     Thing_GetStaticRotationalMinMax(thing, &min, &max);
     count = Grid_GetObjects(&min, &max, 5, results, 0x100);
     for (i = 0; i < count; i++) {
-        other = (ThingHeader *)PTR(results[i].id);
-        if (!(other->flags & 2) && *(s16 *)((u8 *)other + 0x80) != 0 && other != thing) {
-            dist = PSVECSquareDistance(thing->unk40, other->unk40);
-            r = other->unk70 + thing->unk70;
+        other = P(Thing, results[i].id);
+        if (!(other->flags & THING_FLAG_DEAD) && other->collisionType != THING_COLLIDE_NONE && other != thing) {
+            dist = PSVECSquareDistance(&thing->pos, &other->pos);
+            r = other->radius + thing->radius;
             if (r * r > dist) {
                 t = 1.0f;
-                if (*(s16 *)((u8 *)other + 0x80) == 1) {
-                    otherBox = ((void *(*)(void *))SLOT_LOAD(void *, (u32 *)GETP(other->vtable) + 0x10))(other);
+                if (other->collisionType == THING_COLLIDE_OBOX) {
+                    otherBox = THING_VFN(other, THING_V_GET_ORIENTED_COLLISION, void *(*)(Thing *))(other);
                     if (OBoxHitsOBoxZeroTime(obox, otherBox, info)) {
                         if (info != NULL) {
-                            SLOT_STORE(((u8 *)info + 0x20), thing);
-                            SLOT_STORE(((u8 *)info + 0x24), other);
+                            ((CollisionInfo *)info)->thingA = HND(thing);
+                            ((CollisionInfo *)info)->thingB = HND(other);
                         }
                         t = 0.0f;
                     } else {
@@ -1447,6 +1278,8 @@ s32 OBox_CollideAllThingsZeroTime(void *obox, ThingHeader *thing, void *info) {
     return 0;
 }
 
+/* Nearest hit of a ray (start + t * dir, t up to *t) with the things along
+ * it, except g_pNoRayCollideThing; shortens *t. */
 s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
     extern void *g_pNoRayCollideThing;
     Vector4 min __attribute__((aligned(16)));
@@ -1455,7 +1288,7 @@ s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
     GridResult results[512];
     u32 count;
     u32 i;
-    ThingHeader *other;
+    Thing *other;
     f32 best;
     f32 hit;
 
@@ -1485,9 +1318,9 @@ s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
     }
     count = Grid_GetObjects(&min, &max, 5, results, 0x200);
     for (i = 0; i < count; i++) {
-        other = (ThingHeader *)PTR(results[i].id);
-        if (!(other->flags & 2) && other != g_pNoRayCollideThing &&
-            SegmentVsSphere(other->unk40, start, &end, other->unk70)) {
+        other = P(Thing, results[i].id);
+        if (!(other->flags & THING_FLAG_DEAD) && other != g_pNoRayCollideThing &&
+            SegmentVsSphere(&other->pos, start, &end, other->radius)) {
             hit = THING_VFN(other, THING_V_COLLIDE_WITH_RAY, f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))(other, start, dir, info, best);
             if (hit < *t) {
                 best = hit;
@@ -1504,7 +1337,7 @@ s8 RayHitsObjects_Aux(Vector4 *start, Vector4 *dir, f32 *t, void *info) {
 s8 RayHitsTerrainAndObjects(void *arg0, void *arg1, void *arg2, void *arg3) {
     s8 hitTerrain;
 
-    if (GETP(g_worldData.world) == NULL || SLOT_LOAD(void *, GETP(g_worldData.world)) == NULL) {
+    if (WORLD() == NULL || GETP(WORLD()->collision) == NULL) {
         return 0;
     }
     hitTerrain = RayHitsTerrain_Aux3(arg0, arg1, arg2, arg3);
@@ -1514,16 +1347,18 @@ s8 RayHitsTerrainAndObjects(void *arg0, void *arg1, void *arg2, void *arg3) {
     return hitTerrain;
 }
 
-s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info) {
-    typedef struct { f32 x, y, z, w; } Vec4;
+/* Whether an oriented box (of `thing`) overlaps the terrain or another
+ * oriented-box thing, each unless the thing's flags exclude it. */
+s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *arg, void *info) {
     extern Vector4 g_zeroVector;
+    Thing *thing = arg;
     f32 time;
-    Vec4 max;
-    Vec4 min;
+    Vector4 max;
+    Vector4 min;
     GridResult results[96];
     u32 count;
     u32 i;
-    u8 *other;
+    Thing *other;
     /* port: only OBox objects (type 1) set t; the original reuses f31 for the
      * others: the previous object's t (>= 1, no hit) or the caller's f31 if
      * none came before. Start at "no hit" so the latter is defined too. */
@@ -1531,23 +1366,23 @@ s8 OBoxHitsTerrainAndObjectsZeroTime(void *obox, void *thing, void *info) {
     s32 hit;
 
     time = 1.0f;
-    if (!(*(u32 *)((u8 *)thing + 0x74) & 0x40000)) {
+    if (!(thing->flags & THING_FLAG_NO_TERRAIN_HITS)) {
         if (OBoxHitsTerrain(obox, &g_zeroVector, &time, info)) {
             return 1;
         }
     }
-    if (*(u32 *)((u8 *)thing + 0x74) & 0x20000) {
+    if (thing->flags & THING_FLAG_NO_OBJECT_HITS) {
         hit = 0;
     } else {
-        Thing_GetStaticRotationalMinMax(thing, (Vector4 *)&min, (Vector4 *)&max);
+        Thing_GetStaticRotationalMinMax(thing, &min, &max);
         count = Grid_GetObjects(&min, &max, 5, results, 0x60);
         for (i = 0; i < count; i++) {
-            other = (u8 *)PTR(results[i].id);
-            if (!(*(u32 *)(other + 0x74) & 2) && *(s16 *)(other + 0x80) != 0 && other != thing &&
-                (*(f32 *)(other + 0x70) + *(f32 *)((u8 *)thing + 0x70)) * (*(f32 *)(other + 0x70) + *(f32 *)((u8 *)thing + 0x70)) >
-                    PSVECSquareDistance((u8 *)thing + 0x40, other + 0x40)) {
-                if (*(s16 *)(other + 0x80) == 1) {
-                    t = OBoxHitsOBox(obox, &g_zeroVector, (((void * (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (other + 0x8C)) + 0x40))))(other), &g_zeroVector, 0, 1.0f);
+            other = P(Thing, results[i].id);
+            if (!(other->flags & THING_FLAG_DEAD) && other->collisionType != THING_COLLIDE_NONE && other != thing &&
+                (other->radius + thing->radius) * (other->radius + thing->radius) >
+                    PSVECSquareDistance(&thing->pos, &other->pos)) {
+                if (other->collisionType == THING_COLLIDE_OBOX) {
+                    t = OBoxHitsOBox(obox, &g_zeroVector, THING_VFN(other, THING_V_GET_ORIENTED_COLLISION, void *(*)(Thing *))(other), &g_zeroVector, 0, 1.0f);
                 }
                 if (t < 1.0f) {
                     hit = 1;
@@ -1562,15 +1397,17 @@ done:
 }
 
 s8 OBoxHitsTerrainAndObjectsZeroTimeEdgesOnly(void *obox, void *thing, void *arg2) {
-    if (!(M2C_FIELD(thing, u32 *, 0x74) & 0x40000) && OBoxHitsTerrainZeroTimeEdgesOnly(obox, arg2)) {
+    if (!(((Thing *)thing)->flags & THING_FLAG_NO_TERRAIN_HITS) && OBoxHitsTerrainZeroTimeEdgesOnly(obox, arg2)) {
         return 1;
     }
     return OBox_CollideAllThingsZeroTime(obox, thing, arg2);
 }
 
+/* Nearest hit of the segment start-end (t up to *t) with destructibles,
+ * the static ones and/or the damageable ones; shortens *t. Always 0. */
 s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s8 dynamics) {
     GridResult results[256];
-    u8 info[0x50] __attribute__((aligned(16)));
+    CollisionInfo info __attribute__((aligned(16)));
     Vector4 hitEnd __attribute__((aligned(16)));
     Vector4 dir __attribute__((aligned(16)));
     Vector4 min __attribute__((aligned(16)));
@@ -1611,13 +1448,13 @@ s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s
     count = Grid_GetObjects(&min, &max, 4, results, 0x100);
     for (i = 0; i < count; i++) {
         other = (Destructible *)PTR(results[i].id);
-        if (other->base.flags & 2) {
+        if (other->base.flags & THING_FLAG_DEAD) {
             continue;
         }
         if ((statics == 1 && GETP(GETP(other->record)->info)->takesDamage == 0 && GETP(GETP(other->record)->info)->armour == 0) ||
             (dynamics == 1 && (GETP(GETP(other->record)->info)->takesDamage == 1 || GETP(GETP(other->record)->info)->armour != 0))) {
             if (SegmentVsSphere(&other->base.pos, start, &hitEnd, other->base.radius)) {
-                hit = THING_VFN(other, THING_V_COLLIDE_WITH_RAY, f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))(other, start, &dir, info, best);
+                hit = THING_VFN(other, THING_V_COLLIDE_WITH_RAY, f32 (*)(void *, Vector4 *, Vector4 *, void *, f32))(other, start, &dir, &info, best);
                 if (hit < *t) {
                     best = hit;
                 }
@@ -1631,14 +1468,17 @@ s32 RayHitsObjects_GetObject(Vector4 *start, Vector4 *end, f32 *t, s8 statics, s
     return 0;
 }
 
+/* The things of a pool that are in use. */
+#define THING_IN_USE(thing) (!((thing)->flags & (THING_FLAG_RELEASED | THING_FLAG_FREE)))
+
 s32 ThingManager_GetActiveCars(void **cars, s32 max) {
     s32 count;
     s32 i;
 
     count = 0;
     for (i = 0; i < 8; i++) {
-        u8 *car = g_thingManager_DARYL.unk0 + 0x60310 + i * 0x5A0;
-        if (!(M2C_FIELD(car, u32 *, 0x74) & 0x201000)) {
+        Thing *car = &THING_POOLS->cars[i].thing;
+        if (THING_IN_USE(car)) {
             cars[count++] = car;
         }
     }
@@ -1651,8 +1491,8 @@ s32 ThingManager_GetActiveItems(void **items, s32 max) {
 
     count = 0;
     for (i = 0; i < 96; i++) {
-        u8 *item = g_thingManager_DARYL.unk0 + 0x3D740 + i * 0xF0;
-        if (!(*(u32 *)(item + 0x74) & 0x201000)) {
+        Thing *item = &THING_POOLS->items[i].thing;
+        if (THING_IN_USE(item)) {
             items[count++] = item;
         }
     }
@@ -1665,8 +1505,8 @@ s32 ThingManager_GetActiveSoundSequences(void **seqs, s32 max) {
 
     count = 0;
     for (i = 0; i < 128; i++) {
-        u8 *seq = g_thingManager_DARYL.unk0 + 0x70770 + i * 0xE0;
-        if (!(M2C_FIELD(seq, u32 *, 0x74) & 0x201000)) {
+        Thing *seq = &THING_POOLS->soundSeqs[i].thing;
+        if (THING_IN_USE(seq)) {
             seqs[count++] = seq;
         }
     }
@@ -1677,48 +1517,50 @@ s32 GetAllTargets(void **targets) {
     return ThingManager_GetActiveCars(targets, 8);
 }
 
-static inline s32 ThingManager_GetActiveUnk6D100(void **things) {
+static inline s32 ThingManager_GetActiveDrones(void **things) {
     s32 count;
     s32 i;
 
     count = 0;
     for (i = 0; i < 1; i++) {
-        u8 *thing = g_thingManager_DARYL.unk0 + 0x6D100 + i * 0x5A0;
-        if (!(*(u32 *)(thing + 0x74) & 0x201000)) {
+        Thing *thing = &THING_POOLS->drone[i].thing;
+        if (THING_IN_USE(thing)) {
             things[count++] = thing;
         }
     }
     return count;
 }
 
-static inline s32 ThingManager_GetActiveUnk5B940(void **things) {
+static inline s32 ThingManager_GetActiveCreatures(void **things) {
     s32 count;
     s32 i;
 
     count = 0;
     for (i = 0; i < 1; i++) {
-        u8 *thing = g_thingManager_DARYL.unk0 + 0x5B940 + i * 0x5A0;
-        if (!(*(u32 *)(thing + 0x74) & 0x201000)) {
+        Thing *thing = &THING_POOLS->creature[i].thing;
+        if (THING_IN_USE(thing)) {
             things[count++] = thing;
         }
     }
     return count;
 }
 
-static inline s32 ThingManager_GetActiveUnk20280(void **things) {
+static inline s32 ThingManager_GetActiveDestructibles(void **things) {
     s32 count;
     s32 i;
 
     count = 0;
     for (i = 0; i < 500; i++) {
-        u8 *thing = g_thingManager_DARYL.unk0 + 0x20280 + i * 0xF0;
-        if (!(*(u32 *)(thing + 0x74) & 0x201000)) {
+        Thing *thing = &THING_POOLS->destructibles[i].thing;
+        if (THING_IN_USE(thing)) {
             things[count++] = thing;
         }
     }
     return count;
 }
 
+/* The first car, drone, creature or destructible within ~37 degrees of
+ * `dir` from `pos` (and not within 1 unit), else the looker. */
 void *FindHost(Vector4 *pos, Vector4 *dir) {
     void *items[500];
     void *cars[8];
@@ -1740,7 +1582,7 @@ void *FindHost(Vector4 *pos, Vector4 *dir) {
 
     count = ThingManager_GetActiveCars(cars, 8);
     for (i = 0; i < count; i++) {
-        PSVECSubtract((Vector4 *)((u8 *)cars[i] + 0x40), pos, &diff1);
+        PSVECSubtract(&((Thing *)cars[i])->pos, pos, &diff1);
         dir1 = diff1;
         if (!(PSVECSquareMag(&diff1) < 1.0f)) {
             if (PSVECSquareMag(&dir1)) {
@@ -1751,9 +1593,9 @@ void *FindHost(Vector4 *pos, Vector4 *dir) {
             }
         }
     }
-    count = ThingManager_GetActiveUnk6D100(pods);
+    count = ThingManager_GetActiveDrones(pods);
     for (j = 0; j < count; j++) {
-        PSVECSubtract((Vector4 *)((u8 *)pods[j] + 0x40), pos, &diff2);
+        PSVECSubtract(&((Thing *)pods[j])->pos, pos, &diff2);
         dir2 = diff2;
         if (!(PSVECSquareMag(&diff2) < 1.0f)) {
             if (PSVECSquareMag(&dir2)) {
@@ -1764,9 +1606,9 @@ void *FindHost(Vector4 *pos, Vector4 *dir) {
             }
         }
     }
-    count = ThingManager_GetActiveUnk5B940(bases);
+    count = ThingManager_GetActiveCreatures(bases);
     for (k = 0; k < count; k++) {
-        PSVECSubtract((Vector4 *)((u8 *)bases[k] + 0x40), pos, &diff3);
+        PSVECSubtract(&((Thing *)bases[k])->pos, pos, &diff3);
         dir3 = diff3;
         if (!(PSVECSquareMag(&diff3) < 1.0f)) {
             if (PSVECSquareMag(&dir3)) {
@@ -1777,9 +1619,9 @@ void *FindHost(Vector4 *pos, Vector4 *dir) {
             }
         }
     }
-    count = ThingManager_GetActiveUnk20280(items);
+    count = ThingManager_GetActiveDestructibles(items);
     for (m = 0; m < count; m++) {
-        PSVECSubtract((Vector4 *)((u8 *)items[m] + 0x40), pos, &diff4);
+        PSVECSubtract(&((Thing *)items[m])->pos, pos, &diff4);
         dir4 = diff4;
         if (!(PSVECSquareMag(&diff4) < 1.0f)) {
             if (PSVECSquareMag(&dir4)) {
@@ -1794,106 +1636,49 @@ void *FindHost(Vector4 *pos, Vector4 *dir) {
 }
 
 
+/* A data pack's memory [start, end) is going away: release every thing whose
+ * data points into it (each kind's *_Invalidate decides). */
 void ThingManager_Invalidate(u32 start, u32 end) {
     typedef struct SoundSeqThing {
-        u8 pad0[0xD0];
-        s32 sources[4];
+        Thing base;
+        u8 padAC[0xD0 - 0xAC];
+        s32 sources[4];         /* 0xD0 SoundSource ids, -1: none */
     } SoundSeqThing;
     u32 i;
-    u8 *thing;
+    Thing *thing;
     SoundSeqThing *seq;
     u32 j;
+
+/* Releases the pool's things in use that `invalidate` says refer to the pack. */
+#define INVALIDATE_POOL(pool, count, invalidate)                                         \
+    for (i = 0; i < (count); i++) {                                                      \
+        thing = &THING_POOLS->pool[i].thing;                                             \
+        if (!(thing->flags & THING_FLAG_FREE) && (s8)invalidate) {                        \
+            THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);                \
+        }                                                                                \
+    }
 
     if (GETP(g_thingManager_DARYL.activeList) == NULL) {
         return;
     }
-    for (i = 0; i < 140; i++) {
-        thing = g_thingManager_DARYL.unk0 + i * 0x160;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Projectile_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 192; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0xC080 + i * 0x100;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)EventSeq_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 160; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x18080 + i * 0xD0;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Emitter_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 500; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x20280 + i * 0xF0;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Destructible_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 96; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x3D740 + i * 0xF0;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Item_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 192; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x43140 + i * 0x160;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)AttachThing_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 1; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x5B940 + i * 0x5A0;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Creature_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 16; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x5BB10 + i * 0x480;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)WildCardRack_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 8; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x60310 + i * 0x5A0;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)CarA_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 100; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x63010 + i * 0x140;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Destructible_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 32; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x6ADE0 + i * 0x110;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Tracer_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 1; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x6CFE0 + i * 0x120;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Pod_Invalidate(HND(thing), start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 1; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x6D100 + i * 0x5A0;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Destructible_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
-    for (i = 0; i < 56; i++) {
-        thing = g_thingManager_DARYL.unk0 + 0x6D2F0 + i * 0xF0;
-        if (!(*(u32 *)(thing + 0x74) & 0x1000) && (s8)Motion_Invalidate(thing, start, end)) {
-            (((void (*)(void *))SLOT_LOAD(void *, (SLOT_LOAD(u8 *, (thing + 0x8C)) + 4))))(thing);
-        }
-    }
+    INVALIDATE_POOL(projectiles, 140, Projectile_Invalidate(thing, start, end));
+    INVALIDATE_POOL(eventSeqs, 192, EventSeq_Invalidate(thing, start, end));
+    INVALIDATE_POOL(emitters, 160, Emitter_Invalidate(thing, start, end));
+    INVALIDATE_POOL(destructibles, 500, Destructible_Invalidate((Destructible *)thing, start, end));
+    INVALIDATE_POOL(items, 96, Item_Invalidate((ItemThing *)thing, start, end));
+    INVALIDATE_POOL(attaches, 192, AttachThing_Invalidate(thing, start, end));
+    INVALIDATE_POOL(creature, 1, Creature_Invalidate((Creature *)thing, start, end));
+    INVALIDATE_POOL(wildCardRacks, 16, WildCardRack_Invalidate((u8 *)thing, start, end));
+    INVALIDATE_POOL(cars, 8, CarA_Invalidate(thing, start, end));
+    INVALIDATE_POOL(physicalObjects, 100, Destructible_Invalidate((Destructible *)thing, start, end));
+    INVALIDATE_POOL(tracers, 32, Tracer_Invalidate(thing, start, end));
+    INVALIDATE_POOL(pod, 1, Pod_Invalidate(HND(thing), start, end));
+    INVALIDATE_POOL(drone, 1, Destructible_Invalidate((Destructible *)thing, start, end));
+    INVALIDATE_POOL(motions, 56, Motion_Invalidate(thing, start, end));
+#undef INVALIDATE_POOL
     for (i = 0; i < 128; i++) {
-        seq = (SoundSeqThing *)(g_thingManager_DARYL.unk0 + 0x70770 + i * 0xE0);
-        if (!(*(u32 *)((u8 *)seq + 0x74) & 0x1000) && (s8)SoundSeq_Invalidate(seq, start, end)) {
+        seq = (SoundSeqThing *)&THING_POOLS->soundSeqs[i].thing;
+        if (!(seq->base.flags & THING_FLAG_FREE) && (s8)SoundSeq_Invalidate(seq, start, end)) {
             for (j = 0; j < 4; j++) {
                 if (seq->sources[j] >= 0) {
                     SoundSource_Stop(seq->sources[j]);
@@ -1903,14 +1688,17 @@ void ThingManager_Invalidate(u32 start, u32 end) {
             Thing_Release(seq);
         }
     }
-    ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
+    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
 }
 
 
+/* params: { count, TileCar handles, type, amount, saved[count] }: type 0x2A
+ * fires when a car lost more than `amount` health since the last check
+ * (saved), 0x2B when its health is below max / amount. */
 s8 TriggerVehicleDamage(u32 *params) {
     u32 i;
     u32 count;
-    u32 *things; /* thing handles */
+    u32 *things; /* TileCar handles */
     s32 *saved;
     u32 type;
     s32 amount;
@@ -1923,15 +1711,15 @@ s8 TriggerVehicleDamage(u32 *params) {
     type = params[count + 1];
     amount = params[count + 2];
     for (i = 0; i < count; i++) {
-        u8 *vehicle = SLOT_LOAD(u8 *, (u8 *)PTR(*things) + 0x28);
+        CarA *vehicle = GETP(((TileCar *)PTR(*things))->car);
         if (type == 0x2A) {
-            s32 damage = *(s32 *)(vehicle + 0x78);
+            s32 damage = ((Thing *)vehicle)->health;
             if (damage < *saved - amount) {
                 result = 1;
             }
             *saved = damage;
         }
-        if (type == 0x2B && *(s32 *)(vehicle + 0x78) < *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (vehicle + 0x3BC)) + 0xA0)) + 0x14) / amount) {
+        if (type == 0x2B && ((Thing *)vehicle)->health < GETP(GETP(vehicle->vehicleIface)->collider)->maxHealth / amount) {
             result = 1;
         }
         things++;
@@ -1940,35 +1728,38 @@ s8 TriggerVehicleDamage(u32 *params) {
     return result;
 }
 
+/* params: { unused, gear }: the camera's player car is in that gear. */
 s32 TriggerPlayerVehicleGear(u32 *params) {
     extern u8 g_cameraManager[];
-    u8 *vehicle = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, g_cameraManager)) + 0x2C);
+    CarA *vehicle = GETP(GETP(((Camera *)g_cameraManager)->player)->vehicle);
 
-    if (vehicle != NULL && vehicle[0x4E8] == params[1]) {
+    if (vehicle != NULL && vehicle->curveTableIdx == params[1]) {
         return 1;
     }
     return 0;
 }
 
+/* params: { unused, time, inAir }: true when the camera's player car has
+ * been airborne for `time` (then inAir = 1), and again when it lands
+ * (inAir = 0; Trigger_Heartbeat then runs the else-actions). */
 s32 TriggerPlayerVehicleInAir(u32 *params) {
     extern u8 g_cameraManager[];
-    u8 *vehicle;
+    CarA *vehicle;
     u32 inAir;
 
-    if (SLOT_LOAD(u8 *, g_cameraManager) != NULL) {
-        vehicle = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, g_cameraManager)) + 0x2C);
+    if (GETP(((Camera *)g_cameraManager)->player) != NULL) {
+        vehicle = GETP(GETP(((Camera *)g_cameraManager)->player)->vehicle);
     } else {
         vehicle = NULL;
     }
     inAir = params[2];
-    if (inAir == 0 && vehicle != NULL && *(s32 *)(vehicle + 0x460) >= (s32)params[1]) {
+    if (inAir == 0 && vehicle != NULL && vehicle->unk460 >= (s32)params[1]) {
         params[2] = 1;
         return 1;
     }
-    if (inAir != 0 && vehicle != NULL && *(s32 *)(vehicle + 0x460) == 0) {
+    if (inAir != 0 && vehicle != NULL && vehicle->unk460 == 0) {
         params[2] = 0;
         return 1;
     }
     return 0;
 }
-

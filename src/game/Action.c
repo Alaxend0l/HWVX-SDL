@@ -1,17 +1,26 @@
+/* The action half of the scripting system: the queue of pending actions and
+ * the action functions of pActionFuncArray kept here. See Trigger.h. */
 #include "common.h"
 #include "CarA.h"
+#include "World.h"
+#include "Trigger.h"
+
+/* The AI scripts of a vehicle record, one per difficulty (CarAInfo 0x90). */
+#define CARINFO_AI_SCRIPTS(info) ((u32 *)((u8 *)(info) + 0x90))
+
+/* An action parameter word: the handle of a world record. */
+#define ACTION_RECORD(type, h) ((type *)PTR(h))
 
 static inline Player *Action_GetCarPlayer(CarA *car) {
     Player *player;
 
     if (car != NULL) {
-        player = GETP(car->base.player);
+        player = GETP(((Thing *)car)->player);
     } else {
         player = NULL;
     }
     return player;
 }
-#include "CarA.h"
 
 s32 ActionCameraSetTargets(u32 *mode) {
     CameraManager_SetCameraGlobalMode(mode);
@@ -23,8 +32,11 @@ s32 ActionRoundComplete(s32 *arg0) {
     return 1;
 }
 
+/* data: { resetMotion, resetPosition, jettison } */
 s32 ActionResetGameRound(void *arg0) {
-    GameRules_ResetRound((s8) (u8) M2C_FIELD(arg0, s32 *, 0), (s8) (u8) M2C_FIELD(arg0, s32 *, 4), (s8) (u8) M2C_FIELD(arg0, s32 *, 8));
+    u32 *data = arg0;
+
+    GameRules_ResetRound((s8)(u8)data[0], (s8)(u8)data[1], (s8)(u8)data[2]);
     return 1;
 }
 
@@ -61,91 +73,83 @@ void Action_Create(void) {
 void Action_Destroy(void) {
 
 }
-extern u8 m_Actions[];  /* typed per function below */
+
+/* The queued actions: pack TriggerAction records, NULL in free entries.
+ * port: host pointers (0x140 bytes on the GC). */
+extern u8 m_Actions[];
+#define ACTION_QUEUE ((TriggerAction **)(void *)m_Actions)
+#define ACTION_QUEUE_SIZE 80
 
 void Action_Init(void) {
-    #define m_Actions ((void **)(void *)&m_Actions)
     u32 i;
 
-    for (i = 0; i < 80; i++) {
-        m_Actions[i] = NULL;
+    for (i = 0; i < ACTION_QUEUE_SIZE; i++) {
+        ACTION_QUEUE[i] = NULL;
     }
-#undef m_Actions
 }
 
+/* Runs the queued actions whose delay has passed (and drops them, except a
+ * PrintDebugString still counting down), counts the others down. */
 void Action_Heartbeat(void) {
-    typedef struct Action {
-        s32 type;
-        PTR32(void) data;
-        s32 unk8;
-        s32 unkC;
-        s32 unk10;
-        s32 delay;
-    } Action;
-    #define m_Actions ((Action **)(void *)&m_Actions)
     extern void (*pActionFuncArray[])(void *);
     extern s32 g_iDeltaTimeMS;
     u32 i;
 
-    for (i = 0; i < 80; i++) {
-        Action *action = m_Actions[i];
+    for (i = 0; i < ACTION_QUEUE_SIZE; i++) {
+        TriggerAction *action = ACTION_QUEUE[i];
         if (action != NULL && action->delay <= 0) {
             pActionFuncArray[action->type](GETP(action->data));
-            if (m_Actions[i]->type != 0x14 || SLOT_LOAD(void *, (u32 *)(GETP(m_Actions[i]->data)) + (1)) == NULL) {
-                m_Actions[i] = NULL;
+            /* port: the countdown word is a plain value; the decomp read it as
+             * a pointer slot, which faults on the host for nonzero values */
+            if (ACTION_QUEUE[i]->type != ACTION_PRINT_DEBUG_STRING || ((u32 *)GETP(ACTION_QUEUE[i]->data))[1] == 0) {
+                ACTION_QUEUE[i] = NULL;
             }
         } else if (action != NULL) {
             action->delay -= g_iDeltaTimeMS;
         }
     }
-#undef m_Actions
 }
 
 void Action_ReleaseAllActions(void) {
-    #define m_Actions ((u8 *)(void *)&m_Actions)
-    memset(m_Actions, 0, 80 * sizeof(void *));  /* port: host pointers (0x140 on the GC) */
-#undef m_Actions
+    memset(m_Actions, 0, ACTION_QUEUE_SIZE * sizeof(void *));  /* port: host pointers (0x140 on the GC) */
 }
 
+/* Queues an action (a TriggerAction) with its initial delay and uses up one
+ * of its runs. Returns 0 once it has none left, else 1 (also when the queue is
+ * full and it is dropped). */
 s32 Action_AddAction(void *arg0) {
-    typedef struct Action {
-        s32 type;
-        PTR32(void) data;
-        s32 unk8;
-        s32 delayInit;
-        u32 count;
-        s32 delay;
-    } Action;
-    #define m_Actions ((Action **)(void *)&m_Actions)
-    Action *action = arg0;
+    TriggerAction *action = arg0;
     u32 i;
 
-    for (i = 0; i < 80; i++) {
-        if (m_Actions[i] == NULL) {
+    for (i = 0; i < ACTION_QUEUE_SIZE; i++) {
+        if (ACTION_QUEUE[i] == NULL) {
             break;
         }
     }
-    if (i >= 80) {
+    if (i >= ACTION_QUEUE_SIZE) {
         Dprintf("The max number of actions has been exceeded for this point in the game.  There can only be %d simaltaneous actions\n", 80);
         return 1;
     }
     if (action->count != 0xFFFFFFFF) {
         action->count--;
     }
-    m_Actions[i] = action;
-    m_Actions[i]->delay = m_Actions[i]->delayInit;
+    ACTION_QUEUE[i] = action;
+    ACTION_QUEUE[i]->delay = ACTION_QUEUE[i]->delayInit;
     if (action->count != 0) {
         return 1;
     }
     return 0;
-#undef m_Actions
 }
 
 
+/* action: { what, countdown, value }. With what 0 the action stays queued
+ * while the countdown (started at 60) runs; otherwise `value` goes to every
+ * human-port car's stunt messages / pickup id, or to a player message. */
 s32 ActionPrintDebugString(u32 *action)
 {
     u32 i;
-    u8 *obj;
+    TileCar *tile;
+    CarA *car;
 
     if (*action == 0)
     {
@@ -158,32 +162,33 @@ s32 ActionPrintDebugString(u32 *action)
     else
     {
         action[1] = 0;
-        for (i = 0; i < M2C_FIELD(GETP(g_worldData.world), u32 *, 8); i++)
+        for (i = 0; i < WORLD()->numTileCars; i++)
         {
-            obj = (u8 *)((char *)SLOT_LOAD(u8 *, (u8 *)(GETP(g_worldData.world)) + 0xC) + i * 0x60);
-            if (M2C_FIELD(obj, u8 *, 0x35) == 1)
+            tile = &GETP(WORLD()->tileCars)[i];
+            car = GETP(tile->car);
+            if (tile->port == 1)
             {
                 switch (*action)
                 {
                 case 0:
                     break;
                 case 1:
-                    M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(obj) + 0x28), u32 *, 0x498) = action[2];
+                    car->pickupId = action[2];
                     break;
                 case 2:
-                    M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(obj) + 0x28), u32 *, 0x494) = action[2];
+                    car->stuntPopup.h = action[2];
                     break;
                 case 3:
-                    M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(obj) + 0x28), u32 *, 0x494) = action[2];
+                    car->stuntPopup.h = action[2];
                     break;
                 case 4:
                     InterfaceManager_SetPlayerMessage((void *)PTR(action[2]), 0);
                     break;
                 case 5:
-                    M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(obj) + 0x28), u32 *, 0x49C) = action[2];
+                    car->stuntScoreMessage.h = action[2];
                     break;
                 case 6:
-                    M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(obj) + 0x28), u32 *, 0x4A0) = action[2];
+                    car->stuntMessage.h = action[2];
                     break;
                 case 7:
                     InterfaceManager_SetPlayerMessage((void *)PTR(action[2]), 1);
@@ -198,17 +203,20 @@ s32 ActionPrintDebugString(u32 *action)
     return 1;
 }
 
+/* data: { id, name[] }; true if the pack has a slot. */
 s8 ActionLoadInterfacePack(s32 *arg0) {
-    s32 temp_r3;
+    s32 slot;
 
-    temp_r3 = FileStreaming_LoadDataPack(arg0 + 1, 1, *arg0, 1);
-    return (s8) ((u32) ((-1 - temp_r3) | (temp_r3 + 1)) >> 0x1FU);
+    slot = FileStreaming_LoadDataPack(arg0 + 1, 1, *arg0, 1);
+    return slot != -1;
 }
 
 void ActionUnloadInterfacePack(s32 *arg0) {
     FileStreaming_ReleaseDataPack(FileStreaming_GetPackID((char *)(arg0 + 1), 1, *arg0), 1);
 }
 
+/* data: { op (ACTION_OP_*), var, then for var < 100: count, TileCar handles,
+ * operand; for var >= 100: arg, operand }; operand: { OPERAND_*, value words }. */
 s32 ActionCodeVariableModifyValue(u32 *data) {
     f32 value;
     f32 operand;
@@ -217,34 +225,34 @@ s32 ActionCodeVariableModifyValue(u32 *data) {
 
     if (data[1] < 100) {
         switch (data[data[2] + 3]) {
-        case 0:
+        case OPERAND_CONSTANT:
             value = *(f32 *)&data[data[2] + 4];
             break;
-        case 1:
-            value = *(f32 *)(SLOT_LOAD(u8 *, data[data[2] + 4]) + 4);
+        case OPERAND_VARIABLE:
+            value = WORLD_VARIABLE(data[data[2] + 4])->value;
             break;
-        case 2:
+        case OPERAND_CODE_VARIABLE:
             value = GetCodeVariable(data[data[2] + 4], data[data[2] + 5]);
             break;
         }
         for (i = 0; i < data[2]; i++) {
             cur = GetCodeVariable(data[1], data[i + 3]);
             switch (data[0]) {
-            case 15:
+            case ACTION_OP_ADD:
                 cur += value;
                 break;
-            case 16:
+            case ACTION_OP_SUB:
                 cur -= value;
                 break;
-            case 45:
+            case ACTION_OP_MUL:
                 cur *= value;
                 break;
-            case 46:
+            case ACTION_OP_DIV:
                 if (value) {
                     cur /= value;
                 }
                 break;
-            case 17:
+            case ACTION_OP_SET:
                 cur = value;
                 break;
             }
@@ -253,32 +261,32 @@ s32 ActionCodeVariableModifyValue(u32 *data) {
     } else {
         value = GetCodeVariable(data[1], data[2]);
         switch (data[3]) {
-        case 0:
+        case OPERAND_CONSTANT:
             operand = *(f32 *)&data[4];
             break;
-        case 1:
-            operand = *(f32 *)(SLOT_LOAD(u8 *, data[4]) + 4);
+        case OPERAND_VARIABLE:
+            operand = WORLD_VARIABLE(data[4])->value;
             break;
-        case 2:
+        case OPERAND_CODE_VARIABLE:
             operand = GetCodeVariable(data[4], data[5]);
             break;
         }
         switch (data[0]) {
-        case 15:
+        case ACTION_OP_ADD:
             value += operand;
             break;
-        case 16:
+        case ACTION_OP_SUB:
             value -= operand;
             break;
-        case 45:
+        case ACTION_OP_MUL:
             value *= operand;
             break;
-        case 46:
+        case ACTION_OP_DIV:
             if (operand) {
                 value /= operand;
             }
             break;
-        case 17:
+        case ACTION_OP_SET:
             value = operand;
             break;
         }
@@ -287,57 +295,22 @@ s32 ActionCodeVariableModifyValue(u32 *data) {
     return 1;
 }
 
+/* action: { mode, count, WorldObjective handles } */
 s32 ActionMissionObjChangeMode(u32 *action) {
     u32 i;
 
     for (i = 0; i < action[1]; i++) {
-        M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)PTR(action[i + 2]) + 4), u8 *, 1) = action[0];
+        GETP(ACTION_RECORD(WorldObjective, action[i + 2])->info)[1] = action[0];
     }
     return 1;
 }
 
 
 
+/* action: { mode, count, TileCar handles }. Modes: 0 remove the car (its
+ * position kept for a respawn), 1/10 spawn it with an AI player if absent,
+ * 3 kill it, 9 set the AI player's flag 1 (cleared by 1/10). */
 s32 ActionVehicleChangeMode(u32 *action) {
-    typedef struct AIScripts {
-        u8 pad0[0x90];
-        u32 scripts[4];
-    } AIScripts;
-    typedef struct ItemParams {
-        u8 pad0[0x20];
-        s32 count;
-    } ItemParams;
-    typedef struct TileItem {
-        u8 pad0[0x30];
-        PTR32(ItemParams) params;
-    } TileItem;
-    typedef struct TileCar {
-        Vector4 pos;
-        f32 rotX;
-        f32 rotY;
-        f32 rotZ;
-        u8 pad1C[0x24 - 0x1C];
-        PTR32(AIScripts) aiScripts;
-        PTR32(CarA) creature;
-        u32 mode;
-        u8 pad30[0x34 - 0x30];
-        u8 unk34;
-        u8 unk35;
-        u8 pad36[0x38 - 0x36];
-        f32 nearDist;
-        f32 farDist;
-        u32 scripts[4];
-        u8 pad50[0x54 - 0x50];
-        PTR32(TileItem) item;
-    } TileCar;
-    typedef struct CreatureParams {
-        Vector4 pos;
-        Vector4 quat;
-        Vector4 vel;
-        PTR32(AIScripts) aiScripts;
-        u8 pad34[0x3C - 0x34];
-        PTR32(void) player;
-    } CreatureParams;
     typedef struct AIPlayerDesc {
         u32 script;
         f32 nearSq;
@@ -345,25 +318,19 @@ s32 ActionVehicleChangeMode(u32 *action) {
         u8 unkC;
         u8 unkD;
     } AIPlayerDesc;
-    typedef struct AIPlayer {
-        u8 pad0[0x3C];
-        PTR32(AIScripts) aiScripts;
-        u8 pad40[0x6C - 0x40];
-        u32 flags;
-        u8 pad70[0xA8 - 0x70];
-        PTR32(TileCar) tileCar;
-    } AIPlayer;
     extern Vector4 g_zeroVector;
-    CreatureParams params;
+    CarParams params;
     Matrix4 mtx;
     AIPlayerDesc desc;
-    AIPlayer *player;
+    Player *player;
     u32 mode;
     u32 count;
     u32 i;
     TileCar *spawn;
-    CarA *creature;
-    AIPlayer *ai;
+    CarA *car;
+    Thing *thing;
+    Player *ai;
+    u32 *scripts;
     u32 script;
     s32 difficulty;
     s32 paused;
@@ -372,18 +339,18 @@ s32 ActionVehicleChangeMode(u32 *action) {
     mode = action[0];
     count = action[1];
     for (i = 0; i < count; i++) {
-        spawn = (TileCar *)PTR(action[i + 2]);
-        creature = GETP(spawn->creature);
-        player = (AIPlayer *)Action_GetCarPlayer(creature);
+        spawn = ACTION_RECORD(TileCar, action[i + 2]);
+        car = GETP(spawn->car);
+        player = Action_GetCarPlayer(car);
         switch (mode) {
         case 0:
-            if (creature != NULL) {
+            if (car != NULL) {
                 paused = Trigger_IsTACSystemPaused();
                 Trigger_PauseTACSystem(1);
-                spawn->pos = creature->base.pos;
-                CarA_Release(creature);
+                spawn->pos = ((Thing *)car)->pos;
+                CarA_Release(car);
                 PlayerManager_RemovePlayer(player);
-                SETP(spawn->creature, NULL);
+                SETP(spawn->car, NULL);
                 Trigger_PauseTACSystem(paused);
             }
             break;
@@ -391,72 +358,76 @@ s32 ActionVehicleChangeMode(u32 *action) {
             player->flags |= 1;
             break;
         case 3:
-            if (creature != NULL) {
-                Thing_ProcessEndEvent(creature, GETP(GETP(creature->vehicleIface)->collider), 0, 0);
-                CarA_Release(creature);
+            if (car != NULL) {
+                Thing_ProcessEndEvent(car, GETP(GETP(car->vehicleIface)->collider), 0, 0);
+                CarA_Release(car);
             }
             break;
         case 1:
         case 10:
-            if (creature == NULL && spawn->unk34 == 0) {
+            if (car == NULL && spawn->unk34 == 0) {
                 difficulty = GameSettings_GetDifficulty();
                 script = 0;
                 params.pos = spawn->pos;
                 params.pos.y += 10.0f;
-                SETP(params.aiScripts, GETP(spawn->aiScripts));
+                SETP(params.info, GETP(spawn->info));
                 params.vel = g_zeroVector;
                 SetOrientation(&mtx, spawn->rotY, spawn->rotX, spawn->rotZ);
                 SubMatrixToQuaternion(&mtx, &params.quat);
+                /* the tile's script for the difficulty, else the vehicle's
+                 * (as in the original, tested by its first entry) */
+                scripts = CARINFO_AI_SCRIPTS(GETP(params.info));
                 if (difficulty == 0) {
                     if (spawn->scripts[0] != 0) {
                         script = spawn->scripts[0];
-                    } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                        script = GETP(params.aiScripts)->scripts[0];
+                    } else if (scripts[0] != 0) {
+                        script = scripts[0];
                     }
                 } else if (difficulty == 1) {
                     if (spawn->scripts[1] != 0) {
                         script = spawn->scripts[1];
-                    } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                        script = GETP(params.aiScripts)->scripts[1];
+                    } else if (scripts[0] != 0) {
+                        script = scripts[1];
                     }
                 } else if (difficulty == 2) {
                     if (spawn->scripts[2] != 0) {
                         script = spawn->scripts[2];
-                    } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                        script = GETP(params.aiScripts)->scripts[2];
+                    } else if (scripts[0] != 0) {
+                        script = scripts[2];
                     }
                 } else if (difficulty == 3) {
                     if (spawn->scripts[3] != 0) {
                         script = spawn->scripts[3];
-                    } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                        script = GETP(params.aiScripts)->scripts[3];
+                    } else if (scripts[0] != 0) {
+                        script = scripts[3];
                     }
-                } else if (GETP(params.aiScripts)->scripts[0] != 0) {
-                    script = GETP(params.aiScripts)->scripts[0];
-                } else if (GETP(params.aiScripts)->scripts[1] != 0) {
-                    script = GETP(params.aiScripts)->scripts[1];
+                } else if (scripts[0] != 0) {
+                    script = scripts[0];
+                } else if (scripts[1] != 0) {
+                    script = scripts[1];
                 } else {
-                    script = GETP(params.aiScripts)->scripts[2];
+                    script = scripts[2];
                 }
                 desc.script = script;
                 desc.unkD = 0;
                 desc.unkC = spawn->unk34;
                 desc.nearSq = spawn->nearDist * spawn->nearDist;
                 desc.farSq = spawn->farDist * spawn->farDist;
-                ai = PlayerManager_NewAIPlayer(&desc);
+                ai = PlayerManager_NewAIPlayer((u8 *)&desc);
                 if (ai != NULL) {
                     SETP(params.player, ai);
-                    SETP(spawn->creature, ThingManager_DARYL_CreateThing(9, &params));
-                    if (GETP(spawn->creature) != NULL) {
-                        SETP(GETP(spawn->creature)->base.trigger, spawn);
-                        Player_SetThing(ai, GETP(spawn->creature));
+                    SETP(spawn->car, ThingManager_DARYL_CreateThing(9, &params));
+                    thing = (Thing *)GETP(spawn->car);
+                    if (thing != NULL) {
+                        SETP(thing->trigger, spawn);    /* the car's tile */
+                        Player_SetThing(ai, thing);
                         Player_SetName(ai, -1, "AI");
                         SETP(ai->tileCar, spawn);
-                        SETP(ai->aiScripts, GETP(params.aiScripts));
+                        SETP(ai->aiScripts, GETP(params.info));
                         if (GETP(spawn->item) != NULL) {
-                            rack = ThingManagerList_GetByType(&GETP(spawn->creature)->motionState.slaves, 8);
+                            rack = ThingManagerList_GetByType(&GETP(spawn->car)->motionState.slaves, 8);
                             WildCardRack_JettisonAll(rack);
-                            WildCardRack_Add(rack, GETP(spawn->item), GETP(GETP(spawn->item)->params)->count);
+                            WildCardRack_Add(rack, (u8 *)GETP(spawn->item), *(s32 *)(GETP(GETP(spawn->item)->weapon) + 0x20));
                         }
                     } else {
                         PlayerManager_RemovePlayer(ai);
@@ -474,11 +445,12 @@ s32 ActionVehicleChangeMode(u32 *action) {
 }
 
 
+/* action: { enabled, count, NavLink handles } */
 s32 ActionNavPointChangeMode(u32 *action) {
     u32 i;
 
     for (i = 0; i < action[1]; i++) {
-        M2C_FIELD(action[i + 2], u8 *, 0x50) = action[0];
+        ACTION_RECORD(NavLink, action[i + 2])->enabled = action[0];
     }
     return 1;
 }
@@ -498,60 +470,56 @@ s32 ActionPauseTACSystem(s32 *action) {
     return 1;
 }
 
+/* action: { scripts[4] (per difficulty), count, TileCar handles }: sets the
+ * tiles' scripts, and a spawned car's AI script for the current difficulty. */
 s32 ActionSwapAIScript(u32 *action) {
-    u8 *creature;
+    CarA *car;
     u32 i;
-    u8 *vehicle;
+    TileCar *tile;
 
     for (i = 0; i < action[4]; i++) {
-        vehicle = (u8 *)PTR(action[i + 5]);
-        M2C_FIELD(vehicle, u32 *, 0x40) = action[0];
-        M2C_FIELD(vehicle, u32 *, 0x44) = action[1];
-        M2C_FIELD(vehicle, u32 *, 0x48) = action[2];
-        M2C_FIELD(vehicle, u32 *, 0x4C) = action[3];
-        creature = SLOT_LOAD(u8 *, (u8 *)(vehicle) + 0x28);
-        if (creature != NULL) {
+        tile = ACTION_RECORD(TileCar, action[i + 5]);
+        tile->scripts[0] = action[0];
+        tile->scripts[1] = action[1];
+        tile->scripts[2] = action[2];
+        tile->scripts[3] = action[3];
+        car = GETP(tile->car);
+        if (car != NULL) {
+            /* Player.healthScale (0xD0) is the AI player's script */
             switch (GameSettings_GetDifficulty()) {
             case 0:
-                M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(creature) + 0x94), u32 *, 0xD0) = action[0];
+                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[0];
                 break;
             case 1:
-                M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(creature) + 0x94), u32 *, 0xD0) = action[1];
+                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[1];
                 break;
             case 2:
-                M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(creature) + 0x94), u32 *, 0xD0) = action[2];
+                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[2];
                 break;
             case 3:
-                M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(creature) + 0x94), u32 *, 0xD0) = action[3];
+                ((Player *)GETP(((Thing *)car)->player))->healthScale.h = action[3];
                 break;
             }
-            AI_Car_Reset(creature + 0x94);
+            /* as in the original: the address of the car's player field */
+            AI_Car_Reset((u8 *)&((Thing *)car)->player);
         }
     }
     return 1;
 }
 
+/* action: { what, count, TileCar handles }: what 0 drops the car's
+ * wildcards, 1 releases a carried item. */
 s32 ActionVehicleRemoveItem(u32 *action) {
-    typedef struct ItemThing {
-        u8 unk0[0x74];
-        u32 flags;
-        u8 unk78[0x8C - 0x78];
-        PTR32(u32) vtable;  /* port: vtable of 4-byte slots; entries void (*)(struct ItemThing *) */
-    } ItemThing;
-    typedef struct Vehicle {
-        u8 unk0[0x28];
-        PTR32(u8) creature;
-    } Vehicle;
     void *list;
     u32 i;
-    ItemThing *rack;
-    ItemThing *item;
-    u8 *creature;
+    Thing *rack;
+    Thing *item;
+    CarA *car;
 
     for (i = 0; i < action[1]; i++) {
-        creature = GETP(((Vehicle *)PTR(action[i + 2]))->creature);
-        if (creature != NULL) {
-            list = creature + 0x344;
+        car = GETP(ACTION_RECORD(TileCar, action[i + 2])->car);
+        if (car != NULL) {
+            list = &car->motionState.slaves;
             rack = ThingManagerList_GetByType(list, 8);
             switch (action[0]) {
             case 0:
@@ -560,7 +528,7 @@ s32 ActionVehicleRemoveItem(u32 *action) {
             case 1:
                 item = ThingManagerList_GetByType(list, 4);
                 if (item != NULL) {
-                    ((void (*)(struct ItemThing *))PTR(GETP(item->vtable)[1]))(item);
+                    THING_VFN(item, THING_V_RELEASE, void (*)(Thing *))(item);
                 }
                 break;
             }
@@ -571,60 +539,30 @@ s32 ActionVehicleRemoveItem(u32 *action) {
 }
 
 
+/* action: { what, item, count, TileCar handles }: gives the cars an item:
+ * what 0: the QuadItem `item`'s pickup, spawned there if needed (a carried
+ * one is first taken from whoever has it); 1: a new item, `item` being an
+ * id in the world's item pack (< 1000) or an ItemRecord. */
 s32 ActionVehicleGiveItem(void *arg) {
-    typedef struct ItemInfo {
-        u8 type;
-        u8 pad1[0x10 - 0x1];
-        f32 height;
-        u8 pad14[0x28 - 0x14];
-        u32 effect;
-    } ItemInfo;
-    typedef struct Item {
-        Vector4 pos;
-        u8 pad10[0x4];
-        s32 respawn;
-        s32 timer;
-        PTR32(ItemInfo) info;
-        f32 value;
-        PTR32(u8) thing;
-        u32 type;
-        u8 pad2C[0x34 - 0x2C];
-        u8 hasValue;
-        u8 subtype;
-        u8 pad36[0x38 - 0x36];
-        s8 spawned;
-        u8 pad39[0x40 - 0x39];
-    } Item;
-    typedef struct ItemParams {
-        Vector4 quat;
-        Vector4 pos;
-        f32 unk30;
-        f32 unk34;
-        f32 unk38;
-        u32 unk3C;
-        PTR32(ItemInfo) info;
-        f32 value;
-        u8 subtype;
-    } ItemParams;
-    typedef struct Action {
+    typedef struct GiveItemAction {
         s32 type;
         PTR32(void) item;
         u32 count;
-        PTR32(u8) cars[1];
-    } Action;
+        PTR32(TileCar) cars[1];
+    } GiveItemAction;
     extern Vector4 g_zeroVector;
-    Item *item;
-    Action *action = arg;
+    QuadItem *item;
+    GiveItemAction *action = arg;
     u32 i;
-    u8 *thing = NULL;
+    Thing *thing = NULL;
     u32 j;
-    u8 *car;
+    Thing *car;
     u8 numPlayers;
-    struct { Vector4 a; Vector4 b; Vector4 c; Vector4 zero; u32 id; s32 player; f32 f0; f32 f1; } p;
+    DebrisParams p;
     ItemParams params __attribute__((aligned(16)));
     ItemParams params2;
-    ItemInfo *info;
-    u8 *t;
+    ItemRecord *info;
+    ItemThing *t;
     u32 packID;
     void *pack;
 
@@ -634,14 +572,14 @@ s32 ActionVehicleGiveItem(void *arg) {
         if (item == NULL) {
             return 0;
         }
-        if (GETP(item->info)->type == 7) {
+        if (GETP(item->record)->type == ITEM_TYPE_CARRIED) {
             numPlayers = PlayerManager_PlayerCount();
             for (j = 0; j < numPlayers; j++) {
-                car = SLOT_LOAD(u8 *, ((u8 *)PlayerManager_GetPlayerByIndex(j) + 0x2C));
-                if (car != NULL && SLOT_LOAD(u8 *, (car + 0x8C)) == g_carAVTable) {
-                    t = ThingManagerList_GetByType(car + 0x344, 4);
-                    if (t != NULL && SLOT_LOAD(Item *, (t + 0x90)) == item) {
-                        ThingManagerList_Remove((void **)(car + 0x344), t);
+                car = GETP(((Player *)PlayerManager_GetPlayerByIndex(j))->vehicle);
+                if (car != NULL && (u8 *)GETP(car->vtable) == g_carAVTable) {
+                    t = ThingManagerList_GetByType(&((CarA *)car)->motionState.slaves, 4);
+                    if (t != NULL && GETP(t->base.trigger) == item) {
+                        ThingManagerList_Remove((void **)&((CarA *)car)->motionState.slaves, t);
                     }
                 }
             }
@@ -649,51 +587,51 @@ s32 ActionVehicleGiveItem(void *arg) {
         if (GETP(item->thing) == NULL) {
             item->timer = 0;
             params.pos = item->pos;
-            params.pos.y += GETP(item->info)->height;
-            params.unk30 = 0.0f;
-            params.unk34 = 0.0f;
-            params.unk38 = 0.0f;
-            SETP(params.info, GETP(item->info));
+            params.pos.y += ITEMRECORD_HEIGHT(GETP(item->record));
+            params.vel.x = 0.0f;
+            params.vel.y = 0.0f;
+            params.vel.z = 0.0f;
+            SETP(params.record, GETP(item->record));
             params.quat.w = 1.0f;
             params.quat.x = 0.0f;
             params.quat.y = 0.0f;
             params.quat.z = 0.0f;
-            params.value = item->hasValue ? item->value : 0.0f;
-            params.subtype = item->subtype;
+            params.drawDist = item->hasDrawDist ? item->drawDist : 0.0f;
+            params.unk38 = item->unk35;
             t = ThingManager_DARYL_CreateThing(4, &params);
             if (t != NULL) {
                 item->spawned = 1;
                 SETP(item->thing, t);
-                SLOT_STORE((GETP(item->thing) + 0x90), item);
-                *(u32 *)(t + 0x74) |= 1;
+                SETP(GETP(item->thing)->base.trigger, item);
+                t->base.flags |= 1;
                 if (item->respawn != 0) {
-                    SLOT_STORE((t + 0xD0), item);
+                    SETP(t->spawner, item);
                 }
-                if (GETP(item->info)->effect != 0) {
-                    p.id = GETP(item->info)->effect;
-                    p.a = item->pos;
-                    p.b = params.quat;
-                    p.c.z = 0.0f;
-                    p.c.y = 0.0f;
-                    p.c.x = 0.0f;
-                    p.player = 0;
-                    p.f0 = 0.0f;
-                    p.f1 = 0.0f;
-                    p.zero = g_zeroVector;
+                if (ITEMRECORD_SPAWN_DEBRIS(GETP(item->record)) != 0) {
+                    p.debris = ITEMRECORD_SPAWN_DEBRIS(GETP(item->record));
+                    p.pos = item->pos;
+                    p.quat = params.quat;
+                    p.vel.z = 0.0f;
+                    p.vel.y = 0.0f;
+                    p.vel.x = 0.0f;
+                    p.owner = 0;
+                    p.unk48 = 0.0f;
+                    p.unk4C = 0.0f;
+                    p.angVel = g_zeroVector;
                     ThingManager_DARYL_CreateThing(1, &p);
                 }
             }
         }
-        thing = GETP(item->thing);
+        thing = (Thing *)GETP(item->thing);
         break;
     case 1:
         info = NULL;
         if (action->item.h < 1000) {
-            packID = FileStreaming_GetPackID(SLOT_LOAD(char *, (SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x9C)) + 0xA4)), 2, action->item.h);
+            packID = FileStreaming_GetPackID(GETP(GETP(WORLD()->gameData)->itemPack), 2, action->item.h);
             if (packID < 0xFFFFFFFF) {
                 pack = FileStreaming_InitializeDataPack(packID, 2, 1);
                 if (pack != NULL) {
-                    info = (ItemInfo *)DataPack_GetScript(pack, (s32)action->item.h);
+                    info = (ItemRecord *)DataPack_GetScript(pack, (s32)action->item.h);
                 }
             }
         } else {
@@ -701,19 +639,19 @@ s32 ActionVehicleGiveItem(void *arg) {
         }
         if (info != NULL) {
             params2.pos = g_zeroVector;
-            params2.pos.y += info->height;
-            params2.unk30 = 0.0f;
-            params2.unk34 = 0.0f;
-            params2.unk38 = 0.0f;
-            SETP(params2.info, info);
+            params2.pos.y += ITEMRECORD_HEIGHT(info);
+            params2.vel.x = 0.0f;
+            params2.vel.y = 0.0f;
+            params2.vel.z = 0.0f;
+            SETP(params2.record, info);
             params2.quat.w = 1.0f;
             params2.quat.x = 0.0f;
             params2.quat.y = 0.0f;
             params2.quat.z = 0.0f;
-            params2.value = 0.0f;
+            params2.drawDist = 0.0f;
             thing = ThingManager_DARYL_CreateThing(4, &params2);
             if (thing != NULL) {
-                *(u32 *)(thing + 0x74) |= 1;
+                thing->flags |= 1;
             }
         }
         break;
@@ -722,78 +660,84 @@ s32 ActionVehicleGiveItem(void *arg) {
         return 0;
     }
     for (i = 0; i < action->count; i++) {
-        if (SLOT_LOAD(u8 *, (GETP(action->cars[i]) + 0x28)) != NULL) {
-            CarA_ProcessItemPickup(SLOT_LOAD(u8 *, (GETP(action->cars[i]) + 0x28)), thing);
+        if (GETP(GETP(action->cars[i])->car) != NULL) {
+            CarA_ProcessItemPickup(GETP(GETP(action->cars[i])->car), thing);
         }
     }
     return 1;
 }
 
 
+/* data: { play, queued, sequence }: play (queued) or, with play 0, clear
+ * the queue (queued) or stop the playing instances of the sequence. */
 s32 ActionPlaySoundSequence(void *arg0) {
     extern u8 g_soundSeqVTable[];
+    u32 *data = arg0;
     u32 id;
-    void *thing;
+    Thing *thing;
 
-    id = M2C_FIELD(arg0, u32 *, 8);
-    if (M2C_FIELD(arg0, u32 *, 0) != 0) {
+    id = data[2];
+    if (data[0] != 0) {
         if (id != 0) {
-            if (M2C_FIELD(arg0, u32 *, 4) != 0) {
+            if (data[1] != 0) {
                 SoundSequence_PlayQueued(PTR(id), 0);
             } else {
                 SoundSequence_Play(PTR(id), 0);
             }
         }
-    } else if (M2C_FIELD(arg0, u32 *, 4) != 0) {
+    } else if (data[1] != 0) {
         SoundSequence_ClearQueue();
     } else {
-        for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = SLOT_LOAD(void *, (u8 *)(thing) + 0xA4)) {
-            if (SLOT_LOAD(u8 *, (u8 *)(thing) + 0x8C) == g_soundSeqVTable && M2C_FIELD(thing, u32 *, 0xB0) == id) {
-                ((void (*)(void *))SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(thing) + 0x8C) + (1)))(thing);
+        for (thing = GETP(g_thingManager_DARYL.activeList); thing != NULL; thing = GETP(thing->next)) {
+            /* sound sequence thing 0xB0: its sequence */
+            if ((u8 *)GETP(thing->vtable) == g_soundSeqVTable && *(u32 *)((u8 *)thing + 0xB0) == id) {
+                THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             }
         }
     }
     return 0;  /* the original returns whatever the last call left in r3 */
 }
 
+/* action: { mode, count, TileCreature handles }: 0/25 remove the creature,
+ * 3 kill it (26 also sets the mode to 1), 1 enable spawning. */
 s32 ActionCreatureChangeMode(u32 *action) {
     u32 handle;
     u32 i;
-    u8 *creature;
+    TileCreature *tile;
 
     for (i = 0; i < action[1]; i++) {
-        creature = (u8 *)PTR(action[i + 2]);
-        handle = M2C_FIELD(creature, u32 *, 0x1C);
+        tile = ACTION_RECORD(TileCreature, action[i + 2]);
+        handle = tile->thing;
         switch (action[0]) {
         case 0:
-            M2C_FIELD(creature, u32 *, 0x20) = 0;
+            tile->mode = 0;
             if (handle != 0) {
-                M2C_FIELD(creature, u32 *, 0x1C) = 0;
+                tile->thing = 0;
                 Creature_Release(PTR(handle));
             }
             break;
         case 1:
-            M2C_FIELD(creature, u32 *, 0x20) = 1;
+            tile->mode = 1;
             break;
         case 3:
-            M2C_FIELD(creature, u32 *, 0x20) = 0;
+            tile->mode = 0;
             if (handle != 0) {
-                M2C_FIELD(creature, u32 *, 0x1C) = 0;
-                Creature_MotionStateInitDeath((u8 *)PTR(handle));
+                tile->thing = 0;
+                Creature_MotionStateInitDeath(PTR(handle));
             }
             break;
         case 25:
-            M2C_FIELD(creature, u32 *, 0x20) = 0;
+            tile->mode = 0;
             if (handle != 0) {
-                M2C_FIELD(creature, u32 *, 0x1C) = 0;
+                tile->thing = 0;
                 Creature_Release(PTR(handle));
             }
             break;
         case 26:
-            M2C_FIELD(creature, u32 *, 0x20) = 1;
+            tile->mode = 1;
             if (handle != 0) {
-                M2C_FIELD(creature, u32 *, 0x1C) = 0;
-                Creature_MotionStateInitDeath((u8 *)PTR(handle));
+                tile->thing = 0;
+                Creature_MotionStateInitDeath(PTR(handle));
             }
             break;
         }
