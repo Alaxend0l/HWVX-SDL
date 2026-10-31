@@ -425,12 +425,43 @@ typedef struct AudioSettings {
   u8 unk3;
 } AudioSettings;
 
+/* A save in the memory card file's list (GameSettings_SaveGame). */
+typedef struct SaveSlotInfo {
+  u8 valid;           /* 0x00 */
+  char name[11];      /* 0x01 g_saveFileName */
+  s32 year;           /* 0x0C GetSystemDate */
+  s32 month;          /* 0x10 */
+  s32 day;            /* 0x14 */
+  u32 hour;           /* 0x18 */
+  s32 minute;         /* 0x1C */
+} SaveSlotInfo;
+
+#define SAVE_FILE_SLOTS 8
+
+/* Saved in every memory card file, ahead of the game data. */
 typedef struct GeneralGameSettings {
-  s32 difficulty;
-  AudioSettings audio;
-  ControllerSettings controllers[18];
-  u8 unk14C[4];
+  s32 difficulty;     /* 0x00 */
+  AudioSettings audio;  /* 0x04 */
+  ControllerSettings controllers[4];  /* 0x08 per player */
+  SaveSlotInfo slots[SAVE_FILE_SLOTS]; /* 0x50 the file's list of saves, kept as on the card */
 } GeneralGameSettings;
+
+/* The memory card file (g_pSavedGameData), followed by SAVE_FILE_SLOTS blocks
+ * of game data (HotWheelsGameData / DDRescueGameData) of
+ * g_gameInfo[gameType].unk18 bytes each. */
+#define SAVE_FILE_MAGIC 4
+typedef struct SaveFile {
+  u32 magic;          /* 0x00 SAVE_FILE_MAGIC */
+  u32 version;        /* 0x04 g_gameInfo[gameType].unk14 */
+  u32 checksum;       /* 0x08 FileManager_GetChecksum of what follows */
+  GeneralGameSettings settings; /* 0x0C */
+} SaveFile;
+#define SAVE_FILE_SIZE(dataSize) (sizeof(SaveFile) + (dataSize) * SAVE_FILE_SLOTS)
+#define SAVE_FILE_GAME_DATA(file, dataSize, slot) ((u8 *)(file) + sizeof(SaveFile) + (slot) * (dataSize))
+_Static_assert(sizeof(SaveSlotInfo) == 0x20, "SaveSlotInfo size");
+_Static_assert(offsetof(GeneralGameSettings, slots) == 0x50, "GeneralGameSettings.slots");
+_Static_assert(sizeof(GeneralGameSettings) == 0x150, "GeneralGameSettings size");
+_Static_assert(sizeof(SaveFile) == 0x15C, "SaveFile size");
 
 typedef struct CodeVariables {
   s32 playerVehicle[4];
@@ -494,19 +525,74 @@ typedef struct SIPacketBss {
   u32 inputBufferVcount[4];
 } SIPacketBss;
 
+/* The save data of each game type (MCP.gameType), reached through the code
+ * variables (GameSettings_Set/GetCodeVariable) and written to the memory card
+ * whole (g_pGameData). */
+
+/* Game type 0: Hot Wheels Velocity X. */
 typedef struct HotWheelsGameData {
-  s8 cars[0x21];      /* 0x00 code variable 0x64 */
-  s8 tracks[0x39];    /* 0x21 code variable 0x65 */
+  s8 cars[0x21];      /* 0x00 code variable 0x64: unlocked */
+  s8 tracks[0x39];    /* 0x21 code variable 0x65: unlocked */
   u8 pad5A[0x39];     /* 0x5A */
-  s8 unk93[0xC];      /* 0x93 code variable 0x66 */
-  s8 unk9F[0xA];      /* 0x9F code variable 0x6A */
-  s8 unkA9;           /* 0xA9 */
+  s8 items[0xC];      /* 0x93 code variable 0x66: unlocked */
+  s8 cheats[0xB];     /* 0x9F code variable 0x6A; [9] also 0x69, [10] turns them all on */
   s8 unkAA[5];        /* 0xAA code variable 0x68 */
   u8 padAF;           /* 0xAF */
   u16 unkB0[0x1E];    /* 0xB0 code variable 0xCA */
-  s32 unkEC;          /* 0xEC */
-  u8 padF0[4];        /* 0xF0 */
+  s32 vehicle;        /* 0xEC code variable 0xCB, player 1 */
+  s32 item;           /* 0xF0 code variable 0xCC, player 1 */
 } HotWheelsGameData;
+
+/* Game type 1: DD Rescue. Besides the unlocks it keeps the state of the
+ * current world between missions (GameSettings_GatherGameData /
+ * GameSettings_RestoreGameData). Arrays are capped at the counts below. */
+#define DDR_MAX_TIMERS 50
+#define DDR_MAX_VARIABLES 50
+#define DDR_MAX_CREATURES 200
+#define DDR_MAX_ITEMS 1000
+#define DDR_MAX_INSTANCES 2000
+#define DDR_MAX_PATHS 500
+#define DDR_MAX_CARS 50
+typedef struct DDRescueGameData {
+  s8 cars[0x14];      /* 0x0000 code variable 0x64 */
+  s8 missions[0xA];   /* 0x0014 code variable 0x65 */
+  s8 cheats[0xB];     /* 0x001E code variable 0x6A; [9] also 0x69, [10] turns them all on */
+  s8 unk29[5];        /* 0x0029 code variable 0x68 */
+  u16 unk2E[0x1E];    /* 0x002E code variable 0xCA */
+  u8 pad6A[2];        /* 0x006A */
+  s32 progressionID;  /* 0x006C StateProgressionManager_GetProgressionID */
+  s32 progression;    /* 0x0070 */
+  s8 bValid;          /* 0x0074 the world state below was saved */
+  u8 pad75[3];        /* 0x0075 */
+  u8 playerStats[0x38]; /* 0x0078 Player 0x70-0xA7 of the only human */
+  u8 actions[500 * 4];  /* 0x00B0 Trigger_SaveActions */
+  f32 timerTime[DDR_MAX_TIMERS];          /* 0x0880 WorldTimer.time */
+  u8 timerMode[DDR_MAX_TIMERS][2];        /* 0x0948 WorldTimerMode */
+  f32 variableValue[DDR_MAX_VARIABLES];   /* 0x09AC WorldVariable.value */
+  u8 variableMode[DDR_MAX_VARIABLES][2];  /* 0x0A74 WorldVariable.mode[0..1] */
+  u8 creatureMode[DDR_MAX_CREATURES];     /* 0x0AD8 TileCreature.mode */
+  u8 itemMode[DDR_MAX_ITEMS];             /* 0x0BA0 QuadItem.mode, all quadrants in turn */
+  u8 instanceMode[DDR_MAX_INSTANCES];     /* 0x0F88 QuadInstance.mode */
+  u8 pathEnabled[DDR_MAX_PATHS];          /* 0x1758 TilePath.enabled */
+  u8 carMode[DDR_MAX_CARS];               /* 0x194C TileCar.mode */
+  f32 carPos[DDR_MAX_CARS][3];            /* 0x1980 */
+  f32 carHealth[DDR_MAX_CARS];            /* 0x1BD8 fraction of the maximum */
+  u8 carSpawned[DDR_MAX_CARS];            /* 0x1CA0 -> TileCar.unk5F */
+  u8 pad1CD2[2];      /* 0x1CD2 */
+  s32 vehicle;        /* 0x1CD4 code variable 0xCB, player 1 */
+  s32 item;           /* 0x1CD8 code variable 0xCC, player 1 */
+} DDRescueGameData;
+_Static_assert(offsetof(HotWheelsGameData, item) == 0xF0, "HotWheelsGameData.item");
+_Static_assert(sizeof(HotWheelsGameData) == 0xF4, "HotWheelsGameData size");
+_Static_assert(offsetof(DDRescueGameData, unk2E) == 0x2E, "DDRescueGameData.unk2E");
+_Static_assert(offsetof(DDRescueGameData, progressionID) == 0x6C, "DDRescueGameData.progressionID");
+_Static_assert(offsetof(DDRescueGameData, playerStats) == 0x78, "DDRescueGameData.playerStats");
+_Static_assert(offsetof(DDRescueGameData, timerTime) == 0x880, "DDRescueGameData.timerTime");
+_Static_assert(offsetof(DDRescueGameData, itemMode) == 0xBA0, "DDRescueGameData.itemMode");
+_Static_assert(offsetof(DDRescueGameData, carPos) == 0x1980, "DDRescueGameData.carPos");
+_Static_assert(offsetof(DDRescueGameData, carSpawned) == 0x1CA0, "DDRescueGameData.carSpawned");
+_Static_assert(offsetof(DDRescueGameData, vehicle) == 0x1CD4, "DDRescueGameData.vehicle");
+_Static_assert(sizeof(DDRescueGameData) == 0x1CDC, "DDRescueGameData size");
 
 typedef struct TRKEvent {
   u8 eventType;

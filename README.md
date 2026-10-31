@@ -124,9 +124,9 @@ racks, pods, particles, collision types, slaves (`AnimHandler.c`), cars
 player manager, cameras, AI and nav (`AI.c`, `AI_CarA.c`, `NavHolder.c`,
 most of `Creature.c`), projectiles, debris, attach things, destructibles and
 physical objects, the world/trigger/action/streaming/ThingManager code,
-`State_GamePlay.c` and the MCP. Still on offsets: `InterfaceManager.c`
-(`Interface.h` is written), `EventSequence.c`, `AI_Creature.c`,
-`GameSettings.c`, the audio code (`Voice_`, `MIDI`, `IT`, `SoundSequence`)
+`State_GamePlay.c`, the MCP, event sequences, creature AI, and the save data
+and memory card file (`GameSettings.c`). Still on offsets:
+`InterfaceManager.c` (`Interface.h` is written), the audio code (`Voice_`, `MIDI`, `IT`, `SoundSequence`)
 and smaller leftovers.
 
 Restructured functions no longer match the decomp text, so

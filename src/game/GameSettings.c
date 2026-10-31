@@ -1,4 +1,6 @@
 #include "common.h"
+#include "CarA.h"
+#include "World.h"
 
 
 GameInfo g_gameInfo[2];
@@ -22,9 +24,9 @@ __attribute__((constructor)) static void GameSettings_InitGameInfo(void) {
 
 char g_saveFileName[11];
 char g_fileNames[8][41];
-u8 g_DDRsavedGameData[0xE83C];
-s8 g_DDRescueGameData[0x1CDC];
-u8 g_HWsavedGameData[0x8FC];
+u8 g_DDRsavedGameData[SAVE_FILE_SIZE(sizeof(DDRescueGameData))];
+DDRescueGameData g_DDRescueGameData;
+u8 g_HWsavedGameData[SAVE_FILE_SIZE(sizeof(HotWheelsGameData))];
 HotWheelsGameData g_HotWheelsGameData;
 GeneralGameSettings g_generalGameSettings;
 CodeVariables g_codeVariables;
@@ -56,42 +58,19 @@ static inline MCP *GameSettings_LoadMCP(void)
     return pMCP;
 }
 
-typedef struct DDRescueGameData {
-    u8 unk0[0x6C];
-    s32 progressionID;
-    s32 progression;
-    s8 bValid;
-    u8 unk75[0x78 - 0x75];
-    u8 playerStats[0x38];
-    u8 actions[0x880 - 0xB0];
-    f32 unk880[50];
-    u8 unk948[50][2];
-    f32 unk9AC[50];
-    u8 unkA74[50][2];
-    u8 unkAD8[200];
-    u8 unkBA0[1000];
-    u8 unkF88[2000];
-    u8 unk1758[500];
-    u8 unk194C[50];
-    f32 unk1980[50][3];
-    f32 unk1BD8[50];
-    u8 unk1CA0[50];
-    s32 vehicle;
-    s32 item;
-} DDRescueGameData;
 
 
 static inline u32 GameSettings_GetSaveFileChecksum(u32 device, const char *name, u32 size)
 {
     extern u8 *g_pSavedGameData;
-    u8 *data = g_pSavedGameData;
+    SaveFile *data = (SaveFile *)g_pSavedGameData;
     s32 handle;
 
     if ((handle = File_Open(device + 0xA, name, 0, NULL)) != -1)
     {
-        File_Read(handle, size * 8 + 0x15C, data);
+        File_Read(handle, SAVE_FILE_SIZE(size), data);
         File_Close(handle);
-        return ((u32 *)data)[2];
+        return data->checksum;
     }
     return -1;
 }
@@ -128,9 +107,9 @@ void GameSetting_Init(void) {
         g_HotWheelsGameData.cars[3] = 1;
         g_HotWheelsGameData.cars[4] = 1;
         g_HotWheelsGameData.cars[5] = 1;
-        g_HotWheelsGameData.unk93[0] = 1;
-        g_HotWheelsGameData.unk93[1] = 1;
-        g_HotWheelsGameData.unk93[2] = 1;
+        g_HotWheelsGameData.items[0] = 1;
+        g_HotWheelsGameData.items[1] = 1;
+        g_HotWheelsGameData.items[2] = 1;
         g_HotWheelsGameData.tracks[0] = 1;
         g_HotWheelsGameData.tracks[5] = 1;
         g_HotWheelsGameData.tracks[0x13] = 1;
@@ -149,11 +128,11 @@ void GameSetting_Init(void) {
     case 1:
         g_gameInfo[1].unk14 = 0xE830;
         g_gameInfo[1].unk18 = 0x1CDC;
-        g_pGameData = (u8 *)g_DDRescueGameData;
+        g_pGameData = (u8 *)&g_DDRescueGameData;
         g_pSavedGameData = g_DDRsavedGameData;
-        memset(g_DDRescueGameData, 0, sizeof(g_DDRescueGameData));
-        g_DDRescueGameData[0] = 1;
-        g_DDRescueGameData[0x14] = 1;
+        memset(&g_DDRescueGameData, 0, sizeof(g_DDRescueGameData));
+        g_DDRescueGameData.cars[0] = 1;
+        g_DDRescueGameData.missions[0] = 1;
         GameSettings_SetCodeVariable(0x6A, 0xA, 1);
         GameSettings_SetCodeVariable(0x6B, 0xA, 1);
         break;
@@ -196,14 +175,14 @@ void GameSettings_SetDefaultControllerState(void)
 }
 
 void GameSettings_ResetPlayerVehicleItem(void) {
-    M2C_FIELD(&g_codeVariables, s32 *, 0) = -1;
-    M2C_FIELD(&g_codeVariables, s32 *, 0x10) = -1;
-    M2C_FIELD(&g_codeVariables, s32 *, 4) = -1;
-    M2C_FIELD(&g_codeVariables, s32 *, 0x14) = -1;
-    M2C_FIELD(&g_codeVariables, s32 *, 8) = -1;
-    M2C_FIELD(&g_codeVariables, s32 *, 0x18) = -1;
-    M2C_FIELD(&g_codeVariables, s32 *, 0xC) = -1;
-    M2C_FIELD(&g_codeVariables, s32 *, 0x1C) = -1;
+    g_codeVariables.playerVehicle[0] = -1;
+    g_codeVariables.playerItem[0] = -1;
+    g_codeVariables.playerVehicle[1] = -1;
+    g_codeVariables.playerItem[1] = -1;
+    g_codeVariables.playerVehicle[2] = -1;
+    g_codeVariables.playerItem[2] = -1;
+    g_codeVariables.playerVehicle[3] = -1;
+    g_codeVariables.playerItem[3] = -1;
 }
 
 u8 GameSettings_GetGameType(void)
@@ -296,7 +275,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
             break;
         case 1:
             if (arg < 0x14) {
-                g_DDRescueGameData[arg] = val != 0;
+                g_DDRescueGameData.cars[arg] = val != 0;
             }
             break;
         }
@@ -310,7 +289,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
             break;
         case 1:
             if (arg < 0xA) {
-                g_DDRescueGameData[0x14 + arg] = val != 0;
+                g_DDRescueGameData.missions[arg] = val != 0;
             }
             break;
         }
@@ -319,7 +298,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         switch (type) {
         case 0:
             if (arg < 0xC) {
-                g_HotWheelsGameData.unk93[arg] = val != 0;
+                g_HotWheelsGameData.items[arg] = val != 0;
             }
             break;
         }
@@ -333,7 +312,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
             break;
         case 1:
             if (arg < 5) {
-                g_DDRescueGameData[0x29 + arg] = val != 0;
+                g_DDRescueGameData.unk29[arg] = val != 0;
             }
             break;
         }
@@ -341,10 +320,10 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     case 0x69:
         switch (type) {
         case 0:
-            g_HotWheelsGameData.unk9F[9] = val != 0;
+            g_HotWheelsGameData.cheats[9] = val != 0;
             break;
         case 1:
-            g_DDRescueGameData[0x27] = val != 0;
+            g_DDRescueGameData.cheats[9] = val != 0;
             break;
         }
         break;
@@ -352,12 +331,12 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         switch (type) {
         case 0:
             if (arg < 0xB) {
-                g_HotWheelsGameData.unk9F[arg] = val != 0;
+                g_HotWheelsGameData.cheats[arg] = val != 0;
             }
             break;
         case 1:
             if (arg < 0xB) {
-                g_DDRescueGameData[0x1E + arg] = val != 0;
+                g_DDRescueGameData.cheats[arg] = val != 0;
             }
             break;
         }
@@ -389,7 +368,7 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
             break;
         case 1:
             if (arg < 0x1E) {
-                ((u16 *)&g_DDRescueGameData[0x2E])[arg] = val;
+                g_DDRescueGameData.unk2E[arg] = val;
             }
             break;
         }
@@ -399,10 +378,10 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         if (arg - 1 == 0) {
             switch (type) {
             case 0:
-                g_HotWheelsGameData.unkEC = val;
+                g_HotWheelsGameData.vehicle = val;
                 break;
             case 1:
-                *(s32 *)&g_DDRescueGameData[0x1CD4] = val;
+                g_DDRescueGameData.vehicle = val;
                 break;
             }
         }
@@ -412,10 +391,10 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         if (arg - 1 == 0) {
             switch (type) {
             case 0:
-                *(s32 *)g_HotWheelsGameData.padF0 = val;
+                g_HotWheelsGameData.item = val;
                 break;
             case 1:
-                *(s32 *)&g_DDRescueGameData[0x1CD8] = val;
+                g_DDRescueGameData.item = val;
                 break;
             }
         }
@@ -546,15 +525,6 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
 /* port: [(s32)arg - 1] indexes -1 for arg 0, as the original's 32-bit address
  * arithmetic wrapped; with an unsigned index it would land 16 GB away. */
 u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
-    typedef struct WorldEntry {
-        u32 unk0;
-        PTR32(u8) thing;
-    } WorldEntry;
-    typedef struct World {
-        u8 pad0[0x58];
-        u32 numEntries;
-        PTR32(WorldEntry) entries;
-    } World;
     extern s8 g_bGameSettingsInitialized;
     static s8 bFirstTime = 1;
     static MCP *pMCP;
@@ -563,7 +533,7 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     void *pack;
     u32 i;
     u8 count;
-    u8 *player;
+    Player *player;
     s32 plugged;
     s32 port;
     s32 n;
@@ -604,7 +574,7 @@ done:
             break;
         case 1:
             if (arg < 0x14) {
-                return g_DDRescueGameData[arg];
+                return g_DDRescueGameData.cars[arg];
             }
             break;
         }
@@ -621,7 +591,7 @@ done:
             break;
         case 1:
             if (arg < 0xA) {
-                return g_DDRescueGameData[0x14 + arg];
+                return g_DDRescueGameData.missions[arg];
             }
             break;
         }
@@ -633,7 +603,7 @@ done:
         switch (type) {
         case 0:
             if (arg < 0xC) {
-                return g_HotWheelsGameData.unk93[arg];
+                return g_HotWheelsGameData.items[arg];
             }
             break;
         }
@@ -650,7 +620,7 @@ done:
             break;
         case 1:
             if (arg < 5) {
-                return g_DDRescueGameData[0x29 + arg];
+                return g_DDRescueGameData.unk29[arg];
             }
             break;
         }
@@ -660,9 +630,9 @@ done:
     case 0x6A:
         switch (type) {
         case 0:
-            return g_HotWheelsGameData.unk9F[arg] || g_HotWheelsGameData.unkA9;
+            return g_HotWheelsGameData.cheats[arg] || g_HotWheelsGameData.cheats[10];
         case 1:
-            return g_DDRescueGameData[0x1E + arg] || g_DDRescueGameData[0x28];
+            return g_DDRescueGameData.cheats[arg] || g_DDRescueGameData.cheats[10];
         }
         break;
     case 0x6B:
@@ -687,7 +657,7 @@ done:
             break;
         case 1:
             if (arg < 0x1E) {
-                return ((u16 *)g_DDRescueGameData)[0x17 + arg];
+                return g_DDRescueGameData.unk2E[arg];
             }
             break;
         }
@@ -699,17 +669,17 @@ done:
 
             for (index = 0; index < numPlayers; index++) {
                 player = PlayerManager_GetPlayerByIndex(index);
-                if (*(u32 *)(player + 0x60) == arg && SLOT_LOAD(u8 *, (player + 0xA8)) != NULL) {
-                    return *(u32 *)(SLOT_LOAD(u8 *, (player + 0xA8)) + 0x30);
+                if (player->port == arg && GETP(player->tileCar) != NULL) {
+                    return GETP(player->tileCar)->vehicle;
                 }
             }
         }
         if (arg == 1 && g_codeVariables.unkE8 == 0) {
             switch (type) {
             case 0:
-                return g_HotWheelsGameData.unkEC;
+                return g_HotWheelsGameData.vehicle;
             case 1:
-                return *(s32 *)&g_DDRescueGameData[0x1CD4];
+                return g_DDRescueGameData.vehicle;
             }
             break;
         }
@@ -758,7 +728,7 @@ done:
         plugged = Input_GetContollersPluggedIn();
         count = PlayerManager_PlayerHumanCount();
         for (i = 0; i < count; i++) {
-            port = *(s32 *)(PlayerManager_GetHumanPlayerByIndex(i) + 0xC8);
+            port = ((Player *)PlayerManager_GetHumanPlayerByIndex(i))->device;
             if (!(plugged & (1 << port))) {
                 return port + 1;
             }
@@ -768,8 +738,9 @@ done:
         world = GETP(g_worldData.world);
         if (world != NULL) {
             n = 0;
-            for (port = 0; port < world->numEntries; port++) {
-                if (GETP(GETP(world->entries)[port].thing)[1] == 0x17) {
+            /* objectives in mode 0x17 */
+            for (port = 0; port < world->numObjectives; port++) {
+                if (GETP(GETP(world->objectives)[port].info)[1] == 0x17) {
                     n++;
                 }
             }
@@ -856,9 +827,9 @@ done:
         count = PlayerManager_PlayerCount();
         for (i = 0; i < count; i++) {
             player = PlayerManager_GetPlayerByIndex(i);
-            if (*(u32 *)(player + 0x60) == arg) {
+            if (player->port == arg) {
                 if (Player_IsHuman(player)) {
-                    return *(u32 *)(player + 0x60);
+                    return player->port;
                 }
                 return 5;
             }
@@ -976,10 +947,10 @@ done:
     }
     switch (type) {
     case 0:
-        cheats = g_HotWheelsGameData.unk9F;
+        cheats = g_HotWheelsGameData.cheats;
         break;
     case 1:
-        cheats = &g_DDRescueGameData[0x1E];
+        cheats = g_DDRescueGameData.cheats;
         break;
     }
     if (cheat == 9) {
@@ -1090,9 +1061,9 @@ done:
         *arg1 = 0;
         break;
     case 1:
-        *arg0 = *(s32 *)&g_DDRescueGameData[0x6c];
-        *arg1 = *(s32 *)&g_DDRescueGameData[0x70];
-        GameSettings_SetCodeVariable(0xcb, 1, *(s32 *)&g_DDRescueGameData[0x1cd4]);
+        *arg0 = g_DDRescueGameData.progressionID;
+        *arg1 = g_DDRescueGameData.progression;
+        GameSettings_SetCodeVariable(0xcb, 1, g_DDRescueGameData.vehicle);
         break;
     }
 }
@@ -1124,45 +1095,22 @@ done:
     case 0:
         break;
     case 1:
-        if (g_DDRescueGameData[0x74] && PlayerManager_PlayerHumanCount() == 1) {
-            memcpy((u8 *)PlayerManager_GetHumanPlayerByIndex(0) + 0x70, &g_DDRescueGameData[0x78], 0x38);
+        if (g_DDRescueGameData.bValid && PlayerManager_PlayerHumanCount() == 1) {
+            memcpy(&((Player *)PlayerManager_GetHumanPlayerByIndex(0))->pad70, g_DDRescueGameData.playerStats, sizeof(g_DDRescueGameData.playerStats));
         }
         break;
     }
 }
 
 void GameSettings_GatherGameData(void) {
-    typedef struct DDRescueGameData {
-        u8 unk0[0x6C];
-        s32 progressionID;
-        s32 progression;
-        s8 bValid;
-        u8 unk75[0x78 - 0x75];
-        u8 playerStats[0x38];
-        u8 actions[0x880 - 0xB0];
-        f32 unk880[50];
-        u8 unk948[50][2];
-        f32 unk9AC[50];
-        u8 unkA74[50][2];
-        u8 unkAD8[200];
-        u8 unkBA0[1000];
-        u8 unkF88[2000];
-        u8 unk1758[500];
-        u8 unk194C[50];
-        f32 unk1980[50][3];
-        f32 unk1BD8[50];
-        u8 unk1CA0[50];
-        s32 vehicle;
-        s32 item;
-    } DDRescueGameData;
     static s8 bFirstTime = 1;
     static MCP *pMCP;
     MCP *mcp;
     void *pack;
     s32 state;
-    u8 *world;
-    u8 *group;
-    u8 *car;
+    World *world;
+    QuadContents *contents;
+    CarA *car;
     u32 i;
     u32 j;
     u32 nTriggers;
@@ -1190,99 +1138,83 @@ done:
     case 0:
         break;
     case 1:
-        StateProgressionManager_GetProgressionID(&((DDRescueGameData *)g_DDRescueGameData)->progressionID, &((DDRescueGameData *)g_DDRescueGameData)->progression);
-        ((DDRescueGameData *)g_DDRescueGameData)->bValid = g_codeVariables.unk120[0];
-        if (!((DDRescueGameData *)g_DDRescueGameData)->bValid) {
-            ((DDRescueGameData *)g_DDRescueGameData)->progression++;
+        StateProgressionManager_GetProgressionID(&g_DDRescueGameData.progressionID, &g_DDRescueGameData.progression);
+        g_DDRescueGameData.bValid = g_codeVariables.unk120[0];
+        if (!g_DDRescueGameData.bValid) {
+            g_DDRescueGameData.progression++;
             break;
         }
         if (PlayerManager_PlayerHumanCount() == 1) {
-            memcpy(((DDRescueGameData *)g_DDRescueGameData)->playerStats, (u8 *)PlayerManager_GetHumanPlayerByIndex(0) + 0x70, 0x38);
+            memcpy(g_DDRescueGameData.playerStats, &((Player *)PlayerManager_GetHumanPlayerByIndex(0))->pad70, sizeof(g_DDRescueGameData.playerStats));
         }
-        Trigger_SaveActions(((DDRescueGameData *)g_DDRescueGameData)->actions, 500);
+        Trigger_SaveActions(g_DDRescueGameData.actions, 500);
         world = GETP(g_worldData.world);
-        for (i = 0; i < *(u32 *)(world + 0x50) && i < 50; i++) {
-            ((DDRescueGameData *)g_DDRescueGameData)->unk880[i] = *(f32 *)(SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x54)) + (i)) + 0x8);
-            ((DDRescueGameData *)g_DDRescueGameData)->unk948[i][0] = (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x54)) + (i)) + 0xC)))[0];
-            ((DDRescueGameData *)g_DDRescueGameData)->unk948[i][1] = (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x54)) + (i)) + 0xC)))[1];
+        for (i = 0; i < world->numTimers && i < DDR_MAX_TIMERS; i++) {
+            WorldTimer *timer = GETP(GETP(world->timers)[i]);
+            g_DDRescueGameData.timerTime[i] = timer->time;
+            g_DDRescueGameData.timerMode[i][0] = GETP(timer->mode)->mode;
+            g_DDRescueGameData.timerMode[i][1] = GETP(timer->mode)->type;
         }
         world = GETP(g_worldData.world);
-        for (i = 0; i < *(u32 *)(world + 0x48) && i < 50; i++) {
-            ((DDRescueGameData *)g_DDRescueGameData)->unk9AC[i] = *(f32 *)(SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x4C)) + (i)) + 0x4);
-            if (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x4C)) + (i)) + 0xC)) != NULL) {
-                ((DDRescueGameData *)g_DDRescueGameData)->unkA74[i][0] = (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x4C)) + (i)) + 0xC)))[0];
-                ((DDRescueGameData *)g_DDRescueGameData)->unkA74[i][1] = (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, (world + 0x4C)) + (i)) + 0xC)))[1];
+        for (i = 0; i < world->numVariables && i < DDR_MAX_VARIABLES; i++) {
+            WorldVariable *var = GETP(GETP(world->variables)[i]);
+            g_DDRescueGameData.variableValue[i] = var->value;
+            if (GETP(var->mode) != NULL) {
+                g_DDRescueGameData.variableMode[i][0] = GETP(var->mode)[0];
+                g_DDRescueGameData.variableMode[i][1] = GETP(var->mode)[1];
             }
         }
         world = GETP(g_worldData.world);
-        for (i = 0; i < *(u32 *)(world + 0x40) && i < 200; i++) {
-            ((DDRescueGameData *)g_DDRescueGameData)->unkAD8[i] = *(s32 *)(SLOT_LOAD(u8 *, (world + 0x44)) + i * 0x40 + 0x20);
+        for (i = 0; i < world->numTileCreatures && i < DDR_MAX_CREATURES; i++) {
+            g_DDRescueGameData.creatureMode[i] = GETP(world->tileCreatures)[i].mode;
         }
         world = GETP(g_worldData.world);
-        for (i = 0; i < *(u32 *)(world + 0x20); i++) {
-            group = SLOT_LOAD(u8 *, (world + 0x24)) + i * 0x50;
-            for (j = 0; j < *(u32 *)(SLOT_LOAD(u8 *, (group + 0x30)) + 0x14) && nTriggers < 1000; j++) {
-                ((DDRescueGameData *)g_DDRescueGameData)->unkBA0[nTriggers++] = *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (group + 0x30)) + 0x18)) + j * 0x40 + 0x28);
+        for (i = 0; i < world->numQuads; i++) {
+            contents = GETP(GETP(world->quads)[i].contents);
+            for (j = 0; j < contents->numItems && nTriggers < DDR_MAX_ITEMS; j++) {
+                g_DDRescueGameData.itemMode[nTriggers++] = GETP(contents->items)[j].mode;
             }
-            for (j = 0; j < *(u32 *)(SLOT_LOAD(u8 *, (group + 0x30)) + 0x4) && nSwitches < 2000; j++) {
-                ((DDRescueGameData *)g_DDRescueGameData)->unkF88[nSwitches++] = *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (group + 0x30)) + 0x8)) + j * 0x40 + 0x30);
+            for (j = 0; j < contents->numInstances && nSwitches < DDR_MAX_INSTANCES; j++) {
+                g_DDRescueGameData.instanceMode[nSwitches++] = GETP(contents->instances)[j].mode;
             }
         }
-        for (i = 0; i < *(u32 *)(world + 0x10) && i < 500; i++) {
-            ((DDRescueGameData *)g_DDRescueGameData)->unk1758[i] = *(s32 *)(SLOT_LOAD(u8 *, (world + 0x14)) + i * 0x20 + 0x14);
+        for (i = 0; i < world->numTilePaths && i < DDR_MAX_PATHS; i++) {
+            g_DDRescueGameData.pathEnabled[i] = GETP(world->tilePaths)[i].enabled;
         }
         world = GETP(g_worldData.world);
-        for (i = 0; i < *(u32 *)(world + 0x8) && i < 50; i++) {
-            ((DDRescueGameData *)g_DDRescueGameData)->unk194C[i] = *(s32 *)(SLOT_LOAD(u8 *, (world + 0xC)) + i * 0x60 + 0x2C);
-            car = SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (world + 0xC)) + i * 0x60 + 0x28));
+        for (i = 0; i < world->numTileCars && i < DDR_MAX_CARS; i++) {
+            TileCar *tile = &GETP(world->tileCars)[i];
+            g_DDRescueGameData.carMode[i] = tile->mode;
+            car = GETP(tile->car);
             if (car != NULL) {
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][0] = *(f32 *)(car + 0x40);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][1] = *(f32 *)(car + 0x44);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][2] = *(f32 *)(car + 0x48);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1BD8[i] = (f32)*(s32 *)(car + 0x78) / (f32)*(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (car + 0x3BC)) + 0xA0)) + 0x14);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1CA0[i] = 1;
+                g_DDRescueGameData.carPos[i][0] = car->base.pos.x;
+                g_DDRescueGameData.carPos[i][1] = car->base.pos.y;
+                g_DDRescueGameData.carPos[i][2] = car->base.pos.z;
+                g_DDRescueGameData.carHealth[i] = (f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
+                g_DDRescueGameData.carSpawned[i] = 1;
             } else {
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][0] = *(f32 *)(SLOT_LOAD(u8 *, (world + 0xC)) + i * 0x60 + 0x0);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][1] = *(f32 *)(SLOT_LOAD(u8 *, (world + 0xC)) + i * 0x60 + 0x4);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][2] = *(f32 *)(SLOT_LOAD(u8 *, (world + 0xC)) + i * 0x60 + 0x8);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1BD8[i] = *(f32 *)(SLOT_LOAD(u8 *, (world + 0xC)) + i * 0x60 + 0x58);
-                ((DDRescueGameData *)g_DDRescueGameData)->unk1CA0[i] = 0;
+                g_DDRescueGameData.carPos[i][0] = tile->pos.x;
+                g_DDRescueGameData.carPos[i][1] = tile->pos.y;
+                g_DDRescueGameData.carPos[i][2] = tile->pos.z;
+                g_DDRescueGameData.carHealth[i] = tile->health;
+                g_DDRescueGameData.carSpawned[i] = 0;
             }
         }
-        ((DDRescueGameData *)g_DDRescueGameData)->item = 0;
-        ((DDRescueGameData *)g_DDRescueGameData)->vehicle = g_codeVariables.playerVehicle[0];
+        g_DDRescueGameData.item = 0;
+        g_DDRescueGameData.vehicle = g_codeVariables.playerVehicle[0];
         break;
     }
     g_codeVariables.unk120[0] = 0;
 }
 
 void GameSettings_RestoreGameData(void) {
-    typedef struct DDRescueGameData {
-        u8 unk0[0x74];
-        s8 bValid;
-        u8 unk75[0xB0 - 0x75];
-        u8 actions[0x880 - 0xB0];
-        f32 unk880[50];
-        u8 unk948[50][2];
-        f32 unk9AC[50];
-        u8 unkA74[50][2];
-        u8 unkAD8[200];
-        u8 unkBA0[1000];
-        u8 unkF88[2000];
-        u8 unk1758[500];
-        u8 unk194C[50];
-        f32 unk1980[50][3];
-        f32 unk1BD8[50];
-        u8 unk1CA0[50];
-        s32 vehicle;
-        s32 item;
-    } DDRescueGameData;
     static s8 bFirstTime = 1;
     static MCP *pMCP;
     MCP *mcp;
     void *pack;
     s32 state;
-    u8 *group;
+    World *world;
+    QuadContents *contents;
     u32 i;
     u32 j;
     u32 nTriggers;
@@ -1310,45 +1242,49 @@ done:
     case 0:
         break;
     case 1:
-        if (((DDRescueGameData *)g_DDRescueGameData)->bValid) {
-            Trigger_RestoreActions(((DDRescueGameData *)g_DDRescueGameData)->actions, 500);
-            for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x50) && i < 50; i++) {
-                *(f32 *)(SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, ((u8 *)GETP(g_worldData.world) + 0x54)) + (i)) + 0x8) = ((DDRescueGameData *)g_DDRescueGameData)->unk880[i];
-                (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, ((u8 *)GETP(g_worldData.world) + 0x54)) + (i)) + 0xC)))[0] = ((DDRescueGameData *)g_DDRescueGameData)->unk948[i][0];
-                (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, ((u8 *)GETP(g_worldData.world) + 0x54)) + (i)) + 0xC)))[1] = ((DDRescueGameData *)g_DDRescueGameData)->unk948[i][1];
+        if (g_DDRescueGameData.bValid) {
+            Trigger_RestoreActions(g_DDRescueGameData.actions, 500);
+            world = GETP(g_worldData.world);
+            for (i = 0; i < world->numTimers && i < DDR_MAX_TIMERS; i++) {
+                WorldTimer *timer = GETP(GETP(world->timers)[i]);
+                timer->time = g_DDRescueGameData.timerTime[i];
+                GETP(timer->mode)->mode = g_DDRescueGameData.timerMode[i][0];
+                GETP(timer->mode)->type = g_DDRescueGameData.timerMode[i][1];
             }
-            for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x48) && i < 50; i++) {
-                *(f32 *)(SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, ((u8 *)GETP(g_worldData.world) + 0x4C)) + (i)) + 0x4) = ((DDRescueGameData *)g_DDRescueGameData)->unk9AC[i];
-                if (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, ((u8 *)GETP(g_worldData.world) + 0x4C)) + (i)) + 0xC)) != NULL) {
-                    (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, ((u8 *)GETP(g_worldData.world) + 0x4C)) + (i)) + 0xC)))[0] = ((DDRescueGameData *)g_DDRescueGameData)->unkA74[i][0];
-                    (SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (u32 *)SLOT_LOAD(void *, ((u8 *)GETP(g_worldData.world) + 0x4C)) + (i)) + 0xC)))[1] = ((DDRescueGameData *)g_DDRescueGameData)->unkA74[i][1];
+            for (i = 0; i < world->numVariables && i < DDR_MAX_VARIABLES; i++) {
+                WorldVariable *var = GETP(GETP(world->variables)[i]);
+                var->value = g_DDRescueGameData.variableValue[i];
+                if (GETP(var->mode) != NULL) {
+                    GETP(var->mode)[0] = g_DDRescueGameData.variableMode[i][0];
+                    GETP(var->mode)[1] = g_DDRescueGameData.variableMode[i][1];
                 }
             }
-            for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x40) && i < 200; i++) {
-                *(s32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x44)) + i * 0x40 + 0x20) = ((DDRescueGameData *)g_DDRescueGameData)->unkAD8[i];
+            for (i = 0; i < world->numTileCreatures && i < DDR_MAX_CREATURES; i++) {
+                GETP(world->tileCreatures)[i].mode = g_DDRescueGameData.creatureMode[i];
             }
-            for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x20); i++) {
-                group = SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x24)) + i * 0x50;
-                for (j = 0; j < *(u32 *)(SLOT_LOAD(u8 *, (group + 0x30)) + 0x14) && nTriggers < 1000; j++) {
-                    *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (group + 0x30)) + 0x18)) + j * 0x40 + 0x28) = ((DDRescueGameData *)g_DDRescueGameData)->unkBA0[nTriggers++];
+            for (i = 0; i < world->numQuads; i++) {
+                contents = GETP(GETP(world->quads)[i].contents);
+                for (j = 0; j < contents->numItems && nTriggers < DDR_MAX_ITEMS; j++) {
+                    GETP(contents->items)[j].mode = g_DDRescueGameData.itemMode[nTriggers++];
                 }
-                for (j = 0; j < *(u32 *)(SLOT_LOAD(u8 *, (group + 0x30)) + 0x4) && nSwitches < 2000; j++) {
-                    *(s32 *)(SLOT_LOAD(u8 *, (SLOT_LOAD(u8 *, (group + 0x30)) + 0x8)) + j * 0x40 + 0x30) = ((DDRescueGameData *)g_DDRescueGameData)->unkF88[nSwitches++];
+                for (j = 0; j < contents->numInstances && nSwitches < DDR_MAX_INSTANCES; j++) {
+                    GETP(contents->instances)[j].mode = g_DDRescueGameData.instanceMode[nSwitches++];
                 }
             }
-            for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x10) && i < 500; i++) {
-                *(s32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0x14)) + i * 0x20 + 0x14) = ((DDRescueGameData *)g_DDRescueGameData)->unk1758[i];
+            for (i = 0; i < world->numTilePaths && i < DDR_MAX_PATHS; i++) {
+                GETP(world->tilePaths)[i].enabled = g_DDRescueGameData.pathEnabled[i];
             }
-            for (i = 0; i < *(u32 *)((u8 *)GETP(g_worldData.world) + 0x8) && i < 50; i++) {
-                *(s32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0xC)) + i * 0x60 + 0x2C) = ((DDRescueGameData *)g_DDRescueGameData)->unk194C[i];
-                *(f32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0xC)) + i * 0x60 + 0x0) = ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][0];
-                *(f32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0xC)) + i * 0x60 + 0x4) = ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][1];
-                *(f32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0xC)) + i * 0x60 + 0x8) = ((DDRescueGameData *)g_DDRescueGameData)->unk1980[i][2];
-                *(f32 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0xC)) + i * 0x60 + 0x58) = ((DDRescueGameData *)g_DDRescueGameData)->unk1BD8[i];
-                *(u8 *)(SLOT_LOAD(u8 *, ((u8 *)GETP(g_worldData.world) + 0xC)) + i * 0x60 + 0x5F) = ((DDRescueGameData *)g_DDRescueGameData)->unk1CA0[i];
+            for (i = 0; i < world->numTileCars && i < DDR_MAX_CARS; i++) {
+                TileCar *tile = &GETP(world->tileCars)[i];
+                tile->mode = g_DDRescueGameData.carMode[i];
+                tile->pos.x = g_DDRescueGameData.carPos[i][0];
+                tile->pos.y = g_DDRescueGameData.carPos[i][1];
+                tile->pos.z = g_DDRescueGameData.carPos[i][2];
+                tile->health = g_DDRescueGameData.carHealth[i];
+                tile->unk5F = g_DDRescueGameData.carSpawned[i];
             }
-            g_codeVariables.playerItem[0] = ((DDRescueGameData *)g_DDRescueGameData)->item;
-            g_codeVariables.playerVehicle[0] = ((DDRescueGameData *)g_DDRescueGameData)->vehicle;
+            g_codeVariables.playerItem[0] = g_DDRescueGameData.item;
+            g_codeVariables.playerVehicle[0] = g_DDRescueGameData.vehicle;
         }
         break;
     }
@@ -1361,7 +1297,7 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
     s32 status;
     s32 handle;
     s8 ok;
-    u8 *data;
+    SaveFile *data;
     u32 version;
     u32 size;
     GameInfo info;
@@ -1383,12 +1319,12 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
         version = info.unk14;
         size = version;
     }
-    data = g_pSavedGameData;
+    data = (SaveFile *)g_pSavedGameData;
     ok = 0;
     if ((handle = File_Open(device + 0xB, GETP(info.fileName), 0, NULL)) != -1) {
-        File_Read(handle, size * 8 + 0x15C, data);
-        if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
-            ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
+        File_Read(handle, SAVE_FILE_SIZE(size), data);
+        if (data->magic == SAVE_FILE_MAGIC && data->version == version &&
+            data->checksum == FileManager_GetChecksum(version, (u8 *)&data->settings)) {
             ok = 1;
         }
         File_Close(handle);
@@ -1396,7 +1332,7 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
     if (!ok) {
         return 0;
     }
-    memcpy(&g_generalGameSettings, g_pSavedGameData + 0xC, 0x150);
+    memcpy(&g_generalGameSettings, &((SaveFile *)g_pSavedGameData)->settings, sizeof(GeneralGameSettings));
     GameSettings_ApplyDefaultGameData();
     return 1;
 }
@@ -1443,13 +1379,13 @@ s32 GameSettings_GetDefaultMemoryCardStatus(s32 *device, s8 bForce)
 
 
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
-    typedef struct SaveFile {
+    typedef struct SaveFileRef {
         u32 device;
-        PTR32(u8) data;
+        PTR32(SaveFile) data;
         PTR32(const char) name;
         u32 version;
         u32 size;
-    } SaveFile;
+    } SaveFileRef;
     extern u8 *g_pSavedGameData;
     static u32 s_curCount;
     static s32 s_curStatus;
@@ -1460,7 +1396,7 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
     s32 handle;
     MCP *mcp;
     s8 ok;
-    SaveFile file;
+    SaveFileRef file;
     u32 prevMemStatus;
     u64 freeBytes;
     u64 totalBytes;
@@ -1495,18 +1431,18 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
             if (!FileManager_IsDeviceFormatted(device + 10)) {
                 status = 4;
             } else {
-                SETP(file.data, g_pSavedGameData);
+                SETP(file.data, (SaveFile *)g_pSavedGameData);
                 ok = 0;
                 if ((handle = File_Open(device + 10, GETP(file.name), 0, NULL)) != -1) {
-                    File_Read(handle, file.size * 8 + 0x15C, GETP(file.data));
-                    if (((u32 *)GETP(file.data))[0] == 4 && ((u32 *)GETP(file.data))[1] == file.version &&
-                        ((u32 *)GETP(file.data))[2] == FileManager_GetChecksum(file.version, GETP(file.data) + 0xC)) {
+                    File_Read(handle, SAVE_FILE_SIZE(file.size), GETP(file.data));
+                    if (GETP(file.data)->magic == SAVE_FILE_MAGIC && GETP(file.data)->version == file.version &&
+                        GETP(file.data)->checksum == FileManager_GetChecksum(file.version, (u8 *)&GETP(file.data)->settings)) {
                         ok = 1;
                     }
                     File_Close(handle);
                 }
                 if (ok) {
-                    if (!((s8 *)g_pSavedGameData)[0x5C]) {
+                    if (!((SaveFile *)g_pSavedGameData)->settings.slots[0].valid) {
                         status = 0;
                     }
                 } else if ((handle = File_Open(device + 10, GETP(file.name), 0, NULL)) != -1) {
@@ -1625,7 +1561,7 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     extern GameInfo g_gameInfo[2];
     u32 device;
     GameInfo info;
-    u8 *data;
+    SaveFile *data;
     s32 index;
     MCP *mcp;
     s32 handle;
@@ -1651,12 +1587,12 @@ void GameSettings_SetSaveGameName(u32 *letters) {
         SETP(info.fileName, "saveFile");
         index = 0;
     }
-    data = g_pSavedGameData;
+    data = (SaveFile *)g_pSavedGameData;
     handle = File_Open(device + 0xA, GETP(info.fileName), 0, 0);
     if (handle != -1) {
-        File_Read(handle, index * 8 + 0x15C, data);
+        File_Read(handle, SAVE_FILE_SIZE(index), data);
         File_Close(handle);
-        sum = *(s32 *)(data + 8);
+        sum = data->checksum;
     } else {
         sum = -1;
     }
@@ -1667,33 +1603,20 @@ void GameSettings_SetSaveGameName(u32 *letters) {
 
 
 char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *defaultName) {
-    typedef struct SaveSlot {
-        u8 valid;
-        char name[11];
-        s32 year;
-        s32 month;
-        s32 day;
-        u32 hour;
-        s32 minute;
-    } SaveSlot;
-    typedef struct SaveData {
-        u8 header[0x5C];
-        SaveSlot slots[8];
-    } SaveData;
     extern u8 *g_pSavedGameData;
     static s32 cachedStatus = -1;
     static u32 cachedMemorySlot = (u32)-1;
     u32 i;
     u32 size;
     u32 version;
-    u8 *data;
+    SaveFile *data;
     s32 handle;
     s8 ok;
     u32 slot;  /* port: memory card slot number */
     s32 status;
     GameInfo info;
     MCP *mcp;
-    SaveData *save;
+    SaveFile *save;
     u32 hour;
     u32 hour12;
 
@@ -1716,34 +1639,34 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
                 version = info.unk14;
                 size = version;
             }
-            data = g_pSavedGameData;
+            data = (SaveFile *)g_pSavedGameData;
             ok = 0;
             if ((handle = File_Open(slot + 0xB, GETP(info.fileName), 0, NULL)) != -1) {
-                File_Read(handle, size * 8 + 0x15C, data);
-                if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
-                    ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
+                File_Read(handle, SAVE_FILE_SIZE(size), data);
+                if (data->magic == SAVE_FILE_MAGIC && data->version == version &&
+                    data->checksum == FileManager_GetChecksum(version, (u8 *)&data->settings)) {
                     ok = 1;
                 }
                 File_Close(handle);
             }
             if (ok) {
-                save = (SaveData *)g_pSavedGameData;
+                save = (SaveFile *)g_pSavedGameData;
                 for (i = 0; i < 8; i++) {
-                    g_bValidFileName[i] = save->slots[i].valid;
+                    g_bValidFileName[i] = save->settings.slots[i].valid;
                     if (g_bValidFileName[i] == 0) {
                         strcpy(g_fileNames[i], defaultName);
                         break;
                     }
-                    hour = save->slots[i].hour;
+                    hour = save->settings.slots[i].hour;
                     hour12 = hour;
                     if (hour == 0) {
                         hour12 = 12;
                     } else if (hour > 12) {
                         hour12 = hour - 12;
                     }
-                    sprintf(g_fileNames[i], "%10s    %2d/%2d/%4d %2d:%02d %s", save->slots[i].name,
-                            save->slots[i].month, save->slots[i].day, save->slots[i].year, hour12,
-                            save->slots[i].minute, hour >= 12 ? "PM" : "AM");
+                    sprintf(g_fileNames[i], "%10s    %2d/%2d/%4d %2d:%02d %s", save->settings.slots[i].name,
+                            save->settings.slots[i].month, save->settings.slots[i].day, save->settings.slots[i].year, hour12,
+                            save->settings.slots[i].minute, hour >= 12 ? "PM" : "AM");
                 }
             }
         }
@@ -1762,14 +1685,6 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
 char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
     extern u8 *g_pSavedGameData;
     extern s8 g_bRefreshMC_FileInfo;
-    typedef struct SaveSlot {
-        s8 valid;
-        u8 unk1[0x1F];
-    } SaveSlot;
-    typedef struct SaveData {
-        u8 header[0x5C];
-        SaveSlot slots[8];
-    } SaveData;
     static s32 cachedStatus = -1;
     static u32 cachedMemorySlot = (u32)-1;
     static u32 cachedFileSlot = -1;
@@ -1777,9 +1692,9 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
     u32 slot;  /* port: memory card slot number */
     s32 status;
     u32 fileSlot;
-    SaveData *data;
+    SaveFile *data;
     MCP *mcp;
-    s8 *save;
+    HotWheelsGameData *save;
     u32 i;
     u32 mission;
     u32 challenge;
@@ -1801,45 +1716,45 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
         if (fileSlot >= 8 || status != 1) {
             return NULL;
         }
-        data = (SaveData *)g_pSavedGameData;
+        data = (SaveFile *)g_pSavedGameData;
         mcp = GameSettings_GetMCP();
         switch (mcp != NULL ? mcp->gameType : 0) {
         case 0:
-            save = (s8 *)(g_pSavedGameData + cachedFileSlot * 0xF4 + 0x15C);
-            if (data->slots[cachedFileSlot].valid) {
+            save = (HotWheelsGameData *)SAVE_FILE_GAME_DATA(data, sizeof(HotWheelsGameData), cachedFileSlot);
+            if (data->settings.slots[cachedFileSlot].valid) {
                 mission = 1;
                 for (i = 5; i < 19; i++) {
-                    if (save[0x21 + i]) {
+                    if (save->tracks[i]) {
                         mission = i;
                     }
                 }
                 challenge = 1;
                 for (i = 39; i < 57; i++) {
-                    if (save[0x21 + i]) {
+                    if (save->tracks[i]) {
                         challenge = i;
                     }
                 }
                 cars = 0;
                 for (i = 0; i < 33; i++) {
-                    if (save[i]) {
+                    if (save->cars[i]) {
                         cars++;
                     }
                 }
                 items = 0;
                 for (i = 0; i < 9; i++) {
-                    if (save[0x96 + i]) {
+                    if (save->items[3 + i]) {
                         items++;
                     }
                 }
                 races = 0;
                 for (i = 0; i < 2; i++) {
-                    if (save[0x42 + i]) {
+                    if (save->tracks[0x21 + i]) {
                         races++;
                     }
                 }
                 battles = 0;
                 for (i = 0; i < 4; i++) {
-                    if (save[0x38 + i]) {
+                    if (save->tracks[0x17 + i]) {
                         battles++;
                     }
                 }
@@ -1872,7 +1787,7 @@ u8 GameSettings_SaveGeneralGameData(void) {
     s32 status;
     s32 handle;
     s8 ok;
-    u8 *data;
+    SaveFile *data;
     u32 version;
     u32 size;
     s32 device;
@@ -1893,28 +1808,28 @@ u8 GameSettings_SaveGeneralGameData(void) {
         version = info.unk14;
         size = version;
     }
-    data = g_pSavedGameData;
+    data = (SaveFile *)g_pSavedGameData;
     ok = 0;
     if ((handle = File_Open(device + 0xA, GETP(info.fileName), 0, NULL)) != -1) {
-        File_Read(handle, size * 8 + 0x15C, data);
-        if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
-            ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
+        File_Read(handle, SAVE_FILE_SIZE(size), data);
+        if (data->magic == SAVE_FILE_MAGIC && data->version == version &&
+            data->checksum == FileManager_GetChecksum(version, (u8 *)&data->settings)) {
             ok = 1;
         }
         File_Close(handle);
     }
     if (!ok) {
-        memset(data + 0x5C, 0, 0x100);
+        memset(data->settings.slots, 0, sizeof(data->settings.slots));
     }
-    memcpy((u8 *)&g_generalGameSettings + 0x50, data + 0x5C, 0x100);
-    memcpy(data + 0xC, &g_generalGameSettings, 0x150);
-    data = g_pSavedGameData;
+    memcpy(g_generalGameSettings.slots, data->settings.slots, sizeof(g_generalGameSettings.slots));
+    memcpy(&data->settings, &g_generalGameSettings, sizeof(GeneralGameSettings));
+    data = (SaveFile *)g_pSavedGameData;
     ok = 0;
     if ((handle = File_Open(device + 0xA, GETP(info.fileName), 5, NULL)) != -1) {
-        ((u32 *)data)[0] = 4;
-        ((u32 *)data)[1] = version;
-        ((u32 *)data)[2] = FileManager_GetChecksum(version, data + 0xC);
-        if (File_Write(handle, size * 8 + 0x15C, data)) {
+        data->magic = SAVE_FILE_MAGIC;
+        data->version = version;
+        data->checksum = FileManager_GetChecksum(version, (u8 *)&data->settings);
+        if (File_Write(handle, SAVE_FILE_SIZE(size), data)) {
             ok = 1;
         }
         File_Close(handle);
@@ -1930,31 +1845,18 @@ u8 GameSettings_SaveGeneralGameData(void) {
 
 
 u8 GameSettings_SaveGame(void) {
-    typedef struct SaveSlot {
-        u8 valid;
-        char name[11];
-        s32 year;
-        s32 month;
-        s32 day;
-        u32 hour;
-        s32 minute;
-    } SaveSlot;
-    typedef struct SaveData {
-        u8 header[0x5C];
-        SaveSlot slots[8];
-    } SaveData;
-    typedef struct SaveFile {
+    typedef struct SaveFileRef {
         u32 device;
         PTR32(const char) name;
         u32 version;
         u32 size;
-    } SaveFile;
+    } SaveFileRef;
     void GetSystemDate(s32 *year, s32 *month, s32 *day, u32 *hour, s32 *minute);
     extern u8 *g_pSavedGameData;
     extern u8 *g_pGameData;
     #define g_saveFileCheckSum (*(u32 *)(void *)&g_saveFileCheckSum)
-    SaveFile file;
-    u8 *data;
+    SaveFileRef file;
+    SaveFile *data;
     u32 slot;
     s32 status;
     s8 ok;
@@ -1978,44 +1880,44 @@ u8 GameSettings_SaveGame(void) {
         g_codeVariables.unk11C[0] = 0;
         return 0;
     }
-    data = g_pSavedGameData;
+    data = (SaveFile *)g_pSavedGameData;
     ok = 0;
     if ((handle = File_Open(file.device + 0xA, GETP(file.name), 0, NULL)) != -1) {
-        File_Read(handle, file.size * 8 + 0x15C, data);
-        if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == file.version &&
-            ((u32 *)data)[2] == FileManager_GetChecksum(file.version, data + 0xC)) {
+        File_Read(handle, SAVE_FILE_SIZE(file.size), data);
+        if (data->magic == SAVE_FILE_MAGIC && data->version == file.version &&
+            data->checksum == FileManager_GetChecksum(file.version, (u8 *)&data->settings)) {
             ok = 1;
         }
         File_Close(handle);
     }
     if (!ok) {
-        memset(data + 0x5C, 0, 0x100);
+        memset(data->settings.slots, 0, sizeof(data->settings.slots));
     }
     while (slot != 0) {
-        memcpy(&g_pSavedGameData[slot * file.size + 0x15C], &g_pSavedGameData[(slot - 1) * file.size + 0x15C], file.size);
-        memcpy(&((SaveData *)data)->slots[slot], &((SaveData *)data)->slots[slot - 1], sizeof(SaveSlot));
+        memcpy(SAVE_FILE_GAME_DATA(data, file.size, slot), SAVE_FILE_GAME_DATA(data, file.size, slot - 1), file.size);
+        memcpy(&data->settings.slots[slot], &data->settings.slots[slot - 1], sizeof(SaveSlotInfo));
         slot--;
     }
-    memcpy((u8 *)&g_generalGameSettings + 0x50, data + 0x5C, 0x100);
-    memcpy(data + 0xC, &g_generalGameSettings, 0x150);
-    ((SaveData *)data)->slots[0].valid = 1;
-    strcpy(((SaveData *)data)->slots[0].name, g_saveFileName);
-    GetSystemDate(&((SaveData *)data)->slots[0].year, &((SaveData *)data)->slots[0].month,
-                  &((SaveData *)data)->slots[0].day, &((SaveData *)data)->slots[0].hour,
-                  &((SaveData *)data)->slots[0].minute);
+    memcpy(g_generalGameSettings.slots, data->settings.slots, sizeof(g_generalGameSettings.slots));
+    memcpy(&data->settings, &g_generalGameSettings, sizeof(GeneralGameSettings));
+    data->settings.slots[0].valid = 1;
+    strcpy(data->settings.slots[0].name, g_saveFileName);
+    GetSystemDate(&data->settings.slots[0].year, &data->settings.slots[0].month,
+                  &data->settings.slots[0].day, &data->settings.slots[0].hour,
+                  &data->settings.slots[0].minute);
     GameSettings_GatherGameData();
-    memcpy(g_pSavedGameData + 0x15C, g_pGameData, file.size);
+    memcpy(SAVE_FILE_GAME_DATA(data, file.size, 0), g_pGameData, file.size);
     {
         s8 wok;
         s32 whandle;
-        u8 *wdata;
-        wdata = g_pSavedGameData;
+        SaveFile *wdata;
+        wdata = (SaveFile *)g_pSavedGameData;
         wok = 0;
         if ((whandle = File_Open(file.device + 0xA, GETP(file.name), 5, NULL)) != -1) {
-            ((u32 *)wdata)[0] = 4;
-            ((u32 *)wdata)[1] = file.version;
-            ((u32 *)wdata)[2] = FileManager_GetChecksum(file.version, wdata + 0xC);
-            if (File_Write(whandle, file.size * 8 + 0x15C, wdata)) {
+            wdata->magic = SAVE_FILE_MAGIC;
+            wdata->version = file.version;
+            wdata->checksum = FileManager_GetChecksum(file.version, (u8 *)&wdata->settings);
+            if (File_Write(whandle, SAVE_FILE_SIZE(file.size), wdata)) {
                 wok = 1;
             }
             File_Close(whandle);
@@ -2045,9 +1947,9 @@ u8 GameSettings_LoadGame(void) {
     u32 device;
     s32 handle;
     s8 ok;
-    u8 *data;
+    SaveFile *data;
     u32 version;
-    u8 *saved;
+    SaveFile *saved;
     u32 size;
     GameInfo info;
     MCP *mcp;
@@ -2065,12 +1967,12 @@ u8 GameSettings_LoadGame(void) {
         version = 0;
         size = version;
     }
-    data = g_pSavedGameData;
+    data = (SaveFile *)g_pSavedGameData;
     ok = 0;
     if ((handle = File_Open(device + 0xA, GETP(info.fileName), 0, NULL)) != -1) {
-        File_Read(handle, size * 8 + 0x15C, data);
-        if (((u32 *)data)[0] == 4 && ((u32 *)data)[1] == version &&
-            ((u32 *)data)[2] == FileManager_GetChecksum(version, data + 0xC)) {
+        File_Read(handle, SAVE_FILE_SIZE(size), data);
+        if (data->magic == SAVE_FILE_MAGIC && data->version == version &&
+            data->checksum == FileManager_GetChecksum(version, (u8 *)&data->settings)) {
             ok = 1;
         }
         File_Close(handle);
@@ -2079,9 +1981,9 @@ u8 GameSettings_LoadGame(void) {
         g_codeVariables.unk11C[1] = 0;
         return 0;
     }
-    saved = g_pSavedGameData;
-    memcpy(g_pGameData, &saved[slot * size + 0x15C], size);
-    memcpy(&g_generalGameSettings, saved + 0xC, 0x150);
+    saved = (SaveFile *)g_pSavedGameData;
+    memcpy(g_pGameData, SAVE_FILE_GAME_DATA(saved, size, slot), size);
+    memcpy(&g_generalGameSettings, &saved->settings, sizeof(GeneralGameSettings));
     g_codeVariables.unk11C[1] = 1;
     g_bRefreshMC = 1;
     g_bRefreshMC_FileList = 1;

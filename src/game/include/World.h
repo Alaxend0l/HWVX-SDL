@@ -43,10 +43,12 @@ typedef struct TileCar {
     u32 scripts[4];             /* 0x40 AI script per difficulty, 0: the vehicle's */
     u8 pad50[4];                /* 0x50 */
     PTR32(ItemRecord) item;     /* 0x54 wildcard the car starts with, NULL: none */
-    u8 pad58[4];                /* 0x58 */
+    f32 health;                 /* 0x58 fraction of the maximum, kept across DD Rescue missions
+                                 * (GameSettings_RestoreGameData) */
     s8 respawn;                 /* 0x5C freed (car = NULL) when its AI car is removed */
     u8 pad5D[2];                /* 0x5D */
-    u8 unk5F;                   /* 0x5F nonzero: always spawned at round start */
+    u8 unk5F;                   /* 0x5F nonzero: always spawned at round start; DD Rescue sets it
+                                 * for cars that were spawned when the mission was left */
 } TileCar;
 
 WORLD_ASSERT(TileCar, info, 0x24);
