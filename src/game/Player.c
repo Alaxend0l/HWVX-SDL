@@ -481,6 +481,9 @@ static inline s8 PlayerHuman_KeyPress(Player *player, s32 key) {
     return Input_KeyPress(player->device, player->keys[key]);
 }
 
+void Port_KeyboardActions(Player *player);
+void Port_KeyboardSteer(Player *player);
+
 s32 Player_NULL(void) {
     return 0;
 }
@@ -555,6 +558,7 @@ s32 Player_DefaultControlReader(void *arg0) {
                 player->buttonsHeld |= 1 << i;
             }
         }
+        Port_KeyboardActions(player);   /* port: the PC release's keys (Port_Keyboard.c) */
         if (player->down[1]) {
             if (player->buttonsHeld) {
                 player->comboInputs[player->comboCount++] = player->buttonsHeld;
@@ -684,6 +688,7 @@ s32 Player_DefaultControlReader(void *arg0) {
         if (Input_KeyDown(player->device, player->keys[8])) {
             player->stickX = 0x7F;
         }
+        Port_KeyboardSteer(player);   /* port: steering and flips on the keyboard */
         if (g_playbackStatus == 1) {
             Playback_PutElement((u16)player->stickX + (player->stick2X << 16));
             Playback_PutElement((u16)player->stickY + (player->stick2Y << 16));

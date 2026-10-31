@@ -103,49 +103,37 @@ static void ReadGamepad(SDL_Gamepad *gp, PADStatus *st) {
     st->err = PAD_ERR_NONE;
 }
 
-/* Main stick directions pressed on the keyboard (or by HWVX_AUTOINPUT) for pad
- * 0: -1, 0, 1 per axis. PADClamp gives these the full gate value on each axis,
- * so two keys make a full diagonal instead of the octagon's corner (40, 40),
- * which the menus (|x| > 100 after Input_NGC's scaling) don't count. */
+/* Main stick directions pressed by HWVX_AUTOINPUT for pad 0: -1, 0, 1 per
+ * axis. PADClamp gives these the full gate value on each axis, so two make a
+ * full diagonal instead of the octagon's corner (40, 40), which the menus
+ * (|x| > 100 after Input_NGC's scaling) don't count. */
 static int s_keyStickX, s_keyStickY;
 
-/* Keyboard: arrows/WASD steer, Space/Z = A, X = B, C = X, V = Y, Enter = Start,
- * Q/E = L/R triggers, Shift = Z, IJKL = D-pad, TFGH or keypad 8/4/2/6 =
- * C-stick. */
-static void ReadKeyboard(PADStatus *st) {
+/* Keyboard: the keys the game reads (src/game/Port_Keyboard.c maps them to
+ * the PC release's controls, past the pad: menus get slots, races player
+ * actions). The keyboard counts as the controller on port 1. */
+u32 Port_KeyboardKeys(void) {
+    static const SDL_Scancode keys[] = {
+        [PORT_KEY_UP] = SDL_SCANCODE_UP, [PORT_KEY_DOWN] = SDL_SCANCODE_DOWN,
+        [PORT_KEY_LEFT] = SDL_SCANCODE_LEFT, [PORT_KEY_RIGHT] = SDL_SCANCODE_RIGHT,
+        [PORT_KEY_ENTER] = SDL_SCANCODE_RETURN, [PORT_KEY_ESCAPE] = SDL_SCANCODE_ESCAPE,
+        [PORT_KEY_SPACE] = SDL_SCANCODE_SPACE, [PORT_KEY_CTRL] = SDL_SCANCODE_LCTRL,
+        [PORT_KEY_SHIFT] = SDL_SCANCODE_LSHIFT, [PORT_KEY_A] = SDL_SCANCODE_A, [PORT_KEY_D] = SDL_SCANCODE_D,
+        [PORT_KEY_W] = SDL_SCANCODE_W, [PORT_KEY_S] = SDL_SCANCODE_S, [PORT_KEY_GRAVE] = SDL_SCANCODE_GRAVE,
+    };
     const bool *k = SDL_GetKeyboardState(NULL);
-    u16 b = 0;
-    int x = 0, y = 0, cx = 0, cy = 0;
+    u32 bits = 0, i;
 
-    if (k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_Z]) b |= PAD_BUTTON_A;
-    if (k[SDL_SCANCODE_X]) b |= PAD_BUTTON_B;
-    if (k[SDL_SCANCODE_C]) b |= PAD_BUTTON_X;
-    if (k[SDL_SCANCODE_V]) b |= PAD_BUTTON_Y;
-    if (k[SDL_SCANCODE_RETURN]) b |= PAD_BUTTON_START;
-    if (k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]) b |= PAD_TRIGGER_Z;
-    if (k[SDL_SCANCODE_Q]) { b |= PAD_TRIGGER_L; st->triggerLeft = 0xFF; }
-    if (k[SDL_SCANCODE_E]) { b |= PAD_TRIGGER_R; st->triggerRight = 0xFF; }
-    if (k[SDL_SCANCODE_LEFT] || k[SDL_SCANCODE_A]) x -= 100;
-    if (k[SDL_SCANCODE_RIGHT] || k[SDL_SCANCODE_D]) x += 100;
-    if (k[SDL_SCANCODE_UP] || k[SDL_SCANCODE_W]) y += 100;
-    if (k[SDL_SCANCODE_DOWN] || k[SDL_SCANCODE_S]) y -= 100;
-    if (k[SDL_SCANCODE_I]) b |= PAD_BUTTON_UP;
-    if (k[SDL_SCANCODE_K]) b |= PAD_BUTTON_DOWN;
-    if (k[SDL_SCANCODE_J]) b |= PAD_BUTTON_LEFT;
-    if (k[SDL_SCANCODE_L]) b |= PAD_BUTTON_RIGHT;
-    if (k[SDL_SCANCODE_F] || k[SDL_SCANCODE_KP_4]) cx -= 100;
-    if (k[SDL_SCANCODE_H] || k[SDL_SCANCODE_KP_6]) cx += 100;
-    if (k[SDL_SCANCODE_T] || k[SDL_SCANCODE_KP_8]) cy += 100;
-    if (k[SDL_SCANCODE_G] || k[SDL_SCANCODE_KP_2]) cy -= 100;
-
-    st->button |= b;
-    if (x != 0) st->stickX = (s8)x;
-    if (y != 0) st->stickY = (s8)y;
-    if (cx != 0) st->substickX = (s8)cx;
-    if (cy != 0) st->substickY = (s8)cy;
-    if (b & PAD_BUTTON_A) st->analogA = 0xFF;
-    if (b & PAD_BUTTON_B) st->analogB = 0xFF;
-    st->err = PAD_ERR_NONE;
+    for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        if (k[keys[i]]) {
+            bits |= 1u << i;
+        }
+    }
+    /* either Ctrl/Shift, and Enter on the keypad */
+    if (k[SDL_SCANCODE_RCTRL]) bits |= 1u << PORT_KEY_CTRL;
+    if (k[SDL_SCANCODE_RSHIFT]) bits |= 1u << PORT_KEY_SHIFT;
+    if (k[SDL_SCANCODE_KP_ENTER]) bits |= 1u << PORT_KEY_ENTER;
+    return bits;
 }
 
 /* Debugging: HWVX_AUTOINPUT="entry,..." presses buttons on port 1, each held
@@ -243,20 +231,12 @@ u32 PADRead(struct PADStatus *status) {
             st[i].err = PAD_ERR_NO_CONTROLLER;
         }
     }
-    ReadKeyboard(&st[0]);
+    st[0].err = PAD_ERR_NONE;   /* the keyboard is player 1's controller */
     st[0].button |= AutoInput();
     if (s_autoStickX) st[0].stickX = (s8)s_autoStickX;
     if (s_autoStickY) st[0].stickY = (s8)s_autoStickY;
-    {
-        const bool *k = SDL_GetKeyboardState(NULL);
-        int kx = (k[SDL_SCANCODE_RIGHT] || k[SDL_SCANCODE_D]) - (k[SDL_SCANCODE_LEFT] || k[SDL_SCANCODE_A]);
-        int ky = (k[SDL_SCANCODE_UP] || k[SDL_SCANCODE_W]) - (k[SDL_SCANCODE_DOWN] || k[SDL_SCANCODE_S]);
-        s_keyStickX = s_autoStickX ? (s_autoStickX > 0 ? 1 : -1) : kx;
-        s_keyStickY = s_autoStickY ? (s_autoStickY > 0 ? 1 : -1) : ky;
-    }
-    if (st[0].button) {
-        st[0].err = PAD_ERR_NONE;
-    }
+    s_keyStickX = s_autoStickX ? (s_autoStickX > 0 ? 1 : -1) : 0;
+    s_keyStickY = s_autoStickY ? (s_autoStickY > 0 ? 1 : -1) : 0;
     return motorMask;
 }
 
@@ -308,7 +288,7 @@ void PADClamp(struct PADStatus *status) {
             continue;
         }
         ClampStick(&st[i].stickX, &st[i].stickY, 72, 40, 15);
-        if (i == 0) {   /* keyboard directions: full on each axis (see s_keyStickX) */
+        if (i == 0) {   /* autoinput directions: full on each axis (see s_keyStickX) */
             if (s_keyStickX) st[i].stickX = (s8)(72 * s_keyStickX);
             if (s_keyStickY) st[i].stickY = (s8)(72 * s_keyStickY);
         }

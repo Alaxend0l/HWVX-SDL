@@ -53,9 +53,12 @@ F11 or Alt+Enter toggles fullscreen. Saves go to SDL's per-user preferences
 folder (`memcardA/*.sav`).
 
 Controls: any SDL-supported gamepad (A/B/X/Y by position, triggers = L/R,
-right shoulder = Z), or keyboard on player 1: arrows/WASD steer, Space/Z = A,
-X = B, C = X, V = Y, Q/E = L/R, Shift = Z, Enter = Start, I/J/K/L =
-D-pad, T/F/G/H or keypad 8/4/2/6 = C-stick.
+right shoulder = Z), or the keyboard as player 1, with the PC release's
+controls (recovered from its executable, see `src/game/Port_Keyboard.c`):
+Up accelerate, Down brake/reverse, Left/Right steer, W/S stunt flip
+forward/backward, A/D strafe/stunt roll, Shift power slide, Space fire,
+Ctrl change weapon, ` (grave) change camera, Escape pause. In menus: arrows,
+Enter to accept, Escape to go back.
 
 ## Layout
 

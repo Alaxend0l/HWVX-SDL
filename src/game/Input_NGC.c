@@ -106,6 +106,8 @@ void Input_Destroy(void) {
 }
 
 
+void Port_KeyboardSlots(VirtualPad *pad);
+
 void Input_Heartbeat(void) {
     void GBAConnectivityLoop__Fv(void);
     extern s32 g_iDeltaTimeMS;
@@ -131,6 +133,9 @@ void Input_Heartbeat(void) {
         }
         g_padUpPos[i] = 0;
         g_padDownPos[i] = 0;
+        if (i == 0) {
+            Port_KeyboardSlots(&g_VirtualPad[0]);   /* port: the keyboard (Port_Keyboard.c) */
+        }
         if (rumbleStatus[i].active) {
             if (rumbleStatus[i].duration < 0) {
                 rumbleStatus[i].active = 0;

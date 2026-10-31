@@ -2,6 +2,7 @@
 build/
 build-*/
 orig/
+pc-orig/
 tools/__pycache__
 
 # Prerequisites

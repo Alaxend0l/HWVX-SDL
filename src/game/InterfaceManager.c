@@ -340,6 +340,43 @@ void InterfaceManager_SetOffset(s32 index, f32 x, f32 y) {
     iface->offset.y = y;
 }
 
+/* port: does an event list react to a button (not just a timer, 0x1E)? */
+static s32 Port_HasButtonEvents(const IfaceEventList *list) {
+    u32 i;
+
+    for (i = 0; i < list->count; i++) {
+        u8 t = GETP(list->events)[i].type;
+        if (t != 0 && t != 0x1E) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* port: is a screen up that waits for buttons, not a player's HUD (the
+ * mission information window at a race's start, briefings)? Messages such
+ * as "Checkpoint" have selectable rows too, but only timers on them, and
+ * don't count. Port_Keyboard.c gives the keyboard to such a screen during
+ * gameplay. */
+s32 Port_InterfaceTakingInput(void) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        Interface *f = &g_interfaces[i];
+        InterfaceObject *sel = GETP(f->selected);
+        if (f->count == 0 || f->state != 2 || f->paused || f->hidden || f->isChild || f->input == -2 ||
+            GETP(f->owner) != NULL) {
+            continue;
+        }
+        if (Port_HasButtonEvents(&GETP(f->header)->events) ||
+            (sel != NULL && !sel->hidden && GETP(GETP(sel->def)->record) != NULL &&
+             Port_HasButtonEvents(&GETP(GETP(sel->def)->record)->events))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callback)(void *msg)) {
     Port_MenuPatch(header);   /* port: the Options screen's Graphics menu */
     if (header != NULL) {  /* port: trace interface creation */

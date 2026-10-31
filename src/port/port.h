@@ -156,6 +156,14 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 
 void Port_Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 int Port_AllCheats(void);
+/* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
+ * src/game/Port_Keyboard.c turns them into the PC release's controls. */
+enum {
+    PORT_KEY_UP, PORT_KEY_DOWN, PORT_KEY_LEFT, PORT_KEY_RIGHT, PORT_KEY_ENTER, PORT_KEY_ESCAPE,
+    PORT_KEY_SPACE, PORT_KEY_CTRL, PORT_KEY_SHIFT, PORT_KEY_A, PORT_KEY_D, PORT_KEY_W, PORT_KEY_S,
+    PORT_KEY_GRAVE,
+};
+u32 Port_KeyboardKeys(void);
 /* Widescreen (gx_draw.c): how much wider (wx) and taller (wy) than 4:3 the
  * game's single view is drawn; 1, 1 in split screen. The game's culling and
  * on-screen tests (Render_SetClipPlanes, isInWindow) widen by these. */
