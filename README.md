@@ -91,7 +91,11 @@ wrong layout fails to compile:
 | `Thing.h` | `Thing`, the 0xAC-byte header of every game object (velocity, transform, flags, slaves, vtable, list links); `ThingVSlot` + `THING_VFN` for vtable calls; `DebrisParams` |
 | `Collision.h` | `CollisionOBox` (the pooled oriented box), `CollisionInfo` (a contact) |
 | `ItemThing.h` | pickups: `ItemThing`, `ItemRecord`, `ItemParams` |
-| `CarA.h` | cars, players, `MotionState` |
+| `CarA.h` | cars, players, `MotionState`, cameras |
+| `World.h`, `Trigger.h`, `ThingManager.h` | the world (tiles, teleporters, volumes, quads), triggers/actions, thing pools |
+| `AI.h`, `Nav.h`, `Creature.h` | AI drivers, nav points, creatures |
+| `Projectile.h`, `Debris.h`, `AttachThing.h`, `Destructible.h`, `KeyState.h` | weapons and effects |
+| `Interface.h`, `Particle.h`, `WildCard.h` | menus/HUD, particles, wildcard racks (headers ready, code not converted yet) |
 
 Conventions:
 
@@ -110,9 +114,16 @@ Conventions:
 - After changing signatures, regenerate `game_protos.h`
   (`tools/gen_protos.py`).
 
-Converted so far: `Thing.c`, `ItemThing.c`, `Tracer.c`, the collision files'
-box/contact types, the slave code in `AnimHandler.c`, and `Destructible`'s
-header. The rest still uses offsets.
+Converted so far: things and items, tracers, collision types, slaves
+(`AnimHandler.c`), cars (`CarA.c`, `CarA_Stunts.c`, `CarA_Suspension.c`),
+AI and nav (`AI.c`, `AI_CarA.c`, `NavHolder.c`, most of `Creature.c`),
+projectiles, debris, attach things, destructibles and physical objects, and
+the world/trigger/action/ThingManager code. Headers for the rest are written
+but not yet applied: `Interface.h` (InterfaceManager.c), `Particle.h` /
+`WildCard.h` (ParticleManager.c, WildCard.c); still on offsets as well:
+`CarA_AR.c`, `Player.c`, `PlayerManager.c`, `CameraManager.c`,
+`AI_Creature.c`, `Looker.c`, `EventSequence.c`, `FileStreaming.c`,
+`Emitter.c`, `GameSettings.c`, `State_GamePlay.c` and the audio code.
 
 Restructured functions no longer match the decomp text, so
 `import_decomp.py --merge` will conflict on them; resolve those by hand.
