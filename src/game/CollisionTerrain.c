@@ -791,7 +791,7 @@ s32 RayHitsCell(Vector4 *start, Vector4 *dir, TerrainCell *cell, f32 *time, Coll
                     out->pos.y = start->y + dir->y * *time;
                     out->pos.z = start->z + dir->z * *time;
                     out->material = result;
-                    out->unk30 = g_zeroVector;
+                    out->vel = g_zeroVector;
                 }
                 hitAny = 1;
             }
@@ -818,7 +818,7 @@ s32 RayHitsCell(Vector4 *start, Vector4 *dir, TerrainCell *cell, f32 *time, Coll
                 out->pos.y = start->y + dir->y * *time;
                 out->pos.z = start->z + dir->z * *time;
                 out->material = GETP(TERRAIN()->materials)[best->material];
-                out->unk30 = g_zeroVector;
+                out->vel = g_zeroVector;
             }
             hitAny = 1;
         }

@@ -356,7 +356,7 @@ void GameRules_ResetRound(s8 resetMotion, s8 resetPosition, s8 jettison) {
             if (resetMotion) {
                 ((Thing *)car)->health = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
                 car->partVisMask = 0;
-                MotionState_ReleaseSlavesByType((s32)HND(&car->motionState), 2);
+                MotionState_ReleaseSlavesByType(&car->motionState, 2);
             }
             if (resetPosition) {
                 Thing *thing;

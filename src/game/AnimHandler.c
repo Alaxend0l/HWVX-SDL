@@ -2,114 +2,87 @@
  * attached to its bones) and the key-frame / skeleton helpers. */
 #include "common.h"
 #include "CarA.h"
+#include "ThingManager.h"
+#include "WildCard.h"
 
 
 
-void MotionState_Init(void *arg0, s8 reset) {
-    typedef struct {
-        u8 pad0[0x14];
-        PTR32(u32) skel;
-        u8 pad18[4];
-        u8 loop[3];
-        u8 pad1F;
-        PTR32(f32) time[3];
-    } Anim;
-    typedef struct {
-        PTR32(Anim) anim;
-        u8 mode;
-        u8 unk5;
-        u8 unk6;
-        u8 unk7;
-        u8 pad8[4];
-        f32 time;
-    } MotionState;
-    typedef struct {
-        PTR32(Anim) anim;
-        u8 mode;
-        u8 unk5;
-        u8 unk6;
-        u8 pad7;
-        f32 time;
-        f32 blend;
-        u8 pad10[0x10];
-    } MotionHistory;
-    typedef struct {
-        MotionState cur;
-        u32 matrices;
-        u8 pad14[4];
-        MotionHistory hist[1];
-    } Motion;
-    Motion *motion = arg0;
+/* Start the state's model from its first phase that has a range, and point
+ * the layer at it. reset: blend in from 0 (else play it at full weight). */
+void MotionState_Init(MotionState *ms, s8 reset) {
+    MotionLayer *hist = &ms->layer;
+    MotionAnim *anim;
     s32 i;
     u32 *skel;
 
-    motion->cur.unk5 = 0;
-    motion->cur.unk6 = 0;
-    motion->cur.mode = 0;
-    motion->cur.mode = 0;
-    if (GETP(motion->cur.anim) == NULL) {
+    ms->loops = 0;
+    ms->reverse = 0;
+    ms->mode = 0;
+    ms->mode = 0;
+    anim = GETP(ms->model);
+    if (anim == NULL) {
         return;
     }
-    if (!GETP(motion->cur.anim)->loop[0]) {
-        motion->cur.mode++;
-        if (!GETP(motion->cur.anim)->loop[1]) {
-            motion->cur.mode++;
-            if (GETP(motion->cur.anim)->loop[2]) {
-                motion->cur.time = *GETP(GETP(motion->cur.anim)->time[2]);
+    if (!anim->hasIntro) {
+        ms->mode++;
+        if (!anim->loopMode) {
+            ms->mode++;
+            if (anim->hasOutro) {
+                ms->time = GETP(anim->phases[2])->start;
             }
         } else {
-            motion->cur.time = *GETP(GETP(motion->cur.anim)->time[1]);
+            ms->time = GETP(anim->phases[1])->start;
         }
     } else {
-        motion->cur.time = *GETP(GETP(motion->cur.anim)->time[0]);
+        ms->time = GETP(anim->phases[0])->start;
     }
     for (;;) {
-        switch (motion->cur.mode) {
+        switch (ms->mode) {
         case 0:
-            if (GETP(motion->cur.anim)->loop[0]) {
+            if (anim->hasIntro) {
                 goto done;
             }
-            motion->cur.mode = 1;
+            ms->mode = 1;
         case 1:
-            if (GETP(motion->cur.anim)->loop[1]) {
+            if (anim->loopMode) {
                 goto done;
             }
-            motion->cur.mode = 2;
+            ms->mode = 2;
         case 2:
-            if (GETP(motion->cur.anim)->loop[2]) {
+            if (anim->hasOutro) {
                 goto done;
             }
-            motion->cur.mode = 0;
+            ms->mode = 0;
         }
     }
 done:
     if (reset) {
+        /* sic: one layer, so nothing to shift down */
         for (i = 0; i > 0; i--) {
-            memcpy(&motion->hist[i], &motion->hist[i - 1], sizeof(MotionHistory));
+            memcpy(&hist[i], &hist[i - 1], sizeof(MotionLayer));
         }
-        motion->hist[0].blend = 0.0f;
+        hist[0].blend = 0.0f;
     } else {
-        motion->hist[0].blend = 1.0f;
+        hist[0].blend = 1.0f;
     }
-    SETP(motion->hist[0].anim, GETP(motion->cur.anim));
-    motion->hist[0].mode = motion->cur.mode;
-    motion->hist[0].unk5 = motion->cur.unk5;
-    motion->hist[0].unk6 = motion->cur.unk6;
-    motion->hist[0].time = motion->cur.time;
-    skel = GETP(GETP(motion->cur.anim)->skel);
-    if (motion->cur.unk7 < *skel) {
-        if (motion->cur.unk7) {
-            MatrixCache_Free(motion->matrices);
+    SETP(hist[0].anim, anim);
+    hist[0].phase = ms->mode;
+    hist[0].loops = ms->loops;
+    hist[0].reverse = ms->reverse;
+    hist[0].time = ms->time;
+    skel = &GETP(anim->skeleton)->numBones;
+    if (ms->numMatrices < *skel) {
+        if (ms->numMatrices) {
+            MatrixCache_Free(ms->animMatrices.h);
         }
-        motion->matrices = MatrixCache_Get(*skel, motion);
-        motion->cur.unk7 = *skel;
+        ms->animMatrices.h = MatrixCache_Get(*skel, ms);
+        ms->numMatrices = *skel;
     }
-    MotionState_ReleaseSlavesByType((s32)HND(motion), 0xFF);
+    MotionState_ReleaseSlavesByType(ms, 0xFF);
 }
 
 /* Release the state's slaves tagged `tag` straight back to their free list. */
-void MotionState_ReleaseSlavesByType(s32 state, u8 tag) {
-    MotionState *ms = (MotionState *)PTR(state);
+void MotionState_ReleaseSlavesByType(MotionState *ms, u8 tag) {
     Thing *thing;
     Thing *next;
 
@@ -127,155 +100,116 @@ void MotionState_ReleaseSlavesByType(s32 state, u8 tag) {
     }
 }
 
-void MotionState_Release(s32 state) {
-    if (M2C_FIELD(state, u32 *, 0x10) != 0) {
-        ThingManagerList_EmancipateSlaves(PTR(M2C_FIELD(state, u32 *, 0x10)), PTR(state + 0x14));
-        MatrixCache_Free(M2C_FIELD(state, u32 *, 0x10));
-        M2C_FIELD(state, u32 *, 0x10) = 0;
-        M2C_FIELD(state, u8 *, 0x7) = 0;
+void MotionState_Release(MotionState *ms) {
+    if (GETP(ms->animMatrices) != NULL) {
+        ThingManagerList_EmancipateSlaves(GETP(ms->animMatrices), &ms->slaves);
+        MatrixCache_Free(ms->animMatrices.h);
+        SETP(ms->animMatrices, NULL);
+        ms->numMatrices = 0;
     }
-    ThingManagerList_ReleaseAll(PTR(state + 0x14));
-    ThingManagerList_RemoveReleasedThings(PTR(state + 0x14));
+    ThingManagerList_ReleaseAll(&ms->slaves);
+    ThingManagerList_RemoveReleasedThings(&ms->slaves);
 }
 
-void MotionState_ExtractBlendedKeyFrame(u8 *state, void *keyFrame) {
-    u8 *anim;
+/* The model's base pose with the layer's animation blended in. */
+void MotionState_ExtractBlendedKeyFrame(MotionState *ms, void *keyFrame) {
+    CreatureSkeleton *skel;
 
-    anim = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0)) + 0x14);
-    MemCpy32(keyFrame, SLOT_LOAD(void *, (u8 *)(anim) + 0x10), M2C_FIELD(anim, u32 *, 0x0) << 5);
-    M2C_FIELD(state, f32 *, 0x24) = 1.0f;
-    Gfx_AnimExtractKeyFrame(SLOT_LOAD(void *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(state) + 0x18)) + 0x10),
-                            M2C_FIELD(state, f32 *, 0x20), keyFrame, M2C_FIELD(anim, u32 *, 0x0));
+    skel = GETP(GETP(ms->model)->skeleton);
+    MemCpy32(keyFrame, GETP(skel->nodes), skel->numBones << 5);
+    ms->layer.blend = 1.0f;
+    Gfx_AnimExtractKeyFrame(GETP(GETP(ms->layer.anim)->keys), ms->layer.time, keyFrame, skel->numBones);
 }
 
-void MotionState_Draw(void *state) {
+void MotionState_Draw(MotionState *ms) {
+    MotionAnim *model = GETP(ms->model);
     u32 i;
     s32 *skel;
 
-    skel = SLOT_LOAD(s32 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0)) + 0x14);
-    for (i = 0; i < M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0), u32 *, 0x0); i++) {
-        Gfx_DrawAnimGeometryAux(SLOT_LOAD(void *, SLOT_LOAD(u32 *, (u8 *)PORT_ADDR(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0)) + 0x4) + (i)),
-                                SLOT_LOAD(void *, (u8 *)(state) + 0x10), *skel, 0);
+    skel = (s32 *)&GETP(model->skeleton)->numBones;
+    for (i = 0; i < model->numGeoms; i++) {
+        Gfx_DrawAnimGeometryAux(GETP(GETP(model->geoms)[i]), GETP(ms->animMatrices), *skel, 0);
     }
-    for (i = 0; i < M2C_FIELD(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0), u32 *, 0x8); i++) {
-        u8 *e = SLOT_LOAD(u8 *, (u8 *)(SLOT_LOAD(u8 *, (u8 *)(state) + 0x0)) + 0xC) + i * 8;
-        Gfx_DrawGeometry_MatrixNotCached(HND(SLOT_LOAD(void *, (u8 *)(e) + 0x0)),
-                                         HND(SLOT_LOAD(u8 *, (u8 *)(state) + 0x10) + (M2C_FIELD(e, u16 *, 0x4) << 6)));
+    for (i = 0; i < model->numRigid; i++) {
+        MotionPart *e = &GETP(model->rigid)[i];
+        Gfx_DrawGeometry_MatrixNotCached(HND(GETP(e->geom)), HND(&GETP(ms->animMatrices)[e->mtxIndex]));
     }
-    MotionState_DrawSlaves(state, 0);
+    MotionState_DrawSlaves(ms, 0);
 }
 
-void MotionState_Draw2(void *state, s32 mtx, u8 *matrices) {
-    typedef struct GeomEntry {
-        PTR32(void) geom;
-        u16 matrix;
-        u16 pad6;
-    } GeomEntry;
-    typedef struct AnimData {
-        u32 numAux;
-        PTR32(PTR32(void)) aux;
-        u32 numGeom;
-        PTR32(GeomEntry) geom;
-        u8 pad10[4];
-        PTR32(s32) skel;
-    } AnimData;
-    typedef struct DrawState {
-        PTR32(AnimData) anim;
-        u8 pad4[0xC];
-        PTR32(u8) cached;
-    } DrawState;
-    DrawState *ds = state;
+/* Draw at the matrix handle mtx: matrices is scratch for the bone matrices,
+ * unless the state's own are current (animMatrices, then drawn times mtx). */
+void MotionState_Draw2(MotionState *ms, s32 mtx, u8 *matrices) {
     s32 *skel;
     u8 *cached;
     u32 i;
-    GeomEntry *e;
+    MotionPart *e;
     Vector4 quat;
     Matrix4 out;
     u8 frames[0x800];
 
-    skel = GETP(GETP(ds->anim)->skel);
-    if (GETP(ds->cached) == NULL) {
-        MotionState_ExtractBlendedKeyFrame(state, frames);
+    skel = (s32 *)&GETP(GETP(ms->model)->skeleton)->numBones;
+    if (GETP(ms->animMatrices) == NULL) {
+        MotionState_ExtractBlendedKeyFrame(ms, frames);
         SubMatrixToQuaternion((void *)PTR(mtx), &quat);
-        TEST_AnimTraverseHeirarchyToMatricesWorld(&quat, (void *)PTR((mtx + 0x30)), frames, *skel, matrices, 1.0f);
-        for (i = 0; i < GETP(ds->anim)->numAux; i++) {
-            Gfx_DrawAnimGeometryAux(GETP(GETP(GETP(ds->anim)->aux)[i]), matrices, *skel, 0);
+        TEST_AnimTraverseHeirarchyToMatricesWorld(&quat, &((Matrix4 *)PTR(mtx))->v[3], frames, *skel, matrices, 1.0f);
+        for (i = 0; i < GETP(ms->model)->numGeoms; i++) {
+            Gfx_DrawAnimGeometryAux(GETP(GETP(GETP(ms->model)->geoms)[i]), matrices, *skel, 0);
         }
-        for (i = 0; i < GETP(ds->anim)->numGeom; i++) {
-            e = &GETP(GETP(ds->anim)->geom)[i];
-            Gfx_DrawGeometry(HND(GETP(e->geom)), HND(matrices + (e->matrix << 6)));
+        for (i = 0; i < GETP(ms->model)->numRigid; i++) {
+            e = &GETP(GETP(ms->model)->rigid)[i];
+            Gfx_DrawGeometry(HND(GETP(e->geom)), HND(matrices + (e->mtxIndex << 6)));
         }
-        MotionState_DrawSlaves(state, 0);
+        MotionState_DrawSlaves(ms, 0);
     } else {
-        cached = GETP(ds->cached);
-        for (i = 0; i < GETP(ds->anim)->numAux; i++) {
-            Gfx_DrawAnimGeometryAux(GETP(GETP(GETP(ds->anim)->aux)[i]), cached, *skel, PTR(mtx));
+        cached = (u8 *)GETP(ms->animMatrices);
+        for (i = 0; i < GETP(ms->model)->numGeoms; i++) {
+            Gfx_DrawAnimGeometryAux(GETP(GETP(GETP(ms->model)->geoms)[i]), cached, *skel, PTR(mtx));
         }
-        for (i = 0; i < GETP(ds->anim)->numGeom; i++) {
+        for (i = 0; i < GETP(ms->model)->numRigid; i++) {
             void *geom;
-            e = &GETP(GETP(ds->anim)->geom)[i];
+            e = &GETP(GETP(ms->model)->rigid)[i];
             geom = GETP(e->geom);
-            MultiplyMatrix((Matrix4 *)(cached + (e->matrix << 6)), (void *)PTR(mtx), &out);
+            MultiplyMatrix((Matrix4 *)(cached + (e->mtxIndex << 6)), (void *)PTR(mtx), &out);
             Gfx_DrawGeometry(HND(geom), HND(&out));
         }
-        MotionState_DrawSlaves(state, mtx);
+        MotionState_DrawSlaves(ms, mtx);
     }
 }
 
-void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player) {
-    typedef struct SlaveTrigger {
-        u8 pad0[0x20];
-    } SlaveTrigger;
-    typedef struct SlaveList {
-        u32 count;
-        PTR32(SlaveTrigger) triggers;
-    } SlaveList;
+/* Fire every trigger of the list (tagging the slaves `player`), replacing
+ * the slaves already tagged so. */
+void MotionState_InitAllSlavesNow(MotionState *ms, SlaveList *list, u8 player) {
     extern Vector4 g_zeroVector;
-    SlaveList *list = slaves;
     u32 i;
 
-    MotionState_ReleaseSlavesByType(state, player);
+    MotionState_ReleaseSlavesByType(ms, player);
     for (i = 0; i < list->count; i++) {
         Vector4 dir = {0.0f, 0.0f, 0.0f, 1.0f};
 
-        ThingManagerList_TriggerSlaves((void **)PTR((state + 0x14)), (u8 *)&GETP(list->triggers)[i], (Vector4 *)&GETP(list->triggers)[i], &dir, &g_zeroVector, player);
+        ThingManagerList_TriggerSlaves(&ms->slaves, &GETP(list->triggers)[i], &GETP(list->triggers)[i].pos, &dir, &g_zeroVector, player);
     }
 }
 
-void MotionState_InitSlavesTimed(u8 *state, void *slaves, u8 player, u32 time) {
+/* Fire the triggers whose time falls in this frame, `time` ms in. */
+void MotionState_InitSlavesTimed(MotionState *ms, SlaveList *list, u8 player, u32 time) {
     extern u32 g_iDeltaTimeMS;
     extern Vector4 g_zeroVector;
-    typedef struct {
-        u8 unk0[0x14];
-        f32 time;
-        u8 unk18[0x8];
-    } SlaveTrigger;
-    typedef struct {
-        u32 count;
-        PTR32(SlaveTrigger) triggers;
-    } SlaveList;
-    SlaveList *list = slaves;
     u32 i;
 
     for (i = 0; i < list->count; i++) {
         Vector4 dir = {0.0f, 0.0f, 0.0f, 1.0f};
 
         if (GETP(list->triggers)[i].time >= time && GETP(list->triggers)[i].time < time + g_iDeltaTimeMS) {
-            ThingManagerList_TriggerSlaves((void **)(state + 0x14), (u8 *)&GETP(list->triggers)[i], (Vector4 *)&GETP(list->triggers)[i], &dir, &g_zeroVector, player);
+            ThingManagerList_TriggerSlaves(&ms->slaves, &GETP(list->triggers)[i], &GETP(list->triggers)[i].pos, &dir, &g_zeroVector, player);
         }
     }
 }
 
-void MotionState_BlendTriggerEvents(s32 state, void *events, Vector4 *vel) {
-    typedef struct {
-        u8 unk0[0x14];
-        f32 time;
-        u8 unk18[0x8];
-    } SlaveTrigger;
-    typedef struct {
-        u32 count;
-        PTR32(SlaveTrigger) triggers;
-    } SlaveList;
+/* Fire the animation's slave triggers whose time the layer passed in its
+ * last step (between prevTime and rawTime, either way). The count is the
+ * layer model's, the triggers `events`'. */
+void MotionState_BlendTriggerEvents(MotionState *ms, SlaveList *events, Vector4 *vel) {
     SlaveList *list = events;
     Vector4 v __attribute__((aligned(16))) = {0.0f, 0.0f, 0.0f, 0.0f};
     f32 start;
@@ -285,14 +219,14 @@ void MotionState_BlendTriggerEvents(s32 state, void *events, Vector4 *vel) {
     if (vel != NULL) {
         v = *vel;
     }
-    start = *(f32 *)PTR((state + 0x28));
-    end = *(f32 *)PTR((state + 0x2C));
-    for (i = 0; i < *(u32 *)(SLOT_LOAD(u8 *, (state + 0x18)) + 0x2C); i++) {
+    start = ms->layer.prevTime;
+    end = ms->layer.rawTime;
+    for (i = 0; i < GETP(ms->layer.anim)->numEvents; i++) {
         SlaveTrigger *trigger = &GETP(list->triggers)[i];
         f32 time = trigger->time;
         s8 hit = 0;
 
-        if (*(u8 *)PTR((state + 0x1E))) {
+        if (ms->layer.reverse) {
             if (start > time && end <= time) {
                 hit = 1;
             }
@@ -303,38 +237,18 @@ void MotionState_BlendTriggerEvents(s32 state, void *events, Vector4 *vel) {
         }
         if (hit) {
             Vector4 dir __attribute__((aligned(16))) = {0.0f, 0.0f, 0.0f, 1.0f};
-            ThingManagerList_TriggerSlaves((void **)PTR((state + 0x14)), (u8 *)trigger, (Vector4 *)trigger, &dir, &v, 0xFF);
+            ThingManagerList_TriggerSlaves(&ms->slaves, trigger, &trigger->pos, &dir, &v, 0xFF);
         }
     }
 }
 
-void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
+/* Advance a layer by fps * dt through its animation's phases: wrap or
+ * ping-pong in the loop phase (up to maxLoops), and move on to the next
+ * phase when one ends, as `mode` allows (> 0: into the loop, > 1: into the
+ * outro). */
+void Motion_BlendHeartbeat_FPS(MotionLayer *l, s32 mode, MotionAnim *anim, f32 fps) {
     extern f32 g_fDeltaTimeSec;
-    typedef struct {
-        f32 start;
-        f32 end;
-    } MotionRange;
-    typedef struct {
-        u8 unk0[0x1D];
-        u8 loopMode;
-        u8 pingPong;
-        u8 maxLoops;
-        PTR32(MotionRange) intro;
-        PTR32(MotionRange) loop;
-        PTR32(MotionRange) outro;
-    } MotionAnim;
-    typedef struct {
-        PTR32(MotionAnim) anim;
-        u8 phase;
-        u8 loops;
-        u8 reverse;
-        f32 time;
-        f32 weight;
-        f32 prevTime;
-        f32 rawTime;
-        s32 done;
-    } MotionLayer;
-    MotionLayer *l = layer;
+
     f32 time;
     f32 prev;
     f32 raw;
@@ -360,12 +274,12 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
     wrapped = 0;
     switch (l->phase) {
     case 0:
-        start = GETP(GETP(l->anim)->intro)->start;
-        end = GETP(GETP(l->anim)->intro)->end;
+        start = GETP(GETP(l->anim)->phases[0])->start;
+        end = GETP(GETP(l->anim)->phases[0])->end;
         break;
     case 1:
-        start = GETP(GETP(l->anim)->loop)->start;
-        end = GETP(GETP(l->anim)->loop)->end;
+        start = GETP(GETP(l->anim)->phases[1])->start;
+        end = GETP(GETP(l->anim)->phases[1])->end;
         switch (GETP(l->anim)->loopMode) {
         case 0:
             break;
@@ -380,8 +294,8 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
         }
         break;
     case 2:
-        start = GETP(GETP(l->anim)->outro)->start;
-        end = GETP(GETP(l->anim)->outro)->end;
+        start = GETP(GETP(l->anim)->phases[2])->start;
+        end = GETP(GETP(l->anim)->phases[2])->end;
         break;
     }
     step = fps * g_fDeltaTimeSec;
@@ -505,7 +419,7 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
         if (wrapped) {
             if (GETP(l->anim)->loopMode & ((u8)mode != 0)) {
                 l->phase = 1;
-            } else if (GETP(l->anim)->pingPong & ((u8)mode > 1)) {
+            } else if (GETP(l->anim)->hasOutro & ((u8)mode > 1)) {
                 l->phase = 2;
             }
         }
@@ -514,10 +428,10 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
         l->loops += wrapped;
         if (GETP(l->anim)->maxLoops != 0 && l->loops >= GETP(l->anim)->maxLoops) {
             l->loops = GETP(l->anim)->maxLoops;
-            if (GETP(l->anim)->pingPong & ((u8)mode > 1)) {
+            if (GETP(l->anim)->hasOutro & ((u8)mode > 1)) {
                 l->phase = 2;
             } else {
-                l->time = GETP(GETP(l->anim)->loop)->end;
+                l->time = GETP(GETP(l->anim)->phases[1])->end;
                 l->done = 1;
             }
         }
@@ -531,13 +445,13 @@ void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps) {
     if (l->phase != oldPhase) {
         switch (l->phase) {
         case 0:
-            l->time = GETP(GETP(l->anim)->intro)->start + over;
+            l->time = GETP(GETP(l->anim)->phases[0])->start + over;
             break;
         case 1:
-            l->time = GETP(GETP(l->anim)->loop)->start + over;
+            l->time = GETP(GETP(l->anim)->phases[1])->start + over;
             break;
         case 2:
-            l->time = GETP(GETP(l->anim)->outro)->start + over;
+            l->time = GETP(GETP(l->anim)->phases[2])->start + over;
             break;
         }
     }
@@ -684,25 +598,22 @@ void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1) {
 }
 
 
-void MotionState_BuildMatricesWorld(void *arg0, void *arg1, void *motionState, f32 time) {
+void MotionState_BuildMatricesWorld(void *arg0, void *arg1, MotionState *ms, f32 time) {
     u8 frames[0x800];
-    void *anim;
     s32 *skel;
 
-    if (M2C_FIELD(motionState, u32 *, 0x10) != 0) {
-        anim = SLOT_LOAD(void *, (u8 *)(motionState) + 0);
-        skel = SLOT_LOAD(s32 *, (u8 *)(anim) + 0x14);
-        MotionState_ExtractBlendedKeyFrame(motionState, frames);
-        TEST_AnimTraverseHeirarchyToMatricesWorld(arg0, arg1, frames, *skel, SLOT_LOAD(void *, (u8 *)(motionState) + 0x10), time);
+    if (GETP(ms->animMatrices) != NULL) {
+        skel = (s32 *)&GETP(GETP(ms->model)->skeleton)->numBones;
+        MotionState_ExtractBlendedKeyFrame(ms, frames);
+        TEST_AnimTraverseHeirarchyToMatricesWorld(arg0, arg1, frames, *skel, GETP(ms->animMatrices), time);
     }
 }
 
-void Motion_HeartbeatB2(void *state, Vector4 *vel) {
-    MotionState *ms = state;
+void Motion_HeartbeatB2(MotionState *ms, Vector4 *vel) {
     Matrix4 *matrices;
     Thing *slave;
 
-    MotionState_BlendTriggerEvents(HND(state), (u8 *)GETP(ms->model) + 0x2C, vel);
+    MotionState_BlendTriggerEvents(ms, (SlaveList *)&GETP(ms->model)->numEvents, vel);
     matrices = GETP(ms->animMatrices);
     {
         Vector4 v __attribute__((aligned(16))) = {0};
@@ -736,86 +647,44 @@ void Motion_HeartbeatB2(void *state, Vector4 *vel) {
     ThingManagerList_RemoveReleasedThings(&ms->slaves);
 }
 
-void MotionState_Heartbeat(void *state, void *arg1, void *thing) {
+/* Blend the layer in over a second and advance it, then fire its events and
+ * move the slaves (if a matrix is given). */
+void MotionState_Heartbeat(MotionState *ms, void *arg1, void *thing) {
     extern f32 g_fDeltaTimeSec;
-    typedef struct {
-        u8 unk0[0x18];
-        f32 fps;
-    } MotionAnim;
-    typedef struct {
-        PTR32(MotionAnim) anim;
-        u8 unk4[0x8];
-        f32 weight;
-        u8 unk10[0x10];
-    } MotionLayer;
-    typedef struct {
-        PTR32(u8) data;
-        u8 unk4[0x14];
-        MotionLayer layers[2];
-    } MotionStateT;
-    MotionStateT *ms = state;
+    MotionLayer *layers = &ms->layer;
     f32 rate = 0.0f;
     u32 i;
 
-    ms->layers[0].weight += g_fDeltaTimeSec;
-    if (ms->layers[0].weight > 1.0f) {
-        ms->layers[0].weight = 1.0f;
+    layers[0].blend += g_fDeltaTimeSec;
+    if (layers[0].blend > 1.0f) {
+        layers[0].blend = 1.0f;
     }
-    Motion_BlendHeartbeat_FPS(&ms->layers[0], 2, GETP(ms->layers[0].anim), GETP(ms->layers[0].anim)->fps);
+    Motion_BlendHeartbeat_FPS(&layers[0], 2, GETP(layers[0].anim), GETP(layers[0].anim)->fps);
+    /* sic: one layer, so older ones never fade out here */
     i = 1;
     while (i < 1) {
         rate -= 1.0f;
-        ms->layers[i].weight += rate * g_fDeltaTimeSec;
-        if (ms->layers[i].weight <= 0.0f) {
-            ms->layers[i].weight = 0.0f;
+        layers[i].blend += rate * g_fDeltaTimeSec;
+        if (layers[i].blend <= 0.0f) {
+            layers[i].blend = 0.0f;
         } else {
-            Motion_BlendHeartbeat_FPS(&ms->layers[i], 2, GETP(ms->layers[i].anim), GETP(ms->layers[i].anim)->fps);
+            Motion_BlendHeartbeat_FPS(&layers[i], 2, GETP(layers[i].anim), GETP(layers[i].anim)->fps);
         }
         i++;
     }
     if (arg1 != NULL) {
-        MotionState_BlendTriggerEvents(HND(state), GETP(ms->data) + 0x2C, thing);
-        MotionState_MoveSlaves(state, arg1, thing);
+        MotionState_BlendTriggerEvents(ms, (SlaveList *)&GETP(ms->model)->numEvents, thing);
+        MotionState_MoveSlaves(ms, arg1, thing);
     }
 }
 
-void WildcardState_Heartbeat(void *state, u8 *mtx, void *thing) {
+/* MotionState_Heartbeat for a wildcard slot: holds the loop while there is
+ * too little ammo for a shot, and turns the aim bone by the slot's angle. */
+void WildcardState_Heartbeat(WildCardSlot *slot, u8 *mtx, void *thing) {
     extern f32 g_fDeltaTimeSec;
-    typedef struct {
-        u8 unk0[0x14];
-        PTR32(s32) skel;
-        f32 fps;
-        u8 unk1C[0xC];
-        PTR32(f32) unk28;
-    } MotionAnim;
-    typedef struct {
-        PTR32(MotionAnim) anim;
-        u8 mode;
-        u8 unk5[0x3];
-        f32 time;
-        f32 weight;
-        u8 unk10[0x10];
-    } MotionLayer;
-    typedef struct {
-        u8 unk0[0x24];
-        u32 numFrames;
-        u8 unk28[0x4];
-        u8 spinType;
-        u8 unk2D;
-        u16 spinBone;
-    } WildcardData;
-    typedef struct {
-        u8 unk0[0x30];
-        PTR32(WildcardData) data;
-    } WildcardThing;
-    typedef struct {
-        PTR32(u8) data;
-        u8 unk4[0xC];
-        PTR32(void) matrices;
-        u8 unk14[0x4];
-        MotionLayer layers[2];
-    } MotionStateT;
-    MotionStateT *ms = state;
+    MotionState *ms = &slot->motion;
+    MotionLayer *layers = &ms->layer;
+    WeaponInfo *weapon;
     f32 rate = 0.0f;
     u32 i;
     s32 *skel;
@@ -825,44 +694,43 @@ void WildcardState_Heartbeat(void *state, u8 *mtx, void *thing) {
     Quaternion out;
     u8 frames[0x800];
 
-    ms->layers[0].weight += g_fDeltaTimeSec;
-    if (ms->layers[0].weight > 1.0f) {
-        ms->layers[0].weight = 1.0f;
+    layers[0].blend += g_fDeltaTimeSec;
+    if (layers[0].blend > 1.0f) {
+        layers[0].blend = 1.0f;
     }
-    Motion_BlendHeartbeat_FPS(&ms->layers[0], 2, GETP(ms->layers[0].anim), GETP(ms->layers[0].anim)->fps);
+    Motion_BlendHeartbeat_FPS(&layers[0], 2, GETP(layers[0].anim), GETP(layers[0].anim)->fps);
     i = 1;
     while (i < 1) {
         rate -= 1.0f;
-        ms->layers[i].weight += rate * g_fDeltaTimeSec;
-        if (ms->layers[i].weight <= 0.0f) {
-            ms->layers[i].weight = 0.0f;
+        layers[i].blend += rate * g_fDeltaTimeSec;
+        if (layers[i].blend <= 0.0f) {
+            layers[i].blend = 0.0f;
         } else {
-            Motion_BlendHeartbeat_FPS(&ms->layers[i], 2, GETP(ms->layers[i].anim), GETP(ms->layers[i].anim)->fps);
+            Motion_BlendHeartbeat_FPS(&layers[i], 2, GETP(layers[i].anim), GETP(layers[i].anim)->fps);
         }
         i++;
     }
-    if (ms->layers[0].mode == 2 &&
-        *(s16 *)((u8 *)state + 0x40) < GETP((SLOT_LOAD(WildcardThing *, ((u8 *)state + 0x4C)))->data)->numFrames) {
-        ms->layers[0].time = GETP(GETP(ms->layers[0].anim)->unk28)[1];
+    weapon = GETP(GETP(slot->item)->weapon);
+    if (layers[0].phase == 2 && slot->ammo < weapon->ammoPerShot) {
+        layers[0].time = GETP(GETP(layers[0].anim)->phases[2])->end;
     }
-    if (GETP(ms->matrices) != NULL) {
-        skel = GETP(GETP(ms->layers[0].anim)->skel);
-        MotionState_ExtractBlendedKeyFrame(state, frames);
-        if (GETP((SLOT_LOAD(WildcardThing *, ((u8 *)state + 0x4C)))->data)->spinType == 1 ||
-            GETP((SLOT_LOAD(WildcardThing *, ((u8 *)state + 0x4C)))->data)->spinType == 2) {
-            angle = 0.5f * *(f32 *)((u8 *)state + 0x48) * *(f32 *)((u8 *)state + 0x44);
+    if (GETP(ms->animMatrices) != NULL) {
+        skel = (s32 *)&GETP(GETP(layers[0].anim)->skeleton)->numBones;
+        MotionState_ExtractBlendedKeyFrame(ms, frames);
+        if (GETP(GETP(slot->item)->weapon)->aimMode == 1 || GETP(GETP(slot->item)->weapon)->aimMode == 2) {
+            angle = 0.5f * slot->angle * slot->scale;
             rot.w = cos(angle);
             rot.x = sin(angle);
             rot.y = 0.0f;
             rot.z = 0.0f;
-            QuaternionMult((Vector4 *)&rot, (Vector4 *)(frames + GETP((SLOT_LOAD(WildcardThing *, ((u8 *)state + 0x4C)))->data)->spinBone * 32), (Vector4 *)&out);
-            *(Quaternion *)(frames + GETP((SLOT_LOAD(WildcardThing *, ((u8 *)state + 0x4C)))->data)->spinBone * 32) = out;
+            QuaternionMult((Vector4 *)&rot, (Vector4 *)(frames + GETP(GETP(slot->item)->weapon)->aimBone * 32), (Vector4 *)&out);
+            *(Quaternion *)(frames + GETP(GETP(slot->item)->weapon)->aimBone * 32) = out;
         }
         SubMatrixToQuaternion(mtx, (Vector4 *)&quat);
-        TEST_AnimTraverseHeirarchyToMatricesWorld((Vector4 *)&quat, mtx + 0x30, frames, *skel, GETP(ms->matrices), 1.0f);
+        TEST_AnimTraverseHeirarchyToMatricesWorld((Vector4 *)&quat, &((Matrix4 *)mtx)->v[3], frames, *skel, GETP(ms->animMatrices), 1.0f);
     }
-    MotionState_BlendTriggerEvents(HND(state), GETP(ms->data) + 0x2C, thing);
-    MotionState_MoveSlaves(state, NULL, thing);
+    MotionState_BlendTriggerEvents(ms, (SlaveList *)&GETP(ms->model)->numEvents, thing);
+    MotionState_MoveSlaves(ms, NULL, thing);
 }
 
 void TEST_AnimTraverseHeirarchyToMatricesWorld(Vector4 *quat, void *pos0, void *frames, s32 skel, void *matrices, f32 time) {

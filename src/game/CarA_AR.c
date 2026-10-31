@@ -52,7 +52,7 @@ s32 Pod_Init(Pod *pod, PodParams *init) {
     pod->count = 0;
     pod->base.pos = init->pos;
     pod->motion.model.h = GETP(pod->info)->model;
-    pod->motion.blend = 0.0f;
+    pod->motion.layer.blend = 0.0f;
     MotionState_Init(motion, 0);
     MotionState_BuildMatricesWorld(&pod->base.quat, &pod->base.pos, motion, 1.0f);
     return 1;
@@ -60,7 +60,7 @@ s32 Pod_Init(Pod *pod, PodParams *init) {
 
 /* port: takes a pointer, as the vtable calls it; the decomp has s32 */
 void Pod_Release(void *arg) {
-    MotionState_Release((s32)HND(&((Pod *)arg)->motion));
+    MotionState_Release(&((Pod *)arg)->motion);
     Thing_Release(arg);
 }
 
@@ -79,15 +79,15 @@ s32 Pod_Move(Pod *pod) {
     MotionState_BuildMatricesWorld(&thing->quat, &pos, &pod->motion, 1.0f);
     MotionState_Heartbeat(&pod->motion, &g_identity, pod);
 
-    if ((thing->flags & 0x10) && !(thing->flags & 0x20) && pod->motion.prevMode == 2) {
+    if ((thing->flags & 0x10) && !(thing->flags & 0x20) && pod->motion.layer.phase == 2) {
         /* at the end of the loop phase go back to its start */
-        MotionAnim *anim = GETP(pod->motion.prevAnim);
+        MotionAnim *anim = GETP(pod->motion.layer.anim);
 
-        if (pod->motion.prevTime == GETP(anim->times[2])[1]) {
-            pod->motion.prevMode = 0;
-            pod->motion.prevTime = *GETP(anim->times[0]);
+        if (pod->motion.layer.time == GETP(anim->phases[2])->end) {
+            pod->motion.layer.phase = 0;
+            pod->motion.layer.time = GETP(anim->phases[0])->start;
         } else {
-            pod->motion.prevTime = GETP(anim->times[1])[1];
+            pod->motion.layer.time = GETP(anim->phases[1])->end;
         }
     }
 
@@ -193,7 +193,7 @@ void Pod_Draw(Pod *pod) {
     } else {
         MotionState_Draw2(&pod->motion, HND(THING_MTX(&pod->base)), GETP(pod->motion.animMatrices));
     }
-    list = GETP(((CarAModelData *)GETP(pod->motion.model))->parts);
+    list = GETP(((MotionAnim *)GETP(pod->motion.model))->parts);
     if (list != NULL) {
         for (i = 0; i < list->count; i++) {
             part = &GETP(list->parts)[i];

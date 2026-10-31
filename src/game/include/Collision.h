@@ -40,7 +40,7 @@ typedef struct CollisionInfo {
     u32 thingB;                 /* 0x24 (CollisionInfo_GetOther) */
     u32 material;               /* 0x28 surface (handle) */
     u8 pad2C[4];                /* 0x2C */
-    Vector4 unk30;              /* 0x30 zeroed by the terrain tests */
+    Vector4 vel;                /* 0x30 velocity of what was hit (terrain: zero) */
     u8 type;                    /* 0x40 0xFF: pushed out, 0xFE: embedded */
     u8 pad41[0xF];              /* 0x41 */
 } CollisionInfo;

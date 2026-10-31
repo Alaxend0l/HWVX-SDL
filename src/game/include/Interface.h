@@ -21,6 +21,7 @@
 #define INTERFACE_H
 
 #include <stddef.h>
+#include "World.h"
 
 typedef struct Interface Interface;
 typedef struct InterfaceObject InterfaceObject;
@@ -671,12 +672,12 @@ struct InterfaceHudInfo {
     s32 y;                      /* 0x0C */
     u32 health;                 /* 0x10 % (role 10) */
     u32 speed;                  /* 0x14 (role 12) */
-    u32 unk18;                  /* 0x18 */
+    u32 rpm;                    /* 0x18 */
     u32 unk1C;                  /* 0x1C role 14 */
-    f32 unk20;                  /* 0x20 role 11 */
+    f32 turbo;                  /* 0x20 role 11: 0-1 */
     f32 unk24;                  /* 0x24 role 5 */
     f32 unk28;                  /* 0x28 role 6 */
-    f32 unk2C;                  /* 0x2C role 13 */
+    f32 altitude;               /* 0x2C role 13 */
     u32 unk30;                  /* 0x30 role 15 */
     u8 weapon[3];               /* 0x34 roles 80, 83, 86: icons shown */
     u8 pad37;
@@ -717,12 +718,7 @@ typedef struct WorldGoal {
     PTR32(u8) info;             /* 0xC [0] == 0x17: shown */
 } WorldGoal;
 
-/* World mission objectives (world + 0x58, 8 bytes each). */
-typedef struct WorldObjective {
-    u32 arg;                    /* 0x0 */
-    PTR32(u8) info;             /* 0x4 big-endian word type at 0 ([1] 0x17: '#' text, [2] id),
-                                 *     value slots 0xC/0x10, string tables 0x14/0x18 */
-} WorldObjective;
+/* WorldObjective (world + 0x58) is in World.h. */
 
 #define IFACE_ASSERT(T, f, off) _Static_assert(offsetof(T, f) == (off), #T "." #f)
 IFACE_ASSERT(IfaceVar, code, 0x10);

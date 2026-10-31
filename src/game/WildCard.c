@@ -44,7 +44,7 @@ void WildCardRack_Release(void *arg) {
     u32 i;
 
     for (i = 0; i < WILDCARD_SLOTS; i++) {
-        MotionState_Release((s32)HND(&rack->slots[i].motion));
+        MotionState_Release(&rack->slots[i].motion);
     }
     Thing_Release(arg);
 }
@@ -82,24 +82,24 @@ s32 WildCardRack_Move(WildCardRack *rack) {
             s8 ready = 0;
 
             if (WildCardSlot_Model(slot) != NULL && slot->scale > 0.6f) {
-                if (GETP(slot->motion.prevAnim)->loop[2]) {
-                    ready = slot->motion.prevMode == 2;
+                if (GETP(slot->motion.layer.anim)->hasOutro) {
+                    ready = slot->motion.layer.phase == 2;
                 } else {
-                    ready = slot->motion.prevState > 1;
+                    ready = slot->motion.layer.loops > 1;
                 }
             }
             if (ready &&
                 ((u32)slot->ammo >= WildCardSlot_Weapon(slot)->ammoPerShot || GameSettings_IsCheatEnabled(0)) &&
                 !rack->noFire && player->buttonFire) {
-                slot->motion.prevState = 0;
+                slot->motion.layer.loops = 0;
                 if (GameSettings_IsCheatEnabled(0) || slot->ammo >= (s16)WildCardSlot_Weapon(slot)->ammoPerShot) {
                     if (!GameSettings_IsCheatEnabled(0)) {
                         slot->ammo -= (s16)WildCardSlot_Weapon(slot)->ammoPerShot;
                     } else {
                         slot->ammo = WildCardSlot_Weapon(slot)->maxAmmo;
                     }
-                    slot->motion.prevTime = GETP(GETP(slot->motion.prevAnim)->times[1])[1];
-                    slot->motion.prevMode = 1;
+                    slot->motion.layer.time = GETP(GETP(slot->motion.layer.anim)->phases[1])->end;
+                    slot->motion.layer.phase = 1;
                 }
             }
         }
@@ -108,8 +108,8 @@ s32 WildCardRack_Move(WildCardRack *rack) {
             u8 old = rack->cur;
 
             slot = &rack->slots[old];
-            if (WildCardSlot_Model(slot) == NULL || slot->motion.prevMode == 2 ||
-                slot->motion.prevTime > *GETP(GETP(slot->motion.prevAnim)->times[1]) + WildCardSlot_Model(slot)->fps) {
+            if (WildCardSlot_Model(slot) == NULL || slot->motion.layer.phase == 2 ||
+                slot->motion.layer.time > GETP(GETP(slot->motion.layer.anim)->phases[1])->start + WildCardSlot_Model(slot)->fps) {
                 while (++rack->cur <= 24 && WildCardSlot_Model(&rack->slots[rack->cur % WILDCARD_SLOTS]) == NULL) {
                 }
                 rack->cur = rack->cur % WILDCARD_SLOTS;
@@ -312,8 +312,8 @@ void WildCardRack_Add(WildCardRack *rack, ItemRecord *item, s16 count) {
         if (GETP(s->item) != NULL) {
             if (GETP(GETP(s->item)->weapon) == weapon) {
                 if (s->ammo == 0) {
-                    s->motion.prevMode = 1;
-                    s->motion.prevTime = GETP(((MotionAnim *)GETP(s->motion.model))->times[1])[1];
+                    s->motion.layer.phase = 1;
+                    s->motion.layer.time = GETP(((MotionAnim *)GETP(s->motion.model))->phases[1])->end;
                 }
                 s->ammo += (s16)count;
                 if (s->ammo > (s16)weapon->maxAmmo) {
@@ -329,8 +329,8 @@ void WildCardRack_Add(WildCardRack *rack, ItemRecord *item, s16 count) {
             s = &rack->slots[i];
             if (GETP(s->item) != NULL && GETP(GETP(s->item)->weapon) == weapon) {
                 if (s->ammo == 0) {
-                    s->motion.prevMode = 1;
-                    s->motion.prevTime = GETP(((MotionAnim *)GETP(s->motion.model))->times[1])[1];
+                    s->motion.layer.phase = 1;
+                    s->motion.layer.time = GETP(((MotionAnim *)GETP(s->motion.model))->phases[1])->end;
                 }
                 s->ammo += (s16)count;
                 if (s->ammo > (s16)weapon->maxAmmo) {
@@ -358,17 +358,17 @@ void WildCardRack_Add(WildCardRack *rack, ItemRecord *item, s16 count) {
             s->ammo = weapon->maxAmmo;
         }
         SETP(s->item, item);
-        s->motion.blend = 0.0f;
+        s->motion.layer.blend = 0.0f;
         MotionState_Init(&s->motion, 0);
         model = (MotionAnim *)GETP(s->motion.model);
         if (model != NULL) {
-            if (model->loop[2]) {
-                s->motion.prevTime = *GETP(model->times[2]);
-                s->motion.prevMode = 2;
+            if (model->hasOutro) {
+                s->motion.layer.time = GETP(model->phases[2])->start;
+                s->motion.layer.phase = 2;
             } else {
-                s->motion.prevTime = GETP(model->times[1])[1];
+                s->motion.layer.time = GETP(model->phases[1])->end;
             }
-            s->motion.prevState = 1;
+            s->motion.layer.loops = 1;
             s->scale = 0.0f;
             s->angle = 0.0f;
             rack->cur = slot;

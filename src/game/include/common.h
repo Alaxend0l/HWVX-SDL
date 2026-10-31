@@ -989,17 +989,6 @@ typedef struct {
   PTR32(void) geom;
 } StaticGeom;
 typedef struct {
-  PTR32(u8) geom;
-  u8 noDraw;
-  u8 pad5;
-  u8 hasDist;
-  u8 visible;
-  f32 dist;
-  u8 padC[0x8];
-  PTR32(u32) numBones;            /* 0x14 bone count, the key frames an animation extracts */
-  u32 slaves[2];
-} Model;
-typedef struct {
   u8 pad0[0x10];
   f32 mtx[3][4];
   Vector4 pos;
@@ -1080,6 +1069,14 @@ typedef struct SoundSeqInfo SoundSeqInfo;
 typedef struct SoundSeqKeyState SoundSeqKeyState;
 typedef struct SoundSeqParams SoundSeqParams;
 typedef struct KeyTrack KeyTrack;
+typedef struct InterfaceHudInfo InterfaceHudInfo;
+typedef struct MotionAnim MotionAnim;
+typedef struct MotionLayer MotionLayer;
+typedef struct MotionState MotionState;
+typedef struct SlaveList SlaveList;
+typedef struct WildCardSlot WildCardSlot;
+typedef struct MotionThing MotionThing;
+typedef struct MotionParams MotionParams;
 
 #include "game_protos.h"
 

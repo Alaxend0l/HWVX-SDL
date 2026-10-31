@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 #include "Destructible.h"
+#include "CarA.h"
 
 /* THING_TYPE_* and THING_FLAG_* are in Thing.h. */
 
@@ -96,6 +97,27 @@ typedef struct SharedSlaves {
 } SharedSlaves;
 
 /* ---- ThingManager_DARYL_CreateThing parameters --------------------------- */
+
+/* THING_TYPE_MOTION: an animated model played at a place (slave trigger
+ * type 8). */
+typedef struct MotionThing {
+    Thing base;                 /* 0x00 */
+    u8 padAC[4];                /* 0xAC */
+    MotionState state;          /* 0xB0 */
+    u8 padE8[8];                /* 0xE8 */
+} MotionThing;
+
+typedef struct MotionParams {
+    u8 pad00[0x10];             /* 0x00 */
+    Vector4 pos;                /* 0x10 */
+    Quaternion quat;            /* 0x20 */
+    PTR32(MotionAnim) model;    /* 0x30 */
+    PTR32(SlaveList) slaves;    /* 0x34 fired at once, NULL: none */
+} MotionParams;
+
+_Static_assert(offsetof(MotionThing, state) == 0xB0, "MotionThing.state");
+_Static_assert(sizeof(MotionThing) == 0xF0, "MotionThing size");
+_Static_assert(offsetof(MotionParams, slaves) == 0x34, "MotionParams.slaves");
 
 /* ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, ...) parameters. */
 typedef struct SoundSeqParams {

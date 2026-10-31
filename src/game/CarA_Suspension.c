@@ -153,14 +153,14 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
         if (!(car->transmissionFlags & 0x80000)) {
             info = GETP(car->vehicleIface);
             if (info->numSlaves > 8 && car->unk460 > GETP(info->engine)->selfRightDelay) {
-                MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(info->slaves) + 0x64, 8);
+                MotionState_InitAllSlavesNow(&car->motionState, GETP(info->slaves) + 0x64, 8);
                 car->transmissionFlags |= 0x80000;
             }
         }
         car->groundedScale = 0.0f;
     } else {
         if (car->unk460 > 300) {
-            MotionState_ReleaseSlavesByType(HND(&car->motionState), 4);
+            MotionState_ReleaseSlavesByType(&car->motionState, 4);
             car->transmissionFlags &= ~2;
         }
         car->unk460 = 0;
@@ -178,7 +178,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
     car->transmissionFlags &= ~0x40;
     if (car->numWheelsGrounded == GETP(car->vehicleIface)->numWheels) {
         car->transmissionFlags &= ~0x80000;
-        MotionState_ReleaseSlavesByType(HND(&car->motionState), 8);
+        MotionState_ReleaseSlavesByType(&car->motionState, 8);
         if ((car->transmissionFlags & 0x100) && _fabs(car->gradeOrReverse) < 2.0f &&
             (car->base.axis[1].y > 0.83f ||
              (car->base.axis[1].y > 0.6f && GETP(car->base.player) != NULL && (car->transmissionFlags & 0x20) &&
@@ -203,18 +203,18 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
                 car->forwardAccel = GETP(GETP(car->vehicleIface)->accel)->spinImpulse * dot;
                 car->transmissionFlags |= 0x40;
                 if (GETP(car->vehicleIface)->numSlaves > 5 && dot > 30.0f) {
-                    MotionState_ReleaseSlavesByType(HND(&car->motionState), 5);
-                    MotionState_ReleaseSlavesByType(HND(&car->motionState), 6);
-                    MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x40, 5);
+                    MotionState_ReleaseSlavesByType(&car->motionState, 5);
+                    MotionState_ReleaseSlavesByType(&car->motionState, 6);
+                    MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x40, 5);
                 }
             }
             if ((CARA_PLAYER(car)->buttonsHeld & 0x400) && dot > 0.0f && car->forwardAccel > -0.1f) {
                 car->forwardAccel = -GETP(GETP(car->vehicleIface)->accel)->spinImpulse * dot;
                 car->transmissionFlags |= 0x40;
                 if (GETP(car->vehicleIface)->numSlaves > 5 && dot > 30.0f) {
-                    MotionState_ReleaseSlavesByType(HND(&car->motionState), 5);
-                    MotionState_ReleaseSlavesByType(HND(&car->motionState), 6);
-                    MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x4C, 6);
+                    MotionState_ReleaseSlavesByType(&car->motionState, 5);
+                    MotionState_ReleaseSlavesByType(&car->motionState, 6);
+                    MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x4C, 6);
                 }
             }
             g_pSourcePlayer = NULL;
@@ -224,9 +224,9 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
             if (car->stuntTime > GETP(info->stunt)->minFailTime) {
                 points = car->stuntTime;
                 if (info->numSlaves > 7) {
-                    MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(info->slaves) + 0x58, 7);
+                    MotionState_InitAllSlavesNow(&car->motionState, GETP(info->slaves) + 0x58, 7);
                 }
-                MotionState_ReleaseSlavesByType(HND(&car->motionState), 8);
+                MotionState_ReleaseSlavesByType(&car->motionState, 8);
                 stunt = GETP(GETP(car->vehicleIface)->stunt);
                 range = stunt->maxFailTime - stunt->minFailTime;
                 t = ((f32)points - stunt->minFailTime) / range;

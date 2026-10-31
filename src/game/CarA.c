@@ -1,6 +1,8 @@
 #include "CarA.h"
 #include "AI.h"
 #include "common.h"
+#include "Interface.h"
+#include "WildCard.h"
 
 
 typedef struct AnimKeyFrame {
@@ -84,7 +86,7 @@ static inline void CarA_UpdateDamageSlaves(CarA *car) {
         ms = &car->motionState;
         set = CarA_SlaveSet(car, 2);
         frac = 100.0f * (f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
-        MotionState_ReleaseSlavesByType(HND(ms), 2);
+        MotionState_ReleaseSlavesByType(ms, 2);
         for (i = 0; i < set->count; i++) {
             Vector4 color = {0.0f, 0.0f, 0.0f, 0.0f};
 
@@ -105,7 +107,7 @@ void CarA_Extract_Keyframes(CarA *car, AnimKeyFrame *frames) {
     CarTrailBone *wheel;
     AnimKeyFrame keys[64];
 
-    numBones = GETP(GETP(car->motionState.model)->numBones);
+    numBones = &GETP(GETP(car->motionState.model)->skeleton)->numBones;
     MotionState_ExtractBlendedKeyFrame(&car->motionState, frames);
     for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
         wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
@@ -282,19 +284,19 @@ s32 CarA_Init(void *thing, void *arg1) {
     car->turboTime = -1;
     car->transmissionFlags = 0;
     car->motionState.model.h = GETP(GETP(car->vehicleIface)->modelRef)->data.h;
-    car->motionState.blend = 0.0f;
+    car->motionState.layer.blend = 0.0f;
     MotionState_Init(&car->motionState, 0);
     car->tiltState = 0;
     engine = GETP(GETP(car->vehicleIface)->engine);
     car->bodyOffset = *(Vector4 *)engine->bodyOffset;
     GETP(GETP(car->vehicleIface)->engine)->unk0C = 1.0f;
-    skel = GETP(GETP(car->motionState.model)->numBones);
+    skel = &GETP(GETP(car->motionState.model)->skeleton)->numBones;
     CarA_Extract_Keyframes(car, frames);
     XformVec(THING_MTX(&car->base), &car->bodyOffset, &pos);
     TEST_AnimTraverseHeirarchyToMatricesWorld(&car->base.quat, &pos, frames, *skel, GETP(car->motionState.animMatrices), 1.0f);
     if (GETP(car->vehicleIface)->numSlaves >= 1) {
         g_pSourcePlayer = GETP(car->base.player);
-        MotionState_InitAllSlavesNow(HND(&car->motionState), &CarA_SlaveSet(car, 0)->count, 0);
+        MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 0)->count, 0);
         g_pSourcePlayer = NULL;
     }
     rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
@@ -455,7 +457,7 @@ void CarA_Release(CarA *car) {
     car->soundIds[0] = -1;
     car->soundIds[1] = -1;
     car->soundIds[2] = -1;
-    MotionState_Release(HND(&car->motionState));
+    MotionState_Release(&car->motionState);
     Thing_Release(car);
 }
 
@@ -819,7 +821,7 @@ s32 CarA_PreMove(void *thing) {
                     THING_VFN(GETP(CARA_PLAYER(car)->vehicle), THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(void *, void *, s32, f32))(GETP(CARA_PLAYER(car)->vehicle), &fx, 0, 280.0f);
                 }
                 if (GETP(car->vehicleIface)->numSlaves > 1) {
-                    MotionState_InitAllSlavesNow(HND(&car->motionState), &CarA_SlaveSet(car, 1)->count, 1);
+                    MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 1)->count, 1);
                 }
             }
             car->turboCooldown -= g_iDeltaTimeMS;
@@ -835,11 +837,11 @@ s32 CarA_PreMove(void *thing) {
                 }
                 if (car->turboTime <= 0) {
                     car->transmissionFlags &= ~0x1000;
-                    MotionState_ReleaseSlavesByType(HND(&car->motionState), 1);
+                    MotionState_ReleaseSlavesByType(&car->motionState, 1);
                 }
             } else {
                 car->transmissionFlags &= ~0x1000;
-                MotionState_ReleaseSlavesByType(HND(&car->motionState), 1);
+                MotionState_ReleaseSlavesByType(&car->motionState, 1);
             }
         }
 
@@ -885,12 +887,12 @@ s32 CarA_PreMove(void *thing) {
 
     if (car->unk4FC >= 1.0f) {
         if (car->transmissionFlags & 0x4000) {
-            MotionState_ReleaseSlavesByType(HND(&car->motionState), 9);
+            MotionState_ReleaseSlavesByType(&car->motionState, 9);
             car->transmissionFlags &= ~0x4000;
         }
     } else if (!(car->transmissionFlags & 0x4000)) {
         if (GETP(car->vehicleIface)->numSlaves > 9) {
-            MotionState_InitAllSlavesNow(HND(&car->motionState), &CarA_SlaveSet(car, 9)->count, 9);
+            MotionState_InitAllSlavesNow(&car->motionState, &CarA_SlaveSet(car, 9)->count, 9);
             car->transmissionFlags |= 0x4000;
         }
     }
@@ -1048,7 +1050,7 @@ s32 CarA_Move(void *thing) {
         CarA_StuntFail(car);
     }
     Thing_CollideWithItems(car);
-    numBones = GETP(GETP(car->motionState.model)->numBones);
+    numBones = &GETP(GETP(car->motionState.model)->skeleton)->numBones;
     CarA_Extract_Keyframes(car, frames);
     XformVec(THING_MTX(&car->base), &car->bodyOffset, &pos);
     TEST_AnimTraverseHeirarchyToMatricesWorld(&car->base.quat, &pos, frames, *numBones, GETP(car->motionState.animMatrices), 1.0f);
@@ -1128,7 +1130,7 @@ void CarA_DrawReflection(void *thing) {
         LightManager_LightThing(car);
         SETP(car->motionState.animMatrices, matrices);
         {
-            u32 *skel = GETP(((CarAModelData *)GETP(car->motionState.model))->numBones);
+            u32 *skel = &GETP(((MotionAnim *)GETP(car->motionState.model))->skeleton)->numBones;
             CarA_Extract_Keyframes(car, frames);
             XformVec(THING_MTX(&car->base), &car->bodyOffset, &pos);
             TEST_AnimTraverseHeirarchyToMatricesWorld(&car->base.quat, &pos, frames, *skel, matrices, 1.0f);
@@ -1138,8 +1140,8 @@ void CarA_DrawReflection(void *thing) {
         offset += 2.0f * h + 2.0f * GETP(GETP(car->vehicleIface)->wheels)->offset;
         {
             u32 i;
-            for (i = 0; i < ((CarAModelData *)GETP(car->motionState.model))->numRigid; i++) {
-                CarAModelPart *e = &GETP(((CarAModelData *)GETP(car->motionState.model))->rigid)[i];
+            for (i = 0; i < ((MotionAnim *)GETP(car->motionState.model))->numRigid; i++) {
+                MotionPart *e = &GETP(((MotionAnim *)GETP(car->motionState.model))->rigid)[i];
                 Gfx_DrawGeometry(HND(GETP(e->geom)), HND(&matrices[e->mtxIndex]));
             }
         }
@@ -1174,7 +1176,7 @@ void CarA_DrawReflection(void *thing) {
         mtx = *THING_MTX(&car->base);
         {
             u32 i;
-            u32 *skel = GETP(((CarAModelData *)GETP(car->motionState.model))->numBones);
+            u32 *skel = &GETP(((MotionAnim *)GETP(car->motionState.model))->skeleton)->numBones;
             CarA_Extract_Keyframes(car, frames2);
             Gfx_AnimTraverseHeirarchyToMatrices(frames2, *skel, matrices);
             mtx.v[1].x *= -1.0f;
@@ -1194,8 +1196,8 @@ void CarA_DrawReflection(void *thing) {
         }
         {
             u32 i;
-            for (i = 0; i < ((CarAModelData *)GETP(car->motionState.model))->numRigid; i++) {
-                CarAModelPart *e = &GETP(((CarAModelData *)GETP(car->motionState.model))->rigid)[i];
+            for (i = 0; i < ((MotionAnim *)GETP(car->motionState.model))->numRigid; i++) {
+                MotionPart *e = &GETP(((MotionAnim *)GETP(car->motionState.model))->rigid)[i];
                 Gfx_DrawGeometry(HND(GETP(e->geom)), HND(&matrices[e->mtxIndex]));
             }
         }
@@ -1234,7 +1236,7 @@ void CarA_DrawReflection(void *thing) {
 /* Draws the animated model (skinned geometry, rigid parts, and the breakable
    parts still on, see partVisMask) from the current bone matrices. */
 void CarA_DrawScript(CarA *car) {
-    CarAModelData *model;
+    MotionAnim *model;
     Matrix4 *matrices;
     u32 i;
     u32 *skel;
@@ -1250,13 +1252,13 @@ void CarA_DrawScript(CarA *car) {
         return;
     }
     LightManager_LightThing(car);
-    model = (CarAModelData *)GETP(car->motionState.model);
-    skel = GETP(model->numBones);
+    model = (MotionAnim *)GETP(car->motionState.model);
+    skel = &GETP(model->skeleton)->numBones;
     for (i = 0; i < model->numGeoms; i++) {
         Gfx_DrawAnimGeometryAux(GETP(GETP(model->geoms)[i]), matrices, *skel, 0);
     }
     for (i = 0; i < model->numRigid; i++) {
-        CarAModelPart *e = &GETP(model->rigid)[i];
+        MotionPart *e = &GETP(model->rigid)[i];
         Gfx_DrawGeometry_MatrixNotCached(HND(GETP(e->geom)), HND(&matrices[e->mtxIndex]));
     }
     list = GETP(GETP(GETP(GETP(car->vehicleIface)->modelRef)->data)->parts);
@@ -1531,76 +1533,63 @@ void CarA_GetTargetPos(CarA *car, Vector4 *pos)
    layout) with health %, weapon ammo, speed (smoothed), rpm, turbo, the HUD
    layout for the number of viewports, and the pending stunt/pickup
    messages, which are handed over once. */
-void CarA_GetInterfaceInfo(CarA *car, u8 *info) {
-    typedef struct {
-        u32 active;
-        u8 unk4[0x3C];
-        s16 ammo;
-        u8 unk42[0xA];
-        PTR32(ItemRecord) item;
-    } RackSlot;
-    typedef struct {
-        Thing base;
-        u8 padAC[4];
-        RackSlot slots[12];
-        u8 current;
-    } WeaponRack;
-    WeaponRack *rack;
+void CarA_GetInterfaceInfo(CarA *car, InterfaceHudInfo *info) {
+    WildCardRack *rack;
     WeaponInfo *weapon;
     u32 count;
 
-    rack = ThingManagerList_GetByType(&car->motionState.slaves, 8);
-    *(u32 *)(info + 0x10) = 100.0f * ((f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth);
-    if (*(u32 *)(info + 0x10) > 100.0f) {
-        *(u32 *)(info + 0x10) = 100;
+    rack = ThingManagerList_GetByType(&car->motionState.slaves, THING_TYPE_WILDCARD_RACK);
+    info->health = 100.0f * ((f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth);
+    if (info->health > 100.0f) {
+        info->health = 100;
     }
-    if (rack != NULL && GETP(rack->slots[rack->current].item) != NULL) {
+    if (rack != NULL && GETP(rack->slots[rack->cur].item) != NULL) {
         /* ammo bar: percent of maxAmmo, and in shots */
         if (GameSettings_IsCheatEnabled(0)) {
-            rack->slots[rack->current].ammo = GETP(GETP(rack->slots[rack->current].item)->weapon)->maxAmmo;
+            rack->slots[rack->cur].ammo = GETP(GETP(rack->slots[rack->cur].item)->weapon)->maxAmmo;
         }
-        weapon = GETP(GETP(rack->slots[rack->current].item)->weapon);
+        weapon = GETP(GETP(rack->slots[rack->cur].item)->weapon);
         if (weapon->ammoPerShot != 0) {
-            *(u32 *)(info + 0x38) = 100.0f * ((f32)rack->slots[rack->current].ammo / (f32)weapon->maxAmmo);
-            *(u32 *)(info + 0x3C) = *(u32 *)(info + 0x38) / weapon->ammoPerShot;
+            info->ammo = 100.0f * ((f32)rack->slots[rack->cur].ammo / (f32)weapon->maxAmmo);
+            info->ammoPips = info->ammo / weapon->ammoPerShot;
         } else {
-            *(u32 *)(info + 0x38) = 0;
-            *(u32 *)(info + 0x3C) = 0;
+            info->ammo = 0;
+            info->ammoPips = 0;
         }
         if (weapon != NULL) {
-            *(u32 *)(info + 0x68) = weapon->unk10;
+            info->weaponName.h = weapon->hudName;
         }
     }
-    *(u32 *)(info + 0x14) = _fabs(0.681818f * car->gradeOrReverse);
-    if (car->speedoRising && *(u32 *)(info + 0x14) < car->speedoShown) {
+    info->speed = _fabs(0.681818f * car->gradeOrReverse);
+    if (car->speedoRising && info->speed < car->speedoShown) {
         car->speedoCount++;
         if (car->speedoCount > 5) {
             car->speedoRising = 0;
             car->speedoCount = 0;
-            car->speedoShown = *(u32 *)(info + 0x14);
+            car->speedoShown = info->speed;
         } else {
-            *(u32 *)(info + 0x14) = car->speedoShown;
+            info->speed = car->speedoShown;
         }
     } else if (car->speedoRising) {
         car->speedoCount = 0;
-        car->speedoShown = *(u32 *)(info + 0x14);
+        car->speedoShown = info->speed;
     }
-    if (!car->speedoRising && *(u32 *)(info + 0x14) > car->speedoShown) {
+    if (!car->speedoRising && info->speed > car->speedoShown) {
         car->speedoCount++;
         if (car->speedoCount > 5) {
             car->speedoRising = 1;
             car->speedoCount = 0;
-            car->speedoShown = *(u32 *)(info + 0x14);
+            car->speedoShown = info->speed;
         } else {
-            *(u32 *)(info + 0x14) = car->speedoShown;
+            info->speed = car->speedoShown;
         }
     } else if (!car->speedoRising) {
         car->speedoCount = 0;
-        car->speedoShown = *(u32 *)(info + 0x14);
+        car->speedoShown = info->speed;
     }
-    *(u32 *)(info + 0x18) = car->rpm;
-    *(f32 *)(info + 0x20) = car->turboTime / 300;
-    *(f32 *)(info + 0x2C) = 0.2f * (100.0f + car->base.pos.y);
+    info->rpm = car->rpm;
+    info->turbo = car->turboTime / 300;
+    info->altitude = 0.2f * (100.0f + car->base.pos.y);
     if (GETP(car->base.player) != NULL && (CARA_PLAYER(car)->flags & 0x200)) {
         if (GameSettings_GetCodeVariable(0x198, 0)) {
             count = CameraManager_GetActiveCameras();
@@ -1609,54 +1598,54 @@ void CarA_GetInterfaceInfo(CarA *car, u8 *info) {
         }
         if (count > 1) {
             if (count == 2) {
-                *(u32 *)(info + 0x4) = GETP(GETP(car->vehicleIface)->hud)->layout2;
+                info->layout = GETP(GETP(car->vehicleIface)->hud)->layout2;
                 if (CARA_PLAYER(car)->view == 1) {
-                    *(s32 *)(info + 0x8) = 0;
-                    *(s32 *)(info + 0xC) = 10;
+                    info->x = 0;
+                    info->y = 10;
                 } else {
-                    *(s32 *)(info + 0x8) = 0;
-                    *(s32 *)(info + 0xC) = 230;
+                    info->x = 0;
+                    info->y = 230;
                 }
             } else {
-                *(u32 *)(info + 0x4) = GETP(GETP(car->vehicleIface)->hud)->layout4;
+                info->layout = GETP(GETP(car->vehicleIface)->hud)->layout4;
                 if (CARA_PLAYER(car)->view == 1) {
-                    *(s32 *)(info + 0x8) = 10;
-                    *(s32 *)(info + 0xC) = 10;
+                    info->x = 10;
+                    info->y = 10;
                 } else if (CARA_PLAYER(car)->view == 2) {
-                    *(s32 *)(info + 0x8) = 310;
-                    *(s32 *)(info + 0xC) = 10;
+                    info->x = 310;
+                    info->y = 10;
                 } else if (CARA_PLAYER(car)->view == 3) {
-                    *(s32 *)(info + 0x8) = 10;
-                    *(s32 *)(info + 0xC) = 230;
+                    info->x = 10;
+                    info->y = 230;
                 } else {
-                    *(s32 *)(info + 0x8) = 310;
-                    *(s32 *)(info + 0xC) = 230;
+                    info->x = 310;
+                    info->y = 230;
                 }
             }
         } else {
-            *(u32 *)(info + 0x4) = GETP(GETP(car->vehicleIface)->hud)->layout1;
-            *(s32 *)(info + 0x8) = 0;
-            *(s32 *)(info + 0xC) = 0;
+            info->layout = GETP(GETP(car->vehicleIface)->hud)->layout1;
+            info->x = 0;
+            info->y = 0;
         }
     }
-    if (rack != NULL && rack->slots[rack->current].active != 0) {
-        info[0x34] = 1;
-        *(s16 *)(info + 0x6C) = GETP(GETP(rack->slots[rack->current].item)->weapon)->unk18;
+    if (rack != NULL && GETP(rack->slots[rack->cur].motion.model) != NULL) {
+        info->weapon[0] = 1;
+        info->weaponIcon[0] = GETP(GETP(rack->slots[rack->cur].item)->weapon)->hudIcon;
     }
     if (car->stuntPopup.h != 0) {
-        *(u32 *)(info + 0x44) = car->stuntPopup.h;
+        info->messages[1].h = car->stuntPopup.h;
         car->stuntPopup.h = 0;
     }
     if (car->pickupId != 0) {
-        *(u32 *)(info + 0x40) = car->pickupId;
+        info->messages[0].h = car->pickupId;
         car->pickupId = 0;
     }
     if (car->stuntScoreMessage.h != 0) {
-        *(u32 *)(info + 0x48) = car->stuntScoreMessage.h;
+        info->messages[2].h = car->stuntScoreMessage.h;
         car->stuntScoreMessage.h = 0;
     }
     if (car->stuntMessage.h != 0) {
-        *(u32 *)(info + 0x4C) = car->stuntMessage.h;
+        info->messages[3].h = car->stuntMessage.h;
         car->stuntMessage.h = 0;
     }
 }
@@ -1803,7 +1792,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             car->groundNormal.z = 0.0f;
         }
         car->transmissionFlags &= ~0x80000;
-        MotionState_ReleaseSlavesByType(HND(&car->motionState), 8);
+        MotionState_ReleaseSlavesByType(&car->motionState, 8);
     }
     if (P(CarA, coll->thingB) == NULL && PSVECDotProduct(&coll->normal, &car->base.axis[2]) < -0.85f) {
         Create_Plane(&plane, &car->base.axis[1], &car->base.pos);
@@ -2121,7 +2110,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         (u8 *)GETP(P(CarA, coll->thingA)->base.vtable) == g_physicalObjectVTable || (u8 *)GETP(P(CarA, coll->thingB)->base.vtable) == g_destructibleVTable ||
         (u8 *)GETP(P(CarA, coll->thingB)->base.vtable) == g_physicalObjectVTable) {
         car->transmissionFlags &= ~2;
-        MotionState_ReleaseSlavesByType(HND(&car->motionState), 4);
+        MotionState_ReleaseSlavesByType(&car->motionState, 4);
         ThingManagerList_RemoveReleasedThings(&car->motionState.slaves);
     }
     car->lowSpeedFlag = 0;
@@ -2209,7 +2198,7 @@ s32 CarA_GetNearestNavPoint(CarA *car) {
 /* Returns the hit distance (maxDist if none): the decomp has it void, but
  * the original leaves PhysicalProperties_CollideWithRay's result in f1, and
  * RayHitsObjects_Aux (vtable 0x38) uses it. */
-f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDist) {
+f32 CarA_CollideWithRay(CarA *car, Vector4 *start, Vector4 *end, CollisionInfo *hit, f32 maxDist) {
     Matrix4 local;
     f32 dist;
 
@@ -2217,7 +2206,7 @@ f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDis
     XformVec(THING_MTX(&car->base), &car->bodyOffset, &local.v[3]);
     dist = PhysicalProperties_CollideWithRay(GETP(GETP(car->vehicleIface)->collider), &local, start, end, maxDist, hit);
     if (hit != NULL && dist < maxDist) {
-        *(Vector4 *)((u8 *)hit + 0x30) = car->base.vel;
+        hit->vel = car->base.vel;
     }
     return dist;
 }
@@ -2333,7 +2322,7 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
         break;
     case 8:
         if (GETP(car->vehicleIface)->numPickupSlaves > def->value) {
-            MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->pickupSlaves) + def->value * 12 + 4,
+            MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->pickupSlaves) + def->value * 12 + 4,
                                          def->value);
         }
         Item_Release(item);

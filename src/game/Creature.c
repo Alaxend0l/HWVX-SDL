@@ -2,6 +2,7 @@
  * with physics in distance-dependent macro steps interpolated by micro steps. */
 #include "common.h"
 #include "AI.h"
+#include "CarA.h"
 
 /* The index of the damage part on a bone, or -1. */
 static inline u32 Creature_FindDamagePart(DamagePartList *list, u32 bone)
@@ -32,7 +33,7 @@ static inline Vector4 Vector4_OrZero(Vector4 *v)
 /* The skeleton of the model being played (Model.numBones). */
 static inline CreatureSkeleton *Creature_Skeleton(Creature *creature)
 {
-    return (CreatureSkeleton *)GETP(((Model *)GETP(creature->model))->numBones);
+    return GETP(((MotionAnim *)GETP(creature->model))->skeleton);
 }
 
 
@@ -211,7 +212,7 @@ s32 Creature_Init(Creature *creature, CreatureInit *init)
 }
 
 void Creature_Release(Creature *creature) {
-    MotionState_Release(HND(&creature->model));
+    MotionState_Release(&creature->model);
     Thing_Release(creature);
 }
 
@@ -484,7 +485,7 @@ s32 Creature_Move(Creature *creature)
         }
         if (creature->deadTime > 20000)
         {
-            MotionState_Release(HND(&creature->model));
+            MotionState_Release(&creature->model);
             Thing_Release(creature);
             return 0;
         }

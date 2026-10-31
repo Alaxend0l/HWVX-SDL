@@ -260,7 +260,7 @@ void ThingManagerList_TriggerSlaves(ThingList *list, struct SlaveTrigger *trigge
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p5 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 pos; s32 flag; PTR32(void) player; } p6 __attribute__((aligned(16)));
     struct { Vector4 a; Vector4 b; Vector4 c; PTR32(void) data; s32 time; PTR32(void) player; f32 f; } p7 __attribute__((aligned(16)));
-    struct { Vector4 unk; Vector4 a; Vector4 b; PTR32(void) data; s32 flag; } p8 __attribute__((aligned(16)));
+    MotionParams p8 __attribute__((aligned(16)));
     struct { PTR32(void) data; u8 pad4[0xC]; Vector4 a; } p9 __attribute__((aligned(16)));
     DebrisParams p1 __attribute__((aligned(16)));
     EmitterParams p2 __attribute__((aligned(16)));
@@ -350,10 +350,10 @@ void ThingManagerList_TriggerSlaves(ThingList *list, struct SlaveTrigger *trigge
     case 8:
         data = GETP(trigger->data);
         if (data != NULL) {
-            p8.a = *a;
-            p8.b = *b;
-            SETP(p8.data, data);
-            p8.flag = 0;
+            p8.pos = *a;
+            p8.quat = *(Quaternion *)b;
+            SETP(p8.model, data);
+            SETP(p8.slaves, NULL);
             slave = ThingManager_DARYL_CreateSlave(THING_TYPE_MOTION, &p8, trigger->id);
         }
         break;

@@ -61,7 +61,7 @@ void CarA_StuntImpulse(CarA *car, Vector4 *linImpulse, Vector4 *angImpulse) {
     car->transmissionFlags |= 2;
     info = GETP(car->vehicleIface);
     if (info->numSlaves > 4) {
-        MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(info->slaves) + 0x34, 4);
+        MotionState_InitAllSlavesNow(&car->motionState, GETP(info->slaves) + 0x34, 4);
     }
 }
 
@@ -202,7 +202,7 @@ void CarA_StuntFail(CarA *car) {
             SETP(car->stuntMessage, &g_stuntLossString);
         }
         if (GETP(car->vehicleIface)->numSlaves > 10) {
-            MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x7C, 10);
+            MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x7C, 10);
         }
         if (count != 0 && (f32)secs > minTime) {
             idx = 0;
@@ -249,7 +249,7 @@ void CarA_SlaveWeaponHeartbeat(CarA *car) {
 void CarA_SlaveWeaponStop(CarA *car, s32 weapon) {
 
     car->slaveWeaponRpm[weapon] = 10001;
-    MotionState_ReleaseSlavesByType(HND(&car->motionState), weapon + 0xF0);
+    MotionState_ReleaseSlavesByType(&car->motionState, weapon + 0xF0);
     ThingManagerList_RemoveReleasedThings(&car->motionState.slaves);
 }
 
@@ -453,15 +453,15 @@ s32 CarA_PreMove_Control_HW(void *thing) {
         if (!(car->transmissionFlags & 0x20) && mode == 1) {
             car->transmissionFlags |= 0x20;
             if (GETP(car->vehicleIface)->numSlaves >= 3) {
-                MotionState_InitAllSlavesNow(HND(&car->motionState), GETP(GETP(car->vehicleIface)->slaves) + 0x28, 3);
+                MotionState_InitAllSlavesNow(&car->motionState, GETP(GETP(car->vehicleIface)->slaves) + 0x28, 3);
             }
         } else if (mode == 2 && (car->transmissionFlags & 0x20)) {
             car->transmissionFlags &= ~0x20;
-            MotionState_ReleaseSlavesByType(HND(&car->motionState), 3);
+            MotionState_ReleaseSlavesByType(&car->motionState, 3);
         }
     } else if (car->transmissionFlags & 0x20) {
         car->transmissionFlags &= ~0x20;
-        MotionState_ReleaseSlavesByType(HND(&car->motionState), 3);
+        MotionState_ReleaseSlavesByType(&car->motionState, 3);
     }
 
     info = GETP(car->vehicleIface);

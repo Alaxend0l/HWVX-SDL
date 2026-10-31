@@ -142,8 +142,10 @@ typedef PTR32(WorldTimer) WorldTimerSlot;
 
 /* A mission objective (world + 0x58/0x5C). */
 typedef struct WorldObjective {
-    u32 unk0;                   /* 0x00 */
-    PTR32(u8) info;             /* 0x04 u8 mode at 0x1 (ActionMissionObjChangeMode) */
+    u32 arg;                    /* 0x00 */
+    PTR32(u8) info;             /* 0x04 big-endian word type at 0 ([1] mode
+                                 * (ActionMissionObjChangeMode), 0x17: shown, '#' text;
+                                 * [2] id), value slots 0xC/0x10, string tables 0x14/0x18 */
 } WorldObjective;
 
 /* ---- volumes (VolumeManager.c) ------------------------------------------- */

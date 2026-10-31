@@ -291,7 +291,7 @@ void Blast_Action(struct BlastInfo *blast, Vector4 *pos, Thing *source) {
                     /* repair */
                     thing->health = GETP(GETP(car->vehicleIface)->collider)->maxHealth;
                     car->partVisMask = 0;
-                    MotionState_ReleaseSlavesByType((s32)HND(&car->motionState), 2);
+                    MotionState_ReleaseSlavesByType(&car->motionState, 2);
                     CarA_SlaveWeaponStop(thing, 4);
                     car->slaveWeaponRpm[4] = 0;
                 }

@@ -99,24 +99,24 @@ void AnimExtractKeyFrame_Hybrid(void *animp, void *outp, f32 time);
 
 /* AnimHandler.c */
 s32 AnimNodes_BlowBranch(u8 *node);
-void MotionState_BlendTriggerEvents(s32 state, void *events, Vector4 *vel);
-void MotionState_BuildMatricesWorld(void *arg0, void *arg1, void *motionState, f32 time);
-void MotionState_Draw(void *state);
-void MotionState_Draw2(void *state, s32 mtx, u8 *matrices);
+void MotionState_BlendTriggerEvents(MotionState *ms, SlaveList *events, Vector4 *vel);
+void MotionState_BuildMatricesWorld(void *arg0, void *arg1, MotionState *ms, f32 time);
+void MotionState_Draw(MotionState *ms);
+void MotionState_Draw2(MotionState *ms, s32 mtx, u8 *matrices);
 void MotionState_DrawSlaves(void *state, s32 arg1);
 void MotionState_DrawSlavesAttachCoronaOnly(void *state, s32 arg1);
-void MotionState_ExtractBlendedKeyFrame(u8 *state, void *keyFrame);
-void MotionState_Heartbeat(void *state, void *arg1, void *thing);
-void MotionState_Init(void *arg0, s8 reset);
-void MotionState_InitAllSlavesNow(s32 state, void *slaves, u8 player);
-void MotionState_InitSlavesTimed(u8 *state, void *slaves, u8 player, u32 time);
+void MotionState_ExtractBlendedKeyFrame(MotionState *ms, void *keyFrame);
+void MotionState_Heartbeat(MotionState *ms, void *arg1, void *thing);
+void MotionState_Init(MotionState *ms, s8 reset);
+void MotionState_InitAllSlavesNow(MotionState *ms, SlaveList *list, u8 player);
+void MotionState_InitSlavesTimed(MotionState *ms, SlaveList *list, u8 player, u32 time);
 void MotionState_MoveSlaves(void *state, Matrix4 *matrix, Vector4 *vel);
-void MotionState_Release(s32 state);
-void MotionState_ReleaseSlavesByType(s32 state, u8 tag);
-void Motion_BlendHeartbeat_FPS(void *layer, s32 mode, void *anim, f32 fps);
-void Motion_HeartbeatB2(void *state, Vector4 *vel);
+void MotionState_Release(MotionState *ms);
+void MotionState_ReleaseSlavesByType(MotionState *ms, u8 tag);
+void Motion_BlendHeartbeat_FPS(MotionLayer *l, s32 mode, MotionAnim *anim, f32 fps);
+void Motion_HeartbeatB2(MotionState *ms, Vector4 *vel);
 void TEST_AnimTraverseHeirarchyToMatricesWorld(Vector4 *quat, void *pos0, void *frames, s32 skel, void *matrices, f32 time);
-void WildcardState_Heartbeat(void *state, u8 *mtx, void *thing);
+void WildcardState_Heartbeat(WildCardSlot *slot, u8 *mtx, void *thing);
 
 /* AttachThing.c */
 void AttachGeometry_Draw(struct AttachThing *attach);
@@ -204,7 +204,7 @@ void GetTrimmedCameraPos2(Vector4 *from, Vector4 *to, f32 *trim, s32 bone, Matri
 s8 RayHitsObjects_CameraSpecial(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 
 /* CarA.c */
-f32 CarA_CollideWithRay(CarA *car, void *start, void *end, void *hit, f32 maxDist);
+f32 CarA_CollideWithRay(CarA *car, Vector4 *start, Vector4 *end, CollisionInfo *hit, f32 maxDist);
 void CarA_ComputeForces(CarA *car);
 void CarA_Draw(CarA *car);
 void CarA_DrawReflection(void *thing);
@@ -214,7 +214,7 @@ void CarA_DynamicRotation(CarA *car, f32 dt);
 void CarA_ExecuteCombo(CarA *car);
 void CarA_GetAngularVelocity(CarA *car, Vector4 *vel);
 void CarA_GetCameraOrientationInfo(CarA *car, u32 index, void *out);
-void CarA_GetInterfaceInfo(CarA *car, u8 *info);
+void CarA_GetInterfaceInfo(CarA *car, InterfaceHudInfo *info);
 void CarA_GetInverseLocalInertiaTensor(CarA *car, Vector4 *out);
 f32 CarA_GetMass(CarA *car);
 s32 CarA_GetNearestNavPoint(CarA *car);
@@ -796,11 +796,11 @@ void MemClr32(void *dst, unsigned long size);
 void MemCpy32(void *dst, const void *src, u32 size);
 
 /* Motion.c */
-void Motion_Draw(u8 *motion);
-s32 Motion_Init(u8 *motion, u8 *init);
-s32 Motion_Invalidate(void *arg0, u32 arg1, u32 arg2);
-s32 Motion_Move(u8 *motion);
-void Motion_Release(void *arg0);
+void Motion_Draw(MotionThing *motion);
+s32 Motion_Init(MotionThing *motion, MotionParams *init);
+s32 Motion_Invalidate(MotionThing *motion, u32 start, u32 end);
+s32 Motion_Move(MotionThing *motion);
+void Motion_Release(MotionThing *motion);
 
 /* MovieManager.c */
 void MovieManager_Destroy(void);

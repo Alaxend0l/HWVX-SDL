@@ -8,6 +8,12 @@ after retyping pointer fields (clang, needs BUILD/compile_commands.json):
 
 Prints file:line, the pointer type and the constant. Deliberate strides
 (e.g. `matrices + i * 16` on f32 *) show up too; check each new one.
+
+  tools/check_ptr_offsets.py --bytes [BUILD_DIR]
+
+lists the constant offsets on byte pointers instead: the struct accesses
+still done by offset (`(u8 *)x + 0x24`), the progress list of the
+struct refactor.
 """
 import json, subprocess, shlex, sys, re
 sys.setrecursionlimit(100000)
@@ -27,7 +33,11 @@ def walk(n, out):
             q = ty.get('qualType', ''); d = ty.get('desugaredQualType', q)
             rr = n['inner'][1]
             while rr.get('kind') in ('ImplicitCastExpr', 'ParenExpr') and rr.get('inner'): rr = rr['inner'][0]
-            if d.endswith('*') and not BYTE.match(d) and not BYTE.match(q):
+            byte = BYTE.match(d) or BYTE.match(q)
+            if BYTES and d.endswith('*') and byte:
+                if rr.get('kind') == 'IntegerLiteral' and int(rr.get('value', '0')) >= 4:
+                    out.append((st['f'], st['l'], d, int(rr['value'])))
+            elif not BYTES and d.endswith('*') and not byte:
                 if rr.get('kind') == 'IntegerLiteral' and int(rr.get('value', '0')) >= 4:
                     out.append((st['f'], st['l'], d, int(rr['value'])))
                 elif rr.get('kind') == 'BinaryOperator' and rr.get('opcode') == '*':
@@ -36,7 +46,9 @@ def walk(n, out):
                         if c.get('kind') == 'IntegerLiteral' and int(c.get('value', '0')) >= 4:
                             out.append((st['f'], st['l'], d, int(c['value'])))
         for c in n.get('inner', []): walk(c, out)
-build = sys.argv[1] if len(sys.argv) > 1 else 'build'
+BYTES = '--bytes' in sys.argv
+rest = [a for a in sys.argv[1:] if a != '--bytes']
+build = rest[0] if rest else 'build'
 db = json.load(open(build + '/compile_commands.json'))
 for e in db:
     f = e['file']
