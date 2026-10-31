@@ -1389,8 +1389,13 @@ static void Claim_SlaveData(Swapper *s, u8 type, u32 data) {
         Claim_EventSeq(s, data);
         break;
     case 2:
-    case 9:
         ClaimBytes(s, data, 4);
+        break;
+    case 9:   /* radar blip (RadarBlipData): u8 x4; GXColors: 0x1C -> minimap
+               * dot (InterfaceManager_DrawRadarBlips), 0x20 -> 3D marker */
+        ClaimBytes(s, data, 4);
+        ClaimBytes(s, Target(s, data + 0x1C), 4);
+        ClaimBytes(s, Target(s, data + 0x20), 4);
         break;
     case 3:
         Claim_SoundSeq(s, data);

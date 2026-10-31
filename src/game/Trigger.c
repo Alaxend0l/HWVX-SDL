@@ -153,7 +153,10 @@ void Trigger_Heartbeat(void) {
 
     if (!g_bTACSystemPaused) {
         for (type = 0; type < 28; type++) {
-            if (*(s8 *)&TriggerStats[type][2]) {
+            /* port: the GC reads the first (big-endian high) byte of this
+             * word: set for event-driven types (vehicle killed, ...), which
+             * fire from their events, not from polling here */
+            if ((s8)(TriggerStats[type][2] >> 24)) {
                 continue;
             }
             for (i = 0; i < TriggerStats[type][0]; i++) {
