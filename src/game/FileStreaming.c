@@ -449,7 +449,7 @@ void FileStreaming_LoadQuadPacks(void **quads, u32 count, s8 threaded)
         if (GETP(quad->geoms) != NULL && quad->loaded == 0)
         {
             /* in memory: only the pointers need fixing up */
-            DataPack_RefreshQuadPackPtrs(PTR(g_worldData.unk8[2]), quads[i]);
+            DataPack_RefreshQuadPackPtrs(PTR(g_worldData.quadPack), quads[i]);
             quad->loaded = 1;
         }
         else if (quad->numGeoms == 0)
@@ -574,7 +574,7 @@ void LoadQuadrants(s8 refresh) {
         if (GETP(((WorldQuad *)g_QuadrantsToLoad[i])->geoms) == NULL) {
             DataPack_LoadQuadPack(g_quadFileID, g_QuadrantsToLoad[i]);
             if (refresh) {
-                DataPack_RefreshQuadPackPtrs(PTR(g_worldData.unk8[2]), g_QuadrantsToLoad[i]);
+                DataPack_RefreshQuadPackPtrs(PTR(g_worldData.quadPack), g_QuadrantsToLoad[i]);
                 ((WorldQuad *)g_QuadrantsToLoad[i])->loaded = 1;
             }
         }

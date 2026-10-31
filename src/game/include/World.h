@@ -450,15 +450,24 @@ WORLD_ASSERT(WorldGameData, impactFx, 0xF4);
 typedef struct WorldCollision {
     Vector4 min;                /* 0x00 world bounds (Grid_Init) */
     Vector4 max;                /* 0x10 */
-    u8 pad20[0x28];             /* 0x20 grid */
+    PTR32(TerrainCell) cells;   /* 0x20 cells[0]: outside the grid */
+    u8 pad24[4];                /* 0x24 */
+    f32 cellSize[3];            /* 0x28 */
+    s32 numX;                   /* 0x34 */
+    s32 numY;                   /* 0x38 */
+    s32 numZ;                   /* 0x3C */
+    PTR32(s32) cellIndex;       /* 0x40 cell of each square, x fastest, then z, then y */
+    u8 pad44[4];                /* 0x44 */
     u32 numPolys;               /* 0x48 */
-    PTR32(u8) polys;            /* 0x4C 0x20 each, stamp at 0x18 */
+    PTR32(TerrainPoly) polys;   /* 0x4C */
     u32 numEdges;               /* 0x50 */
-    PTR32(u8) edges;            /* 0x54 0x30 each, stamp at 0x20 */
-    u32 mode;                   /* 0x58 */
-    PTR32(u32) materials;       /* 0x5C */
+    PTR32(TerrainEdge) edges;   /* 0x54 */
+    u32 mode;                   /* 0x58 1: cells hold BSPs, else poly lists */
+    PTR32(u32) materials;       /* 0x5C surface handles */
 } WorldCollision;
 
+WORLD_ASSERT(WorldCollision, cells, 0x20);
+WORLD_ASSERT(WorldCollision, cellIndex, 0x40);
 WORLD_ASSERT(WorldCollision, mode, 0x58);
 
 typedef struct World {

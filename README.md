@@ -125,11 +125,12 @@ player manager, cameras, AI and nav (`AI.c`, `AI_CarA.c`, `NavHolder.c`,
 most of `Creature.c`), projectiles, debris, attach things, destructibles and
 physical objects, the world/trigger/action/streaming/ThingManager code,
 `State_GamePlay.c`, the MCP, event sequences, creature AI, and the save data
-and memory card file (`GameSettings.c`). Still on offsets:
-`InterfaceManager.c` (`Interface.h` is written), `SoundSequence.c`, the rest
-of `MIDI.c` (channels, song) and smaller leftovers. The voices (`Voice.h`), the
-IT player (`IT.h`) and the AX voice block (`AXVPB` in `sdk.h`, shared with
-the port's mixer) are structs.
+and memory card file (`GameSettings.c`), sound sequences, the terrain
+collision (`CollisionTerrain.c`, `CollisionPoly.c`). The voices (`Voice.h`),
+the IT player (`IT.h`) and the AX voice block (`AXVPB` in `sdk.h`, shared with
+the port's mixer) are structs. Still on offsets: `InterfaceManager.c`
+(`Interface.h` is written), the rest of `MIDI.c` (channels, song) and smaller
+leftovers.
 
 Restructured functions no longer match the decomp text, so
 `import_decomp.py --merge` will conflict on them; resolve those by hand.

@@ -86,7 +86,7 @@ s32 Emitter_Init(Emitter *emitter, struct EmitterParams *data) {
     if (GETP(emitter->desc)->soundSeq != 0) {
         params.flag = 0;
         params.pos = emitter->base.pos;
-        params.seq = GETP(emitter->desc)->soundSeq;
+        SETP(params.seq, PTR(GETP(emitter->desc)->soundSeq));
         ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, &params);
     }
     emitter->base.flags |= 0x80202;

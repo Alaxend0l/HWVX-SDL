@@ -1,35 +1,10 @@
 #include "common.h"
+#include "World.h"
 
 
-typedef struct Poly {
-    Vector4 plane;   /* 0x00 */
-    PTR32(Vector4) verts;  /* 0x10: w holds the index of the opposite vertex */
-    u32 numVerts;    /* 0x14 */
-} Poly;
+/* Polys are TerrainPoly (Collision.h); hits are CollisionInfo. */
 
-typedef struct HitZT {
-    Vector4 pos;     /* 0x00 */
-    Vector4 normal;  /* 0x10 */
-} HitZT;
-
-typedef struct CollisionPoly {
-    Vector4 plane;   /* 0x00 */
-    PTR32(Vector4) verts;  /* 0x10: w holds the index of the opposite vertex */
-    u32 numVerts;    /* 0x14 */
-    u32 unk18;       /* 0x18 */
-    u32 material;    /* 0x1C */
-} CollisionPoly;
-
-typedef struct PolyHit {
-    Vector4 pos;     /* 0x00 */
-    Vector4 normal;  /* 0x10 */
-    u8 unk20[8];
-    u32 unk28;       /* 0x28 */
-    u8 unk2C[0x40 - 0x2C];
-    u8 type;         /* 0x40 */
-} PolyHit;
-
-f32 RayHitsPoly(Vector4 *start, Vector4 *dir, Poly *p, f32 t) {
+f32 RayHitsPoly(Vector4 *start, Vector4 *dir, TerrainPoly *p, f32 t) {
     Vector4 edge __attribute__((aligned(16)));
     Vector4 normal __attribute__((aligned(16)));
     u32 i;
@@ -71,7 +46,7 @@ f32 RayHitsPoly(Vector4 *start, Vector4 *dir, Poly *p, f32 t) {
     return 0.0f;
 }
 
-f32 OOBHitsPoly(CollisionOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *hit, f32 maxT) {
+f32 OOBHitsPoly(CollisionOBox *box, TerrainPoly *poly, Vector4 *vel, CollisionInfo *hit, f32 maxT) {
     f32 planeD;
     DividingAxis da;
     Vector4 edge __attribute__((aligned(16)));
@@ -225,7 +200,7 @@ f32 OOBHitsPoly(CollisionOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *
     }
     if (hit != NULL && da.tEnter < maxT) {
         hit->type = type;
-        hit->unk28 = (SLOT_LOAD(u32 *, (SLOT_LOAD(u8 *, GETP(g_worldData.world)) + 0x5C)))[poly->material];
+        hit->material = GETP(((WorldCollision *)GETP(((World *)GETP(g_worldData.world))->collision))->materials)[poly->material];
         box->cachedPoly = (u32)HND(poly);
         switch (type) {
         case 1:
@@ -308,7 +283,7 @@ f32 OOBHitsPoly(CollisionOBox *box, CollisionPoly *poly, Vector4 *vel, PolyHit *
     return da.tEnter;
 }
 
-s8 OBoxHitsPolyZeroTime(CollisionOBox *box, Poly *p, HitZT *hit) {
+s8 OBoxHitsPolyZeroTime(CollisionOBox *box, TerrainPoly *p, CollisionInfo *hit) {
     Vector4 edgeDir __attribute__((aligned(16)));
     Vector4 n __attribute__((aligned(16)));
     Vector4 pt __attribute__((aligned(16)));

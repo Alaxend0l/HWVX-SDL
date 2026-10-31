@@ -253,20 +253,25 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car);
 f32 CarA_GetImpactMultiplier(void *car, void *other, f32 scale);
 f32 GetDampFactor(u8 type, u32 n);
 
+/* CollisionPoly.c */
+s8 OBoxHitsPolyZeroTime(CollisionOBox *box, TerrainPoly *p, CollisionInfo *hit);
+f32 OOBHitsPoly(CollisionOBox *box, TerrainPoly *poly, Vector4 *vel, CollisionInfo *hit, f32 maxT);
+f32 RayHitsPoly(Vector4 *start, Vector4 *dir, TerrainPoly *p, f32 t);
+
 /* CollisionTerrain.c */
 void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot);
-void BuildOOB(Vector4 *bounds, Matrix4 *mtx, u8 *oob);
-void BuildOOBOffset(void *oob, void *pos, void *rot, void *out);
-s8 OBoxHitsBSP(void *obox, Vector4 *vel, void *bsp, f32 *time, void *arg4);
-s8 OBoxHitsBSPZeroTime(void *obox, void *bsp, void *arg2);
-s8 OBoxHitsBSPZeroTimeEdgesOnly(void *obox, void *bsp, void *arg2);
-s8 OBoxHitsCell(void *obox, Vector4 *vel, void *cell, f32 *time, void *arg4);
-s8 OBoxHitsCellZeroTimeEdgesOnly(void *obox, void *cell, void *arg2);
-s8 OBoxHitsTerrain(void *obox, Vector4 *vel, f32 *t, void *info);
-s8 OBoxHitsTerrainZeroTimeEdgesOnly(void *obox, void *arg1);
-u32 RayHitsBSP(Vector4 *start, Vector4 *dir, void *bbox, f32 *time, void *bsp);
-u32 RayHitsBSP2(Vector4 *start, Vector4 *end, Vector4 *bsp, u32 node, s32 depth, void *plane, f32 *t, Vector4 *hit);
-s32 RayHitsCell(Vector4 *start, Vector4 *dir, u8 *cell, f32 *time, u8 *out);
+void BuildOOB(Vector4 *bounds, Matrix4 *mtx, CollisionOBox *oob);
+void BuildOOBOffset(Vector4 *bounds, Matrix4 *mtx, Vector4 *rot, CollisionOBox *out);
+s8 OBoxHitsBSP(CollisionOBox *obox, Vector4 *vel, TerrainCell *bsp, f32 *time, void *arg4);
+s8 OBoxHitsBSPZeroTime(CollisionOBox *obox, TerrainCell *bsp, void *arg2);
+s8 OBoxHitsBSPZeroTimeEdgesOnly(CollisionOBox *obox, TerrainCell *bsp, void *arg2);
+s8 OBoxHitsCell(CollisionOBox *obox, Vector4 *vel, TerrainCell *cell, f32 *time, void *arg4);
+s8 OBoxHitsCellZeroTimeEdgesOnly(CollisionOBox *obox, TerrainCell *cell, void *arg2);
+s8 OBoxHitsTerrain(CollisionOBox *obox, Vector4 *vel, f32 *t, void *info);
+s8 OBoxHitsTerrainZeroTimeEdgesOnly(CollisionOBox *obox, void *arg1);
+u32 RayHitsBSP(Vector4 *start, Vector4 *dir, TerrainCell *cell, f32 *time, Vector4 *plane);
+u32 RayHitsBSP2(Vector4 *start, Vector4 *end, TerrainCell *bsp, u32 node, s32 depth, void *plane, f32 *t, Vector4 *hit);
+s32 RayHitsCell(Vector4 *start, Vector4 *dir, TerrainCell *cell, f32 *time, CollisionInfo *out);
 s8 RayHitsTerrain(Vector4 *start, Vector4 *end, void *arg2, void *arg3);
 s8 RayHitsTerrain_Aux3(Vector4 *start, Vector4 *dir, f32 *t, void *info);
 s8 VectorHitsTerrain(Vector4 *point);
@@ -381,7 +386,7 @@ void ExtractColorKey(void *track, void *state, f32 dt);
 void ExtractF32Key(u8 *track, u8 *state, f32 dt);
 void ExtractPointKey(u8 *track, u8 *state, f32 dt);
 void ExtractScaleKey(void *track, void *state, f32 dt);
-s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt);
+s32 ExtractSoundKey(KeyTrack *t, SoundSeqKeyState *s, Vector4 *pos, f32 dt);
 void ExtractTextureKey(TextureKeyAnim *anim, TextureKeyState *state, f32 dt);
 void ExtractUVKey(void *track, void *state, f32 dt);
 
@@ -1060,13 +1065,14 @@ s32 SmartProjectileA_Move(struct Projectile *proj);
 s32 SmartProjectileA_PreMove(struct Projectile *proj);
 
 /* SoundSequence.c */
-s32 SoundSeq_Init(u8 *seq, u8 *data);
+s32 SoundSeq_Init(SoundSequence *seq, SoundSeqParams *data);
+s32 SoundSeq_Invalidate(SoundSequence *seq, u32 start, u32 end);
 s32 SoundSeq_Move(void *thing);
 void SoundSeq_Release(void *thing);
 void SoundSequence_ClearQueue(void);
 s32 SoundSequence_GetTotalElementsInQueue(void);
-s32 SoundSequence_Play(s8 *seq, Vector4 *pos);
-s32 SoundSequence_PlayQueued(s8 *seq, Vector4 *pos);
+s32 SoundSequence_Play(SoundSeqInfo *seq, Vector4 *pos);
+s32 SoundSequence_PlayQueued(SoundSeqInfo *seq, Vector4 *pos);
 void SoundSequence_Stop(u32 handle);
 
 /* StateManager.c */
@@ -1472,11 +1478,6 @@ void Drone_GetCameraOrientationInfo(void *drone, void *camera, void *out);
 s32 Drone_Init(void *drone, void *data);
 s32 Drone_PreMove(void *drone);
 #endif
-#if !defined(HWVX_SRC_CollisionPoly)
-s8 OBoxHitsPolyZeroTime(CollisionOBox *box, void *p, void *hit);
-f32 OOBHitsPoly(CollisionOBox *box, void *poly, Vector4 *vel, void *hit, f32 maxT);
-f32 RayHitsPoly(Vector4 *start, Vector4 *dir, void *p, f32 t);
-#endif
 #if !defined(HWVX_SRC_CoronaHolder)
 s32 CoronaHolder_Add(void *corona, Vector4 *pos);
 #endif
@@ -1583,9 +1584,6 @@ void Render_DrawLine2D(void *line);
 #endif
 #if !defined(HWVX_SRC_Render_QuadTri_)
 void Render_DrawRectangle(void *rect);
-#endif
-#if !defined(HWVX_SRC_SoundSequence)
-s32 SoundSeq_Invalidate(void *seq, u32 start, u32 end);
 #endif
 #if !defined(HWVX_SRC_Tracer)
 s32 Tracer_Init(void *thing, u8 *data);

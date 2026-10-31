@@ -249,7 +249,7 @@ s32 StateGamePlay_Init(void) {
             if (speaker->soundSeq != 0) {
                 speakerParams.flag = 0;
                 speakerParams.pos = speaker->pos;
-                speakerParams.seq = speaker->soundSeq;
+                SETP(speakerParams.seq, PTR(speaker->soundSeq));
                 ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, &speakerParams);
             }
             j++;

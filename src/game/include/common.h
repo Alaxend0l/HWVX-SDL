@@ -47,11 +47,18 @@ typedef struct GameInfo {
   s32 unk18;
 } GameInfo;
 
+/* The loaded world (g_worldData). */
 typedef struct WorldData {
-  PTR32(void) world;
-  s32 unk4;
-  s32 unk8[4];
+  PTR32(void) world;  /* 0x00 World (World.h) */
+  s32 sweep;          /* 0x04 stamp of the current collision query: polys and edges
+                       * already tested carry it (World_NextSweep) */
+  u32 worldPack;      /* 0x08 DataPack handles: the world (pack type 4), */
+  u32 collisionPack;  /* 0x0C its collision (5) */
+  u32 quadPack;       /* 0x10 and its quadrants' geometry (6) */
+  s8 resetQuads;      /* 0x14 pick the quadrant again on the next World_Render */
+  u8 pad15[3];        /* 0x15 */
 } WorldData;
+_Static_assert(sizeof(WorldData) == 0x18, "WorldData size");
 
 extern WorldData g_worldData;
 
@@ -1068,6 +1075,11 @@ typedef struct ITHeader ITHeader;
 typedef struct ITSample ITSample;
 typedef struct ITSong ITSong;
 typedef struct ITTrack ITTrack;
+typedef struct SoundSequence SoundSequence;
+typedef struct SoundSeqInfo SoundSeqInfo;
+typedef struct SoundSeqKeyState SoundSeqKeyState;
+typedef struct SoundSeqParams SoundSeqParams;
+typedef struct KeyTrack KeyTrack;
 
 #include "game_protos.h"
 

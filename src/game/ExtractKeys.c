@@ -1,4 +1,5 @@
 #include "common.h"
+#include "SoundSequence.h"
 
 void ExtractF32Key(u8 *track, u8 *state, f32 dt) {
     typedef struct Key {
@@ -619,42 +620,15 @@ void ExtractTextureKey(TextureKeyAnim *anim, TextureKeyState *state, f32 dt) {
 }
 
 
-s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
-    typedef struct Sound {
-        u8 type;
-        u8 unk1[2];
-        u8 owner;
-        u8 unk4[4];
-        f32 volume;
-        f32 pitch;
-        f32 pitchRange;
-        u32 sample;            /* sound effect id (pack sound relocation) */
-        PTR32(u8) range;
-    } Sound;
-    typedef struct Key {
-        f32 duration;
-        u8 active;
-        u8 pad[3];
-        u32 numSounds;
-        PTR32(PTR32(Sound)) sounds;
-    } Key;
-    typedef struct KeyTrack {
-        u32 count;
-        PTR32(Key) keys;
-    } KeyTrack;
-    typedef struct KeyState {
-        s32 unk0;
-        u16 index;
-        u16 current;
-        f32 time;
-        u8 reset;
-    } KeyState;
-    KeyTrack *t = (KeyTrack *)track;
-    KeyState *s = (KeyState *)state;
+/* Advances a sound sequence's track by dt ms and plays the sounds of the keys
+ * passed. Returns the sound source to keep (SoundSeqSound.owner), -1 if none,
+ * -2 once the track has ended. */
+s32 ExtractSoundKey(KeyTrack *t, SoundSeqKeyState *s, Vector4 *pos, f32 dt) {
+    SoundSeqKey *keys = GETP(t->keys);
     u32 reset;
     u16 i;
     s32 ret;
-    Sound *snd;
+    SoundSeqSound *snd;
     s32 idx;
 
     s->unk0 = 0;
@@ -670,18 +644,18 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
         return -2;
     }
     s->time += dt;
-    if (reset || s->time >= GETP(t->keys)[s->index].duration) {
+    if (reset || s->time >= keys[s->index].duration) {
         s->current = 0;
         for (;;) {
-            if (s->time < GETP(t->keys)[s->index].duration) {
+            if (s->time < keys[s->index].duration) {
                 break;
             }
             s->current = s->index;
-            if (GETP(t->keys)[s->index].numSounds != 0) {
-                idx = RandomAdd_s32(0, GETP(t->keys)[s->index].numSounds);
-                snd = GETP(GETP(GETP(t->keys)[s->index].sounds)[idx]);
+            if (keys[s->index].numSounds != 0) {
+                idx = RandomAdd_s32(0, keys[s->index].numSounds);
+                snd = GETP(GETP(keys[s->index].sounds)[idx]);
                 if (snd != NULL) {
-                    if (snd->type == 1) {
+                    if (snd->type == SOUND_TYPE_2D) {
                         void *voice;
                         f32 pitch;
 
@@ -701,9 +675,9 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
                         SoundSource_Set(src, 5, pos);
                         SoundSource_Set(src, 0, &snd->volume);
                         SoundSource_Set(src, 1, &pitch);
-                        if (snd->type == 0) {
+                        if (snd->type == SOUND_TYPE_3D) {
                             SoundSource_Set(src, 2, GETP(snd->range));
-                            SoundSource_Set(src, 3, GETP(snd->range) + 4);
+                            SoundSource_Set(src, 3, GETP(snd->range) + 1);
                         }
                         SoundSource_Play(src);
                         if (snd->owner) {
@@ -712,11 +686,11 @@ s32 ExtractSoundKey(u8 *track, u8 *state, void *pos, f32 dt) {
                     }
                 }
             }
-            s->time -= GETP(t->keys)[s->index].duration;
+            s->time -= keys[s->index].duration;
             s->index++;
             if (s->index >= t->count) {
                 for (i = 0; i < t->count; i++) {
-                    if (GETP(t->keys)[i].active) {
+                    if (keys[i].loopStart) {
                         s->index = i;
                         break;
                     }

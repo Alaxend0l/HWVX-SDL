@@ -6,13 +6,6 @@
 #include "Trigger.h"
 #include "ThingManager.h"
 
-/* g_worldData (common.h WorldData): world, then
- *   unk4     sweep stamp for collision queries (World_ClearSweep/NextSweep)
- *   unk8[2]  the world's DataPack (handle), for quad pack pointer fix-ups
- *   unk8[3]  s8: pick the world quadrant again on the next World_Render */
-#define WORLD_SWEEP (g_worldData.unk4)
-#define WORLD_PACK (g_worldData.unk8[2])
-#define WORLD_RESET_QUADS (*(s8 *)&g_worldData.unk8[3])
 
 s32 World_Create(void) {
     extern s32 m_VertIn;
@@ -63,9 +56,9 @@ void World_Unload(void) {
     FileStreaming_ReleaseAllDataPacks(1, 1);
     FileStreaming_ReleaseAllDataPacks(9, 1);
     SETP(g_worldData.world, NULL);
-    g_worldData.unk8[0] = 0;
-    g_worldData.unk8[1] = 0;
-    g_worldData.unk8[2] = 0;
+    g_worldData.worldPack = 0;
+    g_worldData.collisionPack = 0;
+    g_worldData.quadPack = 0;
     VolumeManager_Release();
     color[1] = 0;
     color[0] = 0;
@@ -106,8 +99,8 @@ void World_Render(void) {
     if (world == NULL) {
         return;
     }
-    if (WORLD_RESET_QUADS) {
-        WORLD_RESET_QUADS = 0;
+    if (g_worldData.resetQuads) {
+        g_worldData.resetQuads = 0;
         for (i = 0; i < world->numQuads; i++) {
             if (GETP(GETP(world->quads)[i].bsp) == NULL) {
                 pWorldQuadrant = &GETP(world->quads)[i];
@@ -257,19 +250,19 @@ void World_ClearSweep(void) {
     collision = GETP(WORLD()->collision);
     if (collision->mode == 0) {
         for (i = 0; i < GETP(WORLD()->collision)->numPolys; i++) {
-            *(s32 *)(GETP(GETP(WORLD()->collision)->polys) + i * 0x20 + 0x18) = 0;
+            GETP(GETP(WORLD()->collision)->polys)[i].sweep = 0;
         }
     } else if (collision->mode == 1) {
         for (i = 0; i < GETP(WORLD()->collision)->numEdges; i++) {
-            *(s32 *)(GETP(GETP(WORLD()->collision)->edges) + i * 0x30 + 0x20) = 0;
+            GETP(GETP(WORLD()->collision)->edges)[i].sweep = 0;
         }
     }
-    WORLD_SWEEP = 1;
+    g_worldData.sweep = 1;
 }
 
 /* Next sweep stamp; on wrap-around the stamps are cleared. */
 void World_NextSweep(void) {
-    if (++WORLD_SWEEP == 0) {
+    if (++g_worldData.sweep == 0) {
         World_ClearSweep();
     }
 }

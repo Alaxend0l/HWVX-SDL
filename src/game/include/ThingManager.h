@@ -100,8 +100,8 @@ typedef struct SharedSlaves {
 /* ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, ...) parameters. */
 typedef struct SoundSeqParams {
     Vector4 pos;                /* 0x00 */
-    u32 seq;                    /* 0x10 */
-    u8 flag;                    /* 0x14 */
+    PTR32(struct SoundSeqInfo) seq; /* 0x10 */
+    u8 flag;                    /* 0x14 sources follow the sequence (SOUNDSEQ_FLAG_FOLLOW) */
 } SoundSeqParams;
 
 /* THING_TYPE_EMITTER */

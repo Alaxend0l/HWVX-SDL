@@ -441,13 +441,13 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         if (newLoadingState != curLoadingState)
         {
             ShaderHolder_Init();
-            *(u8 *)&g_worldData.unk8[3] = 1;
+            g_worldData.resetQuads = 1;
             packID = FileStreaming_LoadDataPack(world, 4, 0, loaded);
             curLoadingState = newLoadingState;
         }
         if (!IsLoadingThreadRunning())
         {
-            g_worldData.unk8[0] = (s32)HND((dp = FileStreaming_InitializeDataPack(packID, 4, 0)));
+            g_worldData.worldPack = (s32)HND((dp = FileStreaming_InitializeDataPack(packID, 4, 0)));
             if (dp == NULL)
             {
                 return 8;
@@ -467,7 +467,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         }
         if (!IsLoadingThreadRunning())
         {
-            g_worldData.unk8[2] = (s32)HND((dp = FileStreaming_InitializeDataPack(packID, 6, 0)));
+            g_worldData.quadPack = (s32)HND((dp = FileStreaming_InitializeDataPack(packID, 6, 0)));
             if (dp == NULL)
             {
                 return 8;
@@ -483,7 +483,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         }
         if (!IsLoadingThreadRunning())
         {
-            g_worldData.unk8[1] = (s32)HND((dp = FileStreaming_InitializeDataPack(packID, 5, 0)));
+            g_worldData.collisionPack = (s32)HND((dp = FileStreaming_InitializeDataPack(packID, 5, 0)));
             if (dp == NULL)
             {
                 return 8;
@@ -604,9 +604,9 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             iterationNum = 0;
             bLoadingItems = 1;
             curLoadingState = newLoadingState;
-            DataPack_RefreshPtrs((void *)PTR(g_worldData.unk8[0]));
-            DataPack_RefreshPtrs((void *)PTR(g_worldData.unk8[2]));
-            DataPack_RefreshPtrs((void *)PTR(g_worldData.unk8[1]));
+            DataPack_RefreshPtrs((void *)PTR(g_worldData.worldPack));
+            DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
+            DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));
             if (mcp != NULL && GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->itemPack) != NULL && mcp->unk0 == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(((LWWorld *)GETP(g_worldData.world))->packs)->itemPack), 8, 3, 0);
@@ -827,7 +827,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         }
         if (newLoadingState == 7)
         {
-            SETP(((LWWorld *)GETP(g_worldData.world))->unk0, SLOT_LOAD(void *, g_worldData.unk8[1]));
+            SETP(((LWWorld *)GETP(g_worldData.world))->unk0, SLOT_LOAD(void *, g_worldData.collisionPack));
             newLoadingState = 0;
             curLoadingState = 7;
             World_Init();
