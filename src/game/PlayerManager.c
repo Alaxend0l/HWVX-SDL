@@ -117,6 +117,13 @@ void PlayerManager_Init(void) {
         SETP(player->heartbeat, Player_Heartbeat);
         PlayerManager_Push(&pm->free, player);
     }
+    /* The null player is only 0xB8 bytes (the end of the pool); just its
+     * functions and list links (below 0xB8) are used. GCC sees a 0x158-byte
+     * Player there. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
     for (i = 0; i < 1; i++) {
         player = (Player *)pm->nulls[i];
         SETP(player->controlReader, Player_NULL);
@@ -124,6 +131,9 @@ void PlayerManager_Init(void) {
         SETP(player->heartbeat, Player_NULL);
         PlayerManager_Push(&pm->free, player);
     }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
     g_aiHoldIndex = 0;
     AI_Create();
     ForceFeedback_Init();
