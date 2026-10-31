@@ -113,6 +113,10 @@ Conventions:
   `port:` (e.g. a value the original read from an uninitialised register).
 - After changing signatures, regenerate `game_protos.h`
   (`tools/gen_protos.py`).
+- After giving a pointer field a struct type, run `tools/check_ptr_offsets.py`:
+  leftover `GETP(x->field) + 0x24` byte offsets would now step whole structs
+  (this caused an integer division by zero, SIGFPE on x86 Linux, that ARM64
+  silently ignores; `-fsanitize=integer-divide-by-zero` catches those on a Mac).
 
 Converted so far: things and items, tracers, collision types, slaves
 (`AnimHandler.c`), cars (`CarA.c`, `CarA_Stunts.c`, `CarA_Suspension.c`),
