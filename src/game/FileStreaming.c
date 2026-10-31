@@ -455,7 +455,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
             }
         }
     }
-    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
+    ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
     Trigger_PauseTACSystem(paused);
     g_numQuadPacksInMemory = 0;
     for (i = 0; i < count; i++) {

@@ -10,8 +10,7 @@ extern u8 g_aSharedSlaveHolder[0x200];
 #define NUM_SHARED_SLAVE_HOLDERS 64
 
 /* Pushes a thing onto the front of a list. */
-void ThingManagerList_Append(void **arg0, void *arg1) {
-    ThingList *list = (ThingList *)arg0;
+void ThingManagerList_Append(ThingList *list, void *arg1) {
     Thing *thing = arg1;
 
     SETP(thing->next, GETP(*list));
@@ -23,8 +22,7 @@ void ThingManagerList_Append(void **arg0, void *arg1) {
 }
 
 /* Unlinks a thing from a list. */
-void ThingManagerList_Remove(void **arg0, void *arg1) {
-    ThingList *list = (ThingList *)arg0;
+void ThingManagerList_Remove(ThingList *list, void *arg1) {
     Thing *thing = arg1;
     Thing *prev;
     Thing *next;
@@ -47,14 +45,14 @@ void ThingManagerList_Remove(void **arg0, void *arg1) {
 static inline void ThingManager_Free(Thing *thing) {
     thing->flags &= ~THING_FLAG_RELEASED;
     thing->flags |= THING_FLAG_FREE;
-    ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
+    ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing);
 }
 
 /* The first thing of a type (THING_TYPE_*) in a list, or NULL. */
-void *ThingManagerList_GetByType(void *list, s32 type) {
+void *ThingManagerList_GetByType(ThingList *list, s32 type) {
     Thing *thing;
 
-    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = GETP(thing->next)) {
+    for (thing = GETP(*list); thing != NULL; thing = GETP(thing->next)) {
         if (thing->type == type) {
             return thing;
         }
@@ -62,10 +60,10 @@ void *ThingManagerList_GetByType(void *list, s32 type) {
     return NULL;
 }
 
-s32 ThingManagerList_Get(void *list, void *target) {
+s32 ThingManagerList_Get(ThingList *list, void *target) {
     Thing *thing;
 
-    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = GETP(thing->next)) {
+    for (thing = GETP(*list); thing != NULL; thing = GETP(thing->next)) {
         if (target == thing) {
             return 1;
         }
@@ -74,11 +72,11 @@ s32 ThingManagerList_Get(void *list, void *target) {
 }
 
 /* Releases and frees the slaves of a list with slaveTag `type`. */
-void ThingManagerList_ReleaseSlavesBySlaveType(void **list, u8 type) {
+void ThingManagerList_ReleaseSlavesBySlaveType(ThingList *list, u8 type) {
     Thing *thing;
     Thing *next;
 
-    thing = GETP(*(ThingList *)list);
+    thing = GETP(*list);
     while (thing != NULL) {
         next = GETP(thing->next);
         if (thing->slaveTag == type) {
@@ -91,16 +89,16 @@ void ThingManagerList_ReleaseSlavesBySlaveType(void **list, u8 type) {
 }
 
 /* Frees the released things of a list (and all their slaves). */
-void ThingManagerList_RemoveReleasedThings(void **list) {
+void ThingManagerList_RemoveReleasedThings(ThingList *list) {
     Thing *thing;
     Thing *next;
 
-    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = next) {
+    for (thing = GETP(*list); thing != NULL; thing = next) {
         next = GETP(thing->next);
         if (thing->flags & THING_FLAG_RELEASED) {
-            ThingManagerList_ReleaseAndRemoveAll((void **)&thing->slaves);
+            ThingManagerList_ReleaseAndRemoveAll(&thing->slaves);
             ThingManagerList_Remove(list, thing);
-            ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
+            ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing);
             thing->flags &= ~THING_FLAG_RELEASED;
             thing->flags |= THING_FLAG_FREE;
         }
@@ -108,17 +106,17 @@ void ThingManagerList_RemoveReleasedThings(void **list) {
 }
 
 /* Releases every thing of a list and frees them with their slaves. */
-void ThingManagerList_ReleaseAndRemoveAll(void **list) {
+void ThingManagerList_ReleaseAndRemoveAll(ThingList *list) {
     Thing *thing;
     Thing *next;
 
     ThingManagerList_ReleaseAll(list);
-    for (thing = GETP(*(ThingList *)list); thing != NULL; thing = next) {
+    for (thing = GETP(*list); thing != NULL; thing = next) {
         next = GETP(thing->next);
         if ((thing->flags & THING_FLAG_RELEASED) != 0) {
-            ThingManagerList_ReleaseAndRemoveAll((void **)&thing->slaves);
+            ThingManagerList_ReleaseAndRemoveAll(&thing->slaves);
             ThingManagerList_Remove(list, thing);
-            ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
+            ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing);
             thing->flags &= ~THING_FLAG_RELEASED;
             thing->flags |= THING_FLAG_FREE;
         }
@@ -126,11 +124,11 @@ void ThingManagerList_ReleaseAndRemoveAll(void **list) {
 }
 
 /* Calls Release on every thing of a list (they stay in it, flagged). */
-void ThingManagerList_ReleaseAll(void **list) {
+void ThingManagerList_ReleaseAll(ThingList *list) {
     Thing *thing;
     Thing *next;
 
-    thing = GETP(*(ThingList *)list);
+    thing = GETP(*list);
     while (thing != NULL) {
         next = GETP(thing->next);
         THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
@@ -140,18 +138,18 @@ void ThingManagerList_ReleaseAll(void **list) {
 
 /* Detaches the slaves tagged 0xEF from a list into the active list as
  * independent things, at their world transform (`mtx` is their master's). */
-void ThingManagerList_EmancipateSlaves(void *mtx, void **list) {
+void ThingManagerList_EmancipateSlaves(void *mtx, ThingList *list) {
     extern u8 g_itemVTable[];
     Matrix4 out;
     Thing *thing;
     Thing *next;
 
-    thing = GETP(*(ThingList *)list);
+    thing = GETP(*list);
     while (thing != NULL) {
         next = GETP(thing->next);
         if (thing->slaveTag == 0xEF) {
             if (GETP(thing->prev) == NULL) {
-                SETP(*(ThingList *)list, GETP(thing->next));
+                SETP(*list, GETP(thing->next));
             } else {
                 SETP(GETP(thing->prev)->next, GETP(thing->next));
             }
@@ -192,7 +190,7 @@ void SharedSlaveHolder_Release(void) {
                 next = GETP(thing->next);
                 THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             }
-            ThingManagerList_RemoveReleasedThings((void **)&holder->slaves);
+            ThingManagerList_RemoveReleasedThings(&holder->slaves);
             SETP(holder->key, NULL);
         }
         i++;
@@ -254,7 +252,7 @@ void Thing_DrawSharedSlaves(u8 *arg, u32 *triggers) {
 /* Runs a slave trigger for `list` (a thing's slaves): creates the slave it
  * describes (a, b, c: position, orientation, velocity), tagged with
  * `player`; type 10 sets up shared slaves, 99 releases the matching slaves. */
-void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player) {
+void ThingManagerList_TriggerSlaves(ThingList *list, struct SlaveTrigger *trigger, Vector4 *a, Vector4 *b, Vector4 *c, u32 player) {
     extern Vector4 g_zeroVector;
     extern void *g_pSourcePlayer;
     struct { Vector4 a; PTR32(void) data; u8 flag; } p3 __attribute__((aligned(16)));
@@ -376,7 +374,7 @@ void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, V
     case 99:
         id = trigger->id;
         pl = player;
-        for (thing = GETP(*(ThingList *)list); thing != NULL; thing = GETP(thing->next)) {
+        for (thing = GETP(*list); thing != NULL; thing = GETP(thing->next)) {
             if (thing->slaveBone == id && thing->slaveTag == pl) {
                 THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
             }
@@ -386,25 +384,25 @@ void ThingManagerList_TriggerSlaves(void **list, struct SlaveTrigger *trigger, V
 
     if (slave != NULL) {
         slave->slaveTag = player;
-        SETP(slave->next, GETP(*(ThingList *)list));
+        SETP(slave->next, GETP(*list));
         SETP(slave->prev, NULL);
         if (GETP(slave->next) != NULL) {
             SETP(GETP(slave->next)->prev, slave);
         }
-        SETP(*(ThingList *)list, slave);
+        SETP(*list, slave);
     }
 }
 
 /* Frees the slaves of `list` tagged `player`, then runs all the triggers of
  * `slaves` (a SlaveList) for it. */
-void ThingManagerList_InitAllSlavesNow(void *list, void *slaves, u8 player) {
+void ThingManagerList_InitAllSlavesNow(ThingList *list, void *slaves, u8 player) {
     extern Vector4 g_zeroVector;
     SlaveList *sl = slaves;
     u32 i;
     Thing *next;
     Thing *thing;
 
-    thing = GETP(*(ThingList *)list);
+    thing = GETP(*list);
     while (thing != NULL) {
         next = GETP(thing->next);
         if (thing->slaveTag == player) {
@@ -432,7 +430,7 @@ void ThingManagerList_InitAllSlavesNow(void *list, void *slaves, u8 player) {
         SETP(thing->prev, NULL);                                                \
         SETP(thing->next, NULL);                                                \
         thing->type = (t);                                                      \
-        ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing); \
+        ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing); \
     }
 
 /* Empties the lists and puts every slot of every pool on the free lists. */
@@ -470,7 +468,7 @@ void ThingManager_DARYL_CreateMain(void) {
         SETP(thing->prev, NULL);
         SETP(thing->next, NULL);
         thing->type = THING_TYPE_PROJECTILE;
-        ThingManagerList_Append((void **)&g_thingManager_DARYL.freeList[thing->type], thing);
+        ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing);
     }
     THINGPOOL_INIT(eventSeqs, 192, g_eventSeqVTable, THING_TYPE_EVENT_SEQ);
     THINGPOOL_INIT(emitters, 160, g_emitterVTable, THING_TYPE_EMITTER);
@@ -524,8 +522,8 @@ void ThingManager_DARYL_Init(void) {
 void ThingManager_DARYL_Release(void) {
 
     SharedSlaveHolder_Release();
-    ThingManagerList_ReleaseAndRemoveAll((void **)&g_thingManager_DARYL.activeList);
-    ThingManagerList_ReleaseAndRemoveAll((void **)&g_thingManager_DARYL.activeList);
+    ThingManagerList_ReleaseAndRemoveAll(&g_thingManager_DARYL.activeList);
+    ThingManagerList_ReleaseAndRemoveAll(&g_thingManager_DARYL.activeList);
     ThingManager_DARYL_CreateMain();
 }
 
@@ -543,7 +541,7 @@ void ThingManager_MoveLookerOnly(void) {
             THING_VFN(thing, THING_V_MOVE, void (*)(Thing *))(thing);
         }
     }
-    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
+    ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
 }
 
 void ThingManager_DARYL_Heartbeat(void) {
@@ -1168,7 +1166,7 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             }
         }
     }
-    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
+    ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
 }
 
 /* Draws the visible things in view, with their slaves. */
@@ -1688,7 +1686,7 @@ void ThingManager_Invalidate(u32 start, u32 end) {
             Thing_Release(seq);
         }
     }
-    ThingManagerList_RemoveReleasedThings((void **)&g_thingManager_DARYL.activeList);
+    ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
 }
 
 

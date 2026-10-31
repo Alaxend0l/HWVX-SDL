@@ -30,7 +30,7 @@ void Pod_Release(void *arg0) {
 s32 Pod_Move(u8 *pod) {
     typedef struct {
         u8 pad0[0x94];
-        u16 counts[7];
+        u16 counts[8];              /* 0x94 creatures collected, by type; 0xA4 "changed" */
     } PodPlayer;
     extern Matrix4 g_identity;
     u8 *creature;

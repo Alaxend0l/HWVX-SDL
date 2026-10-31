@@ -87,7 +87,9 @@ static inline void CarA_UpdateDamageSlaves(CarA *car) {
         for (i = 0; i < set->count; i++) {
             Vector4 color = {0.0f, 0.0f, 0.0f, 0.0f};
 
-            if (&GETP(set->slaves)[i] != NULL && frac < GETP(set->slaves)[i].threshold) {
+            /* the original tests slaves + i != NULL; spelled out, as compilers
+             * may assume &a[i] is never NULL */
+            if ((GETP(set->slaves) != NULL || i != 0) && frac < GETP(set->slaves)[i].threshold) {
                 ThingManagerList_TriggerSlaves(&ms->slaves, &GETP(set->slaves)[i], &GETP(set->slaves)[i], &color, &g_zeroVector, 2);
             }
         }

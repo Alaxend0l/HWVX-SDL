@@ -118,7 +118,7 @@ void MotionState_ReleaseSlavesByType(s32 state, u8 tag) {
         next = GETP(thing->next);
         if (thing->slaveTag == tag) {
             THING_VFN(thing, THING_V_RELEASE, void (*)(Thing *))(thing);
-            ThingManagerList_Remove((void **)&ms->slaves, thing);
+            ThingManagerList_Remove(&ms->slaves, thing);
             thing->flags &= ~0x200000;
             thing->flags |= 0x1000;
             ThingManagerList_Append(&g_thingManager_DARYL.freeList[thing->type], thing);
@@ -596,7 +596,7 @@ void MotionState_MoveSlaves(void *state, Matrix4 *matrix, Vector4 *vel) {
         }
         slave = next;
     }
-    ThingManagerList_RemoveReleasedThings((void **)&ms->slaves);
+    ThingManagerList_RemoveReleasedThings(&ms->slaves);
 }
 
 /* Draw the slaves at their bones (times the matrix handle arg1, unless it
@@ -733,7 +733,7 @@ void Motion_HeartbeatB2(void *state, Vector4 *vel) {
             }
         }
     }
-    ThingManagerList_RemoveReleasedThings((void **)&ms->slaves);
+    ThingManagerList_RemoveReleasedThings(&ms->slaves);
 }
 
 void MotionState_Heartbeat(void *state, void *arg1, void *thing) {

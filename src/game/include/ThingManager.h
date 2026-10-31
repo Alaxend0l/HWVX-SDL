@@ -9,46 +9,9 @@
 
 #include <stddef.h>
 
-/* Thing.type: the pool / free list a thing belongs to, and the type passed to
- * ThingManager_DARYL_CreateThing. */
-enum {
-    THING_TYPE_PROJECTILE = 0,
-    THING_TYPE_EVENT_SEQ = 1,       /* params: DebrisParams */
-    THING_TYPE_EMITTER = 2,         /* params: EmitterParams */
-    THING_TYPE_DESTRUCTIBLE = 3,    /* params: DestructibleParams */
-    THING_TYPE_ITEM = 4,            /* params: ItemParams */
-    THING_TYPE_ATTACH = 5,
-    THING_TYPE_DEBRIS = 6,
-    THING_TYPE_CREATURE = 7,
-    THING_TYPE_WILDCARD_RACK = 8,
-    THING_TYPE_CAR = 9,             /* params: CarParams */
-    THING_TYPE_PHYSICAL_OBJECT = 10, /* params: DestructibleParams */
-    THING_TYPE_LOOKER = 11,
-    THING_TYPE_TRACER = 12,
-    THING_TYPE_POD = 13,
-    THING_TYPE_DRONE = 14,
-    THING_TYPE_MOTION = 15,
-    THING_TYPE_SOUND_SEQ = 16,
-    THING_TYPE_RADAR_BLIP = 17,
-    THING_NUM_TYPES = 18,
-};
+/* THING_TYPE_* and THING_FLAG_* are in Thing.h. */
 
-/* Thing.flags bits the manager uses (not yet in Thing.h). */
-enum {
-    THING_FLAG_DEAD = 0x2,              /* ignored by collision and rays */
-    THING_FLAG_DYNAMIC = 0x4,           /* moved and collided by the subtick loop */
-    THING_FLAG_MOVED = 0x80,            /* position changed this frame */
-    THING_FLAG_HIDDEN = 0x200,          /* not drawn */
-    THING_FLAG_FREE = 0x1000,           /* in a free list */
-    THING_FLAG_IN_COLLISION_PASS = 0x8000,
-    THING_FLAG_PUSHED = 0x10000,        /* keep pushVel this frame */
-    THING_FLAG_RELEASED = 0x200000,     /* freed at the end of the frame */
-    THING_FLAG_SLAVE = 0x20000000,      /* created by ThingManager_DARYL_CreateSlave */
-};
 
-/* A thing list: the 4-byte slot holding its first thing (things are linked
- * through Thing.prev/next). The list functions take its address. */
-typedef PTR32(Thing) ThingList;
 
 /* Pool slots: a Thing followed by the kind's fields, at the original size. */
 #define THING_SLOT(size) struct { Thing thing; u8 pad[(size) - sizeof(Thing)]; }

@@ -3,7 +3,7 @@
 
 
 
-/* Pickup by a plain thing (type 11): only wildcards, into its rack slave. */
+/* Pickup by a looker: only wildcards, into its rack slave. */
 static inline s8 Thing_ProcessItemPickup(Thing *thing, ItemThing *item) {
     void *rack;
     u8 *spawner;
@@ -68,9 +68,9 @@ void Thing_Release(void *arg) {
     }
     SETP(thing->gridObject, NULL);
     /* the slaves are released with their master, keeping its transform */
-    ThingManagerList_EmancipateSlaves(THING_MTX(thing), (void **)&thing->slaves);
-    ThingManagerList_ReleaseAll((void **)&thing->slaves);
-    ThingManagerList_RemoveReleasedThings((void **)&thing->slaves);
+    ThingManagerList_EmancipateSlaves(THING_MTX(thing), &thing->slaves);
+    ThingManagerList_ReleaseAll(&thing->slaves);
+    ThingManagerList_RemoveReleasedThings(&thing->slaves);
     player = GETP(thing->player);
     if (player != NULL && GETP(((Player *)player)->vehicle) == thing) {
         Player_DetachThingDeath(player);
@@ -779,7 +779,7 @@ static void Teleporter_SpawnDebris(Teleporter *tp) {
     params.unk48 = 0.0f;
     params.unk4C = 0.0f;
     params.angVel = g_zeroVector;
-    ThingManager_DARYL_CreateThing(1, &params);
+    ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
 }
 
 /* After a teleport an AI car must find its path again. */
@@ -990,7 +990,7 @@ void Thing_MoveSlaves(Thing *thing) {
             }
         }
     }
-    ThingManagerList_RemoveReleasedThings((void **)&thing->slaves);
+    ThingManagerList_RemoveReleasedThings(&thing->slaves);
 }
 
 void Thing_InitAllSlavesNow(s32 arg0, void *data, s32 mask) {
@@ -1199,13 +1199,13 @@ void Thing_CollideWithItems(Thing *thing) {
         if (PSVECSquareDistance(&thing->pos, &item->base.pos) < item->pickupRadiusSq) {
             picked = 0;
             switch (thing->type) {
-            case 7:
+            case THING_TYPE_CREATURE:
                 picked = Creature_ProcessItemPickup(thing, item);
                 break;
-            case 9:
+            case THING_TYPE_CAR:
                 picked = CarA_ProcessItemPickup(thing, item);
                 break;
-            case 11:
+            case THING_TYPE_LOOKER:
                 picked = Thing_ProcessItemPickup(thing, item);
                 break;
             }
@@ -1220,7 +1220,7 @@ void Thing_CollideWithItems(Thing *thing) {
                 params.unk4C = 0.0f;
                 params.owner = 0;
                 params.angVel = g_zeroVector;
-                ThingManager_DARYL_CreateThing(1, &params);
+                ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
             }
             return;
         }
@@ -1264,7 +1264,7 @@ void Thing_ProcessEndEvent(Thing *thing, u8 *event, CollisionInfo *collision, Ve
                 }
             }
         }
-        ThingManager_DARYL_CreateThing(1, &params);
+        ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
     }
 }
 

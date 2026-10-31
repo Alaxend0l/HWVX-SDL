@@ -13,13 +13,49 @@
 
 #include <stddef.h>
 
-/* Thing.flags bits whose meaning is known. */
+/* Thing.flags bits whose meaning is known. Several others are used with a
+ * kind-specific meaning (0x4000 for instance); those stay numeric. */
 enum {
-    THING_FLAG_AT_REST        = 0x8,      /* not simulated; matrix/bounds are current */
-    THING_FLAG_IN_FORCE_BOX   = 0x400,    /* Thing_CollideWithForceBoxes */
-    THING_FLAG_IN_TELEPORTER  = 0x800,    /* Thing_CollideWithTeleporters */
-    THING_FLAG_NO_OBJECT_HITS = 0x20000,  /* skip things in the zero-time tests */
-    THING_FLAG_NO_TERRAIN_HITS = 0x40000, /* skip the terrain in the zero-time tests */
+    THING_FLAG_DEAD           = 0x2,        /* ignored by collision and rays */
+    THING_FLAG_DYNAMIC        = 0x4,        /* moved and collided by the subtick loop */
+    THING_FLAG_AT_REST        = 0x8,        /* not simulated; matrix/bounds are current */
+    THING_FLAG_MOVED          = 0x80,       /* position changed this frame */
+    THING_FLAG_HIDDEN         = 0x200,      /* not drawn (or collided) */
+    THING_FLAG_IN_FORCE_BOX   = 0x400,      /* Thing_CollideWithForceBoxes */
+    THING_FLAG_IN_TELEPORTER  = 0x800,      /* Thing_CollideWithTeleporters */
+    THING_FLAG_FREE           = 0x1000,     /* in a free list */
+    THING_FLAG_IN_COLLISION_PASS = 0x8000,
+    THING_FLAG_PUSHED         = 0x10000,    /* keep pushVel this frame */
+    THING_FLAG_NO_OBJECT_HITS = 0x20000,    /* skip things in the zero-time tests */
+    THING_FLAG_NO_TERRAIN_HITS = 0x40000,   /* skip the terrain in the zero-time tests */
+    THING_FLAG_PUSHABLE       = 0x100000,   /* physical objects: can be pushed */
+    THING_FLAG_RELEASED       = 0x200000,   /* freed at the end of the frame */
+    THING_FLAG_NO_DEATH_TIMER = 0x10000000, /* destructibles: never released when dead */
+    THING_FLAG_SLAVE          = 0x20000000, /* created by ThingManager_DARYL_CreateSlave */
+};
+
+/* Thing.type: the pool / free list a thing belongs to, and the type passed to
+ * ThingManager_DARYL_CreateThing. */
+enum {
+    THING_TYPE_PROJECTILE = 0,
+    THING_TYPE_EVENT_SEQ = 1,       /* params: DebrisParams */
+    THING_TYPE_EMITTER = 2,         /* params: EmitterParams */
+    THING_TYPE_DESTRUCTIBLE = 3,    /* params: DestructibleParams */
+    THING_TYPE_ITEM = 4,            /* params: ItemParams */
+    THING_TYPE_ATTACH = 5,
+    THING_TYPE_DEBRIS = 6,
+    THING_TYPE_CREATURE = 7,
+    THING_TYPE_WILDCARD_RACK = 8,
+    THING_TYPE_CAR = 9,             /* params: CarParams */
+    THING_TYPE_PHYSICAL_OBJECT = 10, /* params: DestructibleParams */
+    THING_TYPE_LOOKER = 11,
+    THING_TYPE_TRACER = 12,
+    THING_TYPE_POD = 13,
+    THING_TYPE_DRONE = 14,
+    THING_TYPE_MOTION = 15,
+    THING_TYPE_SOUND_SEQ = 16,
+    THING_TYPE_RADAR_BLIP = 17,
+    THING_NUM_TYPES = 18,
 };
 
 /* Thing.collisionType */
@@ -29,6 +65,10 @@ enum {
     THING_COLLIDE_RAY = 3,      /* others are tested against its CollideWithRay */
     THING_COLLIDE_SPHERES = 6,  /* sphere list from Thing_GetLocalCollision */
 };
+
+/* A thing list: the 4-byte slot holding its first thing; the things are
+ * linked through Thing.prev/next. ThingManagerList_* take its address. */
+typedef PTR32(struct Thing) ThingList;
 
 typedef struct Thing {
     Vector4 vel;                       /* 0x00 linear velocity */
@@ -49,11 +89,12 @@ typedef struct Thing {
     u8 slaveBone;                      /* 0x82 slave: bone of the master it follows */
     u8 slaveTag;                       /* 0x83 slave: group (MotionState_ReleaseSlavesByType) */
     PTR32(void) gridObject;            /* 0x84 Grid_* handle, or 0 */
-    PTR32(struct Thing) slaves;        /* 0x88 first attached slave thing */
+    ThingList slaves;                  /* 0x88 attached slave things */
     PTR32(u32) vtable;                 /* 0x8C ThingVSlot-indexed handles */
     PTR32(void) trigger;               /* 0x90 kind-specific: trigger / spawn slot */
     PTR32(void) player;                /* 0x94 owning Player, if any */
-    u8 pad98[8];                       /* 0x98 */
+    u32 lightIndex;                    /* 0x98 into g_ThingLightingData, -1: none */
+    u8 pad9C[4];                       /* 0x9C */
     PTR32(struct Thing) prev;          /* 0xA0 list links (ThingManagerList_*) */
     PTR32(struct Thing) next;          /* 0xA4 */
     u32 type;                          /* 0xA8 index into the free lists */
@@ -81,14 +122,16 @@ THING_ASSERT_OFFSET(slaves, 0x88);
 THING_ASSERT_OFFSET(vtable, 0x8C);
 THING_ASSERT_OFFSET(trigger, 0x90);
 THING_ASSERT_OFFSET(player, 0x94);
+THING_ASSERT_OFFSET(lightIndex, 0x98);
 THING_ASSERT_OFFSET(prev, 0xA0);
 THING_ASSERT_OFFSET(next, 0xA4);
 THING_ASSERT_OFFSET(type, 0xA8);
 _Static_assert(sizeof(Thing) == 0xAC, "Thing size");
 #undef THING_ASSERT_OFFSET
 
-/* ThingManager_DARYL_CreateThing(1, ...) parameters: a debris effect
- * (sparks, explosions, pickup flashes). */
+/* ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, ...) parameters: an
+ * event sequence (sparks, explosions, pickup flashes...) played at a spot.
+ * `debris` is the sequence description. */
 typedef struct DebrisParams {
     Vector4 pos;                       /* 0x00 */
     Vector4 quat;                      /* 0x10 */

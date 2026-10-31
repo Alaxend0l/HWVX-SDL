@@ -25,18 +25,18 @@ static inline s8 LightManager_AddThing(CarA *thing, u32 numSteps) {
     static u32 offsetCount;
 
     if (g_numThingsToLight >= 0x400) {
-        THING_LIGHT_INDEX(thing) = -1;
+        ((Thing *)(thing))->lightIndex = -1;
         return 0;
     }
-    if (THING_LIGHT_INDEX(thing) < g_numThingsToLight && GETP(g_ThingLightingData[THING_LIGHT_INDEX(thing)].thing) == thing) {
-        g_ThingLightingData[THING_LIGHT_INDEX(thing)].dirty = 1;
+    if (((Thing *)(thing))->lightIndex < g_numThingsToLight && GETP(g_ThingLightingData[((Thing *)(thing))->lightIndex].thing) == thing) {
+        g_ThingLightingData[((Thing *)(thing))->lightIndex].dirty = 1;
         return 1;
     }
     SETP(g_ThingLightingData[g_numThingsToLight].thing, thing);
     g_ThingLightingData[g_numThingsToLight].numSteps = numSteps;
     g_ThingLightingData[g_numThingsToLight].step = offsetCount % numSteps;
     g_ThingLightingData[g_numThingsToLight].dirty = 1;
-    THING_LIGHT_INDEX(thing) = g_numThingsToLight;
+    ((Thing *)(thing))->lightIndex = g_numThingsToLight;
     g_numThingsToLight++;
     offsetCount += 5;
     if (offsetCount == 0xFFFFFFFF) {
@@ -135,7 +135,7 @@ void LightManager_LightThing(CarA *thing) {
     }
     *(u32 *)&ambient = 0;
     *(u32 *)&parallel = 0;
-    if (THING_LIGHT_INDEX(thing) >= g_numThingsToLight || GETP(g_ThingLightingData[THING_LIGHT_INDEX(thing)].thing) != thing) {
+    if (((Thing *)(thing))->lightIndex >= g_numThingsToLight || GETP(g_ThingLightingData[((Thing *)(thing))->lightIndex].thing) != thing) {
         if ((u8 *)GETP(thing->base.vtable) == g_carAVTable) {
             tracked = LightManager_AddThing(thing, 10);
         } else {
@@ -144,7 +144,7 @@ void LightManager_LightThing(CarA *thing) {
         isNew = 1;
     }
     if (tracked) {
-        data = &g_ThingLightingData[THING_LIGHT_INDEX(thing)];
+        data = &g_ThingLightingData[((Thing *)(thing))->lightIndex];
     }
     if (isNew || data->dirty || data->step == data->numSteps) {
         cell = VolumeManager_GetVolumeCellIndex(&thing->base.pos);

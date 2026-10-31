@@ -28,7 +28,7 @@ typedef struct MotionState {
   u8 pad05[7];                   /* 0x05 */
   f32 time;                      /* 0x0C */
   PTR32(Matrix4) animMatrices;   /* 0x10 */
-  PTR32(Thing) slaves;           /* 0x14 attached slave things (Thing.next list) */
+  ThingList slaves;              /* 0x14 attached slave things */
   PTR32(MotionAnim) prevAnim;    /* 0x18 the animation blended from */
   u8 prevMode;                   /* 0x1C */
   u8 pad1D[3];                   /* 0x1D */
@@ -555,9 +555,5 @@ _Static_assert(sizeof(CarA) == 0x5A0, "CarA size");
 
 /* The car's driver: Thing.player as a Player *. */
 #define CARA_PLAYER(car) ((Player *)GETP((car)->base.player))
-
-/* Thing + 0x98: the thing's slot in g_ThingLightingData (LightManager.c),
- * -1: none. Thing.h still has it as pad98. */
-#define THING_LIGHT_INDEX(thing) (*(u32 *)((Thing *)(thing))->pad98)
 
 #endif /* CARA_H */
