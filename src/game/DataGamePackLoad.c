@@ -1,3 +1,4 @@
+#include "DataGamePackLoad.h"
 #include "common.h"
 #include "Voice.h"
 #include "Port_Swap.h"
@@ -84,16 +85,19 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     }
     toc = &g_fileTOCCache[type];
     tocName = toc->name;
+    FileTOCHeader* header = &g_buffer;
     if (tocName == NULL || strcmp(tocName, name) != 0) {
         File_Read(g_fileID, 0x800, g_buffer);
         PortSwap_TOC(g_buffer, 0x800 / 4);  /* port: the file is big-endian */
-        if (g_buffer[0] != 0x020100A0 || g_buffer[1] != 0x040100AE) {
+        if (header->magic1 != ARCHIVE_MAGIC_1 || header->magic2 != ARCHIVE_MAGIC_2) {
+            Port_Log("Magic mismatch on pack %s!", tocName);
             File_Close(g_fileID);
             g_fileID = -1;
             g_openFileDataPackType = 0xB;
             return 0;
         }
-        if (g_buffer[2] != 0xB7) {
+        if (header->version != ARCHIVE_VERSION) {
+            Port_Log("Version mismatch on pack %s!", tocName);
             char msg[0x80];
             File_Close(g_fileID);
             g_fileID = -1;
@@ -102,7 +106,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             Dprintf(msg);
             return 0;
         }
-        g_fileTOCCache[type].count = g_buffer[3];
+        g_fileTOCCache[type].count = header->directoryCount;
+        // What is g_buffer[4]??
+        Port_Log("Copying %d TOC entries to TOC cache.", g_fileTOCCache[type].count);
         memcpy(toc, &g_buffer[4], g_fileTOCCache[type].count * sizeof(FileTOCEntry));
         if (strlen(name) >= 0x4C) {
             strncpy(tocName, name, 0x4C);
@@ -114,6 +120,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     for (i = 0; i < toc->count; i++) {
         if (type == toc->entries[i].type && id == toc->entries[i].id) {
             if (toc->entries[i].version != 0xB7) {
+                Port_Log("DataPack %d has a version mismatch!", id);
                 char msg[0x80];
                 sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, toc->entries[i].version, 0xB7);
                 Dprintf(msg);
@@ -143,7 +150,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         g_portSwapPackName = label;
         Port_Log("Set port swap pack label: %s", label);
     }
-    Port_Log("data pack %s: type %u id %u", name, type, id);
+    Port_Log("Loading datapack from archive %s: type %u id %u", name, type, id);
     DataPack_LoadDataPack(g_fileID, PTR(arg1));
     g_portSwapPackType = -1;
     return 1;
@@ -194,23 +201,30 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     u32 packID;
     u32 idx;
 
+    Port_Log("Zeroing %ld bytes of pack", sizeof(DataPack));
     memset(pack, 0, sizeof(DataPack));
+    Port_Log("Reading DataPack file header");
     File_Read(file, sizeof(DataPackFileHeader), &header);
+    Port_Log("Byteswapping data of pack header");
     PortSwap_PackHeader((u32 *)&header, 20, 2, sizeof(DataPackRef));  /* port */
     pack->numRelocs = header.numRelocs;
     pack->numSoundRelocs = header.numSoundRelocs;
     pack->numTextures = header.numTextures;
     pack->numSounds = header.numSounds;
+    Port_Log("Reloc count: %d\nSound reloc count: %d\nTexture count: %d\nSound count: %d", header.numRelocs, header.numSoundRelocs, header.numTextures, header.numSounds);
     SETP(pack->palettes, (void *)PTR(header.palettes));
     pack->numShaders = header.numShaders;
     pack->numGX = header.numGX;
     pack->numTriggers = header.numTriggers;
     pack->songLoaded = 0;
     pack->dataSize = header.dataSize;
+    Port_Log("Shader count: %d\nGX count: %d\nTrigger count: %d\nData size %d", header.numShaders, header.numGX, header.numTriggers, header.dataSize);
     memcpy(pack->refs, header.refs, sizeof(header.refs));
     size = header.numRelocs * 8 + (pack->numSounds + pack->numTextures) * 2 + pack->numShaders * 2 + header.numGX * 8 + header.numSoundRelocs * 8 + header.dataSize + 0x60;
     relocSize = header.numTexRelocs * 8 + header.numPointers * 4;
     size += relocSize;
+    Port_Log("Reloc size: %d", relocSize);
+    Port_Log("Full DataPack size: %d", size);
     alloc = Allocate(size, 0, "");
     if (alloc == NULL) {
         return;
@@ -241,6 +255,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             u32 *slot = (u32 *)(GETP(pack->soundBase) + ((u32 *)data)[i]);
             *slot = BE32(*slot);
         }
+        Port_Log("Updating sound pointers");
         UpdatePointers((u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
         SETP(pack->sfxData, (u8 *)((u8 *)GETP(pack->soundBase) + header.sfxOffset));
         if (header.songOffset != 0 || (header.soundDataSize != 0 && header.numSoundRelocs == 0)) {
@@ -287,6 +302,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     SETP(pack->shaderIDs, (u16 *)(alloc + offset));
     offset += pack->numShaders * 2;
     tablesSize = (header.numRelocs + header.numGX + header.numSoundRelocs) * 8;
+    Port_Log("Tables size: %d", tablesSize);
     pad = -tablesSize & 0x1F;
     data = alloc + offset;
     data = (u8 *)PTR((((u32)HND(data) + 0x3F) & ~0x3F));
@@ -317,10 +333,12 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     pointers = reloc + header.numTexRelocs * 2;
     for (i = 0; i < header.numTexRelocs; i++) {
         packID = reloc[1] & 0xFFFF0000;
+        Port_Log("Pack ID for linking: %d", packID);
         if (packID != 0) {
             packID >>= 16;
             idx = pack->refs[0].id != packID;
             if (GETP(pack->refs[idx].pack) == NULL) {
+                Port_Log("Linking ref %d with pack %d", idx, packID);
                 SETP(pack->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&pack->refs[idx], 8, packID, 0), 8, 1));
             }
             *(u32 *)(GETP(pack->orderedList) + reloc[0]) = ((u32 *)GETP(GETP(pack->refs[idx].pack)->orderedList))[reloc[1] & 0xFFFF];
