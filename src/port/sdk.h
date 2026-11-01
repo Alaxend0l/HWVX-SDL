@@ -380,8 +380,12 @@ void Port_SRand(unsigned int seed);
 
 /* ---- CodeWarrior PowerPC intrinsics -------------------------------------- */
 
-static inline f64 __fabs(f64 x) { return fabs(x); }
-static inline f32 __fabsf(f32 x) { return fabsf(x); }
+/* glibc declares its own __fabs/__fabsf in <math.h> (included above), so
+ * these get port names and the CodeWarrior ones map onto them. */
+static inline f64 Port_Fabs(f64 x) { return fabs(x); }
+static inline f32 Port_Fabsf(f32 x) { return fabsf(x); }
+#define __fabs Port_Fabs
+#define __fabsf Port_Fabsf
 static inline int __abs(int x) { return x < 0 ? -x : x; }
 /* frsqrte is a ~5-bit estimate the game refines with Newton steps; exact is fine. */
 static inline f64 __frsqrte(f64 x) { return 1.0 / sqrt(x); }
