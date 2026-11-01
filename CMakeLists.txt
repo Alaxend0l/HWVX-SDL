@@ -48,6 +48,9 @@ target_compile_options(hwvx PRIVATE
     -Werror=return-type
     -no-pie)
 
+target_link_options(hwvx PRIVATE
+    -no-pie)
+
 # Game sources stay close to the decomp; don't drown real issues in its style.
 set_source_files_properties(${GAME_SOURCES} PROPERTIES COMPILE_OPTIONS
     "-Wno-unused-value;-Wno-maybe-uninitialized;-Wno-sign-compare;-Wno-incompatible-pointer-types")
@@ -69,6 +72,6 @@ endif()
 
 option(HWVX_SAN "Build with AddressSanitizer/UBSan" OFF)
 if(HWVX_SAN)
-    target_compile_options(hwvx PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
+    target_compile_options(hwvx PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g -O0 -no-pie)
     target_link_options(hwvx PRIVATE -fsanitize=address,undefined)
 endif()
