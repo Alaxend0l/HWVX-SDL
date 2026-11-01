@@ -501,10 +501,10 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     grp = &GETP(geometry->groups)[group];
     vb = GETP(geometry->lodDistances);
     dl = GETP(grp->displayList);
-    if (grp->unk18 == 0) {
-        Render_SetTextureHandle(grp->unk1A);
+    if (grp->textureOverride == 0) {
+        Render_SetTextureHandle(grp->texture);
     } else {
-        Render_SetTextureHandle(grp->unk18);
+        Render_SetTextureHandle(grp->textureOverride);
     }
     g_debugTriCount += grp->dlSize;
     if ((g_state.flags & 0x10) || (g_state.flags & 0x40000)) {
@@ -592,10 +592,10 @@ void Render_DrawAlphaGroup(u16 index) {
     ag = &g_pGDL->alphaGroups[index];
     vb = GETP(GETP(ag->geometry)->lodDistances);
     grp = &GETP(GETP(ag->geometry)->groups)[g_pGDL->alphaGroups[index].group];
-    if (grp->unk18 == 0) {
-        Render_SetTextureHandle(grp->unk1A);
+    if (grp->textureOverride == 0) {
+        Render_SetTextureHandle(grp->texture);
     } else {
-        Render_SetTextureHandle(grp->unk18);
+        Render_SetTextureHandle(grp->textureOverride);
     }
     if (!g_onebitflag && m_texture[m_curTexture].unk38 == 4 && grp->unk14 == 5) {
         Gfx_SetWorldMatrix(NULL);

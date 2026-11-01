@@ -295,6 +295,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         u8 *blob = data + tablesSize + pad;
         u32 *texRelocs = (u32 *)(blob + header.dataSize);
 
+        g_portSwapNumTextureRelocs = header.numRelocs;
         PortSwap_PackData(data, tablesSize / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
                           texRelocs + header.numTexRelocs * 2, header.numPointers,
                           header.textureDataOffset, header.numTextures,
@@ -451,7 +452,7 @@ void DataPack_RefreshQuadPackPtrs(DataPack *pack, QuadPack *quad)
             {
                 texID = GETP(pack->textureIDs)[id];
             }
-            *(u32 *)(base + reloc[0]) = texID;
+            PortSwap_StoreTextureID(base, reloc[0], texID);   /* port: was *(u32 *)(base + reloc[0]) = texID */
             reloc += 2;
         }
         for (i = 0; i < header->numShaders; i++)
@@ -501,7 +502,7 @@ void DataPack_RefreshTextures(DataPack *pack) {
         } else {
             texID = GETP(pack->textureIDs)[id];
         }
-        *(u32 *)(base + GETP(pack->relocs)[i * 2]) = texID;
+        PortSwap_StoreTextureID(base, GETP(pack->relocs)[i * 2], texID);   /* port: was a u32 store */
     }
 }
 
