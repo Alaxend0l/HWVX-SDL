@@ -1,5 +1,6 @@
 /* Wider selection strips: the world, car and weapon select screens show
- * 4 windows on each side of the big one instead of 2, for wide screens. Port-only file.
+ * NEW_SIDE windows on each side of the big one instead of 2, for wide
+ * screens. Port-only file.
  *
  * The screens are data (HW_IPack.xgc) and share one layout. Variable D
  * (const, -1..1) is the direction the strip is sliding, 0 at rest. Objects
@@ -17,45 +18,44 @@
  *
  * Port_CarouselPatch (from Port_MenuPatch) recognises such a header and
  * gives it copies of its objects, variables and records with the windows
- * added: at rest, slots -4..4; sliding, the pieces for slots out to -5 and 5
- * (the old off-screen entry points become slots -3 and 3). New objects go at
+ * added: at rest, slots -NEW_SIDE..NEW_SIDE; sliding, the pieces for slots
+ * one further out (the old off-screen entry points become slots -3 and 3). New objects go at
  * the end, so object indices in actions stay valid. The extra slots continue
  * the outer spacing and lie beyond the 4:3 screen: at 16:9 the third on each
- * side shows, at 21:9 all four. Copies live in a static pool; the pack data
- * they point to stays where it is. */
+ * side shows, at 21:9 the fourth. Copies live in static arenas, one per
+ * widened screen; the pack data they point to stays where it is. */
 #include "common.h"
 #include "Interface.h"
 
 #define NEW_SIDE 5              /* windows on each side at rest */
 #define MAX_VARS 30             /* Interface.vars */
-#define MAX_OBJS 160
-#define MAX_PATCHED 8
+#define MAX_OBJS 200
+#define MAX_PATCHED 10
+#define ARENA_SIZE (96 * 1024)
 
+/* A widened screen: its header and the copies, in an arena of its own. The
+ * copies are dead once the header no longer points at them (the pack was
+ * released, or loaded again: after a race the menus come from a fresh load),
+ * and the arena is reused. */
 typedef struct Patched {
-    InterfaceHeader *header;
-    u32 objects;                /* the pack's objects (handle), to tell a reload */
-    u32 vars;
-    u32 numObjects;
+    InterfaceHeader *header;    /* NULL: arena free */
     IfaceObjectDef *newObjects;
-    IfaceVarList *newVars;
-    u32 newNumObjects;
 } Patched;
 
 static Patched s_patched[MAX_PATCHED];
-static u32 s_numPatched;
-
-static u8 s_pool[256 * 1024] __attribute__((aligned(16)));
-static u32 s_poolUsed;
+static u8 s_arenas[MAX_PATCHED][ARENA_SIZE] __attribute__((aligned(16)));
+static u8 *s_arena;             /* the one being filled */
+static u32 s_arenaUsed;
 
 static void *Alloc(u32 size) {
     void *p;
 
     size = (size + 15) & ~15u;
-    if (s_poolUsed + size > sizeof(s_pool)) {
+    if (s_arenaUsed + size > ARENA_SIZE) {
         return NULL;
     }
-    p = &s_pool[s_poolUsed];
-    s_poolUsed += size;
+    p = &s_arena[s_arenaUsed];
+    s_arenaUsed += size;
     memset(p, 0, size);
     return p;
 }
@@ -86,6 +86,7 @@ typedef struct Strip {
     InterfaceHeader *h;
     IfaceObjectDef *objs;       /* the copy being built */
     u32 numObjs;
+    u32 maxObjs;
     IfaceVar *vars;             /* the copy being built */
     u32 numVars;
     u32 dirVar;                 /* D */
@@ -390,7 +391,7 @@ static int SetSlotVars(Strip *s, IfaceObjectDef *d, s32 k) {
 static IfaceObjectDef *AddObject(Strip *s, const IfaceObjectDef *from) {
     IfaceObjectDef *d;
 
-    if (s->numObjs >= MAX_OBJS) {
+    if (s->numObjs >= s->maxObjs) {
         return NULL;
     }
     d = &s->objs[s->numObjs++];
@@ -506,7 +507,7 @@ static int Recognise(Strip *s) {
     f32 xs[8];
     u32 n = 0, i, j;
 
-    if (vl == NULL || objs == NULL || vl->count > MAX_VARS || s->h->numObjects + 48 > MAX_OBJS) {
+    if (vl == NULL || objs == NULL || vl->count > MAX_VARS || s->h->numObjects + 16 * (NEW_SIDE + 1) > MAX_OBJS) {
         return 0;
     }
     for (i = 0; i < vl->count; i++) {
@@ -568,60 +569,61 @@ static int Recognise(Strip *s) {
            (s->lockVar < 0 || (u32)s->lockVar < vl->count);
 }
 
+static int Live(const Patched *p) {
+    return p->header != NULL && p->header->objects.h == HND(p->newObjects);
+}
+
 void Port_CarouselPatch(InterfaceHeader *h) {
     Strip s;
-    Patched *p;
+    Patched *p = NULL;
     IfaceVarList *vl;
-    u32 i, orig, used;
+    u32 i, orig, room;
 
-    for (i = 0; i < s_numPatched; i++) {
-        p = &s_patched[i];
-        if (p->header == h && h->objects.h == HND(p->newObjects)) {
+    for (i = 0; i < MAX_PATCHED; i++) {
+        if (s_patched[i].header == h && Live(&s_patched[i])) {
             return;   /* already ours */
-        }
-        if (p->header == h && h->objects.h == p->objects && h->vars.h == p->vars &&
-            h->numObjects == p->numObjects) {
-            SETP(h->objects, p->newObjects);   /* the same pack data again */
-            SETP(h->vars, p->newVars);
-            h->numObjects = p->newNumObjects;
-            return;
         }
     }
     memset(&s, 0, sizeof(s));
     s.h = h;
-    if (!Recognise(&s) || s_numPatched == MAX_PATCHED) {
+    if (!Recognise(&s)) {
         return;
     }
-    used = s_poolUsed;
+    for (i = 0; i < MAX_PATCHED && p == NULL; i++) {
+        if (!Live(&s_patched[i])) {
+            p = &s_patched[i];
+        }
+    }
+    if (p == NULL) {
+        Port_Log("carousel: header %u not widened (all %d arenas in use)", h->id, MAX_PATCHED);
+        return;
+    }
+    p->header = NULL;
+    s_arena = s_arenas[p - s_patched];
+    s_arenaUsed = 0;
     orig = h->numObjects;
+    room = orig + 16 * (NEW_SIDE + 1) < MAX_OBJS ? orig + 16 * (NEW_SIDE + 1) : MAX_OBJS;
     vl = Copy(GETP(h->vars), sizeof(IfaceVarList));
     s.vars = Alloc(MAX_VARS * sizeof(IfaceVar));
-    s.objs = Alloc(MAX_OBJS * sizeof(IfaceObjectDef));
+    s.objs = Alloc(room * sizeof(IfaceObjectDef));
     if (vl == NULL || s.vars == NULL || s.objs == NULL) {
-        s_poolUsed = used;
         return;
     }
+    s.maxObjs = room;
     memcpy(s.objs, GETP(h->objects), orig * sizeof(IfaceObjectDef));
     memcpy(s.vars, GETP(GETP(h->vars)->vars), vl->count * sizeof(IfaceVar));
     s.numVars = vl->count;
     if (!AddRest(&s, orig) || !AddSlide(&s, orig, 1) || !AddSlide(&s, orig, -1)) {
         Port_Log("carousel: header %u not widened (out of room)", h->id);
-        s_poolUsed = used;
         return;
     }
+    Port_Log("carousel: header %u: %u -> %u objects, %u -> %u variables (%u bytes)", h->id, orig, s.numObjs,
+             vl->count, s.numVars, s_arenaUsed);
     vl->count = s.numVars;
     SETP(vl->vars, s.vars);
-    p = &s_patched[s_numPatched++];
     p->header = h;
-    p->objects = h->objects.h;
-    p->vars = h->vars.h;
-    p->numObjects = h->numObjects;
     p->newObjects = s.objs;
-    p->newVars = vl;
-    p->newNumObjects = s.numObjs;
     SETP(h->objects, s.objs);
     SETP(h->vars, vl);
     h->numObjects = s.numObjs;
-    Port_Log("carousel: header %u: %u -> %u objects, %u -> %u variables", h->id, orig, s.numObjs,
-             ((IfaceVarList *)PTR(p->vars))->count, s.numVars);
 }
