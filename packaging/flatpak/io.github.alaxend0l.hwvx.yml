@@ -8,10 +8,12 @@ runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: hwvx
-# flatpak-builder runs `appstreamcli compose` on the build host, and in the
-# CI container its image loaders can't read the icon (icon-file-read-error).
-# A bundle doesn't need the composed catalogue: the desktop file, icons and
-# metainfo are still installed and exported. (Flathub composes on its own.)
+# flatpak-builder checks and composes icons with the build host's image
+# loaders, and in the CI container those don't read SVG (icon-file-read-error,
+# "not a valid icon"): the Flatpak ships the PNG icon only (cleanup below).
+# The composed AppStream catalogue is skipped too; a bundle doesn't need it,
+# and the desktop file, icon and metainfo are still exported. (Flathub
+# composes on its own.)
 appstream-compose: false
 finish-args:
   - --share=ipc
@@ -42,6 +44,8 @@ modules:
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    cleanup:
+      - /share/icons/hicolor/scalable   # PNG only (see appstream-compose above)
     sources:
       - type: dir
         path: ../..
