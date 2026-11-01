@@ -109,8 +109,13 @@ typedef struct GeometryGroup {
     };
     u16 unk14;                  /* 0x14 */
     u8 pad16[2];                /* 0x16 */
-    u16 unk18;                  /* 0x18 */
-    u16 unk1A;                  /* 0x1A */
+    /* The texture relocation stores the id zero-extended as a big-endian
+     * u32 over 0x18-0x1B, i.e. into `texture` with the override 0 (the port
+     * keeps that layout: PortSwap_StoreTextureID). ShaderHolder_Heartbeat
+     * writes the override (animated and movie textures); Render_Draw*Group
+     * uses it when set, and it is the opaque/lit/alpha sort bucket key. */
+    u16 textureOverride;        /* 0x18 0: use `texture` */
+    u16 texture;                /* 0x1A */
     union {
         PTR32(void) displayList; /* 0x1C */
         PTR32(__typeof__(u16[3])) tris; /* triangles (Gfx_DisplayList.c) */

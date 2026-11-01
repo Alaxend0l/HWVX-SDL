@@ -934,7 +934,7 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
             DisplayList_AddGeometryAlphaGroup(geom, i, matrix, flag, color);
         } else if (!(flags & 0x40)) {
             if ((flags & 4) || (flags & 0x10)) {
-                group = DisplayList_AddGroup_Lit(GETP(geom->groups)[i].unk18);
+                group = DisplayList_AddGroup_Lit(GETP(geom->groups)[i].textureOverride);
                 if (group != NULL) {
                     SETP(group->geometry, geom);
                     group->group = i;
@@ -955,7 +955,7 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
                     group->window = g_currentWindow;
                 }
             } else {
-                group = DisplayList_AddGroup_Opaque(GETP(geom->groups)[i].unk18);
+                group = DisplayList_AddGroup_Opaque(GETP(geom->groups)[i].textureOverride);
                 if (group != NULL) {
                     SETP(group->geometry, geom);
                     group->group = i;

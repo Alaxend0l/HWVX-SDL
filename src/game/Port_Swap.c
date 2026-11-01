@@ -35,6 +35,7 @@ typedef struct Swapper {
 
 s32 g_portSwapPackType = -1;
 const char *g_portSwapPackName;
+u32 g_portSwapNumTextureRelocs;
 
 void PortSwap_TOC(u32 *buf, u32 bufWords) {
     u32 n, i;
@@ -293,6 +294,7 @@ static void Claim_MCP(Swapper *s, u32 off) {
     }
     steps = Target(s, off + 0x24);
     if (steps != ~0u) {
+        ClaimBytes(s, steps, 4);  /* u8 bRandom (TitleScreen_RunDemoLoop) + padding */
         Claim_ProgScript(s, Target(s, steps + 8));
     }
     /* control bindings: numBindings 0x3C, 0x40 -> table -> slot -> binding
@@ -368,7 +370,7 @@ static void Claim_KeyTrack(Swapper *s, u32 track, u32 stride, u32 bytesAt) {
     }
 }
 
-/* Font (InterfaceManager_AddFont): u32 0x0, u8 0x8-0xB, count 0x20,
+/* Font (InterfaceManager_AddFont): u32 0x0, u8 0x8-0xB, size keys 0x18, count 0x20,
  * spacing 0x24 (0xC each: u8 char, f32, f32), f32 0x28. */
 static void Claim_Font(Swapper *s, u32 off) {
     u32 sp, n, i;
@@ -377,6 +379,7 @@ static void Claim_Font(Swapper *s, u32 off) {
         return;
     }
     ClaimBytes(s, off + 8, 4);
+    Claim_KeyTrack(s, off + 0x18, 0x20, 0x10);   /* text size keys, Vector4 (InterfaceManager_MoveObject) */
     sp = Target(s, off + 0x24);
     n = Word(s, off + 0x20);
     for (i = 0; sp != ~0u && i < n && i < 0x200; i++) {
@@ -808,6 +811,7 @@ static void Claim_CameraList(Swapper *s, u32 off) {
  * (u8 type, takesDamage 0x10), shared slaves 0x18 (count, list). */
 static void Claim_SlaveList(Swapper *s, u32 off);
 static void Claim_MotionAnim(Swapper *s, u32 off);
+static void Claim_Surface(Swapper *s, u32 surf);
 static void Claim_ThingRecord(Swapper *s, u32 rec) {
     u32 info;
 
@@ -822,6 +826,7 @@ static void Claim_ThingRecord(Swapper *s, u32 rec) {
     info = Target(s, rec + 0x10);
     if (info != ~0u) {
         ClaimBytes(s, info + 0x10, 2);
+        Claim_Surface(s, Target(s, info + 0x30));
     }
     Claim_SlaveList(s, rec + 0x18);
 }
@@ -924,13 +929,24 @@ static void Claim_BSPN0(Swapper *s, u32 root) {
     free(stack);
 }
 
+/* A surface (terrain materials, colliders' material 0x30): u8 type 0x0
+ * (1: no skids, 2: own skid texture), u16 skidTexture 0x2, f32 grip 0x14,
+ * restitution 0x18 (CarA_ComputeSuspensionForces, CarA_DynamicCollideImpact). */
+static void Claim_Surface(Swapper *s, u32 surf) {
+    if (surf != ~0u) {
+        ClaimBytes(s, surf, 2);
+        ClaimU16(s, surf + 2);
+    }
+}
+
 /* Collision pack (type 5; CollisionTerrain.c), at the base: TerrainGrid
  * { origin, cells 0x20 (0x50 each), size 0x28-0x30, numX/Y/Z 0x34-0x3C,
  * cell index 0x40 (s32 per grid cell) }, then polys 0x4C, mode 0x58 (1:
  * BSP), edges 0x54, materials 0x5C.  A cell has BSP nodes 0x30 (0x20 each:
  * plane, u32 material, u16 front 0x14, u16 back 0x16; 0xFFFF ends), poly
- * indices 0x38 (u32, count 0x3C) and edge indices 0x44 (u16, count 0x40). */
-static void Claim_CollisionBSP(Swapper *s, u32 nodes) {
+ * indices 0x38 (u32, count 0x3C) and edge indices 0x44 (u16, count 0x40).
+ * Materials 0x5C: surface pointers (u8 type, u16 skidTexture at 0x2). */
+static void Claim_CollisionBSP(Swapper *s, u32 nodes, u32 *maxMaterial) {
     u32 *stack, sp = 0, cap = 64;
 
     stack = malloc(cap * sizeof(u32));
@@ -946,6 +962,9 @@ static void Claim_CollisionBSP(Swapper *s, u32 nodes) {
         }
         ClaimU16(s, node + 0x14);
         ClaimU16(s, node + 0x16);
+        if (Word(s, node + 0x10) + 1 > *maxMaterial && Word(s, node + 0x10) < 0x1000) {
+            *maxMaterial = Word(s, node + 0x10) + 1;
+        }
         if (sp + 2 > cap) {
             u32 *grown = realloc(stack, (cap *= 2) * sizeof(u32));
             if (grown == NULL) {
@@ -966,6 +985,8 @@ static void Claim_CollisionBSP(Swapper *s, u32 nodes) {
 
 static void Claim_Collision(Swapper *s) {
     u32 cells = Target(s, 0x20), index = Target(s, 0x40), numCells = 0, total, i, j;
+    u32 polys = Target(s, 0x4C), allEdges = Target(s, 0x54), materials = Target(s, 0x5C);
+    u32 numMaterials = 0, m;
 
     total = Word(s, 0x34) * Word(s, 0x38) * Word(s, 0x3C);
     for (i = 0; index != ~0u && i < total && i < 0x100000; i++) {
@@ -976,12 +997,31 @@ static void Claim_Collision(Swapper *s) {
     }
     for (i = 0; cells != ~0u && i < numCells; i++) {
         u32 cell = cells + i * 0x50, nodes = Target(s, cell + 0x30), edges = Target(s, cell + 0x44);
+        u32 cellPolys = Target(s, cell + 0x38);
         if (nodes != ~0u) {
-            Claim_CollisionBSP(s, nodes);
+            Claim_CollisionBSP(s, nodes, &numMaterials);
         }
         for (j = 0; edges != ~0u && j < Word(s, cell + 0x40) && j < 0x10000; j++) {
             ClaimU16(s, edges + j * 2);
+            if (allEdges != ~0u) {
+                m = Word(s, allEdges + Port_ReadBE16(s->base + edges + j * 2) * 0x30 + 0x24);
+                if (m + 1 > numMaterials && m < 0x1000) {
+                    numMaterials = m + 1;
+                }
+            }
         }
+        for (j = 0; cellPolys != ~0u && polys != ~0u && j < Word(s, cell + 0x3C) && j < 0x10000; j++) {
+            m = Word(s, polys + Word(s, cellPolys + j * 4) * 0x20 + 0x1C);
+            if (m + 1 > numMaterials && m < 0x1000) {
+                numMaterials = m + 1;
+            }
+        }
+    }
+    /* materials 0x5C -> surface pointers, indexed by the node/poly/edge
+     * material fields: u8 type 0x0 (1: no skids, 2: own skid texture),
+     * u16 skidTexture 0x2 (CarA_ComputeSuspensionForces) */
+    for (i = 0; materials != ~0u && i < numMaterials; i++) {
+        Claim_Surface(s, Target(s, materials + i * 4));
     }
 }
 
@@ -1030,7 +1070,8 @@ static void Claim_VolumeShapeScan(Swapper *s, const u32 *pointers, u32 numPointe
  * State: { info (0x0), u32 numChildren (0x4), children (0x8, 0xC each) }.
  * Info (AI_Car_DetermineTarget): u8 type, subtype, sortMode, pad, pad, unk5,
  * limited, pad (0x0-0x7); f32 ranges 0x14-0x28; s32 timers 0x38-0x4C;
- * limits 0x58 -> { s32 x4, u8 mode 0x10, u8 compare 0x11 }; u32 thing id 0x5C. */
+ * 0x58 by subtype: 1 -> AILocalStats { u8 x3, u16 0x6 }, 3 -> AITargetLimits
+ * { s32 x4, u8 mode 0x10, u8 compare 0x11 }; u32 thing id 0x5C. */
 static void Claim_AIState(Swapper *s, u32 st, int depth) {
     u32 info, limits, children, n, i;
 
@@ -1040,9 +1081,19 @@ static void Claim_AIState(Swapper *s, u32 st, int depth) {
     info = Target(s, st);
     if (info != ~0u) {
         ClaimBytes(s, info, 8);
+        /* 0x58 is a union by subtype (u8 at 0x1, still big-endian here) */
         limits = Target(s, info + 0x58);
         if (limits != ~0u) {
-            ClaimBytes(s, limits + 0x10, 4);
+            switch ((Word(s, info) >> 16) & 0xFF) {
+            case 1:     /* AI_SUBTYPE_LOCAL_STATS: u8 health, grip, weapons
+                           (0x0-0x2), u16 weaponCount 0x6 (AI_Car_CheckLocalStats) */
+                ClaimBytes(s, limits, 6);
+                ClaimU16(s, limits + 0x6);
+                break;
+            case 3:     /* AI_SUBTYPE_TARGET_LIMITS: u8 mode, compare 0x10 */
+                ClaimBytes(s, limits + 0x10, 4);
+                break;
+            }
         }
     }
     children = Target(s, st + 0x8);
@@ -1061,6 +1112,7 @@ static void Claim_AIScript(Swapper *s, u32 script) {
 }
 
 static void Claim_Emitter(Swapper *s, u32 off);
+static void Claim_LightDef(Swapper *s, u32 d);
 static void Claim_World(Swapper *s, u32 off) {
     u32 list, n, i, k;
 
@@ -1156,6 +1208,24 @@ static void Claim_World(Swapper *s, u32 off) {
         ClaimBytes(s, Target(s, list + i * 8 + 4), 4);
     }
     Claim_VolumeHolder(s, Target(s, off + 4));
+    /* tile lights 0x38/0x3C (0x20 each: desc 0x10 -> LightHolderDef) */
+    list = Target(s, off + 0x3C);
+    n = Word(s, off + 0x38);
+    for (i = 0; list != ~0u && i < n && i < 0x400; i++) {
+        Claim_LightDef(s, Target(s, list + i * 0x20 + 0x10));
+    }
+    /* volumes 0x68/0x6C (0x30 each): light volumes (u32 type 0xC == 6) point
+     * at 0x2C to a Light { u8 r, g, b 0x10-0x13, s32 index 0x14, u8 type 0x18,
+     * s8 subtract 0x19 } (LightManager_Initialize, LightManager_LightThing) */
+    list = Target(s, off + 0x6C);
+    n = Word(s, off + 0x68);
+    for (i = 0; list != ~0u && i < n && i < 0x1000; i++) {
+        u32 light = Target(s, list + i * 0x30 + 0x2C);
+        if (Word(s, list + i * 0x30 + 0xC) == 6 && light != ~0u) {
+            ClaimBytes(s, light + 0x10, 4);
+            ClaimBytes(s, light + 0x18, 4);
+        }
+    }
     {
         u32 gd = Target(s, off + 0x9C);
         if (gd != ~0u) {
@@ -1221,6 +1291,18 @@ static void Claim_LineDef(Swapper *s, u32 d) {
     Claim_Track(s, d + 0x14, KEYS_COLOR);
 }
 
+/* LightHolderDef (LightHolder.c): u8 enabled, pointLight, unk2, overlayMode
+ * 0x0-0x3; u32 life 0x4/0x8; radius keys 0xC (f32), colour keys 0x14.
+ * Reached from world tile lights, event sequences (type 8) and projectiles. */
+static void Claim_LightDef(Swapper *s, u32 d) {
+    if (d == ~0u || s->claim[d] == CLAIM_BYTES) {
+        return;
+    }
+    ClaimBytes(s, d, 4);
+    Claim_Track(s, d + 0xC, KEYS_F32);
+    Claim_Track(s, d + 0x14, KEYS_COLOR);
+}
+
 /* Emitter (Emitter.c, EmitterData): u8 unk0, pickMode, limited, pad;
  * s32 count 0x4, delays 0x8/0xC; f32 range 0x10, speedScale 0x14; fx ids
  * 0x18/0x1C (u32); sound sequence 0x20 (SoundSeq_Init, thing type 0x10). */
@@ -1278,14 +1360,15 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
             if (Word(s, e) == 2 && a != ~0u && s->claim[a] != CLAIM_BYTES) {
                 /* projectile (Projectile.c): u8 0x3-0x5, 0x8; scale keys 0x8C,
                  * colour keys 0x94; slaves 0x9C (Projectile_Init:
-                 * Thing_InitAllSlavesNow); smart target u16s 0xA8 */
+                 * Thing_InitAllSlavesNow); smart params 0xA8 (u8 x2, s16) */
                 u32 tgt = Target(s, a + 0xA8);
                 ClaimBytes(s, a, 0xC);
                 Claim_Track(s, a + 0x8C, KEYS_VEC4);
                 Claim_Track(s, a + 0x94, KEYS_COLOR);
                 Claim_SlaveList(s, a + 0x9C);
-                if (tgt != ~0u) {
-                    ClaimU16(s, tgt);
+                Claim_LightDef(s, Target(s, a + 0x68));   /* light 0x68 (Projectile_Init) */
+                if (tgt != ~0u) {   /* SmartProjParams: u8 0x0, invertZ 0x1; s16 delay 0x2 */
+                    ClaimBytes(s, tgt, 2);
                     ClaimU16(s, tgt + 2);
                 }
             }
@@ -1338,6 +1421,7 @@ static void Claim_EventSeq(Swapper *s, u32 script) {
                 case 6:   /* a destructible record (Destructible_Init) */
                     Claim_ThingRecord(s, a);
                     break;
+                case 8: Claim_LightDef(s, a); break;   /* LightHolder_Add */
                 case 10: ClaimBytes(s, a, 4); break;
                 case 26: Claim_SoundSeq(s, a); break;
                 }
@@ -1643,6 +1727,7 @@ static void Claim_CarAInfo(Swapper *s, u32 off) {
     p = Target(s, off + 0xA0);
     if (p != ~0u) {
         ClaimBytes(s, p + 0x10, 4);
+        Claim_Surface(s, Target(s, p + 0x30));   /* what other cars' wheels hit */
     }
     p = Target(s, off + 0xA4);
     if (p != ~0u) {
@@ -1839,8 +1924,8 @@ static void Claim_Geometry(Swapper *s, u32 g) {
             ClaimBytes(s, g2 + 4, 4);
             ClaimU16(s, g2 + 0x14);
             ClaimU16(s, g2 + 0x16);
-            ClaimU16(s, g2 + 0x18);   /* no-ops where a texture slot sits */
-            ClaimU16(s, g2 + 0x1A);
+            ClaimU16(s, g2 + 0x18);   /* textureOverride, texture: texture-id */
+            ClaimU16(s, g2 + 0x1A);   /* relocations here get PORT_TEXRELOC_U16 */
             if (uv != ~0u) {
                 ClaimBytes(s, uv + 8, 4);
             }
@@ -2059,6 +2144,19 @@ static void Swapper_MarkSlots(Swapper *s, const u32 *offs, u32 count, u32 stride
     }
 }
 
+/* Texture-id relocations into u16 pairs: flag them (PORT_TEXRELOC_U16) so
+ * the store matches the original's big-endian layout. */
+static void Swapper_FlagTextureSlots(Swapper *s, u32 *relocs, u32 count) {
+    u32 i, off;
+
+    for (i = 0; i < count; i++) {
+        off = relocs[i * 2];
+        if (InBlob(s, off, 4) && s->claim[off] == CLAIM_U16 && s->claim[off + 2] == CLAIM_U16) {
+            relocs[i * 2] = off | PORT_TEXRELOC_U16;
+        }
+    }
+}
+
 /* Swap everything by its claim; unclaimed words get the 32-bit default. */
 static void Swapper_Finish(Swapper *s, const char *name) {
     u32 i;
@@ -2119,6 +2217,7 @@ void PortSwap_PackData(u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataS
     Claim_Shaders(&s, shaderOffset, numShaders);
     Claim_LODDistances(&s, pointers, numPointers);
     Claim_StringTargets(&s, pointers, numPointers);
+    Swapper_FlagTextureSlots(&s, (u32 *)relocTables, g_portSwapNumTextureRelocs);
     Swapper_Finish(&s, g_portSwapPackName);
 }
 
@@ -2167,11 +2266,13 @@ void PortSwap_QuadPack(u8 *data, u32 size, u32 index) {
     Swapper_Init(&s, data + offset, size - offset, 7);
     Swapper_MarkSlots(&s, pointers, nPointers, 1);
     Swapper_MarkSlots(&s, texRelocs, nTexRelocs, 2);
-    Swapper_MarkSlots(&s, relocs, nRelocs, 2);
+    /* texture-id slots (relocs) are overwritten at load: left to the
+     * geometry claims, so u16-pair slots can be flagged below */
     Claim_GeometryScan(&s, pointers, nPointers);
     Claim_GeometryScanRelocs(&s, texRelocs, nTexRelocs);
     Claim_LODDistances(&s, pointers, nPointers);
     Claim_StringTargets(&s, pointers, nPointers);
+    Swapper_FlagTextureSlots(&s, relocs, nRelocs);
     snprintf(name, sizeof(name), "quad#%u", index);
     Swapper_Finish(&s, name);
 }

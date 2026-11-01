@@ -700,7 +700,8 @@ typedef struct {
 } Step;
 /* MCP demo settings (MCP.demo). */
 typedef struct MCPDemo {
-  u8 pad0[4];               /* 0x00 */
+  u8 bRandom;               /* 0x00 attract demos in random order (TitleScreen_RunDemoLoop) */
+  u8 pad1[3];               /* 0x01 */
   u32 time;                 /* 0x04 ms the attract demo / rounds last */
   PTR32(ProgScript) script; /* 0x08 */
 } MCPDemo;

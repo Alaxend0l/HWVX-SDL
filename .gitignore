@@ -2,6 +2,7 @@
 build/
 build-*/
 orig/
+gc-emu/
 
 # Prerequisites
 *.d
