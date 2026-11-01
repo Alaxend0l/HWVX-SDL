@@ -341,9 +341,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
                 Port_Log("Linking ref %d with pack %d", idx, packID);
                 SETP(pack->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&pack->refs[idx], 8, packID, 0), 8, 1));
             }
-            *(u32 *)(GETP(pack->orderedList) + reloc[0]) = ((u32 *)GETP(GETP(pack->refs[idx].pack)->orderedList))[reloc[1] & 0xFFFF];
+            *(u32 *)((u8 *)GETP(pack->orderedList) + reloc[0]) = ((u32 *)GETP(GETP(pack->refs[idx].pack)->orderedList))[reloc[1] & 0xFFFF];
         } else {
-            *(u32 *)(GETP(pack->orderedList) + reloc[0]) += (u32)HND(GETP(pack->orderedList));
+            *(u32 *)((u8 *)GETP(pack->orderedList) + reloc[0]) += (u32)HND(GETP(pack->orderedList));
         }
         reloc += 2;
     }

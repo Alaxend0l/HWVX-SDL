@@ -788,7 +788,10 @@ void TEST_AnimTraverseHeirarchyToMatricesWorld(Vector4 *quat, void *pos0, void *
                     frames = &((AnimBone *)frames)[((AnimBone *)frames)->next];
                 }
             }
-        } else {
+        } else if (i + 1 < skel) {
+            /* port: the original also pops after the last bone (a leaf with
+             * no sibling left), reading below posStack/rotStack; the values
+             * are never used, so that pop is skipped */
             pos = *--posSp;
             rotSp -= bone->pop + 1;
             rot = *rotSp++;
