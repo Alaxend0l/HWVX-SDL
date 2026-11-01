@@ -545,6 +545,7 @@ void Port_MenuPatch(InterfaceHeader *h) {
     if (h == NULL) {
         return;
     }
+    Port_CarouselPatch(h);   /* world, car and weapon select: more windows */
     if (h == &s_gfx) {
         RefreshModes();
         return;
