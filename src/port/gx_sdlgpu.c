@@ -105,7 +105,7 @@ static SDL_GPUCommandBuffer *Cmd(void) {
 
 /* ---- setup --------------------------------------------------------------- */
 
-static void GPU_Open(void) {
+static int GPU_Open(void) {
     SDL_WindowFlags flags = 0;
     int debug = SDL_getenv("HWVX_GPUDEBUG") != NULL;
 
@@ -114,17 +114,30 @@ static void GPU_Open(void) {
     } else if (SDL_strcmp(g_port.gpuDriver, "metal") == 0) {
         flags = SDL_WINDOW_METAL;
     }
-    Port_CreateWindow(flags);
+    /* Any of these can fail where the API is missing or has no usable driver
+     * (a Vulkan loader without a GPU driver fails the window already): then
+     * report 0 for main_sdl.c to fall back to OpenGL. */
+    if (!SDL_GPUSupportsShaderFormats(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
+                                      g_port.gpuDriver) ||
+        !Port_TryCreateWindow(flags)) {
+        Port_Log("The %s renderer is unavailable: %s", g_port.gpuDriver, SDL_GetError());
+        return 0;
+    }
     s.dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
                                 debug, g_port.gpuDriver);
-    if (s.dev == NULL) {
-        Port_Fatal("The %s renderer is unavailable: %s\n\nTry --renderer opengl.", g_port.gpuDriver, SDL_GetError());
-    }
-    if (!SDL_ClaimWindowForGPUDevice(s.dev, g_port.window)) {
-        Port_Fatal("SDL_ClaimWindowForGPUDevice failed: %s", SDL_GetError());
+    if (s.dev == NULL || !SDL_ClaimWindowForGPUDevice(s.dev, g_port.window)) {
+        Port_Log("The %s renderer is unavailable: %s", g_port.gpuDriver, SDL_GetError());
+        if (s.dev != NULL) {
+            SDL_DestroyGPUDevice(s.dev);
+            s.dev = NULL;
+        }
+        SDL_DestroyWindow(g_port.window);
+        g_port.window = NULL;
+        return 0;
     }
     s.swapFmt = SDL_GetGPUSwapchainTextureFormat(s.dev, g_port.window);
     Port_Log("SDL_GPU driver %s%s", SDL_GetGPUDeviceDriver(s.dev), debug ? " (debug)" : "");
+    return 1;
 }
 
 static SDL_GPUShader *Shader(const u8 *spv, size_t spvSize, const char *msl, const u8 *dxil, size_t dxilSize,

@@ -90,6 +90,11 @@ endif()
 
 # ---- platforms and packaging (see packaging/README.md) ---------------------
 
+# Renderer used without --renderer: opengl, vulkan, metal or d3d12. One that
+# fails to start falls back to OpenGL (except on Android, always vulkan).
+set(HWVX_DEFAULT_RENDERER "opengl" CACHE STRING "Default renderer")
+target_compile_definitions(hwvx PRIVATE HWVX_DEFAULT_RENDERER="${HWVX_DEFAULT_RENDERER}")
+
 if(WIN32)
     # A GUI program: no console window. Logs go to SDL's log output; errors
     # show in a message box (Port_Fatal).

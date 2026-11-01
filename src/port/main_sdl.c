@@ -55,6 +55,16 @@ static const struct {
     { "d3d12", &g_gxSDLGPU, "direct3d12" },
 };
 
+/* Without --renderer: Android has no desktop OpenGL; a build can pick
+ * another (CMake HWVX_DEFAULT_RENDERER, e.g. the Flatpak's vulkan). */
+#if defined(SDL_PLATFORM_ANDROID)
+static const char *const s_defaultRenderer = "vulkan";
+#elif defined(HWVX_DEFAULT_RENDERER)
+static const char *const s_defaultRenderer = HWVX_DEFAULT_RENDERER;
+#else
+static const char *const s_defaultRenderer = "opengl";
+#endif
+
 static int SetRenderer(const char *name) {
     size_t i;
 
@@ -73,8 +83,10 @@ static void ParseArgs(int argc, char **argv) {
 
     g_port.dataDir = NULL;   /* FindDataDir */
     g_port.scale = 2;
+    if (!SetRenderer(s_defaultRenderer)) {
+        SetRenderer("opengl");
+    }
 #ifdef SDL_PLATFORM_ANDROID
-    SetRenderer("vulkan");   /* no desktop OpenGL */
     g_port.fullscreen = 1;
 #endif
     for (i = 1; i < argc; i++) {
@@ -97,7 +109,8 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("  --data DIR       extracted disc files (default: the folder chosen last time,");
             SDL_Log("                   or files/ next to the program, or orig/files)");
             SDL_Log("  --window WxH     window size, any shape (default: 640x480 times --scale)");
-            SDL_Log("  --renderer NAME  opengl (default), vulkan, metal or d3d12");
+            SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
+            SDL_Log("                   one that fails to start falls back to opengl)");
             exit(1);
         }
     }
@@ -330,7 +343,7 @@ static void FindDataDir(void) {
     g_port.dataDir = dir;
 }
 
-void Port_CreateWindow(SDL_WindowFlags flags) {
+int Port_TryCreateWindow(SDL_WindowFlags flags) {
     flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (g_port.fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN;
@@ -338,12 +351,19 @@ void Port_CreateWindow(SDL_WindowFlags flags) {
     g_port.window = SDL_CreateWindow("Hot Wheels: Velocity X", g_port.winW ? g_port.winW : 640 * g_port.scale,
                                      g_port.winH ? g_port.winH : 480 * g_port.scale, flags);
     if (g_port.window == NULL) {
-        Port_Fatal("SDL_CreateWindow failed: %s", SDL_GetError());
+        return 0;
     }
     /* a saved resolution is the display mode when fullscreen */
     if (g_port.fullscreen && g_port.winW) {
         Port_GfxSetFullscreenMode(g_port.winW, g_port.winH);
         SDL_SetWindowFullscreen(g_port.window, true);
+    }
+    return 1;
+}
+
+void Port_CreateWindow(SDL_WindowFlags flags) {
+    if (!Port_TryCreateWindow(flags)) {
+        Port_Fatal("SDL_CreateWindow failed: %s", SDL_GetError());
     }
 }
 
@@ -434,7 +454,15 @@ int main(int argc, char **argv) {
     }
     FindDataDir();
     Port_InitHandles(PORT_ARENA_SIZE);
-    g_gxr->open();
+    if (!g_gxr->open()) {
+#ifdef SDL_PLATFORM_ANDROID
+        Port_Fatal("The %s renderer is unavailable: %s", g_port.gpuDriver, SDL_GetError());
+#else
+        Port_Log("falling back to the OpenGL renderer");
+        SetRenderer("opengl");
+        g_gxr->open();
+#endif
+    }
 
     OSInit();
     DVDInit();

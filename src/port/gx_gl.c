@@ -14,7 +14,7 @@ static struct {
     int uboValid;
 } s;
 
-static void GL_Open(void) {
+static int GL_Open(void) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -29,6 +29,7 @@ static void GL_Open(void) {
     SDL_GL_MakeCurrent(g_port.window, s.ctx);
     SDL_GL_SetSwapInterval(1);
     GL_Load();
+    return 1;
 }
 
 static void GL_Close(void) {

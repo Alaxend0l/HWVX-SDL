@@ -88,8 +88,9 @@ typedef struct GXDrawCall {
 typedef struct GXRenderer {
     const char *name;
     /* main_sdl.c: create the window (Port_CreateWindow) and the
-     * context/device; close destroys the context/device. */
-    void (*open)(void);
+     * context/device; close destroys the context/device. 0: unavailable,
+     * with nothing left open (main_sdl.c then falls back to OpenGL). */
+    int (*open)(void);
     void (*close)(void);
     /* GXInit: create the EFB (efbW x efbH pixels) and pipeline objects. */
     void (*init)(int efbW, int efbH);
