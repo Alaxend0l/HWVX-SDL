@@ -5,15 +5,12 @@
  * interprets them every AX frame.
  *
  * Threads: the game's AX frame callback is game code, so it must run under the
- * giant lock. A dedicated AX thread runs callback + mixer and queues each
- * frame on an SDL audio stream, keeping at most RING_FRAMES queued; the
- * stream's device callback only wakes the AX thread and never touches game
- * state. Without an output device the thread paces itself on the clock, so
+ * giant lock, which it takes like an interrupt handler (Port_InterruptLock).
+ * A dedicated AX thread runs callback + mixer and queues the frames on an SDL
+ * audio stream, keeping up to RING_FRAMES queued; the stream's device callback
+ * only wakes the AX thread and never touches game state. Without an output device the thread paces itself on the clock, so
  * the game's sound timing still runs. */
 #include "port_internal.h"
-
-void Port_GiantLock(void);
-void Port_GiantUnlock(void);
 
 #define AX_RATE 48000
 /* AX processes 160 samples per frame: 5 ms at 32 kHz, 3.33 ms at the 48 kHz
@@ -24,7 +21,7 @@ void Port_GiantUnlock(void);
 #define AX_MAX_VOICES 64
 #define ARAM_SIZE (16u << 20)
 #define ARAM_BASE 0x4000u /* the SDK reserves the first 16 KB for the DSP */
-#define RING_FRAMES (AX_FRAME_SAMPLES * 12) /* samples: 40 ms */
+#define RING_FRAMES (AX_FRAME_SAMPLES * 16) /* samples: 53 ms */
 
 static u8 *s_aram;
 static AXVPB s_vpbs[AX_MAX_VOICES] __attribute__((aligned(32)));
@@ -258,16 +255,25 @@ static void RunAXFrame(float *out) {
 }
 
 #define FRAME_BYTES ((int)sizeof(float) * AX_FRAME_SAMPLES * 2)
+#define RING_BYTES (RING_FRAMES * (int)sizeof(float) * 2)
+
+/* HWVX_AUDIOLOG=1: log device underruns and the longest wait for the lock */
+static int s_audioLog;
+static SDL_AtomicInt s_underruns;
 
 static int SDLCALL AXThread(void *unused) {
-    float frame[AX_FRAME_SAMPLES * 2];
+    static float frames[RING_FRAMES * 2];
     Uint64 next = SDL_GetTicksNS();
+    Uint64 logT0 = next, maxWait = 0;
+    int n, i;
     (void)unused;
 
     while (s_running) {
         if (s_stream != NULL) {
-            /* keep at most RING_FRAMES queued: wait for the device to drain */
-            if (SDL_GetAudioStreamQueued(s_stream) > (RING_FRAMES - AX_FRAME_SAMPLES) * (int)sizeof(float) * 2) {
+            /* top the queue up to RING_FRAMES: wait for the device to drain */
+            n = SDL_min((RING_BYTES - SDL_GetAudioStreamQueued(s_stream)) / FRAME_BYTES,
+                        RING_FRAMES / AX_FRAME_SAMPLES);
+            if (n <= 0) {
                 SDL_WaitSemaphoreTimeout(s_ringSpace, 5);
                 continue;
             }
@@ -278,12 +284,28 @@ static int SDLCALL AXThread(void *unused) {
                 SDL_DelayNS(next - now);
             }
             next += SDL_NS_PER_SECOND * AX_FRAME_SAMPLES / AX_RATE;
+            n = 1;
         }
-        Port_GiantLock();
-        RunAXFrame(frame);
-        Port_GiantUnlock();
+        /* Every frame that's due in one go: each lock handoff can wait for the
+         * game to reach an interrupt point. */
+        {
+            Uint64 t = SDL_GetTicksNS();
+            Port_InterruptLock();
+            t = SDL_GetTicksNS() - t;
+            maxWait = SDL_max(maxWait, t);
+        }
+        for (i = 0; i < n; i++) {
+            RunAXFrame(&frames[i * AX_FRAME_SAMPLES * 2]);
+        }
+        Port_InterruptUnlock();
         if (s_stream != NULL) {
-            SDL_PutAudioStreamData(s_stream, frame, FRAME_BYTES);
+            SDL_PutAudioStreamData(s_stream, frames, n * FRAME_BYTES);
+        }
+        if (s_audioLog && SDL_GetTicksNS() - logT0 >= 5 * SDL_NS_PER_SECOND) {
+            Port_Log("audio: %d underruns, longest lock wait %.1f ms",
+                     SDL_SetAtomicInt(&s_underruns, 0), maxWait / 1e6);
+            logT0 = SDL_GetTicksNS();
+            maxWait = 0;
         }
     }
     return 0;
@@ -294,8 +316,10 @@ static int SDLCALL AXThread(void *unused) {
 static void SDLCALL DeviceCallback(void *userdata, SDL_AudioStream *stream, int additional, int total) {
     (void)userdata;
     (void)stream;
-    (void)additional;
     (void)total;
+    if (additional > 0) {
+        SDL_AddAtomicInt(&s_underruns, 1);
+    }
     SDL_SignalSemaphore(s_ringSpace);
 }
 
@@ -308,6 +332,7 @@ void AXInit(void) {
     spec.format = SDL_AUDIO_F32;
     spec.channels = 2;
     spec.freq = AX_RATE;
+    s_audioLog = SDL_getenv("HWVX_AUDIOLOG") != NULL;
     s_ringSpace = SDL_CreateSemaphore(0);
     s_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, DeviceCallback, NULL);
     if (s_stream == NULL) {

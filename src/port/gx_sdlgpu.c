@@ -741,7 +741,13 @@ static void GPU_CopyDisp(const int src[4]) {
     Flush();
     cmd = Cmd();
     if (s.swapTex == NULL) {
-        if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH)) {
+        bool ok;
+
+        /* blocks for vsync: let the audio thread run meanwhile */
+        Port_InterruptWindowBegin();
+        ok = SDL_WaitAndAcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH);
+        Port_InterruptWindowEnd();
+        if (!ok) {
             Port_Log("SDL_WaitAndAcquireGPUSwapchainTexture failed: %s", SDL_GetError());
         }
         if (s.swapTex == NULL) {   /* minimized */

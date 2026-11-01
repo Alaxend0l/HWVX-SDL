@@ -350,7 +350,10 @@ static void GL_Present(void) {
      * window's own framebuffer: Apple's GL only shows the swapped image when
      * it is bound; Mesa doesn't care. Draws rebind the EFB themselves. */
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    /* blocks for vsync: let the audio thread run meanwhile */
+    Port_InterruptWindowBegin();
     SDL_GL_SwapWindow(g_port.window);
+    Port_InterruptWindowEnd();
 }
 
 const GXRenderer g_gxGL = {

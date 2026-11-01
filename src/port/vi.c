@@ -1,9 +1,6 @@
 /* VI (video interface): frame presentation, pacing and the SDL event pump. */
 #include "port_internal.h"
 
-void Port_GiantLock(void);
-void Port_GiantUnlock(void);
-
 static void (*s_postRetrace)(u32);
 static u32 s_retraceCount;
 static u64 s_nextFrameNS;
@@ -72,6 +69,7 @@ void VIWaitForRetrace(void) {
         s_nextFrameNS = now + FRAME_NS;
     }
     Port_GiantLock();
+    Port_InterruptPoint();
 
     s_retraceCount++;
     {   /* HWVX_FPSLOG=1: log the real frame rate and the game's frame delta */

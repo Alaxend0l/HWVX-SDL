@@ -172,6 +172,10 @@ void OSFreeToHeap(int heapId, void *ptr) {
 /* ---- init / report ----------------------------------------------------- */
 
 static SDL_Mutex *s_giant;
+static SDL_Condition *s_interruptDone;
+static SDL_AtomicInt s_interruptPending;
+static SDL_Condition *s_windowClosed;
+static int s_interruptWindow;  /* see Port_InterruptWindowBegin */
 static SDL_ThreadID s_mainThreadId;
 
 void OSInit(void) {
@@ -180,6 +184,8 @@ void OSInit(void) {
     s_arenaLo = g_portArena + 0x10000;
     s_arenaHi = g_portArena + g_portArenaSize;
     s_giant = SDL_CreateMutex();
+    s_interruptDone = SDL_CreateCondition();
+    s_windowClosed = SDL_CreateCondition();
     SDL_LockMutex(s_giant);
     s_mainThreadId = SDL_GetCurrentThreadID();
 }
@@ -295,19 +301,65 @@ static PortThread *FindThread(void *key, int create) {
 }
 
 void Port_GiantUnlock(void) { SDL_UnlockMutex(s_giant); }
-void Port_GiantLock(void) { SDL_LockMutex(s_giant); }
+
+/* Game threads take the lock here: never while another game thread is inside
+ * an interrupt window. */
+void Port_GiantLock(void) {
+    SDL_LockMutex(s_giant);
+    while (s_interruptWindow) {
+        SDL_WaitCondition(s_windowClosed, s_giant);
+    }
+}
+
+/* Interrupt handlers (the AX thread) take the giant lock through these. On the
+ * GameCube they preempt the game; here a game thread hands the lock over at
+ * Port_InterruptPoint. A plain unlock/lock there isn't enough: the mutex isn't
+ * fair, so a game thread that is running behind would take it straight back
+ * and starve the handler. */
+void Port_InterruptLock(void) {
+    SDL_AddAtomicInt(&s_interruptPending, 1);
+    SDL_LockMutex(s_giant);
+    SDL_AddAtomicInt(&s_interruptPending, -1);
+}
+
+void Port_InterruptUnlock(void) {
+    SDL_BroadcastCondition(s_interruptDone);
+    SDL_UnlockMutex(s_giant);
+}
+
+/* Called with the giant lock held: let a waiting interrupt handler run first. */
+void Port_InterruptPoint(void) {
+    while (SDL_GetAtomicInt(&s_interruptPending) > 0) {
+        SDL_WaitConditionTimeout(s_interruptDone, s_giant, 10);
+    }
+}
+
+/* Around a blocking host call that touches no game state (waiting for vsync):
+ * interrupt handlers may take the giant lock meanwhile, other game threads
+ * may not, so to them the call still looks atomic. */
+void Port_InterruptWindowBegin(void) {
+    s_interruptWindow = 1;
+    SDL_UnlockMutex(s_giant);
+}
+
+void Port_InterruptWindowEnd(void) {
+    SDL_LockMutex(s_giant);
+    s_interruptWindow = 0;
+    SDL_BroadcastCondition(s_windowClosed);
+}
 
 /* Give other game threads a chance to run (a GameCube thread would block). */
 void Port_Yield(void) {
     SDL_UnlockMutex(s_giant);
     SDL_DelayNS(0);
-    SDL_LockMutex(s_giant);
+    Port_GiantLock();
+    Port_InterruptPoint();
 }
 
 static int SDLCALL ThreadEntry(void *data) {
     PortThread *t = data;
     SDL_WaitSemaphore(t->resume);
-    SDL_LockMutex(s_giant);
+    Port_GiantLock();
     t->id = SDL_GetCurrentThreadID();
     t->func(t->param);
     t->exited = 1;

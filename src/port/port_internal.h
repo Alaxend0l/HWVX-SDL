@@ -41,6 +41,16 @@ void Port_GfxSetFullscreenMode(int w, int h);
 void Port_EndFrame(void);
 void Port_PumpEvents(void);
 
+/* os.c: the giant lock that serialises game threads (see os.c for the
+ * interrupt-handler side, used by the AX thread). */
+void Port_GiantLock(void);
+void Port_GiantUnlock(void);
+void Port_InterruptLock(void);
+void Port_InterruptUnlock(void);
+void Port_InterruptPoint(void);
+void Port_InterruptWindowBegin(void);
+void Port_InterruptWindowEnd(void);
+
 /* Subsystems */
 void GX_PortBeginFrame(void);
 void GX_PortPresent(void);
