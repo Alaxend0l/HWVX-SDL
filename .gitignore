@@ -4,6 +4,7 @@ build-*/
 orig/
 pc-orig/
 tools/__pycache__
+.cache/
 
 # Prerequisites
 *.d

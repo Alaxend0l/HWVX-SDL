@@ -4162,14 +4162,16 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
              * gameplay, images as wide as the 4:3 screen (the black bars
              * that slide in for briefings, fades) stretch across the whole
              * window, about its centre; the HUD's side elements move to the
-             * edges (Port_HudShift). */
+             * edges (Port_HudShift). In menus only the letterbox bars do
+             * (640x60): backdrops and panels keep their 4:3 shape. */
             f32 wx, wy, shift = 0.0f;
             s8 stretch;
 
             Port_ViewWiden(&wx, &wy);
-            stretch = wx > 1.0f && StateManager_CurrState() == 5 && GETP(slot->parent) == NULL &&
+            stretch = wx > 1.0f && GETP(slot->parent) == NULL &&
                       (slot->kind == IFACE_KIND_IMAGE || slot->kind == IFACE_KIND_ANIM_IMAGE) &&
-                      slot->scale.v.x >= 639.0f;
+                      slot->scale.v.x >= 639.0f &&
+                      (StateManager_CurrState() == 5 || slot->scale.v.y <= 120.0f);
             if (!stretch) {
                 shift = Port_HudShift(iface, slot);
             }
