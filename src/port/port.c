@@ -150,8 +150,9 @@ void Port_Fatal(const char *fmt, ...) {
         /* resolve with: addr2line -f -s -i -e build/hwvx <addresses> */
         void *frames[24];
         int n = backtrace(frames, 24), k;
+        char** symbols = backtrace_symbols(frames, 24);
         for (k = 1; k < n; k++) {
-            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "  at %p", frames[k]);
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "  at %s", symbols[k]);
         }
     }
     if (SDL_getenv("HWVX_NO_DIALOG") == NULL) {  /* scripted/headless runs: log only */

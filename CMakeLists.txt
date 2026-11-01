@@ -45,7 +45,8 @@ target_compile_options(hwvx PRIVATE
     -Werror=int-to-pointer-cast
     -Werror=pointer-to-int-cast
     -Werror=implicit-function-declaration
-    -Werror=return-type)
+    -Werror=return-type
+    -no-pie)
 
 # Game sources stay close to the decomp; don't drown real issues in its style.
 set_source_files_properties(${GAME_SOURCES} PROPERTIES COMPILE_OPTIONS
@@ -66,8 +67,8 @@ if(HWVX_SWAPCHECK)
         "-fsanitize=kernel-address;--param=asan-instrumentation-with-call-threshold=0;--param=asan-stack=0;--param=asan-globals=0")
 endif()
 
-option(HWVX_ASAN "Build with AddressSanitizer/UBSan" OFF)
-if(HWVX_ASAN)
-    target_compile_options(hwvx PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+option(HWVX_SAN "Build with AddressSanitizer/UBSan" OFF)
+if(HWVX_SAN)
+    target_compile_options(hwvx PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
     target_link_options(hwvx PRIVATE -fsanitize=address,undefined)
 endif()

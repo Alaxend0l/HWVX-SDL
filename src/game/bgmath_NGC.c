@@ -136,6 +136,7 @@ f32 Sqrt(f64 x)
     else
     {
         result = *(f32 *)__float_huge;
+        //result = __builtin_huge_val();
     }
     return result;
 }
