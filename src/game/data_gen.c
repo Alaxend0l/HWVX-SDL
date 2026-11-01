@@ -172,6 +172,12 @@ u8 __float_nan[4] __attribute__((aligned(8))) = {
     [0] = W32(0x7FFFFFFF),
 };
 
+/* __float_huge (.sdata, float.s): +infinity. Only referenced from unreachable
+ * branches (Sqrt, NavHolder) that -O2 drops but sanitizer builds keep. */
+u8 __float_huge[4] __attribute__((aligned(4))) = {
+    [0] = W32(0x7F800000),
+};
+
 /* g_aCI (.bss, ThingManager.s) */
 u8 g_aCI[1280] __attribute__((aligned(16)));  /* original size 0x280 */
 
