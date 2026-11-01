@@ -16,11 +16,26 @@ cmake -S . -B build -G Ninja
 ninja -C build
 ```
 
+Packages for Windows, macOS, Linux (AppImage, Flatpak, bare program; x86_64
+and aarch64) and Android are built by the scripts in `packaging/`, and by CI
+on every push (artifacts) and version tag (GitHub Release): see
+[packaging/README.md](packaging/README.md).
+
 ## Game data
 
 Not included. Extract the `files/` directory from your own copy of the
 GameCube disc (Dolphin: right-click the game → Properties → Filesystem →
-Extract Entire Disc) and either put it at `orig/files/` or point the game at it:
+Extract Entire Disc). On start the game looks for it, in order:
+
+1. `--data DIR`;
+2. the folder it used last time (`datadir.txt` in the save folder);
+3. `files/` next to the program (on macOS also next to the `.app`),
+   `orig/files/` in the current folder, `files/` in the save folder;
+   on Android, `Android/data/io.github.alaxend0l.hwvx/files/files/` and
+   `/sdcard/HWVX/` (the second needs "All files access", which the app asks
+   for);
+4. on desktop, it asks you to choose the folder. Either the `files` folder or
+   the one above it will do.
 
 ```sh
 ./build/hwvx --data /path/to/files

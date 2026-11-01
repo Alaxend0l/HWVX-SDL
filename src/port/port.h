@@ -154,7 +154,15 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 
 /* ---- diagnostics ------------------------------------------------------ */
 
-void Port_Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+/* These format through SDL (C99 conversions such as %zu everywhere); MinGW's
+ * plain `printf` format checks Microsoft's runtime instead. */
+#ifdef __MINGW32__
+#define PORT_PRINTF(f, a) __attribute__((format(gnu_printf, f, a)))
+#else
+#define PORT_PRINTF(f, a) __attribute__((format(printf, f, a)))
+#endif
+
+void Port_Log(const char *fmt, ...) PORT_PRINTF(1, 2);
 int Port_AllCheats(void);
 /* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
  * src/game/Port_Keyboard.c turns them into the PC release's controls. */
@@ -181,7 +189,7 @@ void Port_GfxMenuOpened(void);
 u32 Port_GfxModeCount(void);
 const char *Port_GfxModeName(u32 i);
 void Port_GfxApply(void);
-void Port_Fatal(const char *fmt, ...) __attribute__((format(printf, 1, 2), noreturn));
+void Port_Fatal(const char *fmt, ...) PORT_PRINTF(1, 2) __attribute__((noreturn));
 #define PORT_TODO(what) Port_Todo(__func__, what)
 void Port_Todo(const char *func, const char *what);
 

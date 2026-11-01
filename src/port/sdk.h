@@ -44,7 +44,7 @@ struct OSFontHeader;
 #define OSSecondsToTicks(s) ((s) * OS_TIMER_CLOCK)
 
 void OSInit(void);
-void OSReport(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void OSReport(const char *fmt, ...) PORT_PRINTF(1, 2);
 void OSPanic(const char *file, int line, const char *fmt, ...) __attribute__((noreturn));
 
 void *OSGetArenaLo(void);

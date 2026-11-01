@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream data for the Flatpak and AppImage (configured by CMake). -->
+<component type="desktop-application">
+  <id>@HWVX_APP_ID@</id>
+  <name>Hot Wheels: Velocity X</name>
+  <summary>PC port of the GameCube racing game</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      A port of Hot Wheels: Velocity X built from the decompiled GameCube game,
+      running on SDL3. The game data is not included: it needs the extracted
+      files of your own copy of the disc, which it asks for on first start.
+    </p>
+  </description>
+  <launchable type="desktop-id">@HWVX_APP_ID@.desktop</launchable>
+  <url type="homepage">https://github.com/Alaxend0l/HWVX-SDL</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@HWVX_VERSION@"/>
+  </releases>
+</component>

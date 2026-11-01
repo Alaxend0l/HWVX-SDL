@@ -5,6 +5,12 @@ orig/
 pc-orig/
 tools/__pycache__
 .cache/
+dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
 
 # Prerequisites
 *.d

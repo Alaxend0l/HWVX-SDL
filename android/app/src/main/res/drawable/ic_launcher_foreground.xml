@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 108dp adaptive icon foreground (safe zone: the middle 66dp): a flame
+     streak and a wheel, as in packaging/icon.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M22,60 C38,53 49,45 66,42 L66,66 C50,66 38,67 22,60 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="22" android:startY="0" android:endX="66" android:endY="0">
+                <item android:offset="0" android:color="#00FFD400" />
+                <item android:offset="0.45" android:color="#FFFF8A00" />
+                <item android:offset="1" android:color="#FFE3180B" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#FF111111" android:pathData="M64,54 m-21,0 a21,21 0 1,0 42,0 a21,21 0 1,0 -42,0" />
+    <path android:fillColor="#FF2A2A2A" android:pathData="M64,54 m-18,0 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0" />
+    <path android:fillColor="#FFC9CCD3" android:pathData="M64,54 m-12.5,0 a12.5,12.5 0 1,0 25,0 a12.5,12.5 0 1,0 -25,0" />
+    <group android:pivotX="64" android:pivotY="54">
+        <path android:fillColor="#FF7D828C" android:pathData="M62.5,42.2 h3 v9.6 h-3 Z" />
+    </group>
+    <group android:pivotX="64" android:pivotY="54" android:rotation="72">
+        <path android:fillColor="#FF7D828C" android:pathData="M62.5,42.2 h3 v9.6 h-3 Z" />
+    </group>
+    <group android:pivotX="64" android:pivotY="54" android:rotation="144">
+        <path android:fillColor="#FF7D828C" android:pathData="M62.5,42.2 h3 v9.6 h-3 Z" />
+    </group>
+    <group android:pivotX="64" android:pivotY="54" android:rotation="216">
+        <path android:fillColor="#FF7D828C" android:pathData="M62.5,42.2 h3 v9.6 h-3 Z" />
+    </group>
+    <group android:pivotX="64" android:pivotY="54" android:rotation="288">
+        <path android:fillColor="#FF7D828C" android:pathData="M62.5,42.2 h3 v9.6 h-3 Z" />
+    </group>
+    <path android:fillColor="#FFE3180B" android:pathData="M64,54 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
+</vector>

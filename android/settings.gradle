@@ -1,0 +1,5 @@
+// Android build of the game: SDL's Java activity and the game as libmain.so
+// (the top-level CMakeLists.txt, with SDL3 built from source alongside).
+// See packaging/README.md.
+rootProject.name = 'HWVX'
+include ':app'

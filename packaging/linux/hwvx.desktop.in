@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Hot Wheels: Velocity X
+Comment=PC port of the GameCube game (needs your own disc's files)
+Exec=hwvx
+Icon=@HWVX_APP_ID@
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=racing;hotwheels;gamecube;
+StartupWMClass=hwvx
