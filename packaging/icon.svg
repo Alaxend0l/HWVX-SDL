@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- App icon (placeholder): a wheel with a flame streak. Linux packages use
-     it as is; packaging/make-icons.sh renders the macOS .icns from it. The
-     Android launcher icon (android/app/src/main/res) is the same design. -->
+     it and icon-256.png (rendered from it); packaging/make-icons.sh renders
+     the macOS .icns from it. The Android launcher icon
+     (android/app/src/main/res) is the same design. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">

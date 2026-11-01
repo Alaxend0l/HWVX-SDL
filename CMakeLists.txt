@@ -126,6 +126,10 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     install(TARGETS hwvx RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
     install(FILES ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+    # A PNG too: AppStream (Flatpak) and appimagetool (.DirIcon) want one.
+    # packaging/icon-256.png: rsvg-convert -w 256 -h 256 packaging/icon.svg
     install(FILES packaging/icon.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
             RENAME ${HWVX_APP_ID}.svg)
+    install(FILES packaging/icon-256.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+            RENAME ${HWVX_APP_ID}.png)
 endif()

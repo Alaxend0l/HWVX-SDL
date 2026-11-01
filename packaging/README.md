@@ -38,9 +38,11 @@ the folder (see "Game data" in the top-level README).
   access) and the game as `libmain.so`, for arm64-v8a and x86_64, Android 9
   or later. It renders with Vulkan (SDL_GPU) and plays with a game
   controller; there are no touch controls.
-- The **icon** is `icon.svg` (a placeholder design); `make-icons.sh` renders
-  the macOS `.icns` from it, and `android/app/src/main/res` has it as an
-  adaptive icon.
+- The **icon** is `icon.svg` (a placeholder design). `icon-256.png` is it
+  rendered for Linux, where AppStream and appimagetool need a PNG (after
+  changing the SVG: `rsvg-convert -w 256 -h 256 icon.svg -o icon-256.png`);
+  `make-icons.sh` renders the macOS `.icns` from it at build time, and
+  `android/app/src/main/res` has it as an adaptive icon.
 
 ## Versions and releases
 
