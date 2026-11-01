@@ -1,6 +1,7 @@
 #include "common.h"
 #include "Voice.h"
 #include "Port_Swap.h"
+#include "port.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -49,9 +50,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     found = 0;
     strcpy(path, name);
     strcat(path, ".xgc");
-    if ((g_fileID != -1 && g_fileTOCCache[type].name == NULL) || strcmp(g_fileTOCCache[type].name, name) != 0) {
+    if ((g_fileID != -1 && g_fileTOCCache[type].name[0] == 0) || strcmp(g_fileTOCCache[type].name, name) != 0) {
         for (i = 0; i < 11; i++) {
-            if (i != type && g_fileTOCCache[i].name != NULL && strcmp(g_fileTOCCache[i].name, name) == 0) {
+            if (i != type && g_fileTOCCache[i].name[0] != 0 && strcmp(g_fileTOCCache[i].name, name) == 0) {
                 memcpy(&g_fileTOCCache[type], &g_fileTOCCache[i], sizeof(FileTOCCacheEntry));
                 if (g_fileID && g_openFileDataPackType == i) {
                     g_openFileDataPackType = type;
@@ -140,6 +141,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         static char label[0x60];  /* "name#id" for the swap checker's reports */
         snprintf(label, sizeof(label), "%s#%u", name, id);
         g_portSwapPackName = label;
+        Port_Log("Set port swap pack label: %s", label);
     }
     Port_Log("data pack %s: type %u id %u", name, type, id);
     DataPack_LoadDataPack(g_fileID, PTR(arg1));
@@ -307,9 +309,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     offset += header.numGX * 8;
     SETP(pack->soundRelocs, (u32 *)(data + offset));
     offset += header.numSoundRelocs * 8;
-    SETP(pack->base, data + offset);
+    SETP(pack->orderedList, data + offset);
     offset = header.dataSize + offset;
-    SETP(pack->base, PTR((HND(GETP(pack->base)) + 0x1F) & ~0x1F));
+    SETP(pack->orderedList, PTR((HND(GETP(pack->orderedList)) + 0x1F) & ~0x1F));
     offset = pad + offset;
     reloc = (u32 *)(data + offset);
     pointers = reloc + header.numTexRelocs * 2;
@@ -321,17 +323,17 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             if (GETP(pack->refs[idx].pack) == NULL) {
                 SETP(pack->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&pack->refs[idx], 8, packID, 0), 8, 1));
             }
-            *(u32 *)(GETP(pack->base) + reloc[0]) = ((u32 *)GETP(GETP(pack->refs[idx].pack)->base))[reloc[1] & 0xFFFF];
+            *(u32 *)(GETP(pack->orderedList) + reloc[0]) = ((u32 *)GETP(GETP(pack->refs[idx].pack)->orderedList))[reloc[1] & 0xFFFF];
         } else {
-            *(u32 *)(GETP(pack->base) + reloc[0]) += (u32)HND(GETP(pack->base));
+            *(u32 *)(GETP(pack->orderedList) + reloc[0]) += (u32)HND(GETP(pack->orderedList));
         }
         reloc += 2;
     }
-    UpdatePointers(pointers, header.numPointers, GETP(pack->base));
-    SETP(pack->paletteData, (void *)((u8 *)GETP(pack->base) + header.paletteOffset));
-    SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->base) + header.shaderOffset));
-    pack->textureData = header.textureDataOffset + (u32)HND(GETP(pack->base));
-    SETP(pack->triggers, (u8 *)((u8 *)GETP(pack->base) + header.triggerOffset));
+    UpdatePointers(pointers, header.numPointers, GETP(pack->orderedList));
+    SETP(pack->paletteData, (void *)((u8 *)GETP(pack->orderedList) + header.paletteOffset));
+    SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->orderedList) + header.shaderOffset));
+    pack->textureData = header.textureDataOffset + (u32)HND(GETP(pack->orderedList));
+    SETP(pack->triggers, (u8 *)((u8 *)GETP(pack->orderedList) + header.triggerOffset));
 }
 
 
@@ -401,7 +403,7 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
                     if (GETP(header->refs[idx].pack) == NULL) {
                         SETP(header->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&header->refs[idx], 8, packID, 0), 8, 1));
                     }
-                    *(u32 *)(base + reloc[0]) = ((u32 *)GETP(GETP(header->refs[idx].pack)->base))[reloc[1] & 0xFFFF];
+                    *(u32 *)(base + reloc[0]) = ((u32 *)GETP(GETP(header->refs[idx].pack)->orderedList))[reloc[1] & 0xFFFF];
                 } else {
                     *(u32 *)(base + reloc[0]) += (u32)HND(base);
                 }
@@ -475,7 +477,7 @@ void DataPack_RefreshTextures(DataPack *pack) {
     u32 idx;
     u32 texID;
 
-    base = GETP(pack->base);
+    base = GETP(pack->orderedList);
     Gfx_LoadPalettes_RAM(GETP(pack->paletteData), HND(GETP(pack->palettes)));
     {
         /* port: textureData is a handle; Gfx_LoadTexture_RAM advances a pointer */
@@ -513,7 +515,7 @@ void DataPack_RefreshPtrs(DataPack *pack) {
     u32 idx;
     u32 id;
 
-    base = GETP(pack->base);
+    base = GETP(pack->orderedList);
     if (base != NULL) {
         DataPack_RefreshTextures(pack);
         for (i = 0; i < pack->numSoundRelocs; i++) {
@@ -558,7 +560,7 @@ void DataPack_ReleaseDataPack(DataPack *pack) {
         }
         gx = GETP(pack->gxList);
         for (i = 0; i < pack->numGX; i++) {
-            ShaderHolder_RemoveGX((s32)HND(GETP(pack->base)) + *gx);
+            ShaderHolder_RemoveGX((s32)HND(GETP(pack->orderedList)) + *gx);
             gx += 2;
         }
         for (i = 0; i < pack->numShaders; i++) {
@@ -610,22 +612,11 @@ void DataPack_ReleaseQuadPack(QuadPack *pack)
     }
 }
 
-/* A pack's scripts (DataPack.base): the records the game asks for by id. */
-typedef struct DataPackScript {
-    PTR32(u8) script;           /* 0x00 */
-    u32 id;                     /* 0x04 */
-} DataPackScript;
-
-typedef struct DataPackScripts {
-    u32 count;                  /* 0x00 */
-    PTR32(DataPackScript) entries; /* 0x04 */
-} DataPackScripts;
-
-u8 *DataPack_GetScript(DataPack *pack, s32 id)
+u8 *DataPack_GetScript(DataPack *pack, s32 scriptId)
 {
     DataPackScript *entries;
     u32 i;
-    DataPackScripts *table = (DataPackScripts *)GETP(pack->base);
+    DataPackScripts *table = (DataPackScripts *)GETP(pack->orderedList);
 
     if (table == NULL)
     {
@@ -634,7 +625,7 @@ u8 *DataPack_GetScript(DataPack *pack, s32 id)
     for (i = 0; i < table->count; i++)
     {
         entries = GETP(table->entries);
-        if (id == entries[i].id)
+        if (scriptId == entries[i].id)
         {
             return GETP(entries[i].script);
         }

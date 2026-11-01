@@ -717,7 +717,7 @@ s32 FileStreaming_ReleaseDataPack(u32 index, s32 type)
     {
         pack->pack.numTextures = 0;
     }
-    ThingManager_Invalidate(pack->pack.base.h, pack->pack.base.h + pack->pack.dataSize);
+    ThingManager_Invalidate(pack->pack.orderedList.h, pack->pack.orderedList.h + pack->pack.dataSize);
     if (pack->pack.songLoaded != 0)
     {
         DestroyMusic();

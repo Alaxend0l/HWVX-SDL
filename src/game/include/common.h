@@ -616,8 +616,19 @@ typedef struct DataPackRef {
   PTR32(struct DataPack) pack; /* 0x10 */
 } DataPackRef;
 
+/* A pack's scripts (DataPack.base): the records the game asks for by id. */
+typedef struct DataPackScript {
+    PTR32(u8) script;           /* 0x00 */
+    u32 id;                     /* 0x04 */
+} DataPackScript;
+
+typedef struct DataPackScripts {
+    u32 count;                  /* 0x00 */
+    PTR32(DataPackScript) entries; /* 0x04 */
+} DataPackScripts;
+
 typedef struct DataPack {
-  PTR32(u8) base;                /* 0x00 */
+  PTR32(struct DataPackScripts) orderedList;                /* 0x00 */
   u32 numRelocs;           /* 0x04 */
   PTR32(s32) relocs;             /* 0x08 */
   u32 numSoundRelocs;      /* 0x0C */
@@ -647,6 +658,7 @@ typedef struct DataPack {
   DataPackRef refs[2];     /* 0x68 */
   u32 soundDataSize;       /* 0x90 */
 } DataPack;
+
 
 
 
