@@ -26,10 +26,14 @@ echo "$bin"
 appdir="$work/AppDir"
 rm -rf "$appdir"
 DESTDIR="$appdir" cmake --install "$work/game" --strip
-# appimagetool wants a PNG for the AppImage's own icon (.DirIcon)
+# appimagetool makes the AppImage's icon (.DirIcon) from a PNG named after
+# the desktop file's Icon= at the top of the AppDir, and won't take an SVG:
+# render one, and leave the SVG out so linuxdeploy can't pick it instead.
 png_dir="$appdir/usr/share/icons/hicolor/256x256/apps"
 mkdir -p "$png_dir"
 rsvg-convert -w 256 -h 256 "$root/packaging/icon.svg" -o "$png_dir/$id.png"
+rm -f "$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg"
+cp "$png_dir/$id.png" "$appdir/$id.png"
 deploy="$work/linuxdeploy-$arch.AppImage"
 if [ ! -x "$deploy" ]; then
     curl -fsSL -o "$deploy" \
