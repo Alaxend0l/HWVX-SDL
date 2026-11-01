@@ -4163,19 +4163,38 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
              * that slide in for briefings, fades) stretch across the whole
              * window, about its centre; the HUD's side elements move to the
              * edges (Port_HudShift). In menus only the letterbox bars do
-             * (640x60): backdrops and panels keep their 4:3 shape. */
-            f32 wx, wy, shift = 0.0f;
+             * (640x60): backdrops and panels keep their 4:3 shape. The menu
+             * backdrop (four quadrants anchored at the screen's centre, and
+             * their fading copies that shrink onto them) zooms evenly until
+             * it fills the width, up to 21:9, so the effect still covers the
+             * screen; the top and bottom it crops are mostly under the bars. */
+            f32 wx, wy, shift = 0.0f, zoom = 1.0f;
             s8 stretch;
+            s8 image = slot->kind == IFACE_KIND_IMAGE || slot->kind == IFACE_KIND_ANIM_IMAGE;
 
             Port_ViewWiden(&wx, &wy);
-            stretch = wx > 1.0f && GETP(slot->parent) == NULL &&
-                      (slot->kind == IFACE_KIND_IMAGE || slot->kind == IFACE_KIND_ANIM_IMAGE) &&
-                      slot->scale.v.x >= 639.0f &&
+            stretch = wx > 1.0f && GETP(slot->parent) == NULL && image && slot->scale.v.x >= 639.0f &&
                       (StateManager_CurrState() == 5 || slot->scale.v.y <= 120.0f);
-            if (!stretch) {
+            if (wx > 1.0f && !stretch && image && StateManager_CurrState() != 5 &&
+                slot->pos.v.x == 320.0f && slot->pos.v.y == 240.0f &&
+                (GETP(slot->def)->anchorX == 1.0f || GETP(slot->def)->anchorX == -1.0f) &&
+                (GETP(slot->def)->anchorY == 1.0f || GETP(slot->def)->anchorY == -1.0f) &&
+                slot->scale.v.x >= 319.0f && slot->scale.v.y >= 239.0f) {
+                zoom = wx < 1.75f ? wx : 1.75f;  /* 1.75: 21:9 over 4:3 */
+            }
+            if (!stretch && zoom == 1.0f) {
                 shift = Port_HudShift(iface, slot);
             }
-            if (stretch || shift != 0.0f) {
+            if (zoom != 1.0f) {
+                if (!restore) {
+                    restore = 1;
+                    savedPos = slot->pos.v;
+                    savedRot = slot->rot.v;
+                    savedScale = slot->scale.v;
+                }
+                slot->scale.v.x *= zoom;
+                slot->scale.v.y *= zoom;
+            } else if (stretch || shift != 0.0f) {
                 if (!restore) {
                     restore = 1;
                     savedPos = slot->pos.v;
