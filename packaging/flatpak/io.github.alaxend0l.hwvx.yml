@@ -8,6 +8,11 @@ runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: hwvx
+# flatpak-builder runs `appstreamcli compose` on the build host, and in the
+# CI container its image loaders can't read the icon (icon-file-read-error).
+# A bundle doesn't need the composed catalogue: the desktop file, icons and
+# metainfo are still installed and exported. (Flathub composes on its own.)
+appstream-compose: false
 finish-args:
   - --share=ipc
   - --socket=wayland
