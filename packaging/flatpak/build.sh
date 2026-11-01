@@ -3,7 +3,8 @@
 # flatpak-builder, with Flathub as a remote (for the runtime and SDK).
 #   packaging/flatpak/build.sh   ->  dist/HWVX-VERSION-ARCH.flatpak
 set -eu
-. "$(dirname "$0")/../common.sh" "flatpak-$(uname -m)"
+target="flatpak-$(uname -m)"
+. "$(dirname "$0")/../common.sh"
 id=io.github.alaxend0l.hwvx
 manifest="$root/packaging/flatpak/$id.yml"
 

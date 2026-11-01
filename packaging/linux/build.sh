@@ -6,7 +6,8 @@
 # .github/workflows/build.yml).
 #   packaging/linux/build.sh   ->  dist/hwvx-VERSION.ARCH, dist/HWVX-VERSION-ARCH.AppImage
 set -eu
-. "$(dirname "$0")/../common.sh" "linux-$(uname -m)"
+target="linux-$(uname -m)"
+. "$(dirname "$0")/../common.sh"
 arch=$(uname -m)
 id=io.github.alaxend0l.hwvx
 

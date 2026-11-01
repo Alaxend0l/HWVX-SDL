@@ -4,7 +4,8 @@
 # ninja).
 #   packaging/windows/build.sh   ->  dist/hwvx-VERSION-windows-x86_64.exe
 set -eu
-. "$(dirname "$0")/../common.sh" windows
+target=windows
+. "$(dirname "$0")/../common.sh"
 toolchain="$root/cmake/mingw-w64-x86_64.cmake"
 
 "$root/packaging/build-sdl3.sh" "$work" "$work/sdl-prefix" -DCMAKE_TOOLCHAIN_FILE="$toolchain"

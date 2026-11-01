@@ -5,7 +5,8 @@
 # Gatekeeper asks before the first start (right-click > Open).
 #   packaging/macos/build.sh   ->  dist/HWVX-VERSION-macos.dmg
 set -eu
-. "$(dirname "$0")/../common.sh" macos
+target=macos
+. "$(dirname "$0")/../common.sh"
 arch_args='-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
 
 # shellcheck disable=SC2086
