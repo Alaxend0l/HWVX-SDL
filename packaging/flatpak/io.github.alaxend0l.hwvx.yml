@@ -26,6 +26,7 @@ modules:
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_LIBDIR=lib   # CMake picks lib64 here, which /app's loader path lacks
       - -DSDL_STATIC=OFF
       - -DSDL_TEST_LIBRARY=OFF
       - -DSDL_TESTS=OFF

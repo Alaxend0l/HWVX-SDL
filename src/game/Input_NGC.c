@@ -335,10 +335,13 @@ void pollControllers__Fv(void) {
                 down = cur & (prev ^ cur);
                 up = prev & (prev ^ cur);
                 memcpy(&s_unk108[chan], &s_unkD8[chan], sizeof(PADStatus));
-                g_VirtualPad[chan].keyValue[0x10] = 1.6891892f * s_unkD8[chan].stickX;
-                g_VirtualPad[chan].keyValue[0x11] = 1.6891892f * s_unkD8[chan].stickY;
-                g_VirtualPad[chan].keyValue[0x12] = 1.6891892f * s_unkD8[chan].substickX;
-                g_VirtualPad[chan].keyValue[0x13] = 1.6891892f * s_unkD8[chan].substickY;
+                /* port: through s32, as the PowerPC does it (fctiwz, then the
+                 * low byte stored): left/down are negative, and a negative
+                 * float converted straight to u8 is 0 on arm64. */
+                g_VirtualPad[chan].keyValue[0x10] = (s32)(1.6891892f * s_unkD8[chan].stickX);
+                g_VirtualPad[chan].keyValue[0x11] = (s32)(1.6891892f * s_unkD8[chan].stickY);
+                g_VirtualPad[chan].keyValue[0x12] = (s32)(1.6891892f * s_unkD8[chan].substickX);
+                g_VirtualPad[chan].keyValue[0x13] = (s32)(1.6891892f * s_unkD8[chan].substickY);
             }
             break;
         default:
