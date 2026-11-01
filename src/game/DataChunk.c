@@ -1,4 +1,5 @@
 #include "common.h"
+#include "port.h"
 
 
 
@@ -6,6 +7,7 @@ void UpdatePointers(u32 *offsets, u32 count, u8 *base) {
     u32 i;
 
     for (i = 0; i < count; i++) {
+        Port_Log("UpdatePointers: Updating %p (%p + %d) to %d", base + offsets[i], base, offsets[i], (u32)HND(base));
         *(u32 *)(base + offsets[i]) += (u32)HND(base);
     }
 }

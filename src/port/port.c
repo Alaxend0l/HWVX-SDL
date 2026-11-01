@@ -101,11 +101,13 @@ void Port_InitHandles(u32 arenaSize) {
     }
     memset(g_portArena, 0, arenaSize);
     g_portArenaSize = arenaSize;
+    Port_Log("Allocated g_portArena of size %d: %p - %p", arenaSize, g_portArena, g_portArena + g_portArenaSize);
 }
 
 /* ---- byte swapping ----------------------------------------------------- */
 
 void Port_SwapArray16(void *p, size_t count) {
+    Port_Log("Port_SwapArray16 called with: %p with count %ld", p, count);
     u16 *w = (u16 *)p;
     size_t i;
     for (i = 0; i < count; i++) {
@@ -114,6 +116,7 @@ void Port_SwapArray16(void *p, size_t count) {
 }
 
 void Port_SwapArray32(void *p, size_t count) {
+    Port_Log("Port_SwapArray32 called with: %p with count %ld", p, count);
     u32 *w = (u32 *)p;
     size_t i;
     for (i = 0; i < count; i++) {
