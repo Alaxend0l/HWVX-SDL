@@ -23,6 +23,7 @@ typedef struct PortState {
     volatile int quit;
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
+    int resetSave;           /* --reset-save (main_sdl.c): default game data, no autoload */
 } PortState;
 
 extern PortState g_port;

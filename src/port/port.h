@@ -164,6 +164,10 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 
 void Port_Log(const char *fmt, ...) PORT_PRINTF(1, 2);
 int Port_AllCheats(void);
+/* --reset-save (main_sdl.c): 1 when this boot starts from the default game
+ * data (GameSetting_Init) and skips the autoload of the newest save;
+ * GameSettings_PortAutoLoad reads it. */
+int Port_ResetSave(void);
 /* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
  * src/game/Port_Keyboard.c turns them into the PC release's controls. */
 enum {

@@ -111,6 +111,13 @@ void GameSetting_Init(void) {
         g_pGameData = (u8 *)&g_HotWheelsGameData;
         g_pSavedGameData = g_HWsavedGameData;
         memset(&g_HotWheelsGameData, 0, sizeof(HotWheelsGameData));
+        /* port: cars 0-2 shipped locked behind GBA link connectivity (the
+         * original unlocks them in GameSettings_GameBoyConnected); the port
+         * has no GBA connectivity and none planned, so unlock them by
+         * default - a fresh game/save starts with them. */
+        g_HotWheelsGameData.cars[0] = 1;
+        g_HotWheelsGameData.cars[1] = 1;
+        g_HotWheelsGameData.cars[2] = 1;
         g_HotWheelsGameData.cars[3] = 1;
         g_HotWheelsGameData.cars[4] = 1;
         g_HotWheelsGameData.cars[5] = 1;
@@ -1366,6 +1373,13 @@ void GameSettings_PortAutoLoad(u32 device) {
         return;
     }
     done = 1;
+    if (Port_ResetSave()) {
+        /* --reset-save: keep the default game data from GameSetting_Init
+         * instead of loading the newest save; the save file itself is
+         * untouched, it just is not autoloaded. */
+        Port_Log("reset-save: default game data, no autoload");
+        return;
+    }
     if (!g_generalGameSettings.slots[0].valid) {
         return;
     }

@@ -83,6 +83,7 @@ static void ParseArgs(int argc, char **argv) {
 
     g_port.dataDir = NULL;   /* FindDataDir */
     g_port.scale = 2;
+    g_port.resetSave = 0;
     if (!SetRenderer(s_defaultRenderer)) {
         SetRenderer("opengl");
     }
@@ -102,15 +103,18 @@ static void ParseArgs(int argc, char **argv) {
             haveSize = 1;
         } else if (SDL_strcmp(argv[i], "--fullscreen") == 0) {
             g_port.fullscreen = 1;
+        } else if (SDL_strcmp(argv[i], "--reset-save") == 0) {
+            g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
         } else {
-            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen] [--renderer NAME]", argv[0]);
+            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen] [--renderer NAME] [--reset-save]", argv[0]);
             SDL_Log("  --data DIR       extracted disc files (default: the folder chosen last time,");
             SDL_Log("                   or files/ next to the program, or orig/files)");
             SDL_Log("  --window WxH     window size, any shape (default: 640x480 times --scale)");
             SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
             SDL_Log("                   one that fails to start falls back to opengl)");
+            SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
             exit(1);
         }
     }
@@ -118,6 +122,12 @@ static void ParseArgs(int argc, char **argv) {
         g_port.scale = 1;
     }
     Port_GfxLoadConfig(haveSize, g_port.fullscreen);
+}
+
+/* --reset-save: the game side reads the flag through this accessor rather
+ * than our private PortState (port_internal.h is not in the game code). */
+int Port_ResetSave(void) {
+    return g_port.resetSave;
 }
 
 /* ---- the game data ----------------------------------------------------- */
