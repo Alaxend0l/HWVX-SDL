@@ -78,8 +78,8 @@ static void ReadGamepad(SDL_Gamepad *gp, PADStatus *st) {
     u16 b = 0;
 
     if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_SOUTH)) b |= PAD_BUTTON_A;
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_WEST)) b |= PAD_BUTTON_B;
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_EAST)) b |= PAD_BUTTON_X;
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_EAST)) b |= PAD_BUTTON_B;
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_WEST)) b |= PAD_BUTTON_X;
     if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_NORTH)) b |= PAD_BUTTON_Y;
     if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_START)) b |= PAD_BUTTON_START;
     if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) b |= PAD_TRIGGER_Z;
