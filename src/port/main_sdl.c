@@ -1,6 +1,7 @@
 /* SDL3 entry point. Replaces the GameCube main() and Main_NGC.c: sets up the
  * window, renderer and game arena, then runs the game's Main_Init/Main_Loop. */
 #include "gx_render.h"
+#include "Port_Glyphs.h"
 
 #include <SDL3/SDL_main.h>
 
@@ -78,6 +79,9 @@ static int SetRenderer(const char *name) {
     return 0;
 }
 
+/* --glyphs NAME / HWVX_GLYPHS: which input glyph set to show. */
+static const char *s_glyphSet = NULL;
+
 static void ParseArgs(int argc, char **argv) {
     int i, haveSize = 0;
 
@@ -107,19 +111,26 @@ static void ParseArgs(int argc, char **argv) {
             g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
+        } else if (SDL_strcmp(argv[i], "--glyphs") == 0 && i + 1 < argc) {
+            s_glyphSet = argv[++i];
         } else {
-            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen] [--renderer NAME] [--reset-save]", argv[0]);
+            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen] [--renderer NAME] [--glyphs NAME] [--reset-save]", argv[0]);
             SDL_Log("  --data DIR       extracted disc files (default: the folder chosen last time,");
             SDL_Log("                   or files/ next to the program, or orig/files)");
             SDL_Log("  --window WxH     window size, any shape (default: 640x480 times --scale)");
             SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
             SDL_Log("                   one that fails to start falls back to opengl)");
+            SDL_Log("  --glyphs NAME    input button art: %s (default: the original GameCube art;", Port_Glyphs_KnownSets());
+            SDL_Log("                   also any custom glyphs/NAME/glyphs.txt under the data dir)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
             exit(1);
         }
     }
     if (g_port.scale < 1) {
         g_port.scale = 1;
+    }
+    if (s_glyphSet == NULL) {
+        s_glyphSet = SDL_getenv("HWVX_GLYPHS");
     }
     Port_GfxLoadConfig(haveSize, g_port.fullscreen);
 }
@@ -483,6 +494,15 @@ int main(int argc, char **argv) {
     InitMem();
     srand((unsigned)time(NULL));
 
+    /* Before Main_Init loads its first pack, but after OSInit (Allocate uses
+     * the heap) so glyphs/glyphs.txt can go through the game's file layer. */
+    if (s_glyphSet != NULL && *s_glyphSet != 0 &&
+        !Port_Glyphs_Select(s_glyphSet)) {
+        Port_Log("unknown glyph set '%s': known sets are %s, and a custom set"
+                 " needs glyphs/%s/glyphs.txt under the data dir",
+                 s_glyphSet, Port_Glyphs_KnownSets(), s_glyphSet);
+        exit(1);
+    }
     if (!Main_Init()) {
         Port_Fatal("Main_Init failed");
     }

@@ -1,6 +1,7 @@
 #include "common.h"
 #include "Voice.h"
 #include "Port_Swap.h"
+#include "Port_Glyphs.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -140,6 +141,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         static char label[0x60];  /* "name#id" for the swap checker's reports */
         snprintf(label, sizeof(label), "%s#%u", name, id);
         g_portSwapPackName = label;
+        /* port: glyph sets key their overrides on this same identity; the
+         * refresh hook cannot recover it (refreshes skip the loader) */
+        Port_Glyphs_RecordPack(PTR(arg1), name, id);
     }
     Port_Log("data pack %s: type %u id %u", name, type, id);
     DataPack_LoadDataPack(g_fileID, PTR(arg1));
@@ -490,6 +494,7 @@ void DataPack_RefreshTextures(DataPack *pack) {
             }
         }
     }
+    Port_Glyphs_ApplyToPack(pack); /* port: input glyph sets */
     for (i = 0; i < pack->numRelocs; i++) {
         id = GETP(pack->relocs)[i * 2 + 1];
         if (id & 0xFFFF0000) {
