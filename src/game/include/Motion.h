@@ -15,11 +15,11 @@
 typedef struct SlaveTrigger {
     Vector4 pos;                /* 0x00 offset */
     u8 type;                    /* 0x10 */
-    u8 unk11;                   /* 0x11 */
+    u8 unused11;                /* 0x11 */
     u16 id;                     /* 0x12 -> Thing.slaveBone of the slave */
     f32 time;                   /* 0x14 */
     PTR32(void) data;           /* 0x18 by type */
-    u8 unk1C;                   /* 0x1C */
+    u8 unused1C;                /* 0x1C */
     u8 holder;                  /* 0x1D first trigger of shared slaves: g_aSharedSlaveHolder index */
     u8 pad1E[2];                /* 0x1E */
 } SlaveTrigger;

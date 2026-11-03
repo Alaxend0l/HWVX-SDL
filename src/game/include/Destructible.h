@@ -38,10 +38,10 @@ typedef struct DestructibleParams {
     PTR32(ThingRecord) record;  /* 0x40 */
     u32 owner;                  /* 0x44 Player handle */
     f32 drawDist;               /* 0x48 0: the record's */
-    u32 unk4C;                  /* 0x4C */
+    u32 unused4C;              /* 0x4C written 0 at every spawn site, read nowhere */
     s32 moveType;               /* 0x50 DESTRUCTIBLE_* */
     f32 speed;                  /* 0x54 movers: track speed */
-    u32 unk58;                  /* 0x58 */
+    u32 unused58;              /* 0x58 written 0 by event-seq emits only, read nowhere */
     PTR32(MoverAnim) anim;      /* 0x5C movers: track */
 } DestructibleParams;
 

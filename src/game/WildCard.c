@@ -30,12 +30,12 @@ s32 WildCardRack_Init(WildCardRack *rack, Vector4 *pos) {
     for (i = 0; i < WILDCARD_SLOTS; i++) {
         rack->slots[i].ammo = 0;
         SETP(rack->slots[i].motion.model, NULL);
-        rack->slots[i].unk42 = 0;
+        rack->slots[i].unused42 = 0;
         rack->slots[i].angle = 0.0f;
         SETP(rack->slots[i].item, NULL);
     }
     SETP(rack->target, NULL);
-    rack->unk47C = -1.0f;
+    rack->targetTimer = -1.0f;
     return 0;
 }
 
@@ -134,7 +134,7 @@ s32 WildCardRack_Move(WildCardRack *rack) {
             if (target != NULL) {
                 if (target->health < 0 || (target->flags & THING_FLAG_FREE)) {
                     SETP(rack->target, NULL);
-                    rack->unk47C = -1.0f;
+                    rack->targetTimer = -1.0f;
                 } else {
                     THING_VFN(target, THING_V_GET_TARGET_POS, GetTargetPosFn)(target, &targetPos);
                     PSVECSubtract(&targetPos, &thing->pos, &thing->axis[2]);
@@ -171,7 +171,7 @@ s32 WildCardRack_Move(WildCardRack *rack) {
                 count = GetAllTargets(targets);
                 bestDist = 999999.875f;
                 best = -1;
-                if (GETP(rack->target) != NULL && rack->unk47C > 0.0f) {
+                if (GETP(rack->target) != NULL && rack->targetTimer > 0.0f) {
                     targets[count++] = GETP(rack->target);
                 }
                 for (i = 0; i < count; i++) {

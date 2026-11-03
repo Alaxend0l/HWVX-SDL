@@ -79,13 +79,13 @@ void Gfx_FlipBuffers(void) {
 void RenderState_Init(void) {
     g_state.flags = 1;
     g_state.numPointLights = 0;
-    g_state.unk80 = 64.0f;
-    g_state.unk91 = 0xFF;
+    g_state.unused80 = 64.0f;
+    g_state.unused91 = 0xFF;
     g_state.lightChanged = 1;
-    g_state.unk8F = 1;
-    g_state.unk92 = 0xFF;
+    g_state.envmapEnable = 1;
+    g_state.unused92 = 0xFF;
     g_state.enviroMapMode = 0;
-    g_state.unk88 = 0;
+    g_state.unused88 = 0;
     g_state.farClippingPlane = 0.0f;
 }
 
@@ -173,7 +173,7 @@ void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4) {
     u32 marginX = 0x1000 - width;
     u32 marginY = 0x1000 - height;
 
-    win->unk2C8 = arg4;
+    win->unused2C8 = arg4;
     win->left = x0 + 1;
     win->top = y0 + 1;
     win->right = x1 - 1;
@@ -188,8 +188,8 @@ void Gfx_SetRenderWindowSize(s32 x0, s32 y0, s32 x1, s32 y1, s32 arg4) {
     win->sizeY = (height * 16) / 480.0f;
     win->offsetX = ((marginX >> 1) - x0) * 16;
     win->offsetY = ((marginY >> 1) - y0) * 16;
-    win->unk2A0 = 16.0f;
-    win->unk2A4 = 15.966666f;
+    win->unused2A0 = 16.0f;
+    win->unused2A4 = 15.966666f;
     win->centerX = (marginX >> 1) * 16;
     win->centerY = (marginY >> 1) * 16;
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);

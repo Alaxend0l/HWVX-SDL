@@ -45,8 +45,8 @@ typedef struct GameInfo {
   PTR32(const char) title;
   PTR32(const char) fileName;
   PTR32(const char) icon;
-  s32 unk14;
-  s32 unk18;
+  s32 version;        /* 0x14 save file version (SaveFile.version) */
+  s32 gameDataSize;   /* 0x18 size of each save slot's game data */
 } GameInfo;
 
 /* The loaded world (g_worldData). */
@@ -78,11 +78,11 @@ typedef struct Camera {
   PTR32(u32) mode;                /* 0xB4 */
   f32 modeTime;             /* 0xB8 */
   f32 trim;                 /* 0xBC */
-  Vector4 unkC0;            /* 0xC0 */
-  Vector4 unkD0;            /* 0xD0 */
+  Vector4 unusedC0;         /* 0xC0 */
+  Vector4 unusedD0;         /* 0xD0 */
   Vector4 lookDir;          /* 0xE0 */
   u8 padF0[0x10];
-  s32 unk100;               /* 0x100 -1 when created */
+  s32 unused100;            /* 0x100 -1 when created */
   u8 pad104[0xC];
   Vector4 springPos;        /* 0x110 */
   Vector4 springVel;        /* 0x120 */
@@ -223,9 +223,9 @@ typedef struct OConvexHull {
   Vector4 planes[16];       /* 0x200 one per face */
   PTR32(ConvexHull) hull;   /* 0x300 the source; NULL: pool slot free */
   u8 pad304[0xC0];          /* 0x304 */
-  s32 unk3C4;               /* 0x3C4 */
-  s32 unk3C8;               /* 0x3C8 */
-  u8 unk3CC;                /* 0x3CC Destructible_Init: 0 for type 1, 1 for type 6 */
+  s32 unused3C4;            /* 0x3C4 */
+  s32 unused3C8;            /* 0x3C8 */
+  u8 unused3CC;             /* 0x3CC Destructible_Init: 0 for type 1, 1 for type 6 */
   u8 pad3CD[3];             /* 0x3CD */
   Vector4 pos;              /* 0x3D0 translation of the transform */
 } OConvexHull;
@@ -274,21 +274,21 @@ typedef struct InterfaceCallBackData {
 typedef struct InterfacePackEntry {
   PTR32(char) name;
   u32 id;
-  u32 unk8;
+  u32 iface; /* interface handle from InterfaceManager_Create */
 } InterfacePackEntry;
 
 typedef struct PlayerLink {
-  u8 unk0[0x20];
+  u8 pad0[0x20];
   FPTR32(void, (void)) controlReader;
   FPTR32(void, (void)) init;
   FPTR32(void, (void)) heartbeat;
-  u8 unk2C[0xB0 - 0x2C];
+  u8 pad2C[0xB0 - 0x2C];
   PTR32(struct PlayerLink) next;
   PTR32(struct PlayerLink) prev;
 } PlayerLink;
 
 typedef struct GXDataTev {
-  u8 unk0[0x130];
+  u8 pad0[0x130];
   u32 tevc[16];
   u32 teva[16];
   u32 tevKsel[8];
@@ -306,7 +306,7 @@ typedef struct FileTOCEntry {
   u32 version;
   u32 type;
   u32 id;
-  u8 unkC[0x14 - 0xC];
+  u8 padC[0x14 - 0xC];
   u32 offset;
 } FileTOCEntry;
 
@@ -335,7 +335,7 @@ typedef struct SharedSlaveHolder {
 } SharedSlaveHolder;
 
 typedef struct ThingManagerDARYL {
-  u8 unk0[0x6AD10];
+  u8 pad0[0x6AD10];
   u8 looker[0xFE60];
   PTR32(void) activeList;
   PTR32(void) freeList[19];
@@ -365,7 +365,7 @@ typedef struct CarTrailBone {
   f32 width1;
   f32 restLength;           /* 0x0C */
   f32 springRate;           /* 0x10 */
-  f32 unk14;
+  f32 driveBlend;           /* 0x14 driven-wheel blend, 0..1: rotation, sparks, dust */
   f32 friction;             /* 0x18 */
   f32 damping;              /* 0x1C */
   f32 maxFriction;          /* 0x20 */
@@ -394,7 +394,7 @@ typedef struct AudioSettings {
   u8 sfxVolume;
   u8 musicVolume;
   u8 speakerMode;
-  u8 unk3;
+  u8 pad3;
 } AudioSettings;
 
 /* A save in the memory card file's list (GameSettings_SaveGame). */
@@ -420,11 +420,11 @@ typedef struct GeneralGameSettings {
 
 /* The memory card file (g_pSavedGameData), followed by SAVE_FILE_SLOTS blocks
  * of game data (HotWheelsGameData / DDRescueGameData) of
- * g_gameInfo[gameType].unk18 bytes each. */
+ * g_gameInfo[gameType].gameDataSize bytes each. */
 #define SAVE_FILE_MAGIC 4
 typedef struct SaveFile {
   u32 magic;          /* 0x00 SAVE_FILE_MAGIC */
-  u32 version;        /* 0x04 g_gameInfo[gameType].unk14 */
+  u32 version;        /* 0x04 g_gameInfo[gameType].version */
   u32 checksum;       /* 0x08 FileManager_GetChecksum of what follows */
   GeneralGameSettings settings; /* 0x0C */
 } SaveFile;
@@ -439,33 +439,37 @@ typedef struct CodeVariables {
   s32 playerVehicle[4];
   s32 playerItem[4];
   s32 controllerState[4];
-  s32 unk30;
-  s32 unk34[4];
-  s32 unk44[4];
-  s32 unk54[4];
-  s8 unk64[4];
-  f32 unk68[30];
-  s32 unkE0;
-  s8 unkE4;
-  s32 unkE8;
-  s32 unkEC;
-  s32 unkF0;
-  s32 unkF4;
-  s32 unkF8;
-  s8 unkFC;
-  s32 unk100;
-  s32 unk104;
-  s8 unk108;
-  s8 unk109[0x111 - 0x109];
-  s8 unk111;
-  u8 unk112[0x114 - 0x112];
+  s32 currentRound;              /* 0x30 code variable 0x190: current round of the vs series */
+  s32 playerWins[4];             /* 0x34 code variable 0x191: wins per port */
+  s32 playerStuntPoints[4];      /* 0x44 code variable 0x192: stunt points per port */
+  s32 playerKills[4];            /* 0x54 code variable 0x193: kills per port */
+  s8 playerWinner[4];            /* 0x64 code variable 0x194: 1 when the port won */
+  f32 scriptVars[30];            /* 0x68 code variable 0x19C: free variables for the scripts */
+  s32 pauseInput;                /* 0xE0 code variable 0xD5: port + 1 that opened the pause menu */
+  s8 roundCheckEnabled;          /* 0xE4 code variable 0x12C: check the round end condition */
+  s32 versusMode;                /* 0xE8 code variable 0x12D: 1 stunt points, 2 kills, 3 timed */
+  s32 versusRoundTime;           /* 0xEC code variable 0x12E: time per round, milliseconds */
+  s32 versusKillTarget;          /* 0xF0 code variable 0x12F: kills needed to win the series */
+  s32 versusPointTarget;         /* 0xF4 code variable 0x130: stunt points needed to win */
+  s32 versusNumRounds;           /* 0xF8 code variable 0x131: rounds in the series */
+  s8 versusUseWins;              /* 0xFC code variable 0x132: count wins instead of rounds */
+  s32 numCars;                   /* 0x100 code variable 0x133: race cars wanted, Get + 1 */
+  s32 itemIDMode;                /* 0x104 code variable 0x134: how world items pick their ids */
+  s8 vsItemRespawn;              /* 0x108 code variable 0x136: items respawn in vs mode */
+  s8 roundsComplete;             /* 0x109 code variable 0x197: the vs series finished */
+  s8 demoMode;                   /* 0x10A code variable 0x198: attract demo */
+  u8 pad10B[5];                  /* 0x10B */
+  s8 jettisonWildCards;          /* 0x110 code variable 0x135: wild cards are always jettisoned */
+  s8 pauseEnabled;               /* 0x111 code variable 0x19B: the pause menu may be opened */
+  u8 pad112[0x114 - 0x112];
   u32 device;             /* memory card slot (1, 2); the decomp typed it char * */
   s32 fileIndex;
-  s8 unk11C[3];
+  s8 mcResults[3];               /* 0x11C [0] save 0x1F9, [1] load 0x1FA, [2] delete/format 0x1FD */
   s8 bOverwritingFile;
-  s8 unk120[0x124 - 0x120];
-  s32 unk124;
-  u8 unk128[0x134 - 0x128];
+  s8 blockReset;                 /* 0x120 code variable 0x1FE: mirrors g_bBlockReset */
+  u8 pad121[3];                  /* 0x121 */
+  s32 currentMission;            /* 0x124 code variable 0x1FC: current DD Rescue mission, 0-based */
+  u8 cheatsEnabled[0x134 - 0x128]; /* 0x128 code variables 0x6B/0x6C: cheats checked in the menu */
 } CodeVariables;
 
 typedef struct SIControl {
@@ -489,9 +493,9 @@ typedef struct SIPacket {
 typedef struct SIPacketBss {
   SIPacket packet[4];
   u8 alarm[4][0x28];
-  u8 unk120[0x140 - 0x120];
+  u8 pad120[0x140 - 0x120];
   s64 xferTime[4];
-  u8 unk160[0x1B0 - 0x160];
+  u8 pad160[0x1B0 - 0x160];
   BOOL inputBufferValid[4];
   u32 inputBuffer[4][2];
   u32 inputBufferVcount[4];
@@ -508,9 +512,9 @@ typedef struct HotWheelsGameData {
   u8 pad5A[0x39];     /* 0x5A */
   s8 items[0xC];      /* 0x93 code variable 0x66: unlocked */
   s8 cheats[0xB];     /* 0x9F code variable 0x6A; [9] also 0x69, [10] turns them all on */
-  s8 unkAA[5];        /* 0xAA code variable 0x68 */
+  s8 extras[5];       /* 0xAA code variable 0x68: bonus unlocks, cheat 4 unlocks all */
   u8 padAF;           /* 0xAF */
-  u16 unkB0[0x1E];    /* 0xB0 code variable 0xCA */
+  u16 miscValues[0x1E]; /* 0xB0 code variable 0xCA: raw values used by the scripts */
   s32 vehicle;        /* 0xEC code variable 0xCB, player 1 */
   s32 item;           /* 0xF0 code variable 0xCC, player 1 */
 } HotWheelsGameData;
@@ -529,8 +533,8 @@ typedef struct DDRescueGameData {
   s8 cars[0x14];      /* 0x0000 code variable 0x64 */
   s8 missions[0xA];   /* 0x0014 code variable 0x65 */
   s8 cheats[0xB];     /* 0x001E code variable 0x6A; [9] also 0x69, [10] turns them all on */
-  s8 unk29[5];        /* 0x0029 code variable 0x68 */
-  u16 unk2E[0x1E];    /* 0x002E code variable 0xCA */
+  s8 extras[5];       /* 0x0029 code variable 0x68: bonus unlocks, cheat 4 unlocks all */
+  u16 miscValues[0x1E]; /* 0x002E code variable 0xCA: raw values used by the scripts */
   u8 pad6A[2];        /* 0x006A */
   s32 progressionID;  /* 0x006C StateProgressionManager_GetProgressionID */
   s32 progression;    /* 0x0070 */
@@ -549,14 +553,14 @@ typedef struct DDRescueGameData {
   u8 carMode[DDR_MAX_CARS];               /* 0x194C TileCar.mode */
   f32 carPos[DDR_MAX_CARS][3];            /* 0x1980 */
   f32 carHealth[DDR_MAX_CARS];            /* 0x1BD8 fraction of the maximum */
-  u8 carSpawned[DDR_MAX_CARS];            /* 0x1CA0 -> TileCar.unk5F */
+  u8 carSpawned[DDR_MAX_CARS];            /* 0x1CA0 -> TileCar.spawned */
   u8 pad1CD2[2];      /* 0x1CD2 */
   s32 vehicle;        /* 0x1CD4 code variable 0xCB, player 1 */
   s32 item;           /* 0x1CD8 code variable 0xCC, player 1 */
 } DDRescueGameData;
 _Static_assert(offsetof(HotWheelsGameData, item) == 0xF0, "HotWheelsGameData.item");
 _Static_assert(sizeof(HotWheelsGameData) == 0xF4, "HotWheelsGameData size");
-_Static_assert(offsetof(DDRescueGameData, unk2E) == 0x2E, "DDRescueGameData.unk2E");
+_Static_assert(offsetof(DDRescueGameData, miscValues) == 0x2E, "DDRescueGameData.miscValues");
 _Static_assert(offsetof(DDRescueGameData, progressionID) == 0x6C, "DDRescueGameData.progressionID");
 _Static_assert(offsetof(DDRescueGameData, playerStats) == 0x78, "DDRescueGameData.playerStats");
 _Static_assert(offsetof(DDRescueGameData, timerTime) == 0x880, "DDRescueGameData.timerTime");
@@ -716,7 +720,7 @@ typedef struct ControlBinding {
 /* The master control program (mcp.xgc): which game this is and what it
  * loads (Port_Swap.c Claim_MCP has the swapping). */
 typedef struct MCP {
-  u8 unk0;                  /* 0x00 0: load the world's item and AI packs */
+  u8 skipWorldPacks;        /* 0x00 0: load the world's item and AI packs */
   u8 gameType;              /* 0x01 index into g_gameInfo (0: Hot Wheels, 1: DD Rescue) */
   u8 pad2[2];               /* 0x02 */
   s32 menuName;             /* 0x04 */
@@ -741,16 +745,6 @@ _Static_assert(offsetof(MCP, bindings) == 0x40, "MCP.bindings");
 
 /* The binding in MCP.bindings[i] (each entry is a slot holding it). */
 #define MCP_BINDING(mcp, i) GETP(*GETP(GETP((mcp)->bindings)[i]))
-typedef struct {
-  Vector4 pos;
-  Vector4 quat;
-  Vector4 vel;
-  Vector4 angVel;
-  u32 id;
-  s32 unk44;
-  f32 unk48;
-  f32 unk4C;
-} FxParams;
 typedef struct SpawnPoint {
   Vector4 pos;
   f32 rotX;
@@ -768,21 +762,21 @@ typedef struct VehicleInterfaceData {
   u32 itemPack;
   u32 selection;
   s8 active;
-  u8 unk19[0x1C - 0x19];
+  u8 pad19[0x1C - 0x19];
   PTR32(struct Player) players[2];
   PTR32(struct CarA) cars[2];  /* shown on the select screen */
   u32 objects[2];
   s8 locked;
-  u8 unk35[0x38 - 0x35];
+  u8 pad35[0x38 - 0x35];
 } VehicleInterfaceData;
 typedef struct InterfaceMsg {
   u32 iface;
   u16 type;
   u16 sub;
-  u8 unk8[0x20 - 0x8];
+  u8 pad8[0x20 - 0x8];
   u32 result;
   u32 value;
-  u8 unk28[0x30 - 0x28];
+  u8 pad28[0x30 - 0x28];
   u32 selection;
   u32 objects[2];
   PTR32(u32) list;
@@ -797,13 +791,13 @@ typedef struct FlashColor {
 
 /* A screen flash (FlashHolder_Add). */
 typedef struct FlashDef {
-  u8 unk0;                  /* 0x00 */
+  u8 pad0;                  /* 0x00 */
   u8 enabled;               /* 0x01 */
-  u8 unk2[0xA];             /* 0x02 */
+  u8 pad2[0xA];             /* 0x02 */
   s32 duration;             /* 0x0C ms, 0: until removed */
-  u8 unk10[0x10];           /* 0x10 */
+  u8 pad10[0x10];           /* 0x10 */
   PTR32(FlashColor) colorKey; /* 0x20 */
-  u8 unk24[8];              /* 0x24 */
+  u8 pad24[8];              /* 0x24 */
   KeyTrack pointKey;        /* 0x2C ExtractPointKey */
 } FlashDef;
 
@@ -812,12 +806,12 @@ typedef struct Flash {
   KeyColorState colorState; /* 0x10 color: the overlay colour */
   KeyPointState pointState; /* 0x40 */
   PTR32(FlashDef) flash;    /* 0x5C NULL: free */
-  s32 unk60;                /* 0x60 */
-  u8 unk64[4];              /* 0x64 */
+  s32 thingHandle;          /* 0x60 HND(thing) from FlashHolder_Add */
+  u8 pad64[4];              /* 0x64 */
   u32 remaining;            /* 0x68 ms */
-  u8 unk6C[8];              /* 0x6C */
+  u8 pad6C[8];              /* 0x6C */
   f32 time;                 /* 0x74 fade, 0-1 */
-  u8 unk78[8];              /* 0x78 */
+  u8 pad78[8];              /* 0x78 */
 } Flash;
 _Static_assert(offsetof(Flash, flash) == 0x5C, "Flash.flash");
 _Static_assert(offsetof(Flash, remaining) == 0x68, "Flash.remaining");
@@ -831,9 +825,9 @@ typedef struct BulletHole {
   u32 a;
   f32 v[16];
   s32 life;
-  u8 unk54[0x5C - 0x54];
+  u8 pad54[0x5C - 0x54];
   u16 texture;
-  u8 unk5E[0x60 - 0x5E];
+  u8 pad5E[0x60 - 0x5E];
 } BulletHole;
 
 typedef struct QuadPackRef {
@@ -857,28 +851,28 @@ typedef struct QuadPackHeader {
 } QuadPackHeader;
 
 typedef struct Light {
-  u8 unk0[0x10];            /* 0x00 direction (directional lights) */
+  Vector4 direction;        /* 0x00 direction (directional lights) */
   u8 r;                     /* 0x10 */
   u8 g;
   u8 b;
-  u8 unk13;
+  u8 pad13;
   s32 index;                /* 0x14 */
   u8 type;                  /* 0x18 1: directional, 2: ambient, 3: sequenced */
   s8 subtract;              /* 0x19 */
 } Light;
 typedef struct Volume {
-  u8 unk0[0x8];
+  u8 pad0[0x8];
   u32 falloff;              /* 0x08 */
   u32 type;                 /* 0x0C */
-  u8 unp10[0x10];
+  u8 pad10[0x10];
   f32 innerDist;            /* 0x20 */
   f32 outerDist;            /* 0x24 */
-  u8 unk28[4];
+  u8 pad28[4];
   PTR32(Light) light;             /* 0x2C */
 } Volume;
 typedef struct LightWorld {
-  u32 unk0;
-  u8 unk4[0x60];
+  u32 valid;                /* 0x00 0: no world lighting (LightManager) */
+  u8 pad4[0x60];
   PTR32(u8) lights;
   u32 numVolumes;
   PTR32(u8) volumes;
@@ -886,24 +880,24 @@ typedef struct LightWorld {
 typedef struct TracerPoint {
   f32 pos[4];
   f32 vel[4];
-  f32 unk20[4];
-  f32 unk30[4];
-  f32 unk40;
+  f32 posDelta[4];
+  f32 velDelta[4];
+  f32 texCoord;
   u8 color[4];
   PTR32(struct TracerPoint) next;
-  u8 unk4C[4];
+  u8 pad4C[4];
 } TracerPoint;
 typedef struct {
   PlayerLink base;
-  u8 unkB8[0x158 - 0xB8];
+  u8 padB8[0x158 - 0xB8];
 } HumanPlayer;
 typedef struct {
   PlayerLink base;
-  u8 unkB8[0x670 - 0xB8];
+  u8 padB8[0x670 - 0xB8];
 } CarPlayer;
 typedef struct {
   PlayerLink base;
-  u8 unkB8[0x100 - 0xB8];
+  u8 padB8[0x100 - 0xB8];
 } CreaturePlayer;
 typedef struct {
   HumanPlayer humans[4];
@@ -914,13 +908,13 @@ typedef struct {
   PTR32(PlayerLink) free;
 } PlayerMgr;
 typedef struct {
-  u8 unk0;
+  u8 pad0;
   u8 type;
 } TimerDef;
 typedef struct {
-  u8 unk0[3];
+  u8 pad0[3];
   u8 countUp;
-  u8 unk4[4];
+  u8 pad4[4];
   f32 time;
   PTR32(TimerDef) def;
 } Timer;
@@ -950,7 +944,7 @@ typedef struct {
   Vector4 pos;
   Vector4 quat;
   u8 pad60[0x14];
-  u32 unk74;
+  u32 unused74;
   u8 pad78[0x78];
 } DrawThing;
 
@@ -961,12 +955,12 @@ typedef struct GridResult {
 
     typedef struct FileEntry {
     s32 id;
-    u8 unk4[0xC - 0x4];
+    u8 pad4[0xC - 0x4];
     s32 size;
-    u8 unk10[0x14 - 0x10];
+    u8 pad10[0x14 - 0x10];
     s32 position;
     s8 slot;
-    u8 unk19[0x1C - 0x19];
+    u8 pad19[0x1C - 0x19];
 } FileEntry;
 
 typedef struct CARDFileInfo {

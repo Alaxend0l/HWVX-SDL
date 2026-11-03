@@ -126,7 +126,7 @@ Voice *GetVoice_(u8 kind, u32 priority) {
     voice->curEnvVol = -1;
     voice->curVolL = -1;
     voice->curAuxL = -1;
-    voice->unk55 = 0;
+    voice->unused55 = 0;
     voice->volRamp = 0;
     voice->auxRamp = 0;
     voice->auxVol = 0x7FFF;

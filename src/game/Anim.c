@@ -21,7 +21,7 @@ typedef struct Anim {
 
 /* A bone's constant rotation in the key data (0x20 bytes). */
 typedef struct AnimStaticRot {
-    Vector4 unk0;
+    Vector4 unused0;            /* 0x00 */
     Quaternion rot;             /* 0x10 */
 } AnimStaticRot;
 

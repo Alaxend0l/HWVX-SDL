@@ -5,28 +5,17 @@ typedef struct RumbleStatus {
     s32 active;
 } RumbleStatus;
 
-typedef struct InputUnk108 {
-    u16 button;
-    u8 unk2[4];
-    u8 unk6;
-    u8 unk7;
-    u8 unk8[2];
-    s8 unkA;
-    u8 unkB;
-} InputUnk108;
-
 /* TODO: these belong in .bss (original names, in order: rumbleStatus, g_mouse, g_padDown, g_padUp,
  * g_pKeyToDI, ngcPad, ngcPadLast, Wheels). Plain statics get laid out in first-use order, which breaks
  * Input_Init's offsets; the {0} initialisers keep declaration order but put them GETP(in .data). */
 static RumbleStatus rumbleStatus[4] = {0};
 static s32 s_rumbleTime[4] = {0};
-static u8 s_unk30[0x40] = {0};
-static u8 s_unk70[0x40] = {0};
+static u8 s_padDownKeys[0x40] = {0};
+static u8 s_padUpKeys[0x40] = {0};
 /* port: these are the same objects as the externs the other functions use
  * (see the comment above), so name them that way */
 #define s_keyMap g_pKeyToDI
-#define s_unkD8 ngcPad
-static InputUnk108 s_unk108[4] = {0};
+static PADStatus s_ngcPadLast[4] = {0};
 extern u16 g_pKeyToDI[20];
 extern u8 g_padUpPos[4];
 extern u8 g_padDownPos[4];
@@ -80,17 +69,17 @@ s32 Input_Create(void) {
 void Input_Init(void) {
     u32 i;
 
-    memset(s_unk30, 0, 8);
-    memset(s_unk70, 0, 8);
+    memset(s_padDownKeys, 0, 8);
+    memset(s_padUpKeys, 0, 8);
     for (i = 0; i < 4; i++) {
         memset(&g_VirtualPad[i], 0, sizeof(VirtualPad));
-        g_VirtualPad[i].unk0[2] = 1;
+        g_VirtualPad[i].unused2 = 1;
         g_VirtualPad[i].forceFeedbackActive = 1;
         g_padUpPos[i] = 0;
         g_padDownPos[i] = 0;
         rumbleStatus[i].duration = -1;
         rumbleStatus[i].active = 0;
-        s_unk108[i].unkA = 0;
+        s_ngcPadLast[i].err = 0;
     }
     s_rumbleTime[0] = 200;
     s_rumbleTime[1] = 200;
@@ -120,14 +109,14 @@ void Input_Heartbeat(void) {
     for (i = 0; i < 4; i++) {
         g_VirtualPad[i].keyPress = 0;
         for (j = 0; j < g_padDownPos[i]; j++) {
-            key = ((u16 (*)[8])s_unk30)[i][j];
+            key = ((u16 (*)[8])s_padDownKeys)[i][j];
             Input_SetKeyDown(&g_VirtualPad[i], key);
-            ((u16 (*)[8])s_unk30)[i][j] = key;
+            ((u16 (*)[8])s_padDownKeys)[i][j] = key;
         }
         for (j = 0; j < g_padUpPos[i]; j++) {
-            key = ((u16 (*)[8])s_unk70)[i][j];
+            key = ((u16 (*)[8])s_padUpKeys)[i][j];
             Input_SetKeyUp(&g_VirtualPad[i], key);
-            ((u16 (*)[8])s_unk70)[i][j] = key;
+            ((u16 (*)[8])s_padUpKeys)[i][j] = key;
         }
         g_padUpPos[i] = 0;
         g_padDownPos[i] = 0;
@@ -246,13 +235,13 @@ void PadSamplingCallback__Fv(void) {
 
 typedef struct LGPosition {
     u16 button;
-    s8 unk2;
+    s8 unused2;
     s8 wheel;
     u8 accelerator;
     u8 brake;
-    u8 unk6;
-    u8 unk7;
-    u8 unk8;
+    u8 unused6;
+    u8 triggerLeft;
+    u8 triggerRight;
     s8 err;
 } LGPosition;
 
@@ -296,13 +285,13 @@ void pollControllers__Fv(void) {
                         ((LGPosition *)wheels)[chan].button |= 0x400;
                     }
                     cur = ((LGPosition *)wheels)[chan].button;
-                    prev = s_unk108[chan].button;
-                    s_unk108[chan].button = cur;
+                    prev = s_ngcPadLast[chan].button;
+                    s_ngcPadLast[chan].button = cur;
                     down = cur & (prev ^ cur);
                     up = prev & (prev ^ cur);
-                    s_unk108[chan].unk6 = ((LGPosition *)wheels)[chan].unk7;
-                    s_unk108[chan].unk7 = ((LGPosition *)wheels)[chan].unk8;
-                    s_unk108[chan].unkA = ((LGPosition *)wheels)[chan].err;
+                    s_ngcPadLast[chan].triggerLeft = ((LGPosition *)wheels)[chan].triggerLeft;
+                    s_ngcPadLast[chan].triggerRight = ((LGPosition *)wheels)[chan].triggerRight;
+                    s_ngcPadLast[chan].err = ((LGPosition *)wheels)[chan].err;
                     if (PedalsConnected__8LGWheelsFl(wheels, chan)) {
                         if (((LGPosition *)wheels)[chan].accelerator) {
                             g_VirtualPad[chan].keyValue[9] = ((LGPosition *)wheels)[chan].accelerator;
@@ -321,19 +310,19 @@ void pollControllers__Fv(void) {
             break;
         case 0x09000000:
         case 0x8B100000:
-            if (s_unkD8[chan].err == -1) {
+            if (ngcPad[chan].err == -1) {
                 resetMask |= PadChanMask[chan];
-                s_unk108[chan].unkA = -1;
+                s_ngcPadLast[chan].err = -1;
             } else {
-                u16 prev = s_unk108[chan].button;
-                u16 cur = s_unkD8[chan].button;
+                u16 prev = s_ngcPadLast[chan].button;
+                u16 cur = ngcPad[chan].button;
                 down = cur & (prev ^ cur);
                 up = prev & (prev ^ cur);
-                memcpy(&s_unk108[chan], &s_unkD8[chan], sizeof(PADStatus));
-                g_VirtualPad[chan].keyValue[0x10] = 1.6891892f * s_unkD8[chan].stickX;
-                g_VirtualPad[chan].keyValue[0x11] = 1.6891892f * s_unkD8[chan].stickY;
-                g_VirtualPad[chan].keyValue[0x12] = 1.6891892f * s_unkD8[chan].substickX;
-                g_VirtualPad[chan].keyValue[0x13] = 1.6891892f * s_unkD8[chan].substickY;
+                memcpy(&s_ngcPadLast[chan], &ngcPad[chan], sizeof(PADStatus));
+                g_VirtualPad[chan].keyValue[0x10] = 1.6891892f * ngcPad[chan].stickX;
+                g_VirtualPad[chan].keyValue[0x11] = 1.6891892f * ngcPad[chan].stickY;
+                g_VirtualPad[chan].keyValue[0x12] = 1.6891892f * ngcPad[chan].substickX;
+                g_VirtualPad[chan].keyValue[0x13] = 1.6891892f * ngcPad[chan].substickY;
             }
             break;
         default:
@@ -346,7 +335,7 @@ void pollControllers__Fv(void) {
         if (down) {
             for (i = 0; i < 16; i++) {
                 if (down & (1 << i)) {
-                    ((u16 (*)[8])s_unk30)[chan][g_padDownPos[chan]] = 1 << i;
+                    ((u16 (*)[8])s_padDownKeys)[chan][g_padDownPos[chan]] = 1 << i;
                     g_padDownPos[chan]++;
                 }
             }
@@ -354,7 +343,7 @@ void pollControllers__Fv(void) {
         if (up) {
             for (i = 0; i < 16; i++) {
                 if (up & (1 << i)) {
-                    ((u16 (*)[8])s_unk70)[chan][g_padUpPos[chan]] = 1 << i;
+                    ((u16 (*)[8])s_padUpKeys)[chan][g_padUpPos[chan]] = 1 << i;
                     g_padUpPos[chan]++;
                 }
             }
@@ -375,7 +364,7 @@ void pollControllers__Fv(void) {
         PADClamp(pads);
         for (i = 0; i < 4; i++) {
             if (pads[i].err != -3) {
-                memcpy(&s_unkD8[i], &pads[i], sizeof(PADStatus));
+                memcpy(&ngcPad[i], &pads[i], sizeof(PADStatus));
             }
         }
     }

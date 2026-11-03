@@ -24,7 +24,7 @@ typedef struct _FILE {
     __file_modes mode;
     __file_state state;
     u8 is_dynamically_allocated;
-    u8 unkD[0x18 - 0xD];
+    u8 padD[0x18 - 0xD];
     u32 position;
     PTR32(u8) buffer;
     u32 buffer_size;

@@ -1074,7 +1074,7 @@ static s8 AI_Car_IsTargetValid_800094EC(AICar *ai, AIStateSlot *slot, f32 maxDis
         nav = GETP(slot->target);
 
         if (nav != NULL && nav->enabled != 0) {
-            if (def->unk5 != 0 || PSVECSquareDistance(&nav->pos, &CAR_THING(AI_Car_Vehicle(ai))->pos) > nav->radius * nav->radius) {
+            if (def->holdTarget != 0 || PSVECSquareDistance(&nav->pos, &CAR_THING(AI_Car_Vehicle(ai))->pos) > nav->radius * nav->radius) {
                 return 1;
             }
         }
@@ -1254,7 +1254,7 @@ s8 AI_Car_DetermineTarget(AICar *ai, AIStateSlot *branch, u8 level) {
 
     if (branch == GETP(ai->active[level]) &&
         AI_Car_IsTargetValid_800094EC(ai, branch, maxDist, minDist, center, range) &&
-        (GETP(branch->info)->unk5 == 0 || branch->retargetTimer != 0)) {
+        (GETP(branch->info)->holdTarget == 0 || branch->retargetTimer != 0)) {
         /* keeps its target */
         type = GETP(branch->info)->type;
         if (type == AI_TARGET_NAV_POINT || type == AI_TARGET_WAY_POINT) {
@@ -1324,7 +1324,7 @@ s8 AI_Car_DetermineTarget(AICar *ai, AIStateSlot *branch, u8 level) {
             ItemThing *item = items[n];
             u8 itemType;
 
-            if (item->unkE0 != 1) {
+            if (item->aiPickup != 1) {
                 continue;
             }
             type = GETP(branch->info)->type;
@@ -1559,7 +1559,7 @@ s8 AI_Car_EnterState(AICar *ai, AIStateSlot *branch, s32 level) {
             p.quat = *(Vector4 *)&car->quat;
             p.vel = car->vel;
             p.owner = (s32)HND(ai);
-            p.unk48 = 0.0f;   /* unk4C is left unset, as in the original */
+            p.speedScale = 0.0f;   /* unusedParam is left unset, as in the original */
             p.angVel = g_zeroVector;
             ThingManager_DARYL_CreateThing(1, &p);
         }
@@ -1633,7 +1633,7 @@ s32 AI_Car_DetermineState(AICar *ai) {
         }
         AI_UpdateTimer(&ai->slots[i].durationTimer);
         AI_UpdateTimer(&ai->slots[i].cooldownTimer);
-        if (GETP(ai->slots[i].info)->unk5 != 0) {
+        if (GETP(ai->slots[i].info)->holdTarget != 0) {
             AI_UpdateTimer(&ai->slots[i].retargetTimer);
         }
     }
@@ -1699,8 +1699,8 @@ void AI_Car_Reset(void *player) {
     }
     SETP(ai->targetThing, NULL);
     SETP(ai->targetNav, NULL);
-    ai->unk5F0 = 0;
-    ai->unk5F4 = 0;
+    ai->unused5F0 = 0;
+    ai->unused5F4 = 0;
     ai->pathDest = -1;
     ai->pathIndex = 0;
     ai->pathTimer = 0;
@@ -1820,13 +1820,13 @@ void AI_Car_Heartbeat(AICar *ai) {
             }
         }
         /* a dead timer: zeroed right before it would count */
-        ai->unk5F0 = 0;
-        ai->unk5F4 = 0;
-        if (ai->unk5F0 != 0) {
-            ai->unk5F4 += g_iDeltaTimeMS;
-            if (ai->unk5F4 > 20000) {
-                ai->unk5F4 = 0;
-                ai->unk5F0 = 0;
+        ai->unused5F0 = 0;
+        ai->unused5F4 = 0;
+        if (ai->unused5F0 != 0) {
+            ai->unused5F4 += g_iDeltaTimeMS;
+            if (ai->unused5F4 > 20000) {
+                ai->unused5F4 = 0;
+                ai->unused5F0 = 0;
             }
         }
         if (!AI_Car_CheckIfStuck(ai)) {

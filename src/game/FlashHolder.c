@@ -17,7 +17,7 @@ s32 FlashHolder_Add(FlashDef *flash, Vector4 *pos, s32 arg2, f32 time) {
         if (GETP(g_pFlash[i].flash) == NULL) {
             SETP(g_pFlash[i].flash, flash);
             g_pFlash[i].pos = *pos;
-            g_pFlash[i].unk60 = arg2;
+            g_pFlash[i].thingHandle = arg2;
             g_pFlash[i].remaining = flash->duration;
             g_pFlash[i].colorState.reset = 1;
             g_pFlash[i].pointState.reset = 1;

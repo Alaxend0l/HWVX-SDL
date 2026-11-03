@@ -1,24 +1,24 @@
 #include "common.h"
 
 typedef struct MIDISample_ {
-    u32 addr;
-    u32 loop;
-    s32 end;
-    u8 unkC[5];
-    u8 bits;
-    u8 unk12[0xE];
+    u32 addr;                   /* 0x00 start, fixed up by CreateMIDI_ */
+    u32 loop;                   /* 0x04 loop start */
+    s32 end;                    /* 0x08 end */
+    u8 padC[5];                 /* 0x0C */
+    u8 bits;                    /* 0x11 0x10: 16-bit, halves the offsets */
+    u8 pad12[0xE];              /* 0x12 */
 } MIDISample_;
 
 typedef struct MIDIHeader_ {
-    u32 unk0;
-    u32 size;
-    u32 unk8;
-    u32 unkC;
-    u32 numSamples;
-    u32 sampleData;
-    u32 unk18;
-    u32 unk1C;
-    MIDISample_ samples[1];
+    u32 unused0;                /* 0x00 */
+    u32 size;                   /* 0x04 sample data block size */
+    u32 unused8;                /* 0x08 */
+    u32 unusedC;                /* 0x0C */
+    u32 numSamples;             /* 0x10 */
+    u32 sampleData;             /* 0x14 block offset */
+    u32 unused18;               /* 0x18 */
+    u32 unused1C;               /* 0x1C */
+    MIDISample_ samples[1];     /* 0x20 */
 } MIDIHeader_;
 
 extern s32 __OSCurrHeap;

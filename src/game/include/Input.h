@@ -1,7 +1,9 @@
 #include "common.h"
 
 typedef struct VirtualPad {
-    u8 unk0[3];
+    u8 unused0;
+    u8 claimed; /* Input_GetPlayerDevice: 1 once a player claims the device */
+    u8 unused2;
     s8 forceFeedbackActive;
     u32 keyDown;
     u32 keyPress;

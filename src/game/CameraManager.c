@@ -54,15 +54,15 @@ void *CameraManager_GetCameraByIndex(u32 index) {
 /* Camera spring state (g_springProxy): only ever cleared, by CameraManager_Init. */
 typedef struct SpringProxy {
     u8 pad00[0x40];             /* 0x000 */
-    Vector4 unk40[2];           /* 0x040 */
-    Vector4 unk60[2];           /* 0x060 */
+    Vector4 unused40[2];        /* 0x040 */
+    Vector4 unused60[2];        /* 0x060 */
     u8 pad80[0x40];             /* 0x080 */
-    Vector4 unkC0[2];           /* 0x0C0 */
+    Vector4 unusedC0[2];        /* 0x0C0 */
     u8 padE0[0x60];             /* 0x0E0 */
-    Vector4 unk140[2];          /* 0x140 */
+    Vector4 unused140[2];       /* 0x140 */
     u8 pad160[0x60];            /* 0x160 */
-    s32 unk1C0;                 /* 0x1C0 */
-    s32 unk1C4;                 /* 0x1C4 */
+    s32 unused1C0;              /* 0x1C0 */
+    s32 unused1C4;              /* 0x1C4 */
     u8 pad1C8[8];               /* 0x1C8 */
 } SpringProxy;
 _Static_assert(sizeof(SpringProxy) == 0x1D0, "SpringProxy size");
@@ -73,12 +73,12 @@ void CameraManager_Init(void) {
     g_cameraManagerPause = 0;
     CAMERA_MANAGER->count = 0;
     SoundListener_SetTotalListeners(0);
-    memset(g_springProxy.unk60, 0, sizeof(g_springProxy.unk60));
-    memset(g_springProxy.unk40, 0, sizeof(g_springProxy.unk40));
-    g_springProxy.unk1C0 = 0;
-    memset(g_springProxy.unk140, 0, sizeof(g_springProxy.unk140));
-    memset(g_springProxy.unkC0, 0, sizeof(g_springProxy.unkC0));
-    g_springProxy.unk1C4 = 0;
+    memset(g_springProxy.unused60, 0, sizeof(g_springProxy.unused60));
+    memset(g_springProxy.unused40, 0, sizeof(g_springProxy.unused40));
+    g_springProxy.unused1C0 = 0;
+    memset(g_springProxy.unused140, 0, sizeof(g_springProxy.unused140));
+    memset(g_springProxy.unusedC0, 0, sizeof(g_springProxy.unusedC0));
+    g_springProxy.unused1C4 = 0;
 }
 extern u8 g_triggerAction_params_default[];  /* typed per function below */
 
@@ -115,8 +115,8 @@ void *CameraManager_GetNewCamera(void) {
         cam->springPos.y = 0.0f;
         cam->springPos.z = 1.0f;
         cam->springVel = g_zeroVector;
-        cam->unkC0 = g_zeroVector;
-        cam->unkD0 = g_zeroVector;
+        cam->unusedC0 = g_zeroVector;
+        cam->unusedD0 = g_zeroVector;
         cam->rollUpVel = g_zeroVector;
         cam->tiltUpVel = g_zeroVector;
         cam->rollUp.x = 0.0f;
@@ -135,7 +135,7 @@ void *CameraManager_GetNewCamera(void) {
                 SETP(cam->cameraFx, ThingManager_DARYL_CreateThing(THING_TYPE_EMITTER, &params));
             }
         }
-        cam->unk100 = -1;
+        cam->unused100 = -1;
         cam->flipTimer = -1;
         return cam;
     }
@@ -285,7 +285,7 @@ void GetTrimmedCameraPos(Camera *camera, Vector4 *from, Vector4 *dir, f32 *trim,
     struct {
         Vector4 point;
         Vector4 normal;
-        u8 unk20[0x30];
+        u8 pad20[0x30];
     } info __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
     Vector4 d __attribute__((aligned(16)));
@@ -356,7 +356,7 @@ void GetTrimmedCameraPos2(Vector4 *from, Vector4 *to, f32 *trim, s32 bone, Matri
     struct {
         Vector4 point;
         Vector4 normal;
-        u8 unk20[0x30];
+        u8 pad20[0x30];
     } info __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
     Vector4 target __attribute__((aligned(16)));
@@ -503,7 +503,7 @@ void Camera_UpdatePosition_Default(Camera *cam, f32 *mode) {
     cell = VolumeManager_GetVolumeCellIndex(&((CarA *)GETP(GETP(cam->player)->vehicle))->base.pos);
     count = VolumeManager_GetNumVolumesOfTypeByCell(3, cell);
     car = GETP(GETP(cam->player)->vehicle);
-    if ((u8 *)GETP(car->base.vtable) != g_carAVTable || car->unk460 == 0) {
+    if ((u8 *)GETP(car->base.vtable) != g_carAVTable || car->airTime == 0) {
         for (i = 0; i < count; i++) {
             f32 dist = 0.0f;
             volume = PTR(VolumeManager_GetVolumeTypeByIndexByCell(3, i, cell));
@@ -1015,7 +1015,7 @@ void Camera_UpdatePosition(Camera *cam) {
                 cam->pos = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 3];
                 XformVec(&GETP(car->motionState.animMatrices)[params->bone], &params->offset, &cam->pos);
             } else if ((u8 *)GETP(car->base.vtable) == g_lookerVTable) {
-                car = GETP(car->unkBC);
+                car = GETP(car->lookTarget);
                 if (GETP(car->motionState.animMatrices) != NULL) {
                     cam->right = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 0];
                     cam->up = ((Vector4 *)GETP(car->motionState.animMatrices))[params->bone * 4 + 1];
@@ -1072,7 +1072,7 @@ void Camera_UpdatePosition(Camera *cam) {
         Camera_TriggerActionGetLocation((u8 *)cam, &mode[i], &target);
         Camera_Orbit(cam, &center, &target, radius, height, speed, fov);
         car = GETP(GETP(cam->player)->vehicle);
-        if (car != NULL && (u8 *)GETP(car->base.vtable) == g_carAVTable && (car->stuckCounter > 0 || car->unk460 <= 0) &&
+        if (car != NULL && (u8 *)GETP(car->base.vtable) == g_carAVTable && (car->stuckCounter > 0 || car->airTime <= 0) &&
             car->base.axis[1].y < 0.5f) {
             SETP(cam->mode, &g_triggerAction_params_default);
         }

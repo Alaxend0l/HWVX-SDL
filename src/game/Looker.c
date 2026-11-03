@@ -11,8 +11,8 @@ typedef struct Looker {
     f32 pitch;                  /* 0xB8 degrees, within +-80 */
     PTR32(Thing) host;          /* 0xBC thing whose camera it uses, or NULL */
     u8 padC0[4];                /* 0xC0 */
-    s32 unkC4;                  /* 0xC4 */
-    s32 unkC8;                  /* 0xC8 */
+    s32 unusedC4;               /* 0xC4 */
+    s32 unusedC8;               /* 0xC8 */
     f32 fov;                    /* 0xCC */
 } Looker;
 
@@ -46,8 +46,8 @@ s32 Looker_Init(Looker *looker, u8 *init) {
     looker->base.collisionType = THING_COLLIDE_RAY;
     SETP(looker->host, NULL);
     looker->fov = 60.0f;
-    looker->unkC4 = -1;
-    looker->unkC8 = -1;
+    looker->unusedC4 = -1;
+    looker->unusedC8 = -1;
     return 1;
 }
 
@@ -172,7 +172,7 @@ void Looker_GetCameraOrientationInfo(Looker *looker, void *arg1, CameraInfo *inf
         return;
     }
     info->fov = looker->fov;
-    info->unk80 = 0;
+    info->unused80 = 0;
     SETP(info->subMode, NULL);
     info->mtx = *THING_MTX(&looker->base);
     info->target = looker->base.pos;

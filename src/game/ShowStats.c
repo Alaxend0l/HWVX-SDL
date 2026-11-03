@@ -1,22 +1,19 @@
 #include "common.h"
 #include "Gfx.h"
+#include "World.h"
 
 
 
+/* The debug font record in the game data (WorldGameData.debugFont). */
 typedef struct DebugFontInfo {
-    u32 texture;
-    u8 unk4[5];
-    u8 width;
-    u8 height;
-    u8 caseMode;
-    u8 unkC[0x1C];
-    f32 spacing;
+    u32 texture;                /* 0x00 */
+    u8 pad4[5];                 /* 0x04 */
+    u8 width;                   /* 0x09 */
+    u8 height;                  /* 0x0A */
+    u8 caseMode;                /* 0x0B */
+    u8 padC[0x1C];              /* 0x0C */
+    f32 spacing;                /* 0x28 */
 } DebugFontInfo;
-
-typedef struct GameDataFonts {
-    u8 unk0[0xC8];
-    PTR32(DebugFontInfo) debugFont;
-} GameDataFonts;
 
 /* Per frame timings (Release_Performance_*), two frames alternating. */
 typedef struct TimeBar {
@@ -43,7 +40,7 @@ void ShowStats_Init(void) {
     DebugFontInfo *font;
 
     if (World_GetGameData() != NULL) {
-        font = GETP(((GameDataFonts *)World_GetGameData())->debugFont);
+        font = GETP(((WorldGameData *)World_GetGameData())->debugFont);
         g_debugDataFlag = 1;
         memset(g_timeBar, 0, sizeof(g_timeBar));
         g_timeBarOn = 0;

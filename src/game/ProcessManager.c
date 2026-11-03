@@ -2,20 +2,20 @@
 #include "common.h"
 
 typedef struct Process {
-    FPTR32(void, (void)) init;
-    FPTR32(void, (void)) update;
-    s32 arg;
-    u32 flags;
-    s32 unk10;
-    s32 unk14;
-    char name[16];
+    FPTR32(void, (void)) init;  /* 0x00 */
+    FPTR32(void, (void)) update;  /* 0x04 */
+    s32 arg;                    /* 0x08 render fn, see Render */
+    u32 flags;                  /* 0x0C bit 0: active */
+    s32 unused10;               /* 0x10 */
+    s32 unused14;               /* 0x14 */
+    char name[16];              /* 0x18 */
 } Process;
 
 typedef struct ProcessManager {
-    u32 count;
-    s32 unk4;
-    s32 unk8;
-    Process processes[27];
+    u32 count;                  /* 0x00 */
+    s32 unused4;                /* 0x04 */
+    s32 unused8;                /* 0x08 */
+    Process processes[27];      /* 0x0C */
 } ProcessManager;
 
 ProcessManager g_processManager;
@@ -48,8 +48,8 @@ void ProcessManager_Add(char *name, void (*init)(void), void (*update)(void), s3
     SETP(g_processManager.processes[index].update, update);
     g_processManager.processes[index].arg = arg;
     g_processManager.processes[index].flags = flags;
-    g_processManager.processes[index].unk10 = 0;
-    g_processManager.processes[index].unk14 = 0;
+    g_processManager.processes[index].unused10 = 0;
+    g_processManager.processes[index].unused14 = 0;
 }
 
 void ProcessManager_Release(char *name) {

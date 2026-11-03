@@ -16,7 +16,7 @@ typedef struct WildCardSlot {
     MotionState motion;         /* 0x00 model: WeaponInfo.anim */
     u8 pad38[8];                /* 0x38 */
     s16 ammo;                   /* 0x40 */
-    u16 unk42;                  /* 0x42 */
+    u16 unused42;               /* 0x42 */
     f32 scale;                  /* 0x44 pops up from 0 to 1 when selected */
     f32 angle;                  /* 0x48 aim, radians */
     PTR32(ItemRecord) item;     /* 0x4C the item it came from, NULL: empty */
@@ -31,7 +31,7 @@ typedef struct WildCardRack {
     u8 noFire;                  /* 0x472 */
     u8 pad473[5];               /* 0x473 */
     PTR32(Thing) target;        /* 0x478 */
-    f32 unk47C;                 /* 0x47C -1: no target kept */
+    f32 targetTimer;            /* 0x47C -1: no target, > 0: keep it */
 } WildCardRack;
 
 _Static_assert(offsetof(WildCardSlot, ammo) == 0x40, "WildCardSlot.ammo");

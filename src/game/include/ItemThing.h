@@ -63,7 +63,7 @@ typedef struct ItemParams {
     Vector4 vel;                /* 0x20 */
     PTR32(ItemRecord) record;   /* 0x30 */
     f32 drawDist;               /* 0x34 0: 500 */
-    u8 unk38;                   /* 0x38 */
+    u8 aiPickup;                /* 0x38 1: AI cars can target this item */
 } ItemParams;
 
 typedef struct ItemThing {
@@ -79,17 +79,17 @@ typedef struct ItemThing {
     s32 navPoint;               /* 0xD4 nearest nav point, -1: none */
     u32 timerActive;            /* 0xD8 */
     s32 timer;                  /* 0xDC ms */
-    u8 unkE0;                   /* 0xE0 ItemParams.unk38 */
+    u8 aiPickup;                /* 0xE0 ItemParams.aiPickup; 1: AI cars may target it */
     u8 padE1[7];                /* 0xE1 */
     f32 pickupRadiusSq;         /* 0xE8 */
-    s32 unkEC;                  /* 0xEC */
+    s32 unusedEC;               /* 0xEC */
 } ItemThing;
 
 _Static_assert(offsetof(ItemThing, spinAxis) == 0xB0, "ItemThing.spinAxis");
 _Static_assert(offsetof(ItemThing, record) == 0xC0, "ItemThing.record");
 _Static_assert(offsetof(ItemThing, pickupDelay) == 0xCC, "ItemThing.pickupDelay");
 _Static_assert(offsetof(ItemThing, navPoint) == 0xD4, "ItemThing.navPoint");
-_Static_assert(offsetof(ItemThing, unkE0) == 0xE0, "ItemThing.unkE0");
+_Static_assert(offsetof(ItemThing, aiPickup) == 0xE0, "ItemThing.aiPickup");
 _Static_assert(offsetof(ItemThing, pickupRadiusSq) == 0xE8, "ItemThing.pickupRadiusSq");
 _Static_assert(sizeof(ItemThing) == 0xF0, "ItemThing size");
 _Static_assert(offsetof(ItemRecord, height) == 0x10, "ItemRecord.height");

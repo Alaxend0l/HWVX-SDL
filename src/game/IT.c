@@ -324,7 +324,7 @@ void SetITTrackPriority(s32 track, s32 priority)
         SetVoicePriority_(voice);
         /* sic: 0x08 is never set, so only the active voice gets the new
          * priority; it heads the list, and `next` (0x04) looks meant */
-        voice = GETP(voice->unk08);
+        voice = GETP(voice->next2);
     }
     else
     {
