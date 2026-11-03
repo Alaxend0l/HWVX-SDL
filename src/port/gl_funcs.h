@@ -14,6 +14,8 @@ typedef void (APIENTRYP PFNGLSCISSORPROC)(GLint x, GLint y, GLsizei w, GLsizei h
 typedef void (APIENTRYP PFNGLENABLEPROC)(GLenum cap);
 typedef void (APIENTRYP PFNGLDISABLEPROC)(GLenum cap);
 typedef void (APIENTRYP PFNGLBLENDFUNCPROC)(GLenum sfactor, GLenum dfactor);
+typedef void (APIENTRYP PFNGLBLENDFUNCSEPARATEPROC)(GLenum srcRGB, GLenum dstRGB,
+                                                    GLenum srcAlpha, GLenum dstAlpha);
 typedef void (APIENTRYP PFNGLLOGICOPPROC)(GLenum opcode);
 typedef void (APIENTRYP PFNGLDEPTHFUNCPROC)(GLenum func);
 typedef void (APIENTRYP PFNGLDEPTHMASKPROC)(GLboolean flag);
@@ -56,6 +58,7 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLENABLEPROC, glEnable)                                                \
     X(PFNGLDISABLEPROC, glDisable)                                              \
     X(PFNGLBLENDFUNCPROC, glBlendFunc)                                          \
+    X(PFNGLBLENDFUNCSEPARATEPROC, glBlendFuncSeparate)                          \
     X(PFNGLBLENDEQUATIONPROC, glBlendEquation)                                  \
     X(PFNGLLOGICOPPROC, glLogicOp)                                              \
     X(PFNGLDEPTHFUNCPROC, glDepthFunc)                                          \
@@ -139,6 +142,7 @@ GL_FUNCS(GL_DECLARE)
 #define glEnable p_glEnable
 #define glDisable p_glDisable
 #define glBlendFunc p_glBlendFunc
+#define glBlendFuncSeparate p_glBlendFuncSeparate
 #define glBlendEquation p_glBlendEquation
 #define glLogicOp p_glLogicOp
 #define glDepthFunc p_glDepthFunc

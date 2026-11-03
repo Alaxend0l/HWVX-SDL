@@ -1081,6 +1081,29 @@ void Render_DrawShadows(void) {
             GXSetCullMode(1);
         }
     }
+    /* TEMP DEBUG: is the pass reached, and does any entry have a shadow model? */
+    {
+        static int s_dsCalls;
+        if (++s_dsCalls % 120 == 3 && g_pGDL->numDrawEntries) {
+            u32 orFlags = 0, geoZero = 0, groupsZero = 0;
+            for (i = 0; i < (u32)g_pGDL->numDrawEntries && i < 0x800; i++) {
+                ShadowModel *m = (ShadowModel *)GETP(g_pGDL->drawEntries[i].geometry);
+                ShadowGeometry *sg;
+                if (m == NULL) {
+                    geoZero++;
+                    continue;
+                }
+                sg = GETP(m->geometry);
+                if (sg == NULL) {
+                    groupsZero++;
+                    continue;
+                }
+                orFlags |= GETP(sg->groups)->flags;
+            }
+            Port_Log("drawshadows: %d entries, %d shadow models, flagsOr 0x%X, geoNull %d, grpNull %d",
+                     (int)g_pGDL->numDrawEntries, (int)numShadows, orFlags, (int)geoZero, (int)groupsZero);
+        }
+    }
     if (numShadows) {
         color.r = color.g = color.b = 0;
         color.a = 100;

@@ -7,8 +7,8 @@
  * One "uber" shader implements the parts of the GX pipeline the game uses,
  * driven by uniforms: position/texture matrices, texture coordinate
  * generation, the two lighting channels, up to 16 TEV stages with the full
- * color/alpha combiner (no konst/swap tables, compare ops or indirect
- * texturing), alpha compare and fog. */
+ * color/alpha combiner including the eight compare combine modes (no
+ * konst/swap tables or indirect texturing), alpha compare and fog. */
 #include "gx_internal.h"
 
 #define MAX_STAGES 16
@@ -158,15 +158,42 @@ static const char *s_fs =
     "    vec4 ras = uOrder[s].z == 255 ? vec4(0.0) : vClr[uOrder[s].z & 1];\n"
     "    vec3 a = cin(uCIn[s].x, r, t, ras), b = cin(uCIn[s].y, r, t, ras);\n"
     "    vec3 c = cin(uCIn[s].z, r, t, ras), d = cin(uCIn[s].w, r, t, ras);\n"
-    "    vec3 cv = mix(a, b, c);\n"
-    "    cv = uCOp[s].x == 1 ? d - cv : d + cv;\n"
+    "    vec3 cv;\n"
+    "    if (uCOp[s].x < 2) {\n"
+    "      cv = mix(a, b, c);\n"
+    "      cv = uCOp[s].x == 1 ? d - cv : d + cv;\n"
+    "    } else {\n"
+    "      /* compare combines: the test picks c or d, component-wise */\n"
+    "      bvec3 cmp;\n"
+    "      if (uCOp[s].x == 10) {\n"
+    "        bool bt = dot(a - vec3(0.5), b - vec3(0.5)) > 0.25; /* DOT3-like test */\n"
+    "        cmp = bvec3(bt);\n"
+    "      } else if (uCOp[s].x == 14)\n"
+    "        cmp = notEqual(4.0 * (a - b), vec3(0.0)); /* signed diff != 0 */\n"
+    "      else if (uCOp[s].x == 3 || uCOp[s].x == 5 || uCOp[s].x == 7 ||\n"
+    "               uCOp[s].x == 9 || uCOp[s].x == 11 || uCOp[s].x == 13)\n"
+    "        cmp = equal(a, b);\n"
+    "      else /* 2, 4, 6, 8, 12, 15 */\n"
+    "        cmp = greaterThan(a, b);\n"
+    "      cv = mix(c, d, cmp);\n"
+    "    }\n"
     "    cv += uCOp[s].y == 1 ? vec3(0.5) : uCOp[s].y == 2 ? vec3(-0.5) : vec3(0.0);\n"
     "    cv *= uCOp[s].z == 1 ? 2.0 : uCOp[s].z == 2 ? 4.0 : uCOp[s].z == 3 ? 0.5 : 1.0;\n"
     "    if (uCOp[s].w != 0) cv = clamp(cv, 0.0, 1.0);\n"
     "    float aa = ain(uAIn[s].x, r, t, ras), ab = ain(uAIn[s].y, r, t, ras);\n"
     "    float ac = ain(uAIn[s].z, r, t, ras), ad = ain(uAIn[s].w, r, t, ras);\n"
-    "    float av = mix(aa, ab, ac);\n"
-    "    av = uAOp[s].x == 1 ? ad - av : ad + av;\n"
+    "    float av;\n"
+    "    if (uAOp[s].x < 2) {\n"
+    "      av = mix(aa, ab, ac);\n"
+    "      av = uAOp[s].x == 1 ? ad - av : ad + av;\n"
+    "    } else if (uAOp[s].x == 14) {\n"
+    "      av = 4.0 * (aa - ab) != 0.0 ? ac : ad; /* signed diff != 0 */\n"
+    "    } else if (uAOp[s].x == 3 || uAOp[s].x == 5 || uAOp[s].x == 7 ||\n"
+    "               uAOp[s].x == 9 || uAOp[s].x == 11 || uAOp[s].x == 13) {\n"
+    "      av = aa == ab ? ac : ad;\n"
+    "    } else /* 2, 4, 6, 8, 10, 12, 15 */ {\n"
+    "      av = aa > ab ? ac : ad;\n"
+    "    }\n"
     "    av += uAOp[s].y == 1 ? 0.5 : uAOp[s].y == 2 ? -0.5 : 0.0;\n"
     "    av *= uAOp[s].z == 1 ? 2.0 : uAOp[s].z == 2 ? 4.0 : uAOp[s].z == 3 ? 0.5 : 1.0;\n"
     "    if (uAOp[s].w != 0) av = clamp(av, 0.0, 1.0);\n"
@@ -319,6 +346,12 @@ static GLenum BlendFactor(int f, int isSrc) {
     }
 }
 
+static GLenum BlendAlphaFactor(int f) {
+    /* DST_COLOR/SRC_COLOR factors only exist for the color channels; the
+     * alpha channels fall back to ONE. */
+    return (f == 2 || f == 3) ? GL_ONE : BlendFactor(f, 0);
+}
+
 static void ApplyState(void) {
     GXState *g = &g_gx;
     f32 buf[64 * 4];
@@ -428,11 +461,13 @@ static void ApplyState(void) {
     /* pixel engine */
     if (g->blendType == 1 || g->blendType == 3) {
         glEnable(GL_BLEND);
-        glBlendFunc(BlendFactor(g->blendSrc, 1), BlendFactor(g->blendDst, 0));
-        glBlendEquation(g->blendType == 3 ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD);
         if (g->blendType == 3) {
             glBlendFunc(GL_ONE, GL_ONE);
+        } else {
+            glBlendFuncSeparate(BlendFactor(g->blendSrc, 1), BlendFactor(g->blendDst, 0),
+                                BlendAlphaFactor(g->blendSrc), BlendAlphaFactor(g->blendDst));
         }
+        glBlendEquation(g->blendType == 3 ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD);
     } else {
         glDisable(GL_BLEND);
     }
@@ -598,6 +633,10 @@ static void CopySrcRect(int *x0, int *y0, int *x1, int *y1) {
     *y0 = s.efbH - (int)((r[1] + r[3]) * sy);
 }
 
+/* TEMP DEBUG: EFB copy statistics, removed after verifying shadows. */
+static long s_cpSum;
+static int s_cpMax, s_cpNz, s_cpCalls;
+
 /* EFB -> texture copy (GXCopyTex). The shadow pass uses this: shadow volumes
  * write a small EFB alpha, then GXSetTexCopyDst(0x140,0xE0,GX_COPY_AI8=0x27,1)
  * halves the 640x480 buffer and copies its alpha into pShadowImage as an I8
@@ -607,12 +646,11 @@ static void CopySrcRect(int *x0, int *y0, int *x1, int *y1) {
 void GX_DrawCopyTex(void *dest, u8 clear) {
     static u8 *raw, *lev;
     static int rawCap;
-    int src[4], r[0], g[0], b[0], a[0];
-    int dstW, dstH, w, h, scale, x, y, levels;
+    const u16 *srcR = g_gx.texCopySrc;
+    int gx, gy, gw, gh, dstW, dstH, w, h, scale, x, y, levels;
     int fromAlpha;
     u8 *out;
 
-    CopySrcRect(src, src + 1, src + 2, src + 3);
     dstW = g_gx.texCopyW;
     dstH = g_gx.texCopyH;
     if (dstW <= 0 || dstH <= 0) {
@@ -625,40 +663,37 @@ void GX_DrawCopyTex(void *dest, u8 clear) {
     if (scale < 1) {
         scale = 1;
     }
-    /* GX pixels -> GL pixels (GL y grows up, GX y grows down). */
-    r[0] = src[0] * scale;
-    r[2] = (src[2] == 0 ? 640 : src[2]) * scale;
-    r[1] = s.efbH - (src[1] + (src[3] == 0 ? 480 : src[3])) * scale;
-    r[3] = src[3] * scale;
-    if (r[0] < 0) {
-        r[0] = 0;
+    /* GX source rect (GX pixels, top-left origin) -> GL pixels (bottom-up) */
+    gx = srcR[0] * scale;
+    gy = srcR[1] * scale;
+    gw = (srcR[2] ? srcR[2] : 640) * scale;
+    gh = (srcR[3] ? srcR[3] : 480) * scale;
+    if (gx < 0) {
+        gw += gx;
+        gx = 0;
     }
-    if (r[1] < 0) {
-        r[1] = 0;
+    if (gy + gh > s.efbH) {
+        gh = s.efbH - gy;
     }
-    if (r[0] + r[2] > s.efbW) {
-        r[2] = s.efbW - r[0];
+    if (gx + gw > s.efbW) {
+        gw = s.efbW - gx;
     }
-    if (r[1] + r[3] > s.efbH) {
-        r[3] = s.efbH - r[1];
-    }
-    if (r[2] <= 0 || r[3] <= 0) {
+    if (gw <= 0 || gh <= 0) {
         return;
     }
 
-    int need = r[2] * r[3] * 4;
-    if (need > rawCap) {
+    if (gw * gh * 4 > rawCap) {
         SDL_free(raw);
-        rawCap = need + need / 2;
+        rawCap = gw * gh * 4 + gw * gh / 2;
         raw = SDL_malloc(rawCap);
-        lev = SDL_malloc((size_t)s.efbW * s.efbH / 4 + 16);
+        lev = SDL_malloc((size_t)dstW * dstH + 16);
         if (raw == NULL || lev == NULL) {
             Port_Fatal("GXCopyTex: out of memory");
         }
     }
     glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(r[0], r[1], r[2], r[3], GL_RGBA, GL_UNSIGNED_BYTE, raw);
+    glReadPixels(gx, s.efbH - gy - gh, gw, gh, GL_RGBA, GL_UNSIGNED_BYTE, raw);
 
     out = (u8 *)dest;
     levels = 1;
@@ -671,20 +706,22 @@ void GX_DrawCopyTex(void *dest, u8 clear) {
     h = dstH;
     for (int lcv = 0; lcv < levels; lcv++) {
         /* Average the source rect down to w x h (the copy halves the buffer,
-         * and mips halve again); box filter matches the hardware EFB copy. */
+         * and mips halve again); box filter matches the hardware EFB copy.
+         * Destination rows are GX order (top row first), raw rows GL order
+         * (bottom row first). */
         for (y = 0; y < h; y++) {
-            int sy0 = y * r[3] / h, sy1 = (y + 1) * r[3] / h;
+            int sy1 = gh - y * gh / h, sy0 = gh - (y + 1) * gh / h;
             if (sy1 <= sy0) {
                 sy1 = sy0 + 1;
             }
             for (x = 0; x < w; x++) {
-                int sx0 = x * r[2] / w, sx1 = (x + 1) * r[2] / w;
+                int sx0 = x * gw / w, sx1 = (x + 1) * gw / w;
                 int sum = 0, n = 0;
                 if (sx1 <= sx0) {
                     sx1 = sx0 + 1;
                 }
                 for (int yy = sy0; yy < sy1; yy++) {
-                    const u8 *p = raw + (size_t)(yy * r[2] + sx0) * 4;
+                    const u8 *p = raw + (size_t)(yy * gw + sx0) * 4;
                     for (int xx = sx0; xx < sx1; xx++, p += 4) {
                         sum += fromAlpha ? p[3] : (p[0] * 77 + p[1] * 151 + p[2] * 28) >> 8;
                         n++;
@@ -693,11 +730,41 @@ void GX_DrawCopyTex(void *dest, u8 clear) {
                 lev[y * w + x] = (u8)(sum / (n > 0 ? n : 1));
             }
         }
+        if (lcv == 0) {
+            int i, n2 = w * h;
+            for (i = 0; i < n2; i++) {
+                s_cpSum += lev[i];
+                if (lev[i] > s_cpMax) {
+                    s_cpMax = lev[i];
+                }
+                if (lev[i]) {
+                    s_cpNz++;
+                }
+            }
+            /* TEMP DEBUG: dump the shadow alpha map as a PGM */
+            if ((s_cpCalls + 1) % 120 == 0) {
+                static const char *sdir;
+                if (!sdir) {
+                    sdir = getenv("HWVX_DUMP");
+                }
+                if (sdir && *sdir) {
+                    char fn[512];
+                    FILE *fp;
+                    snprintf(fn, sizeof(fn), "%s/shadow%04d.pgm", sdir, (s_cpCalls + 1) / 120);
+                    fp = fopen(fn, "wb");
+                    if (fp) {
+                        fprintf(fp, "P5\n%d %d\n255\n", w, h);
+                        fwrite(lev, 1, (size_t)w * h, fp);
+                        fclose(fp);
+                    }
+                }
+            }
+        }
         /* Write I8 tiles, row-major over whole block rows; padding pixels in
          * edge blocks stay zero (the sampler never reads them). */
         for (y = 0; y < h; y++) {
             for (x = 0; x < w; x++) {
-                out[(y / 4) * (w * 8) + (x / 8) * 32 + (y % 4) * 8 + (x % 8)] = lev[y * w + x];
+                out[(y / 4) * ((w + 7) / 8 * 32) + (x / 8) * 32 + (y % 4) * 8 + (x % 8)] = lev[y * w + x];
             }
         }
         out += ((w + 7) / 8 * 8) * ((h + 3) / 4 * 4);
@@ -714,6 +781,16 @@ void GX_DrawCopyTex(void *dest, u8 clear) {
     }
     /* Restore GL state touched here; ApplyState re-arms everything else. */
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
+
+    {   /* TEMP DEBUG: prove the copy ran and what alpha it captured */
+        if (++s_cpCalls % 120 == 0) {
+            Port_Log("copytex #%d: %dx%d fmt 0x%X: mean %.4f max %d nz %d", s_cpCalls, dstW, dstH,
+                     g_gx.texCopyFmt, (double)s_cpSum / (120.0 * dstW * dstH), s_cpMax, s_cpNz);
+            s_cpSum = 0;
+            s_cpMax = 0;
+            s_cpNz = 0;
+        }
+    }
 }
 
 /* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp. */

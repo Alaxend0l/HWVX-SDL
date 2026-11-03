@@ -1233,6 +1233,34 @@ void CarA_DrawReflection(void *thing) {
     }
 }
 
+/* TEMP DEBUG (shadows): dump a model geometry's LOD list with each LOD's
+   first-group flags; 0x4000 marks the shadow-volume LOD (Render_DrawShadows). */
+static void carProbeGeom(void *g, const char *tag, u32 idx) {
+    u32 n, i;
+
+    if (g == NULL) {
+        Port_Log("  cargeom %s[%u]: NULL", tag, idx);
+        return;
+    }
+    n = *(u16 *)((u8 *)g + 2);
+    Port_Log("  cargeom %s[%u] %p: numLODs %u lods %p", tag, idx, g, n,
+             Port_HandleToPtr(*(u32 *)((u8 *)g + 8)));
+    for (i = 0; i < n && i < 12; i++) {
+        u8 *lod = (u8 *)Port_HandleToPtr(*(u32 *)((u8 *)g + 8));
+        u32 grps;
+        u16 ng, flags;
+        if (lod == NULL) {
+            break;
+        }
+        lod += i * 0x18;
+        ng = *(u16 *)(lod + 2);
+        grps = *(u32 *)(lod + 8);
+        flags = grps ? *(u16 *)((u8 *)Port_HandleToPtr(grps) + 2) : 0;
+        Port_Log("    lod%u: numGroups %u groups %p flags0 0x%X%s",
+                 (unsigned)i, ng, Port_HandleToPtr(grps), flags, (flags & 0x4000) ? " <== SHADOW" : "");
+    }
+}
+
 /* Draws the animated model (skinned geometry, rigid parts, and the breakable
    parts still on, see partVisMask) from the current bone matrices. */
 void CarA_DrawScript(CarA *car) {
@@ -1253,6 +1281,46 @@ void CarA_DrawScript(CarA *car) {
     }
     LightManager_LightThing(car);
     model = (MotionAnim *)GETP(car->motionState.model);
+    /* TEMP DEBUG (shadows): once per distinct model, dump every geometry
+       reference the car draw paths use and its LOD group flags. */
+    {
+        static void *s_probeSeen[16];
+        int slot = -1, jj;
+        for (jj = 0; jj < 16; jj++) {
+            if (s_probeSeen[jj] == model) {
+                slot = -1000;
+                break;
+            }
+            if (s_probeSeen[jj] == NULL && slot < 0) {
+                slot = jj;
+            }
+        }
+        if (slot >= 0) {
+            CarPartList *pl = GETP(GETP(GETP(GETP(car->vehicleIface)->modelRef)->data)->parts);
+            s_probeSeen[slot] = model;
+            Port_Log("carmodel: model %p numGeoms %u numRigid %u animParts %p ifaceParts %p visMask 0x%X",
+                     model, model->numGeoms, model->numRigid, GETP(model->parts), pl, car->partVisMask);
+            for (jj = 0; jj < (int)model->numGeoms && jj < 8; jj++) {
+                carProbeGeom(GETP(GETP(model->geoms)[jj]), "skin", jj);
+            }
+            for (jj = 0; jj < (int)model->numRigid && jj < 8; jj++) {
+                carProbeGeom(GETP(GETP(model->rigid)[jj].geom), "rigid", jj);
+            }
+            if (GETP(model->parts) != NULL && GETP(model->parts) != pl) {
+                for (jj = 0; jj < (int)GETP(model->parts)->count && jj < 0x20; jj++) {
+                    carProbeGeom(GETP(GETP(GETP(model->parts)->parts)[jj].geom), "animpart", jj);
+                }
+            }
+            if (pl != NULL) {
+                for (jj = 0; jj < (int)pl->count && jj < 0x20; jj++) {
+                    CarPart *pp = &GETP(pl->parts)[jj];
+                    Port_Log("  part[%u]: flags 0x%X xform %u vis %d", jj, pp->flags, pp->xform,
+                             (int)(car->partVisMask & (1u << jj)) != 0);
+                    carProbeGeom(GETP(pp->geom), "part", jj);
+                }
+            }
+        }
+    }
     skel = &GETP(model->skeleton)->numBones;
     for (i = 0; i < model->numGeoms; i++) {
         Gfx_DrawAnimGeometryAux(GETP(GETP(model->geoms)[i]), matrices, *skel, 0);
@@ -1301,6 +1369,17 @@ void CarA_Draw(CarA *car)
         }
     }
     CarA_DrawScript(car);
+    /* TEMP DEBUG: why doesn't the shadow/reflection branch run? */
+    {
+        static int s_refProbe;
+        if (++s_refProbe % 600 == 1) {
+            CarAInfo *vi = GETP(car->vehicleIface);
+            void *pl = GETP(car->base.player);
+            Port_Log("refgate: calls=%d iface=%p refl=%p state=%d player=%p human=%d",
+                     s_refProbe, (void *)vi, vi ? (void *)GETP(vi->reflectionGeom) : NULL,
+                     StateManager_CurrState(), pl, pl ? (int)Player_IsHuman(pl) : -1);
+        }
+    }
     if (GETP(GETP(car->vehicleIface)->reflectionGeom) != NULL && StateManager_CurrState() == 5) {
         mtx = *THING_MTX(&car->base);
         XformVec(THING_MTX(&car->base), &car->bodyOffset, &mtx.v[3]);

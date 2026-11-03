@@ -1871,6 +1871,9 @@ static int IsShadowGeometry(Swapper *s, u32 g) {
 static void Claim_ShadowGeometry(Swapper *s, u32 g) {
     u32 n = Half(s, g + 2), groups = Target(s, g + 8), i, j;
 
+    Port_Log("swapshadow: pack %s geom 0x%X numGroups %u edges0 %u", g_portSwapPackName ? g_portSwapPackName : "?", g,
+             n % 0x1000, n < 0x100 && groups != ~0u ? Word(s, groups + 0x10) : 0u);
+
     ClaimU16(s, g);
     ClaimU16(s, g + 2);
     ClaimU16(s, g + 4);
