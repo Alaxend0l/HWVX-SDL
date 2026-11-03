@@ -6,9 +6,9 @@
 #include "AI.h"
 
 typedef struct AIStats {
-    u32 unk0[7];
-    u32 unk1C;
-    u32 unk20[19];
+    u32 unused0[7];         /* 0x00 */
+    u32 value1C;            /* 0x1C >= 250: events held */
+    u32 unused20[19];       /* 0x20 */
 } AIStats;
 
 AIStats g_AI_Stats;
@@ -120,13 +120,13 @@ s8 AI_CheckAngleInRange(f32 angle, f32 center, f32 range) {
 }
 
 /* Runs the first queued event; returns whether it did. Skipped for up to 5
- * frames while g_AI_Stats.unk1C >= 250. */
+ * frames while g_AI_Stats.value1C >= 250. */
 s32 AI_ProcessEvent(void) {
     extern s16 g_AI_FramesSinceAsyncEventProcessed;
     extern AIStats g_AI_Stats;
     AIEvent *event;
 
-    if (g_AI_FramesSinceAsyncEventProcessed <= 5 && g_AI_Stats.unk1C >= 250) {
+    if (g_AI_FramesSinceAsyncEventProcessed <= 5 && g_AI_Stats.value1C >= 250) {
         return 0;
     }
     event = gs_pAsyncEventHead;

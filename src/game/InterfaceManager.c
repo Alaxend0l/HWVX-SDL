@@ -405,7 +405,7 @@ s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callb
     iface->player = g_playerIndex;
     iface->index = index;
     iface->inputDisabled = 0;
-    iface->unk161 = 0;
+    iface->reenableInput = 0;
     iface->inputDelay = 500.0f;
     iface->locked = 0;
     switch (hdr->mode) {
@@ -590,7 +590,7 @@ void InterfaceManager_AddObject(void *interface, void *object) {
     slot->rot.reset = 1;
     slot->visible.reset = 1;
     slot->textSize.reset = 1;
-    slot->unk194Reset = 1;
+    slot->textScale.reset = 1;
     ExtractColorKey(&GETP(GETP(slot->def)->anim)->color, slot, 0.0f);
     ExtractScaleKey(&GETP(GETP(slot->def)->anim)->scale, &slot->scale, 0.0f);
     ExtractScaleKey(&GETP(GETP(slot->def)->anim)->pos, &slot->pos, 0.0f);
@@ -815,7 +815,7 @@ void InterfaceManager_SetObjectString(InterfaceObject *obj, char *str) {
     obj->pos.reset = 1;
     obj->color.reset = 1;
     obj->textSize.reset = 1;
-    obj->unk194Reset = 1;
+    obj->textScale.reset = 1;
     obj->textShown = 0;
     obj->typeTimer = GETP(data->font)->typeDelay;
     obj->textLen = 0;
@@ -849,7 +849,7 @@ void InterfaceManager_SetObjectText(InterfaceObject *obj, char **text) {
         obj->scale.reset = 1;
         obj->pos.reset = 1;
         obj->textSize.reset = 1;
-        obj->unk194Reset = 1;
+        obj->textScale.reset = 1;
         obj->textShown = 0;
         obj->typeTimer = GETP(data->font)->typeDelay;
         obj->textLen = 0;
@@ -1159,7 +1159,7 @@ void InterfaceManager_SetObjectState(Interface *iface, InterfaceObject *obj, s32
     obj->rot.reset = 1;
     obj->visible.reset = 1;
     obj->textSize.reset = 1;
-    obj->unk194Reset = 1;
+    obj->textScale.reset = 1;
     obj->refresh = 1;
     InterfaceManager_CheckConditions(iface, obj);
     InterfaceManager_MoveObject(iface, obj, 0, 0.0f);
@@ -1256,9 +1256,9 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
     if (iface->count == 0) {
         return;
     }
-    if (iface->unk161) {
+    if (iface->reenableInput) {
         iface->inputDisabled = 0;
-        iface->unk161 = 0;
+        iface->reenableInput = 0;
     }
     if (iface->timeout) {
         if (dt < iface->timeout) {
@@ -1735,7 +1735,7 @@ void InterfaceManager_SetObjectReference(Interface *iface, u32 id, u32 state) {
                         obj->scale.reset = 1;
                         obj->pos.reset = 1;
                         obj->textSize.reset = 1;
-                        obj->unk194Reset = 1;
+                        obj->textScale.reset = 1;
                         obj->textShown = 0;
                         obj->typeTimer = GETP(data->font)->typeDelay;
                         obj->textLen = 0;
@@ -2526,7 +2526,7 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
         break;
     case 0x1B:
         iface->inputDisabled = 1;
-        iface->unk161 = 0;
+        iface->reenableInput = 0;
         break;
     case 0x1C:
         GameSettings_FormatMemoryCard();
@@ -2917,14 +2917,14 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 Gfx_SetProjectionMatrix(GETP(obj->def)->id);
                 break;
             case 5:
-                value = data->unk24;
+                value = data->roleValue5;
                 break;
             case 6:
-                value = data->unk28;
+                value = data->roleValue6;
                 break;
             case 8:
-                if (GETP(data->unk7C) != NULL) {
-                    value = 15.915494f * (3.1415927f + ArcTan(GETP(data->unk7C)->mtxRows[2].z, GETP(data->unk7C)->mtxRows[2].x));
+                if (GETP(data->headingThing) != NULL) {
+                    value = 15.915494f * (3.1415927f + ArcTan(GETP(data->headingThing)->mtxRows[2].z, GETP(data->headingThing)->mtxRows[2].x));
                 }
                 break;
             case 10:
@@ -2940,10 +2940,10 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 value = data->altitude;
                 break;
             case 14:
-                value = data->unk1C;
+                value = data->roleValue14;
                 break;
             case 15:
-                value = data->unk30;
+                value = data->roleValue15;
                 break;
             case 16:
                 if ((s8)((u8)data->text[0]) != 0) {
@@ -2971,14 +2971,14 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 }
                 break;
             case 20:
-                if (data->unk82 != 0) {
+                if (data->roleFlag20 != 0) {
                     value = 0.0f;
                     obj->scale.reset = 1;
                     obj->color.reset = 1;
                 }
                 break;
             case 21:
-                if (data->unk81 != 0) {
+                if (data->roleFlag21 != 0) {
                     value = 0.0f;
                     obj->scale.reset = 1;
                     obj->color.reset = 1;
@@ -3298,7 +3298,7 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                     obj->rot.reset = 1;
                     obj->visible.reset = 1;
                     obj->textSize.reset = 1;
-                    obj->unk194Reset = 1;
+                    obj->textScale.reset = 1;
                     obj->refresh = 1;
                 }
             } else {
@@ -3401,7 +3401,7 @@ void InterfaceManager_ExecuteActions(Interface *iface, IfaceActionList *list) {
                     obj->rot.reset = 1;
                     obj->visible.reset = 1;
                     obj->textSize.reset = 1;
-                    obj->unk194Reset = 1;
+                    obj->textScale.reset = 1;
                     obj->refresh = 1;
                 }
                 continue;
@@ -3595,7 +3595,7 @@ void InterfaceManager_CheckConditions(Interface *iface, InterfaceObject *obj) {
             obj->rot.reset = 1;
             obj->visible.reset = 1;
             obj->textSize.reset = 1;
-            obj->unk194Reset = 1;
+            obj->textScale.reset = 1;
             obj->refresh = 1;
         }
     }
@@ -3816,7 +3816,7 @@ typedef struct RenderFontInfo {
 } RenderFontInfo;
 
 typedef struct RenderObject {
-    u8 unk0;
+    u8 role;
     u8 type;
     u8 pad2[0x14 - 0x2];
     PTR32(RenderFontInfo) font;
@@ -3972,17 +3972,16 @@ static inline void InterfaceManager_DrawDebugCross(Vector4 *pos) {
 }
 
 void InterfaceManager_RenderObject(Interface *iface, s32 index) {
-    typedef struct { Vector4 pos; Vector4 quat; Vector4 vel; PTR32(u8) p; u32 id; f32 unk38; } RenderObjParams2;
     extern s8 g_bRenderCenterPoints;
     extern s8 g_bRenderInterfaceHelpers;
     extern u8 g_carAVTable[];
     extern Matrix4 g_identity;
     extern Vector4 g_zeroVector;
     char text[0x200];
-    FxParams fx;
+    DebrisParams fx;
     Matrix4 scaleMtx;
     Matrix4 mtx;
-    RenderObjParams2 prm;
+    EmitterParams prm;
     Matrix4 orient;
     Vector4 cam;
     f32 width;
@@ -4215,13 +4214,13 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
             }
             case 4:
                 if (!slot->thingCreated) {
-                    SETP(prm.p, GETP(slot->data));
-                    prm.unk38 = 0.0f;
+                    SETP(prm.emitter, GETP(slot->data));
+                    prm.drawDist = 0.0f;
                     prm.pos.x = prm.pos.y = prm.pos.z = 0.0f;
                     prm.vel.x = prm.vel.y = prm.vel.z = 0.0f;
                     prm.quat.x = prm.quat.y = prm.quat.z = 0.0f;
                     prm.quat.w = 1.0f;
-                    prm.id = 0;
+                    prm.owner = 0;
                     SETP(slot->thing, ThingManager_DARYL_CreateThing(2, &prm));
                     slot->thingCreated = 1;
                 }
@@ -4250,14 +4249,14 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
                 break;
             case 3:
                 if (!slot->thingCreated) {
-                    fx.id = (u32)HND(GETP(slot->data));
+                    fx.debris = (u32)HND(GETP(slot->data));
                     fx.pos.x = fx.pos.y = fx.pos.z = 0.0f;
                     fx.vel.x = fx.vel.y = fx.vel.z = 0.0f;
                     fx.quat.x = fx.quat.y = fx.quat.z = 0.0f;
                     fx.quat.w = 1.0f;
-                    fx.unk44 = 0;
-                    fx.unk48 = 0.0f;
-                    fx.unk4C = 0.0f;
+                    fx.owner = 0;
+                    fx.speedScale = 0.0f;
+                    fx.unusedParam = 0.0f;
                     fx.angVel = g_zeroVector;
                     SETP(slot->thing, ThingManager_DARYL_CreateThing(1, &fx));
                     slot->thingCreated = 1;

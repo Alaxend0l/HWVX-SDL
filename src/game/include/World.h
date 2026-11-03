@@ -32,10 +32,7 @@ typedef struct TileCar {
     PTR32(struct CarA) car;     /* 0x28 the spawned car, NULL if none */
     u32 mode;                   /* 0x2C last ActionVehicleChangeMode mode */
     u32 vehicle;                /* 0x30 */
-    union {
-        u8 unk34;               /* 0x34 nonzero: not spawned by mode 1/10; AIPlayerParams.dynamic */
-        u8 dynamic;             /*      AIPlayerParams.dynamic */
-    };
+    u8 dynamic;                 /* 0x34 nonzero: not spawned by mode 1/10; AIPlayerParams.dynamic */
     u8 port;                    /* 0x35 1-4: human player slot; AI cars spawn only when > 4 */
     u8 pad36;                   /* 0x36 */
     u8 maxVehicle;              /* 0x37 AI cars pick a vehicle in 0..maxVehicle */
@@ -49,13 +46,13 @@ typedef struct TileCar {
     s8 respawn;                 /* 0x5C freed (car = NULL) when its AI car is removed */
     u8 item2ID;                 /* 0x5D item pack ids of item2 and item, 0xFF: none */
     u8 itemID;                  /* 0x5E */
-    u8 unk5F;                   /* 0x5F nonzero: always spawned at round start; DD Rescue sets it
+    u8 spawned;                 /* 0x5F nonzero: always spawned at round start; DD Rescue sets it
                                  * for cars that were spawned when the mission was left */
 } TileCar;
 
 WORLD_ASSERT(TileCar, info, 0x24);
 WORLD_ASSERT(TileCar, car, 0x28);
-WORLD_ASSERT(TileCar, unk34, 0x34);
+WORLD_ASSERT(TileCar, dynamic, 0x34);
 WORLD_ASSERT(TileCar, nearDist, 0x38);
 WORLD_ASSERT(TileCar, scripts, 0x40);
 WORLD_ASSERT(TileCar, item, 0x54);
@@ -237,8 +234,9 @@ _Static_assert(sizeof(TileLight) == 0x20, "TileLight size");
 typedef struct TileSpeakerSound {
     u8 type;                    /* 0x00 0: positional (range below) */
     u8 pad1[7];                 /* 0x01 */
-    u8 unk8[4];                 /* 0x08 SoundSource_Set 0 */
-    u8 unkC[8];                 /* 0x0C SoundSource_Set 1 */
+    f32 volume;                 /* 0x08 SoundSource_Set 0 */
+    f32 pitch;                  /* 0x0C SoundSource_Set 1 */
+    u8 pad10[4];                /* 0x10 */
     s32 sound;                  /* 0x14 */
     PTR32(f32) range;           /* 0x18 two floats: SoundSource_Set 2 and 3 */
 } TileSpeakerSound;
@@ -349,7 +347,7 @@ typedef struct QuadItem {
     u16 id;                     /* 0x30 in the world's item pack, 0xFFFF: random in lo..hi */
     u8 pad32[2];                /* 0x32 */
     u8 hasDrawDist;             /* 0x34 */
-    u8 unk35;                   /* 0x35 ItemParams.unk38 */
+    u8 aiPickup;                /* 0x35 ItemParams.aiPickup for items spawned here */
     u8 lo;                      /* 0x36 */
     u8 hi;                      /* 0x37 */
     s8 spawned;                 /* 0x38 */
@@ -457,7 +455,7 @@ typedef struct WorldGameData {
     u8 padA8[0x18];             /* 0xA8 */
     PTR32(GXColor) fogColor;    /* 0xC0 */
     PTR32(void) cameraFx;       /* 0xC4 emitter description kept ahead of each camera (rain...) */
-    u8 padC8[4];                /* 0xC8 */
+    PTR32(void) debugFont;      /* 0xC8 debug font (ShowStats_Init) */
     PTR32(void) pauseInterface; /* 0xCC interface script of the pause menu */
     u8 padD0[0x20];             /* 0xD0 */
     u32 numImpactFx;            /* 0xF0 */
@@ -578,7 +576,7 @@ typedef struct StreamingPack {
     PTR32(char) name;           /* 0x04 */
     u32 id;                     /* 0x08 */
     s32 refs;                   /* 0x0C */
-    u8 unk10;                   /* 0x10 */
+    u8 unused10;                /* 0x10 */
     u8 pad11[3];                /* 0x11 */
     DataPack pack;              /* 0x14 */
 } StreamingPack;

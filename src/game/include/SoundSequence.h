@@ -39,7 +39,7 @@ typedef struct SoundSeqKey {
 
 /* ExtractSoundKey state. */
 typedef struct SoundSeqKeyState {
-    s32 unk0;                   /* 0x00 cleared every call */
+    s32 unused0;                /* 0x00 cleared every call */
     u16 index;                  /* 0x04 next key */
     u16 current;                /* 0x06 last key played */
     f32 time;                   /* 0x08 ms into the key */

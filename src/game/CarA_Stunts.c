@@ -60,12 +60,12 @@ typedef struct Drone {
     u8 cameraType;          /* 0x154 */
     u8 pad155[3];           /* 0x155 */
     PTR32(f32) cameraParams; /* 0x158 -> cameraValues */
-    s32 unk15C;             /* 0x15C */
+    s32 unused15C;          /* 0x15C */
     f32 cameraValues[5];    /* 0x160 */
     u8 pad174[8];           /* 0x174 */
-    s32 unk17C;             /* 0x17C */
+    s32 unused17C;          /* 0x17C */
     f32 speed;              /* 0x180 along axis[2] */
-    s32 unk184;             /* 0x184 */
+    s32 unused184;          /* 0x184 */
     u8 pad188[8];           /* 0x188 */
     Vector4 wheels[4];      /* 0x190 suspension ray starts, body space */
     u8 pad1D0[0xC];         /* 0x1D0 */
@@ -122,7 +122,7 @@ s32 Drone_Init(Drone *drone, DroneParams *data) {
     drone->base.pos = data->pos;
     QuaternionToSubMatrix(&data->quat, THING_MTX(&drone->base));
     drone->base.quat = data->quat;
-    drone->unk15C = 0;
+    drone->unused15C = 0;
     drone->cameraType = 0;
     SETP(drone->cameraParams, drone->cameraValues);
     drone->cameraValues[1] = 20.0f;
@@ -144,8 +144,8 @@ s32 Drone_Init(Drone *drone, DroneParams *data) {
     drone->speed = 0.0f;
     drone->baseForce = g_zeroVector;
     drone->force = drone->baseForce;
-    drone->unk184 = 0;
-    drone->unk17C = 0;
+    drone->unused184 = 0;
+    drone->unused17C = 0;
     info = GETP(GETP(drone->info)->props);
     switch (info->type) {
     case 0:
@@ -383,7 +383,7 @@ void Drone_DynamicCollideImpact(Drone *drone, CollisionInfo *collision, f32 forc
             Thing_Release(drone);
         }
         drone->speed = 0.0f;
-        drone->unk17C = 0;
+        drone->unused17C = 0;
     }
 }
 

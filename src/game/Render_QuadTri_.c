@@ -16,7 +16,7 @@ typedef struct GDLPointSprite {
     u32 color;   /* 0x10 */
     u16 tex;     /* 0x14 */
     u8 blendMode; /* 0x16 */
-    u8 unk17;
+    u8 pad17;
 } GDLPointSprite;
 
 typedef GDL2DVtx GDLTriVtx;
@@ -29,48 +29,48 @@ typedef struct GDLTri {
 
 typedef struct GDLSprite {
     Vector4 pos;
-    u8 unk10[0x1C - 0x10];
+    u8 pad10[0x1C - 0x10];
     f32 rot;
     u32 next;
     u8 r;
     u8 g;
     u8 b;
     u8 a;
-    u8 unk28[2];
+    u8 pad28[2];
     u8 blendMode;
-    u8 unk2B[0x30 - 0x2B];
+    u8 pad2B[0x30 - 0x2B];
 } GDLSprite;
 
 typedef struct GDL2DSprite {
     f32 x;
     f32 y;
     f32 z;
-    f32 unkC;
-    u8 unk10[0x1C - 0x10];
-    f32 unk1C;
-    u8 unk20[0x24 - 0x20];
+    f32 size;                 /* 0x0C quad half-extent is 0.5 * size */
+    u8 pad10[0x1C - 0x10];
+    f32 rotation;             /* 0x1C quad rotation, degrees; 0 = axis aligned */
+    u8 pad20[0x24 - 0x20];
     GXColor color;
     u16 tex;
     u8 flag;
     u8 window;
-    u8 unk2C[0x30 - 0x2C];
+    u8 pad2C[0x30 - 0x2C];
 } GDL2DSprite;
 
 typedef struct GDLGroupTri {
     u8 type;   /* 0x00 0: tris, 1: lit tris, 4: quads */
-    u8 unk1[3];
+    u8 pad1[3];
     u16 tex;   /* 0x04 */
     u16 blendMode; /* 0x06 */
     u32 start; /* 0x08 */
     u32 count; /* 0x0C */
-    u8 unk10[0x20 - 0x10];
+    u8 pad10[0x20 - 0x10];
 } GDLGroupTri;
 
 typedef struct GDLGroupTriVtx {
     u32 r, g, b, a;
     f32 x0, y0, z0, s0;
     f32 x1, y1, z1, t0;
-    f32 x2, y2, z2, unk3C;
+    f32 x2, y2, z2, unused3C;
     f32 s1, t1, s2, t2;
 } GDLGroupTriVtx;
 
@@ -78,47 +78,47 @@ typedef struct GDLGroupQuadVtx {
     u32 r, g, b, a;
     f32 x0, y0, z0, s;
     f32 x1, y1, z1, t;
-    f32 x2, y2, z2, unk3C;
-    f32 x3, y3, z3, unk4C;
+    f32 x2, y2, z2, unused3C;
+    f32 x3, y3, z3, unused4C;
 } GDLGroupQuadVtx;
 
 typedef struct GDLGroupLitTriVtx {
     u32 c[3][4];
     f32 x0, y0, z0, s0;
     f32 x1, y1, z1, t0;
-    f32 x2, y2, z2, unk5C;
+    f32 x2, y2, z2, unused5C;
     f32 s1, t1, s2, t2;
 } GDLGroupLitTriVtx;
 
 typedef struct GDL {
-    u8 unk0[0x4];
+    u8 pad0[0x4];
     u32 num2DSprites;
     u32 numSprites;
-    u8 unkC[0x18 - 0xC];
+    u8 padC[0x18 - 0xC];
     u32 numRects2D;
-    u8 unk1C[0x20 - 0x1C];
+    u8 pad1C[0x20 - 0x1C];
     u32 numRects;
-    u8 unk24[0x44 - 0x24];
+    u8 pad24[0x44 - 0x24];
     u32 numGroupTris;
-    u8 unk48[0x68 - 0x48];
+    u8 pad48[0x68 - 0x48];
     u32 numPointSprites;
-    u8 unk6C[0x9EC0 - 0x6C];
+    u8 pad6C[0x9EC0 - 0x6C];
     GDL2DSprite sprites2D[2000];
     GDLSprite sprites[0x7CF];
-    u8 unk38C90[0x38CC0 - 0x38C90];
+    u8 pad38C90[0x38CC0 - 0x38C90];
     GDLTri tris[2000];
-    u8 unk69A00[0x7EA00 - 0x69A00];
+    u8 pad69A00[0x7EA00 - 0x69A00];
     GDLRect rects2D[1000];
-    u8 unk9EDA0[0x9FA00 - 0x9EDA0];
+    u8 pad9EDA0[0x9FA00 - 0x9EDA0];
     GDLRect rects[1000];
-    u8 unkBFDA0[0xEDCC0 - 0xBFDA0];
+    u8 padBFDA0[0xEDCC0 - 0xBFDA0];
     GDLPointSprite pointSprites[1000];
-    u8 unkF3A80[0x24CDE0 - 0xF3A80];
+    u8 padF3A80[0x24CDE0 - 0xF3A80];
     PTR32(GDLGroupTriVtx) groupTriVtx;      /* 0x24CDE0 */
     PTR32(GDLGroupTri) groupTris;           /* 0x24CDE4 */
     PTR32(GDLGroupQuadVtx) groupQuadVtx;    /* 0x24CDE8 */
     PTR32(GDLGroupLitTriVtx) groupLitTriVtx; /* 0x24CDEC */
-    u8 unk24CDF0[0x24CDF4 - 0x24CDF0];
+    u8 pad24CDF0[0x24CDF4 - 0x24CDF0];
     u16 spriteHeads[0x1FF];
 } GDL;
 
@@ -150,13 +150,13 @@ extern u8 g_screenText[0xA00];
 extern GXColor g_textcolor;
 
 typedef struct FontChar {
-    f32 unk0;
-    f32 unk4;
-    f32 unk8;
-    f32 unkC;
+    f32 s0;                     /* 0x00 glyph texrect: s0,t0 top-left */
+    f32 t0;                     /* 0x04 s1/t1 bottom-right */
+    f32 s1;
+    f32 t1;
     s8 spacingX;
     s8 spacingY;
-    u8 unk12[0x14 - 0x12];
+    u8 pad12[0x14 - 0x12];
 } FontChar;
 
 typedef struct Font {
@@ -165,9 +165,9 @@ typedef struct Font {
     PTR32(char) letters;
     u16 texture;
     u8 caseMode;
-    u8 unkF;
+    u8 numLetters;              /* 0x0F strlen(letters), set in Gfx_LoadFont */
     s8 inUse;
-    u8 unk11;
+    u8 unused11;                /* 0x11 never referenced */
     u16 refCount;
     FontChar chars[128];
 } Font;
@@ -239,10 +239,10 @@ u32 FontManager_Print(char *str, f32 x, f32 y, s32 id) {
             f32 y1 = y + font->height;
             f32 x1 = 0.6f * (u8)font->chars[c].spacingX + x;
 
-            FontManager_Vertex2(x, y, font->chars[c].unk0, font->chars[c].unk4);
-            FontManager_Vertex2(x, y1, font->chars[c].unk0, font->chars[c].unkC);
-            FontManager_Vertex2(x1, y1, font->chars[c].unk8, font->chars[c].unkC);
-            FontManager_Vertex2(x1, y, font->chars[c].unk8, font->chars[c].unk4);
+            FontManager_Vertex2(x, y, font->chars[c].s0, font->chars[c].t0);
+            FontManager_Vertex2(x, y1, font->chars[c].s0, font->chars[c].t1);
+            FontManager_Vertex2(x1, y1, font->chars[c].s1, font->chars[c].t1);
+            FontManager_Vertex2(x1, y, font->chars[c].s1, font->chars[c].t0);
         }
         x += 0.6f * (u8)font->chars[' '].spacingX - 2.0f;
     }
@@ -323,10 +323,10 @@ void Render_DrawSprite(void) {
             Gfx_SetRenderWindow(window);
             Render_StateSetScissor();
         }
-        size = 0.5f * g_pGDL->sprites2D[i].unkC;
+        size = 0.5f * g_pGDL->sprites2D[i].size;
         x = g_pGDL->sprites2D[i].x;
         y = g_pGDL->sprites2D[i].y;
-        if (zero == g_pGDL->sprites2D[i].unk1C) {
+        if (zero == g_pGDL->sprites2D[i].rotation) {
             left = x - size;
             top = y - size;
             x += size;
@@ -340,7 +340,7 @@ void Render_DrawSprite(void) {
             y1 = y;
             y2 = y;
         } else {
-            SinCos(&s, &c, 45.0f + g_pGDL->sprites2D[i].unk1C);
+            SinCos(&s, &c, 45.0f + g_pGDL->sprites2D[i].rotation);
             size *= 1.4142137f;
             s *= size;
             c *= size;
@@ -477,7 +477,7 @@ void Render_DrawAlphaTriangle(u16 index) {
     Render_StateBlendMode(g_pGDL->tris[index].blendMode);
     Render_SetTextureHandle(g_pGDL->tris[index].tex);
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
-    if (g_state.unk84 == 0xFFFF) {
+    if (g_state.unused84 == 0xFFFF) {
         SetTriFlatVtxDesc();
         GXBegin(0x90, 0, 3);
         GXPosition3f32(g_pGDL->tris[index].v[0].x, g_pGDL->tris[index].v[0].y, g_pGDL->tris[index].v[0].z);

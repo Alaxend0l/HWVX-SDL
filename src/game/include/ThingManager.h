@@ -21,11 +21,11 @@
 typedef struct ThingSlotProjectile {
     Thing thing;
     u8 padAC[0x84];
-    s32 unk130;                 /* 0x130 -1 when free */
+    s32 unused130;              /* 0x130 -1 when free */
     u8 pad134[0x2C];
 } ThingSlotProjectile;
 
-_Static_assert(offsetof(ThingSlotProjectile, unk130) == 0x130, "ThingSlotProjectile.unk130");
+_Static_assert(offsetof(ThingSlotProjectile, unused130) == 0x130, "ThingSlotProjectile.unused130");
 _Static_assert(sizeof(ThingSlotProjectile) == 0x160, "ThingSlotProjectile size");
 
 /* g_thingManager_DARYL: one pool per thing type, then the lists. */
@@ -106,7 +106,7 @@ typedef struct TracerParams {
     PTR32(struct TracerDef) def; /* 0x30 */
     s32 time;                   /* 0x34 */
     PTR32(void) player;         /* 0x38 */
-    f32 unk3C;                  /* 0x3C */
+    f32 unused3C;               /* 0x3C */
 } TracerParams;
 
 /* ThingManager_DARYL_CreateThing(THING_TYPE_SOUND_SEQ, ...) parameters. */

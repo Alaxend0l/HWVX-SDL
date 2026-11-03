@@ -21,7 +21,7 @@ void ParticleManager_Init(void) {
         for (j = 0; j < PARTICLE_GX_COUNT; j++) {
             pm->groups[i].particles[j].flags |= PARTICLE_FLAG_AT_REST | PARTICLE_FLAG_FREE;
         }
-        pm->groups[i].unk28004 = 0;
+        pm->groups[i].unused28004 = 0;
         pm->groups[i].next = 0;
     }
     for (j = 0; j < PARTICLE_SPRITE_COUNT; j++) {
@@ -349,8 +349,8 @@ static inline void Particle_SpawnDeathFx(ParticleInfo *info, s32 idx, Vector4 *p
             params.vel = *vel;
             params.quat = *(Vector4 *)quat;
             params.owner = 0;
-            params.unk48 = 0.0f;
-            params.unk4C = 0.0f;
+            params.speedScale = 0.0f;
+            params.unusedParam = 0.0f;
             params.angVel = g_zeroVector;
             ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
         }

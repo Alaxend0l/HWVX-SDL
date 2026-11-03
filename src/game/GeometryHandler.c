@@ -6,7 +6,7 @@ typedef struct GeometryEntry {
     PTR32(void) geometry;
     char name[0x40];
     s16 refCount;
-    u8 unk46[2];
+    u8 pad46[2];
 } GeometryEntry;
 
 typedef struct GeometryHandler {
@@ -80,20 +80,22 @@ void *Geometry_Get(char *name) {
         u16 texHandle;
         u8 pad1a[6];
     } GeoMaterial;
+    /* A mesh in a .gn geometry file. */
     typedef struct {
-        u16 unk0;
-        u16 numMaterials;
-        u32 unk4;
-        PTR32(GeoMaterial) materials;
-        u32 unkC;
-        u32 unk10;
-        PTR32(u8) textures;
+        u16 unused0;                /* 0x00 */
+        u16 numMaterials;           /* 0x02 */
+        u32 unused4;                /* 0x04 */
+        PTR32(GeoMaterial) materials;  /* 0x08 */
+        u32 unusedC;                /* 0x0C */
+        u32 unused10;               /* 0x10 */
+        PTR32(u8) textures;         /* 0x14 texture data block */
     } GeoMesh;
+    /* The .gn file header. */
     typedef struct {
-        u16 unk0;
-        u16 numMeshes;
-        u32 unk4;
-        PTR32(GeoMesh) meshes;
+        u16 unused0;                /* 0x00 */
+        u16 numMeshes;              /* 0x02 */
+        u32 unused4;                /* 0x04 */
+        PTR32(GeoMesh) meshes;      /* 0x08 */
     } Geometry;
     extern GeometryHandler *g_pGeometryHandler;
     char path[256];

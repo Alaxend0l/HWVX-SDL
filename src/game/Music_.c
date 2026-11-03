@@ -7,7 +7,7 @@ typedef union NoteRate {
 } NoteRate;
 
 u32 g_aheap;
-static u32 s_unk_803C78AC;
+static u32 s_unused803C78AC;
 
 const NoteRate g_noteTab[128] = {
     {0x3D000000}, {0x3D079C77}, {0x3D0FACCC}, {0x3D1837EA}, {0x3D21450F}, {0x3D2ADBFC}, {0x3D3504FA}, {0x3D3FC888},

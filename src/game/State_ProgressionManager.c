@@ -508,7 +508,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             DataPack_RefreshPtrs((void *)PTR(g_worldData.worldPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));
-            if (mcp != NULL && GETP(GETP(WORLD()->gameData)->itemPack) != NULL && mcp->unk0 == 0)
+            if (mcp != NULL && GETP(GETP(WORLD()->gameData)->itemPack) != NULL && mcp->skipWorldPacks == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(WORLD()->gameData)->itemPack), 8, 3, 0);
             }
@@ -670,7 +670,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                 numAIToActivate = 100000;
             }
             randOffset = RandomNumberGenerator_GetRandomInteger(0, 0x24);
-            if (mcp != NULL && GETP(GETP(WORLD()->gameData)->vehiclePackList) != NULL && mcp->unk0 == 0)
+            if (mcp != NULL && GETP(GETP(WORLD()->gameData)->vehiclePackList) != NULL && mcp->skipWorldPacks == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(WORLD()->gameData)->vehiclePackList), 8, 2, 0);
             }

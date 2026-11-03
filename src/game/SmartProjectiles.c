@@ -144,8 +144,8 @@ s32 SmartProjectileA_PreMove(struct Projectile *proj) {
           p.debris = id;
           p.quat = *(Vector4 *)&thing->quat;
           p.owner = thing->player.h;
-          p.unk48 = 0.0f;
-          p.unk4C = 0.0f;
+          p.speedScale = 0.0f;
+          p.unusedParam = 0.0f;
           p.angVel = g_zeroVector;
           InverseXformVec(THING_MTX(target), &thing->pos, &p.pos);
           s = ThingManager_DARYL_CreateSlave(1, &p, 0xFF);

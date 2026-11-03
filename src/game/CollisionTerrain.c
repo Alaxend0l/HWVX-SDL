@@ -1082,30 +1082,13 @@ void BuildOOBOffset(Vector4 *bounds, Matrix4 *mtx, Vector4 *rot, CollisionOBox *
 }
 
 void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot) {
+    /* A face of a data ConvexHull (ConvexHull.faces). */
     typedef struct HullFace {
-        Vector4 normal;
-        u8 unk10[4];
-        PTR32(u32) verts;
-        u8 unk18[8];
+        Vector4 normal;         /* 0x00 */
+        u8 pad10[4];            /* 0x10 */
+        PTR32(u32) verts;       /* 0x14 indices into ConvexHull.verts */
+        u8 pad18[8];            /* 0x18 */
     } HullFace;
-    typedef struct Hull {
-        u8 unk0[8];
-        u32 numFaces;
-        u32 numVerts;
-        u8 unk10[8];
-        PTR32(HullFace) faces;
-        PTR32(Vector4) verts;
-    } Hull;
-    typedef struct OConvexHull {
-        Vector4 verts[32];
-        Vector4 planes[16];
-        PTR32(Hull) hull;
-        u8 unk304[0x3C4 - 0x304];
-        s32 unk3C4;
-        s32 unk3C8;
-        u8 unk3CC[4];
-        Vector4 pos;
-    } OConvexHull;
     struct Local {
         double d[8];
     };
@@ -1115,19 +1098,19 @@ void BuildOConvexHullOffset(void *out, void *hull, void *pos, void *rot) {
 
     local = *(struct Local *)pos;
     XformVec(pos, rot, &local.d[6]);
-    for (i = 0; i < ((Hull *)hull)->numVerts; i++) {
-        XformVec(&local, &GETP(((Hull *)hull)->verts)[i], &((OConvexHull *)out)->verts[i]);
+    for (i = 0; i < ((ConvexHull *)hull)->numVerts; i++) {
+        XformVec(&local, &GETP(((ConvexHull *)hull)->verts)[i], &((OConvexHull *)out)->verts[i]);
     }
     {
         OConvexHull *o = (OConvexHull *)out;
-        for (i = 0; i < ((Hull *)hull)->numFaces; i++) {
-            XformVecOrientation(&local, &GETP(((Hull *)hull)->faces)[i].normal, &normal);
+        for (i = 0; i < ((ConvexHull *)hull)->numFaces; i++) {
+            XformVecOrientation(&local, &((HullFace *)GETP(((ConvexHull *)hull)->faces))[i].normal, &normal);
             Create_Plane3(&o->planes[i], &normal,
-                          &((OConvexHull *)out)->verts[*GETP(GETP(((Hull *)hull)->faces)[i].verts)]);
+                          &((OConvexHull *)out)->verts[*GETP(((HullFace *)GETP(((ConvexHull *)hull)->faces))[i].verts)]);
         }
     }
     SETP(((OConvexHull *)out)->hull, hull);
-    ((OConvexHull *)out)->unk3C8 = 0;
-    ((OConvexHull *)out)->unk3C4 = 0;
+    ((OConvexHull *)out)->unused3C8 = 0;
+    ((OConvexHull *)out)->unused3C4 = 0;
     ((OConvexHull *)out)->pos = *(Vector4 *)&local.d[6];
 }

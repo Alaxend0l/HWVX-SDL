@@ -360,7 +360,7 @@ s32 ActionVehicleChangeMode(u32 *action) {
             break;
         case 1:
         case 10:
-            if (car == NULL && spawn->unk34 == 0) {
+            if (car == NULL && spawn->dynamic == 0) {
                 difficulty = GameSettings_GetDifficulty();
                 script = 0;
                 params.pos = spawn->pos;
@@ -405,7 +405,7 @@ s32 ActionVehicleChangeMode(u32 *action) {
                 }
                 desc.script = script;
                 desc.kind = 0;
-                desc.dynamic = spawn->unk34;
+                desc.dynamic = spawn->dynamic;
                 desc.nearSq = spawn->nearDist * spawn->nearDist;
                 desc.farSq = spawn->farDist * spawn->farDist;
                 ai = PlayerManager_NewAIPlayer(&desc);
@@ -592,7 +592,7 @@ s32 ActionVehicleGiveItem(void *arg) {
             params.quat.y = 0.0f;
             params.quat.z = 0.0f;
             params.drawDist = item->hasDrawDist ? item->drawDist : 0.0f;
-            params.unk38 = item->unk35;
+            params.aiPickup = item->aiPickup;
             t = ThingManager_DARYL_CreateThing(4, &params);
             if (t != NULL) {
                 item->spawned = 1;
@@ -610,8 +610,8 @@ s32 ActionVehicleGiveItem(void *arg) {
                     p.vel.y = 0.0f;
                     p.vel.x = 0.0f;
                     p.owner = 0;
-                    p.unk48 = 0.0f;
-                    p.unk4C = 0.0f;
+                    p.speedScale = 0.0f;
+                    p.unusedParam = 0.0f;
                     p.angVel = g_zeroVector;
                     ThingManager_DARYL_CreateThing(1, &p);
                 }

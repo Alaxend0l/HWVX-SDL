@@ -3,13 +3,13 @@
 
 
 typedef struct FontChar {
-    f32 unk0;
-    f32 unk4;
-    f32 unk8;
-    f32 unkC;
+    f32 s0;                     /* 0x00 glyph texrect: s0,t0 top-left */
+    f32 t0;                     /* 0x04 s1/t1 bottom-right */
+    f32 s1;
+    f32 t1;
     s8 spacingX;
     s8 spacingY;
-    u8 unk12[0x14 - 0x12];
+    u8 pad12[0x14 - 0x12];
 } FontChar;
 
 typedef struct Font {
@@ -18,9 +18,9 @@ typedef struct Font {
     PTR32(char) letters;
     u16 texture;
     u8 caseMode;
-    u8 unkF;
+    u8 numLetters;              /* 0x0F strlen(letters), set in Gfx_LoadFont */
     s8 inUse;
-    u8 unk11;
+    u8 unused11;                /* 0x11 never referenced */
     u16 refCount;
     FontChar chars[128];
 } Font;
@@ -57,16 +57,16 @@ u8 g_letterWidth[100] = {
 FontManager g_fontManager;
 
 typedef struct Texture {
-    u8 unk0[0x24];
+    u8 name[0x24];              /* 0x00 texture file name, set on load */
     PTR32(void) data;
-    u32 unk28;
-    f32 unk2C;
-    u16 unk30;
+    u32 unused28;               /* 0x28 copied from pack header, never read */
+    f32 unused2C;               /* 0x2C set to 0.25f, never read */
+    u16 texWidth;               /* 0x30 GXInitTexObj width (BTF stores height) */
     u16 width;
     u16 height;
     s16 refCount;
-    u16 unk38;
-    u16 unk3A;
+    u16 format;                 /* 0x38 4: CMPR, 1: RGBA8, 0/2: RGB565 */
+    u16 fromPack;               /* 0x3A 1: pack texture, data not freed */
     u16 view;
     u16 wrapMode;
 } Texture;
@@ -210,7 +210,7 @@ u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f3
         }
         break;
     }
-    font->unkF = strlen(GETP(font->letters));
+    font->numLetters = strlen(GETP(font->letters));
     for (i = 0; i < 128; i++) {
         font->chars[i].spacingX = 0;
     }
@@ -219,12 +219,12 @@ u32 Gfx_FontManager_AddFont(u16 texture, u32 caseMode, f32 width, f32 height, f3
     u = 0.0f;
     dv = height / texSize;
     font->chars[' '].spacingX = spacing;
-    for (i = 0; i < font->unkF; i++) {
+    for (i = 0; i < font->numLetters; i++) {
         font->chars[(u8)GETP(font->letters)[i]].spacingX = spacing;
-        font->chars[(u8)GETP(font->letters)[i]].unk0 = u;
-        font->chars[(u8)GETP(font->letters)[i]].unk4 = v;
-        font->chars[(u8)GETP(font->letters)[i]].unk8 = u + spacing / texSize;
-        font->chars[(u8)GETP(font->letters)[i]].unkC = v - dv;
+        font->chars[(u8)GETP(font->letters)[i]].s0 = u;
+        font->chars[(u8)GETP(font->letters)[i]].t0 = v;
+        font->chars[(u8)GETP(font->letters)[i]].s1 = u + spacing / texSize;
+        font->chars[(u8)GETP(font->letters)[i]].t1 = v - dv;
         u += du;
         if (u + du > 1.0f) {
             u = 0.0f;
@@ -244,7 +244,7 @@ void Gfx_FontManager_SetCharacterSpacing(s32 id, u8 c, f32 x, f32 y) {
     font->chars[c].spacingX = x;
     font->chars[c].spacingY = y;
     x /= width;
-    font->chars[c].unk8 = font->chars[c].unk0 + x;
+    font->chars[c].s1 = font->chars[c].s0 + x;
 }
 
 u32 Gfx_FontManager_Print(char *str, u32 id, u8 blendMode, f32 x, f32 y, f32 spacing) {
@@ -275,14 +275,14 @@ u32 Gfx_FontManager_Print(char *str, u32 id, u8 blendMode, f32 x, f32 y, f32 spa
             rect->v[1].color = color;
             rect->v[2].color = color;
             rect->v[3].color = color;
-            rect->v[0].s = font->chars[c].unk0;
-            rect->v[0].t = font->chars[c].unk4;
-            rect->v[1].s = font->chars[c].unk0;
-            rect->v[1].t = font->chars[c].unkC;
-            rect->v[2].s = font->chars[c].unk8;
-            rect->v[2].t = font->chars[c].unkC;
-            rect->v[3].s = font->chars[c].unk8;
-            rect->v[3].t = font->chars[c].unk4;
+            rect->v[0].s = font->chars[c].s0;
+            rect->v[0].t = font->chars[c].t0;
+            rect->v[1].s = font->chars[c].s0;
+            rect->v[1].t = font->chars[c].t1;
+            rect->v[2].s = font->chars[c].s1;
+            rect->v[2].t = font->chars[c].t1;
+            rect->v[3].s = font->chars[c].s1;
+            rect->v[3].t = font->chars[c].t0;
             rect->v[0].x = x;
             rect->v[0].y = y;
             rect->v[1].x = x;
@@ -440,14 +440,14 @@ void Gfx_FontManager_PrintScale(char *str, s32 id, f32 *scale, u8 blendMode, f32
             rect->v[1].color = color;
             rect->v[2].color = color;
             rect->v[3].color = color;
-            rect->v[0].s = font->chars[c].unk0;
-            rect->v[0].t = font->chars[c].unk4;
-            rect->v[1].s = font->chars[c].unk0;
-            rect->v[1].t = font->chars[c].unkC;
-            rect->v[2].s = font->chars[c].unk8;
-            rect->v[2].t = font->chars[c].unkC;
-            rect->v[3].s = font->chars[c].unk8;
-            rect->v[3].t = font->chars[c].unk4;
+            rect->v[0].s = font->chars[c].s0;
+            rect->v[0].t = font->chars[c].t0;
+            rect->v[1].s = font->chars[c].s0;
+            rect->v[1].t = font->chars[c].t1;
+            rect->v[2].s = font->chars[c].s1;
+            rect->v[2].t = font->chars[c].t1;
+            rect->v[3].s = font->chars[c].s1;
+            rect->v[3].t = font->chars[c].t0;
             rect->v[0].x = x;
             rect->v[0].y = y;
             rect->v[1].x = x;

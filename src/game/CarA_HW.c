@@ -8,8 +8,8 @@ typedef struct CarAShiftSoundParams {
     Vector4 angVel;
     u32 id;
     PTR32(void) player;
-    f32 unk48;
-    f32 unk4C;
+    f32 speedScale;
+    f32 unusedParam;
 } CarAShiftSoundParams;
 
 extern f32 g_fDeltaTimeSec;
@@ -25,7 +25,7 @@ s8 CarA_DoFreeStyleStunts(CarA *car) {
     s32 threshold;
     Player *pad;
 
-    threshold = GETP(GETP(car->vehicleIface)->stunt)->unk28;
+    threshold = GETP(GETP(car->vehicleIface)->stunt)->startDelay;
     if (GETP(car->base.player) == NULL || !Player_IsHuman(GETP(car->base.player))) {
         return 0;
     }
@@ -34,7 +34,7 @@ s8 CarA_DoFreeStyleStunts(CarA *car) {
         pad->stickX > -0x40 && pad->stickX < 0x40 && pad->stickY > -0x40 && pad->stickY < 0x40) {
         return 0;
     }
-    if (car->unk460 > threshold && car->lowSpeedFlag > threshold &&
+    if (car->airTime > threshold && car->lowSpeedFlag > threshold &&
         !(car->transmissionFlags & 0x40002)) {
         return 1;
     }
@@ -84,7 +84,7 @@ s32 CarA_StuntsGetNewOrientation(CarA *car, Quaternion *outQ, f32 t) {
 
     stunt = GETP(GETP(car->vehicleIface)->stunt);
     scale = 1.0f;
-    frac = (f32)(u32)(car->unk460 - stunt->unk28) / stunt->maxTime;
+    frac = (f32)(u32)(car->airTime - stunt->startDelay) / stunt->maxTime;
     if (!CarA_DoFreeStyleStunts(car)) {
         car->stuntAxis = 0;
         return 0;
@@ -220,8 +220,8 @@ void CarA_StuntFail(CarA *car) {
                 params.vel.y = 0.0f;
                 params.vel.z = car->base.vel.z;
                 SETP(params.player, NULL);
-                params.unk48 = 0.0f;
-                params.unk4C = 0.0f;
+                params.speedScale = 0.0f;
+                params.unusedParam = 0.0f;
                 params.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(1, &params);
             }
@@ -258,7 +258,7 @@ s32 CarA_PreMove_Control_HW(void *thing) {
     u8 mode = 0;
     u8 throttling = 0;
     u8 reversing = 0;
-    f32 decel = -GETP(GETP(car->vehicleIface)->accel)->unk18;
+    f32 decel = -GETP(GETP(car->vehicleIface)->accel)->brakeDecel;
     f32 coast;
     f32 steerRate;
     f32 steer;
@@ -277,28 +277,28 @@ s32 CarA_PreMove_Control_HW(void *thing) {
         if (CARA_PLAYER(car)->throttle) {
             if (CARA_PLAYER(car)->brake == 0 && car->gradeOrReverse > -2.0f) {
                 if (((car->transmissionFlags & 0x1000) &&
-                     car->rpm >= GETP(car->vehicleIface)->unk1C * GETP(car->vehicleIface)->unk30) ||
-                    (!(car->transmissionFlags & 0x1000) && car->rpm >= GETP(car->vehicleIface)->unk1C)) {
+                     car->rpm >= GETP(car->vehicleIface)->maxRpm * GETP(car->vehicleIface)->turboRpmScale) ||
+                    (!(car->transmissionFlags & 0x1000) && car->rpm >= GETP(car->vehicleIface)->maxRpm)) {
                     car->gradeOrReverse += -0.1f * car->gradeOrReverse * g_fDeltaTimeSec;
                     car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
-                    if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
+                    if (car->rpm < GETP(car->vehicleIface)->downshiftRpm && car->curveTableIdx > 1) {
                         car->curveTableIdx--;
                         car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
                     }
                     mode = 2;
-                    decel = 255.0f * (0.2f * -GETP(GETP(car->vehicleIface)->accel)->unk1C);
+                    decel = 255.0f * (0.2f * -GETP(GETP(car->vehicleIface)->accel)->engineBrake);
                 } else {
                     throttling = 1;
                 }
             } else {
                 car->reverseTimer = 0;
                 mode = 1;
-                decel = -(f32)CARA_PLAYER(car)->throttle * GETP(GETP(car->vehicleIface)->accel)->unk20;
+                decel = -(f32)CARA_PLAYER(car)->throttle * GETP(GETP(car->vehicleIface)->accel)->reverseThrottleDecel;
             }
         } else if (CARA_PLAYER(car)->brake) {
             if (CARA_PLAYER(car)->throttle == 0 && car->gradeOrReverse < 1.0f) {
                 car->reverseTimer += g_iDeltaTimeMS;
-                if (car->reverseTimer > GETP(GETP(car->vehicleIface)->engine)->unk18) {
+                if (car->reverseTimer > GETP(GETP(car->vehicleIface)->engine)->reverseDelay) {
                     reversing = 1;
                     car->transmissionFlags |= 4;
                 } else {
@@ -307,13 +307,13 @@ s32 CarA_PreMove_Control_HW(void *thing) {
             } else {
                 car->reverseTimer = 0;
                 mode = 1;
-                decel = -(f32)CARA_PLAYER(car)->brake * GETP(GETP(car->vehicleIface)->accel)->unk18;
+                decel = -(f32)CARA_PLAYER(car)->brake * GETP(GETP(car->vehicleIface)->accel)->brakeDecel;
             }
         } else {
             coast = 0.05f * car->gradeOrReverse;
             car->gradeOrReverse += -0.1f * car->gradeOrReverse * g_fDeltaTimeSec;
             car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
-            if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
+            if (car->rpm < GETP(car->vehicleIface)->downshiftRpm && car->curveTableIdx > 1) {
                 car->curveTableIdx--;
                 car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
                 if (GETP(car->vehicleIface)->numShiftSounds != 0) {
@@ -325,15 +325,15 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                         p.animRefPos = *(Vector4 *)&car->base.quat;
                         p.vel = car->base.vel;
                         SETP(p.player, NULL);
-                        p.unk48 = 0.0f;
-                        p.unk4C = 0.0f;
+                        p.speedScale = 0.0f;
+                        p.unusedParam = 0.0f;
                         p.angVel = g_zeroVector;
                         ThingManager_DARYL_CreateThing(1, &p);
                     }
                 }
             }
             mode = 2;
-            decel = 255.0f * (0.5f * -GETP(GETP(car->vehicleIface)->accel)->unk1C);
+            decel = 255.0f * (0.5f * -GETP(GETP(car->vehicleIface)->accel)->engineBrake);
             if (car->gradeOrReverse < 20.0f) {
                 if (coast < 0.1f) {
                     coast = 0.1f;
@@ -348,10 +348,10 @@ s32 CarA_PreMove_Control_HW(void *thing) {
         torque = 0.5f * CarA_Transmission_GetTorqueAtWheels(car);
         accel = -torque * (f32)CARA_PLAYER(car)->brake;
         car->rpm += accel * g_fDeltaTimeSec;
-        if (car->rpm < -GETP(car->vehicleIface)->unk20) {
-            car->rpm = -GETP(car->vehicleIface)->unk20;
+        if (car->rpm < -GETP(car->vehicleIface)->upshiftRpm) {
+            car->rpm = -GETP(car->vehicleIface)->upshiftRpm;
         }
-        if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
+        if (car->rpm < GETP(car->vehicleIface)->downshiftRpm && car->curveTableIdx > 1) {
             car->curveTableIdx--;
             car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
             if (GETP(car->vehicleIface)->numShiftSounds != 0) {
@@ -363,8 +363,8 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                     p.animRefPos = *(Vector4 *)&car->base.quat;
                     p.vel = car->base.vel;
                     SETP(p.player, NULL);
-                    p.unk48 = 0.0f;
-                    p.unk4C = 0.0f;
+                    p.speedScale = 0.0f;
+                    p.unusedParam = 0.0f;
                     p.angVel = g_zeroVector;
                     ThingManager_DARYL_CreateThing(1, &p);
                 }
@@ -374,7 +374,7 @@ s32 CarA_PreMove_Control_HW(void *thing) {
     } else if (throttling) {
         torque = 0.5f * CarA_Transmission_GetTorqueAtWheels(car);
         if (!(car->transmissionFlags & 0x1000)) {
-            if (car->rpm >= GETP(car->vehicleIface)->unk1C) {
+            if (car->rpm >= GETP(car->vehicleIface)->maxRpm) {
                 accel = 0.0f;
             } else {
                 accel = torque * (f32)CARA_PLAYER(car)->throttle;
@@ -384,9 +384,9 @@ s32 CarA_PreMove_Control_HW(void *thing) {
         }
         if (CARA_PLAYER(car)->button15 && car->rpm < 1000.0f) {
             if (car->rpm < -1000.0f) {
-                car->unk4FC = 1.0f;
+                car->gripBlend = 1.0f;
             } else {
-                car->unk4FC = 0.0f;
+                car->gripBlend = 0.0f;
             }
             car->rpm = 6000.0f;
         } else {
@@ -395,22 +395,22 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                 car->rpm *= -1.0f;
             }
         }
-        if (CARA_PLAYER(car)->button15 && car->unk4FC < 0.5f) {
-            car->unk4FC = 0.2f;
+        if (CARA_PLAYER(car)->button15 && car->gripBlend < 0.5f) {
+            car->gripBlend = 0.2f;
         }
-        if (car->rpm > GETP(car->vehicleIface)->unk20 &&
+        if (car->rpm > GETP(car->vehicleIface)->upshiftRpm &&
             car->curveTableIdx < GETP(car->vehicleIface)->numGears - 1) {
             car->curveTableIdx++;
             car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
         }
         car->gradeOrReverse = car->rpm * GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
         if (car->transmissionFlags & 0x1000) {
-            if (car->gradeOrReverse > GETP(GETP(car->vehicleIface)->engine)->unk44 * GETP(car->vehicleIface)->unk30) {
-                car->gradeOrReverse = GETP(GETP(car->vehicleIface)->engine)->unk44 * GETP(car->vehicleIface)->unk30;
+            if (car->gradeOrReverse > GETP(GETP(car->vehicleIface)->engine)->maxGrade * GETP(car->vehicleIface)->turboRpmScale) {
+                car->gradeOrReverse = GETP(GETP(car->vehicleIface)->engine)->maxGrade * GETP(car->vehicleIface)->turboRpmScale;
             }
         } else {
-            if (car->gradeOrReverse > GETP(GETP(car->vehicleIface)->engine)->unk44) {
-                car->gradeOrReverse = GETP(GETP(car->vehicleIface)->engine)->unk44;
+            if (car->gradeOrReverse > GETP(GETP(car->vehicleIface)->engine)->maxGrade) {
+                car->gradeOrReverse = GETP(GETP(car->vehicleIface)->engine)->maxGrade;
             }
         }
     }
@@ -428,7 +428,7 @@ s32 CarA_PreMove_Control_HW(void *thing) {
             }
         }
         car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
-        if (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
+        if (car->rpm < GETP(car->vehicleIface)->downshiftRpm && car->curveTableIdx > 1) {
             car->curveTableIdx--;
             car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
             if (GETP(car->vehicleIface)->numShiftSounds != 0) {
@@ -440,15 +440,15 @@ s32 CarA_PreMove_Control_HW(void *thing) {
                     p.animRefPos = *(Vector4 *)&car->base.quat;
                     p.vel = car->base.vel;
                     SETP(p.player, NULL);
-                    p.unk48 = 0.0f;
-                    p.unk4C = 0.0f;
+                    p.speedScale = 0.0f;
+                    p.unusedParam = 0.0f;
                     p.angVel = g_zeroVector;
                     ThingManager_DARYL_CreateThing(1, &p);
                 }
             }
         }
-        if (car->rpm < -GETP(car->vehicleIface)->unk1C) {
-            car->rpm = -GETP(car->vehicleIface)->unk1C;
+        if (car->rpm < -GETP(car->vehicleIface)->maxRpm) {
+            car->rpm = -GETP(car->vehicleIface)->maxRpm;
         }
         if (!(car->transmissionFlags & 0x20) && mode == 1) {
             car->transmissionFlags |= 0x20;
@@ -465,7 +465,7 @@ s32 CarA_PreMove_Control_HW(void *thing) {
     }
 
     info = GETP(car->vehicleIface);
-    steerRate = GETP(info->engine)->unk14;
+    steerRate = GETP(info->engine)->steerRate;
     steer = 0.017453292f * (45.0f * -((f32)CARA_PLAYER(car)->stickX / 128.0f));
     if (CarA_DoFreeStyleStunts(car)) {
         steer = 0.0f;
@@ -473,15 +473,15 @@ s32 CarA_PreMove_Control_HW(void *thing) {
     if (car->engineRpmState < 10000) {
         steer *= 0.5f;
     }
-    if (car->unk378 < steer) {
-        car->unk378 += steerRate * g_fDeltaTimeSec;
-        if (car->unk378 > steer) {
-            car->unk378 = steer;
+    if (car->steerAngle < steer) {
+        car->steerAngle += steerRate * g_fDeltaTimeSec;
+        if (car->steerAngle > steer) {
+            car->steerAngle = steer;
         }
     } else {
-        car->unk378 -= steerRate * g_fDeltaTimeSec;
-        if (car->unk378 < steer) {
-            car->unk378 = steer;
+        car->steerAngle -= steerRate * g_fDeltaTimeSec;
+        if (car->steerAngle < steer) {
+            car->steerAngle = steer;
         }
     }
     g_pSourcePlayer = NULL;

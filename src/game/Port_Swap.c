@@ -1068,7 +1068,7 @@ static void Claim_VolumeShapeScan(Swapper *s, const u32 *pointers, u32 numPointe
  * Script: f32 speedScale, gripScale (0x0/0x4), f32s 0xC-0x18, u8 priority 0x26
  * (bytes 0x24-0x27), state tree root at 0x28.
  * State: { info (0x0), u32 numChildren (0x4), children (0x8, 0xC each) }.
- * Info (AI_Car_DetermineTarget): u8 type, subtype, sortMode, pad, pad, unk5,
+ * Info (AI_Car_DetermineTarget): u8 type, subtype, sortMode, pad, pad, holdTarget,
  * limited, pad (0x0-0x7); f32 ranges 0x14-0x28; s32 timers 0x38-0x4C;
  * 0x58 by subtype: 1 -> AILocalStats { u8 x3, u16 0x6 }, 3 -> AITargetLimits
  * { s32 x4, u8 mode 0x10, u8 compare 0x11 }; u32 thing id 0x5C. */
@@ -1291,7 +1291,7 @@ static void Claim_LineDef(Swapper *s, u32 d) {
     Claim_Track(s, d + 0x14, KEYS_COLOR);
 }
 
-/* LightHolderDef (LightHolder.c): u8 enabled, pointLight, unk2, overlayMode
+/* LightHolderDef (LightHolder.c): u8 enabled, pointLight, unused2, overlayMode
  * 0x0-0x3; u32 life 0x4/0x8; radius keys 0xC (f32), colour keys 0x14.
  * Reached from world tile lights, event sequences (type 8) and projectiles. */
 static void Claim_LightDef(Swapper *s, u32 d) {
@@ -1303,7 +1303,7 @@ static void Claim_LightDef(Swapper *s, u32 d) {
     Claim_Track(s, d + 0x14, KEYS_COLOR);
 }
 
-/* Emitter (Emitter.c, EmitterData): u8 unk0, pickMode, limited, pad;
+/* Emitter (Emitter.c, EmitterData): u8 hasRange, pickMode, limited, pad;
  * s32 count 0x4, delays 0x8/0xC; f32 range 0x10, speedScale 0x14; fx ids
  * 0x18/0x1C (u32); sound sequence 0x20 (SoundSeq_Init, thing type 0x10). */
 static void Claim_Emitter(Swapper *s, u32 off) {

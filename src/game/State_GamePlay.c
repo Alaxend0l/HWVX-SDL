@@ -99,14 +99,14 @@ s32 StateGamePlay_Init(void) {
 
         i = 0;
         while ((car = World_GetTileCar(i)) != NULL) {
-            if (GETP(car->aiScripts) != NULL && (car->port <= 4 || car->unk34 == 0 || car->unk5F != 0)) {
+            if (GETP(car->aiScripts) != NULL && (car->port <= 4 || car->dynamic == 0 || car->spawned != 0)) {
                 params.pos = car->pos;
                 params.pos.y += 10.0f;
                 SETP(params.player, NULL);
                 SETP(params.info, GETP(car->info));
                 params.vel = g_zeroVector;
                 if (car->port <= 4) {
-                    car->unk34 = 0;
+                    car->dynamic = 0;
                 }
                 SetOrientation(&mtx, car->rotY, car->rotX, car->rotZ);
                 SubMatrixToQuaternion(&mtx, &params.quat);
@@ -192,7 +192,7 @@ s32 StateGamePlay_Init(void) {
                     }
                     desc.script = script;
                     desc.kind = 0;   /* AI car */
-                    desc.dynamic = car->unk34;
+                    desc.dynamic = car->dynamic;
                     desc.nearSq = car->nearDist * car->nearDist;
                     desc.farSq = car->farDist * car->farDist;
                     aiPlayer = PlayerManager_NewAIPlayer(&desc);
@@ -237,10 +237,10 @@ s32 StateGamePlay_Init(void) {
             case 0:
                 SoundSource_Set(source, 2, GETP(GETP(speaker->sound)->range));
                 SoundSource_Set(source, 3, GETP(GETP(speaker->sound)->range) + 1);
-                SoundSource_Set(source, 0, GETP(speaker->sound)->unk8);
+                SoundSource_Set(source, 0, &GETP(speaker->sound)->volume);
                 break;
             }
-            SoundSource_Set(source, 1, GETP(speaker->sound)->unkC);
+            SoundSource_Set(source, 1, &GETP(speaker->sound)->pitch);
             SoundSource_Play(source);
             speakerAction[0] = speaker->mode;
             speakerAction[1] = 1;
@@ -273,7 +273,7 @@ s32 StateGamePlay_Init(void) {
                 i++;
                 continue;
             }
-            pathParams.unk4C = 0;
+            pathParams.unused4C = 0;
             pathParams.moveType = 1;   /* a mover */
             pathParams.pos.x = 0.0f;
             pathParams.pos.y = 0.0f;
@@ -442,19 +442,10 @@ s32 StateGamePlay_Init(void) {
 }
 
 void SetPlayerControls(void) {
-    typedef struct ControlBinding {
-        u8 unk0[0x8];
-        s32 binding;
-    } ControlBinding;
-    typedef struct MCP {
-        u8 unk0[0x3C];
-        u32 numBindings;
-        PTR32(ControlBinding **) bindings;
-    } MCP;
     typedef struct HumanPlayer {
-        u8 unk0[0x60];
+        u8 pad0[0x60];
         s32 controller;
-        u8 unk64[0xC8 - 0x64];
+        u8 pad64[0xC8 - 0x64];
         s32 chan;
     } HumanPlayer;
     ControllerSettings *settings;
@@ -473,10 +464,10 @@ void SetPlayerControls(void) {
                 settings->data[1] = 0;
             }
             {
-                /* bindings[i] -> slot -> ControlBinding; binding 0x8 -> key table */
+                /* bindings[i] -> slot -> ControlBinding; keys: the KeyBinding */
                 u8 *slot = SLOT_LOAD(u8 *, (u8 *)GETP(mcp->bindings) + settings->data[1] * 4);
                 ControlBinding *cb = SLOT_LOAD(ControlBinding *, slot);
-                PlayerHuman_SetControlBinding(player, PTR((u32)cb->binding));
+                PlayerHuman_SetControlBinding(player, GETP(cb->keys));
             }
         } else {
             PlayerHuman_SetDefaultControls(player, settings->data[1]);
@@ -746,13 +737,6 @@ void GamePlay_Startup(void) {
 }
 
 void GamePlay_PauseOptions_HandleInput(void *msg) {
-    typedef struct {
-        u8 unk0[4];
-        u16 command;
-        u16 value;
-        u8 unk8[0x18];
-        s32 result;
-    } InterfaceMsg;
     extern s8 g_bExitStateGamePlay;
     extern s32 g_targetGameState;
     extern s32 g_gamePlayCallback;
@@ -760,19 +744,19 @@ void GamePlay_PauseOptions_HandleInput(void *msg) {
     static s32 params[2];
     InterfaceMsg *m = (InterfaceMsg *)msg;
 
-    switch (m->command) {
+    switch (m->type) {
     case 3:
         endCommand = 0xFFFF;
         break;
     case 7:
         params[0] = 4;
-        params[1] = m->value;
+        params[1] = m->sub;
         m->result = 4;
         endCommand = 7;
         break;
     case 8:
         params[0] = 5;
-        params[1] = m->value;
+        params[1] = m->sub;
         m->result = 4;
         endCommand = 8;
         break;
@@ -886,7 +870,7 @@ s32 ActionPlayInterfacePack(u32 *pack) {
         } else {
             SLOT_STORE(((u8 *)g_InterfacePackData + g_NumInterfacesPlaying * sizeof(InterfacePackEntry)), (char *)(pack + 1));
             g_InterfacePackData[g_NumInterfacesPlaying].id = id;
-            g_InterfacePackData[g_NumInterfacesPlaying].unk8 =
+            g_InterfacePackData[g_NumInterfacesPlaying].iface =
                 InterfaceManager_Create(script, 0, InterfaceDataPackRouter);
             g_NumInterfacesPlaying++;
             result = 1;
@@ -900,7 +884,7 @@ s32 ActionEndInterfacePack(u32 *pack) {
 
     for (i = 0; i < g_NumInterfacesPlaying; i++) {
         if (pack[0] == g_InterfacePackData[i].id && strcmp(GETP(g_InterfacePackData[i].name), (char *)(pack + 1)) == 0) {
-            InterfaceManager_EndInterface(g_InterfacePackData[i].unk8);
+            InterfaceManager_EndInterface(g_InterfacePackData[i].iface);
             for (; i < g_NumInterfacesPlaying - 1; i++) {
                 g_InterfacePackData[i] = g_InterfacePackData[i + 1];
             }
@@ -915,7 +899,7 @@ void InterfaceHasEnded(u32 handle) {
     u32 i;
 
     for (i = 0; i < g_NumInterfacesPlaying; i++) {
-        if (handle == g_InterfacePackData[i].unk8) {
+        if (handle == g_InterfacePackData[i].iface) {
             for (; i < g_NumInterfacesPlaying - 1; i++) {
                 g_InterfacePackData[i] = g_InterfacePackData[i + 1];
             }

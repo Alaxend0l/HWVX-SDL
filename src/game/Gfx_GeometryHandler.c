@@ -6,19 +6,19 @@
 
 typedef struct GDLDrawEntry {
     s32 geometry;
-    GXColor unk4;
+    GXColor color;
     s32 matrix;
     s32 lightState;
-    u8 unk10;
-    u8 unk11;
+    u8 useBaseColor;
+    u8 unused11;
     u8 envmapState;
     u8 pad13;
 } GDLDrawEntry;
 
 typedef struct GDL {
-    u8 unk0[0x54];
+    u8 pad0[0x54];
     s32 numDrawEntries;
-    u8 unk58[0xDFCC0 - 0x58];
+    u8 pad58[0xDFCC0 - 0x58];
     GDLDrawEntry drawEntries[(0xE9CC0 - 0xDFCC0) / 0x14];
 } GDL;
 
@@ -135,33 +135,33 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector4 *matrix, u8 *lod, u8 flag) {
 void Gfx_DrawGeometry(s32 geometry, s32 matrix) {
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].geometry = geometry;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].matrix = Gfx_AddWorldMatrixState_CacheMatrix(PTR(matrix));
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.flags >> 4) & 1;
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.baseColor;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].useBaseColor = (g_state.flags >> 4) & 1;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].color = g_state.baseColor;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].lightState = Gfx_GetLightState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].envmapState = Gfx_GetEnvmapState();
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk11 = 0;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unused11 = 0;
     g_pGDL->numDrawEntries++;
 }
 
 void Gfx_DrawGeometry_MatrixNotCached(s32 geometry, s32 matrix) {
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].geometry = geometry;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].matrix = Gfx_AddWorldMatrixState_NonCached(PTR(matrix));
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.flags >> 4) & 1;
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.baseColor;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].useBaseColor = (g_state.flags >> 4) & 1;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].color = g_state.baseColor;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].lightState = Gfx_GetLightState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].envmapState = Gfx_GetEnvmapState();
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk11 = 0;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unused11 = 0;
     g_pGDL->numDrawEntries++;
 }
 
 void Gfx_DrawGeometry_QuaternionScalePos(s32 geometry, s32 quat, s32 scale, s32 pos) {
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].geometry = geometry;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].matrix = Gfx_AddWorldMatrixState_CacheMatrixQuaternionScalePos(PTR(quat), PTR(scale), PTR(pos));
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk10 = (g_state.flags >> 4) & 1;
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk4 = g_state.baseColor;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].useBaseColor = (g_state.flags >> 4) & 1;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].color = g_state.baseColor;
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].lightState = Gfx_GetLightState();
     g_pGDL->drawEntries[g_pGDL->numDrawEntries].envmapState = Gfx_GetEnvmapState();
-    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unk11 = 0;
+    g_pGDL->drawEntries[g_pGDL->numDrawEntries].unused11 = 0;
     g_pGDL->numDrawEntries++;
 }
 

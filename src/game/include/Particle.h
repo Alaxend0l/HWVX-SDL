@@ -131,7 +131,7 @@ typedef struct ParticleSprite {
 typedef struct ParticleGroup {
     ParticleGX particles[PARTICLE_GX_COUNT]; /* 0x00000 */
     u32 next;                   /* 0x28000 ring index of the next slot to use */
-    u32 unk28004;               /* 0x28004 */
+    u32 unused28004;            /* 0x28004 */
     u8 pad28008[8];             /* 0x28008 */
 } ParticleGroup;
 

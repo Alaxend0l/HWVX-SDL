@@ -69,7 +69,7 @@ enum {
 typedef struct TriggerAction {
     u32 type;                   /* 0x00 index into pActionFuncArray */
     PTR32(void) data;           /* 0x04 parameters */
-    u32 unk8;                   /* 0x08 */
+    u32 unused8;                /* 0x08 */
     s32 delayInit;              /* 0x0C ms */
     u32 count;                  /* 0x10 times it can still run, 0xFFFFFFFF: always */
     s32 delay;                  /* 0x14 ms left before it runs */
