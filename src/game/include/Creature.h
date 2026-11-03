@@ -51,7 +51,7 @@ typedef struct CreatureAnimEntry {
     f32 lift;                          /* 0x0C impulse animations: vertical velocity */
     f32 start;                         /* 0x10 animation time window the motion applies in */
     f32 end;                           /* 0x14 */
-    u8 unk18;                          /* 0x18 */
+    u8 unused18;                       /* 0x18 */
     u8 impulse;                        /* 0x19 motion applied once, at start (jumps) */
     u8 pad1A[0x46];                    /* 0x1A */
 } CreatureAnimEntry;
@@ -60,9 +60,9 @@ typedef struct CreatureAnimEntry {
 typedef struct DamagePart {
     u8 spawned;                        /* 0x00 */
     u8 useOffset;                      /* 0x01 */
-    u16 unk2;                          /* 0x02 */
+    u16 unused2;                       /* 0x02 */
     u16 bone;                          /* 0x04 */
-    u16 unk6;                          /* 0x06 */
+    u16 unused6;                       /* 0x06 */
     PTR32(void) geom;                  /* 0x08 */
     PTR32(Vector4) offset;             /* 0x0C in bone space, if useOffset */
     PTR32(Vector4) slavePos;           /* 0x10 NULL: origin */
@@ -114,7 +114,7 @@ typedef struct Creature {
     PTR32(CreatureInfo) info;          /* 0xB8 */
     u8 padBC[3];                       /* 0xBC */
     s8 onGround;                       /* 0xBF */
-    f32 unkC0;                         /* 0xC0 */
+    f32 unusedC0;                      /* 0xC0 */
     s32 animState;                     /* 0xC4 Creature_MotionStateInit state */
     f32 blendRate;                     /* 0xC8 per second, blends in a new animation */
     union {
@@ -126,7 +126,7 @@ typedef struct Creature {
             ThingList slaves;          /* 0xE0 attached slave things */
             PTR32(MotionAnim) anim;    /* 0xE4 the animation playing (motion.layer) */
             u8 animStatus;             /* 0xE8 phase, 2: finished */
-            u8 unkE9;                  /* 0xE9 */
+            u8 unusedE9;               /* 0xE9 */
             u8 padEA[2];               /* 0xEA */
             f32 animTime;              /* 0xEC */
             f32 animWeight;            /* 0xF0 blend weight of anim */
@@ -152,9 +152,9 @@ typedef struct Creature {
     Vector4 stepVel;                   /* 0x1A0 velocity reaching it in stepTimer */
     s32 stepTimer;                     /* 0x1B0 ms to the next macro step */
     s32 deadTime;                      /* 0x1B4 ms since death; released after 20 s */
-    u32 unk1B8;                        /* 0x1B8 & 1: the creature AI runs about */
+    u32 flag1B8;                       /* 0x1B8 & 1: the creature AI runs about */
     f32 mass;                          /* 0x1BC */
-    f32 unk1C0;                        /* 0x1C0 1: normal; < 1: frozen, <= 0: not drawn */
+    f32 timeScale;                     /* 0x1C0 1: normal; < 1: frozen, <= 0: not drawn */
     u8 pad1C4[4];                      /* 0x1C4 */
     u32 gibbedBones;                   /* 0x1C8 bit per bone blown off */
     u32 deathAnim;                     /* 0x1CC index into CreatureInfo.deathAnims */

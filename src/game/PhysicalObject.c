@@ -605,7 +605,7 @@ void PhysicalObject_DynamicCollideImpact(struct PhysicalObject *obj, CollisionIn
                  * params is left unset, as in the original) */
                 params.pos = thing->pos;
                 params.moveType = DESTRUCTIBLE_STATIC;
-                params.unk4C = 0;
+                params.unused4C = 0;
                 params.vel = g_zeroVector;
                 SETP(params.record, GETP(obj->d.record));
                 params.quat = thing->quat;

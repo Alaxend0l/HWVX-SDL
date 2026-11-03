@@ -13,7 +13,7 @@ void StateGameManager_RefreshMCPTextures(void) {
         DataPack_RefreshTextures(pack);
     }
 }
-typedef struct { PTR32(MCP) mcp; s32 unk4; } GameManagerState;
+typedef struct { PTR32(MCP) mcp; s32 unused4; } GameManagerState;
 extern GameManagerState g_GameManagerState;
 
 
@@ -43,7 +43,7 @@ s32 StateGameManager_Init(void) {
     if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
         GameSettings_SetCodeVariable(0xC8, 0, g_gameDifficulty);
         GameSettings_SetCodeVariable(0x198, 0, 0);
-        g_GameManagerState.unk4 = GETP(g_GameManagerState.mcp)->numSteps - 1;
+        g_GameManagerState.unused4 = GETP(g_GameManagerState.mcp)->numSteps - 1;
     }
     if (GETP(g_GameManagerState.mcp) == NULL) {
         GameSetting_Init();
@@ -51,11 +51,11 @@ s32 StateGameManager_Init(void) {
             StateManager_QueueChange(0xB);
             return 1;
         }
-        if (GETP(g_GameManagerState.mcp)->unk0 != 0) {
+        if (GETP(g_GameManagerState.mcp)->skipWorldPacks != 0) {
             StateManager_QueueChange(0xB);
             return 1;
         }
-        g_GameManagerState.unk4 = 0;
+        g_GameManagerState.unused4 = 0;
     }
     return 1;
 }

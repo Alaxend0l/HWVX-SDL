@@ -41,8 +41,8 @@ typedef struct SuspThingParams {
     Vector4 angVel;
     u32 id;
     PTR32(void) player;
-    f32 unk48;
-    f32 unk4C;
+    f32 speedScale;
+    f32 unusedParam;
 } SuspThingParams;
 
 extern f32 g_fDeltaTimeSec;
@@ -126,10 +126,10 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
         car->torqueAccum.z += force * car->localAxis.z;
     }
     if (car->numWheelsGrounded == 0) {
-        car->unk460 += g_iDeltaTimeMS;
+        car->airTime += g_iDeltaTimeMS;
         car->groundedTime = 0;
         if (!(car->transmissionFlags & 2) && !CarA_DoFreeStyleStunts(car) && car->base.axis[1].y > 0.3f) {
-            if (car->unk460 > (engine = GETP(GETP(car->vehicleIface)->engine))->selfRightDelay) {
+            if (car->airTime > (engine = GETP(GETP(car->vehicleIface)->engine))->selfRightDelay) {
                 f32 len = engine->selfRightArm;
 
                 arm.x = -car->base.axis[1].x * len;
@@ -140,7 +140,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
                 car->torqueAccum.y += torque.y;
                 car->torqueAccum.z += torque.z;
             }
-            if (car->unk460 > (accel = GETP(GETP(car->vehicleIface)->accel))->airDownforceDelay) {
+            if (car->airTime > (accel = GETP(GETP(car->vehicleIface)->accel))->airDownforceDelay) {
                 force = accel->airDownforceRate * car->lowSpeedFlag + accel->airDownforceBase;
                 if (force > accel->airDownforceMax) {
                     force = accel->airDownforceMax;
@@ -153,18 +153,18 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
         }
         if (!(car->transmissionFlags & 0x80000)) {
             info = GETP(car->vehicleIface);
-            if (info->numSlaves > 8 && car->unk460 > GETP(info->engine)->selfRightDelay) {
+            if (info->numSlaves > 8 && car->airTime > GETP(info->engine)->selfRightDelay) {
                 MotionState_InitAllSlavesNow(&car->motionState, &GETP(info->slaves)[8].list, 8);
                 car->transmissionFlags |= 0x80000;
             }
         }
         car->groundedScale = 0.0f;
     } else {
-        if (car->unk460 > 300) {
+        if (car->airTime > 300) {
             MotionState_ReleaseSlavesByType(&car->motionState, 4);
             car->transmissionFlags &= ~2;
         }
-        car->unk460 = 0;
+        car->airTime = 0;
     }
     t = car->forwardAccel;
     force = 20.0f * (GETP(GETP(car->vehicleIface)->accel)->spinDecay * g_fDeltaTimeSec);
@@ -192,7 +192,7 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
         if (car->transmissionFlags & 0x10) {
             car->gradeOrReverse = dot;
             car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
-            while (car->rpm < GETP(car->vehicleIface)->unk24 && car->curveTableIdx > 1) {
+            while (car->rpm < GETP(car->vehicleIface)->downshiftRpm && car->curveTableIdx > 1) {
                 car->curveTableIdx--;
                 car->rpm = car->gradeOrReverse / GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
             }
@@ -280,8 +280,8 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
                             params.vel.y = 0.0f;
                             params.vel.z = car->base.vel.z;
                             SETP(params.player, NULL);
-                            params.unk48 = 0.0f;
-                            params.unk4C = 0.0f;
+                            params.speedScale = 0.0f;
+                            params.unusedParam = 0.0f;
                             params.angVel = g_zeroVector;
                             ThingManager_DARYL_CreateThing(1, &params);
                         }
@@ -390,7 +390,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
     PSVECDotProduct(&car->base.axis[2], &car->base.vel);
     rollSurface = NULL;
     maxForce = 0.0f;
-    base = GETP(GETP(car->vehicleIface)->accel)->unk14;
+    base = GETP(GETP(car->vehicleIface)->accel)->tractionLift;
     sideSum = maxForce;
     volume = maxForce;
     normalSum = g_zeroVector;
@@ -427,7 +427,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
     switch (GETP(car->vehicleIface)->driveMode) {
     case 0:
     case 1:
-        rollScale = -GETP(GETP(car->vehicleIface)->accel)->unk4;
+        rollScale = -GETP(GETP(car->vehicleIface)->accel)->driveRpmScale;
         break;
     case 2:
         break;
@@ -469,7 +469,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
                 normalSum.x += hit.normal.x;
                 normalSum.y += hit.normal.y;
                 normalSum.z += hit.normal.z;
-                if (one != GETP(GETP(car->vehicleIface)->engine)->unk6C) {
+                if (one != GETP(GETP(car->vehicleIface)->engine)->offsetContactFlag) {
                     scale = len;
                 }
                 if (springForce > maxForce && GETP(GETP(hit.surface)->rollSound) != NULL) {
@@ -533,8 +533,8 @@ void CarA_ComputeSuspensionForces(void *thing) {
                     if (player != NULL && player->brake && !player->throttle) {
                         drive = 0.0f;
                     } else {
-                        drive = PSVECDotProduct(&fwd, &friction) * (1.0f - (f32)(wheel->unk14 * car->unk4FC));
-                        steer = steer * (-wheel->unk14 * (1.0f - car->unk4FC));
+                        drive = PSVECDotProduct(&fwd, &friction) * (1.0f - (f32)(wheel->driveBlend * car->gripBlend));
+                        steer = steer * (-wheel->driveBlend * (1.0f - car->gripBlend));
                         friction.x = friction.x - fwd.x * drive;
                         friction.y = friction.y - fwd.y * drive;
                         friction.z = friction.z - fwd.z * drive;
@@ -560,8 +560,8 @@ void CarA_ComputeSuspensionForces(void *thing) {
                 }
                 if (ViewManager_GetViewFormat() <= 1 && Player_IsHuman(GETP(car->base.player))) {
                     if (wheel->dusts && GETP(hit.surface)->sparkThing) {
-                        if (wheel->unk14 && slipMag > 20.0f) {
-                            sparkRate = 450.0f - 3.0f * (slipMag - 20.0f) * wheel->unk14;
+                        if (wheel->driveBlend && slipMag > 20.0f) {
+                            sparkRate = 450.0f - 3.0f * (slipMag - 20.0f) * wheel->driveBlend;
                             if (sparkRate < 50.0f) {
                                 sparkRate = 50.0f;
                             }
@@ -582,8 +582,8 @@ void CarA_ComputeSuspensionForces(void *thing) {
                                 p1.vel = car->base.vel;
                                 SETP(p1.player, NULL);
                                 p1.angVel = g_zeroVector;
-                                p1.unk48 = zero;
-                                p1.unk4C = r3scale;
+                                p1.speedScale = zero;
+                                p1.unusedParam = r3scale;
                                 ThingManager_DARYL_CreateThing(1, &p1);
                                 car->wheelStates[i].sparkTimer -= 50;
                             }
@@ -607,8 +607,8 @@ void CarA_ComputeSuspensionForces(void *thing) {
                             p2.vel = car->base.vel;
                             SETP(p2.player, NULL);
                             p2.angVel = g_zeroVector;
-                            p2.unk48 = zero;
-                            p2.unk4C = zero;
+                            p2.speedScale = zero;
+                            p2.unusedParam = zero;
                             ThingManager_DARYL_CreateThing(1, &p2);
                             car->wheelStates[i].sparkTimer -= (s16)interval;
                         }
@@ -618,9 +618,9 @@ void CarA_ComputeSuspensionForces(void *thing) {
                         n = 62500.0f / springForce * GETP(hit.surface)->particleInterval;
                         car->wheelStates[i].dustTimer += (s16)g_iDeltaTimeMS;
                         while (car->wheelStates[i].dustTimer > (u16)n && ParticleManager_CanCreatureParticle(PTR(GETP(hit.surface)->particle))) {
-                            f32 slide = 0.3f * car->gradeOrReverse * wheel->unk14;
+                            f32 slide = 0.3f * car->gradeOrReverse * wheel->driveBlend;
                             f32 accel[4] = {0.0f, -0.0001f, 0.0f, 0.0f};
-                            f32 rnd = wheel->unk14 * RandomAdd(5.0f, 30.0f);
+                            f32 rnd = wheel->driveBlend * RandomAdd(5.0f, 30.0f);
                             f32 pcolor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
                             Vector4 vel;
 
@@ -675,15 +675,15 @@ void CarA_ComputeSuspensionForces(void *thing) {
     }
     player = GETP(car->base.player);
     if (player != NULL && !(player->buttonsHeld & 4)) {
-        car->rpm = car->unk4FC * (g_fDeltaTimeSec * (driveSum * rollScale)) + car->rpm;
+        car->rpm = car->gripBlend * (g_fDeltaTimeSec * (driveSum * rollScale)) + car->rpm;
         car->gradeOrReverse = car->rpm * GETP(GETP(car->vehicleIface)->gears)[car->curveTableIdx].ratio;
         if (car->transmissionFlags & 0x1000) {
-            maxGrade = GETP(GETP(car->vehicleIface)->engine)->unk44 * GETP(car->vehicleIface)->unk30;
+            maxGrade = GETP(GETP(car->vehicleIface)->engine)->maxGrade * GETP(car->vehicleIface)->turboRpmScale;
             if (car->gradeOrReverse > maxGrade) {
                 car->gradeOrReverse = maxGrade;
             }
         } else {
-            maxGrade = GETP(GETP(car->vehicleIface)->engine)->unk44;
+            maxGrade = GETP(GETP(car->vehicleIface)->engine)->maxGrade;
             if (car->gradeOrReverse > maxGrade) {
                 car->gradeOrReverse = maxGrade;
             }

@@ -102,7 +102,7 @@ s32 Pod_Move(Pod *pod) {
                 Vector4 dir __attribute__((aligned(16)));
                 u8 type;
 
-                creature->unk1C0 = 1.0f;
+                creature->timeScale = 1.0f;
                 ThingManagerList_Remove(&thing->slaves, creature);
                 c->pos = pod->dropPoint;
                 ThingManagerList_Append(&g_thingManager_DARYL.activeList, creature);

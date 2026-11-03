@@ -35,7 +35,7 @@ typedef struct SFX {
     u32 length;                 /* 0x04 samples */
     u32 loop;                   /* 0x08 loop start, ~0: one-shot */
     u32 rate;                   /* 0x0C Hz */
-    u8 unk10;                   /* 0x10 */
+    u8 unused10;                /* 0x10 */
     u8 bits;                    /* 0x11 8, 16, else ADPCM */
     u16 vol;                    /* 0x12 */
     u8 pad14[0xC];              /* 0x14 */
@@ -56,7 +56,7 @@ typedef struct Voice {
         };
     };
     PTR32(struct Voice) next;   /* 0x04 the free list, or a channel's / track's voices */
-    PTR32(struct Voice) unk08;  /* 0x08 never set; SetITTrackPriority follows it (sic) */
+    PTR32(struct Voice) next2;  /* 0x08 never set; SetITTrackPriority follows it (sic) */
     u8 pad0C[4];                /* 0x0C */
     union {
         PTR32(SFX) sfx;         /* 0x10 sound effects */
@@ -86,7 +86,7 @@ typedef struct Voice {
     u8 pad4C[4];                /* 0x4C */
     PTR32(AXVPB) axv;           /* 0x50 */
     u8 fresh;                   /* 0x54 not started yet: StartVoice_ clears the resampler */
-    u8 unk55;                   /* 0x55 */
+    u8 unused55;                /* 0x55 */
     u8 volRamp;                 /* 0x56 the speaker volumes are ramping (ProcessVoice_ ends it) */
     u8 auxRamp;                 /* 0x57 the reverb send is ramping */
     u8 pad58[2];                /* 0x58 */

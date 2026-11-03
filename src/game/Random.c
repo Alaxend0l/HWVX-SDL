@@ -1,12 +1,12 @@
 #include "common.h"
 
 typedef struct RandomNumberGenerator {
-    Vector4 vectors[0x300];
-    u32 unk3000;
-    u32 unk3004;
-    u32 index;
-    f32 floats[0x400];
-    u32 unk400C;
+    Vector4 vectors[0x300];     /* 0x00 0x100 random sub-matrices: 3 vectors each */
+    u32 subMatrixIndex;         /* 0x3000 next matrix for GetRandomSubMatrix */
+    u32 unused3004;             /* 0x3004 */
+    u32 index;                  /* 0x3008 next float, used by the RandomAdd fns */
+    f32 floats[0x400];          /* 0x300C rand() / 32768 */
+    u32 pad400C;                /* 0x400C */
 } RandomNumberGenerator;
 
 RandomNumberGenerator g_randomNumberGenerator;
@@ -35,8 +35,8 @@ void RandomNumberGenerator_Init(void) {
         g_randomNumberGenerator.vectors[i * 3 + 2].y = mtx[2][1];
         g_randomNumberGenerator.vectors[i * 3 + 2].z = mtx[2][2];
     }
-    g_randomNumberGenerator.unk3000 = 0;
-    g_randomNumberGenerator.unk3004 = 0;
+    g_randomNumberGenerator.subMatrixIndex = 0;
+    g_randomNumberGenerator.unused3004 = 0;
     g_randomNumberGenerator.index = 0;
     for (i = 0; i < 0x400; i++) {
         g_randomNumberGenerator.floats[i] = rand() / 32768.0f;
@@ -54,7 +54,7 @@ void RandomNumberGenerator_GetRandomQuaternion(Vector4 *q) {
 
 void RandomNumberGenerator_GetRandomSubMatrix(Vector4 *m) {
     RandomNumberGenerator *rng = &g_randomNumberGenerator;
-    s32 i = rng->unk3000 * 3;
+    s32 i = rng->subMatrixIndex * 3;
 
     m[0].x = rng->vectors[i].x;
     m[0].y = rng->vectors[i].y;
@@ -65,8 +65,8 @@ void RandomNumberGenerator_GetRandomSubMatrix(Vector4 *m) {
     m[2].x = rng->vectors[i].x;
     m[2].y = rng->vectors[i].y;
     m[2].z = rng->vectors[i].z;
-    if (++rng->unk3000 >= 0x100) {
-        rng->unk3000 = 0;
+    if (++rng->subMatrixIndex >= 0x100) {
+        rng->subMatrixIndex = 0;
     }
 }
 

@@ -166,7 +166,7 @@ s32 Destructible_Init(Destructible *destructible, void *data) {
     case 1:
         thing->collisionType = 4;
         SETP(destructible->hull, OConvexHullHolder_Get(GETP(GETP(GETP(destructible->record)->info)->hull)));
-        GETP(destructible->hull)->unk3CC = 0;
+        GETP(destructible->hull)->unused3CC = 0;
         thing->radius = 30.0f;
         break;
     case 4:
@@ -176,7 +176,7 @@ s32 Destructible_Init(Destructible *destructible, void *data) {
     case 6:
         thing->collisionType = 5;
         SETP(destructible->hull, OConvexHullHolder_Get(GETP(GETP(GETP(destructible->record)->info)->hull)));
-        GETP(destructible->hull)->unk3CC = 1;
+        GETP(destructible->hull)->unused3CC = 1;
         thing->radius = 30.0f;
         break;
     case 7: {
@@ -358,8 +358,8 @@ s32 Destructible_Move(Destructible *destructible) {
                 params.quat = *(Vector4 *)&thing->quat;
                 params.vel = thing->vel;
                 params.owner = 0;
-                params.unk48 = 0.0f;
-                params.unk4C = 0.0f;
+                params.speedScale = 0.0f;
+                params.unusedParam = 0.0f;
                 params.angVel = *(Vector4 *)g_zeroVector;
                 ThingManager_DARYL_CreateThing(1, &params);
             }

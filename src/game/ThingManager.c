@@ -280,7 +280,7 @@ void ThingManagerList_TriggerSlaves(ThingList *list, struct SlaveTrigger *trigge
         p1.angVel = g_zeroVector;
         if (PTR(p1.debris) != NULL && *(u32 *)PTR(p1.debris) != 0) {
             p1.owner = HND(g_pSourcePlayer);
-            p1.unk48 = 0.0f;
+            p1.speedScale = 0.0f;
             p1.pos = *a;
             p1.quat = *b;
             slave = ThingManager_DARYL_CreateSlave(THING_TYPE_EVENT_SEQ, &p1, trigger->id);
@@ -337,7 +337,7 @@ void ThingManagerList_TriggerSlaves(ThingList *list, struct SlaveTrigger *trigge
     case 7:
         if (GETP(trigger->data) != NULL) {
             SETP(p7.def, GETP(trigger->data));
-            p7.unk3C = 0.0f;
+            p7.unused3C = 0.0f;
             p7.time = 20;
             p7.vel = *c;
             SETP(p7.player, g_pSourcePlayer);
@@ -463,7 +463,7 @@ void ThingManager_DARYL_CreateMain(void) {
     for (i = 0; i < 140; i++) {
         SETP(THING_POOLS->projectiles[i].thing.vtable, g_projectileVTable);
         thing = &THING_POOLS->projectiles[i].thing;
-        THING_POOLS->projectiles[i].unk130 = -1;
+        THING_POOLS->projectiles[i].unused130 = -1;
         SETP(thing->slaves, NULL);
         thing->flags |= THING_FLAG_FREE;
         SETP(thing->prev, NULL);
@@ -1002,8 +1002,8 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
                                 fx.pos = hit.pos;
                                 fx.vel = g_zeroVector;
                                 fx.owner = 0;
-                                fx.unk48 = 0.0f;
-                                fx.unk4C = 0.0f;
+                                fx.speedScale = 0.0f;
+                                fx.unusedParam = 0.0f;
                                 fx.angVel = g_zeroVector;
                                 fx.quat = g_zeroVector;
                                 ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &fx);
@@ -1746,11 +1746,11 @@ s32 TriggerPlayerVehicleInAir(u32 *params) {
         vehicle = NULL;
     }
     inAir = params[2];
-    if (inAir == 0 && vehicle != NULL && vehicle->unk460 >= (s32)params[1]) {
+    if (inAir == 0 && vehicle != NULL && vehicle->airTime >= (s32)params[1]) {
         params[2] = 1;
         return 1;
     }
-    if (inAir != 0 && vehicle != NULL && vehicle->unk460 == 0) {
+    if (inAir != 0 && vehicle != NULL && vehicle->airTime == 0) {
         params[2] = 0;
         return 1;
     }

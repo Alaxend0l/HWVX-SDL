@@ -106,8 +106,8 @@ void GameSetting_Init(void) {
     }
     switch (GameSettings_GetGameType()) {
     case 0:
-        g_gameInfo[0].unk14 = 0x8F0;
-        g_gameInfo[0].unk18 = 0xF4;
+        g_gameInfo[0].version = 0x8F0;
+        g_gameInfo[0].gameDataSize = 0xF4;
         g_pGameData = (u8 *)&g_HotWheelsGameData;
         g_pSavedGameData = g_HWsavedGameData;
         memset(&g_HotWheelsGameData, 0, sizeof(HotWheelsGameData));
@@ -135,13 +135,13 @@ void GameSetting_Init(void) {
         g_HotWheelsGameData.tracks[0x1F] = 1;
         g_HotWheelsGameData.tracks[0x20] = 1;
         g_HotWheelsGameData.tracks[0x27] = 1;
-        g_HotWheelsGameData.unkAA[0] = 1;
-        g_HotWheelsGameData.unkAA[1] = 1;
-        g_HotWheelsGameData.unkAA[4] = 1;
+        g_HotWheelsGameData.extras[0] = 1;
+        g_HotWheelsGameData.extras[1] = 1;
+        g_HotWheelsGameData.extras[4] = 1;
         break;
     case 1:
-        g_gameInfo[1].unk14 = 0xE830;
-        g_gameInfo[1].unk18 = 0x1CDC;
+        g_gameInfo[1].version = 0xE830;
+        g_gameInfo[1].gameDataSize = 0x1CDC;
         g_pGameData = (u8 *)&g_DDRescueGameData;
         g_pSavedGameData = g_DDRsavedGameData;
         memset(&g_DDRescueGameData, 0, sizeof(g_DDRescueGameData));
@@ -157,25 +157,25 @@ void GameSettings_ResetGame(void)
 {
     s32 i;
 
-    g_codeVariables.unk30 = 1;
+    g_codeVariables.currentRound = 1;
     for (i = 0; i < 4; i++)
     {
-        g_codeVariables.unk34[i] = 0;
-        g_codeVariables.unk44[i] = 0;
-        g_codeVariables.unk54[i] = 0;
-        g_codeVariables.unk64[i] = 0;
+        g_codeVariables.playerWins[i] = 0;
+        g_codeVariables.playerStuntPoints[i] = 0;
+        g_codeVariables.playerKills[i] = 0;
+        g_codeVariables.playerWinner[i] = 0;
     }
-    g_codeVariables.unkE4 = 0;
-    g_codeVariables.unkE8 = 0;
-    g_codeVariables.unkEC = 300000;
-    g_codeVariables.unkF0 = 10;
-    g_codeVariables.unkF4 = 1000;
-    g_codeVariables.unkF8 = 3;
-    g_codeVariables.unkFC = 0;
-    g_codeVariables.unk100 = 3;
-    g_codeVariables.unk104 = 1;
-    g_codeVariables.unk108 = 1;
-    g_codeVariables.unk111 = 1;
+    g_codeVariables.roundCheckEnabled = 0;
+    g_codeVariables.versusMode = 0;
+    g_codeVariables.versusRoundTime = 300000;
+    g_codeVariables.versusKillTarget = 10;
+    g_codeVariables.versusPointTarget = 1000;
+    g_codeVariables.versusNumRounds = 3;
+    g_codeVariables.versusUseWins = 0;
+    g_codeVariables.numCars = 3;
+    g_codeVariables.itemIDMode = 1;
+    g_codeVariables.vsItemRespawn = 1;
+    g_codeVariables.pauseEnabled = 1;
 }
 
 void GameSettings_SetDefaultControllerState(void)
@@ -327,12 +327,12 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         switch (type) {
         case 0:
             if (arg < 5) {
-                g_HotWheelsGameData.unkAA[arg] = val != 0;
+                g_HotWheelsGameData.extras[arg] = val != 0;
             }
             break;
         case 1:
             if (arg < 5) {
-                g_DDRescueGameData.unk29[arg] = val != 0;
+                g_DDRescueGameData.extras[arg] = val != 0;
             }
             break;
         }
@@ -363,12 +363,12 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         break;
     case 0x6B:
         if (arg < 0xB) {
-            g_codeVariables.unk128[arg] = val != 0;
+            g_codeVariables.cheatsEnabled[arg] = val != 0;
         }
         break;
     case 0x6C:
         if (arg < 0xB) {
-            g_codeVariables.unk128[arg] = val;
+            g_codeVariables.cheatsEnabled[arg] = val;
         }
         break;
     case 0xC8:
@@ -383,12 +383,12 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         switch (type) {
         case 0:
             if (arg < 0x1E) {
-                g_HotWheelsGameData.unkB0[arg] = val;
+                g_HotWheelsGameData.miscValues[arg] = val;
             }
             break;
         case 1:
             if (arg < 0x1E) {
-                g_DDRescueGameData.unk2E[arg] = val;
+                g_DDRescueGameData.miscValues[arg] = val;
             }
             break;
         }
@@ -457,69 +457,69 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         GameSettings_ApplyDefaultGameData();
         break;
     case 0xD5:
-        g_codeVariables.unkE0 = val;
+        g_codeVariables.pauseInput = val;
         break;
     case 0x12C:
-        g_codeVariables.unkE4 = val != 0;
+        g_codeVariables.roundCheckEnabled = val != 0;
         break;
     case 0x12D:
-        g_codeVariables.unkE8 = val;
+        g_codeVariables.versusMode = val;
         break;
     case 0x12E:
-        g_codeVariables.unkEC = val * 300000;
+        g_codeVariables.versusRoundTime = val * 300000;
         break;
     case 0x12F:
-        g_codeVariables.unkF0 = val;
+        g_codeVariables.versusKillTarget = val;
         break;
     case 0x130:
-        g_codeVariables.unkF4 = val * 1000;
+        g_codeVariables.versusPointTarget = val * 1000;
         break;
     case 0x131:
-        g_codeVariables.unkF8 = val;
+        g_codeVariables.versusNumRounds = val;
         break;
     case 0x132:
-        g_codeVariables.unkFC = val != 0;
+        g_codeVariables.versusUseWins = val != 0;
         break;
     case 0x133:
-        g_codeVariables.unk100 = val;
+        g_codeVariables.numCars = val;
         break;
     case 0x134:
-        g_codeVariables.unk104 = val;
+        g_codeVariables.itemIDMode = val;
         break;
     case 0x136:
-        g_codeVariables.unk108 = val != 0;
+        g_codeVariables.vsItemRespawn = val != 0;
         break;
     case 0x190:
-        g_codeVariables.unk30 = val;
+        g_codeVariables.currentRound = val;
         break;
     case 0x191:
         if (arg <= 4) {
-            g_codeVariables.unk34[(s32)arg - 1] = val;
+            g_codeVariables.playerWins[(s32)arg - 1] = val;
         }
         break;
     case 0x192:
         if (arg <= 4) {
-            g_codeVariables.unk44[(s32)arg - 1] = val;
+            g_codeVariables.playerStuntPoints[(s32)arg - 1] = val;
         }
         break;
     case 0x193:
         if (arg <= 4) {
-            g_codeVariables.unk54[(s32)arg - 1] = val;
+            g_codeVariables.playerKills[(s32)arg - 1] = val;
         }
         break;
     case 0x194:
         if (arg <= 4) {
-            g_codeVariables.unk64[(s32)arg - 1] = val != 0;
+            g_codeVariables.playerWinner[(s32)arg - 1] = val != 0;
         }
         break;
     case 0x197:
-        g_codeVariables.unk109[0] = val != 0;
+        g_codeVariables.roundsComplete = val != 0;
         break;
     case 0x135:
-        g_codeVariables.unk109[7] = val != 0;
+        g_codeVariables.jettisonWildCards = val != 0;
         break;
     case 0x198:
-        g_codeVariables.unk109[1] = val != 0;
+        g_codeVariables.demoMode = val != 0;
         break;
     case 0x1F7:
         g_codeVariables.device = val;  /* port: a slot number, not a pointer */
@@ -529,15 +529,15 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         GameSettings_DetermineIfOverwritingFile();
         break;
     case 0x1FE:
-        g_codeVariables.unk120[0] = val != 0;
-        g_bBlockReset = g_codeVariables.unk120[0];
+        g_codeVariables.blockReset = val != 0;
+        g_bBlockReset = g_codeVariables.blockReset;
         break;
     case 0x19B:
-        g_codeVariables.unk111 = val != 0;
+        g_codeVariables.pauseEnabled = val != 0;
         break;
     case 0x19C:
         if (arg < 0x1E) {
-            g_codeVariables.unk68[arg] = val;
+            g_codeVariables.scriptVars[arg] = val;
         }
         break;
     }
@@ -638,12 +638,12 @@ done:
         switch (type) {
         case 0:
             if (arg < 5) {
-                return g_HotWheelsGameData.unkAA[arg];
+                return g_HotWheelsGameData.extras[arg];
             }
             break;
         case 1:
             if (arg < 5) {
-                return g_DDRescueGameData.unk29[arg];
+                return g_DDRescueGameData.extras[arg];
             }
             break;
         }
@@ -661,7 +661,7 @@ done:
     case 0x6B:
         return GameSettings_IsCheatEnabled(arg);
     case 0x6C:
-        return g_codeVariables.unk128[arg];
+        return g_codeVariables.cheatsEnabled[arg];
     case 0xC8:
         return g_generalGameSettings.difficulty;
     case 0xC9:
@@ -675,12 +675,12 @@ done:
         switch (type) {
         case 0:
             if (arg < 0x1E) {
-                return g_HotWheelsGameData.unkB0[arg];
+                return g_HotWheelsGameData.miscValues[arg];
             }
             break;
         case 1:
             if (arg < 0x1E) {
-                return g_DDRescueGameData.unk2E[arg];
+                return g_DDRescueGameData.miscValues[arg];
             }
             break;
         }
@@ -697,7 +697,7 @@ done:
                 }
             }
         }
-        if (arg == 1 && g_codeVariables.unkE8 == 0) {
+        if (arg == 1 && g_codeVariables.versusMode == 0) {
             switch (type) {
             case 0:
                 return g_HotWheelsGameData.vehicle;
@@ -771,49 +771,49 @@ done:
         }
         break;
     case 0xD5:
-        return g_codeVariables.unkE0;
+        return g_codeVariables.pauseInput;
     case 0x12C:
-        return g_codeVariables.unkE4;
+        return g_codeVariables.roundCheckEnabled;
     case 0x12D:
-        return g_codeVariables.unkE8;
+        return g_codeVariables.versusMode;
     case 0x12E:
-        return g_codeVariables.unkEC;
+        return g_codeVariables.versusRoundTime;
     case 0x12F:
-        return g_codeVariables.unkF0;
+        return g_codeVariables.versusKillTarget;
     case 0x130:
-        return g_codeVariables.unkF4;
+        return g_codeVariables.versusPointTarget;
     case 0x131:
-        return g_codeVariables.unkF8;
+        return g_codeVariables.versusNumRounds;
     case 0x132:
-        return g_codeVariables.unkFC;
+        return g_codeVariables.versusUseWins;
     case 0x133:
-        return g_codeVariables.unk100;
+        return g_codeVariables.numCars;
     case 0x134:
-        return g_codeVariables.unk104;
+        return g_codeVariables.itemIDMode;
     case 0x136:
-        return g_codeVariables.unk108;
+        return g_codeVariables.vsItemRespawn;
     case 0x135:
-        return g_codeVariables.unk109[7];
+        return g_codeVariables.jettisonWildCards;
     case 0x190:
-        return g_codeVariables.unk30;
+        return g_codeVariables.currentRound;
     case 0x191:
         if (arg <= 4) {
-            return g_codeVariables.unk34[(s32)arg - 1];
+            return g_codeVariables.playerWins[(s32)arg - 1];
         }
         break;
     case 0x192:
         if (arg <= 4) {
-            return g_codeVariables.unk44[(s32)arg - 1];
+            return g_codeVariables.playerStuntPoints[(s32)arg - 1];
         }
         break;
     case 0x193:
         if (arg <= 4) {
-            return g_codeVariables.unk54[(s32)arg - 1];
+            return g_codeVariables.playerKills[(s32)arg - 1];
         }
         break;
     case 0x194:
         if (arg <= 4) {
-            return g_codeVariables.unk64[(s32)arg - 1];
+            return g_codeVariables.playerWinner[(s32)arg - 1];
         }
         break;
     case 0x195:
@@ -859,9 +859,9 @@ done:
         }
         return 0;
     case 0x197:
-        return g_codeVariables.unk109[0];
+        return g_codeVariables.roundsComplete;
     case 0x198:
-        return g_codeVariables.unk109[1];
+        return g_codeVariables.demoMode;
     case 0x1F4:
         return GameSettings_GetDefaultMemoryCardStatus(&device, 0);
     case 0x1F5:
@@ -874,26 +874,26 @@ done:
     case 0x1F8:
         return g_codeVariables.fileIndex;
     case 0x1F9:
-        return g_codeVariables.unk11C[0];
+        return g_codeVariables.mcResults[0];
     case 0x1FA:
-        return g_codeVariables.unk11C[1];
+        return g_codeVariables.mcResults[1];
     case 0x1FB:
         return g_codeVariables.bOverwritingFile;
     case 0x1FC:
-        return g_codeVariables.unk124;
+        return g_codeVariables.currentMission;
     case 0x1FD:
-        return g_codeVariables.unk11C[2];
+        return g_codeVariables.mcResults[2];
     case 0x1FE:
-        return g_codeVariables.unk120[0];
+        return g_codeVariables.blockReset;
     case 0x258:
         return 2;
     case 0x259:
         return 1;
     case 0x19B:
-        return g_codeVariables.unk111;
+        return g_codeVariables.pauseEnabled;
     case 0x19C:
         if (arg < 0x1E) {
-            return g_codeVariables.unk68[arg];
+            return g_codeVariables.scriptVars[arg];
         }
         break;
     }
@@ -986,11 +986,11 @@ done:
             return 0;
         }
     }
-    if (((u32)(cheat - 1) <= 2 || cheat == 4) && cheats[10] && g_codeVariables.unk128[10]) {
+    if (((u32)(cheat - 1) <= 2 || cheat == 4) && cheats[10] && g_codeVariables.cheatsEnabled[10]) {
         return 1;
     }
     result = 0;
-    if ((cheats[10] || cheats != NULL) && g_codeVariables.unk128[cheat]) {
+    if ((cheats[10] || cheats != NULL) && g_codeVariables.cheatsEnabled[cheat]) {
         result = 1;
     }
     return result;
@@ -1024,16 +1024,16 @@ done:
         SETP(((GameInfo *)info)->title, GETP(g_gameInfo[mcp->gameType].title));
         SETP(((GameInfo *)info)->fileName, GETP(g_gameInfo[mcp->gameType].fileName));
         SETP(((GameInfo *)info)->icon, GETP(g_gameInfo[mcp->gameType].icon));
-        ((GameInfo *)info)->unk14 = g_gameInfo[mcp->gameType].unk14;
-        ((GameInfo *)info)->unk18 = g_gameInfo[mcp->gameType].unk18;
+        ((GameInfo *)info)->version = g_gameInfo[mcp->gameType].version;
+        ((GameInfo *)info)->gameDataSize = g_gameInfo[mcp->gameType].gameDataSize;
     } else {
         SETP(((GameInfo *)info)->name, "BrainCore Engine");
         SETP(((GameInfo *)info)->id, "SLUS_001.00");
         SETP(((GameInfo *)info)->title, "SavesFolder");
         SETP(((GameInfo *)info)->fileName, "saveFile");
         SETP(((GameInfo *)info)->icon, "mm.ico");
-        ((GameInfo *)info)->unk14 = 0;
-        ((GameInfo *)info)->unk18 = 0;
+        ((GameInfo *)info)->version = 0;
+        ((GameInfo *)info)->gameDataSize = 0;
     }
 }
 
@@ -1162,7 +1162,7 @@ done:
         break;
     case 1:
         StateProgressionManager_GetProgressionID(&g_DDRescueGameData.progressionID, &g_DDRescueGameData.progression);
-        g_DDRescueGameData.bValid = g_codeVariables.unk120[0];
+        g_DDRescueGameData.bValid = g_codeVariables.blockReset;
         if (!g_DDRescueGameData.bValid) {
             g_DDRescueGameData.progression++;
             break;
@@ -1227,7 +1227,7 @@ done:
         g_DDRescueGameData.vehicle = g_codeVariables.playerVehicle[0];
         break;
     }
-    g_codeVariables.unk120[0] = 0;
+    g_codeVariables.blockReset = 0;
 }
 
 void GameSettings_RestoreGameData(void) {
@@ -1304,7 +1304,7 @@ done:
                 tile->pos.y = g_DDRescueGameData.carPos[i][1];
                 tile->pos.z = g_DDRescueGameData.carPos[i][2];
                 tile->health = g_DDRescueGameData.carHealth[i];
-                tile->unk5F = g_DDRescueGameData.carSpawned[i];
+                tile->spawned = g_DDRescueGameData.carSpawned[i];
             }
             g_codeVariables.playerItem[0] = g_DDRescueGameData.item;
             g_codeVariables.playerVehicle[0] = g_DDRescueGameData.vehicle;
@@ -1334,12 +1334,12 @@ s32 GameSettings_LoadDefaultMemoryCardData(void) {
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
-        version = g_gameInfo[mcp->gameType].unk14;
-        size = g_gameInfo[mcp->gameType].unk18;
+        version = g_gameInfo[mcp->gameType].version;
+        size = g_gameInfo[mcp->gameType].gameDataSize;
     } else {
         SETP(info.fileName, "saveFile");
-        info.unk14 = 0;
-        version = info.unk14;
+        info.version = 0;
+        version = info.version;
         size = version;
     }
     data = (SaveFile *)g_pSavedGameData;
@@ -1475,8 +1475,8 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
             mcp = GameSettings_LoadMCP();
             if (mcp != NULL) {
                 SETP(file.name, GETP(g_gameInfo[mcp->gameType].fileName));
-                file.version = g_gameInfo[mcp->gameType].unk14;
-                file.size = g_gameInfo[mcp->gameType].unk18;
+                file.version = g_gameInfo[mcp->gameType].version;
+                file.size = g_gameInfo[mcp->gameType].gameDataSize;
             } else {
                 SETP(file.name, "saveFile");
                 file.version = 0;
@@ -1636,7 +1636,7 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
-        index = g_gameInfo[mcp->gameType].unk18;
+        index = g_gameInfo[mcp->gameType].gameDataSize;
     } else {
         SETP(info.fileName, "saveFile");
         index = 0;
@@ -1685,12 +1685,12 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
             mcp = GameSettings_LoadMCP();
             if (mcp != NULL) {
                 SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
-                version = g_gameInfo[mcp->gameType].unk14;
-                size = g_gameInfo[mcp->gameType].unk18;
+                version = g_gameInfo[mcp->gameType].version;
+                size = g_gameInfo[mcp->gameType].gameDataSize;
             } else {
                 SETP(info.fileName, "saveFile");
-                info.unk14 = 0;
-                version = info.unk14;
+                info.version = 0;
+                version = info.version;
                 size = version;
             }
             data = (SaveFile *)g_pSavedGameData;
@@ -1815,20 +1815,20 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
                 sprintf(levelDetails, "Mission %d|Challenge %d|Available Cars %d|Available Items %d|Available Races %d|Available Battles %d|Completed %d%%",
                         mission - 4, challenge - 38, cars, items + 3, races + 4, battles + 4,
                         (u32)(100.0f * ((f32)(cars + items + (mission - 4) + (challenge - 38) + (races + 4) + (battles + 4) - 13) / 75.0f)));
-                g_codeVariables.unk124 = mission - 5;
+                g_codeVariables.currentMission = mission - 5;
             } else {
                 levelDetails[0] = 0;
-                g_codeVariables.unk124 = 0;
+                g_codeVariables.currentMission = 0;
             }
             break;
         case 1:
             levelDetails[0] = 0;
-            g_codeVariables.unk124 = 0;
+            g_codeVariables.currentMission = 0;
             break;
         }
     } else {
         levelDetails[0] = 0;
-        g_codeVariables.unk124 = 0;
+        g_codeVariables.currentMission = 0;
     }
     return levelDetails;
 }
@@ -1854,12 +1854,12 @@ u8 GameSettings_SaveGeneralGameData(void) {
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
-        version = g_gameInfo[mcp->gameType].unk14;
-        size = g_gameInfo[mcp->gameType].unk18;
+        version = g_gameInfo[mcp->gameType].version;
+        size = g_gameInfo[mcp->gameType].gameDataSize;
     } else {
         SETP(info.fileName, "saveFile");
-        info.unk14 = 0;
-        version = info.unk14;
+        info.version = 0;
+        version = info.version;
         size = version;
     }
     data = (SaveFile *)g_pSavedGameData;
@@ -1889,11 +1889,11 @@ u8 GameSettings_SaveGeneralGameData(void) {
         File_Close(handle);
     }
     if (ok) {
-        g_codeVariables.unk11C[0] = 1;
+        g_codeVariables.mcResults[0] = 1;
     } else {
-        g_codeVariables.unk11C[0] = 0;
+        g_codeVariables.mcResults[0] = 0;
     }
-    return g_codeVariables.unk11C[0];
+    return g_codeVariables.mcResults[0];
 }
 
 
@@ -1923,15 +1923,15 @@ u8 GameSettings_SaveGame(void) {
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         SETP(file.name, GETP(g_gameInfo[mcp->gameType].fileName));
-        file.version = g_gameInfo[mcp->gameType].unk14;
-        file.size = g_gameInfo[mcp->gameType].unk18;
+        file.version = g_gameInfo[mcp->gameType].version;
+        file.size = g_gameInfo[mcp->gameType].gameDataSize;
     } else {
         SETP(file.name, "saveFile");
         file.version = 0;
         file.size = file.version;
     }
     if ((status != 0 && status != 1) || g_saveFileCheckSum != GameSettings_GetSaveFileChecksum(file.device, GETP(file.name), file.size)) {
-        g_codeVariables.unk11C[0] = 0;
+        g_codeVariables.mcResults[0] = 0;
         return 0;
     }
     data = (SaveFile *)g_pSavedGameData;
@@ -1977,18 +1977,18 @@ u8 GameSettings_SaveGame(void) {
             File_Close(whandle);
         }
         if (wok) {
-            g_codeVariables.unk11C[0] = 1;
+            g_codeVariables.mcResults[0] = 1;
         } else {
-            g_codeVariables.unk11C[0] = 0;
+            g_codeVariables.mcResults[0] = 0;
         }
     }
     g_bRefreshMC = 1;
     g_bRefreshMC_FileList = 1;
     g_bRefreshMC_FileInfo = 1;
-    if (g_codeVariables.unk11C[0]) {
+    if (g_codeVariables.mcResults[0]) {
         s_portSaveIndex = 1;   /* port: a save goes to slot 0 */
     }
-    return g_codeVariables.unk11C[0];
+    return g_codeVariables.mcResults[0];
 #undef g_saveFileCheckSum
 }
 
@@ -2010,12 +2010,12 @@ void GameSettings_PortNoteUnlock(s32 var, u32 arg, u32 val) {
         old = var == 0x64 ? (arg < 0x21 ? g_HotWheelsGameData.cars[arg] : 1)
             : var == 0x65 ? (arg < 0x39 ? g_HotWheelsGameData.tracks[arg] : 1)
             : var == 0x66 ? (arg < 0xC ? g_HotWheelsGameData.items[arg] : 1)
-            : (arg < 5 ? g_HotWheelsGameData.unkAA[arg] : 1);
+            : (arg < 5 ? g_HotWheelsGameData.extras[arg] : 1);
         break;
     case 1:
         old = var == 0x64 ? (arg < 0x14 ? g_DDRescueGameData.cars[arg] : 1)
             : var == 0x65 ? (arg < 0xA ? g_DDRescueGameData.missions[arg] : 1)
-            : var == 0x68 ? (arg < 5 ? g_DDRescueGameData.unk29[arg] : 1) : 1;
+            : var == 0x68 ? (arg < 5 ? g_DDRescueGameData.extras[arg] : 1) : 1;
         break;
     default:
         old = 1;
@@ -2060,7 +2060,7 @@ void GameSettings_PortAutoSave(void) {
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         name = GETP(g_gameInfo[mcp->gameType].fileName);
-        size = g_gameInfo[mcp->gameType].unk18;
+        size = g_gameInfo[mcp->gameType].gameDataSize;
     }
     g_codeVariables.device = 1;
     if (s_portSaveIndex == 0 || g_saveFileName[0] == 0) {
@@ -2108,8 +2108,8 @@ u8 GameSettings_LoadGame(void) {
     mcp = GameSettings_LoadMCP();
     if (mcp != NULL) {
         SETP(info.fileName, GETP(g_gameInfo[mcp->gameType].fileName));
-        version = g_gameInfo[mcp->gameType].unk14;
-        size = g_gameInfo[mcp->gameType].unk18;
+        version = g_gameInfo[mcp->gameType].version;
+        size = g_gameInfo[mcp->gameType].gameDataSize;
     } else {
         SETP(info.fileName, "saveFile");
         version = 0;
@@ -2126,21 +2126,21 @@ u8 GameSettings_LoadGame(void) {
         File_Close(handle);
     }
     if (!ok) {
-        g_codeVariables.unk11C[1] = 0;
+        g_codeVariables.mcResults[1] = 0;
         return 0;
     }
     saved = (SaveFile *)g_pSavedGameData;
     memcpy(g_pGameData, SAVE_FILE_GAME_DATA(saved, size, slot), size);
     memcpy(&g_generalGameSettings, &saved->settings, sizeof(GeneralGameSettings));
-    g_codeVariables.unk11C[1] = 1;
+    g_codeVariables.mcResults[1] = 1;
     s_portSaveIndex = g_codeVariables.fileIndex;   /* port: the save in use */
     g_bRefreshMC = 1;
     g_bRefreshMC_FileList = 1;
     g_bRefreshMC_FileInfo = 1;
     for (i = 0; i < 11; i++) {
-        g_codeVariables.unk128[i] = 0;
+        g_codeVariables.cheatsEnabled[i] = 0;
     }
-    return g_codeVariables.unk11C[1];
+    return g_codeVariables.mcResults[1];
 }
 
 
@@ -2149,7 +2149,7 @@ s32 GameSettings_FormatMemoryCard(void)
     u8 result;
 
     result = FileManager_FormatDevice(g_codeVariables.device + 0xA);
-    g_codeVariables.unk11C[2] = result;
+    g_codeVariables.mcResults[2] = result;
     g_bRefreshMC = 1;
     g_bRefreshMC_FileList = 1;
     g_bRefreshMC_FileInfo = 1;
@@ -2183,7 +2183,7 @@ done:
     name = (mcp != NULL) ? GETP(g_gameInfo[mcp->gameType].fileName) : "saveFile";
     result = File_Delete(device, name);
     g_bRefreshMC = 1;
-    g_codeVariables.unk11C[2] = result;
+    g_codeVariables.mcResults[2] = result;
     g_bRefreshMC_FileList = 1;
     g_bRefreshMC_FileInfo = 1;
     return result;

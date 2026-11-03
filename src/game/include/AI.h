@@ -126,7 +126,7 @@ typedef struct AIStateInfo {
     u8 subtype;                        /* 0x01 AI_SUBTYPE_* */
     u8 sortMode;                       /* 0x02 AI_SORT_* */
     u8 pad03[2];                       /* 0x03 */
-    u8 unk5;                           /* 0x05 set: the target holds only while retargetTimer runs;
+    u8 holdTarget;                     /* 0x05 set: the target holds only while retargetTimer runs;
                                           nav points stay valid when reached */
     u8 uses;                           /* 0x06 times it can be entered, 0: unlimited */
     u8 pad07[0xD];                     /* 0x07 */
@@ -242,8 +242,8 @@ typedef struct AICar {
     s32 pathDest;                      /* 0x4A8 nav point index path[] leads to, -1: none */
     u32 pathTimer;                     /* 0x4AC ms until the path is recomputed */
     AITargetRecord records[16];        /* 0x4B0 */
-    u32 unk5F0;                        /* 0x5F0 zeroed every heartbeat (with unk5F4) */
-    u32 unk5F4;                        /* 0x5F4 */
+    u32 unused5F0;                     /* 0x5F0 write-only 0; gates the dead 20 s timer at 0x5F4 */
+    u32 unused5F4;                     /* 0x5F4 ms counter, counts only while 0x5F0 is set: never */
     AIEvent scanEvent;                 /* 0x5F8 AI_Car_AsyncScanDestructibles */
     u32 scanTimer;                     /* 0x608 ms */
     u8 pad60C[4];                      /* 0x60C */
@@ -334,7 +334,7 @@ typedef struct AICreature {
     f32 speed;                         /* 0xF0 -1..1, < 0 backwards */
     f32 heading;                       /* 0xF4 radians */
     u32 leaving;                       /* 0xF8 walks to a node and disappears */
-    s32 unkFC;                         /* 0xFC */
+    s32 flagFC;                        /* 0xFC nonzero: pause the leaving walk */
 } AICreature;
 
 #define AI_ASSERT(T, f, off) _Static_assert(offsetof(T, f) == (off), #T "." #f)
@@ -387,7 +387,7 @@ AI_ASSERT(TileCreature, spawnable, 0x20);
 AI_ASSERT(AICreature, next, 0xD4);
 AI_ASSERT(AICreature, nearestCar, 0xE4);
 AI_ASSERT(AICreature, speed, 0xF0);
-AI_ASSERT(AICreature, unkFC, 0xFC);
+AI_ASSERT(AICreature, flagFC, 0xFC);
 _Static_assert(sizeof(AIEvent) == 0x10, "AIEvent size");
 _Static_assert(sizeof(AIStateSlot) == 0x18, "AIStateSlot size");
 _Static_assert(sizeof(AITargetRecord) == 0x14, "AITargetRecord size");

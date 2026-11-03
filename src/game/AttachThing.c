@@ -231,7 +231,7 @@ s32 RadarBlip_Init(struct RadarBlip *blip, struct RadarBlipParams *init) {
     Thing_Init(&blip->base, 0);
     blip->base.pos = init->pos;
     SETP(blip->data, GETP(init->data));
-    blip->unkB4 = 0;
+    blip->unusedB4 = 0;
     blip->health = 1.0f;
     if (GETP(blip->data)->showSprite == 0) {
         blip->base.flags |= 0x200;

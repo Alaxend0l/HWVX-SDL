@@ -1,16 +1,16 @@
 #include "common.h"
 
 typedef struct Texture {
-    u8 unk0[0x24];
+    u8 name[0x24];              /* 0x00 texture file name, set on load */
     PTR32(void) data;
-    u32 unk28;
-    f32 unk2C;
-    u16 unk30;
+    u32 unused28;               /* 0x28 copied from pack header, never read */
+    f32 unused2C;               /* 0x2C set to 0.25f, never read */
+    u16 texWidth;               /* 0x30 GXInitTexObj width (BTF stores height) */
     u16 width;
     u16 height;
     s16 refCount;
-    u16 unk38;
-    u16 unk3A;
+    u16 format;                 /* 0x38 4: CMPR, 1: RGBA8, 0/2: RGB565 */
+    u16 fromPack;               /* 0x3A 1: pack texture, data not freed */
     u16 view;
     u16 wrapMode;
 } Texture;
@@ -36,7 +36,7 @@ void Render_CreateTextureSlot(u32 id) {
     obj = &m_gxTexObjArray[id];
     if (GXGetTexObjData(obj) != NULL) {
         texs = m_texture;
-        switch (texs[id].unk38) {
+        switch (texs[id].format) {
         case 0:
         case 2:
             break;
@@ -47,33 +47,33 @@ void Render_CreateTextureSlot(u32 id) {
             format = 0xE;
             break;
         }
-        GXInitTexObj(obj, GXGetTexObjData(obj), texs[id].unk30, texs[id].width, format, wrap, wrap, texs[id].height > 1 ? 1 : 0);
+        GXInitTexObj(obj, GXGetTexObjData(obj), texs[id].texWidth, texs[id].width, format, wrap, wrap, texs[id].height > 1 ? 1 : 0);
         return;
     }
     tex = &m_texture[id];
-    switch (tex->unk38) {
+    switch (tex->format) {
     case 0:
     case 2:
         break;
     case 1:
-        DCFlushRange(GETP(tex->data), tex->unk30 * (tex->width * 4));
+        DCFlushRange(GETP(tex->data), tex->texWidth * (tex->width * 4));
         format = 6;
         tex = &m_texture[id];
         data = GETP(tex->data);
         tex->height = 0;
         break;
     case 4:
-        DCFlushRange(GETP(tex->data), tex->unk30 * tex->width);
+        DCFlushRange(GETP(tex->data), tex->texWidth * tex->width);
         texs = m_texture;
         format = 0xE;
         data = GETP(texs[id].data);
         break;
     }
     tex = &m_texture[id];
-    if (tex->unk30 > 0x200 || tex->width > 0x200) {
+    if (tex->texWidth > 0x200 || tex->width > 0x200) {
         return;
     }
-    GXInitTexObj(obj, data, tex->unk30, tex->width, format, wrap, wrap, 1 - tex->height < 0);
+    GXInitTexObj(obj, data, tex->texWidth, tex->width, format, wrap, wrap, 1 - tex->height < 0);
     texs = m_texture;
     if (texs[id].height > 1) {
         GXInitTexObjLOD(obj, 5, 1, 0.0f, (s32)(texs[id].height - 1) / 1.15f, -1.0f, 1, 1, 0);

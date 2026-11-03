@@ -621,7 +621,7 @@ s32 ExtractSoundKey(KeyTrack *t, SoundSeqKeyState *s, Vector4 *pos, f32 dt) {
     SoundSeqSound *snd;
     s32 idx;
 
-    s->unk0 = 0;
+    s->unused0 = 0;
     reset = 0;
     ret = -1;
     if (s->reset) {

@@ -319,7 +319,7 @@ void FileStreaming_SetActiveQuadrants(void **quads, u32 count) {
                     }
                     continue;
                 }
-                sp.unk4C = 0;
+                sp.unused4C = 0;
                 sp.moveType = 0;
                 /* the original passes 0.0f (@662), i.e. "no per-instance draw distance":
                  * Destructible_Init reads this word as drawDist and then falls back to
@@ -401,7 +401,7 @@ void FileStreaming_HeartBeatItems(void)
                          * unless the point has its own; the decomp left it unset,
                          * so items got stack garbage and could be culled at once */
                         params.drawDist = item->hasDrawDist ? item->drawDist : 0.0f;
-                        params.unk38 = item->unk35;
+                        params.aiPickup = item->aiPickup;
                         thing = (ItemThing *)ThingManager_DARYL_CreateThing(THING_TYPE_ITEM, &params);
                         if (thing) {
                             item->spawned = 1;
@@ -423,8 +423,8 @@ void FileStreaming_HeartBeatItems(void)
                                 p.vel.y = 0.0f;
                                 p.vel.x = 0.0f;
                                 p.owner = 0;
-                                p.unk48 = 0.0f;
-                                p.unk4C = 0.0f;
+                                p.speedScale = 0.0f;
+                                p.unusedParam = 0.0f;
                                 p.angVel = g_zeroVector;
                                 ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &p);
                             }
@@ -624,7 +624,7 @@ s32 FileStreaming_LoadDataPack(void *name, s32 type, u32 id, s8 threaded) {
     SETP(packs[slot].name, name);
     packs[slot].id = id;
     packs[slot].refs = 1;
-    packs[slot].unk10 = 0;
+    packs[slot].unused10 = 0;
     g_dataPackToLoadType = type;
     g_pDataPackToLoad = &packs[slot];
     if (threaded) {
