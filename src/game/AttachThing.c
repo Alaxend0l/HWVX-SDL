@@ -367,6 +367,54 @@ void RadarBlip_Draw(struct RadarBlip *blip) {
     }
 }
 
+/* port fix: the blip's local offset floats its marker above the master, but
+ * the original transformed it with the master's full matrix, so the master's
+ * pitch and roll tilted that height into x/z (the dot leaving the object's
+ * ground position) and its yaw spun the offset around rigidly. Radar blips
+ * instead go through a yaw-only matrix taken from the master's forward (its
+ * axis[2], the heading used everywhere else); the height can never mix into
+ * x/z, so the dot tracks the marked thing's world position and is
+ * independent of its height. Identical to the original for upright masters.
+ * Thing_MoveSlaves/Thing_DrawSlaves use this for blip slaves; the vtable
+ * slot below covers the MotionState/AnimHandler bone path. */
+void RadarBlip_SlavePosYawOnly(Matrix4 *m, Vector4 *local, Vector4 *out) {
+    f32 fx = m->v[2].x;
+    f32 fz = m->v[2].z;
+    f32 len = (f32)sqrt(fx * fx + fz * fz);
+
+    if (len < 1e-4f) {
+        /* forward straight up or down: the yaw is ill-defined; keep the
+         * height out of x/z anyway and fall back to no yaw */
+        fx = 0.0f;
+        fz = 1.0f;
+    } else {
+        fx /= len;
+        fz /= len;
+    }
+    /* rows (fz, 0, -fx), (0, 1, 0), (fx, 0, fz), then m's translation */
+    out->x = fx * local->z + fz * local->x + m->v[3].x;
+    out->y = local->y + m->v[3].y;
+    out->z = fz * local->z + fx * local->x + m->v[3].z;
+}
+
+/* vtable SlaveTransform for radar blips: like Thing_SlaveTransformQuaternionOnly
+ * but the position goes through the yaw-only transform above (bone matrices on
+ * cars: the blip stays over the car on loops and banked turns). */
+void RadarBlip_SlaveTransform(struct RadarBlip *blip, Matrix4 *mtx) {
+    Thing *thing = &blip->base;
+    Quaternion rot __attribute__((aligned(16)));
+    Quaternion quat __attribute__((aligned(16)));
+    Vector4 pos __attribute__((aligned(16)));
+
+    quat = thing->quat;
+    pos = thing->pos;
+    /* the helper takes the yaw from mtx's forward row and the translation
+     * from mtx's fourth row, and mixes in only the offset's x/z by yaw */
+    RadarBlip_SlavePosYawOnly(mtx, &pos, &thing->pos);
+    SubMatrixToQuaternion(mtx, &rot);
+    QuaternionMult(&rot, &quat, &thing->quat);
+}
+
 /* port: vtables hold 32-bit handles, like every pointer slot the game reads
  * (the callers load entries with SLOT_LOAD); filled in at startup. */
 u32 g_attachVTable[17];
@@ -444,7 +492,7 @@ __attribute__((constructor)) static void PortInit_g_radarBlipVTable(void) {
         (void *)Thing_DynamicCollideImpact,
         (void *)Thing_GetCameraOrientationInfo,
         (void *)Thing_GetInterfaceInfo,
-        (void *)Thing_SlaveTransformQuaternionOnly,
+        (void *)RadarBlip_SlaveTransform,
         (void *)Thing_GetSurfaceScript,
         (void *)Thing_GetNearestNavPoint,
         (void *)Thing_GetInverseLocalInertiaTensor,

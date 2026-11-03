@@ -911,6 +911,15 @@ void Thing_SetSlavePlayers(Thing *thing) {
     }
 }
 
+/* port fix: radar blips keep their local offset (which floats the marker
+ * above the master) transformed by a yaw-only matrix: the master's pitch and
+ * roll can never tilt the height into x/z and its yaw rotates only the
+ * horizontal offset, so the minimap dot stays at the marked thing's world
+ * position whatever the master's attitude (see RadarBlip_SlaveTransform). */
+static inline void Thing_RadarBlipSlavePos(Thing *thing, Vector4 *local, Vector4 *out) {
+    RadarBlip_SlavePosYawOnly(THING_MTX(thing), local, out);
+}
+
 void Thing_DrawSlaves(Thing *thing) {
     Thing *slave;
     Quaternion quat __attribute__((aligned(16)));
@@ -921,7 +930,11 @@ void Thing_DrawSlaves(Thing *thing) {
             quat = slave->quat;
             pos = slave->pos;
             QuaternionMult(&thing->quat, &quat, &slave->quat);
-            XformVec(THING_MTX(thing), &pos, &slave->pos);
+            if (slave->type == THING_TYPE_RADAR_BLIP) {
+                Thing_RadarBlipSlavePos(thing, &pos, &slave->pos);
+            } else {
+                XformVec(THING_MTX(thing), &pos, &slave->pos);
+            }
             THING_VFN(slave, THING_V_DRAW, void (*)(Thing *))(slave);
             slave->quat = quat;
             slave->pos = pos;
@@ -944,7 +957,11 @@ void Thing_MoveSlaves(Thing *thing) {
                 CopyVector(&trans, &slave->pos);
                 CopyVector(&pos, &slave->vel);
                 QuaternionMult(&thing->quat, &quat, &slave->quat);
-                XformVec(THING_MTX(thing), &trans, &slave->pos);
+                if (slave->type == THING_TYPE_RADAR_BLIP) {
+                    Thing_RadarBlipSlavePos(thing, &trans, &slave->pos);
+                } else {
+                    XformVec(THING_MTX(thing), &trans, &slave->pos);
+                }
                 slave->vel = thing->vel;
                 THING_VFN(slave, THING_V_MOVE, void (*)(Thing *))(slave);
                 CopyVector(&slave->quat, &quat);

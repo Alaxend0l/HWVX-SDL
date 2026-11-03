@@ -130,6 +130,8 @@ void AttachThing_SlaveTransform(struct AttachThing *attach, Matrix4 *mtx);
 void RadarBlip_Draw(struct RadarBlip *blip);
 s32 RadarBlip_Init(struct RadarBlip *blip, struct RadarBlipParams *init);
 s32 RadarBlip_Move(struct RadarBlip *blip);
+void RadarBlip_SlavePosYawOnly(Matrix4 *m, Vector4 *local, Vector4 *out);
+void RadarBlip_SlaveTransform(struct RadarBlip *blip, Matrix4 *mtx);
 
 /* Audio.c */
 s8 Audio_Create(void);
