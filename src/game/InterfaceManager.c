@@ -4048,6 +4048,16 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
     if (GETP(iface->owner) == NULL || StateManager_CurrState() != 5 || GETP(obj->parent) != NULL) {
         return 0.0f;
     }
+    /* the target arrow is not laid out on the screen at all: its position is
+     * a camera-space point (x across the view, z into it) fed straight into
+     * the projection maths, its first key x = 0 putting it at the view's
+     * centre, and MapViewport already recentres that projection for the
+     * wider view. The pixel heuristic below reads that 0.0 as "far left" and
+     * would throw the arrow off the screen's left edge, distorted; exclude
+     * it. */
+    if (obj->role == 0x1F) {
+        return 0.0f;
+    }
     Port_ViewWiden(&wx, &wy);
     if (wx <= 1.0f) {
         return 0.0f;
