@@ -96,12 +96,27 @@ void GXCopyDisp(void *dest, u8 clear) {
     (void)dest;
     GX_DrawCopyDisp(clear);
 }
-void GXSetTexCopySrc(u16 left, u16 top, u16 wd, u16 ht) { (void)left; (void)top; (void)wd; (void)ht; }
-void GXSetTexCopyDst(u16 wd, u16 ht, int fmt, u8 mipmap) { (void)wd; (void)ht; (void)fmt; (void)mipmap; }
+void GXSetTexCopySrc(u16 left, u16 top, u16 wd, u16 ht) {
+    g_gx.texCopySrc[0] = left;
+    g_gx.texCopySrc[1] = top;
+    g_gx.texCopySrc[2] = wd;
+    g_gx.texCopySrc[3] = ht;
+}
+void GXSetTexCopyDst(u16 wd, u16 ht, int fmt, u8 mipmap) {
+    g_gx.texCopyW = wd;
+    g_gx.texCopyH = ht;
+    g_gx.texCopyFmt = (u32)fmt;
+    g_gx.texCopyMip = mipmap;
+}
 void GXCopyTex(void *dest, u8 clear) {
-    (void)dest;
-    (void)clear;
-    PORT_TODO("GXCopyTex (render to texture)");
+    if (!dest) {
+        return;
+    }
+    GX_DrawCopyTex(dest, clear);
+    /* The cache keys on the image address; a copy rewrites the pixels without
+     * moving them, so the texture cache entry for this image is now stale.
+     * (Shadow volumes land at constant addresses every frame.) */
+    GX_TexInvalidate(HND(dest));
 }
 void GXSetPixelFmt(int pixFmt, int zFmt) { (void)pixFmt; (void)zFmt; }
 
@@ -419,7 +434,7 @@ void GXLoadTexObj(const GXTexObj *obj, int id) {
     }
 }
 
-void GXInvalidateTexAll(void) {}
+void GXInvalidateTexAll(void) { GX_TexInvalidate(0); }
 
 /* ---- TEV ----------------------------------------------------------------- */
 

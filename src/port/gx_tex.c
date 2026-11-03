@@ -267,3 +267,24 @@ bind:
     }
     return s_cache[i].name;
 }
+
+/* Drop cache entries for an image (0: everything). EFB-copy textures (the
+ * shadow image) are rewritten in place every frame, and packs reuse memory,
+ * so the content hash alone cannot be trusted for them. */
+void GX_TexInvalidate(u32 imageHandle) {
+    u32 i;
+    for (i = 0; i < TEX_CACHE; i++) {
+        TexEntry *e = &s_cache[i];
+        if (e->name == 0) {
+            continue;
+        }
+        if (imageHandle == 0 || e->image == imageHandle) {
+            glDeleteTextures(1, &e->name);
+            e->name = 0;
+            e->image = 0;
+            e->key = 0;
+            e->hash = 0;
+            e->lastUse = 0;
+        }
+    }
+}

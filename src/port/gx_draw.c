@@ -598,6 +598,124 @@ static void CopySrcRect(int *x0, int *y0, int *x1, int *y1) {
     *y0 = s.efbH - (int)((r[1] + r[3]) * sy);
 }
 
+/* EFB -> texture copy (GXCopyTex). The shadow pass uses this: shadow volumes
+ * write a small EFB alpha, then GXSetTexCopyDst(0x140,0xE0,GX_COPY_AI8=0x27,1)
+ * halves the 640x480 buffer and copies its alpha into pShadowImage as an I8
+ * mip chain; Render_DrawShadows then overlays that texture over the scene.
+ * Destination layout follows gx_tex.c's decode: top row first, 8x4 blocks of
+ * 32 bytes (block row size = width, pixels inside a block at yy*8+xx). */
+void GX_DrawCopyTex(void *dest, u8 clear) {
+    static u8 *raw, *lev;
+    static int rawCap;
+    int src[4], r[0], g[0], b[0], a[0];
+    int dstW, dstH, w, h, scale, x, y, levels;
+    int fromAlpha;
+    u8 *out;
+
+    CopySrcRect(src, src + 1, src + 2, src + 3);
+    dstW = g_gx.texCopyW;
+    dstH = g_gx.texCopyH;
+    if (dstW <= 0 || dstH <= 0) {
+        return;
+    }
+    /* fmt byte 1 (GX_TF_ALPHA=7 in the low nibble) copies the EFB's alpha;
+     * otherwise color. */
+    fromAlpha = (g_gx.texCopyFmt & 0xF) == 7;
+    scale = s.efbW / 640;
+    if (scale < 1) {
+        scale = 1;
+    }
+    /* GX pixels -> GL pixels (GL y grows up, GX y grows down). */
+    r[0] = src[0] * scale;
+    r[2] = (src[2] == 0 ? 640 : src[2]) * scale;
+    r[1] = s.efbH - (src[1] + (src[3] == 0 ? 480 : src[3])) * scale;
+    r[3] = src[3] * scale;
+    if (r[0] < 0) {
+        r[0] = 0;
+    }
+    if (r[1] < 0) {
+        r[1] = 0;
+    }
+    if (r[0] + r[2] > s.efbW) {
+        r[2] = s.efbW - r[0];
+    }
+    if (r[1] + r[3] > s.efbH) {
+        r[3] = s.efbH - r[1];
+    }
+    if (r[2] <= 0 || r[3] <= 0) {
+        return;
+    }
+
+    int need = r[2] * r[3] * 4;
+    if (need > rawCap) {
+        SDL_free(raw);
+        rawCap = need + need / 2;
+        raw = SDL_malloc(rawCap);
+        lev = SDL_malloc((size_t)s.efbW * s.efbH / 4 + 16);
+        if (raw == NULL || lev == NULL) {
+            Port_Fatal("GXCopyTex: out of memory");
+        }
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(r[0], r[1], r[2], r[3], GL_RGBA, GL_UNSIGNED_BYTE, raw);
+
+    out = (u8 *)dest;
+    levels = 1;
+    if (g_gx.texCopyMip) {
+        for (w = dstW > dstH ? dstW : dstH; w > 1; w >>= 1) {
+            levels++;
+        }
+    }
+    w = dstW;
+    h = dstH;
+    for (int lcv = 0; lcv < levels; lcv++) {
+        /* Average the source rect down to w x h (the copy halves the buffer,
+         * and mips halve again); box filter matches the hardware EFB copy. */
+        for (y = 0; y < h; y++) {
+            int sy0 = y * r[3] / h, sy1 = (y + 1) * r[3] / h;
+            if (sy1 <= sy0) {
+                sy1 = sy0 + 1;
+            }
+            for (x = 0; x < w; x++) {
+                int sx0 = x * r[2] / w, sx1 = (x + 1) * r[2] / w;
+                int sum = 0, n = 0;
+                if (sx1 <= sx0) {
+                    sx1 = sx0 + 1;
+                }
+                for (int yy = sy0; yy < sy1; yy++) {
+                    const u8 *p = raw + (size_t)(yy * r[2] + sx0) * 4;
+                    for (int xx = sx0; xx < sx1; xx++, p += 4) {
+                        sum += fromAlpha ? p[3] : (p[0] * 77 + p[1] * 151 + p[2] * 28) >> 8;
+                        n++;
+                    }
+                }
+                lev[y * w + x] = (u8)(sum / (n > 0 ? n : 1));
+            }
+        }
+        /* Write I8 tiles, row-major over whole block rows; padding pixels in
+         * edge blocks stay zero (the sampler never reads them). */
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                out[(y / 4) * (w * 8) + (x / 8) * 32 + (y % 4) * 8 + (x % 8)] = lev[y * w + x];
+            }
+        }
+        out += ((w + 7) / 8 * 8) * ((h + 3) / 4 * 4);
+        if (w > 1) {
+            w >>= 1;
+        }
+        if (h > 1) {
+            h >>= 1;
+        }
+    }
+
+    if (clear) {
+        ClearEFB();
+    }
+    /* Restore GL state touched here; ApplyState re-arms everything else. */
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+}
+
 /* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp. */
 static void DumpEFB(void) {
     static const char *dir;

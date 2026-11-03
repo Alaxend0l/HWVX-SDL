@@ -87,6 +87,10 @@ typedef struct GXState {
     GXColor clearColor;
     u32 clearZ;
     u16 dispCopySrc[4];   /* GXSetDispCopySrc: left, top, width, height (0 width: whole EFB) */
+    u16 texCopySrc[4];    /* GXSetTexCopySrc: left, top, width, height (GX pixels) */
+    u16 texCopyW, texCopyH; /* GXSetTexCopyDst destination size */
+    u32 texCopyFmt;       /* low nibble: 1 = RGB as intensity, 7 = EFB alpha */
+    u8 texCopyMip;        /* GXSetTexCopyDst mipmap flag: write the whole chain */
 } GXState;
 
 extern GXState g_gx;
@@ -110,9 +114,11 @@ void GX_DrawInit(void);
 void GX_Draw(int prim, const GXVertex *v, u32 n);
 void GX_DrawBeginFrame(void);
 void GX_DrawCopyDisp(int clear);
+void GX_DrawCopyTex(void *dest, u8 clear); /* EFB -> texture (GXCopyTex) */
 void GX_DrawPresent(void);
 
 /* gx_tex.c */
 GLuint GX_TexGet(const GXTexObj *obj);
+void GX_TexInvalidate(u32 imageHandle); /* drop cache entries (0: all) */
 
 #endif
