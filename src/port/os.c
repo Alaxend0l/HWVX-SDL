@@ -463,6 +463,7 @@ static int SDLCALL ThreadEntry(void *data) {
         GameThreadStopped(t);
         SDL_UnlockMutex(s_giant);
     }
+    return 0; /* never reached: the loop above only ends by longjmp back into it */
 }
 
 BOOL OSCreateThread(void *thread, OSThreadFunc func, void *param, void *stack, u32 stackSize,

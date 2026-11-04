@@ -123,8 +123,8 @@ static int CacheEnabled(void) {
         const char *e = SDL_getenv("HWVX_NO_DLCACHE");
         s_verify = SDL_getenv("HWVX_DLVERIFY") != NULL;
         s_cacheOff = (e && e[0] != '0' && e[0] != '\0');
-        printf("GX: display-list cache %s%s\n", s_cacheOff ? "off" : "on",
-               s_verify && !s_cacheOff ? " (verify)" : "");
+        Port_Log("GX: display-list cache %s%s", s_cacheOff ? "off" : "on",
+                 s_verify && !s_cacheOff ? " (verify)" : "");
     }
     return !s_cacheOff;
 }
