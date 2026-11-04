@@ -239,14 +239,35 @@ A selectable row (Difficulty, Sound Mode, Music, SFX, ...):
 - the value shown: `IfaceText` with `listMode` 1 shows
   `GETP(list->texts)[vars[list->var]]` (clamped, 3349+), so a row can display
   names the port made up - `Port_GfxOptionName` - as long as the object is
-  `type = IFACE_DEF_TEXT`, `role = 9`. The Music/SFX value objects (28/32) are
-  `type = 0` images with role 103/102, and for those roles the engine ignores
-  text entirely: it fetches code var `0xD0`/`0xCF` (3269-3275) and uses it as
-  the animation delta that stretches the bar. To make such an object show
-  text, copy the Display row's value object (24: `role = 9`, `type = 1`) -
-  anim (in the port's `AnimCopy`, with the position key raised to the new row
-  height), `stateIndex`, `states`, `anchor`/`anchorX`/`anchorY` - or the text
-  lands in the wrong place and colour.
+  `type = IFACE_DEF_TEXT`, `role = 9`. The gate at 3349 wants the *live*
+  `kind == 5` (`IFACE_KIND_TEXT`, which `InterfaceManager_AddObject` gives a
+  def of type 1) and `listMode == 1`; the string is only re-set when
+  `idx != obj->listIndex`, which starts at -1, so the first update always
+  shows the list entry.
+- how an object comes to life (`InterfaceManager_AddObject`, 591-752, run for
+  *every* def of the header including hidden ones): def type 0 -> `kind`
+  0/2/1 by `sub->type` (plain image, geometry, texture anim); def type 1 ->
+  `kind = 5`, `data = sub`, `fontId = InterfaceManager_AddFont(sub->font)`
+  and the initial text from `sub->strings`. `AddObject` dereferences
+  `def->anim` unconditionally (633) - a def with a null anim kills the
+  interface. `IFACE_DEF_*` and `IFACE_KIND_*` are different enums; text is
+  def 1 but kind 5.
+- the Music/SFX value objects (28/32) are `type = 0` images with role
+  103/102, and for those roles the engine ignores text entirely: it fetches
+  code var `0xD0`/`0xCF` (3269-3275) and uses it as the animation delta that
+  stretches the bar. To make such an object show text, copy the Display row's
+  value object (24: `role = 9`, `type = 1`) - anim (in the port's `AnimCopy`,
+  with the position key raised to the new row height), `stateIndex`,
+  `states`, `anchor`/`anchorX`/`anchorY` - or the text lands in the wrong
+  place and colour. The pack's own shapes (dumped with `tools/xgc_inspect.py`
+  over the blob): 24 role 9 text, active 0, 2 states (type 0 and 1),
+  `anchorX = 1`; 28 role 103 image, 1 state, a 2-key scale track whose first
+  key is `(0.0, 16.0)` - the bar starts at width 0 and the engine stretches
+  it by the volume - `anchorX = -1`; 32 role 102 image, 2 states (type 0 and
+  **2**); all three `stateIndex = {-1 x6}` and condition lists
+  `type = 1, count = 0` (no conditions: always visible), while the arrow
+  defs (25/26/29/30/33/34) each carry one `type = 1` condition whose `value`
+  is the row's record id - arrows that only show for the selected row.
 
 Pack offsets, if the tables need re-deriving: menu pack `HW_IPack.xgc` entry 5,
 main menu header at blob `0x6ECC60` (26 objects), Options header at blob
@@ -254,18 +275,31 @@ main menu header at blob `0x6ECC60` (26 objects), Options header at blob
 `tools/xgc_inspect.py` by searching for a header with 40/26 objects whose
 object 16/10's text is "Controller"/"Main Menu".
 
-In progress: the Graphics screen's VSync and Max FPS rows are still the pack's
-Music/SFX rows in everything but name, position and value text, so pressing
-left/right on them moves the game's volume code variables instead of the port's
-(`SetActions` retargets the two `0xB` defs, but the rows have no `step`, so the
-row variable never changes, and the `0x16`/`0x17` defs still run). What they
-need, following the Difficulty row: a port-owned `IfaceStep`
-(`var = 4`/`5`, `val = {0,0,-1,1}`, `set = {0,0,0,0}`, pointed at by the copied
-record's `steps`/`numSteps`, which are 0 in the pack's), the two `0x16`/`0x17`
-defs retyped `0xB` with the same action-list target, and `SetCodeVar` on vars 4
-and 5 (`PORT_CODEVAR_VSYNC`/`PORT_CODEVAR_MAXFPS`, max = option count - 1) so
-their initial value comes from the port's settings instead of the pack's code
-var 214, which the clone of var 3 still carries.
+The volume fix for the two cloned rows lives in `SetActions`: every event def
+of type `0xB`, `0x16` or `0x17` is retyped to `0xB` with `delta = 0` and
+`target` the port's own action list, a row whose copied record had no step gets
+a port-owned `IfaceStep` (`var = 4`/`5`, `val = {0,0,-1,1}`, `set` all 0), and
+`SetCodeVar` covers vars 4/5 (`PORT_CODEVAR_VSYNC`/`PORT_CODEVAR_MAXFPS`,
+max = option count - 1), so left/right there can no longer move the volume
+code vars `0xCF`/`0xD0`. Verified in the menu: the rows cycle, up/down rings
+the four rows, and leaving the screen applies and saves - correctly even after
+the screen was closed and reopened, because the live vars and code vars stay in
+step across the reload, and `vsync=`/`fps=` in `graphics.cfg` survived the next
+launch.
+
+The blank Max FPS value that preceded that is kept as a caution. The row
+rendered empty although its def matched the working VSync row's shape exactly;
+dumping the *live* `InterfaceObject`s - at creation and every 120 frames,
+instead of re-reading pack data - showed the object perfectly healthy (kind 5,
+role 9, visible, right position, colour and list index, the list gate firing)
+but every string it picked was NULL. `SetObjectText` treats a NULL string as
+empty text, `len 0`, without complaint: a row that lays out right yet shows
+nothing is a resolved-string bug, not a def bug. The bug was one line in
+`FpsNames()` - it formatted the names into static buffers but never pointed the
+returned array at them.
+
+Next: feature B - frame-based `VIWaitForRetrace`/`GXfifoWaitHalted` plus
+motion compensation, which lights up the 90/120/144/240 choices.
 
 ## Tools
 
