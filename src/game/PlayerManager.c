@@ -22,6 +22,33 @@ _Static_assert(offsetof(PlayerPools, active) == 0x20D8, "PlayerPools.active");
 
 #define PLAYER_POOLS ((PlayerPools *)g_playerManager)
 
+/* The camera each human pool slot last chose (button 12 in Player_Heartbeat);
+ * NewHumanPlayer applies it, so a new level starts on that camera. The demo
+ * mode's forced camera changes are not remembered (only the button press is). */
+static u8 s_humanCameraIndex[4];
+
+/* Which human pool slot this player is, -1 for any other player. */
+static s32 PlayerManager_HumanSlot(void *player) {
+    s32 i;
+
+    for (i = 0; i < 4; i++) {
+        if ((void *)PLAYER_POOLS->humans[i] == player) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Keep a player's current cameraIndex for its next level (ignored for
+ * players that are not human pool slots). */
+void PlayerManager_RememberCameraIndex(void *player) {
+    s32 slot = PlayerManager_HumanSlot(player);
+
+    if (slot >= 0) {
+        s_humanCameraIndex[slot] = ((Player *)player)->cameraIndex;
+    }
+}
+
 static inline Player *PlayerManager_PopActive(PlayerPools *mgr) {
     Player *player = GETP(mgr->active);
     if (player == NULL) {
@@ -148,6 +175,7 @@ void PlayerManager_Init(void) {
 void *PlayerManager_NewHumanPlayer(void) {
     PlayerPools *pm = PLAYER_POOLS;
     Player *player;
+    s32 slot;
 
     for (player = GETP(pm->free); player != NULL; player = GETP(player->next)) {
         if (Player_IsHuman(player)) {
@@ -159,6 +187,10 @@ void *PlayerManager_NewHumanPlayer(void) {
         return NULL;
     }
     ((void (*)(void *, s32))GETP(player->init))(player, 0);
+    slot = PlayerManager_HumanSlot(player);
+    if (slot >= 0) {
+        player->cameraIndex = s_humanCameraIndex[slot];
+    }
     PlayerManager_Push(&pm->active, player);
     return player;
 }

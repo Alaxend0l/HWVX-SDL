@@ -207,6 +207,7 @@ void Player_Heartbeat(void *arg0) {
     thing = GETP(player->vehicle);
     if (player->buttonsHeld & 0x1000) {
         player->cameraIndex++;
+        PlayerManager_RememberCameraIndex(player);
     }
     if (GETP(player->vehicle) == NULL) {
         player->deadTime += g_iDeltaTimeMS;
