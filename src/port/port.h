@@ -196,7 +196,7 @@ void Port_InvalidateDisplayLists(const void *p, u32 size);
 #define PORT_CODEVAR_VSYNC 0x1002        /* 0 off, 1 on: wait for the display */
 #define PORT_CODEVAR_MAXFPS 0x1003       /* index into the frame rate choices */
 #define PORT_IS_CODEVAR(id) ((id) >= PORT_CODEVAR_RESOLUTION && (id) <= PORT_CODEVAR_MAXFPS)
-#define PORT_MAX_CHOICES 8               /* the widest of those choice lists */
+#define PORT_MAX_CHOICES 10              /* the widest of those choice lists */
 u32 Port_GfxGet(s32 id);
 void Port_GfxSet(s32 id, u32 value);
 void Port_GfxMenuOpened(void);
