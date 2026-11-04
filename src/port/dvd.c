@@ -1,7 +1,9 @@
-/* DVD: reads go to the extracted disc files under the data directory. Reads
- * complete synchronously; async callbacks fire before the call returns, which
- * the game tolerates (it polls status afterwards). */
+/* DVD: reads go to the disc image (disc.c) when the game data is one, else
+ * to the extracted disc files under the data directory. Reads complete
+ * synchronously; async callbacks fire before the call returns, which the game
+ * tolerates (it polls status afterwards). */
 #include "port_internal.h"
+#include "disc.h"
 
 static char *JoinPath(const char *name) {
     size_t n;
@@ -72,8 +74,14 @@ static char *ResolveCase(const char *name) {
 SDL_IOStream *Port_OpenDiscFile(const char *name);
 
 static SDL_IOStream *OpenDiscFile(const char *name) {
-    char *path = JoinPath(name);
-    SDL_IOStream *io = SDL_IOFromFile(path, "rb");
+    char *path;
+    SDL_IOStream *io;
+
+    if (Disc_IsOpen()) {
+        return Disc_OpenFile(name);
+    }
+    path = JoinPath(name);
+    io = SDL_IOFromFile(path, "rb");
 
     SDL_free(path);
     if (io == NULL && (path = ResolveCase(name)) != NULL) {

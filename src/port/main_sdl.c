@@ -1,6 +1,7 @@
 /* SDL3 entry point. Replaces the GameCube main() and Main_NGC.c: sets up the
  * window, renderer and game arena, then runs the game's Main_Init/Main_Loop. */
 #include "gx_render.h"
+#include "disc.h"
 
 #include <SDL3/SDL_main.h>
 
@@ -138,8 +139,9 @@ static void ParseArgs(int argc, char **argv) {
         } else {
             SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen]", argv[0]);
             SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save]");
-            SDL_Log("  --data DIR       extracted disc files (default: the folder chosen last time,");
-            SDL_Log("                   or files/ next to the program, or orig/files)");
+            SDL_Log("  --data PATH      a GameCube disc image (.iso) or the extracted disc files");
+            SDL_Log("                   (default: the one chosen last time, or an .iso or files/");
+            SDL_Log("                   next to the program, or orig/files)");
             SDL_Log("  --window WxH     window size, any shape (default: 640x480 times --scale)");
             SDL_Log("  --vsync on|off   whether a frame waits for the display (default: on)");
             SDL_Log("  --fps N          frame rate: 30, 60 (default), 90, 120, 144, 240; a");
@@ -177,12 +179,58 @@ static int HasData(const char *dir) {
     return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
 }
 
-/* dir itself, or a files/ folder in it (what Dolphin's "Extract Entire
- * Disc" makes): the one with the data, as a new string, or NULL. */
+/* Why the last disc image DataIn tried was refused, for the messages. */
+static char s_imageError[256];
+
+/* A GameCube disc image with the game's files: opened (disc.c), so the game
+ * reads from it. */
+static int UseImage(const char *path) {
+    SDL_IOStream *io;
+
+    if (!Disc_Open(path)) {
+        SDL_snprintf(s_imageError, sizeof(s_imageError), "%s: %s", path, SDL_GetError());
+        return 0;
+    }
+    io = Disc_OpenFile(DATA_MARKER);
+    if (io == NULL) {
+        SDL_snprintf(s_imageError, sizeof(s_imageError), "%s is a GameCube disc (%s) but not "
+                     "Hot Wheels: Velocity X", path, Disc_GameID());
+        Disc_Close();
+        return 0;
+    }
+    SDL_CloseIO(io);
+    return 1;
+}
+
+typedef struct ImageScan {
+    const char *dir;
+    char *found;
+} ImageScan;
+
+static SDL_EnumerationResult SDLCALL ScanImage(void *userdata, const char *dir, const char *name) {
+    ImageScan *scan = userdata;
+    char *path = NULL;
+
+    if (Disc_IsImageName(name) && SDL_asprintf(&path, "%s%s", dir, name) > 0) {
+        if (UseImage(path)) {
+            scan->found = path;
+            return SDL_ENUM_SUCCESS;
+        }
+        SDL_free(path);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+/* The game data at path, as a new string, or NULL: path itself when it is a
+ * disc image (then opened) or a folder of extracted files, a files/ folder in
+ * it (what Dolphin's "Extract Entire Disc" makes), or a disc image in it. */
 static char *DataIn(const char *dir) {
     char path[1024];
     size_t n;
+    SDL_PathInfo info;
+    ImageScan scan = { NULL, NULL };
 
+    Disc_Close();
     if (dir == NULL || *dir == '\0') {
         return NULL;
     }
@@ -191,14 +239,24 @@ static char *DataIn(const char *dir) {
     while (n > 1 && (path[n - 1] == '/' || path[n - 1] == '\\')) {
         path[--n] = '\0';
     }
+    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
+        return UseImage(path) ? SDL_strdup(path) : NULL;
+    }
     if (HasData(path)) {
         return SDL_strdup(path);
     }
     SDL_strlcat(path, "/files", sizeof(path));
-    return HasData(path) ? SDL_strdup(path) : NULL;
+    if (HasData(path)) {
+        return SDL_strdup(path);
+    }
+    path[n] = '\0';
+    SDL_strlcat(path, "/", sizeof(path));
+    SDL_EnumerateDirectory(path, ScanImage, &scan);
+    return scan.found;
 }
 
-/* The folder found or chosen last time: datadir.txt in the save folder. */
+/* The image or folder found or chosen last time: datadir.txt in the save
+ * folder. */
 static char *SavedDataPath(void) {
     char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
     char *path = NULL;
@@ -231,25 +289,27 @@ static void SaveDataDir(const char *dir) {
 static char *SearchDataDir(char *searched, size_t size) {
     const char *base = SDL_GetBasePath();   /* SDL owns it; ends in a separator */
     char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
-    char *candidates[8] = { NULL };
+    char *candidates[12] = { NULL };
     char *found = NULL;
     int i, n = 0;
 
+    /* (DataIn also takes a files/ folder or an .iso in each) */
     if (base != NULL) {
-        SDL_asprintf(&candidates[n++], "%sfiles", base);         /* next to the program */
-        SDL_asprintf(&candidates[n++], "%sorig/files", base);
+        candidates[n++] = SDL_strdup(base);                      /* next to the program */
+        SDL_asprintf(&candidates[n++], "%sorig", base);
 #ifdef SDL_PLATFORM_MACOS
         if (SDL_strstr(base, ".app/Contents/") != NULL) {         /* next to the .app (base: Contents/Resources/) */
-            SDL_asprintf(&candidates[n++], "%s../../../files", base);
+            SDL_asprintf(&candidates[n++], "%s../../..", base);
         }
 #endif
     }
-    candidates[n++] = SDL_strdup("orig/files");                 /* the source tree */
+    candidates[n++] = SDL_strdup("orig");                       /* the source tree */
     if (pref != NULL) {
-        SDL_asprintf(&candidates[n++], "%sfiles", pref);
+        candidates[n++] = SDL_strdup(pref);
     }
 #ifdef SDL_PLATFORM_ANDROID
     if (SDL_GetAndroidExternalStoragePath() != NULL) {
+        candidates[n++] = SDL_strdup(SDL_GetAndroidExternalStoragePath());
         SDL_asprintf(&candidates[n++], "%s/files", SDL_GetAndroidExternalStoragePath());
     }
     candidates[n++] = SDL_strdup("/storage/emulated/0/HWVX");    /* needs "All files access" */
@@ -283,30 +343,41 @@ static void SDLCALL FolderPicked(void *userdata, const char *const *filelist, in
     SDL_SetAtomicInt(&pick->done, filelist == NULL ? 2 : 1);
 }
 
-/* Asks for the folder until it has the data. NULL: the player gave up, or
- * there is no folder dialog (no portal or zenity on Linux). */
+/* Asks for a disc image or the folder of extracted files until it has the
+ * data. NULL: the player gave up, or there is no file dialog (no portal or
+ * zenity on Linux). */
 static char *PickDataDir(void) {
     static const SDL_MessageBoxButtonData buttons[] = {
-        { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Choose folder..." },
+        { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Choose disc image..." },
+        { 0, 2, "Choose folder..." },
         { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Quit" },
     };
-    const char *text =
-        "Hot Wheels: Velocity X needs the files of your own copy of the GameCube disc.\n\n"
-        "Extract them with Dolphin (right-click the game > Properties > Filesystem > "
-        "Extract Entire Disc), then choose the folder they went to: the one with "
+    static const SDL_DialogFileFilter filters[] = {
+        { "GameCube disc image (.iso, .gcm)", "iso;gcm;gcz" },
+    };
+    const char *intro =
+        "Hot Wheels: Velocity X needs your own copy of the GameCube disc.\n\n"
+        "Choose a disc image of it (.iso), or the folder of its files extracted with Dolphin "
+        "(right-click the game > Properties > Filesystem > Extract Entire Disc): the one with "
         DATA_MARKER ", worlds_ and audio_ in it, or the folder above it.";
+    char text[1024];
 
+    SDL_strlcpy(text, intro, sizeof(text));
     for (;;) {
-        SDL_MessageBoxData box = { SDL_MESSAGEBOX_INFORMATION, NULL, "Game data", text, 2, buttons, NULL };
+        SDL_MessageBoxData box = { SDL_MESSAGEBOX_INFORMATION, NULL, "Game data", text, 3, buttons, NULL };
         FolderPick pick;
         char *found;
         int button = 0;
 
-        if (!SDL_ShowMessageBox(&box, &button) || button != 1) {
+        if (!SDL_ShowMessageBox(&box, &button) || button == 0) {
             return NULL;
         }
         SDL_zero(pick);
-        SDL_ShowOpenFolderDialog(FolderPicked, &pick, NULL, NULL, false);
+        if (button == 1) {
+            SDL_ShowOpenFileDialog(FolderPicked, &pick, NULL, filters, 1, NULL, false);
+        } else {
+            SDL_ShowOpenFolderDialog(FolderPicked, &pick, NULL, NULL, false);
+        }
         while (SDL_GetAtomicInt(&pick.done) == 0) {
             SDL_PumpEvents();
             SDL_Delay(20);
@@ -317,14 +388,18 @@ static char *PickDataDir(void) {
         if (pick.dir == NULL) {
             continue;      /* cancelled: ask again */
         }
+        s_imageError[0] = 0;
         found = DataIn(pick.dir);
         if (found != NULL) {
             SDL_free(pick.dir);
             return found;
         }
-        text = "That folder doesn't have the game data in it (no " DATA_MARKER ").\n\n"
-               "Choose the folder Dolphin extracted the disc to: the one with "
-               DATA_MARKER ", worlds_ and audio_ in it, or the folder above it.";
+        if (s_imageError[0] != 0) {
+            SDL_snprintf(text, sizeof(text), "That disc image can't be used:\n%s\n\n%s", s_imageError, intro);
+        } else {
+            SDL_snprintf(text, sizeof(text), "That folder doesn't have the game data in it (no " DATA_MARKER
+                         " or disc image).\n\n%s", intro);
+        }
         SDL_free(pick.dir);
     }
 }
@@ -337,9 +412,13 @@ static void FindDataDir(void) {
     char *dir;
 
     if (g_port.dataDir != NULL) {   /* --data */
+        s_imageError[0] = 0;
         if ((dir = DataIn(g_port.dataDir)) == NULL) {
-            Port_Fatal("Game data not found.\n\nExpected the extracted GameCube disc files "
-                       "(" DATA_MARKER ", worlds_/, audio_/ ...) in:\n%s", g_port.dataDir);
+            if (s_imageError[0] != 0) {
+                Port_Fatal("Game data not found.\n\nThe disc image can't be used:\n%s", s_imageError);
+            }
+            Port_Fatal("Game data not found.\n\nExpected a GameCube disc image (.iso) or the extracted "
+                       "disc files (" DATA_MARKER ", worlds_/, audio_/ ...) in:\n%s", g_port.dataDir);
         }
         g_port.dataDir = dir;
         return;
@@ -364,10 +443,11 @@ static void FindDataDir(void) {
     }
 #endif
     if (dir == NULL) {
-        Port_Fatal("Game data not found.\n\nThe game needs the extracted files of your own GameCube "
-                   "disc (" DATA_MARKER ", worlds_/, audio_/ ...). Put them in one of:%s"
+        Port_Fatal("Game data not found.\n\nThe game needs your own GameCube disc: an image of it "
+                   "(.iso), or its extracted files (" DATA_MARKER ", worlds_/, audio_/ ... in a files/ "
+                   "folder). Put either in one of:%s"
 #ifndef SDL_PLATFORM_ANDROID
-                   "\n\nor pass their location with --data DIR."
+                   "\n\nor pass the location with --data PATH."
 #endif
                    , searched);
     }

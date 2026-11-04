@@ -14,12 +14,12 @@ import org.libsdl.app.SDLActivity;
 import java.io.File;
 
 /**
- * SDL's activity, plus access to the game data. The game looks for the
- * extracted disc (HW_share.xgc, worlds_/, audio_/ ...) in the app's own
- * folder (Android/data/io.github.alaxend0l.hwvx/files/files, no permission
- * needed) and in /sdcard/HWVX (see FindDataDir in src/port/main_sdl.c).
- * The second needs storage access, asked for here when the data isn't in
- * the first.
+ * SDL's activity, plus access to the game data. The game looks for a disc
+ * image (.iso/.gcm) or the extracted disc (HW_share.xgc, worlds_/, audio_/
+ * ...) in the app's own folder (Android/data/io.github.alaxend0l.hwvx/files,
+ * and a files/ folder in it; no permission needed) and in /sdcard/HWVX (see
+ * FindDataDir in src/port/main_sdl.c). The second needs storage access,
+ * asked for here when the data isn't in the first.
  */
 public class HWVXActivity extends SDLActivity {
     private static final String MARKER = "HW_share.xgc";
@@ -51,7 +51,26 @@ public class HWVXActivity extends SDLActivity {
 
     private boolean dataInAppFolder() {
         File dir = getExternalFilesDir(null);
-        return dir != null && (new File(dir, "files/" + MARKER).exists()
-                               || new File(dir, "files/files/" + MARKER).exists());
+        if (dir == null) {
+            return false;
+        }
+        return new File(dir, MARKER).exists() || new File(dir, "files/" + MARKER).exists()
+            || new File(dir, "files/files/" + MARKER).exists()
+            || hasImage(dir) || hasImage(new File(dir, "files"));
+    }
+
+    /** A disc image the game would try (it checks that it is this game). */
+    private static boolean hasImage(File dir) {
+        File[] list = dir.listFiles();
+        if (list == null) {
+            return false;
+        }
+        for (File f : list) {
+            String name = f.getName().toLowerCase();
+            if (f.isFile() && (name.endsWith(".iso") || name.endsWith(".gcm"))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

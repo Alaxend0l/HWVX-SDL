@@ -23,25 +23,28 @@ on every push (artifacts) and version tag (GitHub Release): see
 
 ## Game data
 
-Not included. Extract the `files/` directory from your own copy of the
-GameCube disc (Dolphin: right-click the game → Properties → Filesystem →
-Extract Entire Disc). On start the game looks for it, in order:
+Not included. Use your own copy of the GameCube disc, either as a disc image
+(`.iso`; Dolphin can convert a `.gcz`/`.rvz` to one: right-click the game →
+Convert File…) or as its extracted files (Dolphin: right-click the game →
+Properties → Filesystem → Extract Entire Disc, which makes a `files/`
+folder). On start the game looks for it, in order:
 
-1. `--data DIR`;
-2. the folder it used last time (`datadir.txt` in the save folder);
-3. `files/` next to the program (on macOS also next to the `.app`),
-   `orig/files/` in the current folder, `files/` in the save folder;
-   on Android, `Android/data/io.github.alaxend0l.hwvx/files/files/` and
+1. `--data PATH` (the image, or the folder);
+2. what it used last time (`datadir.txt` in the save folder);
+3. an `.iso` or a `files/` folder next to the program (on macOS also next to
+   the `.app`), in `orig/` in the current folder, or in the save folder; on
+   Android in `Android/data/io.github.alaxend0l.hwvx/files/` (or a `files/`
+   folder in it) and
    `/sdcard/HWVX/` (the second needs "All files access", which the app asks
    for);
-4. on desktop, it asks you to choose the folder. Either the `files` folder or
-   the one above it will do.
+4. on desktop, it asks you to choose the image or the folder.
 
 ```sh
+./build/hwvx --data "/path/to/Hot Wheels - Velocity X.iso"
 ./build/hwvx --data /path/to/files
 ```
 
-Options: `--data DIR`, `--scale N` (window = 640×480×N), `--window WxH`
+Options: `--data PATH`, `--scale N` (window = 640×480×N), `--window WxH`
 (any size and shape), `--fullscreen`, `--renderer NAME`.
 
 Resolution: the game renders at the window's size and shape, and the window
