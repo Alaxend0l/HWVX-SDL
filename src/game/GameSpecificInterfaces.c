@@ -268,7 +268,9 @@ void GSI_VehicleItemSelection(void *arg) {
             if (data->packIndex != -1 && id != data->packID) {
                 FileStreaming_ReleaseDataPack(data->packIndex, 0);
                 data->packIndex = -1;
-                break;
+                /* the release only queues; FileStreaming_HeartBeat() frees the
+                 * slot, so run it here and load the new pack in this frame. */
+                FileStreaming_HeartBeat();
             }
             mcp = GameSettings_GetMCP();
             if (mcp == NULL || id == data->packID) {
@@ -276,11 +278,13 @@ void GSI_VehicleItemSelection(void *arg) {
             }
             FileStreaming_InitializeDataPack(FileStreaming_GetPackID(GETP(mcp->carsPack), 8, 2), 8, 1);
             DataPack_EnableLoadingSounds(0);
-            data->packIndex = FileStreaming_LoadDataPack(GETP(mcp->carsPack), 0, id, 1);
-            if (data->packIndex != -1) {
-                data->packID = id;
+            /* synchronous load: returns with the pack resident, so the switch
+             * can fall through and build the car in this same message. */
+            data->packIndex = FileStreaming_LoadDataPack(GETP(mcp->carsPack), 0, id, 0);
+            if (data->packIndex == -1) {
+                break;
             }
-            break;
+            data->packID = id;
         }
         if (IsLoadingThreadRunning() || (lockedID != -1 && lockedID != data->iface)) {
             if (!IsLoadingThreadRunning()) {

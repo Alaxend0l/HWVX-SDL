@@ -246,7 +246,27 @@ s32 StateProgressionManager_Heartbeat(void) {
         ProcessManager_Render(1);
         ShowStats_EndScene();
         if (g_GameProgressionState.worldState != 7) {
-            g_GameProgressionState.worldState = LoadWorldProcess(world, g_GameProgressionState.loaded);
+            /* One call per frame made the world load take one retrace per step:
+             * the loading thread a step starts only gets to run in the gap this
+             * frame leaves before the next retrace, and Port_GiantLock waits
+             * for it there, so loading kept pace with the frame rate and not
+             * with the storage, whose reads cost almost nothing. Run the steps
+             * back to back instead. They read inline (LoadWorldProcess no
+             * longer starts the loading thread), and the burst gives the frame
+             * back when the world is loaded, when it fails, when a threaded
+             * load started elsewhere has the loader busy, or once this frame's
+             * share of the work is done, so a load that outlasts a frame still
+             * repaints the loading screen and still answers the window. */
+            OSTime started = OSGetTime();
+            u32 steps = 0;
+            s32 state;
+
+            do {
+                state = LoadWorldProcess(world, 0);
+                g_GameProgressionState.worldState = state;
+                steps++;
+            } while (state != 7 && state != 8 && !IsLoadingThreadRunning() &&
+                     steps < 0x10000 && (OSGetTime() - started) < OSMillisecondsToTicks(250));
             switch (g_GameProgressionState.worldState) {
             case 8:
                 g_GameProgressionState.worldState = 7;
@@ -310,6 +330,15 @@ s32 ActionEndLevel(s32 *arg0)
 #undef g_bRestartCurrentLevel
 }
 
+/* One step of a world load: 0 the world pack, 1 its quadrant packs, 2 the
+ * collision pack, 4 the shared item-carrying pack, 5 the item packs (one item
+ * per call), 6 the vehicle packs (one car per call), then World_Init and
+ * World_Refresh on the way to 7. Every pack is read here, on this thread:
+ * handing a read to the loading thread used to put it a retrace away, because
+ * that thread only runs in the gap a frame leaves, which is what tied loading
+ * to the frame rate. The caller repeats this call as fast as the work allows.
+ * `loaded` was the original's "use the loading thread" flag; it is kept for
+ * the signature and ignored. */
 s32 LoadWorldProcess(char *world, s8 loaded)
 {
     static s32 newLoadingState;
@@ -343,7 +372,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         {
             ShaderHolder_Init();
             g_worldData.resetQuads = 1;
-            packID = FileStreaming_LoadDataPack(world, 4, 0, loaded);
+            packID = FileStreaming_LoadDataPack(world, 4, 0, 0);
             curLoadingState = newLoadingState;
         }
         if (!IsLoadingThreadRunning())
@@ -363,7 +392,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     case 1:
         if (newLoadingState != curLoadingState)
         {
-            packID = FileStreaming_LoadDataPack(GETP(WORLD()->quadPackName), 6, WORLD()->quadPackID, loaded);
+            packID = FileStreaming_LoadDataPack(GETP(WORLD()->quadPackName), 6, WORLD()->quadPackID, 0);
             curLoadingState = newLoadingState;
         }
         if (!IsLoadingThreadRunning())
@@ -379,7 +408,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     case 2:
         if (newLoadingState != curLoadingState)
         {
-            packID = FileStreaming_LoadDataPack(GETP(WORLD()->collisionPackName), 5, WORLD()->collisionPackID, loaded);
+            packID = FileStreaming_LoadDataPack(GETP(WORLD()->collisionPackName), 5, WORLD()->collisionPackID, 0);
             curLoadingState = newLoadingState;
         }
         if (!IsLoadingThreadRunning())
@@ -446,7 +475,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         {
             if (iterationNum < totalQuads)
             {
-                FileStreaming_LoadQuadPacks(&pQuadsToLoad[iterationNum++], 1, 1);
+                FileStreaming_LoadQuadPacks(&pQuadsToLoad[iterationNum++], 1, 0);
             }
             else
             {
@@ -487,7 +516,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             }
             else if (packID == -1)
             {
-                packID = FileStreaming_LoadDataPack(name, 8, 1, loaded);
+                packID = FileStreaming_LoadDataPack(name, 8, 1, 0);
             }
             else
             {
@@ -541,7 +570,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                                     id = 0x4D;
                                 }
                                 item->id = id;
-                                FileStreaming_LoadDataPack(name, 2, id, loaded);
+                                FileStreaming_LoadDataPack(name, 2, id, 0);
                                 break;
                             case 2:
                                 id = RandomNumberGenerator_GetRandomInteger(item->lo, item->hi + 1);
@@ -550,7 +579,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                                     id = 0x4D;
                                 }
                                 item->id = id;
-                                FileStreaming_LoadDataPack(name, 2, id, loaded);
+                                FileStreaming_LoadDataPack(name, 2, id, 0);
                                 break;
                             }
                         }
