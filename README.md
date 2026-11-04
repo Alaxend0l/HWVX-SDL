@@ -362,6 +362,10 @@ Debugging aids:
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
 - `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
   since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.
+- `HWVX_THREADTRACE=1` logs every background world/car load: how long it held
+  the giant lock, and how long the frame that started it waited for it. A load
+  that never runs, or a wait of many milliseconds, means the loader thread is
+  being starved; see `Port_GiantLock` in `src/port/os.c`.
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
 
 `tools/gen_shaders.py` regenerates `src/port/gx_shaders.h` after a change in
