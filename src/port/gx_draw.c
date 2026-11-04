@@ -492,6 +492,9 @@ void GX_DrawCopyDisp(int clear) {
     int r[4] = { 0, 0, s_efbW, s_efbH };
 
     DumpEFB();
+    Port_HudDraw(s_efbW, s_efbH);   /* in the EFB, so dumps and the dump's
+                                     * stats stay free of it and it rides the
+                                     * copy's letterbox like the frame does */
     g_gxr->copyDisp(r);
     if (clear) {
         ClearEFB();

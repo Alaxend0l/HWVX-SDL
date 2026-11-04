@@ -360,6 +360,8 @@ Debugging aids:
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
+- `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
+  since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
 
 `tools/gen_shaders.py` regenerates `src/port/gx_shaders.h` after a change in

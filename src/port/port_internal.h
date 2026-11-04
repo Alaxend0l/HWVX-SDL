@@ -62,6 +62,11 @@ void Port_InterruptPoint(void);
 void Port_InterruptWindowBegin(void);
 void Port_InterruptWindowEnd(void);
 
+/* Frame rate HUD (hud.c, HWVX_FPSHUD=1): vi.c ticks it once per retrace,
+ * gx_draw.c draws its strip into the EFB's top left before each copy. */
+void Port_HudTick(void);
+void Port_HudDraw(int efbW, int efbH);
+
 /* Subsystems */
 void GX_PortBeginFrame(void);
 void GX_PortPresent(void);

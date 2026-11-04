@@ -112,6 +112,7 @@ void VIWaitForRetrace(void) {
     Port_InterruptPoint();
 
     s_retraceCount++;
+    Port_HudTick();
     {   /* HWVX_FPSLOG=1: log the real frame rate and the game's frame delta */
         static int on = -1;
         static u64 t0;
