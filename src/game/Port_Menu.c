@@ -196,8 +196,9 @@ static void SetText(TextCopy *c, IfaceObjectDef *d, const char *s) {
     SETP(d->sub, &c->text);
 }
 
-/* d's default animation, at height y. */
-static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
+/* c = d's animation with its one position key raised to height y (the port's
+ * copy, `d`'s own anim data is left alone). */
+static void CopyAnim(AnimCopy *c, const IfaceObjectDef *d, f32 y) {
     IfaceObjAnim *a = GETP(d->anim);
     f32 *key;
 
@@ -206,6 +207,11 @@ static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
     key = (f32 *)c->pos;
     key[1] = y;
     SETP(c->anim.pos.keys, c->pos);
+}
+
+/* d's default animation, at height y. */
+static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
+    CopyAnim(c, d, y);
     SETP(d->anim, &c->anim);
 }
 
@@ -282,6 +288,35 @@ static void SetList(ListCopy *c, IfaceObjectDef *d, u16 var, const char *const *
     SETP(c->text.list, &c->list);
     SETP(c->text.strings, &c->slots[0]);
     SETP(d->sub, &c->text);
+}
+
+/* d shows names[vars[var]], as SetList does. But the pack's Music and SFX
+ * rows show their volume in a bar, a role 102/103 image that the interface
+ * scales by the volume code variable (0xCF/0xD0): no text to list into, and
+ * the bar's anim, states and alignment would misplace and mis-tint any text
+ * put in its slot. So d becomes a full visual clone of `model`, the Display
+ * row's value text: anim in `ac` with its position raised to height y, plus
+ * states and anchors copied. Both live in the port's copy of the object
+ * table; the bar's image sub is left unused. */
+static void SetListAsText(ListCopy *c, IfaceObjectDef *d, u16 var, const char *const *names, u32 n,
+                          const IfaceObjectDef *model, AnimCopy *ac, f32 y) {
+    u32 i;
+
+    CopyAnim(ac, model, y);
+    SETP(d->anim, &ac->anim);
+    for (i = 0; i < 6; i++) {
+        d->stateIndex[i] = model->stateIndex[i];
+    }
+    d->numStates = model->numStates;
+    SETP(d->states, GETP(model->states));
+    d->anchor = model->anchor;
+    d->anchorX = model->anchorX;
+    d->anchorY = model->anchorY;
+
+    d->type = IFACE_DEF_TEXT;
+    d->role = 9;
+    SETP(d->sub, GETP(model->sub));
+    SetList(c, d, var, names, n);
 }
 
 static void SetCodeVar(IfaceVar *v, IfaceCodeVar *c, u32 id, s32 max) {
@@ -386,14 +421,16 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
         for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_VSYNC) && n < PORT_MAX_CHOICES; n++) {
             optNames[n] = Port_GfxOptionName(PORT_CODEVAR_VSYNC, n);
         }
-        SetList(&s_vsyncList, &s_gfxObjs[OPT_MUSIC + 1], OPT_VAR_MUSIC, optNames, n);
+        SetListAsText(&s_vsyncList, &s_gfxObjs[OPT_MUSIC + 1], OPT_VAR_MUSIC, optNames, n,
+                      &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[9], ROW_Y + 2 * ROW_STEP);
         SetText(&s_gfxText[4], &s_gfxObjs[OPT_SFX], "Max FPS");
         SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_DIFFICULTY),
                    &s_gfxAction[3], PORT_CODEVAR_MAXFPS, OPT_VAR_SFX);
         for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) && n < PORT_MAX_CHOICES; n++) {
             optNames[n] = Port_GfxOptionName(PORT_CODEVAR_MAXFPS, n);
         }
-        SetList(&s_fpsList, &s_gfxObjs[OPT_SFX + 1], OPT_VAR_SFX, optNames, n);
+        SetListAsText(&s_fpsList, &s_gfxObjs[OPT_SFX + 1], OPT_VAR_SFX, optNames, n,
+                      &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[13], ROW_Y + 3 * ROW_STEP);
         Port_Log("menu: graphics screen built (resolution, display, vsync, max fps)");
     } else {
         for (i = OPT_MUSIC; i < OPT_SFX + 4; i++) {

@@ -195,6 +195,78 @@ OS thread is an SDL thread, but game code runs under one "giant lock" that is
 released only where a GameCube thread would block (vsync, DVD, messages), so
 the streaming loader runs while the main thread waits for retrace, as before.
 
+### Menu rows, options and code variables
+
+Menus are data: an `InterfaceHeader` with its objects, variables and events
+lives in a pack, and `InterfaceManager` runs it (`src/game/include/Interface.h`
+documents the structs, `InterfaceManager_Update` is the frame loop). A port
+screen is a *copy* of that table made when the interface is created
+(`Port_MenuPatch` ← `InterfaceManager_Create`, `src/game/Port_Menu.c`): the
+pack is mapped read-only, nothing may be edited there.
+
+A selectable row (Difficulty, Sound Mode, Music, SFX, ...):
+
+- objects `label`, `value`, `arrow left`, `arrow right`; in the Options screen
+  (40 objects) they start at 19, 23, 27 and 31, so row *n* is at
+  `19 + 4*n` and its value at `20 + 4*n`. Difficulty/Sound are label text +
+  value text; Music/SFX are label image + value image.
+- `record` (`IfaceRecord`) drives selection: `id`, `next[4]` =
+  up/down/left/right (0: stop there, the port re-rings these when it respaces
+  rows), `steps`/`numSteps`, `events`.
+- d-pad in `InterfaceManager_Update`: presses at 1532-1535, `steps` applied at
+  1537-1568 (`vars[step->var]` += `val[dir]`, or = when `set[dir]`; wrapped
+  into the variable's min/max at 1561-1564), then variables whose code variable
+  id is `0x1F6` are re-read from the game settings (1569-1590), then the
+  record's events run (1607), then `next[]` moves the selection (1624+). Left
+  and right never move the selection on this screen: they change the row's
+  value, either through a step (Difficulty: `var 0`, Sound: `var 3`, both
+  `val = {0,0,-1,1}`, `set = {0,0,0,0}`) or through the event itself
+  (Music/SFX: no steps, four events - 13 and 14 each have a def of type `0xB`
+  plus a def of type `0x16`/`0x17` whose `delta` (-10/+10) changes the volume
+  code variables `0xCF`/`0xD0`).
+- events: event types 13/14 are the left/right presses and 15 is A; each
+  event's def says what happens. Def type `0xB` runs the action list its
+  `target` points at, and `IfaceActionList` type 2 with an `IfaceCodeVar`
+  writes the row's variable into a game code variable - which is how the
+  Graphics rows apply their setting.
+- variables (`IfaceVarList`): Options has 4 - 0 difficulty (code var 200/0xC8,
+  min 0 max 3), 1 the selected row (type 3, min 1 max 6), 2 type 1 / update 0
+  (code var 106/0x6A), 3 sound mode (code var 214/0xD6, min 0 max 1). The port
+  appends 4 = vsync and 5 = max fps by cloning 3, and `SetCodeVar` retargets
+  the code var id and min/max - every row whose value is a variable needs
+  that, not only the row whose events are rewritten, because both the creation
+  sync (1491-1531) and the step wrap read it.
+- the value shown: `IfaceText` with `listMode` 1 shows
+  `GETP(list->texts)[vars[list->var]]` (clamped, 3349+), so a row can display
+  names the port made up - `Port_GfxOptionName` - as long as the object is
+  `type = IFACE_DEF_TEXT`, `role = 9`. The Music/SFX value objects (28/32) are
+  `type = 0` images with role 103/102, and for those roles the engine ignores
+  text entirely: it fetches code var `0xD0`/`0xCF` (3269-3275) and uses it as
+  the animation delta that stretches the bar. To make such an object show
+  text, copy the Display row's value object (24: `role = 9`, `type = 1`) -
+  anim (in the port's `AnimCopy`, with the position key raised to the new row
+  height), `stateIndex`, `states`, `anchor`/`anchorX`/`anchorY` - or the text
+  lands in the wrong place and colour.
+
+Pack offsets, if the tables need re-deriving: menu pack `HW_IPack.xgc` entry 5,
+main menu header at blob `0x6ECC60` (26 objects), Options header at blob
+`0x85BB40` (40 objects, vars at `0x85DE20`); find them again with
+`tools/xgc_inspect.py` by searching for a header with 40/26 objects whose
+object 16/10's text is "Controller"/"Main Menu".
+
+In progress: the Graphics screen's VSync and Max FPS rows are still the pack's
+Music/SFX rows in everything but name, position and value text, so pressing
+left/right on them moves the game's volume code variables instead of the port's
+(`SetActions` retargets the two `0xB` defs, but the rows have no `step`, so the
+row variable never changes, and the `0x16`/`0x17` defs still run). What they
+need, following the Difficulty row: a port-owned `IfaceStep`
+(`var = 4`/`5`, `val = {0,0,-1,1}`, `set = {0,0,0,0}`, pointed at by the copied
+record's `steps`/`numSteps`, which are 0 in the pack's), the two `0x16`/`0x17`
+defs retyped `0xB` with the same action-list target, and `SetCodeVar` on vars 4
+and 5 (`PORT_CODEVAR_VSYNC`/`PORT_CODEVAR_MAXFPS`, max = option count - 1) so
+their initial value comes from the port's settings instead of the pack's code
+var 214, which the clone of var 3 still carries.
+
 ## Tools
 
 Run in this order on freshly imported sources (each is idempotent):
