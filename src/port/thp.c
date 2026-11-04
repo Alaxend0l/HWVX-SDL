@@ -181,6 +181,23 @@ s32 Mpeg_StopMovie(void) {
     return Mpeg_Destroy();
 }
 
+/* Development: HWVX_NO_MOVIE=1 leaves every movie unstated, so Mpeg_Heartbeat
+ * reports "ended" and State_Movie_Heartbeat moves on through its normal skip
+ * path. The intro FMVs are what stands between boot and the attract demo. */
+static int MoviesOff(void) {
+    static int off = -1;
+    const char *e;
+
+    if (off < 0) {
+        e = SDL_getenv("HWVX_NO_MOVIE");
+        off = e != NULL && *e == '1';
+        if (off) {
+            Port_Log("movies disabled (HWVX_NO_MOVIE=1)");
+        }
+    }
+    return off;
+}
+
 /* name is a disc path like "FMV_\bglogo"; volume 0-100 (music volume). */
 s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     u8 hdr[0x30], comp[0x80];
@@ -191,6 +208,9 @@ s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
 
     (void)volume;
     Mpeg_Destroy();
+    if (MoviesOff()) {
+        return 1;
+    }
     if (name == NULL) {
         return 0;
     }

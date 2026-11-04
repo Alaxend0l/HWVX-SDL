@@ -6,7 +6,15 @@ static u32 s_retraceCount;
 static u64 s_nextFrameNS;
 static BOOL s_black;
 
-#define FRAME_NS (1000000000ull / 60)
+/* One video retrace's length at the frame rate in use. The game runs one logic
+ * frame per retrace, so this is also the game's rate: the Graphics menu's Max
+ * FPS choice moves it freely, and the game's motion follows because its code
+ * integrates from the frame delta the shorter retrace leaves it. */
+static u64 RetraceNS(void) {
+    int rate = Port_GfxFrameRate();
+
+    return 1000000000ull / (u64)(rate > 0 ? rate : 60);
+}
 
 void Port_PumpEvents(void) {
     SDL_Event ev;
@@ -34,7 +42,7 @@ void Port_PumpEvents(void) {
 }
 
 void VIInit(void) {
-    s_nextFrameNS = SDL_GetTicksNS() + FRAME_NS;
+    s_nextFrameNS = SDL_GetTicksNS() + RetraceNS();
 }
 
 void VIConfigure(const struct GXRenderModeObj *rm) { (void)rm; }
@@ -50,28 +58,61 @@ void *VISetPostRetraceCallback(void (*callback)(u32)) {
     return old;
 }
 
+/* Benchmarking: HWVX_NO_VIWAIT=1 removes the 60 Hz wait, so the frame time in
+ * the HWVX_DUMP log is what drawing costs instead of the pacing idle. The game
+ * runs fast-forward while it is on. */
+static int NoRetraceWait(void) {
+    static int off = -1;
+    const char *e;
+
+    if (off < 0) {
+        e = SDL_getenv("HWVX_NO_VIWAIT");
+        off = e != NULL && *e == '1';
+    }
+    return off;
+}
+
+/* Frame pacing split: how much of the time between retraces was the 60 Hz wait
+ * and how much was work. Both are summed over the same retraces, so the two
+ * subtract exactly. Only HWVX_FPSLOG's window reads and clears them: a paced
+ * frame always takes 16.7 ms, so just the work part says anything about what
+ * drawing costs. */
+static u64 s_idleNS, s_spanNS, s_lastRetraceNS;
+
 /* Called by the game after every GXCopyDisp (and in loading loops). One call
- * == one 60 Hz field. Other game threads run while we wait, exactly as they
- * would have while the GameCube CPU idled in VIWaitForRetrace. */
+ * == one retrace at the rate in use (RetraceNS above). Other game threads run
+ * while we wait, exactly as they would have while the GameCube CPU idled in
+ * VIWaitForRetrace. Whether the frame then waits for the display to take it is
+ * the renderer's business, not this one's: see Port_VSyncWanted. */
 void VIWaitForRetrace(void) {
-    u64 now;
+    u64 now, period;
+
+    now = SDL_GetTicksNS();
+    if (s_lastRetraceNS != 0)
+        s_spanNS += now - s_lastRetraceNS;
+    s_lastRetraceNS = now;
 
     GX_PortPresent();
     Port_PumpEvents();
 
     Port_GiantUnlock();
     now = SDL_GetTicksNS();
-    if (now < s_nextFrameNS) {
-        SDL_DelayPrecise(s_nextFrameNS - now);
-        s_nextFrameNS += FRAME_NS;
+    period = RetraceNS();
+    if (now < s_nextFrameNS && !NoRetraceWait()) {
+        u64 wait = s_nextFrameNS - now;
+
+        SDL_DelayPrecise(wait);
+        s_idleNS += wait;
+        s_nextFrameNS += period;
     } else {
         /* Running behind; don't try to catch up with a burst of frames. */
-        s_nextFrameNS = now + FRAME_NS;
+        s_nextFrameNS = now + period;
     }
     Port_GiantLock();
     Port_InterruptPoint();
 
     s_retraceCount++;
+    Port_HudTick();
     {   /* HWVX_FPSLOG=1: log the real frame rate and the game's frame delta */
         static int on = -1;
         static u64 t0;
@@ -86,9 +127,15 @@ void VIWaitForRetrace(void) {
             frames++;
             msSum += g_iDeltaTimeMS;
             if (t - t0 >= 5000000000ull) {
-                Port_Log("FPS %.2f (game delta avg %.2f ms)", frames * 1e9 / (double)(t - t0), (double)msSum / frames);
+                /* The wait is pacing idle; the rest of the span is the port and
+                 * the game working, which is what a drawing change can move. */
+                Port_Log("FPS %.2f (game delta avg %.2f ms, %.2f ms/frame of work in %d frames)",
+                         frames * 1e9 / (double)(t - t0), (double)msSum / frames,
+                         frames > 0 ? (double)(s_spanNS - s_idleNS) / (double)frames / 1e6 : 0.0,
+                         frames);
                 t0 = t;
                 frames = msSum = 0;
+                s_spanNS = s_idleNS = 0;
             }
         }
     }

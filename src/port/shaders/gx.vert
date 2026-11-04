@@ -4,7 +4,7 @@
 #include "common.glsl"
 
 layout(location = 0) in vec3 aPos;
-layout(location = 1) in vec3 aNrm;
+layout(location = 1) in vec4 aNrm;   /* s8 normalized; rescaled to 1/64 below */
 layout(location = 2) in vec4 aClr0;
 layout(location = 3) in vec4 aClr1;
 layout(location = 4) in vec2 aTex0;
@@ -87,7 +87,9 @@ void main() {
     int m = int(aMtx) * 3;
     vec4 p = vec4(aPos, 1.0);
     vec3 vpos = xf(uPosMtx[m], uPosMtx[m + 1], uPosMtx[m + 2], p);
-    vec3 n = normalize(xf(uPosMtx[m], uPosMtx[m + 1], uPosMtx[m + 2], vec4(aNrm, 0.0)) + vec3(0.0, 0.0, 1e-6));
+    /* stored as normalized s8 (val/127); the decoder's scale is 1/64 */
+    vec3 nrm = aNrm.xyz * (127.0 / 64.0);
+    vec3 n = normalize(xf(uPosMtx[m], uPosMtx[m + 1], uPosMtx[m + 2], vec4(nrm, 0.0)) + vec3(0.0, 0.0, 1e-6));
     vec4 v = vec4(vpos, 1.0);
     vec4 clip = vec4(dot(uProj[0], v), dot(uProj[1], v), dot(uProj[2], v), dot(uProj[3], v));
     /* GX clip z is [-w, 0] */
@@ -108,7 +110,7 @@ void main() {
          * chains); naming one not generated yet (the shadow pass uses
          * TEXCOORD0 for coordinate 0) reads the raw vertex coordinate, as the
          * hardware's source row does */
-        vec4 s = src == 0 ? p : src == 1 ? vec4(aNrm, 1.0) : (src >= 4 && src <= 11) ? vec4(tx[src - 4], 1.0, 1.0)
+        vec4 s = src == 0 ? p : src == 1 ? vec4(nrm, 1.0) : (src >= 4 && src <= 11) ? vec4(tx[src - 4], 1.0, 1.0)
                : (src >= 12 && src <= 18) ? (src - 12 < i ? vec4(vt[src - 12].xy, 1.0, 1.0) : vec4(tx[src - 12], 1.0, 1.0))
                : vec4(0.0, 0.0, 1.0, 1.0);
         int t = uTexGen[i].z;

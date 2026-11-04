@@ -11,11 +11,20 @@
  * still use them.
  *
  * SDL_GPU uses a top-left origin for viewports and textures on every driver,
- * so rectangles from gx_draw.c are used as they are. */
+ * so rectangles from gx_draw.c are used as they are.
+ *
+ * Pixel shaders: the setups in tools/tevkeys.txt have a specialised shader
+ * (gx_tevgen.h) precompiled into gx_shaders.h; a draw with another setup
+ * uses the general gx.frag. Which one is part of the pipeline key. */
 #include "gx_render.h"
 #include "gx_shaders.h"
+#include "gx_tevgen.h"
 
-#define MAX_PIPELINES 256
+#ifndef GX_NUM_TEV_VARIANTS   /* a gx_shaders.h from before the variants */
+#define GX_NUM_TEV_VARIANTS 0
+#endif
+
+#define MAX_PIPELINES 1024
 #define MAX_SAMPLERS 64
 #define STAGING_ALIGN 512   /* D3D12 texture upload placement alignment */
 
@@ -71,6 +80,15 @@ static struct {
     u32 vbufSize;
     SDL_GPUTransferBuffer *tbuf;
     u32 tbufSize;
+
+    /* the pixel shader for the last FSBlock recorded: 0 gx.frag, n variant
+     * n - 1; variants' shaders are created on first use */
+    u32 curFrag;
+    int tevGen;
+    int vsyncApplied;               /* Port_VSyncWanted() the present mode follows; -1 none yet */
+#if GX_NUM_TEV_VARIANTS > 0
+    SDL_GPUShader *tevFS[GX_NUM_TEV_VARIANTS];
+#endif
 
     struct { u32 key; SDL_GPUGraphicsPipeline *p; } pipes[MAX_PIPELINES];
     u32 nPipes;
@@ -136,8 +154,36 @@ static int GPU_Open(void) {
         return 0;
     }
     s.swapFmt = SDL_GetGPUSwapchainTextureFormat(s.dev, g_port.window);
+    s.vsyncApplied = -1;
     Port_Log("SDL_GPU driver %s%s", SDL_GetGPUDeviceDriver(s.dev), debug ? " (debug)" : "");
     return 1;
+}
+
+/* The Graphics menu's VSync row (and HWVX_NO_VSYNC): SDL_GPU presents with
+ * VSYNC (FIFO) unless told otherwise, which would cap the frame rate at the
+ * display's even with VSync off and drop the frames in between. Off asks for
+ * MAILBOX (no tearing), else IMMEDIATE. Set when it changes. */
+static void GPU_ApplyVSync(void) {
+    int want = Port_VSyncWanted();
+    SDL_GPUPresentMode mode = SDL_GPU_PRESENTMODE_VSYNC;
+
+    if (want == s.vsyncApplied) {
+        return;
+    }
+    if (!want) {
+        if (SDL_WindowSupportsGPUPresentMode(s.dev, g_port.window, SDL_GPU_PRESENTMODE_MAILBOX)) {
+            mode = SDL_GPU_PRESENTMODE_MAILBOX;
+        } else if (SDL_WindowSupportsGPUPresentMode(s.dev, g_port.window, SDL_GPU_PRESENTMODE_IMMEDIATE)) {
+            mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
+        }
+    }
+    if (!SDL_SetGPUSwapchainParameters(s.dev, g_port.window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode)) {
+        Port_Log("SDL_SetGPUSwapchainParameters failed: %s", SDL_GetError());
+    } else {
+        Port_Log("present mode: %s", mode == SDL_GPU_PRESENTMODE_VSYNC ? "vsync" :
+                 mode == SDL_GPU_PRESENTMODE_MAILBOX ? "mailbox" : "immediate");
+    }
+    s.vsyncApplied = want;
 }
 
 static SDL_GPUShader *Shader(const u8 *spv, size_t spvSize, const char *msl, const u8 *dxil, size_t dxilSize,
@@ -241,6 +287,13 @@ static void GPU_Init(int efbW, int efbH) {
     s.fs = SHADER(gx_frag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1);
     s.presentVS = SHADER(present_vert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     s.presentFS = SHADER(present_frag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
+    {
+        const char *e = SDL_getenv("HWVX_NO_TEVGEN");
+
+        s.tevGen = !(e != NULL && *e == '1');
+        Port_Log("tevgen: %d precompiled specialised pixel shaders%s", GX_NUM_TEV_VARIANTS,
+                 s.tevGen ? "" : ", off (HWVX_NO_TEVGEN)");
+    }
 
     /* 24-bit depth like the EFB's; Apple GPUs only have 32-bit float */
     s.depthFmt = SDL_GPUTextureSupportsFormat(s.dev, SDL_GPU_TEXTUREFORMAT_D24_UNORM, SDL_GPU_TEXTURETYPE_2D,
@@ -301,6 +354,12 @@ static void GPU_Close(void) {
     if (s.fs) SDL_ReleaseGPUShader(s.dev, s.fs);
     if (s.presentVS) SDL_ReleaseGPUShader(s.dev, s.presentVS);
     if (s.presentFS) SDL_ReleaseGPUShader(s.dev, s.presentFS);
+#if GX_NUM_TEV_VARIANTS > 0
+    for (i = 0; i < GX_NUM_TEV_VARIANTS; i++) {
+        if (s.tevFS[i]) SDL_ReleaseGPUShader(s.dev, s.tevFS[i]);
+        s.tevFS[i] = NULL;
+    }
+#endif
     SDL_ReleaseWindowFromGPUDevice(s.dev, g_port.window);
     SDL_DestroyGPUDevice(s.dev);
     s.dev = NULL;
@@ -399,7 +458,7 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
     u32 prim = key & 7, blend = (key >> 3) & 1, src = (key >> 4) & 15, dst = (key >> 8) & 15;
     u32 revSub = (key >> 12) & 1, depthTest = (key >> 13) & 1, depthFunc = (key >> 14) & 7;
     u32 depthWrite = (key >> 17) & 1, colorWrite = (key >> 18) & 1, alphaWrite = (key >> 19) & 1;
-    u32 cullMode = (key >> 20) & 3;
+    u32 cullMode = (key >> 20) & 3, frag = key >> 22;
     int i;
 
     SDL_zero(attr);
@@ -407,9 +466,9 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
     SDL_zero(ct);
     SDL_zero(ci);
     attr[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3; attr[0].offset = offsetof(GXVertex, pos);
-    attr[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3; attr[1].offset = offsetof(GXVertex, nrm);
-    attr[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4; attr[2].offset = offsetof(GXVertex, clr[0]);
-    attr[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4; attr[3].offset = offsetof(GXVertex, clr[1]);
+    attr[1].format = SDL_GPU_VERTEXELEMENTFORMAT_BYTE4_NORM; attr[1].offset = offsetof(GXVertex, nrm);
+    attr[2].format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM; attr[2].offset = offsetof(GXVertex, clr[0]);
+    attr[3].format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM; attr[3].offset = offsetof(GXVertex, clr[1]);
     for (i = 0; i < 8; i++) {
         attr[4 + i].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
         attr[4 + i].offset = (u32)(offsetof(GXVertex, tex) + i * 2 * sizeof(f32));
@@ -436,6 +495,19 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
 
     ci.vertex_shader = s.vs;
     ci.fragment_shader = s.fs;
+#if GX_NUM_TEV_VARIANTS > 0
+    if (frag != 0) {
+        const GXTevVariant *v = &gx_tev_variants[frag - 1];
+
+        if (s.tevFS[frag - 1] == NULL) {
+            s.tevFS[frag - 1] = Shader(v->spv, v->spvSize, v->msl, v->dxil, v->dxilSize,
+                                       SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1);
+        }
+        ci.fragment_shader = s.tevFS[frag - 1];
+    }
+#else
+    (void)frag;
+#endif
     ci.vertex_input_state.vertex_buffer_descriptions = &vb;
     ci.vertex_input_state.num_vertex_buffers = 1;
     ci.vertex_input_state.vertex_attributes = attr;
@@ -457,6 +529,26 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
         Port_Fatal("SDL_CreateGPUGraphicsPipeline failed: %s", SDL_GetError());
     }
     return p;
+}
+
+/* The pixel shader for an FSBlock (see curFrag). */
+static u32 FragFor(const GXFSUniforms *fs) {
+#if GX_NUM_TEV_VARIANTS > 0
+    GXTevKey key;
+    u32 i;
+
+    if (s.tevGen && GX_TevKey(fs, &key)) {
+        for (i = 0; i < GX_NUM_TEV_VARIANTS; i++) {
+            if (gx_tev_variants[i].misc == key.misc &&
+                memcmp(gx_tev_variants[i].stage, key.stage, sizeof(key.stage)) == 0) {
+                return i + 1;
+            }
+        }
+    }
+#else
+    (void)fs;
+#endif
+    return 0;
 }
 
 static SDL_GPUGraphicsPipeline *GetPipeline(u32 key) {
@@ -678,6 +770,12 @@ static void GPU_Draw(const GXDrawCall *dc) {
     if (s.nFS == 0 || memcmp(&s.fsU[s.nFS - 1], dc->fs, sizeof(GXFSUniforms)) != 0) {
         Grow((void **)&s.fsU, &s.capFS, s.nFS + 1, sizeof(GXFSUniforms));
         s.fsU[s.nFS++] = *dc->fs;
+        s.curFrag = FragFor(dc->fs);
+    }
+    if (s.curFrag != 0) {
+        g_gxShaderStats.special++;
+    } else {
+        g_gxShaderStats.general++;
     }
     d->vs = s.nVS - 1;
     d->fs = s.nFS - 1;
@@ -698,7 +796,7 @@ static void GPU_Draw(const GXDrawCall *dc) {
     key = prims[dc->prim] | (u32)(dc->blend != 0) << 3 | (u32)(dc->blendSrc & 15) << 4 |
           (u32)(dc->blendDst & 15) << 8 | (u32)(dc->blendRevSub != 0) << 12 | (u32)(dc->depthTest != 0) << 13 |
           (u32)(dc->depthFunc & 7) << 14 | (u32)(dc->depthWrite != 0) << 17 | (u32)(dc->colorWrite != 0) << 18 |
-          (u32)(dc->alphaWrite != 0) << 19 | (u32)(dc->cull % 3) << 20;
+          (u32)(dc->alphaWrite != 0) << 19 | (u32)(dc->cull % 3) << 20 | s.curFrag << 22;
     d->pipeline = GetPipeline(key);
 }
 
@@ -756,12 +854,22 @@ static void GPU_CopyDisp(const int src[4]) {
     if (s.swapTex == NULL) {
         bool ok;
 
-        /* blocks for vsync: let the audio thread run meanwhile */
-        Port_InterruptWindowBegin();
-        ok = SDL_WaitAndAcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH);
-        Port_InterruptWindowEnd();
-        if (!ok) {
-            Port_Log("SDL_WaitAndAcquireGPUSwapchainTexture failed: %s", SDL_GetError());
+        GPU_ApplyVSync();
+        if (Port_VSyncWanted()) {
+            /* blocks for vsync: let the audio thread run meanwhile */
+            Port_InterruptWindowBegin();
+            ok = SDL_WaitAndAcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH);
+            Port_InterruptWindowEnd();
+            if (!ok) {
+                Port_Log("SDL_WaitAndAcquireGPUSwapchainTexture failed: %s", SDL_GetError());
+            }
+        } else {
+            /* VSync off: no wait for the display, so no window for the audio
+             * thread either. */
+            ok = SDL_AcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH);
+            if (!ok) {
+                Port_Log("SDL_AcquireGPUSwapchainTexture failed: %s", SDL_GetError());
+            }
         }
         if (s.swapTex == NULL) {   /* minimized */
             return;

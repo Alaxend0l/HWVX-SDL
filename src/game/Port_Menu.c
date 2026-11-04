@@ -1,6 +1,7 @@
 /* Port menu entries: "Quit Game" in the main menu, and a "Graphics"
  * entry in the Options screen with the Graphics screen it opens (resolution,
- * windowed/fullscreen: src/port/gfx_settings.c). Port-only file.
+ * windowed/fullscreen, vsync on/off and a max frame rate of 30/60/90/120/144/
+ * 240: src/port/gfx_settings.c). Port-only file.
  *
  * Menus are data (HW_IPack.xgc), so these are built from the screens' own
  * definitions when they are created (Port_MenuPatch, from
@@ -56,9 +57,11 @@ enum {
     OPT_VAR_DIFFICULTY = 0,     /* Graphics: the resolution */
     OPT_VAR_SELECTED = 1,
     OPT_VAR_SOUND = 3,          /* Graphics: the display mode */
+    OPT_VAR_MUSIC = 4,          /* Graphics: vsync */
+    OPT_VAR_SFX = 5,            /* Graphics: the frame rate */
 };
 
-enum { REC_CONTROLLER = 1, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6 };
+enum { REC_CONTROLLER = 1, REC_MUSIC = 4, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6 };
 
 /* Menu rows in the pack: the first (Controller, One Player) at 198, 26 apart.
  * With the port's seventh row they sit a little closer, row k at
@@ -127,6 +130,9 @@ typedef struct RecordCopy {
     IfaceRecord rec;
     IfaceEvent events[MAX_EVENTS];
     IfaceEventDef defs[MAX_EVENTS];
+    IfaceStep step;             /* SetActions: the row's own step, for records
+                                 * the pack gave no step to (its left/right
+                                 * events moved something else instead) */
 } RecordCopy;
 
 /* SetCodeVariable(id, arg, vars[var]) */
@@ -163,13 +169,13 @@ static InterfaceHeader s_gfx;
 static IfaceObjectDef s_gfxObjs[OPT_NUM_OBJECTS];
 static IfaceVarList s_gfxVarList;
 static IfaceVar s_gfxVars[8];
-static IfaceCodeVar s_gfxCode[2];
+static IfaceCodeVar s_gfxCode[4];
 static IfaceConditionList s_hideAll;   /* type 0 "hide if all", no conditions: always hidden */
-static AnimCopy s_rowAnim[8];
-static TextCopy s_gfxText[3];
-static RecordCopy s_gfxRec[2];
-static ActionCopy s_gfxAction[2];
-static ListCopy s_resList, s_displayList;
+static AnimCopy s_rowAnim[16];
+static TextCopy s_gfxText[5];
+static RecordCopy s_gfxRec[4];
+static ActionCopy s_gfxAction[4];
+static ListCopy s_resList, s_displayList, s_vsyncList, s_fpsList;
 
 static const char *DefText(const IfaceObjectDef *d) {
     IfaceText *t;
@@ -193,8 +199,9 @@ static void SetText(TextCopy *c, IfaceObjectDef *d, const char *s) {
     SETP(d->sub, &c->text);
 }
 
-/* d's default animation, at height y. */
-static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
+/* c = d's animation with its one position key raised to height y (the port's
+ * copy, `d`'s own anim data is left alone). */
+static void CopyAnim(AnimCopy *c, const IfaceObjectDef *d, f32 y) {
     IfaceObjAnim *a = GETP(d->anim);
     f32 *key;
 
@@ -203,6 +210,11 @@ static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
     key = (f32 *)c->pos;
     key[1] = y;
     SETP(c->anim.pos.keys, c->pos);
+}
+
+/* d's default animation, at height y. */
+static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
+    CopyAnim(c, d, y);
     SETP(d->anim, &c->anim);
 }
 
@@ -236,7 +248,15 @@ static RecordCopy *CopyRecord(RecordCopy *c, IfaceObjectDef *d, u8 id, u8 up, u8
     return c;
 }
 
-/* Left/right on a row: write variable `var` to code variable `id`. */
+/* The row applies vars[var] to its code variable when its left/right events
+ * run. `rec`'s pack events either already do that (type 0xB, the Difficulty
+ * and Sound rows) or change one of the game's volume variables instead (types
+ * 0x16/0x17, the Music and SFX rows this port clones as VSync and Max FPS):
+ * retarget both kinds at the port's own action list, so neither moves volume.
+ * A row whose pack record has no step - again the Music and SFX rows, whose
+ * left/right only moved volume - gets one here, matching the pack's other
+ * rows: left/right add -1/+1 to vars[var], wrapped into the variable's
+ * min/max by the interface (InterfaceManager_Update). */
 static void SetActions(RecordCopy *rec, ActionCopy *c, u32 id, u16 var) {
     u32 i;
 
@@ -252,9 +272,19 @@ static void SetActions(RecordCopy *rec, ActionCopy *c, u32 id, u16 var) {
     c->list.count = 1;
     SETP(c->list.actions, &c->action);
     for (i = 0; i < rec->rec.events.count; i++) {
-        if (rec->defs[i].type == 0xB) {
+        if (rec->defs[i].type == 0xB || rec->defs[i].type == 0x16 || rec->defs[i].type == 0x17) {
+            rec->defs[i].type = 0xB;
+            rec->defs[i].delta = 0;
             SETP(rec->defs[i].target, &c->list);
         }
+    }
+    if (rec->rec.numSteps == 0) {
+        memset(&rec->step, 0, sizeof(rec->step));
+        rec->step.var = var;
+        rec->step.val[2] = -1;
+        rec->step.val[3] = 1;
+        SETP(rec->rec.steps, &rec->step);
+        rec->rec.numSteps = 1;
     }
 }
 
@@ -279,6 +309,35 @@ static void SetList(ListCopy *c, IfaceObjectDef *d, u16 var, const char *const *
     SETP(c->text.list, &c->list);
     SETP(c->text.strings, &c->slots[0]);
     SETP(d->sub, &c->text);
+}
+
+/* d shows names[vars[var]], as SetList does. But the pack's Music and SFX
+ * rows show their volume in a bar, a role 102/103 image that the interface
+ * scales by the volume code variable (0xCF/0xD0): no text to list into, and
+ * the bar's anim, states and alignment would misplace and mis-tint any text
+ * put in its slot. So d becomes a full visual clone of `model`, the Display
+ * row's value text: anim in `ac` with its position raised to height y, plus
+ * states and anchors copied. Both live in the port's copy of the object
+ * table; the bar's image sub is left unused. */
+static void SetListAsText(ListCopy *c, IfaceObjectDef *d, u16 var, const char *const *names, u32 n,
+                          const IfaceObjectDef *model, AnimCopy *ac, f32 y) {
+    u32 i;
+
+    CopyAnim(ac, model, y);
+    SETP(d->anim, &ac->anim);
+    for (i = 0; i < 6; i++) {
+        d->stateIndex[i] = model->stateIndex[i];
+    }
+    d->numStates = model->numStates;
+    SETP(d->states, GETP(model->states));
+    d->anchor = model->anchor;
+    d->anchorX = model->anchorX;
+    d->anchorY = model->anchorY;
+
+    d->type = IFACE_DEF_TEXT;
+    d->role = 9;
+    SETP(d->sub, GETP(model->sub));
+    SetList(c, d, var, names, n);
 }
 
 static void SetCodeVar(IfaceVar *v, IfaceCodeVar *c, u32 id, s32 max) {
@@ -316,9 +375,9 @@ static void RefreshModes(void) {
 
 static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs) {
     static const char *const displayNames[2] = { "Windowed", "Fullscreen" };
+    const char *optNames[PORT_MAX_CHOICES];
     static const u8 hide[] = {
-        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_MUSIC, OPT_MUSIC + 1, OPT_MUSIC + 2, OPT_MUSIC + 3,
-        OPT_SFX, OPT_SFX + 1, OPT_SFX + 2, OPT_SFX + 3, OPT_DEBUG,
+        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_DEBUG,
     };
     IfaceVarList *vars = GETP(opt->vars);
     InterfaceHeader *ctrl;
@@ -334,6 +393,13 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
 
     s_gfxVarList.count = vars->count < 8 ? vars->count : 8;
     memcpy(s_gfxVars, GETP(vars->vars), s_gfxVarList.count * sizeof(IfaceVar));
+    /* The pack's list ends at the Sound row's var. Extend the copy with
+     * clones of it (a code var of the right shape, which SetCodeVar below
+     * retargets) so the VSync and Max FPS rows have vars 4 and 5. */
+    while (s_gfxVarList.count < 6 && s_gfxVarList.count < sizeof(s_gfxVars) / sizeof(s_gfxVars[0])) {
+        s_gfxVars[s_gfxVarList.count] = s_gfxVars[OPT_VAR_SOUND];
+        s_gfxVarList.count++;
+    }
     SETP(s_gfxVarList.vars, s_gfxVars);
     SETP(s_gfx.vars, &s_gfxVarList);
     SetCodeVar(&s_gfxVars[OPT_VAR_DIFFICULTY], &s_gfxCode[0], PORT_CODEVAR_RESOLUTION, 0);
@@ -347,18 +413,52 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
     }
     SetText(&s_gfxText[0], &s_gfxObjs[OPT_TITLE], "Graphics");
 
-    /* the two rows, moved to the top */
+    /* the four rows, moved to the top */
     for (i = 0; i < 4; i++) {
         MoveTo(&s_rowAnim[i], &s_gfxObjs[OPT_DIFFICULTY + i], ROW_Y);
         MoveTo(&s_rowAnim[4 + i], &s_gfxObjs[OPT_SOUND + i], ROW_Y + ROW_STEP);
+        MoveTo(&s_rowAnim[8 + i], &s_gfxObjs[OPT_MUSIC + i], ROW_Y + 2 * ROW_STEP);
+        MoveTo(&s_rowAnim[12 + i], &s_gfxObjs[OPT_SFX + i], ROW_Y + 3 * ROW_STEP);
     }
     SetText(&s_gfxText[1], &s_gfxObjs[OPT_DIFFICULTY], "Resolution");
-    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_SOUND, REC_SOUND),
+    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_SFX, REC_SOUND),
                &s_gfxAction[0], PORT_CODEVAR_RESOLUTION, OPT_VAR_DIFFICULTY);
     SetText(&s_gfxText[2], &s_gfxObjs[OPT_SOUND], "Display");
-    SetActions(CopyRecord(&s_gfxRec[1], &s_gfxObjs[OPT_SOUND], REC_SOUND, REC_DIFFICULTY, REC_DIFFICULTY),
+    SetActions(CopyRecord(&s_gfxRec[1], &s_gfxObjs[OPT_SOUND], REC_SOUND, REC_DIFFICULTY, REC_MUSIC),
                &s_gfxAction[1], PORT_CODEVAR_DISPLAY, OPT_VAR_SOUND);
     SetList(&s_displayList, &s_gfxObjs[OPT_SOUND + 1], OPT_VAR_SOUND, displayNames, 2);
+    if (s_gfxVarList.count > OPT_VAR_SFX) {
+        /* VSync and Max FPS: the Music and SFX rows (their packs' own rows,
+         * hidden before), relabelled and wired to the port's code vars. The
+         * ring runs Resolution - Display - VSync - Max FPS - Resolution. */
+        u32 n;
+
+        SetCodeVar(&s_gfxVars[OPT_VAR_MUSIC], &s_gfxCode[2], PORT_CODEVAR_VSYNC, 1);
+        SetCodeVar(&s_gfxVars[OPT_VAR_SFX], &s_gfxCode[3], PORT_CODEVAR_MAXFPS,
+                   (s32)Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) - 1);
+        SetText(&s_gfxText[3], &s_gfxObjs[OPT_MUSIC], "VSync");
+        SetActions(CopyRecord(&s_gfxRec[2], &s_gfxObjs[OPT_MUSIC], REC_MUSIC, REC_SOUND, REC_SFX),
+                   &s_gfxAction[2], PORT_CODEVAR_VSYNC, OPT_VAR_MUSIC);
+        for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_VSYNC) && n < PORT_MAX_CHOICES; n++) {
+            optNames[n] = Port_GfxOptionName(PORT_CODEVAR_VSYNC, n);
+        }
+        SetListAsText(&s_vsyncList, &s_gfxObjs[OPT_MUSIC + 1], OPT_VAR_MUSIC, optNames, n,
+                      &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[9], ROW_Y + 2 * ROW_STEP);
+        SetText(&s_gfxText[4], &s_gfxObjs[OPT_SFX], "Max FPS");
+        SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_DIFFICULTY),
+                   &s_gfxAction[3], PORT_CODEVAR_MAXFPS, OPT_VAR_SFX);
+        for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) && n < PORT_MAX_CHOICES; n++) {
+            optNames[n] = Port_GfxOptionName(PORT_CODEVAR_MAXFPS, n);
+        }
+        SetListAsText(&s_fpsList, &s_gfxObjs[OPT_SFX + 1], OPT_VAR_SFX, optNames, n,
+                      &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[13], ROW_Y + 3 * ROW_STEP);
+        Port_Log("menu: graphics screen built (resolution, display, vsync, max fps)");
+    } else {
+        for (i = OPT_MUSIC; i < OPT_SFX + 4; i++) {
+            s_gfxObjs[i].active = 0;
+            SETP(s_gfxObjs[i].conditions, &s_hideAll);
+        }
+    }
     RefreshModes();
 }
 

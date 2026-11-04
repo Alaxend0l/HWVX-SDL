@@ -61,9 +61,11 @@ save file), the "do not touch" loading/saving notices and the card warnings
 loads at startup, and leaving Options after changing a setting autosaves over
 the save in use (or makes one) instead of reminding you to save.
 
-Renderers (`--renderer`): `opengl` (default, OpenGL 3.3 core), and through
-SDL_GPU `vulkan`, `metal` (macOS) and `d3d12` (Windows). The SDL_GPU
-renderers are experimental.
+Renderers (`--renderer`): through SDL_GPU `d3d12` (the default on Windows),
+`metal` (the default on macOS) and `vulkan` (the default on Linux and
+Android), and `opengl` (OpenGL 3.3 core). When the default can't start (no
+driver for it, an old GPU), the game falls back to OpenGL, except on
+Android. CMake's `HWVX_DEFAULT_RENDERER` builds in another default.
 F11 or Alt+Enter toggles fullscreen. Saves go to SDL's per-user preferences
 folder (`memcardA/*.sav`).
 
@@ -195,6 +197,128 @@ OS thread is an SDL thread, but game code runs under one "giant lock" that is
 released only where a GameCube thread would block (vsync, DVD, messages), so
 the streaming loader runs while the main thread waits for retrace, as before.
 
+### Menu rows, options and code variables
+
+Menus are data: an `InterfaceHeader` with its objects, variables and events
+lives in a pack, and `InterfaceManager` runs it (`src/game/include/Interface.h`
+documents the structs, `InterfaceManager_Update` is the frame loop). A port
+screen is a *copy* of that table made when the interface is created
+(`Port_MenuPatch` ← `InterfaceManager_Create`, `src/game/Port_Menu.c`): the
+pack is mapped read-only, nothing may be edited there.
+
+A selectable row (Difficulty, Sound Mode, Music, SFX, ...):
+
+- objects `label`, `value`, `arrow left`, `arrow right`; in the Options screen
+  (40 objects) they start at 19, 23, 27 and 31, so row *n* is at
+  `19 + 4*n` and its value at `20 + 4*n`. Difficulty/Sound are label text +
+  value text; Music/SFX are label image + value image.
+- `record` (`IfaceRecord`) drives selection: `id`, `next[4]` =
+  up/down/left/right (0: stop there, the port re-rings these when it respaces
+  rows), `steps`/`numSteps`, `events`.
+- d-pad in `InterfaceManager_Update`: presses at 1532-1535, `steps` applied at
+  1537-1568 (`vars[step->var]` += `val[dir]`, or = when `set[dir]`; wrapped
+  into the variable's min/max at 1561-1564), then variables whose code variable
+  id is `0x1F6` are re-read from the game settings (1569-1590), then the
+  record's events run (1607), then `next[]` moves the selection (1624+). Left
+  and right never move the selection on this screen: they change the row's
+  value, either through a step (Difficulty: `var 0`, Sound: `var 3`, both
+  `val = {0,0,-1,1}`, `set = {0,0,0,0}`) or through the event itself
+  (Music/SFX: no steps, four events - 13 and 14 each have a def of type `0xB`
+  plus a def of type `0x16`/`0x17` whose `delta` (-10/+10) changes the volume
+  code variables `0xCF`/`0xD0`).
+- events: event types 13/14 are the left/right presses and 15 is A; each
+  event's def says what happens. Def type `0xB` runs the action list its
+  `target` points at, and `IfaceActionList` type 2 with an `IfaceCodeVar`
+  writes the row's variable into a game code variable - which is how the
+  Graphics rows apply their setting.
+- variables (`IfaceVarList`): Options has 4 - 0 difficulty (code var 200/0xC8,
+  min 0 max 3), 1 the selected row (type 3, min 1 max 6), 2 type 1 / update 0
+  (code var 106/0x6A), 3 sound mode (code var 214/0xD6, min 0 max 1). The port
+  appends 4 = vsync and 5 = max fps by cloning 3, and `SetCodeVar` retargets
+  the code var id and min/max - every row whose value is a variable needs
+  that, not only the row whose events are rewritten, because both the creation
+  sync (1491-1531) and the step wrap read it.
+- the value shown: `IfaceText` with `listMode` 1 shows
+  `GETP(list->texts)[vars[list->var]]` (clamped, 3349+), so a row can display
+  names the port made up - `Port_GfxOptionName` - as long as the object is
+  `type = IFACE_DEF_TEXT`, `role = 9`. The gate at 3349 wants the *live*
+  `kind == 5` (`IFACE_KIND_TEXT`, which `InterfaceManager_AddObject` gives a
+  def of type 1) and `listMode == 1`; the string is only re-set when
+  `idx != obj->listIndex`, which starts at -1, so the first update always
+  shows the list entry.
+- how an object comes to life (`InterfaceManager_AddObject`, 591-752, run for
+  *every* def of the header including hidden ones): def type 0 -> `kind`
+  0/2/1 by `sub->type` (plain image, geometry, texture anim); def type 1 ->
+  `kind = 5`, `data = sub`, `fontId = InterfaceManager_AddFont(sub->font)`
+  and the initial text from `sub->strings`. `AddObject` dereferences
+  `def->anim` unconditionally (633) - a def with a null anim kills the
+  interface. `IFACE_DEF_*` and `IFACE_KIND_*` are different enums; text is
+  def 1 but kind 5.
+- the Music/SFX value objects (28/32) are `type = 0` images with role
+  103/102, and for those roles the engine ignores text entirely: it fetches
+  code var `0xD0`/`0xCF` (3269-3275) and uses it as the animation delta that
+  stretches the bar. To make such an object show text, copy the Display row's
+  value object (24: `role = 9`, `type = 1`) - anim (in the port's `AnimCopy`,
+  with the position key raised to the new row height), `stateIndex`,
+  `states`, `anchor`/`anchorX`/`anchorY` - or the text lands in the wrong
+  place and colour. The pack's own shapes (dumped with `tools/xgc_inspect.py`
+  over the blob): 24 role 9 text, active 0, 2 states (type 0 and 1),
+  `anchorX = 1`; 28 role 103 image, 1 state, a 2-key scale track whose first
+  key is `(0.0, 16.0)` - the bar starts at width 0 and the engine stretches
+  it by the volume - `anchorX = -1`; 32 role 102 image, 2 states (type 0 and
+  **2**); all three `stateIndex = {-1 x6}` and condition lists
+  `type = 1, count = 0` (no conditions: always visible), while the arrow
+  defs (25/26/29/30/33/34) each carry one `type = 1` condition whose `value`
+  is the row's record id - arrows that only show for the selected row.
+
+Pack offsets, if the tables need re-deriving: menu pack `HW_IPack.xgc` entry 5,
+main menu header at blob `0x6ECC60` (26 objects), Options header at blob
+`0x85BB40` (40 objects, vars at `0x85DE20`); find them again with
+`tools/xgc_inspect.py` by searching for a header with 40/26 objects whose
+object 16/10's text is "Controller"/"Main Menu".
+
+The volume fix for the two cloned rows lives in `SetActions`: every event def
+of type `0xB`, `0x16` or `0x17` is retyped to `0xB` with `delta = 0` and
+`target` the port's own action list, a row whose copied record had no step gets
+a port-owned `IfaceStep` (`var = 4`/`5`, `val = {0,0,-1,1}`, `set` all 0), and
+`SetCodeVar` covers vars 4/5 (`PORT_CODEVAR_VSYNC`/`PORT_CODEVAR_MAXFPS`,
+max = option count - 1), so left/right there can no longer move the volume
+code vars `0xCF`/`0xD0`. Verified in the menu: the rows cycle, up/down rings
+the four rows, and leaving the screen applies and saves - correctly even after
+the screen was closed and reopened, because the live vars and code vars stay in
+step across the reload, and `vsync=`/`fps=` in `graphics.cfg` survived the next
+launch.
+
+The blank Max FPS value that preceded that is kept as a caution. The row
+rendered empty although its def matched the working VSync row's shape exactly;
+dumping the *live* `InterfaceObject`s - at creation and every 120 frames,
+instead of re-reading pack data - showed the object perfectly healthy (kind 5,
+role 9, visible, right position, colour and list index, the list gate firing)
+but every string it picked was NULL. `SetObjectText` treats a NULL string as
+empty text, `len 0`, without complaint: a row that lays out right yet shows
+nothing is a resolved-string bug, not a def bug. The bug was one line in
+`FpsNames()` - it formatted the names into static buffers but never pointed the
+returned array at them.
+
+Feature B - frame rates past 60 - needs no motion compensation after all.
+The cap on the Max FPS row was the port being cautious: before the pacing was
+measured it was not known how much of the game assumes one frame is a 60th of a
+second. A survey of every delta-time consumer settled it: the car physics,
+steering and stunts integrate through `g_fDeltaTimeSec` (CarA_HW.c), particles,
+keyframe animation (`ExtractKeys.c`: every track advances `time += dt` in ms),
+audio fades (AudioManager.c), the interface's timers and input repeat
+(InterfaceManager.c) and the THP movie player (wall-clock: `thp.c` derives the
+due frame from `SDL_GetTicksNS()`) all follow whatever delta the frame loop
+gives them. `g_iDeltaTime60th` is fed but has no consumers. So `vi.c` just
+paces at the chosen rate now, and the choices above 60 work: what the drawing
+cannot fit in the shorter budget is dropped, not speeded - a 120 FPS choice on
+a frame that costs 8.3-9.9 ms of work lands near 100, `graphics.cfg` still
+remembers the choice. Measured: `--fps 120` gives 110 FPS while the work fits
+8.33 ms and then drifts to ~98 with the game delta at ~8.8 ms; 30 and 60 are
+unchanged. Watch list for anything a survey cannot see: gameplay feel at 144
+and 240 (the integer-ms timers truncate harder as the delta nears their 1 ms
+floor) and any logic that counts frames rather than time.
+
 ## Tools
 
 Run in this order on freshly imported sources (each is idempotent):
@@ -237,8 +361,23 @@ Debugging aids:
   validation layers, D3D12 debug layer) for the SDL_GPU renderers.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
-- `HWVX_FPSLOG=1` logs the frame rate (capped at 60 Hz) and the game's average frame delta every 5 s.
+- `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
+- `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
+  since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.
+- `HWVX_THREADTRACE=1` logs every background world/car load: how long it held
+  the giant lock, and how long the frame that started it waited for it. A load
+  that never runs, or a wait of many milliseconds, means the loader thread is
+  being starved; see `Port_GiantLock` in `src/port/os.c`.
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
+- `HWVX_NO_TEVGEN=1` draws everything with the general pixel shader
+  (`gx.frag`) instead of the ones specialised to each TEV setup
+  (`src/port/gx_tevgen.h`), to compare. `HWVX_STATS=1` logs how many draws
+  used which.
+- `HWVX_TEVKEYS=tools/tevkeys.txt` appends each TEV setup the game uses that
+  the file doesn't have yet. SDL_GPU only has specialised shaders for the
+  setups listed there (rerun `tools/gen_shaders.py`); OpenGL builds its own.
+  `tools/tevcheck.sh tools/tevkeys.txt --random 2000 --exact` checks the
+  specialised shaders against `gx.frag` (needs a display).
 
 `tools/gen_shaders.py` regenerates `src/port/gx_shaders.h` after a change in
 `src/port/shaders/`: GLSL for OpenGL, and glslang → SPIR-V (Vulkan),

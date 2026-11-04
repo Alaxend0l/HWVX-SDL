@@ -91,19 +91,58 @@ typedef struct GXState {
 
 extern GXState g_gx;
 
-/* One decoded vertex, as uploaded to the renderer. */
+/* One decoded vertex, as uploaded to the renderer. Deliberately compact:
+ * this record streams through the vertex pool, the upload buffers and the
+ * vertex fetch on every draw. Normals keep the hardware's own encoding (s8
+ * at fixed scale 1/64, w unused; the vertex shader multiplies by 127/64),
+ * and colors are 8-bit unsigned normalized, expanded bit-for-bit the way
+ * the GameCube color registers expand them, so no precision is lost that
+ * the pixel pipeline ever had. 92 bytes, down from 124. */
 typedef struct GXVertex {
     f32 pos[3];
-    f32 nrm[3];
-    f32 clr[2][4];
+    s8 nrm[4];           /* fixed scale 1/64 */
+    u8 clr[2][4];        /* normalized [0,1] on the GPU */
     f32 tex[8][2];
     f32 mtxIdx;          /* position matrix slot */
 } GXVertex;
+
+/* gx.c: bumped whenever the vertex format (GXSetVtxDesc/GXSetVtxAttrFmt) or
+ * the vertex arrays (GXSetArray) change; lets the display-list cache skip
+ * recomputing its state key. */
+extern u32 g_gxVtxGen;
 
 /* gx_fifo.c */
 void GX_FifoBegin(int prim, int vtxfmt, u16 nverts);
 void GX_FifoWrite(const void *bytes, u32 n);
 void GX_RunCommands(const u8 *cmds, u32 size);
+
+/* Decoded display lists are kept in one persistent vertex pool: the same list
+ * decodes once and later calls replay it, so a renderer can hold the pool in a
+ * single GPU buffer and upload only what is new. A batch is that pool. */
+typedef struct GXVtxBatch {
+    const GXVertex *base;     /* the pool */
+    u32 used;                 /* vertices written since the current generation */
+    u32 cap;                  /* capacity of base, in vertices */
+    u32 gen;                  /* changes when the pool is reused from the start */
+} GXVtxBatch;
+
+/* The pool, when the vertices of a draw (v, n) lie inside it; NULL otherwise. */
+const GXVtxBatch *GX_FifoBatch(const GXVertex *v, u32 n);
+/* 1 if the shared vertex pool can hold `need` vertices (renderers size their
+ * upload buffers from this), and how many it currently holds. */
+u32 GX_FifoPoolCapacity(u32 need);
+u32 GX_FifoPoolUsed(void);
+
+/* Cache counters for the frame dump log: list hits, lists decoded and kept,
+ * entries dropped for holding a bad decode, captures that did not fit, and
+ * whole-pool resets. */
+void GX_FifoStats(u32 *hit, u32 *miss, u32 *drop, u32 *abort, u32 *flush);
+/* Miss forensics, same windowed-delta style: list addresses seen for the
+ * first time, addresses whose bytes were rewritten, addresses where bytes and
+ * state repeated but no entry answered, diffs in vertex fmt / array pointers /
+ * matrix, and captures abandoned as volatile. */
+void GX_FifoDiag(u32 *first, u32 *rebuild, u32 *stable, u32 *fmt, u32 *arr, u32 *mtx,
+                 u32 *skip);
 
 /* gx_draw.c */
 void GX_DrawInit(void);

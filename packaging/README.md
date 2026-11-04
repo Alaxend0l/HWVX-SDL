@@ -10,7 +10,7 @@ go to `dist/`; scratch (SDL builds, AppDirs...) to `build-pkg/`.
 | macOS `.dmg` (Apple silicon + Intel) | `packaging/macos/build.sh` | macOS | `HWVX-VER-macos.dmg` |
 | Linux bare program | `packaging/linux/build.sh` | Linux x86_64 / aarch64 | `hwvx-VER.x86_64` (`.aarch64`) |
 | Linux AppImage | (same script) | Linux x86_64 / aarch64 | `HWVX-VER-ARCH.AppImage` |
-| Linux Flatpak | `packaging/flatpak/build.sh` | Linux x86_64 / aarch64 with flatpak-builder | `HWVX-VER-ARCH.flatpak` |
+| Linux Flatpak | `packaging/flatpak/build.sh [ARCH]` | Linux x86_64 / aarch64 with flatpak-builder (another ARCH: qemu-user-static) | `HWVX-VER-ARCH.flatpak` |
 | Android `.apk` | `cd android && ./gradlew assembleRelease` | Linux, macOS (JDK 17, Android SDK) | `android/app/build/outputs/apk/release/app-release.apk` |
 
 Every package contains only the program. The game data is the player's own:

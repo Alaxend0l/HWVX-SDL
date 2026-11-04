@@ -181,17 +181,32 @@ u32 Port_KeyboardKeys(void);
  * on-screen tests (Render_SetClipPlanes, isInWindow) widen by these. */
 void Port_ViewWiden(f32 *wx, f32 *wy);
 
+/* Display-list cache (gx_fifo.c): the GX layer decodes each display list once
+ * and keeps the result, including the vertices it read out of game memory. Game
+ * memory that is rewritten or reused - a pack swapped into place, a freed heap
+ * block - has to be reported here, or a cached decode keeps serving what the
+ * old bytes said. Port_Swap.c and os.c do both. */
+void Port_InvalidateDisplayLists(const void *p, u32 size);
+
 /* Graphics settings (gfx_settings.c), edited by the Options screen's
  * "Graphics" menu (src/game/Port_Menu.c) through these code variables
  * (GameSettings_Get/SetCodeVariable). */
 #define PORT_CODEVAR_RESOLUTION 0x1000   /* index into the mode list */
 #define PORT_CODEVAR_DISPLAY 0x1001      /* 0 windowed, 1 fullscreen */
-#define PORT_IS_CODEVAR(id) ((id) == PORT_CODEVAR_RESOLUTION || (id) == PORT_CODEVAR_DISPLAY)
+#define PORT_CODEVAR_VSYNC 0x1002        /* 0 off, 1 on: wait for the display */
+#define PORT_CODEVAR_MAXFPS 0x1003       /* index into the frame rate choices */
+#define PORT_IS_CODEVAR(id) ((id) >= PORT_CODEVAR_RESOLUTION && (id) <= PORT_CODEVAR_MAXFPS)
+#define PORT_MAX_CHOICES 8               /* the widest of those choice lists */
 u32 Port_GfxGet(s32 id);
 void Port_GfxSet(s32 id, u32 value);
 void Port_GfxMenuOpened(void);
 u32 Port_GfxModeCount(void);
 const char *Port_GfxModeName(u32 i);
+/* The choice lists of the other rows, VSync and Max FPS: how many options
+ * there are, and each one's name. The option's index is what the row's code
+ * variable holds, so only this side knows the rates behind the names. */
+u32 Port_GfxOptionCount(s32 id);
+const char *Port_GfxOptionName(s32 id, u32 i);
 void Port_GfxApply(void);
 void Port_Fatal(const char *fmt, ...) PORT_PRINTF(1, 2) __attribute__((noreturn));
 #define PORT_TODO(what) Port_Todo(__func__, what)

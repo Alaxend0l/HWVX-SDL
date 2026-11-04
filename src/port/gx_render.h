@@ -73,6 +73,11 @@ typedef struct GXDrawCall {
     int prim;                 /* GXR_* (quads arrive as triangles) */
     const GXVertex *v;
     u32 n;
+    /* Set when v points into a GXVtxBatch the renderer may already hold on the
+     * GPU (the display list cache's vertex pool): a backend can then keep that
+     * pool resident and draw from an offset instead of uploading every draw.
+     * NULL when the vertices are a scratch buffer that changes each draw. */
+    const GXVtxBatch *batch;
     const GXVSUniforms *vs;
     const GXFSUniforms *fs;
     void *tex[8];             /* backend textures (texCreate), NULL: none */
@@ -111,6 +116,15 @@ typedef struct GXRenderer {
     int (*readEFB)(u8 *rgba);
     void (*present)(void);
 } GXRenderer;
+
+/* HWVX_STATS: draws with a specialised pixel shader (gx_tevgen.h) and with
+ * the general one since the last report, and how many specialised programs
+ * exist / are still compiling. Backends without them leave it alone. */
+typedef struct GXShaderStats {
+    u32 special, general, programs, pending;
+} GXShaderStats;
+
+extern GXShaderStats g_gxShaderStats;
 
 extern const GXRenderer g_gxGL;
 extern const GXRenderer g_gxSDLGPU;

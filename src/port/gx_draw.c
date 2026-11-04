@@ -19,14 +19,32 @@
  * One "uber" shader (shaders/gx.vert, gx.frag) implements the parts of the GX
  * pipeline the game uses, driven by two uniform blocks this file fills in from
  * g_gx: position/texture matrices, texture coordinate generation, the two
- * lighting channels, up to 16 TEV stages, alpha compare and fog. */
+ * lighting channels, up to 16 TEV stages, alpha compare and fog. The OpenGL
+ * backend also builds a pixel shader specialised to each TEV setup from the
+ * same uniforms (gx_tevgen.h) and uses gx.frag only until that is ready. */
 #include "gx_render.h"
+#include "gx_tevgen.h"
 
 #define MAX_STAGES 16
 
 const GXRenderer *g_gxr = &g_gxGL;
+GXShaderStats g_gxShaderStats;
 
 static u32 s_statDraws, s_statVerts;
+static u32 s_statBlend, s_statAlphaComp, s_statFog, s_statStages;
+static s64 s_statDrawNs;
+static int s_statsOn = -1;
+
+/* HWVX_STATS=1 turns on the per-window drawing counters, including the timing
+ * ones, so a slow frame in the log is only what drawing costs. */
+static int StatsOn(void) {
+    if (s_statsOn < 0) {
+        const char *e = SDL_getenv("HWVX_STATS");
+
+        s_statsOn = e != NULL && *e == '1';
+    }
+    return s_statsOn;
+}
 static int s_efbW, s_efbH;
 
 extern u8 g_CurrentViews[8];   /* game: bit n set = view n drawn this frame */
@@ -271,6 +289,75 @@ static int MapViewport(GXDrawCall *dc, GXVSUniforms *vs) {
     return 1;
 }
 
+/* HWVX_TEVKEYS=file: append each pixel-stage setup (gx_tevgen.h) the first
+ * time a draw uses it, as its whole FSBlock in hex, one per line. The lines
+ * from earlier runs count as seen, so the file only grows by new setups.
+ * tools/test_tevgen checks the specialised shaders against gx.frag with
+ * them, and tools/gen_shaders.py builds SDL_GPU's variants from them. */
+#define TEVKEY_SLOTS 4096
+
+/* Adds key to the seen set; 1 if it is new. */
+static int TevKeySeen(GXTevKey *seen, u32 *n, const GXTevKey *key) {
+    u32 i;
+
+    for (i = GX_TevKeyHash(key) & (TEVKEY_SLOTS - 1);; i = (i + 1) & (TEVKEY_SLOTS - 1)) {
+        if (seen[i].misc == 0 && seen[i].pad == 0) {   /* empty: misc of a used slot has pad 1 */
+            if (*n >= TEVKEY_SLOTS * 3 / 4) {
+                return 0;
+            }
+            seen[i] = *key;
+            seen[i].pad = 1;
+            (*n)++;
+            return 1;
+        }
+        if (seen[i].misc == key->misc && memcmp(seen[i].stage, key->stage, sizeof(key->stage)) == 0) {
+            return 0;
+        }
+    }
+}
+
+static void LogTevKey(const GXFSUniforms *fs) {
+    static int state = -1;          /* -1 unchecked, 0 off, 1 on */
+    static GXTevKey *seen;
+    static u32 nSeen;
+    static SDL_IOStream *out;
+    GXTevKey key;
+
+    if (state < 0) {
+        const char *path = SDL_getenv("HWVX_TEVKEYS");
+        GXFSUniforms old;
+        char *text, *line, *save = NULL;
+
+        state = 0;
+        if (path == NULL || *path == 0 || (seen = SDL_calloc(TEVKEY_SLOTS, sizeof(GXTevKey))) == NULL) {
+            return;
+        }
+        text = SDL_LoadFile(path, NULL);
+        for (line = text ? SDL_strtok_r(text, "\n", &save) : NULL; line != NULL;
+             line = SDL_strtok_r(NULL, "\n", &save)) {
+            if (GX_TevKeyFromHex(line, &old) && GX_TevKey(&old, &key)) {
+                TevKeySeen(seen, &nSeen, &key);
+            }
+        }
+        SDL_free(text);
+        out = SDL_IOFromFile(path, "a");
+        if (out == NULL) {
+            Port_Log("HWVX_TEVKEYS: can't open %s: %s", path, SDL_GetError());
+            return;
+        }
+        Port_Log("HWVX_TEVKEYS: %u setups in %s", nSeen, path);
+        state = 1;
+    }
+    if (state == 1 && GX_TevKey(fs, &key) && TevKeySeen(seen, &nSeen, &key)) {
+        static char line[2 * sizeof(GXFSUniforms) + 2];
+
+        GX_TevKeyToHex(fs, line);
+        SDL_strlcat(line, "\n", sizeof(line));
+        SDL_WriteIO(out, line, SDL_strlen(line));
+        SDL_FlushIO(out);
+    }
+}
+
 static int BuildDrawCall(GXDrawCall *dc, GXVSUniforms *vs, GXFSUniforms *fs) {
     const GXState *g = &g_gx;
     int dbg = DebugDraw(), i;
@@ -356,8 +443,33 @@ void GX_Draw(int prim, const GXVertex *v, u32 n) {
     if (dc.n == 0) {
         return;
     }
+    /* Vertices that came from the display list cache's pool can stay on the GPU
+     * between draws; scratch vertices (a fresh decode, a quad expansion, the
+     * immediate FIFO) cannot. */
+    dc.batch = GX_FifoBatch(dc.v, dc.n);
     if (BuildDrawCall(&dc, &vs, &fs)) {
+        s64 t0 = 0;
+
+        LogTevKey(&fs);
+        /* HWVX_STATS: what the pixel stage has to do for this draw, and how much
+         * of the frame the renderer's own submit costs. */
+        if (StatsOn()) {
+            if (dc.blend) {
+                s_statBlend++;
+            }
+            if (fs.alphaComp[0] != 0 || fs.alphaComp[3] != 0) {
+                s_statAlphaComp++;
+            }
+            if (fs.misc[2] != 0) {
+                s_statFog++;
+            }
+            s_statStages += (u32)fs.misc[0];
+            t0 = SDL_GetPerformanceCounter();
+        }
         g_gxr->draw(&dc);
+        if (t0 != 0) {
+            s_statDrawNs += SDL_GetPerformanceCounter() - t0;
+        }
     }
 }
 
@@ -406,23 +518,87 @@ void GX_PortDrawImage(const u8 *rgba, int width, int height) {
     GX_DrawCopyDisp(0);
 }
 
-/* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp. */
+/* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp.
+ * HWVX_STATS=1 logs the same per-window numbers without the readback or the
+ * file write, so a slow frame in the log is only what drawing costs. */
 static void DumpEFB(void) {
     static const char *dir;
-    static int checked, count;
+    static int checked, count, statsOnly;
     SDL_Surface *surf;
     char path[512];
 
     if (!checked) {
         checked = 1;
         dir = SDL_getenv("HWVX_DUMP");
+        statsOnly = StatsOn();
     }
-    if (dir == NULL || (count++ % 60) != 0) {
+    if ((dir == NULL && !statsOnly) || (count++ % 60) != 0) {
         return;
     }
-    Port_Log("frame %d: %u draws, %u vertices since last dump (%s)", count - 1, s_statDraws, s_statVerts,
-             g_gxr->name);
+    {
+        /* Frames per second is either the refresh rate (vsync) or the cost of
+         * the work, so the average frame time is logged next to it. */
+        static s64 prev, freq = 1;
+        s64 now = SDL_GetPerformanceCounter();
+
+        if (freq == 1) {
+            freq = SDL_GetPerformanceFrequency();
+        }
+        Port_Log("frame %d: %u draws, %u vertices since last dump (%s, %.2f ms/frame)", count - 1,
+                 s_statDraws, s_statVerts, g_gxr->name,
+                 prev != 0 ? (double)(now - prev) * 1000.0 / (double)(freq * 60) : 0.0);
+        prev = now;
+    }
+    {
+        static u32 lastHit, lastMiss, lastDrop, lastAbort, lastFlush;
+        static u32 lastFirst, lastRebuild, lastStable, lastFmt, lastArr, lastMtx, lastSkip;
+        u32 hit, miss, drop, abort_, flush;
+        u32 first, rebuild, stable, fmt, arr, mtx, skip;
+        GX_FifoStats(&hit, &miss, &drop, &abort_, &flush);
+        Port_Log("  dl cache: %u hits, %u new, %u dropped, %u aborted, %u pool resets this window",
+                 hit - lastHit, miss - lastMiss, drop - lastDrop, abort_ - lastAbort, flush - lastFlush);
+        GX_FifoDiag(&first, &rebuild, &stable, &fmt, &arr, &mtx, &skip);
+        Port_Log("  dl diag: %u first-seen, %u rebuilt, %u stable-but-evicted, "
+                 "%u fmt, %u arrays, %u mtx, %u skipped",
+                 first - lastFirst, rebuild - lastRebuild, stable - lastStable,
+                 fmt - lastFmt, arr - lastArr, mtx - lastMtx, skip - lastSkip);
+        lastHit = hit;
+        lastMiss = miss;
+        lastDrop = drop;
+        lastAbort = abort_;
+        lastFlush = flush;
+        lastFirst = first;
+        lastRebuild = rebuild;
+        lastStable = stable;
+        lastFmt = fmt;
+        lastArr = arr;
+        lastMtx = mtx;
+        lastSkip = skip;
+    }
+    {
+        static s64 freq = 1;
+
+        if (freq == 1) {
+            freq = SDL_GetPerformanceFrequency();
+        }
+        Port_Log("  pixel stage: %dx%d EFB, %u blended, %u alpha-compare, %u fog, %.2f avg TEV stages, "
+                 "%.2f ms/frame in the renderer",
+                 s_efbW, s_efbH, s_statBlend, s_statAlphaComp, s_statFog,
+                 s_statDraws != 0 ? (double)s_statStages / (double)s_statDraws : 0.0,
+                 (double)s_statDrawNs * 1000.0 / (double)(freq * 60));
+        if (g_gxShaderStats.special != 0 || g_gxShaderStats.programs != 0) {
+            Port_Log("  pixel shaders: %u draws specialised, %u general; %u programs, %u compiling",
+                     g_gxShaderStats.special, g_gxShaderStats.general, g_gxShaderStats.programs,
+                     g_gxShaderStats.pending);
+        }
+    }
+    g_gxShaderStats.special = g_gxShaderStats.general = 0;
+    s_statBlend = s_statAlphaComp = s_statFog = s_statStages = 0;
+    s_statDrawNs = 0;
     s_statDraws = s_statVerts = 0;
+    if (dir == NULL) {
+        return;   /* HWVX_STATS: numbers only, no readback */
+    }
     /* XBGR: the EFB alpha is game scratch (shadow volumes), not opacity */
     surf = SDL_CreateSurface(s_efbW, s_efbH, SDL_PIXELFORMAT_XBGR8888);
     if (surf == NULL) {
@@ -440,6 +616,9 @@ void GX_DrawCopyDisp(int clear) {
     int r[4] = { 0, 0, s_efbW, s_efbH };
 
     DumpEFB();
+    Port_HudDraw(s_efbW, s_efbH);   /* in the EFB, so dumps and the dump's
+                                     * stats stay free of it and it rides the
+                                     * copy's letterbox like the frame does */
     g_gxr->copyDisp(r);
     if (clear) {
         ClearEFB();

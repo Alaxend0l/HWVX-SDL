@@ -12,6 +12,7 @@ android/app/build/
 android/app/.cxx/
 android/local.properties
 gc-emu/
+temp/
 
 # Prerequisites
 *.d
