@@ -410,18 +410,25 @@ void GX_PortDrawImage(const u8 *rgba, int width, int height) {
     GX_DrawCopyDisp(0);
 }
 
-/* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp. */
+/* Debugging: HWVX_DUMP=dir saves every 60th copied frame as dir/frameNNNNN.bmp.
+ * HWVX_STATS=1 logs the same per-window numbers without the readback or the
+ * file write, so a slow frame in the log is only what drawing costs. */
 static void DumpEFB(void) {
     static const char *dir;
-    static int checked, count;
+    static int checked, count, statsOnly;
     SDL_Surface *surf;
     char path[512];
 
     if (!checked) {
         checked = 1;
         dir = SDL_getenv("HWVX_DUMP");
+        if (dir == NULL) {
+            const char *e = SDL_getenv("HWVX_STATS");
+
+            statsOnly = e != NULL && *e == '1';
+        }
     }
-    if (dir == NULL || (count++ % 60) != 0) {
+    if ((dir == NULL && !statsOnly) || (count++ % 60) != 0) {
         return;
     }
     {
@@ -465,6 +472,9 @@ static void DumpEFB(void) {
         lastSkip = skip;
     }
     s_statDraws = s_statVerts = 0;
+    if (dir == NULL) {
+        return;   /* HWVX_STATS: numbers only, no readback */
+    }
     /* XBGR: the EFB alpha is game scratch (shadow volumes), not opacity */
     surf = SDL_CreateSurface(s_efbW, s_efbH, SDL_PIXELFORMAT_XBGR8888);
     if (surf == NULL) {

@@ -64,11 +64,23 @@ static int NoRetraceWait(void) {
     return off;
 }
 
+/* Frame pacing split: how much of the time between retraces was the 60 Hz wait
+ * and how much was work. Both are summed over the same retraces, so the two
+ * subtract exactly. Only HWVX_FPSLOG's window reads and clears them: a paced
+ * frame always takes 16.7 ms, so just the work part says anything about what
+ * drawing costs. */
+static u64 s_idleNS, s_spanNS, s_lastRetraceNS;
+
 /* Called by the game after every GXCopyDisp (and in loading loops). One call
  * == one 60 Hz field. Other game threads run while we wait, exactly as they
  * would have while the GameCube CPU idled in VIWaitForRetrace. */
 void VIWaitForRetrace(void) {
     u64 now;
+
+    now = SDL_GetTicksNS();
+    if (s_lastRetraceNS != 0)
+        s_spanNS += now - s_lastRetraceNS;
+    s_lastRetraceNS = now;
 
     GX_PortPresent();
     Port_PumpEvents();
@@ -76,7 +88,10 @@ void VIWaitForRetrace(void) {
     Port_GiantUnlock();
     now = SDL_GetTicksNS();
     if (now < s_nextFrameNS && !NoRetraceWait()) {
-        SDL_DelayPrecise(s_nextFrameNS - now);
+        u64 wait = s_nextFrameNS - now;
+
+        SDL_DelayPrecise(wait);
+        s_idleNS += wait;
         s_nextFrameNS += FRAME_NS;
     } else {
         /* Running behind; don't try to catch up with a burst of frames. */
@@ -100,9 +115,15 @@ void VIWaitForRetrace(void) {
             frames++;
             msSum += g_iDeltaTimeMS;
             if (t - t0 >= 5000000000ull) {
-                Port_Log("FPS %.2f (game delta avg %.2f ms)", frames * 1e9 / (double)(t - t0), (double)msSum / frames);
+                /* The wait is pacing idle; the rest of the span is the port and
+                 * the game working, which is what a drawing change can move. */
+                Port_Log("FPS %.2f (game delta avg %.2f ms, %.2f ms/frame of work in %d frames)",
+                         frames * 1e9 / (double)(t - t0), (double)msSum / frames,
+                         frames > 0 ? (double)(s_spanNS - s_idleNS) / (double)frames / 1e6 : 0.0,
+                         frames);
                 t0 = t;
                 frames = msSum = 0;
+                s_spanNS = s_idleNS = 0;
             }
         }
     }
