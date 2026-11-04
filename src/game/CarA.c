@@ -898,9 +898,16 @@ s32 CarA_PreMove(void *thing) {
     }
 
     CarA_ComputeForces(car);
-    car->base.vel.x += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].x);
-    car->base.vel.y += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].y);
-    car->base.vel.z += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].z);
+    // Strafe impulse (A/D keys): the original game ran at fixed 60 FPS, so dt here was always
+    // 1/60. With a variable frame rate, scaling by g_fDeltaTimeSec makes the per-tap strafe
+    // shift proportional to frame time (2x stronger at 30 FPS, 2x weaker at 120 FPS), because
+    // the velocity added here moves the car during the dt sweep and is cancelled in
+    // ThingManager_DARYL_Step (which must use the same constant). Keep the fixed 1/60 scale so
+    // the strafe strength always matches its 60 FPS value; the speed scaling itself is kept,
+    // since forwardAccel = spinImpulse * speed (see CarA_Suspension.c).
+    car->base.vel.x += (1.0f / 60.0f) * (car->forwardAccel * car->base.axis[0].x);
+    car->base.vel.y += (1.0f / 60.0f) * (car->forwardAccel * car->base.axis[0].y);
+    car->base.vel.z += (1.0f / 60.0f) * (car->forwardAccel * car->base.axis[0].z);
     g_pSourcePlayer = GETP(car->base.player);
     CarA_SlaveWeaponHeartbeat(car);
     g_pSourcePlayer = NULL;

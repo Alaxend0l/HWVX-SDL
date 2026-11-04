@@ -491,7 +491,8 @@ typedef struct CarA {
   s32 damageAccum;          /* 0x500 damage not yet taken off health (in steps of 30) */
   s32 groundedTime;         /* 0x504 ms */
   f32 groundedScale;        /* 0x508 */
-  f32 forwardAccel;         /* 0x50C velocity += axis[0] * this * dt */
+  f32 forwardAccel;         /* 0x50C velocity += axis[0] * this * (1/60); strafe impulse,
+                               scaled by car speed, cancelled later in the same frame */
   Vector4 stuntAxisVec;     /* 0x510 world axis the stunt spins around */
   Vector4 bodyOffset;       /* 0x520 centre of mass in body space: the model and
                                colliders are drawn/built at XformVec(mtx, this) */
