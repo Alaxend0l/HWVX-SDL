@@ -17,9 +17,10 @@
  *   integrates its motion from that delta (g_fDeltaTimeMS/g_fDeltaTimeSec, the
  *   ms key tracks). A rate the drawing cannot fit in the shorter frame budget
  *   lands below the choice rather than stuttering (vi.c). "Unlimited" drops
- *   the pacing entirely: frames cost only what drawing costs, and the delta
- *   tracks that (its 1 ms floor in TimeHandler means frames faster than that
- *   advance the game a little faster than real time).
+ *   the preset pacing: frames cost only what drawing costs, up to the delta's
+ *   own 1 ms floor in TimeHandler, which bounds the rate near 1000 FPS; below
+ *   that floor the game's clock would run fast and menu and brief animation
+ *   with it, so the pacing holds there.
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. */
@@ -46,10 +47,14 @@ static char s_fpsNames[NUM_FPS][16];
 /* What VIWaitForRetrace should pace a frame at, from the Max FPS choice. The
  * game runs one logic frame per video retrace and integrates its motion from
  * the frame delta, so any rate keeps the game's speed; the floor is just the
- * slowest choice the menu has. 0 asks for no pacing at all (unlimited). */
+ * slowest choice the menu has. The ceiling is the game's own delta floor:
+ * TimeHandler cannot report under 1 ms, so a shorter retrace than that makes
+ * the delta a lie and everything it drives runs fast. The unlimited choice
+ * comes here as 1000 rather than pacing not at all, and an off-menu rate
+ * beyond 1000 is held to it for the same reason. */
 int Port_GfxFrameRate(void) {
-    if (g_port.maxFps == 0) {
-        return 0;
+    if (g_port.maxFps == 0 || g_port.maxFps > 1000) {
+        return 1000;
     }
     return g_port.maxFps < 30 ? 30 : g_port.maxFps;
 }

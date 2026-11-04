@@ -9,12 +9,13 @@ static BOOL s_black;
 /* One video retrace's length at the frame rate in use. The game runs one logic
  * frame per retrace, so this is also the game's rate: the Graphics menu's Max
  * FPS choice moves it freely, and the game's motion follows because its code
- * integrates from the frame delta the shorter retrace leaves it. 0 is the
- * unlimited choice: no period, so VIWaitForRetrace never idles. */
+ * integrates from the frame delta the shorter retrace leaves it. The delta
+ * cannot report under 1 ms, so Port_GfxFrameRate() never asks for a shorter
+ * retrace than that: the unlimited choice arrives here as 1000. */
 static u64 RetraceNS(void) {
-    int rate = Port_GfxFrameRate();
+    u64 rate = (u64)Port_GfxFrameRate();
 
-    return rate > 0 ? 1000000000ull / (u64)rate : 0;
+    return 1000000000ull / (rate > 0 ? rate : 1000);
 }
 
 void Port_PumpEvents(void) {
