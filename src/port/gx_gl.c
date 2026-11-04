@@ -3,16 +3,43 @@
  * (top-left origin) are flipped here. */
 #include "gx_render.h"
 #include "gx_shaders.h"
+#include "gx_tevgen.h"
+
+/* GL_KHR_parallel_shader_compile (and the ARB one, same values) */
+#define GL_COMPLETION_STATUS 0x91B1
+typedef void (APIENTRYP PFNMAXSHADERCOMPILERTHREADSPROC)(GLuint count);
+
+/* Specialised pixel shaders (gx_tevgen.h), one program each, in an
+ * open-addressed table keyed by GXTevKey. Until a draw's program has linked
+ * it uses the general one (s.prog): with parallel shader compilation the
+ * driver builds them on its own threads, so a new setup costs no stall. */
+#define PROG_SLOTS 1024             /* power of two */
+#define PROG_MAX (PROG_SLOTS * 3 / 4)
+
+enum { PROG_EMPTY, PROG_PENDING, PROG_READY, PROG_FAILED };
+
+typedef struct Prog {
+    GXTevKey key;
+    GLuint prog, fs;
+    u8 state;
+} Prog;
 
 static struct {
     SDL_GLContext ctx;
-    GLuint prog, vao, vbo, ubo[2];
+    GLuint prog, vs, vao, vbo, ubo[2];
     GLuint poolVao, poolVbo;    /* the display list cache's vertex pool */
     GLuint fbo, fboColor, fboDepth;
     int efbW, efbH;
     GXVSUniforms lastVS;
     GXFSUniforms lastFS;
     int uboValid;
+    /* specialised programs; on: 0 = HWVX_NO_TEVGEN, only the general one */
+    int tevGen, parallel;
+    char *fsDecl;                   /* gx.frag up to its functions */
+    Prog *progs;
+    u32 nProgs;
+    GLuint curProg;                 /* for the FSBlock in lastFS */
+    int curPending;
     /* What the pool buffer holds: only vertices [0, poolClean) still match
      * memory, because an aborted capture or a cache reset recycles the tail.
      * poolGen changes when the pool starts over. */
@@ -57,6 +84,8 @@ static void GL_ApplyVSync(void) {
     }
 }
 
+static void TevGenFree(void);
+
 static int GL_Open(void) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
@@ -76,6 +105,7 @@ static int GL_Open(void) {
 }
 
 static void GL_Close(void) {
+    TevGenFree();
     SDL_GL_DestroyContext(s.ctx);
     s.ctx = NULL;
 }
@@ -94,6 +124,189 @@ static GLuint Compile(GLenum type, const char *src) {
         Port_Fatal("GX shader compile failed:\n%s", log);
     }
     return sh;
+}
+
+/* Uniform block and sampler bindings: fixed in the shaders for SDL_GPU, set
+ * per program here. Leaves prog bound. */
+static void BindProgramSlots(GLuint prog) {
+    int i;
+
+    glUseProgram(prog);
+    glUniformBlockBinding(prog, glGetUniformBlockIndex(prog, "VSBlock"), 0);
+    glUniformBlockBinding(prog, glGetUniformBlockIndex(prog, "FSBlock"), 1);
+    for (i = 0; i < 8; i++) {
+        char name[8] = "uTex0";
+        name[4] = (char)('0' + i);
+        glUniform1i(glGetUniformLocation(prog, name), i);   /* -1 (unused): ignored */
+    }
+}
+
+/* ---- specialised pixel shaders ------------------------------------------- */
+
+/* gx.frag's declarations: everything before its first function. Generated
+ * shaders reuse them, so the two can't drift apart. */
+static char *FragDecl(void) {
+    const char *end = SDL_strstr(gx_frag_glsl, "\nvec4 tex(int map");
+    size_t n;
+    char *d;
+
+    if (end == NULL) {
+        Port_Log("tevgen: gx.frag changed shape, using the general shader only");
+        return NULL;
+    }
+    n = (size_t)(end - gx_frag_glsl) + 1;
+    d = SDL_malloc(n + 1);
+    if (d != NULL) {
+        memcpy(d, gx_frag_glsl, n);
+        d[n] = 0;
+    }
+    return d;
+}
+
+static void TevGenInit(void) {
+    const char *e = SDL_getenv("HWVX_NO_TEVGEN");
+    PFNMAXSHADERCOMPILERTHREADSPROC maxThreads = NULL;
+
+    s.tevGen = !(e != NULL && *e == '1');
+    if (!s.tevGen) {
+        Port_Log("tevgen: off (HWVX_NO_TEVGEN), general pixel shader only");
+        return;
+    }
+    s.fsDecl = FragDecl();
+    s.progs = SDL_calloc(PROG_SLOTS, sizeof(Prog));
+    if (s.fsDecl == NULL || s.progs == NULL) {
+        s.tevGen = 0;
+        return;
+    }
+    if (SDL_GL_ExtensionSupported("GL_KHR_parallel_shader_compile")) {
+        maxThreads = (PFNMAXSHADERCOMPILERTHREADSPROC)SDL_GL_GetProcAddress("glMaxShaderCompilerThreadsKHR");
+    } else if (SDL_GL_ExtensionSupported("GL_ARB_parallel_shader_compile")) {
+        maxThreads = (PFNMAXSHADERCOMPILERTHREADSPROC)SDL_GL_GetProcAddress("glMaxShaderCompilerThreadsARB");
+    }
+    if (maxThreads != NULL) {
+        maxThreads(0xFFFFFFFFu);   /* as many as the driver likes */
+        s.parallel = 1;
+    }
+    Port_Log("tevgen: specialised pixel shaders on, %s compilation",
+             s.parallel ? "parallel" : "blocking");
+}
+
+/* Start building the program for key: compile and link are queued, and with
+ * parallel compilation return at once. */
+static void ProgStart(Prog *p) {
+    char *src = GX_TevGenGLSL(&p->key, s.fsDecl);
+    const char *parts[2] = { "#version 330 core\n", src };
+
+    p->fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(p->fs, 2, parts, NULL);
+    glCompileShader(p->fs);
+    SDL_free(src);
+    p->prog = glCreateProgram();
+    glAttachShader(p->prog, s.vs);
+    glAttachShader(p->prog, p->fs);
+    glLinkProgram(p->prog);
+    p->state = PROG_PENDING;
+}
+
+/* A pending program: done yet? Never waits with parallel compilation. */
+static void ProgPoll(Prog *p) {
+    GLint ok = 0;
+
+    if (s.parallel) {
+        glGetProgramiv(p->prog, GL_COMPLETION_STATUS, &ok);
+        if (!ok) {
+            return;
+        }
+    }
+    glGetProgramiv(p->prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        /* a generator bug: keep the general shader for this setup */
+        char log[2048];
+        GLint cok = 0;
+
+        glGetShaderiv(p->fs, GL_COMPILE_STATUS, &cok);
+        if (!cok) {
+            glGetShaderInfoLog(p->fs, sizeof(log), NULL, log);
+        } else {
+            glGetProgramInfoLog(p->prog, sizeof(log), NULL, log);
+        }
+        Port_Log("tevgen: specialised shader failed, using the general one:\n%s", log);
+        glDeleteProgram(p->prog);
+        p->prog = 0;
+        p->state = PROG_FAILED;
+    } else {
+        BindProgramSlots(p->prog);
+        a.prog = p->prog;           /* BindProgramSlots bound it */
+        p->state = PROG_READY;
+    }
+    glDeleteShader(p->fs);          /* stays alive while attached */
+    p->fs = 0;
+}
+
+/* The program for a draw's FSBlock: its specialised one once linked, until
+ * then (or without one) the general one. Sets s.curPending while waiting. */
+static GLuint ProgramFor(const GXFSUniforms *fs) {
+    GXTevKey key;
+    u32 i;
+    Prog *p;
+
+    s.curPending = 0;
+    if (!s.tevGen || !GX_TevKey(fs, &key)) {
+        return s.prog;
+    }
+    for (i = GX_TevKeyHash(&key) & (PROG_SLOTS - 1);; i = (i + 1) & (PROG_SLOTS - 1)) {
+        p = &s.progs[i];
+        if (p->state == PROG_EMPTY) {
+            if (s.nProgs >= PROG_MAX) {
+                return s.prog;      /* table full: general shader from here on */
+            }
+            p->key = key;
+            s.nProgs++;
+            ProgStart(p);
+            break;
+        }
+        if (memcmp(&p->key, &key, sizeof(key)) == 0) {
+            break;
+        }
+    }
+    if (p->state == PROG_PENDING) {
+        ProgPoll(p);
+    }
+    if (p->state == PROG_READY) {
+        return p->prog;
+    }
+    s.curPending = p->state == PROG_PENDING;
+    return s.prog;
+}
+
+static void TevGenStats(void) {
+    u32 i, pending = 0;
+
+    if (s.progs == NULL) {
+        return;
+    }
+    for (i = 0; i < PROG_SLOTS; i++) {
+        pending += s.progs[i].state == PROG_PENDING;
+    }
+    g_gxShaderStats.programs = s.nProgs;
+    g_gxShaderStats.pending = pending;
+}
+
+static void TevGenFree(void) {
+    u32 i;
+
+    if (s.progs != NULL) {
+        for (i = 0; i < PROG_SLOTS; i++) {
+            if (s.progs[i].prog != 0) glDeleteProgram(s.progs[i].prog);
+            if (s.progs[i].fs != 0) glDeleteShader(s.progs[i].fs);
+        }
+    }
+    SDL_free(s.progs);
+    SDL_free(s.fsDecl);
+    s.progs = NULL;
+    s.fsDecl = NULL;
+    s.nProgs = 0;
+    s.curProg = 0;
 }
 
 static void CreateEFB(void) {
@@ -146,16 +359,16 @@ static void SetAttribs(void) {
 }
 
 static void GL_Init(int efbW, int efbH) {
-    GLuint vs, fs;
+    GLuint fs;
     GLint ok = 0;
-    int i;
 
     s.efbW = efbW;
     s.efbH = efbH;
-    vs = Compile(GL_VERTEX_SHADER, gx_vert_glsl);
+    /* the vertex shader stays: every specialised program links it too */
+    s.vs = Compile(GL_VERTEX_SHADER, gx_vert_glsl);
     fs = Compile(GL_FRAGMENT_SHADER, gx_frag_glsl);
     s.prog = glCreateProgram();
-    glAttachShader(s.prog, vs);
+    glAttachShader(s.prog, s.vs);
     glAttachShader(s.prog, fs);
     glLinkProgram(s.prog);
     glGetProgramiv(s.prog, GL_LINK_STATUS, &ok);
@@ -164,16 +377,9 @@ static void GL_Init(int efbW, int efbH) {
         glGetProgramInfoLog(s.prog, sizeof(log), NULL, log);
         Port_Fatal("GX shader link failed:\n%s", log);
     }
-    glDeleteShader(vs);
     glDeleteShader(fs);
-    glUseProgram(s.prog);
-    glUniformBlockBinding(s.prog, glGetUniformBlockIndex(s.prog, "VSBlock"), 0);
-    glUniformBlockBinding(s.prog, glGetUniformBlockIndex(s.prog, "FSBlock"), 1);
-    for (i = 0; i < 8; i++) {
-        char name[8] = "uTex0";
-        name[4] = (char)('0' + i);
-        glUniform1i(glGetUniformLocation(s.prog, name), i);
-    }
+    BindProgramSlots(s.prog);
+    TevGenInit();
     glGenBuffers(2, s.ubo);
     glBindBuffer(GL_UNIFORM_BUFFER, s.ubo[0]);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(GXVSUniforms), NULL, GL_STREAM_DRAW);
@@ -256,7 +462,10 @@ static GLenum BlendFactor(u8 f) {
     return f < sizeof(t) / sizeof(t[0]) ? t[f] : GL_ONE;
 }
 
-static void UploadUniforms(const GXDrawCall *dc) {
+/* Returns whether the FSBlock changed. */
+static int UploadUniforms(const GXDrawCall *dc) {
+    int fsChanged = 0;
+
     if (!s.uboValid || memcmp(&s.lastVS, dc->vs, sizeof(s.lastVS)) != 0) {
         s.lastVS = *dc->vs;
         glBindBuffer(GL_UNIFORM_BUFFER, s.ubo[0]);
@@ -266,8 +475,10 @@ static void UploadUniforms(const GXDrawCall *dc) {
         s.lastFS = *dc->fs;
         glBindBuffer(GL_UNIFORM_BUFFER, s.ubo[1]);
         glBufferData(GL_UNIFORM_BUFFER, sizeof(GXFSUniforms), dc->fs, GL_STREAM_DRAW);
+        fsChanged = 1;
     }
     s.uboValid = 1;
+    return fsChanged;
 }
 
 /* The draw's vertices are part of the cache's vertex pool, which stays on the
@@ -314,9 +525,18 @@ static void GL_Draw(const GXDrawCall *dc) {
         glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
         a.fbo = s.fbo;
     }
-    if (force || a.prog != s.prog) {
-        glUseProgram(s.prog);
-        a.prog = s.prog;
+    /* the program follows the FSBlock (and a pending one may have linked) */
+    if (UploadUniforms(dc) || s.curPending || s.curProg == 0) {
+        s.curProg = ProgramFor(dc->fs);
+    }
+    if (force || a.prog != s.curProg) {
+        glUseProgram(s.curProg);
+        a.prog = s.curProg;
+    }
+    if (s.curProg == s.prog) {
+        g_gxShaderStats.general++;
+    } else {
+        g_gxShaderStats.special++;
     }
 
     /* GL rows are bottom-up */
@@ -334,7 +554,6 @@ static void GL_Draw(const GXDrawCall *dc) {
         a.scissorOn = 1;
     }
 
-    UploadUniforms(dc);
     for (i = 0; i < 8; i++) {
         if (!force && a.unit[i].tex == dc->tex[i] &&
             memcmp(&a.unit[i].samp, &dc->samp[i], sizeof(GXSampler)) == 0) {
@@ -499,6 +718,7 @@ static int GL_ReadEFB(u8 *rgba) {
 }
 
 static void GL_Present(void) {
+    TevGenStats();
     /* GXCopyDisp(clear) leaves the EFB bound (GL_Clear). Present from the
      * window's own framebuffer: Apple's GL only shows the swapped image when
      * it is bound; Mesa doesn't care. Draws rebind the EFB themselves. */

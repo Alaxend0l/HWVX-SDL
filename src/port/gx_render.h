@@ -117,6 +117,15 @@ typedef struct GXRenderer {
     void (*present)(void);
 } GXRenderer;
 
+/* HWVX_STATS: draws with a specialised pixel shader (gx_tevgen.h) and with
+ * the general one since the last report, and how many specialised programs
+ * exist / are still compiling. Backends without them leave it alone. */
+typedef struct GXShaderStats {
+    u32 special, general, programs, pending;
+} GXShaderStats;
+
+extern GXShaderStats g_gxShaderStats;
+
 extern const GXRenderer g_gxGL;
 extern const GXRenderer g_gxSDLGPU;
 extern const GXRenderer *g_gxr;

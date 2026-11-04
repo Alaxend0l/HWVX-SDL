@@ -19,12 +19,16 @@
  * One "uber" shader (shaders/gx.vert, gx.frag) implements the parts of the GX
  * pipeline the game uses, driven by two uniform blocks this file fills in from
  * g_gx: position/texture matrices, texture coordinate generation, the two
- * lighting channels, up to 16 TEV stages, alpha compare and fog. */
+ * lighting channels, up to 16 TEV stages, alpha compare and fog. The OpenGL
+ * backend also builds a pixel shader specialised to each TEV setup from the
+ * same uniforms (gx_tevgen.h) and uses gx.frag only until that is ready. */
 #include "gx_render.h"
+#include "gx_tevgen.h"
 
 #define MAX_STAGES 16
 
 const GXRenderer *g_gxr = &g_gxGL;
+GXShaderStats g_gxShaderStats;
 
 static u32 s_statDraws, s_statVerts;
 static u32 s_statBlend, s_statAlphaComp, s_statFog, s_statStages;
@@ -285,6 +289,75 @@ static int MapViewport(GXDrawCall *dc, GXVSUniforms *vs) {
     return 1;
 }
 
+/* HWVX_TEVKEYS=file: append each pixel-stage setup (gx_tevgen.h) the first
+ * time a draw uses it, as its whole FSBlock in hex, one per line. The lines
+ * from earlier runs count as seen, so the file only grows by new setups.
+ * tools/test_tevgen checks the specialised shaders against gx.frag with
+ * them, and tools/gen_shaders.py builds SDL_GPU's variants from them. */
+#define TEVKEY_SLOTS 4096
+
+/* Adds key to the seen set; 1 if it is new. */
+static int TevKeySeen(GXTevKey *seen, u32 *n, const GXTevKey *key) {
+    u32 i;
+
+    for (i = GX_TevKeyHash(key) & (TEVKEY_SLOTS - 1);; i = (i + 1) & (TEVKEY_SLOTS - 1)) {
+        if (seen[i].misc == 0 && seen[i].pad == 0) {   /* empty: misc of a used slot has pad 1 */
+            if (*n >= TEVKEY_SLOTS * 3 / 4) {
+                return 0;
+            }
+            seen[i] = *key;
+            seen[i].pad = 1;
+            (*n)++;
+            return 1;
+        }
+        if (seen[i].misc == key->misc && memcmp(seen[i].stage, key->stage, sizeof(key->stage)) == 0) {
+            return 0;
+        }
+    }
+}
+
+static void LogTevKey(const GXFSUniforms *fs) {
+    static int state = -1;          /* -1 unchecked, 0 off, 1 on */
+    static GXTevKey *seen;
+    static u32 nSeen;
+    static SDL_IOStream *out;
+    GXTevKey key;
+
+    if (state < 0) {
+        const char *path = SDL_getenv("HWVX_TEVKEYS");
+        GXFSUniforms old;
+        char *text, *line, *save = NULL;
+
+        state = 0;
+        if (path == NULL || *path == 0 || (seen = SDL_calloc(TEVKEY_SLOTS, sizeof(GXTevKey))) == NULL) {
+            return;
+        }
+        text = SDL_LoadFile(path, NULL);
+        for (line = text ? SDL_strtok_r(text, "\n", &save) : NULL; line != NULL;
+             line = SDL_strtok_r(NULL, "\n", &save)) {
+            if (GX_TevKeyFromHex(line, &old) && GX_TevKey(&old, &key)) {
+                TevKeySeen(seen, &nSeen, &key);
+            }
+        }
+        SDL_free(text);
+        out = SDL_IOFromFile(path, "a");
+        if (out == NULL) {
+            Port_Log("HWVX_TEVKEYS: can't open %s: %s", path, SDL_GetError());
+            return;
+        }
+        Port_Log("HWVX_TEVKEYS: %u setups in %s", nSeen, path);
+        state = 1;
+    }
+    if (state == 1 && GX_TevKey(fs, &key) && TevKeySeen(seen, &nSeen, &key)) {
+        static char line[2 * sizeof(GXFSUniforms) + 2];
+
+        GX_TevKeyToHex(fs, line);
+        SDL_strlcat(line, "\n", sizeof(line));
+        SDL_WriteIO(out, line, SDL_strlen(line));
+        SDL_FlushIO(out);
+    }
+}
+
 static int BuildDrawCall(GXDrawCall *dc, GXVSUniforms *vs, GXFSUniforms *fs) {
     const GXState *g = &g_gx;
     int dbg = DebugDraw(), i;
@@ -377,6 +450,7 @@ void GX_Draw(int prim, const GXVertex *v, u32 n) {
     if (BuildDrawCall(&dc, &vs, &fs)) {
         s64 t0 = 0;
 
+        LogTevKey(&fs);
         /* HWVX_STATS: what the pixel stage has to do for this draw, and how much
          * of the frame the renderer's own submit costs. */
         if (StatsOn()) {
@@ -512,7 +586,13 @@ static void DumpEFB(void) {
                  s_efbW, s_efbH, s_statBlend, s_statAlphaComp, s_statFog,
                  s_statDraws != 0 ? (double)s_statStages / (double)s_statDraws : 0.0,
                  (double)s_statDrawNs * 1000.0 / (double)(freq * 60));
+        if (g_gxShaderStats.special != 0 || g_gxShaderStats.programs != 0) {
+            Port_Log("  pixel shaders: %u draws specialised, %u general; %u programs, %u compiling",
+                     g_gxShaderStats.special, g_gxShaderStats.general, g_gxShaderStats.programs,
+                     g_gxShaderStats.pending);
+        }
     }
+    g_gxShaderStats.special = g_gxShaderStats.general = 0;
     s_statBlend = s_statAlphaComp = s_statFog = s_statStages = 0;
     s_statDrawNs = 0;
     s_statDraws = s_statVerts = 0;

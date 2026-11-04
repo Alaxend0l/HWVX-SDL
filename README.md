@@ -367,6 +367,15 @@ Debugging aids:
   that never runs, or a wait of many milliseconds, means the loader thread is
   being starved; see `Port_GiantLock` in `src/port/os.c`.
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
+- `HWVX_NO_TEVGEN=1` draws everything with the general pixel shader
+  (`gx.frag`) instead of the ones specialised to each TEV setup
+  (`src/port/gx_tevgen.h`), to compare. `HWVX_STATS=1` logs how many draws
+  used which.
+- `HWVX_TEVKEYS=tools/tevkeys.txt` appends each TEV setup the game uses that
+  the file doesn't have yet. SDL_GPU only has specialised shaders for the
+  setups listed there (rerun `tools/gen_shaders.py`); OpenGL builds its own.
+  `tools/tevcheck.sh tools/tevkeys.txt --random 2000 --exact` checks the
+  specialised shaders against `gx.frag` (needs a display).
 
 `tools/gen_shaders.py` regenerates `src/port/gx_shaders.h` after a change in
 `src/port/shaders/`: GLSL for OpenGL, and glslang → SPIR-V (Vulkan),
