@@ -43,9 +43,21 @@ static void StateReset(void) {
     memset(a.unit, 0, sizeof(a.unit));
 }
 
-static int GL_Open(void) {
-    const char *nv;
+/* The Graphics menu's VSync row, and HWVX_NO_VSYNC=1 for measuring: the swap
+ * interval says whether showing a frame waits for the display. It only hides
+ * what the GPU costs when it is on, so the knob wins over the setting.
+ * Set when it changes: the context is current in the opens and the presents. */
+static void GL_ApplyVSync(void) {
+    static int applied = -1;
+    int want = Port_VSyncWanted();
 
+    if (want != applied) {
+        SDL_GL_SetSwapInterval(want);
+        applied = want;
+    }
+}
+
+static int GL_Open(void) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -58,10 +70,7 @@ static int GL_Open(void) {
         Port_Fatal("OpenGL 3.3 core context unavailable: %s", SDL_GetError());
     }
     SDL_GL_MakeCurrent(g_port.window, s.ctx);
-    /* Vsync hides what the GPU costs, so HWVX_NO_VSYNC=1 frees the loop and the
-     * frame rate in the HWVX_DUMP log becomes a measure of the work per frame. */
-    nv = SDL_getenv("HWVX_NO_VSYNC");
-    SDL_GL_SetSwapInterval(nv != NULL && *nv == '1' ? 0 : 1);
+    GL_ApplyVSync();
     GL_Load();
     return 1;
 }
@@ -494,6 +503,7 @@ static void GL_Present(void) {
      * window's own framebuffer: Apple's GL only shows the swapped image when
      * it is bound; Mesa doesn't care. Draws rebind the EFB themselves. */
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    GL_ApplyVSync();
     /* blocks for vsync: let the audio thread run meanwhile */
     Port_InterruptWindowBegin();
     SDL_GL_SwapWindow(g_port.window);

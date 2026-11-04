@@ -6,7 +6,15 @@ static u32 s_retraceCount;
 static u64 s_nextFrameNS;
 static BOOL s_black;
 
-#define FRAME_NS (1000000000ull / 60)
+/* One video retrace's length at the frame rate in use. The game runs one logic
+ * frame per retrace, so this is also the game's rate: the Graphics menu's Max
+ * FPS choice moves it, and gfx_settings.c keeps it inside the rates the game's
+ * own per-frame timers follow. */
+static u64 RetraceNS(void) {
+    int rate = Port_GfxFrameRate();
+
+    return 1000000000ull / (u64)(rate > 0 ? rate : 60);
+}
 
 void Port_PumpEvents(void) {
     SDL_Event ev;
@@ -34,7 +42,7 @@ void Port_PumpEvents(void) {
 }
 
 void VIInit(void) {
-    s_nextFrameNS = SDL_GetTicksNS() + FRAME_NS;
+    s_nextFrameNS = SDL_GetTicksNS() + RetraceNS();
 }
 
 void VIConfigure(const struct GXRenderModeObj *rm) { (void)rm; }
@@ -72,10 +80,12 @@ static int NoRetraceWait(void) {
 static u64 s_idleNS, s_spanNS, s_lastRetraceNS;
 
 /* Called by the game after every GXCopyDisp (and in loading loops). One call
- * == one 60 Hz field. Other game threads run while we wait, exactly as they
- * would have while the GameCube CPU idled in VIWaitForRetrace. */
+ * == one retrace at the rate in use (RetraceNS above). Other game threads run
+ * while we wait, exactly as they would have while the GameCube CPU idled in
+ * VIWaitForRetrace. Whether the frame then waits for the display to take it is
+ * the renderer's business, not this one's: see Port_VSyncWanted. */
 void VIWaitForRetrace(void) {
-    u64 now;
+    u64 now, period;
 
     now = SDL_GetTicksNS();
     if (s_lastRetraceNS != 0)
@@ -87,15 +97,16 @@ void VIWaitForRetrace(void) {
 
     Port_GiantUnlock();
     now = SDL_GetTicksNS();
+    period = RetraceNS();
     if (now < s_nextFrameNS && !NoRetraceWait()) {
         u64 wait = s_nextFrameNS - now;
 
         SDL_DelayPrecise(wait);
         s_idleNS += wait;
-        s_nextFrameNS += FRAME_NS;
+        s_nextFrameNS += period;
     } else {
         /* Running behind; don't try to catch up with a burst of frames. */
-        s_nextFrameNS = now + FRAME_NS;
+        s_nextFrameNS = now + period;
     }
     Port_GiantLock();
     Port_InterruptPoint();

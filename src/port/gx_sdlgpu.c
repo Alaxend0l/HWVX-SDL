@@ -756,12 +756,21 @@ static void GPU_CopyDisp(const int src[4]) {
     if (s.swapTex == NULL) {
         bool ok;
 
-        /* blocks for vsync: let the audio thread run meanwhile */
-        Port_InterruptWindowBegin();
-        ok = SDL_WaitAndAcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH);
-        Port_InterruptWindowEnd();
-        if (!ok) {
-            Port_Log("SDL_WaitAndAcquireGPUSwapchainTexture failed: %s", SDL_GetError());
+        if (Port_VSyncWanted()) {
+            /* blocks for vsync: let the audio thread run meanwhile */
+            Port_InterruptWindowBegin();
+            ok = SDL_WaitAndAcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH);
+            Port_InterruptWindowEnd();
+            if (!ok) {
+                Port_Log("SDL_WaitAndAcquireGPUSwapchainTexture failed: %s", SDL_GetError());
+            }
+        } else {
+            /* VSync off: no wait for the display, so no window for the audio
+             * thread either. */
+            ok = SDL_AcquireGPUSwapchainTexture(cmd, g_port.window, &s.swapTex, &s.swapW, &s.swapH);
+            if (!ok) {
+                Port_Log("SDL_AcquireGPUSwapchainTexture failed: %s", SDL_GetError());
+            }
         }
         if (s.swapTex == NULL) {   /* minimized */
             return;

@@ -78,12 +78,25 @@ static int SetRenderer(const char *name) {
     return 0;
 }
 
+/* --vsync on|off, also written 1/0. -1: not something the port takes. */
+static int ParseVSync(const char *s) {
+    if (SDL_strcasecmp(s, "on") == 0 || SDL_strcasecmp(s, "yes") == 0 || SDL_strcmp(s, "1") == 0) {
+        return 1;
+    }
+    if (SDL_strcasecmp(s, "off") == 0 || SDL_strcasecmp(s, "no") == 0 || SDL_strcmp(s, "0") == 0) {
+        return 0;
+    }
+    return -1;
+}
+
 static void ParseArgs(int argc, char **argv) {
-    int i, haveSize = 0;
+    int i, v, haveSize = 0, haveVSync = 0, haveFps = 0;
 
     g_port.dataDir = NULL;   /* FindDataDir */
     g_port.scale = 2;
     g_port.resetSave = 0;
+    g_port.vsync = 1;        /* what the GameCube's own retrace wait does */
+    g_port.maxFps = 60;
     if (!SetRenderer(s_defaultRenderer)) {
         SetRenderer("opengl");
     }
@@ -103,15 +116,28 @@ static void ParseArgs(int argc, char **argv) {
             haveSize = 1;
         } else if (SDL_strcmp(argv[i], "--fullscreen") == 0) {
             g_port.fullscreen = 1;
+        } else if (SDL_strcmp(argv[i], "--vsync") == 0 && i + 1 < argc &&
+                   (v = ParseVSync(argv[i + 1])) >= 0) {
+            g_port.vsync = v;
+            haveVSync = 1;
+            i++;
+        } else if (SDL_strcmp(argv[i], "--fps") == 0 && i + 1 < argc && (v = SDL_atoi(argv[i + 1])) > 0) {
+            g_port.maxFps = v;
+            haveFps = 1;
+            i++;
         } else if (SDL_strcmp(argv[i], "--reset-save") == 0) {
             g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
         } else {
-            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen] [--renderer NAME] [--reset-save]", argv[0]);
+            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen]", argv[0]);
+            SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save]");
             SDL_Log("  --data DIR       extracted disc files (default: the folder chosen last time,");
             SDL_Log("                   or files/ next to the program, or orig/files)");
             SDL_Log("  --window WxH     window size, any shape (default: 640x480 times --scale)");
+            SDL_Log("  --vsync on|off   whether a frame waits for the display (default: on)");
+            SDL_Log("  --fps N          frame rate: 30 or 60 (default); a higher choice is");
+            SDL_Log("                   kept for when the game follows a faster rate");
             SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
             SDL_Log("                   one that fails to start falls back to opengl)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
@@ -121,7 +147,7 @@ static void ParseArgs(int argc, char **argv) {
     if (g_port.scale < 1) {
         g_port.scale = 1;
     }
-    Port_GfxLoadConfig(haveSize, g_port.fullscreen);
+    Port_GfxLoadConfig(haveSize, g_port.fullscreen, haveVSync, haveFps);
 }
 
 /* --reset-save: the game side reads the flag through this accessor rather

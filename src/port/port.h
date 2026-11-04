@@ -193,12 +193,20 @@ void Port_InvalidateDisplayLists(const void *p, u32 size);
  * (GameSettings_Get/SetCodeVariable). */
 #define PORT_CODEVAR_RESOLUTION 0x1000   /* index into the mode list */
 #define PORT_CODEVAR_DISPLAY 0x1001      /* 0 windowed, 1 fullscreen */
-#define PORT_IS_CODEVAR(id) ((id) == PORT_CODEVAR_RESOLUTION || (id) == PORT_CODEVAR_DISPLAY)
+#define PORT_CODEVAR_VSYNC 0x1002        /* 0 off, 1 on: wait for the display */
+#define PORT_CODEVAR_MAXFPS 0x1003       /* index into the frame rate choices */
+#define PORT_IS_CODEVAR(id) ((id) >= PORT_CODEVAR_RESOLUTION && (id) <= PORT_CODEVAR_MAXFPS)
+#define PORT_MAX_CHOICES 8               /* the widest of those choice lists */
 u32 Port_GfxGet(s32 id);
 void Port_GfxSet(s32 id, u32 value);
 void Port_GfxMenuOpened(void);
 u32 Port_GfxModeCount(void);
 const char *Port_GfxModeName(u32 i);
+/* The choice lists of the other rows, VSync and Max FPS: how many options
+ * there are, and each one's name. The option's index is what the row's code
+ * variable holds, so only this side knows the rates behind the names. */
+u32 Port_GfxOptionCount(s32 id);
+const char *Port_GfxOptionName(s32 id, u32 i);
 void Port_GfxApply(void);
 void Port_Fatal(const char *fmt, ...) PORT_PRINTF(1, 2) __attribute__((noreturn));
 #define PORT_TODO(what) Port_Todo(__func__, what)
