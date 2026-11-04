@@ -27,6 +27,20 @@
 const GXRenderer *g_gxr = &g_gxGL;
 
 static u32 s_statDraws, s_statVerts;
+static u32 s_statBlend, s_statAlphaComp, s_statFog, s_statStages;
+static s64 s_statDrawNs;
+static int s_statsOn = -1;
+
+/* HWVX_STATS=1 turns on the per-window drawing counters, including the timing
+ * ones, so a slow frame in the log is only what drawing costs. */
+static int StatsOn(void) {
+    if (s_statsOn < 0) {
+        const char *e = SDL_getenv("HWVX_STATS");
+
+        s_statsOn = e != NULL && *e == '1';
+    }
+    return s_statsOn;
+}
 static int s_efbW, s_efbH;
 
 extern u8 g_CurrentViews[8];   /* game: bit n set = view n drawn this frame */
@@ -361,7 +375,27 @@ void GX_Draw(int prim, const GXVertex *v, u32 n) {
      * immediate FIFO) cannot. */
     dc.batch = GX_FifoBatch(dc.v, dc.n);
     if (BuildDrawCall(&dc, &vs, &fs)) {
+        s64 t0 = 0;
+
+        /* HWVX_STATS: what the pixel stage has to do for this draw, and how much
+         * of the frame the renderer's own submit costs. */
+        if (StatsOn()) {
+            if (dc.blend) {
+                s_statBlend++;
+            }
+            if (fs.alphaComp[0] != 0 || fs.alphaComp[3] != 0) {
+                s_statAlphaComp++;
+            }
+            if (fs.misc[2] != 0) {
+                s_statFog++;
+            }
+            s_statStages += (u32)fs.misc[0];
+            t0 = SDL_GetPerformanceCounter();
+        }
         g_gxr->draw(&dc);
+        if (t0 != 0) {
+            s_statDrawNs += SDL_GetPerformanceCounter() - t0;
+        }
     }
 }
 
@@ -422,11 +456,7 @@ static void DumpEFB(void) {
     if (!checked) {
         checked = 1;
         dir = SDL_getenv("HWVX_DUMP");
-        if (dir == NULL) {
-            const char *e = SDL_getenv("HWVX_STATS");
-
-            statsOnly = e != NULL && *e == '1';
-        }
+        statsOnly = StatsOn();
     }
     if ((dir == NULL && !statsOnly) || (count++ % 60) != 0) {
         return;
@@ -471,6 +501,20 @@ static void DumpEFB(void) {
         lastMtx = mtx;
         lastSkip = skip;
     }
+    {
+        static s64 freq = 1;
+
+        if (freq == 1) {
+            freq = SDL_GetPerformanceFrequency();
+        }
+        Port_Log("  pixel stage: %dx%d EFB, %u blended, %u alpha-compare, %u fog, %.2f avg TEV stages, "
+                 "%.2f ms/frame in the renderer",
+                 s_efbW, s_efbH, s_statBlend, s_statAlphaComp, s_statFog,
+                 s_statDraws != 0 ? (double)s_statStages / (double)s_statDraws : 0.0,
+                 (double)s_statDrawNs * 1000.0 / (double)(freq * 60));
+    }
+    s_statBlend = s_statAlphaComp = s_statFog = s_statStages = 0;
+    s_statDrawNs = 0;
     s_statDraws = s_statVerts = 0;
     if (dir == NULL) {
         return;   /* HWVX_STATS: numbers only, no readback */
