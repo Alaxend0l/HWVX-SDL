@@ -91,6 +91,7 @@ static const char *const *FpsNames(void) {
     if (!done) {
         for (i = 0; i < NUM_FPS; i++) {
             SDL_snprintf(s_fpsNames[i], sizeof(s_fpsNames[i]), "%d FPS", s_fpsValues[i]);
+            names[i] = s_fpsNames[i];
         }
         done = 1;
     }
