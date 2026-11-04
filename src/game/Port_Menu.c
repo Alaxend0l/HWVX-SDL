@@ -130,6 +130,9 @@ typedef struct RecordCopy {
     IfaceRecord rec;
     IfaceEvent events[MAX_EVENTS];
     IfaceEventDef defs[MAX_EVENTS];
+    IfaceStep step;             /* SetActions: the row's own step, for records
+                                 * the pack gave no step to (its left/right
+                                 * events moved something else instead) */
 } RecordCopy;
 
 /* SetCodeVariable(id, arg, vars[var]) */
@@ -245,7 +248,15 @@ static RecordCopy *CopyRecord(RecordCopy *c, IfaceObjectDef *d, u8 id, u8 up, u8
     return c;
 }
 
-/* Left/right on a row: write variable `var` to code variable `id`. */
+/* The row applies vars[var] to its code variable when its left/right events
+ * run. `rec`'s pack events either already do that (type 0xB, the Difficulty
+ * and Sound rows) or change one of the game's volume variables instead (types
+ * 0x16/0x17, the Music and SFX rows this port clones as VSync and Max FPS):
+ * retarget both kinds at the port's own action list, so neither moves volume.
+ * A row whose pack record has no step - again the Music and SFX rows, whose
+ * left/right only moved volume - gets one here, matching the pack's other
+ * rows: left/right add -1/+1 to vars[var], wrapped into the variable's
+ * min/max by the interface (InterfaceManager_Update). */
 static void SetActions(RecordCopy *rec, ActionCopy *c, u32 id, u16 var) {
     u32 i;
 
@@ -261,9 +272,19 @@ static void SetActions(RecordCopy *rec, ActionCopy *c, u32 id, u16 var) {
     c->list.count = 1;
     SETP(c->list.actions, &c->action);
     for (i = 0; i < rec->rec.events.count; i++) {
-        if (rec->defs[i].type == 0xB) {
+        if (rec->defs[i].type == 0xB || rec->defs[i].type == 0x16 || rec->defs[i].type == 0x17) {
+            rec->defs[i].type = 0xB;
+            rec->defs[i].delta = 0;
             SETP(rec->defs[i].target, &c->list);
         }
+    }
+    if (rec->rec.numSteps == 0) {
+        memset(&rec->step, 0, sizeof(rec->step));
+        rec->step.var = var;
+        rec->step.val[2] = -1;
+        rec->step.val[3] = 1;
+        SETP(rec->rec.steps, &rec->step);
+        rec->rec.numSteps = 1;
     }
 }
 
