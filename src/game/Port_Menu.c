@@ -1,6 +1,7 @@
 /* Port menu entries: "Quit Game" in the main menu, and a "Graphics"
  * entry in the Options screen with the Graphics screen it opens (resolution,
- * windowed/fullscreen: src/port/gfx_settings.c). Port-only file.
+ * windowed/fullscreen, vsync on/off and a max frame rate of 30/60/90/120/144/
+ * 240: src/port/gfx_settings.c). Port-only file.
  *
  * Menus are data (HW_IPack.xgc), so these are built from the screens' own
  * definitions when they are created (Port_MenuPatch, from
@@ -56,9 +57,11 @@ enum {
     OPT_VAR_DIFFICULTY = 0,     /* Graphics: the resolution */
     OPT_VAR_SELECTED = 1,
     OPT_VAR_SOUND = 3,          /* Graphics: the display mode */
+    OPT_VAR_MUSIC = 4,          /* Graphics: vsync */
+    OPT_VAR_SFX = 5,            /* Graphics: the frame rate */
 };
 
-enum { REC_CONTROLLER = 1, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6 };
+enum { REC_CONTROLLER = 1, REC_MUSIC = 4, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6 };
 
 /* Menu rows in the pack: the first (Controller, One Player) at 198, 26 apart.
  * With the port's seventh row they sit a little closer, row k at
@@ -163,13 +166,13 @@ static InterfaceHeader s_gfx;
 static IfaceObjectDef s_gfxObjs[OPT_NUM_OBJECTS];
 static IfaceVarList s_gfxVarList;
 static IfaceVar s_gfxVars[8];
-static IfaceCodeVar s_gfxCode[2];
+static IfaceCodeVar s_gfxCode[4];
 static IfaceConditionList s_hideAll;   /* type 0 "hide if all", no conditions: always hidden */
-static AnimCopy s_rowAnim[8];
-static TextCopy s_gfxText[3];
-static RecordCopy s_gfxRec[2];
-static ActionCopy s_gfxAction[2];
-static ListCopy s_resList, s_displayList;
+static AnimCopy s_rowAnim[16];
+static TextCopy s_gfxText[5];
+static RecordCopy s_gfxRec[4];
+static ActionCopy s_gfxAction[4];
+static ListCopy s_resList, s_displayList, s_vsyncList, s_fpsList;
 
 static const char *DefText(const IfaceObjectDef *d) {
     IfaceText *t;
@@ -316,9 +319,9 @@ static void RefreshModes(void) {
 
 static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs) {
     static const char *const displayNames[2] = { "Windowed", "Fullscreen" };
+    const char *optNames[PORT_MAX_CHOICES];
     static const u8 hide[] = {
-        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_MUSIC, OPT_MUSIC + 1, OPT_MUSIC + 2, OPT_MUSIC + 3,
-        OPT_SFX, OPT_SFX + 1, OPT_SFX + 2, OPT_SFX + 3, OPT_DEBUG,
+        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_DEBUG,
     };
     IfaceVarList *vars = GETP(opt->vars);
     InterfaceHeader *ctrl;
@@ -334,6 +337,13 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
 
     s_gfxVarList.count = vars->count < 8 ? vars->count : 8;
     memcpy(s_gfxVars, GETP(vars->vars), s_gfxVarList.count * sizeof(IfaceVar));
+    /* The pack's list ends at the Sound row's var. Extend the copy with
+     * clones of it (a code var of the right shape, which SetCodeVar below
+     * retargets) so the VSync and Max FPS rows have vars 4 and 5. */
+    while (s_gfxVarList.count < 6 && s_gfxVarList.count < sizeof(s_gfxVars) / sizeof(s_gfxVars[0])) {
+        s_gfxVars[s_gfxVarList.count] = s_gfxVars[OPT_VAR_SOUND];
+        s_gfxVarList.count++;
+    }
     SETP(s_gfxVarList.vars, s_gfxVars);
     SETP(s_gfx.vars, &s_gfxVarList);
     SetCodeVar(&s_gfxVars[OPT_VAR_DIFFICULTY], &s_gfxCode[0], PORT_CODEVAR_RESOLUTION, 0);
@@ -347,18 +357,50 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
     }
     SetText(&s_gfxText[0], &s_gfxObjs[OPT_TITLE], "Graphics");
 
-    /* the two rows, moved to the top */
+    /* the four rows, moved to the top */
     for (i = 0; i < 4; i++) {
         MoveTo(&s_rowAnim[i], &s_gfxObjs[OPT_DIFFICULTY + i], ROW_Y);
         MoveTo(&s_rowAnim[4 + i], &s_gfxObjs[OPT_SOUND + i], ROW_Y + ROW_STEP);
+        MoveTo(&s_rowAnim[8 + i], &s_gfxObjs[OPT_MUSIC + i], ROW_Y + 2 * ROW_STEP);
+        MoveTo(&s_rowAnim[12 + i], &s_gfxObjs[OPT_SFX + i], ROW_Y + 3 * ROW_STEP);
     }
     SetText(&s_gfxText[1], &s_gfxObjs[OPT_DIFFICULTY], "Resolution");
-    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_SOUND, REC_SOUND),
+    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_SFX, REC_SOUND),
                &s_gfxAction[0], PORT_CODEVAR_RESOLUTION, OPT_VAR_DIFFICULTY);
     SetText(&s_gfxText[2], &s_gfxObjs[OPT_SOUND], "Display");
-    SetActions(CopyRecord(&s_gfxRec[1], &s_gfxObjs[OPT_SOUND], REC_SOUND, REC_DIFFICULTY, REC_DIFFICULTY),
+    SetActions(CopyRecord(&s_gfxRec[1], &s_gfxObjs[OPT_SOUND], REC_SOUND, REC_DIFFICULTY, REC_MUSIC),
                &s_gfxAction[1], PORT_CODEVAR_DISPLAY, OPT_VAR_SOUND);
     SetList(&s_displayList, &s_gfxObjs[OPT_SOUND + 1], OPT_VAR_SOUND, displayNames, 2);
+    if (s_gfxVarList.count > OPT_VAR_SFX) {
+        /* VSync and Max FPS: the Music and SFX rows (their packs' own rows,
+         * hidden before), relabelled and wired to the port's code vars. The
+         * ring runs Resolution - Display - VSync - Max FPS - Resolution. */
+        u32 n;
+
+        SetCodeVar(&s_gfxVars[OPT_VAR_MUSIC], &s_gfxCode[2], PORT_CODEVAR_VSYNC, 1);
+        SetCodeVar(&s_gfxVars[OPT_VAR_SFX], &s_gfxCode[3], PORT_CODEVAR_MAXFPS,
+                   (s32)Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) - 1);
+        SetText(&s_gfxText[3], &s_gfxObjs[OPT_MUSIC], "VSync");
+        SetActions(CopyRecord(&s_gfxRec[2], &s_gfxObjs[OPT_MUSIC], REC_MUSIC, REC_SOUND, REC_SFX),
+                   &s_gfxAction[2], PORT_CODEVAR_VSYNC, OPT_VAR_MUSIC);
+        for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_VSYNC) && n < PORT_MAX_CHOICES; n++) {
+            optNames[n] = Port_GfxOptionName(PORT_CODEVAR_VSYNC, n);
+        }
+        SetList(&s_vsyncList, &s_gfxObjs[OPT_MUSIC + 1], OPT_VAR_MUSIC, optNames, n);
+        SetText(&s_gfxText[4], &s_gfxObjs[OPT_SFX], "Max FPS");
+        SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_DIFFICULTY),
+                   &s_gfxAction[3], PORT_CODEVAR_MAXFPS, OPT_VAR_SFX);
+        for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) && n < PORT_MAX_CHOICES; n++) {
+            optNames[n] = Port_GfxOptionName(PORT_CODEVAR_MAXFPS, n);
+        }
+        SetList(&s_fpsList, &s_gfxObjs[OPT_SFX + 1], OPT_VAR_SFX, optNames, n);
+        Port_Log("menu: graphics screen built (resolution, display, vsync, max fps)");
+    } else {
+        for (i = OPT_MUSIC; i < OPT_SFX + 4; i++) {
+            s_gfxObjs[i].active = 0;
+            SETP(s_gfxObjs[i].conditions, &s_hideAll);
+        }
+    }
     RefreshModes();
 }
 
