@@ -184,9 +184,18 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
             (car->base.axis[1].y > 0.83f ||
              (car->base.axis[1].y > 0.6f && GETP(car->base.player) != NULL && (car->transmissionFlags & 0x20) &&
               CARA_PLAYER(car)->throttle == 0))) {
-            car->base.vel.x *= 0.9f;
-            car->base.vel.y *= 0.9f;
-            car->base.vel.z *= 0.9f;
+            // Port fix: this 10%-per-frame velocity damping is the game's main brake.
+            // It runs while the wheel-speed target is near zero (braking, coasting,
+            // rolling to a stop, reversing slowly) with grip, all wheels down and the
+            // car upright; it was tuned for the original fixed 60 FPS. At 240 FPS it
+            // fired 4x as often per second, so braking and coasting scrubbed speed
+            // four times faster -- the car felt heavy and drifts died instantly.
+            // Normalize so the decay per second always matches its 60 FPS value:
+            // powf(0.9f, 60.0f * dt) is exactly 0.9 at 60 FPS.
+            f32 brakeDamp = powf(0.9f, 60.0f * g_fDeltaTimeSec);
+            car->base.vel.x *= brakeDamp;
+            car->base.vel.y *= brakeDamp;
+            car->base.vel.z *= brakeDamp;
             GetComponentOfVector(&car->groundNormal, &car->forceAccum);
         }
         if (car->transmissionFlags & 0x10) {
