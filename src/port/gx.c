@@ -107,13 +107,20 @@ void GXSetPixelFmt(int pixFmt, int zFmt) { (void)pixFmt; (void)zFmt; }
 
 /* ---- vertex format / immediate geometry -------------------------------- */
 
+/* Bumped whenever anything the vertex decoder reads outside the command stream
+ * changes (formats, arrays, default matrix). The display-list cache folds it
+ * into its key, which saves re-hashing the format state per call. */
+u32 g_gxVtxGen;
+
 void GXClearVtxDesc(void) {
     memset(g_gx.vcd, 0, sizeof(g_gx.vcd));
+    g_gxVtxGen++;
 }
 
 void GXSetVtxDesc(int attr, int type) {
     if (attr >= 0 && attr < GX_NUM_ATTR) {
         g_gx.vcd[attr] = (u8)type;
+        g_gxVtxGen++;
     }
 }
 
@@ -122,6 +129,7 @@ void GXSetVtxAttrFmt(int vtxfmt, int attr, int cnt, int type, u8 frac) {
         g_gx.vat[vtxfmt][attr].cnt = (u8)cnt;
         g_gx.vat[vtxfmt][attr].type = (u8)type;
         g_gx.vat[vtxfmt][attr].frac = frac;
+        g_gxVtxGen++;
     }
 }
 
@@ -129,6 +137,7 @@ void GXSetArray(int attr, const void *base, u8 stride) {
     if (attr >= 0 && attr < GX_NUM_ATTR) {
         g_gx.array[attr] = base;
         g_gx.arrayStride[attr] = stride;
+        g_gxVtxGen++;
     }
 }
 
@@ -229,7 +238,7 @@ void GXLoadTexMtxImm(const f32 mtx[][4], u32 id, int type) {
     }
 }
 
-void GXSetCurrentMtx(u32 id) { g_gx.curMtx = id; }
+void GXSetCurrentMtx(u32 id) { g_gx.curMtx = id; g_gxVtxGen++; }
 
 /* Same math as the SDK: model-view, then projection, then viewport. */
 void GXProject(f32 x, f32 y, f32 z, const f32 mtx[3][4], const f32 *pm, const f32 *vp,

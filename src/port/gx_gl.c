@@ -7,12 +7,41 @@
 static struct {
     SDL_GLContext ctx;
     GLuint prog, vao, vbo, ubo[2];
+    GLuint poolVao, poolVbo;    /* the display list cache's vertex pool */
     GLuint fbo, fboColor, fboDepth;
     int efbW, efbH;
     GXVSUniforms lastVS;
     GXFSUniforms lastFS;
     int uboValid;
+    /* What the pool buffer holds: only vertices [0, poolClean) still match
+     * memory, because an aborted capture or a cache reset recycles the tail.
+     * poolGen changes when the pool starts over. */
+    u32 poolGen, poolCap, poolClean;
 } s;
+
+/* GL_Draw runs thousands of times a frame, mostly with the same state. What it
+ * applies is remembered here and only re-applied when it differs. Anything that
+ * touches GL state outside GL_Draw (clear, copy display, textures, present)
+ * calls StateReset(), which makes the next draw apply everything. */
+static struct {
+    int full;                     /* 0: nothing here is known to be applied */
+    GLuint fbo, prog, vao;
+    f32 vp[6];                    /* viewport, near, far as GX set them */
+    int scissorOn, sc[4];
+    int depthTest, depthWrite, cull, blend, blendRevSub;
+    GLenum zfunc, bsrc, bdst;
+    GLboolean colorWrite, alphaWrite;
+    struct { const void *tex; GXSampler samp; } unit[8];
+} a;
+
+static void StateReset(void) {
+    a.full = 0;
+    a.fbo = 0;
+    a.prog = 0;
+    a.vao = 0;
+    a.scissorOn = 0;
+    memset(a.unit, 0, sizeof(a.unit));
+}
 
 static int GL_Open(void) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -74,6 +103,32 @@ static void CreateEFB(void) {
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         Port_Fatal("EFB framebuffer incomplete");
     }
+    StateReset();
+}
+
+/* The vertex format, read from whichever array buffer is bound. Both the
+ * scratch buffer and the pool use it, so a draw never re-specifies it. */
+static void SetAttribs(void) {
+#define ATTR(loc, n, field) \
+    glEnableVertexAttribArray(loc); \
+    glVertexAttribPointer(loc, n, GL_FLOAT, GL_FALSE, sizeof(GXVertex), (void *)offsetof(GXVertex, field))
+#define ATTRN(loc, n, type, field) \
+    glEnableVertexAttribArray(loc); \
+    glVertexAttribPointer(loc, n, type, GL_TRUE, sizeof(GXVertex), (void *)offsetof(GXVertex, field))
+    int i;
+
+    ATTR(0, 3, pos);
+    ATTRN(1, 4, GL_BYTE, nrm);
+    ATTRN(2, 4, GL_UNSIGNED_BYTE, clr[0]);
+    ATTRN(3, 4, GL_UNSIGNED_BYTE, clr[1]);
+    for (i = 0; i < 8; i++) {
+        glEnableVertexAttribArray(4 + i);
+        glVertexAttribPointer(4 + i, 2, GL_FLOAT, GL_FALSE, sizeof(GXVertex),
+                              (void *)(offsetof(GXVertex, tex) + i * 2 * sizeof(f32)));
+    }
+    ATTR(12, 1, mtxIdx);
+#undef ATTR
+#undef ATTRN
 }
 
 static void GL_Init(int efbW, int efbH) {
@@ -113,24 +168,20 @@ static void GL_Init(int efbW, int efbH) {
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, s.ubo[0]);
     glBindBufferBase(GL_UNIFORM_BUFFER, 1, s.ubo[1]);
 
+    /* Two vertex array objects share the same attribute layout and differ only
+     * in which vertex buffer they read: the scratch buffer that uncached draws
+     * and the immediate FIFO fill, and the cache's vertex pool. */
     glGenVertexArrays(1, &s.vao);
     glBindVertexArray(s.vao);
     glGenBuffers(1, &s.vbo);
     glBindBuffer(GL_ARRAY_BUFFER, s.vbo);
-#define ATTR(loc, n, field) \
-    glEnableVertexAttribArray(loc); \
-    glVertexAttribPointer(loc, n, GL_FLOAT, GL_FALSE, sizeof(GXVertex), (void *)offsetof(GXVertex, field))
-    ATTR(0, 3, pos);
-    ATTR(1, 3, nrm);
-    ATTR(2, 4, clr[0]);
-    ATTR(3, 4, clr[1]);
-    for (i = 0; i < 8; i++) {
-        glEnableVertexAttribArray(4 + i);
-        glVertexAttribPointer(4 + i, 2, GL_FLOAT, GL_FALSE, sizeof(GXVertex),
-                              (void *)(offsetof(GXVertex, tex) + i * 2 * sizeof(f32)));
-    }
-    ATTR(12, 1, mtxIdx);
-#undef ATTR
+    SetAttribs();
+    glGenVertexArrays(1, &s.poolVao);
+    glBindVertexArray(s.poolVao);
+    glGenBuffers(1, &s.poolVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, s.poolVbo);
+    SetAttribs();
+    glFrontFace(GL_CW);           /* GX front faces are clockwise */
     CreateEFB();
 }
 
@@ -150,17 +201,20 @@ static void *GL_TexCreate(int w, int h, int levels) {
     glGenTextures(1, &name);
     glBindTexture(GL_TEXTURE_2D, name);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
+    StateReset();
     return (void *)(uintptr_t)name;
 }
 
 static void GL_TexUpload(void *tex, int level, int w, int h, const u8 *rgba) {
     glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)tex);
     glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    StateReset();
 }
 
 static void GL_TexDestroy(void *tex) {
     GLuint name = (GLuint)(uintptr_t)tex;
     glDeleteTextures(1, &name);
+    StateReset();
 }
 
 static GLint WrapMode(u8 w) {
@@ -202,59 +256,140 @@ static void UploadUniforms(const GXDrawCall *dc) {
     s.uboValid = 1;
 }
 
+/* The draw's vertices are part of the cache's vertex pool, which stays on the
+ * GPU while the cache holds them: append what has not been sent yet and draw
+ * from an offset, with no buffer copy and no attribute changes. */
+static void DrawBatched(const GXDrawCall *dc, GLenum mode) {
+    const GXVtxBatch *b = dc->batch;
+
+    if (s.poolGen != b->gen || s.poolCap < b->cap) {
+        glBindBuffer(GL_ARRAY_BUFFER, s.poolVbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(b->cap * sizeof(GXVertex)), NULL, GL_STREAM_DRAW);
+        s.poolGen = b->gen;
+        s.poolCap = b->cap;
+        s.poolClean = 0;
+    }
+    if (b->used < s.poolClean) {
+        s.poolClean = b->used;      /* an aborted capture recycled the tail */
+    }
+    if (b->used > s.poolClean) {
+        glBindBuffer(GL_ARRAY_BUFFER, s.poolVbo);
+        glBufferSubData(GL_ARRAY_BUFFER, (GLintptr)(s.poolClean * sizeof(GXVertex)),
+                        (GLsizeiptr)((b->used - s.poolClean) * sizeof(GXVertex)), b->base + s.poolClean);
+        s.poolClean = b->used;
+    }
+    if (a.vao != s.poolVao) {
+        glBindVertexArray(s.poolVao);
+        a.vao = s.poolVao;
+    }
+    glDrawArrays(mode, (GLint)(dc->v - b->base), (GLsizei)dc->n);
+}
+
 static void GL_Draw(const GXDrawCall *dc) {
     static const GLenum modes[] = {
         GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN, GL_LINES, GL_LINE_STRIP, GL_POINTS,
     };
+    static const GLenum funcs[8] = {
+        GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS,
+    };
     const f32 *vp = dc->viewport;
     const int *sc = dc->scissor;
-    int i;
+    int i, force = !a.full;
 
-    glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
-    glUseProgram(s.prog);
-    glBindVertexArray(s.vao);
+    if (force || a.fbo != s.fbo) {
+        glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+        a.fbo = s.fbo;
+    }
+    if (force || a.prog != s.prog) {
+        glUseProgram(s.prog);
+        a.prog = s.prog;
+    }
 
     /* GL rows are bottom-up */
-    glViewport((GLint)vp[0], (GLint)(s.efbH - vp[1] - vp[3]), (GLsizei)vp[2], (GLsizei)vp[3]);
-    glDepthRange(vp[4], vp[5]);
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(sc[0], s.efbH - sc[1] - sc[3], sc[2], sc[3]);
+    if (force || memcmp(a.vp, vp, sizeof(a.vp)) != 0) {
+        glViewport((GLint)vp[0], (GLint)(s.efbH - vp[1] - vp[3]), (GLsizei)vp[2], (GLsizei)vp[3]);
+        glDepthRange(vp[4], vp[5]);
+        memcpy(a.vp, vp, sizeof(a.vp));
+    }
+    if (force || memcmp(a.sc, sc, sizeof(a.sc)) != 0) {
+        glScissor(sc[0], s.efbH - sc[1] - sc[3], sc[2], sc[3]);
+        memcpy(a.sc, sc, sizeof(a.sc));
+    }
+    if (force || !a.scissorOn) {
+        glEnable(GL_SCISSOR_TEST);
+        a.scissorOn = 1;
+    }
 
     UploadUniforms(dc);
     for (i = 0; i < 8; i++) {
+        if (!force && a.unit[i].tex == dc->tex[i] &&
+            memcmp(&a.unit[i].samp, &dc->samp[i], sizeof(GXSampler)) == 0) {
+            continue;
+        }
         glActiveTexture(GL_TEXTURE0 + i);
         glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)dc->tex[i]);
         if (dc->tex[i] != NULL) {
             SetSampler(&dc->samp[i]);
         }
+        a.unit[i].tex = dc->tex[i];
+        a.unit[i].samp = dc->samp[i];
     }
-    glActiveTexture(GL_TEXTURE0);
 
-    if (dc->blend) {
-        glEnable(GL_BLEND);
+    if (force || a.blend != dc->blend) {
+        if (dc->blend) {
+            glEnable(GL_BLEND);
+        } else {
+            glDisable(GL_BLEND);
+        }
+        a.blend = dc->blend;
+    }
+    if (dc->blend && (force || a.bsrc != dc->blendSrc || a.bdst != dc->blendDst ||
+                      a.blendRevSub != dc->blendRevSub)) {
         glBlendFunc(BlendFactor(dc->blendSrc), BlendFactor(dc->blendDst));
         glBlendEquation(dc->blendRevSub ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD);
-    } else {
-        glDisable(GL_BLEND);
+        a.bsrc = dc->blendSrc;
+        a.bdst = dc->blendDst;
+        a.blendRevSub = dc->blendRevSub;
     }
-    if (dc->depthTest) {
-        static const GLenum f[8] = { GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS };
-        glEnable(GL_DEPTH_TEST);
-        glDepthFunc(f[dc->depthFunc & 7]);
-    } else {
-        glDisable(GL_DEPTH_TEST);
+    if (force || a.depthTest != dc->depthTest) {
+        if (dc->depthTest) {
+            glEnable(GL_DEPTH_TEST);
+        } else {
+            glDisable(GL_DEPTH_TEST);
+        }
+        a.depthTest = dc->depthTest;
     }
-    glDepthMask(dc->depthWrite ? GL_TRUE : GL_FALSE);
-    glColorMask(dc->colorWrite, dc->colorWrite, dc->colorWrite, dc->alphaWrite);
-    /* GX front faces are clockwise */
-    glFrontFace(GL_CW);
-    switch (dc->cull) {
-    case 0: glDisable(GL_CULL_FACE); break;
-    case 1: glEnable(GL_CULL_FACE); glCullFace(GL_FRONT); break;
-    case 2: glEnable(GL_CULL_FACE); glCullFace(GL_BACK); break;
-    default: glEnable(GL_CULL_FACE); glCullFace(GL_FRONT_AND_BACK); break;
+    if (force || a.zfunc != funcs[dc->depthFunc & 7]) {
+        glDepthFunc(funcs[dc->depthFunc & 7]);
+        a.zfunc = funcs[dc->depthFunc & 7];
+    }
+    if (force || a.depthWrite != dc->depthWrite) {
+        glDepthMask(dc->depthWrite ? GL_TRUE : GL_FALSE);
+        a.depthWrite = dc->depthWrite;
+    }
+    if (force || a.colorWrite != dc->colorWrite || a.alphaWrite != dc->alphaWrite) {
+        glColorMask(dc->colorWrite, dc->colorWrite, dc->colorWrite, dc->alphaWrite);
+        a.colorWrite = dc->colorWrite;
+        a.alphaWrite = dc->alphaWrite;
+    }
+    if (force || a.cull != dc->cull) {
+        switch (dc->cull) {
+        case 0: glDisable(GL_CULL_FACE); break;
+        case 1: glEnable(GL_CULL_FACE); glCullFace(GL_FRONT); break;
+        case 2: glEnable(GL_CULL_FACE); glCullFace(GL_BACK); break;
+        default: glEnable(GL_CULL_FACE); glCullFace(GL_FRONT_AND_BACK); break;
+        }
+        a.cull = dc->cull;
     }
 
+    if (dc->batch != NULL) {
+        DrawBatched(dc, modes[dc->prim]);
+        return;
+    }
+    if (a.vao != s.vao) {
+        glBindVertexArray(s.vao);
+        a.vao = s.vao;
+    }
     glBindBuffer(GL_ARRAY_BUFFER, s.vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(dc->n * sizeof(GXVertex)), dc->v, GL_STREAM_DRAW);
     glDrawArrays(modes[dc->prim], 0, (GLsizei)dc->n);
@@ -268,9 +403,11 @@ static void GL_Clear(const f32 c[4], f32 depth) {
     glClearColor(c[0], c[1], c[2], c[3]);
     glClearDepth(depth);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    StateReset();
 }
 
-/* Texture bindings and the scissor are reapplied by the next draw. */
+/* The copy uses its own texture and framebuffers; StateReset() makes the next
+ * draw re-apply what it had cached. */
 static void GL_DrawImage(const u8 *rgba, int width, int height, const int dst[4]) {
     static GLuint tex, readFbo;
     static int texW, texH;
@@ -299,6 +436,7 @@ static void GL_DrawImage(const u8 *rgba, int width, int height, const int dst[4]
     glBlitFramebuffer(0, 0, width, height, dst[0], s.efbH - dst[1], dst[2], s.efbH - dst[3],
                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+    StateReset();
 }
 
 static void GL_CopyDisp(const int src[4]) {

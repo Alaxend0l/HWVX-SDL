@@ -181,6 +181,13 @@ u32 Port_KeyboardKeys(void);
  * on-screen tests (Render_SetClipPlanes, isInWindow) widen by these. */
 void Port_ViewWiden(f32 *wx, f32 *wy);
 
+/* Display-list cache (gx_fifo.c): the GX layer decodes each display list once
+ * and keeps the result, including the vertices it read out of game memory. Game
+ * memory that is rewritten or reused - a pack swapped into place, a freed heap
+ * block - has to be reported here, or a cached decode keeps serving what the
+ * old bytes said. Port_Swap.c and os.c do both. */
+void Port_InvalidateDisplayLists(const void *p, u32 size);
+
 /* Graphics settings (gfx_settings.c), edited by the Options screen's
  * "Graphics" menu (src/game/Port_Menu.c) through these code variables
  * (GameSettings_Get/SetCodeVariable). */

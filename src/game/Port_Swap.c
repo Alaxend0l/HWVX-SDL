@@ -2184,6 +2184,10 @@ static void Swapper_Finish(Swapper *s, const char *name) {
             }
         }
     }
+    /* The pack's bytes are new at these same addresses. The GX layer keeps
+     * decoded display lists, including the vertices it read out of them, so
+     * everything that read this range has to be decoded again. */
+    Port_InvalidateDisplayLists(s->base, s->size);
     PortSwapCheck_Register(s->base, s->size, s->claim, name, s->packType);
 }
 

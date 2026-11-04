@@ -146,6 +146,9 @@ void OSFreeToHeap(int heapId, void *ptr) {
     HeapCell *f;
 
     PortSwapCheck_Forget(ptr, c->size - HEAP_HDR);
+    /* The GX display list cache may hold a decode of these bytes; the block can
+     * now be handed out with different contents. */
+    Port_InvalidateDisplayLists(ptr, c->size - HEAP_HDR);
     SDL_LockMutex(s_heapLock);
     CellUnlink(&heap->allocated, c);
     heap->inUse -= c->size;

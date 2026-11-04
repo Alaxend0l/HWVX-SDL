@@ -356,6 +356,10 @@ void GX_Draw(int prim, const GXVertex *v, u32 n) {
     if (dc.n == 0) {
         return;
     }
+    /* Vertices that came from the display list cache's pool can stay on the GPU
+     * between draws; scratch vertices (a fresh decode, a quad expansion, the
+     * immediate FIFO) cannot. */
+    dc.batch = GX_FifoBatch(dc.v, dc.n);
     if (BuildDrawCall(&dc, &vs, &fs)) {
         g_gxr->draw(&dc);
     }
@@ -422,6 +426,32 @@ static void DumpEFB(void) {
     }
     Port_Log("frame %d: %u draws, %u vertices since last dump (%s)", count - 1, s_statDraws, s_statVerts,
              g_gxr->name);
+    {
+        static u32 lastHit, lastMiss, lastDrop, lastAbort, lastFlush;
+        static u32 lastFirst, lastRebuild, lastStable, lastFmt, lastArr, lastMtx, lastSkip;
+        u32 hit, miss, drop, abort_, flush;
+        u32 first, rebuild, stable, fmt, arr, mtx, skip;
+        GX_FifoStats(&hit, &miss, &drop, &abort_, &flush);
+        Port_Log("  dl cache: %u hits, %u new, %u dropped, %u aborted, %u pool resets this window",
+                 hit - lastHit, miss - lastMiss, drop - lastDrop, abort_ - lastAbort, flush - lastFlush);
+        GX_FifoDiag(&first, &rebuild, &stable, &fmt, &arr, &mtx, &skip);
+        Port_Log("  dl diag: %u first-seen, %u rebuilt, %u stable-but-evicted, "
+                 "%u fmt, %u arrays, %u mtx, %u skipped",
+                 first - lastFirst, rebuild - lastRebuild, stable - lastStable,
+                 fmt - lastFmt, arr - lastArr, mtx - lastMtx, skip - lastSkip);
+        lastHit = hit;
+        lastMiss = miss;
+        lastDrop = drop;
+        lastAbort = abort_;
+        lastFlush = flush;
+        lastFirst = first;
+        lastRebuild = rebuild;
+        lastStable = stable;
+        lastFmt = fmt;
+        lastArr = arr;
+        lastMtx = mtx;
+        lastSkip = skip;
+    }
     s_statDraws = s_statVerts = 0;
     /* XBGR: the EFB alpha is game scratch (shadow volumes), not opacity */
     surf = SDL_CreateSurface(s_efbW, s_efbH, SDL_PIXELFORMAT_XBGR8888);

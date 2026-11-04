@@ -407,9 +407,9 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
     SDL_zero(ct);
     SDL_zero(ci);
     attr[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3; attr[0].offset = offsetof(GXVertex, pos);
-    attr[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3; attr[1].offset = offsetof(GXVertex, nrm);
-    attr[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4; attr[2].offset = offsetof(GXVertex, clr[0]);
-    attr[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4; attr[3].offset = offsetof(GXVertex, clr[1]);
+    attr[1].format = SDL_GPU_VERTEXELEMENTFORMAT_BYTE4_NORM; attr[1].offset = offsetof(GXVertex, nrm);
+    attr[2].format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM; attr[2].offset = offsetof(GXVertex, clr[0]);
+    attr[3].format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM; attr[3].offset = offsetof(GXVertex, clr[1]);
     for (i = 0; i < 8; i++) {
         attr[4 + i].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
         attr[4 + i].offset = (u32)(offsetof(GXVertex, tex) + i * 2 * sizeof(f32));

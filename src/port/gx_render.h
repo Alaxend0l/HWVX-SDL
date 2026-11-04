@@ -73,6 +73,11 @@ typedef struct GXDrawCall {
     int prim;                 /* GXR_* (quads arrive as triangles) */
     const GXVertex *v;
     u32 n;
+    /* Set when v points into a GXVtxBatch the renderer may already hold on the
+     * GPU (the display list cache's vertex pool): a backend can then keep that
+     * pool resident and draw from an offset instead of uploading every draw.
+     * NULL when the vertices are a scratch buffer that changes each draw. */
+    const GXVtxBatch *batch;
     const GXVSUniforms *vs;
     const GXFSUniforms *fs;
     void *tex[8];             /* backend textures (texCreate), NULL: none */
