@@ -424,8 +424,20 @@ static void DumpEFB(void) {
     if (dir == NULL || (count++ % 60) != 0) {
         return;
     }
-    Port_Log("frame %d: %u draws, %u vertices since last dump (%s)", count - 1, s_statDraws, s_statVerts,
-             g_gxr->name);
+    {
+        /* Frames per second is either the refresh rate (vsync) or the cost of
+         * the work, so the average frame time is logged next to it. */
+        static s64 prev, freq = 1;
+        s64 now = SDL_GetPerformanceCounter();
+
+        if (freq == 1) {
+            freq = SDL_GetPerformanceFrequency();
+        }
+        Port_Log("frame %d: %u draws, %u vertices since last dump (%s, %.2f ms/frame)", count - 1,
+                 s_statDraws, s_statVerts, g_gxr->name,
+                 prev != 0 ? (double)(now - prev) * 1000.0 / (double)(freq * 60) : 0.0);
+        prev = now;
+    }
     {
         static u32 lastHit, lastMiss, lastDrop, lastAbort, lastFlush;
         static u32 lastFirst, lastRebuild, lastStable, lastFmt, lastArr, lastMtx, lastSkip;

@@ -44,6 +44,8 @@ static void StateReset(void) {
 }
 
 static int GL_Open(void) {
+    const char *nv;
+
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -56,7 +58,10 @@ static int GL_Open(void) {
         Port_Fatal("OpenGL 3.3 core context unavailable: %s", SDL_GetError());
     }
     SDL_GL_MakeCurrent(g_port.window, s.ctx);
-    SDL_GL_SetSwapInterval(1);
+    /* Vsync hides what the GPU costs, so HWVX_NO_VSYNC=1 frees the loop and the
+     * frame rate in the HWVX_DUMP log becomes a measure of the work per frame. */
+    nv = SDL_getenv("HWVX_NO_VSYNC");
+    SDL_GL_SetSwapInterval(nv != NULL && *nv == '1' ? 0 : 1);
     GL_Load();
     return 1;
 }

@@ -50,6 +50,20 @@ void *VISetPostRetraceCallback(void (*callback)(u32)) {
     return old;
 }
 
+/* Benchmarking: HWVX_NO_VIWAIT=1 removes the 60 Hz wait, so the frame time in
+ * the HWVX_DUMP log is what drawing costs instead of the pacing idle. The game
+ * runs fast-forward while it is on. */
+static int NoRetraceWait(void) {
+    static int off = -1;
+    const char *e;
+
+    if (off < 0) {
+        e = SDL_getenv("HWVX_NO_VIWAIT");
+        off = e != NULL && *e == '1';
+    }
+    return off;
+}
+
 /* Called by the game after every GXCopyDisp (and in loading loops). One call
  * == one 60 Hz field. Other game threads run while we wait, exactly as they
  * would have while the GameCube CPU idled in VIWaitForRetrace. */
@@ -61,7 +75,7 @@ void VIWaitForRetrace(void) {
 
     Port_GiantUnlock();
     now = SDL_GetTicksNS();
-    if (now < s_nextFrameNS) {
+    if (now < s_nextFrameNS && !NoRetraceWait()) {
         SDL_DelayPrecise(s_nextFrameNS - now);
         s_nextFrameNS += FRAME_NS;
     } else {
