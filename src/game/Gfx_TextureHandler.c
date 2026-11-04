@@ -1,16 +1,16 @@
 #include "common.h"
 
 typedef struct Texture {
-    u8 unk0[0x24];
+    u8 name[0x24];              /* 0x00 texture file name, set on load */
     PTR32(void) data;
-    u32 unk28;
-    f32 unk2C;
-    u16 unk30;
+    u32 unused28;               /* 0x28 copied from pack header, never read */
+    f32 unused2C;               /* 0x2C set to 0.25f, never read */
+    u16 texWidth;               /* 0x30 GXInitTexObj width (BTF stores height) */
     u16 width;
     u16 height;
     s16 refCount;
-    u16 unk38;
-    u16 unk3A;
+    u16 format;                 /* 0x38 4: CMPR, 1: RGBA8, 0/2: RGB565 */
+    u16 fromPack;               /* 0x3A 1: pack texture, data not freed */
     u16 view;
     u16 wrapMode;
 } Texture;
@@ -22,13 +22,13 @@ extern s32 m_currentView;
 
 typedef struct BTFHeader {
     u8 version;
-    u8 unk1;
+    u8 unused1;
     s16 width;
     s16 height;
     s16 bpp;
     s16 numColors;
     s16 numMips;
-    s32 unkC;
+    s32 unusedC;
 } BTFHeader;
 
 s32 Gfx_TextureHandler_Create(void) {
@@ -43,7 +43,7 @@ void Gfx_TextureHandler_Destroy(void) {
 
     for (i = 1; i < m_totalTextures; i++) {
         Render_DestroyTextureSlot(i);
-        if (GETP(m_texture[i].data) != NULL && m_texture[i].unk3A == 0) {
+        if (GETP(m_texture[i].data) != NULL && m_texture[i].fromPack == 0) {
             Deallocate(GETP(m_texture[i].data));
         }
     }
@@ -56,12 +56,12 @@ void Gfx_TextureManager_Init(void) {
 
     for (i = 1; i < m_totalTextures; i++) {
         Render_DestroyTextureSlot(i);
-        if (GETP(m_texture[i].data) != NULL && m_texture[i].unk3A == 0) {
+        if (GETP(m_texture[i].data) != NULL && m_texture[i].fromPack == 0) {
             Deallocate(GETP(m_texture[i].data));
         }
         memset(&m_texture[i], 0, 0x20);
         m_texture[i].refCount = 0;
-        m_texture[i].unk30 = 0;
+        m_texture[i].texWidth = 0;
         m_texture[i].width = 0;
         SETP(m_texture[i].data, NULL);
     }
@@ -97,7 +97,7 @@ u16 Gfx_LoadTexture(char *name) {
     }
 
     for (j = 1; j < m_totalTextures; j++) {
-        if (stricmp(buf, (char *)m_texture[j].unk0) == 0 && m_currentView == m_texture[j].view) {
+        if (stricmp(buf, (char *)m_texture[j].name) == 0 && m_currentView == m_texture[j].view) {
             m_texture[j].refCount++;
             return j;
         }
@@ -121,11 +121,11 @@ u16 Gfx_LoadTexture(char *name) {
     if (!ok) {
         return 0xFFFF;
     }
-    strncpy((char *)m_texture[i].unk0, buf, 0x24);
+    strncpy((char *)m_texture[i].name, buf, 0x24);
     m_texture[i].refCount++;
     m_texture[i].view = (s8)m_currentView;
-    m_texture[i].unk2C = 0.25f;
-    m_texture[i].unk3A = 0;
+    m_texture[i].unused2C = 0.25f;
+    m_texture[i].fromPack = 0;
     return i;
 }
 
@@ -158,11 +158,11 @@ s32 LoadBTF(const char *name, u32 id) {
     File_Seek(handle, -1, 1);
     if (header.version == 1) {
         File_Read(handle, 12, &header);
-        header.unk1 = 0;
-        header.unkC = 0;
+        header.unused1 = 0;
+        header.unusedC = 0;
     } else if (header.version == 2) {
         File_Read(handle, 12, &header);
-        header.unkC = 0;
+        header.unusedC = 0;
     } else if (header.version == 3) {
         File_Read(handle, 16, &header);
     }
@@ -178,7 +178,7 @@ s32 LoadBTF(const char *name, u32 id) {
     levels = 1;
     m_texture[id].width = width;
     height = header.height;
-    m_texture[id].unk30 = height;
+    m_texture[id].texWidth = height;
     while (height != 1 && width != 1) {
         if (mips-- == 0) {
             break;
@@ -205,7 +205,7 @@ s32 LoadBTF(const char *name, u32 id) {
         p = Allocate(size, 0, "");
         SETP(m_texture[id].data, p);
         buf = Allocate(size, 0, "");
-        m_texture[id].unk38 = 4;
+        m_texture[id].format = 4;
         File_Read(handle, size, p);
         break;
     case 32:
@@ -213,7 +213,7 @@ s32 LoadBTF(const char *name, u32 id) {
         dst = Allocate(n, 0, "");
         SETP(m_texture[id].data, dst);
         src = buf = Allocate(n, 0, "");
-        m_texture[id].unk38 = 1;
+        m_texture[id].format = 1;
         File_Read(handle, n, src);
         for (i = 0; i < size; i++) {
             dst[0] = src[2];
@@ -229,7 +229,7 @@ s32 LoadBTF(const char *name, u32 id) {
         dst = Allocate(n, 0, "");
         SETP(m_texture[id].data, dst);
         src = buf = Allocate(n, 0, "");
-        m_texture[id].unk38 = 0;
+        m_texture[id].format = 0;
         File_Read(handle, n, src);
         for (i = 0; i < size; i++) {
             dst[0] = src[2];
@@ -243,7 +243,7 @@ s32 LoadBTF(const char *name, u32 id) {
         dst = Allocate(size * 4, 0, "");
         SETP(m_texture[id].data, dst);
         src = buf = Allocate(size, 0, "");
-        m_texture[id].unk38 = 1;
+        m_texture[id].format = 1;
         memset(palette, 0, 0x400);
         if (header.numColors > 0) {
             File_Read(handle, header.numColors * 4, palette);
@@ -271,7 +271,7 @@ s32 LoadBTF(const char *name, u32 id) {
         dst = Allocate(size * 3, 0, "");
         SETP(m_texture[id].data, dst);
         src = buf = Allocate(size, 0, "");
-        m_texture[id].unk38 = 0;
+        m_texture[id].format = 0;
         memset(palette, 0, 0x300);
         if (header.numColors > 0) {
             File_Read(handle, header.numColors * 3, palette);
@@ -323,7 +323,7 @@ s32 LoadTGA(const char *name, u32 id) {
     }
     File_Read(handle, 18, header);
     m_texture[id].width = height = header[14] + header[15] * 256;
-    m_texture[id].unk30 = width = header[12] + header[13] * 256;
+    m_texture[id].texWidth = width = header[12] + header[13] * 256;
     if (height > 0x400 || width > 0x400) {
         return 0;
     }
@@ -338,13 +338,13 @@ s32 LoadTGA(const char *name, u32 id) {
     }
     dst = Allocate(i * bpp, 0, "");
     SETP(m_texture[id].data, dst);
-    size = (header[16] >> 3) * (m_texture[id].unk30 * m_texture[id].width);
+    size = (header[16] >> 3) * (m_texture[id].texWidth * m_texture[id].width);
     src = buf = Allocate(size, 0, "");
     switch (header[16]) {
     case 8:
         break;
     case 32:
-        m_texture[id].unk38 = 1;
+        m_texture[id].format = 1;
         File_Read(handle, size, src);
         for (i = 0; i < size; i += 4) {
             dst[0] = src[2];
@@ -356,7 +356,7 @@ s32 LoadTGA(const char *name, u32 id) {
         }
         break;
     case 24:
-        m_texture[id].unk38 = 0;
+        m_texture[id].format = 0;
         File_Read(handle, size, src);
         for (i = 0; i < size; i += 3) {
             dst[0] = src[2];
@@ -367,7 +367,7 @@ s32 LoadTGA(const char *name, u32 id) {
         }
         break;
     case 16:
-        m_texture[id].unk38 = 0;
+        m_texture[id].format = 0;
         File_Read(handle, size, src);
         for (i = 0; i < size; i += 2) {
             dst[0] = (src[0] & 0x7C00) >> 7;
@@ -403,20 +403,20 @@ u16 Gfx_LoadTexture_RAM(u8 **data) {
     memcpy(&m_texture[i], buf, 0x20);
     m_texture[i].refCount++;
     m_texture[i].view = (s8)m_currentView;
-    m_texture[i].unk2C = 0.25f;
-    m_texture[i].unk3A = 1;
+    m_texture[i].unused2C = 0.25f;
+    m_texture[i].fromPack = 1;
     m_texture[i].wrapMode = 0;
     return i;
 }
 
 /* A texture's header in a data pack (LoadBTF_RAM); its u16s are little-endian. */
 typedef struct BTFPackHeader {
-    u16 unk0;                   /* 0x00 -> Texture.unk38 */
-    u16 unk2;                   /* 0x02 -> Texture.unk30 */
+    u16 format;                 /* 0x00 -> Texture.format */
+    u16 texWidth;               /* 0x02 -> Texture.texWidth */
     u16 width;                  /* 0x04 */
     u16 height;                 /* 0x06 */
     PTR32(void) data;           /* 0x08 */
-    u32 unkC;                   /* 0x0C -> Texture.unk28 */
+    u32 unusedC;                /* 0x0C -> Texture.unused28 */
 } BTFPackHeader;
 
 /* Fill texture slot `id` from the BTF at data; returns the end of its header. */
@@ -427,15 +427,15 @@ u8 *LoadBTF_RAM(u8 *data, u32 id) {
     tex = &((Texture *)m_texture)[id];
     tex->width = ((hdr->width & 0xFF00) / 256) | (hdr->width * 256);
     tex = &((Texture *)m_texture)[id];
-    __sthbrx(hdr->unk2, &tex->unk30, 0);
+    __sthbrx(hdr->texWidth, &tex->texWidth, 0);
     tex = &((Texture *)m_texture)[id];
     __sthbrx(hdr->height, &tex->height, 0);
     tex = &((Texture *)m_texture)[id];
     SETP(tex->data, GETP(hdr->data));
     tex = &((Texture *)m_texture)[id];
-    tex->unk28 = hdr->unkC;
+    tex->unused28 = hdr->unusedC;
     tex = &((Texture *)m_texture)[id];
-    __sthbrx(hdr->unk0, &tex->unk38, 0);
+    __sthbrx(hdr->format, &tex->format, 0);
     Render_CreateTextureSlot(id);
     return (u8 *)(hdr + 1);
 }
@@ -456,12 +456,12 @@ void Gfx_UnLoadTexture(u16 id) {
     if (id < m_totalTextures && m_texture != NULL) {
         if (--m_texture[id].refCount == 0) {
             Render_DestroyTextureSlot(id);
-            if (m_texture[id].unk3A == 0) {
+            if (m_texture[id].fromPack == 0) {
                 Deallocate(GETP(m_texture[id].data));
             }
             memset(&m_texture[id], 0, 0x20);
             m_texture[id].refCount = 0;
-            m_texture[id].unk30 = 0;
+            m_texture[id].texWidth = 0;
             m_texture[id].width = 0;
             SETP(m_texture[id].data, NULL);
         }

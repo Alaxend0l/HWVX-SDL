@@ -1,9 +1,9 @@
-/* GameCube texture formats -> RGBA8 OpenGL textures.
+/* GameCube texture formats -> RGBA8 renderer textures (gx_render.h).
  *
  * Texture data is big-endian and tiled (the data packs keep pixel data as it
  * is on the disc). Decoded textures are cached by address, format, size and a
  * hash of their first bytes, since packs reuse memory for other textures. */
-#include "gx_internal.h"
+#include "gx_render.h"
 
 enum {
     TF_I4 = 0, TF_I8 = 1, TF_IA4 = 2, TF_IA8 = 3, TF_RGB565 = 4, TF_RGB5A3 = 5,
@@ -12,7 +12,7 @@ enum {
 
 typedef struct TexEntry {
     u32 image, key, hash;
-    GLuint name;
+    void *tex;
     u32 lastUse;
 } TexEntry;
 
@@ -188,22 +188,127 @@ static u32 Hash(const u8 *p, u32 n) {
     return h;
 }
 
-static GLenum WrapMode(u32 w) {
-    return w == 1 ? GL_REPEAT : w == 2 ? GL_MIRRORED_REPEAT : GL_CLAMP_TO_EDGE;
+/* s_cache is looked up once per bound texture per draw, so the old linear walk
+ * over 1024 entries (tens of thousands of compares per frame) was hot. Entries
+ * are indexed by open addressing on (image, key, hash); the index holds entry
+ * index + 1 so 0 marks an empty slot. */
+#define TEX_HASH_BITS 11 /* 2048 slots for 1024 entries: load factor <= 0.5 */
+#define TEX_HASH_SIZE (1u << TEX_HASH_BITS)
+static u16 s_hashIdx[TEX_HASH_SIZE];
+
+static u32 HashSlot(u32 image, u32 key, u32 hash) {
+    u32 h = image * 2654435761u;
+    h ^= key * 2246822519u;
+    h ^= hash * 374761393u;
+    h ^= h >> 15;
+    return h & (TEX_HASH_SIZE - 1);
+}
+
+/* Returns the entry index matching this key, or TEX_CACHE when absent. */
+static u32 HashFind(u32 image, u32 key, u32 hash) {
+    u32 s = HashSlot(image, key, hash), guard;
+    for (guard = 0; guard < TEX_HASH_SIZE; guard++) {
+        u16 v = s_hashIdx[s];
+        if (v == 0) {
+            return TEX_CACHE; /* empty slot ends the probe chain */
+        }
+        if (s_cache[v - 1].image == image && s_cache[v - 1].key == key &&
+            s_cache[v - 1].hash == hash) {
+            return v - 1;
+        }
+        s = (s + 1) & (TEX_HASH_SIZE - 1);
+    }
+    return TEX_CACHE;
+}
+
+static void HashInsert(u32 idx, u32 image, u32 key, u32 hash) {
+    u32 s = HashSlot(image, key, hash);
+    u32 guard = 0;
+    while (s_hashIdx[s] != 0 && guard++ < TEX_HASH_SIZE) {
+        s = (s + 1) & (TEX_HASH_SIZE - 1);
+    }
+    s_hashIdx[s] = (u16)(idx + 1);
+}
+
+/* Clears the slot for this key and re-inserts the entries that had probed past
+ * it, which is what keeps a linear-probe chain intact after a removal. Keys are
+ * unique among resident entries, so the key alone identifies the slot. */
+static void HashRemove(u32 image, u32 key, u32 hash) {
+    u32 s = HashSlot(image, key, hash), guard;
+    for (guard = 0; guard < TEX_HASH_SIZE; guard++) {
+        u16 v = s_hashIdx[s];
+        TexEntry *e;
+        if (v == 0) {
+            return; /* not present */
+        }
+        e = &s_cache[v - 1];
+        if (e->image == image && e->key == key && e->hash == hash) {
+            break;
+        }
+        s = (s + 1) & (TEX_HASH_SIZE - 1);
+    }
+    s_hashIdx[s] = 0;
+    for (guard = 0; guard < TEX_HASH_SIZE; guard++) {
+        u32 next = (s + 1) & (TEX_HASH_SIZE - 1);
+        u16 v = s_hashIdx[next];
+        TexEntry *e;
+        if (v == 0) {
+            break;
+        }
+        s_hashIdx[next] = 0;
+        s = next;
+        e = &s_cache[v - 1];
+        HashInsert(v - 1, e->image, e->key, e->hash);
+    }
 }
 
 /* GXInitTexObj layout (gx.c): [0] image handle, [1] w<<16|h, [2] format,
  * [3] wrapS<<8|wrapT, [4] mipmap, [5] minFilt<<8|magFilt, [6] max LOD. */
-GLuint GX_TexGet(const GXTexObj *obj) {
+static void Sampler(const u32 *d, int levels, GXSampler *samp) {
+    u32 minf = (d[5] >> 8) & 0xFF, magf = d[5] & 0xFF;
+
+    if (levels > 1) {
+        /* NEAREST/NEAR_MIP_NEAR: nearest texel, nearest level; others linear */
+        int nearest = minf == 0 || minf == 2;
+        samp->minLinear = !nearest;
+        samp->mip = nearest ? 1 : 2;
+    } else {
+        samp->minLinear = minf != 0;
+        samp->mip = 0;
+    }
+    samp->magLinear = magf != 0;
+    if (d[5] == 0) {
+        samp->minLinear = samp->magLinear = 1;
+        samp->mip = levels > 1 ? 2 : 0;
+    }
+    samp->wrapS = (d[3] >> 8) & 0xFF;
+    samp->wrapT = d[3] & 0xFF;
+    if (samp->wrapS > 2) samp->wrapS = 0;
+    if (samp->wrapT > 2) samp->wrapT = 0;
+}
+
+/* Least-recently-used resident entry; free slots (lastUse == 0) win. Only run
+ * when a lookup missed and the cache has no room, so the scan is rare. */
+static u32 LruPick(void) {
+    u32 oldest = 0, i;
+    for (i = 0; i < TEX_CACHE; i++) {
+        if (s_cache[i].lastUse < s_cache[oldest].lastUse) {
+            oldest = i;
+        }
+    }
+    return oldest;
+}
+
+void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     const u32 *d = obj->dummy;
     u8 *image = PTR(d[0]);
     int w = (int)(d[1] >> 16), h = (int)(d[1] & 0xFFFF), fmt = (int)d[2];
     int levels = 1, l;
-    u32 key = d[1] ^ (u32)fmt << 28, hash, slot, oldest = 0, i;
+    u32 key = d[1] ^ (u32)fmt << 28, hash, oldest = 0, i;
     u8 *rgba;
 
     if (image == NULL || w == 0 || h == 0 || w > 1024 || h > 1024) {
-        return 0;
+        return NULL;
     }
     if (d[4]) {
         f32 maxLod;
@@ -213,29 +318,31 @@ GLuint GX_TexGet(const GXTexObj *obj) {
             levels = 1;
         }
     }
+    Sampler(d, levels, samp);
     hash = Hash(image, LevelSize(fmt, w, h) < 256 ? LevelSize(fmt, w, h) : 256) ^ (u32)levels;
     s_useClock++;
-    for (i = 0; i < TEX_CACHE; i++) {
-        TexEntry *e = &s_cache[i];
-        if (e->name != 0 && e->image == d[0] && e->key == key && e->hash == hash) {
-            e->lastUse = s_useClock;
-            goto bind;
-        }
-        if (s_cache[i].lastUse < s_cache[oldest].lastUse) {
-            oldest = i;
-        }
+    i = HashFind(d[0], key, hash);
+    if (i != TEX_CACHE) {
+        s_cache[i].lastUse = s_useClock;
+        return s_cache[i].tex;
     }
-    slot = oldest;
+    oldest = LruPick();
     {
-        TexEntry *e = &s_cache[slot];
-        if (e->name == 0) {
-            glGenTextures(1, &e->name);
+        TexEntry *e = &s_cache[oldest];
+        if (e->tex != NULL) {
+            HashRemove(e->image, e->key, e->hash);
+            g_gxr->texDestroy(e->tex);
+        }
+        e->tex = g_gxr->texCreate(w, h, levels);
+        if (e->tex == NULL) {
+            e->lastUse = 0;
+            return NULL;
         }
         e->image = d[0];
         e->key = key;
         e->hash = hash;
         e->lastUse = s_useClock;
-        glBindTexture(GL_TEXTURE_2D, e->name);
+        HashInsert(oldest, d[0], key, hash);
         rgba = SDL_malloc((size_t)w * h * 4);
         for (l = 0; l < levels; l++) {
             int lw = w >> l, lh = h >> l;
@@ -243,27 +350,10 @@ GLuint GX_TexGet(const GXTexObj *obj) {
             if (lh < 1) lh = 1;
             memset(rgba, 0, (size_t)lw * lh * 4);
             DecodeLevel(fmt, image, lw, lh, rgba);
-            glTexImage2D(GL_TEXTURE_2D, l, GL_RGBA8, lw, lh, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+            g_gxr->texUpload(e->tex, l, lw, lh, rgba);
             image += LevelSize(fmt, lw, lh);
         }
         SDL_free(rgba);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
-        i = slot;
+        return e->tex;
     }
-bind:
-    {
-        u32 minf = (d[5] >> 8) & 0xFF, magf = d[5] & 0xFF;
-        GLenum min = levels > 1 ? (minf == 0 || minf == 2 ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_LINEAR)
-                                : (minf == 0 ? GL_NEAREST : GL_LINEAR);
-        if (d[5] == 0) {
-            min = levels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
-            magf = 1;
-        }
-        glBindTexture(GL_TEXTURE_2D, s_cache[i].name);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)min);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magf == 0 ? GL_NEAREST : GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)WrapMode((d[3] >> 8) & 0xFF));
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)WrapMode(d[3] & 0xFF));
-    }
-    return s_cache[i].name;
 }

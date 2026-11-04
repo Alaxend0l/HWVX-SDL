@@ -84,7 +84,7 @@ typedef struct RadarBlip {
     Thing base;                 /* 0x00 */
     u8 padAC[4];                /* 0xAC */
     PTR32(RadarBlipData) data;  /* 0xB0 */
-    s32 unkB4;                  /* 0xB4 */
+    s32 unusedB4;               /* 0xB4 */
     f32 health;                 /* 0xB8 0..1, set by the master (Destructible_Move) */
     u8 padBC[4];                /* 0xBC */
     Vector4 lastPos;            /* 0xC0 */

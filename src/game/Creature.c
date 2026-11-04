@@ -108,7 +108,7 @@ void Creature_MotionStateInit(void *arg0, s32 state, u8 reset, u8 keepTime)
     index = 0;
     if (reset && state == creature->animState && creature->animStatus != 2)
     {
-        creature->unkE9 = 0;
+        creature->unusedE9 = 0;
         return;
     }
     if (creature->base.flags & CREATURE_FLAG_BUSY)
@@ -197,21 +197,21 @@ s32 Creature_Init(Creature *creature, CreatureInit *init)
     creature->base.pos = init->pos;
     creature->stepPos = creature->base.pos;
     creature->mass = RandomAdd(0.002f, 0.001f);
-    creature->unk1B8 = 0;
+    creature->flag1B8 = 0;
     creature->gibbedBones = 0;
     QuaternionToSubMatrix(&creature->base.quat, creature->base.axis);
     creature->base.collisionType = THING_COLLIDE_NONE;
     creature->base.radius = 11.0f;
     creature->heading = init->heading;
     creature->turnRate = 0.0f;
-    creature->unkC0 = 0.0f;
+    creature->unusedC0 = 0.0f;
     creature->deadTime = 0;
     creature->base.health = GETP(creature->info)->health;
     Creature_MotionStateInit(creature, 0, 0, 0);
     creature->onGround = 0;
     creature->skin = 0.03f;
     creature->stepTimer = -1;
-    creature->unk1C0 = 1.0f;
+    creature->timeScale = 1.0f;
     Thing_AddToGrid(creature, 6);
     MotionState_BuildMatricesWorld(&creature->base.quat, &creature->base.pos, &creature->motion, 1.0f);
     return 1;
@@ -296,8 +296,8 @@ void Creature_PartialGibb(Creature *creature, u32 count, s32 unused) {
                 debrisParams.quat = quat;
                 debrisParams.vel = vel;
                 debrisParams.owner = 0;
-                debrisParams.unk48 = 0.0f;
-                debrisParams.unk4C = 0.0f;
+                debrisParams.speedScale = 0.0f;
+                debrisParams.unusedParam = 0.0f;
                 debrisParams.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &debrisParams);
             }
@@ -385,7 +385,7 @@ s32 Creature_Move(Creature *creature)
     f32 dt;
     f32 dist;
 
-    if (creature->unk1C0 < 1.0f)
+    if (creature->timeScale < 1.0f)
     {
         return 1;
     }
@@ -462,7 +462,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
     struct {
         Vector4 point;
         Vector4 normal;
-        u8 unk20[0x30];
+        u8 pad20[0x30];
     } hit __attribute__((aligned(16)));
     Vector4 pos __attribute__((aligned(16)));
     f32 t;
@@ -485,7 +485,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
     u32 i;
     Player *controls;
 
-    if (creature->unk1C0 < 1.0f) {
+    if (creature->timeScale < 1.0f) {
         return;
     }
     TimeHandler_SetTimeElapsedSec_f32(dt);
@@ -604,7 +604,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
     creature->base.axis[1].w = 0.0f;
     creature->base.axis[0].w = 0.0f;
     creature->base.pos.w = 1.0f;
-    if (!(creature->unk1C0 < 1.0f)) {
+    if (!(creature->timeScale < 1.0f)) {
         creature->animWeight += creature->blendRate * g_fDeltaTimeSec;
         if (creature->animWeight > 1.0f) {
             creature->animWeight = 1.0f;
@@ -648,7 +648,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
                 creature->base.vel.z = 0.0f;
             }
         } else {
-            creature->unkE9 = 0;
+            creature->unusedE9 = 0;
         }
     }
     MotionState_BuildMatricesWorld(&creature->base.quat, &creature->base.pos, &creature->motion, 1.0f);
@@ -666,7 +666,7 @@ void Creature_MacroStep(void *arg0, f32 dt) {
 
 
 void Creature_Draw(Creature *creature) {
-    if (creature->unk1C0 > 0.0f) {
+    if (creature->timeScale > 0.0f) {
         MotionState_Draw(&creature->motion);
     }
     creature->base.flags |= CREATURE_FLAG_DRAWN;

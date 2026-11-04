@@ -117,7 +117,7 @@ void CarA_Extract_Keyframes(CarA *car, AnimKeyFrame *frames) {
     }
     if (GETP(GETP(car->vehicleIface)->steerAnim) != NULL) {
         Gfx_AnimExtractKeyFrame(GETP(GETP(car->vehicleIface)->steerAnim),
-                                10.0f * (car->unk378 / 0.7853982f) * GETP(GETP(car->vehicleIface)->engine)->animSpeed,
+                                10.0f * (car->steerAngle / 0.7853982f) * GETP(GETP(car->vehicleIface)->engine)->animSpeed,
                                 keys, *numBones);
         Anim_AddKeyFrames(frames, keys, *numBones);
     }
@@ -289,7 +289,7 @@ s32 CarA_Init(void *thing, void *arg1) {
     car->tiltState = 0;
     engine = GETP(GETP(car->vehicleIface)->engine);
     car->bodyOffset = *(Vector4 *)engine->bodyOffset;
-    GETP(GETP(car->vehicleIface)->engine)->unk0C = 1.0f;
+    GETP(GETP(car->vehicleIface)->engine)->unused0C = 1.0f;
     skel = &GETP(GETP(car->motionState.model)->skeleton)->numBones;
     CarA_Extract_Keyframes(car, frames);
     XformVec(THING_MTX(&car->base), &car->bodyOffset, &pos);
@@ -321,20 +321,20 @@ s32 CarA_Init(void *thing, void *arg1) {
         car->wheelStates[i].slipVel = g_zeroVector;
     }
     car->gradeOrReverse = 0.0f;
-    car->unk4E0 = 0.0f;
+    car->soundRpmGate = 0.0f;
     car->rpm = 0.0f;
     car->curveTableIdx = 1;
     engine = GETP(GETP(car->vehicleIface)->engine);
     if (GETP(car->vehicleIface)->driveMode == 2) {
-        CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->unk1C, engine->torqueCurve[0], 0.0f, 1e-7f, 0.0f);
+        CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->maxRpm, engine->torqueCurve[0], 0.0f, 1e-7f, 0.0f);
     } else {
-        CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->unk1C, engine->torqueCurve[0],
+        CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->maxRpm, engine->torqueCurve[0],
                       engine->torqueCurve[1], engine->torqueCurve[2], engine->torqueCurve[3]);
     }
     sample = 0;
     volume = 0.0f;
     /* wind */
-    snd = SLOT_LOAD(CarASoundSet *, &GETP(GETP(car->vehicleIface)->gears)[1].unk4);
+    snd = SLOT_LOAD(CarASoundSet *, &GETP(GETP(car->vehicleIface)->gears)[1].soundSet);
     car->soundIds[0] = -1;
     if (snd != NULL) {
         car->soundIds[0] = SoundManager_CreateSource(1);
@@ -378,8 +378,8 @@ s32 CarA_Init(void *thing, void *arg1) {
     car->forceAccum = car->torqueAccum;
     car->damageAccum = 0;
     car->partVisMask = 0;
-    car->unk460 = 0;
-    car->unk45C = 0;
+    car->airTime = 0;
+    car->stuckTimer = 0;
     car->stuckCounter = 0;
     car->lowSpeedFlag = 0;
     car->inverseBodyInertia = g_identity;
@@ -421,7 +421,7 @@ s32 CarA_Init(void *thing, void *arg1) {
             ThingManagerList_Append(&car->motionState.slaves, slave);
         }
     }
-    car->unk4FC = 1.0f;
+    car->gripBlend = 1.0f;
     return 1;
 }
 
@@ -494,8 +494,8 @@ f32 CarA_Transmission_GetTorqueAtWheels(CarA *car)
     else if (car->transmissionFlags & 0x1000)
     {
         trans = GETP(car->vehicleIface);
-        rpm /= trans->unk30;
-        scale *= trans->unk34;
+        rpm /= trans->turboRpmScale;
+        scale *= trans->turboTorqueScale;
     }
     if (rpm < 0.0f)
     {
@@ -507,7 +507,7 @@ f32 CarA_Transmission_GetTorqueAtWheels(CarA *car)
 
 /* Runs the driver's pending combo (Player.combo, cheats and stunt moves)
    and clears it: 2 repair, 3 self-destruct, 4 toggle transmission bit 1,
-   5 stop, 6 full turbo, 9-16 stunt impulses (not while unk460 is set). */
+   5 stop, 6 full turbo, 9-16 stunt impulses (not while airTime is set). */
 void CarA_ExecuteCombo(CarA *car) {
     extern Vector4 g_zeroVector;
     extern u8 g_stunt1localString[];  /* port: a table of string slots */
@@ -535,7 +535,7 @@ void CarA_ExecuteCombo(CarA *car) {
         car->turboTime = 30000;
         break;
     }
-    if (car->unk460 == 0) {
+    if (car->airTime == 0) {
         switch (CARA_PLAYER(car)->combo) {
         case 9: {
             Vector4 a __attribute__((aligned(16))) = {0.0f, 57.0f, 0.0f, 0.0f};
@@ -736,7 +736,7 @@ void CarA_ComputeForces(CarA *car) {
     down[0] = -car->base.axis[1].x;
     down[1] = -car->base.axis[1].y;
     down[2] = -car->base.axis[1].z;
-    scale = 1.0f - GETP(GETP(car->vehicleIface)->engine)->unk58 * (car->base.axis[1].y - 1.0f);
+    scale = 1.0f - GETP(GETP(car->vehicleIface)->engine)->tiltForceScale * (car->base.axis[1].y - 1.0f);
     for (i = 0; i < forces->count; i++) {
         if (GETP(forces->points)[i].ray) {
             dist = 6.0f;
@@ -757,11 +757,11 @@ s32 CarA_PreMove(void *thing) {
         Vector4 pos;
         Vector4 dir;
         PTR32(void) owner;
-        s32 unk24;
-        s32 unk28;
+        s32 thingB;
+        s32 material;
         u8 pad2C[4];
         Vector4 vel;
-        u8 unk40;
+        u8 type;
     } TurboFx;
     extern f32 g_fDeltaTimeSec;
     extern s32 g_iDeltaTimeMS;
@@ -781,9 +781,9 @@ s32 CarA_PreMove(void *thing) {
     u32 i;
 
     car->prevVelocity = car->base.vel;
-    car->unk4FC += g_fDeltaTimeSec;
-    if (car->unk4FC >= 1.0f) {
-        car->unk4FC = 1.0f;
+    car->gripBlend += g_fDeltaTimeSec;
+    if (car->gripBlend >= 1.0f) {
+        car->gripBlend = 1.0f;
     }
     car->transmissionFlags &= ~0x20000;
     if (Timer_Interrupt300()) {
@@ -802,9 +802,9 @@ s32 CarA_PreMove(void *thing) {
         if (car->turboCooldown >= 0) {
             if (!(car->transmissionFlags & 0x1000) && (CARA_PLAYER(car)->buttonsHeld & 4) && car->turboTime > 0) {
                 car->transmissionFlags |= 0x1000;
-                if (car->unk460 == 0) {
+                if (car->airTime == 0) {
                     SETP(fx.owner, GETP(CARA_PLAYER(car)->vehicle));
-                    fx.unk24 = 0;
+                    fx.thingB = 0;
                     fx.pos.x = car->base.pos.x - 8.0f * car->base.axis[2].x - 3.0f * car->base.axis[1].x;
                     fx.pos.y = car->base.pos.y - 8.0f * car->base.axis[2].y - 3.0f * car->base.axis[1].y;
                     fx.pos.z = car->base.pos.z - 8.0f * car->base.axis[2].z - 3.0f * car->base.axis[1].z;
@@ -814,9 +814,9 @@ s32 CarA_PreMove(void *thing) {
                     if (PSVECSquareMag(&fx.dir)) {
                         PSVECNormalize(&fx.dir, &fx.dir);
                     }
-                    fx.unk28 = 0;
+                    fx.material = 0;
                     fx.vel = g_zeroVector;
-                    fx.unk40 = 0;
+                    fx.type = 0;
                     /* turbo kick: an impact of 280 along fx.dir (fx is a contact) */
                     THING_VFN(GETP(CARA_PLAYER(car)->vehicle), THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(void *, void *, s32, f32))(GETP(CARA_PLAYER(car)->vehicle), &fx, 0, 280.0f);
                 }
@@ -858,7 +858,7 @@ s32 CarA_PreMove(void *thing) {
                                    GETP(GETP(car->vehicleIface)->engine)->bodyOffset[2]);
                 car->tiltState = 0;
                 car->stuckCounter = 0;
-                car->unk45C = 0;
+                car->stuckTimer = 0;
             }
         }
         if (car->stuckCounter > 600) {
@@ -885,7 +885,7 @@ s32 CarA_PreMove(void *thing) {
         car->curveTableIdx = 1;
     }
 
-    if (car->unk4FC >= 1.0f) {
+    if (car->gripBlend >= 1.0f) {
         if (car->transmissionFlags & 0x4000) {
             MotionState_ReleaseSlavesByType(&car->motionState, 9);
             car->transmissionFlags &= ~0x4000;
@@ -928,15 +928,15 @@ s32 CarA_PreMove(void *thing) {
         car->navUpdateTimer = RandomAdd_s32(300, 100);
     }
     car->lowSpeedFlag += g_iDeltaTimeMS;
-    if (car->unk45C > 0) {
-        car->unk45C -= g_iDeltaTimeMS;
+    if (car->stuckTimer > 0) {
+        car->stuckTimer -= g_iDeltaTimeMS;
         car->stuckCounter += g_iDeltaTimeMS;
     }
 
     if ((u32)car->soundIds[1] != 0xFFFFFFFF) {
-        if (_fabs(car->unk4E0) < (maxRpm = GETP(GETP(car->vehicleIface)->engine)->unk68)) {
+        if (_fabs(car->soundRpmGate) < (maxRpm = GETP(GETP(car->vehicleIface)->engine)->soundRpmRange)) {
             engineVolume = (maxRpm - _fabs(car->rpm)) / maxRpm;
-            enginePitch = GETP(GETP(car->vehicleIface)->engine)->unk64 + _fabs(car->rpm) / GETP(car->vehicleIface)->unk1C;
+            enginePitch = GETP(GETP(car->vehicleIface)->engine)->minEnginePitch + _fabs(car->rpm) / GETP(car->vehicleIface)->maxRpm;
             if (engineVolume < 0.0f) {
                 engineVolume = 0.0f;
             }
@@ -954,7 +954,7 @@ s32 CarA_PreMove(void *thing) {
     }
     if ((u32)car->soundIds[0] != 0xFFFFFFFF) {
         windVolume = 1.0f - _fabs(car->gradeOrReverse) / 300.0f;
-        windPitch = 3.0f * (car->rpm / GETP(car->vehicleIface)->unk1C);
+        windPitch = 3.0f * (car->rpm / GETP(car->vehicleIface)->maxRpm);
         if (windPitch < 0.0f) {
             windPitch *= -1.0f;
         }
@@ -979,12 +979,12 @@ s32 CarA_PreMove(void *thing) {
     if (GETP(car->base.player) != NULL && CARA_PLAYER(car)->brake == 0) {
         for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
             wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
-            car->wheelStates[i].rotation += (wheel->unk14 * spin + (1.0f - wheel->unk14) * speed) / wheel->offset;
+            car->wheelStates[i].rotation += (wheel->driveBlend * spin + (1.0f - wheel->driveBlend) * speed) / wheel->offset;
         }
     } else {
         for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
             wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
-            car->wheelStates[i].rotation += (wheel->unk14 * spin + (1.0f - wheel->unk14) * speed) / wheel->offset;
+            car->wheelStates[i].rotation += (wheel->driveBlend * spin + (1.0f - wheel->driveBlend) * speed) / wheel->offset;
         }
     }
     if (GETP(car->base.player) != NULL) {
@@ -1404,13 +1404,13 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
     typedef struct PartParams {
         Vector4 pos;
         Vector4 quat;
-        Vector4 axis;
+        Vector4 spinAxis;
         Vector4 vel;
         f32 gravity;
-        PTR32(void) geom;
+        PTR32(void) geometry;
         s32 life;
-        u32 unk4C;
-        s32 unk50;
+        f32 mass;
+        u32 moves;
         u8 pad54[0xC];
     } PartParams;
     typedef struct SlaveParams {
@@ -1418,8 +1418,8 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
         Vector4 quat;
         Vector4 vel;
         PTR32(void) info;
-        u32 unk34;
-        f32 unk38;
+        f32 unused34;
+        u32 unused38;
         u8 pad3C[4];
     } SlaveParams;
     extern Vector4 g_zeroVector;
@@ -1476,32 +1476,32 @@ void CarA_ProcessDamageSystem(CarA *car, Vector4 *hitPos, s32 level, f32 impulse
                 partParams.gravity = -50.0f;
                 partParams.vel = vel;
                 partParams.pos = pos;
-                SETP(partParams.geom, GETP(GETP(list->parts)[i].geom));
+                SETP(partParams.geometry, GETP(GETP(list->parts)[i].geom));
                 partParams.quat = quat;
-                partParams.unk50 = 1;
+                partParams.moves = 1;
                 if (debris != 0) {
                     debrisParams.debris = debris;
                     debrisParams.pos = pos;
                     debrisParams.quat = quat;
                     debrisParams.vel = vel;
                     debrisParams.owner = 0;
-                    debrisParams.unk48 = 0.0f;
-                    debrisParams.unk4C = 0.0f;
+                    debrisParams.speedScale = 0.0f;
+                    debrisParams.unusedParam = 0.0f;
                     debrisParams.angVel = g_zeroVector;
                     ThingManager_DARYL_CreateThing(1, &debrisParams);
                 }
-                RandomNumberGenerator_GetRandomVector(&partParams.axis);
-                partParams.axis.w = 0.017453292f * RandomAdd(100.0f, 1260.0f);
+                RandomNumberGenerator_GetRandomVector(&partParams.spinAxis);
+                partParams.spinAxis.w = 0.017453292f * RandomAdd(100.0f, 1260.0f);
                 thing = ThingManager_DARYL_CreateThing(6, &partParams);
                 if (thing != NULL && GETP(GETP(list->parts)[i].slaveInfo) != NULL) {
-                    slaveParams.unk38 = 0.0f;
+                    slaveParams.unused38 = 0;
                     slaveParams.quat.w = 1.0f;
                     slaveParams.quat.x = 0.0f;
                     slaveParams.quat.y = 0.0f;
                     slaveParams.quat.z = 0.0f;
                     slaveParams.pos = Vector4_OrZero(GETP(GETP(list->parts)[i].slavePos));
                     SETP(slaveParams.info, GETP(GETP(list->parts)[i].slaveInfo));
-                    slaveParams.unk34 = 0;
+                    slaveParams.unused34 = 0.0f;
                     slaveParams.vel = g_zeroVector;
                     slave = ThingManager_DARYL_CreateSlave(2, &slaveParams, 0xFF);
                     if (slave != NULL) {
@@ -1686,8 +1686,8 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         Vector4 pos;
         Vector4 vel;
         PTR32(DeathInfo) death;
-        f32 unk34;
-        u8 unk38;
+        f32 drawDist;
+        u8 aiPickup;
     } DeathParams;
     extern u8 g_carAVTable[];
     extern u8 g_itemVTable[];
@@ -1763,7 +1763,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             if (P(CarA, coll->thingB) == NULL || GETP(P(CarA, coll->thingA)->base.player) != GETP(P(CarA, coll->thingB)->base.player)) {
                 CarA_StuntFail(car);
             }
-            car->unk45C = 100;
+            car->stuckTimer = 100;
             car->angularMomentum.x *= 0.9f;
             car->angularMomentum.y *= 0.9f;
             car->angularMomentum.z *= 0.9f;
@@ -1773,7 +1773,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             car->base.vel.z *= 0.9f;
         }
         if (_fabs(PSVECDotProduct(&car->base.axis[0], &n)) > 0.7f) {
-            car->unk45C = 100;
+            car->stuckTimer = 100;
         }
         if (_fabs(PSVECDotProduct(&car->base.axis[2], &n)) > 0.7f) {
             if (car->tiltState == 0) {
@@ -1944,8 +1944,8 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 sp.pos = coll->pos;
                 sp.vel = car->base.vel;
                 sp.owner = car->base.player.h;
-                sp.unk48 = 0.0f;
-                sp.unk4C = 0.0f;
+                sp.speedScale = 0.0f;
+                sp.unusedParam = 0.0f;
                 sp.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(1, &sp);
             }
@@ -1970,7 +1970,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             if (GETP(car->base.player) != NULL && CARA_PLAYER(car)->throttle == 0) {
                 car->transmissionFlags |= 0x10;
             } else {
-                car->unk4FC = 0.0f;
+                car->gripBlend = 0.0f;
             }
         }
         if (P(CarA, coll->thingB) != NULL && (!(P(CarA, coll->thingA)->base.flags & 8) || P(CarA, coll->thingA)->base.health == 0) &&
@@ -2056,8 +2056,8 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             dp.quat.x = 0.0f;
             dp.quat.y = 0.0f;
             dp.quat.z = 0.0f;
-            dp.unk34 = 0.0f;
-            dp.unk38 = 0;
+            dp.drawDist = 0.0f;
+            dp.aiPickup = 0;
             spawned = ThingManager_DARYL_CreateThing(4, &dp);
             if (spawned != NULL) {
                 ((Thing *)spawned)->flags |= 1;
@@ -2069,7 +2069,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                     snd.vel.y = 0.0f;
                     snd.vel.x = 0.0f;
                     snd.owner = 0;
-                    snd.unk48 = 0.0f;
+                    snd.speedScale = 0.0f;
                     snd.angVel = g_zeroVector;
                     ThingManager_DARYL_CreateThing(1, &snd);
                 }
@@ -2095,7 +2095,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 ex.quat = *(Vector4 *)&car->base.quat;
                 ex.vel = g_zeroVector;
                 ex.owner = car->base.player.h;
-                ex.unk48 = 0.0f;
+                ex.speedScale = 0.0f;
                 ex.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(1, &ex);
             }

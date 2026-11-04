@@ -130,6 +130,8 @@ void AttachThing_SlaveTransform(struct AttachThing *attach, Matrix4 *mtx);
 void RadarBlip_Draw(struct RadarBlip *blip);
 s32 RadarBlip_Init(struct RadarBlip *blip, struct RadarBlipParams *init);
 s32 RadarBlip_Move(struct RadarBlip *blip);
+void RadarBlip_SlavePosYawOnly(Matrix4 *m, Vector4 *local, Vector4 *out);
+void RadarBlip_SlaveTransform(struct RadarBlip *blip, Matrix4 *mtx);
 
 /* Audio.c */
 s8 Audio_Create(void);
@@ -525,8 +527,8 @@ void Gfx_DrawAnimGeometryAux(Geometry *geometry, f32 *matrices, u32 count, f32 *
 void Gfx_DrawAnimGeometryAux_(Geometry *geometry, f32 *matrices, u32 count, f32 *matrix);
 
 /* Gfx_DisplayList.c */
-void DisplayList_AddAlphaGroup(s32 arg0, s32 arg1, u32 matrix, u8 arg3, GXColor *color);
-void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u8 flag, GXColor color);
+void DisplayList_AddAlphaGroup(s32 geometryHandle, s32 groupIndex, u32 matrix, u8 useBaseColor, GXColor *color);
+void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u8 useBaseColor, GXColor color);
 void DisplayList_RenderGXList(void);
 void DrawAlphaTable(void);
 void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix);
@@ -539,9 +541,9 @@ void Gfx_AddCorona(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b)
 u32 Gfx_AddWorldMatrixState_CacheMatrix(f32 (*matrix)[4]);
 u32 Gfx_AddWorldMatrixState_CacheMatrixQuaternionScalePos(void *quat, void *scale, Vector4 *pos);
 u32 Gfx_AddWorldMatrixState_NonCached(void *matrix);
-void * Gfx_Begin_GroupQuadFlat(u16 tex, u16 arg1, u8 arg2);
-void * Gfx_Begin_GroupTriFlat(u16 tex, u16 arg1, u8 arg2);
-void * Gfx_Begin_GroupTriShaded(u16 tex, u16 arg1, u8 arg2);
+void * Gfx_Begin_GroupQuadFlat(u16 tex, u16 blendMode, u8 unused2);
+void * Gfx_Begin_GroupTriFlat(u16 tex, u16 blendMode, u8 unused2);
+void * Gfx_Begin_GroupTriShaded(u16 tex, u16 blendMode, u8 unused2);
 s32 Gfx_DisplayList_Create(void);
 void Gfx_DisplayList_Destroy(void);
 void Gfx_End_GroupTri(s32 n);
@@ -1021,7 +1023,7 @@ void SetTriNormVtxDescIdx(void);
 void SetTriVtxDesc(void);
 void SetTriVtxDescIdx(void);
 void SetTriVtxDescIdxAlpha(void);
-void SetVertexBuffer(u32 *vb, u16 flags, u16 unk);
+void SetVertexBuffer(u32 *vb, u16 flags, u16 unused);
 
 /* Render_Lines_.c */
 void Render_Draw3DFXLines(void);

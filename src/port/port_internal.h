@@ -18,20 +18,54 @@
 typedef struct PortState {
     const char *dataDir;
     int scale;
+    int winW, winH;          /* --window WxH (0: 640x480 times scale) */
     int fullscreen;
+    int vsync;               /* wait for the display before a frame is shown:
+                              * 1 on, 0 off (main_sdl.c, the Graphics menu) */
+    int maxFps;              /* frames a second, 30 .. 240: the rate the game
+                              * is paced at (main_sdl.c, the Graphics menu) */
     volatile int quit;
     SDL_Window *window;
-    SDL_GLContext gl;
+    const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
+    int resetSave;           /* --reset-save (main_sdl.c): default game data, no autoload */
 } PortState;
 
 extern PortState g_port;
 
 void Port_InitHandles(u32 arenaSize);
 
+/* Creates g_port.window with the renderer's flags (gx_render.h open). */
+void Port_CreateWindow(SDL_WindowFlags flags);
+int Port_TryCreateWindow(SDL_WindowFlags flags);   /* 0: failed (SDL_GetError) */
+
+/* gfx_settings.c: graphics.cfg fills in what the command line left unset. */
+void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int haveFps);
+void Port_GfxSetFullscreenMode(int w, int h);
+/* The Max FPS choice, brought into the rate the retrace pacing allows. */
+int Port_GfxFrameRate(void);
+/* Whether showing a frame should wait for the display. HWVX_NO_VSYNC=1 wins:
+ * the frame time in the logs is then what drawing costs. */
+int Port_VSyncWanted(void);
+
 /* Called once per displayed frame from VIWaitForRetrace: presents, pumps
  * events, paces to 60 Hz. */
 void Port_EndFrame(void);
 void Port_PumpEvents(void);
+
+/* os.c: the giant lock that serialises game threads (see os.c for the
+ * interrupt-handler side, used by the AX thread). */
+void Port_GiantLock(void);
+void Port_GiantUnlock(void);
+void Port_InterruptLock(void);
+void Port_InterruptUnlock(void);
+void Port_InterruptPoint(void);
+void Port_InterruptWindowBegin(void);
+void Port_InterruptWindowEnd(void);
+
+/* Frame rate HUD (hud.c, HWVX_FPSHUD=1): vi.c ticks it once per retrace,
+ * gx_draw.c draws its strip into the EFB's top left before each copy. */
+void Port_HudTick(void);
+void Port_HudDraw(int efbW, int efbH);
 
 /* Subsystems */
 void GX_PortBeginFrame(void);

@@ -9,7 +9,7 @@
 
 /* Homing parameters (ProjectileInfo.smart), SmartProjectiles.c. */
 typedef struct SmartProjParams {
-    u8 unk00;                   /* 0x00 */
+    u8 pad00;                   /* 0x00 */
     u8 invertZ;                 /* 0x01 look for targets behind */
     s16 delay;                  /* 0x02 ms before steering starts (Projectile.timer) */
     f32 turnMax;                /* 0x04 rad/s */
@@ -95,7 +95,7 @@ typedef struct Projectile {
     f32 trailStep;              /* 0x12C spacing of the trail effects */
     s32 lensFlare;              /* 0x130 LensFlare handle */
     s32 light;                  /* 0x134 LightHolder index, -1: none */
-    s32 unk138;                 /* 0x138 -1 */
+    s32 unused138;              /* 0x138 -1 */
     f32 spinSpeed;              /* 0x13C */
     f32 keyRate;                /* 0x140 key playback speed, so the keys span the life */
     s32 proximityTimer;         /* 0x144 ms to the next proximity check */

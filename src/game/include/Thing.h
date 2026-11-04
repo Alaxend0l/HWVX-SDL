@@ -139,8 +139,8 @@ typedef struct DebrisParams {
     Vector4 angVel;                    /* 0x30 */
     u32 debris;                        /* 0x40 debris description (handle) */
     s32 owner;                         /* 0x44 Player handle credited with it */
-    f32 unk48;                         /* 0x48 */
-    f32 unk4C;                         /* 0x4C */
+    f32 speedScale;                         /* 0x48 EventSeq: moving emitters play sequences faster */
+    f32 unusedParam;                         /* 0x4C written at every site, read nowhere */
 } DebrisParams;
 
 _Static_assert(offsetof(DebrisParams, debris) == 0x40, "DebrisParams.debris");

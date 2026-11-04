@@ -117,9 +117,11 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLUNIFORM4IVPROC, glUniform4iv)                                        \
     X(PFNGLUNIFORMMATRIX4FVPROC, glUniformMatrix4fv)                            \
     X(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers)                              \
+    X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers)                        \
     X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer)                              \
     X(PFNGLFRAMEBUFFERTEXTURE2DPROC, glFramebufferTexture2D)                    \
     X(PFNGLGENRENDERBUFFERSPROC, glGenRenderbuffers)                            \
+    X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers)                      \
     X(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer)                            \
     X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage)                      \
     X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer)              \
@@ -200,9 +202,11 @@ GL_FUNCS(GL_DECLARE)
 #define glUniform4iv p_glUniform4iv
 #define glUniformMatrix4fv p_glUniformMatrix4fv
 #define glGenFramebuffers p_glGenFramebuffers
+#define glDeleteFramebuffers p_glDeleteFramebuffers
 #define glBindFramebuffer p_glBindFramebuffer
 #define glFramebufferTexture2D p_glFramebufferTexture2D
 #define glGenRenderbuffers p_glGenRenderbuffers
+#define glDeleteRenderbuffers p_glDeleteRenderbuffers
 #define glBindRenderbuffer p_glBindRenderbuffer
 #define glRenderbufferStorage p_glRenderbufferStorage
 #define glFramebufferRenderbuffer p_glFramebufferRenderbuffer

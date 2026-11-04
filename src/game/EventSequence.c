@@ -310,7 +310,7 @@ void Blast_Action(struct BlastInfo *blast, Vector4 *pos, Thing *source) {
                 params.vel = thing->vel;
                 params.quat = *(Vector4 *)&thing->quat;
                 params.owner = 0;
-                params.unk4C = params.unk48 = 0.0f;
+                params.unusedParam = params.speedScale = 0.0f;
                 params.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
             }
@@ -354,7 +354,7 @@ s32 EventSeq_Init(struct EventSeq *seq, DebrisParams *data)
     seq->base.quat = *(Quaternion *)&data->quat;
     seq->base.player.h = data->owner;
     seq->angVel = data->angVel;
-    seq->speedScale = data->unk48;
+    seq->speedScale = data->speedScale;
     QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
     seq->base.pos = data->pos;
     seq->script.h = data->debris;
@@ -1014,8 +1014,8 @@ s32 EventSeq_Move(struct EventSeq *seq) {
             n = RandomAdd_s32(emit->countBase, emit->countRange);
             QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
             prm.owner = seq->base.player.h;
-            prm.unk48 = 0.0f;
-            prm.unk4C = 0.0f;
+            prm.speedScale = 0.0f;
+            prm.unusedParam = 0.0f;
             prm.debris = HND(p);
             prm.angVel = g_zeroVector;
             if (n == 0) n = 1;
@@ -1077,12 +1077,12 @@ s32 EventSeq_Move(struct EventSeq *seq) {
                 XformVecOrientation(&m, &off, &tmp);
                 PSVECAdd(&pos, &tmp, &pos);
                 SETP(prm.record, p);
-                prm.unk4C = 0;
+                prm.unused4C = 0;
                 prm.moveType = 0;
                 prm.pos = pos;
                 prm.quat = seq->base.quat;
                 prm.vel = prm.angVel = g_zeroVector;
-                prm.unk58 = 0;
+                prm.unused58 = 0;
                 prm.anim.h = 0;
                 if (p->hasDrawDist) {
                     prm.drawDist = p->drawDist;
@@ -1104,7 +1104,7 @@ s32 EventSeq_Move(struct EventSeq *seq) {
             emit = GETP(entry->b);
             n = RandomAdd_s32(emit->countBase, emit->countRange);
             QuaternionToSubMatrix(&seq->base.quat, THING_MTX(&seq->base));
-            prm.unk4C = 0;
+            prm.unused4C = 0;
             prm.moveType = 2;
             prm.angVel = seq->angVel;
             prm.anim.h = 0;

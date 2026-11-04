@@ -140,8 +140,8 @@ s32 Emitter_Move(Emitter *emitter) {
                 params.quat = *(Vector4 *)&emitter->base.quat;
                 params.vel = emitter->base.vel;
                 params.owner = emitter->base.player.h;
-                params.unk48 = GETP(emitter->desc)->speedScale;
-                params.unk4C = 0.0f;
+                params.speedScale = GETP(emitter->desc)->speedScale;
+                params.unusedParam = 0.0f;
                 params.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
             }

@@ -31,8 +31,8 @@ typedef struct GfxWindow {
     f32 offsetY;                /* 0x294 */
     f32 sizeX;                  /* 0x298 */
     f32 sizeY;                  /* 0x29C */
-    f32 unk2A0;                 /* 0x2A0 */
-    f32 unk2A4;                 /* 0x2A4 */
+    f32 unused2A0;              /* 0x2A0 set to sizeX, never read */
+    f32 unused2A4;              /* 0x2A4 set to sizeY, never read */
     f32 centerX;                /* 0x2A8 */
     f32 centerY;                /* 0x2AC */
     s32 left;                   /* 0x2B0 */
@@ -41,7 +41,7 @@ typedef struct GfxWindow {
     s32 bottom;                 /* 0x2BC */
     GXColor overlayColor;       /* 0x2C0 full-window tint (Gfx_SetOverlay) */
     u32 overlayMode;            /* 0x2C4 blend mode, 0: none */
-    s32 unk2C8;                 /* 0x2C8 */
+    s32 unused2C8;              /* 0x2C8 SetRenderWindowSize arg4, always 0 */
     f32 invSinHalfFov;          /* 0x2CC 1 / sin(fov / 2): sprite size scale */
 } GfxWindow;
 
@@ -71,15 +71,15 @@ typedef struct GfxState {
     GXColor baseColor;          /* 0x74 Gfx_SetBaseColor: geometry constant colour */
     GXColor ambientColor;       /* 0x78 */
     u32 flags;                  /* 0x7C Gfx_EnableState bits */
-    f32 unk80;                  /* 0x80 */
-    s32 unk84;                  /* 0x84 */
-    s32 unk88;                  /* 0x88 */
+    f32 unused80;               /* 0x80 set to 64.0f, never read */
+    s32 unused84;               /* 0x84 0xFFFF: flat alpha tri path, never set */
+    s32 unused88;               /* 0x88 set to 0, never read */
     u16 debugFont;              /* 0x8C */
     s8 lightChanged;            /* 0x8E a new GDL light state is needed */
-    s8 unk8F;                   /* 0x8F */
+    s8 envmapEnable;            /* 0x8F Gfx_SetEnvmap flag, reset to 1 per frame */
     u8 numPointLights;          /* 0x90 */
-    u8 unk91;                   /* 0x91 */
-    u8 unk92;                   /* 0x92 */
+    u8 unused91;                /* 0x91 set to 0xFF, never read */
+    u8 unused92;                /* 0x92 set to 0xFF, never read */
     u8 worldIsIdentity;         /* 0x93 the world matrix is the identity (Gfx_SetWorldMatrix) */
     u8 enviroMapMode;           /* 0x94 */
     u8 pad95[3];                /* 0x95 */
@@ -98,7 +98,7 @@ extern GfxState g_state;
 
 /* A geometry (pack data): groups of display lists with bounds and LODs. */
 typedef struct GeometryGroup {
-    u16 unk0;                   /* 0x00 */
+    u16 unused0;                /* 0x00 pack data, never referenced */
     u16 flags;                  /* 0x02 */
     GXColor color;              /* 0x04 */
     u8 pad08[4];                /* 0x08 */
@@ -107,10 +107,15 @@ typedef struct GeometryGroup {
         u32 dlSize;             /* 0x10 display list bytes */
         PTR32(void) data;       /*      the same, as some views read it */
     };
-    u16 unk14;                  /* 0x14 */
+    u16 blendMode;              /* 0x14 see Render_StateBlendMode */
     u8 pad16[2];                /* 0x16 */
-    u16 unk18;                  /* 0x18 */
-    u16 unk1A;                  /* 0x1A */
+    /* The texture relocation stores the id zero-extended as a big-endian
+     * u32 over 0x18-0x1B, i.e. into `texture` with the override 0 (the port
+     * keeps that layout: PortSwap_StoreTextureID). ShaderHolder_Heartbeat
+     * writes the override (animated and movie textures); Render_Draw*Group
+     * uses it when set, and it is the opaque/lit/alpha sort bucket key. */
+    u16 textureOverride;        /* 0x18 0: use `texture` */
+    u16 texture;                /* 0x1A */
     union {
         PTR32(void) displayList; /* 0x1C */
         PTR32(__typeof__(u16[3])) tris; /* triangles (Gfx_DisplayList.c) */
@@ -118,10 +123,10 @@ typedef struct GeometryGroup {
 } GeometryGroup;
 
 typedef struct Geometry {
-    u16 unk0;                   /* 0x00 */
+    u16 unused0;                /* 0x00 pack data, never referenced */
     u16 numGroups;              /* 0x02 */
-    u16 unk4;                   /* 0x04 */
-    u16 unk6;                   /* 0x06 */
+    u16 skipDraw;               /* 0x04 nonzero: Render_Geometry does nothing */
+    u16 unused6;                /* 0x06 */
     PTR32(GeometryGroup) groups; /* 0x08 */
     union {
         PTR32(f32) lodDistances; /* 0x0C */

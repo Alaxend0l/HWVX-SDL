@@ -1,0 +1,88 @@
+plugins {
+    id 'com.android.application'
+}
+
+// SDL3, the version the desktop builds use: its Java activity is compiled
+// in here, its C library is built by the game's CMakeLists.txt.
+def repoRoot = file("${rootDir}/..")
+def sdlVersion = file("${repoRoot}/packaging/SDL_VERSION").text.trim()
+def sdlWork = file("${repoRoot}/build-pkg/android")
+def sdlDir = file("${sdlWork}/SDL3-${sdlVersion}")
+if (!sdlDir.exists()) {
+    providers.exec {
+        commandLine 'sh', "${repoRoot}/packaging/fetch-sdl3.sh", sdlWork.path
+    }.result.get()
+}
+
+// Versions: CI passes the tag (HWVX_VERSION) and the run number.
+def versionNameEnv = System.getenv('HWVX_VERSION') ?: '0.1.0'
+def versionCodeEnv = (System.getenv('HWVX_VERSION_CODE') ?: '1') as int
+
+android {
+    namespace 'io.github.alaxend0l.hwvx'
+    compileSdk 35
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'io.github.alaxend0l.hwvx'
+        minSdk 28            // Android 9: Vulkan on all devices that matter
+        targetSdk 35
+        versionCode versionCodeEnv
+        versionName versionNameEnv.replaceFirst('^v', '')
+        externalNativeBuild {
+            cmake {
+                arguments "-DHWVX_SDL_SOURCE_DIR=${sdlDir}",
+                          "-DANDROID_STL=c++_static",
+                          "-DHWVX_VERSION=${versionName}"
+            }
+        }
+        ndk {
+            // 64-bit only: the port keeps 32-bit handles for game pointers
+            // and is developed on 64-bit hosts. x86_64 is for emulators.
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    signingConfigs {
+        // A real key from the environment (CI secrets), else the debug key
+        // so the APK can still be installed.
+        release {
+            def ks = System.getenv('HWVX_KEYSTORE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('HWVX_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('HWVX_KEY_ALIAS')
+                keyPassword System.getenv('HWVX_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv('HWVX_KEYSTORE') ? signingConfigs.release : signingConfigs.debug
+            externalNativeBuild {
+                cmake {
+                    arguments "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+                }
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += "${sdlDir}/android-project/app/src/main/java"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "${repoRoot}/CMakeLists.txt"
+            version '3.22.1'
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}

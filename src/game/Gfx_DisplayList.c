@@ -3,24 +3,26 @@
 
 
 typedef struct GDLSprite {
-    u8 unk0[0x20];
-    s32 next;
-    u8 unk24[0x30 - 0x24];
+    Vector4 pos;              /* 0x00 billboard world position */
+    u8 pad10[0x1C - 0x10];
+    f32 rot;                  /* 0x1C rotation (Render_DrawNewBBSprites) */
+    s32 next;                 /* 0x20 next sprite in the texture bucket */
+    u8 pad24[0x30 - 0x24];
 } GDLSprite;
 
 typedef struct GDL2DSprite {
     f32 x;
     f32 y;
     f32 z;
-    f32 unkC;
-    u8 unk10[0x1C - 0x10];
-    f32 unk1C;
-    u8 unk20[0x24 - 0x20];
+    f32 size;                 /* 0x0C quad half-extent is 0.5 * size */
+    u8 pad10[0x1C - 0x10];
+    f32 rotation;             /* 0x1C quad rotation, degrees; 0 = axis aligned */
+    u8 pad20[0x24 - 0x20];
     GXColor color;
     u16 tex;
-    u8 flag;
+    u8 flag;                  /* blend mode, see Render_StateBlendMode */
     u8 window;
-    u8 unk2C[0x30 - 0x2C];
+    u8 pad2C[0x30 - 0x2C];
 } GDL2DSprite;
 
 typedef struct GDLTriVtx {
@@ -28,23 +30,23 @@ typedef struct GDLTriVtx {
     f32 y;
     f32 z;
     f32 w;
-    u8 unk10[0x20 - 0x10];
+    u8 pad10[0x20 - 0x10];
 } GDLTriVtx;
 
 typedef struct GDLTri {
-    u8 unk0[0x4];
+    u8 pad0[0x4];
     GDLTriVtx v[3];
 } GDLTri;
 
 typedef struct GDLLine {
-    u8 unk0[0x30];
+    u8 pad0[0x30];
 } GDLLine;
 
 typedef struct GDL3DLine {
     Vector4 p0;
     Vector4 p1;
     GXColor color;
-    u8 unk24[0x30 - 0x24];
+    u8 pad24[0x30 - 0x24];
 } GDL3DLine;
 
 typedef struct GDLFXLine2D {
@@ -53,22 +55,22 @@ typedef struct GDLFXLine2D {
     GXColor c0;
     GXColor c1;
     u8 flag;
-    u8 unk29[0x30 - 0x29];
+    u8 pad29[0x30 - 0x29];
 } GDLFXLine2D;
 
 typedef struct GDLGroupTri {
-    u8 type;
-    u8 unk1;
-    u8 unk2;
-    u8 unk3;
+    u8 type;                  /* 0x00 0: flat tris, 1: lit tris, 4: quads */
+    u8 unused1;               /* zeroed by Begin, never read */
+    u8 unused2;               /* stored by Begin, never read */
+    u8 pad3;
     u16 tex;
-    u16 unk6;
-    s32 unk8;
-    u32 count;
-    u32 unk10;
-    u8 unk14[0x18 - 0x14];
-    f32 unk18;
-    f32 unk1C;
+    u16 blendMode;            /* 0x06 see Render_StateBlendMode */
+    s32 start;                /* 0x08 write cursor into the vertex pool */
+    u32 count;                /* 0x0C entries added by Gfx_End_GroupTri */
+    u32 mergeSentinel;        /* 0x10 0xFFFE: last group, merges in Begin */
+    u8 pad14[0x18 - 0x14];
+    f32 unused18;             /* zeroed by Begin, never read */
+    f32 unused1C;             /* zeroed by Begin, never read */
 } GDLGroupTri;
 
 typedef struct GDLAlphaEntry {
@@ -86,7 +88,7 @@ typedef struct GDLLightState {
     GXColor pointColors[3];
     GXColor lightColor;         /* 0x50 as Render_Geometry_.c reads it */
     GXColor ambientColor;       /* 0x54 */
-    u8 unk58[0x60 - 0x58];
+    u8 pad58[0x60 - 0x58];
 } GDLLightState;
 
 extern Matrix4 g_identity;
@@ -107,10 +109,10 @@ typedef struct DLGroup {
     PTR32(void) geometry;
     s32 lightState;
     u16 matrix;
-    u16 unkA;
+    u16 next;                 /* 0x0A next group in the texture bucket */
     u8 group;
-    u8 unkD;
-    u8 unkE;
+    u8 lod;                   /* 0x0D LOD picked by Gfx_GetCullLODGX */
+    u8 blendMode;             /* 0x0E see Render_StateBlendMode */
     u8 window;
 } DLGroup;
 
@@ -119,12 +121,12 @@ typedef struct DisplayList {
     u16 numLitGroups;
     u16 numShadowGroups;
     u16 numAlphaGroups;
-    u8 unk8[0x10 - 0x8];
+    u8 pad8[0x10 - 0x8];
     u16 numSkinGroups;
-    u8 unk12[0x14 - 0x12];
+    u8 pad12[0x14 - 0x12];
     u16 numDecalGroups;
     u16 numOverlayGroups;
-    u8 unk18[0x20 - 0x18];
+    u8 pad18[0x20 - 0x18];
     DLGroup opaqueGroups[0x9C4];
     DLGroup litGroups[0x258];
     DLGroup shadowGroups[0x100];
@@ -132,8 +134,8 @@ typedef struct DisplayList {
     DLGroup decalGroups[0x200];
     DLGroup overlayGroups[0x80];
     DLSkinGroup skinGroups[0x100];
-    u16 unk11DE0[0x1FF];
-    u16 unk121DE[0x1FF];
+    u16 opaqueTexHeads[0x1FF];  /* 0x11DE0 opaqueGroups chain heads */
+    u16 litTexHeads[0x1FF];     /* 0x121DE litGroups chain heads */
 } DisplayList;
 
 extern s32 g_currentWindow;
@@ -141,31 +143,31 @@ extern u8 g_CurrentViews;
 
 
 typedef struct GDLEnvmapState {
-    f32 unk0;
-    f32 unk4;
-    u16 unk8;
-    u16 unkA;
+    f32 x;                    /* 0x00 Gfx_SetEnvmap position, dedup compare only */
+    f32 y;
+    u16 texA;                 /* 0x08 texture pair, Render_SetTextureHandle */
+    u16 texB;
 } GDLEnvmapState;
 
 typedef struct GDLAlphaGroup {
     f32 matrix[4][4];
-    s32 unk40;
-    s32 unk44;
-    u8 unk48[0x4C - 0x48];
+    s32 geometry;             /* 0x40 Geometry handle */
+    s32 group;                /* 0x44 group index within the geometry */
+    u8 pad48[0x4C - 0x48];
     GXColor color;
-    u8 unk50;
+    u8 useBaseColor;          /* 0x50 use color instead of lighting */
     u8 window;
     u16 next;
 } GDLAlphaGroup;
 
 typedef struct GDLGeomGroup {
-    u8 unk0[0x18];
+    u8 pad0[0x18];
     u16 sortKey;
-    u8 unk1A[0x20 - 0x1A];
+    u8 pad1A[0x20 - 0x1A];
 } GDLGeomGroup;
 
 typedef struct GDLGeom {
-    u8 unk0[0x8];
+    u8 pad0[0x8];
     PTR32(GDLGeomGroup) groups;
 } GDLGeom;
 
@@ -174,10 +176,10 @@ typedef struct GDLDrawEntry {
     GXColor color;
     u32 matrix;
     s32 lightState;
-    u8 unk10;
-    u8 unk11;
+    u8 useBaseColor;          /* 0x10 use color instead of lighting */
+    u8 unused11;              /* always 0, ignored by Gfx_GetCullLODGX */
     u8 envmapState;
-    u8 unk13;
+    u8 pad13;
 } GDLDrawEntry;
 
 typedef struct GDLLODEntry {
@@ -190,64 +192,65 @@ typedef struct GDL {
     u32 num2DSprites;
     u32 numSprites;
     u32 numAlphaGroups;
-    u8 unk10[0x14 - 0x10];
+    u8 pad10[0x14 - 0x10];
     u32 numTris;
     u32 numRects2D;
-    u8 unk1C[0x20 - 0x1C];
+    u8 pad1C[0x20 - 0x1C];
     u32 numRects;
     u32 num3DLines;
-    u8 unk28[0x2C - 0x28];
+    u32 num2DLines;           /* 0x28 */
     u32 numSpheres;
     u32 numBoxes;
     u32 numLines;
-    s32 unk38;
-    s32 unk3C;
-    s32 unk40;
+    s32 groupTriFlatCount;    /* 0x38 flat-tri pool cursor */
+    s32 groupTriShadedCount;  /* 0x3C lit-tri pool cursor */
+    s32 groupQuadFlatCount;   /* 0x40 quad pool cursor */
     s32 numGroupTris;
-    u8 unk48[0x4C - 0x48];
+    u8 pad48[0x4C - 0x48];
     u32 numLightStates;
     u32 numCachedMatrices;
     u32 numDrawEntries;
     u32 numLODEntries;
-    u8 unk5C[0x6C - 0x5C];
+    u8 pad5C[0x68 - 0x5C];
+    u32 numPointSprites;      /* 0x68 */
     u32 numEnvmapStates;
     u32 num2DFXLines;
     u32 numMatrices;
-    u8 unk78[0x80 - 0x78];
+    u8 pad78[0x80 - 0x78];
     u16 alphaTable[0x100];
     GDLAlphaEntry alphaEntries[0x1388];
     GDL2DSprite sprites2D[2000];
     GDLSprite sprites[0x7CF];
-    u8 unk38C90[0x38CBC - 0x38C90];
+    u8 pad38C90[0x38CBC - 0x38C90];
     GDLTri tris[2000];
-    u8 unk699FC[0x69A00 - 0x699FC];
+    u8 pad699FC[0x69A00 - 0x699FC];
     GDLAlphaGroup alphaGroups[0x400];
     GDLRect rects2D[0x400];
     GDLRect rects[0x20];
-    u8 unkA0A80[0xA2B80 - 0xA0A80];
+    u8 padA0A80[0xA2B80 - 0xA0A80];
     GDL3DLine lines3D[2000];
     GDLFXLine2D fxLines2D[200];
-    u8 unkBC800[0xC0040 - 0xBC800];
+    u8 padBC800[0xC0040 - 0xBC800];
     GDLLine lines[0x100];
-    u8 unkC3040[0xC6EC0 - 0xC3040];
+    GDLGroupTri groupTriPool[500]; /* 0xC3040 */
     GDLLightState lightStates[0x80];
     f32 cachedMatrices[0x578][4][4];
     GDLDrawEntry drawEntries[0x800];
     GDLLODEntry lodEntries[0x400];
-    u8 unkEBCC0[0xEDCC0 - 0xEBCC0];
-    u8 unkEDCC0[0xF3A80 - 0xEDCC0];
+    u8 padEBCC0[0xEDCC0 - 0xEBCC0];
+    u8 pointSpritesPool[0xF3A80 - 0xEDCC0]; /* 0xEDCC0 GDLPointSprite pool */
     GDLEnvmapState envmapStates[0x20];
     PTR32(void) matrices[0x578];
-    u8 unkF51E0[2][0x4E200];
-    u8 unk1915E0[2][0x27100];
-    u8 unk1DF7E0[2][0x36B00];
-    PTR32(void) unk24CDE0;
+    u8 groupTriVtxBuffer[2][0x4E200];
+    u8 groupQuadVtxBuffer[2][0x27100];
+    u8 groupLitTriVtxBuffer[2][0x36B00];
+    PTR32(void) groupTriVtx;
     PTR32(GDLGroupTri) groupTris;
-    PTR32(void) unk24CDE8;
-    PTR32(void) unk24CDEC;
-    PTR32(void) unk24CDF0;
+    PTR32(void) groupQuadVtx;
+    PTR32(void) groupLitTriVtx;
+    PTR32(void) unused24CDF0;
     u16 spriteHeads[0x1FF];
-    u8 unk24D1F2;
+    u8 unused24D1F2;
 } GDL;
 
 extern GDL *g_pGDL;
@@ -266,7 +269,7 @@ s32 Gfx_DisplayList_Create(void) {
         g_pGDL->tris[i].v[1].w = 1.0f;
         g_pGDL->tris[i].v[2].w = 1.0f;
     }
-    g_pGDL->unk24D1F2 = 0;
+    g_pGDL->unused24D1F2 = 0;
     return 1;
 }
 
@@ -279,25 +282,25 @@ extern u32 g_DLBufferOn;
 void Render_InitDisplayList(void) {
     memset(g_pGDL, 0, 0x80);
     memset(g_pGDL->spriteHeads, 0xFF, 0x3FE);
-    memset(g_pDL->unk11DE0, 0xFF, 0x3FE);
-    memset(g_pDL->unk121DE, 0xFF, 0x3FE);
+    memset(g_pDL->opaqueTexHeads, 0xFF, 0x3FE);
+    memset(g_pDL->litTexHeads, 0xFF, 0x3FE);
     if (g_DLBufferOn) {
-        SETP(g_pGDL->unk24CDEC, g_pGDL->unk1DF7E0[0]);
-        SETP(g_pGDL->unk24CDE0, g_pGDL->unkF51E0[0]);
-        SETP(g_pGDL->unk24CDE8, g_pGDL->unk1915E0[0]);
+        SETP(g_pGDL->groupLitTriVtx, g_pGDL->groupLitTriVtxBuffer[0]);
+        SETP(g_pGDL->groupTriVtx, g_pGDL->groupTriVtxBuffer[0]);
+        SETP(g_pGDL->groupQuadVtx, g_pGDL->groupQuadVtxBuffer[0]);
     } else {
-        SETP(g_pGDL->unk24CDEC, g_pGDL->unk1DF7E0[1]);
-        SETP(g_pGDL->unk24CDE0, g_pGDL->unkF51E0[1]);
-        SETP(g_pGDL->unk24CDE8, g_pGDL->unk1915E0[1]);
+        SETP(g_pGDL->groupLitTriVtx, g_pGDL->groupLitTriVtxBuffer[1]);
+        SETP(g_pGDL->groupTriVtx, g_pGDL->groupTriVtxBuffer[1]);
+        SETP(g_pGDL->groupQuadVtx, g_pGDL->groupQuadVtxBuffer[1]);
     }
-    SETP(g_pGDL->groupTris, (GDLGroupTri *)g_pGDL->unkC3040);
-    SETP(g_pGDL->unk24CDF0, g_pGDL->unkEDCC0);
+    SETP(g_pGDL->groupTris, g_pGDL->groupTriPool);
+    SETP(g_pGDL->unused24CDF0, g_pGDL->pointSpritesPool);
     g_DLBufferOn = !g_DLBufferOn;
     Gfx_SetRenderWindow(0);
     GetRenderWindow()->overlayMode = 0;
     g_state.numPointLights = 0;
     g_state.lightChanged = 1;
-    g_state.unk8F = 1;
+    g_state.envmapEnable = 1;
     g_pGDL->numEnvmapStates = 1;
 }
 
@@ -332,7 +335,7 @@ GDLSprite *Gfx_AddBillBoardSprite(u16 tex) {
     return sprite;
 }
 
-void *Gfx_Begin_GroupTriFlat(u16 tex, u16 arg1, u8 arg2) {
+void *Gfx_Begin_GroupTriFlat(u16 tex, u16 blendMode, u8 unused2) {
     u32 n;
 
     n = g_pGDL->numGroupTris;
@@ -340,25 +343,25 @@ void *Gfx_Begin_GroupTriFlat(u16 tex, u16 arg1, u8 arg2) {
         n = 0;
         g_pGDL->numGroupTris = 0;
     }
-    if (n != 0 && GETP(g_pGDL->groupTris)[n - 1].type == 0 && GETP(g_pGDL->groupTris)[n - 1].unk10 >= 0xFFFE &&
-        tex == GETP(g_pGDL->groupTris)[n - 1].tex && arg1 == GETP(g_pGDL->groupTris)[n - 1].unk6) {
+    if (n != 0 && GETP(g_pGDL->groupTris)[n - 1].type == 0 && GETP(g_pGDL->groupTris)[n - 1].mergeSentinel >= 0xFFFE &&
+        tex == GETP(g_pGDL->groupTris)[n - 1].tex && blendMode == GETP(g_pGDL->groupTris)[n - 1].blendMode) {
         g_pGDL->numGroupTris--;
     } else {
         GETP(g_pGDL->groupTris)[n].type = 0;
-        GETP(g_pGDL->groupTris)[n].unk1 = 0;
-        GETP(g_pGDL->groupTris)[n].unk2 = arg2;
-        GETP(g_pGDL->groupTris)[n].unk8 = g_pGDL->unk38;
+        GETP(g_pGDL->groupTris)[n].unused1 = 0;
+        GETP(g_pGDL->groupTris)[n].unused2 = unused2;
+        GETP(g_pGDL->groupTris)[n].start = g_pGDL->groupTriFlatCount;
         GETP(g_pGDL->groupTris)[n].count = 0;
         GETP(g_pGDL->groupTris)[n].tex = tex;
-        GETP(g_pGDL->groupTris)[n].unk6 = arg1;
-        GETP(g_pGDL->groupTris)[n].unk10 = 0xFFFE;
-        GETP(g_pGDL->groupTris)[n].unk18 = 0.0f;
-        GETP(g_pGDL->groupTris)[n].unk1C = 0.0f;
+        GETP(g_pGDL->groupTris)[n].blendMode = blendMode;
+        GETP(g_pGDL->groupTris)[n].mergeSentinel = 0xFFFE;
+        GETP(g_pGDL->groupTris)[n].unused18 = 0.0f;
+        GETP(g_pGDL->groupTris)[n].unused1C = 0.0f;
     }
-    return (u8 *)GETP(g_pGDL->unk24CDE0) + g_pGDL->unk38 * 0x50;
+    return (u8 *)GETP(g_pGDL->groupTriVtx) + g_pGDL->groupTriFlatCount * 0x50;
 }
 
-void *Gfx_Begin_GroupQuadFlat(u16 tex, u16 arg1, u8 arg2) {
+void *Gfx_Begin_GroupQuadFlat(u16 tex, u16 blendMode, u8 unused2) {
     extern GDL *g_pGDL;
     u32 n;
 
@@ -367,25 +370,25 @@ void *Gfx_Begin_GroupQuadFlat(u16 tex, u16 arg1, u8 arg2) {
         n = 0;
         g_pGDL->numGroupTris = 0;
     }
-    if (n != 0 && (&GETP(g_pGDL->groupTris)[n])[-1].type == 4 && (&GETP(g_pGDL->groupTris)[n])[-1].unk10 >= 0xFFFE &&
-        tex == (&GETP(g_pGDL->groupTris)[n])[-1].tex && arg1 == (&GETP(g_pGDL->groupTris)[n])[-1].unk6) {
+    if (n != 0 && (&GETP(g_pGDL->groupTris)[n])[-1].type == 4 && (&GETP(g_pGDL->groupTris)[n])[-1].mergeSentinel >= 0xFFFE &&
+        tex == (&GETP(g_pGDL->groupTris)[n])[-1].tex && blendMode == (&GETP(g_pGDL->groupTris)[n])[-1].blendMode) {
         g_pGDL->numGroupTris--;
     } else {
         GETP(g_pGDL->groupTris)[n].type = 4;
-        GETP(g_pGDL->groupTris)[n].unk1 = 0;
-        GETP(g_pGDL->groupTris)[n].unk2 = arg2;
-        GETP(g_pGDL->groupTris)[n].unk8 = g_pGDL->unk40;
+        GETP(g_pGDL->groupTris)[n].unused1 = 0;
+        GETP(g_pGDL->groupTris)[n].unused2 = unused2;
+        GETP(g_pGDL->groupTris)[n].start = g_pGDL->groupQuadFlatCount;
         GETP(g_pGDL->groupTris)[n].count = 0;
         GETP(g_pGDL->groupTris)[n].tex = tex;
-        GETP(g_pGDL->groupTris)[n].unk6 = arg1;
-        GETP(g_pGDL->groupTris)[n].unk10 = 0xFFFE;
-        GETP(g_pGDL->groupTris)[n].unk18 = 0.0f;
-        GETP(g_pGDL->groupTris)[n].unk1C = 0.0f;
+        GETP(g_pGDL->groupTris)[n].blendMode = blendMode;
+        GETP(g_pGDL->groupTris)[n].mergeSentinel = 0xFFFE;
+        GETP(g_pGDL->groupTris)[n].unused18 = 0.0f;
+        GETP(g_pGDL->groupTris)[n].unused1C = 0.0f;
     }
-    return (u8 *)GETP(g_pGDL->unk24CDE8) + g_pGDL->unk40 * 0x50;
+    return (u8 *)GETP(g_pGDL->groupQuadVtx) + g_pGDL->groupQuadFlatCount * 0x50;
 }
 
-void *Gfx_Begin_GroupTriShaded(u16 tex, u16 arg1, u8 arg2) {
+void *Gfx_Begin_GroupTriShaded(u16 tex, u16 blendMode, u8 unused2) {
     u32 n;
 
     n = g_pGDL->numGroupTris;
@@ -393,22 +396,22 @@ void *Gfx_Begin_GroupTriShaded(u16 tex, u16 arg1, u8 arg2) {
         n = 0;
         g_pGDL->numGroupTris = 0;
     }
-    if (n != 0 && GETP(g_pGDL->groupTris)[n - 1].type == 1 && GETP(g_pGDL->groupTris)[n - 1].unk10 >= 0xFFFE &&
-        tex == GETP(g_pGDL->groupTris)[n - 1].tex && arg1 == GETP(g_pGDL->groupTris)[n - 1].unk6) {
+    if (n != 0 && GETP(g_pGDL->groupTris)[n - 1].type == 1 && GETP(g_pGDL->groupTris)[n - 1].mergeSentinel >= 0xFFFE &&
+        tex == GETP(g_pGDL->groupTris)[n - 1].tex && blendMode == GETP(g_pGDL->groupTris)[n - 1].blendMode) {
         g_pGDL->numGroupTris--;
     } else {
         GETP(g_pGDL->groupTris)[n].type = 1;
-        GETP(g_pGDL->groupTris)[n].unk1 = 0;
-        GETP(g_pGDL->groupTris)[n].unk2 = arg2;
-        GETP(g_pGDL->groupTris)[n].unk8 = g_pGDL->unk3C;
+        GETP(g_pGDL->groupTris)[n].unused1 = 0;
+        GETP(g_pGDL->groupTris)[n].unused2 = unused2;
+        GETP(g_pGDL->groupTris)[n].start = g_pGDL->groupTriShadedCount;
         GETP(g_pGDL->groupTris)[n].count = 0;
         GETP(g_pGDL->groupTris)[n].tex = tex;
-        GETP(g_pGDL->groupTris)[n].unk6 = arg1;
-        GETP(g_pGDL->groupTris)[n].unk10 = 0xFFFE;
-        GETP(g_pGDL->groupTris)[n].unk18 = 0.0f;
-        GETP(g_pGDL->groupTris)[n].unk1C = 0.0f;
+        GETP(g_pGDL->groupTris)[n].blendMode = blendMode;
+        GETP(g_pGDL->groupTris)[n].mergeSentinel = 0xFFFE;
+        GETP(g_pGDL->groupTris)[n].unused18 = 0.0f;
+        GETP(g_pGDL->groupTris)[n].unused1C = 0.0f;
     }
-    return (u8 *)GETP(g_pGDL->unk24CDEC) + g_pGDL->unk3C * 0x70;
+    return (u8 *)GETP(g_pGDL->groupLitTriVtx) + g_pGDL->groupTriShadedCount * 0x70;
 }
 
 void Gfx_End_GroupTri(s32 n) {
@@ -416,15 +419,15 @@ void Gfx_End_GroupTri(s32 n) {
     if (GETP(g_pGDL->groupTris)[g_pGDL->numGroupTris].count != 0) {
         switch (GETP(g_pGDL->groupTris)[g_pGDL->numGroupTris].type) {
         case 0:
-            g_pGDL->unk38 += n;
+            g_pGDL->groupTriFlatCount += n;
             break;
         case 1:
-            g_pGDL->unk3C += n;
+            g_pGDL->groupTriShadedCount += n;
             break;
         case 2:
             break;
         case 4:
-            g_pGDL->unk40 += n;
+            g_pGDL->groupQuadFlatCount += n;
             break;
         }
         g_pGDL->numGroupTris++;
@@ -438,8 +441,8 @@ void Gfx_Add2DSprite(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 
     g_pGDL->sprites2D[g_pGDL->num2DSprites].x = pos->x;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].y = pos->y;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].z = pos->z;
-    g_pGDL->sprites2D[g_pGDL->num2DSprites].unkC = a;
-    g_pGDL->sprites2D[g_pGDL->num2DSprites].unk1C = b;
+    g_pGDL->sprites2D[g_pGDL->num2DSprites].size = a;
+    g_pGDL->sprites2D[g_pGDL->num2DSprites].rotation = b;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].color = *color;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].tex = tex;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].flag = flag;
@@ -454,8 +457,8 @@ void Gfx_AddCorona(Vector4 *pos, u16 tex, GXColor *color, u8 flag, f32 a, f32 b)
     g_pGDL->sprites2D[g_pGDL->num2DSprites].x = pos->x;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].y = pos->y;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].z = pos->z;
-    g_pGDL->sprites2D[g_pGDL->num2DSprites].unkC = a * GetRenderWindow()->invSinHalfFov;
-    g_pGDL->sprites2D[g_pGDL->num2DSprites].unk1C = b;
+    g_pGDL->sprites2D[g_pGDL->num2DSprites].size = a * GetRenderWindow()->invSinHalfFov;
+    g_pGDL->sprites2D[g_pGDL->num2DSprites].rotation = b;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].color = *color;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].tex = tex;
     g_pGDL->sprites2D[g_pGDL->num2DSprites].flag = flag;
@@ -506,18 +509,18 @@ static inline void Gfx_LinkAlphaEntry(u32 n, f32 z) {
     g_pGDL->alphaTable[idx] = n;
 }
 
-void DisplayList_AddAlphaGroup(s32 arg0, s32 arg1, u32 matrix, u8 arg3, GXColor *color) {
+void DisplayList_AddAlphaGroup(s32 geometryHandle, s32 groupIndex, u32 matrix, u8 useBaseColor, GXColor *color) {
     if (g_pGDL->numAlphaGroups == 0x400) {
         return;
     }
-    g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].unk40 = arg0;
-    g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].unk44 = arg1;
+    g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].geometry = geometryHandle;
+    g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].group = groupIndex;
     g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].window = g_currentWindow;
     if (g_CurrentViews != 1) {
         Gfx_SetWorldMatrix(Gfx_GetWorldMatrixState(matrix));
     }
     memcpy(g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].matrix, GetRenderWindow()->worldView, 0x40);
-    g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].unk50 = arg3;
+    g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].useBaseColor = useBaseColor;
     g_pGDL->alphaGroups[g_pGDL->numAlphaGroups].color = *color;
     g_pGDL->numAlphaGroups++;
 }
@@ -546,7 +549,7 @@ void Gfx_SortAlpha(void) {
     grp = g_pGDL->alphaGroups;
     memset(heads, -1, sizeof(heads));
     for (i = 0; i < g_pGDL->numAlphaGroups; i++, grp++) {
-        key = GETP(((GDLGeom *)PTR(grp->unk40))->groups)[grp->unk44].sortKey;
+        key = GETP(((GDLGeom *)PTR(grp->geometry))->groups)[grp->group].sortKey;
         grp->next = heads[key];
         heads[key] = i;
     }
@@ -614,27 +617,27 @@ void Gfx_SetEnvmap(u16 a, u16 b, s8 flag, f32 x, f32 y) {
 
     if (flag == 0) {
         for (i = 1; i < g_pGDL->numEnvmapStates; i++) {
-            if (g_pGDL->envmapStates[i].unk0 == x && g_pGDL->envmapStates[i].unk4 == y &&
-                g_pGDL->envmapStates[i].unkA == b && g_pGDL->envmapStates[i].unk8 == a) {
+            if (g_pGDL->envmapStates[i].x == x && g_pGDL->envmapStates[i].y == y &&
+                g_pGDL->envmapStates[i].texB == b && g_pGDL->envmapStates[i].texA == a) {
                 return;
             }
         }
-        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].unk0 = x;
-        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].unk4 = y;
-        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].unkA = b;
-        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].unk8 = a;
+        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].x = x;
+        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].y = y;
+        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].texB = b;
+        g_pGDL->envmapStates[g_pGDL->numEnvmapStates].texA = a;
         g_pGDL->numEnvmapStates++;
     } else {
-        g_pGDL->envmapStates[0].unk0 = x;
-        g_pGDL->envmapStates[0].unk4 = y;
-        g_pGDL->envmapStates[0].unkA = b;
-        g_pGDL->envmapStates[0].unk8 = a;
+        g_pGDL->envmapStates[0].x = x;
+        g_pGDL->envmapStates[0].y = y;
+        g_pGDL->envmapStates[0].texB = b;
+        g_pGDL->envmapStates[0].texA = a;
     }
-    g_state.unk8F = flag;
+    g_state.envmapEnable = flag;
 }
 
 s32 Gfx_GetEnvmapState(void) {
-    if (g_state.unk8F) {
+    if (g_state.envmapEnable) {
         return 0;
     }
     return g_pGDL->numEnvmapStates - 1;
@@ -688,9 +691,9 @@ u32 Gfx_AddWorldMatrixState_CacheMatrixQuaternionScalePos(void *quat, void *scal
 
 typedef struct GeometryVertex {
     Vector4 pos;
-    u8 unk10[0x1C - 0x10];
+    u8 pad10[0x1C - 0x10];
     GXColor color;
-    u8 unk20[0x30 - 0x20];
+    u8 pad20[0x30 - 0x20];
 } GeometryVertex;
 
 
@@ -778,8 +781,8 @@ static inline DLGroup *DisplayList_AddGroup_Opaque(u16 key) {
         return NULL;
     }
     group = &g_pDL->opaqueGroups[g_pDL->numOpaqueGroups];
-    group->unkA = g_pDL->unk11DE0[key];
-    g_pDL->unk11DE0[key] = g_pDL->numOpaqueGroups++;
+    group->next = g_pDL->opaqueTexHeads[key];
+    g_pDL->opaqueTexHeads[key] = g_pDL->numOpaqueGroups++;
     return group;
 }
 
@@ -790,8 +793,8 @@ static inline DLGroup *DisplayList_AddGroup_Lit(u16 key) {
         return NULL;
     }
     group = &g_pDL->litGroups[g_pDL->numLitGroups];
-    group->unkA = g_pDL->unk121DE[key];
-    g_pDL->unk121DE[key] = g_pDL->numLitGroups++;
+    group->next = g_pDL->litTexHeads[key];
+    g_pDL->litTexHeads[key] = g_pDL->numLitGroups++;
     return group;
 }
 
@@ -835,8 +838,8 @@ static inline DLGroup *DisplayList_AddGroup_Overlay(void) {
     return &dl->overlayGroups[dl->numOverlayGroups++];
 }
 
-static inline void DisplayList_AddGeometryAlphaGroup(Geometry *geom, u16 group, u32 matrix, u8 flag, GXColor color) {
-    DisplayList_AddAlphaGroup((s32)HND(geom), group, matrix, flag, &color);
+static inline void DisplayList_AddGeometryAlphaGroup(Geometry *geom, u16 group, u32 matrix, u8 useBaseColor, GXColor color) {
+    DisplayList_AddAlphaGroup((s32)HND(geom), group, matrix, useBaseColor, &color);
 }
 
 
@@ -853,10 +856,10 @@ void DisplayList_RenderGXList(void) {
     if (g_CurrentViews == 1) {
         for (j = 0; j < g_pGDL->numDrawEntries; j++) {
             matrix = Gfx_GetWorldMatrixState(g_pGDL->drawEntries[j].matrix);
-            geometry = Gfx_GetCullLODGX(GETP(g_pGDL->drawEntries[j].geometry), matrix, &lod, g_pGDL->drawEntries[j].unk11);
+            geometry = Gfx_GetCullLODGX(GETP(g_pGDL->drawEntries[j].geometry), matrix, &lod, g_pGDL->drawEntries[j].unused11);
             if (geometry) {
                 DisplayList_AddGeometry(geometry, g_pGDL->drawEntries[j].matrix, g_pGDL->drawEntries[j].lightState,
-                                        lod, g_pGDL->drawEntries[j].unk10, g_pGDL->drawEntries[j].color);
+                                        lod, g_pGDL->drawEntries[j].useBaseColor, g_pGDL->drawEntries[j].color);
             }
         }
         for (j = 0; j < g_pGDL->numLODEntries; j++) {
@@ -868,10 +871,10 @@ void DisplayList_RenderGXList(void) {
             for (view = 1; view < 5; view++) {
                 if (g_CurrentViews & (1 << view)) {
                     Gfx_SetRenderWindow(view);
-                    geometry = Gfx_GetCullLODGX(GETP(g_pGDL->drawEntries[i].geometry), matrix, &lod2, g_pGDL->drawEntries[i].unk11);
+                    geometry = Gfx_GetCullLODGX(GETP(g_pGDL->drawEntries[i].geometry), matrix, &lod2, g_pGDL->drawEntries[i].unused11);
                     if (geometry) {
                         DisplayList_AddGeometry(geometry, g_pGDL->drawEntries[i].matrix,
-                                                g_pGDL->drawEntries[i].lightState, lod2, g_pGDL->drawEntries[i].unk10,
+                                                g_pGDL->drawEntries[i].lightState, lod2, g_pGDL->drawEntries[i].useBaseColor,
                                                 g_pGDL->drawEntries[i].color);
                     }
                 }
@@ -888,12 +891,12 @@ void DisplayList_RenderGXList(void) {
     }
 }
 
-void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u8 flag, GXColor color) {
+void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u8 useBaseColor, GXColor color) {
     Geometry *geom = (Geometry *)PTR(geometry);
     DLGroup *group;
     u16 i;
     u16 flags;
-    u8 unkE;
+    u8 blendMode;
 
     if (GETP(geom->groups)[0].flags & 0x4000) {
         for (i = 0; i < geom->numGroups; i++) {
@@ -903,8 +906,8 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
                     SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
-                    group->unkE = 0;
-                    group->unkD = lod;
+                    group->blendMode = 0;
+                    group->lod = lod;
                     group->window = g_currentWindow;
                 }
             }
@@ -916,31 +919,31 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
             continue;
         }
         flags = GETP(geom->groups)[i].flags;
-        unkE = GETP(geom->groups)[i].unk14;
+        blendMode = GETP(geom->groups)[i].blendMode;
         if (flags & 2) {
             group = DisplayList_AddGroup_Alpha();
             if (group != NULL) {
                 SETP(group->geometry, geom);
                 group->group = i;
                 group->matrix = matrix;
-                group->unkE = unkE;
-                group->unkD = lod;
+                group->blendMode = blendMode;
+                group->lod = lod;
                 group->window = g_currentWindow;
                 group->lightState = lightState;
             }
         } else if (flags & 0x80) {
-            DisplayList_AddGeometryAlphaGroup(geom, i, matrix, flag, color);
+            DisplayList_AddGeometryAlphaGroup(geom, i, matrix, useBaseColor, color);
         } else if (flags & 1) {
-            DisplayList_AddGeometryAlphaGroup(geom, i, matrix, flag, color);
+            DisplayList_AddGeometryAlphaGroup(geom, i, matrix, useBaseColor, color);
         } else if (!(flags & 0x40)) {
             if ((flags & 4) || (flags & 0x10)) {
-                group = DisplayList_AddGroup_Lit(GETP(geom->groups)[i].unk18);
+                group = DisplayList_AddGroup_Lit(GETP(geom->groups)[i].textureOverride);
                 if (group != NULL) {
                     SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
-                    group->unkE = unkE;
-                    group->unkD = lod;
+                    group->blendMode = blendMode;
+                    group->lod = lod;
                     group->lightState = lightState;
                     group->window = g_currentWindow;
                 }
@@ -950,18 +953,18 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
                     SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
-                    group->unkE = unkE;
-                    group->unkD = lod;
+                    group->blendMode = blendMode;
+                    group->lod = lod;
                     group->window = g_currentWindow;
                 }
             } else {
-                group = DisplayList_AddGroup_Opaque(GETP(geom->groups)[i].unk18);
+                group = DisplayList_AddGroup_Opaque(GETP(geom->groups)[i].textureOverride);
                 if (group != NULL) {
                     SETP(group->geometry, geom);
                     group->group = i;
                     group->matrix = matrix;
-                    group->unkE = unkE;
-                    group->unkD = lod;
+                    group->blendMode = blendMode;
+                    group->lod = lod;
                     group->window = g_currentWindow;
                 }
             }
@@ -972,8 +975,8 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
                 SETP(group->geometry, geom);
                 group->group = i;
                 group->matrix = matrix;
-                group->unkE = unkE;
-                group->unkD = lod;
+                group->blendMode = blendMode;
+                group->lod = lod;
                 group->window = g_currentWindow;
             }
         }

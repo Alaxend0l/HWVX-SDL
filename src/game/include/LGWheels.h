@@ -12,20 +12,20 @@ typedef struct Wheels
 {
 	struct {
 		/* 0x000 per-channel controller state */
-		u8		unk0[2];
+		u8		pad0[2];
 		/* 0x002 */
 		u8		pedalFlags;		/* bit 3 says both pedals are connected */
 		/* 0x003 */
-		u8		unk3[6];
+		u8		pad3[6];
 		/* 0x009 */
 		s8		opensErr;		/* 0 once the wheel opened */
-		}		unk0[4];			/* 0x000 */
+		}		chanState[4];			/* 0x000 */
 	s16		nonLinValues[4][256];	/* 0x028 non-linear force table */
 	u32		overallGainId[4];		/* 0x828 per-channel gain ids, handed to Force (by reference) */
 		/* 0x838 */
-		u32		unk838[4];		/* device type, as returned by SIProbe */
+		u32		pad838[4];		/* device type, as returned by SIProbe */
 		/* 0x848 */
-		u8		unk848[0x38];
+		u8		pad848[0x38];
 		/* 0x880 */
 
 		/* The wheel's own methods, in main/Wheels. */
@@ -50,7 +50,7 @@ typedef struct Wheels
 /* The force-feedback effect set: 0xA0 bytes, embedded in LGWheels at 0x10AC. */
 typedef struct Force
 {
-	u8		unk0[0xA0];
+	u8		pad0[0xA0];
 
 		Force();
 		/* The gain one of these effects plays at, in main/Force. */
@@ -126,7 +126,7 @@ typedef struct Ramp
 
 typedef struct LGWheels
 {
-	u8		unk0[0x28];			/* 0x000 port state */
+	u8		pad0[0x28];			/* 0x000 port state */
 	u8		nonLinValues[0x800];		/* 0x028 copy of the wheel's table */
 		/* 0x828 */
 		u8		airborne[4];		/* unknown; pads the wheel subobject to 0x82C */
@@ -137,7 +137,7 @@ typedef struct LGWheels
 	Periodic periodicForce;		/* 0x128C */
 	Ramp rampForce;		/* 0x132C */
 	u8 savedGain;		/* 0x13CC */
-	u8 unk13CD;		/* 0x13CD */
+	u8 pad13CD;		/* 0x13CD */
 	struct {
 		/* 0x13CE spring force last played on the channel */
 		s8		offet;
@@ -156,7 +156,7 @@ typedef struct LGWheels
 		s16		efficiency;
 		}		limper[4];
 		/* 0x13FE */
-  u8 unk13FE[0x10];
+  u8 pad13FE[0x10];
 	s16		limbi[4];		/* 0x140E frontal collision force */
 		/* 0x1416 */
 

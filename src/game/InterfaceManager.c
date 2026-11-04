@@ -253,6 +253,7 @@ void InterfaceManager_ReleaseInterface(u32 index) {
         FileStreaming_ReleaseAllDataPacks(10, 1);
         g_curMusicPackName = NULL;
     }
+    Port_MenuReleased(GETP(iface->header));   /* port: apply graphics settings */
     Trigger_InterfaceEnd(HND(GETP(iface->header)));
     InterfaceHasEnded(index);
     InterfaceManager_ReleaseInterfaceObjects(GETP(g_interfaces[index].objects));
@@ -339,7 +340,45 @@ void InterfaceManager_SetOffset(s32 index, f32 x, f32 y) {
     iface->offset.y = y;
 }
 
+/* port: does an event list react to a button (not just a timer, 0x1E)? */
+static s32 Port_HasButtonEvents(const IfaceEventList *list) {
+    u32 i;
+
+    for (i = 0; i < list->count; i++) {
+        u8 t = GETP(list->events)[i].type;
+        if (t != 0 && t != 0x1E) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* port: is a screen up that waits for buttons, not a player's HUD (the
+ * mission information window at a race's start, briefings)? Messages such
+ * as "Checkpoint" have selectable rows too, but only timers on them, and
+ * don't count. Port_Keyboard.c gives the keyboard to such a screen during
+ * gameplay. */
+s32 Port_InterfaceTakingInput(void) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        Interface *f = &g_interfaces[i];
+        InterfaceObject *sel = GETP(f->selected);
+        if (f->count == 0 || f->state != 2 || f->paused || f->hidden || f->isChild || f->input == -2 ||
+            GETP(f->owner) != NULL) {
+            continue;
+        }
+        if (Port_HasButtonEvents(&GETP(f->header)->events) ||
+            (sel != NULL && !sel->hidden && GETP(GETP(sel->def)->record) != NULL &&
+             Port_HasButtonEvents(&GETP(GETP(sel->def)->record)->events))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callback)(void *msg)) {
+    Port_MenuPatch(header);   /* port: the Options screen's Graphics menu */
     if (header != NULL) {  /* port: trace interface creation */
         Port_Log("interface create: header id %u, %u objects%s", header->id, header->numObjects,
                  owner != NULL ? " (player)" : "");
@@ -405,7 +444,7 @@ s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callb
     iface->player = g_playerIndex;
     iface->index = index;
     iface->inputDisabled = 0;
-    iface->unk161 = 0;
+    iface->reenableInput = 0;
     iface->inputDelay = 500.0f;
     iface->locked = 0;
     switch (hdr->mode) {
@@ -590,7 +629,7 @@ void InterfaceManager_AddObject(void *interface, void *object) {
     slot->rot.reset = 1;
     slot->visible.reset = 1;
     slot->textSize.reset = 1;
-    slot->unk194Reset = 1;
+    slot->textScale.reset = 1;
     ExtractColorKey(&GETP(GETP(slot->def)->anim)->color, slot, 0.0f);
     ExtractScaleKey(&GETP(GETP(slot->def)->anim)->scale, &slot->scale, 0.0f);
     ExtractScaleKey(&GETP(GETP(slot->def)->anim)->pos, &slot->pos, 0.0f);
@@ -815,7 +854,7 @@ void InterfaceManager_SetObjectString(InterfaceObject *obj, char *str) {
     obj->pos.reset = 1;
     obj->color.reset = 1;
     obj->textSize.reset = 1;
-    obj->unk194Reset = 1;
+    obj->textScale.reset = 1;
     obj->textShown = 0;
     obj->typeTimer = GETP(data->font)->typeDelay;
     obj->textLen = 0;
@@ -849,7 +888,7 @@ void InterfaceManager_SetObjectText(InterfaceObject *obj, char **text) {
         obj->scale.reset = 1;
         obj->pos.reset = 1;
         obj->textSize.reset = 1;
-        obj->unk194Reset = 1;
+        obj->textScale.reset = 1;
         obj->textShown = 0;
         obj->typeTimer = GETP(data->font)->typeDelay;
         obj->textLen = 0;
@@ -1159,7 +1198,7 @@ void InterfaceManager_SetObjectState(Interface *iface, InterfaceObject *obj, s32
     obj->rot.reset = 1;
     obj->visible.reset = 1;
     obj->textSize.reset = 1;
-    obj->unk194Reset = 1;
+    obj->textScale.reset = 1;
     obj->refresh = 1;
     InterfaceManager_CheckConditions(iface, obj);
     InterfaceManager_MoveObject(iface, obj, 0, 0.0f);
@@ -1256,9 +1295,9 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
     if (iface->count == 0) {
         return;
     }
-    if (iface->unk161) {
+    if (iface->reenableInput) {
         iface->inputDisabled = 0;
-        iface->unk161 = 0;
+        iface->reenableInput = 0;
     }
     if (iface->timeout) {
         if (dt < iface->timeout) {
@@ -1735,7 +1774,7 @@ void InterfaceManager_SetObjectReference(Interface *iface, u32 id, u32 state) {
                         obj->scale.reset = 1;
                         obj->pos.reset = 1;
                         obj->textSize.reset = 1;
-                        obj->unk194Reset = 1;
+                        obj->textScale.reset = 1;
                         obj->textShown = 0;
                         obj->typeTimer = GETP(data->font)->typeDelay;
                         obj->textLen = 0;
@@ -2135,7 +2174,8 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
             SoundSequence_Play(GETP(GETP(((IfaceEvent *)event)->def)->sound), 0);
         }
         iface->flags = GETP(((IfaceEvent *)event)->def)->flags;
-        SETP(iface->next, GETP(GETP(((IfaceEvent *)event)->def)->target));
+        /* port: memory card screens skipped, autosave (Port_Menu.c) */
+        SETP(iface->next, Port_MenuEventTarget((InterfaceHeader *)GETP(GETP(((IfaceEvent *)event)->def)->target)));
         if (!stateSet && GETP(iface->next) != NULL) {
             InterfaceManager_SetLoadState(iface, 1);
             if (iface->flags & 1) {
@@ -2526,7 +2566,7 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
         break;
     case 0x1B:
         iface->inputDisabled = 1;
-        iface->unk161 = 0;
+        iface->reenableInput = 0;
         break;
     case 0x1C:
         GameSettings_FormatMemoryCard();
@@ -2917,14 +2957,14 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 Gfx_SetProjectionMatrix(GETP(obj->def)->id);
                 break;
             case 5:
-                value = data->unk24;
+                value = data->roleValue5;
                 break;
             case 6:
-                value = data->unk28;
+                value = data->roleValue6;
                 break;
             case 8:
-                if (GETP(data->unk7C) != NULL) {
-                    value = 15.915494f * (3.1415927f + ArcTan(GETP(data->unk7C)->mtxRows[2].z, GETP(data->unk7C)->mtxRows[2].x));
+                if (GETP(data->headingThing) != NULL) {
+                    value = 15.915494f * (3.1415927f + ArcTan(GETP(data->headingThing)->mtxRows[2].z, GETP(data->headingThing)->mtxRows[2].x));
                 }
                 break;
             case 10:
@@ -2940,10 +2980,10 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 value = data->altitude;
                 break;
             case 14:
-                value = data->unk1C;
+                value = data->roleValue14;
                 break;
             case 15:
-                value = data->unk30;
+                value = data->roleValue15;
                 break;
             case 16:
                 if ((s8)((u8)data->text[0]) != 0) {
@@ -2971,14 +3011,14 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 }
                 break;
             case 20:
-                if (data->unk82 != 0) {
+                if (data->roleFlag20 != 0) {
                     value = 0.0f;
                     obj->scale.reset = 1;
                     obj->color.reset = 1;
                 }
                 break;
             case 21:
-                if (data->unk81 != 0) {
+                if (data->roleFlag21 != 0) {
                     value = 0.0f;
                     obj->scale.reset = 1;
                     obj->color.reset = 1;
@@ -3298,7 +3338,7 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                     obj->rot.reset = 1;
                     obj->visible.reset = 1;
                     obj->textSize.reset = 1;
-                    obj->unk194Reset = 1;
+                    obj->textScale.reset = 1;
                     obj->refresh = 1;
                 }
             } else {
@@ -3401,7 +3441,7 @@ void InterfaceManager_ExecuteActions(Interface *iface, IfaceActionList *list) {
                     obj->rot.reset = 1;
                     obj->visible.reset = 1;
                     obj->textSize.reset = 1;
-                    obj->unk194Reset = 1;
+                    obj->textScale.reset = 1;
                     obj->refresh = 1;
                 }
                 continue;
@@ -3595,7 +3635,7 @@ void InterfaceManager_CheckConditions(Interface *iface, InterfaceObject *obj) {
             obj->rot.reset = 1;
             obj->visible.reset = 1;
             obj->textSize.reset = 1;
-            obj->unk194Reset = 1;
+            obj->textScale.reset = 1;
             obj->refresh = 1;
         }
     }
@@ -3816,7 +3856,7 @@ typedef struct RenderFontInfo {
 } RenderFontInfo;
 
 typedef struct RenderObject {
-    u8 unk0;
+    u8 role;
     u8 type;
     u8 pad2[0x14 - 0x2];
     PTR32(RenderFontInfo) font;
@@ -3971,18 +4011,73 @@ static inline void InterfaceManager_DrawDebugCross(Vector4 *pos) {
     Gfx_Add2DFXLine(&c0, &c1, white, white, 1);
 }
 
+/* port: widescreen HUD. On a screen wider than 4:3 the in-game HUD (an
+ * interface owned by a player, in gameplay) moves its left and right
+ * elements to the screen's edges: an object laid out left of LEFT_X moves
+ * left by the width of the side area (Port_ViewWiden), one right of RIGHT_X
+ * right; the middle (the target arrow, messages) stays. The side is decided
+ * by the layout position (the default animation's first key, plus the
+ * parent's or anchor's), not the animated one, so elements that fly in
+ * across the middle move as a whole. 0 in split screen and menus. */
+#define HUD_LEFT_X 192.0f
+#define HUD_RIGHT_X 448.0f
+static f32 Port_HudLayoutX(InterfaceObject *obj, u32 depth) {
+    IfaceObjAnim *anim = GETP(GETP(obj->def)->anim);
+    f32 x = obj->pos.v.x;
+
+    if (depth > 8) {
+        return x;
+    }
+    if (GETP(obj->anchor) != NULL) {
+        return Port_HudLayoutX(GETP(obj->anchor), depth + 1);
+    }
+    if (anim != NULL && anim->pos.count != 0 && GETP(anim->pos.keys) != NULL) {
+        x = ((f32 *)GETP(anim->pos.keys))[0];
+    }
+    if (GETP(obj->parent) != NULL) {
+        x += Port_HudLayoutX(GETP(obj->parent), depth + 1);
+    }
+    return x;
+}
+
+static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
+    f32 wx, wy, side, x;
+
+    /* a child interface's objects are drawn inside their parent object's
+     * draw, offset by its (already shifted) position */
+    if (GETP(iface->owner) == NULL || StateManager_CurrState() != 5 || GETP(obj->parent) != NULL) {
+        return 0.0f;
+    }
+    /* the target arrow is not laid out on the screen at all: its position is
+     * a camera-space point (x across the view, z into it) fed straight into
+     * the projection maths, its first key x = 0 putting it at the view's
+     * centre, and MapViewport already recentres that projection for the
+     * wider view. The pixel heuristic below reads that 0.0 as "far left" and
+     * would throw the arrow off the screen's left edge, distorted; exclude
+     * it. */
+    if (obj->role == 0x1F) {
+        return 0.0f;
+    }
+    Port_ViewWiden(&wx, &wy);
+    if (wx <= 1.0f) {
+        return 0.0f;
+    }
+    side = 320.0f * (wx - 1.0f);
+    x = Port_HudLayoutX(obj, 0);
+    return x < HUD_LEFT_X ? -side : x > HUD_RIGHT_X ? side : 0.0f;
+}
+
 void InterfaceManager_RenderObject(Interface *iface, s32 index) {
-    typedef struct { Vector4 pos; Vector4 quat; Vector4 vel; PTR32(u8) p; u32 id; f32 unk38; } RenderObjParams2;
     extern s8 g_bRenderCenterPoints;
     extern s8 g_bRenderInterfaceHelpers;
     extern u8 g_carAVTable[];
     extern Matrix4 g_identity;
     extern Vector4 g_zeroVector;
     char text[0x200];
-    FxParams fx;
+    DebrisParams fx;
     Matrix4 scaleMtx;
     Matrix4 mtx;
-    RenderObjParams2 prm;
+    EmitterParams prm;
     Matrix4 orient;
     Vector4 cam;
     f32 width;
@@ -4071,6 +4166,57 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
             slot->scale.v.x += GETP(slot->parent)->scale.v.x;
             slot->scale.v.y += GETP(slot->parent)->scale.v.y;
             slot->scale.v.z += GETP(slot->parent)->scale.v.z;
+        }
+        {   /* port: widescreen, for this draw only (restored below). In
+             * gameplay, images as wide as the 4:3 screen (the black bars
+             * that slide in for briefings, fades) stretch across the whole
+             * window, about its centre; the HUD's side elements move to the
+             * edges (Port_HudShift). In menus only the letterbox bars do
+             * (640x60): backdrops and panels keep their 4:3 shape. The menu
+             * backdrop (four quadrants anchored at the screen's centre, and
+             * their fading copies that shrink onto them) zooms evenly until
+             * it fills the width, up to 21:9, so the effect still covers the
+             * screen; the top and bottom it crops are mostly under the bars. */
+            f32 wx, wy, shift = 0.0f, zoom = 1.0f;
+            s8 stretch;
+            s8 image = slot->kind == IFACE_KIND_IMAGE || slot->kind == IFACE_KIND_ANIM_IMAGE;
+
+            Port_ViewWiden(&wx, &wy);
+            stretch = wx > 1.0f && GETP(slot->parent) == NULL && image && slot->scale.v.x >= 639.0f &&
+                      (StateManager_CurrState() == 5 || slot->scale.v.y <= 120.0f);
+            if (wx > 1.0f && !stretch && image && StateManager_CurrState() != 5 &&
+                slot->pos.v.x == 320.0f && slot->pos.v.y == 240.0f &&
+                (GETP(slot->def)->anchorX == 1.0f || GETP(slot->def)->anchorX == -1.0f) &&
+                (GETP(slot->def)->anchorY == 1.0f || GETP(slot->def)->anchorY == -1.0f) &&
+                slot->scale.v.x >= 319.0f && slot->scale.v.y >= 239.0f) {
+                zoom = wx < 1.75f ? wx : 1.75f;  /* 1.75: 21:9 over 4:3 */
+            }
+            if (!stretch && zoom == 1.0f) {
+                shift = Port_HudShift(iface, slot);
+            }
+            if (zoom != 1.0f) {
+                if (!restore) {
+                    restore = 1;
+                    savedPos = slot->pos.v;
+                    savedRot = slot->rot.v;
+                    savedScale = slot->scale.v;
+                }
+                slot->scale.v.x *= zoom;
+                slot->scale.v.y *= zoom;
+            } else if (stretch || shift != 0.0f) {
+                if (!restore) {
+                    restore = 1;
+                    savedPos = slot->pos.v;
+                    savedRot = slot->rot.v;
+                    savedScale = slot->scale.v;
+                }
+                if (stretch) {
+                    slot->pos.v.x = 320.0f + (slot->pos.v.x - 320.0f) * wx;
+                    slot->scale.v.x *= wx;
+                } else {
+                    slot->pos.v.x += shift;
+                }
+            }
         }
         if (GETP(slot->car) != NULL) {
             for (i = 0; i < iface->count; i++) {
@@ -4215,13 +4361,13 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
             }
             case 4:
                 if (!slot->thingCreated) {
-                    SETP(prm.p, GETP(slot->data));
-                    prm.unk38 = 0.0f;
+                    SETP(prm.emitter, GETP(slot->data));
+                    prm.drawDist = 0.0f;
                     prm.pos.x = prm.pos.y = prm.pos.z = 0.0f;
                     prm.vel.x = prm.vel.y = prm.vel.z = 0.0f;
                     prm.quat.x = prm.quat.y = prm.quat.z = 0.0f;
                     prm.quat.w = 1.0f;
-                    prm.id = 0;
+                    prm.owner = 0;
                     SETP(slot->thing, ThingManager_DARYL_CreateThing(2, &prm));
                     slot->thingCreated = 1;
                 }
@@ -4250,14 +4396,14 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
                 break;
             case 3:
                 if (!slot->thingCreated) {
-                    fx.id = (u32)HND(GETP(slot->data));
+                    fx.debris = (u32)HND(GETP(slot->data));
                     fx.pos.x = fx.pos.y = fx.pos.z = 0.0f;
                     fx.vel.x = fx.vel.y = fx.vel.z = 0.0f;
                     fx.quat.x = fx.quat.y = fx.quat.z = 0.0f;
                     fx.quat.w = 1.0f;
-                    fx.unk44 = 0;
-                    fx.unk48 = 0.0f;
-                    fx.unk4C = 0.0f;
+                    fx.owner = 0;
+                    fx.speedScale = 0.0f;
+                    fx.unusedParam = 0.0f;
                     fx.angVel = g_zeroVector;
                     SETP(slot->thing, ThingManager_DARYL_CreateThing(1, &fx));
                     slot->thingCreated = 1;

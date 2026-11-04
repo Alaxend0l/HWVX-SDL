@@ -7,6 +7,7 @@
  * (waiting for vsync, DVD, a message, or exiting). */
 #include "port_internal.h"
 #include "swapcheck.h"
+#include <setjmp.h>
 
 /* ---- arena ------------------------------------------------------------- */
 
@@ -146,6 +147,9 @@ void OSFreeToHeap(int heapId, void *ptr) {
     HeapCell *f;
 
     PortSwapCheck_Forget(ptr, c->size - HEAP_HDR);
+    /* The GX display list cache may hold a decode of these bytes; the block can
+     * now be handed out with different contents. */
+    Port_InvalidateDisplayLists(ptr, c->size - HEAP_HDR);
     SDL_LockMutex(s_heapLock);
     CellUnlink(&heap->allocated, c);
     heap->inUse -= c->size;
@@ -172,7 +176,29 @@ void OSFreeToHeap(int heapId, void *ptr) {
 /* ---- init / report ----------------------------------------------------- */
 
 static SDL_Mutex *s_giant;
+static SDL_Condition *s_interruptDone;
+static SDL_AtomicInt s_interruptPending;
+static SDL_Condition *s_windowClosed;
+static int s_interruptWindow;  /* see Port_InterruptWindowBegin */
 static SDL_ThreadID s_mainThreadId;
+/* Resumed game threads, counted under s_handoff, woken on s_gameDone. Their own
+ * mutex keeps its own; the main thread waits on it without holding the giant
+ * lock, which is how it gives that lock up. See Port_GiantLock. */
+static SDL_Mutex *s_handoff;
+static SDL_Condition *s_gameDone;
+static int s_gameRunning;
+
+/* HWVX_THREADTRACE=1: report each loader handoff, so the frame rate a load ran
+ * at and the wait it caused can be read off the log. */
+static int s_threadTrace = -1;
+
+static int ThreadTraceOn(void) {
+    if (s_threadTrace < 0) {
+        const char *e = SDL_getenv("HWVX_THREADTRACE");
+        s_threadTrace = e != NULL && *e == '1';
+    }
+    return s_threadTrace;
+}
 
 void OSInit(void) {
     /* Leave the first 64 KB of the arena unused so no allocation gets a handle
@@ -180,6 +206,10 @@ void OSInit(void) {
     s_arenaLo = g_portArena + 0x10000;
     s_arenaHi = g_portArena + g_portArenaSize;
     s_giant = SDL_CreateMutex();
+    s_interruptDone = SDL_CreateCondition();
+    s_windowClosed = SDL_CreateCondition();
+    s_handoff = SDL_CreateMutex();
+    s_gameDone = SDL_CreateCondition();
     SDL_LockMutex(s_giant);
     s_mainThreadId = SDL_GetCurrentThreadID();
 }
@@ -256,7 +286,14 @@ BOOL OSRestoreInterrupts(BOOL level) {
     return old;
 }
 
-/* ---- threads ----------------------------------------------------------- */
+/* ---- threads -----------------------------------------------------------
+ * Handing the giant lock over is the port's decision, never the host
+ * scheduler's: SDL's mutex isn't fair, so a main thread that runs straight
+ * from one frame into the next (what happens once a frame's work fills the
+ * budget, as it does at 120 FPS) takes the lock back before the loader it has
+ * just resumed can get it. The load then lands a frame late, or not at all,
+ * which is why the car appears in a menu only sometimes. Port_GiantLock closes
+ * that hole: the main thread waits for game threads it resumed. */
 
 typedef struct PortThread {
     SDL_Thread *thread;
@@ -265,6 +302,8 @@ typedef struct PortThread {
     void *param;
     SDL_Semaphore *resume;
     volatile int exited;
+    volatile int running;   /* resumed, and not finished yet */
+    jmp_buf exitJump;       /* OSExitThread unwinds back to the worker loop */
 } PortThread;
 
 /* The game passes a 0x310-byte OSThread buffer; we keep our state beside it. */
@@ -295,24 +334,136 @@ static PortThread *FindThread(void *key, int create) {
 }
 
 void Port_GiantUnlock(void) { SDL_UnlockMutex(s_giant); }
-void Port_GiantLock(void) { SDL_LockMutex(s_giant); }
+
+static void GameThreadStopped(PortThread *t) {
+    SDL_LockMutex(s_handoff);
+    if (t->running) {
+        t->running = 0;
+        s_gameRunning--;
+        SDL_BroadcastCondition(s_gameDone);
+    }
+    SDL_UnlockMutex(s_handoff);
+}
+
+/* Game threads take the lock here: never while another game thread is inside
+ * an interrupt window. */
+void Port_GiantLock(void) {
+    if (SDL_GetCurrentThreadID() == s_mainThreadId && s_gameRunning) {
+        /* The main thread never takes the lock back ahead of a game thread it
+         * resumed, so a load always runs, in the frame that started it, at any
+         * frame rate. It usually costs nothing: while the frame has idle time
+         * left the loader finishes inside it and the count is already zero.
+         * Reading the count without the lock is safe: only the main thread
+         * raises it, so it can only be read too high, and the loop below
+         * re-checks it under s_handoff. */
+        int blocked = 0;
+        u64 t0 = SDL_GetTicksNS();
+        u64 warned = t0;
+
+        SDL_LockMutex(s_handoff);
+        while (s_gameRunning > 0) {
+            blocked = 1;
+            SDL_WaitConditionTimeout(s_gameDone, s_handoff, 100);
+            if (s_gameRunning > 0 && SDL_GetTicksNS() - warned > SDL_MS_TO_NS(3000)) {
+                warned = SDL_GetTicksNS();
+                Port_Log("%d game thread(s) still loading after 3 s", s_gameRunning);
+            }
+        }
+        SDL_UnlockMutex(s_handoff);
+        if (blocked && ThreadTraceOn()) {
+            u64 waited = SDL_GetTicksNS() - t0;
+            Port_Log("threadtrace: frame held for %d.%03d ms waiting on a load",
+                     (int)(waited / 1000000), (int)(waited % 1000000) / 1000);
+        }
+    }
+    SDL_LockMutex(s_giant);
+    while (s_interruptWindow) {
+        SDL_WaitCondition(s_windowClosed, s_giant);
+    }
+}
+
+/* Interrupt handlers (the AX thread) take the giant lock through these. On the
+ * GameCube they preempt the game; here a game thread hands the lock over at
+ * Port_InterruptPoint. A plain unlock/lock there isn't enough: the mutex isn't
+ * fair, so a game thread that is running behind would take it straight back
+ * and starve the handler. */
+void Port_InterruptLock(void) {
+    SDL_AddAtomicInt(&s_interruptPending, 1);
+    SDL_LockMutex(s_giant);
+    SDL_AddAtomicInt(&s_interruptPending, -1);
+}
+
+void Port_InterruptUnlock(void) {
+    SDL_BroadcastCondition(s_interruptDone);
+    SDL_UnlockMutex(s_giant);
+}
+
+/* Called with the giant lock held: let a waiting interrupt handler run first. */
+void Port_InterruptPoint(void) {
+    while (SDL_GetAtomicInt(&s_interruptPending) > 0) {
+        SDL_WaitConditionTimeout(s_interruptDone, s_giant, 10);
+    }
+}
+
+/* Around a blocking host call that touches no game state (waiting for vsync):
+ * interrupt handlers may take the giant lock meanwhile, other game threads
+ * may not, so to them the call still looks atomic. */
+void Port_InterruptWindowBegin(void) {
+    s_interruptWindow = 1;
+    SDL_UnlockMutex(s_giant);
+}
+
+void Port_InterruptWindowEnd(void) {
+    SDL_LockMutex(s_giant);
+    s_interruptWindow = 0;
+    SDL_BroadcastCondition(s_windowClosed);
+}
 
 /* Give other game threads a chance to run (a GameCube thread would block). */
 void Port_Yield(void) {
     SDL_UnlockMutex(s_giant);
     SDL_DelayNS(0);
-    SDL_LockMutex(s_giant);
+    Port_GiantLock();
+    Port_InterruptPoint();
 }
+
+/* ---- worker loop --------------------------------------------------------
+ * One host thread per slot, live for the whole run: the game calls
+ * OSCreateThread and OSExitThread again for every load, and a fresh thread
+ * (1 MB of stack) and semaphore each time leaves a parked thread behind per
+ * load. OSExitThread can't be answered by returning, because the game never
+ * comes back from it, so it unwinds to this loop and the thread waits to be
+ * resumed again. */
+static int s_loadCount;
+static int s_hostThreads;
 
 static int SDLCALL ThreadEntry(void *data) {
     PortThread *t = data;
-    SDL_WaitSemaphore(t->resume);
-    SDL_LockMutex(s_giant);
-    t->id = SDL_GetCurrentThreadID();
-    t->func(t->param);
-    t->exited = 1;
-    SDL_UnlockMutex(s_giant);
-    return 0;
+    volatile int rc;
+
+    for (;;) {
+        volatile u64 start;
+
+        SDL_WaitSemaphore(t->resume);   /* idle: holds no locks */
+        Port_GiantLock();
+        t->id = SDL_GetCurrentThreadID();
+        start = SDL_GetTicksNS();
+        rc = setjmp(t->exitJump);
+        if (rc == 0) {
+            t->func(t->param);
+        }
+        t->exited = 1;
+        if (ThreadTraceOn()) {
+            u64 run = SDL_GetTicksNS() - start;
+            s_loadCount++;
+            Port_Log("threadtrace: load %d took %d.%03d ms on the giant lock "
+                     "(host threads: %d)", s_loadCount,
+                     (int)(run / 1000000), (int)(run % 1000000) / 1000, s_hostThreads);
+        }
+        GameThreadStopped(t);
+        SDL_UnlockMutex(s_giant);
+    }
+    return 0; /* never reached: the loop above only ends by longjmp back into it */
 }
 
 BOOL OSCreateThread(void *thread, OSThreadFunc func, void *param, void *stack, u32 stackSize,
@@ -325,9 +476,11 @@ BOOL OSCreateThread(void *thread, OSThreadFunc func, void *param, void *stack, u
     t->func = func;
     t->param = param;
     t->exited = 0;
-    t->resume = SDL_CreateSemaphore(0);
     /* Game code may recurse deeply while loading; don't use its 20 KB stack. */
-    {
+    if (t->resume == NULL) {
+        t->resume = SDL_CreateSemaphore(0);
+    }
+    if (t->thread == NULL) {
         SDL_PropertiesID props = SDL_CreateProperties();
         SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, (void *)ThreadEntry);
         SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "game");
@@ -335,18 +488,26 @@ BOOL OSCreateThread(void *thread, OSThreadFunc func, void *param, void *stack, u
         SDL_SetNumberProperty(props, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER, 1 << 20);
         t->thread = SDL_CreateThreadWithProperties(props);
         SDL_DestroyProperties(props);
+        if (t->thread == NULL) {
+            Port_Fatal("SDL_CreateThread: %s", SDL_GetError());
+        }
+        SDL_DetachThread(t->thread);
+        s_hostThreads++;
     }
-    if (t->thread == NULL) {
-        Port_Fatal("SDL_CreateThread: %s", SDL_GetError());
-    }
-    SDL_DetachThread(t->thread);
     return TRUE;
 }
 
 s32 OSResumeThread(void *thread) {
     PortThread *t = FindThread(thread, 0);
     if (t != NULL && t->resume != NULL) {
-        SDL_SignalSemaphore(t->resume);
+        SDL_LockMutex(s_handoff);
+        if (!t->running) {   /* resuming a thread that is already running
+                              * would queue a second run of the same load */
+            t->running = 1;
+            s_gameRunning++;
+            SDL_SignalSemaphore(t->resume);
+        }
+        SDL_UnlockMutex(s_handoff);
     }
     return 0;
 }
@@ -366,16 +527,16 @@ void OSExitThread(void *val) {
     int i;
     (void)val;
     for (i = 0; i < MAX_THREADS; i++) {
-        if (s_threads[i].key != NULL && s_threads[i].t.id == SDL_GetCurrentThreadID()) {
-            s_threads[i].t.exited = 1;
-            s_threads[i].key = NULL;
+        PortThread *t = &s_threads[i].t;
+        if (s_threads[i].key != NULL && t->id == SDL_GetCurrentThreadID()) {
+            /* Never returns, as on the GameCube: unwind to this thread's worker
+             * loop, which is what keeps it alive for the next load. The slot
+             * keeps its key so the game's next OSCreateThread finds this same
+             * worker; id 0 means "not running" to OSGetCurrentThread. */
+            t->exited = 1;
+            t->id = 0;
+            longjmp(t->exitJump, 1);
         }
-    }
-    SDL_UnlockMutex(s_giant);
-    /* SDL threads can't be killed from inside; park this one forever. A game
-     * thread never returns from OSExitThread on the GameCube either. */
-    for (;;) {
-        SDL_Delay(1000000);
     }
 }
 

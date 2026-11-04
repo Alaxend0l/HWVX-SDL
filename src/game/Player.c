@@ -57,12 +57,14 @@ void Player_SetName(Player *player, s32 port, const char *name) {
 
 /* Recreate the player's HUD interface from its thing's interface info. */
 void Player_RefreshInterface(void *arg0) {
+    /* The GetInterfaceInfo vtable fills an InterfaceHudInfo (Interface.h);
+     * this is the part Player_RefreshInterface uses of it. */
     struct {
-        u32 unk0;
-        PTR32(u8) script;
-        u32 x;
-        u32 y;
-        u8 unk10[0xC0];
+        u32 index;                  /* 0x00 */
+        PTR32(u8) script;           /* 0x04 its layout: the HUD script */
+        u32 x;                      /* 0x08 split-screen offset */
+        u32 y;                      /* 0x0C */
+        u8 pad10[0xC0];             /* 0x10 the rest of it */
     } info;
     Player *player = arg0;
     Thing *thing;
@@ -308,7 +310,7 @@ void Player_Heartbeat(void *arg0) {
         } else if (tile != NULL) {
             SETP(params.player, player);
             SETP(params.info, GETP(tile->info));
-            params.unk34 = 0.0f;
+            params.unused34 = 0.0f;
             if (GameSettings_GetCodeVariable(0x12D, 0) >= 3 && player->deathNavPoint != -1) {
                 u8 attempt = 0;
 
@@ -481,6 +483,9 @@ static inline s8 PlayerHuman_KeyPress(Player *player, s32 key) {
     return Input_KeyPress(player->device, player->keys[key]);
 }
 
+void Port_KeyboardActions(Player *player);
+void Port_KeyboardSteer(Player *player);
+
 s32 Player_NULL(void) {
     return 0;
 }
@@ -555,6 +560,7 @@ s32 Player_DefaultControlReader(void *arg0) {
                 player->buttonsHeld |= 1 << i;
             }
         }
+        Port_KeyboardActions(player);   /* port: the PC release's keys (Port_Keyboard.c) */
         if (player->down[1]) {
             if (player->buttonsHeld) {
                 player->comboInputs[player->comboCount++] = player->buttonsHeld;
@@ -684,6 +690,7 @@ s32 Player_DefaultControlReader(void *arg0) {
         if (Input_KeyDown(player->device, player->keys[8])) {
             player->stickX = 0x7F;
         }
+        Port_KeyboardSteer(player);   /* port: steering and flips on the keyboard */
         if (g_playbackStatus == 1) {
             Playback_PutElement((u16)player->stickX + (player->stick2X << 16));
             Playback_PutElement((u16)player->stickY + (player->stick2Y << 16));

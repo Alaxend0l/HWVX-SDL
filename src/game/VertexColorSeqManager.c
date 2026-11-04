@@ -1,19 +1,19 @@
 #include "common.h"
 
+/* A world light (in the world's lights array): its colour track. */
 typedef struct VertexColorLight {
-    u8 unk0[0x4];
-    PTR32(void) keys;
-    u8 unk8[0x8];
+    u8 pad0[0x4];               /* 0x00 */
+    PTR32(void) keys;           /* 0x04 colour KeyTrack (ExtractColorKey) */
+    u8 pad8[0x8];               /* 0x08 */
 } VertexColorLight;
 
+/* A world light's playback slot (g_VertexColorTiles). */
 typedef struct VertexColorTile {
-    PTR32(VertexColorLight) light;
-    u8 key[0x24];
-    u32 color;
-    u8 unk2C[0x4];
-    u8 active;
-    u8 unk31[3];
+    PTR32(VertexColorLight) light;  /* 0x00 the world light it plays */
+    KeyColorState color;        /* 0x04 ExtractColorKey playback state */
 } VertexColorTile;
+_Static_assert(offsetof(VertexColorTile, color) == 0x04, "VertexColorTile.color");
+_Static_assert(sizeof(VertexColorTile) == 0x34, "VertexColorTile size");
 
 VertexColorTile g_VertexColorTiles[64];
 void *g_pVertexColorSeqList[64];
@@ -66,19 +66,19 @@ void VertexColorSeqManager_Destroy(void) {
 
 void VertexColorSeqManager_Init(void) {
     typedef struct VCSZone {
-        u8 unk0[0x14];
-        PTR32(void) vertices;
-        u8 unk18[0x4];
-        u32 unk1C;
-        u8 unk20[0x30];
+        u8 pad0[0x14];          /* 0x00 */
+        PTR32(void) vertices;   /* 0x14 vertex colour data */
+        u8 pad18[0x4];          /* 0x18 */
+        u32 flag1C;             /* 0x1C nonzero: not the default zone */
+        u8 pad20[0x30];         /* 0x20 */
     } VCSZone;
     typedef struct VCSWorld {
-        u8 unk0[0x20];
-        u32 numZones;
-        PTR32(VCSZone) zones;
-        u8 unk28[0x38];
-        u32 numLights;
-        PTR32(VertexColorLight) lights;
+        u8 pad0[0x20];          /* 0x00 */
+        u32 numZones;           /* 0x20 */
+        PTR32(VCSZone) zones;   /* 0x24 */
+        u8 pad28[0x38];         /* 0x28 */
+        u32 numLights;          /* 0x60 */
+        PTR32(VertexColorLight) lights;  /* 0x64 */
     } VCSWorld;
     extern VertexColorTile g_VertexColorTiles[64];
     extern s32 g_iTotalVertexColorSeq;
@@ -92,11 +92,11 @@ void VertexColorSeqManager_Init(void) {
     if (world != NULL) {
         for (i = 0; i < world->numLights; i++) {
             SETP(g_VertexColorTiles[i].light, &GETP(world->lights)[i]);
-            g_VertexColorTiles[i].active = 1;
+            g_VertexColorTiles[i].color.reset = 1;
             g_iTotalVertexColorTiles++;
         }
         for (i = 0; i < ((VCSWorld *)GETP(g_worldData.world))->numZones; i++) {
-            if (GETP(((VCSWorld *)GETP(g_worldData.world))->zones)[i].unk1C == 0) {
+            if (GETP(((VCSWorld *)GETP(g_worldData.world))->zones)[i].flag1C == 0) {
                 if (GETP(GETP(((VCSWorld *)GETP(g_worldData.world))->zones)[i].vertices) != NULL) {
                     VertexColorSeqManager_AddVertices(GETP(GETP(((VCSWorld *)GETP(g_worldData.world))->zones)[i].vertices));
                 }
@@ -115,7 +115,7 @@ void VertexColorSeqManager_Heartbeat(void) {
 
     dt = g_fDeltaTimeMS;
     for (i = 0; i < g_iTotalVertexColorTiles; i++) {
-        ExtractColorKey(GETP(GETP(g_VertexColorTiles[i].light)->keys), g_VertexColorTiles[i].key, dt);
+        ExtractColorKey(GETP(GETP(g_VertexColorTiles[i].light)->keys), &g_VertexColorTiles[i].color, dt);
     }
 }
 
@@ -159,7 +159,7 @@ void VertexColorSeqManager_GetLightColor(u32 index, u32 *color) {
     extern s32 g_iTotalVertexColorTiles;
 
     if (index < g_iTotalVertexColorTiles) {
-        *color = g_VertexColorTiles[index].color;
+        *color = *(u32 *)&g_VertexColorTiles[index].color.color;
     }
 }
 

@@ -2,6 +2,7 @@
 #include "CarA.h"
 #include "World.h"
 #include "AI.h"
+#include "Interface.h"
 
 
 
@@ -413,7 +414,7 @@ void Thing_GetCameraOrientationInfo(Thing *thing, u32 index, void *out) {
         break;
     }
     if (cams[0] == 0) {
-        info->unk80 = 0;
+        info->unused80 = 0;
         SETP(info->subMode, NULL);
         info->mtx = *THING_MTX(thing);
     } else {
@@ -424,9 +425,9 @@ void Thing_GetCameraOrientationInfo(Thing *thing, u32 index, void *out) {
         info->mtx.v[1].z = 0.0f;
         info->fov = 90.0f;
         info->target = thing->pos;
-        info->unk08 = 5.0f;
-        info->unk0C = 5.0f;
-        info->unk10 = 90.0f;
+        info->unused08 = 5.0f;
+        info->unused0C = 5.0f;
+        info->unused10 = 90.0f;
         info->mtx = *THING_MTX(thing);
     }
 }
@@ -638,7 +639,7 @@ void Thing_CollideWithForceBoxes(Thing *thing) {
         return;
     }
     box = (ForceBox *)GETP(volume->data);
-    if (box->carOnly && (u8 *)GETP(thing->vtable) == g_carAVTable && ((CarA *)thing)->unk460 != 0) {
+    if (box->carOnly && (u8 *)GETP(thing->vtable) == g_carAVTable && ((CarA *)thing)->airTime != 0) {
         return;
     }
     if (box->oneShot) {
@@ -747,8 +748,8 @@ static void Teleporter_SpawnDebris(Teleporter *tp) {
     SubMatrixToQuaternion(tp, &params.quat);
     params.vel.x = params.vel.y = params.vel.z = 0.0f;
     params.owner = 0;
-    params.unk48 = 0.0f;
-    params.unk4C = 0.0f;
+    params.speedScale = 0.0f;
+    params.unusedParam = 0.0f;
     params.angVel = g_zeroVector;
     ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
 }
@@ -892,21 +893,14 @@ s32 ActionVehicleTeleport(u32 *action) {
     return 1;
 }
 
+/* Vtable GetInterfaceInfo: fills health and speed, clears rpm and layout. */
 void Thing_GetInterfaceInfo(void *thing, void *info) {
-    typedef struct InterfaceInfo {
-        s32 unk0;
-        s32 unk4;
-        s32 unk8[2];
-        s32 unk10;
-        u32 speed;
-        s32 unk18;
-    } InterfaceInfo;
-    InterfaceInfo *ii = info;
+    InterfaceHudInfo *ii = info;
 
-    ii->unk10 = ((Thing *)thing)->health;
+    ii->health = ((Thing *)thing)->health;
     ii->speed = 0.681818f * MagnitudeVector(thing);
-    ii->unk18 = 0;
-    ii->unk4 = 0;
+    ii->rpm = 0;
+    ii->layout = 0;
 }
 
 void Thing_SetSlavePlayers(Thing *thing) {
@@ -915,6 +909,15 @@ void Thing_SetSlavePlayers(Thing *thing) {
     for (slave = GETP(thing->slaves); slave != NULL; slave = GETP(slave->next)) {
         slave->player = thing->player;
     }
+}
+
+/* port fix: radar blips keep their local offset (which floats the marker
+ * above the master) transformed by a yaw-only matrix: the master's pitch and
+ * roll can never tilt the height into x/z and its yaw rotates only the
+ * horizontal offset, so the minimap dot stays at the marked thing's world
+ * position whatever the master's attitude (see RadarBlip_SlaveTransform). */
+static inline void Thing_RadarBlipSlavePos(Thing *thing, Vector4 *local, Vector4 *out) {
+    RadarBlip_SlavePosYawOnly(THING_MTX(thing), local, out);
 }
 
 void Thing_DrawSlaves(Thing *thing) {
@@ -927,7 +930,11 @@ void Thing_DrawSlaves(Thing *thing) {
             quat = slave->quat;
             pos = slave->pos;
             QuaternionMult(&thing->quat, &quat, &slave->quat);
-            XformVec(THING_MTX(thing), &pos, &slave->pos);
+            if (slave->type == THING_TYPE_RADAR_BLIP) {
+                Thing_RadarBlipSlavePos(thing, &pos, &slave->pos);
+            } else {
+                XformVec(THING_MTX(thing), &pos, &slave->pos);
+            }
             THING_VFN(slave, THING_V_DRAW, void (*)(Thing *))(slave);
             slave->quat = quat;
             slave->pos = pos;
@@ -950,7 +957,11 @@ void Thing_MoveSlaves(Thing *thing) {
                 CopyVector(&trans, &slave->pos);
                 CopyVector(&pos, &slave->vel);
                 QuaternionMult(&thing->quat, &quat, &slave->quat);
-                XformVec(THING_MTX(thing), &trans, &slave->pos);
+                if (slave->type == THING_TYPE_RADAR_BLIP) {
+                    Thing_RadarBlipSlavePos(thing, &trans, &slave->pos);
+                } else {
+                    XformVec(THING_MTX(thing), &trans, &slave->pos);
+                }
                 slave->vel = thing->vel;
                 THING_VFN(slave, THING_V_MOVE, void (*)(Thing *))(slave);
                 CopyVector(&slave->quat, &quat);
@@ -1187,8 +1198,8 @@ void Thing_CollideWithItems(Thing *thing) {
                 params.vel.y = 0.0f;
                 params.vel.x = 0.0f;
                 params.quat = *(Vector4 *)&thing->quat;
-                params.unk48 = 0.0f;
-                params.unk4C = 0.0f;
+                params.speedScale = 0.0f;
+                params.unusedParam = 0.0f;
                 params.owner = 0;
                 params.angVel = g_zeroVector;
                 ThingManager_DARYL_CreateThing(THING_TYPE_EVENT_SEQ, &params);
@@ -1217,8 +1228,8 @@ void Thing_ProcessEndEvent(Thing *thing, CarACollider *event, CollisionInfo *col
         params.quat = *(Vector4 *)&thing->quat;
         params.vel = thing->vel;
         params.owner = thing->player.h;
-        params.unk48 = 0.0f;
-        params.unk4C = 0.0f;
+        params.speedScale = 0.0f;
+        params.unusedParam = 0.0f;
         if (angVel != NULL) {
             params.angVel = *angVel;
         } else {

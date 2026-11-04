@@ -94,10 +94,10 @@ typedef struct GDLDrawEntry {
     GXColor color;
     u32 matrix;
     s32 lightState;
-    u8 unk10;
-    u8 unk11;
+    u8 useBaseColor;
+    u8 unused11;
     u8 envmapState;
-    u8 unk13;
+    u8 pad13;
 } GDLDrawEntry;
 
 /* A 2D line (Render_DrawLine2D), in a 3D line slot. */
@@ -110,17 +110,17 @@ typedef struct GDLLine2D {
 
 typedef struct GDL {
     u32 numAlphaEntries;      /* 0x00 */
-    u8 unk4[0xC - 0x4];
+    u8 pad4[0xC - 0x4];
     u32 numAlphaGroups;       /* 0x0C */
-    u8 unk10[0x14 - 0x10];
+    u8 pad10[0x14 - 0x10];
     s32 numTris;              /* 0x14 */
-    u8 unk18[0x28 - 0x18];
+    u8 pad18[0x28 - 0x18];
     u32 num2DLines;           /* 0x28 */
-    u8 unk2C[0x54 - 0x2C];
+    u8 pad2C[0x54 - 0x2C];
     u32 numDrawEntries;       /* 0x54 */
-    u8 unk58[0xAE700 - 0x58];
+    u8 pad58[0xAE700 - 0x58];
     GDLLine2D lines2D[1000];  /* 0xAE700 the second half of the 3D line buffer */
-    u8 unkBA280[0xDFCC0 - 0xBA280];
+    u8 padBA280[0xDFCC0 - 0xBA280];
     GDLDrawEntry drawEntries[0x800]; /* 0xDFCC0 */
 } GDL;
 _Static_assert(offsetof(GDL, lines2D) == 0xAE700, "GDL.lines2D");
@@ -131,7 +131,7 @@ _Static_assert(offsetof(GDL, drawEntries) == 0xDFCC0, "GDL.drawEntries");
 typedef struct RenderStats {
     s32 numTris;
     s32 debugTriCount;
-    u8 unk8[0x100 - 0x8];
+    u8 pad8[0x100 - 0x8];
 } RenderStats;
 
 typedef struct SilhouetteEdge {
@@ -198,12 +198,12 @@ s32 DrawChar(s32 x, s32 y, u16 code) {
         u32 dummy[8];
     } GXTexObj;
     typedef struct {
-        u8 unk0[0x10];
+        u8 pad0[0x10];
         u16 cellWidth;
         u16 cellHeight;
-        u8 unk14[4];
+        u8 pad14[4];
         u16 sheetFormat;
-        u8 unk1A[4];
+        u8 pad1A[4];
         u16 sheetWidth;
         u16 sheetHeight;
     } FontHeader;
@@ -281,12 +281,12 @@ s32 DrawString(s32 x, s32 y, char *string) {
         u32 dummy[8];
     } GXTexObj;
     typedef struct {
-        u8 unk0[0x10];
+        u8 pad0[0x10];
         u16 cellWidth;
         u16 cellHeight;
-        u8 unk14[4];
+        u8 pad14[4];
         u16 sheetFormat;
-        u8 unk1A[4];
+        u8 pad1A[4];
         u16 sheetWidth;
         u16 sheetHeight;
     } FontHeader;
@@ -521,8 +521,8 @@ s32 Render_CreateView(s32 view, u32 width, u32 height) {
     GetRenderWindow()->sizeY = (height * 16) / 480.0f;
     GetRenderWindow()->offsetX = ((0x1000 - width) >> 1) * 16;
     GetRenderWindow()->offsetY = ((0x1000 - height) >> 1) * 16;
-    GetRenderWindow()->unk2A0 = GetRenderWindow()->sizeX;
-    GetRenderWindow()->unk2A4 = GetRenderWindow()->sizeY;
+    GetRenderWindow()->unused2A0 = GetRenderWindow()->sizeX;
+    GetRenderWindow()->unused2A4 = GetRenderWindow()->sizeY;
     GetRenderWindow()->centerX = GetRenderWindow()->offsetX;
     GetRenderWindow()->centerY = GetRenderWindow()->offsetY;
     GetRenderWindow()->left = 0;
@@ -1017,22 +1017,22 @@ void CreateSilhouette(SilhouetteEdge *edges, u32 count, f32 *dir);
 
 void Render_DrawShadows(void) {
     typedef struct ShadowGroup {
-        u16 unk0;
+        u16 unused0;
         u16 flags;
-        u8 unk4[0x10 - 0x4];
+        u8 pad4[0x10 - 0x4];
         u32 numEdges;
-        u8 unk14[0x1C - 0x14];
+        u8 pad14[0x1C - 0x14];
         PTR32(SilhouetteEdge) edges;
     } ShadowGroup;
     typedef struct ShadowGeometry {
-        u16 unk0;
+        u16 unused0;
         u16 numGroups;
-        u8 unk4[0x8 - 0x4];
+        u8 pad4[0x8 - 0x4];
         PTR32(ShadowGroup) groups;
         PTR32(__typeof__(f32[3])) verts;
     } ShadowGeometry;
     typedef struct ShadowModel {
-        u8 unk0[0x8];
+        u8 pad0[0x8];
         PTR32(ShadowGeometry) geometry;
     } ShadowModel;
     Vector4 dir __attribute__((aligned(16)));

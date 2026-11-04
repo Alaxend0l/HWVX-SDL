@@ -85,7 +85,7 @@ s8 AI_Creature_Spawn(AICreature *ai, void *spawner, u32 index) {
     AI_Reset(ai);
     SETP(ai->nearestCar, NULL);
     ai->wanderTime = 0;
-    ai->unkFC = 0;
+    ai->flagFC = 0;
     ai->leaving = 0;
     ai->base.state = AI_STATE_OFF;
     ai->base.heartbeatTimer = 0;
@@ -465,7 +465,7 @@ void AI_Creature_AsyncHeartbeat(AICreature *ai) {
     }
     if (ai->leaving != 0) {
         /* walk to a node and vanish there */
-        if (ai->unkFC != 0 || 1.0f != AI_THING(ai)->unk1C0) {
+        if (ai->flagFC != 0 || 1.0f != AI_THING(ai)->timeScale) {
             ai->base.heartbeatTimer = 1000;
         } else {
             volInfo = (CreatureVolumeInfo *)GETP(ai->volume);   /* sic: a SpawnVolume, read as its info */
@@ -486,7 +486,7 @@ void AI_Creature_AsyncHeartbeat(AICreature *ai) {
         }
     } else {
         thing = AI_THING(ai);
-        if (thing->unk1B8 & 1) {
+        if (thing->flag1B8 & 1) {
             /* running about */
             if (ai->wanderTime == 0) {
                 ai->speed = (f32)(rand() % 201 + 800) / 1000.0f;
@@ -536,7 +536,7 @@ void AI_Creature_Init(AICreature *ai, AIPlayerParams *params) {
     AI_Reset(ai);
     SETP(ai->nearestCar, NULL);
     ai->wanderTime = 0;
-    ai->unkFC = 0;
+    ai->flagFC = 0;
     ai->leaving = 0;
     ai->base.state = AI_STATE_OFF;
     ai->base.heartbeatTimer = 0;

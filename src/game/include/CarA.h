@@ -115,15 +115,15 @@ typedef struct CameraSubMode {
 /* Filled by the vehicle's vtable GetCameraOrientation for CameraManager. */
 typedef struct CameraInfo {
   u8 pad0[0x8];             /* 0x00 */
-  f32 unk08;                /* 0x08 */
-  f32 unk0C;                /* 0x0C */
-  f32 unk10;                /* 0x10 */
+  f32 unused08;             /* 0x08 */
+  f32 unused0C;             /* 0x0C */
+  f32 unused10;             /* 0x10 */
   f32 fov;                  /* 0x14 */
   u8 pad18[8];              /* 0x18 */
   Matrix4 mtx;              /* 0x20 v[1]: the up vector */
   Vector4 target;           /* 0x60 looked at */
   Vector4 from;             /* 0x70 trims the camera position */
-  s32 unk80;                /* 0x80 */
+  s32 unused80;             /* 0x80 */
   PTR32(CameraSubMode) subMode; /* 0x84 NULL: mtx is the camera */
   u32 cameraCount;          /* 0x88 modes the player can cycle through */
   f32 lookAhead;            /* 0x8C */
@@ -142,10 +142,10 @@ typedef struct CarACameras {
 
 typedef struct CarAEngine {
   f32 bodyOffset[3];        /* 0x00 rest value of CarA.bodyOffset */
-  f32 unk0C;                /* 0x0C set to 1 by CarA_Init */
+  f32 unused0C;             /* 0x0C CarA_Init sets 1, never read */
   s32 selfRightDelay;       /* 0x10 ms airborne before the self-righting torque */
-  f32 unk14;                /* 0x14 */
-  u32 unk18;                /* 0x18 */
+  f32 steerRate;            /* 0x14 rad/s the steering angle ramps to the input */
+  u32 reverseDelay;         /* 0x18 ms reverse before the car answers the throttle */
   u8 pad1C[4];              /* 0x1C */
   f32 selfRightArm;         /* 0x20 */
   f32 torqueCurve[4];       /* 0x24 torque at 0 and max rpm, slopes there (CarA_FitCubic) */
@@ -153,13 +153,13 @@ typedef struct CarAEngine {
   u8 pad38[4];              /* 0x38 */
   f32 maxAngularVel;        /* 0x3C */
   f32 itemDropImpact;       /* 0x40 */
-  f32 unk44;                /* 0x44 */
+  f32 maxGrade;             /* 0x44 grade the car can hold, times turboRpmScale in turbo */
   u8 pad48[0x10];           /* 0x48 */
-  f32 unk58;                /* 0x58 force point scale by up.y */
+  f32 tiltForceScale;       /* 0x58 force point scale by up.y */
   u8 pad5C[8];              /* 0x5C */
-  f32 unk64;                /* 0x64 */
-  f32 unk68;                /* 0x68 */
-  f32 unk6C;                /* 0x6C */
+  f32 minEnginePitch;       /* 0x64 semitones added at 0 rpm */
+  f32 soundRpmRange;        /* 0x68 rpm per pitch step, CarA_UpdateSound gate */
+  f32 offsetContactFlag;    /* 0x6C 1: the spring scale keeps wheel->offset */
   f32 itemHeight;           /* 0x70 picked-up items ride this high above the rack */
   u8 pad74[0xC];            /* 0x74 */
   CarACameras cameras;      /* 0x80 */
@@ -216,12 +216,12 @@ typedef struct CarAHull {
 
 typedef struct CarAAccel {
   u8 pad00[4];              /* 0x00 */
-  f32 unk4;                 /* 0x04 */
+  f32 driveRpmScale;        /* 0x04 drive friction to rpm scale */
   u8 pad08[0xC];            /* 0x08 */
-  f32 unk14;                /* 0x14 */
-  f32 unk18;                /* 0x18 */
-  f32 unk1C;                /* 0x1C */
-  f32 unk20;                /* 0x20 */
+  f32 tractionLift;         /* 0x14 traction point lift: (this - 1) * up * contact height */
+  f32 brakeDecel;           /* 0x18 rpm/s at full brake */
+  f32 engineBrake;          /* 0x1C rpm/s off the throttle */
+  f32 reverseThrottleDecel; /* 0x20 rpm/s at full reverse throttle */
   f32 airDownforceBase;     /* 0x24 */
   f32 airDownforceRate;     /* 0x28 */
   f32 airDownforceMax;      /* 0x2C */
@@ -240,7 +240,7 @@ typedef struct CarAStuntInfo {
   f32 pitchScore;           /* 0x18 */
   f32 rollScore;            /* 0x1C */
   u8 pad20[8];              /* 0x20 */
-  s32 unk28;                /* 0x28 */
+  s32 startDelay;           /* 0x28 ms airborne before the stunt can start */
   f32 minFailTime;          /* 0x2C also the stunt-time range landed stunts score in */
   f32 maxFailTime;          /* 0x30 */
   u32 numRewardThings;      /* 0x34 */
@@ -257,7 +257,7 @@ typedef struct CarAStuntInfo {
 /* CarAInfo.gears: indexed by CarA.curveTableIdx. */
 typedef struct CarAGear {
   f32 ratio;                /* 0x00 wheel speed / rpm */
-  f32 unk4;                 /* 0x04 gears[1]: the wind sound (CarASoundSet slot, CarA_Init) */
+  f32 soundSet;             /* 0x04 gears[1]: the wind sound (CarASoundSet slot, CarA_Init) */
 } CarAGear;
 
 /* A looping car sound (CarA_Init starts one SoundSource per sound). */
@@ -292,7 +292,7 @@ typedef struct CarASlave {
 /* CarAInfo.slaves is an array of these (12 bytes each); MotionState_InitAllSlavesNow
  * takes &set->count. Set 0: always on, 1: turbo, 2: damage, 9: frontal hit. */
 typedef struct CarASlaveSet {
-  u32 unk0;                 /* 0x00 */
+  u32 unused0;              /* 0x00 */
   union {
     SlaveList list;         /* 0x04 as MotionState_InitAllSlavesNow takes it */
     struct {
@@ -345,12 +345,12 @@ typedef struct CarAInfo {
   u16 skidTexture;          /* 0x14 */
   u8 pad16[2];              /* 0x16 */
   s32 damageLevel;          /* 0x18 hits above it break parts off */
-  f32 unk1C;                /* 0x1C max rpm (torque curve, engine pitch) */
-  f32 unk20;                /* 0x20 */
-  f32 unk24;                /* 0x24 */
+  f32 maxRpm;               /* 0x1C max rpm (torque curve, engine pitch) */
+  f32 upshiftRpm;           /* 0x20 shift up above it; also caps reverse rpm */
+  f32 downshiftRpm;         /* 0x24 shift down below it */
   u8 pad28[8];              /* 0x28 */
-  f32 unk30;                /* 0x30 4WD (turbo): rpm divisor */
-  f32 unk34;                /* 0x34 4WD (turbo): torque factor */
+  f32 turboRpmScale;        /* 0x30 4WD (turbo): rpm divisor */
+  f32 turboTorqueScale;     /* 0x34 4WD (turbo): torque factor */
   u8 pad38[0x10];           /* 0x38 */
   PTR32(void) steerAnim;          /* 0x48 */
   u8 pad4C[4];              /* 0x4C */
@@ -414,8 +414,8 @@ typedef struct CarAParams {
   Quaternion quat;          /* 0x10 */
   Vector4 vel;              /* 0x20 */
   PTR32(CarAInfo) info;     /* 0x30 */
-  f32 unk34;                /* 0x34 */
-  u32 unk38;                /* 0x38 */
+  f32 unused34;             /* 0x34 */
+  u32 unused38;             /* 0x38 */
   PTR32(Player) player;     /* 0x3C */
 } CarAParams;
 
@@ -426,7 +426,7 @@ typedef struct CarA {
                                radius, flags, health, vtable, trigger (the world
                                tile it was created from), player (the driver) */
   u8 padAC[0x10];           /* 0xAC */
-  PTR32(struct CarA) unkBC;       /* 0xBC a looker's target */
+  PTR32(struct CarA) lookTarget;  /* 0xBC a looker's target */
   CollisionOBox orientedBox; /* 0xC0 type 0 collider in world space, rebuilt by
                                GetOrientedCollision when flags & 0x180 */
   CarAWheelState wheelStates[8]; /* 0x1B0 one per CarAInfo.wheels entry */
@@ -434,7 +434,7 @@ typedef struct CarA {
   u8 pad368[8];             /* 0x368 */
   PTR32(void) hull;               /* 0x370 type 1 collider: OConvexHullHolder slot */
   u32 partVisMask;          /* 0x374 bit set per car part broken off */
-  f32 unk378;               /* 0x378 steering angle, radians */
+  f32 steerAngle;           /* 0x378 steering angle, radians */
   u8 pad37C[4];             /* 0x37C */
   Vector4 angularMomentum;  /* 0x380 += torque * dt in PreMove */
   Vector4 forceAccum;       /* 0x390 += force in CarA_ProcessForce */
@@ -454,8 +454,8 @@ typedef struct CarA {
   u32 reverseTimer;         /* 0x450 ms the brake is held at standstill */
   PTR32(void) rollSurface;        /* 0x454 surface whose rolling sound plays */
   f32 gradeOrReverse;       /* 0x458 wheel speed; < 0: reversing (speedometer, AI braking) */
-  s32 unk45C;               /* 0x45C */
-  s32 unk460;               /* 0x460 */
+  s32 stuckTimer;           /* 0x45C ms set on a reset, counts down */
+  s32 airTime;              /* 0x460 ms since the wheels left the ground */
   s32 stuckCounter;         /* 0x464 > 600 marks the AI car stuck */
   f32 gripScale;            /* 0x468 *GETP(CarAInfo.gripScale), *= AI gripScale */
   union {
@@ -464,7 +464,7 @@ typedef struct CarA {
     struct {
       s32 pad46C;
       s32 engineRpmState;   /* 0x470 weapon 1 active (< 10000): torque and steering halved */
-      s32 unk474;           /* 0x474 */
+      s32 pad474;           /* 0x474 */
       s32 damageRpm;        /* 0x478 weapon 3 active (< 10000): no impact damage */
     };
   };
@@ -482,12 +482,12 @@ typedef struct CarA {
   Vector4 stuntSpin;        /* 0x4B0 zeroed when a stunt fails */
   f32 torquePolyCoeffs[4];  /* 0x4C0 cubic torque curve in rpm (CarA_FitCubic) */
   u8 pad4D0[0x10];          /* 0x4D0 */
-  f32 unk4E0;               /* 0x4E0 */
+  f32 soundRpmGate;         /* 0x4E0 engine sound gate, left at 0 here */
   f32 rpm;                  /* 0x4E4 */
   u8 curveTableIdx;         /* 0x4E8 current gear, index into CarAInfo.gears */
   u8 pad4E9[7];             /* 0x4E9 */
   s32 soundIds[3];          /* 0x4F0 SoundSource ids, -1: none: wind, engine, rolling */
-  f32 unk4FC;               /* 0x4FC seconds since a frontal hit, capped at 1 */
+  f32 gripBlend;            /* 0x4FC 0 while slipping, recovers to 1 at 1/s */
   s32 damageAccum;          /* 0x500 damage not yet taken off health (in steps of 30) */
   s32 groundedTime;         /* 0x504 ms */
   f32 groundedScale;        /* 0x508 */
@@ -501,8 +501,8 @@ typedef struct CarA {
     struct {
       f32 tiltX;            /* 0x540 the pivot when the car is tilted upright */
       f32 tiltY;            /* 0x544 */
-      f32 unk548;           /* 0x548 */
-      f32 unk54C;           /* 0x54C */
+      f32 unused548;        /* 0x548 */
+      f32 pad54C;           /* 0x54C */
     };
   };
   s32 turboCooldown;        /* 0x550 ms */
@@ -523,13 +523,13 @@ typedef struct CarA {
 } CarA;
 
 #define CARA_ASSERT_OFFSET(f, off) _Static_assert(offsetof(CarA, f) == (off), "CarA." #f)
-CARA_ASSERT_OFFSET(unkBC, 0xBC);
+CARA_ASSERT_OFFSET(lookTarget, 0xBC);
 CARA_ASSERT_OFFSET(orientedBox, 0xC0);
 CARA_ASSERT_OFFSET(wheelStates, 0x1B0);
 CARA_ASSERT_OFFSET(motionState, 0x330);
 CARA_ASSERT_OFFSET(hull, 0x370);
 CARA_ASSERT_OFFSET(partVisMask, 0x374);
-CARA_ASSERT_OFFSET(unk378, 0x378);
+CARA_ASSERT_OFFSET(steerAngle, 0x378);
 CARA_ASSERT_OFFSET(angularMomentum, 0x380);
 CARA_ASSERT_OFFSET(forceAccum, 0x390);
 CARA_ASSERT_OFFSET(torqueAccum, 0x3A0);
@@ -546,8 +546,8 @@ CARA_ASSERT_OFFSET(prevVelocity, 0x440);
 CARA_ASSERT_OFFSET(reverseTimer, 0x450);
 CARA_ASSERT_OFFSET(rollSurface, 0x454);
 CARA_ASSERT_OFFSET(gradeOrReverse, 0x458);
-CARA_ASSERT_OFFSET(unk45C, 0x45C);
-CARA_ASSERT_OFFSET(unk460, 0x460);
+CARA_ASSERT_OFFSET(stuckTimer, 0x45C);
+CARA_ASSERT_OFFSET(airTime, 0x460);
 CARA_ASSERT_OFFSET(stuckCounter, 0x464);
 CARA_ASSERT_OFFSET(gripScale, 0x468);
 CARA_ASSERT_OFFSET(slaveWeaponRpm, 0x46C);
@@ -563,11 +563,11 @@ CARA_ASSERT_OFFSET(stuntMessage, 0x4A0);
 CARA_ASSERT_OFFSET(pickupCount, 0x4A4);
 CARA_ASSERT_OFFSET(stuntSpin, 0x4B0);
 CARA_ASSERT_OFFSET(torquePolyCoeffs, 0x4C0);
-CARA_ASSERT_OFFSET(unk4E0, 0x4E0);
+CARA_ASSERT_OFFSET(soundRpmGate, 0x4E0);
 CARA_ASSERT_OFFSET(rpm, 0x4E4);
 CARA_ASSERT_OFFSET(curveTableIdx, 0x4E8);
 CARA_ASSERT_OFFSET(soundIds, 0x4F0);
-CARA_ASSERT_OFFSET(unk4FC, 0x4FC);
+CARA_ASSERT_OFFSET(gripBlend, 0x4FC);
 CARA_ASSERT_OFFSET(damageAccum, 0x500);
 CARA_ASSERT_OFFSET(groundedTime, 0x504);
 CARA_ASSERT_OFFSET(groundedScale, 0x508);
@@ -576,7 +576,7 @@ CARA_ASSERT_OFFSET(stuntAxisVec, 0x510);
 CARA_ASSERT_OFFSET(bodyOffset, 0x520);
 CARA_ASSERT_OFFSET(groundNormal, 0x530);
 CARA_ASSERT_OFFSET(tiltX, 0x540);
-CARA_ASSERT_OFFSET(unk548, 0x548);
+CARA_ASSERT_OFFSET(unused548, 0x548);
 CARA_ASSERT_OFFSET(turboCooldown, 0x550);
 CARA_ASSERT_OFFSET(stuntTime, 0x554);
 CARA_ASSERT_OFFSET(navTimer, 0x55C);

@@ -1,0 +1,50 @@
+#!/bin/sh
+# Linux, for the machine's architecture (x86_64 or aarch64): the bare
+# program with SDL3 linked in (hwvx-VERSION.ARCH) and an AppImage. Build on
+# an old distribution for wide compatibility (CI uses Ubuntu 22.04). Needs
+# gcc, cmake, ninja, curl and SDL's build dependencies (see the apt line in
+# .github/workflows/build.yml).
+#   packaging/linux/build.sh   ->  dist/hwvx-VERSION.ARCH, dist/HWVX-VERSION-ARCH.AppImage
+set -eu
+target="linux-$(uname -m)"
+. "$(dirname "$0")/../common.sh"
+arch=$(uname -m)
+id=io.github.alaxend0l.hwvx
+
+"$root/packaging/build-sdl3.sh" "$work" "$work/sdl-prefix"
+cmake -S "$root" -B "$work/game" -G Ninja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_PREFIX_PATH="$work/sdl-prefix" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DHWVX_VERSION="$version"
+cmake --build "$work/game"
+
+bin="$dist/hwvx-$version.$arch"
+strip -o "$bin" "$work/game/hwvx"
+echo "$bin"
+
+appdir="$work/AppDir"
+rm -rf "$appdir"
+DESTDIR="$appdir" cmake --install "$work/game" --strip
+# appimagetool makes the AppImage's icon (.DirIcon) from a PNG named after
+# the desktop file's Icon= at the top of the AppDir, and won't take an SVG:
+# use the installed PNG, and leave the SVG out so linuxdeploy can't pick it.
+png="$appdir/usr/share/icons/hicolor/256x256/apps/$id.png"
+rm -f "$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg"
+cp "$png" "$appdir/$id.png"
+deploy="$work/linuxdeploy-$arch.AppImage"
+if [ ! -x "$deploy" ]; then
+    curl -fsSL -o "$deploy" \
+        "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$arch.AppImage"
+    chmod +x "$deploy"
+fi
+out="$dist/HWVX-$version-$arch.AppImage"
+rm -f "$out"
+# extract-and-run: works without FUSE (containers, CI)
+APPIMAGE_EXTRACT_AND_RUN=1 LINUXDEPLOY_OUTPUT_VERSION="$version" OUTPUT="$out" \
+    "$deploy" --appdir "$appdir" \
+    --executable "$appdir/usr/bin/hwvx" \
+    --desktop-file "$appdir/usr/share/applications/$id.desktop" \
+    --icon-file "$png" \
+    --output appimage
+echo "$out"

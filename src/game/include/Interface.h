@@ -296,7 +296,7 @@ typedef struct IfaceObjectDef {
     u8 input;                   /* 0x09 role 3 child: controller 1-4 */
     u16 id;                     /* 0x0A role-specific parameter (HUD slot, goal id...) */
     s16 anchor;                 /* 0x0C relative index of the object it is positioned at, 0: none */
-    u16 unkE;                   /* 0x0E */
+    u16 unusedE;            /* 0x0E */
     u32 linkId;                 /* 0x10 InterfaceManager_LinkThingToObject; debug vectors: chain */
     PTR32(void) sub;            /* 0x14 type-specific data, see InterfaceObject.data */
     s32 stateIndex[6];          /* 0x18 first IfaceStateDef per IFACE_STATE_*, -1: none
@@ -469,7 +469,7 @@ typedef struct IfaceMusic {
 /* Interface definition (InterfaceManager_Create). */
 struct InterfaceHeader {
     u16 id;                     /* 0x00 which interface (callbacks switch on it) */
-    u16 unk2;                   /* 0x02 */
+    u16 unused2;            /* 0x02 */
     u32 loadInTime;             /* 0x04 ms */
     u32 loadOutTime;            /* 0x08 ms */
     u32 numObjects;             /* 0x0C */
@@ -520,11 +520,9 @@ struct InterfaceObject {
     u8 pad134[0xC];
     IfaceKeyVec4 textSize;      /* 0x140 text: font size in .v.x */
     u8 pad168[8];
-    u8 unk170[0x10];            /* 0x170 another Vector4 key state (reset at 0x194) */
-    f32 unk180;                 /* 0x180 read as the selected text's scale (RenderInterface) */
-    u8 pad184[0x10];
-    u8 unk194Reset;             /* 0x194 */
-    u8 pad195[0xB];
+    IfaceKeyVec4 textScale; /* 0x170 text draw scale key state (its float at
+                                 *       0x180 scales printed text) */
+    u8 pad198[8];           /* 0x198 */
     PTR32(PTR32(char)) strings; /* 0x1A0 text: table of string slots */
     PTR32(char) string;         /* 0x1A4 text shown, NULL: `text` */
     u16 textLen;                /* 0x1A8 */
@@ -640,7 +638,7 @@ struct Interface {
     PTR32(InterfaceObject) dialog; /* 0x158 the dialogue object */
     u32 parent;                 /* 0x15C child: parent's index */
     u8 inputDisabled;           /* 0x160 */
-    s8 unk161;                  /* 0x161 clears inputDisabled next frame */
+    s8 reenableInput;       /* 0x161 clears inputDisabled next frame */
     u8 pad162[2];
     f32 inputDelay;             /* 0x164 ms after creation without input */
     s8 locked;                  /* 0x168 stick repeat blocked */
@@ -681,12 +679,12 @@ struct InterfaceHudInfo {
     u32 health;                 /* 0x10 % (role 10) */
     u32 speed;                  /* 0x14 (role 12) */
     u32 rpm;                    /* 0x18 */
-    u32 unk1C;                  /* 0x1C role 14 */
+    u32 roleValue14;        /* 0x1C role 14 */
     f32 turbo;                  /* 0x20 role 11: 0-1 */
-    f32 unk24;                  /* 0x24 role 5 */
-    f32 unk28;                  /* 0x28 role 6 */
+    f32 roleValue5;         /* 0x24 role 5 */
+    f32 roleValue6;         /* 0x28 role 6 */
     f32 altitude;               /* 0x2C role 13 */
-    u32 unk30;                  /* 0x30 role 15 */
+    u32 roleValue15;        /* 0x30 role 15 */
     u8 weapon[3];               /* 0x34 roles 80, 83, 86: icons shown */
     u8 pad37;
     u32 ammo;                   /* 0x38 % (role 82) */
@@ -700,12 +698,12 @@ struct InterfaceHudInfo {
     u16 weaponIcon[3];          /* 0x6C */
     u8 pad72[2];
     char text[8];               /* 0x74 role 16 (Player_GetInterfaceInfo: score) */
-    PTR32(Thing) unk7C;         /* 0x7C role 8: heading of its matrix */
+    PTR32(Thing) headingThing; /* 0x7C role 8: heading of its matrix */
     union {
         struct {
             u8 state;           /* 0x80 role 62: 1 show, 0 hide */
-            u8 unk81;           /* 0x81 role 21 */
-            u8 unk82;           /* 0x82 role 20 */
+            u8 roleFlag21;  /* 0x81 role 21 */
+            u8 roleFlag20;  /* 0x82 role 20 */
         };
         PTR32(u32) refs[17];    /* 0x80 role 40: value slots, [def->id] */
     };
@@ -767,8 +765,8 @@ IFACE_ASSERT(InterfaceObject, uv, 0xC0);
 IFACE_ASSERT(InterfaceObject, visible, 0x11C);
 IFACE_ASSERT(InterfaceObject, texAnim, 0x128);
 IFACE_ASSERT(InterfaceObject, textSize, 0x140);
-IFACE_ASSERT(InterfaceObject, unk180, 0x180);
-IFACE_ASSERT(InterfaceObject, unk194Reset, 0x194);
+IFACE_ASSERT(InterfaceObject, textScale, 0x170);
+IFACE_ASSERT(InterfaceObject, pad198, 0x198);
 IFACE_ASSERT(InterfaceObject, strings, 0x1A0);
 IFACE_ASSERT(InterfaceObject, fontId, 0x1B0);
 IFACE_ASSERT(InterfaceObject, text, 0x1C0);
@@ -821,7 +819,7 @@ IFACE_ASSERT(InterfaceHudInfo, weaponIcon, 0x6C);
 IFACE_ASSERT(InterfaceHudInfo, text, 0x74);
 IFACE_ASSERT(InterfaceHudInfo, state, 0x80);
 IFACE_ASSERT(InterfaceHudInfo, refs, 0x80);
-IFACE_ASSERT(InterfaceHudInfo, unk82, 0x82);
+IFACE_ASSERT(InterfaceHudInfo, roleFlag20, 0x82);
 IFACE_ASSERT(InterfaceHudInfo, values, 0xC4);
 IFACE_ASSERT(InterfaceHudInfo, carStats, 0xC9);
 _Static_assert(sizeof(InterfaceHudInfo) == 0xD0, "InterfaceHudInfo size");
@@ -831,5 +829,11 @@ _Static_assert(sizeof(InterfaceHudInfo) == 0xD0, "InterfaceHudInfo size");
 #define IFACE_MAX 0x12
 extern u8 g_interface[];
 #define g_interfaces ((Interface *)(void *)g_interface)
+
+/* Port_Menu.c: the Options screen's Graphics menu. */
+void Port_MenuPatch(InterfaceHeader *header);
+void Port_CarouselPatch(InterfaceHeader *header);   /* Port_Carousel.c */
+void Port_MenuReleased(InterfaceHeader *header);
+InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target);
 
 #endif

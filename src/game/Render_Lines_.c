@@ -23,7 +23,7 @@ typedef struct GDL3DLine {
     GDLVec p0;      /* 0x00 */
     GDLVec p1;      /* 0x10 */
     u8 r, g, b, a;  /* 0x20 */
-    u8 unk24[0x30 - 0x24];
+    u8 pad24[0x30 - 0x24];
 } GDL3DLine;
 
 typedef struct GDLColor {
@@ -36,17 +36,17 @@ typedef struct GDLLine {
     GDLColor c0;    /* 0x20 */
     GDLColor c1;    /* 0x24 */
     u8 blendMode;   /* 0x28 */
-    u8 unk29[0x30 - 0x29];
+    u8 pad29[0x30 - 0x29];
 } GDLLine;
 
 typedef struct GDL {
-    u8 unk0[0x24];
+    u8 pad0[0x24];
     u32 num3DLines;
-    u8 unk28[0x34 - 0x28];
+    u8 pad28[0x34 - 0x28];
     u32 numLines;
-    u8 unk38[0xA2B80 - 0x38];
+    u8 pad38[0xA2B80 - 0x38];
     GDL3DLine lines3D[2000];
-    u8 unkBA280[0xC0040 - 0xBA280];
+    u8 padBA280[0xC0040 - 0xBA280];
     GDLLine lines[0x100];
 } GDL;
 

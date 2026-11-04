@@ -122,7 +122,7 @@ void LightManager_LightThing(CarA *thing) {
     isNew = 0;
     tracked = 1;
     data = NULL;
-    if (!g_bLightVolumesExist || GETP(g_worldData.world) == NULL || ((LightWorld *)GETP(g_worldData.world))->unk0 == 0) {
+    if (!g_bLightVolumesExist || GETP(g_worldData.world) == NULL || ((LightWorld *)GETP(g_worldData.world))->valid == 0) {
         whiteAmbient.r = 0xFF;
         whiteAmbient.g = 0xFF;
         whiteAmbient.b = 0xFF;

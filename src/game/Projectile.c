@@ -19,8 +19,8 @@ static inline void Projectile_SpawnFx(Projectile *proj, u32 id, Vector4 *pos) {
     p.quat = *(Vector4 *)&proj->base.quat;
     p.vel = proj->base.vel;
     p.owner = proj->base.player.h;
-    p.unk48 = 0.0f;
-    p.unk4C = 0.0f;
+    p.speedScale = 0.0f;
+    p.unusedParam = 0.0f;
     p.angVel = g_zeroVector;
     ThingManager_DARYL_CreateThing(1, &p);
 }
@@ -218,7 +218,7 @@ s32 Projectile_Init(struct Projectile *proj, struct ProjectileParams *params) {
         break;
     }
     }
-    proj->unk138 = -1;
+    proj->unused138 = -1;
     Thing_InitAllSlavesNow(HND(proj), info->slaves, 0xFF);
     return 1;
 }
@@ -326,8 +326,8 @@ void Projectile_ProximityDetection(struct Projectile *proj)
                     id = info->impactFx;
                     if (id != 0)
                     {
-                        p.unk48 = 0.0f;
-                        p.unk4C = 0.0f;
+                        p.speedScale = 0.0f;
+                        p.unusedParam = 0.0f;
                         p.owner = thing->player.h;
                         p.debris = id;
                         p.angVel = g_zeroVector;
@@ -614,8 +614,8 @@ void Projectile_DynamicCollisionCorrection(struct Projectile *proj, CollisionInf
                 p.debris = id;
                 p.vel = g_zeroVector;
                 p.owner = thing->player.h;
-                p.unk48 = 0.0f;
-                p.unk4C = 0.0f;
+                p.speedScale = 0.0f;
+                p.unusedParam = 0.0f;
                 p.angVel = g_zeroVector;
                 if (target != NULL) {
                     InverseXformVec(THING_MTX(target), &thing->pos, &p.pos);

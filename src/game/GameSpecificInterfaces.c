@@ -46,18 +46,6 @@ void GSI_VehicleSelectionInfo(InterfaceHudInfo *info)
 }
 
 void GSI_VehicleItemSelection(void *arg) {
-    typedef struct InterfaceMsg {
-        u32 iface;
-        u16 type;
-        u16 sub;
-        u8 unk8[0x20 - 0x8];
-        u32 result;
-        u8 unk24[0x30 - 0x24];
-        u32 selection;
-        u32 objects[2];
-        PTR32(u32) list;
-        u16 nextState;
-    } InterfaceMsg;
     extern Vector4 g_zeroVector;
     static s8 bReleaseThings = 1;
     static s8 bReleaseAllPacks = 1;
@@ -237,7 +225,7 @@ void GSI_VehicleItemSelection(void *arg) {
                 if (!data->locked) {
                     Control_ClearControl(GETP(car->base.player));
                 }
-                car->unk460 = 0;
+                car->airTime = 0;
                 car->gradeOrReverse = 10.0f;
                 GETP(data->cars[i])->base.vel.x = 0.0f;
                 GETP(data->cars[i])->base.vel.y = 0.0f;

@@ -9,16 +9,16 @@ s32 Input_GetPlayerDevice(s32 player) {
     player--;
     if ((u32)player > 4) {
         for (i = 0; i < 4; i++) {
-            if ((s8)g_VirtualPad[i].unk0[1] == 0) {
-                g_VirtualPad[i].unk0[1] = 1;
-                g_VirtualPad[i].unk0[2] = 1;
+            if ((s8)g_VirtualPad[i].claimed == 0) {
+                g_VirtualPad[i].claimed = 1;
+                g_VirtualPad[i].unused2 = 1;
                 return i;
             }
         }
         return -2;
     }
-    g_VirtualPad[player].unk0[1] = 1;
-    g_VirtualPad[player].unk0[2] = 1;
+    g_VirtualPad[player].claimed = 1;
+    g_VirtualPad[player].unused2 = 1;
     return player;
 }
 

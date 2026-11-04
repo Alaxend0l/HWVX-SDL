@@ -46,6 +46,8 @@ s32 Main_Init(void) {
 }
 
 
+void GameSettings_PortAutoSaveUnlocks(void);
+
 s32 Main_Loop(void) {
     extern s32 (*Heartbeat_Process)(void);
     s32 queued;
@@ -54,6 +56,7 @@ s32 Main_Loop(void) {
     if (queued != -1 && queued != StateManager_GotoState(queued)) {
         return 0;
     }
+    GameSettings_PortAutoSaveUnlocks();   /* port: autosave after unlocks */
     return Heartbeat_Process();
 }
 

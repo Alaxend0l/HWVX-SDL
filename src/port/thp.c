@@ -181,6 +181,23 @@ s32 Mpeg_StopMovie(void) {
     return Mpeg_Destroy();
 }
 
+/* Development: HWVX_NO_MOVIE=1 leaves every movie unstated, so Mpeg_Heartbeat
+ * reports "ended" and State_Movie_Heartbeat moves on through its normal skip
+ * path. The intro FMVs are what stands between boot and the attract demo. */
+static int MoviesOff(void) {
+    static int off = -1;
+    const char *e;
+
+    if (off < 0) {
+        e = SDL_getenv("HWVX_NO_MOVIE");
+        off = e != NULL && *e == '1';
+        if (off) {
+            Port_Log("movies disabled (HWVX_NO_MOVIE=1)");
+        }
+    }
+    return off;
+}
+
 /* name is a disc path like "FMV_\bglogo"; volume 0-100 (music volume). */
 s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     u8 hdr[0x30], comp[0x80];
@@ -191,6 +208,9 @@ s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
 
     (void)volume;
     Mpeg_Destroy();
+    if (MoviesOff()) {
+        return 1;
+    }
     if (name == NULL) {
         return 0;
     }
@@ -248,14 +268,14 @@ s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
         SDL_AudioSpec spec = { SDL_AUDIO_S16, m->channels, (int)m->rate };
         m->audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
         if (m->audio != NULL) {
-            /* as the original (THPPlay.c): THPPlayerAudioOutput gets volume
-             * (u32)(46.0f * volumeScale), clamped to 127, and scales samples by
-             * VolumeTable[volume] / 32768, a square law table: floor(32768 i^2 / 127^2).
-             * Full music volume (1.0) -> 46 -> 4298 / 32768, about -17.6 dB. */
-            f32 scaled = 46.0f * (f32)volumeScale;
-            u32 vol = scaled <= 0.0f ? 0 : scaled >= 127.0f ? 127 : (u32)scaled;
-            u32 table = (u32)(32768ull * vol * vol / (127 * 127));
-            SDL_SetAudioStreamGain(m->audio, table / 32768.0f);
+            /* The original (THPPlay.c) truncated (u32)(46.0f * volumeScale) to an
+             * index into VolumeTable, a square law: floor(32768 i^2 / 127^2), so
+             * 1.0 -> 46 -> 4298 / 32768, about -17.6 dB. The truncation and the
+             * square law together made the movie inaudible below about 15 while
+             * the game's own volume (SetMusicGVol) is linear, so keep the full
+             * volume level and scale it linearly with the volume instead. */
+            f32 gain = 4298.0f / 32768.0f * (f32)volumeScale;
+            SDL_SetAudioStreamGain(m->audio, gain < 0.0f ? 0.0f : gain > 1.0f ? 1.0f : gain);
             SDL_ResumeAudioStreamDevice(m->audio);
         }
     }

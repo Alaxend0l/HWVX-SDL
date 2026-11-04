@@ -21,10 +21,10 @@ s32 Item_Init(ItemThing *item, ItemParams *data) {
     item->base.pos.w = 1.0f;
     item->base.vel = data->vel;
     item->base.quat = *(Quaternion *)&data->quat;
-    item->unkEC = 0;
+    item->unusedEC = 0;
     QuaternionToSubMatrix(&item->base.quat, THING_MTX(&item->base));
     item->drawDist = data->drawDist;
-    item->unkE0 = data->unk38;
+    item->aiPickup = data->aiPickup;
     if (item->drawDist == 0.0f) {
         item->drawDist = 500.0f;
     }

@@ -22,6 +22,8 @@ pulled in automatically.
   tools/gen_data.py --hostptr g_pX NAME... # g_pX is `T *g_pX` in the C code
   tools/gen_data.py --bytes g_tbl NAME...  # g_tbl holds u8/u16 fields: keep the
                                            # original byte order (as pack data)
+  tools/gen_data.py --u16 g_tbl NAME...    # g_tbl is a u16[] the asm spells as
+                                           # .4byte pairs: emit host-order halves
 """
 import pathlib
 import re
@@ -155,6 +157,7 @@ class Emitter:
         self.raw = set()       # objects whose "pointers" are really plain data
         self.hostptr = set()   # objects the C code declares as host pointers
         self.bytes = set()     # byte/halfword tables: emitted in the original byte order
+        self.u16 = set()       # u16 arrays: each .4byte is two host-order halfwords
         self.late = []
 
     def resolve(self, name, file):
@@ -192,6 +195,8 @@ class Emitter:
                         v = int(a, 0) & 0xFFFFFFFF
                         if obj["name"] in self.bytes:
                             items += [("W8", (v >> sh) & 0xFF) for sh in (24, 16, 8, 0)]
+                        elif obj["name"] in self.u16:
+                            items += [("W16", v >> 16), ("W16", v & 0xFFFF)]
                         else:
                             items.append(("W32", v))
                     else:
@@ -299,8 +304,9 @@ def main():
     raw = set()
     hostptr = set()
     nbytes = set()
-    while args and args[0] in ("--raw", "--hostptr", "--bytes"):
-        {"--raw": raw, "--hostptr": hostptr, "--bytes": nbytes}[args[0]].add(args[1])
+    u16 = set()
+    while args and args[0] in ("--raw", "--hostptr", "--bytes", "--u16"):
+        {"--raw": raw, "--hostptr": hostptr, "--bytes": nbytes, "--u16": u16}[args[0]].add(args[1])
         args = args[2:]
     for a in args:
         if a.startswith("@"):
@@ -312,6 +318,7 @@ def main():
     em.raw = raw
     em.hostptr = hostptr
     em.bytes = nbytes
+    em.u16 = u16
     functions = load_functions()
     not_found = []
     for n in names:

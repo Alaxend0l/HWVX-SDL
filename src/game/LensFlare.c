@@ -31,10 +31,10 @@ typedef struct FlareData {
 typedef struct Flare {
     PTR32(FlareData) flare;
     PTR32(Thing) thing;
-    u8 unk8[0x10 - 0x8];
+    u8 pad8[0x10 - 0x8];
     Vector4 pos;
     s8 visible;
-    u8 unk21[0x30 - 0x21];
+    u8 pad21[0x30 - 0x21];
 } Flare;
 
 Flare g_pFlare[64];

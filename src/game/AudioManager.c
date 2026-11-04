@@ -480,13 +480,13 @@ void SongManager_PlaySong(void) {
 
 s32 ActionMusicChange(void *data) {
     typedef struct MusicChangeTrackOld {
-        u32 unk0;
+        u32 unused0;
         u32 track;
         u32 active;
         u8 padC[0x24 - 0xC];
     } MusicChangeTrackOld;
     typedef struct MusicChangeTrack {
-        u32 unk0;
+        u32 unused0;
         u32 track;
         u32 active;
         f32 vol;
