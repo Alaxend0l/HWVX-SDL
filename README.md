@@ -298,8 +298,24 @@ nothing is a resolved-string bug, not a def bug. The bug was one line in
 `FpsNames()` - it formatted the names into static buffers but never pointed the
 returned array at them.
 
-Next: feature B - frame-based `VIWaitForRetrace`/`GXfifoWaitHalted` plus
-motion compensation, which lights up the 90/120/144/240 choices.
+Feature B - frame rates past 60 - needs no motion compensation after all.
+The cap on the Max FPS row was the port being cautious: before the pacing was
+measured it was not known how much of the game assumes one frame is a 60th of a
+second. A survey of every delta-time consumer settled it: the car physics,
+steering and stunts integrate through `g_fDeltaTimeSec` (CarA_HW.c), particles,
+keyframe animation (`ExtractKeys.c`: every track advances `time += dt` in ms),
+audio fades (AudioManager.c), the interface's timers and input repeat
+(InterfaceManager.c) and the THP movie player (wall-clock: `thp.c` derives the
+due frame from `SDL_GetTicksNS()`) all follow whatever delta the frame loop
+gives them. `g_iDeltaTime60th` is fed but has no consumers. So `vi.c` just
+paces at the chosen rate now, and the choices above 60 work: what the drawing
+cannot fit in the shorter budget is dropped, not speeded - a 120 FPS choice on
+a frame that costs 8.3-9.9 ms of work lands near 100, `graphics.cfg` still
+remembers the choice. Measured: `--fps 120` gives 110 FPS while the work fits
+8.33 ms and then drifts to ~98 with the game delta at ~8.8 ms; 30 and 60 are
+unchanged. Watch list for anything a survey cannot see: gameplay feel at 144
+and 240 (the integer-ms timers truncate harder as the delta nears their 1 ms
+floor) and any logic that counts frames rather than time.
 
 ## Tools
 
@@ -343,7 +359,7 @@ Debugging aids:
   validation layers, D3D12 debug layer) for the SDL_GPU renderers.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
-- `HWVX_FPSLOG=1` logs the frame rate (capped at 60 Hz) and the game's average frame delta every 5 s.
+- `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
 - `HWVX_NO_DIALOG=1` skips the error dialog on a fatal error (scripted runs).
 
 `tools/gen_shaders.py` regenerates `src/port/gx_shaders.h` after a change in

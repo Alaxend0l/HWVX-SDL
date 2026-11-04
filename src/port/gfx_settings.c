@@ -12,10 +12,11 @@
  *   still sets the rate, only the wait for the display goes.
  * - Max FPS: how many frames a second reach the display. The game asks for one
  *   video retrace per frame of its own work (VIWaitForRetrace), so this is also
- *   the rate the game runs at: 30 does half the frames and keeps its speed,
- *   because each frame's delta doubles with it. Above 60 the same reasoning
- *   needs the game's own per-frame timers to follow that delta, and many of
- *   them do not yet, so the retrace rate stays at the GameCube's 60 for now.
+ *   the rate the game runs at. Any choice keeps the game's real-world speed:
+ *   30 doubles each frame's delta and 120 halves it, and most of the game
+ *   integrates its motion from that delta (g_fDeltaTimeMS/g_fDeltaTimeSec, the
+ *   ms key tracks). A rate the drawing cannot fit in the shorter frame budget
+ *   lands below the choice rather than stuttering (vi.c).
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. */
@@ -38,19 +39,12 @@ static const int s_fpsValues[] = { 30, 60, 90, 120, 144, 240 };
 #define NUM_FPS ((int)(sizeof(s_fpsValues) / sizeof(s_fpsValues[0])))
 static char s_fpsNames[NUM_FPS][16];
 
-/* A rate the port will pace the game at. The game runs one logic frame per
- * video retrace, and only some of its timers follow the frame delta, so more
- * retraces than the GameCube's 60 would run the game fast. */
-static int PaceRate(int wanted) {
-    if (wanted < 30) {
-        wanted = 30;
-    }
-    return wanted > 60 ? 60 : wanted;
-}
-
-/* What VIWaitForRetrace should pace a frame at, from the Max FPS choice. */
+/* What VIWaitForRetrace should pace a frame at, from the Max FPS choice. The
+ * game runs one logic frame per video retrace and integrates its motion from
+ * the frame delta, so any rate keeps the game's speed; the floor is just the
+ * slowest choice the menu has. */
 int Port_GfxFrameRate(void) {
-    return PaceRate(g_port.maxFps);
+    return g_port.maxFps < 30 ? 30 : g_port.maxFps;
 }
 
 /* Whether showing a frame should wait for the display to finish with the one
@@ -306,10 +300,7 @@ void Port_GfxApply(void) {
     /* VSync and the frame rate cost no display mode change, so they are dealt
      * with before the mode is compared, and saved even if nothing else moved. */
     if ((int)s_pendingVSync != g_port.vsync || rate != g_port.maxFps) {
-        int paced = PaceRate(rate);
-
-        Port_Log("graphics: vsync %s, max %d FPS%s", (int)s_pendingVSync ? "on" : "off", rate,
-                 paced == rate ? "" : " (60 in use: the game's per-frame timers do not follow a faster rate yet)");
+        Port_Log("graphics: vsync %s, max %d FPS", (int)s_pendingVSync ? "on" : "off", rate);
         g_port.vsync = (int)s_pendingVSync;
         g_port.maxFps = rate;
     }

@@ -136,8 +136,8 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("                   or files/ next to the program, or orig/files)");
             SDL_Log("  --window WxH     window size, any shape (default: 640x480 times --scale)");
             SDL_Log("  --vsync on|off   whether a frame waits for the display (default: on)");
-            SDL_Log("  --fps N          frame rate: 30 or 60 (default); a higher choice is");
-            SDL_Log("                   kept for when the game follows a faster rate");
+            SDL_Log("  --fps N          frame rate: 30, 60 (default), 90, 120, 144, 240; a");
+            SDL_Log("                   rate the drawing cannot reach lands where it fits");
             SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
             SDL_Log("                   one that fails to start falls back to opengl)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");

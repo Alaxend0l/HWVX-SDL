@@ -8,8 +8,8 @@ static BOOL s_black;
 
 /* One video retrace's length at the frame rate in use. The game runs one logic
  * frame per retrace, so this is also the game's rate: the Graphics menu's Max
- * FPS choice moves it, and gfx_settings.c keeps it inside the rates the game's
- * own per-frame timers follow. */
+ * FPS choice moves it freely, and the game's motion follows because its code
+ * integrates from the frame delta the shorter retrace leaves it. */
 static u64 RetraceNS(void) {
     int rate = Port_GfxFrameRate();
 
