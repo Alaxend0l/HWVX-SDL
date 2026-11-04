@@ -138,10 +138,14 @@ endif()
 
 # ---- platforms and packaging (see packaging/README.md) ---------------------
 
-# Renderer used without --renderer: opengl, vulkan, metal or d3d12. One that
-# fails to start falls back to OpenGL (except on Android, always vulkan).
-set(HWVX_DEFAULT_RENDERER "opengl" CACHE STRING "Default renderer")
-target_compile_definitions(hwvx PRIVATE HWVX_DEFAULT_RENDERER="${HWVX_DEFAULT_RENDERER}")
+# Renderer used without --renderer: opengl, vulkan, metal or d3d12. Empty: the
+# platform's own (d3d12 on Windows, metal on macOS, vulkan elsewhere; see
+# main_sdl.c). One that fails to start falls back to OpenGL (except on
+# Android, always vulkan).
+set(HWVX_DEFAULT_RENDERER "" CACHE STRING "Default renderer (empty: the platform's)")
+if(HWVX_DEFAULT_RENDERER)
+    target_compile_definitions(hwvx PRIVATE HWVX_DEFAULT_RENDERER="${HWVX_DEFAULT_RENDERER}")
+endif()
 
 if(WIN32)
     # A GUI program: no console window. Logs go to SDL's log output; errors

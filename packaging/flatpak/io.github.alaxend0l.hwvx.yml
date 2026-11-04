@@ -44,8 +44,7 @@ modules:
   - name: hwvx
     buildsystem: cmake-ninja
     config-opts:
-      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
-      - -DHWVX_DEFAULT_RENDERER=vulkan   # falls back to OpenGL without Vulkan
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo   # renderer: vulkan, OpenGL without it (main_sdl.c)
     cleanup:
       - /share/icons/hicolor/scalable   # PNG only (see appstream-compose above)
     sources:

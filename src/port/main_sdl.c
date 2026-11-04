@@ -55,14 +55,20 @@ static const struct {
     { "d3d12", &g_gxSDLGPU, "direct3d12" },
 };
 
-/* Without --renderer: Android has no desktop OpenGL; a build can pick
- * another (CMake HWVX_DEFAULT_RENDERER, e.g. the Flatpak's vulkan). */
+/* Without --renderer: each platform's native API through SDL_GPU, Direct3D 12
+ * on Windows, Metal on macOS, Vulkan elsewhere; one that fails to start falls
+ * back to OpenGL (main), except on Android, which has no desktop OpenGL. A
+ * build can pick another (CMake HWVX_DEFAULT_RENDERER). */
 #if defined(SDL_PLATFORM_ANDROID)
 static const char *const s_defaultRenderer = "vulkan";
 #elif defined(HWVX_DEFAULT_RENDERER)
 static const char *const s_defaultRenderer = HWVX_DEFAULT_RENDERER;
+#elif defined(SDL_PLATFORM_WINDOWS)
+static const char *const s_defaultRenderer = "d3d12";
+#elif defined(SDL_PLATFORM_APPLE)
+static const char *const s_defaultRenderer = "metal";
 #else
-static const char *const s_defaultRenderer = "opengl";
+static const char *const s_defaultRenderer = "vulkan";
 #endif
 
 static int SetRenderer(const char *name) {

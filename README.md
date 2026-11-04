@@ -61,9 +61,11 @@ save file), the "do not touch" loading/saving notices and the card warnings
 loads at startup, and leaving Options after changing a setting autosaves over
 the save in use (or makes one) instead of reminding you to save.
 
-Renderers (`--renderer`): `opengl` (default, OpenGL 3.3 core), and through
-SDL_GPU `vulkan`, `metal` (macOS) and `d3d12` (Windows). The SDL_GPU
-renderers are experimental.
+Renderers (`--renderer`): through SDL_GPU `d3d12` (the default on Windows),
+`metal` (the default on macOS) and `vulkan` (the default on Linux and
+Android), and `opengl` (OpenGL 3.3 core). When the default can't start (no
+driver for it, an old GPU), the game falls back to OpenGL, except on
+Android. CMake's `HWVX_DEFAULT_RENDERER` builds in another default.
 F11 or Alt+Enter toggles fullscreen. Saves go to SDL's per-user preferences
 folder (`memcardA/*.sav`).
 

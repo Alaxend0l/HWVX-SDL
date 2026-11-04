@@ -85,6 +85,7 @@ static struct {
      * n - 1; variants' shaders are created on first use */
     u32 curFrag;
     int tevGen;
+    int vsyncApplied;               /* Port_VSyncWanted() the present mode follows; -1 none yet */
 #if GX_NUM_TEV_VARIANTS > 0
     SDL_GPUShader *tevFS[GX_NUM_TEV_VARIANTS];
 #endif
@@ -153,8 +154,36 @@ static int GPU_Open(void) {
         return 0;
     }
     s.swapFmt = SDL_GetGPUSwapchainTextureFormat(s.dev, g_port.window);
+    s.vsyncApplied = -1;
     Port_Log("SDL_GPU driver %s%s", SDL_GetGPUDeviceDriver(s.dev), debug ? " (debug)" : "");
     return 1;
+}
+
+/* The Graphics menu's VSync row (and HWVX_NO_VSYNC): SDL_GPU presents with
+ * VSYNC (FIFO) unless told otherwise, which would cap the frame rate at the
+ * display's even with VSync off and drop the frames in between. Off asks for
+ * MAILBOX (no tearing), else IMMEDIATE. Set when it changes. */
+static void GPU_ApplyVSync(void) {
+    int want = Port_VSyncWanted();
+    SDL_GPUPresentMode mode = SDL_GPU_PRESENTMODE_VSYNC;
+
+    if (want == s.vsyncApplied) {
+        return;
+    }
+    if (!want) {
+        if (SDL_WindowSupportsGPUPresentMode(s.dev, g_port.window, SDL_GPU_PRESENTMODE_MAILBOX)) {
+            mode = SDL_GPU_PRESENTMODE_MAILBOX;
+        } else if (SDL_WindowSupportsGPUPresentMode(s.dev, g_port.window, SDL_GPU_PRESENTMODE_IMMEDIATE)) {
+            mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
+        }
+    }
+    if (!SDL_SetGPUSwapchainParameters(s.dev, g_port.window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode)) {
+        Port_Log("SDL_SetGPUSwapchainParameters failed: %s", SDL_GetError());
+    } else {
+        Port_Log("present mode: %s", mode == SDL_GPU_PRESENTMODE_VSYNC ? "vsync" :
+                 mode == SDL_GPU_PRESENTMODE_MAILBOX ? "mailbox" : "immediate");
+    }
+    s.vsyncApplied = want;
 }
 
 static SDL_GPUShader *Shader(const u8 *spv, size_t spvSize, const char *msl, const u8 *dxil, size_t dxilSize,
@@ -825,6 +854,7 @@ static void GPU_CopyDisp(const int src[4]) {
     if (s.swapTex == NULL) {
         bool ok;
 
+        GPU_ApplyVSync();
         if (Port_VSyncWanted()) {
             /* blocks for vsync: let the audio thread run meanwhile */
             Port_InterruptWindowBegin();
