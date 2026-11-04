@@ -898,9 +898,16 @@ s32 CarA_PreMove(void *thing) {
     }
 
     CarA_ComputeForces(car);
-    car->base.vel.x += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].x);
-    car->base.vel.y += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].y);
-    car->base.vel.z += g_fDeltaTimeSec * (car->forwardAccel * car->base.axis[0].z);
+    // Strafe impulse (A/D keys): the original game ran at fixed 60 FPS, so dt here was always
+    // 1/60. With a variable frame rate, scaling by g_fDeltaTimeSec makes the per-tap strafe
+    // shift proportional to frame time (2x stronger at 30 FPS, 2x weaker at 120 FPS), because
+    // the velocity added here moves the car during the dt sweep and is cancelled in
+    // ThingManager_DARYL_Step (which must use the same constant). Keep the fixed 1/60 scale so
+    // the strafe strength always matches its 60 FPS value; the speed scaling itself is kept,
+    // since forwardAccel = spinImpulse * speed (see CarA_Suspension.c).
+    car->base.vel.x += (1.0f / 60.0f) * (car->forwardAccel * car->base.axis[0].x);
+    car->base.vel.y += (1.0f / 60.0f) * (car->forwardAccel * car->base.axis[0].y);
+    car->base.vel.z += (1.0f / 60.0f) * (car->forwardAccel * car->base.axis[0].z);
     g_pSourcePlayer = GETP(car->base.player);
     CarA_SlaveWeaponHeartbeat(car);
     g_pSourcePlayer = NULL;
@@ -1694,6 +1701,7 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
     extern u8 g_destructibleVTable[];
     extern u8 g_physicalObjectVTable[];
     extern Vector4 g_zeroVector;
+    extern f32 g_fDeltaTimeSec;
     CollisionInfo *coll = collision;
     CarA *car = thing;
     DebrisParams sp;
@@ -1764,13 +1772,19 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
                 CarA_StuntFail(car);
             }
             car->stuckTimer = 100;
-            car->angularMomentum.x *= 0.9f;
-            car->angularMomentum.y *= 0.9f;
-            car->angularMomentum.z *= 0.9f;
+            // Port fix: this per-impact damping scrubs speed and spin while the car is
+            // flipped, and a rolled car takes a terrain contact every frame, so at
+            // 240 FPS it acted 4x faster per second than the 60 FPS tuning (flipped
+            // cars crawled). Normalize the decay per second like the brake damping
+            // in CarA_Suspension.c: powf(0.9f, 60.0f * dt) is exactly 0.9 at 60 FPS.
+            f32 flipDamp = powf(0.9f, 60.0f * g_fDeltaTimeSec);
+            car->angularMomentum.x *= flipDamp;
+            car->angularMomentum.y *= flipDamp;
+            car->angularMomentum.z *= flipDamp;
             CarA_UpdateAngularVelocity(car);
-            car->base.vel.x *= 0.9f;
-            car->base.vel.y *= 0.9f;
-            car->base.vel.z *= 0.9f;
+            car->base.vel.x *= flipDamp;
+            car->base.vel.y *= flipDamp;
+            car->base.vel.z *= flipDamp;
         }
         if (_fabs(PSVECDotProduct(&car->base.axis[0], &n)) > 0.7f) {
             car->stuckTimer = 100;

@@ -128,7 +128,7 @@ static void ParseArgs(int argc, char **argv) {
             g_port.vsync = v;
             haveVSync = 1;
             i++;
-        } else if (SDL_strcmp(argv[i], "--fps") == 0 && i + 1 < argc && (v = SDL_atoi(argv[i + 1])) > 0) {
+        } else if (SDL_strcmp(argv[i], "--fps") == 0 && i + 1 < argc && (v = SDL_atoi(argv[i + 1])) >= 0) {
             g_port.maxFps = v;
             haveFps = 1;
             i++;
@@ -144,8 +144,9 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("                   next to the program, or orig/files)");
             SDL_Log("  --window WxH     window size, any shape (default: 640x480 times --scale)");
             SDL_Log("  --vsync on|off   whether a frame waits for the display (default: on)");
-            SDL_Log("  --fps N          frame rate: 30, 60 (default), 90, 120, 144, 240; a");
-            SDL_Log("                   rate the drawing cannot reach lands where it fits");
+            SDL_Log("  --fps N          frame rate: 30, 60 (default), 90, 120, 144, 240, 300,");
+            SDL_Log("                   360, 480, or 0 for unlimited; a rate the drawing");
+            SDL_Log("                   cannot reach lands where it fits");
             SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
             SDL_Log("                   one that fails to start falls back to opengl)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");

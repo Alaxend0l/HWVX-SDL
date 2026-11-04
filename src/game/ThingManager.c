@@ -1128,9 +1128,12 @@ void ThingManager_MoveThings_DARYL_SUBTICK(void)
             t->pushVel.z = 0.0f;
         }
         if ((u8 *)GETP(t->vtable) == g_carAVTable) {
-            t->vel.x -= g_fDeltaTimeSec * (((CarA *)t)->forwardAccel * t->axis[0].x);
-            t->vel.y -= g_fDeltaTimeSec * (((CarA *)t)->forwardAccel * t->axis[0].y);
-            t->vel.z -= g_fDeltaTimeSec * (((CarA *)t)->forwardAccel * t->axis[0].z);
+            // Must mirror the fixed 1/60 strafe impulse scale applied in CarA_PreMove (CarA.c),
+            // otherwise a net lateral velocity of (forwardAccel * (dt - 1/60)) would accumulate
+            // each frame and make strafe strength depend on the frame rate.
+            t->vel.x -= (1.0f / 60.0f) * (((CarA *)t)->forwardAccel * t->axis[0].x);
+            t->vel.y -= (1.0f / 60.0f) * (((CarA *)t)->forwardAccel * t->axis[0].y);
+            t->vel.z -= (1.0f / 60.0f) * (((CarA *)t)->forwardAccel * t->axis[0].z);
         }
         if (!(t->flags & THING_FLAG_RELEASED)) {
             THING_VFN(t, THING_V_MOVE, void (*)(Thing *))(t);

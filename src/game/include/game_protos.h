@@ -925,6 +925,7 @@ void * PlayerManager_NewHumanPlayer(void);
 u8 PlayerManager_PlayerCount(void);
 u8 PlayerManager_PlayerHumanCount(void);
 void PlayerManager_Release(void);
+void PlayerManager_RememberCameraIndex(void *player);
 s32 PlayerManager_RemovePlayer(void *player);
 void PlayerManager_Render_DEBUG(void);
 

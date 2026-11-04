@@ -249,9 +249,9 @@ typedef struct AICar {
     u8 pad60C[4];                      /* 0x60C */
     Vector4 stuckForward;              /* 0x610 forward axis when the unstick turn began */
     Vector4 lastPos;                   /* 0x620 */
-    u32 stillFrames;                   /* 0x630 frames it hasn't moved */
-    s32 stuckTimer;                    /* 0x634 frames: > 0 unsticking, < 0 holding off */
-    u8 pad638[4];                      /* 0x638 */
+    u32 stillFrames;                   /* 0x630 60 Hz ticks it hasn't moved */
+    s32 stuckTimer;                    /* 0x634 frames at 60 Hz: > 0 unsticking, < 0 holding off */
+    f32 stuckAcc;                      /* 0x638 fractional 60 Hz tick carried between frames */
     f32 speedLimit;                    /* 0x63C 0: none */
     s16 steer;                         /* 0x640 stickX being built up */
     u8 pad642[2];                      /* 0x642 */

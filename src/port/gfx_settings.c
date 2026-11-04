@@ -16,7 +16,10 @@
  *   30 doubles each frame's delta and 120 halves it, and most of the game
  *   integrates its motion from that delta (g_fDeltaTimeMS/g_fDeltaTimeSec, the
  *   ms key tracks). A rate the drawing cannot fit in the shorter frame budget
- *   lands below the choice rather than stuttering (vi.c).
+ *   lands below the choice rather than stuttering (vi.c). "Unlimited" drops
+ *   the pacing entirely: frames cost only what drawing costs, and the delta
+ *   tracks that (its 1 ms floor in TimeHandler means frames faster than that
+ *   advance the game a little faster than real time).
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. */
@@ -34,16 +37,20 @@ static u32 s_numModes;
 static u32 s_pendingRes, s_pendingFull, s_pendingVSync, s_pendingFps;
 
 /* The Max FPS row's choices, in menu order. The row's code variable is the
- * index; the rate behind it is the port's business, not the menu's. */
-static const int s_fpsValues[] = { 30, 60, 90, 120, 144, 240 };
+ * index; the rate behind it is the port's business, not the menu's.
+ * 0 means unlimited: no retrace pacing, frames go as fast as they draw. */
+static const int s_fpsValues[] = { 30, 60, 90, 120, 144, 240, 300, 360, 480, 0 };
 #define NUM_FPS ((int)(sizeof(s_fpsValues) / sizeof(s_fpsValues[0])))
 static char s_fpsNames[NUM_FPS][16];
 
 /* What VIWaitForRetrace should pace a frame at, from the Max FPS choice. The
  * game runs one logic frame per video retrace and integrates its motion from
  * the frame delta, so any rate keeps the game's speed; the floor is just the
- * slowest choice the menu has. */
+ * slowest choice the menu has. 0 asks for no pacing at all (unlimited). */
 int Port_GfxFrameRate(void) {
+    if (g_port.maxFps == 0) {
+        return 0;
+    }
     return g_port.maxFps < 30 ? 30 : g_port.maxFps;
 }
 
@@ -84,7 +91,11 @@ static const char *const *FpsNames(void) {
 
     if (!done) {
         for (i = 0; i < NUM_FPS; i++) {
-            SDL_snprintf(s_fpsNames[i], sizeof(s_fpsNames[i]), "%d FPS", s_fpsValues[i]);
+            if (s_fpsValues[i] == 0) {
+                SDL_snprintf(s_fpsNames[i], sizeof(s_fpsNames[i]), "Unlimited");
+            } else {
+                SDL_snprintf(s_fpsNames[i], sizeof(s_fpsNames[i]), "%d FPS", s_fpsValues[i]);
+            }
             names[i] = s_fpsNames[i];
         }
         done = 1;
@@ -124,7 +135,7 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.fullscreen = f != 0;
         } else if (SDL_sscanf(line, "vsync=%d", &v) == 1 && (v == 0 || v == 1) && !haveVSync) {
             g_port.vsync = v;
-        } else if (SDL_sscanf(line, "fps=%d", &fps) == 1 && fps >= 30 && !haveFps) {
+        } else if (SDL_sscanf(line, "fps=%d", &fps) == 1 && (fps >= 30 || fps == 0) && !haveFps) {
             g_port.maxFps = fps;
         }
     }
@@ -300,7 +311,11 @@ void Port_GfxApply(void) {
     /* VSync and the frame rate cost no display mode change, so they are dealt
      * with before the mode is compared, and saved even if nothing else moved. */
     if ((int)s_pendingVSync != g_port.vsync || rate != g_port.maxFps) {
-        Port_Log("graphics: vsync %s, max %d FPS", (int)s_pendingVSync ? "on" : "off", rate);
+        if (rate > 0) {
+            Port_Log("graphics: vsync %s, max %d FPS", (int)s_pendingVSync ? "on" : "off", rate);
+        } else {
+            Port_Log("graphics: vsync %s, max unlimited", (int)s_pendingVSync ? "on" : "off");
+        }
         g_port.vsync = (int)s_pendingVSync;
         g_port.maxFps = rate;
     }

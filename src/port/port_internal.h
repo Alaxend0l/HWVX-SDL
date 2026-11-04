@@ -22,8 +22,9 @@ typedef struct PortState {
     int fullscreen;
     int vsync;               /* wait for the display before a frame is shown:
                               * 1 on, 0 off (main_sdl.c, the Graphics menu) */
-    int maxFps;              /* frames a second, 30 .. 240: the rate the game
-                              * is paced at (main_sdl.c, the Graphics menu) */
+    int maxFps;              /* frames a second, 30 .. 480, 0 for unlimited: the
+                              * rate the game is paced at (main_sdl.c, the
+                              * Graphics menu) */
     volatile int quit;
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
