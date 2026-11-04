@@ -233,9 +233,13 @@ void AI_Car_AsyncProcess(void) {
  * for 120 frames (reversing, by drive mode), then holds off for 120 frames.
  * Returns 1 while it is doing that (the controls are set). */
 s32 AI_Car_CheckIfStuck(AICar *ai) {
+    extern f32 g_fDeltaTimeMS;
+    extern f32 g_fDeltaTime60th;
     CarA *car = AI_Car_Vehicle(ai);
     Player *pl = AI_PLAYER(ai);
     s32 timer;
+    s32 ticks;
+    f32 noMoveSq;
     u8 mode;
     f32 dot;
 
@@ -243,10 +247,18 @@ s32 AI_Car_CheckIfStuck(AICar *ai) {
         pl->stickX = 0x7F;
         return 1;
     }
+    /* the countdowns below are 60 Hz frame counts; only ever advance them by
+     * the whole ticks the frame's time adds up to */
+    ai->stuckAcc += g_fDeltaTimeMS * 0.06f;
+    ticks = (s32)ai->stuckAcc;
+    ai->stuckAcc -= ticks;
     timer = ai->stuckTimer;
     if (timer == 0) {
-        if (car->lowSpeedFlag < 500 && PSVECSquareDistance(&ai->lastPos, &CAR_THING(car)->pos) < 0.5f) {
-            ai->stillFrames++;
+        /* "hasn't moved" sampled per frame; scale the distance with the time
+         * between samples so the speed limit it implies stays the same */
+        noMoveSq = 0.5f * g_fDeltaTime60th * g_fDeltaTime60th;
+        if (car->lowSpeedFlag < 500 && PSVECSquareDistance(&ai->lastPos, &CAR_THING(car)->pos) < noMoveSq) {
+            ai->stillFrames += ticks;
             if (ai->stillFrames >= 10) {
                 ai->stuckTimer = 120;
                 ai->steer = AI_AngleToTarget(car, &ai->steerPoint) < 0.0f ? -127 : 127;
@@ -260,12 +272,15 @@ s32 AI_Car_CheckIfStuck(AICar *ai) {
             return 0;
         }
     } else if (timer < 0) {
-        ai->stuckTimer = timer + 1;
+        ai->stuckTimer = timer + ticks;
+        if (ai->stuckTimer > 0) {
+            ai->stuckTimer = 0;
+        }
         return 0;
     }
     pl->stickX = ai->steer;
-    ai->stuckTimer--;
-    if (ai->stuckTimer == 0) {
+    ai->stuckTimer -= ticks;
+    if (ai->stuckTimer <= 0) {
         ai->stuckTimer = -120;
     }
     mode = AI_Car_DriveMode(ai);
@@ -1714,6 +1729,7 @@ void AI_Car_Reset(void *player) {
     SETP(ai->current, NULL);
     ai->stillFrames = 0;
     ai->stuckTimer = -120;
+    ai->stuckAcc = 0;
     ai->weaponTimer = 1;
     ai->weaponSwitchTimer = 3000;
 }
