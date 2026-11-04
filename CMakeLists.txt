@@ -88,6 +88,54 @@ if(HWVX_ASAN)
     target_link_options(hwvx PRIVATE -fsanitize=address,undefined)
 endif()
 
+# ---- tests -----------------------------------------------------------------
+# tools/test_*.c drive the GX API against a stub renderer, so they need no GPU
+# and no game data. Opt-in: they compile the game sources a second time. Each
+# test brings its own main() and replaces the window entry point with
+# tools/<test>_stubs.c.
+option(HWVX_TESTS "Build the tests in tools/" OFF)
+if(HWVX_TESTS AND NOT ANDROID)
+    enable_testing()
+    set(HWVX_TEST_PORT_SOURCES ${PORT_SOURCES})
+    list(REMOVE_ITEM HWVX_TEST_PORT_SOURCES ${CMAKE_SOURCE_DIR}/src/port/main_sdl.c)
+    file(GLOB HWVX_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/test_*.c)
+    foreach(src ${HWVX_TEST_SOURCES})
+        if(src MATCHES "_stubs\\.c$")
+            continue()
+        endif()
+        get_filename_component(stem ${src} NAME_WE)
+        set(stubs ${CMAKE_SOURCE_DIR}/tools/${stem}_stubs.c)
+        if(NOT EXISTS ${stubs})
+            set(stubs "")
+        endif()
+        add_executable(${stem} ${src} ${stubs} ${GAME_SOURCES} ${HWVX_TEST_PORT_SOURCES})
+        target_include_directories(${stem} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/game/include
+            ${CMAKE_SOURCE_DIR}/src/port)
+        target_link_libraries(${stem} PRIVATE SDL3::SDL3 Threads::Threads ${CMAKE_DL_LIBS})
+        if(NOT WIN32)
+            target_link_libraries(${stem} PRIVATE m)
+        endif()
+        target_compile_options(${stem} PRIVATE
+            -fno-strict-aliasing
+            -fwrapv
+            -Wall
+            -Wno-unknown-pragmas
+            -Wno-unused-variable
+            -Wno-unused-but-set-variable
+            -Wno-unused-function
+            -Wno-parentheses
+            -Wno-missing-braces
+            -Wno-pointer-sign
+            -Wno-char-subscripts
+            -Werror=int-to-pointer-cast
+            -Werror=pointer-to-int-cast
+            -Werror=implicit-function-declaration
+            -Werror=return-type)
+        add_test(NAME ${stem} COMMAND ${stem})
+    endforeach()
+endif()
+
 # ---- platforms and packaging (see packaging/README.md) ---------------------
 
 # Renderer used without --renderer: opengl, vulkan, metal or d3d12. One that
