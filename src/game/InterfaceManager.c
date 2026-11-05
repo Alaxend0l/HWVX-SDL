@@ -1260,6 +1260,7 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
 u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key);
 
 void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
+    extern s32 g_iDeltaTimeMS;
     extern char *g_curMusicPackName;
     #define g_curMusicPackID (*(u32 *)(void *)&g_curMusicPackID)
     #define g_bUnloadMusicPack (*(u8 *)(void *)&g_bUnloadMusicPack)
@@ -1310,7 +1311,7 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
     switch (iface->state) {
     case 0:
         if (iface->timer > dt) {
-            iface->timer -= (u32)dt;
+            iface->timer -= g_iDeltaTimeMS;
         } else {
             iface->timer = 0;
             InterfaceManager_SetLoadState(iface, 2);
@@ -1328,7 +1329,7 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
         break;
     case 1:
         if (iface->timer > dt) {
-            iface->timer -= (u32)dt;
+            iface->timer -= g_iDeltaTimeMS;
         } else {
             iface->timer = 0;
             if ((u32)iface->stateSeq < 0xFFFFFFFF) {
@@ -1412,7 +1413,7 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
         break;
     case 3:
         if (iface->timer > dt) {
-            iface->timer -= (u32)dt;
+            iface->timer -= g_iDeltaTimeMS;
         } else {
             InterfaceManager_SetObjectState(iface, GETP(iface->selected), 2, 0);
             if (GETP(iface->next) != NULL) {
@@ -1434,7 +1435,7 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
     } else if (GETP(iface->infoCallback) != NULL) {
         GETP(iface->infoCallback)(info);
     }
-    for (i = 0, ms = dt; i < iface->count; i++) {
+    for (i = 0, ms = g_iDeltaTimeMS; i < iface->count; i++) {
         if (GETP(iface->objects)[i].hidden == 0) {
             if (GETP(GETP(GETP(iface->objects)[i].def)->record) != NULL && GETP(iface->objects)[i].timer > dt) {
                 GETP(iface->objects)[i].timer -= ms;
@@ -2639,6 +2640,7 @@ void InterfaceManager_Backup_Key(Interface *iface, IfaceEvent *key, u8 flags) {
 }
 
 void InterfaceManager_MoveDialogSystem(Interface *iface, InterfaceObject *obj, f32 dt) {
+    extern s32 g_iDeltaTimeMS;
     typedef struct DialogQuad {
         u32 v[4];
     } DialogQuad;
@@ -2732,7 +2734,7 @@ void InterfaceManager_MoveDialogSystem(Interface *iface, InterfaceObject *obj, f
             }
             InterfaceManager_ExecuteActions(iface, &GETP(list->entries)[obj->dialogEntry].actions);
         } else {
-            obj->dialogTime -= (s32)dt;
+            obj->dialogTime -= g_iDeltaTimeMS;
             if (obj->dialogSpoken == 0 && (GETP(obj->dialogChar))->state == 2) {
                 obj->dialogSpoken = 1;
                 if (GETP(GETP(list->entries)[obj->dialogEntry].soundName) != NULL) {
@@ -2790,7 +2792,7 @@ void InterfaceManager_MoveDialogSystem(Interface *iface, InterfaceObject *obj, f
     if (obj->kind == 0) {
         chr = GETP(obj->dialogChar);
         if (chr != NULL && obj->hidden == 0) {
-            obj->charTimer -= (s32)dt;
+            obj->charTimer -= g_iDeltaTimeMS;
             if (obj->visible.reset != 0 || chr->state != obj->charState || obj->charTimer <= 0) {
                 if (chr->state == 1) {
                     chr->state = 2;
@@ -2857,7 +2859,7 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
         switch (obj->kind) {
         case 5:
             if ((s8)((u8)obj->refresh) != 0) {
-                obj->typeTimer -= (u32)dt;
+                obj->typeTimer -= g_iDeltaTimeMS;
                 ExtractScaleKey(&GETP(((IfaceText *)GETP(obj->data))->font)->size, &obj->textSize, dt);
                 /* type the text a character at a time, with the font's click */
                 while (obj->textShown < obj->textLen && obj->typeTimer < 0) {

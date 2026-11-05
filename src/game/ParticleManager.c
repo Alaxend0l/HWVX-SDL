@@ -235,6 +235,7 @@ void CreateParticleSprite(Vector4 *pos, Vector4 *vel, Vector4 *accel, void *owne
             sprite->frame = RandomAdd_s32(0, anim->numFrames);
         }
         sprite->life = life;
+        sprite->stepRemainder = 0.0f;
         sprite->speed = speed;
         rate = 1.0f;
         sprite->rate = rate;
@@ -480,7 +481,10 @@ void ParticleSprite_Move(struct ParticleSprite *sprite, void *sprites) {
         sprite->flags |= PARTICLE_FLAG_FREE;
         return;
     }
-    step = dt;
+    /* port: carry the fraction of a ms, or sprites live too long at high frame rates */
+    sprite->stepRemainder += dt;
+    step = sprite->stepRemainder;
+    sprite->stepRemainder -= step;
     sprite->life -= step;
     if (anim != NULL && anim->animated != 0) {
         if (sprite->frameTimer < 0) {

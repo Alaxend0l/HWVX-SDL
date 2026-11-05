@@ -184,8 +184,11 @@ s32 SmartProjectileA_PreMove(struct Projectile *proj) {
       } else if (local.z > 0.0f) {
         gain = smart->gain;
         inv = 1.0f / local.z;
-        proj->turnX = inv * (g_fDeltaTimeSec * (gain * local.x));
-        proj->turnY = inv * (g_fDeltaTimeSec * (-gain * local.y));
+        // Port fix: this is a turn rate, and SmartProjectileA_Move applies dt to it, so
+        // scaling by dt here too made close-range homing weaken as the frame rate rose
+        // (25% at 240 FPS). Keep the 1/60 the original always had here.
+        proj->turnX = inv * ((1.0f / 60.0f) * (gain * local.x));
+        proj->turnY = inv * ((1.0f / 60.0f) * (-gain * local.y));
         proj->turnZ = 0.0f;
       }
       if (proj->turnX > mt)

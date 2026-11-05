@@ -122,7 +122,8 @@ typedef struct ParticleSprite {
     f32 speed;                  /* 0x98 time scale */
     f32 rate;                   /* 0x9C key playback speed */
     s32 frameTimer;             /* 0xA0 */
-    u8 padA4[0xC];              /* 0xA4 */
+    f32 stepRemainder;          /* 0xA4 port: fraction of a ms carried between Moves */
+    u8 padA8[8];                /* 0xA8 */
 } ParticleSprite;
 
 #define PARTICLE_GX_COUNT 0x280

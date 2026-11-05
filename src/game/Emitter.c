@@ -34,7 +34,7 @@ typedef struct Emitter {
     u8 padAC[4];                /* 0xAC */
     PTR32(EmitterDesc) desc;    /* 0xB0 */
     u32 fxId;                   /* 0xB4 the effect it emits next */
-    u32 padB8;                  /* 0xB8 */
+    f32 dtRemainder;            /* 0xB8 port: fraction of a ms carried between Moves */
     u32 timeToNextFx;           /* 0xBC ms */
     u32 fxIndex;                /* 0xC0 */
     s32 fxCount;                /* 0xC4 effects left (limited), 0: unlimited */
@@ -67,6 +67,7 @@ s32 Emitter_Init(Emitter *emitter, struct EmitterParams *data) {
     QuaternionToSubMatrix(&emitter->base.quat, THING_MTX(&emitter->base));
     SETP(emitter->desc, GETP(data->emitter));
     emitter->timeToNextFx = 0;
+    emitter->dtRemainder = 0.0f;
     emitter->base.player.h = data->owner;
     emitter->range = data->drawDist;
     if (emitter->range == 0.0f) {
@@ -102,13 +103,15 @@ s32 Emitter_Move(Emitter *emitter) {
         return 1;
     }
     emitter->base.flags |= EMITTER_FLAG_RANGE_DIRTY;
+    /* port: carry the fraction of a ms, or the intervals run slow at high frame rates */
+    emitter->dtRemainder += g_fDeltaTimeMS;
     if (GETP(emitter->desc)->speedScale > 0.0f) {
-        dt = g_fDeltaTimeMS * (GETP(emitter->desc)->speedScale * MagnitudeVector(&emitter->base.vel) + 1.0f);
-        if (dt > 1000) {
-            dt = 1000;
-        }
-    } else {
-        dt = g_fDeltaTimeMS;
+        emitter->dtRemainder += g_fDeltaTimeMS * (GETP(emitter->desc)->speedScale * MagnitudeVector(&emitter->base.vel));
+    }
+    dt = emitter->dtRemainder;
+    emitter->dtRemainder -= dt;
+    if (GETP(emitter->desc)->speedScale > 0.0f && dt > 1000) {
+        dt = 1000;
     }
     if (GETP(emitter->desc)->fxCount != 0) {
         for (;;) {

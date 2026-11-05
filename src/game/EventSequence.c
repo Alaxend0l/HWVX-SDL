@@ -66,7 +66,8 @@ _Static_assert(offsetof(EventSeqEmit, dirData) == 0x2C, "EventSeqEmit.dirData");
 
 typedef struct EventSeq {
     Thing base;                 /* 0x00 player: the owner credited with hits */
-    u8 padAC[0x14];             /* 0xAC */
+    u8 padAC[0x10];             /* 0xAC */
+    f32 waitRemainder;          /* 0xBC port: fraction of a ms carried between Moves */
     Vector4 angVel;             /* 0xC0 */
     PTR32(EventSeqScript) script; /* 0xD0 */
     u32 step;                   /* 0xD4 entry */
@@ -360,6 +361,7 @@ s32 EventSeq_Init(struct EventSeq *seq, DebrisParams *data)
     seq->script.h = data->debris;
     seq->loopCount = 0;
     seq->wait = 0;
+    seq->waitRemainder = 0.0f;
     seq->step = 0;
     seq->randMode = 0;
     seq->base.collisionType = THING_COLLIDE_NONE;
@@ -919,10 +921,11 @@ s32 EventSeq_Move(struct EventSeq *seq) {
     scale = 1.0f;
     if (seq->speedScale != 0.0f) {
         scale = seq->speedScale * MagnitudeVector(&seq->base.vel) + 1.0f;
-        dt = g_fDeltaTimeMS * scale;
-    } else {
-        dt = g_fDeltaTimeMS;
     }
+    /* port: carry the fraction of a ms, or the waits run slow at high frame rates */
+    seq->waitRemainder += g_fDeltaTimeMS * scale;
+    dt = seq->waitRemainder;
+    seq->waitRemainder -= dt;
     if (GETP(seq->script) == NULL) {
         return 0;
     }

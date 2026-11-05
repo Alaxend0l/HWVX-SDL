@@ -48,7 +48,9 @@ typedef struct Tracer {
     u16 texFrame;
     u16 shadeArg;
     u16 frameIndex;
-    u8 pad4D6[0xA];
+    u8 pad4D6[2];
+    f32 tickTime;               /* port: time since the ribbon last took a point */
+    PTR32(TracerPoint) newest;  /* port: the point it took last */
 } Tracer;
 
 Tracer tracers[32];
@@ -89,6 +91,13 @@ s32 Tracer_Init(TracerThing *thing, TracerParams *data) {
     return 1;
 }
 
+/* Port fix: the ribbon takes one point per step and its length, taper and fade are
+ * counted in points, so stepping every frame made tracers shorter as the frame rate
+ * rose (1/4 the length at 240 FPS). Above 60 FPS step at about 60 Hz, and in between
+ * just keep the newest point on the thing. Just under 1/60 s, so that a 60 FPS frame
+ * always takes a step. */
+#define TRACER_TICK 0.016f
+
 s32 Tracer_Move(TracerThing *thing) {
     typedef struct KeyState {
         f32 slope[4];
@@ -107,9 +116,18 @@ s32 Tracer_Move(TracerThing *thing) {
     TracerPoint *p;
     Tracer *tr = &tracers[thing->index];
     TracerDef *def = GETP(thing->def);
+    TracerPoint *pt;
+    s8 tick;
 
+    tr->tickTime += g_fDeltaTimeSec;
+    tick = tr->tickTime >= TRACER_TICK || GETP(tr->newest) == NULL;
+    if (tick) {
+        tr->tickTime = 0.0f;
+    }
+    /* the point to write: a new one on a step, else the newest again */
+    pt = tick ? GETP(tr->tail) : GETP(tr->newest);
     p = GETP(tr->head);
-    for (i = 0; i < tr->numPoints; i++) {
+    for (i = 0; tick && i < tr->numPoints; i++) {
         s32 c;
         p->pos[0] += p->posDelta[0];
         p->pos[1] += p->posDelta[1];
@@ -150,25 +168,25 @@ s32 Tracer_Move(TracerThing *thing) {
     }
     switch (def->axis) {
     case 0:
-        AccumulateVector(&thing->base.axis[0], &thing->base.pos, GETP(tr->tail)->pos, def->length);
-        AccumulateVector(&thing->base.axis[0], &thing->base.pos, GETP(tr->tail)->vel, -def->length);
-        PSVECScale(&thing->base.axis[0], GETP(tr->tail)->posDelta, -(def->length - def->endLength) / 14.0f);
-        PSVECScale(&thing->base.axis[0], GETP(tr->tail)->velDelta, (def->length - def->endLength) / 14.0f);
+        AccumulateVector(&thing->base.axis[0], &thing->base.pos, pt->pos, def->length);
+        AccumulateVector(&thing->base.axis[0], &thing->base.pos, pt->vel, -def->length);
+        PSVECScale(&thing->base.axis[0], pt->posDelta, -(def->length - def->endLength) / 14.0f);
+        PSVECScale(&thing->base.axis[0], pt->velDelta, (def->length - def->endLength) / 14.0f);
         break;
     case 1:
-        AccumulateVector(&thing->base.axis[1], &thing->base.pos, GETP(tr->tail)->pos, def->length);
-        AccumulateVector(&thing->base.axis[1], &thing->base.pos, GETP(tr->tail)->vel, -def->length);
-        PSVECScale(&thing->base.axis[1], GETP(tr->tail)->posDelta, -(def->length - def->endLength) / 14.0f);
-        PSVECScale(&thing->base.axis[1], GETP(tr->tail)->velDelta, (def->length - def->endLength) / 14.0f);
+        AccumulateVector(&thing->base.axis[1], &thing->base.pos, pt->pos, def->length);
+        AccumulateVector(&thing->base.axis[1], &thing->base.pos, pt->vel, -def->length);
+        PSVECScale(&thing->base.axis[1], pt->posDelta, -(def->length - def->endLength) / 14.0f);
+        PSVECScale(&thing->base.axis[1], pt->velDelta, (def->length - def->endLength) / 14.0f);
         break;
     case 2:
-        AccumulateVector(&thing->base.axis[2], &thing->base.pos, GETP(tr->tail)->pos, def->length);
-        AccumulateVector(&thing->base.axis[2], &thing->base.pos, GETP(tr->tail)->vel, -def->length);
-        PSVECScale(&thing->base.axis[2], GETP(tr->tail)->posDelta, -(def->length - def->endLength) / 14.0f);
-        PSVECScale(&thing->base.axis[2], GETP(tr->tail)->velDelta, (def->length - def->endLength) / 14.0f);
+        AccumulateVector(&thing->base.axis[2], &thing->base.pos, pt->pos, def->length);
+        AccumulateVector(&thing->base.axis[2], &thing->base.pos, pt->vel, -def->length);
+        PSVECScale(&thing->base.axis[2], pt->posDelta, -(def->length - def->endLength) / 14.0f);
+        PSVECScale(&thing->base.axis[2], pt->velDelta, (def->length - def->endLength) / 14.0f);
         break;
     }
-    GETP(tr->tail)->texCoord = tr->texScroll;
+    pt->texCoord = tr->texScroll;
     tr->texScroll += g_fDeltaTimeSec * def->scrollSpeed;
     colour.reset = 1;
     colour2.reset = 1;
@@ -184,20 +202,23 @@ s32 Tracer_Move(TracerThing *thing) {
         }
         tr->texFrame = GETP(def->frames)[tr->frameIndex];
     }
-    GETP(tr->tail)->color[0] = colour.c[0];
-    GETP(tr->tail)->color[1] = colour.c[1];
-    GETP(tr->tail)->color[2] = colour.c[2];
-    GETP(tr->tail)->color[3] = colour.c[3];
+    pt->color[0] = colour.c[0];
+    pt->color[1] = colour.c[1];
+    pt->color[2] = colour.c[2];
+    pt->color[3] = colour.c[3];
     tr->colorDelta[0] = -(colour.c[0] - colour2.c[0]) / 15;
     tr->colorDelta[1] = -(colour.c[1] - colour2.c[1]) / 15;
     tr->colorDelta[2] = -(colour.c[2] - colour2.c[2]) / 15;
     tr->colorDelta[3] = -(colour.c[3] - colour2.c[3]) / 15;
-    SETP(tr->tail, GETP(GETP(tr->tail)->next));
-    if (GETP(tr->tail) == GETP(tr->head)) {
-        SETP(tr->head, GETP(GETP(tr->head)->next));
-    }
-    if (tr->numPoints < 15) {
-        tr->numPoints++;
+    if (tick) {
+        SETP(tr->newest, pt);
+        SETP(tr->tail, GETP(GETP(tr->tail)->next));
+        if (GETP(tr->tail) == GETP(tr->head)) {
+            SETP(tr->head, GETP(GETP(tr->head)->next));
+        }
+        if (tr->numPoints < 15) {
+            tr->numPoints++;
+        }
     }
     return 1;
 }
@@ -217,6 +238,8 @@ void Tracer_ClearTracer(s32 index) {
     tracer->numPoints = 0;
     tracer->active = 0;
     tracer->texFrame = 0xFFFF;
+    tracer->tickTime = TRACER_TICK;
+    SETP(tracer->newest, NULL);
     for (i = 0; i < 14; i++) {
         SETP(tracer->points[i].next, &tracer->points[i + 1]);
         tracer->points[i].pos[3] = 1.0f;

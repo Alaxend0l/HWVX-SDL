@@ -18,6 +18,17 @@ OSCalendarTime g_todaysDate;
 u32 max_time;
 u32 m_iDeltaTimeUs;
 u32 m_iLastTimeUs;
+/* Port fix: g_iDeltaTimeMS is whole ms and the division below used to drop the
+ * rest, so ms timers ran up to 2x slow at high frame rates (4% at 60 FPS). Carry
+ * it into the next frame so they add up to real time at any frame rate. */
+static u32 s_deltaRemainderUs;
+/* This frame's values, so that TimeHandler_SetTimeElapsedSec_f32 restoring the
+ * frame's time doesn't truncate them again. */
+static u32 s_frameDeltaMS;
+static f32 s_frameDeltaSec;
+/* The previous frame's time in whole ms, truncated: the suspension dampers divide
+ * by it and were tuned on that value. */
+static u32 s_truncatedDeltaMS;
 
 static inline u32 TimeHandler_GetTimeUs(void) {
     return (OSGetTick() * 8) / (OS_TIMER_CLOCK / 125000);
@@ -27,6 +38,7 @@ void TimeHandler_Init(void) {
     u32 now = (OSGetTick() * 8) / (OS_TIMER_CLOCK / 125000);
 
     m_iDeltaTimeUs = 1;
+    s_deltaRemainderUs = 0;
     m_iLastTimeUs = now;
     OSTicksToCalendarTime(OSGetTime(), &g_todaysDate);
 }
@@ -57,14 +69,19 @@ void TimeHandler_Heartbeat(void) {
         m_iDeltaTimeUs = 1000;
     }
     m_iLastTimeUs = now;
-    g_iLastDeltaTimeMS = g_iDeltaTimeMS;
-    g_iDeltaTimeMS = m_iDeltaTimeUs / 1000;
+    g_iLastDeltaTimeMS = s_truncatedDeltaMS;
+    s_truncatedDeltaMS = m_iDeltaTimeUs / 1000;
+    s_deltaRemainderUs += m_iDeltaTimeUs;
+    g_iDeltaTimeMS = s_deltaRemainderUs / 1000;
+    s_deltaRemainderUs %= 1000;
     g_fDeltaTimeMS = (f32)m_iDeltaTimeUs / 1000.0f;
     g_iLastTimeMS = m_iLastTimeUs / 1000;
     g_fDeltaTime60th = g_fDeltaTimeMS / (1000.0f / 60.0f);
     g_fDeltaTimeSec = g_fDeltaTimeMS / 1000.0f;
     g_iDeltaTime60th = g_fDeltaTime60th;
     g_fDeltaTimeSec_inv = 1.0f / g_fDeltaTimeSec;
+    s_frameDeltaMS = g_iDeltaTimeMS;
+    s_frameDeltaSec = g_fDeltaTimeSec;
 }
 
 void TimeHandler_SetTimeElapsedSec_f32(f32 sec) {
@@ -74,7 +91,7 @@ void TimeHandler_SetTimeElapsedSec_f32(f32 sec) {
     extern u32 g_iDeltaTimeMS;
     u32 ms;
 
-    g_iDeltaTimeMS = ms = 1000.0f * sec;
+    g_iDeltaTimeMS = ms = sec == s_frameDeltaSec ? s_frameDeltaMS : (u32)(1000.0f * sec);
     g_fDeltaTimeSec = sec;
     g_fDeltaTimeSec_inv = 1.0f / sec;
     g_fDeltaTime60th = ms / (1000.0f / 60.0f);
