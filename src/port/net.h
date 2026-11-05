@@ -90,6 +90,10 @@ int Net_Connect(const char *address, const char *roomCode);
 void Net_Close(void);
 
 int Net_IsActive(void);
+/* This machine's address on its network, for other players to type; 0 if unknown.
+ * Sends nothing. Behind a router it is the inside address: port forwarding has
+ * an outside one this can't see. */
+int Net_LocalAddress(char *out, u32 size);
 const char *Net_ErrorName(NetError error);
 
 /* 1 if queued. Clients can send only to the host (NET_PEER_HOST or

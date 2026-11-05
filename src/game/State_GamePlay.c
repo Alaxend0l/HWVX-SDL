@@ -1,6 +1,7 @@
 /* The race / mission state: sets up the world's things, players and
  * cameras, runs the game processes, the pause menu and the attract demo. */
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
 #include "AI.h"
@@ -125,7 +126,9 @@ s32 StateGamePlay_Init(void) {
                         } else if (car->port == 4) {
                             Player_SetName(player, 4, "Player 4");
                         }
-                        humanUsed[car->port - 1] = 1;
+                        /* port: online, the other machines' cars get no view here */
+                        Port_OnlineSetupPlayer(player);
+                        humanUsed[car->port - 1] = !Port_OnlineIsRemote(player);
                         SETP(car->car, ThingManager_DARYL_CreateThing(9, &params));
                         Player_SetThing(player, GETP(car->car));
                         SETP(GETP(car->car)->base.trigger, car);
@@ -338,7 +341,7 @@ s32 StateGamePlay_Init(void) {
         if (humanUsed[3]) {
             viewOf[3] = view++;
         }
-        switch (count) {
+        switch (Port_OnlineActive() ? 1 : count) {   /* port: online, one view */
         case 1:
             break;
         case 2:
@@ -353,11 +356,14 @@ s32 StateGamePlay_Init(void) {
         }
         for (k = 0; k < count; k++) {
             player = PlayerManager_GetHumanPlayerByIndex(k);
+            if (Port_OnlineIsRemote(player)) {
+                continue;
+            }
             camera = CameraManager_GetNewCamera();
             player->view = viewOf[player->port - 1];
             Camera_SetPlayer(camera, player);
             if (player->view == 1) {
-                if (count > 1) {
+                if (count > 1 && !Port_OnlineActive()) {
                     ViewManager_SetCamera(camera, 1);
                     ViewManager_EnableView(1, 1);
                 }
@@ -437,6 +443,7 @@ s32 StateGamePlay_Init(void) {
     World_InitTeleporters();
     SetPlayerControls();
     GameSettings_RestorePlayerStats();
+    Port_OnlineLevelStarted();   /* port: online session (Port_Online.c) */
     return 1;
 #undef g_pauseState
 }
@@ -517,7 +524,7 @@ s32 StateGamePlay_Heartbeat(void) {
             count = PlayerManager_PlayerHumanCount();
             for (i = 0; i < count; i++) {
                 player = PlayerManager_GetHumanPlayerByIndex(i);
-                if (Input_KeyPress(player->device, 0)) {
+                if (!Port_OnlineIsRemote(player) && Input_KeyPress(player->device, 0)) {
                     input = player->device;
                     pressed = 1;
                     break;

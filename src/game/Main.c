@@ -47,6 +47,7 @@ s32 Main_Init(void) {
 
 
 void GameSettings_PortAutoSaveUnlocks(void);
+void Port_OnlineHeartbeat(void);
 
 s32 Main_Loop(void) {
     extern s32 (*Heartbeat_Process)(void);
@@ -57,6 +58,7 @@ s32 Main_Loop(void) {
         return 0;
     }
     GameSettings_PortAutoSaveUnlocks();   /* port: autosave after unlocks */
+    Port_OnlineHeartbeat();               /* port: online session (Port_Online.c) */
     return Heartbeat_Process();
 }
 

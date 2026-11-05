@@ -2,6 +2,7 @@
 #include "CarA.h"
 #include "World.h"
 #include "Interface.h"
+#include "Port_Online.h"
 #include "Gfx.h"
 #include "ThingManager.h"
 #include "AttachThing.h"
@@ -2224,6 +2225,10 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
                 break;
             }
         }
+        /* port: online, the level waits for every machine's choice (Port_Online.c) */
+        if (Port_OnlineCarsChosen(iface)) {
+            return 0;
+        }
         if (StateManager_CurrState() == 2) {
             StateManager_QueueChange(0xB);
         }
@@ -2276,6 +2281,11 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
     case 2: {
         IfaceMsg msg;
         u32 cur = iface->historyCount;
+
+        /* port: leaving a lobby ends the session; some screens can't be left */
+        if (Port_OnlineBack(GETP((iface->isChild ? &g_interfaces[iface->parent] : iface)->header))) {
+            return 0;           /* (a child's back leaves its parent: Backup_Key) */
+        }
 
         msg.index = iface->index;
         msg.type = 0xF;
@@ -5321,3 +5331,51 @@ void InterfaceManager_RemoveInterfaceFromRender(u32 id) {
 #undef g_numInterfacesToRender
 }
 
+/* port: the menu that's up, for another machine's decisions (Port_Online.c). The
+ * root interface: children follow it. */
+static Interface *Port_InterfaceRoot(void) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        if (g_interfaces[i].count != 0 && !g_interfaces[i].isChild) {
+            return &g_interfaces[i];
+        }
+    }
+    return NULL;
+}
+
+/* port: back to a screen in the menu's history, as its back button would; 0 if it
+ * isn't there. */
+s32 Port_InterfaceGoBack(InterfaceHeader *header) {
+    Interface *iface = Port_InterfaceRoot();
+    u32 j;
+
+    if (iface == NULL || header == NULL) {
+        return 0;
+    }
+    for (j = 0; j < iface->historyCount; j++) {
+        if (GETP(iface->history[j]) == header) {
+            iface->flags = 0;
+            iface->goBack = 1;
+            SETP(iface->next, header);
+            iface->historyCount = j;
+            InterfaceManager_SetLoadState(iface, 1);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* port: on to a screen, as a menu event would, or back to it if it came before: a
+ * screen reached twice mustn't leave a way back to what was between. */
+void Port_InterfaceGoto(InterfaceHeader *header) {
+    Interface *iface = Port_InterfaceRoot();
+
+    if (iface == NULL || header == NULL || GETP(iface->header) == header || Port_InterfaceGoBack(header)) {
+        return;
+    }
+    iface->flags = 0;
+    iface->goBack = 0;
+    SETP(iface->next, header);
+    InterfaceManager_SetLoadState(iface, 1);
+}

@@ -1724,6 +1724,31 @@ int Net_IsActive(void) {
     return s_active;
 }
 
+int Net_LocalAddress(char *out, u32 size) {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    NetSocket s;
+    int ok = 0;
+
+    if (!NetStartup() || (s = socket(AF_INET, SOCK_DGRAM, 0)) == NET_NO_SOCKET) {
+        return 0;
+    }
+    /* connecting a datagram socket only asks which interface routes there */
+    SDL_zero(addr);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(53);
+    addr.sin_addr.s_addr = htonl(0x08080808);
+    if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) == 0 &&
+        getsockname(s, (struct sockaddr *)&addr, &len) == 0 && addr.sin_addr.s_addr != 0) {
+        u32 ip = ntohl(addr.sin_addr.s_addr);
+
+        SDL_snprintf(out, size, "%u.%u.%u.%u", ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255);
+        ok = 1;
+    }
+    NetCloseSocket(s);
+    return ok;
+}
+
 /* With s_lock held. */
 static int QueueReliable(Conn *c, const void *data, u32 size) {
     u8 kind = KIND_RELIABLE;

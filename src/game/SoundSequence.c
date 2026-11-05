@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Online.h"
 #include "ThingManager.h"
 #include "SoundSequence.h"
 
@@ -160,7 +161,8 @@ s32 SoundSequence_Play(SoundSeqInfo *seq, Vector4 *pos) {
     SoundSeqParams params __attribute__((aligned(16)));
     SoundSequence *thing;
 
-    if (!seq->allPlayers && PlayerManager_PlayerHumanCount() > 1) {
+    /* port: players on this machine: online isn't split screen */
+    if (!seq->allPlayers && GameSettings_GetNumOfPlayers() > 1) {
         return -1;
     }
     if (pos != NULL) {
@@ -194,7 +196,8 @@ s32 SoundSequence_PlayQueued(SoundSeqInfo *seq, Vector4 *pos) {
     s8 found;
     u32 n;
 
-    if (!seq->allPlayers && PlayerManager_PlayerHumanCount() > 1) {
+    /* port: players on this machine: online isn't split screen */
+    if (!seq->allPlayers && GameSettings_GetNumOfPlayers() > 1) {
         thing = (SoundSequence *)-1;
     } else {
         if (pos != NULL) {

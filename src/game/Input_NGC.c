@@ -1,4 +1,5 @@
 #include "Input.h"
+#include "Port_Online.h"
 
 typedef struct RumbleStatus {
     s32 duration;
@@ -124,6 +125,11 @@ void Input_Heartbeat(void) {
         g_padDownPos[i] = 0;
         if (i == 0) {
             Port_KeyboardSlots(&g_VirtualPad[0]);   /* port: the keyboard (Port_Keyboard.c) */
+        }
+        if (i != 0 && Port_OnlineActive()) {
+            /* port: online, each machine has one player, on the first pad */
+            g_VirtualPad[i].keyPress = 0;
+            g_VirtualPad[i].keyDown = 0;
         }
         if (rumbleStatus[i].active) {
             if (rumbleStatus[i].duration < 0) {

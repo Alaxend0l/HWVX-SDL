@@ -325,11 +325,19 @@ floor) and any logic that counts frames rather than time.
 
 ### Online play
 
-Work in progress: the transport exists, the game doesn't use it yet. One host and
-its clients, each connected to the host only, up to 8 players in all (the game itself
-stops at 4 for now: player pools, score tables, spawns), because a Cloudflare tunnel
-only takes connections to the host. `src/port/net.h` is the API and the place to
-start reading: reliable messages, and "latest" ones where a newer message replaces
+Work in progress: players on a network reach the same level, and their cars don't
+move for each other yet. One host and its clients, each connected to the host only,
+up to 8 players in the transport (the game itself stops at 4 for now: player pools,
+score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
+
+Multi-Player now opens Online or Local; Local is the game's own screen. Hosting opens a
+lobby, and the host's choices in the game's own menus bring everyone to the car select
+(`src/game/Port_Online.c`, screens in `Port_Menu.c`). Online, every car, world and weapon
+is open and nothing reaches a save. Tunnel hosting isn't in yet, and neither are Joyride,
+AI opponents or typing an address with only a controller. `HWVX_ONLINE_ADDRESS` fills in
+the Connect screen, for testing with `HWVX_AUTOINPUT`.
+
+The transport's API is `src/port/net.h`, the place to start reading: reliable messages, and "latest" ones where a newer message replaces
 one not yet sent. All of it travels over WebSocket, the one thing a quick tunnel is
 known to carry for a client without `cloudflared` of its own. A socket thread does
 the waiting outside the giant lock, so connections live through level loads.

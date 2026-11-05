@@ -33,11 +33,16 @@
  *   back like the Controller screen's. Leaving it applies the settings
  *   (Port_MenuReleased).
  *
+ * - Multi-Player: a new screen in front of the game's, Online or Local (the game's
+ *   own). Online has Host with Tunnel, Host via LAN and Connect, then a lobby; see
+ *   "Online screens" below and Port_Online.c.
+ *
  * Copies live in static storage; the pack data they point to stays where it
  * is. To add a setting: copy another row into the Graphics screen the same
  * way, with a new PORT_CODEVAR_* id. */
 #include "common.h"
 #include "Interface.h"
+#include "Port_Online.h"
 
 /* The Options screen's objects (pack data, see tools: dump with xgc_inspect). */
 enum {
@@ -105,6 +110,7 @@ enum { REC_ONE_PLAYER = 1, REC_EXTRAS = 5, REC_DESKTOP = 7 };
 enum { CARD_VAR_PHASE = 4, CARD_WARNING = 11 };
 enum { CODEVAR_SETTINGS_CHANGED = 0xCA, CODEVAR_DEVICE = 0x1F7, CODEVAR_FILE_INDEX = 0x1F8 };
 enum { EVENT_GOTO = 1, EVENT_BACK = 2, EVENT_NOTHING = 0xC };
+enum { MAIN_MULTI_PLAYER = 14, REC_MULTI_PLAYER = 2, REC_LOAD_GAME = 3 };
 
 void GameSettings_PortAutoSave(void);
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce);
@@ -563,11 +569,250 @@ static void PatchCardScreen(InterfaceHeader *h) {
 
 /* InterfaceManager_PlayEvent: an event is about to switch to `target` (go-to
  * events, types 1 and 0x20). Returns where to go instead, NULL for nowhere. */
+/* ---- Online screens ---------------------------------------------------------
+ * All copies of the game's Multi-Player screen: the same frame and title, with
+ * lines of text in place of its two rows, some of them selectable. Text lines come
+ * first (their numbers are what Port_MenuOnlineSetLine takes), then the rows. */
+
+enum {
+    MP_NUM_OBJECTS = 16,
+    MP_TITLE = 10,
+    MP_ROW_A = 11,
+    MP_ROW_B = 12,
+    MP_MAX_LINES = 6,
+};
+#define PACK_MP_SCREEN 0x7B4200u
+#define PACK_MP_DRAG 0x7B61C0u      /* Drag Race Options */
+#define PACK_MP_BATTLE 0x7E4440u    /* Battle Options */
+#define PACK_CAR_SELECT 0x7C6540u   /* First Player .. Fourth Player */
+#define CAR_SELECT_NUM_OBJECTS 22
+#define PACK_CAR_SELECT_SOLO 0x72CA00u  /* the one-player modes': online too, each
+                                         * machine having one player */
+#define CAR_SELECT_SOLO_NUM_OBJECTS 6
+
+typedef struct OnlineScreen {
+    InterfaceHeader h;
+    IfaceObjectDef objs[MP_NUM_OBJECTS + MP_MAX_LINES];
+    TextCopy title;
+    TextCopy text[MP_MAX_LINES];
+    AnimCopy anim[MP_MAX_LINES];
+    RecordCopy rec[MP_MAX_LINES];
+    u32 lineObject[MP_MAX_LINES];
+    u32 numLines;
+} OnlineScreen;
+
+typedef struct OnlineRow {
+    const char *name;
+    InterfaceHeader *target;    /* NULL: back */
+} OnlineRow;
+
+static OnlineScreen s_olChoose, s_olOnline, s_olTunnel, s_olConnect, s_olLobbyHost, s_olLobbyClient, s_olMode, s_olWaiting;
+static InterfaceHeader s_olPaste;   /* never shown: the Paste row's "target" */
+static InterfaceHeader *s_mpScreen, *s_carSelect, *s_carSelectSolo;
+static RecordCopy s_mainMultiRec;
+static char s_olAddress[64];
+
+static void BuildOnlineScreen(OnlineScreen *s, const InterfaceHeader *mp, const char *title,
+                              u32 numText, u32 numRows, const OnlineRow *rows) {
+    const IfaceObjectDef *from = GETP(mp->objects);
+    u32 numLines = numText + numRows;
+    u32 extra = 0;
+    u32 i;
+
+    s->h = *mp;
+    memcpy(s->objs, from, MP_NUM_OBJECTS * sizeof(IfaceObjectDef));
+    SetText(&s->title, &s->objs[MP_TITLE], title);
+    s->numLines = numLines;
+    for (i = 0; i < numLines; i++) {
+        u32 at = i == 0 ? MP_ROW_A : i == 1 ? MP_ROW_B : MP_NUM_OBJECTS + extra++;
+        IfaceObjectDef *d = &s->objs[at];
+
+        *d = from[MP_ROW_A];
+        s->lineObject[i] = at;
+        MoveTo(&s->anim[i], d, ROW_Y + i * ROW_STEP);
+        if (i < numText) {
+            SetText(&s->text[i], d, "");
+            d->active = 0;
+            d->record.h = 0;
+        } else {
+            u32 row = i - numText;
+            RecordCopy *rec = CopyRecord(&s->rec[i], d, (u8)(row + 1),
+                                         (u8)(row == 0 ? numRows : row), (u8)(row + 1 == numRows ? 1 : row + 2));
+            u32 e;
+
+            SetText(&s->text[i], d, rows[row].name);
+            for (e = 0; e < rec->rec.events.count; e++) {
+                if (rows[row].target != NULL) {
+                    SETP(rec->defs[e].target, rows[row].target);
+                } else {
+                    rec->defs[e].type = EVENT_BACK;
+                    rec->defs[e].id = 1;
+                    rec->defs[e].target.h = 0;
+                }
+            }
+        }
+    }
+    if (numLines < 2) {
+        SETP(s->objs[MP_ROW_B].conditions, &s_hideAll);
+        s->objs[MP_ROW_B].active = 0;
+        s->objs[MP_ROW_B].record.h = 0;
+    }
+    s->h.numObjects = MP_NUM_OBJECTS + extra;
+    SETP(s->h.objects, s->objs);
+}
+
+/* Built again with each main menu: pack data may have moved since the last. */
+static void BuildOnlineScreens(InterfaceHeader *main) {
+    OnlineRow rows[4];
+
+    s_mpScreen = PackScreen(main, PACK_MP_SCREEN, MP_NUM_OBJECTS);
+    s_carSelect = PackScreen(main, PACK_CAR_SELECT, CAR_SELECT_NUM_OBJECTS);
+    s_carSelectSolo = PackScreen(main, PACK_CAR_SELECT_SOLO, CAR_SELECT_SOLO_NUM_OBJECTS);
+    if (s_mpScreen == NULL || s_carSelect == NULL || s_carSelectSolo == NULL || !TextIs(&GETP(s_mpScreen->objects)[MP_TITLE], "Multi-Player")) {
+        s_mpScreen = NULL;
+        return;
+    }
+    rows[0] = (OnlineRow){"Online", &s_olOnline.h};
+    rows[1] = (OnlineRow){"Local", s_mpScreen};
+    BuildOnlineScreen(&s_olChoose, s_mpScreen, "Multi-Player", 0, 2, rows);
+
+    rows[0] = (OnlineRow){"Tunnel Host", &s_olTunnel.h};
+    rows[1] = (OnlineRow){"LAN Host", &s_olLobbyHost.h};
+    rows[2] = (OnlineRow){"Connect", &s_olConnect.h};
+    BuildOnlineScreen(&s_olOnline, s_mpScreen, "Online", 1, 3, rows);
+
+    rows[0] = (OnlineRow){"Back", NULL};
+    BuildOnlineScreen(&s_olTunnel, s_mpScreen, "Host with Tunnel", 1, 1, rows);
+    SetText(&s_olTunnel.text[0], &s_olTunnel.objs[s_olTunnel.lineObject[0]], "Not available yet");
+
+    rows[0] = (OnlineRow){"Connect", &s_olLobbyClient.h};
+    rows[1] = (OnlineRow){"Paste Address", &s_olPaste};
+    rows[2] = (OnlineRow){"Back", NULL};
+    BuildOnlineScreen(&s_olConnect, s_mpScreen, "Connect", 1, 3, rows);
+
+    rows[0] = (OnlineRow){"Start Game", &s_olMode.h};
+    rows[1] = (OnlineRow){"Leave", NULL};
+    BuildOnlineScreen(&s_olLobbyHost, s_mpScreen, "Lobby", 3, 2, rows);
+
+    rows[0] = (OnlineRow){"Leave", NULL};
+    BuildOnlineScreen(&s_olLobbyClient, s_mpScreen, "Lobby", 2, 1, rows);
+
+    rows[0] = (OnlineRow){"Drag Race", PackScreen(main, PACK_MP_DRAG, 26)};
+    rows[1] = (OnlineRow){"Battle", PackScreen(main, PACK_MP_BATTLE, 34)};
+    BuildOnlineScreen(&s_olMode, s_mpScreen, "Online Game", 0, 2, rows);
+
+    BuildOnlineScreen(&s_olWaiting, s_mpScreen, "Please Wait", 1, 0, rows);
+    SetText(&s_olWaiting.text[0], &s_olWaiting.objs[s_olWaiting.lineObject[0]], "Waiting...");
+}
+
+static OnlineScreen *OnlineScreenOf(PortOnlineScreen screen) {
+    switch (screen) {
+    case ONLINE_SCREEN_ONLINE: return &s_olOnline;
+    case ONLINE_SCREEN_LOBBY_HOST: return &s_olLobbyHost;
+    case ONLINE_SCREEN_LOBBY_CLIENT: return &s_olLobbyClient;
+    case ONLINE_SCREEN_WAITING: return &s_olWaiting;
+    default: return NULL;
+    }
+}
+
+InterfaceHeader *Port_MenuOnlineScreen(PortOnlineScreen screen) {
+    OnlineScreen *s = OnlineScreenOf(screen);
+
+    if (s != NULL) {
+        return &s->h;
+    }
+    return screen == ONLINE_SCREEN_MAIN ? s_main : screen == ONLINE_SCREEN_CAR_SELECT ? s_carSelectSolo : NULL;
+}
+
+/* A line's text, and the live object's if its screen is up (only when it changed:
+ * setting text restarts its animation). */
+static void SetOnlineLine(OnlineScreen *s, u32 line, const char *text) {
+    TextCopy *c = &s->text[line];
+    u32 i, k;
+
+    if (strncmp(c->str, text, sizeof(c->str) - 1) == 0) {
+        return;
+    }
+    strncpy(c->str, text, sizeof(c->str) - 1);
+    c->str[sizeof(c->str) - 1] = 0;
+    for (i = 0; i < 0x12; i++) {
+        Interface *iface = &g_interfaces[i];
+
+        if (iface->count == 0 || GETP(iface->header) != &s->h) {
+            continue;
+        }
+        for (k = 0; k < iface->count; k++) {
+            InterfaceObject *obj = &GETP(iface->objects)[k];
+
+            if (GETP(obj->def) == &s->objs[s->lineObject[line]]) {
+                InterfaceManager_SetObjectText(obj, (char **)(void *)&c->slot);
+            }
+        }
+    }
+}
+
+void Port_MenuOnlineSetLine(PortOnlineScreen screen, u32 line, const char *text) {
+    OnlineScreen *s = OnlineScreenOf(screen);
+
+    if (s != NULL && line < s->numLines) {
+        SetOnlineLine(s, line, text);
+    }
+}
+
+void Port_MenuOnlineAddress(char *out, size_t size) {
+    strncpy(out, s_olAddress, size - 1);
+    out[size - 1] = 0;
+}
+
+/* What choosing an online screen does, or NULL for staying put. */
+static InterfaceHeader *OnlineEventTarget(InterfaceHeader *target) {
+    if (target == &s_olLobbyHost.h) {
+        return Port_OnlineStartHost() ? target : NULL;
+    }
+    if (target == &s_olLobbyClient.h) {
+        if (s_olAddress[0] == 0) {
+            return NULL;
+        }
+        return Port_OnlineStartClient(s_olAddress) ? target : NULL;
+    }
+    if (target == &s_olPaste) {
+        if (Port_TextInputPaste()) {
+            SetOnlineLine(&s_olConnect, 0, s_olAddress);
+        }
+        return NULL;
+    }
+    if (target == &s_olMode.h && Port_OnlinePlayerCount() < 2) {
+        return NULL;            /* nobody to play with yet */
+    }
+    if (target == s_carSelect && Port_OnlineActive()) {
+        Port_OnlineHostSetup();
+        return s_carSelectSolo;
+    }
+    return target;
+}
+
+/* Each frame's typing shows on the Connect screen, from Port_MenuPatch's Start
+ * on until it is released. */
+void Port_MenuOnlineUpdate(void) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        if (g_interfaces[i].count != 0 && GETP(g_interfaces[i].header) == &s_olConnect.h) {
+            SetOnlineLine(&s_olConnect, 0, s_olAddress[0] != 0 ? s_olAddress : "Type or paste an address");
+            return;
+        }
+    }
+}
+
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target) {
     extern s8 g_bMemoryCardHWHack;
 
     if (target == NULL || s_main == NULL) {
         return target;
+    }
+    target = OnlineEventTarget(target);
+    if (target == NULL) {
+        return NULL;
     }
     if (target == s_reminder) {
         if (GameSettings_GetCodeVariable(CODEVAR_SETTINGS_CHANGED, 0)) {
@@ -635,6 +880,21 @@ static void PatchMainMenu(InterfaceHeader *h) {
     GETP(objs[MAIN_ROWS].record)->next[0] = REC_DESKTOP;
     h->numObjects = MAIN_NUM_OBJECTS + 1;
     SETP(h->objects, s_mainObjs);
+
+    /* Multi-Player: to the new Online / Local screen */
+    BuildOnlineScreens(h);
+    if (s_mpScreen != NULL) {
+        RecordCopy *rec = CopyRecord(&s_mainMultiRec, &s_mainObjs[MAIN_MULTI_PLAYER], REC_MULTI_PLAYER,
+                                     REC_ONE_PLAYER, REC_LOAD_GAME);
+
+        for (i = 0; i < rec->rec.events.count; i++) {
+            if (rec->defs[i].type == EVENT_GOTO) {
+                SETP(rec->defs[i].target, &s_olChoose.h);
+            }
+        }
+    } else {
+        Port_Log("menu: multi-player screens not found, no online menus");
+    }
 }
 
 void Port_MenuPatch(InterfaceHeader *h) {
@@ -646,6 +906,13 @@ void Port_MenuPatch(InterfaceHeader *h) {
         return;
     }
     Port_CarouselPatch(h);   /* world, car and weapon select: more windows */
+    if (h == &s_olConnect.h) {
+        if (s_olAddress[0] == 0) {
+            Port_LoadOnlineAddress(s_olAddress, sizeof(s_olAddress));
+        }
+        Port_TextInputStart(s_olAddress, sizeof(s_olAddress));
+        return;
+    }
     if (h == &s_gfx) {
         RefreshModes();
         return;
@@ -691,5 +958,8 @@ void Port_MenuPatch(InterfaceHeader *h) {
 void Port_MenuReleased(InterfaceHeader *h) {
     if (h == &s_gfx) {
         Port_GfxApply();
+    }
+    if (h == &s_olConnect.h) {
+        Port_TextInputStop();
     }
 }

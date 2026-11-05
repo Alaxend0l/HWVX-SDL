@@ -163,6 +163,13 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 #endif
 
 void Port_Log(const char *fmt, ...) PORT_PRINTF(1, 2);
+
+/* text_input.c: typing into a menu. */
+void Port_TextInputStart(char *buf, size_t cap);
+void Port_TextInputStop(void);
+int Port_TextInputPaste(void);
+void Port_LoadOnlineAddress(char *buf, size_t cap);
+void Port_SaveOnlineAddress(const char *address);
 int Port_AllCheats(void);
 /* --reset-save (main_sdl.c): 1 when this boot starts from the default game
  * data (GameSetting_Init) and skips the autoload of the newest save;

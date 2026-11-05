@@ -1,0 +1,60 @@
+/* Online play, on the game's side: the session (Port_Online.c) and its menus
+ * (Port_Menu.c). Everything here does nothing unless a session is running, so
+ * offline play takes the original paths. The transport is src/port/net.h. */
+#ifndef PORT_ONLINE_H
+#define PORT_ONLINE_H
+
+#include "common.h"
+#include "Interface.h"
+
+/* ---- Port_Online.c ------------------------------------------------------- */
+
+int Port_OnlineActive(void);
+/* A car driven from another machine: no input, no camera, no view of its own. */
+int Port_OnlineIsRemote(const Player *player);
+/* Once a frame, from Main_Loop. */
+void Port_OnlineHeartbeat(void);
+/* Menu actions: 0 if the session could not start. */
+int Port_OnlineStartHost(void);
+int Port_OnlineStartClient(const char *address);
+void Port_OnlineEnd(void);
+int Port_OnlinePlayerCount(void);
+/* The host reached the car select: everyone goes there. */
+void Port_OnlineHostSetup(void);
+/* The car select is done on this machine: 1 if a session took it over and the
+ * waiting screen is showing instead of the level starting. */
+int Port_OnlineCarsChosen(Interface *iface);
+/* The back button on a screen: 1 refuses it. */
+int Port_OnlineBack(const InterfaceHeader *header);
+/* StateGamePlay_Init: a human player was made. */
+void Port_OnlineSetupPlayer(Player *player);
+/* StateGamePlay_Init: the level is ready. */
+void Port_OnlineLevelStarted(void);
+
+/* ---- Port_Menu.c ---------------------------------------------------------- */
+
+typedef enum PortOnlineScreen {
+    ONLINE_SCREEN_MAIN,         /* the game's main menu */
+    ONLINE_SCREEN_ONLINE,       /* Host with Tunnel / Host via LAN / Connect */
+    ONLINE_SCREEN_LOBBY_HOST,
+    ONLINE_SCREEN_LOBBY_CLIENT,
+    ONLINE_SCREEN_CAR_SELECT,   /* the game's one-player car select */
+    ONLINE_SCREEN_WAITING,
+} PortOnlineScreen;
+
+InterfaceHeader *Port_MenuOnlineScreen(PortOnlineScreen screen);
+/* Shows text on a line of a port screen's text, live if the screen is up. */
+void Port_MenuOnlineSetLine(PortOnlineScreen screen, u32 line, const char *text);
+/* The address on the Connect screen. */
+void Port_MenuOnlineAddress(char *out, size_t size);
+/* Once a frame: typing shows on the Connect screen. */
+void Port_MenuOnlineUpdate(void);
+
+/* ---- InterfaceManager.c --------------------------------------------------- */
+
+/* Leaves whatever menu is up for this one, as if a menu event had chosen it. */
+void Port_InterfaceGoto(InterfaceHeader *header);
+/* Back to a screen in the menu's history; 0 if it isn't there. */
+s32 Port_InterfaceGoBack(InterfaceHeader *header);
+
+#endif

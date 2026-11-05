@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
 
@@ -586,7 +587,8 @@ done:
 
     switch (var) {
     case 0x64:
-        if (GameSettings_IsCheatEnabled(1)) {
+        /* port: online, all cars, worlds and weapons are open (Port_Online.c) */
+        if (GameSettings_IsCheatEnabled(1) || Port_OnlineActive()) {
             return 1;
         }
         switch (type) {
@@ -936,7 +938,9 @@ s32 GameSettings_GetDifficulty(void) {
 }
 
 u8 GameSettings_GetNumOfPlayers(void) {
-    return PlayerManager_PlayerHumanCount();
+    /* port: online, those playing on this machine: the others' cars are human
+     * players too, but share no screen with this one (Port_Online.c) */
+    return Port_OnlineActive() ? 1 : PlayerManager_PlayerHumanCount();
 }
 
 s8 GameSettings_IsCheatEnabled(s32 cheat) {
@@ -2029,7 +2033,7 @@ void GameSettings_PortNoteUnlock(s32 var, u32 arg, u32 val) {
 /* Main_Loop, once a frame: save after new unlocks (not in the attract-mode
  * demo, code variable 0x198). One save for several unlocks at once. */
 void GameSettings_PortAutoSaveUnlocks(void) {
-    if (!s_portUnlocked) {
+    if (!s_portUnlocked || Port_OnlineActive()) {
         return;
     }
     s_portUnlocked = 0;
@@ -2040,12 +2044,28 @@ void GameSettings_PortAutoSaveUnlocks(void) {
     GameSettings_PortAutoSave();
 }
 
+/* port: what's done online stays out of saves: the game data as it was comes back
+ * when the session ends, unlocks and all. */
+static HotWheelsGameData s_portOnlineSaved;
+
+void GameSettings_PortOnlineBegin(void) {
+    s_portOnlineSaved = g_HotWheelsGameData;
+}
+
+void GameSettings_PortOnlineEnd(void) {
+    g_HotWheelsGameData = s_portOnlineSaved;
+    s_portUnlocked = 0;
+}
+
 /* port: autosave, where the game would remind the player to save (leaving
  * Options after changing a setting: Port_Menu.c). Saves over the save in use,
  * as choosing it in Save Game would (it moves to slot 0), or makes a new one
  * with the game's default name ahead of the others. */
 void GameSettings_PortAutoSave(void) {
     #define g_saveFileCheckSum (*(u32 *)(void *)&g_saveFileCheckSum)
+    if (Port_OnlineActive()) {
+        return;
+    }
     const char *name = "saveFile";
     u32 size = 0;
     s32 status;

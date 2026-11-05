@@ -72,6 +72,7 @@ void Port_HudDraw(int efbW, int efbH);
 void GX_PortBeginFrame(void);
 void GX_PortPresent(void);
 void Pad_PortHandleEvent(const SDL_Event *ev);
+void Port_TextHandleEvent(const SDL_Event *ev);
 void Pad_PortSample(void);
 extern volatile u32 g_portDiscReads;  /* dvd.c */
 void Audio_PortShutdown(void);
