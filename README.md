@@ -91,6 +91,7 @@ Enter to accept, Escape to go back, X for the X button (stats).
 | `src/port/port.h` | Fixed-width types, endian helpers, 32-bit handles |
 | `src/port/sdk.h`, `gx.h` | The SDK API surface the game uses |
 | `src/port/gx_render.h` | Renderer interface; `gx_gl.c` (OpenGL) and `gx_sdlgpu.c` (SDL_GPU) implement it |
+| `src/port/net.h`, `net*.c` | Online play transport (see "Online play"); nothing in the game calls it yet |
 | `src/port/shaders/` | Shader sources (GLSL), shared by every renderer |
 | `src/port/gx_shaders.h` | Generated: the shaders as GLSL, SPIR-V, MSL and DXIL |
 | `tools/` | Import and rewrite scripts (below) |
@@ -321,6 +322,40 @@ remembers the choice. Measured: `--fps 120` gives 110 FPS while the work fits
 unchanged. Watch list for anything a survey cannot see: gameplay feel at 144
 and 240 (the integer-ms timers truncate harder as the delta nears their 1 ms
 floor) and any logic that counts frames rather than time.
+
+### Online play
+
+Work in progress: the transport exists, the game doesn't use it yet. One host and
+up to three clients, each connected to the host only, because a Cloudflare tunnel
+only takes connections to the host. `src/port/net.h` is the API and the place to
+start reading: reliable messages, and "latest" ones where a newer message replaces
+one not yet sent. All of it travels over WebSocket, the one thing a quick tunnel is
+known to carry for a client without `cloudflared` of its own. A socket thread does
+the waiting outside the giant lock, so connections live through level loads.
+
+`wss://` (TLS, what a client needs to reach a tunnel) isn't in yet: only `ws://`,
+which is enough to host behind `cloudflared`. Measured limits of a quick tunnel, which
+the constants in `net.c` follow: a connection silent for about 125 s is closed, and
+a new tunnel's name can fail to resolve for over 80 s if looked up in its first few
+seconds, so hosts should wait about 15 s before showing it and clients keep retrying.
+
+Tests need no game data or window, and link only the transport:
+
+```sh
+cmake -S . -B build-tests -DHWVX_TESTS=ON && cmake --build build-tests --target nettest
+build-tests/nettest selftest     # protocol code, no sockets
+build-tests/nettest e2e          # a host and clients as separate processes
+```
+
+`HWVX_NET_SIM` makes any session's connection bad, for example
+`HWVX_NET_SIM=lat=40,jitter=20,loss=1,stall=200,bw=64` (see `src/port/net_sim.c`). For two
+machines, run `nettest host PORT ROOM PEERS SECONDS` and `nettest client ADDRESS ROOM
+COUNT SECONDS` (see `tools/nettest.c`).
+
+`tools/net_hostile.py` attacks a host with protocol violations, and
+`tools/net_tunnel_check.py` talks to one through a real tunnel; run the first
+against a sanitizer build. Test optimized builds as well: a masking loop once passed
+at `-O0` and failed at `-O2`.
 
 ## Tools
 
