@@ -299,6 +299,33 @@ static u32 LruPick(void) {
     return oldest;
 }
 
+/* The EFB copy (GXCopyTex). It never reaches the game's memory: the texture
+ * object's image address just selects it, whatever size and format the object
+ * says. Only the alpha is meaningful, which is all the game's GX_CTF_A8 copy is
+ * read for (TEXA). One is enough, the game only has the shadow mask. */
+static struct {
+    u32 image;
+    void *tex;
+    int w, h;
+} s_copy;
+
+void GX_TexCopyEFB(void *dest, const int src[4]) {
+    int w = src[2] - src[0], h = src[3] - src[1];
+
+    if (s_copy.tex == NULL || s_copy.w != w || s_copy.h != h) {
+        if (s_copy.tex != NULL) {
+            g_gxr->texDestroy(s_copy.tex);
+        }
+        s_copy.tex = g_gxr->texCreate(w, h, 1);
+        s_copy.w = w;
+        s_copy.h = h;
+    }
+    s_copy.image = HND(dest);
+    if (s_copy.tex != NULL) {
+        g_gxr->copyEFB(s_copy.tex, src);
+    }
+}
+
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     const u32 *d = obj->dummy;
     u8 *image = PTR(d[0]);
@@ -309,6 +336,12 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
 
     if (image == NULL || w == 0 || h == 0 || w > 1024 || h > 1024) {
         return NULL;
+    }
+    if (d[0] == s_copy.image && s_copy.tex != NULL) {
+        /* drawn 1:1 with the EFB; linear could only blur the mask's edge */
+        Sampler(d, 1, samp);
+        samp->minLinear = samp->magLinear = 0;
+        return s_copy.tex;
     }
     if (d[4]) {
         f32 maxLod;

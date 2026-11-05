@@ -379,6 +379,15 @@ static int BuildDrawCall(GXDrawCall *dc, GXVSUniforms *vs, GXFSUniforms *fs) {
     dc->blendRevSub = g->blendType == 3;
     dc->blendSrc = dc->blendRevSub ? GXR_BF_ONE : BlendFactor(g->blendSrc, 1);
     dc->blendDst = dc->blendRevSub ? GXR_BF_ONE : BlendFactor(g->blendDst, 0);
+    /* Shadow volumes count in the EFB alpha: +4 per back face, then this blend
+     * (dst * (1 - 4/255)) per front face. In the game's 6-bit alpha (RGBA6_Z24)
+     * the hardware's truncation makes that exactly one step down, so 4 -> 0. In
+     * our 8-bit alpha it would round back to 4 and every volume would stay in
+     * the mask, so subtract the 4 directly. */
+    if (g->blendType == 1 && g->blendSrc == 0 && g->blendDst == 3 && !g->colorUpdate && g->alphaUpdate) {
+        dc->blendRevSub = 1;
+        dc->blendSrc = dc->blendDst = GXR_BF_ONE;
+    }
     dc->depthTest = g->zEnable;
     dc->depthFunc = g->zFunc & 7;
     dc->depthWrite = g->zUpdate;
@@ -620,6 +629,19 @@ void GX_DrawCopyDisp(int clear) {
                                      * stats stay free of it and it rides the
                                      * copy's letterbox like the frame does */
     g_gxr->copyDisp(r);
+    if (clear) {
+        ClearEFB();
+    }
+}
+
+/* EFB -> texture (Render_DrawShadows, its only user). Like the display copy,
+ * the game's source is its whole screen, which is the whole EFB. The copy stays
+ * on the GPU at EFB resolution instead of the game's half-size 320x224, so the
+ * mask lines up pixel for pixel with what it shades, at any window size. */
+void GX_DrawCopyTex(void *dest, int clear) {
+    int r[4] = { 0, 0, s_efbW, s_efbH };
+
+    GX_TexCopyEFB(dest, r);
     if (clear) {
         ClearEFB();
     }

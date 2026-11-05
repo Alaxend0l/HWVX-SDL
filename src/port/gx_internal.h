@@ -149,6 +149,7 @@ void GX_DrawInit(void);
 void GX_Draw(int prim, const GXVertex *v, u32 n);
 void GX_DrawBeginFrame(void);
 void GX_DrawCopyDisp(int clear);
+void GX_DrawCopyTex(void *dest, int clear);
 void GX_DrawPresent(void);
 
 /* gx_tex.c: GX_TexGet is in gx_render.h */

@@ -54,6 +54,10 @@ int GX_TevKey(const GXFSUniforms *fs, GXTevKey *key) {
                 (u32)fog << 13;
 #undef COMP
     for (i = 0; i < n; i++) {
+        /* compare ops are rare enough to leave to gx.frag (one draw a frame) */
+        if (fs->aop[i][0] >= 8) {
+            return 0;
+        }
         key->stage[i] = StageKey(fs, i);
     }
     return 1;

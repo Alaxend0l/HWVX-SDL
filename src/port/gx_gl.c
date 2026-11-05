@@ -695,6 +695,28 @@ static void GL_CopyDisp(const int src[4]) {
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
+/* The storage is respecified on each copy since texCreate leaves it to the
+ * first upload, and a texture only gets one copy per frame. */
+static void GL_CopyEFB(void *tex, const int src[4]) {
+    static GLuint fbo;
+    int w = src[2] - src[0], h = src[3] - src[1];
+
+    if (fbo == 0) {
+        glGenFramebuffers(1, &fbo);
+    }
+    glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)(uintptr_t)tex, 0);
+    glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, s.fbo);
+    /* GL rows are bottom-up, texture rows top-down: flip while copying */
+    glBlitFramebuffer(src[0], s.efbH - src[3], src[2], s.efbH - src[1], 0, h, w, 0,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+    StateReset();
+}
+
 static int GL_ReadEFB(u8 *rgba) {
     size_t row = (size_t)s.efbW * 4;
     u8 *tmp = SDL_malloc(row);
@@ -732,5 +754,5 @@ static void GL_Present(void) {
 
 const GXRenderer g_gxGL = {
     "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
-    GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_ReadEFB, GL_Present,
+    GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_CopyEFB, GL_ReadEFB, GL_Present,
 };

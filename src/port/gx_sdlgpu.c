@@ -6,7 +6,8 @@
  * textures between draws, so draws are recorded and run in batches (Flush):
  * one copy pass for the pending texture uploads and all recorded vertices,
  * then one render pass on the EFB. A batch ends when something needs the
- * EFB contents (display copy, movie frame, dump), at a clear, and at present.
+ * EFB contents (display copy, texture copy, movie frame, dump), at a clear, and
+ * at present.
  * Textures replaced in the cache are released only after the batch that may
  * still use them.
  *
@@ -902,6 +903,22 @@ static void GPU_CopyDisp(const int src[4]) {
     SDL_EndGPURenderPass(pass);
 }
 
+static void GPU_CopyEFB(void *tex, const int src[4]) {
+    SDL_GPUTextureLocation from, to;
+    SDL_GPUCopyPass *cp;
+
+    Flush();
+    SDL_zero(from);
+    SDL_zero(to);
+    from.texture = s.efb;
+    from.x = (u32)src[0];
+    from.y = (u32)src[1];
+    to.texture = tex;
+    cp = SDL_BeginGPUCopyPass(Cmd());
+    SDL_CopyGPUTextureToTexture(cp, &from, &to, (u32)(src[2] - src[0]), (u32)(src[3] - src[1]), 1, false);
+    SDL_EndGPUCopyPass(cp);
+}
+
 static int GPU_ReadEFB(u8 *rgba) {
     SDL_GPUTransferBufferCreateInfo ci;
     SDL_GPUTransferBuffer *tb;
@@ -965,5 +982,5 @@ static void GPU_Present(void) {
 
 const GXRenderer g_gxSDLGPU = {
     "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
-    GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_ReadEFB, GPU_Present,
+    GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_CopyEFB, GPU_ReadEFB, GPU_Present,
 };
