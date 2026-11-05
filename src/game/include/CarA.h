@@ -404,7 +404,7 @@ typedef struct CarAWheelState {
   f32 lastCompression;      /* 0x10 */
   GXColor skidColor;        /* 0x14 */
   u32 skidTexture;          /* 0x18 */
-  u8 pad1C[4];              /* 0x1C */
+  f32 damperRate;           /* 0x1C port: compression rate last sampled for the damper */
   Vector4 slipVel;          /* 0x20 */
 } CarAWheelState;
 
@@ -508,7 +508,7 @@ typedef struct CarA {
   };
   s32 turboCooldown;        /* 0x550 ms */
   f32 stuntTime;            /* 0x554 */
-  u8 pad558[4];             /* 0x558 */
+  f32 damperTickTime;       /* 0x558 port: time since the damper's last sample */
   s32 navTimer;             /* 0x55C ms until the path to the target arrow is searched again */
   f32 pathLength;           /* 0x560 of the path found */
   f32 navDist;              /* 0x564 left along it (Player_Heartbeat) */

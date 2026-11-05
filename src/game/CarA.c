@@ -317,9 +317,11 @@ s32 CarA_Init(void *thing, void *arg1) {
         car->wheelStates[i].sparkTimer = 0;
         car->wheelStates[i].skidColor.a = 0;
         car->wheelStates[i].lastCompression = 0.0f;
+        car->wheelStates[i].damperRate = 0.0f;
         car->wheelStates[i].compression = 0.0f;
         car->wheelStates[i].slipVel = g_zeroVector;
     }
+    car->damperTickTime = 0.0f;
     car->gradeOrReverse = 0.0f;
     car->soundRpmGate = 0.0f;
     car->rpm = 0.0f;

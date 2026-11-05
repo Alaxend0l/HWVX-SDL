@@ -323,6 +323,10 @@ void CarA_ComputeSuspensionForces_Aux1(CarA *car) {
     }
 }
 
+/* Shortest gap between damper samples: just under 1/60 s, so that a 60 FPS
+ * frame always takes one. */
+#define CARA_DAMPER_TICK 0.016f
+
 void CarA_ComputeSuspensionForces(void *thing) {
     SuspRayHit hit;
     SuspThingParams p1;
@@ -392,6 +396,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
     f32 force;
     f32 spin;
     f32 ny;
+    s8 damperTick;
 
     rollScale = 0.0f;
     numSlipping = 0;
@@ -442,6 +447,8 @@ void CarA_ComputeSuspensionForces(void *thing) {
         break;
     }
     base = -(1.0f - base);
+    car->damperTickTime += g_fDeltaTimeSec;
+    damperTick = car->damperTickTime >= CARA_DAMPER_TICK;
     for (i = 0; i < GETP(car->vehicleIface)->numWheels; i++) {
         wheel = &GETP(GETP(car->vehicleIface)->wheels)[i];
         bone = wheel->bone - wheel->parent;
@@ -474,7 +481,17 @@ void CarA_ComputeSuspensionForces(void *thing) {
                 scale = len + wheel->offset;
                 springForce = wheel->springRate * len;
                 one = 1.0f;
-                damping = (compression - car->wheelStates[i].lastCompression) / ((f32)g_iLastDeltaTimeMS / 1000.0f) * (one * wheel->damping);
+                // Port fix: the damper was tuned on one sample per 60 FPS frame. Sampling it
+                // every frame also catches the instant a wheel rolls off a ramp lip, a step
+                // the original usually skips, so at high frame rates both axles took a hard
+                // downward pull at takeoff and jumps fell short. Above 60 FPS keep sampling
+                // at about 60 Hz and hold the rate between samples. The 0.96 matches the
+                // original's divisor, its frame time truncated to 16 ms.
+                if (damperTick) {
+                    f32 elapsed = g_fDeltaTimeSec >= CARA_DAMPER_TICK ? (f32)g_iLastDeltaTimeMS / 1000.0f : car->damperTickTime * 0.96f;
+                    car->wheelStates[i].damperRate = (compression - car->wheelStates[i].lastCompression) / elapsed;
+                }
+                damping = car->wheelStates[i].damperRate * (one * wheel->damping);
                 normalSum.x += hit.normal.x;
                 normalSum.y += hit.normal.y;
                 normalSum.z += hit.normal.z;
@@ -684,10 +701,18 @@ void CarA_ComputeSuspensionForces(void *thing) {
         } else {
             car->wheelStates[i].slipVel = g_zeroVector;
         }
-        car->wheelStates[i].lastCompression = compression;
+        if (damperTick) {
+            car->wheelStates[i].lastCompression = compression;
+            if (!hitGround) {
+                car->wheelStates[i].damperRate = 0.0f;
+            }
+        }
         if (GETP(car->vehicleIface)->driveMode != 1 || compression < 0.3f) {
             car->wheelStates[i].compression = compression;
         }
+    }
+    if (damperTick) {
+        car->damperTickTime = 0.0f;
     }
     player = GETP(car->base.player);
     if (player != NULL && !(player->buttonsHeld & 4)) {
