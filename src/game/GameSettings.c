@@ -605,7 +605,7 @@ done:
         }
         break;
     case 0x65:
-        if (GameSettings_IsCheatEnabled(3)) {
+        if (GameSettings_IsCheatEnabled(3) || Port_OnlineActive()) {   /* port: as for cars */
             return 1;
         }
         switch (type) {
@@ -622,7 +622,7 @@ done:
         }
         break;
     case 0x66:
-        if (GameSettings_IsCheatEnabled(2)) {
+        if (GameSettings_IsCheatEnabled(2) || Port_OnlineActive()) {   /* port: as for cars */
             return 1;
         }
         switch (type) {

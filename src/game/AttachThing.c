@@ -2,6 +2,7 @@
  * on other things as slaves (lights, glows); and radar blips, the markers
  * with a health bar drawn over cars. */
 #include "common.h"
+#include "Port_Online.h"
 #include "Gfx.h"
 #include "AttachThing.h"
 #include "Particle.h"
@@ -266,7 +267,8 @@ void RadarBlip_Draw(struct RadarBlip *blip) {
     single = 0;
     pos = blip->base.pos;
     if (g_CurrentViews == 1) {
-        if (!((player == NULL || (!Player_IsHuman(player) && !GameSettings_GetCodeVariable(0x198, 0))) && StateManager_CurrState() == 5)) {
+        /* port: online, another machine's car counts as an opponent: it has no view here */
+        if (!((player == NULL || Port_OnlineIsRemote(player) || (!Player_IsHuman(player) && !GameSettings_GetCodeVariable(0x198, 0))) && StateManager_CurrState() == 5)) {
             return;
         }
     }
