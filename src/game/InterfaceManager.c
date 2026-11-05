@@ -5344,6 +5344,18 @@ static Interface *Port_InterfaceRoot(void) {
     return NULL;
 }
 
+/* port: is this screen up? */
+s32 Port_InterfaceIsUp(const void *header) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        if (g_interfaces[i].count != 0 && GETP(g_interfaces[i].header) == header) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* port: back to a screen in the menu's history, as its back button would; 0 if it
  * isn't there. */
 s32 Port_InterfaceGoBack(InterfaceHeader *header) {

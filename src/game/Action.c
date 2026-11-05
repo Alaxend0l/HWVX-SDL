@@ -1,6 +1,7 @@
 /* The action half of the scripting system: the queue of pending actions and
  * the action functions of pActionFuncArray kept here. See Trigger.h. */
 #include "common.h"
+#include "Port_Online.h"
 #include "AI.h"
 #include "SoundSequence.h"
 #include "CarA.h"
@@ -39,6 +40,7 @@ s32 ActionResetGameRound(void *arg0) {
     u32 *data = arg0;
 
     GameRules_ResetRound((s8)(u8)data[0], (s8)(u8)data[1], (s8)(u8)data[2]);
+    Port_OnlineRoundReset();   /* port: every machine starts the next round together */
     return 1;
 }
 

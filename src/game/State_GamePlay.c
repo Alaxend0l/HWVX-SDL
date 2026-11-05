@@ -50,6 +50,7 @@ s32 StateGamePlay_Init(void) {
     g_gamePlayCallback = 0;
     g_DemoModeCurrentPlayer = 0;
     g_bExitStateGamePlay = 0;
+    Port_OnlineLevelLoading();   /* port: online session (Port_Online.c) */
     Geometry_Init(1);
     PlayerManager_Create();
     Gfx_SetEnviroMapMode(1);
@@ -511,7 +512,7 @@ s32 StateGamePlay_Heartbeat(void) {
     removed = 0;
     ShowStats_StartFrame();
     Gfx_SetCameraMatrix(&g_lastCamPos, NULL, NULL, NULL);
-    ProcessManager_Heartbeat(g_pauseState);
+    ProcessManager_Heartbeat(g_pauseState || Port_OnlineHolding());   /* port: online, waiting for go */
     ViewManager_PrepForRender();
     Gfx_GetCameraPosition(&g_lastCamPos);
     if (GameSettings_GetCodeVariable(0x198, 0) == 0) {
@@ -544,7 +545,15 @@ s32 StateGamePlay_Heartbeat(void) {
             pressed = 1;
             removed = 1;
         }
-        if (pressed && GameSettings_GetCodeVariable(0x19B, 0)) {
+        if (pressed && GameSettings_GetCodeVariable(0x19B, 0) && Port_OnlineActive()) {
+            /* port: online, nothing stops: the menu opens over the running race */
+            if (!Port_OnlineMenuOpen() && !Port_OnlineHolding() && GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface) != NULL) {
+                Port_OnlineSetMenuOpen(1);
+                pauseInterfaceID = InterfaceManager_Create(GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface), 0, GamePlay_Interface);
+                InterfaceManager_SetInput(pauseInterfaceID, input);
+                GameSettings_SetCodeVariable(0xD5, 0, input + 1);
+            }
+        } else if (pressed && GameSettings_GetCodeVariable(0x19B, 0)) {
             if (g_pauseState == 0 && GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface) != NULL) {
                 g_pauseState = 1;
                 StateGamePlay_Pause(1);
@@ -655,7 +664,8 @@ s32 StateGamePlay_Heartbeat(void) {
             InterfaceManager_ReleaseInterface(pauseInterfaceID);
         }
         GameSettings_SetCodeVariable(0xD5, 0, 0);
-        g_bFreezeWorld = 0;
+        g_bFreezeWorld = Port_OnlineHolding();   /* port: 0 offline */
+        Port_OnlineSetMenuOpen(0);
         break;
     }
     return 1;
@@ -790,6 +800,12 @@ void GamePlay_PauseOptions_HandleInput(void *msg) {
             g_bExitStateGamePlay = 1;
             break;
         case 10:
+            /* port: online, one machine can't restart alone: back to the lobby */
+            if (Port_OnlineActive()) {
+                g_targetGameState = 2;
+                g_bExitStateGamePlay = 1;
+                break;
+            }
             StateProgressionManager_RestartCurrentLevel();
             break;
         case 16:

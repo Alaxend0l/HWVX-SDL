@@ -24,6 +24,7 @@
  * flips), 8/9 stick right/left (steering), 10 strafe / stunt roll right,
  * 11 fire, 12 change camera. */
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "Input.h"
 
@@ -95,6 +96,13 @@ void Port_KeyboardSlots(VirtualPad *pad) {
         if (KEY(PORT_KEY_ENTER)) now |= 1u << SLOT_A | (StateManager_CurrState() == 5 ? 0 : 1u << SLOT_START);
         if (KEY(PORT_KEY_ESCAPE)) now |= 1u << SLOT_B;
         if (KEY(PORT_KEY_X)) now |= 1u << SLOT_X;   /* the X button (stats) */
+    }
+    if (Port_OnlineMenuBlocked()) {
+        now = 0;                /* online: the host is choosing for everyone */
+        pad->keyPress = 0;      /* the pads', this frame */
+    }
+    if (Port_OnlinePressA()) {
+        now |= 1u << SLOT_A;    /* online: the round summary moves on together */
     }
     released = held & ~now;
     pad->keyPress |= now & ~held;

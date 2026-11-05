@@ -1626,6 +1626,10 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     s32 sum;
     s32 i;
 
+    if (Port_OnlineActive()) {
+        return;                 /* port: nothing done online reaches a save */
+    }
+
     device = g_codeVariables.device;
     for (i = 0; i < 10; i++) {
         if (letters[i] < 26) {
@@ -1921,6 +1925,10 @@ u8 GameSettings_SaveGame(void) {
     s32 handle;
     MCP *mcp;
 
+    if (Port_OnlineActive()) {
+        return 1;               /* port: nothing done online reaches a save */
+    }
+
     file.device = g_codeVariables.device;
     slot = g_codeVariables.fileIndex - 1;
     status = GameSettings_GetMemoryCardStatus(file.device, 1);
@@ -2187,6 +2195,10 @@ s32 GameSettings_DeleteGameFile(void) {
     void *pack;
     const char *name;
     u8 result;
+
+    if (Port_OnlineActive()) {
+        return 0;               /* port: nothing done online reaches a save */
+    }
 
     device = g_codeVariables.device + 0xA;
     if (bFirstTime) {

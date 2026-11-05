@@ -539,7 +539,11 @@ s32 Player_DefaultControlReader(void *arg0) {
 
     Control_ClearControl(player);
     if (Port_OnlineIsRemote(player)) {
-        return 1;               /* port: driven from another machine (Port_Online.c) */
+        Port_OnlineRemoteControl(player);   /* port: driven from another machine (Port_Online.c) */
+        return 1;
+    }
+    if (Port_OnlineMenuOpen()) {
+        return 1;               /* port: online, the pause menu has the pad */
     }
     if (player->flags & 1) {
         player->down[3] = 0xFF;

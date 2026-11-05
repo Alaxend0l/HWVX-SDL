@@ -13,9 +13,18 @@
  * Saves: all cars, worlds and weapons are open online, and nothing done online
  * reaches a save: GameSettings_PortOnlineBegin/End keep the game data as it was.
  *
- * Not yet: cars don't move on other machines (remote cars just sit at their spawn);
- * AI opponents are off because each machine would run its own. */
+ * In the level, each machine simulates its own car and tells the others about it:
+ * the other cars run the same car code, driven by their owners' inputs and pulled
+ * towards where the owners say they are (Port_OnlineRemoteControl). The world holds
+ * after loading and after each round reset until the host says go, so the scripts'
+ * LevelStart triggers, and the countdown they start, fire together. The host also
+ * decides who finished first: a machine only claims its own car's finish, and only
+ * the host's answer runs the script's RoundComplete trigger, on every machine.
+ *
+ * Not yet: AI opponents are off because each machine would run its own; pickups and
+ * weapons aren't shared. */
 #include <SDL3/SDL.h>
+#include <math.h>
 
 #include "common.h"
 #include "CarA.h"
@@ -34,8 +43,41 @@ enum {
     MSG_ABORT,                  /* host: left the car select */
     MSG_CARS,                   /* client: s32 vehicle, s32 item */
     MSG_START,                  /* host: u8 ports in, then s32 vehicle, s32 item per port */
-    MSG_LOADED,                 /* client: its level is ready */
+    MSG_READY,                  /* client: u32 stage: held, waiting for go */
+    MSG_GO,                     /* host: u32 stage */
+    MSG_FINISH,                 /* client: u32 stage, u32 ms since go: its car finished */
+    MSG_WINNER,                 /* host: u32 stage, u8 the winner's script number */
+    MSG_RETURN,                 /* host: the level is over, back to the lobby */
+    MSG_LEFT_LEVEL,             /* client: in the lobby */
+    MSG_CONTINUE,               /* host: it left the round summary */
 };
+
+#define SNAPSHOT_MS 33          /* how often a car tells the others about itself */
+#define SNAPSHOT_SIZE 72
+#define HOLD_MAX_MS 30000       /* a machine this late doesn't hold up the others */
+#define SUMMARY_MS 8000         /* the round summary moves on without anyone pressing */
+#define SUMMARY_PRESS_MS 500    /* it may be still coming in: press until it's gone */
+#define FINISH_WINDOW_MS 60     /* plus the slowest half round trip: for close finishes */
+#define MAX_LEAD_S 0.3f         /* extrapolation limit */
+/* Fractions per second by which a remote car closes in on where it should be. */
+#define PULL_POS 6.0f
+#define PULL_VEL 8.0f
+#define PULL_ROT 10.0f
+/* Further off than this, or than half a second's travel, it jumps instead. */
+#define SNAP_DISTANCE 60.0f
+
+/* The latest word on another machine's car. */
+typedef struct RemoteCar {
+    int have;
+    u32 seq;
+    u64 receivedAt;
+    Vector4 pos, vel, angularMomentum;
+    Quaternion quat;
+    s8 stickX, stickY;
+    u8 throttle, brake;
+    u32 buttons;                /* pressed since the last snapshot: applied once */
+    s32 health;
+} RemoteCar;
 
 typedef enum OnlineState {
     STATE_NONE,
@@ -55,10 +97,27 @@ static int s_port;              /* this machine's: 1 .. ONLINE_PLAYERS */
 static u32 s_present;           /* bit port - 1 */
 static u32 s_in;                /* those in the current game */
 static u32 s_chosen;
-static u32 s_loaded;
 static s32 s_vehicle[ONLINE_PLAYERS], s_item[ONLINE_PLAYERS];
 static char s_hostLine[64];
 static int s_inLevel;
+static Player *s_localPlayer;
+static Player *s_players[ONLINE_PLAYERS];
+static RemoteCar s_remote[ONLINE_PLAYERS];
+static u32 s_lobby;             /* host: those not in a level */
+/* A stage is what's between two go's: the level, each round after a reset. */
+static u32 s_stage, s_goStage;
+static int s_hold;
+static u64 s_holdSince, s_goAt, s_goTick;
+static u32 s_ready[ONLINE_PLAYERS];
+static int s_claimed, s_decided;
+static u32 s_bestElapsed, s_bestPort;
+static u64 s_claimDeadline;
+static u64 s_nextSnapshot;
+static u32 s_snapshotSeq, s_buttons;
+static int s_menuOpen;
+static const void *s_summary;   /* the round summary's interface header */
+static u64 s_summarySince, s_summaryPress;
+static int s_continue, s_pressA;
 
 void GameSettings_PortOnlineBegin(void);
 void GameSettings_PortOnlineEnd(void);
@@ -68,7 +127,11 @@ int Port_OnlineActive(void) {
 }
 
 int Port_OnlineIsRemote(const Player *player) {
-    return s_state != STATE_NONE && player->port != s_port;
+    if (s_state == STATE_NONE) {
+        return 0;
+    }
+    /* the port only while the level is being set up: scripts renumber them later */
+    return s_localPlayer != NULL ? player != s_localPlayer : (s32)player->port != s_port;
 }
 
 int Port_OnlinePlayerCount(void) {
@@ -83,7 +146,7 @@ int Port_OnlinePlayerCount(void) {
 static void ShowLobby(const char *status) {
     char text[64];
 
-    SDL_snprintf(text, sizeof(text), "Players: %d of %d", Port_OnlinePlayerCount(), ONLINE_PLAYERS);
+    SDL_snprintf(text, sizeof(text), "Players: %d/%d", Port_OnlinePlayerCount(), ONLINE_PLAYERS);
     if (s_isHost) {
         /* the screens are built anew with each main menu */
         Port_MenuOnlineSetLine(ONLINE_SCREEN_LOBBY_HOST, 0, s_hostLine);
@@ -103,8 +166,11 @@ static void BeginSession(int isHost) {
     GameSettings_PortOnlineBegin();
     s_isHost = isHost;
     s_present = isHost ? 1 : 0;
+    s_lobby = 0xF;
+    s_hold = 0;
+    s_localPlayer = NULL;
     s_port = isHost ? 1 : 0;
-    s_in = s_chosen = s_loaded = 0;
+    s_in = s_chosen = 0;
 }
 
 int Port_OnlineStartHost(void) {
@@ -188,11 +254,11 @@ void Port_OnlineHostSetup(void) {
     NetWriter_U8(&w, MSG_SETUP);
     NetWriter_U8(&w, (u8)id);
     NetWriter_U16(&w, (u16)level);
-    NetWriter_U8(&w, (u8)s_present);
+    NetWriter_U8(&w, (u8)(s_present & s_lobby));
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         NetWriter_U32(&w, GameSettings_GetCodeVariable(s_settings[i], 0));
     }
-    s_in = s_present;
+    s_in = s_present & s_lobby;
     s_chosen = 0;
     s_state = STATE_CHOOSING;
     Net_SendReliable(NET_PEER_ALL, buf, w.size);
@@ -234,8 +300,14 @@ static void StartLevel(void) {
         GameSettings_SetCodeVariable(0xCC, port, in ? s_item[port - 1] : -1);
     }
     s_state = STATE_PLAYING;
-    s_loaded = 0;
     s_inLevel = 0;
+    s_localPlayer = NULL;
+    SDL_zeroa(s_players);
+    SDL_zeroa(s_ready);
+    s_stage = s_goStage = 0;
+    s_hold = 0;
+    s_menuOpen = 0;
+    s_lobby = 0;
     Port_Log("online: starting, this is port %d", s_port);
     StateManager_QueueChange(0xB);
 }
@@ -313,15 +385,114 @@ int Port_OnlineBack(const InterfaceHeader *header) {
 
 /* ---- the level --------------------------------------------------------------- */
 
+void Port_OnlineLevelLoading(void) {
+    /* a restart makes new players: the last ones say nothing about these */
+    s_localPlayer = NULL;
+    SDL_zeroa(s_players);
+}
+
 void Port_OnlineSetupPlayer(Player *player) {
-    if (s_state != STATE_NONE && player->port == s_port) {
+    if (s_state == STATE_NONE || player->port < 1 || player->port > ONLINE_PLAYERS) {
+        return;
+    }
+    /* by pointer from here on: scripts renumber ports (ActionSetPlayerOrder) */
+    s_players[player->port - 1] = player;
+    if ((s32)player->port == s_port) {
+        s_localPlayer = player;
         player->device = 0;     /* port 2 here is still this machine's first pad */
     }
 }
 
-static void HostCheckLoaded(void) {
-    if (s_isHost && (s_loaded & s_in) == s_in) {
-        Port_Log("online: every player is in the level");
+/* ---- hold and go: machines start each stage together ---------------------- */
+
+int Port_OnlineHolding(void) {
+    return s_state != STATE_NONE && s_hold;
+}
+
+static void Release(void) {
+    extern u8 g_bFreezeWorld;
+
+    s_hold = 0;
+    s_goAt = 0;
+    s_goTick = SDL_GetTicks();
+    g_bFreezeWorld = 0;
+    Trigger_PauseTACSystem(0);
+    Port_Log("online: go, stage %u", s_stage);
+}
+
+/* The slowest round trip to anyone, in ms. */
+static u32 MaxRtt(void) {
+    u32 i, rtt = 0;
+
+    for (i = 1; i < ONLINE_PLAYERS; i++) {
+        NetStats stats;
+
+        if (Net_GetStats((u8)i, &stats) && stats.rttMs > rtt) {
+            rtt = stats.rttMs;
+        }
+    }
+    return rtt;
+}
+
+/* Clients act on go half a round trip after it leaves, so the host waits as long. */
+static void HostCheckGo(void) {
+    u64 now = SDL_GetTicks();
+    u32 i;
+    int late = now - s_holdSince >= HOLD_MAX_MS;
+    u8 buf[8];
+    NetWriter w;
+
+    if (!s_isHost || !s_hold || s_goAt != 0) {
+        return;
+    }
+    for (i = 1; i < ONLINE_PLAYERS && !late; i++) {
+        if (((s_in >> i) & 1) && s_ready[i] < s_stage) {
+            return;
+        }
+    }
+    NetWriter_Init(&w, buf, sizeof(buf));
+    NetWriter_U8(&w, MSG_GO);
+    NetWriter_U32(&w, s_stage);
+    Net_SendReliable(NET_PEER_ALL, buf, w.size);
+    s_goAt = now + MaxRtt() / 2 + 1;
+}
+
+/* The world stops here until go; what was known about other cars is out of date. */
+static void BeginStage(void) {
+    extern u8 g_bFreezeWorld;
+
+    s_stage++;
+    s_hold = 1;
+    s_holdSince = SDL_GetTicks();
+    s_goAt = 0;
+    s_claimed = s_decided = 0;
+    s_claimDeadline = 0;
+    s_bestElapsed = 0xFFFFFFFF;
+    s_buttons = 0;
+    SDL_zeroa(s_remote);
+    /* the summary went with the level, and it wasn't the Main Menu: a restart */
+    if (s_isHost && s_summarySince != 0) {
+        u8 msg = MSG_CONTINUE;
+
+        Net_SendReliable(NET_PEER_ALL, &msg, 1);
+    }
+    s_summary = Port_TriggerRoundSummary();
+    s_summarySince = 0;
+    s_continue = 0;
+    g_bFreezeWorld = 1;
+    Trigger_PauseTACSystem(1);
+    if (s_isHost) {
+        HostCheckGo();
+    } else if (s_goStage >= s_stage) {
+        Release();              /* the host gave up waiting for this machine */
+    } else {
+        u8 buf[8];
+        NetWriter w;
+
+        NetWriter_Init(&w, buf, sizeof(buf));
+        NetWriter_U8(&w, MSG_READY);
+        NetWriter_U32(&w, s_stage);
+        Net_SendReliable(NET_PEER_HOST, buf, w.size);
     }
 }
 
@@ -333,13 +504,300 @@ void Port_OnlineLevelStarted(void) {
     }
     Port_Log("online: level ready: progression %d, port %d, %d human cars", g_GameProgressionID, s_port,
              PlayerManager_PlayerHumanCount());
-    s_loaded |= 1u << (s_port - 1);
-    if (s_isHost) {
-        HostCheckLoaded();
-    } else {
-        u8 msg = MSG_LOADED;
+    BeginStage();
+}
 
-        Net_SendReliable(NET_PEER_HOST, &msg, 1);
+void Port_OnlineRoundReset(void) {
+    if (s_state != STATE_NONE) {
+        BeginStage();
+    }
+}
+
+/* ---- who finished first ---------------------------------------------------- */
+
+static void AnnounceWinner(u32 number) {
+    s_decided = 1;
+    s_claimDeadline = 0;
+    Port_Log("online: round won by %u", number);
+    Port_TriggerFireRoundComplete(number);
+}
+
+static void HostClaim(u32 number, u32 elapsed) {
+    if (s_decided) {
+        return;
+    }
+    if (s_claimDeadline == 0) {
+        s_claimDeadline = SDL_GetTicks() + MaxRtt() / 2 + FINISH_WINDOW_MS;
+    }
+    if (elapsed < s_bestElapsed) {
+        s_bestElapsed = elapsed;
+        s_bestPort = number;
+    }
+}
+
+static void HostDecide(void) {
+    u8 buf[8];
+    NetWriter w;
+
+    NetWriter_Init(&w, buf, sizeof(buf));
+    NetWriter_U8(&w, MSG_WINNER);
+    NetWriter_U32(&w, s_stage);
+    NetWriter_U8(&w, (u8)s_bestPort);
+    Net_SendReliable(NET_PEER_ALL, buf, w.size);
+    AnnounceWinner(s_bestPort);
+}
+
+/* A script's trigger is about to run RoundComplete(number). 1: not on its own say-so.
+ * The trigger stays usable: Port_TriggerFireRoundComplete runs it when it's decided. */
+int Port_OnlineHoldRoundComplete(u32 number) {
+    u32 elapsed;
+
+    if (s_state == STATE_NONE) {
+        return 0;
+    }
+    if (s_localPlayer == NULL || s_localPlayer->port != number || s_claimed) {
+        return 1;               /* another machine's car: its owner says when */
+    }
+    s_claimed = 1;
+    elapsed = (u32)(SDL_GetTicks() - s_goTick);
+    if (s_isHost) {
+        HostClaim(number, elapsed);
+    } else {
+        u8 buf[12];
+        NetWriter w;
+
+        NetWriter_Init(&w, buf, sizeof(buf));
+        NetWriter_U8(&w, MSG_FINISH);
+        NetWriter_U32(&w, s_stage);
+        NetWriter_U32(&w, elapsed);
+        Net_SendReliable(NET_PEER_HOST, buf, w.size);
+    }
+    return 1;
+}
+
+/* ---- the round summary: a menu that must not wait for anyone ----------------- */
+
+int Port_OnlinePressA(void) {
+    int press = s_state != STATE_NONE && s_pressA;
+
+    s_pressA = 0;
+    return press;
+}
+
+/* The match is over: the summary offers Restart and Main Menu, and only the host
+ * chooses. Everyone else waits, or one machine could restart alone. */
+static int MatchComplete(void) {
+    return s_summary != NULL && GameSettings_GetCodeVariable(0x197, 0) != 0 && Port_InterfaceIsUp(s_summary);
+}
+
+int Port_OnlineMenuBlocked(void) {
+    return s_state == STATE_PLAYING && !s_isHost && StateManager_CurrState() == 5 && MatchComplete();
+}
+
+/* The host leaving it takes everyone along, and between rounds it leaves by itself
+ * after a while. By pressing A on it, as a player would: its first row is what goes
+ * on, Continue between rounds and Restart at the end. A restart or the host's Main
+ * Menu takes the level and this summary with it: BeginStage and MSG_RETURN tell the
+ * others about those. */
+static void SummaryHeartbeat(u64 now) {
+    if (s_summary == NULL) {
+        return;
+    }
+    if (Port_InterfaceIsUp(s_summary)) {
+        int timedOut = !MatchComplete() && s_summarySince != 0 && now - s_summarySince >= SUMMARY_MS;
+
+        if (s_summarySince == 0) {
+            s_summarySince = now;
+            s_summaryPress = 0;
+        }
+        if ((s_continue || timedOut) && now >= s_summaryPress) {
+            s_summaryPress = now + SUMMARY_PRESS_MS;
+            s_pressA = 1;
+        }
+    } else if (s_summarySince != 0) {
+        s_summarySince = 0;
+        s_continue = 0;
+        if (s_isHost) {
+            u8 msg = MSG_CONTINUE;
+
+            Net_SendReliable(NET_PEER_ALL, &msg, 1);
+        }
+    }
+}
+
+/* ---- the pause menu: the race goes on behind it ------------------------------ */
+
+int Port_OnlineMenuOpen(void) {
+    return s_state != STATE_NONE && s_menuOpen;
+}
+
+void Port_OnlineSetMenuOpen(int open) {
+    s_menuOpen = open;
+}
+
+/* ---- cars -------------------------------------------------------------------- */
+
+static void SendSnapshot(u64 now) {
+    u8 buf[SNAPSHOT_SIZE];
+    NetWriter w;
+    CarA *car;
+    Thing *t;
+
+    if (s_localPlayer == NULL || (car = GETP(s_localPlayer->vehicle)) == NULL) {
+        return;
+    }
+    s_buttons |= s_localPlayer->buttonsHeld;
+    if (now < s_nextSnapshot || s_hold) {
+        return;
+    }
+    s_nextSnapshot = now + SNAPSHOT_MS;
+    t = &car->base;
+    NetWriter_Init(&w, buf, sizeof(buf));
+    NetWriter_U32(&w, ++s_snapshotSeq);
+    NetWriter_F32(&w, t->pos.x);
+    NetWriter_F32(&w, t->pos.y);
+    NetWriter_F32(&w, t->pos.z);
+    NetWriter_F32(&w, t->vel.x);
+    NetWriter_F32(&w, t->vel.y);
+    NetWriter_F32(&w, t->vel.z);
+    NetWriter_F32(&w, t->quat.w);
+    NetWriter_F32(&w, t->quat.x);
+    NetWriter_F32(&w, t->quat.y);
+    NetWriter_F32(&w, t->quat.z);
+    NetWriter_F32(&w, car->angularMomentum.x);
+    NetWriter_F32(&w, car->angularMomentum.y);
+    NetWriter_F32(&w, car->angularMomentum.z);
+    NetWriter_U32(&w, (u32)t->health);
+    NetWriter_U32(&w, s_buttons);
+    NetWriter_U8(&w, (u8)s_localPlayer->stickX);
+    NetWriter_U8(&w, (u8)s_localPlayer->stickY);
+    NetWriter_U8(&w, s_localPlayer->throttle);
+    NetWriter_U8(&w, s_localPlayer->brake);
+    s_buttons = 0;
+    Net_SendLatest(NET_PEER_ALL, (u8)(s_port - 1), buf, w.size);
+}
+
+static int Sane(f32 v, f32 limit) {
+    return isfinite(v) && fabsf(v) < limit;
+}
+
+static void ReceiveSnapshot(u32 port, const NetEvent *e) {
+    RemoteCar *r = &s_remote[port - 1];
+    RemoteCar in;
+    NetReader rd;
+    f32 mag;
+
+    SDL_zero(in);
+    NetReader_Init(&rd, e->data, e->size);
+    in.seq = NetReader_U32(&rd);
+    in.pos.x = NetReader_F32(&rd);
+    in.pos.y = NetReader_F32(&rd);
+    in.pos.z = NetReader_F32(&rd);
+    in.vel.x = NetReader_F32(&rd);
+    in.vel.y = NetReader_F32(&rd);
+    in.vel.z = NetReader_F32(&rd);
+    in.quat.w = NetReader_F32(&rd);
+    in.quat.x = NetReader_F32(&rd);
+    in.quat.y = NetReader_F32(&rd);
+    in.quat.z = NetReader_F32(&rd);
+    in.angularMomentum.x = NetReader_F32(&rd);
+    in.angularMomentum.y = NetReader_F32(&rd);
+    in.angularMomentum.z = NetReader_F32(&rd);
+    in.health = (s32)NetReader_U32(&rd);
+    in.buttons = NetReader_U32(&rd);
+    in.stickX = (s8)NetReader_U8(&rd);
+    in.stickY = (s8)NetReader_U8(&rd);
+    in.throttle = NetReader_U8(&rd);
+    in.brake = NetReader_U8(&rd);
+    /* from the network: nothing unusable reaches the physics */
+    if (!rd.ok || (r->have && in.seq <= r->seq) ||
+        !Sane(in.pos.x, 1e6f) || !Sane(in.pos.y, 1e6f) || !Sane(in.pos.z, 1e6f) ||
+        !Sane(in.vel.x, 1e5f) || !Sane(in.vel.y, 1e5f) || !Sane(in.vel.z, 1e5f) ||
+        !Sane(in.angularMomentum.x, 1e7f) || !Sane(in.angularMomentum.y, 1e7f) || !Sane(in.angularMomentum.z, 1e7f) ||
+        !Sane(in.quat.w, 2.0f) || !Sane(in.quat.x, 2.0f) || !Sane(in.quat.y, 2.0f) || !Sane(in.quat.z, 2.0f)) {
+        return;
+    }
+    mag = sqrtf(in.quat.w * in.quat.w + in.quat.x * in.quat.x + in.quat.y * in.quat.y + in.quat.z * in.quat.z);
+    if (mag < 0.5f) {
+        return;
+    }
+    in.quat.w /= mag;
+    in.quat.x /= mag;
+    in.quat.y /= mag;
+    in.quat.z /= mag;
+    in.have = 1;
+    in.receivedAt = SDL_GetTicks();
+    in.buttons |= r->have ? r->buttons : 0;
+    *r = in;
+}
+
+/* From the control reader, each frame, for a car driven on another machine: its
+ * owner's inputs, and a pull towards where the owner's last word puts it by now. */
+void Port_OnlineRemoteControl(Player *player) {
+    extern f32 g_fDeltaTimeSec;
+    u32 port;
+    RemoteCar *r = NULL;
+    CarA *car = GETP(player->vehicle);
+    Thing *t;
+    NetStats stats;
+    f32 lead, dt = g_fDeltaTimeSec, ex, ey, ez, dist, speed, k, sign, mag;
+
+    for (port = 0; port < ONLINE_PLAYERS; port++) {
+        if (s_players[port] == player) {
+            r = &s_remote[port];
+        }
+    }
+    if (r == NULL || !r->have || car == NULL) {
+        return;
+    }
+    player->stickX = r->stickX;
+    player->stickY = r->stickY;
+    player->throttle = r->throttle;
+    player->brake = r->brake;
+    player->buttonsHeld = r->buttons;
+    r->buttons = 0;
+
+    t = &car->base;
+    t->health = r->health;
+    /* the snapshot's age: since it came, and about a round trip of travel, there
+     * being two legs through the host between clients */
+    lead = (f32)(SDL_GetTicks() - r->receivedAt) / 1000.0f;
+    if (Net_GetStats(s_isHost ? (u8)port : NET_PEER_HOST, &stats)) {
+        lead += (f32)stats.rttMs / (s_isHost ? 2000.0f : 1000.0f);
+    }
+    if (lead > MAX_LEAD_S) {
+        lead = MAX_LEAD_S;
+    }
+    ex = r->pos.x + r->vel.x * lead - t->pos.x;
+    ey = r->pos.y + r->vel.y * lead - t->pos.y;
+    ez = r->pos.z + r->vel.z * lead - t->pos.z;
+    dist = sqrtf(ex * ex + ey * ey + ez * ez);
+    speed = sqrtf(r->vel.x * r->vel.x + r->vel.y * r->vel.y + r->vel.z * r->vel.z);
+    k = dist > SNAP_DISTANCE && dist > speed * 0.5f ? 1.0f : SDL_min(1.0f, PULL_POS * dt);
+    t->pos.x += ex * k;
+    t->pos.y += ey * k;
+    t->pos.z += ez * k;
+    k = k == 1.0f ? 1.0f : SDL_min(1.0f, PULL_VEL * dt);
+    t->vel.x += (r->vel.x - t->vel.x) * k;
+    t->vel.y += (r->vel.y - t->vel.y) * k;
+    t->vel.z += (r->vel.z - t->vel.z) * k;
+    car->angularMomentum.x = r->angularMomentum.x;
+    car->angularMomentum.y = r->angularMomentum.y;
+    car->angularMomentum.z = r->angularMomentum.z;
+    /* the short way round: q and -q are the same turn */
+    sign = t->quat.w * r->quat.w + t->quat.x * r->quat.x + t->quat.y * r->quat.y + t->quat.z * r->quat.z < 0.0f ? -1.0f : 1.0f;
+    k = SDL_min(1.0f, PULL_ROT * dt);
+    t->quat.w += (sign * r->quat.w - t->quat.w) * k;
+    t->quat.x += (sign * r->quat.x - t->quat.x) * k;
+    t->quat.y += (sign * r->quat.y - t->quat.y) * k;
+    t->quat.z += (sign * r->quat.z - t->quat.z) * k;
+    mag = sqrtf(t->quat.w * t->quat.w + t->quat.x * t->quat.x + t->quat.y * t->quat.y + t->quat.z * t->quat.z);
+    if (mag > 0.001f) {
+        t->quat.w /= mag;
+        t->quat.x /= mag;
+        t->quat.y /= mag;
+        t->quat.z /= mag;
+        QuaternionToSubMatrix(&t->quat, THING_MTX(t));
     }
 }
 
@@ -376,17 +834,58 @@ static void HandleMessage(const NetEvent *e) {
                 s_chosen |= 1u << (port - 1);
                 HostCheckChosen();
             }
-        } else if (kind == MSG_LOADED && s_state == STATE_PLAYING) {
-            s_loaded |= 1u << (port - 1);
-            HostCheckLoaded();
+        } else if (kind == MSG_READY && s_state == STATE_PLAYING) {
+            u32 stage = NetReader_U32(&r);
+
+            if (r.ok && stage > s_ready[port - 1]) {
+                s_ready[port - 1] = stage;
+                HostCheckGo();
+            }
+        } else if (kind == MSG_FINISH && s_state == STATE_PLAYING) {
+            u32 stage = NetReader_U32(&r);
+            u32 elapsed = NetReader_U32(&r);
+
+            /* a player's claim is for its own car, whatever it says */
+            if (r.ok && stage == s_stage && !s_hold && s_players[port - 1] != NULL) {
+                HostClaim(s_players[port - 1]->port, elapsed);
+            }
+        } else if (kind == MSG_LEFT_LEVEL) {
+            s_lobby |= 1u << (port - 1);
+            s_in &= ~(1u << (port - 1));
+            s_remote[port - 1].have = 0;
+            HostCheckGo();
         }
     } else if (e->peer == NET_PEER_HOST) {
         if (kind == MSG_SETUP && s_state == STATE_LOBBY) {
             ClientSetup(&r);
         } else if (kind == MSG_ABORT && (s_state == STATE_CHOOSING || s_state == STATE_WAITING)) {
             s_state = STATE_LOBBY;
-            ShowLobby("Waiting for host");
+            ShowLobby("Waiting...");
             Port_InterfaceGoto(Port_MenuOnlineScreen(ONLINE_SCREEN_LOBBY_CLIENT));
+        } else if (kind == MSG_GO && s_state == STATE_PLAYING) {
+            u32 stage = NetReader_U32(&r);
+
+            if (r.ok && stage > s_goStage) {
+                s_goStage = stage;
+                if (s_hold && s_goStage >= s_stage) {
+                    Release();
+                }
+            }
+        } else if (kind == MSG_WINNER && s_state == STATE_PLAYING) {
+            u32 stage = NetReader_U32(&r);
+            u32 number = NetReader_U8(&r);
+
+            if (r.ok && stage == s_stage && !s_decided && number >= 1 && number <= ONLINE_PLAYERS) {
+                AnnounceWinner(number);
+            }
+        } else if (kind == MSG_CONTINUE && s_state == STATE_PLAYING) {
+            s_continue = 1;
+        } else if (kind == MSG_RETURN && s_state == STATE_PLAYING) {
+            if (StateManager_CurrState() == 5) {
+                ExitStateGamePlay(2);
+            } else if (StateManager_CurrState() != 2) {
+                StateManager_QueueChange(2);
+            }
         } else if (kind == MSG_START && (s_state == STATE_CHOOSING || s_state == STATE_WAITING)) {
             u32 in = NetReader_U8(&r);
             s32 vehicle[ONLINE_PLAYERS], item[ONLINE_PLAYERS];
@@ -430,27 +929,50 @@ void Port_OnlineHeartbeat(void) {
                 Port_MenuOnlineAddress(address, sizeof(address));
                 Port_SaveOnlineAddress(address);
             }
-            ShowLobby("Waiting for host");
+            ShowLobby("Waiting...");
             break;
         case NET_EV_PEER_JOINED:
             if (e.peer < ONLINE_PLAYERS) {
                 s_present |= 1u << e.peer;
                 Port_Log("online: port %d joined", e.peer + 1);
-                ShowLobby(s_isHost ? "Ready to start" : NULL);
+                ShowLobby(s_isHost ? "Ready" : NULL);
             }
             break;
         case NET_EV_PEER_LEFT:
             if (e.peer < ONLINE_PLAYERS) {
                 s_present &= ~(1u << e.peer);
                 s_in &= ~(1u << e.peer);
+                s_remote[e.peer].have = 0;
                 Port_Log("online: port %d left: %s", e.peer + 1, Net_ErrorName(e.error));
                 ShowLobby(s_isHost && Port_OnlinePlayerCount() < 2 ? "Waiting..." : NULL);
                 HostCheckChosen();
+                if (s_state == STATE_PLAYING) {
+                    HostCheckGo();
+                }
             }
             break;
         case NET_EV_RELIABLE:
             HandleMessage(&e);
             break;
+        case NET_EV_LATEST: {
+            /* the key is whose car it is: from a client, only its own */
+            u32 port = e.key + 1u;
+
+            if (s_state == STATE_PLAYING && port <= ONLINE_PLAYERS && (s32)port != s_port &&
+                (!s_isHost || e.peer + 1u == port)) {
+                ReceiveSnapshot(port, &e);
+                if (s_isHost) {
+                    u32 peer;
+
+                    for (peer = 1; peer < ONLINE_PLAYERS; peer++) {
+                        if (peer != e.peer && ((s_in >> peer) & 1)) {
+                            Net_SendLatest((u8)peer, e.key, e.data, e.size);
+                        }
+                    }
+                }
+            }
+            break;
+        }
         case NET_EV_DISCONNECTED:
             SessionLost(Net_ErrorName(e.error));
             return;
@@ -461,11 +983,33 @@ void Port_OnlineHeartbeat(void) {
     /* the level ended: everyone's back on the title state's main menu. Starting
      * one only queues the change, so it counts once the title state has been left. */
     if (s_state == STATE_PLAYING && StateManager_CurrState() != 2) {
+        u64 now = SDL_GetTicks();
+
         s_inLevel = 1;
+        if (StateManager_CurrState() == 5) {
+            SendSnapshot(now);
+            SummaryHeartbeat(now);
+            if (s_isHost && s_hold) {
+                HostCheckGo();  /* for the time limit */
+                if (s_goAt != 0 && now >= s_goAt) {
+                    Release();
+                }
+            }
+            if (s_isHost && s_claimDeadline != 0 && now >= s_claimDeadline) {
+                HostDecide();
+            }
+        }
     } else if (s_state == STATE_PLAYING && s_inLevel) {
+        u8 msg = s_isHost ? MSG_RETURN : MSG_LEFT_LEVEL;
+
+        Net_SendReliable(s_isHost ? NET_PEER_ALL : NET_PEER_HOST, &msg, 1);
+        s_lobby = 0xF;
+        s_localPlayer = NULL;
+        s_hold = 0;
+        s_menuOpen = 0;
         s_inLevel = 0;
         s_state = STATE_LOBBY;
-        ShowLobby(s_isHost ? "Ready to start" : "Waiting for host");
+        ShowLobby(s_isHost ? "Ready" : "Waiting...");
         Port_InterfaceGoto(Port_MenuOnlineScreen(s_isHost ? ONLINE_SCREEN_LOBBY_HOST : ONLINE_SCREEN_LOBBY_CLIENT));
     }
 }

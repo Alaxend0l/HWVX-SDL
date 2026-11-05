@@ -26,10 +26,31 @@ void Port_OnlineHostSetup(void);
 int Port_OnlineCarsChosen(Interface *iface);
 /* The back button on a screen: 1 refuses it. */
 int Port_OnlineBack(const InterfaceHeader *header);
+/* StateGamePlay_Init: before it makes any players. */
+void Port_OnlineLevelLoading(void);
 /* StateGamePlay_Init: a human player was made. */
 void Port_OnlineSetupPlayer(Player *player);
 /* StateGamePlay_Init: the level is ready. */
 void Port_OnlineLevelStarted(void);
+/* The script reset the round. */
+void Port_OnlineRoundReset(void);
+/* The world waits for the other machines. */
+int Port_OnlineHolding(void);
+/* A script is about to run RoundComplete(number): 1 if that's not for it to decide. */
+int Port_OnlineHoldRoundComplete(u32 number);
+/* The pause menu is up: the race goes on, the local car without input. */
+int Port_OnlineMenuOpen(void);
+void Port_OnlineSetMenuOpen(int open);
+/* The control reader's work for a car driven on another machine. */
+void Port_OnlineRemoteControl(Player *player);
+/* Trigger.c: runs the script's RoundComplete(number) trigger. */
+void Port_TriggerFireRoundComplete(u32 number);
+/* Trigger.c: the interface whose end the script answers with a round reset. */
+void *Port_TriggerRoundSummary(void);
+/* The keyboard's turn in Input_Heartbeat: 1 to press A, as a player would. */
+int Port_OnlinePressA(void);
+/* This machine's pad does nothing for now: the host is choosing for everyone. */
+int Port_OnlineMenuBlocked(void);
 
 /* ---- Port_Menu.c ---------------------------------------------------------- */
 
@@ -54,6 +75,7 @@ void Port_MenuOnlineUpdate(void);
 
 /* Leaves whatever menu is up for this one, as if a menu event had chosen it. */
 void Port_InterfaceGoto(InterfaceHeader *header);
+s32 Port_InterfaceIsUp(const void *header);
 /* Back to a screen in the menu's history; 0 if it isn't there. */
 s32 Port_InterfaceGoBack(InterfaceHeader *header);
 
