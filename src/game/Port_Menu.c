@@ -37,6 +37,10 @@
  *   own). Online has Host with Tunnel, Host via LAN and Connect, then a lobby; see
  *   "Online screens" below and Port_Online.c.
  *
+ * - Pause menu in the multi-player modes, online or local: no Save row, Quit moving
+ *   up into its place. One Player keeps it: the same screen, so this is a copy made
+ *   each time, and the original comes back otherwise.
+ *
  * Copies live in static storage; the pack data they point to stays where it
  * is. To add a setting: copy another row into the Graphics screen the same
  * way, with a new PORT_CODEVAR_* id. */
@@ -804,6 +808,79 @@ void Port_MenuOnlineUpdate(void) {
     }
 }
 
+/* ---- the pause menu without Save ------------------------------------------ */
+
+#define PAUSE_MAX_OBJECTS 64
+/* The progression scripts of the multi-player drag race and battle. */
+enum { PROGRESSION_MP_DRAG = 5, PROGRESSION_MP_BATTLE = 7 };
+
+static InterfaceHeader *s_pauseHeader;
+static u32 s_pauseOriginal;      /* the handle in h->objects */
+static IfaceObjectDef s_pauseObjs[PAUSE_MAX_OBJECTS];
+static RecordCopy s_pauseRecAbove, s_pauseRecBelow;
+static AnimCopy s_pauseAnimBelow;
+
+/* A pause menu is any screen with both Resume and Save; -1 if this isn't one. */
+static s32 PauseSaveRow(const InterfaceHeader *h) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    s32 save = -1;
+    int resume = 0;
+    u32 i;
+
+    if (objs == NULL) {
+        return -1;
+    }
+    for (i = 0; i < h->numObjects; i++) {
+        if (TextIs(&objs[i], "Resume")) {
+            resume = 1;
+        } else if (TextIs(&objs[i], "Save") && GETP(objs[i].record) != NULL) {
+            save = (s32)i;
+        }
+    }
+    return resume ? save : -1;
+}
+
+static void PatchPauseMenu(InterfaceHeader *h) {
+    IfaceObjectDef *objs;
+    IfaceRecord *rec;
+    s32 id, level, save, above = -1, below = -1;
+    u32 i;
+
+    if (h == s_pauseHeader) {
+        h->objects.h = s_pauseOriginal;   /* as the pack has it, whichever mode this is */
+        s_pauseHeader = NULL;
+    }
+    StateProgressionManager_GetProgressionID(&id, &level);
+    if ((!Port_OnlineActive() && id != PROGRESSION_MP_DRAG && id != PROGRESSION_MP_BATTLE) ||
+        h->numObjects > PAUSE_MAX_OBJECTS || (save = PauseSaveRow(h)) < 0) {
+        return;
+    }
+    objs = GETP(h->objects);
+    rec = GETP(objs[save].record);
+    for (i = 0; i < h->numObjects; i++) {
+        IfaceRecord *r = GETP(objs[i].record);
+
+        if (r != NULL && (s32)i != save && r->id == rec->next[0]) {
+            above = (s32)i;
+        } else if (r != NULL && (s32)i != save && r->id == rec->next[1]) {
+            below = (s32)i;
+        }
+    }
+    if (above < 0 || below < 0) {
+        return;
+    }
+    s_pauseHeader = h;
+    s_pauseOriginal = h->objects.h;
+    memcpy(s_pauseObjs, objs, h->numObjects * sizeof(IfaceObjectDef));
+    s_pauseObjs[save].active = 0;
+    s_pauseObjs[save].record.h = 0;
+    SETP(s_pauseObjs[save].conditions, &s_hideAll);
+    CopyRecord(&s_pauseRecAbove, &s_pauseObjs[above], rec->next[0], GETP(objs[above].record)->next[0], rec->next[1]);
+    CopyRecord(&s_pauseRecBelow, &s_pauseObjs[below], rec->next[1], rec->next[0], GETP(objs[below].record)->next[1]);
+    MoveTo(&s_pauseAnimBelow, &s_pauseObjs[below], ((f32 *)GETP(GETP(objs[save].anim)->pos.keys))[1]);
+    SETP(h->objects, s_pauseObjs);
+}
+
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target) {
     extern s8 g_bMemoryCardHWHack;
 
@@ -906,6 +983,7 @@ void Port_MenuPatch(InterfaceHeader *h) {
         return;
     }
     Port_CarouselPatch(h);   /* world, car and weapon select: more windows */
+    PatchPauseMenu(h);
     if (h == &s_olConnect.h) {
         if (s_olAddress[0] == 0) {
             Port_LoadOnlineAddress(s_olAddress, sizeof(s_olAddress));
