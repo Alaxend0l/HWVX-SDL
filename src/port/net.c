@@ -64,7 +64,7 @@ enum {
 #define TX_CAP (MAX_PAYLOAD + WS_MAX_HEADER)
 /* Joined peers, and as many again still shaking hands: one stranger's idle
  * connections cannot lock the others out for longer than HANDSHAKE_MS. */
-#define MAX_CONNS ((NET_MAX_PLAYERS - 1) * 2)
+#define MAX_CONNS ((NET_MAX_PLAYERS - 1) * 2)   /* what's allocated is what's open */
 #define MAX_QUEUED (4u << 20)   /* to one peer; more than that and it is dropped */
 #define MAX_EVENT_BYTES (16u << 20)
 #define HANDSHAKE_MS 5000
@@ -173,6 +173,7 @@ static SDL_Mutex *s_lock;
 static SDL_Thread *s_thread;
 static SDL_AtomicInt s_stop;
 static int s_active, s_isHost;
+static u32 s_maxPlayers;
 static Conn s_conns[MAX_CONNS];
 static EventNode *s_eventHead, *s_eventTail;
 static u32 s_eventBytes;
@@ -563,7 +564,7 @@ static void ConnDrop(Conn *c, NetError reason, u64 now) {
 static u8 FreePeerId(void) {
     u8 id;
 
-    for (id = 1; id < NET_MAX_PLAYERS; id++) {
+    for (id = 1; id < s_maxPlayers; id++) {
         u32 i;
         int used = 0;
 
@@ -1577,10 +1578,11 @@ static NetSocket OpenListener(u16 port, int loopbackOnly) {
     return NET_NO_SOCKET;
 }
 
-int Net_Host(u16 port, const char *roomCode, int loopbackOnly) {
+int Net_Host(u16 port, const char *roomCode, int loopbackOnly, u32 maxPlayers) {
     if (!StartSession(1, roomCode)) {
         return NET_ERR_BIND;
     }
+    s_maxPlayers = SDL_clamp(maxPlayers, 2, NET_MAX_PLAYERS);
     s_listen = OpenListener(port, loopbackOnly);
     if (s_listen == NET_NO_SOCKET) {
         Net_Close();

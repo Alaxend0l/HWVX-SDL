@@ -1,5 +1,5 @@
-/* Online play transport: one host, up to NET_MAX_PLAYERS - 1 clients, each
- * connected to the host only (a Cloudflare tunnel only takes connections to the
+/* Online play transport: one host and its clients, each connected to the host
+ * only (a Cloudflare tunnel only takes connections to the
  * host). Port-only; the game talks to the rest of the session through this.
  *
  * Messages travel over WebSocket, which is what a tunnel carries, in two kinds:
@@ -26,7 +26,9 @@
 #include "port.h"
 
 #define NET_DEFAULT_PORT 47815
-#define NET_MAX_PLAYERS 4
+#define NET_MAX_PLAYERS 8        /* what the transport and its messages can carry */
+#define NET_DEFAULT_PLAYERS 4    /* what the game can: it has 4 player slots and
+                                  * score tables, and worlds have 4 human spawns */
 #define NET_PEER_HOST 0         /* the host's peer id; clients are 1 and up */
 #define NET_PEER_ALL 0xFF       /* Net_Send*: every peer */
 #define NET_MAX_MESSAGE 60000   /* bytes in one message */
@@ -77,8 +79,9 @@ typedef struct NetStats {
 } NetStats;
 
 /* Starts a session; both return a NetError. roomCode may be NULL (no code).
- * loopbackOnly: listen on 127.0.0.1 only, for hosting behind cloudflared. */
-int Net_Host(u16 port, const char *roomCode, int loopbackOnly);
+ * loopbackOnly: listen on 127.0.0.1 only, for hosting behind cloudflared.
+ * maxPlayers: counting the host, 2 .. NET_MAX_PLAYERS; a client past it is refused. */
+int Net_Host(u16 port, const char *roomCode, int loopbackOnly, u32 maxPlayers);
 /* address: host, host:port, [v6]:port or ws://host[:port]. Connects in the
  * background, retrying until the deadline: expect NET_EV_CONNECTED or
  * NET_EV_DISCONNECTED. */

@@ -326,7 +326,8 @@ floor) and any logic that counts frames rather than time.
 ### Online play
 
 Work in progress: the transport exists, the game doesn't use it yet. One host and
-up to three clients, each connected to the host only, because a Cloudflare tunnel
+its clients, each connected to the host only, up to 8 players in all (the game itself
+stops at 4 for now: player pools, score tables, spawns), because a Cloudflare tunnel
 only takes connections to the host. `src/port/net.h` is the API and the place to
 start reading: reliable messages, and "latest" ones where a newer message replaces
 one not yet sent. All of it travels over WebSocket, the one thing a quick tunnel is

@@ -5,7 +5,7 @@
  *   nettest selftest                     protocol code, no sockets
  *   nettest e2e                          whole sessions: runs copies of itself
  *                                        as a host and clients on this machine
- *   nettest host PORT ROOM PEERS SEC     one echoing host
+ *   nettest host PORT ROOM PEERS SEC [MAX]  one echoing host; MAX players (default 4)
  *   nettest client ADDR ROOM COUNT SEC   one client, checking everything it gets
  *   nettest expect-error ADDR ROOM ERR   one client that must be refused with ERR
  *
@@ -290,10 +290,10 @@ static void Pause(void) {
     SDL_Delay(1);
 }
 
-static int RunHost(u16 port, const char *room, u32 expected, u32 seconds) {
+static int RunHost(u16 port, const char *room, u32 expected, u32 seconds, u32 maxPlayers) {
     u64 end = SDL_GetTicks() + seconds * 1000ull;
     u32 joined = 0, present = 0, messages = 0, latest = 0;
-    NetError err = Net_Host(port, room, 0);
+    NetError err = Net_Host(port, room, 0, maxPlayers);
 
     if (err != NET_OK) {
         printf("host: %s\n", Net_ErrorName(err));
@@ -480,8 +480,8 @@ static int RunExpectError(const char *addr, const char *room, int expected) {
 
 static const char *s_self;
 
-static SDL_Process *Spawn(const char *sim, const char *a, const char *b, const char *c, const char *d, const char *e) {
-    const char *args[] = {s_self, a, b, c, d, e, NULL};
+static SDL_Process *Spawn(const char *sim, const char *a, const char *b, const char *c, const char *d, const char *e, const char *f) {
+    const char *args[] = {s_self, a, b, c, d, e, f, NULL};
     SDL_Environment *env = SDL_CreateEnvironment(true);
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_Process *p;
@@ -520,7 +520,7 @@ static void Wait(SDL_Process *p, const char *what) {
 
 /* A host and clients, all with the same simulated connection. */
 static void Session(const char *name, u16 port, const char *sim, u32 clients, const char *count, const char *seconds) {
-    char portText[8], addr[32], peers[8];
+    char portText[8], addr[32], peers[8], maxPlayers[8];
     SDL_Process *host, *c[NET_MAX_PLAYERS];
     u32 i;
     u64 start = SDL_GetTicks();
@@ -530,12 +530,13 @@ static void Session(const char *name, u16 port, const char *sim, u32 clients, co
     SDL_snprintf(portText, sizeof(portText), "%u", port);
     SDL_snprintf(addr, sizeof(addr), "127.0.0.1:%u", port);
     SDL_snprintf(peers, sizeof(peers), "%u", clients);
+    SDL_snprintf(maxPlayers, sizeof(maxPlayers), "%u", clients + 1);
     /* clients first, on purpose: they must wait for a host still coming up */
     for (i = 0; i < clients; i++) {
-        c[i] = Spawn(sim, "client", addr, "ROOM", count, seconds);
+        c[i] = Spawn(sim, "client", addr, "ROOM", count, seconds, NULL);
     }
     SDL_Delay(300);
-    host = Spawn(sim, "host", portText, "ROOM", peers, seconds);
+    host = Spawn(sim, "host", portText, "ROOM", peers, seconds, maxPlayers);
     for (i = 0; i < clients; i++) {
         Wait(c[i], "client");
     }
@@ -543,27 +544,30 @@ static void Session(const char *name, u16 port, const char *sim, u32 clients, co
     printf("    %.1f s\n", (SDL_GetTicks() - start) / 1000.0);
 }
 
-static void Rejections(u16 port) {
-    char portText[8], addr[32], err[8];
+/* A session of maxPlayers: a wrong code is refused, and so is one player too many. */
+static void Rejections(u16 port, u32 maxPlayers) {
+    char portText[8], addr[32], err[8], peers[8], maxText[8];
     SDL_Process *host, *in[NET_MAX_PLAYERS - 1];
     u32 i;
 
-    printf("--- wrong room code and a full room\n");
+    printf("--- wrong room code and a full room of %u\n", maxPlayers);
     fflush(stdout);
+    SDL_snprintf(peers, sizeof(peers), "%u", maxPlayers - 1);
+    SDL_snprintf(maxText, sizeof(maxText), "%u", maxPlayers);
     SDL_snprintf(portText, sizeof(portText), "%u", port);
     SDL_snprintf(addr, sizeof(addr), "127.0.0.1:%u", port);
-    host = Spawn(NULL, "host", portText, "ROOM", "3", "60");
+    host = Spawn(NULL, "host", portText, "ROOM", peers, "60", maxText);
     SDL_Delay(300);
     SDL_snprintf(err, sizeof(err), "%d", NET_ERR_REJECT_ROOM_CODE);
-    Wait(Spawn(NULL, "expect-error", addr, "WRONG", err, "0"), "client with the wrong code");
-    /* 4000 reliable messages keep these three in the room for a while */
-    for (i = 0; i < NET_MAX_PLAYERS - 1; i++) {
-        in[i] = Spawn(NULL, "client", addr, "ROOM", "4000", "60");
+    Wait(Spawn(NULL, "expect-error", addr, "WRONG", err, "0", NULL), "client with the wrong code");
+    /* 4000 reliable messages keep them in the room for a while */
+    for (i = 0; i < maxPlayers - 1; i++) {
+        in[i] = Spawn(NULL, "client", addr, "ROOM", "4000", "60", NULL);
     }
     SDL_Delay(500);
     SDL_snprintf(err, sizeof(err), "%d", NET_ERR_REJECT_FULL);
-    Wait(Spawn(NULL, "expect-error", addr, "ROOM", err, "0"), "a fifth player");
-    for (i = 0; i < NET_MAX_PLAYERS - 1; i++) {
+    Wait(Spawn(NULL, "expect-error", addr, "ROOM", err, "0", NULL), "one player too many");
+    for (i = 0; i < maxPlayers - 1; i++) {
         Wait(in[i], "client in the room");
     }
     Wait(host, "host");
@@ -576,11 +580,13 @@ static int RunE2E(void) {
     Session("clean connection, 3 clients", 47901, NULL, 3, "2000", "60");
     Session("bad connection: lag, jitter, stalls", 47902, "lat=40,jitter=20,loss=1,stall=200,seed=7", 3, "300", "90");
     Session("slow connection: 64 KB/s, latest must give way", 47903, "bw=64,seed=9", 1, "150", "90");
-    Rejections(47904);
+    Session("full transport capacity: 8 players", 47906, NULL, NET_MAX_PLAYERS - 1, "500", "60");
+    Rejections(47904, NET_DEFAULT_PLAYERS);
+    Rejections(47907, NET_MAX_PLAYERS);
     printf("--- nothing to connect to\n");
     fflush(stdout);
     SDL_snprintf(err, sizeof(err), "%d", NET_ERR_UNREACHABLE);
-    Wait(Spawn(NULL, "expect-error", "127.0.0.1:47905", "ROOM", err, "0"), "client with no host");
+    Wait(Spawn(NULL, "expect-error", "127.0.0.1:47905", "ROOM", err, "0", NULL), "client with no host");
     return s_failures != 0;
 }
 
@@ -604,9 +610,10 @@ int main(int argc, char **argv) {
     } else if (argc == 2 && SDL_strcmp(argv[1], "e2e") == 0) {
         result = RunE2E();
         printf(result == 0 ? "e2e passed\n" : "e2e: %d failures\n", s_failures);
-    } else if (argc == 6 && SDL_strcmp(argv[1], "host") == 0) {
-        result = RunHost((u16)atoi(argv[2]), argv[3], (u32)atoi(argv[4]), (u32)atoi(argv[5]));
-    } else if (argc == 6 && SDL_strcmp(argv[1], "client") == 0) {
+    } else if (argc >= 6 && SDL_strcmp(argv[1], "host") == 0) {
+        result = RunHost((u16)atoi(argv[2]), argv[3], (u32)atoi(argv[4]), (u32)atoi(argv[5]),
+                         argc >= 7 ? (u32)atoi(argv[6]) : NET_DEFAULT_PLAYERS);
+    } else if (argc >= 6 && SDL_strcmp(argv[1], "client") == 0) {
         result = RunClient(argv[2], argv[3], (u32)atoi(argv[4]), (u32)atoi(argv[5]));
     } else if (argc >= 5 && SDL_strcmp(argv[1], "expect-error") == 0) {
         result = RunExpectError(argv[2], argv[3], atoi(argv[4]));
