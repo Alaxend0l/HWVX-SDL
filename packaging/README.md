@@ -56,6 +56,15 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+To release a commit CI has already built, without building it again, use
+`packaging/release.sh` (needs the [GitHub CLI](https://cli.github.com)). The
+tag must not start with `v`, and the packages keep their `dev-COMMIT` version
+inside, under file names with the tag:
+
+```sh
+packaging/release.sh 0.2.0 --prerelease
+```
+
 ## Android signing
 
 Without a key the APK is signed with a debug key: it installs, but a later
