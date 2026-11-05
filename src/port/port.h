@@ -170,6 +170,15 @@ void Port_TextInputStop(void);
 int Port_TextInputPaste(void);
 void Port_LoadOnlineAddress(char *buf, size_t cap);
 void Port_SaveOnlineAddress(const char *address);
+void Port_TextCopy(const char *text);
+
+/* tunnel.c: a Cloudflare quick tunnel to a local port. Start: 0 if there's no cloudflared
+ * (or none can run here). Poll: 1 and its name when others can reach it, 0 until
+ * then, -1 if it ended. */
+int Port_TunnelAvailable(void);
+int Port_TunnelStart(u16 port);
+int Port_TunnelPoll(char *name, size_t size);
+void Port_TunnelStop(void);
 int Port_AllCheats(void);
 /* --reset-save (main_sdl.c): 1 when this boot starts from the default game
  * data (GameSetting_Init) and skips the autoload of the newest save;

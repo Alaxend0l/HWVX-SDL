@@ -19,6 +19,18 @@ endif()
 
 find_package(Threads REQUIRED)
 
+# TLS for joining online games through a tunnel (src/port/net.c). A pinned release: the
+# Flatpak builds offline and hands over the same archive (FETCHCONTENT_SOURCE_DIR_MBEDTLS).
+include(FetchContent)
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+FetchContent_Declare(mbedtls
+    URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2
+    URL_HASH SHA256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6)
+FetchContent_MakeAvailable(mbedtls)
+
 file(GLOB GAME_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/game/*.c)
 file(GLOB PORT_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/port/*.c)
 
@@ -38,7 +50,7 @@ endif()
 target_include_directories(hwvx PRIVATE
     ${CMAKE_SOURCE_DIR}/src/game/include
     ${CMAKE_SOURCE_DIR}/src/port)
-target_link_libraries(hwvx PRIVATE SDL3::SDL3 Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(hwvx PRIVATE SDL3::SDL3 Threads::Threads mbedtls ${CMAKE_DL_LIBS})
 if(NOT WIN32)
     target_link_libraries(hwvx PRIVATE m)
 endif()
@@ -115,7 +127,7 @@ if(HWVX_TESTS AND NOT ANDROID)
         target_include_directories(${stem} PRIVATE
             ${CMAKE_SOURCE_DIR}/src/game/include
             ${CMAKE_SOURCE_DIR}/src/port)
-        target_link_libraries(${stem} PRIVATE SDL3::SDL3 Threads::Threads ${CMAKE_DL_LIBS})
+        target_link_libraries(${stem} PRIVATE SDL3::SDL3 Threads::Threads mbedtls ${CMAKE_DL_LIBS})
         if(NOT WIN32)
             target_link_libraries(${stem} PRIVATE m)
         endif()
@@ -145,7 +157,7 @@ if(HWVX_TESTS AND NOT ANDROID)
     # test_*: it links only its own files.
     add_executable(nettest tools/nettest.c src/port/net.c src/port/net_ws.c src/port/net_sim.c)
     target_include_directories(nettest PRIVATE ${CMAKE_SOURCE_DIR}/src/port)
-    target_link_libraries(nettest PRIVATE SDL3::SDL3)
+    target_link_libraries(nettest PRIVATE SDL3::SDL3 mbedtls)
     if(WIN32)
         target_link_libraries(nettest PRIVATE ws2_32)
     endif()

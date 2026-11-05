@@ -322,3 +322,132 @@ int Ws_CheckResponse(const char *head, const char *key) {
     Ws_AcceptKey(key, expected);
     return SDL_strcmp(value, expected) == 0;
 }
+
+/* ---- what people type ---------------------------------------------------- */
+
+#define QUICK_TUNNEL_DOMAIN ".trycloudflare.com"
+
+int Ws_ParseAddress(const char *text, NetAddress *out) {
+    const char *p = text, *end, *hostEnd, *portText = NULL, *path;
+    size_t n, i;
+    int scheme = 0;
+
+    SDL_zerop(out);
+    while (*p == ' ') {
+        p++;
+    }
+    end = p + SDL_strlen(p);
+    while (end > p && end[-1] == ' ') {
+        end--;
+    }
+    if (SDL_strncasecmp(p, "wss://", 6) == 0 || SDL_strncasecmp(p, "https://", 8) == 0) {
+        p = SDL_strchr(p, '/') + 2;
+        out->tls = 1;
+        scheme = 1;
+    } else if (SDL_strncasecmp(p, "ws://", 5) == 0 || SDL_strncasecmp(p, "http://", 7) == 0) {
+        p = SDL_strchr(p, '/') + 2;
+        scheme = 1;
+    } else if (SDL_strstr(p, "://") != NULL) {
+        return 0;
+    }
+    /* /CODE: what's after the first slash */
+    path = p;
+    while (path < end && *path != '/') {
+        path++;
+    }
+    if (path < end) {
+        const char *code = path + 1;
+
+        n = (size_t)(end - code);
+        if (n >= sizeof(out->code)) {
+            return 0;
+        }
+        for (i = 0; i < n; i++) {
+            out->code[i] = (char)SDL_toupper((unsigned char)code[i]);
+        }
+        end = path;
+    }
+    if (*p == '[') {
+        const char *close = p + 1;
+
+        while (close < end && *close != ']') {
+            close++;
+        }
+        if (close >= end) {
+            return 0;
+        }
+        hostEnd = close;
+        p++;
+        if (close + 1 < end) {
+            if (close[1] != ':') {
+                return 0;
+            }
+            portText = close + 2;
+        }
+    } else {
+        const char *colon = p, *second = NULL;
+
+        while (colon < end && *colon != ':') {
+            colon++;
+        }
+        if (colon < end) {
+            second = colon + 1;
+            while (second < end && *second != ':') {
+                second++;
+            }
+        }
+        if (colon < end && second >= end) {
+            hostEnd = colon;
+            portText = colon + 1;
+        } else {
+            hostEnd = end;      /* no colon, or a bare IPv6 address */
+        }
+    }
+    n = (size_t)(hostEnd - p);
+    if (n == 0 || n >= sizeof(out->host) - sizeof(QUICK_TUNNEL_DOMAIN)) {
+        return 0;
+    }
+    SDL_memcpy(out->host, p, n);
+    out->host[n] = 0;
+    if (portText != NULL) {
+        char *after;
+        char digits[8];
+        size_t len = (size_t)(end - portText);
+        long port;
+
+        if (len == 0 || len >= sizeof(digits)) {
+            return 0;
+        }
+        SDL_memcpy(digits, portText, len);
+        digits[len] = 0;
+        port = SDL_strtol(digits, &after, 10);
+        if (*after != 0 || port < 1 || port > 65535) {
+            return 0;
+        }
+        out->port = (u16)port;
+    }
+    if (!scheme) {
+        /* word-word-word-word: what a quick tunnel is called */
+        int hyphens = 0, plain = portText == NULL;
+
+        for (i = 0; i < n; i++) {
+            if (out->host[i] == '-') {
+                hyphens++;
+            } else if (out->host[i] == '.' || out->host[i] == ':') {
+                plain = 0;
+            }
+        }
+        if (plain && hyphens >= 2) {
+            SDL_strlcat(out->host, QUICK_TUNNEL_DOMAIN, sizeof(out->host));
+            n = SDL_strlen(out->host);
+        }
+        if (n > sizeof(QUICK_TUNNEL_DOMAIN) - 1 &&
+            SDL_strcasecmp(out->host + n - (sizeof(QUICK_TUNNEL_DOMAIN) - 1), QUICK_TUNNEL_DOMAIN) == 0) {
+            out->tls = 1;
+        }
+    }
+    if (out->port == 0) {
+        out->port = out->tls ? 443 : scheme ? 80 : NET_DEFAULT_PORT;
+    }
+    return 1;
+}

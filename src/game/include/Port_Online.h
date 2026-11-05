@@ -16,6 +16,9 @@ int Port_OnlineIsRemote(const Player *player);
 void Port_OnlineHeartbeat(void);
 /* Menu actions: 0 if the session could not start. */
 int Port_OnlineStartHost(void);
+int Port_OnlineStartTunnelHost(void);
+/* What to send to others to join; 0 while there's nothing yet. */
+int Port_OnlineInvite(char *out, size_t size);
 int Port_OnlineStartClient(const char *address);
 void Port_OnlineEnd(void);
 int Port_OnlinePlayerCount(void);
@@ -74,6 +77,7 @@ typedef enum PortOnlineScreen {
     ONLINE_SCREEN_ONLINE,       /* Host with Tunnel / Host via LAN / Connect */
     ONLINE_SCREEN_LOBBY_HOST,
     ONLINE_SCREEN_LOBBY_CLIENT,
+    ONLINE_SCREEN_LOBBY_TUNNEL,
     ONLINE_SCREEN_CAR_SELECT,   /* the game's one-player car select: races, battles */
     ONLINE_SCREEN_CAR_SELECT_JOYRIDE,   /* Joyride's, going on to its item select */
     ONLINE_SCREEN_ITEM_SELECT_JOYRIDE,
@@ -83,6 +87,8 @@ typedef enum PortOnlineScreen {
 InterfaceHeader *Port_MenuOnlineScreen(PortOnlineScreen screen);
 /* Shows text on a line of a port screen's text, live if the screen is up. */
 void Port_MenuOnlineSetLine(PortOnlineScreen screen, u32 line, const char *text);
+/* The same across `count` lines, for what's longer than a line of the panel. */
+void Port_MenuOnlineSetLines(PortOnlineScreen screen, u32 first, u32 count, const char *text);
 /* The address on the Connect screen. */
 void Port_MenuOnlineAddress(char *out, size_t size);
 /* Once a frame: typing shows on the Connect screen. */

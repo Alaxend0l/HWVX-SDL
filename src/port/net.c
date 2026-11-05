@@ -43,8 +43,14 @@ typedef int NetSocket;
 #endif
 
 #include <SDL3/SDL.h>
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+#include <psa/crypto.h>
 
 #include "net_internal.h"
+#include "net_roots.h"
 
 #define NET_MAGIC 0x58565748u   /* "HWVX" */
 #define NET_PROTOCOL 1
@@ -108,6 +114,7 @@ typedef struct DelayedFrame {
 typedef enum ConnState {
     CONN_FREE,
     CONN_CONNECTING,        /* client: the TCP connect is under way */
+    CONN_TLS,               /* client: the TLS handshake, for a wss:// host */
     CONN_HTTP,              /* waiting for the HTTP head: request or response */
     CONN_AWAIT_HELLO,       /* host */
     CONN_AWAIT_WELCOME,     /* client */
@@ -125,6 +132,8 @@ typedef struct Conn {
     ConnState state;
     u8 peer;
     NetSocket sock;
+    mbedtls_ssl_context *tls;  /* client, for a wss:// host; else NULL */
+    u8 tlsWantWrite;
     u64 deadline;           /* of the handshake or the rejection */
     u64 lastRecv, lastPing;
     u8 *rx;
@@ -187,6 +196,7 @@ static struct {
     ClientPhase phase;
     char host[256];
     u16 port;
+    int tls;
     char wsKey[WS_KEY_MAX];
     ResolveJob *job;
     struct addrinfo *addrs, *addr;
@@ -211,8 +221,76 @@ const char *Net_ErrorName(NetError error) {
     case NET_ERR_PROTOCOL: return "invalid data received";
     case NET_ERR_OVERFLOW: return "connection too slow";
     case NET_ERR_BIND: return "could not open the port";
+    case NET_ERR_TLS: return "secure connection failed";
     }
     return "unknown error";
+}
+
+/* ---- TLS: a client's, for reaching a tunnel. The host behind one has none of its own:
+ * cloudflared ends it. ------------------------------------------------------- */
+
+static mbedtls_entropy_context s_tlsEntropy;
+static mbedtls_ctr_drbg_context s_tlsDrbg;
+static mbedtls_x509_crt s_tlsRoots;
+static mbedtls_ssl_config s_tlsConfig;
+static int s_tlsState;          /* 0: not tried, 1: ready, -1: failed */
+
+/* Where systems keep their certificates: worth having on top of the built-in ones, which
+ * can only date. None of these is needed, and Windows has no such file. */
+static void LoadSystemRoots(void) {
+#ifndef _WIN32
+    static const char *const files[] = {
+        "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem",
+    };
+    u32 i;
+
+    for (i = 0; i < SDL_arraysize(files); i++) {
+        mbedtls_x509_crt_parse_file(&s_tlsRoots, files[i]);
+    }
+#ifdef SDL_PLATFORM_ANDROID
+    mbedtls_x509_crt_parse_path(&s_tlsRoots, "/system/etc/security/cacerts");
+#endif
+#endif
+}
+
+static int TlsReady(void) {
+    if (s_tlsState != 0) {
+        return s_tlsState > 0;
+    }
+    s_tlsState = -1;
+    if (psa_crypto_init() != PSA_SUCCESS) {
+        return 0;
+    }
+    mbedtls_entropy_init(&s_tlsEntropy);
+    mbedtls_ctr_drbg_init(&s_tlsDrbg);
+    mbedtls_x509_crt_init(&s_tlsRoots);
+    mbedtls_ssl_config_init(&s_tlsConfig);
+    if (mbedtls_ctr_drbg_seed(&s_tlsDrbg, mbedtls_entropy_func, &s_tlsEntropy, (const u8 *)"hwvx", 4) != 0 ||
+        mbedtls_x509_crt_parse(&s_tlsRoots, (const u8 *)g_netRootCertificates, sizeof(g_netRootCertificates)) < 0 ||
+        mbedtls_ssl_config_defaults(&s_tlsConfig, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
+        return 0;
+    }
+    LoadSystemRoots();
+    mbedtls_ssl_conf_authmode(&s_tlsConfig, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(&s_tlsConfig, &s_tlsRoots, NULL);
+    mbedtls_ssl_conf_rng(&s_tlsConfig, mbedtls_ctr_drbg_random, &s_tlsDrbg);
+    s_tlsState = 1;
+    return 1;
+}
+
+int Net_RandomCode(char *out, u32 length) {
+    static const char digits[] = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";   /* none that look alike */
+    u8 bytes[NET_MAX_ROOM_CODE];
+    u32 i;
+
+    if (length > sizeof(bytes) || !TlsReady() || mbedtls_ctr_drbg_random(&s_tlsDrbg, bytes, length) != 0) {
+        return 0;
+    }
+    for (i = 0; i < length; i++) {
+        out[i] = digits[bytes[i] % (sizeof(digits) - 1)];
+    }
+    out[length] = 0;
+    return 1;
 }
 
 static u32 NextRandom(void) {
@@ -267,6 +345,9 @@ static void TuneSocket(NetSocket s) {
 #endif
 }
 
+static int TlsBioSend(void *arg, const unsigned char *data, size_t size);
+static int TlsBioRecv(void *arg, unsigned char *data, size_t size);
+
 /* A closed peer must give an error here, not end the game with SIGPIPE. */
 static s32 NetSend(NetSocket s, const void *data, u32 size) {
 #ifdef MSG_NOSIGNAL
@@ -320,6 +401,32 @@ static void DrainWake(void) {
 
     while (recv(s_wakeRead, buf, sizeof(buf), 0) > 0) {
     }
+}
+
+/* The socket's two ends, under TLS or not. */
+#define IO_WOULD_BLOCK (-1)
+#define IO_FAILED (-2)
+
+static int TlsBioSend(void *arg, const unsigned char *data, size_t size) {
+    NetSocket s = *(NetSocket *)arg;
+    s32 n = NetSend(s, data, (u32)size);
+
+    if (n >= 0) {
+        return n;
+    }
+    n = NetLastError();
+    return NET_WOULD_BLOCK(n) || NET_INTERRUPTED(n) ? MBEDTLS_ERR_SSL_WANT_WRITE : MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+}
+
+static int TlsBioRecv(void *arg, unsigned char *data, size_t size) {
+    NetSocket s = *(NetSocket *)arg;
+    s32 n = (s32)recv(s, (char *)data, (int)size, 0);
+
+    if (n >= 0) {
+        return n;
+    }
+    n = NetLastError();
+    return NET_WOULD_BLOCK(n) || NET_INTERRUPTED(n) ? MBEDTLS_ERR_SSL_WANT_READ : MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 }
 
 /* ---- events and queues: with s_lock held --------------------------------- */
@@ -454,6 +561,11 @@ static void ConnFree(Conn *c) {
 
     if (c->state == CONN_FREE) {
         return;
+    }
+    if (c->tls != NULL) {
+        mbedtls_ssl_free(c->tls);
+        SDL_free(c->tls);
+        c->tls = NULL;
     }
     if (c->sock != NET_NO_SOCKET) {
         NetCloseSocket(c->sock);
@@ -759,7 +871,7 @@ static void HandleBinary(Conn *c, const u8 *data, u32 size, u64 now) {
         if (kind == KIND_JOINED) {
             PushEvent(NET_EV_PEER_JOINED, data[1], 0, NET_OK, NULL, 0);
         } else {
-            NetError why = data[2] <= NET_ERR_BIND ? (NetError)data[2] : NET_ERR_LOST;
+            NetError why = data[2] <= NET_ERR_TLS ? (NetError)data[2] : NET_ERR_LOST;
 
             PushEvent(NET_EV_PEER_LEFT, data[1], 0, why, NULL, 0);
         }
@@ -946,12 +1058,58 @@ static void ProcessInput(Conn *c, u64 now) {
     }
 }
 
+/* Bytes in, 0 at the end, or IO_*. */
+static s32 ConnRecv(Conn *c, u8 *data, u32 size) {
+    if (c->tls != NULL) {
+        int n = mbedtls_ssl_read(c->tls, data, size);
+
+        if (n >= 0) {
+            return n;
+        }
+        if (n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+            return 0;
+        }
+        /* a TLS 1.3 server's tickets are not an error, nor of any use here */
+        return n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE ||
+               n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET ? IO_WOULD_BLOCK : IO_FAILED;
+    } else {
+        s32 n = (s32)recv(c->sock, (char *)data, (int)size, 0);
+
+        if (n >= 0) {
+            return n;
+        }
+        n = NetLastError();
+        return NET_WOULD_BLOCK(n) || NET_INTERRUPTED(n) ? IO_WOULD_BLOCK : IO_FAILED;
+    }
+}
+
+/* Bytes out, or IO_*. Under TLS a call that blocked must come again with the same bytes,
+ * which the transmit buffer sees to. */
+static s32 ConnSend(Conn *c, const u8 *data, u32 size) {
+    if (c->tls != NULL) {
+        int n = mbedtls_ssl_write(c->tls, data, size);
+
+        if (n >= 0) {
+            return n;
+        }
+        return n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE ? IO_WOULD_BLOCK : IO_FAILED;
+    } else {
+        s32 n = NetSend(c->sock, data, size);
+
+        if (n >= 0) {
+            return n;
+        }
+        n = NetLastError();
+        return NET_WOULD_BLOCK(n) || NET_INTERRUPTED(n) ? IO_WOULD_BLOCK : IO_FAILED;
+    }
+}
+
 static void ConnRead(Conn *c, u64 now) {
     int reads;
 
     /* a few reads, then let the other connections have a turn */
     for (reads = 0; reads < 8 && c->dropReason == NET_OK; reads++) {
-        s32 got = (s32)recv(c->sock, (char *)c->rx + c->rxLen, (int)(RX_CAP - c->rxLen), 0);
+        s32 got = ConnRecv(c, c->rx + c->rxLen, RX_CAP - c->rxLen);
 
         if (got > 0) {
             c->rxLen += (u32)got;
@@ -964,9 +1122,7 @@ static void ConnRead(Conn *c, u64 now) {
             c->dropReason = s_isHost ? NET_ERR_LOST : NET_ERR_HOST_CLOSED;
             return;
         } else {
-            int e = NetLastError();
-
-            if (!NET_WOULD_BLOCK(e) && !NET_INTERRUPTED(e)) {
+            if (got == IO_FAILED) {
                 c->dropReason = NET_ERR_LOST;
             }
             return;
@@ -1071,20 +1227,18 @@ static void ConnWrite(Conn *c, u64 now) {
             return;
         }
         n = c->txLen - c->txOff;
-        if (n > budget) {
-            n = budget;
+        if (n > budget && c->tls == NULL) {
+            n = budget;         /* HWVX_NET_SIM; TLS wants what it was offered again */
         }
-        sent = NetSend(c->sock, c->tx + c->txOff, n);
+        sent = ConnSend(c, c->tx + c->txOff, n);
         if (sent < 0) {
-            int e = NetLastError();
-
-            if (!NET_WOULD_BLOCK(e) && !NET_INTERRUPTED(e)) {
+            if (sent == IO_FAILED) {
                 c->dropReason = NET_ERR_LOST;
             }
             return;
         }
         if (budget != 0xFFFFFFFF) {
-            budget -= (u32)sent;
+            budget -= SDL_min(budget, (u32)sent);
             c->bwTokens -= sent;
         }
         SDL_LockMutex(s_lock);
@@ -1208,21 +1362,13 @@ static void ClientTryNextAddress(u64 now) {
     ClientAttemptFailed(NET_ERR_UNREACHABLE, now);
 }
 
-static void ClientConnectFinished(Conn *c, u64 now) {
-    int err = 0;
-    socklen_t len = sizeof(err);
+/* The connection is ready for bytes: the WebSocket handshake. */
+static void ClientSendRequest(Conn *c, u64 now) {
     char request[640];
     u8 keyBytes[16];
     char hostHeader[280];
     u32 i;
 
-    if (getsockopt(c->sock, SOL_SOCKET, SO_ERROR, (char *)&err, &len) != 0 || err != 0) {
-        /* on to the next address, if there is one */
-        ConnFree(c);
-        s_client.addr = s_client.addr != NULL ? s_client.addr->ai_next : NULL;
-        ClientTryNextAddress(now);
-        return;
-    }
     for (i = 0; i < 16; i++) {
         keyBytes[i] = (u8)NextRandom();
     }
@@ -1230,7 +1376,7 @@ static void ClientConnectFinished(Conn *c, u64 now) {
     /* the Host header is what routes a request through a tunnel */
     if (SDL_strchr(s_client.host, ':') != NULL) {
         SDL_snprintf(hostHeader, sizeof(hostHeader), "[%s]:%u", s_client.host, s_client.port);
-    } else if (s_client.port == 80) {
+    } else if (s_client.port == (s_client.tls ? 443 : 80)) {
         SDL_strlcpy(hostHeader, s_client.host, sizeof(hostHeader));
     } else {
         SDL_snprintf(hostHeader, sizeof(hostHeader), "%s:%u", s_client.host, s_client.port);
@@ -1241,6 +1387,49 @@ static void ClientConnectFinished(Conn *c, u64 now) {
     c->state = CONN_HTTP;
     c->deadline = now + HANDSHAKE_MS;
     SendRaw(c, request, (u32)SDL_strlen(request));
+}
+
+static void ConnTlsStep(Conn *c, u64 now) {
+    int n = mbedtls_ssl_handshake(c->tls);
+
+    c->tlsWantWrite = n == MBEDTLS_ERR_SSL_WANT_WRITE;
+    if (n == 0) {
+        ClientSendRequest(c, now);
+    } else if (n != MBEDTLS_ERR_SSL_WANT_READ && n != MBEDTLS_ERR_SSL_WANT_WRITE) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "net: TLS handshake failed: -0x%04X, certificate check %X", (unsigned)-n,
+                    mbedtls_ssl_get_verify_result(c->tls));
+        c->dropReason = NET_ERR_TLS;
+    }
+}
+
+static void ClientConnectFinished(Conn *c, u64 now) {
+    int err = 0;
+    socklen_t len = sizeof(err);
+
+    if (getsockopt(c->sock, SOL_SOCKET, SO_ERROR, (char *)&err, &len) != 0 || err != 0) {
+        /* on to the next address, if there is one */
+        ConnFree(c);
+        s_client.addr = s_client.addr != NULL ? s_client.addr->ai_next : NULL;
+        ClientTryNextAddress(now);
+        return;
+    }
+    if (!s_client.tls) {
+        ClientSendRequest(c, now);
+        return;
+    }
+    if (!TlsReady() || (c->tls = SDL_malloc(sizeof(*c->tls))) == NULL) {
+        c->dropReason = NET_ERR_TLS;
+        return;
+    }
+    mbedtls_ssl_init(c->tls);
+    if (mbedtls_ssl_setup(c->tls, &s_tlsConfig) != 0 || mbedtls_ssl_set_hostname(c->tls, s_client.host) != 0) {
+        c->dropReason = NET_ERR_TLS;
+        return;
+    }
+    mbedtls_ssl_set_bio(c->tls, &c->sock, TlsBioSend, TlsBioRecv, NULL);
+    c->state = CONN_TLS;
+    c->deadline = now + HANDSHAKE_MS;
+    ConnTlsStep(c, now);
 }
 
 static void ClientStep(u64 now) {
@@ -1311,6 +1500,7 @@ static void ConnTimers(Conn *c, u64 now) {
     }
     SDL_UnlockMutex(s_lock);
     switch (c->state) {
+    case CONN_TLS:
     case CONN_HTTP:
     case CONN_AWAIT_HELLO:
     case CONN_AWAIT_WELCOME:
@@ -1381,6 +1571,16 @@ static int NetThread(void *unused) {
                 continue;
             }
             WATCH(&reads, c->sock);
+            if (c->state == CONN_TLS) {
+                if (c->tlsWantWrite) {
+                    WATCH(&writes, c->sock);
+                }
+                continue;
+            }
+            /* read from the socket, but not yet by the caller */
+            if (c->tls != NULL && mbedtls_ssl_get_bytes_avail(c->tls) != 0) {
+                waitMs = 0;
+            }
             SDL_LockMutex(s_lock);
             output = ConnHasOutput(c);
             SDL_UnlockMutex(s_lock);
@@ -1428,9 +1628,14 @@ static int NetThread(void *unused) {
                 if (FD_ISSET(c->sock, &writes) || FD_ISSET(c->sock, &errors)) {
                     ClientConnectFinished(c, now);
                 }
-                continue;
-            }
-            if (FD_ISSET(c->sock, &reads)) {
+                if (c->dropReason == NET_OK) {
+                    continue;
+                }
+            } else if (c->state == CONN_TLS) {
+                if (FD_ISSET(c->sock, &reads) || FD_ISSET(c->sock, &writes)) {
+                    ConnTlsStep(c, now);
+                }
+            } else if (FD_ISSET(c->sock, &reads) || (c->tls != NULL && mbedtls_ssl_get_bytes_avail(c->tls) != 0)) {
                 ConnRead(c, now);
             }
             RunDelayed(c, now, c->dropReason != NET_OK);
@@ -1479,7 +1684,7 @@ static int NetThread(void *unused) {
                 u32 m = NextRandom();
                 u32 n = Ws_BuildFrame(frame, WS_OP_CLOSE, NULL, 0, s_isHost ? NULL : (const u8 *)&m);
 
-                NetSend(c->sock, frame, n);
+                ConnSend(c, frame, n);
             }
             ConnFree(c);
         }
@@ -1595,82 +1800,19 @@ int Net_Host(u16 port, const char *roomCode, int loopbackOnly, u32 maxPlayers) {
     return NET_OK;
 }
 
-/* Splits an address into s_client.host and port; 0 if it can't be understood. */
-static int ParseAddress(const char *address) {
-    const char *p = address;
-    const char *hostEnd;
-    const char *portText = NULL;
-    size_t n;
-
-    while (*p == ' ') {
-        p++;
-    }
-    if (SDL_strncasecmp(p, "ws://", 5) == 0) {
-        p += 5;
-    } else if (SDL_strstr(p, "://") != NULL) {
-        return 0;               /* wss:// comes with TLS, in a later milestone */
-    }
-    if (*p == '[') {
-        hostEnd = SDL_strchr(p, ']');
-        if (hostEnd == NULL) {
-            return 0;
-        }
-        p++;
-        if (hostEnd[1] == ':') {
-            portText = hostEnd + 2;
-        } else if (hostEnd[1] != 0 && hostEnd[1] != '/' && hostEnd[1] != ' ') {
-            return 0;
-        }
-    } else {
-        const char *colon = SDL_strchr(p, ':');
-
-        if (colon != NULL && SDL_strchr(colon + 1, ':') != NULL) {
-            /* more than one colon: a bare IPv6 address */
-            hostEnd = p + SDL_strlen(p);
-        } else if (colon != NULL) {
-            hostEnd = colon;
-            portText = colon + 1;
-        } else {
-            hostEnd = p;
-            while (*hostEnd != 0 && *hostEnd != '/' && *hostEnd != ' ') {
-                hostEnd++;
-            }
-        }
-    }
-    n = (size_t)(hostEnd - p);
-    while (n != 0 && p[n - 1] == ' ') {
-        n--;
-    }
-    if (n == 0 || n >= sizeof(s_client.host)) {
-        return 0;
-    }
-    SDL_memcpy(s_client.host, p, n);
-    s_client.host[n] = 0;
-    s_client.port = NET_DEFAULT_PORT;
-    if (portText != NULL) {
-        char *end;
-        long port = SDL_strtol(portText, &end, 10);
-
-        if (end == portText || port < 1 || port > 65535 || (*end != 0 && *end != '/' && *end != ' ')) {
-            return 0;
-        }
-        s_client.port = (u16)port;
-    }
-    return 1;
-}
-
 int Net_Connect(const char *address, const char *roomCode) {
-    if (address == NULL) {
+    NetAddress parsed;
+
+    if (address == NULL || !Ws_ParseAddress(address, &parsed)) {
         return NET_ERR_ADDRESS;
     }
-    if (!StartSession(0, roomCode)) {
+    if (!StartSession(0, roomCode != NULL && roomCode[0] != 0 ? roomCode : parsed.code)) {
         return NET_ERR_LOST;
     }
     SDL_zero(s_client);
-    if (!ParseAddress(address)) {
-        Net_Close();
-        return NET_ERR_ADDRESS;
-    }
+    SDL_strlcpy(s_client.host, parsed.host, sizeof(s_client.host));
+    s_client.port = parsed.port;
+    s_client.tls = parsed.tls;
     s_client.deadline = SDL_GetTicks() + CONNECT_DEADLINE_MS;
     s_client.retryMs = RETRY_FIRST_MS;
     s_client.lastError = NET_ERR_UNREACHABLE;

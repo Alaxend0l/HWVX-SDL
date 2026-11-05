@@ -585,7 +585,8 @@ enum {
     MP_TITLE = 10,
     MP_ROW_A = 11,
     MP_ROW_B = 12,
-    MP_MAX_LINES = 6,
+    MP_MAX_LINES = 8,
+    PANEL_LINE_CHARS = 15,      /* what fits across the panel */
 };
 #define PACK_MP_SCREEN 0x7B4200u
 #define PACK_MP_DRAG 0x7B61C0u      /* Drag Race Options */
@@ -619,8 +620,8 @@ typedef struct OnlineRow {
     InterfaceHeader *target;    /* NULL: back */
 } OnlineRow;
 
-static OnlineScreen s_olChoose, s_olOnline, s_olTunnel, s_olConnect, s_olLobbyHost, s_olLobbyClient, s_olMode, s_olWaiting;
-static InterfaceHeader s_olPaste;   /* never shown: the Paste row's "target" */
+static OnlineScreen s_olChoose, s_olOnline, s_olTunnel, s_olConnect, s_olLobbyHost, s_olLobbyClient, s_olLobbyTunnel, s_olMode, s_olWaiting;
+static InterfaceHeader s_olPaste, s_olCopy;   /* never shown: those rows' "targets" */
 static InterfaceHeader *s_mpScreen, *s_carSelect, *s_carSelectSolo, *s_battleOptions, *s_joyrideCar, *s_joyrideItem;
 static RecordCopy s_mainMultiRec;
 static char s_olAddress[64];
@@ -642,7 +643,8 @@ static void BuildOnlineScreen(OnlineScreen *s, const InterfaceHeader *mp, const 
 
         *d = from[MP_ROW_A];
         s->lineObject[i] = at;
-        MoveTo(&s->anim[i], d, ROW_Y + i * ROW_STEP);
+        /* a full panel: closer together, as it only just fits */
+        MoveTo(&s->anim[i], d, numLines >= 8 ? ROW_Y - 10.0f + i * 20.0f : ROW_Y + i * ROW_STEP);
         if (i < numText) {
             SetText(&s->text[i], d, "");
             d->active = 0;
@@ -696,19 +698,28 @@ static void BuildOnlineScreens(InterfaceHeader *main) {
     rows[1] = (OnlineRow){"Local", s_mpScreen};
     BuildOnlineScreen(&s_olChoose, s_mpScreen, "Multi-Player", 0, 2, rows);
 
-    rows[0] = (OnlineRow){"Tunnel Host", &s_olTunnel.h};
+    rows[0] = (OnlineRow){"Tunnel Host", &s_olLobbyTunnel.h};
     rows[1] = (OnlineRow){"LAN Host", &s_olLobbyHost.h};
     rows[2] = (OnlineRow){"Connect", &s_olConnect.h};
-    BuildOnlineScreen(&s_olOnline, s_mpScreen, "Online", 1, 3, rows);
+    BuildOnlineScreen(&s_olOnline, s_mpScreen, "Online", 2, 3, rows);
 
     rows[0] = (OnlineRow){"Back", NULL};
-    BuildOnlineScreen(&s_olTunnel, s_mpScreen, "Host with Tunnel", 1, 1, rows);
-    SetText(&s_olTunnel.text[0], &s_olTunnel.objs[s_olTunnel.lineObject[0]], "Not available yet");
+    /* what Tunnel Host leads to if it can't start */
+    BuildOnlineScreen(&s_olTunnel, s_mpScreen, "Tunnel Host", 3, 1, rows);
+    if (Port_TunnelAvailable()) {
+        SetText(&s_olTunnel.text[0], &s_olTunnel.objs[s_olTunnel.lineObject[0]], "Install");
+        SetText(&s_olTunnel.text[1], &s_olTunnel.objs[s_olTunnel.lineObject[1]], "cloudflared");
+        SetText(&s_olTunnel.text[2], &s_olTunnel.objs[s_olTunnel.lineObject[2]], "to host");
+    } else {
+        SetText(&s_olTunnel.text[0], &s_olTunnel.objs[s_olTunnel.lineObject[0]], "Not available");
+        SetText(&s_olTunnel.text[1], &s_olTunnel.objs[s_olTunnel.lineObject[1]], "here: use LAN");
+        SetText(&s_olTunnel.text[2], &s_olTunnel.objs[s_olTunnel.lineObject[2]], "or Connect");
+    }
 
     rows[0] = (OnlineRow){"Connect", &s_olLobbyClient.h};
     rows[1] = (OnlineRow){"Paste Address", &s_olPaste};
     rows[2] = (OnlineRow){"Back", NULL};
-    BuildOnlineScreen(&s_olConnect, s_mpScreen, "Connect", 1, 3, rows);
+    BuildOnlineScreen(&s_olConnect, s_mpScreen, "Connect", 4, 3, rows);
 
     rows[0] = (OnlineRow){"Start Game", &s_olMode.h};
     rows[1] = (OnlineRow){"Leave", NULL};
@@ -716,6 +727,11 @@ static void BuildOnlineScreens(InterfaceHeader *main) {
 
     rows[0] = (OnlineRow){"Leave", NULL};
     BuildOnlineScreen(&s_olLobbyClient, s_mpScreen, "Lobby", 2, 1, rows);
+
+    rows[0] = (OnlineRow){"Copy Invite", &s_olCopy};
+    rows[1] = (OnlineRow){"Start Game", &s_olMode.h};
+    rows[2] = (OnlineRow){"Leave", NULL};
+    BuildOnlineScreen(&s_olLobbyTunnel, s_mpScreen, "Lobby", 5, 3, rows);
 
     rows[0] = (OnlineRow){"Drag Race", PackScreen(main, PACK_MP_DRAG, 26)};
     s_battleOptions = PackScreen(main, PACK_MP_BATTLE, 34);
@@ -734,6 +750,7 @@ static OnlineScreen *OnlineScreenOf(PortOnlineScreen screen) {
     case ONLINE_SCREEN_ONLINE: return &s_olOnline;
     case ONLINE_SCREEN_LOBBY_HOST: return &s_olLobbyHost;
     case ONLINE_SCREEN_LOBBY_CLIENT: return &s_olLobbyClient;
+    case ONLINE_SCREEN_LOBBY_TUNNEL: return &s_olLobbyTunnel;
     case ONLINE_SCREEN_WAITING: return &s_olWaiting;
     default: return NULL;
     }
@@ -789,6 +806,42 @@ void Port_MenuOnlineSetLine(PortOnlineScreen screen, u32 line, const char *text)
     }
 }
 
+/* Over several lines, parted at the marks addresses have, or wherever it must be. */
+static void SetOnlineLines(OnlineScreen *s, u32 first, u32 count, const char *text) {
+    u32 i;
+
+    for (i = 0; i < count; i++) {
+        char line[PANEL_LINE_CHARS + 1];
+        size_t n = strlen(text);
+
+        if (n > PANEL_LINE_CHARS && i + 1 < count) {
+            n = PANEL_LINE_CHARS;
+            while (n > 1 && !strchr("-/. :", text[n - 1])) {
+                n--;
+            }
+            if (n <= 1) {
+                n = PANEL_LINE_CHARS;
+            }
+        } else if (n > PANEL_LINE_CHARS) {
+            n = PANEL_LINE_CHARS;
+        }
+        memcpy(line, text, n);
+        line[n] = 0;
+        if (first + i < s->numLines) {
+            SetOnlineLine(s, first + i, line);
+        }
+        text += n;
+    }
+}
+
+void Port_MenuOnlineSetLines(PortOnlineScreen screen, u32 first, u32 count, const char *text) {
+    OnlineScreen *s = OnlineScreenOf(screen);
+
+    if (s != NULL) {
+        SetOnlineLines(s, first, count, text);
+    }
+}
+
 void Port_MenuOnlineAddress(char *out, size_t size) {
     strncpy(out, s_olAddress, size - 1);
     out[size - 1] = 0;
@@ -799,6 +852,18 @@ static InterfaceHeader *OnlineEventTarget(InterfaceHeader *target) {
     if (target == &s_olLobbyHost.h) {
         return Port_OnlineStartHost() ? target : NULL;
     }
+    if (target == &s_olLobbyTunnel.h) {
+        return Port_OnlineStartTunnelHost() ? target : &s_olTunnel.h;
+    }
+    if (target == &s_olCopy) {
+        char invite[128];
+
+        if (Port_OnlineInvite(invite, sizeof(invite))) {
+            Port_TextCopy(invite);
+            Port_Log("online: invite copied");
+        }
+        return NULL;
+    }
     if (target == &s_olLobbyClient.h) {
         if (s_olAddress[0] == 0) {
             return NULL;
@@ -806,9 +871,7 @@ static InterfaceHeader *OnlineEventTarget(InterfaceHeader *target) {
         return Port_OnlineStartClient(s_olAddress) ? target : NULL;
     }
     if (target == &s_olPaste) {
-        if (Port_TextInputPaste()) {
-            SetOnlineLine(&s_olConnect, 0, s_olAddress);
-        }
+        Port_TextInputPaste();  /* the next update shows it */
         return NULL;
     }
     if (target == &s_olMode.h && Port_OnlinePlayerCount() < 2) {
@@ -831,7 +894,7 @@ void Port_MenuOnlineUpdate(void) {
 
     for (i = 0; i < 0x12; i++) {
         if (g_interfaces[i].count != 0 && GETP(g_interfaces[i].header) == &s_olConnect.h) {
-            SetOnlineLine(&s_olConnect, 0, s_olAddress[0] != 0 ? s_olAddress : "Type or paste an address");
+            SetOnlineLines(&s_olConnect, 0, 4, s_olAddress[0] != 0 ? s_olAddress : "Type or paste an address");
             return;
         }
     }

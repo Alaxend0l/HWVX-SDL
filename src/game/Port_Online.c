@@ -149,6 +149,10 @@ static u32 s_in;                /* those in the current game */
 static u32 s_chosen;
 static s32 s_vehicle[ONLINE_PLAYERS], s_item[ONLINE_PLAYERS];
 static char s_hostLine[64];
+static int s_tunnel;            /* hosting through a tunnel */
+static int s_tunnelReady;
+static char s_roomCode[8];
+static char s_invite[128];      /* name/CODE */
 static int s_inLevel;
 static Player *s_localPlayer;
 static Player *s_players[ONLINE_PLAYERS];
@@ -205,7 +209,24 @@ static void ShowLobby(const char *status) {
     char text[64];
 
     SDL_snprintf(text, sizeof(text), "Players: %d/%d", Port_OnlinePlayerCount(), ONLINE_PLAYERS);
-    if (s_isHost) {
+    if (s_tunnel) {
+        char name[128], code[32];
+        char *slash;
+
+        /* the name over as many lines as it takes, the code clear of it: someone may be
+         * reading this out, and a name of four long words fills all it gets */
+        SDL_strlcpy(name, s_tunnelReady ? s_invite : "Starting tunnel...", sizeof(name));
+        if ((slash = SDL_strchr(name, '/')) != NULL) {
+            *slash = 0;
+        }
+        if (s_tunnelReady) {
+            SDL_snprintf(code, sizeof(code), "Code %s %d/%d", s_roomCode, Port_OnlinePlayerCount(), ONLINE_PLAYERS);
+        } else {
+            SDL_strlcpy(code, text, sizeof(code));
+        }
+        Port_MenuOnlineSetLines(ONLINE_SCREEN_LOBBY_TUNNEL, 0, 4, name);
+        Port_MenuOnlineSetLine(ONLINE_SCREEN_LOBBY_TUNNEL, 4, code);
+    } else if (s_isHost) {
         /* the screens are built anew with each main menu */
         Port_MenuOnlineSetLine(ONLINE_SCREEN_LOBBY_HOST, 0, s_hostLine);
         Port_MenuOnlineSetLine(ONLINE_SCREEN_LOBBY_HOST, 1, text);
@@ -223,6 +244,8 @@ static void ShowLobby(const char *status) {
 static void BeginSession(int isHost) {
     GameSettings_PortOnlineBegin();
     s_isHost = isHost;
+    s_tunnel = 0;
+    s_tunnelReady = 0;
     s_present = isHost ? 1 : 0;
     s_lobby = 0xF;
     s_hold = 0;
@@ -237,7 +260,7 @@ int Port_OnlineStartHost(void) {
 
     if (error != NET_OK) {
         Port_Log("online: %s", Net_ErrorName(error));
-        Port_MenuOnlineSetLine(ONLINE_SCREEN_ONLINE, 0, Net_ErrorName(error));
+        Port_MenuOnlineSetLines(ONLINE_SCREEN_ONLINE, 0, 2, Net_ErrorName(error));
         return 0;
     }
     BeginSession(1);
@@ -249,6 +272,39 @@ int Port_OnlineStartHost(void) {
     }
     Port_Log("online: hosting at %s", s_hostLine);
     ShowLobby("Waiting...");
+    return 1;
+}
+
+/* On loopback only: nobody reaches this but through the tunnel, whose address is public,
+ * so a room code is asked for as well. */
+int Port_OnlineStartTunnelHost(void) {
+    NetError error;
+
+    if (!Port_TunnelAvailable() || !Net_RandomCode(s_roomCode, 6)) {
+        return 0;
+    }
+    error = Net_Host(NET_DEFAULT_PORT, s_roomCode, 1, ONLINE_PLAYERS);
+    if (error != NET_OK) {
+        Port_Log("online: %s", Net_ErrorName(error));
+        return 0;
+    }
+    if (!Port_TunnelStart(NET_DEFAULT_PORT)) {
+        Net_Close();
+        return 0;
+    }
+    BeginSession(1);
+    s_tunnel = 1;
+    s_state = STATE_LOBBY;
+    Port_Log("online: starting a tunnel");
+    ShowLobby(NULL);
+    return 1;
+}
+
+int Port_OnlineInvite(char *out, size_t size) {
+    if (s_state == STATE_NONE || !s_tunnel || !s_tunnelReady) {
+        return 0;
+    }
+    SDL_strlcpy(out, s_invite, size);
     return 1;
 }
 
@@ -272,6 +328,8 @@ void Port_OnlineEnd(void) {
         return;
     }
     Net_Close();
+    Port_TunnelStop();
+    s_tunnel = 0;
     s_state = STATE_NONE;
     GameSettings_PortOnlineEnd();
     Port_Log("online: session over");
@@ -287,7 +345,7 @@ static void SessionLost(const char *why) {
         ExitStateGamePlay(2);
     } else if (StateManager_CurrState() == 2) {
         /* after a level the way here came through the main menu, not this screen */
-        Port_MenuOnlineSetLine(ONLINE_SCREEN_ONLINE, 0, why);
+        Port_MenuOnlineSetLines(ONLINE_SCREEN_ONLINE, 0, 2, why);
         if (!Port_InterfaceGoBack(Port_MenuOnlineScreen(ONLINE_SCREEN_ONLINE))) {
             Port_InterfaceGoBack(Port_MenuOnlineScreen(ONLINE_SCREEN_MAIN));
         }
@@ -424,7 +482,8 @@ int Port_OnlineBack(const InterfaceHeader *header) {
     if (s_state == STATE_NONE) {
         return 0;
     }
-    if (header == Port_MenuOnlineScreen(ONLINE_SCREEN_LOBBY_HOST) || header == Port_MenuOnlineScreen(ONLINE_SCREEN_LOBBY_CLIENT)) {
+    if (header == Port_MenuOnlineScreen(ONLINE_SCREEN_LOBBY_HOST) || header == Port_MenuOnlineScreen(ONLINE_SCREEN_LOBBY_CLIENT) ||
+        header == Port_MenuOnlineScreen(ONLINE_SCREEN_LOBBY_TUNNEL)) {
         Port_OnlineEnd();
         return 0;
     }
@@ -1587,6 +1646,21 @@ void Port_OnlineHeartbeat(void) {
     if (s_state == STATE_NONE) {
         return;
     }
+    if (s_tunnel) {
+        char name[128];
+        int status = Port_TunnelPoll(name, sizeof(name));
+
+        if (status < 0) {
+            SessionLost("Tunnel failed");
+            return;
+        }
+        if (status > 0 && !s_tunnelReady) {
+            s_tunnelReady = 1;
+            SDL_snprintf(s_invite, sizeof(s_invite), "%s/%s", name, s_roomCode);
+            Port_Log("online: tunnel ready, invite %s", s_invite);
+            ShowLobby(NULL);
+        }
+    }
     while (s_state != STATE_NONE && Net_Poll(&e)) {
         switch (e.type) {
         case NET_EV_CONNECTED:
@@ -1690,6 +1764,6 @@ void Port_OnlineHeartbeat(void) {
         s_inLevel = 0;
         s_state = STATE_LOBBY;
         ShowLobby(s_isHost ? "Ready" : "Waiting...");
-        Port_InterfaceGoto(Port_MenuOnlineScreen(s_isHost ? ONLINE_SCREEN_LOBBY_HOST : ONLINE_SCREEN_LOBBY_CLIENT));
+        Port_InterfaceGoto(Port_MenuOnlineScreen(s_tunnel ? ONLINE_SCREEN_LOBBY_TUNNEL : s_isHost ? ONLINE_SCREEN_LOBBY_HOST : ONLINE_SCREEN_LOBBY_CLIENT));
     }
 }

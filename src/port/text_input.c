@@ -122,3 +122,9 @@ void Port_SaveOnlineAddress(const char *address) {
         SDL_free(path);
     }
 }
+
+void Port_TextCopy(const char *text) {
+    if (!SDL_SetClipboardText(text)) {
+        Port_Log("clipboard: %s", SDL_GetError());
+    }
+}

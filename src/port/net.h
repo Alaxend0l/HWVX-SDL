@@ -60,6 +60,7 @@ typedef enum NetError {
     NET_ERR_PROTOCOL,           /* the other side sent something invalid */
     NET_ERR_OVERFLOW,           /* a peer could not keep up */
     NET_ERR_BIND,               /* Net_Host: the port could not be opened */
+    NET_ERR_TLS,                /* wss://: no secure connection, or not to whom it should be */
 } NetError;
 
 typedef struct NetEvent {
@@ -82,14 +83,16 @@ typedef struct NetStats {
  * loopbackOnly: listen on 127.0.0.1 only, for hosting behind cloudflared.
  * maxPlayers: counting the host, 2 .. NET_MAX_PLAYERS; a client past it is refused. */
 int Net_Host(u16 port, const char *roomCode, int loopbackOnly, u32 maxPlayers);
-/* address: host, host:port, [v6]:port or ws://host[:port]. Connects in the
- * background, retrying until the deadline: expect NET_EV_CONNECTED or
- * NET_EV_DISCONNECTED. */
+/* address: see Ws_ParseAddress: an address and port, a URL, or a quick tunnel's name,
+ * with /CODE after it for roomCode if that's NULL. Connects in the background, retrying
+ * until the deadline: expect NET_EV_CONNECTED or NET_EV_DISCONNECTED. */
 int Net_Connect(const char *address, const char *roomCode);
 /* Ends the session; sends what is queued, for at most a moment. */
 void Net_Close(void);
 
 int Net_IsActive(void);
+/* A room code nobody could guess: `length` characters of capitals and digits, and a NUL. */
+int Net_RandomCode(char *out, u32 length);
 /* This machine's address on its network, for other players to type; 0 if unknown.
  * Sends nothing. Behind a router it is the inside address: port forwarding has
  * an outside one this can't see. */

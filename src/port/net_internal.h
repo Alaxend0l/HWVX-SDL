@@ -54,6 +54,19 @@ int Ws_ParseRequest(const char *head, char key[WS_KEY_MAX]);
 /* A NUL-terminated head: is it the 101 answer to key? */
 int Ws_CheckResponse(const char *head, const char *key);
 
+/* What someone typed to join: host, host:port, [v6]:port, ws:// or wss:// or http(s)://
+ * with any of those, and /CODE after it for the room code. A bare name of hyphenated
+ * words is a quick tunnel's, and anything on trycloudflare.com goes by TLS. 0 if it
+ * can't be understood. */
+typedef struct NetAddress {
+    char host[256];
+    u16 port;
+    int tls;
+    char code[NET_MAX_ROOM_CODE + 1];   /* in capitals; empty if none */
+} NetAddress;
+
+int Ws_ParseAddress(const char *text, NetAddress *out);
+
 /* ---- net_sim.c ----------------------------------------------------------- */
 
 typedef struct NetSim {

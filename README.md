@@ -336,8 +336,8 @@ lobby, and the host's choices in the game's own menus bring everyone to the car 
 is open and nothing reaches a save. In a level each machine simulates its own car, and
 the others follow its inputs and are pulled towards where it says it is. The world holds
 after loading and each round reset until the host says go, and the host decides who
-finished first. Tunnel hosting isn't in yet, and neither are AI opponents (Battle Options hides the row
-online) or typing an address with only a controller. `HWVX_ONLINE_ADDRESS` fills in
+finished first. Not in yet: AI opponents (Battle Options hides the row online) and typing an
+address with only a controller. `HWVX_ONLINE_ADDRESS` fills in
 the Connect screen, for testing with `HWVX_AUTOINPUT`.
 
 The transport's API is `src/port/net.h`, the place to start reading: reliable messages, and "latest" ones where a newer message replaces
@@ -345,9 +345,13 @@ one not yet sent. All of it travels over WebSocket, the one thing a quick tunnel
 known to carry for a client without `cloudflared` of its own. A socket thread does
 the waiting outside the giant lock, so connections live through level loads.
 
-`wss://` (TLS, what a client needs to reach a tunnel) isn't in yet: only `ws://`,
-which is enough to host behind `cloudflared`. Measured limits of a quick tunnel, which
-the constants in `net.c` follow: a connection silent for about 125 s is closed, and
+Tunnel Host runs the player's own `cloudflared` (next to the game, or installed: it isn't
+shipped, and can't run on Android or inside the Flatpak; those can still join) and shows a
+join code, `name-of-the-tunnel/CODE`; the room code is there because a tunnel's address is
+public. Clients reach it by `wss://`, with mbedTLS (a pinned release, `CMakeLists.txt`) and
+the public roots in `src/port/net_roots.h` (`tools/gen_net_roots.py`) as well as any the system
+has. Measured limits of a quick tunnel, which
+the constants in `net.c` and `tunnel.c` follow: a connection silent for about 125 s is closed, and
 a new tunnel's name can fail to resolve for over 80 s if looked up in its first few
 seconds, so hosts should wait about 15 s before showing it and clients keep retrying.
 

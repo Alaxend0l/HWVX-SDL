@@ -211,6 +211,31 @@ static void TestMessages(void) {
     CHECK(NetReader_U32(&r) == 0);
 }
 
+static void TestAddresses(void) {
+    NetAddress a;
+
+    CHECK(Ws_ParseAddress("192.168.1.5", &a) && SDL_strcmp(a.host, "192.168.1.5") == 0 && a.port == NET_DEFAULT_PORT && !a.tls && !a.code[0]);
+    CHECK(Ws_ParseAddress(" 10.0.0.2:1234 ", &a) && SDL_strcmp(a.host, "10.0.0.2") == 0 && a.port == 1234);
+    CHECK(Ws_ParseAddress("[::1]:99", &a) && SDL_strcmp(a.host, "::1") == 0 && a.port == 99);
+    CHECK(Ws_ParseAddress("[::1]", &a) && SDL_strcmp(a.host, "::1") == 0 && a.port == NET_DEFAULT_PORT);
+    CHECK(Ws_ParseAddress("fe80::1", &a) && SDL_strcmp(a.host, "fe80::1") == 0);
+    CHECK(Ws_ParseAddress("hart-eva-anchor-please", &a) && SDL_strcmp(a.host, "hart-eva-anchor-please.trycloudflare.com") == 0 && a.tls && a.port == 443);
+    CHECK(Ws_ParseAddress("hart-eva-anchor-please/ab3xyz", &a) && SDL_strcmp(a.code, "AB3XYZ") == 0 && a.tls);
+    CHECK(Ws_ParseAddress("https://hart-eva.trycloudflare.com/", &a) && SDL_strcmp(a.host, "hart-eva.trycloudflare.com") == 0 && a.tls && a.port == 443 && !a.code[0]);
+    CHECK(Ws_ParseAddress("wss://game.example.org:8443/CODE", &a) && SDL_strcmp(a.host, "game.example.org") == 0 && a.tls && a.port == 8443 && SDL_strcmp(a.code, "CODE") == 0);
+    CHECK(Ws_ParseAddress("ws://my-pc-name", &a) && SDL_strcmp(a.host, "my-pc-name") == 0 && !a.tls && a.port == 80);
+    CHECK(Ws_ParseAddress("my-game-pc:47815", &a) && SDL_strcmp(a.host, "my-game-pc") == 0 && !a.tls);
+    CHECK(Ws_ParseAddress("just-one", &a) && SDL_strcmp(a.host, "just-one") == 0 && !a.tls);
+    CHECK(Ws_ParseAddress("x.trycloudflare.com", &a) && a.tls);
+    CHECK(!Ws_ParseAddress("", &a));
+    CHECK(!Ws_ParseAddress("/CODE", &a));
+    CHECK(!Ws_ParseAddress("ftp://host", &a));
+    CHECK(!Ws_ParseAddress("[::1", &a));
+    CHECK(!Ws_ParseAddress("host:99999", &a));
+    CHECK(!Ws_ParseAddress("host:", &a));
+    CHECK(!Ws_ParseAddress("host/THISCODEISFARTOOLONGTOBEAROOMCODEANYWAY", &a));
+}
+
 static void TestSim(void) {
     NetSim sim;
     u64 prev = 0, now;
@@ -604,6 +629,7 @@ int main(int argc, char **argv) {
         TestFrames();
         TestFuzz();
         TestMessages();
+        TestAddresses();
         TestSim();
         printf(s_failures == 0 ? "selftest passed\n" : "selftest: %d failures\n", s_failures);
         result = s_failures != 0;
