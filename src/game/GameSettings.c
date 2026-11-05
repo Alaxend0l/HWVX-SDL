@@ -587,8 +587,9 @@ done:
 
     switch (var) {
     case 0x64:
-        /* port: online, all cars, worlds and weapons are open (Port_Online.c) */
-        if (GameSettings_IsCheatEnabled(1) || Port_OnlineActive()) {
+        /* port: online, all cars, worlds and weapons are open in the menus (Port_Online.c);
+         * a level's scripts get the player's real progress, as Joyride's intro reports it */
+        if (GameSettings_IsCheatEnabled(1) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {
             return 1;
         }
         switch (type) {
@@ -605,7 +606,7 @@ done:
         }
         break;
     case 0x65:
-        if (GameSettings_IsCheatEnabled(3) || Port_OnlineActive()) {   /* port: as for cars */
+        if (GameSettings_IsCheatEnabled(3) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {   /* port: as for cars */
             return 1;
         }
         switch (type) {
@@ -622,7 +623,7 @@ done:
         }
         break;
     case 0x66:
-        if (GameSettings_IsCheatEnabled(2) || Port_OnlineActive()) {   /* port: as for cars */
+        if (GameSettings_IsCheatEnabled(2) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {   /* port: as for cars */
             return 1;
         }
         switch (type) {

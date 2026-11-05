@@ -325,8 +325,8 @@ floor) and any logic that counts frames rather than time.
 
 ### Online play
 
-Work in progress: Drag Race and Battle play over a network, weapons and pickups included;
-Joyride isn't in. One host and its clients, each connected to the host only,
+Work in progress: Drag Race, Battle and Joyride play over a network, weapons and pickups
+included. One host and its clients, each connected to the host only,
 up to 8 players in the transport (the game itself stops at 4 for now: player pools,
 score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
 
@@ -336,8 +336,8 @@ lobby, and the host's choices in the game's own menus bring everyone to the car 
 is open and nothing reaches a save. In a level each machine simulates its own car, and
 the others follow its inputs and are pulled towards where it says it is. The world holds
 after loading and each round reset until the host says go, and the host decides who
-finished first. Tunnel hosting isn't in yet, and neither are AI opponents or typing an
-address with only a controller. `HWVX_ONLINE_ADDRESS` fills in
+finished first. Tunnel hosting isn't in yet, and neither are AI opponents (Battle Options hides the row
+online) or typing an address with only a controller. `HWVX_ONLINE_ADDRESS` fills in
 the Connect screen, for testing with `HWVX_AUTOINPUT`.
 
 The transport's API is `src/port/net.h`, the place to start reading: reliable messages, and "latest" ones where a newer message replaces

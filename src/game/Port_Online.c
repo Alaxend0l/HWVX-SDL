@@ -32,6 +32,12 @@
  * checks a round's targets and timer, and sends the winner with the scores, so every
  * machine tallies the same round.
  *
+ * Joyride's worlds have one spawn, which their scripts name directly. So every car
+ * spawns from a list of our own (Port_OnlineExpandSpawns), at spots around it that the
+ * world's collision says are clear (ChooseSpawns), and the world's
+ * spawn keeps pointing at this machine's car: the scripts' music, effects and pickups
+ * answer the player here. What else a world does isn't shared in Joyride, nor needs to be.
+ *
  * Not yet: AI opponents are off because each machine would run its own; a weapon a car
  * dropped isn't shared if picked up again. */
 #include <SDL3/SDL.h>
@@ -50,6 +56,20 @@
 #define WORLD_OF_LEVEL() ((World *)GETP(g_worldData.world))
 #define MAX_VEHICLE 32          /* the car select's list */
 #define MAX_ITEM 0x60
+#define PROGRESSION_JOYRIDE 4
+#define PROGRESSION_MP_DRAG 5
+#define PROGRESSION_MP_BATTLE 7
+/* Joyride: where the others may start around the world's spawn. */
+#define SPAWN_SEPARATION 35.0f
+#define SPAWN_PROBE_ABOVE 15.0f /* the ground is looked for from this far above the spawn */
+#define SPAWN_PROBE_DOWN 40.0f
+#define SPAWN_MAX_STEP 5.0f     /* difference from the spawn's ground */
+#define SPAWN_MIN_FLAT 0.9f     /* the ground's normal, upwards */
+#define SPAWN_CLEARANCE 26.0f   /* free on every side: the largest car fits */
+/* If nowhere has that, a tight world still gets a spot, nearer the others. */
+#define SPAWN_TIGHT_CLEARANCE 14.0f
+#define SPAWN_TIGHT_SEPARATION 25.0f
+#define SPAWN_BODY_HEIGHT 6.0f  /* walls are looked for this far above the ground */
 #define NO_ITEM (-1)
 
 enum {
@@ -149,6 +169,8 @@ static u32 s_levelSeed;
 static int s_fire;              /* held since the last snapshot */
 static int s_applyingPickup;
 static int s_localAlive;
+static TileCar s_spawns[ONLINE_PLAYERS];
+static TileCar *s_scriptSpawn;  /* the world's own, when s_spawns is in use */
 
 void GameSettings_PortOnlineBegin(void);
 void GameSettings_PortOnlineEnd(void);
@@ -306,8 +328,8 @@ static void ClientSetup(NetReader *r) {
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         values[i] = (s32)NetReader_U32(r);
     }
-    /* the multi-player drag race and battle scripts */
-    if (!r->ok || (id != 5 && id != 7) || !(in & (1u << (s_port - 1)))) {
+    if (!r->ok || (id != PROGRESSION_MP_DRAG && id != PROGRESSION_MP_BATTLE && id != PROGRESSION_JOYRIDE) ||
+        !(in & (1u << (s_port - 1)))) {
         return;
     }
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
@@ -318,7 +340,7 @@ static void ClientSetup(NetReader *r) {
     s_in = in;
     s_state = STATE_CHOOSING;
     Port_Log("online: setting up progression %u level %u for ports %x", id, level, in);
-    Port_InterfaceGoto(Port_MenuOnlineScreen(ONLINE_SCREEN_CAR_SELECT));
+    Port_InterfaceGoto(Port_MenuOnlineScreen(id == PROGRESSION_JOYRIDE ? ONLINE_SCREEN_CAR_SELECT_JOYRIDE : ONLINE_SCREEN_CAR_SELECT));
 }
 
 static void StartLevel(void) {
@@ -367,7 +389,8 @@ static void HostCheckChosen(void) {
 
 int Port_OnlineCarsChosen(Interface *iface) {
     /* other screens end the same way: the race's own HUD does */
-    if (s_state != STATE_CHOOSING || GETP(iface->header) != Port_MenuOnlineScreen(ONLINE_SCREEN_CAR_SELECT)) {
+    if (s_state != STATE_CHOOSING || (GETP(iface->header) != Port_MenuOnlineScreen(ONLINE_SCREEN_CAR_SELECT) &&
+                                      GETP(iface->header) != Port_MenuOnlineScreen(ONLINE_SCREEN_ITEM_SELECT_JOYRIDE))) {
         return 0;
     }
     /* the one-player screen's choice is player 1's, whatever this machine's port */
@@ -403,7 +426,7 @@ int Port_OnlineBack(const InterfaceHeader *header) {
     if (header == Port_MenuOnlineScreen(ONLINE_SCREEN_WAITING)) {
         return 1;
     }
-    if (header == Port_MenuOnlineScreen(ONLINE_SCREEN_CAR_SELECT)) {
+    if (header == Port_MenuOnlineScreen(ONLINE_SCREEN_CAR_SELECT) || header == Port_MenuOnlineScreen(ONLINE_SCREEN_CAR_SELECT_JOYRIDE)) {
         u8 msg = MSG_ABORT;
 
         if (!s_isHost) {
@@ -424,10 +447,166 @@ u32 Port_OnlineControllerPort(const Player *player) {
     return s_state != STATE_NONE ? 1 : player->port;
 }
 
+/* LoadWorldProcess: a world with a spawn for one gets more. Pack data the loading goes
+ * on to fill in: the car's and its item's, by port. */
+void Port_OnlineExpandSpawns(World *world) {
+    extern s32 g_GameProgressionID;
+    TileCar *first = GETP(world->tileCars);
+    u32 i;
+
+    if (s_state == STATE_NONE || g_GameProgressionID != PROGRESSION_JOYRIDE || first == NULL) {
+        s_scriptSpawn = NULL;
+        return;
+    }
+    if (first == s_spawns) {
+        return;                 /* a restart, the world as it was */
+    }
+    s_scriptSpawn = first;
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        TileCar *t = &s_spawns[i];
+
+        *t = *first;
+        t->port = (u8)(i + 1);
+        t->info.h = 0;
+        t->car.h = 0;
+        t->item.h = 0;
+        t->item2.h = 0;
+        t->itemID = t->item2ID = 0xFF;
+    }
+    world->numTileCars = ONLINE_PLAYERS;
+    SETP(world->tileCars, s_spawns);
+}
+
+/* The ground below a point, if it's ground a car can stand on. */
+static int SpawnGround(f32 x, f32 y, f32 z, f32 *ground) {
+    Vector4 start __attribute__((aligned(16)));
+    Vector4 down __attribute__((aligned(16)));
+    CollisionInfo hit;
+    f32 t = SPAWN_PROBE_DOWN;
+
+    start.x = x;
+    start.y = y;
+    start.z = z;
+    start.w = 1.0f;
+    down.x = 0.0f;
+    down.y = -1.0f;
+    down.z = 0.0f;
+    down.w = 0.0f;
+    SDL_zero(hit);
+    if (!RayHitsTerrain_Aux3(&start, &down, &t, &hit) || hit.normal.y < SPAWN_MIN_FLAT) {
+        return 0;
+    }
+    *ground = y - t;
+    return 1;
+}
+
+/* Is there a wall this far along a level direction? */
+static int SpawnBlocked(f32 x, f32 y, f32 z, f32 dirX, f32 dirZ, f32 distance) {
+    Vector4 start __attribute__((aligned(16)));
+    Vector4 dir __attribute__((aligned(16)));
+    CollisionInfo hit;
+    f32 t = distance;
+
+    start.x = x;
+    start.y = y;
+    start.z = z;
+    start.w = 1.0f;
+    dir.x = dirX;
+    dir.y = 0.0f;
+    dir.z = dirZ;
+    dir.w = 0.0f;
+    return RayHitsTerrain_Aux3(&start, &dir, &t, &hit);
+}
+
+/* Spots for the other cars: on ground like the spawn's, with room around them, in plain
+ * reach of the spawn so none starts behind a wall. From the world's own collision, so
+ * every machine picks the same, and any that didn't would be corrected by snapshots. */
+static void ChooseSpawns(void) {
+    /* eighths of a turn from the car's right, nearest and beside it first */
+    static const u8 bearings[] = {0, 4, 7, 5, 6, 1, 3, 2};
+    static const f32 radii[] = {30.0f, 40.0f, 55.0f, 70.0f, 90.0f, 120.0f, 160.0f};
+    TileCar *base = s_scriptSpawn;
+    Matrix4 mtx;
+    f32 baseGround, probeY;
+    Vector4 taken[ONLINE_PLAYERS];
+    u32 numTaken = 1, port, pass, r, b, i;
+
+    if (base == NULL) {
+        return;
+    }
+    probeY = base->pos.y + SPAWN_PROBE_ABOVE;
+    if (!SpawnGround(base->pos.x, probeY, base->pos.z, &baseGround)) {
+        baseGround = base->pos.y;
+    }
+    SetOrientation(&mtx, base->rotY, base->rotX, base->rotZ);
+    taken[0] = base->pos;
+    s_spawns[0].pos = base->pos;
+    for (port = 1; port < ONLINE_PLAYERS; port++) {
+        int found = 0;
+
+        s_spawns[port].pos = base->pos;
+        for (pass = 0; pass < 2 && !found; pass++) {
+        f32 room = pass == 0 ? SPAWN_CLEARANCE : SPAWN_TIGHT_CLEARANCE;
+        f32 apart = pass == 0 ? SPAWN_SEPARATION : SPAWN_TIGHT_SEPARATION;
+
+        for (r = 0; r < SDL_arraysize(radii) && !found; r++) {
+            for (b = 0; b < SDL_arraysize(bearings) && !found; b++) {
+                f32 angle = (f32)bearings[b] * (3.1415927f / 4.0f);
+                f32 c = cosf(angle), s = sinf(angle);
+                f32 dirX = mtx.v[0].x * c + mtx.v[2].x * s;
+                f32 dirZ = mtx.v[0].z * c + mtx.v[2].z * s;
+                f32 len = sqrtf(dirX * dirX + dirZ * dirZ);
+                f32 x, z, ground, y;
+                int clear;
+
+                if (len < 0.01f) {
+                    continue;
+                }
+                dirX /= len;
+                dirZ /= len;
+                x = base->pos.x + dirX * radii[r];
+                z = base->pos.z + dirZ * radii[r];
+                clear = 1;
+                for (i = 0; i < numTaken; i++) {
+                    f32 dx = taken[i].x - x, dz = taken[i].z - z;
+
+                    if (dx * dx + dz * dz < apart * apart) {
+                        clear = 0;
+                    }
+                }
+                if (!clear || !SpawnGround(x, probeY, z, &ground) || fabsf(ground - baseGround) > SPAWN_MAX_STEP) {
+                    continue;
+                }
+                y = ground + SPAWN_BODY_HEIGHT;
+                if (SpawnBlocked(base->pos.x, baseGround + SPAWN_BODY_HEIGHT, base->pos.z, dirX, dirZ, radii[r]) ||
+                    SpawnBlocked(x, y, z, 1.0f, 0.0f, room) || SpawnBlocked(x, y, z, -1.0f, 0.0f, room) ||
+                    SpawnBlocked(x, y, z, 0.0f, 1.0f, room) || SpawnBlocked(x, y, z, 0.0f, -1.0f, room)) {
+                    continue;
+                }
+                s_spawns[port].pos.x = x;
+                s_spawns[port].pos.y = base->pos.y + (ground - baseGround);
+                s_spawns[port].pos.z = z;
+                taken[numTaken++] = s_spawns[port].pos;
+                found = 1;
+                Port_Log("online: spawn for port %u: %.0f units away, bearing %u", port + 1, radii[r], (u32)bearings[b]);
+            }
+        }
+        }
+        if (!found) {
+            /* nowhere clear: above the spawn, the car falls and the collision sorts it out */
+            s_spawns[port].pos.y += SPAWN_SEPARATION * (f32)port;
+            Port_Log("online: no clear spawn for port %u", port + 1);
+        }
+    }
+}
+
 void Port_OnlineLevelLoading(void) {
     /* a restart makes new players: the last ones say nothing about these */
     s_localPlayer = NULL;
     SDL_zeroa(s_players);
+    if (s_state != STATE_NONE) {
+        ChooseSpawns();
+    }
 }
 
 void Port_OnlineSetupPlayer(Player *player) {
@@ -439,6 +618,13 @@ void Port_OnlineSetupPlayer(Player *player) {
     if ((s32)player->port == s_port) {
         s_localPlayer = player;
         player->device = 0;     /* port 2 here is still this machine's first pad */
+    }
+}
+
+/* What the world's scripts call the player's car is this machine's, also after a respawn. */
+static void KeepScriptSpawn(void) {
+    if (s_scriptSpawn != NULL && s_port >= 1) {
+        s_scriptSpawn->car.h = s_spawns[s_port - 1].car.h;
     }
 }
 
@@ -544,6 +730,7 @@ void Port_OnlineLevelStarted(void) {
     }
     Port_Log("online: level ready: progression %d, port %d, %d human cars", g_GameProgressionID, s_port,
              PlayerManager_PlayerHumanCount());
+    KeepScriptSpawn();
     BeginStage();
 }
 
@@ -1239,6 +1426,24 @@ static void HandleMessage(const NetEvent *e) {
             s_in &= ~(1u << (port - 1));
             s_remote[port - 1].have = 0;
             HostCheckGo();
+            if (s_state == STATE_PLAYING) {
+                /* it went back to the lobby: its car goes too, for everyone */
+                u8 buf[8];
+                NetWriter w;
+                u32 peer;
+
+                ReceiveCarState(port, s_stage, 0);
+                NetWriter_Init(&w, buf, sizeof(buf));
+                NetWriter_U8(&w, MSG_CAR_STATE);
+                NetWriter_U8(&w, (u8)port);
+                NetWriter_U32(&w, s_stage);
+                NetWriter_U8(&w, 0);
+                for (peer = 1; peer < ONLINE_PLAYERS; peer++) {
+                    if (peer != e->peer) {
+                        Net_SendReliable((u8)peer, buf, w.size);
+                    }
+                }
+            }
         }
     } else if (e->peer == NET_PEER_HOST) {
         if (kind == MSG_SETUP && s_state == STATE_LOBBY) {
@@ -1356,6 +1561,9 @@ void Port_OnlineHeartbeat(void) {
                 s_present &= ~(1u << e.peer);
                 s_in &= ~(1u << e.peer);
                 s_remote[e.peer].have = 0;
+                if (s_state == STATE_PLAYING) {
+                    ReceiveCarState(e.peer + 1u, s_stage, 0);   /* gone: its car too */
+                }
                 Port_Log("online: port %d left: %s", e.peer + 1, Net_ErrorName(e.error));
                 ShowLobby(s_isHost && Port_OnlinePlayerCount() < 2 ? "Waiting..." : NULL);
                 HostCheckChosen();
@@ -1400,6 +1608,7 @@ void Port_OnlineHeartbeat(void) {
 
         s_inLevel = 1;
         if (StateManager_CurrState() == 5) {
+            KeepScriptSpawn();
             SendSnapshot(now);
             SummaryHeartbeat(now);
             if (s_isHost && s_hold) {
@@ -1418,6 +1627,7 @@ void Port_OnlineHeartbeat(void) {
         Net_SendReliable(s_isHost ? NET_PEER_ALL : NET_PEER_HOST, &msg, 1);
         s_lobby = 0xF;
         s_localPlayer = NULL;
+        s_scriptSpawn = NULL;
         s_hold = 0;
         s_menuOpen = 0;
         s_inLevel = 0;

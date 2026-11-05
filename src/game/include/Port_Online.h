@@ -26,6 +26,8 @@ void Port_OnlineHostSetup(void);
 int Port_OnlineCarsChosen(Interface *iface);
 /* The back button on a screen: 1 refuses it. */
 int Port_OnlineBack(const InterfaceHeader *header);
+/* LoadWorldProcess: a world with a spawn for one gets more. */
+void Port_OnlineExpandSpawns(struct World *world);
 /* StateGamePlay_Init: before it makes any players. */
 void Port_OnlineLevelLoading(void);
 /* StateGamePlay_Init: a human player was made. */
@@ -70,7 +72,9 @@ typedef enum PortOnlineScreen {
     ONLINE_SCREEN_ONLINE,       /* Host with Tunnel / Host via LAN / Connect */
     ONLINE_SCREEN_LOBBY_HOST,
     ONLINE_SCREEN_LOBBY_CLIENT,
-    ONLINE_SCREEN_CAR_SELECT,   /* the game's one-player car select */
+    ONLINE_SCREEN_CAR_SELECT,   /* the game's one-player car select: races, battles */
+    ONLINE_SCREEN_CAR_SELECT_JOYRIDE,   /* Joyride's, going on to its item select */
+    ONLINE_SCREEN_ITEM_SELECT_JOYRIDE,
     ONLINE_SCREEN_WAITING,
 } PortOnlineScreen;
 

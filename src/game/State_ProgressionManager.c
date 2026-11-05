@@ -538,6 +538,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             DataPack_RefreshPtrs((void *)PTR(g_worldData.worldPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));
+            Port_OnlineExpandSpawns(WORLD());   /* port: Joyride, online */
             if (mcp != NULL && GETP(GETP(WORLD()->gameData)->itemPack) != NULL && mcp->skipWorldPacks == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(WORLD()->gameData)->itemPack), 8, 3, 0);

@@ -37,6 +37,8 @@
  *   own). Online has Host with Tunnel, Host via LAN and Connect, then a lobby; see
  *   "Online screens" below and Port_Online.c.
  *
+ * - Battle Options online: no Opponents row (there are no AI cars online), the rows
+ *   below moving up. Local play keeps it, the same screen: a copy made each time.
  * - Pause menu in the multi-player modes, online or local: no Save row, Quit moving
  *   up into its place. One Player keeps it: the same screen, so this is a copy made
  *   each time, and the original comes back otherwise.
@@ -593,6 +595,13 @@ enum {
 #define PACK_CAR_SELECT_SOLO 0x72CA00u  /* the one-player modes': online too, each
                                          * machine having one player */
 #define CAR_SELECT_SOLO_NUM_OBJECTS 6
+#define PACK_JOYRIDE 0x78C280u      /* world select */
+#define PACK_JOYRIDE_CAR 0x79BC40u
+#define PACK_JOYRIDE_ITEM 0x79BD60u
+/* The screens Port_CarouselPatch widens: at least this many objects. */
+#define JOYRIDE_NUM_OBJECTS 78
+#define JOYRIDE_CAR_NUM_OBJECTS 6
+#define JOYRIDE_ITEM_NUM_OBJECTS 78
 
 typedef struct OnlineScreen {
     InterfaceHeader h;
@@ -612,7 +621,7 @@ typedef struct OnlineRow {
 
 static OnlineScreen s_olChoose, s_olOnline, s_olTunnel, s_olConnect, s_olLobbyHost, s_olLobbyClient, s_olMode, s_olWaiting;
 static InterfaceHeader s_olPaste;   /* never shown: the Paste row's "target" */
-static InterfaceHeader *s_mpScreen, *s_carSelect, *s_carSelectSolo;
+static InterfaceHeader *s_mpScreen, *s_carSelect, *s_carSelectSolo, *s_battleOptions, *s_joyrideCar, *s_joyrideItem;
 static RecordCopy s_mainMultiRec;
 static char s_olAddress[64];
 
@@ -665,6 +674,13 @@ static void BuildOnlineScreen(OnlineScreen *s, const InterfaceHeader *mp, const 
     SETP(s->h.objects, s->objs);
 }
 
+/* As PackScreen, for a screen the port may already have added objects to. */
+static InterfaceHeader *WidenedPackScreen(InterfaceHeader *main, u32 offset, u32 numObjects) {
+    InterfaceHeader *h = (InterfaceHeader *)((u8 *)main - PACK_MAIN_MENU + offset);
+
+    return h->numObjects >= numObjects && GETP(h->objects) != NULL ? h : NULL;
+}
+
 /* Built again with each main menu: pack data may have moved since the last. */
 static void BuildOnlineScreens(InterfaceHeader *main) {
     OnlineRow rows[4];
@@ -702,8 +718,12 @@ static void BuildOnlineScreens(InterfaceHeader *main) {
     BuildOnlineScreen(&s_olLobbyClient, s_mpScreen, "Lobby", 2, 1, rows);
 
     rows[0] = (OnlineRow){"Drag Race", PackScreen(main, PACK_MP_DRAG, 26)};
-    rows[1] = (OnlineRow){"Battle", PackScreen(main, PACK_MP_BATTLE, 34)};
-    BuildOnlineScreen(&s_olMode, s_mpScreen, "Online Game", 0, 2, rows);
+    s_battleOptions = PackScreen(main, PACK_MP_BATTLE, 34);
+    rows[1] = (OnlineRow){"Battle", s_battleOptions};
+    rows[2] = (OnlineRow){"Joyride", WidenedPackScreen(main, PACK_JOYRIDE, JOYRIDE_NUM_OBJECTS)};
+    s_joyrideCar = WidenedPackScreen(main, PACK_JOYRIDE_CAR, JOYRIDE_CAR_NUM_OBJECTS);
+    s_joyrideItem = WidenedPackScreen(main, PACK_JOYRIDE_ITEM, JOYRIDE_ITEM_NUM_OBJECTS);
+    BuildOnlineScreen(&s_olMode, s_mpScreen, "Online Game", 0, rows[2].target != NULL && s_joyrideCar != NULL && s_joyrideItem != NULL ? 3 : 2, rows);
 
     BuildOnlineScreen(&s_olWaiting, s_mpScreen, "Please Wait", 1, 0, rows);
     SetText(&s_olWaiting.text[0], &s_olWaiting.objs[s_olWaiting.lineObject[0]], "Waiting...");
@@ -725,7 +745,13 @@ InterfaceHeader *Port_MenuOnlineScreen(PortOnlineScreen screen) {
     if (s != NULL) {
         return &s->h;
     }
-    return screen == ONLINE_SCREEN_MAIN ? s_main : screen == ONLINE_SCREEN_CAR_SELECT ? s_carSelectSolo : NULL;
+    switch (screen) {
+    case ONLINE_SCREEN_MAIN: return s_main;
+    case ONLINE_SCREEN_CAR_SELECT: return s_carSelectSolo;
+    case ONLINE_SCREEN_CAR_SELECT_JOYRIDE: return s_joyrideCar;
+    case ONLINE_SCREEN_ITEM_SELECT_JOYRIDE: return s_joyrideItem;
+    default: return NULL;
+    }
 }
 
 /* A line's text, and the live object's if its screen is up (only when it changed:
@@ -792,6 +818,9 @@ static InterfaceHeader *OnlineEventTarget(InterfaceHeader *target) {
         Port_OnlineHostSetup();
         return s_carSelectSolo;
     }
+    if (target == s_joyrideCar && Port_OnlineActive()) {
+        Port_OnlineHostSetup();
+    }
     return target;
 }
 
@@ -806,6 +835,74 @@ void Port_MenuOnlineUpdate(void) {
             return;
         }
     }
+}
+
+/* ---- Battle Options without Opponents ---------------------------------------- */
+
+enum {
+    BATTLE_NUM_OBJECTS = 34,
+    BATTLE_OPPONENTS = 24,      /* label, value, arrow */
+    BATTLE_ROW_OBJECTS = 3,
+    BATTLE_TIME_LIMIT = 27,
+    BATTLE_SCORE = 30,
+    BATTLE_END = 33,
+    BATTLE_REC_RESPAWN = 6,
+    BATTLE_REC_OPPONENTS = 3,
+    BATTLE_REC_TIME_LIMIT = 4,
+};
+
+static u32 s_battleOriginal;    /* the handle in h->objects */
+static InterfaceHeader *s_battlePatched;
+static IfaceObjectDef s_battleObjs[BATTLE_NUM_OBJECTS];
+static RecordCopy s_battleRecAbove, s_battleRecBelow;
+static AnimCopy s_battleAnim[BATTLE_END - BATTLE_TIME_LIMIT];
+
+static void PatchBattleOptions(InterfaceHeader *h) {
+    IfaceObjectDef *objs;
+    IfaceRecord *opponents;
+    u32 above = BATTLE_NUM_OBJECTS, i;
+    f32 step;
+
+    if (h == s_battlePatched) {
+        h->objects.h = s_battleOriginal;   /* as the pack has it */
+        s_battlePatched = NULL;
+    }
+    if (h != s_battleOptions || !Port_OnlineActive()) {
+        return;
+    }
+    objs = GETP(h->objects);
+    opponents = GETP(objs[BATTLE_OPPONENTS].record);
+    if (!TextIs(&objs[BATTLE_OPPONENTS], "Opponents") || opponents == NULL || opponents->id != BATTLE_REC_OPPONENTS) {
+        return;
+    }
+    for (i = 0; i < BATTLE_OPPONENTS; i++) {
+        IfaceRecord *r = GETP(objs[i].record);
+
+        if (r != NULL && r->id == BATTLE_REC_RESPAWN) {
+            above = i;
+        }
+    }
+    if (above == BATTLE_NUM_OBJECTS) {
+        return;
+    }
+    s_battlePatched = h;
+    s_battleOriginal = h->objects.h;
+    memcpy(s_battleObjs, objs, sizeof(s_battleObjs));
+    for (i = BATTLE_OPPONENTS; i < BATTLE_OPPONENTS + BATTLE_ROW_OBJECTS; i++) {
+        s_battleObjs[i].active = 0;
+        s_battleObjs[i].record.h = 0;
+        SETP(s_battleObjs[i].conditions, &s_hideAll);
+    }
+    CopyRecord(&s_battleRecAbove, &s_battleObjs[above], BATTLE_REC_RESPAWN, GETP(objs[above].record)->next[0], BATTLE_REC_TIME_LIMIT);
+    CopyRecord(&s_battleRecBelow, &s_battleObjs[BATTLE_TIME_LIMIT], BATTLE_REC_TIME_LIMIT, BATTLE_REC_RESPAWN,
+               GETP(objs[BATTLE_TIME_LIMIT].record)->next[1]);
+    step = ((f32 *)GETP(GETP(objs[BATTLE_TIME_LIMIT].anim)->pos.keys))[1] - ((f32 *)GETP(GETP(objs[BATTLE_OPPONENTS].anim)->pos.keys))[1];
+    for (i = BATTLE_TIME_LIMIT; i < BATTLE_END; i++) {
+        if (GETP(objs[i].anim) != NULL && GETP(GETP(objs[i].anim)->pos.keys) != NULL) {
+            MoveTo(&s_battleAnim[i - BATTLE_TIME_LIMIT], &s_battleObjs[i], ((f32 *)GETP(GETP(objs[i].anim)->pos.keys))[1] - step);
+        }
+    }
+    SETP(h->objects, s_battleObjs);
 }
 
 /* ---- the pause menu without Save ------------------------------------------ */
@@ -984,6 +1081,7 @@ void Port_MenuPatch(InterfaceHeader *h) {
     }
     Port_CarouselPatch(h);   /* world, car and weapon select: more windows */
     PatchPauseMenu(h);
+    PatchBattleOptions(h);
     if (h == &s_olConnect.h) {
         if (s_olAddress[0] == 0) {
             Port_LoadOnlineAddress(s_olAddress, sizeof(s_olAddress));
