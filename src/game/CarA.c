@@ -1,6 +1,7 @@
 #include "CarA.h"
 #include "AI.h"
 #include "common.h"
+#include "Port_Online.h"
 #include "Interface.h"
 #include "WildCard.h"
 
@@ -1830,7 +1831,11 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         car->damageAccum += damage;
         if (car->damageAccum > 30) {
             while (car->damageAccum > 30) {
-                car->base.health -= 30;
+                /* port: online, a car is hurt on its owner's machine; here its
+                 * health comes with its snapshots (Port_Online.c) */
+                if (GETP(car->base.player) == NULL || !Port_OnlineIsRemote(GETP(car->base.player))) {
+                    car->base.health -= 30;
+                }
                 car->damageAccum -= 30;
             }
             if (GameSettings_IsCheatEnabled(6) && GETP(car->base.player) != NULL && Player_IsHuman(GETP(car->base.player))) {
@@ -2290,6 +2295,9 @@ s8 CarA_ProcessItemPickup(CarA *car, void *thing) {
     u32 i;
     s16 ammo;
 
+    if (Port_OnlinePickup(car, item)) {
+        return 0;               /* port: online, its owner's machine decides */
+    }
     picked = 0;
     Trigger_ItemPickedUp(car, item);
     car->pickupId = def->names.h;

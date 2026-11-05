@@ -41,6 +41,10 @@ int Port_OnlineHoldRoundComplete(u32 number);
 /* The pause menu is up: the race goes on, the local car without input. */
 int Port_OnlineMenuOpen(void);
 void Port_OnlineSetMenuOpen(int open);
+/* LoadWorldProcess: a level's random pickup, the same on every machine. */
+s32 Port_OnlineItemRandom(s32 min, s32 max, u32 quadrant, u32 index);
+/* The car is about to take the item. 1: not here. */
+int Port_OnlinePickup(struct CarA *car, struct ItemThing *item);
 /* The control reader's work for a car driven on another machine. */
 void Port_OnlineRemoteControl(Player *player);
 /* Trigger.c: runs the script's RoundComplete(number) trigger. */

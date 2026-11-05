@@ -21,8 +21,14 @@
  * decides who finished first: a machine only claims its own car's finish, and only
  * the host's answer runs the script's RoundComplete trigger, on every machine.
  *
- * Not yet: AI opponents are off because each machine would run its own; pickups and
- * weapons aren't shared. */
+ * Weapons: a level's random pickups come from a seed the host shares, so every machine
+ * has the same ones. A car takes pickups only on its owner's machine, which tells the
+ * others. Other machines fire a remote car's weapon until its ammo is down to what the
+ * owner reports, and a car takes damage only on its owner's machine: its health travels
+ * with its snapshots, so a hit counts where the victim is.
+ *
+ * Not yet: AI opponents are off because each machine would run its own; a weapon a car
+ * dropped isn't shared if picked up again. */
 #include <SDL3/SDL.h>
 #include <math.h>
 
@@ -30,10 +36,13 @@
 #include "CarA.h"
 #include "World.h"
 #include "Interface.h"
+#include "ThingManager.h"
+#include "WildCard.h"
 #include "Port_Online.h"
 #include "net.h"
 
 #define ONLINE_PLAYERS 4        /* the game's ports; see NET_DEFAULT_PLAYERS */
+#define WORLD_OF_LEVEL() ((World *)GETP(g_worldData.world))
 #define MAX_VEHICLE 32          /* the car select's list */
 #define MAX_ITEM 0x60
 #define NO_ITEM (-1)
@@ -42,7 +51,7 @@ enum {
     MSG_SETUP = 1,              /* host: u8 progression, u16 level, u8 ports in, the settings */
     MSG_ABORT,                  /* host: left the car select */
     MSG_CARS,                   /* client: s32 vehicle, s32 item */
-    MSG_START,                  /* host: u8 ports in, then s32 vehicle, s32 item per port */
+    MSG_START,                  /* host: u8 ports in, u32 seed, then s32 vehicle, s32 item per port */
     MSG_READY,                  /* client: u32 stage: held, waiting for go */
     MSG_GO,                     /* host: u32 stage */
     MSG_FINISH,                 /* client: u32 stage, u32 ms since go: its car finished */
@@ -50,6 +59,7 @@ enum {
     MSG_RETURN,                 /* host: the level is over, back to the lobby */
     MSG_LEFT_LEVEL,             /* client: in the lobby */
     MSG_CONTINUE,               /* host: it left the round summary */
+    MSG_PICKUP,                 /* u8 port, u16 quadrant, u16 item, u16 ammo: its car took it */
 };
 
 #define SNAPSHOT_MS 33          /* how often a car tells the others about itself */
@@ -65,6 +75,7 @@ enum {
 #define PULL_ROT 10.0f
 /* Further off than this, or than half a second's travel, it jumps instead. */
 #define SNAP_DISTANCE 60.0f
+#define MAX_SHOTS_BEHIND 3      /* further behind the owner, skip them rather than a burst */
 
 /* The latest word on another machine's car. */
 typedef struct RemoteCar {
@@ -77,6 +88,9 @@ typedef struct RemoteCar {
     u8 throttle, brake;
     u32 buttons;                /* pressed since the last snapshot: applied once */
     s32 health;
+    u8 fire;                    /* held since the last snapshot */
+    u8 slot;                    /* the weapon selected */
+    s16 ammo;                   /* in it */
 } RemoteCar;
 
 typedef enum OnlineState {
@@ -118,6 +132,9 @@ static int s_menuOpen;
 static const void *s_summary;   /* the round summary's interface header */
 static u64 s_summarySince, s_summaryPress;
 static int s_continue, s_pressA;
+static u32 s_levelSeed;
+static int s_fire;              /* held since the last snapshot */
+static int s_applyingPickup;
 
 void GameSettings_PortOnlineBegin(void);
 void GameSettings_PortOnlineEnd(void);
@@ -324,6 +341,8 @@ static void HostCheckChosen(void) {
     NetWriter_Init(&w, buf, sizeof(buf));
     NetWriter_U8(&w, MSG_START);
     NetWriter_U8(&w, (u8)s_in);
+    s_levelSeed = (u32)SDL_GetPerformanceCounter();
+    NetWriter_U32(&w, s_levelSeed);
     for (i = 0; i < ONLINE_PLAYERS; i++) {
         NetWriter_U32(&w, (u32)s_vehicle[i]);
         NetWriter_U32(&w, (u32)s_item[i]);
@@ -635,6 +654,91 @@ void Port_OnlineSetMenuOpen(int open) {
     s_menuOpen = open;
 }
 
+/* ---- pickups ----------------------------------------------------------------- */
+
+/* A level's random pickup: the same on every machine. */
+s32 Port_OnlineItemRandom(s32 min, s32 max, u32 quadrant, u32 index) {
+    u32 x;
+
+    if (s_state == STATE_NONE) {
+        return RandomNumberGenerator_GetRandomInteger(min, max);
+    }
+    x = s_levelSeed ^ (quadrant * 2654435761u) ^ (index * 40503u);
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return max > min ? min + (s32)(x % (u32)(max - min)) : min;
+}
+
+/* The car is about to take the item. 1: not here. */
+int Port_OnlinePickup(CarA *car, ItemThing *item) {
+    Player *player = GETP(car->base.player);
+    QuadItem *spawner;
+    u32 q, i;
+
+    if (s_state == STATE_NONE || s_applyingPickup || player == NULL || !Player_IsHuman(player)) {
+        return 0;
+    }
+    if (Port_OnlineIsRemote(player)) {
+        return 1;               /* its owner says when */
+    }
+    spawner = GETP(item->spawner);
+    if (spawner == NULL) {
+        return 0;
+    }
+    for (q = 0; q < WORLD_OF_LEVEL()->numQuads; q++) {
+        QuadContents *contents = GETP(GETP(WORLD_OF_LEVEL()->quads)[q].contents);
+
+        for (i = 0; i < contents->numItems; i++) {
+            if (&GETP(contents->items)[i] == spawner) {
+                u8 buf[10];
+                NetWriter w;
+
+                NetWriter_Init(&w, buf, sizeof(buf));
+                NetWriter_U8(&w, MSG_PICKUP);
+                NetWriter_U8(&w, (u8)s_port);
+                NetWriter_U16(&w, (u16)q);
+                NetWriter_U16(&w, (u16)i);
+                NetWriter_U16(&w, (u16)item->ammo);
+                Net_SendReliable(s_isHost ? NET_PEER_ALL : NET_PEER_HOST, buf, w.size);
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Another machine's car took this. Everything from the network is checked: the
+ * numbers index the world. */
+static void ReceivePickup(u32 port, u32 q, u32 i, s16 ammo) {
+    QuadContents *contents;
+    QuadItem *spawner;
+    Player *player;
+    CarA *car;
+
+    if (StateManager_CurrState() != 5 || port < 1 || port > ONLINE_PLAYERS || (s32)port == s_port || q >= WORLD_OF_LEVEL()->numQuads) {
+        return;
+    }
+    contents = GETP(GETP(WORLD_OF_LEVEL()->quads)[q].contents);
+    player = s_players[port - 1];
+    if (contents == NULL || i >= contents->numItems || player == NULL || (car = GETP(player->vehicle)) == NULL) {
+        return;
+    }
+    spawner = &GETP(contents->items)[i];
+    if (GETP(spawner->thing) != NULL) {
+        s_applyingPickup = 1;
+        CarA_ProcessItemPickup(car, GETP(spawner->thing));
+        s_applyingPickup = 0;
+    } else if (GETP(spawner->record) != NULL && GETP(GETP(spawner->record)->weapon) != NULL) {
+        /* this machine's own car got there first: both have it, as they do there */
+        WildCardRack *rack = ThingManagerList_GetByType(&car->motionState.slaves, THING_TYPE_WILDCARD_RACK);
+
+        if (rack != NULL && ammo > 0) {
+            WildCardRack_Add(rack, GETP(spawner->record), ammo);
+        }
+    }
+}
+
 /* ---- cars -------------------------------------------------------------------- */
 
 static void SendSnapshot(u64 now) {
@@ -647,6 +751,7 @@ static void SendSnapshot(u64 now) {
         return;
     }
     s_buttons |= s_localPlayer->buttonsHeld;
+    s_fire |= s_localPlayer->buttonFire != 0;
     if (now < s_nextSnapshot || s_hold) {
         return;
     }
@@ -673,7 +778,15 @@ static void SendSnapshot(u64 now) {
     NetWriter_U8(&w, (u8)s_localPlayer->stickY);
     NetWriter_U8(&w, s_localPlayer->throttle);
     NetWriter_U8(&w, s_localPlayer->brake);
+    NetWriter_U8(&w, (u8)s_fire);
+    {
+        WildCardRack *rack = ThingManagerList_GetByType(&car->motionState.slaves, THING_TYPE_WILDCARD_RACK);
+
+        NetWriter_U8(&w, rack != NULL ? rack->cur : 0);
+        NetWriter_U16(&w, rack != NULL ? (u16)rack->slots[rack->cur].ammo : 0);
+    }
     s_buttons = 0;
+    s_fire = 0;
     Net_SendLatest(NET_PEER_ALL, (u8)(s_port - 1), buf, w.size);
 }
 
@@ -709,6 +822,9 @@ static void ReceiveSnapshot(u32 port, const NetEvent *e) {
     in.stickY = (s8)NetReader_U8(&rd);
     in.throttle = NetReader_U8(&rd);
     in.brake = NetReader_U8(&rd);
+    in.fire = NetReader_U8(&rd);
+    in.slot = NetReader_U8(&rd);
+    in.ammo = (s16)NetReader_U16(&rd);
     /* from the network: nothing unusable reaches the physics */
     if (!rd.ok || (r->have && in.seq <= r->seq) ||
         !Sane(in.pos.x, 1e6f) || !Sane(in.pos.y, 1e6f) || !Sane(in.pos.z, 1e6f) ||
@@ -747,15 +863,42 @@ void Port_OnlineRemoteControl(Player *player) {
             r = &s_remote[port];
         }
     }
-    if (r == NULL || !r->have || car == NULL) {
+    if (r == NULL || !r->have) {
+        return;
+    }
+    player->buttonFire = r->fire ? 0xFF : 0;    /* with no car, fire is what respawns one */
+    if (car == NULL) {
         return;
     }
     player->stickX = r->stickX;
     player->stickY = r->stickY;
     player->throttle = r->throttle;
     player->brake = r->brake;
-    player->buttonsHeld = r->buttons;
+    player->buttonsHeld = r->buttons & ~2u;     /* the weapon selected comes as such */
     r->buttons = 0;
+    {
+        /* shots by ammo: a tap can't fall between two snapshots, and input arriving
+         * while the weapon isn't ready doesn't lose one */
+        WildCardRack *rack = ThingManagerList_GetByType(&car->motionState.slaves, THING_TYPE_WILDCARD_RACK);
+
+        if (rack != NULL && r->slot < WILDCARD_SLOTS && GETP(rack->slots[r->slot].item) != NULL) {
+            WildCardSlot *slot = &rack->slots[r->slot];
+            s32 perShot = GETP(GETP(slot->item)->weapon)->ammoPerShot;
+
+            if (rack->cur != r->slot) {
+                rack->cur = r->slot;
+                slot->scale = 0.0f;
+            }
+            if (slot->ammo < r->ammo || slot->ammo - r->ammo > MAX_SHOTS_BEHIND * perShot) {
+                slot->ammo = r->ammo;
+            }
+            if (perShot > 0 && slot->ammo - r->ammo >= perShot) {
+                player->buttonFire = 0xFF;
+            } else if (r->ammo >= perShot) {
+                player->buttonFire = 0;  /* the count says when: the held bit is for no-ammo cheats */
+            }
+        }
+    }
 
     t = &car->base;
     t->health = r->health;
@@ -849,6 +992,32 @@ static void HandleMessage(const NetEvent *e) {
             if (r.ok && stage == s_stage && !s_hold && s_players[port - 1] != NULL) {
                 HostClaim(s_players[port - 1]->port, elapsed);
             }
+        } else if (kind == MSG_PICKUP && s_state == STATE_PLAYING) {
+            u8 buf[10];
+            NetWriter w;
+            u32 q, i;
+            u16 ammo;
+
+            NetReader_U8(&r);   /* a player's claim is for its own car, whatever it says */
+            q = NetReader_U16(&r);
+            i = NetReader_U16(&r);
+            ammo = NetReader_U16(&r);
+            if (r.ok) {
+                u32 peer;
+
+                ReceivePickup(port, q, i, (s16)ammo);
+                NetWriter_Init(&w, buf, sizeof(buf));
+                NetWriter_U8(&w, MSG_PICKUP);
+                NetWriter_U8(&w, (u8)port);
+                NetWriter_U16(&w, (u16)q);
+                NetWriter_U16(&w, (u16)i);
+                NetWriter_U16(&w, ammo);
+                for (peer = 1; peer < ONLINE_PLAYERS; peer++) {
+                    if (peer != e->peer) {
+                        Net_SendReliable((u8)peer, buf, w.size);
+                    }
+                }
+            }
         } else if (kind == MSG_LEFT_LEVEL) {
             s_lobby |= 1u << (port - 1);
             s_in &= ~(1u << (port - 1));
@@ -878,6 +1047,15 @@ static void HandleMessage(const NetEvent *e) {
             if (r.ok && stage == s_stage && !s_decided && number >= 1 && number <= ONLINE_PLAYERS) {
                 AnnounceWinner(number);
             }
+        } else if (kind == MSG_PICKUP && s_state == STATE_PLAYING) {
+            u32 port = NetReader_U8(&r);
+            u32 q = NetReader_U16(&r);
+            u32 i = NetReader_U16(&r);
+            u16 ammo = NetReader_U16(&r);
+
+            if (r.ok) {
+                ReceivePickup(port, q, i, (s16)ammo);
+            }
         } else if (kind == MSG_CONTINUE && s_state == STATE_PLAYING) {
             s_continue = 1;
         } else if (kind == MSG_RETURN && s_state == STATE_PLAYING) {
@@ -888,6 +1066,7 @@ static void HandleMessage(const NetEvent *e) {
             }
         } else if (kind == MSG_START && (s_state == STATE_CHOOSING || s_state == STATE_WAITING)) {
             u32 in = NetReader_U8(&r);
+            u32 seed = NetReader_U32(&r);
             s32 vehicle[ONLINE_PLAYERS], item[ONLINE_PLAYERS];
             u32 i;
 
@@ -899,6 +1078,7 @@ static void HandleMessage(const NetEvent *e) {
                 SDL_memcpy(s_vehicle, vehicle, sizeof(vehicle));
                 SDL_memcpy(s_item, item, sizeof(item));
                 s_in = in;
+                s_levelSeed = seed;
                 StartLevel();
             }
         }
