@@ -525,9 +525,16 @@ void CarA_ComputeSuspensionForces(void *thing) {
                         fric *= one - wheel->handbrakeGrip * one;
                     }
                     fric = lean * (GETP(hit.surface)->grip * fric);
-                    if ((car->transmissionFlags & 0x100) && fric * g_fDeltaTimeSec > slipMag) {
+                    // Port fix: the gripping branch cancels the slip in one step of the
+                    // original 60 FPS frame. With the real dt, its pull on the wheel speed
+                    // is the same per frame while engine torque shrinks with dt, so at very
+                    // high frame rates a car on full throttle settled below the |grade| < 2
+                    // gate in CarA_ComputeSuspensionForces_Aux1, which then held it still.
+                    // Above 60 FPS keep the 60 FPS step so the balance doesn't depend on dt.
+                    f32 gripDt = g_fDeltaTimeSec < (1.0f / 60.0f) ? (1.0f / 60.0f) : g_fDeltaTimeSec;
+                    if ((car->transmissionFlags & 0x100) && fric * gripDt > slipMag) {
                         numSlipping++;
-                        lean = 1.0f / g_fDeltaTimeSec;
+                        lean = 1.0f / gripDt;
                     } else {
                         lean = fric / slipMag;
                     }
