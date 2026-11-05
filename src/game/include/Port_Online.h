@@ -45,6 +45,8 @@ void Port_OnlineSetMenuOpen(int open);
 s32 Port_OnlineItemRandom(s32 min, s32 max, u32 quadrant, u32 index);
 /* The car is about to take the item. 1: not here. */
 int Port_OnlinePickup(struct CarA *car, struct ItemThing *item);
+/* Whose controller settings a player uses. */
+u32 Port_OnlineControllerPort(const Player *player);
 /* The control reader's work for a car driven on another machine. */
 void Port_OnlineRemoteControl(Player *player);
 /* Trigger.c: runs the script's RoundComplete(number) trigger. */

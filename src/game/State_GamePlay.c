@@ -466,7 +466,8 @@ void SetPlayerControls(void) {
     count = PlayerManager_PlayerHumanCount();
     for (i = 0; i < count; i++) {
         player = PlayerManager_GetHumanPlayerByIndex(i);
-        settings = GameSettings_GetControllerSettings(player->controller);
+        /* port: online, the first pad's, whatever port this car spawned on */
+        settings = GameSettings_GetControllerSettings(Port_OnlineActive() ? Port_OnlineControllerPort((Player *)player) : (u32)player->controller);
         if (mcp != NULL && mcp->numBindings != 0) {
             if (settings->data[1] >= mcp->numBindings) {
                 settings->data[1] = 0;
@@ -845,7 +846,7 @@ s32 ActionPauseGame(u32 *action) {
         count = PlayerManager_PlayerHumanCount();
         for (i = 0; i < count; i++) {
             player = PlayerManager_GetHumanPlayerByIndex(i);
-            settings = GameSettings_GetControllerSettings(player->port);
+            settings = GameSettings_GetControllerSettings(Port_OnlineActive() ? Port_OnlineControllerPort(player) : player->port);   /* port: as in SetPlayerControls */
             if (mcp != NULL && mcp->numBindings != 0) {
                 if (settings->data[1] >= mcp->numBindings) {
                     settings->data[1] = 0;

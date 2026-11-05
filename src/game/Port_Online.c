@@ -60,6 +60,7 @@ enum {
     MSG_LEFT_LEVEL,             /* client: in the lobby */
     MSG_CONTINUE,               /* host: it left the round summary */
     MSG_PICKUP,                 /* u8 port, u16 quadrant, u16 item, u16 ammo: its car took it */
+    MSG_CAR_STATE,              /* u8 port, u32 stage, u8 alive: its car was destroyed or respawned */
 };
 
 #define SNAPSHOT_MS 33          /* how often a car tells the others about itself */
@@ -89,8 +90,12 @@ typedef struct RemoteCar {
     u32 buttons;                /* pressed since the last snapshot: applied once */
     s32 health;
     u8 fire;                    /* held since the last snapshot */
+    u8 noAmmoCost;              /* its owner has the infinite ammo cheat: ammo says nothing */
     u8 slot;                    /* the weapon selected */
     s16 ammo;                   /* in it */
+    u8 dead;                    /* its owner's car is gone: this copy goes too */
+    u8 killed;                  /* and it has been told to */
+    u8 respawn;                 /* its owner has a new one */
 } RemoteCar;
 
 typedef enum OnlineState {
@@ -135,6 +140,7 @@ static int s_continue, s_pressA;
 static u32 s_levelSeed;
 static int s_fire;              /* held since the last snapshot */
 static int s_applyingPickup;
+static int s_localAlive;
 
 void GameSettings_PortOnlineBegin(void);
 void GameSettings_PortOnlineEnd(void);
@@ -404,6 +410,12 @@ int Port_OnlineBack(const InterfaceHeader *header) {
 
 /* ---- the level --------------------------------------------------------------- */
 
+/* Whose controller settings a player uses: each machine has one player, on the
+ * first pad, whatever port it spawned on. */
+u32 Port_OnlineControllerPort(const Player *player) {
+    return s_state != STATE_NONE ? 1 : player->port;
+}
+
 void Port_OnlineLevelLoading(void) {
     /* a restart makes new players: the last ones say nothing about these */
     s_localPlayer = NULL;
@@ -489,6 +501,7 @@ static void BeginStage(void) {
     s_bestElapsed = 0xFFFFFFFF;
     s_buttons = 0;
     SDL_zeroa(s_remote);
+    s_localAlive = 1;           /* a reset respawns, on every machine */
     /* the summary went with the level, and it wasn't the Main Menu: a restart */
     if (s_isHost && s_summarySince != 0) {
         u8 msg = MSG_CONTINUE;
@@ -708,6 +721,23 @@ int Port_OnlinePickup(CarA *car, ItemThing *item) {
     return 0;
 }
 
+/* Another machine's car was destroyed, or has a new one. A stage's reset leaves every
+ * car alive, so word from an earlier stage is out of date. */
+static void ReceiveCarState(u32 port, u32 stage, u32 alive) {
+    RemoteCar *r;
+
+    if (port < 1 || port > ONLINE_PLAYERS || (s32)port == s_port || stage != s_stage) {
+        return;
+    }
+    r = &s_remote[port - 1];
+    r->dead = !alive;
+    r->killed = 0;
+    r->respawn = alive != 0;
+    if (alive) {
+        r->have = 0;            /* what it said about the last car */
+    }
+}
+
 /* Another machine's car took this. Everything from the network is checked: the
  * numbers index the world. */
 static void ReceivePickup(u32 port, u32 q, u32 i, s16 ammo) {
@@ -747,7 +777,24 @@ static void SendSnapshot(u64 now) {
     CarA *car;
     Thing *t;
 
-    if (s_localPlayer == NULL || (car = GETP(s_localPlayer->vehicle)) == NULL) {
+    if (s_localPlayer == NULL) {
+        return;
+    }
+    car = GETP(s_localPlayer->vehicle);
+    if ((car != NULL) != s_localAlive) {
+        /* no snapshots while it's gone: others hear of this directly */
+        u8 buf[8];
+        NetWriter w;
+
+        s_localAlive = car != NULL;
+        NetWriter_Init(&w, buf, sizeof(buf));
+        NetWriter_U8(&w, MSG_CAR_STATE);
+        NetWriter_U8(&w, (u8)s_port);
+        NetWriter_U32(&w, s_stage);
+        NetWriter_U8(&w, (u8)s_localAlive);
+        Net_SendReliable(s_isHost ? NET_PEER_ALL : NET_PEER_HOST, buf, w.size);
+    }
+    if (car == NULL) {
         return;
     }
     s_buttons |= s_localPlayer->buttonsHeld;
@@ -778,7 +825,7 @@ static void SendSnapshot(u64 now) {
     NetWriter_U8(&w, (u8)s_localPlayer->stickY);
     NetWriter_U8(&w, s_localPlayer->throttle);
     NetWriter_U8(&w, s_localPlayer->brake);
-    NetWriter_U8(&w, (u8)s_fire);
+    NetWriter_U8(&w, (u8)(s_fire | (GameSettings_IsCheatEnabled(0) ? 2 : 0)));
     {
         WildCardRack *rack = ThingManagerList_GetByType(&car->motionState.slaves, THING_TYPE_WILDCARD_RACK);
 
@@ -822,7 +869,12 @@ static void ReceiveSnapshot(u32 port, const NetEvent *e) {
     in.stickY = (s8)NetReader_U8(&rd);
     in.throttle = NetReader_U8(&rd);
     in.brake = NetReader_U8(&rd);
-    in.fire = NetReader_U8(&rd);
+    {
+        u8 fire = NetReader_U8(&rd);
+
+        in.fire = fire & 1;
+        in.noAmmoCost = (fire & 2) != 0;
+    }
     in.slot = NetReader_U8(&rd);
     in.ammo = (s16)NetReader_U16(&rd);
     /* from the network: nothing unusable reaches the physics */
@@ -844,7 +896,23 @@ static void ReceiveSnapshot(u32 port, const NetEvent *e) {
     in.have = 1;
     in.receivedAt = SDL_GetTicks();
     in.buttons |= r->have ? r->buttons : 0;
+    in.dead = r->dead;
+    in.killed = r->killed;
+    in.respawn = r->respawn;
     *r = in;
+}
+
+/* Its owner's machine destroyed it. Dying is part of taking an impact: a health at
+ * zero alone does nothing until the next one, so this is one, of no force. */
+static void KillCar(CarA *car) {
+    CollisionInfo hit;
+
+    SDL_zero(hit);
+    hit.pos = car->base.pos;
+    hit.normal = car->base.axis[1];
+    SETP(*(PTR32(void) *)&hit.thingA, car);
+    car->base.health = 0;
+    THING_VFN(&car->base, THING_V_DYNAMIC_COLLIDE_IMPACT, void (*)(void *, void *, s32, f32))(car, &hit, 0, 0.0f);
 }
 
 /* From the control reader, each frame, for a car driven on another machine: its
@@ -863,13 +931,26 @@ void Port_OnlineRemoteControl(Player *player) {
             r = &s_remote[port];
         }
     }
-    if (r == NULL || !r->have) {
+    if (r == NULL) {
         return;
     }
-    player->buttonFire = r->fire ? 0xFF : 0;    /* with no car, fire is what respawns one */
     if (car == NULL) {
+        /* fire is what respawns a car, once it has been gone long enough here too */
+        player->buttonFire = r->respawn ? 0xFF : 0;
         return;
     }
+    r->respawn = 0;
+    if (r->dead) {
+        if (!r->killed) {
+            r->killed = 1;
+            KillCar(car);
+        }
+        return;
+    }
+    if (!r->have) {
+        return;
+    }
+    player->buttonFire = r->fire ? 0xFF : 0;
     player->stickX = r->stickX;
     player->stickY = r->stickY;
     player->throttle = r->throttle;
@@ -892,10 +973,8 @@ void Port_OnlineRemoteControl(Player *player) {
             if (slot->ammo < r->ammo || slot->ammo - r->ammo > MAX_SHOTS_BEHIND * perShot) {
                 slot->ammo = r->ammo;
             }
-            if (perShot > 0 && slot->ammo - r->ammo >= perShot) {
-                player->buttonFire = 0xFF;
-            } else if (r->ammo >= perShot) {
-                player->buttonFire = 0;  /* the count says when: the held bit is for no-ammo cheats */
+            if (!r->noAmmoCost && !GameSettings_IsCheatEnabled(0)) {
+                player->buttonFire = perShot > 0 && slot->ammo - r->ammo >= perShot ? 0xFF : 0;
             }
         }
     }
@@ -1018,6 +1097,30 @@ static void HandleMessage(const NetEvent *e) {
                     }
                 }
             }
+        } else if (kind == MSG_CAR_STATE && s_state == STATE_PLAYING) {
+            u32 stage;
+            u32 alive;
+
+            NetReader_U8(&r);   /* for its own car, whatever it says */
+            stage = NetReader_U32(&r);
+            alive = NetReader_U8(&r);
+            if (r.ok) {
+                u8 buf[8];
+                NetWriter w;
+                u32 peer;
+
+                ReceiveCarState(port, stage, alive);
+                NetWriter_Init(&w, buf, sizeof(buf));
+                NetWriter_U8(&w, MSG_CAR_STATE);
+                NetWriter_U8(&w, (u8)port);
+                NetWriter_U32(&w, stage);
+                NetWriter_U8(&w, (u8)alive);
+                for (peer = 1; peer < ONLINE_PLAYERS; peer++) {
+                    if (peer != e->peer) {
+                        Net_SendReliable((u8)peer, buf, w.size);
+                    }
+                }
+            }
         } else if (kind == MSG_LEFT_LEVEL) {
             s_lobby |= 1u << (port - 1);
             s_in &= ~(1u << (port - 1));
@@ -1055,6 +1158,14 @@ static void HandleMessage(const NetEvent *e) {
 
             if (r.ok) {
                 ReceivePickup(port, q, i, (s16)ammo);
+            }
+        } else if (kind == MSG_CAR_STATE && s_state == STATE_PLAYING) {
+            u32 port = NetReader_U8(&r);
+            u32 stage = NetReader_U32(&r);
+            u32 alive = NetReader_U8(&r);
+
+            if (r.ok) {
+                ReceiveCarState(port, stage, alive);
             }
         } else if (kind == MSG_CONTINUE && s_state == STATE_PLAYING) {
             s_continue = 1;
