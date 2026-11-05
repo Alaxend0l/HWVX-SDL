@@ -45,6 +45,11 @@ void Port_OnlineSetMenuOpen(int open);
 s32 Port_OnlineItemRandom(s32 min, s32 max, u32 quadrant, u32 index);
 /* The car is about to take the item. 1: not here. */
 int Port_OnlinePickup(struct CarA *car, struct ItemThing *item);
+/* The car was destroyed by this player. 1: a copy's: don't count it. */
+int Port_OnlineCarKilled(const Player *victim, const Player *killer);
+/* GameRules found the round over; forced: a script or the host said so. 1: not for this
+ * machine to decide. */
+int Port_OnlineRoundOver(int forced, u32 winner);
 /* Whose controller settings a player uses. */
 u32 Port_OnlineControllerPort(const Player *player);
 /* The control reader's work for a car driven on another machine. */

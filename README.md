@@ -325,8 +325,8 @@ floor) and any logic that counts frames rather than time.
 
 ### Online play
 
-Work in progress: Drag Race plays over a network, weapons and pickups included; Battle
-hasn't been tried and Joyride isn't in. One host and its clients, each connected to the host only,
+Work in progress: Drag Race and Battle play over a network, weapons and pickups included;
+Joyride isn't in. One host and its clients, each connected to the host only,
 up to 8 players in the transport (the game itself stops at 4 for now: player pools,
 score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
 

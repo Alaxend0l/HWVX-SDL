@@ -27,6 +27,11 @@
  * owner reports, and a car takes damage only on its owner's machine: its health travels
  * with its snapshots, so a hit counts where the victim is.
  *
+ * Scores: a car's stunt points are its owner's, and travel with its snapshots. A kill
+ * happens where the victim is: its machine tells the others whose it was. Only the host
+ * checks a round's targets and timer, and sends the winner with the scores, so every
+ * machine tallies the same round.
+ *
  * Not yet: AI opponents are off because each machine would run its own; a weapon a car
  * dropped isn't shared if picked up again. */
 #include <SDL3/SDL.h>
@@ -61,10 +66,12 @@ enum {
     MSG_CONTINUE,               /* host: it left the round summary */
     MSG_PICKUP,                 /* u8 port, u16 quadrant, u16 item, u16 ammo: its car took it */
     MSG_CAR_STATE,              /* u8 port, u32 stage, u8 alive: its car was destroyed or respawned */
+    MSG_KILL,                   /* u32 stage, u8 the killer's port: this car's death was its doing */
+    MSG_ROUND_END,              /* host: u32 stage, u8 winner, 0xFF: none; s32 kills, u32 points per port */
 };
 
 #define SNAPSHOT_MS 33          /* how often a car tells the others about itself */
-#define SNAPSHOT_SIZE 72
+#define SNAPSHOT_SIZE 76
 #define HOLD_MAX_MS 30000       /* a machine this late doesn't hold up the others */
 #define SUMMARY_MS 8000         /* the round summary moves on without anyone pressing */
 #define SUMMARY_PRESS_MS 500    /* it may be still coming in: press until it's gone */
@@ -93,6 +100,7 @@ typedef struct RemoteCar {
     u8 noAmmoCost;              /* its owner has the infinite ammo cheat: ammo says nothing */
     u8 slot;                    /* the weapon selected */
     s16 ammo;                   /* in it */
+    u32 points;
     u8 dead;                    /* its owner's car is gone: this copy goes too */
     u8 killed;                  /* and it has been told to */
     u8 respawn;                 /* its owner has a new one */
@@ -667,6 +675,91 @@ void Port_OnlineSetMenuOpen(int open) {
     s_menuOpen = open;
 }
 
+/* ---- scores -------------------------------------------------------------------- */
+
+/* The car was destroyed by this player. The game has just counted it here, if the
+ * car is this machine's. 1: a copy's death, which its owner's machine counts instead. */
+int Port_OnlineCarKilled(const Player *victim, const Player *killer) {
+    u8 buf[8];
+    NetWriter w;
+    u32 port;
+
+    if (s_state == STATE_NONE) {
+        return 0;
+    }
+    if (Port_OnlineIsRemote(victim)) {
+        return 1;
+    }
+    for (port = 1; port <= ONLINE_PLAYERS; port++) {
+        if (s_players[port - 1] == killer) {
+            NetWriter_Init(&w, buf, sizeof(buf));
+            NetWriter_U8(&w, MSG_KILL);
+            NetWriter_U32(&w, s_stage);
+            NetWriter_U8(&w, (u8)port);
+            Net_SendReliable(s_isHost ? NET_PEER_ALL : NET_PEER_HOST, buf, w.size);
+            break;
+        }
+    }
+    return 0;
+}
+
+static void ReceiveKill(u32 stage, u32 killer) {
+    if (stage == s_stage && killer >= 1 && killer <= ONLINE_PLAYERS && s_players[killer - 1] != NULL) {
+        s_players[killer - 1]->kills++;
+        s_players[killer - 1]->scoreDirty = 1;
+    }
+}
+
+/* GameRules found the round over; forced: a script or the host said so. 1: not for this
+ * machine to decide: only the host checks targets and the timer. */
+int Port_OnlineRoundOver(int forced, u32 winner) {
+    u8 buf[8 + ONLINE_PLAYERS * 8];
+    NetWriter w;
+    u32 i;
+
+    if (s_state == STATE_NONE || forced) {
+        return 0;
+    }
+    if (!s_isHost) {
+        return 1;
+    }
+    NetWriter_Init(&w, buf, sizeof(buf));
+    NetWriter_U8(&w, MSG_ROUND_END);
+    NetWriter_U32(&w, s_stage);
+    NetWriter_U8(&w, winner >= 1 && winner <= ONLINE_PLAYERS ? (u8)winner : 0xFF);
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        NetWriter_U32(&w, s_players[i] != NULL ? (u32)s_players[i]->kills : 0);
+        NetWriter_U32(&w, s_players[i] != NULL ? s_players[i]->stuntPoints : 0);
+    }
+    Net_SendReliable(NET_PEER_ALL, buf, w.size);
+    return 0;
+}
+
+static void ReceiveRoundEnd(NetReader *r) {
+    u32 stage = NetReader_U32(r);
+    u32 winner = NetReader_U8(r);
+    s32 kills[ONLINE_PLAYERS];
+    u32 points[ONLINE_PLAYERS];
+    u32 i;
+
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        kills[i] = (s32)NetReader_U32(r);
+        points[i] = NetReader_U32(r);
+    }
+    if (!r->ok || stage != s_stage || s_hold) {
+        return;
+    }
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        if (s_players[i] != NULL) {
+            s_players[i]->kills = kills[i];
+            s_players[i]->stuntPoints = points[i];
+            s_players[i]->scoreDirty = 1;
+        }
+    }
+    Port_Log("online: the host ended the round, winner %u", winner);
+    GameRules_ForceRoundEnd(winner == 0xFF ? 0xFFFFFFFFu : winner);
+}
+
 /* ---- pickups ----------------------------------------------------------------- */
 
 /* A level's random pickup: the same on every machine. */
@@ -832,6 +925,7 @@ static void SendSnapshot(u64 now) {
         NetWriter_U8(&w, rack != NULL ? rack->cur : 0);
         NetWriter_U16(&w, rack != NULL ? (u16)rack->slots[rack->cur].ammo : 0);
     }
+    NetWriter_U32(&w, s_localPlayer->stuntPoints);
     s_buttons = 0;
     s_fire = 0;
     Net_SendLatest(NET_PEER_ALL, (u8)(s_port - 1), buf, w.size);
@@ -877,6 +971,7 @@ static void ReceiveSnapshot(u32 port, const NetEvent *e) {
     }
     in.slot = NetReader_U8(&rd);
     in.ammo = (s16)NetReader_U16(&rd);
+    in.points = NetReader_U32(&rd);
     /* from the network: nothing unusable reaches the physics */
     if (!rd.ok || (r->have && in.seq <= r->seq) ||
         !Sane(in.pos.x, 1e6f) || !Sane(in.pos.y, 1e6f) || !Sane(in.pos.z, 1e6f) ||
@@ -951,6 +1046,10 @@ void Port_OnlineRemoteControl(Player *player) {
         return;
     }
     player->buttonFire = r->fire ? 0xFF : 0;
+    if (player->stuntPoints != r->points) {
+        player->stuntPoints = r->points;
+        player->scoreDirty = 1;
+    }
     player->stickX = r->stickX;
     player->stickY = r->stickY;
     player->throttle = r->throttle;
@@ -1097,6 +1196,20 @@ static void HandleMessage(const NetEvent *e) {
                     }
                 }
             }
+        } else if (kind == MSG_KILL && s_state == STATE_PLAYING) {
+            u32 stage = NetReader_U32(&r);
+            u32 killer = NetReader_U8(&r);
+
+            if (r.ok) {
+                u32 peer;
+
+                ReceiveKill(stage, killer);
+                for (peer = 1; peer < ONLINE_PLAYERS; peer++) {
+                    if (peer != e->peer) {
+                        Net_SendReliable((u8)peer, e->data, e->size);
+                    }
+                }
+            }
         } else if (kind == MSG_CAR_STATE && s_state == STATE_PLAYING) {
             u32 stage;
             u32 alive;
@@ -1159,6 +1272,15 @@ static void HandleMessage(const NetEvent *e) {
             if (r.ok) {
                 ReceivePickup(port, q, i, (s16)ammo);
             }
+        } else if (kind == MSG_KILL && s_state == STATE_PLAYING) {
+            u32 stage = NetReader_U32(&r);
+            u32 killer = NetReader_U8(&r);
+
+            if (r.ok) {
+                ReceiveKill(stage, killer);
+            }
+        } else if (kind == MSG_ROUND_END && s_state == STATE_PLAYING) {
+            ReceiveRoundEnd(&r);
         } else if (kind == MSG_CAR_STATE && s_state == STATE_PLAYING) {
             u32 port = NetReader_U8(&r);
             u32 stage = NetReader_U32(&r);

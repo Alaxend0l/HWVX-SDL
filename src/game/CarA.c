@@ -2122,8 +2122,9 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
             }
         }
         Thing_ProcessEndEvent(car, GETP(GETP(car->vehicleIface)->collider), coll, &car->localAxis);
-        if (other != NULL && GETP(other->base.player) != NULL) {
-            CARA_PLAYER(other)->kills++;
+        if (other != NULL && GETP(other->base.player) != NULL &&
+            (GETP(car->base.player) == NULL || !Port_OnlineCarKilled(GETP(car->base.player), GETP(other->base.player)))) {
+            CARA_PLAYER(other)->kills++;   /* port: online, where the victim is: Port_Online.c */
         }
         CarA_Release(car);
     }

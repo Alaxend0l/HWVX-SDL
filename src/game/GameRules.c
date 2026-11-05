@@ -6,6 +6,7 @@
  *   per player 0x191 wins, 0x192 points, 0x193 kills, 0x194 won the round;
  *   0x190 current round, 0x197 all rounds complete. */
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
 #include "ThingManager.h"
@@ -100,12 +101,14 @@ void GameRules_HeartBeat(void) {
     u32 i;
     u32 numRounds;
     s8 roundOver;
+    s8 forced;
     u32 winner;
     u32 count;
     Player *player;
     u32 wins;
 
     roundOver = 0;
+    forced = 0;
     if (!g_bWaitingForRoundReset && GameSettings_GetCodeVariable(0x12C, 0) != 0) {
         winner = -1;
         if (g_bInit) {
@@ -132,6 +135,7 @@ void GameRules_HeartBeat(void) {
             }
             g_bInit = 0;
         }
+        forced = g_bRoundEnd;
         if (g_bRoundEnd) {
             winner = g_playerNumThatWon;
             g_bRoundEnd = 0;
@@ -167,8 +171,8 @@ void GameRules_HeartBeat(void) {
                 break;
             }
         }
-        if (!roundOver) {
-            return;
+        if (!roundOver || Port_OnlineRoundOver(forced, winner)) {
+            return;             /* port: online, only the host decides (Port_Online.c) */
         }
         useWins = GameSettings_GetCodeVariable(0x132, 0) != 0;
         numRounds = GameSettings_GetCodeVariable(0x131, 0);
