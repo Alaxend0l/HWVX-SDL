@@ -1043,6 +1043,7 @@ void Render_DrawShadows(void) {
     ShadowModel *model;
     u32 j;
     void *matrix;
+    f32 wx, wy, x0, y0, x1, y1;
 
     numShadows = 0;
     GXClearVtxDesc();
@@ -1104,16 +1105,24 @@ void Render_DrawShadows(void) {
         GXClearVtxDesc();
         GXSetVtxDesc(9, 1);
         GXSetVtxDesc(0xD, 1);
-        GXSetVtxAttrFmt(0, 9, 1, 3, 0);
+        /* Port: the mask is the whole EFB, but orthographic draws land in its
+         * 4:3 safe area, so reach past the window to where the 3D view widens
+         * to (Port_ViewWiden); floats keep texels on pixels. Was (0, 0)-(640, 480). */
+        Port_ViewWiden(&wx, &wy);
+        x0 = 0.5f * GetRenderWindow()->width * (1.0f - wx);
+        x1 = 0.5f * GetRenderWindow()->width * (1.0f + wx);
+        y0 = 0.5f * GetRenderWindow()->height * (1.0f - wy);
+        y1 = 0.5f * GetRenderWindow()->height * (1.0f + wy);
+        GXSetVtxAttrFmt(0, 9, 1, 4, 0);
         GXSetVtxAttrFmt(0, 0xD, 1, 4, 0);
         GXBegin(0x80, 0, 4);
-        GXPosition3s16(0, 0, 0);
+        GXPosition3f32(x0, y0, 0.0f);
         GXTexCoord2f32(0.0f, 0.0f);
-        GXPosition3s16(0, 0x1E0, 0);
+        GXPosition3f32(x0, y1, 0.0f);
         GXTexCoord2f32(0.0f, 1.0f);
-        GXPosition3s16(0x280, 0x1E0, 0);
+        GXPosition3f32(x1, y1, 0.0f);
         GXTexCoord2f32(1.0f, 1.0f);
-        GXPosition3s16(0x280, 0, 0);
+        GXPosition3f32(x1, y0, 0.0f);
         GXTexCoord2f32(1.0f, 0.0f);
         GXSetAlphaUpdate(1);
         GXSetZMode(1, 1, 1);

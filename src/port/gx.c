@@ -98,10 +98,9 @@ void GXCopyDisp(void *dest, u8 clear) {
 }
 void GXSetTexCopySrc(u16 left, u16 top, u16 wd, u16 ht) { (void)left; (void)top; (void)wd; (void)ht; }
 void GXSetTexCopyDst(u16 wd, u16 ht, int fmt, u8 mipmap) { (void)wd; (void)ht; (void)fmt; (void)mipmap; }
+/* The source and destination settings aren't needed: see GX_DrawCopyTex. */
 void GXCopyTex(void *dest, u8 clear) {
-    (void)dest;
-    (void)clear;
-    PORT_TODO("GXCopyTex (render to texture)");
+    GX_DrawCopyTex(dest, clear);
 }
 void GXSetPixelFmt(int pixFmt, int zFmt) { (void)pixFmt; (void)zFmt; }
 

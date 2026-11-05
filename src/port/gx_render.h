@@ -112,6 +112,10 @@ typedef struct GXRenderer {
     void (*drawImage)(const u8 *rgba, int w, int h, const int dst[4]);
     /* EFB src rectangle (x0, y0, x1, y1) to the window, letterboxed to 4:3. */
     void (*copyDisp)(const int src[4]);
+    /* EFB src rectangle (x0, y0, x1, y1) to a texture of that size from
+     * texCreate (one level, never uploaded), top row first. Draws recorded
+     * before this see the old contents, later ones the new. */
+    void (*copyEFB)(void *tex, const int src[4]);
     /* The EFB, top row first, efbW * efbH * 4 bytes; 0 on failure. */
     int (*readEFB)(u8 *rgba);
     void (*present)(void);
@@ -136,5 +140,7 @@ void GX_Letterbox(int w, int h, int aw, int ah, int out[4]);
 
 /* gx_tex.c: the decoded texture for a texture object, and its sampler. */
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp);
+/* GXCopyTex: texture objects on dest's memory now sample this EFB rectangle. */
+void GX_TexCopyEFB(void *dest, const int src[4]);
 
 #endif

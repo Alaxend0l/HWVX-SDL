@@ -1,6 +1,6 @@
 /* GX pixel stage: up to 16 TEV stages with the full color/alpha combiner (no
- * konst/swap tables, compare ops or indirect texturing), alpha compare and
- * fog. The uniform block is GXFSUniforms (gx_render.h); keep the two in
+ * konst/swap tables, indirect texturing or color compare ops; of the alpha
+ * compare ops only A8), alpha compare and fog. The uniform block is GXFSUniforms (gx_render.h); keep the two in
  * step. */
 #include "common.glsl"
 
@@ -90,8 +90,15 @@ void main() {
         if (uCOp[s].w != 0) cv = clamp(cv, 0.0, 1.0);
         float aa = ain(uAIn[s].x, r, t, ras), ab = ain(uAIn[s].y, r, t, ras);
         float ac = ain(uAIn[s].z, r, t, ras), ad = ain(uAIn[s].w, r, t, ras);
-        float av = mix(aa, ab, ac);
-        av = uAOp[s].x == 1 ? ad - av : ad + av;
+        float av;
+        if (uAOp[s].x == 14) {        /* GX_TEV_COMP_A8_GT */
+            av = ad + (round(aa * 255.0) > round(ab * 255.0) ? ac : 0.0);
+        } else if (uAOp[s].x == 15) { /* GX_TEV_COMP_A8_EQ */
+            av = ad + (round(aa * 255.0) == round(ab * 255.0) ? ac : 0.0);
+        } else {
+            av = mix(aa, ab, ac);
+            av = uAOp[s].x == 1 ? ad - av : ad + av;
+        }
         av += uAOp[s].y == 1 ? 0.5 : uAOp[s].y == 2 ? -0.5 : 0.0;
         av *= uAOp[s].z == 1 ? 2.0 : uAOp[s].z == 2 ? 4.0 : uAOp[s].z == 3 ? 0.5 : 1.0;
         if (uAOp[s].w != 0) av = clamp(av, 0.0, 1.0);
