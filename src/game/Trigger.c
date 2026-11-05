@@ -194,6 +194,30 @@ void Port_TriggerFireRoundComplete(u32 number) {
     }
 }
 
+/* port: does a script watch for this item being picked up? fire: and run those triggers,
+ * for an item that isn't there to go through Trigger_ItemPickedUp (Port_Online.c). */
+int Port_TriggerItemWatched(const void *spawner, int fire) {
+    int watched = 0;
+    u32 i;
+    u32 j;
+
+    for (i = 0; i < TRIGGER_STATS[TRIGGER_ITEM_PICKUP].count; i++) {
+        Trigger *trigger = TRIGGER_LISTS[TRIGGER_ITEM_PICKUP][i];
+        u32 *list = GETP(trigger->param);
+
+        for (j = 0; j < list[0]; j++) {
+            if (TRIGGER_RECORD(QuadItem, list[1 + j]) == spawner) {
+                watched = 1;
+                if (fire && !TAC_PAUSED && trigger->state != TRIGGER_STATE_DONE) {
+                    Trigger_FireEvent(trigger);
+                }
+                break;
+            }
+        }
+    }
+    return watched;
+}
+
 /* port: the round summary: the interface whose end the script answers with a round
  * reset (Port_Online.c). NULL if the script has none. */
 void *Port_TriggerRoundSummary(void) {

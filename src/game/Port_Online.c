@@ -36,7 +36,9 @@
  * spawns from a list of our own (Port_OnlineExpandSpawns), at spots around it that the
  * world's collision says are clear (ChooseSpawns), and the world's
  * spawn keeps pointing at this machine's car: the scripts' music, effects and pickups
- * answer the player here. What else a world does isn't shared in Joyride, nor needs to be.
+ * answer the player here. Its key and gears, the items its scripts watch, count for every
+ * player: one taken is taken by all (ReceivePickup). What else a world does isn't shared in
+ * Joyride, nor needs to be.
  *
  * Not yet: AI opponents are off because each machine would run its own; a weapon a car
  * dropped isn't shared if picked up again. */
@@ -60,6 +62,7 @@
 #define PROGRESSION_MP_DRAG 5
 #define PROGRESSION_MP_BATTLE 7
 /* Joyride: where the others may start around the world's spawn. */
+#define MAX_SHARED_ITEMS 64
 #define SPAWN_SEPARATION 35.0f
 #define SPAWN_PROBE_ABOVE 15.0f /* the ground is looked for from this far above the spawn */
 #define SPAWN_PROBE_DOWN 40.0f
@@ -171,6 +174,8 @@ static int s_applyingPickup;
 static int s_localAlive;
 static TileCar s_spawns[ONLINE_PLAYERS];
 static TileCar *s_scriptSpawn;  /* the world's own, when s_spawns is in use */
+static const QuadItem *s_sharedTaken[MAX_SHARED_ITEMS];
+static u32 s_numSharedTaken;
 
 void GameSettings_PortOnlineBegin(void);
 void GameSettings_PortOnlineEnd(void);
@@ -604,6 +609,7 @@ void Port_OnlineLevelLoading(void) {
     /* a restart makes new players: the last ones say nothing about these */
     s_localPlayer = NULL;
     SDL_zeroa(s_players);
+    s_numSharedTaken = 0;
     if (s_state != STATE_NONE) {
         ChooseSpawns();
     }
@@ -963,6 +969,26 @@ s32 Port_OnlineItemRandom(s32 min, s32 max, u32 quadrant, u32 index) {
     return max > min ? min + (s32)(x % (u32)(max - min)) : min;
 }
 
+/* Joyride's key and gears: taken once, and for everyone. 0 if this one already was: two
+ * players reaching it together have their one, not two. */
+static int SharedItemFirstTaken(const QuadItem *spawner) {
+    u32 i;
+
+    for (i = 0; i < s_numSharedTaken; i++) {
+        if (s_sharedTaken[i] == spawner) {
+            return 0;
+        }
+    }
+    if (s_numSharedTaken < MAX_SHARED_ITEMS) {
+        s_sharedTaken[s_numSharedTaken++] = spawner;
+    }
+    return 1;
+}
+
+static int IsSharedItem(const QuadItem *spawner) {
+    return s_scriptSpawn != NULL && Port_TriggerItemWatched(spawner, 0);
+}
+
 /* The car is about to take the item. 1: not here. */
 int Port_OnlinePickup(CarA *car, ItemThing *item) {
     Player *player = GETP(car->base.player);
@@ -994,6 +1020,9 @@ int Port_OnlinePickup(CarA *car, ItemThing *item) {
                 NetWriter_U16(&w, (u16)i);
                 NetWriter_U16(&w, (u16)item->ammo);
                 Net_SendReliable(s_isHost ? NET_PEER_ALL : NET_PEER_HOST, buf, w.size);
+                if (IsSharedItem(spawner)) {
+                    SharedItemFirstTaken(spawner);
+                }
                 return 0;
             }
         }
@@ -1031,10 +1060,38 @@ static void ReceivePickup(u32 port, u32 q, u32 i, s16 ammo) {
     }
     contents = GETP(GETP(WORLD_OF_LEVEL()->quads)[q].contents);
     player = s_players[port - 1];
-    if (contents == NULL || i >= contents->numItems || player == NULL || (car = GETP(player->vehicle)) == NULL) {
+    if (contents == NULL || i >= contents->numItems) {
         return;
     }
     spawner = &GETP(contents->items)[i];
+    if (IsSharedItem(spawner)) {
+        /* this machine's player gets it too, as if they had driven over it */
+        ItemThing *thing = GETP(spawner->thing);
+        CarA *own = s_localPlayer != NULL ? GETP(s_localPlayer->vehicle) : NULL;
+
+        if (!SharedItemFirstTaken(spawner)) {
+            return;
+        }
+        spawner->spawned = 1;   /* its area may not be loaded here: it stays away after */
+        spawner->timer = 0;
+        if (thing != NULL && own != NULL) {
+            s_applyingPickup = 1;
+            CarA_ProcessItemPickup(own, thing);
+            s_applyingPickup = 0;
+        } else {
+            Port_TriggerItemWatched(spawner, 1);
+            if (own != NULL && GETP(spawner->record) != NULL) {
+                own->pickupId = GETP(spawner->record)->names.h;
+            }
+            if (thing != NULL) {
+                Item_Release(thing);
+            }
+        }
+        return;
+    }
+    if (player == NULL || (car = GETP(player->vehicle)) == NULL) {
+        return;
+    }
     if (GETP(spawner->thing) != NULL) {
         s_applyingPickup = 1;
         CarA_ProcessItemPickup(car, GETP(spawner->thing));

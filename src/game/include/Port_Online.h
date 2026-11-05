@@ -58,6 +58,8 @@ u32 Port_OnlineControllerPort(const Player *player);
 void Port_OnlineRemoteControl(Player *player);
 /* Trigger.c: runs the script's RoundComplete(number) trigger. */
 void Port_TriggerFireRoundComplete(u32 number);
+/* Trigger.c: does a script watch for this item being picked up? fire: and run those. */
+int Port_TriggerItemWatched(const void *spawner, int fire);
 /* Trigger.c: the interface whose end the script answers with a round reset. */
 void *Port_TriggerRoundSummary(void);
 /* The keyboard's turn in Input_Heartbeat: 1 to press A, as a player would. */

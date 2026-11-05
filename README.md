@@ -326,7 +326,7 @@ floor) and any logic that counts frames rather than time.
 ### Online play
 
 Work in progress: Drag Race, Battle and Joyride play over a network, weapons and pickups
-included. One host and its clients, each connected to the host only,
+included. In Joyride, a world's key and gears count for every player. One host and its clients, each connected to the host only,
 up to 8 players in the transport (the game itself stops at 4 for now: player pools,
 score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
 
