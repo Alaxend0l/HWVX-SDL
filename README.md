@@ -357,8 +357,8 @@ one not yet sent. All of it travels over WebSocket, the one thing a quick tunnel
 known to carry for a client without `cloudflared` of its own. A socket thread does
 the waiting outside the giant lock, so connections live through level loads.
 
-Tunnel Host runs the player's own `cloudflared` (next to the game, or installed: it isn't
-shipped, and can't run on Android or inside the Flatpak; those can still join) and shows a
+Tunnel Host runs `cloudflared`: the copy in the AppImage or Flatpak, or else one the player
+put next to the game or installed. It can't run on Android, which can still join. It shows a
 join code, `name-of-the-tunnel/CODE`; the room code is there because a tunnel's address is
 public. Clients reach it by `wss://`, with mbedTLS (a pinned release, `CMakeLists.txt`) and
 the public roots in `src/port/net_roots.h` (`tools/gen_net_roots.py`) as well as any the system

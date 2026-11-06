@@ -1,7 +1,8 @@
 # Flatpak of the game, for x86_64 and aarch64 (packaging/flatpak/build.sh,
 # or the flatpak jobs in .github/workflows/build.yml). SDL3 is built here
 # from the release in packaging/SDL_VERSION (keep url and sha256 in step);
-# the game from this checkout. The game data is picked with the folder
+# the game from this checkout; cloudflared is the release in
+# packaging/CLOUDFLARED_VERSION (likewise). The game data is picked with the folder
 # dialog (xdg-desktop-portal), so no file system access is granted.
 id: io.github.alaxend0l.hwvx
 runtime: org.freedesktop.Platform
@@ -41,6 +42,29 @@ modules:
       - /lib/cmake
       - /lib/pkgconfig
       - /share
+
+  # Next to the game, where src/port/tunnel.c looks first: the sandbox can't see
+  # one installed on the system.
+  - name: cloudflared
+    buildsystem: simple
+    build-options:
+      no-debuginfo: true   # a Go program, kept as released
+    build-commands:
+      - install -Dm755 cloudflared /app/bin/cloudflared
+      - install -Dm644 cloudflared-LICENSE /app/share/licenses/cloudflared/LICENSE
+    sources:
+      - type: file
+        only-arches: [x86_64]
+        url: https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-linux-amd64
+        sha256: 1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872
+        dest-filename: cloudflared
+      - type: file
+        only-arches: [aarch64]
+        url: https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-linux-arm64
+        sha256: 3df43aedc9ff291d1735b5cb576cb97e0b157488796db2e32b28aecabb445775
+        dest-filename: cloudflared
+      - type: file
+        path: ../cloudflared-LICENSE
 
   - name: hwvx
     buildsystem: cmake-ninja

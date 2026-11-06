@@ -13,8 +13,10 @@ go to `dist/`; scratch (SDL builds, AppDirs...) to `build-pkg/`.
 | Linux Flatpak | `packaging/flatpak/build.sh [ARCH]` | Linux x86_64 / aarch64 with flatpak-builder (another ARCH: qemu-user-static) | `HWVX-VER-ARCH.flatpak` |
 | Android `.apk` | `cd android && ./gradlew assembleRelease` | Linux, macOS (JDK 17, Android SDK) | `android/app/build/outputs/apk/release/app-release.apk` |
 
-Every package contains only the program; `cloudflared`, for hosting online through a
-tunnel, is the player's to install (the Flatpak and Android can join such games, not host them). The game data is the player's own:
+The Linux AppImage and Flatpak also contain `cloudflared`, for hosting online through a
+tunnel, because immutable distributions like SteamOS and Bazzite make it hard to install.
+Every other package contains only the program, and `cloudflared` is the player's to
+install (Android can join such games, not host them). The game data is the player's own:
 on first start the game looks in the usual places and, on desktop, asks for
 the folder (see "Game data" in the top-level README).
 
@@ -81,6 +83,14 @@ and add these repository secrets (Settings > Secrets and variables > Actions):
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
 Locally, the same values go in the environment as `HWVX_KEYSTORE` (the file),
 `HWVX_KEYSTORE_PASSWORD`, `HWVX_KEY_ALIAS` and `HWVX_KEY_PASSWORD`.
+
+## Updating cloudflared
+
+Change `CLOUDFLARED_VERSION` and `CLOUDFLARED_SHA256` (`shasum -a 256` of the
+`cloudflared-linux-amd64` and `-arm64` release files), and the `url`/`sha256` of
+both in `flatpak/io.github.alaxend0l.hwvx.yml`. `cloudflared-LICENSE` is its
+license, shipped with it. The game starts it with `--no-autoupdate`, so a
+package's copy only changes with a new release of the game.
 
 ## Updating SDL
 

@@ -1,8 +1,9 @@
 /* Hosting through a Cloudflare quick tunnel: runs the player's own cloudflared and reads
  * the address it was given from what it prints. It carries connections to the session's
- * local WebSocket port (src/port/net.c), and ends TLS itself. The program isn't shipped:
- * it's looked for next to the game, then where installers put it. Not on Android, which
- * can't run a program this way; players there can still join. */
+ * local WebSocket port (src/port/net.c), and ends TLS itself. The AppImage and Flatpak
+ * carry the program next to the game, the first place it's looked for; after that, where
+ * installers put it. Not on Android, which can't run a program this way; players there
+ * can still join. */
 #include "port_internal.h"
 
 #ifdef SDL_PLATFORM_ANDROID

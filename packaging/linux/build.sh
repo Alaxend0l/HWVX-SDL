@@ -1,6 +1,7 @@
 #!/bin/sh
 # Linux, for the machine's architecture (x86_64 or aarch64): the bare
-# program with SDL3 linked in (hwvx-VERSION.ARCH) and an AppImage. Build on
+# program with SDL3 linked in (hwvx-VERSION.ARCH) and an AppImage, which
+# also carries cloudflared for hosting through a tunnel. Build on
 # an old distribution for wide compatibility (CI uses Ubuntu 22.04). Needs
 # gcc, cmake, ninja, curl and SDL's build dependencies (see the apt line in
 # .github/workflows/build.yml).
@@ -32,6 +33,11 @@ DESTDIR="$appdir" cmake --install "$work/game" --strip
 png="$appdir/usr/share/icons/hicolor/256x256/apps/$id.png"
 rm -f "$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg"
 cp "$png" "$appdir/$id.png"
+# Next to the game, where src/port/tunnel.c looks first. Immutable distributions
+# (SteamOS, Bazzite) have no easy way to install it. It's static: linuxdeploy skips it.
+cloudflared=$("$root/packaging/fetch-cloudflared.sh" "$arch" "$work")
+install -Dm755 "$cloudflared" "$appdir/usr/bin/cloudflared"
+install -Dm644 "$root/packaging/cloudflared-LICENSE" "$appdir/usr/share/licenses/cloudflared/LICENSE"
 deploy="$work/linuxdeploy-$arch.AppImage"
 if [ ! -x "$deploy" ]; then
     curl -fsSL -o "$deploy" \
