@@ -2566,6 +2566,16 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
         }
         GameSettings_SetCodeVariable(0xD0, 0, v);
         break;
+    case PORT_EVENT_SLIDER:   /* port: the Graphics bars, as the two above */
+        v = GameSettings_GetCodeVariable(GETP(((IfaceEvent *)event)->def)->id, 0);
+        v += GETP(((IfaceEvent *)event)->def)->delta;
+        if (v > 100) {
+            v = 100;
+        } else if (v < 0) {
+            v = 0;
+        }
+        GameSettings_SetCodeVariable(GETP(((IfaceEvent *)event)->def)->id, 0, v);
+        break;
     case 0x18:
         GameSettings_SaveGeneralGameData();
         break;
@@ -3283,6 +3293,12 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 break;
             case 103:
                 value = GameSettings_GetCodeVariable(0xCF, 0);
+                break;
+            case PORT_ROLE_GAMMA_BAR:   /* port: the Graphics bars, as the two above */
+                value = GameSettings_GetCodeVariable(PORT_CODEVAR_GAMMA, 0);
+                break;
+            case PORT_ROLE_FOV_BAR:
+                value = GameSettings_GetCodeVariable(PORT_CODEVAR_FOV, 0);
                 break;
             case 104:
                 InterfaceManager_SetControllerConfigInputString();

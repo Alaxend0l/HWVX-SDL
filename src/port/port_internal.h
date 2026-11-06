@@ -25,6 +25,8 @@ typedef struct PortState {
     int maxFps;              /* frames a second, 30 .. 480, 0 for unlimited: the
                               * rate the game is paced at (main_sdl.c, the
                               * Graphics menu) */
+    int gamma;               /* the Graphics menu's Gamma bar, 0 .. 100, 50: none */
+    int fov;                 /* the Graphics menu's FOV bar, 0 .. 100, 50: the game's */
     volatile int quit;
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
@@ -44,6 +46,9 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
 void Port_GfxSetFullscreenMode(int w, int h);
 /* The Max FPS choice, brought into the rate the retrace pacing allows. */
 int Port_GfxFrameRate(void);
+/* The Gamma row as the power the display copy raises each colour to (gx_gl.c,
+ * shaders/present.frag): exactly 1 in the middle of the bar. */
+f32 Port_GfxGammaPower(void);
 /* Whether showing a frame should wait for the display. HWVX_NO_VSYNC=1 wins:
  * the frame time in the logs is then what drawing costs. */
 int Port_VSyncWanted(void);

@@ -211,7 +211,16 @@ void Port_InvalidateDisplayLists(const void *p, u32 size);
 #define PORT_CODEVAR_DISPLAY 0x1001      /* 0 windowed, 1 fullscreen */
 #define PORT_CODEVAR_VSYNC 0x1002        /* 0 off, 1 on: wait for the display */
 #define PORT_CODEVAR_MAXFPS 0x1003       /* index into the frame rate choices */
-#define PORT_IS_CODEVAR(id) ((id) >= PORT_CODEVAR_RESOLUTION && (id) <= PORT_CODEVAR_MAXFPS)
+#define PORT_CODEVAR_GAMMA 0x1004       /* 0 .. 100, a volume-style bar: 50 leaves the picture alone */
+#define PORT_CODEVAR_FOV 0x1005         /* 0 .. 100, a volume-style bar: 50 is the game's own view */
+#define PORT_IS_CODEVAR(id) ((id) >= PORT_CODEVAR_RESOLUTION && (id) <= PORT_CODEVAR_FOV)
+/* The Gamma and FOV rows reuse the volume rows' bar: an object role that stretches
+ * the bar by the code variable (roles 102/103 are the volumes), and an event type
+ * that adds the event's delta to the code variable named by its id, clamped to
+ * 0 .. 100 (types 0x16/0x17 are the volumes). See InterfaceManager.c. */
+#define PORT_ROLE_GAMMA_BAR 105
+#define PORT_ROLE_FOV_BAR 106
+#define PORT_EVENT_SLIDER 0x40
 #define PORT_MAX_CHOICES 10              /* the widest of those choice lists */
 u32 Port_GfxGet(s32 id);
 void Port_GfxSet(s32 id, u32 value);
@@ -224,6 +233,8 @@ const char *Port_GfxModeName(u32 i);
 u32 Port_GfxOptionCount(s32 id);
 const char *Port_GfxOptionName(s32 id, u32 i);
 void Port_GfxApply(void);
+/* What the FOV row multiplies the player's camera by (CameraManager.c). */
+f32 Port_GfxFovScale(void);
 void Port_Fatal(const char *fmt, ...) PORT_PRINTF(1, 2) __attribute__((noreturn));
 #define PORT_TODO(what) Port_Todo(__func__, what)
 void Port_Todo(const char *func, const char *what);

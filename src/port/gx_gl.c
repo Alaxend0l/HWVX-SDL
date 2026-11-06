@@ -27,6 +27,8 @@ typedef struct Prog {
 static struct {
     SDL_GLContext ctx;
     GLuint prog, vs, vao, vbo, ubo[2];
+    GLuint gammaProg, gammaVao;     /* GL_DrawGamma: made when first needed */
+    GLint gammaRect, gammaPower;
     GLuint poolVao, poolVbo;    /* the display list cache's vertex pool */
     GLuint fbo, fboColor, fboDepth;
     int efbW, efbH;
@@ -108,6 +110,7 @@ static void GL_Close(void) {
     TevGenFree();
     SDL_GL_DestroyContext(s.ctx);
     s.ctx = NULL;
+    s.gammaProg = 0;
 }
 
 static GLuint Compile(GLenum type, const char *src) {
@@ -672,8 +675,69 @@ static void GL_DrawImage(const u8 *rgba, int width, int height, const int dst[4]
     StateReset();
 }
 
+/* The display copy when the Graphics menu's Gamma row is off its middle: the blit
+ * below can't change colours, so draw the EFB rectangle instead. shaders/present.*
+ * are SDL_GPU's version of this. Made the first time it is needed. */
+static const char s_gammaVS[] =
+    "uniform vec4 uRect;\n"
+    "out vec2 vUV;\n"
+    "void main() {\n"
+    "    vec2 c = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));\n"
+    "    vUV = mix(uRect.xy, uRect.zw, c);\n"
+    "    gl_Position = vec4(c.x * 2.0 - 1.0, 1.0 - c.y * 2.0, 0.0, 1.0);\n"
+    "}\n";
+static const char s_gammaFS[] =
+    "uniform sampler2D uEFB;\n"
+    "uniform vec4 uGamma;\n"
+    "in vec2 vUV;\n"
+    "out vec4 oColor;\n"
+    "void main() {\n"
+    "    oColor = vec4(pow(texture(uEFB, vUV).rgb, uGamma.xxx), 1.0);\n"
+    "}\n";
+
+static void GL_DrawGamma(const int src[4], const int lb[4], f32 power) {
+    f32 rect[4], gamma[4] = { power, 0.0f, 0.0f, 0.0f };
+
+    if (s.gammaProg == 0) {
+        GLuint vs = Compile(GL_VERTEX_SHADER, s_gammaVS), fs = Compile(GL_FRAGMENT_SHADER, s_gammaFS);
+        GLint ok = 0;
+
+        s.gammaProg = glCreateProgram();
+        glAttachShader(s.gammaProg, vs);
+        glAttachShader(s.gammaProg, fs);
+        glLinkProgram(s.gammaProg);
+        glGetProgramiv(s.gammaProg, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            Port_Fatal("Gamma shader link failed");
+        }
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        s.gammaRect = glGetUniformLocation(s.gammaProg, "uRect");
+        s.gammaPower = glGetUniformLocation(s.gammaProg, "uGamma");
+        glGenVertexArrays(1, &s.gammaVao);
+    }
+    /* texture rows are bottom-up, src is top-down */
+    rect[0] = (f32)src[0] / s.efbW;
+    rect[1] = 1.0f - (f32)src[1] / s.efbH;
+    rect[2] = (f32)src[2] / s.efbW;
+    rect[3] = 1.0f - (f32)src[3] / s.efbH;
+    glUseProgram(s.gammaProg);
+    glUniform4fv(s.gammaRect, 1, rect);
+    glUniform4fv(s.gammaPower, 1, gamma);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, s.fboColor);
+    glBindVertexArray(s.gammaVao);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glViewport(lb[0], lb[1], lb[2], lb[3]);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    StateReset();
+}
+
 static void GL_CopyDisp(const int src[4]) {
     int w, h, lb[4];
+    f32 power = Port_GfxGammaPower();
 
     SDL_GetWindowSizeInPixels(g_port.window, &w, &h);
     GX_Letterbox(w, h, src[2] - src[0], src[3] - src[1], lb);
@@ -682,10 +746,14 @@ static void GL_CopyDisp(const int src[4]) {
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
-    glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, s.fbo);
-    glBlitFramebuffer(src[0], s.efbH - src[3], src[2], s.efbH - src[1], lb[0], lb[1], lb[0] + lb[2], lb[1] + lb[3],
-                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (power != 1.0f) {
+        GL_DrawGamma(src, lb, power);
+    } else {
+        glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, s.fbo);
+        glBlitFramebuffer(src[0], s.efbH - src[3], src[2], s.efbH - src[1], lb[0], lb[1], lb[0] + lb[2], lb[1] + lb[3],
+                          GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
     /* The EFB alpha is game scratch (shadow volumes), not opacity, and the
      * blit copied it. Compositors that honour window alpha (macOS) would show
      * those frames as transparent/black; X11 ignores it. Make the window

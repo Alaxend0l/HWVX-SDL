@@ -104,6 +104,8 @@ static void ParseArgs(int argc, char **argv) {
     g_port.resetSave = 0;
     g_port.vsync = 1;        /* what the GameCube's own retrace wait does */
     g_port.maxFps = 60;
+    g_port.gamma = 50;
+    g_port.fov = 50;
     if (!SetRenderer(s_defaultRenderer)) {
         SetRenderer("opengl");
     }

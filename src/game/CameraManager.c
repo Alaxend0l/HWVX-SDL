@@ -938,6 +938,19 @@ s32 Camera_TriggerActionGetLocation(Camera *cam, u32 *data, Vector4 *out) {
 }
 
 
+/* port: the Graphics menu's FOV bar, on the view the driving camera just set
+ * (each case below sets it anew every frame, so this can't build up). The game's
+ * own limit for a view still holds. */
+static void Camera_ScaleDrivingFov(void) {
+    f32 scale = Port_GfxFovScale();
+
+    if (scale != 1.0f) {
+        f32 fov = scale * Gfx_GetProjectionMatrix();
+
+        Gfx_SetProjectionMatrix(fov > 150.0f ? 150.0f : fov);
+    }
+}
+
 void Camera_UpdatePosition(Camera *cam) {
     #define g_pNoRayCollideThing (*(CarA **)(void *)&g_pNoRayCollideThing)
     extern Matrix4 g_identity;
@@ -983,6 +996,7 @@ void Camera_UpdatePosition(Camera *cam) {
             cam->dir = info.mtx.v[2];
             cam->pos = info.mtx.v[3];
             Gfx_SetProjectionMatrix(info.fov);
+            Camera_ScaleDrivingFov();
             if (GETP(cam->cameraFx) != NULL && GETP(cam->player) != NULL && GETP(GETP(cam->player)->vehicle) != NULL) {
                 f32 scale = GETP(((World *)GETP(g_worldData.world))->gameData)->cameraFxLead;
                 GETP(cam->cameraFx)->pos.x = ((CarA *)GETP(GETP(cam->player)->vehicle))->base.vel.x * scale + cam->pos.x;
@@ -994,14 +1008,17 @@ void Camera_UpdatePosition(Camera *cam) {
         switch (GETP(info.subMode)->type) {
         case 0:
             Camera_UpdatePosition_Default(cam, GETP(GETP(info.subMode)->params));
+            Camera_ScaleDrivingFov();
             cam->vel = ((CarA *)GETP(GETP(cam->player)->vehicle))->base.vel;
             break;
         case 2:
             Camera_ZoomOnVehicle(cam, GETP(GETP(info.subMode)->params));
+            Camera_ScaleDrivingFov();
             PSVECSubtract(&cam->pos, &oldPos, &cam->vel);
             break;
         case 3:
             Camera_OrbitVehicle(cam, GETP(GETP(info.subMode)->params));
+            Camera_ScaleDrivingFov();
             cam->vel = g_zeroVector;
             break;
         case 4: {
@@ -1025,6 +1042,7 @@ void Camera_UpdatePosition(Camera *cam) {
                 }
             }
             Gfx_SetProjectionMatrix(60.0f);
+            Camera_ScaleDrivingFov();
             cam->vel = ((CarA *)GETP(GETP(cam->player)->vehicle))->base.vel;
             break;
         }

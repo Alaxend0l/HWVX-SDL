@@ -53,7 +53,7 @@ the HUD and menus keep their 4:3 layout in the middle (taller screens work the
 same way vertically); split screen stays 4:3. Options → Graphics (a menu the
 port adds) picks a resolution from the display's modes and windowed or
 fullscreen; it is applied when you leave that menu and kept in `graphics.cfg`
-in the save folder. Command-line options override it. The main menu also gets
+in the save folder. It also has Gamma and FOV bars, which take effect at once. Command-line options override it. The main menu also gets
 a "Quit Game" entry (with the game's own Confirm Quit screen); both
 port entries are built from the menu data at load time (`src/game/Port_Menu.c`).
 
@@ -280,6 +280,18 @@ main menu header at blob `0x6ECC60` (26 objects), Options header at blob
 `0x85BB40` (40 objects, vars at `0x85DE20`); find them again with
 `tools/xgc_inspect.py` by searching for a header with 40/26 objects whose
 object 16/10's text is "Controller"/"Main Menu".
+
+The Gamma and FOV rows keep the volume look instead: `AddBarRow` copies the pack's
+Music row (objects 27-30) to objects 40-47 of the Graphics screen, with its bar.
+The bar's role (`PORT_ROLE_GAMMA_BAR`, `PORT_ROLE_FOV_BAR`) says which code variable
+stretches it, as 102/103 do for the volumes; the 0x16 events become
+`PORT_EVENT_SLIDER`, whose `id` is that code variable (`delta` stays -10/+10, clamped
+to 0..100); and the arrows' conditions get the row's own record id, or they would
+only show on Music's. The bars take effect at once and are saved in `graphics.cfg`
+with the rest. Gamma is a power on each colour in the display copy
+(`present.frag`, `GL_DrawGamma`), so it covers everything but `HWVX_DUMP`'s frames;
+FOV scales the view of the driving camera, `Camera_UpdatePosition` mode 30, leaving
+scripted shots alone.
 
 The volume fix for the two cloned rows lives in `SetActions`: every event def
 of type `0xB`, `0x16` or `0x17` is retyped to `0xB` with `delta = 0` and

@@ -1,7 +1,7 @@
 /* Port menu entries: "Quit Game" in the main menu, and a "Graphics"
  * entry in the Options screen with the Graphics screen it opens (resolution,
- * windowed/fullscreen, vsync on/off and a max frame rate of 30/60/90/120/144/
- * 240: src/port/gfx_settings.c). Port-only file.
+ * windowed/fullscreen, vsync on/off, a max frame rate of 30/60/90/120/144/240,
+ * and gamma and FOV bars: src/port/gfx_settings.c). Port-only file.
  *
  * Menus are data (HW_IPack.xgc), so these are built from the screens' own
  * definitions when they are created (Port_MenuPatch, from
@@ -31,7 +31,8 @@
  *   moved to the top two row positions. Their variables read the port's code
  *   variables (PORT_CODEVAR_*), their left/right actions write them. B goes
  *   back like the Controller screen's. Leaving it applies the settings
- *   (Port_MenuReleased).
+ *   (Port_MenuReleased). Gamma and FOV are more copies of the Music row, its
+ *   volume bar and all (AddBarRow), added after the 40.
  *
  * - Multi-Player: a new screen in front of the game's, Online or Local (the game's
  *   own). Online has Host with Tunnel, Host via LAN and Connect, then a lobby; see
@@ -62,6 +63,8 @@ enum {
     OPT_MUSIC = 27,             /* to 30 */
     OPT_SFX = 31,               /* to 34 */
     OPT_DEBUG = 35,
+    OPT_FOOTER_LEFT_RIGHT = 38, /* "Last/Next" and "B Back", for the rows listed in its conditions */
+    OPT_FOOTER_VOLUME = 39,     /* "Soft/Loud" and "B Back": the Music and SFX rows' */
 };
 
 enum {
@@ -72,7 +75,16 @@ enum {
     OPT_VAR_SFX = 5,            /* Graphics: the frame rate */
 };
 
-enum { REC_CONTROLLER = 1, REC_MUSIC = 4, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6 };
+enum { REC_CONTROLLER = 1, REC_MUSIC = 4, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6,
+       REC_GAMMA = 9, REC_FOV = 10 };
+
+/* The Graphics screen's objects past the Options screen's: two rows like Music's
+ * (label, bar, arrows). */
+enum {
+    GFX_GAMMA = OPT_NUM_OBJECTS,
+    GFX_FOV = GFX_GAMMA + 4,
+    GFX_NUM_OBJECTS = GFX_FOV + 4,
+};
 
 /* Menu rows in the pack: the first (Controller, One Player) at 198, 26 apart.
  * With the port's seventh row they sit a little closer, row k at
@@ -178,7 +190,7 @@ static TextCopy s_entryText;
 static RecordCopy s_entryRec;
 
 static InterfaceHeader s_gfx;
-static IfaceObjectDef s_gfxObjs[OPT_NUM_OBJECTS];
+static IfaceObjectDef s_gfxObjs[GFX_NUM_OBJECTS];
 static IfaceVarList s_gfxVarList;
 static IfaceVar s_gfxVars[8];
 static IfaceCodeVar s_gfxCode[4];
@@ -188,6 +200,18 @@ static TextCopy s_gfxText[5];
 static RecordCopy s_gfxRec[4];
 static ActionCopy s_gfxAction[4];
 static ListCopy s_resList, s_displayList, s_vsyncList, s_fpsList;
+
+/* AddBarRow's copies: the arrows only show for their row's own record id. */
+typedef struct BarRow {
+    AnimCopy anim[4];
+    TextCopy label;
+    RecordCopy rec;
+    IfaceConditionList arrowList[2];
+    IfaceCondition arrowCond[2];
+} BarRow;
+static BarRow s_gammaRow, s_fovRow;
+static IfaceConditionList s_footerList;
+static IfaceCondition s_footerCond[8];
 
 static const char *DefText(const IfaceObjectDef *d) {
     IfaceText *t;
@@ -352,6 +376,60 @@ static void SetListAsText(ListCopy *c, IfaceObjectDef *d, u16 var, const char *c
     SetList(c, d, var, names, n);
 }
 
+/* Objects at..at+3 of the Graphics screen: a copy of the pack's Music row (objs)
+ * at height y, whose bar shows and whose left/right change a port code variable,
+ * by the pack's own delta. The row's other events (they mark the game's settings
+ * changed, for the "Be sure to save" reminder) go: graphics.cfg isn't in the save. */
+static void AddBarRow(BarRow *row, const IfaceObjectDef *objs, u32 at, const char *name, u8 role, u32 codeVar,
+                      u8 id, u8 up, u8 down, f32 y) {
+    IfaceObjectDef *d = &s_gfxObjs[at];
+    u32 i;
+
+    for (i = 0; i < 4; i++) {
+        d[i] = objs[OPT_MUSIC + i];
+        MoveTo(&row->anim[i], &d[i], y);
+    }
+    SetText(&row->label, &d[0], name);
+    d[1].role = role;
+    CopyRecord(&row->rec, &d[0], id, up, down);
+    for (i = 0; i < row->rec.rec.events.count; i++) {
+        if (row->rec.defs[i].type == 0x16) {
+            row->rec.defs[i].type = PORT_EVENT_SLIDER;
+            row->rec.defs[i].id = (u16)codeVar;
+        } else {
+            row->rec.defs[i].type = EVENT_NOTHING;
+            row->rec.defs[i].target.h = 0;
+        }
+    }
+    for (i = 0; i < 2; i++) {
+        const IfaceConditionList *list = GETP(d[2 + i].conditions);
+
+        row->arrowList[i] = *list;
+        row->arrowCond[i] = *GETP(list->conds);
+        row->arrowCond[i].value = id;
+        SETP(row->arrowList[i].conds, &row->arrowCond[i]);
+        SETP(d[2 + i].conditions, &row->arrowList[i]);
+    }
+}
+
+/* The screen's footer for left/right rows also shows for the rows made from the
+ * Music and SFX rows, and for the bars; "Soft/Loud" means nothing here. */
+static void SetLeftRightFooter(const IfaceObjectDef *objs) {
+    static const u8 rows[] = { REC_MUSIC, REC_SFX, REC_GAMMA, REC_FOV };
+    const IfaceConditionList *list = GETP(objs[OPT_FOOTER_LEFT_RIGHT].conditions);
+    u32 n = list->count, i;
+
+    memcpy(s_footerCond, GETP(list->conds), n * sizeof(IfaceCondition));
+    for (i = 0; i < sizeof(rows); i++) {
+        s_footerCond[n + i] = s_footerCond[0];
+        s_footerCond[n + i].value = rows[i];
+    }
+    s_footerList = *list;
+    s_footerList.count = n + sizeof(rows);
+    SETP(s_footerList.conds, s_footerCond);
+    SETP(s_gfxObjs[OPT_FOOTER_LEFT_RIGHT].conditions, &s_footerList);
+}
+
 static void SetCodeVar(IfaceVar *v, IfaceCodeVar *c, u32 id, s32 max) {
     *c = *GETP(v->code);
     c->id = id;
@@ -389,16 +467,16 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
     static const char *const displayNames[2] = { "Windowed", "Fullscreen" };
     const char *optNames[PORT_MAX_CHOICES];
     static const u8 hide[] = {
-        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_DEBUG,
+        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_DEBUG, OPT_FOOTER_VOLUME,
     };
     IfaceVarList *vars = GETP(opt->vars);
     InterfaceHeader *ctrl;
     u32 i;
 
     s_gfx = *opt;
-    memcpy(s_gfxObjs, objs, sizeof(s_gfxObjs));
+    memcpy(s_gfxObjs, objs, OPT_NUM_OBJECTS * sizeof(IfaceObjectDef));
     SETP(s_gfx.objects, s_gfxObjs);
-    s_gfx.numObjects = OPT_NUM_OBJECTS;
+    s_gfx.numObjects = GFX_NUM_OBJECTS;
     /* B: back, as on the Controller screen (the one its row goes to) */
     ctrl = (InterfaceHeader *)GETP(GETP(GETP(GETP(objs[OPT_CONTROLLER].record)->events.events)[0].def)->target);
     s_gfx.events = ctrl->events;
@@ -433,7 +511,7 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
         MoveTo(&s_rowAnim[12 + i], &s_gfxObjs[OPT_SFX + i], ROW_Y + 3 * ROW_STEP);
     }
     SetText(&s_gfxText[1], &s_gfxObjs[OPT_DIFFICULTY], "Resolution");
-    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_SFX, REC_SOUND),
+    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_FOV, REC_SOUND),
                &s_gfxAction[0], PORT_CODEVAR_RESOLUTION, OPT_VAR_DIFFICULTY);
     SetText(&s_gfxText[2], &s_gfxObjs[OPT_SOUND], "Display");
     SetActions(CopyRecord(&s_gfxRec[1], &s_gfxObjs[OPT_SOUND], REC_SOUND, REC_DIFFICULTY, REC_MUSIC),
@@ -442,7 +520,8 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
     if (s_gfxVarList.count > OPT_VAR_SFX) {
         /* VSync and Max FPS: the Music and SFX rows (their packs' own rows,
          * hidden before), relabelled and wired to the port's code vars. The
-         * ring runs Resolution - Display - VSync - Max FPS - Resolution. */
+         * ring runs Resolution - Display - VSync - Max FPS - Gamma - FOV -
+         * Resolution. */
         u32 n;
 
         SetCodeVar(&s_gfxVars[OPT_VAR_MUSIC], &s_gfxCode[2], PORT_CODEVAR_VSYNC, 1);
@@ -457,20 +536,26 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
         SetListAsText(&s_vsyncList, &s_gfxObjs[OPT_MUSIC + 1], OPT_VAR_MUSIC, optNames, n,
                       &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[9], ROW_Y + 2 * ROW_STEP);
         SetText(&s_gfxText[4], &s_gfxObjs[OPT_SFX], "Max FPS");
-        SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_DIFFICULTY),
+        SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_GAMMA),
                    &s_gfxAction[3], PORT_CODEVAR_MAXFPS, OPT_VAR_SFX);
         for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) && n < PORT_MAX_CHOICES; n++) {
             optNames[n] = Port_GfxOptionName(PORT_CODEVAR_MAXFPS, n);
         }
         SetListAsText(&s_fpsList, &s_gfxObjs[OPT_SFX + 1], OPT_VAR_SFX, optNames, n,
                       &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[13], ROW_Y + 3 * ROW_STEP);
-        Port_Log("menu: graphics screen built (resolution, display, vsync, max fps)");
+        Port_Log("menu: graphics screen built (resolution, display, vsync, max fps, gamma, fov)");
     } else {
         for (i = OPT_MUSIC; i < OPT_SFX + 4; i++) {
             s_gfxObjs[i].active = 0;
             SETP(s_gfxObjs[i].conditions, &s_hideAll);
         }
     }
+    AddBarRow(&s_gammaRow, objs, GFX_GAMMA, "Gamma", PORT_ROLE_GAMMA_BAR, PORT_CODEVAR_GAMMA,
+              REC_GAMMA, REC_SFX, REC_FOV, ROW_Y + 4 * ROW_STEP);
+    AddBarRow(&s_fovRow, objs, GFX_FOV, "FOV", PORT_ROLE_FOV_BAR, PORT_CODEVAR_FOV,
+              REC_FOV, REC_GAMMA, REC_DIFFICULTY, ROW_Y + 5 * ROW_STEP);
+    SetLeftRightFooter(objs);
+    s_gfxVars[OPT_VAR_SELECTED].max = REC_FOV;
     RefreshModes();
 }
 
