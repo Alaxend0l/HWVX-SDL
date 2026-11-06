@@ -10,7 +10,8 @@
  * - in menus (and the pause menu): arrows move, Enter accepts (A, and Start,
  *   which "Press START" and many rows take, except in the pause menu, where
  *   Start resumes), Escape goes back (B), X is the X button (stats); these go
- *   into the slots (Port_KeyboardSlots, from Input_Heartbeat). Screens put
+ *   into the slots (Port_KeyboardSlots, from Input_Heartbeat), where a held
+ *   arrow repeats like the analog stick (InterfaceManager_KeyPress). Screens put
  *   up during gameplay that wait for buttons (the mission information window
  *   at the start, briefings) get the same, but Enter is A only there, as
  *   Start would also pause;

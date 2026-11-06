@@ -3,6 +3,7 @@
 #include "World.h"
 #include "Interface.h"
 #include "Port_Online.h"
+#include "Input.h"
 #include "Gfx.h"
 #include "ThingManager.h"
 #include "AttachThing.h"
@@ -1805,6 +1806,33 @@ void InterfaceManager_SetObjectReference(Interface *iface, u32 id, u32 state) {
     }
 }
 
+/* port: a held d-pad or arrow key (both are these slots) repeats in the menus by
+ * pushing the stick that way, for the stick's repeat below. Online, the keys of a
+ * player who isn't choosing don't count (Port_KeyboardSlots drops their presses). */
+static s32 Port_MenuAnalog(s32 chan, s16 *x, s16 *y, s16 *cx, s16 *cy) {
+    s32 ok = Input_GetAnalog(chan, x, y, cx, cy);
+    u32 down = g_VirtualPad[chan].keyDown;
+
+    if (ok && !Port_OnlineMenuBlocked()) {
+        if (down & (1u << 3)) *x = 127;
+        if (down & (1u << 2)) *x = -127;
+        if (down & (1u << 4)) *y = 127;
+        if (down & (1u << 5)) *y = -127;
+    }
+    return ok;
+}
+
+/* port: the press that starts such a hold counts as the stick's first push, or the
+ * stick's repeat would fire again on the very next frame. */
+static void Port_MenuArmRepeat(Interface *im, s32 chan, u8 key) {
+    s32 dir = key == 3 ? 2 : key == 2 ? 3 : key == 4 ? 0 : key == 5 ? 1 : -1;
+
+    if (dir >= 0) {
+        im->dir[chan][dir].active = 1;
+        im->dir[chan][dir].timer = 250;
+    }
+}
+
 u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
     extern s32 g_iDeltaTimeMS;
     u32 result = 0;
@@ -1819,12 +1847,13 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
         for (i = 0; i < 4; i++) {
             if (Input_KeyPress(i, key)) {
                 result |= 1 << i;
+                Port_MenuArmRepeat(im, i, key);
             }
         }
         if (result == 0) {
             if (key == 3) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (x > 100 && !im->dir[i][2].active && !im->locked) {
                             im->dir[i][2].active = 1;
                             result |= 1 << i;
@@ -1843,7 +1872,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                 }
             } else if (key == 2) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (x < -100 && !im->dir[i][3].active && !im->locked) {
                             im->dir[i][3].active = 1;
                             result |= 1 << i;
@@ -1862,7 +1891,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                 }
             } else if (key == 4) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (y > 100 && !im->dir[i][0].active && !im->locked) {
                             im->dir[i][0].active = 1;
                             result |= 1 << i;
@@ -1881,7 +1910,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                 }
             } else if (key == 5) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (y < -100 && !im->dir[i][1].active && !im->locked) {
                             im->dir[i][1].active = 1;
                             result |= 1 << i;
@@ -1906,10 +1935,11 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
         s16 x, y, cx, cy;
         if (Input_KeyPress(pad, key)) {
             result |= 1 << pad;
+            Port_MenuArmRepeat(im, pad, key);
         }
         if (result == 0) {
             if (key == 3) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (x > 100 && !im->dir[pad][2].active && !im->locked) {
                         im->dir[pad][2].active = 1;
                         result |= 1 << pad;
@@ -1926,7 +1956,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                     }
                 }
             } else if (key == 2) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (x < -100 && !im->dir[pad][3].active && !im->locked) {
                         im->dir[pad][3].active = 1;
                         result |= 1 << pad;
@@ -1943,7 +1973,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                     }
                 }
             } else if (key == 4) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (y > 100 && !im->dir[pad][0].active && !im->locked) {
                         im->dir[pad][0].active = 1;
                         result |= 1 << pad;
@@ -1960,7 +1990,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                     }
                 }
             } else if (key == 5) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (y < -100 && !im->dir[pad][1].active && !im->locked) {
                         im->dir[pad][1].active = 1;
                         result |= 1 << pad;
