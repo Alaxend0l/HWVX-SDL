@@ -3,6 +3,7 @@
  * owns a HUD interface and, as an AI car driver, is respawned after its car
  * is destroyed. */
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
 #include "Nav.h"
@@ -537,6 +538,13 @@ s32 Player_DefaultControlReader(void *arg0) {
     u32 i;
 
     Control_ClearControl(player);
+    if (Port_OnlineIsRemote(player)) {
+        Port_OnlineRemoteControl(player);   /* port: driven from another machine (Port_Online.c) */
+        return 1;
+    }
+    if (Port_OnlineMenuOpen()) {
+        return 1;               /* port: online, the pause menu has the pad */
+    }
     if (player->flags & 1) {
         player->down[3] = 0xFF;
         player->down[2] = 0xFF;

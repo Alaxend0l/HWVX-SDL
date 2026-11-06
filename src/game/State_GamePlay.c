@@ -1,6 +1,7 @@
 /* The race / mission state: sets up the world's things, players and
  * cameras, runs the game processes, the pause menu and the attract demo. */
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
 #include "AI.h"
@@ -49,6 +50,7 @@ s32 StateGamePlay_Init(void) {
     g_gamePlayCallback = 0;
     g_DemoModeCurrentPlayer = 0;
     g_bExitStateGamePlay = 0;
+    Port_OnlineLevelLoading();   /* port: online session (Port_Online.c) */
     Geometry_Init(1);
     PlayerManager_Create();
     Gfx_SetEnviroMapMode(1);
@@ -125,7 +127,9 @@ s32 StateGamePlay_Init(void) {
                         } else if (car->port == 4) {
                             Player_SetName(player, 4, "Player 4");
                         }
-                        humanUsed[car->port - 1] = 1;
+                        /* port: online, the other machines' cars get no view here */
+                        Port_OnlineSetupPlayer(player);
+                        humanUsed[car->port - 1] = !Port_OnlineIsRemote(player);
                         SETP(car->car, ThingManager_DARYL_CreateThing(9, &params));
                         Player_SetThing(player, GETP(car->car));
                         SETP(GETP(car->car)->base.trigger, car);
@@ -338,7 +342,7 @@ s32 StateGamePlay_Init(void) {
         if (humanUsed[3]) {
             viewOf[3] = view++;
         }
-        switch (count) {
+        switch (Port_OnlineActive() ? 1 : count) {   /* port: online, one view */
         case 1:
             break;
         case 2:
@@ -353,11 +357,14 @@ s32 StateGamePlay_Init(void) {
         }
         for (k = 0; k < count; k++) {
             player = PlayerManager_GetHumanPlayerByIndex(k);
+            if (Port_OnlineIsRemote(player)) {
+                continue;
+            }
             camera = CameraManager_GetNewCamera();
             player->view = viewOf[player->port - 1];
             Camera_SetPlayer(camera, player);
             if (player->view == 1) {
-                if (count > 1) {
+                if (count > 1 && !Port_OnlineActive()) {
                     ViewManager_SetCamera(camera, 1);
                     ViewManager_EnableView(1, 1);
                 }
@@ -437,6 +444,7 @@ s32 StateGamePlay_Init(void) {
     World_InitTeleporters();
     SetPlayerControls();
     GameSettings_RestorePlayerStats();
+    Port_OnlineLevelStarted();   /* port: online session (Port_Online.c) */
     return 1;
 #undef g_pauseState
 }
@@ -458,7 +466,8 @@ void SetPlayerControls(void) {
     count = PlayerManager_PlayerHumanCount();
     for (i = 0; i < count; i++) {
         player = PlayerManager_GetHumanPlayerByIndex(i);
-        settings = GameSettings_GetControllerSettings(player->controller);
+        /* port: online, the first pad's, whatever port this car spawned on */
+        settings = GameSettings_GetControllerSettings(Port_OnlineActive() ? Port_OnlineControllerPort((Player *)player) : (u32)player->controller);
         if (mcp != NULL && mcp->numBindings != 0) {
             if (settings->data[1] >= mcp->numBindings) {
                 settings->data[1] = 0;
@@ -504,7 +513,7 @@ s32 StateGamePlay_Heartbeat(void) {
     removed = 0;
     ShowStats_StartFrame();
     Gfx_SetCameraMatrix(&g_lastCamPos, NULL, NULL, NULL);
-    ProcessManager_Heartbeat(g_pauseState);
+    ProcessManager_Heartbeat(g_pauseState || Port_OnlineHolding());   /* port: online, waiting for go */
     ViewManager_PrepForRender();
     Gfx_GetCameraPosition(&g_lastCamPos);
     if (GameSettings_GetCodeVariable(0x198, 0) == 0) {
@@ -517,7 +526,7 @@ s32 StateGamePlay_Heartbeat(void) {
             count = PlayerManager_PlayerHumanCount();
             for (i = 0; i < count; i++) {
                 player = PlayerManager_GetHumanPlayerByIndex(i);
-                if (Input_KeyPress(player->device, 0)) {
+                if (!Port_OnlineIsRemote(player) && Input_KeyPress(player->device, 0)) {
                     input = player->device;
                     pressed = 1;
                     break;
@@ -537,7 +546,15 @@ s32 StateGamePlay_Heartbeat(void) {
             pressed = 1;
             removed = 1;
         }
-        if (pressed && GameSettings_GetCodeVariable(0x19B, 0)) {
+        if (pressed && GameSettings_GetCodeVariable(0x19B, 0) && Port_OnlineActive()) {
+            /* port: online, nothing stops: the menu opens over the running race */
+            if (!Port_OnlineMenuOpen() && !Port_OnlineHolding() && GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface) != NULL) {
+                Port_OnlineSetMenuOpen(1);
+                pauseInterfaceID = InterfaceManager_Create(GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface), 0, GamePlay_Interface);
+                InterfaceManager_SetInput(pauseInterfaceID, input);
+                GameSettings_SetCodeVariable(0xD5, 0, input + 1);
+            }
+        } else if (pressed && GameSettings_GetCodeVariable(0x19B, 0)) {
             if (g_pauseState == 0 && GETP(GETP(((World *)GETP(g_worldData.world))->gameData)->pauseInterface) != NULL) {
                 g_pauseState = 1;
                 StateGamePlay_Pause(1);
@@ -648,7 +665,8 @@ s32 StateGamePlay_Heartbeat(void) {
             InterfaceManager_ReleaseInterface(pauseInterfaceID);
         }
         GameSettings_SetCodeVariable(0xD5, 0, 0);
-        g_bFreezeWorld = 0;
+        g_bFreezeWorld = Port_OnlineHolding();   /* port: 0 offline */
+        Port_OnlineSetMenuOpen(0);
         break;
     }
     return 1;
@@ -783,6 +801,12 @@ void GamePlay_PauseOptions_HandleInput(void *msg) {
             g_bExitStateGamePlay = 1;
             break;
         case 10:
+            /* port: online, one machine can't restart alone: back to the lobby */
+            if (Port_OnlineActive()) {
+                g_targetGameState = 2;
+                g_bExitStateGamePlay = 1;
+                break;
+            }
             StateProgressionManager_RestartCurrentLevel();
             break;
         case 16:
@@ -822,7 +846,7 @@ s32 ActionPauseGame(u32 *action) {
         count = PlayerManager_PlayerHumanCount();
         for (i = 0; i < count; i++) {
             player = PlayerManager_GetHumanPlayerByIndex(i);
-            settings = GameSettings_GetControllerSettings(player->port);
+            settings = GameSettings_GetControllerSettings(Port_OnlineActive() ? Port_OnlineControllerPort(player) : player->port);   /* port: as in SetPlayerControls */
             if (mcp != NULL && mcp->numBindings != 0) {
                 if (settings->data[1] >= mcp->numBindings) {
                     settings->data[1] = 0;

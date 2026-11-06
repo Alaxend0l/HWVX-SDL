@@ -142,5 +142,7 @@ enum {
 /* pActionFuncArray index of ActionPrintDebugString, which stays queued while
  * its countdown (data word 1) runs. */
 #define ACTION_PRINT_DEBUG_STRING 0x14
+#define ACTION_ROUND_COMPLETE 0x27
+#define ACTION_RESET_GAME_ROUND 0x26
 
 #endif

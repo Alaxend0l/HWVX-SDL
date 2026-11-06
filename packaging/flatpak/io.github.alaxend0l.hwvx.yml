@@ -21,6 +21,7 @@ finish-args:
   - --socket=fallback-x11
   - --socket=pulseaudio
   - --device=all          # GPU and game controllers
+  - --share=network       # online play
 modules:
   - name: SDL3
     buildsystem: cmake-ninja
@@ -44,10 +45,15 @@ modules:
   - name: hwvx
     buildsystem: cmake-ninja
     config-opts:
+      - -DFETCHCONTENT_SOURCE_DIR_MBEDTLS=/run/build/hwvx/mbedtls   # no network while building (CMakeLists.txt)
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo   # renderer: vulkan, OpenGL without it (main_sdl.c)
     cleanup:
       - /share/icons/hicolor/scalable   # PNG only (see appstream-compose above)
     sources:
+      - type: archive
+        url: https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2
+        sha256: a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
+        dest: mbedtls
       - type: dir
         path: ../..
         skip:
@@ -60,4 +66,5 @@ modules:
           - orig
           - pc-orig
           - HWVX-GC-Decomp
+          - HWVX-X-FILE-EDITOR
           - android

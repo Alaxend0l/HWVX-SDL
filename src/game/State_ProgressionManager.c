@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Online.h"
 #include "World.h"
 
 /* The world being loaded. */
@@ -537,6 +538,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             DataPack_RefreshPtrs((void *)PTR(g_worldData.worldPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));
+            Port_OnlineExpandSpawns(WORLD());   /* port: Joyride, online */
             if (mcp != NULL && GETP(GETP(WORLD()->gameData)->itemPack) != NULL && mcp->skipWorldPacks == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(WORLD()->gameData)->itemPack), 8, 3, 0);
@@ -563,7 +565,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                             case 1:
                                 if (id == 0xFFFF)
                                 {
-                                    id = RandomNumberGenerator_GetRandomInteger(item->lo, item->hi + 1);
+                                    id = Port_OnlineItemRandom(item->lo, item->hi + 1, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline */
                                 }
                                 if (GameSettings_GetGameType() == 0 && id == 3 && GameSettings_IsCheatEnabled(8))
                                 {
@@ -573,7 +575,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                                 FileStreaming_LoadDataPack(name, 2, id, 0);
                                 break;
                             case 2:
-                                id = RandomNumberGenerator_GetRandomInteger(item->lo, item->hi + 1);
+                                id = Port_OnlineItemRandom(item->lo, item->hi + 1, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline */
                                 if (GameSettings_GetGameType() == 0 && id == 3 && GameSettings_IsCheatEnabled(8))
                                 {
                                     id = 0x4D;

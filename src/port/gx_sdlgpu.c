@@ -287,7 +287,7 @@ static void GPU_Init(int efbW, int efbH) {
     s.vs = SHADER(gx_vert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     s.fs = SHADER(gx_frag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1);
     s.presentVS = SHADER(present_vert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
-    s.presentFS = SHADER(present_frag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
+    s.presentFS = SHADER(present_frag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
     {
         const char *e = SDL_getenv("HWVX_NO_TEVGEN");
 
@@ -847,7 +847,7 @@ static void GPU_CopyDisp(const int src[4]) {
     SDL_GPURenderPass *pass;
     SDL_GPUTextureSamplerBinding tb;
     SDL_GPUViewport vp;
-    f32 rect[4];
+    f32 rect[4], gamma[4] = { Port_GfxGammaPower(), 0.0f, 0.0f, 0.0f };
     int lb[4];
 
     Flush();
@@ -896,6 +896,7 @@ static void GPU_CopyDisp(const int src[4]) {
     rect[2] = (f32)src[2] / s.efbW;
     rect[3] = (f32)src[3] / s.efbH;
     SDL_PushGPUVertexUniformData(cmd, 0, rect, sizeof(rect));
+    SDL_PushGPUFragmentUniformData(cmd, 0, gamma, sizeof(gamma));
     tb.texture = s.efb;
     tb.sampler = s.linearClamp;
     SDL_BindGPUFragmentSamplers(pass, 0, &tb, 1);

@@ -2,6 +2,8 @@
 #include "CarA.h"
 #include "World.h"
 #include "Interface.h"
+#include "Port_Online.h"
+#include "Input.h"
 #include "Gfx.h"
 #include "ThingManager.h"
 #include "AttachThing.h"
@@ -1804,6 +1806,33 @@ void InterfaceManager_SetObjectReference(Interface *iface, u32 id, u32 state) {
     }
 }
 
+/* port: a held d-pad or arrow key (both are these slots) repeats in the menus by
+ * pushing the stick that way, for the stick's repeat below. Online, the keys of a
+ * player who isn't choosing don't count (Port_KeyboardSlots drops their presses). */
+static s32 Port_MenuAnalog(s32 chan, s16 *x, s16 *y, s16 *cx, s16 *cy) {
+    s32 ok = Input_GetAnalog(chan, x, y, cx, cy);
+    u32 down = g_VirtualPad[chan].keyDown;
+
+    if (ok && !Port_OnlineMenuBlocked()) {
+        if (down & (1u << 3)) *x = 127;
+        if (down & (1u << 2)) *x = -127;
+        if (down & (1u << 4)) *y = 127;
+        if (down & (1u << 5)) *y = -127;
+    }
+    return ok;
+}
+
+/* port: the press that starts such a hold counts as the stick's first push, or the
+ * stick's repeat would fire again on the very next frame. */
+static void Port_MenuArmRepeat(Interface *im, s32 chan, u8 key) {
+    s32 dir = key == 3 ? 2 : key == 2 ? 3 : key == 4 ? 0 : key == 5 ? 1 : -1;
+
+    if (dir >= 0) {
+        im->dir[chan][dir].active = 1;
+        im->dir[chan][dir].timer = 250;
+    }
+}
+
 u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
     extern s32 g_iDeltaTimeMS;
     u32 result = 0;
@@ -1818,12 +1847,13 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
         for (i = 0; i < 4; i++) {
             if (Input_KeyPress(i, key)) {
                 result |= 1 << i;
+                Port_MenuArmRepeat(im, i, key);
             }
         }
         if (result == 0) {
             if (key == 3) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (x > 100 && !im->dir[i][2].active && !im->locked) {
                             im->dir[i][2].active = 1;
                             result |= 1 << i;
@@ -1842,7 +1872,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                 }
             } else if (key == 2) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (x < -100 && !im->dir[i][3].active && !im->locked) {
                             im->dir[i][3].active = 1;
                             result |= 1 << i;
@@ -1861,7 +1891,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                 }
             } else if (key == 4) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (y > 100 && !im->dir[i][0].active && !im->locked) {
                             im->dir[i][0].active = 1;
                             result |= 1 << i;
@@ -1880,7 +1910,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                 }
             } else if (key == 5) {
                 for (i = 0; i < 4; i++) {
-                    if (Input_GetAnalog(i, &x, &y, &cx, &cy)) {
+                    if (Port_MenuAnalog(i, &x, &y, &cx, &cy)) {
                         if (y < -100 && !im->dir[i][1].active && !im->locked) {
                             im->dir[i][1].active = 1;
                             result |= 1 << i;
@@ -1905,10 +1935,11 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
         s16 x, y, cx, cy;
         if (Input_KeyPress(pad, key)) {
             result |= 1 << pad;
+            Port_MenuArmRepeat(im, pad, key);
         }
         if (result == 0) {
             if (key == 3) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (x > 100 && !im->dir[pad][2].active && !im->locked) {
                         im->dir[pad][2].active = 1;
                         result |= 1 << pad;
@@ -1925,7 +1956,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                     }
                 }
             } else if (key == 2) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (x < -100 && !im->dir[pad][3].active && !im->locked) {
                         im->dir[pad][3].active = 1;
                         result |= 1 << pad;
@@ -1942,7 +1973,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                     }
                 }
             } else if (key == 4) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (y > 100 && !im->dir[pad][0].active && !im->locked) {
                         im->dir[pad][0].active = 1;
                         result |= 1 << pad;
@@ -1959,7 +1990,7 @@ u32 InterfaceManager_KeyPress(Interface *im, s32 pad, u8 key) {
                     }
                 }
             } else if (key == 5) {
-                if (Input_GetAnalog(pad, &x, &y, &cx, &cy)) {
+                if (Port_MenuAnalog(pad, &x, &y, &cx, &cy)) {
                     if (y < -100 && !im->dir[pad][1].active && !im->locked) {
                         im->dir[pad][1].active = 1;
                         result |= 1 << pad;
@@ -2224,6 +2255,10 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
                 break;
             }
         }
+        /* port: online, the level waits for every machine's choice (Port_Online.c) */
+        if (Port_OnlineCarsChosen(iface)) {
+            return 0;
+        }
         if (StateManager_CurrState() == 2) {
             StateManager_QueueChange(0xB);
         }
@@ -2276,6 +2311,11 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
     case 2: {
         IfaceMsg msg;
         u32 cur = iface->historyCount;
+
+        /* port: leaving a lobby ends the session; some screens can't be left */
+        if (Port_OnlineBack(GETP((iface->isChild ? &g_interfaces[iface->parent] : iface)->header))) {
+            return 0;           /* (a child's back leaves its parent: Backup_Key) */
+        }
 
         msg.index = iface->index;
         msg.type = 0xF;
@@ -2555,6 +2595,16 @@ s32 InterfaceManager_PlayEvent(Interface *iface, InterfaceObject *obj, u8 *event
             v = 0;
         }
         GameSettings_SetCodeVariable(0xD0, 0, v);
+        break;
+    case PORT_EVENT_SLIDER:   /* port: the Graphics bars, as the two above */
+        v = GameSettings_GetCodeVariable(GETP(((IfaceEvent *)event)->def)->id, 0);
+        v += GETP(((IfaceEvent *)event)->def)->delta;
+        if (v > 100) {
+            v = 100;
+        } else if (v < 0) {
+            v = 0;
+        }
+        GameSettings_SetCodeVariable(GETP(((IfaceEvent *)event)->def)->id, 0, v);
         break;
     case 0x18:
         GameSettings_SaveGeneralGameData();
@@ -3273,6 +3323,12 @@ void InterfaceManager_MoveObject(Interface *iface, InterfaceObject *obj, Interfa
                 break;
             case 103:
                 value = GameSettings_GetCodeVariable(0xCF, 0);
+                break;
+            case PORT_ROLE_GAMMA_BAR:   /* port: the Graphics bars, as the two above */
+                value = GameSettings_GetCodeVariable(PORT_CODEVAR_GAMMA, 0);
+                break;
+            case PORT_ROLE_FOV_BAR:
+                value = GameSettings_GetCodeVariable(PORT_CODEVAR_FOV, 0);
                 break;
             case 104:
                 InterfaceManager_SetControllerConfigInputString();
@@ -5321,3 +5377,63 @@ void InterfaceManager_RemoveInterfaceFromRender(u32 id) {
 #undef g_numInterfacesToRender
 }
 
+/* port: the menu that's up, for another machine's decisions (Port_Online.c). The
+ * root interface: children follow it. */
+static Interface *Port_InterfaceRoot(void) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        if (g_interfaces[i].count != 0 && !g_interfaces[i].isChild) {
+            return &g_interfaces[i];
+        }
+    }
+    return NULL;
+}
+
+/* port: is this screen up? */
+s32 Port_InterfaceIsUp(const void *header) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        if (g_interfaces[i].count != 0 && GETP(g_interfaces[i].header) == header) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* port: back to a screen in the menu's history, as its back button would; 0 if it
+ * isn't there. */
+s32 Port_InterfaceGoBack(InterfaceHeader *header) {
+    Interface *iface = Port_InterfaceRoot();
+    u32 j;
+
+    if (iface == NULL || header == NULL) {
+        return 0;
+    }
+    for (j = 0; j < iface->historyCount; j++) {
+        if (GETP(iface->history[j]) == header) {
+            iface->flags = 0;
+            iface->goBack = 1;
+            SETP(iface->next, header);
+            iface->historyCount = j;
+            InterfaceManager_SetLoadState(iface, 1);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* port: on to a screen, as a menu event would, or back to it if it came before: a
+ * screen reached twice mustn't leave a way back to what was between. */
+void Port_InterfaceGoto(InterfaceHeader *header) {
+    Interface *iface = Port_InterfaceRoot();
+
+    if (iface == NULL || header == NULL || GETP(iface->header) == header || Port_InterfaceGoBack(header)) {
+        return;
+    }
+    iface->flags = 0;
+    iface->goBack = 0;
+    SETP(iface->next, header);
+    InterfaceManager_SetLoadState(iface, 1);
+}

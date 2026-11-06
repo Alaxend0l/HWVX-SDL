@@ -10,7 +10,8 @@
  * - in menus (and the pause menu): arrows move, Enter accepts (A, and Start,
  *   which "Press START" and many rows take, except in the pause menu, where
  *   Start resumes), Escape goes back (B), X is the X button (stats); these go
- *   into the slots (Port_KeyboardSlots, from Input_Heartbeat). Screens put
+ *   into the slots (Port_KeyboardSlots, from Input_Heartbeat), where a held
+ *   arrow repeats like the analog stick (InterfaceManager_KeyPress). Screens put
  *   up during gameplay that wait for buttons (the mission information window
  *   at the start, briefings) get the same, but Enter is A only there, as
  *   Start would also pause;
@@ -24,6 +25,7 @@
  * flips), 8/9 stick right/left (steering), 10 strafe / stunt roll right,
  * 11 fire, 12 change camera. */
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "Input.h"
 
@@ -95,6 +97,13 @@ void Port_KeyboardSlots(VirtualPad *pad) {
         if (KEY(PORT_KEY_ENTER)) now |= 1u << SLOT_A | (StateManager_CurrState() == 5 ? 0 : 1u << SLOT_START);
         if (KEY(PORT_KEY_ESCAPE)) now |= 1u << SLOT_B;
         if (KEY(PORT_KEY_X)) now |= 1u << SLOT_X;   /* the X button (stats) */
+    }
+    if (Port_OnlineMenuBlocked()) {
+        now = 0;                /* online: the host is choosing for everyone */
+        pad->keyPress = 0;      /* the pads', this frame */
+    }
+    if (Port_OnlinePressA()) {
+        now |= 1u << SLOT_A;    /* online: the round summary moves on together */
     }
     released = held & ~now;
     pad->keyPress |= now & ~held;

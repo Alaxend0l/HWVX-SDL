@@ -53,7 +53,7 @@ the HUD and menus keep their 4:3 layout in the middle (taller screens work the
 same way vertically); split screen stays 4:3. Options → Graphics (a menu the
 port adds) picks a resolution from the display's modes and windowed or
 fullscreen; it is applied when you leave that menu and kept in `graphics.cfg`
-in the save folder. Command-line options override it. The main menu also gets
+in the save folder. It also has Gamma and FOV bars, which take effect at once. Command-line options override it. The main menu also gets
 a "Quit Game" entry (with the game's own Confirm Quit screen); both
 port entries are built from the menu data at load time (`src/game/Port_Menu.c`).
 
@@ -91,6 +91,7 @@ Enter to accept, Escape to go back, X for the X button (stats).
 | `src/port/port.h` | Fixed-width types, endian helpers, 32-bit handles |
 | `src/port/sdk.h`, `gx.h` | The SDK API surface the game uses |
 | `src/port/gx_render.h` | Renderer interface; `gx_gl.c` (OpenGL) and `gx_sdlgpu.c` (SDL_GPU) implement it |
+| `src/port/net.h`, `net*.c` | Online play transport (see "Online play"); nothing in the game calls it yet |
 | `src/port/shaders/` | Shader sources (GLSL), shared by every renderer |
 | `src/port/gx_shaders.h` | Generated: the shaders as GLSL, SPIR-V, MSL and DXIL |
 | `tools/` | Import and rewrite scripts (below) |
@@ -280,6 +281,18 @@ main menu header at blob `0x6ECC60` (26 objects), Options header at blob
 `tools/xgc_inspect.py` by searching for a header with 40/26 objects whose
 object 16/10's text is "Controller"/"Main Menu".
 
+The Gamma and FOV rows keep the volume look instead: `AddBarRow` copies the pack's
+Music row (objects 27-30) to objects 40-47 of the Graphics screen, with its bar.
+The bar's role (`PORT_ROLE_GAMMA_BAR`, `PORT_ROLE_FOV_BAR`) says which code variable
+stretches it, as 102/103 do for the volumes; the 0x16 events become
+`PORT_EVENT_SLIDER`, whose `id` is that code variable (`delta` stays -10/+10, clamped
+to 0..100); and the arrows' conditions get the row's own record id, or they would
+only show on Music's. The bars take effect at once and are saved in `graphics.cfg`
+with the rest. Gamma is a power on each colour in the display copy
+(`present.frag`, `GL_DrawGamma`), so it covers everything but `HWVX_DUMP`'s frames;
+FOV scales the view of the driving camera, `Camera_UpdatePosition` mode 30, leaving
+scripted shots alone.
+
 The volume fix for the two cloned rows lives in `SetActions`: every event def
 of type `0xB`, `0x16` or `0x17` is retyped to `0xB` with `delta = 0` and
 `target` the port's own action list, a row whose copied record had no step gets
@@ -321,6 +334,56 @@ remembers the choice. Measured: `--fps 120` gives 110 FPS while the work fits
 unchanged. Watch list for anything a survey cannot see: gameplay feel at 144
 and 240 (the integer-ms timers truncate harder as the delta nears their 1 ms
 floor) and any logic that counts frames rather than time.
+
+### Online play
+
+Work in progress: Drag Race, Battle and Joyride play over a network, weapons and pickups
+included. In Joyride, a world's key and gears count for every player. One host and its clients, each connected to the host only,
+up to 8 players in the transport (the game itself stops at 4 for now: player pools,
+score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
+
+Multi-Player now opens Online or Local; Local is the game's own screen. Hosting opens a
+lobby, and the host's choices in the game's own menus bring everyone to the car select
+(`src/game/Port_Online.c`, screens in `Port_Menu.c`). Online, every car, world and weapon
+is open and nothing reaches a save. In a level each machine simulates its own car, and
+the others follow its inputs and are pulled towards where it says it is. The world holds
+after loading and each round reset until the host says go, and the host decides who
+finished first. Not in yet: AI opponents (Battle Options hides the row online) and typing an
+address with only a controller. `HWVX_ONLINE_ADDRESS` fills in
+the Connect screen, for testing with `HWVX_AUTOINPUT`.
+
+The transport's API is `src/port/net.h`, the place to start reading: reliable messages, and "latest" ones where a newer message replaces
+one not yet sent. All of it travels over WebSocket, the one thing a quick tunnel is
+known to carry for a client without `cloudflared` of its own. A socket thread does
+the waiting outside the giant lock, so connections live through level loads.
+
+Tunnel Host runs the player's own `cloudflared` (next to the game, or installed: it isn't
+shipped, and can't run on Android or inside the Flatpak; those can still join) and shows a
+join code, `name-of-the-tunnel/CODE`; the room code is there because a tunnel's address is
+public. Clients reach it by `wss://`, with mbedTLS (a pinned release, `CMakeLists.txt`) and
+the public roots in `src/port/net_roots.h` (`tools/gen_net_roots.py`) as well as any the system
+has. Measured limits of a quick tunnel, which
+the constants in `net.c` and `tunnel.c` follow: a connection silent for about 125 s is closed, and
+a new tunnel's name can fail to resolve for over 80 s if looked up in its first few
+seconds, so hosts should wait about 15 s before showing it and clients keep retrying.
+
+Tests need no game data or window, and link only the transport:
+
+```sh
+cmake -S . -B build-tests -DHWVX_TESTS=ON && cmake --build build-tests --target nettest
+build-tests/nettest selftest     # protocol code, no sockets
+build-tests/nettest e2e          # a host and clients as separate processes
+```
+
+`HWVX_NET_SIM` makes any session's connection bad, for example
+`HWVX_NET_SIM=lat=40,jitter=20,loss=1,stall=200,bw=64` (see `src/port/net_sim.c`). For two
+machines, run `nettest host PORT ROOM PEERS SECONDS` and `nettest client ADDRESS ROOM
+COUNT SECONDS` (see `tools/nettest.c`).
+
+`tools/net_hostile.py` attacks a host with protocol violations, and
+`tools/net_tunnel_check.py` talks to one through a real tunnel; run the first
+against a sanitizer build. Test optimized builds as well: a masking loop once passed
+at `-O0` and failed at `-O2`.
 
 ## Tools
 

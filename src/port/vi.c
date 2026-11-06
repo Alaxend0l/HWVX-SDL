@@ -21,6 +21,7 @@ static u64 RetraceNS(void) {
 void Port_PumpEvents(void) {
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
+        Port_TextHandleEvent(&ev);
         switch (ev.type) {
         case SDL_EVENT_QUIT:
             g_port.quit = 1;

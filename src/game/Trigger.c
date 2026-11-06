@@ -2,6 +2,7 @@
  * polling heartbeat, event triggers and the code variables tests read. See
  * Trigger.h for the data. */
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
 #include "Trigger.h"
@@ -60,7 +61,7 @@ extern u8 g_bTACSystemPaused[];  /* s8: the whole system is paused */
 #define TRIGGER_RECORD(type, h) ((type *)PTR(h))
 
 /* Queues `count` actions; returns how many of them can run again. */
-static inline u32 Trigger_QueueActions(TriggerAction *actions, u32 count) {
+static inline u32 Trigger_QueueActionsNow(TriggerAction *actions, u32 count) {
     u32 queued = 0;
     u32 j;
 
@@ -68,6 +69,19 @@ static inline u32 Trigger_QueueActions(TriggerAction *actions, u32 count) {
         queued += Action_AddAction(&actions[j]);
     }
     return queued;
+}
+
+/* port: online, the host decides who finished first (Port_Online.c): a trigger that
+ * would end the round stays usable and queues nothing until it has. */
+static inline u32 Trigger_QueueActions(TriggerAction *actions, u32 count) {
+    u32 j;
+
+    for (j = 0; j < count; j++) {
+        if (actions[j].type == ACTION_ROUND_COMPLETE && Port_OnlineHoldRoundComplete(*(u32 *)GETP(actions[j].data))) {
+            return 1;
+        }
+    }
+    return Trigger_QueueActionsNow(actions, count);
 }
 
 /* An event trigger whose test matched: if its conditions hold, queue its
@@ -153,6 +167,73 @@ void Trigger_RestoreActions(s32 *saved, u32 count) {
             }
         }
     }
+}
+
+/* port: the host has said: runs the trigger for RoundComplete(number), if its
+ * conditions hold as they would have when its test passed. */
+void Port_TriggerFireRoundComplete(u32 number) {
+    u32 type;
+    u32 i;
+    u32 j;
+
+    for (type = 0; type < TRIGGER_NUM_TYPES; type++) {
+        for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+            Trigger *trigger = TRIGGER_LISTS[type][i];
+
+            for (j = 0; j < trigger->numActions; j++) {
+                TriggerAction *action = &GETP(trigger->actions)[j];
+
+                if (action->type == ACTION_ROUND_COMPLETE && *(u32 *)GETP(action->data) == number) {
+                    if (TriggerCheckConditions(trigger->mode, trigger->numConditions, trigger->conditions.h)) {
+                        Trigger_QueueActionsNow(GETP(trigger->actions), trigger->numActions);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/* port: does a script watch for this item being picked up? fire: and run those triggers,
+ * for an item that isn't there to go through Trigger_ItemPickedUp (Port_Online.c). */
+int Port_TriggerItemWatched(const void *spawner, int fire) {
+    int watched = 0;
+    u32 i;
+    u32 j;
+
+    for (i = 0; i < TRIGGER_STATS[TRIGGER_ITEM_PICKUP].count; i++) {
+        Trigger *trigger = TRIGGER_LISTS[TRIGGER_ITEM_PICKUP][i];
+        u32 *list = GETP(trigger->param);
+
+        for (j = 0; j < list[0]; j++) {
+            if (TRIGGER_RECORD(QuadItem, list[1 + j]) == spawner) {
+                watched = 1;
+                if (fire && !TAC_PAUSED && trigger->state != TRIGGER_STATE_DONE) {
+                    Trigger_FireEvent(trigger);
+                }
+                break;
+            }
+        }
+    }
+    return watched;
+}
+
+/* port: the round summary: the interface whose end the script answers with a round
+ * reset (Port_Online.c). NULL if the script has none. */
+void *Port_TriggerRoundSummary(void) {
+    u32 i;
+    u32 j;
+
+    for (i = 0; i < TRIGGER_STATS[TRIGGER_INTERFACE_END].count; i++) {
+        Trigger *trigger = TRIGGER_LISTS[TRIGGER_INTERFACE_END][i];
+
+        for (j = 0; j < trigger->numActions; j++) {
+            if (GETP(trigger->actions)[j].type == ACTION_RESET_GAME_ROUND) {
+                return PTR(GETP(trigger->param)[0]);
+            }
+        }
+    }
+    return NULL;
 }
 
 void Trigger_PauseTACSystem(s8 arg0) {

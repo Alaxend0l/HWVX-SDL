@@ -723,7 +723,7 @@ void DrawGroupWireframe(Geometry *geometry, u32 group, void *matrix) {
     s32 j;
 
     grp = &GETP(geometry->groups)[group];
-    count = (u32)HND(GETP(grp->data));
+    count = grp->dlSize;
     for (i = 0; i < count; i++) {
         for (j = 0; j < 3; j++) {
             XformVec(matrix, &GETP(geometry->verts)[GETP(grp->tris)[i][j]].pos, &v[j]);
@@ -900,7 +900,7 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
 
     if (GETP(geom->groups)[0].flags & 0x4000) {
         for (i = 0; i < geom->numGroups; i++) {
-            if (GETP(GETP(geom->groups)[i].data) != NULL) {
+            if (GETP(geom->groups)[i].dlSize != 0) {
                 group = DisplayList_AddGroup_Overlay();
                 if (group != NULL) {
                     SETP(group->geometry, geom);
@@ -915,7 +915,7 @@ void DisplayList_AddGeometry(u32 geometry, u16 matrix, s32 lightState, u8 lod, u
         return;
     }
     for (i = 0; i < geom->numGroups; i++) {
-        if (GETP(GETP(geom->groups)[i].data) == NULL) {
+        if (GETP(geom->groups)[i].dlSize == 0) {
             continue;
         }
         flags = GETP(geom->groups)[i].flags;

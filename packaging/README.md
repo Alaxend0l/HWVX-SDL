@@ -13,7 +13,8 @@ go to `dist/`; scratch (SDL builds, AppDirs...) to `build-pkg/`.
 | Linux Flatpak | `packaging/flatpak/build.sh [ARCH]` | Linux x86_64 / aarch64 with flatpak-builder (another ARCH: qemu-user-static) | `HWVX-VER-ARCH.flatpak` |
 | Android `.apk` | `cd android && ./gradlew assembleRelease` | Linux, macOS (JDK 17, Android SDK) | `android/app/build/outputs/apk/release/app-release.apk` |
 
-Every package contains only the program. The game data is the player's own:
+Every package contains only the program; `cloudflared`, for hosting online through a
+tunnel, is the player's to install (the Flatpak and Android can join such games, not host them). The game data is the player's own:
 on first start the game looks in the usual places and, on desktop, asks for
 the folder (see "Game data" in the top-level README).
 

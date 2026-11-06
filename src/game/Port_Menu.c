@@ -1,7 +1,7 @@
 /* Port menu entries: "Quit Game" in the main menu, and a "Graphics"
  * entry in the Options screen with the Graphics screen it opens (resolution,
- * windowed/fullscreen, vsync on/off and a max frame rate of 30/60/90/120/144/
- * 240: src/port/gfx_settings.c). Port-only file.
+ * windowed/fullscreen, vsync on/off, a max frame rate of 30/60/90/120/144/240,
+ * and gamma and FOV bars: src/port/gfx_settings.c). Port-only file.
  *
  * Menus are data (HW_IPack.xgc), so these are built from the screens' own
  * definitions when they are created (Port_MenuPatch, from
@@ -31,13 +31,25 @@
  *   moved to the top two row positions. Their variables read the port's code
  *   variables (PORT_CODEVAR_*), their left/right actions write them. B goes
  *   back like the Controller screen's. Leaving it applies the settings
- *   (Port_MenuReleased).
+ *   (Port_MenuReleased). Gamma and FOV are more copies of the Music row, its
+ *   volume bar and all (AddBarRow), added after the 40.
+ *
+ * - Multi-Player: a new screen in front of the game's, Online or Local (the game's
+ *   own). Online has Host with Tunnel, Host via LAN and Connect, then a lobby; see
+ *   "Online screens" below and Port_Online.c.
+ *
+ * - Battle Options online: no Opponents row (there are no AI cars online), the rows
+ *   below moving up. Local play keeps it, the same screen: a copy made each time.
+ * - Pause menu in the multi-player modes, online or local: no Save row, Quit moving
+ *   up into its place. One Player keeps it: the same screen, so this is a copy made
+ *   each time, and the original comes back otherwise.
  *
  * Copies live in static storage; the pack data they point to stays where it
  * is. To add a setting: copy another row into the Graphics screen the same
  * way, with a new PORT_CODEVAR_* id. */
 #include "common.h"
 #include "Interface.h"
+#include "Port_Online.h"
 
 /* The Options screen's objects (pack data, see tools: dump with xgc_inspect). */
 enum {
@@ -51,6 +63,8 @@ enum {
     OPT_MUSIC = 27,             /* to 30 */
     OPT_SFX = 31,               /* to 34 */
     OPT_DEBUG = 35,
+    OPT_FOOTER_LEFT_RIGHT = 38, /* "Last/Next" and "B Back", for the rows listed in its conditions */
+    OPT_FOOTER_VOLUME = 39,     /* "Soft/Loud" and "B Back": the Music and SFX rows' */
 };
 
 enum {
@@ -61,7 +75,16 @@ enum {
     OPT_VAR_SFX = 5,            /* Graphics: the frame rate */
 };
 
-enum { REC_CONTROLLER = 1, REC_MUSIC = 4, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6 };
+enum { REC_CONTROLLER = 1, REC_MUSIC = 4, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6,
+       REC_GAMMA = 9, REC_FOV = 10 };
+
+/* The Graphics screen's objects past the Options screen's: two rows like Music's
+ * (label, bar, arrows). */
+enum {
+    GFX_GAMMA = OPT_NUM_OBJECTS,
+    GFX_FOV = GFX_GAMMA + 4,
+    GFX_NUM_OBJECTS = GFX_FOV + 4,
+};
 
 /* Menu rows in the pack: the first (Controller, One Player) at 198, 26 apart.
  * With the port's seventh row they sit a little closer, row k at
@@ -105,6 +128,7 @@ enum { REC_ONE_PLAYER = 1, REC_EXTRAS = 5, REC_DESKTOP = 7 };
 enum { CARD_VAR_PHASE = 4, CARD_WARNING = 11 };
 enum { CODEVAR_SETTINGS_CHANGED = 0xCA, CODEVAR_DEVICE = 0x1F7, CODEVAR_FILE_INDEX = 0x1F8 };
 enum { EVENT_GOTO = 1, EVENT_BACK = 2, EVENT_NOTHING = 0xC };
+enum { MAIN_MULTI_PLAYER = 14, REC_MULTI_PLAYER = 2, REC_LOAD_GAME = 3 };
 
 void GameSettings_PortAutoSave(void);
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce);
@@ -166,7 +190,7 @@ static TextCopy s_entryText;
 static RecordCopy s_entryRec;
 
 static InterfaceHeader s_gfx;
-static IfaceObjectDef s_gfxObjs[OPT_NUM_OBJECTS];
+static IfaceObjectDef s_gfxObjs[GFX_NUM_OBJECTS];
 static IfaceVarList s_gfxVarList;
 static IfaceVar s_gfxVars[8];
 static IfaceCodeVar s_gfxCode[4];
@@ -176,6 +200,18 @@ static TextCopy s_gfxText[5];
 static RecordCopy s_gfxRec[4];
 static ActionCopy s_gfxAction[4];
 static ListCopy s_resList, s_displayList, s_vsyncList, s_fpsList;
+
+/* AddBarRow's copies: the arrows only show for their row's own record id. */
+typedef struct BarRow {
+    AnimCopy anim[4];
+    TextCopy label;
+    RecordCopy rec;
+    IfaceConditionList arrowList[2];
+    IfaceCondition arrowCond[2];
+} BarRow;
+static BarRow s_gammaRow, s_fovRow;
+static IfaceConditionList s_footerList;
+static IfaceCondition s_footerCond[8];
 
 static const char *DefText(const IfaceObjectDef *d) {
     IfaceText *t;
@@ -340,6 +376,60 @@ static void SetListAsText(ListCopy *c, IfaceObjectDef *d, u16 var, const char *c
     SetList(c, d, var, names, n);
 }
 
+/* Objects at..at+3 of the Graphics screen: a copy of the pack's Music row (objs)
+ * at height y, whose bar shows and whose left/right change a port code variable,
+ * by the pack's own delta. The row's other events (they mark the game's settings
+ * changed, for the "Be sure to save" reminder) go: graphics.cfg isn't in the save. */
+static void AddBarRow(BarRow *row, const IfaceObjectDef *objs, u32 at, const char *name, u8 role, u32 codeVar,
+                      u8 id, u8 up, u8 down, f32 y) {
+    IfaceObjectDef *d = &s_gfxObjs[at];
+    u32 i;
+
+    for (i = 0; i < 4; i++) {
+        d[i] = objs[OPT_MUSIC + i];
+        MoveTo(&row->anim[i], &d[i], y);
+    }
+    SetText(&row->label, &d[0], name);
+    d[1].role = role;
+    CopyRecord(&row->rec, &d[0], id, up, down);
+    for (i = 0; i < row->rec.rec.events.count; i++) {
+        if (row->rec.defs[i].type == 0x16) {
+            row->rec.defs[i].type = PORT_EVENT_SLIDER;
+            row->rec.defs[i].id = (u16)codeVar;
+        } else {
+            row->rec.defs[i].type = EVENT_NOTHING;
+            row->rec.defs[i].target.h = 0;
+        }
+    }
+    for (i = 0; i < 2; i++) {
+        const IfaceConditionList *list = GETP(d[2 + i].conditions);
+
+        row->arrowList[i] = *list;
+        row->arrowCond[i] = *GETP(list->conds);
+        row->arrowCond[i].value = id;
+        SETP(row->arrowList[i].conds, &row->arrowCond[i]);
+        SETP(d[2 + i].conditions, &row->arrowList[i]);
+    }
+}
+
+/* The screen's footer for left/right rows also shows for the rows made from the
+ * Music and SFX rows, and for the bars; "Soft/Loud" means nothing here. */
+static void SetLeftRightFooter(const IfaceObjectDef *objs) {
+    static const u8 rows[] = { REC_MUSIC, REC_SFX, REC_GAMMA, REC_FOV };
+    const IfaceConditionList *list = GETP(objs[OPT_FOOTER_LEFT_RIGHT].conditions);
+    u32 n = list->count, i;
+
+    memcpy(s_footerCond, GETP(list->conds), n * sizeof(IfaceCondition));
+    for (i = 0; i < sizeof(rows); i++) {
+        s_footerCond[n + i] = s_footerCond[0];
+        s_footerCond[n + i].value = rows[i];
+    }
+    s_footerList = *list;
+    s_footerList.count = n + sizeof(rows);
+    SETP(s_footerList.conds, s_footerCond);
+    SETP(s_gfxObjs[OPT_FOOTER_LEFT_RIGHT].conditions, &s_footerList);
+}
+
 static void SetCodeVar(IfaceVar *v, IfaceCodeVar *c, u32 id, s32 max) {
     *c = *GETP(v->code);
     c->id = id;
@@ -377,16 +467,16 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
     static const char *const displayNames[2] = { "Windowed", "Fullscreen" };
     const char *optNames[PORT_MAX_CHOICES];
     static const u8 hide[] = {
-        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_DEBUG,
+        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_DEBUG, OPT_FOOTER_VOLUME,
     };
     IfaceVarList *vars = GETP(opt->vars);
     InterfaceHeader *ctrl;
     u32 i;
 
     s_gfx = *opt;
-    memcpy(s_gfxObjs, objs, sizeof(s_gfxObjs));
+    memcpy(s_gfxObjs, objs, OPT_NUM_OBJECTS * sizeof(IfaceObjectDef));
     SETP(s_gfx.objects, s_gfxObjs);
-    s_gfx.numObjects = OPT_NUM_OBJECTS;
+    s_gfx.numObjects = GFX_NUM_OBJECTS;
     /* B: back, as on the Controller screen (the one its row goes to) */
     ctrl = (InterfaceHeader *)GETP(GETP(GETP(GETP(objs[OPT_CONTROLLER].record)->events.events)[0].def)->target);
     s_gfx.events = ctrl->events;
@@ -421,7 +511,7 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
         MoveTo(&s_rowAnim[12 + i], &s_gfxObjs[OPT_SFX + i], ROW_Y + 3 * ROW_STEP);
     }
     SetText(&s_gfxText[1], &s_gfxObjs[OPT_DIFFICULTY], "Resolution");
-    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_SFX, REC_SOUND),
+    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_FOV, REC_SOUND),
                &s_gfxAction[0], PORT_CODEVAR_RESOLUTION, OPT_VAR_DIFFICULTY);
     SetText(&s_gfxText[2], &s_gfxObjs[OPT_SOUND], "Display");
     SetActions(CopyRecord(&s_gfxRec[1], &s_gfxObjs[OPT_SOUND], REC_SOUND, REC_DIFFICULTY, REC_MUSIC),
@@ -430,7 +520,8 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
     if (s_gfxVarList.count > OPT_VAR_SFX) {
         /* VSync and Max FPS: the Music and SFX rows (their packs' own rows,
          * hidden before), relabelled and wired to the port's code vars. The
-         * ring runs Resolution - Display - VSync - Max FPS - Resolution. */
+         * ring runs Resolution - Display - VSync - Max FPS - Gamma - FOV -
+         * Resolution. */
         u32 n;
 
         SetCodeVar(&s_gfxVars[OPT_VAR_MUSIC], &s_gfxCode[2], PORT_CODEVAR_VSYNC, 1);
@@ -445,20 +536,26 @@ static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs
         SetListAsText(&s_vsyncList, &s_gfxObjs[OPT_MUSIC + 1], OPT_VAR_MUSIC, optNames, n,
                       &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[9], ROW_Y + 2 * ROW_STEP);
         SetText(&s_gfxText[4], &s_gfxObjs[OPT_SFX], "Max FPS");
-        SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_DIFFICULTY),
+        SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_GAMMA),
                    &s_gfxAction[3], PORT_CODEVAR_MAXFPS, OPT_VAR_SFX);
         for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) && n < PORT_MAX_CHOICES; n++) {
             optNames[n] = Port_GfxOptionName(PORT_CODEVAR_MAXFPS, n);
         }
         SetListAsText(&s_fpsList, &s_gfxObjs[OPT_SFX + 1], OPT_VAR_SFX, optNames, n,
                       &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[13], ROW_Y + 3 * ROW_STEP);
-        Port_Log("menu: graphics screen built (resolution, display, vsync, max fps)");
+        Port_Log("menu: graphics screen built (resolution, display, vsync, max fps, gamma, fov)");
     } else {
         for (i = OPT_MUSIC; i < OPT_SFX + 4; i++) {
             s_gfxObjs[i].active = 0;
             SETP(s_gfxObjs[i].conditions, &s_hideAll);
         }
     }
+    AddBarRow(&s_gammaRow, objs, GFX_GAMMA, "Gamma", PORT_ROLE_GAMMA_BAR, PORT_CODEVAR_GAMMA,
+              REC_GAMMA, REC_SFX, REC_FOV, ROW_Y + 4 * ROW_STEP);
+    AddBarRow(&s_fovRow, objs, GFX_FOV, "FOV", PORT_ROLE_FOV_BAR, PORT_CODEVAR_FOV,
+              REC_FOV, REC_GAMMA, REC_DIFFICULTY, ROW_Y + 5 * ROW_STEP);
+    SetLeftRightFooter(objs);
+    s_gfxVars[OPT_VAR_SELECTED].max = REC_FOV;
     RefreshModes();
 }
 
@@ -563,11 +660,481 @@ static void PatchCardScreen(InterfaceHeader *h) {
 
 /* InterfaceManager_PlayEvent: an event is about to switch to `target` (go-to
  * events, types 1 and 0x20). Returns where to go instead, NULL for nowhere. */
+/* ---- Online screens ---------------------------------------------------------
+ * All copies of the game's Multi-Player screen: the same frame and title, with
+ * lines of text in place of its two rows, some of them selectable. Text lines come
+ * first (their numbers are what Port_MenuOnlineSetLine takes), then the rows. */
+
+enum {
+    MP_NUM_OBJECTS = 16,
+    MP_TITLE = 10,
+    MP_ROW_A = 11,
+    MP_ROW_B = 12,
+    MP_MAX_LINES = 8,
+    PANEL_LINE_CHARS = 15,      /* what fits across the panel */
+};
+#define PACK_MP_SCREEN 0x7B4200u
+#define PACK_MP_DRAG 0x7B61C0u      /* Drag Race Options */
+#define PACK_MP_BATTLE 0x7E4440u    /* Battle Options */
+#define PACK_CAR_SELECT 0x7C6540u   /* First Player .. Fourth Player */
+#define CAR_SELECT_NUM_OBJECTS 22
+#define PACK_CAR_SELECT_SOLO 0x72CA00u  /* the one-player modes': online too, each
+                                         * machine having one player */
+#define CAR_SELECT_SOLO_NUM_OBJECTS 6
+#define PACK_JOYRIDE 0x78C280u      /* world select */
+#define PACK_JOYRIDE_CAR 0x79BC40u
+#define PACK_JOYRIDE_ITEM 0x79BD60u
+/* The screens Port_CarouselPatch widens: at least this many objects. */
+#define JOYRIDE_NUM_OBJECTS 78
+#define JOYRIDE_CAR_NUM_OBJECTS 6
+#define JOYRIDE_ITEM_NUM_OBJECTS 78
+
+typedef struct OnlineScreen {
+    InterfaceHeader h;
+    IfaceObjectDef objs[MP_NUM_OBJECTS + MP_MAX_LINES];
+    TextCopy title;
+    TextCopy text[MP_MAX_LINES];
+    AnimCopy anim[MP_MAX_LINES];
+    RecordCopy rec[MP_MAX_LINES];
+    u32 lineObject[MP_MAX_LINES];
+    u32 numLines;
+} OnlineScreen;
+
+typedef struct OnlineRow {
+    const char *name;
+    InterfaceHeader *target;    /* NULL: back */
+} OnlineRow;
+
+static OnlineScreen s_olChoose, s_olOnline, s_olTunnel, s_olConnect, s_olLobbyHost, s_olLobbyClient, s_olLobbyTunnel, s_olMode, s_olWaiting;
+static InterfaceHeader s_olPaste, s_olCopy;   /* never shown: those rows' "targets" */
+static InterfaceHeader *s_mpScreen, *s_carSelect, *s_carSelectSolo, *s_battleOptions, *s_joyrideCar, *s_joyrideItem;
+static RecordCopy s_mainMultiRec;
+static char s_olAddress[64];
+
+static void BuildOnlineScreen(OnlineScreen *s, const InterfaceHeader *mp, const char *title,
+                              u32 numText, u32 numRows, const OnlineRow *rows) {
+    const IfaceObjectDef *from = GETP(mp->objects);
+    u32 numLines = numText + numRows;
+    u32 extra = 0;
+    u32 i;
+
+    s->h = *mp;
+    memcpy(s->objs, from, MP_NUM_OBJECTS * sizeof(IfaceObjectDef));
+    SetText(&s->title, &s->objs[MP_TITLE], title);
+    s->numLines = numLines;
+    for (i = 0; i < numLines; i++) {
+        u32 at = i == 0 ? MP_ROW_A : i == 1 ? MP_ROW_B : MP_NUM_OBJECTS + extra++;
+        IfaceObjectDef *d = &s->objs[at];
+
+        *d = from[MP_ROW_A];
+        s->lineObject[i] = at;
+        /* a full panel: closer together, as it only just fits */
+        MoveTo(&s->anim[i], d, numLines >= 8 ? ROW_Y - 10.0f + i * 20.0f : ROW_Y + i * ROW_STEP);
+        if (i < numText) {
+            SetText(&s->text[i], d, "");
+            d->active = 0;
+            d->record.h = 0;
+        } else {
+            u32 row = i - numText;
+            RecordCopy *rec = CopyRecord(&s->rec[i], d, (u8)(row + 1),
+                                         (u8)(row == 0 ? numRows : row), (u8)(row + 1 == numRows ? 1 : row + 2));
+            u32 e;
+
+            SetText(&s->text[i], d, rows[row].name);
+            for (e = 0; e < rec->rec.events.count; e++) {
+                if (rows[row].target != NULL) {
+                    SETP(rec->defs[e].target, rows[row].target);
+                } else {
+                    rec->defs[e].type = EVENT_BACK;
+                    rec->defs[e].id = 1;
+                    rec->defs[e].target.h = 0;
+                }
+            }
+        }
+    }
+    if (numLines < 2) {
+        SETP(s->objs[MP_ROW_B].conditions, &s_hideAll);
+        s->objs[MP_ROW_B].active = 0;
+        s->objs[MP_ROW_B].record.h = 0;
+    }
+    s->h.numObjects = MP_NUM_OBJECTS + extra;
+    SETP(s->h.objects, s->objs);
+}
+
+/* As PackScreen, for a screen the port may already have added objects to. */
+static InterfaceHeader *WidenedPackScreen(InterfaceHeader *main, u32 offset, u32 numObjects) {
+    InterfaceHeader *h = (InterfaceHeader *)((u8 *)main - PACK_MAIN_MENU + offset);
+
+    return h->numObjects >= numObjects && GETP(h->objects) != NULL ? h : NULL;
+}
+
+/* Built again with each main menu: pack data may have moved since the last. */
+static void BuildOnlineScreens(InterfaceHeader *main) {
+    OnlineRow rows[4];
+
+    s_mpScreen = PackScreen(main, PACK_MP_SCREEN, MP_NUM_OBJECTS);
+    s_carSelect = PackScreen(main, PACK_CAR_SELECT, CAR_SELECT_NUM_OBJECTS);
+    s_carSelectSolo = PackScreen(main, PACK_CAR_SELECT_SOLO, CAR_SELECT_SOLO_NUM_OBJECTS);
+    if (s_mpScreen == NULL || s_carSelect == NULL || s_carSelectSolo == NULL || !TextIs(&GETP(s_mpScreen->objects)[MP_TITLE], "Multi-Player")) {
+        s_mpScreen = NULL;
+        return;
+    }
+    rows[0] = (OnlineRow){"Online", &s_olOnline.h};
+    rows[1] = (OnlineRow){"Local", s_mpScreen};
+    BuildOnlineScreen(&s_olChoose, s_mpScreen, "Multi-Player", 0, 2, rows);
+
+    rows[0] = (OnlineRow){"Tunnel Host", &s_olLobbyTunnel.h};
+    rows[1] = (OnlineRow){"LAN Host", &s_olLobbyHost.h};
+    rows[2] = (OnlineRow){"Connect", &s_olConnect.h};
+    BuildOnlineScreen(&s_olOnline, s_mpScreen, "Online", 2, 3, rows);
+
+    rows[0] = (OnlineRow){"Back", NULL};
+    /* what Tunnel Host leads to if it can't start */
+    BuildOnlineScreen(&s_olTunnel, s_mpScreen, "Tunnel Host", 3, 1, rows);
+    if (Port_TunnelAvailable()) {
+        SetText(&s_olTunnel.text[0], &s_olTunnel.objs[s_olTunnel.lineObject[0]], "Install");
+        SetText(&s_olTunnel.text[1], &s_olTunnel.objs[s_olTunnel.lineObject[1]], "cloudflared");
+        SetText(&s_olTunnel.text[2], &s_olTunnel.objs[s_olTunnel.lineObject[2]], "to host");
+    } else {
+        SetText(&s_olTunnel.text[0], &s_olTunnel.objs[s_olTunnel.lineObject[0]], "Not available");
+        SetText(&s_olTunnel.text[1], &s_olTunnel.objs[s_olTunnel.lineObject[1]], "here: use LAN");
+        SetText(&s_olTunnel.text[2], &s_olTunnel.objs[s_olTunnel.lineObject[2]], "or Connect");
+    }
+
+    rows[0] = (OnlineRow){"Connect", &s_olLobbyClient.h};
+    rows[1] = (OnlineRow){"Paste Address", &s_olPaste};
+    rows[2] = (OnlineRow){"Back", NULL};
+    BuildOnlineScreen(&s_olConnect, s_mpScreen, "Connect", 4, 3, rows);
+
+    rows[0] = (OnlineRow){"Start Game", &s_olMode.h};
+    rows[1] = (OnlineRow){"Leave", NULL};
+    BuildOnlineScreen(&s_olLobbyHost, s_mpScreen, "Lobby", 3, 2, rows);
+
+    rows[0] = (OnlineRow){"Leave", NULL};
+    BuildOnlineScreen(&s_olLobbyClient, s_mpScreen, "Lobby", 2, 1, rows);
+
+    rows[0] = (OnlineRow){"Copy Invite", &s_olCopy};
+    rows[1] = (OnlineRow){"Start Game", &s_olMode.h};
+    rows[2] = (OnlineRow){"Leave", NULL};
+    BuildOnlineScreen(&s_olLobbyTunnel, s_mpScreen, "Lobby", 5, 3, rows);
+
+    rows[0] = (OnlineRow){"Drag Race", PackScreen(main, PACK_MP_DRAG, 26)};
+    s_battleOptions = PackScreen(main, PACK_MP_BATTLE, 34);
+    rows[1] = (OnlineRow){"Battle", s_battleOptions};
+    rows[2] = (OnlineRow){"Joyride", WidenedPackScreen(main, PACK_JOYRIDE, JOYRIDE_NUM_OBJECTS)};
+    s_joyrideCar = WidenedPackScreen(main, PACK_JOYRIDE_CAR, JOYRIDE_CAR_NUM_OBJECTS);
+    s_joyrideItem = WidenedPackScreen(main, PACK_JOYRIDE_ITEM, JOYRIDE_ITEM_NUM_OBJECTS);
+    BuildOnlineScreen(&s_olMode, s_mpScreen, "Online Game", 0, rows[2].target != NULL && s_joyrideCar != NULL && s_joyrideItem != NULL ? 3 : 2, rows);
+
+    BuildOnlineScreen(&s_olWaiting, s_mpScreen, "Please Wait", 1, 0, rows);
+    SetText(&s_olWaiting.text[0], &s_olWaiting.objs[s_olWaiting.lineObject[0]], "Waiting...");
+}
+
+static OnlineScreen *OnlineScreenOf(PortOnlineScreen screen) {
+    switch (screen) {
+    case ONLINE_SCREEN_ONLINE: return &s_olOnline;
+    case ONLINE_SCREEN_LOBBY_HOST: return &s_olLobbyHost;
+    case ONLINE_SCREEN_LOBBY_CLIENT: return &s_olLobbyClient;
+    case ONLINE_SCREEN_LOBBY_TUNNEL: return &s_olLobbyTunnel;
+    case ONLINE_SCREEN_WAITING: return &s_olWaiting;
+    default: return NULL;
+    }
+}
+
+InterfaceHeader *Port_MenuOnlineScreen(PortOnlineScreen screen) {
+    OnlineScreen *s = OnlineScreenOf(screen);
+
+    if (s != NULL) {
+        return &s->h;
+    }
+    switch (screen) {
+    case ONLINE_SCREEN_MAIN: return s_main;
+    case ONLINE_SCREEN_CAR_SELECT: return s_carSelectSolo;
+    case ONLINE_SCREEN_CAR_SELECT_JOYRIDE: return s_joyrideCar;
+    case ONLINE_SCREEN_ITEM_SELECT_JOYRIDE: return s_joyrideItem;
+    default: return NULL;
+    }
+}
+
+/* A line's text, and the live object's if its screen is up (only when it changed:
+ * setting text restarts its animation). */
+static void SetOnlineLine(OnlineScreen *s, u32 line, const char *text) {
+    TextCopy *c = &s->text[line];
+    u32 i, k;
+
+    if (strncmp(c->str, text, sizeof(c->str) - 1) == 0) {
+        return;
+    }
+    strncpy(c->str, text, sizeof(c->str) - 1);
+    c->str[sizeof(c->str) - 1] = 0;
+    for (i = 0; i < 0x12; i++) {
+        Interface *iface = &g_interfaces[i];
+
+        if (iface->count == 0 || GETP(iface->header) != &s->h) {
+            continue;
+        }
+        for (k = 0; k < iface->count; k++) {
+            InterfaceObject *obj = &GETP(iface->objects)[k];
+
+            if (GETP(obj->def) == &s->objs[s->lineObject[line]]) {
+                InterfaceManager_SetObjectText(obj, (char **)(void *)&c->slot);
+            }
+        }
+    }
+}
+
+void Port_MenuOnlineSetLine(PortOnlineScreen screen, u32 line, const char *text) {
+    OnlineScreen *s = OnlineScreenOf(screen);
+
+    if (s != NULL && line < s->numLines) {
+        SetOnlineLine(s, line, text);
+    }
+}
+
+/* Over several lines, parted at the marks addresses have, or wherever it must be. */
+static void SetOnlineLines(OnlineScreen *s, u32 first, u32 count, const char *text) {
+    u32 i;
+
+    for (i = 0; i < count; i++) {
+        char line[PANEL_LINE_CHARS + 1];
+        size_t n = strlen(text);
+
+        if (n > PANEL_LINE_CHARS && i + 1 < count) {
+            n = PANEL_LINE_CHARS;
+            while (n > 1 && !strchr("-/. :", text[n - 1])) {
+                n--;
+            }
+            if (n <= 1) {
+                n = PANEL_LINE_CHARS;
+            }
+        } else if (n > PANEL_LINE_CHARS) {
+            n = PANEL_LINE_CHARS;
+        }
+        memcpy(line, text, n);
+        line[n] = 0;
+        if (first + i < s->numLines) {
+            SetOnlineLine(s, first + i, line);
+        }
+        text += n;
+    }
+}
+
+void Port_MenuOnlineSetLines(PortOnlineScreen screen, u32 first, u32 count, const char *text) {
+    OnlineScreen *s = OnlineScreenOf(screen);
+
+    if (s != NULL) {
+        SetOnlineLines(s, first, count, text);
+    }
+}
+
+void Port_MenuOnlineAddress(char *out, size_t size) {
+    strncpy(out, s_olAddress, size - 1);
+    out[size - 1] = 0;
+}
+
+/* What choosing an online screen does, or NULL for staying put. */
+static InterfaceHeader *OnlineEventTarget(InterfaceHeader *target) {
+    if (target == &s_olLobbyHost.h) {
+        return Port_OnlineStartHost() ? target : NULL;
+    }
+    if (target == &s_olLobbyTunnel.h) {
+        return Port_OnlineStartTunnelHost() ? target : &s_olTunnel.h;
+    }
+    if (target == &s_olCopy) {
+        char invite[128];
+
+        if (Port_OnlineInvite(invite, sizeof(invite))) {
+            Port_TextCopy(invite);
+            Port_Log("online: invite copied");
+        }
+        return NULL;
+    }
+    if (target == &s_olLobbyClient.h) {
+        if (s_olAddress[0] == 0) {
+            return NULL;
+        }
+        return Port_OnlineStartClient(s_olAddress) ? target : NULL;
+    }
+    if (target == &s_olPaste) {
+        Port_TextInputPaste();  /* the next update shows it */
+        return NULL;
+    }
+    if (target == &s_olMode.h && Port_OnlinePlayerCount() < 2) {
+        return NULL;            /* nobody to play with yet */
+    }
+    if (target == s_carSelect && Port_OnlineActive()) {
+        Port_OnlineHostSetup();
+        return s_carSelectSolo;
+    }
+    if (target == s_joyrideCar && Port_OnlineActive()) {
+        Port_OnlineHostSetup();
+    }
+    return target;
+}
+
+/* Each frame's typing shows on the Connect screen, from Port_MenuPatch's Start
+ * on until it is released. */
+void Port_MenuOnlineUpdate(void) {
+    u32 i;
+
+    for (i = 0; i < 0x12; i++) {
+        if (g_interfaces[i].count != 0 && GETP(g_interfaces[i].header) == &s_olConnect.h) {
+            SetOnlineLines(&s_olConnect, 0, 4, s_olAddress[0] != 0 ? s_olAddress : "Type or paste an address");
+            return;
+        }
+    }
+}
+
+/* ---- Battle Options without Opponents ---------------------------------------- */
+
+enum {
+    BATTLE_NUM_OBJECTS = 34,
+    BATTLE_OPPONENTS = 24,      /* label, value, arrow */
+    BATTLE_ROW_OBJECTS = 3,
+    BATTLE_TIME_LIMIT = 27,
+    BATTLE_SCORE = 30,
+    BATTLE_END = 33,
+    BATTLE_REC_RESPAWN = 6,
+    BATTLE_REC_OPPONENTS = 3,
+    BATTLE_REC_TIME_LIMIT = 4,
+};
+
+static u32 s_battleOriginal;    /* the handle in h->objects */
+static InterfaceHeader *s_battlePatched;
+static IfaceObjectDef s_battleObjs[BATTLE_NUM_OBJECTS];
+static RecordCopy s_battleRecAbove, s_battleRecBelow;
+static AnimCopy s_battleAnim[BATTLE_END - BATTLE_TIME_LIMIT];
+
+static void PatchBattleOptions(InterfaceHeader *h) {
+    IfaceObjectDef *objs;
+    IfaceRecord *opponents;
+    u32 above = BATTLE_NUM_OBJECTS, i;
+    f32 step;
+
+    if (h == s_battlePatched) {
+        h->objects.h = s_battleOriginal;   /* as the pack has it */
+        s_battlePatched = NULL;
+    }
+    if (h != s_battleOptions || !Port_OnlineActive()) {
+        return;
+    }
+    objs = GETP(h->objects);
+    opponents = GETP(objs[BATTLE_OPPONENTS].record);
+    if (!TextIs(&objs[BATTLE_OPPONENTS], "Opponents") || opponents == NULL || opponents->id != BATTLE_REC_OPPONENTS) {
+        return;
+    }
+    for (i = 0; i < BATTLE_OPPONENTS; i++) {
+        IfaceRecord *r = GETP(objs[i].record);
+
+        if (r != NULL && r->id == BATTLE_REC_RESPAWN) {
+            above = i;
+        }
+    }
+    if (above == BATTLE_NUM_OBJECTS) {
+        return;
+    }
+    s_battlePatched = h;
+    s_battleOriginal = h->objects.h;
+    memcpy(s_battleObjs, objs, sizeof(s_battleObjs));
+    for (i = BATTLE_OPPONENTS; i < BATTLE_OPPONENTS + BATTLE_ROW_OBJECTS; i++) {
+        s_battleObjs[i].active = 0;
+        s_battleObjs[i].record.h = 0;
+        SETP(s_battleObjs[i].conditions, &s_hideAll);
+    }
+    CopyRecord(&s_battleRecAbove, &s_battleObjs[above], BATTLE_REC_RESPAWN, GETP(objs[above].record)->next[0], BATTLE_REC_TIME_LIMIT);
+    CopyRecord(&s_battleRecBelow, &s_battleObjs[BATTLE_TIME_LIMIT], BATTLE_REC_TIME_LIMIT, BATTLE_REC_RESPAWN,
+               GETP(objs[BATTLE_TIME_LIMIT].record)->next[1]);
+    step = ((f32 *)GETP(GETP(objs[BATTLE_TIME_LIMIT].anim)->pos.keys))[1] - ((f32 *)GETP(GETP(objs[BATTLE_OPPONENTS].anim)->pos.keys))[1];
+    for (i = BATTLE_TIME_LIMIT; i < BATTLE_END; i++) {
+        if (GETP(objs[i].anim) != NULL && GETP(GETP(objs[i].anim)->pos.keys) != NULL) {
+            MoveTo(&s_battleAnim[i - BATTLE_TIME_LIMIT], &s_battleObjs[i], ((f32 *)GETP(GETP(objs[i].anim)->pos.keys))[1] - step);
+        }
+    }
+    SETP(h->objects, s_battleObjs);
+}
+
+/* ---- the pause menu without Save ------------------------------------------ */
+
+#define PAUSE_MAX_OBJECTS 64
+/* The progression scripts of the multi-player drag race and battle. */
+enum { PROGRESSION_MP_DRAG = 5, PROGRESSION_MP_BATTLE = 7 };
+
+static InterfaceHeader *s_pauseHeader;
+static u32 s_pauseOriginal;      /* the handle in h->objects */
+static IfaceObjectDef s_pauseObjs[PAUSE_MAX_OBJECTS];
+static RecordCopy s_pauseRecAbove, s_pauseRecBelow;
+static AnimCopy s_pauseAnimBelow;
+
+/* A pause menu is any screen with both Resume and Save; -1 if this isn't one. */
+static s32 PauseSaveRow(const InterfaceHeader *h) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    s32 save = -1;
+    int resume = 0;
+    u32 i;
+
+    if (objs == NULL) {
+        return -1;
+    }
+    for (i = 0; i < h->numObjects; i++) {
+        if (TextIs(&objs[i], "Resume")) {
+            resume = 1;
+        } else if (TextIs(&objs[i], "Save") && GETP(objs[i].record) != NULL) {
+            save = (s32)i;
+        }
+    }
+    return resume ? save : -1;
+}
+
+static void PatchPauseMenu(InterfaceHeader *h) {
+    IfaceObjectDef *objs;
+    IfaceRecord *rec;
+    s32 id, level, save, above = -1, below = -1;
+    u32 i;
+
+    if (h == s_pauseHeader) {
+        h->objects.h = s_pauseOriginal;   /* as the pack has it, whichever mode this is */
+        s_pauseHeader = NULL;
+    }
+    StateProgressionManager_GetProgressionID(&id, &level);
+    if ((!Port_OnlineActive() && id != PROGRESSION_MP_DRAG && id != PROGRESSION_MP_BATTLE) ||
+        h->numObjects > PAUSE_MAX_OBJECTS || (save = PauseSaveRow(h)) < 0) {
+        return;
+    }
+    objs = GETP(h->objects);
+    rec = GETP(objs[save].record);
+    for (i = 0; i < h->numObjects; i++) {
+        IfaceRecord *r = GETP(objs[i].record);
+
+        if (r != NULL && (s32)i != save && r->id == rec->next[0]) {
+            above = (s32)i;
+        } else if (r != NULL && (s32)i != save && r->id == rec->next[1]) {
+            below = (s32)i;
+        }
+    }
+    if (above < 0 || below < 0) {
+        return;
+    }
+    s_pauseHeader = h;
+    s_pauseOriginal = h->objects.h;
+    memcpy(s_pauseObjs, objs, h->numObjects * sizeof(IfaceObjectDef));
+    s_pauseObjs[save].active = 0;
+    s_pauseObjs[save].record.h = 0;
+    SETP(s_pauseObjs[save].conditions, &s_hideAll);
+    CopyRecord(&s_pauseRecAbove, &s_pauseObjs[above], rec->next[0], GETP(objs[above].record)->next[0], rec->next[1]);
+    CopyRecord(&s_pauseRecBelow, &s_pauseObjs[below], rec->next[1], rec->next[0], GETP(objs[below].record)->next[1]);
+    MoveTo(&s_pauseAnimBelow, &s_pauseObjs[below], ((f32 *)GETP(GETP(objs[save].anim)->pos.keys))[1]);
+    SETP(h->objects, s_pauseObjs);
+}
+
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target) {
     extern s8 g_bMemoryCardHWHack;
 
     if (target == NULL || s_main == NULL) {
         return target;
+    }
+    target = OnlineEventTarget(target);
+    if (target == NULL) {
+        return NULL;
     }
     if (target == s_reminder) {
         if (GameSettings_GetCodeVariable(CODEVAR_SETTINGS_CHANGED, 0)) {
@@ -635,6 +1202,21 @@ static void PatchMainMenu(InterfaceHeader *h) {
     GETP(objs[MAIN_ROWS].record)->next[0] = REC_DESKTOP;
     h->numObjects = MAIN_NUM_OBJECTS + 1;
     SETP(h->objects, s_mainObjs);
+
+    /* Multi-Player: to the new Online / Local screen */
+    BuildOnlineScreens(h);
+    if (s_mpScreen != NULL) {
+        RecordCopy *rec = CopyRecord(&s_mainMultiRec, &s_mainObjs[MAIN_MULTI_PLAYER], REC_MULTI_PLAYER,
+                                     REC_ONE_PLAYER, REC_LOAD_GAME);
+
+        for (i = 0; i < rec->rec.events.count; i++) {
+            if (rec->defs[i].type == EVENT_GOTO) {
+                SETP(rec->defs[i].target, &s_olChoose.h);
+            }
+        }
+    } else {
+        Port_Log("menu: multi-player screens not found, no online menus");
+    }
 }
 
 void Port_MenuPatch(InterfaceHeader *h) {
@@ -646,6 +1228,15 @@ void Port_MenuPatch(InterfaceHeader *h) {
         return;
     }
     Port_CarouselPatch(h);   /* world, car and weapon select: more windows */
+    PatchPauseMenu(h);
+    PatchBattleOptions(h);
+    if (h == &s_olConnect.h) {
+        if (s_olAddress[0] == 0) {
+            Port_LoadOnlineAddress(s_olAddress, sizeof(s_olAddress));
+        }
+        Port_TextInputStart(s_olAddress, sizeof(s_olAddress));
+        return;
+    }
     if (h == &s_gfx) {
         RefreshModes();
         return;
@@ -691,5 +1282,8 @@ void Port_MenuPatch(InterfaceHeader *h) {
 void Port_MenuReleased(InterfaceHeader *h) {
     if (h == &s_gfx) {
         Port_GfxApply();
+    }
+    if (h == &s_olConnect.h) {
+        Port_TextInputStop();
     }
 }

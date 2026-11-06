@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
 
@@ -586,7 +587,9 @@ done:
 
     switch (var) {
     case 0x64:
-        if (GameSettings_IsCheatEnabled(1)) {
+        /* port: online, all cars, worlds and weapons are open in the menus (Port_Online.c);
+         * a level's scripts get the player's real progress, as Joyride's intro reports it */
+        if (GameSettings_IsCheatEnabled(1) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {
             return 1;
         }
         switch (type) {
@@ -603,7 +606,7 @@ done:
         }
         break;
     case 0x65:
-        if (GameSettings_IsCheatEnabled(3)) {
+        if (GameSettings_IsCheatEnabled(3) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {   /* port: as for cars */
             return 1;
         }
         switch (type) {
@@ -620,7 +623,7 @@ done:
         }
         break;
     case 0x66:
-        if (GameSettings_IsCheatEnabled(2)) {
+        if (GameSettings_IsCheatEnabled(2) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {   /* port: as for cars */
             return 1;
         }
         switch (type) {
@@ -936,7 +939,9 @@ s32 GameSettings_GetDifficulty(void) {
 }
 
 u8 GameSettings_GetNumOfPlayers(void) {
-    return PlayerManager_PlayerHumanCount();
+    /* port: online, those playing on this machine: the others' cars are human
+     * players too, but share no screen with this one (Port_Online.c) */
+    return Port_OnlineActive() ? 1 : PlayerManager_PlayerHumanCount();
 }
 
 s8 GameSettings_IsCheatEnabled(s32 cheat) {
@@ -1622,6 +1627,10 @@ void GameSettings_SetSaveGameName(u32 *letters) {
     s32 sum;
     s32 i;
 
+    if (Port_OnlineActive()) {
+        return;                 /* port: nothing done online reaches a save */
+    }
+
     device = g_codeVariables.device;
     for (i = 0; i < 10; i++) {
         if (letters[i] < 26) {
@@ -1917,6 +1926,10 @@ u8 GameSettings_SaveGame(void) {
     s32 handle;
     MCP *mcp;
 
+    if (Port_OnlineActive()) {
+        return 1;               /* port: nothing done online reaches a save */
+    }
+
     file.device = g_codeVariables.device;
     slot = g_codeVariables.fileIndex - 1;
     status = GameSettings_GetMemoryCardStatus(file.device, 1);
@@ -2029,7 +2042,7 @@ void GameSettings_PortNoteUnlock(s32 var, u32 arg, u32 val) {
 /* Main_Loop, once a frame: save after new unlocks (not in the attract-mode
  * demo, code variable 0x198). One save for several unlocks at once. */
 void GameSettings_PortAutoSaveUnlocks(void) {
-    if (!s_portUnlocked) {
+    if (!s_portUnlocked || Port_OnlineActive()) {
         return;
     }
     s_portUnlocked = 0;
@@ -2040,12 +2053,28 @@ void GameSettings_PortAutoSaveUnlocks(void) {
     GameSettings_PortAutoSave();
 }
 
+/* port: what's done online stays out of saves: the game data as it was comes back
+ * when the session ends, unlocks and all. */
+static HotWheelsGameData s_portOnlineSaved;
+
+void GameSettings_PortOnlineBegin(void) {
+    s_portOnlineSaved = g_HotWheelsGameData;
+}
+
+void GameSettings_PortOnlineEnd(void) {
+    g_HotWheelsGameData = s_portOnlineSaved;
+    s_portUnlocked = 0;
+}
+
 /* port: autosave, where the game would remind the player to save (leaving
  * Options after changing a setting: Port_Menu.c). Saves over the save in use,
  * as choosing it in Save Game would (it moves to slot 0), or makes a new one
  * with the game's default name ahead of the others. */
 void GameSettings_PortAutoSave(void) {
     #define g_saveFileCheckSum (*(u32 *)(void *)&g_saveFileCheckSum)
+    if (Port_OnlineActive()) {
+        return;
+    }
     const char *name = "saveFile";
     u32 size = 0;
     s32 status;
@@ -2167,6 +2196,10 @@ s32 GameSettings_DeleteGameFile(void) {
     void *pack;
     const char *name;
     u8 result;
+
+    if (Port_OnlineActive()) {
+        return 0;               /* port: nothing done online reaches a save */
+    }
 
     device = g_codeVariables.device + 0xA;
     if (bFirstTime) {

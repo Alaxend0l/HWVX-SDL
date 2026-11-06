@@ -194,8 +194,10 @@ static void MixVoice(AXVPB *vpb, float *out) {
     u32 frac = vpb->currentAddressFrac;
     s32 vl = vpb->vL;
     s32 vr = vpb->vR;
-    s32 dl = vpb->vDeltaL;
-    s32 dr = vpb->vDeltaR;
+    /* The ramp only runs with its mixerCtrl bit on, as on the DSP: SetVoiceVol_
+     * clears the bit to end one and leaves the old deltas in the VPB. */
+    s32 dl = vpb->mixerCtrl & 8 ? vpb->vDeltaL : 0;
+    s32 dr = vpb->mixerCtrl & 8 ? vpb->vDeltaR : 0;
     s32 ve = vpb->ve;
     s32 ved = vpb->veDelta;
     int i;
