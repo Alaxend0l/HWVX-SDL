@@ -530,6 +530,12 @@ Debugging aids:
   `savetest` (built with `-DHWVX_TESTS=ON`; `ctest -R savetest`, or
   `./savetest OUT --gci FILE` to round-trip a GameCube save) tests the store:
   round trips, atomic writes, damaged saves, backups, import.
+- `tools/run_test.sh BUILD DATA OUTDIR NAME SECONDS [VAR=value ...]` runs
+  the game once for a test: deterministic, a fresh `HWVX_PREF_DIR`, frames
+  and log in OUTDIR, force-killed after SECONDS; `FAST=1` adds
+  `HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1`, so the fixed steps run faster than real
+  time (the frames are the same). E.g. `FAST=1 tools/run_test.sh build
+  orig/gc/files t cs 10 HWVX_START=carselect HWVX_MENUDUMP=1`.
 - `HWVX_START` boots straight into a menu, select screen or race, skipping
   the intro screens and the menus before it (`src/game/Port_Start.c`: it
   finds the screens through the menu pack's own go-to events and opens them
