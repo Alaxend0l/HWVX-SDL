@@ -661,6 +661,17 @@ void Port_SaveImportClose(PortImportSource *src) {
     src->saveFile = NULL;
 }
 
+int Port_SaveImportSlotName(const PortImportSource *src, int slot, char *name, size_t size) {
+    const SaveFile *f = (const SaveFile *)src->saveFile;
+
+    name[0] = 0;
+    if (f == NULL || slot < 0 || slot >= SAVE_FILE_SLOTS || !f->settings.slots[slot].valid) {
+        return 0;
+    }
+    SDL_snprintf(name, size, "%.11s", f->settings.slots[slot].name);
+    return 1;
+}
+
 /* ---- the merge ----------------------------------------------------------- */
 
 static HotWheelsGameData *SlotData(u8 *file, int slot) {

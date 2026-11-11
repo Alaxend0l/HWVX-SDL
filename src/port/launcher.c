@@ -29,8 +29,16 @@
  * text at a logical 640x420. Mouse, keyboard (arrows, Tab, Enter, Escape) and
  * gamepads (d-pad or left stick, A, B, Start: Play) move a focus between the
  * buttons. Folders and images are picked with the system's dialogs, which
- * need a mouse or a keyboard. */
+ * need a mouse or a keyboard.
+ *
+ * "Import saves..." takes progress from any release's saves (Port_SaveImport.c:
+ * GameCube .gci and card images, the PC's velocityX, PS2 card images and
+ * .psu, the port's own .sav): the files are read, then a preview says which
+ * saves go where and what each adds, with the choices (one save only, the
+ * PC/PS2 default cars), and Import merges them into the JSON save store.
+ * HWVX_LAUNCHER_IMPORT="FILE;FILE" opens that preview on start (testing). */
 #include "port_internal.h"
+#include "Port_Saves.h"
 
 #define VIEW_W 640
 #define VIEW_H 420
@@ -264,7 +272,13 @@ static char *Absolute(const char *path) {
 
 /* ---- the window -------------------------------------------------------- */
 
-enum { ACT_NONE, ACT_PLAY_THIS, ACT_FOLDER, ACT_IMAGE, ACT_REMOVE, ACT_PLAY, ACT_QUIT, ACT_CONVERT, ACT_SKIP };
+enum {
+    ACT_NONE, ACT_PLAY_THIS, ACT_FOLDER, ACT_IMAGE, ACT_REMOVE, ACT_PLAY, ACT_QUIT, ACT_CONVERT, ACT_SKIP,
+    ACT_SAVES,          /* "Import saves...": pick files */
+    ACT_IMP_ONLY,       /* the preview: which saves (all, or one) */
+    ACT_IMP_CARS,       /* the PC/PS2 default cars */
+    ACT_IMP_GO, ACT_IMP_ADD, ACT_IMP_CANCEL
+};
 
 typedef struct Button {
     SDL_FRect r;
@@ -291,6 +305,16 @@ typedef struct Launcher {
     SDL_AtomicInt importDone, importFiles, importCancel;
     int importOk, importSource;
     char importImage[1200], importDest[1200], importError[256];
+    /* saves picked to import, and the preview of the merge */
+    char *pickedMore[PORT_IMPORT_MAX_SOURCES];
+    int pickedCount, pickSaves;
+    int savesView;              /* the preview is showing */
+    PortImportSource saves[PORT_IMPORT_MAX_SOURCES];
+    int numSaves, only;         /* only: 0 every save, k the k-th (file, slot) */
+    PortImportOptions opt;
+    PortImportPlan plan;
+    int planOk;
+    char planError[256], onlyLabel[96], carsLabel[64];
 } Launcher;
 
 #define ROW_Y(i) (56.0f + (i) * 62.0f)
@@ -325,12 +349,36 @@ static Button *Add(Launcher *l, float x, float y, const char *label, int act, in
     return b;
 }
 
+static int AnyOtherRelease(const Launcher *l) {
+    int i;
+    for (i = 0; i < l->numSaves; i++) {
+        if (l->saves[i].release != PORT_RELEASE_GC) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The preview's buttons: which saves, the default cars, Import. */
+static void LayoutSaves(Launcher *l) {
+    int busy = l->dialogOpen;
+
+    Add(l, 24, VIEW_H - 92, l->onlyLabel, ACT_IMP_ONLY, -1, !busy);
+    if (AnyOtherRelease(l)) {
+        Add(l, 24, VIEW_H - 70, l->carsLabel, ACT_IMP_CARS, -1, !busy);
+    }
+    Add(l, 24, VIEW_H - 30, "Import", ACT_IMP_GO, -1, !busy && l->planOk && l->plan.changes > 0);
+    Add(l, 24 + 6 * CHAR + 24, VIEW_H - 30, "Add file...", ACT_IMP_ADD, -1,
+        !busy && l->numSaves < PORT_IMPORT_MAX_SOURCES);
+    Add(l, 24 + 17 * CHAR + 48, VIEW_H - 30, "Cancel", ACT_IMP_CANCEL, -1, 1);
+}
+
 /* The buttons for the current state, in focus order. */
 static void Layout(Launcher *l) {
     int i, busy = l->importer != NULL || l->dialogOpen;
 
     l->numButtons = 0;
-    for (i = 0; i < SRC_COUNT; i++) {
+    for (i = 0; i < SRC_COUNT && !l->savesView; i++) {
         float x = 24, y = ROW_Y(i) + 28;
         int have = l->src.path[i] != NULL;
 
@@ -345,12 +393,17 @@ static void Layout(Launcher *l) {
             Add(l, x, y, "Remove", ACT_REMOVE, i, !busy);
         }
     }
-    Add(l, 24, 316, "Convert to .xdl", ACT_CONVERT, -1, 0);
-    Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && l->src.play >= 0 && l->src.path[l->src.play] != NULL);
-    Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, 1);
-    Add(l, 24 + 8 * CHAR + 64, VIEW_H - 30,
-        l->src.skip ? "[x] Start the game without this window" : "[ ] Start the game without this window", ACT_SKIP,
-        -1, 1);
+    if (l->savesView) {
+        LayoutSaves(l);
+    } else {
+        Add(l, 24, 310, "Convert to .xdl", ACT_CONVERT, -1, 0);
+        Add(l, 24, 348, "Import saves...", ACT_SAVES, -1, !busy);
+        Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && l->src.play >= 0 && l->src.path[l->src.play] != NULL);
+        Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, 1);
+        Add(l, 24 + 8 * CHAR + 64, VIEW_H - 30,
+            l->src.skip ? "[x] Start the game without this window" : "[ ] Start the game without this window", ACT_SKIP,
+            -1, 1);
+    }
     if (l->focus >= l->numButtons) {
         l->focus = l->numButtons - 1;
     }
@@ -363,12 +416,94 @@ static void Layout(Launcher *l) {
     }
 }
 
+static const char *BaseName(const char *path) {
+    const char *a = SDL_strrchr(path, '/'), *b = SDL_strrchr(path, '\\');
+    if (b > a) {
+        a = b;
+    }
+    return a != NULL ? a + 1 : path;
+}
+
+/* `s` over lines of at most `chars`, broken at spaces, the later ones
+ * indented; returns the next y, or stops at `bottom`. */
+static float Wrap(Launcher *l, float x, float y, float bottom, size_t chars, Uint8 r, Uint8 g, Uint8 b, const char *s) {
+    char line[128];
+    size_t indent = 0;
+
+    while (*s != '\0' && y + 8 <= bottom) {
+        size_t n = SDL_strlen(s), cut = n;
+
+        if (n + indent > chars) {
+            for (cut = chars - indent; cut > 0 && s[cut] != ' '; cut--) {
+            }
+            if (cut == 0) {
+                cut = chars - indent;
+            }
+        }
+        SDL_snprintf(line, sizeof(line), "%*s%.*s", (int)indent, "", (int)cut, s);
+        Text(l, x, y, r, g, b, line);
+        y += 11;
+        s += cut;
+        while (*s == ' ') {
+            s++;
+        }
+        indent = 4;
+    }
+    return y;
+}
+
+/* The preview: the files, where they go, what each save adds. */
+static void DrawSaves(Launcher *l) {
+    char line[256], fit[128];
+    float y = 50, bottom = VIEW_H - 98;
+    int i, shown = 0;
+
+    Text(l, 24, 14, 255, 210, 80, "Import saves");
+    Text(l, 24, 28, 150, 160, 180, "Progress from any release, merged into your save: nothing is taken away.");
+    for (i = 0; i < l->numSaves; i++, y += 11) {
+        const PortImportSource *s = &l->saves[i];
+
+        SDL_snprintf(line, sizeof(line), "%s - %s, %s", BaseName(s->path), Port_SaveReleaseName(s->release),
+                     Port_SaveContainerName(s->container));
+        Fit(fit, sizeof(fit), line, 74);
+        Text(l, 24, y, 140, 200, 140, fit);
+    }
+    y += 4;
+    SDL_snprintf(line, sizeof(line), "Into: %s", l->plan.target);
+    Fit(fit, sizeof(fit), line, 74);
+    Text(l, 24, y, 235, 235, 240, fit);
+    y += 16;
+    if (!l->planOk) {
+        return;
+    }
+    for (i = 0; i < l->plan.numSlots && y + 8 <= bottom; i++, shown++) {
+        const PortImportSlot *s = &l->plan.slots[i];
+
+        Port_SaveImportDescribe(&l->plan, i, &l->opt, line, sizeof(line));
+        if (l->numSaves > 1) {
+            char from[300];
+            SDL_snprintf(from, sizeof(from), "%s: %s", BaseName(l->saves[s->source].path), line);
+            SDL_strlcpy(line, from, sizeof(line));
+        }
+        y = Wrap(l, 24, y, bottom, 74, s->changes > 0 ? 235 : 150, s->changes > 0 ? 235 : 160,
+                 s->changes > 0 ? 240 : 180, line) + 3;
+    }
+    if (shown < l->plan.numSlots) {
+        SDL_snprintf(line, sizeof(line), "... and %d more", l->plan.numSlots - shown);
+        Text(l, 24, bottom, 150, 160, 180, line);
+    }
+}
+
 static void Draw(Launcher *l) {
     char line[128];
     int i;
 
     SDL_SetRenderDrawColor(l->renderer, 18, 22, 34, 255);
     SDL_RenderClear(l->renderer);
+    if (l->savesView) {
+        DrawSaves(l);
+        goto buttons;
+    }
     Text(l, 24, 14, 255, 210, 80, "Hot Wheels: Velocity X");
     Text(l, 24, 28, 150, 160, 180, "Your copies of the game. Pick the one to play.");
     for (i = 0; i < SRC_COUNT; i++) {
@@ -385,10 +520,13 @@ static void Draw(Launcher *l) {
             Text(l, 24, y + 13, 130, 130, 140, "not imported");
         }
     }
-    Text(l, 24, 304, 235, 235, 240, "Convert");
-    Text(l, 24 + 16 * CHAR + 24, 321, 130, 130, 140, "coming later: packs made for this port");
-    Text(l, 24, 346, 235, 235, 240, "Mods");
-    Text(l, 24 + 5 * CHAR, 346, 130, 130, 140, "- coming later");
+    Text(l, 24, 298, 235, 235, 240, "Convert");
+    Text(l, 24 + 16 * CHAR + 24, 315, 130, 130, 140, "coming later: packs made for this port");
+    Text(l, 360, 298, 235, 235, 240, "Mods");
+    Text(l, 360 + 5 * CHAR, 298, 130, 130, 140, "- coming later");
+    Text(l, 24, 336, 235, 235, 240, "Saves");
+    Text(l, 24 + 15 * CHAR + 24, 353, 130, 130, 140, "progress from GameCube, PC, PS2 saves");
+buttons:
     Text(l, 24, VIEW_H - 48, 255, 190, 120, l->status);
     for (i = 0; i < l->numButtons; i++) {
         const Button *b = &l->buttons[i];
@@ -428,6 +566,11 @@ static void SDLCALL Picked(void *userdata, const char *const *filelist, int filt
     (void)filter;
     if (filelist != NULL && filelist[0] != NULL) {
         l->pickedPath = SDL_strdup(filelist[0]);
+    }
+    l->pickedCount = 0;
+    while (filelist != NULL && filelist[l->pickedCount] != NULL && l->pickedCount < PORT_IMPORT_MAX_SOURCES) {
+        l->pickedMore[l->pickedCount] = SDL_strdup(filelist[l->pickedCount]);
+        l->pickedCount++;
     }
     SDL_SetAtomicInt(&l->picked, filelist == NULL ? 2 : 1);
 }
@@ -500,6 +643,139 @@ static void StartDisc(Launcher *l, const char *image, int source) {
     }
 }
 
+/* ---- importing saves ---------------------------------------------------- */
+
+static int ButtonFor(const Launcher *l, int act);
+
+static void CloseSaves(Launcher *l) {
+    int i;
+
+    for (i = 0; i < l->numSaves; i++) {
+        Port_SaveImportClose(&l->saves[i]);
+    }
+    l->numSaves = 0;
+    l->savesView = 0;
+    l->only = 0;
+    l->focus = 0;
+}
+
+/* The k-th (k from 1) save of the files read: its file and slot. 0 if there
+ * are fewer. */
+static int OnlyPair(const Launcher *l, int k, int *source, int *slot, char *name, size_t size) {
+    int s, i;
+
+    for (s = 0; s < l->numSaves; s++) {
+        for (i = 0; i < 8; i++) {
+            if (Port_SaveImportSlotName(&l->saves[s], i, name, size) && --k == 0) {
+                *source = s;
+                *slot = i;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* The preview again, after the files or the choices changed. */
+static void Replan(Launcher *l) {
+    char name[16];
+    int src = -1, slot = -1;
+
+    if (l->only > 0 && !OnlyPair(l, l->only, &src, &slot, name, sizeof(name))) {
+        l->only = 0;
+    }
+    l->opt.onlySource = src;
+    l->opt.onlySlot = slot;
+    if (l->only == 0) {
+        SDL_strlcpy(l->onlyLabel, "Saves: every save in these files", sizeof(l->onlyLabel));
+    } else if (l->numSaves > 1) {
+        SDL_snprintf(l->onlyLabel, sizeof(l->onlyLabel), "Saves: only \"%s\" from %.24s", name,
+                     BaseName(l->saves[src].path));
+    } else {
+        SDL_snprintf(l->onlyLabel, sizeof(l->onlyLabel), "Saves: only \"%s\"", name);
+    }
+    SDL_snprintf(l->carsLabel, sizeof(l->carsLabel), "[%c] Add cars 0-2 too: PC/PS2 saves start with them",
+                 l->opt.defaultCars ? 'x' : ' ');
+    l->planOk = Port_SaveImportPreview(l->saves, l->numSaves, &l->opt, &l->plan, l->planError, sizeof(l->planError));
+    if (!l->planOk) {
+        SDL_snprintf(l->status, sizeof(l->status), "Can't import: %s", l->planError);
+    } else if (l->plan.changes == 0) {
+        SDL_snprintf(l->status, sizeof(l->status), "Nothing new in these saves.");
+    } else if (!Port_SavesJson()) {
+        SDL_snprintf(l->status, sizeof(l->status), "The game plays this save when started with HWVX_SAVES=json.");
+    } else {
+        SDL_snprintf(l->status, sizeof(l->status), "Import keeps your save as it was as a backup.");
+    }
+}
+
+/* Picked files: read, and the preview shown. */
+static void AddSaves(Launcher *l, char *const *paths, int count) {
+    char err[256], bad[300] = { 0 };
+    int i, j, added = 0, failed = 0;
+
+    for (i = 0; i < count; i++) {
+        for (j = 0; j < l->numSaves && SDL_strcmp(l->saves[j].path, paths[i]) != 0; j++) {
+        }
+        if (j < l->numSaves) {
+            continue;   /* already there */
+        }
+        if (l->numSaves == PORT_IMPORT_MAX_SOURCES) {
+            SDL_snprintf(bad, sizeof(bad), "%d files at most.", PORT_IMPORT_MAX_SOURCES);
+            failed++;
+            break;
+        }
+        if (Port_SaveImportOpen(paths[i], &l->saves[l->numSaves], err, sizeof(err))) {
+            l->numSaves++;
+            added++;
+        } else {
+            SDL_snprintf(bad, sizeof(bad), "%s: %s", BaseName(paths[i]), err);
+            failed++;
+            Port_Log("launcher: %s not imported: %s", paths[i], err);
+        }
+    }
+    if (l->numSaves > 0) {
+        l->savesView = 1;
+        Replan(l);
+        Layout(l);
+        l->focus = ButtonFor(l, l->plan.changes > 0 ? ACT_IMP_GO : ACT_IMP_CANCEL);
+    }
+    if (failed > 0) {
+        if (failed > 1) {
+            char more[32];
+            SDL_snprintf(more, sizeof(more), " (and %d more)", failed - 1);
+            SDL_strlcat(bad, more, sizeof(bad));
+        }
+        SDL_strlcpy(l->status, bad, sizeof(l->status));
+    }
+    (void)added;
+}
+
+static void ApplySaves(Launcher *l) {
+    char err[256];
+    int changes;
+
+    if (!Port_SaveImportApply(l->saves, l->numSaves, &l->opt, &l->plan, err, sizeof(err))) {
+        SDL_snprintf(l->status, sizeof(l->status), "Not imported: %s", err);
+        return;
+    }
+    changes = l->plan.changes;
+    CloseSaves(l);
+    SDL_snprintf(l->status, sizeof(l->status), "Imported: %d change%s, into %s.", changes, changes == 1 ? "" : "s",
+                 l->plan.target);
+}
+
+static void PickSaves(Launcher *l) {
+    static const SDL_DialogFileFilter filters[] = {
+        { "Saves and memory cards (.gci .raw .sav .ps2 .psu)", "gci;raw;sav;ps2;psu;max;mcd;bin" },
+        { "All files (the PC's save, velocityX, has no extension)", "*" },
+    };
+
+    SDL_SetAtomicInt(&l->picked, 0);
+    l->pickSaves = 1;
+    l->dialogOpen = 1;
+    SDL_ShowOpenFileDialog(Picked, l, l->window, filters, SDL_arraysize(filters), NULL, true);
+}
+
 /* The index of the button that does `act`. */
 static int ButtonFor(const Launcher *l, int act) {
     int i;
@@ -558,6 +834,25 @@ static int Activate(Launcher *l, const Button *b) {
             SDL_snprintf(l->status, sizeof(l->status), "This window will show on every start.");
         }
         return 0;
+    case ACT_SAVES:
+    case ACT_IMP_ADD:
+        PickSaves(l);
+        return 0;
+    case ACT_IMP_ONLY:
+        l->only++;
+        Replan(l);
+        return 0;
+    case ACT_IMP_CARS:
+        l->opt.defaultCars = !l->opt.defaultCars;
+        Replan(l);
+        return 0;
+    case ACT_IMP_GO:
+        ApplySaves(l);
+        return 0;
+    case ACT_IMP_CANCEL:
+        CloseSaves(l);
+        SDL_snprintf(l->status, sizeof(l->status), "Nothing imported.");
+        return 0;
     case ACT_PLAY:
         return 1;
     case ACT_QUIT:
@@ -595,6 +890,8 @@ static void Poll(Launcher *l) {
         l->dialogOpen = 0;
         if (SDL_GetAtomicInt(&l->picked) == 2) {
             SDL_snprintf(l->status, sizeof(l->status), "No file dialog on this system: use --data PATH.");
+        } else if (l->pickSaves) {
+            AddSaves(l, l->pickedMore, l->pickedCount);
         } else if (l->pickedPath != NULL) {
             if (l->pickImage && l->pickSource != PORT_DATA_GC) {
                 StartDisc(l, l->pickedPath, l->pickSource);
@@ -604,6 +901,12 @@ static void Poll(Launcher *l) {
             SDL_free(l->pickedPath);
             l->pickedPath = NULL;
         }
+        SDL_free(l->pickedPath);
+        l->pickedPath = NULL;
+        while (l->pickedCount > 0) {
+            SDL_free(l->pickedMore[--l->pickedCount]);
+        }
+        l->pickSaves = 0;
     }
     if (l->importer != NULL) {
         if (SDL_GetAtomicInt(&l->importDone)) {
@@ -678,7 +981,13 @@ static int Run(Launcher *l) {
                 case SDLK_DOWN: Move(l, 0, 1); break;
                 case SDLK_TAB: l->focus = (l->focus + 1) % l->numButtons; break;
                 case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: result = Activate(l, focused); break;
-                case SDLK_ESCAPE: result = -1; break;
+                case SDLK_ESCAPE:
+                    if (l->savesView) {
+                        result = Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)]);
+                    } else {
+                        result = -1;
+                    }
+                    break;
                 default: break;
                 }
                 break;
@@ -698,8 +1007,12 @@ static int Run(Launcher *l) {
                 case SDL_GAMEPAD_BUTTON_DPAD_UP: Move(l, 0, -1); break;
                 case SDL_GAMEPAD_BUTTON_DPAD_DOWN: Move(l, 0, 1); break;
                 case SDL_GAMEPAD_BUTTON_SOUTH: result = Activate(l, focused); break;
-                case SDL_GAMEPAD_BUTTON_EAST: result = -1; break;
-                case SDL_GAMEPAD_BUTTON_START: result = Activate(l, &l->buttons[ButtonFor(l, ACT_PLAY)]); break;
+                case SDL_GAMEPAD_BUTTON_EAST:
+                    result = l->savesView ? Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)]) : -1;
+                    break;
+                case SDL_GAMEPAD_BUTTON_START:
+                    result = Activate(l, &l->buttons[ButtonFor(l, l->savesView ? ACT_IMP_GO : ACT_PLAY)]);
+                    break;
                 default: break;
                 }
                 break;
@@ -818,9 +1131,21 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     if (valid) {
         l.focus = ButtonFor(&l, ACT_PLAY);     /* A or Enter starts the game */
     }
+    if (SDL_getenv("HWVX_LAUNCHER_IMPORT") != NULL) {
+        /* testing: the import preview of these files, as if picked */
+        char *list = SDL_strdup(SDL_getenv("HWVX_LAUNCHER_IMPORT")), *paths[PORT_IMPORT_MAX_SOURCES], *save = NULL, *p;
+        int n = 0;
+
+        for (p = SDL_strtok_r(list, ";", &save); p != NULL && n < PORT_IMPORT_MAX_SOURCES; p = SDL_strtok_r(NULL, ";", &save)) {
+            paths[n++] = p;
+        }
+        AddSaves(&l, paths, n);
+        SDL_free(list);
+    }
     if (Run(&l) > 0 && l.src.play >= 0 && l.src.path[l.src.play] != NULL) {
         chosen = SDL_strdup(l.src.path[l.src.play]);
     }
+    CloseSaves(&l);
     SDL_DestroyRenderer(l.renderer);
     SDL_DestroyWindow(l.window);
     FreeSources(&l.src);

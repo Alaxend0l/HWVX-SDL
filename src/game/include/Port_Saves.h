@@ -158,6 +158,8 @@ int Port_SaveImportRead(const void *bytes, size_t len, const char *path, PortImp
                         char *err, size_t errSize);
 int Port_SaveImportOpen(const char *path, PortImportSource *src, char *err, size_t errSize);
 void Port_SaveImportClose(PortImportSource *src);
+/* The name of save `slot` (0-7) of a file read: 1 if the slot holds a save. */
+int Port_SaveImportSlotName(const PortImportSource *src, int slot, char *name, size_t size);
 
 /* How the saves are merged. */
 typedef struct PortImportOptions {
