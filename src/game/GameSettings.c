@@ -889,7 +889,10 @@ done:
     case 0x1FE:
         return g_codeVariables.blockReset;
     case 0x258:
-        return 2;
+        /* the platform the interfaces test (HW_IPack's title shows its
+         * "Maximum Justice" subtitle on 1): GameCube 2, PS2 1. port: the
+         * PS2 release's value with its data */
+        return Port_DataRelease() == PORT_DATA_PS2 ? 1 : 2;
     case 0x259:
         return 1;
     case 0x19B:

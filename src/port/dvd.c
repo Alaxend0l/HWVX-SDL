@@ -127,6 +127,14 @@ static char *FormatName(const char *fileName, int fmt, const char *dir) {
     return name;
 }
 
+/* The release whose packs the game is running on: the format of the last
+ * pack (".xgc" name) DVDOpen found. */
+static int s_release = PORT_DATA_GC;
+
+int Port_DataRelease(void) {
+    return s_release;
+}
+
 BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
     SDL_IOStream *io = OpenDiscFile(fileName);
     u32 format = PORT_DATA_GC;
@@ -151,6 +159,13 @@ BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
     if (io == NULL) {
         Port_Log("DVDOpen: %s not found", fileName);
         return FALSE;
+    }
+    {
+        size_t n = SDL_strlen(fileName);
+
+        if (n >= 4 && SDL_strcasecmp(fileName + n - 4, ".xgc") == 0) {
+            s_release = (int)format;
+        }
     }
     memset(fi, 0, sizeof(*fi));
     fi->host = io;
