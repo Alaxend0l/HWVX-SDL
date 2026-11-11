@@ -75,8 +75,8 @@ int Port_SaveFromJson(const struct JsonNode *root, const PortSaveKind *kind, voi
                       PortSaveExtras *extras, char *err, size_t errSize);
 /* A release's binary SaveFile at `bytes` (magic, version, checksum, settings,
  * 8 slots) -> host order, checked: magic, version (the size that follows) and
- * checksum. 1 on success. The PC's longer settings block is not read yet
- * (task 4d): it fails the version check. */
+ * checksum. 1 on success. The GameCube's layout only: the PC's longer and
+ * the PS2's packed settings are moved into it first (Port_SaveImport.c). */
 int Port_SaveFromBinary(const void *bytes, size_t len, int order, const PortSaveKind *kind,
                         void *saveFile, char *err, size_t errSize);
 /* The game's checksum of a host-order SaveFile (FileManager_GetChecksum). */
