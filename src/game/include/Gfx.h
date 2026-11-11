@@ -122,8 +122,15 @@ typedef struct GeometryGroup {
     };
 } GeometryGroup;
 
+/* Geometry.portLayout of a LOD level: how its groups' primitives are stored.
+ * 0 (pack data): GX display lists into the LOD's vertex arrays. Port_Data.c
+ * marks the PC release's levels: u16 triangle lists (group 0x1C, 0x10 the
+ * triangle count) into one array per attribute, the vertex buffer at 0xC
+ * holding their pointers (PortPCVertexBuffer, Render_Geometry_.c). */
+enum { PORT_LAYOUT_GX = 0, PORT_LAYOUT_INDEXED = 0x5043 };
+
 typedef struct Geometry {
-    u16 unused0;                /* 0x00 pack data, never referenced */
+    u16 portLayout;             /* 0x00 pack data (0), never referenced by the game; port: PORT_LAYOUT_* */
     u16 numGroups;              /* 0x02 */
     u16 skipDraw;               /* 0x04 nonzero: Render_Geometry does nothing */
     u16 unused6;                /* 0x06 */

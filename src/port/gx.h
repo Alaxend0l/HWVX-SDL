@@ -166,6 +166,34 @@ void GXSetZMode(u8 compare_enable, int func, u8 update_enable);
 void GXSetZCompLoc(u8 before_tex);
 void GXSetFog(int type, f32 startz, f32 endz, f32 nearz, f32 farz, GXColor color);
 
+/* ---- port: indexed meshes (gx_mesh.c) ------------------------------------- */
+/* Vertex arrays in host order, as the PC release keeps them: f32 x,y,z
+ * positions and normals, RGBA8 colours, f32 s,t texture coordinates, each
+ * with its own stride in bytes. A NULL array is absent. A skinned mesh
+ * (GX_PORT_SKIN) has its vertices sorted by bone, boneCounts[k] of bone k. */
+typedef struct GXPortMesh {
+    const u8 *pos;
+    const u8 *nrm;
+    const u8 *clr;
+    const u8 *uv;
+    u32 posStride, nrmStride, clrStride, uvStride;
+    const u32 *boneCounts;
+    u32 numBones;
+} GXPortMesh;
+
+/* Which arrays a draw reads, like a display list's vertex descriptor. */
+enum {
+    GX_PORT_USE_NRM = 1,
+    GX_PORT_USE_CLR = 2,
+    GX_PORT_CLR_ALPHA = 4,      /* the colour's alpha too (else 255) */
+    GX_PORT_USE_UV = 8,
+    GX_PORT_SKIN = 16,          /* the bone's matrix, not the current one */
+};
+
+/* Draw `count` vertices of primitive `prim` (GX_TRIANGLES, GX_TRIANGLESTRIP)
+ * by index into `m`, under the current GX state. */
+void GX_PortDrawIndexed(const GXPortMesh *m, int prim, const u16 *idx, u32 count, u32 use);
+
 #ifdef __cplusplus
 }
 #endif

@@ -437,13 +437,84 @@ extern u32 g_IsAnim;
 /* port: the vertex setups a group is drawn with (SetTri*VtxDesc*). */
 enum { GROUP_VTX_TRI, GROUP_VTX_ALPHA, GROUP_VTX_NORM, GROUP_VTX_ENV };
 
+/* port: the vertex buffer of a PORT_LAYOUT_INDEXED level (LOD 0xC), the PC
+ * release's: pointers to its arrays (strides 16, 4, 8, 16; positions and
+ * normals x,y,z and a pad word), 16 zero bytes, then the arrays. Colours or
+ * normals are NULL when the level has none. */
+typedef struct PortPCVertexBuffer {
+    PTR32(u8) pos;
+    PTR32(u8) clr;
+    PTR32(u8) uv;
+    PTR32(u8) nrm;
+} PortPCVertexBuffer;
+
+/* port: the attributes each vertex setup reads (SetTri*VtxDesc*): positions
+ * always; RGB colour and UVs; RGBA colour and UVs; normals and UVs; normals
+ * and RGBA colour (the texture coordinates are generated from the normal). */
+static const u32 s_groupUse[] = {
+    [GROUP_VTX_TRI] = GX_PORT_USE_CLR | GX_PORT_USE_UV,
+    [GROUP_VTX_ALPHA] = GX_PORT_USE_CLR | GX_PORT_CLR_ALPHA | GX_PORT_USE_UV,
+    [GROUP_VTX_NORM] = GX_PORT_USE_NRM | GX_PORT_USE_UV,
+    [GROUP_VTX_ENV] = GX_PORT_USE_NRM | GX_PORT_USE_CLR | GX_PORT_CLR_ALPHA,
+};
+
+/* port: a PORT_LAYOUT_INDEXED group: u16 indices into the level's arrays,
+ * a triangle list of 3 * grp->dlSize, or, when the first index has bit 15
+ * set, strip records {u16 count (bit 15 on the first), count indices} up to
+ * 0xFFFF (the PC release's two draw modes). A skinned level's vertices are
+ * sorted by bone, with the four bones' counts at LOD 0x10. */
+static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) {
+    PortPCVertexBuffer *vb = (PortPCVertexBuffer *)GETP(lod->lodDistances);
+    const u16 *idx = (const u16 *)GETP(grp->displayList);
+    GXPortMesh mesh;
+    u32 use = s_groupUse[vtx];
+
+    if (vb == NULL || idx == NULL) {
+        return;
+    }
+    mesh.pos = GETP(vb->pos);
+    mesh.clr = GETP(vb->clr);
+    mesh.uv = GETP(vb->uv);
+    mesh.nrm = GETP(vb->nrm);
+    mesh.posStride = 16;
+    mesh.clrStride = 4;
+    mesh.uvStride = 8;
+    mesh.nrmStride = 16;
+    mesh.boneCounts = NULL;
+    mesh.numBones = 0;
+    if (g_IsAnim && (vtx == GROUP_VTX_NORM || vtx == GROUP_VTX_ENV)) {
+        mesh.boneCounts = SLOT_LOAD(const u32 *, &lod->bboxMin[0]);
+        mesh.numBones = mesh.boneCounts != NULL ? 4 : 0;
+        use |= GX_PORT_SKIN;
+    }
+    if (!(idx[0] & 0x8000)) {
+        GX_PortDrawIndexed(&mesh, GX_TRIANGLES, idx, grp->dlSize * 3, use);
+        return;
+    }
+    for (;;) {
+        u32 n = idx[0] & 0x7FFF;
+
+        if (idx[0] == 0xFFFF) {
+            break;
+        }
+        GX_PortDrawIndexed(&mesh, GX_TRIANGLESTRIP, idx + 1, n, use);
+        idx += 1 + n;
+    }
+}
+
 /* port: a group's primitives, the one place pack geometry reaches GX: the
  * vertex setup, the LOD's vertex arrays and the group's display list. Each
  * caller sets the texture, lighting and blending around it. Skinned
  * geometry (g_IsAnim) adds the per-vertex matrix index to the lit and
- * environment-mapped setups, as the original's lit and env draws did. */
+ * environment-mapped setups, as the original's lit and env draws did.
+ * The PC release's levels (PORT_LAYOUT_INDEXED) are drawn by index. */
 static void Render_DrawGroupPrims(Geometry *lod, GeometryGroup *grp, int vtx) {
     void *dl = GETP(grp->displayList);
+
+    if (lod->portLayout == PORT_LAYOUT_INDEXED) {
+        Render_DrawGroupIndexed(lod, grp, vtx);
+        return;
+    }
 
     switch (vtx) {
     case GROUP_VTX_TRI:

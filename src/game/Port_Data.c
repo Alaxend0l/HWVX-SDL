@@ -18,6 +18,7 @@
  * formats. */
 #include "common.h"
 #include "Voice.h"
+#include "Gfx.h"
 #include "Port_Swap.h"
 
 static void Unsupported(s32 fmt) {
@@ -133,13 +134,133 @@ static void PC_Textures(u8 *base, u32 dataSize, u32 off, u32 count) {
     }
 }
 
+/* PC geometry, found before relocation: pointer slots still hold blob
+ * offsets, and the pack's pointer list says which words are slots. */
+typedef struct PCScan {
+    u8 *base;
+    u32 size;
+    u8 *isSlot;       /* per word: a pointer slot */
+    u8 *isTexSlot;    /* per word: a marked level's group texture slot (0x18) */
+} PCScan;
+
+static u16 Half(const PCScan *s, u32 off) {
+    return off + 2 <= s->size ? *(u16 *)(s->base + off) : 0;
+}
+
+/* The blob offset the slot at `off` points to, or ~0 if it isn't a slot. */
+static u32 Target(const PCScan *s, u32 off) {
+    u32 t;
+
+    if ((off & 3) || off + 4 > s->size || !s->isSlot[off / 4]) {
+        return ~0u;
+    }
+    t = *(u32 *)(s->base + off);
+    return t < s->size ? t : ~0u;
+}
+
+/* A drawn level: groups with index lists, a vertex buffer with positions.
+ * A shadow volume's level (groups flagged 0x4000) has the same header but
+ * edge lists; Render_DrawShadows reads those as they are. */
+static int PC_IsLevel(const PCScan *s, u32 lod, int *shadow) {
+    u32 ng = Half(s, lod + 2), groups = Target(s, lod + 8), vb = Target(s, lod + 0xC), j;
+
+    if (Half(s, lod) != 0 || ng == 0 || ng > 0x400 || groups == ~0u || vb == ~0u) {
+        return 0;
+    }
+    *shadow = (Half(s, groups + 2) & 0x4000) != 0;
+    if (*shadow) {
+        return 1;
+    }
+    if (Target(s, vb) == ~0u || Target(s, vb + 8) == ~0u) {
+        return 0;
+    }
+    for (j = 0; j < ng; j++) {
+        if (Target(s, groups + j * 0x20 + 0x1C) == ~0u) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* A geometry: header 0x0002 (the GameCube's is 0x2003), up to 8 levels of
+ * 0x18 at 0x8, LOD distances at 0xC. Its drawn levels get
+ * PORT_LAYOUT_INDEXED and their groups' texture slots are noted. */
+static void PC_MarkGeometry(PCScan *s, u32 g) {
+    u32 n = Half(s, g + 2), lods = Target(s, g + 8), i, j;
+    int shadow;
+
+    if (Half(s, g) != 0x0002 || n == 0 || n > 8 || lods == ~0u || Target(s, g + 0xC) == ~0u) {
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        if (!PC_IsLevel(s, lods + i * 0x18, &shadow)) {
+            return;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        u32 lod = lods + i * 0x18, groups = Target(s, lod + 8);
+
+        if (!PC_IsLevel(s, lod, &shadow) || shadow) {
+            continue;
+        }
+        ((Geometry *)(s->base + lod))->portLayout = PORT_LAYOUT_INDEXED;
+        for (j = 0; j < Half(s, lod + 2); j++) {
+            s->isTexSlot[(groups + j * 0x20 + 0x18) / 4] = 1;
+        }
+    }
+}
+
 /* PC: what the GameCube code can't read in a PC pack's blob. Tables and the
- * object graph are already in host order. Still to convert: geometry (u16
- * triangle lists and unified vertex arrays; GX's are display lists). */
-static void PC_PackData(u8 *base, u32 dataSize, u32 textureDataOffset, u32 numTextures) {
+ * object graph are already in host order. Geometry is drawn as it is
+ * (Render_Geometry_.c, PORT_LAYOUT_INDEXED), found through the pointer list
+ * and the local relocations (a shared geometry pack's export table).
+ *
+ * A group's texture relocation stores the id as a u32 at 0x18: the PC binds
+ * its low half (0x18 little-endian), the GameCube code reads 0x1A and takes
+ * 0x18 for ShaderHolder's override. Flagged PORT_TEXRELOC_U16, the store
+ * (PortSwap_StoreTextureID) writes 0 there and the id at 0x1A. */
+static void PC_PackData(u8 *relocTables, u32 numTextureRelocs, u8 *base, u32 dataSize, u32 *texRelocs,
+                        u32 numTexRelocs, u32 *pointers, u32 numPointers, u32 textureDataOffset,
+                        u32 numTextures) {
+    PCScan s;
+    u32 *relocs = (u32 *)relocTables;
+    u32 i;
+
     if (numTextures != 0) {
         PC_Textures(base, dataSize, textureDataOffset, numTextures);
     }
+    s.base = base;
+    s.size = dataSize;
+    s.isSlot = calloc(dataSize / 4 + 1, 2);
+    s.isTexSlot = s.isSlot + dataSize / 4 + 1;
+    if (s.isSlot == NULL) {
+        return;
+    }
+    for (i = 0; i < numPointers; i++) {
+        if (!(pointers[i] & 3) && pointers[i] + 4 <= dataSize) {
+            s.isSlot[pointers[i] / 4] = 1;
+        }
+    }
+    for (i = 0; i < numPointers; i++) {
+        u32 g = Target(&s, pointers[i]);
+        if (g != ~0u) {
+            PC_MarkGeometry(&s, g);
+        }
+    }
+    for (i = 0; i < numTexRelocs; i++) {
+        u32 slot = texRelocs[i * 2];
+        if (!(texRelocs[i * 2 + 1] & 0xFFFF0000) && !(slot & 3) && slot + 4 <= dataSize &&
+            *(u32 *)(base + slot) < dataSize) {
+            PC_MarkGeometry(&s, *(u32 *)(base + slot));
+        }
+    }
+    for (i = 0; i < numTextureRelocs; i++) {
+        u32 slot = relocs[i * 2];
+        if (!(slot & 3) && slot + 4 <= dataSize && s.isTexSlot[slot / 4]) {
+            relocs[i * 2] = slot | PORT_TEXRELOC_U16;
+        }
+    }
+    free(s.isSlot);
 }
 
 void PortData_PackData(s32 fmt, u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize,
@@ -153,7 +274,8 @@ void PortData_PackData(s32 fmt, u8 *relocTables, u32 relocTableWords, u8 *base, 
                           numTriggers);
         break;
     case PORT_DATA_PC:
-        PC_PackData(base, dataSize, textureDataOffset, numTextures);
+        PC_PackData(relocTables, g_portSwapNumTextureRelocs, base, dataSize, texRelocs, numTexRelocs, pointers,
+                    numPointers, textureDataOffset, numTextures);
         break;
     default:
         Unsupported(fmt);
