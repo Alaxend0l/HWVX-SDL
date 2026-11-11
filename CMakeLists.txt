@@ -185,6 +185,38 @@ if(HWVX_TESTS AND NOT ANDROID)
         target_link_options(savetest PRIVATE -fsanitize=address,undefined)
     endif()
     add_test(NAME savetest COMMAND savetest savetest-out)
+
+    # Importing the releases' saves (src/game/Port_SaveImport.c). The example
+    # saves are read from HWVX-SDL/build-saves and orig/ when they are there
+    # (a worktree sits one folder deeper); tools/saveimporttest.c says what
+    # it covers.
+    add_executable(saveimporttest tools/saveimporttest.c src/game/Port_SaveImport.c src/game/Port_Saves.c
+        src/game/Port_SaveFormat.c src/game/Port_SaveIds.c src/port/jsonc.c src/port/fileio.c)
+    target_include_directories(saveimporttest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/game/include
+        ${CMAKE_SOURCE_DIR}/src/port)
+    target_link_libraries(saveimporttest PRIVATE SDL3::SDL3 mbedtls)
+    target_compile_options(saveimporttest PRIVATE -fno-strict-aliasing -fwrapv -Wall -Wno-unknown-pragmas
+        -Wno-unused-function -Wno-missing-braces -Wno-pointer-sign -Wno-char-subscripts
+        -Werror=implicit-function-declaration -Werror=return-type)
+    if(HWVX_ASAN)
+        target_compile_options(saveimporttest PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(saveimporttest PRIVATE -fsanitize=address,undefined)
+    endif()
+    set(HWVX_SAVEIMPORT_ARGS saveimporttest-out)
+    foreach(dir ${CMAKE_SOURCE_DIR}/build-saves ${CMAKE_SOURCE_DIR}/../build-saves)
+        if(EXISTS ${dir}/gc AND NOT HWVX_SAVEIMPORT_SAMPLES)
+            get_filename_component(HWVX_SAVEIMPORT_SAMPLES ${dir} ABSOLUTE)
+            list(APPEND HWVX_SAVEIMPORT_ARGS --samples ${HWVX_SAVEIMPORT_SAMPLES})
+        endif()
+    endforeach()
+    foreach(dir ${CMAKE_SOURCE_DIR}/../orig ${CMAKE_SOURCE_DIR}/../../orig)
+        if(EXISTS ${dir}/ps2-memcard AND NOT HWVX_SAVEIMPORT_ORIG)
+            get_filename_component(HWVX_SAVEIMPORT_ORIG ${dir} ABSOLUTE)
+            list(APPEND HWVX_SAVEIMPORT_ARGS --orig ${HWVX_SAVEIMPORT_ORIG})
+        endif()
+    endforeach()
+    add_test(NAME saveimporttest COMMAND saveimporttest ${HWVX_SAVEIMPORT_ARGS})
 endif()
 
 # ---- platforms and packaging (see packaging/README.md) ---------------------
