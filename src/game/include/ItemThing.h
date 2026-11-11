@@ -16,9 +16,9 @@ enum {
 typedef struct WeaponInfo {
     PTR32(struct MotionAnim) anim; /* 0x00 wildcard: the rack slot's model */
     u8 pad04[0xC];              /* 0x04 never read (GC, PS2) */
-    u32 hudName;                /* 0x10 InterfaceHudInfo.weaponName (handle) */
+    u32 hudName;                /* 0x10 InterfaceHudInfo.weaponName (handle) @xdl: link=char */
     u8 pad14[4];                /* 0x14 never read (GC, PS2) */
-    u32 hudIcon;                /* 0x18 InterfaceHudInfo.weaponIcon[0] */
+    u32 hudIcon;                /* 0x18 InterfaceHudInfo.weaponIcon[0] @xdl: texture */
     u8 pad1C[4];                /* 0x1C never read (GC, PS2) */
     s32 ammo;                   /* 0x20 picked up with the item */
     u32 ammoPerShot;            /* 0x24 the AI doesn't use it with less */
@@ -49,7 +49,7 @@ typedef struct ItemRecord {
     f32 spinMin;                /* 0x18 random spin speed range, degrees */
     f32 spinMax;                /* 0x1C */
     PTR32(PTR32(char)) names;   /* 0x20 name string table ([0]: the weapon name) */
-    u32 pickupDebris;           /* 0x24 effect spawned when picked up, 0: none */
+    u32 pickupDebris;           /* 0x24 effect spawned when picked up, 0: none @xdl: link=void */
     u32 spawnDebris;            /* 0x28 effect spawned when it appears, 0: none */
     u8 pad2C[4];                /* 0x2C pointer in item 51 only; never read (GC, PC, PS2) */
     PTR32(WeaponInfo) weapon;   /* 0x30 */

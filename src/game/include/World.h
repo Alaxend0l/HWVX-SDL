@@ -445,12 +445,12 @@ typedef struct WorldGameData {
     f32 impactFxMaxVel;         /* 0x6C */
     f32 creatureFxMinVel;       /* 0x70 PC only: effects of a car running a creature over */
     f32 creatureFxMaxVel;       /* 0x74 (0x413060), picked by speed like impactFx; 5, 100 */
-    u32 mapTexture;             /* 0x78 radar map, 0: none (InterfaceManager_DrawMap) */
-    u32 radarBlip;              /* 0x7C InterfaceManager_SetRadarBlip */
+    u32 mapTexture;             /* 0x78 radar map, 0: none (InterfaceManager_DrawMap) @xdl: texture */
+    u32 radarBlip;              /* 0x7C InterfaceManager_SetRadarBlip @xdl: texture */
     u8 pad80[8];                /* 0x80 two texture slots; never read (GC, PC, PS2) */
-    u32 lightTexture;           /* 0x88 LightHolder_SetTexture */
-    u32 envmapA;                /* 0x8C */
-    u32 envmapB;                /* 0x90 */
+    u32 lightTexture;           /* 0x88 LightHolder_SetTexture @xdl: texture */
+    u32 envmapA;                /* 0x8C @xdl: texture */
+    u32 envmapB;                /* 0x90 @xdl: texture */
     u8 pad94[0xC];              /* 0x94 two texture slots, a pointer; never read (GC, PC, PS2) */
     PTR32(void) vehiclePackList; /* 0xA0 */
     PTR32(char) itemPack;       /* 0xA4 name of the world's item pack (type 2) */

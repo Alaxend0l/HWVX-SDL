@@ -339,9 +339,14 @@
     },
     "mapTexture": {
       "description": "radar map, 0: none (InterfaceManager_DrawMap)",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "texture"
+      },
       "x-offset": "0x78",
       "x-c-type": "u32",
       "x-confidence": "likely",
@@ -353,9 +358,14 @@
     },
     "radarBlip": {
       "description": "InterfaceManager_SetRadarBlip",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "texture"
+      },
       "x-offset": "0x7C",
       "x-c-type": "u32",
       "x-confidence": "likely",
@@ -367,9 +377,14 @@
     },
     "lightTexture": {
       "description": "LightHolder_SetTexture",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "texture"
+      },
       "x-offset": "0x88",
       "x-c-type": "u32",
       "x-confidence": "likely",
@@ -380,9 +395,14 @@
       }
     },
     "envmapA": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "texture"
+      },
       "x-offset": "0x8C",
       "x-c-type": "u32",
       "x-confidence": "likely",
@@ -393,9 +413,14 @@
       }
     },
     "envmapB": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "texture"
+      },
       "x-offset": "0x90",
       "x-c-type": "u32",
       "x-confidence": "likely",
