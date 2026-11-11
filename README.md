@@ -104,13 +104,30 @@ save file), the "do not touch" loading/saving notices and the card warnings
 loads at startup, and leaving Options after changing a setting autosaves over
 the save in use (or makes one) instead of reminding you to save.
 
+JSON saves (`HWVX_SAVES=json`, off by default for now): the game's save goes
+to `<pref>/saves/default/hwvx.json` instead of the emulated memory card, as
+readable JSON keyed by id (`"base://HW_Cars/car_5": {"unlocked": true}`), so
+saves survive content being added or renumbered (docs/xdl-format §11 in
+HWVX-X-FILE-EDITOR). Each write goes to a `.tmp` file first and is renamed
+over the save, so a crash leaves the old save whole; the last five saves are
+kept (`hwvx.1.json` newest ... `hwvx.5.json`), each ending in a sha256 line.
+A save that won't parse or fails its hash is skipped for the newest good
+backup, with a line in the log; nothing is reset. You may edit a save: delete
+its sha256 line afterwards, or it reads as damaged. The first time, an
+existing `memcardA/hwvx.sav` is imported (and kept). The game's Delete moves
+the files to `saves/default/deleted/`. Code: `src/game/Port_Saves.c` (the
+store), `Port_SaveFormat.c` (the format), `Port_SaveIds.c` (index to id);
+`tools/savetest.c` tests it.
+
 Renderers (`--renderer`): through SDL_GPU `d3d12` (the default on Windows),
 `metal` (the default on macOS) and `vulkan` (the default on Linux and
 Android), and `opengl` (OpenGL 3.3 core). When the default can't start (no
 driver for it, an old GPU), the game falls back to OpenGL, except on
 Android. CMake's `HWVX_DEFAULT_RENDERER` builds in another default.
 F11 or Alt+Enter toggles fullscreen. Saves go to SDL's per-user preferences
-folder (`memcardA/*.sav`).
+folder (`memcardA/*.sav`, or `saves/` with `HWVX_SAVES=json`);
+`HWVX_PREF_DIR=dir` uses another folder for everything kept there (saves,
+`graphics.cfg`, `sources.cfg`, the `.xdl` cache), for testing.
 
 Controls: any SDL-supported gamepad (A/B/X/Y by position, triggers = L/R,
 right shoulder = Z), or the keyboard as player 1, with the PC release's
@@ -472,6 +489,12 @@ Debugging aids:
   validation layers, D3D12 debug layer) for the SDL_GPU renderers.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
+- `HWVX_SAVES=json` saves to the JSON store (`<pref>/saves/default/`, see
+  Saves above) instead of the emulated memory card. `HWVX_PREF_DIR=dir` puts
+  the preferences folder elsewhere, so a test run never touches your saves.
+  `savetest` (built with `-DHWVX_TESTS=ON`; `ctest -R savetest`, or
+  `./savetest OUT --gci FILE` to round-trip a GameCube save) tests the store:
+  round trips, atomic writes, damaged saves, backups, import.
 - `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable

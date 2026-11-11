@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Saves.h"
 
 
 
@@ -334,6 +335,9 @@ s32 File_Write(u32 id, s32 size, void *data) {
 s32 File_Delete(s32 device, const char *fileName) {
     s32 chan = device - 11;
 
+    if (Port_SavesJson()) {
+        return chan == 0 && Port_SavesDelete(fileName);   /* port: the JSON store */
+    }
     if (CARDMount(chan, CardWorkArea, 0) != 0) {
         return 0;
     }
@@ -399,6 +403,10 @@ u32 FileManager_GetDeviceStatus(u32 device) {
     return device == 1;
 }
 
+/* port: with HWVX_SAVES=json the save file is the JSON store's
+ * (game/Port_Saves.c), read and written whole; the card only says it's in. */
+static char s_jsonName[2][32];
+
 s32 MemCard_Open__FUlPCScUlPl(u32 device, const char *fileName, u32 flags, s32 *unused) {
     u32 chan;
     CARDFileInfo *fileInfo;
@@ -408,6 +416,15 @@ s32 MemCard_Open__FUlPCScUlPl(u32 device, const char *fileName, u32 flags, s32 *
         return 0;
     }
     chan = device - 11;
+    if (Port_SavesJson()) {
+        snprintf(s_jsonName[chan], sizeof(s_jsonName[chan]), "%s", fileName);
+        if (chan == 0 && (Port_SavesExists(fileName) || (flags & 1))) {
+            m_memcardstatus[chan] = 0;
+            return 1;   /* created by the first write */
+        }
+        m_memcardstatus[chan] = -4;   /* CARD_RESULT_NOFILE */
+        return 0;
+    }
     m_memcardstatus[chan] = CARDMount(chan, CardWorkArea, 0);
     OSReport("CARDMount\n");
     if (m_memcardstatus[chan] < 0) {
@@ -439,6 +456,10 @@ s32 MemCard_Open__FUlPCScUlPl(u32 device, const char *fileName, u32 flags, s32 *
 void MemCard_Close__Fl(s32 device) {
     s32 chan = device - 11;
 
+    if (Port_SavesJson()) {
+        m_memcardstatus[chan] = 0;
+        return;
+    }
     m_memcardstatus[chan] = CARDClose(&memCardfileInfo[chan]);
     m_memcardstatus[chan] = CARDUnmount(chan);
     OSReport("CARDClose\n");
@@ -458,6 +479,13 @@ s32 MemCard_Read__FUllPv(u32 device, s32 size, void *data) {
     CardFile buffer __attribute__((aligned(32)));
     s32 chan = device - 11;
 
+    if (Port_SavesJson()) {
+        /* a save with no good file reads as zeroes: the game's checksum
+         * check then calls it damaged, as a bad card file */
+        Port_SavesRead(s_jsonName[chan], data, size);
+        m_memcardstatus[chan] = 0;
+        return size;
+    }
     m_memcardstatus[chan] = CARDRead(&memCardfileInfo[chan], &buffer, memCardBlockSize[chan], 0);
     memcpy(data, buffer.data, size);
     return size;
@@ -487,6 +515,14 @@ s32 MemCard_Write__FUllPv(u32 id, s32 size, void *data) {
     CardFile buffer __attribute__((aligned(32)));
     s32 chan = id - 11;
 
+    if (Port_SavesJson()) {
+        if (!Port_SavesWrite(s_jsonName[chan], data, (u32)size)) {
+            m_memcardstatus[chan] = -5;   /* CARD_RESULT_IOERROR */
+            return 0;
+        }
+        m_memcardstatus[chan] = 0;
+        return 1;
+    }
     memset(&buffer, 0, offsetof(CardFile, images));
     sprintf(buffer.name, "Hot Wheels Velocity X Save");
     sprintf(buffer.comment, "Game Data");

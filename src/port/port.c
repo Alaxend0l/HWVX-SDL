@@ -170,6 +170,30 @@ u32 Port_FixedStepUs(void) {
     return (u32)step;
 }
 
+/* The folder for the player's files (saves, graphics.cfg, sources.cfg, the
+ * .xdl cache), ending in a separator; free with SDL_free. SDL's pref path, or
+ * HWVX_PREF_DIR=<folder> (created if missing) for tests that must not touch
+ * the player's own files. */
+char *Port_PrefPath(void) {
+    const char *dir = SDL_getenv("HWVX_PREF_DIR");
+    char *path = NULL;
+    size_t n;
+
+    if (dir == NULL || dir[0] == 0) {
+        return SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+    }
+    n = SDL_strlen(dir);
+    if (dir[n - 1] == '/' || dir[n - 1] == '\\') {
+        path = SDL_strdup(dir);
+    } else {
+        SDL_asprintf(&path, "%s/", dir);
+    }
+    if (path != NULL && !SDL_CreateDirectory(path)) {
+        Port_Log("HWVX_PREF_DIR=%s: %s", dir, SDL_GetError());
+    }
+    return path;
+}
+
 int Port_AllCheats(void) {
     /* HWVX_CHEATS=1: every cheat reads as on, without touching save data. */
     static int all = -1;

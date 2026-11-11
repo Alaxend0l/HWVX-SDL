@@ -168,6 +168,23 @@ if(HWVX_TESTS AND NOT ANDROID)
     endif()
     add_test(NAME nettest_selftest COMMAND nettest selftest)
     add_test(NAME nettest_e2e COMMAND nettest e2e)
+
+    # The JSON save store (src/game/Port_Saves.c): its own files, no game or
+    # window. tools/savetest.c says what it covers.
+    add_executable(savetest tools/savetest.c src/game/Port_Saves.c src/game/Port_SaveFormat.c
+        src/game/Port_SaveIds.c src/port/jsonc.c src/port/fileio.c)
+    target_include_directories(savetest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/game/include
+        ${CMAKE_SOURCE_DIR}/src/port)
+    target_link_libraries(savetest PRIVATE SDL3::SDL3 mbedtls)
+    target_compile_options(savetest PRIVATE -fno-strict-aliasing -fwrapv -Wall -Wno-unknown-pragmas
+        -Wno-unused-function -Wno-missing-braces -Wno-pointer-sign -Wno-char-subscripts
+        -Werror=implicit-function-declaration -Werror=return-type)
+    if(HWVX_ASAN)
+        target_compile_options(savetest PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(savetest PRIVATE -fsanitize=address,undefined)
+    endif()
+    add_test(NAME savetest COMMAND savetest savetest-out)
 endif()
 
 # ---- platforms and packaging (see packaging/README.md) ---------------------

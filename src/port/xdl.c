@@ -133,7 +133,7 @@ static const char *CacheDir(void) {
         if (env != NULL && *env) {
             dir = SDL_strdup(env);
         } else {
-            char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+            char *pref = Port_PrefPath();
 
             SDL_asprintf(&dir, "%sxdl", pref != NULL ? pref : "");
             SDL_free(pref);

@@ -93,7 +93,7 @@ static int FindFile(s32 chan, const char *name) {
 }
 
 void CARDInit(void) {
-    char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+    char *pref = Port_PrefPath();
     int chan;
     for (chan = 0; chan < 2; chan++) {
         SDL_asprintf(&s_slots[chan].dir, "%smemcard%c/", pref ? pref : "./", 'A' + chan);
