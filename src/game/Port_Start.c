@@ -4,6 +4,7 @@
  *   HWVX_START=menu:mode=M          the screen M's One Player row opens: the
  *                                   mission (adventure), challenge or joyride
  *                                   select, the drag race or battle options
+ *   HWVX_START=worldselect:mode=M   M's world (track) select, past its options
  *   HWVX_START=carselect[:mode=M][,car=N][,world=W]   M's car select
  *   HWVX_START=itemselect[:mode=M][,car=N][,item=I]   the item select
  *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I]  a race
@@ -432,6 +433,15 @@ static int StartTitle(void *script) {
     StateProgressionManager_SetProgressionID(p, w);
     GameSettings_SetCodeVariable(0xCB, 1, car);
     GameSettings_SetCodeVariable(0xCC, 1, item);
+    if (SDL_strcmp(mode, "worldselect") == 0) {
+        if (f.worldSelect == NULL) {
+            Port_Log("start: %s has no world select in the menus; HWVX_START ignored", modeName);
+            return 0;
+        }
+        Port_Log("start: worldselect, %s (progression %d)", modeName, (int)p);
+        InterfaceManager_Create((InterfaceHeader *)f.worldSelect, 0, TitleScreen_Interface);
+        return 1;
+    }
     if (SDL_strcmp(mode, "carselect") == 0 || SDL_strcmp(mode, "itemselect") == 0) {
         const InterfaceHeader *h = mode[0] == 'c' ? f.carSelect : f.itemSelect != NULL ? f.carSelect : NULL;
 

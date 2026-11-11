@@ -549,6 +549,7 @@ Debugging aids:
   as the menus do; a race starts as the title's demo loop starts one):
   `menu:mode=M` the screen M's One Player row opens (the Adventure screen,
   the challenge or Joyride world select, the drag race or battle options);
+  `worldselect:mode=M` its world (track) select, past the options;
   `carselect[:mode=M][,car=N][,world=W]`; `itemselect` (through the car
   select, which picks car N as an A press would, so the item select shows
   it; starting at item I);
