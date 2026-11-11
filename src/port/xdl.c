@@ -14,12 +14,15 @@
  * hold 0 have none. */
 #include "port_internal.h"
 #include "xdl.h"
+#include "Port_Mix.h"
 
 #define XDL_VERSION 1
 /* Bump when a converter changes what it leaves in memory (Port_Data.c,
  * Port_Swap.c, Port_Geometry.c, Port_PS2.c, the menus' data): every cache
  * file is then rebuilt. */
 #define XDL_COMPILER 1
+/* XdlHeader.source: a mixed build's pack, its base release in the low bits. */
+#define XDL_SOURCE_MIXED 0x100u
 
 enum { XDL_SEC_TOC = 1, XDL_SEC_PACK, XDL_SEC_FIXUPS, XDL_SEC_SEGMENT };
 
@@ -27,14 +30,14 @@ typedef struct XdlHeader {
     char magic[4];          /* "XDL1" */
     u32 version;
     u32 compiler;
-    u32 source;             /* PORT_DATA_*: whose data it came from */
+    u32 source;             /* PORT_DATA_*: whose data it came from; | XDL_SOURCE_MIXED */
     u64 sourceSize;         /* the source file's size and modification time (ns): */
     s64 sourceTime;         /*   step 1 "hashes" the source by these */
     u32 numSections;
     u32 sectionTableOffset;
     u32 flags;              /* 0: no compression */
     u32 settings;           /* conversion settings it was made with (bit 0: HWVX_PS2CULL) */
-    u32 reserved[4];
+    u32 reserved[4];        /* [0]: a mixed build's stamp (Port_MixStamp), else 0 */
 } XdlHeader;
 _Static_assert(sizeof(XdlHeader) == 0x40, "XdlHeader");
 
@@ -110,7 +113,8 @@ int Xdl_Reading(void) {
     static int on = -1;
 
     if (on < 0) {
-        on = EnvOn("HWVX_XDL");
+        /* a mixed build (mix.c) is played from its cache, and fills it */
+        on = EnvOn("HWVX_XDL") || Port_MixActive();
     }
     return on;
 }
@@ -119,7 +123,7 @@ int Xdl_Writing(void) {
     static int on = -1;
 
     if (on < 0) {
-        on = EnvOn("HWVX_XDL_WRITE");
+        on = EnvOn("HWVX_XDL_WRITE") || Port_MixActive();
     }
     return on;
 }
@@ -169,7 +173,7 @@ static int LoadIndex(XdlFile *xf, SDL_IOStream *io) {
 
     FreeIndex(xf);
     if (!ReadAt(io, 0, &h, sizeof(h)) || SDL_memcmp(&h, &xf->want, offsetof(XdlHeader, numSections)) != 0 ||
-        h.settings != xf->want.settings || h.numSections == 0 || h.numSections > 0x100000) {
+        h.settings != xf->want.settings || h.reserved[0] != xf->want.reserved[0] || h.numSections == 0 || h.numSections > 0x100000) {
         return 0;
     }
     xf->sections = SDL_malloc(h.numSections * sizeof(XdlSection));
@@ -230,11 +234,23 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
     if (xf == NULL) {
         return NULL;
     }
-    SDL_asprintf(&xf->path, "%s/%s/%.*s.xdl", CacheDir(), fmtDir[fmt], (int)(n - 4), name);
+    SDL_asprintf(&xf->path, "%s/%s/%.*s.xdl", CacheDir(), Port_MixActive() ? Port_MixCacheName() : fmtDir[fmt],
+                 (int)(n - 4), name);
     SDL_memcpy(xf->want.magic, "XDL1", 4);
     xf->want.version = XDL_VERSION;
     xf->want.compiler = XDL_COMPILER;
     xf->want.source = (u32)fmt;
+    if (Port_MixActive() && xf->path != NULL) {
+        /* a mixed build's own folder; its packs hold other releases' assets
+         * (MIXED), by the recipe and releases the stamp stands for */
+        char *p;
+
+        for (p = xf->path + SDL_strlen(CacheDir()); *p; p++) {
+            *p = (char)SDL_tolower((unsigned char)*p);
+        }
+        xf->want.source |= XDL_SOURCE_MIXED;
+        xf->want.reserved[0] = Port_MixStamp();
+    }
     xf->want.sourceSize = info.size;
     xf->want.sourceTime = info.modify_time;
     xf->want.settings = Settings();

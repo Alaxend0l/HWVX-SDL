@@ -58,6 +58,11 @@ char *Port_FindNoCase(const char *dir, const char *rel);
 typedef char *(*Port_DataCheck)(const char *path);
 typedef char *(*Port_DataSearch)(void);
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search);
+/* mix.c: start a mixed build (Port_Mix.h) from the recipe `nameOrPath`
+ * ("ultimate", or a .jsonc file); `building`: --mix-build. 0 and a message
+ * in err when the recipe can't be used. Port_MixManifestClose: the build is done. */
+int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, char *err, u32 errSize);
+void Port_MixManifestClose(void);
 /* pcdisc.c: the PC release's disc image (.iso, .cue/.bin) into folder `dest`:
  * HWVX.cab's files flat, the FMV_ movies; `progress` counts files. */
 int Port_ImportPCDisc(const char *image, const char *dest, SDL_AtomicInt *progress, SDL_AtomicInt *cancel, char *err,

@@ -1,0 +1,577 @@
+/* Mixed builds (Port_Mix.h): the recipe, the releases' folders and their
+ * files. The packs themselves are mixed in game/Port_Mix.c. */
+#include "port_internal.h"
+#include "disc.h"
+#include "jsonc.h"
+#include "Port_Mix.h"
+#include "mix_recipe_ultimate.h"    /* generated from recipes/ultimate.jsonc (CMakeLists.txt) */
+
+static const char *const s_relKeys[PORT_DATA_COUNT] = { "gc", "pc", "ps2" };
+
+typedef struct MixRule {
+    char *match;
+    int kind;                       /* > 0: releases in from[]; PORT_MIX_FROM_BASE, PORT_MIX_FROM_BEST */
+    int from[PORT_DATA_COUNT];
+} MixRule;
+
+typedef struct MixRules {
+    MixRule *rule;
+    int count;
+} MixRules;
+
+static struct {
+    int on, building, lookGC;
+    char name[64];
+    char cacheName[80];
+    u32 stamp;
+    char *root[PORT_DATA_COUNT];    /* NULL: not imported, or not in the recipe */
+    int order[PORT_DATA_COUNT];     /* the recipe's "releases" that are there, best first */
+    int numOrder;
+    MixRules base, assets, files;
+    struct {
+        SDL_IOStream *io;           /* the file Port_MixRead read last, kept open */
+        char *name;
+    } donor[PORT_DATA_COUNT];
+    SDL_IOStream *manifest;
+} s_mix;
+
+int Port_MixActive(void) {
+    return s_mix.on;
+}
+
+const char *Port_MixName(void) {
+    return s_mix.name;
+}
+
+int Port_MixBuilding(void) {
+    return s_mix.on && s_mix.building;
+}
+
+int Port_MixLookGC(void) {
+    return s_mix.lookGC;
+}
+
+const char *Port_MixRoot(int rel) {
+    return s_mix.on && rel >= 0 && rel < PORT_DATA_COUNT ? s_mix.root[rel] : NULL;
+}
+
+const char *Port_MixCacheName(void) {
+    return s_mix.cacheName;
+}
+
+u32 Port_MixStamp(void) {
+    return s_mix.stamp;
+}
+
+/* ---- the recipe --------------------------------------------------------------- */
+
+static int RelOf(const char *s) {
+    int i;
+
+    for (i = 0; s != NULL && i < PORT_DATA_COUNT; i++) {
+        if (SDL_strcasecmp(s, s_relKeys[i]) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* `s` against `pat` (* any run, ? one character), without case. */
+static int Glob(const char *pat, const char *s) {
+    for (; *pat; pat++, s++) {
+        if (*pat == '*') {
+            while (pat[1] == '*') {
+                pat++;
+            }
+            if (pat[1] == 0) {
+                return 1;
+            }
+            for (; *s; s++) {
+                if (Glob(pat + 1, s)) {
+                    return 1;
+                }
+            }
+            return Glob(pat + 1, s);
+        }
+        if (*s == 0 || (*pat != '?' && SDL_tolower((unsigned char)*pat) != SDL_tolower((unsigned char)*s))) {
+            return 0;
+        }
+    }
+    return *s == 0;
+}
+
+/* A rule list: [{ "match": glob, "from": release | [releases] | "base" | "best" }]. */
+static int ReadRules(const JsonNode *arr, MixRules *out, const char *what, char *err, u32 errSize) {
+    const JsonNode *n;
+    int i = 0;
+
+    if (arr == NULL) {
+        return 1;
+    }
+    if (arr->type != JSON_ARRAY) {
+        SDL_snprintf(err, errSize, "\"%s\" is not a list", what);
+        return 0;
+    }
+    out->rule = SDL_calloc((size_t)arr->count + 1, sizeof(MixRule));
+    if (out->rule == NULL) {
+        SDL_snprintf(err, errSize, "out of memory");
+        return 0;
+    }
+    for (n = arr->child; n != NULL; n = n->next, i++) {
+        MixRule *r = &out->rule[i];
+        const JsonNode *from = Json_Get(n, "from"), *e;
+        const char *match = Json_GetString(n, "match", NULL);
+
+        if (match == NULL || from == NULL) {
+            SDL_snprintf(err, errSize, "\"%s\" rule %d needs \"match\" and \"from\"", what, i + 1);
+            return 0;
+        }
+        r->match = SDL_strdup(match);
+        if (from->type == JSON_STRING && SDL_strcasecmp(from->string, "base") == 0) {
+            r->kind = PORT_MIX_FROM_BASE;
+        } else if (from->type == JSON_STRING && SDL_strcasecmp(from->string, "best") == 0) {
+            r->kind = PORT_MIX_FROM_BEST;
+        } else {
+            for (e = from->type == JSON_ARRAY ? from->child : from; e != NULL;
+                 e = from->type == JSON_ARRAY ? e->next : NULL) {
+                int rel = e->type == JSON_STRING ? RelOf(e->string) : -1;
+
+                if (rel < 0 || r->kind >= PORT_DATA_COUNT) {
+                    SDL_snprintf(err, errSize, "\"%s\" rule %d: \"from\" is a release (gc, pc, ps2), a list of "
+                                 "them, \"base\" or \"best\"", what, i + 1);
+                    return 0;
+                }
+                r->from[r->kind++] = rel;
+            }
+        }
+    }
+    out->count = i;
+    return 1;
+}
+
+static const MixRule *FindRule(const MixRules *rules, const char *s) {
+    int i;
+
+    for (i = 0; i < rules->count; i++) {
+        if (Glob(rules->rule[i].match, s)) {
+            return &rules->rule[i];
+        }
+    }
+    return NULL;
+}
+
+/* The releases of `rule` that are there, into order[]; all of them, best
+ * first, without a rule. */
+static int Available(const MixRule *rule, int order[PORT_DATA_COUNT]) {
+    int i, n = 0;
+
+    if (rule == NULL || rule->kind <= 0) {
+        for (i = 0; i < s_mix.numOrder; i++) {
+            order[n++] = s_mix.order[i];
+        }
+        return n;
+    }
+    for (i = 0; i < rule->kind; i++) {
+        if (s_mix.root[rule->from[i]] != NULL) {
+            order[n++] = rule->from[i];
+        }
+    }
+    return n;
+}
+
+static const char *Stem(const char *name, int *len) {
+    const char *base = name, *p, *dot = NULL;
+
+    for (p = name; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            base = p + 1;
+            dot = NULL;
+        } else if (*p == '.') {
+            dot = p;
+        }
+    }
+    *len = (int)((dot != NULL ? dot : p) - base);
+    return base;
+}
+
+int Port_MixCandidate(const char *name, int k) {
+    int order[PORT_DATA_COUNT], n, len, i, j;
+    size_t l = SDL_strlen(name);
+    const MixRule *rule;
+
+    if (!s_mix.on || k < 0) {
+        return -1;
+    }
+    if (l >= 4 && SDL_strcasecmp(name + l - 4, ".xgc") == 0) {
+        char stem[96];
+        const char *s = Stem(name, &len);
+
+        SDL_snprintf(stem, sizeof(stem), "%.*s", len, s);
+        rule = FindRule(&s_mix.base, stem);
+    } else {
+        while (*name == '/' || *name == '\\') {
+            name++;
+        }
+        rule = FindRule(&s_mix.files, name);
+    }
+    n = Available(rule, order);
+    /* then the others: a file only they have comes from them */
+    for (i = 0; i < s_mix.numOrder; i++) {
+        for (j = 0; j < n && order[j] != s_mix.order[i]; j++) {
+        }
+        if (j == n) {
+            order[n++] = s_mix.order[i];
+        }
+    }
+    return k < n ? order[k] : -1;
+}
+
+int Port_MixAssetRule(const char *id, int order[PORT_DATA_COUNT]) {
+    const MixRule *rule = s_mix.on ? FindRule(&s_mix.assets, id) : NULL;
+
+    if (rule == NULL) {
+        return PORT_MIX_FROM_BASE;
+    }
+    return rule->kind <= 0 ? rule->kind : Available(rule, order);
+}
+
+/* ---- the releases ---------------------------------------------------------------- */
+
+/* "key=value" of sources.cfg in the save folder (the launcher's file), or NULL. */
+static char *SourceLine(const char *key) {
+    char *pref = Port_PrefPath(), *path = NULL, *text, *line, *save = NULL, *found = NULL;
+    size_t kl = SDL_strlen(key);
+
+    if (pref == NULL || SDL_asprintf(&path, "%ssources.cfg", pref) < 0) {
+        SDL_free(pref);
+        return NULL;
+    }
+    SDL_free(pref);
+    text = SDL_LoadFile(path, NULL);
+    SDL_free(path);
+    if (text == NULL) {
+        return NULL;
+    }
+    for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
+        if (SDL_strncmp(line, key, kl) == 0 && line[kl] == '=' && line[kl + 1] != 0) {
+            found = SDL_strdup(line + kl + 1);
+            break;
+        }
+    }
+    SDL_free(text);
+    return found;
+}
+
+static u32 Fnv(u32 h, const void *p, size_t n) {
+    const u8 *b = p;
+
+    while (n--) {
+        h = (h ^ *b++) * 16777619u;
+    }
+    return h;
+}
+
+int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, char *err, u32 errSize) {
+    static const char *const env[PORT_DATA_COUNT] = { "HWVX_MIX_GC", "HWVX_MIX_PC", "HWVX_MIX_PS2" };
+    char perr[160] = "";
+    char *text = NULL;
+    size_t len = 0;
+    JsonNode *root;
+    const JsonNode *rels, *e;
+    int inRecipe[PORT_DATA_COUNT] = { 0 }, i;
+    u32 stamp = 2166136261u;
+
+    if (SDL_strcasecmp(nameOrPath, "ultimate") == 0) {
+        text = SDL_malloc(sizeof(g_mixRecipeUltimate));
+        if (text != NULL) {
+            len = sizeof(g_mixRecipeUltimate);
+            SDL_memcpy(text, g_mixRecipeUltimate, len);
+        }
+    } else {
+        text = SDL_LoadFile(nameOrPath, &len);
+    }
+    if (text == NULL) {
+        SDL_snprintf(err, errSize, "the recipe %s can't be read", nameOrPath);
+        return 0;
+    }
+    root = Json_Parse(text, len, perr, sizeof(perr));
+    stamp = Fnv(stamp, text, len);
+    SDL_free(text);
+    if (root == NULL || root->type != JSON_OBJECT) {
+        SDL_snprintf(err, errSize, "the recipe %s: %s", nameOrPath, perr[0] ? perr : "not an object");
+        Json_Free(root);
+        return 0;
+    }
+    SDL_zero(s_mix);
+    SDL_strlcpy(s_mix.name, Json_GetString(root, "name", "mix"), sizeof(s_mix.name));
+    for (i = 0; s_mix.name[i]; i++) {   /* it names a folder */
+        if (!SDL_isalnum((unsigned char)s_mix.name[i]) && s_mix.name[i] != '-' && s_mix.name[i] != '_') {
+            s_mix.name[i] = '_';
+        }
+    }
+    s_mix.lookGC = SDL_strcasecmp(Json_GetString(root, "look", "gc"), "pc") != 0;
+    rels = Json_Get(root, "releases");
+    if (rels != NULL && rels->type == JSON_ARRAY) {
+        for (e = rels->child; e != NULL; e = e->next) {
+            int rel = e->type == JSON_STRING ? RelOf(e->string) : -1;
+
+            if (rel < 0) {
+                SDL_snprintf(err, errSize, "the recipe %s: \"releases\" lists gc, pc and ps2", nameOrPath);
+                Json_Free(root);
+                return 0;
+            }
+            if (!inRecipe[rel]) {
+                inRecipe[rel] = 1;
+                s_mix.order[s_mix.numOrder++] = rel;
+            }
+        }
+    } else {
+        for (i = 0; i < PORT_DATA_COUNT; i++) {
+            inRecipe[i] = 1;
+            s_mix.order[s_mix.numOrder++] = i;
+        }
+    }
+    if (!ReadRules(Json_Get(root, "base"), &s_mix.base, "base", err, errSize) ||
+        !ReadRules(Json_Get(root, "assets"), &s_mix.assets, "assets", err, errSize) ||
+        !ReadRules(Json_Get(root, "files"), &s_mix.files, "files", err, errSize)) {
+        Json_Free(root);
+        return 0;
+    }
+    Json_Free(root);
+    /* the folders: the GameCube's last, since a disc image stays open (disc.c has one) */
+    for (i = PORT_DATA_COUNT - 1; i >= 0; i--) {
+        const char *v = SDL_getenv(env[i]);
+        char *path = v != NULL && *v ? SDL_strdup(v) : SourceLine(s_relKeys[i]);
+
+        if (inRecipe[i] && path != NULL) {
+            s_mix.root[i] = check(path);
+            if (s_mix.root[i] == NULL) {
+                Port_Log("mix: the %s release is not at %s, left out", s_relKeys[i], path);
+            } else if (i != PORT_DATA_GC && Disc_IsOpen()) {
+                Port_Log("mix: the %s release is a disc image, left out (import it as a folder)", s_relKeys[i]);
+                SDL_free(s_mix.root[i]);
+                s_mix.root[i] = NULL;
+                Disc_Close();
+            }
+        }
+        SDL_free(path);
+    }
+    {
+        int n = 0;
+
+        for (i = 0; i < s_mix.numOrder; i++) {
+            if (s_mix.root[s_mix.order[i]] != NULL) {
+                s_mix.order[n++] = s_mix.order[i];
+            }
+        }
+        s_mix.numOrder = n;
+    }
+    if (s_mix.numOrder == 0) {
+        SDL_snprintf(err, errSize, "none of the recipe's releases is imported (sources.cfg in the save folder "
+                     "lists gc=, pc=, ps2=; or set HWVX_MIX_GC, HWVX_MIX_PC, HWVX_MIX_PS2)");
+        return 0;
+    }
+    for (i = 0; i < PORT_DATA_COUNT; i++) {
+        SDL_PathInfo info;
+        char *marker = s_mix.root[i] != NULL ? Port_FindNoCase(s_mix.root[i], i == PORT_DATA_GC ? "HW_share.xgc"
+                                                               : i == PORT_DATA_PC ? "HW_share.xpc"
+                                                               : "XPS/ENGLISH/HW_share.xps") : NULL;
+
+        stamp = Fnv(stamp, &i, sizeof(i));
+        if (s_mix.root[i] != NULL) {
+            stamp = Fnv(stamp, s_mix.root[i], SDL_strlen(s_mix.root[i]));
+        }
+        if (marker != NULL && SDL_GetPathInfo(marker, &info)) {
+            stamp = Fnv(stamp, &info.size, sizeof(info.size));
+            stamp = Fnv(stamp, &info.modify_time, sizeof(info.modify_time));
+        }
+        SDL_free(marker);
+    }
+    s_mix.stamp = stamp ? stamp : 1;
+    SDL_snprintf(s_mix.cacheName, sizeof(s_mix.cacheName), "mix-%s", s_mix.name);
+    s_mix.building = building;
+    s_mix.on = 1;
+    Port_Log("mix: recipe %s, %s look; gc %s, pc %s, ps2 %s", s_mix.name, s_mix.lookGC ? "GameCube" : "PC",
+             s_mix.root[0] ? s_mix.root[0] : "-", s_mix.root[1] ? s_mix.root[1] : "-",
+             s_mix.root[2] ? s_mix.root[2] : "-");
+    return 1;
+}
+
+/* ---- files ------------------------------------------------------------------------- */
+
+SDL_IOStream *Port_OpenReleaseFile(int rel, const char *name, char **found);   /* dvd.c */
+
+u32 Port_MixRead(int rel, const char *name, u64 offset, void *dst, u32 size) {
+    if (rel < 0 || rel >= PORT_DATA_COUNT || s_mix.root[rel] == NULL) {
+        return 0;
+    }
+    if (s_mix.donor[rel].name == NULL || SDL_strcasecmp(s_mix.donor[rel].name, name) != 0) {
+        if (s_mix.donor[rel].io != NULL) {
+            SDL_CloseIO(s_mix.donor[rel].io);
+        }
+        SDL_free(s_mix.donor[rel].name);
+        s_mix.donor[rel].name = SDL_strdup(name);
+        s_mix.donor[rel].io = Port_OpenReleaseFile(rel, name, NULL);
+    }
+    if (s_mix.donor[rel].io == NULL || SDL_SeekIO(s_mix.donor[rel].io, (Sint64)offset, SDL_IO_SEEK_SET) < 0) {
+        return 0;
+    }
+    return (u32)SDL_ReadIO(s_mix.donor[rel].io, dst, size);
+}
+
+static char *CachePath(const char *file) {
+    const char *env = SDL_getenv("HWVX_XDL_DIR");
+    char *path = NULL;
+
+    if (env != NULL && *env) {
+        SDL_asprintf(&path, "%s/%s/%s", env, s_mix.cacheName, file);
+    } else {
+        char *pref = Port_PrefPath();
+
+        SDL_asprintf(&path, "%sxdl/%s/%s", pref != NULL ? pref : "", s_mix.cacheName, file);
+        SDL_free(pref);
+    }
+    return path;
+}
+
+void Port_MixManifest(const char *id, int rel, u32 index, u64 hash) {
+    if (!s_mix.building || rel < 0 || rel >= PORT_DATA_COUNT) {
+        return;
+    }
+    if (s_mix.manifest == NULL) {
+        char *path = CachePath("manifest.jsonl"), *slash;
+
+        if (path == NULL) {
+            return;
+        }
+        slash = SDL_strrchr(path, '/');
+        *slash = 0;
+        {
+            char *up = SDL_strdup(path), *s2 = SDL_strrchr(up, '/');
+
+            if (s2 != NULL) {
+                *s2 = 0;
+                SDL_CreateDirectory(up);
+            }
+            SDL_free(up);
+        }
+        SDL_CreateDirectory(path);
+        *slash = '/';
+        s_mix.manifest = SDL_IOFromFile(path, "w");
+        SDL_free(path);
+        if (s_mix.manifest == NULL) {
+            return;
+        }
+    }
+    SDL_IOprintf(s_mix.manifest, "{\"id\":\"%s\",\"from\":\"%s\",\"i\":%u,\"x\":\"%016llx\"}\n", id, s_relKeys[rel],
+                 (unsigned)index, (unsigned long long)hash);
+}
+
+void Port_MixManifestClose(void) {
+    if (s_mix.manifest != NULL) {
+        SDL_CloseIO(s_mix.manifest);
+        s_mix.manifest = NULL;
+    }
+}
+
+/* ---- the archives of every release ---------------------------------------------------- */
+
+typedef struct ArchiveScan {
+    char **names;
+    int count, cap;
+    size_t rootLen;
+    const char *ext;
+} ArchiveScan;
+
+static SDL_EnumerationResult SDLCALL ScanArchives(void *user, const char *dir, const char *name) {
+    ArchiveScan *scan = user;
+    char *path = NULL;
+    SDL_PathInfo info;
+    size_t n = SDL_strlen(name);
+    int i;
+
+    if (name[0] == '.' || SDL_asprintf(&path, "%s%s", dir, name) < 0) {
+        return SDL_ENUM_CONTINUE;
+    }
+    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+        char *sub = NULL;
+
+        if (SDL_asprintf(&sub, "%s/", path) > 0) {
+            SDL_EnumerateDirectory(sub, ScanArchives, scan);
+            SDL_free(sub);
+        }
+    } else if (n > 4 && SDL_strcasecmp(name + n - 4, scan->ext) == 0 && SDL_strlen(path) > scan->rootLen) {
+        char *rel = SDL_strdup(path + scan->rootLen), *p;
+
+        rel[SDL_strlen(rel) - 4] = 0;
+        for (p = rel; *p; p++) {
+            if (*p == '/') {
+                *p = '\\';
+            }
+        }
+        /* once, whichever release spells or files it differently (the PC's
+         * import is flat): by its stem */
+        for (i = 0; i < scan->count; i++) {
+            int la, lb;
+            const char *a = Stem(scan->names[i], &la), *b = Stem(rel, &lb);
+
+            if (la == lb && SDL_strncasecmp(a, b, (size_t)la) == 0) {
+                break;
+            }
+        }
+        if (i == scan->count) {
+            if (scan->count == scan->cap) {
+                scan->cap = scan->cap ? scan->cap * 2 : 128;
+                scan->names = SDL_realloc(scan->names, (size_t)scan->cap * sizeof(char *));
+            }
+            scan->names[scan->count++] = rel;
+        } else {
+            SDL_free(rel);
+        }
+    }
+    SDL_free(path);
+    return SDL_ENUM_CONTINUE;
+}
+
+static int CmpName(const void *a, const void *b) {
+    return SDL_strcasecmp(*(char *const *)a, *(char *const *)b);
+}
+
+void Port_MixArchives(void (*fn)(const char *name, void *user), void *user) {
+    static const char *const exts[PORT_DATA_COUNT] = { ".xgc", ".xpc", ".xps" };
+    /* folders first: they give the names the game asks for */
+    static const int rels[PORT_DATA_COUNT] = { PORT_DATA_GC, PORT_DATA_PS2, PORT_DATA_PC };
+    ArchiveScan scan;
+    int i;
+
+    SDL_zero(scan);
+    for (i = 0; i < PORT_DATA_COUNT; i++) {
+        int rel = rels[i];
+        char *dir = NULL;
+
+        if (s_mix.root[rel] == NULL || (rel == PORT_DATA_GC && Disc_IsOpen())) {
+            continue;
+        }
+        if (rel == PORT_DATA_PS2) {
+            char *sub = Port_FindNoCase(s_mix.root[rel], "XPS/ENGLISH");
+
+            if (sub != NULL) {
+                SDL_asprintf(&dir, "%s/", sub);
+                SDL_free(sub);
+            }
+        }
+        if (dir == NULL) {
+            SDL_asprintf(&dir, "%s/", s_mix.root[rel]);
+        }
+        scan.rootLen = SDL_strlen(dir);
+        scan.ext = exts[rel];
+        SDL_EnumerateDirectory(dir, ScanArchives, &scan);
+        SDL_free(dir);
+    }
+    SDL_qsort(scan.names, (size_t)scan.count, sizeof(char *), CmpName);
+    for (i = 0; i < scan.count; i++) {
+        fn(scan.names[i], user);
+        SDL_free(scan.names[i]);
+    }
+    SDL_free(scan.names);
+}
