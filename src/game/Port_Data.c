@@ -193,7 +193,9 @@ static void PC_MarkGeometry(PCScan *s, u32 g) {
     u32 n = Half(s, g + 2), lods = Target(s, g + 8), i, j;
     int shadow;
 
-    if (Half(s, g) != 0x0002 || n == 0 || n > 8 || lods == ~0u || Target(s, g + 0xC) == ~0u) {
+    /* the PC writes the levels right after the 0x40-byte header; other
+     * structs start with u16 2 and pointers at 0x8 and 0xC too */
+    if (Half(s, g) != 0x0002 || n == 0 || n > 8 || lods != g + 0x40 || Target(s, g + 0xC) == ~0u) {
         return;
     }
     for (i = 0; i < n; i++) {
