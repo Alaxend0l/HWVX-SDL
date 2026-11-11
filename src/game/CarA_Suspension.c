@@ -6,9 +6,9 @@ extern f32 g_frictionTable[9][10];
 
 /* What a suspension ray hit is made of (GETP(RayHit.surface)). */
 typedef struct SuspSurface {
-    u8 type;                  /* 0x00 1: no skids, 2: own skid texture */
+    u8 type;                  /* 0x00 1: no skids, 2: own skid life and colour */
     u8 pad01;
-    u16 skidTexture;          /* 0x02 */
+    u16 skidLife;             /* 0x02 as CarAInfo.skidLife, type 2 */
     u8 pad04[0x10];
     f32 grip;                 /* 0x14 */
     u8 pad18[4];
@@ -667,10 +667,10 @@ void CarA_ComputeSuspensionForces(void *thing) {
                 }
                 if (slipMag > 110.0f) {
                     info = GETP(car->vehicleIface);
-                    if (info->skidsEnabled && wheel->skids && GETP(hit.surface)->type != 1) {
+                    if (info->skidMarkTexture && wheel->skids && GETP(hit.surface)->type != 1) {
                         color = *GETP(info->skidColor);
                         skid = 0.025f * springForce;
-                        tex = info->skidTexture;
+                        tex = info->skidLife;
                         maxAlpha = color.a;
                         if (skid < 0.03f) {
                             skid = 0.03f;
@@ -679,7 +679,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
                             skid = 1.0f;
                         }
                         if (GETP(hit.surface)->type == 2) {
-                            tex = GETP(hit.surface)->skidTexture;
+                            tex = GETP(hit.surface)->skidLife;
                             color = *GETP(GETP(hit.surface)->skidColor);
                         }
                         if (slipMag > 110.0f) {
@@ -693,7 +693,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
                         }
                         if (skid > 0.01f) {
                             car->wheelStates[i].skidColor = color;
-                            car->wheelStates[i].skidTexture = tex;
+                            car->wheelStates[i].skidLife = tex;
                         }
                     }
                 }

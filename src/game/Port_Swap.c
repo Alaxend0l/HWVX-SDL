@@ -930,7 +930,7 @@ static void Claim_BSPN0(Swapper *s, u32 root) {
 }
 
 /* A surface (terrain materials, colliders' material 0x30): u8 type 0x0
- * (1: no skids, 2: own skid texture), u16 skidTexture 0x2, f32 grip 0x14,
+ * (1: no skids, 2: own skid life and colour), u16 skidLife 0x2, f32 grip 0x14,
  * restitution 0x18 (CarA_ComputeSuspensionForces, CarA_DynamicCollideImpact). */
 static void Claim_Surface(Swapper *s, u32 surf) {
     if (surf != ~0u) {
@@ -945,7 +945,7 @@ static void Claim_Surface(Swapper *s, u32 surf) {
  * BSP), edges 0x54, materials 0x5C.  A cell has BSP nodes 0x30 (0x20 each:
  * plane, u32 material, u16 front 0x14, u16 back 0x16; 0xFFFF ends), poly
  * indices 0x38 (u32, count 0x3C) and edge indices 0x44 (u16, count 0x40).
- * Materials 0x5C: surface pointers (u8 type, u16 skidTexture at 0x2). */
+ * Materials 0x5C: surface pointers (u8 type, u16 skidLife at 0x2). */
 static void Claim_CollisionBSP(Swapper *s, u32 nodes, u32 *maxMaterial) {
     u32 *stack, sp = 0, cap = 64;
 
@@ -1019,7 +1019,7 @@ static void Claim_Collision(Swapper *s) {
     }
     /* materials 0x5C -> surface pointers, indexed by the node/poly/edge
      * material fields: u8 type 0x0 (1: no skids, 2: own skid texture),
-     * u16 skidTexture 0x2 (CarA_ComputeSuspensionForces) */
+     * u16 skidLife 0x2 (CarA_ComputeSuspensionForces) */
     for (i = 0; materials != ~0u && i < numMaterials; i++) {
         Claim_Surface(s, Target(s, materials + i * 4));
     }
@@ -1247,7 +1247,7 @@ static void Claim_World(Swapper *s, u32 off) {
 
 /* ---- cars (pack type 0; CarA.c, CarA.h, AnimHandler.c) ------------------
  * Root objects are CarAInfo:
- *   u8 0x10-0x13 (damagePercent, driveMode), u16 skidTexture 0x14, u16 0x16
+ *   u8 0x10-0x13 (damagePercent, driveMode), u16 skidLife 0x14, u16 0x16
  *   skidColor 0x6C (GXColor), modelRef 0x78 -> { data 0x10 -> motion anim }
  *   collider 0xA0 (u8 type 0x10), forcePoints 0xA4 -> { count 0x4, points 0x8
  *   (0x30 each: u8 ray 0x10) }, wheels 0xD0/0xD4 (CarTrailBone, 0x50 each:

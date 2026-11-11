@@ -1099,7 +1099,7 @@ s32 CarA_Move(void *thing) {
             trailPos.z = t * dz + GETP(car->motionState.animMatrices)[wheel->bone].v[3].z;
             color = car->wheelStates[i].skidColor;
             Trail_AddSegment(&car->wheelStates[i].skidTrail, &trailPos, &GETP(car->motionState.animMatrices)[wheel->bone - 1].v[2],
-                             GETP(car->vehicleIface)->skidsEnabled, color, car->wheelStates[i].skidTexture, wheel->width0, wheel->width1);
+                             GETP(car->vehicleIface)->skidMarkTexture, color, car->wheelStates[i].skidLife, wheel->width0, wheel->width1);
         } else {
             car->wheelStates[i].skidTrail = -1;
         }
