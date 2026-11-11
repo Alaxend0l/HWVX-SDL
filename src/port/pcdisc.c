@@ -1,4 +1,11 @@
-/* Importing the PC release from its disc image (launcher.c).
+/* Importing the PC and PS2 releases from their disc images (launcher.c).
+ *
+ * The PS2 discs (the release's and the prototype's DVD images, .iso) are
+ * ISO 9660 too, with the game's files as they are: the import copies
+ * XPS/ENGLISH (packs, audio, movies) into <pref>/ps2 or <pref>/ps2beta, by
+ * the archive version of its HW_share.xps, under the disc's upper-case names
+ * (dvd.c matches names without case). The console's own files (the ELF,
+ * IOP modules) are left out.
  *
  * The PC CD (an .iso, or a .cue with its MODE1/2352 .bin) is ISO 9660. The
  * game's packs are not on it as files: the installer takes them out of
@@ -469,6 +476,119 @@ int Port_ImportPCDisc(const char *image, const char *dest, SDL_AtomicInt *progre
     ok = 1;
 done:
     SDL_free(buf);
+    SDL_CloseIO(d.io);
+    return ok;
+}
+
+/* ---- the PS2 discs --------------------------------------------------------- */
+
+/* Copy a file of the disc to `path`, a few sectors at a time (the movies are
+ * hundreds of megabytes). */
+static int CopyOut(Disc *d, u32 lba, u32 size, const char *path) {
+    static u8 chunk[64 * 2048];
+    SDL_IOStream *out = SDL_IOFromFile(path, "wb");
+    u32 done = 0;
+
+    if (out == NULL) {
+        return 0;
+    }
+    while (done < size) {
+        u32 n = size - done < sizeof(chunk) ? size - done : (u32)sizeof(chunk);
+        u32 sectors = (n + 2047) / 2048;
+
+        if (!ReadSectors(d, lba, sectors, chunk) || SDL_WriteIO(out, chunk, n) != n) {
+            SDL_CloseIO(out);
+            return 0;
+        }
+        lba += sectors;
+        done += n;
+    }
+    return SDL_CloseIO(out);
+}
+
+/* Copy the directory at lba/size, and everything under it, into `dest`. */
+static int CopyTree(Disc *d, u32 lba, u32 size, const char *dest, SDL_AtomicInt *progress, char *err, size_t errLen,
+                    int depth) {
+    u8 *dir = SDL_malloc(size), *p;
+    int ok = 1;
+
+    if (dir == NULL || depth > 8 || !ReadExtent(d, lba, size, dir)) {
+        SDL_free(dir);
+        SDL_snprintf(err, errLen, "could not read a folder of the disc");
+        return 0;
+    }
+    SDL_CreateDirectory(dest);
+    for (p = dir; p < dir + size && ok;) {
+        u32 len = p[0], nlen = p[32];
+        char name[256], path[1200];
+
+        if (len == 0) {
+            p = dir + ((p - dir) / 2048 + 1) * 2048;
+            continue;
+        }
+        if (!(nlen == 1 && (p[33] == 0 || p[33] == 1))) {   /* not "." or ".." */
+            SDL_memcpy(name, p + 33, nlen);
+            name[nlen] = '\0';
+            if (SDL_strchr(name, ';') != NULL) {
+                *SDL_strchr(name, ';') = '\0';
+            }
+            SDL_snprintf(path, sizeof(path), "%s/%s", dest, name);
+            if (p[25] & 2) {
+                ok = CopyTree(d, LE32(p + 2), LE32(p + 10), path, progress, err, errLen, depth + 1);
+            } else if (CopyOut(d, LE32(p + 2), LE32(p + 10), path)) {
+                SDL_AddAtomicInt(progress, 1);
+            } else {
+                SDL_snprintf(err, errLen, "could not write %s: %s", path, SDL_GetError());
+                ok = 0;
+            }
+        }
+        p += len;
+    }
+    SDL_free(dir);
+    return ok;
+}
+
+int Port_ImportPS2Disc(const char *image, const char *prefDir, char *dest, size_t destLen, SDL_AtomicInt *progress,
+                       char *err, size_t errLen) {
+    Disc d;
+    u8 pvd[2048], head[2048];
+    u32 root, rootSize, xps, xpsSize, eng, engSize, lba, fsize, version;
+    int isDir, ok = 0;
+
+    if (!OpenDisc(image, &d)) {
+        SDL_snprintf(err, errLen, "could not open the disc image");
+        return 0;
+    }
+    if (!ReadSectors(&d, 16, 1, pvd) || pvd[0] != 1 || SDL_memcmp(pvd + 1, "CD001", 5) != 0) {
+        SDL_snprintf(err, errLen, "not an ISO 9660 disc image");
+        goto done;
+    }
+    root = LE32(pvd + 156 + 2);
+    rootSize = LE32(pvd + 156 + 10);
+    if (!FindEntry(&d, root, rootSize, "XPS", &xps, &xpsSize, &isDir) || !isDir ||
+        !FindEntry(&d, xps, xpsSize, "ENGLISH", &eng, &engSize, &isDir) || !isDir ||
+        !FindEntry(&d, eng, engSize, "HW_share.xps", &lba, &fsize, &isDir) || isDir || fsize < 12 ||
+        !ReadSectors(&d, lba, 1, head)) {
+        SDL_snprintf(err, errLen, "no XPS/ENGLISH/HW_share.xps: not a Hot Wheels Velocity X PS2 disc");
+        goto done;
+    }
+    /* the archive version tells the release from the prototype (launcher.c) */
+    version = LE32(head + 8);
+    if (version != 183 && version != 177 && version != 179) {
+        SDL_snprintf(err, errLen, "a PS2 disc of an unknown version (%u)", (unsigned)version);
+        goto done;
+    }
+    SDL_snprintf(dest, destLen, "%s%s", prefDir, version == 183 ? "ps2" : "ps2beta");
+    SDL_CreateDirectory(dest);
+    {
+        char path[1200];
+
+        SDL_snprintf(path, sizeof(path), "%s/XPS", dest);
+        SDL_CreateDirectory(path);
+        SDL_strlcat(path, "/ENGLISH", sizeof(path));
+        ok = CopyTree(&d, eng, engSize, path, progress, err, errLen, 0);
+    }
+done:
     SDL_CloseIO(d.io);
     return ok;
 }

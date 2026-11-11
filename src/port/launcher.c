@@ -12,9 +12,12 @@
  *   HW_share.xpc, or its disc image: an .iso or .cue/.bin, imported into a
  *   folder of the player's own by pcdisc.c, movies included, which the PC
  *   game kept on the disc) and the PS2's (its disc files,
- *   XPS/ENGLISH/HW_share.xps);
+ *   XPS/ENGLISH/HW_share.xps, or its disc image, an .iso whose XPS/ENGLISH
+ *   pcdisc.c copies into a folder of the player's own);
  * - the PS2 prototype (archive version 177/179; the retail PS2's are 183):
- *   not playable, kept for its beta cars, worlds and audio (later).
+ *   not playable, kept for its beta cars, worlds and audio (later). Its disc
+ *   image is imported like the PS2's; either disc goes where its version
+ *   says, whichever row it was picked from.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
  * "ps2beta=PATH" and "play=gc|pc|ps2"; the GameCube data the port found
  * before the launcher existed (datadir.txt) is taken over on the first run.
@@ -223,10 +226,10 @@ typedef struct Launcher {
     SDL_AtomicInt picked;       /* 0 waiting, 1 answered, 2 no dialog */
     char *pickedPath;
     int pickSource, pickImage, dialogOpen;
-    /* a PC disc being imported (pcdisc.c), on a thread */
+    /* a PC or PS2 disc being imported (pcdisc.c), on a thread */
     SDL_Thread *importer;
     SDL_AtomicInt importDone, importFiles;
-    int importOk;
+    int importOk, importSource;
     char importImage[1200], importDest[1200], importError[256];
 } Launcher;
 
@@ -275,7 +278,7 @@ static void Layout(Launcher *l) {
             x += Add(l, x, y, l->src.play == i ? "Playing this" : "Play this", ACT_PLAY_THIS, i, have && !busy)->r.w + 8;
         }
         x += Add(l, x, y, have ? "Change folder..." : "Import folder...", ACT_FOLDER, i, !busy)->r.w + 8;
-        if (i == PORT_DATA_GC || i == PORT_DATA_PC) {
+        {
             x += Add(l, x, y, "Import disc image...", ACT_IMAGE, i, !busy)->r.w + 8;
         }
         if (have) {
@@ -365,7 +368,8 @@ static void Import(Launcher *l, const char *path, int asked) {
     int src = SourceOf(l->check, path, &found);
 
     if (src == -2) {
-        SDL_snprintf(l->status, sizeof(l->status), "That is the PlayStation 2 release: this build can't play it yet.");
+        SDL_snprintf(l->status, sizeof(l->status), "That is the PlayStation 2 release: this build can't play it yet (%s).",
+                     path);
         return;
     }
     if (src < 0) {
@@ -386,17 +390,26 @@ static void Import(Launcher *l, const char *path, int asked) {
     }
 }
 
-static int SDLCALL ImportPCDisc(void *userdata) {
+static int SDLCALL ImportDisc(void *userdata) {
     Launcher *l = userdata;
 
-    l->importOk = Port_ImportPCDisc(l->importImage, l->importDest, &l->importFiles, l->importError,
-                                    sizeof(l->importError));
+    if (l->importSource == PORT_DATA_PC) {
+        l->importOk = Port_ImportPCDisc(l->importImage, l->importDest, &l->importFiles, l->importError,
+                                        sizeof(l->importError));
+    } else {
+        char pref[1200];
+
+        SDL_strlcpy(pref, l->importDest, sizeof(pref));
+        l->importOk = Port_ImportPS2Disc(l->importImage, pref, l->importDest, sizeof(l->importDest),
+                                         &l->importFiles, l->importError, sizeof(l->importError));
+    }
     SDL_SetAtomicInt(&l->importDone, 1);
     return 0;
 }
 
-/* A picked PC disc image: copied into <pref>/pc on a thread. */
-static void StartPCDisc(Launcher *l, const char *image) {
+/* A picked PC or PS2 disc image: its files copied into <pref>/pc, <pref>/ps2
+ * or <pref>/ps2beta on a thread. */
+static void StartDisc(Launcher *l, const char *image, int source) {
     char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
 
     if (pref == NULL) {
@@ -404,12 +417,14 @@ static void StartPCDisc(Launcher *l, const char *image) {
         return;
     }
     SDL_strlcpy(l->importImage, image, sizeof(l->importImage));
-    SDL_snprintf(l->importDest, sizeof(l->importDest), "%spc", pref);
+    /* PC: the folder; PS2: the folder the PS2 import picks "ps2" or "ps2beta" in */
+    SDL_snprintf(l->importDest, sizeof(l->importDest), "%s%s", pref, source == PORT_DATA_PC ? "pc" : "");
     SDL_free(pref);
+    l->importSource = source;
     SDL_SetAtomicInt(&l->importDone, 0);
     SDL_SetAtomicInt(&l->importFiles, 0);
     l->importError[0] = '\0';
-    l->importer = SDL_CreateThread(ImportPCDisc, "pcdisc", l);
+    l->importer = SDL_CreateThread(ImportDisc, "discimport", l);
     if (l->importer == NULL) {
         SDL_snprintf(l->status, sizeof(l->status), "Could not start the import: %s", SDL_GetError());
     }
@@ -419,6 +434,7 @@ static void StartPCDisc(Launcher *l, const char *image) {
 static int Activate(Launcher *l, const Button *b) {
     static const SDL_DialogFileFilter gcImages[] = { { "GameCube disc image (.iso, .gcm)", "iso;gcm;gcz" } };
     static const SDL_DialogFileFilter pcImages[] = { { "PC disc image (.iso, .cue, .bin)", "iso;cue;bin" } };
+    static const SDL_DialogFileFilter ps2Images[] = { { "PS2 disc image (.iso)", "iso" } };
 
     if (!b->enabled) {
         return 0;
@@ -436,8 +452,11 @@ static int Activate(Launcher *l, const Button *b) {
         l->pickImage = b->act == ACT_IMAGE;
         l->dialogOpen = 1;
         if (b->act == ACT_IMAGE) {
-            SDL_ShowOpenFileDialog(Picked, l, l->window, b->source == PORT_DATA_PC ? pcImages : gcImages, 1, NULL,
-                                   false);
+            SDL_ShowOpenFileDialog(Picked, l, l->window,
+                                   b->source == PORT_DATA_GC   ? gcImages
+                                   : b->source == PORT_DATA_PC ? pcImages
+                                                               : ps2Images,
+                                   1, NULL, false);
         } else {
             SDL_ShowOpenFolderDialog(Picked, l, l->window, NULL, false);
         }
@@ -489,8 +508,8 @@ static void Poll(Launcher *l) {
         if (SDL_GetAtomicInt(&l->picked) == 2) {
             SDL_snprintf(l->status, sizeof(l->status), "No file dialog on this system: use --data PATH.");
         } else if (l->pickedPath != NULL) {
-            if (l->pickImage && l->pickSource == PORT_DATA_PC) {
-                StartPCDisc(l, l->pickedPath);
+            if (l->pickImage && l->pickSource != PORT_DATA_GC) {
+                StartDisc(l, l->pickedPath, l->pickSource);
             } else {
                 Import(l, l->pickedPath, l->pickSource);
             }
@@ -503,13 +522,13 @@ static void Poll(Launcher *l) {
             SDL_WaitThread(l->importer, NULL);
             l->importer = NULL;
             if (l->importOk) {
-                Import(l, l->importDest, PORT_DATA_PC);
+                Import(l, l->importDest, l->importSource);
             } else {
-                SDL_snprintf(l->status, sizeof(l->status), "PC disc not imported: %s", l->importError);
+                SDL_snprintf(l->status, sizeof(l->status), "Disc not imported: %s", l->importError);
             }
         } else {
-            SDL_snprintf(l->status, sizeof(l->status), "Importing the PC disc... %d files",
-                         SDL_GetAtomicInt(&l->importFiles));
+            SDL_snprintf(l->status, sizeof(l->status), "Importing the %s disc... %d files",
+                         l->importSource == PORT_DATA_PC ? "PC" : "PS2", SDL_GetAtomicInt(&l->importFiles));
         }
     }
 }
@@ -607,7 +626,7 @@ static int Run(Launcher *l) {
             Layout(l);
         } while (SDL_PollEvent(&ev));
         if (result < 0 && l->importer != NULL) {
-            SDL_snprintf(l->status, sizeof(l->status), "Finishing the PC disc import first...");
+            SDL_snprintf(l->status, sizeof(l->status), "Finishing the disc import first...");
             Draw(l);
             SDL_WaitThread(l->importer, NULL);
             l->importer = NULL;
