@@ -1,0 +1,175 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "MediaBank",
+ "description": "A song's instrument bank ('sndb', MIDI.c MIDI_SND/MIDI_INST); the song itself is a standard MIDI file beside it.",
+ "type": "object",
+ "x-tool": "tools/xdl_media.py",
+ "properties": {
+  "$schema": {
+   "type": "string",
+   "description": "path or URL of this schema"
+  },
+  "format_version": {
+   "const": 1
+  },
+  "release": {
+   "enum": [
+    "gc",
+    "pc",
+    "ps2"
+   ],
+   "description": "the release whose encoding this is"
+  },
+  "version": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 4294967295
+  },
+  "unk_0x18": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 4294967295,
+   "description": "header word (GameCube 0x1A01, PC 0xCCCCCCCC)"
+  },
+  "unk_0x1C": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 4294967295
+  },
+  "instruments": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "program",
+     "key_low",
+     "key_high",
+     "attack",
+     "decay",
+     "sustain",
+     "release",
+     "sample",
+     "rate",
+     "loop",
+     "bits",
+     "unk_0x10",
+     "unk_0x12",
+     "unk_0x15",
+     "samples"
+    ],
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/bank/(?:[a-z0-9]+:)?[0-9]+$",
+      "x-link": {
+       "kind": "bank"
+      },
+      "description": "this bank's structural id (pairing.md §1)"
+     },
+     "program": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "description": "MIDI program; 128: a drum, played for the notes key_low..key_high on channel 10 (MIDI.c CreateMIDI)"
+     },
+     "key_low": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "description": "lowest note"
+     },
+     "key_high": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "description": "highest note"
+     },
+     "attack": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "envelope rate (GetEnvRate)"
+     },
+     "decay": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "envelope rate"
+     },
+     "sustain": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "sustain level"
+     },
+     "release": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "envelope rate"
+     },
+     "sample": {
+      "type": "string",
+      "description": "the WAV, relative to this file; instruments may share one"
+     },
+     "rate": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "description": "sample rate at the base note (GetNoteRate_)"
+     },
+     "loop": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "minimum": 0,
+      "description": "loop start in samples of the WAV (null: plays once). PS2: a multiple of 28 (an ADPCM block)"
+     },
+     "bits": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "description": "16 (PCM16) or 4 (PS2 SPU-ADPCM)"
+     },
+     "unk_0x10": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+     },
+     "unk_0x12": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+     },
+     "unk_0x15": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+     },
+     "samples": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "BLAKE2b-128 of the sample's PCM16 LE samples"
+     },
+     "encoded": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "PS2: BLAKE2b-128 of the SPU-ADPCM bytes"
+     }
+    }
+   }
+  }
+ },
+ "additionalProperties": false,
+ "required": [
+  "format_version",
+  "release",
+  "version",
+  "unk_0x18",
+  "unk_0x1C",
+  "instruments"
+ ]
+}
