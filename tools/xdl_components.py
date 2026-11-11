@@ -413,6 +413,13 @@ class Library:
         self.index[uid] = name + ".jsonc"
         return uid
 
+    def remove(self, uid):
+        f = self.dir / self.index.pop(uid)
+        f.unlink()
+        shutil.rmtree(f.with_suffix(""), ignore_errors=True)
+        self._docs.pop(uid, None)
+        self._nodes.pop(uid, None)
+
     def save(self):
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "index.json").write_text(json.dumps(dict(sorted(self.index.items())), indent=1) + "\n")
@@ -816,6 +823,7 @@ def factor(project_root, lib_dir=None, kinds=KINDS, min_uses=2, near=0, jobs=1, 
                 plan.setdefault(ex, "near")
     rep_nodes(sorted({var[ex][4][0] for ex in plan if ex not in nodes}))
     uids = {}
+    had = set(lib.index)
     for ex in sorted(plan, key=lambda ex: (ex in base_of, ex)):
         kind, sh, uses, size, (d, rt) = var[ex]
         note = f", {uses} uses, first in {rt}"
@@ -824,7 +832,8 @@ def factor(project_root, lib_dir=None, kinds=KINDS, min_uses=2, near=0, jobs=1, 
         elif plan[ex] == "comp":
             uids[ex] = lib.add_extends(kind, release, ex, uids[base_of[ex]], base_ov[ex], note)
     nodes.clear()
-    lib.save()
+    new = set(uids.values()) - had
+    used = set()
     # 3. instances
     tot = collections.Counter()
     per_kind = collections.Counter()
@@ -857,6 +866,7 @@ def factor(project_root, lib_dir=None, kinds=KINDS, min_uses=2, near=0, jobs=1, 
                 tot["refused"] += 1
                 continue
             _replace(pp, c, inst)
+            used.add(uid)
             taken |= set(c.local)
             tot["instances"] += 1
             tot["nodes"] += len(c.local)
@@ -867,8 +877,15 @@ def factor(project_root, lib_dir=None, kinds=KINDS, min_uses=2, near=0, jobs=1, 
             pp.pack["components"] = os.path.relpath(lib.dir.resolve(), pp.dir.resolve())
             pp.save()
             tot["packs"] += 1
-    tot["components"] = len(uids)
-    tot["extending"] = sum(1 for ex in uids if ex in base_of)
+    for uid in sorted(used):                 # a component another one extends is in use too
+        while "extends" in lib.doc(uid):
+            uid = lib.doc(uid)["extends"]
+            used.add(uid)
+    for uid in new - used:                   # every use was inside a larger component
+        lib.remove(uid)
+    lib.save()
+    tot["components"] = len(new & used)
+    tot["extending"] = sum(1 for uid in new & used if "extends" in lib.doc(uid))
     log(f"factor: {tot['components']} components ({tot['extending']} extend another), {tot['instances']} instances "
         f"({tot['overridden']} with value overrides) in {tot['packs']} packs; {tot['nodes']} nodes, "
         f"{tot['bytes']} bytes of pack data now come from the library ({time.time() - t0:.0f} s)")
