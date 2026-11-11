@@ -530,15 +530,68 @@ Debugging aids:
   `savetest` (built with `-DHWVX_TESTS=ON`; `ctest -R savetest`, or
   `./savetest OUT --gci FILE` to round-trip a GameCube save) tests the store:
   round trips, atomic writes, damaged saves, backups, import.
+- `tools/run_test.sh BUILD DATA OUTDIR NAME SECONDS [VAR=value ...]` runs
+  the game once for a test: deterministic, a fresh `HWVX_PREF_DIR`, frames
+  and log in OUTDIR, force-killed after SECONDS; `FAST=1` adds
+  `HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1`, so the fixed steps run faster than real
+  time (the frames are the same). E.g. `FAST=1 tools/run_test.sh build
+  orig/gc/files t cs 10 HWVX_START=carselect HWVX_MENUDUMP=1`.
+- `test_content` (`-DHWVX_TESTS=ON`, `ctest -R test_content`, about a second)
+  checks the content registry against the GameCube data (`orig/gc/files` by
+  the sources, or `HWVX_TEST_GC_DATA`; skipped without): each scenario a
+  fresh game in a child process with a stub renderer, opened with
+  `HWVX_START`, checked from its `HWVX_MENUDUMP` log: the retail car select;
+  extra cars and items named, pictured and numbered after their alias; each
+  mode's world select against its progression script; the Adventure screen.
+  `./test_content <scenario>` runs one, `HWVX_TEST_VERBOSE=1` shows the log.
+- `HWVX_MENUDUMP=1` also logs, per screen created, the lists it shows by a
+  variable as patched (the car, item and world selects' pictures, names and
+  paragraphs, with the variable's range: `menudump: lists of interface 2 ...,
+  variable 4: 0..34`, then `names 35 (obj 75): 0 "Twin Mill 2*" | ...`), and
+  the progression scripts' levels: checks on what a menu offers are greps.
+  E.g. `HWVX_START=menu:mode=challenge HWVX_MENUDUMP=1`: the challenge
+  select's tracks (names 39..56).
+- `HWVX_START` boots straight into a menu, select screen or race, skipping
+  the intro screens and the menus before it (`src/game/Port_Start.c`: it
+  finds the screens through the menu pack's own go-to events and opens them
+  as the menus do; a race starts as the title's demo loop starts one):
+  `menu:mode=M` the screen M's One Player row opens (the Adventure screen,
+  the challenge or Joyride world select, the drag race or battle options);
+  `worldselect:mode=M` its world (track) select, past the options;
+  `carselect[:mode=M][,car=N][,world=W]`; `itemselect` (through the car
+  select, which picks car N as an A press would, so the item select shows
+  it; starting at item I);
+  `race[:mode=M][,world=W][,car=N][,item=I]`. M is `adventure` (or
+  `mission`), `challenge`, `drag`, `battle` or `joyride` (default); W a level
+  of the mode's progression script by world name (`bat2_l9`, `ch1_l2`,
+  `world1`) or index; N and I car and item numbers. With
+  `HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1` a select screen is
+  up in a few seconds.
+- `HWVX_IDS_LOCK=<file>`: the content registry's ids.lock (default: `ids.lock`
+  in the preferences folder), JSONC: per kind (`cars`, `tracks`, `items`) a
+  `uid://` id each with its `number`, `alias` (`base://HW_Cars/car_3`, the
+  data it uses), `name`, `suffix`, `thumbnail` (a texture link), `unlocked`
+  (in a new game), `active`. The game numbers entries that have no number
+  (past every number given, `next`) and writes the file back; an entry keeps
+  its number, `"active": false` keeps it reserved for content that's away
+  (docs/xdl-format/README.md §10.5.1).
 - `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
   release), each loading a base car's pack (3, 4, ...) under its own number
   and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same
-  for items (packs 0, 1, ...). They start locked;
+  for items (packs 0, 1, ...). The car and item selects show them as the
+  entry they alias with " (test)" after its name, and its picture, or the
+  texture `HWVX_TEST_EXTRA_CAR_THUMB` / `HWVX_TEST_EXTRA_ITEM_THUMB` names
+  (a link to a loaded pack's texture, `base://HW_IPack/interface_6/texture/70`).
+  They start locked;
   `HWVX_TEST_UNLOCK_CARS=33,34` / `HWVX_TEST_UNLOCK_ITEMS=12` unlock them
   through the game's code variable as the first car / item select opens
   (autosaved). For testing the content registry (`src/game/Port_Content.c`:
   the car, track and item counts and unlocks, sized from the data; entries
-  past the save struct's arrays persist only in the JSON save).
+  past the save struct's arrays persist only in the JSON save). Item
+  numbers aren't `HW_Items` pack ids (its packs 16-79 are the AI's): an
+  extra item loads the pack the registry maps it to
+  (`Port_ContentItemPack`), so `HWVX_TEST_EXTRA_ITEMS=6` items 16 and 17 load
+  packs 4 and 5.
 - `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable

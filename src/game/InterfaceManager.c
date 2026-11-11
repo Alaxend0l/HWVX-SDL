@@ -381,6 +381,7 @@ s32 Port_InterfaceTakingInput(void) {
 
 s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callback)(void *msg)) {
     Port_MenuPatch(header);   /* port: the Options screen's Graphics menu */
+    Port_MenuDumpLists(header);   /* port: HWVX_MENUDUMP */
     if (header != NULL) {  /* port: trace interface creation */
         Port_Log("interface create: header id %u, %u objects%s", header->id, header->numObjects,
                  owner != NULL ? " (player)" : "");
@@ -1228,6 +1229,7 @@ void InterfaceManager_Heartbeat(void) {
     f32 dt = g_fDeltaTimeMS;
     u32 i;
 
+    Port_StartHeartbeat();   /* port: HWVX_START=itemselect */
     for (i = 0; i < 0x12; i++) {
         if (g_interfaces[i].count != 0 && g_interfaces[i].paused == 0 && g_interfaces[i].hidden == 0) {
             void (*callback)(IfaceMsg *) = GETP(g_interfaces[i].callback);

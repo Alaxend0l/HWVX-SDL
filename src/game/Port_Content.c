@@ -20,6 +20,11 @@ typedef struct Registered {
     char *id;
     s32 alias;          /* the base entry whose data it uses, -1: its own */
     s8 def;             /* in a new game */
+    char *name;         /* what the selects show (NULL: the alias's name, then suffix) */
+    char *suffix;
+    char *thumbnail;    /* a texture link (NULL: the alias's picture) */
+    s8 reserved;        /* a number kept for content that isn't there (ids.lock):
+                         * no id to save by, locked, base entry 0's data */
 } Registered;
 
 typedef struct Kind {
@@ -57,11 +62,17 @@ static u32 CountOf(const Kind *k) {
     return BaseOf(k) + k->numReg;
 }
 
+static int IsReserved(const Kind *k, u32 i) {
+    u32 b = BaseOf(k);
+
+    return i >= b && i - b < k->numReg && k->reg[i - b].reserved;
+}
+
 /* An entry's value in a new game: past the array, locked unless registered
  * otherwise. Retail entries get theirs from the game (GameSetting_Init). */
 static s8 DefaultOf(const Kind *k, u32 i) {
     u32 b = BaseOf(k);
-    return i >= b && i - b < k->numReg ? k->reg[i - b].def : 0;
+    return i >= b && i - b < k->numReg && !k->reg[i - b].reserved ? k->reg[i - b].def : 0;
 }
 
 /* live sized to the count; new entries their new-game value. */
@@ -89,6 +100,11 @@ u32 Port_ContentCount(int kind) {
     return k != NULL ? CountOf(k) : 0;
 }
 
+u32 Port_ContentBaseCount(int kind) {
+    Kind *k = KindOf(kind);
+    return k != NULL ? BaseOf(k) : 0;
+}
+
 u32 Port_ContentRetailCount(int kind) {
     Kind *k = KindOf(kind);
     return k != NULL ? k->retail : 0;
@@ -101,7 +117,7 @@ s8 Port_ContentUnlocked(int kind, u32 i) {
         return 0;
     }
     Grow(k);
-    if (i >= k->liveSize) {
+    if (i >= k->liveSize || IsReserved(k, i)) {
         return 0;
     }
     return k->live[i];
@@ -110,7 +126,7 @@ s8 Port_ContentUnlocked(int kind, u32 i) {
 void Port_ContentSetUnlocked(int kind, u32 i, s8 v) {
     Kind *k = KindOf(kind);
 
-    if (k == NULL || i >= CountOf(k)) {
+    if (k == NULL || i >= CountOf(k) || IsReserved(k, i)) {
         return;
     }
     Grow(k);
@@ -128,7 +144,7 @@ int Port_ContentIdOf(int kind, u32 i, char *buf, size_t size) {
     Kind *k = KindOf(kind);
     u32 b;
 
-    if (k == NULL || i >= CountOf(k)) {
+    if (k == NULL || i >= CountOf(k) || IsReserved(k, i)) {
         return 0;
     }
     b = BaseOf(k);
@@ -151,7 +167,7 @@ int Port_ContentIndexOf(int kind, const char *id, u32 *index) {
         return 0;
     }
     for (i = 0; i < k->numReg; i++) {
-        if (SDL_strcmp(k->reg[i].id, id) == 0) {
+        if (!k->reg[i].reserved && SDL_strcmp(k->reg[i].id, id) == 0) {
             *index = BaseOf(k) + i;
             return 1;
         }
@@ -176,7 +192,26 @@ s32 Port_ContentDataOf(int kind, u32 i) {
         return -1;
     }
     b = BaseOf(k);
-    return i < b ? (s32)i : k->reg[i - b].alias;
+    return i < b ? (s32)i : k->reg[i - b].reserved ? 0 : k->reg[i - b].alias;
+}
+
+int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, const char **thumbnail) {
+    Kind *k = KindOf(kind);
+    const Registered *r;
+    u32 b;
+
+    if (k == NULL || i >= CountOf(k) || i < (b = BaseOf(k))) {
+        return 0;
+    }
+    r = &k->reg[i - b];
+    if (r->reserved) {
+        *name = *suffix = *thumbnail = NULL;
+        return 2;
+    }
+    *name = r->name;
+    *suffix = r->suffix;
+    *thumbnail = r->thumbnail;
+    return 1;
 }
 
 /* ---- setting up -------------------------------------------------------- */
@@ -195,9 +230,53 @@ void Port_ContentSetBaseCount(int kind, u32 n) {
     Grow(k);
 }
 
+static char *Dup(const char *s) {
+    return s != NULL ? SDL_strdup(s) : NULL;
+}
+
 s32 Port_ContentRegister(int kind, const char *id, s32 alias, s8 def) {
+    PortContentEntry e;
+
+    SDL_zero(e);
+    e.number = -1;
+    e.id = id;
+    e.alias = alias;
+    e.def = def;
+    return Port_ContentRegisterEntry(kind, &e);
+}
+
+/* A new entry at the end (no checks); NULL if out of memory. */
+static Registered *Append(Kind *k) {
+    Registered *r = SDL_realloc(k->reg, (k->numReg + 1) * sizeof(Registered));
+
+    if (r == NULL) {
+        return NULL;
+    }
+    k->reg = r;
+    r = &k->reg[k->numReg++];
+    SDL_zerop(r);
+    return r;
+}
+
+/* Up to number n (exclusive), reserved entries without an id. 0: no memory. */
+static int FillTo(Kind *k, u32 n) {
+    Registered *r;
+
+    while (CountOf(k) < n) {
+        if ((r = Append(k)) == NULL) {
+            return 0;
+        }
+        r->reserved = 1;
+        r->id = SDL_strdup("");
+    }
+    return 1;
+}
+
+s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     Kind *k = KindOf(kind);
     Registered *r;
+    const char *id = e != NULL ? e->id : NULL;
+    s32 alias = e != NULL ? e->alias : -1;
     u32 index;
 
     if (k == NULL || id == NULL || id[0] == 0) {
@@ -211,16 +290,23 @@ s32 Port_ContentRegister(int kind, const char *id, s32 alias, s8 def) {
         Port_Log("content: %s: %s: no base entry %d to use the data of", k->section, id, (int)alias);
         return -1;
     }
-    r = SDL_realloc(k->reg, (k->numReg + 1) * sizeof(Registered));
-    if (r == NULL) {
+    if (e->number >= 0 && (u32)e->number < CountOf(k)) {
+        Port_Log("content: %s: %s: number %d is taken", k->section, id, (int)e->number);
         return -1;
     }
-    k->reg = r;
-    r = &k->reg[k->numReg];
+    if (e->number >= 0 && !FillTo(k, (u32)e->number)) {
+        return -1;
+    }
+    if ((r = Append(k)) == NULL) {
+        return -1;
+    }
     r->id = SDL_strdup(id);
     r->alias = alias;
-    r->def = def;
-    k->numReg++;
+    r->def = e->def;
+    r->name = Dup(e->name);
+    r->suffix = Dup(e->suffix);
+    r->thumbnail = Dup(e->thumbnail);
+    r->reserved = e->reserved;
     Grow(k);
     return (s32)(CountOf(k) - 1);
 }
@@ -234,6 +320,9 @@ void Port_ContentReset(void) {
 
         for (j = 0; j < k->numReg; j++) {
             SDL_free(k->reg[j].id);
+            SDL_free(k->reg[j].name);
+            SDL_free(k->reg[j].suffix);
+            SDL_free(k->reg[j].thumbnail);
         }
         SDL_free(k->reg);
         SDL_free(k->live);
@@ -394,4 +483,194 @@ void Port_ContentStash(int restore) {
             SDL_memcpy(k->live + k->retail, k->stash, k->liveSize - k->retail);
         }
     }
+}
+
+/* ---- ids.lock ------------------------------------------------------------ */
+
+/* An ids.lock entry as read. */
+typedef struct LockEntry {
+    const char *id;
+    s32 number;             /* -1: none yet */
+    const JsonNode *node;
+    s32 alias;              /* -1: no base entry (data of its own: not loadable yet) */
+    s8 active;
+    s8 skip;                /* a duplicate */
+} LockEntry;
+
+static int ByNumber(const void *a, const void *b) {
+    const LockEntry *x = a, *y = b;
+
+    return x->number != y->number ? (x->number < y->number ? -1 : 1) : 0;
+}
+
+static const char *Str(const JsonNode *o, const char *key) {
+    const JsonNode *v = Json_Get(o, key);
+
+    return v != NULL && v->type == JSON_STRING ? v->string : NULL;
+}
+
+/* The lock back to its file: every entry, numbers as assigned. */
+static int WriteLock(const char *path, LockEntry *const *entries, const u32 *num, const s32 *next) {
+    JsonWriter w;
+    char *tmp = NULL;
+    int i, ok;
+    u32 j;
+
+    Jw_Init(&w);
+    Jw_BeginObject(&w, NULL, 0);
+    Jw_Comment(&w, "HWVX-SDL content numbers: docs/xdl-format/README.md 10.5. The game assigns a number to each");
+    Jw_Comment(&w, "entry without one and writes this file back; an entry keeps its number for good (\"active\":");
+    Jw_Comment(&w, "false keeps it for content that's away), and \"next\" never goes down, so numbers aren't reused.");
+    Jw_Int(&w, "format_version", 1);
+    Jw_BeginObject(&w, "next", 1);
+    for (i = 0; i < PORT_CONTENT_KINDS; i++) {
+        Jw_Int(&w, s_kinds[i].section, next[i]);
+    }
+    Jw_EndObject(&w);
+    for (i = 0; i < PORT_CONTENT_KINDS; i++) {
+        Jw_BeginObject(&w, s_kinds[i].section, 0);
+        for (j = 0; j < num[i]; j++) {
+            const LockEntry *e = &entries[i][j];
+            const JsonNode *m;
+
+            if (e->skip) {
+                continue;
+            }
+            Jw_BeginObject(&w, e->id, 0);
+            Jw_Int(&w, "number", e->number);
+            /* the rest as it was, in its order */
+            for (m = e->node != NULL && e->node->type == JSON_OBJECT ? e->node->child : NULL; m != NULL; m = m->next) {
+                if (SDL_strcmp(m->key, "number") != 0) {
+                    Jw_Node(&w, m->key, m);
+                }
+            }
+            Jw_EndObject(&w);
+        }
+        Jw_EndObject(&w);
+    }
+    Jw_EndObject(&w);
+    Jw_Raw(&w, "\n");
+    ok = !w.failed && SDL_asprintf(&tmp, "%s.tmp", path) > 0 && Port_WriteFileSynced(tmp, w.buf, w.len) &&
+         Port_ReplaceFile(tmp, path);
+    SDL_free(tmp);
+    Jw_Free(&w);
+    return ok;
+}
+
+int Port_ContentLoadLock(const char *path) {
+    size_t len;
+    char *text = path != NULL ? SDL_LoadFile(path, &len) : NULL, err[160];
+    JsonNode *root;
+    LockEntry *entries[PORT_CONTENT_KINDS] = { NULL };
+    u32 num[PORT_CONTENT_KINDS] = { 0 }, j, m;
+    s32 next[PORT_CONTENT_KINDS];
+    int i, changed = 0, registered = 0;
+
+    if (text == NULL) {
+        return 0;
+    }
+    root = Json_Parse(text, len, err, sizeof(err));
+    SDL_free(text);
+    if (root == NULL || root->type != JSON_OBJECT) {
+        Port_Log("content: %s: %s; no entries from it (the file is left as it is)", path,
+                 root == NULL ? err : "not an object");
+        Json_Free(root);
+        return -1;
+    }
+    for (i = 0; i < PORT_CONTENT_KINDS; i++) {
+        Kind *k = &s_kinds[i];
+        const JsonNode *section = Json_Get(root, k->section), *e;
+        s32 top = (s32)CountOf(k) - 1;
+        u32 index;
+
+        next[i] = (s32)Json_GetInt(Json_Get(root, "next"), k->section, 0);
+        entries[i] = SDL_calloc(section != NULL && section->count > 0 ? (size_t)section->count : 1, sizeof(LockEntry));
+        for (e = section != NULL && section->type == JSON_OBJECT ? section->child : NULL; e != NULL && entries[i] != NULL;
+             e = e->next) {
+            LockEntry *x = &entries[i][num[i]++];
+            const JsonNode *n = Json_Get(e, "number");
+            const char *alias = Str(e, "alias");
+
+            x->id = e->key;
+            x->node = e;
+            x->number = n != NULL && n->type == JSON_NUMBER && n->isInteger && n->integer >= 0 && n->integer < 0x7FFFFFFF
+                            ? (s32)n->integer : -1;
+            x->active = (s8)Json_GetBool(e, "active", 1);
+            x->alias = alias != NULL && Port_ContentIndexOf(i, alias, &index) && index < BaseOf(k) ? (s32)index : -1;
+            if (alias != NULL && x->alias < 0) {
+                Port_Log("content: %s: %s: no base entry %s to use the data of", path, x->id, alias);
+            }
+            for (m = 0; m + 1 < num[i]; m++) {
+                if (SDL_strcmp(entries[i][m].id, x->id) == 0) {
+                    x->skip = 1;
+                }
+            }
+            if (!x->skip && SDL_strncmp(x->id, "uid://", 6) != 0) {
+                Port_Log("content: %s: %s: not a uid:// id; left out", path, x->id);
+                x->skip = 1;
+            }
+        }
+        /* numbers: kept where they're past the base content and not taken
+         * twice; the others get the next past everything ever numbered */
+        SDL_qsort(entries[i], num[i], sizeof(LockEntry), ByNumber);
+        for (j = 0; j < num[i]; j++) {
+            LockEntry *x = &entries[i][j];
+
+            if (x->skip || x->number < 0) {
+                continue;
+            }
+            if (x->number < (s32)CountOf(k) || x->number <= top) {
+                Port_Log("content: %s: %s: number %d is %s; it gets a new one", path, x->id, (int)x->number,
+                         x->number < (s32)BaseOf(k) ? "base content's" : "taken");
+                x->number = -1;
+                continue;
+            }
+            top = x->number;
+        }
+        if (next[i] < top + 1) {
+            next[i] = top + 1;
+        }
+        for (j = 0; j < num[i]; j++) {
+            LockEntry *x = &entries[i][j];
+
+            if (!x->skip && x->number < 0) {
+                x->number = next[i]++;
+                changed = 1;
+                Port_Log("content: %s: %s %s is number %d", path, k->section, x->id, (int)x->number);
+            }
+        }
+        if ((s32)Json_GetInt(Json_Get(root, "next"), k->section, -1) != next[i]) {
+            changed = 1;
+        }
+        SDL_qsort(entries[i], num[i], sizeof(LockEntry), ByNumber);
+        for (j = 0; j < num[i]; j++) {
+            const LockEntry *x = &entries[i][j];
+            PortContentEntry pe;
+
+            if (x->skip) {
+                continue;
+            }
+            SDL_zero(pe);
+            pe.id = x->id;
+            pe.number = x->number;
+            pe.alias = x->alias;
+            pe.def = (s8)Json_GetBool(x->node, "unlocked", 0);
+            pe.name = Str(x->node, "name");
+            pe.suffix = Str(x->node, "suffix");
+            pe.thumbnail = Str(x->node, "thumbnail");
+            /* away, or data of its own (no mod loading yet): its number kept */
+            pe.reserved = !x->active || x->alias < 0;
+            if (Port_ContentRegisterEntry(i, &pe) >= 0) {
+                registered += !pe.reserved;
+            }
+        }
+    }
+    if (changed && !WriteLock(path, entries, num, next)) {
+        Port_Log("content: %s can't be written", path);
+    }
+    for (i = 0; i < PORT_CONTENT_KINDS; i++) {
+        SDL_free(entries[i]);
+    }
+    Json_Free(root);
+    return registered;
 }

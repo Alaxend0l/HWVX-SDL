@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Content.h"
 #include "Port_Online.h"
 #include "World.h"
 
@@ -641,6 +642,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                         id = GameSettings_GetCodeVariable(0xCC, car->port);
                         if (id != -1)
                         {
+                            id = Port_ContentItemPack(id);   /* port: the item's pack (the registry's) */
                             if (GameSettings_GetGameType() == 0 && id == 3 && GameSettings_IsCheatEnabled(8))
                             {
                                 id = 0x4D;

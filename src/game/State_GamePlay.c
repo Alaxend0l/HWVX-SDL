@@ -1,6 +1,7 @@
 /* The race / mission state: sets up the world's things, players and
  * cameras, runs the game processes, the pause menu and the attract demo. */
 #include "common.h"
+#include "Port_Content.h"
 #include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
@@ -116,6 +117,9 @@ s32 StateGamePlay_Init(void) {
                     u32 script;
 
                     script = GameSettings_GetCodeVariable(0xCC, car->port);
+                    if (script != 0xFFFFFFFF) {
+                        script = Port_ContentItemPack(script);   /* port: the item's pack (the registry's) */
+                    }
                     if (car->port - 1 < 4) {
                         player = PlayerManager_NewHumanPlayer();
                         if (car->port == 1) {

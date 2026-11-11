@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Content.h"
 #include "Interface.h"
 #include "CarA.h"
 #include "WildCard.h"
@@ -338,7 +339,7 @@ void GSI_VehicleItemSelection(void *arg) {
         }
         break;
     case 14:
-        id = GETP(msg->list)[msg->selection];
+        id = Port_ContentItemPack(GETP(msg->list)[msg->selection]);   /* port: the item's pack (the registry's) */
         if (IsLoadingThreadRunning()) {
             break;
         }
