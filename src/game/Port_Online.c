@@ -46,6 +46,7 @@
 #include <math.h>
 
 #include "common.h"
+#include "Port_Content.h"
 #include "CarA.h"
 #include "World.h"
 #include "Interface.h"
@@ -56,7 +57,6 @@
 
 #define ONLINE_PLAYERS 4        /* the game's ports; see NET_DEFAULT_PLAYERS */
 #define WORLD_OF_LEVEL() ((World *)GETP(g_worldData.world))
-#define MAX_VEHICLE 32          /* the car select's list */
 #define MAX_ITEM 0x60
 #define PROGRESSION_JOYRIDE 4
 #define PROGRESSION_MP_DRAG 5
@@ -1425,8 +1425,10 @@ void Port_OnlineRemoteControl(Player *player) {
 
 /* ---- messages ------------------------------------------------------------------ */
 
+/* A car another player chose: one of this game's (the content registry's
+ * count; was 32, the retail car select's last), else the first. */
 static s32 ClampVehicle(s32 v) {
-    return v >= 0 && v <= MAX_VEHICLE ? v : 0;
+    return v >= 0 && (u32)v < Port_ContentCount(PORT_CONTENT_CAR) ? v : 0;
 }
 
 static s32 ClampItem(s32 v) {
