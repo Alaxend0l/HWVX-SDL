@@ -65,9 +65,15 @@
     },
     "hudName": {
       "description": "InterfaceHudInfo.weaponName (handle)",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "char"
+      },
       "x-offset": "0x10",
       "x-c-type": "u32",
       "x-confidence": "likely",
@@ -99,9 +105,14 @@
     },
     "hudIcon": {
       "description": "InterfaceHudInfo.weaponIcon[0]",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "texture"
+      },
       "x-offset": "0x18",
       "x-c-type": "u32",
       "x-confidence": "likely",
