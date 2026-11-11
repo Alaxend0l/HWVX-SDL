@@ -409,6 +409,11 @@ u16 Gfx_LoadTexture_RAM(u8 **data) {
     return i;
 }
 
+/* port: texture id's first level (mods' colour recipes key on it, Port_Mods.c) */
+void *Gfx_PortTextureImage(u16 id) {
+    return m_texture != NULL && id < m_totalTextures ? GETP(m_texture[id].data) : NULL;
+}
+
 /* A texture's header in a data pack (LoadBTF_RAM); its u16s are little-endian. */
 typedef struct BTFPackHeader {
     u16 format;                 /* 0x00 -> Texture.format */

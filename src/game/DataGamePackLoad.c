@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Mods.h"
 #include "Voice.h"
 #include "Port_Swap.h"
 #include "xdl.h"
@@ -873,6 +874,8 @@ void DataPack_ReleaseDataPack(DataPack *pack) {
     u32 *gx;
     u8 *trigger;
     u32 i;
+
+    Port_ModsPackReleased(pack);   /* port: its textures' colour recipes go */
 
     if (GETP(pack->soundIDs) != NULL) {
         for (i = 0; i < pack->numSounds; i++) {

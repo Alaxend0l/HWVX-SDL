@@ -42,6 +42,7 @@
  * numbered past HW_Cars' highest pack. */
 #include <SDL3/SDL.h>
 #include "common.h"
+#include "Port_Mods.h"
 #include "Interface.h"
 #include "Port_Content.h"
 #include "Port_Swap.h"
@@ -145,6 +146,10 @@ static void LoadIdsLock(void) {
         path = SDL_strdup(env);
     } else if ((pref = Port_PrefPath()) != NULL) {
         SDL_asprintf(&path, "%sids.lock", pref);
+    }
+    if (path != NULL) {
+        Port_ModsInit();
+        Port_ModsSyncLock(path);   /* the enabled mods' cars and items */
     }
     if (path != NULL && (n = Port_ContentLoadLock(path)) > 0) {
         Port_Log("content: %d entries from %s", n, path);
