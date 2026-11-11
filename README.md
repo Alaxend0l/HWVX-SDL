@@ -536,6 +536,14 @@ Debugging aids:
   `HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1`, so the fixed steps run faster than real
   time (the frames are the same). E.g. `FAST=1 tools/run_test.sh build
   orig/gc/files t cs 10 HWVX_START=carselect HWVX_MENUDUMP=1`.
+- `test_content` (`-DHWVX_TESTS=ON`, `ctest -R test_content`, about a second)
+  checks the content registry against the GameCube data (`orig/gc/files` by
+  the sources, or `HWVX_TEST_GC_DATA`; skipped without): each scenario a
+  fresh game in a child process with a stub renderer, opened with
+  `HWVX_START`, checked from its `HWVX_MENUDUMP` log: the retail car select;
+  extra cars and items named, pictured and numbered after their alias; each
+  mode's world select against its progression script; the Adventure screen.
+  `./test_content <scenario>` runs one, `HWVX_TEST_VERBOSE=1` shows the log.
 - `HWVX_MENUDUMP=1` also logs, per screen created, the lists it shows by a
   variable as patched (the car, item and world selects' pictures, names and
   paragraphs, with the variable's range: `menudump: lists of interface 2 ...,

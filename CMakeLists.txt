@@ -150,7 +150,9 @@ if(HWVX_TESTS AND NOT ANDROID)
         if(WIN32)
             target_link_libraries(${stem} PRIVATE ws2_32)
         endif()
+        target_compile_definitions(${stem} PRIVATE HWVX_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
         add_test(NAME ${stem} COMMAND ${stem})
+        set_tests_properties(${stem} PROPERTIES SKIP_RETURN_CODE 77)
     endforeach()
 
     # The online transport needs neither the game nor a window. Not named
