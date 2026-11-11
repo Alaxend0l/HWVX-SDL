@@ -14,15 +14,17 @@
  *           car pack id + 1.
  *   tracks  numbers the interface scripts set and test (code variable 0x65
  *           with constant arguments in HW_IPack and the worlds), laid out in
- *           families (missions 5-18, challenges 39-56, races 33-34,
- *           battles 23-26, ...); the MCP's progression scripts pick the
- *           worlds but number nothing. No count to read: the array's.
+ *           families (the world selects' shared 57-name list: Joyride 0-4,
+ *           missions 5-18, battles 19-26, drag races 29-34, challenges
+ *           39-56); the MCP's progression scripts pick the worlds but
+ *           number nothing. No count to read: the array's. A new track is
+ *           a progression level and a world archive first (data, §10.5.1).
  *   items   HW_Items packs 0-11 (the wildcards the item select offers;
  *           16-79 are the AI's and the worlds' own), numbered by the item
  *           select's list. The array's count too.
  *
- * Past those, entries are registered by id: the mod hook (a project's
- * ids.lock, not built yet) and the test switches HWVX_TEST_EXTRA_CARS and
+ * Past those, entries are registered by id: a project's ids.lock
+ * (Port_ContentLoadLock) and the test switches HWVX_TEST_EXTRA_CARS and
  * HWVX_TEST_EXTRA_ITEMS (HWVX_TEST_UNLOCK_CARS / _ITEMS unlock some). An
  * extra car whose number HW_Cars has no pack for loads the pack of the car
  * it aliases (DataPack_LoadFile, Port_ContentPackId).
