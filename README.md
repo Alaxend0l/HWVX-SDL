@@ -536,6 +536,13 @@ Debugging aids:
   `HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1`, so the fixed steps run faster than real
   time (the frames are the same). E.g. `FAST=1 tools/run_test.sh build
   orig/gc/files t cs 10 HWVX_START=carselect HWVX_MENUDUMP=1`.
+- `HWVX_MENUDUMP=1` also logs, per screen created, the lists it shows by a
+  variable as patched (the car, item and world selects' pictures, names and
+  paragraphs, with the variable's range: `menudump: lists of interface 2 ...,
+  variable 4: 0..34`, then `names 35 (obj 75): 0 "Twin Mill 2*" | ...`), and
+  the progression scripts' levels: checks on what a menu offers are greps.
+  E.g. `HWVX_START=menu:mode=challenge HWVX_MENUDUMP=1`: the challenge
+  select's tracks (names 39..56).
 - `HWVX_START` boots straight into a menu, select screen or race, skipping
   the intro screens and the menus before it (`src/game/Port_Start.c`: it
   finds the screens through the menu pack's own go-to events and opens them

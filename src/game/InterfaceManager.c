@@ -381,6 +381,7 @@ s32 Port_InterfaceTakingInput(void) {
 
 s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callback)(void *msg)) {
     Port_MenuPatch(header);   /* port: the Options screen's Graphics menu */
+    Port_MenuDumpLists(header);   /* port: HWVX_MENUDUMP */
     if (header != NULL) {  /* port: trace interface creation */
         Port_Log("interface create: header id %u, %u objects%s", header->id, header->numObjects,
                  owner != NULL ? " (player)" : "");

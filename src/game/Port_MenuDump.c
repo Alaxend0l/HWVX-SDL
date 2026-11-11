@@ -203,3 +203,84 @@ void Port_MenuDump(const InterfaceHeader *root) {
         DumpScreen(queue[k], queue, &n);
     }
 }
+
+/* HWVX_MENUDUMP: the lists a screen shows by a variable (the car, item and
+ * world selects' pictures and names: what a menu offers), as created, after
+ * the port's patches (the content registry's extra entries, Port_Content.h),
+ * once per screen and distinct list (of more than 2 entries), for checks
+ * by grep:
+ *
+ *   menudump: lists of interface 2 (138 objects), variable 4: 0..34
+ *   menudump:   names 35 (obj 75): 0 "Twin Mill 2*" | 1 ... | 34 "Super Tuned* (test)"
+ *   menudump:   pictures 36 (obj 5): 0 63 | 1 64 | ...
+ *
+ * Each list's variable and its range (a carousel's slots are offsets of
+ * one: the range is what it can show). */
+void Port_MenuDumpLists(const InterfaceHeader *h) {
+    static u32 seen[1024];   /* hashes of the lists logged (screen, kind, entries) */
+    static u32 numSeen;
+    const IfaceObjectDef *objs;
+    const IfaceVarList *vl;
+    u32 i, j, k;
+    char line[1024];
+
+    if (getenv("HWVX_MENUDUMP") == NULL || *getenv("HWVX_MENUDUMP") == '0' || h == NULL ||
+        (objs = GETP(h->objects)) == NULL) {
+        return;
+    }
+    vl = GETP(h->vars);
+    for (i = 0; i < h->numObjects; i++) {
+        const IfaceObjectDef *d = &objs[i];
+        const IfaceImageDef *im = d->type == IFACE_DEF_IMAGE ? GETP(d->sub) : NULL;
+        const IfaceTexAnim *ta = im != NULL && im->type == 3 ? GETP(im->anim) : NULL;
+        const IfaceText *t = d->type == IFACE_DEF_TEXT ? GETP(d->sub) : NULL;
+        const IfaceStringList *l = t != NULL && t->listMode == 1 ? GETP(t->list) : NULL;
+        const void *key = ta != NULL && ta->fromVar ? (const void *)GETP(ta->anim.keys) :
+                          l != NULL && l->fromVar ? (const void *)GETP(l->texts) : NULL;
+        u32 count = ta != NULL ? ta->anim.numKeys : l != NULL ? l->count : 0, var = ta != NULL ? ta->var : l != NULL ? l->var : 0;
+        const IfaceVar *v = vl != NULL && var < vl->count ? &GETP(vl->vars)[var] : NULL;
+
+        u32 hash = 2166136261u ^ (u32)(uintptr_t)h ^ (ta != NULL ? 0x80000000u : 0) ^ count;
+
+        if (key == NULL || count <= 2) {   /* (2: the button bar's labels) */
+            continue;
+        }
+        for (j = 0; j < count; j++) {
+            hash = (hash ^ ((const u32 *)key)[j]) * 16777619u;
+        }
+        for (k = 0; k < numSeen && seen[k] != hash; k++) {
+        }
+        if (k < numSeen) {
+            continue;
+        }
+        if (numSeen < 1024) {
+            seen[numSeen++] = hash;
+        }
+        Port_Log("menudump: lists of interface %u (%u objects), variable %u: %d..%d", h->id, h->numObjects, var,
+                 v != NULL ? v->min : 0, v != NULL ? v->max : 0);
+        line[0] = 0;
+        for (j = 0; j < count; j++) {
+            size_t len = strlen(line);
+
+            if (ta != NULL) {
+                snprintf(line + len, sizeof(line) - len, "%s%u %u", j ? " | " : "", j, GETP(ta->anim.keys)[j]);
+            } else {
+                char **table = (char **)PTR(GETP(l->texts)[j]);
+                const char *s = table != NULL ? SLOT_LOAD(char *, table) : NULL;
+                char one[96];
+                u32 c;
+
+                snprintf(one, sizeof(one), "%s", s != NULL ? s : "");
+                for (c = 0; one[c] != 0; c++) {
+                    one[c] = one[c] == '\n' || one[c] == '"' ? '|' : one[c];
+                }
+                snprintf(line + len, sizeof(line) - len, "%s%u \"%s\"", j ? " | " : "", j, one);
+            }
+            if (strlen(line) > 700 || j == count - 1) {
+                Port_Log("menudump:   %s %u (obj %u): %s", ta != NULL ? "pictures" : t->paragraph ? "paragraphs" : "names",
+                         count, i, line);
+                line[0] = 0;
+            }
+        }
+    }
+}
