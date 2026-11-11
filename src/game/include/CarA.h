@@ -197,26 +197,29 @@ typedef struct CollisionSpheres {
 
 typedef struct CarACollider {
   f32 inertiaScale[3];      /* 0x00 per-axis factor of the inverse inertia tensor */
-  u8 pad0C[4];              /* 0x0C */
+  u8 pad0C[4];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   u8 type;                  /* 0x10 0: oriented box, 1: convex hull */
-  u8 pad11[3];              /* 0x11 */
+  u8 pad11[3];              /* 0x11 u8s (1, 0, 0 in most cars); never read (GC, PC, PS2) */
   s32 maxHealth;            /* 0x14 */
   s32 damageThreshold;      /* 0x18 impacts above it hurt */
-  u8 pad1C[4];              /* 0x1C */
+  u8 pad1C[4];              /* 0x1C s32 375 or -1; never read (GC, PC, PS2) */
   f32 mass;                 /* 0x20 */
   f32 gravityScale;         /* 0x24 forceAccum.y += gravityScale * mass */
-  u8 pad28[4];              /* 0x28 */
+  u8 pad28[4];              /* 0x28 0 in every car; never read (GC, PC, PS2) */
   f32 gravity;              /* 0x2C */
   PTR32(CarAMaterial) material;   /* 0x30 */
   u32 numEndFx;             /* 0x34 debris spawned when destroyed, one at random */
   PTR32(u32) endFx;         /* 0x38 (Thing_ProcessEndEvent) */
-  u8 pad3C[8];              /* 0x3C */
+  u8 pad3C[8];              /* 0x3C a second list like endFx: u32 1, pointer; never read (GC, PC, PS2) */
   union {
     PTR32(Vector4) box;           /* 0x44 type 0: min/max corners */
     PTR32(struct CollisionSpheres) spheres; /* type 7 */
   };
   PTR32(struct CarAHull) hull;    /* 0x48 type 1 */
 } CarACollider;
+
+_Static_assert(offsetof(CarACollider, endFx) == 0x38, "CarACollider.endFx");
+_Static_assert(sizeof(CarACollider) == 0x4C, "CarACollider size");
 
 typedef struct CarAHull {
   u8 pad00[0xC];            /* 0x00 */
@@ -227,9 +230,12 @@ typedef struct CarAHull {
 
 
 typedef struct CarAAccel {
-  u8 pad00[4];              /* 0x00 */
+  u8 pad00[4];              /* 0x00 0 in every car; never read (GC, PC, PS2) */
   f32 driveRpmScale;        /* 0x04 drive friction to rpm scale */
-  u8 pad08[0xC];            /* 0x08 */
+  f32 coastRpmScale;        /* 0x08 PC only: driveMode 2 off the throttle uses it in place
+                             *      of driveRpmScale (ComputeSuspensionForces 0x416DA2);
+                             *      1.5 (0 in one car), no shipped car is mode 2 */
+  u8 pad0C[8];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   f32 tractionLift;         /* 0x14 traction point lift: (this - 1) * up * contact height */
   f32 brakeDecel;           /* 0x18 rpm/s at full brake */
   f32 engineBrake;          /* 0x1C rpm/s off the throttle */
@@ -242,16 +248,19 @@ typedef struct CarAAccel {
   f32 spinDecay;            /* 0x38 */
 } CarAAccel;
 
+_Static_assert(offsetof(CarAAccel, coastRpmScale) == 0x08, "CarAAccel.coastRpmScale");
+_Static_assert(sizeof(CarAAccel) == 0x3C, "CarAAccel size");
+
 typedef struct CarAStuntInfo {
   f32 pitchRate;            /* 0x00 */
   f32 rollRate;             /* 0x04 */
   f32 spinRate;             /* 0x08 */
   f32 maxTime;              /* 0x0C */
-  u8 pad10[4];              /* 0x10 */
+  u8 pad10[4];              /* 0x10 f32 0.5 in every car; never read (GC, PC, PS2) */
   f32 turboPerPoint;        /* 0x14 */
   f32 pitchScore;           /* 0x18 */
   f32 rollScore;            /* 0x1C */
-  u8 pad20[8];              /* 0x20 */
+  u8 pad20[8];              /* 0x20 f32 1, f32 5 in every car; never read (GC, PC, PS2) */
   s32 startDelay;           /* 0x28 ms airborne before the stunt can start */
   f32 minFailTime;          /* 0x2C also the stunt-time range landed stunts score in */
   f32 maxFailTime;          /* 0x30 */
@@ -259,12 +268,15 @@ typedef struct CarAStuntInfo {
   PTR32(u32) rewardThings;        /* 0x38 picked by score */
   u32 numMessages;          /* 0x3C */
   PTR32(PTR32(PTR32(char))) messages; /* 0x40 picked by score: string tables */
-  u8 pad44[4];              /* 0x44 */
+  u8 pad44[4];              /* 0x44 0 in every car; never read (GC, PC, PS2) */
   PTR32(PTR32(char)) failMessage;       /* 0x48 NULL: g_stuntLossString */
   u32 numFailThings;        /* 0x4C */
   PTR32(u32) failThings;          /* 0x50 thing ids, picked by fail time */
   f32 spinScore;            /* 0x54 */
 } CarAStuntInfo;
+
+_Static_assert(offsetof(CarAStuntInfo, startDelay) == 0x28, "CarAStuntInfo.startDelay");
+_Static_assert(sizeof(CarAStuntInfo) == 0x58, "CarAStuntInfo size");
 
 /* CarAInfo.gears: indexed by CarA.curveTableIdx. */
 typedef struct CarAGear {
@@ -284,14 +296,17 @@ typedef struct CarASoundSet {
 
 /* The HUD layouts of a car, by number of viewports. */
 typedef struct CarAHud {
-  u8 pad00[0x10];           /* 0x00 */
+  u8 pad00[0x10];           /* 0x00 0 (car 16: f32 -0.35, 15 at 0x04); never read (GC, PC, PS2) */
   u32 layout1;              /* 0x10 one viewport */
-  u8 pad14[4];              /* 0x14 */
+  u8 pad14[4];              /* 0x14 0 in every car; never read (GC, PC, PS2) */
   u32 layout2;              /* 0x18 two */
   u32 layout4;              /* 0x1C three or four */
-  u8 pad20[0x14];           /* 0x20 */
+  u8 pad20[0x14];           /* 0x20 0, a pointer at 0x2C; never read (GC, PC, PS2) */
   u8 stats[4];              /* 0x34 vehicle select bars (InterfaceHudInfo.carStats) */
 } CarAHud;
+
+_Static_assert(offsetof(CarAHud, stats) == 0x34, "CarAHud.stats");
+_Static_assert(sizeof(CarAHud) == 0x38, "CarAHud size");
 
 /* A slave thing description (0x20 bytes) as MotionState_InitAllSlavesNow and
  * ThingManagerList_TriggerSlaves take them. */
