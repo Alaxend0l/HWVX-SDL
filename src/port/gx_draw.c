@@ -29,8 +29,9 @@
 
 const GXRenderer *g_gxr = &g_gxGL;
 GXShaderStats g_gxShaderStats;
+u64 g_gxUploadBytes;
 
-static u32 s_statDraws, s_statVerts;
+static u32 s_statDraws, s_statVerts, s_statMeshDraws;
 static u32 s_statBlend, s_statAlphaComp, s_statFog, s_statStages;
 static s64 s_statDrawNs;
 static int s_statsOn = -1;
@@ -415,9 +416,9 @@ static GXVertex *Reserve(u32 n) {
     return s_tri;
 }
 
+static void Submit(GXDrawCall *dc);
+
 void GX_Draw(int prim, const GXVertex *v, u32 n) {
-    static GXVSUniforms vs;
-    static GXFSUniforms fs;
     GXDrawCall dc;
     u32 i;
 
@@ -456,14 +457,41 @@ void GX_Draw(int prim, const GXVertex *v, u32 n) {
      * between draws; scratch vertices (a fresh decode, a quad expansion, the
      * immediate FIFO) cannot. */
     dc.batch = GX_FifoBatch(dc.v, dc.n);
-    if (BuildDrawCall(&dc, &vs, &fs)) {
+    dc.mesh = NULL;
+    Submit(&dc);
+}
+
+/* A draw from a static mesh (gx_mesh.c): its vertices are already on the GPU. */
+void GX_DrawMesh(const GXMeshDraw *m) {
+    GXDrawCall dc;
+
+    if (m->count == 0) {
+        return;
+    }
+    s_statDraws++;
+    s_statVerts += m->count;
+    s_statMeshDraws++;
+    dc.prim = GXR_TRIANGLES;
+    dc.v = NULL;
+    dc.n = m->count;
+    dc.batch = NULL;
+    dc.mesh = m;
+    Submit(&dc);
+}
+
+/* Fills in the GX state and hands the draw to the renderer. */
+static void Submit(GXDrawCall *dc) {
+    static GXVSUniforms vs;
+    static GXFSUniforms fs;
+
+    if (BuildDrawCall(dc, &vs, &fs)) {
         s64 t0 = 0;
 
         LogTevKey(&fs);
         /* HWVX_STATS: what the pixel stage has to do for this draw, and how much
          * of the frame the renderer's own submit costs. */
         if (StatsOn()) {
-            if (dc.blend) {
+            if (dc->blend) {
                 s_statBlend++;
             }
             if (fs.alphaComp[0] != 0 || fs.alphaComp[3] != 0) {
@@ -475,7 +503,7 @@ void GX_Draw(int prim, const GXVertex *v, u32 n) {
             s_statStages += (u32)fs.misc[0];
             t0 = SDL_GetPerformanceCounter();
         }
-        g_gxr->draw(&dc);
+        g_gxr->draw(dc);
         if (t0 != 0) {
             s_statDrawNs += SDL_GetPerformanceCounter() - t0;
         }
@@ -495,6 +523,8 @@ static void ClearEFB(void) {
 void GX_DrawBeginFrame(void) {
     static int first = 1;
     int w, h;
+
+    GX_MeshCollect();
 
     WindowSize(&w, &h);
     if (w != s_efbW || h != s_efbH) {
@@ -601,6 +631,22 @@ static void DumpEFB(void) {
                      g_gxShaderStats.pending);
         }
     }
+    {
+        static u32 lastBuilt;
+        u32 levels, variants, built;
+        u64 vtxBytes, idxBytes;
+
+        GX_MeshStats(&levels, &variants, &built, &vtxBytes, &idxBytes);
+        Port_Log("  mesh cache: %u draws, %u buffers built this window; %u levels, %u vertex buffers, "
+                 "%.1f MB vertices + %.1f MB indices",
+                 s_statMeshDraws, built - lastBuilt, levels, variants, (double)vtxBytes / 1048576.0,
+                 (double)idxBytes / 1048576.0);
+        lastBuilt = built;
+        Port_Log("  uploads: %.2f MB/frame of vertices and indices",
+                 (double)g_gxUploadBytes / 60.0 / 1048576.0);
+        g_gxUploadBytes = 0;
+    }
+    s_statMeshDraws = 0;
     g_gxShaderStats.special = g_gxShaderStats.general = 0;
     s_statBlend = s_statAlphaComp = s_statFog = s_statStages = 0;
     s_statDrawNs = 0;

@@ -458,18 +458,27 @@ static const u32 s_groupUse[] = {
     [GROUP_VTX_ENV] = GX_PORT_USE_NRM | GX_PORT_USE_CLR | GX_PORT_CLR_ALPHA,
 };
 
-/* port: a PORT_LAYOUT_INDEXED group: u16 indices into the level's arrays,
- * a triangle list of 3 * grp->dlSize, or, when the first index has bit 15
- * set, strip records {u16 count (bit 15 on the first), count indices} up to
- * 0xFFFF (the PC release's two draw modes). A skinned level's vertices are
- * sorted by bone, with the bones' counts at LOD 0x10 (bone k: matrix slot k). */
+/* port: group `group` of a PORT_LAYOUT_INDEXED level, for GX_PortDrawGroup:
+ * u16 indices into the level's arrays, a triangle list of 3 * grp->dlSize,
+ * or, when the first index has bit 15 set, strip records {u16 count (bit 15
+ * on the first), count indices} up to 0xFFFF (the PC release's two draw
+ * modes). */
+static const u16 *GroupIndices(const void *level, u32 group, u32 *count) {
+    GeometryGroup *grp = &GETP(((const Geometry *)level)->groups)[group];
+
+    *count = grp->dlSize * 3;
+    return (const u16 *)GETP(grp->displayList);
+}
+
+/* port: a PORT_LAYOUT_INDEXED group. A skinned level's vertices are sorted
+ * by bone, with the bones' counts at LOD 0x10 (bone k: matrix slot k). The
+ * GX layer keeps the level's vertices and indices on the GPU (gx_mesh.c). */
 static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) {
     PortPCVertexBuffer *vb = (PortPCVertexBuffer *)GETP(lod->lodDistances);
-    const u16 *idx = (const u16 *)GETP(grp->displayList);
     GXPortMesh mesh;
     u32 use = s_groupUse[vtx];
 
-    if (vb == NULL || idx == NULL) {
+    if (vb == NULL || GETP(grp->displayList) == NULL) {
         return;
     }
     mesh.pos = GETP(vb->pos);
@@ -482,6 +491,9 @@ static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) 
     mesh.nrmStride = 16;
     mesh.boneCounts = NULL;
     mesh.numBones = 0;
+    mesh.level = lod;
+    mesh.numGroups = lod->numGroups;
+    mesh.groupIdx = GroupIndices;
     if (lod->portLayout == PORT_LAYOUT_INDEXED_NOCULL) {
         use |= GX_PORT_NOCULL;
     }
@@ -492,19 +504,7 @@ static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) 
         mesh.numBones = mesh.boneCounts != NULL ? 8 : 0;
         use |= GX_PORT_SKIN;
     }
-    if (!(idx[0] & 0x8000)) {
-        GX_PortDrawIndexed(&mesh, GX_TRIANGLES, idx, grp->dlSize * 3, use);
-        return;
-    }
-    for (;;) {
-        u32 n = idx[0] & 0x7FFF;
-
-        if (idx[0] == 0xFFFF) {
-            break;
-        }
-        GX_PortDrawIndexed(&mesh, GX_TRIANGLESTRIP, idx + 1, n, use);
-        idx += 1 + n;
-    }
+    GX_PortDrawGroup(&mesh, (u32)(grp - GETP(lod->groups)), use);
 }
 
 /* port: a group's primitives, the one place pack geometry is drawn. Every

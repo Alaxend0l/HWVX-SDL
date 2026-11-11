@@ -147,10 +147,18 @@ void GX_FifoDiag(u32 *first, u32 *rebuild, u32 *stable, u32 *fmt, u32 *arr, u32 
 /* gx_draw.c */
 void GX_DrawInit(void);
 void GX_Draw(int prim, const GXVertex *v, u32 n);
+struct GXMeshDraw;
+void GX_DrawMesh(const struct GXMeshDraw *m);
 void GX_DrawBeginFrame(void);
 void GX_DrawCopyDisp(int clear);
 void GX_DrawCopyTex(void *dest, int clear);
 void GX_DrawPresent(void);
+
+/* gx_mesh.c: frees the meshes released since the last call (on the thread
+ * that draws), and the numbers for the frame dump log. */
+void GX_MeshCollect(void);
+void GX_MeshStats(u32 *levels, u32 *variants, u32 *built, u64 *vtxBytes, u64 *idxBytes);
+void GX_MeshInvalidate(const void *p, u32 size);
 
 /* gx_tex.c: GX_TexGet is in gx_render.h */
 
