@@ -16,6 +16,8 @@
  *                each mode's world select: its track list's range covers its
  *                progression script's levels (the MCP's), by name
  *   adventure    the Adventure screen opens
+ *   idslock      an ids.lock (HWVX_IDS_LOCK): its cars at their numbers, an
+ *                inactive one reserved, a new one numbered and written back
  *   item16       HWVX_TEST_EXTRA_ITEMS=6: a race with item 16 (aliasing
  *                item 4) loads HW_Items pack 4, not the AI's pack 16
  *
@@ -275,6 +277,7 @@ static const Scenario s_scenarios[] = {
     { "battle", { "HWVX_START=worldselect:mode=battle" }, "menudump:   paragraphs 57" },
     { "joyride", { "HWVX_START=worldselect:mode=joyride" }, "menudump:   paragraphs 57" },
     { "adventure", { "HWVX_START=menu:mode=adventure" }, "start: menu, adventure" },
+    { "idslock", { "HWVX_START=carselect" }, "menudump:   paragraphs 36" },
     { "item16", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
 };
 
@@ -304,6 +307,19 @@ static void Checks(const char *name)
         CheckWorlds(3);
     } else if (strcmp(name, "joyride") == 0) {
         CheckWorlds(4);
+    } else if (strcmp(name, "idslock") == 0) {
+        const char *names = List(2, ": 0..35", "names"), *pics = List(2, ": 0..35", "pictures");
+        char a[96], b[96];
+
+        Check(Line("content: 36 cars", NULL) != NULL, "36 cars: 33 and 35 from the lock, 34 reserved");
+        Check(names != NULL && Entry(names, 33, a, sizeof(a)) && strcmp(a, "Alpha") == 0, "33 is named Alpha");
+        Check(names != NULL && Entry(names, 34, a, sizeof(a)) && strcmp(a, " ") == 0, "34 (away) has no name");
+        Check(names != NULL && Entry(names, 4, a, sizeof(a)) && Entry(names, 35, b, sizeof(b)) && strcmp(a, b) == 0,
+              "35 shows its alias's name: %s", b);
+        Check(pics != NULL && Entry(pics, 35, a, sizeof(a)) && Entry(pics, 34, b, sizeof(b)) &&
+                  Entry(pics, 4, b + 48, 48) && strcmp(a, b + 48) == 0,
+              "35 shows its alias's picture");
+        Check(Line("ids.lock: cars uid://cccc is number 35", NULL) != NULL, "cccc got 35, written back");
     } else if (strcmp(name, "item16") == 0) {
         Check(Line("content: test: item 16 is uid://hwvx-test-extra-item-4, the pack of item 4", NULL) != NULL,
               "item 16 is registered, aliasing item 4");
@@ -348,6 +364,18 @@ static int RunOne(const Scenario *sc, const char *data, const char *out)
     SetEnv("HWVX_MENUDUMP=1");
     for (i = 0; i < 6 && sc->env[i] != NULL; i++) {
         SetEnv(sc->env[i]);
+    }
+    if (strcmp(sc->name, "idslock") == 0) {
+        char lock[1100], env[1200];
+        static const char text[] =
+            "{\"cars\": {\"uid://aaaa\": {\"number\": 33, \"alias\": \"base://HW_Cars/car_3\", \"name\": \"Alpha\"},\n"
+            " \"uid://bbbb\": {\"number\": 34, \"alias\": \"base://HW_Cars/car_3\", \"active\": false},\n"
+            " \"uid://cccc\": {\"alias\": \"base://HW_Cars/car_4\"}}}\n";
+
+        snprintf(lock, sizeof(lock), "%s/ids.lock", out);
+        SDL_SaveFile(lock, text, sizeof(text) - 1);
+        snprintf(env, sizeof(env), "HWVX_IDS_LOCK=%s", lock);
+        SetEnv(env);
     }
     SDL_SetLogOutputFunction(Capture, NULL);
     if (!SDL_Init(0)) {

@@ -70,17 +70,31 @@ s32 Port_ContentRegister(int kind, const char *id, s32 alias, s8 def);
  * adds these). Strings are copied. */
 typedef struct PortContentEntry {
     const char *id;
+    s32 number;             /* -1: the next past the count; else this one (past the
+                             * count: the numbers between are reserved, see below) */
     s32 alias;
     s8 def;
+    s8 reserved;            /* the number is kept for content that isn't there (an
+                             * ids.lock entry that's inactive or has no data yet): no id to
+                             * save by, never unlocked, base entry 0's data, shown as the
+                             * lists' own last entry */
     const char *name;       /* the select's name; NULL: the alias's, then `suffix` */
     const char *suffix;     /* after the alias's name (" (test)"), or NULL */
     const char *thumbnail;  /* a texture link, base://<archive>/<type>_<id>/texture/<n>
                              * (§8.1) of a loaded pack; NULL or not loaded: the alias's picture */
 } PortContentEntry;
 s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e);
-/* A registered entry's look (NULL each where the alias's is used); 0 if
- * entry i isn't registered. */
+/* A registered entry's look (NULL each where the alias's is used): 1; 2 if
+ * it's reserved; 0 if entry i isn't registered. */
 int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, const char **thumbnail);
+/* A project's ids.lock (JSONC, docs §10.5.1): its entries registered at
+ * their numbers, in number order, after the base counts are set. Entries
+ * without a number (or with one base content or another entry has) get the
+ * next past every number the file ever gave ("next"), and the file is
+ * written back. Inactive entries and ones without an alias (data of their
+ * own: no mod loading yet) keep their number reserved. The entries
+ * registered, 0 without the file, -1 if it can't be read (left alone). */
+int Port_ContentLoadLock(const char *path);
 /* Back to the retail counts, nothing registered, everything locked (tests). */
 void Port_ContentReset(void);
 

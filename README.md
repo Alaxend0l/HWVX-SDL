@@ -567,6 +567,14 @@ Debugging aids:
   `world1`) or index; N and I car and item numbers. With
   `HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1` a select screen is
   up in a few seconds.
+- `HWVX_IDS_LOCK=<file>`: the content registry's ids.lock (default: `ids.lock`
+  in the preferences folder), JSONC: per kind (`cars`, `tracks`, `items`) a
+  `uid://` id each with its `number`, `alias` (`base://HW_Cars/car_3`, the
+  data it uses), `name`, `suffix`, `thumbnail` (a texture link), `unlocked`
+  (in a new game), `active`. The game numbers entries that have no number
+  (past every number given, `next`) and writes the file back; an entry keeps
+  its number, `"active": false` keeps it reserved for content that's away
+  (docs/xdl-format/README.md §10.5.1).
 - `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
   release), each loading a base car's pack (3, 4, ...) under its own number
   and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same

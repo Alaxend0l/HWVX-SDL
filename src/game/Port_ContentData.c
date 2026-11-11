@@ -124,11 +124,24 @@ static int ReadToc(Archive *a) {
     return 1;
 }
 
-/* The mod hook: a project's ids.lock (§10.5) gives its content numbers past
- * the base entries, Port_ContentRegister(kind, "uid://...", -1, def) each,
- * in the lock file's order so a save's numbers never shuffle. Not built yet:
- * there is no mod loading. */
+/* The mod hook: a project's ids.lock (§10.5.1) gives its content numbers
+ * past the base entries (Port_ContentLoadLock). HWVX_IDS_LOCK=<file>, else
+ * ids.lock in the preferences folder. */
 static void LoadIdsLock(void) {
+    const char *env = SDL_getenv("HWVX_IDS_LOCK");
+    char *pref = NULL, *path = NULL;
+    int n;
+
+    if (env != NULL && *env != 0) {
+        path = SDL_strdup(env);
+    } else if ((pref = Port_PrefPath()) != NULL) {
+        SDL_asprintf(&path, "%sids.lock", pref);
+    }
+    if (path != NULL && (n = Port_ContentLoadLock(path)) > 0) {
+        Port_Log("content: %d entries from %s", n, path);
+    }
+    SDL_free(path);
+    SDL_free(pref);
 }
 
 /* HWVX_TEST_EXTRA_CARS=N, HWVX_TEST_EXTRA_ITEMS=N: N extra entries, each
@@ -152,6 +165,7 @@ static void TestExtra(int kind, const char *env, const char *what, s32 first, co
 
         SDL_snprintf(id, sizeof(id), "uid://hwvx-test-extra-%s-%d", what, k);
         SDL_zero(entry);
+        entry.number = -1;
         entry.id = id;
         entry.alias = alias;
         entry.suffix = " (test)";
@@ -398,8 +412,12 @@ static const ExtList *Extend(int kind, int what, const u32 *orig, u32 origCount)
             const char *name, *suffix, *thumb, *aliasName;
             s32 alias = Port_ContentDataOf(kind, i);
 
-            if (!Port_ContentLook(kind, i, &name, &suffix, &thumb)) {
+            int look = Port_ContentLook(kind, i, &name, &suffix, &thumb);
+
+            if (look == 0) {
                 name = suffix = NULL;
+            } else if (look == 2) {
+                name = " ";     /* reserved */
             }
             aliasName = alias >= 0 && (u32)alias < origCount ? FirstString(orig[alias]) : NULL;
             if (name == NULL) {
@@ -436,8 +454,9 @@ static const ExtList *Extend(int kind, int what, const u32 *orig, u32 origCount)
             x->items[i] = HND(s_blankSlots);
             continue;
         }
-        Port_ContentLook(kind, i, &name, &suffix, &thumb);
-        if ((tex = TextureOfLink(thumb)) >= 0) {
+        if (Port_ContentLook(kind, i, &name, &suffix, &thumb) == 2) {
+            x->items[i] = orig[origCount - 1];   /* reserved: the list's own last ("?") */
+        } else if ((tex = TextureOfLink(thumb)) >= 0) {
             x->items[i] = (u32)tex;
         } else {
             if (thumb != NULL) {
