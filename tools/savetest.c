@@ -1,0 +1,639 @@
+/*
+ * savetest.c - checks the JSON save store (src/game/Port_Saves.c,
+ * Port_SaveFormat.c, Port_SaveIds.c). Links only those and src/port/jsonc.c,
+ * fileio.c: no game, no window, no game data.
+ *
+ * Run (from the build folder; every file it makes is under OUT):
+ *   ./savetest [OUT] [--gci FILE]
+ *     OUT     folder for the scratch pref folders (default: savetest-out)
+ *     --gci   a GameCube save (Dolphin .gci export of GHWE78 "hwvx") for
+ *             the round trip of a real save; skipped without it
+ *
+ * What it covers:
+ *   - round trip: the .gci's SaveFile (big-endian, at 0x40 + 0x840) into the
+ *     game's structs, to JSON, back, compared field by field; random saves of
+ *     both game types (padding, NaNs and names with bytes after the NUL too)
+ *     compared byte for byte;
+ *   - ids the game has no index for survive a write, marked inactive;
+ *   - atomicity: a write stopped after its temporary file leaves the old
+ *     save; a torn temporary file is ignored;
+ *   - corruption: a changed byte, a truncated file, a file that isn't a
+ *     save: the newest good backup is loaded and the log says so; with no
+ *     good file the read fails and nothing is changed; the next write moves
+ *     the damaged file aside;
+ *   - a file edited without its sha256 line is read as it is;
+ *   - backups rotate, PORT_SAVES_BACKUPS kept;
+ *   - migration: memcardA/hwvx.sav is imported once and kept; a delete
+ *     doesn't bring it back.
+ */
+#include <SDL3/SDL.h>
+#include "common.h"
+#include "Port_Saves.h"
+#include "jsonc.h"
+
+/* ---- the port functions the store uses --------------------------------- */
+
+static char s_pref[1024];
+static char s_log[16384];
+
+char *Port_PrefPath(void) {
+    SDL_CreateDirectory(s_pref);
+    return SDL_strdup(s_pref);
+}
+
+void Port_Log(const char *fmt, ...) {
+    char line[1024];
+    va_list ap;
+
+    va_start(ap, fmt);
+    SDL_vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    SDL_Log("  | %s", line);
+    SDL_strlcat(s_log, line, sizeof(s_log));
+    SDL_strlcat(s_log, "\n", sizeof(s_log));
+}
+
+/* ---- checks ------------------------------------------------------------ */
+
+static int s_failed, s_checks;
+static const char *s_out = "savetest-out";
+
+#define CHECK(cond, ...) do { \
+        s_checks++; \
+        if (!(cond)) { \
+            s_failed++; \
+            SDL_Log("FAIL %s:%d: %s", __FILE__, __LINE__, #cond); \
+            SDL_Log("     " __VA_ARGS__); \
+        } \
+    } while (0)
+
+/* A fresh pref folder for one scenario. */
+static void Scenario(const char *name) {
+    SDL_Log("== %s", name);
+    SDL_snprintf(s_pref, sizeof(s_pref), "%s/%s/", s_out, name);
+    /* start empty: remove what an earlier run left */
+    {
+        char **names;
+        int n = 0, i;
+        static const char *const sub[] = { "saves/default/deleted/", "saves/default/", "memcardA/", "" };
+        size_t j;
+        for (j = 0; j < SDL_arraysize(sub); j++) {
+            char dir[1200];
+            SDL_snprintf(dir, sizeof(dir), "%s%s", s_pref, sub[j]);
+            names = SDL_GlobDirectory(dir, "*", 0, &n);
+            for (i = 0; names != NULL && i < n; i++) {
+                char path[1400];
+                SDL_snprintf(path, sizeof(path), "%s%s", dir, names[i]);
+                SDL_RemovePath(path);   /* files; folders once empty */
+            }
+            SDL_free(names);
+        }
+    }
+    Port_SavesForget();
+    Port_SavesTestFailAfterTemp(0);
+    s_log[0] = 0;
+}
+
+static char *SavePath(const char *suffix) {
+    char *p = NULL;
+    SDL_asprintf(&p, "%ssaves/default/hwvx%s", s_pref, suffix);
+    return p;
+}
+
+static int FileExists(const char *suffix) {
+    char *p = SavePath(suffix);
+    int e = SDL_GetPathInfo(p, NULL);
+    SDL_free(p);
+    return e;
+}
+
+static char *LoadSaveFile(const char *suffix, size_t *len) {
+    char *p = SavePath(suffix), *t = SDL_LoadFile(p, len);
+    SDL_free(p);
+    return t;
+}
+
+static void StoreSaveFile(const char *suffix, const void *data, size_t len) {
+    char *p = SavePath(suffix);
+    SDL_IOStream *io = SDL_IOFromFile(p, "wb");
+    if (io != NULL) {
+        SDL_WriteIO(io, data, len);
+        SDL_CloseIO(io);
+    }
+    SDL_free(p);
+}
+
+/* ---- saves to test with ------------------------------------------------ */
+
+#define HW_SIZE ((u32)SAVE_FILE_SIZE(sizeof(HotWheelsGameData)))
+#define DDR_SIZE ((u32)SAVE_FILE_SIZE(sizeof(DDRescueGameData)))
+
+static u32 s_rand = 12345;
+static u32 Rand(void) {
+    s_rand = s_rand * 1103515245u + 12345u;
+    return s_rand >> 8;
+}
+
+static void Finish(void *file, const PortSaveKind *kind) {
+    SaveFile *f = file;
+    f->magic = SAVE_FILE_MAGIC;
+    f->version = (u32)(sizeof(GeneralGameSettings) + kind->dataSize * SAVE_FILE_SLOTS);
+    f->checksum = Port_SaveChecksum(file, kind);
+}
+
+/* Every byte random, then the header made valid: padding, NaNs, names with
+ * bytes after their NUL, out-of-table vehicles all included. */
+static void RandomSave(u8 *file, const PortSaveKind *kind) {
+    u32 i, size = Port_SaveFileSize(kind);
+    SaveFile *f = (SaveFile *)file;
+
+    for (i = 0; i < size; i++) {
+        file[i] = (u8)Rand();
+    }
+    for (i = 0; i < SAVE_FILE_SLOTS; i++) {
+        /* a name stops at its NUL or after 11 chars; bytes after a NUL are kept */
+        u32 n = Rand() % 12, k;
+        for (k = 0; k < n && k < 11; k++) {
+            f->settings.slots[i].name[k] = (char)('A' + Rand() % 26);
+        }
+        if (n < 11) {
+            f->settings.slots[i].name[n] = 0;
+        }
+    }
+    Finish(file, kind);
+}
+
+/* A small Hot Wheels save, made to be told apart by `tag`. */
+static void SimpleSave(u8 *file, int tag) {
+    const PortSaveKind *kind = Port_SaveKindByName("hwvx");
+    SaveFile *f = (SaveFile *)file;
+    HotWheelsGameData *g = (HotWheelsGameData *)SAVE_FILE_GAME_DATA(file, sizeof(HotWheelsGameData), 0);
+
+    SDL_memset(file, 0, HW_SIZE);
+    f->settings.audio.sfxVolume = 100;
+    f->settings.audio.musicVolume = (u8)tag;
+    f->settings.slots[0].valid = 1;
+    SDL_snprintf(f->settings.slots[0].name, sizeof(f->settings.slots[0].name), "SAVE %d", tag);
+    f->settings.slots[0].year = 2026;
+    f->settings.slots[0].minute = tag;
+    g->cars[3] = g->cars[4] = g->cars[5] = 1;
+    g->tracks[tag % 0x39] = 1;
+    g->vehicle = 3;
+    g->item = 0;
+    g->miscValues[0] = (u16)tag;
+    Finish(file, kind);
+}
+
+/* ---- field by field ---------------------------------------------------- */
+
+static int s_diffs;
+#define SAME(what, a, b) do { \
+        if ((a) != (b)) { \
+            s_diffs++; \
+            if (s_diffs <= 20) SDL_Log("     differs: %s: %lld vs %lld", what, (long long)(a), (long long)(b)); \
+        } \
+    } while (0)
+
+static int CompareHotWheels(const u8 *a, const u8 *b) {
+    const SaveFile *fa = (const SaveFile *)a, *fb = (const SaveFile *)b;
+    char what[64];
+    int i, j, fields = 0;
+
+    s_diffs = 0;
+    SAME("magic", fa->magic, fb->magic);
+    SAME("version", fa->version, fb->version);
+    SAME("checksum", fa->checksum, fb->checksum);
+    SAME("difficulty", fa->settings.difficulty, fb->settings.difficulty);
+    SAME("sfxVolume", fa->settings.audio.sfxVolume, fb->settings.audio.sfxVolume);
+    SAME("musicVolume", fa->settings.audio.musicVolume, fb->settings.audio.musicVolume);
+    SAME("speakerMode", fa->settings.audio.speakerMode, fb->settings.audio.speakerMode);
+    SAME("audio.pad3", fa->settings.audio.pad3, fb->settings.audio.pad3);
+    fields += 8;
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < (int)sizeof(fa->settings.controllers[i].data); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "controllers[%d].data[%d]", i, j);
+            SAME(what, fa->settings.controllers[i].data[j], fb->settings.controllers[i].data[j]);
+        }
+    }
+    for (i = 0; i < SAVE_FILE_SLOTS; i++) {
+        const SaveSlotInfo *x = &fa->settings.slots[i], *y = &fb->settings.slots[i];
+        const HotWheelsGameData *g = (const HotWheelsGameData *)SAVE_FILE_GAME_DATA(a, sizeof(HotWheelsGameData), i);
+        const HotWheelsGameData *h = (const HotWheelsGameData *)SAVE_FILE_GAME_DATA(b, sizeof(HotWheelsGameData), i);
+
+        SDL_snprintf(what, sizeof(what), "slots[%d].valid", i); SAME(what, x->valid, y->valid);
+        SDL_snprintf(what, sizeof(what), "slots[%d].name", i); SAME(what, SDL_memcmp(x->name, y->name, sizeof(x->name)), 0);
+        SDL_snprintf(what, sizeof(what), "slots[%d].year", i); SAME(what, x->year, y->year);
+        SDL_snprintf(what, sizeof(what), "slots[%d].month", i); SAME(what, x->month, y->month);
+        SDL_snprintf(what, sizeof(what), "slots[%d].day", i); SAME(what, x->day, y->day);
+        SDL_snprintf(what, sizeof(what), "slots[%d].hour", i); SAME(what, x->hour, y->hour);
+        SDL_snprintf(what, sizeof(what), "slots[%d].minute", i); SAME(what, x->minute, y->minute);
+        fields += 7;
+        for (j = 0; j < (int)sizeof(g->cars); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "slot %d cars[%d]", i, j); SAME(what, g->cars[j], h->cars[j]);
+        }
+        for (j = 0; j < (int)sizeof(g->tracks); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "slot %d tracks[%d]", i, j); SAME(what, g->tracks[j], h->tracks[j]);
+        }
+        for (j = 0; j < (int)sizeof(g->pad5A); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "slot %d pad5A[%d]", i, j); SAME(what, g->pad5A[j], h->pad5A[j]);
+        }
+        for (j = 0; j < (int)sizeof(g->items); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "slot %d items[%d]", i, j); SAME(what, g->items[j], h->items[j]);
+        }
+        for (j = 0; j < (int)sizeof(g->cheats); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "slot %d cheats[%d]", i, j); SAME(what, g->cheats[j], h->cheats[j]);
+        }
+        for (j = 0; j < (int)sizeof(g->extras); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "slot %d extras[%d]", i, j); SAME(what, g->extras[j], h->extras[j]);
+        }
+        SDL_snprintf(what, sizeof(what), "slot %d padAF", i); SAME(what, g->padAF, h->padAF);
+        for (j = 0; j < (int)SDL_arraysize(g->miscValues); j++, fields++) {
+            SDL_snprintf(what, sizeof(what), "slot %d miscValues[%d]", i, j); SAME(what, g->miscValues[j], h->miscValues[j]);
+        }
+        SDL_snprintf(what, sizeof(what), "slot %d vehicle", i); SAME(what, g->vehicle, h->vehicle);
+        SDL_snprintf(what, sizeof(what), "slot %d item", i); SAME(what, g->item, h->item);
+        fields += 3;
+    }
+    SDL_Log("     %d fields compared, %d differ", fields, s_diffs);
+    return s_diffs == 0;
+}
+
+/* ---- scenarios --------------------------------------------------------- */
+
+static void TestGameCube(const char *gci) {
+    const PortSaveKind *kind = Port_SaveKindByName("hwvx");
+    u8 *a = SDL_calloc(1, HW_SIZE), *b = SDL_calloc(1, HW_SIZE);
+    size_t len = 0;
+    u8 *bytes;
+    char err[200];
+    const SaveFile *f = (const SaveFile *)a;
+    const HotWheelsGameData *g = (const HotWheelsGameData *)SAVE_FILE_GAME_DATA(a, sizeof(HotWheelsGameData), 0);
+
+    Scenario("gamecube");
+    if (gci == NULL) {
+        SDL_Log("   skipped: no --gci");
+        return;
+    }
+    bytes = SDL_LoadFile(gci, &len);
+    CHECK(bytes != NULL, "can't read %s", gci);
+    if (bytes == NULL) {
+        return;
+    }
+    /* .gci: a 0x40-byte header, then the card file: the SaveFile at 0x840 */
+    CHECK(Port_SaveFromBinary(bytes + 0x40 + 0x840, len - 0x40 - 0x840, PORT_SAVE_ORDER_BIG, kind, a, err, sizeof(err)),
+          "%s: %s", gci, err);
+    SDL_Log("   %s: slot 0 \"%.11s\" %04d-%02d-%02d, cars 3-5 %d%d%d, vehicle %d",
+            gci, f->settings.slots[0].name, (int)f->settings.slots[0].year, (int)f->settings.slots[0].month,
+            (int)f->settings.slots[0].day, g->cars[3], g->cars[4], g->cars[5], (int)g->vehicle);
+    CHECK(f->settings.slots[0].valid == 1 && f->settings.slots[0].year > 2000, "the slot doesn't look like a save");
+    CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write failed");
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", b, HW_SIZE), "read failed");
+    CHECK(CompareHotWheels(a, b), "the round trip changed fields");
+    CHECK(SDL_memcmp(a, b, HW_SIZE) == 0, "the round trip changed bytes");
+    {
+        size_t n;
+        char *text = LoadSaveFile(".json", &n);
+        CHECK(text != NULL && SDL_strstr(text, "\"base://HW_Cars/car_3\": {\"unlocked\": true}") != NULL,
+              "the JSON doesn't key cars by id");
+        CHECK(text != NULL && SDL_strstr(text, "\"vehicle\": \"base://HW_Cars/car_") != NULL, "vehicle isn't an id");
+        SDL_free(text);
+    }
+    SDL_free(bytes);
+    SDL_free(a);
+    SDL_free(b);
+}
+
+static void TestRandom(void) {
+    static const char *const names[] = { "hwvx", "doomsdayrescue" };
+    int k, n;
+
+    Scenario("random");
+    for (k = 0; k < 2; k++) {
+        const PortSaveKind *kind = Port_SaveKindByName(names[k]);
+        u32 size = Port_SaveFileSize(kind);
+        u8 *a = SDL_malloc(size), *b = SDL_malloc(size);
+
+        for (n = 0; n < 20; n++) {
+            RandomSave(a, kind);
+            if (k == 0 && n % 2 == 1) {
+                /* in-table ids now and then, so both paths are taken */
+                HotWheelsGameData *g = (HotWheelsGameData *)SAVE_FILE_GAME_DATA(a, sizeof(HotWheelsGameData), n % 8);
+                g->vehicle = n % 0x21;
+                g->item = -1;
+                Finish(a, kind);
+            }
+            CHECK(Port_SavesWrite(names[k], a, size), "%s write %d", names[k], n);
+            Port_SavesForget();
+            CHECK(Port_SavesRead(names[k], b, size), "%s read %d", names[k], n);
+            if (SDL_memcmp(a, b, size) != 0) {
+                u32 i;
+                for (i = sizeof(SaveFile); i < size && a[i] == b[i]; i++) {
+                }
+                CHECK(0, "%s save %d: differs from byte 0x%X (slot %d +0x%X): %02X vs %02X", names[k], n, (unsigned)i,
+                      (int)((i - sizeof(SaveFile)) / kind->dataSize), (unsigned)((i - sizeof(SaveFile)) % kind->dataSize), a[i], b[i]);
+                if (k == 0) {
+                    CompareHotWheels(a, b);
+                }
+                break;
+            }
+        }
+        SDL_Log("   %s: 20 random saves through JSON and back", names[k]);
+        SDL_free(a);
+        SDL_free(b);
+    }
+}
+
+/* `text` with the first `from` replaced by `to` (a new string; text is freed). */
+static char *Replace(char *text, const char *from, const char *to) {
+    char *p = text != NULL ? SDL_strstr(text, from) : NULL, *out = NULL;
+
+    CHECK(p != NULL, "no \"%s\" to replace", from);
+    if (p == NULL) {
+        return text;
+    }
+    SDL_asprintf(&out, "%.*s%s%s", (int)(p - text), text, to, p + SDL_strlen(from));
+    SDL_free(text);
+    return out;
+}
+
+static void TestUnknownIds(void) {
+    u8 *a = SDL_malloc(HW_SIZE), *b = SDL_malloc(HW_SIZE);
+    size_t len;
+    char *text, *hash;
+
+    Scenario("unknown-ids");
+    SimpleSave(a, 1);
+    CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write");
+    /* a player (or a removed mod) leaves ids the game hasn't: a car past the
+     * array, and a mod's car, chosen as the vehicle */
+    text = LoadSaveFile(".json", &len);
+    text = Replace(text, "\"cars\": {", "\"cars\": {\n        \"base://HW_Cars/car_40\": {\"unlocked\": true},"
+                   "\n        \"uid://a1b2c3d4e5f60718\": {\"unlocked\": true, \"note\": \"mod car\"},");
+    text = Replace(text, "\"vehicle\": \"base://HW_Cars/car_3\"", "\"vehicle\": \"uid://a1b2c3d4e5f60718\"");
+    /* edited by hand: the sha256 line deleted */
+    if (text != NULL && (hash = SDL_strstr(text, "// sha256: ")) != NULL) {
+        *hash = 0;
+    }
+    StoreSaveFile(".json", text, text != NULL ? SDL_strlen(text) : 0);
+    SDL_free(text);
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", b, HW_SIZE), "read of the edited save");
+    CHECK(SDL_strstr(s_log, "no sha256 line") != NULL, "an edited save isn't said to be one");
+    {
+        const HotWheelsGameData *g = (const HotWheelsGameData *)SAVE_FILE_GAME_DATA(b, sizeof(HotWheelsGameData), 0);
+        CHECK(g->vehicle == -1, "an uninstalled vehicle reads as %d, not -1 (none)", (int)g->vehicle);
+        CHECK(g->cars[3] == 1, "retail unlocks lost");
+    }
+    /* the game writes it back: the unknown entries stay */
+    CHECK(Port_SavesWrite("hwvx", b, HW_SIZE), "write back");
+    text = LoadSaveFile(".json", &len);
+    CHECK(text != NULL && SDL_strstr(text, "\"uid://a1b2c3d4e5f60718\": {\"unlocked\": true, \"note\": \"mod car\", \"inactive\": true}") != NULL,
+          "the mod's car is gone");
+    CHECK(text != NULL && SDL_strstr(text, "\"base://HW_Cars/car_40\": {\"unlocked\": true, \"inactive\": true}") != NULL,
+          "the 41st car is gone");
+    CHECK(text != NULL && SDL_strstr(text, "\"vehicle\": \"uid://a1b2c3d4e5f60718\"") != NULL, "the chosen mod car is gone");
+    SDL_free(text);
+    SDL_free(a);
+    SDL_free(b);
+}
+
+static void TestAtomic(void) {
+    u8 *a = SDL_malloc(HW_SIZE), *b = SDL_malloc(HW_SIZE), *r = SDL_malloc(HW_SIZE);
+    size_t lenBefore, lenAfter;
+    char *before, *after;
+
+    Scenario("atomic");
+    SimpleSave(a, 1);
+    SimpleSave(b, 2);
+    CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write A");
+    before = LoadSaveFile(".json", &lenBefore);
+
+    /* the write dies after the temporary file is complete */
+    Port_SavesTestFailAfterTemp(1);
+    CHECK(!Port_SavesWrite("hwvx", b, HW_SIZE), "the stopped write says it worked");
+    Port_SavesTestFailAfterTemp(0);
+    CHECK(FileExists(".json.tmp"), "no temporary file left, as a crash would");
+    after = LoadSaveFile(".json", &lenAfter);
+    CHECK(before != NULL && after != NULL && lenBefore == lenAfter && SDL_memcmp(before, after, lenBefore) == 0,
+          "the save changed");
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "the old save doesn't read back");
+    CHECK(!FileExists(".1.json"), "a backup was made by a write that didn't happen");
+    SDL_free(after);
+
+    /* a temporary file torn halfway (a crash during the write itself) */
+    StoreSaveFile(".json.tmp", before, lenBefore / 2);
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "a torn .tmp disturbed the read");
+
+    /* the next write goes through */
+    CHECK(Port_SavesWrite("hwvx", b, HW_SIZE), "write B");
+    CHECK(!FileExists(".json.tmp"), "the .tmp wasn't renamed over the save");
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, b, HW_SIZE) == 0, "B doesn't read back");
+    CHECK(FileExists(".1.json"), "no backup of A");
+    SDL_free(before);
+    SDL_free(a);
+    SDL_free(b);
+    SDL_free(r);
+}
+
+static void TestCorrupt(void) {
+    u8 *a = SDL_malloc(HW_SIZE), *b = SDL_malloc(HW_SIZE), *c = SDL_malloc(HW_SIZE), *r = SDL_malloc(HW_SIZE);
+    size_t len, len1;
+    char *text, *text1, *t2;
+    char *hash;
+
+    Scenario("corrupt");
+    SimpleSave(a, 1);
+    SimpleSave(b, 2);
+    SimpleSave(c, 3);
+    CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write A");
+    CHECK(Port_SavesWrite("hwvx", b, HW_SIZE), "write B");   /* .1 = A */
+
+    /* one changed byte, the hash line kept */
+    text = LoadSaveFile(".json", &len);
+    hash = SDL_strstr(text, "\"SAVE 2\"");
+    CHECK(hash != NULL, "no name in the save");
+    hash[6] = '9';   /* "SAVE 9" */
+    StoreSaveFile(".json", text, len);
+    Port_SavesForget();
+    s_log[0] = 0;
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE), "no fallback");
+    CHECK(SDL_memcmp(r, a, HW_SIZE) == 0, "the fallback isn't the backup (A)");
+    CHECK(SDL_strstr(s_log, "fails its sha256") != NULL && SDL_strstr(s_log, "loaded the backup hwvx.1.json") != NULL,
+          "the fallback wasn't logged");
+
+    /* truncated (a write without the .tmp would leave this) */
+    StoreSaveFile(".json", text, len / 3);
+    Port_SavesForget();
+    s_log[0] = 0;
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "no fallback from a truncated save");
+    CHECK(SDL_strstr(s_log, "loaded the backup") != NULL, "not logged");
+
+    /* parses, but isn't a save; no hash line */
+    StoreSaveFile(".json", "{\"format_version\": 1, \"game\": \"ddrescue\"}\n", 42);
+    Port_SavesForget();
+    s_log[0] = 0;
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "no fallback from a wrong save");
+    CHECK(SDL_strstr(s_log, "isn't a save") != NULL, "not logged");
+
+    /* a newer format: never read as this one */
+    StoreSaveFile(".json", "{\"format_version\": 99, \"game\": \"hwvx\"}\n", 40);
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "a newer format was read");
+
+    /* every file bad: the read fails, nothing is touched */
+    text1 = LoadSaveFile(".1.json", &len1);
+    t2 = SDL_strdup(text1);
+    t2[len1 / 2] ^= 0x20;
+    StoreSaveFile(".1.json", t2, len1);
+    StoreSaveFile(".json", text, len);
+    Port_SavesForget();
+    s_log[0] = 0;
+    CHECK(!Port_SavesRead("hwvx", r, HW_SIZE), "a read with no good file worked");
+    {
+        const SaveFile *f = (const SaveFile *)r;
+        CHECK(f->magic == 0, "a failed read isn't zeroes (the game's check must fail)");
+    }
+    CHECK(SDL_strstr(s_log, "left as they are") != NULL, "not logged");
+    CHECK(Port_SavesExists("hwvx"), "a damaged save reads as missing (the game would make a new one)");
+    {
+        size_t n1, n2;
+        char *x = LoadSaveFile(".json", &n1), *y = LoadSaveFile(".1.json", &n2);
+        CHECK(x != NULL && n1 == len && SDL_memcmp(x, text, len) == 0, "the damaged save was changed by a read");
+        CHECK(y != NULL && n2 == len1 && SDL_memcmp(y, t2, len1) == 0, "the damaged backup was changed by a read");
+        SDL_free(x);
+        SDL_free(y);
+    }
+
+    /* the next write: the damaged save is moved aside, not into the backups */
+    CHECK(Port_SavesWrite("hwvx", c, HW_SIZE), "write C");
+    CHECK(FileExists(".damaged.json"), "the damaged save wasn't kept");
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, c, HW_SIZE) == 0, "C doesn't read back");
+    SDL_free(text);
+    SDL_free(text1);
+    SDL_free(t2);
+    SDL_free(a);
+    SDL_free(b);
+    SDL_free(c);
+    SDL_free(r);
+}
+
+static void TestRotation(void) {
+    u8 *a = SDL_malloc(HW_SIZE), *r = SDL_malloc(HW_SIZE);
+    int n, k;
+
+    Scenario("rotation");
+    for (n = 1; n <= PORT_SAVES_BACKUPS + 3; n++) {
+        SimpleSave(a, n);
+        CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write %d", n);
+    }
+    /* the save is the last; .k is the one k writes before */
+    for (k = 1; k <= PORT_SAVES_BACKUPS; k++) {
+        char suffix[16];
+        size_t len;
+        char *text, want[32];
+
+        SDL_snprintf(suffix, sizeof(suffix), ".%d.json", k);
+        text = LoadSaveFile(suffix, &len);
+        SDL_snprintf(want, sizeof(want), "\"SAVE %d\"", PORT_SAVES_BACKUPS + 3 - k);
+        CHECK(text != NULL && SDL_strstr(text, want) != NULL, "backup %d isn't save %d", k, PORT_SAVES_BACKUPS + 3 - k);
+        SDL_free(text);
+    }
+    {
+        char suffix[16];
+        SDL_snprintf(suffix, sizeof(suffix), ".%d.json", PORT_SAVES_BACKUPS + 1);
+        CHECK(!FileExists(suffix), "more than %d backups", PORT_SAVES_BACKUPS);
+    }
+    Port_SavesForget();
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "the last save doesn't read back");
+    SDL_free(a);
+    SDL_free(r);
+}
+
+static void TestMigration(void) {
+    u8 *a = SDL_malloc(HW_SIZE), *r = SDL_malloc(HW_SIZE), card[0x2000];
+    char path[1200];
+    size_t len;
+    char *text, *back;
+
+    Scenario("migration");
+    /* the port's memory card file: header, banner and icons, then the SaveFile */
+    SimpleSave(a, 7);
+    SDL_memset(card, 0, sizeof(card));
+    SDL_strlcpy((char *)card, "Hot Wheels Velocity X Save", 0x20);
+    SDL_memcpy(card + 0x840, a, HW_SIZE);
+    SDL_snprintf(path, sizeof(path), "%smemcardA/", s_pref);
+    SDL_CreateDirectory(path);
+    SDL_strlcat(path, "hwvx.sav", sizeof(path));
+    {
+        SDL_IOStream *io = SDL_IOFromFile(path, "wb");
+        SDL_WriteIO(io, card, sizeof(card));
+        SDL_CloseIO(io);
+    }
+    CHECK(Port_SavesExists("hwvx"), "the card file wasn't imported");
+    CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "the import differs");
+    text = LoadSaveFile(".json", &len);
+    CHECK(text != NULL && SDL_strstr(text, "\"imported_from\": \"memcardA/hwvx.sav\"") != NULL, "no imported_from");
+    SDL_free(text);
+    back = SDL_LoadFile(path, &len);
+    CHECK(back != NULL && len == sizeof(card) && SDL_memcmp(back, card, sizeof(card)) == 0, "the .sav was changed");
+    SDL_free(back);
+    CHECK(FileExists(".imported"), "no marker");
+    /* a later save keeps where it came from */
+    SimpleSave(a, 8);
+    CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write");
+    text = LoadSaveFile(".json", &len);
+    CHECK(text != NULL && SDL_strstr(text, "\"imported_from\"") != NULL, "imported_from lost");
+    SDL_free(text);
+    /* the game's Delete: gone, and not imported again */
+    CHECK(Port_SavesDelete("hwvx"), "delete");
+    Port_SavesForget();
+    CHECK(!Port_SavesExists("hwvx"), "the deleted save came back from the card");
+    CHECK(!FileExists(".json") && !FileExists(".1.json"), "files left after delete");
+    SDL_snprintf(path, sizeof(path), "%ssaves/default/deleted/hwvx.json", s_pref);
+    CHECK(SDL_GetPathInfo(path, NULL), "the deleted save isn't in deleted/");
+
+    /* a bad card file isn't imported, and is left alone */
+    Scenario("migration-bad");
+    card[0x840 + 0x20] ^= 1;   /* checksum fails */
+    SDL_snprintf(path, sizeof(path), "%smemcardA/", s_pref);
+    SDL_CreateDirectory(path);
+    SDL_strlcat(path, "hwvx.sav", sizeof(path));
+    {
+        SDL_IOStream *io = SDL_IOFromFile(path, "wb");
+        SDL_WriteIO(io, card, sizeof(card));
+        SDL_CloseIO(io);
+    }
+    CHECK(!Port_SavesExists("hwvx"), "a bad card file was imported");
+    CHECK(SDL_strstr(s_log, "not imported: checksum") != NULL, "not logged");
+    SDL_free(a);
+    SDL_free(r);
+}
+
+int main(int argc, char **argv) {
+    const char *gci = NULL;
+    int i;
+
+    for (i = 1; i < argc; i++) {
+        if (SDL_strcmp(argv[i], "--gci") == 0 && i + 1 < argc) {
+            gci = argv[++i];
+        } else {
+            s_out = argv[i];
+        }
+    }
+    SDL_CreateDirectory(s_out);
+    TestGameCube(gci);
+    TestRandom();
+    TestUnknownIds();
+    TestAtomic();
+    TestCorrupt();
+    TestRotation();
+    TestMigration();
+    Port_SavesForget();
+    SDL_Log("%d checks, %d failed", s_checks, s_failed);
+    return s_failed != 0;
+}

@@ -217,6 +217,31 @@ static void WriteFloatArray(JsonWriter *w, const char *key, const f32 *a, int n)
     Jw_EndArray(w);
 }
 
+/* DD Rescue's bytes no code reads: pad6A, pad75, the hole the compiler
+ * leaves after carMode (0x197E), pad1CD2. To `pads`, or back from it. */
+#define DDR_PADS 9
+static void DDRescuePads(DDRescueGameData *g, u8 *pads, int back) {
+    static const struct { u32 offset, size; } s_pads[] = {
+        { offsetof(DDRescueGameData, pad6A), 2 },
+        { offsetof(DDRescueGameData, pad75), 3 },
+        { offsetof(DDRescueGameData, carMode) + DDR_MAX_CARS, 2 },
+        { offsetof(DDRescueGameData, pad1CD2), 2 },
+    };
+    size_t i, n = 0;
+
+    for (i = 0; i < SDL_arraysize(s_pads); i++) {
+        u8 *p = (u8 *)g + s_pads[i].offset;
+        if (back) {
+            SDL_memcpy(p, pads + n, s_pads[i].size);
+        } else {
+            SDL_memcpy(pads + n, p, s_pads[i].size);
+        }
+        n += s_pads[i].size;
+    }
+}
+_Static_assert(offsetof(DDRescueGameData, carPos) == offsetof(DDRescueGameData, carMode) + DDR_MAX_CARS + 2,
+               "DDRescueGameData: the hole after carMode");
+
 /* DD Rescue: its unlocks, then the world it was in as named records
  * (GameSettings_GatherGameData). */
 static void WriteDDRescue(JsonWriter *w, const DDRescueGameData *g) {
@@ -231,18 +256,17 @@ static void WriteDDRescue(JsonWriter *w, const DDRescueGameData *g) {
     Jw_Int(w, "progression", g->progression);
     Jw_Int(w, "vehicle", g->vehicle);
     Jw_Int(w, "item", g->item);
-    if (!AllZero(g->pad6A, sizeof(g->pad6A)) || !AllZero(g->pad75, sizeof(g->pad75)) ||
-        !AllZero(g->pad1CD2, sizeof(g->pad1CD2))) {
-        u8 pads[7];
-        SDL_memcpy(pads, g->pad6A, 2);
-        SDL_memcpy(pads + 2, g->pad75, 3);
-        SDL_memcpy(pads + 5, g->pad1CD2, 2);
-        Jw_Hex(w, "unused", pads, sizeof(pads));
+    {
+        u8 pads[DDR_PADS];
+        DDRescuePads((DDRescueGameData *)g, pads, 0);
+        if (!AllZero(pads, sizeof(pads))) {
+            Jw_Hex(w, "unused", pads, sizeof(pads));
+        }
     }
     Jw_BeginObject(w, "world", 0);
     Jw_Bool(w, "valid", g->bValid != 0);
-    if (g->bValid > 1) {
-        Jw_Int(w, "valid_value", g->bValid);
+    if ((u8)g->bValid > 1) {
+        Jw_Int(w, "valid_value", (u8)g->bValid);
     }
     Jw_Hex(w, "player_stats", g->playerStats, sizeof(g->playerStats));
     {
@@ -555,11 +579,9 @@ static void ReadDDRescue(Reader *r, const JsonNode *slot, DDRescueGameData *g) {
     g->vehicle = (s32)IntMember(r, slot, "vehicle", INT32_MIN, INT32_MAX, -1);
     g->item = (s32)IntMember(r, slot, "item", INT32_MIN, INT32_MAX, -1);
     if (Json_Get(slot, "unused") != NULL) {
-        u8 pads[7];
+        u8 pads[DDR_PADS];
         HexMember(r, slot, "unused", pads, sizeof(pads), 1);
-        SDL_memcpy(g->pad6A, pads, 2);
-        SDL_memcpy(g->pad75, pads + 2, 3);
-        SDL_memcpy(g->pad1CD2, pads + 5, 2);
+        DDRescuePads(g, pads, 1);
     }
     if (world == NULL) {
         return;

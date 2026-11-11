@@ -569,7 +569,7 @@ void Jw_Comment(JsonWriter *w, const char *text) {
         Put(w, ",", 1);
         w->count[d] = 2;     /* the comma is written: the next element adds none */
     }
-    if (d > 0 || w->len > 0) {
+    if (d > 0) {
         Indent(w, d);
     }
     PutS(w, "// ");
