@@ -117,40 +117,43 @@ enum { REC_SOUND = 6, REC_GRAPHICS = 8, REC_GAMMA = 9, REC_FOV = 10 };
 /* The PC's Options screen has five rows, 31 apart from 203: with the port's
  * sixth they go back to the GameCube's gap, around the same centre. */
 #define ROW_CENTRE_Y 265.0f
-static const RowSpacing s_mainSpacing = { PACK_ROW_FIRST_Y, PACK_ROW_STEP_Y, ROW_Y, ROW_STEP };
 
-/* The main menu's objects, and the quit screen's. */
+/* The main menu, found by its title and rows' texts (FindMainMenu): the
+ * GameCube's and PS2's (26 objects) and the PC's (21) differ. Rows are texts
+ * with a record, some with a label (the same text without one) under them. */
 enum {
-    MAIN_NUM_OBJECTS = 26,
-    MAIN_TITLE = 4,             /* "Main Menu" */
-    MAIN_ROWS = 12,             /* One Player .. Extras: 12 to 21 */
-    MAIN_ROWS_END = 22,
-    MAIN_EXTRAS = 21,
-    QUIT_NUM_OBJECTS = 27,
-    QUIT_WARNING = 19,
-    QUIT_CONFIRM = 18,
-    QUIT_YES = 21,
-    QUIT_NO = 22,
+    MAIN_ONE_PLAYER,
+    MAIN_MULTI_PLAYER,          /* not on PC */
+    MAIN_LOAD,
+    MAIN_SAVE,
+    MAIN_OPTIONS,
+    MAIN_EXTRAS,
+    MAIN_EXIT,                  /* PC: "Exit to Desktop"; the port's "Quit Game" elsewhere */
+    MAIN_NUM_ROWS,
+    MAIN_MAX_OBJECTS = 32,
+    MAIN_MAX_MOVED = 16,        /* the rows' texts, labels too */
 };
+static const char *const s_mainRowText[MAIN_NUM_ROWS] = {
+    "One Player", "Multi-Player", "Load Game", "Save Game", "Options", "Extras", "Exit to Desktop",
+};
+
+typedef struct MainMenu {
+    u32 numObjects;
+    u32 row[MAIN_NUM_ROWS];     /* the row objects, NONE if absent */
+} MainMenu;
+
 /* IfaceEvent.type: the buttons menu rows answer to */
 enum { EVENT_A = 0x4, EVENT_START = 0x15 };
-enum { REC_ONE_PLAYER = 1, REC_EXTRAS = 5, REC_DESKTOP = 7 };
-/* Blob offsets of the main menu (the pack's root) and the quit screen in
- * HW_IPack.xgc pack 6, the menu pack (MCP menuFile). */
-#define PACK_MAIN_MENU 0x6ECC60u
-#define PACK_QUIT_SCREEN 0x83A8A0u
-#define PACK_LOAD_SCREEN 0x7FE220u      /* Load Game: slot picker / file list (46 objects) */
-#define PACK_LOAD_PROGRESS 0x825C20u    /* "Loading from Memory Card..." (15) */
-#define PACK_SAVE_SCREEN 0x835980u      /* Save Game: slot picker / file list (48) */
-#define PACK_SAVE_PROGRESS 0x8484A0u    /* "Saving data to the Memory Card..." (14) */
-#define PACK_REMINDER 0x85BC00u         /* "Be sure to save your game..." (12) */
+/* The port's main menu rows: Quit Game takes the id after the GameCube's
+ * last (Extras 5, Save Game 6), Multi-Player on PC the first one free. */
+enum { REC_DESKTOP = 7 };
 
-/* The Load/Save Game screens: var 4 is the phase (0: slot picker, 1: file
- * list), object 11 the card warnings. */
+/* The Load/Save Game screens with a memory card slot picker (GameCube, PS2):
+ * var 4 is the phase (0: slot picker, 1: file list), object 11 the card
+ * warnings. The PC's are the file list alone. */
 enum { CARD_VAR_PHASE = 4, CARD_WARNING = 11 };
 enum { CODEVAR_SETTINGS_CHANGED = 0xCA, CODEVAR_DEVICE = 0x1F7, CODEVAR_FILE_INDEX = 0x1F8 };
-enum { EVENT_GOTO = 1, EVENT_BACK = 2, EVENT_NOTHING = 0xC };
-enum { MAIN_MULTI_PLAYER = 14, REC_MULTI_PLAYER = 2, REC_LOAD_GAME = 3 };
+enum { EVENT_GOTO = 1, EVENT_BACK = 2, EVENT_NOTHING = 0xC, EVENT_GOTO_PARENT = 0x20 };
 
 void GameSettings_PortAutoSave(void);
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce);
@@ -195,9 +198,9 @@ typedef struct ListCopy {
     PTR32(char) slots[MAX_MODES];
 } ListCopy;
 
-static IfaceObjectDef s_mainObjs[MAIN_NUM_OBJECTS + 1];
-static AnimCopy s_mainRowAnim[MAIN_ROWS_END - MAIN_ROWS], s_desktopAnim;
-static TextCopy s_desktopText;
+static IfaceObjectDef s_mainObjs[MAIN_MAX_OBJECTS + 1];
+static AnimCopy s_mainRowAnim[MAIN_MAX_MOVED], s_desktopAnim;
+static TextCopy s_desktopText, s_multiText;
 static RecordCopy s_desktopRec;
 static PTR32(char) s_quitWarning;
 static InterfaceHeader *s_main, *s_loadScreen, *s_loadProgress, *s_saveScreen, *s_saveProgress, *s_reminder;
@@ -773,85 +776,237 @@ static int FindOptions(InterfaceHeader *h, OptScreen *o) {
     return 1;
 }
 
-/* The PC release's main menu (21 objects: One Player, Load Game, Save Game,
- * Options, Extras, Exit to Desktop) is not this one, and is left as it is:
- * - it quits by itself (Exit to Desktop), so it needs no Quit Game row;
- * - no Multi-Player row: the PC pack has no Multi-Player screen (the 16
- *   objects every online screen is a copy of, and Local's target) and no
- *   two-to-four player car select, so there is nothing for one to lead to;
- * - the memory card screens are found from the GameCube main menu's blob
- *   offset (PACK_*), so their patches don't apply either. They aren't needed:
- *   the PC's Load Game and Save Game are file lists already (no slot picker,
- *   no card warnings), and B leaves them.
- * The online screens, the pause menu and Battle Options patches need the
- * GameCube screens too (s_mpScreen, s_battleOptions stay NULL on PC). */
+/* ---- Finding screens by content ----------------------------------------------
+ * The three releases' menu packs hold the same kinds of screens at different
+ * offsets, some changed or missing (docs/menus/README.md), so screens are
+ * found by what they show and where their rows lead, from the main menu, the
+ * root of the menu pack: every menu screen is reached from it through go-to
+ * events and child slots. */
 
-/* The main menu, still as in the pack? */
-static int IsMainMenu(InterfaceHeader *h) {
-    IfaceObjectDef *objs = GETP(h->objects);
+/* The first go-to target (event types 1 and 0x20) of an event list. */
+static InterfaceHeader *EventTarget(const IfaceEventList *list) {
+    u32 i;
 
-    return h->numObjects == MAIN_NUM_OBJECTS && objs != NULL && TextIs(&objs[MAIN_TITLE], "Main Menu") &&
-           TextIs(&objs[MAIN_ROWS], "One Player") && TextIs(&objs[MAIN_EXTRAS], "Extras") &&
-           GETP(objs[MAIN_ROWS].record) != NULL && GETP(objs[MAIN_EXTRAS].record) != NULL;
+    for (i = 0; i < list->count && GETP(list->events) != NULL; i++) {
+        const IfaceEventDef *def = GETP(GETP(list->events)[i].def);
+
+        if (def != NULL && (def->type == EVENT_GOTO || def->type == EVENT_GOTO_PARENT) && GETP(def->target) != NULL) {
+            return (InterfaceHeader *)GETP(def->target);
+        }
+    }
+    return NULL;
 }
 
-/* The quit screen, found from the main menu (both in the menu pack). */
-static InterfaceHeader *QuitScreen(InterfaceHeader *main) {
-    InterfaceHeader *q = (InterfaceHeader *)((u8 *)main - PACK_MAIN_MENU + PACK_QUIT_SCREEN);
-    IfaceObjectDef *objs = GETP(q->objects);
+/* Where row i leads (NONE: nowhere). */
+static InterfaceHeader *RowTarget(const InterfaceHeader *h, u32 i) {
+    const IfaceRecord *r;
 
-    if (q->numObjects != QUIT_NUM_OBJECTS || objs == NULL || !TextIs(&objs[QUIT_CONFIRM], "Confirm Quit") ||
-        !TextIs(&objs[QUIT_YES], "Yes, Quit") || DefText(&objs[QUIT_WARNING]) == NULL) {
+    if (h == NULL || i == NONE || i >= h->numObjects || (r = GETP(GETP(h->objects)[i].record)) == NULL) {
         return NULL;
     }
-    return q;
+    return EventTarget(&r->events);
 }
 
-/* A screen of the menu pack, at `offset` there if it has `numObjects`. */
-static InterfaceHeader *PackScreen(InterfaceHeader *main, u32 offset, u32 numObjects) {
-    InterfaceHeader *h = (InterfaceHeader *)((u8 *)main - PACK_MAIN_MENU + offset);
+/* Where the row showing `text` leads. */
+static InterfaceHeader *RowTargetOf(const InterfaceHeader *h, const char *text) {
+    return h != NULL ? RowTarget(h, FindText(GETP(h->objects), h->numObjects, text, 1)) : NULL;
+}
 
-    if (h->numObjects != numObjects || GETP(h->objects) == NULL) {
-        Port_Log("menu: no screen at 0x%X", offset);
-        return NULL;
+/* Where the first row with somewhere to go leads (a world select's entry). */
+static InterfaceHeader *FirstRowTarget(const InterfaceHeader *h) {
+    u32 i;
+
+    for (i = 0; h != NULL && i < h->numObjects; i++) {
+        InterfaceHeader *t = RowTarget(h, i);
+
+        if (t != NULL) {
+            return t;
+        }
     }
-    return h;
+    return NULL;
 }
 
-static void FindCardScreens(InterfaceHeader *main) {
-    IfaceObjectDef *objs;
-    const char *t;
+/* Where the screen's own events lead (an options screen's A: its world select). */
+static InterfaceHeader *ScreenTarget(const InterfaceHeader *h) {
+    return h != NULL ? EventTarget(&h->events) : NULL;
+}
 
-    s_main = main;
-    s_loadScreen = PackScreen(main, PACK_LOAD_SCREEN, 46);
-    s_loadProgress = PackScreen(main, PACK_LOAD_PROGRESS, 15);
-    s_saveScreen = PackScreen(main, PACK_SAVE_SCREEN, 48);
-    s_saveProgress = PackScreen(main, PACK_SAVE_PROGRESS, 14);
-    s_reminder = PackScreen(main, PACK_REMINDER, 12);
-    if (s_reminder != NULL) {
-        objs = GETP(s_reminder->objects);
-        t = DefText(&objs[11]);
-        if (t == NULL || strncmp(t, "Be sure to save", 15) != 0) {
-            s_reminder = NULL;
+static int HasText(const InterfaceHeader *h, const char *s, int row) {
+    return GETP(h->objects) != NULL && FindText(GETP(h->objects), h->numObjects, s, row) != NONE;
+}
+
+/* The first text starting with s. */
+static u32 FindTextPrefix(const InterfaceHeader *h, const char *s) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    u32 i;
+
+    for (i = 0; objs != NULL && i < h->numObjects; i++) {
+        const char *t = DefText(&objs[i]);
+
+        if (t != NULL && strncmp(t, s, strlen(s)) == 0) {
+            return i;
+        }
+    }
+    return NONE;
+}
+
+#define WALK_MAX 192
+
+static void WalkAdd(InterfaceHeader **seen, u32 *n, InterfaceHeader *h) {
+    u32 i;
+
+    if (h == NULL || GETP(h->objects) == NULL || *n == WALK_MAX) {
+        return;
+    }
+    for (i = 0; i < *n; i++) {
+        if (seen[i] == h) {
+            return;
+        }
+    }
+    seen[(*n)++] = h;
+}
+
+static void WalkEvents(InterfaceHeader **seen, u32 *n, const IfaceEventList *list) {
+    u32 i;
+
+    for (i = 0; i < list->count && GETP(list->events) != NULL; i++) {
+        const IfaceEventDef *def = GETP(GETP(list->events)[i].def);
+
+        if (def != NULL && (def->type == EVENT_GOTO || def->type == EVENT_GOTO_PARENT || def->type == 0x1F)) {
+            WalkAdd(seen, n, (InterfaceHeader *)GETP(def->target));
         }
     }
 }
 
-/* Load/Save Game: slot A's file list from the start, no card warnings, and
- * B (back to the slot picker) and the automatic return to it leave instead. */
+/* The first screen reachable from `root` that `test` takes, NULL if none. */
+static InterfaceHeader *FindScreen(InterfaceHeader *root, int (*test)(const InterfaceHeader *h)) {
+    static InterfaceHeader *seen[WALK_MAX];
+    u32 n = 0, k, i;
+
+    WalkAdd(seen, &n, root);
+    for (k = 0; k < n; k++) {
+        InterfaceHeader *h = seen[k];
+        const IfaceObjectDef *objs = GETP(h->objects);
+
+        if (test(h)) {
+            return h;
+        }
+        WalkEvents(seen, &n, &h->events);
+        for (i = 0; i < h->numObjects; i++) {
+            const IfaceRecord *r = GETP(objs[i].record);
+
+            if ((objs[i].type == IFACE_DEF_CHILD || objs[i].type == IFACE_DEF_CHILD_SYNC) && GETP(objs[i].child) != NULL) {
+                WalkAdd(seen, &n, (InterfaceHeader *)GETP(*GETP(objs[i].child)));
+            }
+            if (r != NULL) {
+                WalkEvents(seen, &n, &r->events);
+            }
+        }
+    }
+    return NULL;
+}
+
+/* ---- the main menu ------------------------------------------------------------
+ * GameCube and PS2: One Player, Multi-Player, Load Game, Save Game, Options,
+ * Extras; the port adds Quit Game, a copy of Extras opening the release's
+ * "Quit Game / Confirm Quit" screen (made for the GameCube's exit to the
+ * system menu, reached in the pack only from Save Game's Manage Memory Card).
+ * PC: One Player, Load Game, Save Game, Options, Extras, Exit to Desktop (its
+ * own confirm screen, which quits): the port adds Multi-Player, a copy of One
+ * Player, as the second row. Either way the seven rows sit at the GameCube's
+ * port spacing (ROW_*), in that order, and the up/down ring follows them. */
+
+/* The main menu, still as in the pack? Fills `m` with its rows. */
+static int FindMainMenu(InterfaceHeader *h, MainMenu *m) {
+    IfaceObjectDef *objs = GETP(h->objects);
+    u32 i;
+
+    if (objs == NULL || objs == s_mainObjs || h->numObjects > MAIN_MAX_OBJECTS ||
+        FindText(objs, h->numObjects, "Main Menu", 0) == NONE) {
+        return 0;
+    }
+    m->numObjects = h->numObjects;
+    for (i = 0; i < MAIN_NUM_ROWS; i++) {
+        m->row[i] = FindText(objs, h->numObjects, s_mainRowText[i], 1);
+    }
+    /* a release's main menu has all of these, and one of Multi-Player and
+     * Exit to Desktop at least */
+    return m->row[MAIN_ONE_PLAYER] != NONE && m->row[MAIN_LOAD] != NONE && m->row[MAIN_SAVE] != NONE &&
+           m->row[MAIN_OPTIONS] != NONE && m->row[MAIN_EXTRAS] != NONE &&
+           (m->row[MAIN_MULTI_PLAYER] != NONE || m->row[MAIN_EXIT] != NONE);
+}
+
+/* The quit screen: "Confirm Quit", its rows "Yes, Quit" and "No", the warning
+ * under the title (blank on PS2). */
+static int IsQuitScreen(const InterfaceHeader *h) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    u32 confirm = FindText(objs, h->numObjects, "Confirm Quit", 0);
+
+    return confirm != NONE && confirm + 1 < h->numObjects && DefText(&objs[confirm + 1]) != NULL &&
+           GETP(objs[confirm + 1].record) == NULL && FindText(objs, h->numObjects, "Yes, Quit", 1) != NONE &&
+           FindText(objs, h->numObjects, "No", 1) != NONE;
+}
+
+static int IsLoadProgress(const InterfaceHeader *h) {
+    return HasText(h, "LOAD GAME", 0) && HasText(h, "Continue without loading", 1);
+}
+
+static int IsSaveNaming(const InterfaceHeader *h) {
+    return HasText(h, "NAME SAVED GAME", 0);
+}
+
+static int IsReminder(const InterfaceHeader *h) {
+    return FindTextPrefix(h, "Be sure to save") != NONE;
+}
+
+/* The memory card screens. GameCube and PS2: Load Game and Save Game (the
+ * latter's screen is the child of a one-object wrapper) start on a slot
+ * picker; PC: a file list. Loading and saving each have a progress screen
+ * (loading's is "LOAD GAME" with "Continue without loading", saving's the
+ * naming screen's next), and leaving Options shows the reminder. */
+static void FindCardScreens(InterfaceHeader *main, const MainMenu *m) {
+    InterfaceHeader *save = RowTarget(main, m->row[MAIN_SAVE]);
+    const IfaceObjectDef *objs;
+
+    s_main = main;
+    s_loadScreen = RowTarget(main, m->row[MAIN_LOAD]);
+    s_saveScreen = NULL;
+    if (save != NULL && save->numObjects == 1 && (objs = GETP(save->objects))[0].type == IFACE_DEF_CHILD_SYNC &&
+        GETP(objs[0].child) != NULL) {
+        s_saveScreen = (InterfaceHeader *)GETP(*GETP(objs[0].child));
+    }
+    s_loadProgress = FindScreen(main, IsLoadProgress);
+    s_saveProgress = FirstRowTarget(FindScreen(main, IsSaveNaming));
+    s_reminder = FindScreen(RowTarget(main, m->row[MAIN_OPTIONS]), IsReminder);
+    if (s_loadScreen == NULL || s_saveScreen == NULL || s_loadProgress == NULL || s_saveProgress == NULL ||
+        s_reminder == NULL) {
+        Port_Log("menu: memory card screens: load %d, save %d, loading %d, saving %d, reminder %d",
+                 s_loadScreen != NULL, s_saveScreen != NULL, s_loadProgress != NULL, s_saveProgress != NULL,
+                 s_reminder != NULL);
+    }
+}
+
+/* Load/Save Game: saves are files, always slot A. Where the screen starts on
+ * a slot picker, slot A's file list from the start, no card warnings, and B
+ * (back to the slot picker) and the automatic return to it leave instead. */
 static void PatchCardScreen(InterfaceHeader *h) {
     IfaceObjectDef *objs = GETP(h->objects);
     IfaceVarList *vars = GETP(h->vars);
     u32 i, j, k;
 
+    GameSettings_SetCodeVariable(CODEVAR_DEVICE, 0, 1);
+    GameSettings_SetCodeVariable(CODEVAR_FILE_INDEX, 0, 1);
+    if (FindTextPrefix(h, "Memory Card Slot") == NONE && FindTextPrefix(h, " Memory Card Slot") == NONE) {
+        return;                 /* PC: no slot picker */
+    }
     if (vars != NULL && vars->count > CARD_VAR_PHASE) {
         GETP(vars->vars)[CARD_VAR_PHASE].offset = 1;
     }
-    GameSettings_SetCodeVariable(CODEVAR_DEVICE, 0, 1);
-    GameSettings_SetCodeVariable(CODEVAR_FILE_INDEX, 0, 1);
     s_hideAll.type = 0;
     s_hideAll.count = 0;
-    SETP(objs[CARD_WARNING].conditions, &s_hideAll);
+    if (h->numObjects > CARD_WARNING && GETP(objs[CARD_WARNING].record) == NULL) {
+        SETP(objs[CARD_WARNING].conditions, &s_hideAll);
+    }
     for (i = 0; i < h->numObjects; i++) {
         IfaceRecord *rec = GETP(objs[i].record);
         if (rec == NULL) {
@@ -874,42 +1029,33 @@ static void PatchCardScreen(InterfaceHeader *h) {
         }
     }
 }
-
-/* InterfaceManager_PlayEvent: an event is about to switch to `target` (go-to
- * events, types 1 and 0x20). Returns where to go instead, NULL for nowhere. */
 /* ---- Online screens ---------------------------------------------------------
- * All copies of the game's Multi-Player screen: the same frame and title, with
- * lines of text in place of its two rows, some of them selectable. Text lines come
- * first (their numbers are what Port_MenuOnlineSetLine takes), then the rows. */
+ * All copies of a menu screen of the release's own (OnlineTemplate: the
+ * Multi-Player screen, or on PC, which has none, the One Player screen): the
+ * same frame and title, with lines of text in place of its rows, some of them
+ * selectable. Text lines come first (their numbers are what
+ * Port_MenuOnlineSetLine takes), then the rows. Lines take the template's row
+ * objects in order, then copies of the first added after its objects; the
+ * rows left over are hidden. */
 
 enum {
-    MP_NUM_OBJECTS = 16,
-    MP_TITLE = 10,
-    MP_ROW_A = 11,
-    MP_ROW_B = 12,
+    TEMPLATE_MAX_OBJECTS = 24,
+    TEMPLATE_MAX_TITLES = 2,
+    TEMPLATE_MAX_ROWS = 8,
     MP_MAX_LINES = 8,
     PANEL_LINE_CHARS = 15,      /* what fits across the panel */
 };
-#define PACK_MP_SCREEN 0x7B4200u
-#define PACK_MP_DRAG 0x7B61C0u      /* Drag Race Options */
-#define PACK_MP_BATTLE 0x7E4440u    /* Battle Options */
-#define PACK_CAR_SELECT 0x7C6540u   /* First Player .. Fourth Player */
-#define CAR_SELECT_NUM_OBJECTS 22
-#define PACK_CAR_SELECT_SOLO 0x72CA00u  /* the one-player modes': online too, each
-                                         * machine having one player */
-#define CAR_SELECT_SOLO_NUM_OBJECTS 6
-#define PACK_JOYRIDE 0x78C280u      /* world select */
-#define PACK_JOYRIDE_CAR 0x79BC40u
-#define PACK_JOYRIDE_ITEM 0x79BD60u
-/* The screens Port_CarouselPatch widens: at least this many objects. */
-#define JOYRIDE_NUM_OBJECTS 78
-#define JOYRIDE_CAR_NUM_OBJECTS 6
-#define JOYRIDE_ITEM_NUM_OBJECTS 78
+
+typedef struct OnlineTemplate {
+    const InterfaceHeader *h;
+    u32 numTitles, title[TEMPLATE_MAX_TITLES];  /* the title's texts (the PC's has two) */
+    u32 numRows, row[TEMPLATE_MAX_ROWS];
+} OnlineTemplate;
 
 typedef struct OnlineScreen {
     InterfaceHeader h;
-    IfaceObjectDef objs[MP_NUM_OBJECTS + MP_MAX_LINES];
-    TextCopy title;
+    IfaceObjectDef objs[TEMPLATE_MAX_OBJECTS + MP_MAX_LINES];
+    TextCopy title[TEMPLATE_MAX_TITLES];
     TextCopy text[MP_MAX_LINES];
     AnimCopy anim[MP_MAX_LINES];
     RecordCopy rec[MP_MAX_LINES];
@@ -924,26 +1070,59 @@ typedef struct OnlineRow {
 
 static OnlineScreen s_olChoose, s_olOnline, s_olTunnel, s_olConnect, s_olLobbyHost, s_olLobbyClient, s_olLobbyTunnel, s_olMode, s_olWaiting;
 static InterfaceHeader s_olPaste, s_olCopy;   /* never shown: those rows' "targets" */
+/* the game's screens online play goes through: Multi-Player, its split car
+ * select, the one-player modes' car select (online too, each machine having
+ * one player), Battle Options, Joyride's car and item selects */
 static InterfaceHeader *s_mpScreen, *s_carSelect, *s_carSelectSolo, *s_battleOptions, *s_joyrideCar, *s_joyrideItem;
 static RecordCopy s_mainMultiRec;
 static char s_olAddress[64];
 
-static void BuildOnlineScreen(OnlineScreen *s, const InterfaceHeader *mp, const char *title,
+/* h's title texts (those without a record at the first one's height) and
+ * rows, if it can be one. */
+static int OnlineTemplateOf(OnlineTemplate *t, const InterfaceHeader *h) {
+    const IfaceObjectDef *objs;
+    u32 i;
+
+    memset(t, 0, sizeof(*t));
+    if (h == NULL || (objs = GETP(h->objects)) == NULL || h->numObjects > TEMPLATE_MAX_OBJECTS) {
+        return 0;
+    }
+    t->h = h;
+    for (i = 0; i < h->numObjects; i++) {
+        if (DefText(&objs[i]) == NULL) {
+            continue;
+        }
+        if (GETP(objs[i].record) != NULL) {
+            if (t->numRows < TEMPLATE_MAX_ROWS) {
+                t->row[t->numRows++] = i;
+            }
+        } else if (t->numTitles < TEMPLATE_MAX_TITLES &&
+                   (t->numTitles == 0 || PosY(&objs[i]) == PosY(&objs[t->title[0]]))) {
+            t->title[t->numTitles++] = i;
+        }
+    }
+    return t->numTitles > 0 && t->numRows > 0;
+}
+
+static void BuildOnlineScreen(OnlineScreen *s, const OnlineTemplate *tpl, const char *title,
                               u32 numText, u32 numRows, const OnlineRow *rows) {
-    const IfaceObjectDef *from = GETP(mp->objects);
+    const IfaceObjectDef *from = GETP(tpl->h->objects);
+    u32 numObjects = tpl->h->numObjects;
     u32 numLines = numText + numRows;
     u32 extra = 0;
     u32 i;
 
-    s->h = *mp;
-    memcpy(s->objs, from, MP_NUM_OBJECTS * sizeof(IfaceObjectDef));
-    SetText(&s->title, &s->objs[MP_TITLE], title);
+    s->h = *tpl->h;
+    memcpy(s->objs, from, numObjects * sizeof(IfaceObjectDef));
+    for (i = 0; i < tpl->numTitles; i++) {
+        SetText(&s->title[i], &s->objs[tpl->title[i]], title);
+    }
     s->numLines = numLines;
     for (i = 0; i < numLines; i++) {
-        u32 at = i == 0 ? MP_ROW_A : i == 1 ? MP_ROW_B : MP_NUM_OBJECTS + extra++;
+        u32 at = i < tpl->numRows ? tpl->row[i] : numObjects + extra++;
         IfaceObjectDef *d = &s->objs[at];
 
-        *d = from[MP_ROW_A];
+        *d = from[tpl->row[0]];
         s->lineObject[i] = at;
         /* a full panel: closer together, as it only just fits */
         MoveTo(&s->anim[i], d, numLines >= 8 ? ROW_Y - 10.0f + i * 20.0f : ROW_Y + i * ROW_STEP);
@@ -969,45 +1148,55 @@ static void BuildOnlineScreen(OnlineScreen *s, const InterfaceHeader *mp, const 
             }
         }
     }
-    if (numLines < 2) {
-        SETP(s->objs[MP_ROW_B].conditions, &s_hideAll);
-        s->objs[MP_ROW_B].active = 0;
-        s->objs[MP_ROW_B].record.h = 0;
+    /* the template's rows no line took */
+    for (i = numLines; i < tpl->numRows; i++) {
+        IfaceObjectDef *d = &s->objs[tpl->row[i]];
+
+        SETP(d->conditions, &s_hideAll);
+        d->active = 0;
+        d->record.h = 0;
     }
-    s->h.numObjects = MP_NUM_OBJECTS + extra;
+    s->h.numObjects = numObjects + extra;
     SETP(s->h.objects, s->objs);
 }
 
-/* As PackScreen, for a screen the port may already have added objects to. */
-static InterfaceHeader *WidenedPackScreen(InterfaceHeader *main, u32 offset, u32 numObjects) {
-    InterfaceHeader *h = (InterfaceHeader *)((u8 *)main - PACK_MAIN_MENU + offset);
-
-    return h->numObjects >= numObjects && GETP(h->objects) != NULL ? h : NULL;
-}
-
-/* Built again with each main menu: pack data may have moved since the last. */
-static void BuildOnlineScreens(InterfaceHeader *main) {
+/* The screens online play goes through, found from the main menu (Multi-Player:
+ * Drag Race and Battle, then their options, world select and split car select;
+ * One Player: Drag Race's car select, Joyride's world, car and item selects).
+ * Built again with each main menu: pack data may have moved since the last. */
+static void BuildOnlineScreens(InterfaceHeader *main, const MainMenu *m) {
+    InterfaceHeader *onePlayer = RowTarget(main, m->row[MAIN_ONE_PLAYER]);
+    InterfaceHeader *mpDrag, *joyride;
+    OnlineTemplate tpl;
     OnlineRow rows[4];
 
-    s_mpScreen = PackScreen(main, PACK_MP_SCREEN, MP_NUM_OBJECTS);
-    s_carSelect = PackScreen(main, PACK_CAR_SELECT, CAR_SELECT_NUM_OBJECTS);
-    s_carSelectSolo = PackScreen(main, PACK_CAR_SELECT_SOLO, CAR_SELECT_SOLO_NUM_OBJECTS);
-    if (s_mpScreen == NULL || s_carSelect == NULL || s_carSelectSolo == NULL || !TextIs(&GETP(s_mpScreen->objects)[MP_TITLE], "Multi-Player")) {
+    s_mpScreen = RowTarget(main, m->row[MAIN_MULTI_PLAYER]);
+    mpDrag = RowTargetOf(s_mpScreen, "Drag Race");
+    s_battleOptions = RowTargetOf(s_mpScreen, "Battle");
+    s_carSelect = FirstRowTarget(ScreenTarget(mpDrag));
+    s_carSelectSolo = FirstRowTarget(ScreenTarget(RowTargetOf(onePlayer, "Drag Race")));
+    joyride = RowTargetOf(onePlayer, "Joyride");
+    s_joyrideCar = FirstRowTarget(joyride);
+    s_joyrideItem = ScreenTarget(s_joyrideCar);
+    s_hideAll.type = 0;
+    s_hideAll.count = 0;
+    if (s_carSelect == NULL || s_carSelectSolo == NULL || mpDrag == NULL || s_battleOptions == NULL ||
+        !OnlineTemplateOf(&tpl, s_mpScreen) || !TextIs(&GETP(s_mpScreen->objects)[tpl.title[0]], "Multi-Player")) {
         s_mpScreen = NULL;
         return;
     }
     rows[0] = (OnlineRow){"Online", &s_olOnline.h};
     rows[1] = (OnlineRow){"Local", s_mpScreen};
-    BuildOnlineScreen(&s_olChoose, s_mpScreen, "Multi-Player", 0, 2, rows);
+    BuildOnlineScreen(&s_olChoose, &tpl, "Multi-Player", 0, 2, rows);
 
     rows[0] = (OnlineRow){"Tunnel Host", &s_olLobbyTunnel.h};
     rows[1] = (OnlineRow){"LAN Host", &s_olLobbyHost.h};
     rows[2] = (OnlineRow){"Connect", &s_olConnect.h};
-    BuildOnlineScreen(&s_olOnline, s_mpScreen, "Online", 2, 3, rows);
+    BuildOnlineScreen(&s_olOnline, &tpl, "Online", 2, 3, rows);
 
     rows[0] = (OnlineRow){"Back", NULL};
     /* what Tunnel Host leads to if it can't start */
-    BuildOnlineScreen(&s_olTunnel, s_mpScreen, "Tunnel Host", 3, 1, rows);
+    BuildOnlineScreen(&s_olTunnel, &tpl, "Tunnel Host", 3, 1, rows);
     if (Port_TunnelAvailable()) {
         SetText(&s_olTunnel.text[0], &s_olTunnel.objs[s_olTunnel.lineObject[0]], "Install");
         SetText(&s_olTunnel.text[1], &s_olTunnel.objs[s_olTunnel.lineObject[1]], "cloudflared");
@@ -1021,29 +1210,26 @@ static void BuildOnlineScreens(InterfaceHeader *main) {
     rows[0] = (OnlineRow){"Connect", &s_olLobbyClient.h};
     rows[1] = (OnlineRow){"Paste Address", &s_olPaste};
     rows[2] = (OnlineRow){"Back", NULL};
-    BuildOnlineScreen(&s_olConnect, s_mpScreen, "Connect", 4, 3, rows);
+    BuildOnlineScreen(&s_olConnect, &tpl, "Connect", 4, 3, rows);
 
     rows[0] = (OnlineRow){"Start Game", &s_olMode.h};
     rows[1] = (OnlineRow){"Leave", NULL};
-    BuildOnlineScreen(&s_olLobbyHost, s_mpScreen, "Lobby", 3, 2, rows);
+    BuildOnlineScreen(&s_olLobbyHost, &tpl, "Lobby", 3, 2, rows);
 
     rows[0] = (OnlineRow){"Leave", NULL};
-    BuildOnlineScreen(&s_olLobbyClient, s_mpScreen, "Lobby", 2, 1, rows);
+    BuildOnlineScreen(&s_olLobbyClient, &tpl, "Lobby", 2, 1, rows);
 
     rows[0] = (OnlineRow){"Copy Invite", &s_olCopy};
     rows[1] = (OnlineRow){"Start Game", &s_olMode.h};
     rows[2] = (OnlineRow){"Leave", NULL};
-    BuildOnlineScreen(&s_olLobbyTunnel, s_mpScreen, "Lobby", 5, 3, rows);
+    BuildOnlineScreen(&s_olLobbyTunnel, &tpl, "Lobby", 5, 3, rows);
 
-    rows[0] = (OnlineRow){"Drag Race", PackScreen(main, PACK_MP_DRAG, 26)};
-    s_battleOptions = PackScreen(main, PACK_MP_BATTLE, 34);
+    rows[0] = (OnlineRow){"Drag Race", mpDrag};
     rows[1] = (OnlineRow){"Battle", s_battleOptions};
-    rows[2] = (OnlineRow){"Joyride", WidenedPackScreen(main, PACK_JOYRIDE, JOYRIDE_NUM_OBJECTS)};
-    s_joyrideCar = WidenedPackScreen(main, PACK_JOYRIDE_CAR, JOYRIDE_CAR_NUM_OBJECTS);
-    s_joyrideItem = WidenedPackScreen(main, PACK_JOYRIDE_ITEM, JOYRIDE_ITEM_NUM_OBJECTS);
-    BuildOnlineScreen(&s_olMode, s_mpScreen, "Online Game", 0, rows[2].target != NULL && s_joyrideCar != NULL && s_joyrideItem != NULL ? 3 : 2, rows);
+    rows[2] = (OnlineRow){"Joyride", joyride};
+    BuildOnlineScreen(&s_olMode, &tpl, "Online Game", 0, joyride != NULL && s_joyrideCar != NULL && s_joyrideItem != NULL ? 3 : 2, rows);
 
-    BuildOnlineScreen(&s_olWaiting, s_mpScreen, "Please Wait", 1, 0, rows);
+    BuildOnlineScreen(&s_olWaiting, &tpl, "Please Wait", 1, 0, rows);
     SetText(&s_olWaiting.text[0], &s_olWaiting.objs[s_olWaiting.lineObject[0]], "Waiting...");
 }
 
@@ -1343,6 +1529,8 @@ static void PatchPauseMenu(InterfaceHeader *h) {
     SETP(h->objects, s_pauseObjs);
 }
 
+/* InterfaceManager_PlayEvent: an event is about to switch to `target` (go-to
+ * events, types 1 and 0x20). Returns where to go instead, NULL for nowhere. */
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target) {
     extern s8 g_bMemoryCardHWHack;
 
@@ -1372,22 +1560,18 @@ InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target) {
     return target;
 }
 
-static void PatchMainMenu(InterfaceHeader *h) {
-    IfaceObjectDef *objs = GETP(h->objects);
-    IfaceObjectDef *entry;
-    InterfaceHeader *quit = QuitScreen(h);
+/* The quit screen's Yes and No take Start as well as A, like the other menus'
+ * rows, and its warning (made for the exit to the GameCube's memory card
+ * manager, blank on PS2) is reworded. Pack data, changed in place. */
+static void PatchQuitScreen(InterfaceHeader *quit) {
+    IfaceObjectDef *objs = GETP(quit->objects);
+    u32 rows[2], i;
     IfaceText *warning;
-    u32 i;
 
-    FindCardScreens(h);
-
-    if (quit == NULL) {
-        Port_Log("menu: quit screen not found, no Quit Game entry");
-        return;
-    }
-    /* Yes/No: Start does what A does */
+    rows[0] = FindText(objs, quit->numObjects, "Yes, Quit", 1);
+    rows[1] = FindText(objs, quit->numObjects, "No", 1);
     for (i = 0; i < 2; i++) {
-        IfaceRecord *rec = GETP(GETP(quit->objects)[i == 0 ? QUIT_YES : QUIT_NO].record);
+        IfaceRecord *rec = GETP(objs[rows[i]].record);
         if (rec->events.count == 1 && GETP(rec->events.events)[0].type == EVENT_A) {
             s_quitEvents[i][0] = GETP(rec->events.events)[0];
             s_quitEvents[i][1] = s_quitEvents[i][0];
@@ -1396,35 +1580,65 @@ static void PatchMainMenu(InterfaceHeader *h) {
             SETP(rec->events.events, s_quitEvents[i]);
         }
     }
-    warning = GETP(GETP(quit->objects)[QUIT_WARNING].sub);
+    warning = GETP(objs[FindText(objs, quit->numObjects, "Confirm Quit", 0) + 1].sub);
     SETP(s_quitWarning, "Warning:|Any unsaved progress will be lost.");
     SETP(warning->strings, &s_quitWarning);
+}
 
-    memcpy(s_mainObjs, objs, MAIN_NUM_OBJECTS * sizeof(IfaceObjectDef));
-    for (i = MAIN_ROWS; i < MAIN_ROWS_END; i++) {
-        MoveRow(&s_mainRowAnim[i - MAIN_ROWS], &s_mainObjs[i], &s_mainSpacing);
-    }
-    entry = &s_mainObjs[MAIN_NUM_OBJECTS];
-    *entry = objs[MAIN_EXTRAS];
-    MoveTo(&s_desktopAnim, entry, ROW_Y + ROW_NEW * ROW_STEP);
-    SetText(&s_desktopText, entry, "Quit Game");
-    CopyRecord(&s_desktopRec, entry, REC_DESKTOP, REC_EXTRAS, REC_ONE_PLAYER);
-    for (i = 0; i < s_desktopRec.rec.events.count; i++) {
-        if (s_desktopRec.defs[i].type == 1) {
-            SETP(s_desktopRec.defs[i].target, quit);
+/* A row's copy at `at` of the main menu's copy: d's object with text `name`
+ * and record `id`, going where `target` is. */
+static void AddMainRow(u32 at, const IfaceObjectDef *d, const char *name, TextCopy *text, RecordCopy *rec, u8 id,
+                       InterfaceHeader *target) {
+    IfaceObjectDef *entry = &s_mainObjs[at];
+    u32 i;
+
+    *entry = *d;
+    SetText(text, entry, name);
+    CopyRecord(rec, entry, id, 0, 0);
+    for (i = 0; i < rec->rec.events.count; i++) {
+        if (rec->defs[i].type == EVENT_GOTO) {
+            SETP(rec->defs[i].target, target);
         }
     }
-    /* into the ring: Extras -> Quit Game -> One Player */
-    GETP(objs[MAIN_EXTRAS].record)->next[1] = REC_DESKTOP;
-    GETP(objs[MAIN_ROWS].record)->next[0] = REC_DESKTOP;
-    h->numObjects = MAIN_NUM_OBJECTS + 1;
-    SETP(h->objects, s_mainObjs);
+}
 
-    /* Multi-Player: to the new Online / Local screen */
-    BuildOnlineScreens(h);
-    if (s_mpScreen != NULL) {
-        RecordCopy *rec = CopyRecord(&s_mainMultiRec, &s_mainObjs[MAIN_MULTI_PLAYER], REC_MULTI_PLAYER,
-                                     REC_ONE_PLAYER, REC_LOAD_GAME);
+static void PatchMainMenu(InterfaceHeader *h, const MainMenu *m) {
+    IfaceObjectDef *objs = GETP(h->objects);
+    u32 row[MAIN_NUM_ROWS];
+    u32 n = m->numObjects, insertAt = MAIN_NUM_ROWS, moved = 0, i;
+    u8 freeId = 0;
+    InterfaceHeader *quit;
+    IfaceVarList *vars = GETP(h->vars);
+
+    FindCardScreens(h, m);
+    BuildOnlineScreens(h, m);
+    memcpy(row, m->row, sizeof(row));
+    memcpy(s_mainObjs, objs, n * sizeof(IfaceObjectDef));
+    for (i = 0; i < n; i++) {
+        if (GETP(objs[i].record) != NULL && GETP(objs[i].record)->id > freeId) {
+            freeId = GETP(objs[i].record)->id;
+        }
+    }
+    freeId++;
+
+    /* Quit Game, a copy of Extras, last */
+    if (row[MAIN_EXIT] == NONE) {
+        quit = FindScreen(h, IsQuitScreen);
+        if (quit != NULL) {
+            PatchQuitScreen(quit);
+            AddMainRow(n, &objs[row[MAIN_EXTRAS]], "Quit Game", &s_desktopText, &s_desktopRec, REC_DESKTOP, quit);
+            row[MAIN_EXIT] = n++;
+        } else {
+            Port_Log("menu: quit screen not found, no Quit Game entry");
+        }
+    }
+    /* Multi-Player: to the new Online / Local screen; on PC a copy of One
+     * Player, second */
+    if (s_mpScreen == NULL) {
+        Port_Log("menu: multi-player screens not found, no online menus");
+    } else if (row[MAIN_MULTI_PLAYER] != NONE) {
+        RecordCopy *rec = CopyRecord(&s_mainMultiRec, &s_mainObjs[row[MAIN_MULTI_PLAYER]],
+                                     GETP(objs[row[MAIN_MULTI_PLAYER]].record)->id, 0, 0);
 
         for (i = 0; i < rec->rec.events.count; i++) {
             if (rec->defs[i].type == EVENT_GOTO) {
@@ -1432,14 +1646,71 @@ static void PatchMainMenu(InterfaceHeader *h) {
             }
         }
     } else {
-        Port_Log("menu: multi-player screens not found, no online menus");
+        AddMainRow(n, &objs[row[MAIN_ONE_PLAYER]], "Multi-Player", &s_multiText, &s_mainMultiRec, freeId,
+                   &s_olChoose.h);
+        row[MAIN_MULTI_PLAYER] = n++;
+        insertAt = 1;
     }
+    /* The pack's rows (their texts, labels too) in the port's spacing, after
+     * the new ones made room; the new rows in theirs. */
+    for (i = 0; i < m->numObjects; i++) {
+        f32 y;
+        s32 k;
+
+        if (n == m->numObjects || DefText(&objs[i]) == NULL) {
+            continue;           /* (no new row: the pack's spacing) */
+        }
+        y = PosY(&objs[i]);
+        k = (s32)((y - PACK_ROW_FIRST_Y) / PACK_ROW_STEP_Y + 0.5f);
+        y -= PACK_ROW_FIRST_Y + k * PACK_ROW_STEP_Y;
+        if (k < 0 || k >= MAIN_NUM_ROWS - 1 || y > 3.0f || y < -3.0f || moved == MAIN_MAX_MOVED) {
+            continue;
+        }
+        MoveTo(&s_mainRowAnim[moved++], &s_mainObjs[i], ROW_Y + (k + ((u32)k >= insertAt)) * ROW_STEP);
+    }
+    if (row[MAIN_EXIT] != NONE && row[MAIN_EXIT] >= m->numObjects) {
+        MoveTo(&s_desktopAnim, &s_mainObjs[row[MAIN_EXIT]], ROW_Y + ROW_NEW * ROW_STEP);
+    }
+    if (row[MAIN_MULTI_PLAYER] != NONE && row[MAIN_MULTI_PLAYER] >= m->numObjects) {
+        MoveTo(&s_mainRowAnim[moved++], &s_mainObjs[row[MAIN_MULTI_PLAYER]], ROW_Y + insertAt * ROW_STEP);
+    }
+
+    /* the up/down ring, in the rows' order: pack records changed in place */
+    for (i = 0; i < MAIN_NUM_ROWS; i++) {
+        u32 up = i, down = i;
+        IfaceRecord *rec;
+
+        if (row[i] == NONE) {
+            continue;
+        }
+        do {
+            up = (up + MAIN_NUM_ROWS - 1) % MAIN_NUM_ROWS;
+        } while (row[up] == NONE);
+        do {
+            down = (down + 1) % MAIN_NUM_ROWS;
+        } while (row[down] == NONE);
+        rec = GETP(s_mainObjs[row[i]].record);
+        rec->next[0] = GETP(s_mainObjs[row[up]].record)->id;
+        rec->next[1] = GETP(s_mainObjs[row[down]].record)->id;
+    }
+    /* a selected-record variable must reach the new ids */
+    for (i = 0; vars != NULL && i < vars->count; i++) {
+        IfaceVar *v = &GETP(vars->vars)[i];
+
+        if (v->type == IFACE_VAR_SELECTED && v->max < freeId) {
+            Port_Log("menu: main menu var %u max %d -> %u", i, v->max, freeId);
+            v->max = freeId;
+        }
+    }
+    h->numObjects = n;
+    SETP(h->objects, s_mainObjs);
 }
 
 
 void Port_MenuPatch(InterfaceHeader *h) {
     IfaceObjectDef *objs;
     IfaceObjectDef *entry;
+    MainMenu main;
     u32 i;
 
     if (h == NULL) {
@@ -1460,17 +1731,17 @@ void Port_MenuPatch(InterfaceHeader *h) {
         RefreshModes();
         return;
     }
-    if (IsMainMenu(h)) {
+    if (FindMainMenu(h, &main)) {
         if (Port_OriginalMainMenu()) {
             /* graphics.cfg mainmenu=original: the main menu as the
              * release has it - no Quit Game (the GameCube's has no way to
              * quit: close the window instead), no Online / Local, the
              * pack's rows, spacing and ring. The card screens are still
              * found from it, so their patches stay. */
-            FindCardScreens(h);
+            FindCardScreens(h, &main);
             return;
         }
-        PatchMainMenu(h);
+        PatchMainMenu(h, &main);
         return;
     }
     if (h == s_loadScreen || h == s_saveScreen) {
