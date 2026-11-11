@@ -119,6 +119,25 @@ the files to `saves/default/deleted/`. Code: `src/game/Port_Saves.c` (the
 store), `Port_SaveFormat.c` (the format), `Port_SaveIds.c` (index to id);
 `tools/savetest.c` tests it.
 
+Importing saves from any release: the launcher's **Import saves...** takes
+one or more files and shows what they would add before anything is written:
+
+| release | files |
+|---|---|
+| GameCube | Dolphin `.gci` exports (`GHWE78` `hwvx`), raw card images (`MemoryCardA.USA.raw`), the port's own `memcardA/hwvx.sav` |
+| PC | `My Documents\VelocityX Saved Games\velocityX` (no extension: pick "All files") |
+| PS2 | PCSX2 card images (`.ps2`), the save file `BASLUS-20412` itself, `.psu` exports; not `.max` (Action Replay MAX: export as `.psu`) |
+
+Each save goes into your save of the same name, else into a free slot as a
+new save. Nothing is taken away: an unlock in either counts and the higher
+value wins; the script values come as a set from whichever save is further
+on; your save's name, chosen car and settings stay. The PC and PS2 start with
+cars 0-2, which a GameCube player gets from the GBA link, so the preview
+leaves them out unless you tick "Add cars 0-2 too". "Saves:" picks one save
+only. The files you import are only read, and your save before the import is
+kept as `hwvx.1.json`. Code: `src/game/Port_SaveImport.c`; tested by
+`tools/saveimporttest.c` with the example saves of all three releases.
+
 Renderers (`--renderer`): through SDL_GPU `d3d12` (the default on Windows),
 `metal` (the default on macOS) and `vulkan` (the default on Linux and
 Android), and `opengl` (OpenGL 3.3 core). When the default can't start (no

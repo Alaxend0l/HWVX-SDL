@@ -1,5 +1,6 @@
 /* A small JSONC reader and writer: see jsonc.h. */
 #include <SDL3/SDL.h>
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -315,8 +316,12 @@ static JsonNode *ParseValue(Parser *ps) {
         if (integer) {
             node->integer = SDL_strtoll(tmp, NULL, 10);
             node->isInteger = 1;
-        } else {
+        } else if (node->number >= -9.2e18 && node->number <= 9.2e18) {
             node->integer = (long long)node->number;
+        } else {
+            /* out of range (or not finite): converting would be undefined
+             * behaviour; such a value is no valid integer field anyway */
+            node->integer = node->number > 0 ? LLONG_MAX : LLONG_MIN;
         }
         ps->p = q;
         return node;
