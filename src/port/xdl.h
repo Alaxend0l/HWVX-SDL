@@ -54,6 +54,9 @@ int Xdl_Writing(void);
 void Xdl_BeginPack(void *xf, u32 srcOffset, u32 type, u32 id);
 void Xdl_AbortPack(void);
 void Xdl_PackHeader(const void *header, u32 size);
+/* A slot the loader itself fills in later (a quadrant's pack refs): cached
+ * as it holds now, as read. */
+void Xdl_KeepValue(void *slot);
 /* The file bytes a small read left in its heap buffer (XDL_SEG_RAW_*). */
 void Xdl_RawRead(int seg, const void *bytes, u32 size);
 /* Converters: a pointer slot they stored (or cleared), and a block of the

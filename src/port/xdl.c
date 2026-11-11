@@ -301,10 +301,16 @@ typedef struct Rec {
     u32 bankOff;
     u32 fallback;           /* listed slots pointing outside every segment */
     void *soundData;        /* the block DataPack.soundData holds */
+    struct {
+        u8 *at;
+        u32 value;
+    } kept[4];              /* Xdl_KeepValue */
+    u32 numKept;
     const char *failed;
 } Rec;
 
-static Rec *s_rec;
+/* per thread: the loading thread records its own packs */
+static _Thread_local Rec *s_rec;
 
 static void AddSlot(Rec *r, void *at, u32 from) {
     if (r->numSlots == r->capSlots) {
@@ -407,6 +413,21 @@ void Xdl_RawRead(int seg, const void *bytes, u32 size) {
         return;
     }
     SDL_memcpy(s->copy, bytes, size);
+}
+
+void Xdl_KeepValue(void *slot) {
+    Rec *r = s_rec;
+
+    if (r == NULL || !r->active) {
+        return;
+    }
+    if (r->numKept == sizeof(r->kept) / sizeof(r->kept[0])) {
+        r->failed = "too many kept values";
+        return;
+    }
+    r->kept[r->numKept].at = slot;
+    r->kept[r->numKept].value = *(u32 *)slot;
+    r->numKept++;
 }
 
 void Xdl_NoteSlot(void *slot) {
@@ -622,6 +643,15 @@ void Xdl_EndPack(void *soundData, u8 *main, u32 size, u8 *base, const u32 *point
             AddSlot(r, base + ptrRelocs[i * 2], (ptrRelocs[i * 2 + 1] & 0xFFFF0000) ? SLOT_CROSS : SLOT_LIST);
         }
         Resolve(r, mask, mask, XDL_SEG_MAIN);
+        for (i = 0; i < r->numKept && r->failed == NULL; i++) {
+            int ss = SegOf(r, r->kept[i].at, 4, mask, 0);
+
+            if (ss < 0) {
+                r->failed = "a kept value outside the pack";
+            } else {
+                SDL_memcpy(r->seg[ss].copy + (r->kept[i].at - r->seg[ss].at), &r->kept[i].value, 4);
+            }
+        }
         r->soundData = soundData;
         if (r->failed == NULL) {
             WritePack(r);

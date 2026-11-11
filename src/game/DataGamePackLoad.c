@@ -532,7 +532,30 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
 
 
 
+static void DataPack_LoadQuadPackTimed(s32 file, QuadPack *quad);
+
 void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
+
+    static int timing = -1;
+    static u64 total;
+    u64 start = 0;
+
+    if (timing < 0) {
+        timing = getenv("HWVX_LOADTIME") != NULL;   /* port: as DataPack_LoadFile */
+    }
+    if (timing) {
+        start = SDL_GetTicksNS();
+    }
+    DataPack_LoadQuadPackTimed(file, quad);
+    if (timing && GETP(quad->alloc) != NULL) {
+        u64 t = SDL_GetTicksNS() - start;
+
+        total += t;
+        Port_Log("loadtime: quadrant %u %.3f ms, quadrants %.3f ms", quad->enabled, t / 1e6, total / 1e6);
+    }
+}
+
+static void DataPack_LoadQuadPackTimed(s32 file, QuadPack *quad) {
     s32 *reloc;
     u8 *data;
     u32 *pointers;
@@ -545,6 +568,7 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
     u32 n;
     void *alloc;
     u32 idx;
+    XdlPack *xp = NULL;
 
     if (quad->enabled != 0) {
         if ((u32)quad->fileOffset == 0) {
@@ -556,15 +580,36 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
         SETP(quad->alloc, alloc);
         if (alloc != NULL) {
             data = (u8 *)PTR((((u32)HND(alloc) + 0x3F) & ~0x3F));
-            File_Read(file, quad->size, data);
-            PortData_QuadPack(Port_FileFormat(file), data, quad->size, quad->enabled);  /* port */
+            /* port: as a data pack (DataPack_LoadDataPack), from the pack
+             * cache or recorded for it (xdl.c) */
+            xp = Xdl_FindPack(Port_FileXdl(file), quad->fileOffset);
+            if (xp != NULL) {
+                if (Xdl_SegSize(xp, XDL_SEG_MAIN) != ((quad->size + 0x1F) & ~0x1F)) {
+                    Port_Fatal("a cached quadrant's size doesn't match its world's: delete the .xdl cache");
+                }
+                SkipRead(xp, XDL_SEG_RAW_MAIN, quad->size);
+                Xdl_ReadSeg(xp, XDL_SEG_MAIN, data, 0, Xdl_SegSize(xp, XDL_SEG_MAIN));
+                Xdl_PlaceSeg(xp, XDL_SEG_MAIN, data);
+            } else {
+                Xdl_BeginPack(Port_FileXdl(file), quad->fileOffset, 7, quad->enabled);
+                File_Read(file, quad->size, data);
+                RecordRead(file, XDL_SEG_RAW_MAIN, quad->size);
+                PortData_QuadPack(Port_FileFormat(file), data, quad->size, quad->enabled);  /* port */
+            }
             SETP(quad->header, (QuadPackHeader *)data);
             offset = 0x54;
             header = GETP(quad->header);
             if (header->valid == 0) {
                 SETP(quad->data, NULL);
+                if (xp != NULL) {
+                    Xdl_FreePack(xp);
+                } else {
+                    Xdl_AbortPack();
+                }
                 return;
             }
+            Xdl_KeepValue(&header->refs[0].pack);   /* port: filled in below */
+            Xdl_KeepValue(&header->refs[1].pack);
             n = header->numRelocs;
             if (n != 0) {
                 SETP(header->relocs, (s32 *)(data + offset));
@@ -586,6 +631,10 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
             offset += header->numPointers * 4;
             offset += header->dataSize;
             quad->gxBase = (s32)HND((data + offset));
+            if (xp != NULL && Port_FileFormat(file) == PORT_DATA_GC) {
+                /* port: as the byte-swapper does (Port_Swap.c Swapper_Finish) */
+                Port_InvalidateDisplayLists(data + offset, quad->size - offset);
+            }
             reloc = texRelocs;
             for (i = 0; i < GETP(quad->header)->numTexRelocs; i++) {
                 base = (u8 *)PTR(quad->gxBase);
@@ -598,24 +647,34 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
                         SETP(header->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&header->refs[idx], 8, packID, 0), 8, 1));
                     }
                     *(u32 *)(base + reloc[0]) = ((u32 *)GETP(GETP(header->refs[idx].pack)->base))[reloc[1] & 0xFFFF];
-                } else {
+                } else if (xp == NULL) {   /* port: a cached quadrant's are fixups */
                     *(u32 *)(base + reloc[0]) += (u32)HND(base);
                 }
                 reloc += 2;
             }
-            UpdatePointers(pointers, GETP(quad->header)->numPointers, (u8 *)PTR(quad->gxBase));
-            if (Port_FileFormat(file) == PORT_DATA_GC) {
-                /* port: the GameCube's geometry in the indexed layout (Port_Geometry.c) */
-                PortGeometry_Keep(quad, PortGeometry_ConvertGC((u8 *)PTR(quad->gxBase), quad->size - offset, pointers,
-                                                               GETP(quad->header)->numPointers, (u32 *)texRelocs,
-                                                               GETP(quad->header)->numTexRelocs));
-            } else if (Port_FileFormat(file) == PORT_DATA_PS2) {
-                /* port: the PS2's geometry (Port_Geometry.c); its texture-id
-                 * relocations at converted groups get flagged */
-                PortGeometry_Keep(quad, PortGeometry_ConvertPS2((u8 *)PTR(quad->gxBase), quad->size - offset, pointers,
-                                                                GETP(quad->header)->numPointers,
-                                                                (u32 *)GETP(GETP(quad->header)->relocs),
-                                                                GETP(quad->header)->numRelocs));
+            if (xp != NULL) {
+                /* port: the converted geometry's blocks, in their order */
+                for (i = XDL_SEG_BLOCK; i < XDL_MAX_SEGS; i++) {
+                    PortGeometry_Keep(quad, XdlBlock(xp, i));
+                }
+                Xdl_FreePack(xp);
+            } else {
+                UpdatePointers(pointers, GETP(quad->header)->numPointers, (u8 *)PTR(quad->gxBase));
+                if (Port_FileFormat(file) == PORT_DATA_GC) {
+                    /* port: the GameCube's geometry in the indexed layout (Port_Geometry.c) */
+                    PortGeometry_Keep(quad, PortGeometry_ConvertGC((u8 *)PTR(quad->gxBase), quad->size - offset, pointers,
+                                                                   GETP(quad->header)->numPointers, (u32 *)texRelocs,
+                                                                   GETP(quad->header)->numTexRelocs));
+                } else if (Port_FileFormat(file) == PORT_DATA_PS2) {
+                    /* port: the PS2's geometry (Port_Geometry.c); its texture-id
+                     * relocations at converted groups get flagged */
+                    PortGeometry_Keep(quad, PortGeometry_ConvertPS2((u8 *)PTR(quad->gxBase), quad->size - offset, pointers,
+                                                                    GETP(quad->header)->numPointers,
+                                                                    (u32 *)GETP(GETP(quad->header)->relocs),
+                                                                    GETP(quad->header)->numRelocs));
+                }
+                Xdl_EndPack(NULL, data, (quad->size + 0x1F) & ~0x1F, (u8 *)PTR(quad->gxBase), pointers,
+                            GETP(quad->header)->numPointers, (u32 *)texRelocs, GETP(quad->header)->numTexRelocs);
             }
             SETP(quad->data, SLOT_LOAD(void *, (u32 *)PTR(quad->gxBase) + (0)));
             SETP(quad->vertices, SLOT_LOAD(void *, (u32 *)PTR(quad->gxBase) + (1)));
