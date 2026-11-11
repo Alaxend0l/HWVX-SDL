@@ -148,25 +148,35 @@ typedef struct CarAEngine {
   s32 selfRightDelay;       /* 0x10 ms airborne before the self-righting torque */
   f32 steerRate;            /* 0x14 rad/s the steering angle ramps to the input */
   u32 reverseDelay;         /* 0x18 ms reverse before the car answers the throttle */
-  u8 pad1C[4];              /* 0x1C */
+  u8 pad1C[4];              /* 0x1C never read (GC, PC, PS2) */
   f32 selfRightArm;         /* 0x20 */
   f32 torqueCurve[4];       /* 0x24 torque at 0 and max rpm, slopes there (CarA_FitCubic) */
   f32 animSpeed;            /* 0x34 scales the steering animation time */
-  u8 pad38[4];              /* 0x38 */
+  f32 maxImpactVel;         /* 0x38 car-car impacts cap the closing speed at it, scaled by
+                             *      CarA_GetImpactMultiplier (ThingManager_MoveThings); 50
+                             *      in most cars */
   f32 maxAngularVel;        /* 0x3C */
   f32 itemDropImpact;       /* 0x40 */
   f32 maxGrade;             /* 0x44 grade the car can hold, times turboRpmScale in turbo */
-  u8 pad48[0x10];           /* 0x48 */
+  u8 pad48[0x10];           /* 0x48 never read (GC, PC, PS2) */
   f32 tiltForceScale;       /* 0x58 force point scale by up.y */
-  u8 pad5C[8];              /* 0x5C */
+  f32 damageScale;          /* 0x5C car-car bumper damage per unit of closing speed
+                             *      (0.04-0.15 by car) */
+  u8 pad60[4];              /* 0x60 pointer to the record CarAInfo 0x4C points to; never
+                             *      read (GC, PC, PS2) */
   f32 minEnginePitch;       /* 0x64 semitones added at 0 rpm */
   f32 soundRpmRange;        /* 0x68 rpm per pitch step, CarA_UpdateSound gate */
   f32 offsetContactFlag;    /* 0x6C 1: the spring scale keeps wheel->offset */
   f32 itemHeight;           /* 0x70 picked-up items ride this high above the rack */
-  u8 pad74[0xC];            /* 0x74 */
+  u8 pad74[0xC];            /* 0x74 never read (GC, PC, PS2) */
   CarACameras cameras;      /* 0x80 */
   CarACameras splitCameras; /* 0x88 used when the screen is split */
 } CarAEngine;
+
+_Static_assert(offsetof(CarAEngine, maxImpactVel) == 0x38, "CarAEngine.maxImpactVel");
+_Static_assert(offsetof(CarAEngine, damageScale) == 0x5C, "CarAEngine.damageScale");
+_Static_assert(offsetof(CarAEngine, cameras) == 0x80, "CarAEngine.cameras");
+_Static_assert(sizeof(CarAEngine) == 0x90, "CarAEngine size");
 
 typedef struct CarAMaterial {
   u8 pad00[0x18];           /* 0x00 */
