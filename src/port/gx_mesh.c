@@ -194,6 +194,7 @@ static u32 s_numLevels, s_numVariants, s_built;
 static u64 s_vtxBytes, s_idxBytes;
 static u64 s_spanLo = ~(u64)0, s_spanHi;  /* covers every live level's ranges */
 static int s_spanDirty;
+static u64 s_drawTicks;              /* in GX_PortDrawGroup, building and submitting */
 
 /* -1 unchecked; then 0 off (HWVX_NO_MESHCACHE), 1 on, 2 on and verifying. */
 static int s_mode = -1;
@@ -320,7 +321,9 @@ void GX_MeshInvalidate(const void *p, u32 size) {
     }
 }
 
-void GX_MeshStats(u32 *levels, u32 *variants, u32 *built, u64 *vtxBytes, u64 *idxBytes) {
+void GX_MeshStats(u32 *levels, u32 *variants, u32 *built, u64 *vtxBytes, u64 *idxBytes, u64 *ticks) {
+    *ticks = s_drawTicks;
+    s_drawTicks = 0;
     *levels = s_numLevels;
     *variants = s_numVariants;
     *built = s_built;
@@ -579,7 +582,16 @@ static void Verify(const MeshLevel *l, const MeshGroup *mg, const MeshVariant *m
     SDL_free(idx);
 }
 
+static void DrawGroup(const GXPortMesh *m, u32 group, u32 use);
+
 void GX_PortDrawGroup(const GXPortMesh *m, u32 group, u32 use) {
+    u64 t0 = SDL_GetPerformanceCounter();
+
+    DrawGroup(m, group, use);
+    s_drawTicks += SDL_GetPerformanceCounter() - t0;
+}
+
+static void DrawGroup(const GXPortMesh *m, u32 group, u32 use) {
     MeshLevel *l;
     MeshGroup *mg;
     MeshVariant *mv;

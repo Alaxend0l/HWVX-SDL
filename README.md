@@ -518,8 +518,11 @@ Debugging aids:
   level's vertex and index buffers the first time it is drawn and keeps them on
   the GPU until its pack is released. `HWVX_MESHVERIFY=1` checks every draw
   against a fresh build and logs what differs (geometry rewritten in place).
-  `HWVX_STATS=1` logs the cache's draws and memory, and the vertex bytes
-  uploaded per frame.
+  `HWVX_MESHSHARED=1` stores each vertex once and draws with indices (less
+  memory, but a few edge pixels differ on Apple GPUs; the default stores the
+  triangles' vertices in order and matches the per-draw build exactly).
+  `HWVX_STATS=1` logs the cache's draws and memory, the vertex bytes uploaded
+  per frame and the CPU time spent drawing pack geometry.
 - `HWVX_TEVKEYS=tools/tevkeys.txt` appends each TEV setup the game uses that
   the file doesn't have yet. SDL_GPU only has specialised shaders for the
   setups listed there (rerun `tools/gen_shaders.py`); OpenGL builds its own.

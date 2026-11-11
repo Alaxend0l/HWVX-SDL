@@ -157,7 +157,8 @@ void GX_DrawPresent(void);
 /* gx_mesh.c: frees the meshes released since the last call (on the thread
  * that draws), and the numbers for the frame dump log. */
 void GX_MeshCollect(void);
-void GX_MeshStats(u32 *levels, u32 *variants, u32 *built, u64 *vtxBytes, u64 *idxBytes);
+/* ticks: performance-counter time in GX_PortDrawGroup since the last call. */
+void GX_MeshStats(u32 *levels, u32 *variants, u32 *built, u64 *vtxBytes, u64 *idxBytes, u64 *ticks);
 void GX_MeshInvalidate(const void *p, u32 size);
 
 /* gx_tex.c: GX_TexGet is in gx_render.h */

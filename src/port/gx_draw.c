@@ -634,16 +634,18 @@ static void DumpEFB(void) {
     {
         static u32 lastBuilt;
         u32 levels, variants, built;
-        u64 vtxBytes, idxBytes;
+        u64 vtxBytes, idxBytes, ticks;
 
-        GX_MeshStats(&levels, &variants, &built, &vtxBytes, &idxBytes);
+        GX_MeshStats(&levels, &variants, &built, &vtxBytes, &idxBytes, &ticks);
         Port_Log("  mesh cache: %u draws, %u buffers built this window; %u levels, %u vertex buffers, "
                  "%.1f MB vertices + %.1f MB indices",
                  s_statMeshDraws, built - lastBuilt, levels, variants, (double)vtxBytes / 1048576.0,
                  (double)idxBytes / 1048576.0);
         lastBuilt = built;
-        Port_Log("  uploads: %.2f MB/frame of vertices and indices",
-                 (double)g_gxUploadBytes / 60.0 / 1048576.0);
+        Port_Log("  uploads: %.2f MB/frame of vertices and indices; pack geometry %.3f ms/frame "
+                 "(building and submitting)",
+                 (double)g_gxUploadBytes / 60.0 / 1048576.0,
+                 (double)ticks * 1000.0 / (double)(SDL_GetPerformanceFrequency() * 60));
         g_gxUploadBytes = 0;
     }
     s_statMeshDraws = 0;
