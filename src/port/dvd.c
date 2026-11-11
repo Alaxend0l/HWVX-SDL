@@ -114,20 +114,21 @@ SDL_IOStream *Port_OpenDiscFile(const char *name) {
 void DVDInit(void) {}
 
 /* Where the releases keep a pack the game asks for by its GameCube name
- * (".xgc"): the extension, and a folder to look in first (PS2: XPS/ENGLISH/).
- * Formats past the GameCube's are only found in a data folder, not a disc
- * image. */
+ * (".xgc"): the extension, and a folder to look in first (the PS2 disc keeps
+ * its packs under XPS/ENGLISH/; the data folder may also be that folder
+ * itself). Formats past the GameCube's are only found in a data folder, not
+ * a disc image. */
 static const struct {
     const char *ext;
     const char *dir;
 } s_formats[PORT_DATA_COUNT] = {
     [PORT_DATA_GC] = { ".xgc", "" },
     [PORT_DATA_PC] = { ".xpc", "" },
-    [PORT_DATA_PS2] = { NULL, NULL },   /* .xps under XPS/ENGLISH/: not loadable yet (game/Port_Data.c) */
+    [PORT_DATA_PS2] = { ".xps", "XPS/ENGLISH/" },
 };
 
-/* fileName as format `fmt` would name it, or NULL if it isn't a pack. */
-static char *FormatName(const char *fileName, int fmt) {
+/* fileName as format `fmt` would name it in `dir`, or NULL if it isn't a pack. */
+static char *FormatName(const char *fileName, int fmt, const char *dir) {
     size_t n = SDL_strlen(fileName);
     size_t len;
     char *name;
@@ -135,10 +136,18 @@ static char *FormatName(const char *fileName, int fmt) {
     if (s_formats[fmt].ext == NULL || n < 4 || SDL_strcasecmp(fileName + n - 4, ".xgc") != 0) {
         return NULL;
     }
-    len = SDL_strlen(s_formats[fmt].dir) + n + 1;
+    len = SDL_strlen(dir) + n + 1;
     name = SDL_malloc(len);
-    SDL_snprintf(name, len, "%s%.*s%s", s_formats[fmt].dir, (int)(n - 4), fileName, s_formats[fmt].ext);
+    SDL_snprintf(name, len, "%s%.*s%s", dir, (int)(n - 4), fileName, s_formats[fmt].ext);
     return name;
+}
+
+/* The release whose packs the game is running on: the format of the last
+ * pack (".xgc" name) DVDOpen found. */
+static int s_release = PORT_DATA_GC;
+
+int Port_DataRelease(void) {
+    return s_release;
 }
 
 BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
@@ -149,17 +158,29 @@ BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
     /* A data folder can hold another release's packs instead, file by file
      * (game/Port_Data.c reads the format back through Port_FileFormat). */
     for (fmt = PORT_DATA_GC + 1; io == NULL && fmt < PORT_DATA_COUNT && !Disc_IsOpen(); fmt++) {
-        char *alt = FormatName(fileName, fmt);
+        const char *dirs[2] = { s_formats[fmt].dir, "" };
+        int d;
 
-        if (alt != NULL) {
-            io = OpenDiscFile(alt);
-            format = fmt;
-            SDL_free(alt);
+        for (d = 0; io == NULL && d < (*dirs[0] ? 2 : 1); d++) {
+            char *alt = FormatName(fileName, fmt, dirs[d]);
+
+            if (alt != NULL) {
+                io = OpenDiscFile(alt);
+                format = fmt;
+                SDL_free(alt);
+            }
         }
     }
     if (io == NULL) {
         Port_Log("DVDOpen: %s not found", fileName);
         return FALSE;
+    }
+    {
+        size_t n = SDL_strlen(fileName);
+
+        if (n >= 4 && SDL_strcasecmp(fileName + n - 4, ".xgc") == 0) {
+            s_release = (int)format;
+        }
     }
     memset(fi, 0, sizeof(*fi));
     fi->host = io;

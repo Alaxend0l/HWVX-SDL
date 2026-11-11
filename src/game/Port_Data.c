@@ -11,14 +11,18 @@
  * - PC (.xpc): little-endian, so the tables, the object graph and the
  *   samples are already in host order. Geometry (triangle lists) and
  *   textures (DXT) are not GX's: see PC_PackData.
+ * - PS2 (.xps, under XPS/ENGLISH/): little-endian too, the PC's tables and
+ *   object graph; the header and sound data padded to 2048-byte sectors
+ *   (DataPack_LoadDataPack skips that). Geometry (VIF packets) and textures
+ *   (PSMT8 + CLUTs) are converted after relocation, in DataPack_LoadDataPack
+ *   and DataPack_LoadQuadPack (Port_Geometry.c, Port_PS2.c); SPU-ADPCM sound
+ *   effects and song banks are decoded to PCM16 here, as they load.
  *
  * Sound samples are kept in host order, whichever release they come from:
  * the mixer (ax.c) reads them as plain s16.
- * - PS2 (.xps): little-endian too; not loadable yet (dvd.c doesn't look for
- *   it). Its steps go in the PORT_DATA_PS2 cases.
  *
  * docs/beta-cars/research/pc_formats.md (HWVX-X-FILE-EDITOR) has the PC
- * formats. */
+ * formats, docs/ps2-version/README.md the PS2's. */
 #include "common.h"
 #include "Voice.h"
 #include "Gfx.h"
@@ -35,6 +39,7 @@ void PortData_Words(s32 fmt, void *words, u32 count) {
         Port_SwapArray32(words, count);
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -47,6 +52,7 @@ void PortData_TOC(s32 fmt, u32 *buf, u32 bufWords) {
         PortSwap_TOC(buf, bufWords);
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -59,6 +65,7 @@ void PortData_PackHeader(s32 fmt, u32 *hdr, u32 numWords, u32 numRefs, u32 refSi
         PortSwap_PackHeader(hdr, numWords, numRefs, refSize);
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -79,6 +86,7 @@ void PortData_SoundPointers(s32 fmt, u32 *pointers, u32 count, u8 *soundBase) {
         }
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -106,6 +114,13 @@ static void SwapSFXSamples(u8 *desc, u32 count) {
     }
 }
 
+/* After CreateSFX has copied a pack's samples to ARAM. */
+void PortData_SFXDone(s32 fmt) {
+    if (fmt == PORT_DATA_PS2) {
+        PortPS2_SFXDone();
+    }
+}
+
 void PortData_SFX(s32 fmt, u8 *sfx, u32 count) {
     switch (fmt) {
     case PORT_DATA_GC:
@@ -113,6 +128,9 @@ void PortData_SFX(s32 fmt, u8 *sfx, u32 count) {
         SwapSFXSamples(sfx, count);
         break;
     case PORT_DATA_PC:
+        break;
+    case PORT_DATA_PS2:
+        PortPS2_SFX(sfx, count);     /* SPU-ADPCM to PCM16 (Port_PS2.c) */
         break;
     default:
         Unsupported(fmt);
@@ -345,8 +363,10 @@ static void PC_SongBank(u8 *bank) {
 
 /* A song's instrument bank as its pack loads (DataPack_LoadDataPack): in
  * the GameCube's form ('RIFX' header, PortSwap_MIDI swaps CreateMIDI's
- * copy), its samples in host order. */
-void PortData_SongBank(s32 fmt, u8 *bank) {
+ * copy), its samples in host order. Returns the bank to load: GameCube and
+ * PC convert it in place; the PS2's is rebuilt in a block (Port_PS2.c),
+ * freed by PortData_SongBankDone once CreateMIDI has copied it. */
+u8 *PortData_SongBank(s32 fmt, u8 *bank) {
     switch (fmt) {
     case PORT_DATA_GC:
         if (memcmp(bank, "RIFX", 4) == 0 && memcmp(bank + 8, "sndb", 4) == 0) {
@@ -356,8 +376,17 @@ void PortData_SongBank(s32 fmt, u8 *bank) {
     case PORT_DATA_PC:
         PC_SongBank(bank);
         break;
+    case PORT_DATA_PS2:
+        return PortPS2_SongBank(bank);
     default:
         Unsupported(fmt);
+    }
+    return bank;
+}
+
+void PortData_SongBankDone(s32 fmt) {
+    if (fmt == PORT_DATA_PS2) {
+        PortPS2_SongBankDone();
     }
 }
 
@@ -416,6 +445,8 @@ void PortData_PackData(s32 fmt, u8 *relocTables, u32 relocTableWords, u8 *base, 
         PC_PackData(relocTables, g_portSwapNumTextureRelocs, base, dataSize, texRelocs, numTexRelocs, pointers,
                     numPointers, textureDataOffset, numTextures);
         break;
+    case PORT_DATA_PS2:
+        break;      /* converted after relocation (PortPS2_*, PortGeometry_ConvertPS2) */
     default:
         Unsupported(fmt);
     }
@@ -430,6 +461,8 @@ void PortData_QuadPack(s32 fmt, u8 *data, u32 size, u32 index) {
     case PORT_DATA_PC:
         PC_QuadPack(data, size);
         break;
+    case PORT_DATA_PS2:
+        break;      /* converted after relocation (PortPS2_*, PortGeometry_ConvertPS2) */
     default:
         Unsupported(fmt);
     }

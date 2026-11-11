@@ -83,5 +83,13 @@ void GX_PortDrawIndexed(const GXPortMesh *m, int prim, const u16 *idx, u32 count
     for (i = 0; i < count; i++) {
         BuildVertex(m, idx[i], use, curSlot, &v[i]);
     }
+    if (use & GX_PORT_NOCULL) {
+        u8 cull = g_gx.cullMode;
+
+        g_gx.cullMode = 0;      /* GX_CULL_NONE */
+        GX_Draw(prim, v, count);
+        g_gx.cullMode = cull;
+        return;
+    }
     GX_Draw(prim, v, count);
 }

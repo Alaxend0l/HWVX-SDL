@@ -188,6 +188,7 @@ enum {
     GX_PORT_CLR_ALPHA = 4,      /* the colour's alpha too (else 255) */
     GX_PORT_USE_UV = 8,
     GX_PORT_SKIN = 16,          /* the bone's matrix, not the current one */
+    GX_PORT_NOCULL = 32,        /* both faces, whatever GXSetCullMode says */
 };
 
 /* Draw `count` vertices of primitive `prim` (GX_TRIANGLES, GX_TRIANGLESTRIP)

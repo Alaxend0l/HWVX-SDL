@@ -482,6 +482,9 @@ static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) 
     mesh.nrmStride = 16;
     mesh.boneCounts = NULL;
     mesh.numBones = 0;
+    if (lod->portLayout == PORT_LAYOUT_INDEXED_NOCULL) {
+        use |= GX_PORT_NOCULL;
+    }
     if (g_IsAnim && (vtx == GROUP_VTX_NORM || vtx == GROUP_VTX_ENV)) {
         /* the PC's table: four counts, then zero words; a converted GameCube
          * level's (Port_Geometry.c): eight counts */
@@ -514,7 +517,7 @@ static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) 
 static void Render_DrawGroupPrims(Geometry *lod, GeometryGroup *grp, int vtx) {
     static int warned;
 
-    if (lod->portLayout == PORT_LAYOUT_INDEXED) {
+    if (lod->portLayout == PORT_LAYOUT_INDEXED || lod->portLayout == PORT_LAYOUT_INDEXED_NOCULL) {
         Render_DrawGroupIndexed(lod, grp, vtx);
     } else if (!warned) {
         warned = 1;

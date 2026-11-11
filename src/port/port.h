@@ -190,9 +190,12 @@ int Port_ResetSave(void);
 enum {
     PORT_DATA_GC,   /* .xgc: big-endian, GX geometry and textures */
     PORT_DATA_PC,   /* .xpc: little-endian, OpenGL triangle lists, DXT textures */
-    PORT_DATA_PS2,  /* .xps: little-endian (not supported yet) */
+    PORT_DATA_PS2,  /* .xps: little-endian, VIF strips, paletted textures, SPU-ADPCM (Port_PS2.c) */
     PORT_DATA_COUNT
 };
+/* dvd.c: the release (PORT_DATA_*) whose packs the game runs on, from the
+ * last pack opened; for the few places the releases' code differs. */
+int Port_DataRelease(void);
 /* The PC release's texture formats (pack header u16 0) as Texture.format
  * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
  * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,
