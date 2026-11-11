@@ -27,6 +27,7 @@
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "Interface.h"
+#include "Port_Content.h"
 
 #define WALK_MAX 512
 
@@ -218,6 +219,51 @@ static void ApplyOptions(const Found *f) {
     }
 }
 
+/* A select screen (or the wrapper holding it: its child of header id `id`)
+ * starts at entry n of `count`: its constant variables numbering the entries
+ * (min 0, the retail or the registry's count - 1) keep their starting value in
+ * their offset (the variable's `save`: the game writes the last choice back
+ * there), each an offset of the middle one, the variable of its name list;
+ * after the registry has widened them to its count. */
+static void StartAt(const InterfaceHeader *h, u16 id, s32 n, u32 count, u32 retail) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    IfaceVarList *vl;
+    s32 mid = -1, delta;
+    u32 i;
+
+    for (i = 0; objs != NULL && i < h->numObjects && h->id != id; i++) {
+        if ((objs[i].type == IFACE_DEF_CHILD || objs[i].type == IFACE_DEF_CHILD_SYNC) && GETP(objs[i].child) != NULL &&
+            ((const InterfaceHeader *)GETP(*GETP(objs[i].child)))->id == id) {
+            h = (const InterfaceHeader *)GETP(*GETP(objs[i].child));
+            objs = GETP(h->objects);
+            break;
+        }
+    }
+    if (h->id != id || (vl = GETP(h->vars)) == NULL || n < 0 || (u32)n >= count) {
+        return;
+    }
+    Port_ContentPatchInterface((InterfaceHeader *)h);   /* widened and rebased first (it does that once) */
+    for (i = 0; objs != NULL && i < h->numObjects && mid < 0; i++) {
+        const IfaceText *t = objs[i].type == IFACE_DEF_TEXT ? GETP(objs[i].sub) : NULL;
+        const IfaceStringList *l = t != NULL && t->listMode == 1 && !t->paragraph ? GETP(t->list) : NULL;
+
+        if (l != NULL && l->fromVar && l->var < vl->count) {
+            mid = l->var;
+        }
+    }
+    if (mid < 0) {
+        return;
+    }
+    delta = n - GETP(vl->vars)[mid].offset;
+    for (i = 0; i < vl->count; i++) {
+        IfaceVar *v = &GETP(vl->vars)[i];
+
+        if (v->type == IFACE_VAR_CONST && v->min == 0 && (v->max == (s32)retail - 1 || v->max == (s32)count - 1)) {
+            v->offset = (s32)(((v->offset + delta) % (s32)count + (s32)count) % (s32)count);
+        }
+    }
+}
+
 /* A world of progression p by name or index; -1 if there's none. */
 static s32 WorldIndex(s32 p, const char *w) {
     MCP *mcp = GameSettings_GetMCP();
@@ -256,6 +302,42 @@ int Port_StartSkipsIntro(void) {
 }
 
 static void *s_titleScript;
+static s32 s_pickCar = -1;     /* itemselect: the car select picks this car, then goes on */
+static u32 s_pickFrames;
+
+/* Every frame (InterfaceManager_Heartbeat): for itemselect, the car select
+ * picks its car as a press of A on it would (its selected window's A event;
+ * the wrapper's start event then goes on to the item select, which takes
+ * over the car select's car). Tried every 20 frames until the item select
+ * is there: the car select refuses while the car is loading. */
+void Port_StartHeartbeat(void) {
+    u32 i, j;
+
+    if (s_pickCar < 0 || ++s_pickFrames % 20 != 0) {
+        return;
+    }
+    for (i = 0; i < IFACE_MAX; i++) {
+        if (g_interfaces[i].count != 0 && GETP(g_interfaces[i].header)->id == 3) {
+            Port_Log("start: the car select picked car %d; the item select is up", (int)s_pickCar);
+            s_pickCar = -1;
+            return;
+        }
+    }
+    for (i = 0; i < IFACE_MAX; i++) {
+        Interface *f = &g_interfaces[i];
+        const InterfaceHeader *h = f->count != 0 ? GETP(f->header) : NULL;
+
+        if (h == NULL || h->id != 2 || f->state != IFACE_ACTIVE || GameSettings_GetCodeVariable(0xC9, f->player) == 3) {
+            continue;
+        }
+        for (j = 0; j < h->events.count && GETP(h->events.events) != NULL; j++) {
+            if (GETP(h->events.events)[j].type == 4) {   /* A, on the screen (the carousel has no rows) */
+                InterfaceManager_PlayEvent(f, NULL, (u8 *)&GETP(h->events.events)[j], 1);
+                break;
+            }
+        }
+    }
+}
 
 /* HWVX_START, from StateTitleScreen_Init as it would create the title's own
  * screen `script`: 1 if it takes over (once), and Port_StartTitleLate does
@@ -351,7 +433,7 @@ static int StartTitle(void *script) {
     GameSettings_SetCodeVariable(0xCB, 1, car);
     GameSettings_SetCodeVariable(0xCC, 1, item);
     if (SDL_strcmp(mode, "carselect") == 0 || SDL_strcmp(mode, "itemselect") == 0) {
-        const InterfaceHeader *h = mode[0] == 'c' ? f.carSelect : f.itemSelect;
+        const InterfaceHeader *h = mode[0] == 'c' ? f.carSelect : f.itemSelect != NULL ? f.carSelect : NULL;
 
         if (h == NULL) {
             Port_Log("start: %s has no %s in the menus; HWVX_START ignored", modeName, mode);
@@ -359,6 +441,16 @@ static int StartTitle(void *script) {
         }
         Port_Log("start: %s, %s (progression %d) world %d, car %d item %d", mode, modeName, (int)p, (int)w, (int)car,
                  (int)item);
+        StartAt(f.carSelect, 2, car, Port_ContentCount(PORT_CONTENT_CAR), Port_ContentRetailCount(PORT_CONTENT_CAR));
+        if (f.itemSelect != NULL) {
+            StartAt(f.itemSelect, 3, item, Port_ContentCount(PORT_CONTENT_ITEM),
+                    Port_ContentRetailCount(PORT_CONTENT_ITEM));
+        }
+        if (mode[0] == 'i') {
+            /* through the car select, which loads the car the item select shows */
+            h = f.carSelect;
+            s_pickCar = car;
+        }
         InterfaceManager_Create((InterfaceHeader *)h, 0, TitleScreen_Interface);
         return 1;
     }
