@@ -20,6 +20,9 @@
  *                inactive one reserved, a new one numbered and written back
  *   item16       HWVX_TEST_EXTRA_ITEMS=6: a race with item 16 (aliasing
  *                item 4) loads HW_Items pack 4, not the AI's pack 16
+ *   bigtoc       the same with an HW_Items of 129 packs, its own last (the
+ *                file layer kept 50 TOC entries): data linked to the
+ *                GameCube's in content-out/data-toc
  *
  * Data: the GameCube's extracted files, HWVX_TEST_GC_DATA or orig/gc/files
  * beside the source tree; without them the test is skipped (77).
@@ -28,6 +31,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #include "port_internal.h"
 #include "gx_render.h"
@@ -279,6 +286,9 @@ static const Scenario s_scenarios[] = {
     { "adventure", { "HWVX_START=menu:mode=adventure" }, "start: menu, adventure" },
     { "idslock", { "HWVX_START=carselect" }, "menudump:   paragraphs 36" },
     { "item16", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
+#ifndef _WIN32
+    { "bigtoc", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
+#endif
 };
 
 static void Checks(const char *name)
@@ -320,7 +330,11 @@ static void Checks(const char *name)
                   Entry(pics, 4, b + 48, 48) && strcmp(a, b + 48) == 0,
               "35 shows its alias's picture");
         Check(Line("ids.lock: cars uid://cccc is number 35", NULL) != NULL, "cccc got 35, written back");
-    } else if (strcmp(name, "item16") == 0) {
+    } else if (strcmp(name, "item16") == 0 || strcmp(name, "bigtoc") == 0) {
+        if (name[0] == 'b') {
+            Check(Line("can't be read", NULL) == NULL && Line("Could not load the data pack", NULL) == NULL,
+                  "an HW_Items of 129 packs (its own 49 after 80 more) reads whole");
+        }
         Check(Line("content: test: item 16 is uid://hwvx-test-extra-item-4, the pack of item 4", NULL) != NULL,
               "item 16 is registered, aliasing item 4");
         Check(Line("data pack HW_Items: type 2 id 4\n", Line("start: race", NULL)) != NULL,
@@ -348,6 +362,57 @@ static void SetEnv(const char *kv)
     setenv(name, eq + 1, 1);
 #endif
 }
+
+#ifndef _WIN32
+/* content-out/data-toc: the GameCube data linked, HW_Items.xgc with 80
+ * more TOC entries (copies of pack 0's, ids 300-379) before its own: they
+ * start past the 0x800 bytes the game read of a TOC. */
+static SDL_EnumerationResult SDLCALL LinkOne(void *user, const char *dir, const char *name)
+{
+    char from[1200], to[1200];
+
+    if (strcmp(name, "HW_Items.xgc") != 0) {
+        snprintf(from, sizeof(from), "%s%s", dir, name);
+        snprintf(to, sizeof(to), "%s/%s", (const char *)user, name);
+        if (symlink(from, to) != 0) {
+            /* there already */
+        }
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+static int BigToc(const char *data, char *out, size_t size)
+{
+    char src[1100], dst[1200];
+    u8 *b, *o;
+    size_t len;
+    u32 n, i, extra = 80;
+
+    snprintf(out + strlen(out), size - strlen(out), "/data-toc");
+    SDL_CreateDirectory(out);
+    SDL_EnumerateDirectory(data, LinkOne, out);
+    snprintf(src, sizeof(src), "%s/HW_Items.xgc", data);
+    if ((b = SDL_LoadFile(src, &len)) == NULL || len < 16) {
+        return 0;
+    }
+    n = (u32)b[12] << 24 | (u32)b[13] << 16 | (u32)b[14] << 8 | b[15];
+    o = malloc(len + extra * 24);
+    memcpy(o, b, 16);
+    o[12] = (u8)((n + extra) >> 24); o[13] = (u8)((n + extra) >> 16); o[14] = (u8)((n + extra) >> 8); o[15] = (u8)(n + extra);
+    for (i = 0; i < extra; i++) {
+        u8 *e = o + 16 + i * 24;
+
+        memcpy(e, b + 16, 24);
+        e[8] = 0; e[9] = 0; e[10] = (u8)((300 + i) >> 8); e[11] = (u8)(300 + i);   /* the id, big-endian */
+    }
+    memcpy(o + 16 + extra * 24, b + 16, len - 16);
+    snprintf(dst, sizeof(dst), "%s/HW_Items.xgc", out);
+    i = SDL_SaveFile(dst, o, len + extra * 24);
+    free(o);
+    SDL_free(b);
+    return (int)i;
+}
+#endif
 
 /* One scenario, in this process: boot, run until its screen is up, check. */
 static int RunOne(const Scenario *sc, const char *data, const char *out)
@@ -384,6 +449,18 @@ static int RunOne(const Scenario *sc, const char *data, const char *out)
     }
     g_gxr = &s_stub;
     g_port.dataDir = data;
+#ifndef _WIN32
+    if (strcmp(sc->name, "bigtoc") == 0) {
+        static char big[1200];
+
+        snprintf(big, sizeof(big), "%s", out);
+        if (!BigToc(data, big, sizeof(big))) {
+            printf("  FAIL can't make %s\n", big);
+            return 1;
+        }
+        g_port.dataDir = big;
+    }
+#endif
     Port_InitHandles(PORT_ARENA_SIZE);
     OSInit();
     DVDInit();

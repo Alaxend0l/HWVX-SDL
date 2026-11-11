@@ -90,7 +90,7 @@ static int Has(const Archive *a, u32 id) {
 static int ReadToc(Archive *a) {
     char path[0x80], *c;
     DVDFileInfo fi;
-    u32 buf[0x800 / 4], i, n;
+    u32 head[4], *buf, i, n, size;
     s32 got;
 
     SDL_snprintf(path, sizeof(path), "%s.xgc", a->name);   /* as DataPack_LoadFile names it */
@@ -100,17 +100,23 @@ static int ReadToc(Archive *a) {
     if (!DVDOpen(path, &fi)) {
         return 0;
     }
-    SDL_memset(buf, 0, sizeof(buf));
-    got = DVDReadPrio(&fi, buf, sizeof(buf), 0, 2);
+    got = DVDReadPrio(&fi, head, sizeof(head), 0, 2);
+    PortData_TOC((s32)fi.format, head, 4);
+    n = head[3];
+    if (got < 0x10 || head[0] != 0x020100A0 || head[1] != 0x040100AE || n > 0x10000) {
+        DVDClose(&fi);
+        return 0;
+    }
+    /* the whole TOC, however many packs (DataPack_LoadFile reads it whole too) */
+    size = 0x10 + n * (u32)sizeof(FileTOCEntry);
+    buf = SDL_calloc(1, (size + 31) & ~31u);
+    got = buf != NULL ? DVDReadPrio(&fi, buf, (s32)((size + 31) & ~31u), 0, 2) : -1;
     DVDClose(&fi);
-    if (got < 0x10) {
+    if (got < (s32)size) {
+        SDL_free(buf);
         return 0;
     }
-    PortData_TOC((s32)fi.format, buf, SDL_arraysize(buf));
-    n = buf[3];
-    if (buf[0] != 0x020100A0 || buf[1] != 0x040100AE || 4 + n * (sizeof(FileTOCEntry) / 4) > SDL_arraysize(buf)) {
-        return 0;
-    }
+    PortData_TOC((s32)fi.format, buf, size / 4);
     for (i = 0; i < n; i++) {
         const FileTOCEntry *e = (const FileTOCEntry *)&buf[4 + i * (sizeof(FileTOCEntry) / 4)];
 
@@ -121,6 +127,7 @@ static int ReadToc(Archive *a) {
             }
         }
     }
+    SDL_free(buf);
     return 1;
 }
 

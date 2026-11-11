@@ -43,6 +43,29 @@ void DataPack_CloseFiles(void)
 static u32 s_xdlType, s_xdlId;
 u64 SDL_GetTicksNS(void);
 
+/* port: each type's TOC, as long as the archive's. The game kept 50 entries
+ * in g_fileTOCCache[type].entries and read the archive's first 0x800 bytes
+ * (84 entries at most), and HW_Items already has 49: an archive with more
+ * packs (a mod's) overran the cache into the next type's. The TOC is read
+ * whole here and kept beside the cache, which keeps its count and name. */
+static FileTOCEntry *s_tocEntries[11];
+static u32 s_tocCap[11];
+
+static int TocReserve(u32 type, u32 n) {
+    FileTOCEntry *p;
+
+    if (n <= s_tocCap[type]) {
+        return 1;
+    }
+    p = realloc(s_tocEntries[type], n * sizeof(FileTOCEntry));
+    if (p == NULL) {
+        return 0;
+    }
+    s_tocEntries[type] = p;
+    s_tocCap[type] = n;
+    return 1;
+}
+
 s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     extern u32 g_buffer[];
     FileTOCCacheEntry *toc;
@@ -59,6 +82,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         for (i = 0; i < 11; i++) {
             if (i != type && g_fileTOCCache[i].name != NULL && strcmp(g_fileTOCCache[i].name, name) == 0) {
                 memcpy(&g_fileTOCCache[type], &g_fileTOCCache[i], sizeof(FileTOCCacheEntry));
+                if (TocReserve(type, g_fileTOCCache[i].count)) {   /* port: the whole TOC */
+                    memcpy(s_tocEntries[type], s_tocEntries[i], g_fileTOCCache[i].count * sizeof(FileTOCEntry));
+                }
                 if (g_fileID && g_openFileDataPackType == i) {
                     g_openFileDataPackType = type;
                 } else if (g_openFileDataPackType == type) {
@@ -108,7 +134,32 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             return 0;
         }
         g_fileTOCCache[type].count = g_buffer[3];
-        memcpy(toc, &g_buffer[4], g_fileTOCCache[type].count * sizeof(FileTOCEntry));
+        /* port: the whole TOC, however long (see s_tocEntries) */
+        if (!TocReserve(type, g_buffer[3])) {
+            File_Close(g_fileID);
+            g_fileID = -1;
+            g_openFileDataPackType = 0xB;
+            Port_Log("data pack %s: out of memory for a TOC of %u packs", path, g_buffer[3]);
+            return 0;
+        }
+        if (0x10 + g_buffer[3] * sizeof(FileTOCEntry) <= 0x800) {
+            memcpy(s_tocEntries[type], &g_buffer[4], g_buffer[3] * sizeof(FileTOCEntry));
+        } else {
+            u32 n = g_buffer[3], size = 0x10 + n * (u32)sizeof(FileTOCEntry);
+            u32 *whole = malloc(size);
+
+            if (whole == NULL || File_Seek(g_fileID, 0, 0) < 0 || File_Read(g_fileID, (s32)size, whole) <= 0) {
+                free(whole);
+                File_Close(g_fileID);
+                g_fileID = -1;
+                g_openFileDataPackType = 0xB;
+                Port_Log("data pack %s: its TOC of %u packs can't be read", path, n);
+                return 0;
+            }
+            PortData_TOC(Port_FileFormat(g_fileID), whole, size / 4);
+            memcpy(s_tocEntries[type], &whole[4], n * sizeof(FileTOCEntry));
+            free(whole);
+        }
         if (strlen(name) >= 0x4C) {
             strncpy(tocName, name, 0x4C);
             g_fileTOCCache[type].name[0x4B] = 0;
@@ -118,17 +169,17 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     }
     tocId = Port_ContentPackId(name, type, id);   /* port: an extra car loads the pack it aliases */
     for (i = 0; i < toc->count; i++) {
-        if (type == toc->entries[i].type && tocId == toc->entries[i].id) {
-            if (toc->entries[i].version != 0xB7) {
+        if (type == s_tocEntries[type][i].type && tocId == s_tocEntries[type][i].id) {
+            if (s_tocEntries[type][i].version != 0xB7) {
                 char msg[0x80];
-                sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, toc->entries[i].version, 0xB7);
+                sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, s_tocEntries[type][i].version, 0xB7);
                 Dprintf(msg);
                 File_Close(g_fileID);
                 g_fileID = -1;
                 g_openFileDataPackType = 0xB;
                 return 0;
             }
-            File_Seek(g_fileID, g_fileTOCCache[type].entries[i].offset + 0x10 + g_fileTOCCache[type].count * sizeof(FileTOCEntry), 0);
+            File_Seek(g_fileID, s_tocEntries[type][i].offset + 0x10 + g_fileTOCCache[type].count * sizeof(FileTOCEntry), 0);
             found = 1;
             break;
         }
