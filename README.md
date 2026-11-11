@@ -28,17 +28,20 @@ Dolphin can convert a `.gcz`/`.rvz` to one: right-click the game → Convert
 File…, or its extracted files: Dolphin → Properties → Filesystem → Extract
 Entire Disc, which makes a `files/` folder), the PC release (its install
 folder, or its CD as an `.iso` or `.cue`/`.bin`), or the PlayStation 2 disc's
-files (the folder with `XPS/ENGLISH/`; see the `ps2-data` branch).
+files (the folder with `XPS/ENGLISH/`, or its `.iso`).
 
 **The launcher** (`src/port/launcher.c`) lists the releases you have imported
 and which one plays; the PS2 prototype (beta) can be imported too, for its
-beta content later. It opens on the first run and whenever the chosen data has
-gone; otherwise the game boots straight in. Open it on purpose with
-`--launcher`, or run `hwvx-launcher` (a copy of the program the build makes;
-app bundles use `--launcher`). Mouse, keyboard and gamepad all work (d-pad or
+beta content later. It opens every time the game starts, unless you tick
+"Start the game without this window"; then the game boots straight into the
+chosen release, and the launcher only opens when that data has gone, or when
+asked: `--launcher`, or run `hwvx-launcher` (a copy of the program the build
+makes; app bundles use `--launcher`). Mouse, keyboard and gamepad all work (d-pad or
 stick, A, B; Start plays). Importing the PC CD copies its packs (out of
 `HWVX.cab`) and its movies, which the PC game only ever read from the disc,
 into a `pc` folder in the save folder; an installed copy may have no movies.
+Importing a PS2 disc image copies its `XPS/ENGLISH` into `ps2` (or `ps2beta`
+for the prototype's).
 Your choices are kept in `sources.cfg` in the save folder. On start the game
 uses, in order:
 

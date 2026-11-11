@@ -1,10 +1,13 @@
 /* The launcher: where the player imports the releases' game data, picks the
  * one to play, and (later) converts data to .xdl and manages mods.
  *
- * The game boots straight into the chosen release when it is still there;
- * the launcher opens instead on the first run (nothing found), when the
- * chosen data has gone, or when asked: --launcher, or the executable run
- * under a name with "launcher" in it (the build makes a hwvx-launcher copy).
+ * The launcher opens on every start, unless the player ticked "Start the
+ * game without this window" (skip=1): then the game boots straight into the
+ * chosen release while it is still there. It opens anyway on the first run
+ * (nothing found), when the chosen data has gone, and when asked: --launcher,
+ * or the executable run under a name with "launcher" in it (the build makes a
+ * hwvx-launcher copy). Without a window (HWVX_NO_DIALOG, scripted runs) the
+ * chosen release boots whatever the tick.
  *
  * Sources:
  * - the releases (PORT_DATA_*), one of which is played: the GameCube's (a
@@ -19,7 +22,7 @@
  *   image is imported like the PS2's; either disc goes where its version
  *   says, whichever row it was picked from.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
- * "ps2beta=PATH" and "play=gc|pc|ps2"; the GameCube data the port found
+ * "ps2beta=PATH", "play=gc|pc|ps2" and "skip=1"; the GameCube data the port found
  * before the launcher existed (datadir.txt) is taken over on the first run.
  *
  * It is plain SDL: a window with an SDL_Renderer drawing SDL's built-in 8x8
@@ -42,6 +45,7 @@ static const char *const s_names[SRC_COUNT] = { "GameCube", "PC", "PlayStation 2
 typedef struct Sources {
     char *path[SRC_COUNT];
     int play;           /* PORT_DATA_*, or -1 */
+    int skip;           /* start the game without the launcher */
 } Sources;
 
 /* ---- sources.cfg ----------------------------------------------------- */
@@ -68,6 +72,9 @@ static void LoadSources(Sources *s) {
         return;
     }
     for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
+        if (SDL_strcmp(line, "skip=1") == 0) {
+            s->skip = 1;
+        }
         for (i = 0; i < SRC_COUNT; i++) {
             size_t n = SDL_strlen(s_keys[i]);
 
@@ -102,6 +109,9 @@ static void SaveSources(const Sources *s) {
         SDL_strlcat(buf, "play=", sizeof(buf));
         SDL_strlcat(buf, s_keys[s->play], sizeof(buf));
         SDL_strlcat(buf, "\n", sizeof(buf));
+    }
+    if (s->skip) {
+        SDL_strlcat(buf, "skip=1\n", sizeof(buf));
     }
     if (!SDL_SaveFile(path, buf, SDL_strlen(buf))) {
         Port_Log("sources.cfg: %s", SDL_GetError());
@@ -206,7 +216,7 @@ static char *Absolute(const char *path) {
 
 /* ---- the window -------------------------------------------------------- */
 
-enum { ACT_NONE, ACT_PLAY_THIS, ACT_FOLDER, ACT_IMAGE, ACT_REMOVE, ACT_PLAY, ACT_QUIT, ACT_CONVERT };
+enum { ACT_NONE, ACT_PLAY_THIS, ACT_FOLDER, ACT_IMAGE, ACT_REMOVE, ACT_PLAY, ACT_QUIT, ACT_CONVERT, ACT_SKIP };
 
 typedef struct Button {
     SDL_FRect r;
@@ -290,6 +300,9 @@ static void Layout(Launcher *l) {
     Add(l, 24, 316, "Convert to .xdl", ACT_CONVERT, -1, 0);
     Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && l->src.play >= 0 && l->src.path[l->src.play] != NULL);
     Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, 1);
+    Add(l, 24 + 8 * CHAR + 64, VIEW_H - 30,
+        l->src.skip ? "[x] Start the game without this window" : "[ ] Start the game without this window", ACT_SKIP,
+        -1, 1);
     if (l->focus >= l->numButtons) {
         l->focus = l->numButtons - 1;
     }
@@ -439,6 +452,15 @@ static void StartDisc(Launcher *l, const char *image, int source) {
     }
 }
 
+/* The index of the button that does `act`. */
+static int ButtonFor(const Launcher *l, int act) {
+    int i;
+
+    for (i = 0; i < l->numButtons && l->buttons[i].act != act; i++) {
+    }
+    return i < l->numButtons ? i : 0;
+}
+
 /* Do button `b`; returns 1 to play, -1 to quit, 0 to stay. */
 static int Activate(Launcher *l, const Button *b) {
     static const SDL_DialogFileFilter gcImages[] = { { "GameCube disc image (.iso, .gcm)", "iso;gcm;gcz" } };
@@ -478,6 +500,15 @@ static int Activate(Launcher *l, const Button *b) {
         }
         SaveSources(&l->src);
         SDL_snprintf(l->status, sizeof(l->status), "%s removed from the list (its files stay).", s_names[b->source]);
+        return 0;
+    case ACT_SKIP:
+        l->src.skip = !l->src.skip;
+        SaveSources(&l->src);
+        if (l->src.skip) {
+            SDL_snprintf(l->status, sizeof(l->status), "Next time the game starts straight away; --launcher shows this.");
+        } else {
+            SDL_snprintf(l->status, sizeof(l->status), "This window will show on every start.");
+        }
         return 0;
     case ACT_PLAY:
         return 1;
@@ -620,7 +651,7 @@ static int Run(Launcher *l) {
                 case SDL_GAMEPAD_BUTTON_DPAD_DOWN: Move(l, 0, 1); break;
                 case SDL_GAMEPAD_BUTTON_SOUTH: result = Activate(l, focused); break;
                 case SDL_GAMEPAD_BUTTON_EAST: result = -1; break;
-                case SDL_GAMEPAD_BUTTON_START: result = Activate(l, &l->buttons[l->numButtons - 2]); break;
+                case SDL_GAMEPAD_BUTTON_START: result = Activate(l, &l->buttons[ButtonFor(l, ACT_PLAY)]); break;
                 default: break;
                 }
                 break;
@@ -700,7 +731,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
         valid = ok != NULL;
         SDL_free(ok);
     }
-    if (valid && !open) {
+    if (valid && !open && (l.src.skip || !window)) {
         chosen = SDL_strdup(l.src.path[l.src.play]);
         FreeSources(&l.src);
         return chosen;
@@ -725,7 +756,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     SDL_SetRenderVSync(l.renderer, 1);
     Layout(&l);
     if (valid) {
-        l.focus = l.numButtons - 2;     /* Play: A or Enter starts the game */
+        l.focus = ButtonFor(&l, ACT_PLAY);     /* A or Enter starts the game */
     }
     if (Run(&l) > 0 && l.src.play >= 0 && l.src.path[l.src.play] != NULL) {
         chosen = SDL_strdup(l.src.path[l.src.play]);
