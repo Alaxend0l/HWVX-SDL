@@ -1,0 +1,140 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "MediaTexture",
+ "description": "One texture of a pack: its header and its levels as PNG files (xdl README §10.1). Wrap and filter are not texture data in these packs: the game sets them per draw (Gfx_SetTextureWrapMode).",
+ "type": "object",
+ "x-tool": "tools/xdl_media.py",
+ "properties": {
+  "$schema": {
+   "type": "string",
+   "description": "path or URL of this schema"
+  },
+  "format_version": {
+   "const": 1
+  },
+  "id": {
+   "type": "string",
+   "pattern": "^base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+$",
+   "x-link": {
+    "kind": "texture"
+   },
+   "description": "this texture's structural id (pairing.md §1)"
+  },
+  "release": {
+   "enum": [
+    "gc",
+    "pc",
+    "ps2"
+   ],
+   "description": "the release whose encoding this is"
+  },
+  "index": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 65535,
+   "description": "the texture's index in its release's table"
+  },
+  "format": {
+   "enum": [
+    "CMPR",
+    "DXT1",
+    "DXT5",
+    "PSMCT32",
+    "PSMT8",
+    "RGBA8"
+   ],
+   "description": "GameCube CMPR/RGBA8, PC DXT1/DXT5, PS2 PSMT8 (palette, a palette PNG)/PSMCT32. Colours as stored: the GameCube's are the PC's squared (port-format §2.4)"
+  },
+  "width": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 65535
+  },
+  "height": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 65535
+  },
+  "mips": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 65535,
+   "description": "the header's level count (0 = one level). GameCube RGBA8 stores one level whatever it says; a PS2 PSMCT32 chain's 1x1 level is the next texture's first texel"
+  },
+  "header_0x0C": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 4294967295,
+   "description": "GameCube and PC: the header's last word (0)"
+  },
+  "clut": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 4294967295,
+   "description": "PS2 PSMT8: the CLUT (palette) index; textures sharing one must have equal palettes"
+  },
+  "clut_encoded": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{32}$",
+   "description": "PS2 PSMT8: BLAKE2b-128 of the stored CLUT"
+  },
+  "fingerprint": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{32}$",
+   "description": "pairing.md §3.1 `x` of the base's copy"
+  },
+  "levels": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "file",
+     "width",
+     "height",
+     "pixels",
+     "encoded"
+    ],
+    "properties": {
+     "file": {
+      "type": "string",
+      "description": "the level's PNG, beside this file; when missing, made from the level above with a 2x2 box filter"
+     },
+     "width": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+     },
+     "height": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+     },
+     "pixels": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "BLAKE2b-128 of the RGBA8 pixels the release's data decodes to; while the PNG still decodes to it, build reuses the base's encoding"
+     },
+     "encoded": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "BLAKE2b-128 of the level's stored bytes in the base"
+     }
+    }
+   }
+  }
+ },
+ "additionalProperties": false,
+ "required": [
+  "format_version",
+  "id",
+  "release",
+  "index",
+  "format",
+  "width",
+  "height",
+  "mips",
+  "levels"
+ ]
+}

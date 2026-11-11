@@ -1,0 +1,108 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "MediaPack",
+ "description": "A pack's media as tools/xdl_media.py extracts them: the files it builds back into the base pack (xdl README §12).",
+ "type": "object",
+ "x-tool": "tools/xdl_media.py",
+ "properties": {
+  "$schema": {
+   "type": "string",
+   "description": "path or URL of this schema"
+  },
+  "format_version": {
+   "const": 1
+  },
+  "pack": {
+   "type": "string",
+   "pattern": "^base://[A-Za-z0-9_]+/[A-Za-z0-9_]+$",
+   "description": "the pack's structural id"
+  },
+  "release": {
+   "enum": [
+    "gc",
+    "pc",
+    "ps2"
+   ],
+   "description": "the release whose encoding this is"
+  },
+  "source": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "archive",
+    "pack",
+    "toc_index",
+    "bytes",
+    "blake2b"
+   ],
+   "description": "the player's copy this was extracted from: build's base",
+   "properties": {
+    "archive": {
+     "type": "string"
+    },
+    "pack": {
+     "type": "string"
+    },
+    "toc_index": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 4294967295
+    },
+    "bytes": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 4294967295
+    },
+    "blake2b": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{32}$"
+    }
+   }
+  },
+  "textures": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "sounds": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "song": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "id",
+    "file"
+   ],
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/song/(?:[a-z0-9]+:)?[0-9]+$",
+     "x-link": {
+      "kind": "song"
+     },
+     "description": "this song's structural id (pairing.md §1)"
+    },
+    "file": {
+     "type": "string"
+    }
+   }
+  },
+  "bank": {
+   "type": "string"
+  }
+ },
+ "additionalProperties": false,
+ "required": [
+  "format_version",
+  "pack",
+  "release",
+  "source",
+  "textures",
+  "sounds"
+ ]
+}

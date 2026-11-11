@@ -1,0 +1,98 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "MediaSound",
+ "description": "One sound effect: a mono PCM16 WAV and the descriptor's fields (port-format §2.5).",
+ "type": "object",
+ "x-tool": "tools/xdl_media.py",
+ "properties": {
+  "$schema": {
+   "type": "string",
+   "description": "path or URL of this schema"
+  },
+  "format_version": {
+   "const": 1
+  },
+  "id": {
+   "type": "string",
+   "pattern": "^base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/sound/(?:[a-z0-9]+:)?[0-9]+$",
+   "x-link": {
+    "kind": "sound"
+   },
+   "description": "this sound's structural id (pairing.md §1)"
+  },
+  "release": {
+   "enum": [
+    "gc",
+    "pc",
+    "ps2"
+   ],
+   "description": "the release whose encoding this is"
+  },
+  "index": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 65535,
+   "description": "the sound's index in its release's table"
+  },
+  "file": {
+   "type": "string",
+   "description": "mono 16-bit WAV beside this file"
+  },
+  "rate": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 4294967295,
+   "description": "sample rate in Hz; must equal the WAV's"
+  },
+  "loop": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "minimum": 0,
+   "description": "loop start in samples of the WAV (null: plays once). PS2: a multiple of 28 (an ADPCM block)"
+  },
+  "volume": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 65535,
+   "description": "descriptor u16 at 0x12 (0x7FFF everywhere)"
+  },
+  "bits": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 255,
+   "description": "descriptor u8 at 0x11 (16)"
+  },
+  "unk_0x10": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 255,
+   "description": "descriptor u8 at 0x10 (0)"
+  },
+  "samples": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{32}$",
+   "description": "BLAKE2b-128 of the PCM16 LE samples (pairing.md `n` for GameCube and PC); PS2: of the decoded ADPCM without its silent first block"
+  },
+  "encoded": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{32}$",
+   "description": "PS2: BLAKE2b-128 of the SPU-ADPCM bytes, reused while the WAV still has the samples above"
+  }
+ },
+ "additionalProperties": false,
+ "required": [
+  "format_version",
+  "id",
+  "release",
+  "index",
+  "file",
+  "rate",
+  "loop",
+  "volume",
+  "bits",
+  "unk_0x10",
+  "samples"
+ ]
+}
