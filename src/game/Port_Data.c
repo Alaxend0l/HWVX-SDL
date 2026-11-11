@@ -359,8 +359,10 @@ static void PC_SongBank(u8 *bank) {
 
 /* A song's instrument bank as its pack loads (DataPack_LoadDataPack): in
  * the GameCube's form ('RIFX' header, PortSwap_MIDI swaps CreateMIDI's
- * copy), its samples in host order. */
-void PortData_SongBank(s32 fmt, u8 *bank) {
+ * copy), its samples in host order. Returns the bank to load: GameCube and
+ * PC convert it in place; the PS2's is rebuilt in a block (Port_PS2.c),
+ * freed by PortData_SongBankDone once CreateMIDI has copied it. */
+u8 *PortData_SongBank(s32 fmt, u8 *bank) {
     switch (fmt) {
     case PORT_DATA_GC:
         if (memcmp(bank, "RIFX", 4) == 0 && memcmp(bank + 8, "sndb", 4) == 0) {
@@ -370,8 +372,17 @@ void PortData_SongBank(s32 fmt, u8 *bank) {
     case PORT_DATA_PC:
         PC_SongBank(bank);
         break;
+    case PORT_DATA_PS2:
+        return PortPS2_SongBank(bank);
     default:
         Unsupported(fmt);
+    }
+    return bank;
+}
+
+void PortData_SongBankDone(s32 fmt) {
+    if (fmt == PORT_DATA_PS2) {
+        PortPS2_SongBankDone();
     }
 }
 

@@ -245,13 +245,15 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         if (header.songBankOffset != 0) {
             SETP(pack->songBank, (void *)((u8 *)GETP(pack->soundBase) + header.songBankOffset));
-            PortData_SongBank(fmt, GETP(pack->songBank));   /* port: the PC's is little-endian */
+            /* port: the PC's is little-endian, the PS2's rebuilt elsewhere (Port_Data.c) */
+            SETP(pack->songBank, PortData_SongBank(fmt, GETP(pack->songBank)));
         }
         pack->soundDataSize = header.soundDataSize;
         if (GETP(pack->song) != NULL && GETP(pack->songBank) != NULL && g_bSoundLoadingEnabled) {
             SongManager_LoadSong(GETP(pack->song), GETP(pack->songBank));
             pack->songLoaded = 1;
         }
+        PortData_SongBankDone(fmt);   /* port: CreateMIDI has its copy */
         sfx = GETP(pack->sfxData);
         PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
         for (i = 0; i < pack->numSounds; i++) {
@@ -266,6 +268,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             }
             sfx += sizeof(SFX);
         }
+        PortData_SFXDone(fmt);   /* port: CreateSFX has copied the samples */
         if (freeData) {
             Deallocate(GETP(pack->soundData));
             SETP(pack->soundData, NULL);
@@ -335,6 +338,14 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         SETP(pack->soundData, PortGeometry_ConvertGC(GETP(pack->base), header.dataSize, pointers,
                                                      header.numPointers, pointers - header.numTexRelocs * 2,
                                                      header.numTexRelocs));
+    } else if (fmt == PORT_DATA_PS2) {
+        /* port: the PS2's geometry and textures (Port_Geometry.c, Port_PS2.c),
+         * converted now that the slots hold pointers */
+        SETP(pack->soundData, PortGeometry_ConvertPS2(GETP(pack->base), header.dataSize, pointers,
+                                                      header.numPointers, (u32 *)GETP(pack->relocs),
+                                                      header.numRelocs));
+        PortGeometry_Keep(pack, PortPS2_Textures(GETP(pack->base), header.dataSize, header.textureDataOffset,
+                                                 header.numTextures, header.paletteOffset, header.palettes));
     }
     SETP(pack->paletteData, (void *)((u8 *)GETP(pack->base) + header.paletteOffset));
     SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->base) + header.shaderOffset));
@@ -421,6 +432,13 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
                 PortGeometry_Keep(quad, PortGeometry_ConvertGC((u8 *)PTR(quad->gxBase), quad->size - offset, pointers,
                                                                GETP(quad->header)->numPointers, (u32 *)texRelocs,
                                                                GETP(quad->header)->numTexRelocs));
+            } else if (Port_FileFormat(file) == PORT_DATA_PS2) {
+                /* port: the PS2's geometry (Port_Geometry.c); its texture-id
+                 * relocations at converted groups get flagged */
+                PortGeometry_Keep(quad, PortGeometry_ConvertPS2((u8 *)PTR(quad->gxBase), quad->size - offset, pointers,
+                                                                GETP(quad->header)->numPointers,
+                                                                (u32 *)GETP(GETP(quad->header)->relocs),
+                                                                GETP(quad->header)->numRelocs));
             }
             SETP(quad->data, SLOT_LOAD(void *, (u32 *)PTR(quad->gxBase) + (0)));
             SETP(quad->vertices, SLOT_LOAD(void *, (u32 *)PTR(quad->gxBase) + (1)));
@@ -498,8 +516,8 @@ void DataPack_RefreshTextures(DataPack *pack) {
         for (i = 0; i < pack->numTextures; i++) {
             GETP(pack->textureIDs)[i] = Gfx_LoadTexture_RAM(&tex);
             texData = HND(tex);
-            /* the PC release packs the 0x10-byte headers (Port_Data.c) */
-            if ((texData & 0x1F) && pack->portFormat != PORT_DATA_PC) {
+            /* the PC and PS2 releases pack the 0x10-byte headers (Port_Data.c) */
+            if ((texData & 0x1F) && pack->portFormat != PORT_DATA_PC && pack->portFormat != PORT_DATA_PS2) {
                 tex += 0x20 - (texData & 0x1F);
             }
         }
@@ -592,6 +610,7 @@ void DataPack_ReleaseDataPack(DataPack *pack) {
         }
         Deallocate(GETP(pack->soundIDs));
         Deallocate(GETP(pack->soundData));
+        PortGeometry_Release(pack);   /* port: a PS2 pack's expanded textures (Port_PS2.c) */
         SETP(pack->soundIDs, NULL);
         SETP(pack->soundData, NULL);
         memset(pack, 0, 0x94);
