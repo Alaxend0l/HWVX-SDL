@@ -890,9 +890,11 @@ done:
         return g_codeVariables.blockReset;
     case 0x258:
         /* the platform the interfaces test (HW_IPack's title shows its
-         * "Maximum Justice" subtitle on 1): GameCube 2, PS2 1. port: the
-         * PS2 release's value with its data */
-        return Port_DataRelease() == PORT_DATA_PS2 ? 1 : 2;
+         * "Maximum Justice" subtitle on 1): GameCube 2, PS2 1, PC 0 (its
+         * GameSettings_GetCodeVariable, 0x42A680, has no case for it; the
+         * PC's One Player, Extras and options screens show their selection
+         * highlight only on 0). port: each release's value with its data */
+        return Port_DataRelease() == PORT_DATA_PS2 ? 1 : Port_DataRelease() == PORT_DATA_PC ? 0 : 2;
     case 0x259:
         return 1;
     case 0x19B:
