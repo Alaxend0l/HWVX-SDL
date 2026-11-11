@@ -40,7 +40,7 @@ enum {
     PORT_SAVE_IDS_COUNT
 };
 const char *Port_SaveIdSection(int table);   /* its name in the JSON: "cars" */
-u32 Port_SaveIdCount(int table);             /* the game array's length */
+u32 Port_SaveIdCount(int table);             /* the game array's length (the retail entries) */
 /* The id of index `index` in `table`: 1 if it has one. */
 int Port_SaveIdOf(int table, u32 index, char *buf, size_t size);
 /* The index of `id` in `table`: 1 if the game has it. */
@@ -97,6 +97,10 @@ int Port_SavesExists(const char *name);
  * a damaged file, as it would a bad card, and nothing is reset or replaced. */
 int Port_SavesRead(const char *name, void *saveFile, u32 size);
 int Port_SavesWrite(const char *name, const void *saveFile, u32 size);
+/* The entries save `slot` keeps by id (PortSaveExtras.kept) as the save
+ * last read has them: those past the game's arrays (Port_Content.h) and
+ * those it has no number for. NULL if none. */
+const struct JsonNode *Port_SavesKept(const char *name, int slot);
 /* The game's Delete: the save and its backups move to deleted/. */
 int Port_SavesDelete(const char *name);
 
