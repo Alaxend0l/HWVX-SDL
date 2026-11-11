@@ -1,6 +1,7 @@
 /* The launcher: where the player imports the releases' game data, picks the
  * one to play, imports saves, sets what graphics.cfg holds beyond the game's
- * own Graphics menu, and (later) converts data to .xdl and manages mods.
+ * own Graphics menu, converts a release to .xdl ahead of time, and (later)
+ * manages mods.
  *
  * The launcher opens on every start, unless the player ticked "Start the
  * game without this window" (skip=1): then the game boots straight into the
@@ -30,8 +31,8 @@
  * It is plain SDL: a window with an SDL_Renderer drawing SDL's built-in 8x8
  * text at a logical 640x420. A tab bar shows one page at a time: Play (which
  * release plays, the skip tick), Games (importing and removing releases),
- * Saves, Convert and Mods (placeholders), Settings (graphics.cfg, through
- * gfx_settings.c). Play, Quit and the status line stay at the bottom. It opens
+ * Saves, Convert (below), Mods (a placeholder), Settings (graphics.cfg,
+ * through gfx_settings.c). Play, Quit and the status line stay at the bottom. It opens
  * on the page shown last, or Play; on Games while no release is imported.
  * Mouse, keyboard (arrows, Tab, Enter, Escape; Page Up/Down: the page) and
  * gamepads (d-pad or left stick, A, B, Start: Play; LB/RB: the page) move a
@@ -50,9 +51,31 @@
  * saves go where and what each adds, with the choices (one save only, the
  * PC/PS2 default cars), and Import merges them into the JSON save store. The
  * preview keeps to the Saves page until it is imported or cancelled.
- * HWVX_LAUNCHER_IMPORT="FILE;FILE" opens that preview on start (testing). */
+ * HWVX_LAUNCHER_IMPORT="FILE;FILE" opens that preview on start (testing).
+ *
+ * Convert: a release's packs converted to the .xdl cache (xdl.c) ahead of
+ * time, instead of as the game loads them. "Convert to .xdl" starts this
+ * program again as the converter (--convert-xdl, game/Port_Convert.c: the
+ * game's own loader, in a process of its own, so the window stays live and a
+ * pack that kills it doesn't kill the launcher) and follows the progress it
+ * prints; Cancel stops it. It fills <pref>converted/<key>.part, which takes
+ * <pref>converted/<key>'s place only when complete (as a disc import does),
+ * so a cancelled or failed conversion leaves the last good one. Each release
+ * shows its state: not converted, converted, or out of date (the converter's
+ * manifest names the source files with their sizes and times, and the cache
+ * version). "Delete cache" removes it. The game reads a release's converted
+ * packs when it has them (Xdl_Use), unless the environment says otherwise
+ * (HWVX_XDL, HWVX_XDL_WRITE, HWVX_XDL_DIR); a file that is out of date is
+ * loaded from its source as before.
+ *
+ * Hook points for features built elsewhere, each a row with a button that
+ * calls a function with a weak stub here (port_internal.h): the mixed-build
+ * builder on Convert (Port_LauncherMixedBuild), the mod loader on Mods
+ * (Port_LauncherMods). */
 #include "port_internal.h"
 #include "Port_Saves.h"
+#include "xdl.h"
+#include "../game/include/Port_Convert.h"
 
 #define VIEW_W 640
 #define VIEW_H 420
@@ -319,8 +342,15 @@ enum {
     ACT_IMP_CARS,       /* the PC/PS2 default cars */
     ACT_IMP_GO, ACT_IMP_ADD, ACT_IMP_CANCEL,
     ACT_TAB,            /* show page `source` */
-    ACT_SET             /* toggle setting `source` */
+    ACT_SET,            /* toggle setting `source` */
+    ACT_CONV_DELETE,    /* delete release `source`'s converted packs (ACT_CONVERT converts them) */
+    ACT_CONV_CANCEL,
+    ACT_HOOK_MIXED,     /* the hook points: the mixed-build builder, the mod loader */
+    ACT_HOOK_MODS
 };
+
+/* A release's converted packs. */
+enum { CONV_NONE, CONV_OK, CONV_STALE, CONV_IMAGE /* a disc image: nothing to convert from */ };
 
 /* The Settings page: graphics.cfg's choices that have no row in the game's
  * own Graphics menu, and the display (gfx_settings.c reads and writes the
@@ -389,6 +419,13 @@ typedef struct Launcher {
     PortImportPlan plan;
     int planOk;
     char planError[256], onlyLabel[96], carsLabel[64];
+    /* Convert: each release's converted packs, and the converter while it runs */
+    int convState[PORT_DATA_COUNT], convPacks[PORT_DATA_COUNT];
+    Uint64 convBytes[PORT_DATA_COUNT];
+    SDL_Process *converter;
+    int convSource, convDone, convTotal;
+    char convName[64], convLine[600], convError[200];
+    size_t convLineLen;
 } Launcher;
 
 /* The title and the tabs share the top line; the pages start under it. */
@@ -399,6 +436,9 @@ typedef struct Launcher {
 #define PLAY_ROW_Y(k) (PAGE_Y + 24.0f + (k) * 34.0f)    /* Play: an imported release */
 #define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
 #define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 42.0f)     /* Settings: a setting */
+#define CONV_ROW_Y(k) (PAGE_Y + 30.0f + (k) * 52.0f)    /* Convert: an imported release */
+#define CONV_BAR_Y CONV_ROW_Y(3)                        /* the progress, under the releases */
+#define CONV_HOOK_Y (CONV_BAR_Y + 46.0f)                /* the mixed-build row */
 #define SET_X 200.0f
 
 static void Text(Launcher *l, float x, float y, Uint8 r, Uint8 g, Uint8 b, const char *s) {
@@ -498,7 +538,31 @@ static void LayoutPage(Launcher *l, int busy) {
         Add(l, 24, PAGE_Y + 24, "Import saves...", ACT_SAVES, -1, !busy);
         break;
     case TAB_CONVERT:
-        Add(l, 24, PAGE_Y + 24, "Convert to .xdl", ACT_CONVERT, -1, 0);
+        for (i = 0, k = 0; i < PORT_DATA_COUNT; i++) {
+            if (l->src.path[i] != NULL) {
+                float x = 24, y = CONV_ROW_Y(k++) + 26;
+
+                x += Add(l, x, y, l->convState[i] == CONV_NONE || l->convState[i] == CONV_IMAGE ? "Convert to .xdl"
+                                                                                               : "Convert again",
+                         ACT_CONVERT, i, !busy && l->convState[i] != CONV_IMAGE)->r.w + 8;
+                if (l->convState[i] == CONV_OK || l->convState[i] == CONV_STALE) {
+                    Add(l, x, y, "Delete cache", ACT_CONV_DELETE, i, !busy);
+                }
+            }
+        }
+        if (k == 0) {
+            Add(l, 24, CONV_ROW_Y(0) + 26, "Import a copy on the Games page", ACT_TAB, TAB_GAMES, 1);
+        }
+        if (l->converter != NULL) {
+            Add(l, VIEW_W - 24 - (6 * CHAR + 16), CONV_BAR_Y + 26, "Cancel", ACT_CONV_CANCEL, -1, 1);
+        }
+        /* hook point: the mixed-build builder */
+        Add(l, 24, CONV_HOOK_Y + 26, "Build a mixed game...", ACT_HOOK_MIXED, -1,
+            !busy && Port_LauncherMixedBuild(0, NULL, NULL, NULL, 0));
+        break;
+    case TAB_MODS:
+        /* hook point: the mod loader */
+        Add(l, 24, PAGE_Y + 70, "Mods...", ACT_HOOK_MODS, -1, !busy && Port_LauncherMods(0, NULL, NULL, NULL, 0));
         break;
     case TAB_SETTINGS:
         for (i = 0; i < SET_COUNT; i++) {
@@ -512,7 +576,7 @@ static void LayoutPage(Launcher *l, int busy) {
 
 /* The buttons for the current state, in focus order, then the tabs. */
 static void Layout(Launcher *l) {
-    int i, busy = l->importer != NULL || l->dialogOpen;
+    int i, busy = l->importer != NULL || l->converter != NULL || l->dialogOpen;
     float x = TAB_X;
 
     l->numButtons = 0;
@@ -626,7 +690,7 @@ static void DrawSaves(Launcher *l) {
 
 /* The current page's text (its buttons are drawn with the rest). */
 static void DrawPage(Launcher *l) {
-    char line[160];
+    char line[160], fit[160];
     int i, k;
     float y;
 
@@ -637,6 +701,9 @@ static void DrawPage(Launcher *l) {
             if (l->src.path[i] != NULL) {
                 y = PLAY_ROW_Y(k++);
                 Text(l, 148, y + 1, WHITE, s_names[i]);
+                if (l->convState[i] == CONV_OK || l->convState[i] == CONV_STALE) {
+                    Text(l, 148 + (float)(SDL_strlen(s_names[i]) + 2) * CHAR, y + 1, DIM, "- loads from its .xdl packs");
+                }
                 Fit(line, sizeof(line), l->src.path[i], 58);
                 Text(l, 148, y + 12, GREEN, line);
             }
@@ -686,17 +753,68 @@ static void DrawPage(Launcher *l) {
         Text(l, 24, y + 77, DIM, "what each adds, before anything is written.");
         break;
     case TAB_CONVERT:
-        Text(l, 24, PAGE_Y, GREY, "Coming later.");
-        Wrap(l, 24, PAGE_Y + 58, VIEW_H - 56, 74, 0, DIM,
-             "This will convert your imported releases into .xdl, the packs made for this port: one "
-             "format for every release's data, which loads without being converted again, and which "
-             "the port's editors and mods work on.");
+        Text(l, 24, PAGE_Y, GREY, "A copy's packs converted to .xdl once, here, instead of every time");
+        Text(l, 24, PAGE_Y + 11, GREY, "the game loads them. The game then loads the converted packs.");
+        for (i = 0, k = 0; i < PORT_DATA_COUNT; i++) {
+            if (l->src.path[i] == NULL) {
+                continue;
+            }
+            y = CONV_ROW_Y(k++);
+            Text(l, 24, y, WHITE, s_names[i]);
+            switch (l->converter != NULL && l->convSource == i ? -1 : l->convState[i]) {
+            case -1:
+                Text(l, 24, y + 12, 255, 210, 80, "Converting...");
+                break;
+            case CONV_OK:
+                SDL_snprintf(line, sizeof(line), "Converted: %d packs, %d MB", l->convPacks[i],
+                             (int)((l->convBytes[i] + 500000) / 1000000));
+                Text(l, 24, y + 12, GREEN, line);
+                break;
+            case CONV_STALE:
+                SDL_snprintf(line, sizeof(line), "Out of date (%d MB): the copy or the port changed. Convert again.",
+                             (int)((l->convBytes[i] + 500000) / 1000000));
+                Text(l, 24, y + 12, 255, 190, 120, line);
+                break;
+            case CONV_IMAGE:
+                Text(l, 24, y + 12, DIM, "A disc image: only a folder of the disc's files is converted.");
+                break;
+            default:
+                Text(l, 24, y + 12, DIM, "Not converted");
+                break;
+            }
+        }
+        if (k == 0) {
+            Text(l, 24, CONV_ROW_Y(0) + 4, DIM, "No release imported yet.");
+        }
+        y = CONV_BAR_Y;
+        if (l->converter != NULL) {
+            SDL_FRect bar = { 24, y + 14, VIEW_W - 48, 8 };
+            int pct = l->convTotal > 0 ? l->convDone * 100 / l->convTotal : 0;
+
+            SDL_snprintf(line, sizeof(line), "Converting the %s copy: %d%%  %d of %d packs  %s", s_names[l->convSource],
+                         pct, l->convDone, l->convTotal, l->convName);
+            Fit(fit, sizeof(fit), line, 74);
+            Text(l, 24, y, 255, 210, 80, fit);
+            SDL_SetRenderDrawColor(l->renderer, 38, 44, 64, 255);
+            SDL_RenderFillRect(l->renderer, &bar);
+            bar.w = bar.w * (float)pct / 100.0f;
+            SDL_SetRenderDrawColor(l->renderer, 255, 210, 80, 255);
+            SDL_RenderFillRect(l->renderer, &bar);
+            Text(l, 24, y + 31, DIM, "Cancel or Quit stops it and keeps the last complete one.");
+        }
+        y = CONV_HOOK_Y;
+        Text(l, 24, y, WHITE, "Mixed game");
+        Text(l, 24, y + 12, DIM,
+             Port_LauncherMixedBuild(0, NULL, NULL, NULL, 0) ? "One game from the best of your copies."
+                                                             : "One game from the best of your copies. Coming later.");
         break;
     case TAB_MODS:
-        Text(l, 24, PAGE_Y, GREY, "Coming later.");
-        Wrap(l, 24, PAGE_Y + 24, VIEW_H - 56, 74, 0, DIM,
-             "Mods will change and add to the game. They carry no game data of their own: each one "
+        Wrap(l, 24, PAGE_Y, PAGE_Y + 60, 74, 0, GREY,
+             "Mods change and add to the game. They carry no game data of their own: each one "
              "is built from your imported copy, on this machine.");
+        if (!Port_LauncherMods(0, NULL, NULL, NULL, 0)) {
+            Text(l, 24 + 7 * CHAR + 16 + 12, PAGE_Y + 75, DIM, "Coming later.");
+        }
         break;
     case TAB_SETTINGS:
         Text(l, 24, PAGE_Y, GREY, "Kept in graphics.cfg; the game reads them when it starts.");
@@ -801,6 +919,8 @@ static void SDLCALL Picked(void *userdata, const char *const *filelist, int filt
     SDL_SetAtomicInt(&l->picked, filelist == NULL ? 2 : 1);
 }
 
+static void RefreshConverted(Launcher *l);
+
 /* A picked folder or image: checked, filed under the source it holds. */
 static void Import(Launcher *l, const char *path, int asked) {
     char *found;
@@ -821,6 +941,7 @@ static void Import(Launcher *l, const char *path, int asked) {
         l->src.play = src;
     }
     SaveSources(&l->src);
+    RefreshConverted(l);
     if (src != asked) {
         SDL_snprintf(l->status, sizeof(l->status), "That is the %s: imported as such.", s_names[src]);
     } else {
@@ -867,6 +988,290 @@ static void StartDisc(Launcher *l, const char *image, int source) {
     if (l->importer == NULL) {
         SDL_snprintf(l->status, sizeof(l->status), "Could not start the import: %s", SDL_GetError());
     }
+}
+
+/* ---- converting to .xdl --------------------------------------------------- */
+
+/* Hook points (port_internal.h): the stubs of features built elsewhere. */
+__attribute__((weak)) int Port_LauncherMixedBuild(int run, const char *const *paths, const char *prefDir, char *status,
+                                                  size_t statusSize) {
+    (void)run, (void)paths, (void)prefDir, (void)status, (void)statusSize;
+    return 0;   /* not built in */
+}
+
+__attribute__((weak)) int Port_LauncherMods(int run, const char *const *paths, const char *prefDir, char *status,
+                                            size_t statusSize) {
+    (void)run, (void)paths, (void)prefDir, (void)status, (void)statusSize;
+    return 0;   /* not built in */
+}
+
+static void RunHook(Launcher *l, int (*hook)(int, const char *const *, const char *, char *, size_t)) {
+    char *pref = Port_PrefPath();
+
+    hook(1, (const char *const *)l->src.path, pref != NULL ? pref : "", l->status, sizeof(l->status));
+    SDL_free(pref);
+}
+
+char *Port_ConvertedDir(const char *key) {
+    char *pref = Port_PrefPath(), *dir = NULL;
+
+    if (pref != NULL) {
+        SDL_asprintf(&dir, "%sconverted/%s", pref, key);
+        SDL_free(pref);
+    }
+    return dir;
+}
+
+static SDL_EnumerationResult SDLCALL RemoveEntry(void *userdata, const char *dir, const char *name) {
+    char *path = NULL;
+    SDL_PathInfo info;
+
+    if (SDL_asprintf(&path, "%s%s", dir, name) >= 0) {
+        if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+            SDL_EnumerateDirectory(path, RemoveEntry, userdata);
+        }
+        SDL_RemovePath(path);
+        SDL_free(path);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+static void RemoveTree(const char *path) {
+    SDL_PathInfo info;
+
+    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+        SDL_EnumerateDirectory(path, RemoveEntry, NULL);
+    }
+    SDL_RemovePath(path);
+}
+
+static SDL_EnumerationResult SDLCALL SumEntry(void *userdata, const char *dir, const char *name) {
+    char *path = NULL;
+    SDL_PathInfo info;
+
+    if (SDL_asprintf(&path, "%s%s", dir, name) >= 0) {
+        if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+            SDL_EnumerateDirectory(path, SumEntry, userdata);
+        } else {
+            *(Uint64 *)userdata += info.size;
+        }
+        SDL_free(path);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+/* The state of the converted packs in `dir`, made from `source`: CONV_NONE
+ * without a finished conversion's manifest; CONV_STALE when the manifest is
+ * of another cache version or settings, another place, or names a source
+ * file that has changed or gone. */
+static int ConvertedState(const char *dir, const char *source, int *packs) {
+    char *path = NULL, *text, *line, *save = NULL;
+    u32 version, compiler, settings, v, c, s;
+    int state = CONV_OK, stamped = 0;
+
+    *packs = 0;
+    SDL_asprintf(&path, "%s/%s", dir, PORT_CONVERT_MANIFEST);
+    text = path != NULL ? SDL_LoadFile(path, NULL) : NULL;
+    SDL_free(path);
+    if (text == NULL) {
+        return CONV_NONE;
+    }
+    Xdl_Stamp(&version, &compiler, &settings);
+    for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
+        if (SDL_strncmp(line, "xdl=", 4) == 0) {
+            stamped = SDL_sscanf(line + 4, "%u.%u.%u", &v, &c, &s) == 3 && v == version && c == compiler && s == settings;
+        } else if (SDL_strncmp(line, "source=", 7) == 0) {
+            if (SDL_strcmp(line + 7, source) != 0) {
+                state = CONV_STALE;
+            }
+        } else if (SDL_strncmp(line, "packs=", 6) == 0) {
+            *packs = SDL_atoi(line + 6);
+        } else if (SDL_strncmp(line, "file=", 5) == 0) {
+            char *end, *file;
+            Uint64 size = SDL_strtoull(line + 5, &end, 10);
+            Sint64 time = *end == '\t' ? SDL_strtoll(end + 1, &end, 10) : 0;
+            SDL_PathInfo info;
+
+            file = *end == '\t' ? end + 1 : end;
+            if (!SDL_GetPathInfo(file, &info) || info.size != size || (Sint64)info.modify_time != time) {
+                state = CONV_STALE;
+            }
+        }
+    }
+    SDL_free(text);
+    return stamped ? state : CONV_STALE;
+}
+
+/* Every release's state again: on start, and after anything that changes it. */
+static void RefreshConverted(Launcher *l) {
+    int i;
+
+    for (i = 0; i < PORT_DATA_COUNT; i++) {
+        char *dir = Port_ConvertedDir(s_keys[i]);
+        SDL_PathInfo info;
+
+        l->convState[i] = CONV_NONE;
+        l->convBytes[i] = 0;
+        l->convPacks[i] = 0;
+        if (l->src.path[i] != NULL && dir != NULL) {
+            l->convState[i] = ConvertedState(dir, l->src.path[i], &l->convPacks[i]);
+            if (l->convState[i] != CONV_NONE) {
+                SDL_EnumerateDirectory(dir, SumEntry, &l->convBytes[i]);
+            } else if (SDL_GetPathInfo(l->src.path[i], &info) && info.type == SDL_PATHTYPE_FILE) {
+                l->convState[i] = CONV_IMAGE;
+            }
+        }
+        SDL_free(dir);
+    }
+}
+
+/* The game reads release `src`'s converted packs, if it has any and the
+ * environment doesn't set the cache up itself. */
+static void UseConverted(const Sources *s) {
+    char *dir = s->play >= 0 ? Port_ConvertedDir(s_keys[s->play]) : NULL;
+    int packs;
+
+    if (dir != NULL && !Xdl_EnvSet() && ConvertedState(dir, s->path[s->play], &packs) != CONV_NONE) {
+        Port_Log("launcher: the %s copy loads from its converted packs, %s", s_names[s->play], dir);
+        Xdl_Use(dir, 1, 0);
+    }
+    SDL_free(dir);
+}
+
+/* Starts the converter on release `src`: this program, as a process. */
+static void StartConvert(Launcher *l, int src) {
+    char *dir = Port_ConvertedDir(s_keys[src]), *part = NULL, *parent = Port_ConvertedDir("");
+    const char *args[6];
+    SDL_Environment *env;
+    SDL_PropertiesID props;
+
+    if (dir == NULL || parent == NULL || g_port.program == NULL || SDL_asprintf(&part, "%s.part", dir) < 0) {
+        SDL_snprintf(l->status, sizeof(l->status), "Can't convert: no folder to convert into.");
+        SDL_free(dir);
+        SDL_free(parent);
+        return;
+    }
+    RemoveTree(part);
+    SDL_CreateDirectory(parent);
+    args[0] = g_port.program;
+    args[1] = "--convert-xdl";
+    args[2] = part;
+    args[3] = "--data";
+    args[4] = l->src.path[src];
+    args[5] = NULL;
+    env = SDL_CreateEnvironment(true);
+    SDL_SetEnvironmentVariable(env, "HWVX_NO_DIALOG", "1", true);
+    SDL_UnsetEnvironmentVariable(env, "HWVX_DUMP");
+    SDL_UnsetEnvironmentVariable(env, "HWVX_START");
+    props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, (void *)args);
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, env);
+    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
+    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_APP);
+    l->converter = SDL_CreateProcessWithProperties(props);
+    SDL_DestroyProperties(props);
+    SDL_DestroyEnvironment(env);
+    l->convSource = src;
+    l->convDone = l->convTotal = 0;
+    l->convName[0] = l->convError[0] = '\0';
+    l->convLineLen = 0;
+    if (l->converter == NULL) {
+        SDL_snprintf(l->status, sizeof(l->status), "Could not start the converter: %s", SDL_GetError());
+    } else {
+        SDL_snprintf(l->status, sizeof(l->status), "Converting the %s copy...", s_names[src]);
+    }
+    SDL_free(part);
+    SDL_free(dir);
+    SDL_free(parent);
+}
+
+/* A line the converter printed (Port_Convert.h). */
+static void ConvertLine(Launcher *l, const char *line) {
+    int done, total, at = 0;
+
+    if (SDL_sscanf(line, "@convert %d %d %n", &done, &total, &at) >= 2 && at > 0) {
+        l->convDone = done;
+        l->convTotal = total;
+        SDL_strlcpy(l->convName, BaseName(line + at), sizeof(l->convName));
+    } else if (SDL_strncmp(line, "@error ", 7) == 0) {
+        SDL_strlcpy(l->convError, line + 7, sizeof(l->convError));
+    }
+}
+
+/* The converter's output so far; when it has ended, its folder swapped in
+ * (or removed). `cancel`: stop it now. */
+static void PollConvert(Launcher *l, int cancel) {
+    SDL_IOStream *out = SDL_GetProcessOutput(l->converter);
+    char buf[2048], *dir, *part = NULL, *old = NULL, *manifest = NULL;
+    int code = -1, ended, ok = 0;
+    size_t n, i;
+    SDL_PathInfo info;
+
+    if (cancel) {
+        SDL_KillProcess(l->converter, true);
+    }
+    ended = SDL_WaitProcess(l->converter, cancel, &code);
+    while (out != NULL && (n = SDL_ReadIO(out, buf, sizeof(buf))) > 0) {
+        for (i = 0; i < n; i++) {
+            if (buf[i] == '\n') {
+                l->convLine[l->convLineLen] = '\0';
+                ConvertLine(l, l->convLine);
+                l->convLineLen = 0;
+            } else if (l->convLineLen + 1 < sizeof(l->convLine)) {
+                l->convLine[l->convLineLen++] = buf[i];
+            }
+        }
+    }
+    if (!ended) {
+        return;
+    }
+    SDL_DestroyProcess(l->converter);
+    l->converter = NULL;
+    dir = Port_ConvertedDir(s_keys[l->convSource]);
+    if (dir != NULL && SDL_asprintf(&part, "%s.part", dir) >= 0 && SDL_asprintf(&old, "%s.old", dir) >= 0 &&
+        SDL_asprintf(&manifest, "%s/%s", part, PORT_CONVERT_MANIFEST) >= 0) {
+        /* only a finished conversion takes the last one's place */
+        if (!cancel && code == 0 && SDL_GetPathInfo(manifest, NULL)) {
+            RemoveTree(old);
+            if (SDL_GetPathInfo(dir, &info) && !SDL_RenamePath(dir, old)) {
+                SDL_snprintf(l->convError, sizeof(l->convError), "could not replace %s: %s", dir, SDL_GetError());
+            } else if (!SDL_RenamePath(part, dir)) {
+                SDL_snprintf(l->convError, sizeof(l->convError), "could not finish %s: %s", dir, SDL_GetError());
+                SDL_RenamePath(old, dir);
+            } else {
+                ok = 1;
+            }
+            RemoveTree(old);
+        }
+        RemoveTree(part);
+    }
+    RefreshConverted(l);
+    if (ok) {
+        SDL_snprintf(l->status, sizeof(l->status), "The %s copy is converted: %d packs.", s_names[l->convSource],
+                     l->convPacks[l->convSource]);
+    } else if (cancel) {
+        SDL_snprintf(l->status, sizeof(l->status), "Conversion cancelled: nothing changed.");
+    } else if (l->convError[0] != '\0') {
+        SDL_snprintf(l->status, sizeof(l->status), "Not converted: %s", l->convError);
+    } else {
+        SDL_snprintf(l->status, sizeof(l->status), "Not converted: the converter stopped (%d) at %s.", code,
+                     l->convName[0] ? l->convName : "the start");
+    }
+    SDL_free(dir);
+    SDL_free(part);
+    SDL_free(old);
+    SDL_free(manifest);
+}
+
+static void DeleteConverted(Launcher *l, int src) {
+    char *dir = Port_ConvertedDir(s_keys[src]);
+
+    if (dir != NULL) {
+        RemoveTree(dir);
+        SDL_free(dir);
+    }
+    RefreshConverted(l);
+    SDL_snprintf(l->status, sizeof(l->status), "The %s copy's converted packs are deleted.", s_names[src]);
 }
 
 /* ---- importing saves ---------------------------------------------------- */
@@ -1077,6 +1482,7 @@ static int Activate(Launcher *l, const Button *b) {
             l->src.play = -1;
         }
         SaveSources(&l->src);
+        RefreshConverted(l);
         SDL_snprintf(l->status, sizeof(l->status), "%s removed from the list (its files stay).", s_names[b->source]);
         return 0;
     case ACT_SKIP:
@@ -1119,6 +1525,24 @@ static int Activate(Launcher *l, const Button *b) {
                      *v ? s_settings[i].on : s_settings[i].off);
         return 0;
     }
+    case ACT_CONVERT:
+        StartConvert(l, b->source);
+        return 0;
+    case ACT_CONV_DELETE:
+        DeleteConverted(l, b->source);
+        return 0;
+    case ACT_CONV_CANCEL:
+        if (l->converter != NULL) {
+            PollConvert(l, 1);
+        }
+        return 0;
+    case ACT_HOOK_MIXED:
+        RunHook(l, Port_LauncherMixedBuild);
+        RefreshConverted(l);
+        return 0;
+    case ACT_HOOK_MODS:
+        RunHook(l, Port_LauncherMods);
+        return 0;
     case ACT_PLAY:
         return 1;
     case ACT_QUIT:
@@ -1174,6 +1598,9 @@ static void Poll(Launcher *l) {
         }
         l->pickSaves = 0;
     }
+    if (l->converter != NULL) {
+        PollConvert(l, 0);
+    }
     if (l->importer != NULL) {
         if (SDL_GetAtomicInt(&l->importDone)) {
             SDL_WaitThread(l->importer, NULL);
@@ -1193,7 +1620,9 @@ static void Poll(Launcher *l) {
 /* Testing: HWVX_LAUNCHER_INPUT="rb,down,a,..." queues keys (pgup pgdn tab
  * up down left right enter esc), gamepad buttons (lb rb a b start dup ddown
  * dleft dright) and clicks (click:X:Y, in the 640x420 view) as if the player
- * had pressed them; HWVX_LAUNCHER_SHOT then saves the frame after them. */
+ * had pressed them, with waits between them (wait:MS, or waitconvert: until
+ * the converter has ended); HWVX_LAUNCHER_SHOT then saves the frame after
+ * them. */
 static void QueueInput(Launcher *l) {
     static const struct {
         const char *name;
@@ -1221,6 +1650,12 @@ static void QueueInput(Launcher *l) {
         float x, y;
 
         SDL_zero(ev);
+        if (SDL_strcmp(p, "waitconvert") == 0 || SDL_sscanf(p, "wait:%f", &x) == 1) {
+            ev.type = SDL_EVENT_USER;       /* wait here: for the converter to end, or x ms */
+            ev.user.code = SDL_strcmp(p, "waitconvert") == 0 ? -1 : (Sint32)x;
+            SDL_PushEvent(&ev);
+            continue;
+        }
         if (SDL_sscanf(p, "click:%f:%f", &x, &y) == 2) {
             SDL_RenderCoordinatesToWindow(l->renderer, x, y, &x, &y);
             ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
@@ -1303,6 +1738,18 @@ static int Run(Launcher *l) {
                 break;
             }
             case SDL_EVENT_USER:
+                if (ev.user.code != 0) {
+                    /* testing: wait, the window kept up, before the inputs that follow */
+                    Uint64 until = SDL_GetTicks() + (ev.user.code > 0 ? (Uint64)ev.user.code : 600000);
+
+                    while (SDL_GetTicks() < until && (ev.user.code > 0 || l->converter != NULL)) {
+                        Poll(l);
+                        Layout(l);
+                        Draw(l);
+                        SDL_Delay(10);
+                    }
+                    break;
+                }
                 l->scripted = 0;
                 break;
             case SDL_EVENT_WINDOW_MOUSE_LEAVE:
@@ -1377,15 +1824,20 @@ static int Run(Launcher *l) {
             }
             Layout(l);
         } while (SDL_PollEvent(&ev));
-        if (result < 0 && l->importer != NULL) {
-            /* stop the import (it stops within a few sectors and leaves the
-             * last good copy as it was) */
-            SDL_SetAtomicInt(&l->importCancel, 1);
-            SDL_snprintf(l->status, sizeof(l->status), "Stopping the disc import...");
+    }
+    if (l->converter != NULL) {
+        PollConvert(l, 1);  /* stopped: the last complete conversion stays */
+    }
+    if (l->importer != NULL) {
+        /* stop the import (it stops within a few sectors and leaves the
+         * last good copy as it was) */
+        SDL_SetAtomicInt(&l->importCancel, 1);
+        SDL_snprintf(l->status, sizeof(l->status), "Stopping the disc import...");
+        if (SDL_getenv("HWVX_LAUNCHER_SHOT") == NULL) {
             Draw(l);
-            SDL_WaitThread(l->importer, NULL);
-            l->importer = NULL;
         }
+        SDL_WaitThread(l->importer, NULL);
+        l->importer = NULL;
     }
     for (i = 0; i < 8; i++) {
         if (pads[i] != NULL) {
@@ -1439,6 +1891,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     }
     if (valid && !open && (l.src.skip || !window)) {
         chosen = SDL_strdup(l.src.path[l.src.play]);
+        UseConverted(&l.src);
         FreeSources(&l.src);
         return chosen;
     }
@@ -1473,6 +1926,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     if (TabNamed(SDL_getenv("HWVX_LAUNCHER_TAB")) >= 0) {
         l.tab = TabNamed(SDL_getenv("HWVX_LAUNCHER_TAB"));
     }
+    RefreshConverted(&l);
     Layout(&l);
     l.focus = valid ? ButtonFor(&l, ACT_PLAY) : FirstFocus(&l);     /* valid: A or Enter starts the game */
     if (SDL_getenv("HWVX_LAUNCHER_IMPORT") != NULL) {
@@ -1500,6 +1954,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     }
     if (Run(&l) > 0 && l.src.play >= 0 && l.src.path[l.src.play] != NULL) {
         chosen = SDL_strdup(l.src.path[l.src.play]);
+        UseConverted(&l.src);
     }
     CloseSaves(&l);
     SDL_DestroyRenderer(l.renderer);
