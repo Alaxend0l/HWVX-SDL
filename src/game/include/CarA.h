@@ -37,7 +37,7 @@ typedef struct Player {
       u8 button1D;          /* 0x1D */
     };
   };
-  u8 pad1E[2];              /* 0x1E */
+  u8 pad1E[2];              /* 0x1E never read (GC, PS2) */
   FPTR32(void, (void *player)) controlReader;  /* 0x20 fills the input fields (pad, AI) */
   FPTR32(void, (void *player, void *desc)) init; /* 0x24 PlayerManager_New*Player */
   FPTR32(void, (void *player)) heartbeat;      /* 0x28 */
@@ -45,7 +45,7 @@ typedef struct Player {
   s8 thingLost;             /* 0x30 its thing died (Player_DetachThingDeath) */
   u8 cameraIndex;           /* 0x31 passed to the vehicle's getCameraInfo */
   u8 combo;                 /* 0x32 pending combo/cheat action, run by CarA_ExecuteCombo */
-  u8 pad33;                 /* 0x33 */
+  u8 pad33;                 /* 0x33 never read (GC, PS2) */
   u32 deadTime;             /* 0x34 ms since its thing was lost */
   u32 type;                 /* 0x38 PLAYER_TYPE_* */
   PTR32(void) aiScripts;          /* 0x3C its thing's info (CarA.vehicleIface, Creature.info): AI scripts at 0x90 */
@@ -54,17 +54,19 @@ typedef struct Player {
   u32 view;                 /* 0x64 viewport, 1-based */
   u32 interfaceIndex;       /* 0x68 its HUD interface */
   u32 flags;                /* 0x6C & 0x80 cleared every camera update */
-  u8 pad70;                 /* 0x70 0x70-0xA7: stats, cleared by Player_Init */
+  u8 pad70;                 /* 0x70 0x70-0xA7: stats, cleared by Player_Init and copied
+                               to and from the save data (DDRescueGameData.playerStats);
+                               this byte is otherwise never read (GC, PS2) */
   u8 scoreDirty;            /* 0x71 score changed: refresh the HUD text */
-  u8 pad72[6];              /* 0x72 */
+  u8 pad72[6];              /* 0x72 saved and restored with the stats; never read (GC, PS2) */
   s32 kills;                /* 0x78 */
   u32 stuntPoints;          /* 0x7C capped at 99999 */
-  u8 pad80[0xC];            /* 0x80 */
+  u8 pad80[0xC];            /* 0x80 saved and restored with the stats; never read (GC, PS2) */
   s32 damageDealt;          /* 0x8C */
-  u8 pad90[4];              /* 0x90 */
+  u8 pad90[4];              /* 0x90 saved and restored with the stats; never read (GC, PS2) */
   u16 counters[8];          /* 0x94 pod: creatures collected, by type */
   u8 countersChanged;       /* 0xA4 */
-  u8 padA5[3];              /* 0xA5 */
+  u8 padA5[3];              /* 0xA5 saved and restored with the stats; never read (GC, PS2) */
   PTR32(struct TileCar) tileCar;  /* 0xA8 the world tile car it was spawned from */
   s16 deathNavPoint;        /* 0xAC */
   s16 respawnNavPoint;      /* 0xAE */
