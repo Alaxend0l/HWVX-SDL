@@ -96,7 +96,6 @@ enum {
 #define SNAPSHOT_MS 33          /* how often a car tells the others about itself */
 #define SNAPSHOT_SIZE 76
 #define HOLD_MAX_MS 30000       /* a machine this late doesn't hold up the others */
-#define SUMMARY_MS 8000         /* the round summary moves on without anyone pressing */
 #define SUMMARY_PRESS_MS 500    /* it may be still coming in: press until it's gone */
 #define FINISH_WINDOW_MS 60     /* plus the slowest half round trip: for close finishes */
 #define MAX_LEAD_S 0.3f         /* extrapolation limit */
@@ -867,7 +866,7 @@ int Port_OnlineHoldRoundComplete(u32 number) {
     return 1;
 }
 
-/* ---- the round summary: a menu that must not wait for anyone ----------------- */
+/* ---- the round summary: the host moves everyone on --------------------------- */
 
 int Port_OnlinePressA(void) {
     int press = s_state != STATE_NONE && s_pressA;
@@ -886,23 +885,22 @@ int Port_OnlineMenuBlocked(void) {
     return s_state == STATE_PLAYING && !s_isHost && StateManager_CurrState() == 5 && MatchComplete();
 }
 
-/* The host leaving it takes everyone along, and between rounds it leaves by itself
- * after a while. By pressing A on it, as a player would: its first row is what goes
- * on, Continue between rounds and Restart at the end. A restart or the host's Main
- * Menu takes the level and this summary with it: BeginStage and MSG_RETURN tell the
- * others about those. */
+/* The host leaving it takes everyone along; it never moves on by itself, so the
+ * scores stay up until the host continues. By pressing A on it, as a player would:
+ * its first row is what goes on, Continue between rounds and Restart at the end. A
+ * player who continues first waits in the next round, which holds until the host
+ * says go. A restart or the host's Main Menu takes the level and this summary with
+ * it: BeginStage and MSG_RETURN tell the others about those. */
 static void SummaryHeartbeat(u64 now) {
     if (s_summary == NULL) {
         return;
     }
     if (Port_InterfaceIsUp(s_summary)) {
-        int timedOut = !MatchComplete() && s_summarySince != 0 && now - s_summarySince >= SUMMARY_MS;
-
         if (s_summarySince == 0) {
             s_summarySince = now;
             s_summaryPress = 0;
         }
-        if ((s_continue || timedOut) && now >= s_summaryPress) {
+        if (s_continue && now >= s_summaryPress) {
             s_summaryPress = now + SUMMARY_PRESS_MS;
             s_pressA = 1;
         }
