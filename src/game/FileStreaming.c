@@ -3,6 +3,7 @@
  * become active/inactive, and their item spawn points respawn pickups. Also
  * the pool of streamed data packs (g_StreamingDataPacks). */
 #include "common.h"
+#include "Port_Content.h"
 #include "Port_Swap.h"
 #include "Gfx.h"
 #include "World.h"
@@ -763,6 +764,7 @@ void *FileStreaming_InitializeDataPack(u32 index, s32 type, s8 refresh)
     if (pack->refreshed == 0 && refresh)
     {
         DataPack_RefreshPtrs(&pack->pack);
+        Port_ContentFixScripts(&pack->pack, GETP(pack->name), type, pack->id);   /* port: an extra car's scripts */
     }
     pack->refreshed = 1;
     return &pack->pack;

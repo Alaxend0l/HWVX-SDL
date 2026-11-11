@@ -21,8 +21,10 @@
  *     } ]
  *   }
  *
- * Ids come from Port_SaveIds.c. An id the game has no index for is kept
- * (PortSaveExtras) and written back marked "inactive": true. DD Rescue's
+ * Ids come from Port_SaveIds.c. An entry past the game's arrays (a 34th
+ * car: the content registry's, Port_Content.h) is kept by id per slot
+ * (PortSaveExtras), as is an id the game has no index for at all, which is
+ * written back marked "inactive": true. DD Rescue's
  * slots hold its world state as named records (ddr_* below). Bytes no code
  * reads (struct padding) are written only when they aren't zero, so a save
  * goes through JSON and back unchanged. */
@@ -137,6 +139,9 @@ static void WriteUnlocks(JsonWriter *w, int table, const s8 *a, const JsonNode *
         Jw_EndObject(w);
     }
     for (m = more != NULL ? more->child : NULL; m != NULL; m = m->next) {
+        u32 index;
+        int known = Port_SaveIndexOf(table, m->key, &index);   /* past the array: the registry's */
+
         Jw_BeginObject(w, m->key, 1);
         if (m->type == JSON_OBJECT) {
             for (c = m->child; c != NULL; c = c->next) {
@@ -147,7 +152,9 @@ static void WriteUnlocks(JsonWriter *w, int table, const s8 *a, const JsonNode *
         } else {
             Jw_Node(w, "unlocked", m);
         }
-        Jw_Bool(w, "inactive", 1);
+        if (!known) {
+            Jw_Bool(w, "inactive", 1);
+        }
         Jw_EndObject(w);
     }
     Jw_EndObject(w);
@@ -498,10 +505,12 @@ static void ReadUnlocks(Reader *r, const JsonNode *slot, int table, s8 *a, JsonN
         } else {
             v = Int(r, m, m->key, -128, 127);
         }
-        if (Port_SaveIndexOf(table, m->key, &index)) {
+        if (Port_SaveIndexOf(table, m->key, &index) && index < Port_SaveIdCount(table)) {
             a[index] = (s8)v;
         } else {
-            Keep(kept, section, m);   /* content the game hasn't: kept for when it comes back */
+            /* past the game's array (the content registry has it: Port_Content.h),
+             * or content the game hasn't: kept for when it comes back */
+            Keep(kept, section, m);
         }
     }
 }

@@ -530,6 +530,15 @@ Debugging aids:
   `savetest` (built with `-DHWVX_TESTS=ON`; `ctest -R savetest`, or
   `./savetest OUT --gci FILE` to round-trip a GameCube save) tests the store:
   round trips, atomic writes, damaged saves, backups, import.
+- `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
+  release), each loading a base car's pack (3, 4, ...) under its own number
+  and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same
+  for items (packs 0, 1, ...). They start locked;
+  `HWVX_TEST_UNLOCK_CARS=33,34` / `HWVX_TEST_UNLOCK_ITEMS=12` unlock them
+  through the game's code variable as the first car / item select opens
+  (autosaved). For testing the content registry (`src/game/Port_Content.c`:
+  the car, track and item counts and unlocks, sized from the data; entries
+  past the save struct's arrays persist only in the JSON save).
 - `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable
