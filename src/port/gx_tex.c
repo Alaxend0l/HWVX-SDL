@@ -1,10 +1,23 @@
-/* GameCube texture formats -> RGBA8 renderer textures (gx_render.h).
+/* GameCube texture formats -> renderer textures (gx_render.h).
  *
  * Texture data is big-endian and tiled (the data packs keep pixel data as it
  * is on the disc). The PC release's textures come as port-only formats
  * (GX_TF_PORT | PORT_TEX_PC_*, port.h): DXT1/DXT5 and raw RGB(A), row-major,
- * little-endian, mip levels back to back, as its OpenGL upload took them. Decoded textures are cached by address, format, size and a
- * hash of their first bytes, since packs reuse memory for other textures. */
+ * little-endian, mip levels back to back, as its OpenGL upload took them.
+ *
+ * Block-compressed textures go to the GPU as they are stored when it samples
+ * BC1/BC3: the PC's DXT1/DXT5 unchanged, the GameCube's CMPR re-tiled to BC1
+ * (CMPR is DXT1 in 8x8 tiles of four 4x4 blocks, big-endian colours, the
+ * indices' bit order reversed; nothing is re-encoded). Everything else, and
+ * every texture without BC support or with HWVX_TEX_DECODE=1, is decoded to
+ * RGBA8 here. The PC's textures drawn with the GameCube's colours
+ * (Port_PCTexturesLookGC, the default) are decoded too: squaring a texel's
+ * colour can't be done on its block.
+ *
+ * Two caches: texture objects are looked up per draw by address, format, size
+ * and a hash of their first bytes (packs reuse memory for other textures);
+ * a miss hashes the texture's every byte and shares the GPU texture with any
+ * other with the same content (the cars' and worlds' copies of a texture). */
 #include "gx_render.h"
 
 enum {
@@ -14,15 +27,34 @@ enum {
     TF_PC_DXT1 = GX_TF_PORT | PORT_TEX_PC_DXT1, TF_PC_DXT5 = GX_TF_PORT | PORT_TEX_PC_DXT5
 };
 
+/* A texture on the GPU, shared by every texture object with its content. */
+typedef struct TexData {
+    u64 content;    /* every level's bytes, format, size, levels, colour look */
+    void *tex;
+    u32 refs;       /* TexEntries using it; 0: free */
+    u32 bytes;      /* GPU memory */
+    u32 rgba;       /* the same as RGBA8 */
+    u8 gxr;         /* GXR_TEX_* */
+} TexData;
+
 typedef struct TexEntry {
     u32 image, key, hash;
-    void *tex;
+    TexData *data;
     u32 lastUse;
 } TexEntry;
 
 #define TEX_CACHE 1024
 static TexEntry s_cache[TEX_CACHE];
+static TexData s_data[TEX_CACHE];   /* at most one per TexEntry */
 static u32 s_useClock;
+
+/* HWVX_STATS counters (GX_TexStats). */
+static struct {
+    u32 created, shared, decoded, kept;   /* misses: new GPU textures, shared ones; by path */
+    u64 ticks;                            /* in the miss path: hashing, decoding, uploading */
+    u64 bytes, rgbaBytes;                 /* resident GPU bytes; what they'd be as RGBA8, unshared */
+    u32 textures;                         /* resident GPU textures */
+} s_stats;
 
 static void BlockSize(int fmt, int *bw, int *bh, int *bpp) {
     switch (fmt) {
@@ -71,24 +103,59 @@ static void Rgb5a3(u16 c, u8 *o) {
     }
 }
 
+/* 5- and 6-bit colour channels to 8 bits as the hardware does, by repeating
+ * the high bits. */
+static u8 Expand5(u32 v) {
+    return (u8)(v << 3 | v >> 2);
+}
+
+static u8 Expand6(u32 v) {
+    return (u8)(v << 2 | v >> 4);
+}
+
+/* A 4x4 colour block's palette from its two RGB565 endpoints, c0 > c1 picking
+ * four colours, else three and a transparent one.
+ *
+ * gc: CMPR as the GameCube's texture unit decodes it (Dolphin's decoder,
+ * checked against hardware): the middle colours 5/8 and 3/8 of the way, and
+ * the transparent one the average colour with alpha 0.
+ *
+ * Otherwise DXT as Apple GPUs decode BC1/BC3 (measured, every endpoint pair):
+ * the middle colours (43a + 21b + 32) / 64, the average rounded up, the
+ * transparent one black, or opaque black with opaque3 (the PC's DXT1, drawn
+ * as RGB). GPUs of other makers round differently, by 1 or 2. */
+static void BlockPalette(u16 c0, u16 c1, int gc, int four, int opaque3, u8 pal[4][4]) {
+    int i;
+
+    pal[0][0] = Expand5(c0 >> 11);
+    pal[0][1] = Expand6((c0 >> 5) & 0x3F);
+    pal[0][2] = Expand5(c0 & 0x1F);
+    pal[1][0] = Expand5(c1 >> 11);
+    pal[1][1] = Expand6((c1 >> 5) & 0x3F);
+    pal[1][2] = Expand5(c1 & 0x1F);
+    pal[0][3] = pal[1][3] = pal[2][3] = pal[3][3] = 255;
+    for (i = 0; i < 3; i++) {
+        u32 a = pal[0][i], b = pal[1][i];
+
+        if (four) {
+            pal[2][i] = (u8)(gc ? (5 * a + 3 * b) >> 3 : (43 * a + 21 * b + 32) >> 6);
+            pal[3][i] = (u8)(gc ? (3 * a + 5 * b) >> 3 : (21 * a + 43 * b + 32) >> 6);
+        } else {
+            pal[2][i] = (u8)(gc ? (a + b) >> 1 : (a + b + 1) >> 1);
+            pal[3][i] = gc ? pal[2][i] : 0;
+        }
+    }
+    if (!four && !opaque3) {
+        pal[3][3] = 0;
+    }
+}
+
 static void DecodeCMPRBlock(const u8 *src, u8 *out, int w, int h, int x0, int y0) {
     u16 c0 = Port_ReadBE16(src), c1 = Port_ReadBE16(src + 2);
     u8 pal[4][4];
-    int x, y, i;
+    int x, y;
 
-    Rgb565(c0, pal[0]);
-    Rgb565(c1, pal[1]);
-    if (c0 > c1) {
-        for (i = 0; i < 4; i++) {
-            pal[2][i] = (u8)((2 * pal[0][i] + pal[1][i]) / 3);
-            pal[3][i] = (u8)((pal[0][i] + 2 * pal[1][i]) / 3);
-        }
-    } else {
-        for (i = 0; i < 4; i++) {
-            pal[2][i] = (u8)((pal[0][i] + pal[1][i]) / 2);
-            pal[3][i] = 0;
-        }
-    }
+    BlockPalette(c0, c1, 1, c0 > c1, 0, pal);
     for (y = 0; y < 4; y++) {
         u8 bits = src[4 + y];
         for (x = 0; x < 4; x++) {
@@ -105,31 +172,21 @@ static void DecodeDXTColor(const u8 *src, u8 *out, int w, int h, int x0, int y0,
     u16 c0 = (u16)(src[0] | src[1] << 8), c1 = (u16)(src[2] | src[3] << 8);
     u32 bits = (u32)src[4] | (u32)src[5] << 8 | (u32)src[6] << 16 | (u32)src[7] << 24;
     u8 pal[4][4];
-    int i, p;
+    int p;
 
-    Rgb565(c0, pal[0]);
-    Rgb565(c1, pal[1]);
-    if (c0 > c1 || alpha != NULL) {
-        for (i = 0; i < 3; i++) {
-            pal[2][i] = (u8)((2 * pal[0][i] + pal[1][i]) / 3);
-            pal[3][i] = (u8)((pal[0][i] + 2 * pal[1][i]) / 3);
-        }
-    } else {
-        for (i = 0; i < 3; i++) {
-            pal[2][i] = (u8)((pal[0][i] + pal[1][i]) / 2);
-            pal[3][i] = 0;
-        }
-    }
-    pal[2][3] = pal[3][3] = 255;
+    BlockPalette(c0, c1, 0, c0 > c1 || alpha != NULL, 1, pal);
     for (p = 0; p < 16; p++) {
         u8 *c = pal[(bits >> (p * 2)) & 3];
-        Put(out, w, h, x0 + (p & 3), y0 + (p >> 2), c[0], c[1], c[2], alpha != NULL ? alpha[p] : 255);
+        Put(out, w, h, x0 + (p & 3), y0 + (p >> 2), c[0], c[1], c[2], alpha != NULL ? alpha[p] : c[3]);
     }
 }
 
-/* A DXT5 alpha block: two endpoints, 3-bit indices (48 bits, little-endian). */
+/* A DXT5 alpha block: two endpoints, 3-bit indices (48 bits, little-endian).
+ * The steps between the endpoints in 64ths, rounded, as Apple GPUs have them
+ * (measured, every endpoint pair). */
 static void DecodeDXT5Alpha(const u8 *src, u8 *alpha) {
-    u8 a[8];
+    static const u8 w7[6] = { 9, 18, 27, 37, 46, 55 }, w5[4] = { 13, 26, 38, 51 };
+    u32 a[8];
     u64 bits = 0;
     int i;
 
@@ -137,9 +194,9 @@ static void DecodeDXT5Alpha(const u8 *src, u8 *alpha) {
     a[1] = src[1];
     for (i = 2; i < 8; i++) {
         if (a[0] > a[1]) {
-            a[i] = (u8)(((8 - i) * a[0] + (i - 1) * a[1]) / 7);
+            a[i] = (a[0] * (64u - w7[i - 2]) + a[1] * w7[i - 2] + 32) >> 6;
         } else if (i < 6) {
-            a[i] = (u8)(((6 - i) * a[0] + (i - 1) * a[1]) / 5);
+            a[i] = (a[0] * (64u - w5[i - 2]) + a[1] * w5[i - 2] + 32) >> 6;
         } else {
             a[i] = i == 6 ? 0 : 255;
         }
@@ -148,7 +205,7 @@ static void DecodeDXT5Alpha(const u8 *src, u8 *alpha) {
         bits |= (u64)src[2 + i] << (8 * i);
     }
     for (i = 0; i < 16; i++) {
-        alpha[i] = a[(bits >> (3 * i)) & 7];
+        alpha[i] = (u8)a[(bits >> (3 * i)) & 7];
     }
 }
 
@@ -410,7 +467,7 @@ void GX_TexCopyEFB(void *dest, const int src[4]) {
         if (s_copy.tex != NULL) {
             g_gxr->texDestroy(s_copy.tex);
         }
-        s_copy.tex = g_gxr->texCreate(w, h, 1);
+        s_copy.tex = g_gxr->texCreate(GXR_TEX_RGBA8, w, h, 1);
         s_copy.w = w;
         s_copy.h = h;
     }
@@ -420,13 +477,217 @@ void GX_TexCopyEFB(void *dest, const int src[4]) {
     }
 }
 
+/* CMPR to BC1, one level: each 4x4 block from its place in the 8x8 tiles,
+ * colours to little-endian, each row's 2-bit indices reversed (CMPR has pixel
+ * 0 in the high bits, BC1 in the low). A level smaller than a tile is its
+ * top-left blocks. */
+static void CmprToBC1(const u8 *src, int w, int h, u8 *dst) {
+    int bw = (w + 3) / 4, bh = (h + 3) / 4, tw = (w + 7) / 8, bx, by, r;
+
+    for (by = 0; by < bh; by++) {
+        for (bx = 0; bx < bw; bx++) {
+            const u8 *b = src + ((by / 2) * tw + bx / 2) * 32 + ((by & 1) * 2 + (bx & 1)) * 8;
+            u8 *o = dst + (by * bw + bx) * 8;
+
+            o[0] = b[1];
+            o[1] = b[0];
+            o[2] = b[3];
+            o[3] = b[2];
+            for (r = 0; r < 4; r++) {
+                u8 v = b[4 + r];
+                o[4 + r] = (u8)((v >> 6) | ((v >> 2) & 0x0C) | ((v << 2) & 0x30) | (v << 6));
+            }
+        }
+    }
+}
+
+/* A PC DXT1 texture BC1 draws differently from the PC's RGB DXT1: a 3-colour
+ * block that uses its fourth colour (transparent black in BC1, opaque in RGB). */
+static int DXT1UsesTransparent(const u8 *p, u32 size) {
+    u32 i;
+
+    for (i = 0; i + 8 <= size; i += 8) {
+        u16 c0 = (u16)(p[i] | p[i + 1] << 8), c1 = (u16)(p[i + 2] | p[i + 3] << 8);
+        u32 bits = (u32)p[i + 4] | (u32)p[i + 5] << 8 | (u32)p[i + 6] << 16 | (u32)p[i + 7] << 24;
+
+        /* any index 3: both bits of some 2-bit pair set */
+        if (c0 <= c1 && (bits & (bits >> 1) & 0x55555555u) != 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* 64-bit content hash, 8 bytes a step. */
+static u64 HashContent(const u8 *p, u32 n, u64 h) {
+    u64 v;
+
+    while (n >= 8) {
+        memcpy(&v, p, 8);
+        h ^= v * 0x9E3779B97F4A7C15ull;
+        h = (h << 31 | h >> 33) * 0xC2B2AE3D27D4EB4Full;
+        p += 8;
+        n -= 8;
+    }
+    v = 0;
+    memcpy(&v, p, n);
+    h ^= (v + n) * 0x9E3779B97F4A7C15ull;
+    h ^= h >> 33;
+    h *= 0xFF51AFD7ED558CCDull;
+    h ^= h >> 33;
+    h *= 0xC4CEB9FE1A85EC53ull;
+    return h ^ (h >> 33);
+}
+
+static int EnvOn(const char *name, int dflt) {
+    const char *e = SDL_getenv(name);
+
+    return e == NULL || *e == 0 ? dflt : *e == '1';
+}
+
+/* The GPU format a texture goes up in: its blocks as they are where they can
+ * be, else RGBA8. */
+static int GpuFormat(int fmt, int w, int h, int squared, const u8 *image, u32 size) {
+    static int decode = -1;
+
+    if (decode < 0) {
+        decode = EnvOn("HWVX_TEX_DECODE", 0);
+    }
+    if (decode || squared || (w & 3) != 0 || (h & 3) != 0) {
+        return GXR_TEX_RGBA8;
+    }
+    switch (fmt) {
+    case TF_CMPR:
+        return g_gxr->texFormat(GXR_TEX_BC1) ? GXR_TEX_BC1 : GXR_TEX_RGBA8;
+    case TF_PC_DXT1:
+        if (g_gxr->texFormat(GXR_TEX_BC1_RGB)) {
+            return GXR_TEX_BC1_RGB;
+        }
+        return g_gxr->texFormat(GXR_TEX_BC1) && !DXT1UsesTransparent(image, size) ? GXR_TEX_BC1 : GXR_TEX_RGBA8;
+    case TF_PC_DXT5:
+        return g_gxr->texFormat(GXR_TEX_BC3) ? GXR_TEX_BC3 : GXR_TEX_RGBA8;
+    default:
+        return GXR_TEX_RGBA8;
+    }
+}
+
+/* Creates and uploads the GPU texture for image's levels in gxr's format. */
+static void *Upload(int fmt, int gxr, const u8 *image, int w, int h, int levels, int squared, u32 *bytes) {
+    void *tex = g_gxr->texCreate(gxr, w, h, levels);
+    u8 *buf;
+    int l;
+
+    *bytes = 0;
+    if (tex == NULL) {
+        return NULL;
+    }
+    buf = gxr == GXR_TEX_RGBA8 || fmt == TF_CMPR ? SDL_malloc(GXR_TexLevelBytes(gxr, w, h)) : NULL;
+    for (l = 0; l < levels; l++) {
+        int lw = w >> l, lh = h >> l;
+        const u8 *data = image;
+
+        if (lw < 1) lw = 1;
+        if (lh < 1) lh = 1;
+        if (gxr == GXR_TEX_RGBA8) {
+            memset(buf, 0, (size_t)lw * lh * 4);
+            DecodeLevel(fmt, image, lw, lh, buf);
+            if (squared) {
+                SquareColours(buf, lw, lh);
+            }
+            data = buf;
+        } else if (fmt == TF_CMPR) {
+            CmprToBC1(image, lw, lh, buf);
+            data = buf;
+        }
+        g_gxr->texUpload(tex, gxr, l, lw, lh, data);
+        *bytes += GXR_TexLevelBytes(gxr, lw, lh);
+        image += LevelSize(fmt, lw, lh);
+    }
+    SDL_free(buf);
+    return tex;
+}
+
+/* One texture object fewer uses d. */
+static void Release(TexData *d) {
+    s_stats.rgbaBytes -= d->rgba;
+    if (--d->refs == 0) {
+        g_gxr->texDestroy(d->tex);
+        s_stats.bytes -= d->bytes;
+        s_stats.textures--;
+        d->tex = NULL;
+    }
+}
+
+/* The shared GPU texture for this content, made if there is none. */
+static TexData *Acquire(int fmt, const u8 *image, int w, int h, int levels, int squared) {
+    static int share = -1;
+    u32 size = 0, i;
+    u64 content;
+    TexData *d = NULL;
+    int l;
+
+    if (share < 0) {
+        share = EnvOn("HWVX_TEX_SHARE", 1);
+    }
+    for (l = 0; l < levels; l++) {
+        size += LevelSize(fmt, (w >> l) > 0 ? w >> l : 1, (h >> l) > 0 ? h >> l : 1);
+    }
+    content = HashContent(image, size, (u64)fmt << 48 ^ (u64)w << 32 ^ (u64)h << 16 ^ (u64)levels << 4 ^ (u64)squared);
+    for (i = 0; i < TEX_CACHE; i++) {
+        if (s_data[i].refs != 0 && share && s_data[i].content == content) {
+            s_data[i].refs++;
+            s_stats.shared++;
+            s_stats.rgbaBytes += s_data[i].rgba;
+            return &s_data[i];
+        }
+        if (s_data[i].refs == 0 && d == NULL) {
+            d = &s_data[i];
+        }
+    }
+    if (d == NULL) {
+        return NULL;   /* can't happen: one TexData per TexEntry at most */
+    }
+    d->gxr = (u8)GpuFormat(fmt, w, h, squared, image, size);
+    d->tex = Upload(fmt, d->gxr, image, w, h, levels, squared, &d->bytes);
+    if (d->tex == NULL) {
+        return NULL;
+    }
+    d->content = content;
+    d->refs = 1;
+    d->rgba = 0;
+    for (l = 0; l < levels; l++) {
+        d->rgba += GXR_TexLevelBytes(GXR_TEX_RGBA8, (w >> l) > 0 ? w >> l : 1, (h >> l) > 0 ? h >> l : 1);
+    }
+    s_stats.created++;
+    if (d->gxr == GXR_TEX_RGBA8) {
+        s_stats.decoded++;
+    } else {
+        s_stats.kept++;
+    }
+    s_stats.textures++;
+    s_stats.bytes += d->bytes;
+    s_stats.rgbaBytes += d->rgba;
+    return d;
+}
+
+void GX_TexStats(GXTexStats *st) {
+    st->created = s_stats.created;
+    st->shared = s_stats.shared;
+    st->decoded = s_stats.decoded;
+    st->kept = s_stats.kept;
+    st->ticks = s_stats.ticks;
+    st->textures = s_stats.textures;
+    st->bytes = s_stats.bytes;
+    st->rgbaBytes = s_stats.rgbaBytes;
+}
+
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     const u32 *d = obj->dummy;
     u8 *image = PTR(d[0]);
     int w = (int)(d[1] >> 16), h = (int)(d[1] & 0xFFFF), fmt = (int)d[2];
-    int levels = 1, l;
+    int levels = 1, squared;
     u32 key = d[1] ^ (u32)fmt * 0x9E3779B1u, hash, oldest = 0, i;   /* fmt: up to the port's 0x4F */
-    u8 *rgba;
+    u64 t0;
 
     if (image == NULL || w == 0 || h == 0 || w > 1024 || h > 1024) {
         return NULL;
@@ -446,23 +707,27 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
         }
     }
     Sampler(d, levels, samp);
+    squared = fmt >= GX_TF_PORT && Port_PCTexturesLookGC();
+    key ^= (u32)squared << 31;
     hash = Hash(image, LevelSize(fmt, w, h) < 256 ? LevelSize(fmt, w, h) : 256) ^ (u32)levels;
     s_useClock++;
     i = HashFind(d[0], key, hash);
     if (i != TEX_CACHE) {
         s_cache[i].lastUse = s_useClock;
-        return s_cache[i].tex;
+        return s_cache[i].data->tex;
     }
+    t0 = SDL_GetPerformanceCounter();
     oldest = LruPick();
     {
         TexEntry *e = &s_cache[oldest];
-        if (e->tex != NULL) {
+        if (e->data != NULL) {
             HashRemove(e->image, e->key, e->hash);
-            g_gxr->texDestroy(e->tex);
+            Release(e->data);
+            e->data = NULL;
         }
-        e->tex = g_gxr->texCreate(w, h, levels);
-        if (e->tex == NULL) {
-            e->lastUse = 0;
+        e->lastUse = 0;
+        e->data = Acquire(fmt, image, w, h, levels, squared);
+        if (e->data == NULL) {
             return NULL;
         }
         e->image = d[0];
@@ -470,20 +735,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
         e->hash = hash;
         e->lastUse = s_useClock;
         HashInsert(oldest, d[0], key, hash);
-        rgba = SDL_malloc((size_t)w * h * 4);
-        for (l = 0; l < levels; l++) {
-            int lw = w >> l, lh = h >> l;
-            if (lw < 1) lw = 1;
-            if (lh < 1) lh = 1;
-            memset(rgba, 0, (size_t)lw * lh * 4);
-            DecodeLevel(fmt, image, lw, lh, rgba);
-            if (fmt >= GX_TF_PORT && Port_PCTexturesLookGC()) {
-                SquareColours(rgba, lw, lh);
-            }
-            g_gxr->texUpload(e->tex, l, lw, lh, rgba);
-            image += LevelSize(fmt, lw, lh);
-        }
-        SDL_free(rgba);
-        return e->tex;
+        s_stats.ticks += SDL_GetPerformanceCounter() - t0;
+        return e->data->tex;
     }
 }
