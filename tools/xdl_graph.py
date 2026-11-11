@@ -431,6 +431,9 @@ class Extractor:
                     raise XS.XdlError("link without relocation")
             elif kind != want:
                 raise XS.XdlError(f"a {want} link on a {kind} slot")
+            elif kind == "ref" and self.src.rel["ref"][off] >> 16:
+                # a share pack's export: the geometry link grammar has no form for it yet
+                raise XS.XdlError("geometry from a share pack")
             return
         if "$ref" in p:
             for key, q in XS.fields(self.S.ref(p)):
@@ -819,8 +822,8 @@ class Extractor:
         side["anchors"] = {k: hx(v) for k, v in sorted(nd.anchors.items(), key=lambda x: x[1])}
         if nd.geom is not None:
             g = nd.geom
-            name = Path(stem).name
-            gl, gb = XG.to_gltf(g, name, name + ".bin", lambda v: asset_link(src, "texture", v),
+            name = id_path(nd.id).replace("/", "_").replace(":", "_")
+            gl, gb = XG.to_gltf(g, name, Path(stem).name + ".bin", lambda v: asset_link(src, "texture", v),
                                 {"id": nd.id})
             p = self.out / (stem + ".gltf")
             p.parent.mkdir(parents=True, exist_ok=True)
