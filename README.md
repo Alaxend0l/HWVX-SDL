@@ -488,6 +488,15 @@ Debugging aids:
 - `HWVX_PS2CULL=1` (PS2 data) turns the PS2's strips to the GameCube's winding
   and culls back faces like the other releases, instead of drawing both faces;
   experimental: some faces end up the wrong way round and go missing.
+- `HWVX_XDL_WRITE=1` writes every data pack and world quadrant as loaded and
+  converted to a cache, one file per pack file:
+  `<pref>/xdl/<gc|pc|ps2>/<file>.xdl` (`HWVX_XDL_DIR=dir` puts it elsewhere).
+  `HWVX_XDL=1` loads packs from that cache where it has them, skipping every
+  conversion (byte-swapping, geometry, PS2 textures and sound); a file whose
+  source changed (size or modification time) is ignored. Step 1 of
+  `docs/xdl-format` (HWVX-X-FILE-EDITOR); see `src/port/xdl.c`. Data folders
+  only, not disc images.
+- `HWVX_LOADTIME=1` logs how long each data pack and quadrant takes to load.
 - `HWVX_LAUNCHER_SHOT=file.bmp` saves the launcher's first frame and closes it
   (testing).
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
