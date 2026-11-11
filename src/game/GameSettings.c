@@ -294,6 +294,10 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         Port_GfxSet(var, val);
         return;
     }
+    if (PORT_IS_TRACK_CODEVAR(var)) {   /* port: a world select's entry: its track (Port_Content.h) */
+        arg = Port_ContentTrackAt((u32)(var - PORT_CODEVAR_TRACK), arg);
+        var = 0x65;
+    }
     GameSettings_PortNoteUnlock(var, arg, val);   /* port: autosave */
 
     mcp = GameSettings_LoadMCP();
@@ -584,6 +588,10 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
 
     if (PORT_IS_CODEVAR(var)) {   /* port: graphics settings (Port_Menu.c) */
         return Port_GfxGet(var);
+    }
+    if (PORT_IS_TRACK_CODEVAR(var)) {   /* port: a world select's entry: its track (Port_Content.h) */
+        arg = Port_ContentTrackAt((u32)(var - PORT_CODEVAR_TRACK), arg);
+        var = 0x65;
     }
     if (bFirstTime) {
         bFirstTime = 0;
