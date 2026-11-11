@@ -46,6 +46,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 2.0,
+        "min": 2.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "coastRpmScale": {
@@ -58,6 +69,17 @@
         "gc": "no",
         "ps2": "no",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 1.5,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "tractionLift": {
@@ -70,6 +92,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 7,
+        "max": 1.0,
+        "min": 0.3,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "brakeDecel": {
@@ -83,7 +116,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "rpm/s"
+      "x-units": "rpm/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1.0,
+        "min": 1.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "engineBrake": {
       "description": "rpm/s off the throttle",
@@ -96,7 +140,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "rpm/s"
+      "x-units": "rpm/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0.25,
+        "min": 0.25,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "reverseThrottleDecel": {
       "description": "rpm/s at full reverse throttle",
@@ -109,7 +164,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "rpm/s"
+      "x-units": "rpm/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1.0,
+        "min": 1.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "airDownforceBase": {
       "type": "number",
@@ -120,6 +186,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 600.0,
+        "min": 600.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "airDownforceRate": {
@@ -131,6 +208,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 1.5,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "airDownforceMax": {
@@ -142,6 +230,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 2000.0,
+        "min": 2000.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "airDownforceDelay": {
@@ -157,7 +256,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "ms"
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 200,
+        "min": 200,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "spinImpulse": {
       "type": "number",
@@ -168,6 +278,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 37.0,
+        "min": 37.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "spinDecay": {
@@ -179,6 +300,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1000.0,
+        "min": 1000.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     }
   },

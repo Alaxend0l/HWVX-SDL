@@ -63,6 +63,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 18,
+        "max": 2.5,
+        "min": -3.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "unk_0x0C": {
@@ -76,6 +87,17 @@
         "gc": "no",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1.0,
+        "min": 1.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "selfRightDelay": {
@@ -91,7 +113,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "ms"
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 200,
+        "min": 200,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "steerRate": {
       "description": "rad/s the steering angle ramps to the input",
@@ -104,7 +137,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "rad/s"
+      "x-units": "rad/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 3,
+        "max": 7.5,
+        "min": 5.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "reverseDelay": {
       "description": "ms reverse before the car answers the throttle",
@@ -119,7 +163,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "ms"
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0,
+        "min": 0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "selfRightArm": {
       "type": "number",
@@ -130,6 +185,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 5000.0,
+        "min": 5000.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "torqueCurve": {
@@ -147,6 +213,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 0.3,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "animSpeed": {
@@ -159,6 +236,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 5,
+        "max": 1.0,
+        "min": 0.6,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "maxImpactVel": {
@@ -171,6 +259,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 100.0,
+        "min": 25.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "maxAngularVel": {
@@ -182,6 +281,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 100.0,
+        "min": 50.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "itemDropImpact": {
@@ -193,6 +303,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 900.0,
+        "min": 900.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "maxGrade": {
@@ -205,6 +326,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 10000.0,
+        "min": 220.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "tiltForceScale": {
@@ -217,6 +349,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0.0,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "damageScale": {
@@ -229,6 +372,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 10,
+        "max": 0.15,
+        "min": 0.04,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "minEnginePitch": {
@@ -242,7 +396,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "semitones"
+      "x-units": "semitones",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 20,
+        "max": 0.85,
+        "min": 0.2,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "soundRpmRange": {
       "description": "rpm per pitch step, CarA_UpdateSound gate",
@@ -255,7 +420,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "rpm"
+      "x-units": "rpm",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 6,
+        "max": 22000.0,
+        "min": 4500.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "offsetContactFlag": {
       "description": "1: the spring scale keeps wheel->offset",
@@ -267,6 +443,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 1.0,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "itemHeight": {
@@ -279,6 +466,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0.0,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "cameras": {

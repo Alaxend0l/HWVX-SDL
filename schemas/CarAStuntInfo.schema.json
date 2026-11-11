@@ -51,6 +51,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 11,
+        "max": 2.6,
+        "min": 1.8,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "rollRate": {
@@ -62,6 +73,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 11,
+        "max": 2.6,
+        "min": 1.8,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "spinRate": {
@@ -73,6 +95,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 11,
+        "max": 3.2,
+        "min": 2.4,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "maxTime": {
@@ -84,6 +117,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 400.0,
+        "min": 400.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "turboPerPoint": {
@@ -95,6 +139,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 20.0,
+        "min": 20.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "pitchScore": {
@@ -106,6 +161,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 120.0,
+        "min": 120.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "rollScore": {
@@ -117,6 +183,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 100.0,
+        "min": 100.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "startDelay": {
@@ -132,7 +209,18 @@
         "ps2": "yes",
         "pc": "yes"
       },
-      "x-units": "ms"
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 100,
+        "min": 100,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
     },
     "minFailTime": {
       "description": "also the stunt-time range landed stunts score in",
@@ -144,6 +232,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 100.0,
+        "min": 50.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "maxFailTime": {
@@ -155,6 +254,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1100.0,
+        "min": 1100.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "numRewardThings": {
@@ -168,6 +278,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 9,
+        "min": 9,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "rewardThings": {
@@ -201,6 +322,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 6,
+        "min": 5,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "messages": {
@@ -254,6 +386,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1,
+        "min": 1,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "failThings": {
@@ -285,6 +428,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 60.0,
+        "min": 60.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     }
   },

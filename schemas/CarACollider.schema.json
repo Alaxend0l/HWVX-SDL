@@ -69,6 +69,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 0.7,
+        "min": 0.5,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "type": {
@@ -83,6 +94,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0,
+        "min": 0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "maxHealth": {
@@ -96,6 +118,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 8,
+        "max": 1700,
+        "min": 1000,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "damageThreshold": {
@@ -110,6 +143,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 5,
+        "max": 25,
+        "min": 0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "mass": {
@@ -121,6 +165,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 40.0,
+        "min": 15.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "gravityScale": {
@@ -133,6 +188,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 5,
+        "max": -130.0,
+        "min": -150.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "gravity": {
@@ -144,6 +210,17 @@
         "gc": "yes",
         "ps2": "yes",
         "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 600.0,
+        "min": 600.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "material": {
@@ -177,6 +254,17 @@
         "gc": "yes",
         "ps2": "?",
         "pc": "?"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1,
+        "min": 1,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
       }
     },
     "endFx": {
