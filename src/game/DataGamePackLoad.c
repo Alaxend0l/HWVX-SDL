@@ -4,6 +4,7 @@
 #include "Port_Swap.h"
 #include "xdl.h"
 #include "Port_Content.h"
+#include "Port_Mix.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -217,7 +218,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         if (timing && depth++ == 0) {
             start = SDL_GetTicksNS();
         }
+        PortMix_BeginPack(name, type, tocId);   /* port: a mixed build's pack (Port_Mix.c) */
         DataPack_LoadDataPack(g_fileID, PTR(arg1));
+        PortMix_EndPack();
         if (timing && --depth == 0) {
             t = SDL_GetTicksNS() - start;
             total += t;
@@ -445,7 +448,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         sfx = GETP(pack->sfxData);
         if (xp == NULL) {
+            /* port: a mixed build's samples from another release (Port_Mix.c) */
+            PortMix_SFXPrepare(fmt, sfx, pack->numSounds);
             PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
+            PortMix_SFX(fmt, sfx, pack->numSounds);
             Xdl_Sound(data, (readSize + 0x1F) & ~0x1F, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase),
                       GETP(pack->songBank));
         } else {
@@ -465,6 +471,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         if (xp == NULL) {
             PortData_SFXDone(fmt);   /* port: CreateSFX has copied the samples */
+            PortMix_SFXDone();
         } else {
             Deallocate(xdlSfx);
             Xdl_PlaceSeg(xp, XDL_SEG_SOUND, NULL);
@@ -575,6 +582,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             PortGeometry_Keep(pack, PortPS2_Textures(GETP(pack->base), header.dataSize, header.textureDataOffset,
                                                      header.numTextures, header.paletteOffset, header.palettes));
         }
+        /* port: a mixed build's textures from the other releases (Port_Mix.c) */
+        PortMix_Textures(pack, fmt, GETP(pack->base), header.dataSize, header.textureDataOffset, header.numTextures);
         Xdl_EndPack(GETP(pack->soundData), data, (tablesSize + pad + header.dataSize + relocSize + 0x1F) & ~0x1F,
                     GETP(pack->base),
                     pointers, header.numPointers,

@@ -5,17 +5,19 @@
 #include "port_internal.h"
 #include "disc.h"
 #include "xdl.h"
+#include "Port_Mix.h"
 
-static char *JoinPath(const char *name) {
+/* `root`: the data folder, or a release's in a mixed build (mix.c). */
+static char *JoinPath(const char *root, const char *name) {
     size_t n;
     char *path;
 
     while (*name == '/') {
         name++;
     }
-    n = strlen(g_port.dataDir) + strlen(name) + 2;
+    n = strlen(root) + strlen(name) + 2;
     path = SDL_malloc(n);
-    SDL_snprintf(path, n, "%s/%s", g_port.dataDir, name);
+    SDL_snprintf(path, n, "%s/%s", root, name);
     return path;
 }
 
@@ -37,8 +39,8 @@ static SDL_EnumerationResult SDLCALL MatchEntry(void *userdata, const char *dir,
     return SDL_ENUM_CONTINUE;
 }
 
-static char *ResolveCase(const char *name) {
-    char *dir = SDL_strdup(g_port.dataDir);
+static char *ResolveCase(const char *root, const char *name) {
+    char *dir = SDL_strdup(root);
     const char *p = name;
 
     while (*p == '/') {
@@ -76,24 +78,24 @@ SDL_IOStream *Port_OpenDiscFile(const char *name);
 
 /* `found`, if not NULL: the host path it was found at (NULL for a disc
  * image's file), for the caller to free. */
-static SDL_IOStream *OpenDiscFile(const char *name, char **found) {
+static SDL_IOStream *OpenIn(const char *root, const char *name, char **found) {
     char *path;
     SDL_IOStream *io;
 
     if (found != NULL) {
         *found = NULL;
     }
-    if (Disc_IsOpen()) {
+    if (Disc_IsOpen() && root == g_port.dataDir) {
         return Disc_OpenFile(name);
     }
-    path = JoinPath(name);
+    path = JoinPath(root, name);
     io = SDL_IOFromFile(path, "rb");
 
     if (io == NULL) {
         SDL_free(path);
         path = NULL;
     }
-    if (io == NULL && (path = ResolveCase(name)) != NULL) {
+    if (io == NULL && (path = ResolveCase(root, name)) != NULL) {
         io = SDL_IOFromFile(path, "rb");
         if (io == NULL) {
             SDL_free(path);
@@ -110,7 +112,7 @@ static SDL_IOStream *OpenDiscFile(const char *name, char **found) {
                 base = p + 1;
             }
         }
-        if (base != name && (path = ResolveCase(base)) != NULL) {
+        if (base != name && (path = ResolveCase(root, base)) != NULL) {
             io = SDL_IOFromFile(path, "rb");
             if (io == NULL) {
                 SDL_free(path);
@@ -126,8 +128,24 @@ static SDL_IOStream *OpenDiscFile(const char *name, char **found) {
     return io;
 }
 
-/* For readers outside the DVD API (thp.c). */
+SDL_IOStream *Port_OpenReleaseFile(int rel, const char *name, char **found);
+
+static SDL_IOStream *OpenDiscFile(const char *name, char **found) {
+    return OpenIn(g_port.dataDir, name, found);
+}
+
+/* For readers outside the DVD API (thp.c). In a mixed build, from the
+ * release the recipe's "files" rules name (mix.c). */
 SDL_IOStream *Port_OpenDiscFile(const char *name) {
+    if (Port_MixActive()) {
+        SDL_IOStream *io = NULL;
+        int k, rel;
+
+        for (k = 0; io == NULL && (rel = Port_MixCandidate(name, k)) >= 0; k++) {
+            io = Port_OpenReleaseFile(rel, name, NULL);
+        }
+        return io;
+    }
     return OpenDiscFile(name, NULL);
 }
 
@@ -162,6 +180,42 @@ static char *FormatName(const char *fileName, int fmt, const char *dir) {
     return name;
 }
 
+/* The file `name` (the GameCube's name) as release `rel` of a mixed build has
+ * it, under that release's own name and folder; NULL if it has none. */
+SDL_IOStream *Port_OpenReleaseFile(int rel, const char *name, char **found) {
+    const char *root = Port_MixRoot(rel);
+    const char *dirs[2] = { s_formats[rel].dir, "" };
+    SDL_IOStream *io = NULL;
+    int d;
+
+    if (found != NULL) {
+        *found = NULL;
+    }
+    if (root == NULL) {
+        return NULL;
+    }
+    if (rel == PORT_DATA_GC) {
+        return OpenIn(root, name, found);
+    }
+    for (d = 0; io == NULL && d < (*dirs[0] ? 2 : 1); d++) {
+        char *alt = FormatName(name, rel, dirs[d]);
+
+        if (alt != NULL) {
+            io = OpenIn(root, alt, found);
+            SDL_free(alt);
+        } else {
+            /* not a pack: under its own name */
+            size_t n = SDL_strlen(dirs[d]) + SDL_strlen(name) + 1;
+
+            alt = SDL_malloc(n);
+            SDL_snprintf(alt, n, "%s%s", dirs[d], name);
+            io = OpenIn(root, alt, found);
+            SDL_free(alt);
+        }
+    }
+    return io;
+}
+
 /* The release whose menus the game is running on: the format DVDOpen found
  * the interface pack (HW_IPack) in. In a folder mixing releases file by
  * file, other packs may come from elsewhere; the menus, and the platform
@@ -173,14 +227,26 @@ int Port_DataRelease(void) {
 }
 
 BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
-    char *found;
-    SDL_IOStream *io = OpenDiscFile(fileName, &found);
+    char *found = NULL;
+    SDL_IOStream *io = NULL;
     u32 format = PORT_DATA_GC;
     int fmt;
 
+    if (Port_MixActive()) {
+        /* a mixed build: from the archive's base release (mix.c), each under its own name */
+        int k, rel;
+
+        for (k = 0; io == NULL && (rel = Port_MixCandidate(fileName, k)) >= 0; k++) {
+            io = Port_OpenReleaseFile(rel, fileName, &found);
+            format = (u32)rel;
+        }
+    } else {
+        io = OpenDiscFile(fileName, &found);
+    }
+
     /* A data folder can hold another release's packs instead, file by file
      * (game/Port_Data.c reads the format back through Port_FileFormat). */
-    for (fmt = PORT_DATA_GC + 1; io == NULL && fmt < PORT_DATA_COUNT && !Disc_IsOpen(); fmt++) {
+    for (fmt = PORT_DATA_GC + 1; io == NULL && !Port_MixActive() && fmt < PORT_DATA_COUNT && !Disc_IsOpen(); fmt++) {
         const char *dirs[2] = { s_formats[fmt].dir, "" };
         int d;
 

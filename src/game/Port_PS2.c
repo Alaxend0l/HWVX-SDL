@@ -24,6 +24,7 @@
 #include "Voice.h"
 #include "Port_Swap.h"
 #include "xdl.h"
+#include "Port_Mix.h"
 
 /* ---- textures ------------------------------------------------------------ */
 
@@ -177,7 +178,8 @@ void PortPS2_SFX(u8 *desc, u32 count) {
         if (sfx[i].data == 0 || !PortData_InSound(PTR(sfx[i].data), sfx[i].length)) {
             sfx[i].length = 0;
         }
-        total += ((PCMBytes(sfx[i].length) + 0x1F) & ~0x1Fu) + 0x20;
+        /* a mixed build's sample from another release goes in its place (Port_Mix.c) */
+        total += (((PortMix_SFXLength(i) ? PortMix_SFXLength(i) : PCMBytes(sfx[i].length)) + 0x1F) & ~0x1Fu) + 0x20;
     }
     s_sfxBlock = total && total < 0x10000000 ? Allocate((u32)total + 0x20, 0, "") : NULL;
     Xdl_NoteBlock(XDL_SEG_SFX, s_sfxBlock, (u32)total + 0x20);
@@ -193,6 +195,11 @@ void PortPS2_SFX(u8 *desc, u32 count) {
         u32 len = sfx[i].length, pcm = PCMBytes(len);
         const u8 *src = sfx[i].data ? (const u8 *)PTR(sfx[i].data) : NULL;
 
+        if (PortMix_SFXLength(i) != 0) {
+            PortMix_SFXFill(i, &sfx[i], out);
+            out += ((sfx[i].length + 0x1F) & ~0x1Fu) + 0x20;
+            continue;
+        }
         if (src == NULL || pcm == 0) {
             sfx[i].length = 0;
             continue;

@@ -336,6 +336,15 @@ static void DecodeLevel(int fmt, const u8 *src, int w, int h, u8 *out) {
     }
 }
 
+/* For the mixed builds' texture rules and checks (game/Port_Mix.c). */
+void GX_PortDecodeLevel(int gxFormat, const u8 *src, int w, int h, u8 *rgba) {
+    DecodeLevel(gxFormat, src, w, h, rgba);
+}
+
+u32 GX_PortLevelSize(int gxFormat, int w, int h) {
+    return LevelSize(gxFormat, w, h);
+}
+
 static u32 Hash(const u8 *p, u32 n) {
     u32 h = 2166136261u, i;
     for (i = 0; i < n; i++) {
