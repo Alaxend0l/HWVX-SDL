@@ -379,8 +379,11 @@ void AI_Car_DriveToTarget(AICar *ai, Vector4 *target, f32 speed) {
         t = Sqrt(distSq / velSq);
         CarA_GetAngularVelocity(car, &angVel);
         yaw = PSVECDotProduct(&CAR_THING(car)->axis[1], &angVel);
-        if (yaw <= 0.01f) {
-            yaw = 0.01f;
+        /* PC and PS2: only a zero yaw rate is replaced (0x4040EA, PS2
+         * c.eq.s). The GameCube clamped everything up to 0.01, so a car turning
+         * away from its point steered at full lock and slid */
+        if (yaw == 0.0f) {
+            yaw = 1e-8f;
         }
         r = angle / yaw;
         if (r < 0.0f) {
@@ -861,7 +864,10 @@ static void AI_Car_Cheat_80008A60(AICar *ai) {
             if (slot == NULL || GETP(slot->info) == NULL) {
                 break;
             }
-            if (GETP(slot->info)->type == AI_TARGET_WAY_POINT) {
+            /* port: in split screen that player may have no car (waiting to
+             * respawn); the original read low memory, here it would crash */
+            if (GETP(slot->info)->type == AI_TARGET_WAY_POINT && nearest != NULL &&
+                GETP(nearest->vehicle) != NULL) {
                 cheat = (CAR_NAV_DIST(car) - CAR_NAV_DIST(GETP(nearest->vehicle))) / 750.0f;
                 break;
             }

@@ -284,14 +284,17 @@ void Render_ScreenFlash(void) {
         GXPosition2f32(zero, zero);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        GXPosition2f32(zero, GetRenderWindow()->top);
+        /* port: the window's width and height, as the PS2 release draws it.
+         * The GameCube used left/top (+0x2B0/+0x2B8), 0 or 1 for a window, so
+         * the overlay - lens-flare whiteouts, screen flashes - never showed. */
+        GXPosition2f32(zero, (f32)GetRenderWindow()->height);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        w = GetRenderWindow()->left;
-        GXPosition2f32(w, GetRenderWindow()->top);
+        w = (f32)GetRenderWindow()->width;
+        GXPosition2f32(w, (f32)GetRenderWindow()->height);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        GXPosition2f32(GetRenderWindow()->left, zero);
+        GXPosition2f32(w, zero);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
         Render_StateZWriteEnable(1);
