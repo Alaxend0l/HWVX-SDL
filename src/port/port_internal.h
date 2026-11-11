@@ -70,6 +70,8 @@ int Port_ImportPS2Disc(const char *image, const char *prefDir, char *dest, size_
 
 /* gfx_settings.c: graphics.cfg fills in what the command line left unset. */
 void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int haveFps);
+/* Saves graphics.cfg from g_port as it stands (the launcher's Settings page). */
+void Port_GfxSaveConfig(void);
 void Port_GfxSetFullscreenMode(int w, int h);
 /* The Max FPS choice, brought into the rate the retrace pacing allows. */
 int Port_GfxFrameRate(void);
