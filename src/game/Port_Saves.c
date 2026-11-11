@@ -490,62 +490,155 @@ int Port_SavesDelete(const char *name) {
 
 /* ---- migration --------------------------------------------------------- */
 
-/* With no JSON save yet, the port's own memory card file
- * (<pref>/memcardA/<name>.sav) is imported once; the .sav stays. The marker
- * file keeps a deleted save from coming back from the card. Other releases'
- * saves (task 4d) come in through Port_SaveFromBinary the same way. */
-static void Migrate(const char *name, const PortSaveKind *kind) {
-    char *marker, *pref, *sav = NULL, source[128], err[200];
+/* The port's own memory card file, <pref>/memcardA/<name>.sav, read into
+ * `file` (checked). 1 read, 0 there is none, -1 it is there but bad (err).
+ * The card file: name, comment, banner and icons, then at 0x840 the SaveFile
+ * (FileManager_NGC.c CardFile), in the host's order. */
+static int ReadCardFile(const char *name, const PortSaveKind *kind, u8 *file, char *source, size_t sourceSize,
+                        char *err, size_t errSize) {
+    char *pref, *sav = NULL;
     void *bytes;
     size_t len = 0;
-    u8 *file;
-    PortSaveExtras extras;
-    int k, slot = SDL_strcmp(kind->game, "hwvx") == 0 ? 0 : 1;
+    int ok;
 
-    if (SDL_strcmp(s_migrateTried[slot], name) == 0) {
-        return;   /* once a run */
-    }
-    SDL_strlcpy(s_migrateTried[slot], name, sizeof(s_migrateTried[slot]));
-    for (k = 0; k <= PORT_SAVES_BACKUPS; k++) {
-        char *path = CandidatePath(name, k);
-        int e = path != NULL && Exists(path);
-        SDL_free(path);
-        if (e) {
-            return;
-        }
-    }
-    marker = PathOf(name, ".imported");
-    if (marker == NULL || Exists(marker)) {
-        SDL_free(marker);
-        return;
-    }
-    SDL_snprintf(source, sizeof(source), "memcardA/%s.sav", name);
+    SDL_snprintf(source, sourceSize, "memcardA/%s.sav", name);
     pref = Port_PrefPath();
     SDL_asprintf(&sav, "%s%s", pref != NULL ? pref : "./", source);
     SDL_free(pref);
     bytes = sav != NULL ? SDL_LoadFile(sav, &len) : NULL;
     SDL_free(sav);
     if (bytes == NULL) {
-        SDL_free(marker);
-        return;   /* nothing to import */
+        return 0;
+    }
+    if (len < 0x840) {
+        SDL_strlcpy(err, "too short", errSize);
+        ok = -1;
+    } else {
+        ok = Port_SaveFromBinary((u8 *)bytes + 0x840, len - 0x840, PORT_SAVE_ORDER_HOST, kind, file, err, errSize) ? 1 : -1;
+    }
+    SDL_free(bytes);
+    return ok;
+}
+
+/* Whether a JSON save (or a backup) is there. */
+static int AnyCandidate(const char *name) {
+    int k;
+
+    for (k = 0; k <= PORT_SAVES_BACKUPS; k++) {
+        char *path = CandidatePath(name, k);
+        int e = path != NULL && Exists(path);
+        SDL_free(path);
+        if (e) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether the card file would be imported: no JSON save and no marker. */
+static int WouldMigrate(const char *name) {
+    char *marker;
+    int e;
+
+    if (AnyCandidate(name)) {
+        return 0;
+    }
+    marker = PathOf(name, ".imported");
+    e = marker == NULL || Exists(marker);
+    SDL_free(marker);
+    return !e;
+}
+
+/* With no JSON save yet, the port's own memory card file
+ * (<pref>/memcardA/<name>.sav) is imported once; the .sav stays. The marker
+ * file keeps a deleted save from coming back from the card. Other releases'
+ * saves come in through Port_SaveImport.c, merged into this one. */
+static void Migrate(const char *name, const PortSaveKind *kind) {
+    char *marker, source[128], err[200];
+    u8 *file;
+    PortSaveExtras extras;
+    int r, slot = SDL_strcmp(kind->game, "hwvx") == 0 ? 0 : 1;
+
+    if (SDL_strcmp(s_migrateTried[slot], name) == 0) {
+        return;   /* once a run */
+    }
+    SDL_strlcpy(s_migrateTried[slot], name, sizeof(s_migrateTried[slot]));
+    if (!WouldMigrate(name)) {
+        return;
     }
     file = SDL_malloc(Port_SaveFileSize(kind));
-    /* the card file: name, comment, banner and icons, then at 0x840 the
-     * SaveFile (FileManager_NGC.c CardFile), in the host's order */
-    if (file == NULL || len < 0x840 ||
-        !Port_SaveFromBinary((u8 *)bytes + 0x840, len - 0x840, PORT_SAVE_ORDER_HOST, kind, file, err, sizeof(err))) {
-        Port_Log("saves: %s not imported: %s; it stays as it is", source, len < 0x840 ? "too short" : err);
-    } else {
+    if (file == NULL) {
+        return;
+    }
+    err[0] = 0;
+    r = ReadCardFile(name, kind, file, source, sizeof(source), err, sizeof(err));
+    if (r < 0) {
+        Port_Log("saves: %s not imported: %s; it stays as it is", source, err);
+    } else if (r > 0) {
         SDL_zero(extras);
         SDL_strlcpy(extras.importedFrom, source, sizeof(extras.importedFrom));
-        if (WriteSave(name, kind, file, &extras)) {
+        marker = PathOf(name, ".imported");
+        if (marker != NULL && WriteSave(name, kind, file, &extras)) {
             char line[160];
             SDL_snprintf(line, sizeof(line), "%s\n", source);
             Port_WriteFileSynced(marker, line, SDL_strlen(line));
             Port_Log("saves: imported %s into saves/%s/%s.json (the original is kept)", source, Port_SavesProfile(), name);
         }
+        SDL_free(marker);
     }
     SDL_free(file);
-    SDL_free(bytes);
-    SDL_free(marker);
+}
+
+/* ---- for importing (Port_SaveImport.c) --------------------------------- */
+
+int Port_SavesPeek(const char *name, void *saveFile, u32 size, char *what, size_t whatSize) {
+    const PortSaveKind *kind = Port_SaveKindByName(name);
+    char source[128], err[200];
+    int r;
+
+    SDL_memset(saveFile, 0, size);
+    if (kind == NULL || size != Port_SaveFileSize(kind)) {
+        SDL_strlcpy(what, "no such save", whatSize);
+        return -1;
+    }
+    if (WouldMigrate(name)) {
+        /* what Port_SavesRead would import first, read without writing */
+        r = ReadCardFile(name, kind, saveFile, source, sizeof(source), err, sizeof(err));
+        if (r > 0) {
+            SDL_snprintf(what, whatSize, "%s (imported first)", source);
+            return 1;
+        }
+        SDL_memset(saveFile, 0, size);
+        SDL_strlcpy(what, "no save yet", whatSize);
+        return 0;
+    }
+    Refresh(name, kind);
+    if (!s_cache.ok) {
+        SDL_snprintf(what, whatSize, "saves/%s/%s.json is damaged and has no good backup", Port_SavesProfile(), name);
+        return -1;
+    }
+    SDL_memcpy(saveFile, s_cache.file, size);
+    SDL_snprintf(what, whatSize, "saves/%s/%s.json", Port_SavesProfile(), name);
+    return 1;
+}
+
+int Port_SavesWriteImported(const char *name, const void *saveFile, u32 size, const char *importedFrom) {
+    const PortSaveKind *kind = Port_SaveKindByName(name);
+    PortSaveExtras extras;
+    int ok;
+
+    if (kind == NULL || size != Port_SaveFileSize(kind)) {
+        return 0;
+    }
+    Refresh(name, kind);
+    CarryExtras(kind, saveFile, &extras);
+    if (extras.importedFrom[0] == 0 && importedFrom != NULL) {
+        SDL_strlcpy(extras.importedFrom, importedFrom, sizeof(extras.importedFrom));
+    }
+    ok = WriteSave(name, kind, saveFile, &extras);
+    Port_SaveExtrasFree(&extras);
+    if (ok) {
+        Port_Log("saves: wrote %s/%s.json", Port_SavesProfile(), name);
+    }
+    return ok;
 }
