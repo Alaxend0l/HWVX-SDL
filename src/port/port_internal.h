@@ -39,6 +39,9 @@ typedef struct PortState {
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
     int resetSave;           /* --reset-save (main_sdl.c): default game data, no autoload */
+    const char *convertDir;  /* --convert-xdl DIR: convert the data to the .xdl cache there
+                              * and exit (game/Port_Convert.c) */
+    const char *program;     /* argv[0]: the launcher starts the converter with it */
 } PortState;
 
 extern PortState g_port;
@@ -63,6 +66,22 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
  * in err when the recipe can't be used. Port_MixManifestClose: the build is done. */
 int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, char *err, u32 errSize);
 void Port_MixManifestClose(void);
+/* The launcher's hook points for features built elsewhere: the mixed-build
+ * builder (the Convert page's "Build a mixed game..." row) and the mod loader
+ * (the Mods page's "Mods..." row). launcher.c has weak stubs that say the
+ * feature isn't there; the feature defines the real function. Called with
+ * run 0 to ask (returns 1 if it is built in: the button is enabled), with
+ * run 1 when the button is pressed: `paths` are the imported sources
+ * ("gc", "pc", "ps2", "ps2beta" order; NULL where none), `prefDir` the
+ * preferences folder (ends in a separator); what it has to say goes in
+ * `status` (shown on the status line). It runs on the UI thread: start a
+ * thread or a process for anything long. */
+int Port_LauncherMixedBuild(int run, const char *const *paths, const char *prefDir, char *status, size_t statusSize);
+int Port_LauncherMods(int run, const char *const *paths, const char *prefDir, char *status, size_t statusSize);
+/* Where the launcher keeps release `key`'s ("gc", "pc", "ps2") converted
+ * packs: <pref>converted/<key>; SDL_free it. The game reads them when the
+ * folder holds a finished conversion (its manifest, Port_Convert.h). */
+char *Port_ConvertedDir(const char *key);
 /* pcdisc.c: the PC release's disc image (.iso, .cue/.bin) into folder `dest`:
  * HWVX.cab's files flat, the FMV_ movies; `progress` counts files. */
 int Port_ImportPCDisc(const char *image, const char *dest, SDL_AtomicInt *progress, SDL_AtomicInt *cancel, char *err,

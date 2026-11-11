@@ -85,6 +85,7 @@ typedef struct XdlFixup {
 
 typedef struct XdlFile {
     char *path;
+    char *source;           /* the file it is made from */
     XdlHeader want;         /* what a current cache file's header holds */
     SDL_IOStream *io;       /* reading: open, its index loaded */
     XdlSection *sections;
@@ -109,45 +110,60 @@ static int EnvOn(const char *name) {
     return v != NULL && *v && SDL_atoi(v) != 0;
 }
 
-int Xdl_Reading(void) {
-    static int on = -1;
+/* -1: as the environment says (HWVX_XDL, HWVX_XDL_WRITE, HWVX_XDL_DIR) */
+static int s_reading = -1, s_writing = -1;
+static char *s_dir;
 
-    if (on < 0) {
+int Xdl_Reading(void) {
+    if (s_reading < 0) {
         /* a mixed build (mix.c) is played from its cache, and fills it */
-        on = EnvOn("HWVX_XDL") || Port_MixActive();
+        s_reading = EnvOn("HWVX_XDL") || Port_MixActive();
     }
-    return on;
+    return s_reading;
 }
 
 int Xdl_Writing(void) {
-    static int on = -1;
-
-    if (on < 0) {
-        on = EnvOn("HWVX_XDL_WRITE") || Port_MixActive();
+    if (s_writing < 0) {
+        s_writing = EnvOn("HWVX_XDL_WRITE") || Port_MixActive();
     }
-    return on;
+    return s_writing;
 }
 
 static const char *CacheDir(void) {
-    static char *dir;
-
-    if (dir == NULL) {
+    if (s_dir == NULL) {
         const char *env = SDL_getenv("HWVX_XDL_DIR");
 
         if (env != NULL && *env) {
-            dir = SDL_strdup(env);
+            s_dir = SDL_strdup(env);
         } else {
             char *pref = Port_PrefPath();
 
-            SDL_asprintf(&dir, "%sxdl", pref != NULL ? pref : "");
+            SDL_asprintf(&s_dir, "%sxdl", pref != NULL ? pref : "");
             SDL_free(pref);
         }
     }
-    return dir;
+    return s_dir;
+}
+
+void Xdl_Use(const char *dir, int reading, int writing) {
+    SDL_free(s_dir);
+    s_dir = SDL_strdup(dir);
+    s_reading = reading;
+    s_writing = writing;
+}
+
+int Xdl_EnvSet(void) {
+    return SDL_getenv("HWVX_XDL") != NULL || SDL_getenv("HWVX_XDL_WRITE") != NULL || SDL_getenv("HWVX_XDL_DIR") != NULL;
 }
 
 static u32 Settings(void) {
     return EnvOn("HWVX_PS2CULL") ? 1u : 0u;
+}
+
+void Xdl_Stamp(u32 *version, u32 *compiler, u32 *settings) {
+    *version = XDL_VERSION;
+    *compiler = XDL_COMPILER;
+    *settings = Settings();
 }
 
 /* ---- the index (header, section table, TOC) --------------------------------- */
@@ -217,6 +233,8 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
     static const char *fmtDir[PORT_DATA_COUNT] = { "gc", "pc", "ps2" };
     SDL_PathInfo info;
     XdlFile *xf;
+    const char *base, *c;
+    char *lower;
     size_t n;
 
     if ((!Xdl_Reading() && !Xdl_Writing()) || sourcePath == NULL || fmt < 0 || fmt >= PORT_DATA_COUNT ||
@@ -234,8 +252,21 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
     if (xf == NULL) {
         return NULL;
     }
+    /* by the file's own name, in lower case: the game asks for a pack with
+     * its folders and in more than one spelling, a flat folder (the PC's)
+     * has none, and every pack file's name is its own (dvd.c) */
+    for (base = name, c = name; *c; c++) {
+        if (*c == '/' || *c == '\\') {
+            base = c + 1;
+        }
+    }
+    n -= (size_t)(base - name);
     SDL_asprintf(&xf->path, "%s/%s/%.*s.xdl", CacheDir(), Port_MixActive() ? Port_MixCacheName() : fmtDir[fmt],
-                 (int)(n - 4), name);
+                 (int)(n - 4), base);
+    for (lower = xf->path != NULL ? xf->path + SDL_strlen(xf->path) - n : NULL; lower != NULL && *lower; lower++) {
+        *lower = (char)SDL_tolower((unsigned char)*lower);
+    }
+    xf->source = SDL_strdup(sourcePath);
     SDL_memcpy(xf->want.magic, "XDL1", 4);
     xf->want.version = XDL_VERSION;
     xf->want.compiler = XDL_COMPILER;
@@ -260,6 +291,8 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
             Port_Log("xdl: %s is out of date, loading the source", xf->path);
             SDL_CloseIO(xf->io);
             xf->io = NULL;
+        } else if (xf->io != NULL) {
+            Port_Log("xdl: %s", xf->path);
         }
     }
     if (xf->io == NULL && !Xdl_Writing()) {
@@ -280,7 +313,12 @@ void Xdl_CloseFile(void *p) {
     }
     FreeIndex(xf);
     SDL_free(xf->path);
+    SDL_free(xf->source);
     SDL_free(xf);
+}
+
+const char *Xdl_SourcePath(void *xf) {
+    return xf != NULL ? ((XdlFile *)xf)->source : NULL;
 }
 
 /* ---- recording ---------------------------------------------------------------- */

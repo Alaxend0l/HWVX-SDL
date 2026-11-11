@@ -3,6 +3,9 @@
 #include "gx_render.h"
 #include "disc.h"
 #include "Port_Mix.h"
+#include "xdl.h"
+#include "../game/include/Port_Convert.h"
+#include "../game/include/Port_Mods.h"
 
 #include <SDL3/SDL_main.h>
 
@@ -105,6 +108,7 @@ static void ParseArgs(int argc, char **argv) {
     int i, v, haveSize = 0, haveVSync = 0, haveFps = 0, haveDisplay = 0;
 
     g_port.dataDir = NULL;   /* FindDataDir */
+    g_port.program = argc > 0 ? argv[0] : NULL;
     /* the hwvx-launcher copy (CMakeLists.txt) opens the launcher, like --launcher */
     if (argc > 0 && argv[0] != NULL) {
         const char *name = argv[0], *sep;
@@ -159,6 +163,16 @@ static void ParseArgs(int argc, char **argv) {
             s_mixRecipe = argv[++i];
         } else if (SDL_strcmp(argv[i], "--launcher") == 0) {
             g_port.launcher = 1;
+        } else if (SDL_strcmp(argv[i], "--convert-xdl") == 0 && i + 1 < argc) {
+            g_port.convertDir = argv[++i];
+        } else if (SDL_strcmp(argv[i], "--install-mod") == 0 && i + 1 < argc) {
+            char err[256];   /* a .hwmod into the mods folder (Port_Mods.c), then exit */
+
+            if (!Port_ModsInstall(argv[++i], err, sizeof(err))) {
+                SDL_Log("%s: %s", argv[i], err);
+                exit(1);
+            }
+            exit(0);
         } else if (SDL_strcmp(argv[i], "--reset-save") == 0) {
             g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
@@ -182,6 +196,9 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("  --mix RECIPE     play a mixed build: one game from the releases you imported,");
             SDL_Log("                   by a recipe (\"ultimate\", or a .jsonc file)");
             SDL_Log("  --mix-build RECIPE  convert all of its packs into the cache, then quit");
+            SDL_Log("  --convert-xdl DIR  convert every pack of --data PATH to the .xdl cache in DIR");
+            SDL_Log("                   and exit (what the launcher's Convert page runs)");
+            SDL_Log("  --install-mod FILE  unpack a .hwmod package into the mods folder and exit");
             exit(1);
         }
     }
@@ -477,6 +494,10 @@ static void FindDataDir(void) {
 
 int Port_TryCreateWindow(SDL_WindowFlags flags) {
     flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    if (g_port.convertDir != NULL) {
+        flags |= SDL_WINDOW_HIDDEN;     /* converting: nothing is shown */
+        g_port.fullscreen = 0;
+    }
     if (g_port.fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN;
     }
@@ -576,12 +597,25 @@ void GetSystemDate(s32 *year, s32 *month, s32 *day, s32 *hour, s32 *minute) {
 
 /* ---- main -------------------------------------------------------------- */
 
+static const char *s_convertSource;
+
 int main(int argc, char **argv) {
     ParseArgs(argc, argv);
+    if (g_port.convertDir != NULL) {
+        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");  /* the converter shows nothing: no Dock icon either */
+    }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         Port_Fatal("SDL_Init failed: %s", SDL_GetError());
     }
-    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {  /* no sound is not fatal (ax.c runs silently) */
+    if (g_port.convertDir != NULL) {
+        /* the converter (game/Port_Convert.c): the data given, the cache written there */
+        if (g_port.dataDir == NULL) {
+            Port_Fatal("--convert-xdl needs --data PATH");
+        }
+        s_convertSource = g_port.dataDir;
+        Xdl_Use(g_port.convertDir, 0, 1);
+        Port_ConvertBegin();
+    } else if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {  /* no sound is not fatal (ax.c runs silently) */
         Port_Log("audio: %s", SDL_GetError());
     }
     FindDataDir();
@@ -615,6 +649,15 @@ int main(int argc, char **argv) {
         Port_MixManifestClose();
         Port_Log("mix: %u packs converted for %s", (unsigned)n, Port_MixName());
         exit(n != 0 ? 0 : 1);
+    }
+    if (g_port.convertDir != NULL) {
+        int failed = Disc_IsOpen() ? 1 : Port_ConvertRun(g_port.dataDir, s_convertSource, g_port.convertDir);
+
+        if (Disc_IsOpen()) {
+            printf("@error a disc image is not converted: extract its files\n");
+        }
+        fflush(stdout);
+        _Exit(failed);      /* nothing of the game to shut down */
     }
     m_ilpreset_803C7620 = 0;
     m_reset = 0;
