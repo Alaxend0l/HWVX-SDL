@@ -25,10 +25,13 @@
  *   Game does nothing without a save, and leaving Options, where the "Be sure
  *   to save" reminder came up after a setting changed, autosaves instead
  *   (GameSettings_PortAutoSave).
- * - Graphics: a copy of the Options screen with the same 40 objects (object
+ * - Graphics: a copy of the Options screen with the same objects (object
  *   indices in actions stay valid). The rows it doesn't use are hidden; the
  *   "Difficulty" row becomes "Resolution" and the "Sound Mode" row "Display",
- *   moved to the top two row positions. Their variables read the port's code
+ *   moved to the top two row positions. The PC release's Options screen has
+ *   no Sound Mode row: there Display is a copy of Difficulty, added after the
+ *   screen's own objects (FindOptions finds the rows of either by their
+ *   texts; OptScreen). Their variables read the port's code
  *   variables (PORT_CODEVAR_*), their left/right actions write them. B goes
  *   back like the Controller screen's. Leaving it applies the settings
  *   (Port_MenuReleased). Gamma and FOV are more copies of the Music row, its
@@ -51,40 +54,53 @@
 #include "Interface.h"
 #include "Port_Online.h"
 
-/* The Options screen's objects (pack data, see tools: dump with xgc_inspect). */
-enum {
-    OPT_NUM_OBJECTS = 40,
-    OPT_TITLE = 13,             /* "Game Settings" */
-    OPT_CONTROLLER = 16,
-    OPT_CHEATS = 17,
-    OPT_CHEATS_LABEL = 18,
-    OPT_DIFFICULTY = 19,        /* label, value (20), arrows (21, 22) */
-    OPT_SOUND = 23,             /* label, value (24), arrows (25, 26) */
-    OPT_MUSIC = 27,             /* to 30 */
-    OPT_SFX = 31,               /* to 34 */
-    OPT_DEBUG = 35,
-    OPT_FOOTER_LEFT_RIGHT = 38, /* "Last/Next" and "B Back", for the rows listed in its conditions */
-    OPT_FOOTER_VOLUME = 39,     /* "Soft/Loud" and "B Back": the Music and SFX rows' */
-};
+/* The Options screen ("Game Settings"), found by its rows' texts rather than
+ * at fixed indices: the GameCube and PC packs lay it out differently.
+ *
+ * GameCube (HW_IPack.xgc, 40 objects): 13 title, 16 Controller, 17 Cheats
+ * (18 its greyed label), rows of four from 19 - label, value at +1, arrows
+ * at +2/+3 - Difficulty 19, Sound Mode 23, Music 27, SFX 31; 35 the hidden
+ * debug row (record 7), 37-39 the footers (child interfaces): 38 "Last/Next"
+ * and "B Back", shown for the records in its conditions (3, 6, 7), 39
+ * "Soft/Loud", for 4 and 5. Rows 26 apart from y 198.
+ *
+ * PC (HW_IPack.xpc, 33 objects): the same rows less Sound Mode, and three
+ * fewer images before them: 10 title, 13 Controller, 14/15 Cheats,
+ * Difficulty 16, Music 20, SFX 24, debug 28, footers 30-32 (31's conditions
+ * still list Sound Mode's record 6). Rows 31 apart from y 203.
+ *
+ * Both: records Controller 1, Cheats 2, Difficulty 3, Music 4, SFX 5, Sound
+ * Mode 6 (GameCube only), debug 7; variables 0 difficulty (code var 0xC8, the
+ * Difficulty row's step var), 1 the selected record (type 3), 2 code var
+ * 0x6A, 3 sound mode (code var 0xD6 - the PC keeps it without a row). All
+ * read from the data (FindOptions) except the ids the port gives its own
+ * rows (REC_GRAPHICS ...), checked to be free. */
+#define NONE 0xFFFFFFFFu
+#define OPT_MAX_OBJECTS 48
+#define CODEVAR_SOUND_MODE 0xD6
 
-enum {
-    OPT_VAR_DIFFICULTY = 0,     /* Graphics: the resolution */
-    OPT_VAR_SELECTED = 1,
-    OPT_VAR_SOUND = 3,          /* Graphics: the display mode */
-    OPT_VAR_MUSIC = 4,          /* Graphics: vsync */
-    OPT_VAR_SFX = 5,            /* Graphics: the frame rate */
-};
+typedef struct RowSpacing {
+    f32 packFirst, packStep;    /* the pack's first row and the gap to the next */
+    f32 first, step;            /* the port's, with one more row */
+} RowSpacing;
 
-enum { REC_CONTROLLER = 1, REC_MUSIC = 4, REC_SFX = 5, REC_GRAPHICS = 8, REC_DIFFICULTY = 3, REC_SOUND = 6,
-       REC_GAMMA = 9, REC_FOV = 10 };
+typedef struct OptScreen {
+    u32 numObjects;
+    u32 title, controller, cheats, cheatsLabel;
+    u32 difficulty, sound, music, sfx;  /* rows of four; sound NONE on PC */
+    u32 debug;                  /* NONE if absent */
+    u32 footerLeftRight;        /* "Last/Next" and "B Back", for the rows listed in its conditions */
+    u32 footerVolume;           /* "Soft/Loud" and "B Back": the Music and SFX rows'; NONE if absent */
+    u8 recController, recDifficulty, recSound, recMusic, recSfx;
+    u16 varDifficulty, varSelected, varSound;
+    u16 varVSync, varFps;       /* the Graphics screen's, past the pack's */
+    RowSpacing rows;
+} OptScreen;
+#define NO_VAR 0xFFFF
 
-/* The Graphics screen's objects past the Options screen's: two rows like Music's
- * (label, bar, arrows). */
-enum {
-    GFX_GAMMA = OPT_NUM_OBJECTS,
-    GFX_FOV = GFX_GAMMA + 4,
-    GFX_NUM_OBJECTS = GFX_FOV + 4,
-};
+/* The port's own record ids, past the pack's 1-7 (the Display row takes the
+ * Sound Mode row's 6 on PC, where that row is gone). */
+enum { REC_SOUND = 6, REC_GRAPHICS = 8, REC_GAMMA = 9, REC_FOV = 10 };
 
 /* Menu rows in the pack: the first (Controller, One Player) at 198, 26 apart.
  * With the port's seventh row they sit a little closer, row k at
@@ -96,6 +112,10 @@ enum {
 #define ROW_Y 195.0f
 #define ROW_STEP 23.0f
 #define ROW_NEW 6               /* the port's row, after the pack's six */
+/* The PC's Options screen has five rows, 31 apart from 203: with the port's
+ * sixth they go back to the GameCube's gap, around the same centre. */
+#define ROW_CENTRE_Y 265.0f
+static const RowSpacing s_mainSpacing = { PACK_ROW_FIRST_Y, PACK_ROW_STEP_Y, ROW_Y, ROW_STEP };
 
 /* The main menu's objects, and the quit screen's. */
 enum {
@@ -134,8 +154,6 @@ void GameSettings_PortAutoSave(void);
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce);
 u8 GameSettings_LoadGame(void);
 u8 GameSettings_SaveGame(void);
-#define OPT_ROWS 16             /* Controller .. SFX: 16 to 34 */
-#define OPT_ROWS_END 35
 #define MAX_EVENTS 4
 #define MAX_MODES 48
 
@@ -183,14 +201,20 @@ static PTR32(char) s_quitWarning;
 static InterfaceHeader *s_main, *s_loadScreen, *s_loadProgress, *s_saveScreen, *s_saveProgress, *s_reminder;
 static IfaceEvent s_quitEvents[2][2];
 
-static IfaceObjectDef s_optObjs[OPT_NUM_OBJECTS + 1];
-static AnimCopy s_optRowAnim[OPT_ROWS_END - OPT_ROWS];
+static OptScreen s_opt;
+static IfaceObjectDef s_optObjs[OPT_MAX_OBJECTS + 1];
+static AnimCopy s_optRowAnim[24];       /* Controller .. SFX's last arrow */
 static AnimCopy s_entryAnim;
 static TextCopy s_entryText;
 static RecordCopy s_entryRec;
 
 static InterfaceHeader s_gfx;
-static IfaceObjectDef s_gfxObjs[GFX_NUM_OBJECTS];
+/* the Options screen's objects, then on PC a copy of the Difficulty row for
+ * Display (AddDisplayRow), then Gamma and FOV (AddBarRow) */
+static IfaceObjectDef s_gfxObjs[OPT_MAX_OBJECTS + 12];
+static u32 s_gfxResValue;               /* the Resolution row's value object */
+static IfaceConditionList s_displayArrowList[2];
+static IfaceCondition s_displayArrowCond[2];
 static IfaceVarList s_gfxVarList;
 static IfaceVar s_gfxVars[8];
 static IfaceCodeVar s_gfxCode[4];
@@ -211,7 +235,7 @@ typedef struct BarRow {
 } BarRow;
 static BarRow s_gammaRow, s_fovRow;
 static IfaceConditionList s_footerList;
-static IfaceCondition s_footerCond[8];
+static IfaceCondition s_footerCond[12];
 
 static const char *DefText(const IfaceObjectDef *d) {
     IfaceText *t;
@@ -254,12 +278,15 @@ static void MoveTo(AnimCopy *c, IfaceObjectDef *d, f32 y) {
     SETP(d->anim, &c->anim);
 }
 
-/* d, an object of the pack's row k, to row k of the respaced menu. */
-static void MoveRow(AnimCopy *c, IfaceObjectDef *d) {
-    f32 y = ((f32 *)GETP(GETP(d->anim)->pos.keys))[1];
-    s32 k = (s32)((y - PACK_ROW_FIRST_Y) / PACK_ROW_STEP_Y + 0.5f);
+static f32 PosY(const IfaceObjectDef *d) {
+    return ((f32 *)GETP(GETP(d->anim)->pos.keys))[1];
+}
 
-    MoveTo(c, d, ROW_Y + k * ROW_STEP);
+/* d, an object of the pack's row k, to row k of the respaced menu. */
+static void MoveRow(AnimCopy *c, IfaceObjectDef *d, const RowSpacing *sp) {
+    s32 k = (s32)((PosY(d) - sp->packFirst) / sp->packStep + 0.5f);
+
+    MoveTo(c, d, sp->first + k * sp->step);
 }
 
 /* A copy of d's record (and its events) with a new id and up/down links. */
@@ -380,13 +407,29 @@ static void SetListAsText(ListCopy *c, IfaceObjectDef *d, u16 var, const char *c
  * at height y, whose bar shows and whose left/right change a port code variable,
  * by the pack's own delta. The row's other events (they mark the game's settings
  * changed, for the "Be sure to save" reminder) go: graphics.cfg isn't in the save. */
+/* The arrows d[2], d[3] of a copied row show for record `id` (the pack's
+ * show only for their own row's). */
+static void SetArrowConds(IfaceObjectDef *d, IfaceConditionList *lists, IfaceCondition *conds, u8 id) {
+    u32 i;
+
+    for (i = 0; i < 2; i++) {
+        const IfaceConditionList *list = GETP(d[2 + i].conditions);
+
+        lists[i] = *list;
+        conds[i] = *GETP(list->conds);
+        conds[i].value = id;
+        SETP(lists[i].conds, &conds[i]);
+        SETP(d[2 + i].conditions, &lists[i]);
+    }
+}
+
 static void AddBarRow(BarRow *row, const IfaceObjectDef *objs, u32 at, const char *name, u8 role, u32 codeVar,
                       u8 id, u8 up, u8 down, f32 y) {
     IfaceObjectDef *d = &s_gfxObjs[at];
     u32 i;
 
     for (i = 0; i < 4; i++) {
-        d[i] = objs[OPT_MUSIC + i];
+        d[i] = objs[s_opt.music + i];
         MoveTo(&row->anim[i], &d[i], y);
     }
     SetText(&row->label, &d[0], name);
@@ -401,33 +444,36 @@ static void AddBarRow(BarRow *row, const IfaceObjectDef *objs, u32 at, const cha
             row->rec.defs[i].target.h = 0;
         }
     }
-    for (i = 0; i < 2; i++) {
-        const IfaceConditionList *list = GETP(d[2 + i].conditions);
-
-        row->arrowList[i] = *list;
-        row->arrowCond[i] = *GETP(list->conds);
-        row->arrowCond[i].value = id;
-        SETP(row->arrowList[i].conds, &row->arrowCond[i]);
-        SETP(d[2 + i].conditions, &row->arrowList[i]);
-    }
+    SetArrowConds(d, row->arrowList, row->arrowCond, id);
 }
 
 /* The screen's footer for left/right rows also shows for the rows made from the
  * Music and SFX rows, and for the bars; "Soft/Loud" means nothing here. */
 static void SetLeftRightFooter(const IfaceObjectDef *objs) {
-    static const u8 rows[] = { REC_MUSIC, REC_SFX, REC_GAMMA, REC_FOV };
-    const IfaceConditionList *list = GETP(objs[OPT_FOOTER_LEFT_RIGHT].conditions);
-    u32 n = list->count, i;
+    const u8 rows[] = { s_opt.recMusic, s_opt.recSfx, REC_GAMMA, REC_FOV, s_opt.recSound };
+    const IfaceConditionList *list = GETP(objs[s_opt.footerLeftRight].conditions);
+    u32 n = list->count, i, k;
 
+    if (n > 12 - sizeof(rows)) {
+        n = 12 - sizeof(rows);
+    }
     memcpy(s_footerCond, GETP(list->conds), n * sizeof(IfaceCondition));
-    for (i = 0; i < sizeof(rows); i++) {
-        s_footerCond[n + i] = s_footerCond[0];
-        s_footerCond[n + i].value = rows[i];
+    /* the ones it doesn't list yet (all but Display's 6 on both packs) */
+    for (i = 0, k = n; i < sizeof(rows); i++) {
+        u32 j;
+
+        for (j = 0; j < k && s_footerCond[j].value != rows[i]; j++) {
+        }
+        if (j == k) {
+            s_footerCond[k] = s_footerCond[0];
+            s_footerCond[k].value = rows[i];
+            k++;
+        }
     }
     s_footerList = *list;
-    s_footerList.count = n + sizeof(rows);
+    s_footerList.count = k;
     SETP(s_footerList.conds, s_footerCond);
-    SETP(s_gfxObjs[OPT_FOOTER_LEFT_RIGHT].conditions, &s_footerList);
+    SETP(s_gfxObjs[s_opt.footerLeftRight].conditions, &s_footerList);
 }
 
 static void SetCodeVar(IfaceVar *v, IfaceCodeVar *c, u32 id, s32 max) {
@@ -459,115 +505,284 @@ static void RefreshModes(void) {
             names[i] = Port_GfxModeName(i);
         }
     }
-    SetList(&s_resList, &s_gfxObjs[OPT_DIFFICULTY + 1], OPT_VAR_DIFFICULTY, names, n);
-    s_gfxVars[OPT_VAR_DIFFICULTY].max = (s32)n - 1;
+    SetList(&s_resList, &s_gfxObjs[s_gfxResValue], s_opt.varDifficulty, names, n);
+    s_gfxVars[s_opt.varDifficulty].max = (s32)n - 1;
+}
+
+/* PC: the Graphics screen's Display row, where the GameCube's reuses the
+ * Sound Mode row the PC's Options screen lacks - a copy of its Difficulty row
+ * (also label + value text) as four more objects at `at`, with the record id
+ * the Sound Mode row had (REC_SOUND: still in the PC footer's conditions) and
+ * arrows showing for it. Its step is the pack's Difficulty step on var 0, so
+ * it goes: SetActions gives the row its own, on the display variable. */
+static u32 AddDisplayRow(const IfaceObjectDef *objs, u32 at) {
+    IfaceObjectDef *d = &s_gfxObjs[at];
+    u32 i;
+
+    for (i = 0; i < 4; i++) {
+        d[i] = objs[s_opt.difficulty + i];
+    }
+    CopyRecord(&s_gfxRec[1], &d[0], REC_SOUND, s_opt.recDifficulty, s_opt.recMusic);
+    s_gfxRec[1].rec.numSteps = 0;
+    s_gfxRec[1].rec.steps.h = 0;
+    SetArrowConds(d, s_displayArrowList, s_displayArrowCond, REC_SOUND);
+    return at;
 }
 
 static void BuildGraphicsScreen(InterfaceHeader *opt, const IfaceObjectDef *objs) {
     static const char *const displayNames[2] = { "Windowed", "Fullscreen" };
     const char *optNames[PORT_MAX_CHOICES];
-    static const u8 hide[] = {
-        OPT_CONTROLLER, OPT_CHEATS, OPT_CHEATS_LABEL, OPT_DEBUG, OPT_FOOTER_VOLUME,
+    const OptScreen *o = &s_opt;
+    const u32 hide[] = {
+        o->controller, o->cheats, o->cheatsLabel, o->debug, o->footerVolume,
     };
     IfaceVarList *vars = GETP(opt->vars);
     InterfaceHeader *ctrl;
-    u32 i;
+    u32 sound, gamma, i, n;
 
     s_gfx = *opt;
-    memcpy(s_gfxObjs, objs, OPT_NUM_OBJECTS * sizeof(IfaceObjectDef));
+    memcpy(s_gfxObjs, objs, o->numObjects * sizeof(IfaceObjectDef));
     SETP(s_gfx.objects, s_gfxObjs);
-    s_gfx.numObjects = GFX_NUM_OBJECTS;
     /* B: back, as on the Controller screen (the one its row goes to) */
-    ctrl = (InterfaceHeader *)GETP(GETP(GETP(GETP(objs[OPT_CONTROLLER].record)->events.events)[0].def)->target);
+    ctrl = (InterfaceHeader *)GETP(GETP(GETP(GETP(objs[o->controller].record)->events.events)[0].def)->target);
     s_gfx.events = ctrl->events;
 
-    s_gfxVarList.count = vars->count < 8 ? vars->count : 8;
+    s_gfxVarList.count = vars->count;
     memcpy(s_gfxVars, GETP(vars->vars), s_gfxVarList.count * sizeof(IfaceVar));
-    /* The pack's list ends at the Sound row's var. Extend the copy with
+    /* The pack's list ends at the sound mode var. Extend the copy with
      * clones of it (a code var of the right shape, which SetCodeVar below
-     * retargets) so the VSync and Max FPS rows have vars 4 and 5. */
-    while (s_gfxVarList.count < 6 && s_gfxVarList.count < sizeof(s_gfxVars) / sizeof(s_gfxVars[0])) {
-        s_gfxVars[s_gfxVarList.count] = s_gfxVars[OPT_VAR_SOUND];
+     * retargets) so the VSync and Max FPS rows have vars of their own. */
+    while (s_gfxVarList.count <= o->varFps) {
+        s_gfxVars[s_gfxVarList.count] = s_gfxVars[o->varSound];
         s_gfxVarList.count++;
     }
     SETP(s_gfxVarList.vars, s_gfxVars);
     SETP(s_gfx.vars, &s_gfxVarList);
-    SetCodeVar(&s_gfxVars[OPT_VAR_DIFFICULTY], &s_gfxCode[0], PORT_CODEVAR_RESOLUTION, 0);
-    SetCodeVar(&s_gfxVars[OPT_VAR_SOUND], &s_gfxCode[1], PORT_CODEVAR_DISPLAY, 1);
+    SetCodeVar(&s_gfxVars[o->varDifficulty], &s_gfxCode[0], PORT_CODEVAR_RESOLUTION, 0);
+    SetCodeVar(&s_gfxVars[o->varSound], &s_gfxCode[1], PORT_CODEVAR_DISPLAY, 1);
 
     s_hideAll.type = 0;
     s_hideAll.count = 0;
-    for (i = 0; i < sizeof(hide); i++) {
-        s_gfxObjs[hide[i]].active = 0;
-        SETP(s_gfxObjs[hide[i]].conditions, &s_hideAll);
+    for (i = 0; i < sizeof(hide) / sizeof(hide[0]); i++) {
+        if (hide[i] != NONE) {
+            s_gfxObjs[hide[i]].active = 0;
+            SETP(s_gfxObjs[hide[i]].conditions, &s_hideAll);
+        }
     }
-    SetText(&s_gfxText[0], &s_gfxObjs[OPT_TITLE], "Graphics");
+    SetText(&s_gfxText[0], &s_gfxObjs[o->title], "Graphics");
 
-    /* the four rows, moved to the top */
+    /* the rows, moved to the top: Difficulty, Sound Mode (on PC a copy of
+     * Difficulty, past the screen's own objects), Music, SFX; then Gamma and
+     * FOV past those */
+    sound = o->sound != NONE ? o->sound : AddDisplayRow(objs, o->numObjects);
+    gamma = o->sound != NONE ? o->numObjects : o->numObjects + 4;
+    s_gfx.numObjects = gamma + 8;
     for (i = 0; i < 4; i++) {
-        MoveTo(&s_rowAnim[i], &s_gfxObjs[OPT_DIFFICULTY + i], ROW_Y);
-        MoveTo(&s_rowAnim[4 + i], &s_gfxObjs[OPT_SOUND + i], ROW_Y + ROW_STEP);
-        MoveTo(&s_rowAnim[8 + i], &s_gfxObjs[OPT_MUSIC + i], ROW_Y + 2 * ROW_STEP);
-        MoveTo(&s_rowAnim[12 + i], &s_gfxObjs[OPT_SFX + i], ROW_Y + 3 * ROW_STEP);
+        MoveTo(&s_rowAnim[i], &s_gfxObjs[o->difficulty + i], ROW_Y);
+        MoveTo(&s_rowAnim[4 + i], &s_gfxObjs[sound + i], ROW_Y + ROW_STEP);
+        MoveTo(&s_rowAnim[8 + i], &s_gfxObjs[o->music + i], ROW_Y + 2 * ROW_STEP);
+        MoveTo(&s_rowAnim[12 + i], &s_gfxObjs[o->sfx + i], ROW_Y + 3 * ROW_STEP);
     }
-    SetText(&s_gfxText[1], &s_gfxObjs[OPT_DIFFICULTY], "Resolution");
-    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[OPT_DIFFICULTY], REC_DIFFICULTY, REC_FOV, REC_SOUND),
-               &s_gfxAction[0], PORT_CODEVAR_RESOLUTION, OPT_VAR_DIFFICULTY);
-    SetText(&s_gfxText[2], &s_gfxObjs[OPT_SOUND], "Display");
-    SetActions(CopyRecord(&s_gfxRec[1], &s_gfxObjs[OPT_SOUND], REC_SOUND, REC_DIFFICULTY, REC_MUSIC),
-               &s_gfxAction[1], PORT_CODEVAR_DISPLAY, OPT_VAR_SOUND);
-    SetList(&s_displayList, &s_gfxObjs[OPT_SOUND + 1], OPT_VAR_SOUND, displayNames, 2);
-    if (s_gfxVarList.count > OPT_VAR_SFX) {
-        /* VSync and Max FPS: the Music and SFX rows (their packs' own rows,
-         * hidden before), relabelled and wired to the port's code vars. The
-         * ring runs Resolution - Display - VSync - Max FPS - Gamma - FOV -
-         * Resolution. */
-        u32 n;
+    s_gfxResValue = o->difficulty + 1;
+    SetText(&s_gfxText[1], &s_gfxObjs[o->difficulty], "Resolution");
+    SetActions(CopyRecord(&s_gfxRec[0], &s_gfxObjs[o->difficulty], o->recDifficulty, REC_FOV, REC_SOUND),
+               &s_gfxAction[0], PORT_CODEVAR_RESOLUTION, o->varDifficulty);
+    SetText(&s_gfxText[2], &s_gfxObjs[sound], "Display");
+    if (o->sound != NONE) {
+        CopyRecord(&s_gfxRec[1], &s_gfxObjs[sound], REC_SOUND, o->recDifficulty, o->recMusic);
+    }
+    SetActions(&s_gfxRec[1], &s_gfxAction[1], PORT_CODEVAR_DISPLAY, o->varSound);
+    SetList(&s_displayList, &s_gfxObjs[sound + 1], o->varSound, displayNames, 2);
 
-        SetCodeVar(&s_gfxVars[OPT_VAR_MUSIC], &s_gfxCode[2], PORT_CODEVAR_VSYNC, 1);
-        SetCodeVar(&s_gfxVars[OPT_VAR_SFX], &s_gfxCode[3], PORT_CODEVAR_MAXFPS,
-                   (s32)Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) - 1);
-        SetText(&s_gfxText[3], &s_gfxObjs[OPT_MUSIC], "VSync");
-        SetActions(CopyRecord(&s_gfxRec[2], &s_gfxObjs[OPT_MUSIC], REC_MUSIC, REC_SOUND, REC_SFX),
-                   &s_gfxAction[2], PORT_CODEVAR_VSYNC, OPT_VAR_MUSIC);
-        for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_VSYNC) && n < PORT_MAX_CHOICES; n++) {
-            optNames[n] = Port_GfxOptionName(PORT_CODEVAR_VSYNC, n);
-        }
-        SetListAsText(&s_vsyncList, &s_gfxObjs[OPT_MUSIC + 1], OPT_VAR_MUSIC, optNames, n,
-                      &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[9], ROW_Y + 2 * ROW_STEP);
-        SetText(&s_gfxText[4], &s_gfxObjs[OPT_SFX], "Max FPS");
-        SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[OPT_SFX], REC_SFX, REC_MUSIC, REC_GAMMA),
-                   &s_gfxAction[3], PORT_CODEVAR_MAXFPS, OPT_VAR_SFX);
-        for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) && n < PORT_MAX_CHOICES; n++) {
-            optNames[n] = Port_GfxOptionName(PORT_CODEVAR_MAXFPS, n);
-        }
-        SetListAsText(&s_fpsList, &s_gfxObjs[OPT_SFX + 1], OPT_VAR_SFX, optNames, n,
-                      &s_gfxObjs[OPT_SOUND + 1], &s_rowAnim[13], ROW_Y + 3 * ROW_STEP);
-        Port_Log("menu: graphics screen built (resolution, display, vsync, max fps, gamma, fov)");
-    } else {
-        for (i = OPT_MUSIC; i < OPT_SFX + 4; i++) {
-            s_gfxObjs[i].active = 0;
-            SETP(s_gfxObjs[i].conditions, &s_hideAll);
-        }
+    /* VSync and Max FPS: the Music and SFX rows (their packs' own rows,
+     * hidden before), relabelled and wired to the port's code vars. The
+     * ring runs Resolution - Display - VSync - Max FPS - Gamma - FOV -
+     * Resolution. */
+    SetCodeVar(&s_gfxVars[o->varVSync], &s_gfxCode[2], PORT_CODEVAR_VSYNC, 1);
+    SetCodeVar(&s_gfxVars[o->varFps], &s_gfxCode[3], PORT_CODEVAR_MAXFPS,
+               (s32)Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) - 1);
+    SetText(&s_gfxText[3], &s_gfxObjs[o->music], "VSync");
+    SetActions(CopyRecord(&s_gfxRec[2], &s_gfxObjs[o->music], o->recMusic, REC_SOUND, o->recSfx),
+               &s_gfxAction[2], PORT_CODEVAR_VSYNC, o->varVSync);
+    for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_VSYNC) && n < PORT_MAX_CHOICES; n++) {
+        optNames[n] = Port_GfxOptionName(PORT_CODEVAR_VSYNC, n);
     }
-    AddBarRow(&s_gammaRow, objs, GFX_GAMMA, "Gamma", PORT_ROLE_GAMMA_BAR, PORT_CODEVAR_GAMMA,
-              REC_GAMMA, REC_SFX, REC_FOV, ROW_Y + 4 * ROW_STEP);
-    AddBarRow(&s_fovRow, objs, GFX_FOV, "FOV", PORT_ROLE_FOV_BAR, PORT_CODEVAR_FOV,
-              REC_FOV, REC_GAMMA, REC_DIFFICULTY, ROW_Y + 5 * ROW_STEP);
+    SetListAsText(&s_vsyncList, &s_gfxObjs[o->music + 1], o->varVSync, optNames, n,
+                  &s_gfxObjs[sound + 1], &s_rowAnim[9], ROW_Y + 2 * ROW_STEP);
+    SetText(&s_gfxText[4], &s_gfxObjs[o->sfx], "Max FPS");
+    SetActions(CopyRecord(&s_gfxRec[3], &s_gfxObjs[o->sfx], o->recSfx, o->recMusic, REC_GAMMA),
+               &s_gfxAction[3], PORT_CODEVAR_MAXFPS, o->varFps);
+    for (n = 0; n < Port_GfxOptionCount(PORT_CODEVAR_MAXFPS) && n < PORT_MAX_CHOICES; n++) {
+        optNames[n] = Port_GfxOptionName(PORT_CODEVAR_MAXFPS, n);
+    }
+    SetListAsText(&s_fpsList, &s_gfxObjs[o->sfx + 1], o->varFps, optNames, n,
+                  &s_gfxObjs[sound + 1], &s_rowAnim[13], ROW_Y + 3 * ROW_STEP);
+    Port_Log("menu: graphics screen built (resolution, display, vsync, max fps, gamma, fov)");
+
+    AddBarRow(&s_gammaRow, objs, gamma, "Gamma", PORT_ROLE_GAMMA_BAR, PORT_CODEVAR_GAMMA,
+              REC_GAMMA, o->recSfx, REC_FOV, ROW_Y + 4 * ROW_STEP);
+    AddBarRow(&s_fovRow, objs, gamma + 4, "FOV", PORT_ROLE_FOV_BAR, PORT_CODEVAR_FOV,
+              REC_FOV, REC_GAMMA, o->recDifficulty, ROW_Y + 5 * ROW_STEP);
     SetLeftRightFooter(objs);
-    s_gfxVars[OPT_VAR_SELECTED].max = REC_FOV;
+    s_gfxVars[o->varSelected].max = REC_FOV;
     RefreshModes();
 }
 
-/* The Options screen, still as in the pack? */
-static int IsOptions(InterfaceHeader *h) {
-    IfaceObjectDef *objs = GETP(h->objects);
+/* The first object whose text is s, with a record (a row) or without. */
+static u32 FindText(const IfaceObjectDef *objs, u32 n, const char *s, int row) {
+    u32 i;
 
-    return h->numObjects == OPT_NUM_OBJECTS && objs != NULL && GETP(h->vars) != NULL &&
-           GETP(h->vars)->count > OPT_VAR_SOUND && TextIs(&objs[OPT_CONTROLLER], "Controller") &&
-           TextIs(&objs[OPT_SOUND], "Sound Mode") && TextIs(&objs[OPT_SFX], "SFX") &&
-           GETP(objs[OPT_CONTROLLER].record) != NULL && GETP(objs[OPT_SFX].record) != NULL;
+    for (i = 0; i < n; i++) {
+        if (TextIs(&objs[i], s) && (GETP(objs[i].record) != NULL) == row) {
+            return i;
+        }
+    }
+    return NONE;
 }
+
+/* The child interface (a footer) shown when record `id` is selected. */
+static u32 FindFooter(const IfaceObjectDef *objs, u32 n, u8 id) {
+    u32 i, j;
+
+    for (i = 0; i < n; i++) {
+        const IfaceConditionList *list = GETP(objs[i].conditions);
+
+        if (objs[i].type != IFACE_DEF_CHILD || list == NULL || GETP(list->conds) == NULL) {
+            continue;
+        }
+        for (j = 0; j < list->count; j++) {
+            if (GETP(list->conds)[j].type == 1 && GETP(list->conds)[j].value == id) {
+                return i;
+            }
+        }
+    }
+    return NONE;
+}
+
+static u8 RecId(const IfaceObjectDef *objs, u32 i) {
+    return GETP(objs[i].record)->id;
+}
+
+/* The Options screen, still as in the pack? Fills `o` with where its parts
+ * are (see OptScreen). The GameCube's must be its 40 objects, as it always
+ * had to; the PC's is told by its missing Sound Mode row. */
+static int FindOptions(InterfaceHeader *h, OptScreen *o) {
+    IfaceObjectDef *objs = GETP(h->objects);
+    IfaceVarList *vl = GETP(h->vars);
+    IfaceRecord *diff, *snd;
+    u32 n = h->numObjects, i, rows;
+
+    if (objs == NULL || objs == s_optObjs || vl == NULL || n > OPT_MAX_OBJECTS) {
+        return 0;
+    }
+    memset(o, 0, sizeof(*o));
+    o->numObjects = n;
+    o->title = FindText(objs, n, "Game Settings", 0);
+    o->controller = FindText(objs, n, "Controller", 1);
+    o->cheats = FindText(objs, n, "Cheats", 1);
+    o->cheatsLabel = FindText(objs, n, "Cheats", 0);
+    o->difficulty = FindText(objs, n, "Difficulty", 1);
+    o->sound = FindText(objs, n, "Sound Mode", 1);
+    o->music = FindText(objs, n, "Music", 1);
+    o->sfx = FindText(objs, n, "SFX", 1);
+    if (o->title == NONE || o->controller == NONE || o->difficulty == NONE || o->music == NONE ||
+        o->sfx == NONE || o->difficulty + 4 > n || o->music + 4 > n || o->sfx + 4 > n ||
+        (o->sound != NONE && (n != 40 || o->sound + 4 > n))) {
+        return 0;
+    }
+    o->recController = RecId(objs, o->controller);
+    o->recDifficulty = RecId(objs, o->difficulty);
+    o->recMusic = RecId(objs, o->music);
+    o->recSfx = RecId(objs, o->sfx);
+    o->recSound = REC_SOUND;
+    /* the hidden debug row: the first row after SFX's */
+    o->debug = NONE;
+    for (i = o->sfx + 4; i < n && o->debug == NONE; i++) {
+        if (GETP(objs[i].record) != NULL) {
+            o->debug = i;
+        }
+    }
+    /* the port's ids must be free: no row but Sound Mode's may have them */
+    for (i = 0; i < n; i++) {
+        IfaceRecord *r = GETP(objs[i].record);
+
+        if (r != NULL && i != o->sound &&
+            (r->id == REC_SOUND || r->id == REC_GRAPHICS || r->id == REC_GAMMA || r->id == REC_FOV)) {
+            Port_Log("menu: Options object %u has record id %u, no Graphics entry", i, r->id);
+            return 0;
+        }
+    }
+    if (o->sound != NONE && RecId(objs, o->sound) != REC_SOUND) {
+        return 0;
+    }
+    o->footerLeftRight = FindFooter(objs, n, o->recDifficulty);
+    o->footerVolume = FindFooter(objs, n, o->recMusic);
+    if (o->footerLeftRight == NONE) {
+        return 0;
+    }
+
+    /* variables: Difficulty's step var, the selected-record var, the sound
+     * mode var (Sound Mode's step var, or on PC the var still reading code
+     * var 0xD6), then two more for VSync and Max FPS */
+    diff = GETP(objs[o->difficulty].record);
+    if (diff->numSteps == 0 || GETP(diff->steps)[0].var >= vl->count) {
+        return 0;
+    }
+    o->varDifficulty = (u16)GETP(diff->steps)[0].var;
+    o->varSelected = o->varSound = NO_VAR;
+    for (i = 0; i < vl->count; i++) {
+        IfaceVar *v = &GETP(vl->vars)[i];
+
+        if (v->type == IFACE_VAR_SELECTED && o->varSelected == NO_VAR) {
+            o->varSelected = (u16)i;
+        }
+        if (o->sound == NONE && v->type == IFACE_VAR_CODE && GETP(v->code) != NULL &&
+            GETP(v->code)->id == CODEVAR_SOUND_MODE) {
+            o->varSound = (u16)i;
+        }
+    }
+    if (o->sound != NONE) {
+        snd = GETP(objs[o->sound].record);
+        if (snd->numSteps != 0 && GETP(snd->steps)[0].var < vl->count) {
+            o->varSound = (u16)GETP(snd->steps)[0].var;
+        }
+    }
+    if (o->varSelected == NO_VAR || o->varSound == NO_VAR || vl->count > 6) {
+        return 0;
+    }
+    o->varVSync = (u16)vl->count;
+    o->varFps = (u16)(vl->count + 1);
+
+    /* the rows' spacing: the GameCube's seven rows as they always were, the
+     * PC's six at the GameCube's own gap, centred where its five were */
+    rows = o->sound != NONE ? 7 : 6;
+    o->rows.packFirst = PosY(&objs[o->controller]);
+    o->rows.packStep = o->cheats != NONE ? PosY(&objs[o->cheats]) - o->rows.packFirst : PACK_ROW_STEP_Y;
+    if (o->rows.packStep <= 0.0f || o->sfx + 4 - o->controller > sizeof(s_optRowAnim) / sizeof(s_optRowAnim[0])) {
+        return 0;
+    }
+    if (rows == 7) {
+        o->rows.first = ROW_Y;
+        o->rows.step = ROW_STEP;
+    } else {
+        o->rows.step = PACK_ROW_STEP_Y;
+        o->rows.first = ROW_CENTRE_Y - (rows - 1) * PACK_ROW_STEP_Y / 2.0f;
+    }
+    return 1;
+}
+
+/* The PC release's main menu (21 objects: One Player, Load Game, Save Game,
+ * Options, Extras, Exit to Desktop) is not this one, and is left as it is:
+ * - it quits by itself (Exit to Desktop), so it needs no Quit Game row;
+ * - no Multi-Player row: the PC pack has no Multi-Player screen (the 16
+ *   objects every online screen is a copy of, and Local's target) and no
+ *   two-to-four player car select, so there is nothing for one to lead to;
+ * - the memory card screens are found from the GameCube main menu's blob
+ *   offset (PACK_*), so their patches don't apply either. They aren't needed:
+ *   the PC's Load Game and Save Game are file lists already (no slot picker,
+ *   no card warnings), and B leaves them.
+ * The online screens, the pause menu and Battle Options patches need the
+ * GameCube screens too (s_mpScreen, s_battleOptions stay NULL on PC). */
 
 /* The main menu, still as in the pack? */
 static int IsMainMenu(InterfaceHeader *h) {
@@ -1185,7 +1400,7 @@ static void PatchMainMenu(InterfaceHeader *h) {
 
     memcpy(s_mainObjs, objs, MAIN_NUM_OBJECTS * sizeof(IfaceObjectDef));
     for (i = MAIN_ROWS; i < MAIN_ROWS_END; i++) {
-        MoveRow(&s_mainRowAnim[i - MAIN_ROWS], &s_mainObjs[i]);
+        MoveRow(&s_mainRowAnim[i - MAIN_ROWS], &s_mainObjs[i], &s_mainSpacing);
     }
     entry = &s_mainObjs[MAIN_NUM_OBJECTS];
     *entry = objs[MAIN_EXTRAS];
@@ -1219,6 +1434,7 @@ static void PatchMainMenu(InterfaceHeader *h) {
     }
 }
 
+
 void Port_MenuPatch(InterfaceHeader *h) {
     IfaceObjectDef *objs;
     IfaceObjectDef *entry;
@@ -1249,33 +1465,35 @@ void Port_MenuPatch(InterfaceHeader *h) {
         PatchCardScreen(h);
         return;
     }
-    if (!IsOptions(h)) {
+    if (!FindOptions(h, &s_opt)) {
         return;
     }
     objs = GETP(h->objects);
     BuildGraphicsScreen(h, objs);
 
-    memcpy(s_optObjs, objs, OPT_NUM_OBJECTS * sizeof(IfaceObjectDef));
-    for (i = OPT_ROWS; i < OPT_ROWS_END; i++) {
-        MoveRow(&s_optRowAnim[i - OPT_ROWS], &s_optObjs[i]);
+    /* Graphics, a copy of Controller, as the last row (the pack's rows close
+     * up to make room for it) */
+    memcpy(s_optObjs, objs, s_opt.numObjects * sizeof(IfaceObjectDef));
+    for (i = s_opt.controller; i < s_opt.sfx + 4; i++) {
+        MoveRow(&s_optRowAnim[i - s_opt.controller], &s_optObjs[i], &s_opt.rows);
     }
-    entry = &s_optObjs[OPT_NUM_OBJECTS];
-    *entry = objs[OPT_CONTROLLER];
-    MoveTo(&s_entryAnim, entry, ROW_Y + ROW_NEW * ROW_STEP);
+    entry = &s_optObjs[s_opt.numObjects];
+    *entry = objs[s_opt.controller];
+    MoveTo(&s_entryAnim, entry, s_opt.rows.first + (s_opt.sound != NONE ? ROW_NEW : ROW_NEW - 1) * s_opt.rows.step);
     SetText(&s_entryText, entry, "Graphics");
-    CopyRecord(&s_entryRec, entry, REC_GRAPHICS, REC_SFX, REC_CONTROLLER);
+    CopyRecord(&s_entryRec, entry, REC_GRAPHICS, s_opt.recSfx, s_opt.recController);
     for (i = 0; i < s_entryRec.rec.events.count; i++) {
         if (s_entryRec.defs[i].type == 1) {
             SETP(s_entryRec.defs[i].target, &s_gfx);
         }
     }
     /* into the ring: SFX -> Graphics -> Controller */
-    GETP(objs[OPT_SFX].record)->next[1] = REC_GRAPHICS;
-    GETP(objs[OPT_CONTROLLER].record)->next[0] = REC_GRAPHICS;
-    if (GETP(GETP(h->vars)->vars)[OPT_VAR_SELECTED].max < REC_GRAPHICS) {
-        GETP(GETP(h->vars)->vars)[OPT_VAR_SELECTED].max = REC_GRAPHICS;
+    GETP(objs[s_opt.sfx].record)->next[1] = REC_GRAPHICS;
+    GETP(objs[s_opt.controller].record)->next[0] = REC_GRAPHICS;
+    if (GETP(GETP(h->vars)->vars)[s_opt.varSelected].max < REC_GRAPHICS) {
+        GETP(GETP(h->vars)->vars)[s_opt.varSelected].max = REC_GRAPHICS;
     }
-    h->numObjects = OPT_NUM_OBJECTS + 1;
+    h->numObjects = s_opt.numObjects + 1;
     SETP(h->objects, s_optObjs);
 }
 
