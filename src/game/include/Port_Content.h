@@ -40,6 +40,8 @@ enum {
 /* How many there are, and how many the save struct's array holds. */
 u32 Port_ContentCount(int kind);
 u32 Port_ContentRetailCount(int kind);
+/* The numbered entries the data has (the rest are registered). */
+u32 Port_ContentBaseCount(int kind);
 /* Entry i's unlock value (the save's s8: 0 locked, 1 unlocked); 0 past
  * the count. Setting past the count does nothing. */
 s8 Port_ContentUnlocked(int kind, u32 i);
@@ -63,6 +65,22 @@ void Port_ContentSetBaseCount(int kind, u32 n);
  * is taken or bad. alias: the base entry whose data it loads (-1: its own).
  * def: its unlock value in a new game. */
 s32 Port_ContentRegister(int kind, const char *id, s32 alias, s8 def);
+/* The same, with how the selects show it (the interface packs' lists of
+ * names and pictures end with the base entries: Port_ContentPatchInterface
+ * adds these). Strings are copied. */
+typedef struct PortContentEntry {
+    const char *id;
+    s32 alias;
+    s8 def;
+    const char *name;       /* the select's name; NULL: the alias's, then `suffix` */
+    const char *suffix;     /* after the alias's name (" (test)"), or NULL */
+    const char *thumbnail;  /* a texture link, base://<archive>/<type>_<id>/texture/<n>
+                             * (§8.1) of a loaded pack; NULL or not loaded: the alias's picture */
+} PortContentEntry;
+s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e);
+/* A registered entry's look (NULL each where the alias's is used); 0 if
+ * entry i isn't registered. */
+int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, const char **thumbnail);
 /* Back to the retail counts, nothing registered, everything locked (tests). */
 void Port_ContentReset(void);
 

@@ -20,6 +20,9 @@ typedef struct Registered {
     char *id;
     s32 alias;          /* the base entry whose data it uses, -1: its own */
     s8 def;             /* in a new game */
+    char *name;         /* what the selects show (NULL: the alias's name, then suffix) */
+    char *suffix;
+    char *thumbnail;    /* a texture link (NULL: the alias's picture) */
 } Registered;
 
 typedef struct Kind {
@@ -87,6 +90,11 @@ static void Grow(Kind *k) {
 u32 Port_ContentCount(int kind) {
     Kind *k = KindOf(kind);
     return k != NULL ? CountOf(k) : 0;
+}
+
+u32 Port_ContentBaseCount(int kind) {
+    Kind *k = KindOf(kind);
+    return k != NULL ? BaseOf(k) : 0;
 }
 
 u32 Port_ContentRetailCount(int kind) {
@@ -179,6 +187,21 @@ s32 Port_ContentDataOf(int kind, u32 i) {
     return i < b ? (s32)i : k->reg[i - b].alias;
 }
 
+int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, const char **thumbnail) {
+    Kind *k = KindOf(kind);
+    const Registered *r;
+    u32 b;
+
+    if (k == NULL || i >= CountOf(k) || i < (b = BaseOf(k))) {
+        return 0;
+    }
+    r = &k->reg[i - b];
+    *name = r->name;
+    *suffix = r->suffix;
+    *thumbnail = r->thumbnail;
+    return 1;
+}
+
 /* ---- setting up -------------------------------------------------------- */
 
 void Port_ContentSetBaseCount(int kind, u32 n) {
@@ -195,9 +218,25 @@ void Port_ContentSetBaseCount(int kind, u32 n) {
     Grow(k);
 }
 
+static char *Dup(const char *s) {
+    return s != NULL ? SDL_strdup(s) : NULL;
+}
+
 s32 Port_ContentRegister(int kind, const char *id, s32 alias, s8 def) {
+    PortContentEntry e;
+
+    SDL_zero(e);
+    e.id = id;
+    e.alias = alias;
+    e.def = def;
+    return Port_ContentRegisterEntry(kind, &e);
+}
+
+s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     Kind *k = KindOf(kind);
     Registered *r;
+    const char *id = e != NULL ? e->id : NULL;
+    s32 alias = e != NULL ? e->alias : -1;
     u32 index;
 
     if (k == NULL || id == NULL || id[0] == 0) {
@@ -219,7 +258,10 @@ s32 Port_ContentRegister(int kind, const char *id, s32 alias, s8 def) {
     r = &k->reg[k->numReg];
     r->id = SDL_strdup(id);
     r->alias = alias;
-    r->def = def;
+    r->def = e->def;
+    r->name = Dup(e->name);
+    r->suffix = Dup(e->suffix);
+    r->thumbnail = Dup(e->thumbnail);
     k->numReg++;
     Grow(k);
     return (s32)(CountOf(k) - 1);
@@ -234,6 +276,9 @@ void Port_ContentReset(void) {
 
         for (j = 0; j < k->numReg; j++) {
             SDL_free(k->reg[j].id);
+            SDL_free(k->reg[j].name);
+            SDL_free(k->reg[j].suffix);
+            SDL_free(k->reg[j].thumbnail);
         }
         SDL_free(k->reg);
         SDL_free(k->live);

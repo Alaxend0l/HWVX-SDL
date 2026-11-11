@@ -533,7 +533,11 @@ Debugging aids:
 - `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
   release), each loading a base car's pack (3, 4, ...) under its own number
   and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same
-  for items (packs 0, 1, ...). They start locked;
+  for items (packs 0, 1, ...). The car and item selects show them as the
+  entry they alias with " (test)" after its name, and its picture, or the
+  texture `HWVX_TEST_EXTRA_CAR_THUMB` / `HWVX_TEST_EXTRA_ITEM_THUMB` names
+  (a link to a loaded pack's texture, `base://HW_IPack/interface_6/texture/70`).
+  They start locked;
   `HWVX_TEST_UNLOCK_CARS=33,34` / `HWVX_TEST_UNLOCK_ITEMS=12` unlock them
   through the game's code variable as the first car / item select opens
   (autosaved). For testing the content registry (`src/game/Port_Content.c`:

@@ -121,12 +121,15 @@ static void LoadIdsLock(void) {
 
 /* HWVX_TEST_EXTRA_CARS=N, HWVX_TEST_EXTRA_ITEMS=N: N extra entries, each
  * loading the pack of a base one under its own number and id (cars: 3, 4,
- * ..., unlocked in a new game; items: 0, 1, ...), locked in a new game. For
- * testing content past the retail arrays end to end. */
-static void TestExtra(int kind, const char *env, const char *what, s32 first) {
+ * ..., unlocked in a new game; items: 0, 1, ...), locked in a new game,
+ * shown as the alias with " (test)" after its name. For testing content past
+ * the retail arrays end to end. HWVX_TEST_EXTRA_CAR_THUMB / _ITEM_THUMB: a
+ * texture link (base://HW_IPack/interface_0/texture/12) for their pictures. */
+static void TestExtra(int kind, const char *env, const char *what, s32 first, const char *thumbEnv) {
     const char *e = SDL_getenv(env);
     u32 base = Port_ContentCount(kind);
     int n, k;
+    PortContentEntry entry;
 
     if (e == NULL || (n = SDL_atoi(e)) <= 0) {
         return;
@@ -136,7 +139,12 @@ static void TestExtra(int kind, const char *env, const char *what, s32 first) {
         s32 alias = (s32)((first + k) % base), i;
 
         SDL_snprintf(id, sizeof(id), "uid://hwvx-test-extra-%s-%d", what, k);
-        i = Port_ContentRegister(kind, id, alias, 0);
+        SDL_zero(entry);
+        entry.id = id;
+        entry.alias = alias;
+        entry.suffix = " (test)";
+        entry.thumbnail = SDL_getenv(thumbEnv);
+        i = Port_ContentRegisterEntry(kind, &entry);
         Port_Log("content: test: %s %d is %s, the pack of %s %d", what, (int)i, id, what, (int)alias);
     }
 }
@@ -169,8 +177,8 @@ void Port_ContentInit(void) {
     Port_ContentSetBaseCount(PORT_CONTENT_TRACK, 0);
     Port_ContentSetBaseCount(PORT_CONTENT_ITEM, 0);
     LoadIdsLock();
-    TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3);
-    TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0);
+    TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3, "HWVX_TEST_EXTRA_CAR_THUMB");
+    TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0, "HWVX_TEST_EXTRA_ITEM_THUMB");
     for (i = 0; i < SDL_arraysize(s_archives); i++) {
         const Archive *a = &s_archives[i];
 
@@ -228,6 +236,249 @@ void Port_ContentFixScripts(void *dataPack, const char *name, u32 type, u32 id) 
         if (GETP(table->entries)[i].id == src) {
             GETP(table->entries)[i].id = id;
         }
+    }
+}
+
+/* ---- the selects' lists: names and pictures ------------------------------ */
+
+/* The car and item selects show an entry through lists indexed by its
+ * number: a picture (an image whose texture key is the variable, 36 keys
+ * for the cars on every release, 14 for the items), its name (a text list,
+ * 36 / 12) and a paragraph (how to unlock it). Past a list's end the
+ * interface shows its last entry, and the keys between the base count and
+ * the list's end are the pack's own (a "?"). So for a screen whose variables
+ * number a kind, each such list is replaced by a copy as long as the count,
+ * the registered entries' own: the picture their thumbnail link names or
+ * their alias's, the name theirs or the alias's with their suffix, a blank
+ * paragraph. Copies are shared by content and kept for the run (a pack loaded
+ * again has the same lists, at most a few distinct ones per release). */
+
+#define MAX_EXT 48
+typedef struct ExtList {
+    u32 origCount;
+    u32 *orig;          /* the pack's: texture ids, or string table handles */
+    u32 count;
+    u32 *items;         /* what the pack's list points at instead */
+    char *strings;      /* names: the registered entries' strings */
+    u32 *slots;         /* their string tables, a slot each and a NULL */
+} ExtList;
+
+static ExtList s_ext[MAX_EXT];
+static u32 s_numExt;
+static u32 s_blankSlots[2];
+static char s_blank[] = " ";
+
+static const char *const s_typeNames[] = { "car", "interface", "item", "link", "world", "collision",
+                                           "world_texture", "geometry", "share", "audio", "music" };
+
+/* A texture link, base://<archive>/<type>_<id>/texture/<n>, to the texture
+ * id of a loaded pack; -1 if it names none. */
+static s32 TextureOfLink(const char *link) {
+    extern StreamingPack *g_StreamingDataPacks[11];
+    extern u32 g_MaxStreamingDataPacks[11];
+    char archive[0x40];
+    const char *p, *slash;
+    size_t len, n;
+    u32 type, id, tex, i;
+    char *end;
+
+    if (link == NULL || SDL_strncmp(link, "base://", 7) != 0 || (slash = SDL_strchr(p = link + 7, '/')) == NULL ||
+        (len = (size_t)(slash - p)) >= sizeof(archive)) {
+        return -1;
+    }
+    SDL_memcpy(archive, p, len);
+    archive[len] = 0;
+    p = slash + 1;
+    for (type = 0; type < SDL_arraysize(s_typeNames); type++) {
+        n = SDL_strlen(s_typeNames[type]);
+        if (SDL_strncmp(p, s_typeNames[type], n) == 0 && p[n] == '_' && p[n + 1] >= '0' && p[n + 1] <= '9') {
+            id = (u32)SDL_strtoul(p + n + 1, &end, 10);
+            if (SDL_strncmp(end, "/texture/", 9) != 0 || end[9] < '0' || end[9] > '9') {
+                return -1;
+            }
+            tex = (u32)SDL_strtoul(end + 9, &end, 10);
+            if (*end != 0 || g_StreamingDataPacks[type] == NULL) {
+                return -1;
+            }
+            for (i = 0; i < g_MaxStreamingDataPacks[type]; i++) {
+                const StreamingPack *sp = &g_StreamingDataPacks[type][i];
+
+                if (sp->used && sp->loaded && sp->id == id && SameArchive(GETP(sp->name), archive) &&
+                    tex < sp->pack.numTextures && GETP(sp->pack.textureIDs) != NULL) {
+                    return GETP(sp->pack.textureIDs)[tex];
+                }
+            }
+            return -1;
+        }
+    }
+    return -1;
+}
+
+/* The pack's string table's first string. */
+static const char *FirstString(u32 table) {
+    char **t = (char **)PTR(table);
+
+    return t != NULL ? SLOT_LOAD(char *, t) : NULL;
+}
+
+static int IsExt(const u32 *items) {
+    u32 i;
+
+    for (i = 0; i < s_numExt; i++) {
+        if (s_ext[i].items == items) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The list `orig` (origCount long) of a kind, as long as its count. what: 0
+ * pictures, 1 names, 2 paragraphs. NULL if nothing changes, or no room. */
+static const ExtList *Extend(int kind, int what, const u32 *orig, u32 origCount) {
+    u32 base = Port_ContentBaseCount(kind), count = Port_ContentCount(kind), i, j, k, size;
+    ExtList *x;
+    char *str;
+
+    if (base >= count || origCount == 0 || orig == NULL || IsExt(orig)) {
+        return NULL;
+    }
+    for (i = 0; i < s_numExt; i++) {
+        x = &s_ext[i];
+        if (x->origCount == origCount && x->count == (count > origCount ? count : origCount) &&
+            SDL_memcmp(x->orig, orig, origCount * sizeof(u32)) == 0 && (x->strings != NULL) == (what == 1)) {
+            return x;
+        }
+    }
+    if (s_numExt >= MAX_EXT) {
+        Port_Log("content: more than %d lists to extend; the rest show their last entry", MAX_EXT);
+        return NULL;
+    }
+    x = &s_ext[s_numExt];
+    SDL_zerop(x);
+    x->origCount = origCount;
+    x->count = count > origCount ? count : origCount;
+    x->orig = SDL_malloc(origCount * sizeof(u32));
+    x->items = SDL_malloc(x->count * sizeof(u32));
+    if (what == 1) {
+        x->slots = SDL_calloc((count - base) * 2, sizeof(u32));
+    }
+    if (x->orig == NULL || x->items == NULL || (what == 1 && x->slots == NULL)) {
+        SDL_free(x->orig);
+        SDL_free(x->items);
+        SDL_free(x->slots);
+        return NULL;
+    }
+    SDL_memcpy(x->orig, orig, origCount * sizeof(u32));
+    SDL_memcpy(x->items, orig, origCount * sizeof(u32));
+    for (i = origCount; i < x->count; i++) {
+        x->items[i] = orig[origCount - 1];
+    }
+    /* names: the strings first, so the tables can point into one block */
+    for (k = 0; k < 2 && what == 1; k++) {
+        size = 0;
+        for (i = base; i < count; i++) {
+            const char *name, *suffix, *thumb, *aliasName;
+            s32 alias = Port_ContentDataOf(kind, i);
+
+            if (!Port_ContentLook(kind, i, &name, &suffix, &thumb)) {
+                name = suffix = NULL;
+            }
+            aliasName = alias >= 0 && (u32)alias < origCount ? FirstString(orig[alias]) : NULL;
+            if (name == NULL) {
+                name = aliasName != NULL ? aliasName : "";
+            } else {
+                suffix = NULL;
+            }
+            if (k == 1) {
+                str = x->strings + size;
+                SDL_snprintf(str, SDL_strlen(name) + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
+                             suffix != NULL ? suffix : "");
+                j = (i - base) * 2;
+                x->slots[j] = HND(str);
+                x->slots[j + 1] = 0;
+                x->items[i] = HND(&x->slots[j]);
+            }
+            size += (u32)(SDL_strlen(name) + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1);
+        }
+        if (k == 0 && (x->strings = SDL_malloc(size)) == NULL) {
+            SDL_free(x->orig);
+            SDL_free(x->items);
+            SDL_free(x->slots);
+            return NULL;
+        }
+    }
+    for (i = base; i < count && what != 1; i++) {
+        const char *name, *suffix, *thumb = NULL;
+        s32 alias = Port_ContentDataOf(kind, i), tex;
+
+        if (what == 2) {
+            if (s_blankSlots[0] == 0) {
+                s_blankSlots[0] = HND(s_blank);
+            }
+            x->items[i] = HND(s_blankSlots);
+            continue;
+        }
+        Port_ContentLook(kind, i, &name, &suffix, &thumb);
+        if ((tex = TextureOfLink(thumb)) >= 0) {
+            x->items[i] = (u32)tex;
+        } else {
+            if (thumb != NULL) {
+                Port_Log("content: %u's thumbnail %s: no such texture loaded; the alias's picture", (unsigned)i, thumb);
+            }
+            x->items[i] = alias >= 0 && (u32)alias < origCount ? orig[alias] : orig[origCount - 1];
+        }
+    }
+    s_numExt++;
+    return x;
+}
+
+/* Lists in h numbered by a variable of `vars` (a bit per variable index). */
+static void ExtendLists(InterfaceHeader *h, int kind, const u8 *vars, u32 numVars) {
+    IfaceObjectDef *objs = GETP(h->objects);
+    const ExtList *x;
+    u32 i, j, old;
+    int changed = 0;
+
+    for (i = 0; objs != NULL && i < h->numObjects; i++) {
+        IfaceObjectDef *d = &objs[i];
+
+        if (d->type == IFACE_DEF_IMAGE && GETP(d->sub) != NULL && ((IfaceImageDef *)GETP(d->sub))->type == 3) {
+            IfaceTexAnim *ta = GETP(((IfaceImageDef *)GETP(d->sub))->anim);
+
+            if (ta == NULL || !ta->fromVar || ta->var >= numVars || !(vars[ta->var / 8] >> (ta->var % 8) & 1) ||
+                (x = Extend(kind, 0, GETP(ta->anim.keys), ta->anim.numKeys)) == NULL) {
+                continue;
+            }
+            /* every image showing this list, the ones playing it too (the
+             * car select's sliding picture, which Port_Carousel indexes) */
+            old = ta->anim.keys.h;
+            for (j = 0; j < h->numObjects; j++) {
+                IfaceImageDef *im = objs[j].type == IFACE_DEF_IMAGE ? GETP(objs[j].sub) : NULL;
+                IfaceTexAnim *t = im != NULL && im->type == 3 ? GETP(im->anim) : NULL;
+
+                if (t != NULL && t->anim.keys.h == old) {
+                    SETP(t->anim.keys, x->items);
+                    t->anim.numKeys = x->count;
+                }
+            }
+            changed = 1;
+        } else if (d->type == IFACE_DEF_TEXT && GETP(d->sub) != NULL && ((IfaceText *)GETP(d->sub))->listMode == 1) {
+            IfaceText *t = GETP(d->sub);
+            IfaceStringList *l = GETP(t->list);
+
+            if (l == NULL || !l->fromVar || l->var >= numVars || !(vars[l->var / 8] >> (l->var % 8) & 1) ||
+                (x = Extend(kind, t->paragraph ? 2 : 1, GETP(l->texts), l->count)) == NULL) {
+                continue;
+            }
+            SETP(l->texts, x->items);
+            l->count = x->count;
+            changed = 1;
+        }
+    }
+    if (changed) {
+        Port_Log("content: interface %u: the %s lists name and picture %u entries", h->id,
+                 kind == PORT_CONTENT_CAR ? "car" : kind == PORT_CONTENT_TRACK ? "track" : "item",
+                 (unsigned)Port_ContentCount(kind));
     }
 }
 
@@ -295,13 +546,14 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
     IfaceVarList *vl;
     int kind;
     u32 i;
+    u8 vars[256 / 8];
 
     if (h == NULL || (vl = GETP(h->vars)) == NULL) {
         return;
     }
     for (kind = 0; kind < PORT_CONTENT_KINDS; kind++) {
         u32 count = Port_ContentCount(kind), retail = Port_ContentRetailCount(kind);
-        int indexed = TestsUnlockByVar(h, s_unlockVar[kind]);
+        int indexed = TestsUnlockByVar(h, s_unlockVar[kind]), any = 0;
 
         if (indexed) {
             TestUnlock(kind);
@@ -309,18 +561,28 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
         if (count == retail) {
             continue;
         }
-        for (i = 0; i < vl->count; i++) {
+        SDL_zeroa(vars);
+        for (i = 0; i < vl->count && i < 256; i++) {
             IfaceVar *v = &GETP(vl->vars)[i];
             IfaceCodeVar *cv = v->type == IFACE_VAR_CODE ? GETP(v->code) : NULL;
 
-            if (v->min != 0 || v->max != (s32)retail - 1) {
+            /* (max count - 1: the screen again, its pack still loaded) */
+            if (v->min != 0 || (v->max != (s32)retail - 1 && v->max != (s32)count - 1)) {
                 continue;
             }
             if (indexed || (cv != NULL && s_choiceVar[kind] >= 0 && (s32)cv->id == s_choiceVar[kind])) {
-                v->max = (s32)count - 1;
-                Port_Log("content: interface %u: variable %u ranges over %u %s", h->id, (unsigned)i, (unsigned)count,
-                         kind == PORT_CONTENT_CAR ? "cars" : kind == PORT_CONTENT_TRACK ? "tracks" : "items");
+                vars[i / 8] |= (u8)(1u << (i % 8));
+                any = 1;
+                if (v->max != (s32)count - 1) {
+                    v->max = (s32)count - 1;
+                    Port_Log("content: interface %u: variable %u ranges over %u %s", h->id, (unsigned)i,
+                             (unsigned)count,
+                             kind == PORT_CONTENT_CAR ? "cars" : kind == PORT_CONTENT_TRACK ? "tracks" : "items");
+                }
             }
+        }
+        if (any && count > Port_ContentBaseCount(kind)) {
+            ExtendLists(h, kind, vars, vl->count < 256 ? vl->count : 256);
         }
     }
 }
