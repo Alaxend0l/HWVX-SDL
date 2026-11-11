@@ -38,6 +38,7 @@ typedef struct Movie {
     u32 videoSize[AUDIO_AHEAD + 1];
     u8 *rgba;
     u64 startNS;
+    u32 beats;          /* heartbeats so far: the clock under a fixed step */
     s16 *pcm;
     u32 pcmCap;
 } Movie;
@@ -298,7 +299,13 @@ s32 Mpeg_Heartbeat(void) {
     if (m == NULL) {
         return 0;
     }
-    due = (u32)((double)(SDL_GetTicksNS() - m->startNS) * m->fps / 1e9);
+    /* under a fixed step (HWVX_DETERMINISTIC), game frames are the clock, so
+     * a movie lasts the same number of frames on every run */
+    if (Port_FixedStepUs() != 0) {
+        due = (u32)((double)m->beats++ * Port_FixedStepUs() * m->fps / 1e6);
+    } else {
+        due = (u32)((double)(SDL_GetTicksNS() - m->startNS) * m->fps / 1e9);
+    }
     if (due >= m->numFrames) {
         return 0;
     }

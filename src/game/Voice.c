@@ -99,7 +99,12 @@ s8 DestroySFX(u32 handle) {
         }
         g_soundLst[handle] = g_freeSound;
         g_freeSound = handle;
-        data = sfx->data;
+        /* port: CreateSFX_ keeps a 16-bit sample's address in samples, as AX
+         * reads it; FreeA_ wants the block's byte address back. The GameCube
+         * passed the halved address, so every 16-bit sample's ARAM leaked
+         * ("FreeA_ - Invalid pointer") and could free a live block that
+         * happened to start there. */
+        data = sfx->bits == 16 ? sfx->data << 1 : sfx->data;
         sfx->data = 0;
         return FreeA_(data);
     }

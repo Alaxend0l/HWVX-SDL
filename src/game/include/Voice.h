@@ -113,6 +113,10 @@ _Static_assert(offsetof(Voice, axv) == 0x50, "Voice.axv");
 _Static_assert(offsetof(Voice, curEnvVol) == 0x5A, "Voice.curEnvVol");
 _Static_assert(offsetof(Voice, curAuxL) == 0x6C, "Voice.curAuxL");
 _Static_assert(sizeof(Voice) == 0x70, "Voice size");
+/* g_voice's storage (data_gen.c, 0x1C00 bytes) and g_volTab (64 entries,
+ * indexed by voice) hold no more than 64 voices; so does the mixer
+ * (AX_MAX_VOICES, port/ax.c). */
+_Static_assert(NUM_VOICES * 0x70 <= 0x1C00 && NUM_VOICES <= 64, "NUM_VOICES past the voice tables");
 
 extern Voice g_voice[NUM_VOICES];
 

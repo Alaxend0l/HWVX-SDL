@@ -163,7 +163,8 @@ u32 Port_FixedStepUs(void) {
         const char *s = SDL_getenv("HWVX_FIXEDSTEP");
         step = s != NULL ? SDL_strtol(s, NULL, 0) : Deterministic() ? 16667 : 0;
         if (step < 0 || step > 34000) {
-            step = 0;
+            Port_Log("HWVX_FIXEDSTEP=%s: not 0-34000 us, using %s", s, Deterministic() ? "16667" : "the real clock");
+            step = Deterministic() ? 16667 : 0;
         }
     }
     return (u32)step;

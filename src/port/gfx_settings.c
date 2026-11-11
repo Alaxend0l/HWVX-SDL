@@ -93,13 +93,22 @@ f32 Port_GfxGammaPower(void) {
 
 /* The PC release's textures (port.h): GameCube colours unless graphics.cfg
  * or HWVX_PC_TEXTURES=pc says the PC's own. Read as each texture decodes. */
-int Port_PCTexturesLookGC(void) {
-    const char *env = SDL_getenv("HWVX_PC_TEXTURES");
+/* An environment override, read once: -1 if unset, else whether it equals
+ * `on`. These are asked per texture level and per model drawn. */
+static int EnvIs(int *cache, const char *name, const char *on) {
+    if (*cache == -2) {
+        const char *env = SDL_getenv(name);
 
-    if (env != NULL) {
-        return SDL_strcmp(env, "pc") != 0;
+        *cache = env == NULL ? -1 : SDL_strcmp(env, on) == 0;
     }
-    return !g_port.pcTexturesPC;
+    return *cache;
+}
+
+int Port_PCTexturesLookGC(void) {
+    static int env = -2;
+    int pc = EnvIs(&env, "HWVX_PC_TEXTURES", "pc");
+
+    return pc >= 0 ? !pc : !g_port.pcTexturesPC;
 }
 
 /* The main menu without the port's rows: graphics.cfg, or HWVX_ORIGINAL_MAINMENU
@@ -118,12 +127,10 @@ int Port_OriginalMainMenu(void) {
  * coarser whenever the screen was split; the PC release does that only at
  * low Geometry Quality. Default: full detail. */
 int Port_SplitScreenCoarseLOD(void) {
-    const char *env = SDL_getenv("HWVX_SPLITSCREEN_LOD");
+    static int env = -2;
+    int gc = EnvIs(&env, "HWVX_SPLITSCREEN_LOD", "gc");
 
-    if (env != NULL) {
-        return SDL_strcmp(env, "gc") == 0;
-    }
-    return g_port.splitLodGC;
+    return gc >= 0 ? gc : g_port.splitLodGC;
 }
 
 f32 Port_GfxFovScale(void) {

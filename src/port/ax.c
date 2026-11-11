@@ -237,7 +237,8 @@ BOOL AXFXDelaySettings(struct AXFX_DELAY *delay) {
             d->currentSize[c] = size;
             d->currentPos[c] = 0;
         }
-        d->currentFeedback[c] = d->feedback[c] > 100 ? 100 : d->feedback[c];
+        /* below 100%: at 100 the line would add its input forever */
+        d->currentFeedback[c] = d->feedback[c] > 99 ? 99 : d->feedback[c];
         d->currentOutput[c] = d->output[c] > 100 ? 100 : d->output[c];
     }
     if (SDL_getenv("HWVX_AUDIOLOG") != NULL) {
