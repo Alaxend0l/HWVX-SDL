@@ -1560,9 +1560,10 @@ s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce) {
             case 0:
                 break;
             case -1:
-            default:
                 status = 3;
                 break;
+            default:
+                break;      /* an unknown error keeps the status, as the original's table does */
             }
         }
     } while (s_curMemStatus == 2);

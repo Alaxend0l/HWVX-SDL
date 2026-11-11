@@ -200,11 +200,10 @@ void GSI_VehicleItemSelection(void *arg) {
     case 0:
         switch (msg->sub) {
         case 100:
-            for (i = 0; i < 2; i++) {
-                if (lockedID != -1) {
-                    data->locked = 1;
-                    break;
-                }
+            /* the demo fire, then locked whether or not a car was found, as the
+             * original does (GameCube 0x80067D54, PS2 alike); the decomp only
+             * locked when one was, so case 12 cleared the held fire */
+            for (i = 0; i < 2 && lockedID == -1; i++) {
                 if (GETP(data->cars[i]) != NULL) {
                     rack = ThingManagerList_GetByType(&GETP(data->cars[i])->motionState.slaves, THING_TYPE_WILDCARD_RACK);
                     if (rack != NULL) {
@@ -215,6 +214,7 @@ void GSI_VehicleItemSelection(void *arg) {
                     }
                 }
             }
+            data->locked = 1;
             break;
         }
         break;
