@@ -535,7 +535,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
                     } else if (lean > 1.0f) {
                         lean = 1.0f;
                     }
-                    if (car->slaveWeaponRpm[0] < 10000) {
+                    if (car->gripLossTime < 10000) {
                         lean = 0.0f;
                     }
                     if (car->transmissionFlags & 0x8000) {

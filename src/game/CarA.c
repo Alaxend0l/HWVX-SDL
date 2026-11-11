@@ -2194,7 +2194,7 @@ void CarA_GetCameraOrientationInfo(CarA *car, u32 index, void *out) {
             PSVECNormalize(&info->mtx.v[1], &info->mtx.v[1]);
         }
     }
-    if (car->slaveWeaponRpm[0] < 10000) {
+    if (car->gripLossTime < 10000) {
         info->lookAhead = 0.0f;
     }
     PSVECSubtract(&car->bodyOffset, (Vector4 *)GETP(GETP(car->vehicleIface)->engine), &offset);
