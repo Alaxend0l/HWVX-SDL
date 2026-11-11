@@ -209,6 +209,15 @@ if(APPLE AND NOT IOS)
     endif()
 endif()
 
+# hwvx-launcher: the same program, opening the launcher (src/port/launcher.c)
+# instead of booting into the game. App bundles use --launcher instead.
+if(NOT ANDROID AND NOT HWVX_MACOS_BUNDLE)
+    add_custom_command(TARGET hwvx POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:hwvx>
+                $<TARGET_FILE_DIR:hwvx>/hwvx-launcher$<TARGET_FILE_SUFFIX:hwvx>
+        VERBATIM)
+endif()
+
 if(UNIX AND NOT APPLE AND NOT ANDROID)
     # For AppImage and Flatpak: a standard prefix layout.
     include(GNUInstallDirs)

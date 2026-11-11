@@ -88,6 +88,21 @@ static SDL_IOStream *OpenDiscFile(const char *name) {
         io = SDL_IOFromFile(path, "rb");
         SDL_free(path);
     }
+    /* a flat folder (the PC disc's cabinet, imported by pcdisc.c, keeps no
+     * folders): the file by its name alone; every pack name is unique */
+    if (io == NULL) {
+        const char *base = name, *p;
+
+        for (p = name; *p; p++) {
+            if (*p == '/' || *p == '\\') {
+                base = p + 1;
+            }
+        }
+        if (base != name && (path = ResolveCase(base)) != NULL) {
+            io = SDL_IOFromFile(path, "rb");
+            SDL_free(path);
+        }
+    }
     return io;
 }
 

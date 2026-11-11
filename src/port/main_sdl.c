@@ -100,6 +100,8 @@ static void ParseArgs(int argc, char **argv) {
     int i, v, haveSize = 0, haveVSync = 0, haveFps = 0, haveDisplay = 0;
 
     g_port.dataDir = NULL;   /* FindDataDir */
+    /* the hwvx-launcher copy (CMakeLists.txt) opens the launcher, like --launcher */
+    g_port.launcher = argc > 0 && argv[0] != NULL && SDL_strstr(argv[0], "launcher") != NULL;
     g_port.scale = 2;
     g_port.resetSave = 0;
     g_port.vsync = 1;        /* what the GameCube's own retrace wait does */
@@ -138,13 +140,15 @@ static void ParseArgs(int argc, char **argv) {
             g_port.maxFps = v;
             haveFps = 1;
             i++;
+        } else if (SDL_strcmp(argv[i], "--launcher") == 0) {
+            g_port.launcher = 1;
         } else if (SDL_strcmp(argv[i], "--reset-save") == 0) {
             g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
         } else {
             SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen|--windowed]", argv[0]);
-            SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save]");
+            SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save] [--launcher]");
             SDL_Log("  --data PATH      a GameCube disc image (.iso) or the extracted disc files");
             SDL_Log("                   (default: the one chosen last time, or an .iso or files/");
             SDL_Log("                   next to the program, or orig/files)");
@@ -157,6 +161,7 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
             SDL_Log("                   one that fails to start falls back to opengl)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
+            SDL_Log("  --launcher       open the launcher (game data, releases) instead of booting");
             exit(1);
         }
     }
@@ -338,85 +343,12 @@ static char *SearchDataDir(char *searched, size_t size) {
     return found;
 }
 
-#ifndef SDL_PLATFORM_ANDROID
-typedef struct FolderPick {
-    SDL_AtomicInt done;
-    char *dir;
-} FolderPick;
+/* For the launcher: the usual places, the ones searched noted for errors. */
+static char s_searched[2048];
 
-static void SDLCALL FolderPicked(void *userdata, const char *const *filelist, int filter) {
-    FolderPick *pick = userdata;
-
-    (void)filter;
-    if (filelist == NULL) {
-        Port_Log("folder dialog: %s", SDL_GetError());
-    } else if (filelist[0] != NULL) {
-        pick->dir = SDL_strdup(filelist[0]);
-    }
-    SDL_SetAtomicInt(&pick->done, filelist == NULL ? 2 : 1);
+static char *SearchForLauncher(void) {
+    return SearchDataDir(s_searched, sizeof(s_searched));
 }
-
-/* Asks for a disc image or the folder of extracted files until it has the
- * data. NULL: the player gave up, or there is no file dialog (no portal or
- * zenity on Linux). */
-static char *PickDataDir(void) {
-    static const SDL_MessageBoxButtonData buttons[] = {
-        { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Choose disc image..." },
-        { 0, 2, "Choose folder..." },
-        { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Quit" },
-    };
-    static const SDL_DialogFileFilter filters[] = {
-        { "GameCube disc image (.iso, .gcm)", "iso;gcm;gcz" },
-    };
-    const char *intro =
-        "Hot Wheels: Velocity X needs your own copy of the GameCube disc.\n\n"
-        "Choose a disc image of it (.iso), or the folder of its files extracted with Dolphin "
-        "(right-click the game > Properties > Filesystem > Extract Entire Disc): the one with "
-        DATA_MARKER ", worlds_ and audio_ in it, or the folder above it.";
-    char text[1024];
-
-    SDL_strlcpy(text, intro, sizeof(text));
-    for (;;) {
-        SDL_MessageBoxData box = { SDL_MESSAGEBOX_INFORMATION, NULL, "Game data", text, 3, buttons, NULL };
-        FolderPick pick;
-        char *found;
-        int button = 0;
-
-        if (!SDL_ShowMessageBox(&box, &button) || button == 0) {
-            return NULL;
-        }
-        SDL_zero(pick);
-        if (button == 1) {
-            SDL_ShowOpenFileDialog(FolderPicked, &pick, NULL, filters, 1, NULL, false);
-        } else {
-            SDL_ShowOpenFolderDialog(FolderPicked, &pick, NULL, NULL, false);
-        }
-        while (SDL_GetAtomicInt(&pick.done) == 0) {
-            SDL_PumpEvents();
-            SDL_Delay(20);
-        }
-        if (SDL_GetAtomicInt(&pick.done) == 2) {
-            return NULL;   /* no dialog available */
-        }
-        if (pick.dir == NULL) {
-            continue;      /* cancelled: ask again */
-        }
-        s_imageError[0] = 0;
-        found = DataIn(pick.dir);
-        if (found != NULL) {
-            SDL_free(pick.dir);
-            return found;
-        }
-        if (s_imageError[0] != 0) {
-            SDL_snprintf(text, sizeof(text), "That disc image can't be used:\n%s\n\n%s", s_imageError, intro);
-        } else {
-            SDL_snprintf(text, sizeof(text), "That folder doesn't have the game data in it (no " DATA_MARKER
-                         " or disc image).\n\n%s", intro);
-        }
-        SDL_free(pick.dir);
-    }
-}
-#endif
 
 /* Sets g_port.dataDir: --data, else the folder used last time, else the
  * usual places, else (desktop) the player picks it. */
@@ -436,23 +368,30 @@ static void FindDataDir(void) {
         g_port.dataDir = dir;
         return;
     }
+#ifndef SDL_PLATFORM_ANDROID
+    /* the launcher (launcher.c): the chosen release, the launcher window when
+     * there is none or it was asked for (--launcher), or quit */
+    {
+        int window = SDL_getenv("HWVX_NO_DIALOG") == NULL;
+        char *chosen = Port_Launcher(g_port.launcher, window, DataIn, SearchForLauncher);
+
+        if (chosen == NULL && window) {
+            exit(0);
+        }
+        dir = chosen != NULL ? DataIn(chosen) : NULL;
+        SDL_free(chosen);
+        SDL_strlcpy(searched, s_searched, sizeof(searched));
+    }
+#else
     dir = LoadDataDir();
     if (dir != NULL) {
         char *found = DataIn(dir);
 
         SDL_free(dir);
-        if (found != NULL) {
-            g_port.dataDir = found;
-            return;
-        }
+        dir = found;
     }
-    dir = SearchDataDir(searched, sizeof(searched));
-#ifndef SDL_PLATFORM_ANDROID
-    if (dir == NULL && SDL_getenv("HWVX_NO_DIALOG") == NULL) {
-        dir = PickDataDir();
-        if (dir == NULL) {
-            exit(0);
-        }
+    if (dir == NULL) {
+        dir = SearchDataDir(searched, sizeof(searched));
     }
 #endif
     if (dir == NULL) {

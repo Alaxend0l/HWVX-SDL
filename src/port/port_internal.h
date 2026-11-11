@@ -34,6 +34,7 @@ typedef struct PortState {
     int moviesOff;           /* 1: skip the movies (graphics.cfg movies=off; thp.c) */
     int splitLodGC;          /* 1: split screen draws models a level coarser, as the
                               * GameCube did (graphics.cfg splitlod; Port_SplitScreenCoarseLOD) */
+    int launcher;            /* --launcher (or run as hwvx-launcher): open the launcher */
     volatile int quit;
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
@@ -47,6 +48,16 @@ void Port_InitHandles(u32 arenaSize);
 /* Creates g_port.window with the renderer's flags (gx_render.h open). */
 void Port_CreateWindow(SDL_WindowFlags flags);
 int Port_TryCreateWindow(SDL_WindowFlags flags);   /* 0: failed (SDL_GetError) */
+
+/* launcher.c: the game data to play (see there). The check resolves a place
+ * to its game data (a folder, its files/ folder, a disc image in it) or
+ * NULL; the search looks in the usual places on a first run. */
+typedef char *(*Port_DataCheck)(const char *path);
+typedef char *(*Port_DataSearch)(void);
+char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search);
+/* pcdisc.c: the PC release's disc image (.iso, .cue/.bin) into folder `dest`:
+ * HWVX.cab's files flat, the FMV_ movies; `progress` counts files. */
+int Port_ImportPCDisc(const char *image, const char *dest, SDL_AtomicInt *progress, char *err, size_t errLen);
 
 /* gfx_settings.c: graphics.cfg fills in what the command line left unset. */
 void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int haveFps);

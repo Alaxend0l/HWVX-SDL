@@ -23,21 +23,34 @@ on every push (artifacts) and version tag (GitHub Release): see
 
 ## Game data
 
-Not included. Use your own copy of the GameCube disc, either as a disc image
-(`.iso`; Dolphin can convert a `.gcz`/`.rvz` to one: right-click the game →
-Convert File…) or as its extracted files (Dolphin: right-click the game →
-Properties → Filesystem → Extract Entire Disc, which makes a `files/`
-folder). On start the game looks for it, in order:
+Not included. Use your own copy of the game: the GameCube disc (an `.iso`;
+Dolphin can convert a `.gcz`/`.rvz` to one: right-click the game → Convert
+File…, or its extracted files: Dolphin → Properties → Filesystem → Extract
+Entire Disc, which makes a `files/` folder), the PC release (its install
+folder, or its CD as an `.iso` or `.cue`/`.bin`), or the PlayStation 2 disc's
+files (the folder with `XPS/ENGLISH/`; see the `ps2-data` branch).
 
-1. `--data PATH` (the image, or the folder);
-2. what it used last time (`datadir.txt` in the save folder);
-3. an `.iso` or a `files/` folder next to the program (on macOS also next to
-   the `.app`), in `orig/` in the current folder, or in the save folder; on
+**The launcher** (`src/port/launcher.c`) lists the releases you have imported
+and which one plays; the PS2 prototype (beta) can be imported too, for its
+beta content later. It opens on the first run and whenever the chosen data has
+gone; otherwise the game boots straight in. Open it on purpose with
+`--launcher`, or run `hwvx-launcher` (a copy of the program the build makes;
+app bundles use `--launcher`). Mouse, keyboard and gamepad all work (d-pad or
+stick, A, B; Start plays). Importing the PC CD copies its packs (out of
+`HWVX.cab`) and its movies, which the PC game only ever read from the disc,
+into a `pc` folder in the save folder; an installed copy may have no movies.
+Your choices are kept in `sources.cfg` in the save folder. On start the game
+uses, in order:
+
+1. `--data PATH` (the image, or the folder), without the launcher;
+2. the release chosen in the launcher;
+3. on the first run, an `.iso` or a `files/` folder next to the program (on
+   macOS also next to the `.app`), in `orig/` in the current folder, or in the
+   save folder (and the place used before the launcher, `datadir.txt`); on
    Android in `Android/data/io.github.alaxend0l.hwvx/files/` (or a `files/`
-   folder in it) and
-   `/sdcard/HWVX/` (the second needs "All files access", which the app asks
-   for);
-4. on desktop, it asks you to choose the image or the folder.
+   folder in it) and `/sdcard/HWVX/` (the second needs "All files access",
+   which the app asks for);
+4. on desktop, the launcher, to import one.
 
 ```sh
 ./build/hwvx --data "/path/to/Hot Wheels - Velocity X.iso"
@@ -447,6 +460,8 @@ Debugging aids:
   loads in one go. Background quadrant loads and sound still follow timing.
 - `HWVX_GEOMLOG=1` logs, per pack, how the GameCube's geometry was converted
   to the indexed layout (`src/game/Port_Geometry.c`).
+- `HWVX_LAUNCHER_SHOT=file.bmp` saves the launcher's first frame and closes it
+  (testing).
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
