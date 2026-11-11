@@ -163,10 +163,32 @@ u32 Port_KeyboardKeys(void) {
  *           times don't shift the schedule (use this for menu navigation).
  * Either form takes an optional hold length: btn*N holds for N frames.
  * Buttons: a b x y start z l r up down left right; main stick: sup sdown
- * sleft sright. Each press is logged with its frame. */
+ * sleft sright. A button name ending in 2-4 presses it on that port instead
+ * (a2: A on port 2); the ports named count as connected from the start. Each
+ * press is logged with its frame. */
 static u32 s_frame;
 
 static int s_autoStickX, s_autoStickY;
+static int s_autoPort;            /* the port the held button is on, 0-3 */
+
+/* The ports HWVX_AUTOINPUT names (bit per port, port 1 not counted). */
+static u32 AutoPorts(void) {
+    static int parsed;
+    static u32 ports;
+    const char *e;
+    int i;
+
+    if (!parsed) {
+        parsed = 1;
+        e = SDL_getenv("HWVX_AUTOINPUT");
+        for (i = 1; e != NULL && e[i] != 0; i++) {
+            if (e[i] >= '2' && e[i] <= '4' && e[i - 1] >= 'a' && e[i - 1] <= 'z') {
+                ports |= 1u << (e[i] - '1');
+            }
+        }
+    }
+    return ports;
+}
 
 static u16 AutoInput(void) {
     static const struct { const char *name; u16 bit; } names[] = {
@@ -199,7 +221,7 @@ static u16 AutoInput(void) {
         char name[16];
         unsigned frame = 0;
         int n = 0, rel = *next == '+';
-        if (SDL_sscanf(next + rel, "%u:%15[a-z]%n", &frame, name, &n) != 2) {
+        if (SDL_sscanf(next + rel, "%u:%15[a-z0-9]%n", &frame, name, &n) != 2) {
             Port_Log("HWVX_AUTOINPUT: can't parse \"%s\"", next);
             next = NULL;
         } else if (rel ? (s_frame >= pressEnd && quiet >= frame) : s_frame >= frame) {
@@ -209,6 +231,11 @@ static u16 AutoInput(void) {
                 n += 1 + m;   /* btn*N: hold for N frames */
             }
             SDL_strlcpy(held, name, sizeof(held));
+            s_autoPort = 0;
+            if (held[0] != 0 && held[SDL_strlen(held) - 1] >= '2' && held[SDL_strlen(held) - 1] <= '4') {
+                s_autoPort = held[SDL_strlen(held) - 1] - '1';
+                held[SDL_strlen(held) - 1] = 0;
+            }
             pressEnd = s_frame + hold;
             Port_Log("autoinput: %s at frame %u for %u frames", held, (unsigned)s_frame, hold);
             next += rel + n;
@@ -251,7 +278,16 @@ u32 PADRead(struct PADStatus *status) {
         }
     }
     st[0].err = PAD_ERR_NONE;   /* the keyboard is player 1's controller */
-    st[0].button |= AutoInput();
+    {
+        u16 bits = AutoInput();
+
+        for (i = 1; i < PAD_MAX_CONTROLLERS; i++) {
+            if (AutoPorts() & (1u << i)) {
+                st[i].err = PAD_ERR_NONE;
+            }
+        }
+        st[s_autoPort].button |= bits;
+    }
     if (s_autoStickX) st[0].stickX = (s8)s_autoStickX;
     if (s_autoStickY) st[0].stickY = (s8)s_autoStickY;
     s_keyStickX = s_autoStickX ? (s_autoStickX > 0 ? 1 : -1) : 0;
@@ -355,7 +391,8 @@ u32 SIProbe(s32 chan) {
     if (chan < 0 || chan >= PAD_MAX_CONTROLLERS) {
         return SI_ERROR_NO_RESPONSE;
     }
-    return (s_pads[chan] != NULL || chan == 0) ? SI_GC_CONTROLLER : SI_ERROR_NO_RESPONSE;
+    return (s_pads[chan] != NULL || chan == 0 || (AutoPorts() & (1u << chan))) ? SI_GC_CONTROLLER
+                                                                                : SI_ERROR_NO_RESPONSE;
 }
 
 BOOL PADReset(u32 mask) {
