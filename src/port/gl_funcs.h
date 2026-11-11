@@ -87,6 +87,9 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLBUFFERSUBDATAPROC, glBufferSubData)                                  \
     X(PFNGLGENVERTEXARRAYSPROC, glGenVertexArrays)                              \
     X(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray)                              \
+    X(PFNGLDELETEVERTEXARRAYSPROC, glDeleteVertexArrays)                        \
+    X(PFNGLVERTEXATTRIB1FPROC, glVertexAttrib1f)                                \
+    X(PFNGLVERTEXATTRIB4FPROC, glVertexAttrib4f)                                \
     X(PFNGLENABLEVERTEXATTRIBARRAYPROC, glEnableVertexAttribArray)              \
     X(PFNGLDISABLEVERTEXATTRIBARRAYPROC, glDisableVertexAttribArray)            \
     X(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer)                      \
@@ -172,6 +175,9 @@ GL_FUNCS(GL_DECLARE)
 #define glBufferSubData p_glBufferSubData
 #define glGenVertexArrays p_glGenVertexArrays
 #define glBindVertexArray p_glBindVertexArray
+#define glDeleteVertexArrays p_glDeleteVertexArrays
+#define glVertexAttrib1f p_glVertexAttrib1f
+#define glVertexAttrib4f p_glVertexAttrib4f
 #define glEnableVertexAttribArray p_glEnableVertexAttribArray
 #define glDisableVertexAttribArray p_glDisableVertexAttribArray
 #define glVertexAttribPointer p_glVertexAttribPointer

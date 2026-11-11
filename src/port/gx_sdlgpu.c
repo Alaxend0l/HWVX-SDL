@@ -34,9 +34,28 @@ typedef struct Upload {
     u32 level, w, h, offset;
 } Upload;
 
+/* A static mesh's buffer upload, queued for the next copy pass. */
+typedef struct BufUpload {
+    SDL_GPUBuffer *buf;
+    u32 offset, size;
+} BufUpload;
+
+/* A static mesh's buffer (gx_mesh.c): indices, or vertices (GXMeshVertex). */
+typedef struct GPUMesh {
+    SDL_GPUBuffer *buf;
+    u32 bytes;
+    int skinned;
+} GPUMesh;
+
+/* Vertex layouts, part of the pipeline key: decoded vertices (GXVertex), or
+ * a static mesh's with each vertex's matrix slot (skinned) or the draw's. */
+enum { LAYOUT_GXVERTEX, LAYOUT_MESH_SKINNED, LAYOUT_MESH };
+
 typedef struct Draw {
     SDL_GPUGraphicsPipeline *pipeline;
-    u32 firstVertex, numVertices;
+    u32 firstVertex, numVertices;   /* an indexed mesh: first index, index count */
+    SDL_GPUBuffer *meshVtx, *meshIdx;   /* NULL: vertices in vbuf */
+    u32 meshSlot;
     u32 vs, fs;   /* indices into the uniform snapshots */
     SDL_GPUTexture *tex[8];
     SDL_GPUSampler *samp[8];
@@ -73,6 +92,14 @@ static struct {
     u32 nUploads, capUploads;
     SDL_GPUTexture **released;
     u32 nReleased, capReleased;
+    BufUpload *bufUploads;
+    u32 nBufUploads, capBufUploads;
+    SDL_GPUBuffer **releasedBufs;
+    u32 nReleasedBufs, capReleasedBufs;
+    /* Static meshes read the attributes they don't have from here, one
+     * 16-byte record per matrix slot k: {f32 k, zeros}, bound per draw at
+     * instance rate (the slot) - see CreatePipeline. */
+    SDL_GPUBuffer *meshConst;
     int clearPending;
     SDL_FColor clearColor;
     f32 clearDepth;
@@ -248,6 +275,7 @@ static SDL_GPUTexture *CreateTexture(SDL_GPUTextureFormat fmt, SDL_GPUTextureUsa
 
 static void *GPU_TexCreate(int w, int h, int levels);
 static void GPU_TexUpload(void *tex, int level, int w, int h, const u8 *rgba);
+static SDL_GPUBuffer *StaticBuffer(SDL_GPUBufferUsageFlags usage, const void *data, u32 size);
 
 static void CreatePresentPipeline(void) {
     SDL_GPUGraphicsPipelineCreateInfo ci;
@@ -305,6 +333,20 @@ static void GPU_Init(int efbW, int efbH) {
     s.black = GPU_TexCreate(1, 1, 1);
     GPU_TexUpload(s.black, 0, 1, 1, black);
 
+    {
+        f32 consts[GX_POSMTX_IDENTITY + 1][4];
+        int k;
+
+        SDL_zero(consts);
+        for (k = 0; k <= GX_POSMTX_IDENTITY; k++) {
+            consts[k][0] = (f32)k;
+        }
+        s.meshConst = StaticBuffer(SDL_GPU_BUFFERUSAGE_VERTEX, consts, sizeof(consts));
+        if (s.meshConst == NULL) {
+            Port_Fatal("SDL_CreateGPUBuffer failed: %s", SDL_GetError());
+        }
+    }
+
     SDL_zero(sci);
     sci.min_filter = sci.mag_filter = SDL_GPU_FILTER_LINEAR;
     sci.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
@@ -344,6 +386,8 @@ static void GPU_Close(void) {
     for (i = 0; i < s.nPipes; i++) SDL_ReleaseGPUGraphicsPipeline(s.dev, s.pipes[i].p);
     for (i = 0; i < s.nSamplers; i++) SDL_ReleaseGPUSampler(s.dev, s.samplers[i].s);
     for (i = 0; i < s.nReleased; i++) SDL_ReleaseGPUTexture(s.dev, s.released[i]);
+    for (i = 0; i < s.nReleasedBufs; i++) SDL_ReleaseGPUBuffer(s.dev, s.releasedBufs[i]);
+    if (s.meshConst) SDL_ReleaseGPUBuffer(s.dev, s.meshConst);
     if (s.present) SDL_ReleaseGPUGraphicsPipeline(s.dev, s.present);
     if (s.linearClamp) SDL_ReleaseGPUSampler(s.dev, s.linearClamp);
     if (s.vbuf) SDL_ReleaseGPUBuffer(s.dev, s.vbuf);
@@ -452,14 +496,14 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
         SDL_GPU_CULLMODE_NONE, SDL_GPU_CULLMODE_FRONT, SDL_GPU_CULLMODE_BACK,
     };
     SDL_GPUVertexAttribute attr[13];
-    SDL_GPUVertexBufferDescription vb;
+    SDL_GPUVertexBufferDescription vb[2];
     SDL_GPUColorTargetDescription ct;
     SDL_GPUGraphicsPipelineCreateInfo ci;
     SDL_GPUGraphicsPipeline *p;
     u32 prim = key & 7, blend = (key >> 3) & 1, src = (key >> 4) & 15, dst = (key >> 8) & 15;
     u32 revSub = (key >> 12) & 1, depthTest = (key >> 13) & 1, depthFunc = (key >> 14) & 7;
     u32 depthWrite = (key >> 17) & 1, colorWrite = (key >> 18) & 1, alphaWrite = (key >> 19) & 1;
-    u32 cullMode = (key >> 20) & 3, frag = key >> 22;
+    u32 cullMode = (key >> 20) & 3, layout = (key >> 22) & 3, frag = key >> 24;
     int i;
 
     SDL_zero(attr);
@@ -479,9 +523,34 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
         attr[i].location = (u32)i;
         attr[i].buffer_slot = 0;
     }
-    vb.slot = 0;
-    vb.pitch = sizeof(GXVertex);
-    vb.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+    vb[0].slot = 0;
+    vb[0].pitch = sizeof(GXVertex);
+    vb[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+    if (layout != LAYOUT_GXVERTEX) {
+        /* A static mesh: GXMeshVertex in slot 0, the rest from the record
+         * of s.meshConst bound in slot 1 (the second colour and texture
+         * coordinates 1-7 zero, and unless skinned the matrix slot). */
+        attr[0].offset = offsetof(GXMeshVertex, pos);
+        attr[1].offset = offsetof(GXMeshVertex, nrm);
+        attr[2].offset = offsetof(GXMeshVertex, clr);
+        attr[4].offset = offsetof(GXMeshVertex, tex);
+        attr[3].buffer_slot = 1;
+        attr[3].offset = 4;
+        for (i = 5; i < 12; i++) {
+            attr[i].buffer_slot = 1;
+            attr[i].offset = 8;
+        }
+        if (layout == LAYOUT_MESH_SKINNED) {
+            attr[12].offset = offsetof(GXMeshVertex, mtxIdx);
+        } else {
+            attr[12].buffer_slot = 1;
+            attr[12].offset = 0;
+        }
+        vb[0].pitch = sizeof(GXMeshVertex);
+        vb[1].slot = 1;
+        vb[1].pitch = 16;
+        vb[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+    }
 
     ct.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     ct.blend_state.enable_blend = blend != 0;
@@ -509,8 +578,8 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
 #else
     (void)frag;
 #endif
-    ci.vertex_input_state.vertex_buffer_descriptions = &vb;
-    ci.vertex_input_state.num_vertex_buffers = 1;
+    ci.vertex_input_state.vertex_buffer_descriptions = vb;
+    ci.vertex_input_state.num_vertex_buffers = layout != LAYOUT_GXVERTEX ? 2 : 1;
     ci.vertex_input_state.vertex_attributes = attr;
     ci.vertex_input_state.num_vertex_attributes = 13;
     ci.primitive_type = (SDL_GPUPrimitiveType)prim;
@@ -609,7 +678,7 @@ static void CopyPass(SDL_GPUCommandBuffer *cmd) {
     SDL_GPUCopyPass *cp;
     u8 *map;
 
-    if (s.nUploads == 0 && vertBytes == 0) {
+    if (s.nUploads == 0 && vertBytes == 0 && s.nBufUploads == 0) {
         return;
     }
     EnsureBuffers(vertOffset + vertBytes, vertBytes);
@@ -643,6 +712,14 @@ static void CopyPass(SDL_GPUCommandBuffer *cmd) {
         SDL_GPUTransferBufferLocation src = { s.tbuf, vertOffset };
         SDL_GPUBufferRegion dst = { s.vbuf, 0, vertBytes };
         SDL_UploadToGPUBuffer(cp, &src, &dst, true);
+        g_gxUploadBytes += vertBytes;
+    }
+    for (i = 0; i < s.nBufUploads; i++) {
+        const BufUpload *u = &s.bufUploads[i];
+        SDL_GPUTransferBufferLocation src = { s.tbuf, u->offset };
+        SDL_GPUBufferRegion dst = { u->buf, 0, u->size };
+        SDL_UploadToGPUBuffer(cp, &src, &dst, false);
+        g_gxUploadBytes += u->size;
     }
     SDL_EndGPUCopyPass(cp);
 }
@@ -652,7 +729,8 @@ static void RenderPass(SDL_GPUCommandBuffer *cmd) {
     SDL_GPUDepthStencilTargetInfo dt;
     SDL_GPURenderPass *pass;
     SDL_GPUGraphicsPipeline *pipe = NULL;
-    u32 lastVS = ~0u, lastFS = ~0u, i;
+    SDL_GPUBuffer *boundVtx = NULL, *boundIdx = NULL;
+    u32 lastVS = ~0u, lastFS = ~0u, boundSlot = ~0u, i;
     int j;
 
     SDL_zero(ct);
@@ -668,10 +746,6 @@ static void RenderPass(SDL_GPUCommandBuffer *cmd) {
     dt.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     pass = SDL_BeginGPURenderPass(cmd, &ct, 1, &dt);
-    if (s.nDraws != 0) {
-        SDL_GPUBufferBinding vb = { s.vbuf, 0 };
-        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-    }
     for (i = 0; i < s.nDraws; i++) {
         const Draw *d = &s.draws[i];
         SDL_GPUTextureSamplerBinding tb[8];
@@ -695,7 +769,31 @@ static void RenderPass(SDL_GPUCommandBuffer *cmd) {
             lastFS = d->fs;
             SDL_PushGPUFragmentUniformData(cmd, 0, &s.fsU[d->fs], sizeof(GXFSUniforms));
         }
-        SDL_DrawGPUPrimitives(pass, d->numVertices, 1, d->firstVertex, 0);
+        if (d->meshVtx == NULL) {
+            if (boundVtx != s.vbuf) {
+                SDL_GPUBufferBinding vb = { s.vbuf, 0 };
+                SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+                boundVtx = s.vbuf;
+            }
+            SDL_DrawGPUPrimitives(pass, d->numVertices, 1, d->firstVertex, 0);
+            continue;
+        }
+        if (boundVtx != d->meshVtx || boundSlot != d->meshSlot) {
+            SDL_GPUBufferBinding vb[2] = { { d->meshVtx, 0 }, { s.meshConst, d->meshSlot * 16 } };
+            SDL_BindGPUVertexBuffers(pass, 0, vb, 2);
+            boundVtx = d->meshVtx;
+            boundSlot = d->meshSlot;
+        }
+        if (d->meshIdx == NULL) {
+            SDL_DrawGPUPrimitives(pass, d->numVertices, 1, d->firstVertex, 0);
+            continue;
+        }
+        if (boundIdx != d->meshIdx) {
+            SDL_GPUBufferBinding ib = { d->meshIdx, 0 };
+            SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+            boundIdx = d->meshIdx;
+        }
+        SDL_DrawGPUIndexedPrimitives(pass, d->numVertices, 1, d->firstVertex, 0, 0);
     }
     SDL_EndGPURenderPass(pass);
     s.clearPending = 0;
@@ -705,18 +803,22 @@ static void RenderPass(SDL_GPUCommandBuffer *cmd) {
 static void Flush(void) {
     u32 i;
 
-    if (s.nDraws == 0 && !s.clearPending && s.nUploads == 0) {
+    if (s.nDraws == 0 && !s.clearPending && s.nUploads == 0 && s.nBufUploads == 0) {
         return;
     }
     CopyPass(Cmd());
     if (s.nDraws != 0 || s.clearPending) {
         RenderPass(Cmd());
     }
-    s.nDraws = s.nVerts = s.nVS = s.nFS = s.nStaging = s.nUploads = 0;
+    s.nDraws = s.nVerts = s.nVS = s.nFS = s.nStaging = s.nUploads = s.nBufUploads = 0;
     for (i = 0; i < s.nReleased; i++) {
         SDL_ReleaseGPUTexture(s.dev, s.released[i]);
     }
     s.nReleased = 0;
+    for (i = 0; i < s.nReleasedBufs; i++) {
+        SDL_ReleaseGPUBuffer(s.dev, s.releasedBufs[i]);
+    }
+    s.nReleasedBufs = 0;
 }
 
 /* ---- drawing ------------------------------------------------------------- */
@@ -734,7 +836,7 @@ static void GPU_Draw(const GXDrawCall *dc) {
     };
     const f32 *vp = dc->viewport;
     int i;
-    u32 first = s.nVerts, n, key;
+    u32 first = s.nVerts, n, key, layout = LAYOUT_GXVERTEX;
     Draw *d;
 
     /* GL culls every polygon with GL_FRONT_AND_BACK (lines and points stay) */
@@ -742,7 +844,13 @@ static void GPU_Draw(const GXDrawCall *dc) {
         return;
     }
 
-    if (dc->prim == GXR_TRIANGLEFAN) {   /* no fans in SDL_GPU */
+    if (dc->mesh != NULL) {
+        const GPUMesh *mv = dc->mesh->vtx;
+
+        first = dc->mesh->first;
+        n = dc->mesh->count;
+        layout = mv->skinned ? LAYOUT_MESH_SKINNED : LAYOUT_MESH;
+    } else if (dc->prim == GXR_TRIANGLEFAN) {   /* no fans in SDL_GPU */
         GXVertex *t;
         u32 k;
         if (dc->n < 3) {
@@ -764,6 +872,9 @@ static void GPU_Draw(const GXDrawCall *dc) {
     d = &s.draws[s.nDraws++];
     d->firstVertex = first;
     d->numVertices = n;
+    d->meshVtx = dc->mesh != NULL ? ((const GPUMesh *)dc->mesh->vtx)->buf : NULL;
+    d->meshIdx = dc->mesh != NULL && dc->mesh->idx != NULL ? ((const GPUMesh *)dc->mesh->idx)->buf : NULL;
+    d->meshSlot = layout == LAYOUT_MESH ? (u32)dc->mesh->slot : 0;
     if (s.nVS == 0 || memcmp(&s.vsU[s.nVS - 1], dc->vs, sizeof(GXVSUniforms)) != 0) {
         Grow((void **)&s.vsU, &s.capVS, s.nVS + 1, sizeof(GXVSUniforms));
         s.vsU[s.nVS++] = *dc->vs;
@@ -797,8 +908,80 @@ static void GPU_Draw(const GXDrawCall *dc) {
     key = prims[dc->prim] | (u32)(dc->blend != 0) << 3 | (u32)(dc->blendSrc & 15) << 4 |
           (u32)(dc->blendDst & 15) << 8 | (u32)(dc->blendRevSub != 0) << 12 | (u32)(dc->depthTest != 0) << 13 |
           (u32)(dc->depthFunc & 7) << 14 | (u32)(dc->depthWrite != 0) << 17 | (u32)(dc->colorWrite != 0) << 18 |
-          (u32)(dc->alphaWrite != 0) << 19 | (u32)(dc->cull % 3) << 20 | s.curFrag << 22;
+          (u32)(dc->alphaWrite != 0) << 19 | (u32)(dc->cull % 3) << 20 | layout << 22 | s.curFrag << 24;
     d->pipeline = GetPipeline(key);
+}
+
+/* ---- static meshes (gx_mesh.c) ------------------------------------------ */
+
+/* A GPU buffer holding data (size rounded up to 4 bytes, zero-filled),
+ * uploaded in the next batch's copy pass, before any draw recorded from now
+ * on. */
+static SDL_GPUBuffer *StaticBuffer(SDL_GPUBufferUsageFlags usage, const void *data, u32 dataSize) {
+    u32 offset = (s.nStaging + 15) & ~15u, size = (dataSize + 3) & ~3u;
+    SDL_GPUBufferCreateInfo ci;
+    SDL_GPUBuffer *buf;
+    BufUpload *u;
+
+    SDL_zero(ci);
+    ci.usage = usage;
+    ci.size = size;
+    buf = SDL_CreateGPUBuffer(s.dev, &ci);
+    if (buf == NULL) {
+        Port_Log("SDL_CreateGPUBuffer (%u bytes) failed: %s", size, SDL_GetError());
+        return NULL;
+    }
+    Grow((void **)&s.staging, &s.capStaging, offset + size, 1);
+    memcpy(s.staging + offset, data, dataSize);
+    memset(s.staging + offset + dataSize, 0, size - dataSize);
+    s.nStaging = offset + size;
+    Grow((void **)&s.bufUploads, &s.capBufUploads, s.nBufUploads + 1, sizeof(BufUpload));
+    u = &s.bufUploads[s.nBufUploads++];
+    u->buf = buf;
+    u->offset = offset;
+    u->size = size;
+    return buf;
+}
+
+static void *GPU_MeshIndices(const u16 *idx, u32 n) {
+    GPUMesh *m = SDL_calloc(1, sizeof(GPUMesh));
+
+    if (m == NULL) {
+        return NULL;
+    }
+    m->bytes = n * (u32)sizeof(u16);
+    m->buf = StaticBuffer(SDL_GPU_BUFFERUSAGE_INDEX, idx, m->bytes);
+    if (m->buf == NULL) {
+        SDL_free(m);
+        return NULL;
+    }
+    return m;
+}
+
+static void *GPU_MeshVertices(const GXMeshVertex *v, u32 n, int skinned, void *indices) {
+    GPUMesh *m = SDL_calloc(1, sizeof(GPUMesh));
+
+    (void)indices;
+    if (m == NULL) {
+        return NULL;
+    }
+    m->bytes = n * (u32)sizeof(GXMeshVertex);
+    m->skinned = skinned;
+    m->buf = StaticBuffer(SDL_GPU_BUFFERUSAGE_VERTEX, v, m->bytes);
+    if (m->buf == NULL) {
+        SDL_free(m);
+        return NULL;
+    }
+    return m;
+}
+
+/* Recorded draws may still use it: released after the batch. */
+static void GPU_MeshDestroy(void *buf) {
+    GPUMesh *m = buf;
+
+    Grow((void **)&s.releasedBufs, &s.capReleasedBufs, s.nReleasedBufs + 1, sizeof(SDL_GPUBuffer *));
+    s.releasedBufs[s.nReleasedBufs++] = m->buf;
+    SDL_free(m);
 }
 
 static void GPU_Clear(const f32 c[4], f32 depth) {
@@ -984,4 +1167,5 @@ static void GPU_Present(void) {
 const GXRenderer g_gxSDLGPU = {
     "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
     GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_CopyEFB, GPU_ReadEFB, GPU_Present,
+    GPU_MeshIndices, GPU_MeshVertices, GPU_MeshDestroy,
 };

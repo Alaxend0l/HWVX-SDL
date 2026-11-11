@@ -46,6 +46,11 @@ static struct {
      * memory, because an aborted capture or a cache reset recycles the tail.
      * poolGen changes when the pool starts over. */
     u32 poolGen, poolCap, poolClean;
+    /* Static meshes read the attributes they don't have from the current
+     * vertex attribute values, which a draw from enabled arrays leaves
+     * undefined: meshConst says they are set, meshSlot is location 12's. */
+    int meshConst;
+    f32 meshSlot;
 } s;
 
 /* GL_Draw runs thousands of times a frame, mostly with the same state. What it
@@ -504,6 +509,7 @@ static void DrawBatched(const GXDrawCall *dc, GLenum mode) {
         glBindBuffer(GL_ARRAY_BUFFER, s.poolVbo);
         glBufferSubData(GL_ARRAY_BUFFER, (GLintptr)(s.poolClean * sizeof(GXVertex)),
                         (GLsizeiptr)((b->used - s.poolClean) * sizeof(GXVertex)), b->base + s.poolClean);
+        g_gxUploadBytes += (b->used - s.poolClean) * sizeof(GXVertex);
         s.poolClean = b->used;
     }
     if (a.vao != s.poolVao) {
@@ -511,6 +517,115 @@ static void DrawBatched(const GXDrawCall *dc, GLenum mode) {
         a.vao = s.poolVao;
     }
     glDrawArrays(mode, (GLint)(dc->v - b->base), (GLsizei)dc->n);
+}
+
+/* ---- static meshes (gx_mesh.c) ------------------------------------------ */
+
+/* An index buffer, or a vertex buffer with the vertex array object that
+ * reads it (GXMeshVertex) and its mesh's index buffer. */
+typedef struct GLMesh {
+    GLuint buf, vao;            /* vao 0: an index buffer */
+    int skinned;
+} GLMesh;
+
+static void *GL_MeshIndices(const u16 *idx, u32 n) {
+    GLMesh *m = SDL_calloc(1, sizeof(GLMesh));
+
+    if (m == NULL) {
+        return NULL;
+    }
+    /* through the array binding: the element binding is the bound VAO's */
+    glGenBuffers(1, &m->buf);
+    glBindBuffer(GL_ARRAY_BUFFER, m->buf);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(n * sizeof(u16)), idx, GL_STATIC_DRAW);
+    g_gxUploadBytes += n * sizeof(u16);
+    return m;
+}
+
+/* GXMeshVertex's attributes; the shader's others come from the current
+ * values (MeshConstants), and so does the matrix slot unless skinned. */
+static void *GL_MeshVertices(const GXMeshVertex *v, u32 n, int skinned, void *indices) {
+    GLMesh *m = SDL_calloc(1, sizeof(GLMesh));
+
+    if (m == NULL) {
+        return NULL;
+    }
+    m->skinned = skinned;
+    glGenVertexArrays(1, &m->vao);
+    glBindVertexArray(m->vao);
+    a.vao = m->vao;
+    glGenBuffers(1, &m->buf);
+    glBindBuffer(GL_ARRAY_BUFFER, m->buf);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(n * sizeof(GXMeshVertex)), v, GL_STATIC_DRAW);
+    g_gxUploadBytes += n * sizeof(GXMeshVertex);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GXMeshVertex), (void *)offsetof(GXMeshVertex, pos));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_BYTE, GL_TRUE, sizeof(GXMeshVertex), (void *)offsetof(GXMeshVertex, nrm));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GXMeshVertex), (void *)offsetof(GXMeshVertex, clr));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(GXMeshVertex), (void *)offsetof(GXMeshVertex, tex));
+    if (skinned) {
+        glEnableVertexAttribArray(12);
+        glVertexAttribPointer(12, 1, GL_FLOAT, GL_FALSE, sizeof(GXMeshVertex), (void *)offsetof(GXMeshVertex, mtxIdx));
+    }
+    if (indices != NULL) {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ((GLMesh *)indices)->buf);
+    }
+    return m;
+}
+
+static void GL_MeshDestroy(void *buf) {
+    GLMesh *m = buf;
+
+    if (m->vao != 0) {
+        if (a.vao == m->vao) {
+            glBindVertexArray(s.vao);
+            a.vao = s.vao;
+        }
+        glDeleteVertexArrays(1, &m->vao);
+    }
+    glDeleteBuffers(1, &m->buf);
+    SDL_free(m);
+}
+
+/* The attributes a mesh doesn't have, as a decoded vertex has them: the
+ * second colour and texture coordinates 1-7 zero. */
+static void MeshConstants(void) {
+    int i;
+
+    glVertexAttrib4f(3, 0.0f, 0.0f, 0.0f, 0.0f);
+    for (i = 5; i < 12; i++) {
+        glVertexAttrib4f((GLuint)i, 0.0f, 0.0f, 0.0f, 1.0f);
+    }
+    s.meshConst = 1;
+    s.meshSlot = -1.0f;
+}
+
+static void DrawMesh(const GXMeshDraw *d) {
+    const GLMesh *v = d->vtx;
+
+    if (a.vao != v->vao) {
+        glBindVertexArray(v->vao);
+        a.vao = v->vao;
+    }
+    if (!s.meshConst) {
+        MeshConstants();
+    }
+    if (!v->skinned && s.meshSlot != d->slot) {
+        glVertexAttrib1f(12, d->slot);
+        s.meshSlot = d->slot;
+    }
+    if (d->idx == NULL) {
+        glDrawArrays(GL_TRIANGLES, (GLint)d->first, (GLsizei)d->count);
+    } else {
+        glDrawElements(GL_TRIANGLES, (GLsizei)d->count, GL_UNSIGNED_SHORT,
+                       (void *)(uintptr_t)(d->first * sizeof(u16)));
+    }
+    if (v->skinned) {
+        s.meshSlot = -1.0f;     /* location 12 was an array */
+    }
 }
 
 static void GL_Draw(const GXDrawCall *dc) {
@@ -618,16 +733,23 @@ static void GL_Draw(const GXDrawCall *dc) {
         a.cull = dc->cull;
     }
 
-    if (dc->batch != NULL) {
-        DrawBatched(dc, modes[dc->prim]);
+    if (dc->mesh != NULL) {
+        DrawMesh(dc->mesh);
         return;
     }
+    if (dc->batch != NULL) {
+        DrawBatched(dc, modes[dc->prim]);
+        s.meshConst = 0;
+        return;
+    }
+    s.meshConst = 0;
     if (a.vao != s.vao) {
         glBindVertexArray(s.vao);
         a.vao = s.vao;
     }
     glBindBuffer(GL_ARRAY_BUFFER, s.vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(dc->n * sizeof(GXVertex)), dc->v, GL_STREAM_DRAW);
+    g_gxUploadBytes += dc->n * sizeof(GXVertex);
     glDrawArrays(modes[dc->prim], 0, (GLsizei)dc->n);
 }
 
@@ -823,4 +945,5 @@ static void GL_Present(void) {
 const GXRenderer g_gxGL = {
     "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
     GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_CopyEFB, GL_ReadEFB, GL_Present,
+    GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy,
 };

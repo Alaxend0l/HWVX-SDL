@@ -69,10 +69,36 @@ typedef struct GXSampler {
     u8 minLinear, magLinear, mip, wrapS, wrapT;
 } GXSampler;
 
+/* A vertex of the static meshes (gx_mesh.c): the attributes pack geometry
+ * has, in GXVertex's encodings. The attributes GXVertex has beyond these
+ * (clr[1], tex[1..7]) read as zero, as they are in a decoded vertex. mtxIdx
+ * is only read for a skinned mesh; the others take the draw's matrix slot.
+ * 32 bytes. */
+typedef struct GXMeshVertex {
+    f32 pos[3];
+    s8 nrm[4];           /* fixed scale 1/64 */
+    u8 clr[4];
+    f32 tex[2];
+    f32 mtxIdx;          /* position matrix slot (skinned meshes) */
+} GXMeshVertex;
+
+_Static_assert(sizeof(GXMeshVertex) == 32, "GXMeshVertex size");
+
+/* A draw from a static mesh: a triangle list of `count` vertices from
+ * `first`, or with idx, of `count` u16 indices from index `first`. */
+typedef struct GXMeshDraw {
+    void *vtx;                /* meshVertices */
+    void *idx;                /* meshIndices, or NULL: vertices in order */
+    u32 first, count;
+    f32 slot;                 /* matrix slot of every vertex (unskinned meshes) */
+} GXMeshDraw;
+
 typedef struct GXDrawCall {
     int prim;                 /* GXR_* (quads arrive as triangles) */
     const GXVertex *v;
     u32 n;
+    /* Set instead of v/n for a draw from a static mesh (prim GXR_TRIANGLES). */
+    const GXMeshDraw *mesh;
     /* Set when v points into a GXVtxBatch the renderer may already hold on the
      * GPU (the display list cache's vertex pool): a backend can then keep that
      * pool resident and draw from an offset instead of uploading every draw.
@@ -119,6 +145,14 @@ typedef struct GXRenderer {
     /* The EFB, top row first, efbW * efbH * 4 bytes; 0 on failure. */
     int (*readEFB)(u8 *rgba);
     void (*present)(void);
+    /* Static meshes (gx_mesh.c), uploaded once and drawn until destroyed:
+     * a u16 index buffer, and vertices drawn with it or (indices NULL) in
+     * order. Skinned: each vertex's mtxIdx is its matrix slot, else the
+     * draw's GXMeshDraw.slot. NULL on failure. Destroy takes either; a
+     * mesh's vertices go before its indices. */
+    void *(*meshIndices)(const u16 *idx, u32 n);
+    void *(*meshVertices)(const GXMeshVertex *v, u32 n, int skinned, void *indices);
+    void (*meshDestroy)(void *buf);
 } GXRenderer;
 
 /* HWVX_STATS: draws with a specialised pixel shader (gx_tevgen.h) and with
@@ -129,6 +163,9 @@ typedef struct GXShaderStats {
 } GXShaderStats;
 
 extern GXShaderStats g_gxShaderStats;
+
+/* Vertex and index bytes the renderer has sent to the GPU (HWVX_STATS). */
+extern u64 g_gxUploadBytes;
 
 extern const GXRenderer g_gxGL;
 extern const GXRenderer g_gxSDLGPU;

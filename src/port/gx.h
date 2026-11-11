@@ -170,7 +170,13 @@ void GXSetFog(int type, f32 startz, f32 endz, f32 nearz, f32 farz, GXColor color
 /* Vertex arrays in host order, as the PC release keeps them: f32 x,y,z
  * positions and normals, RGBA8 colours, f32 s,t texture coordinates, each
  * with its own stride in bytes. A NULL array is absent. A skinned mesh
- * (GX_PORT_SKIN) has its vertices sorted by bone, boneCounts[k] of bone k. */
+ * (GX_PORT_SKIN) has its vertices sorted by bone, boneCounts[k] of bone k.
+ *
+ * For GX_PortDrawGroup, the arrays belong to a level of numGroups groups,
+ * each an index list into them that groupIdx returns: a triangle list of
+ * *count indices or, when the first index has bit 15 set, strip records
+ * {u16 count (bit 15 on the first), count indices} up to 0xFFFF (*count is
+ * then ignored). NULL: the group draws nothing. */
 typedef struct GXPortMesh {
     const u8 *pos;
     const u8 *nrm;
@@ -179,6 +185,9 @@ typedef struct GXPortMesh {
     u32 posStride, nrmStride, clrStride, uvStride;
     const u32 *boneCounts;
     u32 numBones;
+    const void *level;          /* what the arrays and groups belong to */
+    u32 numGroups;
+    const u16 *(*groupIdx)(const void *level, u32 group, u32 *count);
 } GXPortMesh;
 
 /* Which arrays a draw reads, like a display list's vertex descriptor. */
@@ -194,6 +203,12 @@ enum {
 /* Draw `count` vertices of primitive `prim` (GX_TRIANGLES, GX_TRIANGLESTRIP)
  * by index into `m`, under the current GX state. */
 void GX_PortDrawIndexed(const GXPortMesh *m, int prim, const u16 *idx, u32 count, u32 use);
+/* Draw group `group` of the level `m->level`, under the current GX state:
+ * the same as GX_PortDrawIndexed over its index list, from vertex and index
+ * buffers built the first time the level is drawn with these `use` flags and
+ * kept on the GPU until the level's memory is freed or rewritten
+ * (Port_InvalidateDisplayLists). */
+void GX_PortDrawGroup(const GXPortMesh *m, u32 group, u32 use);
 
 #ifdef __cplusplus
 }
