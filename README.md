@@ -579,7 +579,11 @@ Debugging aids:
   through the game's code variable as the first car / item select opens
   (autosaved). For testing the content registry (`src/game/Port_Content.c`:
   the car, track and item counts and unlocks, sized from the data; entries
-  past the save struct's arrays persist only in the JSON save).
+  past the save struct's arrays persist only in the JSON save). Item
+  numbers aren't `HW_Items` pack ids (its packs 16-79 are the AI's): an
+  extra item loads the pack the registry maps it to
+  (`Port_ContentItemPack`), so `HWVX_TEST_EXTRA_ITEMS=6` items 16 and 17 load
+  packs 4 and 5.
 - `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable

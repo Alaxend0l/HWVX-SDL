@@ -16,6 +16,8 @@
  *                each mode's world select: its track list's range covers its
  *                progression script's levels (the MCP's), by name
  *   adventure    the Adventure screen opens
+ *   item16       HWVX_TEST_EXTRA_ITEMS=6: a race with item 16 (aliasing
+ *                item 4) loads HW_Items pack 4, not the AI's pack 16
  *
  * Data: the GameCube's extracted files, HWVX_TEST_GC_DATA or orig/gc/files
  * beside the source tree; without them the test is skipped (77).
@@ -61,12 +63,21 @@ static void Stub_drawImage(const u8 *rgba, int w, int h, const int dst[4])
 static void Stub_copyDisp(const int src[4]) { (void)src; }
 static int Stub_readEFB(u8 *rgba) { (void)rgba; return 0; }
 static void Stub_present(void) { }
+static void Stub_copyEFB(void *tex, const int src[4]) { (void)tex; (void)src; }
+static void *Stub_meshIndices(const u16 *idx, u32 n) { (void)idx; (void)n; return (void *)(uintptr_t)1; }
+static void *Stub_meshVertices(const GXMeshVertex *v, u32 n, int skinned, void *indices)
+{
+    (void)v; (void)n; (void)skinned; (void)indices;
+    return (void *)(uintptr_t)1;
+}
+static void Stub_meshDestroy(void *buf) { (void)buf; }
 
 static const GXRenderer s_stub = {
     .name = "test", .open = Stub_open, .close = Stub_close, .init = Stub_init, .resize = Stub_resize,
     .texFormat = Stub_texFormat, .texCreate = Stub_texCreate, .texUpload = Stub_texUpload, .texDestroy = Stub_texDestroy,
     .draw = Stub_draw, .clear = Stub_clear, .drawImage = Stub_drawImage, .copyDisp = Stub_copyDisp,
-    .readEFB = Stub_readEFB, .present = Stub_present,
+    .readEFB = Stub_readEFB, .present = Stub_present, .copyEFB = Stub_copyEFB, .meshIndices = Stub_meshIndices,
+    .meshVertices = Stub_meshVertices, .meshDestroy = Stub_meshDestroy,
 };
 
 /* ---- the log --------------------------------------------------------------- */
@@ -264,6 +275,7 @@ static const Scenario s_scenarios[] = {
     { "battle", { "HWVX_START=worldselect:mode=battle" }, "menudump:   paragraphs 57" },
     { "joyride", { "HWVX_START=worldselect:mode=joyride" }, "menudump:   paragraphs 57" },
     { "adventure", { "HWVX_START=menu:mode=adventure" }, "start: menu, adventure" },
+    { "item16", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
 };
 
 static void Checks(const char *name)
@@ -292,6 +304,13 @@ static void Checks(const char *name)
         CheckWorlds(3);
     } else if (strcmp(name, "joyride") == 0) {
         CheckWorlds(4);
+    } else if (strcmp(name, "item16") == 0) {
+        Check(Line("content: test: item 16 is uid://hwvx-test-extra-item-4, the pack of item 4", NULL) != NULL,
+              "item 16 is registered, aliasing item 4");
+        Check(Line("data pack HW_Items: type 2 id 4\n", Line("start: race", NULL)) != NULL,
+              "a race with item 16 loads HW_Items pack 4");
+        Check(Line("data pack HW_Items: type 2 id 16\n", NULL) == NULL,
+              "and not pack 16 (the AI's): item numbers aren't pack ids");
     } else if (strcmp(name, "adventure") == 0) {
         Check(Line("interface create: header id 0", Line("start: menu, adventure", NULL)) != NULL,
               "the Adventure screen opens");

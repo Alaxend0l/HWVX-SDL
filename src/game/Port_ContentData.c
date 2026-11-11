@@ -24,8 +24,20 @@
  * Past those, entries are registered by id: the mod hook (a project's
  * ids.lock, not built yet) and the test switches HWVX_TEST_EXTRA_CARS and
  * HWVX_TEST_EXTRA_ITEMS (HWVX_TEST_UNLOCK_CARS / _ITEMS unlock some). An
- * extra car or item whose number its archive has no pack for loads the
- * pack of the entry it aliases (DataPack_LoadFile, Port_ContentPackId). */
+ * extra car whose number HW_Cars has no pack for loads the pack of the car
+ * it aliases (DataPack_LoadFile, Port_ContentPackId).
+ *
+ * Item numbers and HW_Items pack ids: retail items 0-11 are packs 0-11, but
+ * the archive's packs 16-79 are the AI's and the worlds' own (the world
+ * scripts and spawn points load them by pack id). So an item number past
+ * the base ones is never a pack id: the places that turn the player's item
+ * (code variable 0xCC, the item select's list) into a pack go through
+ * Port_ContentItemPack, the registry's mapping: an aliasing item loads its
+ * alias's pack (as the release itself loads pack 0x4D for item 3 with a
+ * cheat), an item with data of its own a pack numbered past the archive's
+ * last (where a mod's build puts it). Registered items are numbered 12, 13,
+ * ... with no gap, whatever HW_Items holds. Cars need no mapping: they're
+ * numbered past HW_Cars' highest pack. */
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "Interface.h"
@@ -179,16 +191,10 @@ void Port_ContentInit(void) {
     LoadIdsLock();
     TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3, "HWVX_TEST_EXTRA_CAR_THUMB");
     TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0, "HWVX_TEST_EXTRA_ITEM_THUMB");
-    for (i = 0; i < SDL_arraysize(s_archives); i++) {
-        const Archive *a = &s_archives[i];
-
-        for (j = Port_ContentRetailCount(a->kind); j < Port_ContentCount(a->kind); j++) {
-            if (Has(a, j) && Port_ContentDataOf(a->kind, j) != (s32)j) {
-                /* the item numbers 16-79: what the game loads for them is
-                 * the archive's own pack (Port_ContentPackId) */
-                Port_Log("content: %s has a pack %u of its own; entry %u loads that, not its own data", a->name,
-                         (unsigned)j, (unsigned)j);
-            }
+    for (j = Port_ContentRetailCount(PORT_CONTENT_CAR); j < Port_ContentCount(PORT_CONTENT_CAR); j++) {
+        if (Has(&s_archives[0], j) && Port_ContentDataOf(PORT_CONTENT_CAR, j) != (s32)j) {
+            Port_Log("content: %s has a pack %u of its own; car %u loads that, not its own data", s_archives[0].name,
+                     (unsigned)j, (unsigned)j);
         }
     }
     Port_Log("content: %u cars (%u in %s), %u tracks, %u items", (unsigned)Port_ContentCount(PORT_CONTENT_CAR),
@@ -198,6 +204,17 @@ void Port_ContentInit(void) {
 
 /* ---- loading an entry's data --------------------------------------------- */
 
+u32 Port_ContentItemPack(u32 n) {
+    u32 base = Port_ContentBaseCount(PORT_CONTENT_ITEM);
+    s32 data;
+
+    if (n < base || n >= Port_ContentCount(PORT_CONTENT_ITEM)) {
+        return n;
+    }
+    data = Port_ContentDataOf(PORT_CONTENT_ITEM, n);
+    return data >= 0 ? (u32)data : s_archives[1].maxId + (n - base);
+}
+
 u32 Port_ContentPackId(const char *name, u32 type, u32 id) {
     size_t i;
     s32 data;
@@ -205,7 +222,8 @@ u32 Port_ContentPackId(const char *name, u32 type, u32 id) {
     for (i = 0; i < SDL_arraysize(s_archives); i++) {
         const Archive *a = &s_archives[i];
 
-        if (a->type != type || id < Port_ContentRetailCount(a->kind) || Has(a, id) || !SameArchive(name, a->name)) {
+        /* items: numbered apart from their packs (Port_ContentItemPack) */
+        if (a->kind != PORT_CONTENT_CAR || a->type != type || id < Port_ContentRetailCount(a->kind) || Has(a, id) || !SameArchive(name, a->name)) {
             continue;
         }
         data = Port_ContentDataOf(a->kind, id);
