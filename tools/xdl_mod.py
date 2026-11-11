@@ -159,7 +159,7 @@ def dhash(rgba):
     if w < 16 or h < 16:
         return None
     g = rgba[:, :, :3].astype(np.float32).mean(axis=2)
-    im = Image.fromarray(g, "F").resize((DH_W, DH_H), Image.BOX)
+    im = Image.fromarray(g).resize((DH_W, DH_H), Image.BOX)
     s = np.asarray(im)
     if s.std() < DH_MIN_STD:
         return None
