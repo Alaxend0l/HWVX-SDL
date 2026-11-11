@@ -302,10 +302,10 @@ typedef struct CarASoundSet {
 /* The HUD layouts of a car, by number of viewports. */
 typedef struct CarAHud {
   u8 pad00[0x10];           /* 0x00 0 (car 16: f32 -0.35, 15 at 0x04); never read (GC, PC, PS2) */
-  u32 layout1;              /* 0x10 one viewport */
+  u32 layout1;              /* 0x10 one viewport @xdl: link=InterfaceHeader */
   u8 pad14[4];              /* 0x14 0 in every car; never read (GC, PC, PS2) */
-  u32 layout2;              /* 0x18 two */
-  u32 layout4;              /* 0x1C three or four */
+  u32 layout2;              /* 0x18 two @xdl: link=InterfaceHeader */
+  u32 layout4;              /* 0x1C three or four @xdl: link=InterfaceHeader */
   u8 pad20[0x14];           /* 0x20 0, a pointer at 0x2C; never read (GC, PC, PS2) */
   u8 stats[4];              /* 0x34 vehicle select bars (InterfaceHudInfo.carStats)
                              *      @xdl: hint=bar lengths on the car select screen */
