@@ -77,19 +77,24 @@ typedef struct DamagePartList {
 
 /* A creature's description (pack data, Creature.info). */
 typedef struct CreatureInfo {
-    u8 pad00[4];                       /* 0x00 */
+    u8 pad00[4];                       /* 0x00 never read (GC, PC, PS2) */
     s32 health;                        /* 0x04 */
-    u8 pad08[0xC];                     /* 0x08 */
+    u8 pad08[0xC];                     /* 0x08 never read (GC, PC, PS2) */
     u32 numAnims;                      /* 0x14 */
     PTR32(CreatureAnimEntry) anims;    /* 0x18 indexed by Creature_MotionStateInit */
-    u8 pad1C[0x10];                    /* 0x1C */
+    u8 pad1C[0x10];                    /* 0x1C never read (GC, PC, PS2) */
     u32 numDeathAnims;                 /* 0x2C */
     PTR32(CreatureAnimEntry) deathAnims; /* 0x30 indexed by Creature.deathAnim */
-    u8 pad34[0x10];                    /* 0x34 */
+    u8 slaves[8];                      /* 0x34 SlaveList (count, triggers): PS2's Creature_Init
+                                        *      starts them (MotionState_InitAllSlavesNow);
+                                        *      GameCube and PC don't read it */
+    u32 numDeathFx;                    /* 0x3C PC only (creature hit handler 0x41F620): */
+    PTR32(u32) deathFx;                /* 0x40 [0] is spawned as an EventSeq where the
+                                        *      creature dies; GameCube and PS2 don't read it */
     u32 aiScripts[4];                  /* 0x44 CreatureAIScript per difficulty */
     PTR32(s32) dropOff;                /* 0x54 dropped at a pod: [0] health bonus, [3] points */
     u8 dropType;                       /* 0x58 Player.counters index */
-    u8 pad59[0x17];                    /* 0x59 */
+    u8 pad59[0x17];                    /* 0x59 never read (GC, PC, PS2) */
     PTR32(DamagePartList) damageParts; /* 0x70 NULL: can't be gibbed */
 } CreatureInfo;
 
@@ -185,8 +190,12 @@ CREATURE_ASSERT(deathAnim, 0x1CC);
 _Static_assert(sizeof(Creature) == 0x1D0, "Creature size");
 #undef CREATURE_ASSERT
 _Static_assert(offsetof(CreatureInfo, deathAnims) == 0x30, "CreatureInfo.deathAnims");
+_Static_assert(offsetof(CreatureInfo, slaves) == 0x34, "CreatureInfo.slaves");
+_Static_assert(offsetof(CreatureInfo, numDeathFx) == 0x3C, "CreatureInfo.numDeathFx");
+_Static_assert(offsetof(CreatureInfo, deathFx) == 0x40, "CreatureInfo.deathFx");
 _Static_assert(offsetof(CreatureInfo, aiScripts) == 0x44, "CreatureInfo.aiScripts");
 _Static_assert(offsetof(CreatureInfo, damageParts) == 0x70, "CreatureInfo.damageParts");
+_Static_assert(sizeof(CreatureInfo) == 0x74, "CreatureInfo size");
 _Static_assert(sizeof(CreatureAnimEntry) == 0x60, "CreatureAnimEntry size");
 _Static_assert(sizeof(DamagePart) == 0x1C, "DamagePart size");
 _Static_assert(offsetof(CreatureInit, player) == 0x18, "CreatureInit.player");
