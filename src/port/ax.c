@@ -165,11 +165,138 @@ void AXRegisterAuxBCallback(AXAuxCallback callback, void *context) {
     s_auxBCtx = context;
 }
 
-/* Reverb (AXFX delay) on the aux buses isn't mixed yet. */
-BOOL AXFXDelayInit(struct AXFX_DELAY *delay) { (void)delay; return TRUE; }
-BOOL AXFXDelaySettings(struct AXFX_DELAY *delay) { (void)delay; return TRUE; }
-BOOL AXFXDelayShutdown(struct AXFX_DELAY *delay) { (void)delay; return TRUE; }
-void AXFXDelayCallback(void *data, void *context) { (void)data; (void)context; }
+/* ---- aux buses and the AXFX delay ---------------------------------------
+ *
+ * Each voice also sends to two aux buses, at its own levels (vAuxA*, vAuxB*,
+ * ramped by vDeltaAux* while mixerCtrl 0x40 / 0x800 is set, like the main
+ * levels with 0x8): the game sends songs to A and sound effects to B
+ * (Voice_.c). Every frame each bus goes through its callback, the game's
+ * AXFXDelayCallback on its AXFX_DELAY (g_reverb[0] and [1]), and comes back
+ * into the main mix, as on the DSP. The levels come from the worlds' reverb
+ * zones (VolumeManager.c -> SetReverb_): a short echo, 40 ms with a few
+ * percent feedback, at the zone's output level.
+ *
+ * The delay is the SDK's: per channel a line of `delay` ms; each sample,
+ * the line's oldest sample goes out scaled by `output` percent and is fed
+ * back by `feedback` percent with the new input. (The PC release has no
+ * reverb at all: its SetReverb_ is an empty function.) */
+
+/* AXFX_DELAY as the game lays it out (Voice_.c): three buffer pointers
+ * (unused here: the lines live below), then u32 per channel {left, right,
+ * surround}. */
+typedef struct PortAXFXDelay {
+    u32 bufs[3];
+    u32 currentSize[3];
+    u32 currentPos[3];
+    u32 currentFeedback[3];
+    u32 currentOutput[3];
+    u32 delay[3];       /* ms */
+    u32 feedback[3];    /* percent */
+    u32 output[3];      /* percent */
+} PortAXFXDelay;
+
+/* The port's aux data (AXAuxCallback's `data`): the bus's two channels for
+ * this frame, AX_FRAME_SAMPLES each, processed in place. */
+typedef struct PortAuxData {
+    float *left, *right;
+} PortAuxData;
+
+#define MAX_DELAY_MS 1000
+static struct {
+    const PortAXFXDelay *owner;
+    float line[2][AX_RATE * MAX_DELAY_MS / 1000];
+} s_delays[2];
+
+static float (*DelayLines(const PortAXFXDelay *d))[AX_RATE * MAX_DELAY_MS / 1000] {
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        if (s_delays[i].owner == d) {
+            return s_delays[i].line;
+        }
+    }
+    for (i = 0; i < 2; i++) {
+        if (s_delays[i].owner == NULL) {
+            s_delays[i].owner = d;
+            memset(s_delays[i].line, 0, sizeof(s_delays[i].line));
+            return s_delays[i].line;
+        }
+    }
+    return NULL;
+}
+
+BOOL AXFXDelaySettings(struct AXFX_DELAY *delay) {
+    PortAXFXDelay *d = (PortAXFXDelay *)delay;
+    int c;
+
+    for (c = 0; c < 3; c++) {
+        u32 ms = d->delay[c] < 1 ? 1 : d->delay[c] > MAX_DELAY_MS ? MAX_DELAY_MS : d->delay[c];
+        u32 size = ms * AX_RATE / 1000;
+
+        if (size != d->currentSize[c]) {
+            d->currentSize[c] = size;
+            d->currentPos[c] = 0;
+        }
+        d->currentFeedback[c] = d->feedback[c] > 100 ? 100 : d->feedback[c];
+        d->currentOutput[c] = d->output[c] > 100 ? 100 : d->output[c];
+    }
+    if (SDL_getenv("HWVX_AUDIOLOG") != NULL) {
+        Port_Log("audio: delay %p: %u ms, feedback %u%%, output %u%%", (void *)d, d->delay[0], d->currentFeedback[0],
+                 d->currentOutput[0]);
+    }
+    return TRUE;
+}
+
+BOOL AXFXDelayInit(struct AXFX_DELAY *delay) {
+    float (*lines)[AX_RATE * MAX_DELAY_MS / 1000] = DelayLines((PortAXFXDelay *)delay);
+
+    if (lines != NULL) {
+        memset(lines, 0, sizeof(float) * 2 * (AX_RATE * MAX_DELAY_MS / 1000));
+    }
+    memset(((PortAXFXDelay *)delay)->currentSize, 0, sizeof(u32) * 3);
+    return AXFXDelaySettings(delay);
+}
+
+BOOL AXFXDelayShutdown(struct AXFX_DELAY *delay) {
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        if (s_delays[i].owner == (const PortAXFXDelay *)delay) {
+            s_delays[i].owner = NULL;
+        }
+    }
+    return TRUE;
+}
+
+void AXFXDelayCallback(void *data, void *context) {
+    PortAuxData *aux = data;
+    PortAXFXDelay *d = context;
+    float (*lines)[AX_RATE * MAX_DELAY_MS / 1000] = DelayLines(d);
+    float *io[2] = { aux->left, aux->right };
+    int c, i;
+
+    if (lines == NULL) {
+        return;
+    }
+    for (c = 0; c < 2; c++) {
+        float fb = d->currentFeedback[c] * 0.01f, out = d->currentOutput[c] * 0.01f;
+        u32 size = d->currentSize[c], pos = d->currentPos[c];
+
+        if (size == 0) {
+            continue;
+        }
+        for (i = 0; i < AX_FRAME_SAMPLES; i++) {
+            float old = lines[c][pos];
+
+            lines[c][pos] = old * fb + io[c][i];
+            io[c][i] = old * out;
+            if (++pos >= size) {
+                pos = 0;
+            }
+        }
+        d->currentPos[c] = pos;
+    }
+}
 
 /* ---- mixer ------------------------------------------------------------- */
 
@@ -191,7 +318,7 @@ static float FetchSample(u16 format, u32 addr) {
     return 0.0f;
 }
 
-static void MixVoice(AXVPB *vpb, float *out) {
+static void MixVoice(AXVPB *vpb, float *out, float *auxA, float *auxB) {
     u16 format = vpb->format;
     u32 cur = vpb->currentAddress;
     u32 end = vpb->endAddress;
@@ -207,6 +334,11 @@ static void MixVoice(AXVPB *vpb, float *out) {
     s32 dr = vpb->mixerCtrl & 8 ? vpb->vDeltaR : 0;
     s32 ve = vpb->ve;
     s32 ved = vpb->veDelta;
+    /* aux sends, ramped by their own mixerCtrl bits */
+    s32 al = vpb->vAuxAL, ar = vpb->vAuxAR, bl = vpb->vAuxBL, br = vpb->vAuxBR;
+    s32 dal = vpb->mixerCtrl & 0x40 ? vpb->vDeltaAuxAL : 0, dar = vpb->mixerCtrl & 0x40 ? vpb->vDeltaAuxAR : 0;
+    s32 dbl = vpb->mixerCtrl & 0x800 ? vpb->vDeltaAuxBL : 0, dbr = vpb->mixerCtrl & 0x800 ? vpb->vDeltaAuxBR : 0;
+    int sendA = al | ar | dal | dar, sendB = bl | br | dbl | dbr;
     int i;
 
     if (format == AX_FORMAT_ADPCM) {
@@ -222,6 +354,18 @@ static void MixVoice(AXVPB *vpb, float *out) {
 
         out[i * 2 + 0] += s * env * (vl * (1.0f / 32768.0f));
         out[i * 2 + 1] += s * env * (vr * (1.0f / 32768.0f));
+        if (sendA) {
+            auxA[i * 2 + 0] += s * env * (al * (1.0f / 32768.0f));
+            auxA[i * 2 + 1] += s * env * (ar * (1.0f / 32768.0f));
+            al = SDL_clamp(al + dal, 0, 0x7FFF);
+            ar = SDL_clamp(ar + dar, 0, 0x7FFF);
+        }
+        if (sendB) {
+            auxB[i * 2 + 0] += s * env * (bl * (1.0f / 32768.0f));
+            auxB[i * 2 + 1] += s * env * (br * (1.0f / 32768.0f));
+            bl = SDL_clamp(bl + dbl, 0, 0x7FFF);
+            br = SDL_clamp(br + dbr, 0, 0x7FFF);
+        }
 
         vl = SDL_clamp(vl + dl, 0, 0x7FFF);
         vr = SDL_clamp(vr + dr, 0, 0x7FFF);
@@ -242,22 +386,51 @@ static void MixVoice(AXVPB *vpb, float *out) {
     vpb->currentAddressFrac = (u16)frac;
     vpb->vL = (s16)vl;
     vpb->vR = (s16)vr;
+    vpb->vAuxAL = (s16)al;
+    vpb->vAuxAR = (s16)ar;
+    vpb->vAuxBL = (s16)bl;
+    vpb->vAuxBR = (s16)br;
     vpb->ve = (u16)ve;
     vpb->sync = 0;
 }
 
+/* An aux bus through its callback, back into the main mix. */
+static void RunAux(AXAuxCallback cb, void *ctx, float *bus, float *out) {
+    float left[AX_FRAME_SAMPLES], right[AX_FRAME_SAMPLES];
+    PortAuxData data = { left, right };
+    int i;
+
+    if (cb == NULL) {
+        return;
+    }
+    for (i = 0; i < AX_FRAME_SAMPLES; i++) {
+        left[i] = bus[i * 2];
+        right[i] = bus[i * 2 + 1];
+    }
+    cb(&data, ctx);
+    for (i = 0; i < AX_FRAME_SAMPLES; i++) {
+        out[i * 2] += left[i];
+        out[i * 2 + 1] += right[i];
+    }
+}
+
 static void RunAXFrame(float *out) {
+    static float auxA[AX_FRAME_SAMPLES * 2], auxB[AX_FRAME_SAMPLES * 2];
     int i;
 
     memset(out, 0, sizeof(float) * AX_FRAME_SAMPLES * 2);
+    memset(auxA, 0, sizeof(auxA));
+    memset(auxB, 0, sizeof(auxB));
     if (s_frameCallback != NULL) {
         s_frameCallback();
     }
     for (i = 0; i < AX_MAX_VOICES; i++) {
         if (s_voiceInUse[i] && s_vpbs[i].state == 1) {
-            MixVoice(&s_vpbs[i], out);
+            MixVoice(&s_vpbs[i], out, auxA, auxB);
         }
     }
+    RunAux(s_auxA, s_auxACtx, auxA, out);
+    RunAux(s_auxB, s_auxBCtx, auxB, out);
     for (i = 0; i < AX_FRAME_SAMPLES * 2; i++) {
         out[i] = SDL_clamp(out[i], -1.0f, 1.0f);
     }
