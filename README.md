@@ -456,6 +456,9 @@ Debugging aids:
   loads in one go. Background quadrant loads and sound still follow timing.
 - `HWVX_GEOMLOG=1` logs, per pack, how the GameCube's or PS2's geometry was
   converted to the indexed layout (`src/game/Port_Geometry.c`).
+- `HWVX_PS2CULL=1` (PS2 data) turns the PS2's strips to the GameCube's winding
+  and culls back faces like the other releases, instead of drawing both faces;
+  experimental: some faces end up the wrong way round and go missing.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.

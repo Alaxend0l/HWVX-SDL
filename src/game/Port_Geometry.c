@@ -48,7 +48,7 @@
 
 /* HWVX_GEOMLOG=1: per blob, what was found and why levels stay GX. */
 static struct {
-    u32 geoms, skinned, shadow, levels, failed;
+    u32 geoms, skinned, shadow, levels, failed, flipped;
     const char *why;
 } s_stat;
 
@@ -584,8 +584,11 @@ void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPoi
  * Strips: a vertex with ADC starts a strip and draws nothing; any other
  * draws (i-2, i-1, i), the odd triangles of a run swapped. The PS2 draws
  * both faces, and about 1% of its strips run the other way round, so these
- * levels are drawn without back-face culling (PORT_LAYOUT_INDEXED_NOCULL)
- * rather than re-oriented (ps2_geom.py orient, not done here).
+ * levels are drawn without back-face culling (PORT_LAYOUT_INDEXED_NOCULL).
+ * HWVX_PS2CULL=1 instead re-orients strips (OrientPS2Level, ps2_geom.py
+ * orient: the same strips turn) and culls them like the others; the rule
+ * leaves some faces the wrong way round (a whole wall of bat2_l9's quadrant
+ * geometry goes missing), so it is off by default.
  *
  * Colours are GS-scaled (0x80 = 1.0; alpha a quarter): back to 0..255 as
  * 2x + (x >> 6) and 4a + (a >> 4). Group flags lack the GameCube's level
@@ -741,7 +744,7 @@ static u32 PS2Vertex(LevelOut *l, PS2Map *m, const f32 *pos, const f32 *uv, cons
 
 /* Append a batch's triangles to a group's list. */
 static int PS2BatchTriangles(LevelOut *l, PS2Map *m, const PS2Batch *b, const u8 *bones, u32 g, u32 *cap,
-                             int *hasN, int *hasC) {
+                             int *hasN, int *hasC, u32 **strip, u32 *nextStrip) {
     u32 idx[PS2_MAX_BATCH], i;
     s32 run = -1;
 
@@ -779,7 +782,10 @@ static int PS2BatchTriangles(LevelOut *l, PS2Map *m, const PS2Batch *b, const u8
             if (i < 2) {
                 return 0;
             }
-            run = run < 0 ? 0 : run;
+            if (run < 0) {
+                run = 0;
+                ++*nextStrip;   /* a new strip */
+            }
             t[0] = idx[run % 2 ? i - 1 : i - 2];
             t[1] = idx[run % 2 ? i - 2 : i - 1];
             t[2] = idx[i];
@@ -788,6 +794,7 @@ static int PS2BatchTriangles(LevelOut *l, PS2Map *m, const PS2Batch *b, const u8
             if (i % 3 != 2) {
                 continue;
             }
+            ++*nextStrip;       /* each listed triangle counts as its own strip */
             t[0] = idx[i - 2];
             t[1] = idx[i - 1];
             t[2] = idx[i];
@@ -797,12 +804,20 @@ static int PS2BatchTriangles(LevelOut *l, PS2Map *m, const PS2Batch *b, const u8
         }
         if ((l->numTris[g] + 1) * 3 > *cap) {
             u16 *grown = realloc(l->tris[g], (*cap * 2 + 96) * sizeof(u16));
+            u32 *grownStrip;
+
             if (grown == NULL) {
                 return 0;
             }
             l->tris[g] = grown;
+            grownStrip = realloc(*strip, (*cap * 2 + 96) / 3 * sizeof(u32));
+            if (grownStrip == NULL) {
+                return 0;
+            }
+            *strip = grownStrip;
             *cap = *cap * 2 + 96;
         }
+        (*strip)[l->numTris[g]] = *nextStrip;
         l->tris[g][l->numTris[g] * 3 + 0] = (u16)t[0];
         l->tris[g][l->numTris[g] * 3 + 1] = (u16)t[1];
         l->tris[g][l->numTris[g] * 3 + 2] = (u16)t[2];
@@ -824,13 +839,156 @@ static u16 PS2GroupFlags(u16 f, u16 levelClass) {
     return (u16)(f | levelClass);
 }
 
-static LevelOut *ConvertPS2Level(const u8 *base, u32 size, Geometry *lod, int skinned) {
+/* Strip orientation (ps2_geom.py orient). A consistently wound mesh walks
+ * an edge shared by two triangles in opposite directions. Per group, each
+ * strip counts the directed edges (by position) it shares with the group's
+ * other strips, walked the same way or the opposite way; a strip with more
+ * "same" is reversed, unless its faces agree with its vertex normals (the sum
+ * over its triangles of cos(face normal, n0 + n1 + n2) is positive; the
+ * GameCube's own normals point inwards on about 1% of strips). */
+typedef struct PS2Edge {
+    u32 p, q, strip;
+} PS2Edge;
+
+static int CmpEdge(const void *a, const void *b) {
+    const PS2Edge *x = a, *y = b;
+
+    if (x->p != y->p) {
+        return x->p < y->p ? -1 : 1;
+    }
+    if (x->q != y->q) {
+        return x->q < y->q ? -1 : 1;
+    }
+    return x->strip < y->strip ? -1 : x->strip > y->strip;
+}
+
+/* How many strips other than `strip` walk p -> q (edges sorted, unique). */
+static u32 OtherStrips(const PS2Edge *e, u32 n, u32 p, u32 q, u32 strip) {
+    u32 lo = 0, hi = n, c = 0;
+    PS2Edge key = { p, q, 0 };
+
+    while (lo < hi) {
+        u32 mid = (lo + hi) / 2;
+
+        if (CmpEdge(&e[mid], &key) < 0) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    for (; lo < n && e[lo].p == p && e[lo].q == q; lo++) {
+        c += e[lo].strip != strip;
+    }
+    return c;
+}
+
+static int OrientPS2Level(LevelOut *l, u32 *const *strip) {
+    u32 *posId = malloc(l->numVerts * sizeof(u32)), *hash = NULL, cap = 1, i, g;
+    int ok = posId != NULL;
+
+    /* each vertex's position, as the first vertex with it */
+    while (cap < l->numVerts * 2) {
+        cap <<= 1;
+    }
+    hash = ok ? malloc(cap * sizeof(u32)) : NULL;
+    ok = ok && hash != NULL;
+    if (ok) {
+        memset(hash, 0xFF, cap * sizeof(u32));
+        for (i = 0; i < l->numVerts; i++) {
+            u32 k = HashBytes(&l->pos[i * 4], 12, 2166136261u) & (cap - 1);
+
+            while (hash[k] != ~0u && memcmp(&l->pos[hash[k] * 4], &l->pos[i * 4], 12) != 0) {
+                k = (k + 1) & (cap - 1);
+            }
+            if (hash[k] == ~0u) {
+                hash[k] = i;
+            }
+            posId[i] = hash[k];
+        }
+    }
+    free(hash);
+    for (g = 0; ok && g < l->numGroups; g++) {
+        u32 nt = l->numTris[g], ne = 0, t, end;
+        u16 *tri = l->tris[g];
+        PS2Edge *e;
+
+        if (nt == 0) {
+            continue;
+        }
+        e = malloc(nt * 3 * sizeof(PS2Edge));
+        if (e == NULL) {
+            ok = 0;
+            break;
+        }
+        for (t = 0; t < nt; t++) {
+            for (i = 0; i < 3; i++) {
+                e[ne].p = posId[tri[t * 3 + i]];
+                e[ne].q = posId[tri[t * 3 + (i + 1) % 3]];
+                e[ne].strip = strip[g][t];
+                ne++;
+            }
+        }
+        qsort(e, ne, sizeof(PS2Edge), CmpEdge);
+        for (i = 0, t = 0; i < ne; i++) {
+            if (t == 0 || CmpEdge(&e[t - 1], &e[i]) != 0) {
+                e[t++] = e[i];
+            }
+        }
+        ne = t;
+        for (t = 0; t < nt; t = end) {
+            u32 s = strip[g][t], same = 0, opp = 0, k;
+            double vote = 0.0;
+
+            for (end = t; end < nt && strip[g][end] == s; end++) {
+                for (i = 0; i < 3; i++) {
+                    u32 p = posId[tri[end * 3 + i]], q = posId[tri[end * 3 + (i + 1) % 3]];
+
+                    same += OtherStrips(e, ne, p, q, s);
+                    opp += OtherStrips(e, ne, q, p, s);
+                }
+            }
+            if (same <= opp) {
+                continue;
+            }
+            for (k = t; k < end; k++) {
+                const f32 *a = &l->pos[tri[k * 3] * 4], *b = &l->pos[tri[k * 3 + 1] * 4], *c = &l->pos[tri[k * 3 + 2] * 4];
+                const f32 *na = &l->nrm[tri[k * 3] * 4], *nb = &l->nrm[tri[k * 3 + 1] * 4], *nc = &l->nrm[tri[k * 3 + 2] * 4];
+                f32 u[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, v[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+                f32 n[3] = { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+                f32 m[3] = { na[0] + nb[0] + nc[0], na[1] + nb[1] + nc[1], na[2] + nb[2] + nc[2] };
+                f32 ln = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) * (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+
+                if (ln > 0.0f) {
+                    vote += (n[0] * m[0] + n[1] * m[1] + n[2] * m[2]) / sqrt((double)ln);
+                }
+            }
+            if (vote > 0.0) {
+                continue;
+            }
+            for (k = t; k < end; k++) {
+                u16 x = tri[k * 3];
+
+                tri[k * 3] = tri[k * 3 + 1];
+                tri[k * 3 + 1] = x;
+            }
+            s_stat.flipped++;
+        }
+        free(e);
+    }
+    free(posId);
+    return ok;
+}
+
+/* HWVX_PS2CULL=1: strips re-oriented, levels culled like the others. */
+static int s_ps2Orient;
+
+static LevelOut *ConvertPS2Level(const u8 *base, u32 size, Geometry *lod, int skinned, int orient) {
     GeometryGroup *groups = GETP(lod->groups);
     PS2Batch *batches = malloc(sizeof(PS2Batch) * 64);
     LevelOut *out = calloc(1, sizeof(LevelOut));
     PS2Map map = { NULL, NULL, 1u << 16 };
     int hasN = 0, hasC = 0, ok = 1, nb, b;
-    u32 g;
+    u32 g, nextStrip, **strip = NULL;
 
     if (out == NULL || batches == NULL || !InBlob(base, size, groups, lod->numGroups * sizeof(GeometryGroup))) {
         free(batches);
@@ -850,7 +1008,8 @@ static LevelOut *ConvertPS2Level(const u8 *base, u32 size, Geometry *lod, int sk
     out->bone = calloc(MAX_LEVEL_VERTS, 1);
     map.hash = calloc(map.cap, sizeof(u32));
     map.index = calloc(map.cap, sizeof(u16));
-    if (!out->tris || !out->numTris || !out->pos || !out->uv || !out->nrm || !out->clr || !out->bone || !map.hash ||
+    strip = calloc(lod->numGroups, sizeof(u32 *));
+    if (!strip || !out->tris || !out->numTris || !out->pos || !out->uv || !out->nrm || !out->clr || !out->bone || !map.hash ||
         !map.index) {
         ok = 0;
     }
@@ -863,10 +1022,11 @@ static LevelOut *ConvertPS2Level(const u8 *base, u32 size, Geometry *lod, int sk
             ok = 0;
             break;
         }
+        nextStrip = 0;
         if (!skinned) {
             nb = ReadPS2Batches(base, size, pkt + 0x10, batches, 64);
             for (b = 0; ok && b < nb; b++) {
-                ok = PS2BatchTriangles(out, &map, &batches[b], NULL, g, &cap, &hasN, &hasC);
+                ok = PS2BatchTriangles(out, &map, &batches[b], NULL, g, &cap, &hasN, &hasC, &strip[g], &nextStrip);
             }
             ok = ok && nb >= 0;
             continue;
@@ -876,10 +1036,22 @@ static LevelOut *ConvertPS2Level(const u8 *base, u32 size, Geometry *lod, int sk
 
             nb = ReadPS2Batches(base, size, sub, batches, 64);
             for (b = 0; ok && b < nb; b++) {
-                ok = PS2BatchTriangles(out, &map, &batches[b], pkt, g, &cap, &hasN, &hasC);
+                ok = PS2BatchTriangles(out, &map, &batches[b], pkt, g, &cap, &hasN, &hasC, &strip[g], &nextStrip);
             }
             ok = ok && nb >= 0;
         }
+    }
+    if (ok && orient) {
+        ok = OrientPS2Level(out, strip);
+        if (ok) {
+            out->layout = PORT_LAYOUT_INDEXED;     /* wound as the GameCube's: culled like it */
+        }
+    }
+    if (strip != NULL) {
+        for (g = 0; g < lod->numGroups; g++) {
+            free(strip[g]);
+        }
+        free(strip);
     }
     free(batches);
     free(map.hash);
@@ -942,14 +1114,14 @@ static void CollectPS2Geometry(const u8 *base, u32 size, u32 off, LevelOut **lis
             continue;
         }
         s_stat.skinned += kind == 2;
-        l = ConvertPS2Level(base, size, lod, kind == 2);
+        l = ConvertPS2Level(base, size, lod, kind == 2, s_ps2Orient);
         if (l == NULL) {
             s_stat.failed++;
             lod->numGroups = 0;     /* nothing drawable: leave it out rather than misread it */
             continue;
         }
         s_stat.levels++;
-        lod->portLayout = PORT_LAYOUT_INDEXED_NOCULL;
+        lod->portLayout = l->layout;
         for (g = 0; g < lod->numGroups; g++) {
             isTexSlot[((u8 *)&groups[g].textureOverride - base) / 4] = 1;
         }
@@ -969,6 +1141,7 @@ void *PortGeometry_ConvertPS2(u8 *base, u32 size, const u32 *pointers, u32 numPo
     u8 *block, *p, *isSlot;
 
     memset(&s_stat, 0, sizeof(s_stat));
+    s_ps2Orient = getenv("HWVX_PS2CULL") != NULL && atoi(getenv("HWVX_PS2CULL")) != 0;
     isSlot = calloc(size / 4 + 1, 2);
     if (isSlot == NULL) {
         return NULL;
@@ -991,9 +1164,10 @@ void *PortGeometry_ConvertPS2(u8 *base, u32 size, const u32 *pointers, u32 numPo
     }
     free(isSlot);
     if (getenv("HWVX_GEOMLOG") != NULL && s_stat.geoms) {
-        Port_Log("geometry: %u PS2 geometries (%u skinned levels), %u levels converted, %u shadow (off), "
-                 "%u not converted (not drawn)%s%s", s_stat.geoms, s_stat.skinned, s_stat.levels, s_stat.shadow,
-                 s_stat.failed, s_stat.why ? ": last for " : "", s_stat.why ? s_stat.why : "");
+        Port_Log("geometry: %u PS2 geometries (%u skinned levels), %u levels converted (%u strips turned), "
+                 "%u shadow (off), %u not converted (not drawn)%s%s", s_stat.geoms, s_stat.skinned, s_stat.levels,
+                 s_stat.flipped, s_stat.shadow, s_stat.failed, s_stat.why ? ": last for " : "",
+                 s_stat.why ? s_stat.why : "");
     }
     for (l = list; l != NULL; l = l->next) {
         total += LevelSize(l);
