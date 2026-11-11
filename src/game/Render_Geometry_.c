@@ -434,17 +434,49 @@ void RenderGroup(Geometry *geometry, u32 group, f32 (*matrix)[4]) {
 
 extern u32 g_IsAnim;
 
+/* port: the vertex setups a group is drawn with (SetTri*VtxDesc*). */
+enum { GROUP_VTX_TRI, GROUP_VTX_ALPHA, GROUP_VTX_NORM, GROUP_VTX_ENV };
+
+/* port: a group's primitives, the one place pack geometry reaches GX: the
+ * vertex setup, the LOD's vertex arrays and the group's display list. Each
+ * caller sets the texture, lighting and blending around it. Skinned
+ * geometry (g_IsAnim) adds the per-vertex matrix index to the lit and
+ * environment-mapped setups, as the original's lit and env draws did. */
+static void Render_DrawGroupPrims(Geometry *lod, GeometryGroup *grp, int vtx) {
+    void *dl = GETP(grp->displayList);
+
+    switch (vtx) {
+    case GROUP_VTX_TRI:
+        SetTriVtxDescIdx();
+        break;
+    case GROUP_VTX_ALPHA:
+        SetTriVtxDescIdxAlpha();
+        break;
+    case GROUP_VTX_NORM:
+        SetTriNormVtxDescIdx();
+        break;
+    case GROUP_VTX_ENV:
+        SetTriEnvVtxDescIdx();
+        break;
+    }
+    if (g_IsAnim && (vtx == GROUP_VTX_NORM || vtx == GROUP_VTX_ENV)) {
+        GXSetVtxDesc(0, 1);
+        m_VtxDescFlag = 0;
+    }
+    SetVertexBuffer((u32 *)GETP(lod->lodDistances), grp->flags, lod->skipDraw);
+    DCFlushRange(dl, grp->dlSize);
+    GXCallDisplayList(dl, grp->dlSize);
+}
+
 void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode) {
     u32 opaque;
     GeometryGroup *grp;
-    void *dl;
     GXColor color;
     f32 mtx[3][4];
     s32 blend;
 
     opaque = mode & 1;
     grp = &GETP(geometry->groups)[group];
-    dl = GETP(grp->displayList);
     color.r = grp->color.r;
     color.g = grp->color.g;
     color.b = grp->color.b;
@@ -476,14 +508,7 @@ void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode) {
     GXLoadTexMtxImm(mtx, 30, 1);
     GXSetTexCoordGen2(0, 1, 1, 30, 0, 125);
     Render_SetConstColor(&color);
-    SetTriEnvVtxDescIdx();
-    if (g_IsAnim) {
-        GXSetVtxDesc(0, 1);
-        m_VtxDescFlag = 0;
-    }
-    SetVertexBuffer((u32 *)GETP(geometry->lodDistances), grp->flags, geometry->skipDraw);
-    DCFlushRange(dl, grp->dlSize);
-    GXCallDisplayList(dl, grp->dlSize);
+    Render_DrawGroupPrims(geometry, grp, GROUP_VTX_ENV);
     Render_SetConstColor(NULL);
     GXSetTexCoordGen2(0, 1, 4, 60, 0, 125);
     if (!opaque) {
@@ -493,14 +518,10 @@ void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode) {
 
 void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     GeometryGroup *grp;
-    f32 *vb;
-    void *dl;
     UVScroll *scroll;
     f32 mtx[3][4];
 
     grp = &GETP(geometry->groups)[group];
-    vb = GETP(geometry->lodDistances);
-    dl = GETP(grp->displayList);
     if (grp->textureOverride == 0) {
         Render_SetTextureHandle(grp->texture);
     } else {
@@ -510,10 +531,7 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     if ((g_state.flags & 0x10) || (g_state.flags & 0x40000)) {
         g_state.baseColor.a = 0xFF;
         Render_SetConstColor(&g_state.baseColor);
-        SetTriVtxDescIdx();
-        SetVertexBuffer((u32 *)vb, grp->flags, geometry->skipDraw);
-        DCFlushRange(dl, grp->dlSize);
-        GXCallDisplayList(dl, grp->dlSize);
+        Render_DrawGroupPrims(geometry, grp, GROUP_VTX_TRI);
         Render_SetConstColor(NULL);
     } else if (grp->flags & 4) {
         Render_UpdateLightState(m_curLightState);
@@ -530,14 +548,7 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
             GXLoadTexMtxImm(mtx, 30, 1);
             GXSetTexCoordGen2(0, 1, 4, 30, 0, 125);
         }
-        SetTriNormVtxDescIdx();
-        if (g_IsAnim) {
-            GXSetVtxDesc(0, 1);
-            m_VtxDescFlag = 0;
-        }
-        SetVertexBuffer((u32 *)vb, grp->flags, geometry->skipDraw);
-        DCFlushRange(dl, grp->dlSize);
-        GXCallDisplayList(dl, grp->dlSize);
+        Render_DrawGroupPrims(geometry, grp, GROUP_VTX_NORM);
         if (GETP(grp->uvScroll) != NULL) {
             GXSetTexCoordGen2(0, 1, 4, 60, 0, 125);
         }
@@ -559,19 +570,13 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
             if (scroll->flags & 2) {
                 Render_SetConstColor(&scroll->color);
             }
-            SetTriVtxDescIdx();
-            SetVertexBuffer((u32 *)vb, grp->flags, geometry->skipDraw);
-            DCFlushRange(dl, grp->dlSize);
-            GXCallDisplayList(dl, grp->dlSize);
+            Render_DrawGroupPrims(geometry, grp, GROUP_VTX_TRI);
             if (scroll->flags & 2) {
                 Render_SetConstColor(NULL);
             }
             GXSetTexCoordGen2(0, 1, 4, 60, 0, 125);
         } else {
-            SetTriVtxDescIdx();
-            SetVertexBuffer((u32 *)vb, grp->flags, geometry->skipDraw);
-            DCFlushRange(dl, grp->dlSize);
-            GXCallDisplayList(dl, grp->dlSize);
+            Render_DrawGroupPrims(geometry, grp, GROUP_VTX_TRI);
         }
     }
 }
@@ -579,10 +584,8 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
 
 void Render_DrawAlphaGroup(u16 index) {
     GeometryGroup *grp;
-    f32 *vb;
     GDLAlphaGroup *ag;
     UVScroll *scroll;
-    void *dl;
     f32 mtx[3][4];
     f32 tmtx[3][4];
 
@@ -590,7 +593,6 @@ void Render_DrawAlphaGroup(u16 index) {
         return;
     }
     ag = &g_pGDL->alphaGroups[index];
-    vb = GETP(GETP(ag->geometry)->lodDistances);
     grp = &GETP(GETP(ag->geometry)->groups)[g_pGDL->alphaGroups[index].group];
     if (grp->textureOverride == 0) {
         Render_SetTextureHandle(grp->texture);
@@ -621,7 +623,6 @@ void Render_DrawAlphaGroup(u16 index) {
     GXSetCurrentMtx(0);
     g_state.worldIsIdentity = 0;
     scroll = GETP(grp->uvScroll);
-    dl = GETP(grp->displayList);
     if (scroll != NULL) {
         tmtx[0][0] = 1.0f;
         tmtx[0][1] = 0.0f;
@@ -638,26 +639,17 @@ void Render_DrawAlphaGroup(u16 index) {
         } else if (ag->useBaseColor) {
             Render_SetConstColor(&ag->color);
         }
-        SetVertexBuffer((u32 *)vb, GETP(GETP(ag->geometry)->groups)->flags, GETP(ag->geometry)->skipDraw);
-        SetTriVtxDescIdxAlpha();
-        DCFlushRange(dl, grp->dlSize);
-        GXCallDisplayList(dl, grp->dlSize);
+        Render_DrawGroupPrims(GETP(ag->geometry), grp, GROUP_VTX_ALPHA);
         if ((scroll->flags & 2) || ag->useBaseColor) {
             Render_SetConstColor(NULL);
         }
         GXSetTexCoordGen2(0, 1, 4, 60, 0, 125);
     } else if (ag->useBaseColor) {
         Render_SetConstColor(&ag->color);
-        SetVertexBuffer((u32 *)vb, GETP(GETP(ag->geometry)->groups)->flags, GETP(ag->geometry)->skipDraw);
-        SetTriVtxDescIdxAlpha();
-        DCFlushRange(dl, grp->dlSize);
-        GXCallDisplayList(dl, grp->dlSize);
+        Render_DrawGroupPrims(GETP(ag->geometry), grp, GROUP_VTX_ALPHA);
         Render_SetConstColor(NULL);
     } else {
-        SetVertexBuffer((u32 *)vb, GETP(GETP(ag->geometry)->groups)->flags, GETP(ag->geometry)->skipDraw);
-        SetTriVtxDescIdxAlpha();
-        DCFlushRange(dl, grp->dlSize);
-        GXCallDisplayList(dl, grp->dlSize);
+        Render_DrawGroupPrims(GETP(ag->geometry), grp, GROUP_VTX_ALPHA);
     }
     if (m_texture[m_curTexture].format == 4 && grp->blendMode == 5) {
         GXSetAlphaCompare(7, 0, 1, 7, 0);
