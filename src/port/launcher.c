@@ -51,7 +51,7 @@ typedef struct Sources {
 /* ---- sources.cfg ----------------------------------------------------- */
 
 static char *PrefFile(const char *name) {
-    char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX"), *path = NULL;
+    char *pref = Port_PrefPath(), *path = NULL;
 
     if (pref != NULL) {
         SDL_asprintf(&path, "%s%s", pref, name);
@@ -479,7 +479,7 @@ static int SDLCALL ImportDisc(void *userdata) {
 /* A picked PC or PS2 disc image: its files copied into <pref>/pc, <pref>/ps2
  * or <pref>/ps2beta on a thread. */
 static void StartDisc(Launcher *l, const char *image, int source) {
-    char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+    char *pref = Port_PrefPath();
 
     if (pref == NULL) {
         SDL_snprintf(l->status, sizeof(l->status), "No folder to import into: %s", SDL_GetError());

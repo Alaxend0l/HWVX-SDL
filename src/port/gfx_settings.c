@@ -187,7 +187,7 @@ static const char *const *FpsNames(void) {
 }
 
 static char *ConfigPath(void) {
-    char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+    char *pref = Port_PrefPath();
     char *path = NULL;
 
     if (pref != NULL) {

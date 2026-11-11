@@ -74,7 +74,7 @@ void Port_TextHandleEvent(const SDL_Event *ev) {
 }
 
 static char *AddressPath(void) {
-    char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+    char *pref = Port_PrefPath();
     char *path = NULL;
 
     if (pref != NULL) {

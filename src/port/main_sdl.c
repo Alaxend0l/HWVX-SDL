@@ -294,7 +294,7 @@ static char *DataIn(const char *dir) {
  * folder. Android only: on desktop the launcher keeps the choice, and takes
  * over an old datadir.txt on its first run. */
 static char *SavedDataPath(void) {
-    char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+    char *pref = Port_PrefPath();
     char *path = NULL;
 
     if (pref != NULL) {
@@ -325,7 +325,7 @@ static void SaveDataDir(const char *dir) {
 /* Places a packaged game looks without being told. */
 static char *SearchDataDir(char *searched, size_t size) {
     const char *base = SDL_GetBasePath();   /* SDL owns it; ends in a separator */
-    char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
+    char *pref = Port_PrefPath();
     char *candidates[12] = { NULL };
     char *found = NULL;
     int i, n = 0;

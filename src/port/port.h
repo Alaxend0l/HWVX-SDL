@@ -180,6 +180,8 @@ int Port_TunnelStart(u16 port);
 int Port_TunnelPoll(char *name, size_t size);
 void Port_TunnelStop(void);
 int Port_AllCheats(void);
+/* port.c: the player's folder, SDL's pref path or HWVX_PREF_DIR (SDL_free it). */
+char *Port_PrefPath(void);
 /* --reset-save (main_sdl.c): 1 when this boot starts from the default game
  * data (GameSetting_Init) and skips the autoload of the newest save;
  * GameSettings_PortAutoLoad reads it. */
