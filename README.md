@@ -546,6 +546,20 @@ Debugging aids:
   triangles' vertices in order and matches the per-draw build exactly).
   `HWVX_STATS=1` logs the cache's draws and memory, the vertex bytes uploaded
   per frame and the CPU time spent drawing pack geometry.
+- Textures (`src/port/gx_tex.c`): block-compressed ones go to the GPU as they
+  are stored, where it samples BC1/BC3 and draws them the same: the PC
+  release's DXT1/DXT5 when it is drawn with its own colours (`pctextures=pc`;
+  with the GameCube's, the default, each texel is squared, so they are
+  decoded), and GameCube CMPR re-tiled to BC1 only where every colour comes out
+  as the GameCube draws it (few do: its middle colours are 5/8 of the way,
+  BC1's 21/32, and its transparent texels keep a colour that the GO sign's glow
+  shows). The rest decode to RGBA8 on the CPU at first draw, as the hardware
+  would. `HWVX_TEX_CMPR=close` also takes CMPR textures whose transparent
+  texels are safe (middle colours up to 12 levels off; a third of the memory).
+  `HWVX_TEX_DECODE=1` decodes everything. Textures with the same content share
+  one GPU texture (`HWVX_TEX_SHARE=0`: one per texture object). `HWVX_STATS=1`
+  logs the textures resident, their memory against RGBA8 and the time first
+  draws spend making them.
 - `HWVX_TEVKEYS=tools/tevkeys.txt` appends each TEV setup the game uses that
   the file doesn't have yet. SDL_GPU only has specialised shaders for the
   setups listed there (rerun `tools/gen_shaders.py`); OpenGL builds its own.
