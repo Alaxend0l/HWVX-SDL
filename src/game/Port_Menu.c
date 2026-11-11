@@ -149,17 +149,22 @@ enum { EVENT_A = 0x4, EVENT_START = 0x15 };
 enum { REC_DESKTOP = 7 };
 
 /* The Load/Save Game screens with a memory card slot picker (GameCube, PS2):
- * var 4 is the phase (0: slot picker, 1: file list), object 11 the card
- * warnings. The PC's are the file list alone. */
-enum { CARD_VAR_PHASE = 4, CARD_WARNING = 11 };
+ * a variable is the phase (0: slot picker, 1: file list; the one the slot
+ * rows' A adds to), a stringless text beside the slots the card warnings.
+ * The PC's are the file list alone. */
+/* The progression scripts of the multi-player drag race and battle. */
+enum { PROGRESSION_MP_DRAG = 5, PROGRESSION_MP_BATTLE = 7 };
 enum { CODEVAR_SETTINGS_CHANGED = 0xCA, CODEVAR_DEVICE = 0x1F7, CODEVAR_FILE_INDEX = 0x1F8 };
-enum { EVENT_GOTO = 1, EVENT_BACK = 2, EVENT_NOTHING = 0xC, EVENT_GOTO_PARENT = 0x20 };
+enum {
+    EVENT_GOTO = 1, EVENT_BACK = 2, EVENT_ACTIONS = 0xB, EVENT_NOTHING = 0xC, EVENT_PROGRESSION = 0xF,
+    EVENT_GOTO_PARENT = 0x20,
+};
 
 void GameSettings_PortAutoSave(void);
 s32 GameSettings_GetMemoryCardStatus(s32 device, s8 bForce);
 u8 GameSettings_LoadGame(void);
 u8 GameSettings_SaveGame(void);
-#define MAX_EVENTS 4
+#define MAX_EVENTS 8
 #define MAX_MODES 48
 
 typedef struct TextCopy {
@@ -989,23 +994,51 @@ static void FindCardScreens(InterfaceHeader *main, const MainMenu *m) {
 /* Load/Save Game: saves are files, always slot A. Where the screen starts on
  * a slot picker, slot A's file list from the start, no card warnings, and B
  * (back to the slot picker) and the automatic return to it leave instead. */
+static int IsSlotText(const IfaceObjectDef *d) {
+    const char *t = DefText(d);
+
+    return t != NULL && (strncmp(t, "Memory Card Slot", 16) == 0 || strncmp(t, " Memory Card Slot", 17) == 0);
+}
+
 static void PatchCardScreen(InterfaceHeader *h) {
     IfaceObjectDef *objs = GETP(h->objects);
     IfaceVarList *vars = GETP(h->vars);
-    u32 i, j, k;
+    u32 phase = NONE, lastSlot = NONE, i, j, k;
 
     GameSettings_SetCodeVariable(CODEVAR_DEVICE, 0, 1);
     GameSettings_SetCodeVariable(CODEVAR_FILE_INDEX, 0, 1);
-    if (FindTextPrefix(h, "Memory Card Slot") == NONE && FindTextPrefix(h, " Memory Card Slot") == NONE) {
+    /* the slot rows, and the variable their A adds to: the phase */
+    for (i = 0; i < h->numObjects; i++) {
+        IfaceRecord *rec = GETP(objs[i].record);
+
+        if (!IsSlotText(&objs[i])) {
+            continue;
+        }
+        lastSlot = i;
+        for (j = 0; rec != NULL && j < rec->events.count && phase == NONE; j++) {
+            IfaceEvent *ev = &GETP(rec->events.events)[j];
+            IfaceEventDef *def = GETP(ev->def);
+
+            for (k = 0; ev->type == EVENT_A && def != NULL && k < def->numMods; k++) {
+                if (GETP(def->mods)[k].delta > 0) {
+                    phase = GETP(def->mods)[k].var;
+                    break;
+                }
+            }
+        }
+    }
+    if (lastSlot == NONE || phase == NONE) {
         return;                 /* PC: no slot picker */
     }
-    if (vars != NULL && vars->count > CARD_VAR_PHASE) {
-        GETP(vars->vars)[CARD_VAR_PHASE].offset = 1;
+    if (vars != NULL && vars->count > phase) {
+        GETP(vars->vars)[phase].offset = 1;
     }
-    s_hideAll.type = 0;
-    s_hideAll.count = 0;
-    if (h->numObjects > CARD_WARNING && GETP(objs[CARD_WARNING].record) == NULL) {
-        SETP(objs[CARD_WARNING].conditions, &s_hideAll);
+    /* the warnings: the first text after the slots' with no string and no record */
+    for (i = lastSlot + 1; i < h->numObjects; i++) {
+        if (objs[i].type == IFACE_DEF_TEXT && GETP(objs[i].record) == NULL && DefText(&objs[i]) == NULL) {
+            SETP(objs[i].conditions, &s_hideAll);
+            break;
+        }
     }
     for (i = 0; i < h->numObjects; i++) {
         IfaceRecord *rec = GETP(objs[i].record);
@@ -1019,7 +1052,7 @@ static void PatchCardScreen(InterfaceHeader *h) {
             }
             for (k = 0; k < def->numMods; k++) {
                 IfaceEventMod *mod = &GETP(def->mods)[k];
-                if (mod->var == CARD_VAR_PHASE && mod->delta < 0) {
+                if (mod->var == phase && mod->delta < 0) {
                     def->type = EVENT_BACK;
                     def->id = 1;
                     def->numMods = 0;
@@ -1029,6 +1062,86 @@ static void PatchCardScreen(InterfaceHeader *h) {
         }
     }
 }
+/* ---- Hiding an options row -------------------------------------------------
+ * Options screens (Drag Race and Battle Options) are rows of a label with a
+ * record and, at its height after it, its value and arrow, one row height
+ * apart. */
+
+enum { ROW_MAX_MOVED = 24 };
+
+typedef struct RowHide {
+    RecordCopy above, below;
+    AnimCopy moved[ROW_MAX_MOVED];
+} RowHide;
+
+static int HasPos(const IfaceObjectDef *d) {
+    return GETP(d->anim) != NULL && GETP(GETP(d->anim)->pos.keys) != NULL;
+}
+
+static int AtY(const IfaceObjectDef *d, f32 y) {
+    return HasPos(d) && PosY(d) > y - 3.0f && PosY(d) < y + 3.0f;
+}
+
+/* objs, a copy of the screen's n objects `pack`, without the row whose label
+ * is `row`: its objects hidden, the rows under it one row up, the up/down
+ * ring closed around it. 0 (objs unchanged) if it isn't a row between two. */
+static int HideRow(IfaceObjectDef *objs, const IfaceObjectDef *pack, u32 n, u32 row, RowHide *c) {
+    const IfaceRecord *rec = GETP(pack[row].record), *up, *down;
+    s32 above = -1, below = -1;
+    f32 y, last, step;
+    u32 moved = 0, i;
+
+    if (rec == NULL || !HasPos(&pack[row])) {
+        return 0;
+    }
+    y = last = PosY(&pack[row]);
+    for (i = 0; i < n; i++) {
+        const IfaceRecord *r = GETP(pack[i].record);
+
+        if (r == NULL || i == row || !HasPos(&pack[i])) {
+            continue;
+        }
+        if (r->id == rec->next[0] && above < 0) {
+            above = (s32)i;
+        }
+        if (r->id == rec->next[1] && below < 0) {
+            below = (s32)i;
+        }
+        if (PosY(&pack[i]) > last) {
+            last = PosY(&pack[i]);
+        }
+    }
+    if (above < 0 || below < 0 || above == below || PosY(&pack[below]) <= y) {
+        return 0;
+    }
+    step = PosY(&pack[below]) - y;
+    /* what moves: everything after the row from the next row's height down
+     * to the last row's */
+    for (i = row + 1; i < n; i++) {
+        if (objs[i].type != IFACE_DEF_CHILD && objs[i].type != IFACE_DEF_CHILD_SYNC && HasPos(&pack[i]) &&
+            PosY(&pack[i]) > y + 3.0f && PosY(&pack[i]) < last + 3.0f && moved++ == ROW_MAX_MOVED) {
+            return 0;
+        }
+    }
+    for (i = row + 1, moved = 0; i < n; i++) {
+        if (objs[i].type != IFACE_DEF_CHILD && objs[i].type != IFACE_DEF_CHILD_SYNC && HasPos(&pack[i]) &&
+            PosY(&pack[i]) > y + 3.0f && PosY(&pack[i]) < last + 3.0f) {
+            MoveTo(&c->moved[moved++], &objs[i], PosY(&pack[i]) - step);
+        }
+    }
+    /* the row: its label and what follows it at its height */
+    for (i = row; i < n && (i == row || (GETP(pack[i].record) == NULL && AtY(&pack[i], y))); i++) {
+        objs[i].active = 0;
+        objs[i].record.h = 0;
+        SETP(objs[i].conditions, &s_hideAll);
+    }
+    up = GETP(pack[above].record);
+    down = GETP(pack[below].record);
+    CopyRecord(&c->above, &objs[above], up->id, up->next[0], down->id);
+    CopyRecord(&c->below, &objs[below], down->id, up->id, down->next[1]);
+    return 1;
+}
+
 /* ---- Online screens ---------------------------------------------------------
  * All copies of a menu screen of the release's own (OnlineTemplate: the
  * Multi-Player screen, or on PC, which has none, the One Player screen): the
@@ -1160,6 +1273,320 @@ static void BuildOnlineScreen(OnlineScreen *s, const OnlineTemplate *tpl, const 
     SETP(s->h.objects, s->objs);
 }
 
+/* ---- Multi-Player from the One Player screens (PC) ---------------------------
+ * The PC's pack has no Multi-Player screen, nor its options, world selects and
+ * split car select (docs/menus/README.md), but it has the One Player screens
+ * the GameCube's are made like, and the MCP still has the multi-player
+ * progressions. So they are built from those, in the GameCube's order:
+ * - Multi-Player: the One Player screen with Drag Race and Battle (an
+ *   OnlineScreen, as the online screens are).
+ * - Drag Race Options: One Player's without its Opponents row, starting with
+ *   code var 0x133 = 1 where One Player's sets the opponents chosen (as the
+ *   GameCube's multi-player one does). Battle Options: One Player's.
+ * - Drag Race / Battle Select: One Player's, picking the multi-player
+ *   progressions (5, 7) where they pick One Player's.
+ * - The split car select: One Player's car select wrapper (id 8) with two
+ *   players' car selects (id 2), as the PS2's has: copies of One Player's
+ *   showing only their top strip (title, car windows, car name), one at the
+ *   top, one under it, titled "First / Player" and "Second / Player". Each
+ *   reads its own controller (the child's input, 1 and 2); A picks the car
+ *   (code var 0xC9 = 3 for that player) and once both have, the wrapper's
+ *   0x1F event starts the race, as the game's own split car selects do.
+ * Copies, as the online screens are; the pack data they point to stays. */
+
+enum { COPY_MAX_OBJECTS = 96, COPY_MAX_EVENTS = 8, COPY_MAX_RECORDS = 4, COPY_MAX_ACTIONS = 12 };
+enum { CODEVAR_OPPONENTS = 0x133 };
+/* The car select's strip: from a little above its title to below the car's name. */
+#define STRIP_ABOVE_TITLE 30.0f
+#define STRIP_BELOW_TITLE 140.0f
+/* Where the two strips go: the first's title near the top, the second's
+ * under it, clear of the footer. */
+static const f32 s_paneOffsetY[2] = { -45.0f, 185.0f };
+static const char *const s_paneTitle[2] = { "First", "Second" };
+
+typedef struct ProgCopy {
+    PTR32(IfaceVarValue) slots[2];
+    IfaceVarValue value;
+} ProgCopy;
+
+typedef struct ActionsCopy {
+    IfaceActionList list;
+    IfaceAction actions[COPY_MAX_ACTIONS];
+    IfaceCodeAction code;
+    IfaceVarValue value;
+} ActionsCopy;
+
+typedef struct ScreenCopy {
+    InterfaceHeader h;
+    IfaceObjectDef objs[COPY_MAX_OBJECTS];
+    IfaceEvent events[COPY_MAX_EVENTS];         /* the screen's own */
+    IfaceEventDef defs[COPY_MAX_EVENTS];
+    RecordCopy rec[COPY_MAX_RECORDS];           /* rows whose events changed */
+    ProgCopy prog[COPY_MAX_RECORDS];
+    u32 numRec, numProg;
+} ScreenCopy;
+
+static OnlineScreen s_mpBuilt;
+static ScreenCopy s_mpDrag, s_mpBattle, s_mpDragWorld, s_mpBattleWorld, s_mpCarSelect, s_mpPane[2];
+static RowHide s_mpDragHide;
+static ActionsCopy s_mpDragActions;
+static TextCopy s_mpPaneText[2][2];
+static AnimCopy s_mpPaneAnim[2];
+static PTR32(InterfaceHeader) s_mpPaneSlot[2];
+
+/* c = h, objects and its own events copied, room for `extra` more objects. */
+static int CopyScreen(ScreenCopy *c, const InterfaceHeader *h, u32 extra) {
+    u32 i;
+
+    if (h == NULL || GETP(h->objects) == NULL || h->numObjects + extra > COPY_MAX_OBJECTS ||
+        h->events.count > COPY_MAX_EVENTS) {
+        return 0;
+    }
+    c->h = *h;
+    memcpy(c->objs, GETP(h->objects), h->numObjects * sizeof(IfaceObjectDef));
+    SETP(c->h.objects, c->objs);
+    for (i = 0; i < h->events.count; i++) {
+        c->events[i] = GETP(h->events.events)[i];
+        c->defs[i] = *GETP(c->events[i].def);
+        SETP(c->events[i].def, &c->defs[i]);
+    }
+    if (h->events.count != 0) {
+        SETP(c->h.events.events, c->events);
+    }
+    c->numRec = c->numProg = 0;
+    return 1;
+}
+
+/* The go-to events among defs[0..n) go to `to` instead. */
+static void Retarget(IfaceEventDef *defs, u32 n, InterfaceHeader *to) {
+    u32 i;
+
+    for (i = 0; i < n; i++) {
+        if (defs[i].type == EVENT_GOTO || defs[i].type == EVENT_GOTO_PARENT) {
+            SETP(defs[i].target, to);
+        }
+    }
+}
+
+/* A world select: `from` picking progression `prog` and going to `to`. */
+static int BuildWorldSelect(ScreenCopy *c, const InterfaceHeader *from, u16 prog, InterfaceHeader *to) {
+    u32 picks = 0, i, e;
+
+    if (!CopyScreen(c, from, 0)) {
+        return 0;
+    }
+    for (i = 0; i < c->h.numObjects; i++) {
+        IfaceRecord *r = GETP(c->objs[i].record);
+        RecordCopy *rc;
+
+        if (r == NULL || EventTarget(&r->events) == NULL || r->events.count > MAX_EVENTS) {
+            continue;
+        }
+        if (c->numRec == COPY_MAX_RECORDS) {
+            return 0;
+        }
+        rc = CopyRecord(&c->rec[c->numRec++], &c->objs[i], r->id, r->next[0], r->next[1]);
+        for (e = 0; e < rc->rec.events.count; e++) {
+            const PTR32(IfaceVarValue) *slots = GETP(rc->defs[e].args);
+            ProgCopy *p;
+
+            if (rc->defs[e].type != EVENT_PROGRESSION || slots == NULL || c->numProg == COPY_MAX_RECORDS) {
+                continue;
+            }
+            p = &c->prog[c->numProg++];
+            p->slots[0].h = slots[0].h;
+            p->slots[1].h = slots[1].h;
+            p->value = *GETP(slots[0]);
+            p->value.isVar = 0;
+            p->value.value = prog;
+            SETP(p->slots[0], &p->value);
+            SETP(rc->defs[e].args, p->slots);
+            picks++;
+        }
+        Retarget(rc->defs, rc->rec.events.count, to);
+    }
+    return picks != 0;
+}
+
+/* list, with code var `id` set to `value` instead of what it sets it to;
+ * NULL if it doesn't set it. */
+static IfaceActionList *SetActionConst(ActionsCopy *c, const IfaceActionList *list, u32 id, u16 value) {
+    u32 i, found = 0;
+
+    if (list == NULL || list->count > COPY_MAX_ACTIONS) {
+        return NULL;
+    }
+    c->list = *list;
+    memcpy(c->actions, GETP(list->actions), list->count * sizeof(IfaceAction));
+    for (i = 0; i < list->count; i++) {
+        const IfaceCodeAction *code = GETP(c->actions[i].data);
+
+        if (c->actions[i].type == 2 && code != NULL && GETP(code->code) != NULL && GETP(code->code)->id == id) {
+            c->code = *code;
+            c->value = *GETP(code->value);
+            c->value.isVar = 0;
+            c->value.value = value;
+            SETP(c->code.value, &c->value);
+            SETP(c->actions[i].data, &c->code);
+            found = 1;
+        }
+    }
+    SETP(c->list.actions, c->actions);
+    return found ? &c->list : NULL;
+}
+
+/* Multi-Player's Drag Race Options from One Player's (see above). */
+static int BuildMpDragOptions(const InterfaceHeader *from, InterfaceHeader *to) {
+    ScreenCopy *c = &s_mpDrag;
+    const IfaceActionList *list = NULL;
+    IfaceActionList *copy = NULL;
+    u32 opponents, i;
+
+    if (!CopyScreen(c, from, 0) ||
+        (opponents = FindText(c->objs, c->h.numObjects, "Opponents", 1)) == NONE ||
+        !HideRow(c->objs, GETP(from->objects), from->numObjects, opponents, &s_mpDragHide)) {
+        return 0;
+    }
+    for (i = 0; i < c->h.events.count; i++) {
+        if (c->defs[i].type != EVENT_ACTIONS) {
+            continue;
+        }
+        if (list == NULL) {
+            /* the start's (A and Start share it); B's sets no opponents */
+            copy = SetActionConst(&s_mpDragActions, GETP(c->defs[i].target), CODEVAR_OPPONENTS, 1);
+            list = copy != NULL ? (const IfaceActionList *)GETP(c->defs[i].target) : NULL;
+        }
+        if (list != NULL && (const IfaceActionList *)GETP(c->defs[i].target) == list) {
+            SETP(c->defs[i].target, copy);
+        }
+    }
+    Retarget(c->defs, c->h.events.count, to);
+    return list != NULL;
+}
+
+/* A player's strip of the car select `from` (see above). */
+static int BuildCarPane(ScreenCopy *c, const InterfaceHeader *from, u32 player) {
+    u32 title, select, i;
+    f32 top, bottom;
+
+    if (!CopyScreen(c, from, 0) || (title = FindText(c->objs, c->h.numObjects, "Vehicle", 0)) == NONE ||
+        (select = FindText(c->objs, c->h.numObjects, "Select", 0)) == NONE || !HasPos(&c->objs[title])) {
+        return 0;
+    }
+    top = PosY(&c->objs[title]) - STRIP_ABOVE_TITLE;
+    bottom = PosY(&c->objs[title]) + STRIP_BELOW_TITLE;
+    for (i = 0; i < c->h.numObjects; i++) {
+        IfaceObjectDef *d = &c->objs[i];
+
+        /* rows stay, they take the buttons; children (the background) go */
+        if (GETP(d->record) != NULL || (d->type != IFACE_DEF_CHILD && d->type != IFACE_DEF_CHILD_SYNC &&
+                                        HasPos(d) && PosY(d) >= top && PosY(d) <= bottom)) {
+            continue;
+        }
+        d->active = 0;
+        SETP(d->conditions, &s_hideAll);
+    }
+    SetText(&s_mpPaneText[player][0], &c->objs[title], s_paneTitle[player]);
+    SetText(&s_mpPaneText[player][1], &c->objs[select], "Player");
+    return 1;
+}
+
+/* The split car select from One Player's car select wrapper (see above). */
+static int BuildMpCarSelect(const InterfaceHeader *wrapper) {
+    ScreenCopy *c = &s_mpCarSelect;
+    const IfaceObjectDef *objs;
+    u32 pane = NONE, i;
+
+    if (wrapper == NULL || wrapper->id != 8 || (objs = GETP(wrapper->objects)) == NULL) {
+        return 0;
+    }
+    for (i = 0; i < wrapper->numObjects && pane == NONE; i++) {
+        if ((objs[i].type == IFACE_DEF_CHILD || objs[i].type == IFACE_DEF_CHILD_SYNC) && objs[i].role == 3 &&
+            GETP(objs[i].child) != NULL && HasPos(&objs[i])) {
+            pane = i;
+        }
+    }
+    if (pane == NONE || !CopyScreen(c, wrapper, 1)) {
+        return 0;
+    }
+    for (i = 0; i < 2; i++) {
+        IfaceObjectDef *d = i == 0 ? &c->objs[pane] : &c->objs[c->h.numObjects];
+
+        if (!BuildCarPane(&s_mpPane[i], (const InterfaceHeader *)GETP(*GETP(objs[pane].child)), i)) {
+            return 0;
+        }
+        *d = objs[pane];
+        SETP(s_mpPaneSlot[i], &s_mpPane[i].h);
+        SETP(d->child, &s_mpPaneSlot[i]);
+        d->input = (u8)(i + 1);
+        MoveTo(&s_mpPaneAnim[i], d, PosY(&objs[pane]) + s_paneOffsetY[i]);
+    }
+    c->h.numObjects++;
+    return 1;
+}
+
+/* Has the data the worlds of progression `id`, every level's? The PC's has
+ * none of the multi-player drag race's (race1l1 ...), though its MCP still
+ * lists them: those levels would never load. */
+static int ProgressionHasWorlds(u32 id) {
+    MCP *mcp = GameSettings_GetMCP();
+    const ProgScript *ps;
+    s32 i;
+
+    if (mcp == NULL || id >= mcp->numScripts || (ps = GETP(GETP(mcp->scripts)[id])) == NULL || ps->count <= 0) {
+        return 0;
+    }
+    for (i = 0; i < ps->count; i++) {
+        const char *world = GETP(GETP(ps->levels)[i].world);
+        char path[0x80], *c;
+        DVDFileInfo fi;
+
+        if (world == NULL) {
+            return 0;
+        }
+        /* as File_Open names it */
+        snprintf(path, sizeof(path), "%s.xgc", world);
+        for (c = path; *c != 0; c++) {
+            *c = *c == '\\' ? '/' : (char)tolower((u8)*c);
+        }
+        if (!DVDOpen(path, &fi)) {
+            return 0;
+        }
+        DVDClose(&fi);
+    }
+    return 1;
+}
+
+/* Multi-Player's screens from One Player's; NULL if they can't be. Its rows:
+ * Drag Race where the data has the multi-player drag worlds (the PC's
+ * hasn't), Battle. */
+static InterfaceHeader *BuildMultiPlayer(InterfaceHeader *onePlayer) {
+    InterfaceHeader *drag = RowTargetOf(onePlayer, "Drag Race"), *battle = RowTargetOf(onePlayer, "Battle");
+    InterfaceHeader *dragWorld = ScreenTarget(drag), *battleWorld = ScreenTarget(battle);
+    OnlineTemplate tpl;
+    OnlineRow rows[2];
+    u32 n = 0;
+
+    if (battle == NULL || battleWorld == NULL || !OnlineTemplateOf(&tpl, onePlayer) ||
+        !BuildMpCarSelect(FirstRowTarget(battleWorld)) ||
+        !BuildWorldSelect(&s_mpBattleWorld, battleWorld, PROGRESSION_MP_BATTLE, &s_mpCarSelect.h) ||
+        !CopyScreen(&s_mpBattle, battle, 0) || !ProgressionHasWorlds(PROGRESSION_MP_BATTLE)) {
+        Port_Log("menu: no multi-player screens to build from One Player's");
+        return NULL;
+    }
+    Retarget(s_mpBattle.defs, s_mpBattle.h.events.count, &s_mpBattleWorld.h);
+    if (dragWorld != NULL && ProgressionHasWorlds(PROGRESSION_MP_DRAG) &&
+        BuildWorldSelect(&s_mpDragWorld, dragWorld, PROGRESSION_MP_DRAG, &s_mpCarSelect.h) &&
+        BuildMpDragOptions(drag, &s_mpDragWorld.h)) {
+        rows[n++] = (OnlineRow){"Drag Race", &s_mpDrag.h};
+    } else {
+        Port_Log("menu: no multi-player drag race worlds, no Drag Race in Multi-Player");
+    }
+    rows[n++] = (OnlineRow){"Battle", &s_mpBattle.h};
+    BuildOnlineScreen(&s_mpBuilt, &tpl, "Multi-Player", 0, n, rows);
+    return &s_mpBuilt.h;
+}
+
 /* The screens online play goes through, found from the main menu (Multi-Player:
  * Drag Race and Battle, then their options, world select and split car select;
  * One Player: Drag Race's car select, Joyride's world, car and item selects).
@@ -1169,18 +1596,22 @@ static void BuildOnlineScreens(InterfaceHeader *main, const MainMenu *m) {
     InterfaceHeader *mpDrag, *joyride;
     OnlineTemplate tpl;
     OnlineRow rows[4];
+    u32 n;
 
     s_mpScreen = RowTarget(main, m->row[MAIN_MULTI_PLAYER]);
+    if (s_mpScreen == NULL && onePlayer != NULL) {
+        s_mpScreen = BuildMultiPlayer(onePlayer);   /* PC */
+    }
     mpDrag = RowTargetOf(s_mpScreen, "Drag Race");
     s_battleOptions = RowTargetOf(s_mpScreen, "Battle");
-    s_carSelect = FirstRowTarget(ScreenTarget(mpDrag));
+    s_carSelect = FirstRowTarget(ScreenTarget(s_battleOptions));
     s_carSelectSolo = FirstRowTarget(ScreenTarget(RowTargetOf(onePlayer, "Drag Race")));
     joyride = RowTargetOf(onePlayer, "Joyride");
     s_joyrideCar = FirstRowTarget(joyride);
     s_joyrideItem = ScreenTarget(s_joyrideCar);
     s_hideAll.type = 0;
     s_hideAll.count = 0;
-    if (s_carSelect == NULL || s_carSelectSolo == NULL || mpDrag == NULL || s_battleOptions == NULL ||
+    if (s_carSelect == NULL || s_carSelectSolo == NULL || s_battleOptions == NULL ||
         !OnlineTemplateOf(&tpl, s_mpScreen) || !TextIs(&GETP(s_mpScreen->objects)[tpl.title[0]], "Multi-Player")) {
         s_mpScreen = NULL;
         return;
@@ -1224,10 +1655,15 @@ static void BuildOnlineScreens(InterfaceHeader *main, const MainMenu *m) {
     rows[2] = (OnlineRow){"Leave", NULL};
     BuildOnlineScreen(&s_olLobbyTunnel, &tpl, "Lobby", 5, 3, rows);
 
-    rows[0] = (OnlineRow){"Drag Race", mpDrag};
-    rows[1] = (OnlineRow){"Battle", s_battleOptions};
-    rows[2] = (OnlineRow){"Joyride", joyride};
-    BuildOnlineScreen(&s_olMode, &tpl, "Online Game", 0, joyride != NULL && s_joyrideCar != NULL && s_joyrideItem != NULL ? 3 : 2, rows);
+    n = 0;
+    if (mpDrag != NULL) {
+        rows[n++] = (OnlineRow){"Drag Race", mpDrag};
+    }
+    rows[n++] = (OnlineRow){"Battle", s_battleOptions};
+    if (joyride != NULL && s_joyrideCar != NULL && s_joyrideItem != NULL) {
+        rows[n++] = (OnlineRow){"Joyride", joyride};
+    }
+    BuildOnlineScreen(&s_olMode, &tpl, "Online Game", 0, n, rows);
 
     BuildOnlineScreen(&s_olWaiting, &tpl, "Please Wait", 1, 0, rows);
     SetText(&s_olWaiting.text[0], &s_olWaiting.objs[s_olWaiting.lineObject[0]], "Waiting...");
@@ -1390,77 +1826,40 @@ void Port_MenuOnlineUpdate(void) {
 
 /* ---- Battle Options without Opponents ---------------------------------------- */
 
-enum {
-    BATTLE_NUM_OBJECTS = 34,
-    BATTLE_OPPONENTS = 24,      /* label, value, arrow */
-    BATTLE_ROW_OBJECTS = 3,
-    BATTLE_TIME_LIMIT = 27,
-    BATTLE_SCORE = 30,
-    BATTLE_END = 33,
-    BATTLE_REC_RESPAWN = 6,
-    BATTLE_REC_OPPONENTS = 3,
-    BATTLE_REC_TIME_LIMIT = 4,
-};
+#define BATTLE_MAX_OBJECTS 48
 
 static u32 s_battleOriginal;    /* the handle in h->objects */
 static InterfaceHeader *s_battlePatched;
-static IfaceObjectDef s_battleObjs[BATTLE_NUM_OBJECTS];
-static RecordCopy s_battleRecAbove, s_battleRecBelow;
-static AnimCopy s_battleAnim[BATTLE_END - BATTLE_TIME_LIMIT];
+static IfaceObjectDef s_battleObjs[BATTLE_MAX_OBJECTS];
+static RowHide s_battleHide;
 
 static void PatchBattleOptions(InterfaceHeader *h) {
     IfaceObjectDef *objs;
-    IfaceRecord *opponents;
-    u32 above = BATTLE_NUM_OBJECTS, i;
-    f32 step;
+    u32 opponents;
 
     if (h == s_battlePatched) {
         h->objects.h = s_battleOriginal;   /* as the pack has it */
         s_battlePatched = NULL;
     }
-    if (h != s_battleOptions || !Port_OnlineActive()) {
+    if (h != s_battleOptions || !Port_OnlineActive() || h->numObjects > BATTLE_MAX_OBJECTS) {
         return;
     }
     objs = GETP(h->objects);
-    opponents = GETP(objs[BATTLE_OPPONENTS].record);
-    if (!TextIs(&objs[BATTLE_OPPONENTS], "Opponents") || opponents == NULL || opponents->id != BATTLE_REC_OPPONENTS) {
+    if ((opponents = FindText(objs, h->numObjects, "Opponents", 1)) == NONE) {
         return;
     }
-    for (i = 0; i < BATTLE_OPPONENTS; i++) {
-        IfaceRecord *r = GETP(objs[i].record);
-
-        if (r != NULL && r->id == BATTLE_REC_RESPAWN) {
-            above = i;
-        }
-    }
-    if (above == BATTLE_NUM_OBJECTS) {
+    memcpy(s_battleObjs, objs, h->numObjects * sizeof(IfaceObjectDef));
+    if (!HideRow(s_battleObjs, objs, h->numObjects, opponents, &s_battleHide)) {
         return;
     }
     s_battlePatched = h;
     s_battleOriginal = h->objects.h;
-    memcpy(s_battleObjs, objs, sizeof(s_battleObjs));
-    for (i = BATTLE_OPPONENTS; i < BATTLE_OPPONENTS + BATTLE_ROW_OBJECTS; i++) {
-        s_battleObjs[i].active = 0;
-        s_battleObjs[i].record.h = 0;
-        SETP(s_battleObjs[i].conditions, &s_hideAll);
-    }
-    CopyRecord(&s_battleRecAbove, &s_battleObjs[above], BATTLE_REC_RESPAWN, GETP(objs[above].record)->next[0], BATTLE_REC_TIME_LIMIT);
-    CopyRecord(&s_battleRecBelow, &s_battleObjs[BATTLE_TIME_LIMIT], BATTLE_REC_TIME_LIMIT, BATTLE_REC_RESPAWN,
-               GETP(objs[BATTLE_TIME_LIMIT].record)->next[1]);
-    step = ((f32 *)GETP(GETP(objs[BATTLE_TIME_LIMIT].anim)->pos.keys))[1] - ((f32 *)GETP(GETP(objs[BATTLE_OPPONENTS].anim)->pos.keys))[1];
-    for (i = BATTLE_TIME_LIMIT; i < BATTLE_END; i++) {
-        if (GETP(objs[i].anim) != NULL && GETP(GETP(objs[i].anim)->pos.keys) != NULL) {
-            MoveTo(&s_battleAnim[i - BATTLE_TIME_LIMIT], &s_battleObjs[i], ((f32 *)GETP(GETP(objs[i].anim)->pos.keys))[1] - step);
-        }
-    }
     SETP(h->objects, s_battleObjs);
 }
 
 /* ---- the pause menu without Save ------------------------------------------ */
 
 #define PAUSE_MAX_OBJECTS 64
-/* The progression scripts of the multi-player drag race and battle. */
-enum { PROGRESSION_MP_DRAG = 5, PROGRESSION_MP_BATTLE = 7 };
 
 static InterfaceHeader *s_pauseHeader;
 static u32 s_pauseOriginal;      /* the handle in h->objects */
