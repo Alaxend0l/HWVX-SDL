@@ -115,6 +115,20 @@ static void DumpScreen(const InterfaceHeader *h, const InterfaceHeader **queue, 
     Events(line, sizeof(line), &h->events, queue, n);
     Port_Log("menudump: S%d %+ld id %u, %u objects, events:%s", ScreenNo(h),
              (long)((const u8 *)h - s_base), h->id, h->numObjects, line);
+    /* =2: the variables (type, range, starting value, the code variable read) */
+    for (i = 0; s_level >= 2 && GETP(h->vars) != NULL && i < GETP(h->vars)->count; i++) {
+        const IfaceVar *v = &GETP(GETP(h->vars)->vars)[i];
+        const IfaceCodeVar *cv = v->type == IFACE_VAR_CODE ? GETP(v->code) : NULL;
+        const IfaceVarValue *arg = cv != NULL ? GETP(cv->arg) : NULL;
+
+        if (cv != NULL) {
+            Port_Log("menudump:   v%u type %u %d..%d offset %d c%X(%s%u)%s", i, v->type, v->min, v->max, v->offset,
+                     cv->id, arg != NULL && arg->isVar ? "v" : "", arg != NULL ? arg->value : 0, v->save ? " save" : "");
+        } else {
+            Port_Log("menudump:   v%u type %u %d..%d offset %d%s", i, v->type, v->min, v->max, v->offset,
+                     v->save ? " save" : "");
+        }
+    }
     for (i = 0; i < h->numObjects && objs != NULL; i++) {
         const IfaceObjectDef *d = &objs[i];
         const IfaceRecord *r = GETP(d->record);
@@ -146,14 +160,33 @@ static void DumpScreen(const InterfaceHeader *h, const InterfaceHeader **queue, 
 
             u32 c;
 
+            const IfaceImageDef *im = d->type == IFACE_DEF_IMAGE ? GETP(d->sub) : NULL;
+            const IfaceTexAnim *ta = im != NULL && im->type == 3 ? GETP(im->anim) : NULL;
+            const IfaceText *tx = d->type == IFACE_DEF_TEXT ? GETP(d->sub) : NULL;
+            const IfaceStringList *sl = tx != NULL && tx->listMode == 1 ? GETP(tx->list) : NULL;
+
             snprintf(line + len, sizeof(line) - len, " x %.0f active %u", x, d->active);
+            len = strlen(line);
+            if (ta != NULL) {       /* a picture list: by a variable, or played */
+                snprintf(line + len, sizeof(line) - len, ta->fromVar ? " pics(v%u,%u)" : " anim(%u,%u)", ta->var,
+                         ta->anim.numKeys);
+            } else if (sl != NULL && sl->fromVar) {
+                snprintf(line + len, sizeof(line) - len, " %s(v%u,%u)", tx->paragraph ? "paras" : "names", sl->var,
+                         sl->count);
+            }
             for (c = 0; cl != NULL && c < cl->count && GETP(cl->conds) != NULL; c++) {
                 const IfaceCondition *cd = &GETP(cl->conds)[c];
 
                 len = strlen(line);
                 if (cd->type == 2 && GETP(cd->data) != NULL) {
-                    snprintf(line + len, sizeof(line) - len, " %s%u:c%X==%d", c ? "" : "if", cl->type,
-                             ((const IfaceCodeVar *)GETP(cd->data))->id, cd->value);
+                    const IfaceCodeVar *cv = GETP(cd->data);
+                    const IfaceVarValue *arg = GETP(cv->arg);
+
+                    snprintf(line + len, sizeof(line) - len, " %s%u:c%X(%s%u)==%d", c ? "" : "if", cl->type, cv->id,
+                             arg != NULL && arg->isVar ? "v" : "", arg != NULL ? arg->value : 0, cd->value);
+                } else if (cd->type == 1 && GETP(cd->data) != NULL) {
+                    snprintf(line + len, sizeof(line) - len, " %s%u:v%u==%d", c ? "" : "if", cl->type,
+                             ((const IfaceVarValue *)GETP(cd->data))->value, cd->value);
                 } else {
                     snprintf(line + len, sizeof(line) - len, " %s%u:t%u==%d", c ? "" : "if", cl->type, cd->type,
                              cd->value);

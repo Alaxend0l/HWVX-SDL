@@ -76,8 +76,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     u32 tocId;
 
     found = 0;
-    strcpy(path, name);
-    strcat(path, ".xgc");
+    snprintf(path, sizeof(path), "%s.xgc", name);   /* port: bounded (strcpy + strcat) */
     if ((g_fileID != -1 && g_fileTOCCache[type].name == NULL) || strcmp(g_fileTOCCache[type].name, name) != 0) {
         for (i = 0; i < 11; i++) {
             if (i != type && g_fileTOCCache[i].name != NULL && strcmp(g_fileTOCCache[i].name, name) == 0) {
@@ -106,7 +105,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         if (g_fileID == -1) {
             if (strcmp(name, "mcp") != 0) {
                 char msg[0x80];
-                sprintf(msg, "Could not open the data pack: %s\n", path);
+                snprintf(msg, sizeof(msg), "Could not open the data pack: %s\n", path);
                 Dprintf(msg);
             }
             return 0;
@@ -129,7 +128,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             File_Close(g_fileID);
             g_fileID = -1;
             g_openFileDataPackType = 0xB;
-            sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, g_buffer[2], 0xB7);
+            snprintf(msg, sizeof(msg), "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, g_buffer[2], 0xB7);
             Dprintf(msg);
             return 0;
         }
@@ -172,7 +171,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         if (type == s_tocEntries[type][i].type && tocId == s_tocEntries[type][i].id) {
             if (s_tocEntries[type][i].version != 0xB7) {
                 char msg[0x80];
-                sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, s_tocEntries[type][i].version, 0xB7);
+                snprintf(msg, sizeof(msg), "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, s_tocEntries[type][i].version, 0xB7);
                 Dprintf(msg);
                 File_Close(g_fileID);
                 g_fileID = -1;
@@ -186,7 +185,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     }
     if (!found) {
         char msg[0x80];
-        sprintf(msg, "Could not load the data pack with Pack ID: %d. Within the file: %s\n.Check the PackID and repack using the latest BrainCore.\n", id, path);
+        /* port: snprintf - the message with a full path is longer than msg (the
+         * release's paths were short): a pack that isn't there overran it */
+        snprintf(msg, sizeof(msg), "Could not load the data pack with Pack ID: %d. Within the file: %s\n.Check the PackID and repack using the latest BrainCore.\n", id, path);
         Dprintf(msg);
         File_Close(g_fileID);
         g_fileID = -1;
