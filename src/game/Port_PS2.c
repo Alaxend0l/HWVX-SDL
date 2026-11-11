@@ -34,30 +34,54 @@ static u32 Levels(u16 levels) {
     return levels ? levels : 1;
 }
 
+/* The game draws textures up to 0x200 (Render_CreateTextureSlot); anything
+ * much bigger is a damaged header. */
+#define PS2_MAX_TEX 0x400
+
+/* Bytes of a PSMT8 texture's levels (indices), or of their RGBA8 (`bpp` 4). */
+static u64 TexBytes(const u16 *h, u32 bpp) {
+    u32 w = h[1], ht = h[2], l;
+    u64 n = 0;
+
+    for (l = 0; l < Levels(h[3]); l++) {
+        n += (u64)(w ? w : 1) * (ht ? ht : 1) * bpp;
+        w >>= 1;
+        ht >>= 1;
+    }
+    return n;
+}
+
+/* A PSMT8 texture the converter can read: a sane size, its indices inside
+ * the pack and its CLUT among the pack's. */
+static int Indexed(const u8 *base, u32 size, const u16 *h, u32 palOff, u32 numPal) {
+    u32 clut = *(const u32 *)(h + 6);
+    const u8 *src = SLOT_LOAD(const u8 *, h + 4);
+
+    return h[0] == 2 && h[1] <= PS2_MAX_TEX && h[2] <= PS2_MAX_TEX && h[3] <= 16 && clut < numPal &&
+           (u64)palOff + ((u64)clut + 1) * 0x400 <= size && src >= base && src <= base + size &&
+           TexBytes(h, 1) <= (u64)(base + size - src);
+}
+
 void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u32 numPal) {
-    u32 i, l, total = 0;
+    u32 i, l;
+    u64 total = 0;
     u8 *block, *out;
+    int unknown = 0;
 
-    for (i = 0; i < numTex && texOff + (i + 1) * 0x10 <= size; i++) {
-        u16 *h = (u16 *)(base + texOff + i * 0x10);
-        u32 w = h[1], ht = h[2];
+    for (i = 0; i < numTex && (u64)texOff + ((u64)i + 1) * 0x10 <= size; i++) {
+        const u16 *h = (const u16 *)(base + texOff + i * 0x10);
 
-        if (h[0] != 2) {
-            continue;
-        }
-        for (l = 0; l < Levels(h[3]); l++) {
-            total += (w ? w : 1) * (ht ? ht : 1) * 4;
-            w >>= 1;
-            ht >>= 1;
+        if (Indexed(base, size, h, palOff, numPal)) {
+            total += TexBytes(h, 4);
         }
     }
-    block = total ? Allocate(total + 0x20, 0, "") : NULL;
+    block = total && total < 0x10000000 ? Allocate((u32)total + 0x20, 0, "") : NULL;
     out = block != NULL ? (u8 *)PTR((HND(block) + 0x1F) & ~0x1Fu) : NULL;
-    for (i = 0; i < numTex && texOff + (i + 1) * 0x10 <= size; i++) {
+    for (i = 0; i < numTex && (u64)texOff + ((u64)i + 1) * 0x10 <= size; i++) {
         u16 *h = (u16 *)(base + texOff + i * 0x10);
         u32 clut = *(u32 *)(h + 6), k;
 
-        if (h[0] == 2 && out != NULL && clut < numPal && palOff + (clut + 1) * 0x400 <= size) {
+        if (out != NULL && Indexed(base, size, h, palOff, numPal)) {
             const u8 *pal = base + palOff + clut * 0x400;
             const u8 *src = SLOT_LOAD(const u8 *, h + 4);
             u32 w = h[1], ht = h[2];
@@ -76,13 +100,18 @@ void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u
             }
             h[0] = 1;
         } else if (h[0] != 1) {
-            continue;   /* not a known format: left as it is */
+            unknown++;  /* not converted: left out (LoadBTF_RAM would misread it) */
+            continue;
         }
         /* as PC_Textures (Port_Data.c): PORT_TEX_PC | format, u16s byte-reversed for LoadBTF_RAM */
         h[0] = (u16)(PORT_TEX_PC | h[0]);
         for (k = 0; k < 4; k++) {
             h[k] = (u16)(h[k] >> 8 | h[k] << 8);
         }
+    }
+    if (unknown) {
+        Port_Log("PS2 textures: %d of %u not converted (unknown format, damaged or out of memory)", unknown,
+                 (unsigned)numTex);
     }
     return block;
 }
@@ -136,14 +165,23 @@ static void *s_sfxBlock;
  * CreateSFX has copied them to ARAM. */
 void PortPS2_SFX(u8 *desc, u32 count) {
     SFX *sfx = (SFX *)desc;
-    u32 i, total = 0;
+    u32 i;
+    u64 total = 0;
     u8 *out;
 
+    /* a sample outside the pack's sound data is dropped, not decoded */
     for (i = 0; i < count; i++) {
+        if (sfx[i].data == 0 || !PortData_InSound(PTR(sfx[i].data), sfx[i].length)) {
+            sfx[i].length = 0;
+        }
         total += ((PCMBytes(sfx[i].length) + 0x1F) & ~0x1Fu) + 0x20;
     }
-    s_sfxBlock = total ? Allocate(total + 0x20, 0, "") : NULL;
+    s_sfxBlock = total && total < 0x10000000 ? Allocate((u32)total + 0x20, 0, "") : NULL;
     if (s_sfxBlock == NULL) {
+        /* the samples stay SPU-ADPCM, which would play as noise: silence them */
+        for (i = 0; i < count; i++) {
+            sfx[i].length = 0;
+        }
         return;
     }
     out = (u8 *)PTR((HND(s_sfxBlock) + 0x1F) & ~0x1Fu);
@@ -152,6 +190,7 @@ void PortPS2_SFX(u8 *desc, u32 count) {
         const u8 *src = sfx[i].data ? (const u8 *)PTR(sfx[i].data) : NULL;
 
         if (src == NULL || pcm == 0) {
+            sfx[i].length = 0;
             continue;
         }
         DecodeADPCM(src + 16, len / 16 - 1, (s16 *)out);
@@ -199,11 +238,16 @@ u8 *PortPS2_SongBank(const u8 *bank) {
     }
     count = LE32(bank + 0x10);
     table = LE32(bank + 0x14);
-    if (table < 0x20 + count * 0x20) {
+    if (count > 0x1000 || table < 0x20 + count * 0x20 || !PortData_InSound(bank, table)) {
         return NULL;
     }
     for (i = 0; i < count; i++) {
-        pcm += PCMBytes(LE32(bank + 0x20 + i * 0x20 + 4));
+        u64 sum = (u64)pcm + PCMBytes(LE32(bank + 0x20 + i * 0x20 + 4));
+
+        if (sum > 0x8000000) {
+            return NULL;
+        }
+        pcm = (u32)sum;
     }
     total = 0x20 + count * 0x20 + pcm;
     s_bank = Allocate(total + 0x40, 0, "");
@@ -226,7 +270,8 @@ u8 *PortPS2_SongBank(const u8 *bank) {
         u8 *o = nb + 0x20 + i * 0x20;
         u32 addr = LE32(e), len = LE32(e + 4), n = PCMBytes(len), k;
 
-        if (table + addr + len <= LE32(bank + 4) + 8 && n) {
+        if ((u64)table + addr + len <= (u64)LE32(bank + 4) + 8 && PortData_InSound(bank, (u64)table + addr + len) &&
+            n) {
             DecodeADPCM(bank + table + addr + 16, len / 16 - 1, (s16 *)(samples + pcm));
         }
         PutBE32(o, pcm);

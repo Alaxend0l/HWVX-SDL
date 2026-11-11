@@ -2250,6 +2250,7 @@ void PortSwap_QuadPack(u8 *data, u32 size, u32 index) {
     nRelocs = hdr[2];
     nShaders = hdr[7];
     nTexRelocs = hdr[10];
+    PortData_CheckQuadTables(hdr, size, index);   /* in 64 bits: the counts can't wrap */
     offset = 0x54;
     relocs = (u32 *)(data + offset);
     offset += nRelocs * 8;
@@ -2258,14 +2259,8 @@ void PortSwap_QuadPack(u8 *data, u32 size, u32 index) {
     offset += nTexRelocs * 8;
     pointers = (u32 *)(data + offset);
     offset += nPointers * 4;
-    if (offset > size) {
-        Port_Fatal("quad pack %u: tables overrun the pack", index);
-    }
     Port_SwapArray32(relocs, (nRelocs + nShaders + nTexRelocs) * 2 + nPointers);
     offset += hdr[9];  /* dataSize */
-    if (offset > size) {
-        Port_Fatal("quad pack %u: data overruns the pack", index);
-    }
 
     Swapper_Init(&s, data + offset, size - offset, 7);
     Swapper_MarkSlots(&s, pointers, nPointers, 1);

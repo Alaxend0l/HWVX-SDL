@@ -246,6 +246,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         /* port: the pointer table and the slots it lists are big-endian; the
          * rest of the sound data stays so (the mixer reads it that way) */
         PortData_SoundPointers(fmt, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
+        PortData_SoundData(GETP(pack->soundBase), header.soundDataSize);
         UpdatePointers((u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
         SETP(pack->sfxData, (u8 *)((u8 *)GETP(pack->soundBase) + header.sfxOffset));
         if (header.songOffset != 0 || (header.soundDataSize != 0 && header.numSoundRelocs == 0)) {

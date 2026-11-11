@@ -46,6 +46,14 @@ void PortData_Words(s32 fmt, void *words, u32 count);
 void PortData_TOC(s32 fmt, u32 *buf, u32 bufWords);
 void PortData_PackHeader(s32 fmt, u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
 void PortData_SoundPointers(s32 fmt, u32 *pointers, u32 count, u8 *soundBase);
+/* The pack's sound data (soundBase, soundDataSize), set before its banks and
+ * samples are converted: the converters write in place, and every range they
+ * take from the pack must lie inside it (PortData_InSound). */
+void PortData_SoundData(u8 *base, u32 size);
+int PortData_InSound(const void *p, u64 len);
+/* A quad pack's tables (relocations, shaders, texture relocations, pointers)
+ * and data inside its `size`; fatal otherwise. */
+void PortData_CheckQuadTables(const u32 *hdr, u32 size, u32 index);
 void PortData_SFX(s32 fmt, u8 *sfx, u32 count);
 /* After CreateSFX has copied the pack's samples (PS2: frees the decoded ones). */
 void PortData_SFXDone(s32 fmt);

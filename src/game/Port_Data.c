@@ -104,6 +104,10 @@ static void SwapSFXSamples(u8 *desc, u32 count) {
         if (sfx[i].bits != 16 || sfx[i].data == 0) {
             continue;
         }
+        if (!PortData_InSound(PTR(sfx[i].data), sfx[i].length)) {
+            sfx[i].length = 0;      /* outside the pack's sound data: not played */
+            continue;
+        }
         for (j = 0; j < i && sfx[j].data != sfx[i].data; j++) {
         }
         if (j < i) {
@@ -111,6 +115,33 @@ static void SwapSFXSamples(u8 *desc, u32 count) {
         }
         n = sfx[i].length / 2;
         Port_SwapArray16(PTR(sfx[i].data), n);
+    }
+}
+
+static u8 *s_soundBase;
+static u32 s_soundSize;
+
+void PortData_SoundData(u8 *base, u32 size) {
+    s_soundBase = base;
+    s_soundSize = size;
+}
+
+int PortData_InSound(const void *p, u64 len) {
+    const u8 *q = p;
+
+    return s_soundBase != NULL && q >= s_soundBase && q <= s_soundBase + s_soundSize &&
+           len <= (u64)(s_soundBase + s_soundSize - q);
+}
+
+void PortData_CheckQuadTables(const u32 *hdr, u32 size, u32 index) {
+    /* in 64 bits: counts from the pack can't wrap the sum */
+    u64 tables = 0x54 + ((u64)hdr[2] + hdr[7] + hdr[10]) * 8 + (u64)hdr[1] * 4;
+
+    if (tables > size) {
+        Port_Fatal("quad pack %u: tables overrun the pack", index);
+    }
+    if (tables + hdr[9] > size) {
+        Port_Fatal("quad pack %u: data overruns the pack", index);
     }
 }
 
@@ -308,14 +339,14 @@ static void SwapBankSamples(u8 *bank, int be) {
     u32 (*rd)(const u8 *) = be ? BE32At : LE32;
     u32 size = rd(bank + 4), count = rd(bank + 0x10), table = rd(bank + 0x14), i, j;
 
-    if (table < 0x20 + count * 0x20 || table > size + 8) {
+    if (table < 0x20 + (u64)count * 0x20 || table > (u64)size + 8 || !PortData_InSound(bank, (u64)size + 8)) {
         return;
     }
     for (i = 0; i < count; i++) {
         u8 *e = bank + 0x20 + i * 0x20;
         u32 addr = rd(e), len = rd(e + 4);
 
-        if (e[0x11] != 16 || table + addr + len > size + 8) {
+        if (e[0x11] != 16 || (u64)table + addr + len > (u64)size + 8) {
             continue;
         }
         for (j = 0; j < i && rd(bank + 0x20 + j * 0x20) != addr; j++) {
@@ -341,6 +372,9 @@ static void PC_SongBank(u8 *bank) {
         return;
     }
     count = LE32(bank + 0x10);
+    if (!PortData_InSound(bank, 0x20 + (u64)count * 0x20)) {
+        return;
+    }
     for (i = 0; i < count; i++) {
         u8 *e = bank + 0x20 + i * 0x20;
 
@@ -459,10 +493,18 @@ void PortData_QuadPack(s32 fmt, u8 *data, u32 size, u32 index) {
         PortSwap_QuadPack(data, size, index);
         break;
     case PORT_DATA_PC:
+        if (size >= 0x54 && ((u32 *)data)[0] != 0) {
+            PortData_CheckQuadTables((u32 *)data, size, index);
+        }
         PC_QuadPack(data, size);
         break;
     case PORT_DATA_PS2:
-        break;      /* converted after relocation (PortPS2_*, PortGeometry_ConvertPS2) */
+        /* converted after relocation (PortPS2_*, PortGeometry_ConvertPS2);
+         * the tables the loader walks must still fit */
+        if (size >= 0x54 && ((u32 *)data)[0] != 0) {
+            PortData_CheckQuadTables((u32 *)data, size, index);
+        }
+        break;
     default:
         Unsupported(fmt);
     }

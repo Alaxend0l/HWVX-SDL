@@ -142,8 +142,10 @@ static char *FormatName(const char *fileName, int fmt, const char *dir) {
     return name;
 }
 
-/* The release whose packs the game is running on: the format of the last
- * pack (".xgc" name) DVDOpen found. */
+/* The release whose menus the game is running on: the format DVDOpen found
+ * the interface pack (HW_IPack) in. In a folder mixing releases file by
+ * file, other packs may come from elsewhere; the menus, and the platform
+ * value their scripts read (code variable 0x258), follow this one. */
 static int s_release = PORT_DATA_GC;
 
 int Port_DataRelease(void) {
@@ -178,7 +180,10 @@ BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
     {
         size_t n = SDL_strlen(fileName);
 
-        if (n >= 4 && SDL_strcasecmp(fileName + n - 4, ".xgc") == 0) {
+        const char *base = SDL_strrchr(fileName, '/');
+
+        base = base != NULL ? base + 1 : fileName;
+        if (n >= 4 && SDL_strcasecmp(fileName + n - 4, ".xgc") == 0 && SDL_strncasecmp(base, "HW_IPack.", 9) == 0) {
             s_release = (int)format;
         }
     }
