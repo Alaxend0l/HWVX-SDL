@@ -30,14 +30,30 @@ Entire Disc, which makes a `files/` folder), the PC release (its install
 folder, or its CD as an `.iso` or `.cue`/`.bin`), or the PlayStation 2 disc's
 files (the folder with `XPS/ENGLISH/`, or its `.iso`).
 
-**The launcher** (`src/port/launcher.c`) lists the releases you have imported
-and which one plays; the PS2 prototype (beta) can be imported too, for its
-beta content later. It opens every time the game starts, unless you tick
+**The launcher** (`src/port/launcher.c`) has a page for each job, picked
+from the tabs along the top; Play, Quit and the status line stay at the
+bottom:
+
+| page | what it holds |
+|---|---|
+| Play | the releases you have imported, each with "Play this" (the chosen one says "Playing this"), and the "Start the game without this window" tick |
+| Games | importing and removing each release (a folder, or a disc image) and the PS2 prototype (beta), kept for its beta content later; a disc import's progress |
+| Saves | **Import saves...** and its preview (below) |
+| Convert | converting to `.xdl`: coming later |
+| Mods | coming later |
+| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu: display (windowed or fullscreen), PC textures (`pctextures=`), main menu (`mainmenu=`), split-screen detail (`splitlod=`), movies (`movies=`); each change is saved at once, and an environment variable that overrides one is named under it. The renderer stays `--renderer NAME` |
+
+The launcher opens every time the game starts, unless you tick
 "Start the game without this window"; then the game boots straight into the
 chosen release, and the launcher only opens when that data has gone, or when
 asked: `--launcher`, or run `hwvx-launcher` (a copy of the program the build
-makes; app bundles use `--launcher`). Mouse, keyboard and gamepad all work (d-pad or
-stick, A, B; Start plays). Importing the PC CD copies its packs (out of
+makes; app bundles use `--launcher`). It opens on the page you saw last
+(`tab=` in `sources.cfg`), or on Play; on Games while no release is imported.
+Mouse, keyboard and gamepad all work: the d-pad or stick (or the arrow keys,
+and Tab) moves between the page's buttons and Play/Quit, A (Enter) presses,
+B (Escape) quits, Start plays, and LB/RB (Page Up/Page Down) change the page.
+Folders, disc images and saves are picked in the system's file dialog, which
+needs a mouse or keyboard. Importing the PC CD copies its packs (out of
 `HWVX.cab`) and its movies, which the PC game only ever read from the disc,
 into a `pc` folder in the save folder; an installed copy may have no movies.
 Importing a PS2 disc image copies its `XPS/ENGLISH` into `ps2` (or `ps2beta`
@@ -119,7 +135,7 @@ the files to `saves/default/deleted/`. Code: `src/game/Port_Saves.c` (the
 store), `Port_SaveFormat.c` (the format), `Port_SaveIds.c` (index to id);
 `tools/savetest.c` tests it.
 
-Importing saves from any release: the launcher's **Import saves...** takes
+Importing saves from any release: the launcher's Saves page, **Import saves...**, takes
 one or more files and shows what they would add before anything is written:
 
 | release | files |
@@ -540,7 +556,13 @@ Debugging aids:
   only, not disc images.
 - `HWVX_LOADTIME=1` logs how long each data pack and quadrant takes to load.
 - `HWVX_LAUNCHER_SHOT=file.bmp` saves the launcher's first frame and closes it
-  (testing).
+  (testing). `HWVX_LAUNCHER_TAB=play|games|saves|convert|mods|settings` opens
+  that page; `HWVX_LAUNCHER_INPUT="rb,ddown,a"` presses keys (`pgup pgdn tab up
+  down left right enter esc`), gamepad buttons (`lb rb a b start dup ddown dleft
+  dright`) and clicks (`click:X:Y` in the 640x420 view) first, and the shot is
+  taken after them; `HWVX_LAUNCHER_DISC=pc=IMAGE` (or `ps2=`) imports a disc
+  image as if picked; `HWVX_LAUNCHER_IMPORT="FILE;FILE"` opens the saves
+  preview. With `HWVX_PREF_DIR` none of it touches your own files.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.

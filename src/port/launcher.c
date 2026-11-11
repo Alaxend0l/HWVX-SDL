@@ -1,5 +1,6 @@
 /* The launcher: where the player imports the releases' game data, picks the
- * one to play, and (later) converts data to .xdl and manages mods.
+ * one to play, imports saves, sets what graphics.cfg holds beyond the game's
+ * own Graphics menu, and (later) converts data to .xdl and manages mods.
  *
  * The launcher opens on every start, unless the player ticked "Start the
  * game without this window" (skip=1): then the game boots straight into the
@@ -22,20 +23,33 @@
  *   image is imported like the PS2's; either disc goes where its version
  *   says, whichever row it was picked from.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
- * "ps2beta=PATH", "play=gc|pc|ps2" and "skip=1"; the GameCube data the port found
- * before the launcher existed (datadir.txt) is taken over on the first run.
+ * "ps2beta=PATH", "play=gc|pc|ps2", "skip=1" and "tab=PAGE"; the GameCube data the
+ * port found before the launcher existed (datadir.txt) is taken over on the
+ * first run.
  *
  * It is plain SDL: a window with an SDL_Renderer drawing SDL's built-in 8x8
- * text at a logical 640x420. Mouse, keyboard (arrows, Tab, Enter, Escape) and
- * gamepads (d-pad or left stick, A, B, Start: Play) move a focus between the
- * buttons. Folders and images are picked with the system's dialogs, which
- * need a mouse or a keyboard.
+ * text at a logical 640x420. A tab bar shows one page at a time: Play (which
+ * release plays, the skip tick), Games (importing and removing releases),
+ * Saves, Convert and Mods (placeholders), Settings (graphics.cfg, through
+ * gfx_settings.c). Play, Quit and the status line stay at the bottom. It opens
+ * on the page shown last, or Play; on Games while no release is imported.
+ * Mouse, keyboard (arrows, Tab, Enter, Escape; Page Up/Down: the page) and
+ * gamepads (d-pad or left stick, A, B, Start: Play; LB/RB: the page) move a
+ * focus between the page's buttons and the bottom bar's; the tabs take clicks.
+ * Folders and images are picked with the system's dialogs, which need a mouse
+ * or a keyboard.
+ *
+ * Testing: HWVX_LAUNCHER_SHOT=file.bmp saves a frame and closes;
+ * HWVX_LAUNCHER_TAB=PAGE opens that page; HWVX_LAUNCHER_INPUT queues input
+ * before the shot (QueueInput); HWVX_LAUNCHER_DISC=pc=IMAGE|ps2=IMAGE imports
+ * a disc image as if picked.
  *
  * "Import saves..." takes progress from any release's saves (Port_SaveImport.c:
  * GameCube .gci and card images, the PC's velocityX, PS2 card images and
  * .psu, the port's own .sav): the files are read, then a preview says which
  * saves go where and what each adds, with the choices (one save only, the
- * PC/PS2 default cars), and Import merges them into the JSON save store.
+ * PC/PS2 default cars), and Import merges them into the JSON save store. The
+ * preview keeps to the Saves page until it is imported or cancelled.
  * HWVX_LAUNCHER_IMPORT="FILE;FILE" opens that preview on start (testing). */
 #include "port_internal.h"
 #include "Port_Saves.h"
