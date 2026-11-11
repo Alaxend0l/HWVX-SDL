@@ -22,15 +22,34 @@
  *           select's list. The array's count too.
  *
  * Past those, entries are registered by id: the mod hook (a project's
- * ids.lock, not built yet) and HWVX_TEST_EXTRA_CARS. */
+ * ids.lock, not built yet) and the test switches HWVX_TEST_EXTRA_CARS and
+ * HWVX_TEST_EXTRA_ITEMS (HWVX_TEST_UNLOCK_CARS / _ITEMS unlock some). An
+ * extra car or item whose number its archive has no pack for loads the
+ * pack of the entry it aliases (DataPack_LoadFile, Port_ContentPackId). */
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "Interface.h"
 #include "Port_Content.h"
 #include "Port_Swap.h"
 
-static char s_carsArchive[0x40] = "HW_Cars";
-static s8 s_testUnlockDone;
+/* The archives whose packs are numbered as entries are: a car is the type-0
+ * pack of its number in HW_Cars (the MCP's carsPack; the worlds' own
+ * vehiclePackList names it too), an item the type-2 pack in HW_Items (the
+ * MCP's itemsPack, the worlds' itemPack). Which ids each TOC has: an entry
+ * past the array whose number the TOC lacks loads the pack it aliases. */
+#define MAX_TOC_ID 1024
+typedef struct Archive {
+    int kind;
+    u32 type;                       /* the packs' TOC type */
+    char name[0x40];
+    u8 has[MAX_TOC_ID / 8];         /* TOC ids of that type */
+    u32 maxId;                      /* the highest + 1, 0: none (or no TOC) */
+} Archive;
+
+static Archive s_archives[] = {
+    { PORT_CONTENT_CAR, 0, "HW_Cars" },
+    { PORT_CONTENT_ITEM, 2, "HW_Items" },
+};
 
 static int SameArchive(const char *a, const char *b) {
     const char *p;
@@ -48,17 +67,21 @@ static int SameArchive(const char *a, const char *b) {
     return a != NULL && b != NULL && SDL_strcasecmp(a, b) == 0;
 }
 
-/* The car packs in archive `name`'s TOC: the highest type-0 id + 1, 0 if
- * it can't be read. Read beside the game's own file handling (DVDOpen, as
- * Port_Menu.c's ProgressionHasWorlds does), so the game's heap and file
- * state are as they would be without it. */
-static u32 CarsInToc(const char *name) {
+static int Has(const Archive *a, u32 id) {
+    return id < MAX_TOC_ID && (a->has[id / 8] >> (id % 8) & 1);
+}
+
+/* An archive's TOC: the ids of its packs of the archive's type. Read
+ * beside the game's own file handling (DVDOpen, as Port_Menu.c's
+ * ProgressionHasWorlds does), so the game's heap and file state are as
+ * they would be without it. 0 if it can't be read. */
+static int ReadToc(Archive *a) {
     char path[0x80], *c;
     DVDFileInfo fi;
-    u32 buf[0x800 / 4], i, n, cars = 0;
+    u32 buf[0x800 / 4], i, n;
     s32 got;
 
-    SDL_snprintf(path, sizeof(path), "%s.xgc", name);   /* as DataPack_LoadFile names it */
+    SDL_snprintf(path, sizeof(path), "%s.xgc", a->name);   /* as DataPack_LoadFile names it */
     for (c = path; *c != 0; c++) {
         *c = *c == '\\' ? '/' : (char)tolower((u8)*c);
     }
@@ -79,11 +102,14 @@ static u32 CarsInToc(const char *name) {
     for (i = 0; i < n; i++) {
         const FileTOCEntry *e = (const FileTOCEntry *)&buf[4 + i * (sizeof(FileTOCEntry) / 4)];
 
-        if (e->type == 0 && e->id + 1 > cars) {
-            cars = e->id + 1;
+        if (e->type == a->type && e->id < MAX_TOC_ID) {
+            a->has[e->id / 8] |= (u8)(1u << (e->id % 8));
+            if (e->id + 1 > a->maxId) {
+                a->maxId = e->id + 1;
+            }
         }
     }
-    return cars;
+    return 1;
 }
 
 /* The mod hook: a project's ids.lock (§10.5) gives its content numbers past
@@ -93,12 +119,13 @@ static u32 CarsInToc(const char *name) {
 static void LoadIdsLock(void) {
 }
 
-/* HWVX_TEST_EXTRA_CARS=N: N extra cars, each loading the pack of a base car
- * (3, 4, ...: unlocked in a new game) under its own number and id, locked
- * in a new game. For testing cars past the retail 33 end to end. */
-static void TestExtraCars(void) {
-    const char *e = SDL_getenv("HWVX_TEST_EXTRA_CARS");
-    u32 base = Port_ContentCount(PORT_CONTENT_CAR);
+/* HWVX_TEST_EXTRA_CARS=N, HWVX_TEST_EXTRA_ITEMS=N: N extra entries, each
+ * loading the pack of a base one under its own number and id (cars: 3, 4,
+ * ..., unlocked in a new game; items: 0, 1, ...), locked in a new game. For
+ * testing content past the retail arrays end to end. */
+static void TestExtra(int kind, const char *env, const char *what, s32 first) {
+    const char *e = SDL_getenv(env);
+    u32 base = Port_ContentCount(kind);
     int n, k;
 
     if (e == NULL || (n = SDL_atoi(e)) <= 0) {
@@ -106,18 +133,19 @@ static void TestExtraCars(void) {
     }
     for (k = 0; k < n && k < 64; k++) {
         char id[64];
-        s32 alias = (s32)((3 + k) % base), i;
+        s32 alias = (s32)((first + k) % base), i;
 
-        SDL_snprintf(id, sizeof(id), "uid://hwvx-test-extra-car-%d", k);
-        i = Port_ContentRegister(PORT_CONTENT_CAR, id, alias, 0);
-        Port_Log("content: test: car %d is %s, the pack of car %d", (int)i, id, (int)alias);
+        SDL_snprintf(id, sizeof(id), "uid://hwvx-test-extra-%s-%d", what, k);
+        i = Port_ContentRegister(kind, id, alias, 0);
+        Port_Log("content: test: %s %d is %s, the pack of %s %d", what, (int)i, id, what, (int)alias);
     }
 }
 
 void Port_ContentInit(void) {
     static s8 done;
     MCP *mcp;
-    u32 cars;
+    size_t i;
+    u32 j;
 
     if (done) {
         return;
@@ -125,33 +153,57 @@ void Port_ContentInit(void) {
     done = 1;
     mcp = GameSettings_GetMCP();
     if (mcp != NULL && GETP(mcp->carsPack) != NULL) {
-        SDL_strlcpy(s_carsArchive, GETP(mcp->carsPack), sizeof(s_carsArchive));
+        SDL_strlcpy(s_archives[0].name, GETP(mcp->carsPack), sizeof(s_archives[0].name));
     }
-    cars = CarsInToc(s_carsArchive);
-    if (cars == 0) {
-        Port_Log("content: %s's TOC can't be read; %u cars", s_carsArchive,
-                 (unsigned)Port_ContentRetailCount(PORT_CONTENT_CAR));
+    if (mcp != NULL && GETP(mcp->itemsPack) != NULL) {
+        SDL_strlcpy(s_archives[1].name, GETP(mcp->itemsPack), sizeof(s_archives[1].name));
     }
-    Port_ContentSetBaseCount(PORT_CONTENT_CAR, cars);
+    for (i = 0; i < SDL_arraysize(s_archives); i++) {
+        if (!ReadToc(&s_archives[i])) {
+            Port_Log("content: %s's TOC can't be read", s_archives[i].name);
+        }
+    }
+    /* the cars are numbered by their packs; the items' packs 16-79 are the
+     * AI's and the worlds', so the item count stays the array's */
+    Port_ContentSetBaseCount(PORT_CONTENT_CAR, s_archives[0].maxId);
     Port_ContentSetBaseCount(PORT_CONTENT_TRACK, 0);
     Port_ContentSetBaseCount(PORT_CONTENT_ITEM, 0);
     LoadIdsLock();
-    TestExtraCars();
+    TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3);
+    TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0);
+    for (i = 0; i < SDL_arraysize(s_archives); i++) {
+        const Archive *a = &s_archives[i];
+
+        for (j = Port_ContentRetailCount(a->kind); j < Port_ContentCount(a->kind); j++) {
+            if (Has(a, j) && Port_ContentDataOf(a->kind, j) != (s32)j) {
+                /* the item numbers 16-79: what the game loads for them is
+                 * the archive's own pack (Port_ContentPackId) */
+                Port_Log("content: %s has a pack %u of its own; entry %u loads that, not its own data", a->name,
+                         (unsigned)j, (unsigned)j);
+            }
+        }
+    }
     Port_Log("content: %u cars (%u in %s), %u tracks, %u items", (unsigned)Port_ContentCount(PORT_CONTENT_CAR),
-             (unsigned)cars, s_carsArchive, (unsigned)Port_ContentCount(PORT_CONTENT_TRACK),
+             (unsigned)s_archives[0].maxId, s_archives[0].name, (unsigned)Port_ContentCount(PORT_CONTENT_TRACK),
              (unsigned)Port_ContentCount(PORT_CONTENT_ITEM));
 }
 
 /* ---- loading an entry's data --------------------------------------------- */
 
 u32 Port_ContentPackId(const char *name, u32 type, u32 id) {
+    size_t i;
     s32 data;
 
-    if (type != 0 || id < Port_ContentRetailCount(PORT_CONTENT_CAR) || !SameArchive(name, s_carsArchive)) {
-        return id;
+    for (i = 0; i < SDL_arraysize(s_archives); i++) {
+        const Archive *a = &s_archives[i];
+
+        if (a->type != type || id < Port_ContentRetailCount(a->kind) || Has(a, id) || !SameArchive(name, a->name)) {
+            continue;
+        }
+        data = Port_ContentDataOf(a->kind, id);
+        return data >= 0 ? (u32)data : id;
     }
-    data = Port_ContentDataOf(PORT_CONTENT_CAR, id);
-    return data >= 0 ? (u32)data : id;
+    return id;
 }
 
 /* A pack's scripts (DataPack.base), as DataPack_GetScript reads them. */
@@ -207,16 +259,19 @@ static int TestsUnlockByVar(const InterfaceHeader *h, s32 code) {
     return 0;
 }
 
-/* The unlock the test switch asks for (HWVX_TEST_UNLOCK_CARS=33,34), once,
- * as the first car select opens: through the game's own code variable, as
- * a race result would unlock a car (and so autosaved). */
-static void TestUnlock(void) {
-    const char *e = SDL_getenv("HWVX_TEST_UNLOCK_CARS");
+/* The unlocks the test switches ask for (HWVX_TEST_UNLOCK_CARS=33,34,
+ * HWVX_TEST_UNLOCK_ITEMS=12), once, as the first select screen of the kind
+ * opens: through the game's own code variable, as a race result would
+ * unlock a car (and so autosaved). */
+static void TestUnlock(int kind) {
+    static s8 done[PORT_CONTENT_KINDS];
+    const char *e = SDL_getenv(kind == PORT_CONTENT_CAR ? "HWVX_TEST_UNLOCK_CARS" :
+                               kind == PORT_CONTENT_ITEM ? "HWVX_TEST_UNLOCK_ITEMS" : "HWVX_TEST_UNLOCK_TRACKS");
 
-    if (s_testUnlockDone || e == NULL) {
+    if (done[kind] || e == NULL) {
         return;
     }
-    s_testUnlockDone = 1;
+    done[kind] = 1;
     while (*e != 0) {
         char *end;
         long n = SDL_strtol(e, &end, 10);
@@ -224,8 +279,8 @@ static void TestUnlock(void) {
         if (end == e) {
             break;
         }
-        Port_Log("content: test: unlocking car %ld", n);
-        GameSettings_SetCodeVariable(0x64, (u32)n, 1);
+        Port_Log("content: test: unlocking %s %ld", kind == PORT_CONTENT_CAR ? "car" : kind == PORT_CONTENT_ITEM ? "item" : "track", n);
+        GameSettings_SetCodeVariable(s_unlockVar[kind], (u32)n, 1);
         e = *end == ',' ? end + 1 : end;
     }
 }
@@ -248,8 +303,8 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
         u32 count = Port_ContentCount(kind), retail = Port_ContentRetailCount(kind);
         int indexed = TestsUnlockByVar(h, s_unlockVar[kind]);
 
-        if (kind == PORT_CONTENT_CAR && indexed) {
-            TestUnlock();
+        if (indexed) {
+            TestUnlock(kind);
         }
         if (count == retail) {
             continue;
