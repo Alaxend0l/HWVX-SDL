@@ -1445,6 +1445,7 @@ void Port_MenuPatch(InterfaceHeader *h) {
     if (h == NULL) {
         return;
     }
+    Port_MenuDump(h);        /* HWVX_MENUDUMP: the screens as the pack has them */
     Port_CarouselPatch(h);   /* world, car and weapon select: more windows */
     PatchPauseMenu(h);
     PatchBattleOptions(h);

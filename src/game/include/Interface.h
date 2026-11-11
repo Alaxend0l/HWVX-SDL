@@ -835,5 +835,7 @@ void Port_MenuPatch(InterfaceHeader *header);
 void Port_CarouselPatch(InterfaceHeader *header);   /* Port_Carousel.c */
 void Port_MenuReleased(InterfaceHeader *header);
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target);
+/* Port_MenuDump.c: HWVX_MENUDUMP=1 logs the screens reachable from `root`. */
+void Port_MenuDump(const InterfaceHeader *root);
 
 #endif
