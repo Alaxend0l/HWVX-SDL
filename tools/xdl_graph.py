@@ -1286,6 +1286,14 @@ def pack_and_compare(built_arch, orig_root, source_file):
     return None if same else f"{source_file} differs from {cands[0]}"
 
 
+def orig_dir(spec, rel):
+    """--orig ROOT (ROOT/<rel>) or rel=path,rel=path (e.g. pc=orig/pc-backup)."""
+    if "=" in spec:
+        m = dict(x.split("=", 1) for x in spec.split(","))
+        return Path(m[rel])
+    return Path(spec) / rel
+
+
 def survey_archives(root, rel, only=None):
     base = Path(root) / rel
     out = []
@@ -1348,7 +1356,7 @@ def cmd_roundtrip(a):
             if a.orig and arch_ok and not kinds:
                 barch = outroot / "_built" / rel / relpath
                 build_manifest(outroot / rel / relpath, barch)
-                why = pack_and_compare(barch, Path(a.orig) / rel, man["source_file"])
+                why = pack_and_compare(barch, orig_dir(a.orig, rel), man["source_file"])
                 key = (rel, "(archive file)")
                 tot[key + ("packs",)] += 1
                 if why:
@@ -1392,8 +1400,8 @@ def main():
     p.add_argument("--out", default=str(HERE.parents[1] / "build-gltf"))
     p.add_argument("--keep", action="store_true", help="keep the built pack folders (OUT/_built)")
     p.add_argument("--untyped", action="store_true", help="list raw nodes by walker label")
-    p.add_argument("--orig", help="folder of the original archives per release (ORIG/gc ...): "
-                   "also `hwvx-x pack` each rebuilt archive and compare the file")
+    p.add_argument("--orig", help="folder of the original archives per release (ORIG/gc ...), or "
+                   "rel=folder,rel=folder: also `hwvx-x pack` each rebuilt archive and compare the file")
     p.add_argument("-v", "--verbose", action="store_true")
     p = sub.add_parser("extract-archive")
     p.add_argument("archive")
