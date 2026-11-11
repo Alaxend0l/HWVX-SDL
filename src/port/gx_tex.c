@@ -121,7 +121,7 @@ static u8 Expand6(u32 v) {
  *
  * gc: CMPR as the GameCube's texture unit decodes it (Dolphin's decoder,
  * checked against hardware): the middle colours 5/8 and 3/8 of the way, and
- * the transparent one the average colour with alpha 0.
+ * the transparent one the average colour (rounded towards c0) with alpha 0.
  *
  * Otherwise DXT as Apple GPUs decode BC1/BC3 (measured, every endpoint pair):
  * the middle colours (43a + 21b + 32) / 64, the average rounded up, the
@@ -144,7 +144,8 @@ static void BlockPalette(u16 c0, u16 c1, int gc, int four, int opaque3, u8 pal[4
             pal[2][i] = (u8)(gc ? (5 * a + 3 * b) >> 3 : (43 * a + 21 * b + 32) >> 6);
             pal[3][i] = (u8)(gc ? (3 * a + 5 * b) >> 3 : (21 * a + 43 * b + 32) >> 6);
         } else {
-            pal[2][i] = (u8)(gc ? (a + b) >> 1 : (a + b + 1) >> 1);
+            /* the GameCube's midpoint rounds towards c0 (Dolphin's std::midpoint) */
+            pal[2][i] = (u8)(gc ? (a + b + (a > b)) >> 1 : (a + b + 1) >> 1);
             pal[3][i] = gc ? pal[2][i] : 0;
         }
     }
