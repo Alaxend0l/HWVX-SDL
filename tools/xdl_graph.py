@@ -1274,9 +1274,9 @@ def pack_and_compare(built_arch, orig_root, source_file):
     exe = hwvx_x()
     if exe is None:
         return "hwvx-x not built (target/release/hwvx-x)"
-    cands = [p for p in Path(orig_root).rglob("*") if p.name.lower() == source_file.lower()]
+    cands = [p for root in orig_root for p in sorted(Path(root).rglob("*")) if p.name.lower() == source_file.lower()]
     if not cands:
-        return f"no original {source_file} under {orig_root}"
+        return f"no original {source_file} under {', '.join(map(str, orig_root))}"
     out = Path(built_arch).parent / ("_" + source_file)
     r = subprocess.run([str(exe), "pack", str(built_arch), str(out), "-f"], capture_output=True, text=True)
     if r.returncode:
@@ -1287,11 +1287,12 @@ def pack_and_compare(built_arch, orig_root, source_file):
 
 
 def orig_dir(spec, rel):
-    """--orig ROOT (ROOT/<rel>) or rel=path,rel=path (e.g. pc=orig/pc-backup)."""
+    """Folders to look for a release's original archives in, first match wins: --orig ROOT
+    (ROOT/<rel>), or rel=path+path,rel=path (e.g. pc=orig/pc-backup+orig/pc)."""
     if "=" in spec:
         m = dict(x.split("=", 1) for x in spec.split(","))
-        return Path(m[rel])
-    return Path(spec) / rel
+        return [Path(x) for x in m[rel].split("+")]
+    return [Path(spec) / rel]
 
 
 def survey_archives(root, rel, only=None):
@@ -1401,7 +1402,7 @@ def main():
     p.add_argument("--keep", action="store_true", help="keep the built pack folders (OUT/_built)")
     p.add_argument("--untyped", action="store_true", help="list raw nodes by walker label")
     p.add_argument("--orig", help="folder of the original archives per release (ORIG/gc ...), or "
-                   "rel=folder,rel=folder: also `hwvx-x pack` each rebuilt archive and compare the file")
+                   "rel=folder+folder,rel=folder (first match wins): also `hwvx-x pack` each rebuilt archive and compare the file")
     p.add_argument("-v", "--verbose", action="store_true")
     p = sub.add_parser("extract-archive")
     p.add_argument("archive")
