@@ -55,6 +55,8 @@ static int s_numMods;
 static char **s_report;
 static int s_numReport, s_capReport;
 static int s_inited;
+static int s_logValues;     /* HWVX_MODS_LOG=1: each value a patch sets, and what it was */
+static double s_old;
 
 static const char *const s_typeNames[] = { "car", "interface", "item", "link", "world", "collision",
                                            "world_texture", "geometry", "share", "audio", "music" };
@@ -722,6 +724,7 @@ void Port_ModsInit(void) {
         return;
     }
     s_inited = 1;
+    s_logValues = SDL_getenv("HWVX_MODS_LOG") != NULL;
     if (Port_ModsScan() > 0) {
         Port_Log("mods: %d in the mods folder, %s", s_numMods, Port_ModsActive() ? "some on" : "all off");
     }
@@ -834,9 +837,23 @@ static u8 *Root(const DataPack *pack, u32 i) {
     return Ptr(*(u32 *)(tab + 8 * i));
 }
 
+static double GetValue(const u8 *p, int type) {
+    switch (type) {
+    case MF_U8: return *p;
+    case MF_S8: return *(const s8 *)p;
+    case MF_U16: return *(const u16 *)p;
+    case MF_S16: return *(const s16 *)p;
+    case MF_U32: return *(const u32 *)p;
+    case MF_S32: return *(const s32 *)p;
+    case MF_F32: return *(const f32 *)p;
+    default: return 0;
+    }
+}
+
 static int SetValue(u8 *p, int type, const JsonNode *v) {
     double d;
 
+    s_old = GetValue(p, type);
     if (v->type == JSON_BOOL) {
         d = v->boolean;
     } else if (v->type == JSON_NUMBER) {
@@ -888,6 +905,10 @@ static int PatchObject(const Mod *m, const char *where, u8 *obj, const ModStruct
             }
         } else if (SetValue(obj + fd->offset, fd->type, f)) {
             n++;
+            if (s_logValues) {
+                Port_Log("mods: %s %s.%s = %g (was %g)", where, st->name, f->key, GetValue(obj + fd->offset, fd->type),
+                         s_old);
+            }
         } else if (f->type != JSON_NULL) {
             Report("%s: %s: %s.%s takes a number", m->info.name, where, st->name, f->key);
         }
