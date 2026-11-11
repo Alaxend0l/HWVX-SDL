@@ -65,6 +65,8 @@ void Port_TriggerFireRoundComplete(u32 number);
 int Port_TriggerItemWatched(const void *spawner, int fire);
 /* Trigger.c: the interface whose end the script answers with a round reset. */
 void *Port_TriggerRoundSummary(void);
+/* Testing: the active triggers and their actions in the log. */
+void Port_TriggerDump(void);
 /* The keyboard's turn in Input_Heartbeat: 1 to press A, as a player would. */
 int Port_OnlinePressA(void);
 /* This machine's pad does nothing for now: the host is choosing for everyone. */

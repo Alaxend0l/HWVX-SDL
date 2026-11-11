@@ -1,6 +1,7 @@
 /* The trigger half of the scripting system: the active trigger lists, the
  * polling heartbeat, event triggers and the code variables tests read. See
  * Trigger.h for the data. */
+#include <SDL3/SDL.h>   /* port: Port_TriggerDump */
 #include "common.h"
 #include "Port_Online.h"
 #include "CarA.h"
@@ -234,6 +235,50 @@ void *Port_TriggerRoundSummary(void) {
         }
     }
     return NULL;
+}
+
+/* port: testing, HWVX_SCRIPTDUMP: the level's active triggers and their actions in
+ * the log, parameter words raw; a word that is a tile car's handle shows as T<index>. */
+static void DumpWords(char *out, size_t size, const u32 *w, u32 n) {
+    World *world = (World *)GETP(g_worldData.world);
+    u32 i, k;
+
+    out[0] = 0;
+    for (i = 0; w != NULL && i < n; i++) {
+        char one[24];
+
+        SDL_snprintf(one, sizeof(one), " %X", w[i]);
+        for (k = 0; k < world->numTileCars; k++) {
+            if (w[i] != 0 && w[i] == HND(&GETP(world->tileCars)[k])) {
+                SDL_snprintf(one, sizeof(one), " T%u", k);
+            }
+        }
+        SDL_strlcat(out, one, size);
+    }
+}
+
+void Port_TriggerDump(void) {
+    u32 type, i, j;
+    char text[256];
+
+    for (type = 0; type < TRIGGER_NUM_TYPES; type++) {
+        for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+            Trigger *t = TRIGGER_LISTS[type][i];
+
+            DumpWords(text, sizeof(text), GETP(t->param), 8);
+            Port_Log("script: trigger type %u #%u conds %u mode %u state %X:%s", type, i, t->numConditions, t->mode, t->state, text);
+            for (j = 0; j < t->numConditions; j++) {
+                DumpWords(text, sizeof(text), GETP(GETP(t->conditions)[j].param), 8);
+                Port_Log("script:   cond type %u:%s", GETP(t->conditions)[j].type, text);
+            }
+            for (j = 0; j < t->numActions; j++) {
+                TriggerAction *a = &GETP(t->actions)[j];
+
+                DumpWords(text, sizeof(text), GETP(a->data), 8);
+                Port_Log("script:   action 0x%X delay %d count %d:%s", a->type, a->delayInit, (s32)a->count, text);
+            }
+        }
+    }
 }
 
 void Trigger_PauseTACSystem(s8 arg0) {

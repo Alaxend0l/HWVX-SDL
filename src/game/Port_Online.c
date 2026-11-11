@@ -40,6 +40,18 @@
  * player: one taken is taken by all (ReceivePickup). What else a world does isn't shared in
  * Joyride, nor needs to be.
  *
+ * Eight players: the retail game has 4 player ports, and its worlds 4 spawns for them.
+ * Online a port is 1 .. 8 (Port_OnlineHumanPorts, which the game's own checks of "a
+ * player's port" ask). Players 5 and up start where a Battle world has its AI cars
+ * (three in each, unused online), and where a world has no spawn left, at a spot behind
+ * one of the first four, found from the world's collision (Port_OnlineExpandSpawns,
+ * ChooseExtraSpawns): those spawns are ours, kept after the world's list
+ * (World_GetTileCar). A script naming every one of the world's player spawns means ours
+ * too (Port_OnlineExtraSubject); a Drag Race's finish, which its script has once per
+ * player, is found for them from the others' (FinishHeartbeat). The round summary's
+ * rows are the retail four: Port_OnlineScoreLine has every player's for the lines
+ * Port_Menu.c draws over it.
+ *
  * Not yet: AI opponents are off because each machine would run its own; a weapon a car
  * dropped isn't shared if picked up again. */
 #include <SDL3/SDL.h>
@@ -159,7 +171,16 @@ static int s_fire;              /* held since the last snapshot */
 static int s_applyingPickup;
 static int s_localAlive;
 static TileCar s_spawns[ONLINE_PLAYERS];
-static TileCar *s_scriptSpawn;  /* the world's own, when s_spawns is in use */
+static TileCar *s_scriptSpawn;  /* Joyride: the world's own, when s_spawns is its list */
+/* Battle, Drag Race: the first s_numExtra of s_spawns come after the world's list. */
+static u32 s_numExtra;
+/* The world's AI spawns that are players' online, as the pack had them. */
+static struct {
+    TileCar *tile;
+    u8 port, itemID, item2ID;
+    u32 item, item2;
+} s_borrowed[ONLINE_PLAYERS];
+static u32 s_numBorrowed;
 static const QuadItem *s_sharedTaken[MAX_SHARED_ITEMS];
 static u32 s_numSharedTaken;
 
@@ -176,6 +197,11 @@ int Port_OnlineIsRemote(const Player *player) {
     }
     /* the port only while the level is being set up: scripts renumber them later */
     return s_localPlayer != NULL ? player != s_localPlayer : (s32)player->port != s_port;
+}
+
+/* How many of a world's spawns are players': the retail game's 4, online 8. */
+u32 Port_OnlineHumanPorts(void) {
+    return s_state != STATE_NONE ? ONLINE_PLAYERS : RETAIL_PLAYERS;
 }
 
 int Port_OnlinePlayerCount(void) {
@@ -229,7 +255,7 @@ static void BeginSession(int isHost) {
     s_tunnel = 0;
     s_tunnelReady = 0;
     s_present = isHost ? 1 : 0;
-    s_lobby = 0xF;
+    s_lobby = (1u << ONLINE_PLAYERS) - 1;
     s_hold = 0;
     s_localPlayer = NULL;
     s_port = isHost ? 1 : 0;
@@ -412,7 +438,7 @@ static void StartLevel(void) {
 
 /* The host: when every car is known, start everyone. */
 static void HostCheckChosen(void) {
-    u8 buf[64];
+    u8 buf[8 + ONLINE_PLAYERS * 8];
     NetWriter w;
     u32 i;
 
@@ -769,9 +795,29 @@ static void BeginStage(void) {
     }
 }
 
+/* Testing, HWVX_SCRIPTDUMP=1: what a level gives online play to work with, in the
+ * log as it starts (any level, online or not): its spawns and its scripts. */
+static void DumpLevel(void) {
+    World *world = WORLD_OF_LEVEL();
+    u32 i;
+
+    for (i = 0; i < world->numTileCars; i++) {
+        const TileCar *t = &GETP(world->tileCars)[i];
+
+        Port_Log("script: tile car T%u port %u dynamic %u spawned %u vehicle %d car %s pos %.0f %.0f %.0f rotY %.0f", i, t->port,
+                 t->dynamic, t->spawned, (s32)t->vehicle, GETP(t->car) != NULL ? "yes" : "no", t->pos.x, t->pos.y, t->pos.z,
+                 t->rotY);
+    }
+    Port_TriggerDump();
+}
+
 void Port_OnlineLevelStarted(void) {
     extern s32 g_GameProgressionID;
+    const char *dump = SDL_getenv("HWVX_SCRIPTDUMP");
 
+    if (dump != NULL && *dump != 0) {
+        DumpLevel();
+    }
     if (s_state == STATE_NONE) {
         return;
     }
@@ -1739,7 +1785,7 @@ void Port_OnlineHeartbeat(void) {
         u8 msg = s_isHost ? MSG_RETURN : MSG_LEFT_LEVEL;
 
         Net_SendReliable(s_isHost ? NET_PEER_ALL : NET_PEER_HOST, &msg, 1);
-        s_lobby = 0xF;
+        s_lobby = (1u << ONLINE_PLAYERS) - 1;
         s_localPlayer = NULL;
         s_scriptSpawn = NULL;
         s_hold = 0;

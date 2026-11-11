@@ -6,8 +6,11 @@
 
 /* Players in a session, the host counted: the game's 8-car budget, which
  * online play fills with people (there are no AI cars online). A port is
- * 1 .. ONLINE_MAX_PLAYERS: the peer id + 1. Bit port - 1 in the u8 masks. */
-#define ONLINE_MAX_PLAYERS 4
+ * 1 .. ONLINE_MAX_PLAYERS: the peer id + 1. Bit port - 1 in the u8 masks.
+ * The retail game has 4 player ports; what online play does about 5 to 8 is
+ * at the top of Port_Online.c. */
+#define ONLINE_MAX_PLAYERS 8
+#define RETAIL_PLAYERS 4
 
 enum {
     MSG_SETUP = 1,              /* host: u8 progression, u16 level, u8 ports in, the settings */
