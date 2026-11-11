@@ -1711,6 +1711,7 @@ void Port_MenuPatch(InterfaceHeader *h) {
     IfaceObjectDef *objs;
     IfaceObjectDef *entry;
     MainMenu main;
+    OptScreen opt;
     u32 i;
 
     if (h == NULL) {
@@ -1748,9 +1749,13 @@ void Port_MenuPatch(InterfaceHeader *h) {
         PatchCardScreen(h);
         return;
     }
-    if (!FindOptions(h, &s_opt)) {
+    /* found into a local copy: s_opt describes the Options screen the
+     * Graphics screen was built from (RefreshModes reads it on every
+     * opening), and must not be wiped by the other screens tried here */
+    if (!FindOptions(h, &opt)) {
         return;
     }
+    s_opt = opt;
     objs = GETP(h->objects);
     BuildGraphicsScreen(h, objs);
 
