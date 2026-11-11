@@ -671,34 +671,11 @@ void ProcessIT(u32 ticks)
                         trk->flags &= ~0x10;
                     }
                     break;
+                /* port: E (portamento down, period up: flag 0x20) and F (up, 0x40)
+                 * as the original's jump table has them; the decomp had the
+                 * two bodies swapped, bending every slide the wrong way. Both
+                 * fine slides raise the period, as in the original. */
                 case 5:
-                    if (trk->param)
-                    {
-                        trk->memPitchSlide = trk->param;
-                    }
-                    if (trk->memPitchSlide < 0xE0)
-                    {
-                        trk->flags |= 0x40;
-                        trk->slideSpeed = trk->memPitchSlide << 2;
-                    }
-                    else
-                    {
-                        if (trk->memPitchSlide > 0xF0)
-                        {
-                            trk->period += (trk->memPitchSlide & 0xF) * 4;
-                        }
-                        else
-                        {
-                            trk->period += trk->memPitchSlide & 0xF;
-                        }
-                        GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
-                        if (GETP(trk->active) != NULL && !SetVoiceRate_(GETP(trk->active)))
-                        {
-                            SETP(trk->active, NULL);
-                        }
-                    }
-                    break;
-                case 6:
                     if (trk->param)
                     {
                         trk->memPitchSlide = trk->param;
@@ -718,10 +695,47 @@ void ProcessIT(u32 ticks)
                         {
                             trk->period += trk->memPitchSlide & 0xF;
                         }
-                        GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
-                        if (GETP(trk->active) != NULL && !SetVoiceRate_(GETP(trk->active)))
+                        /* port: the original stored the rate before testing for a
+                         * voice (one an SFX stole is NULL here) */
+                        if (GETP(trk->active) != NULL)
                         {
-                            SETP(trk->active, NULL);
+                            GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
+                            if (!SetVoiceRate_(GETP(trk->active)))
+                            {
+                                SETP(trk->active, NULL);
+                            }
+                        }
+                    }
+                    break;
+                case 6:
+                    if (trk->param)
+                    {
+                        trk->memPitchSlide = trk->param;
+                    }
+                    if (trk->memPitchSlide < 0xE0)
+                    {
+                        trk->flags |= 0x40;
+                        trk->slideSpeed = trk->memPitchSlide << 2;
+                    }
+                    else
+                    {
+                        if (trk->memPitchSlide > 0xF0)
+                        {
+                            trk->period += (trk->memPitchSlide & 0xF) * 4;
+                        }
+                        else
+                        {
+                            trk->period += trk->memPitchSlide & 0xF;
+                        }
+                        /* port: the original stored the rate before testing for a
+                         * voice (one an SFX stole is NULL here) */
+                        if (GETP(trk->active) != NULL)
+                        {
+                            GETP(trk->active)->rate = (u32)((s32)GETP(trk->smp)->c5Speed * 0x6B0) / trk->period;
+                            if (!SetVoiceRate_(GETP(trk->active)))
+                            {
+                                SETP(trk->active, NULL);
+                            }
                         }
                     }
                     break;
@@ -886,7 +900,9 @@ void ProcessIT(u32 ticks)
             return;
         }
     }
-    pos = (s32)(((g_song.tick << 16) + g_song.tickFrac) / g_song.speed) >> 1;
+    /* port: an A00 effect leaves speed 0; the PowerPC's divide doesn't trap,
+     * x86's does (ARM gives 0, as here) */
+    pos = g_song.speed != 0 ? (s32)(((g_song.tick << 16) + g_song.tickFrac) / g_song.speed) >> 1 : 0;
     for (trk = g_trk, i = 0; i < 0x20; trk++, i++)
     {
         if (GETP(trk->active) != NULL && (trk->flags & 0x10))

@@ -9,6 +9,6 @@ cd "$(dirname "$0")/.." || exit 1
 exec python3 tools/gen_data.py --raw rawData \
     --hostptr g_pPlayerManager --hostptr g_rndNumber \
     --hostptr pTriggerFuncArray --hostptr pActionFuncArray \
-    --bytes g_keyBinding \
+    --bytes g_keyBinding --bytes g_priority \
     --u16 g_volTab --u16 g_panTab --u16 g_envelope \
     @tools/gen_data_names.txt

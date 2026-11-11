@@ -89,12 +89,14 @@ static inline void CarA_UpdateDamageSlaves(CarA *car) {
         frac = 100.0f * (f32)car->base.health / (f32)GETP(GETP(car->vehicleIface)->collider)->maxHealth;
         MotionState_ReleaseSlavesByType(ms, 2);
         for (i = 0; i < set->count; i++) {
-            Vector4 color = {0.0f, 0.0f, 0.0f, 0.0f};
+            /* the slaves' orientation: the identity quaternion (GameCube
+             * .rodata @463, PS2 D_002C5170); the decomp had all zeros */
+            Vector4 quat = {0.0f, 0.0f, 0.0f, 1.0f};
 
             /* the original tests slaves + i != NULL; spelled out, as compilers
              * may assume &a[i] is never NULL */
             if ((GETP(set->slaves) != NULL || i != 0) && frac < GETP(set->slaves)[i].threshold) {
-                ThingManagerList_TriggerSlaves(&ms->slaves, &GETP(set->slaves)[i], &GETP(set->slaves)[i], &color, &g_zeroVector, 2);
+                ThingManagerList_TriggerSlaves(&ms->slaves, &GETP(set->slaves)[i], &GETP(set->slaves)[i], &quat, &g_zeroVector, 2);
             }
         }
     }
@@ -1921,7 +1923,9 @@ void CarA_DynamicCollideImpact(void *thing, void *collision, s32 damage, f32 imp
         }
         if (P(CarA, coll->thingB) == NULL && Gfx_GetMinCameraDistSquared(&car->base.pos) < 10000.0f) {
             {
-                Vector4 up = {0.0f, 1.0f, 0.0f, 0.0f};
+                /* +Z, as the original (GameCube 0x800CC6D0, PS2 D_002C5260);
+                 * the decomp had +Y */
+                Vector4 up = {0.0f, 0.0f, 1.0f, 0.0f};
                 Vector4 side = {1.0f, 0.0f, 0.0f, 0.0f};
 
                 refUp = up;

@@ -115,8 +115,10 @@ void Player_SetThing(Player *player, Thing *thing) {
             }
         } else if ((u8 *)GETP(thing->vtable) == g_creatureVTable) {
             player->aiScripts.h = ((Creature *)thing)->info.h;
-            Thing_SetSlavePlayers(thing);
         }
+        /* every thing's slaves get its player, cars' too (GameCube 0x8004757C,
+         * PS2 alike); the decomp only did creatures' */
+        Thing_SetSlavePlayers(thing);
         Player_RefreshInterface(player);
     }
 }
@@ -226,9 +228,11 @@ void Player_Heartbeat(void *arg0) {
                 NavHolder_FillPointerArrayPath(path, thing->path, 7);
                 if (path != NULL) {
                     thing->pathLength = path->g;   /* the length of the path found */
-                    thing->navTimer = RandomAdd_s32(900, 100);
                 }
             }
+            /* next search in about a second, path or not (the decomp only
+             * waited after finding one, searching every frame otherwise) */
+            thing->navTimer = RandomAdd_s32(900, 100);
         }
         left = thing->pathLength;
         pos = &thing->base.pos;
@@ -247,12 +251,11 @@ void Player_Heartbeat(void *arg0) {
             DistanceXYZ(pos, a, &dist);
             thing->navDist = dist + left;
             if (Player_IsHuman(player)) {
-                while (dist < 300.0f) {
+                /* the arrow's next point: 300 units along the path, at most
+                 * its last (path[6], kept when reached) */
+                while (i < 6 && dist < 300.0f) {
                     a = GETP(thing->path[i]);
-                    /* port: when the loop above passed all six segments of a
-                     * full path, i is 6 and the original reads path[7], past
-                     * the array (a garbage pointer); end the path there */
-                    b = i + 1 < 7 ? GETP(thing->path[i + 1]) : NULL;
+                    b = GETP(thing->path[i + 1]);
                     if (a == NULL || b == NULL) {
                         if ((NavPoint *)PTR(g_TargetArrow[1]) != NULL) {
                             g_TargetArrow[2] = g_TargetArrow[1];
@@ -262,9 +265,7 @@ void Player_Heartbeat(void *arg0) {
                         break;
                     }
                     dist += Sqrt(PSVECSquareDistance(a, b));
-                    if (++i >= 6) {
-                        break;
-                    }
+                    i++;
                 }
                 if ((NavPoint *)PTR(g_TargetArrow[1]) != b) {
                     g_TargetArrow[2] = g_TargetArrow[1];
@@ -299,9 +300,11 @@ void Player_Heartbeat(void *arg0) {
                 NavHolder_FillPointerArrayPath(path, thing->path, 7);
                 if (path != NULL) {
                     thing->pathLength = path->g;   /* the length of the path found */
-                    thing->navTimer = RandomAdd_s32(900, 100);
                 }
             }
+            /* next search in about a second, path or not (the decomp only
+             * waited after finding one, searching every frame otherwise) */
+            thing->navTimer = RandomAdd_s32(900, 100);
         }
     }
     if (GETP(player->vehicle) == NULL && player->deadTime > 2000 && !(player->flags & 1) && !g_bWaitingForRoundReset &&

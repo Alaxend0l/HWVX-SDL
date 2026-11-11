@@ -1387,7 +1387,8 @@ u8 g_pQuadPackToBeReleased[88] __attribute__((aligned(16)));  /* original size 0
 
 /* g_priority (.rodata, MIDI.s) */
 u8 g_priority[16] __attribute__((aligned(4))) = {
-    [0] = W32(0xF0E0D0C), [4] = W32(0xB0A0908), [8] = W32(0x7100605), [12] = W32(0x4030201),
+    [0] = W8(0xF), [1] = W8(0xE), [2] = W8(0xD), [3] = W8(0xC), [4] = W8(0xB), [5] = W8(0xA), [6] = W8(0x9), [7] = W8(0x8),
+    [8] = W8(0x7), [9] = W8(0x10), [10] = W8(0x6), [11] = W8(0x5), [12] = W8(0x4), [13] = W8(0x3), [14] = W8(0x2), [15] = W8(0x1),
 };
 
 /* g_projectileVTable (.data, Projectile.s) */

@@ -687,7 +687,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
                         } else {
                             volume += 0.23f * skid * (slipMag / 110.0f);
                         }
-                        color.a = 255.0f * skid;
+                        color.a = 128.0f * skid;   /* 128 in the original (GameCube @883, PS2); the decomp had 255 */
                         if (color.a > maxAlpha) {
                             color.a = maxAlpha;
                         }

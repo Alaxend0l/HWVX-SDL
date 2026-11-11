@@ -620,7 +620,7 @@ f32 OBoxHitsOBox(void *boxA, Vector4 *velA, void *boxB, Vector4 *velB, void *hit
             q.x = 10.0f * GETP(a->axis[axisIdx])->x + pA.x;
             q.y = 10.0f * GETP(a->axis[axisIdx])->y + pA.y;
             q.z = 10.0f * GETP(a->axis[axisIdx])->z + pA.z;
-            Create_Plane(&plane, GETP(b->axis[(axisB + 1) % 3]), &pB);
+            Create_Plane3(&plane, GETP(b->axis[(axisB + 1) % 3]), &pB);   /* not normalised, as in the original (PS2 asm, GameCube relocation) */
             d1 = Distance_Plane(&plane, &pA);
             denom = d1 - Distance_Plane(&plane, &q);
             if (_fabs(denom) > 0.0f) {
