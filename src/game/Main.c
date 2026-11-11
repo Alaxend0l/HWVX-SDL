@@ -1,4 +1,5 @@
 #include "common.h"
+#include "viewer.h"
 
 s32 Main_Init(void) {
     
@@ -42,6 +43,9 @@ s32 Main_Init(void) {
     InterfaceManager_Init();
     GameSettings_GetGameInfo(&info);
     FileManager_SetAppInfo(GETP(info.name), GETP(info.id), GETP(info.title), GETP(info.fileName), GETP(info.icon));
+    if (Port_ViewerOn()) {   /* port: HWVX_VIEWER, the data browser's preview instead of the game (viewer.c) */
+        return Port_ViewerStart();
+    }
     return StateManager_GotoState(12) != -1;
 }
 
@@ -53,6 +57,9 @@ s32 Main_Loop(void) {
     extern s32 (*Heartbeat_Process)(void);
     s32 queued;
 
+    if (Port_ViewerOn()) {   /* port */
+        return Port_ViewerFrame();
+    }
     queued = StateManager_QueuedState();
     if (queued != -1 && queued != StateManager_GotoState(queued)) {
         return 0;
