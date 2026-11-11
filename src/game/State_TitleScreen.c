@@ -1,5 +1,8 @@
 #include "common.h"
 
+int Port_StartTitle(void *script);   /* Port_Start.c */
+void Port_StartTitleLate(void);
+
 typedef struct DemoSettings {
     u8 bRandom;
     u8 pad1[7];
@@ -82,7 +85,9 @@ s32 StateTitleScreen_Init(s32 prevState) {
         if (script == NULL) {
             return 0;
         }
-        InterfaceManager_Create(script, 0, TitleScreen_Interface);
+        if (!Port_StartTitle(script)) {   /* port: HWVX_START, testing */
+            InterfaceManager_Create(script, 0, TitleScreen_Interface);
+        }
         g_clearTextureCache = 0;
         if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
             GameSettings_SetCodeVariable(0xC8, 0, g_gameDifficulty);
@@ -102,6 +107,7 @@ s32 StateTitleScreen_Init(s32 prevState) {
     }
     ViewManager_SetCamera(camera, 0);
     GameSettings_ResetPlayerVehicleItem();
+    Port_StartTitleLate();   /* port: HWVX_START */
     return 1;
 }
 

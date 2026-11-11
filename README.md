@@ -530,6 +530,19 @@ Debugging aids:
   `savetest` (built with `-DHWVX_TESTS=ON`; `ctest -R savetest`, or
   `./savetest OUT --gci FILE` to round-trip a GameCube save) tests the store:
   round trips, atomic writes, damaged saves, backups, import.
+- `HWVX_START` boots straight into a menu, select screen or race, skipping
+  the intro screens and the menus before it (`src/game/Port_Start.c`: it
+  finds the screens through the menu pack's own go-to events and opens them
+  as the menus do; a race starts as the title's demo loop starts one):
+  `menu:mode=M` the screen M's One Player row opens (the Adventure screen,
+  the challenge or Joyride world select, the drag race or battle options);
+  `carselect[:mode=M][,car=N][,world=W]`; `itemselect`;
+  `race[:mode=M][,world=W][,car=N][,item=I]`. M is `adventure` (or
+  `mission`), `challenge`, `drag`, `battle` or `joyride` (default); W a level
+  of the mode's progression script by world name (`bat2_l9`, `ch1_l2`,
+  `world1`) or index; N and I car and item numbers. With
+  `HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1` a select screen is
+  up in a few seconds.
 - `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
   release), each loading a base car's pack (3, 4, ...) under its own number
   and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same
