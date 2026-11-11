@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Edits and errors of tools/xdl_struct.py on one car (the round trip covers the no-edit case).
 
-    python3 tools/test_xdl_struct.py [SURVEY_ROOT]      default: ../build-survey (HWVX-SDL's)
+    python3 tools/test_xdl_struct.py [SURVEY_ROOT]      default: HWVX-SDL/build-survey
 """
 
 import struct
@@ -11,7 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import xdl_struct as X  # noqa: E402
 
-survey = Path(sys.argv[1]) if len(sys.argv) > 1 else X.ROOT.parent / "build-survey"
+# default: HWVX-SDL/build-survey (in the main checkout; a worktree inside it
+# sits one level deeper, so its parent's is tried too)
+survey = Path(sys.argv[1]) if len(sys.argv) > 1 else next(
+    (d for d in (X.ROOT / "build-survey", X.ROOT.parent / "build-survey") if d.is_dir()), X.ROOT / "build-survey")
 S = X.Schemas()
 P = X.Pairing(X.find_up("docs/xdl-format/pairing"))
 fails = 0

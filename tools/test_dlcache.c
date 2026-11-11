@@ -76,10 +76,12 @@ static void Stub_copyDisp(const int src[4]) { (void)src; }
 static int Stub_readEFB(u8 *rgba) { (void)rgba; return 0; }
 static void Stub_present(void) { }
 
+/* by name: entries the test doesn't need (copyEFB, the static meshes) stay NULL */
 static const GXRenderer s_stub = {
-    "test", Stub_open, Stub_close, Stub_init, Stub_resize,
-    Stub_texCreate, Stub_texUpload, Stub_texDestroy, Stub_draw, Stub_clear,
-    Stub_drawImage, Stub_copyDisp, Stub_readEFB, Stub_present,
+    .name = "test", .open = Stub_open, .close = Stub_close, .init = Stub_init, .resize = Stub_resize,
+    .texCreate = Stub_texCreate, .texUpload = Stub_texUpload, .texDestroy = Stub_texDestroy,
+    .draw = Stub_draw, .clear = Stub_clear, .drawImage = Stub_drawImage, .copyDisp = Stub_copyDisp,
+    .readEFB = Stub_readEFB, .present = Stub_present,
 };
 
 /* ---- checks -------------------------------------------------------------- */
