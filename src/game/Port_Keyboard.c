@@ -11,7 +11,8 @@
  *   which "Press START" and many rows take, except in the pause menu, where
  *   Start resumes), Escape goes back (B), X is the X button (stats); these go
  *   into the slots (Port_KeyboardSlots, from Input_Heartbeat), where a held
- *   arrow repeats like the analog stick (InterfaceManager_KeyPress). Screens put
+ *   arrow repeats at the operating system's key repeat, as on the PC (a held
+ *   d-pad repeats like the analog stick, InterfaceManager_KeyPress). Screens put
  *   up during gameplay that wait for buttons (the mission information window
  *   at the start, briefings) get the same, but Enter is A only there, as
  *   Start would also pause;
@@ -72,10 +73,19 @@ static s32 Racing(void) {
     return InGameplay() && !MissionScreen();
 }
 
+/* The arrow slots the keyboard holds this frame (Port_KeyboardSlots). */
+static u32 s_arrowsHeld;
+
+/* InterfaceManager_KeyPress: these repeat at the operating system's key
+ * repeat, not by the stick's 250 ms timer. */
+u32 Port_KeyboardArrowsHeld(void) {
+    return s_arrowsHeld;
+}
+
 /* Input_Heartbeat, after the pads: the keyboard's slots on controller 1. */
 void Port_KeyboardSlots(VirtualPad *pad) {
     static u32 held;
-    u32 keys = Port_KeyboardKeys(), now = 0, released, i;
+    u32 keys = Port_KeyboardKeys(), repeats = Port_KeyboardRepeats(), now = 0, again = 0, released, i;
 
     if (Racing()) {
         if (KEY(PORT_KEY_ESCAPE)) now |= 1u << SLOT_START;
@@ -98,15 +108,24 @@ void Port_KeyboardSlots(VirtualPad *pad) {
         if (KEY(PORT_KEY_ESCAPE)) now |= 1u << SLOT_B;
         if (KEY(PORT_KEY_X)) now |= 1u << SLOT_X;   /* the X button (stats) */
     }
+    /* A held arrow presses again each time the operating system repeats it,
+     * at most once a frame, as the PC release's menus do (they step on every
+     * WM_KEYDOWN, Windows' own repeats included). */
+    if (repeats & (1u << PORT_KEY_UP)) again |= 1u << SLOT_UP;
+    if (repeats & (1u << PORT_KEY_DOWN)) again |= 1u << SLOT_DOWN;
+    if (repeats & (1u << PORT_KEY_LEFT)) again |= 1u << SLOT_LEFT;
+    if (repeats & (1u << PORT_KEY_RIGHT)) again |= 1u << SLOT_RIGHT;
+    again &= now;
     if (Port_OnlineMenuBlocked()) {
-        now = 0;                /* online: the host is choosing for everyone */
+        now = again = 0;        /* online: the host is choosing for everyone */
         pad->keyPress = 0;      /* the pads', this frame */
     }
     if (Port_OnlinePressA()) {
         now |= 1u << SLOT_A;    /* online: the round summary moves on together */
     }
+    s_arrowsHeld = now & (1u << SLOT_UP | 1u << SLOT_DOWN | 1u << SLOT_LEFT | 1u << SLOT_RIGHT);
     released = held & ~now;
-    pad->keyPress |= now & ~held;
+    pad->keyPress |= (now & ~held) | again;
     pad->keyDown = (pad->keyDown & ~released) | now;
     pad->keyRelease |= released;
     for (i = 0; i < 20; i++) {

@@ -1806,12 +1806,15 @@ void InterfaceManager_SetObjectReference(Interface *iface, u32 id, u32 state) {
     }
 }
 
-/* port: a held d-pad or arrow key (both are these slots) repeats in the menus by
- * pushing the stick that way, for the stick's repeat below. Online, the keys of a
- * player who isn't choosing don't count (Port_KeyboardSlots drops their presses). */
+/* port: a held d-pad repeats in the menus by pushing the stick that way, for the
+ * stick's repeat below. A held arrow key (the same slots, on controller 1) doesn't:
+ * Port_KeyboardSlots presses it again at the operating system's key repeat, as the
+ * PC release does. Online, the keys of a player who isn't choosing don't count
+ * (Port_KeyboardSlots drops their presses). */
+u32 Port_KeyboardArrowsHeld(void);
 static s32 Port_MenuAnalog(s32 chan, s16 *x, s16 *y, s16 *cx, s16 *cy) {
     s32 ok = Input_GetAnalog(chan, x, y, cx, cy);
-    u32 down = g_VirtualPad[chan].keyDown;
+    u32 down = g_VirtualPad[chan].keyDown & ~(chan == 0 ? Port_KeyboardArrowsHeld() : 0);
 
     if (ok && !Port_OnlineMenuBlocked()) {
         if (down & (1u << 3)) *x = 127;

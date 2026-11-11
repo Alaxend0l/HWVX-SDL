@@ -192,6 +192,10 @@ enum {
     PORT_KEY_GRAVE, PORT_KEY_X,
 };
 u32 Port_KeyboardKeys(void);
+/* The keys the operating system repeated (key-down events with the repeat
+ * flag) since the last call, as the same bits; reading clears them. The PC
+ * release's menus step once per such repeat (its WM_KEYDOWN path). */
+u32 Port_KeyboardRepeats(void);
 /* Widescreen (gx_draw.c): how much wider (wx) and taller (wy) than 4:3 the
  * game's single view is drawn; 1, 1 in split screen. The game's culling and
  * on-screen tests (Render_SetClipPlanes, isInWindow) widen by these. */

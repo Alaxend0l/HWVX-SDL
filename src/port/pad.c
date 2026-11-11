@@ -30,9 +30,27 @@ static void OpenPad(SDL_JoystickID id) {
     }
 }
 
+/* Arrow keys the OS repeated since Port_KeyboardRepeats last ran. */
+static u32 s_keyRepeats;
+
+u32 Port_KeyboardRepeats(void) {
+    u32 bits = s_keyRepeats;
+
+    s_keyRepeats = 0;
+    return bits;
+}
+
 void Pad_PortHandleEvent(const SDL_Event *ev) {
     int i;
-    if (ev->type == SDL_EVENT_GAMEPAD_ADDED) {
+    if (ev->type == SDL_EVENT_KEY_DOWN && ev->key.repeat) {
+        switch (ev->key.scancode) {
+        case SDL_SCANCODE_UP: s_keyRepeats |= 1u << PORT_KEY_UP; break;
+        case SDL_SCANCODE_DOWN: s_keyRepeats |= 1u << PORT_KEY_DOWN; break;
+        case SDL_SCANCODE_LEFT: s_keyRepeats |= 1u << PORT_KEY_LEFT; break;
+        case SDL_SCANCODE_RIGHT: s_keyRepeats |= 1u << PORT_KEY_RIGHT; break;
+        default: break;
+        }
+    } else if (ev->type == SDL_EVENT_GAMEPAD_ADDED) {
         for (i = 0; i < PAD_MAX_CONTROLLERS; i++) {
             if (s_pads[i] != NULL && SDL_GetGamepadID(s_pads[i]) == ev->gdevice.which) {
                 return;
