@@ -144,7 +144,21 @@ static void DumpScreen(const InterfaceHeader *h, const InterfaceHeader **queue, 
             size_t len = strlen(line);
             const IfaceConditionList *cl = GETP(d->conditions);
 
-            snprintf(line + len, sizeof(line) - len, " x %.0f active %u%s", x, d->active, cl != NULL ? " cond" : "");
+            u32 c;
+
+            snprintf(line + len, sizeof(line) - len, " x %.0f active %u", x, d->active);
+            for (c = 0; cl != NULL && c < cl->count && GETP(cl->conds) != NULL; c++) {
+                const IfaceCondition *cd = &GETP(cl->conds)[c];
+
+                len = strlen(line);
+                if (cd->type == 2 && GETP(cd->data) != NULL) {
+                    snprintf(line + len, sizeof(line) - len, " %s%u:c%X==%d", c ? "" : "if", cl->type,
+                             ((const IfaceCodeVar *)GETP(cd->data))->id, cd->value);
+                } else {
+                    snprintf(line + len, sizeof(line) - len, " %s%u:t%u==%d", c ? "" : "if", cl->type, cd->type,
+                             cd->value);
+                }
+            }
         }
         Port_Log("menudump:   %2u type %u role %u y %.0f%s%s%s%s", i, d->type, d->role, y, t != NULL ? " \"" : "",
                  t != NULL ? t : "", t != NULL ? "\"" : "", line);
