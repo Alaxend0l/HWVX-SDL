@@ -112,7 +112,10 @@ typedef struct DVDCommandBlock {
 typedef struct DVDFileInfo {
     union {
         DVDCommandBlock cb;
-        void *host;   /* port: SDL_IOStream */
+        struct {
+            void *host;   /* port: SDL_IOStream */
+            u32 format;   /* port: whose data the file is, PORT_DATA_* (port.h) */
+        };
     };
     u32 startAddr;    /* 0x30 */
     u32 length;       /* 0x34 */

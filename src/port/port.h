@@ -184,6 +184,34 @@ int Port_AllCheats(void);
  * data (GameSetting_Init) and skips the autoload of the newest save;
  * GameSettings_PortAutoLoad reads it. */
 int Port_ResetSave(void);
+/* Data formats (dvd.c, game/Port_Data.c). The releases share the BrainCore
+ * pack format and the file names; a data folder can mix them file by file.
+ * dvd.c finds each file under its GameCube name first, then the others'. */
+enum {
+    PORT_DATA_GC,   /* .xgc: big-endian, GX geometry and textures */
+    PORT_DATA_PC,   /* .xpc: little-endian, OpenGL triangle lists, DXT textures */
+    PORT_DATA_PS2,  /* .xps: little-endian (not supported yet) */
+    PORT_DATA_COUNT
+};
+/* The PC release's texture formats (pack header u16 0) as Texture.format
+ * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
+ * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,
+ * GX_TF_PORT | format. */
+enum {
+    PORT_TEX_PC = 0x100,
+    PORT_TEX_PC_RGB8 = 0,       /* RGB888, row-major */
+    PORT_TEX_PC_RGBA8 = 1,      /* RGBA8888, row-major */
+    PORT_TEX_PC_DXT1 = 4,       /* drawn as RGB: the PC uploads it without alpha */
+    PORT_TEX_PC_DXT5 = 5,
+    GX_TF_PORT = 0x40,
+};
+static inline int Port_PCTextureGXFormat(u32 texFormat) {
+    return GX_TF_PORT | (int)(texFormat & 0xF);
+}
+/* gfx_settings.c: draw the PC release's textures with the GameCube's colours
+ * (its texels are the PC's squared, gc = pc * pc / 255), or as the PC drew
+ * them. graphics.cfg "pctextures=gc|pc", HWVX_PC_TEXTURES overrides. */
+int Port_PCTexturesLookGC(void);
 /* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
  * src/game/Port_Keyboard.c turns them into the PC release's controls. */
 enum {

@@ -1,13 +1,17 @@
 /* GameCube texture formats -> RGBA8 renderer textures (gx_render.h).
  *
  * Texture data is big-endian and tiled (the data packs keep pixel data as it
- * is on the disc). Decoded textures are cached by address, format, size and a
+ * is on the disc). The PC release's textures come as port-only formats
+ * (GX_TF_PORT | PORT_TEX_PC_*, port.h): DXT1/DXT5 and raw RGB(A), row-major,
+ * little-endian, mip levels back to back, as its OpenGL upload took them. Decoded textures are cached by address, format, size and a
  * hash of their first bytes, since packs reuse memory for other textures. */
 #include "gx_render.h"
 
 enum {
     TF_I4 = 0, TF_I8 = 1, TF_IA4 = 2, TF_IA8 = 3, TF_RGB565 = 4, TF_RGB5A3 = 5,
-    TF_RGBA8 = 6, TF_C4 = 8, TF_C8 = 9, TF_C14X2 = 10, TF_CMPR = 14
+    TF_RGBA8 = 6, TF_C4 = 8, TF_C8 = 9, TF_C14X2 = 10, TF_CMPR = 14,
+    TF_PC_RGB8 = GX_TF_PORT | PORT_TEX_PC_RGB8, TF_PC_RGBA8 = GX_TF_PORT | PORT_TEX_PC_RGBA8,
+    TF_PC_DXT1 = GX_TF_PORT | PORT_TEX_PC_DXT1, TF_PC_DXT5 = GX_TF_PORT | PORT_TEX_PC_DXT5
 };
 
 typedef struct TexEntry {
@@ -25,6 +29,10 @@ static void BlockSize(int fmt, int *bw, int *bh, int *bpp) {
     case TF_I4: case TF_C4: case TF_CMPR: *bw = 8; *bh = 8; *bpp = 4; break;
     case TF_I8: case TF_IA4: case TF_C8: *bw = 8; *bh = 4; *bpp = 8; break;
     case TF_RGBA8: *bw = 4; *bh = 4; *bpp = 32; break;
+    case TF_PC_DXT1: *bw = 4; *bh = 4; *bpp = 4; break;
+    case TF_PC_DXT5: *bw = 4; *bh = 4; *bpp = 8; break;
+    case TF_PC_RGB8: *bw = 1; *bh = 1; *bpp = 24; break;
+    case TF_PC_RGBA8: *bw = 1; *bh = 1; *bpp = 32; break;
     default: *bw = 4; *bh = 4; *bpp = 16; break;
     }
 }
@@ -87,6 +95,72 @@ static void DecodeCMPRBlock(const u8 *src, u8 *out, int w, int h, int x0, int y0
             u8 *c = pal[(bits >> (6 - x * 2)) & 3];
             Put(out, w, h, x0 + x, y0 + y, c[0], c[1], c[2], c[3]);
         }
+    }
+}
+
+/* A DXT colour block (little-endian RGB565 pair, 2-bit indices, pixel 0 in
+ * the low bits). The PC draws DXT1 as RGB (GL_COMPRESSED_RGB_S3TC_DXT1), so
+ * its c0 <= c1 fourth colour is opaque black; DXT5 always uses 4 colours. */
+static void DecodeDXTColor(const u8 *src, u8 *out, int w, int h, int x0, int y0, const u8 *alpha) {
+    u16 c0 = (u16)(src[0] | src[1] << 8), c1 = (u16)(src[2] | src[3] << 8);
+    u32 bits = (u32)src[4] | (u32)src[5] << 8 | (u32)src[6] << 16 | (u32)src[7] << 24;
+    u8 pal[4][4];
+    int i, p;
+
+    Rgb565(c0, pal[0]);
+    Rgb565(c1, pal[1]);
+    if (c0 > c1 || alpha != NULL) {
+        for (i = 0; i < 3; i++) {
+            pal[2][i] = (u8)((2 * pal[0][i] + pal[1][i]) / 3);
+            pal[3][i] = (u8)((pal[0][i] + 2 * pal[1][i]) / 3);
+        }
+    } else {
+        for (i = 0; i < 3; i++) {
+            pal[2][i] = (u8)((pal[0][i] + pal[1][i]) / 2);
+            pal[3][i] = 0;
+        }
+    }
+    pal[2][3] = pal[3][3] = 255;
+    for (p = 0; p < 16; p++) {
+        u8 *c = pal[(bits >> (p * 2)) & 3];
+        Put(out, w, h, x0 + (p & 3), y0 + (p >> 2), c[0], c[1], c[2], alpha != NULL ? alpha[p] : 255);
+    }
+}
+
+/* A DXT5 alpha block: two endpoints, 3-bit indices (48 bits, little-endian). */
+static void DecodeDXT5Alpha(const u8 *src, u8 *alpha) {
+    u8 a[8];
+    u64 bits = 0;
+    int i;
+
+    a[0] = src[0];
+    a[1] = src[1];
+    for (i = 2; i < 8; i++) {
+        if (a[0] > a[1]) {
+            a[i] = (u8)(((8 - i) * a[0] + (i - 1) * a[1]) / 7);
+        } else if (i < 6) {
+            a[i] = (u8)(((6 - i) * a[0] + (i - 1) * a[1]) / 5);
+        } else {
+            a[i] = i == 6 ? 0 : 255;
+        }
+    }
+    for (i = 0; i < 6; i++) {
+        bits |= (u64)src[2 + i] << (8 * i);
+    }
+    for (i = 0; i < 16; i++) {
+        alpha[i] = a[(bits >> (3 * i)) & 7];
+    }
+}
+
+/* The PC release's texels are the GameCube's square roots: squared, they
+ * draw with the GameCube's colours (Port_PCTexturesLookGC). Alpha stays. */
+static void SquareColours(u8 *rgba, int w, int h) {
+    int i;
+
+    for (i = 0; i < w * h; i++) {
+        rgba[i * 4 + 0] = (u8)((rgba[i * 4 + 0] * rgba[i * 4 + 0] + 127) / 255);
+        rgba[i * 4 + 1] = (u8)((rgba[i * 4 + 1] * rgba[i * 4 + 1] + 127) / 255);
+        rgba[i * 4 + 2] = (u8)((rgba[i * 4 + 2] * rgba[i * 4 + 2] + 127) / 255);
     }
 }
 
@@ -172,6 +246,26 @@ static void DecodeLevel(int fmt, const u8 *src, int w, int h, u8 *out) {
                 DecodeCMPRBlock(src + 16, out, w, h, bx, by + 4);
                 DecodeCMPRBlock(src + 24, out, w, h, bx + 4, by + 4);
                 src += 32;
+                break;
+            case TF_PC_DXT1:
+                DecodeDXTColor(src, out, w, h, bx, by, NULL);
+                src += 8;
+                break;
+            case TF_PC_DXT5: {
+                u8 alpha[16];
+
+                DecodeDXT5Alpha(src, alpha);
+                DecodeDXTColor(src + 8, out, w, h, bx, by, alpha);
+                src += 16;
+                break;
+            }
+            case TF_PC_RGB8:
+                Put(out, w, h, bx, by, src[0], src[1], src[2], 255);
+                src += 3;
+                break;
+            case TF_PC_RGBA8:
+                Put(out, w, h, bx, by, src[0], src[1], src[2], src[3]);
+                src += 4;
                 break;
             default:
                 return;
@@ -331,7 +425,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     u8 *image = PTR(d[0]);
     int w = (int)(d[1] >> 16), h = (int)(d[1] & 0xFFFF), fmt = (int)d[2];
     int levels = 1, l;
-    u32 key = d[1] ^ (u32)fmt << 28, hash, oldest = 0, i;
+    u32 key = d[1] ^ (u32)fmt * 0x9E3779B1u, hash, oldest = 0, i;   /* fmt: up to the port's 0x4F */
     u8 *rgba;
 
     if (image == NULL || w == 0 || h == 0 || w > 1024 || h > 1024) {
@@ -383,6 +477,9 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
             if (lh < 1) lh = 1;
             memset(rgba, 0, (size_t)lw * lh * 4);
             DecodeLevel(fmt, image, lw, lh, rgba);
+            if (fmt >= GX_TF_PORT && Port_PCTexturesLookGC()) {
+                SquareColours(rgba, lw, lh);
+            }
             g_gxr->texUpload(e->tex, l, lw, lh, rgba);
             image += LevelSize(fmt, lw, lh);
         }

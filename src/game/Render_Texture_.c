@@ -9,7 +9,7 @@ typedef struct Texture {
     u16 width;
     u16 height;
     s16 refCount;
-    u16 format;                 /* 0x38 4: CMPR, 1: RGBA8, 0/2: RGB565 */
+    u16 format;                 /* 0x38 4: CMPR, 1: RGBA8, 0/2: RGB565; port: PORT_TEX_* (the PC release's) */
     u16 fromPack;               /* 0x3A 1: pack texture, data not freed */
     u16 view;
     u16 wrapMode;
@@ -46,6 +46,9 @@ void Render_CreateTextureSlot(u32 id) {
         case 4:
             format = 0xE;
             break;
+        default:
+            format = Port_PCTextureGXFormat(texs[id].format);   /* port */
+            break;
         }
         GXInitTexObj(obj, GXGetTexObjData(obj), texs[id].texWidth, texs[id].width, format, wrap, wrap, texs[id].height > 1 ? 1 : 0);
         return;
@@ -67,6 +70,11 @@ void Render_CreateTextureSlot(u32 id) {
         texs = m_texture;
         format = 0xE;
         data = GETP(texs[id].data);
+        break;
+    default:
+        /* port: the PC release's textures (Port_Data.c), decoded by gx_tex.c */
+        format = Port_PCTextureGXFormat(tex->format);
+        data = GETP(tex->data);
         break;
     }
     tex = &m_texture[id];

@@ -32,4 +32,20 @@ static inline void PortSwap_StoreTextureID(u8 *base, u32 slot, u32 texID) {
 
 /* The PortSwap_* functions are declared in game_protos.h (generated). */
 
+/* FileManager_NGC.c: whose data the file is, PORT_DATA_* (port.h). */
+s32 Port_FileFormat(s32 handle);
+
+/* Port_Data.c: each load step for a file of format `fmt`. GameCube packs go
+ * to the byte-swapper (PortSwap_*); the other releases' to their converters. */
+void PortData_Words(s32 fmt, void *words, u32 count);
+void PortData_TOC(s32 fmt, u32 *buf, u32 bufWords);
+void PortData_PackHeader(s32 fmt, u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
+void PortData_SoundPointers(s32 fmt, u32 *pointers, u32 count, u8 *soundBase);
+void PortData_SFX(s32 fmt, u8 *sfx, u32 count);
+void PortData_PackData(s32 fmt, u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize,
+                       u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers,
+                       u32 textureDataOffset, u32 numTextures, u32 shaderOffset, u32 numShaders,
+                       u32 triggerOffset, u32 numTriggers);
+void PortData_QuadPack(s32 fmt, u8 *data, u32 size, u32 index);
+
 #endif

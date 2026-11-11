@@ -98,14 +98,57 @@ SDL_IOStream *Port_OpenDiscFile(const char *name) {
 
 void DVDInit(void) {}
 
+/* Where the releases keep a pack the game asks for by its GameCube name
+ * (".xgc"): the extension, and a folder to look in first (PS2: XPS/ENGLISH/).
+ * Formats past the GameCube's are only found in a data folder, not a disc
+ * image. */
+static const struct {
+    const char *ext;
+    const char *dir;
+} s_formats[PORT_DATA_COUNT] = {
+    [PORT_DATA_GC] = { ".xgc", "" },
+    [PORT_DATA_PC] = { ".xpc", "" },
+    [PORT_DATA_PS2] = { NULL, NULL },   /* .xps under XPS/ENGLISH/: not loadable yet (game/Port_Data.c) */
+};
+
+/* fileName as format `fmt` would name it, or NULL if it isn't a pack. */
+static char *FormatName(const char *fileName, int fmt) {
+    size_t n = SDL_strlen(fileName);
+    size_t len;
+    char *name;
+
+    if (s_formats[fmt].ext == NULL || n < 4 || SDL_strcasecmp(fileName + n - 4, ".xgc") != 0) {
+        return NULL;
+    }
+    len = SDL_strlen(s_formats[fmt].dir) + n + 1;
+    name = SDL_malloc(len);
+    SDL_snprintf(name, len, "%s%.*s%s", s_formats[fmt].dir, (int)(n - 4), fileName, s_formats[fmt].ext);
+    return name;
+}
+
 BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
     SDL_IOStream *io = OpenDiscFile(fileName);
+    u32 format = PORT_DATA_GC;
+    int fmt;
+
+    /* A data folder can hold another release's packs instead, file by file
+     * (game/Port_Data.c reads the format back through Port_FileFormat). */
+    for (fmt = PORT_DATA_GC + 1; io == NULL && fmt < PORT_DATA_COUNT && !Disc_IsOpen(); fmt++) {
+        char *alt = FormatName(fileName, fmt);
+
+        if (alt != NULL) {
+            io = OpenDiscFile(alt);
+            format = fmt;
+            SDL_free(alt);
+        }
+    }
     if (io == NULL) {
         Port_Log("DVDOpen: %s not found", fileName);
         return FALSE;
     }
     memset(fi, 0, sizeof(*fi));
     fi->host = io;
+    fi->format = format;
     fi->length = (u32)SDL_GetIOSize(io);
     return TRUE;
 }

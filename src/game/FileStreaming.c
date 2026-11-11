@@ -3,6 +3,7 @@
  * become active/inactive, and their item spawn points respawn pickups. Also
  * the pool of streamed data packs (g_StreamingDataPacks). */
 #include "common.h"
+#include "Port_Swap.h"
 #include "Gfx.h"
 #include "World.h"
 #include "ThingManager.h"
@@ -522,7 +523,7 @@ void LoadQuadrants(s8 refresh) {
         g_quadFileID = File_Open(0, path, 0, NULL);
         if (g_quadFileID != -1) {
             File_Read(g_quadFileID, 0x10, tocHeader);
-            Port_SwapArray32(tocHeader, 4);  /* big-endian file */
+            PortData_Words(Port_FileFormat(g_quadFileID), tocHeader, 4);  /* port: GameCube files are big-endian */
             if (tocHeader[0].version != 0x020100A0 || tocHeader[0].type != 0x040100AE) {
                 error = 1;
             } else if (tocHeader[0].world != 0xB7) {
@@ -531,7 +532,7 @@ void LoadQuadrants(s8 refresh) {
             } else {
                 count = tocHeader[0].id;
                 File_Read(g_quadFileID, count * sizeof(TocEntry), tocHeader);
-                Port_SwapArray32(tocHeader, count * sizeof(TocEntry) / 4);
+                PortData_Words(Port_FileFormat(g_quadFileID), tocHeader, count * sizeof(TocEntry) / 4);
                 for (i = 0; i < ((World *)GETP(g_worldData.world))->numQuads; i++) {
                     quad = &GETP(((World *)GETP(g_worldData.world))->quads)[i];
                     alt = 0;

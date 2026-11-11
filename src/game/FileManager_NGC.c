@@ -135,6 +135,16 @@ s32 File_Open(u32 dev, const char *name, u32 flags, s32 *size) {
     return (g_files[i].slot << 8) | i;
 }
 
+/* port: whose data `handle` is, PORT_DATA_* (dvd.c DVDOpen; Port_Data.c). */
+s32 Port_FileFormat(s32 handle) {
+    s32 idx = (s8)(u8)handle;
+
+    if ((u8)((u32)handle >> 16) >= 11 || idx < 0 || idx >= 4 || g_filedata_PC[idx].fileInfo == 0) {
+        return PORT_DATA_GC;
+    }
+    return ((DVDFileInfo *)PTR(g_filedata_PC[idx].fileInfo))->format;
+}
+
 void File_Close(s32 handle) {
     s32 slot = (s8)(u8)((u32)handle >> 8);
     s32 idx = (s8)(u8)handle;

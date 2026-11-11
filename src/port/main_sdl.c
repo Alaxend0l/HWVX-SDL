@@ -180,6 +180,11 @@ static int HasData(const char *dir) {
         return 0;
     }
     SDL_snprintf(path, sizeof(path), "%s/" DATA_MARKER, dir);
+    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
+        return 1;
+    }
+    /* or the PC release's install folder (HW_share.xpc; dvd.c DVDOpen) */
+    SDL_snprintf(path, sizeof(path), "%s/HW_share.xpc", dir);
     return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
 }
 

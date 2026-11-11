@@ -85,7 +85,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     tocName = toc->name;
     if (tocName == NULL || strcmp(tocName, name) != 0) {
         File_Read(g_fileID, 0x800, g_buffer);
-        PortSwap_TOC(g_buffer, 0x800 / 4);  /* port: the file is big-endian */
+        PortData_TOC(Port_FileFormat(g_fileID), g_buffer, 0x800 / 4);  /* port: GameCube files are big-endian */
         if (g_buffer[0] != 0x020100A0 || g_buffer[1] != 0x040100AE) {
             File_Close(g_fileID);
             g_fileID = -1;
@@ -191,10 +191,13 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     u32 *pointers;
     u32 packID;
     u32 idx;
+    s32 fmt;
 
     memset(pack, 0, sizeof(DataPack));
     File_Read(file, sizeof(DataPackFileHeader), &header);
-    PortSwap_PackHeader((u32 *)&header, 20, 2, sizeof(DataPackRef));  /* port */
+    fmt = Port_FileFormat(file);   /* port: whose pack it is (Port_Data.c) */
+    pack->portFormat = (u8)fmt;
+    PortData_PackHeader(fmt, (u32 *)&header, 20, 2, sizeof(DataPackRef));
     pack->numRelocs = header.numRelocs;
     pack->numSoundRelocs = header.numSoundRelocs;
     pack->numTextures = header.numTextures;
@@ -234,11 +237,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         SETP(pack->soundBase, (u8 *)PTR((((u32)HND(sfx) + 0x1F) & ~0x1F)));
         /* port: the pointer table and the slots it lists are big-endian; the
          * rest of the sound data stays so (the mixer reads it that way) */
-        Port_SwapArray32(data, header.numSoundPointers);
-        for (i = 0; i < header.numSoundPointers; i++) {
-            u32 *slot = (u32 *)(GETP(pack->soundBase) + ((u32 *)data)[i]);
-            *slot = BE32(*slot);
-        }
+        PortData_SoundPointers(fmt, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
         UpdatePointers((u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
         SETP(pack->sfxData, (u8 *)((u8 *)GETP(pack->soundBase) + header.sfxOffset));
         if (header.songOffset != 0 || (header.soundDataSize != 0 && header.numSoundRelocs == 0)) {
@@ -253,7 +252,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             pack->songLoaded = 1;
         }
         sfx = GETP(pack->sfxData);
-        PortSwap_SFXDescriptors(sfx, pack->numSounds);  /* port */
+        PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
         for (i = 0; i < pack->numSounds; i++) {
             if (g_bSoundLoadingEnabled) {
                 GETP(pack->soundIDs)[i] = CreateSFX(sfx);
@@ -296,7 +295,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         u32 *texRelocs = (u32 *)(blob + header.dataSize);
 
         g_portSwapNumTextureRelocs = header.numRelocs;
-        PortSwap_PackData(data, tablesSize / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
+        PortData_PackData(fmt, data, tablesSize / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
                           texRelocs + header.numTexRelocs * 2, header.numPointers,
                           header.textureDataOffset, header.numTextures,
                           header.shaderOffset, header.numShaders,
@@ -362,7 +361,7 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
         if (alloc != NULL) {
             data = (u8 *)PTR((((u32)HND(alloc) + 0x3F) & ~0x3F));
             File_Read(file, quad->size, data);
-            PortSwap_QuadPack(data, quad->size, quad->enabled);  /* port: big-endian file */
+            PortData_QuadPack(Port_FileFormat(file), data, quad->size, quad->enabled);  /* port */
             SETP(quad->header, (QuadPackHeader *)data);
             offset = 0x54;
             header = GETP(quad->header);
@@ -485,7 +484,8 @@ void DataPack_RefreshTextures(DataPack *pack) {
         for (i = 0; i < pack->numTextures; i++) {
             GETP(pack->textureIDs)[i] = Gfx_LoadTexture_RAM(&tex);
             texData = HND(tex);
-            if (texData & 0x1F) {
+            /* the PC release packs the 0x10-byte headers (Port_Data.c) */
+            if ((texData & 0x1F) && pack->portFormat != PORT_DATA_PC) {
                 tex += 0x20 - (texData & 0x1F);
             }
         }

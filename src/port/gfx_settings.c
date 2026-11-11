@@ -26,6 +26,9 @@
  *   on screen, menus and movies too, but not the frames HWVX_DUMP saves.
  * - FOV: a bar like the volumes', -25% to +25% of the view of the camera the
  *   player is driving with (Port_GfxFovScale). Scripted shots keep their framing.
+ * - PC textures (graphics.cfg only, no menu row yet): the colours the PC
+ *   release's textures are drawn with, the GameCube's (default) or the PC's
+ *   own, brighter ones (Port_PCTexturesLookGC).
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -70,6 +73,17 @@ int Port_GfxFrameRate(void) {
 /* Half a bar is one doubling of the power: 2 at the dark end, 1/2 at the bright. */
 f32 Port_GfxGammaPower(void) {
     return g_port.gamma == BAR_MIDDLE ? 1.0f : SDL_powf(2.0f, (f32)(BAR_MIDDLE - g_port.gamma) / BAR_MIDDLE);
+}
+
+/* The PC release's textures (port.h): GameCube colours unless graphics.cfg
+ * or HWVX_PC_TEXTURES=pc says the PC's own. Read as each texture decodes. */
+int Port_PCTexturesLookGC(void) {
+    const char *env = SDL_getenv("HWVX_PC_TEXTURES");
+
+    if (env != NULL) {
+        return SDL_strcmp(env, "pc") != 0;
+    }
+    return !g_port.pcTexturesPC;
 }
 
 f32 Port_GfxFovScale(void) {
@@ -163,20 +177,26 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.gamma = bar;
         } else if (SDL_sscanf(line, "fov=%d", &bar) == 1 && bar >= 0 && bar <= 100) {
             g_port.fov = bar;
+        } else if (SDL_strcmp(line, "pctextures=pc") == 0) {
+            g_port.pcTexturesPC = 1;
+        } else if (SDL_strcmp(line, "pctextures=gc") == 0) {
+            g_port.pcTexturesPC = 0;
         }
     }
     SDL_free(text);
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[128];
+    char *path = ConfigPath(), buf[160];
     int n;
 
     if (path == NULL) {
         return;
     }
-    n = SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\nfullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\n",
-                     w, h, full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov);
+    n = SDL_snprintf(buf, sizeof(buf),
+                     "resolution=%dx%d\nfullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n",
+                     w, h, full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
+                     g_port.pcTexturesPC ? "pc" : "gc");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }
