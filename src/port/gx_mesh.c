@@ -16,8 +16,13 @@ static u32 s_cap;
 
 static GXVertex *Scratch(u32 n) {
     if (n > s_cap) {
+        GXVertex *grown = SDL_realloc(s_verts, (n + 1024) * sizeof(GXVertex));
+
+        if (grown == NULL) {
+            return NULL;    /* the old buffer stays; this draw is skipped */
+        }
+        s_verts = grown;
         s_cap = n + 1024;
-        s_verts = SDL_realloc(s_verts, s_cap * sizeof(GXVertex));
     }
     return s_verts;
 }
@@ -80,6 +85,9 @@ void GX_PortDrawIndexed(const GXPortMesh *m, int prim, const u16 *idx, u32 count
         return;
     }
     v = Scratch(count);
+    if (v == NULL) {
+        return;
+    }
     for (i = 0; i < count; i++) {
         BuildVertex(m, idx[i], use, curSlot, &v[i]);
     }

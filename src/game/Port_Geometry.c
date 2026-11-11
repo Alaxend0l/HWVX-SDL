@@ -51,6 +51,7 @@ static struct {
     u32 geoms, skinned, shadow, levels, failed, flipped;
     const char *why;
 } s_stat;
+static int s_oomLogged;
 
 /* A level's converted data, before it is copied into the pack's block. */
 typedef struct LevelOut {
@@ -108,7 +109,8 @@ static int ReadArrays(const u8 *base, u32 size, const u32 *vb, Arrays *a) {
     u32 off[3] = { vb[0], vb[1], vb[2] }, end = vb[3], i;
     u32 bound[3];
 
-    if (!InBlob(base, size, vb, 0x10) || !InBlob(base, size, data, end) || off[0] > end) {
+    if (!InBlob(base, size, vb, 0x10) || !InBlob(base, size, data, end) || off[0] > end || off[1] > end ||
+        off[2] > end || off[0] % 12 != 0) {
         return 0;
     }
     /* each array runs to the next one that starts after it, or the end */
@@ -560,7 +562,13 @@ void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPoi
         if (p != NULL) {
             p = PlaceLevel(l, p);
         } else {
-            l->lod->portLayout = PORT_LAYOUT_GX;     /* out of memory: stays a display-list level */
+            /* out of memory: the level draws nothing (there is no display-list
+             * path to fall back to) */
+            l->lod->numGroups = 0;
+            if (!s_oomLogged) {
+                Port_Log("geometry: out of memory converting a pack, some models won't draw");
+                s_oomLogged = 1;
+            }
         }
         FreeLevel(l);
     }
@@ -605,6 +613,7 @@ void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPoi
 
 typedef struct PS2Batch {
     u32 count, prim;
+    u32 numUV, numNrm, numCol;          /* what each unpack holds: at least count */
     const u8 *pos, *uv, *nrm, *col;   /* V4-32, V2-32, V3-32, V4-8 */
 } PS2Batch;
 
@@ -651,6 +660,10 @@ static int ReadPS2Batches(const u8 *base, u32 size, const u8 *dma, PS2Batch *out
             u32 count = num ? num : 256, addr = imm & 0x3FF;
 
             len = (count * el + 3) & ~3u;
+            if (len > (u32)(end - q)) {
+                s_stat.why = "a PS2 unpack past the end of its packet";
+                return -1;
+            }
             if (addr == 0) {
                 u64 lo;
 
@@ -670,10 +683,13 @@ static int ReadPS2Batches(const u8 *base, u32 size, const u8 *dma, PS2Batch *out
                 out[n].count = count;
             } else if (addr == 2 && cmd == 0x64) {
                 out[n].uv = q;
+                out[n].numUV = count;
             } else if (addr == 3 && cmd == 0x68) {
                 out[n].nrm = q;
+                out[n].numNrm = count;
             } else if (addr == 3 && cmd == 0x6E) {
                 out[n].col = q;
+                out[n].numCol = count;
             } else {
                 s_stat.why = "a PS2 unpack to an unknown VU address";
                 return -1;
@@ -693,6 +709,11 @@ static int ReadPS2Batches(const u8 *base, u32 size, const u8 *dma, PS2Batch *out
     for (tag = 0; (int)tag <= n; tag++) {
         if (out[tag].pos == NULL || out[tag].uv == NULL || (out[tag].nrm == NULL) == (out[tag].col == NULL)) {
             s_stat.why = "a PS2 batch without positions, uvs and one of normals/colours";
+            return -1;
+        }
+        if (out[tag].numUV < out[tag].count || (out[tag].nrm != NULL && out[tag].numNrm < out[tag].count) ||
+            (out[tag].col != NULL && out[tag].numCol < out[tag].count)) {
+            s_stat.why = "a PS2 batch with fewer uvs, normals or colours than positions";
             return -1;
         }
     }
