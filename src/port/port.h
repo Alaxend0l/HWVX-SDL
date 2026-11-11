@@ -216,6 +216,11 @@ int Port_PCTexturesLookGC(void);
  * Online rows, src/game/Port_Menu.c). graphics.cfg "mainmenu=original|port",
  * HWVX_ORIGINAL_MAINMENU=1|0 overrides. */
 int Port_OriginalMainMenu(void);
+/* gfx_settings.c: split screen draws every model one LOD level coarser, as
+ * the GameCube did (Gfx_GeometryHandler.c). Default off: full detail, as the
+ * PC release at high Geometry Quality. graphics.cfg "splitlod=full|gc",
+ * HWVX_SPLITSCREEN_LOD=gc|full overrides. */
+int Port_SplitScreenCoarseLOD(void);
 /* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
  * src/game/Port_Keyboard.c turns them into the PC release's controls. */
 enum {

@@ -29,6 +29,9 @@
  * - PC textures (graphics.cfg only, no menu row yet): the colours the PC
  *   release's textures are drawn with, the GameCube's (default) or the PC's
  *   own, brighter ones (Port_PCTexturesLookGC).
+ * - Split-screen LOD (graphics.cfg "splitlod=full|gc", no menu row): full
+ *   detail in split screen (default, like the PC release), or one LOD level
+ *   coarser as the GameCube drew it (Port_SplitScreenCoarseLOD).
  * - Main menu (graphics.cfg "mainmenu=original|port", no menu row: the
  *   Graphics screen stays as it is; HWVX_ORIGINAL_MAINMENU=1 or 0 overrides
  *   it): "port" (default) adds the port's rows to the GameCube main menu -
@@ -105,6 +108,19 @@ int Port_OriginalMainMenu(void) {
         return SDL_atoi(env) != 0;
     }
     return g_port.originalMainMenu;
+}
+
+/* Split-screen LOD (graphics.cfg "splitlod=full|gc", no menu row;
+ * HWVX_SPLITSCREEN_LOD overrides): the GameCube drew every model one level
+ * coarser whenever the screen was split; the PC release does that only at
+ * low Geometry Quality. Default: full detail. */
+int Port_SplitScreenCoarseLOD(void) {
+    const char *env = SDL_getenv("HWVX_SPLITSCREEN_LOD");
+
+    if (env != NULL) {
+        return SDL_strcmp(env, "gc") == 0;
+    }
+    return g_port.splitLodGC;
 }
 
 f32 Port_GfxFovScale(void) {
@@ -206,13 +222,17 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.originalMainMenu = 1;
         } else if (SDL_strcmp(line, "mainmenu=port") == 0) {
             g_port.originalMainMenu = 0;
+        } else if (SDL_strcmp(line, "splitlod=gc") == 0) {
+            g_port.splitLodGC = 1;
+        } else if (SDL_strcmp(line, "splitlod=full") == 0) {
+            g_port.splitLodGC = 0;
         }
     }
     SDL_free(text);
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[192];
+    char *path = ConfigPath(), buf[224];
     int n;
 
     if (path == NULL) {
@@ -220,9 +240,10 @@ static void SaveConfig(int w, int h, int full) {
     }
     n = SDL_snprintf(buf, sizeof(buf),
                      "resolution=%dx%d\nfullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\n",
                      w, h, full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
-                     g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port");
+                     g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
+                     g_port.splitLodGC ? "gc" : "full");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }

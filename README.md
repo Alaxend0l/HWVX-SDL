@@ -435,6 +435,9 @@ Debugging aids:
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
 - `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
+- `HWVX_SPLITSCREEN_LOD=gc` draws models one level coarser in split screen as
+  the GameCube did (default: full detail, like the PC release; `graphics.cfg`
+  `splitlod=full|gc`).
 - `HWVX_DETERMINISTIC=1` makes runs repeatable, to compare builds frame by
   frame: a fixed random seed (`HWVX_SEED=n`, default 1), a fixed frame step
   (`HWVX_FIXEDSTEP=us`, default 16667) instead of measured time, and world

@@ -123,7 +123,9 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector4 *matrix, u8 *lod, u8 flag) {
         i = 0;
     }
     if (i < geometry->numGroups) {
-        if (g_CurrentViews != 1 && i + 1 < geometry->numGroups) {
+        /* port: the coarser level in split screen only if asked for
+         * (Port_SplitScreenCoarseLOD; the PC release keeps full detail) */
+        if (g_CurrentViews != 1 && Port_SplitScreenCoarseLOD() && i + 1 < geometry->numGroups) {
             return (u32)HND(GETP(geometry->groups)) + (i + 1) * 0x18;
         }
         return (u32)HND(GETP(geometry->groups)) + i * 0x18;
@@ -188,7 +190,9 @@ s32 Gfx_CalcGeometryLOD(Geometry *geometry, f32 *matrix) {
         }
     }
     if (i < geometry->numGroups) {
-        if (g_CurrentViews != 1 && i + 1 < geometry->numGroups) {
+        /* port: the coarser level in split screen only if asked for
+         * (Port_SplitScreenCoarseLOD; the PC release keeps full detail) */
+        if (g_CurrentViews != 1 && Port_SplitScreenCoarseLOD() && i + 1 < geometry->numGroups) {
             return i + 1;
         }
         return i;
