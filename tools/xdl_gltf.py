@@ -555,6 +555,8 @@ def to_gltf(g, name, bin_name, tex_link=None, extras=None):
         gl["bufferViews"] = buf.views
         gl["accessors"] = buf.accessors
     root["extras"] = geometry_extras(g, extras)
+    if not root["children"]:
+        del root["children"]              # (a PS2 geometry of one undecoded shadow level)
     while len(buf.data) % 4:
         buf.data.append(0)
     gl["buffers"][0]["byteLength"] = len(buf.data)

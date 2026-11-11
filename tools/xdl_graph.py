@@ -1215,6 +1215,74 @@ def cmd_build(a):
     return 0
 
 
+def write_archive(arch_dir, proj_dir):
+    """archive.jsonc: the manifest's own fields and its packs in TOC order."""
+    man = json.loads((Path(arch_dir) / "manifest.json").read_text())
+    doc = {k: v for k, v in man.items() if k != "entries"}
+    doc = {"format_version": FORMAT, "archive": archive_spelling(Path(arch_dir).name), **doc,
+           "packs": [pack_name(e) for e in man["entries"]]}
+    Path(proj_dir).mkdir(parents=True, exist_ok=True)
+    text = "// archive: manifest fields and pack order (tools/xdl_graph.py)\n" + XS.dump_value(doc, 0) + "\n"
+    (Path(proj_dir) / "archive.jsonc").write_text(text)
+
+
+def build_manifest(proj_dir, out_dir):
+    """manifest.json of a built archive, from archive.jsonc and each pack.jsonc's entry."""
+    doc = read_jsonc(Path(proj_dir) / "archive.jsonc")
+    man = {k: v for k, v in doc.items() if k not in ("format_version", "archive", "packs")}
+    man["entries"] = [read_jsonc(Path(proj_dir) / p / "pack.jsonc")["entry"] for p in doc["packs"]]
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    (Path(out_dir) / "manifest.json").write_text(json.dumps(man, indent=2) + "\n")
+    return man
+
+
+def cmd_extract_archive(a):
+    arch = Path(a.archive)
+    man = json.loads((arch / "manifest.json").read_text())
+    write_archive(arch, a.out)
+    S = XS.Schemas()
+    for e in man["entries"]:
+        s = Extractor(Source(arch / e["path"]), Path(a.out) / pack_name(e), S).run()
+        print(f"{pack_name(e)}: {s['nodes']} nodes in {s['files']} files")
+    return 0
+
+
+def cmd_build_archive(a):
+    S = XS.Schemas()
+    man = build_manifest(a.project, a.out)
+    doc = read_jsonc(Path(a.project) / "archive.jsonc")
+    for p, e in zip(doc["packs"], man["entries"]):
+        bd = Builder(Path(a.project) / p, S)
+        bd.build(Path(a.out) / e["path"])
+        if bd.edited:
+            print(f"{p}: re-encoded {', '.join(bd.edited)}")
+    print(f"{a.out}: {len(man['entries'])} packs and manifest.json")
+    return 0
+
+
+def hwvx_x():
+    p = find_up("target/release/hwvx-x")
+    return p
+
+
+def pack_and_compare(built_arch, orig_root, source_file):
+    """`hwvx-x pack` the built archive folder and compare with the original archive file."""
+    import subprocess
+    exe = hwvx_x()
+    if exe is None:
+        return "hwvx-x not built (target/release/hwvx-x)"
+    cands = [p for p in Path(orig_root).rglob("*") if p.name.lower() == source_file.lower()]
+    if not cands:
+        return f"no original {source_file} under {orig_root}"
+    out = Path(built_arch).parent / ("_" + source_file)
+    r = subprocess.run([str(exe), "pack", str(built_arch), str(out), "-f"], capture_output=True, text=True)
+    if r.returncode:
+        return "hwvx-x pack failed: " + r.stderr.strip()[-200:]
+    same = out.read_bytes() == cands[0].read_bytes()
+    out.unlink()
+    return None if same else f"{source_file} differs from {cands[0]}"
+
+
 def survey_archives(root, rel, only=None):
     base = Path(root) / rel
     out = []
@@ -1239,6 +1307,8 @@ def cmd_roundtrip(a):
         for arch in survey_archives(a.survey, rel, only):
             man = json.loads((arch / "manifest.json").read_text())
             relpath = arch.relative_to(Path(a.survey) / rel)
+            write_archive(arch, outroot / rel / relpath)
+            arch_ok = True
             for ent in man["entries"]:
                 if kinds and ent["type"] not in kinds:
                     continue
@@ -1260,6 +1330,7 @@ def cmd_roundtrip(a):
                 except (GraphError, XS.XdlError, XG.GeomError) as e:
                     d = [("error", str(e))]
                 if d:
+                    arch_ok = False
                     fails.append(label)
                     print(f"FAIL {label}: {d[:3]}", flush=True)
                 else:
@@ -1269,8 +1340,21 @@ def cmd_roundtrip(a):
                     tot[key + ("geometry",)] += s["geometry"]
                     if a.verbose:
                         print(f"ok   {label}: {s['nodes']} nodes, {s['files']} files", flush=True)
-                if not a.keep:
+                if not a.keep and not a.orig:
                     shutil.rmtree(built, ignore_errors=True)
+            if a.orig and arch_ok and not kinds:
+                barch = outroot / "_built" / rel / relpath
+                build_manifest(outroot / rel / relpath, barch)
+                why = pack_and_compare(barch, Path(a.orig) / rel, man["source_file"])
+                key = (rel, "(archive file)")
+                tot[key + ("packs",)] += 1
+                if why:
+                    fails.append(f"{rel} {relpath}")
+                    print(f"FAIL {rel} {relpath} archive: {why}", flush=True)
+                else:
+                    tot[key + ("ok",)] += 1
+                if not a.keep:
+                    shutil.rmtree(barch, ignore_errors=True)
     print("\nrelease  kind            ok/packs   nodes  typed  geometry")
     for rel, kind in sorted({k[:2] for k in tot}):
         g = lambda f: tot[(rel, kind, f)]  # noqa: E731
@@ -1305,10 +1389,19 @@ def main():
     p.add_argument("--out", default=str(HERE.parents[1] / "build-gltf"))
     p.add_argument("--keep", action="store_true", help="keep the built pack folders (OUT/_built)")
     p.add_argument("--untyped", action="store_true", help="list raw nodes by walker label")
+    p.add_argument("--orig", help="folder of the original archives per release (ORIG/gc ...): "
+                   "also `hwvx-x pack` each rebuilt archive and compare the file")
     p.add_argument("-v", "--verbose", action="store_true")
+    p = sub.add_parser("extract-archive")
+    p.add_argument("archive")
+    p.add_argument("out")
+    p = sub.add_parser("build-archive")
+    p.add_argument("project")
+    p.add_argument("out")
     a = ap.parse_args()
     try:
-        return {"extract": cmd_extract, "build": cmd_build, "roundtrip": cmd_roundtrip}[a.cmd](a)
+        return {"extract": cmd_extract, "build": cmd_build, "roundtrip": cmd_roundtrip,
+                "extract-archive": cmd_extract_archive, "build-archive": cmd_build_archive}[a.cmd](a)
     except (GraphError, XS.XdlError, XG.GeomError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
