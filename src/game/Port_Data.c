@@ -11,14 +11,18 @@
  * - PC (.xpc): little-endian, so the tables, the object graph and the
  *   samples are already in host order. Geometry (triangle lists) and
  *   textures (DXT) are not GX's: see PC_PackData.
+ * - PS2 (.xps, under XPS/ENGLISH/): little-endian too, the PC's tables and
+ *   object graph; the header and sound data padded to 2048-byte sectors
+ *   (DataPack_LoadDataPack skips that). Geometry (VIF packets) and textures
+ *   (PSMT8 + CLUTs) are converted after relocation, in DataPack_LoadDataPack
+ *   and DataPack_LoadQuadPack (Port_Geometry.c, Port_PS2.c); SPU-ADPCM sound
+ *   effects and song banks are decoded to PCM16 here, as they load.
  *
  * Sound samples are kept in host order, whichever release they come from:
  * the mixer (ax.c) reads them as plain s16.
- * - PS2 (.xps): little-endian too; not loadable yet (dvd.c doesn't look for
- *   it). Its steps go in the PORT_DATA_PS2 cases.
  *
  * docs/beta-cars/research/pc_formats.md (HWVX-X-FILE-EDITOR) has the PC
- * formats. */
+ * formats, docs/ps2-version/README.md the PS2's. */
 #include "common.h"
 #include "Voice.h"
 #include "Gfx.h"

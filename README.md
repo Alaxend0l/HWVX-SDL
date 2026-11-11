@@ -44,6 +44,15 @@ folder). On start the game looks for it, in order:
 ./build/hwvx --data /path/to/files
 ```
 
+The other releases' data works too, as a folder (not a disc image): the PC
+release's install folder (the `.xpc` packs next to `HW_share.xpc`), or the PS2
+disc's files (the folder holding `XPS/ENGLISH/`, or `XPS/ENGLISH/` itself; the
+`.xps` packs). Each pack is converted to the one layout the port draws as it
+loads (`src/game/Port_Data.c`; PS2: `Port_PS2.c` and `Port_Geometry.c`):
+the PS2's geometry is drawn without back-face culling (some of its strips are
+wound the other way), its shadow volumes are off, and its movies (`.pss`) are
+not played.
+
 Options: `--data PATH`, `--scale N` (window = 640×480×N), `--window WxH`
 (any size and shape), `--fullscreen`, `--renderer NAME`.
 
@@ -197,8 +206,9 @@ Restructured functions no longer match the decomp text, so
 GameCube data is big-endian. Loaders byte-swap known formats on load
 (`BE16`/`BE32`, `Port_SwapArray*` in `port.h`). Sound samples are kept in
 host order whichever release they come from: the GameCube's PCM16 sound
-effect and song-bank samples are swapped as their pack loads
-(`src/game/Port_Data.c`), and the mixer reads plain `s16` from ARAM.
+effect and song-bank samples are swapped as their pack loads, the PS2's
+SPU-ADPCM ones decoded to PCM16 (`src/game/Port_Data.c`, `Port_PS2.c`), and
+the mixer reads plain `s16` from ARAM.
 
 ### Threads
 
@@ -444,8 +454,8 @@ Debugging aids:
   frame: a fixed random seed (`HWVX_SEED=n`, default 1), a fixed frame step
   (`HWVX_FIXEDSTEP=us`, default 16667) instead of measured time, and world
   loads in one go. Background quadrant loads and sound still follow timing.
-- `HWVX_GEOMLOG=1` logs, per pack, how the GameCube's geometry was converted
-  to the indexed layout (`src/game/Port_Geometry.c`).
+- `HWVX_GEOMLOG=1` logs, per pack, how the GameCube's or PS2's geometry was
+  converted to the indexed layout (`src/game/Port_Geometry.c`).
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.

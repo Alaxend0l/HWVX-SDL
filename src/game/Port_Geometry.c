@@ -1,5 +1,6 @@
 /* The GameCube's geometry turned into the indexed layout the PC release
- * keeps, as a pack loads. Port-only file.
+ * keeps, as a pack loads (the PS2's too: PortGeometry_ConvertPS2, below).
+ * Port-only file.
  *
  * The port draws one geometry layout, the PC's (Render_Geometry_.c,
  * PORT_LAYOUT_INDEXED): per group a u16 triangle list, per LOD level one
@@ -475,11 +476,11 @@ static void CollectGeometry(const u8 *base, u32 size, Geometry *geo, LevelOut **
     }
 }
 
-/* Quadrant packs' blocks, by quad. */
+/* Blocks kept by their owner: quadrant packs' geometry, PS2 packs' textures. */
 static struct {
     void *owner;
     void *block;
-} s_kept[512];
+} s_kept[1024];
 
 void PortGeometry_Keep(void *owner, void *block) {
     u32 i;
@@ -494,7 +495,7 @@ void PortGeometry_Keep(void *owner, void *block) {
             return;
         }
     }
-    Port_Fatal("PortGeometry_Keep: more than %u converted quadrant packs", (unsigned)i);
+    Port_Fatal("PortGeometry_Keep: more than %u kept blocks", (unsigned)i);
 }
 
 void PortGeometry_Release(void *owner) {
