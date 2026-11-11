@@ -1,0 +1,883 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarAInfo",
+  "type": "object",
+  "x-c-struct": "CarAInfo",
+  "x-header": "CarA.h",
+  "x-size": "0x120",
+  "x-hidden": [
+    {
+      "offset": "0x0C",
+      "size": 4,
+      "c-name": "pad0C",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x12",
+      "size": 2,
+      "c-name": "pad12",
+      "note": "two u8; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x16",
+      "size": 2,
+      "c-name": "pad16",
+      "note": "u16, 0 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x28",
+      "size": 8,
+      "c-name": "pad28",
+      "note": "f32 1000, u32 18 (21 in car 23); never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x38",
+      "size": 16,
+      "c-name": "pad38",
+      "note": "u32 1, u32 16 (1 in cars 0, 26), u32 0, texture slot 0x44 (relocated by the loader); never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x4C",
+      "size": 4,
+      "c-name": "pad4C",
+      "note": "pointer to a 0x40-byte record; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x58",
+      "size": 8,
+      "c-name": "pad58",
+      "note": "0, CarASoundSet pointer; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x64",
+      "size": 8,
+      "c-name": "pad64",
+      "note": "CarASoundSet pointer (car 16 only), 0; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x70",
+      "size": 8,
+      "c-name": "pad70",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0xA8",
+      "size": 8,
+      "c-name": "padA8",
+      "note": "0, pointer to {f32 12100 (110^2), f32 900 (30^2), 0...}; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0xB4",
+      "size": 28,
+      "c-name": "padB4",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0xF8",
+      "size": 8,
+      "c-name": "padF8",
+      "note": "u32 1, pointer to 12-byte {0, pointer, 0}; never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAInfo"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "viewOffset": {
+      "description": "shifts the car when an interface shows it (InterfaceManager_RenderObject)",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "x-offset": "0x00",
+      "x-c-type": "f32[3]",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "damagePercent": {
+      "description": "health % below which parts break off",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x10",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "%",
+      "x-hint": "0..100"
+    },
+    "driveMode": {
+      "description": "1: human-controlled",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x11",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "skidLife": {
+      "description": "skid mark life in 16 ms units (Trail_AddSegment life << 4): 600 (9.6 s) in every car",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "x-offset": "0x14",
+      "x-c-type": "u16",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "16 ms"
+    },
+    "damageLevel": {
+      "description": "hits above it break parts off",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x18",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "maxRpm": {
+      "description": "max rpm (torque curve, engine pitch)",
+      "type": "number",
+      "x-offset": "0x1C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rpm"
+    },
+    "upshiftRpm": {
+      "description": "shift up above it; also caps reverse rpm",
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rpm"
+    },
+    "downshiftRpm": {
+      "description": "shift down below it",
+      "type": "number",
+      "x-offset": "0x24",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rpm"
+    },
+    "turboRpmScale": {
+      "description": "4WD (turbo): rpm divisor",
+      "type": "number",
+      "x-offset": "0x30",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "turboTorqueScale": {
+      "description": "4WD (turbo): torque factor",
+      "type": "number",
+      "x-offset": "0x34",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "steerAnim": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x48",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "skidMarkTexture": {
+      "description": "texture slot of the skid marks (Trail_AddSegment), 0: none",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/texture/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "texture"
+      },
+      "x-offset": "0x50",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "reflectionGeom": {
+      "description": "drawn under human cars in the garage (state 5)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/geometry/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})$",
+      "x-link": {
+        "kind": "geometry"
+      },
+      "x-offset": "0x54",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "rollSound": {
+      "description": "CarA.soundIds[2]",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarASoundSet"
+      },
+      "x-offset": "0x60",
+      "x-c-type": "PTR32(CarASoundSet)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "skidColor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "GXColor"
+      },
+      "x-offset": "0x6C",
+      "x-c-type": "PTR32(GXColor)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "modelRef": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAModelRef"
+      },
+      "x-offset": "0x78",
+      "x-c-type": "PTR32(CarAModelRef)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "gripScale": {
+      "description": "initial CarA.gripScale",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "f32"
+      },
+      "x-offset": "0x7C",
+      "x-c-type": "PTR32(f32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "engine": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAEngine"
+      },
+      "x-offset": "0x80",
+      "x-c-type": "PTR32(CarAEngine)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "hud": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAHud"
+      },
+      "x-offset": "0x84",
+      "x-c-type": "PTR32(CarAHud)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "accel": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAAccel"
+      },
+      "x-offset": "0x88",
+      "x-c-type": "PTR32(CarAAccel)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "stunt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAStuntInfo"
+      },
+      "x-offset": "0x8C",
+      "x-c-type": "PTR32(CarAStuntInfo)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "aiScripts": {
+      "description": "AICarScript handles, per difficulty",
+      "type": "array",
+      "items": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+        "x-link": {
+          "kind": "object",
+          "target": "AICarScript"
+        }
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x90",
+      "x-c-type": "u32[4]",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "collider": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarACollider"
+      },
+      "x-offset": "0xA0",
+      "x-c-type": "PTR32(CarACollider)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "forcePoints": {
+      "description": "extra force points (CarA_ComputeForces)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "struct CarAForcePoints"
+      },
+      "x-offset": "0xA4",
+      "x-c-type": "PTR32(struct CarAForcePoints)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "explosionThing": {
+      "description": "effect spawned when an AI car dies (DebrisParams.debris)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "EventSeq"
+      },
+      "x-offset": "0xB0",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numWheels": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xD0",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "wheels": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarTrailBone"
+      },
+      "x-offset": "0xD4",
+      "x-c-type": "PTR32(CarTrailBone)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numGears": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xD8",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "gears": {
+      "description": "torque curve table",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAGear"
+      },
+      "x-offset": "0xDC",
+      "x-c-type": "PTR32(CarAGear)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numSlaves": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xE0",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "slaves": {
+      "description": "[numSlaves]",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarASlaveSet"
+      },
+      "x-offset": "0xE4",
+      "x-c-type": "PTR32(CarASlaveSet)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numSlaveWeapons": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xE8",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "slaveWeapons": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarASlaveSet"
+      },
+      "x-offset": "0xEC",
+      "x-c-type": "PTR32(CarASlaveSet)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "numPickupSlaves": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xF0",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "pickupSlaves": {
+      "description": "indexed by item value",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarASlaveSet"
+      },
+      "x-offset": "0xF4",
+      "x-c-type": "PTR32(CarASlaveSet)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numStartSlaves": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x100",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "startSlaves": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAStartSlave"
+      },
+      "x-offset": "0x104",
+      "x-c-type": "PTR32(CarAStartSlave)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numStartItems": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x108",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "startItems": {
+      "description": "put into the wildcard rack",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "PTR32(ItemRecord)"
+      },
+      "x-offset": "0x10C",
+      "x-c-type": "PTR32(PTR32(ItemRecord))",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "numShiftSounds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x110",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "shiftSounds": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x114",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numSoundSets": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x118",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "soundSets": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "PTR32(CarASoundSet)"
+      },
+      "x-offset": "0x11C",
+      "x-c-type": "PTR32(PTR32(CarASoundSet))",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "viewOffset",
+      "damagePercent",
+      "driveMode",
+      "skidLife",
+      "damageLevel",
+      "maxRpm",
+      "upshiftRpm",
+      "downshiftRpm",
+      "turboRpmScale",
+      "turboTorqueScale",
+      "steerAnim",
+      "skidMarkTexture",
+      "reflectionGeom",
+      "rollSound",
+      "skidColor",
+      "modelRef",
+      "gripScale",
+      "engine",
+      "hud",
+      "accel",
+      "stunt",
+      "aiScripts",
+      "collider",
+      "forcePoints",
+      "explosionThing",
+      "numWheels",
+      "wheels",
+      "numGears",
+      "gears",
+      "numSlaves",
+      "slaves",
+      "numSlaveWeapons",
+      "slaveWeapons",
+      "numPickupSlaves",
+      "pickupSlaves",
+      "numStartSlaves",
+      "startSlaves",
+      "numStartItems",
+      "startItems",
+      "numShiftSounds",
+      "shiftSounds",
+      "numSoundSets",
+      "soundSets"
+    ]
+  }
+}

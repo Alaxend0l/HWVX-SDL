@@ -1,0 +1,753 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorldGameData",
+  "description": "World-wide settings (world + 0x9C, World_GetGameData).",
+  "type": "object",
+  "x-c-struct": "WorldGameData",
+  "x-header": "World.h",
+  "x-size": "0x110",
+  "x-hidden": [
+    {
+      "offset": "0x01",
+      "size": 3,
+      "c-name": "pad1",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x1C",
+      "size": 4,
+      "c-name": "pad1C",
+      "note": "0 in every world; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x40",
+      "size": 24,
+      "c-name": "pad40",
+      "note": "f32 0.3, 80, 0.075 in every world, then 0; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x80",
+      "size": 8,
+      "c-name": "pad80",
+      "note": "two texture slots; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x94",
+      "size": 12,
+      "c-name": "pad94",
+      "note": "two texture slots, a pointer; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0xA8",
+      "size": 24,
+      "c-name": "padA8",
+      "note": "0 in every world; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0xD0",
+      "size": 16,
+      "c-name": "padD0",
+      "note": "0 in every world; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0xE0",
+      "size": 8,
+      "c-name": "padE0",
+      "note": "two pointers; never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldGameData"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "fogType": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x00",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "mapScaleX": {
+      "description": "radar map (InterfaceManager)",
+      "type": "number",
+      "x-offset": "0x04",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "mapScaleZ": {
+      "type": "number",
+      "x-offset": "0x08",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "envmapX": {
+      "type": "number",
+      "x-offset": "0x0C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "envmapY": {
+      "type": "number",
+      "x-offset": "0x10",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "fogNear": {
+      "type": "number",
+      "x-offset": "0x14",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "fogFar": {
+      "type": "number",
+      "x-offset": "0x18",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "farPlane": {
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "reverbLevel": {
+      "description": "outside reverb volumes",
+      "type": "number",
+      "x-offset": "0x24",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "reverbDelay": {
+      "type": "number",
+      "x-offset": "0x28",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "reverbFeedback": {
+      "type": "number",
+      "x-offset": "0x2C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "musicVol": {
+      "description": "scales of the music actions (Music_Change)",
+      "type": "number",
+      "x-offset": "0x30",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "musicPitch": {
+      "type": "number",
+      "x-offset": "0x34",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "musicTempo": {
+      "type": "number",
+      "x-offset": "0x38",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "cameraFxLead": {
+      "description": "cameraFx is kept this many seconds of car travel ahead",
+      "type": "number",
+      "x-offset": "0x3C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "mapOffsetX": {
+      "description": "radar map: texture coordinates of the origin",
+      "type": "number",
+      "x-offset": "0x58",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "mapOffsetZ": {
+      "type": "number",
+      "x-offset": "0x5C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "mapHalfW": {
+      "description": "half the area shown, in texture coordinates",
+      "type": "number",
+      "x-offset": "0x60",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "mapHalfH": {
+      "type": "number",
+      "x-offset": "0x64",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "impactFxMinVel": {
+      "description": "car-car impact effects, by relative speed",
+      "type": "number",
+      "x-offset": "0x68",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "impactFxMaxVel": {
+      "type": "number",
+      "x-offset": "0x6C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "creatureFxMinVel": {
+      "description": "PC only: effects of a car running a creature over",
+      "type": "number",
+      "x-offset": "0x70",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "creatureFxMaxVel": {
+      "description": "(0x413060), picked by speed like impactFx; 5, 100",
+      "type": "number",
+      "x-offset": "0x74",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "mapTexture": {
+      "description": "radar map, 0: none (InterfaceManager_DrawMap)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x78",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "radarBlip": {
+      "description": "InterfaceManager_SetRadarBlip",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x7C",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "lightTexture": {
+      "description": "LightHolder_SetTexture",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x88",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "envmapA": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x8C",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "envmapB": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x90",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "vehiclePackList": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0xA0",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "itemPack": {
+      "description": "name of the world's item pack (type 2)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "char"
+      },
+      "x-offset": "0xA4",
+      "x-c-type": "PTR32(char)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "fogColor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "GXColor"
+      },
+      "x-offset": "0xC0",
+      "x-c-type": "PTR32(GXColor)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "cameraFx": {
+      "description": "emitter description kept ahead of each camera (rain...)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0xC4",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "debugFont": {
+      "description": "debug font (ShowStats_Init)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0xC8",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "pauseInterface": {
+      "description": "interface script of the pause menu",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0xCC",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numCreatureHitFx": {
+      "description": "PC only (creature hit handler 0x41F620):",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xE8",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "creatureHitFx": {
+      "description": "[2] under 60 damage, [3] from 60, at a random bone; 0 entries in every world",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0xEC",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "numImpactFx": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xF0",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "impactFx": {
+      "description": "debris ids, by speed",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0xF4",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numCreatureFx": {
+      "description": "PC only, with creatureFxMinVel: debris ids,",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0xF8",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "creatureFx": {
+      "description": "by speed",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0xFC",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "numCameras": {
+      "description": "chase cameras of things without their own",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x100",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "cameras": {
+      "description": "12 bytes each (CarACameras)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u8"
+      },
+      "x-offset": "0x104",
+      "x-c-type": "PTR32(u8)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "numCamerasWide": {
+      "description": "the same for view format 2",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x108",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "camerasWide": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u8"
+      },
+      "x-offset": "0x10C",
+      "x-c-type": "PTR32(u8)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "fogType",
+      "mapScaleX",
+      "mapScaleZ",
+      "envmapX",
+      "envmapY",
+      "fogNear",
+      "fogFar",
+      "farPlane",
+      "reverbLevel",
+      "reverbDelay",
+      "reverbFeedback",
+      "musicVol",
+      "musicPitch",
+      "musicTempo",
+      "cameraFxLead",
+      "mapOffsetX",
+      "mapOffsetZ",
+      "mapHalfW",
+      "mapHalfH",
+      "impactFxMinVel",
+      "impactFxMaxVel",
+      "creatureFxMinVel",
+      "creatureFxMaxVel",
+      "mapTexture",
+      "radarBlip",
+      "lightTexture",
+      "envmapA",
+      "envmapB",
+      "vehiclePackList",
+      "itemPack",
+      "fogColor",
+      "cameraFx",
+      "debugFont",
+      "pauseInterface",
+      "numCreatureHitFx",
+      "creatureHitFx",
+      "numImpactFx",
+      "impactFx",
+      "numCreatureFx",
+      "creatureFx",
+      "numCameras",
+      "cameras",
+      "numCamerasWide",
+      "camerasWide"
+    ]
+  }
+}

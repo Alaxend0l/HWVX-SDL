@@ -445,8 +445,9 @@ class Parser:
             self.next()
             return
         if t.text == "typedef":
+            doc = self.doc_before(self.index_of_next())
             self.next()
-            self.typedef()
+            self.typedef(doc)
             return
         if t.text in ("struct", "union") and self.peek(1) and (
                 self.peek(1).text == "{" or (self.peek(2) and self.peek(2).text == "{")):
@@ -760,7 +761,17 @@ class Parser:
             out.append(f)
         return out, bf
 
-    def typedef(self):
+    def doc_before(self, j):
+        """The comment ending on the line before toks[j], if any."""
+        k = j - 1
+        if k < 0 or self.toks[k].kind != "comment":
+            return ""
+        c = self.toks[k]
+        if c.line + c.text.count("\n") != self.toks[j].line - 1:
+            return ""
+        return clean_comment(c.text)
+
+    def typedef(self, doc=""):
         first = self.peek()
         base = self.type_spec()
         decls = self.declarators(base, first.line)
@@ -778,6 +789,7 @@ class Parser:
             self.reg.types[name] = t
             if t.kind in ("struct", "union") and t.name in (None, name):
                 t.name = name
+                t.doc = doc
 
 
 def clone_aligned(t, a):
@@ -974,6 +986,257 @@ def check_all(reg, verbose=False):
 
 
 # ------------------------------------------------------------------------------------------
+# docs/fields/README.md: per-struct read and confidence columns
+
+def find_fields_doc():
+    for d in Path(__file__).resolve().parents:
+        p = d / "docs" / "fields" / "README.md"
+        if p.exists():
+            return p
+    return None
+
+
+def load_fields_doc(path):
+    """{struct: {offset: {name, type, confidence, gc, ps2, pc, notes}}}"""
+    out, cur = {}, None
+    for ln in path.read_text().splitlines():
+        m = re.match(r"^### (\w+)\s*$", ln)
+        if m:
+            cur = out.setdefault(m.group(1), {})
+            continue
+        if cur is None or not ln.startswith("| 0x"):
+            continue
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) < 8:
+            continue
+        off = int(cells[0], 16)
+        row = {"name": cells[1].strip("`"), "type": cells[2], "confidence": cells[3],
+               "gc": cells[4], "ps2": cells[5], "pc": cells[6], "notes": "|".join(cells[7:])}
+        cur.setdefault(off, row)          # first row wins (a doubled offset is a union)
+    return out
+
+
+# ------------------------------------------------------------------------------------------
+# @xdl markers
+
+MARKER = re.compile(r"@xdl:\s*(.*)$")
+
+
+def parse_marker(comment):
+    """(description without marker and offset, {key: value}).
+
+    `@xdl: key[=value]; key[=value]...` runs to the end of the comment. Keys:
+      link=T     a u32 that holds a pointer (handle) to a T: a link, not a number
+      texture    a texture slot (the pack's texture relocations): a texture link
+      geometry   a geometry slot (local ref relocation): a geometry link
+      units=U    x-units
+      hint=TEXT  x-hint
+    """
+    text = comment or ""
+    marks = {}
+    m = MARKER.search(text)
+    if m:
+        for part in m.group(1).split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            k, _, v = part.partition("=")
+            marks[k.strip()] = v.strip() if v else True
+        text = text[:m.start()]
+    text = OFFSET_COMMENT.sub("", text.strip()).strip()
+    return text, marks
+
+
+# ------------------------------------------------------------------------------------------
+# schemas
+
+INT_RANGE = {1: 8, 2: 16, 4: 32, 8: 64}
+
+
+def link_schema(kind, target=None):
+    pat = LINK_PATTERN if kind == "object" else ASSET_PATTERN.format(kind=kind)
+    x = {"kind": kind}
+    if target:
+        x["target"] = target
+    return {"type": ["string", "null"], "pattern": pat, "x-link": x}
+
+
+def prim_schema(t):
+    if t.float:
+        return {"type": "number"}
+    bits = INT_RANGE[t.size] if t.name != "char" else 8
+    if t.signed:
+        return {"type": "integer", "minimum": -(1 << (bits - 1)), "maximum": (1 << (bits - 1)) - 1}
+    return {"type": "integer", "minimum": 0, "maximum": (1 << bits) - 1}
+
+
+class Emitter:
+    def __init__(self, reg, fields_doc, observed):
+        self.reg, self.doc, self.obs = reg, fields_doc, observed
+        self.warnings = []
+
+    def type_schema(self, t, marks, defs):
+        t = self.reg.resolve(t)
+        layout(self.reg, t)
+        if t.kind == "array":
+            item = self.type_schema(t.elem, marks, defs)
+            return {"type": "array", "items": item, "minItems": t.count, "maxItems": t.count}
+        if "link" in marks and t.kind == "prim" and t.size == 4:
+            return link_schema("object", None if marks["link"] is True else marks["link"])
+        if "texture" in marks:
+            return link_schema("texture")
+        if "geometry" in marks:
+            return link_schema("geometry")
+        if t.kind == "prim":
+            return prim_schema(t)
+        if t.kind == "enum":
+            return {"type": "integer", "minimum": -(1 << 31), "maximum": (1 << 31) - 1}
+        if t.kind == "ptr":
+            return link_schema("object", t.target)
+        if t.kind == "fptr":
+            return {"type": "integer", "minimum": 0, "maximum": 0xFFFFFFFF,
+                    "description": "function pointer slot (runtime only)"}
+        if t.kind in ("struct", "union"):
+            if t.name:
+                if t.name not in defs:
+                    defs[t.name] = None
+                    defs[t.name] = self.object_schema(t, defs, top=False)
+                return {"$ref": f"#/$defs/{t.name}"}
+            return self.object_schema(t, defs, top=False)
+        raise LayoutError(f"no JSON type for {t.ctype()}")
+
+    def members(self, t, base=0):
+        """[(offset, Field, alternatives)]: anonymous members flattened, a union's first
+        member stands for the slot (the others listed as alternatives)."""
+        out = []
+        t = self.reg.resolve(t)
+        if t.kind == "union":
+            first = t.fields[0]
+            alts = [f.name for f in t.fields[1:] if f.name]
+            if first.anon:
+                sub = self.members(first.type, base)
+                if sub:
+                    o, f, a = sub[0]
+                    sub[0] = (o, f, a + alts)
+                return sub
+            return [(base, first, alts)]
+        for f in t.fields:
+            if f.anon:
+                out.extend(self.members(f.type, base + f.offset))
+            else:
+                out.append((base + f.offset, f, []))
+        return out
+
+    def object_schema(self, t, defs, top):
+        name = t.name
+        rows = self.doc.get(name, {}) if name else {}
+        obs = self.obs.get(name, {}) if name else {}
+        props, hidden, required = {}, [], []
+        for off, f, alts in self.members(t):
+            desc, marks = parse_marker(f.comment)
+            row = rows.get(off)
+            ft = self.reg.resolve(f.type)
+            layout(self.reg, ft)
+            reads = None
+            if row:
+                reads = {k: row[k] for k in ("gc", "ps2", "pc")}
+                if all(v == "no" for v in reads.values()):
+                    hidden.append({"offset": f"0x{off:02X}", "size": ft.size, "c-name": f.name,
+                                   "note": desc})
+                    continue
+            elif rows:
+                self.warnings.append(f"{name}.{f.name} (0x{off:X}) is not in docs/fields")
+            unnamed = (row and row["confidence"] == "-") or (
+                not row and re.match(r"^(pad|unk)[0-9A-Fa-f_]*$", f.name or ""))
+            key = f"unk_0x{off:02X}" if unnamed else f.name
+            sch = self.type_schema(ft, marks, defs)
+            if unnamed and row and row["type"] in PRIMS and ft.kind != "prim":
+                # typed by how the code loads it (docs/fields)
+                pt = self.reg.lookup(row["type"])
+                if pt.size == ft.size:
+                    sch = prim_schema(pt)
+            p = {}
+            if desc:
+                p["description"] = desc
+            p.update(sch)
+            p["x-offset"] = f"0x{off:02X}"
+            p["x-c-type"] = ft.ctype() if not ("link" in marks or "texture" in marks or "geometry" in marks) \
+                else ft.ctype()
+            if key != f.name:
+                p["x-c-name"] = f.name
+            if alts:
+                p["x-union-alternatives"] = alts
+            if row:
+                p["x-confidence"] = row["confidence"]
+                p["x-read"] = reads
+            for k in ("units", "hint"):
+                if k in marks:
+                    p[f"x-{k}"] = marks[k]
+            if key in obs:
+                p["x-observed"] = obs[key]
+            props[key] = p
+            required.append(key)
+        sch = {}
+        if top:
+            sch["$schema"] = JSON_SCHEMA
+            sch["title"] = name
+        else:
+            sch["title"] = name or "(anonymous)"
+        doc = getattr(t, "doc", "")
+        if doc:
+            sch["description"] = doc
+        sch["type"] = "object"
+        sch["x-c-struct"] = name
+        sch["x-header"] = t.header
+        sch["x-size"] = f"0x{t.size:X}"
+        if hidden:
+            sch["x-hidden"] = hidden
+        if top:
+            head = {
+                "$schema": {"type": "string", "description": "path or URL of this schema"},
+                "format_version": {"const": FORMAT_VERSION},
+                "extends": dict(link_schema("object", name), type="string",
+                                description="the object this one overrides (README §10.3); "
+                                            "fields left out, and the hidden ones, come from it"),
+            }
+            props = {**head, **props}
+            sch["properties"] = props
+            sch["additionalProperties"] = False
+            sch["required"] = ["format_version"]
+            # with `extends` every field is optional; without, every field is needed
+            sch["if"] = {"required": ["extends"]}
+            sch["then"] = True
+            sch["else"] = {"required": required}
+            real = {k: v for k, v in defs.items() if v is not None}
+            if real:
+                sch["$defs"] = real
+        else:
+            sch["properties"] = props
+            sch["additionalProperties"] = False
+        return sch
+
+    def schema(self, name):
+        t = self.reg.types.get(name)
+        if t is None:
+            raise LayoutError(f"no struct {name}")
+        layout(self.reg, t)
+        defs = {}
+        return self.object_schema(t, defs, top=True)
+
+
+def write_schemas(reg, fields_doc, out, observed):
+    em = Emitter(reg, fields_doc, observed)
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name in SCHEMA_STRUCTS:
+        sch = em.schema(name)
+        p = out / f"{name}.schema.json"
+        p.write_text(json.dumps(sch, indent=2) + "\n")
+        written.append((name, p, sch))
+    return written, em.warnings
+
+
+# ------------------------------------------------------------------------------------------
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -1006,6 +1269,18 @@ def main():
         sys.exit("layout checks failed")
     if a.check:
         return
+    fp = a.fields or find_fields_doc()
+    if fp is None:
+        sys.exit("docs/fields/README.md not found: pass --fields")
+    fields_doc = load_fields_doc(fp)
+    observed = json.loads(OBSERVED.read_text()) if OBSERVED.exists() else {}
+    written, warns = write_schemas(reg, fields_doc, a.out, observed)
+    for w in warns:
+        print("warning: " + w, file=sys.stderr)
+    for name, p, sch in written:
+        n = len(sch["properties"]) - 3
+        print(f"{p.relative_to(ROOT) if p.is_relative_to(ROOT) else p}: {n} fields, "
+              f"{len(sch.get('x-hidden', []))} hidden, {len(sch.get('$defs', {}))} defs", file=sys.stderr)
 
 
 if __name__ == "__main__":

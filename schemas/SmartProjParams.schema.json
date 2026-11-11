@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SmartProjParams",
+  "description": "Homing parameters (ProjectileInfo.smart), SmartProjectiles.c.",
+  "type": "object",
+  "x-c-struct": "SmartProjParams",
+  "x-header": "Projectile.h",
+  "x-size": "0x24",
+  "x-hidden": [
+    {
+      "offset": "0x00",
+      "size": 1,
+      "c-name": "pad00",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x18",
+      "size": 4,
+      "c-name": "pad18",
+      "note": "never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "SmartProjParams"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "invertZ": {
+      "description": "look for targets behind",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x01",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "delay": {
+      "description": "ms before steering starts (Projectile.timer)",
+      "type": "integer",
+      "minimum": -32768,
+      "maximum": 32767,
+      "x-offset": "0x02",
+      "x-c-type": "s16",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "turnMax": {
+      "description": "rad/s",
+      "type": "number",
+      "x-offset": "0x04",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "turnOut": {
+      "description": "steering gain turning towards the target",
+      "type": "number",
+      "x-offset": "0x08",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "turnIn": {
+      "description": "steering gain when overshooting",
+      "type": "number",
+      "x-offset": "0x0C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "dropRange": {
+      "description": "beyond it steer gradually, within it aim directly",
+      "type": "number",
+      "x-offset": "0x10",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "gain": {
+      "description": "direct-aim gain",
+      "type": "number",
+      "x-offset": "0x14",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "fov": {
+      "description": "targeting cone, degrees",
+      "type": "number",
+      "x-offset": "0x1C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "minRange": {
+      "description": "ignore targets closer than this",
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "invertZ",
+      "delay",
+      "turnMax",
+      "turnOut",
+      "turnIn",
+      "dropRange",
+      "gain",
+      "fov",
+      "minRange"
+    ]
+  }
+}

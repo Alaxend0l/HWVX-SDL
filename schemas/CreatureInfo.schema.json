@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CreatureInfo",
+  "description": "A creature's description (pack data, Creature.info).",
+  "type": "object",
+  "x-c-struct": "CreatureInfo",
+  "x-header": "Creature.h",
+  "x-size": "0x74",
+  "x-hidden": [
+    {
+      "offset": "0x00",
+      "size": 4,
+      "c-name": "pad00",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x08",
+      "size": 12,
+      "c-name": "pad08",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x1C",
+      "size": 16,
+      "c-name": "pad1C",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x59",
+      "size": 23,
+      "c-name": "pad59",
+      "note": "never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CreatureInfo"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "health": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x04",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numAnims": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x14",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "anims": {
+      "description": "indexed by Creature_MotionStateInit",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CreatureAnimEntry"
+      },
+      "x-offset": "0x18",
+      "x-c-type": "PTR32(CreatureAnimEntry)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numDeathAnims": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x2C",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "deathAnims": {
+      "description": "indexed by Creature.deathAnim",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CreatureAnimEntry"
+      },
+      "x-offset": "0x30",
+      "x-c-type": "PTR32(CreatureAnimEntry)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "slaves": {
+      "description": "SlaveList (count, triggers): PS2's Creature_Init starts them (MotionState_InitAllSlavesNow); GameCube and PC don't read it",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x34",
+      "x-c-type": "u8[8]",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "no",
+        "ps2": "yes",
+        "pc": "no"
+      }
+    },
+    "numDeathFx": {
+      "description": "PC only (creature hit handler 0x41F620):",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x3C",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "deathFx": {
+      "description": "[0] is spawned as an EventSeq where the creature dies; GameCube and PS2 don't read it",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x40",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      }
+    },
+    "aiScripts": {
+      "description": "CreatureAIScript per difficulty",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4294967295
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x44",
+      "x-c-type": "u32[4]",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "dropOff": {
+      "description": "dropped at a pod: [0] health bonus, [3] points",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "s32"
+      },
+      "x-offset": "0x54",
+      "x-c-type": "PTR32(s32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "dropType": {
+      "description": "Player.counters index",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x58",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "damageParts": {
+      "description": "NULL: can't be gibbed",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "DamagePartList"
+      },
+      "x-offset": "0x70",
+      "x-c-type": "PTR32(DamagePartList)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "health",
+      "numAnims",
+      "anims",
+      "numDeathAnims",
+      "deathAnims",
+      "slaves",
+      "numDeathFx",
+      "deathFx",
+      "aiScripts",
+      "dropOff",
+      "dropType",
+      "damageParts"
+    ]
+  }
+}
