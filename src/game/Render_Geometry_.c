@@ -504,41 +504,22 @@ static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) 
     }
 }
 
-/* port: a group's primitives, the one place pack geometry reaches GX: the
- * vertex setup, the LOD's vertex arrays and the group's display list. Each
- * caller sets the texture, lighting and blending around it. Skinned
- * geometry (g_IsAnim) adds the per-vertex matrix index to the lit and
- * environment-mapped setups, as the original's lit and env draws did.
- * The PC release's levels (PORT_LAYOUT_INDEXED) are drawn by index. */
+/* port: a group's primitives, the one place pack geometry is drawn. Every
+ * level is in the indexed layout by now: the PC release's as it comes, the
+ * GameCube's converted as its pack loaded (Port_Geometry.c; every level of
+ * the game converts). This replaced the GameCube's GX path here (vertex
+ * setup, SetVertexBuffer, GXCallDisplayList of the group's list), which drew
+ * the same frames byte for byte. Each caller sets the texture, lighting and
+ * blending around it. */
 static void Render_DrawGroupPrims(Geometry *lod, GeometryGroup *grp, int vtx) {
-    void *dl = GETP(grp->displayList);
+    static int warned;
 
     if (lod->portLayout == PORT_LAYOUT_INDEXED) {
         Render_DrawGroupIndexed(lod, grp, vtx);
-        return;
+    } else if (!warned) {
+        warned = 1;
+        Port_Log("geometry: a level in no known layout (not converted?) is not drawn");
     }
-
-    switch (vtx) {
-    case GROUP_VTX_TRI:
-        SetTriVtxDescIdx();
-        break;
-    case GROUP_VTX_ALPHA:
-        SetTriVtxDescIdxAlpha();
-        break;
-    case GROUP_VTX_NORM:
-        SetTriNormVtxDescIdx();
-        break;
-    case GROUP_VTX_ENV:
-        SetTriEnvVtxDescIdx();
-        break;
-    }
-    if (g_IsAnim && (vtx == GROUP_VTX_NORM || vtx == GROUP_VTX_ENV)) {
-        GXSetVtxDesc(0, 1);
-        m_VtxDescFlag = 0;
-    }
-    SetVertexBuffer((u32 *)GETP(lod->lodDistances), grp->flags, lod->skipDraw);
-    DCFlushRange(dl, grp->dlSize);
-    GXCallDisplayList(dl, grp->dlSize);
 }
 
 void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode) {
@@ -867,76 +848,6 @@ void Render_DrawBoundingBoxes(void) {
     }
     Render_StateCullMode(cullMode);
     m_triCount += 12;
-}
-
-void SetVertexBuffer(u32 *vb, u16 flags, u16 unused) {
-    u8 *data;
-
-    if (vb != m_vertexBuffer) {
-        data = (u8 *)(vb + 4);
-        m_vertexBuffer = vb;
-        GXSetArray(9, data, 0xC);
-        GXSetArray(0xD, data + vb[0], 8);
-        if (vb[1] != 0) {
-            GXSetArray(0xB, data + vb[1], 4);
-        }
-        if (vb[2] != 0) {
-            GXSetArray(0xA, data + vb[2], 0xC);
-        }
-        DCFlushRange(vb, vb[3]);
-    }
-}
-
-void SetTriVtxDescIdx(void) {
-    if (m_VtxDescFlag != 0x100) {
-        m_VtxDescFlag = 0x100;
-        GXClearVtxDesc();
-        GXSetVtxDesc(9, 3);
-        GXSetVtxDesc(0xB, 3);
-        GXSetVtxDesc(0xD, 3);
-        GXSetVtxAttrFmt(0, 9, 1, 4, 0);
-        GXSetVtxAttrFmt(0, 0xB, 0, 1, 0);
-        GXSetVtxAttrFmt(0, 0xD, 1, 4, 0);
-    }
-}
-
-void SetTriVtxDescIdxAlpha(void) {
-    if (m_VtxDescFlag != 0x400) {
-        m_VtxDescFlag = 0x400;
-        GXClearVtxDesc();
-        GXSetVtxDesc(9, 3);
-        GXSetVtxDesc(0xB, 3);
-        GXSetVtxDesc(0xD, 3);
-        GXSetVtxAttrFmt(0, 9, 1, 4, 0);
-        GXSetVtxAttrFmt(0, 0xB, 1, 5, 0);
-        GXSetVtxAttrFmt(0, 0xD, 1, 4, 0);
-    }
-}
-
-void SetTriNormVtxDescIdx(void) {
-    if (m_VtxDescFlag != 0x200) {
-        m_VtxDescFlag = 0x200;
-        GXClearVtxDesc();
-        GXSetVtxDesc(9, 3);
-        GXSetVtxDesc(0xA, 3);
-        GXSetVtxDesc(0xD, 3);
-        GXSetVtxAttrFmt(0, 9, 1, 4, 0);
-        GXSetVtxAttrFmt(0, 0xA, 0, 4, 0);
-        GXSetVtxAttrFmt(0, 0xD, 1, 4, 0);
-    }
-}
-
-void SetTriEnvVtxDescIdx(void) {
-    if (m_VtxDescFlag != 0x800) {
-        m_VtxDescFlag = 0x800;
-        GXClearVtxDesc();
-        GXSetVtxDesc(9, 3);
-        GXSetVtxDesc(0xA, 3);
-        GXSetVtxDesc(0xB, 3);
-        GXSetVtxAttrFmt(0, 9, 1, 4, 0);
-        GXSetVtxAttrFmt(0, 0xA, 0, 4, 0);
-        GXSetVtxAttrFmt(0, 0xB, 1, 5, 0);
-    }
 }
 
 void SetTriVtxDesc(void) {

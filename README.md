@@ -433,10 +433,8 @@ Debugging aids:
   frame: a fixed random seed (`HWVX_SEED=n`, default 1), a fixed frame step
   (`HWVX_FIXEDSTEP=us`, default 16667) instead of measured time, and world
   loads in one go. Background quadrant loads and sound still follow timing.
-- `HWVX_GX_GEOMETRY=1` draws the GameCube's geometry through its display
-  lists as before, instead of converting it to the indexed layout
-  (`src/game/Port_Geometry.c`); `HWVX_GEOMLOG=1` logs, per pack, what was
-  converted and why a level stayed on display lists.
+- `HWVX_GEOMLOG=1` logs, per pack, how the GameCube's geometry was converted
+  to the indexed layout (`src/game/Port_Geometry.c`).
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.

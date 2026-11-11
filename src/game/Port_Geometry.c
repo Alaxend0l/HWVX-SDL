@@ -29,14 +29,14 @@
  * PC keeps them, and the level gets a table of eight per-bone vertex counts
  * at 0x10 (the PC's: four counts and four zero words).
  *
- * Left as they are (drawn through GX as before): shadow volumes (groups
- * flagged 0x4000, Render_DrawShadows), and any level whose lists hold
- * something other than the three primitives, an index out of range, a bone
- * past 8, or more than 0x7FFF vertices (the PC's index lists mark strip
+ * Left as they are: shadow volumes (groups flagged 0x4000, read by
+ * Render_DrawShadows as they are). A level whose lists hold something other
+ * than the three primitives, an index out of range, a bone past 8, or more
+ * than 0x7FFF vertices would not convert, and would not be drawn (the PC's index lists mark strip
  * records with bit 15). docs/port-format/scripts/geom_check.py
  * (HWVX-X-FILE-EDITOR) applies these rules to a whole extracted tree: every
- * level of the GameCube release converts.
- * HWVX_GX_GEOMETRY=1 leaves all GameCube geometry to GX, to compare. */
+ * level of the GameCube release converts, so the GX path for pack geometry
+ * is gone (Render_DrawGroupPrims). */
 #include "common.h"
 #include "Gfx.h"
 
@@ -512,17 +512,10 @@ void PortGeometry_Release(void *owner) {
  * converted data lives in, or NULL (nothing converted). */
 void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPointers, const u32 *relocs,
                              u32 numRelocs) {
-    static int gx = -1;
     LevelOut *list = NULL, *l, *next;
     u32 i, total = 0;
     u8 *block, *p, *isSlot;
 
-    if (gx < 0) {
-        gx = getenv("HWVX_GX_GEOMETRY") != NULL;
-    }
-    if (gx) {
-        return NULL;
-    }
     memset(&s_stat, 0, sizeof(s_stat));
     /* Scan the blob for geometry headers: many geometries are reached through
      * offsets the game relocates itself (thing records, car parts, motion
@@ -548,7 +541,7 @@ void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPoi
     (void)numRelocs;
     if (getenv("HWVX_GEOMLOG") != NULL && (s_stat.geoms || s_stat.skinned)) {
         Port_Log("geometry: %u GameCube geometries (%u skinned), %u levels converted, %u shadow, "
-                 "%u left to GX%s%s", s_stat.geoms, s_stat.skinned, s_stat.levels, s_stat.shadow, s_stat.failed,
+                 "%u not converted (not drawn)%s%s", s_stat.geoms, s_stat.skinned, s_stat.levels, s_stat.shadow, s_stat.failed,
                  s_stat.why ? ": last for " : "", s_stat.why ? s_stat.why : "");
     }
     if (list == NULL) {
