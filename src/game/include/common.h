@@ -66,34 +66,34 @@ extern WorldData g_worldData;
 
 typedef struct Camera {
   PTR32(struct Player) player;    /* 0x00 */
-  u8 pad4[0xC];
+  u8 pad4[0xC];                 /* 0x04 never read (GC, PS2) */
   Matrix4 mtx;              /* 0x10 v[3] = position */
-  u8 pad50[0x10];
+  u8 pad50[0x10];               /* 0x50 never read (GC, PS2) */
   Vector4 pos;              /* 0x60 */
   Vector4 vel;              /* 0x70 */
   Vector4 dir;              /* 0x80 */
   Vector4 up;               /* 0x90 */
   Vector4 right;            /* 0xA0 */
-  u8 padB0[4];
+  u8 padB0[4];                  /* 0xB0 never read (GC, PS2) */
   PTR32(u32) mode;                /* 0xB4 */
   f32 modeTime;             /* 0xB8 */
   f32 trim;                 /* 0xBC */
   Vector4 unusedC0;         /* 0xC0 */
   Vector4 unusedD0;         /* 0xD0 */
   Vector4 lookDir;          /* 0xE0 */
-  u8 padF0[0x10];
+  u8 padF0[0x10];               /* 0xF0 never read (GC, PS2) */
   s32 unused100;            /* 0x100 -1 when created */
-  u8 pad104[0xC];
+  u8 pad104[0xC];               /* 0x104 never read (GC, PS2) */
   Vector4 springPos;        /* 0x110 */
   Vector4 springVel;        /* 0x120 */
   Vector4 rollUp;           /* 0x130 */
   Vector4 rollUpVel;        /* 0x140 */
   Vector4 tiltUp;           /* 0x150 */
   Vector4 tiltUpVel;        /* 0x160 */
-  u8 pad170[0xC];
+  u8 pad170[0xC];               /* 0x170 never read (GC, PS2) */
   s32 flipTimer;            /* 0x17C */
   PTR32(Thing) cameraFx;    /* 0x180 the world's camera effect (WorldGameData.cameraFx), kept ahead of it */
-  u8 pad184[0x190 - 0x184];
+  u8 pad184[0x190 - 0x184];     /* 0x184 never read (GC, PS2) */
 } Camera;
 
 _Static_assert(sizeof(Camera) == 0x190, "Camera size");
