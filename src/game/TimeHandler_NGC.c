@@ -62,6 +62,9 @@ void TimeHandler_Heartbeat(void) {
     } else {
         m_iDeltaTimeUs = now - m_iLastTimeUs;
     }
+    if (Port_FixedStepUs() != 0) {
+        m_iDeltaTimeUs = Port_FixedStepUs();   /* port: a repeatable run (port.c) */
+    }
     if (m_iDeltaTimeUs >= 34000) {
         m_iDeltaTimeUs = 34000;
     }

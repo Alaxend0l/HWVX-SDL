@@ -602,7 +602,7 @@ int main(int argc, char **argv) {
     CARDInit();
     InitRenderMode(NULL);
     InitMem();
-    srand((unsigned)time(NULL));
+    srand(Port_Seed((unsigned)time(NULL)));
 
     if (!Main_Init()) {
         Port_Fatal("Main_Init failed");

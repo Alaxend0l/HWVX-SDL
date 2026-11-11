@@ -220,6 +220,11 @@ enum {
     PORT_KEY_GRAVE, PORT_KEY_X,
 };
 u32 Port_KeyboardKeys(void);
+/* port.c: a repeatable run (HWVX_DETERMINISTIC, HWVX_SEED, HWVX_FIXEDSTEP):
+ * the random seed to use (fallback when none is set), and the fixed frame
+ * step in microseconds (0: measured time). */
+u32 Port_Seed(u32 fallback);
+u32 Port_FixedStepUs(void);
 /* The keys the operating system repeated (key-down events with the repeat
  * flag) since the last call, as the same bits; reading clears them. The PC
  * release's menus step once per such repeat (its WM_KEYDOWN path). */

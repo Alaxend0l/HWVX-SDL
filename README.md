@@ -429,6 +429,10 @@ Debugging aids:
   validation layers, D3D12 debug layer) for the SDL_GPU renderers.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
+- `HWVX_DETERMINISTIC=1` makes runs repeatable, to compare builds frame by
+  frame: a fixed random seed (`HWVX_SEED=n`, default 1), a fixed frame step
+  (`HWVX_FIXEDSTEP=us`, default 16667) instead of measured time, and world
+  loads in one go. Background quadrant loads and sound still follow timing.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.

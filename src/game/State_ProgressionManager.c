@@ -267,7 +267,8 @@ s32 StateProgressionManager_Heartbeat(void) {
                 g_GameProgressionState.worldState = state;
                 steps++;
             } while (state != 7 && state != 8 && !IsLoadingThreadRunning() &&
-                     steps < 0x10000 && (OSGetTime() - started) < OSMillisecondsToTicks(250));
+                     steps < 0x10000 &&
+                     (Port_FixedStepUs() != 0 || (OSGetTime() - started) < OSMillisecondsToTicks(250)));
             switch (g_GameProgressionState.worldState) {
             case 8:
                 g_GameProgressionState.worldState = 7;

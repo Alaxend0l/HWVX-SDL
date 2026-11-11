@@ -18,7 +18,7 @@ void RandomNumberGenerator_Init(void) {
     f32 mtx[4][4] __attribute__((aligned(16)));
     u32 i;
 
-    srand(OSGetTick());
+    srand(Port_Seed(OSGetTick()));   /* port: HWVX_SEED / HWVX_DETERMINISTIC */
     for (i = 0; i < 0x100; i++) {
         axis.x = (rand() & 0xFF) - 127;
         axis.y = (rand() & 0xFF) - 127;

@@ -133,6 +133,42 @@ void Port_Log(const char *fmt, ...) {
     va_end(ap);
 }
 
+/* HWVX_DETERMINISTIC=1, HWVX_SEED=n, HWVX_FIXEDSTEP=us: the same run every
+ * time, for comparing builds frame by frame. The random seed is fixed (1 by
+ * default), every frame advances the game's clock by the same step (16667 us
+ * by default) instead of the time measured, and a world loads in one go
+ * instead of in bursts of 250 ms of real time (State_ProgressionManager.c).
+ * What still depends on timing: background quadrant loads, sound. */
+static int Deterministic(void) {
+    static int on = -1;
+    if (on < 0) {
+        on = SDL_getenv("HWVX_DETERMINISTIC") != NULL;
+    }
+    return on;
+}
+
+u32 Port_Seed(u32 fallback) {
+    const char *s = SDL_getenv("HWVX_SEED");
+
+    if (s != NULL) {
+        return (u32)SDL_strtoul(s, NULL, 0);
+    }
+    return Deterministic() ? 1 : fallback;
+}
+
+u32 Port_FixedStepUs(void) {
+    static long step = -1;
+
+    if (step < 0) {
+        const char *s = SDL_getenv("HWVX_FIXEDSTEP");
+        step = s != NULL ? SDL_strtol(s, NULL, 0) : Deterministic() ? 16667 : 0;
+        if (step < 0 || step > 34000) {
+            step = 0;
+        }
+    }
+    return (u32)step;
+}
+
 int Port_AllCheats(void) {
     /* HWVX_CHEATS=1: every cheat reads as on, without touching save data. */
     static int all = -1;
