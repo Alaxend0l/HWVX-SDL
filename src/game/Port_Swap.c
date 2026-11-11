@@ -2290,8 +2290,9 @@ void PortSwap_QuadPack(u8 *data, u32 size, u32 index) {
  * size 0x14 (sample data follows the table), 0x18, 0x1C; instruments (0x20
  * each, MIDI_INST / MIDISample_): u32 sample address, length, loop, rate
  * (0x0-0xC); u8 0x10, bits 0x11, 0x12, 0x13, program 0x14, 0x15, key range
- * 0x16/0x17; u16 envelope 0x18, 0x1A, sustain 0x1C, 0x1E. Sample data stays
- * big-endian, like the hardware reads it from ARAM. */
+ * 0x16/0x17; u16 envelope 0x18, 0x1A, sustain 0x1C, 0x1E. The sample data
+ * was swapped to host order in the pack as it loaded (Port_Data.c
+ * PortData_SongBank), like every sample the mixer reads. */
 void PortSwap_MIDI(u8 *song, u8 *bank) {
     u32 i, n;
 

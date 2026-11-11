@@ -191,8 +191,10 @@ Restructured functions no longer match the decomp text, so
 ### Big-endian data
 
 GameCube data is big-endian. Loaders byte-swap known formats on load
-(`BE16`/`BE32`, `Port_SwapArray*` in `port.h`); ARAM sample data stays
-big-endian and the mixer reads it with `Port_ReadBE16`.
+(`BE16`/`BE32`, `Port_SwapArray*` in `port.h`). Sound samples are kept in
+host order whichever release they come from: the GameCube's PCM16 sound
+effect and song-bank samples are swapped as their pack loads
+(`src/game/Port_Data.c`), and the mixer reads plain `s16` from ARAM.
 
 ### Threads
 
@@ -427,6 +429,8 @@ Debugging aids:
   validation layers, D3D12 debug layer) for the SDL_GPU renderers.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
+- `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
+  at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
 - `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
   since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.

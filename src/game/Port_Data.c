@@ -6,11 +6,14 @@
  * (dvd.c finds a pack under any release's name). What differs:
  *
  * - GameCube (.xgc): big-endian; every step goes to the byte-swapper
- *   (Port_Swap.c). Geometry and textures are GX's, which the port draws.
- * - PC (.xpc): little-endian, so the tables and the object graph are already
- *   in host order. Sound samples are PCM16 LE; the mixer reads them
- *   big-endian, as from ARAM, so they're swapped here. Geometry (triangle
- *   lists) and textures (DXT) are not GX's: see PC_PackData.
+ *   (Port_Swap.c), and the PCM16 samples of sound effects and song banks
+ *   are swapped here. Geometry and textures are GX's, which the port draws.
+ * - PC (.xpc): little-endian, so the tables, the object graph and the
+ *   samples are already in host order. Geometry (triangle lists) and
+ *   textures (DXT) are not GX's: see PC_PackData.
+ *
+ * Sound samples are kept in host order, whichever release they come from:
+ * the mixer (ax.c) reads them as plain s16.
  * - PS2 (.xps): little-endian too; not loadable yet (dvd.c doesn't look for
  *   it). Its steps go in the PORT_DATA_PS2 cases.
  *
@@ -82,9 +85,10 @@ void PortData_SoundPointers(s32 fmt, u32 *pointers, u32 count, u8 *soundBase) {
     }
 }
 
-/* PC: the samples of `count` SFX descriptors (relocated: data is a handle)
- * to big-endian, once each, for the mixer (Port_ReadBE16). */
-static void PC_SFXSamples(u8 *desc, u32 count) {
+/* The 16-bit samples of `count` SFX descriptors (host order already;
+ * relocated: data is a handle) byte-swapped, once each: the GameCube's are
+ * big-endian, the mixer reads host order. */
+static void SwapSFXSamples(u8 *desc, u32 count) {
     SFX *sfx = (SFX *)desc;
     u32 i, j, n;
 
@@ -106,9 +110,9 @@ void PortData_SFX(s32 fmt, u8 *sfx, u32 count) {
     switch (fmt) {
     case PORT_DATA_GC:
         PortSwap_SFXDescriptors(sfx, count);
+        SwapSFXSamples(sfx, count);
         break;
     case PORT_DATA_PC:
-        PC_SFXSamples(sfx, count);
         break;
     default:
         Unsupported(fmt);
@@ -274,39 +278,52 @@ static void Swap16At(u8 *p) {
     p[1] = t;
 }
 
-/* PC: a song's instrument bank, 'RIFF' 'sndb', little-endian where the
- * GameCube's is 'RIFX' (the songs themselves are 'RIFX' on both). Turned
- * into the GameCube's in place, once, as the pack loads, so CreateMIDI
- * (MIDI.c) reads it as it reads the GameCube's: header words 0x4, 0xC-0x14
- * (0x18/0x1C, never read, get the GameCube's 1 and 0 for the PC's
- * uninitialised 0xCCCCCCCC); per instrument (0x20 from 0x20) u32 sample
- * address, length, loop, rate, u16 0x12 and the envelope u16s 0x18-0x1E;
- * the 16-bit samples after the table (0x14), which the mixer reads
- * big-endian. */
-static void PC_SongBank(u8 *bank) {
-    u32 size, count, table, i, j;
+static u32 BE32At(const u8 *p) {
+    return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | (u32)p[3];
+}
 
-    if (memcmp(bank, "RIFF", 4) != 0 || memcmp(bank + 8, "sndb", 4) != 0) {
-        return;
-    }
-    size = LE32(bank + 4);
-    count = LE32(bank + 0x10);
-    table = LE32(bank + 0x14);
+/* A song's instrument bank ('sndb': header words 0x4 size, 0xC, 0x10 count,
+ * 0x14 table size; 0x20 per instrument from 0x20: u32 sample address,
+ * length, loop, rate, u8 bits 0x11; the samples after the table): its
+ * 16-bit samples byte-swapped in place, once each. `be`: the header is
+ * big-endian ('RIFX'). */
+static void SwapBankSamples(u8 *bank, int be) {
+    u32 (*rd)(const u8 *) = be ? BE32At : LE32;
+    u32 size = rd(bank + 4), count = rd(bank + 0x10), table = rd(bank + 0x14), i, j;
+
     if (table < 0x20 + count * 0x20 || table > size + 8) {
         return;
     }
     for (i = 0; i < count; i++) {
         u8 *e = bank + 0x20 + i * 0x20;
-        u32 addr = LE32(e), len = LE32(e + 4);
+        u32 addr = rd(e), len = rd(e + 4);
 
-        if (e[0x11] == 16 && table + addr + len <= size + 8) {
-            for (j = 0; j < i && LE32(bank + 0x20 + j * 0x20) != addr; j++) {
-            }
-            if (j == i) {   /* not shared with an earlier instrument */
-                Port_SwapArray16(bank + table + addr, len / 2);
-            }
+        if (e[0x11] != 16 || table + addr + len > size + 8) {
+            continue;
+        }
+        for (j = 0; j < i && rd(bank + 0x20 + j * 0x20) != addr; j++) {
+        }
+        if (j == i) {   /* not shared with an earlier instrument */
+            Port_SwapArray16(bank + table + addr, len / 2);
         }
     }
+}
+
+/* PC: a song's instrument bank, 'RIFF' 'sndb', little-endian where the
+ * GameCube's is 'RIFX' (the songs themselves are 'RIFX' on both). Its header
+ * and instruments are turned into the GameCube's in place, once, as the pack
+ * loads, so CreateMIDI (MIDI.c) reads it as it reads the GameCube's: header
+ * words 0x4, 0xC-0x14 (0x18/0x1C, never read, get the GameCube's 1 and 0 for
+ * the PC's uninitialised 0xCCCCCCCC); per instrument u32 sample address,
+ * length, loop, rate, u16 0x12 and the envelope u16s 0x18-0x1E. The samples
+ * stay as they are: host order. */
+static void PC_SongBank(u8 *bank) {
+    u32 count, i, j;
+
+    if (memcmp(bank, "RIFF", 4) != 0 || memcmp(bank + 8, "sndb", 4) != 0) {
+        return;
+    }
+    count = LE32(bank + 0x10);
     for (i = 0; i < count; i++) {
         u8 *e = bank + 0x20 + i * 0x20;
 
@@ -327,9 +344,15 @@ static void PC_SongBank(u8 *bank) {
     memcpy(bank, "RIFX", 4);
 }
 
+/* A song's instrument bank as its pack loads (DataPack_LoadDataPack): in
+ * the GameCube's form ('RIFX' header, PortSwap_MIDI swaps CreateMIDI's
+ * copy), its samples in host order. */
 void PortData_SongBank(s32 fmt, u8 *bank) {
     switch (fmt) {
     case PORT_DATA_GC:
+        if (memcmp(bank, "RIFX", 4) == 0 && memcmp(bank + 8, "sndb", 4) == 0) {
+            SwapBankSamples(bank, 1);
+        }
         break;
     case PORT_DATA_PC:
         PC_SongBank(bank);

@@ -175,8 +175,15 @@ void AXFXDelayCallback(void *data, void *context) { (void)data; (void)context; }
 
 static float FetchSample(u16 format, u32 addr) {
     if (format == AX_FORMAT_PCM16) {
+        /* host order: the loaders swap the GameCube's samples (game/Port_Data.c) */
         u32 b = addr * 2;
-        return b + 1 < ARAM_SIZE ? (s16)Port_ReadBE16(s_aram + b) * (1.0f / 32768.0f) : 0.0f;
+        s16 v;
+
+        if (b + 1 >= ARAM_SIZE) {
+            return 0.0f;
+        }
+        memcpy(&v, s_aram + b, 2);
+        return v * (1.0f / 32768.0f);
     }
     if (format == AX_FORMAT_PCM8) {
         return addr < ARAM_SIZE ? (s8)s_aram[addr] * (1.0f / 128.0f) : 0.0f;
@@ -261,6 +268,8 @@ static void RunAXFrame(float *out) {
 
 /* HWVX_AUDIOLOG=1: log device underruns and the longest wait for the lock */
 static int s_audioLog;
+/* HWVX_AUDIODUMP=file: the mixed output, raw float32 stereo at AX_RATE. */
+static SDL_IOStream *s_audioDump;
 static SDL_AtomicInt s_underruns;
 
 static int SDLCALL AXThread(void *unused) {
@@ -303,6 +312,9 @@ static int SDLCALL AXThread(void *unused) {
         if (s_stream != NULL) {
             SDL_PutAudioStreamData(s_stream, frames, n * FRAME_BYTES);
         }
+        if (s_audioDump != NULL) {
+            SDL_WriteIO(s_audioDump, frames, (size_t)n * FRAME_BYTES);
+        }
         if (s_audioLog && SDL_GetTicksNS() - logT0 >= 5 * SDL_NS_PER_SECOND) {
             Port_Log("audio: %d underruns, longest lock wait %.1f ms",
                      SDL_SetAtomicInt(&s_underruns, 0), maxWait / 1e6);
@@ -335,6 +347,9 @@ void AXInit(void) {
     spec.channels = 2;
     spec.freq = AX_RATE;
     s_audioLog = SDL_getenv("HWVX_AUDIOLOG") != NULL;
+    if (SDL_getenv("HWVX_AUDIODUMP") != NULL) {
+        s_audioDump = SDL_IOFromFile(SDL_getenv("HWVX_AUDIODUMP"), "wb");
+    }
     s_ringSpace = SDL_CreateSemaphore(0);
     s_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, DeviceCallback, NULL);
     if (s_stream == NULL) {
