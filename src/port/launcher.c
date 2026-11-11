@@ -221,6 +221,8 @@ typedef struct Launcher {
     Port_DataCheck check;
     Button buttons[40];
     int numButtons, focus;
+    int hover, mouse;           /* the enabled button under the pointer (-1 none); 1 while the mouse leads */
+    SDL_FPoint pointer;         /* where the pointer is, in view coordinates (-1,-1 outside) */
     char status[256];
     /* a dialog's answer, from SDL's callback thread */
     SDL_AtomicInt picked;       /* 0 waiting, 1 answered, 2 no dialog */
@@ -291,6 +293,13 @@ static void Layout(Launcher *l) {
     if (l->focus >= l->numButtons) {
         l->focus = l->numButtons - 1;
     }
+    /* the buttons may have moved (one added or removed) under a still pointer */
+    l->hover = -1;
+    for (i = 0; i < l->numButtons; i++) {
+        if (l->buttons[i].enabled && SDL_PointInRectFloat(&l->pointer, &l->buttons[i].r)) {
+            l->hover = i;
+        }
+    }
 }
 
 static void Draw(Launcher *l) {
@@ -322,7 +331,7 @@ static void Draw(Launcher *l) {
     Text(l, 24, VIEW_H - 48, 255, 190, 120, l->status);
     for (i = 0; i < l->numButtons; i++) {
         const Button *b = &l->buttons[i];
-        int on = i == l->focus;
+        int on = l->mouse ? i == l->hover : i == l->focus;
 
         if (b->act == ACT_PLAY_THIS && l->src.play == b->source) {
             SDL_SetRenderDrawColor(l->renderer, 40, 110, 60, 255);
@@ -489,7 +498,7 @@ static void Move(Launcher *l, int dx, int dy) {
         const SDL_FRect *r = &l->buttons[i].r;
         float x = r->x + r->w / 2 - fx, y = r->y + r->h / 2 - fy, d;
 
-        if (i == l->focus || (dx && x * dx <= 0) || (dy && y * dy <= 0)) {
+        if (i == l->focus || !l->buttons[i].enabled || (dx && x * dx <= 0) || (dy && y * dy <= 0)) {
             continue;
         }
         d = dx ? SDL_fabsf(x) + 4 * SDL_fabsf(y) : SDL_fabsf(y) + SDL_fabsf(x) / 4;
@@ -561,19 +570,28 @@ static int Run(Launcher *l) {
                 result = -1;
                 break;
             case SDL_EVENT_MOUSE_MOTION:
-            case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                for (i = 0; i < l->numButtons; i++) {
-                    SDL_FPoint p = { ev.type == SDL_EVENT_MOUSE_MOTION ? ev.motion.x : ev.button.x,
-                                     ev.type == SDL_EVENT_MOUSE_MOTION ? ev.motion.y : ev.button.y };
-                    if (SDL_PointInRectFloat(&p, &l->buttons[i].r)) {
-                        l->focus = i;
-                        if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN && ev.button.button == SDL_BUTTON_LEFT) {
-                            result = Activate(l, &l->buttons[i]);
-                        }
-                    }
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
+                /* the mouse highlights what it is over, and nothing when over
+                 * nothing; the keyboard and pads take over from where it was */
+                SDL_FPoint p = { ev.type == SDL_EVENT_MOUSE_MOTION ? ev.motion.x : ev.button.x,
+                                 ev.type == SDL_EVENT_MOUSE_MOTION ? ev.motion.y : ev.button.y };
+
+                l->mouse = 1;
+                l->pointer = p;
+                Layout(l);
+                if (l->hover >= 0) {
+                    l->focus = l->hover;
+                }
+                if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN && ev.button.button == SDL_BUTTON_LEFT && l->hover >= 0) {
+                    result = Activate(l, &l->buttons[l->hover]);
                 }
                 break;
+            }
+            case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+                l->pointer.x = l->pointer.y = -1;
+                break;
             case SDL_EVENT_KEY_DOWN:
+                l->mouse = 0;
                 switch (ev.key.key) {
                 case SDLK_LEFT: Move(l, -1, 0); break;
                 case SDLK_RIGHT: Move(l, 1, 0); break;
@@ -594,6 +612,7 @@ static int Run(Launcher *l) {
                 }
                 break;
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+                l->mouse = 0;
                 switch (ev.gbutton.button) {
                 case SDL_GAMEPAD_BUTTON_DPAD_LEFT: Move(l, -1, 0); break;
                 case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: Move(l, 1, 0); break;
@@ -612,6 +631,7 @@ static int Run(Launcher *l) {
                     int dir = ev.gaxis.value > 16000 ? 1 : ev.gaxis.value < -16000 ? -1 : 0;
 
                     if (dir != 0 && held[a] != dir) {
+                        l->mouse = 0;
                         Move(l, a ? 0 : dir, a ? dir : 0);
                     }
                     held[a] = dir;
@@ -652,6 +672,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     int i, valid;
 
     SDL_zero(l);
+    l.pointer.x = l.pointer.y = -1;
     l.check = check;
     LoadSources(&l.src);
     /* take over what the port used before (datadir.txt), else look around */
