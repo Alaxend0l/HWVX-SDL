@@ -52,9 +52,10 @@
 #include "ThingManager.h"
 #include "WildCard.h"
 #include "Port_Online.h"
+#include "Port_OnlineProtocol.h"
 #include "net.h"
 
-#define ONLINE_PLAYERS 4        /* the game's ports; see NET_DEFAULT_PLAYERS */
+#define ONLINE_PLAYERS ONLINE_MAX_PLAYERS
 #define WORLD_OF_LEVEL() ((World *)GETP(g_worldData.world))
 #define MAX_VEHICLE 32          /* the car select's list */
 #define MAX_ITEM 0x60
@@ -75,26 +76,8 @@
 #define SPAWN_BODY_HEIGHT 6.0f  /* walls are looked for this far above the ground */
 #define NO_ITEM (-1)
 
-enum {
-    MSG_SETUP = 1,              /* host: u8 progression, u16 level, u8 ports in, the settings */
-    MSG_ABORT,                  /* host: left the car select */
-    MSG_CARS,                   /* client: s32 vehicle, s32 item */
-    MSG_START,                  /* host: u8 ports in, u32 seed, then s32 vehicle, s32 item per port */
-    MSG_READY,                  /* client: u32 stage: held, waiting for go */
-    MSG_GO,                     /* host: u32 stage */
-    MSG_FINISH,                 /* client: u32 stage, u32 ms since go: its car finished */
-    MSG_WINNER,                 /* host: u32 stage, u8 the winner's script number */
-    MSG_RETURN,                 /* host: the level is over, back to the lobby */
-    MSG_LEFT_LEVEL,             /* client: in the lobby */
-    MSG_CONTINUE,               /* host: it left the round summary */
-    MSG_PICKUP,                 /* u8 port, u16 quadrant, u16 item, u16 ammo: its car took it */
-    MSG_CAR_STATE,              /* u8 port, u32 stage, u8 alive: its car was destroyed or respawned */
-    MSG_KILL,                   /* u32 stage, u8 the killer's port: this car's death was its doing */
-    MSG_ROUND_END,              /* host: u32 stage, u8 winner, 0xFF: none; s32 kills, u32 points per port */
-};
 
 #define SNAPSHOT_MS 33          /* how often a car tells the others about itself */
-#define SNAPSHOT_SIZE 76
 #define HOLD_MAX_MS 30000       /* a machine this late doesn't hold up the others */
 #define SUMMARY_PRESS_MS 500    /* it may be still coming in: press until it's gone */
 #define FINISH_WINDOW_MS 60     /* plus the slowest half round trip: for close finishes */
