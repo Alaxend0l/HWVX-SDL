@@ -98,6 +98,11 @@ s32 StateProgressionManager_Init(s32 prevState) {
         }
         g_GameProgressionEndState[0] = 4;
         g_GameProgressionEndState[1] = 0;
+        /* port: which level (-1: one of the script's own; else a registered
+         * track's, Port_Content.h), for the tests' greps */
+        Port_Log("progression: script %d level %d of %d, registered track %d", (int)g_GameProgressionID,
+                 (int)g_GameProgressionState.index, (int)script[0],
+                 (int)Port_ContentTrackOfLevel(g_GameProgressionID, g_GameProgressionState.index));
         break;
     case 5:
         g_GameProgressionState.worldState = 0;

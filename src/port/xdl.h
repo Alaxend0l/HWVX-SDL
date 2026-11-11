@@ -43,8 +43,19 @@ enum {
  * off or there's nothing to read or write. */
 void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath);
 void Xdl_CloseFile(void *xf);
+/* The source file an open cache is of (NULL for NULL). */
+const char *Xdl_SourcePath(void *xf);
 int Xdl_Reading(void);
 int Xdl_Writing(void);
+/* The cache in `dir`, read and/or written, whatever the environment says:
+ * a release converted ahead of time (Port_Convert.c writes it, the launcher
+ * has the game read it). Before the first pack file is opened. */
+void Xdl_Use(const char *dir, int reading, int writing);
+/* 1 if the environment sets any of HWVX_XDL, HWVX_XDL_WRITE, HWVX_XDL_DIR. */
+int Xdl_EnvSet(void);
+/* What a cache file made now is stamped with: one with another version,
+ * compiler or settings is not read. */
+void Xdl_Stamp(u32 *version, u32 *compiler, u32 *settings);
 
 /* ---- writing: recorded around a pack's source load ---------------------- */
 
