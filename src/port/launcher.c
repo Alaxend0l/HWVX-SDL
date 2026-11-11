@@ -352,6 +352,7 @@ typedef struct Launcher {
     int numFocus;               /* the page's and the bottom bar's buttons come first; the tabs
                                  * after them take clicks but not the focus */
     int tab;                    /* TAB_*: the page shown */
+    int scripted;               /* testing: HWVX_LAUNCHER_INPUT's events still to come */
     int hover, mouse;           /* the enabled button under the pointer (-1 none); 1 while the mouse leads */
     SDL_FPoint pointer;         /* where the pointer is, in view coordinates (-1,-1 outside) */
     char status[256];
@@ -648,8 +649,8 @@ static void DrawPage(Launcher *l) {
         }
         y = ROW_Y(SRC_COUNT) + 4;
         if (l->importer != NULL) {
-            SDL_snprintf(line, sizeof(line), "Importing the %s disc image: %d files so far.",
-                         l->importSource == PORT_DATA_PC ? "PC" : "PS2", SDL_GetAtomicInt(&l->importFiles));
+            SDL_snprintf(line, sizeof(line), "Importing the %s disc image into the save folder.",
+                         l->importSource == PORT_DATA_PC ? "PC" : "PS2");
             Text(l, 24, y, 255, 210, 80, line);
             Text(l, 24, y + 11, DIM, "Quit stops it and keeps the last complete copy.");
         } else {
@@ -759,7 +760,7 @@ static void Draw(Launcher *l) {
             Text(l, b->r.x + 8, b->r.y + 5, 110, 110, 120, b->label);
         }
     }
-    if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL) {
+    if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL && !l->scripted) {
         /* testing: the frame as a BMP, read before it is presented */
         SDL_Surface *shot = SDL_RenderReadPixels(l->renderer, NULL);
 
@@ -1175,19 +1176,86 @@ static void Poll(Launcher *l) {
     }
 }
 
+/* Testing: HWVX_LAUNCHER_INPUT="rb,down,a,..." queues keys (pgup pgdn tab
+ * up down left right enter esc), gamepad buttons (lb rb a b start dup ddown
+ * dleft dright) and clicks (click:X:Y, in the 640x420 view) as if the player
+ * had pressed them; HWVX_LAUNCHER_SHOT then saves the frame after them. */
+static void QueueInput(Launcher *l) {
+    static const struct {
+        const char *name;
+        int key, pad;
+    } names[] = {
+        { "pgup", SDLK_PAGEUP, -1 }, { "pgdn", SDLK_PAGEDOWN, -1 }, { "tab", SDLK_TAB, -1 },
+        { "up", SDLK_UP, -1 }, { "down", SDLK_DOWN, -1 }, { "left", SDLK_LEFT, -1 },
+        { "right", SDLK_RIGHT, -1 }, { "enter", SDLK_RETURN, -1 }, { "esc", SDLK_ESCAPE, -1 },
+        { "lb", 0, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER }, { "rb", 0, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER },
+        { "a", 0, SDL_GAMEPAD_BUTTON_SOUTH }, { "b", 0, SDL_GAMEPAD_BUTTON_EAST },
+        { "start", 0, SDL_GAMEPAD_BUTTON_START }, { "dup", 0, SDL_GAMEPAD_BUTTON_DPAD_UP },
+        { "ddown", 0, SDL_GAMEPAD_BUTTON_DPAD_DOWN }, { "dleft", 0, SDL_GAMEPAD_BUTTON_DPAD_LEFT },
+        { "dright", 0, SDL_GAMEPAD_BUTTON_DPAD_RIGHT },
+    };
+    const char *env = SDL_getenv("HWVX_LAUNCHER_INPUT");
+    char *list, *p, *save = NULL;
+    SDL_Event ev;
+    size_t i;
+
+    if (env == NULL) {
+        return;
+    }
+    list = SDL_strdup(env);
+    for (p = SDL_strtok_r(list, ", ", &save); p != NULL; p = SDL_strtok_r(NULL, ", ", &save)) {
+        float x, y;
+
+        SDL_zero(ev);
+        if (SDL_sscanf(p, "click:%f:%f", &x, &y) == 2) {
+            SDL_RenderCoordinatesToWindow(l->renderer, x, y, &x, &y);
+            ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+            ev.button.windowID = SDL_GetWindowID(l->window);
+            ev.button.button = SDL_BUTTON_LEFT;
+            ev.button.down = true;
+            ev.button.x = x;
+            ev.button.y = y;
+            SDL_PushEvent(&ev);
+            continue;
+        }
+        for (i = 0; i < SDL_arraysize(names) && SDL_strcmp(p, names[i].name) != 0; i++) {
+        }
+        if (i == SDL_arraysize(names)) {
+            Port_Log("HWVX_LAUNCHER_INPUT: no such input: %s", p);
+            continue;
+        }
+        if (names[i].pad >= 0) {
+            ev.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+            ev.gbutton.button = (Uint8)names[i].pad;
+            ev.gbutton.down = true;
+        } else {
+            ev.type = SDL_EVENT_KEY_DOWN;
+            ev.key.key = (SDL_Keycode)names[i].key;
+            ev.key.down = true;
+        }
+        SDL_PushEvent(&ev);
+    }
+    SDL_free(list);
+    SDL_zero(ev);
+    ev.type = SDL_EVENT_USER;   /* the end of them */
+    SDL_PushEvent(&ev);
+    l->scripted = 1;
+}
+
 static int Run(Launcher *l) {
     SDL_Gamepad *pads[8] = { NULL };
     int result = 0, i;
     static int held[2];
 
+    QueueInput(l);
     while (result == 0) {
         SDL_Event ev;
 
         Poll(l);
         Layout(l);
         Draw(l);
-        if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL) {
-            result = -1;    /* testing: Draw saved the first frame */
+        if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL && !l->scripted) {
+            result = -1;    /* testing: Draw saved the frame */
             break;
         }
         if (!SDL_WaitEventTimeout(&ev, 50)) {
@@ -1220,6 +1288,9 @@ static int Run(Launcher *l) {
                 }
                 break;
             }
+            case SDL_EVENT_USER:
+                l->scripted = 0;
+                break;
             case SDL_EVENT_WINDOW_MOUSE_LEAVE:
                 l->pointer.x = l->pointer.y = -1;
                 break;
@@ -1401,6 +1472,17 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
         l.tab = TAB_SAVES;
         AddSaves(&l, paths, n);
         SDL_free(list);
+    }
+    if (SDL_getenv("HWVX_LAUNCHER_DISC") != NULL) {
+        /* testing: "pc=IMAGE" or "ps2=IMAGE", imported as if picked on Games */
+        const char *disc = SDL_getenv("HWVX_LAUNCHER_DISC");
+
+        l.tab = TAB_GAMES;
+        if (SDL_strncmp(disc, "pc=", 3) == 0) {
+            StartDisc(&l, disc + 3, PORT_DATA_PC);
+        } else if (SDL_strncmp(disc, "ps2=", 4) == 0) {
+            StartDisc(&l, disc + 4, PORT_DATA_PS2);
+        }
     }
     if (Run(&l) > 0 && l.src.play >= 0 && l.src.path[l.src.play] != NULL) {
         chosen = SDL_strdup(l.src.path[l.src.play]);
