@@ -170,4 +170,12 @@ s32 Port_ContentTrackOfLevel(u32 prog, u32 level);
 /* A world select (patched first) opens at level `level`: 1 if h is one. */
 int Port_ContentTrackSelectAt(struct InterfaceHeader *h, s32 level);
 
+/* Online play (Port_Online.c): a car or item choice written so that another
+ * machine, whose registered content is numbered by its own ids.lock, reads
+ * the same one, or the base entry it is made from when it lacks it. */
+struct NetWriter;
+struct NetReader;
+void Port_ContentWriteChoice(struct NetWriter *w, int kind, s32 n);
+s32 Port_ContentReadChoice(struct NetReader *r, int kind);
+
 #endif
