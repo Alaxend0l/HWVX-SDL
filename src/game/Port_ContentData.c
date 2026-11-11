@@ -536,6 +536,46 @@ static void TestUnlock(int kind) {
     }
 }
 
+/* A carousel's windows are constant variables the d-pad steps together,
+ * wrapped to min..max, each starting at its window's entry (its offset): the
+ * middle one's, the others the entries before and after it modulo the
+ * retail count (the item select's left windows start at 10 and 11 for
+ * item 0). Widened to the registry's count, they're rebased so the windows
+ * stay neighbours modulo the new count (10, 11 would be 3 and 2 before 0
+ * of 14): offset = middle + (offset - middle, as -retail/2..retail/2), the
+ * middle being the variable the screen's name list shows. Done once, as
+ * the variables are widened (marked by `wide`). */
+static void Rebase(InterfaceHeader *h, const u8 *wide, u32 retail, u32 count) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    IfaceVarList *vl = GETP(h->vars);
+    s32 mid = -1, rel;
+    u32 i;
+
+    for (i = 0; objs != NULL && i < h->numObjects && mid < 0; i++) {
+        const IfaceText *t = objs[i].type == IFACE_DEF_TEXT ? GETP(objs[i].sub) : NULL;
+        const IfaceStringList *l = t != NULL && t->listMode == 1 && !t->paragraph ? GETP(t->list) : NULL;
+
+        if (l != NULL && l->fromVar && l->var < vl->count && l->var < 256 && (wide[l->var / 8] >> (l->var % 8) & 1)) {
+            mid = l->var;
+        }
+    }
+    if (mid < 0) {
+        return;
+    }
+    for (i = 0; i < vl->count && i < 256; i++) {
+        IfaceVar *v = &GETP(vl->vars)[i];
+
+        if (!(wide[i / 8] >> (i % 8) & 1) || v->type != IFACE_VAR_CONST) {
+            continue;
+        }
+        rel = ((v->offset - GETP(vl->vars)[mid].offset) % (s32)retail + (s32)retail) % (s32)retail;
+        if (rel > (s32)retail / 2) {
+            rel -= (s32)retail;
+        }
+        v->offset = ((GETP(vl->vars)[mid].offset + rel) % (s32)count + (s32)count) % (s32)count;
+    }
+}
+
 /* Variables ranging over the retail entries (min 0, max retail - 1) that
  * number them, widened to the count: in a screen whose padlocks test the
  * kind's unlock by variable (the car select's carousel), and wherever the
@@ -546,7 +586,7 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
     IfaceVarList *vl;
     int kind;
     u32 i;
-    u8 vars[256 / 8];
+    u8 vars[256 / 8], wide[256 / 8];
 
     if (h == NULL || (vl = GETP(h->vars)) == NULL) {
         return;
@@ -562,6 +602,7 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
             continue;
         }
         SDL_zeroa(vars);
+        SDL_zeroa(wide);
         for (i = 0; i < vl->count && i < 256; i++) {
             IfaceVar *v = &GETP(vl->vars)[i];
             IfaceCodeVar *cv = v->type == IFACE_VAR_CODE ? GETP(v->code) : NULL;
@@ -575,11 +616,15 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
                 any = 1;
                 if (v->max != (s32)count - 1) {
                     v->max = (s32)count - 1;
+                    wide[i / 8] |= (u8)(1u << (i % 8));
                     Port_Log("content: interface %u: variable %u ranges over %u %s", h->id, (unsigned)i,
                              (unsigned)count,
                              kind == PORT_CONTENT_CAR ? "cars" : kind == PORT_CONTENT_TRACK ? "tracks" : "items");
                 }
             }
+        }
+        if (any && indexed) {
+            Rebase(h, wide, retail, count);
         }
         if (any && count > Port_ContentBaseCount(kind)) {
             ExtendLists(h, kind, vars, vl->count < 256 ? vl->count : 256);
