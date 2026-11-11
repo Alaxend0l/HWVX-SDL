@@ -6,13 +6,15 @@
  * little-endian, mip levels back to back, as its OpenGL upload took them.
  *
  * Block-compressed textures go to the GPU as they are stored when it samples
- * BC1/BC3: the PC's DXT1/DXT5 unchanged, the GameCube's CMPR re-tiled to BC1
- * (CMPR is DXT1 in 8x8 tiles of four 4x4 blocks, big-endian colours, the
- * indices' bit order reversed; nothing is re-encoded). Everything else, and
- * every texture without BC support or with HWVX_TEX_DECODE=1, is decoded to
- * RGBA8 here. The PC's textures drawn with the GameCube's colours
- * (Port_PCTexturesLookGC, the default) are decoded too: squaring a texel's
- * colour can't be done on its block.
+ * BC1/BC3 and draws them as the release's hardware did: the PC's DXT1/DXT5
+ * unchanged, the GameCube's CMPR re-tiled to BC1 (CMPR is DXT1 in 8x8 tiles
+ * of four 4x4 blocks, big-endian colours, the indices' bit order reversed;
+ * nothing is re-encoded), but only where every colour comes out the same,
+ * since the GameCube mixes a block's colours differently (BlockPalette).
+ * Everything else, and every texture without BC support or with
+ * HWVX_TEX_DECODE=1, is decoded to RGBA8 here. The PC's textures drawn with
+ * the GameCube's colours (Port_PCTexturesLookGC, the default) are decoded
+ * too: squaring a texel's colour can't be done on its block.
  *
  * Two caches: texture objects are looked up per draw by address, format, size
  * and a hash of their first bytes (packs reuse memory for other textures);
