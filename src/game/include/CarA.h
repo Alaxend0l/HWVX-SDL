@@ -195,14 +195,18 @@ typedef struct CollisionSpheres {
   PTR32(CollisionSphere) list; /* 0x04 */
 } CollisionSpheres;
 
+/* The same record as DestructibleInfo (common.h): the car code reads fewer
+ * of its fields. */
 typedef struct CarACollider {
   f32 inertiaScale[3];      /* 0x00 per-axis factor of the inverse inertia tensor */
   u8 pad0C[4];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   u8 type;                  /* 0x10 0: oriented box, 1: convex hull */
-  u8 pad11[3];              /* 0x11 u8s (1, 0, 0 in most cars); never read (GC, PC, PS2) */
+  u8 pad11[3];              /* 0x11 u8s (1, 0, 0 in most cars): DestructibleInfo's
+                             *      takesDamage; never read (GC, PC, PS2) */
   s32 maxHealth;            /* 0x14 */
   s32 damageThreshold;      /* 0x18 impacts above it hurt */
-  u8 pad1C[4];              /* 0x1C s32 375 or -1; never read (GC, PC, PS2) */
+  u8 pad1C[4];              /* 0x1C s32 375 or -1: DestructibleInfo's deathTime (ms);
+                             *      never read (GC, PC, PS2) */
   f32 mass;                 /* 0x20 */
   f32 gravityScale;         /* 0x24 forceAccum.y += gravityScale * mass */
   u8 pad28[4];              /* 0x28 0 in every car; never read (GC, PC, PS2) */
@@ -210,7 +214,8 @@ typedef struct CarACollider {
   PTR32(CarAMaterial) material;   /* 0x30 */
   u32 numEndFx;             /* 0x34 debris spawned when destroyed, one at random */
   PTR32(u32) endFx;         /* 0x38 (Thing_ProcessEndEvent) */
-  u8 pad3C[8];              /* 0x3C a second list like endFx: u32 1, pointer; never read (GC, PC, PS2) */
+  u8 pad3C[8];              /* 0x3C u32 1, pointer: DestructibleInfo's numDebris,
+                             *      debris; never read (GC, PC, PS2) */
   union {
     PTR32(Vector4) box;           /* 0x44 type 0: min/max corners */
     PTR32(struct CollisionSpheres) spheres; /* type 7 */
