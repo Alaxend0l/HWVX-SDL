@@ -67,6 +67,7 @@
  * is. To add a setting: copy another row into the Graphics screen the same
  * way, with a new PORT_CODEVAR_* id. */
 #include "common.h"
+#include "Port_Content.h"
 #include "Interface.h"
 #include "Port_Online.h"
 
@@ -2154,6 +2155,7 @@ void Port_MenuPatch(InterfaceHeader *h) {
         return;
     }
     Port_MenuDump(h);        /* HWVX_MENUDUMP: the screens as the pack has them */
+    Port_ContentPatchInterface(h);   /* the car, track and item ranges: the registry's counts */
     Port_CarouselPatch(h);   /* world, car and weapon select: more windows */
     PatchPauseMenu(h);
     PatchBattleOptions(h);

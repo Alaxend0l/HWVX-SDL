@@ -1,5 +1,6 @@
 /* The launcher: where the player imports the releases' game data, picks the
- * one to play, and (later) converts data to .xdl and manages mods.
+ * one to play, imports saves, sets what graphics.cfg holds beyond the game's
+ * own Graphics menu, and (later) converts data to .xdl and manages mods.
  *
  * The launcher opens on every start, unless the player ticked "Start the
  * game without this window" (skip=1): then the game boots straight into the
@@ -22,20 +23,33 @@
  *   image is imported like the PS2's; either disc goes where its version
  *   says, whichever row it was picked from.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
- * "ps2beta=PATH", "play=gc|pc|ps2" and "skip=1"; the GameCube data the port found
- * before the launcher existed (datadir.txt) is taken over on the first run.
+ * "ps2beta=PATH", "play=gc|pc|ps2", "skip=1" and "tab=PAGE"; the GameCube data the
+ * port found before the launcher existed (datadir.txt) is taken over on the
+ * first run.
  *
  * It is plain SDL: a window with an SDL_Renderer drawing SDL's built-in 8x8
- * text at a logical 640x420. Mouse, keyboard (arrows, Tab, Enter, Escape) and
- * gamepads (d-pad or left stick, A, B, Start: Play) move a focus between the
- * buttons. Folders and images are picked with the system's dialogs, which
- * need a mouse or a keyboard.
+ * text at a logical 640x420. A tab bar shows one page at a time: Play (which
+ * release plays, the skip tick), Games (importing and removing releases),
+ * Saves, Convert and Mods (placeholders), Settings (graphics.cfg, through
+ * gfx_settings.c). Play, Quit and the status line stay at the bottom. It opens
+ * on the page shown last, or Play; on Games while no release is imported.
+ * Mouse, keyboard (arrows, Tab, Enter, Escape; Page Up/Down: the page) and
+ * gamepads (d-pad or left stick, A, B, Start: Play; LB/RB: the page) move a
+ * focus between the page's buttons and the bottom bar's; the tabs take clicks.
+ * Folders and images are picked with the system's dialogs, which need a mouse
+ * or a keyboard.
+ *
+ * Testing: HWVX_LAUNCHER_SHOT=file.bmp saves a frame and closes;
+ * HWVX_LAUNCHER_TAB=PAGE opens that page; HWVX_LAUNCHER_INPUT queues input
+ * before the shot (QueueInput); HWVX_LAUNCHER_DISC=pc=IMAGE|ps2=IMAGE imports
+ * a disc image as if picked.
  *
  * "Import saves..." takes progress from any release's saves (Port_SaveImport.c:
  * GameCube .gci and card images, the PC's velocityX, PS2 card images and
  * .psu, the port's own .sav): the files are read, then a preview says which
  * saves go where and what each adds, with the choices (one save only, the
- * PC/PS2 default cars), and Import merges them into the JSON save store.
+ * PC/PS2 default cars), and Import merges them into the JSON save store. The
+ * preview keeps to the Saves page until it is imported or cancelled.
  * HWVX_LAUNCHER_IMPORT="FILE;FILE" opens that preview on start (testing). */
 #include "port_internal.h"
 #include "Port_Saves.h"
@@ -50,10 +64,29 @@ enum { SRC_BETA = PORT_DATA_COUNT, SRC_COUNT };
 static const char *const s_keys[SRC_COUNT] = { "gc", "pc", "ps2", "ps2beta" };
 static const char *const s_names[SRC_COUNT] = { "GameCube", "PC", "PlayStation 2", "PS2 prototype (beta)" };
 
+/* The pages, in tab order; the names are sources.cfg's "tab=" and
+ * HWVX_LAUNCHER_TAB's. */
+enum { TAB_PLAY, TAB_GAMES, TAB_SAVES, TAB_CONVERT, TAB_MODS, TAB_SETTINGS, TAB_COUNT };
+
+static const char *const s_tabKeys[TAB_COUNT] = { "play", "games", "saves", "convert", "mods", "settings" };
+static const char *const s_tabNames[TAB_COUNT] = { "Play", "Games", "Saves", "Convert", "Mods", "Settings" };
+
+static int TabNamed(const char *name) {
+    int i;
+
+    for (i = 0; name != NULL && i < TAB_COUNT; i++) {
+        if (SDL_strcasecmp(name, s_tabKeys[i]) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 typedef struct Sources {
     char *path[SRC_COUNT];
     int play;           /* PORT_DATA_*, or -1 */
     int skip;           /* start the game without the launcher */
+    int tab;            /* TAB_* last shown, or -1 */
 } Sources;
 
 /* ---- sources.cfg ----------------------------------------------------- */
@@ -75,6 +108,7 @@ static int LoadSources(Sources *s) {
 
     SDL_zerop(s);
     s->play = -1;
+    s->tab = -1;
     text = path != NULL ? SDL_LoadFile(path, NULL) : NULL;
     SDL_free(path);
     if (text == NULL) {
@@ -83,6 +117,9 @@ static int LoadSources(Sources *s) {
     for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
         if (SDL_strcmp(line, "skip=1") == 0) {
             s->skip = 1;
+        }
+        if (SDL_strncmp(line, "tab=", 4) == 0) {
+            s->tab = TabNamed(line + 4);
         }
         for (i = 0; i < SRC_COUNT; i++) {
             size_t n = SDL_strlen(s_keys[i]);
@@ -121,6 +158,9 @@ static void SaveSources(const Sources *s) {
     }
     if (s->skip) {
         ok &= SDL_IOprintf(io, "skip=1\n") > 0;
+    }
+    if (s->tab >= 0) {
+        ok &= SDL_IOprintf(io, "tab=%s\n", s_tabKeys[s->tab]) > 0;
     }
     if (!SDL_CloseIO(io) || !ok) {
         Port_Log("sources.cfg: %s", SDL_GetError());
@@ -277,8 +317,38 @@ enum {
     ACT_SAVES,          /* "Import saves...": pick files */
     ACT_IMP_ONLY,       /* the preview: which saves (all, or one) */
     ACT_IMP_CARS,       /* the PC/PS2 default cars */
-    ACT_IMP_GO, ACT_IMP_ADD, ACT_IMP_CANCEL
+    ACT_IMP_GO, ACT_IMP_ADD, ACT_IMP_CANCEL,
+    ACT_TAB,            /* show page `source` */
+    ACT_SET             /* toggle setting `source` */
 };
+
+/* The Settings page: graphics.cfg's choices that have no row in the game's
+ * own Graphics menu, and the display (gfx_settings.c reads and writes the
+ * file; these are its g_port fields, 1 being `on`). */
+enum { SET_DISPLAY, SET_PCTEX, SET_MAINMENU, SET_SPLITLOD, SET_MOVIES, SET_COUNT };
+
+static const struct {
+    const char *name, *off, *on, *about, *env;
+} s_settings[SET_COUNT] = {
+    { "Display", "Windowed", "Fullscreen", "How the game's window opens.", NULL },
+    { "PC textures", "GameCube colours", "PC colours",
+      "The PC release's textures: in the GameCube's colours, or the PC's own.", "HWVX_PC_TEXTURES" },
+    { "Main menu", "With the port's rows", "Original",
+      "The port adds Quit Game and Multi-Player; original is the release's.", "HWVX_ORIGINAL_MAINMENU" },
+    { "Split screen", "Full detail", "GameCube's detail",
+      "Full detail like the PC, or a level coarser as the GameCube drew it.", "HWVX_SPLITSCREEN_LOD" },
+    { "Movies", "On", "Off", "The intro and ending movies; off skips them, like the PC's option.", "HWVX_NO_MOVIE" },
+};
+
+static int *SettingVar(int i) {
+    switch (i) {
+    case SET_DISPLAY: return &g_port.fullscreen;
+    case SET_PCTEX: return &g_port.pcTexturesPC;
+    case SET_MAINMENU: return &g_port.originalMainMenu;
+    case SET_SPLITLOD: return &g_port.splitLodGC;
+    default: return &g_port.moviesOff;
+    }
+}
 
 typedef struct Button {
     SDL_FRect r;
@@ -293,6 +363,10 @@ typedef struct Launcher {
     Port_DataCheck check;
     Button buttons[40];
     int numButtons, focus;
+    int numFocus;               /* the page's and the bottom bar's buttons come first; the tabs
+                                 * after them take clicks but not the focus */
+    int tab;                    /* TAB_*: the page shown */
+    int scripted;               /* testing: HWVX_LAUNCHER_INPUT's events still to come */
     int hover, mouse;           /* the enabled button under the pointer (-1 none); 1 while the mouse leads */
     SDL_FPoint pointer;         /* where the pointer is, in view coordinates (-1,-1 outside) */
     char status[256];
@@ -317,7 +391,15 @@ typedef struct Launcher {
     char planError[256], onlyLabel[96], carsLabel[64];
 } Launcher;
 
-#define ROW_Y(i) (56.0f + (i) * 62.0f)
+/* The title and the tabs share the top line; the pages start under it. */
+#define TAB_X 216.0f
+#define TAB_Y 8.0f
+#define PAGE_Y 42.0f
+#define ROW_Y(i) (PAGE_Y + (i) * 58.0f)                 /* Games: a release */
+#define PLAY_ROW_Y(k) (PAGE_Y + 24.0f + (k) * 34.0f)    /* Play: an imported release */
+#define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
+#define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 42.0f)     /* Settings: a setting */
+#define SET_X 200.0f
 
 static void Text(Launcher *l, float x, float y, Uint8 r, Uint8 g, Uint8 b, const char *s) {
     SDL_SetRenderDrawColor(l->renderer, r, g, b, 255);
@@ -373,39 +455,81 @@ static void LayoutSaves(Launcher *l) {
     Add(l, 24 + 17 * CHAR + 48, VIEW_H - 30, "Cancel", ACT_IMP_CANCEL, -1, 1);
 }
 
-/* The buttons for the current state, in focus order. */
+/* 1 if any release the game plays is imported. */
+static int AnyRelease(const Launcher *l) {
+    int i;
+
+    for (i = 0; i < PORT_DATA_COUNT && l->src.path[i] == NULL; i++) {
+    }
+    return i < PORT_DATA_COUNT;
+}
+
+/* The current page's buttons. */
+static void LayoutPage(Launcher *l, int busy) {
+    int i, k;
+
+    switch (l->tab) {
+    case TAB_PLAY:
+        for (i = 0, k = 0; i < PORT_DATA_COUNT; i++) {
+            if (l->src.path[i] != NULL) {
+                Add(l, 24, PLAY_ROW_Y(k++), l->src.play == i ? "Playing this" : "Play this", ACT_PLAY_THIS, i, !busy);
+            }
+        }
+        if (k == 0) {
+            Add(l, 24, PLAY_ROW_Y(1), "Import a copy on the Games page", ACT_TAB, TAB_GAMES, 1);
+        }
+        Add(l, 24, SKIP_Y(k),
+            l->src.skip ? "[x] Start the game without this window" : "[ ] Start the game without this window", ACT_SKIP,
+            -1, 1);
+        break;
+    case TAB_GAMES:
+        for (i = 0; i < SRC_COUNT; i++) {
+            float x = 24, y = ROW_Y(i) + 28;
+            int have = l->src.path[i] != NULL;
+
+            x += Add(l, x, y, have ? "Change folder..." : "Import folder...", ACT_FOLDER, i, !busy)->r.w + 8;
+            x += Add(l, x, y, "Import disc image...", ACT_IMAGE, i, !busy)->r.w + 8;
+            if (have) {
+                Add(l, x, y, "Remove", ACT_REMOVE, i, !busy);
+            }
+        }
+        break;
+    case TAB_SAVES:
+        Add(l, 24, PAGE_Y + 24, "Import saves...", ACT_SAVES, -1, !busy);
+        break;
+    case TAB_CONVERT:
+        Add(l, 24, PAGE_Y + 24, "Convert to .xdl", ACT_CONVERT, -1, 0);
+        break;
+    case TAB_SETTINGS:
+        for (i = 0; i < SET_COUNT; i++) {
+            Add(l, SET_X, SET_ROW_Y(i), *SettingVar(i) ? s_settings[i].on : s_settings[i].off, ACT_SET, i, 1);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+/* The buttons for the current state, in focus order, then the tabs. */
 static void Layout(Launcher *l) {
     int i, busy = l->importer != NULL || l->dialogOpen;
+    float x = TAB_X;
 
     l->numButtons = 0;
-    for (i = 0; i < SRC_COUNT && !l->savesView; i++) {
-        float x = 24, y = ROW_Y(i) + 28;
-        int have = l->src.path[i] != NULL;
-
-        if (i < PORT_DATA_COUNT) {
-            x += Add(l, x, y, l->src.play == i ? "Playing this" : "Play this", ACT_PLAY_THIS, i, have && !busy)->r.w + 8;
-        }
-        x += Add(l, x, y, have ? "Change folder..." : "Import folder...", ACT_FOLDER, i, !busy)->r.w + 8;
-        {
-            x += Add(l, x, y, "Import disc image...", ACT_IMAGE, i, !busy)->r.w + 8;
-        }
-        if (have) {
-            Add(l, x, y, "Remove", ACT_REMOVE, i, !busy);
-        }
-    }
     if (l->savesView) {
         LayoutSaves(l);
     } else {
-        Add(l, 24, 310, "Convert to .xdl", ACT_CONVERT, -1, 0);
-        Add(l, 24, 348, "Import saves...", ACT_SAVES, -1, !busy);
+        LayoutPage(l, busy);
         Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && l->src.play >= 0 && l->src.path[l->src.play] != NULL);
         Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, 1);
-        Add(l, 24 + 8 * CHAR + 64, VIEW_H - 30,
-            l->src.skip ? "[x] Start the game without this window" : "[ ] Start the game without this window", ACT_SKIP,
-            -1, 1);
     }
-    if (l->focus >= l->numButtons) {
-        l->focus = l->numButtons - 1;
+    l->numFocus = l->numButtons;
+    /* the preview of an import keeps to its page */
+    for (i = 0; i < TAB_COUNT; i++) {
+        x += Add(l, x, TAB_Y, s_tabNames[i], ACT_TAB, i, !l->savesView)->r.w + 4;
+    }
+    if (l->focus >= l->numFocus) {
+        l->focus = l->numFocus - 1;
     }
     /* the buttons may have moved (one added or removed) under a still pointer */
     l->hover = -1;
@@ -425,8 +549,9 @@ static const char *BaseName(const char *path) {
 }
 
 /* `s` over lines of at most `chars`, broken at spaces, the later ones
- * indented; returns the next y, or stops at `bottom`. */
-static float Wrap(Launcher *l, float x, float y, float bottom, size_t chars, Uint8 r, Uint8 g, Uint8 b, const char *s) {
+ * indented by `hang`; returns the next y, or stops at `bottom`. */
+static float Wrap(Launcher *l, float x, float y, float bottom, size_t chars, size_t hang, Uint8 r, Uint8 g, Uint8 b,
+                  const char *s) {
     char line[128];
     size_t indent = 0;
 
@@ -447,7 +572,7 @@ static float Wrap(Launcher *l, float x, float y, float bottom, size_t chars, Uin
         while (*s == ' ') {
             s++;
         }
-        indent = 4;
+        indent = hang;
     }
     return y;
 }
@@ -455,11 +580,11 @@ static float Wrap(Launcher *l, float x, float y, float bottom, size_t chars, Uin
 /* The preview: the files, where they go, what each save adds. */
 static void DrawSaves(Launcher *l) {
     char line[256], fit[128];
-    float y = 50, bottom = VIEW_H - 98;
+    float y = PAGE_Y + 30, bottom = VIEW_H - 98;
     int i, shown = 0;
 
-    Text(l, 24, 14, 255, 210, 80, "Import saves");
-    Text(l, 24, 28, 150, 160, 180, "Progress from any release, merged into your save: nothing is taken away.");
+    Text(l, 24, PAGE_Y, 235, 235, 240, "Import saves: the preview");
+    Text(l, 24, PAGE_Y + 14, 150, 160, 180, "Progress from any release, merged into your save: nothing is taken away.");
     for (i = 0; i < l->numSaves; i++, y += 11) {
         const PortImportSource *s = &l->saves[i];
 
@@ -485,7 +610,7 @@ static void DrawSaves(Launcher *l) {
             SDL_snprintf(from, sizeof(from), "%s: %s", BaseName(l->saves[s->source].path), line);
             SDL_strlcpy(line, from, sizeof(line));
         }
-        y = Wrap(l, 24, y, bottom, 74, s->changes > 0 ? 235 : 150, s->changes > 0 ? 235 : 160,
+        y = Wrap(l, 24, y, bottom, 74, 4, s->changes > 0 ? 235 : 150, s->changes > 0 ? 235 : 160,
                  s->changes > 0 ? 240 : 180, line) + 3;
     }
     if (shown < l->plan.numSlots) {
@@ -494,44 +619,145 @@ static void DrawSaves(Launcher *l) {
     }
 }
 
+#define GREY 150, 160, 180
+#define DIM 130, 130, 140
+#define WHITE 235, 235, 240
+#define GREEN 140, 200, 140
+
+/* The current page's text (its buttons are drawn with the rest). */
+static void DrawPage(Launcher *l) {
+    char line[160];
+    int i, k;
+    float y;
+
+    switch (l->tab) {
+    case TAB_PLAY:
+        Text(l, 24, PAGE_Y, GREY, "Your copies of the game. Pick the one to play.");
+        for (i = 0, k = 0; i < PORT_DATA_COUNT; i++) {
+            if (l->src.path[i] != NULL) {
+                y = PLAY_ROW_Y(k++);
+                Text(l, 148, y + 1, WHITE, s_names[i]);
+                Fit(line, sizeof(line), l->src.path[i], 58);
+                Text(l, 148, y + 12, GREEN, line);
+            }
+        }
+        if (k == 0) {
+            Text(l, 24, PLAY_ROW_Y(0) + 4, DIM, "No release imported yet.");
+        }
+        Text(l, 24, SKIP_Y(k) + 26, DIM, "Ticked, the game boots the chosen copy straight away; --launcher,");
+        Text(l, 24, SKIP_Y(k) + 37, DIM, "or the hwvx-launcher program, opens this window again.");
+        break;
+    case TAB_GAMES:
+        for (i = 0; i < SRC_COUNT; i++) {
+            y = ROW_Y(i);
+            Text(l, 24, y, WHITE, s_names[i]);
+            if (i == SRC_BETA) {
+                Text(l, 24 + 21 * CHAR, y, DIM, "- for beta cars, worlds, audio (later)");
+            }
+            if (l->src.path[i] != NULL) {
+                Fit(line, sizeof(line), l->src.path[i], 74);
+                Text(l, 24, y + 13, GREEN, line);
+            } else {
+                Text(l, 24, y + 13, DIM, "not imported");
+            }
+        }
+        y = ROW_Y(SRC_COUNT) + 4;
+        if (l->importer != NULL) {
+            SDL_snprintf(line, sizeof(line), "Importing the %s disc image into the save folder.",
+                         l->importSource == PORT_DATA_PC ? "PC" : "PS2");
+            Text(l, 24, y, 255, 210, 80, line);
+            Text(l, 24, y + 11, DIM, "Quit stops it and keeps the last complete copy.");
+        } else {
+            Text(l, 24, y, DIM, "PC and PS2 disc images are copied into the save folder.");
+            Text(l, 24, y + 11, DIM, "Folders and images are picked in the system's file dialog.");
+        }
+        break;
+    case TAB_SAVES:
+        Text(l, 24, PAGE_Y, GREY, "Progress from any release, merged into your save: nothing is taken away.");
+        y = PAGE_Y + 58;
+        Text(l, 24, y, WHITE, "What it reads");
+        Text(l, 24, y + 16, GREEN, "GameCube");
+        Text(l, 104, y + 16, DIM, "Dolphin .gci exports, raw card images, the port's .sav");
+        Text(l, 24, y + 30, GREEN, "PC");
+        Text(l, 104, y + 30, DIM, "velocityX, in My Documents\\VelocityX Saved Games");
+        Text(l, 24, y + 44, GREEN, "PS2");
+        Text(l, 104, y + 44, DIM, "PCSX2 card images (.ps2), BASLUS-20412, .psu exports");
+        Text(l, 24, y + 66, DIM, "Pick one file or several. A preview says which saves go where, and");
+        Text(l, 24, y + 77, DIM, "what each adds, before anything is written.");
+        break;
+    case TAB_CONVERT:
+        Text(l, 24, PAGE_Y, GREY, "Coming later.");
+        Wrap(l, 24, PAGE_Y + 58, VIEW_H - 56, 74, 0, DIM,
+             "This will convert your imported releases into .xdl, the packs made for this port: one "
+             "format for every release's data, which loads without being converted again, and which "
+             "the port's editors and mods work on.");
+        break;
+    case TAB_MODS:
+        Text(l, 24, PAGE_Y, GREY, "Coming later.");
+        Wrap(l, 24, PAGE_Y + 24, VIEW_H - 56, 74, 0, DIM,
+             "Mods will change and add to the game. They carry no game data of their own: each one "
+             "is built from your imported copy, on this machine.");
+        break;
+    case TAB_SETTINGS:
+        Text(l, 24, PAGE_Y, GREY, "Kept in graphics.cfg; the game reads them when it starts.");
+        for (i = 0; i < SET_COUNT; i++) {
+            const char *env = s_settings[i].env != NULL ? SDL_getenv(s_settings[i].env) : NULL;
+
+            y = SET_ROW_Y(i);
+            Text(l, 24, y + 5, WHITE, s_settings[i].name);
+            if (env != NULL) {
+                SDL_snprintf(line, sizeof(line), "%s=%s is set: it wins over this.", s_settings[i].env, env);
+                Text(l, 24, y + 22, 255, 190, 120, line);
+            } else {
+                Text(l, 24, y + 22, DIM, s_settings[i].about);
+            }
+        }
+        y = SET_ROW_Y(SET_COUNT) + 4;
+        Text(l, 24, y, DIM, "Resolution, VSync, Max FPS, gamma and FOV: Options > Graphics in");
+        Text(l, 24, y + 11, DIM, "the game. The renderer: --renderer NAME.");
+        break;
+    default:
+        break;
+    }
+}
+
 static void Draw(Launcher *l) {
-    char line[128];
     int i;
 
     SDL_SetRenderDrawColor(l->renderer, 18, 22, 34, 255);
     SDL_RenderClear(l->renderer);
+    Text(l, 24, TAB_Y + 5, 255, 210, 80, "Hot Wheels: Velocity X");
+    SDL_SetRenderDrawColor(l->renderer, 60, 74, 120, 255);
+    SDL_RenderLine(l->renderer, 16, TAB_Y + 18, VIEW_W - 16, TAB_Y + 18);
     if (l->savesView) {
         DrawSaves(l);
-        goto buttons;
+    } else {
+        DrawPage(l);
     }
-    Text(l, 24, 14, 255, 210, 80, "Hot Wheels: Velocity X");
-    Text(l, 24, 28, 150, 160, 180, "Your copies of the game. Pick the one to play.");
-    for (i = 0; i < SRC_COUNT; i++) {
-        float y = ROW_Y(i);
-
-        Text(l, 24, y, 235, 235, 240, s_names[i]);
-        if (i == SRC_BETA) {
-            Text(l, 24 + 21 * CHAR, y, 130, 130, 140, "- for beta cars, worlds, audio (later)");
-        }
-        if (l->src.path[i] != NULL) {
-            Fit(line, sizeof(line), l->src.path[i], 74);
-            Text(l, 24, y + 13, 140, 200, 140, line);
-        } else {
-            Text(l, 24, y + 13, 130, 130, 140, "not imported");
-        }
-    }
-    Text(l, 24, 298, 235, 235, 240, "Convert");
-    Text(l, 24 + 16 * CHAR + 24, 315, 130, 130, 140, "coming later: packs made for this port");
-    Text(l, 360, 298, 235, 235, 240, "Mods");
-    Text(l, 360 + 5 * CHAR, 298, 130, 130, 140, "- coming later");
-    Text(l, 24, 336, 235, 235, 240, "Saves");
-    Text(l, 24 + 15 * CHAR + 24, 353, 130, 130, 140, "progress from GameCube, PC, PS2 saves");
-buttons:
     Text(l, 24, VIEW_H - 48, 255, 190, 120, l->status);
     for (i = 0; i < l->numButtons; i++) {
         const Button *b = &l->buttons[i];
         int on = l->mouse ? i == l->hover : i == l->focus;
 
+        if (i >= l->numFocus) {
+            /* a tab: the page shown joins the line under the tabs */
+            int shown = b->source == l->tab;
+
+            SDL_SetRenderDrawColor(l->renderer, shown ? 60 : 30, shown ? 74 : 35, shown ? 120 : 52, 255);
+            SDL_RenderFillRect(l->renderer, &b->r);
+            if (on) {
+                SDL_SetRenderDrawColor(l->renderer, 255, 210, 80, 255);
+                SDL_RenderRect(l->renderer, &b->r);
+            }
+            if (shown) {
+                Text(l, b->r.x + 8, b->r.y + 5, 255, 210, 80, b->label);
+            } else if (b->enabled) {
+                Text(l, b->r.x + 8, b->r.y + 5, 200, 200, 210, b->label);
+            } else {
+                Text(l, b->r.x + 8, b->r.y + 5, 90, 90, 100, b->label);
+            }
+            continue;
+        }
         if (b->act == ACT_PLAY_THIS && l->src.play == b->source) {
             SDL_SetRenderDrawColor(l->renderer, 40, 110, 60, 255);
         } else {
@@ -548,7 +774,7 @@ buttons:
             Text(l, b->r.x + 8, b->r.y + 5, 110, 110, 120, b->label);
         }
     }
-    if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL) {
+    if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL && !l->scripted) {
         /* testing: the frame as a BMP, read before it is presented */
         SDL_Surface *shot = SDL_RenderReadPixels(l->renderer, NULL);
 
@@ -785,6 +1011,34 @@ static int ButtonFor(const Launcher *l, int act) {
     return i < l->numButtons ? i : 0;
 }
 
+/* Where the focus starts on a page: its first button that works, else Play,
+ * else Quit. */
+static int FirstFocus(const Launcher *l) {
+    int i, play = ButtonFor(l, ACT_PLAY);
+
+    for (i = 0; i < l->numFocus; i++) {
+        if (l->buttons[i].enabled && l->buttons[i].act != ACT_PLAY && l->buttons[i].act != ACT_QUIT) {
+            return i;
+        }
+    }
+    return l->buttons[play].enabled ? play : ButtonFor(l, ACT_QUIT);
+}
+
+/* Shows page `tab` (wrapping round), remembered in sources.cfg. Not while
+ * the saves preview is open. */
+static void SwitchTab(Launcher *l, int tab) {
+    if (l->savesView) {
+        return;
+    }
+    l->tab = (tab + TAB_COUNT) % TAB_COUNT;
+    if (l->src.tab != l->tab) {
+        l->src.tab = l->tab;
+        SaveSources(&l->src);
+    }
+    Layout(l);
+    l->focus = FirstFocus(l);
+}
+
 /* Do button `b`; returns 1 to play, -1 to quit, 0 to stay. */
 static int Activate(Launcher *l, const Button *b) {
     static const SDL_DialogFileFilter gcImages[] = { { "GameCube disc image (.iso, .gcm)", "iso;gcm;gcz" } };
@@ -853,6 +1107,18 @@ static int Activate(Launcher *l, const Button *b) {
         CloseSaves(l);
         SDL_snprintf(l->status, sizeof(l->status), "Nothing imported.");
         return 0;
+    case ACT_TAB:
+        SwitchTab(l, b->source);
+        return 0;
+    case ACT_SET: {
+        int i = b->source, *v = SettingVar(i);
+
+        *v = !*v;
+        Port_GfxSaveConfig();
+        SDL_snprintf(l->status, sizeof(l->status), "%s: %s. Saved in graphics.cfg.", s_settings[i].name,
+                     *v ? s_settings[i].on : s_settings[i].off);
+        return 0;
+    }
     case ACT_PLAY:
         return 1;
     case ACT_QUIT:
@@ -868,7 +1134,7 @@ static void Move(Launcher *l, int dx, int dy) {
     float fx = f->x + f->w / 2, fy = f->y + f->h / 2, best = 1e9f;
     int i, pick = l->focus;
 
-    for (i = 0; i < l->numButtons; i++) {
+    for (i = 0; i < l->numFocus; i++) {
         const SDL_FRect *r = &l->buttons[i].r;
         float x = r->x + r->w / 2 - fx, y = r->y + r->h / 2 - fy, d;
 
@@ -924,19 +1190,86 @@ static void Poll(Launcher *l) {
     }
 }
 
+/* Testing: HWVX_LAUNCHER_INPUT="rb,down,a,..." queues keys (pgup pgdn tab
+ * up down left right enter esc), gamepad buttons (lb rb a b start dup ddown
+ * dleft dright) and clicks (click:X:Y, in the 640x420 view) as if the player
+ * had pressed them; HWVX_LAUNCHER_SHOT then saves the frame after them. */
+static void QueueInput(Launcher *l) {
+    static const struct {
+        const char *name;
+        int key, pad;
+    } names[] = {
+        { "pgup", SDLK_PAGEUP, -1 }, { "pgdn", SDLK_PAGEDOWN, -1 }, { "tab", SDLK_TAB, -1 },
+        { "up", SDLK_UP, -1 }, { "down", SDLK_DOWN, -1 }, { "left", SDLK_LEFT, -1 },
+        { "right", SDLK_RIGHT, -1 }, { "enter", SDLK_RETURN, -1 }, { "esc", SDLK_ESCAPE, -1 },
+        { "lb", 0, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER }, { "rb", 0, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER },
+        { "a", 0, SDL_GAMEPAD_BUTTON_SOUTH }, { "b", 0, SDL_GAMEPAD_BUTTON_EAST },
+        { "start", 0, SDL_GAMEPAD_BUTTON_START }, { "dup", 0, SDL_GAMEPAD_BUTTON_DPAD_UP },
+        { "ddown", 0, SDL_GAMEPAD_BUTTON_DPAD_DOWN }, { "dleft", 0, SDL_GAMEPAD_BUTTON_DPAD_LEFT },
+        { "dright", 0, SDL_GAMEPAD_BUTTON_DPAD_RIGHT },
+    };
+    const char *env = SDL_getenv("HWVX_LAUNCHER_INPUT");
+    char *list, *p, *save = NULL;
+    SDL_Event ev;
+    size_t i;
+
+    if (env == NULL) {
+        return;
+    }
+    list = SDL_strdup(env);
+    for (p = SDL_strtok_r(list, ", ", &save); p != NULL; p = SDL_strtok_r(NULL, ", ", &save)) {
+        float x, y;
+
+        SDL_zero(ev);
+        if (SDL_sscanf(p, "click:%f:%f", &x, &y) == 2) {
+            SDL_RenderCoordinatesToWindow(l->renderer, x, y, &x, &y);
+            ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+            ev.button.windowID = SDL_GetWindowID(l->window);
+            ev.button.button = SDL_BUTTON_LEFT;
+            ev.button.down = true;
+            ev.button.x = x;
+            ev.button.y = y;
+            SDL_PushEvent(&ev);
+            continue;
+        }
+        for (i = 0; i < SDL_arraysize(names) && SDL_strcmp(p, names[i].name) != 0; i++) {
+        }
+        if (i == SDL_arraysize(names)) {
+            Port_Log("HWVX_LAUNCHER_INPUT: no such input: %s", p);
+            continue;
+        }
+        if (names[i].pad >= 0) {
+            ev.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+            ev.gbutton.button = (Uint8)names[i].pad;
+            ev.gbutton.down = true;
+        } else {
+            ev.type = SDL_EVENT_KEY_DOWN;
+            ev.key.key = (SDL_Keycode)names[i].key;
+            ev.key.down = true;
+        }
+        SDL_PushEvent(&ev);
+    }
+    SDL_free(list);
+    SDL_zero(ev);
+    ev.type = SDL_EVENT_USER;   /* the end of them */
+    SDL_PushEvent(&ev);
+    l->scripted = 1;
+}
+
 static int Run(Launcher *l) {
     SDL_Gamepad *pads[8] = { NULL };
     int result = 0, i;
     static int held[2];
 
+    QueueInput(l);
     while (result == 0) {
         SDL_Event ev;
 
         Poll(l);
         Layout(l);
         Draw(l);
-        if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL) {
-            result = -1;    /* testing: Draw saved the first frame */
+        if (SDL_getenv("HWVX_LAUNCHER_SHOT") != NULL && !l->scripted) {
+            result = -1;    /* testing: Draw saved the frame */
             break;
         }
         if (!SDL_WaitEventTimeout(&ev, 50)) {
@@ -961,7 +1294,7 @@ static int Run(Launcher *l) {
                 l->mouse = 1;
                 l->pointer = p;
                 Layout(l);
-                if (l->hover >= 0) {
+                if (l->hover >= 0 && l->hover < l->numFocus) {
                     l->focus = l->hover;
                 }
                 if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN && ev.button.button == SDL_BUTTON_LEFT && l->hover >= 0) {
@@ -969,6 +1302,9 @@ static int Run(Launcher *l) {
                 }
                 break;
             }
+            case SDL_EVENT_USER:
+                l->scripted = 0;
+                break;
             case SDL_EVENT_WINDOW_MOUSE_LEAVE:
                 l->pointer.x = l->pointer.y = -1;
                 break;
@@ -979,7 +1315,9 @@ static int Run(Launcher *l) {
                 case SDLK_RIGHT: Move(l, 1, 0); break;
                 case SDLK_UP: Move(l, 0, -1); break;
                 case SDLK_DOWN: Move(l, 0, 1); break;
-                case SDLK_TAB: l->focus = (l->focus + 1) % l->numButtons; break;
+                case SDLK_TAB: l->focus = (l->focus + 1) % l->numFocus; break;
+                case SDLK_PAGEUP: SwitchTab(l, l->tab - 1); break;
+                case SDLK_PAGEDOWN: SwitchTab(l, l->tab + 1); break;
                 case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: result = Activate(l, focused); break;
                 case SDLK_ESCAPE:
                     if (l->savesView) {
@@ -1007,6 +1345,8 @@ static int Run(Launcher *l) {
                 case SDL_GAMEPAD_BUTTON_DPAD_UP: Move(l, 0, -1); break;
                 case SDL_GAMEPAD_BUTTON_DPAD_DOWN: Move(l, 0, 1); break;
                 case SDL_GAMEPAD_BUTTON_SOUTH: result = Activate(l, focused); break;
+                case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: SwitchTab(l, l->tab - 1); break;
+                case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: SwitchTab(l, l->tab + 1); break;
                 case SDL_GAMEPAD_BUTTON_EAST:
                     result = l->savesView ? Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)]) : -1;
                     break;
@@ -1127,10 +1467,14 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     }
     SDL_SetRenderLogicalPresentation(l.renderer, VIEW_W, VIEW_H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     SDL_SetRenderVSync(l.renderer, 1);
-    Layout(&l);
-    if (valid) {
-        l.focus = ButtonFor(&l, ACT_PLAY);     /* A or Enter starts the game */
+    /* the page shown last, or Play; Games while there is nothing to play.
+     * HWVX_LAUNCHER_TAB=NAME picks it (testing: screenshots of each page) */
+    l.tab = AnyRelease(&l) ? (l.src.tab >= 0 ? l.src.tab : TAB_PLAY) : TAB_GAMES;
+    if (TabNamed(SDL_getenv("HWVX_LAUNCHER_TAB")) >= 0) {
+        l.tab = TabNamed(SDL_getenv("HWVX_LAUNCHER_TAB"));
     }
+    Layout(&l);
+    l.focus = valid ? ButtonFor(&l, ACT_PLAY) : FirstFocus(&l);     /* valid: A or Enter starts the game */
     if (SDL_getenv("HWVX_LAUNCHER_IMPORT") != NULL) {
         /* testing: the import preview of these files, as if picked */
         char *list = SDL_strdup(SDL_getenv("HWVX_LAUNCHER_IMPORT")), *paths[PORT_IMPORT_MAX_SOURCES], *save = NULL, *p;
@@ -1139,8 +1483,20 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
         for (p = SDL_strtok_r(list, ";", &save); p != NULL && n < PORT_IMPORT_MAX_SOURCES; p = SDL_strtok_r(NULL, ";", &save)) {
             paths[n++] = p;
         }
+        l.tab = TAB_SAVES;
         AddSaves(&l, paths, n);
         SDL_free(list);
+    }
+    if (SDL_getenv("HWVX_LAUNCHER_DISC") != NULL) {
+        /* testing: "pc=IMAGE" or "ps2=IMAGE", imported as if picked on Games */
+        const char *disc = SDL_getenv("HWVX_LAUNCHER_DISC");
+
+        l.tab = TAB_GAMES;
+        if (SDL_strncmp(disc, "pc=", 3) == 0) {
+            StartDisc(&l, disc + 3, PORT_DATA_PC);
+        } else if (SDL_strncmp(disc, "ps2=", 4) == 0) {
+            StartDisc(&l, disc + 4, PORT_DATA_PS2);
+        }
     }
     if (Run(&l) > 0 && l.src.play >= 0 && l.src.path[l.src.play] != NULL) {
         chosen = SDL_strdup(l.src.path[l.src.play]);

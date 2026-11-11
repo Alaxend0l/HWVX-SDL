@@ -1,5 +1,7 @@
 #include "common.h"
 #include "Port_Online.h"
+#include "Port_Content.h"
+#include "Port_Saves.h"
 #include "CarA.h"
 #include "World.h"
 
@@ -67,6 +69,19 @@ static inline MCP *GameSettings_LoadMCP(void)
 }
 
 
+
+/* port: the JSON save's entries past the save struct's arrays in Hot Wheels
+ * save slot `slot` (Port_Content.h), NULL with the memory card or none. */
+static const struct JsonNode *GameSettings_PortKept(u32 slot)
+{
+    MCP *mcp = GameSettings_LoadMCP();
+
+    if (!Port_SavesJson() || slot >= SAVE_FILE_SLOTS || (mcp != NULL && mcp->gameType != 0))
+    {
+        return NULL;
+    }
+    return Port_SavesKept(GETP(g_gameInfo[0].fileName), (int)slot);
+}
 
 static inline u32 GameSettings_GetSaveFileChecksum(u32 device, const char *name, u32 size)
 {
@@ -139,6 +154,11 @@ void GameSetting_Init(void) {
         g_HotWheelsGameData.extras[0] = 1;
         g_HotWheelsGameData.extras[1] = 1;
         g_HotWheelsGameData.extras[4] = 1;
+        /* port: the content registry (Port_Content.h) sized from the data,
+         * the struct's arrays its view of the retail entries */
+        Port_ContentInit();
+        Port_ContentBindGameData(g_HotWheelsGameData.cars, g_HotWheelsGameData.tracks, g_HotWheelsGameData.items);
+        Port_ContentFromGameData();
         break;
     case 1:
         g_gameInfo[1].version = 0xE830;
@@ -290,8 +310,8 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     case 0x64:
         switch (type) {
         case 0:
-            if (arg < 0x21) {
-                g_HotWheelsGameData.cars[arg] = val != 0;
+            if (arg < Port_ContentCount(PORT_CONTENT_CAR)) {   /* port: was 0x21, the array */
+                Port_ContentSetUnlocked(PORT_CONTENT_CAR, arg, val != 0);
             }
             break;
         case 1:
@@ -304,8 +324,8 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     case 0x65:
         switch (type) {
         case 0:
-            if (arg < 0x39) {
-                g_HotWheelsGameData.tracks[arg] = val != 0;
+            if (arg < Port_ContentCount(PORT_CONTENT_TRACK)) {   /* port: was 0x39 */
+                Port_ContentSetUnlocked(PORT_CONTENT_TRACK, arg, val != 0);
             }
             break;
         case 1:
@@ -318,8 +338,8 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     case 0x66:
         switch (type) {
         case 0:
-            if (arg < 0xC) {
-                g_HotWheelsGameData.items[arg] = val != 0;
+            if (arg < Port_ContentCount(PORT_CONTENT_ITEM)) {   /* port: was 0xC */
+                Port_ContentSetUnlocked(PORT_CONTENT_ITEM, arg, val != 0);
             }
             break;
         }
@@ -594,8 +614,8 @@ done:
         }
         switch (type) {
         case 0:
-            if (arg < 0x21) {
-                return g_HotWheelsGameData.cars[arg];
+            if (arg < Port_ContentCount(PORT_CONTENT_CAR)) {   /* port: was 0x21, the array */
+                return Port_ContentUnlocked(PORT_CONTENT_CAR, arg);
             }
             break;
         case 1:
@@ -611,8 +631,8 @@ done:
         }
         switch (type) {
         case 0:
-            if (arg < 0x39) {
-                return g_HotWheelsGameData.tracks[arg];
+            if (arg < Port_ContentCount(PORT_CONTENT_TRACK)) {   /* port: was 0x39 */
+                return Port_ContentUnlocked(PORT_CONTENT_TRACK, arg);
             }
             break;
         case 1:
@@ -628,8 +648,8 @@ done:
         }
         switch (type) {
         case 0:
-            if (arg < 0xC) {
-                return g_HotWheelsGameData.items[arg];
+            if (arg < Port_ContentCount(PORT_CONTENT_ITEM)) {   /* port: was 0xC */
+                return Port_ContentUnlocked(PORT_CONTENT_ITEM, arg);
             }
             break;
         }
@@ -825,8 +845,8 @@ done:
             if (GameSettings_IsCheatEnabled(3)) {
                 return 0xD;
             }
-            for (n = 0x12; n > 4; n--) {
-                if (g_HotWheelsGameData.tracks[n]) {
+            for (n = 0x12; n > 4; n--) {   /* the missions, tracks 5-18 */
+                if (Port_ContentUnlocked(PORT_CONTENT_TRACK, n)) {
                     return n - 5;
                 }
             }
@@ -839,8 +859,8 @@ done:
             if (GameSettings_IsCheatEnabled(3)) {
                 return 0x11;
             }
-            for (n = 0x38; n > 0x26; n--) {
-                if (g_HotWheelsGameData.tracks[n]) {
+            for (n = 0x38; n > 0x26; n--) {   /* the challenges, tracks 39-56 */
+                if (Port_ContentUnlocked(PORT_CONTENT_TRACK, n)) {
                     return n - 0x27;
                 }
             }
@@ -930,9 +950,9 @@ done:
     }
     switch (state) {
     case 0:
-        g_HotWheelsGameData.cars[0] = 1;
-        g_HotWheelsGameData.cars[1] = 1;
-        g_HotWheelsGameData.cars[2] = 1;
+        Port_ContentSetUnlocked(PORT_CONTENT_CAR, 0, 1);
+        Port_ContentSetUnlocked(PORT_CONTENT_CAR, 1, 1);
+        Port_ContentSetUnlocked(PORT_CONTENT_CAR, 2, 1);
         break;
     case 1:
         break;
@@ -1804,11 +1824,13 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
                     }
                 }
                 cars = 0;
-                for (i = 0; i < 33; i++) {
+                for (i = 0; i < sizeof(save->cars); i++) {   /* port: was 33 */
                     if (save->cars[i]) {
                         cars++;
                     }
                 }
+                /* port: and the cars past the array the slot has (JSON save) */
+                cars += Port_ContentKeptUnlocked(PORT_CONTENT_CAR, GameSettings_PortKept(cachedFileSlot));
                 items = 0;
                 for (i = 0; i < 9; i++) {
                     if (save->items[3 + i]) {
@@ -1829,7 +1851,9 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
                 }
                 sprintf(levelDetails, "Mission %d|Challenge %d|Available Cars %d|Available Items %d|Available Races %d|Available Battles %d|Completed %d%%",
                         mission - 4, challenge - 38, cars, items + 3, races + 4, battles + 4,
-                        (u32)(100.0f * ((f32)(cars + items + (mission - 4) + (challenge - 38) + (races + 4) + (battles + 4) - 13) / 75.0f)));
+                        (u32)(100.0f * ((f32)(cars + items + (mission - 4) + (challenge - 38) + (races + 4) + (battles + 4) - 13) /
+                                      /* port: 75, of which 33 cars */
+                                      (f32)(Port_ContentCount(PORT_CONTENT_CAR) + 42))));
                 g_codeVariables.currentMission = mission - 5;
             } else {
                 levelDetails[0] = 0;
@@ -1980,6 +2004,7 @@ u8 GameSettings_SaveGame(void) {
                   &data->settings.slots[0].minute);
     GameSettings_GatherGameData();
     memcpy(SAVE_FILE_GAME_DATA(data, file.size, 0), g_pGameData, file.size);
+    Port_ContentNoteLiveSlot(Port_SavesJson() ? 0 : -1);   /* port: the JSON save writes the entries past the arrays there */
     {
         s8 wok;
         s32 whandle;
@@ -2026,9 +2051,9 @@ void GameSettings_PortNoteUnlock(s32 var, u32 arg, u32 val) {
     mcp = GameSettings_LoadMCP();
     switch (mcp != NULL ? mcp->gameType : 0) {
     case 0:
-        old = var == 0x64 ? (arg < 0x21 ? g_HotWheelsGameData.cars[arg] : 1)
-            : var == 0x65 ? (arg < 0x39 ? g_HotWheelsGameData.tracks[arg] : 1)
-            : var == 0x66 ? (arg < 0xC ? g_HotWheelsGameData.items[arg] : 1)
+        old = var == 0x64 ? (arg < Port_ContentCount(PORT_CONTENT_CAR) ? Port_ContentUnlocked(PORT_CONTENT_CAR, arg) : 1)
+            : var == 0x65 ? (arg < Port_ContentCount(PORT_CONTENT_TRACK) ? Port_ContentUnlocked(PORT_CONTENT_TRACK, arg) : 1)
+            : var == 0x66 ? (arg < Port_ContentCount(PORT_CONTENT_ITEM) ? Port_ContentUnlocked(PORT_CONTENT_ITEM, arg) : 1)
             : (arg < 5 ? g_HotWheelsGameData.extras[arg] : 1);
         break;
     case 1:
@@ -2065,10 +2090,13 @@ static HotWheelsGameData s_portOnlineSaved;
 
 void GameSettings_PortOnlineBegin(void) {
     s_portOnlineSaved = g_HotWheelsGameData;
+    Port_ContentStash(0);   /* and the entries past its arrays */
 }
 
 void GameSettings_PortOnlineEnd(void) {
     g_HotWheelsGameData = s_portOnlineSaved;
+    Port_ContentFromGameData();
+    Port_ContentStash(1);
     s_portUnlocked = 0;
 }
 
@@ -2166,6 +2194,16 @@ u8 GameSettings_LoadGame(void) {
     }
     saved = (SaveFile *)g_pSavedGameData;
     memcpy(g_pGameData, SAVE_FILE_GAME_DATA(saved, size, slot), size);
+    if (g_pGameData == (u8 *)&g_HotWheelsGameData) {
+        /* port: the registry takes the struct back, and the entries past
+         * its arrays from the JSON save's slot; a chosen car the data
+         * doesn't have (a removed mod's) reads as none */
+        Port_ContentFromGameData();
+        Port_ContentLoadKept(GameSettings_PortKept(slot));
+        if (g_HotWheelsGameData.vehicle >= (s32)Port_ContentCount(PORT_CONTENT_CAR)) {
+            g_HotWheelsGameData.vehicle = -1;
+        }
+    }
     memcpy(&g_generalGameSettings, &saved->settings, sizeof(GeneralGameSettings));
     g_codeVariables.mcResults[1] = 1;
     s_portSaveIndex = g_codeVariables.fileIndex;   /* port: the save in use */

@@ -837,5 +837,8 @@ void Port_MenuReleased(InterfaceHeader *header);
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target);
 /* Port_MenuDump.c: HWVX_MENUDUMP=1 logs the screens reachable from `root`. */
 void Port_MenuDump(const InterfaceHeader *root);
+/* ... and the lists a screen shows by a variable, as patched. */
+void Port_MenuDumpLists(const InterfaceHeader *h);
+void Port_StartHeartbeat(void);   /* Port_Start.c: HWVX_START */
 
 #endif

@@ -1,6 +1,7 @@
 /*
  * savetest.c - checks the JSON save store (src/game/Port_Saves.c,
- * Port_SaveFormat.c, Port_SaveIds.c). Links only those and src/port/jsonc.c,
+ * Port_SaveFormat.c, Port_SaveIds.c) and the content registry it takes its
+ * ids from (Port_Content.c). Links only those and src/port/jsonc.c,
  * fileio.c: no game, no window, no game data.
  *
  * Run (from the build folder; every file it makes is under OUT):
@@ -24,11 +25,20 @@
  *   - a file edited without its sha256 line is read as it is;
  *   - backups rotate, PORT_SAVES_BACKUPS kept;
  *   - migration: memcardA/hwvx.sav is imported once and kept; a delete
- *     doesn't bring it back.
+ *     doesn't bring it back;
+ *   - the content registry: retail counts, a count from the data, entries
+ *     registered by id (numbers, ids, aliases, duplicates), the save struct
+ *     as its view of the retail entries, new-game values, the online stash;
+ *   - an extra car (past the save struct's 33) persists: its unlock and the
+ *     choice of it as the vehicle are written by id in the slot holding the
+ *     live game, read back, carried as the game moves its slots, kept
+ *     (inactive) when the registry doesn't know it and active again when it
+ *     does.
  */
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "Port_Saves.h"
+#include "Port_Content.h"
 #include "jsonc.h"
 
 /* ---- the port functions the store uses --------------------------------- */
@@ -614,6 +624,347 @@ static void TestMigration(void) {
     SDL_free(r);
 }
 
+
+/* ---- the content registry ---------------------------------------------- */
+
+static void TestRegistry(void) {
+    HotWheelsGameData g;
+    char id[128];
+    u32 index;
+    s32 a, b;
+
+    Scenario("registry");
+    Port_ContentReset();
+    CHECK(Port_ContentCount(PORT_CONTENT_CAR) == 33 && Port_ContentCount(PORT_CONTENT_TRACK) == 57 &&
+          Port_ContentCount(PORT_CONTENT_ITEM) == 12, "retail counts %u %u %u", (unsigned)Port_ContentCount(0),
+          (unsigned)Port_ContentCount(1), (unsigned)Port_ContentCount(2));
+    CHECK(Port_ContentRetailCount(PORT_CONTENT_CAR) == sizeof(g.cars), "retail = the array");
+    CHECK(Port_ContentIdOf(PORT_CONTENT_CAR, 32, id, sizeof(id)) && SDL_strcmp(id, "base://HW_Cars/car_32") == 0, "car 32: %s", id);
+    CHECK(!Port_ContentIdOf(PORT_CONTENT_CAR, 33, id, sizeof(id)), "no car 33 yet");
+    CHECK(!Port_ContentIndexOf(PORT_CONTENT_CAR, "base://HW_Cars/car_33", &index), "base car 33 before the data has it");
+
+    /* the view: the struct's arrays */
+    SDL_zero(g);
+    g.cars[3] = 1;
+    g.tracks[5] = 1;
+    Port_ContentBindGameData(g.cars, g.tracks, g.items);
+    Port_ContentFromGameData();
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 3) == 1 && Port_ContentUnlocked(PORT_CONTENT_TRACK, 5) == 1, "taken from the struct");
+    Port_ContentSetUnlocked(PORT_CONTENT_ITEM, 11, 1);
+    CHECK(g.items[11] == 1, "a retail entry set through the registry reaches the struct");
+    Port_ContentSetUnlocked(PORT_CONTENT_ITEM, 12, 1);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_ITEM, 12) == 0, "past the count: nothing set");
+
+    /* the data has 36 cars: 33-35 are base content past the array */
+    Port_ContentSetBaseCount(PORT_CONTENT_CAR, 36);
+    CHECK(Port_ContentCount(PORT_CONTENT_CAR) == 36, "count from the data %u", (unsigned)Port_ContentCount(0));
+    CHECK(Port_ContentIndexOf(PORT_CONTENT_CAR, "base://HW_Cars/car_35", &index) && index == 35, "base car 35");
+    Port_ContentSetBaseCount(PORT_CONTENT_TRACK, 10);
+    CHECK(Port_ContentCount(PORT_CONTENT_TRACK) == 57, "never fewer than the array");
+
+    /* registered: numbered after the base content */
+    a = Port_ContentRegister(PORT_CONTENT_CAR, "uid://0011223344556677", 4, 0);
+    b = Port_ContentRegister(PORT_CONTENT_CAR, "uid://8899aabbccddeeff", -1, 1);
+    CHECK(a == 36 && b == 37 && Port_ContentCount(PORT_CONTENT_CAR) == 38, "registered %d %d", (int)a, (int)b);
+    CHECK(Port_ContentRegister(PORT_CONTENT_CAR, "uid://0011223344556677", 4, 0) == -1, "an id twice");
+    CHECK(Port_ContentRegister(PORT_CONTENT_CAR, "base://HW_Cars/car_7", -1, 0) == -1, "a base id registered");
+    CHECK(Port_ContentRegister(PORT_CONTENT_CAR, "uid://x", 99, 0) == -1, "an alias of no base entry");
+    CHECK(Port_ContentDataOf(PORT_CONTENT_CAR, 36) == 4 && Port_ContentDataOf(PORT_CONTENT_CAR, 37) == -1 &&
+          Port_ContentDataOf(PORT_CONTENT_CAR, 35) == 35, "what data the entries use");
+    CHECK(Port_ContentIdOf(PORT_CONTENT_CAR, 37, id, sizeof(id)) && SDL_strcmp(id, "uid://8899aabbccddeeff") == 0, "id of 37: %s", id);
+    CHECK(Port_ContentIndexOf(PORT_CONTENT_CAR, "uid://0011223344556677", &index) && index == 36, "index of a uid");
+    Port_ContentSetBaseCount(PORT_CONTENT_CAR, 40);
+    CHECK(Port_ContentCount(PORT_CONTENT_CAR) == 38, "the base count is not changed under registered entries");
+
+    /* new-game values; past the array nothing reaches the struct */
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 36) == 0 && Port_ContentUnlocked(PORT_CONTENT_CAR, 37) == 1, "new-game values");
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 36, 1);
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 33, 1);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 36) == 1 && g.pad5A[0] == 0 && g.tracks[0] == 0, "an extra car stays out of the struct");
+
+    /* online: put aside and back */
+    Port_ContentStash(0);
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 36, 0);
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 34, 1);
+    Port_ContentStash(1);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 36) == 1 && Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 0, "online stash");
+
+    /* a new game: the struct's, and each its new-game value past it */
+    SDL_zero(g);
+    g.cars[0] = 1;
+    Port_ContentFromGameData();
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 0) == 1 && Port_ContentUnlocked(PORT_CONTENT_CAR, 3) == 0 &&
+          Port_ContentUnlocked(PORT_CONTENT_CAR, 36) == 0 && Port_ContentUnlocked(PORT_CONTENT_CAR, 37) == 1 &&
+          Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 0, "a new game");
+    Port_ContentReset();
+    CHECK(Port_ContentCount(PORT_CONTENT_CAR) == 33 && !Port_ContentIndexOf(PORT_CONTENT_CAR, "uid://0011223344556677", &index), "reset");
+}
+
+/* The game's flow around a save, as GameSettings_SaveGame / LoadGame do it:
+ * the live game in slot 0, older saves moved down. */
+static void GameSave(u8 *file, HotWheelsGameData *live, const char *name, int minute) {
+    SaveFile *f = (SaveFile *)file;
+    int slot;
+
+    for (slot = SAVE_FILE_SLOTS - 1; slot > 0; slot--) {
+        SDL_memcpy(SAVE_FILE_GAME_DATA(file, sizeof(HotWheelsGameData), slot),
+                   SAVE_FILE_GAME_DATA(file, sizeof(HotWheelsGameData), slot - 1), sizeof(HotWheelsGameData));
+        f->settings.slots[slot] = f->settings.slots[slot - 1];
+    }
+    SDL_zero(f->settings.slots[0]);
+    f->settings.slots[0].valid = 1;
+    SDL_strlcpy(f->settings.slots[0].name, name, sizeof(f->settings.slots[0].name));
+    f->settings.slots[0].year = 2026;
+    f->settings.slots[0].minute = minute;
+    SDL_memcpy(SAVE_FILE_GAME_DATA(file, sizeof(HotWheelsGameData), 0), live, sizeof(HotWheelsGameData));
+    Finish(file, Port_SaveKindByName("hwvx"));
+    Port_ContentNoteLiveSlot(0);
+}
+
+static void GameLoad(u8 *file, HotWheelsGameData *live, int slot) {
+    CHECK(Port_SavesRead("hwvx", file, HW_SIZE), "read");
+    SDL_memcpy(live, SAVE_FILE_GAME_DATA(file, sizeof(HotWheelsGameData), slot), sizeof(HotWheelsGameData));
+    Port_ContentFromGameData();
+    Port_ContentLoadKept(Port_SavesKept("hwvx", slot));
+}
+
+static void TestExtraCar(void) {
+    u8 *file = SDL_calloc(1, HW_SIZE);
+    HotWheelsGameData live;
+    size_t len;
+    char *text;
+
+    Scenario("extra-car");
+    Port_ContentReset();
+    Port_ContentSetBaseCount(PORT_CONTENT_CAR, 33);
+    Port_ContentRegister(PORT_CONTENT_CAR, "uid://hwvx-test-extra-car-0", 3, 0);
+    Port_ContentRegister(PORT_CONTENT_CAR, "uid://hwvx-test-extra-car-1", 4, 0);
+    SDL_zero(live);
+    live.vehicle = -1;
+    live.item = -1;
+    Port_ContentBindGameData(live.cars, live.tracks, live.items);
+    Port_ContentFromGameData();
+
+    /* unlocked and chosen, then saved */
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 3, 1);
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 34, 1);
+    live.vehicle = 34;
+    GameSave(file, &live, "FIRST", 1);
+    CHECK(Port_SavesWrite("hwvx", file, HW_SIZE), "write");
+    CHECK(Port_ContentTakeLiveSlot() == -1, "the write took the live slot");
+    text = LoadSaveFile(".json", &len);
+    CHECK(text != NULL && SDL_strstr(text, "\"uid://hwvx-test-extra-car-1\": {\"unlocked\": true}") != NULL, "car 34's unlock written");
+    CHECK(text != NULL && SDL_strstr(text, "\"uid://hwvx-test-extra-car-0\": {\"unlocked\": false}") != NULL, "car 33's written");
+    CHECK(text != NULL && SDL_strstr(text, "\"vehicle\": \"uid://hwvx-test-extra-car-1\"") != NULL, "car 34 as the vehicle");
+    CHECK(text != NULL && SDL_strstr(text, "inactive") == NULL, "nothing inactive");
+    SDL_free(text);
+
+    /* a new run: the save is read back */
+    Port_SavesForget();
+    SDL_zero(live);
+    Port_ContentFromGameData();
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 0, "a new game");
+    GameLoad(file, &live, 0);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 1 && Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 0 &&
+          Port_ContentUnlocked(PORT_CONTENT_CAR, 3) == 1, "the unlocks read back");
+    CHECK(live.vehicle == 34, "the vehicle reads back as %d", (int)live.vehicle);
+
+    /* another save under a new name: the first moves to slot 1 with its cars */
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 34, 0);
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 33, 1);
+    live.vehicle = 33;
+    GameSave(file, &live, "SECOND", 2);
+    CHECK(Port_SavesWrite("hwvx", file, HW_SIZE), "write");
+    Port_SavesForget();
+    GameLoad(file, &live, 1);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 1 && Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 0 && live.vehicle == 34,
+          "slot 1 (the first save) kept its cars");
+    GameLoad(file, &live, 0);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 1 && Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 0 && live.vehicle == 33,
+          "slot 0 has the second's");
+    CHECK(Port_ContentKeptUnlocked(PORT_CONTENT_CAR, Port_SavesKept("hwvx", 1)) == 1, "the level details count slot 1's");
+
+    /* a save not made by the game (an import): no live slot, kept as it was */
+    CHECK(Port_SavesWrite("hwvx", file, HW_SIZE), "write without the game");
+    Port_SavesForget();
+    GameLoad(file, &live, 0);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 1, "kept through a write the game didn't make");
+
+    /* without the extra cars (a build or mod set without them): kept, inactive */
+    Port_ContentReset();
+    SDL_zero(live);
+    Port_ContentBindGameData(live.cars, live.tracks, live.items);
+    Port_SavesForget();
+    GameLoad(file, &live, 1);
+    CHECK(live.vehicle == -1, "an unknown vehicle reads as none");
+    GameSave(file, &live, "THIRD", 3);
+    CHECK(Port_SavesWrite("hwvx", file, HW_SIZE), "write");
+    text = LoadSaveFile(".json", &len);
+    CHECK(text != NULL && SDL_strstr(text, "\"uid://hwvx-test-extra-car-1\": {\"unlocked\": true, \"inactive\": true}") != NULL,
+          "car 34 kept, inactive");
+    SDL_free(text);
+
+    /* and back */
+    Port_ContentSetBaseCount(PORT_CONTENT_CAR, 33);
+    Port_ContentRegister(PORT_CONTENT_CAR, "uid://hwvx-test-extra-car-0", 3, 0);
+    Port_ContentRegister(PORT_CONTENT_CAR, "uid://hwvx-test-extra-car-1", 4, 0);
+    Port_SavesForget();
+    GameLoad(file, &live, 2);   /* FIRST, two saves down */
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 1 && live.vehicle == 34, "the first save's car 34 is back");
+    Port_ContentReset();
+    SDL_free(file);
+}
+
+/* A project's ids.lock (Port_ContentLoadLock): numbers assigned once and
+ * written back, kept across runs and across entries removed and added
+ * again; saves by id stay right throughout. Each "run" resets the registry
+ * and reads the lock again, as the game does at start. */
+static void WriteText(const char *path, const char *text) {
+    CHECK(SDL_SaveFile(path, text, SDL_strlen(text)), "write %s", path);
+}
+
+static void LockRun(const char *lock) {
+    Port_ContentReset();
+    Port_ContentSetBaseCount(PORT_CONTENT_CAR, 33);
+    Port_ContentLoadLock(lock);
+}
+
+static s32 NumberOf(const char *id) {
+    u32 index;
+
+    return Port_ContentIndexOf(PORT_CONTENT_CAR, id, &index) ? (s32)index : -1;
+}
+
+static void TestIdsLock(void) {
+    char lock[512];
+    u8 *file = SDL_calloc(1, HW_SIZE);
+    HotWheelsGameData live;
+    char *text;
+    size_t len;
+
+    Scenario("ids-lock");
+    SDL_snprintf(lock, sizeof(lock), "%s/ids.lock", s_out);
+    /* no file: nothing */
+    SDL_RemovePath(lock);
+    LockRun(lock);
+    CHECK(Port_ContentCount(PORT_CONTENT_CAR) == 33, "no lock, no entries");
+
+    /* added: two cars without numbers get 33 and 34, written back */
+    WriteText(lock, "// a project's lock\n{\n  \"cars\": {\n"
+                    "    \"uid://aaaa\": {\"alias\": \"base://HW_Cars/car_3\", \"name\": \"Alpha\"},\n"
+                    "    \"uid://bbbb\": {\"alias\": \"base://HW_Cars/car_4\", \"unlocked\": true},\n  },\n"
+                    "  \"items\": {\"uid://cccc\": {\"alias\": \"base://mcp/item/2\"}}\n}\n");
+    LockRun(lock);
+    CHECK(NumberOf("uid://aaaa") == 33 && NumberOf("uid://bbbb") == 34, "assigned 33, 34: %d %d",
+          (int)NumberOf("uid://aaaa"), (int)NumberOf("uid://bbbb"));
+    CHECK(Port_ContentDataOf(PORT_CONTENT_CAR, 33) == 3 && Port_ContentDataOf(PORT_CONTENT_CAR, 34) == 4, "aliases");
+    {
+        u32 index;
+
+        CHECK(Port_ContentIndexOf(PORT_CONTENT_ITEM, "uid://cccc", &index) && index == 12 &&
+              Port_ContentDataOf(PORT_CONTENT_ITEM, 12) == 2, "an item: 12, item 2's data");
+    }
+    {
+        const char *name, *suffix, *thumb;
+
+        CHECK(Port_ContentLook(PORT_CONTENT_CAR, 33, &name, &suffix, &thumb) == 1 && name != NULL &&
+              SDL_strcmp(name, "Alpha") == 0, "its name");
+    }
+    text = SDL_LoadFile(lock, &len);
+    CHECK(text != NULL && SDL_strstr(text, "\"uid://aaaa\": {\n      \"number\": 33") != NULL &&
+          SDL_strstr(text, "\"number\": 34") != NULL && SDL_strstr(text, "\"cars\": 35") != NULL,
+          "written back with the numbers and next");
+    CHECK(text != NULL && SDL_strstr(text, "\"name\": \"Alpha\"") != NULL, "the rest kept");
+    SDL_free(text);
+
+    /* a save: car 34 unlocked and chosen */
+    SDL_zero(live);
+    live.vehicle = -1;
+    live.item = -1;
+    Port_ContentBindGameData(live.cars, live.tracks, live.items);
+    Port_ContentFromGameData();
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 1 && Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 0,
+          "new-game values from the lock");
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 33, 1);
+    live.vehicle = 34;
+    Port_SavesForget();
+    GameSave(file, &live, "LOCK", 1);
+    CHECK(Port_SavesWrite("hwvx", file, HW_SIZE), "write");
+
+    /* the same lock again: the same numbers, the file unchanged */
+    text = SDL_LoadFile(lock, &len);
+    LockRun(lock);
+    {
+        char *again = SDL_LoadFile(lock, &len);
+
+        CHECK(NumberOf("uid://aaaa") == 33 && NumberOf("uid://bbbb") == 34, "the same numbers");
+        CHECK(text != NULL && again != NULL && SDL_strcmp(text, again) == 0, "nothing written");
+        SDL_free(again);
+    }
+    SDL_free(text);
+
+    /* removed: aaaa away (inactive) - bbbb keeps 34, 33 is reserved */
+    WriteText(lock, "{\"format_version\": 1, \"next\": {\"cars\": 35, \"tracks\": 57, \"items\": 13},\n"
+                    " \"cars\": {\"uid://aaaa\": {\"number\": 33, \"alias\": \"base://HW_Cars/car_3\", \"active\": false},\n"
+                    "          \"uid://bbbb\": {\"number\": 34, \"alias\": \"base://HW_Cars/car_4\"}}}\n");
+    LockRun(lock);
+    Port_ContentBindGameData(live.cars, live.tracks, live.items);
+    CHECK(NumberOf("uid://bbbb") == 34 && NumberOf("uid://aaaa") == -1 && Port_ContentCount(PORT_CONTENT_CAR) == 35,
+          "bbbb keeps 34; aaaa is away");
+    Port_ContentSetUnlocked(PORT_CONTENT_CAR, 33, 1);
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 0, "a reserved number is never unlocked");
+    Port_SavesForget();
+    GameLoad(file, &live, 0);
+    CHECK(live.vehicle == 34 && Port_ContentUnlocked(PORT_CONTENT_CAR, 34) == 1, "the save's vehicle is still bbbb (34), unlocked");
+    GameSave(file, &live, "AWAY", 2);
+    CHECK(Port_SavesWrite("hwvx", file, HW_SIZE), "write");
+    text = LoadSaveFile(".json", &len);
+    CHECK(text != NULL && SDL_strstr(text, "\"uid://aaaa\": {\"unlocked\": true, \"inactive\": true}") != NULL,
+          "aaaa's unlock kept in the save, inactive");
+    SDL_free(text);
+
+    /* removed for good: the line deleted - bbbb still 34, and a new car
+     * gets 35 (next), never 33 again */
+    WriteText(lock, "{\"next\": {\"cars\": 35},\n \"cars\": {\"uid://bbbb\": {\"number\": 34, \"alias\": \"base://HW_Cars/car_4\"},\n"
+                    "  \"uid://dddd\": {\"alias\": \"base://HW_Cars/car_5\"}}}\n");
+    LockRun(lock);
+    CHECK(NumberOf("uid://bbbb") == 34 && NumberOf("uid://dddd") == 35, "bbbb 34, a new car 35: %d",
+          (int)NumberOf("uid://dddd"));
+
+    /* re-added: aaaa back with its number - its unlock comes back from the save */
+    WriteText(lock, "{\"next\": {\"cars\": 36},\n \"cars\": {\"uid://aaaa\": {\"number\": 33, \"alias\": \"base://HW_Cars/car_3\"},\n"
+                    "  \"uid://bbbb\": {\"number\": 34, \"alias\": \"base://HW_Cars/car_4\"},\n"
+                    "  \"uid://dddd\": {\"number\": 35, \"alias\": \"base://HW_Cars/car_5\"}}}\n");
+    LockRun(lock);
+    Port_ContentBindGameData(live.cars, live.tracks, live.items);
+    CHECK(NumberOf("uid://aaaa") == 33 && NumberOf("uid://bbbb") == 34 && NumberOf("uid://dddd") == 35, "33, 34, 35 again");
+    Port_SavesForget();
+    GameLoad(file, &live, 1);   /* LOCK, one save down */
+    CHECK(Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 1 && live.vehicle == 34, "LOCK's aaaa unlocked again, bbbb chosen");
+
+    /* conflicts: a number base content has, and one taken twice, get new ones */
+    WriteText(lock, "{\"cars\": {\"uid://eeee\": {\"number\": 5, \"alias\": \"base://HW_Cars/car_1\"},\n"
+                    "  \"uid://ffff\": {\"number\": 40, \"alias\": \"base://HW_Cars/car_1\"},\n"
+                    "  \"uid://gggg\": {\"number\": 40, \"alias\": \"base://HW_Cars/car_1\"},\n"
+                    "  \"uid://hhhh\": {\"number\": 41}}}\n");
+    LockRun(lock);
+    CHECK(NumberOf("uid://ffff") == 40 && NumberOf("uid://eeee") == 42 && NumberOf("uid://gggg") == 43,
+          "40 kept, the others after everything: %d %d", (int)NumberOf("uid://eeee"), (int)NumberOf("uid://gggg"));
+    CHECK(NumberOf("uid://hhhh") == -1 && Port_ContentCount(PORT_CONTENT_CAR) == 44 &&
+          Port_ContentUnlocked(PORT_CONTENT_CAR, 41) == 0, "no alias (data of its own): its number reserved");
+    CHECK(Port_ContentDataOf(PORT_CONTENT_CAR, 35) == 0 && Port_ContentUnlocked(PORT_CONTENT_CAR, 35) == 0,
+          "the numbers between are reserved");
+
+    /* a broken file is left alone */
+    WriteText(lock, "{\"cars\": {");
+    CHECK(Port_ContentLoadLock(lock) == -1, "unreadable: -1");
+    text = SDL_LoadFile(lock, &len);
+    CHECK(text != NULL && SDL_strcmp(text, "{\"cars\": {") == 0, "and not written");
+    SDL_free(text);
+    Port_ContentReset();
+    SDL_free(file);
+}
+
 int main(int argc, char **argv) {
     const char *gci = NULL;
     int i;
@@ -633,6 +984,9 @@ int main(int argc, char **argv) {
     TestCorrupt();
     TestRotation();
     TestMigration();
+    TestRegistry();
+    TestExtraCar();
+    TestIdsLock();
     Port_SavesForget();
     SDL_Log("%d checks, %d failed", s_checks, s_failed);
     return s_failed != 0;

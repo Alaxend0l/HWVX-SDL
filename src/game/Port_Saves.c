@@ -25,6 +25,7 @@
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "Port_Saves.h"
+#include "Port_Content.h"
 #include "jsonc.h"
 #include "mbedtls/sha256.h"
 
@@ -438,7 +439,7 @@ done:
 int Port_SavesWrite(const char *name, const void *saveFile, u32 size) {
     const PortSaveKind *kind = Port_SaveKindByName(name);
     PortSaveExtras extras;
-    int ok;
+    int ok, live;
 
     if (kind == NULL || size != Port_SaveFileSize(kind)) {
         Port_Log("saves: %s: no such save (%u bytes)", name, (unsigned)size);
@@ -446,12 +447,28 @@ int Port_SavesWrite(const char *name, const void *saveFile, u32 size) {
     }
     Refresh(name, kind);   /* what the save held, for CarryExtras */
     CarryExtras(kind, saveFile, &extras);
+    live = Port_ContentTakeLiveSlot();
+    if (live >= 0 && live < SAVE_FILE_SLOTS && kind->dataSize == sizeof(HotWheelsGameData)) {
+        /* the game's own save (GameSettings_SaveGame): that slot is the live
+         * game, so its entries past the arrays are the registry's */
+        Port_ContentStoreKept(&extras.kept[live]);
+    }
     ok = WriteSave(name, kind, saveFile, &extras);
     Port_SaveExtrasFree(&extras);
     if (ok) {
         Port_Log("saves: wrote %s/%s.json", Port_SavesProfile(), name);
     }
     return ok;
+}
+
+const struct JsonNode *Port_SavesKept(const char *name, int slot) {
+    const PortSaveKind *kind = Port_SaveKindByName(name);
+
+    if (kind == NULL || slot < 0 || slot >= SAVE_FILE_SLOTS) {
+        return NULL;
+    }
+    Refresh(name, kind);
+    return s_cache.ok ? s_cache.extras.kept[slot] : NULL;
 }
 
 int Port_SavesDelete(const char *name) {

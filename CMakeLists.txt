@@ -150,7 +150,9 @@ if(HWVX_TESTS AND NOT ANDROID)
         if(WIN32)
             target_link_libraries(${stem} PRIVATE ws2_32)
         endif()
+        target_compile_definitions(${stem} PRIVATE HWVX_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
         add_test(NAME ${stem} COMMAND ${stem})
+        set_tests_properties(${stem} PROPERTIES SKIP_RETURN_CODE 77)
     endforeach()
 
     # The online transport needs neither the game nor a window. Not named
@@ -180,7 +182,7 @@ if(HWVX_TESTS AND NOT ANDROID)
     # The JSON save store (src/game/Port_Saves.c): its own files, no game or
     # window. tools/savetest.c says what it covers.
     add_executable(savetest tools/savetest.c src/game/Port_Saves.c src/game/Port_SaveFormat.c
-        src/game/Port_SaveIds.c src/port/jsonc.c src/port/fileio.c)
+        src/game/Port_SaveIds.c src/game/Port_Content.c src/port/jsonc.c src/port/fileio.c)
     target_include_directories(savetest PRIVATE
         ${CMAKE_SOURCE_DIR}/src/game/include
         ${CMAKE_SOURCE_DIR}/src/port)
@@ -199,7 +201,7 @@ if(HWVX_TESTS AND NOT ANDROID)
     # (a worktree sits one folder deeper); tools/saveimporttest.c says what
     # it covers.
     add_executable(saveimporttest tools/saveimporttest.c src/game/Port_SaveImport.c src/game/Port_Saves.c
-        src/game/Port_SaveFormat.c src/game/Port_SaveIds.c src/port/jsonc.c src/port/fileio.c)
+        src/game/Port_SaveFormat.c src/game/Port_SaveIds.c src/game/Port_Content.c src/port/jsonc.c src/port/fileio.c)
     target_include_directories(saveimporttest PRIVATE
         ${CMAKE_SOURCE_DIR}/src/game/include
         ${CMAKE_SOURCE_DIR}/src/port)

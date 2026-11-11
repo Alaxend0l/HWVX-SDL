@@ -1,5 +1,7 @@
 #include "common.h"
 
+int Port_StartSkipsIntro(void);   /* Port_Start.c */
+
 
 void StateGameManager_RefreshMCPTextures(void) {
     DataPack *pack;
@@ -96,6 +98,12 @@ s32 StateGameManager_Heartbeat(void) {
                 break;
             }
         case 4:
+            if (Port_StartSkipsIntro()) {   /* port: HWVX_START, testing: the steps' screens skipped */
+                if (g_GameManagerState.step == GETP(g_GameManagerState.mcp)->numSteps - 1) {
+                    FileStreaming_LoadDataPack(PTR(GETP(g_GameManagerState.mcp)->menuName), 1, GETP(g_GameManagerState.mcp)->menuFile, 0);
+                }
+                break;
+            }
             if (!g_bInterfacePlaying) {
                 g_interfacePackID = FileStreaming_LoadDataPack(PTR(GETP(step->pack)->name), 1, GETP(step->pack)->script, 0);
                 if ((pack = FileStreaming_InitializeDataPack(g_interfacePackID, 1, 1)) != NULL) {

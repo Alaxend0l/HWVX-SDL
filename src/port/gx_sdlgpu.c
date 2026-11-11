@@ -34,6 +34,11 @@ typedef struct Upload {
     u32 level, w, h, offset;
 } Upload;
 
+static const SDL_GPUTextureFormat s_texFmt[GXR_TEX_COUNT] = {
+    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREFORMAT_BC1_RGBA_UNORM, SDL_GPU_TEXTUREFORMAT_INVALID,
+    SDL_GPU_TEXTUREFORMAT_BC3_RGBA_UNORM,
+};
+
 /* A static mesh's buffer upload, queued for the next copy pass. */
 typedef struct BufUpload {
     SDL_GPUBuffer *buf;
@@ -72,6 +77,7 @@ static struct {
     int imageW, imageH;
     SDL_GPUSampler *linearClamp;
     int efbW, efbH;
+    u8 texFormats[GXR_TEX_COUNT];   /* GXR_TEX_*: the device samples it */
 
     SDL_GPUCommandBuffer *cmd;
     SDL_GPUTexture *swapTex;
@@ -273,8 +279,8 @@ static SDL_GPUTexture *CreateTexture(SDL_GPUTextureFormat fmt, SDL_GPUTextureUsa
     return t;
 }
 
-static void *GPU_TexCreate(int w, int h, int levels);
-static void GPU_TexUpload(void *tex, int level, int w, int h, const u8 *rgba);
+static void *GPU_TexCreate(int fmt, int w, int h, int levels);
+static void GPU_TexUpload(void *tex, int fmt, int level, int w, int h, const u8 *data);
 static SDL_GPUBuffer *StaticBuffer(SDL_GPUBufferUsageFlags usage, const void *data, u32 size);
 
 static void CreatePresentPipeline(void) {
@@ -309,6 +315,7 @@ static void CreateEFB(void) {
 static void GPU_Init(int efbW, int efbH) {
     static const u8 black[4] = { 0, 0, 0, 255 };
     SDL_GPUSamplerCreateInfo sci;
+    int i;
 
     s.efbW = efbW;
     s.efbH = efbH;
@@ -329,9 +336,14 @@ static void GPU_Init(int efbW, int efbH) {
                                               SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
                      ? SDL_GPU_TEXTUREFORMAT_D24_UNORM : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
     CreateEFB();
+    for (i = 0; i < GXR_TEX_COUNT; i++) {
+        s.texFormats[i] = s_texFmt[i] != SDL_GPU_TEXTUREFORMAT_INVALID &&
+                          SDL_GPUTextureSupportsFormat(s.dev, s_texFmt[i], SDL_GPU_TEXTURETYPE_2D,
+                                                       SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    }
     /* unbound texture maps sample opaque black, as GL's texture 0 does */
-    s.black = GPU_TexCreate(1, 1, 1);
-    GPU_TexUpload(s.black, 0, 1, 1, black);
+    s.black = GPU_TexCreate(GXR_TEX_RGBA8, 1, 1, 1);
+    GPU_TexUpload(s.black, GXR_TEX_RGBA8, 0, 1, 1, black);
 
     {
         f32 consts[GX_POSMTX_IDENTITY + 1][4];
@@ -412,20 +424,24 @@ static void GPU_Close(void) {
 
 /* ---- textures ------------------------------------------------------------ */
 
-static void *GPU_TexCreate(int w, int h, int levels) {
-    return CreateTexture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, levels);
+static int GPU_TexFormat(int fmt) {
+    return fmt >= 0 && fmt < GXR_TEX_COUNT && s.texFormats[fmt];
+}
+
+static void *GPU_TexCreate(int fmt, int w, int h, int levels) {
+    return CreateTexture(s_texFmt[fmt], SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, levels);
 }
 
 /* Queued for the next batch's copy pass. */
-static void GPU_TexUpload(void *tex, int level, int w, int h, const u8 *rgba) {
-    u32 size = (u32)w * (u32)h * 4, offset = (s.nStaging + STAGING_ALIGN - 1) & ~(u32)(STAGING_ALIGN - 1);
+static void GPU_TexUpload(void *tex, int fmt, int level, int w, int h, const u8 *data) {
+    u32 size = GXR_TexLevelBytes(fmt, w, h), offset = (s.nStaging + STAGING_ALIGN - 1) & ~(u32)(STAGING_ALIGN - 1);
     Upload *u;
 
     if (tex == NULL) {
         return;
     }
     Grow((void **)&s.staging, &s.capStaging, offset + size, 1);
-    memcpy(s.staging + offset, rgba, size);
+    memcpy(s.staging + offset, data, size);
     s.nStaging = offset + size;
     Grow((void **)&s.uploads, &s.capUploads, s.nUploads + 1, sizeof(Upload));
     u = &s.uploads[s.nUploads++];
@@ -1001,14 +1017,14 @@ static void GPU_DrawImage(const u8 *rgba, int width, int height, const int dst[4
         if (s.image != NULL) {
             GPU_TexDestroy(s.image);
         }
-        s.image = GPU_TexCreate(width, height, 1);
+        s.image = GPU_TexCreate(GXR_TEX_RGBA8, width, height, 1);
         s.imageW = width;
         s.imageH = height;
         if (s.image == NULL) {
             return;
         }
     }
-    GPU_TexUpload(s.image, 0, width, height, rgba);
+    GPU_TexUpload(s.image, GXR_TEX_RGBA8, 0, width, height, rgba);
     Flush();
     SDL_zero(bi);
     bi.source.texture = s.image;
@@ -1165,7 +1181,7 @@ static void GPU_Present(void) {
 }
 
 const GXRenderer g_gxSDLGPU = {
-    "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
+    "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexFormat, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
     GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_CopyEFB, GPU_ReadEFB, GPU_Present,
     GPU_MeshIndices, GPU_MeshVertices, GPU_MeshDestroy,
 };

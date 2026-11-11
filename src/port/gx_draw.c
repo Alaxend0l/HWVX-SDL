@@ -648,6 +648,18 @@ static void DumpEFB(void) {
                  (double)ticks * 1000.0 / (double)(SDL_GetPerformanceFrequency() * 60));
         g_gxUploadBytes = 0;
     }
+    {
+        static GXTexStats last;
+        GXTexStats t;
+
+        GX_TexStats(&t);
+        Port_Log("  textures: %u resident, %.1f MB (%.1f MB as RGBA8, one per texture object); this window "
+                 "%u made (%u decoded, %u of them CMPR BC1 can't draw exactly; %u as stored blocks), %u shared, %.2f ms",
+                 t.textures, (double)t.bytes / 1048576.0, (double)t.rgbaBytes / 1048576.0,
+                 t.created - last.created, t.decoded - last.decoded, t.inexact - last.inexact, t.kept - last.kept, t.shared - last.shared,
+                 (double)(t.ticks - last.ticks) * 1000.0 / (double)SDL_GetPerformanceFrequency());
+        last = t;
+    }
     s_statMeshDraws = 0;
     g_gxShaderStats.special = g_gxShaderStats.general = 0;
     s_statBlend = s_statAlphaComp = s_statFog = s_statStages = 0;

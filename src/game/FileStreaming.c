@@ -3,6 +3,7 @@
  * become active/inactive, and their item spawn points respawn pickups. Also
  * the pool of streamed data packs (g_StreamingDataPacks). */
 #include "common.h"
+#include "Port_Content.h"
 #include "Port_Swap.h"
 #include "Gfx.h"
 #include "World.h"
@@ -504,7 +505,11 @@ void LoadQuadrants(s8 refresh) {
         u32 size;
         u32 offset;
     } TocEntry;
-    static TocEntry tocHeader[50];
+    /* port: as long as the world's TOC (the game kept 50; a world with more
+     * quadrant packs overran it): the header, then the entries */
+    static TocEntry *tocHeader;
+    static u32 tocCap;
+    TocEntry head[1];
     char path[0x80];
     char name[0x80];
     char msg[0x100];
@@ -522,15 +527,22 @@ void LoadQuadrants(s8 refresh) {
         error = 0;
         g_quadFileID = File_Open(0, path, 0, NULL);
         if (g_quadFileID != -1) {
-            File_Read(g_quadFileID, 0x10, tocHeader);
-            PortData_Words(Port_FileFormat(g_quadFileID), tocHeader, 4);  /* port: GameCube files are big-endian */
-            if (tocHeader[0].version != 0x020100A0 || tocHeader[0].type != 0x040100AE) {
+            File_Read(g_quadFileID, 0x10, head);
+            PortData_Words(Port_FileFormat(g_quadFileID), head, 4);  /* port: GameCube files are big-endian */
+            if (head[0].version != 0x020100A0 || head[0].type != 0x040100AE) {
                 error = 1;
-            } else if (tocHeader[0].world != 0xB7) {
-                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->collisionPackName), tocHeader[0].world, 0xB7);
+            } else if (head[0].world != 0xB7) {
+                Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->collisionPackName), head[0].world, 0xB7);
+                error = 1;
+            } else if (head[0].id > tocCap && (tocHeader = realloc(tocHeader, head[0].id * sizeof(TocEntry))) == NULL) {
+                tocCap = 0;
+                Port_Log("world %s: out of memory for a TOC of %u packs", path, head[0].id);
                 error = 1;
             } else {
-                count = tocHeader[0].id;
+                count = head[0].id;
+                if (count > tocCap) {
+                    tocCap = count;
+                }
                 File_Read(g_quadFileID, count * sizeof(TocEntry), tocHeader);
                 PortData_Words(Port_FileFormat(g_quadFileID), tocHeader, count * sizeof(TocEntry) / 4);
                 for (i = 0; i < ((World *)GETP(g_worldData.world))->numQuads; i++) {
@@ -763,6 +775,7 @@ void *FileStreaming_InitializeDataPack(u32 index, s32 type, s8 refresh)
     if (pack->refreshed == 0 && refresh)
     {
         DataPack_RefreshPtrs(&pack->pack);
+        Port_ContentFixScripts(&pack->pack, GETP(pack->name), type, pack->id);   /* port: an extra car's scripts */
     }
     pack->refreshed = 1;
     return &pack->pack;

@@ -50,6 +50,11 @@ JsonNode *Json_NewObject(void);
 void Json_Append(JsonNode *container, JsonNode *child, const char *key);
 /* The member `key` of an object, created as an empty object if missing. */
 JsonNode *Json_ObjectMember(JsonNode *obj, const char *key);
+/* New values. */
+JsonNode *Json_NewBool(int v);
+JsonNode *Json_NewInt(long long v);
+/* Removes and frees the member `key` of an object: 1 if it was there. */
+int Json_RemoveMember(JsonNode *obj, const char *key);
 
 /* Writer: pretty-printed, two spaces an indent. A container opened "inline"
  * keeps its elements on one line (short number lists). */

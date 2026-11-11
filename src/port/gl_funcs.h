@@ -77,6 +77,7 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLACTIVETEXTUREPROC, glActiveTexture)                                  \
     X(PFNGLTEXIMAGE2DPROC, glTexImage2D)                                        \
     X(PFNGLTEXSUBIMAGE2DPROC, glTexSubImage2D)                                  \
+    X(PFNGLCOMPRESSEDTEXIMAGE2DPROC, glCompressedTexImage2D)                    \
     X(PFNGLTEXPARAMETERIPROC, glTexParameteri)                                  \
     X(PFNGLTEXPARAMETERFPROC, glTexParameterf)                                  \
     X(PFNGLCOPYTEXSUBIMAGE2DPROC, glCopyTexSubImage2D)                          \
@@ -165,6 +166,7 @@ GL_FUNCS(GL_DECLARE)
 #define glActiveTexture p_glActiveTexture
 #define glTexImage2D p_glTexImage2D
 #define glTexSubImage2D p_glTexSubImage2D
+#define glCompressedTexImage2D p_glCompressedTexImage2D
 #define glTexParameteri p_glTexParameteri
 #define glTexParameterf p_glTexParameterf
 #define glCopyTexSubImage2D p_glCopyTexSubImage2D

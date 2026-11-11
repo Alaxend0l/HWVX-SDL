@@ -38,7 +38,7 @@ typedef struct ProjectileInfo {
     u8 impactOrient;            /* 0x08 impact effect orientation: 0 projectile's, 1 surface, 2 reflected */
     u8 pad09[3];                /* 0x09 u8s; never read (GC, PC, PS2) */
     PTR32(void) trailSpacing;   /* 0x0C [base, range]: u32 ms (trailMode 1) or f32 distance (2) */
-    PTR32(void) geometry;       /* 0x10 drawMode 0 */
+    PTR32(void) geometry;       /* 0x10 drawMode 0 @xdl: geometry */
     s32 lifeBase;               /* 0x14 ms */
     s32 lifeRange;              /* 0x18 */
     s32 damageBase;             /* 0x1C */
@@ -56,14 +56,14 @@ typedef struct ProjectileInfo {
     f32 holeSizeRange;          /* 0x50 */
     s32 holeLifeBase;           /* 0x54 */
     s32 holeLifeRange;          /* 0x58 */
-    u32 holeTexture;            /* 0x5C 0: no hole */
+    u32 holeTexture;            /* 0x5C 0: no hole @xdl: texture */
     PTR32(u8) sprite;           /* 0x60 drawMode 1: first byte is the blend mode */
     PTR32(void) lensFlare;      /* 0x64 LensFlare_Add */
     PTR32(void) light;          /* 0x68 LightHolder_Add */
     u8 pad6C[4];                /* 0x6C never read (GC, PC, PS2) */
-    u32 trailFx;                /* 0x70 DebrisParams.debris, 0: none */
-    u32 impactFx;               /* 0x74 */
-    u32 expireFx;               /* 0x78 */
+    u32 trailFx;                /* 0x70 DebrisParams.debris, 0: none @xdl: link=void */
+    u32 impactFx;               /* 0x74 @xdl: link=void */
+    u32 expireFx;               /* 0x78 @xdl: link=void */
     u8 pad7C[0x10];             /* 0x7C never read (GC, PC, PS2) */
     KeyTrack scaleKeys;         /* 0x8C */
     KeyTrack colorKeys;         /* 0x94 */

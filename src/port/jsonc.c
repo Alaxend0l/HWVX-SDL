@@ -476,6 +476,46 @@ JsonNode *Json_ObjectMember(JsonNode *obj, const char *key) {
     return n;
 }
 
+JsonNode *Json_NewBool(int v) {
+    JsonNode *n = NewNode(JSON_BOOL);
+
+    if (n != NULL) {
+        n->boolean = v != 0;
+    }
+    return n;
+}
+
+JsonNode *Json_NewInt(long long v) {
+    JsonNode *n = NewNode(JSON_NUMBER);
+
+    if (n != NULL) {
+        n->integer = v;
+        n->number = (double)v;
+        n->isInteger = 1;
+    }
+    return n;
+}
+
+int Json_RemoveMember(JsonNode *obj, const char *key) {
+    JsonNode **p;
+
+    if (obj == NULL || obj->type != JSON_OBJECT) {
+        return 0;
+    }
+    for (p = &obj->child; *p != NULL; p = &(*p)->next) {
+        if (SDL_strcmp((*p)->key, key) == 0) {
+            JsonNode *n = *p;
+
+            *p = n->next;
+            n->next = NULL;
+            Json_Free(n);
+            obj->count--;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* ---- writer ------------------------------------------------------------ */
 
 static void Put(JsonWriter *w, const char *s, size_t n) {

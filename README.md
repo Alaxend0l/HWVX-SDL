@@ -30,14 +30,30 @@ Entire Disc, which makes a `files/` folder), the PC release (its install
 folder, or its CD as an `.iso` or `.cue`/`.bin`), or the PlayStation 2 disc's
 files (the folder with `XPS/ENGLISH/`, or its `.iso`).
 
-**The launcher** (`src/port/launcher.c`) lists the releases you have imported
-and which one plays; the PS2 prototype (beta) can be imported too, for its
-beta content later. It opens every time the game starts, unless you tick
+**The launcher** (`src/port/launcher.c`) has a page for each job, picked
+from the tabs along the top; Play, Quit and the status line stay at the
+bottom:
+
+| page | what it holds |
+|---|---|
+| Play | the releases you have imported, each with "Play this" (the chosen one says "Playing this"), and the "Start the game without this window" tick |
+| Games | importing and removing each release (a folder, or a disc image) and the PS2 prototype (beta), kept for its beta content later; a disc import's progress |
+| Saves | **Import saves...** and its preview (below) |
+| Convert | converting to `.xdl`: coming later |
+| Mods | coming later |
+| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu: display (windowed or fullscreen), PC textures (`pctextures=`), main menu (`mainmenu=`), split-screen detail (`splitlod=`), movies (`movies=`); each change is saved at once, and an environment variable that overrides one is named under it. The renderer stays `--renderer NAME` |
+
+The launcher opens every time the game starts, unless you tick
 "Start the game without this window"; then the game boots straight into the
 chosen release, and the launcher only opens when that data has gone, or when
 asked: `--launcher`, or run `hwvx-launcher` (a copy of the program the build
-makes; app bundles use `--launcher`). Mouse, keyboard and gamepad all work (d-pad or
-stick, A, B; Start plays). Importing the PC CD copies its packs (out of
+makes; app bundles use `--launcher`). It opens on the page you saw last
+(`tab=` in `sources.cfg`), or on Play; on Games while no release is imported.
+Mouse, keyboard and gamepad all work: the d-pad or stick (or the arrow keys,
+and Tab) moves between the page's buttons and Play/Quit, A (Enter) presses,
+B (Escape) quits, Start plays, and LB/RB (Page Up/Page Down) change the page.
+Folders, disc images and saves are picked in the system's file dialog, which
+needs a mouse or keyboard. Importing the PC CD copies its packs (out of
 `HWVX.cab`) and its movies, which the PC game only ever read from the disc,
 into a `pc` folder in the save folder; an installed copy may have no movies.
 Importing a PS2 disc image copies its `XPS/ENGLISH` into `ps2` (or `ps2beta`
@@ -119,7 +135,7 @@ the files to `saves/default/deleted/`. Code: `src/game/Port_Saves.c` (the
 store), `Port_SaveFormat.c` (the format), `Port_SaveIds.c` (index to id);
 `tools/savetest.c` tests it.
 
-Importing saves from any release: the launcher's **Import saves...** takes
+Importing saves from any release: the launcher's Saves page, **Import saves...**, takes
 one or more files and shows what they would add before anything is written:
 
 | release | files |
@@ -514,6 +530,68 @@ Debugging aids:
   `savetest` (built with `-DHWVX_TESTS=ON`; `ctest -R savetest`, or
   `./savetest OUT --gci FILE` to round-trip a GameCube save) tests the store:
   round trips, atomic writes, damaged saves, backups, import.
+- `tools/run_test.sh BUILD DATA OUTDIR NAME SECONDS [VAR=value ...]` runs
+  the game once for a test: deterministic, a fresh `HWVX_PREF_DIR`, frames
+  and log in OUTDIR, force-killed after SECONDS; `FAST=1` adds
+  `HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1`, so the fixed steps run faster than real
+  time (the frames are the same). E.g. `FAST=1 tools/run_test.sh build
+  orig/gc/files t cs 10 HWVX_START=carselect HWVX_MENUDUMP=1`.
+- `test_content` (`-DHWVX_TESTS=ON`, `ctest -R test_content`, about a second)
+  checks the content registry against the GameCube data (`orig/gc/files` by
+  the sources, or `HWVX_TEST_GC_DATA`; skipped without): each scenario a
+  fresh game in a child process with a stub renderer, opened with
+  `HWVX_START`, checked from its `HWVX_MENUDUMP` log: the retail car select;
+  extra cars and items named, pictured and numbered after their alias; each
+  mode's world select against its progression script; the Adventure screen.
+  `./test_content <scenario>` runs one, `HWVX_TEST_VERBOSE=1` shows the log.
+- `HWVX_MENUDUMP=1` also logs, per screen created, the lists it shows by a
+  variable as patched (the car, item and world selects' pictures, names and
+  paragraphs, with the variable's range: `menudump: lists of interface 2 ...,
+  variable 4: 0..34`, then `names 35 (obj 75): 0 "Twin Mill 2*" | ...`), and
+  the progression scripts' levels: checks on what a menu offers are greps.
+  E.g. `HWVX_START=menu:mode=challenge HWVX_MENUDUMP=1`: the challenge
+  select's tracks (names 39..56).
+- `HWVX_START` boots straight into a menu, select screen or race, skipping
+  the intro screens and the menus before it (`src/game/Port_Start.c`: it
+  finds the screens through the menu pack's own go-to events and opens them
+  as the menus do; a race starts as the title's demo loop starts one):
+  `menu:mode=M` the screen M's One Player row opens (the Adventure screen,
+  the challenge or Joyride world select, the drag race or battle options);
+  `worldselect:mode=M` its world (track) select, past the options;
+  `carselect[:mode=M][,car=N][,world=W]`; `itemselect` (through the car
+  select, which picks car N as an A press would, so the item select shows
+  it; starting at item I);
+  `race[:mode=M][,world=W][,car=N][,item=I]`. M is `adventure` (or
+  `mission`), `challenge`, `drag`, `battle` or `joyride` (default); W a level
+  of the mode's progression script by world name (`bat2_l9`, `ch1_l2`,
+  `world1`) or index; N and I car and item numbers. With
+  `HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1` a select screen is
+  up in a few seconds.
+- `HWVX_IDS_LOCK=<file>`: the content registry's ids.lock (default: `ids.lock`
+  in the preferences folder), JSONC: per kind (`cars`, `tracks`, `items`) a
+  `uid://` id each with its `number`, `alias` (`base://HW_Cars/car_3`, the
+  data it uses), `name`, `suffix`, `thumbnail` (a texture link), `unlocked`
+  (in a new game), `active`. The game numbers entries that have no number
+  (past every number given, `next`) and writes the file back; an entry keeps
+  its number, `"active": false` keeps it reserved for content that's away
+  (docs/xdl-format/README.md §10.5.1).
+- `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
+  release), each loading a base car's pack (3, 4, ...) under its own number
+  and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same
+  for items (packs 0, 1, ...). The car and item selects show them as the
+  entry they alias with " (test)" after its name, and its picture, or the
+  texture `HWVX_TEST_EXTRA_CAR_THUMB` / `HWVX_TEST_EXTRA_ITEM_THUMB` names
+  (a link to a loaded pack's texture, `base://HW_IPack/interface_6/texture/70`).
+  They start locked;
+  `HWVX_TEST_UNLOCK_CARS=33,34` / `HWVX_TEST_UNLOCK_ITEMS=12` unlock them
+  through the game's code variable as the first car / item select opens
+  (autosaved). For testing the content registry (`src/game/Port_Content.c`:
+  the car, track and item counts and unlocks, sized from the data; entries
+  past the save struct's arrays persist only in the JSON save). Item
+  numbers aren't `HW_Items` pack ids (its packs 16-79 are the AI's): an
+  extra item loads the pack the registry maps it to
+  (`Port_ContentItemPack`), so `HWVX_TEST_EXTRA_ITEMS=6` items 16 and 17 load
+  packs 4 and 5.
 - `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable
@@ -540,7 +618,13 @@ Debugging aids:
   only, not disc images.
 - `HWVX_LOADTIME=1` logs how long each data pack and quadrant takes to load.
 - `HWVX_LAUNCHER_SHOT=file.bmp` saves the launcher's first frame and closes it
-  (testing).
+  (testing). `HWVX_LAUNCHER_TAB=play|games|saves|convert|mods|settings` opens
+  that page; `HWVX_LAUNCHER_INPUT="rb,ddown,a"` presses keys (`pgup pgdn tab up
+  down left right enter esc`), gamepad buttons (`lb rb a b start dup ddown dleft
+  dright`) and clicks (`click:X:Y` in the 640x420 view) first, and the shot is
+  taken after them; `HWVX_LAUNCHER_DISC=pc=IMAGE` (or `ps2=`) imports a disc
+  image as if picked; `HWVX_LAUNCHER_IMPORT="FILE;FILE"` opens the saves
+  preview. With `HWVX_PREF_DIR` none of it touches your own files.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
@@ -565,6 +649,20 @@ Debugging aids:
   triangles' vertices in order and matches the per-draw build exactly).
   `HWVX_STATS=1` logs the cache's draws and memory, the vertex bytes uploaded
   per frame and the CPU time spent drawing pack geometry.
+- Textures (`src/port/gx_tex.c`): block-compressed ones go to the GPU as they
+  are stored, where it samples BC1/BC3 and draws them the same: the PC
+  release's DXT1/DXT5 when it is drawn with its own colours (`pctextures=pc`;
+  with the GameCube's, the default, each texel is squared, so they are
+  decoded), and GameCube CMPR re-tiled to BC1 only where every colour comes out
+  as the GameCube draws it (few do: its middle colours are 5/8 of the way,
+  BC1's 21/32, and its transparent texels keep a colour that the GO sign's glow
+  shows). The rest decode to RGBA8 on the CPU at first draw, as the hardware
+  would. `HWVX_TEX_CMPR=close` also takes CMPR textures whose transparent
+  texels are safe (middle colours up to 12 levels off; a third of the memory).
+  `HWVX_TEX_DECODE=1` decodes everything. Textures with the same content share
+  one GPU texture (`HWVX_TEX_SHARE=0`: one per texture object). `HWVX_STATS=1`
+  logs the textures resident, their memory against RGBA8 and the time first
+  draws spend making them.
 - `HWVX_TEVKEYS=tools/tevkeys.txt` appends each TEV setup the game uses that
   the file doesn't have yet. SDL_GPU only has specialised shaders for the
   setups listed there (rerun `tools/gen_shaders.py`); OpenGL builds its own.
