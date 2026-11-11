@@ -289,26 +289,26 @@ enum {
 typedef struct IfaceObjectDef {
     u8 role;                    /* 0x00 InterfaceObject.role */
     u8 type;                    /* 0x01 IFACE_DEF_* */
-    u8 pad2[4];                 /* 0x02 */
+    u8 pad2[4];                 /* 0x02 u8s; never read (GC, PC, PS2) */
     u8 pressable;               /* 0x06 see IfaceRecord.noPress */
-    u8 pad7;
+    u8 pad7;                    /* 0x07 never read (GC, PC, PS2) */
     u8 active;                  /* 0x08 can be selected */
     u8 input;                   /* 0x09 role 3 child: controller 1-4 */
     u16 id;                     /* 0x0A role-specific parameter (HUD slot, goal id...) */
     s16 anchor;                 /* 0x0C relative index of the object it is positioned at, 0: none */
-    u16 unusedE;            /* 0x0E */
+    u16 unusedE;                /* 0x0E never read (GC, PC, PS2) */
     u32 linkId;                 /* 0x10 InterfaceManager_LinkThingToObject; debug vectors: chain */
     PTR32(void) sub;            /* 0x14 type-specific data, see InterfaceObject.data */
     s32 stateIndex[6];          /* 0x18 first IfaceStateDef per IFACE_STATE_*, -1: none
                                  *      (written by SetObjectState) */
     f32 anchorX;                /* 0x30 -1..1: alignment of the object on its position */
     f32 anchorY;                /* 0x34 */
-    u8 pad38[4];
+    u8 pad38[4];                /* 0x38 never read (GC, PC, PS2) */
     PTR32(PTR32(InterfaceHeader)) child; /* 0x3C slot holding the child interface */
     PTR32(u8) query;            /* 0x40 role 2: [0] != 0: use the callback's value */
     PTR32(IfaceRecord) record;  /* 0x44 */
     PTR32(IfaceConditionList) conditions; /* 0x48 */
-    u8 pad4C[0x60 - 0x4C];
+    u8 pad4C[0x60 - 0x4C];      /* 0x4C never read (GC, PC, PS2) */
     PTR32(IfaceObjAnim) anim;   /* 0x60 */
     u32 numStates;              /* 0x64 */
     PTR32(IfaceStateDef) states; /* 0x68 */

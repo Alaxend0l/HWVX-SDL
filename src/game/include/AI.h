@@ -230,7 +230,7 @@ typedef struct AICar {
     PTR32(Thing) obstacle;             /* 0x3E8 destructible in the way (AI_Car_AsyncScanDestructibles) */
     PTR32(Thing) targetThing;          /* 0x3EC */
     PTR32(NavPoint) targetNav;         /* 0x3F0 */
-    u8 pad3F4[0xC];                    /* 0x3F4 */
+    u8 pad3F4[0xC];                    /* 0x3F4 never read (GC, PS2) */
     Vector4 steerPoint;                /* 0x400 where it drives to this frame */
     f32 targetDistSq;                  /* 0x410 the current target's limits, for the next state */
     f32 minDistSq;                     /* 0x414 */
@@ -246,7 +246,7 @@ typedef struct AICar {
     u32 unused5F4;                     /* 0x5F4 ms counter, counts only while 0x5F0 is set: never */
     AIEvent scanEvent;                 /* 0x5F8 AI_Car_AsyncScanDestructibles */
     u32 scanTimer;                     /* 0x608 ms */
-    u8 pad60C[4];                      /* 0x60C */
+    u8 pad60C[4];                      /* 0x60C never read (GC, PS2) */
     Vector4 stuckForward;              /* 0x610 forward axis when the unstick turn began */
     Vector4 lastPos;                   /* 0x620 */
     u32 stillFrames;                   /* 0x630 60 Hz ticks it hasn't moved */
@@ -254,13 +254,13 @@ typedef struct AICar {
     f32 stuckAcc;                      /* 0x638 fractional 60 Hz tick carried between frames */
     f32 speedLimit;                    /* 0x63C 0: none */
     s16 steer;                         /* 0x640 stickX being built up */
-    u8 pad642[2];                      /* 0x642 */
+    u8 pad642[2];                      /* 0x642 never read (GC, PS2) */
     AIEvent weaponEvent;               /* 0x644 AI_Car_WeaponAsyncHeartbeat */
     u32 weaponTimer;                   /* 0x654 ms */
     u32 weaponSwitchTimer;             /* 0x658 ms before switching weapon again */
     f32 nearSq;                        /* 0x65C AIPlayerParams.nearSq */
     f32 farSq;                         /* 0x660 AIPlayerParams.farSq */
-    u8 pad664[0xC];                    /* 0x664 */
+    u8 pad664[0xC];                    /* 0x664 never read (GC, PS2) */
 } AICar;
 
 /* ---- Creature AI ---- */

@@ -561,15 +561,7 @@ typedef struct MovePhys {
     f32 elasticity;             /* 0x18 */
 } MovePhys;
 
-/* CarAEngine fields CarA.h doesn't name yet (CarAInfo.engine, 0x80). */
-typedef struct CarAEngineImpact {
-    u8 pad0[0x38];
-    f32 maxImpactVel;           /* 0x38 */
-    u8 pad3C[0x20];
-    f32 damageScale;            /* 0x5C car-car bumper hits */
-} CarAEngineImpact;
-
-#define CAR_ENGINE_IMPACT(car) ((CarAEngineImpact *)GETP(GETP((car)->vehicleIface)->engine))
+#define CAR_ENGINE_IMPACT(car) GETP(GETP((car)->vehicleIface)->engine)
 #define AI_DAMAGE_SCALE(player) (GETP(((Player *)(player))->aiScript)->damageScale)
 
 #define VFN_GET_MASS(t) THING_VFN(t, THING_V_GET_MASS, f32 (*)(Thing *))(t)

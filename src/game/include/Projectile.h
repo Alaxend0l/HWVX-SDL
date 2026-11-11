@@ -9,7 +9,7 @@
 
 /* Homing parameters (ProjectileInfo.smart), SmartProjectiles.c. */
 typedef struct SmartProjParams {
-    u8 pad00;                   /* 0x00 */
+    u8 pad00;                   /* 0x00 never read (GC, PC, PS2) */
     u8 invertZ;                 /* 0x01 look for targets behind */
     s16 delay;                  /* 0x02 ms before steering starts (Projectile.timer) */
     f32 turnMax;                /* 0x04 rad/s */
@@ -17,7 +17,7 @@ typedef struct SmartProjParams {
     f32 turnIn;                 /* 0x0C steering gain when overshooting */
     f32 dropRange;              /* 0x10 beyond it steer gradually, within it aim directly */
     f32 gain;                   /* 0x14 direct-aim gain */
-    u8 pad18[4];                /* 0x18 */
+    u8 pad18[4];                /* 0x18 never read (GC, PC, PS2) */
     f32 fov;                    /* 0x1C targeting cone, degrees */
     f32 minRange;               /* 0x20 ignore targets closer than this */
 } SmartProjParams;
@@ -26,32 +26,32 @@ typedef struct SmartProjParams {
 typedef struct ProjectileInfo {
     u8 draw;                    /* 0x00 1: drawn */
     u8 drawMode;                /* 0x01 0: geometry, 1: billboard sprite */
-    u8 pad02;                   /* 0x02 */
+    u8 pad02;                   /* 0x02 never read (GC, PC, PS2) */
     u8 collideMode;             /* 0x03 on a hit (Projectile_DynamicCollisionCorrection):
                                  * 0, 3 impact effect + release (3 ignores things),
                                  * 1, 4 pushed off the surface, 6 sticks to it,
                                  * 2, 5 nothing */
     u8 trailMode;               /* 0x04 trail effect spacing: 0 none, 1 time, 2 distance */
     u8 guidance;                /* 0x05 1, 2: smart (homing), 3: aimed at a car ahead */
-    u8 pad06;                   /* 0x06 */
+    u8 pad06;                   /* 0x06 never read (GC, PC, PS2) */
     u8 proximityAttach;         /* 0x07 proximity effect sticks to the car hit */
     u8 impactOrient;            /* 0x08 impact effect orientation: 0 projectile's, 1 surface, 2 reflected */
-    u8 pad09[3];                /* 0x09 */
+    u8 pad09[3];                /* 0x09 u8s; never read (GC, PC, PS2) */
     PTR32(void) trailSpacing;   /* 0x0C [base, range]: u32 ms (trailMode 1) or f32 distance (2) */
     PTR32(void) geometry;       /* 0x10 drawMode 0 */
     s32 lifeBase;               /* 0x14 ms */
     s32 lifeRange;              /* 0x18 */
     s32 damageBase;             /* 0x1C */
     s32 damageRange;            /* 0x20 */
-    u8 pad24[8];                /* 0x24 */
+    u8 pad24[8];                /* 0x24 never read (GC, PC, PS2) */
     f32 mass;                   /* 0x2C */
     f32 recoil;                 /* 0x30 impulse scale applied to the firing car */
     f32 proximityRadius;        /* 0x34 0: no proximity fuse */
     s32 proximityInterval;      /* 0x38 ms between proximity checks */
-    u8 pad3C[4];                /* 0x3C */
+    u8 pad3C[4];                /* 0x3C never read (GC, PC, PS2) */
     f32 thrust;                 /* 0x40 acceleration along the nose */
     f32 maxSpeed;               /* 0x44 */
-    u8 pad48[4];                /* 0x48 */
+    u8 pad48[4];                /* 0x48 never read (GC, PC, PS2) */
     f32 holeSizeBase;           /* 0x4C bullet hole on terrain */
     f32 holeSizeRange;          /* 0x50 */
     s32 holeLifeBase;           /* 0x54 */
@@ -60,11 +60,11 @@ typedef struct ProjectileInfo {
     PTR32(u8) sprite;           /* 0x60 drawMode 1: first byte is the blend mode */
     PTR32(void) lensFlare;      /* 0x64 LensFlare_Add */
     PTR32(void) light;          /* 0x68 LightHolder_Add */
-    u8 pad6C[4];                /* 0x6C */
+    u8 pad6C[4];                /* 0x6C never read (GC, PC, PS2) */
     u32 trailFx;                /* 0x70 DebrisParams.debris, 0: none */
     u32 impactFx;               /* 0x74 */
     u32 expireFx;               /* 0x78 */
-    u8 pad7C[0x10];             /* 0x7C */
+    u8 pad7C[0x10];             /* 0x7C never read (GC, PC, PS2) */
     KeyTrack scaleKeys;         /* 0x8C */
     KeyTrack colorKeys;         /* 0x94 */
     u8 slaves[8];               /* 0x9C shared slaves (count, triggers) */
@@ -130,6 +130,7 @@ _Static_assert(offsetof(ProjectileInfo, trailFx) == 0x70, "ProjectileInfo.trailF
 _Static_assert(offsetof(ProjectileInfo, scaleKeys) == 0x8C, "ProjectileInfo.scaleKeys");
 _Static_assert(offsetof(ProjectileInfo, slaves) == 0x9C, "ProjectileInfo.slaves");
 _Static_assert(offsetof(ProjectileInfo, holeColor) == 0xAC, "ProjectileInfo.holeColor");
+_Static_assert(sizeof(ProjectileInfo) == 0xB0, "ProjectileInfo size");
 _Static_assert(offsetof(ProjectileParams, quat) == 0x24, "ProjectileParams.quat");
 _Static_assert(offsetof(ProjectileParams, player) == 0x38, "ProjectileParams.player");
 _Static_assert(offsetof(SmartProjParams, minRange) == 0x20, "SmartProjParams.minRange");

@@ -1099,7 +1099,7 @@ s32 CarA_Move(void *thing) {
             trailPos.z = t * dz + GETP(car->motionState.animMatrices)[wheel->bone].v[3].z;
             color = car->wheelStates[i].skidColor;
             Trail_AddSegment(&car->wheelStates[i].skidTrail, &trailPos, &GETP(car->motionState.animMatrices)[wheel->bone - 1].v[2],
-                             GETP(car->vehicleIface)->skidsEnabled, color, car->wheelStates[i].skidTexture, wheel->width0, wheel->width1);
+                             GETP(car->vehicleIface)->skidMarkTexture, color, car->wheelStates[i].skidLife, wheel->width0, wheel->width1);
         } else {
             car->wheelStates[i].skidTrail = -1;
         }
@@ -2194,7 +2194,7 @@ void CarA_GetCameraOrientationInfo(CarA *car, u32 index, void *out) {
             PSVECNormalize(&info->mtx.v[1], &info->mtx.v[1]);
         }
     }
-    if (car->slaveWeaponRpm[0] < 10000) {
+    if (car->gripLossTime < 10000) {
         info->lookAhead = 0.0f;
     }
     PSVECSubtract(&car->bodyOffset, (Vector4 *)GETP(GETP(car->vehicleIface)->engine), &offset);

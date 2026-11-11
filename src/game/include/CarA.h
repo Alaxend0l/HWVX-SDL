@@ -37,7 +37,7 @@ typedef struct Player {
       u8 button1D;          /* 0x1D */
     };
   };
-  u8 pad1E[2];              /* 0x1E */
+  u8 pad1E[2];              /* 0x1E never read (GC, PS2) */
   FPTR32(void, (void *player)) controlReader;  /* 0x20 fills the input fields (pad, AI) */
   FPTR32(void, (void *player, void *desc)) init; /* 0x24 PlayerManager_New*Player */
   FPTR32(void, (void *player)) heartbeat;      /* 0x28 */
@@ -45,7 +45,7 @@ typedef struct Player {
   s8 thingLost;             /* 0x30 its thing died (Player_DetachThingDeath) */
   u8 cameraIndex;           /* 0x31 passed to the vehicle's getCameraInfo */
   u8 combo;                 /* 0x32 pending combo/cheat action, run by CarA_ExecuteCombo */
-  u8 pad33;                 /* 0x33 */
+  u8 pad33;                 /* 0x33 never read (GC, PS2) */
   u32 deadTime;             /* 0x34 ms since its thing was lost */
   u32 type;                 /* 0x38 PLAYER_TYPE_* */
   PTR32(void) aiScripts;          /* 0x3C its thing's info (CarA.vehicleIface, Creature.info): AI scripts at 0x90 */
@@ -54,17 +54,19 @@ typedef struct Player {
   u32 view;                 /* 0x64 viewport, 1-based */
   u32 interfaceIndex;       /* 0x68 its HUD interface */
   u32 flags;                /* 0x6C & 0x80 cleared every camera update */
-  u8 pad70;                 /* 0x70 0x70-0xA7: stats, cleared by Player_Init */
+  u8 pad70;                 /* 0x70 0x70-0xA7: stats, cleared by Player_Init and copied
+                               to and from the save data (DDRescueGameData.playerStats);
+                               this byte is otherwise never read (GC, PS2) */
   u8 scoreDirty;            /* 0x71 score changed: refresh the HUD text */
-  u8 pad72[6];              /* 0x72 */
+  u8 pad72[6];              /* 0x72 saved and restored with the stats; never read (GC, PS2) */
   s32 kills;                /* 0x78 */
   u32 stuntPoints;          /* 0x7C capped at 99999 */
-  u8 pad80[0xC];            /* 0x80 */
+  u8 pad80[0xC];            /* 0x80 saved and restored with the stats; never read (GC, PS2) */
   s32 damageDealt;          /* 0x8C */
-  u8 pad90[4];              /* 0x90 */
+  u8 pad90[4];              /* 0x90 saved and restored with the stats; never read (GC, PS2) */
   u16 counters[8];          /* 0x94 pod: creatures collected, by type */
   u8 countersChanged;       /* 0xA4 */
-  u8 padA5[3];              /* 0xA5 */
+  u8 padA5[3];              /* 0xA5 saved and restored with the stats; never read (GC, PS2) */
   PTR32(struct TileCar) tileCar;  /* 0xA8 the world tile car it was spawned from */
   s16 deathNavPoint;        /* 0xAC */
   s16 respawnNavPoint;      /* 0xAE */
@@ -146,25 +148,35 @@ typedef struct CarAEngine {
   s32 selfRightDelay;       /* 0x10 ms airborne before the self-righting torque */
   f32 steerRate;            /* 0x14 rad/s the steering angle ramps to the input */
   u32 reverseDelay;         /* 0x18 ms reverse before the car answers the throttle */
-  u8 pad1C[4];              /* 0x1C */
+  u8 pad1C[4];              /* 0x1C never read (GC, PC, PS2) */
   f32 selfRightArm;         /* 0x20 */
   f32 torqueCurve[4];       /* 0x24 torque at 0 and max rpm, slopes there (CarA_FitCubic) */
   f32 animSpeed;            /* 0x34 scales the steering animation time */
-  u8 pad38[4];              /* 0x38 */
+  f32 maxImpactVel;         /* 0x38 car-car impacts cap the closing speed at it, scaled by
+                             *      CarA_GetImpactMultiplier (ThingManager_MoveThings); 50
+                             *      in most cars */
   f32 maxAngularVel;        /* 0x3C */
   f32 itemDropImpact;       /* 0x40 */
   f32 maxGrade;             /* 0x44 grade the car can hold, times turboRpmScale in turbo */
-  u8 pad48[0x10];           /* 0x48 */
+  u8 pad48[0x10];           /* 0x48 never read (GC, PC, PS2) */
   f32 tiltForceScale;       /* 0x58 force point scale by up.y */
-  u8 pad5C[8];              /* 0x5C */
+  f32 damageScale;          /* 0x5C car-car bumper damage per unit of closing speed
+                             *      (0.04-0.15 by car) */
+  u8 pad60[4];              /* 0x60 pointer to the record CarAInfo 0x4C points to; never
+                             *      read (GC, PC, PS2) */
   f32 minEnginePitch;       /* 0x64 semitones added at 0 rpm */
   f32 soundRpmRange;        /* 0x68 rpm per pitch step, CarA_UpdateSound gate */
   f32 offsetContactFlag;    /* 0x6C 1: the spring scale keeps wheel->offset */
   f32 itemHeight;           /* 0x70 picked-up items ride this high above the rack */
-  u8 pad74[0xC];            /* 0x74 */
+  u8 pad74[0xC];            /* 0x74 never read (GC, PC, PS2) */
   CarACameras cameras;      /* 0x80 */
   CarACameras splitCameras; /* 0x88 used when the screen is split */
 } CarAEngine;
+
+_Static_assert(offsetof(CarAEngine, maxImpactVel) == 0x38, "CarAEngine.maxImpactVel");
+_Static_assert(offsetof(CarAEngine, damageScale) == 0x5C, "CarAEngine.damageScale");
+_Static_assert(offsetof(CarAEngine, cameras) == 0x80, "CarAEngine.cameras");
+_Static_assert(sizeof(CarAEngine) == 0x90, "CarAEngine size");
 
 typedef struct CarAMaterial {
   u8 pad00[0x18];           /* 0x00 */
@@ -183,28 +195,36 @@ typedef struct CollisionSpheres {
   PTR32(CollisionSphere) list; /* 0x04 */
 } CollisionSpheres;
 
+/* The same record as DestructibleInfo (common.h): the car code reads fewer
+ * of its fields. */
 typedef struct CarACollider {
   f32 inertiaScale[3];      /* 0x00 per-axis factor of the inverse inertia tensor */
-  u8 pad0C[4];              /* 0x0C */
+  u8 pad0C[4];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   u8 type;                  /* 0x10 0: oriented box, 1: convex hull */
-  u8 pad11[3];              /* 0x11 */
+  u8 pad11[3];              /* 0x11 u8s (1, 0, 0 in most cars): DestructibleInfo's
+                             *      takesDamage; never read (GC, PC, PS2) */
   s32 maxHealth;            /* 0x14 */
   s32 damageThreshold;      /* 0x18 impacts above it hurt */
-  u8 pad1C[4];              /* 0x1C */
+  u8 pad1C[4];              /* 0x1C s32 375 or -1: DestructibleInfo's deathTime (ms);
+                             *      never read (GC, PC, PS2) */
   f32 mass;                 /* 0x20 */
   f32 gravityScale;         /* 0x24 forceAccum.y += gravityScale * mass */
-  u8 pad28[4];              /* 0x28 */
+  u8 pad28[4];              /* 0x28 0 in every car; never read (GC, PC, PS2) */
   f32 gravity;              /* 0x2C */
   PTR32(CarAMaterial) material;   /* 0x30 */
   u32 numEndFx;             /* 0x34 debris spawned when destroyed, one at random */
   PTR32(u32) endFx;         /* 0x38 (Thing_ProcessEndEvent) */
-  u8 pad3C[8];              /* 0x3C */
+  u8 pad3C[8];              /* 0x3C u32 1, pointer: DestructibleInfo's numDebris,
+                             *      debris; never read (GC, PC, PS2) */
   union {
     PTR32(Vector4) box;           /* 0x44 type 0: min/max corners */
     PTR32(struct CollisionSpheres) spheres; /* type 7 */
   };
   PTR32(struct CarAHull) hull;    /* 0x48 type 1 */
 } CarACollider;
+
+_Static_assert(offsetof(CarACollider, endFx) == 0x38, "CarACollider.endFx");
+_Static_assert(sizeof(CarACollider) == 0x4C, "CarACollider size");
 
 typedef struct CarAHull {
   u8 pad00[0xC];            /* 0x00 */
@@ -215,9 +235,12 @@ typedef struct CarAHull {
 
 
 typedef struct CarAAccel {
-  u8 pad00[4];              /* 0x00 */
+  u8 pad00[4];              /* 0x00 0 in every car; never read (GC, PC, PS2) */
   f32 driveRpmScale;        /* 0x04 drive friction to rpm scale */
-  u8 pad08[0xC];            /* 0x08 */
+  f32 coastRpmScale;        /* 0x08 PC only: driveMode 2 off the throttle uses it in place
+                             *      of driveRpmScale (ComputeSuspensionForces 0x416DA2);
+                             *      1.5 (0 in one car), no shipped car is mode 2 */
+  u8 pad0C[8];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   f32 tractionLift;         /* 0x14 traction point lift: (this - 1) * up * contact height */
   f32 brakeDecel;           /* 0x18 rpm/s at full brake */
   f32 engineBrake;          /* 0x1C rpm/s off the throttle */
@@ -230,16 +253,19 @@ typedef struct CarAAccel {
   f32 spinDecay;            /* 0x38 */
 } CarAAccel;
 
+_Static_assert(offsetof(CarAAccel, coastRpmScale) == 0x08, "CarAAccel.coastRpmScale");
+_Static_assert(sizeof(CarAAccel) == 0x3C, "CarAAccel size");
+
 typedef struct CarAStuntInfo {
   f32 pitchRate;            /* 0x00 */
   f32 rollRate;             /* 0x04 */
   f32 spinRate;             /* 0x08 */
   f32 maxTime;              /* 0x0C */
-  u8 pad10[4];              /* 0x10 */
+  u8 pad10[4];              /* 0x10 f32 0.5 in every car; never read (GC, PC, PS2) */
   f32 turboPerPoint;        /* 0x14 */
   f32 pitchScore;           /* 0x18 */
   f32 rollScore;            /* 0x1C */
-  u8 pad20[8];              /* 0x20 */
+  u8 pad20[8];              /* 0x20 f32 1, f32 5 in every car; never read (GC, PC, PS2) */
   s32 startDelay;           /* 0x28 ms airborne before the stunt can start */
   f32 minFailTime;          /* 0x2C also the stunt-time range landed stunts score in */
   f32 maxFailTime;          /* 0x30 */
@@ -247,12 +273,15 @@ typedef struct CarAStuntInfo {
   PTR32(u32) rewardThings;        /* 0x38 picked by score */
   u32 numMessages;          /* 0x3C */
   PTR32(PTR32(PTR32(char))) messages; /* 0x40 picked by score: string tables */
-  u8 pad44[4];              /* 0x44 */
+  u8 pad44[4];              /* 0x44 0 in every car; never read (GC, PC, PS2) */
   PTR32(PTR32(char)) failMessage;       /* 0x48 NULL: g_stuntLossString */
   u32 numFailThings;        /* 0x4C */
   PTR32(u32) failThings;          /* 0x50 thing ids, picked by fail time */
   f32 spinScore;            /* 0x54 */
 } CarAStuntInfo;
+
+_Static_assert(offsetof(CarAStuntInfo, startDelay) == 0x28, "CarAStuntInfo.startDelay");
+_Static_assert(sizeof(CarAStuntInfo) == 0x58, "CarAStuntInfo size");
 
 /* CarAInfo.gears: indexed by CarA.curveTableIdx. */
 typedef struct CarAGear {
@@ -272,14 +301,17 @@ typedef struct CarASoundSet {
 
 /* The HUD layouts of a car, by number of viewports. */
 typedef struct CarAHud {
-  u8 pad00[0x10];           /* 0x00 */
+  u8 pad00[0x10];           /* 0x00 0 (car 16: f32 -0.35, 15 at 0x04); never read (GC, PC, PS2) */
   u32 layout1;              /* 0x10 one viewport */
-  u8 pad14[4];              /* 0x14 */
+  u8 pad14[4];              /* 0x14 0 in every car; never read (GC, PC, PS2) */
   u32 layout2;              /* 0x18 two */
   u32 layout4;              /* 0x1C three or four */
-  u8 pad20[0x14];           /* 0x20 */
+  u8 pad20[0x14];           /* 0x20 0, a pointer at 0x2C; never read (GC, PC, PS2) */
   u8 stats[4];              /* 0x34 vehicle select bars (InterfaceHudInfo.carStats) */
 } CarAHud;
+
+_Static_assert(offsetof(CarAHud, stats) == 0x34, "CarAHud.stats");
+_Static_assert(sizeof(CarAHud) == 0x38, "CarAHud size");
 
 /* A slave thing description (0x20 bytes) as MotionState_InitAllSlavesNow and
  * ThingManagerList_TriggerSlaves take them. */
@@ -338,29 +370,31 @@ typedef struct CarAForcePoints {
 typedef struct CarAInfo {
   f32 viewOffset[3];        /* 0x00 shifts the car when an interface shows it
                              *      (InterfaceManager_RenderObject) */
-  u8 pad0C[4];              /* 0x0C */
+  u8 pad0C[4];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   u8 damagePercent;         /* 0x10 health % below which parts break off */
   u8 driveMode;             /* 0x11 1: human-controlled */
-  u8 pad12[2];              /* 0x12 */
-  u16 skidTexture;          /* 0x14 */
-  u8 pad16[2];              /* 0x16 */
+  u8 pad12[2];              /* 0x12 two u8; never read (GC, PC, PS2) */
+  u16 skidLife;             /* 0x14 skid mark life in 16 ms units (Trail_AddSegment
+                             *      life << 4): 600 (9.6 s) in every car */
+  u8 pad16[2];              /* 0x16 u16, 0 in every car; never read (GC, PC, PS2) */
   s32 damageLevel;          /* 0x18 hits above it break parts off */
   f32 maxRpm;               /* 0x1C max rpm (torque curve, engine pitch) */
   f32 upshiftRpm;           /* 0x20 shift up above it; also caps reverse rpm */
   f32 downshiftRpm;         /* 0x24 shift down below it */
-  u8 pad28[8];              /* 0x28 */
+  u8 pad28[8];              /* 0x28 f32 1000, u32 18 (21 in car 23); never read (GC, PC, PS2) */
   f32 turboRpmScale;        /* 0x30 4WD (turbo): rpm divisor */
   f32 turboTorqueScale;     /* 0x34 4WD (turbo): torque factor */
-  u8 pad38[0x10];           /* 0x38 */
+  u8 pad38[0x10];           /* 0x38 u32 1, u32 16 (1 in cars 0, 26), u32 0, texture slot
+                             *      0x44 (relocated by the loader); never read (GC, PC, PS2) */
   PTR32(void) steerAnim;          /* 0x48 */
-  u8 pad4C[4];              /* 0x4C */
-  u32 skidsEnabled;         /* 0x50 */
+  u8 pad4C[4];              /* 0x4C pointer to a 0x40-byte record; never read (GC, PC, PS2) */
+  u32 skidMarkTexture;      /* 0x50 texture slot of the skid marks (Trail_AddSegment), 0: none */
   PTR32(void) reflectionGeom;     /* 0x54 drawn under human cars in the garage (state 5) */
-  u8 pad58[8];              /* 0x58 */
+  u8 pad58[8];              /* 0x58 0, CarASoundSet pointer; never read (GC, PC, PS2) */
   PTR32(CarASoundSet) rollSound;  /* 0x60 CarA.soundIds[2] */
-  u8 pad64[8];              /* 0x64 */
+  u8 pad64[8];              /* 0x64 CarASoundSet pointer (car 16 only), 0; never read (GC, PC, PS2) */
   PTR32(GXColor) skidColor;       /* 0x6C */
-  u8 pad70[8];              /* 0x70 */
+  u8 pad70[8];              /* 0x70 0 in every car; never read (GC, PC, PS2) */
   PTR32(CarAModelRef) modelRef;   /* 0x78 */
   PTR32(f32) gripScale;           /* 0x7C initial CarA.gripScale */
   PTR32(CarAEngine) engine;       /* 0x80 */
@@ -370,9 +404,10 @@ typedef struct CarAInfo {
   u32 aiScripts[4];         /* 0x90 AICarScript handles, per difficulty */
   PTR32(CarACollider) collider;   /* 0xA0 */
   PTR32(struct CarAForcePoints) forcePoints; /* 0xA4 extra force points (CarA_ComputeForces) */
-  u8 padA8[8];              /* 0xA8 */
+  u8 padA8[8];              /* 0xA8 0, pointer to {f32 12100 (110^2), f32 900 (30^2), 0...};
+                             *      never read (GC, PC, PS2) */
   u32 explosionThing;       /* 0xB0 */
-  u8 padB4[0x1C];           /* 0xB4 */
+  u8 padB4[0x1C];           /* 0xB4 0 in every car; never read (GC, PC, PS2) */
   u32 numWheels;            /* 0xD0 */
   PTR32(CarTrailBone) wheels;     /* 0xD4 */
   u32 numGears;             /* 0xD8 */
@@ -383,7 +418,8 @@ typedef struct CarAInfo {
   PTR32(CarASlaveSet) slaveWeapons; /* 0xEC */
   u32 numPickupSlaves;      /* 0xF0 */
   PTR32(CarASlaveSet) pickupSlaves; /* 0xF4 indexed by item value */
-  u8 padF8[8];              /* 0xF8 */
+  u8 padF8[8];              /* 0xF8 u32 1, pointer to 12-byte {0, pointer, 0}; never read
+                             *      (GC, PC, PS2) */
   u32 numStartSlaves;       /* 0x100 */
   PTR32(CarAStartSlave) startSlaves; /* 0x104 */
   u32 numStartItems;        /* 0x108 */
@@ -394,6 +430,14 @@ typedef struct CarAInfo {
   PTR32(PTR32(CarASoundSet)) soundSets; /* 0x11C */
 } CarAInfo;
 
+_Static_assert(offsetof(CarAInfo, skidLife) == 0x14, "CarAInfo.skidLife");
+_Static_assert(offsetof(CarAInfo, pad28) == 0x28, "CarAInfo.pad28");
+_Static_assert(offsetof(CarAInfo, pad38) == 0x38, "CarAInfo.pad38");
+_Static_assert(offsetof(CarAInfo, skidMarkTexture) == 0x50, "CarAInfo.skidMarkTexture");
+_Static_assert(offsetof(CarAInfo, padA8) == 0xA8, "CarAInfo.padA8");
+_Static_assert(offsetof(CarAInfo, padF8) == 0xF8, "CarAInfo.padF8");
+_Static_assert(sizeof(CarAInfo) == 0x120, "CarAInfo size");
+
 /* Per-wheel runtime state, 8 slots in CarA from 0x1B0. */
 typedef struct CarAWheelState {
   f32 rotation;             /* 0x00 advanced by speed / radius every PreMove */
@@ -403,7 +447,7 @@ typedef struct CarAWheelState {
   f32 compression;          /* 0x0C */
   f32 lastCompression;      /* 0x10 */
   GXColor skidColor;        /* 0x14 */
-  u32 skidTexture;          /* 0x18 */
+  u32 skidLife;             /* 0x18 CarAInfo.skidLife, or the surface's (type 2) */
   f32 damperRate;           /* 0x1C port: compression rate last sampled for the damper */
   Vector4 slipVel;          /* 0x20 */
 } CarAWheelState;
@@ -425,17 +469,17 @@ typedef struct CarA {
   Thing base;               /* 0x00 vel, transform (pos = position), quat,
                                radius, flags, health, vtable, trigger (the world
                                tile it was created from), player (the driver) */
-  u8 padAC[0x10];           /* 0xAC */
+  u8 padAC[0x10];           /* 0xAC never read (GC, PS2) */
   PTR32(struct CarA) lookTarget;  /* 0xBC a looker's target */
   CollisionOBox orientedBox; /* 0xC0 type 0 collider in world space, rebuilt by
                                GetOrientedCollision when flags & 0x180 */
   CarAWheelState wheelStates[8]; /* 0x1B0 one per CarAInfo.wheels entry */
   MotionState motionState;   /* 0x330 the car's model, animation and slaves */
-  u8 pad368[8];             /* 0x368 */
+  u8 pad368[8];             /* 0x368 never read (GC, PS2) */
   PTR32(void) hull;               /* 0x370 type 1 collider: OConvexHullHolder slot */
   u32 partVisMask;          /* 0x374 bit set per car part broken off */
   f32 steerAngle;           /* 0x378 steering angle, radians */
-  u8 pad37C[4];             /* 0x37C */
+  u8 pad37C[4];             /* 0x37C never read (GC, PS2) */
   Vector4 angularMomentum;  /* 0x380 += torque * dt in PreMove */
   Vector4 forceAccum;       /* 0x390 += force in CarA_ProcessForce */
   Vector4 torqueAccum;      /* 0x3A0 += torque in CarA_ProcessForce */
@@ -446,10 +490,10 @@ typedef struct CarA {
   Matrix4 inverseBodyInertia; /* 0x3C0 diagonal: 0x3C0, 0x3D4, 0x3E8 */
   s32 turboTime;            /* 0x400 ms of turbo left */
   s32 lowSpeedFlag;         /* 0x404 ms since the last collision; compared < 500 by AI cars */
-  u8 pad408[8];             /* 0x408 */
+  u8 pad408[8];             /* 0x408 never read (GC, PS2) */
   Vector4 localAxis;        /* 0x410 angular velocity (CarA_GetAngularVelocity) */
   f32 animTimes[3];         /* 0x420 times of vehicleIface->modelRef->anims */
-  u8 pad42C[0x14];          /* 0x42C */
+  u8 pad42C[0x14];          /* 0x42C never read (GC, PS2) */
   Vector4 prevVelocity;     /* 0x440 velocity at the start of PreMove */
   u32 reverseTimer;         /* 0x450 ms the brake is held at standstill */
   PTR32(void) rollSurface;        /* 0x454 surface whose rolling sound plays */
@@ -462,30 +506,33 @@ typedef struct CarA {
     s32 slaveWeaponRpm[8];  /* 0x46C ms since slave weapon i fired (CarA_SlaveWeaponHeartbeat);
                                >= 10000: idle, Init and SlaveWeaponStop write 10001 */
     struct {
-      s32 pad46C;
+      s32 gripLossTime;     /* 0x46C weapon 0 active (< 10000): no wheel grip and no camera
+                               look-ahead (ComputeSuspensionForces, GetCameraOrientationInfo);
+                               Blast effect 2 sets 9000 and knocks the car down */
       s32 engineRpmState;   /* 0x470 weapon 1 active (< 10000): torque and steering halved */
-      s32 pad474;           /* 0x474 */
+      s32 pad474;           /* 0x474 weapon 2 (Blast effect 4 sets 0): only the
+                               SlaveWeaponHeartbeat loop reads it */
       s32 damageRpm;        /* 0x478 weapon 3 active (< 10000): no impact damage */
     };
   };
   u32 transmissionFlags;    /* 0x48C state bits, e.g. 0x1000: turbo on (see CarA.c) */
   u8 tiltState;             /* 0x490 0: rest, 1/2: tilted by the stick, 3 */
   u8 stuntAxis;             /* 0x491 0: none, 1: pitch (stickX), 2: roll (stickY) */
-  u8 pad492[2];             /* 0x492 */
+  u8 pad492[2];             /* 0x492 never read (GC, PS2) */
   /* 0x494-0x4A0: passed to the HUD by GetInterfaceInfo, which clears them */
   PTR32(PTR32(char)) stuntPopup;        /* 0x494 */
   u32 pickupId;             /* 0x498 last picked-up item's id */
   PTR32(PTR32(char)) stuntScoreMessage; /* 0x49C */
   PTR32(PTR32(char)) stuntMessage;      /* 0x4A0 */
   s32 pickupCount;          /* 0x4A4 type 9 items picked up */
-  u8 pad4A8[8];             /* 0x4A8 */
+  u8 pad4A8[8];             /* 0x4A8 never read (GC, PS2) */
   Vector4 stuntSpin;        /* 0x4B0 zeroed when a stunt fails */
   f32 torquePolyCoeffs[4];  /* 0x4C0 cubic torque curve in rpm (CarA_FitCubic) */
-  u8 pad4D0[0x10];          /* 0x4D0 */
+  u8 pad4D0[0x10];          /* 0x4D0 never read (GC, PS2) */
   f32 soundRpmGate;         /* 0x4E0 engine sound gate, left at 0 here */
   f32 rpm;                  /* 0x4E4 */
   u8 curveTableIdx;         /* 0x4E8 current gear, index into CarAInfo.gears */
-  u8 pad4E9[7];             /* 0x4E9 */
+  u8 pad4E9[7];             /* 0x4E9 never read (GC, PS2) */
   s32 soundIds[3];          /* 0x4F0 SoundSource ids, -1: none: wind, engine, rolling */
   f32 gripBlend;            /* 0x4FC 0 while slipping, recovers to 1 at 1/s */
   s32 damageAccum;          /* 0x500 damage not yet taken off health (in steps of 30) */
@@ -503,7 +550,7 @@ typedef struct CarA {
       f32 tiltX;            /* 0x540 the pivot when the car is tilted upright */
       f32 tiltY;            /* 0x544 */
       f32 unused548;        /* 0x548 */
-      f32 pad54C;           /* 0x54C */
+      f32 pad54C;           /* 0x54C never read (GC, PS2) */
     };
   };
   s32 turboCooldown;        /* 0x550 ms */
@@ -517,10 +564,10 @@ typedef struct CarA {
   /* 0x584-0x58C: speedometer smoothing (GetInterfaceInfo): the shown speed
      follows a change of direction only after more than 5 frames */
   s8 speedoRising;          /* 0x584 */
-  u8 pad585[3];             /* 0x585 */
+  u8 pad585[3];             /* 0x585 never read (GC, PS2) */
   u32 speedoCount;          /* 0x588 frames the speed went against speedoRising */
   u32 speedoShown;          /* 0x58C */
-  u8 pad590[0x10];          /* 0x590 */
+  u8 pad590[0x10];          /* 0x590 never read (GC, PS2) */
 } CarA;
 
 #define CARA_ASSERT_OFFSET(f, off) _Static_assert(offsetof(CarA, f) == (off), "CarA." #f)
@@ -552,6 +599,7 @@ CARA_ASSERT_OFFSET(airTime, 0x460);
 CARA_ASSERT_OFFSET(stuckCounter, 0x464);
 CARA_ASSERT_OFFSET(gripScale, 0x468);
 CARA_ASSERT_OFFSET(slaveWeaponRpm, 0x46C);
+CARA_ASSERT_OFFSET(gripLossTime, 0x46C);
 CARA_ASSERT_OFFSET(engineRpmState, 0x470);
 CARA_ASSERT_OFFSET(damageRpm, 0x478);
 CARA_ASSERT_OFFSET(transmissionFlags, 0x48C);

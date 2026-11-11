@@ -272,7 +272,7 @@ void Blast_Action(struct BlastInfo *blast, Vector4 *pos, Thing *source) {
                 if ((u8 *)GETP(thing->vtable) == g_carAVTable) {
                     Vector4 impulse __attribute__((aligned(16))) = {0.0f, -9.0f, 0.0f, 0.0f};
                     CarA_SlaveWeaponStop(thing, 0);
-                    car->slaveWeaponRpm[0] = 9000;
+                    car->gripLossTime = 9000;
                     CarA_StuntImpulse(thing, &g_zeroVector, &impulse);
                 }
                 break;

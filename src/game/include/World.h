@@ -419,14 +419,14 @@ _Static_assert(sizeof(WorldQuad) == 0x50, "WorldQuad size");
 /* World-wide settings (world + 0x9C, World_GetGameData). */
 typedef struct WorldGameData {
     u8 fogType;                 /* 0x00 */
-    u8 pad1[3];                 /* 0x01 */
+    u8 pad1[3];                 /* 0x01 never read (GC, PC, PS2) */
     f32 mapScaleX;              /* 0x04 radar map (InterfaceManager) */
     f32 mapScaleZ;              /* 0x08 */
     f32 envmapX;                /* 0x0C */
     f32 envmapY;                /* 0x10 */
     f32 fogNear;                /* 0x14 */
     f32 fogFar;                 /* 0x18 */
-    u8 pad1C[4];                /* 0x1C */
+    u8 pad1C[4];                /* 0x1C 0 in every world; never read (GC, PC, PS2) */
     f32 farPlane;               /* 0x20 */
     f32 reverbLevel;            /* 0x24 outside reverb volumes */
     f32 reverbDelay;            /* 0x28 */
@@ -435,32 +435,39 @@ typedef struct WorldGameData {
     f32 musicPitch;             /* 0x34 */
     f32 musicTempo;             /* 0x38 */
     f32 cameraFxLead;           /* 0x3C cameraFx is kept this many seconds of car travel ahead */
-    u8 pad40[0x18];             /* 0x40 */
+    u8 pad40[0x18];             /* 0x40 f32 0.3, 80, 0.075 in every world, then 0;
+                                 *      never read (GC, PC, PS2) */
     f32 mapOffsetX;             /* 0x58 radar map: texture coordinates of the origin */
     f32 mapOffsetZ;             /* 0x5C */
     f32 mapHalfW;               /* 0x60 half the area shown, in texture coordinates */
     f32 mapHalfH;               /* 0x64 */
     f32 impactFxMinVel;         /* 0x68 car-car impact effects, by relative speed */
     f32 impactFxMaxVel;         /* 0x6C */
-    u8 pad70[8];                /* 0x70 */
+    f32 creatureFxMinVel;       /* 0x70 PC only: effects of a car running a creature over */
+    f32 creatureFxMaxVel;       /* 0x74 (0x413060), picked by speed like impactFx; 5, 100 */
     u32 mapTexture;             /* 0x78 radar map, 0: none (InterfaceManager_DrawMap) */
     u32 radarBlip;              /* 0x7C InterfaceManager_SetRadarBlip */
-    u8 pad80[8];                /* 0x80 */
+    u8 pad80[8];                /* 0x80 two texture slots; never read (GC, PC, PS2) */
     u32 lightTexture;           /* 0x88 LightHolder_SetTexture */
     u32 envmapA;                /* 0x8C */
     u32 envmapB;                /* 0x90 */
-    u8 pad94[0xC];              /* 0x94 */
+    u8 pad94[0xC];              /* 0x94 two texture slots, a pointer; never read (GC, PC, PS2) */
     PTR32(void) vehiclePackList; /* 0xA0 */
     PTR32(char) itemPack;       /* 0xA4 name of the world's item pack (type 2) */
-    u8 padA8[0x18];             /* 0xA8 */
+    u8 padA8[0x18];             /* 0xA8 0 in every world; never read (GC, PC, PS2) */
     PTR32(GXColor) fogColor;    /* 0xC0 */
     PTR32(void) cameraFx;       /* 0xC4 emitter description kept ahead of each camera (rain...) */
     PTR32(void) debugFont;      /* 0xC8 debug font (ShowStats_Init) */
     PTR32(void) pauseInterface; /* 0xCC interface script of the pause menu */
-    u8 padD0[0x20];             /* 0xD0 */
+    u8 padD0[0x10];             /* 0xD0 0 in every world; never read (GC, PC, PS2) */
+    u8 padE0[8];                /* 0xE0 two pointers; never read (GC, PC, PS2) */
+    u32 numCreatureHitFx;       /* 0xE8 PC only (creature hit handler 0x41F620): */
+    PTR32(u32) creatureHitFx;   /* 0xEC [2] under 60 damage, [3] from 60, at a random
+                                 *      bone; 0 entries in every world */
     u32 numImpactFx;            /* 0xF0 */
     PTR32(u32) impactFx;        /* 0xF4 debris ids, by speed */
-    u8 padF8[8];                /* 0xF8 */
+    u32 numCreatureFx;          /* 0xF8 PC only, with creatureFxMinVel: debris ids, */
+    PTR32(u32) creatureFx;      /* 0xFC by speed */
     u32 numCameras;             /* 0x100 chase cameras of things without their own */
     PTR32(u8) cameras;          /* 0x104 12 bytes each (CarACameras) */
     u32 numCamerasWide;         /* 0x108 the same for view format 2 */
@@ -480,7 +487,12 @@ WORLD_ASSERT(WorldGameData, envmapA, 0x8C);
 WORLD_ASSERT(WorldGameData, itemPack, 0xA4);
 WORLD_ASSERT(WorldGameData, fogColor, 0xC0);
 WORLD_ASSERT(WorldGameData, impactFx, 0xF4);
+WORLD_ASSERT(WorldGameData, creatureFxMinVel, 0x70);
+WORLD_ASSERT(WorldGameData, padE0, 0xE0);
+WORLD_ASSERT(WorldGameData, numCreatureHitFx, 0xE8);
+WORLD_ASSERT(WorldGameData, creatureFx, 0xFC);
 WORLD_ASSERT(WorldGameData, numCameras, 0x100);
+_Static_assert(sizeof(WorldGameData) == 0x110, "WorldGameData size");
 
 /* The world's collision pack (world + 0x0; CollisionTerrain.c TerrainGrid):
  * only the parts World_ClearSweep uses. Polys and edges carry a sweep stamp

@@ -61,7 +61,7 @@ typedef struct Voice {
     };
     PTR32(struct Voice) next;   /* 0x04 the free list, or a channel's / track's voices */
     PTR32(struct Voice) next2;  /* 0x08 never set; SetITTrackPriority follows it (sic) */
-    u8 pad0C[4];                /* 0x0C */
+    u8 pad0C[4];                /* 0x0C never read (GC; PS2 and PC have their own voices) */
     union {
         PTR32(SFX) sfx;         /* 0x10 sound effects */
         PTR32(struct MIDI_INST) inst; /* MIDI */
@@ -77,7 +77,7 @@ typedef struct Voice {
     u32 loop;                   /* 0x24 loop start from addr, ~0: one-shot */
     u32 length;                 /* 0x28 samples */
     u8 bits;                    /* 0x2C 8, 16, else ADPCM */
-    u8 pad2D[3];                /* 0x2D */
+    u8 pad2D[3];                /* 0x2D never read (GC; PS2 and PC have their own voices) */
     u32 rate;                   /* 0x30 sample rate */
     u32 pitch;                  /* 0x34 16.16 factor */
     s32 vol;                    /* 0x38 0-0x7FFF, applied as the AX envelope (AXVPB.ve) by
@@ -87,15 +87,15 @@ typedef struct Voice {
     s32 pan;                    /* 0x40 -0x8000 (left) .. 0x7FFF (right); sound effects: x */
     s32 span;                   /* 0x44 front/back; sound effects: y */
     s32 auxVol;                 /* 0x48 reverb send, 0-0x7FFF */
-    u8 pad4C[4];                /* 0x4C */
+    u8 pad4C[4];                /* 0x4C never read (GC; PS2 and PC have their own voices) */
     PTR32(AXVPB) axv;           /* 0x50 */
     u8 fresh;                   /* 0x54 not started yet: StartVoice_ clears the resampler */
     u8 unused55;                /* 0x55 */
     u8 volRamp;                 /* 0x56 the speaker volumes are ramping (ProcessVoice_ ends it) */
     u8 auxRamp;                 /* 0x57 the reverb send is ramping */
-    u8 pad58[2];                /* 0x58 */
+    u8 pad58[2];                /* 0x58 never read (GC; PS2 and PC have their own voices) */
     s16 curEnvVol;              /* 0x5A envelope set on the AXVPB, < 0: none yet */
-    u8 pad5C[4];                /* 0x5C */
+    u8 pad5C[4];                /* 0x5C never read (GC; PS2 and PC have their own voices) */
     s16 volL, volR;             /* 0x60 speaker volumes being ramped to */
     s16 curVolL, curVolR;       /* 0x64 set on the AXVPB, < 0: none yet */
     s16 auxL, auxR;             /* 0x68 reverb sends being ramped to */

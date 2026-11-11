@@ -15,11 +15,11 @@ enum {
  * how the AI uses it. */
 typedef struct WeaponInfo {
     PTR32(struct MotionAnim) anim; /* 0x00 wildcard: the rack slot's model */
-    u8 pad04[0xC];              /* 0x04 */
+    u8 pad04[0xC];              /* 0x04 never read (GC, PS2) */
     u32 hudName;                /* 0x10 InterfaceHudInfo.weaponName (handle) */
-    u8 pad14[4];                /* 0x14 */
+    u8 pad14[4];                /* 0x14 never read (GC, PS2) */
     u32 hudIcon;                /* 0x18 InterfaceHudInfo.weaponIcon[0] */
-    u8 pad1C[4];                /* 0x1C */
+    u8 pad1C[4];                /* 0x1C never read (GC, PS2) */
     s32 ammo;                   /* 0x20 picked up with the item */
     u32 ammoPerShot;            /* 0x24 the AI doesn't use it with less */
     s32 maxAmmo;                /* 0x28 */
@@ -28,7 +28,7 @@ typedef struct WeaponInfo {
     u16 aimBone;                /* 0x2E */
     u32 reloadTime;             /* 0x30 ms */
     u8 priority;                /* 0x34 */
-    u8 pad35[3];                /* 0x35 */
+    u8 pad35[3];                /* 0x35 never read (GC, PS2) */
     f32 minRange;               /* 0x38 */
     f32 maxRange;               /* 0x3C */
     f32 aimAngle;               /* 0x40 degrees */
@@ -39,22 +39,27 @@ typedef struct WeaponInfo {
 /* The item's description in the data pack. */
 typedef struct ItemRecord {
     u8 type;                    /* 0x00 ITEM_TYPE_* */
-    u8 pad01;                   /* 0x01 */
+    u8 pad01;                   /* 0x01 1 in most GameCube items; never read (GC, PC, PS2) */
     u16 value;                  /* 0x02 points, or the car's pickup slave set */
-    u8 pad04[8];                /* 0x04 */
+    u8 pad04[8];                /* 0x04 u8 1 or 0, 3 zero bytes, s32 800 (5000, 300, 1000...
+                                 *      ms?); never read (GC, PC, PS2) */
     f32 radius;                 /* 0x0C pickup radius */
     f32 height;                 /* 0x10 spawned this high above its point */
-    u8 pad14[4];                /* 0x14 */
+    u8 pad14[4];                /* 0x14 0 in every GameCube item; never read (GC, PC, PS2) */
     f32 spinMin;                /* 0x18 random spin speed range, degrees */
     f32 spinMax;                /* 0x1C */
     PTR32(PTR32(char)) names;   /* 0x20 name string table ([0]: the weapon name) */
     u32 pickupDebris;           /* 0x24 effect spawned when picked up, 0: none */
     u32 spawnDebris;            /* 0x28 effect spawned when it appears, 0: none */
-    u8 pad2C[4];                /* 0x2C */
+    u8 pad2C[4];                /* 0x2C pointer in item 51 only; never read (GC, PC, PS2) */
     PTR32(WeaponInfo) weapon;   /* 0x30 */
-    u8 pad34[4];                /* 0x34 */
+    u8 pad34[4];                /* 0x34 pointer in some items; never read (GC, PC, PS2) */
     u8 sharedSlaves[4];         /* 0x38 Thing_DrawSharedSlaves triggers */
 } ItemRecord;
+
+_Static_assert(offsetof(ItemRecord, radius) == 0x0C, "ItemRecord.radius");
+_Static_assert(offsetof(ItemRecord, weapon) == 0x30, "ItemRecord.weapon");
+_Static_assert(sizeof(ItemRecord) == 0x3C, "ItemRecord size");
 
 /* ThingManager_DARYL_CreateThing parameters for an item. */
 typedef struct ItemParams {

@@ -66,34 +66,34 @@ extern WorldData g_worldData;
 
 typedef struct Camera {
   PTR32(struct Player) player;    /* 0x00 */
-  u8 pad4[0xC];
+  u8 pad4[0xC];                 /* 0x04 never read (GC, PS2) */
   Matrix4 mtx;              /* 0x10 v[3] = position */
-  u8 pad50[0x10];
+  u8 pad50[0x10];               /* 0x50 never read (GC, PS2) */
   Vector4 pos;              /* 0x60 */
   Vector4 vel;              /* 0x70 */
   Vector4 dir;              /* 0x80 */
   Vector4 up;               /* 0x90 */
   Vector4 right;            /* 0xA0 */
-  u8 padB0[4];
+  u8 padB0[4];                  /* 0xB0 never read (GC, PS2) */
   PTR32(u32) mode;                /* 0xB4 */
   f32 modeTime;             /* 0xB8 */
   f32 trim;                 /* 0xBC */
   Vector4 unusedC0;         /* 0xC0 */
   Vector4 unusedD0;         /* 0xD0 */
   Vector4 lookDir;          /* 0xE0 */
-  u8 padF0[0x10];
+  u8 padF0[0x10];               /* 0xF0 never read (GC, PS2) */
   s32 unused100;            /* 0x100 -1 when created */
-  u8 pad104[0xC];
+  u8 pad104[0xC];               /* 0x104 never read (GC, PS2) */
   Vector4 springPos;        /* 0x110 */
   Vector4 springVel;        /* 0x120 */
   Vector4 rollUp;           /* 0x130 */
   Vector4 rollUpVel;        /* 0x140 */
   Vector4 tiltUp;           /* 0x150 */
   Vector4 tiltUpVel;        /* 0x160 */
-  u8 pad170[0xC];
+  u8 pad170[0xC];               /* 0x170 never read (GC, PS2) */
   s32 flipTimer;            /* 0x17C */
   PTR32(Thing) cameraFx;    /* 0x180 the world's camera effect (WorldGameData.cameraFx), kept ahead of it */
-  u8 pad184[0x190 - 0x184];
+  u8 pad184[0x190 - 0x184];     /* 0x184 never read (GC, PS2) */
 } Camera;
 
 _Static_assert(sizeof(Camera) == 0x190, "Camera size");
@@ -181,17 +181,17 @@ typedef struct ConvexHull {
  * (ThingRecord.info); cars read the same layout (CarACollider). */
 typedef struct DestructibleInfo {
   f32 inertia[3];    /* 0x00 per-axis factor of the inertia tensor */
-  u8 pad0C[4];       /* 0x0C */
+  u8 pad0C[4];       /* 0x0C never read (GC, PC, PS2) */
   u8 type;           /* 0x10 collision: 0 box, 1 hull, 3 box from the geometry
                         bounds (becomes 0), 4 none, 6 hull, 7 spheres */
   u8 takesDamage;    /* 0x11 */
-  u8 pad12[2];       /* 0x12 */
+  u8 pad12[2];       /* 0x12 never read (GC, PC, PS2) */
   s32 maxHealth;     /* 0x14 */
   s32 armour;        /* 0x18 subtracted from each hit's damage */
   s32 deathTime;     /* 0x1C ms before a destroyed one is released, <0 never */
   f32 mass;          /* 0x20 */
   f32 gravityScale;  /* 0x24 physical objects: force.y += gravityScale * mass */
-  u8 pad28[4];       /* 0x28 */
+  u8 pad28[4];       /* 0x28 never read (GC, PC, PS2) */
   f32 angDamping;    /* 0x2C physical objects */
   PTR32(struct SurfaceMaterial) material; /* 0x30 (Destructible.h; vtable GetSurfaceScript) */
   u32 numEndDebris;  /* 0x34 effects spawned when destroyed (Thing_ProcessEndEvent) */
