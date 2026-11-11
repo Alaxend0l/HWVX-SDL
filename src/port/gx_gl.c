@@ -51,6 +51,7 @@ static struct {
      * undefined: meshConst says they are set, meshSlot is location 12's. */
     int meshConst;
     f32 meshSlot;
+    int s3tc;                       /* EXT_texture_compression_s3tc: the BC formats */
 } s;
 
 /* GL_Draw runs thousands of times a frame, mostly with the same state. What it
@@ -388,6 +389,7 @@ static void GL_Init(int efbW, int efbH) {
     glDeleteShader(fs);
     BindProgramSlots(s.prog);
     TevGenInit();
+    s.s3tc = SDL_GL_ExtensionSupported("GL_EXT_texture_compression_s3tc");
     glGenBuffers(2, s.ubo);
     glBindBuffer(GL_UNIFORM_BUFFER, s.ubo[0]);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(GXVSUniforms), NULL, GL_STREAM_DRAW);
@@ -421,9 +423,18 @@ static void GL_Resize(int efbW, int efbH) {
 
 /* ---- textures ------------------------------------------------------------ */
 
-static void *GL_TexCreate(int w, int h, int levels) {
+#define GL_COMPRESSED_RGB_S3TC_DXT1_EXT 0x83F0
+#define GL_COMPRESSED_RGBA_S3TC_DXT1_EXT 0x83F1
+#define GL_COMPRESSED_RGBA_S3TC_DXT5_EXT 0x83F3
+
+static int GL_TexFormat(int fmt) {
+    return fmt == GXR_TEX_RGBA8 || (s.s3tc && fmt < GXR_TEX_COUNT);
+}
+
+static void *GL_TexCreate(int fmt, int w, int h, int levels) {
     GLuint name = 0;
 
+    (void)fmt;
     (void)w;
     (void)h;
     glGenTextures(1, &name);
@@ -433,9 +444,17 @@ static void *GL_TexCreate(int w, int h, int levels) {
     return (void *)(uintptr_t)name;
 }
 
-static void GL_TexUpload(void *tex, int level, int w, int h, const u8 *rgba) {
+static void GL_TexUpload(void *tex, int fmt, int level, int w, int h, const u8 *data) {
+    static const GLenum bc[GXR_TEX_COUNT] = {
+        0, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, GL_COMPRESSED_RGBA_S3TC_DXT5_EXT,
+    };
+
     glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)tex);
-    glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    if (fmt == GXR_TEX_RGBA8) {
+        glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    } else {
+        glCompressedTexImage2D(GL_TEXTURE_2D, level, bc[fmt], w, h, 0, (GLsizei)GXR_TexLevelBytes(fmt, w, h), data);
+    }
     StateReset();
 }
 
@@ -943,7 +962,7 @@ static void GL_Present(void) {
 }
 
 const GXRenderer g_gxGL = {
-    "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
+    "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexFormat, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
     GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_CopyEFB, GL_ReadEFB, GL_Present,
     GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy,
 };

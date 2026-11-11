@@ -49,14 +49,15 @@ static int Stub_open(void) { return 1; }
 static void Stub_close(void) { }
 static void Stub_init(int w, int h) { (void)w; (void)h; }
 static void Stub_resize(int w, int h) { (void)w; (void)h; }
-static void *Stub_texCreate(int w, int h, int levels)
+static int Stub_texFormat(int fmt) { return fmt == GXR_TEX_RGBA8; }
+static void *Stub_texCreate(int fmt, int w, int h, int levels)
 {
-    (void)w; (void)h; (void)levels;
+    (void)fmt; (void)w; (void)h; (void)levels;
     return (void *)(uintptr_t)1;
 }
-static void Stub_texUpload(void *tex, int level, int w, int h, const u8 *rgba)
+static void Stub_texUpload(void *tex, int fmt, int level, int w, int h, const u8 *rgba)
 {
-    (void)tex; (void)level; (void)w; (void)h; (void)rgba;
+    (void)tex; (void)fmt; (void)level; (void)w; (void)h; (void)rgba;
 }
 static void Stub_texDestroy(void *tex) { (void)tex; }
 static void Stub_draw(const GXDrawCall *dc)
@@ -79,7 +80,7 @@ static void Stub_present(void) { }
 /* by name: entries the test doesn't need (copyEFB, the static meshes) stay NULL */
 static const GXRenderer s_stub = {
     .name = "test", .open = Stub_open, .close = Stub_close, .init = Stub_init, .resize = Stub_resize,
-    .texCreate = Stub_texCreate, .texUpload = Stub_texUpload, .texDestroy = Stub_texDestroy,
+    .texFormat = Stub_texFormat, .texCreate = Stub_texCreate, .texUpload = Stub_texUpload, .texDestroy = Stub_texDestroy,
     .draw = Stub_draw, .clear = Stub_clear, .drawImage = Stub_drawImage, .copyDisp = Stub_copyDisp,
     .readEFB = Stub_readEFB, .present = Stub_present,
 };

@@ -65,6 +65,20 @@ enum {
 
 /* Filtering and wrapping for one texture map. wrap: 0 clamp, 1 repeat,
  * 2 mirror (GX_CLAMP/GX_REPEAT/GX_MIRROR). mip: 0 none, 1 nearest, 2 linear. */
+/* Texture formats. RGBA8: 4 bytes a texel. The BC formats are rows of 4x4
+ * blocks (a level smaller than 4 still one block), as S3TC has them: BC1 (DXT1,
+ * 8 bytes a block; its 3-colour blocks' fourth colour transparent black),
+ * BC1_RGB (the same drawn opaque, the fourth colour black: OpenGL's
+ * COMPRESSED_RGB_S3TC_DXT1, which SDL_GPU lacks), BC3 (DXT5, 16 bytes). */
+enum { GXR_TEX_RGBA8, GXR_TEX_BC1, GXR_TEX_BC1_RGB, GXR_TEX_BC3, GXR_TEX_COUNT };
+
+static inline u32 GXR_TexLevelBytes(int fmt, int w, int h) {
+    if (fmt == GXR_TEX_RGBA8) {
+        return (u32)w * (u32)h * 4;
+    }
+    return (u32)((w + 3) / 4) * (u32)((h + 3) / 4) * (fmt == GXR_TEX_BC3 ? 16u : 8u);
+}
+
 typedef struct GXSampler {
     u8 minLinear, magLinear, mip, wrapS, wrapT;
 } GXSampler;
@@ -127,10 +141,12 @@ typedef struct GXRenderer {
     void (*init)(int efbW, int efbH);
     /* Between frames: a new EFB size; its contents may be lost. */
     void (*resize)(int efbW, int efbH);
-    /* Textures: RGBA8, top row first. A texture is uploaded once, all its
-     * levels before its first draw, and never changed afterwards. */
-    void *(*texCreate)(int w, int h, int levels);
-    void (*texUpload)(void *tex, int level, int w, int h, const u8 *rgba);
+    /* Textures in a GXR_TEX_* format, top row first. A texture is uploaded
+     * once, all its levels before its first draw, and never changed
+     * afterwards. texFormat: 1 if the device samples fmt (RGBA8 always). */
+    int (*texFormat)(int fmt);
+    void *(*texCreate)(int fmt, int w, int h, int levels);
+    void (*texUpload)(void *tex, int fmt, int level, int w, int h, const u8 *data);
     void (*texDestroy)(void *tex);
     void (*draw)(const GXDrawCall *dc);
     void (*clear)(const f32 color[4], f32 depth);
@@ -177,6 +193,18 @@ void GX_Letterbox(int w, int h, int aw, int ah, int out[4]);
 
 /* gx_tex.c: the decoded texture for a texture object, and its sampler. */
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp);
+/* gx_tex.c, HWVX_STATS: texture cache misses so far (GPU textures created:
+ * decoded to RGBA8 or kept as stored blocks; shared with a texture of the
+ * same content) and the time they took (performance counter ticks); the GPU
+ * textures resident, their bytes, and the bytes they'd take as RGBA8 with one
+ * texture per texture object (as before step 2b). */
+typedef struct GXTexStats {
+    u32 created, decoded, kept, shared;
+    u64 ticks;
+    u32 textures;
+    u64 bytes, rgbaBytes;
+} GXTexStats;
+void GX_TexStats(GXTexStats *st);
 /* GXCopyTex: texture objects on dest's memory now sample this EFB rectangle. */
 void GX_TexCopyEFB(void *dest, const int src[4]);
 
