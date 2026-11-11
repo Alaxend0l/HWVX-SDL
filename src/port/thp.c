@@ -181,18 +181,20 @@ s32 Mpeg_StopMovie(void) {
     return Mpeg_Destroy();
 }
 
-/* Development: HWVX_NO_MOVIE=1 leaves every movie unstated, so Mpeg_Heartbeat
- * reports "ended" and State_Movie_Heartbeat moves on through its normal skip
- * path. The intro FMVs are what stands between boot and the attract demo. */
+/* Movies off (graphics.cfg "movies=off", as the PC release's Disable Movies
+ * option; HWVX_NO_MOVIE=1 or 0 overrides): every movie is left unstarted, so
+ * Mpeg_Heartbeat reports "ended" and State_Movie_Heartbeat moves on through
+ * its normal skip path. The intro FMVs are what stands between boot and the
+ * attract demo. */
 static int MoviesOff(void) {
     static int off = -1;
     const char *e;
 
     if (off < 0) {
         e = SDL_getenv("HWVX_NO_MOVIE");
-        off = e != NULL && *e == '1';
+        off = e != NULL ? *e == '1' : g_port.moviesOff;
         if (off) {
-            Port_Log("movies disabled (HWVX_NO_MOVIE=1)");
+            Port_Log("movies disabled (%s)", e != NULL ? "HWVX_NO_MOVIE=1" : "graphics.cfg movies=off");
         }
     }
     return off;

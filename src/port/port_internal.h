@@ -31,6 +31,7 @@ typedef struct PortState {
                               * GameCube's (graphics.cfg pctextures; Port_PCTexturesLookGC) */
     int originalMainMenu;    /* 1: the main menu as the release has it, without the port's
                               * rows (graphics.cfg mainmenu; Port_OriginalMainMenu) */
+    int moviesOff;           /* 1: skip the movies (graphics.cfg movies=off; thp.c) */
     int splitLodGC;          /* 1: split screen draws models a level coarser, as the
                               * GameCube did (graphics.cfg splitlod; Port_SplitScreenCoarseLOD) */
     volatile int quit;

@@ -29,6 +29,9 @@
  * - PC textures (graphics.cfg only, no menu row yet): the colours the PC
  *   release's textures are drawn with, the GameCube's (default) or the PC's
  *   own, brighter ones (Port_PCTexturesLookGC).
+ * - Movies (graphics.cfg "movies=on|off", no menu row; HWVX_NO_MOVIE
+ *   overrides): off skips the intro and ending movies, like the PC release's
+ *   Disable Movies option (thp.c MoviesOff).
  * - Split-screen LOD (graphics.cfg "splitlod=full|gc", no menu row): full
  *   detail in split screen (default, like the PC release), or one LOD level
  *   coarser as the GameCube drew it (Port_SplitScreenCoarseLOD).
@@ -222,6 +225,10 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.originalMainMenu = 1;
         } else if (SDL_strcmp(line, "mainmenu=port") == 0) {
             g_port.originalMainMenu = 0;
+        } else if (SDL_strcmp(line, "movies=off") == 0) {
+            g_port.moviesOff = 1;
+        } else if (SDL_strcmp(line, "movies=on") == 0) {
+            g_port.moviesOff = 0;
         } else if (SDL_strcmp(line, "splitlod=gc") == 0) {
             g_port.splitLodGC = 1;
         } else if (SDL_strcmp(line, "splitlod=full") == 0) {
@@ -232,7 +239,7 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[224];
+    char *path = ConfigPath(), buf[256];
     int n;
 
     if (path == NULL) {
@@ -240,10 +247,10 @@ static void SaveConfig(int w, int h, int full) {
     }
     n = SDL_snprintf(buf, sizeof(buf),
                      "resolution=%dx%d\nfullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\nsplitlod=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\n",
                      w, h, full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
-                     g_port.splitLodGC ? "gc" : "full");
+                     g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }

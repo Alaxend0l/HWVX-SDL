@@ -435,6 +435,8 @@ Debugging aids:
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
 - `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
+- `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable
+  Movies option (`HWVX_NO_MOVIE=1` or `0` overrides).
 - `HWVX_SPLITSCREEN_LOD=gc` draws models one level coarser in split screen as
   the GameCube did (default: full detail, like the PC release; `graphics.cfg`
   `splitlod=full|gc`).
