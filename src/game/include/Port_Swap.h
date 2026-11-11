@@ -34,6 +34,11 @@ static inline void PortSwap_StoreTextureID(u8 *base, u32 slot, u32 texID) {
 
 /* FileManager_NGC.c: whose data the file is, PORT_DATA_* (port.h). */
 s32 Port_FileFormat(s32 handle);
+/* FileManager_NGC.c: move a file's position up to a multiple of `align`. */
+void Port_FileAlign(s32 handle, u32 align);
+/* The PS2's packs sit on 2048-byte sectors and pad their header and sound
+ * data to whole sectors (DataPack_LoadDataPack skips the padding). */
+#define PORT_PS2_SECTOR 0x800
 
 /* Port_Data.c: each load step for a file of format `fmt`. GameCube packs go
  * to the byte-swapper (PortSwap_*); the other releases' to their converters. */

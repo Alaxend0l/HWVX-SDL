@@ -145,6 +145,14 @@ s32 Port_FileFormat(s32 handle) {
     return ((DVDFileInfo *)PTR(g_filedata_PC[idx].fileInfo))->format;
 }
 
+/* port: move `handle`'s position up to a multiple of `align` (the PS2's
+ * packs pad their header and sound data to 2048-byte sectors). */
+void Port_FileAlign(s32 handle, u32 align) {
+    s8 idx = (u8)handle;
+
+    g_files[idx].position = (g_files[idx].position + align - 1) & ~(align - 1);
+}
+
 void File_Close(s32 handle) {
     s32 slot = (s8)(u8)((u32)handle >> 8);
     s32 idx = (s8)(u8)handle;

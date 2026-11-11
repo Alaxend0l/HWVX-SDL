@@ -198,11 +198,16 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     fmt = Port_FileFormat(file);   /* port: whose pack it is (Port_Data.c) */
     pack->portFormat = (u8)fmt;
     PortData_PackHeader(fmt, (u32 *)&header, 20, 2, sizeof(DataPackRef));
+    if (fmt == PORT_DATA_PS2) {
+        Port_FileAlign(file, PORT_PS2_SECTOR);   /* port: the header is padded to a sector */
+    }
     pack->numRelocs = header.numRelocs;
     pack->numSoundRelocs = header.numSoundRelocs;
     pack->numTextures = header.numTextures;
     pack->numSounds = header.numSounds;
-    SETP(pack->palettes, (void *)PTR(header.palettes));
+    /* port: 0 on GameCube/PC; the PS2's CLUT count, which isn't a handle
+     * (its CLUTs are expanded at load, Port_PS2.c) */
+    SETP(pack->palettes, fmt == PORT_DATA_PS2 ? NULL : (void *)PTR(header.palettes));
     pack->numShaders = header.numShaders;
     pack->numGX = header.numGX;
     pack->numTriggers = header.numTriggers;
@@ -232,6 +237,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         sfx = (u8 *)PTR((((u32)HND(GETP(pack->soundData)) + 0x3F) & ~0x3F));
         File_Read(file, readSize, sfx);
+        if (fmt == PORT_DATA_PS2) {
+            Port_FileAlign(file, PORT_PS2_SECTOR);   /* port: so is the sound data */
+        }
         data = sfx;
         sfx += header.numSoundPointers * 4;
         SETP(pack->soundBase, (u8 *)PTR((((u32)HND(sfx) + 0x1F) & ~0x1F)));
