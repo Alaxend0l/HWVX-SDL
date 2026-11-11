@@ -2,6 +2,7 @@
 #include "Voice.h"
 #include "Port_Swap.h"
 #include "xdl.h"
+#include "Port_Content.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -49,6 +50,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     u32 i;
     s8 found;
     char path[0x80];
+    u32 tocId;
 
     found = 0;
     strcpy(path, name);
@@ -114,8 +116,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             strcpy(tocName, name);
         }
     }
+    tocId = Port_ContentPackId(name, type, id);   /* port: an extra car loads the pack it aliases */
     for (i = 0; i < toc->count; i++) {
-        if (type == toc->entries[i].type && id == toc->entries[i].id) {
+        if (type == toc->entries[i].type && tocId == toc->entries[i].id) {
             if (toc->entries[i].version != 0xB7) {
                 char msg[0x80];
                 sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, toc->entries[i].version, 0xB7);
@@ -147,7 +150,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     }
     Port_Log("data pack %s: type %u id %u", name, type, id);
     s_xdlType = type;   /* port: for the pack cache's TOC (xdl.c) */
-    s_xdlId = id;
+    s_xdlId = tocId;
     {
         /* port: HWVX_LOADTIME=1 logs the time packs take to load (nested
          * ones count in the pack that asked for them) */
