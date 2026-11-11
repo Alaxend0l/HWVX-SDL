@@ -1,0 +1,343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarAAccel",
+  "type": "object",
+  "x-c-struct": "CarAAccel",
+  "x-header": "CarA.h",
+  "x-size": "0x3C",
+  "x-hidden": [
+    {
+      "offset": "0x00",
+      "size": 4,
+      "c-name": "pad00",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x0C",
+      "size": 8,
+      "c-name": "pad0C",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAAccel"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "driveRpmScale": {
+      "description": "drive friction to rpm scale",
+      "type": "number",
+      "x-offset": "0x04",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 2.0,
+        "min": 2.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "coastRpmScale": {
+      "description": "PC only: driveMode 2 off the throttle uses it in place of driveRpmScale (ComputeSuspensionForces 0x416DA2); 1.5 (0 in one car), no shipped car is mode 2",
+      "type": "number",
+      "x-offset": "0x08",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 1.5,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "tractionLift": {
+      "description": "traction point lift: (this - 1) * up * contact height",
+      "type": "number",
+      "x-offset": "0x14",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 7,
+        "max": 1.0,
+        "min": 0.3,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "brakeDecel": {
+      "description": "rpm/s at full brake",
+      "type": "number",
+      "x-offset": "0x18",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rpm/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1.0,
+        "min": 1.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "engineBrake": {
+      "description": "rpm/s off the throttle",
+      "type": "number",
+      "x-offset": "0x1C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rpm/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0.25,
+        "min": 0.25,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "reverseThrottleDecel": {
+      "description": "rpm/s at full reverse throttle",
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rpm/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1.0,
+        "min": 1.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "airDownforceBase": {
+      "type": "number",
+      "x-offset": "0x24",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 600.0,
+        "min": 600.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "airDownforceRate": {
+      "type": "number",
+      "x-offset": "0x28",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 1.5,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "airDownforceMax": {
+      "type": "number",
+      "x-offset": "0x2C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 2000.0,
+        "min": 2000.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "airDownforceDelay": {
+      "description": "ms",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x30",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 200,
+        "min": 200,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "spinImpulse": {
+      "type": "number",
+      "x-offset": "0x34",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 37.0,
+        "min": 37.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "spinDecay": {
+      "type": "number",
+      "x-offset": "0x38",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1000.0,
+        "min": 1000.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "driveRpmScale",
+      "coastRpmScale",
+      "tractionLift",
+      "brakeDecel",
+      "engineBrake",
+      "reverseThrottleDecel",
+      "airDownforceBase",
+      "airDownforceRate",
+      "airDownforceMax",
+      "airDownforceDelay",
+      "spinImpulse",
+      "spinDecay"
+    ]
+  }
+}

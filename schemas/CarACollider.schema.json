@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarACollider",
+  "type": "object",
+  "x-c-struct": "CarACollider",
+  "x-header": "CarA.h",
+  "x-size": "0x4C",
+  "x-hidden": [
+    {
+      "offset": "0x0C",
+      "size": 4,
+      "c-name": "pad0C",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x11",
+      "size": 3,
+      "c-name": "pad11",
+      "note": "u8s (1, 0, 0 in most cars): DestructibleInfo's takesDamage; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x1C",
+      "size": 4,
+      "c-name": "pad1C",
+      "note": "s32 375 or -1: DestructibleInfo's deathTime (ms); never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x28",
+      "size": 4,
+      "c-name": "pad28",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x3C",
+      "size": 8,
+      "c-name": "pad3C",
+      "note": "u32 1, pointer: DestructibleInfo's numDebris, debris; never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarACollider"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "inertiaScale": {
+      "description": "per-axis factor of the inverse inertia tensor",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "x-offset": "0x00",
+      "x-c-type": "f32[3]",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 0.7,
+        "min": 0.5,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "type": {
+      "description": "0: oriented box, 1: convex hull",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x10",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0,
+        "min": 0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "maxHealth": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x14",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 8,
+        "max": 1700,
+        "min": 1000,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "damageThreshold": {
+      "description": "impacts above it hurt",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x18",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 5,
+        "max": 25,
+        "min": 0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "mass": {
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 40.0,
+        "min": 15.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "gravityScale": {
+      "description": "forceAccum.y += gravityScale * mass",
+      "type": "number",
+      "x-offset": "0x24",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 5,
+        "max": -130.0,
+        "min": -150.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "gravity": {
+      "type": "number",
+      "x-offset": "0x2C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 600.0,
+        "min": 600.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "material": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAMaterial"
+      },
+      "x-offset": "0x30",
+      "x-c-type": "PTR32(CarAMaterial)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numEndFx": {
+      "description": "debris spawned when destroyed, one at random",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x34",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1,
+        "min": 1,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "endFx": {
+      "description": "(Thing_ProcessEndEvent)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x38",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "box": {
+      "description": "type 0: min/max corners",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "Vector4"
+      },
+      "x-offset": "0x44",
+      "x-c-type": "PTR32(Vector4)",
+      "x-union-alternatives": [
+        "spheres"
+      ],
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "hull": {
+      "description": "type 1",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "struct CarAHull"
+      },
+      "x-offset": "0x48",
+      "x-c-type": "PTR32(struct CarAHull)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "inertiaScale",
+      "type",
+      "maxHealth",
+      "damageThreshold",
+      "mass",
+      "gravityScale",
+      "gravity",
+      "material",
+      "numEndFx",
+      "endFx",
+      "box",
+      "hull"
+    ]
+  }
+}

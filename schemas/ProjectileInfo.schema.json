@@ -1,0 +1,685 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProjectileInfo",
+  "description": "A projectile's description in the data pack.",
+  "type": "object",
+  "x-c-struct": "ProjectileInfo",
+  "x-header": "Projectile.h",
+  "x-size": "0xB0",
+  "x-hidden": [
+    {
+      "offset": "0x02",
+      "size": 1,
+      "c-name": "pad02",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x06",
+      "size": 1,
+      "c-name": "pad06",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x09",
+      "size": 3,
+      "c-name": "pad09",
+      "note": "u8s; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x24",
+      "size": 8,
+      "c-name": "pad24",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x3C",
+      "size": 4,
+      "c-name": "pad3C",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x48",
+      "size": 4,
+      "c-name": "pad48",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x6C",
+      "size": 4,
+      "c-name": "pad6C",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x7C",
+      "size": 16,
+      "c-name": "pad7C",
+      "note": "never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "ProjectileInfo"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "draw": {
+      "description": "1: drawn",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x00",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "drawMode": {
+      "description": "0: geometry, 1: billboard sprite",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x01",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "collideMode": {
+      "description": "on a hit (Projectile_DynamicCollisionCorrection): 0, 3 impact effect + release (3 ignores things), 1, 4 pushed off the surface, 6 sticks to it, 2, 5 nothing",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x03",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "trailMode": {
+      "description": "trail effect spacing: 0 none, 1 time, 2 distance",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x04",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "guidance": {
+      "description": "1, 2: smart (homing), 3: aimed at a car ahead",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x05",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "proximityAttach": {
+      "description": "proximity effect sticks to the car hit",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x07",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "impactOrient": {
+      "description": "impact effect orientation: 0 projectile's, 1 surface, 2 reflected",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x08",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "trailSpacing": {
+      "description": "[base, range]: u32 ms (trailMode 1) or f32 distance (2)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x0C",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "geometry": {
+      "description": "drawMode 0",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x10",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "lifeBase": {
+      "description": "ms",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x14",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "lifeRange": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x18",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "damageBase": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x1C",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "damageRange": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x20",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "mass": {
+      "type": "number",
+      "x-offset": "0x2C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "recoil": {
+      "description": "impulse scale applied to the firing car",
+      "type": "number",
+      "x-offset": "0x30",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "proximityRadius": {
+      "description": "0: no proximity fuse",
+      "type": "number",
+      "x-offset": "0x34",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "proximityInterval": {
+      "description": "ms between proximity checks",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x38",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "thrust": {
+      "description": "acceleration along the nose",
+      "type": "number",
+      "x-offset": "0x40",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "maxSpeed": {
+      "type": "number",
+      "x-offset": "0x44",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "holeSizeBase": {
+      "description": "bullet hole on terrain",
+      "type": "number",
+      "x-offset": "0x4C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "holeSizeRange": {
+      "type": "number",
+      "x-offset": "0x50",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "holeLifeBase": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x54",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "holeLifeRange": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x58",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "holeTexture": {
+      "description": "0: no hole",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x5C",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "sprite": {
+      "description": "drawMode 1: first byte is the blend mode",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u8"
+      },
+      "x-offset": "0x60",
+      "x-c-type": "PTR32(u8)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "lensFlare": {
+      "description": "LensFlare_Add",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x64",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "light": {
+      "description": "LightHolder_Add",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x68",
+      "x-c-type": "PTR32(void)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "trailFx": {
+      "description": "DebrisParams.debris, 0: none",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x70",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "impactFx": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x74",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "expireFx": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x78",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "scaleKeys": {
+      "$ref": "#/$defs/KeyTrack",
+      "x-offset": "0x8C",
+      "x-c-type": "KeyTrack",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "colorKeys": {
+      "$ref": "#/$defs/KeyTrack",
+      "x-offset": "0x94",
+      "x-c-type": "KeyTrack",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "slaves": {
+      "description": "shared slaves (count, triggers)",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x9C",
+      "x-c-type": "u8[8]",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "spread": {
+      "description": "[0..5] direction jitter, [6..11] spin range (degrees)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "f32"
+      },
+      "x-offset": "0xA4",
+      "x-c-type": "PTR32(f32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "smart": {
+      "description": "guidance 1, 2",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "SmartProjParams"
+      },
+      "x-offset": "0xA8",
+      "x-c-type": "PTR32(SmartProjParams)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "holeColor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "GXColor"
+      },
+      "x-offset": "0xAC",
+      "x-c-type": "PTR32(GXColor)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "draw",
+      "drawMode",
+      "collideMode",
+      "trailMode",
+      "guidance",
+      "proximityAttach",
+      "impactOrient",
+      "trailSpacing",
+      "geometry",
+      "lifeBase",
+      "lifeRange",
+      "damageBase",
+      "damageRange",
+      "mass",
+      "recoil",
+      "proximityRadius",
+      "proximityInterval",
+      "thrust",
+      "maxSpeed",
+      "holeSizeBase",
+      "holeSizeRange",
+      "holeLifeBase",
+      "holeLifeRange",
+      "holeTexture",
+      "sprite",
+      "lensFlare",
+      "light",
+      "trailFx",
+      "impactFx",
+      "expireFx",
+      "scaleKeys",
+      "colorKeys",
+      "slaves",
+      "spread",
+      "smart",
+      "holeColor"
+    ]
+  },
+  "$defs": {
+    "KeyTrack": {
+      "title": "KeyTrack",
+      "type": "object",
+      "x-c-struct": "KeyTrack",
+      "x-header": "KeyState.h",
+      "x-size": "0x8",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "x-offset": "0x00",
+          "x-c-type": "u32"
+        },
+        "keys": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+          "x-link": {
+            "kind": "object",
+            "target": "void"
+          },
+          "x-offset": "0x04",
+          "x-c-type": "PTR32(void)"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

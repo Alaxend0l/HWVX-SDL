@@ -145,9 +145,9 @@ typedef struct CarACameras {
 typedef struct CarAEngine {
   f32 bodyOffset[3];        /* 0x00 rest value of CarA.bodyOffset */
   f32 unused0C;             /* 0x0C CarA_Init sets 1, never read */
-  s32 selfRightDelay;       /* 0x10 ms airborne before the self-righting torque */
-  f32 steerRate;            /* 0x14 rad/s the steering angle ramps to the input */
-  u32 reverseDelay;         /* 0x18 ms reverse before the car answers the throttle */
+  s32 selfRightDelay;       /* 0x10 ms airborne before the self-righting torque @xdl: units=ms */
+  f32 steerRate;            /* 0x14 rad/s the steering angle ramps to the input @xdl: units=rad/s */
+  u32 reverseDelay;         /* 0x18 ms reverse before the car answers the throttle @xdl: units=ms */
   u8 pad1C[4];              /* 0x1C never read (GC, PC, PS2) */
   f32 selfRightArm;         /* 0x20 */
   f32 torqueCurve[4];       /* 0x24 torque at 0 and max rpm, slopes there (CarA_FitCubic) */
@@ -164,8 +164,8 @@ typedef struct CarAEngine {
                              *      (0.04-0.15 by car) */
   u8 pad60[4];              /* 0x60 pointer to the record CarAInfo 0x4C points to; never
                              *      read (GC, PC, PS2) */
-  f32 minEnginePitch;       /* 0x64 semitones added at 0 rpm */
-  f32 soundRpmRange;        /* 0x68 rpm per pitch step, CarA_UpdateSound gate */
+  f32 minEnginePitch;       /* 0x64 semitones added at 0 rpm @xdl: units=semitones */
+  f32 soundRpmRange;        /* 0x68 rpm per pitch step, CarA_UpdateSound gate @xdl: units=rpm */
   f32 offsetContactFlag;    /* 0x6C 1: the spring scale keeps wheel->offset */
   f32 itemHeight;           /* 0x70 picked-up items ride this high above the rack */
   u8 pad74[0xC];            /* 0x74 never read (GC, PC, PS2) */
@@ -242,13 +242,13 @@ typedef struct CarAAccel {
                              *      1.5 (0 in one car), no shipped car is mode 2 */
   u8 pad0C[8];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   f32 tractionLift;         /* 0x14 traction point lift: (this - 1) * up * contact height */
-  f32 brakeDecel;           /* 0x18 rpm/s at full brake */
-  f32 engineBrake;          /* 0x1C rpm/s off the throttle */
-  f32 reverseThrottleDecel; /* 0x20 rpm/s at full reverse throttle */
+  f32 brakeDecel;           /* 0x18 rpm/s at full brake @xdl: units=rpm/s */
+  f32 engineBrake;          /* 0x1C rpm/s off the throttle @xdl: units=rpm/s */
+  f32 reverseThrottleDecel; /* 0x20 rpm/s at full reverse throttle @xdl: units=rpm/s */
   f32 airDownforceBase;     /* 0x24 */
   f32 airDownforceRate;     /* 0x28 */
   f32 airDownforceMax;      /* 0x2C */
-  s32 airDownforceDelay;    /* 0x30 ms */
+  s32 airDownforceDelay;    /* 0x30 ms @xdl: units=ms */
   f32 spinImpulse;          /* 0x34 */
   f32 spinDecay;            /* 0x38 */
 } CarAAccel;
@@ -266,7 +266,7 @@ typedef struct CarAStuntInfo {
   f32 pitchScore;           /* 0x18 */
   f32 rollScore;            /* 0x1C */
   u8 pad20[8];              /* 0x20 f32 1, f32 5 in every car; never read (GC, PC, PS2) */
-  s32 startDelay;           /* 0x28 ms airborne before the stunt can start */
+  s32 startDelay;           /* 0x28 ms airborne before the stunt can start @xdl: units=ms */
   f32 minFailTime;          /* 0x2C also the stunt-time range landed stunts score in */
   f32 maxFailTime;          /* 0x30 */
   u32 numRewardThings;      /* 0x34 */
@@ -302,12 +302,13 @@ typedef struct CarASoundSet {
 /* The HUD layouts of a car, by number of viewports. */
 typedef struct CarAHud {
   u8 pad00[0x10];           /* 0x00 0 (car 16: f32 -0.35, 15 at 0x04); never read (GC, PC, PS2) */
-  u32 layout1;              /* 0x10 one viewport */
+  u32 layout1;              /* 0x10 one viewport @xdl: link=InterfaceHeader */
   u8 pad14[4];              /* 0x14 0 in every car; never read (GC, PC, PS2) */
-  u32 layout2;              /* 0x18 two */
-  u32 layout4;              /* 0x1C three or four */
+  u32 layout2;              /* 0x18 two @xdl: link=InterfaceHeader */
+  u32 layout4;              /* 0x1C three or four @xdl: link=InterfaceHeader */
   u8 pad20[0x14];           /* 0x20 0, a pointer at 0x2C; never read (GC, PC, PS2) */
-  u8 stats[4];              /* 0x34 vehicle select bars (InterfaceHudInfo.carStats) */
+  u8 stats[4];              /* 0x34 vehicle select bars (InterfaceHudInfo.carStats)
+                             *      @xdl: hint=bar lengths on the car select screen */
 } CarAHud;
 
 _Static_assert(offsetof(CarAHud, stats) == 0x34, "CarAHud.stats");
@@ -371,16 +372,16 @@ typedef struct CarAInfo {
   f32 viewOffset[3];        /* 0x00 shifts the car when an interface shows it
                              *      (InterfaceManager_RenderObject) */
   u8 pad0C[4];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
-  u8 damagePercent;         /* 0x10 health % below which parts break off */
+  u8 damagePercent;         /* 0x10 health % below which parts break off @xdl: units=%; hint=0..100 */
   u8 driveMode;             /* 0x11 1: human-controlled */
   u8 pad12[2];              /* 0x12 two u8; never read (GC, PC, PS2) */
   u16 skidLife;             /* 0x14 skid mark life in 16 ms units (Trail_AddSegment
-                             *      life << 4): 600 (9.6 s) in every car */
+                             *      life << 4): 600 (9.6 s) in every car @xdl: units=16 ms */
   u8 pad16[2];              /* 0x16 u16, 0 in every car; never read (GC, PC, PS2) */
   s32 damageLevel;          /* 0x18 hits above it break parts off */
-  f32 maxRpm;               /* 0x1C max rpm (torque curve, engine pitch) */
-  f32 upshiftRpm;           /* 0x20 shift up above it; also caps reverse rpm */
-  f32 downshiftRpm;         /* 0x24 shift down below it */
+  f32 maxRpm;               /* 0x1C max rpm (torque curve, engine pitch) @xdl: units=rpm */
+  f32 upshiftRpm;           /* 0x20 shift up above it; also caps reverse rpm @xdl: units=rpm */
+  f32 downshiftRpm;         /* 0x24 shift down below it @xdl: units=rpm */
   u8 pad28[8];              /* 0x28 f32 1000, u32 18 (21 in car 23); never read (GC, PC, PS2) */
   f32 turboRpmScale;        /* 0x30 4WD (turbo): rpm divisor */
   f32 turboTorqueScale;     /* 0x34 4WD (turbo): torque factor */
@@ -388,8 +389,10 @@ typedef struct CarAInfo {
                              *      0x44 (relocated by the loader); never read (GC, PC, PS2) */
   PTR32(void) steerAnim;          /* 0x48 */
   u8 pad4C[4];              /* 0x4C pointer to a 0x40-byte record; never read (GC, PC, PS2) */
-  u32 skidMarkTexture;      /* 0x50 texture slot of the skid marks (Trail_AddSegment), 0: none */
-  PTR32(void) reflectionGeom;     /* 0x54 drawn under human cars in the garage (state 5) */
+  u32 skidMarkTexture;      /* 0x50 texture slot of the skid marks (Trail_AddSegment), 0: none
+                             *      @xdl: texture */
+  PTR32(void) reflectionGeom;     /* 0x54 drawn under human cars in the garage (state 5)
+                                   *      @xdl: geometry */
   u8 pad58[8];              /* 0x58 0, CarASoundSet pointer; never read (GC, PC, PS2) */
   PTR32(CarASoundSet) rollSound;  /* 0x60 CarA.soundIds[2] */
   u8 pad64[8];              /* 0x64 CarASoundSet pointer (car 16 only), 0; never read (GC, PC, PS2) */
@@ -401,12 +404,13 @@ typedef struct CarAInfo {
   PTR32(CarAHud) hud;             /* 0x84 */
   PTR32(CarAAccel) accel;         /* 0x88 */
   PTR32(CarAStuntInfo) stunt;     /* 0x8C */
-  u32 aiScripts[4];         /* 0x90 AICarScript handles, per difficulty */
+  u32 aiScripts[4];         /* 0x90 AICarScript handles, per difficulty @xdl: link=AICarScript */
   PTR32(CarACollider) collider;   /* 0xA0 */
   PTR32(struct CarAForcePoints) forcePoints; /* 0xA4 extra force points (CarA_ComputeForces) */
   u8 padA8[8];              /* 0xA8 0, pointer to {f32 12100 (110^2), f32 900 (30^2), 0...};
                              *      never read (GC, PC, PS2) */
-  u32 explosionThing;       /* 0xB0 */
+  u32 explosionThing;       /* 0xB0 effect spawned when an AI car dies (DebrisParams.debris)
+                             *      @xdl: link=EventSeq */
   u8 padB4[0x1C];           /* 0xB4 0 in every car; never read (GC, PC, PS2) */
   u32 numWheels;            /* 0xD0 */
   PTR32(CarTrailBone) wheels;     /* 0xD4 */

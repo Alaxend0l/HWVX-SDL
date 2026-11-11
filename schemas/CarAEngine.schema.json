@@ -1,0 +1,573 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarAEngine",
+  "type": "object",
+  "x-c-struct": "CarAEngine",
+  "x-header": "CarA.h",
+  "x-size": "0x90",
+  "x-hidden": [
+    {
+      "offset": "0x1C",
+      "size": 4,
+      "c-name": "pad1C",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x48",
+      "size": 16,
+      "c-name": "pad48",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x60",
+      "size": 4,
+      "c-name": "pad60",
+      "note": "pointer to the record CarAInfo 0x4C points to; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x74",
+      "size": 12,
+      "c-name": "pad74",
+      "note": "never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAEngine"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "bodyOffset": {
+      "description": "rest value of CarA.bodyOffset",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "x-offset": "0x00",
+      "x-c-type": "f32[3]",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 18,
+        "max": 2.5,
+        "min": -3.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "unk_0x0C": {
+      "description": "CarA_Init sets 1, never read",
+      "type": "number",
+      "x-offset": "0x0C",
+      "x-c-type": "f32",
+      "x-c-name": "unused0C",
+      "x-confidence": "-",
+      "x-read": {
+        "gc": "no",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1.0,
+        "min": 1.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "selfRightDelay": {
+      "description": "ms airborne before the self-righting torque",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x10",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 200,
+        "min": 200,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "steerRate": {
+      "description": "rad/s the steering angle ramps to the input",
+      "type": "number",
+      "x-offset": "0x14",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rad/s",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 3,
+        "max": 7.5,
+        "min": 5.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "reverseDelay": {
+      "description": "ms reverse before the car answers the throttle",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x18",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0,
+        "min": 0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "selfRightArm": {
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 5000.0,
+        "min": 5000.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "torqueCurve": {
+      "description": "torque at 0 and max rpm, slopes there (CarA_FitCubic)",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x24",
+      "x-c-type": "f32[4]",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 0.3,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "animSpeed": {
+      "description": "scales the steering animation time",
+      "type": "number",
+      "x-offset": "0x34",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 5,
+        "max": 1.0,
+        "min": 0.6,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "maxImpactVel": {
+      "description": "car-car impacts cap the closing speed at it, scaled by CarA_GetImpactMultiplier (ThingManager_MoveThings); 50 in most cars",
+      "type": "number",
+      "x-offset": "0x38",
+      "x-c-type": "f32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 100.0,
+        "min": 25.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "maxAngularVel": {
+      "type": "number",
+      "x-offset": "0x3C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 100.0,
+        "min": 50.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "itemDropImpact": {
+      "type": "number",
+      "x-offset": "0x40",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 900.0,
+        "min": 900.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "maxGrade": {
+      "description": "grade the car can hold, times turboRpmScale in turbo",
+      "type": "number",
+      "x-offset": "0x44",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 4,
+        "max": 10000.0,
+        "min": 220.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "tiltForceScale": {
+      "description": "force point scale by up.y",
+      "type": "number",
+      "x-offset": "0x58",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0.0,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "damageScale": {
+      "description": "car-car bumper damage per unit of closing speed (0.04-0.15 by car)",
+      "type": "number",
+      "x-offset": "0x5C",
+      "x-c-type": "f32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 10,
+        "max": 0.15,
+        "min": 0.04,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "minEnginePitch": {
+      "description": "semitones added at 0 rpm",
+      "type": "number",
+      "x-offset": "0x64",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "semitones",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 20,
+        "max": 0.85,
+        "min": 0.2,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "soundRpmRange": {
+      "description": "rpm per pitch step, CarA_UpdateSound gate",
+      "type": "number",
+      "x-offset": "0x68",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "rpm",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 6,
+        "max": 22000.0,
+        "min": 4500.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "offsetContactFlag": {
+      "description": "1: the spring scale keeps wheel->offset",
+      "type": "number",
+      "x-offset": "0x6C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 1.0,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "itemHeight": {
+      "description": "picked-up items ride this high above the rack",
+      "type": "number",
+      "x-offset": "0x70",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 0.0,
+        "min": 0.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "cameras": {
+      "$ref": "#/$defs/CarACameras",
+      "x-offset": "0x80",
+      "x-c-type": "CarACameras",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "?"
+      }
+    },
+    "splitCameras": {
+      "description": "used when the screen is split",
+      "$ref": "#/$defs/CarACameras",
+      "x-offset": "0x88",
+      "x-c-type": "CarACameras",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "bodyOffset",
+      "unk_0x0C",
+      "selfRightDelay",
+      "steerRate",
+      "reverseDelay",
+      "selfRightArm",
+      "torqueCurve",
+      "animSpeed",
+      "maxImpactVel",
+      "maxAngularVel",
+      "itemDropImpact",
+      "maxGrade",
+      "tiltForceScale",
+      "damageScale",
+      "minEnginePitch",
+      "soundRpmRange",
+      "offsetContactFlag",
+      "itemHeight",
+      "cameras",
+      "splitCameras"
+    ]
+  },
+  "$defs": {
+    "CarACameras": {
+      "title": "CarACameras",
+      "description": "A car's chase cameras: count entries of 12 bytes; byte 0 of an entry is its type (4: in-car view, the car itself is not drawn).",
+      "type": "object",
+      "x-c-struct": "CarACameras",
+      "x-header": "CarA.h",
+      "x-size": "0x8",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "x-offset": "0x00",
+          "x-c-type": "u32"
+        },
+        "list": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+          "x-link": {
+            "kind": "object",
+            "target": "u8"
+          },
+          "x-offset": "0x04",
+          "x-c-type": "PTR32(u8)"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

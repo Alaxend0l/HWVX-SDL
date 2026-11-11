@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DestructibleInfo",
+  "description": "Physical properties of destructibles, physical objects and drones (ThingRecord.info); cars read the same layout (CarACollider).",
+  "type": "object",
+  "x-c-struct": "DestructibleInfo",
+  "x-header": "common.h",
+  "x-size": "0x4C",
+  "x-hidden": [
+    {
+      "offset": "0x0C",
+      "size": 4,
+      "c-name": "pad0C",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x12",
+      "size": 2,
+      "c-name": "pad12",
+      "note": "never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x28",
+      "size": 4,
+      "c-name": "pad28",
+      "note": "never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "DestructibleInfo"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "inertia": {
+      "description": "per-axis factor of the inertia tensor",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "x-offset": "0x00",
+      "x-c-type": "f32[3]",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "type": {
+      "description": "collision: 0 box, 1 hull, 3 box from the geometry bounds (becomes 0), 4 none, 6 hull, 7 spheres",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x10",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "takesDamage": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x11",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "maxHealth": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x14",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "armour": {
+      "description": "subtracted from each hit's damage",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x18",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "deathTime": {
+      "description": "ms before a destroyed one is released, <0 never",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x1C",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "mass": {
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "gravityScale": {
+      "description": "physical objects: force.y += gravityScale * mass",
+      "type": "number",
+      "x-offset": "0x24",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "angDamping": {
+      "description": "physical objects",
+      "type": "number",
+      "x-offset": "0x2C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "material": {
+      "description": "(Destructible.h; vtable GetSurfaceScript)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "struct SurfaceMaterial"
+      },
+      "x-offset": "0x30",
+      "x-c-type": "PTR32(struct SurfaceMaterial)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numEndDebris": {
+      "description": "effects spawned when destroyed (Thing_ProcessEndEvent)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x34",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "endDebris": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x38",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "numDebris": {
+      "description": "effects spawned when the death timer runs out",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x3C",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "debris": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x40",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "box": {
+      "description": "type 0, 3",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "OBox"
+      },
+      "x-offset": "0x44",
+      "x-c-type": "PTR32(OBox)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "hull": {
+      "description": "type 1, 6",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "ConvexHull"
+      },
+      "x-offset": "0x48",
+      "x-c-type": "PTR32(ConvexHull)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "inertia",
+      "type",
+      "takesDamage",
+      "maxHealth",
+      "armour",
+      "deathTime",
+      "mass",
+      "gravityScale",
+      "angDamping",
+      "material",
+      "numEndDebris",
+      "endDebris",
+      "numDebris",
+      "debris",
+      "box",
+      "hull"
+    ]
+  }
+}

@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WeaponInfo",
+  "description": "A weapon's description (ItemRecord.weapon): its model, ammo, aiming and how the AI uses it.",
+  "type": "object",
+  "x-c-struct": "WeaponInfo",
+  "x-header": "ItemThing.h",
+  "x-size": "0x4C",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WeaponInfo"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "anim": {
+      "description": "wildcard: the rack slot's model",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "struct MotionAnim"
+      },
+      "x-offset": "0x00",
+      "x-c-type": "PTR32(struct MotionAnim)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "unk_0x04": {
+      "description": "never read (GC, PS2)",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 12,
+      "maxItems": 12,
+      "x-offset": "0x04",
+      "x-c-type": "u8[12]",
+      "x-c-name": "pad04",
+      "x-confidence": "-",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "?"
+      }
+    },
+    "hudName": {
+      "description": "InterfaceHudInfo.weaponName (handle)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x10",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "unk_0x14": {
+      "description": "never read (GC, PS2)",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x14",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad14",
+      "x-confidence": "-",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "?"
+      }
+    },
+    "hudIcon": {
+      "description": "InterfaceHudInfo.weaponIcon[0]",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x18",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "unk_0x1C": {
+      "description": "never read (GC, PS2)",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x1C",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad1C",
+      "x-confidence": "-",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "?"
+      }
+    },
+    "ammo": {
+      "description": "picked up with the item",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x20",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "ammoPerShot": {
+      "description": "the AI doesn't use it with less",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x24",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "maxAmmo": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x28",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "aimMode": {
+      "description": "1: by the stick, 2: auto-aims at targets, 3: faces the target",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x2C",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "aimLimit": {
+      "description": "degrees",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x2D",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "aimBone": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "x-offset": "0x2E",
+      "x-c-type": "u16",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "reloadTime": {
+      "description": "ms",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x30",
+      "x-c-type": "u32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x34",
+      "x-c-type": "u8",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "unk_0x35": {
+      "description": "never read (GC, PS2)",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "x-offset": "0x35",
+      "x-c-type": "u8[3]",
+      "x-c-name": "pad35",
+      "x-confidence": "-",
+      "x-read": {
+        "gc": "no",
+        "ps2": "no",
+        "pc": "?"
+      }
+    },
+    "minRange": {
+      "type": "number",
+      "x-offset": "0x38",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "maxRange": {
+      "type": "number",
+      "x-offset": "0x3C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "aimAngle": {
+      "description": "degrees",
+      "type": "number",
+      "x-offset": "0x40",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "farAngle": {
+      "description": "aim tolerance at maxRange",
+      "type": "number",
+      "x-offset": "0x44",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    },
+    "nearAngle": {
+      "description": "aim tolerance at minRange",
+      "type": "number",
+      "x-offset": "0x48",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "?"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "anim",
+      "unk_0x04",
+      "hudName",
+      "unk_0x14",
+      "hudIcon",
+      "unk_0x1C",
+      "ammo",
+      "ammoPerShot",
+      "maxAmmo",
+      "aimMode",
+      "aimLimit",
+      "aimBone",
+      "reloadTime",
+      "priority",
+      "unk_0x35",
+      "minRange",
+      "maxRange",
+      "aimAngle",
+      "farAngle",
+      "nearAngle"
+    ]
+  }
+}

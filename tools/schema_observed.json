@@ -1,0 +1,806 @@
+{
+ "CarAAccel": {
+  "airDownforceBase": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 600.0,
+   "min": 600.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "airDownforceDelay": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 200,
+   "min": 200,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "airDownforceMax": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 2000.0,
+   "min": 2000.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "airDownforceRate": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 1.5,
+   "min": 0.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "brakeDecel": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1.0,
+   "min": 1.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "coastRpmScale": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 1.5,
+   "min": 0.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "driveRpmScale": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 2.0,
+   "min": 2.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "engineBrake": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 0.25,
+   "min": 0.25,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "reverseThrottleDecel": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1.0,
+   "min": 1.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "spinDecay": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1000.0,
+   "min": 1000.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "spinImpulse": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 37.0,
+   "min": 37.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "tractionLift": {
+   "archive": "HW_Cars",
+   "distinct": 7,
+   "max": 1.0,
+   "min": 0.3,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  }
+ },
+ "CarACollider": {
+  "damageThreshold": {
+   "archive": "HW_Cars",
+   "distinct": 5,
+   "max": 25,
+   "min": 0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "gravity": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 600.0,
+   "min": 600.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "gravityScale": {
+   "archive": "HW_Cars",
+   "distinct": 5,
+   "max": -130.0,
+   "min": -150.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "inertiaScale": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 0.7,
+   "min": 0.5,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "mass": {
+   "archive": "HW_Cars",
+   "distinct": 4,
+   "max": 40.0,
+   "min": 15.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "maxHealth": {
+   "archive": "HW_Cars",
+   "distinct": 8,
+   "max": 1700,
+   "min": 1000,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numEndFx": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1,
+   "min": 1,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "type": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 0,
+   "min": 0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  }
+ },
+ "CarAEngine": {
+  "animSpeed": {
+   "archive": "HW_Cars",
+   "distinct": 5,
+   "max": 1.0,
+   "min": 0.6,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "bodyOffset": {
+   "archive": "HW_Cars",
+   "distinct": 18,
+   "max": 2.5,
+   "min": -3.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "damageScale": {
+   "archive": "HW_Cars",
+   "distinct": 10,
+   "max": 0.15,
+   "min": 0.04,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "itemDropImpact": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 900.0,
+   "min": 900.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "itemHeight": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 0.0,
+   "min": 0.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "maxAngularVel": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 100.0,
+   "min": 50.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "maxGrade": {
+   "archive": "HW_Cars",
+   "distinct": 4,
+   "max": 10000.0,
+   "min": 220.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "maxImpactVel": {
+   "archive": "HW_Cars",
+   "distinct": 4,
+   "max": 100.0,
+   "min": 25.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "minEnginePitch": {
+   "archive": "HW_Cars",
+   "distinct": 20,
+   "max": 0.85,
+   "min": 0.2,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "offsetContactFlag": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 1.0,
+   "min": 0.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "reverseDelay": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 0,
+   "min": 0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "selfRightArm": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 5000.0,
+   "min": 5000.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "selfRightDelay": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 200,
+   "min": 200,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "soundRpmRange": {
+   "archive": "HW_Cars",
+   "distinct": 6,
+   "max": 22000.0,
+   "min": 4500.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "steerRate": {
+   "archive": "HW_Cars",
+   "distinct": 3,
+   "max": 7.5,
+   "min": 5.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "tiltForceScale": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 0.0,
+   "min": 0.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "torqueCurve": {
+   "archive": "HW_Cars",
+   "distinct": 4,
+   "max": 0.3,
+   "min": 0.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "unk_0x0C": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1.0,
+   "min": 1.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  }
+ },
+ "CarAHud": {
+  "stats": {
+   "archive": "HW_Cars",
+   "distinct": 26,
+   "max": 100,
+   "min": 25,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  }
+ },
+ "CarAInfo": {
+  "damageLevel": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 20,
+   "min": 20,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "damagePercent": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 75,
+   "min": 75,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "downshiftRpm": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 4000.0,
+   "min": 3500.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "driveMode": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1,
+   "min": 1,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "maxRpm": {
+   "archive": "HW_Cars",
+   "distinct": 16,
+   "max": 10000.0,
+   "min": 7100.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numGears": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 5,
+   "min": 5,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numPickupSlaves": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 0,
+   "min": 0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numShiftSounds": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 0,
+   "min": 0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numSlaveWeapons": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 5,
+   "min": 5,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numSlaves": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 10,
+   "min": 10,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numSoundSets": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 5,
+   "min": 5,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numStartItems": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 2,
+   "min": 1,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numStartSlaves": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1,
+   "min": 1,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numWheels": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 4,
+   "min": 4,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "skidLife": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 600,
+   "min": 600,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "turboRpmScale": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1.25,
+   "min": 1.25,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "turboTorqueScale": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 1.25,
+   "min": 1.15,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "upshiftRpm": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 6500.0,
+   "min": 6000.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "viewOffset": {
+   "archive": "HW_Cars",
+   "distinct": 24,
+   "max": 3.5,
+   "min": 0.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  }
+ },
+ "CarAStuntInfo": {
+  "maxFailTime": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1100.0,
+   "min": 1100.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "maxTime": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 400.0,
+   "min": 400.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "minFailTime": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 100.0,
+   "min": 50.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numFailThings": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 1,
+   "min": 1,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numMessages": {
+   "archive": "HW_Cars",
+   "distinct": 2,
+   "max": 6,
+   "min": 5,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "numRewardThings": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 9,
+   "min": 9,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "pitchRate": {
+   "archive": "HW_Cars",
+   "distinct": 11,
+   "max": 2.6,
+   "min": 1.8,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "pitchScore": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 120.0,
+   "min": 120.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "rollRate": {
+   "archive": "HW_Cars",
+   "distinct": 11,
+   "max": 2.6,
+   "min": 1.8,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "rollScore": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 100.0,
+   "min": 100.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "spinRate": {
+   "archive": "HW_Cars",
+   "distinct": 11,
+   "max": 3.2,
+   "min": 2.4,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "spinScore": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 60.0,
+   "min": 60.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "startDelay": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 100,
+   "min": 100,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  },
+  "turboPerPoint": {
+   "archive": "HW_Cars",
+   "distinct": 1,
+   "max": 20.0,
+   "min": 20.0,
+   "objects": 33,
+   "releases": [
+    "gc",
+    "pc"
+   ]
+  }
+ }
+}

@@ -1,0 +1,477 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarAStuntInfo",
+  "type": "object",
+  "x-c-struct": "CarAStuntInfo",
+  "x-header": "CarA.h",
+  "x-size": "0x58",
+  "x-hidden": [
+    {
+      "offset": "0x10",
+      "size": 4,
+      "c-name": "pad10",
+      "note": "f32 0.5 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x20",
+      "size": 8,
+      "c-name": "pad20",
+      "note": "f32 1, f32 5 in every car; never read (GC, PC, PS2)"
+    },
+    {
+      "offset": "0x44",
+      "size": 4,
+      "c-name": "pad44",
+      "note": "0 in every car; never read (GC, PC, PS2)"
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "CarAStuntInfo"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "pitchRate": {
+      "type": "number",
+      "x-offset": "0x00",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 11,
+        "max": 2.6,
+        "min": 1.8,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "rollRate": {
+      "type": "number",
+      "x-offset": "0x04",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 11,
+        "max": 2.6,
+        "min": 1.8,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "spinRate": {
+      "type": "number",
+      "x-offset": "0x08",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 11,
+        "max": 3.2,
+        "min": 2.4,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "maxTime": {
+      "type": "number",
+      "x-offset": "0x0C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 400.0,
+        "min": 400.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "turboPerPoint": {
+      "type": "number",
+      "x-offset": "0x14",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 20.0,
+        "min": 20.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "pitchScore": {
+      "type": "number",
+      "x-offset": "0x18",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 120.0,
+        "min": 120.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "rollScore": {
+      "type": "number",
+      "x-offset": "0x1C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 100.0,
+        "min": 100.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "startDelay": {
+      "description": "ms airborne before the stunt can start",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x28",
+      "x-c-type": "s32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-units": "ms",
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 100,
+        "min": 100,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "minFailTime": {
+      "description": "also the stunt-time range landed stunts score in",
+      "type": "number",
+      "x-offset": "0x2C",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 100.0,
+        "min": 50.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "maxFailTime": {
+      "type": "number",
+      "x-offset": "0x30",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1100.0,
+        "min": 1100.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "numRewardThings": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x34",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 9,
+        "min": 9,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "rewardThings": {
+      "description": "picked by score",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x38",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numMessages": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x3C",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 2,
+        "max": 6,
+        "min": 5,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "messages": {
+      "description": "picked by score: string tables",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "PTR32(PTR32(char))"
+      },
+      "x-offset": "0x40",
+      "x-c-type": "PTR32(PTR32(PTR32(char)))",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "?",
+        "pc": "yes"
+      }
+    },
+    "failMessage": {
+      "description": "NULL: g_stuntLossString",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "PTR32(char)"
+      },
+      "x-offset": "0x48",
+      "x-c-type": "PTR32(PTR32(char))",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "numFailThings": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x4C",
+      "x-c-type": "u32",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 1,
+        "min": 1,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    },
+    "failThings": {
+      "description": "thing ids, picked by fail time",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x50",
+      "x-c-type": "PTR32(u32)",
+      "x-confidence": "certain",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      }
+    },
+    "spinScore": {
+      "type": "number",
+      "x-offset": "0x54",
+      "x-c-type": "f32",
+      "x-confidence": "likely",
+      "x-read": {
+        "gc": "yes",
+        "ps2": "yes",
+        "pc": "yes"
+      },
+      "x-observed": {
+        "archive": "HW_Cars",
+        "distinct": 1,
+        "max": 60.0,
+        "min": 60.0,
+        "objects": 33,
+        "releases": [
+          "gc",
+          "pc"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "pitchRate",
+      "rollRate",
+      "spinRate",
+      "maxTime",
+      "turboPerPoint",
+      "pitchScore",
+      "rollScore",
+      "startDelay",
+      "minFailTime",
+      "maxFailTime",
+      "numRewardThings",
+      "rewardThings",
+      "numMessages",
+      "messages",
+      "failMessage",
+      "numFailThings",
+      "failThings",
+      "spinScore"
+    ]
+  }
+}
