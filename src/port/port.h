@@ -182,6 +182,10 @@ void Port_TunnelStop(void);
 int Port_AllCheats(void);
 /* port.c: the player's folder, SDL's pref path or HWVX_PREF_DIR (SDL_free it). */
 char *Port_PrefPath(void);
+/* fileio.c: `size` bytes to `path`, on the disk before it returns; `from`
+ * renamed over `to`, replacing it (Windows too). 1 on success, else SDL_GetError. */
+int Port_WriteFileSynced(const char *path, const void *data, size_t size);
+int Port_ReplaceFile(const char *from, const char *to);
 /* --reset-save (main_sdl.c): 1 when this boot starts from the default game
  * data (GameSetting_Init) and skips the autoload of the newest save;
  * GameSettings_PortAutoLoad reads it. */
