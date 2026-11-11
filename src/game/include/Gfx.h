@@ -127,7 +127,10 @@ typedef struct GeometryGroup {
  * marks the PC release's levels: u16 triangle lists (group 0x1C, 0x10 the
  * triangle count) into one array per attribute, the vertex buffer at 0xC
  * holding their pointers (PortPCVertexBuffer, Render_Geometry_.c). */
-enum { PORT_LAYOUT_GX = 0, PORT_LAYOUT_INDEXED = 0x5043 };
+/* PORT_LAYOUT_INDEXED_NOCULL: the same, drawn without back-face culling (the
+ * PS2 release's: it draws both faces, and some of its strips are wound the
+ * other way; Port_Geometry.c). */
+enum { PORT_LAYOUT_GX = 0, PORT_LAYOUT_INDEXED = 0x5043, PORT_LAYOUT_INDEXED_NOCULL = 0x5053 };
 
 typedef struct Geometry {
     u16 portLayout;             /* 0x00 pack data (0), never referenced by the game; port: PORT_LAYOUT_* */

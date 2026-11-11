@@ -35,6 +35,7 @@ void PortData_Words(s32 fmt, void *words, u32 count) {
         Port_SwapArray32(words, count);
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -47,6 +48,7 @@ void PortData_TOC(s32 fmt, u32 *buf, u32 bufWords) {
         PortSwap_TOC(buf, bufWords);
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -59,6 +61,7 @@ void PortData_PackHeader(s32 fmt, u32 *hdr, u32 numWords, u32 numRefs, u32 refSi
         PortSwap_PackHeader(hdr, numWords, numRefs, refSize);
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -79,6 +82,7 @@ void PortData_SoundPointers(s32 fmt, u32 *pointers, u32 count, u8 *soundBase) {
         }
         break;
     case PORT_DATA_PC:
+    case PORT_DATA_PS2:   /* little-endian too */
         break;
     default:
         Unsupported(fmt);
@@ -106,6 +110,13 @@ static void SwapSFXSamples(u8 *desc, u32 count) {
     }
 }
 
+/* After CreateSFX has copied a pack's samples to ARAM. */
+void PortData_SFXDone(s32 fmt) {
+    if (fmt == PORT_DATA_PS2) {
+        PortPS2_SFXDone();
+    }
+}
+
 void PortData_SFX(s32 fmt, u8 *sfx, u32 count) {
     switch (fmt) {
     case PORT_DATA_GC:
@@ -113,6 +124,9 @@ void PortData_SFX(s32 fmt, u8 *sfx, u32 count) {
         SwapSFXSamples(sfx, count);
         break;
     case PORT_DATA_PC:
+        break;
+    case PORT_DATA_PS2:
+        PortPS2_SFX(sfx, count);     /* SPU-ADPCM to PCM16 (Port_PS2.c) */
         break;
     default:
         Unsupported(fmt);
@@ -416,6 +430,8 @@ void PortData_PackData(s32 fmt, u8 *relocTables, u32 relocTableWords, u8 *base, 
         PC_PackData(relocTables, g_portSwapNumTextureRelocs, base, dataSize, texRelocs, numTexRelocs, pointers,
                     numPointers, textureDataOffset, numTextures);
         break;
+    case PORT_DATA_PS2:
+        break;      /* converted after relocation (PortPS2_*, PortGeometry_ConvertPS2) */
     default:
         Unsupported(fmt);
     }
@@ -430,6 +446,8 @@ void PortData_QuadPack(s32 fmt, u8 *data, u32 size, u32 index) {
     case PORT_DATA_PC:
         PC_QuadPack(data, size);
         break;
+    case PORT_DATA_PS2:
+        break;      /* converted after relocation (PortPS2_*, PortGeometry_ConvertPS2) */
     default:
         Unsupported(fmt);
     }

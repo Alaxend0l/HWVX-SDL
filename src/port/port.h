@@ -190,7 +190,7 @@ int Port_ResetSave(void);
 enum {
     PORT_DATA_GC,   /* .xgc: big-endian, GX geometry and textures */
     PORT_DATA_PC,   /* .xpc: little-endian, OpenGL triangle lists, DXT textures */
-    PORT_DATA_PS2,  /* .xps: little-endian (not supported yet) */
+    PORT_DATA_PS2,  /* .xps: little-endian, VIF strips, paletted textures, SPU-ADPCM (Port_PS2.c) */
     PORT_DATA_COUNT
 };
 /* The PC release's texture formats (pack header u16 0) as Texture.format

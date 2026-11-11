@@ -183,9 +183,20 @@ static int HasData(const char *dir) {
     if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
         return 1;
     }
-    /* or the PC release's install folder (HW_share.xpc; dvd.c DVDOpen) */
-    SDL_snprintf(path, sizeof(path), "%s/HW_share.xpc", dir);
-    return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
+    /* or the PC release's install folder (HW_share.xpc), the PS2 disc's files
+     * (XPS/ENGLISH/HW_share.xps) or that folder itself (dvd.c DVDOpen) */
+    {
+        static const char *const others[] = { "HW_share.xpc", "XPS/ENGLISH/HW_share.xps", "HW_share.xps" };
+        size_t i;
+
+        for (i = 0; i < sizeof(others) / sizeof(others[0]); i++) {
+            SDL_snprintf(path, sizeof(path), "%s/%s", dir, others[i]);
+            if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 /* Why the last disc image DataIn tried was refused, for the messages. */
