@@ -22,17 +22,27 @@
  * 0x10 the triangle count) are repointed and the level marked. The
  * GameCube's own arrays and lists stay in the pack, unused.
  *
- * Left as they are (drawn through GX as before): skinned geometry (header
- * 0x4 nonzero, drawn by Gfx_Anim.c), shadow volumes (groups flagged 0x4000,
- * Render_DrawShadows), and any level whose lists hold something other than
- * the three primitives, an index out of range, or more than 0x7FFF
- * vertices (the PC's index lists mark strip records with bit 15).
+ * Skinned geometry (header 0x4 nonzero, drawn by Gfx_Anim.c with one GX
+ * position matrix per bone): the vertices of its lit and env-mapped groups,
+ * the ones drawn with the matrix index in their vertex setup, start with
+ * that u8 index (bone = index / 3). Its vertices are sorted by bone, as the
+ * PC keeps them, and the level gets a table of eight per-bone vertex counts
+ * at 0x10 (the PC's: four counts and four zero words).
+ *
+ * Left as they are (drawn through GX as before): shadow volumes (groups
+ * flagged 0x4000, Render_DrawShadows), and any level whose lists hold
+ * something other than the three primitives, an index out of range, a bone
+ * past 8, or more than 0x7FFF vertices (the PC's index lists mark strip
+ * records with bit 15). docs/port-format/scripts/geom_check.py
+ * (HWVX-X-FILE-EDITOR) applies these rules to a whole extracted tree: every
+ * level of the GameCube release converts.
  * HWVX_GX_GEOMETRY=1 leaves all GameCube geometry to GX, to compare. */
 #include "common.h"
 #include "Gfx.h"
 
 #define GEOMETRY_GC_HEADER 0x2003
 #define MAX_LEVEL_VERTS 0x7FFF
+#define MAX_BONES 8
 
 /* HWVX_GEOMLOG=1: per blob, what was found and why levels stay GX. */
 static struct {
@@ -51,6 +61,9 @@ typedef struct LevelOut {
     u32 numGroups;
     u16 **tris;             /* per group, 3 per triangle */
     u32 *numTris;
+    int skinned;
+    u8 *bone;               /* skinned: each vertex's bone */
+    u32 boneCounts[MAX_BONES];
     struct LevelOut *next;
 } LevelOut;
 
@@ -82,6 +95,7 @@ static void FreeLevel(LevelOut *l) {
     free(l->nrm);
     free(l->clr);
     free(l->uv);
+    free(l->bone);
     free(l);
 }
 
@@ -139,7 +153,9 @@ static u32 Lookup(VertMap *m, u64 key, u32 *count, int *isNew) {
 }
 
 /* Convert one level; NULL if it has to stay a display-list level. */
-static LevelOut *ConvertLevel(const u8 *base, u32 size, Geometry *lod) {
+static int SortByBone(LevelOut *l);
+
+static LevelOut *ConvertLevel(const u8 *base, u32 size, Geometry *lod, int skinned) {
     GeometryGroup *groups = GETP(lod->groups);
     const u32 *vb = (const u32 *)GETP(lod->lodDistances);
     Arrays a;
@@ -164,6 +180,7 @@ static LevelOut *ConvertLevel(const u8 *base, u32 size, Geometry *lod) {
         return NULL;
     }
     out->lod = lod;
+    out->skinned = skinned;
     out->numGroups = lod->numGroups;
     out->tris = calloc(lod->numGroups, sizeof(u16 *));
     out->numTris = calloc(lod->numGroups, sizeof(u32));
@@ -178,14 +195,18 @@ static LevelOut *ConvertLevel(const u8 *base, u32 size, Geometry *lod) {
     out->uv = malloc(MAX_LEVEL_VERTS * 8);
     out->nrm = a.nrm != NULL ? calloc(MAX_LEVEL_VERTS, 16) : NULL;
     out->clr = a.clr != NULL ? malloc(MAX_LEVEL_VERTS * 4) : NULL;
+    out->bone = skinned ? calloc(MAX_LEVEL_VERTS, 1) : NULL;
     if (out->tris == NULL || out->numTris == NULL || map.keys == NULL || map.vals == NULL || out->pos == NULL ||
-        out->uv == NULL || (a.nrm != NULL && out->nrm == NULL) || (a.clr != NULL && out->clr == NULL)) {
+        out->uv == NULL || (a.nrm != NULL && out->nrm == NULL) || (a.clr != NULL && out->clr == NULL) ||
+        (skinned && out->bone == NULL)) {
         ok = 0;
     }
     for (g = 0; ok && g < lod->numGroups; g++) {
         const u8 *dl = GETP(groups[g].displayList), *end = dl + groups[g].dlSize;
         u16 flags = groups[g].flags;
         int lit = (flags & 0x16) && !(flags & 0x81);
+        int mtx = skinned && lit;    /* drawn with the matrix index (GX_VA_PNMTXIDX) */
+        u32 stride = mtx ? 7 : 6;
         u32 n = 0;
 
         (void)cap;
@@ -210,15 +231,23 @@ static LevelOut *ConvertLevel(const u8 *base, u32 size, Geometry *lod) {
             }
             count = RdBE16(dl);
             dl += 2;
-            if (dl + count * 6 > end || count > sizeof(idx) / sizeof(idx[0])) {
+            if (dl + count * stride > end || count > sizeof(idx) / sizeof(idx[0])) {
                 ok = 0;
                 break;
             }
-            for (v = 0; v < count; v++, dl += 6) {
-                u32 A = RdBE16(dl), B = RdBE16(dl + 2), C = RdBE16(dl + 4);
-                u64 key = 1ull << 63 | (u64)lit << 48 | (u64)A << 32 | (u64)B << 16 | C;
+            for (v = 0; v < count; v++, dl += stride) {
+                u32 bone = mtx ? dl[0] / 3 : 0;
+                const u8 *ix = mtx ? dl + 1 : dl;
+                u32 A = RdBE16(ix), B = RdBE16(ix + 2), C = RdBE16(ix + 4);
+                u64 key = 1ull << 63 | (u64)lit << 56 | (u64)bone << 48 | (u64)A << 32 | (u64)B << 16 | C;
                 int isNew;
                 u32 k;
+
+                if (bone >= MAX_BONES) {
+                    s_stat.why = "a bone past 8";
+                    ok = 0;
+                    break;
+                }
 
                 if (A >= a.numPos || C >= a.numUV || (lit ? (a.nrm != NULL && B >= a.numNrm)
                                                           : (a.clr != NULL && B >= a.numClr))) {
@@ -233,6 +262,9 @@ static LevelOut *ConvertLevel(const u8 *base, u32 size, Geometry *lod) {
                     break;
                 }
                 if (isNew) {
+                    if (out->bone != NULL) {
+                        out->bone[k] = (u8)bone;
+                    }
                     memcpy(&out->pos[k * 4], a.pos + A * 12, 12);
                     out->pos[k * 4 + 3] = 0.0f;
                     memcpy(&out->uv[k * 2], a.uv + C * 8, 8);
@@ -274,11 +306,67 @@ static LevelOut *ConvertLevel(const u8 *base, u32 size, Geometry *lod) {
     }
     free(map.keys);
     free(map.vals);
+    if (ok && skinned && !SortByBone(out)) {
+        s_stat.why = "out of memory sorting by bone";
+        ok = 0;
+    }
     if (!ok || out->numVerts == 0) {
         FreeLevel(out);
         return NULL;
     }
     return out;
+}
+
+/* Skinned: vertices sorted by bone (stable), the lists renumbered, the
+ * per-bone counts noted, as the PC keeps a skinned level. */
+static int SortByBone(LevelOut *l) {
+    u32 first[MAX_BONES], i, g, n = l->numVerts;
+    u16 *remap = malloc(n * sizeof(u16));
+    f32 *pos = malloc(n * 16), *uv = malloc(n * 8), *nrm = l->nrm ? malloc(n * 16) : NULL;
+    u8 *clr = l->clr ? malloc(n * 4) : NULL;
+
+    if (remap == NULL || pos == NULL || uv == NULL || (l->nrm && nrm == NULL) || (l->clr && clr == NULL)) {
+        free(remap);
+        free(pos);
+        free(uv);
+        free(nrm);
+        free(clr);
+        return 0;
+    }
+    memset(l->boneCounts, 0, sizeof(l->boneCounts));
+    for (i = 0; i < n; i++) {
+        l->boneCounts[l->bone[i]]++;
+    }
+    for (i = 0, first[0] = 0; i + 1 < MAX_BONES; i++) {
+        first[i + 1] = first[i] + l->boneCounts[i];
+    }
+    for (i = 0; i < n; i++) {
+        u32 k = first[l->bone[i]]++;
+        remap[i] = (u16)k;
+        memcpy(&pos[k * 4], &l->pos[i * 4], 16);
+        memcpy(&uv[k * 2], &l->uv[i * 2], 8);
+        if (nrm != NULL) {
+            memcpy(&nrm[k * 4], &l->nrm[i * 4], 16);
+        }
+        if (clr != NULL) {
+            memcpy(&clr[k * 4], &l->clr[i * 4], 4);
+        }
+    }
+    for (g = 0; g < l->numGroups; g++) {
+        for (i = 0; i < l->numTris[g] * 3; i++) {
+            l->tris[g][i] = remap[l->tris[g][i]];
+        }
+    }
+    free(l->pos);
+    free(l->uv);
+    free(l->nrm);
+    free(l->clr);
+    l->pos = pos;
+    l->uv = uv;
+    l->nrm = nrm;
+    l->clr = clr;
+    free(remap);
+    return 1;
 }
 
 static u32 Align16(u32 n) {
@@ -291,6 +379,7 @@ static u32 LevelSize(const LevelOut *l) {
 
     size += l->nrm != NULL ? Align16(l->numVerts * 16) : 0;
     size += l->clr != NULL ? Align16(l->numVerts * 4) : 0;
+    size += l->skinned ? MAX_BONES * 4 : 0;
     for (g = 0; g < l->numGroups; g++) {
         size += Align16(l->numTris[g] * 6 + 2);
     }
@@ -333,6 +422,12 @@ static u8 *PlaceLevel(LevelOut *l, u8 *p) {
         groups[g].dlSize = l->numTris[g];
         q += Align16(l->numTris[g] * 6 + 2);
     }
+    if (l->skinned) {
+        /* the per-bone counts at the level's 0x10, where the PC keeps its own */
+        memcpy(q, l->boneCounts, MAX_BONES * 4);
+        SLOT_STORE(&l->lod->bboxMin[0], q);
+        q += MAX_BONES * 4;
+    }
     SETP(l->lod->lodDistances, (f32 *)vb);
     l->lod->portLayout = PORT_LAYOUT_INDEXED;
     return q;
@@ -347,11 +442,8 @@ static void CollectGeometry(const u8 *base, u32 size, Geometry *geo, LevelOut **
         geo->numGroups == 0 || geo->numGroups > 8) {
         return;
     }
-    if (geo->skipDraw != 0) {
-        s_stat.skinned++;
-        return;
-    }
     s_stat.geoms++;
+    s_stat.skinned += geo->skipDraw != 0;
     lods = (Geometry *)GETP(geo->groups);
     if (!InBlob(base, size, lods, geo->numGroups * 0x18)) {
         return;
@@ -369,7 +461,7 @@ static void CollectGeometry(const u8 *base, u32 size, Geometry *geo, LevelOut **
             s_stat.shadow++;
             continue;
         }
-        l = ConvertLevel(base, size, lod);
+        l = ConvertLevel(base, size, lod, geo->skipDraw != 0);
         if (l == NULL) {
             s_stat.failed++;
         } else {
@@ -455,7 +547,7 @@ void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPoi
     (void)relocs;
     (void)numRelocs;
     if (getenv("HWVX_GEOMLOG") != NULL && (s_stat.geoms || s_stat.skinned)) {
-        Port_Log("geometry: %u GameCube geometries (%u skinned, left to GX), %u levels converted, %u shadow, "
+        Port_Log("geometry: %u GameCube geometries (%u skinned), %u levels converted, %u shadow, "
                  "%u left to GX%s%s", s_stat.geoms, s_stat.skinned, s_stat.levels, s_stat.shadow, s_stat.failed,
                  s_stat.why ? ": last for " : "", s_stat.why ? s_stat.why : "");
     }

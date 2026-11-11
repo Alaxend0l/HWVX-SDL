@@ -462,7 +462,7 @@ static const u32 s_groupUse[] = {
  * a triangle list of 3 * grp->dlSize, or, when the first index has bit 15
  * set, strip records {u16 count (bit 15 on the first), count indices} up to
  * 0xFFFF (the PC release's two draw modes). A skinned level's vertices are
- * sorted by bone, with the four bones' counts at LOD 0x10. */
+ * sorted by bone, with the bones' counts at LOD 0x10 (bone k: matrix slot k). */
 static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) {
     PortPCVertexBuffer *vb = (PortPCVertexBuffer *)GETP(lod->lodDistances);
     const u16 *idx = (const u16 *)GETP(grp->displayList);
@@ -483,8 +483,10 @@ static void Render_DrawGroupIndexed(Geometry *lod, GeometryGroup *grp, int vtx) 
     mesh.boneCounts = NULL;
     mesh.numBones = 0;
     if (g_IsAnim && (vtx == GROUP_VTX_NORM || vtx == GROUP_VTX_ENV)) {
+        /* the PC's table: four counts, then zero words; a converted GameCube
+         * level's (Port_Geometry.c): eight counts */
         mesh.boneCounts = SLOT_LOAD(const u32 *, &lod->bboxMin[0]);
-        mesh.numBones = mesh.boneCounts != NULL ? 4 : 0;
+        mesh.numBones = mesh.boneCounts != NULL ? 8 : 0;
         use |= GX_PORT_SKIN;
     }
     if (!(idx[0] & 0x8000)) {
