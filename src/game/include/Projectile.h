@@ -9,7 +9,7 @@
 
 /* Homing parameters (ProjectileInfo.smart), SmartProjectiles.c. */
 typedef struct SmartProjParams {
-    u8 pad00;                   /* 0x00 */
+    u8 pad00;                   /* 0x00 never read (GC, PC, PS2) */
     u8 invertZ;                 /* 0x01 look for targets behind */
     s16 delay;                  /* 0x02 ms before steering starts (Projectile.timer) */
     f32 turnMax;                /* 0x04 rad/s */
@@ -17,7 +17,7 @@ typedef struct SmartProjParams {
     f32 turnIn;                 /* 0x0C steering gain when overshooting */
     f32 dropRange;              /* 0x10 beyond it steer gradually, within it aim directly */
     f32 gain;                   /* 0x14 direct-aim gain */
-    u8 pad18[4];                /* 0x18 */
+    u8 pad18[4];                /* 0x18 never read (GC, PC, PS2) */
     f32 fov;                    /* 0x1C targeting cone, degrees */
     f32 minRange;               /* 0x20 ignore targets closer than this */
 } SmartProjParams;

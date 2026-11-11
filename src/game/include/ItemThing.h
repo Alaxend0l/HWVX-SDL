@@ -15,11 +15,11 @@ enum {
  * how the AI uses it. */
 typedef struct WeaponInfo {
     PTR32(struct MotionAnim) anim; /* 0x00 wildcard: the rack slot's model */
-    u8 pad04[0xC];              /* 0x04 */
+    u8 pad04[0xC];              /* 0x04 never read (GC, PS2) */
     u32 hudName;                /* 0x10 InterfaceHudInfo.weaponName (handle) */
-    u8 pad14[4];                /* 0x14 */
+    u8 pad14[4];                /* 0x14 never read (GC, PS2) */
     u32 hudIcon;                /* 0x18 InterfaceHudInfo.weaponIcon[0] */
-    u8 pad1C[4];                /* 0x1C */
+    u8 pad1C[4];                /* 0x1C never read (GC, PS2) */
     s32 ammo;                   /* 0x20 picked up with the item */
     u32 ammoPerShot;            /* 0x24 the AI doesn't use it with less */
     s32 maxAmmo;                /* 0x28 */
@@ -28,7 +28,7 @@ typedef struct WeaponInfo {
     u16 aimBone;                /* 0x2E */
     u32 reloadTime;             /* 0x30 ms */
     u8 priority;                /* 0x34 */
-    u8 pad35[3];                /* 0x35 */
+    u8 pad35[3];                /* 0x35 never read (GC, PS2) */
     f32 minRange;               /* 0x38 */
     f32 maxRange;               /* 0x3C */
     f32 aimAngle;               /* 0x40 degrees */
