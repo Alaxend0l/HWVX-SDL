@@ -76,6 +76,7 @@
 #include "Port_Saves.h"
 #include "xdl.h"
 #include "../game/include/Port_Convert.h"
+#include "../game/include/Port_Mods.h"
 
 #define VIEW_W 640
 #define VIEW_H 420
@@ -346,7 +347,11 @@ enum {
     ACT_CONV_DELETE,    /* delete release `source`'s converted packs (ACT_CONVERT converts them) */
     ACT_CONV_CANCEL,
     ACT_HOOK_MIXED,     /* the hook points: the mixed-build builder, the mod loader */
-    ACT_HOOK_MODS
+    ACT_HOOK_MODS,
+    ACT_MOD_TOGGLE,     /* mods (Port_Mods.h): turn mod `source` on or off */
+    ACT_MOD_UP,         /* load it one earlier */
+    ACT_MOD_REMOVE,     /* delete its folder (pressed twice) */
+    ACT_MOD_INSTALL     /* pick a .hwmod to install */
 };
 
 /* A release's converted packs. */
@@ -411,7 +416,8 @@ typedef struct Launcher {
     char importImage[1200], importDest[1200], importError[256];
     /* saves picked to import, and the preview of the merge */
     char *pickedMore[PORT_IMPORT_MAX_SOURCES];
-    int pickedCount, pickSaves;
+    int pickedCount, pickSaves, pickMod;
+    int modsScanned, modRemove;     /* the Mods page: the folder read; mod armed to remove (-1) */
     int savesView;              /* the preview is showing */
     PortImportSource saves[PORT_IMPORT_MAX_SOURCES];
     int numSaves, only;         /* only: 0 every save, k the k-th (file, slot) */
@@ -437,6 +443,8 @@ typedef struct Launcher {
 #define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
 #define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 42.0f)     /* Settings: a setting */
 #define CONV_ROW_Y(k) (PAGE_Y + 30.0f + (k) * 52.0f)    /* Convert: an imported release */
+#define MODS_SHOWN 6
+#define MOD_ROW_Y(k) (PAGE_Y + 40.0f + (k) * 34.0f)     /* Mods: a mod, in load order */
 #define CONV_BAR_Y CONV_ROW_Y(3)                        /* the progress, under the releases */
 #define CONV_HOOK_Y (CONV_BAR_Y + 46.0f)                /* the mixed-build row */
 #define SET_X 200.0f
@@ -561,8 +569,20 @@ static void LayoutPage(Launcher *l, int busy) {
             !busy && Port_LauncherMixedBuild(0, NULL, NULL, NULL, 0));
         break;
     case TAB_MODS:
-        /* hook point: the mod loader */
-        Add(l, 24, PAGE_Y + 70, "Mods...", ACT_HOOK_MODS, -1, !busy && Port_LauncherMods(0, NULL, NULL, NULL, 0));
+        if (!l->modsScanned) {
+            l->modsScanned = 1;
+            l->modRemove = -1;
+            Port_ModsScan();
+        }
+        for (i = 0; i < Port_ModsCount() && i < MODS_SHOWN; i++) {
+            const PortModInfo *m = Port_ModsInfo(i);
+            float x = VIEW_W - 24 - (8 * CHAR + 16) - 8 - (2 * CHAR + 16) - 8 - (3 * CHAR + 16);
+
+            x += Add(l, x, MOD_ROW_Y(i), m->enabled ? "[x]" : "[ ]", ACT_MOD_TOGGLE, i, !busy)->r.w + 8;
+            x += Add(l, x, MOD_ROW_Y(i), "Up", ACT_MOD_UP, i, !busy && i > 0)->r.w + 8;
+            Add(l, x, MOD_ROW_Y(i), l->modRemove == i ? "Sure?" : "Remove", ACT_MOD_REMOVE, i, !busy);
+        }
+        Add(l, 24, MOD_ROW_Y(MODS_SHOWN) + 4, "Install a mod...", ACT_MOD_INSTALL, -1, !busy);
         break;
     case TAB_SETTINGS:
         for (i = 0; i < SET_COUNT; i++) {
@@ -809,11 +829,28 @@ static void DrawPage(Launcher *l) {
                                                              : "One game from the best of your copies. Coming later.");
         break;
     case TAB_MODS:
-        Wrap(l, 24, PAGE_Y, PAGE_Y + 60, 74, 0, GREY,
-             "Mods change and add to the game. They carry no game data of their own: each one "
-             "is built from your imported copy, on this machine.");
-        if (!Port_LauncherMods(0, NULL, NULL, NULL, 0)) {
-            Text(l, 24 + 7 * CHAR + 16 + 12, PAGE_Y + 75, DIM, "Coming later.");
+        Wrap(l, 24, PAGE_Y, PAGE_Y + 30, 74, 0, GREY,
+             "Mods change and add to the game. They carry no game data: each one applies to "
+             "your own copy as the game loads it. Top loads first; changes apply next start.");
+        if (Port_ModsCount() == 0) {
+            Text(l, 24, MOD_ROW_Y(0) + 5, DIM, "No mods yet: install a .hwmod package.");
+        }
+        for (i = 0; i < Port_ModsCount() && i < MODS_SHOWN; i++) {
+            const PortModInfo *m = Port_ModsInfo(i);
+
+            SDL_snprintf(line, sizeof(line), "%.36s %.10s", m->name, m->version);
+            Text(l, 24, MOD_ROW_Y(i) + 1, m->enabled ? WHITE : DIM, line);
+            SDL_snprintf(line, sizeof(line), "%.24s%s%s", *m->author ? m->author : m->id,
+                         m->checked ? "" : "  - not checked by the packer", m->problems ? "  - see below" : "");
+            Text(l, 24, MOD_ROW_Y(i) + 13, DIM, line);
+        }
+        if (Port_ModsCount() > MODS_SHOWN) {
+            SDL_snprintf(line, sizeof(line), "and %d more (mods.jsonc in the mods folder)", Port_ModsCount() - MODS_SHOWN);
+            Text(l, 24 + 16 * CHAR + 16 + 12, MOD_ROW_Y(MODS_SHOWN) + 9, DIM, line);
+        }
+        for (i = 0; i < Port_ModsReportCount() && i < 3; i++) {
+            SDL_snprintf(line, sizeof(line), "%.76s", Port_ModsReportLine(i));
+            Text(l, 24, MOD_ROW_Y(MODS_SHOWN) + 32 + i * 12.0f, 255, 190, 120, line);
         }
         break;
     case TAB_SETTINGS:
@@ -1543,6 +1580,47 @@ static int Activate(Launcher *l, const Button *b) {
     case ACT_HOOK_MODS:
         RunHook(l, Port_LauncherMods);
         return 0;
+    case ACT_MOD_TOGGLE:
+    case ACT_MOD_UP: {
+        const PortModInfo *m = Port_ModsInfo(b->source);
+
+        if (m == NULL) {
+            return 0;
+        }
+        if (b->act == ACT_MOD_TOGGLE) {
+            Port_ModsSetEnabled(b->source, !m->enabled);
+        } else {
+            Port_ModsMove(b->source, b->source - 1);
+        }
+        l->modRemove = -1;
+        SDL_snprintf(l->status, sizeof(l->status), "%s", Port_ModsSave() ? "Saved: the game uses it next time it starts."
+                                                                          : "Couldn't save the mods' order.");
+        return 0;
+    }
+    case ACT_MOD_REMOVE: {
+        const PortModInfo *m = Port_ModsInfo(b->source);
+
+        if (m == NULL) {
+            return 0;
+        }
+        if (l->modRemove != b->source) {
+            l->modRemove = b->source;
+            SDL_snprintf(l->status, sizeof(l->status), "Press Sure? to delete %.40s's folder.", m->name);
+            return 0;
+        }
+        SDL_snprintf(l->status, sizeof(l->status), "%.40s %s", m->name, Port_ModsRemove(b->source) ? "removed." : "could not be removed.");
+        l->modRemove = -1;
+        return 0;
+    }
+    case ACT_MOD_INSTALL: {
+        static const SDL_DialogFileFilter mods[] = { { "Mod packages (.hwmod)", "hwmod" } };
+
+        SDL_SetAtomicInt(&l->picked, 0);
+        l->pickMod = 1;
+        l->dialogOpen = 1;
+        SDL_ShowOpenFileDialog(Picked, l, l->window, mods, 1, NULL, false);
+        return 0;
+    }
     case ACT_PLAY:
         return 1;
     case ACT_QUIT:
@@ -1582,6 +1660,15 @@ static void Poll(Launcher *l) {
             SDL_snprintf(l->status, sizeof(l->status), "No file dialog on this system: use --data PATH.");
         } else if (l->pickSaves) {
             AddSaves(l, l->pickedMore, l->pickedCount);
+        } else if (l->pickMod) {
+            char err[256];
+
+            if (l->pickedPath != NULL && Port_ModsInstall(l->pickedPath, err, sizeof(err))) {
+                SDL_snprintf(l->status, sizeof(l->status), "Installed: the game uses it next time it starts.");
+                Port_ModsSave();
+            } else if (l->pickedPath != NULL) {
+                SDL_snprintf(l->status, sizeof(l->status), "Not installed: %.200s", err);
+            }
         } else if (l->pickedPath != NULL) {
             if (l->pickImage && l->pickSource != PORT_DATA_GC) {
                 StartDisc(l, l->pickedPath, l->pickSource);
@@ -1596,7 +1683,7 @@ static void Poll(Launcher *l) {
         while (l->pickedCount > 0) {
             SDL_free(l->pickedMore[--l->pickedCount]);
         }
-        l->pickSaves = 0;
+        l->pickSaves = l->pickMod = 0;
     }
     if (l->converter != NULL) {
         PollConvert(l, 0);
