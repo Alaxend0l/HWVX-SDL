@@ -79,13 +79,23 @@ the HUD and menus keep their 4:3 layout in the middle (taller screens work the
 same way vertically); split screen stays 4:3. Options → Graphics (a menu the
 port adds) picks a resolution from the display's modes and windowed or
 fullscreen; it is applied when you leave that menu and kept in `graphics.cfg`
-in the save folder. It also has Gamma and FOV bars, which take effect at once. Command-line options override it. The main menu also gets
-a "Quit Game" entry (with the game's own Confirm Quit screen); both
-port entries are built from the menu data at load time (`src/game/Port_Menu.c`).
+in the save folder. It also has Gamma and FOV bars, which take effect at once. Command-line options override it.
+
+The menus match across the three releases' data: every main menu has One Player,
+Multi-Player, Load Game, Save Game, Options, Extras and a way out with a confirm
+screen - "Quit Game" (the game's own Confirm Quit screen) on GameCube and PS2 data,
+the PC's own "Exit to Desktop". Options has Graphics everywhere, and Multi-Player
+opens Online or Local. The PC release has no multi-player screens at all; the port
+builds them from its One Player screens, with a two-player split car select made
+of two strips of its car select. The PC's data has no multi-player drag race
+worlds, so on it Multi-Player offers Battle (and Online Joyride) only. All of it
+is built from the loaded release's own menu data at load time, nothing taken from
+another release (`src/game/Port_Menu.c`; `docs/menus/README.md` in the editor
+repository has what each release's menus are).
 `mainmenu=original` in `graphics.cfg` (or `HWVX_ORIGINAL_MAINMENU=1`) keeps the
-main menu exactly as the release has it - on GameCube data without Quit Game
-(close the window to quit) and with Multi-Player going straight to the game's
-own screen; the other menu changes stay.
+main menu exactly as the release has it - on GameCube and PS2 data without Quit
+Game (close the window to quit), on PC data without Multi-Player, and with
+Multi-Player going straight to the game's own screen; the other menu changes stay.
 
 Saves: there's no memory card on PC, so the GameCube's card screens are
 skipped: the startup card check, the Slot A/B picker (saves always go to the
@@ -375,7 +385,8 @@ included. In Joyride, a world's key and gears count for every player. One host a
 up to 8 players in the transport (the game itself stops at 4 for now: player pools,
 score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
 
-Multi-Player now opens Online or Local; Local is the game's own screen. Hosting opens a
+Multi-Player now opens Online or Local; Local is the game's own screen (on PC data the
+port's, see above). Hosting opens a
 lobby, and the host's choices in the game's own menus bring everyone to the car select
 (`src/game/Port_Online.c`, screens in `Port_Menu.c`). Online, every car, world and weapon
 is open and nothing reaches a save. In a level each machine simulates its own car, and
@@ -453,7 +464,8 @@ Debugging aids:
   controller 1 for 10 frames: `N:btn` at frame N, `+N:btn` once the game has
   gone N frames without reading the disc after the previous press (so
   loading times don't shift the script); `btn*N` holds for N frames
-  instead of 10;
+  instead of 10; a button ending in 2-4 is on that controller (`a2`), which
+  then counts as plugged in;
 - `HWVX_DUMP=dir` saves every 60th frame as a BMP; `HWVX_GXDEBUG=1` draws all
   geometry magenta with depth, blending and culling off.
 - `HWVX_GPUDEBUG=1` creates the SDL_GPU device in debug mode (Vulkan

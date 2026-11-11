@@ -1,32 +1,41 @@
-/* Port menu entries: "Quit Game" in the main menu, and a "Graphics"
- * entry in the Options screen with the Graphics screen it opens (resolution,
- * windowed/fullscreen, vsync on/off, a max frame rate of 30/60/90/120/144/240,
- * and gamma and FOV bars: src/port/gfx_settings.c). Port-only file.
+/* Port menu entries, and one set of menus across the three releases'
+ * data (GameCube HW_IPack.xgc, PC .xpc, PS2 .xps; docs/menus/README.md is
+ * the inventory of what each pack has). Every release's main menu reads One
+ * Player, Multi-Player, Load Game, Save Game, Options, Extras and a way out
+ * with a confirm screen; Options has a "Graphics" entry with the Graphics
+ * screen it opens (resolution, windowed/fullscreen, vsync on/off, a max
+ * frame rate of 30/60/90/120/144/240, and gamma and FOV bars:
+ * src/port/gfx_settings.c). Port-only file.
  *
- * Menus are data (HW_IPack.xgc), so these are built from the screens' own
+ * Menus are data, so these are built from the loaded release's own screen
  * definitions when they are created (Port_MenuPatch, from
- * InterfaceManager_Create); nothing is added to the pack files. A new entry
- * is a copy of an existing row (a text whose A/Start events go to another
+ * InterfaceManager_Create); nothing is added to the pack files and nothing
+ * is taken from another release's. Screens and rows are found by what they
+ * show and where they lead (texts, record ids, go-to targets: "Finding
+ * screens by content"), not at one pack's indices or offsets. A new entry is
+ * a copy of an existing row (a text whose A/Start events go to another
  * interface), relabelled and retargeted, added as a seventh row; the rows are
- * respaced (ROW_*) so the seven fit where the six were, and it joins the
- * up/down ring between the last row and the first.
+ * respaced (ROW_*) so the seven fit where the six were, and the up/down ring
+ * follows them.
  *
- * - Main menu: "Quit Game" (a copy of "Extras") opens the game's
- *   "Quit Game / Confirm Quit" screen, made for the GameCube's exit to the
- *   system menu; its warning is reworded, its "Yes, Quit" (event 0x19,
- *   ForceIPLReset) closes the game on PC, and its two buttons take Start as
- *   well as A, like the other menus' rows. With graphics.cfg
- *   "mainmenu=original" (HWVX_ORIGINAL_MAINMENU=1, Port_OriginalMainMenu)
- *   the main menu is left as the release has it: no Quit Game, no Online.
+ * - Main menu: GameCube and PS2 get "Quit Game" (a copy of "Extras") last,
+ *   opening the game's "Quit Game / Confirm Quit" screen, made for the
+ *   GameCube's exit to the system menu; its warning is reworded, its "Yes,
+ *   Quit" (event 0x19, ForceIPLReset) closes the game on PC, and its two
+ *   buttons take Start as well as A, like the other menus' rows. The PC's has
+ *   its own "Exit to Desktop" and confirm screen, and gets "Multi-Player" (a
+ *   copy of "One Player") second. With graphics.cfg "mainmenu=original"
+ *   (HWVX_ORIGINAL_MAINMENU=1, Port_OriginalMainMenu) the main menu is left
+ *   as the release has it: no Quit Game, no Multi-Player on PC, no Online.
  * - Options: "Graphics" (a copy of "Controller") opens the Graphics screen.
  * - Memory card screens (saves are files on PC, always "slot A"): Load Game
- *   and Save Game start on slot A's file list (no Slot A/B picker), without
- *   the card warnings, and B leaves them. Port_MenuEventTarget skips the rest
- *   where an interface switch is decided: "Loading..."/"Saving..." load or
- *   save at once and go to the main menu (their failure screens remain), Load
- *   Game does nothing without a save, and leaving Options, where the "Be sure
- *   to save" reminder came up after a setting changed, autosaves instead
- *   (GameSettings_PortAutoSave).
+ *   and Save Game start on slot A's file list (no Slot A/B picker; the PC's
+ *   have none), without the card warnings, and B leaves them.
+ *   Port_MenuEventTarget skips the rest where an interface switch is decided:
+ *   "Loading..."/"Saving..." load or save at once and go to the main menu
+ *   (their failure screens remain), Load Game does nothing without a save,
+ *   and leaving Options, where the "Be sure to save" reminder came up after a
+ *   setting changed, autosaves instead (GameSettings_PortAutoSave).
  * - Graphics: a copy of the Options screen with the same objects (object
  *   indices in actions stay valid). The rows it doesn't use are hidden; the
  *   "Difficulty" row becomes "Resolution" and the "Sound Mode" row "Display",
@@ -41,13 +50,18 @@
  *
  * - Multi-Player: a new screen in front of the game's, Online or Local (the game's
  *   own). Online has Host with Tunnel, Host via LAN and Connect, then a lobby; see
- *   "Online screens" below and Port_Online.c.
+ *   "Online screens" below and Port_Online.c. The PC's pack has no multi-player
+ *   screens: they are built from its One Player ones, a two-player split car
+ *   select included ("Multi-Player from the One Player screens"). Its data has no
+ *   multi-player drag race worlds, so there Multi-Player offers Battle only.
  *
  * - Battle Options online: no Opponents row (there are no AI cars online), the rows
- *   below moving up. Local play keeps it, the same screen: a copy made each time.
- * - Pause menu in the multi-player modes, online or local: no Save row, Quit moving
- *   up into its place. One Player keeps it: the same screen, so this is a copy made
- *   each time, and the original comes back otherwise.
+ *   below moving up (HideRow). Local play keeps it, the same screen: a copy made
+ *   each time.
+ * - Pause menu in the multi-player modes, online or local: no Save row, the rows
+ *   under it (Quit; on PC Exit to Desktop too) moving up. One Player keeps it: the
+ *   same screen, so this is a copy made each time, and the original comes back
+ *   otherwise.
  *
  * Copies live in static storage; the pack data they point to stays where it
  * is. To add a setting: copy another row into the Graphics screen the same
@@ -1587,8 +1601,9 @@ static InterfaceHeader *BuildMultiPlayer(InterfaceHeader *onePlayer) {
     return &s_mpBuilt.h;
 }
 
-/* The screens online play goes through, found from the main menu (Multi-Player:
- * Drag Race and Battle, then their options, world select and split car select;
+/* The screens online play goes through, found from the main menu (Multi-Player,
+ * the pack's or on PC the one built from One Player's: Drag Race where there are
+ * its worlds, and Battle, then their options, world select and split car select;
  * One Player: Drag Race's car select, Joyride's world, car and item selects).
  * Built again with each main menu: pack data may have moved since the last. */
 static void BuildOnlineScreens(InterfaceHeader *main, const MainMenu *m) {
