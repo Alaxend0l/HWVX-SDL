@@ -23,6 +23,7 @@
 #include "common.h"
 #include "Voice.h"
 #include "Port_Swap.h"
+#include "xdl.h"
 
 /* ---- textures ------------------------------------------------------------ */
 
@@ -76,6 +77,7 @@ void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u
         }
     }
     block = total && total < 0x10000000 ? Allocate((u32)total + 0x20, 0, "") : NULL;
+    Xdl_NoteBlock(XDL_SEG_BLOCK, block, (u32)total + 0x20);     /* and its pointers: for the pack cache (xdl.c) */
     out = block != NULL ? (u8 *)PTR((HND(block) + 0x1F) & ~0x1Fu) : NULL;
     for (i = 0; i < numTex && (u64)texOff + ((u64)i + 1) * 0x10 <= size; i++) {
         u16 *h = (u16 *)(base + texOff + i * 0x10);
@@ -87,6 +89,7 @@ void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u
             u32 w = h[1], ht = h[2];
 
             SLOT_STORE(h + 4, out);
+            Xdl_NoteSlot(h + 4);
             for (l = 0; l < Levels(h[3]); l++) {
                 u32 n = (w ? w : 1) * (ht ? ht : 1);
 
@@ -177,6 +180,7 @@ void PortPS2_SFX(u8 *desc, u32 count) {
         total += ((PCMBytes(sfx[i].length) + 0x1F) & ~0x1Fu) + 0x20;
     }
     s_sfxBlock = total && total < 0x10000000 ? Allocate((u32)total + 0x20, 0, "") : NULL;
+    Xdl_NoteBlock(XDL_SEG_SFX, s_sfxBlock, (u32)total + 0x20);
     if (s_sfxBlock == NULL) {
         /* the samples stay SPU-ADPCM, which would play as noise: silence them */
         for (i = 0; i < count; i++) {
@@ -196,6 +200,7 @@ void PortPS2_SFX(u8 *desc, u32 count) {
         DecodeADPCM(src + 16, len / 16 - 1, (s16 *)out);
         memset(out + pcm, 0, 0x20);     /* CreateSFX_ copies up to 32 bytes past the end */
         sfx[i].data = HND(out);
+        Xdl_NoteSlot(&sfx[i].data);
         sfx[i].length = pcm;
         sfx[i].loop = PCMLoop(sfx[i].loop);
         sfx[i].unused10 = 0;
@@ -205,6 +210,7 @@ void PortPS2_SFX(u8 *desc, u32 count) {
 }
 
 void PortPS2_SFXDone(void) {
+    Xdl_BlockDone(s_sfxBlock);
     Deallocate(s_sfxBlock);
     s_sfxBlock = NULL;
 }
@@ -251,6 +257,7 @@ u8 *PortPS2_SongBank(const u8 *bank) {
     }
     total = 0x20 + count * 0x20 + pcm;
     s_bank = Allocate(total + 0x40, 0, "");
+    Xdl_NoteBlock(XDL_SEG_BANK, s_bank, total + 0x40);
     if (s_bank == NULL) {
         return NULL;
     }
@@ -293,6 +300,7 @@ u8 *PortPS2_SongBank(const u8 *bank) {
 }
 
 void PortPS2_SongBankDone(void) {
+    Xdl_BlockDone(s_bank);
     Deallocate(s_bank);
     s_bank = NULL;
 }

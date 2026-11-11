@@ -4,6 +4,7 @@
  * tolerates (it polls status afterwards). */
 #include "port_internal.h"
 #include "disc.h"
+#include "xdl.h"
 
 static char *JoinPath(const char *name) {
     size_t n;
@@ -73,20 +74,31 @@ static char *ResolveCase(const char *name) {
 
 SDL_IOStream *Port_OpenDiscFile(const char *name);
 
-static SDL_IOStream *OpenDiscFile(const char *name) {
+/* `found`, if not NULL: the host path it was found at (NULL for a disc
+ * image's file), for the caller to free. */
+static SDL_IOStream *OpenDiscFile(const char *name, char **found) {
     char *path;
     SDL_IOStream *io;
 
+    if (found != NULL) {
+        *found = NULL;
+    }
     if (Disc_IsOpen()) {
         return Disc_OpenFile(name);
     }
     path = JoinPath(name);
     io = SDL_IOFromFile(path, "rb");
 
-    SDL_free(path);
+    if (io == NULL) {
+        SDL_free(path);
+        path = NULL;
+    }
     if (io == NULL && (path = ResolveCase(name)) != NULL) {
         io = SDL_IOFromFile(path, "rb");
-        SDL_free(path);
+        if (io == NULL) {
+            SDL_free(path);
+            path = NULL;
+        }
     }
     /* a flat folder (the PC disc's cabinet, imported by pcdisc.c, keeps no
      * folders): the file by its name alone; every pack name is unique */
@@ -100,15 +112,23 @@ static SDL_IOStream *OpenDiscFile(const char *name) {
         }
         if (base != name && (path = ResolveCase(base)) != NULL) {
             io = SDL_IOFromFile(path, "rb");
-            SDL_free(path);
+            if (io == NULL) {
+                SDL_free(path);
+                path = NULL;
+            }
         }
+    }
+    if (found != NULL) {
+        *found = path;
+    } else {
+        SDL_free(path);
     }
     return io;
 }
 
 /* For readers outside the DVD API (thp.c). */
 SDL_IOStream *Port_OpenDiscFile(const char *name) {
-    return OpenDiscFile(name);
+    return OpenDiscFile(name, NULL);
 }
 
 void DVDInit(void) {}
@@ -153,7 +173,8 @@ int Port_DataRelease(void) {
 }
 
 BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
-    SDL_IOStream *io = OpenDiscFile(fileName);
+    char *found;
+    SDL_IOStream *io = OpenDiscFile(fileName, &found);
     u32 format = PORT_DATA_GC;
     int fmt;
 
@@ -167,7 +188,7 @@ BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
             char *alt = FormatName(fileName, fmt, dirs[d]);
 
             if (alt != NULL) {
-                io = OpenDiscFile(alt);
+                io = OpenDiscFile(alt, &found);
                 format = fmt;
                 SDL_free(alt);
             }
@@ -191,10 +212,16 @@ BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
     fi->host = io;
     fi->format = format;
     fi->length = (u32)SDL_GetIOSize(io);
+    /* a pack's converted form, cached (HWVX_XDL, HWVX_XDL_WRITE): looked up
+     * by DataPack_LoadDataPack, which skips the source's conversions */
+    fi->xdl = Xdl_OpenFile(fileName, (int)format, found);
+    SDL_free(found);
     return TRUE;
 }
 
 BOOL DVDClose(DVDFileInfo *fi) {
+    Xdl_CloseFile(fi->xdl);
+    fi->xdl = NULL;
     if (fi->host != NULL) {
         SDL_CloseIO(fi->host);
         fi->host = NULL;

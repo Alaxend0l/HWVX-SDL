@@ -145,6 +145,34 @@ s32 Port_FileFormat(s32 handle) {
     return ((DVDFileInfo *)PTR(g_filedata_PC[idx].fileInfo))->format;
 }
 
+/* port: the cache of `handle`'s converted packs, or NULL (xdl.c). */
+void *Port_FileXdl(s32 handle) {
+    s32 idx = (s8)(u8)handle;
+
+    if ((u8)((u32)handle >> 16) >= 11 || idx < 0 || idx >= 4 || g_filedata_PC[idx].fileInfo == 0) {
+        return NULL;
+    }
+    return ((DVDFileInfo *)PTR(g_filedata_PC[idx].fileInfo))->xdl;
+}
+
+/* port: up to `size` bytes of `handle` at `offset`, read without moving its
+ * position or borrowing from the heap; returns how many. */
+u32 Port_FilePeek(s32 handle, u32 offset, void *dst, u32 size) {
+    s32 idx = (s8)(u8)handle;
+    s32 got;
+
+    if ((u8)((u32)handle >> 16) >= 11 || idx < 0 || idx >= 4 || g_filedata_PC[idx].fileInfo == 0) {
+        return 0;
+    }
+    got = DVDReadPrio((DVDFileInfo *)PTR(g_filedata_PC[idx].fileInfo), dst, (s32)size, (s32)offset, 2);
+    return got > 0 ? (u32)got : 0;
+}
+
+/* port: `handle`'s position. */
+u32 Port_FileTell(s32 handle) {
+    return g_files[(s8)(u8)handle].position;
+}
+
 /* port: move `handle`'s position up to a multiple of `align` (the PS2's
  * packs pad their header and sound data to 2048-byte sectors). */
 void Port_FileAlign(s32 handle, u32 align) {

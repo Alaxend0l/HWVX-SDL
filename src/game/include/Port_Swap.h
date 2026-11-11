@@ -34,6 +34,11 @@ static inline void PortSwap_StoreTextureID(u8 *base, u32 slot, u32 texID) {
 
 /* FileManager_NGC.c: whose data the file is, PORT_DATA_* (port.h). */
 s32 Port_FileFormat(s32 handle);
+/* FileManager_NGC.c: a file's cache of converted packs (xdl.c), NULL if
+ * none, and its position. */
+void *Port_FileXdl(s32 handle);
+u32 Port_FileTell(s32 handle);
+u32 Port_FilePeek(s32 handle, u32 offset, void *dst, u32 size);
 /* FileManager_NGC.c: move a file's position up to a multiple of `align`. */
 void Port_FileAlign(s32 handle, u32 align);
 /* The PS2's packs sit on 2048-byte sectors and pad their header and sound

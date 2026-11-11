@@ -41,6 +41,7 @@
 #include "common.h"
 #include "Gfx.h"
 #include "Port_Swap.h"
+#include "xdl.h"
 
 #define GEOMETRY_GC_HEADER 0x2003
 #define MAX_LEVEL_VERTS 0x7FFF
@@ -415,8 +416,10 @@ static u8 *PlaceLevel(LevelOut *l, u8 *p) {
         memcpy(q, l->nrm, l->numVerts * 16);
         q += Align16(l->numVerts * 16);
     }
+    /* every pointer stored is noted for the pack cache (xdl.c) */
     for (g = 0; g < 4; g++) {
         SLOT_STORE(&vb[g], arr[g]);
+        Xdl_NoteSlot(&vb[g]);
     }
     for (g = 0; g < l->numGroups; g++) {
         u16 *tris = (u16 *)q;
@@ -424,6 +427,7 @@ static u8 *PlaceLevel(LevelOut *l, u8 *p) {
         memcpy(tris, l->tris[g], l->numTris[g] * 6);
         tris[l->numTris[g] * 3] = 0;
         SETP(groups[g].displayList, (void *)tris);
+        Xdl_NoteSlot(&groups[g].displayList);
         groups[g].dlSize = l->numTris[g];
         q += Align16(l->numTris[g] * 6 + 2);
     }
@@ -431,9 +435,11 @@ static u8 *PlaceLevel(LevelOut *l, u8 *p) {
         /* the per-bone counts at the level's 0x10, where the PC keeps its own */
         memcpy(q, l->boneCounts, MAX_BONES * 4);
         SLOT_STORE(&l->lod->bboxMin[0], q);
+        Xdl_NoteSlot(&l->lod->bboxMin[0]);
         q += MAX_BONES * 4;
     }
     SETP(l->lod->lodDistances, (f32 *)vb);
+    Xdl_NoteSlot(&l->lod->lodDistances);
     l->lod->portLayout = l->layout ? l->layout : PORT_LAYOUT_INDEXED;
     return q;
 }
@@ -556,6 +562,7 @@ void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPoi
         total += LevelSize(l);
     }
     block = Allocate(total + 0x20, 0, "");
+    Xdl_NoteBlock(XDL_SEG_BLOCK, block, total + 0x20);
     p = block != NULL ? (u8 *)PTR((HND(block) + 0x1F) & ~0x1Fu) : NULL;
     for (l = list; l != NULL; l = next) {
         next = l->next;
@@ -1127,6 +1134,7 @@ static void CollectPS2Geometry(const u8 *base, u32 size, u32 off, LevelOut **lis
                 }
             }
             SETP(lod->lodDistances, NULL);
+            Xdl_NoteSlot(&lod->lodDistances);
             lod->portLayout = 0;
             s_stat.shadow++;
             continue;
@@ -1194,6 +1202,7 @@ void *PortGeometry_ConvertPS2(u8 *base, u32 size, const u32 *pointers, u32 numPo
         total += LevelSize(l);
     }
     block = list != NULL ? Allocate(total + 0x20, 0, "") : NULL;
+    Xdl_NoteBlock(XDL_SEG_BLOCK, block, total + 0x20);
     p = block != NULL ? (u8 *)PTR((HND(block) + 0x1F) & ~0x1Fu) : NULL;
     for (l = list; l != NULL; l = next) {
         next = l->next;

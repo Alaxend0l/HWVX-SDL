@@ -1,6 +1,7 @@
 #include "common.h"
 #include "Voice.h"
 #include "Port_Swap.h"
+#include "xdl.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -37,6 +38,9 @@ void DataPack_CloseFiles(void)
 }
 
 
+
+static u32 s_xdlType, s_xdlId;
+u64 SDL_GetTicksNS(void);
 
 s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     extern u32 g_buffer[];
@@ -142,7 +146,28 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         g_portSwapPackName = label;
     }
     Port_Log("data pack %s: type %u id %u", name, type, id);
-    DataPack_LoadDataPack(g_fileID, PTR(arg1));
+    s_xdlType = type;   /* port: for the pack cache's TOC (xdl.c) */
+    s_xdlId = id;
+    {
+        /* port: HWVX_LOADTIME=1 logs the time packs take to load (nested
+         * ones count in the pack that asked for them) */
+        static int depth, timing = -1;
+        static u64 total;
+        u64 start = 0, t;
+
+        if (timing < 0) {
+            timing = getenv("HWVX_LOADTIME") != NULL;
+        }
+        if (timing && depth++ == 0) {
+            start = SDL_GetTicksNS();
+        }
+        DataPack_LoadDataPack(g_fileID, PTR(arg1));
+        if (timing && --depth == 0) {
+            t = SDL_GetTicksNS() - start;
+            total += t;
+            Port_Log("loadtime: %s#%u %.3f ms, packs %.3f ms", name, id, t / 1e6, total / 1e6);
+        }
+    }
     g_portSwapPackType = -1;
     return 1;
 }
@@ -171,6 +196,52 @@ typedef struct DataPackFileHeader {
     DataPackRef refs[2];
 } DataPackFileHeader;
 
+/* port: what File_Read does to the heap for a read of `size` bytes, without
+ * reading: a small read borrows a buffer (FileManager_NGC.c) and leaves the
+ * file's bytes in it, `raw` from the cache. A pack from the cache (xdl.c)
+ * takes the same blocks in the same order as from its source, and leaves
+ * the same bytes behind in them, so the heap ends up as it would have. */
+static void SkipRead(XdlPack *xp, int raw, u32 size) {
+    u8 *buffer;
+
+    if (size != 0 && size < 0xC800) {
+        buffer = Allocate(((size + 0x1F) & ~0x1F) + 0x40, 0, "");
+        if (buffer != NULL) {
+            Xdl_ReadSeg(xp, raw, PTR((HND(buffer) + 0x1F) & ~0x1F), 0, Xdl_SegSize(xp, raw));
+        }
+        Deallocate(buffer);
+    }
+}
+
+/* port: recording a pack for the cache, the bytes a small read of `size`
+ * just left in the buffer it borrowed (FileManager_NGC.c File_Read). */
+static void RecordRead(s32 file, int raw, u32 size) {
+    u32 len = (size + 0x1F) & ~0x1F;
+    u8 *bytes;
+
+    if (size != 0 && size < 0xC800 && Xdl_Writing() && (bytes = malloc(len)) != NULL) {
+        Xdl_RawRead(raw, bytes, Port_FilePeek(file, Port_FileTell(file) - size, bytes, len));
+        free(bytes);
+    }
+}
+
+/* port: a cached pack's block of `seg`, allocated as its converter did. */
+static void *XdlBlock(XdlPack *xp, int seg) {
+    u32 size = Xdl_SegSize(xp, seg);
+    void *block;
+
+    if (size == 0) {
+        return NULL;
+    }
+    block = Allocate(size, 0, "");
+    if (block == NULL || (HND(block) & 0x1F)) {
+        Port_Fatal("out of memory loading a cached pack, or not 32-byte aligned");
+    }
+    Xdl_ReadSeg(xp, seg, block, 0, size);
+    Xdl_PlaceSeg(xp, seg, block);
+    return block;
+}
+
 void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     extern s8 g_bSoundLoadingEnabled;
     static DataPackFileHeader header;
@@ -192,14 +263,30 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     u32 packID;
     u32 idx;
     s32 fmt;
+    XdlPack *xp;
+    u8 *xdlBank = NULL;
+    void *xdlSfx = NULL;
 
     memset(pack, 0, sizeof(DataPack));
-    File_Read(file, sizeof(DataPackFileHeader), &header);
+    /* port: the pack as an earlier load left it, cached (xdl.c, HWVX_XDL):
+     * the same heap blocks, filled from the cache, its pointers fixed up;
+     * no conversion runs. Otherwise its load is recorded for the cache
+     * (HWVX_XDL_WRITE). */
+    xp = Xdl_FindPack(Port_FileXdl(file), Port_FileTell(file));
     fmt = Port_FileFormat(file);   /* port: whose pack it is (Port_Data.c) */
     pack->portFormat = (u8)fmt;
-    PortData_PackHeader(fmt, (u32 *)&header, 20, 2, sizeof(DataPackRef));
-    if (fmt == PORT_DATA_PS2) {
-        Port_FileAlign(file, PORT_PS2_SECTOR);   /* port: the header is padded to a sector */
+    if (xp != NULL) {
+        SkipRead(xp, XDL_SEG_RAW_HEADER, sizeof(DataPackFileHeader));
+        Xdl_Header(xp, &header, sizeof(header));
+    } else {
+        Xdl_BeginPack(Port_FileXdl(file), Port_FileTell(file), s_xdlType, s_xdlId);
+        File_Read(file, sizeof(DataPackFileHeader), &header);
+        RecordRead(file, XDL_SEG_RAW_HEADER, sizeof(DataPackFileHeader));
+        PortData_PackHeader(fmt, (u32 *)&header, 20, 2, sizeof(DataPackRef));
+        Xdl_PackHeader(&header, sizeof(header));
+        if (fmt == PORT_DATA_PS2) {
+            Port_FileAlign(file, PORT_PS2_SECTOR);   /* port: the header is padded to a sector */
+        }
     }
     pack->numRelocs = header.numRelocs;
     pack->numSoundRelocs = header.numSoundRelocs;
@@ -219,6 +306,11 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     size += relocSize;
     alloc = Allocate(size, 0, "");
     if (alloc == NULL) {
+        if (xp != NULL) {
+            Xdl_FreePack(xp);
+        } else {
+            Xdl_AbortPack();
+        }
         return;
     }
     SETP(pack->soundIDs, (u16 *)alloc);
@@ -236,18 +328,33 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             freeData = 1;
         }
         sfx = (u8 *)PTR((((u32)HND(GETP(pack->soundData)) + 0x3F) & ~0x3F));
-        File_Read(file, readSize, sfx);
-        if (fmt == PORT_DATA_PS2) {
-            Port_FileAlign(file, PORT_PS2_SECTOR);   /* port: so is the sound data */
+        if (xp != NULL) {
+            /* port: converted and relocated */
+            if (Xdl_SegSize(xp, XDL_SEG_SOUND) != ((readSize + 0x1F) & ~0x1F)) {
+                Port_Fatal("a cached pack's sound size doesn't match its header: delete the .xdl cache");
+            }
+            SkipRead(xp, XDL_SEG_RAW_SOUND, readSize);
+            Xdl_ReadSeg(xp, XDL_SEG_SOUND, sfx, 0, Xdl_SegSize(xp, XDL_SEG_SOUND));
+            Xdl_PlaceSeg(xp, XDL_SEG_SOUND, sfx);
+        } else {
+            File_Read(file, readSize, sfx);
+            RecordRead(file, XDL_SEG_RAW_SOUND, readSize);
+            if (fmt == PORT_DATA_PS2) {
+                Port_FileAlign(file, PORT_PS2_SECTOR);   /* port: so is the sound data */
+            }
         }
         data = sfx;
         sfx += header.numSoundPointers * 4;
         SETP(pack->soundBase, (u8 *)PTR((((u32)HND(sfx) + 0x1F) & ~0x1F)));
         /* port: the pointer table and the slots it lists are big-endian; the
          * rest of the sound data stays so (the mixer reads it that way) */
-        PortData_SoundPointers(fmt, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
+        if (xp == NULL) {
+            PortData_SoundPointers(fmt, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
+        }
         PortData_SoundData(GETP(pack->soundBase), header.soundDataSize);
-        UpdatePointers((u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
+        if (xp == NULL) {
+            UpdatePointers((u32 *)data, header.numSoundPointers, GETP(pack->soundBase));
+        }
         SETP(pack->sfxData, (u8 *)((u8 *)GETP(pack->soundBase) + header.sfxOffset));
         if (header.songOffset != 0 || (header.soundDataSize != 0 && header.numSoundRelocs == 0)) {
             SETP(pack->song, (void *)((u8 *)GETP(pack->soundBase) + header.songOffset));
@@ -255,16 +362,39 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         if (header.songBankOffset != 0) {
             SETP(pack->songBank, (void *)((u8 *)GETP(pack->soundBase) + header.songBankOffset));
             /* port: the PC's is little-endian, the PS2's rebuilt elsewhere (Port_Data.c) */
-            SETP(pack->songBank, PortData_SongBank(fmt, GETP(pack->songBank)));
+            if (xp == NULL) {
+                SETP(pack->songBank, PortData_SongBank(fmt, GETP(pack->songBank)));
+            } else {
+                /* port: in place, or the PS2's in its own block, or none */
+                u32 off;
+                int seg = Xdl_BankRef(xp, &off);
+
+                if (seg == XDL_SEG_BANK) {
+                    xdlBank = XdlBlock(xp, XDL_SEG_BANK);
+                    SETP(pack->songBank, xdlBank + off);
+                } else if (seg < 0) {
+                    SETP(pack->songBank, NULL);
+                }
+            }
         }
         pack->soundDataSize = header.soundDataSize;
         if (GETP(pack->song) != NULL && GETP(pack->songBank) != NULL && g_bSoundLoadingEnabled) {
             SongManager_LoadSong(GETP(pack->song), GETP(pack->songBank));
             pack->songLoaded = 1;
         }
-        PortData_SongBankDone(fmt);   /* port: CreateMIDI has its copy */
+        if (xp == NULL) {
+            PortData_SongBankDone(fmt);   /* port: CreateMIDI has its copy */
+        } else if (xdlBank != NULL) {
+            Deallocate(xdlBank);
+        }
         sfx = GETP(pack->sfxData);
-        PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
+        if (xp == NULL) {
+            PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
+            Xdl_Sound(data, (readSize + 0x1F) & ~0x1F, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase),
+                      GETP(pack->songBank));
+        } else {
+            xdlSfx = XdlBlock(xp, XDL_SEG_SFX);   /* port: the PS2's decoded samples */
+        }
         for (i = 0; i < pack->numSounds; i++) {
             if (g_bSoundLoadingEnabled) {
                 GETP(pack->soundIDs)[i] = CreateSFX(sfx);
@@ -277,7 +407,12 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             }
             sfx += sizeof(SFX);
         }
-        PortData_SFXDone(fmt);   /* port: CreateSFX has copied the samples */
+        if (xp == NULL) {
+            PortData_SFXDone(fmt);   /* port: CreateSFX has copied the samples */
+        } else {
+            Deallocate(xdlSfx);
+            Xdl_PlaceSeg(xp, XDL_SEG_SOUND, NULL);
+        }
         if (freeData) {
             Deallocate(GETP(pack->soundData));
             SETP(pack->soundData, NULL);
@@ -301,18 +436,33 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     data = alloc + offset;
     data = (u8 *)PTR((((u32)HND(data) + 0x3F) & ~0x3F));
     readSize = tablesSize + pad + header.dataSize + relocSize;
-    File_Read(file, readSize, data);
-    {
-        /* port: swap tables and data blob before the relocations below */
-        u8 *blob = data + tablesSize + pad;
-        u32 *texRelocs = (u32 *)(blob + header.dataSize);
+    if (xp != NULL) {
+        /* port: the tables, blob and relocations as the source load left them */
+        if (Xdl_SegSize(xp, XDL_SEG_MAIN) != ((readSize + 0x1F) & ~0x1F)) {
+            Port_Fatal("a cached pack's size doesn't match its header: delete the .xdl cache");
+        }
+        SkipRead(xp, XDL_SEG_RAW_MAIN, readSize);
+        Xdl_ReadSeg(xp, XDL_SEG_MAIN, data, 0, Xdl_SegSize(xp, XDL_SEG_MAIN));
+        Xdl_PlaceSeg(xp, XDL_SEG_MAIN, data);
+        if (fmt == PORT_DATA_GC) {
+            /* as the byte-swapper does (Port_Swap.c Swapper_Finish) */
+            Port_InvalidateDisplayLists(data + tablesSize + pad, header.dataSize);
+        }
+    } else {
+        File_Read(file, readSize, data);
+        RecordRead(file, XDL_SEG_RAW_MAIN, readSize);
+        {
+            /* port: swap tables and data blob before the relocations below */
+            u8 *blob = data + tablesSize + pad;
+            u32 *texRelocs = (u32 *)(blob + header.dataSize);
 
-        g_portSwapNumTextureRelocs = header.numRelocs;
-        PortData_PackData(fmt, data, tablesSize / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
-                          texRelocs + header.numTexRelocs * 2, header.numPointers,
-                          header.textureDataOffset, header.numTextures,
-                          header.shaderOffset, header.numShaders,
-                          header.triggerOffset, header.numTriggers);
+            g_portSwapNumTextureRelocs = header.numRelocs;
+            PortData_PackData(fmt, data, tablesSize / 4, blob, header.dataSize, texRelocs, header.numTexRelocs,
+                              texRelocs + header.numTexRelocs * 2, header.numPointers,
+                              header.textureDataOffset, header.numTextures,
+                              header.shaderOffset, header.numShaders,
+                              header.triggerOffset, header.numTriggers);
+        }
     }
     SETP(pack->relocs, (s32 *)data);
     offset = header.numRelocs * 8;
@@ -335,26 +485,44 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
                 SETP(pack->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&pack->refs[idx], 8, packID, 0), 8, 1));
             }
             *(u32 *)(GETP(pack->base) + reloc[0]) = ((u32 *)GETP(GETP(pack->refs[idx].pack)->base))[reloc[1] & 0xFFFF];
-        } else {
+        } else if (xp == NULL) {   /* port: a cached pack's are fixups */
             *(u32 *)(GETP(pack->base) + reloc[0]) += (u32)HND(GETP(pack->base));
         }
         reloc += 2;
     }
-    UpdatePointers(pointers, header.numPointers, GETP(pack->base));
-    if (fmt == PORT_DATA_GC) {
-        /* port: the GameCube's geometry in the indexed layout (Port_Geometry.c);
-         * soundData, NULL by now, holds it and is freed with the pack */
-        SETP(pack->soundData, PortGeometry_ConvertGC(GETP(pack->base), header.dataSize, pointers,
-                                                     header.numPointers, pointers - header.numTexRelocs * 2,
-                                                     header.numTexRelocs));
-    } else if (fmt == PORT_DATA_PS2) {
-        /* port: the PS2's geometry and textures (Port_Geometry.c, Port_PS2.c),
-         * converted now that the slots hold pointers */
-        SETP(pack->soundData, PortGeometry_ConvertPS2(GETP(pack->base), header.dataSize, pointers,
-                                                      header.numPointers, (u32 *)GETP(pack->relocs),
-                                                      header.numRelocs));
-        PortGeometry_Keep(pack, PortPS2_Textures(GETP(pack->base), header.dataSize, header.textureDataOffset,
-                                                 header.numTextures, header.paletteOffset, header.palettes));
+    if (xp != NULL) {
+        /* port: the blocks the converters allocated, in their order */
+        for (i = XDL_SEG_BLOCK; i < XDL_MAX_SEGS; i++) {
+            void *block = XdlBlock(xp, i);
+
+            if (block != NULL && Xdl_BlockRole(xp, i) == XDL_ROLE_SOUNDDATA) {
+                SETP(pack->soundData, block);
+            } else if (block != NULL) {
+                PortGeometry_Keep(pack, block);
+            }
+        }
+        Xdl_FreePack(xp);
+    } else {
+        UpdatePointers(pointers, header.numPointers, GETP(pack->base));
+        if (fmt == PORT_DATA_GC) {
+            /* port: the GameCube's geometry in the indexed layout (Port_Geometry.c);
+             * soundData, NULL by now, holds it and is freed with the pack */
+            SETP(pack->soundData, PortGeometry_ConvertGC(GETP(pack->base), header.dataSize, pointers,
+                                                         header.numPointers, pointers - header.numTexRelocs * 2,
+                                                         header.numTexRelocs));
+        } else if (fmt == PORT_DATA_PS2) {
+            /* port: the PS2's geometry and textures (Port_Geometry.c, Port_PS2.c),
+             * converted now that the slots hold pointers */
+            SETP(pack->soundData, PortGeometry_ConvertPS2(GETP(pack->base), header.dataSize, pointers,
+                                                          header.numPointers, (u32 *)GETP(pack->relocs),
+                                                          header.numRelocs));
+            PortGeometry_Keep(pack, PortPS2_Textures(GETP(pack->base), header.dataSize, header.textureDataOffset,
+                                                     header.numTextures, header.paletteOffset, header.palettes));
+        }
+        Xdl_EndPack(GETP(pack->soundData), data, (tablesSize + pad + header.dataSize + relocSize + 0x1F) & ~0x1F,
+                    GETP(pack->base),
+                    pointers, header.numPointers,
+                    pointers - header.numTexRelocs * 2, header.numTexRelocs);
     }
     SETP(pack->paletteData, (void *)((u8 *)GETP(pack->base) + header.paletteOffset));
     SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->base) + header.shaderOffset));

@@ -115,6 +115,7 @@ typedef struct DVDFileInfo {
         struct {
             void *host;   /* port: SDL_IOStream */
             u32 format;   /* port: whose data the file is, PORT_DATA_* (port.h) */
+            void *xdl;    /* port: its converted packs' cache, or NULL (xdl.c) */
         };
     };
     u32 startAddr;    /* 0x30 */
