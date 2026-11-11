@@ -224,6 +224,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     configure_file(packaging/linux/hwvx.desktop.in ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.desktop @ONLY)
     configure_file(packaging/linux/hwvx.metainfo.xml.in ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.metainfo.xml @ONLY)
     install(TARGETS hwvx RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(PROGRAMS $<TARGET_FILE_DIR:hwvx>/hwvx-launcher DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
     install(FILES ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
     # A PNG too: AppStream (Flatpak) and appimagetool (.DirIcon) want one.

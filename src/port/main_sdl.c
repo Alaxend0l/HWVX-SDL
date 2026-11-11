@@ -101,7 +101,16 @@ static void ParseArgs(int argc, char **argv) {
 
     g_port.dataDir = NULL;   /* FindDataDir */
     /* the hwvx-launcher copy (CMakeLists.txt) opens the launcher, like --launcher */
-    g_port.launcher = argc > 0 && argv[0] != NULL && SDL_strstr(argv[0], "launcher") != NULL;
+    if (argc > 0 && argv[0] != NULL) {
+        const char *name = argv[0], *sep;
+
+        for (sep = argv[0]; *sep != '\0'; sep++) {
+            if (*sep == '/' || *sep == '\\') {
+                name = sep + 1;
+            }
+        }
+        g_port.launcher = SDL_strncasecmp(name, "hwvx-launcher", 13) == 0;
+    }
     g_port.scale = 2;
     g_port.resetSave = 0;
     g_port.vsync = 1;        /* what the GameCube's own retrace wait does */
@@ -182,29 +191,23 @@ int Port_ResetSave(void) {
 #define DATA_MARKER "HW_share.xgc"   /* in the root of the extracted disc */
 
 static int HasData(const char *dir) {
-    char path[1024];
-    SDL_PathInfo info;
+    /* the GameCube's files, or the PC release's install folder (HW_share.xpc),
+     * the PS2 disc's files (XPS/ENGLISH/HW_share.xps) or that folder itself
+     * (dvd.c DVDOpen); names matched without case, as dvd.c reads them */
+    static const char *const markers[] = { DATA_MARKER, "HW_share.xpc", "XPS/ENGLISH/HW_share.xps", "HW_share.xps" };
+    size_t i;
 
     if (dir == NULL || *dir == '\0') {
         return 0;
     }
-    SDL_snprintf(path, sizeof(path), "%s/" DATA_MARKER, dir);
-    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
-        return 1;
-    }
-    /* or the PC release's install folder (HW_share.xpc), the PS2 disc's files
-     * (XPS/ENGLISH/HW_share.xps) or that folder itself (dvd.c DVDOpen); a PS2
-     * disc imported from its image keeps the disc's upper-case names */
-    {
-        static const char *const others[] = { "HW_share.xpc", "XPS/ENGLISH/HW_share.xps", "HW_share.xps",
-                                               "XPS/ENGLISH/HW_SHARE.XPS", "HW_SHARE.XPS" };
-        size_t i;
+    for (i = 0; i < SDL_arraysize(markers); i++) {
+        char *path = Port_FindNoCase(dir, markers[i]);
+        SDL_PathInfo info;
+        int is = path != NULL && SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
 
-        for (i = 0; i < sizeof(others) / sizeof(others[0]); i++) {
-            SDL_snprintf(path, sizeof(path), "%s/%s", dir, others[i]);
-            if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
-                return 1;
-            }
+        SDL_free(path);
+        if (is) {
+            return 1;
         }
     }
     return 0;
@@ -286,8 +289,10 @@ static char *DataIn(const char *dir) {
     return scan.found;
 }
 
+#ifdef SDL_PLATFORM_ANDROID
 /* The image or folder found or chosen last time: datadir.txt in the save
- * folder. */
+ * folder. Android only: on desktop the launcher keeps the choice, and takes
+ * over an old datadir.txt on its first run. */
 static char *SavedDataPath(void) {
     char *pref = SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX");
     char *path = NULL;
@@ -315,6 +320,7 @@ static void SaveDataDir(const char *dir) {
     }
     SDL_free(path);
 }
+#endif
 
 /* Places a packaged game looks without being told. */
 static char *SearchDataDir(char *searched, size_t size) {
@@ -426,7 +432,9 @@ static void FindDataDir(void) {
         }
         SDL_free(cwd);
     }
+#ifdef SDL_PLATFORM_ANDROID
     SaveDataDir(dir);
+#endif
     g_port.dataDir = dir;
 }
 

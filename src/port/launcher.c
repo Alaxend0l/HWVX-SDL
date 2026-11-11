@@ -60,7 +60,8 @@ static char *PrefFile(const char *name) {
     return path;
 }
 
-static void LoadSources(Sources *s) {
+/* Returns 0 when there is no sources.cfg yet: the first run. */
+static int LoadSources(Sources *s) {
     char *path = PrefFile("sources.cfg"), *text, *line, *save = NULL;
     int i;
 
@@ -69,7 +70,7 @@ static void LoadSources(Sources *s) {
     text = path != NULL ? SDL_LoadFile(path, NULL) : NULL;
     SDL_free(path);
     if (text == NULL) {
-        return;
+        return 0;
     }
     for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
         if (SDL_strcmp(line, "skip=1") == 0) {
@@ -88,32 +89,32 @@ static void LoadSources(Sources *s) {
         }
     }
     SDL_free(text);
+    return 1;
 }
 
 static void SaveSources(const Sources *s) {
-    char *path = PrefFile("sources.cfg"), buf[4096] = "";
-    int i;
+    char *path = PrefFile("sources.cfg");
+    SDL_IOStream *io = path != NULL ? SDL_IOFromFile(path, "w") : NULL;
+    int i, ok;
 
-    if (path == NULL) {
+    if (io == NULL) {
+        Port_Log("sources.cfg: %s", SDL_GetError());
+        SDL_free(path);
         return;
     }
+    ok = 1;
     for (i = 0; i < SRC_COUNT; i++) {
         if (s->path[i] != NULL) {
-            SDL_strlcat(buf, s_keys[i], sizeof(buf));
-            SDL_strlcat(buf, "=", sizeof(buf));
-            SDL_strlcat(buf, s->path[i], sizeof(buf));
-            SDL_strlcat(buf, "\n", sizeof(buf));
+            ok &= SDL_IOprintf(io, "%s=%s\n", s_keys[i], s->path[i]) > 0;
         }
     }
     if (s->play >= 0) {
-        SDL_strlcat(buf, "play=", sizeof(buf));
-        SDL_strlcat(buf, s_keys[s->play], sizeof(buf));
-        SDL_strlcat(buf, "\n", sizeof(buf));
+        ok &= SDL_IOprintf(io, "play=%s\n", s_keys[s->play]) > 0;
     }
     if (s->skip) {
-        SDL_strlcat(buf, "skip=1\n", sizeof(buf));
+        ok &= SDL_IOprintf(io, "skip=1\n") > 0;
     }
-    if (!SDL_SaveFile(path, buf, SDL_strlen(buf))) {
+    if (!SDL_CloseIO(io) || !ok) {
         Port_Log("sources.cfg: %s", SDL_GetError());
     }
     SDL_free(path);
@@ -130,28 +131,75 @@ static void FreeSources(Sources *s) {
 
 /* ---- which source a place holds ---------------------------------------- */
 
-static int IsFile(const char *dir, const char *name) {
-    char path[1200];
-    SDL_PathInfo info;
+/* The file at `rel` (components separated by '/') under `dir`, each
+ * component matched without case: disc files keep the disc's spelling, which
+ * a case-sensitive file system doesn't forgive (HW_SHARE.XPS, a mounted
+ * PS2 disc's hw_share.xps). Returns the real path, or NULL. */
+typedef struct NoCase {
+    const char *want;
+    size_t len;
+    char *found;
+} NoCase;
 
-    SDL_snprintf(path, sizeof(path), "%s/%s", dir, name);
-    return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
+static SDL_EnumerationResult SDLCALL MatchNoCase(void *userdata, const char *dir, const char *name) {
+    NoCase *m = userdata;
+
+    (void)dir;
+    if (SDL_strlen(name) == m->len && SDL_strncasecmp(name, m->want, m->len) == 0) {
+        m->found = SDL_strdup(name);
+        return SDL_ENUM_SUCCESS;
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+char *Port_FindNoCase(const char *dir, const char *rel) {
+    char *path = SDL_strdup(dir);
+
+    while (path != NULL && *rel != '\0') {
+        const char *slash = SDL_strchr(rel, '/');
+        NoCase m = { rel, slash ? (size_t)(slash - rel) : SDL_strlen(rel), NULL };
+        char *next = NULL;
+        SDL_PathInfo info;
+
+        SDL_asprintf(&next, "%s/%.*s", path, (int)m.len, rel);
+        if (next == NULL || !SDL_GetPathInfo(next, &info)) {
+            SDL_free(next);
+            next = NULL;
+            SDL_EnumerateDirectory(path, MatchNoCase, &m);
+            if (m.found != NULL) {
+                SDL_asprintf(&next, "%s/%s", path, m.found);
+                SDL_free(m.found);
+            }
+        }
+        SDL_free(path);
+        path = next;
+        rel += m.len + (slash != NULL);
+    }
+    return path;
+}
+
+static int IsFile(const char *dir, const char *name) {
+    char *path = Port_FindNoCase(dir, name);
+    SDL_PathInfo info;
+    int is = path != NULL && SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
+
+    SDL_free(path);
+    return is;
 }
 
 /* The archive version of a PS2 disc's HW_share (183 retail, 177/179 the
  * prototype), or 0 if it has none. */
 static u32 PS2Version(const char *dir) {
-    static const char *const names[] = { "XPS/ENGLISH/HW_share.xps", "XPS/ENGLISH/HW_SHARE.XPS", "HW_share.xps",
-                                         "HW_SHARE.XPS" };
-    char path[1200];
+    static const char *const names[] = { "XPS/ENGLISH/HW_share.xps", "HW_share.xps" };
     u8 head[12];
     size_t i;
 
     for (i = 0; i < SDL_arraysize(names); i++) {
-        SDL_IOStream *io;
+        char *path = Port_FindNoCase(dir, names[i]);
+        SDL_IOStream *io = path != NULL ? SDL_IOFromFile(path, "rb") : NULL;
 
-        SDL_snprintf(path, sizeof(path), "%s/%s", dir, names[i]);
-        if ((io = SDL_IOFromFile(path, "rb")) != NULL) {
+        SDL_free(path);
+        if (io != NULL) {
             size_t got = SDL_ReadIO(io, head, sizeof(head));
 
             SDL_CloseIO(io);
@@ -181,7 +229,7 @@ static int SourceOf(Port_DataCheck check, const char *path, char **found) {
     }
     *found = check(path);
     if (*found == NULL) {
-        return v == 183 ? -2 : -1;     /* -2: the retail PS2's, which this build can't read */
+        return v == 183 ? -2 : -1;     /* -2: the retail PS2's, but missing files the port needs */
     }
     if (SDL_GetPathInfo(*found, &info) && info.type == SDL_PATHTYPE_FILE) {
         return PORT_DATA_GC;     /* the port opens GameCube disc images only */
@@ -240,7 +288,7 @@ typedef struct Launcher {
     int pickSource, pickImage, dialogOpen;
     /* a PC or PS2 disc being imported (pcdisc.c), on a thread */
     SDL_Thread *importer;
-    SDL_AtomicInt importDone, importFiles;
+    SDL_AtomicInt importDone, importFiles, importCancel;
     int importOk, importSource;
     char importImage[1200], importDest[1200], importError[256];
 } Launcher;
@@ -390,8 +438,7 @@ static void Import(Launcher *l, const char *path, int asked) {
     int src = SourceOf(l->check, path, &found);
 
     if (src == -2) {
-        SDL_snprintf(l->status, sizeof(l->status), "That is the PlayStation 2 release: this build can't play it yet (%s).",
-                     path);
+        SDL_snprintf(l->status, sizeof(l->status), "That PlayStation 2 copy is missing files the game needs.");
         return;
     }
     if (src < 0) {
@@ -416,14 +463,14 @@ static int SDLCALL ImportDisc(void *userdata) {
     Launcher *l = userdata;
 
     if (l->importSource == PORT_DATA_PC) {
-        l->importOk = Port_ImportPCDisc(l->importImage, l->importDest, &l->importFiles, l->importError,
-                                        sizeof(l->importError));
+        l->importOk = Port_ImportPCDisc(l->importImage, l->importDest, &l->importFiles, &l->importCancel,
+                                        l->importError, sizeof(l->importError));
     } else {
         char pref[1200];
 
         SDL_strlcpy(pref, l->importDest, sizeof(pref));
         l->importOk = Port_ImportPS2Disc(l->importImage, pref, l->importDest, sizeof(l->importDest),
-                                         &l->importFiles, l->importError, sizeof(l->importError));
+                                         &l->importFiles, &l->importCancel, l->importError, sizeof(l->importError));
     }
     SDL_SetAtomicInt(&l->importDone, 1);
     return 0;
@@ -445,6 +492,7 @@ static void StartDisc(Launcher *l, const char *image, int source) {
     l->importSource = source;
     SDL_SetAtomicInt(&l->importDone, 0);
     SDL_SetAtomicInt(&l->importFiles, 0);
+    SDL_SetAtomicInt(&l->importCancel, 0);
     l->importError[0] = '\0';
     l->importer = SDL_CreateThread(ImportDisc, "discimport", l);
     if (l->importer == NULL) {
@@ -677,7 +725,10 @@ static int Run(Launcher *l) {
             Layout(l);
         } while (SDL_PollEvent(&ev));
         if (result < 0 && l->importer != NULL) {
-            SDL_snprintf(l->status, sizeof(l->status), "Finishing the disc import first...");
+            /* stop the import (it stops within a few sectors and leaves the
+             * last good copy as it was) */
+            SDL_SetAtomicInt(&l->importCancel, 1);
+            SDL_snprintf(l->status, sizeof(l->status), "Stopping the disc import...");
             Draw(l);
             SDL_WaitThread(l->importer, NULL);
             l->importer = NULL;
@@ -700,15 +751,17 @@ static int Run(Launcher *l) {
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search) {
     Launcher l;
     char *chosen = NULL, *legacy, *found = NULL;
-    int i, valid;
+    int i, valid, firstRun;
 
     SDL_zero(l);
     l.pointer.x = l.pointer.y = -1;
     l.check = check;
-    LoadSources(&l.src);
-    /* take over what the port used before (datadir.txt), else look around */
+    firstRun = !LoadSources(&l.src);
+    /* on the first run only (no sources.cfg yet), take over what the port
+     * used before (datadir.txt), else look around; later, a removed source
+     * stays removed */
     legacy = PrefFile("datadir.txt");
-    for (i = 0; i < 2 && (l.src.play < 0 || l.src.path[l.src.play] == NULL); i++) {
+    for (i = 0; firstRun && i < 2 && (l.src.play < 0 || l.src.path[l.src.play] == NULL); i++) {
         char *dir = i == 0 ? (legacy != NULL ? SDL_LoadFile(legacy, NULL) : NULL) : (search ? search() : NULL);
         int src = SourceOf(check, dir, &found);
 
@@ -748,9 +801,16 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     }
     if (!SDL_CreateWindowAndRenderer("Hot Wheels: Velocity X", VIEW_W * 3 / 2, VIEW_H * 3 / 2, SDL_WINDOW_RESIZABLE,
                                      &l.window, &l.renderer)) {
+        /* no launcher here: play what was chosen, or say why there is nothing */
         Port_Log("launcher: %s", SDL_GetError());
+        if (valid) {
+            chosen = SDL_strdup(l.src.path[l.src.play]);
+        } else {
+            Port_Fatal("The launcher could not open (%s), and no game data is chosen: pass it with --data PATH.",
+                       SDL_GetError());
+        }
         FreeSources(&l.src);
-        return NULL;
+        return chosen;
     }
     SDL_SetRenderLogicalPresentation(l.renderer, VIEW_W, VIEW_H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     SDL_SetRenderVSync(l.renderer, 1);

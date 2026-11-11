@@ -52,16 +52,21 @@ int Port_TryCreateWindow(SDL_WindowFlags flags);   /* 0: failed (SDL_GetError) *
 /* launcher.c: the game data to play (see there). The check resolves a place
  * to its game data (a folder, its files/ folder, a disc image in it) or
  * NULL; the search looks in the usual places on a first run. */
+/* `rel` under `dir`, each '/'-separated component matched without case; the
+ * real path or NULL (launcher.c). */
+char *Port_FindNoCase(const char *dir, const char *rel);
 typedef char *(*Port_DataCheck)(const char *path);
 typedef char *(*Port_DataSearch)(void);
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search);
 /* pcdisc.c: the PC release's disc image (.iso, .cue/.bin) into folder `dest`:
  * HWVX.cab's files flat, the FMV_ movies; `progress` counts files. */
-int Port_ImportPCDisc(const char *image, const char *dest, SDL_AtomicInt *progress, char *err, size_t errLen);
+int Port_ImportPCDisc(const char *image, const char *dest, SDL_AtomicInt *progress, SDL_AtomicInt *cancel, char *err,
+                      size_t errLen);
 /* A PS2 disc's XPS/ENGLISH copied into prefDir + "ps2" or "ps2beta" (by its
- * version), that folder given back in dest. */
+ * version), that folder given back in dest. Both imports build the folder
+ * beside it and swap it in only when complete; setting *cancel stops them. */
 int Port_ImportPS2Disc(const char *image, const char *prefDir, char *dest, size_t destLen, SDL_AtomicInt *progress,
-                       char *err, size_t errLen);
+                       SDL_AtomicInt *cancel, char *err, size_t errLen);
 
 /* gfx_settings.c: graphics.cfg fills in what the command line left unset. */
 void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int haveFps);
