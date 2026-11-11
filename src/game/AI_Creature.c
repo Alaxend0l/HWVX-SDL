@@ -231,7 +231,9 @@ static inline void AI_Creature_UpdateNearestCars(void) {
     u32 count;
     u32 i;
 
-    count = ThingManager_GetActiveCars(cars, 9);
+    /* port: room for 8 (the original asked for 9 into the 8, writing past
+     * the stack array with a ninth car) */
+    count = ThingManager_GetActiveCars(cars, 8);
     if (count != 0) {
         for (i = 0; i < count; i++) {
             SETP(gs_aNearestCars[i].car, cars[i]);

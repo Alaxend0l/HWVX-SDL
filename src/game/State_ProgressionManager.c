@@ -46,7 +46,7 @@ s32 StateProgressionManager_Init(s32 prevState) {
     extern s32 g_GameProgressionID;
     #define g_GameProgressionEndState ((s32 *)(void *)&g_GameProgressionEndState)
     #define g_bRestartCurrentLevel (*(s8 *)(void *)&g_bRestartCurrentLevel)
-    void *camera;
+    void *camera = NULL;   /* port: set only when no camera exists yet (as StateGameManager_Init) */
     s32 *script;
     Vector4 min;
     Vector4 max;

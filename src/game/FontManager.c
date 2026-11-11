@@ -481,7 +481,9 @@ void Gfx_FontManager_GetPrintRect(char *str, s32 id, f32 *width, f32 *height, f3
         }
         w += (u8)font->chars[c].spacingX + spacing;
     }
-    *width = (u32)(w - spacing);
+    /* port: an empty string with spacing is negative; a negative float to u32
+     * is undefined in C (huge on x86); the GameCube's conversion gave 0 */
+    *width = w - spacing > 0.0f ? (u32)(w - spacing) : 0;
     *height = font->height;
 }
 

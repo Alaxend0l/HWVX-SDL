@@ -100,8 +100,10 @@ void Trail_AddSegment(u32 *handle, f32 *pos, f32 *dir, u16 texture, GXColor colo
             last = *handle;
             i = last;
             if (g_TrialData[i].active == 1) {
-                i = 1000;
-                while (i-- > 0) {
+                s32 tries = 1000;
+
+                i = 0;
+                while (tries-- > 0) {
                     if (g_nextTrail == 1000) {
                         g_nextTrail = 0;
                     }
@@ -110,7 +112,10 @@ void Trail_AddSegment(u32 *handle, f32 *pos, f32 *dir, u16 texture, GXColor colo
                         break;
                     }
                 }
-                if (i == 0) {
+                /* every slot in use: no new segment. The original fell out of
+                 * the loop with i at -1 and wrote g_TrialData[-1]; a free slot
+                 * 0 counting as none is the original's (GameCube and PS2) */
+                if (tries < 0 || i == 0) {
                     *handle = -1;
                     return;
                 }

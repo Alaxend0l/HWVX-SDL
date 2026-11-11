@@ -188,8 +188,11 @@ u32 Emitter_InCameraRange(Emitter *emitter, f32 range) {
         count = Gfx_GetCameraPositions(positions);
         emitter->distSq = PSVECSquareDistance(&emitter->base.pos, (f32 *)&positions[0]);
         if (count > 1) {
-            for (i = 0, pos = positions; i < 5; i++, pos++) {
-                if (g_CurrentViews & (1 << i)) {
+            /* port: Gfx_GetCameraPositions packs the enabled views' cameras
+             * into the first `count` entries; the original read them by view
+             * bit, past them into uninitialised stack in split screen */
+            for (i = 0, pos = positions; i < count; i++, pos++) {
+                {
                     dist = PSVECSquareDistance(&emitter->base.pos, pos);
                     if (dist < emitter->distSq) {
                         emitter->distSq = dist;

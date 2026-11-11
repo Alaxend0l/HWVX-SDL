@@ -197,8 +197,11 @@ s32 SoundSequence_PlayQueued(SoundSeqInfo *seq, Vector4 *pos) {
     u32 n;
 
     /* port: players on this machine: online isn't split screen */
+    /* port: "none" is NULL here, not (SoundSequence *)-1: HND() of a pointer
+     * outside the arena is not 0xFFFFFFFF on a 64-bit host, so the -1 used to
+     * pass the test below and be dereferenced. The caller still gets -1. */
     if (!seq->allPlayers && GameSettings_GetNumOfPlayers() > 1) {
-        thing = (SoundSequence *)-1;
+        thing = NULL;
     } else {
         if (pos != NULL) {
             p = *pos;
@@ -215,10 +218,10 @@ s32 SoundSequence_PlayQueued(SoundSeqInfo *seq, Vector4 *pos) {
             }
             thing = created;
         } else {
-            thing = (SoundSequence *)-1;
+            thing = NULL;
         }
     }
-    if ((u32)HND(thing) != 0xFFFFFFFF) {
+    if (thing != NULL) {
         found = 0;
         /* append to the queue's tail */
         n = ThingManager_GetActiveSoundSequences((u8 **)list, 0x80);
@@ -236,7 +239,7 @@ s32 SoundSequence_PlayQueued(SoundSeqInfo *seq, Vector4 *pos) {
         thing->base.flags |= SOUNDSEQ_FLAG_QUEUED;
         SETP(thing->queued, NULL);
     }
-    return (s32)HND(thing);
+    return thing != NULL ? (s32)HND(thing) : -1;
 }
 
 

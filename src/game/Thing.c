@@ -554,7 +554,10 @@ s32 TriggerAirboxStopIn(u32 *trigger) {
         volume = TRIGGER_VOLUME(trigger, i);
         for (j = 0; j < trigger[numVolumes + 1]; j++) {
             thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
-            if (volume->enabled == 1 && PSVECSquareMag(&thing->vel) < 50.0f && IsPointWithinVolume(&thing->pos, volume, &dist)) {
+            /* port: a tile's car is NULL after an AI car despawns; the original
+             * read low memory (TriggerAirboxEntered does test it) */
+            if (thing != NULL && volume->enabled == 1 && PSVECSquareMag(&thing->vel) < 50.0f &&
+                IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 1;
             }
         }
@@ -575,7 +578,7 @@ s32 TriggerAirboxExited(u32 *trigger) {
         volume = TRIGGER_VOLUME(trigger, i);
         for (j = 0; j < trigger[numVolumes + 1]; j++) {
             thing = (Thing *)GETP(((TileCar *)TRIGGER_SUBJECT(trigger, numVolumes, j))->car);
-            if (volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
+            if (thing != NULL && volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 0;
             }
         }
@@ -874,6 +877,9 @@ s32 ActionVehicleTeleport(u32 *action) {
     data = (Teleporter *)PTR(action[1]);
     for (i = 0; i < action[2]; i++) {
         car = (Thing *)GETP(((TileCar *)PTR(action[i + 3]))->car);
+        if (car == NULL) {
+            continue;   /* port: no car on that tile now (see TriggerAirboxStopIn) */
+        }
         player = GETP(car->player);
         if (data->debris != 0) {
             Teleporter_SpawnDebris(data);
