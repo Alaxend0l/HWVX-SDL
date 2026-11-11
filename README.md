@@ -56,6 +56,10 @@ fullscreen; it is applied when you leave that menu and kept in `graphics.cfg`
 in the save folder. It also has Gamma and FOV bars, which take effect at once. Command-line options override it. The main menu also gets
 a "Quit Game" entry (with the game's own Confirm Quit screen); both
 port entries are built from the menu data at load time (`src/game/Port_Menu.c`).
+`mainmenu=original` in `graphics.cfg` (or `HWVX_ORIGINAL_MAINMENU=1`) keeps the
+main menu exactly as the release has it - on GameCube data without Quit Game
+(close the window to quit) and with Multi-Player going straight to the game's
+own screen; the other menu changes stay.
 
 Saves: there's no memory card on PC, so the GameCube's card screens are
 skipped: the startup card check, the Slot A/B picker (saves always go to the
@@ -429,6 +433,8 @@ Debugging aids:
   validation layers, D3D12 debug layer) for the SDL_GPU renderers.
 - Run with `stdbuf -oL` when piping the log, or it's lost on a crash.
 - `HWVX_CHEATS=1` turns on every cheat (save data is left alone).
+- `HWVX_ORIGINAL_MAINMENU=1` keeps the main menu as the release has it (no
+  port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `HWVX_DETERMINISTIC=1` makes runs repeatable, to compare builds frame by
   frame: a fixed random seed (`HWVX_SEED=n`, default 1), a fixed frame step
   (`HWVX_FIXEDSTEP=us`, default 16667) instead of measured time, and world

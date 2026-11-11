@@ -29,6 +29,8 @@ typedef struct PortState {
     int fov;                 /* the Graphics menu's FOV bar, 0 .. 100, 50: the game's */
     int pcTexturesPC;        /* 1: the PC release's textures with its own colours, 0: the
                               * GameCube's (graphics.cfg pctextures; Port_PCTexturesLookGC) */
+    int originalMainMenu;    /* 1: the main menu as the release has it, without the port's
+                              * rows (graphics.cfg mainmenu; Port_OriginalMainMenu) */
     volatile int quit;
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */

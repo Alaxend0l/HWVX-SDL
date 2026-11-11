@@ -15,7 +15,9 @@
  *   "Quit Game / Confirm Quit" screen, made for the GameCube's exit to the
  *   system menu; its warning is reworded, its "Yes, Quit" (event 0x19,
  *   ForceIPLReset) closes the game on PC, and its two buttons take Start as
- *   well as A, like the other menus' rows.
+ *   well as A, like the other menus' rows. With graphics.cfg
+ *   "mainmenu=original" (HWVX_ORIGINAL_MAINMENU=1, Port_OriginalMainMenu)
+ *   the main menu is left as the release has it: no Quit Game, no Online.
  * - Options: "Graphics" (a copy of "Controller") opens the Graphics screen.
  * - Memory card screens (saves are files on PC, always "slot A"): Load Game
  *   and Save Game start on slot A's file list (no Slot A/B picker), without
@@ -1458,6 +1460,15 @@ void Port_MenuPatch(InterfaceHeader *h) {
         return;
     }
     if (IsMainMenu(h)) {
+        if (Port_OriginalMainMenu()) {
+            /* graphics.cfg mainmenu=original: the main menu as the
+             * release has it - no Quit Game (the GameCube's has no way to
+             * quit: close the window instead), no Online / Local, the
+             * pack's rows, spacing and ring. The card screens are still
+             * found from it, so their patches stay. */
+            FindCardScreens(h);
+            return;
+        }
         PatchMainMenu(h);
         return;
     }

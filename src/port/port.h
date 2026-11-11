@@ -212,6 +212,10 @@ static inline int Port_PCTextureGXFormat(u32 texFormat) {
  * (its texels are the PC's squared, gc = pc * pc / 255), or as the PC drew
  * them. graphics.cfg "pctextures=gc|pc", HWVX_PC_TEXTURES overrides. */
 int Port_PCTexturesLookGC(void);
+/* gfx_settings.c: leave the main menu as the release has it (no Quit Game or
+ * Online rows, src/game/Port_Menu.c). graphics.cfg "mainmenu=original|port",
+ * HWVX_ORIGINAL_MAINMENU=1|0 overrides. */
+int Port_OriginalMainMenu(void);
 /* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
  * src/game/Port_Keyboard.c turns them into the PC release's controls. */
 enum {

@@ -29,6 +29,16 @@
  * - PC textures (graphics.cfg only, no menu row yet): the colours the PC
  *   release's textures are drawn with, the GameCube's (default) or the PC's
  *   own, brighter ones (Port_PCTexturesLookGC).
+ * - Main menu (graphics.cfg "mainmenu=original|port", no menu row: the
+ *   Graphics screen stays as it is; HWVX_ORIGINAL_MAINMENU=1 or 0 overrides
+ *   it): "port" (default) adds the port's rows to the GameCube main menu -
+ *   Quit Game, and Multi-Player leading to Online / Local; "original" leaves
+ *   the main menu exactly as the release has it, rows, spacing and up/down
+ *   ring (Port_OriginalMainMenu, Port_Menu.c). The port's other menu changes
+ *   (Graphics in Options, the memory card screens) stay either way. The
+ *   GameCube's own main menu has no way to quit: close the window (or Alt+F4,
+ *   Cmd+Q) instead. The PC release's main menu has its own Exit to Desktop
+ *   and gets no port rows, so this changes nothing there.
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -84,6 +94,17 @@ int Port_PCTexturesLookGC(void) {
         return SDL_strcmp(env, "pc") != 0;
     }
     return !g_port.pcTexturesPC;
+}
+
+/* The main menu without the port's rows: graphics.cfg, or HWVX_ORIGINAL_MAINMENU
+ * (1: original, 0: the port's). Read each time the main menu is created. */
+int Port_OriginalMainMenu(void) {
+    const char *env = SDL_getenv("HWVX_ORIGINAL_MAINMENU");
+
+    if (env != NULL) {
+        return SDL_atoi(env) != 0;
+    }
+    return g_port.originalMainMenu;
 }
 
 f32 Port_GfxFovScale(void) {
@@ -181,22 +202,27 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.pcTexturesPC = 1;
         } else if (SDL_strcmp(line, "pctextures=gc") == 0) {
             g_port.pcTexturesPC = 0;
+        } else if (SDL_strcmp(line, "mainmenu=original") == 0) {
+            g_port.originalMainMenu = 1;
+        } else if (SDL_strcmp(line, "mainmenu=port") == 0) {
+            g_port.originalMainMenu = 0;
         }
     }
     SDL_free(text);
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[160];
+    char *path = ConfigPath(), buf[192];
     int n;
 
     if (path == NULL) {
         return;
     }
     n = SDL_snprintf(buf, sizeof(buf),
-                     "resolution=%dx%d\nfullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n",
+                     "resolution=%dx%d\nfullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
+                     "mainmenu=%s\n",
                      w, h, full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
-                     g_port.pcTexturesPC ? "pc" : "gc");
+                     g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }
