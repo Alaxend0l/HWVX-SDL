@@ -181,17 +181,17 @@ typedef struct ConvexHull {
  * (ThingRecord.info); cars read the same layout (CarACollider). */
 typedef struct DestructibleInfo {
   f32 inertia[3];    /* 0x00 per-axis factor of the inertia tensor */
-  u8 pad0C[4];       /* 0x0C */
+  u8 pad0C[4];       /* 0x0C never read (GC, PC, PS2) */
   u8 type;           /* 0x10 collision: 0 box, 1 hull, 3 box from the geometry
                         bounds (becomes 0), 4 none, 6 hull, 7 spheres */
   u8 takesDamage;    /* 0x11 */
-  u8 pad12[2];       /* 0x12 */
+  u8 pad12[2];       /* 0x12 never read (GC, PC, PS2) */
   s32 maxHealth;     /* 0x14 */
   s32 armour;        /* 0x18 subtracted from each hit's damage */
   s32 deathTime;     /* 0x1C ms before a destroyed one is released, <0 never */
   f32 mass;          /* 0x20 */
   f32 gravityScale;  /* 0x24 physical objects: force.y += gravityScale * mass */
-  u8 pad28[4];       /* 0x28 */
+  u8 pad28[4];       /* 0x28 never read (GC, PC, PS2) */
   f32 angDamping;    /* 0x2C physical objects */
   PTR32(struct SurfaceMaterial) material; /* 0x30 (Destructible.h; vtable GetSurfaceScript) */
   u32 numEndDebris;  /* 0x34 effects spawned when destroyed (Thing_ProcessEndEvent) */
