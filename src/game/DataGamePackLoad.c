@@ -329,6 +329,13 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         reloc += 2;
     }
     UpdatePointers(pointers, header.numPointers, GETP(pack->base));
+    if (fmt == PORT_DATA_GC) {
+        /* port: the GameCube's geometry in the indexed layout (Port_Geometry.c);
+         * soundData, NULL by now, holds it and is freed with the pack */
+        SETP(pack->soundData, PortGeometry_ConvertGC(GETP(pack->base), header.dataSize, pointers,
+                                                     header.numPointers, pointers - header.numTexRelocs * 2,
+                                                     header.numTexRelocs));
+    }
     SETP(pack->paletteData, (void *)((u8 *)GETP(pack->base) + header.paletteOffset));
     SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->base) + header.shaderOffset));
     pack->textureData = header.textureDataOffset + (u32)HND(GETP(pack->base));
@@ -409,6 +416,12 @@ void DataPack_LoadQuadPack(s32 file, QuadPack *quad) {
                 reloc += 2;
             }
             UpdatePointers(pointers, GETP(quad->header)->numPointers, (u8 *)PTR(quad->gxBase));
+            if (Port_FileFormat(file) == PORT_DATA_GC) {
+                /* port: the GameCube's geometry in the indexed layout (Port_Geometry.c) */
+                PortGeometry_Keep(quad, PortGeometry_ConvertGC((u8 *)PTR(quad->gxBase), quad->size - offset, pointers,
+                                                               GETP(quad->header)->numPointers, (u32 *)texRelocs,
+                                                               GETP(quad->header)->numTexRelocs));
+            }
             SETP(quad->data, SLOT_LOAD(void *, (u32 *)PTR(quad->gxBase) + (0)));
             SETP(quad->vertices, SLOT_LOAD(void *, (u32 *)PTR(quad->gxBase) + (1)));
         }
@@ -604,6 +617,7 @@ void DataPack_ReleaseQuadPack(QuadPack *pack)
         }
         Deallocate(GETP(pack->alloc));
         SETP(pack->alloc, NULL);
+        PortGeometry_Release(pack);   /* port: its converted geometry (Port_Geometry.c) */
         SETP(pack->data, NULL);
         SETP(pack->vertices, NULL);
         pack->gxBase = 0;

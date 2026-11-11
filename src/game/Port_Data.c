@@ -214,9 +214,8 @@ static void PC_MarkGeometry(PCScan *s, u32 g) {
     }
 }
 
-/* PC geometry in a blob (pack data or a quadrant's GX data): found through
- * the pointer list and the local relocations (a shared geometry pack's
- * export table), drawn levels marked PORT_LAYOUT_INDEXED (Render_Geometry_.c).
+/* PC geometry in a blob (pack data or a quadrant's GX data): found by its
+ * headers, drawn levels marked PORT_LAYOUT_INDEXED (Render_Geometry_.c).
  *
  * A group's texture relocation stores the id as a u32 at 0x18: the PC binds
  * its low half (0x18 little-endian), the GameCube code reads 0x1A and takes
@@ -239,18 +238,16 @@ static void PC_MarkGeometries(u8 *base, u32 size, u32 *texIdRelocs, u32 numTexId
             s.isSlot[pointers[i] / 4] = 1;
         }
     }
-    for (i = 0; i < numPointers; i++) {
-        u32 g = Target(&s, pointers[i]);
-        if (g != ~0u) {
-            PC_MarkGeometry(&s, g);
+    /* every header in the blob: many geometries are reached through offsets
+     * the game relocates itself (thing records, car parts, motion parts, a
+     * car's shadow model), not through the pointer list */
+    for (i = 0; i + 0x40 <= size; i += 4) {
+        if (*(u16 *)(base + i) == 0x0002 && s.isSlot[(i + 8) / 4] && s.isSlot[(i + 0xC) / 4]) {
+            PC_MarkGeometry(&s, i);
         }
     }
-    for (i = 0; i < numRelocs; i++) {
-        u32 slot = relocs[i * 2];
-        if (!(relocs[i * 2 + 1] & 0xFFFF0000) && !(slot & 3) && slot + 4 <= size && *(u32 *)(base + slot) < size) {
-            PC_MarkGeometry(&s, *(u32 *)(base + slot));
-        }
-    }
+    (void)relocs;
+    (void)numRelocs;
     for (i = 0; i < numTexIdRelocs; i++) {
         u32 slot = texIdRelocs[i * 2];
         if (!(slot & 3) && slot + 4 <= size && s.isTexSlot[slot / 4]) {

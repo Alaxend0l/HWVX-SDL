@@ -49,4 +49,13 @@ void PortData_PackData(s32 fmt, u8 *relocTables, u32 relocTableWords, u8 *base, 
                        u32 triggerOffset, u32 numTriggers);
 void PortData_QuadPack(s32 fmt, u8 *data, u32 size, u32 index);
 
+/* Port_Geometry.c: a relocated blob's GameCube geometry in the indexed
+ * layout; returns the block holding it (freed with the pack) or NULL. */
+void *PortGeometry_ConvertGC(u8 *base, u32 size, const u32 *pointers, u32 numPointers, const u32 *relocs,
+                             u32 numRelocs);
+/* A quadrant pack's converted geometry, kept by the quad (WorldQuad has no
+ * field to spare: all of it is world data) and freed when it is released. */
+void PortGeometry_Keep(void *owner, void *block);
+void PortGeometry_Release(void *owner);
+
 #endif
