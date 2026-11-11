@@ -45,7 +45,8 @@ folder). On start the game looks for it, in order:
 ```
 
 Options: `--data PATH`, `--scale N` (window = 640×480×N), `--window WxH`
-(any size and shape), `--fullscreen`, `--renderer NAME`.
+(any size and shape), `--fullscreen` or `--windowed` (either overrides
+`graphics.cfg`), `--renderer NAME`.
 
 Resolution: the game renders at the window's size and shape, and the window
 can be resized. On a screen wider than 4:3 the 3D view widens to fill it while

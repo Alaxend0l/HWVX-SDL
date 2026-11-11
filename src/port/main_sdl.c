@@ -97,7 +97,7 @@ static int ParseVSync(const char *s) {
 }
 
 static void ParseArgs(int argc, char **argv) {
-    int i, v, haveSize = 0, haveVSync = 0, haveFps = 0;
+    int i, v, haveSize = 0, haveVSync = 0, haveFps = 0, haveDisplay = 0;
 
     g_port.dataDir = NULL;   /* FindDataDir */
     g_port.scale = 2;
@@ -125,6 +125,10 @@ static void ParseArgs(int argc, char **argv) {
             haveSize = 1;
         } else if (SDL_strcmp(argv[i], "--fullscreen") == 0) {
             g_port.fullscreen = 1;
+            haveDisplay = 1;
+        } else if (SDL_strcmp(argv[i], "--windowed") == 0) {
+            g_port.fullscreen = 0;      /* whatever graphics.cfg says */
+            haveDisplay = 1;
         } else if (SDL_strcmp(argv[i], "--vsync") == 0 && i + 1 < argc &&
                    (v = ParseVSync(argv[i + 1])) >= 0) {
             g_port.vsync = v;
@@ -139,7 +143,7 @@ static void ParseArgs(int argc, char **argv) {
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
         } else {
-            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen]", argv[0]);
+            SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen|--windowed]", argv[0]);
             SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save]");
             SDL_Log("  --data PATH      a GameCube disc image (.iso) or the extracted disc files");
             SDL_Log("                   (default: the one chosen last time, or an .iso or files/");
@@ -159,7 +163,7 @@ static void ParseArgs(int argc, char **argv) {
     if (g_port.scale < 1) {
         g_port.scale = 1;
     }
-    Port_GfxLoadConfig(haveSize, g_port.fullscreen, haveVSync, haveFps);
+    Port_GfxLoadConfig(haveSize, haveDisplay || g_port.fullscreen, haveVSync, haveFps);
 }
 
 /* --reset-save: the game side reads the flag through this accessor rather
