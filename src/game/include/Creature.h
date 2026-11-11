@@ -113,11 +113,11 @@ typedef struct CreatureInit {
 typedef struct Creature {
     Thing base;                        /* 0x00 health < 0: dead; trigger: its TileCreature;
                                           player: whose controls it follows */
-    u8 padAC[4];                       /* 0xAC */
+    u8 padAC[4];                       /* 0xAC never read (GC, PS2) */
     f32 heading;                       /* 0xB0 radians */
     f32 turnRate;                      /* 0xB4 radians/s, from stickX */
     PTR32(CreatureInfo) info;          /* 0xB8 */
-    u8 padBC[3];                       /* 0xBC */
+    u8 padBC[3];                       /* 0xBC never read (GC, PS2) */
     s8 onGround;                       /* 0xBF */
     f32 unusedC0;                      /* 0xC0 */
     s32 animState;                     /* 0xC4 Creature_MotionStateInit state */
@@ -143,14 +143,14 @@ typedef struct Creature {
     };
     /* 0x104: a second layer, only its animation and weight used */
     PTR32(MotionAnim) prevAnim;        /* 0x104 the animation blended out */
-    u8 pad108[8];                      /* 0x108 */
+    u8 pad108[8];                      /* 0x108 never read (GC, PS2) */
     f32 prevAnimWeight;                /* 0x110 */
     s32 animIndex;                     /* 0x114 into CreatureInfo.anims / deathAnims */
     PTR32(CreatureAnimEntry) animEntry; /* 0x118 */
-    u8 pad11C[4];                      /* 0x11C */
+    u8 pad11C[4];                      /* 0x11C never read (GC, PS2) */
     Vector4 groundNormal;              /* 0x120 */
     f32 skin;                          /* 0x130 pushed off what it hits by this */
-    u8 pad134[0x5C];                   /* 0x134 */
+    u8 pad134[0x5C];                   /* 0x134 never read (GC, PS2) */
     /* Physics run in macro steps (Creature_MacroStep, rarer the further it is
      * from the cameras) and is interpolated in between (Creature_MicroStep). */
     Vector4 stepPos;                   /* 0x190 where the last macro step ends */
@@ -160,7 +160,7 @@ typedef struct Creature {
     u32 flag1B8;                       /* 0x1B8 & 1: the creature AI runs about */
     f32 mass;                          /* 0x1BC */
     f32 timeScale;                     /* 0x1C0 1: normal; < 1: frozen, <= 0: not drawn */
-    u8 pad1C4[4];                      /* 0x1C4 */
+    u8 pad1C4[4];                      /* 0x1C4 never read (GC, PS2) */
     u32 gibbedBones;                   /* 0x1C8 bit per bone blown off */
     u32 deathAnim;                     /* 0x1CC index into CreatureInfo.deathAnims */
 } Creature;
