@@ -1,4 +1,4 @@
-/* Hardware voices (g_voice): the 32 slots that play samples through AX, shared
+/* Hardware voices (g_voice): the NUM_VOICES slots that play samples through AX, shared
  * by the sound effects (Voice.c), the MIDI player (MIDI.c) and the IT module
  * player (IT.c). Voice_.c turns their fields into AXVPB settings. Offsets are
  * the GameCube layout; the asserts keep them that way. */
@@ -7,7 +7,11 @@
 
 #include <stddef.h>
 
-#define NUM_VOICES 0x20
+/* port: 64, the PC release's count (the GameCube's was 0x20). The AX layer has
+ * 64 (ax.c), and g_voice's storage holds 64 (data_gen.c); one pool shared by
+ * sound effects and songs as on the GameCube, so busy scenes cut fewer
+ * sounds. */
+#define NUM_VOICES 0x40
 
 /* Voice.kind */
 enum {

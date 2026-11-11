@@ -92,7 +92,7 @@ s8 DestroySFX(u32 handle) {
          * freed, as the PC build does (0x459630 -> 0x45D110). The GameCube
          * frees it under a playing voice, which then reads whatever the next
          * CreateSFX_ puts there. */
-        for (voice = g_voice, i = 0x20; i != 0; voice++, i--) {
+        for (voice = g_voice, i = NUM_VOICES; i != 0; voice++, i--) {
             if (voice->state != VOICE_STATE_FREE && voice->addr == sfx->data) {
                 SetVoiceState_(voice, 3);
             }
@@ -111,7 +111,7 @@ void SetSFXVol(s32 vol) {
     u32 i;
 
     g_sfxvol = vol;
-    for (voice = g_voice, i = 0x20; i != 0; voice++, i--) {
+    for (voice = g_voice, i = NUM_VOICES; i != 0; voice++, i--) {
         if (voice->kind == VOICE_KIND_SFX && voice->state == VOICE_STATE_PLAYING) {
             SetVoiceVol_(voice, g_sfxvol);
         }
@@ -132,14 +132,14 @@ s32 SetSFXState(s32 state) {
     voice = g_voice;
     switch (state) {
     case 2:
-        for (i = 0x20; i != 0; voice++, i--) {
+        for (i = NUM_VOICES; i != 0; voice++, i--) {
             if (voice->kind == VOICE_KIND_SFX && voice->state == VOICE_STATE_PLAYING) {
                 SetVoiceState_(voice, 2);
             }
         }
         break;
     case 3:
-        for (i = 0x20; i != 0; voice++, i--) {
+        for (i = NUM_VOICES; i != 0; voice++, i--) {
             if (voice->kind == VOICE_KIND_SFX && voice->state != VOICE_STATE_FREE) {
                 SetVoiceState_(voice, 2);
                 voice->state = 3;
@@ -147,14 +147,14 @@ s32 SetSFXState(s32 state) {
         }
         break;
     case 4:
-        for (i = 0x20; i != 0; voice++, i--) {
+        for (i = NUM_VOICES; i != 0; voice++, i--) {
             if (voice->kind == VOICE_KIND_SFX) {
                 voice->state = 3;
             }
         }
         voice = g_voice;
     case 1:
-        for (i = 0x20; i != 0; voice++, i--) {
+        for (i = NUM_VOICES; i != 0; voice++, i--) {
             if (voice->kind == VOICE_KIND_SFX) {
                 if (voice->state == VOICE_STATE_PAUSED) {
                     SetVoiceState_(voice, 1);

@@ -258,12 +258,11 @@ void SetITVol(void)
 
 void SetITPitch(s32 pitch)
 {
-    extern Voice g_voice[0x20];
     Voice *voice;
     s32 i;
 
     g_song.pitch = pitch;
-    for (voice = g_voice, i = 0x20; i != 0; voice++, i--)
+    for (voice = g_voice, i = NUM_VOICES; i != 0; voice++, i--)
     {
         if (voice->state == VOICE_STATE_FREE)
         {

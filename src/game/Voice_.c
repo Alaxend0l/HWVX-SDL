@@ -31,7 +31,7 @@ void SetVoiceState_(Voice *voice, s32 state);
 s32 AudioVoice_Create_(void *voices) {
     u32 i;
 
-    for (i = 0; i < 0x20; i++) {
+    for (i = 0; i < NUM_VOICES; i++) {
         SETP(g_voice[i].axv, NULL);
         g_voice[i].id = BE32(i);  /* port: the index is the id's low byte, last in memory (Voice.c VOICE_ID) */
         g_voice[i].owner = VOICE_OWNER_NONE;
@@ -43,11 +43,11 @@ s32 AudioVoice_Create_(void *voices) {
 s32 AudioVoice_Init_(void) {
     u32 i;
 
-    for (i = 0; i < 0x20; i++) {
+    for (i = 0; i < NUM_VOICES; i++) {
         SetVoiceState_(&g_voice[i], 3);
         SETP(g_voice[i].next, &g_voice[i + 1]);
     }
-    SETP(g_voice[0x1F].next, NULL);
+    SETP(g_voice[NUM_VOICES - 1].next, NULL);
     g_pFree = g_voice;
     g_active = -1;
     if (m_InitOnce == 0) {
@@ -271,7 +271,7 @@ void ProcessVoice_(void) {
     s32 steps;
 
     g_active = -1;
-    for (voice = g_voice, i = 0x20; i != 0; i--) {
+    for (voice = g_voice, i = NUM_VOICES; i != 0; i--) {
         u8 state = voice->state;
         voice++;
         if (state == 1) {
@@ -279,7 +279,7 @@ void ProcessVoice_(void) {
         }
     }
 
-    for (voice = g_voice, i = 0x20; i != 0; voice++, i--) {
+    for (voice = g_voice, i = NUM_VOICES; i != 0; voice++, i--) {
         if (voice->state != 1) {
             continue;
         }
