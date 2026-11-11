@@ -252,16 +252,24 @@ static void SaveConfig(int w, int h, int full) {
     if (path == NULL) {
         return;
     }
-    n = SDL_snprintf(buf, sizeof(buf),
-                     "resolution=%dx%d\nfullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
+    /* no resolution yet (the launcher saving before any window): none written */
+    n = w > 0 && h > 0 ? SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\n", w, h) : 0;
+    n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
+                     "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
                      "mainmenu=%s\nsplitlod=%s\nmovies=%s\n",
-                     w, h, full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
+                     full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
                      g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }
     SDL_free(path);
+}
+
+/* The launcher's Settings page (launcher.c): the settings as they are in
+ * g_port, before the game's window exists. */
+void Port_GfxSaveConfig(void) {
+    SaveConfig(g_port.winW, g_port.winH, g_port.fullscreen);
 }
 
 static SDL_DisplayID Display(void) {
