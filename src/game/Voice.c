@@ -85,6 +85,18 @@ s8 DestroySFX(u32 handle) {
     handle--;
     if (handle < 0xFE && g_sound[handle].data != 0) {
         SFX *sfx = &g_sound[handle];
+        Voice *voice;
+        u32 i;
+
+        /* port: stop every voice still playing the sample before its ARAM is
+         * freed, as the PC build does (0x459630 -> 0x45D110). The GameCube
+         * frees it under a playing voice, which then reads whatever the next
+         * CreateSFX_ puts there. */
+        for (voice = g_voice, i = 0x20; i != 0; voice++, i--) {
+            if (voice->state != VOICE_STATE_FREE && voice->addr == sfx->data) {
+                SetVoiceState_(voice, 3);
+            }
+        }
         g_soundLst[handle] = g_freeSound;
         g_freeSound = handle;
         data = sfx->data;
