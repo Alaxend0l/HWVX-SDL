@@ -200,6 +200,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp);
  * texture per texture object (as before step 2b). */
 typedef struct GXTexStats {
     u32 created, decoded, kept, shared;
+    u32 inexact;    /* of decoded: CMPR that BC1 would draw differently */
     u64 ticks;
     u32 textures;
     u64 bytes, rgbaBytes;

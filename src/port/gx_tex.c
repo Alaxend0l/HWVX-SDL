@@ -51,6 +51,7 @@ static u32 s_useClock;
 /* HWVX_STATS counters (GX_TexStats). */
 static struct {
     u32 created, shared, decoded, kept;   /* misses: new GPU textures, shared ones; by path */
+    u32 inexact;                          /* CMPR decoded since BC1 would draw it differently */
     u64 ticks;                            /* in the miss path: hashing, decoding, uploading */
     u64 bytes, rgbaBytes;                 /* resident GPU bytes; what they'd be as RGBA8, unshared */
     u32 textures;                         /* resident GPU textures */
@@ -501,6 +502,41 @@ static void CmprToBC1(const u8 *src, int w, int h, u8 *dst) {
     }
 }
 
+/* Whether BC1 draws a CMPR level's blocks exactly as the GameCube does:
+ * every colour a block uses the same both ways (its endpoints, and middle
+ * colours whose channels happen to round alike; a 3-colour block's
+ * transparent texel is black in BC1, the average colour on the GameCube).
+ * close: only the transparent texels count, the middle colours may differ
+ * (5/8 against 21/32 of the way, up to 12 levels apart). */
+static int CmprExactAsBC1(const u8 *src, int w, int h, int close) {
+    int bw = (w + 3) / 4, bh = (h + 3) / 4, tw = (w + 7) / 8, bx, by, k;
+
+    for (by = 0; by < bh; by++) {
+        for (bx = 0; bx < bw; bx++) {
+            const u8 *b = src + ((by / 2) * tw + bx / 2) * 32 + ((by & 1) * 2 + (bx & 1)) * 8;
+            u16 c0 = Port_ReadBE16(b), c1 = Port_ReadBE16(b + 2);
+            u8 gc[4][4], bc[4][4];
+            u32 used = 0;
+
+            for (k = 0; k < 4; k++) {
+                u8 v = b[4 + k];
+                used |= 1u << (v & 3) | 1u << ((v >> 2) & 3) | 1u << ((v >> 4) & 3) | 1u << (v >> 6);
+            }
+            if ((used & 0xC) == 0 || (close && (c0 > c1 || (used & 0x8) == 0))) {
+                continue;
+            }
+            BlockPalette(c0, c1, 1, c0 > c1, 0, gc);
+            BlockPalette(c0, c1, 0, c0 > c1, 0, bc);
+            for (k = close ? 3 : 2; k < 4; k++) {
+                if ((used & 1u << k) != 0 && memcmp(gc[k], bc[k], 4) != 0) {
+                    return 0;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
 /* A PC DXT1 texture BC1 draws differently from the PC's RGB DXT1: a 3-colour
  * block that uses its fourth colour (transparent black in BC1, opaque in RGB). */
 static int DXT1UsesTransparent(const u8 *p, u32 size) {
@@ -547,18 +583,34 @@ static int EnvOn(const char *name, int dflt) {
 
 /* The GPU format a texture goes up in: its blocks as they are where they can
  * be, else RGBA8. */
-static int GpuFormat(int fmt, int w, int h, int squared, const u8 *image, u32 size) {
-    static int decode = -1;
+static int GpuFormat(int fmt, int w, int h, int levels, int squared, const u8 *image, u32 size) {
+    static int decode = -1, cmprClose;
+    int l;
 
     if (decode < 0) {
+        const char *e = SDL_getenv("HWVX_TEX_CMPR");
+
         decode = EnvOn("HWVX_TEX_DECODE", 0);
+        cmprClose = e != NULL && SDL_strcmp(e, "close") == 0;
     }
     if (decode || squared || (w & 3) != 0 || (h & 3) != 0) {
         return GXR_TEX_RGBA8;
     }
     switch (fmt) {
     case TF_CMPR:
-        return g_gxr->texFormat(GXR_TEX_BC1) ? GXR_TEX_BC1 : GXR_TEX_RGBA8;
+        if (!g_gxr->texFormat(GXR_TEX_BC1)) {
+            return GXR_TEX_RGBA8;
+        }
+        for (l = 0; l < levels; l++) {
+            int lw = (w >> l) > 0 ? w >> l : 1, lh = (h >> l) > 0 ? h >> l : 1;
+
+            if (!CmprExactAsBC1(image, lw, lh, cmprClose)) {
+                s_stats.inexact++;
+                return GXR_TEX_RGBA8;
+            }
+            image += LevelSize(fmt, lw, lh);
+        }
+        return GXR_TEX_BC1;
     case TF_PC_DXT1:
         if (g_gxr->texFormat(GXR_TEX_BC1_RGB)) {
             return GXR_TEX_BC1_RGB;
@@ -647,7 +699,7 @@ static TexData *Acquire(int fmt, const u8 *image, int w, int h, int levels, int 
     if (d == NULL) {
         return NULL;   /* can't happen: one TexData per TexEntry at most */
     }
-    d->gxr = (u8)GpuFormat(fmt, w, h, squared, image, size);
+    d->gxr = (u8)GpuFormat(fmt, w, h, levels, squared, image, size);
     d->tex = Upload(fmt, d->gxr, image, w, h, levels, squared, &d->bytes);
     if (d->tex == NULL) {
         return NULL;
@@ -675,6 +727,7 @@ void GX_TexStats(GXTexStats *st) {
     st->shared = s_stats.shared;
     st->decoded = s_stats.decoded;
     st->kept = s_stats.kept;
+    st->inexact = s_stats.inexact;
     st->ticks = s_stats.ticks;
     st->textures = s_stats.textures;
     st->bytes = s_stats.bytes;

@@ -654,9 +654,9 @@ static void DumpEFB(void) {
 
         GX_TexStats(&t);
         Port_Log("  textures: %u resident, %.1f MB (%.1f MB as RGBA8, one per texture object); this window "
-                 "%u made (%u decoded, %u as stored blocks), %u shared, %.2f ms",
+                 "%u made (%u decoded, %u of them CMPR BC1 can't draw exactly; %u as stored blocks), %u shared, %.2f ms",
                  t.textures, (double)t.bytes / 1048576.0, (double)t.rgbaBytes / 1048576.0,
-                 t.created - last.created, t.decoded - last.decoded, t.kept - last.kept, t.shared - last.shared,
+                 t.created - last.created, t.decoded - last.decoded, t.inexact - last.inexact, t.kept - last.kept, t.shared - last.shared,
                  (double)(t.ticks - last.ticks) * 1000.0 / (double)SDL_GetPerformanceFrequency());
         last = t;
     }
