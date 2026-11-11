@@ -36,13 +36,11 @@ build copies the base's encoding (after checking its hash); an edited file is en
 
 import argparse
 import hashlib
-import io
 import json
-import re
+import os
 import struct
 import sys
 import wave
-import zlib
 from pathlib import Path
 
 import numpy as np
@@ -54,6 +52,21 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "schemas"
 FORMAT_VERSION = 1
 TOOL = "tools/xdl_media.py"
+# gitignored output: HWVX-SDL/build-media (a worktree sits inside HWVX-SDL, one level deeper)
+OUT = (ROOT.parent if ROOT.parent.name == "HWVX-SDL" else ROOT) / "build-media"
+
+
+def release_dirs():
+    """Where the releases' archives usually are: orig/ of the editor repo, the PC import."""
+    out = {}
+    for rel, sub in (("gc", "orig/gc/files"), ("ps2", "orig/ps2/XPS/ENGLISH")):
+        p = XS.find_up(sub)
+        if p:
+            out[rel] = p
+    pc = Path.home() / "Library/Application Support/HWVX-SDL/HotWheelsVelocityX/pc"
+    if pc.is_dir():
+        out["pc"] = pc
+    return out
 
 
 class MediaError(Exception):
@@ -376,10 +389,8 @@ def _encode_colour(blocks, transparent_mode, four_always):
 def _encode_dxt5_alpha(a):
     """a [..., 16] -> 8 bytes per block."""
     a = a.astype(np.int64)
-    a0, a1 = a.max(-1), a.min(-1)
-    a0x = np.where(a0 == a1, a0, a0)
     blk = np.zeros(a.shape[:-1] + (8,), np.int64)
-    blk[..., 0], blk[..., 1] = a0x, a1
+    blk[..., 0], blk[..., 1] = a.max(-1), a.min(-1)        # 8-value mode (6-value when equal)
     _, tab = _dxt5_alpha_decode(blk)
     idx = np.abs(a[..., :, None] - tab[..., None, :]).argmin(-1)
     bits = sum(idx[..., k] << (3 * k) for k in range(16))
@@ -434,7 +445,8 @@ def quantize256(images):
     """Palette [256, 4] for RGBA images (a PSMT8 CLUT of its own): Pillow's octree."""
     from PIL import Image
     stack = np.concatenate([im.reshape(-1, 4) for im in images])[None]
-    q = Image.fromarray(stack.astype(np.uint8), "RGBA").quantize(256, method=Image.Quantize.FASTOCTREE)
+    stack = np.ascontiguousarray(stack, np.uint8)
+    q = Image.frombytes("RGBA", (stack.shape[1], 1), stack.tobytes()).quantize(256, method=Image.Quantize.FASTOCTREE)
     pal = np.array(q.getpalette("RGBA")[:1024], np.uint8).reshape(-1, 4)
     out = np.zeros((256, 4), np.uint8)
     out[:len(pal)] = pal
@@ -447,11 +459,13 @@ def write_png(path, img=None, indices=None, palette=None):
     """RGBA image, or a palette PNG (indices [h, w] into palette [256, 4], alpha in tRNS)."""
     from PIL import Image
     if indices is not None:
-        im = Image.fromarray(np.asarray(indices, np.uint8), "P")
+        idx = np.ascontiguousarray(indices, np.uint8)
+        im = Image.frombytes("P", (idx.shape[1], idx.shape[0]), idx.tobytes())
         im.putpalette(np.asarray(palette, np.uint8)[:, :3].tobytes(), "RGB")
         im.save(path, transparency=np.asarray(palette, np.uint8)[:, 3].tobytes(), optimize=False)
     else:
-        Image.fromarray(np.ascontiguousarray(img, np.uint8), "RGBA").save(path, optimize=False)
+        img = np.ascontiguousarray(img, np.uint8)
+        Image.frombytes("RGBA", (img.shape[1], img.shape[0]), img.tobytes()).save(path, optimize=False)
 
 
 def read_png(path):
@@ -710,7 +724,6 @@ def jsonc_text(doc, header):
 
 
 def schema_ref(path, name):
-    import os
     return os.path.relpath(SCHEMAS / f"{name}.schema.json", Path(path).parent)
 
 
@@ -1535,7 +1548,7 @@ def main():
     p.add_argument("--fresh", action="store_true", help="encode lossy assets afresh")
     p = sub.add_parser("roundtrip", help="extract and build every pack, compare")
     p.add_argument("paths", nargs="+", help="archives or folders of them")
-    p.add_argument("--out", default=str(ROOT.parent / "build-media" / "roundtrip"))
+    p.add_argument("--out", default=str(OUT / "roundtrip"))
     p.add_argument("--only", help="archive/pack substring")
     p.add_argument("--fresh", action="store_true", help="encode lossy assets afresh; report quality")
     p.add_argument("--keep", action="store_true", help="keep the extracted files")
