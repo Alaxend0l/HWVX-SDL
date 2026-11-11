@@ -768,6 +768,9 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
              * family and the registered tracks of it (below) */
             Port_ContentLearnTracks(h);
             PatchTrackSelect(h);
+            if (!indexed && TestsUnlockByVar(h, s_unlockVar[kind])) {
+                TestUnlock(kind);   /* (only the patched select tests it by variable) */
+            }
             continue;
         }
         SDL_zeroa(vars);

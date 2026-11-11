@@ -76,8 +76,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     u32 tocId;
 
     found = 0;
-    strcpy(path, name);
-    strcat(path, ".xgc");
+    snprintf(path, sizeof(path), "%s.xgc", name);   /* port: bounded (strcpy + strcat) */
     if ((g_fileID != -1 && g_fileTOCCache[type].name == NULL) || strcmp(g_fileTOCCache[type].name, name) != 0) {
         for (i = 0; i < 11; i++) {
             if (i != type && g_fileTOCCache[i].name != NULL && strcmp(g_fileTOCCache[i].name, name) == 0) {
