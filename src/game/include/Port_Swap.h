@@ -42,6 +42,7 @@ void PortData_TOC(s32 fmt, u32 *buf, u32 bufWords);
 void PortData_PackHeader(s32 fmt, u32 *hdr, u32 numWords, u32 numRefs, u32 refSize);
 void PortData_SoundPointers(s32 fmt, u32 *pointers, u32 count, u8 *soundBase);
 void PortData_SFX(s32 fmt, u8 *sfx, u32 count);
+void PortData_SongBank(s32 fmt, u8 *bank);
 void PortData_PackData(s32 fmt, u8 *relocTables, u32 relocTableWords, u8 *base, u32 dataSize,
                        u32 *texRelocs, u32 numTexRelocs, u32 *pointers, u32 numPointers,
                        u32 textureDataOffset, u32 numTextures, u32 shaderOffset, u32 numShaders,

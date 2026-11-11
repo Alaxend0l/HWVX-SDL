@@ -245,6 +245,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         if (header.songBankOffset != 0) {
             SETP(pack->songBank, (void *)((u8 *)GETP(pack->soundBase) + header.songBankOffset));
+            PortData_SongBank(fmt, GETP(pack->songBank));   /* port: the PC's is little-endian */
         }
         pack->soundDataSize = header.soundDataSize;
         if (GETP(pack->song) != NULL && GETP(pack->songBank) != NULL && g_bSoundLoadingEnabled) {
