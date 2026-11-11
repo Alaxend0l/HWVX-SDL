@@ -1865,7 +1865,8 @@ static InterfaceHeader *s_pauseHeader;
 static u32 s_pauseOriginal;      /* the handle in h->objects */
 static IfaceObjectDef s_pauseObjs[PAUSE_MAX_OBJECTS];
 static RecordCopy s_pauseRecAbove, s_pauseRecBelow;
-static AnimCopy s_pauseAnimBelow;
+#define PAUSE_MAX_MOVED 4
+static AnimCopy s_pauseAnim[PAUSE_MAX_MOVED];   /* the rows under Save, a row up */
 
 /* A pause menu is any screen with both Resume and Save; -1 if this isn't one. */
 static s32 PauseSaveRow(const InterfaceHeader *h) {
@@ -1924,7 +1925,28 @@ static void PatchPauseMenu(InterfaceHeader *h) {
     SETP(s_pauseObjs[save].conditions, &s_hideAll);
     CopyRecord(&s_pauseRecAbove, &s_pauseObjs[above], rec->next[0], GETP(objs[above].record)->next[0], rec->next[1]);
     CopyRecord(&s_pauseRecBelow, &s_pauseObjs[below], rec->next[1], rec->next[0], GETP(objs[below].record)->next[1]);
-    MoveTo(&s_pauseAnimBelow, &s_pauseObjs[below], ((f32 *)GETP(GETP(objs[save].anim)->pos.keys))[1]);
+    /* the rows under Save, down the ring (Quit; on PC Exit to Desktop under it),
+     * a row up: Quit into Save's place */
+    {
+        f32 step = PosY(&objs[below]) - PosY(&objs[save]);
+        s32 row = below;
+        u32 moved = 0;
+
+        while (row >= 0 && moved < PAUSE_MAX_MOVED) {
+            u8 next = GETP(objs[row].record)->next[1];
+            s32 down = -1;
+
+            MoveTo(&s_pauseAnim[moved++], &s_pauseObjs[row], PosY(&objs[row]) - step);
+            for (i = 0; i < h->numObjects; i++) {
+                IfaceRecord *r = GETP(objs[i].record);
+
+                if (r != NULL && r->id == next && HasPos(&objs[i]) && PosY(&objs[i]) > PosY(&objs[row])) {
+                    down = (s32)i;
+                }
+            }
+            row = down;
+        }
+    }
     SETP(h->objects, s_pauseObjs);
 }
 
