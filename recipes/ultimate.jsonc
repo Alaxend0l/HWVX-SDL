@@ -1,0 +1,49 @@
+// The "ultimate" build: every asset from the release that has the best copy
+// of it, as measured in docs/xdl-format/ultimate.md (HWVX-X-FILE-EDITOR).
+// Built into the program: hwvx --mix-build ultimate, then hwvx --mix ultimate.
+// Copy it to make your own: hwvx --mix my.jsonc.
+{
+  "name": "ultimate",
+
+  // The colours the game draws in: "gc" (the GameCube's, darker and more
+  // saturated) or "pc" (the PC's and PS2's). It also decides the opaque
+  // textures below: the GameCube's own in its look, the PC's in the PC's.
+  "look": "gc",
+
+  // Releases the build may take from, best first. One you have not imported
+  // is skipped; with only one left the build is that release unchanged.
+  "releases": ["gc", "ps2", "pc"],
+
+  // The base release of each archive (first match wins, * and ? wildcards on
+  // the archive's name without folders): its packs are loaded whole - the
+  // object graph, geometry, menus, songs - and assets below go into them.
+  // "from" lists releases to try in order; an archive only one release has
+  // (the multi-player drag worlds race*l1, which the PC lacks) comes from it.
+  //   geometry: GameCube (the PS2 has the same triangles less 1,103, coarser
+  //   colours; the PC's differ by content edits)
+  //   menus: the interface pack's release also sets the platform the menu
+  //   scripts see
+  "base": [
+    { "match": "*", "from": ["gc", "ps2", "pc"] }
+  ],
+
+  // Assets, by id (base://<archive>/<pack>/<texture|sound>/<index>, as in
+  // docs/xdl-format/pairing.md; first match wins). "from" is
+  //   "base"            the base release's own copy
+  //   "best"            textures: the rule of ultimate.md §1.6 for "look"
+  //   ["ps2", "pc"]     the first of these that has a copy paired with the base's
+  // An asset the pairing table doesn't pair stays the base's.
+  "assets": [
+    // lossless PS2 copies, PS2 palettes for alpha textures (PC DXT5 when it
+    // has more than 1024 colours), opaque ones by look
+    { "match": "base://*/texture/*", "from": "best" },
+    // PCM16 on GameCube and PC (sample for sample the same), 4-bit ADPCM on PS2
+    { "match": "base://*/sound/*", "from": ["gc", "pc"] }
+  ],
+
+  // Other files (movies, by path): the GameCube's THP movies have the best
+  // video and are the ones the port plays.
+  "files": [
+    { "match": "*", "from": ["gc", "pc", "ps2"] }
+  ]
+}

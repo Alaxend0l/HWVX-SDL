@@ -70,7 +70,6 @@
 
 #define ONLINE_PLAYERS ONLINE_MAX_PLAYERS
 #define WORLD_OF_LEVEL() ((World *)GETP(g_worldData.world))
-#define MAX_ITEM 0x60
 #define PROGRESSION_JOYRIDE 4
 #define PROGRESSION_MP_DRAG 5
 #define PROGRESSION_MP_BATTLE 7
@@ -438,7 +437,7 @@ static void StartLevel(void) {
 
 /* The host: when every car is known, start everyone. */
 static void HostCheckChosen(void) {
-    u8 buf[8 + ONLINE_PLAYERS * 8];
+    u8 buf[16 + ONLINE_PLAYERS * 2 * (5 + 64)];
     NetWriter w;
     u32 i;
 
@@ -451,8 +450,8 @@ static void HostCheckChosen(void) {
     s_levelSeed = (u32)SDL_GetPerformanceCounter();
     NetWriter_U32(&w, s_levelSeed);
     for (i = 0; i < ONLINE_PLAYERS; i++) {
-        NetWriter_U32(&w, (u32)s_vehicle[i]);
-        NetWriter_U32(&w, (u32)s_item[i]);
+        Port_ContentWriteChoice(&w, PORT_CONTENT_CAR, s_vehicle[i]);
+        Port_ContentWriteChoice(&w, PORT_CONTENT_ITEM, s_item[i]);
     }
     Net_SendReliable(NET_PEER_ALL, buf, w.size);
     StartLevel();
@@ -474,13 +473,13 @@ int Port_OnlineCarsChosen(Interface *iface) {
     if (s_isHost) {
         HostCheckChosen();
     } else {
-        u8 buf[16];
+        u8 buf[8 + 2 * (5 + 64)];
         NetWriter w;
 
         NetWriter_Init(&w, buf, sizeof(buf));
         NetWriter_U8(&w, MSG_CARS);
-        NetWriter_U32(&w, (u32)s_vehicle[s_port - 1]);
-        NetWriter_U32(&w, (u32)s_item[s_port - 1]);
+        Port_ContentWriteChoice(&w, PORT_CONTENT_CAR, s_vehicle[s_port - 1]);
+        Port_ContentWriteChoice(&w, PORT_CONTENT_ITEM, s_item[s_port - 1]);
         Net_SendReliable(NET_PEER_HOST, buf, w.size);
     }
     return 1;
@@ -1454,15 +1453,7 @@ void Port_OnlineRemoteControl(Player *player) {
 
 /* ---- messages ------------------------------------------------------------------ */
 
-/* A car another player chose: one of this game's (the content registry's
- * count; was 32, the retail car select's last), else the first. */
-static s32 ClampVehicle(s32 v) {
-    return v >= 0 && (u32)v < Port_ContentCount(PORT_CONTENT_CAR) ? v : 0;
-}
 
-static s32 ClampItem(s32 v) {
-    return v >= 0 && v <= MAX_ITEM ? v : NO_ITEM;
-}
 
 static void HandleMessage(const NetEvent *e) {
     NetReader r;
@@ -1478,12 +1469,12 @@ static void HandleMessage(const NetEvent *e) {
             return;
         }
         if (kind == MSG_CARS) {
-            s32 vehicle = (s32)NetReader_U32(&r);
-            s32 item = (s32)NetReader_U32(&r);
+            s32 vehicle = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+            s32 item = Port_ContentReadChoice(&r, PORT_CONTENT_ITEM);
 
             if (r.ok && (s_state == STATE_CHOOSING || s_state == STATE_WAITING)) {
-                s_vehicle[port - 1] = ClampVehicle(vehicle);
-                s_item[port - 1] = ClampItem(item);
+                s_vehicle[port - 1] = vehicle;
+                s_item[port - 1] = item;
                 s_chosen |= 1u << (port - 1);
                 HostCheckChosen();
             }
@@ -1654,8 +1645,8 @@ static void HandleMessage(const NetEvent *e) {
             u32 i;
 
             for (i = 0; i < ONLINE_PLAYERS; i++) {
-                vehicle[i] = ClampVehicle((s32)NetReader_U32(&r));
-                item[i] = ClampItem((s32)NetReader_U32(&r));
+                vehicle[i] = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+                item[i] = Port_ContentReadChoice(&r, PORT_CONTENT_ITEM);
             }
             if (r.ok && (in & (1u << (s_port - 1))) && s_state == STATE_WAITING) {
                 SDL_memcpy(s_vehicle, vehicle, sizeof(vehicle));

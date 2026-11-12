@@ -15,6 +15,7 @@
 #include "Port_Content.h"
 #include "Port_Saves.h"
 #include "jsonc.h"
+#include "net.h"
 
 typedef struct Registered {
     char *id;
@@ -23,6 +24,7 @@ typedef struct Registered {
     char *name;         /* what the selects show (NULL: the alias's name, then suffix) */
     char *suffix;
     char *thumbnail;    /* a texture link (NULL: the alias's picture) */
+    char *world;        /* a track's own world archive (NULL: the alias's level's) */
     s8 reserved;        /* a number kept for content that isn't there (ids.lock):
                          * no id to save by, locked, base entry 0's data */
 } Registered;
@@ -214,6 +216,16 @@ int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, co
     return 1;
 }
 
+const char *Port_ContentWorld(int kind, u32 i) {
+    Kind *k = KindOf(kind);
+    u32 b;
+
+    if (k == NULL || i >= CountOf(k) || i < (b = BaseOf(k)) || k->reg[i - b].reserved) {
+        return NULL;
+    }
+    return k->reg[i - b].world;
+}
+
 /* ---- setting up -------------------------------------------------------- */
 
 void Port_ContentSetBaseCount(int kind, u32 n) {
@@ -306,6 +318,7 @@ s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     r->name = Dup(e->name);
     r->suffix = Dup(e->suffix);
     r->thumbnail = Dup(e->thumbnail);
+    r->world = Dup(e->world);
     r->reserved = e->reserved;
     Grow(k);
     return (s32)(CountOf(k) - 1);
@@ -323,6 +336,7 @@ void Port_ContentReset(void) {
             SDL_free(k->reg[j].name);
             SDL_free(k->reg[j].suffix);
             SDL_free(k->reg[j].thumbnail);
+            SDL_free(k->reg[j].world);
         }
         SDL_free(k->reg);
         SDL_free(k->live);
@@ -658,6 +672,7 @@ int Port_ContentLoadLock(const char *path) {
             pe.name = Str(x->node, "name");
             pe.suffix = Str(x->node, "suffix");
             pe.thumbnail = Str(x->node, "thumbnail");
+            pe.world = Str(x->node, "world");
             /* away, or data of its own (no mod loading yet): its number kept */
             pe.reserved = !x->active || x->alias < 0;
             if (Port_ContentRegisterEntry(i, &pe) >= 0) {
@@ -673,4 +688,55 @@ int Port_ContentLoadLock(const char *path) {
     }
     Json_Free(root);
     return registered;
+}
+
+/* ---- online: choices by id --------------------------------------------- */
+
+/* One of this game's cars or items, else the first car or no item (-1). */
+static s32 Clamp(int kind, s32 v) {
+    if (v >= 0 && (u32)v < Port_ContentCount(kind)) {
+        return v;
+    }
+    return kind == PORT_CONTENT_CAR ? 0 : -1;
+}
+
+/* A choice on the wire: a number, then the length of an id and the id.
+ * Base content (numbered by its packs) has the same number on every
+ * machine: no id. Registered content (ids.lock, mods) is numbered per
+ * machine, so it goes by id, with the base entry whose data it uses as the
+ * number: a machine without it shows that one instead. */
+void Port_ContentWriteChoice(NetWriter *w, int kind, s32 n) {
+    char id[64];
+    s32 stand;
+    size_t len;
+
+    if (n < 0 || (u32)n < Port_ContentBaseCount(kind) || !Port_ContentIdOf(kind, (u32)n, id, sizeof(id))) {
+        NetWriter_U32(w, (u32)n);
+        NetWriter_U8(w, 0);
+        return;
+    }
+    stand = Port_ContentDataOf(kind, (u32)n);
+    len = SDL_strlen(id);
+    NetWriter_U32(w, (u32)(stand >= 0 ? stand : 0));
+    NetWriter_U8(w, (u8)len);
+    NetWriter_Bytes(w, id, (u32)len);
+}
+
+s32 Port_ContentReadChoice(NetReader *r, int kind) {
+    s32 n = (s32)NetReader_U32(r);
+    u32 len = NetReader_U8(r), index;
+    const u8 *bytes = len > 0 ? NetReader_Take(r, len) : NULL;
+    char id[256];
+
+    if (bytes == NULL) {
+        return Clamp(kind, n);
+    }
+    SDL_memcpy(id, bytes, len);
+    id[len] = 0;
+    if (Port_ContentIndexOf(kind, id, &index)) {
+        return (s32)index;
+    }
+    Port_Log("content: another player's %s %s isn't here; %d stands in", kind == PORT_CONTENT_CAR ? "car" : "item", id,
+             (int)Clamp(kind, n));
+    return Clamp(kind, n);
 }

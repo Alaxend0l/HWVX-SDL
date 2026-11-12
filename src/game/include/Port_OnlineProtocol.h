@@ -15,8 +15,8 @@
 enum {
     MSG_SETUP = 1,              /* host: u8 progression, u16 level, u8 ports in, the settings */
     MSG_ABORT,                  /* host: left the car select */
-    MSG_CARS,                   /* client: s32 vehicle, s32 item */
-    MSG_START,                  /* host: u8 ports in, u32 seed, then s32 vehicle, s32 item per port */
+    MSG_CARS,                   /* client: the car, then the item (Port_ContentWriteChoice) */
+    MSG_START,                  /* host: u8 ports in, u32 seed, then the car and the item per port */
     MSG_READY,                  /* client: u32 stage: held, waiting for go */
     MSG_GO,                     /* host: u32 stage */
     MSG_FINISH,                 /* client: u32 stage, u32 ms since go: its car finished */

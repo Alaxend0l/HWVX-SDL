@@ -2,6 +2,10 @@
  * window, renderer and game arena, then runs the game's Main_Init/Main_Loop. */
 #include "gx_render.h"
 #include "disc.h"
+#include "Port_Mix.h"
+#include "xdl.h"
+#include "../game/include/Port_Convert.h"
+#include "../game/include/Port_Mods.h"
 
 #include <SDL3/SDL_main.h>
 
@@ -96,10 +100,15 @@ static int ParseVSync(const char *s) {
     return -1;
 }
 
+/* --mix / --mix-build (or HWVX_MIX, HWVX_MIX_BUILD): a mixed build's recipe (mix.c). */
+static const char *s_mixRecipe;
+static int s_mixBuild;
+
 static void ParseArgs(int argc, char **argv) {
     int i, v, haveSize = 0, haveVSync = 0, haveFps = 0, haveDisplay = 0;
 
     g_port.dataDir = NULL;   /* FindDataDir */
+    g_port.program = argc > 0 ? argv[0] : NULL;
     /* the hwvx-launcher copy (CMakeLists.txt) opens the launcher, like --launcher */
     if (argc > 0 && argv[0] != NULL) {
         const char *name = argv[0], *sep;
@@ -149,8 +158,21 @@ static void ParseArgs(int argc, char **argv) {
             g_port.maxFps = v;
             haveFps = 1;
             i++;
+        } else if ((SDL_strcmp(argv[i], "--mix") == 0 || SDL_strcmp(argv[i], "--mix-build") == 0) && i + 1 < argc) {
+            s_mixBuild = argv[i][5] != 0;
+            s_mixRecipe = argv[++i];
         } else if (SDL_strcmp(argv[i], "--launcher") == 0) {
             g_port.launcher = 1;
+        } else if (SDL_strcmp(argv[i], "--convert-xdl") == 0 && i + 1 < argc) {
+            g_port.convertDir = argv[++i];
+        } else if (SDL_strcmp(argv[i], "--install-mod") == 0 && i + 1 < argc) {
+            char err[256];   /* a .hwmod into the mods folder (Port_Mods.c), then exit */
+
+            if (!Port_ModsInstall(argv[++i], err, sizeof(err))) {
+                SDL_Log("%s: %s", argv[i], err);
+                exit(1);
+            }
+            exit(0);
         } else if (SDL_strcmp(argv[i], "--reset-save") == 0) {
             g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
@@ -171,11 +193,26 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("                   one that fails to start falls back to opengl)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
             SDL_Log("  --launcher       open the launcher (game data, releases) instead of booting");
+            SDL_Log("  --mix RECIPE     play a mixed build: one game from the releases you imported,");
+            SDL_Log("                   by a recipe (\"ultimate\", or a .jsonc file)");
+            SDL_Log("  --mix-build RECIPE  convert all of its packs into the cache, then quit");
+            SDL_Log("  --convert-xdl DIR  convert every pack of --data PATH to the .xdl cache in DIR");
+            SDL_Log("                   and exit (what the launcher's Convert page runs)");
+            SDL_Log("  --install-mod FILE  unpack a .hwmod package into the mods folder and exit");
             exit(1);
         }
     }
     if (g_port.scale < 1) {
         g_port.scale = 1;
+    }
+    if (s_mixRecipe == NULL) {
+        const char *env = SDL_getenv("HWVX_MIX_BUILD");
+
+        s_mixBuild = env != NULL && *env;
+        s_mixRecipe = s_mixBuild ? env : SDL_getenv("HWVX_MIX");
+        if (s_mixRecipe != NULL && *s_mixRecipe == 0) {
+            s_mixRecipe = NULL;
+        }
     }
     Port_GfxLoadConfig(haveSize, haveDisplay || g_port.fullscreen, haveVSync, haveFps);
 }
@@ -375,6 +412,23 @@ static void FindDataDir(void) {
     char searched[2048] = "";
     char *dir;
 
+    if (s_mixRecipe != NULL) {
+        /* a mixed build: the releases come from the recipe and sources.cfg
+         * (mix.c); the data folder is the one the menus come from, or the
+         * GameCube's disc image */
+        char err[512];
+        int rel;
+
+        if (!Port_MixSetup(s_mixRecipe, s_mixBuild, DataIn, err, sizeof(err))) {
+            Port_Fatal("Mixed build: %s", err);
+        }
+        rel = Disc_IsOpen() ? PORT_DATA_GC : Port_MixCandidate("HW_IPack.xgc", 0);
+        if (rel < 0) {
+            Port_Fatal("Mixed build: none of the recipe's releases is imported");
+        }
+        g_port.dataDir = Port_MixRoot(rel);
+        return;
+    }
     if (g_port.dataDir != NULL) {   /* --data */
         s_imageError[0] = 0;
         if ((dir = DataIn(g_port.dataDir)) == NULL) {
@@ -440,6 +494,10 @@ static void FindDataDir(void) {
 
 int Port_TryCreateWindow(SDL_WindowFlags flags) {
     flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    if (g_port.convertDir != NULL) {
+        flags |= SDL_WINDOW_HIDDEN;     /* converting: nothing is shown */
+        g_port.fullscreen = 0;
+    }
     if (g_port.fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN;
     }
@@ -539,12 +597,25 @@ void GetSystemDate(s32 *year, s32 *month, s32 *day, s32 *hour, s32 *minute) {
 
 /* ---- main -------------------------------------------------------------- */
 
+static const char *s_convertSource;
+
 int main(int argc, char **argv) {
     ParseArgs(argc, argv);
+    if (g_port.convertDir != NULL) {
+        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");  /* the converter shows nothing: no Dock icon either */
+    }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         Port_Fatal("SDL_Init failed: %s", SDL_GetError());
     }
-    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {  /* no sound is not fatal (ax.c runs silently) */
+    if (g_port.convertDir != NULL) {
+        /* the converter (game/Port_Convert.c): the data given, the cache written there */
+        if (g_port.dataDir == NULL) {
+            Port_Fatal("--convert-xdl needs --data PATH");
+        }
+        s_convertSource = g_port.dataDir;
+        Xdl_Use(g_port.convertDir, 0, 1);
+        Port_ConvertBegin();
+    } else if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {  /* no sound is not fatal (ax.c runs silently) */
         Port_Log("audio: %s", SDL_GetError());
     }
     FindDataDir();
@@ -570,6 +641,23 @@ int main(int argc, char **argv) {
 
     if (!Main_Init()) {
         Port_Fatal("Main_Init failed");
+    }
+    if (Port_MixBuilding()) {
+        /* --mix-build: every pack through the loader into the cache, then out */
+        u32 n = PortMix_BuildAll();
+
+        Port_MixManifestClose();
+        Port_Log("mix: %u packs converted for %s", (unsigned)n, Port_MixName());
+        exit(n != 0 ? 0 : 1);
+    }
+    if (g_port.convertDir != NULL) {
+        int failed = Disc_IsOpen() ? 1 : Port_ConvertRun(g_port.dataDir, s_convertSource, g_port.convertDir);
+
+        if (Disc_IsOpen()) {
+            printf("@error a disc image is not converted: extract its files\n");
+        }
+        fflush(stdout);
+        _Exit(failed);      /* nothing of the game to shut down */
     }
     m_ilpreset_803C7620 = 0;
     m_reset = 0;

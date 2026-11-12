@@ -50,6 +50,7 @@
  * closes, so stepping through modes doesn't switch the display each time. The
  * two bars take effect at once, to judge them by, and are saved with the rest. */
 #include "port_internal.h"
+#include "Port_Mix.h"
 
 #define MAX_MODES 48
 
@@ -108,6 +109,11 @@ int Port_PCTexturesLookGC(void) {
     static int env = -2;
     int pc = EnvIs(&env, "HWVX_PC_TEXTURES", "pc");
 
+    if (Port_MixActive()) {
+        /* a mixed build is made for one look: its PC and PS2 texels must
+         * agree with its GameCube ones (mix.c, the recipe's "look") */
+        return Port_MixLookGC();
+    }
     return pc >= 0 ? !pc : !g_port.pcTexturesPC;
 }
 

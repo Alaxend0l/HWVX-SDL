@@ -4,7 +4,8 @@
  *   HWVX_START=menu:mode=M          the screen M's One Player row opens: the
  *                                   mission (adventure), challenge or joyride
  *                                   select, the drag race or battle options
- *   HWVX_START=worldselect:mode=M   M's world (track) select, past its options
+ *   HWVX_START=worldselect:mode=M[,world=W]   M's world (track) select, past its
+ *                                   options, opened at world W
  *   HWVX_START=carselect[:mode=M][,car=N][,world=W]   M's car select
  *   HWVX_START=itemselect[:mode=M][,car=N][,item=I]   the item select
  *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I]  a race
@@ -144,20 +145,23 @@ static void Find(s32 p, Found *f) {
         for (i = 0; objs != NULL && i < h->numObjects && f->worldSelect == NULL; i++) {
             const IfaceRecord *r = GETP(objs[i].record);
             const InterfaceHeader *go = NULL;
-            int picks = 0;
+            int picks = 0, starts = 0;
 
             for (j = 0; r != NULL && j < r->events.count && GETP(r->events.events) != NULL; j++) {
                 const IfaceEventDef *d = GETP(GETP(r->events.events)[j].def);
 
                 if (d != NULL && d->type == 1) {
                     go = (const InterfaceHeader *)GETP(d->target);
-                } else if (d != NULL && d->type == 0xF && GETP(d->args) != NULL) {
+                } else if (d != NULL && (d->type == 0xF || d->type == 6) && GETP(d->args) != NULL) {
+                    /* (6: the mission select's, which starts the level at once) */
                     const IfaceVarValue *a = GETP(((const PTR32(IfaceVarValue) *)GETP(d->args))[0]);
+                    const IfaceVarValue *b = GETP(((const PTR32(IfaceVarValue) *)GETP(d->args))[1]);
 
-                    picks |= a != NULL && !a->isVar && a->value == p;
+                    picks |= a != NULL && !a->isVar && a->value == p && b != NULL && b->isVar;
+                    starts |= picks && d->type == 6;
                 }
             }
-            if (picks && go != NULL) {
+            if (picks && (go != NULL || starts)) {
                 f->worldSelect = h;
                 f->carSelect = go;
             }
@@ -414,7 +418,17 @@ static int StartTitle(void *script) {
     }
     p = s_modes[m].progression;
     WalkAll(script);
+    Port_ContentLearnTracks(script);   /* the registered tracks' levels, before a world is looked up */
     Find(p, &f);
+    /* a car or item there isn't has no pack: the game would go on without a car */
+    if (car < 0 || (u32)car >= Port_ContentCount(PORT_CONTENT_CAR)) {
+        Port_Log("start: no car %d (0..%u); car 0", (int)car, (unsigned)Port_ContentCount(PORT_CONTENT_CAR) - 1);
+        car = 0;
+    }
+    if (item < 0 || (u32)item >= Port_ContentCount(PORT_CONTENT_ITEM)) {
+        Port_Log("start: no item %d (0..%u); item 0", (int)item, (unsigned)Port_ContentCount(PORT_CONTENT_ITEM) - 1);
+        item = 0;
+    }
     if ((w = WorldIndex(p, world)) < 0) {
         Port_Log("start: progression %d has no world %s; HWVX_START ignored", (int)p, world);
         return 0;
@@ -441,7 +455,10 @@ static int StartTitle(void *script) {
             Port_Log("start: %s has no world select in the menus; HWVX_START ignored", modeName);
             return 0;
         }
-        Port_Log("start: worldselect, %s (progression %d)", modeName, (int)p);
+        Port_Log("start: worldselect, %s (progression %d) at world %d", modeName, (int)p, (int)w);
+        if (SDL_strcmp(world, "0") != 0) {
+            Port_ContentTrackSelectAt((InterfaceHeader *)f.worldSelect, w);
+        }
         InterfaceManager_Create((InterfaceHeader *)f.worldSelect, 0, TitleScreen_Interface);
         return 1;
     }

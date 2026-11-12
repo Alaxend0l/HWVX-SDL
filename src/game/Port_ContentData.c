@@ -42,6 +42,7 @@
  * numbered past HW_Cars' highest pack. */
 #include <SDL3/SDL.h>
 #include "common.h"
+#include "Port_Mods.h"
 #include "Interface.h"
 #include "Port_Content.h"
 #include "Port_Swap.h"
@@ -146,6 +147,10 @@ static void LoadIdsLock(void) {
     } else if ((pref = Port_PrefPath()) != NULL) {
         SDL_asprintf(&path, "%sids.lock", pref);
     }
+    if (path != NULL) {
+        Port_ModsInit();
+        Port_ModsSyncLock(path);   /* the enabled mods' cars and items */
+    }
     if (path != NULL && (n = Port_ContentLoadLock(path)) > 0) {
         Port_Log("content: %d entries from %s", n, path);
     }
@@ -184,6 +189,60 @@ static void TestExtra(int kind, const char *env, const char *what, s32 first, co
     }
 }
 
+/* HWVX_TEST_EXTRA_TRACKS=N: N extra tracks, each a level of its own after
+ * its mode's, loading the world of a base track: the first of each family in
+ * turn (Challenge 1, Joyride's first world, the first battle, drag race and
+ * mission: tracks 39, 0, 19, 29, 5), or the ones listed
+ * (HWVX_TEST_EXTRA_TRACKS=alias=40,41,6). Locked in a new game
+ * (HWVX_TEST_UNLOCK_TRACKS=57,58), named after the alias with " (test)";
+ * HWVX_TEST_EXTRA_TRACK_THUMB a texture link for their pictures,
+ * HWVX_TEST_EXTRA_TRACK_WORLD another world archive for them to load. */
+static void TestExtraTracks(void) {
+    static const s32 first[] = { 39, 0, 19, 29, 5 };
+    const char *e = SDL_getenv("HWVX_TEST_EXTRA_TRACKS"), *list = NULL;
+    u32 base = Port_ContentCount(PORT_CONTENT_TRACK);
+    int n, k;
+
+    if (e == NULL) {
+        return;
+    }
+    if (SDL_strncmp(e, "alias=", 6) == 0) {
+        list = e + 6;
+        n = 64;
+    } else if ((n = SDL_atoi(e)) <= 0) {
+        return;
+    }
+    for (k = 0; k < n && k < 64; k++) {
+        PortContentEntry entry;
+        char id[64];
+        s32 alias = first[k % SDL_arraysize(first)] + k / (s32)SDL_arraysize(first), i;
+
+        if (list != NULL) {
+            char *end;
+
+            alias = (s32)SDL_strtol(list, &end, 10);
+            if (end == list) {
+                break;
+            }
+            list = *end == ',' ? end + 1 : end;
+        }
+        if (alias < 0 || (u32)alias >= base) {
+            Port_Log("content: test: no track %d to alias", (int)alias);
+            continue;
+        }
+        SDL_snprintf(id, sizeof(id), "uid://hwvx-test-extra-track-%d", k);
+        SDL_zero(entry);
+        entry.number = -1;
+        entry.id = id;
+        entry.alias = alias;
+        entry.suffix = " (test)";
+        entry.thumbnail = SDL_getenv("HWVX_TEST_EXTRA_TRACK_THUMB");
+        entry.world = SDL_getenv("HWVX_TEST_EXTRA_TRACK_WORLD");
+        i = Port_ContentRegisterEntry(PORT_CONTENT_TRACK, &entry);
+        Port_Log("content: test: track %d is %s, the level of track %d", (int)i, id, (int)alias);
+    }
+}
+
 void Port_ContentInit(void) {
     static s8 done;
     MCP *mcp;
@@ -214,6 +273,7 @@ void Port_ContentInit(void) {
     LoadIdsLock();
     TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3, "HWVX_TEST_EXTRA_CAR_THUMB");
     TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0, "HWVX_TEST_EXTRA_ITEM_THUMB");
+    TestExtraTracks();
     for (j = Port_ContentRetailCount(PORT_CONTENT_CAR); j < Port_ContentCount(PORT_CONTENT_CAR); j++) {
         if (Has(&s_archives[0], j) && Port_ContentDataOf(PORT_CONTENT_CAR, j) != (s32)j) {
             Port_Log("content: %s has a pack %u of its own; car %u loads that, not its own data", s_archives[0].name,
@@ -294,8 +354,25 @@ void Port_ContentFixScripts(void *dataPack, const char *name, u32 type, u32 id) 
  * paragraph. Copies are shared by content and kept for the run (a pack loaded
  * again has the same lists, at most a few distinct ones per release). */
 
-#define MAX_EXT 48
+/* Which registered entries a list gets, and where: `n` of them from list
+ * index `first` on, entry k the registry's number[k] (NULL: first + k, the
+ * cars and items, whose lists are indexed by number); an alias's own entry
+ * in the list is at its number - aliasBase (a world select's pictures are
+ * indexed by level: the alias's number less its family's first). */
+typedef struct ExtMap {
+    int kind;
+    u32 first;
+    u32 n;
+    const u32 *number;
+    s32 aliasBase;
+} ExtMap;
+
+enum { EXT_PICTURES, EXT_NAMES, EXT_PARAGRAPHS, EXT_PICTURES_ALIAS /* never the thumbnail */ };
+
 typedef struct ExtList {
+    int what, kind;
+    u32 first, n;
+    u32 *number;        /* [n] */
     u32 origCount;
     u32 *orig;          /* the pack's: texture ids, or string table handles */
     u32 count;
@@ -304,8 +381,10 @@ typedef struct ExtList {
     u32 *slots;         /* their string tables, a slot each and a NULL */
 } ExtList;
 
-static ExtList s_ext[MAX_EXT];
-static u32 s_numExt;
+/* As many as the screens need (a few per select screen and load address of
+ * the menu pack), each kept for the run. */
+static ExtList **s_ext;
+static u32 s_numExt, s_capExt;
 static u32 s_blankSlots[2];
 static char s_blank[] = " ";
 
@@ -366,62 +445,94 @@ static int IsExt(const u32 *items) {
     u32 i;
 
     for (i = 0; i < s_numExt; i++) {
-        if (s_ext[i].items == items) {
+        if (s_ext[i]->items == items) {
             return 1;
         }
     }
     return 0;
 }
 
-/* The list `orig` (origCount long) of a kind, as long as its count. what: 0
- * pictures, 1 names, 2 paragraphs. NULL if nothing changes, or no room. */
-static const ExtList *Extend(int kind, int what, const u32 *orig, u32 origCount) {
-    u32 base = Port_ContentBaseCount(kind), count = Port_ContentCount(kind), i, j, k, size;
-    ExtList *x;
-    char *str;
+static u32 NumberOf(const ExtMap *m, u32 k) {
+    return m->number != NULL ? m->number[k] : m->first + k;
+}
 
-    if (base >= count || origCount == 0 || orig == NULL || IsExt(orig)) {
-        return NULL;
-    }
-    for (i = 0; i < s_numExt; i++) {
-        x = &s_ext[i];
-        if (x->origCount == origCount && x->count == (count > origCount ? count : origCount) &&
-            SDL_memcmp(x->orig, orig, origCount * sizeof(u32)) == 0 && (x->strings != NULL) == (what == 1)) {
-            return x;
-        }
-    }
-    if (s_numExt >= MAX_EXT) {
-        Port_Log("content: more than %d lists to extend; the rest show their last entry", MAX_EXT);
-        return NULL;
-    }
-    x = &s_ext[s_numExt];
-    SDL_zerop(x);
-    x->origCount = origCount;
-    x->count = count > origCount ? count : origCount;
-    x->orig = SDL_malloc(origCount * sizeof(u32));
-    x->items = SDL_malloc(x->count * sizeof(u32));
-    if (what == 1) {
-        x->slots = SDL_calloc((count - base) * 2, sizeof(u32));
-    }
-    if (x->orig == NULL || x->items == NULL || (what == 1 && x->slots == NULL)) {
+static void FreeExt(ExtList *x) {
+    if (x != NULL) {
+        SDL_free(x->number);
         SDL_free(x->orig);
         SDL_free(x->items);
         SDL_free(x->slots);
+        SDL_free(x->strings);
+        SDL_free(x);
+    }
+}
+
+/* The list `orig` (origCount long) with the map's entries in it: as long
+ * as it has to be. NULL if nothing changes, or no memory. */
+static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 origCount) {
+    u32 count = m->first + m->n > origCount ? m->first + m->n : origCount, i, j, k, pass, size;
+    ExtList *x;
+    char *str;
+
+    if (m->n == 0 || origCount == 0 || orig == NULL || IsExt(orig)) {
         return NULL;
+    }
+    for (i = 0; i < s_numExt; i++) {
+        x = s_ext[i];
+        if (x->what != what || x->kind != m->kind || x->first != m->first || x->n != m->n ||
+            x->origCount != origCount || SDL_memcmp(x->orig, orig, origCount * sizeof(u32)) != 0) {
+            continue;
+        }
+        for (k = 0; k < m->n && x->number[k] == NumberOf(m, k); k++) {
+        }
+        if (k == m->n) {
+            return x;
+        }
+    }
+    if (s_numExt == s_capExt) {
+        ExtList **p = SDL_realloc(s_ext, (s_capExt + 16) * sizeof(*p));
+
+        if (p == NULL) {
+            return NULL;
+        }
+        s_ext = p;
+        s_capExt += 16;
+    }
+    if ((x = SDL_calloc(1, sizeof(*x))) == NULL) {
+        return NULL;
+    }
+    x->what = what;
+    x->kind = m->kind;
+    x->first = m->first;
+    x->n = m->n;
+    x->origCount = origCount;
+    x->count = count;
+    x->number = SDL_malloc(m->n * sizeof(u32));
+    x->orig = SDL_malloc(origCount * sizeof(u32));
+    x->items = SDL_malloc(count * sizeof(u32));
+    if (what == EXT_NAMES) {
+        x->slots = SDL_calloc(m->n * 2, sizeof(u32));
+    }
+    if (x->number == NULL || x->orig == NULL || x->items == NULL || (what == EXT_NAMES && x->slots == NULL)) {
+        FreeExt(x);
+        return NULL;
+    }
+    for (k = 0; k < m->n; k++) {
+        x->number[k] = NumberOf(m, k);
     }
     SDL_memcpy(x->orig, orig, origCount * sizeof(u32));
     SDL_memcpy(x->items, orig, origCount * sizeof(u32));
-    for (i = origCount; i < x->count; i++) {
+    for (i = origCount; i < count; i++) {
         x->items[i] = orig[origCount - 1];
     }
     /* names: the strings first, so the tables can point into one block */
-    for (k = 0; k < 2 && what == 1; k++) {
+    for (pass = 0; pass < 2 && what == EXT_NAMES; pass++) {
         size = 0;
-        for (i = base; i < count; i++) {
+        for (k = 0; k < m->n; k++) {
             const char *name, *suffix, *thumb, *aliasName;
-            s32 alias = Port_ContentDataOf(kind, i);
-
-            int look = Port_ContentLook(kind, i, &name, &suffix, &thumb);
+            u32 num = x->number[k];
+            s32 alias = Port_ContentDataOf(m->kind, num) - m->aliasBase;
+            int look = Port_ContentLook(m->kind, num, &name, &suffix, &thumb);
 
             if (look == 0) {
                 name = suffix = NULL;
@@ -434,52 +545,61 @@ static const ExtList *Extend(int kind, int what, const u32 *orig, u32 origCount)
             } else {
                 suffix = NULL;
             }
-            if (k == 1) {
+            if (pass == 1) {
                 str = x->strings + size;
                 SDL_snprintf(str, SDL_strlen(name) + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
                              suffix != NULL ? suffix : "");
-                j = (i - base) * 2;
+                j = k * 2;
                 x->slots[j] = HND(str);
                 x->slots[j + 1] = 0;
-                x->items[i] = HND(&x->slots[j]);
+                x->items[m->first + k] = HND(&x->slots[j]);
             }
             size += (u32)(SDL_strlen(name) + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1);
         }
-        if (k == 0 && (x->strings = SDL_malloc(size)) == NULL) {
-            SDL_free(x->orig);
-            SDL_free(x->items);
-            SDL_free(x->slots);
+        if (pass == 0 && (x->strings = SDL_malloc(size)) == NULL) {
+            FreeExt(x);
             return NULL;
         }
     }
-    for (i = base; i < count && what != 1; i++) {
+    for (k = 0; k < m->n && what != EXT_NAMES; k++) {
         const char *name, *suffix, *thumb = NULL;
-        s32 alias = Port_ContentDataOf(kind, i), tex;
+        u32 num = x->number[k];
+        s32 alias = Port_ContentDataOf(m->kind, num) - m->aliasBase, tex;
 
-        if (what == 2) {
+        i = m->first + k;
+        if (what == EXT_PARAGRAPHS) {
             if (s_blankSlots[0] == 0) {
                 s_blankSlots[0] = HND(s_blank);
             }
             x->items[i] = HND(s_blankSlots);
             continue;
         }
-        if (Port_ContentLook(kind, i, &name, &suffix, &thumb) == 2) {
+        if (Port_ContentLook(m->kind, num, &name, &suffix, &thumb) == 2) {
             x->items[i] = orig[origCount - 1];   /* reserved: the list's own last ("?") */
-        } else if ((tex = TextureOfLink(thumb)) >= 0) {
+        } else if (what == EXT_PICTURES && (tex = TextureOfLink(thumb)) >= 0) {
             x->items[i] = (u32)tex;
         } else {
-            if (thumb != NULL) {
-                Port_Log("content: %u's thumbnail %s: no such texture loaded; the alias's picture", (unsigned)i, thumb);
+            if (thumb != NULL && what == EXT_PICTURES) {
+                Port_Log("content: %u's thumbnail %s: no such texture loaded; the alias's picture", (unsigned)num, thumb);
             }
             x->items[i] = alias >= 0 && (u32)alias < origCount ? orig[alias] : orig[origCount - 1];
         }
     }
-    s_numExt++;
+    s_ext[s_numExt++] = x;
     return x;
 }
 
-/* Lists in h numbered by a variable of `vars` (a bit per variable index). */
-static void ExtendLists(InterfaceHeader *h, int kind, const u8 *vars, u32 numVars) {
+static int InVars(const u8 *vars, u32 numVars, u32 var) {
+    return var < numVars && (vars[var / 8] >> (var % 8) & 1);
+}
+
+/* The lists of h numbered by a variable: picture lists by one of picVars
+ * get `pics`' entries, name and paragraph lists by one of textVars
+ * `texts`'. windows: only the pictures of objects shown on a condition (a
+ * carousel's windows) take a thumbnail, the others the alias's picture.
+ * 1 if any list changed. */
+static int ExtendLists(InterfaceHeader *h, const ExtMap *pics, const u8 *picVars, const ExtMap *texts,
+                       const u8 *textVars, u32 numVars, int windows) {
     IfaceObjectDef *objs = GETP(h->objects);
     const ExtList *x;
     u32 i, j, old;
@@ -491,8 +611,9 @@ static void ExtendLists(InterfaceHeader *h, int kind, const u8 *vars, u32 numVar
         if (d->type == IFACE_DEF_IMAGE && GETP(d->sub) != NULL && ((IfaceImageDef *)GETP(d->sub))->type == 3) {
             IfaceTexAnim *ta = GETP(((IfaceImageDef *)GETP(d->sub))->anim);
 
-            if (ta == NULL || !ta->fromVar || ta->var >= numVars || !(vars[ta->var / 8] >> (ta->var % 8) & 1) ||
-                (x = Extend(kind, 0, GETP(ta->anim.keys), ta->anim.numKeys)) == NULL) {
+            if (ta == NULL || !ta->fromVar || !InVars(picVars, numVars, ta->var) ||
+                (x = Extend(pics, windows && GETP(d->conditions) == NULL ? EXT_PICTURES_ALIAS : EXT_PICTURES,
+                            GETP(ta->anim.keys), ta->anim.numKeys)) == NULL) {
                 continue;
             }
             /* every image showing this list, the ones playing it too (the
@@ -512,8 +633,8 @@ static void ExtendLists(InterfaceHeader *h, int kind, const u8 *vars, u32 numVar
             IfaceText *t = GETP(d->sub);
             IfaceStringList *l = GETP(t->list);
 
-            if (l == NULL || !l->fromVar || l->var >= numVars || !(vars[l->var / 8] >> (l->var % 8) & 1) ||
-                (x = Extend(kind, t->paragraph ? 2 : 1, GETP(l->texts), l->count)) == NULL) {
+            if (l == NULL || !l->fromVar || !InVars(textVars, numVars, l->var) ||
+                (x = Extend(texts, t->paragraph ? EXT_PARAGRAPHS : EXT_NAMES, GETP(l->texts), l->count)) == NULL) {
                 continue;
             }
             SETP(l->texts, x->items);
@@ -521,11 +642,7 @@ static void ExtendLists(InterfaceHeader *h, int kind, const u8 *vars, u32 numVar
             changed = 1;
         }
     }
-    if (changed) {
-        Port_Log("content: interface %u: the %s lists name and picture %u entries", h->id,
-                 kind == PORT_CONTENT_CAR ? "car" : kind == PORT_CONTENT_TRACK ? "track" : "item",
-                 (unsigned)Port_ContentCount(kind));
-    }
+    return changed;
 }
 
 /* ---- the menus' ranges ------------------------------------------------- */
@@ -548,7 +665,9 @@ static int TestsUnlockByVar(const InterfaceHeader *h, s32 code) {
             const IfaceCondition *c = &GETP(cl->conds)[j];
             const IfaceCodeVar *cv = c->type == 2 ? GETP(c->data) : NULL;
 
-            if (cv != NULL && (s32)cv->id == code && GETP(cv->arg) != NULL && GETP(cv->arg)->isVar) {
+            /* (a world select's padlocks, patched: PORT_CODEVAR_TRACK) */
+            if (cv != NULL && ((s32)cv->id == code || (code == 0x65 && PORT_IS_TRACK_CODEVAR((s32)cv->id))) &&
+                GETP(cv->arg) != NULL && GETP(cv->arg)->isVar) {
                 return 1;
             }
         }
@@ -628,6 +747,8 @@ static void Rebase(InterfaceHeader *h, const u8 *wide, u32 retail, u32 count) {
  * variable reads a player's choice (the results screens' car names). With
  * the retail counts nothing changes. The pack's own definitions are changed
  * in place: a later load of the pack is a fresh copy. */
+static void PatchTrackSelect(InterfaceHeader *h);
+
 void Port_ContentPatchInterface(InterfaceHeader *h) {
     IfaceVarList *vl;
     int kind;
@@ -645,6 +766,16 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
             TestUnlock(kind);
         }
         if (count == retail) {
+            continue;
+        }
+        if (kind == PORT_CONTENT_TRACK) {
+            /* tracks aren't numbered in a row: a mode's world select lists its
+             * family and the registered tracks of it (below) */
+            Port_ContentLearnTracks(h);
+            PatchTrackSelect(h);
+            if (!indexed && TestsUnlockByVar(h, s_unlockVar[kind])) {
+                TestUnlock(kind);   /* (only the patched select tests it by variable) */
+            }
             continue;
         }
         SDL_zeroa(vars);
@@ -673,7 +804,457 @@ void Port_ContentPatchInterface(InterfaceHeader *h) {
             Rebase(h, wide, retail, count);
         }
         if (any && count > Port_ContentBaseCount(kind)) {
-            ExtendLists(h, kind, vars, vl->count < 256 ? vl->count : 256);
+            ExtMap map = { kind, Port_ContentBaseCount(kind), count - Port_ContentBaseCount(kind), NULL, 0 };
+
+            if (ExtendLists(h, &map, vars, &map, vars, vl->count < 256 ? vl->count : 256, 0)) {
+                Port_Log("content: interface %u: the %s lists name and picture %u entries", h->id,
+                         kind == PORT_CONTENT_CAR ? "car" : "item", (unsigned)count);
+            }
         }
     }
+}
+
+/* ---- tracks -------------------------------------------------------------- */
+
+/* A mode's world select is a carousel over two parallel sets of variables:
+ * the level of the mode's progression script (0..levels-1: the pictures, and
+ * what the A press's event starts: type 0xF, or 6 on the mission select,
+ * with the script's number and the level variable) and the track number of
+ * that level in the mode's family (first..last: the names and unlock
+ * paragraphs, one list for every select, and the padlocks, code variable
+ * 0x65 of the track variable). So the screens say which track numbers a
+ * script's levels are, and that is read from them, not kept here: the
+ * families differ by release.
+ *
+ * A registered track aliases a base one. It becomes a level of every script
+ * whose family its alias is in, after the script's own: a copy of the
+ * alias's level (loading screen, steps, win and lose sequences) with its own
+ * world archive if it names one. The MCP's script is replaced by the longer
+ * copy, so everything that reads a script's levels (the progression manager,
+ * HWVX_START, online, the multi-player screens) has them. In the select its
+ * level variable ranges over the longer script and its track variable over
+ * first..last + extras; the entries past `last` aren't track numbers (a
+ * family's next number is another family's), so the padlocks' code variable
+ * becomes PORT_CODEVAR_TRACK + script, which maps the select's entry to the
+ * track (Port_ContentTrackAt), and the screen gets its own name and
+ * paragraph lists with the registered tracks after `last`. */
+
+#define MAX_PROG 64
+
+typedef struct Family {
+    s8 known;
+    s32 first, last;        /* the track numbers of the script's own levels */
+    u32 levels;             /* the script's own */
+    u32 numExtra;
+    u32 *extra;             /* the registered tracks, in level order */
+} Family;
+
+static Family s_family[MAX_PROG];
+
+typedef struct TrackSelect {
+    u32 prog;
+    u32 lvar, tvar;         /* the middle window's level and track variables */
+} TrackSelect;
+
+/* Is h a world select: a row whose A event starts a level of a script by a
+ * variable, shown while the track of another variable is unlocked. */
+static int FindTrackSelect(const InterfaceHeader *h, TrackSelect *ts) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    const IfaceVarList *vl = GETP(h->vars);
+    u32 i, j;
+
+    for (i = 0; objs != NULL && vl != NULL && i < h->numObjects; i++) {
+        const IfaceRecord *r = GETP(objs[i].record);
+        const IfaceConditionList *cl = GETP(objs[i].conditions);
+        s32 prog = -1, lvar = -1, tvar = -1;
+
+        for (j = 0; r != NULL && j < r->events.count && GETP(r->events.events) != NULL; j++) {
+            const IfaceEventDef *d = GETP(GETP(r->events.events)[j].def);
+            const PTR32(IfaceVarValue) *slots = d != NULL && (d->type == 0xF || d->type == 6) ? GETP(d->args) : NULL;
+            const IfaceVarValue *a = slots != NULL ? GETP(slots[0]) : NULL, *b = slots != NULL ? GETP(slots[1]) : NULL;
+
+            if (a != NULL && b != NULL && !a->isVar && b->isVar) {
+                prog = a->value;
+                lvar = b->value;
+            }
+        }
+        for (j = 0; cl != NULL && j < cl->count && GETP(cl->conds) != NULL; j++) {
+            const IfaceCondition *c = &GETP(cl->conds)[j];
+            const IfaceCodeVar *cv = c->type == 2 ? GETP(c->data) : NULL;
+
+            if (cv != NULL && ((s32)cv->id == 0x65 || PORT_IS_TRACK_CODEVAR((s32)cv->id)) && GETP(cv->arg) != NULL &&
+                GETP(cv->arg)->isVar) {
+                tvar = GETP(cv->arg)->value;
+            }
+        }
+        if (prog >= 0 && prog < MAX_PROG && lvar >= 0 && tvar >= 0 && (u32)lvar < vl->count && (u32)tvar < vl->count &&
+            vl->count <= 256) {
+            ts->prog = (u32)prog;
+            ts->lvar = (u32)lvar;
+            ts->tvar = (u32)tvar;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static ProgScript *ScriptOf(u32 prog) {
+    MCP *mcp = GameSettings_GetMCP();
+
+    return mcp != NULL && prog < mcp->numScripts && GETP(mcp->scripts) != NULL ? GETP(GETP(mcp->scripts)[prog]) : NULL;
+}
+
+/* A select as the pack has it says its script's family; the registered
+ * tracks of the family become the script's levels. */
+static void Learn(const InterfaceHeader *h, const TrackSelect *ts) {
+    Family *f = &s_family[ts->prog];
+    const IfaceVar *lv = &GETP(GETP(h->vars)->vars)[ts->lvar], *tv = &GETP(GETP(h->vars)->vars)[ts->tvar];
+    MCP *mcp = GameSettings_GetMCP();
+    ProgScript *ps = ScriptOf(ts->prog), *ns;
+    ProgLevel *levels;
+    u32 base = Port_ContentBaseCount(PORT_CONTENT_TRACK), count = Port_ContentCount(PORT_CONTENT_TRACK), i, k;
+
+    if (f->known || ps == NULL || ps->count <= 0 || lv->min != 0 || tv->max - tv->min != lv->max || tv->min < 0) {
+        return;
+    }
+    f->first = tv->min;
+    f->last = tv->max;
+    f->levels = (u32)ps->count;
+    if (lv->max != ps->count - 1) {
+        /* not as the pack has it: a copy of another script's select that's
+         * widened already (the multi-player selects the port builds from One
+         * Player's): that script's family */
+        for (i = 0; i < MAX_PROG; i++) {
+            const Family *q = &s_family[i];
+
+            if (q->known && q->first == tv->min && q->last + (s32)q->numExtra == tv->max &&
+                (s32)(q->levels + q->numExtra) - 1 == lv->max && q->levels == (u32)ps->count) {
+                f->last = q->last;
+                break;
+            }
+        }
+        if (i == MAX_PROG) {
+            return;
+        }
+    }
+    if ((u32)f->last >= base) {
+        return;
+    }
+    f->known = 1;
+    for (k = 0; k < 2; k++) {
+        f->numExtra = 0;
+        for (i = base; i < count; i++) {
+            const char *name, *suffix, *thumb;
+            s32 alias = Port_ContentDataOf(PORT_CONTENT_TRACK, i);
+
+            if (Port_ContentLook(PORT_CONTENT_TRACK, i, &name, &suffix, &thumb) == 1 && alias >= f->first &&
+                alias <= f->last) {
+                if (k == 1) {
+                    f->extra[f->numExtra] = i;
+                }
+                f->numExtra++;
+            }
+        }
+        if (f->numExtra == 0 || (k == 0 && (f->extra = SDL_malloc(f->numExtra * sizeof(u32))) == NULL)) {
+            f->numExtra = 0;
+            return;
+        }
+    }
+    levels = SDL_malloc((f->levels + f->numExtra) * sizeof(ProgLevel));
+    ns = SDL_malloc(sizeof(ProgScript));
+    if (levels == NULL || ns == NULL) {
+        SDL_free(levels);
+        SDL_free(ns);
+        f->numExtra = 0;
+        return;
+    }
+    SDL_memcpy(levels, GETP(ps->levels), f->levels * sizeof(ProgLevel));
+    for (k = 0; k < f->numExtra; k++) {
+        ProgLevel *l = &levels[f->levels + k];
+        const char *world = Port_ContentWorld(PORT_CONTENT_TRACK, f->extra[k]);
+
+        *l = levels[Port_ContentDataOf(PORT_CONTENT_TRACK, f->extra[k]) - f->first];
+        if (world != NULL) {
+            SETP(l->world, (char *)world);
+        }
+        Port_Log("content: progression %u: level %u is track %u (%s)", (unsigned)ts->prog, (unsigned)(f->levels + k),
+                 (unsigned)f->extra[k], GETP(l->world) != NULL ? GETP(l->world) : "-");
+    }
+    ns->count = (s32)(f->levels + f->numExtra);
+    SETP(ns->levels, levels);
+    SETP(GETP(mcp->scripts)[ts->prog], ns);
+    Port_Log("content: progression %u: tracks %d..%d, %u levels and %u registered", (unsigned)ts->prog, (int)f->first,
+             (int)f->last, (unsigned)f->levels, (unsigned)f->numExtra);
+}
+
+void Port_ContentLearnTracks(const InterfaceHeader *root) {
+    static const InterfaceHeader *all[512];
+    u32 n = 0, k, i, j;
+    TrackSelect ts;
+
+    if (root == NULL || Port_ContentCount(PORT_CONTENT_TRACK) == Port_ContentBaseCount(PORT_CONTENT_TRACK)) {
+        return;
+    }
+    /* every screen reachable through go-to events and child slots */
+    all[n++] = root;
+    for (k = 0; k < n; k++) {
+        const InterfaceHeader *h = all[k], *t;
+        const IfaceObjectDef *objs = GETP(h->objects);
+
+        if (FindTrackSelect(h, &ts)) {
+            Learn(h, &ts);
+        }
+        for (i = 0; i <= h->numObjects; i++) {
+            const IfaceEventList *list = i == h->numObjects ? &h->events :
+                                         objs != NULL && GETP(objs[i].record) != NULL ? &GETP(objs[i].record)->events : NULL;
+
+            for (j = 0; j <= (list != NULL && GETP(list->events) != NULL ? list->count : 0); j++) {
+                t = NULL;
+                if (list != NULL && GETP(list->events) != NULL && j < list->count) {
+                    const IfaceEventDef *d = GETP(GETP(list->events)[j].def);
+
+                    if (d != NULL && (d->type == 1 || d->type == 0x20 || d->type == 0x1F)) {
+                        t = (const InterfaceHeader *)GETP(d->target);
+                    }
+                } else if (i < h->numObjects && objs != NULL &&
+                           (objs[i].type == IFACE_DEF_CHILD || objs[i].type == IFACE_DEF_CHILD_SYNC) &&
+                           GETP(objs[i].child) != NULL) {
+                    t = (const InterfaceHeader *)GETP(*GETP(objs[i].child));
+                }
+                if (t != NULL && n < SDL_arraysize(all)) {
+                    u32 m;
+
+                    for (m = 0; m < n && all[m] != t; m++) {
+                    }
+                    if (m == n) {
+                        all[n++] = t;
+                    }
+                }
+            }
+        }
+    }
+}
+
+u32 Port_ContentTrackAt(u32 prog, u32 local) {
+    const Family *f = prog < MAX_PROG ? &s_family[prog] : NULL;
+
+    if (f == NULL || !f->known || (s32)local <= f->last || local - (u32)f->last - 1 >= f->numExtra) {
+        return local;
+    }
+    return f->extra[local - (u32)f->last - 1];
+}
+
+s32 Port_ContentTrackOfLevel(u32 prog, u32 level) {
+    const Family *f = prog < MAX_PROG ? &s_family[prog] : NULL;
+
+    return f != NULL && f->known && level >= f->levels && level - f->levels < f->numExtra ? (s32)f->extra[level - f->levels] : -1;
+}
+
+/* The padlocks' code variable for a select of `prog` whose entry is
+ * variable `var`: kept for the run (a condition of any load of the pack
+ * points at it). */
+static IfaceCodeVar *TrackCodeVar(u32 prog, u16 var) {
+    typedef struct Cv {
+        IfaceCodeVar cv;
+        IfaceVarValue arg;
+        struct Cv *next;
+    } Cv;
+    static Cv *all;
+    Cv *c;
+
+    for (c = all; c != NULL; c = c->next) {
+        if (c->cv.id == PORT_CODEVAR_TRACK + prog && c->arg.value == var) {
+            return &c->cv;
+        }
+    }
+    if ((c = SDL_calloc(1, sizeof(*c))) == NULL) {
+        return NULL;
+    }
+    c->cv.id = PORT_CODEVAR_TRACK + prog;
+    c->arg.isVar = 1;
+    c->arg.value = var;
+    SETP(c->cv.arg, &c->arg);
+    c->next = all;
+    all = c;
+    return &c->cv;
+}
+
+/* Is v one of the windows' variables of `mid` (the same source and range;
+ * `max` the pack's or the widened one)? */
+static int WindowOf(const IfaceVar *v, const IfaceVar *mid, s32 max, s32 wide) {
+    const IfaceCodeVar *a = GETP(v->code), *b = GETP(mid->code);
+
+    return v->type == mid->type && (v->max == max || v->max == wide) &&
+           (v->type != IFACE_VAR_CODE || (a != NULL && b != NULL && a->id == b->id));
+}
+
+/* What each variable numbers, from how the screen uses it: 1 levels (a
+ * picture list, the event's level), 2 tracks (a name or paragraph list, a
+ * padlock). */
+static void TrackVarUse(const InterfaceHeader *h, const TrackSelect *ts, u8 *use) {
+    const IfaceObjectDef *objs = GETP(h->objects);
+    u32 i, j;
+
+    SDL_memset(use, 0, 256);
+    use[ts->lvar] |= 1;
+    use[ts->tvar] |= 2;
+    for (i = 0; objs != NULL && i < h->numObjects; i++) {
+        const IfaceObjectDef *d = &objs[i];
+        const IfaceImageDef *im = d->type == IFACE_DEF_IMAGE ? GETP(d->sub) : NULL;
+        const IfaceTexAnim *ta = im != NULL && im->type == 3 ? GETP(im->anim) : NULL;
+        const IfaceText *t = d->type == IFACE_DEF_TEXT ? GETP(d->sub) : NULL;
+        const IfaceStringList *l = t != NULL && t->listMode == 1 ? GETP(t->list) : NULL;
+        const IfaceConditionList *cl = GETP(d->conditions);
+
+        if (ta != NULL && ta->fromVar && ta->var < 256) {
+            use[ta->var] |= 1;
+        }
+        if (l != NULL && l->fromVar && l->var < 256) {
+            use[l->var] |= 2;
+        }
+        for (j = 0; cl != NULL && j < cl->count && GETP(cl->conds) != NULL; j++) {
+            const IfaceCondition *c = &GETP(cl->conds)[j];
+            const IfaceCodeVar *cv = c->type == 2 ? GETP(c->data) : NULL;
+
+            if (cv != NULL && ((s32)cv->id == 0x65 || PORT_IS_TRACK_CODEVAR((s32)cv->id)) && GETP(cv->arg) != NULL &&
+                GETP(cv->arg)->isVar && GETP(cv->arg)->value < 256) {
+                use[GETP(cv->arg)->value] |= 2;
+            }
+        }
+    }
+}
+
+/* A window variable's start, `offset`, as the window's place from the
+ * middle one's: the difference modulo the n entries that is nearest the
+ * variable's place in the variable list (the windows' variables are in
+ * window order; with fewer entries than windows the difference alone
+ * doesn't say which side). */
+static s32 PlaceOf(s32 offset, s32 midOffset, s32 n, s32 order) {
+    s32 d = ((offset - midOffset) % n + n) % n, turns = order - d;
+
+    turns = turns >= 0 ? (turns + n / 2) / n : -((-turns + n / 2) / n);
+    return d + turns * n;
+}
+
+static void PatchTrackSelect(InterfaceHeader *h) {
+    TrackSelect ts;
+    const Family *f;
+    IfaceVarList *vl;
+    IfaceVar *vars, *lv, *tv;
+    IfaceObjectDef *objs = GETP(h->objects);
+    u8 use[256], lset[256 / 8], tset[256 / 8];
+    u32 i, j, e;
+    s32 lmid, tmid, wideL, wideT;
+    ExtMap pics, texts;
+    int widened = 0;
+
+    if (!FindTrackSelect(h, &ts) || !(f = &s_family[ts.prog])->known || f->numExtra == 0) {
+        return;
+    }
+    vl = GETP(h->vars);
+    vars = GETP(vl->vars);
+    lv = &vars[ts.lvar];
+    tv = &vars[ts.tvar];
+    e = f->numExtra;
+    wideL = (s32)(f->levels + e) - 1;
+    wideT = f->last + (s32)e;
+    if ((lv->max != (s32)f->levels - 1 && lv->max != wideL) || (tv->max != f->last && tv->max != wideT)) {
+        return;
+    }
+    TrackVarUse(h, &ts, use);
+    SDL_zeroa(lset);
+    SDL_zeroa(tset);
+    lmid = lv->offset;
+    tmid = tv->offset;
+    for (i = 0; i < vl->count; i++) {
+        IfaceVar *v = &vars[i];
+        s32 place;
+
+        if ((use[i] & 1) && v->min == lv->min && WindowOf(v, lv, (s32)f->levels - 1, wideL)) {
+            lset[i / 8] |= (u8)(1u << (i % 8));
+            if (v->max != wideL) {
+                place = PlaceOf(v->offset, lmid, (s32)f->levels, (s32)i - (s32)ts.lvar);
+                v->max = wideL;
+                v->offset = v->min + ((lmid - v->min + place) % (wideL + 1) + (wideL + 1)) % (wideL + 1);
+                widened = 1;
+            }
+        }
+        /* (the track variable's range alone: the battle select's leftmost has min 29 for 19) */
+        if ((use[i] & 2) && WindowOf(v, tv, f->last, wideT)) {
+            tset[i / 8] |= (u8)(1u << (i % 8));
+            if (v->max != wideT) {
+                s32 n = (s32)(f->levels + e);
+
+                place = PlaceOf(v->offset, tmid, (s32)f->levels, (s32)i - (s32)ts.tvar);
+                v->max = wideT;
+                v->offset = f->first + ((tmid - f->first + place) % n + n) % n;
+                widened = 1;
+            }
+        }
+    }
+    /* the padlocks: the select's entry to its track */
+    for (i = 0; objs != NULL && i < h->numObjects; i++) {
+        IfaceConditionList *cl = GETP(objs[i].conditions);
+
+        for (j = 0; cl != NULL && j < cl->count && GETP(cl->conds) != NULL; j++) {
+            IfaceCondition *c = &GETP(cl->conds)[j];
+            IfaceCodeVar *cv = c->type == 2 ? GETP(c->data) : NULL, *own;
+
+            if (cv != NULL && (s32)cv->id == 0x65 && GETP(cv->arg) != NULL && GETP(cv->arg)->isVar &&
+                InVars(tset, vl->count, GETP(cv->arg)->value) && (own = TrackCodeVar(ts.prog, GETP(cv->arg)->value)) != NULL) {
+                SETP(c->data, own);
+            }
+        }
+    }
+    pics = (ExtMap){ PORT_CONTENT_TRACK, f->levels, e, f->extra, f->first };
+    texts = (ExtMap){ PORT_CONTENT_TRACK, (u32)f->last + 1, e, f->extra, 0 };
+    if (ExtendLists(h, &pics, lset, &texts, tset, vl->count, 1) || widened) {
+        char line[256];
+
+        line[0] = 0;
+        for (i = 0; i < e && SDL_strlen(line) < sizeof(line) - 24; i++) {
+            SDL_snprintf(line + SDL_strlen(line), sizeof(line) - SDL_strlen(line), " %u%s", (unsigned)f->extra[i],
+                         Port_ContentUnlocked(PORT_CONTENT_TRACK, f->extra[i]) ? "" : " (locked)");
+        }
+        Port_Log("content: interface %u: progression %u's world select: levels 0..%d, tracks %d..%d and%s", h->id,
+                 (unsigned)ts.prog, (int)wideL, (int)f->first, (int)f->last, line);
+    }
+}
+
+int Port_ContentTrackSelectAt(InterfaceHeader *h, s32 level) {
+    TrackSelect ts;
+    IfaceVarList *vl;
+    IfaceVar *vars;
+    u8 use[256];
+    u32 i;
+    s32 lmax, tmax, tmin, delta, n;
+
+    if (h == NULL || !FindTrackSelect(h, &ts)) {
+        return 0;
+    }
+    Port_ContentLearnTracks(h);
+    PatchTrackSelect(h);
+    vl = GETP(h->vars);
+    vars = GETP(vl->vars);
+    lmax = vars[ts.lvar].max;
+    tmax = vars[ts.tvar].max;
+    tmin = tmax - lmax;
+    n = lmax + 1;
+    if (level < 0 || level > lmax) {
+        return 1;
+    }
+    TrackVarUse(h, &ts, use);
+    /* (a code variable's value is added to the offset: the select then
+     * opens that many further on, as it does without this) */
+    delta = level - vars[ts.lvar].offset;
+    for (i = 0; i < vl->count; i++) {
+        IfaceVar *v = &vars[i];
+
+        if ((use[i] & 1) && v->min == 0 && WindowOf(v, &vars[ts.lvar], lmax, lmax)) {
+            v->offset = ((v->offset + delta) % n + n) % n;
+        } else if ((use[i] & 2) && WindowOf(v, &vars[ts.tvar], tmax, tmax)) {
+            v->offset = tmin + ((v->offset - tmin + delta) % n + n) % n;
+        }
+    }
+    return 1;
 }

@@ -21,6 +21,7 @@
  * a miss hashes the texture's every byte and shares the GPU texture with any
  * other with the same content (the cars' and worlds' copies of a texture). */
 #include "gx_render.h"
+#include "gx_texmod.h"
 
 enum {
     TF_I4 = 0, TF_I8 = 1, TF_IA4 = 2, TF_IA8 = 3, TF_RGB565 = 4, TF_RGB5A3 = 5,
@@ -335,6 +336,15 @@ static void DecodeLevel(int fmt, const u8 *src, int w, int h, u8 *out) {
     }
 }
 
+/* For the mixed builds' texture rules and checks (game/Port_Mix.c). */
+void GX_PortDecodeLevel(int gxFormat, const u8 *src, int w, int h, u8 *rgba) {
+    DecodeLevel(gxFormat, src, w, h, rgba);
+}
+
+u32 GX_PortLevelSize(int gxFormat, int w, int h) {
+    return LevelSize(gxFormat, w, h);
+}
+
 static u32 Hash(const u8 *p, u32 n) {
     u32 h = 2166136261u, i;
     for (i = 0; i < n; i++) {
@@ -627,7 +637,8 @@ static int GpuFormat(int fmt, int w, int h, int levels, int squared, const u8 *i
 }
 
 /* Creates and uploads the GPU texture for image's levels in gxr's format. */
-static void *Upload(int fmt, int gxr, const u8 *image, int w, int h, int levels, int squared, u32 *bytes) {
+static void *Upload(int fmt, int gxr, const u8 *image, int w, int h, int levels, int squared, u32 *bytes,
+                    const GXTexMod *mod) {
     void *tex = g_gxr->texCreate(gxr, w, h, levels);
     u8 *buf;
     int l;
@@ -646,6 +657,9 @@ static void *Upload(int fmt, int gxr, const u8 *image, int w, int h, int levels,
         if (gxr == GXR_TEX_RGBA8) {
             memset(buf, 0, (size_t)lw * lh * 4);
             DecodeLevel(fmt, image, lw, lh, buf);
+            if (mod != NULL) {
+                GX_TexModApply(mod, buf, lw, lh);   /* a mod's colour recipe, on the decoded image */
+            }
             if (squared) {
                 SquareColours(buf, lw, lh);
             }
@@ -674,7 +688,7 @@ static void Release(TexData *d) {
 }
 
 /* The shared GPU texture for this content, made if there is none. */
-static TexData *Acquire(int fmt, const u8 *image, int w, int h, int levels, int squared) {
+static TexData *Acquire(int fmt, const u8 *image, int w, int h, int levels, int squared, const GXTexMod *mod) {
     static int share = -1;
     u32 size = 0, i;
     u64 content;
@@ -688,6 +702,9 @@ static TexData *Acquire(int fmt, const u8 *image, int w, int h, int levels, int 
         size += LevelSize(fmt, (w >> l) > 0 ? w >> l : 1, (h >> l) > 0 ? h >> l : 1);
     }
     content = HashContent(image, size, (u64)fmt << 48 ^ (u64)w << 32 ^ (u64)h << 16 ^ (u64)levels << 4 ^ (u64)squared);
+    if (mod != NULL) {
+        content = HashContent((const u8 *)mod->m, sizeof(mod->m), content);
+    }
     for (i = 0; i < TEX_CACHE; i++) {
         if (s_data[i].refs != 0 && share && s_data[i].content == content) {
             s_data[i].refs++;
@@ -702,8 +719,8 @@ static TexData *Acquire(int fmt, const u8 *image, int w, int h, int levels, int 
     if (d == NULL) {
         return NULL;   /* can't happen: one TexData per TexEntry at most */
     }
-    d->gxr = (u8)GpuFormat(fmt, w, h, levels, squared, image, size);
-    d->tex = Upload(fmt, d->gxr, image, w, h, levels, squared, &d->bytes);
+    d->gxr = mod != NULL ? GXR_TEX_RGBA8 : (u8)GpuFormat(fmt, w, h, levels, squared, image, size);
+    d->tex = Upload(fmt, d->gxr, image, w, h, levels, squared, &d->bytes, mod);
     if (d->tex == NULL) {
         return NULL;
     }
@@ -744,6 +761,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     int levels = 1, squared;
     u32 key = d[1] ^ (u32)fmt * 0x9E3779B1u, hash, oldest = 0, i;   /* fmt: up to the port's 0x4F */
     u64 t0;
+    const GXTexMod *mod;
 
     if (image == NULL || w == 0 || h == 0 || w > 1024 || h > 1024) {
         return NULL;
@@ -765,6 +783,10 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     Sampler(d, levels, samp);
     squared = fmt >= GX_TF_PORT && Port_PCTexturesLookGC();
     key ^= (u32)squared << 31;
+    mod = GX_TexModFor(d[0]);   /* a mod's colour recipe on this texture (gx_texmod.h) */
+    if (mod != NULL) {
+        key ^= mod->key;
+    }
     hash = Hash(image, LevelSize(fmt, w, h) < 256 ? LevelSize(fmt, w, h) : 256) ^ (u32)levels;
     s_useClock++;
     i = HashFind(d[0], key, hash);
@@ -782,7 +804,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
             e->data = NULL;
         }
         e->lastUse = 0;
-        e->data = Acquire(fmt, image, w, h, levels, squared);
+        e->data = Acquire(fmt, image, w, h, levels, squared, mod);
         if (e->data == NULL) {
             return NULL;
         }

@@ -31,6 +31,17 @@ FetchContent_Declare(mbedtls
     URL_HASH SHA256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6)
 FetchContent_MakeAvailable(mbedtls)
 
+# The built-in mixed-build recipe (src/port/mix.c), as bytes.
+set(HWVX_GEN_DIR ${CMAKE_BINARY_DIR}/gen)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/recipes/ultimate.jsonc)
+file(READ ${CMAKE_SOURCE_DIR}/recipes/ultimate.jsonc HWVX_RECIPE_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," HWVX_RECIPE_HEX "${HWVX_RECIPE_HEX}")
+file(WRITE ${HWVX_GEN_DIR}/mix_recipe_ultimate.h.new
+    "/* Generated from recipes/ultimate.jsonc (CMakeLists.txt). */\nstatic const char g_mixRecipeUltimate[] = { ${HWVX_RECIPE_HEX} };\n")
+execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${HWVX_GEN_DIR}/mix_recipe_ultimate.h.new ${HWVX_GEN_DIR}/mix_recipe_ultimate.h)
+include_directories(${HWVX_GEN_DIR})
+
 file(GLOB GAME_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/game/*.c)
 file(GLOB PORT_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/port/*.c)
 
