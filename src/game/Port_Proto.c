@@ -37,13 +37,21 @@
  * hits, 75%); the turntable height (viewOffset y 2); sound records of type 2
  * become 1. Its HUD template, stat bars and AI scripts are its own.
  *
- * Worlds, tracks and the prototype's audio are not imported yet: its world
- * packs have another layout (0x40-byte quadrant records against the
- * release's 0x50; its quadrants live in each level's archive, the release's
- * in w*_geo), and its music is in another format (IMPM modules). See
- * docs-pending/prototype-import.md. */
+ * Worlds (mode "added"): its 48 single-player and battle levels are
+ * extra tracks (ids.lock "uid://ps2proto-track-<level>", s_tracks), each
+ * a level of its release twin's progression whose "world" is the
+ * prototype's archive ("~worlds_\\sp_\\joyride_\\world1"). Its world packs
+ * are put in the release's layout as they load (Port_ProtoWorldLoaded:
+ * quadrant records, nav points, moving paths; below), and its quadrants are
+ * found in the level's own archive (FileStreaming.c LoadQuadrants).
+ * docs-pending/prototype-worlds.md. */
 #include <SDL3/SDL.h>
 #include "common.h"
+#include "CarA.h"
+#include "Interface.h"
+#include "World.h"
+#include "Nav.h"
+#include "Port_Swap.h"
 #include "Port_Proto.h"
 #include "Port_Content.h"
 #include "jsonc.h"
@@ -148,9 +156,18 @@ u32 Port_ProtoLink(const char *link, u32 type, u32 id, const char **source) {
 
 static JsonNode *Str(const char *s) {
     char buf[256];
+    size_t n = 0;
 
-    SDL_snprintf(buf, sizeof(buf), "\"%s\"", s);
-    return Json_Parse(buf, SDL_strlen(buf), NULL, 0);
+    buf[n++] = '"';
+    for (; *s && n + 4 < sizeof(buf); s++) {
+        if (*s == '"' || *s == '\\') {
+            buf[n++] = '\\';
+        }
+        buf[n++] = *s;
+    }
+    buf[n++] = '"';
+    buf[n] = 0;
+    return Json_Parse(buf, n, NULL, 0);
 }
 
 /* Lock member `key` set to string s (NULL: removed): 1 if it changed. */
@@ -206,6 +223,91 @@ static int Wanted(int mode, u32 n) {
     default:
         return 0;
     }
+}
+
+/* The prototype's levels and the release's tracks they are a version of
+ * (the MCP's progression scripts: Joyride 0-4, missions 5-18, battles
+ * 19-26, drag races 29-34, challenges 39-56, by the level's place in its
+ * script). Its multi-player drag worlds (race*l1) have no track of their
+ * own in the release; they are left out. */
+static const struct {
+    const char *world;      /* its archive, without the prefix */
+    s16 track;
+} s_tracks[] = {
+    { "worlds_\\sp_\\joyride_\\world1", 0 }, { "worlds_\\sp_\\joyride_\\world2", 1 },
+    { "worlds_\\sp_\\joyride_\\world3", 2 }, { "worlds_\\sp_\\joyride_\\world4", 3 },
+    { "worlds_\\sp_\\joyride_\\world5", 4 },
+    { "worlds_\\sp_\\miss_\\world1l1", 5 }, { "worlds_\\sp_\\miss_\\world1l2", 6 },
+    { "worlds_\\sp_\\miss_\\world1l3", 7 }, { "worlds_\\sp_\\miss_\\world2l1", 8 },
+    { "worlds_\\sp_\\miss_\\world2l2", 9 }, { "worlds_\\sp_\\miss_\\world2l3", 10 },
+    { "worlds_\\sp_\\miss_\\world3l1", 11 }, { "worlds_\\sp_\\miss_\\world3l2", 12 },
+    { "worlds_\\sp_\\miss_\\world3l3", 13 }, { "worlds_\\sp_\\miss_\\world4l1", 14 },
+    { "worlds_\\sp_\\miss_\\world4l2", 15 }, { "worlds_\\sp_\\miss_\\world4l3", 16 },
+    { "worlds_\\sp_\\miss_\\world5l1", 17 }, { "worlds_\\sp_\\miss_\\world5l2", 18 },
+    { "worlds_\\mp_\\battle_\\bat1_l1", 19 }, { "worlds_\\mp_\\battle_\\bat2_l9", 20 },
+    { "worlds_\\mp_\\battle_\\bat3_l6", 21 }, { "worlds_\\mp_\\battle_\\bat4_l1", 22 },
+    { "worlds_\\mp_\\battle_\\bat5_l1", 23 }, { "worlds_\\mp_\\battle_\\bat6_l6", 24 },
+    { "worlds_\\mp_\\battle_\\bat7_l1", 25 }, { "worlds_\\mp_\\battle_\\bat8_l1", 26 },
+    { "worlds_\\sp_\\drag_\\race1l2", 29 }, { "worlds_\\sp_\\drag_\\race2l2", 30 },
+    { "worlds_\\sp_\\drag_\\race3l2", 31 }, { "worlds_\\sp_\\drag_\\race4l2", 32 },
+    { "worlds_\\sp_\\drag_\\race5l2", 33 },
+    { "worlds_\\sp_\\chal1_\\ch1_l2", 39 }, { "worlds_\\sp_\\chal1_\\ch1_l3", 40 },
+    { "worlds_\\sp_\\chal1_\\ch2_l1", 41 }, { "worlds_\\sp_\\chal1_\\ch1_l8", 42 },
+    { "worlds_\\sp_\\chal1_\\ch1_l4", 43 }, { "worlds_\\sp_\\chal1_\\ch1_l5", 44 },
+    { "worlds_\\sp_\\chal1_\\ch1_l6", 45 }, { "worlds_\\sp_\\chal1_\\ch2_l2", 46 },
+    { "worlds_\\sp_\\chal1_\\ch2_l4", 47 }, { "worlds_\\sp_\\chal1_\\ch5_l1", 48 },
+    { "worlds_\\sp_\\chal1_\\ch5_l2", 49 }, { "worlds_\\sp_\\chal1_\\ch1_l7", 50 },
+    { "worlds_\\sp_\\chal1_\\ch5_l3", 52 }, { "worlds_\\sp_\\chal1_\\ch5_l5", 53 },
+    { "worlds_\\sp_\\chal1_\\ch5_l4", 55 }, { "worlds_\\sp_\\chal1_\\ch2_l3", 56 },
+};
+
+/* The tracks of ids.lock: in mode "added" every prototype level as "<the
+ * release's track> (prototype)", loading the prototype's world. */
+static int SyncTracks(JsonNode *lock, int mode) {
+    JsonNode *tracks = Json_ObjectMember(lock, "tracks"), *e;
+    s32 next = (s32)Json_GetInt(Json_Get(lock, "next"), "tracks", 0), top;
+    int changed = 0, want = mode == PORT_PROTO_ADDED;
+    char id[96], buf[96];
+    const char *base;
+    u32 k;
+
+    top = (s32)Port_ContentBaseCount(PORT_CONTENT_TRACK);
+    for (e = tracks != NULL ? tracks->child : NULL; e != NULL; e = e->next) {
+        s32 num = (s32)Json_GetInt(e, "number", -1);
+
+        top = num >= top ? num + 1 : top;
+    }
+    next = next > top ? next : top;
+    for (k = 0; tracks != NULL && k < SDL_arraysize(s_tracks); k++) {
+        base = SDL_strrchr(s_tracks[k].world, '\\') + 1;
+        SDL_snprintf(id, sizeof(id), "uid://ps2proto-track-%s", base);
+        e = (JsonNode *)Json_Get(tracks, id);
+        if (e == NULL) {
+            if (!want) {
+                continue;
+            }
+            e = Json_ObjectMember(tracks, id);
+            Json_Append(e, Json_NewInt(next++), "number");
+            changed = 1;
+        }
+        SDL_snprintf(buf, sizeof(buf), "base://mcp/track/%d", s_tracks[k].track);
+        changed |= SetStr(e, "alias", buf);
+        SDL_snprintf(buf, sizeof(buf), "%c%s", PORT_PROTO_PREFIX, s_tracks[k].world);
+        changed |= SetStr(e, "world", buf);
+        changed |= SetStr(e, "suffix", " (prototype)");
+        changed |= SetStr(e, "source", "prototype");
+        changed |= SetBool(e, "unlocked", 1);
+        changed |= SetBool(e, "active", want);
+    }
+    if (changed) {
+        JsonNode *nx = Json_ObjectMember(lock, "next");
+
+        if (Json_GetInt(nx, "tracks", -1) < next) {
+            Json_RemoveMember(nx, "tracks");
+            Json_Append(nx, Json_NewInt(next), "tracks");
+        }
+    }
+    return changed;
 }
 
 void Port_ProtoSyncLock(const char *path) {
@@ -276,6 +378,7 @@ void Port_ProtoSyncLock(const char *path) {
         changed |= SetBool(e, "unlocked", 1);
         changed |= SetBool(e, "active", Wanted(mode, n));
     }
+    changed |= SyncTracks(lock, mode);
     if (changed) {
         JsonNode *nx = Json_ObjectMember(lock, "next");
 
@@ -370,6 +473,79 @@ static void *HP(u32 h) {
  * Camera_UpdatePosition_Default; objects.md §3.1). */
 static const f32 s_chase[6] = { 75.0f, 25.0f, 3.6f, 40.0f, 20.0f, 0.235f };
 
+/* The prototype's HUD (its own, in each car pack: CarAInfo.hud layouts)
+ * has a text object of role 19 reading "X: 00.0 |Y: 00.0 |Z: 00.0": the
+ * car's position, which the prototype fills in (it shows live in the
+ * prototype as it runs). The release's code never sets role 19's text
+ * (InterfaceHudInfo.message19), so it would show the zeros. By default it is
+ * blanked; HWVX_PROTO_DEBUGHUD=1 (or sources.cfg's proto_debughud=1) keeps
+ * it, filled in as the prototype does (Port_ProtoHudInfo). Such a car's HUD
+ * is marked in CarAHud 0x14 (0 in every car, never read). */
+#define HUD_MARK 0x50524F54u    /* "PROT" */
+
+static int DebugHud(void) {
+    static int on = -1;
+
+    if (on < 0) {
+        const char *env = SDL_getenv("HWVX_PROTO_DEBUGHUD");
+        char *v = env != NULL ? NULL : Port_ProtoSetting("proto_debughud");
+
+        on = env != NULL ? SDL_atoi(env) != 0 : v != NULL && SDL_atoi(v) != 0;
+        SDL_free(v);
+    }
+    return on;
+}
+
+static void FixHud(u8 *car) {
+    static const u32 layouts[3] = { 0x10, 0x18, 0x1C };
+    u8 *hud = HP(*(u32 *)(car + 0x84));
+    u32 l, i, n;
+
+    for (l = 0; hud != NULL && l < 3; l++) {
+        u8 *h = HP(*(u32 *)(hud + layouts[l])), *objs;
+
+        if (h == NULL || (objs = HP(*(u32 *)(h + 0x10))) == NULL) {
+            continue;
+        }
+        n = *(u32 *)(h + 0xC);
+        for (i = 0; i < n && i < 0x400; i++) {
+            IfaceObjectDef *def = (IfaceObjectDef *)(objs + i * sizeof(IfaceObjectDef));
+            IfaceText *text = def->type == IFACE_DEF_TEXT ? GETP(def->sub) : NULL;
+            u32 *strings = text != NULL ? (u32 *)GETP(text->strings) : NULL;
+            char *str = strings != NULL ? HP(strings[0]) : NULL;
+
+            if (def->role == 19 && str != NULL && str[0] == 'X' && str[1] == ':') {
+                if (DebugHud()) {
+                    *(u32 *)(hud + 0x14) = HUD_MARK;
+                } else {
+                    str[0] = 0;
+                }
+            }
+        }
+    }
+}
+
+void Port_ProtoHudInfo(CarA *car, InterfaceHudInfo *info) {
+    /* a string table of one: the slot, then the text */
+    static struct {
+        u32 slot;
+        char text[64];
+    } *s_readout;
+    CarAInfo *ci = GETP(car->vehicleIface);
+    CarAHud *hud = ci != NULL ? GETP(ci->hud) : NULL;
+
+    if (hud == NULL || *(u32 *)hud->pad14 != HUD_MARK) {
+        return;
+    }
+    if (s_readout == NULL && (s_readout = Allocate(sizeof(*s_readout), 0, "")) == NULL) {
+        return;
+    }
+    SDL_snprintf(s_readout->text, sizeof(s_readout->text), "X: %.1f |Y: %.1f |Z: %.1f", car->base.pos.x,
+                 car->base.pos.y, car->base.pos.z);
+    s_readout->slot = HND(s_readout->text);
+    info->message19.h = HND(&s_readout->slot);
+}
+
 static void FixCar(DataPack *pack, u8 *car) {
     u8 *engine = HP(*(u32 *)(car + 0x80));
     u32 l, i, slot;
@@ -393,6 +569,14 @@ static void FixCar(DataPack *pack, u8 *car) {
         car[0x10] = 75;         /* damagePercent */
         *(u32 *)(car + 0x18) = 20;
     }
+    /* CarAInfo 0x54: the release's shadow volume (edges, Render_DrawShadows:
+     * groups flagged 0x4000, which RenderGroup skips), the prototype's a
+     * closed hull as a plain lit geometry (docs/beta-cars/research/
+     * geometry.md §1.7, HWVX-X-FILE-EDITOR). Drawn in a race (CarA_Draw,
+     * state 5) it covered the car in black. Left out: the car has no
+     * shadow volume. */
+    *(u32 *)(car + 0x54) = 0;
+    FixHud(car);
     if (*(f32 *)(car + 4) == 0.0f) {
         *(f32 *)(car + 4) = 2.0f;   /* viewOffset y: the turntable */
     }
@@ -420,4 +604,157 @@ void Port_ProtoPackLoaded(DataPack *pack, const char *name, u32 type, u32 id) {
             FixCar(pack, car);
         }
     }
+}
+
+/* ---- worlds -------------------------------------------------------------- */
+
+/* The prototype's world packs (type 4) have the release's World (the same
+ * offsets up to gameData, 0x9C), but:
+ *
+ *  - its quadrant records are 0x40 bytes, the release's 0x50: the same up
+ *    to 0x38 (id, numGeoms, geoms, bsp, neighbours, pack header and data,
+ *    contents, loaded); the release adds packId (0x38), fileOffset and size,
+ *    which its LoadQuadrants fills from the TOC. The prototype finds a
+ *    quadrant's pack each time it loads it, by the TOC entry whose id is
+ *    the record's id (0x00), with no geometry count in its high half
+ *    (SLUS_001.00 DataPack_LoadQuadPack). So the records are copied into
+ *    a table of the release's, with packId = id (FileStreaming.c's
+ *    LoadQuadrants matches a prototype archive by that alone).
+ *  - its quadrant, world texture and collision packs are in the level's own
+ *    archive (World 0x7C, 0x84, 0x8C name it, with the release's folders),
+ *    so the names get the prefix that makes them the prototype's.
+ *  - its nav points (NavData.nodes, world 0x78) are 0x70 bytes: position,
+ *    link costs (0x10) and links (0x20) four each, the links again with the
+ *    way forward first (0x30), radius (0x40), index (0x44), two floats
+ *    (0x48, 0x4C), the chance byte (0x51), A* state (0x54-0x60), 0x62 the
+ *    type, 0x64 the next way point (SLUS_001.00 NavHolder_*, and the data).
+ *    The links run both ways; the release's points have the A* links
+ *    (prev, with costs) and the ways on (next) apart. Converted: prev and
+ *    costs from 0x10/0x20, next all of 0x30 but its last when it has more
+ *    than one (the way back), speed 0 (no limit), enabled.
+ *  - its moving paths (TilePath, world 0x14) are 0x14 bytes: anim, speed,
+ *    record and thing as the release's 0x20, without enabled (every path is
+ *    spawned, StateGamePlay_Init) and draw distance.
+ *
+ * Kept with the world pack (PortGeometry_Keep, freed with it). */
+static char *PrefixedName(DataPack *pack, const char *name) {
+    size_t n = SDL_strlen(name);
+    char *p = name[0] == PORT_PROTO_PREFIX ? NULL : Allocate((u32)n + 2, 0, "");
+
+    if (p == NULL) {
+        return NULL;
+    }
+    p[0] = PORT_PROTO_PREFIX;
+    SDL_memcpy(p + 1, name, n + 1);
+    PortGeometry_Keep(pack, p);
+    return p;
+}
+
+#define PROTO_NAV_SIZE 0x70
+#define PROTO_NAV_NONE 0xFFFF8000u
+
+static void ConvertNav(DataPack *pack, World *w) {
+    NavData *nd = GETP(w->nav);
+    const u8 *old;
+    NavPoint *pts;
+    s32 *links;
+    f32 *costs;
+    u32 i, k, n, total = 0;
+
+    if (nd == NULL || nd->numNodes == 0 || nd->numNodes > 0x4000 || (old = (const u8 *)GETP(nd->nodes)) == NULL) {
+        return;
+    }
+    n = nd->numNodes;
+    pts = Allocate(n * sizeof(NavPoint) + n * 12 * sizeof(s32), 0, "");
+    if (pts == NULL) {
+        return;
+    }
+    SDL_memset(pts, 0, n * sizeof(NavPoint));
+    links = (s32 *)(pts + n);
+    for (i = 0; i < n; i++) {
+        const u8 *o = old + i * PROTO_NAV_SIZE;
+        const u32 *ol = (const u32 *)(o + 0x20), *on = (const u32 *)(o + 0x30);
+        const f32 *oc = (const f32 *)(o + 0x10);
+        NavPoint *p = &pts[i];
+        u32 numNext = 0;
+
+        SDL_memcpy(&p->pos, o, 16);
+        costs = (f32 *)&links[total];
+        SETP(p->prevCosts, costs);
+        SETP(p->prev, &links[total + 4]);
+        SETP(p->next, &links[total + 8]);
+        for (k = 0; k < 4; k++) {
+            if (ol[k] != PROTO_NAV_NONE && ol[k] < n) {
+                costs[p->numPrev] = oc[k];
+                GETP(p->prev)[p->numPrev++] = (s32)ol[k];
+            }
+            if (on[k] != PROTO_NAV_NONE && on[k] < n) {
+                numNext++;
+            }
+        }
+        for (k = 0; k < 4 && p->numNext < (numNext > 1 ? numNext - 1 : numNext); k++) {
+            if (on[k] != PROTO_NAV_NONE && on[k] < n) {
+                GETP(p->next)[p->numNext++] = (s32)on[k];
+            }
+        }
+        p->radius = *(const f32 *)(o + 0x40);
+        p->index = (s32)i;
+        p->chance = o[0x51];
+        p->enabled = 1;
+        p->type = o[0x62];
+        p->nextWayPoint = *(const s32 *)(o + 0x64);
+        total += 12;
+    }
+    SETP(nd->nodes, pts);
+    PortGeometry_Keep(pack, pts);
+}
+
+void Port_ProtoWorldLoaded(DataPack *pack) {
+    World *w;
+    WorldQuad *quads;
+    const u8 *old;
+    char *p;
+    u32 i;
+
+    if (pack == NULL || !pack->portProto || (w = SLOT_LOAD(World *, pack)) == NULL) {
+        return;
+    }
+    if ((p = PrefixedName(pack, GETP(w->collisionPackName))) != NULL) {
+        SETP(w->collisionPackName, p);
+    }
+    if ((p = PrefixedName(pack, GETP(w->quadPackName))) != NULL) {
+        SETP(w->quadPackName, p);
+    }
+    if ((p = PrefixedName(pack, GETP(w->name))) != NULL) {
+        SETP(w->name, p);
+    }
+    old = (const u8 *)GETP(w->quads);
+    if (old == NULL || w->numQuads == 0 || w->numQuads > 0x400 ||
+        (quads = Allocate(w->numQuads * sizeof(WorldQuad), 0, "")) == NULL) {
+        return;
+    }
+    SDL_memset(quads, 0, w->numQuads * sizeof(WorldQuad));
+    for (i = 0; i < w->numQuads; i++) {
+        SDL_memcpy(&quads[i], old + i * 0x40, offsetof(WorldQuad, packId));
+        quads[i].packId = quads[i].id;
+    }
+    SETP(w->quads, quads);
+    PortGeometry_Keep(pack, quads);
+    ConvertNav(pack, w);
+    if (w->numTilePaths != 0 && GETP(w->tilePaths) != NULL && w->numTilePaths < 0x400) {
+        const u8 *op = (const u8 *)GETP(w->tilePaths);
+        TilePath *paths = Allocate(w->numTilePaths * sizeof(TilePath), 0, "");
+
+        if (paths != NULL) {
+            SDL_memset(paths, 0, w->numTilePaths * sizeof(TilePath));
+            for (i = 0; i < w->numTilePaths; i++) {
+                SDL_memcpy(&paths[i], op + i * 0x14, 0x14);
+                paths[i].thing.h = 0;
+                paths[i].enabled = 1;
+            }
+            SETP(w->tilePaths, paths);
+            PortGeometry_Keep(pack, paths);
+        }
+    }
+    Port_Log("prototype: world %s, %u quadrants", GETP(w->name), (unsigned)w->numQuads);
 }

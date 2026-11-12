@@ -4,6 +4,7 @@
 #include "Port_Online.h"
 #include "Interface.h"
 #include "WildCard.h"
+#include "Port_Proto.h"
 
 
 typedef struct AnimKeyFrame {
@@ -1692,6 +1693,7 @@ void CarA_GetInterfaceInfo(CarA *car, InterfaceHudInfo *info) {
             info->y = 0;
         }
     }
+    Port_ProtoHudInfo(car, info);   /* port: the prototype's x/y/z readout */
     if (rack != NULL && GETP(rack->slots[rack->cur].motion.model) != NULL) {
         info->weapon[0] = 1;
         info->weaponIcon[0] = GETP(GETP(rack->slots[rack->cur].item)->weapon)->hudIcon;

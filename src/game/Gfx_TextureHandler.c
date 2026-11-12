@@ -32,8 +32,9 @@ typedef struct BTFHeader {
 } BTFHeader;
 
 s32 Gfx_TextureHandler_Create(void) {
-    m_totalTextures = 0x1FF;
-    m_texture = Allocate(0x7FC0, 0, "");
+    /* port: more slots with the prototype's content (PORT_MAX_TEXTURES) */
+    m_totalTextures = Port_ProtoMode() != PORT_PROTO_OFF ? PORT_MAX_TEXTURES : 0x1FF;
+    m_texture = Allocate(m_totalTextures * sizeof(Texture), 0, "");
     memset(m_texture, 0, m_totalTextures * sizeof(Texture));
     return 1;
 }

@@ -216,9 +216,17 @@ int Port_ProtoMode(void);
 /* The prototype's folder (its XPS/ENGLISH or the folder holding it), or NULL. */
 const char *Port_ProtoRoot(void);
 const char *Port_ProtoModeKey(int mode);
+/* sources.cfg's "key=" value (SDL_free it), or NULL. */
+char *Port_ProtoSetting(const char *key);
 int Port_ProtoModeNamed(const char *key);
 /* fileName without the prefix if it names a prototype file, else NULL. */
 const char *Port_ProtoName(const char *fileName);
+/* Texture slots (Gfx_TextureHandler.c): the release's 0x1FF, or with the
+ * prototype's content PORT_MAX_TEXTURES, which the tables indexed by a
+ * texture id are sized for (its shared packs come on top of the release's,
+ * and a race with a prototype car went past 0x1FF: every texture after the
+ * last slot landed in that one). */
+#define PORT_MAX_TEXTURES 0x7FF
 /* The PC release's texture formats (pack header u16 0) as Texture.format
  * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
  * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,

@@ -53,7 +53,14 @@ int Port_MixLookGC(void) {
     return s_mix.lookGC;
 }
 
+int Port_MixProtoReplace(void) {
+    return !s_mix.on && Port_ProtoMode() == PORT_PROTO_REPLACE;
+}
+
 const char *Port_MixRoot(int rel) {
+    if (rel == PORT_MIX_PROTO) {
+        return Port_MixProtoReplace() ? Port_ProtoRoot() : NULL;
+    }
     return s_mix.on && rel >= 0 && rel < PORT_DATA_COUNT ? s_mix.root[rel] : NULL;
 }
 
@@ -228,9 +235,13 @@ int Port_MixCandidate(const char *name, int k) {
     return k < n ? order[k] : -1;
 }
 
-int Port_MixAssetRule(const char *id, int order[PORT_DATA_COUNT]) {
+int Port_MixAssetRule(const char *id, int order[PORT_MIX_RELS]) {
     const MixRule *rule = s_mix.on ? FindRule(&s_mix.assets, id) : NULL;
 
+    if (Port_MixProtoReplace()) {
+        order[0] = PORT_MIX_PROTO;      /* the prototype's copy wherever it pairs */
+        return 1;
+    }
     if (rule == NULL) {
         return PORT_MIX_FROM_BASE;
     }
@@ -465,7 +476,32 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
 
 SDL_IOStream *Port_OpenReleaseFile(int rel, const char *name, char **found);   /* dvd.c */
 
+SDL_IOStream *Port_OpenProtoFile(const char *name);   /* dvd.c */
+
+/* The prototype's copy of a pack file (mode "replace"): the file read last
+ * kept open, per thread (the loading thread mixes its own packs). */
+static u32 ProtoRead(const char *name, u64 offset, void *dst, u32 size) {
+    static _Thread_local SDL_IOStream *io;
+    static _Thread_local char *last;
+
+    if (last == NULL || SDL_strcasecmp(last, name) != 0) {
+        if (io != NULL) {
+            SDL_CloseIO(io);
+        }
+        SDL_free(last);
+        last = SDL_strdup(name);
+        io = Port_OpenProtoFile(name);
+    }
+    if (io == NULL || SDL_SeekIO(io, (Sint64)offset, SDL_IO_SEEK_SET) < 0) {
+        return 0;
+    }
+    return (u32)SDL_ReadIO(io, dst, size);
+}
+
 u32 Port_MixRead(int rel, const char *name, u64 offset, void *dst, u32 size) {
+    if (rel == PORT_MIX_PROTO) {
+        return Port_MixProtoReplace() ? ProtoRead(name, offset, dst, size) : 0;
+    }
     if (rel < 0 || rel >= PORT_DATA_COUNT || s_mix.root[rel] == NULL) {
         return 0;
     }

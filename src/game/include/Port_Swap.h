@@ -104,6 +104,8 @@ void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u
 void PortPS2_SFX(u8 *desc, u32 count);
 void PortPS2_SFXDone(void);
 u8 *PortPS2_SongBank(const u8 *bank);
+u8 *PortPS2_DecodeSound(const u8 *adpcm, u32 len, u32 loop, u32 *pcmLen, u32 *pcmLoop);
+u8 *PortPS2_ProtoIT(u8 *song, const u8 *bank, u32 bankSize);   /* the prototype's IT music */
 void PortPS2_SongBankDone(void);
 
 #endif

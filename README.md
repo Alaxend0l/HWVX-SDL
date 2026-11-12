@@ -593,6 +593,8 @@ Debugging aids:
   release's 33 cars loaded from the prototype under their own numbers, its
   three added. `HWVX_PROTO_DIR=<folder>`: the prototype (default: sources.cfg's
   `ps2beta=`). `src/game/Port_Proto.c`; `tools/proto_race.sh` races with it.
+  `HWVX_PROTO_DEBUGHUD=1` (`proto_debughud=1` in sources.cfg): a prototype
+  car's HUD keeps the prototype's x/y/z position readout (blank by default).
 - `HWVX_IDS_LOCK=<file>`: the content registry's ids.lock (default: `ids.lock`
   in the preferences folder), JSONC: per kind (`cars`, `tracks`, `items`) a
   `uid://` id each with its `number`, `alias` (`base://HW_Cars/car_3`, the

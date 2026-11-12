@@ -1,4 +1,5 @@
 #include "common.h"
+#include "Port_Proto.h"
 #include "Port_Content.h"
 #include "Port_Online.h"
 #include "World.h"
@@ -394,6 +395,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             {
                 return 8;
             }
+            Port_ProtoWorldLoaded(dp);  /* port: a prototype world in the release's layout */
             newLoadingState = 1;
         }
         return newLoadingState;

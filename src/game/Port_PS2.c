@@ -198,6 +198,22 @@ static u32 PCMLoop(u32 loop) {
     return loop == 0xFFFFFFFF ? loop : loop >= 16 ? (loop / 16 - 1) * 28 * 2 : 0;
 }
 
+/* One SPU-ADPCM sound (`len` bytes, block 0 silence, its loop at ADPCM byte
+ * `loop` or ~0) as PCM16 in host order (malloc): its PCM length and loop in
+ * bytes. For another release's copy of a sound (Port_Mix.c, the prototype). */
+u8 *PortPS2_DecodeSound(const u8 *adpcm, u32 len, u32 loop, u32 *pcmLen, u32 *pcmLoop) {
+    u32 n = PCMBytes(len);
+    u8 *pcm = n ? malloc(n) : NULL;
+
+    if (pcm == NULL) {
+        return NULL;
+    }
+    DecodeADPCM(adpcm + 16, len / 16 - 1, (s16 *)pcm);
+    *pcmLen = n;
+    *pcmLoop = PCMLoop(loop);
+    return pcm;
+}
+
 /* ---- sound effects ------------------------------------------------------- */
 
 static void *s_sfxBlock;
@@ -265,6 +281,13 @@ static void *s_bank;
 
 static u32 LE32(const u8 *p) {
     return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24;
+}
+
+static void PutLE32(u8 *p, u32 v) {
+    p[0] = (u8)v;
+    p[1] = (u8)(v >> 8);
+    p[2] = (u8)(v >> 16);
+    p[3] = (u8)(v >> 24);
 }
 
 static void PutBE32(u8 *p, u32 v) {
@@ -341,6 +364,81 @@ u8 *PortPS2_SongBank(const u8 *bank) {
         pcm += n;
     }
     return nb;
+}
+
+/* The PS2 prototype's music (Port_Proto.c): an Impulse Tracker module
+ * ('IMPM', the song) whose samples are SPU-ADPCM in the song bank, each
+ * sample header's data offset into it, flagged 16-bit and compressed (0x0B),
+ * its loop in the ADPCM blocks' flags (bit 1 repeat on every block of a
+ * looping sample, bit 2 the loop start) rather than the header's. The
+ * release's IT player (IT.c, from the GameCube) takes PCM; the samples are
+ * decoded into a bank of their own (freed by PortPS2_SongBankDone once
+ * CreateIT has copied it to ARAM) and the headers rewritten in the song:
+ * the PCM byte offset, 16-bit uncompressed, the loop. Returns the new bank,
+ * NULL if `song` isn't one. */
+u8 *PortPS2_ProtoIT(u8 *song, const u8 *bank, u32 bankSize) {
+    u32 numOrders, numIns, numSmp, i, total = 0, songSize;
+    const u8 *smpOff;
+    u8 *out;
+
+    if (memcmp(song, "IMPM", 4) != 0 || !PortData_InSound(bank, bankSize)) {
+        return NULL;
+    }
+    numOrders = song[0x20] | song[0x21] << 8;
+    numIns = song[0x22] | song[0x23] << 8;
+    numSmp = song[0x24] | song[0x25] << 8;
+    songSize = LE32(song + 0x38);
+    smpOff = song + 0xC0 + numOrders + numIns * 4;
+    if (numSmp == 0 || numSmp > 100 || 0xC0 + numOrders + (numIns + numSmp) * 4 > songSize) {
+        return NULL;
+    }
+    for (i = 0; i < numSmp; i++) {
+        u32 h = LE32(smpOff + i * 4);
+
+        if ((u64)h + 0x50 > songSize || memcmp(song + h, "IMPS", 4) != 0) {
+            return NULL;
+        }
+        total += ((LE32(song + h + 0x30) + 27) / 28) * 28 * 2;
+    }
+    s_bank = Allocate(total + 0x40, 0, "");
+    Xdl_NoteBlock(XDL_SEG_BANK, s_bank, total + 0x40);
+    if (s_bank == NULL) {
+        return NULL;
+    }
+    out = (u8 *)PTR((HND(s_bank) + 0x1F) & ~0x1Fu);
+    memset(out, 0, total);
+    total = 0;
+    for (i = 0; i < numSmp; i++) {
+        u8 *h = song + LE32(smpOff + i * 4);
+        u32 len = LE32(h + 0x30), data = LE32(h + 0x48), blocks = (len + 27) / 28, b, loop = ~0u;
+        int repeat = 0;
+
+        if (h[0x12] & 0x08) {   /* compressed: SPU-ADPCM */
+            if ((u64)data + (u64)blocks * 16 > bankSize) {
+                blocks = data < bankSize ? (bankSize - data) / 16 : 0;
+            }
+            DecodeADPCM(bank + data, blocks, (s16 *)(out + total));
+            for (b = 0; b < blocks; b++) {
+                u8 f = bank[data + b * 16 + 1];
+
+                repeat |= (f & 2) != 0;
+                if ((f & 4) && loop == ~0u) {
+                    loop = b * 28;
+                }
+            }
+            h[0x12] = (u8)((h[0x12] & ~0x08) | 0x02);
+            if (repeat) {
+                h[0x12] |= 0x10;
+                PutLE32(h + 0x34, loop == ~0u ? 0 : loop);
+                PutLE32(h + 0x38, len);
+            }
+        }
+        PutLE32(h + 0x48, total);
+        total += ((len + 27) / 28) * 28 * 2;
+    }
+    Port_Log("prototype: music \"%.26s\", %u samples decoded (%u KB)", (const char *)song + 4, (unsigned)numSmp,
+             (unsigned)(total >> 10));
+    return out;
 }
 
 void PortPS2_SongBankDone(void) {

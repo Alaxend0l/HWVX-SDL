@@ -526,6 +526,7 @@ void LoadQuadrants(s8 refresh) {
     u32 count;
     WorldQuad *quad;
     u32 alt;
+    s32 proto;
 
     strcpy(name, GETP(((World *)GETP(g_worldData.world))->name));
     strcpy(path, GETP(((World *)GETP(g_worldData.world))->name));
@@ -538,7 +539,7 @@ void LoadQuadrants(s8 refresh) {
             PortData_Words(Port_FileFormat(g_quadFileID), head, 4);  /* port: GameCube files are big-endian */
             if (head[0].version != 0x020100A0 || head[0].type != 0x040100AE) {
                 error = 1;
-            } else if (head[0].world != 0xB7) {
+            } else if (head[0].world != 0xB7 && !(Port_FileProto(g_quadFileID) && (head[0].world == 177 || head[0].world == 179))) {
                 Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->collisionPackName), head[0].world, 0xB7);
                 error = 1;
             } else if (head[0].id > tocCap && (tocHeader = realloc(tocHeader, head[0].id * sizeof(TocEntry))) == NULL) {
@@ -547,6 +548,7 @@ void LoadQuadrants(s8 refresh) {
                 error = 1;
             } else {
                 count = head[0].id;
+                proto = Port_FileProto(g_quadFileID);
                 if (count > tocCap) {
                     tocCap = count;
                 }
@@ -560,13 +562,16 @@ void LoadQuadrants(s8 refresh) {
                         u32 type = tocHeader[j].type;
                         u32 index = id >> 16;
 
+                        /* port: the prototype's TOC ids are the records' ids, without
+                         * the geometry count (Port_Proto.c Port_ProtoWorldLoaded) */
                         if (type == 7 && ((World *)GETP(g_worldData.world))->id == tocHeader[j].world &&
-                            quad->packId == id && index == quad->numGeoms) {
-                            if (tocHeader[j].version != 0xB7) {
+                            quad->packId == id && (index == quad->numGeoms || proto)) {
+                            if (tocHeader[j].version != 0xB7 && !(proto && (tocHeader[j].version == 177 || tocHeader[j].version == 179))) {
                                 Dprintf("\n*The world format is different %s. Packfile:%d,  Code:%d\n", GETP(((World *)GETP(g_worldData.world))->name), tocHeader[j].version, 0xB7);
                             } else {
                                 quad->size = tocHeader[j].size;
-                                quad->fileOffset = (count * sizeof(TocEntry) + 0x10) + tocHeader[j].offset;
+                                /* port: the prototype's offsets count from the end of their entry */
+                                quad->fileOffset = ((proto ? j + 1 : count) * sizeof(TocEntry) + 0x10) + tocHeader[j].offset;
                             }
                             break;
                         }

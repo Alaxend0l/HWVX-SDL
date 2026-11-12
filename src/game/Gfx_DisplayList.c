@@ -134,8 +134,8 @@ typedef struct DisplayList {
     DLGroup decalGroups[0x200];
     DLGroup overlayGroups[0x80];
     DLSkinGroup skinGroups[0x100];
-    u16 opaqueTexHeads[0x1FF];  /* 0x11DE0 opaqueGroups chain heads */
-    u16 litTexHeads[0x1FF];     /* 0x121DE litGroups chain heads */
+    u16 opaqueTexHeads[PORT_MAX_TEXTURES];  /* 0x11DE0 opaqueGroups chain heads (port: 0x1FF) */
+    u16 litTexHeads[PORT_MAX_TEXTURES];     /* 0x121DE litGroups chain heads (port: 0x1FF) */
 } DisplayList;
 
 extern s32 g_currentWindow;
@@ -249,7 +249,7 @@ typedef struct GDL {
     PTR32(void) groupQuadVtx;
     PTR32(void) groupLitTriVtx;
     PTR32(void) unused24CDF0;
-    u16 spriteHeads[0x1FF];
+    u16 spriteHeads[PORT_MAX_TEXTURES];     /* port: 0x1FF */
     u8 unused24D1F2;
 } GDL;
 
@@ -260,7 +260,7 @@ extern DisplayList *g_pDL;
 s32 Gfx_DisplayList_Create(void) {
     u32 i;
 
-    g_pGDL = Allocate(0x24D200, 0, "");
+    g_pGDL = Allocate(0x24D200 + 2 * (PORT_MAX_TEXTURES - 0x1FF), 0, "");   /* port: wider spriteHeads */
     if (g_pGDL == NULL) {
         return 0;
     }
@@ -281,9 +281,9 @@ void Gfx_DisplayList_Destroy(void) {
 extern u32 g_DLBufferOn;
 void Render_InitDisplayList(void) {
     memset(g_pGDL, 0, 0x80);
-    memset(g_pGDL->spriteHeads, 0xFF, 0x3FE);
-    memset(g_pDL->opaqueTexHeads, 0xFF, 0x3FE);
-    memset(g_pDL->litTexHeads, 0xFF, 0x3FE);
+    memset(g_pGDL->spriteHeads, 0xFF, sizeof(g_pGDL->spriteHeads));
+    memset(g_pDL->opaqueTexHeads, 0xFF, sizeof(g_pDL->opaqueTexHeads));
+    memset(g_pDL->litTexHeads, 0xFF, sizeof(g_pDL->litTexHeads));
     if (g_DLBufferOn) {
         SETP(g_pGDL->groupLitTriVtx, g_pGDL->groupLitTriVtxBuffer[0]);
         SETP(g_pGDL->groupTriVtx, g_pGDL->groupTriVtxBuffer[0]);
@@ -526,7 +526,7 @@ void DisplayList_AddAlphaGroup(s32 geometryHandle, s32 groupIndex, u32 matrix, u
 }
 
 void Gfx_SortAlpha(void) {
-    u16 heads[0x1FF];
+    u16 heads[PORT_MAX_TEXTURES];
     GDLAlphaGroup *grp;
     u16 key;
     GDLAlphaEntry *entry;
@@ -557,7 +557,7 @@ void Gfx_SortAlpha(void) {
     count = g_pGDL->numAlphaEntries;
     if (g_pGDL->numAlphaGroups != 0) {
         entry = &g_pGDL->alphaEntries[count];
-        for (i = 0; i < 0x1FF; i++) {
+        for (i = 0; i < PORT_MAX_TEXTURES; i++) {
             key = heads[i];
             while (key != 0xFFFF) {
                 grp = &g_pGDL->alphaGroups[key];

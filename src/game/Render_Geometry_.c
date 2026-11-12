@@ -227,8 +227,8 @@ typedef struct DisplayList {
     DLGroup decalGroups[0x200];
     DLGroup overlayGroups[0x80];
     DLSkinGroup skinGroups[0x100];
-    u16 opaqueTexHeads[0x1FF];  /* 0x11DE0 opaqueGroups chain heads */
-    u16 litTexHeads[0x1FF];     /* 0x121DE litGroups chain heads */
+    u16 opaqueTexHeads[PORT_MAX_TEXTURES];  /* 0x11DE0 opaqueGroups chain heads (port: 0x1FF) */
+    u16 litTexHeads[PORT_MAX_TEXTURES];     /* 0x121DE litGroups chain heads (port: 0x1FF) */
 } DisplayList;
 
 extern DisplayList *g_pDL;

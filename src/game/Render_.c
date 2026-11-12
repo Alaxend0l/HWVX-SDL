@@ -796,7 +796,7 @@ void Render_FlipBuffers(void) {
 }
 
 s32 DisplayList_Create(void) {
-    g_pDL = Allocate(0x125DC, 0, "");
+    g_pDL = Allocate(0x125DC + 4 * (PORT_MAX_TEXTURES - 0x1FF), 0, "");   /* port: wider TexHeads */
     if (g_pDL != NULL) {
         DisplayList_Init();
         return 1;
