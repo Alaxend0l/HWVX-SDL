@@ -268,7 +268,7 @@ impl Browser {
         }
     }
 
-    /// Save as mod: the level (saved) packed into a .hwmod a player installs on the launcher's
+    /// Save as mod: the level (saved) packed into a .xmod a player installs on the launcher's
     /// Mods page; the game applies it to their own world as it loads (no game data in it).
     pub(crate) fn save_as_mod(&mut self) {
         if self.level.project.is_empty() {
@@ -280,7 +280,7 @@ impl Browser {
             return;
         }
         let id = self.level.summary["id"].as_str().unwrap_or("uid://level").trim_start_matches("uid://").to_string();
-        let Some(out) = Self::choose_save_file(&format!("{id}.hwmod")) else { return };
+        let Some(out) = Self::choose_save_file(&format!("{id}.xmod")) else { return };
         let mut o = self.testdrive_options();
         o.project = PathBuf::from(&self.level.project);
         let (tx, rx) = channel();
@@ -301,7 +301,7 @@ impl Browser {
                 .ok()?
         } else if cfg!(windows) {
             std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", &format!("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.hwmod)|*.hwmod'; $d.FileName = '{name}'; if ($d.ShowDialog() -eq 'OK') {{ $d.FileName }}")])
+                .args(["-NoProfile", "-Command", &format!("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = '{name}'; if ($d.ShowDialog() -eq 'OK') {{ $d.FileName }}")])
                 .output()
                 .ok()?
         } else {
@@ -311,8 +311,8 @@ impl Browser {
         if !(out.status.success() && !s.is_empty()) {
             return None;
         }
-        if !s.ends_with(".hwmod") {
-            s.push_str(".hwmod");
+        if !s.ends_with(".xmod") {
+            s.push_str(".xmod");
         }
         Some(s)
     }
@@ -379,7 +379,7 @@ impl Browser {
         let sharing = self.level.sharing.is_some();
         if ui
             .add_enabled(!sharing, egui::Button::new(if sharing { "⏳ Save as mod…" } else { "📦 Save as mod…" }))
-            .on_hover_text("pack the level into a .hwmod a player installs on the launcher's Mods page \
+            .on_hover_text("pack the level into a .xmod a player installs on the launcher's Mods page \
                             (its own records only: checked for game data)")
             .clicked()
         {

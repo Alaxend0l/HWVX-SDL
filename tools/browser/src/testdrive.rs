@@ -245,8 +245,8 @@ impl Drop for TestDrive {
 }
 
 /// tools/ of the checkout the game is in.
-/// Save as mod: the project packed into an installable .hwmod at `out` (tools/xdl_level.py mod
-/// --hwmod: the compiled level file and the project's sources; tools/xdl_mod.py's no-game-data
+/// Save as mod: the project packed into an installable .xmod at `out` (tools/xdl_level.py mod
+/// --xmod: the compiled level file and the project's sources; tools/xdl_mod.py's no-game-data
 /// check against an index of the player's own data, made once into the scratch's cache). The
 /// mod folder it packs is made in the scratch. Ok: the packer's line; Err: why it wasn't packed.
 pub fn share(o: &Options, out: &Path) -> Result<String, String> {
@@ -254,7 +254,7 @@ pub fn share(o: &Options, out: &Path) -> Result<String, String> {
     let stem = out.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "level".into());
     let folder = o.scratch.join("share").join(&stem);
     let mut cmd = Command::new(if o.python.is_empty() { "python3" } else { &o.python });
-    cmd.arg(&script).arg("mod").arg(&o.project).arg(&folder).arg("--hwmod").arg(out);
+    cmd.arg(&script).arg("mod").arg(&o.project).arg(&folder).arg("--xmod").arg(out);
     match &o.data {
         Some(d) => cmd.arg("--data").arg(d).arg("--cache").arg(o.scratch.join("base-cache")),
         None => return Err("the game's data folder isn't known (the check for game data needs it)".into()),

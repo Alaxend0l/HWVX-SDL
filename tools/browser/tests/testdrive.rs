@@ -216,13 +216,13 @@ fn viewer_raycast() {
     v.call("quit", json!({})).ok();
 }
 
-/// Save as mod: the sample packed into a .hwmod with the no-game-data check (HWVX_DATA: the
+/// Save as mod: the sample packed into a .xmod with the no-game-data check (HWVX_DATA: the
 /// index made from it into the scratch's cache, once); a project with no data folder is refused.
 #[test]
 fn save_as_mod() {
     let sample = root().join("tools/level-samples/checkpoint-run");
     let s = scratch("share");
-    let out = s.join("checkpointrun.hwmod");
+    let out = s.join("checkpointrun.xmod");
     assert!(testdrive::share(&options(&s, &sample, None), &out).is_err(), "no data folder: refused");
     let Some(data) = std::env::var_os("HWVX_DATA").map(PathBuf::from) else {
         eprintln!("skip: HWVX_DATA not set");

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Mod packages (.hwmod) with the no-game-data check (docs/xdl-format README §8, §10.3).
+"""Mod packages (.xmod) with the no-game-data check (docs/xdl-format README §8, §10.3).
 
     xdl_mod.py index DATA_DIR... [-o INDEX.npz] [--archives HW_Cars,HW_IPack] [--no-geometry]
     xdl_mod.py check MOD_DIR --index INDEX.npz                what pack would refuse, without packing
-    xdl_mod.py pack MOD_DIR -o OUT.hwmod --index INDEX.npz [--strip-unchanged] [--allow-partial-index]
-    xdl_mod.py info OUT.hwmod | MOD_DIR
-    xdl_mod.py install OUT.hwmod MODS_DIR                     unpack into MODS_DIR/<name> (the port's
+    xdl_mod.py pack MOD_DIR -o OUT.xmod --index INDEX.npz [--strip-unchanged] [--allow-partial-index]
+    xdl_mod.py info OUT.xmod | MOD_DIR
+    xdl_mod.py install OUT.xmod MODS_DIR                     unpack into MODS_DIR/<name> (the port's
                                                               Port_ModsInstall does the same)
 
 A mod is a folder with `mod.jsonc` (schemas/Mod.schema.json) and the modder's own sources. It

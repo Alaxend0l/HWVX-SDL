@@ -14,7 +14,7 @@
  *   fields the schemas name (Port_ModFields.inc, tools/gen_mod_fields.py).
  * - Recipes: colour matrices on a pack's textures (gx_texmod.h), composed
  *   as tools/xdl_mod.py's recipe_matrix does.
- * - Packages: a .hwmod is a zip of stored entries the packer made
+ * - Packages: a .xmod is a zip of stored entries the packer made
  *   (check.json in it); Port_ModsInstall unpacks one. */
 #include <SDL3/SDL.h>
 #include "common.h"
@@ -771,7 +771,7 @@ int Port_ModsInstall(const char *package, char *err, size_t errSize) {
         }
     }
     if (eocd == NULL) {
-        SDL_snprintf(err, errSize, "not a .hwmod (zip) package");
+        SDL_snprintf(err, errSize, "not a .xmod (zip) package");
         goto done;
     }
     count = Le16(eocd + 10);

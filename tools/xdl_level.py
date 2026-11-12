@@ -4,7 +4,7 @@
     xdl_level.py compile PROJECT [-o LEVEL.json] [--base BASE_PROJECT]    check and compile
     xdl_level.py check PROJECT [--base BASE_PROJECT]                       check only
     xdl_level.py base WORLD_ARCHIVE --data DATA [--cache DIR]               the base world, extracted
-    xdl_level.py mod PROJECT OUT_MOD_DIR [--hwmod OUT.hwmod --data DATA|--index I]
+    xdl_level.py mod PROJECT OUT_MOD_DIR [--xmod OUT.xmod --data DATA|--index I]
                                                                            a mod folder with the level,
                                                                            packed and checked
     xdl_level.py testdrive PROJECT SCRATCH [--car N] [--skip-intro]        the editor's test drive
@@ -1284,7 +1284,7 @@ def mod_index(a):
     if getattr(a, "index", None):
         return Path(a.index)
     if not a.data:
-        raise LevelError("a .hwmod needs the no-game-data check: --index INDEX.npz or --data DATA")
+        raise LevelError("a .xmod needs the no-game-data check: --index INDEX.npz or --data DATA")
     key = hashlib.sha1(str(Path(a.data).resolve()).encode()).hexdigest()[:12]
     idx = cache_dir(a) / f"mod-index-{key}.npz"
     if not idx.exists():
@@ -1298,21 +1298,21 @@ def mod_index(a):
 
 def cmd_mod(a):
     """A mod folder with the level (the compiled level file, which the port applies to the
-    player's own world as it loads, and the project's sources); with --hwmod, packed by
+    player's own world as it loads, and the project's sources); with --xmod, packed by
     tools/xdl_mod.py (the no-game-data check) into an installable package."""
     doc, errors = compile_project(a.project, base_arg(a))
     if errors:
         return report(errors)
     out = make_mod(a.project, a.out, doc)
-    if not a.hwmod:
+    if not a.xmod:
         print(f"{out}: mod.jsonc and the level")
         return 0
-    r = subprocess.run([sys.executable, str(HERE / "xdl_mod.py"), "pack", str(out), "-o", str(a.hwmod),
+    r = subprocess.run([sys.executable, str(HERE / "xdl_mod.py"), "pack", str(out), "-o", str(a.xmod),
                         "--index", str(mod_index(a))], capture_output=True, text=True)
     text = (r.stdout + r.stderr).strip()
     if r.returncode:
         raise LevelError("the package: " + text[-1500:])
-    print(text.splitlines()[-1] if text else f"{a.hwmod}: packed")
+    print(text.splitlines()[-1] if text else f"{a.xmod}: packed")
     return 0
 
 
@@ -1324,7 +1324,7 @@ def main():
         p.add_argument("project")
         if name == "mod":
             p.add_argument("out", help="the mod folder to make")
-            p.add_argument("--hwmod", help="also pack it into this .hwmod (tools/xdl_mod.py pack)")
+            p.add_argument("--xmod", help="also pack it into this .xmod (tools/xdl_mod.py pack)")
             p.add_argument("--index", help="the no-game-data index (xdl_mod.py index); else made from --data")
         if name == "testdrive":
             p.add_argument("scratch", help="the editor's scratch folder (its mods/, never the player's)")

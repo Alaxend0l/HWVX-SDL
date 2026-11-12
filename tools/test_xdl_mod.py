@@ -72,8 +72,8 @@ def mod(name, edit=None, files=None):
 
 
 def refused(name, d, *words, extra=()):
-    code, out = run("pack", d, "-o", OUT / f"{name}.hwmod", "--index", INDEX, "--allow-partial-index", *extra)
-    ok = code == 1 and not (OUT / f"{name}.hwmod").exists() and all(w in out for w in words)
+    code, out = run("pack", d, "-o", OUT / f"{name}.xmod", "--index", INDEX, "--allow-partial-index", *extra)
+    ok = code == 1 and not (OUT / f"{name}.xmod").exists() and all(w in out for w in words)
     check(f"refused: {name}", ok, out.strip()[-600:])
     return out
 
@@ -150,9 +150,9 @@ def port_install(hwvx, pkg, mods):
 
 def installers(hwvx):
     """The packer's install and the port's refuse damaged packages alike; links aren't followed."""
-    good = OUT / "a.hwmod"
+    good = OUT / "a.xmod"
     for name, (edit, compress, words) in BAD_PACKAGES.items():
-        pkg = repack(good, OUT / f"bad-{name}.hwmod", edit, compress)
+        pkg = repack(good, OUT / f"bad-{name}.xmod", edit, compress)
         mods = OUT / "inst-bad"
         shutil.rmtree(mods, ignore_errors=True)
         if not compress:    # zipfile reads deflated entries: the port's check only
@@ -205,28 +205,28 @@ def main():
     INDEX = OUT / "index-test.npz"
     code, out = run("index", data, "-o", INDEX, "--archives", "HW_Cars,HW_IPack,HW_Items")
     check("index of HW_Cars, HW_IPack, HW_Items", code == 0, out)
-    for p in OUT.glob("*.hwmod"):
+    for p in OUT.glob("*.xmod"):
         p.unlink()
 
     # the sample: packs, the same bytes twice, nothing of the game's in it
-    code, out = run("pack", SAMPLE, "-o", OUT / "a.hwmod", "--index", INDEX)
+    code, out = run("pack", SAMPLE, "-o", OUT / "a.xmod", "--index", INDEX)
     check("a partial index refuses to pack", code == 1 and "doesn't cover the whole game" in out, out)
-    code, out = run("pack", SAMPLE, "-o", OUT / "a.hwmod", "--index", INDEX, "--allow-partial-index")
+    code, out = run("pack", SAMPLE, "-o", OUT / "a.xmod", "--index", INDEX, "--allow-partial-index")
     check("the sample packs", code == 0 and "no game data found" in out, out)
-    run("pack", SAMPLE, "-o", OUT / "b.hwmod", "--index", INDEX, "--allow-partial-index")
-    a = (OUT / "a.hwmod").read_bytes()
-    check("packing is deterministic", a == (OUT / "b.hwmod").read_bytes())
-    files = M.read_package(OUT / "a.hwmod")
+    run("pack", SAMPLE, "-o", OUT / "b.xmod", "--index", INDEX, "--allow-partial-index")
+    a = (OUT / "a.xmod").read_bytes()
+    check("packing is deterministic", a == (OUT / "b.xmod").read_bytes())
+    files = M.read_package(OUT / "a.xmod")
     chk = json.loads(files["check.json"])
     check("check.json: files hashed, fingerprints of the textures it refers to",
           set(chk["files"]) == {"mod.jsonc", "README.md"} and
           "gc" in chk["fingerprints"].get("base://HW_Cars/car_5/texture/0", {}), chk)
     ix = M.Index(INDEX)
     check("the package itself holds no game data", not M.check_bytes(ix, M.Report(), "pkg", a))
-    code, out = run("info", OUT / "a.hwmod")
+    code, out = run("info", OUT / "a.xmod")
     check("info", code == 0 and "Night Shift 1.0.0" in out and "no game data found" in out, out)
     shutil.rmtree(OUT / "installed", ignore_errors=True)
-    code, out = run("install", OUT / "a.hwmod", OUT / "installed")
+    code, out = run("install", OUT / "a.xmod", OUT / "installed")
     check("install", code == 0 and (OUT / "installed" / "nightshift001" / "mod.jsonc").is_file(), out)
 
     # game data, each way it could get into a mod
@@ -286,9 +286,9 @@ def main():
     def restate(doc):
         doc["cars"]["uid://nightshiftcar"]["patch"]["CarAInfo/0"]["upshiftRpm"] = 6500
     refused("patch-restates", mod("patch-restates", restate), "upshiftRpm", "restates the game's own value")
-    code, out = run("pack", mod("patch-restates", restate), "-o", OUT / "stripped.hwmod", "--index", INDEX,
+    code, out = run("pack", mod("patch-restates", restate), "-o", OUT / "stripped.xmod", "--index", INDEX,
                     "--allow-partial-index", "--strip-unchanged")
-    doc = json.loads(M.read_package(OUT / "stripped.hwmod")["mod.jsonc"]) if code == 0 else {}
+    doc = json.loads(M.read_package(OUT / "stripped.xmod")["mod.jsonc"]) if code == 0 else {}
     check("--strip-unchanged leaves the restated field out",
           code == 0 and doc["cars"]["uid://nightshiftcar"]["patch"]["CarAInfo/0"] ==
           {"maxRpm": 8200, "turboTorqueScale": 1.3}, out)
@@ -314,12 +314,12 @@ def main():
 
     def rel_ps2(doc):
         doc["releases"] = ["gc", "ps2"]
-    code, out = run("pack", mod("releases", rel_ps2), "-o", OUT / "releases.hwmod", "--index", INDEX)
+    code, out = run("pack", mod("releases", rel_ps2), "-o", OUT / "releases.xmod", "--index", INDEX)
     check("refused: releases the index lacks", code == 1 and "ps2, which the index has no data of" in out, out)
-    code, out = run("pack", mod("releases", rel_ps2), "-o", OUT / "releases.hwmod", "--index", INDEX,
+    code, out = run("pack", mod("releases", rel_ps2), "-o", OUT / "releases.xmod", "--index", INDEX,
                     "--allow-partial-index")
     check("--allow-partial-index records them", code == 0 and json.loads(M.read_package(
-        OUT / "releases.hwmod")["check.json"])["unindexed_releases"] == ["ps2"], out)
+        OUT / "releases.xmod")["check.json"])["unindexed_releases"] == ["ps2"], out)
 
     # mistakes in the manifest
     def e_field(doc):
@@ -375,7 +375,7 @@ def main():
            "data/table.json": json.dumps({"curve": list(range(200)), "blob": bytes(rng.integers(0, 256, 200,
                                                                                                dtype=np.uint8)).hex()}).encode()}
     own.update({"model/" + k: v2 for k, v2 in gltf(sphere, "ball").items()})
-    code, out = run("pack", mod("own-work", files=own), "-o", OUT / "own.hwmod", "--index", INDEX,
+    code, out = run("pack", mod("own-work", files=own), "-o", OUT / "own.xmod", "--index", INDEX,
                     "--allow-partial-index")
     check("a mod with the modder's own PNG, WAV, glTF and JSON packs", code == 0 and "7 files" in out, out)
     (OUT / "tmp.png").unlink(missing_ok=True)

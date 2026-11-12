@@ -2,7 +2,7 @@
 # tools/level_share_test.sh BUILD DATA OUT [PROJECT] [INDEX]
 #
 # A level shared as a mod, as a player gets it (default: the sample Checkpoint Run):
-#   1. packed: tools/xdl_level.py mod PROJECT --hwmod (the compiled level file and the project's
+#   1. packed: tools/xdl_level.py mod PROJECT --xmod (the compiled level file and the project's
 #      sources; tools/xdl_mod.py's no-game-data check against INDEX, else one made from DATA)
 #   2. installed: hwvx --install-mod (Port_ModsInstall, what the launcher's Mods page runs) into a
 #      fresh preferences folder, OUT/pref-share: its mods/ is the only place the level is
@@ -14,13 +14,13 @@ set -u
 B="$1"; D="$2"; O="$3"; P="${4:-$(dirname "$0")/level-samples/checkpoint-run}"; I="${5:-}"
 here=$(cd "$(dirname "$0")"; pwd)
 mkdir -p "$O"; O=$(cd "$O"; pwd)
-rm -rf "$O/share" "$O/share.hwmod" "$O/pref-share"
+rm -rf "$O/share" "$O/share.xmod" "$O/pref-share"
 idx=(--data "$D"); [ -n "$I" ] && idx=(--index "$I")
-python3 "$here/xdl_level.py" mod "$P" "$O/share" --hwmod "$O/share.hwmod" "${idx[@]}" || { echo "FAIL pack"; exit 1; }
-echo "ok   packed: $(python3 "$here/xdl_mod.py" info "$O/share.hwmod" | head -1)"
+python3 "$here/xdl_level.py" mod "$P" "$O/share" --xmod "$O/share.xmod" "${idx[@]}" || { echo "FAIL pack"; exit 1; }
+echo "ok   packed: $(python3 "$here/xdl_mod.py" info "$O/share.xmod" | head -1)"
 
 mkdir -p "$O/pref-share"
-HWVX_PREF_DIR="$O/pref-share" "$B/hwvx" --install-mod "$O/share.hwmod" > "$O/install.log" 2>&1 &
+HWVX_PREF_DIR="$O/pref-share" "$B/hwvx" --install-mod "$O/share.xmod" > "$O/install.log" 2>&1 &
 pid=$!
 for i in $(seq 20); do sleep 1; kill -0 $pid 2>/dev/null || break; done
 kill -9 $pid 2>/dev/null
