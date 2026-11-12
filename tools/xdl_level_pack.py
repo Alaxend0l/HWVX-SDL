@@ -399,18 +399,21 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
 
     out_archive = Path(out_archive)
     adir = out_archive.parent / (out_archive.stem + ".build")
-    pdir = adir / out_archive.stem / "00_world_0"
+    man = json.loads((Path(extract_dir) / "manifest.json").read_text())
+    wpath = next(e["path"] for e in man["entries"] if e["type"] == "world")
+    pdir = adir / out_archive.stem / wpath
     if adir.exists():
         import shutil
         shutil.rmtree(adir)
     pdir.mkdir(parents=True)
+    # the archive's other packs (a battle or drag world's collision, geometry, textures), as they are
+    for ent in man["entries"]:
+        if ent["path"] != wpath:
+            (pdir.parent / ent["path"]).symlink_to((Path(extract_dir) / ent["path"]).resolve(), target_is_directory=True)
     try:
         W.build(pdir)
     except GR.GraphError as ex:
         raise LV.LevelError(f"the world pack: {ex}")
-    man = json.loads((Path(extract_dir) / "manifest.json").read_text())
-    for ent in man["entries"]:
-        ent["path"] = "00_world_0"
     man["source_file"] = out_archive.name
     (pdir.parent / "manifest.json").write_text(json.dumps(man, indent=2))
     exe = LV.find_hwvx_x()

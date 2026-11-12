@@ -59,7 +59,8 @@ MODES = {
     "challenge": (1, range(39, 57)),
 }
 # TriggerStats[].max (data_gen.c): active triggers of a type at once
-TRIGGER_MAX = [0x28, 0x14, 0xA, 0x14, 0x14, 0xA, 0x28, 0xA, 0xA, 0xA, 0x3C, 0xA, 0xA, 0xA, 0x5, 0xA, 0xA, 0xA,
+# the most active triggers of each type the game keeps at once (TriggerStats[type].max, data_gen.c)
+TRIGGER_MAX = [0, 0x28, 0x14, 0xA, 0x14, 0x14, 0xA, 0x28, 0xA, 0xA, 0xA, 0x3C, 0xA, 0xA, 0xA, 0x5, 0xA, 0xA,
                0xA, 0x5, 0xA, 0xA, 0x5, 0x5, 0x5, 0xA, 0xA, 0x28]
 KINDS = ("volumes", "timers", "variables", "strings")
 PACK_ONLY = ("starts", "items", "fxPoints", "objectives")    # records only the world pack build adds
@@ -407,6 +408,12 @@ class Compiler:
     def variable(self, name, v, where):
         if isinstance(v, (int, float)):
             v = {"value": v}
+        v = dict(v)
+        if "id" not in v:
+            # the id interfaces bind a variable by (InterfaceManager: a match writes the screen's
+            # variable by the world variable's index): one no retail screen uses
+            self.var_ids = getattr(self, "var_ids", 250) - 1
+            v["id"] = self.var_ids
         pid = f"level://variables/{name}/to"
         buf, links = self.encode_record("WorldVariable", dict(v), where, pid)
         self.add_part(pid, "variable", buf, links)
@@ -1020,7 +1027,8 @@ def base_project(world, data, cache):
     r = subprocess.run([str(exe), "extract", str(src), str(ext)], capture_output=True, text=True)
     if r.returncode:
         raise LevelError("hwvx-x extract: " + r.stderr.strip()[-300:])
-    packs = [m.parent for m in ext.rglob("pack.json") if "world" in m.parent.name]
+    man = json.loads((ext / "manifest.json").read_text())
+    packs = [ext / e["path"] for e in man["entries"] if e["type"] == "world"]
     if not packs:
         raise LevelError(f"{src}: no world pack in it")
     import xdl_graph as GR
