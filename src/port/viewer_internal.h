@@ -69,9 +69,10 @@ void Viewer_ForgetPack(DataPack *pack);
 VNode *Viewer_FindNode(VPack *vp, const char *id);
 void Viewer_WriteOutline(JsonWriter *w, VPack *vp);
 void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd);
-/* 1, or 0 with a message. The field's new value is written as "value". */
-int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, const JsonNode *value, char *err,
-                    size_t errSize);
+/* 1, or 0 with a message. The field's new value is written as "value". force: an object
+ * link may take a node of another type, or a raw @hex offset. */
+int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, const JsonNode *value, int force,
+                    char *err, size_t errSize);
 void Viewer_WriteNull(JsonWriter *w, const char *key);
 
 #endif

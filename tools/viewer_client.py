@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """A client for HWVX-SDL's viewer mode (src/port/viewer.c, docs: viewer-protocol.md).
 
-As a module: Viewer.start(...) runs the game with HWVX_VIEWER=0 and connects; v.call("load",
+As a module: Viewer.start(...) runs the game with HWVX_VIEWER=0 and a token of its own
+(HWVX_VIEWER_TOKEN) and connects, opening with hello and the token as the viewer wants;
+Viewer.connect(port, token) uses one already running; v.call("load",
 archive="HW_Cars", type="car", id=5) sends one request and returns its reply (ViewerError when
 the game answers ok: false); v.close() force-kills the game.
 
 As a tool, one game run and a few requests, each reply printed as JSON:
 
     viewer_client.py --build build --data orig/files [--out build/viewer-out] REQUEST...
-    viewer_client.py --port 5599 REQUEST...            a viewer that is already running
+    viewer_client.py --port 5599 [--token T] REQUEST...  a viewer that is already running (T: its
+                                                     token, or HWVX_VIEWER_TOKEN; it logs one it made up)
 
 A REQUEST is a command and key=value arguments in one shell word, values read as JSON where
 they parse: 'load archive=HW_Cars type=car id=5'  'get node=CarAInfo/0'
@@ -18,6 +21,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shlex
 import signal
 import socket
@@ -43,10 +47,12 @@ class Viewer:
         self.events = []
 
     @classmethod
-    def connect(cls, port, host="127.0.0.1", timeout=30.0):
+    def connect(cls, port, token=None, host="127.0.0.1", timeout=30.0):
         s = socket.create_connection((host, port), timeout=timeout)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        return cls(s)
+        v = cls(s)
+        v.hello = v.call("hello", token=token if token is not None else os.environ.get("HWVX_VIEWER_TOKEN", ""))
+        return v
 
     @classmethod
     def start(cls, build, data, out, renderer=None, window="640x480", schemas=None, env=None, wait=60.0):
@@ -55,9 +61,11 @@ class Viewer:
         pref = out / "pref"
         pref.mkdir(parents=True, exist_ok=True)
         log = out / "viewer.log"
+        token = secrets.token_hex(16)
         e = dict(os.environ)
         e.update({
             "HWVX_VIEWER": "0",                     # any free port: read back from the log
+            "HWVX_VIEWER_TOKEN": token,
             "HWVX_VIEWER_SCHEMAS": str(schemas or HERE.parent / "schemas"),
             "HWVX_PREF_DIR": str(pref),             # never the player's own files
             "HWVX_NO_DIALOG": "1",
@@ -84,7 +92,12 @@ class Viewer:
         if port is None:
             proc.kill()
             raise ViewerError("the game did not start listening:\n" + log.read_text(errors="replace")[-2000:])
-        v = cls.connect(port)
+        try:
+            v = cls.connect(port, token)
+        except Exception:
+            proc.kill()
+            proc.wait()
+            raise
         v.proc, v.log, v.port = proc, log, port
         return v
 
@@ -93,7 +106,7 @@ class Viewer:
         self.next_id += 1
         req = {"seq": rid, "cmd": cmd}
         req.update(args)
-        self.sock.sendall(json.dumps(req).encode() + b"\n")
+        self.sock.sendall(json.dumps(req, allow_nan=False).encode() + b"\n")
         self.sock.settimeout(timeout)
         while True:
             while b"\n" not in self.buf:
@@ -106,7 +119,8 @@ class Viewer:
             if "event" in msg:
                 self.events.append(msg)
                 continue
-            if msg.get("seq") != rid:
+            # a reply without seq (a line the viewer couldn't read) answers this request
+            if "seq" in msg and msg["seq"] != rid:
                 continue
             if not msg.get("ok"):
                 raise ViewerError(msg.get("error", "failed"))
@@ -140,13 +154,14 @@ def main():
     ap.add_argument("--data")
     ap.add_argument("--out", default="build/viewer-out")
     ap.add_argument("--port", type=int)
+    ap.add_argument("--token", help="a running viewer's token (default: HWVX_VIEWER_TOKEN)")
     ap.add_argument("--renderer")
     ap.add_argument("--window", default="640x480")
     ap.add_argument("--brief", action="store_true", help="print long lists as their length")
     ap.add_argument("requests", nargs="*")
     a = ap.parse_args()
     if a.port:
-        v = Viewer.connect(a.port)
+        v = Viewer.connect(a.port, a.token)
     elif a.data:
         v = Viewer.start(a.build, a.data, a.out, renderer=a.renderer, window=a.window)
     else:
