@@ -4111,9 +4111,14 @@ static f32 Port_HudLayoutX(InterfaceObject *obj, u32 depth) {
 static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
     f32 wx, wy, side, x;
 
-    /* a child interface's objects are drawn inside their parent object's
-     * draw, offset by its (already shifted) position */
-    if (GETP(iface->owner) == NULL || StateManager_CurrState() != 5 || GETP(obj->parent) != NULL) {
+    /* a child interface (the battle kill count and car icon, a mission's
+     * win count) is drawn inside its parent object's draw, each of its
+     * objects offset by that object's position. The parent object is only a
+     * placeholder (usually at x = 0, which would read as "left" and pull
+     * right-hand elements toward the middle), so it stays put and every
+     * object of the child interface moves by its own side, its layout x
+     * counting the parent's (Port_HudLayoutX). */
+    if (GETP(iface->owner) == NULL || StateManager_CurrState() != 5 || obj->kind == IFACE_KIND_CHILD) {
         return 0.0f;
     }
     /* the target arrow is not laid out on the screen at all: its position is
