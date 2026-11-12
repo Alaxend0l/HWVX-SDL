@@ -340,7 +340,9 @@ static void CarryExtras(const PortSaveKind *kind, const SaveFile *now, PortSaveE
 }
 
 /* The backups move up one; the save itself is copied to .1 (it stays where
- * it is until the new one is renamed over it). */
+ * it is until the new one is renamed over it). Without its text (it couldn't
+ * be loaded just now) the save is renamed to .1 instead: until the new one
+ * is in place a read finds .1. */
 static int Rotate(const char *name, const char *current, const char *text, size_t len) {
     char *from, *to, *tmp;
     int k, ok;
@@ -361,7 +363,11 @@ static int Rotate(const char *name, const char *current, const char *text, size_
     }
     to = CandidatePath(name, 1);
     tmp = PathOf(name, ".1.json.tmp");
-    ok = to != NULL && tmp != NULL && Port_WriteFileSynced(tmp, text, len) && Port_ReplaceFile(tmp, to);
+    if (text == NULL) {
+        ok = to != NULL && Port_ReplaceFile(current, to);
+    } else {
+        ok = to != NULL && tmp != NULL && Port_WriteFileSynced(tmp, text, len) && Port_ReplaceFile(tmp, to);
+    }
     if (!ok) {
         Port_Log("saves: no backup of %s: %s", BaseName(current), SDL_GetError());
     }
@@ -404,13 +410,20 @@ static int WriteSave(const char *name, const PortSaveKind *kind, const void *sav
     }
     if (Exists(current)) {
         size_t len = 0;
-        char *text = SDL_LoadFile(current, &len), why[256];
+        char *text = SDL_LoadFile(current, &len), why[256] = "";
         u8 *scratch = SDL_malloc(Port_SaveFileSize(kind));
         PortSaveExtras x;
+        int r = -1;   /* not checked (out of memory): kept as a backup */
 
-        if (text != NULL && scratch != NULL &&
-            LoadCandidate(current, kind, scratch, &x, why, sizeof(why)) == 1) {
+        if (scratch != NULL) {
+            r = LoadCandidate(current, kind, scratch, &x, why, sizeof(why));
+        }
+        if (r == 1) {
             Port_SaveExtrasFree(&x);
+        }
+        if (r != 0) {
+            /* good, or not known to be bad: a backup (renamed if its text
+             * couldn't be loaded just now) */
             Rotate(name, current, text, len);
         } else {
             /* not a backup worth keeping in the rotation, but not thrown away */
