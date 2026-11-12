@@ -294,8 +294,37 @@ static void SpanRefresh(void) {
     s_spanDirty = 0;
 }
 
-/* [p, p+size) is being freed or rewritten: drop every level built from it. */
+static void MeshInvalidate(const void *p, u32 size);
+
+/* [p, p+size) is being freed or rewritten: drop every level built from it.
+ * HWVX_LOADTIME=1 logs the time it takes, as the levels go. */
 void GX_MeshInvalidate(const void *p, u32 size) {
+    static int timing = -1;
+    static u64 total, calls, lastLog;
+    u32 before;
+    u64 start, now;
+
+    if (timing < 0) {
+        timing = SDL_getenv("HWVX_LOADTIME") != NULL;
+    }
+    if (!timing) {
+        MeshInvalidate(p, size);
+        return;
+    }
+    before = s_numLevels;
+    start = SDL_GetTicksNS();
+    MeshInvalidate(p, size);
+    now = SDL_GetTicksNS();
+    total += now - start;
+    calls++;
+    if (s_numLevels != before && now - lastLog > 100000000u) {
+        lastLog = now;
+        Port_Log("loadtime: mesh invalidate %llu calls %.3f ms, %u levels left", (unsigned long long)calls,
+                 total / 1e6, s_numLevels);
+    }
+}
+
+static void MeshInvalidate(const void *p, u32 size) {
     u64 lo = (u64)(uintptr_t)p, hi = lo + size;
     u32 b, r;
 
