@@ -48,6 +48,7 @@ typedef struct Heap {
     HeapCell *allocated;
     size_t size;
     size_t inUse;
+    size_t peak;            /* the most inUse has been (HWVX_HEAPLOG, Port_HeapPeak) */
 } Heap;
 
 #define MAX_HEAPS 4
@@ -84,6 +85,7 @@ int OSCreateHeap(void *start, void *end) {
     heap->allocated = NULL;
     heap->size = hi - lo;
     heap->inUse = 0;
+    heap->peak = 0;
     return s_numHeaps++;
 }
 
@@ -131,9 +133,15 @@ void *OSAllocFromHeap(int heapId, u32 size) {
         }
     }
     if (c == NULL) {
+        size_t largest = 0;
+
+        for (c = heap->free; c != NULL; c = c->next) {
+            largest = c->size > largest ? c->size : largest;
+        }
         SDL_UnlockMutex(s_heapLock);
-        Port_Log("OSAllocFromHeap: out of memory (%u bytes, %zu/%zu in use)", size, heap->inUse,
-                 heap->size);
+        Port_Log("OSAllocFromHeap: heap %d out of memory: %u bytes asked, %.1f of %.1f MB in use, the largest free "
+                 "block %.1f MB (peak %.1f MB; HWVX_ARENA_MB sets the game heap's size)", heapId, size,
+                 heap->inUse / 1048576.0, heap->size / 1048576.0, largest / 1048576.0, heap->peak / 1048576.0);
         return NULL;
     }
     CellUnlink(&heap->free, c);
@@ -147,6 +155,18 @@ void *OSAllocFromHeap(int heapId, u32 size) {
     c->used = size;
     CellPush(&heap->allocated, c);
     heap->inUse += c->size;
+    if (heap->inUse > heap->peak) {
+        static int logPeak = -1;
+        size_t step = heap->peak >> 20;
+
+        heap->peak = heap->inUse;
+        if (logPeak < 0) {
+            logPeak = SDL_getenv("HWVX_HEAPLOG") != NULL;
+        }
+        if (logPeak && (heap->peak >> 20) != step) {   /* each MB the peak passes */
+            Port_Log("heap %d: peak %.1f of %.1f MB", heapId, heap->peak / 1048576.0, heap->size / 1048576.0);
+        }
+    }
     SDL_UnlockMutex(s_heapLock);
     return (u8 *)c + HEAP_HDR;
 }
@@ -193,6 +213,21 @@ int Port_ExtraHeap(void) {
         id = OSCreateHeap(g_portArena + g_portArenaSize - PORT_EXTRA_HEAP, g_portArena + g_portArenaSize);
     }
     return id;
+}
+
+u32 Port_GameHeapMB(void) {
+    return __OSCurrHeap >= 0 && __OSCurrHeap < s_numHeaps ? (u32)((s_heaps[__OSCurrHeap].size + (1 << 19)) >> 20) : 0;
+}
+
+size_t Port_HeapPeak(int heapId) {
+    size_t peak = 0;
+
+    if (heapId >= 0 && heapId < s_numHeaps) {
+        SDL_LockMutex(s_heapLock);
+        peak = s_heaps[heapId].peak;
+        SDL_UnlockMutex(s_heapLock);
+    }
+    return peak;
 }
 
 void Port_HeapUsage(int heapId, u32 *inUse, u32 *size) {

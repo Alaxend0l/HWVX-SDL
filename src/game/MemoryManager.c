@@ -11,6 +11,10 @@ void *Allocate(u32 size, u32 flags, const char *name)
     ptr = OSAllocFromHeap(__OSCurrHeap, size);
     if (ptr == 0) {
         Dprintf("ALLOCATE ERROR Could not allocate the requested memory, going to crash!!\n");
+        /* port: say so and stop, rather than quit or draw without models
+         * (the retail data peaks at about 16 MB of the 128; mods can add) */
+        Port_Fatal("The game ran out of memory: %u bytes asked of its %u MB heap (the log has the use). "
+                   "Turn off mods that add large packs, or raise HWVX_ARENA_MB.", size, Port_GameHeapMB());
     }
     return ptr;
 }

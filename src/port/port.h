@@ -269,6 +269,9 @@ int Port_DrawDistSetting(void);
  * so its quadrant copies never move or crowd the game's allocations. */
 int Port_ExtraHeap(void);
 void Port_HeapUsage(int heap, u32 *inUse, u32 *size);
+size_t Port_HeapPeak(int heap);   /* the most a heap has had in use */
+u32 Port_GameHeapMB(void);         /* the game heap's size, MB */
+
 /* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
  * src/game/Port_Keyboard.c turns them into the PC release's controls. */
 enum {

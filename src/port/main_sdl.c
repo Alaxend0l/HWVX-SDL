@@ -622,6 +622,21 @@ void GetSystemDate(s32 *year, s32 *month, s32 *day, s32 *hour, s32 *minute) {
     *minute = dt.minute;
 }
 
+/* The game heap: PORT_ARENA_SIZE, or HWVX_ARENA_MB (8 - 1024; under 32 only to test running out). */
+static u32 Port_ArenaSize(void) {
+    const char *e = SDL_getenv("HWVX_ARENA_MB");
+    long mb = e != NULL ? SDL_strtol(e, NULL, 10) : 0;
+
+    if (mb == 0) {
+        return PORT_ARENA_SIZE;
+    }
+    if (mb < 8 || mb > 1024) {
+        Port_Log("HWVX_ARENA_MB=%s: 8 to 1024; the game heap stays %u MB", e, PORT_ARENA_SIZE >> 20);
+        return PORT_ARENA_SIZE;
+    }
+    return (u32)mb << 20;
+}
+
 /* ---- main -------------------------------------------------------------- */
 
 static const char *s_convertSource;
@@ -646,7 +661,7 @@ int main(int argc, char **argv) {
         Port_Log("audio: %s", SDL_GetError());
     }
     FindDataDir();
-    Port_InitHandles(PORT_ARENA_SIZE);
+    Port_InitHandles(Port_ArenaSize());
     if (!g_gxr->open()) {
 #ifdef SDL_PLATFORM_ANDROID
         Port_Fatal("The %s renderer is unavailable: %s", g_port.gpuDriver, SDL_GetError());
