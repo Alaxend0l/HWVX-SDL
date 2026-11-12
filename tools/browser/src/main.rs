@@ -688,7 +688,12 @@ impl Browser {
             };
             if let Some(e) = gave_up {
                 eprintln!("hwvx-browser: --app-shot: {e}");
-                self.viewer = None; // (kills the game: exit skips destructors)
+                // our games first (exit skips destructors): a test drive's, then the viewer's
+                if let Some(d) = self.level.drive.as_mut() {
+                    d.stop();
+                }
+                self.level.drive = None;
+                self.viewer = None;
                 std::process::exit(1);
             }
             ctx.request_repaint_after(Duration::from_millis(100));

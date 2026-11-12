@@ -645,7 +645,12 @@ impl Browser {
             if ui.add_enabled(ready, egui::Button::new("Make it")).clicked() {
                 let (i, _, world) = pick.unwrap();
                 let slug: String = e.new_name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-                let dir = std::path::Path::new(e.new_dir.trim()).join(slug.trim_matches('-'));
+                let slug = slug.trim_matches('-').to_string();
+                if slug.is_empty() {
+                    self.note("the name needs a letter or digit (the level's folder is named after it)".into());
+                    return;
+                }
+                let dir = std::path::Path::new(e.new_dir.trim()).join(&slug);
                 let id: String = e.new_name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).take(13).collect();
                 let mut level = json!({
                     "$schema": "../../schemas/Level.schema.json", "format_version": 1,
@@ -656,14 +661,19 @@ impl Browser {
                 if e.new_mode == "battle" {
                     level["rules"] = json!({"mode": "kills", "kills": 5, "rounds": 3, "time": 120000});
                 }
+                // never over a project that's there: level.jsonc made new or not at all
+                let text = format!("// a {} level, made in the level editor on {}\n{}\n", e.new_mode, e.new_world, serde_json::to_string_pretty(&level).unwrap());
                 let made = std::fs::create_dir_all(dir.join("triggers")).and_then(|_| {
-                    std::fs::write(dir.join("level.jsonc"), format!("// a {} level, made in the level editor on {}\n{}\n", e.new_mode, e.new_world, serde_json::to_string_pretty(&level).unwrap()))
+                    use std::io::Write;
+                    std::fs::OpenOptions::new().write(true).create_new(true).open(dir.join("level.jsonc"))?.write_all(text.as_bytes())
                 });
                 match made {
                     Ok(()) => {
                         let d = dir.display().to_string();
-                        self.level.project = d.clone();
                         self.open_level(&d);
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                        self.note(format!("{} already has a level: open it, or pick another name", dir.display()))
                     }
                     Err(err) => self.note(format!("{}: {err}", dir.display())),
                 }
