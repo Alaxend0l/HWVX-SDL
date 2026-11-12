@@ -143,7 +143,7 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
         a.z = b.z = p[2];
         a.y = c[2][1] + 1.0f;   /* above the box's top */
         b.y = pos[1] - 40.0f;
-        if (RayHitsTerrain(&a, &b, &t, NULL)) {
+        if (ViewerWorld_RayHits(&a, &b, &t)) {
             f32 g = a.y + (b.y - a.y) * t;
 
             ground++;
@@ -168,7 +168,7 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
         SDL_zero(b);
         a.x = p[0], a.y = p[1], a.z = p[2];
         b.x = q[0], b.y = q[1], b.z = q[2];
-        if (RayHitsTerrain(&a, &b, &t, NULL) || RayHitsTerrain(&b, &a, &t, NULL)) {
+        if (ViewerWorld_RayHits(&a, &b, &t) || ViewerWorld_RayHits(&b, &a, &t)) {
             /* vertical edges (4..7) meeting something: a ceiling or an overhang */
             if (i >= 4 && i < 8) {
                 ceiling++;
@@ -400,6 +400,16 @@ static int Resolve(VPack *vp, const char *path, u8 **at, const char **schema, ch
         SDL_snprintf(err, errSize, "%s: %s isn't a record of the world", path, p);
         return 0;
     }
+    {
+        /* a level's appends moved the array (Port_Level.c): its element i, the pack's i */
+        const u8 *b = Port_LevelBaseOf(rec);
+
+        if (b == NULL) {
+            SDL_snprintf(err, errSize, "%s: an element the level appends (its file holds it, not the world pack)", path);
+            return 0;
+        }
+        rec = (u8 *)b;
+    }
     if (!InPack(vp, rec, 4)) {
         SDL_snprintf(err, errSize, "%s: not in the world pack", path);
         return 0;
@@ -600,6 +610,9 @@ static int ParseVec(const JsonNode *a, f32 *out) {
     }
     for (k = 0; k < 3; k++) {
         out[k] = (f32)Json_At(a, k)->number;
+        if (!isfinite(out[k])) {
+            return 0;   /* (collision rays clip to the grid; NaN/inf can't be) */
+        }
     }
     return 1;
 }
@@ -765,7 +778,7 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
                 a.y = p[1] + up;
                 a.z = p[2] + sz * side + fz * hi[2];
                 b.x = a.x + fx * len, b.y = a.y, b.z = a.z + fz * len;
-                if (RayHitsTerrain(&a, &b, &t, NULL) && t * len < best) {
+                if (ViewerWorld_RayHits(&a, &b, &t) && t * len < best) {
                     best = t * len;
                 }
             }

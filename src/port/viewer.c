@@ -18,6 +18,7 @@
 #include "CarA.h"
 #include "Motion.h"
 #include "Port_Content.h"
+#include <math.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -1606,21 +1607,24 @@ static void Dispatch(const JsonNode *req) {
                 /* a world: its objects (instances, items, effect points, tiles) */
                 f32 d[3], o[3] = { s.camera->pos.x, s.camera->pos.y, s.camera->pos.z };
                 const char *kind = NULL;
+                char rpath[96];
                 u32 off;
+                int hit;
 
                 ScreenRay((f32)x->number, (f32)y->number, d);
-                off = ViewerWorld_Pick(o, d, &dist, &kind);
+                hit = ViewerWorld_Pick(o, d, &dist, &kind, &off, rpath, sizeof(rpath));
                 nd = off != VIEWER_NO_OFFSET && off / 4 < s.shown->size / 4 && s.shown->owner != NULL &&
                              s.shown->owner[off / 4] >= 0
                          ? &s.shown->nodes[s.shown->owner[off / 4]]
                          : NULL;
-                if (off != VIEWER_NO_OFFSET) {
-                    char at[16], rpath[96];
+                if (hit) {
+                    char at[16];
 
                     Jw_String(&w, "kind", kind);
-                    SDL_snprintf(at, sizeof(at), "@%x", off);
-                    Jw_String(&w, "at", at);
-                    ViewerWorld_PathOf(off, rpath, sizeof(rpath));
+                    if (off != VIEWER_NO_OFFSET) {   /* none: an element a level appended */
+                        SDL_snprintf(at, sizeof(at), "@%x", off);
+                        Jw_String(&w, "at", at);
+                    }
                     if (rpath[0]) {
                         Jw_String(&w, "path", rpath);   /* the record, by structural path (level editor) */
                     }
@@ -1694,8 +1698,15 @@ static void Dispatch(const JsonNode *req) {
             ok = 0;
             have = 0;
         }
+        if (have && !(isfinite(a.x) && isfinite(a.y) && isfinite(a.z) && isfinite(b.x) &&
+                      isfinite(b.y) && isfinite(b.z))) {
+            SDL_snprintf(err, sizeof(err), "raycast: the points must be finite numbers");
+            ok = 0;
+            have = 0;
+        }
         if (have) {
-            int hit = RayHitsTerrain(&a, &b, &t, NULL) != 0;
+            /* clipped to the collision grid (a far-out point hangs the game's routine) */
+            int hit = ViewerWorld_RayHits(&a, &b, &t);
 
             Jw_Bool(&w, "hit", hit);
             if (hit) {

@@ -25,6 +25,8 @@
 #include "Collision.h"
 #include "CarA.h"
 #include "Port_SpawnBox.h"
+#include "Port_Level.h"
+#include <math.h>
 
 enum {
     OV_REGIONS = 1 << 0,
@@ -676,15 +678,21 @@ static int RaySphere(const f32 *o, const f32 *d, const Vector4 *c, f32 r, f32 *t
     return 1;
 }
 
-/* The world object under a ray (origin o, unit direction d): its offset in
- * the world pack, *kind ("instance", "item", "tile_car", ...), *t along the ray;
- * VIEWER_NO_OFFSET if none. Instances of the visible quadrants, pickups,
- * effect points, tile cars and creatures; the smallest hit sphere wins. */
-u32 ViewerWorld_Pick(const f32 *o, const f32 *d, f32 *tOut, const char **kind) {
+static void PathOfPtr(const u8 *p, char *path, size_t size);
+
+/* The world object under a ray (origin o, unit direction d): 1 if one, its
+ * offset in the world pack (VIEWER_NO_OFFSET: an element a level appended,
+ * none there), its structural path (ViewerWorld_PathOf), *kind ("instance",
+ * "item", "tile_car", ...), *t along the ray. Instances of the visible
+ * quadrants, pickups, effect points, tile cars and creatures; the smallest
+ * hit sphere wins. Arrays a level's appends moved are walked where they are
+ * now and mapped back by index (Port_LevelBaseOf). */
+int ViewerWorld_Pick(const f32 *o, const f32 *d, f32 *tOut, const char **kind, u32 *off, char *path, size_t pathSize) {
     World *wd = WORLD();
     u8 *base;
+    const u8 *best = NULL, *bp;
     f32 bestR = 1e30f, bestT = 1e30f, t;
-    u32 best = VIEWER_NO_OFFSET, q, i;
+    u32 q, i;
 
 #define TRY(ptr, pos, rad, k)                                                                                           \
     do {                                                                                                               \
@@ -692,13 +700,15 @@ u32 ViewerWorld_Pick(const f32 *o, const f32 *d, f32 *tOut, const char **kind) {
         if (RaySphere(o, d, (pos), r_, &t) && (r_ < bestR * 0.999f || (r_ <= bestR * 1.001f && t < bestT))) {          \
             bestR = r_;                                                                                                \
             bestT = t;                                                                                                 \
-            best = (u32)((u8 *)(ptr) - base);                                                                          \
+            best = (const u8 *)(ptr);                                                                                  \
             *kind = (k);                                                                                               \
         }                                                                                                              \
     } while (0)
 
+    *off = VIEWER_NO_OFFSET;
+    path[0] = 0;
     if (!ViewerWorld_Active() || w.vp == NULL) {
-        return VIEWER_NO_OFFSET;
+        return 0;
     }
     base = GETP(w.vp->pack->base);
     for (q = 0; q < wd->numQuads; q++) {
@@ -736,25 +746,37 @@ u32 ViewerWorld_Pick(const f32 *o, const f32 *d, f32 *tOut, const char **kind) {
     }
 #undef TRY
     *tOut = bestT;
-    return best;
+    if (best == NULL) {
+        return 0;
+    }
+    PathOfPtr(best, path, pathSize);
+    bp = Port_LevelBaseOf(best);
+    if (bp != NULL && bp >= base && (u32)(bp - base) < w.vp->size) {
+        *off = (u32)(bp - base);
+    }
+    return 1;
 }
 
 /* The structural path of the record that starts at `off` of the world pack:
  * World/0/tileCars/N, World/0/volumes/N, World/0/tileCreatures/N,
  * World/0/quads/Q/contents/<instances|items|fxPoints>/N; "" for others. */
 void ViewerWorld_PathOf(u32 off, char *path, size_t size) {
+    path[0] = 0;
+    if (!ViewerWorld_Active() || w.vp == NULL || off >= w.vp->size) {
+        return;
+    }
+    /* where it is now: a level's appends may have moved its array (same index) */
+    PathOfPtr(Port_LevelLiveOf((u8 *)GETP(w.vp->pack->base) + off), path, size);
+}
+
+static void PathOfPtr(const u8 *p, char *path, size_t size) {
     World *wd = WORLD();
-    u8 *base, *p;
     u32 q, i;
 
     path[0] = 0;
-    if (!ViewerWorld_Active() || w.vp == NULL) {
-        return;
-    }
-    base = GETP(w.vp->pack->base);
-    p = base + off;
 #define IN(arr, n, sz, fmt, ...)                                                                                       \
-    if ((u8 *)(arr) != NULL && p >= (u8 *)(arr) && p < (u8 *)(arr) + (n) * (sz) && (p - (u8 *)(arr)) % (sz) == 0) {   \
+    if ((const u8 *)(arr) != NULL && p >= (const u8 *)(arr) && p < (const u8 *)(arr) + (n) * (sz) &&                     \
+        (p - (const u8 *)(arr)) % (sz) == 0) {                                                                         \
         i = (u32)((p - (u8 *)(arr)) / (sz));                                                                           \
         SDL_snprintf(path, size, fmt, __VA_ARGS__);                                                                    \
         return;                                                                                                        \
@@ -780,9 +802,10 @@ void ViewerWorld_PathOf(u32 off, char *path, size_t size) {
 int ViewerWorld_PlaceOf(u32 off, u32 size, f32 *pos, f32 *radius) {
     World *wd = WORLD();
     u8 *base;
+    const u8 *lo, *hi;   /* [lo, hi): where it is now (a level's appends may have moved its array) */
     u32 q, i;
 
-#define HIT(ptr, sz) ((u32)((u8 *)(ptr) - base) < off + (size ? size : 1) && (u32)((u8 *)(ptr) - base) + (sz) > off)
+#define HIT(ptr, sz) ((const u8 *)(ptr) < hi && (const u8 *)(ptr) + (sz) > lo)
 #define SET(p, r)                                                                                                      \
     do {                                                                                                               \
         pos[0] = (p)->x, pos[1] = (p)->y, pos[2] = (p)->z, *radius = (r);                                              \
@@ -793,6 +816,11 @@ int ViewerWorld_PlaceOf(u32 off, u32 size, f32 *pos, f32 *radius) {
         return 0;
     }
     base = GETP(w.vp->pack->base);
+    if (off >= w.vp->size) {
+        return 0;
+    }
+    lo = Port_LevelLiveOf(base + off);
+    hi = lo + (size ? size : 1);
     for (i = 0; i < wd->numTileCars; i++) {
         if (HIT(&GETP(wd->tileCars)[i], sizeof(TileCar))) {
             SET(&GETP(wd->tileCars)[i].pos, 6.0f);
@@ -906,6 +934,73 @@ int ViewerWorld_Bounds(f32 *min, f32 *max) {
     }
     min[0] = col->min.x, min[1] = col->min.y, min[2] = col->min.z;
     max[0] = col->max.x, max[1] = col->max.y, max[2] = col->max.z;
+    return 1;
+}
+
+/* RayHitsTerrain for the protocol's own rays (raycast, lanecheck, startcheck): the game's
+ * routine walks the grid by cell index held in a float, so a point far outside the grid
+ * (index past 2^24) never steps and the game thread hangs. Here: non-finite ends are
+ * refused, and a segment reaching outside the grid (plus a cell) is clipped to it first;
+ * *t (in: the max fraction, out: the hit's) stays in the caller's a..b. A segment inside
+ * the grid goes through unchanged. The retail routine itself is untouched. */
+int ViewerWorld_RayHits(const Vector4 *a, const Vector4 *b, f32 *t) {
+    WorldCollision *col;
+    Vector4 ca __attribute__((aligned(16))), cb __attribute__((aligned(16)));
+    f32 pa[3] = { a->x, a->y, a->z }, pb[3] = { b->x, b->y, b->z }, lo[3], hi[3], t0 = 0.0f, t1 = *t, tl = 1.0f;
+    int k, inside = 1;
+
+    if (!ViewerWorld_Active() || (col = GETP(WORLD()->collision)) == NULL || !isfinite(*t)) {
+        return 0;
+    }
+    for (k = 0; k < 3; k++) {
+        f32 cell = col->cellSize[k] > 0.0f && isfinite(col->cellSize[k]) ? col->cellSize[k] : 1.0f;
+        f32 mn = (&col->min.x)[k], mx = (&col->max.x)[k];
+        s32 num = k == 0 ? col->numX : k == 1 ? col->numY : col->numZ;
+        f32 gridEnd = mn + (f32)num * cell;
+
+        if (!isfinite(pa[k]) || !isfinite(pb[k])) {
+            return 0;
+        }
+        lo[k] = mn - cell;
+        hi[k] = (gridEnd > mx ? gridEnd : mx) + cell;
+        if (pa[k] < lo[k] || pa[k] > hi[k] || pb[k] < lo[k] || pb[k] > hi[k]) {
+            inside = 0;
+        }
+    }
+    if (inside) {
+        ca = *a, cb = *b;
+        return RayHitsTerrain(&ca, &cb, t, NULL) != 0;
+    }
+    /* Liang-Barsky: the part of a..b (fractions t0..t1) inside the box */
+    for (k = 0; k < 3; k++) {
+        f32 d = pb[k] - pa[k];
+
+        if (d == 0.0f) {
+            if (pa[k] < lo[k] || pa[k] > hi[k]) {
+                return 0;
+            }
+        } else {
+            f32 u0 = (lo[k] - pa[k]) / d, u1 = (hi[k] - pa[k]) / d;
+
+            if (u0 > u1) {
+                f32 s = u0;
+
+                u0 = u1, u1 = s;
+            }
+            t0 = u0 > t0 ? u0 : t0;
+            t1 = u1 < t1 ? u1 : t1;
+        }
+    }
+    if (!(t0 < t1)) {
+        return 0;
+    }
+    ca = *a, cb = *a;
+    ca.x = pa[0] + (pb[0] - pa[0]) * t0, ca.y = pa[1] + (pb[1] - pa[1]) * t0, ca.z = pa[2] + (pb[2] - pa[2]) * t0;
+    cb.x = pa[0] + (pb[0] - pa[0]) * t1, cb.y = pa[1] + (pb[1] - pa[1]) * t1, cb.z = pa[2] + (pb[2] - pa[2]) * t1;
+    if (!RayHitsTerrain(&ca, &cb, &tl, NULL)) {
+        return 0;
+    }
+    *t = t0 + tl * (t1 - t0);
     return 1;
 }
 
