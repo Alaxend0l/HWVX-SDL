@@ -379,6 +379,9 @@ s32 Port_InterfaceTakingInput(void) {
     return 0;
 }
 
+static void Port_HudLog(Interface *iface, const char *what);   /* port: HWVX_HUDLOG */
+static s8 s_hudLogChild;
+
 s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callback)(void *msg)) {
     Port_MenuPatch(header);   /* port: the Options screen's Graphics menu */
     Port_MenuDumpLists(header);   /* port: HWVX_MENUDUMP */
@@ -589,6 +592,9 @@ s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callb
         g_bMemoryCardHWHack = 0;
         GETP(GETP(GETP(GETP(iface->objects)[9].def)->record)->events.events)[0].delay = 100;
     }
+    if (!s_hudLogChild) {
+        Port_HudLog(iface, "");
+    }
     return index;
 #undef g_pInterfaceToEnd
 }
@@ -699,11 +705,13 @@ void InterfaceManager_AddObject(void *interface, void *object) {
         if (GETP(slot->def)->role == 3) {
             g_playerIndex = GETP(slot->def)->input;
         }
+        s_hudLogChild++;
         if (slot->role == 0x20) {
             slot->child = InterfaceManager_Create(SLOT_LOAD(void *, header), GETP(iface->owner), NULL);
         } else {
             slot->child = InterfaceManager_Create(SLOT_LOAD(void *, header), GETP(iface->owner), GETP(iface->callback));
         }
+        s_hudLogChild--;
         if (GETP(slot->def)->role == 3) {
             g_playerIndex = player;
         }
@@ -714,6 +722,9 @@ void InterfaceManager_AddObject(void *interface, void *object) {
         g_interfaces[slot->child].parent = iface->index;
         for (i = 0; i < g_interfaces[slot->child].count; i++) {
             SETP(GETP(g_interfaces[slot->child].objects)[i].parent, slot);
+        }
+        if (!s_hudLogChild) {
+            Port_HudLog(&g_interfaces[slot->child], " (child)");
         }
         if (GETP(slot->def)->role == 3) {
             switch (GETP(slot->def)->input) {
@@ -4157,6 +4168,50 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
         return hi < HUD_LEFT_X ? -side : lo > HUD_RIGHT_X ? side : 0.0f;
     }
     return x < HUD_LEFT_X ? -side : x > HUD_RIGHT_X ? side : 0.0f;
+}
+
+/* port: HWVX_HUDLOG=1, a test aid (docs-pending/hud-scan.md, tools/hud_scan.py):
+ * in gameplay, every interface created with no owner is logged with how
+ * Port_HudShift sees it (left/right: moves as a whole; centre: stays; mixed:
+ * stays, though some of it lies on a side) and its objects' layout x. A child
+ * is logged once its parent placeholder is set, x counting the parent's. */
+static void Port_HudLog(Interface *iface, const char *what) {
+    static int on = -1;
+    char line[600];
+    size_t n;
+    f32 lo = 0.0f, hi = 0.0f, x;
+    u32 j, k = 0;
+    const char *cls;
+
+    if (on < 0) {
+        const char *e = getenv("HWVX_HUDLOG");
+        on = e != NULL && e[0] != '\0' && e[0] != '0';
+    }
+    if (!on || StateManager_CurrState() != 5 || GETP(iface->owner) != NULL || iface->count == 0) {
+        return;
+    }
+    n = (size_t)snprintf(line, sizeof(line), "hudlog: no-owner interface%s, header id %u (%p), %u objects:", what,
+                         GETP(iface->header)->id, (void *)GETP(iface->header), iface->count);
+    for (j = 0; j < iface->count; j++) {
+        InterfaceObject *o = &GETP(iface->objects)[j];
+
+        if (o->kind == IFACE_KIND_CHILD) {
+            continue;
+        }
+        x = Port_HudLayoutX(o, 0);
+        lo = k == 0 || x < lo ? x : lo;
+        hi = k == 0 || x > hi ? x : hi;
+        k++;
+        if (n < sizeof(line) - 40) {
+            n += (size_t)snprintf(line + n, sizeof(line) - n, " %u:k%u/r%u@%.0f", j, o->kind, o->role, x);
+            if (o->kind == IFACE_KIND_TEXT && GETP(o->string) != NULL && n < sizeof(line) - 40) {
+                n += (size_t)snprintf(line + n, sizeof(line) - n, "\"%.16s\"", GETP(o->string));
+            }
+        }
+    }
+    cls = k == 0 ? "empty" : hi < HUD_LEFT_X ? "left" : lo > HUD_RIGHT_X ? "right" :
+          lo >= HUD_LEFT_X && hi <= HUD_RIGHT_X ? "centre" : "MIXED";
+    Port_Log("%s -> %s", line, cls);
 }
 
 void InterfaceManager_RenderObject(Interface *iface, s32 index) {
