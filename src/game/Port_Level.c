@@ -655,6 +655,24 @@ void Port_LevelWorldLoaded(void *worldPack, const char *world, int track) {
     char *path = NULL, id[256], err[256];
 
     Unapply();
+    if (world != NULL && SDL_strncmp(world, "@mod", 4) == 0) {
+        /* the level built into its own world pack (tools/xdl_level_pack.py): nothing to add */
+        DataPack *pack = worldPack;
+        char why[160];
+
+        Port_Log("level: its own world pack %s applied to track %d", world, track);
+        if (pack != NULL && GETP(pack->base) != NULL && SDL_getenv("HWVX_LEVEL_START") != NULL) {
+            /* the editor's "test from here": player 1's start moved (undone with the pack) */
+            s_lv.pack = pack;
+            s_lv.world = (World *)GETP(pack->base);
+            s_lv.id = SDL_strdup(world);
+            if (!StartOverride(pack, s_lv.world, why, sizeof(why))) {
+                Port_Log("level: %s", why);
+                Unapply();
+            }
+        }
+        return;
+    }
     if (env != NULL && *env) {
         path = SDL_strdup(env);
     } else if (track >= 0 && Port_ContentIdOf(PORT_CONTENT_TRACK, (u32)track, id, sizeof(id))) {
