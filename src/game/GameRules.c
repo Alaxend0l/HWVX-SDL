@@ -265,6 +265,7 @@ void GameRules_HeartBeat(void) {
                 }
             }
             GameSettings_SetCodeVariable(0x197, 0, 1);
+            Port_Log("rules: all rounds complete, player 1 %s", GameSettings_GetCodeVariable(0x194, 1) ? "won" : "lost");   /* port: tests */
             Trigger_GameRoundsComplete();
             if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
                 StateManager_QueueChange(0xC);
@@ -278,6 +279,7 @@ void GameRules_HeartBeat(void) {
 
 /* Ends the round with player `arg0` (1-4) as the winner. */
 void GameRules_ForceRoundEnd(u32 arg0) {
+    Port_Log("rules: the round ends, player %u wins it", (unsigned)arg0);   /* port: tests */
     g_bRoundEnd = 1;
     g_playerNumThatWon = arg0;
     if ((arg0 < 1U) && (arg0 > 4U)) {   /* as in the original: never true */

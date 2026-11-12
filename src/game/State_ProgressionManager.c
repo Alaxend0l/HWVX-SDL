@@ -327,6 +327,7 @@ s32 ActionEndLevel(s32 *arg0)
     #define g_bRestartCurrentLevel (*(u8 *)(void *)&g_bRestartCurrentLevel)
     #define g_GameProgressionEndState ((s32 *)(void *)&g_GameProgressionEndState)
 
+    Port_Log("progression: the level ends: %s (sequence %d)", arg0[0] == 4 ? "won" : "lost", (int)arg0[1]);  /* port: tests */
     if (GameSettings_GetCodeVariable(0x198, 0) != 0) {
         ExitStateGamePlay(0xC);
     } else {
