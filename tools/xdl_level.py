@@ -934,9 +934,38 @@ def skip_intro(docs):
     return [(n, d) for n, d in docs if d.get("actions") or d.get("type") != "level_start"]
 
 
-TOOL_FILES = ("xdl_level.py", "xdl_tac.py", "xdl_struct.py")
-SCHEMA_FILES = ("Trigger", "WorldVolume", "WorldTimer", "WorldVariable", "World", "TileCar", "WorldQuad",
-                "QuadContents", "WorldGameData")
+# what a compile reads besides the project: every tool it (or the pack build) imports and
+# every schema (a key missing one gave stale results when it changed)
+TOOL_FILES = ("xdl_level.py", "xdl_tac.py", "xdl_struct.py", "xdl_graph.py", "xdl_level_pack.py", "bsp_build.py",
+              "world_lib.py")
+EXTRACT_FILES = ("xdl_graph.py", "xdl_tac.py", "xdl_struct.py")    # what makes a base project
+_files_hash = {}
+
+
+def files_hash(names, schemas=True):
+    """A hash of tools/ files by name and (schemas) every schemas/*.json, once per process."""
+    key = (tuple(names), schemas)
+    if key not in _files_hash:
+        h = hashlib.sha256()
+        files = [HERE / n for n in names] + (sorted(SCHEMAS.glob("*.json")) if schemas else [])
+        for f in files:
+            h.update(f.name.encode() + b"\0")
+            try:
+                h.update(f.read_bytes())
+            except OSError:
+                h.update(b"-")
+            h.update(b"\0")
+        _files_hash[key] = h.hexdigest()
+    return _files_hash[key]
+
+
+def exe_stamp(exe):
+    """hwvx-x as a key: its size and modification time (rebuilt: another key)."""
+    try:
+        st = Path(exe).stat()
+        return f"{st.st_size}:{st.st_mtime_ns}"
+    except (OSError, TypeError):
+        return "none"
 
 
 def source_hash(proj, options=""):
@@ -944,7 +973,7 @@ def source_hash(proj, options=""):
     h = hashlib.sha256(options.encode())
     proj = Path(proj)
     files = [proj / "level.jsonc"] + sorted((proj / "triggers").glob("*.jsonc"))
-    files += [HERE / f for f in TOOL_FILES] + [SCHEMAS / f"{n}.schema.json" for n in SCHEMA_FILES]
+    h.update(files_hash(TOOL_FILES).encode())
     for f in files:
         h.update(str(f.name).encode() + b"\0")
         try:
@@ -1121,12 +1150,13 @@ def base_project(world, data, cache):
             break
     if src is None:
         raise LevelError(f"{world}: no world archive {name} under {data}")
-    h = hashlib.sha256(src.read_bytes()).hexdigest()[:16]
+    exe = find_hwvx_x()
+    # the archive and what extracts it (tools, schemas, hwvx-x): a newer extractor, a new project
+    h = hashlib.sha256(src.read_bytes() + files_hash(EXTRACT_FILES).encode() + exe_stamp(exe).encode()).hexdigest()[:16]
     out = Path(cache) / f"{name}-{h}"
     proj = out / "project"
     if (proj / "pack.jsonc").exists() and read_jsonc(proj / "pack.jsonc").get("archive", "").lower() == name:
         return proj
-    exe = find_hwvx_x()
     if exe is None:
         raise LevelError("hwvx-x not found (target/release/hwvx-x)")
     ext = out / "extract" / name        # the folder's name is the archive's (xdl_graph's ids)
@@ -1300,7 +1330,15 @@ def mod_index(a):
         return Path(a.index)
     if not a.data:
         raise LevelError("a .xmod needs the no-game-data check: --index INDEX.npz or --data DATA")
-    key = hashlib.sha1(str(Path(a.data).resolve()).encode()).hexdigest()[:12]
+    # the folder, its files (names, sizes, times) and the indexer: any change, a new index (one
+    # kept for a folder whose files changed would let new game data through the check)
+    root = Path(a.data).resolve()
+    h = hashlib.sha1(str(root).encode() + b"\0" + files_hash(("xdl_mod.py",), schemas=False).encode())
+    for f in sorted(root.rglob("*")):
+        if f.is_file():
+            st = f.stat()
+            h.update(f"{f.relative_to(root)}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+    key = h.hexdigest()[:12]
     idx = cache_dir(a) / f"mod-index-{key}.npz"
     if not idx.exists():
         idx.parent.mkdir(parents=True, exist_ok=True)

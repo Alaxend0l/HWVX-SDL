@@ -127,6 +127,26 @@ except XT.TacError as ex:
 _, e = variant("badport", edit_level=lambda lv: lv.__setitem__("starts", {"s": {"pos": [0, 0, 0], "port": "x"}}))
 check("a start's port not a number: an error, not a traceback", has(e, "starts/s", "port"), e)
 
+# cache keys: every tool and schema; the mod index by the data folder's files
+check("compile key: xdl_graph.py and every schema count", "xdl_graph.py" in LV.TOOL_FILES and
+      "bsp_build.py" in LV.TOOL_FILES and len(list(LV.SCHEMAS.glob("*.json"))) > 9)
+LV._files_hash[(LV.TOOL_FILES, True)] = "other tools"
+check("compile key: changes with the tools", LV.source_hash(SAMPLE) != (LV._files_hash.clear() or LV.source_hash(SAMPLE)))
+fake = scratch / "fakedata"
+if fake.exists():
+    shutil.rmtree(fake)
+(fake / "sub").mkdir(parents=True)
+(fake / "sub" / "a.bin").write_bytes(b"x" * 64)
+import argparse as _ap  # noqa: E402
+ma = _ap.Namespace(index=None, data=str(fake), cache=str(scratch / "idxcache"))
+try:
+    i1 = LV.mod_index(ma)
+    (fake / "sub" / "b.bin").write_bytes(b"y" * 64)
+    i2 = LV.mod_index(ma)
+    check("mod index: made again when the data folder's files change", i1 != i2 and i2.exists(), (i1, i2))
+except LV.LevelError as ex:
+    check("mod index: made again when the data folder's files change", False, ex)
+
 
 def many(lv):
     lv["triggers"] = lv["triggers"] + [f"x{i}" for i in range(12)]

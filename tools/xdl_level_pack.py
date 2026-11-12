@@ -451,8 +451,9 @@ def build_cached(project, data, cache, out_dir, skip_intro=False):
     rel = LV.read_jsonc(Path(base) / "pack.jsonc")["release"]
     name = lv["world"].replace("/", "\\").rsplit("\\", 1)[-1].lower()
     out = Path(out_dir) / (name + release_ext(rel))
+    # (source_hash: the project, every tool and schema; here the base and hwvx-x, which packs it)
     key = LV.source_hash(project, f"pack;skip_intro={int(skip_intro)};base={LV.base_identity(base)};"
-                                  + hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+                                  f"hwvx-x={LV.exe_stamp(LV.find_hwvx_x())}")
     stamp = out.with_suffix(out.suffix + ".key")
     if out.exists() and stamp.exists() and stamp.read_text() == key:
         return out, True, name
