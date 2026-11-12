@@ -480,31 +480,7 @@ static int Cancelled(SDL_AtomicInt *cancel) {
     return cancel != NULL && SDL_GetAtomicInt(cancel) != 0;
 }
 
-static SDL_EnumerationResult SDLCALL RemoveEntry(void *userdata, const char *dir, const char *name) {
-    char *path = NULL;
-
-    (void)userdata;
-    if (SDL_asprintf(&path, "%s%s", dir, name) > 0) {
-        SDL_PathInfo info;
-
-        if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-            SDL_EnumerateDirectory(path, RemoveEntry, NULL);
-        }
-        SDL_RemovePath(path);
-    }
-    SDL_free(path);
-    return SDL_ENUM_CONTINUE;
-}
-
-/* Delete a folder this import made (a .part or .old one), and all in it. */
-static void RemoveTree(const char *path) {
-    SDL_PathInfo info;
-
-    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-        SDL_EnumerateDirectory(path, RemoveEntry, NULL);
-    }
-    SDL_RemovePath(path);
-}
+#define RemoveTree Port_RemoveTree   /* launcher.c: never follows a link */
 
 /* An import fills <dest>.part; only a finished one takes dest's place, so a
  * failed or cancelled import leaves the last good copy as it was. */
