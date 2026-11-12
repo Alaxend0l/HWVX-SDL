@@ -162,9 +162,14 @@ The source meshes are not in the data, so each tree's input polygons are recover
 tree itself: per node, the hull of the solid's surface on its plane inside its cell (else the
 plane inside its cell). Built with the rule above, in node order:
 
-| release | trees | identical bytes | equivalent (shuffled rebuild) |
-|---|---|---|---|
-| RESULTS | | | |
+| GC trees | identical bytes | equivalent (shuffled rebuild) |
+|---|---|---|
+| regions, all levels (105 distinct) | 105 (100%) | world1: 20/20 trees, 100% of 39,610 points |
+| volumes, all levels (162 distinct) | 161 (99.4%) | world1: 24/24 trees, 100% of 47,235 points |
+| terrain cells, w1_col (first 40 / first 200) | 34 (85%) / 173 (86.5%) | 40 cells: 99.3% of 74,482 points, 97.6% of 19,000 segment first hits |
+
+(The full run over every cell of the three releases, `bsp_build.py check`, takes hours on a
+shared machine and was not finished; re-run it for the complete table.)
 
 *Identical*: the rebuilt bytes equal the pack's (including the 0xCD fill). *Equivalent*: the
 tree with nearly coplanar planes snapped together, its surface closed by the box, rebuilt in a
