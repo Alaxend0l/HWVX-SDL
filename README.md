@@ -608,6 +608,10 @@ Debugging aids:
   a mod's track brings one with `"level"` (docs-pending/mission-editor.md).
   `tools/level_test.sh BUILD DATA OUT` plays the sample level as a mod (world
   select, win, lose).
+- The editor's test drive (data browser, Level tab, F5): `HWVX_TESTDRIVE=1`
+  raises the window, logs `testdrive: in the race` / `driving` and quits when
+  the race is left for the menus; `HWVX_LEVEL_START=x,y,z,rotY` moves player
+  1's start; `HWVX_START=race:...,world=uid://ID` starts a registered track.
 - `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
   release), each loading a base car's pack (3, 4, ...) under its own number
   and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same
