@@ -318,6 +318,7 @@ void PlayerManager_Heartbeat(void) {
         }
         while ((s8)AI_ProcessEvent()) {
         }
+        Port_AutopilotAfterAIEvents();   /* port, testing: HWVX_AUTOPILOT's fights (Port_Autopilot.c) */
     }
     for (player = GETP(PLAYER_POOLS->active); player != NULL; player = next) {
         next = GETP(player->next);

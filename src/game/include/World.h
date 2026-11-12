@@ -619,5 +619,10 @@ void Port_DrawDistReleaseAll(void);
 f32 Port_DrawDistFarPlane(f32 farPlane);
 s32 Port_DrawDistFog(f32 *start, f32 *end);
 f32 Port_DrawDistProjectionFar(f32 farPlane);
+/* port, testing: HWVX_AUTOPILOT=1, player 1's car drives itself (Port_Autopilot.c) */
+struct Player;
+s32 Port_AutopilotDrive(struct Player *player);
+void Port_AutopilotAfterAIEvents(void);
+void Port_QuadLog(World *world, WorldQuad **current, u32 numCameras);
 
 #endif

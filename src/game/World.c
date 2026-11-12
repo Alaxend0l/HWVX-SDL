@@ -155,6 +155,7 @@ void World_Render(void) {
         }
     }
     Port_DrawDistRender(world, pCurrentQuadrant, numCameras, pWorldQuadrant);   /* port: an optional longer draw distance; nothing at Normal */
+    Port_QuadLog(world, pCurrentQuadrant, numCameras);   /* port, testing: HWVX_QUADLOG (Port_Autopilot.c) */
     for (i = 0; i < world->numQuads; i++) {
         quad = &GETP(world->quads)[i];
         if (quad->visible) {
