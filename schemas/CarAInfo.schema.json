@@ -152,7 +152,7 @@
       }
     },
     "driveMode": {
-      "description": "1: human-controlled",
+      "description": "handling: 1 in every car; 0 no controller; 2 the PC's third mode (CarA_PreMove_Control_Mode2)",
       "type": "integer",
       "minimum": 0,
       "maximum": 255,
@@ -164,6 +164,7 @@
         "ps2": "yes",
         "pc": "yes"
       },
+      "x-hint": "0..2",
       "x-observed": {
         "archive": "HW_Cars",
         "distinct": 1,

@@ -25,6 +25,7 @@ typedef struct Registered {
     char *suffix;
     char *thumbnail;    /* a texture link (NULL: the alias's picture) */
     char *world;        /* a track's own world archive (NULL: the alias's level's) */
+    char *data;         /* the pack its data is, when not the alias's (proto://, Port_Proto.c) */
     s8 reserved;        /* a number kept for content that isn't there (ids.lock):
                          * no id to save by, locked, base entry 0's data */
 } Registered;
@@ -105,6 +106,11 @@ u32 Port_ContentCount(int kind) {
 u32 Port_ContentBaseCount(int kind) {
     Kind *k = KindOf(kind);
     return k != NULL ? BaseOf(k) : 0;
+}
+
+int Port_ContentReserved(int kind, u32 i) {
+    Kind *k = KindOf(kind);
+    return k != NULL && IsReserved(k, i);
 }
 
 u32 Port_ContentRetailCount(int kind) {
@@ -216,6 +222,16 @@ int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, co
     return 1;
 }
 
+const char *Port_ContentDataLink(int kind, u32 i) {
+    Kind *k = KindOf(kind);
+    u32 b;
+
+    if (k == NULL || i >= CountOf(k) || i < (b = BaseOf(k)) || k->reg[i - b].reserved) {
+        return NULL;
+    }
+    return k->reg[i - b].data;
+}
+
 const char *Port_ContentWorld(int kind, u32 i) {
     Kind *k = KindOf(kind);
     u32 b;
@@ -294,6 +310,15 @@ s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     if (k == NULL || id == NULL || id[0] == 0) {
         return -1;
     }
+    if (SDL_strlen(id) > PORT_CONTENT_ID_MAX) {
+        Port_Log("content: %s: an id of %u characters (%.40s...): at most %d; left out", k->section,
+                 (unsigned)SDL_strlen(id), id, PORT_CONTENT_ID_MAX);
+        return -1;
+    }
+    if (k->numReg >= PORT_CONTENT_MAX_REGISTERED) {
+        Port_Log("content: %s: %s: more than %d registered; left out", k->section, id, PORT_CONTENT_MAX_REGISTERED);
+        return -1;
+    }
     if (Port_ContentIndexOf(kind, id, &index)) {
         Port_Log("content: %s: %s is already number %u", k->section, id, (unsigned)index);
         return -1;
@@ -304,6 +329,11 @@ s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     }
     if (e->number >= 0 && (u32)e->number < CountOf(k)) {
         Port_Log("content: %s: %s: number %d is taken", k->section, id, (int)e->number);
+        return -1;
+    }
+    if (e->number >= 0 && (u32)e->number - BaseOf(k) >= PORT_CONTENT_MAX_REGISTERED) {
+        Port_Log("content: %s: %s: number %d is more than %d past the base content; left out", k->section, id,
+                 (int)e->number, PORT_CONTENT_MAX_REGISTERED);
         return -1;
     }
     if (e->number >= 0 && !FillTo(k, (u32)e->number)) {
@@ -319,6 +349,7 @@ s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     r->suffix = Dup(e->suffix);
     r->thumbnail = Dup(e->thumbnail);
     r->world = Dup(e->world);
+    r->data = Dup(e->data);
     r->reserved = e->reserved;
     Grow(k);
     return (s32)(CountOf(k) - 1);
@@ -337,6 +368,7 @@ void Port_ContentReset(void) {
             SDL_free(k->reg[j].suffix);
             SDL_free(k->reg[j].thumbnail);
             SDL_free(k->reg[j].world);
+            SDL_free(k->reg[j].data);
         }
         SDL_free(k->reg);
         SDL_free(k->live);
@@ -397,7 +429,7 @@ static s8 KeptValue(const JsonNode *m) {
 void Port_ContentLoadKept(const JsonNode *kept) {
     int i;
     u32 j;
-    char id[160];
+    char id[PORT_CONTENT_ID_MAX + 1];
 
     for (i = 0; i < PORT_CONTENT_KINDS; i++) {
         Kind *k = &s_kinds[i];
@@ -416,7 +448,7 @@ void Port_ContentLoadKept(const JsonNode *kept) {
 void Port_ContentStoreKept(JsonNode **kept) {
     int i;
     u32 j;
-    char id[160];
+    char id[PORT_CONTENT_ID_MAX + 1];
 
     for (i = 0; i < PORT_CONTENT_KINDS; i++) {
         Kind *k = &s_kinds[i];
@@ -451,7 +483,7 @@ u32 Port_ContentKeptUnlocked(int kind, const JsonNode *kept) {
     Kind *k = KindOf(kind);
     const JsonNode *section;
     u32 j, n = 0;
-    char id[160];
+    char id[PORT_CONTENT_ID_MAX + 1];
 
     if (k == NULL || (section = Json_Get(kept, k->section)) == NULL) {
         return 0;
@@ -595,9 +627,16 @@ int Port_ContentLoadLock(const char *path) {
         Kind *k = &s_kinds[i];
         const JsonNode *section = Json_Get(root, k->section), *e;
         s32 top = (s32)CountOf(k) - 1;
+        /* numbers stay below this: no endless reserved entries, no overflow */
+        s32 limit = (s32)BaseOf(k) + PORT_CONTENT_MAX_REGISTERED;
+        long long nx = Json_GetInt(Json_Get(root, "next"), k->section, 0);
         u32 index;
 
-        next[i] = (s32)Json_GetInt(Json_Get(root, "next"), k->section, 0);
+        next[i] = nx >= 0 && nx <= limit ? (s32)nx : 0;
+        if (next[i] != nx) {
+            Port_Log("content: %s: next %s %lld: past %d; the next past the numbers instead", path, k->section, nx,
+                     (int)limit);
+        }
         entries[i] = SDL_calloc(section != NULL && section->count > 0 ? (size_t)section->count : 1, sizeof(LockEntry));
         for (e = section != NULL && section->type == JSON_OBJECT ? section->child : NULL; e != NULL && entries[i] != NULL;
              e = e->next) {
@@ -607,8 +646,12 @@ int Port_ContentLoadLock(const char *path) {
 
             x->id = e->key;
             x->node = e;
-            x->number = n != NULL && n->type == JSON_NUMBER && n->isInteger && n->integer >= 0 && n->integer < 0x7FFFFFFF
+            x->number = n != NULL && n->type == JSON_NUMBER && n->isInteger && n->integer >= 0 && n->integer < limit
                             ? (s32)n->integer : -1;
+            if (n != NULL && n->type == JSON_NUMBER && n->isInteger && n->integer >= limit) {
+                Port_Log("content: %s: %s: number %lld is past %d; it gets a new one", path, e->key,
+                         (long long)n->integer, (int)limit - 1);
+            }
             x->active = (s8)Json_GetBool(e, "active", 1);
             x->alias = alias != NULL && Port_ContentIndexOf(i, alias, &index) && index < BaseOf(k) ? (s32)index : -1;
             if (alias != NULL && x->alias < 0) {
@@ -647,7 +690,9 @@ int Port_ContentLoadLock(const char *path) {
         for (j = 0; j < num[i]; j++) {
             LockEntry *x = &entries[i][j];
 
-            if (!x->skip && x->number < 0) {
+            if (!x->skip && x->number < 0 && next[i] >= limit) {
+                Port_Log("content: %s: %s: no number left below %d; left out", path, x->id, (int)limit);
+            } else if (!x->skip && x->number < 0) {
                 x->number = next[i]++;
                 changed = 1;
                 Port_Log("content: %s: %s %s is number %d", path, k->section, x->id, (int)x->number);
@@ -661,7 +706,7 @@ int Port_ContentLoadLock(const char *path) {
             const LockEntry *x = &entries[i][j];
             PortContentEntry pe;
 
-            if (x->skip) {
+            if (x->skip || x->number < 0) {
                 continue;
             }
             SDL_zero(pe);
@@ -673,8 +718,10 @@ int Port_ContentLoadLock(const char *path) {
             pe.suffix = Str(x->node, "suffix");
             pe.thumbnail = Str(x->node, "thumbnail");
             pe.world = Str(x->node, "world");
-            /* away, or data of its own (no mod loading yet): its number kept */
-            pe.reserved = !x->active || x->alias < 0;
+            pe.data = Str(x->node, "data");
+            /* away, or data of its own that nothing loads (a mod's: not yet;
+             * the prototype's, proto://, loads, Port_Proto.c): its number kept */
+            pe.reserved = !x->active || (x->alias < 0 && pe.data == NULL);
             if (Port_ContentRegisterEntry(i, &pe) >= 0) {
                 registered += !pe.reserved;
             }
@@ -692,9 +739,10 @@ int Port_ContentLoadLock(const char *path) {
 
 /* ---- online: choices by id --------------------------------------------- */
 
-/* One of this game's cars or items, else the first car or no item (-1). */
+/* One of the base cars or items (numbered alike on every machine), else
+ * the first car or no item (-1). */
 static s32 Clamp(int kind, s32 v) {
-    if (v >= 0 && (u32)v < Port_ContentCount(kind)) {
+    if (v >= 0 && (u32)v < Port_ContentBaseCount(kind)) {
         return v;
     }
     return kind == PORT_CONTENT_CAR ? 0 : -1;
@@ -706,10 +754,13 @@ static s32 Clamp(int kind, s32 v) {
  * machine, so it goes by id, with the base entry whose data it uses as the
  * number: a machine without it shows that one instead. */
 void Port_ContentWriteChoice(NetWriter *w, int kind, s32 n) {
-    char id[64];
+    char id[PORT_CONTENT_ID_MAX + 1];
     s32 stand;
     size_t len;
 
+    if (n >= 0 && Port_ContentReserved(kind, (u32)n)) {
+        n = 0;   /* (never chosen: the menus don't offer one) base entry 0, as its data */
+    }
     if (n < 0 || (u32)n < Port_ContentBaseCount(kind) || !Port_ContentIdOf(kind, (u32)n, id, sizeof(id))) {
         NetWriter_U32(w, (u32)n);
         NetWriter_U8(w, 0);

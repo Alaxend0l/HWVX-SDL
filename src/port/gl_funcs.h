@@ -24,6 +24,7 @@ typedef void (APIENTRYP PFNGLDEPTHRANGEPROC)(GLdouble n, GLdouble f);
 typedef void (APIENTRYP PFNGLPOINTSIZEPROC)(GLfloat size);
 typedef void (APIENTRYP PFNGLLINEWIDTHPROC)(GLfloat width);
 typedef GLenum (APIENTRYP PFNGLGETERRORPROC)(void);
+typedef void (APIENTRYP PFNGLFLUSHPROC)(void);
 typedef const GLubyte *(APIENTRYP PFNGLGETSTRINGPROC)(GLenum name);
 typedef void (APIENTRYP PFNGLGETINTEGERVPROC)(GLenum pname, GLint *data);
 typedef void (APIENTRYP PFNGLPIXELSTOREIPROC)(GLenum pname, GLint param);
@@ -130,7 +131,13 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage)                      \
     X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer)              \
     X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus)                \
-    X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer)
+    X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer)                              \
+    X(PFNGLMAPBUFFERRANGEPROC, glMapBufferRange)                                \
+    X(PFNGLUNMAPBUFFERPROC, glUnmapBuffer)                                      \
+    X(PFNGLFENCESYNCPROC, glFenceSync)                                          \
+    X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync)                                \
+    X(PFNGLDELETESYNCPROC, glDeleteSync)                                        \
+    X(PFNGLFLUSHPROC, glFlush)
 
 #define GL_DECLARE(type, name) extern type p_##name;
 GL_FUNCS(GL_DECLARE)
@@ -220,6 +227,12 @@ GL_FUNCS(GL_DECLARE)
 #define glFramebufferRenderbuffer p_glFramebufferRenderbuffer
 #define glCheckFramebufferStatus p_glCheckFramebufferStatus
 #define glBlitFramebuffer p_glBlitFramebuffer
+#define glMapBufferRange p_glMapBufferRange
+#define glUnmapBuffer p_glUnmapBuffer
+#define glFenceSync p_glFenceSync
+#define glClientWaitSync p_glClientWaitSync
+#define glDeleteSync p_glDeleteSync
+#define glFlush p_glFlush
 
 void GL_Load(void);
 

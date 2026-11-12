@@ -19,7 +19,7 @@ static inline CarA *AI_Car_Vehicle(AICar *ai) {
 
 /* CarAInfo.driveMode of the AI's car (1 and 2 drive differently below). */
 static inline u8 AI_Car_DriveMode(AICar *ai) {
-    return GETP(AI_Car_Vehicle(ai)->vehicleIface)->driveMode;
+    return AI_Car_Vehicle(ai)->driveMode;   /* port: CarA_Init's choice */
 }
 
 /* path[i], NULL past the end. */
@@ -1798,7 +1798,7 @@ void AI_Car_Heartbeat(AICar *ai) {
         AI_Car_DetermineState(ai);
         if (GETP(ai->current) == NULL || (GETP(ai->targetThing) == NULL && GETP(ai->targetNav) == NULL)) {
             pl->brake = 0xFF;
-            if (GETP(car->vehicleIface)->driveMode == 1) {
+            if (car->driveMode == 1) {
                 pl->throttle = 0xFF;
             }
             return;

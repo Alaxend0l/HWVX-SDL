@@ -226,12 +226,42 @@ int Port_DataRelease(void) {
     return s_release;
 }
 
+/* A prototype file (proto.c): the PS2's names, from the prototype's folder.
+ * Its packs aren't cached (xdl.c): their layout is the prototype's own. */
+static BOOL OpenProto(const char *name, DVDFileInfo *fi) {
+    const char *root = Port_ProtoRoot();
+    SDL_IOStream *io = NULL;
+    int d;
+
+    for (d = 0; root != NULL && io == NULL && d < 2; d++) {
+        char *alt = FormatName(name, PORT_DATA_PS2, d == 0 ? s_formats[PORT_DATA_PS2].dir : "");
+
+        if (alt != NULL) {
+            io = OpenIn(root, alt, NULL);
+            SDL_free(alt);
+        }
+    }
+    if (io == NULL) {
+        Port_Log("DVDOpen: the prototype's %s not found", name);
+        return FALSE;
+    }
+    memset(fi, 0, sizeof(*fi));
+    fi->host = io;
+    fi->format = PORT_DATA_PS2;
+    fi->proto = 1;
+    fi->length = (u32)SDL_GetIOSize(io);
+    return TRUE;
+}
+
 BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
     char *found = NULL;
     SDL_IOStream *io = NULL;
     u32 format = PORT_DATA_GC;
     int fmt;
 
+    if (Port_ProtoName(fileName) != NULL) {
+        return OpenProto(Port_ProtoName(fileName), fi);
+    }
     if (Port_MixActive()) {
         /* a mixed build: from the archive's base release (mix.c), each under its own name */
         int k, rel;

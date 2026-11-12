@@ -1,5 +1,6 @@
 /* SDL3 entry point. Replaces the GameCube main() and Main_NGC.c: sets up the
  * window, renderer and game arena, then runs the game's Main_Init/Main_Loop. */
+#include "viewer.h"
 #include "gx_render.h"
 #include "disc.h"
 #include "Port_Mix.h"
@@ -406,6 +407,27 @@ static char *SearchForLauncher(void) {
     return SearchDataDir(s_searched, sizeof(s_searched));
 }
 
+/* A mixed build: the releases come from the recipe and sources.cfg (mix.c);
+ * the data folder is the one the menus come from, or the GameCube's disc
+ * image. --mix-build says what stopped it as the launcher reads it. */
+static void MixDataDir(void) {
+    char err[512];
+    int rel;
+
+    if (!Port_MixSetup(s_mixRecipe, s_mixBuild, DataIn, err, sizeof(err))) {
+        if (s_mixBuild) {
+            printf("@error %s\n", err);
+            fflush(stdout);
+        }
+        Port_Fatal("Mixed build: %s", err);
+    }
+    rel = Disc_IsOpen() ? PORT_DATA_GC : Port_MixCandidate("HW_IPack.xgc", 0);
+    if (rel < 0) {
+        Port_Fatal("Mixed build: none of the recipe's releases is imported");
+    }
+    g_port.dataDir = Port_MixRoot(rel);
+}
+
 /* Sets g_port.dataDir: --data, else the folder used last time, else the
  * usual places, else (desktop) the player picks it. */
 static void FindDataDir(void) {
@@ -413,20 +435,7 @@ static void FindDataDir(void) {
     char *dir;
 
     if (s_mixRecipe != NULL) {
-        /* a mixed build: the releases come from the recipe and sources.cfg
-         * (mix.c); the data folder is the one the menus come from, or the
-         * GameCube's disc image */
-        char err[512];
-        int rel;
-
-        if (!Port_MixSetup(s_mixRecipe, s_mixBuild, DataIn, err, sizeof(err))) {
-            Port_Fatal("Mixed build: %s", err);
-        }
-        rel = Disc_IsOpen() ? PORT_DATA_GC : Port_MixCandidate("HW_IPack.xgc", 0);
-        if (rel < 0) {
-            Port_Fatal("Mixed build: none of the recipe's releases is imported");
-        }
-        g_port.dataDir = Port_MixRoot(rel);
+        MixDataDir();
         return;
     }
     if (g_port.dataDir != NULL) {   /* --data */
@@ -448,6 +457,14 @@ static void FindDataDir(void) {
         int window = SDL_getenv("HWVX_NO_DIALOG") == NULL;
         char *chosen = Port_Launcher(g_port.launcher, window, DataIn, SearchForLauncher);
 
+        if (Port_LauncherMix() != NULL) {
+            /* the Play page's "Mixed game": as --mix RECIPE */
+            SDL_free(chosen);
+            s_mixRecipe = Port_LauncherMix();
+            s_mixBuild = 0;
+            MixDataDir();
+            return;
+        }
         if (chosen == NULL && window) {
             exit(0);
         }
@@ -494,8 +511,12 @@ static void FindDataDir(void) {
 
 int Port_TryCreateWindow(SDL_WindowFlags flags) {
     flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    if (g_port.convertDir != NULL) {
+    if (g_port.convertDir != NULL || Port_MixBuilding()) {
         flags |= SDL_WINDOW_HIDDEN;     /* converting: nothing is shown */
+        g_port.fullscreen = 0;
+    }
+    if (Port_ViewerHeadless()) {
+        flags |= SDL_WINDOW_HIDDEN;     /* the viewer's frames go to the data browser */
         g_port.fullscreen = 0;
     }
     if (g_port.fullscreen) {
@@ -601,7 +622,7 @@ static const char *s_convertSource;
 
 int main(int argc, char **argv) {
     ParseArgs(argc, argv);
-    if (g_port.convertDir != NULL) {
+    if (g_port.convertDir != NULL || (s_mixRecipe != NULL && s_mixBuild)) {
         SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");  /* the converter shows nothing: no Dock icon either */
     }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
@@ -644,11 +665,10 @@ int main(int argc, char **argv) {
     }
     if (Port_MixBuilding()) {
         /* --mix-build: every pack through the loader into the cache, then out */
-        u32 n = PortMix_BuildAll();
+        u32 failed, n = PortMix_BuildAll(&failed);
 
-        Port_MixManifestClose();
         Port_Log("mix: %u packs converted for %s", (unsigned)n, Port_MixName());
-        exit(n != 0 ? 0 : 1);
+        exit(Port_MixBuildFinish(n, failed) ? 0 : 1);
     }
     if (g_port.convertDir != NULL) {
         int failed = Disc_IsOpen() ? 1 : Port_ConvertRun(g_port.dataDir, s_convertSource, g_port.convertDir);

@@ -75,6 +75,15 @@ OWN_FILE_MIN = 4096        # raw nodes this large get a file of their own
 SECTIONS = ("pointers", "texture", "sound", "ref", "shader")
 SECTION_FILE = {"pointers": "pointers.bin", "texture": "texture_relocs.bin", "sound": "sound_relocs.bin",
                 "ref": "ref_relocs.bin", "shader": "shader_relocs.bin"}
+SECTION_ABOUT = {      # pack.json's informational section notes (src/pack.rs)
+    "pointers.bin": "offsets of pointer slots in data",
+    "texture_relocs.bin": "data offset + texture index (shared pack << 16)",
+    "sound_relocs.bin": "data offset + sound index (shared pack << 16)",
+    "ref_relocs.bin": "pointer slot + target (shared pack << 16 | index)",
+    "shader_relocs.bin": "data offset + shader index",
+}
+SECTION_ORDER = ("sound_pointers.bin", "sound_data.bin", "texture_relocs.bin", "shader_relocs.bin",
+                 "sound_relocs.bin", "data.bin", "ref_relocs.bin", "pointers.bin")
 HEADER_OFFSETS = (("texture_data_offset", "num_textures"), ("palette_offset", "num_palettes"),
                   ("shader_offset", "num_shaders"), ("trigger_offset", "num_triggers"))
 
@@ -338,8 +347,9 @@ class Node:
 
 
 class Extractor:
-    def __init__(self, src, out, S=None, log=None):
+    def __init__(self, src, out, S=None, log=None, force=False):
         self.src, self.out = src, Path(out)
+        self.force = force          # replace a folder that isn't a previous extract
         self.S = S or XS.Schemas()
         self.log = log if log is not None else []
         self.blob = src.blob
@@ -702,9 +712,15 @@ class Extractor:
         return rec, bytes(b)
 
     def run(self):
+        out = self.out
+        if out.exists() and not out.is_dir():
+            raise GraphError(f"{out}: not a folder")
+        if (out.exists() and not self.force and not (out / "pack.jsonc").exists()
+                and any(out.iterdir())):
+            raise GraphError(f"{out}: not empty and not a previous extract (no pack.jsonc); "
+                             "extracting replaces the folder (--force to do it anyway)")
         self.cut()
         self.name()
-        out = self.out
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
@@ -929,6 +945,18 @@ class GraphEncoder(XS.Encoder):
         for o in [o for o in self.links if lo <= o + 3 and o < hi]:
             del self.links[o]
 
+    def struct(self, sch, off, obj, path):
+        # the base (.base.jsonc) has every JSON field zeroed: a field left out would build as 0.
+        # Only top-level texture links keep their base bytes (write_typed).
+        for key, p in XS.fields(sch):
+            if key in obj:
+                continue
+            lf = XS.leaf(p, len(XS.parse_ctype(p["x-c-type"])[1]))
+            if not (path == "" and lf.get("x-link", {}).get("kind") == "texture"):
+                raise XS.XdlError(f"{path}/{key}: missing (a project file lists every field; "
+                                  "its base has 0 there)")
+        super().struct(sch, off, obj, path)
+
     def link(self, x, off, v, path):
         if v is not None and not isinstance(v, str):
             raise XS.XdlError(f"{path}: a link is a string or null")
@@ -1055,7 +1083,10 @@ class Builder:
         xp = type("P", (), {"e": self.e, "release": self.release, "archive": self.archive, "name": self.name,
                             "ptrs": set(), "tex": {}, "snd": {}, "ref": {}, "blob": b""})()
         enc = GraphEncoder(self.S, xp, sname, data)
-        enc.encode(doc, doc.get("extends"))
+        try:
+            enc.encode(doc, doc.get("extends"))
+        except XS.XdlError as e:
+            raise GraphError(f"{stem}.jsonc: {e}")
         b = Built(ent["id"], enc.out, ent["align"])
         rec_slots(b, base)
         for off, (kind, v) in enc.links.items():
@@ -1141,16 +1172,24 @@ class Builder:
                     rest = "/".join(parts[k:])
                     m = re.match(r"^o([0-9a-f]+)$", rest)
                     if m:
-                        return nb.start + int(m.group(1), 16), head
+                        d = int(m.group(1), 16)
+                        if d >= len(nb.data):
+                            raise GraphError(f"{link}: offset 0x{d:X} past the end of {head} "
+                                             f"(0x{len(nb.data):X} bytes)")
+                        return nb.start + d, head
                     if rest in nb.anchors:
                         return nb.start + nb.anchors[rest], head
                     raise GraphError(f"{link}: no {rest} in {head}")
             raise GraphError(f"{link}: no such object in this pack")
         slots = {k: {} for k in SECTIONS}
         e = self.e
+        edited = set(self.edited)
+        stale = []                  # offset links into a re-encoded geometry: its layout changed
         for li, b in enumerate(built):
             for off, link in b.links.items():
                 t, head = resolve(link)
+                if head in edited and head != b.id and re.match(r"^o[0-9a-f]+$", link[len(head) + 1:]):
+                    stale.append(f"{b.id}+0x{off:X} -> {link}")
                 struct.pack_into(e + "I", blob, b.start + off, t)
                 if b.refs.get(off) == "local":
                     if head not in gidx or t != index[head].start:
@@ -1167,6 +1206,10 @@ class Builder:
                 slots["sound"][(li, off)] = asset_value(self.release, v, "sound", own)
             for off, v in b.shd.items():
                 slots["shader"][(li, off)] = v
+        if stale:
+            raise GraphError(f"{len(stale)} links into re-encoded geometry by offset (the offsets were the "
+                             "original encoding's; only its structural names carry over): "
+                             + "; ".join(stale[:8]) + (" ..." if len(stale) > 8 else ""))
         orderf = self.dir / "pack.order.json"
         order = json.loads(orderf.read_text()) if orderf.exists() else {}
         out.mkdir(parents=True, exist_ok=True)
@@ -1191,16 +1234,27 @@ class Builder:
             v = h.get(key)
             if isinstance(v, str):
                 h[key] = resolve(v)[0]
+        present = set(self.pack.get("files") or [])
+        # a table the source didn't have (an edit added its first entry): file and section
+        for f in SECTION_FILE.values():
+            if f in present or not files.get(f):
+                continue
+            present.add(f)
+            if not any(s["file"] == f for s in pj["sections"]):
+                rank = SECTION_ORDER.index(f)
+                at = sum(1 for s in pj["sections"] if s["file"] in SECTION_ORDER
+                         and SECTION_ORDER.index(s["file"]) < rank)
+                pj["sections"].insert(at, {"file": f, "about": SECTION_ABOUT[f]})
         for s in pj["sections"]:
             data = files.get(s["file"], b"")
-            rs = self.pack["record_sizes"].get(s["file"], 1)
+            rs = self.pack["record_sizes"].get(s["file"], 4 if s["file"] == "pointers.bin" else
+                                               8 if s["file"] in SECTION_ABOUT else 1)
             byts, recs = len(data), len(data) // rs
             s_new = {"file": s["file"], "bytes": byts, "records": recs}
             s_new.update({k: v for k, v in s.items() if k not in ("file",)})
             s.clear()
             s.update(s_new)
         files["pack.json"] = (json.dumps(pj, indent=2) + "\n").encode()
-        present = set(self.pack.get("files") or [])
         for f, data in files.items():
             if f in present or f == "data.bin" or f == "pack.json":
                 (out / f).write_bytes(data)
@@ -1229,7 +1283,7 @@ def compare(a, b):
 
 def cmd_extract(a):
     src = Source(a.pack)
-    s = Extractor(src, a.out).run()
+    s = Extractor(src, a.out, force=a.force).run()
     print(f"{src.archive}/{src.name}: {s['nodes']} nodes ({s['typed']} typed, {s['geometry']} geometry, "
           f"{s['raw']} raw) in {s['files']} files")
     for k, v in s["notes"].items():
@@ -1280,7 +1334,7 @@ def cmd_extract_archive(a):
     write_archive(arch, a.out)
     S = XS.Schemas()
     for e in man["entries"]:
-        s = Extractor(Source(arch / e["path"]), Path(a.out) / pack_name(e), S).run()
+        s = Extractor(Source(arch / e["path"]), Path(a.out) / pack_name(e), S, force=a.force).run()
         print(f"{pack_name(e)}: {s['nodes']} nodes in {s['files']} files")
     return 0
 
@@ -1424,6 +1478,7 @@ def main():
     p = sub.add_parser("extract")
     p.add_argument("pack")
     p.add_argument("out")
+    p.add_argument("--force", action="store_true", help="replace OUT even if it isn't a previous extract")
     p = sub.add_parser("build")
     p.add_argument("project")
     p.add_argument("out")
@@ -1442,6 +1497,7 @@ def main():
     p = sub.add_parser("extract-archive")
     p.add_argument("archive")
     p.add_argument("out")
+    p.add_argument("--force", action="store_true", help="replace pack folders that aren't previous extracts")
     p = sub.add_parser("build-archive")
     p.add_argument("project")
     p.add_argument("out")

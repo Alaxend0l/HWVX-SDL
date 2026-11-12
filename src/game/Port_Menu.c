@@ -27,7 +27,11 @@
  *   copy of "One Player") second. With graphics.cfg "mainmenu=original"
  *   (HWVX_ORIGINAL_MAINMENU=1, Port_OriginalMainMenu) the main menu is left
  *   as the release has it: no Quit Game, no Multi-Player on PC, no Online.
- * - Options: "Graphics" (a copy of "Controller") opens the Graphics screen.
+ * - Options: "Handling" (a copy of "Difficulty": Normal / PC Mode 2, the PC
+ *   release's third car handling, CarA_PortDriveMode; in the save, code
+ *   variable PORT_CODEVAR_HANDLING) and "Graphics" (a copy of "Controller",
+ *   opening the Graphics screen) after SFX: eight rows on GameCube and PS2,
+ *   seven on PC (AddHandlingRow, FindOptions' spacing).
  * - Memory card screens (saves are files on PC, always "slot A"): Load Game
  *   and Save Game start on slot A's file list (no Slot A/B picker; the PC's
  *   have none), without the card warnings, and B leaves them.
@@ -117,7 +121,7 @@ typedef struct OptScreen {
 
 /* The port's own record ids, past the pack's 1-7 (the Display row takes the
  * Sound Mode row's 6 on PC, where that row is gone). */
-enum { REC_SOUND = 6, REC_GRAPHICS = 8, REC_GAMMA = 9, REC_FOV = 10 };
+enum { REC_SOUND = 6, REC_GRAPHICS = 8, REC_GAMMA = 9, REC_FOV = 10, REC_HANDLING = 11 };
 
 /* Menu rows in the pack: the first (Controller, One Player) at 198, 26 apart.
  * With the port's seventh row they sit a little closer, row k at
@@ -129,6 +133,9 @@ enum { REC_SOUND = 6, REC_GRAPHICS = 8, REC_GAMMA = 9, REC_FOV = 10 };
 #define ROW_Y 195.0f
 #define ROW_STEP 23.0f
 #define ROW_NEW 6               /* the port's row, after the pack's six */
+/* With Handling as well, the GameCube's Options screen has eight rows: a
+ * little closer again, around the same centre. */
+#define ROW_STEP8 21.0f
 /* The PC's Options screen has five rows, 31 apart from 203: with the port's
  * sixth they go back to the GameCube's gap, around the same centre. */
 #define ROW_CENTRE_Y 265.0f
@@ -227,11 +234,22 @@ static InterfaceHeader *s_main, *s_loadScreen, *s_loadProgress, *s_saveScreen, *
 static IfaceEvent s_quitEvents[2][2];
 
 static OptScreen s_opt;
-static IfaceObjectDef s_optObjs[OPT_MAX_OBJECTS + 1];
+static IfaceObjectDef s_optObjs[OPT_MAX_OBJECTS + 5];
 static AnimCopy s_optRowAnim[24];       /* Controller .. SFX's last arrow */
 static AnimCopy s_entryAnim;
 static TextCopy s_entryText;
 static RecordCopy s_entryRec;
+/* Options' Handling row: a copy of Difficulty's four objects */
+static AnimCopy s_handlingAnim[4];
+static TextCopy s_handlingText;
+static RecordCopy s_handlingRec;
+static ActionCopy s_handlingAction;
+static ListCopy s_handlingList;
+static IfaceConditionList s_handlingArrowList[2], s_optFooterList;
+static IfaceCondition s_handlingArrowCond[2], s_optFooterCond[12];
+static IfaceVarList s_optVarList;
+static IfaceVar s_optVars[8];
+static IfaceCodeVar s_optCode;
 
 static InterfaceHeader s_gfx;
 /* the Options screen's objects, then on PC a copy of the Difficulty row for
@@ -732,7 +750,8 @@ static int FindOptions(InterfaceHeader *h, OptScreen *o) {
         IfaceRecord *r = GETP(objs[i].record);
 
         if (r != NULL && i != o->sound &&
-            (r->id == REC_SOUND || r->id == REC_GRAPHICS || r->id == REC_GAMMA || r->id == REC_FOV)) {
+            (r->id == REC_SOUND || r->id == REC_GRAPHICS || r->id == REC_GAMMA || r->id == REC_FOV ||
+             r->id == REC_HANDLING)) {
             Port_Log("menu: Options object %u has record id %u, no Graphics entry", i, r->id);
             return 0;
         }
@@ -778,9 +797,9 @@ static int FindOptions(InterfaceHeader *h, OptScreen *o) {
     o->varVSync = (u16)vl->count;
     o->varFps = (u16)(vl->count + 1);
 
-    /* the rows' spacing: the GameCube's seven rows as they always were, the
-     * PC's six at the GameCube's own gap, centred where its five were */
-    rows = o->sound != NONE ? 7 : 6;
+    /* the rows' spacing, with Handling and Graphics: the GameCube's eight a
+     * little closer, the PC's seven as the GameCube's were with Graphics alone */
+    rows = o->sound != NONE ? 8 : 7;
     o->rows.packFirst = PosY(&objs[o->controller]);
     o->rows.packStep = o->cheats != NONE ? PosY(&objs[o->cheats]) - o->rows.packFirst : PACK_ROW_STEP_Y;
     if (o->rows.packStep <= 0.0f || o->sfx + 4 - o->controller > sizeof(s_optRowAnim) / sizeof(s_optRowAnim[0])) {
@@ -790,8 +809,8 @@ static int FindOptions(InterfaceHeader *h, OptScreen *o) {
         o->rows.first = ROW_Y;
         o->rows.step = ROW_STEP;
     } else {
-        o->rows.step = PACK_ROW_STEP_Y;
-        o->rows.first = ROW_CENTRE_Y - (rows - 1) * PACK_ROW_STEP_Y / 2.0f;
+        o->rows.step = ROW_STEP8;
+        o->rows.first = ROW_CENTRE_Y - (rows - 1) * ROW_STEP8 / 2.0f;
     }
     return 1;
 }
@@ -2152,6 +2171,51 @@ static void PatchMainMenu(InterfaceHeader *h, const MainMenu *m) {
 }
 
 
+/* Options' Handling row (h's objects at..at+3, at height y): a copy of the
+ * Difficulty row choosing between the cars' own handling and the PC
+ * release's third mode (PORT_CODEVAR_HANDLING, GameSettings_PortHandling;
+ * kept in the save with the other settings). Its variable is one more on a
+ * copy of the screen's list; the Last/Next footer shows for it too. The
+ * pack's Difficulty step goes, as on the Graphics screen's Display row:
+ * SetActions gives the row its own. */
+static void AddHandlingRow(InterfaceHeader *h, const IfaceObjectDef *objs, u32 at, f32 y) {
+    static const char *const names[2] = { "Normal", "PC Mode 2" };
+    IfaceVarList *vl = GETP(h->vars);
+    const IfaceConditionList *footer = GETP(objs[s_opt.footerLeftRight].conditions);
+    IfaceObjectDef *d = &s_optObjs[at];
+    f32 rowY = PosY(&objs[s_opt.difficulty]);
+    u16 var = (u16)vl->count;
+    u32 i, n;
+
+    for (i = 0; i < 4; i++) {
+        d[i] = objs[s_opt.difficulty + i];
+        MoveTo(&s_handlingAnim[i], &d[i], y + (PosY(&objs[s_opt.difficulty + i]) - rowY));
+    }
+    SetText(&s_handlingText, &d[0], "Handling");
+    CopyRecord(&s_handlingRec, &d[0], REC_HANDLING, s_opt.recSfx, REC_GRAPHICS);
+    s_handlingRec.rec.numSteps = 0;
+    s_handlingRec.rec.steps.h = 0;
+    SetArrowConds(d, s_handlingArrowList, s_handlingArrowCond, REC_HANDLING);
+
+    memcpy(s_optVars, GETP(vl->vars), vl->count * sizeof(IfaceVar));
+    s_optVars[var] = s_optVars[s_opt.varSound];   /* a code var of the right shape */
+    SetCodeVar(&s_optVars[var], &s_optCode, PORT_CODEVAR_HANDLING, 1);
+    s_optVarList.count = vl->count + 1;
+    SETP(s_optVarList.vars, s_optVars);
+    SETP(h->vars, &s_optVarList);
+    SetActions(&s_handlingRec, &s_handlingAction, PORT_CODEVAR_HANDLING, var);
+    SetList(&s_handlingList, &d[1], var, names, 2);
+
+    n = footer->count < 11 ? footer->count : 11;
+    memcpy(s_optFooterCond, GETP(footer->conds), n * sizeof(IfaceCondition));
+    s_optFooterCond[n] = s_optFooterCond[0];
+    s_optFooterCond[n].value = REC_HANDLING;
+    s_optFooterList = *footer;
+    s_optFooterList.count = n + 1;
+    SETP(s_optFooterList.conds, s_optFooterCond);
+    SETP(s_optObjs[s_opt.footerLeftRight].conditions, &s_optFooterList);
+}
+
 void Port_MenuPatch(InterfaceHeader *h) {
     IfaceObjectDef *objs;
     IfaceObjectDef *entry;
@@ -2205,29 +2269,31 @@ void Port_MenuPatch(InterfaceHeader *h) {
     objs = GETP(h->objects);
     BuildGraphicsScreen(h, objs);
 
-    /* Graphics, a copy of Controller, as the last row (the pack's rows close
-     * up to make room for it) */
+    /* Handling, a copy of Difficulty, then Graphics, a copy of Controller, as
+     * the last rows (the pack's rows close up to make room for them) */
     memcpy(s_optObjs, objs, s_opt.numObjects * sizeof(IfaceObjectDef));
     for (i = s_opt.controller; i < s_opt.sfx + 4; i++) {
         MoveRow(&s_optRowAnim[i - s_opt.controller], &s_optObjs[i], &s_opt.rows);
     }
-    entry = &s_optObjs[s_opt.numObjects];
+    AddHandlingRow(h, objs, s_opt.numObjects,
+                   s_opt.rows.first + (s_opt.sound != NONE ? ROW_NEW : ROW_NEW - 1) * s_opt.rows.step);
+    entry = &s_optObjs[s_opt.numObjects + 4];
     *entry = objs[s_opt.controller];
-    MoveTo(&s_entryAnim, entry, s_opt.rows.first + (s_opt.sound != NONE ? ROW_NEW : ROW_NEW - 1) * s_opt.rows.step);
+    MoveTo(&s_entryAnim, entry, s_opt.rows.first + (s_opt.sound != NONE ? ROW_NEW + 1 : ROW_NEW) * s_opt.rows.step);
     SetText(&s_entryText, entry, "Graphics");
-    CopyRecord(&s_entryRec, entry, REC_GRAPHICS, s_opt.recSfx, s_opt.recController);
+    CopyRecord(&s_entryRec, entry, REC_GRAPHICS, REC_HANDLING, s_opt.recController);
     for (i = 0; i < s_entryRec.rec.events.count; i++) {
         if (s_entryRec.defs[i].type == 1) {
             SETP(s_entryRec.defs[i].target, &s_gfx);
         }
     }
-    /* into the ring: SFX -> Graphics -> Controller */
-    GETP(objs[s_opt.sfx].record)->next[1] = REC_GRAPHICS;
+    /* into the ring: SFX -> Handling -> Graphics -> Controller */
+    GETP(objs[s_opt.sfx].record)->next[1] = REC_HANDLING;
     GETP(objs[s_opt.controller].record)->next[0] = REC_GRAPHICS;
-    if (GETP(GETP(h->vars)->vars)[s_opt.varSelected].max < REC_GRAPHICS) {
-        GETP(GETP(h->vars)->vars)[s_opt.varSelected].max = REC_GRAPHICS;
+    if (GETP(GETP(h->vars)->vars)[s_opt.varSelected].max < REC_HANDLING) {
+        GETP(GETP(h->vars)->vars)[s_opt.varSelected].max = REC_HANDLING;
     }
-    h->numObjects = s_opt.numObjects + 1;
+    h->numObjects = s_opt.numObjects + 5;
     SETP(h->objects, s_optObjs);
 }
 

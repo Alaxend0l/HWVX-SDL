@@ -8,7 +8,7 @@
   "name": "Night Shift",
   "version": "1.0.0",
   "author": "HWVX-SDL",
-  "description": "A 34th car built on car 5 with its own paint and tuning; car 7 in red.",
+  "description": "A 34th car built on car 5 with its own paint and tuning; car 7 in red; Challenge 1 again as a track of its own.",
   "cars": {
     "uid://nightshiftcar": {
       "extends": "base://HW_Cars/car_5",      // its model, sounds and scripts: the player's own
@@ -24,6 +24,14 @@
       "recipes": {
         "texture/0": [ { "op": "hue_shift", "degrees": 140 }, { "op": "brightness", "amount": 0.8 } ]
       }
+    }
+  },
+  // a track: Challenge 1's level again, in the select as its own
+  "tracks": {
+    "uid://nightshifttrk": {
+      "extends": "base://mcp/track/39",
+      "name": "Night Shift Run",
+      "unlocked": true
     }
   },
   "patches": {

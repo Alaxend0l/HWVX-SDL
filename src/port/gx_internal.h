@@ -153,6 +153,8 @@ void GX_DrawBeginFrame(void);
 void GX_DrawCopyDisp(int clear);
 void GX_DrawCopyTex(void *dest, int clear);
 void GX_DrawPresent(void);
+/* The EFB's size in pixels now. */
+void GX_DrawEfbSize(int *w, int *h);
 
 /* gx_mesh.c: frees the meshes released since the last call (on the thread
  * that draws), and the numbers for the frame dump log. */

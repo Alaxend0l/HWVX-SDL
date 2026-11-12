@@ -754,6 +754,70 @@ void GX_TexStats(GXTexStats *st) {
     st->rgbaBytes = s_stats.rgbaBytes;
 }
 
+int GX_PortTexObjInfo(const GXTexObj *obj, GXPortTexInfo *info) {
+    const u32 *d = obj->dummy;
+    GXSampler samp;
+    int l;
+
+    SDL_zerop(info);
+    info->w = (int)(d[1] >> 16);
+    info->h = (int)(d[1] & 0xFFFF);
+    info->fmt = (int)d[2];
+    if (PTR(d[0]) == NULL || info->w == 0 || info->h == 0 || info->w > 1024 || info->h > 1024) {
+        return 0;
+    }
+    info->levels = 1;
+    if (d[4]) {     /* as GX_TexGet */
+        f32 maxLod;
+        memcpy(&maxLod, &d[6], 4);
+        info->levels = (int)maxLod + 1;
+        if (info->levels < 1 || info->levels > 11) {
+            info->levels = 1;
+        }
+    }
+    SDL_zero(samp);
+    Sampler(d, info->levels, &samp);
+    info->wrapS = samp.wrapS;
+    info->wrapT = samp.wrapT;
+    info->minLinear = samp.minLinear;
+    info->magLinear = samp.magLinear;
+    info->mip = samp.mip;
+    info->squared = info->fmt >= GX_TF_PORT && Port_PCTexturesLookGC();
+    info->mod = GX_TexModFor(d[0]) != NULL;
+    for (l = 0; l < info->levels; l++) {
+        info->bytes += LevelSize(info->fmt, (info->w >> l) > 0 ? info->w >> l : 1, (info->h >> l) > 0 ? info->h >> l : 1);
+    }
+    return 1;
+}
+
+int GX_PortDecodeTexObj(const GXTexObj *obj, int level, u8 *rgba) {
+    GXPortTexInfo info;
+    const u8 *image = PTR(obj->dummy[0]);
+    const GXTexMod *mod = GX_TexModFor(obj->dummy[0]);
+    int l, lw = 0, lh = 0;
+
+    if (!GX_PortTexObjInfo(obj, &info) || level < 0 || level >= info.levels) {
+        return 0;
+    }
+    /* Upload's walk through the levels */
+    for (l = 0; l <= level; l++) {
+        lw = (info.w >> l) > 0 ? info.w >> l : 1;
+        lh = (info.h >> l) > 0 ? info.h >> l : 1;
+        if (l < level) {
+            image += LevelSize(info.fmt, lw, lh);
+        }
+    }
+    memset(rgba, 0, (size_t)lw * lh * 4);
+    DecodeLevel(info.fmt, image, lw, lh, rgba);
+    if (mod != NULL) {
+        GX_TexModApply(mod, rgba, lw, lh);
+    }
+    if (info.squared) {
+        SquareColours(rgba, lw, lh);
+    }
+    return 1;
+}
+
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     const u32 *d = obj->dummy;
     u8 *image = PTR(d[0]);

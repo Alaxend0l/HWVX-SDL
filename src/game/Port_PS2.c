@@ -64,16 +64,31 @@ static int Indexed(const u8 *base, u32 size, const u16 *h, u32 palOff, u32 numPa
            TexBytes(h, 1) <= (u64)(base + size - src);
 }
 
-void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u32 numPal) {
+/* A prototype RGB24 texture (format 0) the converter can read. */
+static int RGB24(const u8 *base, u32 size, const u16 *h) {
+    const u8 *src = SLOT_LOAD(const u8 *, h + 4);
+
+    return h[0] == 0 && h[1] <= PS2_MAX_TEX && h[2] <= PS2_MAX_TEX && h[3] <= 16 && src >= base &&
+           src <= base + size && TexBytes(h, 3) <= (u64)(base + size - src);
+}
+
+void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u32 numPal, int proto) {
     u32 i, l;
     u64 total = 0;
     u8 *block, *out;
     int unknown = 0;
 
     for (i = 0; i < numTex && (u64)texOff + ((u64)i + 1) * 0x10 <= size; i++) {
-        const u16 *h = (const u16 *)(base + texOff + i * 0x10);
+        u16 *h = (u16 *)(base + texOff + i * 0x10);
 
+        /* the prototype's level value m means m - 1 levels stored (0: one;
+         * docs/beta-cars/research/textures_sounds.md §2.1): as the release's */
+        if (proto) {
+            h[3] = h[3] <= 2 ? 0 : (u16)(h[3] - 1);
+        }
         if (Indexed(base, size, h, palOff, numPal)) {
+            total += TexBytes(h, 4);
+        } else if (proto && RGB24(base, size, h)) {
             total += TexBytes(h, 4);
         }
     }
@@ -98,6 +113,28 @@ void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u
                     memcpy(out + k * 4, pal + CSM1(src[k]) * 4, 4);
                 }
                 src += n;
+                out += n * 4;
+                w >>= 1;
+                ht >>= 1;
+            }
+            h[0] = 1;
+        } else if (out != NULL && proto && RGB24(base, size, h)) {
+            /* the prototype's RGB24: opaque RGBA8888 */
+            const u8 *src = SLOT_LOAD(const u8 *, h + 4);
+            u32 w = h[1], ht = h[2];
+
+            SLOT_STORE(h + 4, out);
+            Xdl_NoteSlot(h + 4);
+            for (l = 0; l < Levels(h[3]); l++) {
+                u32 n = (w ? w : 1) * (ht ? ht : 1);
+
+                for (k = 0; k < n; k++) {
+                    out[k * 4] = src[k * 3];
+                    out[k * 4 + 1] = src[k * 3 + 1];
+                    out[k * 4 + 2] = src[k * 3 + 2];
+                    out[k * 4 + 3] = 0xFF;
+                }
+                src += n * 3;
                 out += n * 4;
                 w >>= 1;
                 ht >>= 1;

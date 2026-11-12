@@ -46,6 +46,7 @@
 #include "Interface.h"
 #include "Port_Content.h"
 #include "Port_Swap.h"
+#include "Port_Proto.h"
 
 /* The archives whose packs are numbered as entries are: a car is the type-0
  * pack of its number in HW_Cars (the MCP's carsPack; the worlds' own
@@ -150,6 +151,7 @@ static void LoadIdsLock(void) {
     if (path != NULL) {
         Port_ModsInit();
         Port_ModsSyncLock(path);   /* the enabled mods' cars and items */
+        Port_ProtoSyncLock(path);  /* the PS2 prototype's, by its import mode */
     }
     if (path != NULL && (n = Port_ContentLoadLock(path)) > 0) {
         Port_Log("content: %d entries from %s", n, path);
@@ -166,7 +168,7 @@ static void LoadIdsLock(void) {
  * texture link (base://HW_IPack/interface_0/texture/12) for their pictures. */
 static void TestExtra(int kind, const char *env, const char *what, s32 first, const char *thumbEnv) {
     const char *e = SDL_getenv(env);
-    u32 base = Port_ContentCount(kind);
+    u32 base = Port_ContentBaseCount(kind);
     int n, k;
     PortContentEntry entry;
 
@@ -200,7 +202,7 @@ static void TestExtra(int kind, const char *env, const char *what, s32 first, co
 static void TestExtraTracks(void) {
     static const s32 first[] = { 39, 0, 19, 29, 5 };
     const char *e = SDL_getenv("HWVX_TEST_EXTRA_TRACKS"), *list = NULL;
-    u32 base = Port_ContentCount(PORT_CONTENT_TRACK);
+    u32 base = Port_ContentBaseCount(PORT_CONTENT_TRACK);
     int n, k;
 
     if (e == NULL) {
@@ -274,6 +276,7 @@ void Port_ContentInit(void) {
     TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3, "HWVX_TEST_EXTRA_CAR_THUMB");
     TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0, "HWVX_TEST_EXTRA_ITEM_THUMB");
     TestExtraTracks();
+    Port_ProtoInit();   /* the prototype's car pictures */
     for (j = Port_ContentRetailCount(PORT_CONTENT_CAR); j < Port_ContentCount(PORT_CONTENT_CAR); j++) {
         if (Has(&s_archives[0], j) && Port_ContentDataOf(PORT_CONTENT_CAR, j) != (s32)j) {
             Port_Log("content: %s has a pack %u of its own; car %u loads that, not its own data", s_archives[0].name,
@@ -298,21 +301,40 @@ u32 Port_ContentItemPack(u32 n) {
     return data >= 0 ? (u32)data : s_archives[1].maxId + (n - base);
 }
 
-u32 Port_ContentPackId(const char *name, u32 type, u32 id) {
+u32 Port_ContentPackSource(const char *name, u32 type, u32 id, const char **source) {
     size_t i;
     s32 data;
+    const char *link;
 
+    *source = name;
+    if (name == NULL || Port_ProtoName(name) != NULL) {
+        return id;
+    }
     for (i = 0; i < SDL_arraysize(s_archives); i++) {
         const Archive *a = &s_archives[i];
 
         /* items: numbered apart from their packs (Port_ContentItemPack) */
-        if (a->kind != PORT_CONTENT_CAR || a->type != type || id < Port_ContentRetailCount(a->kind) || Has(a, id) || !SameArchive(name, a->name)) {
+        if (a->kind != PORT_CONTENT_CAR || a->type != type || !SameArchive(name, a->name)) {
             continue;
+        }
+        if (id < Port_ContentRetailCount(a->kind) || Has(a, id)) {
+            /* a base car: the prototype's in its place ("replace") */
+            return Port_ProtoReplacement(name, type, id, source);
+        }
+        if ((link = Port_ContentDataLink(a->kind, id)) != NULL) {
+            /* data of its own: the prototype's pack */
+            return Port_ProtoLink(link, type, id, source);
         }
         data = Port_ContentDataOf(a->kind, id);
         return data >= 0 ? (u32)data : id;
     }
     return id;
+}
+
+u32 Port_ContentPackId(const char *name, u32 type, u32 id) {
+    const char *source;
+
+    return Port_ContentPackSource(name, type, id, &source);
 }
 
 /* A pack's scripts (DataPack.base), as DataPack_GetScript reads them. */
@@ -372,6 +394,7 @@ enum { EXT_PICTURES, EXT_NAMES, EXT_PARAGRAPHS, EXT_PICTURES_ALIAS /* never the 
 typedef struct ExtList {
     int what, kind;
     u32 first, n;
+    s32 aliasBase;
     u32 *number;        /* [n] */
     u32 origCount;
     u32 *orig;          /* the pack's: texture ids, or string table handles */
@@ -402,9 +425,18 @@ static s32 TextureOfLink(const char *link) {
     u32 type, id, tex, i;
     char *end;
 
-    if (link == NULL || SDL_strncmp(link, "base://", 7) != 0 || (slash = SDL_strchr(p = link + 7, '/')) == NULL ||
-        (len = (size_t)(slash - p)) >= sizeof(archive)) {
+    /* proto://: a pack of the PS2 prototype's (Port_Proto.c), loaded as "~archive" */
+    int proto = link != NULL && SDL_strncmp(link, "proto://", 8) == 0;
+
+    if (link == NULL || (!proto && SDL_strncmp(link, "base://", 7) != 0) ||
+        (slash = SDL_strchr(p = link + (proto ? 8 : 7), '/')) == NULL || (len = (size_t)(slash - p)) + 1 >= sizeof(archive)) {
         return -1;
+    }
+    if (proto) {
+        archive[0] = PORT_PROTO_PREFIX;
+        SDL_memcpy(archive + 1, p, len);
+        archive[len + 1] = 0;
+        return Port_ProtoTexture(archive, slash + 1);
     }
     SDL_memcpy(archive, p, len);
     archive[len] = 0;
@@ -441,15 +473,16 @@ static const char *FirstString(u32 table) {
     return t != NULL ? SLOT_LOAD(char *, t) : NULL;
 }
 
-static int IsExt(const u32 *items) {
+/* The list made with these items, or NULL. */
+static ExtList *ExtOf(const u32 *items) {
     u32 i;
 
     for (i = 0; i < s_numExt; i++) {
         if (s_ext[i]->items == items) {
-            return 1;
+            return s_ext[i];
         }
     }
-    return 0;
+    return NULL;
 }
 
 static u32 NumberOf(const ExtMap *m, u32 k) {
@@ -467,6 +500,54 @@ static void FreeExt(ExtList *x) {
     }
 }
 
+/* A list's entries past the original (pictures and paragraphs; names are
+ * made with the list). A thumbnail is the texture its pack has now: done
+ * again each time the list is used (its pack may not have been loaded the
+ * first time, or loaded since at other texture ids). log: say which
+ * thumbnails aren't there. */
+static void FillItems(ExtList *x, int log) {
+    u32 i, k;
+    int what = x->what;
+
+    for (k = 0; k < x->n && what != EXT_NAMES; k++) {
+        const char *name, *suffix, *thumb = NULL;
+        u32 num = x->number[k];
+        s32 alias = Port_ContentDataOf(x->kind, num) - x->aliasBase, tex;
+
+        i = x->first + k;
+        if (what == EXT_PARAGRAPHS) {
+            if (s_blankSlots[0] == 0) {
+                s_blankSlots[0] = HND(s_blank);
+            }
+            x->items[i] = HND(s_blankSlots);
+            continue;
+        }
+        if (Port_ContentLook(x->kind, num, &name, &suffix, &thumb) == 2) {
+            x->items[i] = x->orig[x->origCount - 1];   /* reserved: the list's own last ("?") */
+        } else if (what == EXT_PICTURES && (tex = TextureOfLink(thumb)) >= 0) {
+            x->items[i] = (u32)tex;
+        } else {
+            if (thumb != NULL && what == EXT_PICTURES && log) {
+                Port_Log("content: %u's thumbnail %s: no such texture loaded; the alias's picture", (unsigned)num, thumb);
+            }
+            x->items[i] = alias >= 0 && (u32)alias < x->origCount ? x->orig[alias] : x->orig[x->origCount - 1];
+        }
+    }
+}
+
+/* Is x the list `orig` with the map's entries? */
+static int Matches(const ExtList *x, const ExtMap *m, int what, const u32 *orig, u32 origCount) {
+    u32 k;
+
+    if (x->what != what || x->kind != m->kind || x->first != m->first || x->n != m->n || x->aliasBase != m->aliasBase ||
+        x->origCount != origCount || SDL_memcmp(x->orig, orig, origCount * sizeof(u32)) != 0) {
+        return 0;
+    }
+    for (k = 0; k < m->n && x->number[k] == NumberOf(m, k); k++) {
+    }
+    return k == m->n;
+}
+
 /* The list `orig` (origCount long) with the map's entries in it: as long
  * as it has to be. NULL if nothing changes, or no memory. */
 static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 origCount) {
@@ -474,18 +555,28 @@ static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 ori
     ExtList *x;
     char *str;
 
-    if (m->n == 0 || origCount == 0 || orig == NULL || IsExt(orig)) {
+    if (m->n == 0 || origCount == 0 || orig == NULL) {
         return NULL;
+    }
+    if ((x = ExtOf(orig)) != NULL) {
+        if (Matches(x, m, what, x->orig, x->origCount)) {
+            if (what == EXT_PICTURES) {
+                FillItems(x, 0);   /* the screen again, its pack still loaded */
+            }
+            return NULL;
+        }
+        /* made for another map (a list another select shares): from the
+         * pack's own */
+        orig = x->orig;
+        origCount = x->origCount;
+        count = m->first + m->n > origCount ? m->first + m->n : origCount;
     }
     for (i = 0; i < s_numExt; i++) {
         x = s_ext[i];
-        if (x->what != what || x->kind != m->kind || x->first != m->first || x->n != m->n ||
-            x->origCount != origCount || SDL_memcmp(x->orig, orig, origCount * sizeof(u32)) != 0) {
-            continue;
-        }
-        for (k = 0; k < m->n && x->number[k] == NumberOf(m, k); k++) {
-        }
-        if (k == m->n) {
+        if (Matches(x, m, what, orig, origCount)) {
+            if (what == EXT_PICTURES) {
+                FillItems(x, 0);
+            }
             return x;
         }
     }
@@ -505,6 +596,7 @@ static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 ori
     x->kind = m->kind;
     x->first = m->first;
     x->n = m->n;
+    x->aliasBase = m->aliasBase;
     x->origCount = origCount;
     x->count = count;
     x->number = SDL_malloc(m->n * sizeof(u32));
@@ -547,8 +639,15 @@ static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 ori
             }
             if (pass == 1) {
                 str = x->strings + size;
-                SDL_snprintf(str, SDL_strlen(name) + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
-                             suffix != NULL ? suffix : "");
+                size_t nl = SDL_strlen(name);
+
+                /* the suffix before a trailing '*' (the font's trademark sign) */
+                if (suffix != NULL && nl > 0 && name[nl - 1] == '*') {
+                    SDL_snprintf(str, nl + SDL_strlen(suffix) + 1, "%.*s%s*", (int)(nl - 1), name, suffix);
+                } else {
+                    SDL_snprintf(str, nl + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
+                                 suffix != NULL ? suffix : "");
+                }
                 j = k * 2;
                 x->slots[j] = HND(str);
                 x->slots[j + 1] = 0;
@@ -561,32 +660,46 @@ static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 ori
             return NULL;
         }
     }
-    for (k = 0; k < m->n && what != EXT_NAMES; k++) {
-        const char *name, *suffix, *thumb = NULL;
-        u32 num = x->number[k];
-        s32 alias = Port_ContentDataOf(m->kind, num) - m->aliasBase, tex;
-
-        i = m->first + k;
-        if (what == EXT_PARAGRAPHS) {
-            if (s_blankSlots[0] == 0) {
-                s_blankSlots[0] = HND(s_blank);
-            }
-            x->items[i] = HND(s_blankSlots);
-            continue;
-        }
-        if (Port_ContentLook(m->kind, num, &name, &suffix, &thumb) == 2) {
-            x->items[i] = orig[origCount - 1];   /* reserved: the list's own last ("?") */
-        } else if (what == EXT_PICTURES && (tex = TextureOfLink(thumb)) >= 0) {
-            x->items[i] = (u32)tex;
-        } else {
-            if (thumb != NULL && what == EXT_PICTURES) {
-                Port_Log("content: %u's thumbnail %s: no such texture loaded; the alias's picture", (unsigned)num, thumb);
-            }
-            x->items[i] = alias >= 0 && (u32)alias < origCount ? orig[alias] : orig[origCount - 1];
-        }
-    }
+    FillItems(x, 1);
     s_ext[s_numExt++] = x;
     return x;
+}
+
+/* A copy of a text object's list showing x (the pack's struct may be one
+ * several screens point at, each extended for its own select). Copies are
+ * kept for the run and never changed, so equal ones are shared. NULL: no
+ * memory. */
+static IfaceStringList **s_ownLists;
+static u32 s_numOwn, s_capOwn;
+
+static IfaceStringList *OwnList(const IfaceStringList *l, const ExtList *x) {
+    IfaceStringList *c;
+    u32 i;
+
+    for (i = 0; i < s_numOwn; i++) {
+        c = s_ownLists[i];
+        if (GETP(c->texts) == x->items && c->count == x->count && c->fromVar == l->fromVar && c->var == l->var &&
+            c->pad9 == l->pad9) {
+            return c;
+        }
+    }
+    if (s_numOwn == s_capOwn) {
+        IfaceStringList **p = SDL_realloc(s_ownLists, (s_capOwn + 16) * sizeof(*p));
+
+        if (p == NULL) {
+            return NULL;
+        }
+        s_ownLists = p;
+        s_capOwn += 16;
+    }
+    if ((c = SDL_malloc(sizeof(*c))) == NULL) {
+        return NULL;
+    }
+    *c = *l;
+    SETP(c->texts, x->items);
+    c->count = x->count;
+    s_ownLists[s_numOwn++] = c;
+    return c;
 }
 
 static int InVars(const u8 *vars, u32 numVars, u32 var) {
@@ -637,8 +750,10 @@ static int ExtendLists(InterfaceHeader *h, const ExtMap *pics, const u8 *picVars
                 (x = Extend(texts, t->paragraph ? EXT_PARAGRAPHS : EXT_NAMES, GETP(l->texts), l->count)) == NULL) {
                 continue;
             }
-            SETP(l->texts, x->items);
-            l->count = x->count;
+            if ((l = OwnList(l, x)) == NULL) {
+                continue;
+            }
+            SETP(t->list, l);   /* not the pack's: another select may share that */
             changed = 1;
         }
     }

@@ -14,6 +14,8 @@
 #include "Port_Saves.h"
 #include "Port_Content.h"
 
+_Static_assert(PORT_SAVE_ID_MAX == PORT_CONTENT_ID_MAX, "the save holds the registry's ids whole");
+
 static const char *const s_sections[PORT_SAVE_IDS_COUNT] = {
     [PORT_SAVE_IDS_CARS] = "cars",
     [PORT_SAVE_IDS_TRACKS] = "tracks",

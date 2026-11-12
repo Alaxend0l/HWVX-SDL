@@ -169,7 +169,19 @@ typedef struct GXRenderer {
     void *(*meshIndices)(const u16 *idx, u32 n);
     void *(*meshVertices)(const GXMeshVertex *v, u32 n, int skinned, void *indices);
     void (*meshDestroy)(void *buf);
+    /* Asynchronous EFB readback (the viewer's shared frames, viewer_frames.c):
+     * grabStart copies the EFB as drawn so far into readback buffer `slot`
+     * (0 .. GXR_GRAB_SLOTS - 1) and submits the work without waiting for the
+     * GPU; 0 on failure. grabFetch, once the GPU is done with it, copies it
+     * out (4 bytes a pixel, R G B and a byte to ignore, top row first, rows
+     * `stride` bytes apart; nothing when it is over maxW x maxH), sets *w, *h
+     * and frees the slot: 1. 0: not ready yet (wait: blocks until it is);
+     * -1: nothing pending, too big, or failed (the slot is freed). */
+    int (*grabStart)(int slot);
+    int (*grabFetch)(int slot, u8 *dst, int stride, int maxW, int maxH, int *w, int *h, int wait);
 } GXRenderer;
+
+#define GXR_GRAB_SLOTS 2
 
 /* HWVX_STATS: draws with a specialised pixel shader (gx_tevgen.h) and with
  * the general one since the last report, and how many specialised programs
@@ -206,6 +218,21 @@ typedef struct GXTexStats {
     u64 bytes, rgbaBytes;
 } GXTexStats;
 void GX_TexStats(GXTexStats *st);
+/* gx_tex.c, for the data browser (viewer_media.c): a texture object as the
+ * renderer draws it. Info: 0 for no texture (no image, or past 1024). */
+typedef struct GXPortTexInfo {
+    int fmt, w, h, levels;          /* GX_TF_* or GX_TF_PORT | PORT_TEX_PC_* */
+    int wrapS, wrapT;               /* GX_CLAMP / REPEAT / MIRROR */
+    int minLinear, magLinear, mip;  /* the sampler's (GXSampler) */
+    int squared;                    /* the PC's colours squared (Port_PCTexturesLookGC) */
+    int mod;                        /* a mod's colour recipe applies (gx_texmod.h) */
+    u32 bytes;                      /* every level's stored bytes */
+} GXPortTexInfo;
+int GX_PortTexObjInfo(const GXTexObj *obj, GXPortTexInfo *info);
+/* Level `level` of it into rgba (the level's w x h RGBA8), decoded as the
+ * texture cache does for an RGBA8 upload: the same decoder, a mod's recipe,
+ * the squared colours. 0 if there is no such level. */
+int GX_PortDecodeTexObj(const GXTexObj *obj, int level, u8 *rgba);
 /* GXCopyTex: texture objects on dest's memory now sample this EFB rectangle. */
 void GX_TexCopyEFB(void *dest, const int src[4]);
 

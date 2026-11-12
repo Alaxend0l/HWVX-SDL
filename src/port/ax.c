@@ -39,6 +39,7 @@ static volatile int s_running;
 /* ---- ARAM -------------------------------------------------------------- */
 
 u8 *Port_ARAMBase(void) { return s_aram; }
+int Port_AudioDevice(void) { return s_stream != NULL; }   /* the viewer: sound is heard */
 
 u32 ARInit(u32 *stackIndexAddr, u32 numEntries) {
     (void)stackIndexAddr;

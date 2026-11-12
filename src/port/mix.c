@@ -4,6 +4,8 @@
 #include "disc.h"
 #include "jsonc.h"
 #include "Port_Mix.h"
+#include "xdl.h"
+#include <stdio.h>
 #include "mix_recipe_ultimate.h"    /* generated from recipes/ultimate.jsonc (CMakeLists.txt) */
 
 static const char *const s_relKeys[PORT_DATA_COUNT] = { "gc", "pc", "ps2" };
@@ -262,6 +264,8 @@ static char *SourceLine(const char *key) {
     return found;
 }
 
+static char *CacheFolder(const char *cacheName);
+
 static u32 Fnv(u32 h, const void *p, size_t n) {
     const u8 *b = p;
 
@@ -269,6 +273,65 @@ static u32 Fnv(u32 h, const void *p, size_t n) {
         h = (h ^ *b++) * 16777619u;
     }
     return h;
+}
+
+/* The stamp of a release's archives: each one's path, size and time, in any
+ * order (a sum of their hashes); a disc image's own size and time. */
+typedef struct StampScan {
+    const char *ext;
+    size_t rootLen;
+    u32 sum, count;
+} StampScan;
+
+static SDL_EnumerationResult SDLCALL StampArchives(void *user, const char *dir, const char *name) {
+    StampScan *st = user;
+    char *path = NULL;
+    SDL_PathInfo info;
+    size_t n = SDL_strlen(name);
+
+    if (name[0] == '.' || SDL_asprintf(&path, "%s%s", dir, name) < 0) {
+        return SDL_ENUM_CONTINUE;
+    }
+    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+        char *sub = NULL;
+
+        if (SDL_asprintf(&sub, "%s/", path) > 0) {
+            SDL_EnumerateDirectory(sub, StampArchives, st);
+            SDL_free(sub);
+        }
+    } else if (info.type == SDL_PATHTYPE_FILE && n > 4 && SDL_strcasecmp(name + n - 4, st->ext) == 0) {
+        u32 h = Fnv(2166136261u, path + st->rootLen, SDL_strlen(path + st->rootLen));
+
+        h = Fnv(h, &info.size, sizeof(info.size));
+        st->sum += Fnv(h, &info.modify_time, sizeof(info.modify_time));
+        st->count++;
+    }
+    SDL_free(path);
+    return SDL_ENUM_CONTINUE;
+}
+
+static u32 StampRelease(u32 stamp, int rel) {
+    static const char *const exts[PORT_DATA_COUNT] = { ".xgc", ".xpc", ".xps" };
+    StampScan st;
+    SDL_PathInfo info;
+    char *dir = NULL;
+
+    SDL_zero(st);
+    if (s_mix.root[rel] == NULL || !SDL_GetPathInfo(s_mix.root[rel], &info)) {
+        return stamp;
+    }
+    if (info.type != SDL_PATHTYPE_DIRECTORY) {     /* a disc image */
+        stamp = Fnv(stamp, &info.size, sizeof(info.size));
+        return Fnv(stamp, &info.modify_time, sizeof(info.modify_time));
+    }
+    if (SDL_asprintf(&dir, "%s/", s_mix.root[rel]) > 0) {
+        st.ext = exts[rel];
+        st.rootLen = SDL_strlen(dir);
+        SDL_EnumerateDirectory(dir, StampArchives, &st);
+        SDL_free(dir);
+    }
+    stamp = Fnv(stamp, &st.count, sizeof(st.count));
+    return Fnv(stamp, &st.sum, sizeof(st.sum));
 }
 
 int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, char *err, u32 errSize) {
@@ -371,24 +434,25 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
                      "lists gc=, pc=, ps2=; or set HWVX_MIX_GC, HWVX_MIX_PC, HWVX_MIX_PS2)");
         return 0;
     }
-    for (i = 0; i < PORT_DATA_COUNT; i++) {
-        SDL_PathInfo info;
-        char *marker = s_mix.root[i] != NULL ? Port_FindNoCase(s_mix.root[i], i == PORT_DATA_GC ? "HW_share.xgc"
-                                                               : i == PORT_DATA_PC ? "HW_share.xpc"
-                                                               : "XPS/ENGLISH/HW_share.xps") : NULL;
-
+    for (i = 0; i < PORT_DATA_COUNT; i++) {     /* every archive of every release: size and time */
         stamp = Fnv(stamp, &i, sizeof(i));
         if (s_mix.root[i] != NULL) {
             stamp = Fnv(stamp, s_mix.root[i], SDL_strlen(s_mix.root[i]));
         }
-        if (marker != NULL && SDL_GetPathInfo(marker, &info)) {
-            stamp = Fnv(stamp, &info.size, sizeof(info.size));
-            stamp = Fnv(stamp, &info.modify_time, sizeof(info.modify_time));
-        }
-        SDL_free(marker);
+        stamp = StampRelease(stamp, i);
     }
     s_mix.stamp = stamp ? stamp : 1;
-    SDL_snprintf(s_mix.cacheName, sizeof(s_mix.cacheName), "mix-%s", s_mix.name);
+    /* --mix-build fills "mix-NAME.part", from empty; Port_MixBuildFinish
+     * puts it in the place of the last complete build */
+    SDL_snprintf(s_mix.cacheName, sizeof(s_mix.cacheName), building ? "mix-%s.part" : "mix-%s", s_mix.name);
+    if (building) {
+        char *part = CacheFolder(s_mix.cacheName);
+
+        if (part != NULL) {
+            Port_RemoveTree(part);
+            SDL_free(part);
+        }
+    }
     s_mix.building = building;
     s_mix.on = 1;
     Port_Log("mix: recipe %s, %s look; gc %s, pc %s, ps2 %s", s_mix.name, s_mix.lookGC ? "GameCube" : "PC",
@@ -419,17 +483,28 @@ u32 Port_MixRead(int rel, const char *name, u64 offset, void *dst, u32 size) {
     return (u32)SDL_ReadIO(s_mix.donor[rel].io, dst, size);
 }
 
-static char *CachePath(const char *file) {
+/* The cache folder `cacheName` (xdl.c's: HWVX_XDL_DIR, else <pref>xdl). */
+static char *CacheFolder(const char *cacheName) {
     const char *env = SDL_getenv("HWVX_XDL_DIR");
     char *path = NULL;
 
     if (env != NULL && *env) {
-        SDL_asprintf(&path, "%s/%s/%s", env, s_mix.cacheName, file);
+        SDL_asprintf(&path, "%s/%s", env, cacheName);
     } else {
         char *pref = Port_PrefPath();
 
-        SDL_asprintf(&path, "%sxdl/%s/%s", pref != NULL ? pref : "", s_mix.cacheName, file);
+        SDL_asprintf(&path, "%sxdl/%s", pref != NULL ? pref : "", cacheName);
         SDL_free(pref);
+    }
+    return path;
+}
+
+static char *CachePath(const char *file) {
+    char *dir = CacheFolder(s_mix.cacheName), *path = NULL;
+
+    if (dir != NULL) {
+        SDL_asprintf(&path, "%s/%s", dir, file);
+        SDL_free(dir);
     }
     return path;
 }
@@ -574,4 +649,96 @@ void Port_MixArchives(void (*fn)(const char *name, void *user), void *user) {
         SDL_free(scan.names[i]);
     }
     SDL_free(scan.names);
+}
+
+/* ---- the end of a build, and the launcher's look at one ------------------------------- */
+
+static void MixReset(void) {
+    int i, k;
+    MixRules *lists[3] = { &s_mix.base, &s_mix.assets, &s_mix.files };
+
+    Port_MixManifestClose();
+    for (k = 0; k < 3; k++) {
+        for (i = 0; lists[k]->rule != NULL && lists[k]->rule[i].match != NULL; i++) {   /* a list ends in an empty rule */
+            SDL_free(lists[k]->rule[i].match);
+        }
+        SDL_free(lists[k]->rule);
+    }
+    for (i = 0; i < PORT_DATA_COUNT; i++) {
+        SDL_free(s_mix.root[i]);
+        if (s_mix.donor[i].io != NULL) {
+            SDL_CloseIO(s_mix.donor[i].io);
+        }
+        SDL_free(s_mix.donor[i].name);
+    }
+    SDL_zero(s_mix);
+}
+
+int Port_MixBuildFinish(u32 packs, u32 failed) {
+    char *part = CacheFolder(s_mix.cacheName), *dir = NULL, *old = NULL, *built = NULL;
+    u32 version, compiler, settings;
+    SDL_IOStream *io;
+    int ok = 0;
+
+    Port_MixManifestClose();
+    if (part == NULL || SDL_asprintf(&dir, "%.*s", (int)(SDL_strlen(part) - 5), part) < 0 ||
+        SDL_asprintf(&old, "%s.old", dir) < 0 || SDL_asprintf(&built, "%s/%s", part, PORT_MIX_BUILT) < 0) {
+        printf("@error out of memory\n");
+    } else if (packs == 0) {
+        printf("@error no pack was built\n");
+    } else if ((io = SDL_IOFromFile(built, "w")) == NULL) {
+        printf("@error %s: %s\n", built, SDL_GetError());
+    } else {
+        Xdl_Stamp(&version, &compiler, &settings);
+        SDL_IOprintf(io, "stamp=%08x\nxdl=%u.%u.%u\npacks=%u\nfailed=%u\n", (unsigned)s_mix.stamp, version, compiler,
+                     settings, (unsigned)packs, (unsigned)failed);
+        if (!SDL_CloseIO(io)) {
+            printf("@error %s: %s\n", built, SDL_GetError());
+        } else {
+            /* only now does it take the last build's place */
+            Port_RemoveTree(old);
+            if (SDL_GetPathInfo(dir, NULL) && !SDL_RenamePath(dir, old)) {
+                printf("@error could not replace %s: %s\n", dir, SDL_GetError());
+            } else if (!SDL_RenamePath(part, dir)) {
+                printf("@error could not finish %s: %s\n", dir, SDL_GetError());
+                SDL_RenamePath(old, dir);
+            } else {
+                ok = 1;
+                printf("@convert %u %u done\n", (unsigned)packs, (unsigned)packs);
+            }
+            Port_RemoveTree(old);
+        }
+    }
+    if (!ok && part != NULL) {
+        Port_RemoveTree(part);
+    }
+    fflush(stdout);
+    SDL_free(part);
+    SDL_free(dir);
+    SDL_free(old);
+    SDL_free(built);
+    return ok;
+}
+
+int Port_MixProbe(const char *nameOrPath, Port_DataCheck check, PortMixInfo *info, char *err, u32 errSize) {
+    int ok;
+
+    SDL_zerop(info);
+    if (s_mix.on) {
+        SDL_snprintf(err, errSize, "a mixed build is running");
+        return 0;
+    }
+    ok = Port_MixSetup(nameOrPath, 0, check, err, errSize);
+    if (ok) {
+        char *dir = CacheFolder(s_mix.cacheName);
+
+        SDL_strlcpy(info->name, s_mix.name, sizeof(info->name));
+        SDL_strlcpy(info->dir, dir != NULL ? dir : "", sizeof(info->dir));
+        SDL_free(dir);
+        info->stamp = s_mix.stamp;
+        info->releases = s_mix.numOrder;
+    }
+    MixReset();
+    Disc_Close();   /* the GameCube's image, if the check opened it */
+    return ok;
 }

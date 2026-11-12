@@ -368,6 +368,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
     u32 tex;
     u8 maxAlpha;
     f32 rollScale;
+    f32 gripScale = 1.0f;   /* port: the PC's mode 2 */
     f32 driveSum;
     f32 maxForce;
     f32 sideSum;
@@ -437,13 +438,29 @@ void CarA_ComputeSuspensionForces(void *thing) {
     } else {
         car->transmissionFlags &= ~0x100;
     }
+    if (car->driveMode == 2) {
+        /* the PC's: below these speeds the ride height eases towards the car's
+         * tilt and the dampers soften (never, with the data's values) */
+        f32 v = MagnitudeVector(&car->base.vel);
+        if (v < g_carAMode2Tuning.rideHeightSpeed) {
+            base = car->base.axis[1].y - (car->base.axis[1].y - base) * (v / g_carAMode2Tuning.rideHeightSpeed);
+        }
+        if (v < g_carAMode2Tuning.gripSpeed) {
+            gripScale = v / g_carAMode2Tuning.gripSpeed * (1.0f - g_carAMode2Tuning.minGrip) + g_carAMode2Tuning.minGrip;
+        }
+    }
     XformVec(THING_MTX(&car->base), &car->bodyOffset, &bodyPos);
-    switch (GETP(car->vehicleIface)->driveMode) {
+    switch (car->driveMode) {
     case 0:
     case 1:
         rollScale = -GETP(GETP(car->vehicleIface)->accel)->driveRpmScale;
         break;
     case 2:
+        /* the PC's: off the gas the wheels' drag winds the engine down
+         * (on the gas, it doesn't) */
+        if (GETP(car->base.player) != NULL && !CARA_PLAYER(car)->throttle) {
+            rollScale = -GETP(GETP(car->vehicleIface)->accel)->coastRpmScale;
+        }
         break;
     }
     base = -(1.0f - base);
@@ -492,6 +509,9 @@ void CarA_ComputeSuspensionForces(void *thing) {
                     car->wheelStates[i].damperRate = (compression - car->wheelStates[i].lastCompression) / elapsed;
                 }
                 damping = car->wheelStates[i].damperRate * (one * wheel->damping);
+                if (car->driveMode == 2) {
+                    damping *= gripScale;
+                }
                 normalSum.x += hit.normal.x;
                 normalSum.y += hit.normal.y;
                 normalSum.z += hit.normal.z;
@@ -541,7 +561,12 @@ void CarA_ComputeSuspensionForces(void *thing) {
                     if (car->transmissionFlags & 0x8000) {
                         fric *= one - wheel->handbrakeGrip * one;
                     }
-                    fric = lean * (GETP(hit.surface)->grip * fric);
+                    if (car->driveMode == 2) {
+                        /* the PC's: less grip on slopes, by the cube of the ground's up */
+                        fric = lean * (_fabs(hit.normal.y * hit.normal.y * hit.normal.y) * GETP(hit.surface)->grip * fric);
+                    } else {
+                        fric = lean * (GETP(hit.surface)->grip * fric);
+                    }
                     // Port fix: the gripping branch cancels the slip in one step of the
                     // original 60 FPS frame. With the real dt, its pull on the wheel speed
                     // is the same per frame while engine torque shrinks with dt, so at very
@@ -665,7 +690,9 @@ void CarA_ComputeSuspensionForces(void *thing) {
                         }
                     }
                 }
-                if (slipMag > 110.0f) {
+                /* the PC's mode 2: braking or on the handbrake, marks from a slip of 3 */
+                if (slipMag > (car->driveMode == 2 && GETP(car->base.player) != NULL &&
+                               (car->transmissionFlags & 0x8020) ? 3.0f : 110.0f)) {
                     info = GETP(car->vehicleIface);
                     if (info->skidMarkTexture && wheel->skids && GETP(hit.surface)->type != 1) {
                         color = *GETP(info->skidColor);
@@ -682,7 +709,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
                             tex = GETP(hit.surface)->skidLife;
                             color = *GETP(GETP(hit.surface)->skidColor);
                         }
-                        if (slipMag > 110.0f) {
+                        if (slipMag > 110.0f || car->driveMode == 2) {   /* the PC's mode 2: always the whole */
                             volume += 0.23f * skid;
                         } else {
                             volume += 0.23f * skid * (slipMag / 110.0f);
@@ -707,7 +734,7 @@ void CarA_ComputeSuspensionForces(void *thing) {
                 car->wheelStates[i].damperRate = 0.0f;
             }
         }
-        if (GETP(car->vehicleIface)->driveMode != 1 || compression < 0.3f) {
+        if (car->driveMode != 1 || compression < 0.3f) {
             car->wheelStates[i].compression = compression;
         }
     }

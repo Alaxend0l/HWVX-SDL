@@ -5,13 +5,17 @@
  *   <pref>/saves/<profile>/<name>.<k>.json    backups, k = 1 (newest) .. PORT_SAVES_BACKUPS
  *   <pref>/saves/<profile>/<name>.json.tmp    a write in progress
  *   <pref>/saves/<profile>/<name>.damaged.json  a damaged save, moved aside by the next write
+ *   <pref>/saves/<profile>/<name>.before-import.json  the save as it was before the last import
  *   <pref>/saves/<profile>/<name>.imported    the memory card file it was imported from
  *   <pref>/saves/<profile>/deleted/           what the game's Delete removed
  *
  * Every file ends in a line "// sha256: <hex>" over everything before it. A
  * write goes to the .tmp file, which is synced, then the backups move up one
  * (the current file copied to .1), then the .tmp is renamed over the save:
- * at any moment the save is wholly old or wholly new. A read takes the save,
+ * at any moment the save is wholly old or wholly new. A write of what the
+ * save already holds changes nothing, so repeated autosaves don't push the
+ * backups out; an import also keeps the save before it in .before-import,
+ * which only the next import replaces. A read takes the save,
  * or, if it is missing, won't parse or fails its hash, the newest good backup,
  * and says so in the log. Nothing is ever reset for being unreadable: if no
  * file is good the game sees a damaged save (as it would a bad card) and the
@@ -340,7 +344,9 @@ static void CarryExtras(const PortSaveKind *kind, const SaveFile *now, PortSaveE
 }
 
 /* The backups move up one; the save itself is copied to .1 (it stays where
- * it is until the new one is renamed over it). */
+ * it is until the new one is renamed over it). Without its text (it couldn't
+ * be loaded just now) the save is renamed to .1 instead: until the new one
+ * is in place a read finds .1. */
 static int Rotate(const char *name, const char *current, const char *text, size_t len) {
     char *from, *to, *tmp;
     int k, ok;
@@ -361,7 +367,11 @@ static int Rotate(const char *name, const char *current, const char *text, size_
     }
     to = CandidatePath(name, 1);
     tmp = PathOf(name, ".1.json.tmp");
-    ok = to != NULL && tmp != NULL && Port_WriteFileSynced(tmp, text, len) && Port_ReplaceFile(tmp, to);
+    if (text == NULL) {
+        ok = to != NULL && Port_ReplaceFile(current, to);
+    } else {
+        ok = to != NULL && tmp != NULL && Port_WriteFileSynced(tmp, text, len) && Port_ReplaceFile(tmp, to);
+    }
     if (!ok) {
         Port_Log("saves: no backup of %s: %s", BaseName(current), SDL_GetError());
     }
@@ -370,7 +380,25 @@ static int Rotate(const char *name, const char *current, const char *text, size_
     return ok;
 }
 
-static int WriteSave(const char *name, const PortSaveKind *kind, const void *saveFile, const PortSaveExtras *extras) {
+/* A copy of the save (its text) as <name><suffix>, written atomically. */
+static int CopyAs(const char *name, const char *suffix, const char *text, size_t len) {
+    char tmpSuffix[64], *to = PathOf(name, suffix), *tmp;
+    int ok;
+
+    SDL_snprintf(tmpSuffix, sizeof(tmpSuffix), "%s.tmp", suffix);
+    tmp = PathOf(name, tmpSuffix);
+    ok = to != NULL && tmp != NULL && Port_WriteFileSynced(tmp, text, len) && Port_ReplaceFile(tmp, to);
+    if (!ok) {
+        Port_Log("saves: can't keep %s%s: %s", name, suffix, SDL_GetError());
+    }
+    SDL_free(to);
+    SDL_free(tmp);
+    return ok;
+}
+
+/* beforeImport: the current save is also kept as <name>.before-import.json. */
+static int WriteSave(const char *name, const PortSaveKind *kind, const void *saveFile, const PortSaveExtras *extras,
+                     int beforeImport) {
     JsonWriter w;
     char hash[65], *dir = Port_SavesDir(), *current = CandidatePath(name, 0), *tmp = PathOf(name, ".json.tmp");
     int ok = 0;
@@ -404,13 +432,31 @@ static int WriteSave(const char *name, const PortSaveKind *kind, const void *sav
     }
     if (Exists(current)) {
         size_t len = 0;
-        char *text = SDL_LoadFile(current, &len), why[256];
+        char *text = SDL_LoadFile(current, &len), why[256] = "";
         u8 *scratch = SDL_malloc(Port_SaveFileSize(kind));
         PortSaveExtras x;
+        int r = -1;   /* not checked (out of memory): kept as a backup */
 
-        if (text != NULL && scratch != NULL &&
-            LoadCandidate(current, kind, scratch, &x, why, sizeof(why)) == 1) {
+        if (text != NULL && len == w.len && SDL_memcmp(text, w.buf, len) == 0) {
+            /* the same save: nothing to rotate or replace */
+            SDL_RemovePath(tmp);
+            SDL_free(text);
+            SDL_free(scratch);
+            ok = 1;
+            goto done;
+        }
+        if (scratch != NULL) {
+            r = LoadCandidate(current, kind, scratch, &x, why, sizeof(why));
+        }
+        if (r == 1) {
             Port_SaveExtrasFree(&x);
+            if (beforeImport && text != NULL) {
+                CopyAs(name, ".before-import.json", text, len);
+            }
+        }
+        if (r != 0) {
+            /* good, or not known to be bad: a backup (renamed if its text
+             * couldn't be loaded just now) */
             Rotate(name, current, text, len);
         } else {
             /* not a backup worth keeping in the rotation, but not thrown away */
@@ -429,6 +475,9 @@ static int WriteSave(const char *name, const PortSaveKind *kind, const void *sav
     }
     ok = 1;
 done:
+    /* the files changed (or may have: a rotation, a save moved aside); the
+     * cache's stamp of sizes and times can miss that with coarse times */
+    ForgetCache();
     Jw_Free(&w);
     SDL_free(dir);
     SDL_free(current);
@@ -453,7 +502,7 @@ int Port_SavesWrite(const char *name, const void *saveFile, u32 size) {
          * game, so its entries past the arrays are the registry's */
         Port_ContentStoreKept(&extras.kept[live]);
     }
-    ok = WriteSave(name, kind, saveFile, &extras);
+    ok = WriteSave(name, kind, saveFile, &extras, 0);
     Port_SaveExtrasFree(&extras);
     if (ok) {
         Port_Log("saves: wrote %s/%s.json", Port_SavesProfile(), name);
@@ -595,7 +644,7 @@ static void Migrate(const char *name, const PortSaveKind *kind) {
         SDL_zero(extras);
         SDL_strlcpy(extras.importedFrom, source, sizeof(extras.importedFrom));
         marker = PathOf(name, ".imported");
-        if (marker != NULL && WriteSave(name, kind, file, &extras)) {
+        if (marker != NULL && WriteSave(name, kind, file, &extras, 0)) {
             char line[160];
             SDL_snprintf(line, sizeof(line), "%s\n", source);
             Port_WriteFileSynced(marker, line, SDL_strlen(line));
@@ -652,7 +701,7 @@ int Port_SavesWriteImported(const char *name, const void *saveFile, u32 size, co
     if (extras.importedFrom[0] == 0 && importedFrom != NULL) {
         SDL_strlcpy(extras.importedFrom, importedFrom, sizeof(extras.importedFrom));
     }
-    ok = WriteSave(name, kind, saveFile, &extras);
+    ok = WriteSave(name, kind, saveFile, &extras, 1);
     Port_SaveExtrasFree(&extras);
     if (ok) {
         Port_Log("saves: wrote %s/%s.json", Port_SavesProfile(), name);

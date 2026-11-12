@@ -373,7 +373,8 @@ typedef struct CarAInfo {
                              *      (InterfaceManager_RenderObject) */
   u8 pad0C[4];              /* 0x0C 0 in every car; never read (GC, PC, PS2) */
   u8 damagePercent;         /* 0x10 health % below which parts break off @xdl: units=%; hint=0..100 */
-  u8 driveMode;             /* 0x11 1: human-controlled */
+  u8 driveMode;             /* 0x11 handling: 1 in every car; 0 no controller; 2 the PC's
+                             *      third mode (CarA_PreMove_Control_Mode2) @xdl: hint=0..2 */
   u8 pad12[2];              /* 0x12 two u8; never read (GC, PC, PS2) */
   u16 skidLife;             /* 0x14 skid mark life in 16 ms units (Trail_AddSegment
                              *      life << 4): 600 (9.6 s) in every car @xdl: units=16 ms */
@@ -536,7 +537,9 @@ typedef struct CarA {
   f32 soundRpmGate;         /* 0x4E0 engine sound gate, left at 0 here */
   f32 rpm;                  /* 0x4E4 */
   u8 curveTableIdx;         /* 0x4E8 current gear, index into CarAInfo.gears */
-  u8 pad4E9[7];             /* 0x4E9 never read (GC, PS2) */
+  u8 driveMode;             /* 0x4E9 port: the handling it drives with, CarAInfo.driveMode
+                             *      or the player's choice (CarA_Init; never read by GC, PS2) */
+  u8 pad4EA[6];             /* 0x4EA never read (GC, PS2) */
   s32 soundIds[3];          /* 0x4F0 SoundSource ids, -1: none: wind, engine, rolling */
   f32 gripBlend;            /* 0x4FC 0 while slipping, recovers to 1 at 1/s */
   s32 damageAccum;          /* 0x500 damage not yet taken off health (in steps of 30) */
@@ -643,5 +646,24 @@ _Static_assert(sizeof(CarA) == 0x5A0, "CarA size");
 
 /* The car's driver: Thing.player as a Player *. */
 #define CARA_PLAYER(car) ((Player *)GETP((car)->base.player))
+
+/* The PC's third handling mode (CarAInfo.driveMode 2; CarA_HW.c). The PC
+ * reads these at accel + 0x40..0x4C, past CarAAccel's 0x3C bytes: what
+ * follows it in the pack, the same after every car (g_carAMode2Tuning). */
+typedef struct CarAMode2Tuning {
+  f32 rideHeightSpeed;      /* accel+0x40 below it the ride height eases to the car's tilt */
+  f32 gripSpeed;            /* accel+0x44 below it the damping scales down ... */
+  f32 minGrip;              /* accel+0x48 ... to this at standstill */
+  f32 minSteerScale;        /* accel+0x4C least steering at speed */
+} CarAMode2Tuning;
+extern const CarAMode2Tuning g_carAMode2Tuning;
+s32 CarA_PreMove_Control_Mode2(void *thing);
+void CarA_PortMode2Reverse(Player *player);
+/* The handling a car of CarAInfo.driveMode `dataMode` drives with: 2 for a
+ * mode 1 car when the player chose the PC's third mode (Options, "Handling",
+ * GameSettings_PortHandling), not online or in a demo; else dataMode. */
+u8 CarA_PortDriveMode(u8 dataMode);
+/* The player's choice: GeneralGameSettings audio.handling (0 or 2). */
+u8 GameSettings_PortHandling(void);
 
 #endif /* CARA_H */

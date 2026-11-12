@@ -735,8 +735,13 @@ def from_gltf(gl, bin_bytes):
         nd, mesh = by_level[li]
         if "distance" in nd.get("extras", {}):
             g["dist"][li] = struct.pack("<f", nd["extras"]["distance"]).hex()
-        for pr in mesh["primitives"]:
+        for pk, pr in enumerate(mesh["primitives"]):
             ex = pr.get("extras", {})
+            if "group" not in ex:
+                raise GeomError(f"level {li} primitive {pk}: no extras.group (the group record). The "
+                                "exporter dropped the per-primitive extras (Blender does): keep the "
+                                "primitives' extras from the extracted .gltf, or edit with a tool that "
+                                "preserves them")
             gr = {"rec": ex["group"]}
             if lv["kind"] == "shadow":
                 if "POSITION" in pr["attributes"]:
@@ -765,8 +770,10 @@ def from_gltf(gl, bin_bytes):
                 if a["componentType"] == 5121 and a["type"] == "VEC4":
                     col = raw
                 else:
-                    col = [bytes(min(255, max(0, round((c / (65535 if a["componentType"] == 5123 else 1)) * 255)))
-                                 for c in (list(v) + [1.0])[:4]) for v in vals]
+                    # normalised integers (u8 /255, u16 /65535) or floats; a VEC3's alpha is 1
+                    scale = {5121: 255.0, 5123: 65535.0}.get(a["componentType"], 1.0)
+                    col = [bytes(min(255, max(0, round(c * 255)))
+                                 for c in ([x / scale for x in v] + [1.0])[:4]) for v in vals]
             bones = [0] * n
             if "JOINTS_0" in at:
                 bones = [v[0] for v in _acc_raw(gl, bin_bytes, at["JOINTS_0"])[0]]
@@ -1042,8 +1049,13 @@ def _enc_pc_level(o, g, lv, li, L, grp, later):
     verts, lists = _level_vertices(g, lv)
     if len(verts) > 0x7FFF:
         raise GeomError(f"level {li}: {len(verts)} vertices (at most 0x7FFF)")
+    # the original's arrays, plus colour / normals when the vertices need them (a missing
+    # array reads as white / zero: _decode_pc)
+    need = [True, any(v[2] is not None and v[2] != WHITE for v in verts), True,
+            any(v[1] is not None and v[1] != bytes(12) for v in verts)]
     has = (lv.get("vb") or {}).get("has") or [True, any(v[2] is not None for v in verts), True,
                                                 any(v[1] is not None for v in verts)]
+    has = [a or b for a, b in zip(has, need)]
     if g["skinned"]:
         counts = [0] * 8
         for v in verts:

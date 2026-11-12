@@ -1,4 +1,5 @@
 #include "common.h"
+#include "viewer.h"
 
 int Port_Converting(void);
 
@@ -47,6 +48,9 @@ s32 Main_Init(void) {
     if (Port_Converting()) {
         return 1;   /* port: no state runs, the packs are converted (Port_Convert.c) */
     }
+    if (Port_ViewerOn()) {   /* port: HWVX_VIEWER, the data browser's preview instead of the game (viewer.c) */
+        return Port_ViewerStart();
+    }
     return StateManager_GotoState(12) != -1;
 }
 
@@ -58,6 +62,9 @@ s32 Main_Loop(void) {
     extern s32 (*Heartbeat_Process)(void);
     s32 queued;
 
+    if (Port_ViewerOn()) {   /* port */
+        return Port_ViewerFrame();
+    }
     queued = StateManager_QueuedState();
     if (queued != -1 && queued != StateManager_GotoState(queued)) {
         return 0;

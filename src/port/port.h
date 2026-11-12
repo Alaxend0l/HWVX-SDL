@@ -186,6 +186,10 @@ char *Port_PrefPath(void);
  * renamed over `to`, replacing it (Windows too). 1 on success, else SDL_GetError. */
 int Port_WriteFileSynced(const char *path, const void *data, size_t size);
 int Port_ReplaceFile(const char *from, const char *to);
+/* fileio.c: what was written to `io` is on the disk (SDL_FlushIO, then
+ * fsync / FlushFileBuffers). 1 on success, else SDL_GetError. */
+struct SDL_IOStream;
+int Port_SyncIO(struct SDL_IOStream *io);
 /* --reset-save (main_sdl.c): 1 when this boot starts from the default game
  * data (GameSetting_Init) and skips the autoload of the newest save;
  * GameSettings_PortAutoLoad reads it. */
@@ -202,6 +206,19 @@ enum {
 /* dvd.c: the release (PORT_DATA_*) whose packs the game runs on, from the
  * last pack opened; for the few places the releases' code differs. */
 int Port_DataRelease(void);
+/* proto.c: the PS2 prototype's packs loaded into the game being played
+ * (game/Port_Proto.c). A pack file named with PORT_PROTO_PREFIX first
+ * ("~hw_cars.xgc") is the prototype's (dvd.c: PORT_DATA_PS2, its own layout,
+ * archive version 177/179). The import mode the player picked: */
+enum { PORT_PROTO_OFF, PORT_PROTO_CARS, PORT_PROTO_ADDED, PORT_PROTO_REPLACE, PORT_PROTO_MODES };
+#define PORT_PROTO_PREFIX '~'
+int Port_ProtoMode(void);
+/* The prototype's folder (its XPS/ENGLISH or the folder holding it), or NULL. */
+const char *Port_ProtoRoot(void);
+const char *Port_ProtoModeKey(int mode);
+int Port_ProtoModeNamed(const char *key);
+/* fileName without the prefix if it names a prototype file, else NULL. */
+const char *Port_ProtoName(const char *fileName);
 /* The PC release's texture formats (pack header u16 0) as Texture.format
  * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
  * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,
@@ -269,6 +286,9 @@ void Port_InvalidateDisplayLists(const void *p, u32 size);
 #define PORT_CODEVAR_GAMMA 0x1004       /* 0 .. 100, a volume-style bar: 50 leaves the picture alone */
 #define PORT_CODEVAR_FOV 0x1005         /* 0 .. 100, a volume-style bar: 50 is the game's own view */
 #define PORT_IS_CODEVAR(id) ((id) >= PORT_CODEVAR_RESOLUTION && (id) <= PORT_CODEVAR_FOV)
+/* Options' "Handling" row (Port_Menu.c): 0 the cars' own, 1 the PC's third mode
+ * (GeneralGameSettings audio.handling 2; in the save, unlike the above). */
+#define PORT_CODEVAR_HANDLING 0x1010
 /* The content registry's (src/game/Port_Content.h): code variable 0x65 (a
  * track's unlock) for the entry a world select of progression P numbers
  * `arg`: PORT_CODEVAR_TRACK + P. The selects number a mode's tracks in a

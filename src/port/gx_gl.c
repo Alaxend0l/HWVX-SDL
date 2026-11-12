@@ -2,6 +2,7 @@
  * framebuffer object; GL rows are bottom-up, so rectangles from gx_draw.c
  * (top-left origin) are flipped here. */
 #include "gx_render.h"
+#include "viewer.h"
 #include "gx_shaders.h"
 #include "gx_tevgen.h"
 
@@ -948,6 +949,67 @@ static int GL_ReadEFB(u8 *rgba) {
     return 1;
 }
 
+/* The asynchronous readbacks (grabStart/grabFetch): a pixel buffer each and
+ * the fence after the read into it. */
+static struct {
+    GLuint pbo;
+    GLsync fence;
+    int w, h;
+} s_grab[GXR_GRAB_SLOTS];
+
+static int GL_GrabStart(int slot) {
+    if (slot < 0 || slot >= GXR_GRAB_SLOTS || s_grab[slot].fence != NULL) {
+        return 0;
+    }
+    if (s_grab[slot].pbo == 0) {
+        glGenBuffers(1, &s_grab[slot].pbo);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, s_grab[slot].pbo);
+    glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)s.efbW * s.efbH * 4, NULL, GL_STREAM_READ);
+    glReadPixels(0, 0, s.efbW, s.efbH, GL_RGBA, GL_UNSIGNED_BYTE, (void *)0);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    s_grab[slot].fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
+    s_grab[slot].w = s.efbW;
+    s_grab[slot].h = s.efbH;
+    return s_grab[slot].fence != NULL;
+}
+
+static int GL_GrabFetch(int slot, u8 *dst, int stride, int maxW, int maxH, int *w, int *h, int wait) {
+    GLenum r;
+    const u8 *map;
+    int ok = -1, y;
+
+    if (slot < 0 || slot >= GXR_GRAB_SLOTS || s_grab[slot].fence == NULL) {
+        return -1;
+    }
+    r = glClientWaitSync(s_grab[slot].fence, GL_SYNC_FLUSH_COMMANDS_BIT, wait ? 1000000000ull : 0);
+    if (r == GL_TIMEOUT_EXPIRED) {
+        return 0;
+    }
+    glDeleteSync(s_grab[slot].fence);
+    s_grab[slot].fence = NULL;
+    if (r == GL_WAIT_FAILED || s_grab[slot].w > maxW || s_grab[slot].h > maxH) {
+        return -1;
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, s_grab[slot].pbo);
+    map = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)s_grab[slot].w * s_grab[slot].h * 4, GL_MAP_READ_BIT);
+    if (map != NULL) {
+        size_t row = (size_t)s_grab[slot].w * 4;
+
+        for (y = 0; y < s_grab[slot].h; y++) {   /* GL rows are bottom-up */
+            memcpy(dst + (size_t)y * (size_t)stride, map + (size_t)(s_grab[slot].h - 1 - y) * row, row);
+        }
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        *w = s_grab[slot].w;
+        *h = s_grab[slot].h;
+        ok = 1;
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    return ok;
+}
+
 static void GL_Present(void) {
     TevGenStats();
     /* GXCopyDisp(clear) leaves the EFB bound (GL_Clear). Present from the
@@ -955,6 +1017,10 @@ static void GL_Present(void) {
      * it is bound; Mesa doesn't care. Draws rebind the EFB themselves. */
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     GL_ApplyVSync();
+    if (Port_ViewerHeadless()) {
+        glFlush();      /* the viewer's hidden window: nothing to show */
+        return;
+    }
     /* blocks for vsync: let the audio thread run meanwhile */
     Port_InterruptWindowBegin();
     SDL_GL_SwapWindow(g_port.window);
@@ -964,5 +1030,5 @@ static void GL_Present(void) {
 const GXRenderer g_gxGL = {
     "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexFormat, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
     GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_CopyEFB, GL_ReadEFB, GL_Present,
-    GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy,
+    GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy, GL_GrabStart, GL_GrabFetch,
 };

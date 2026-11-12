@@ -113,6 +113,16 @@ main menu exactly as the release has it - on GameCube and PS2 data without Quit
 Game (close the window to quit), on PC data without Multi-Player, and with
 Multi-Player going straight to the game's own screen; the other menu changes stay.
 
+Options also has **Handling**: Normal, or PC Mode 2, the PC release's third car
+handling (`CarAInfo.driveMode` 2), which its code has but no car in any release's
+data uses and no release lets you pick. In it the gas runs up through the gears
+with a kick on every upshift, the brake slows to a stop, Brake held at a standstill
+reverses (a port addition: none of the controller layouts has the mode's own reverse
+button), the power slide button is a handbrake, steering follows the stick at once
+but less the faster you go (none from about 180), turbo never runs out, and the AI's
+cars drive the same way. It is kept in the save with the other settings; demos and
+online play always use the cars' own handling (`src/game/CarA_HW.c`).
+
 Saves: there's no memory card on PC, so the GameCube's card screens are
 skipped: the startup card check, the Slot A/B picker (saves always go to the
 save file), the "do not touch" loading/saving notices and the card warnings
@@ -577,6 +587,12 @@ Debugging aids:
   `world1`) or index; N and I car and item numbers. With
   `HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1` a select screen is
   up in a few seconds.
+- `HWVX_PROTO=off|cars|added|replace`: the PS2 prototype's import mode (the
+  launcher's Games page, `proto=` in sources.cfg): its three cars of its own
+  added; all 36 of its cars added (the others as "... (prototype)"); or the
+  release's 33 cars loaded from the prototype under their own numbers, its
+  three added. `HWVX_PROTO_DIR=<folder>`: the prototype (default: sources.cfg's
+  `ps2beta=`). `src/game/Port_Proto.c`; `tools/proto_race.sh` races with it.
 - `HWVX_IDS_LOCK=<file>`: the content registry's ids.lock (default: `ids.lock`
   in the preferences folder), JSONC: per kind (`cars`, `tracks`, `items`) a
   `uid://` id each with its `number`, `alias` (`base://HW_Cars/car_3`, the
@@ -606,6 +622,13 @@ Debugging aids:
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable
   Movies option (`HWVX_NO_MOVIE=1` or `0` overrides).
+- `HWVX_HANDLING=2` (or `0`) drives with the PC's third handling mode (or the
+  cars' own) whatever Options says; `HWVX_CARLOG=1` logs the player's car
+  every 30 frames (handling, gear, rpm, wheel speed, speed, steering, turbo,
+  flags, position), `=2` the AI's cars too. `tools/drive_test.sh BUILD DATA
+  OUT NAME SECONDS [VAR=value ...]` runs a scripted drive (a race, the gas
+  held, a turn) and prints that log: run it with and without
+  `HWVX_HANDLING=2` to compare.
 - `HWVX_SPLITSCREEN_LOD=gc` draws models one level coarser in split screen as
   the GameCube did (default: full detail, like the PC release; `graphics.cfg`
   `splitlod=full|gc`).
@@ -635,6 +658,19 @@ Debugging aids:
   taken after them; `HWVX_LAUNCHER_DISC=pc=IMAGE` (or `ps2=`) imports a disc
   image as if picked; `HWVX_LAUNCHER_IMPORT="FILE;FILE"` opens the saves
   preview. With `HWVX_PREF_DIR` none of it touches your own files.
+- `HWVX_VIEWER=port` runs the game as the data browser's preview and editing
+  server instead of the game (`src/port/viewer.c`; 0: any free port, logged):
+  line-delimited JSON on 127.0.0.1 to list and load packs, read their nodes,
+  get and set fields, frame them and save frames (`docs/viewer-protocol.md`).
+  `HWVX_VIEWER_SCHEMAS=dir` names the schemas folder. Its window is hidden:
+  the browser shows the picture in its own window, through shared memory
+  (`frames`); `HWVX_VIEWER_WINDOW=1` shows the game's window as before
+  (debugging; the browser's `--viewer-window`), `HWVX_VIEWER_STATS=1` logs the
+  readback's cost each second. Packs load with their sounds (the browser's
+  textures, sounds and songs, decoded and played by the game);
+  `HWVX_VIEWER_AUDIO=0` loads them without. The browser is
+  `tools/browser` (`cargo run --release --manifest-path tools/browser/Cargo.toml
+  -- --data DIR`), and `tools/viewer_client.py` sends requests from the shell.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.

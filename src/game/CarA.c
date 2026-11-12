@@ -220,6 +220,39 @@ static inline void CarA_FitCubic(f32 *coef, f32 x0, f32 x1, f32 y0, f32 y1, f32 
 /* Vtable Init: sets the car up from its description (CarAParams.info):
    transform, collider bounds, model, wheels, torque curve, sounds and the
    slave things it starts with. */
+/* port, testing: HWVX_CARLOG=1 logs the human's car every 30 frames (handling,
+ * gear, rpm, wheel speed, speed, steering, turbo, position), =2 every car
+ * ("ai" for the AI's). */
+static void Port_CarLog(CarA *car) {
+    static int on = -1;
+    static u32 frame;
+    int human = Player_IsHuman(GETP(car->base.player));
+
+    if (on < 0) {
+        const char *e = getenv("HWVX_CARLOG");
+        on = e != NULL ? atoi(e) : 0;
+    }
+    if (on <= 0 || (!human && on < 2) || (human && frame++ % 30 != 0) || (!human && frame % 30 != 1)) {
+        return;
+    }
+    Port_Log("carlog%s: mode %u gear %u rpm %.0f wheel %.1f speed %.1f steer %.3f turbo %d flags %x pos %.0f %.0f %.0f",
+             human ? "" : " ai", car->driveMode, car->curveTableIdx, car->rpm, car->gradeOrReverse, MagnitudeVector(&car->base.vel),
+             car->steerAngle, car->turboTime, car->transmissionFlags, car->base.pos.x, car->base.pos.y, car->base.pos.z);
+}
+
+/* port: see CarA.h. Recorded and attract-mode demos keep the cars' own
+ * handling (their inputs were made for it), as does online play (every
+ * machine must simulate alike). */
+u8 CarA_PortDriveMode(u8 dataMode) {
+    extern u32 g_playbackStatus;
+
+    if (dataMode == 1 && GameSettings_PortHandling() == 2 && !Port_OnlineActive() &&
+        g_playbackStatus != 2 && GameSettings_GetCodeVariable(0x198, 0) == 0) {
+        return 2;
+    }
+    return dataMode;
+}
+
 s32 CarA_Init(void *thing, void *arg1) {
     extern Matrix4 g_identity;
     extern Vector4 g_zeroVector;
@@ -248,6 +281,7 @@ s32 CarA_Init(void *thing, void *arg1) {
     Thing_Init(&car->base, (s32)HND(init));
     car->base.player.h = init->player.h;
     SETP(car->vehicleIface, GETP(init->info));
+    car->driveMode = CarA_PortDriveMode(GETP(car->vehicleIface)->driveMode);   /* port */
     car->base.pos = init->pos;
     QuaternionToSubMatrix(&init->quat, THING_MTX(&car->base));
     car->base.quat = init->quat;
@@ -330,7 +364,7 @@ s32 CarA_Init(void *thing, void *arg1) {
     car->rpm = 0.0f;
     car->curveTableIdx = 1;
     engine = GETP(GETP(car->vehicleIface)->engine);
-    if (GETP(car->vehicleIface)->driveMode == 2) {
+    if (car->driveMode == 2) {
         CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->maxRpm, engine->torqueCurve[0], 0.0f, 1e-7f, 0.0f);
     } else {
         CarA_FitCubic(car->torquePolyCoeffs, 0.0f, GETP(car->vehicleIface)->maxRpm, engine->torqueCurve[0],
@@ -796,11 +830,19 @@ s32 CarA_PreMove(void *thing) {
     }
 
     if (GETP(car->base.player) != NULL) {
-        switch (GETP(car->vehicleIface)->driveMode) {
+        Port_CarLog(car);   /* HWVX_CARLOG */
+    }
+    if (GETP(car->base.player) != NULL) {
+        switch (car->driveMode) {
         case 0:
             break;
         case 1:
             CarA_PreMove_Control_HW(car);
+            break;
+        case 2:
+            /* the PC's (empty on GameCube and PS2): turbo never runs out */
+            car->turboTime = 1000;
+            CarA_PreMove_Control_Mode2(car);
             break;
         }
 
@@ -966,11 +1008,21 @@ s32 CarA_PreMove(void *thing) {
     }
     if ((u32)car->soundIds[0] != 0xFFFFFFFF) {
         windVolume = 1.0f - _fabs(car->gradeOrReverse) / 300.0f;
-        windPitch = 3.0f * (car->rpm / GETP(car->vehicleIface)->maxRpm);
-        if (windPitch < 0.0f) {
-            windPitch *= -1.0f;
+        if (car->driveMode == 2) {
+            /* the PC's: by the sound's own pitch scale, from nearly 0 */
+            windPitch = car->rpm / GETP(car->vehicleIface)->maxRpm *
+                        SLOT_LOAD(CarASoundSet *, &GETP(GETP(car->vehicleIface)->gears)[1].soundSet)->pitchScale;
+            if (windPitch < 0.0f) {
+                windPitch *= -1.0f;
+            }
+            windPitch += 0.01f;
+        } else {
+            windPitch = 3.0f * (car->rpm / GETP(car->vehicleIface)->maxRpm);
+            if (windPitch < 0.0f) {
+                windPitch *= -1.0f;
+            }
+            windPitch += 0.5f;
         }
-        windPitch += 0.5f;
         if (windPitch > 5.0f) {
             windPitch = 5.0f;
         }

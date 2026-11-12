@@ -4,8 +4,8 @@
  * - The list: every folder of the mods folder with a mod.jsonc, in the
  *   order mods.jsonc gives ("order", "disabled"), then the others by id,
  *   then each moved behind the mods its "after" names.
- * - Entries (cars, items): an enabled mod's entries go into ids.lock with
- *   their alias, name and "mod" (Port_ModsSyncLock), and the registry
+ * - Entries (cars, items, tracks): an enabled mod's entries go into ids.lock
+ *   with their alias, name (a track's world) and "mod" (Port_ModsSyncLock), and the registry
  *   numbers and loads them as it does any lock entry. A mod that's off or
  *   gone leaves its entries "active": false, their numbers kept.
  * - Patches: RFC 7396 merge patches on objects of a loaded pack, by object
@@ -22,6 +22,7 @@
 #include "Port_Mods.h"
 #include "jsonc.h"
 #include "gx_texmod.h"
+#include "mbedtls/sha256.h"
 
 enum { MF_U8, MF_S8, MF_U16, MF_S16, MF_U32, MF_S32, MF_F32, MF_LINK, MF_OTHER };
 
@@ -29,7 +30,9 @@ typedef struct ModField {
     const char *name;
     u32 offset;
     int type;
-    int count;          /* 0: one value; else an array of count */
+    int count;          /* 0: one value; else an array of count. MF_LINK: 1 + the
+                           offset of the u32 counting the objects it points to
+                           (0: one object) */
     int target;         /* MF_LINK: the struct it points to (s_structs) */
 } ModField;
 
@@ -43,11 +46,13 @@ typedef struct ModStruct {
 #include "Port_ModFields.inc"
 
 void *Gfx_PortTextureImage(u16 id);   /* Gfx_TextureHandler.c */
+void Port_RemoveTree(const char *path); /* fileio.c */
 
 typedef struct Mod {
     PortModInfo info;
     char *dir;          /* its folder, with a trailing separator */
     JsonNode *doc;      /* mod.jsonc; info's strings point into it */
+    int cycle;          /* its "after" mods come after it in turn */
 } Mod;
 
 static Mod *s_mods;
@@ -55,6 +60,7 @@ static int s_numMods;
 static char **s_report;
 static int s_numReport, s_capReport;
 static int s_inited;
+static int FolderChecked(const char *dir, const char *modId);
 static int s_logValues;     /* HWVX_MODS_LOG=1: each value a patch sets, and what it was */
 static double s_old;
 
@@ -63,16 +69,24 @@ static const char *const s_typeNames[] = { "car", "interface", "item", "link", "
 
 /* ---- small helpers ------------------------------------------------------- */
 
+/* A line of the report (and the log), once: a pack loads every race. */
 static void Report(const char *fmt, ...) PORT_PRINTF(1, 2);
 static void Report(const char *fmt, ...) {
     va_list ap;
     char *line = NULL;
+    int i;
 
     va_start(ap, fmt);
     SDL_vasprintf(&line, fmt, ap);
     va_end(ap);
     if (line == NULL) {
         return;
+    }
+    for (i = 0; i < s_numReport; i++) {
+        if (SDL_strcmp(s_report[i], line) == 0) {
+            SDL_free(line);
+            return;
+        }
     }
     Port_Log("mods: %s", line);
     if (s_numReport == s_capReport) {
@@ -102,6 +116,10 @@ static const char *Str(const JsonNode *o, const char *key) {
     const JsonNode *n = Json_Get(o, key);
 
     return n != NULL && n->type == JSON_STRING ? n->string : NULL;
+}
+
+static int Same(const JsonNode *a, const char *b) {
+    return a != NULL && a->type == JSON_STRING && b != NULL && SDL_strcmp(a->string, b) == 0;
 }
 
 static int Enabled(const Mod *m) {
@@ -285,9 +303,7 @@ static SDL_EnumerationResult SDLCALL AddMod(void *userdata, const char *dirname,
     m->info.folder = SDL_strdup(fname);
     m->info.enabled = 1;
     SDL_free(file);
-    SDL_asprintf(&file, "%scheck.json", dir);
-    m->info.checked = file != NULL && SDL_GetPathInfo(file, &pi);
-    SDL_free(file);
+    m->info.checked = FolderChecked(dir, id);
     return SDL_ENUM_CONTINUE;
 }
 
@@ -317,13 +333,61 @@ static void MoveMod(int from, int to) {
     s_mods[to] = t;
 }
 
+/* Each mod behind the mods its "after" names: a stable topological sort (the
+ * order so far kept wherever "after" doesn't say otherwise); mods in a cycle
+ * keep their order and are reported. */
+static void AfterOrder(void) {
+    int n = s_numMods, i, j, k, done = 0;
+    int *deps = SDL_calloc((size_t)n * n + 1, sizeof(int)), *left = SDL_calloc((size_t)n + 1, sizeof(int));
+    Mod *out = SDL_malloc(((size_t)n + 1) * sizeof(Mod));
+    char *placed = SDL_calloc((size_t)n + 1, 1);
+
+    if (deps == NULL || left == NULL || out == NULL || placed == NULL) {
+        goto done;
+    }
+    for (i = 0; i < n; i++) {     /* deps[i * n + j]: i comes after j */
+        const JsonNode *a = Json_Get(s_mods[i].doc, "after");
+
+        for (a = a != NULL && a->type == JSON_ARRAY ? a->child : NULL; a != NULL; a = a->next) {
+            if (a->type == JSON_STRING && (j = IndexOfId(a->string)) >= 0 && j != i && !deps[i * n + j]) {
+                deps[i * n + j] = 1;
+                left[i]++;
+            }
+        }
+    }
+    while (done < n) {
+        /* the first (in the order so far) whose mods are all placed; in a cycle, the first left */
+        for (i = 0; i < n && (placed[i] || left[i] > 0); i++) {
+        }
+        if (i == n) {
+            for (i = 0; placed[i]; i++) {
+            }
+            s_mods[i].cycle = 1;
+        }
+        placed[i] = 1;
+        out[done++] = s_mods[i];
+        for (k = 0; k < n; k++) {
+            if (deps[k * n + i]) {
+                deps[k * n + i] = 0;
+                left[k]--;
+            }
+        }
+    }
+    SDL_memcpy(s_mods, out, (size_t)n * sizeof(Mod));
+done:
+    SDL_free(deps);
+    SDL_free(left);
+    SDL_free(out);
+    SDL_free(placed);
+}
+
 /* mods.jsonc's order and disabled mods, then "after". */
 static void Order(const char *dir) {
     char *path = NULL, *text, err[160];
     size_t len;
     JsonNode *cfg = NULL;
     const JsonNode *e;
-    int placed = 0, i, pass;
+    int placed = 0, i;
 
     SDL_qsort(s_mods, (size_t)s_numMods, sizeof(Mod), ById);
     SDL_asprintf(&path, "%smods.jsonc", dir);
@@ -346,30 +410,7 @@ static void Order(const char *dir) {
         }
     }
     Json_Free(cfg);
-    /* each behind the mods it names: as many passes as there are mods (a
-     * cycle stops moving then) */
-    for (pass = 0; pass < s_numMods; pass++) {
-        int moved = 0;
-
-        for (i = 0; i < s_numMods; i++) {
-            const JsonNode *a = Json_Get(s_mods[i].doc, "after");
-            int last = -1, j;
-
-            for (a = a != NULL && a->type == JSON_ARRAY ? a->child : NULL; a != NULL; a = a->next) {
-                if (a->type == JSON_STRING && (j = IndexOfId(a->string)) > last) {
-                    last = j;
-                }
-            }
-            if (last > i) {
-                MoveMod(i, last);
-                moved = 1;
-                break;
-            }
-        }
-        if (!moved) {
-            break;
-        }
-    }
+    AfterOrder();
 }
 
 /* Conflicts and notes for the enabled mods. */
@@ -386,6 +427,11 @@ static void BuildReport(void) {
 
         if (!Enabled(m)) {
             continue;
+        }
+        if (m->cycle) {
+            Report("%s: the mods its \"after\" names come after it in turn (a cycle); it loads in the list's "
+                   "order", m->info.name);
+            m->info.problems++;
         }
         if (!m->info.checked) {
             Report("%s: put in by hand, not checked by the packer", m->info.name);
@@ -419,8 +465,8 @@ static void BuildReport(void) {
                 }
             }
         }
-        for (s = 0; s < 2; s++) {
-            const char *kind = s == 0 ? "cars" : "items";
+        for (s = 0; s < 3; s++) {
+            const char *kind = s == 0 ? "cars" : s == 1 ? "items" : "tracks";
             const JsonNode *a = Json_Get(m->doc, kind), *x;
 
             for (x = a != NULL && a->type == JSON_OBJECT ? a->child : NULL; x != NULL; x = x->next) {
@@ -517,30 +563,23 @@ int Port_ModsActive(void) {
 
 /* ---- packages ------------------------------------------------------------ */
 
-static SDL_EnumerationResult SDLCALL RemoveTree(void *userdata, const char *dirname, const char *fname) {
-    char *path = NULL;
-    SDL_PathInfo pi;
-
-    (void)userdata;
-    if (SDL_asprintf(&path, "%s%s", dirname, fname) < 0) {
-        return SDL_ENUM_FAILURE;
-    }
-    if (SDL_GetPathInfo(path, &pi) && pi.type == SDL_PATHTYPE_DIRECTORY) {
-        SDL_EnumerateDirectory(path, RemoveTree, NULL);
-    }
-    SDL_RemovePath(path);
-    SDL_free(path);
-    return SDL_ENUM_CONTINUE;
-}
-
+/* A folder and what's in it (Port_RemoveTree: a link, inside or the folder
+ * itself, is unlinked, never followed); 1 if it's gone. */
 static int RemoveFolder(const char *dir) {
+    char *d = SDL_strdup(dir);
+    size_t n = d != NULL ? SDL_strlen(d) : 0;
     SDL_PathInfo pi;
 
-    if (!SDL_GetPathInfo(dir, &pi)) {
-        return 1;
+    if (d == NULL) {
+        return 0;
     }
-    SDL_EnumerateDirectory(dir, RemoveTree, NULL);
-    return SDL_RemovePath(dir);
+    while (n > 1 && (d[n - 1] == '/' || d[n - 1] == '\\')) {    /* "link/" would be followed */
+        d[--n] = 0;
+    }
+    Port_RemoveTree(d);
+    n = !SDL_GetPathInfo(d, &pi);
+    SDL_free(d);
+    return (int)n;
 }
 
 int Port_ModsRemove(int i) {
@@ -580,15 +619,142 @@ static int SafeName(const char *s) {
     return 1;
 }
 
+/* The kinds of file a package may hold: those tools/xdl_mod.py's check reads
+ * (ALLOWED_EXT), and check.json. */
+static int AllowedName(const char *name) {
+    static const char *const ext[] = { ".json", ".jsonc", ".png", ".wav", ".gltf", ".glb", ".bin", ".mid", ".md",
+                                       ".txt" };
+    const char *dot = SDL_strrchr(name, '.'), *p;
+    u32 i;
+
+    for (p = name; p != NULL; p = SDL_strchr(p, '/')) {     /* no hidden files or folders */
+        if (*p == '/') {
+            p++;
+        }
+        if (*p == '.') {
+            return 0;
+        }
+    }
+    for (i = 0; dot != NULL && SDL_strchr(dot, '/') == NULL && i < SDL_arraysize(ext); i++) {
+        if (SDL_strcasecmp(dot, ext[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void Sha256Hex(const void *data, size_t len, char out[65]) {
+    u8 h[32];
+    int i;
+
+    mbedtls_sha256(data, len, h, 0);
+    for (i = 0; i < 32; i++) {
+        SDL_snprintf(out + 2 * i, 3, "%02x", h[i]);
+    }
+}
+
+/* check.json against the mod it came with: written by the packer for this
+ * format, of this mod, and each file it lists of the size and sha256 it gives.
+ * NULL if so, else what's wrong. */
+static const char *CheckManifest(const JsonNode *check, const char *modId) {
+    const JsonNode *files = Json_Get(check, "files");
+
+    if (check == NULL || check->type != JSON_OBJECT) {
+        return "check.json isn't readable";
+    }
+    if (!Same(Json_Get(check, "tool"), "tools/xdl_mod.py") || Json_GetInt(check, "format_version", 0) != 1 ||
+        Json_GetInt(check, "tool_version", 0) < 2) {
+        return "check.json isn't one this version reads (re-pack the mod with tools/xdl_mod.py)";
+    }
+    if (modId == NULL || !Same(Json_Get(check, "mod"), modId)) {
+        return "check.json is another mod's";
+    }
+    if (!Same(Json_Get(check, "result"), "no game data found")) {
+        return "check.json doesn't say the mod passed";
+    }
+    if (files == NULL || files->type != JSON_OBJECT || Json_Get(files, "mod.jsonc") == NULL) {
+        return "check.json lists no files";
+    }
+    return NULL;
+}
+
+/* One file against its check.json entry. */
+static int FileMatches(const JsonNode *entry, const void *data, size_t len) {
+    char hex[65];
+
+    if (entry == NULL || entry->type != JSON_OBJECT || Json_GetInt(entry, "size", -1) != (long long)len) {
+        return 0;
+    }
+    Sha256Hex(data, len, hex);
+    return Same(Json_Get(entry, "sha256"), hex);
+}
+
+/* An installed folder's check.json: the packer's, of this mod, and every file
+ * it lists there unchanged. */
+static int FolderChecked(const char *dir, const char *modId) {
+    char *path = NULL, *text;
+    size_t len;
+    JsonNode *check;
+    const JsonNode *f;
+    int ok;
+
+    if (SDL_asprintf(&path, "%scheck.json", dir) < 0) {
+        return 0;
+    }
+    text = SDL_LoadFile(path, &len);
+    SDL_free(path);
+    check = text != NULL ? Json_Parse(text, len, NULL, 0) : NULL;
+    SDL_free(text);
+    ok = check != NULL && CheckManifest(check, modId) == NULL;
+    for (f = ok ? Json_Get(check, "files")->child : NULL; f != NULL && ok; f = f->next) {
+        path = NULL;
+        text = SafeName(f->key) && AllowedName(f->key) && SDL_asprintf(&path, "%s%s", dir, f->key) > 0
+                   ? SDL_LoadFile(path, &len) : NULL;
+        ok = text != NULL && FileMatches(f, text, len);
+        SDL_free(text);
+        SDL_free(path);
+    }
+    Json_Free(check);
+    return ok;
+}
+
+typedef struct ZipEntry {
+    char name[256];
+    u32 data, size;
+} ZipEntry;
+
+/* The id in a folder's mod.jsonc (to free), or NULL. */
+static char *FolderId(const char *dir) {
+    char *path = NULL, *text, *id = NULL;
+    size_t len;
+    JsonNode *doc;
+
+    if (SDL_asprintf(&path, "%s/mod.jsonc", dir) < 0) {
+        return NULL;
+    }
+    text = SDL_LoadFile(path, &len);
+    doc = text != NULL ? Json_Parse(text, len, NULL, 0) : NULL;
+    if (Str(doc, "id") != NULL) {
+        id = SDL_strdup(Str(doc, "id"));
+    }
+    Json_Free(doc);
+    SDL_free(text);
+    SDL_free(path);
+    return id;
+}
+
 int Port_ModsInstall(const char *package, char *err, size_t errSize) {
     size_t size = 0;
     u8 *zip = SDL_LoadFile(package, &size);
     const u8 *eocd = NULL, *cd;
-    u32 count, cdOff, i, k;
-    char *dir = Port_ModsDir(), *part = NULL, *final = NULL, *text = NULL;
-    JsonNode *doc = NULL;
-    const char *id;
-    int ok = 0, hasCheck = 0, hasMod = 0, pass;
+    u32 count, cdOff, i, k, n = 0;
+    char *dir = Port_ModsDir(), *part = NULL, *final = NULL, *old = NULL, *have = NULL;
+    JsonNode *doc = NULL, *check = NULL;
+    ZipEntry *ent = NULL;
+    const char *id = NULL, *why, *c;
+    const JsonNode *f;
+    int ok = 0, hasCheck = 0, hasMod = 0, listed = 0, moved = 0;
+    SDL_PathInfo pi;
 
     if (zip == NULL || dir == NULL) {
         SDL_snprintf(err, errSize, "can't read %s", package);
@@ -609,107 +775,165 @@ int Port_ModsInstall(const char *package, char *err, size_t errSize) {
     }
     count = Le16(eocd + 10);
     cdOff = Le32(eocd + 16);
-    /* pass 0 checks every entry and reads mod.jsonc; pass 1 writes them */
-    for (pass = 0; pass < 2; pass++) {
-        for (i = 0, cd = zip + cdOff; i < count; i++) {
-            char name[256];
-            u32 nlen, method, csize, lho, data;
+    if ((ent = SDL_calloc(count + 1, sizeof(*ent))) == NULL) {
+        goto done;
+    }
+    /* every entry: a name a package may have, stored, inside the file */
+    for (i = 0, cd = zip + (cdOff <= size ? cdOff : size); i < count; i++) {
+        ZipEntry *e = &ent[n];
+        u32 nlen, method, csize, usize, lho, j;
 
-            if ((size_t)(cd - zip) + 46 > size || Le32(cd) != 0x02014B50) {
-                SDL_snprintf(err, errSize, "the package is damaged");
+        if ((size_t)(cd - zip) + 46 > size || Le32(cd) != 0x02014B50) {
+            SDL_snprintf(err, errSize, "the package is damaged");
+            goto done;
+        }
+        method = Le16(cd + 10);
+        csize = Le32(cd + 20);
+        usize = Le32(cd + 24);
+        nlen = Le16(cd + 28);
+        lho = Le32(cd + 42);
+        if (nlen == 0 || nlen >= sizeof(e->name) || (size_t)(cd - zip) + 46 + nlen > size ||
+            (size_t)lho + 30 > size || Le32(zip + lho) != 0x04034B50) {
+            SDL_snprintf(err, errSize, "the package is damaged");
+            goto done;
+        }
+        SDL_memcpy(e->name, cd + 46, nlen);
+        e->name[nlen] = 0;
+        e->data = lho + 30 + Le16(zip + lho + 26) + Le16(zip + lho + 28);
+        e->size = csize;
+        cd += 46 + nlen + Le16(cd + 30) + Le16(cd + 32);
+        if (!SafeName(e->name) || method != 0 || csize != usize || (size_t)e->data + csize > size) {
+            SDL_snprintf(err, errSize, "%s: %s", e->name, method != 0 || csize != usize
+                                                               ? "compressed (the packer stores entries)"
+                                                               : "not a name or place a package may use");
+            goto done;
+        }
+        if (e->name[nlen - 1] == '/') {
+            continue;   /* a folder: made as its files are written */
+        }
+        if (!AllowedName(e->name)) {
+            SDL_snprintf(err, errSize, "%s: not a kind of file a mod holds (the packer's check reads .json "
+                                       ".jsonc .png .wav .gltf .glb .bin .mid .md .txt)", e->name);
+            goto done;
+        }
+        for (j = 0; j < n; j++) {
+            if (SDL_strcmp(ent[j].name, e->name) == 0) {
+                SDL_snprintf(err, errSize, "%s: twice in the package", e->name);
                 goto done;
-            }
-            method = Le16(cd + 10);
-            csize = Le32(cd + 20);
-            nlen = Le16(cd + 28);
-            lho = Le32(cd + 42);
-            if (nlen >= sizeof(name) || (size_t)(cd - zip) + 46 + nlen > size || (size_t)lho + 30 > size) {
-                SDL_snprintf(err, errSize, "the package is damaged");
-                goto done;
-            }
-            SDL_memcpy(name, cd + 46, nlen);
-            name[nlen] = 0;
-            data = lho + 30 + Le16(zip + lho + 26) + Le16(zip + lho + 28);
-            cd += 46 + nlen + Le16(cd + 30) + Le16(cd + 32);
-            if (!SafeName(name) || method != 0 || (size_t)data + csize > size) {
-                SDL_snprintf(err, errSize, "%s: %s", name, method != 0 ? "compressed (the packer stores entries)"
-                                                                       : "not a name or place a package may use");
-                goto done;
-            }
-            if (pass == 0) {
-                if (SDL_strcmp(name, "check.json") == 0) {
-                    hasCheck = 1;
-                } else if (SDL_strcmp(name, "mod.jsonc") == 0) {
-                    char e2[160];
-
-                    hasMod = 1;
-                    doc = Json_Parse((const char *)zip + data, csize, e2, sizeof(e2));
-                }
-            } else if (name[nlen - 1] != '/') {
-                char *path = NULL, *slash;
-
-                SDL_asprintf(&path, "%s%s", part, name);
-                if (path == NULL) {
-                    goto done;
-                }
-                if ((slash = SDL_strrchr(path, '/')) != NULL) {
-                    *slash = 0;
-                    SDL_CreateDirectory(path);
-                    *slash = '/';
-                }
-                if (!SDL_SaveFile(path, zip + data, csize)) {
-                    SDL_snprintf(err, errSize, "can't write %s: %s", path, SDL_GetError());
-                    SDL_free(path);
-                    goto done;
-                }
-                SDL_free(path);
             }
         }
-        if (pass == 0) {
-            id = Str(doc, "id");
-            if (!hasCheck || !hasMod) {
-                SDL_snprintf(err, errSize, "%s", !hasMod ? "no mod.jsonc in it" : "not made by the packer (no check.json)");
+        if (SDL_strcmp(e->name, "check.json") == 0) {
+            hasCheck = 1;
+            check = Json_Parse((const char *)zip + e->data, csize, NULL, 0);
+        } else if (SDL_strcmp(e->name, "mod.jsonc") == 0) {
+            hasMod = 1;
+            doc = Json_Parse((const char *)zip + e->data, csize, NULL, 0);
+        }
+        n++;
+    }
+    if (!hasCheck || !hasMod) {
+        SDL_snprintf(err, errSize, "%s", !hasMod ? "no mod.jsonc in it" : "not made by the packer (no check.json)");
+        goto done;
+    }
+    id = Str(doc, "id");
+    for (c = id != NULL && SDL_strncmp(id, "uid://", 6) == 0 ? id + 6 : ""; (*c >= '0' && *c <= '9') ||
+         (*c >= 'a' && *c <= 'z'); c++) {
+    }
+    if (id == NULL || *c != 0 || c == id + 6 || c - id > 6 + 13 || Json_GetInt(doc, "format_version", 0) != 1) {
+        SDL_snprintf(err, errSize, "mod.jsonc has no id this version reads");
+        goto done;
+    }
+    /* check.json: the packer's, of this mod, listing exactly the package's files */
+    if ((why = CheckManifest(check, id)) != NULL) {
+        SDL_snprintf(err, errSize, "%s", why);
+        goto done;
+    }
+    for (i = 0; i < n; i++) {
+        if (SDL_strcmp(ent[i].name, "check.json") != 0) {
+            if (!FileMatches(Json_Get(Json_Get(check, "files"), ent[i].name), zip + ent[i].data, ent[i].size)) {
+                SDL_snprintf(err, errSize, "%s isn't the file the packer checked", ent[i].name);
                 goto done;
             }
-            const char *c;
-
-            for (c = id != NULL && SDL_strncmp(id, "uid://", 6) == 0 ? id + 6 : ""; (*c >= '0' && *c <= '9') ||
-                 (*c >= 'a' && *c <= 'z'); c++) {
-            }
-            if (id == NULL || *c != 0 || c == id + 6) {
-                SDL_snprintf(err, errSize, "mod.jsonc has no id this version reads");
-                goto done;
-            }
-            SDL_asprintf(&final, "%s%s", dir, id + 6);
-            SDL_asprintf(&part, "%s%s.part/", dir, id + 6);
-            if (final == NULL || part == NULL) {
-                goto done;
-            }
-            RemoveFolder(part);
-            SDL_CreateDirectory(part);
+            listed++;
         }
     }
-    /* the mod of the same id goes, wherever it was */
-    Port_ModsScan();
-    if ((i = (u32)IndexOfId(id)) != (u32)-1) {
-        RemoveFolder(s_mods[i].dir);
+    for (f = Json_Get(check, "files")->child; f != NULL; f = f->next) {
+        listed--;
     }
-    RemoveFolder(final);
-    part[SDL_strlen(part) - 1] = 0;
+    if (listed != 0) {
+        SDL_snprintf(err, errSize, "check.json lists files the package doesn't have");
+        goto done;
+    }
+    if (SDL_asprintf(&final, "%s%s", dir, id + 6) < 0 || SDL_asprintf(&part, "%s%s.part", dir, id + 6) < 0 ||
+        SDL_asprintf(&old, "%s%s.part-old", dir, id + 6) < 0) {
+        goto done;
+    }
+    /* a folder of that name holding something else stays */
+    if (SDL_GetPathInfo(final, &pi) && ((have = FolderId(final)) == NULL || SDL_strcmp(have, id) != 0)) {
+        SDL_snprintf(err, errSize, "%s%s is in the way: it holds %s", id + 6, "/", have != NULL ? have : "no mod");
+        goto done;
+    }
+    /* unpacked beside it, then swapped in */
+    SDL_CreateDirectory(dir);
+    RemoveFolder(part);
+    if (!SDL_CreateDirectory(part)) {
+        SDL_snprintf(err, errSize, "can't make %s: %s", part, SDL_GetError());
+        goto done;
+    }
+    for (i = 0; i < n; i++) {
+        char *path = NULL, *slash;
+
+        if (SDL_asprintf(&path, "%s/%s", part, ent[i].name) < 0) {
+            goto done;
+        }
+        if ((slash = SDL_strrchr(path, '/')) != NULL) {
+            *slash = 0;
+            SDL_CreateDirectory(path);
+            *slash = '/';
+        }
+        if (!SDL_SaveFile(path, zip + ent[i].data, ent[i].size)) {
+            SDL_snprintf(err, errSize, "can't write %s: %s", path, SDL_GetError());
+            SDL_free(path);
+            goto done;
+        }
+        SDL_free(path);
+    }
+    RemoveFolder(old);
+    if (SDL_GetPathInfo(final, &pi)) {
+        if (!SDL_RenamePath(final, old)) {
+            SDL_snprintf(err, errSize, "can't move the old %s aside: %s", id, SDL_GetError());
+            goto done;
+        }
+        moved = 1;
+    }
     if (!SDL_RenamePath(part, final)) {
         SDL_snprintf(err, errSize, "can't put the mod in place: %s", SDL_GetError());
+        if (moved && !SDL_RenamePath(old, final)) {
+            Port_Log("mods: the old %s is left in %s", id, old);
+        }
         goto done;
     }
     ok = 1;
+    RemoveFolder(old);
+    /* the mod of the same id in another folder goes */
+    Port_ModsScan();
+    for (k = 0; k < (u32)s_numMods; k++) {
+        if (SDL_strcmp(s_mods[k].info.id, id) == 0 && SDL_strcmp(s_mods[k].info.folder, id + 6) != 0) {
+            Port_Log("mods: %s replaces the copy in %s", id, s_mods[k].dir);
+            RemoveFolder(s_mods[k].dir);
+        }
+    }
     Port_Log("mods: installed %s from %s", id, package);
 done:
     if (!ok && part != NULL) {
-        part[SDL_strlen(part) - 1] = 0;
         RemoveFolder(part);
     }
     Json_Free(doc);
-    SDL_free(text);
+    Json_Free(check);
+    SDL_free(ent);
+    SDL_free(have);
     SDL_free(part);
+    SDL_free(old);
     SDL_free(final);
     SDL_free(dir);
     SDL_free(zip);
@@ -726,13 +950,15 @@ void Port_ModsInit(void) {
     s_inited = 1;
     s_logValues = SDL_getenv("HWVX_MODS_LOG") != NULL;
     if (Port_ModsScan() > 0) {
+        int i;
+
         Port_Log("mods: %d in the mods folder, %s", s_numMods, Port_ModsActive() ? "some on" : "all off");
+        for (i = 0; s_logValues && i < s_numMods; i++) {
+            Port_Log("mods: %d. %s%s", i + 1, s_mods[i].info.id, Enabled(&s_mods[i]) ? "" : " (off)");
+        }
     }
 }
 
-static int Same(const JsonNode *a, const char *b) {
-    return a != NULL && a->type == JSON_STRING && b != NULL && SDL_strcmp(a->string, b) == 0;
-}
 
 /* Sets lock member `key` to string `s` (or removes it for NULL): 1 if it changed. */
 static int SetStr(JsonNode *e, const char *key, const char *s) {
@@ -759,7 +985,7 @@ static int SetBool(JsonNode *e, const char *key, int v) {
 }
 
 void Port_ModsSyncLock(const char *path) {
-    static const char *const kinds[] = { "cars", "items" };
+    static const char *const kinds[] = { "cars", "items", "tracks" };
     size_t len;
     char *text = SDL_LoadFile(path, &len), err[160];
     JsonNode *lock = text != NULL ? Json_Parse(text, len, err, sizeof(err)) : NULL;
@@ -774,7 +1000,7 @@ void Port_ModsSyncLock(const char *path) {
     if (lock == NULL && (lock = Json_NewObject()) != NULL) {
         Json_Append(lock, Json_NewInt(1), "format_version");
     }
-    for (k = 0; lock != NULL && k < 2; k++) {
+    for (k = 0; lock != NULL && k < (int)SDL_arraysize(kinds); k++) {
         JsonNode *sec = Json_ObjectMember(lock, kinds[k]), *e;
 
         /* entries of mods that are off or gone wait for them */
@@ -797,8 +1023,16 @@ void Port_ModsSyncLock(const char *path) {
             }
             for (x = entries != NULL && entries->type == JSON_OBJECT ? entries->child : NULL; x != NULL; x = x->next) {
                 JsonNode *e2 = (JsonNode *)Json_Get(sec, x->key);
+                int j, later = 0;
 
                 any = 1;
+                /* brought by a mod later in the load order too: that one's is used */
+                for (j = i + 1; j < s_numMods && !later; j++) {
+                    later = Enabled(&s_mods[j]) && Json_Get(Json_Get(s_mods[j].doc, kinds[k]), x->key) != NULL;
+                }
+                if (later) {
+                    continue;
+                }
                 if (e2 == NULL) {
                     e2 = Json_ObjectMember(sec, x->key);
                     changed = 1;
@@ -806,6 +1040,7 @@ void Port_ModsSyncLock(const char *path) {
                 changed |= SetStr(e2, "alias", Str(x, "extends"));
                 changed |= SetStr(e2, "name", Str(x, "name"));
                 changed |= SetStr(e2, "thumbnail", Str(x, "thumbnail"));
+                changed |= SetStr(e2, "world", Str(x, "world"));   /* tracks */
                 changed |= SetStr(e2, "mod", s_mods[i].info.id);
                 changed |= SetBool(e2, "unlocked", Json_GetBool(x, "unlocked", 0));
                 changed |= SetBool(e2, "active", 1);
@@ -825,16 +1060,67 @@ static void *Ptr(u32 h) {
     return h != 0 ? Port_HandleToPtr(h) : NULL;
 }
 
-/* A root object of a car or item pack (the table at 0: a count, then 8-byte
- * entries whose first word points to the root). */
-static u8 *Root(const DataPack *pack, u32 i) {
-    u8 *base = GETP(pack->base);
-    u8 *tab;
+/* Is [p, p + size) inside the pack's data blob? Every object a patch reads or
+ * writes is. */
+static int InBlob(const DataPack *pack, const void *p, u32 size) {
+    const u8 *lo = GETP(pack->base), *q = p;
 
-    if (base == NULL || i >= *(u32 *)base || (tab = Ptr(*(u32 *)(base + 4))) == NULL) {
+    return lo != NULL && q != NULL && q >= lo && (size_t)(q - lo) <= pack->dataSize &&
+           size <= pack->dataSize - (u32)(q - lo);
+}
+
+/* The struct of a pack type's root objects (tools/xdl_mod.py ROOT_KIND): car
+ * and item packs only; others have no root table. */
+static const ModStruct *RootStruct(unsigned type) {
+    const char *n = type == 0 ? "CarAInfo" : type == 2 ? "ItemRecord" : NULL;
+
+    return n != NULL ? StructNamed(n, SDL_strlen(n)) : NULL;
+}
+
+/* A root object of a car or item pack (the table at 0: a count, then 8-byte
+ * entries whose first word points to the root), all of it in the blob. */
+static u8 *Root(const DataPack *pack, const ModStruct *st, u32 i) {
+    u8 *base = GETP(pack->base), *tab, *obj;
+    u32 n;
+
+    if (base == NULL || pack->dataSize < 8) {
         return NULL;
     }
-    return Ptr(*(u32 *)(tab + 8 * i));
+    n = *(u32 *)base;
+    if (i >= n || n > pack->dataSize / 8 || (tab = Ptr(*(u32 *)(base + 4))) == NULL || !InBlob(pack, tab, 8 * n)) {
+        return NULL;
+    }
+    obj = Ptr(*(u32 *)(tab + 8 * i));
+    return InBlob(pack, obj, st->size) ? obj : NULL;
+}
+
+/* A path's number: digits only, up to the next '/' or the end. */
+static int Index(const char *s, u32 *out) {
+    char *end;
+    unsigned long v;
+
+    if (*s < '0' || *s > '9') {
+        return 0;
+    }
+    v = SDL_strtoul(s, &end, 10);
+    if ((*end != '/' && *end != 0) || v > 0xFFFFFFFFul) {
+        return 0;
+    }
+    *out = (u32)v;
+    return 1;
+}
+
+/* The objects link fd of obj points to: their count (1 unless the schema names
+ * a count for it), all of them in the blob; NULL when there are none. */
+static u8 *Follow(const DataPack *pack, const u8 *obj, const ModField *fd, u32 *count) {
+    const ModStruct *to = &s_structs[fd->target];
+    u8 *p = Ptr(*(u32 *)(obj + fd->offset));
+
+    *count = fd->count > 0 ? *(const u32 *)(obj + fd->count - 1) : 1;
+    if (*count == 0 || to->size == 0 || *count > pack->dataSize / to->size || !InBlob(pack, p, *count * to->size)) {
+        return NULL;
+    }
+    return p;
 }
 
 static double GetValue(const u8 *p, int type) {
@@ -850,10 +1136,16 @@ static double GetValue(const u8 *p, int type) {
     }
 }
 
+static int s_clamped;   /* SetValue: the value didn't fit the field's type */
+
+/* 1 if set; the value clamped to the type's range (s_clamped) when it doesn't fit. */
 static int SetValue(u8 *p, int type, const JsonNode *v) {
+    static const double lo[] = { 0, -128, 0, -32768, 0, -2147483648.0, -3.4028234663852886e38 };
+    static const double hi[] = { 255, 127, 65535, 32767, 4294967295.0, 2147483647.0, 3.4028234663852886e38 };
     double d;
 
     s_old = GetValue(p, type);
+    s_clamped = 0;
     if (v->type == JSON_BOOL) {
         d = v->boolean;
     } else if (v->type == JSON_NUMBER) {
@@ -861,12 +1153,22 @@ static int SetValue(u8 *p, int type, const JsonNode *v) {
     } else {
         return 0;
     }
+    if (type < MF_U8 || type > MF_F32) {
+        return 0;
+    }
+    if (!(d >= lo[type])) {     /* NaN too */
+        d = d != d ? 0 : lo[type];
+        s_clamped = 1;
+    } else if (d > hi[type]) {
+        d = hi[type];
+        s_clamped = 1;
+    }
     switch (type) {
-    case MF_U8: *p = (u8)(s32)d; break;
+    case MF_U8: *p = (u8)d; break;
     case MF_S8: *(s8 *)p = (s8)d; break;
-    case MF_U16: *(u16 *)p = (u16)(s32)d; break;
+    case MF_U16: *(u16 *)p = (u16)d; break;
     case MF_S16: *(s16 *)p = (s16)d; break;
-    case MF_U32: *(u32 *)p = v->isInteger ? (u32)v->integer : (u32)d; break;
+    case MF_U32: *(u32 *)p = (u32)d; break;
     case MF_S32: *(s32 *)p = (s32)d; break;
     case MF_F32: *(f32 *)p = (f32)d; break;
     default: return 0;
@@ -878,33 +1180,49 @@ static int TypeSize(int type) {
     return type == MF_U8 || type == MF_S8 ? 1 : type == MF_U16 || type == MF_S16 ? 2 : 4;
 }
 
-/* A merge patch over an object of struct st: the fields set. */
-static int PatchObject(const Mod *m, const char *where, u8 *obj, const ModStruct *st, const JsonNode *patch) {
+/* A merge patch over an object of struct st (in the blob): the fields set. */
+static int PatchObject(const Mod *m, const DataPack *pack, const char *where, u8 *obj, const ModStruct *st,
+                       const JsonNode *patch) {
     const JsonNode *f;
     int n = 0;
 
     for (f = patch->child; f != NULL; f = f->next) {
         const ModField *fd = FieldNamed(st, f->key, SDL_strlen(f->key));
 
-        if (fd == NULL || fd->type == MF_OTHER) {
+        if (fd == NULL || fd->type == MF_OTHER ||
+            fd->offset + (u32)(fd->type == MF_LINK ? 4 : TypeSize(fd->type) * (fd->count > 0 ? fd->count : 1)) >
+                st->size) {
             Report("%s: %s: %s.%s isn't a field a patch can set", m->info.name, where, st->name, f->key);
         } else if (fd->type == MF_LINK) {
-            u8 *to = Ptr(*(u32 *)(obj + fd->offset));
+            u32 count;
+            u8 *to = Follow(pack, obj, fd, &count);
 
             if (f->type == JSON_OBJECT && to != NULL) {
-                n += PatchObject(m, where, to, &s_structs[fd->target], f);
+                n += PatchObject(m, pack, where, to, &s_structs[fd->target], f);
+            } else if (f->type == JSON_OBJECT) {
+                Report("%s: %s: %s.%s points to nothing in this release's pack", m->info.name, where, st->name,
+                       f->key);
             } else {
                 Report("%s: %s: %s.%s is an object: patch it as one", m->info.name, where, st->name, f->key);
             }
         } else if (fd->count > 0) {
             const JsonNode *e = f->type == JSON_ARRAY ? f->child : NULL;
-            int i;
+            int i, clamped = 0;
 
             for (i = 0; e != NULL && i < fd->count; i++, e = e->next) {
                 n += e->type != JSON_NULL && SetValue(obj + fd->offset + i * TypeSize(fd->type), fd->type, e);
+                clamped |= s_clamped;
+            }
+            if (clamped) {
+                Report("%s: %s: %s.%s: a value out of its type's range, clamped", m->info.name, where, st->name,
+                       f->key);
             }
         } else if (SetValue(obj + fd->offset, fd->type, f)) {
             n++;
+            if (s_clamped) {
+                Report("%s: %s: %s.%s: out of its type's range, clamped to %g", m->info.name, where, st->name,
+                       f->key, GetValue(obj + fd->offset, fd->type));
+            }
             if (s_logValues) {
                 Port_Log("mods: %s %s.%s = %g (was %g)", where, st->name, f->key, GetValue(obj + fd->offset, fd->type),
                          s_old);
@@ -916,24 +1234,34 @@ static int PatchObject(const Mod *m, const char *where, u8 *obj, const ModStruct
     return n;
 }
 
-/* path: Struct/root[/field or index...] in a pack; the object and its struct. */
-static u8 *Locate(const DataPack *pack, const char *path, const ModStruct **st) {
+/* path: Root/i[/field or index...] in a car or item pack, Root its root struct;
+ * an index only into an array the schema gives a count for (else only 0). The
+ * object (in the blob) and its struct. */
+static u8 *Locate(const DataPack *pack, unsigned type, const char *path, const ModStruct **st) {
     const char *p = SDL_strchr(path, '/'), *seg;
-    u8 *obj;
+    const ModStruct *root = RootStruct(type);
+    u8 *obj, *array;
+    u32 count = 1, i;
 
-    if (p == NULL || (*st = StructNamed(path, (size_t)(p - path))) == NULL) {
+    if (p == NULL || root == NULL || (*st = StructNamed(path, (size_t)(p - path))) != root || !Index(p + 1, &i)) {
         return NULL;
     }
-    obj = Root(pack, (u32)SDL_strtoul(p + 1, NULL, 10));
+    obj = array = Root(pack, root, i);
     for (seg = SDL_strchr(p + 1, '/'); obj != NULL && seg != NULL; seg = SDL_strchr(seg + 1, '/')) {
         const char *end = SDL_strchr(seg + 1, '/');
         size_t len = end != NULL ? (size_t)(end - seg - 1) : SDL_strlen(seg + 1);
         const ModField *fd;
 
         if (seg[1] >= '0' && seg[1] <= '9') {
-            obj += SDL_strtoul(seg + 1, NULL, 10) * (*st)->size;
-        } else if ((fd = FieldNamed(*st, seg + 1, len)) != NULL && fd->type == MF_LINK) {
-            obj = Ptr(*(u32 *)(obj + fd->offset));
+            if (!Index(seg + 1, &i) || i >= count) {
+                return NULL;
+            }
+            obj = array + i * (*st)->size;
+            count = 1;
+            array = obj;
+        } else if ((fd = FieldNamed(*st, seg + 1, len)) != NULL && fd->type == MF_LINK &&
+                   fd->offset + 4 <= (*st)->size) {
+            obj = array = Follow(pack, obj, fd, &count);
             *st = &s_structs[fd->target];
         } else {
             return NULL;
@@ -942,15 +1270,16 @@ static u8 *Locate(const DataPack *pack, const char *path, const ModStruct **st) 
     return obj;
 }
 
-static void ApplyPatch(const Mod *m, const DataPack *pack, const char *id, const char *path, const JsonNode *patch) {
+static void ApplyPatch(const Mod *m, const DataPack *pack, unsigned type, const char *id, const char *path,
+                       const JsonNode *patch) {
     const ModStruct *st = NULL;
-    u8 *obj = Locate(pack, path, &st);
+    u8 *obj = Locate(pack, type, path, &st);
 
     if (obj == NULL || patch->type != JSON_OBJECT) {
         Report("%s: %s: no such object in this release's pack", m->info.name, id);
         return;
     }
-    Port_Log("mods: %s: %d values of %s", m->info.name, PatchObject(m, id, obj, st, patch), id);
+    Port_Log("mods: %s: %d values of %s", m->info.name, PatchObject(m, pack, id, obj, st, patch), id);
 }
 
 /* ---- recipes ------------------------------------------------------------- */
@@ -1098,7 +1427,7 @@ void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsign
         sec = Json_Get(m->doc, "patches");
         for (x = sec != NULL && sec->type == JSON_OBJECT ? sec->child : NULL; x != NULL; x = x->next) {
             if (Names(x->key, name, type, id, &rest) && *rest != 0) {
-                ApplyPatch(m, pack, x->key, rest, x);
+                ApplyPatch(m, pack, type, x->key, rest, x);
             }
         }
         sec = Json_Get(m->doc, "recipes");
@@ -1125,7 +1454,7 @@ void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsign
                 }
                 p = Json_Get(e, "patch");
                 for (x = p != NULL && p->type == JSON_OBJECT ? p->child : NULL; x != NULL; x = x->next) {
-                    ApplyPatch(m, pack, e->key, x->key, x);
+                    ApplyPatch(m, pack, type, e->key, x->key, x);
                 }
                 p = Json_Get(e, "recipes");
                 for (x = p != NULL && p->type == JSON_OBJECT ? p->child : NULL; x != NULL; x = x->next) {

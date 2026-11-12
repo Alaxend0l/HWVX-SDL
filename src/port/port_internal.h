@@ -66,9 +66,30 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
  * in err when the recipe can't be used. Port_MixManifestClose: the build is done. */
 int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, char *err, u32 errSize);
 void Port_MixManifestClose(void);
-/* The launcher's hook points for features built elsewhere: the mixed-build
- * builder (the Convert page's "Build a mixed game..." row) and the mod loader
- * (the Mods page's "Mods..." row). launcher.c has weak stubs that say the
+/* --mix-build's end (mix.c): the build's built.cfg (PORT_MIX_BUILT: its
+ * stamp, the cache version, the pack counts) written, and its .part folder
+ * put in the place of the last complete build; prints "@convert N N done",
+ * or "@error TEXT" and removes the .part. 1 when it is in place. */
+#define PORT_MIX_BUILT "built.cfg"
+int Port_MixBuildFinish(u32 packs, u32 failed);
+/* The launcher's look at recipe `nameOrPath` without starting it: its name,
+ * cache folder, stamp (Port_MixStamp) and how many of its releases are
+ * imported (sources.cfg). 0 and err when it can't be used. */
+typedef struct PortMixInfo {
+    char name[64];
+    char dir[1024];
+    u32 stamp;
+    int releases;
+} PortMixInfo;
+int Port_MixProbe(const char *nameOrPath, Port_DataCheck check, PortMixInfo *info, char *err, u32 errSize);
+/* launcher.c: the recipe the player chose to play (the Play page's "Mixed
+ * game"), or NULL: a release. */
+const char *Port_LauncherMix(void);
+/* fileio.c: removes a folder and everything in it (or a file); a symlink
+ * or junction is removed itself, never followed: its target stays. */
+void Port_RemoveTree(const char *path);
+/* The launcher's hook point for a feature built elsewhere: the mod loader
+ * (the Mods page's "Mods..." row). launcher.c has a weak stub that says the
  * feature isn't there; the feature defines the real function. Called with
  * run 0 to ask (returns 1 if it is built in: the button is enabled), with
  * run 1 when the button is pressed: `paths` are the imported sources
@@ -76,7 +97,6 @@ void Port_MixManifestClose(void);
  * preferences folder (ends in a separator); what it has to say goes in
  * `status` (shown on the status line). It runs on the UI thread: start a
  * thread or a process for anything long. */
-int Port_LauncherMixedBuild(int run, const char *const *paths, const char *prefDir, char *status, size_t statusSize);
 int Port_LauncherMods(int run, const char *const *paths, const char *prefDir, char *status, size_t statusSize);
 /* Where the launcher keeps release `key`'s ("gc", "pc", "ps2") converted
  * packs: <pref>converted/<key>; SDL_free it. The game reads them when the

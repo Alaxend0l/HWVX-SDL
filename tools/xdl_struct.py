@@ -175,20 +175,13 @@ class Pack:
         return [self.target(tab + 8 * i) for i in range(n)]
 
     def geometries(self):
-        """Geometry header offsets in scan order (GameCube 0x2003, PC 0x0002; pairing.md §1)."""
+        """Geometry header offsets in scan order (xdl_gltf.scan; pairing.md §1)."""
         if self._geoms is None:
-            d, e, out = self.blob, self.e, []
-            u16 = lambda o: struct.unpack_from(e + "H", d, o)[0]  # noqa: E731
-            magic = 0x2003 if self.release == "gc" else 0x0002
-            for off in range(0, len(d) - 0x40, 4):
-                if u16(off) != magic or off + 8 not in self.ptrs or off + 0xC not in self.ptrs:
-                    continue
-                if not 1 <= u16(off + 2) <= 8:
-                    continue
-                lods = self.u32(off + 8)
-                if (self.release == "gc" and lods < len(d)) or lods == off + 0x40:
-                    out.append(off)
-            self._geoms = out
+            here = str(Path(__file__).resolve().parent)
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import xdl_gltf
+            self._geoms = xdl_gltf.scan(xdl_gltf.Blob(self.blob, self.ptrs, self.release))
         return self._geoms
 
     def relocs_in(self, lo, hi):
@@ -567,29 +560,38 @@ class Encoder:
 # ------------------------------------------------------------------------------------------
 # JSONC
 
+_JSONC_COMMENT = re.compile(r'"(?:[^"\\]|\\.)*"|//[^\n]*|/\*.*?\*/|/\*|"', re.S)
+_JSONC_COMMA = re.compile(r'"(?:[^"\\]|\\.)*"|,(?=\s*[\]}])')
+
+
+def _jsonc_strip(m):
+    t = m.group()
+    if t[0] == '"':
+        if len(t) == 1:
+            raise XdlError(f"unterminated string at offset {m.start()}")
+        return t
+    if t == "/*":
+        raise XdlError(f"unterminated comment at offset {m.start()}")
+    return ""
+
+
 def jsonc_loads(text):
-    """JSON with // and /* */ comments and trailing commas."""
-    out, i, n = [], 0, len(text)
-    while i < n:
-        c = text[i]
-        if c == '"':
-            j = i + 1
-            while text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            out.append(text[i:j + 1])
-            i = j + 1
-        elif text.startswith("//", i):
-            j = text.find("\n", i)
-            i = n if j < 0 else j
-        elif text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            if j < 0:
-                raise XdlError("unterminated comment")
-            i = j + 2
-        else:
-            out.append(c)
-            i += 1
-    s = re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+    """JSON with // and /* */ comments and trailing commas (a comma before } or ], outside
+    strings). Raises XdlError for an unterminated string or comment, ValueError for bad JSON."""
+    # fast path: the files the tools write are JSON after leading // comment lines
+    i = 0
+    while True:
+        j = len(text) - len(text[i:].lstrip())
+        if not text.startswith("//", j):
+            break
+        k = text.find("\n", j)
+        i = len(text) if k < 0 else k + 1
+    try:
+        return json.loads(text[i:])
+    except ValueError:
+        pass
+    s = _JSONC_COMMENT.sub(_jsonc_strip, text)
+    s = _JSONC_COMMA.sub(lambda m: m.group() if m.group()[0] == '"' else "", s)
     return json.loads(s)
 
 
