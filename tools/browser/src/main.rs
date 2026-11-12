@@ -87,7 +87,7 @@ fn main() -> eframe::Result {
         }
     };
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1180.0, 760.0]).with_title("HWVX data browser"),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1500.0, 860.0]).with_title("HWVX data browser"),
         ..Default::default()
     };
     eframe::run_native("hwvx-browser", options, Box::new(move |cc| Ok(Box::new(Browser::new(args, cc.egui_ctx.clone())))))
@@ -574,7 +574,9 @@ impl Browser {
         if !self.pending.is_empty() {
             return;
         }
-        if !self.args.viewer_window && (self.preview.shown < 3 || self.preview.size != self.preview.want) {
+        if !self.args.viewer_window
+            && (self.preview.shown < 60 || self.preview.size != self.preview.want || self.preview.fps == 0.0 || self.preview.stats["fps"].as_f64().unwrap_or(0.0) == 0.0)
+        {
             return; // the picture, at the panel's size
         }
         self.app_shot_state += 1;
@@ -1200,9 +1202,9 @@ impl eframe::App for Browser {
         }
         egui::Panel::top("top").show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("bottom").show(ui, |ui| self.bottom_bar(ui));
-        egui::Panel::left("packs").default_size(260.0).resizable(true).show(ui, |ui| self.pack_list(ui));
+        egui::Panel::left("packs").default_size(220.0).resizable(true).show(ui, |ui| self.pack_list(ui));
         egui::Panel::left("outline").default_size(300.0).resizable(true).show(ui, |ui| self.outline_tree(ui));
-        egui::Panel::right("properties").default_size(380.0).resizable(true).show(ui, |ui| self.properties(ui));
+        egui::Panel::right("properties").default_size(340.0).resizable(true).show(ui, |ui| self.properties(ui));
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.preview_panel(ui));
     }
 }
