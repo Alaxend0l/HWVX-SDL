@@ -5,6 +5,7 @@
     xdl_level.py check PROJECT [--base BASE_PROJECT]                       check only
     xdl_level.py base WORLD_ARCHIVE --data DATA [--cache DIR]               the base world, extracted
     xdl_level.py mod PROJECT OUT_MOD_DIR [--base ...]                       a mod folder with the level
+    xdl_level.py testdrive PROJECT SCRATCH [--car N] [--skip-intro]        the editor's test drive
 
 A level is a folder (docs-pending/mission-editor.md):
 
@@ -241,8 +242,9 @@ def scalar(T, p, v, where):
 
 
 class Compiler:
-    def __init__(self, proj, base=None):
+    def __init__(self, proj, base=None, skip_intro=False):
         self.proj = Path(proj)
+        self.skip_intro = skip_intro
         self.T = XT.Tac()
         self.parts = []           # {"id", "kind", "hex", "links": [[off, LINK]]}
         self.part_ids = set()
@@ -302,6 +304,10 @@ class Compiler:
     # -- the kinds ----------------------------------------------------------------------------
 
     def volume(self, name, v, where):
+        props, _ = struct_of("WorldVolume")
+        for k in v:
+            if k not in props or "x-offset" not in props[k]:
+                raise LevelError(f"{where}/{k}: not a field of WorldVolume")
         v = dict(v)
         v.setdefault("enabled", 1)
         v.setdefault("shape", "sphere")
@@ -444,13 +450,21 @@ class Compiler:
         # triggers
         tdir = self.proj / "triggers"
         names = lv.get("triggers") or sorted(p.stem for p in tdir.glob("*.jsonc"))
+        docs = []
         for name in names:
             f = tdir / f"{name}.jsonc"
             if not f.exists():
                 self.err(where, f"triggers: {name}: no triggers/{name}.jsonc")
                 continue
             try:
-                self.trigger(name, read_jsonc(f), f"triggers/{name}.jsonc")
+                docs.append((name, read_jsonc(f)))
+            except LevelError as ex:
+                self.errors.append(str(ex))
+        if self.skip_intro:
+            docs = skip_intro(docs)
+        for name, d in docs:
+            try:
+                self.trigger(name, d, f"triggers/{name}.jsonc")
             except LevelError as ex:
                 self.errors.append(str(ex))
         # links
@@ -558,8 +572,110 @@ class BaseWorld:
 
 # ------------------------------------------------------------------------------------------
 
-def compile_project(proj, base=None):
-    c = Compiler(proj, base)
+def skip_intro(docs):
+    """The test drive's quick start: the intro screen a level_start trigger plays is left out,
+    the interface_end trigger waiting for it runs at the start instead, and the start's actions
+    run without their delays (the camera, the countdown, control and the clock at once)."""
+    import copy
+    docs = [(n, copy.deepcopy(d)) for n, d in docs]
+    waits = {}
+    for n, d in docs:
+        if d.get("type") == "interface_end" and isinstance(d.get("param"), dict):
+            waits[d["param"].get("interface")] = n
+    played = set()
+    for n, d in docs:
+        if d.get("type") != "level_start":
+            continue
+        keep = []
+        for a in d.get("actions") or []:
+            itf = (a.get("data") or {}).get("interface") if isinstance(a, dict) else None
+            if isinstance(a, dict) and a.get("type") == "interface_play" and itf in waits:
+                played.add(waits[itf])
+                continue
+            keep.append(a)
+        d["actions"] = keep
+    for n, d in docs:
+        if n in played:
+            d["type"] = "level_start"
+            d.pop("param", None)
+            d.pop("paramWords", None)
+        if d.get("type") == "level_start":
+            for a in d.get("actions") or []:
+                if isinstance(a, dict):
+                    a.pop("delayInit", None)
+                    a.pop("delay", None)
+    # a trigger left with no actions is dropped
+    return [(n, d) for n, d in docs if d.get("actions") or d.get("type") != "level_start"]
+
+
+TOOL_FILES = ("xdl_level.py", "xdl_tac.py", "xdl_struct.py")
+SCHEMA_FILES = ("Trigger", "WorldVolume", "WorldTimer", "WorldVariable", "World", "TileCar", "WorldQuad",
+                "QuadContents", "WorldGameData")
+
+
+def source_hash(proj, options=""):
+    """A hash of what a compile reads: the project's files, the tools and schemas, the options."""
+    h = hashlib.sha256(options.encode())
+    proj = Path(proj)
+    files = [proj / "level.jsonc"] + sorted((proj / "triggers").glob("*.jsonc"))
+    files += [HERE / f for f in TOOL_FILES] + [SCHEMAS / f"{n}.schema.json" for n in SCHEMA_FILES]
+    for f in files:
+        h.update(str(f.name).encode() + b"\0")
+        try:
+            h.update(f.read_bytes())
+        except OSError:
+            h.update(b"-")
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def base_identity(base):
+    """What the build depends on of the base: its extracted project's folder name carries the
+    archive's hash (base_project); "" without one."""
+    return Path(base).parent.name if base else ""
+
+
+def compile_cached(proj, out, base=None, skip=False):
+    """(doc, errors, cached): the level file at out, compiled again only when a source changed
+    (the key: the project's files, the tools, the options, the base's identity). The test
+    drive's products go through here; rebuilt packs (stage 21.4) are keyed the same way."""
+    key = source_hash(proj, f"skip_intro={int(skip)};base={base_identity(base)}")
+    try:
+        old = json.loads(Path(out).read_text())
+        if old.get("sourceHash") == key:
+            return old, [], True
+    except (OSError, ValueError):
+        pass
+    doc, errors = compile_project(proj, base, skip)
+    if doc is not None:
+        doc["sourceHash"] = key
+        write_json(out, doc)
+    return doc, errors, False
+
+
+def error_records(errors):
+    """Errors as {file, path, message}: where in the project each one is."""
+    out = []
+    for e in errors:
+        m = re.match(r"((?:level\.jsonc|triggers/[A-Za-z0-9_-]+\.jsonc))(/[^:]*)?: (.*)", e, re.S)
+        if m:
+            out.append({"file": m.group(1), "path": (m.group(2) or "").lstrip("/"), "message": m.group(3)})
+            continue
+        m = re.match(r"level://(triggers|volumes|timers|variables|strings)/([A-Za-z0-9_-]+)(/[^ :]*)?(?: \+0x[0-9a-f]+)?: (.*)",
+                     e, re.S)
+        if m:
+            kind, name, rest, msg = m.groups()
+            if kind == "triggers":
+                out.append({"file": f"triggers/{name}.jsonc", "path": (rest or "").lstrip("/"), "message": msg})
+            else:
+                out.append({"file": "level.jsonc", "path": f"{kind}/{name}" + (rest or ""), "message": msg})
+            continue
+        out.append({"file": "", "path": "", "message": e})
+    return out
+
+
+def compile_project(proj, base=None, skip=False):
+    c = Compiler(proj, base, skip)
     try:
         doc = c.run()
     except LevelError as ex:
@@ -641,13 +757,64 @@ def base_arg(a):
 
 
 def cmd_compile(a):
-    doc, errors = compile_project(a.project, base_arg(a))
+    import time
+    t0 = time.perf_counter()
+    out = a.out or str(Path(a.project) / "build" / "level.json")
+    doc, errors, cached = compile_cached(a.project, out, base_arg(a), a.skip_intro)
+    ms = round((time.perf_counter() - t0) * 1000, 1)
+    if a.json:
+        print(json.dumps({"ok": not errors, "out": out, "cached": cached, "ms": ms,
+                          "errors": error_records(errors)}))
+        return 1 if errors else 0
     if errors:
         return report(errors)
-    out = a.out or str(Path(a.project) / "build" / "level.json")
-    write_json(out, doc)
-    print(f"{out}: {len(doc['parts'])} parts, {len(doc['patches'])} patches")
+    print(f"{out}: {len(doc['parts'])} parts, {len(doc['patches'])} patches"
+          f"{' (up to date)' if cached else ''}, {ms} ms")
     return 0
+
+
+START_MODE = {"challenge": "challenge", "mission": "mission", "adventure": "mission", "battle": "battle",
+              "drag": "drag", "joyride": "joyride"}
+
+
+def cmd_testdrive(a):
+    """The editor's test drive: the project compiled (if it changed) into SCRATCH/mods/editor-test,
+    a mod whose track is the level, and what to start the game with (JSON on stdout)."""
+    import time
+    t0 = time.perf_counter()
+    proj, scratch = Path(a.project), Path(a.scratch)
+    mod_dir = scratch / "mods" / "editor-test"
+    res = {"ok": False, "errors": []}
+    try:
+        lv = read_jsonc(proj / "level.jsonc")
+        for k in ("id", "name", "mode", "extends", "world"):
+            if not isinstance(lv.get(k), str):
+                raise LevelError(f"level.jsonc/{k}: missing (a string)")
+        doc, errors, cached = compile_cached(proj, mod_dir / "level.json", base_arg(a), a.skip_intro)
+    except LevelError as ex:
+        doc, errors, cached = None, [str(ex)], False
+    res["errors"] = error_records(errors)
+    if doc is not None and not errors:
+        track = {"extends": lv["extends"], "name": lv["name"], "unlocked": True, "world": doc["world"],
+                 "level": "level.json"}
+        mod = {"$schema": "../../schemas/Mod.schema.json", "format_version": 1, "id": "uid://editortest",
+               "name": "Editor test drive", "version": "1.0.0", "description": f"{lv['name']}, on test",
+               "tracks": {lv["id"]: track}}
+        text = json.dumps(mod, indent=2) + "\n"
+        mj = mod_dir / "mod.jsonc"
+        if not mj.exists() or mj.read_text() != text:
+            mj.write_text(text)
+        mode = START_MODE.get(lv["mode"], lv["mode"])
+        start = f"race:mode={mode},world={lv['id']}"
+        if a.car is not None:
+            start += f",car={a.car}"
+        # what the build made: the level file now; later also the level's own packs
+        products = [{"kind": "level", "path": str(mod_dir / "level.json"), "cached": cached}]
+        res.update(ok=True, cached=all(p["cached"] for p in products), start=start, mods=str(scratch / "mods"),
+                   level=str(mod_dir / "level.json"), products=products)
+    res["ms"] = round((time.perf_counter() - t0) * 1000, 1)
+    print(json.dumps(res))
+    return 0 if res["ok"] else 1
 
 
 def cmd_check(a):
@@ -705,13 +872,19 @@ def cmd_mod(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("compile", "check", "mod"):
+    for name in ("compile", "check", "mod", "testdrive"):
         p = sub.add_parser(name)
         p.add_argument("project")
         if name == "mod":
             p.add_argument("out")
+        if name == "testdrive":
+            p.add_argument("scratch", help="the editor's scratch folder (its mods/, never the player's)")
+            p.add_argument("--car", type=int)
+        if name in ("compile", "testdrive"):
+            p.add_argument("--skip-intro", action="store_true", help="the quick start (test drives)")
         if name == "compile":
             p.add_argument("-o", "--out")
+            p.add_argument("--json", action="store_true", help="the result and errors as one JSON line")
         p.add_argument("--base", help="the base world's extracted project (xdl_level.py base)")
         p.add_argument("--data", help="the game's data folder: the base world is extracted from it (cached)")
         p.add_argument("--cache")
@@ -721,7 +894,8 @@ def main():
     p.add_argument("--cache")
     a = ap.parse_args()
     try:
-        return {"compile": cmd_compile, "check": cmd_check, "base": cmd_base, "mod": cmd_mod}[a.cmd](a)
+        return {"compile": cmd_compile, "check": cmd_check, "base": cmd_base, "mod": cmd_mod,
+                "testdrive": cmd_testdrive}[a.cmd](a)
     except LevelError as ex:
         return report([str(ex)])
 

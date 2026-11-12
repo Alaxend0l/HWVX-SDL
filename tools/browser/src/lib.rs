@@ -3,3 +3,4 @@ pub mod client;
 pub mod frames;
 pub mod media;
 pub mod shm;
+pub mod testdrive;

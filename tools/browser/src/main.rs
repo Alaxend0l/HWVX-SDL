@@ -12,12 +12,18 @@
 //!                                                HWVX_VIEWER_TOKEN; it logs one it made up)
 //!                [--load ARCHIVE:TYPE:ID] [--select NODE] [--app-shot FILE.bmp]
 //!                [--world NAME [--overlays regions,loaded,...]]   a world instead of --load
+//!                [--level PROJECT_DIR] [--test-drive] [--quick-start] [--car N] [--tools DIR]
+//!                [--testdrive-renderer R]
+//!
+//! The Level tab opens a level project (tools/xdl_level.py); Test drive (F5) compiles it and
+//! starts the game straight into it (src/level_ui.rs, src/testdrive.rs).
 //!
 //! --viewer-window shows the game's own window instead (the old separate preview, for debugging).
 //! --app-shot saves this window (once the --load and --select replies are in) and quits:
 //! for scripted screenshots of the browser itself. It gives up (exit 1) on an error reply, a
 //! lost viewer, or after two minutes.
 
+mod level_ui;
 mod media_ui;
 mod world_ui;
 
@@ -25,6 +31,7 @@ use eframe::egui;
 use hwvx_browser::media::MediaReader;
 use media_ui::{MediaState, View, media_kind};
 use world_ui::WorldState;
+use level_ui::LevelState;
 use hwvx_browser::client::{SpawnOptions, Viewer, default_game, default_schemas};
 use hwvx_browser::frames::{Frame, FrameReader};
 use serde_json::{Value, json};
@@ -53,6 +60,16 @@ struct Args {
     select: Option<String>,
     app_shot: Option<PathBuf>,
     viewer_window: bool,
+    /// tools/ of the checkout (xdl_level.py); default: beside the game's
+    tools: Option<PathBuf>,
+    /// a level project to open (the Level tab)
+    level: Option<String>,
+    /// HWVX_RENDERER for test drives
+    testdrive_renderer: Option<String>,
+    /// start a test drive at once (scripts)
+    test_drive: bool,
+    quick_start: bool,
+    car: Option<u32>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -81,6 +98,12 @@ fn parse_args() -> Result<Args, String> {
             "--overlays" => a.overlays = Some(val()?),
             "--app-shot" => a.app_shot = Some(val()?.into()),
             "--viewer-window" => a.viewer_window = true,
+            "--tools" => a.tools = Some(val()?.into()),
+            "--level" => a.level = Some(val()?),
+            "--testdrive-renderer" => a.testdrive_renderer = Some(val()?),
+            "--test-drive" => a.test_drive = true,
+            "--quick-start" => a.quick_start = true,
+            "--car" => a.car = Some(val()?.parse().map_err(|_| "--car N")?),
             "-h" | "--help" => {
                 println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
                 std::process::exit(0);
@@ -124,6 +147,8 @@ enum Pending {
     Play(String),
     Worlds,
     World,
+    /// the test drive's "from here": the ground under the camera
+    Ground,
     Quiet,
 }
 
@@ -290,6 +315,7 @@ struct Browser {
     media: MediaState,
     media_reader: MediaReader,
     world: WorldState,
+    level: LevelState,
 }
 
 impl Browser {
@@ -327,9 +353,16 @@ impl Browser {
             media: MediaState::default(),
             media_reader: MediaReader::new(),
             world: WorldState::default(),
+            level: LevelState::default(),
             args,
             ctx,
         };
+        if let Some(l) = b.args.level.clone() {
+            b.open_level(&l);
+            b.level.tab = true;
+            b.level.skip_intro = b.args.quick_start;
+            b.level.car = b.args.car.unwrap_or(0);
+        }
         b.connect();
         b
     }
@@ -473,6 +506,10 @@ impl Browser {
         for (seq, r) in replies {
             let why = self.pending.remove(&seq).map(|(p, _)| p).unwrap_or(Pending::Quiet);
             let ok = r.get("ok").and_then(Value::as_bool) == Some(true);
+            if matches!(why, Pending::Ground) {
+                self.ground_reply(ok.then_some(r));
+                continue;
+            }
             if !ok {
                 let e = r.get("error").and_then(Value::as_str).unwrap_or("failed").to_string();
                 self.fail(e);
@@ -584,6 +621,7 @@ impl Browser {
                 why @ (Pending::Textures(_) | Pending::Sounds(_) | Pending::Texture(_) | Pending::Sound(_) | Pending::Play(_)) => {
                     self.media_reply(why, r)
                 }
+                Pending::Ground => {}
                 Pending::Shot => self.note(format!("saved {} ({}x{})", r["path"].as_str().unwrap_or(""), r["width"], r["height"])),
                 Pending::Quiet => {}
             }
@@ -662,6 +700,9 @@ impl Browser {
             }
         }
         let Some(path) = self.args.app_shot.clone() else { return };
+        if self.args.test_drive && !self.test_drive_settled() {
+            return;
+        }
         if !self.pending.is_empty() {
             return;
         }
@@ -734,6 +775,8 @@ impl Browser {
             if ui.add_enabled(self.connecting.is_none(), egui::Button::new("Reconnect")).clicked() {
                 self.connect();
             }
+            ui.separator();
+            self.test_drive_button(ui);
             if let Some(o) = &self.outline {
                 ui.separator();
                 ui.strong(&o.pack);
@@ -1308,6 +1351,7 @@ impl eframe::App for Browser {
         self.check_connecting();
         self.handle_replies();
         self.script(&ctx);
+        self.level_tick(&ctx);
         if !self.pending.is_empty() || self.connecting.is_some() {
             ctx.request_repaint_after(Duration::from_millis(30));
         }

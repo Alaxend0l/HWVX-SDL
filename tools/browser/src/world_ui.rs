@@ -75,11 +75,22 @@ impl Browser {
 
     pub(crate) fn left_tabs(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.world.tab_worlds, false, "Packs");
-            ui.selectable_value(&mut self.world.tab_worlds, true, "Worlds");
+            if ui.selectable_label(!self.level.tab && !self.world.tab_worlds, "Packs").clicked() {
+                self.level.tab = false;
+                self.world.tab_worlds = false;
+            }
+            if ui.selectable_label(!self.level.tab && self.world.tab_worlds, "Worlds").clicked() {
+                self.level.tab = false;
+                self.world.tab_worlds = true;
+            }
+            if ui.selectable_label(self.level.tab, "Level").clicked() {
+                self.level.tab = true;
+            }
         });
         ui.separator();
-        if self.world.tab_worlds {
+        if self.level.tab {
+            self.level_panel(ui);
+        } else if self.world.tab_worlds {
             self.world_list(ui);
         } else {
             self.pack_list(ui);

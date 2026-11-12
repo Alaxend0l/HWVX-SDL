@@ -1640,6 +1640,55 @@ static void Dispatch(const JsonNode *req) {
                 Viewer_WriteNull(&w, "node");
             }
         }
+    } else if (SDL_strcmp(cmd, "raycast") == 0) {
+        /* a world's collision (the game's RayHitsTerrain): from `from` to `to`; or through
+         * image pixel x, y from the camera (`range`, default 20000); or straight down at
+         * `down` [x, z] (from the collision's top) */
+        const JsonNode *from = Json_Get(req, "from"), *to = Json_Get(req, "to"), *down = Json_Get(req, "down");
+        const JsonNode *x = Json_Get(req, "x"), *y = Json_Get(req, "y");
+        Vector4 a __attribute__((aligned(16))), b __attribute__((aligned(16)));
+        f32 lo[3], hi[3], t = 1.0f;
+        int have = 1;
+
+        SDL_zero(a);
+        SDL_zero(b);
+        if (!ViewerWorld_Active() || !ViewerWorld_Bounds(lo, hi)) {
+            SDL_snprintf(err, sizeof(err), "raycast needs a world (world)");
+            ok = 0;
+            have = 0;
+        } else if (from != NULL && to != NULL && from->count == 3 && to->count == 3) {
+            a.x = (f32)Json_At(from, 0)->number, a.y = (f32)Json_At(from, 1)->number, a.z = (f32)Json_At(from, 2)->number;
+            b.x = (f32)Json_At(to, 0)->number, b.y = (f32)Json_At(to, 1)->number, b.z = (f32)Json_At(to, 2)->number;
+        } else if (down != NULL && down->count == 2) {
+            a.x = b.x = (f32)Json_At(down, 0)->number;
+            a.z = b.z = (f32)Json_At(down, 1)->number;
+            a.y = hi[1] + 10.0f;
+            b.y = lo[1] - 10.0f;
+        } else if (x != NULL && y != NULL && x->type == JSON_NUMBER && y->type == JSON_NUMBER) {
+            f32 d[3], range = (f32)Json_GetNumber(req, "range", 20000.0);
+
+            PlaceCamera();
+            ScreenRay((f32)x->number, (f32)y->number, d);
+            a = s.camera->pos;
+            b.x = a.x + d[0] * range, b.y = a.y + d[1] * range, b.z = a.z + d[2] * range;
+        } else {
+            SDL_snprintf(err, sizeof(err), "raycast takes from and to [x, y, z], down [x, z], or x and y (image pixels)");
+            ok = 0;
+            have = 0;
+        }
+        if (have) {
+            int hit = RayHitsTerrain(&a, &b, &t, NULL) != 0;
+
+            Jw_Bool(&w, "hit", hit);
+            if (hit) {
+                Jw_BeginArray(&w, "point", 1);
+                Jw_Float(&w, NULL, a.x + (b.x - a.x) * t);
+                Jw_Float(&w, NULL, a.y + (b.y - a.y) * t);
+                Jw_Float(&w, NULL, a.z + (b.z - a.z) * t);
+                Jw_EndArray(&w);
+                Jw_Float(&w, "t", t);
+            }
+        }
     } else if (SDL_strcmp(cmd, "status") == 0) {
         Jw_Int(&w, "frame", s.frame);
         Jw_Int(&w, "drawn", s.drawn);
