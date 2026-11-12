@@ -188,5 +188,21 @@ except GR.GraphError as e:
     msg = str(e)
 check("error: a field left out of a typed file is refused (not built as 0)", msg and "maxRpm" in msg, str(msg))
 
+# 8. extracting over a folder that isn't a previous extract is refused
+other = scratch / "not_a_project"
+other.mkdir(parents=True, exist_ok=True)
+(other / "notes.txt").write_text("mine")
+try:
+    GR.Extractor(GR.Source(src), other, S).run()
+    msg = None
+except GR.GraphError as e:
+    msg = str(e)
+check("extract: a non-empty folder without pack.jsonc is refused", msg and "--force" in msg
+      and (other / "notes.txt").exists(), str(msg))
+GR.Extractor(GR.Source(src), other, S, force=True).run()
+check("extract: --force replaces it", (other / "pack.jsonc").exists() and not (other / "notes.txt").exists())
+GR.Extractor(GR.Source(src), other, S).run()
+check("extract: a previous extract is replaced", (other / "pack.jsonc").exists())
+
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)

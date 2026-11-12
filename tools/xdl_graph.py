@@ -338,8 +338,9 @@ class Node:
 
 
 class Extractor:
-    def __init__(self, src, out, S=None, log=None):
+    def __init__(self, src, out, S=None, log=None, force=False):
         self.src, self.out = src, Path(out)
+        self.force = force          # replace a folder that isn't a previous extract
         self.S = S or XS.Schemas()
         self.log = log if log is not None else []
         self.blob = src.blob
@@ -702,9 +703,15 @@ class Extractor:
         return rec, bytes(b)
 
     def run(self):
+        out = self.out
+        if out.exists() and not out.is_dir():
+            raise GraphError(f"{out}: not a folder")
+        if (out.exists() and not self.force and not (out / "pack.jsonc").exists()
+                and any(out.iterdir())):
+            raise GraphError(f"{out}: not empty and not a previous extract (no pack.jsonc); "
+                             "extracting replaces the folder (--force to do it anyway)")
         self.cut()
         self.name()
-        out = self.out
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
@@ -1244,7 +1251,7 @@ def compare(a, b):
 
 def cmd_extract(a):
     src = Source(a.pack)
-    s = Extractor(src, a.out).run()
+    s = Extractor(src, a.out, force=a.force).run()
     print(f"{src.archive}/{src.name}: {s['nodes']} nodes ({s['typed']} typed, {s['geometry']} geometry, "
           f"{s['raw']} raw) in {s['files']} files")
     for k, v in s["notes"].items():
@@ -1295,7 +1302,7 @@ def cmd_extract_archive(a):
     write_archive(arch, a.out)
     S = XS.Schemas()
     for e in man["entries"]:
-        s = Extractor(Source(arch / e["path"]), Path(a.out) / pack_name(e), S).run()
+        s = Extractor(Source(arch / e["path"]), Path(a.out) / pack_name(e), S, force=a.force).run()
         print(f"{pack_name(e)}: {s['nodes']} nodes in {s['files']} files")
     return 0
 
@@ -1439,6 +1446,7 @@ def main():
     p = sub.add_parser("extract")
     p.add_argument("pack")
     p.add_argument("out")
+    p.add_argument("--force", action="store_true", help="replace OUT even if it isn't a previous extract")
     p = sub.add_parser("build")
     p.add_argument("project")
     p.add_argument("out")
@@ -1457,6 +1465,7 @@ def main():
     p = sub.add_parser("extract-archive")
     p.add_argument("archive")
     p.add_argument("out")
+    p.add_argument("--force", action="store_true", help="replace pack folders that aren't previous extracts")
     p = sub.add_parser("build-archive")
     p.add_argument("project")
     p.add_argument("out")
