@@ -208,7 +208,7 @@ static int s_helloSent;
 /* HWVX_ONLINE_TEST: a session run without anyone at the keyboard (TestHeartbeat). */
 static struct {
     int host;
-    u32 players, progression, level, car, rounds, roundMs, summaryMs;
+    u32 players, progression, level, car, rounds, roundMs, summaryMs, lobbyMs;
     int started, setUp;
     u64 menuSince, lobbySince;
     u64 nextSync, carsSentStage;
@@ -2312,7 +2312,8 @@ static void FinishHeartbeat(void) {
 
 /* ---- HWVX_ONLINE_TEST: a session nobody plays, for tools/online8_test.sh ----------
  *   HWVX_ONLINE_TEST=host,players=8,mode=battle|drag|joyride,world=N,car=N,rounds=N,
- *     time=SECONDS (a Battle round),summary=SECONDS (then the host goes on)
+ *     time=SECONDS (a Battle round),summary=SECONDS (then the host goes on),
+ *     lobby=SECONDS (the least the lobby stays open, default 2)
  * The host opens its lobby from the main menu, waits for the players, sets the game up
  * and picks its car without the menus. It logs how far each other car is from where its
  * owner says (online: sync), and tells the others where every car is (MSG_TEST_CARS) so
@@ -2330,6 +2331,7 @@ static void TestParse(void) {
     s_test.rounds = 2;
     s_test.roundMs = 30000;
     s_test.summaryMs = 6000;
+    s_test.lobbyMs = 2000;
     SDL_strlcpy(buf, e, sizeof(buf));
     for (tok = SDL_strtok_r(buf, ",:", &save); tok != NULL; tok = SDL_strtok_r(NULL, ",:", &save)) {
         char *eq = SDL_strchr(tok, '=');
@@ -2355,6 +2357,8 @@ static void TestParse(void) {
             s_test.roundMs = (u32)SDL_atoi(v) * 1000u;
         } else if (SDL_strcmp(tok, "summary") == 0) {
             s_test.summaryMs = (u32)SDL_atoi(v) * 1000u;
+        } else if (SDL_strcmp(tok, "lobby") == 0) {
+            s_test.lobbyMs = (u32)SDL_atoi(v) * 1000u;
         }
     }
     Port_Log("online test: %s, %u players, progression %u level %u", s_test.host ? "host" : "?", s_test.players, s_test.progression,
@@ -2539,7 +2543,7 @@ static void TestHeartbeat(u64 now) {
         }
         return;
     }
-    if (s_state == STATE_LOBBY && !s_test.setUp && (u32)Bits(s_present & s_verified) >= s_test.players && now - s_test.lobbySince > 2000) {
+    if (s_state == STATE_LOBBY && !s_test.setUp && (u32)Bits(s_present & s_verified) >= s_test.players && now - s_test.lobbySince > s_test.lobbyMs) {
         s_test.setUp = 1;
         Port_Log("online test: %d players in, setting up", Bits(s_present & s_verified));
         TestSetUp();
