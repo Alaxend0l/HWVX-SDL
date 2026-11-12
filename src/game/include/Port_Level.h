@@ -19,7 +19,7 @@ void Port_LevelWorldLoaded(void *worldPack, const char *world, int track);
 /* Applies a level file to a loaded world pack whose triggers aren't active
  * yet (the viewer: a world on show). 1 on success; else 0 and why in err.
  * What an earlier file put in goes first. */
-int Port_LevelApply(void *worldPack, const char *path, char *err, size_t errSize);
+int Port_LevelApply(void *worldPack, const char *world, const char *path, char *err, size_t errSize);
 /* Takes out what a level put into `worldPack` (its pack is going), restoring
  * the base world's tables and patched fields. Any pack: does nothing for
  * the others. */

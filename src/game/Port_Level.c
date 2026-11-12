@@ -634,8 +634,10 @@ static int ApplyFile(DataPack *pack, const char *path, const char *world, char *
     return ok;
 }
 
-int Port_LevelApply(void *worldPack, const char *path, char *err, size_t errSize) {
-    return ApplyFile(worldPack, path, NULL, err, errSize);
+int Port_LevelApply(void *worldPack, const char *world, const char *path, char *err, size_t errSize) {
+    /* world: the world pack's archive; a level made for another world is
+     * refused (its links would walk that world's records as its own) */
+    return ApplyFile(worldPack, path, world, err, errSize);
 }
 
 void Port_LevelWorldLoaded(void *worldPack, const char *world, int track) {
