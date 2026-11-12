@@ -141,5 +141,16 @@ int ViewerWorld_NavPoint(u32 i, f32 *pos, f32 *yaw);
  * ViewerWorld_Line while the layer is on (`overlays` {name: true}). */
 void ViewerWorld_AddOverlayHook(const char *name, void (*draw)(void));
 void ViewerWorld_Line(const f32 *a, const f32 *b, u8 r, u8 g, u8 bl);
+/* the structural path of the record at `off` of the world pack (World/0/tileCars/0), or "" */
+void ViewerWorld_PathOf(u32 off, char *path, size_t size);
+
+/* viewer_graph.c: a struct's fields at an offset of a pack, by its schema */
+int Viewer_WriteStruct(JsonWriter *w, const char *key, VPack *vp, const char *schema, u32 off);
+
+/* viewer_level.c: the level editor's commands (level, records, record, marks) */
+int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, int *ok, char *err, size_t errSize);
+void ViewerLevel_Collect(void);     /* the level's volumes and the marks, into the overlay lines */
+int ViewerLevel_HasLines(void);
+void ViewerLevel_WorldGone(void);
 
 #endif

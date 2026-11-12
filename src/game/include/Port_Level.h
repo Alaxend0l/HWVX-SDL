@@ -34,4 +34,8 @@ void Port_LevelStateChanged(int from, int to);
  * the player's); logs when the player can first drive. */
 void Port_LevelControl(int locked, int human);
 
+/* The applied level's volume i (a WorldVolume) and its id
+ * (level://volumes/NAME): 1, or 0 past the last (the viewer draws them). */
+int Port_LevelVolume(int i, const void **volume, const char **id);
+
 #endif

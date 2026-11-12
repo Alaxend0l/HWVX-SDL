@@ -4,3 +4,5 @@ pub mod frames;
 pub mod media;
 pub mod shm;
 pub mod testdrive;
+pub mod jsonc_edit;
+pub mod level_model;

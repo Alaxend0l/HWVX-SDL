@@ -13,7 +13,7 @@
 //!                [--load ARCHIVE:TYPE:ID] [--select NODE] [--app-shot FILE.bmp]
 //!                [--world NAME [--overlays regions,loaded,...]]   a world instead of --load
 //!                [--level PROJECT_DIR] [--test-drive] [--quick-start] [--car N] [--tools DIR]
-//!                [--testdrive-renderer R]
+//!                [--testdrive-renderer R] [--level-select trigger:NAME|own:KIND/NAME|base:PATH]
 //!
 //! The Level tab opens a level project (tools/xdl_level.py); Test drive (F5) compiles it and
 //! starts the game straight into it (src/level_ui.rs, src/testdrive.rs).
@@ -23,6 +23,7 @@
 //! for scripted screenshots of the browser itself. It gives up (exit 1) on an error reply, a
 //! lost viewer, or after two minutes.
 
+mod level_edit;
 mod level_ui;
 mod media_ui;
 mod world_ui;
@@ -70,6 +71,8 @@ struct Args {
     test_drive: bool,
     quick_start: bool,
     car: Option<u32>,
+    /// the level editor's selection at start: trigger:NAME, own:KIND/NAME, base:PATH, settings
+    level_select: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -103,6 +106,7 @@ fn parse_args() -> Result<Args, String> {
             "--testdrive-renderer" => a.testdrive_renderer = Some(val()?),
             "--test-drive" => a.test_drive = true,
             "--quick-start" => a.quick_start = true,
+            "--level-select" => a.level_select = Some(val()?),
             "--car" => a.car = Some(val()?.parse().map_err(|_| "--car N")?),
             "-h" | "--help" => {
                 println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
@@ -149,6 +153,12 @@ enum Pending {
     World,
     /// the test drive's "from here": the ground under the camera
     Ground,
+    /// the level editor's: a base table's records, a record, the preview applied, a pick, a move
+    Records(String),
+    Record(String),
+    LevelApplied,
+    EditPick,
+    EditMove,
     Quiet,
 }
 
@@ -510,6 +520,10 @@ impl Browser {
                 self.ground_reply(ok.then_some(r));
                 continue;
             }
+            if matches!(why, Pending::EditMove) {
+                self.edit_move_reply(ok.then_some(r));
+                continue;
+            }
             if !ok {
                 let e = r.get("error").and_then(Value::as_str).unwrap_or("failed").to_string();
                 self.fail(e);
@@ -621,7 +635,17 @@ impl Browser {
                 why @ (Pending::Textures(_) | Pending::Sounds(_) | Pending::Texture(_) | Pending::Sound(_) | Pending::Play(_)) => {
                     self.media_reply(why, r)
                 }
-                Pending::Ground => {}
+                Pending::Ground | Pending::EditMove => {}
+                Pending::Records(t) => {
+                    self.level.edit.base.insert(t, r["records"].as_array().cloned().unwrap_or_default());
+                }
+                Pending::Record(path) => {
+                    if matches!(&self.level.edit.sel, Some(level_edit::Sel::Base(_, p)) if *p == path) {
+                        self.level.edit.record = r;
+                    }
+                }
+                Pending::LevelApplied => {}
+                Pending::EditPick => self.edit_pick_reply(r),
                 Pending::Shot => self.note(format!("saved {} ({}x{})", r["path"].as_str().unwrap_or(""), r["width"], r["height"])),
                 Pending::Quiet => {}
             }
@@ -1132,6 +1156,7 @@ impl Browser {
         } else {
             String::new()
         };
+        let editing = self.level_editing();
         let p = &mut self.preview;
         p.events.extend(fly_events);
 
@@ -1184,7 +1209,15 @@ impl Browser {
         let scale = if p.size[1] > 0 { p.size[1] as f32 / (rect.height() * ppp).max(1.0) } else { 1.0 } * ppp;
         let shift = ui.input(|i| i.modifiers.shift);
         let d = resp.drag_delta() * scale;
-        if d != egui::Vec2::ZERO {
+        let cmd = ui.input(|i| i.modifiers.command);
+        let mut edit_drag = None;
+        if editing && cmd && resp.dragged_by(egui::PointerButton::Primary) {
+            // the level editor: the selection follows the ground under the pointer
+            if let Some(pos) = resp.interact_pointer_pos() {
+                let v = (pos - rect.min) * scale;
+                edit_drag = Some((v.x, v.y, resp.drag_started()));
+            }
+        } else if d != egui::Vec2::ZERO {
             let button = if resp.dragged_by(egui::PointerButton::Secondary) {
                 "right"
             } else if resp.dragged_by(egui::PointerButton::Middle) {
@@ -1197,6 +1230,7 @@ impl Browser {
         if resp.drag_started() || resp.clicked() {
             resp.request_focus();
         }
+        let mut edit_rotate = 0.0f32;
         if resp.hovered() {
             let wheel: f32 = ui.input(|i| {
                 i.events
@@ -1211,7 +1245,9 @@ impl Browser {
                     })
                     .sum()
             });
-            if wheel != 0.0 {
+            if wheel != 0.0 && editing && cmd {
+                edit_rotate = wheel;
+            } else if wheel != 0.0 {
                 p.events.push(json!({"type": "wheel", "dy": wheel}));
             }
         }
@@ -1272,7 +1308,17 @@ impl Browser {
             self.request("input", json!({"height": image_h, "events": events}), Pending::Camera);
         }
         if let Some(pk) = pick {
-            self.request("pick", pk, Pending::Pick);
+            if editing {
+                self.edit_pick(pk["x"].as_f64().unwrap_or(0.0) as f32, pk["y"].as_f64().unwrap_or(0.0) as f32);
+            } else {
+                self.request("pick", pk, Pending::Pick);
+            }
+        }
+        if let Some((x, y, started)) = edit_drag {
+            self.edit_drag(x, y, started);
+        }
+        if edit_rotate != 0.0 {
+            self.edit_rotate(edit_rotate.signum());
         }
     }
 
@@ -1352,6 +1398,7 @@ impl eframe::App for Browser {
         self.handle_replies();
         self.script(&ctx);
         self.level_tick(&ctx);
+        self.edit_tick(&ctx);
         if !self.pending.is_empty() || self.connecting.is_some() {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
@@ -1377,7 +1424,13 @@ impl eframe::App for Browser {
         egui::Panel::bottom("bottom").show(ui, |ui| self.bottom_bar(ui));
         egui::Panel::left("packs").default_size(220.0).resizable(true).show(ui, |ui| self.left_tabs(ui));
         egui::Panel::left("outline").default_size(300.0).resizable(true).show(ui, |ui| self.outline_tree(ui));
-        egui::Panel::right("properties").default_size(340.0).resizable(true).show(ui, |ui| self.properties(ui));
+        egui::Panel::right("properties").default_size(340.0).resizable(true).show(ui, |ui| {
+            if self.level.tab && self.level.edit.proj.is_some() {
+                self.edit_inspector(ui);
+            } else {
+                self.properties(ui);
+            }
+        });
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
             self.view_tabs(ui);
             if self.media.view == View::Scene {

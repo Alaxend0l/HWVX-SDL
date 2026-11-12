@@ -74,6 +74,9 @@ static struct {
     int numAllocs, capAllocs;
     LevelPatch *patches;
     int numPatches;
+    WorldVolume **volumes;      /* the level's own volumes (parts of kind "volume") */
+    char **volumeIds;
+    int numVolumes;
 } s_lv;
 
 /* ---- helpers -------------------------------------------------------------- */
@@ -177,6 +180,11 @@ static void Unapply(void) {
         SDL_aligned_free(s_lv.allocs[i]);
     }
     SDL_free(s_lv.allocs);
+    for (i = 0; i < s_lv.numVolumes; i++) {
+        SDL_free(s_lv.volumeIds[i]);
+    }
+    SDL_free(s_lv.volumes);
+    SDL_free(s_lv.volumeIds);
     SDL_free(s_lv.id);
     SDL_free(s_lv.path);
     SDL_zero(s_lv);
@@ -422,7 +430,7 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
             parts[i].slot = s_lv.origNumTimers + numTimers++;
         } else if (SDL_strcmp(parts[i].kind, "variable") == 0) {
             parts[i].slot = s_lv.origNumVariables + numVars++;
-        } else if (SDL_strcmp(parts[i].kind, "data") != 0) {
+        } else if (SDL_strcmp(parts[i].kind, "data") != 0 && SDL_strcmp(parts[i].kind, "volume") != 0) {
             Fail(err, errSize, "%s: no kind %s", parts[i].id, parts[i].kind);
             goto done;
         }
@@ -452,6 +460,27 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     }
     for (i = 0, x = n ? jparts->child : NULL; x != NULL; x = x->next, i++) {
         Json_HexDecode(Json_GetString(x, "hex", ""), parts[i].mem, parts[i].size);
+    }
+
+    /* the level's volumes, for the viewer */
+    for (i = 0; i < n; i++) {
+        if (SDL_strcmp(parts[i].kind, "volume") == 0 && parts[i].size >= sizeof(WorldVolume)) {
+            WorldVolume **v = SDL_realloc(s_lv.volumes, (size_t)(s_lv.numVolumes + 1) * sizeof(*v));
+            char **ids = SDL_realloc(s_lv.volumeIds, (size_t)(s_lv.numVolumes + 1) * sizeof(*ids));
+
+            if (v != NULL) {
+                s_lv.volumes = v;
+            }
+            if (ids != NULL) {
+                s_lv.volumeIds = ids;
+            }
+            if (v == NULL || ids == NULL) {
+                Fail(err, errSize, "out of memory");
+                goto done;
+            }
+            s_lv.volumes[s_lv.numVolumes] = (WorldVolume *)parts[i].mem;
+            s_lv.volumeIds[s_lv.numVolumes++] = SDL_strdup(parts[i].id);
+        }
     }
 
     /* the timer and variable tables, grown */
@@ -671,4 +700,13 @@ void Port_LevelControl(int locked, int human) {
         first = 0;
         Port_Log("testdrive: driving after %llu ms", (unsigned long long)SDL_GetTicks());
     }
+}
+
+int Port_LevelVolume(int i, const void **volume, const char **id) {
+    if (s_lv.pack == NULL || i < 0 || i >= s_lv.numVolumes) {
+        return 0;
+    }
+    *volume = s_lv.volumes[i];
+    *id = s_lv.volumeIds[i];
+    return 1;
 }
