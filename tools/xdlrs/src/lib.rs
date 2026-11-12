@@ -21,6 +21,7 @@
 pub mod decode;
 pub mod encode;
 pub mod error;
+pub mod geom;
 pub mod jsonc;
 pub mod jsonc_edit;
 pub mod ops;
@@ -29,6 +30,7 @@ pub mod py;
 pub mod schema;
 pub mod tac;
 pub mod validate;
+pub mod walk;
 
 pub use error::{Error, Kind, Result};
 
