@@ -297,13 +297,10 @@ void Port_ProtoSyncLock(const char *path) {
 /* The prototype's car select pack, loaded once for its thumbnails: outside
  * the streaming pools, so no release of a pool frees it. */
 static DataPack s_thumbs;
-static int s_thumbsLoaded;
+static int s_thumbsLoaded, s_thumbsWanted;
 
 void Port_ProtoInit(void) {
-    extern s8 g_bSoundLoadingEnabled;
     u32 i;
-    s8 sounds;
-    s32 ok;
     const char *name, *suffix, *thumb;
 
     if (s_thumbsLoaded || Port_ProtoMode() == PORT_PROTO_OFF) {
@@ -315,7 +312,19 @@ void Port_ProtoInit(void) {
             break;
         }
     }
-    if (i == Port_ContentCount(PORT_CONTENT_CAR)) {
+    s_thumbsWanted = i < Port_ContentCount(PORT_CONTENT_CAR);
+}
+
+/* Loaded when a select first asks for a picture, not at Port_ProtoInit: the
+ * renderer's textures are set up after the game settings start, and the
+ * sound system too. Never while the loading thread has the pack file. */
+static void LoadThumbs(void) {
+    extern s8 g_bSoundLoadingEnabled;
+    extern s8 g_bLoadingThreadRunning;
+    s8 sounds;
+    s32 ok;
+
+    if (s_thumbsLoaded || !s_thumbsWanted || g_bLoadingThreadRunning) {
         return;
     }
     s_thumbsLoaded = 1;
@@ -338,6 +347,7 @@ s32 Port_ProtoTexture(const char *archive, const char *rest) {
     u32 tex;
     char *end;
 
+    LoadThumbs();
     SDL_snprintf(want, sizeof(want), "interface_%d/texture/", THUMB_PACK);
     if (GETP(s_thumbs.base) == NULL || SDL_strcasecmp(archive + 1, "HW_IPack") != 0 ||
         SDL_strncmp(rest, want, SDL_strlen(want)) != 0) {
