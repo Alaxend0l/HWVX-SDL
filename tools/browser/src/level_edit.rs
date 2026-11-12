@@ -857,6 +857,20 @@ impl Browser {
         ui.label(egui::RichText::new(format!("{prefix}{path}")).monospace().weak());
         let errs = self.errors_for("level.jsonc", &format!("patches/{prefix}{path}"));
         Self::show_errors(ui, &errs);
+        // warnings: the start's box against the world and the other starts
+        if let Some(p) = self.level.edit.start_problems.get(path).filter(|p| !p.is_empty()) {
+            ui.add(egui::Label::new(egui::RichText::new(format!("⚠ the cars' box here: {p}")).color(egui::Color32::from_rgb(255, 180, 60))).wrap());
+        }
+        for w in self.level.edit.warnings.iter().filter(|w| w.path.contains(path)) {
+            ui.add(egui::Label::new(egui::RichText::new(format!("⚠ {}", w.message)).color(egui::Color32::from_rgb(255, 180, 60))).wrap());
+        }
+        if table == "tileCars" {
+            if let Some(b) = self.level.edit.spawn_box.get("min") {
+                let mx = &self.level.edit.spawn_box["max"];
+                let size = |i: usize| mx[i].as_f64().unwrap_or(0.0) - b[i].as_f64().unwrap_or(0.0);
+                ui.label(egui::RichText::new(format!("drawn and checked as every car's box at once: {:.2} wide, {:.2} high, {:.2} long ({} cars)", size(0), size(1), size(2), self.level.edit.spawn_box["cars"])).small().weak());
+            }
+        }
         if table == "tileCars" || table == "volumes" || table == "items" {
             ui.horizontal(|ui| {
                 if ui.button("To the ground").clicked() {
