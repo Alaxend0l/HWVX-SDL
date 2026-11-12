@@ -612,4 +612,10 @@ _Static_assert(sizeof(StreamingPack) == 0xA8, "StreamingPack size");
 
 #undef WORLD_ASSERT
 
+/* port, testing: HWVX_AUTOPILOT=1, player 1's car drives itself (Port_Autopilot.c) */
+struct Player;
+s32 Port_AutopilotDrive(struct Player *player);
+void Port_AutopilotAfterAIEvents(void);
+void Port_QuadLog(World *world, WorldQuad **current, u32 numCameras);
+
 #endif
