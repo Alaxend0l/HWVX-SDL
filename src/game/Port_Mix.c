@@ -33,6 +33,7 @@
 #include "Port_Swap.h"
 #include "xdl.h"
 #include "Port_Mix.h"
+#include "Port_IfaceScan.h"
 
 enum { GXF_RGBA8 = 6, GXF_CMPR = 14 };
 enum { HDR_WORDS = 20, HDR_SIZE = HDR_WORDS * 4 + 2 * sizeof(DataPackRef), TOC_ENTRY = 0x18 };
@@ -41,6 +42,7 @@ enum { H_DATASIZE, H_SOUNDSIZE, H_NUMSOUNDPTRS, H_NUMPTRS, H_NUMRELOCS, H_NUMTEX
        H_NUMSOUNDS, H_SFXOFF, H_PALETTES, H_PALOFF, H_NUMSHADERS, H_NUMGX, H_NUMTEXRELOCS };
 
 #define TEX_LIMIT 24.0f     /* thumbnail distance under which two textures are the same art (pairing.md §4) */
+#define FONT_LIMIT 12.0f    /* GlyphDistance under which two font pages have the same glyphs */
 #define MAX_TEX 0x400
 
 static const char *const s_typeNames[11] = { "car", "interface", "item", "link", "world", "collision",
@@ -71,6 +73,10 @@ static _Thread_local int s_depth;
 
 static struct {
     u32 packs, texFrom[PORT_MIX_RELS], texKept, texRejected, texConverted;
+    /* interface art (Port_IfaceTextures, or a recipe rule "interface") and font pages, by release;
+     * art the set has no copy of (the base's kept), font pages whose PC copy has other glyphs,
+     * interface textures of packs that aren't interface packs (some are world geometry's too) */
+    u32 artFrom[PORT_MIX_RELS], fontFrom[PORT_MIX_RELS], artFallback, artByShape, fontOther, uiElsewhere;
     u32 sfxFrom[PORT_MIX_RELS], sfxKept, sfxRejected;
 } s_stats;
 
@@ -586,6 +592,106 @@ static f32 ThumbDistance(const RelTex *a, const RelTex *b) {
     return d / (16 * 16 * 3);
 }
 
+/* Two font pages, the larger box-filtered down to the smaller's size: the mean
+ * absolute difference of premultiplied RGB and alpha (0-255). Pages of the same
+ * glyphs at two resolutions stay low; another layout or other glyphs don't. */
+static f32 GlyphDistance(const RelTex *a, const RelTex *b) {
+    const RelTex *big = a->w * a->h >= b->w * b->h ? a : b, *small = big == a ? b : a;
+    u32 x, y, c, sx, sy;
+    f64 d = 0;
+
+    if (small->w == 0 || small->h == 0 || big->w % small->w || big->h % small->h) {
+        return 255.0f;
+    }
+    sx = big->w / small->w;
+    sy = big->h / small->h;
+    for (y = 0; y < small->h; y++) {
+        for (x = 0; x < small->w; x++) {
+            const u8 *ps = small->rgba + (y * small->w + x) * 4;
+            f32 sum[4] = { 0, 0, 0, 0 }, n = (f32)(sx * sy);
+            u32 i, j;
+
+            for (j = 0; j < sy; j++) {
+                for (i = 0; i < sx; i++) {
+                    const u8 *pb = big->rgba + ((y * sy + j) * big->w + x * sx + i) * 4;
+
+                    for (c = 0; c < 3; c++) {
+                        sum[c] += (f32)pb[c] * (f32)pb[3] / 255.0f;
+                    }
+                    sum[3] += pb[3];
+                }
+            }
+            for (c = 0; c < 4; c++) {
+                f32 v = c < 3 ? (f32)ps[c] * (f32)ps[3] / 255.0f : (f32)ps[3];
+
+                d += fabsf(sum[c] / n - v);
+            }
+        }
+    }
+    return (f32)(d / ((f64)small->w * small->h * 4));
+}
+
+/* Interface art the pairing table leaves single because the releases drew it
+ * differently (the GameCube's flame logo, the PS2's chrome one): the texture
+ * of release `rp` that pairs with no texture of the base, of the same size
+ * and the same shape (its alpha within SHAPE_LIMIT of `own`'s, clearly closer
+ * than any other, or else the one at the base's own index `idx` within the
+ * limit: the PS2 has two logos, chrome and blue, where the GameCube has its
+ * flame one). Its index, read into *out, or ~0. Platform glyphs (pad
+ * buttons) have other shapes and stay the base's. */
+#define SHAPE_LIMIT 24.0f
+
+static u32 ShapePair(RelPack *rp, const MixPack *mp, int fmt, u32 idx, const RelTex *own, const u8 *taken,
+                     RelTex *out) {
+    u32 n = own->w * own->h, holes = 0, j, k, best = ~0u;
+    f32 d1 = 1e9f, d2 = 1e9f, dSame = 1e9f;
+
+    for (k = 0; own->rgba != NULL && k < n; k++) {
+        holes += own->rgba[k * 4 + 3] < 128;
+    }
+    /* an opaque texture (or nearly) has no shape to go by */
+    if (!rp->ok || holes < n / 50 || holes > n - n / 50) {
+        return ~0u;
+    }
+    for (j = 0; j < rp->hdr[H_NUMTEX] && j < MAX_TEX; j++) {
+        const u16 *pair = FindPair(mp, 0, rp->rel, j);
+        RelTex c;
+        f32 d = 0;
+
+        if ((pair != NULL && pair[fmt] != 0xFFFF) || taken[j]) {
+            continue;
+        }
+        RelTex_Read(&c, rp, mp, j);
+        if (c.ok && c.w == own->w && c.h == own->h) {
+            RelTex_Decode(&c, rp->rel);
+            for (k = 0; c.ok && k < n; k++) {
+                d += (f32)abs((int)c.rgba[k * 4 + 3] - (int)own->rgba[k * 4 + 3]);
+            }
+            d = c.ok ? d / (f32)n : 1e9f;
+            if (j == idx) {
+                dSame = d;
+            }
+            if (d < d1) {
+                d2 = d1;
+                d1 = d;
+                best = j;
+            } else if (d < d2) {
+                d2 = d;
+            }
+        }
+        free(c.rgba);
+    }
+    if (best != ~0u && d2 < d1 * 2 + 4) {
+        best = dSame < SHAPE_LIMIT ? idx : ~0u;     /* two alike: the one in the same place */
+    }
+    if (best == ~0u || d1 >= SHAPE_LIMIT) {
+        return ~0u;
+    }
+    RelTex_Read(out, rp, mp, best);
+    RelTex_Decode(out, rp->rel);
+    return out->ok ? best : ~0u;
+}
+
 /* ultimate.md §1.6 (tex_survey.rule): the release with the best copy. */
 static int BestTexture(RelTex t[PORT_DATA_COUNT], int lookGC) {
     RelTex *gc = &t[PORT_DATA_GC], *pc = &t[PORT_DATA_PC], *ps2 = &t[PORT_DATA_PS2];
@@ -673,11 +779,13 @@ static void MakeTex(NewTex *nt, int rel, const RelTex *t, int toPC) {
     }
 }
 
-void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOff, u32 numTex) {
+void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOff, u32 numTex, const u32 *pointers,
+                      u32 numPointers, const u32 *refs, u32 numRefs) {
     MixPack *mp = Cur();
     RelPack rp[PORT_MIX_RELS];
     NewTex *nt;
-    u8 *block, *out, *hp;
+    u8 *block, *out, *hp, *ui = NULL, *taken = NULL;
+    int set = Port_MixInterface();
     u32 i, total = 0, changed = 0;
     /* mode "replace": the base's textures stay as they are, in its look */
     int r, lookGC = Port_MixProtoReplace() || Port_MixLookGC(), others = 0, paired;
@@ -703,6 +811,18 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     if (nt == NULL) {
         return;
     }
+    /* the textures the pack's interfaces show: one release's set, fonts the PC's */
+    if (Port_MixActive() && paired && (ui = calloc(numTex, 1)) != NULL && set != fmt) {
+        taken = calloc(MAX_TEX, 1);     /* the set's textures given to a texture of the base by shape */
+    }
+    if (ui != NULL) {
+        PortIfaceScan scan;
+
+        if (Port_IfaceScanInit(&scan, base, dataSize, (u32)HND(base), pointers, numPointers, refs, numRefs)) {
+            Port_IfaceTextures(&scan, (const u32 *)GETP(pack->relocs), pack->numRelocs, ui, numTex);
+            Port_IfaceScanFree(&scan);
+        }
+    }
     for (r = 0; r < PORT_MIX_RELS; r++) {
         memset(&rp[r], 0, sizeof(rp[r]));
         if ((r == fmt && fmt == PORT_DATA_PS2) || (r != fmt && paired)) {
@@ -713,13 +833,18 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     for (i = 0; i < numTex && rp[fmt].ok; i++) {
         const u16 *pair = FindPair(mp, 0, fmt, i);
         RelTex t[PORT_MIX_RELS];
-        int order[PORT_MIX_RELS], n, pick = fmt, k;
+        int order[PORT_MIX_RELS], n, pick = fmt, k, kind;
+        u32 setIdx = pair != NULL && set >= 0 ? pair[set] : 0xFFFF;
         char id[0xC0];
 
         AssetId(id, sizeof(id), mp, "texture", pair, fmt, i);
         n = Port_MixAssetRule(id, order);
+        kind = ui != NULL ? ui[i] : 0;
+        if (kind == 0 && n == PORT_MIX_FROM_IFACE) {
+            kind = PORT_IFACE_ART;      /* the recipe names it interface art */
+        }
         for (r = 0; r < PORT_MIX_RELS; r++) {
-            u32 idx = r == fmt ? i : pair != NULL && n != PORT_MIX_FROM_BASE ? pair[r] : 0xFFFF;
+            u32 idx = r == fmt ? i : pair != NULL && (kind || n != PORT_MIX_FROM_BASE) ? pair[r] : 0xFFFF;
 
             memset(&t[r], 0, sizeof(t[r]));
             if (r == fmt && fmt != PORT_DATA_PS2) {
@@ -730,10 +855,53 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
                 RelTex_Decode(&t[r], r);
             }
         }
-        if (t[fmt].ok) {
+        if (t[fmt].ok && kind) {
+            /* interface art: the set's copy, else the base's own (never another release's);
+             * a font page: the PC's when it has the same glyphs, else as art */
+            if (set != fmt && !t[set].ok && taken != NULL && t[fmt].alpha &&
+                (setIdx = ShapePair(&rp[set], mp, fmt, i, &t[fmt], taken, &t[set])) != ~0u) {
+                taken[setIdx] = 1;
+                s_stats.artByShape++;
+                Port_Log("mix: %s: the %s's %u by its shape", id, s_relNames[set], (unsigned)setIdx);
+            }
+            pick = set != fmt && t[set].ok && t[set].w <= 0x200 && t[set].h <= 0x200 ? set : fmt;
+            if (kind == PORT_IFACE_FONT && pick != PORT_DATA_PC && t[PORT_DATA_PC].ok &&
+                t[PORT_DATA_PC].w <= 0x200 && t[PORT_DATA_PC].h <= 0x200) {
+                f32 d = GlyphDistance(&t[pick], &t[PORT_DATA_PC]);
+
+                if (d < FONT_LIMIT) {
+                    pick = PORT_DATA_PC;
+                } else {
+                    s_stats.fontOther++;
+                    Port_Log("mix: %s: the PC's font page has other glyphs (%ux%u vs %ux%u, distance %.1f), the "
+                             "%s's kept", id, (unsigned)t[PORT_DATA_PC].w, (unsigned)t[PORT_DATA_PC].h,
+                             (unsigned)t[pick].w, (unsigned)t[pick].h, (double)d, s_relNames[pick]);
+                }
+            }
+            if (kind == PORT_IFACE_ART && pick != set) {
+                s_stats.artFallback++;
+            }
+            s_stats.uiElsewhere += mp->type != 1;
+            if (pick != fmt) {
+                MakeTex(&nt[i], pick, &t[pick], !lookGC);
+            } else if (fmt == PORT_DATA_GC && !lookGC) {
+                MakeTex(&nt[i], fmt, &t[fmt], 1);
+                s_stats.texConverted += nt[i].pix != NULL;
+            }
+            if (pick != fmt && nt[i].pix == NULL) {
+                pick = fmt;     /* out of memory: the base's stays */
+            }
+            if (kind == PORT_IFACE_FONT) {
+                s_stats.fontFrom[pick]++;
+            } else {
+                s_stats.artFrom[pick]++;
+            }
+            Port_MixManifestUI(id, pick, pick == fmt ? i : pick == set ? setIdx : pair[pick], Fnv64(t[pick].pix, t[pick].size),
+                               kind == PORT_IFACE_FONT ? "font" : "art");
+        } else if (t[fmt].ok) {
             if (n == PORT_MIX_FROM_BEST) {
                 pick = BestTexture(t, lookGC);
-            } else {
+            } else if (n > 0) {
                 for (k = 0; k < n; k++) {
                     if (t[order[k]].ok) {
                         pick = order[k];
@@ -804,6 +972,8 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         free(nt[i].pix);
     }
     free(nt);
+    free(ui);
+    free(taken);
 }
 
 /* ---- sound effects ------------------------------------------------------------------ */
@@ -1022,6 +1192,13 @@ void PortMix_LogStats(void) {
              (unsigned)s_stats.texConverted, (unsigned)s_stats.sfxFrom[0], (unsigned)s_stats.sfxFrom[1],
              (unsigned)s_stats.sfxFrom[PORT_MIX_PROTO], (unsigned)(s_stats.sfxKept + s_stats.sfxRejected),
              (unsigned)s_stats.sfxRejected);
+    Port_Log("mix: interface %s: art from gc %u, pc %u, ps2 %u (%u paired by shape; %u the base's own: the set has no "
+             "copy); font pages "
+             "from gc %u, pc %u, ps2 %u (%u with other glyphs on the PC); %u of them in packs other than interface "
+             "packs", Port_MixInterface() == PORT_DATA_PS2 ? "silver (ps2)" : "yellow (gc)",
+             (unsigned)s_stats.artFrom[0], (unsigned)s_stats.artFrom[1], (unsigned)s_stats.artFrom[2],
+             (unsigned)s_stats.artByShape, (unsigned)s_stats.artFallback, (unsigned)s_stats.fontFrom[0], (unsigned)s_stats.fontFrom[1],
+             (unsigned)s_stats.fontFrom[2], (unsigned)s_stats.fontOther, (unsigned)s_stats.uiElsewhere);
 }
 
 typedef struct Build {

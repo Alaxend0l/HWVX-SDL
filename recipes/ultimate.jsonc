@@ -10,6 +10,16 @@
   // textures below: the GameCube's own in its look, the PC's in the PC's.
   "look": "gc",
 
+  // The interface art: a set, never a mix of two. "gc": yellow, as the
+  // GameCube and the PC have it; "ps2": the PS2's silver. Every texture an
+  // interface shows (menus, HUD, briefings; whatever pack it is in) and every
+  // texture of the rules "from": "interface" below comes from that release,
+  // or stays the base's where it has no copy. The PC's art is never taken;
+  // its font pages are, where they have the same glyphs (at a higher
+  // resolution). The launcher's choice (Convert page) replaces this for the
+  // built-in recipe.
+  "interface": "gc",
+
   // Releases the build may take from, best first. One you have not imported
   // is skipped; with only one left the build is that release unchanged.
   "releases": ["gc", "ps2", "pc"],
@@ -31,14 +41,15 @@
   // docs/xdl-format/pairing.md; first match wins). "from" is
   //   "base"            the base release's own copy
   //   "best"            textures: the rule of ultimate.md §1.6 for "look"
+  //   "interface"       textures: the "interface" release's copy, as interface art
   //   ["ps2", "pc"]     the first of these that has a copy paired with the base's
   // An asset the pairing table doesn't pair stays the base's.
   "assets": [
-    // the menus' art stays the base's (the GameCube's): the PS2's is another
-    // design (blue), not a better copy; the GameCube and PC agree on theirs
-    { "match": "base://HW_IPack/*/texture/*", "from": "base" },
-    { "match": "base://mcp/*/texture/*", "from": "base" },
-    { "match": "base://HW_brief/*/texture/*", "from": "base" },
+    // the menus' packs: all their textures are the interface set's (the PS2's
+    // menus are another design, silver, not a better copy)
+    { "match": "base://HW_IPack/*/texture/*", "from": "interface" },
+    { "match": "base://mcp/*/texture/*", "from": "interface" },
+    { "match": "base://HW_brief/*/texture/*", "from": "interface" },
     // lossless PS2 copies, PS2 palettes for alpha textures (PC DXT5 when it
     // has more than 1024 colours), opaque ones by look
     { "match": "base://*/texture/*", "from": "best" },

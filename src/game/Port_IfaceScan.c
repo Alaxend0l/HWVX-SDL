@@ -141,10 +141,15 @@ u8 *Port_IfaceHeaders(const PortIfaceScan *s, u32 *count) {
 
 /* ---- textures ------------------------------------------------------------ */
 
-static void MarkWord(const PortIfaceScan *s, u8 *mark, u32 off) {
-    if (off != ~0u && InBlob(s, off & ~3u, 4)) {
-        mark[off / 4] = 1;
+/* `what`: PORT_IFACE_ART or PORT_IFACE_FONT; a slot both are drawn through counts as art. */
+static void Mark(const PortIfaceScan *s, u8 *mark, u32 off, u8 what) {
+    if (off != ~0u && InBlob(s, off & ~3u, 4) && mark[off / 4] != PORT_IFACE_ART) {
+        mark[off / 4] = what;
     }
+}
+
+static void MarkWord(const PortIfaceScan *s, u8 *mark, u32 off) {
+    Mark(s, mark, off, PORT_IFACE_ART);
 }
 
 /* A texture key animation (TextureKeyAnim: numKeys, keys -> u32 texture slots). */
@@ -162,7 +167,7 @@ static void MarkTexAnim(const PortIfaceScan *s, u8 *mark, u32 anim) {
 }
 
 static void MarkFont(const PortIfaceScan *s, u8 *mark, u32 font) {
-    MarkWord(s, mark, font);    /* IfaceFont.texture */
+    Mark(s, mark, font, PORT_IFACE_FONT);    /* IfaceFont.texture */
 }
 
 static void MarkDialog(const PortIfaceScan *s, u8 *mark, u32 list) {
@@ -245,9 +250,10 @@ u32 Port_IfaceTextures(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexR
     for (i = 0; mark != NULL && i < numTexRelocs; i++) {
         u32 slot = texRelocs[i * 2] & ~PORT_TEXRELOC_U16, id = texRelocs[i * 2 + 1];
 
-        if ((id >> 16) == 0 && slot / 4 <= words && mark[slot / 4] && (id & 0xFFFF) < numTex && !used[id & 0xFFFF]) {
-            used[id & 0xFFFF] = 1;
-            count++;
+        if ((id >> 16) == 0 && slot / 4 <= words && mark[slot / 4] && (id & 0xFFFF) < numTex &&
+            used[id & 0xFFFF] != PORT_IFACE_ART) {
+            count += used[id & 0xFFFF] == 0;
+            used[id & 0xFFFF] = mark[slot / 4];
         }
     }
     free(mark);

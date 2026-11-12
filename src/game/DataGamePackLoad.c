@@ -657,7 +657,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
                                                      proto));
         }
         /* port: a mixed build's textures from the other releases (Port_Mix.c) */
-        PortMix_Textures(pack, fmt, GETP(pack->base), header.dataSize, header.textureDataOffset, header.numTextures);
+        PortMix_Textures(pack, fmt, GETP(pack->base), header.dataSize, header.textureDataOffset, header.numTextures,
+                         pointers, header.numPointers, pointers - header.numTexRelocs * 2, header.numTexRelocs);
         Xdl_EndPack(GETP(pack->soundData), data, (tablesSize + pad + header.dataSize + relocSize + 0x1F) & ~0x1F,
                     GETP(pack->base),
                     pointers, header.numPointers,
