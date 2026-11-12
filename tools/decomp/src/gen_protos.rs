@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 /// The header's first line names the tool that writes it.
-pub const GENERATED_BY: &str = "tools/gen_protos.py";
+pub const GENERATED_BY: &str = "hwvx-decomp gen-protos";
 
 const BUILTIN: &str = "void char short int long float double signed unsigned const volatile struct union
 enum s8 u8 s16 u16 s32 u32 s64 u64 f32 f64 BOOL vu8 vu16 vu32 vs32 vf32 size_t
