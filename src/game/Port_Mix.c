@@ -34,6 +34,11 @@
 #include "xdl.h"
 #include "Port_Mix.h"
 #include "Port_IfaceScan.h"
+#include "Interface.h"
+
+static int InBlobOf(const PortIfaceScan *s, u32 off, u32 n) {
+    return off <= s->size && n <= s->size - off;
+}
 
 enum { GXF_RGBA8 = 6, GXF_CMPR = 14 };
 enum { HDR_WORDS = 20, HDR_SIZE = HDR_WORDS * 4 + 2 * sizeof(DataPackRef), TOC_ENTRY = 0x18 };
@@ -106,11 +111,13 @@ static const char *StemOf(const char *name) {
     return stem;
 }
 
-static UiRef *FindUiRef(const char *archive, u32 id, u32 index) {
+/* `index`: a texture's, or for PORT_IFACE_GEOM the word index of the slot holding a geometry */
+static UiRef *FindUiRef(const char *archive, u32 id, u32 index, int geom) {
     u32 i;
 
     for (i = 0; i < s_numUiRefs; i++) {
-        if (s_uiRefs[i].id == id && s_uiRefs[i].index == index && strcasecmp(s_uiRefs[i].archive, archive) == 0) {
+        if (s_uiRefs[i].id == id && s_uiRefs[i].index == index && (s_uiRefs[i].what == PORT_IFACE_GEOM) == geom &&
+            strcasecmp(s_uiRefs[i].archive, archive) == 0) {
             return &s_uiRefs[i];
         }
     }
@@ -132,7 +139,7 @@ static void NoteUiRef(void *user, u32 packId, u32 index, u8 what) {
     }
     memcpy(name, ref->name, 0xC);
     name[0xC] = 0;
-    if ((r = FindUiRef(StemOf(name), packId, index)) != NULL) {
+    if ((r = FindUiRef(StemOf(name), packId, index, what == PORT_IFACE_GEOM)) != NULL) {
         if (what == PORT_IFACE_ART) {
             r->what = what;     /* art wins over font, as in one pack */
         }
@@ -723,9 +730,24 @@ static u32 ShapePair(RelPack *rp, const MixPack *mp, int fmt, u32 idx, const Rel
     for (k = 0; own->rgba != NULL && k < n; k++) {
         holes += own->rgba[k * 4 + 3] < 128;
     }
-    /* an opaque texture (or nearly) has no shape to go by */
-    if (!rp->ok || holes < n / 50 || holes > n - n / 50) {
+    /* an opaque texture (or nearly) has no shape to go by: the set's single texture in the same
+     * place, of the same size (the target arrow's flat red and yellow, the PS2's blues) */
+    if (!rp->ok) {
         return ~0u;
+    }
+    if (holes < n / 50 || holes > n - n / 50) {
+        const u16 *pair = FindPair(mp, 0, rp->rel, idx);
+
+        if ((pair != NULL && pair[fmt] != 0xFFFF) || idx >= MAX_TEX || taken[idx]) {
+            return ~0u;
+        }
+        RelTex_Read(out, rp, mp, idx);
+        if (!out->ok || out->w != own->w || out->h != own->h) {
+            memset(out, 0, sizeof(*out));
+            return ~0u;
+        }
+        RelTex_Decode(out, rp->rel);
+        return out->ok ? idx : ~0u;
     }
     for (j = 0; j < rp->hdr[H_NUMTEX] && j < MAX_TEX; j++) {
         const u16 *pair = FindPair(mp, 0, rp->rel, j);
@@ -853,6 +875,357 @@ static void MakeTex(NewTex *nt, int rel, const RelTex *t, int toPC) {
     }
 }
 
+/* ---- interface colours ------------------------------------------------------------ */
+
+/* The silver set (Port_MixInterface PS2) is the PS2's textures *and* the
+ * PS2's interface colours: the base's interface data keeps its layout,
+ * events and scripts, but the colours its objects are drawn in (colour key
+ * tracks of the default and state animations, polygon points, briefing text
+ * colours) are the PS2's. Interfaces pair by order among those of the same
+ * shape (object count and types: a longest common subsequence of the two
+ * packs' headers); a track is taken only when its key count matches. */
+typedef struct IfaceSide {
+    PortIfaceScan scan;
+    u8 *base;
+    u32 *hdrs, numHdrs;
+} IfaceSide;
+
+static u32 HdrSig(const PortIfaceScan *s, u32 h) {
+    const InterfaceHeader *hdr = (const InterfaceHeader *)(s->base + h);
+    u32 objs = Port_IfaceTo(s, h + 0x10), sig = 2166136261u, i;
+
+    for (i = 0; i <= hdr->numObjects; i++) {
+        u32 v = i < hdr->numObjects ? s->base[objs + i * 0x6C + 1] : 0x100 + hdr->numObjects;
+
+        sig = (sig ^ v) * 16777619u;
+    }
+    return sig;
+}
+
+static int IfaceSide_Init(IfaceSide *sd, u8 *base, u32 size, u32 bias, const u32 *pointers, u32 numPointers,
+                          const u32 *refs, u32 numRefs) {
+    u8 *flags;
+    u32 count, i, n = 0;
+
+    memset(sd, 0, sizeof(*sd));
+    sd->base = base;
+    if (!Port_IfaceScanInit(&sd->scan, base, size, bias, pointers, numPointers, refs, numRefs)) {
+        return 0;
+    }
+    flags = Port_IfaceHeaders(&sd->scan, &count);
+    sd->hdrs = flags != NULL && count != 0 ? malloc(count * sizeof(u32)) : NULL;
+    for (i = 0; sd->hdrs != NULL && i <= size / 4; i++) {
+        if (flags[i] && n < count) {
+            sd->hdrs[n++] = i * 4;
+        }
+    }
+    sd->numHdrs = n;
+    free(flags);
+    return 1;
+}
+
+static void IfaceSide_Free(IfaceSide *sd) {
+    Port_IfaceScanFree(&sd->scan);
+    free(sd->hdrs);
+}
+
+static struct {
+    u32 packs, headers, headersByObject, headersUnpaired, tracks, tracksByTime, blends, keys, tracksSkipped, points, dialog;
+} s_colStats;
+
+/* Colour track at `to` (base) from `from` (PS2): IfaceKeyTrack, keys 12 bytes, RGBA at 0. */
+static void CopyColorTrack(IfaceSide *b, u32 to, IfaceSide *p, u32 from) {
+    u32 nb, np, kb, kp, i;
+
+    if (to == ~0u || from == ~0u || !InBlobOf(&b->scan, to, 8) || !InBlobOf(&p->scan, from, 8)) {
+        return;
+    }
+    memcpy(&nb, b->base + to, 4);
+    memcpy(&np, p->base + from, 4);
+    if (nb == 0 && np == 0) {
+        return;
+    }
+    kb = Port_IfaceTo(&b->scan, to + 4);
+    kp = Port_IfaceTo(&p->scan, from + 4);
+    if (nb == 0 || np == 0 || nb > 0x1000 || np > 0x1000 || kb == ~0u || kp == ~0u ||
+        !InBlobOf(&b->scan, kb, nb * 12) || !InBlobOf(&p->scan, kp, np * 12)) {
+        s_colStats.tracksSkipped++;
+        return;
+    }
+    if (nb != np) {
+        /* other keys: each of the base's takes the colour the PS2's track has at its start
+         * (the key whose time span holds it; durations at 8, ms) */
+        f32 tb = 0;
+
+        for (i = 0; i < nb; i++) {
+            f32 tp = 0, d;
+            u32 k;
+
+            for (k = 0; k + 1 < np; k++) {
+                memcpy(&d, p->base + kp + k * 12 + 8, 4);
+                if (!(d >= 0.0f && d < 1e7f) || tp + d > tb) {
+                    break;
+                }
+                tp += d;
+            }
+            s_colStats.keys += memcmp(b->base + kb + i * 12, p->base + kp + k * 12, 4) != 0;
+            memcpy(b->base + kb + i * 12, p->base + kp + k * 12, 4);
+            memcpy(&d, b->base + kb + i * 12 + 8, 4);
+            tb += d >= 0.0f && d < 1e7f ? d : 0.0f;
+        }
+        s_colStats.tracksByTime++;
+        return;
+    }
+    for (i = 0; i < nb; i++) {
+        s_colStats.keys += memcmp(b->base + kb + i * 12, p->base + kp + i * 12, 4) != 0;
+        memcpy(b->base + kb + i * 12, p->base + kp + i * 12, 4);
+    }
+    s_colStats.tracks++;
+}
+
+static void CopyObjectColours(IfaceSide *b, u32 db, IfaceSide *p, u32 dp) {
+    u32 ab = Port_IfaceTo(&b->scan, db + 0x60), ap = Port_IfaceTo(&p->scan, dp + 0x60);
+    u32 nsb, nsp, sb, sp, i, ub, up;
+
+    if (ab != ~0u && ap != ~0u) {
+        CopyColorTrack(b, ab + 0x18, p, ap + 0x18);     /* IfaceObjAnim.color */
+    }
+    memcpy(&nsb, b->base + db + 0x64, 4);
+    memcpy(&nsp, p->base + dp + 0x64, 4);
+    sb = Port_IfaceTo(&b->scan, db + 0x68);
+    sp = Port_IfaceTo(&p->scan, dp + 0x68);
+    for (i = 0; sb != ~0u && sp != ~0u && i < nsb && i < 64 && InBlobOf(&b->scan, sb + i * 0xC, 0xC); i++) {
+        /* the state in the same place, else the PS2's first of the same type */
+        u32 k = i, tb, tp;
+
+        if (nsb != nsp || b->base[sb + i * 0xC] != p->base[sp + i * 0xC]) {
+            for (k = 0; k < nsp && k < 64 && p->base[sp + k * 0xC] != b->base[sb + i * 0xC]; k++) {
+            }
+        }
+        if (k >= nsp || k >= 64 || !InBlobOf(&p->scan, sp + k * 0xC, 0xC)) {
+            s_colStats.tracksSkipped++;
+            continue;
+        }
+        tb = Port_IfaceTo(&b->scan, sb + i * 0xC + 8);
+        tp = Port_IfaceTo(&p->scan, sp + k * 0xC + 8);
+        if (tb != ~0u && tp != ~0u) {
+            CopyColorTrack(b, tb + 0x10, p, tp + 0x10);     /* IfaceStateAnim.color */
+        }
+    }
+    ub = Port_IfaceTo(&b->scan, db + 0x14);
+    up = Port_IfaceTo(&p->scan, dp + 0x14);
+    if (ub == ~0u || up == ~0u) {
+        return;
+    }
+    switch (b->base[db + 1]) {
+    case IFACE_DEF_IMAGE:       /* how it blends (the PS2's empty meters: 3 where the GameCube has 2) */
+        if (InBlobOf(&b->scan, ub, sizeof(IfaceImageDef)) && InBlobOf(&p->scan, up, sizeof(IfaceImageDef)) &&
+            b->base[ub] == p->base[up] && b->base[ub + 1] != p->base[up + 1]) {
+            b->base[ub + 1] = p->base[up + 1];
+            s_colStats.blends++;
+        }
+        break;
+    case IFACE_DEF_TEXT:
+    case IFACE_DEF_DEBUG_TEXT:
+        if (InBlobOf(&b->scan, ub, sizeof(IfaceText)) && InBlobOf(&p->scan, up, sizeof(IfaceText)) &&
+            b->base[ub + 0xE] != p->base[up + 0xE]) {
+            b->base[ub + 0xE] = p->base[up + 0xE];
+            s_colStats.blends++;
+        }
+        break;
+    case IFACE_DEF_POLY: {
+        u32 nb, np, pb = Port_IfaceTo(&b->scan, ub + 4), pp = Port_IfaceTo(&p->scan, up + 4);
+
+        memcpy(&nb, b->base + ub, 4);
+        memcpy(&np, p->base + up, 4);
+        for (i = 0; nb == np && pb != ~0u && pp != ~0u && i < nb && i < 0x100 &&
+                    InBlobOf(&b->scan, pb + i * 0x20, 0x20) && InBlobOf(&p->scan, pp + i * 0x20, 0x20); i++) {
+            memcpy(b->base + pb + i * 0x20 + 0x10, p->base + pp + i * 0x20 + 0x10, 4);
+            s_colStats.points++;
+        }
+        break;
+    }
+    case IFACE_DEF_DIALOG: {
+        u32 nb, np, eb = Port_IfaceTo(&b->scan, ub + 4), ep = Port_IfaceTo(&p->scan, up + 4);
+
+        memcpy(&nb, b->base + ub, 4);
+        memcpy(&np, p->base + up, 4);
+        for (i = 0; nb == np && eb != ~0u && ep != ~0u && i < nb && i < 0x400 &&
+                    InBlobOf(&b->scan, eb + i * 0x20, 0x20) && InBlobOf(&p->scan, ep + i * 0x20, 0x20); i++) {
+            u32 cb = Port_IfaceTo(&b->scan, eb + i * 0x20 + 0x14), cp = Port_IfaceTo(&p->scan, ep + i * 0x20 + 0x14);
+            u32 xb = cb != ~0u ? Port_IfaceTo(&b->scan, cb + 0xC) : ~0u, xp = cp != ~0u ? Port_IfaceTo(&p->scan, cp + 0xC) : ~0u;
+
+            if (xb != ~0u && xp != ~0u && InBlobOf(&b->scan, xb, 4) && InBlobOf(&p->scan, xp, 4)) {
+                memcpy(b->base + xb, p->base + xp, 4);
+                s_colStats.dialog++;
+            }
+        }
+        break;
+    }
+    }
+}
+
+/* Two interfaces of nearly the same shape (the car HUD: the PS2 has one image
+ * more, the GameCube one text more): objects aligned by a longest common
+ * subsequence of (type, role, id); the pair is taken when all but 3 of the
+ * smaller's objects align. Returns the objects matched, 0 if refused. */
+static u32 PairObjects(IfaceSide *b, u32 hb, IfaceSide *p, u32 hp) {
+    u32 nb = ((const InterfaceHeader *)(b->base + hb))->numObjects, np = ((const InterfaceHeader *)(p->base + hp))->numObjects;
+    u32 ob = Port_IfaceTo(&b->scan, hb + 0x10), op = Port_IfaceTo(&p->scan, hp + 0x10), i, j, W = np + 1, n;
+    u16 *t;
+    u32 sb[200], sp[200];
+
+    if (ob == ~0u || op == ~0u || nb > 200 || np > 200 || (t = calloc((size_t)(nb + 1) * W, 2)) == NULL) {
+        return 0;
+    }
+    for (i = 0; i < nb; i++) {
+        const u8 *d = b->base + ob + i * 0x6C;
+        u16 id;
+
+        memcpy(&id, d + 0xA, 2);
+        sb[i] = d[1] | (u32)d[0] << 8 | (u32)id << 16;
+    }
+    for (j = 0; j < np; j++) {
+        const u8 *d = p->base + op + j * 0x6C;
+        u16 id;
+
+        memcpy(&id, d + 0xA, 2);
+        sp[j] = d[1] | (u32)d[0] << 8 | (u32)id << 16;
+    }
+    for (i = nb; i-- > 0;) {
+        for (j = np; j-- > 0;) {
+            t[i * W + j] = sb[i] == sp[j] ? t[(i + 1) * W + j + 1] + 1
+                           : t[(i + 1) * W + j] > t[i * W + j + 1] ? t[(i + 1) * W + j] : t[i * W + j + 1];
+        }
+    }
+    n = t[0];
+    if (n + 3 < (nb < np ? nb : np)) {
+        free(t);
+        return 0;
+    }
+    for (i = 0, j = 0; i < nb && j < np;) {
+        if (sb[i] == sp[j]) {
+            CopyObjectColours(b, ob + i * 0x6C, p, op + j * 0x6C);
+            i++;
+            j++;
+        } else if (t[(i + 1) * W + j] >= t[i * W + j + 1]) {
+            i++;
+        } else {
+            j++;
+        }
+    }
+    free(t);
+    return n;
+}
+
+static void MixIfaceColours(MixPack *mp, u8 *base, u32 dataSize, const u32 *pointers, u32 numPointers,
+                            const u32 *refs, u32 numRefs) {
+    RelPack rp;
+    IfaceSide b, p;
+    u32 *tables = NULL, nt, np, i, j, *lcs = NULL, pairs = 0;
+    const u8 *blob;
+
+    RelPack_Open(&rp, mp, PORT_DATA_PS2);
+    blob = RelPack_Blob(&rp, mp);
+    if (blob == NULL) {
+        RelPack_Close(&rp);
+        return;
+    }
+    nt = rp.hdr[H_NUMTEXRELOCS];
+    np = rp.hdr[H_NUMPTRS];
+    if (nt < 0x1000000 && np < 0x1000000 && (tables = malloc(((size_t)nt * 2 + np + 1) * 4)) != NULL &&
+        Port_MixRead(PORT_DATA_PS2, mp->file, rp.blobOff + rp.hdr[H_DATASIZE], tables, (nt * 2 + np) * 4) !=
+            (nt * 2 + np) * 4) {
+        free(tables);
+        tables = NULL;
+    }
+    if (tables == NULL || !IfaceSide_Init(&b, base, dataSize, (u32)HND(base), pointers, numPointers, refs, numRefs)) {
+        free(tables);
+        RelPack_Close(&rp);
+        return;
+    }
+    if (!IfaceSide_Init(&p, rp.blob, rp.hdr[H_DATASIZE], 0, tables + nt * 2, np, tables, nt)) {
+        IfaceSide_Free(&b);
+        free(tables);
+        RelPack_Close(&rp);
+        return;
+    }
+    if (b.numHdrs != 0 && p.numHdrs != 0 &&
+        (lcs = calloc(((size_t)b.numHdrs + 1) * (p.numHdrs + 1), sizeof(u32))) != NULL) {
+        u32 W = p.numHdrs + 1, *sb = malloc(b.numHdrs * 4), *sp = malloc(p.numHdrs * 4);
+
+        for (i = 0; sb != NULL && i < b.numHdrs; i++) {
+            sb[i] = HdrSig(&b.scan, b.hdrs[i]);
+        }
+        for (j = 0; sp != NULL && j < p.numHdrs; j++) {
+            sp[j] = HdrSig(&p.scan, p.hdrs[j]);
+        }
+        for (i = b.numHdrs; sb != NULL && sp != NULL && i-- > 0;) {
+            for (j = p.numHdrs; j-- > 0;) {
+                lcs[i * W + j] = sb[i] == sp[j] ? lcs[(i + 1) * W + j + 1] + 1
+                                 : lcs[(i + 1) * W + j] > lcs[i * W + j + 1] ? lcs[(i + 1) * W + j] : lcs[i * W + j + 1];
+            }
+        }
+        for (i = 0, j = 0; sb != NULL && sp != NULL && (i < b.numHdrs || j < p.numHdrs);) {
+            if (i == b.numHdrs || j == p.numHdrs || sb[i] != sp[j]) {
+                /* a gap: the headers up to the next pair, matched object by object when as many on both sides */
+                u32 i1 = i, j1 = j, k;
+
+                while (i1 < b.numHdrs || j1 < p.numHdrs) {
+                    if (i1 < b.numHdrs && j1 < p.numHdrs && sb[i1] == sp[j1] &&
+                        lcs[i1 * W + j1] == lcs[(i1 + 1) * W + j1 + 1] + 1) {
+                        break;
+                    }
+                    if (j1 == p.numHdrs || (i1 < b.numHdrs && lcs[(i1 + 1) * W + j1] >= lcs[i1 * W + j1 + 1])) {
+                        i1++;
+                    } else {
+                        j1++;
+                    }
+                }
+                for (k = 0; i1 - i == j1 - j && k < i1 - i; k++) {
+                    if (PairObjects(&b, b.hdrs[i + k], &p, p.hdrs[j + k]) != 0) {
+                        pairs++;
+                        s_colStats.headersByObject++;
+                    }
+                }
+                i = i1;
+                j = j1;
+                continue;
+            }
+            if (sb[i] == sp[j]) {
+                const InterfaceHeader *hb = (const InterfaceHeader *)(b.base + b.hdrs[i]);
+                u32 ob = Port_IfaceTo(&b.scan, b.hdrs[i] + 0x10), op = Port_IfaceTo(&p.scan, p.hdrs[j] + 0x10), k;
+
+                for (k = 0; ob != ~0u && op != ~0u && k < hb->numObjects; k++) {
+                    CopyObjectColours(&b, ob + k * 0x6C, &p, op + k * 0x6C);
+                }
+                pairs++;
+                i++;
+                j++;
+            } else if (lcs[(i + 1) * W + j] >= lcs[i * W + j + 1]) {
+                i++;
+            } else {
+                j++;
+            }
+        }
+        free(sb);
+        free(sp);
+    }
+    s_colStats.packs += pairs != 0;
+    s_colStats.headers += pairs;
+    s_colStats.headersUnpaired += b.numHdrs - pairs;
+    if (b.numHdrs != pairs) {
+        Port_Log("mix: %s %s_%u: %u of %u interfaces paired with the PS2's (%u there)", mp->archive,
+                 s_typeNames[mp->type < 11 ? mp->type : 0], (unsigned)mp->id, (unsigned)pairs, (unsigned)b.numHdrs,
+                 (unsigned)p.numHdrs);
+    }
+    free(lcs);
+    IfaceSide_Free(&b);
+    IfaceSide_Free(&p);
+    free(tables);
+    RelPack_Close(&rp);
+}
+
 void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOff, u32 numTex, const u32 *pointers,
                       u32 numPointers, const u32 *refs, u32 numRefs) {
     MixPack *mp = Cur();
@@ -883,6 +1256,9 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         free(used);
         return;
     }
+    if (Port_MixActive() && set == PORT_DATA_PS2 && fmt != PORT_DATA_PS2 && Port_MixRoot(PORT_DATA_PS2) != NULL) {
+        MixIfaceColours(mp, base, dataSize, pointers, numPointers, refs, numRefs);
+    }
     for (r = 0; r < PORT_MIX_RELS; r++) {
         others += r != fmt && Port_MixRoot(r) != NULL;
     }
@@ -908,19 +1284,34 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     if (ui != NULL) {
         PortIfaceScan scan;
 
-        if (Port_IfaceScanInit(&scan, base, dataSize, (u32)HND(base), pointers, numPointers, refs, numRefs)) {
+        int scanned = Port_IfaceScanInit(&scan, base, dataSize, (u32)HND(base), pointers, numPointers, refs, numRefs);
+
+        if (scanned) {
             Port_IfaceTextures(&scan, (const u32 *)GETP(pack->relocs), pack->numRelocs, ui, numTex);
-            Port_IfaceScanFree(&scan);
         }
         if (mp->type == 8) {    /* a share pack: what other packs' interfaces show of it */
             for (i = 0; i < s_numUiRefs; i++) {
                 const UiRef *u = &s_uiRefs[i];
 
-                if (u->id == mp->id && u->index < numTex && ui[u->index] != PORT_IFACE_ART &&
-                    strcasecmp(u->archive, mp->archive) == 0) {
+                if (u->id != mp->id || strcasecmp(u->archive, mp->archive) != 0) {
+                    continue;
+                }
+                if (u->what == PORT_IFACE_GEOM && set == PORT_DATA_PS2) {
+                    s_stats.uiShared += scanned ? Port_IfaceGeometryTextures(&scan, u->index * 4,
+                                                                             (const u32 *)GETP(pack->relocs),
+                                                                             pack->numRelocs, ui, numTex) : 0;
+                } else if (u->what != PORT_IFACE_GEOM && u->index < numTex && ui[u->index] != PORT_IFACE_ART) {
                     s_stats.uiShared += ui[u->index] == 0;
                     ui[u->index] = u->what;
                 }
+            }
+        }
+        if (scanned) {
+            Port_IfaceScanFree(&scan);
+        }
+        for (i = 0; i < numTex; i++) {
+            if (ui[i] == PORT_IFACE_GEOMTEX) {
+                ui[i] = set == PORT_DATA_PS2 ? PORT_IFACE_ART : 0;
             }
         }
     }
@@ -959,7 +1350,7 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         if (t[fmt].ok && kind) {
             /* interface art: the set's copy, else the base's own (never another release's);
              * a font page: the PC's when it has the same glyphs, else as art */
-            if (set != fmt && !t[set].ok && taken != NULL && t[fmt].alpha &&
+            if (set != fmt && !t[set].ok && taken != NULL &&
                 (setIdx = ShapePair(&rp[set], mp, fmt, i, &t[fmt], taken, &t[set])) != ~0u) {
                 taken[setIdx] = 1;
                 s_stats.artByShape++;
@@ -1284,6 +1675,17 @@ void PortMix_SFXDone(void) {
 /* ---- the builder ------------------------------------------------------------------------ */
 
 void PortMix_LogStats(void) {
+    if (Port_MixInterface() == PORT_DATA_PS2) {
+        Port_Log("mix: interface colours from the ps2: %u packs, %u interfaces paired (%u of them object by object; %u "
+                 "not), %u colour tracks "
+                 "(%u keys changed), %u with other keys taken by time, %u skipped, %u blend modes, %u polygon points, "
+                 "%u briefing colours",
+                 (unsigned)s_colStats.packs, (unsigned)s_colStats.headers, (unsigned)s_colStats.headersByObject,
+                 (unsigned)s_colStats.headersUnpaired,
+                 (unsigned)s_colStats.tracks, (unsigned)s_colStats.keys, (unsigned)s_colStats.tracksByTime,
+                 (unsigned)s_colStats.tracksSkipped, (unsigned)s_colStats.blends,
+                 (unsigned)s_colStats.points, (unsigned)s_colStats.dialog);
+    }
     Port_Log("mix: %u packs; textures from gc %u, pc %u, ps2 %u, prototype %u, base's own %u (%u of them not like "
              "their pair), to the PC's colours %u; sounds from gc %u, pc %u, prototype %u, base's own %u (%u not like "
              "their pair)",
@@ -1470,10 +1872,12 @@ u32 PortMix_BuildAll(u32 *failed) {
     Port_Log("mix: %u textures of share packs shown by other packs' interfaces", (unsigned)s_numUiRefs);
     for (i = 0; i < s_numUiRefs; i++) {
         Port_Log("mix:   %s share_%u texture %u (%s)", s_uiRefs[i].archive, (unsigned)s_uiRefs[i].id,
-                 (unsigned)s_uiRefs[i].index, s_uiRefs[i].what == PORT_IFACE_FONT ? "font" : "art");
+                 (unsigned)s_uiRefs[i].index, s_uiRefs[i].what == PORT_IFACE_FONT ? "font"
+                 : s_uiRefs[i].what == PORT_IFACE_GEOM ? "geometry slot" : "art");
     }
     b.archives = b.packs = b.failed = 0;
     memset(&s_stats, 0, sizeof(s_stats));
+    memset(&s_colStats, 0, sizeof(s_colStats));
     Port_MixArchives(BuildArchive, &b);
     PortMix_LogStats();
     if (b.failed) {
