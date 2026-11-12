@@ -263,6 +263,7 @@ impl Browser {
                 }
             }
         });
+        self.new_level_dialog(ui);
         if let Some(e) = &self.level.summary_error {
             ui.colored_label(egui::Color32::LIGHT_RED, e);
         } else if self.level.summary.is_object() {
