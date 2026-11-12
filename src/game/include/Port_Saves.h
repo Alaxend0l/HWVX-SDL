@@ -41,7 +41,9 @@ enum {
 };
 const char *Port_SaveIdSection(int table);   /* its name in the JSON: "cars" */
 u32 Port_SaveIdCount(int table);             /* the game array's length (the retail entries) */
-/* The id of index `index` in `table`: 1 if it has one. */
+/* The id of index `index` in `table`: 1 if it has one. Ids are at most
+ * PORT_SAVE_ID_MAX characters (the registry's PORT_CONTENT_ID_MAX). */
+#define PORT_SAVE_ID_MAX 255
 int Port_SaveIdOf(int table, u32 index, char *buf, size_t size);
 /* The index of `id` in `table`: 1 if the game has it. */
 int Port_SaveIndexOf(int table, const char *id, u32 *index);

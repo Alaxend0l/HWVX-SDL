@@ -1072,6 +1072,27 @@ static void TestContentLimits(void) {
         CHECK(kept != NULL && Json_Get(Json_Get(kept, "cars"), id) != NULL, "a 255-character id kept whole");
         Json_Free(kept);
     }
+    {
+        HotWheelsGameData g;
+        u8 *file = SDL_calloc(1, HW_SIZE);
+        char *saved;
+        size_t n;
+
+        SDL_zero(g);
+        g.vehicle = 33;
+        g.item = -1;
+        Port_ContentBindGameData(g.cars, g.tracks, g.items);
+        Port_ContentFromGameData();
+        Port_SavesForget();
+        GameSave(file, &g, "LONG", 1);
+        CHECK(Port_SavesWrite("hwvx", file, HW_SIZE), "write");
+        SDL_snprintf(back, sizeof(back), "\"vehicle\": \"%s\"", id);
+        saved = LoadSaveFile(".json", &n);
+        CHECK(saved != NULL && SDL_strstr(saved, back) != NULL, "the chosen 255-character id saved whole");
+        SDL_free(saved);
+        SDL_free(file);
+        Port_ContentBindGameData(NULL, NULL, NULL);
+    }
 
     /* the wire: a long id whole, a reserved entry as car 0, per-machine
      * numbers without an id not taken */
