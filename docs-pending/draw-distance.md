@@ -58,10 +58,16 @@ game has marked its visible quadrants and before it draws them:
   quadrants are not drawn (things).
 * Far: far clipping plane and fog ×2. Everything: no far clipping plane, no
   distance fog, projection far plane 80000 (from 20000).
+* The sky keeps its fog: backdrop geometry (group flag 0x8000 on its first
+  group, the flag the far plane skips) is drawn with the world's own fog,
+  everything else with the pushed-out / no fog (`Render_.c`
+  `Port_RenderGroupFog`, from the opaque and alpha group draws in
+  `Render_Geometry_.c`; at Normal it returns at once).
 * Normal in the attract demo (code variable 0x198), input playback
   (`g_playbackStatus == 2`) and online play.
 
-Measured (GC data, Mission 1 driven by the autopilot, 164 × 60 frames):
+Measured (GC data, Mission 1 driven by the autopilot test switch, which is
+on its own branch; 164 × 60 frames):
 
 | | extra copies | their size | extra heap in use | draws / 60 frames | renderer ms/frame avg (max) |
 |---|---|---|---|---|---|
@@ -74,16 +80,14 @@ quadrant copy loads in 0.3 - 0.9 ms. Process memory moves by less than the
 noise (430 - 480 MB resident).
 
 Verified: GC, PC, PS2 attract demos frame-identical to pc-data with the
-option off; Challenge 1 and Mission 1 (11 quadrants, a fight) driven by the
-autopilot give identical car logs and quadrant routes at Normal, Far and
-Everything (`tools/autopilot_drive.sh compare`), and the same win time.
+option off; ctest. Logic: a scratch build of the autopilot branch's source
+(which carries this same draw-distance code) drove Challenge 1 (4 quadrants)
+and Mission 1 (11 quadrants, a fight) to a win at Normal, Far and Everything:
+identical car logs and quadrant routes (`tools/autopilot_drive.sh compare`),
+the same win times.
 
 Open points:
 
-* Everything drops the fog, and the sky domes are drawn with it: the purple
-  haze of the city sky goes darker. Far's ×2 fog lightens it a little. A
-  per-geometry fog for backdrop geometry (group flag 0x8000, the one the far
-  plane skips) would keep the sky as it was.
 * Far quadrants show no emitters, coronas or pickups, and destructibles only
   as stand-ins in their placed pose.
 * An earlier scripted Joyride drive (car idling at a respawn point) gave car
