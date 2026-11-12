@@ -516,7 +516,7 @@ static int CanPlay(const Launcher *l) {
 #define ROW_Y(i) (PAGE_Y + (i) * 58.0f)                 /* Games: a release */
 #define PLAY_ROW_Y(k) (PAGE_Y + 24.0f + (k) * 34.0f)    /* Play: an imported release */
 #define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
-#define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 42.0f)     /* Settings: a setting */
+#define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 38.0f)     /* Settings: a setting */
 #define CONV_ROW_Y(k) (PAGE_Y + 30.0f + (k) * 52.0f)    /* Convert: an imported release */
 #define PROTO_Y (ROW_Y(SRC_COUNT) - 2.0f)                /* Games: the prototype's import mode */
 #define MODS_SHOWN 6

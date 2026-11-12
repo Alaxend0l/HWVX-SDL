@@ -92,6 +92,11 @@ s32 Port_DrawDistLevel(void) {
     return level;
 }
 
+/* Whether this frame draws further than the game (Render_.c's group fog). */
+s32 Port_DrawDistActive(void) {
+    return s_level != PORT_DRAWDIST_NORMAL;
+}
+
 /* The far clipping plane to cull geometry at (Gfx_GeometryHandler.c): the
  * world's, doubled for Far, none for All (0: no plane). */
 f32 Port_DrawDistFarPlane(f32 farPlane) {

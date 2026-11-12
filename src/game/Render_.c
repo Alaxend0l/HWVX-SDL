@@ -1,6 +1,7 @@
 #include "common.h"
 #include "Gfx.h"
 s32 Port_DrawDistFog(f32 *start, f32 *end);   /* port: Port_DrawDist.c */
+s32 Port_DrawDistActive(void);
 
 
 extern u32 m_VtxDescFlag;
@@ -896,7 +897,32 @@ void Render_StateZWriteEnable(s32 enable) {
     m_zwrite = enable;
 }
 
+/* port: with a longer draw distance (Port_DrawDist.c) the fog is pushed out
+ * or dropped, but backdrop geometry (the sky: group flag 0x8000, which the far
+ * plane skips too) is drawn with the world's own fog, so its haze stays. The
+ * group draws ask for theirs; Render_StateFogEnable starts over. */
+static s32 s_portFogBackdrop = -1;
+
+void Port_RenderGroupFog(s32 backdrop) {
+    extern f32 m_fogRange2;
+    f32 start = m_fogRange1;
+    f32 end = m_fogRange2;
+
+    if (!Port_DrawDistActive() || !m_fogMode || backdrop == s_portFogBackdrop) {
+        return;
+    }
+    s_portFogBackdrop = backdrop;
+    if (backdrop) {
+        GXSetFog(m_fogType, m_fogRange1, m_fogRange2, 1.0f, 15000.0f, m_fogColor);
+    } else if (Port_DrawDistFog(&start, &end)) {
+        GXSetFog(m_fogType, start, end, 1.0f, 15000.0f, m_fogColor);
+    } else {
+        GXSetFog(0, 1.0f, 10.0f, 1.0f, 10.0f, m_fogColor);
+    }
+}
+
 void Render_StateFogEnable(s32 enable) {
+    s_portFogBackdrop = -1;   /* port: Port_RenderGroupFog */
     if (m_fogMode != enable) {
         f32 start = m_fogRange1;   /* port: further out with a longer draw distance (Port_DrawDistFog) */
         f32 end = m_fogRange2;
