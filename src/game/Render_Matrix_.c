@@ -1,5 +1,6 @@
 #include "common.h"
 #include "Gfx.h"
+f32 Port_DrawDistProjectionFar(f32 farPlane);   /* port: Port_DrawDist.c */
 
 
 
@@ -114,7 +115,8 @@ void Gfx_SetProjectionMatrix(f32 fov) {
     value = GetRenderWindow()->height;
     value = GetRenderWindow()->width / value;
     fov = GetRenderWindow()->width;
-    C_MTXPerspective(mtx, 1.0714285f * angle * GetRenderWindow()->height / fov, value, 1.0f, 20000.0f);
+    C_MTXPerspective(mtx, 1.0714285f * angle * GetRenderWindow()->height / fov, value, 1.0f,
+                     Port_DrawDistProjectionFar(20000.0f));   /* port: further with Everything (Port_DrawDist.c) */
     GXSetProjection(mtx, 0);
 }
 

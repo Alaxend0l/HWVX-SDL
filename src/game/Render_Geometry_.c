@@ -247,6 +247,7 @@ extern u32 m_pointLightMask;
 
 extern s32 m_curLightState;
 extern s32 m_curEnvmapState;
+void Port_RenderGroupFog(s32 backdrop);   /* port: Render_.c */
 void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix);
 void EnvMap(Geometry *geometry, u32 group, void *matrix, s32 mode);
 void Gfx_DrawGeometryLOD_Immediate(Geometry *geometry, f32 (*matrix)[4]);
@@ -579,6 +580,7 @@ void Render_DrawOpaqueGroup(Geometry *geometry, u32 group, void *matrix) {
     f32 mtx[3][4];
 
     grp = &GETP(geometry->groups)[group];
+    Port_RenderGroupFog((GETP(geometry->groups)[0].flags & 0x8000) != 0);   /* port: the sky keeps its fog (Render_.c) */
     if (grp->textureOverride == 0) {
         Render_SetTextureHandle(grp->texture);
     } else {
@@ -651,6 +653,7 @@ void Render_DrawAlphaGroup(u16 index) {
     }
     ag = &g_pGDL->alphaGroups[index];
     grp = &GETP(GETP(ag->geometry)->groups)[g_pGDL->alphaGroups[index].group];
+    Port_RenderGroupFog((GETP(GETP(ag->geometry)->groups)[0].flags & 0x8000) != 0);   /* port: the sky keeps its fog (Render_.c) */
     if (grp->textureOverride == 0) {
         Render_SetTextureHandle(grp->texture);
     } else {

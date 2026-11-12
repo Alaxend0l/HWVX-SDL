@@ -1,5 +1,6 @@
 #include "common.h"
 #include "Gfx.h"
+f32 Port_DrawDistFarPlane(f32 farPlane);   /* port: Port_DrawDist.c */
 
 
 
@@ -100,8 +101,9 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector4 *matrix, u8 *lod, u8 flag) {
     PSVECSubtract(&center, (Vector4 *)&window->cameraPos, &diff);
     dist = PSVECDotProduct(&diff, (Vector4 *)&window->cameraRight);
     dist *= window->sinHalfFov;
-    if (!(GETP(((Geometry *)GETP(geometry->groups))->groups)->flags & 0x8000) && g_state.farClippingPlane > 0.0f &&
-        dist >= g_state.farClippingPlane) {
+    /* port: Port_DrawDistFarPlane: the world's plane, further out with a longer draw distance */
+    if (!(GETP(((Geometry *)GETP(geometry->groups))->groups)->flags & 0x8000) && Port_DrawDistFarPlane(g_state.farClippingPlane) > 0.0f &&
+        dist >= Port_DrawDistFarPlane(g_state.farClippingPlane)) {
         return 0;
     }
     switch (Gfx_FrustrumCullSphereTest(&center, radius)) {
