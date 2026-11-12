@@ -166,6 +166,13 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
         return W.doc(W.file_of[nid]) if nid in W.file_of else None
 
     names = {}
+    own = {}            # level://<kind>/<name> -> pre + level/<k> (node ids end in a number)
+
+    def own_id(kind, n):
+        key = f"level://{kind}/{n}"
+        if key not in own:
+            own[key] = f"{pre}level/{len(own)}"
+        return own[key]
     # the level's own records: where they go
     vols = list((lv.get("volumes") or {}).items())
     vdoc = table_doc("volumes")
@@ -178,9 +185,9 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
         k0 = len(d["items"]) if d is not None else 0
         for i, (n, _) in enumerate(recs):
             names[f"level://{kind}/{n}"] = f"{pre}World/0/{kind}/{k0 + i}"
-            names[f"level://{kind}/{n}/to"] = f"{pre}level/{kind}/{n}/to"
+            names[f"level://{kind}/{n}/to"] = own_id(kind, n)
     for n in (lv.get("strings") or {}):
-        names[f"level://strings/{n}"] = f"{pre}level/strings/{n}"
+        names[f"level://strings/{n}"] = own_id("strings", n)
     hdr = W.B.pack["pack"]["header"]
     nbase = int(hdr.get("num_triggers", 0))
     tnames = lv.get("triggers") or sorted(p.stem for p in (project / "triggers").glob("*.jsonc"))
@@ -208,18 +215,16 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             else:
                 rec[f] = v
 
-    # volumes: into the array (a box: its BSP a node of its own)
+    # volumes: into the array (a box's BSP is a part of the compiler's, below)
     for i, (n, v) in enumerate(vols):
         it = volume_item(v)
-        if v.get("shape") == "bsp" or "box" in v:
-            box = v.get("box") or {}
-            lo, hi = box.get("min"), box.get("max")
-            if not (isinstance(lo, list) and isinstance(hi, list)):
-                raise LV.LevelError(f"level.jsonc/volumes/{n}/box: min and max [x, y, z]")
-            nid = f"{pre}level/volumes/{n}/bsp"
-            W.add_raw(nid, box_bsp(lo, hi, e), [], align=32)
+        if "box" in v:
+            lo, hi = v["box"]["min"], v["box"]["max"]
             it["shape"] = "bsp"
-            it["bsp"] = nid
+            it["bsp"] = own_id("volumes", n) + "/bsp"
+            it["center"] = {"x": (lo[0] + hi[0]) / 2, "y": (lo[1] + hi[1]) / 2, "z": (lo[2] + hi[2]) / 2, "w": 0.0}
+            it["radius"] = 0.5 * math.sqrt(sum((hi[k] - lo[k]) ** 2 for k in range(3)))
+            it["radiusSq"] = 0.0
         vdoc["items"].append(it)
     if vols:
         world["numVolumes"] = len(vdoc["items"])
@@ -231,11 +236,14 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
         pid = p["id"]
         if p["kind"] == "volume":
             continue                       # in the array above
-        if pid.startswith("level://triggers/"):
-            name = pid.split("/")[3]
-            nid = names[f"level://triggers/{name}"] + pid[len(f"level://triggers/{name}"):]
+        segs = pid.split("/")             # level:, '', kind, name, rest...
+        kind, name, rest = segs[2], segs[3], "/".join(segs[4:])
+        if kind == "triggers":
+            nid = names[f"level://triggers/{name}"] + ("/" + rest if rest else "")
+        elif kind in ("timers", "variables") and rest.startswith("to"):
+            nid = own_id(kind, name) + rest[2:]
         else:
-            nid = pre + "level/" + pid[len("level://"):]
+            nid = own_id(kind, name) + ("/" + rest if rest else "")
         data = bytes.fromhex(p["hex"])
         links = []
         for off, l in p["links"]:

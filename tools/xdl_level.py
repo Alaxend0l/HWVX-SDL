@@ -29,6 +29,7 @@ It holds no game data: only the level's own records and paths into the player's 
 
 import argparse
 import hashlib
+import math
 import json
 import os
 import re
@@ -308,6 +309,24 @@ class Compiler:
 
     def volume(self, name, v, where):
         props, _ = struct_of("WorldVolume")
+        v = dict(v)
+        box = v.pop("box", None)
+        if box is not None:
+            # a box: its BSP (tools/bsp_build.py), the volume a BSP one centred on it
+            lo, hi = box.get("min") if isinstance(box, dict) else None, box.get("max") if isinstance(box, dict) else None
+            if not (isinstance(lo, list) and isinstance(hi, list) and len(lo) == 3 and len(hi) == 3 and
+                    all(isinstance(x, (int, float)) for x in lo + hi) and all(lo[i] < hi[i] for i in range(3))):
+                raise LevelError(f"{where}/box: min and max [x, y, z], min below max")
+            import bsp_build as BB
+            import world_lib as WL
+            tris = BB.prism([(lo[0], lo[2]), (hi[0], lo[2]), (hi[0], hi[2]), (lo[0], hi[2])], lo[1], hi[1])
+            bsp = WL.bspn0_write(BB.build(BB.polys_from_triangles(tris)), self.e)
+            self.add_part(f"level://volumes/{name}/bsp", "data", bsp, {})
+            v["shape"] = "bsp"
+            v["bsp"] = f"level://volumes/{name}/bsp"
+            v.setdefault("center", [(lo[i] + hi[i]) / 2 for i in range(3)])
+            v.setdefault("radius", 0.5 * math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))))
+            v.setdefault("radiusSq", 0.0)
         for k in v:
             if k not in props or "x-offset" not in props[k]:
                 raise LevelError(f"{where}/{k}: not a field of WorldVolume")
@@ -318,7 +337,7 @@ class Compiler:
         if "center" in v and isinstance(v["center"], list) and len(v["center"]) == 3:
             v["center"] = v["center"] + [0.0]
         r = v.get("radius")
-        if r is not None and "radiusSq" not in v:
+        if r is not None and "radiusSq" not in v and v.get("shape") != "bsp":
             v["radiusSq"] = float(r) * float(r)    # the test is distance squared < radiusSq
         if v.get("shape") == "sphere" and not v.get("radiusSq"):
             raise LevelError(f"{where}: a sphere needs a radius")
@@ -450,6 +469,19 @@ class Compiler:
                     fn(name, v, f"{where}/{kind}/{name}")
                 except (LevelError, XT.TacError) as ex:
                     self.errors.append(str(ex))
+        # starts and items (they go into the world pack: xdl_level_pack.py)
+        for n, st in (lv.get("starts") or {}).items():
+            w = f"{where}/starts/{n}"
+            if not isinstance(st, dict) or not (isinstance(st.get("pos"), list) and len(st["pos"]) == 3):
+                self.err(w, "pos [x, y, z]")
+            elif not isinstance(st.get("rotY", 0), (int, float)) or not isinstance(st.get("port", 0), int):
+                self.err(w, "rotY (radians) and port (1-4 a player, 0 the AI's)")
+        for n, it in (lv.get("items") or {}).items():
+            w = f"{where}/items/{n}"
+            if not isinstance(it, dict) or not (isinstance(it.get("pos"), list) and len(it["pos"]) == 3):
+                self.err(w, "pos [x, y, z]")
+            elif not isinstance(it.get("quad"), int) or not isinstance(it.get("id", 0), int):
+                self.err(w, "quad (the quadrant it is in) and id (the world's item pack's)")
         # triggers
         tdir = self.proj / "triggers"
         names = lv.get("triggers") or sorted(p.stem for p in tdir.glob("*.jsonc"))
@@ -884,7 +916,9 @@ def cmd_testdrive(a):
             try:
                 pack, pcached, _ = LP.build_cached(proj, a.data, cache_dir(a), mod_dir / "worlds", a.skip_intro)
                 cached = cached and pcached
-            except LevelError as ex:
+            except Exception as ex:          # (xdl_level's LevelError as the module imports it)
+                if type(ex).__name__ != "LevelError":
+                    raise
                 errors = str(ex).splitlines()
     except LevelError as ex:
         doc, errors, cached = None, [str(ex)], False
