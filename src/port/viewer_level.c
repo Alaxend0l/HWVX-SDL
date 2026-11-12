@@ -19,10 +19,11 @@
 #include "viewer_internal.h"
 #include "World.h"
 #include "Port_Level.h"
+#include "Port_SpawnBox.h"
 #include <math.h>
 
 typedef struct Mark {
-    char kind;          /* 's' sphere, 'a' arrow, 'c' cross, 'l' line */
+    char kind;          /* 's' sphere, 'a' arrow, 'c' cross, 'l' line, 'b' a start's box */
     f32 pos[3], to[3];
     f32 radius, rotY;
     u8 color[3];
@@ -84,6 +85,123 @@ static void Arrow(const f32 *p, f32 rotY, f32 len, const u8 *col) {
     Circle(p, len * 0.25f, 1, col);
 }
 
+/* The corners of a start's box at pos turned as a tile car: i's bits pick max x, y, z. */
+static void BoxCorners(const f32 *pos, f32 rotY, f32 rotX, f32 rotZ, f32 out[8][3]) {
+    f32 lo[3], hi[3];
+    Matrix4 m __attribute__((aligned(16)));
+    int i, k;
+
+    Port_SpawnEnvelopeKnown(lo, hi, 1);   /* drawing: never loads (the world load computed it) */
+    SetOrientation(&m, rotY, rotX, rotZ);   /* as StateGamePlay_Init places a tile car */
+    for (i = 0; i < 8; i++) {
+        f32 l[3] = { (i & 1) ? hi[0] : lo[0], (i & 2) ? hi[1] : lo[1], (i & 4) ? hi[2] : lo[2] };
+
+        for (k = 0; k < 3; k++) {
+            out[i][k] = pos[k] + (&m.v[0].x)[k] * l[0] + (&m.v[1].x)[k] * l[1] + (&m.v[2].x)[k] * l[2];
+        }
+    }
+}
+
+void ViewerLevel_SpawnBox(const f32 *pos, f32 rotY, f32 rotX, f32 rotZ, const u8 *col) {
+    static const int e[12][2] = { { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 }, { 0, 2 }, { 1, 3 },
+                                  { 4, 6 }, { 5, 7 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+    f32 c[8][3];
+    int i;
+
+    BoxCorners(pos, rotY, rotX, rotZ, c);
+    for (i = 0; i < 12; i++) {
+        ViewerWorld_Line(c[e[i][0]], c[e[i][1]], col[0], col[1], col[2]);
+    }
+    /* the front: a cross on its face */
+    ViewerWorld_Line(c[4], c[7], col[0], col[1], col[2]);
+    ViewerWorld_Line(c[5], c[6], col[0], col[1], col[2]);
+}
+
+/* Is the start's box clear (walls, ceiling, ground)? Rays along its edges and through it
+ * against the world's collision, and down from above each bottom corner and its middle.
+ * *seat: the highest ground under it (where its bottom goes, "to the ground"); the
+ * problems as text into `out` (comma separated; "" when clear). */
+static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size) {
+    static const int e[12][2] = { { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 }, { 0, 2 }, { 1, 3 },
+                                  { 4, 6 }, { 5, 7 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+    f32 c[8][3], lifted[3], lowest = 1e30f, highest = -1e30f, lo[3], hi[3], bottom;
+    int i, n = 0, ground = 0, walls = 0, ceiling = 0, gaps = 0;
+
+    out[0] = 0;
+    Port_SpawnEnvelope(lo, hi, NULL, 1);
+    bottom = pos[1] + lo[1];
+    /* the ground under the four bottom corners and the middle */
+    BoxCorners(pos, rotY, 0.0f, 0.0f, c);
+    for (i = 0; i <= 4; i++) {
+        Vector4 a __attribute__((aligned(16))), b __attribute__((aligned(16)));
+        const f32 *p = i < 4 ? c[i == 0 ? 0 : i == 1 ? 1 : i == 2 ? 4 : 5] : pos;
+        f32 t = 1.0f;
+
+        SDL_zero(a);
+        SDL_zero(b);
+        a.x = b.x = p[0];
+        a.z = b.z = p[2];
+        a.y = c[2][1] + 1.0f;   /* above the box's top */
+        b.y = pos[1] - 40.0f;
+        if (RayHitsTerrain(&a, &b, &t, NULL)) {
+            f32 g = a.y + (b.y - a.y) * t;
+
+            ground++;
+            lowest = g < lowest ? g : lowest;
+            highest = g > highest ? g : highest;
+        }
+    }
+    /* the position that seats the box's bottom on the highest ground under it */
+    *seat = ground ? highest - lo[1] : pos[1];
+    /* the box's own edges and diagonals, its bottom raised off the ground a little (the
+     * ground under it is the check above): anything they cross is inside the box */
+    lifted[0] = pos[0], lifted[2] = pos[2];
+    lifted[1] = (ground && highest > bottom ? highest - lo[1] : pos[1]) + 0.5f;
+    BoxCorners(lifted, rotY, 0.0f, 0.0f, c);
+    for (i = 0; i < 16; i++) {
+        Vector4 a __attribute__((aligned(16))), b __attribute__((aligned(16)));
+        const f32 *p = i < 12 ? c[e[i][0]] : c[i - 12], *q = i < 12 ? c[e[i][1]] : c[7 - (i - 12)];
+        f32 t = 1.0f;
+
+        SDL_zero(a);
+        SDL_zero(b);
+        a.x = p[0], a.y = p[1], a.z = p[2];
+        b.x = q[0], b.y = q[1], b.z = q[2];
+        if (RayHitsTerrain(&a, &b, &t, NULL) || RayHitsTerrain(&b, &a, &t, NULL)) {
+            /* vertical edges (4..7) meeting something: a ceiling or an overhang */
+            if (i >= 4 && i < 8) {
+                ceiling++;
+            } else {
+                walls++;
+            }
+        }
+    }
+    if (ground == 0) {
+        n += SDL_snprintf(out + n, size - (size_t)n, "%sno ground under it", n ? ", " : "");
+    } else {
+        if (highest > bottom + 0.3f) {
+            n += SDL_snprintf(out + n, size - (size_t)n, "%sits bottom %.1f into the ground", n ? ", " : "",
+                              (double)(highest - bottom));
+        } else if (bottom - highest > 3.0f) {
+            n += SDL_snprintf(out + n, size - (size_t)n, "%sits bottom %.1f above the ground", n ? ", " : "",
+                              (double)(bottom - highest));
+        }
+        if (highest - lowest > 3.0f || ground < 5) {
+            gaps = 1;
+            n += SDL_snprintf(out + n, size - (size_t)n, "%sover a ledge or slope (ground %.1f to %.1f)", n ? ", " : "",
+                              (double)lowest, (double)highest);
+        }
+    }
+    if (walls) {
+        n += SDL_snprintf(out + n, size - (size_t)n, "%sa wall crosses the box", n ? ", " : "");
+    }
+    if (ceiling) {
+        n += SDL_snprintf(out + n, size - (size_t)n, "%sa ceiling or overhang inside the box", n ? ", " : "");
+    }
+    (void)gaps;
+    return n == 0;
+}
+
 /* viewer_world.c's Collect: the level's volumes and the marks. */
 void ViewerLevel_Collect(void) {
     static const u8 levelCol[3] = { 255, 80, 220 };
@@ -113,6 +231,10 @@ void ViewerLevel_Collect(void) {
             break;
         case 'l':
             ViewerWorld_Line(m->pos, m->to, m->color[0], m->color[1], m->color[2]);
+            break;
+        case 'b':
+            ViewerLevel_SpawnBox(m->pos, m->rotY, 0.0f, 0.0f, m->color);
+            Arrow(m->pos, m->rotY, 10.0f, m->color);
             break;
         default:
             Cross(m->pos, m->radius > 0.0f ? m->radius : 3.0f, m->color);
@@ -410,8 +532,57 @@ static int ParseVec(const JsonNode *a, f32 *out) {
     return 1;
 }
 
+/* "box": the envelope the starts are shown and checked with, and how many cars it is of. */
+static void WriteEnvelope(JsonWriter *w) {
+    f32 lo[3], hi[3];
+    int cars, k;
+
+    Port_SpawnEnvelope(lo, hi, &cars, 1);
+    Jw_BeginObject(w, "box", 1);
+    Jw_Int(w, "cars", cars);
+    Jw_BeginArray(w, "min", 1);
+    for (k = 0; k < 3; k++) {
+        Jw_Float(w, NULL, lo[k]);
+    }
+    Jw_EndArray(w);
+    Jw_BeginArray(w, "max", 1);
+    for (k = 0; k < 3; k++) {
+        Jw_Float(w, NULL, hi[k]);
+    }
+    Jw_EndArray(w);
+    Jw_EndObject(w);
+}
+
 int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, int *ok, char *err, size_t errSize) {
     VPack *vp;
+
+    if (SDL_strcmp(cmd, "spawnbox") == 0) {
+        /* the starts' box (Port_SpawnBox.h); with `path`, also written there as JSON for
+         * tools/xdl_level.py check --spawn-box */
+        const char *path = Json_GetString(req, "path", NULL);
+
+        WriteEnvelope(w);
+        if (path != NULL) {
+            JsonWriter f;
+            SDL_IOStream *io;
+
+            Jw_Init(&f);
+            Jw_BeginObject(&f, NULL, 0);
+            Jw_String(&f, "about", "every car's collision box at once (Port_SpawnBox.h), from the viewer's spawnbox");
+            WriteEnvelope(&f);
+            Jw_EndObject(&f);
+            io = f.buf != NULL ? SDL_IOFromFile(path, "w") : NULL;
+            if (io == NULL || SDL_WriteIO(io, f.buf, f.len) != f.len) {
+                SDL_snprintf(err, errSize, "%s: can't write it", path);
+                *ok = 0;
+            }
+            if (io != NULL) {
+                SDL_CloseIO(io);
+            }
+            Jw_Free(&f);
+        }
+        return 1;
+    }
 
     if (SDL_strcmp(cmd, "level") == 0) {
         const JsonNode *path = Json_Get(req, "path");
@@ -482,6 +653,38 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
         }
         return 1;
     }
+    if (SDL_strcmp(cmd, "startcheck") == 0) {
+        /* starts as the largest car's box (Port_SpawnBox.h) against the world's collision:
+         * {starts: [{pos, rotY}...]} -> per start {clear, problems, seat} */
+        const JsonNode *list = Json_Get(req, "starts"), *st;
+
+        if (WorldPack() == NULL || list == NULL || list->type != JSON_ARRAY) {
+            SDL_snprintf(err, errSize, WorldPack() == NULL ? "startcheck needs a world shown (world)"
+                                                            : "startcheck takes starts: [{pos, rotY}]");
+            *ok = 0;
+            return 1;
+        }
+        Jw_BeginArray(w, "starts", 0);
+        for (st = list->child; st != NULL; st = st->next) {
+            f32 p[3], seat;
+            char why[256];
+            int clear;
+
+            if (!ParseVec(Json_Get(st, "pos"), p)) {
+                Viewer_WriteNull(w, NULL);
+                continue;
+            }
+            clear = CheckBox(p, (f32)Json_GetNumber(st, "rotY", 0.0), &seat, why, sizeof(why));
+            Jw_BeginObject(w, NULL, 1);
+            Jw_Bool(w, "clear", clear);
+            Jw_String(w, "problems", why);
+            Jw_Float(w, "seat", seat);
+            Jw_EndObject(w);
+        }
+        Jw_EndArray(w);
+        WriteEnvelope(w);
+        return 1;
+    }
     if (SDL_strcmp(cmd, "marks") == 0) {
         const JsonNode *list = Json_Get(req, "marks"), *m;
 
@@ -493,7 +696,7 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
 
             SDL_zero(*k);
             k->kind = SDL_strcmp(kind, "sphere") == 0 ? 's' : SDL_strcmp(kind, "arrow") == 0 ? 'a'
-                      : SDL_strcmp(kind, "line") == 0 ? 'l' : 'c';
+                      : SDL_strcmp(kind, "line") == 0 ? 'l' : SDL_strcmp(kind, "start") == 0 ? 'b' : 'c';
             if (!ParseVec(Json_Get(m, "pos"), k->pos) || (k->kind == 'l' && !ParseVec(Json_Get(m, "to"), k->to))) {
                 SDL_snprintf(err, errSize, "marks: each has pos [x, y, z] (a line also to)");
                 *ok = 0;

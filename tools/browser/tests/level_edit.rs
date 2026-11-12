@@ -179,13 +179,35 @@ fn viewer_editor_commands() {
     assert!((v.call("record", json!({"path": "World/0/tileCars/0"})).unwrap()["fields"]["pos"]["x"].as_f64().unwrap() + 364.6).abs() < 0.1);
     assert!(v.call("level", json!({"path": "/nonexistent/level.json"})).is_err());
 
+    // the starts' box: every car's collision box at once (retail: x -5..5, y -1.4..5.25, z -14..13)
+    let bf = s.join("spawn-box.json");
+    let b = v.call("spawnbox", json!({"path": bf})).unwrap();
+    assert_eq!(b["box"]["cars"], 33);
+    let near = |v: &Value, w: [f64; 3]| (0..3).all(|i| (v[i].as_f64().unwrap() - w[i]).abs() < 0.01);
+    assert!(near(&b["box"]["min"], [-5.0, -1.4, -14.0]) && near(&b["box"]["max"], [5.0, 5.25, 13.0]), "{b}");
+    assert!(std::fs::read_to_string(&bf).unwrap().contains("\"cars\": 33"));
+    // a start against the world: seated on the road it is clear; too low, too high, inside the world not
+    let sc = v.call("startcheck", json!({"starts": [
+        {"pos": [-364.6, 3.61, -780.6], "rotY": 1.5708},
+        {"pos": [-364.6, 0.0, -780.6], "rotY": 1.5708},
+        {"pos": [-364.6, 20.0, -780.6], "rotY": 1.5708},
+        {"pos": [-300.0, 3.61, -700.0], "rotY": 1.5708}
+    ]})).unwrap();
+    let st = sc["starts"].as_array().unwrap();
+    assert_eq!(st[0]["clear"], true, "{sc}");
+    assert!((st[0]["seat"].as_f64().unwrap() - 3.61).abs() < 0.1, "the seat: the box's bottom on the road: {sc}");
+    assert!(st[1]["problems"].as_str().unwrap().contains("into the ground"), "{sc}");
+    assert!(st[2]["problems"].as_str().unwrap().contains("above the ground"), "{sc}");
+    assert!(st[3]["problems"].as_str().unwrap().contains("wall"), "{sc}");
+
     // marks
     let m = v.call("marks", json!({"marks": [
         {"kind": "sphere", "pos": [82, 4, -780], "radius": 90},
         {"kind": "arrow", "pos": [-365, 2, -781], "rotY": 1.57, "color": [255, 255, 0]},
-        {"kind": "line", "pos": [0, 0, 0], "to": [0, 10, 0]}
+        {"kind": "line", "pos": [0, 0, 0], "to": [0, 10, 0]},
+        {"kind": "start", "pos": [-365, 3.6, -781], "rotY": 1.57}
     ]})).unwrap();
-    assert_eq!(m["marks"], 3);
+    assert_eq!(m["marks"], 4);
     assert!(v.call("marks", json!({"marks": [{"kind": "line", "pos": [0, 0, 0]}]})).is_err(), "a line needs to");
     v.call("marks", json!({"marks": []})).unwrap();
 

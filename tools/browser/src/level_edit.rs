@@ -57,7 +57,7 @@ pub struct EditState {
     pub generation: u64,
     checked_generation: u64,
     last_change: Option<Instant>,
-    checking: Option<(u64, Receiver<(Result<(), Vec<LevelError>>, PathBuf, f64)>)>,
+    checking: Option<(u64, Receiver<(Result<Vec<LevelError>, Vec<LevelError>>, PathBuf, f64)>)>,
     pub preview: bool,
     pub preview_note: String,
     /// where a "pick in the world" link goes: (trigger, JSON path in it), or the selection's own
@@ -68,6 +68,20 @@ pub struct EditState {
     marks_sent: Value,
     pub filter: String,
     pub advanced: bool,
+    /// warnings (the starts' boxes overlapping each other: xdl_level.py; against the world:
+    /// the viewer's startcheck, by path)
+    pub warnings: Vec<LevelError>,
+    pub start_problems: HashMap<String, String>,
+    /// the cars' box (the viewer's spawnbox) written for xdl_level.py
+    pub box_file: Option<PathBuf>,
+    pub spawn_box: Value,
+}
+
+impl EditState {
+    /// Check again soon (something the check depends on changed: the cars' box).
+    pub fn recheck(&mut self) {
+        self.checked_generation = 0;
+    }
 }
 
 fn vec3(v: &Value) -> Option<[f32; 3]> {
@@ -183,6 +197,9 @@ impl Browser {
             for (t, _) in BASE_TABLES {
                 self.request("records", json!({"table": t}), Pending::Records(t.to_string()));
             }
+            let f = self.testdrive_scratch_dir().join("spawn-box.json");
+            let _ = std::fs::create_dir_all(f.parent().unwrap());
+            self.request("spawnbox", json!({"path": f}), Pending::SpawnBox(f));
             self.level.edit.checked_generation = 0; // check and apply again on the new world
         }
         self.edit_check(ctx);
@@ -257,8 +274,10 @@ impl Browser {
                 Ok((res, path, ms)) => {
                     self.level.edit.checked_generation = g;
                     match res {
-                        Ok(()) => {
+                        Ok(warnings) => {
                             self.level.edit.errors.clear();
+                            self.level.edit.warnings = warnings;
+                            self.start_check();
                             if self.level.edit.preview && self.world.status["world"].is_string() {
                                 self.request("level", json!({"path": path, "overlay": false}), Pending::LevelApplied);
                             }
@@ -292,6 +311,7 @@ impl Browser {
         let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
         let cache = scratch.join("base-cache");
+        let box_file = self.level.edit.box_file.clone();
         let g = e.generation;
         let (tx, rx) = channel();
         std::thread::spawn(move || {
@@ -302,11 +322,14 @@ impl Browser {
             if let Some(d) = &data {
                 c.arg("--data").arg(d).arg("--cache").arg(&cache);
             }
+            if let Some(b) = &box_file {
+                c.arg("--spawn-box").arg(b);
+            }
             let res = match c.output() {
                 Ok(o) => {
                     let text = String::from_utf8_lossy(&o.stdout).to_string();
                     match text.lines().rev().find_map(|l| serde_json::from_str::<Value>(l).ok()) {
-                        Some(v) if v["ok"] == true => Ok(()),
+                        Some(v) if v["ok"] == true => Ok(records(&v["warnings"])),
                         Some(v) => Err(v["errors"]
                             .as_array()
                             .map(|a| {
@@ -345,13 +368,21 @@ impl Browser {
                     marks.push(json!({"kind": "sphere", "pos": c, "radius": r, "color": if sel { json!([255, 240, 40]) } else { json!([255, 80, 220]) }}));
                 }
             }
-            if let Some((pos, rot)) = self.sel_place() {
+            // every start as the cars' box (the viewer's spawnbox), facing its way
+            let paths: Vec<String> = self.level.edit.base.get("tileCars").map(|l| l.iter().filter_map(|e| e["path"].as_str().map(str::to_string)).collect()).unwrap_or_default();
+            for path in paths {
+                if let Some((pos, rot)) = self.base_place("tileCars", &path) {
+                    let sel = self.level.edit.sel == Some(Sel::Base("tileCars".into(), path.clone()));
+                    let bad = self.level.edit.start_problems.get(&path).map(|p| !p.is_empty()).unwrap_or(false);
+                    let col = if sel { json!([255, 240, 40]) } else if bad { json!([255, 120, 40]) } else { json!([60, 255, 90]) };
+                    marks.push(json!({"kind": "start", "pos": pos, "rotY": rot.unwrap_or(0.0), "color": col}));
+                }
+            }
+            if let Some((pos, _rot)) = self.sel_place() {
                 let s = &self.level.edit.sel;
                 let yellow = json!([255, 240, 40]);
                 match s {
-                    Some(Sel::Base(t, _)) if t == "tileCars" => {
-                        marks.push(json!({"kind": "arrow", "pos": pos, "rotY": rot.unwrap_or(0.0), "radius": 10.0, "color": yellow}));
-                    }
+                    Some(Sel::Base(t, _)) if t == "tileCars" => {}
                     Some(Sel::Base(t, path)) if t == "volumes" => {
                         let r = self.base_entry(path.as_str()).and_then(|e| e["radius"].as_f64()).unwrap_or(5.0);
                         marks.push(json!({"kind": "sphere", "pos": pos, "radius": r, "color": yellow}));
@@ -383,19 +414,48 @@ impl Browser {
         let p = self.level.edit.proj.as_ref()?;
         match self.level.edit.sel.as_ref()? {
             Sel::Own(k, n) if k == "volumes" => vec3(&p.level["volumes"][n]["center"]).map(|c| (c, None)),
-            Sel::Base(t, path) => {
-                let e = self.base_entry(path.as_str())?;
-                let mut c = vec3(&e["pos"])?;
-                let f = pos_field(t.as_str());
-                for (i, a) in ["x", "y", "z"].iter().enumerate() {
-                    if let Some(v) = p.patch(path, &format!("{f}/{a}")).and_then(Value::as_f64) {
-                        c[i] = v as f32;
-                    }
-                }
-                let rot = (t == "tileCars").then(|| p.patch(path, "rotY").and_then(Value::as_f64).or_else(|| e["rotY"].as_f64()).unwrap_or(0.0));
-                Some((c, rot))
-            }
+            Sel::Base(t, path) => self.base_place(t, path),
             _ => None,
+        }
+    }
+
+    /// A base record's place (and a start's rotY), as the level's patches put it.
+    pub(crate) fn base_place(&self, t: &str, path: &str) -> Option<([f32; 3], Option<f64>)> {
+        let p = self.level.edit.proj.as_ref()?;
+        let e = self.base_entry(path)?;
+        let mut c = vec3(&e["pos"])?;
+        let f = pos_field(t);
+        for (i, a) in ["x", "y", "z"].iter().enumerate() {
+            if let Some(v) = p.patch(path, &format!("{f}/{a}")).and_then(Value::as_f64) {
+                c[i] = v as f32;
+            }
+        }
+        let rot = (t == "tileCars").then(|| p.patch(path, "rotY").and_then(Value::as_f64).or_else(|| e["rotY"].as_f64()).unwrap_or(0.0));
+        Some((c, rot))
+    }
+
+    /// Every start against the world's collision (the viewer's startcheck), as the level has them.
+    fn start_check(&mut self) {
+        let paths: Vec<String> = self.level.edit.base.get("tileCars").map(|l| l.iter().filter_map(|e| e["path"].as_str().map(str::to_string)).collect()).unwrap_or_default();
+        let starts: Vec<Value> = paths.iter().filter_map(|p| self.base_place("tileCars", p)).map(|(c, r)| json!({"pos": c, "rotY": r.unwrap_or(0.0)})).collect();
+        if !starts.is_empty() && starts.len() == paths.len() && self.world.status["world"].is_string() {
+            self.request("startcheck", json!({"starts": starts}), Pending::StartCheck(paths));
+        }
+    }
+
+    pub(crate) fn start_check_reply(&mut self, paths: Vec<String>, r: Value) {
+        let mut m = HashMap::new();
+        for (p, s) in paths.iter().zip(r["starts"].as_array().cloned().unwrap_or_default()) {
+            m.insert(p.clone(), s["problems"].as_str().unwrap_or("").to_string());
+        }
+        self.level.edit.start_problems = m;
+    }
+
+    /// "To the ground" for a start: its box's bottom on the highest ground under it.
+    pub(crate) fn start_seat_reply(&mut self, r: Value) {
+        let seat = r["starts"][0]["seat"].as_f64();
+        if let (Some(seat), Some((c, rot))) = (seat, self.sel_place()) {
+            self.set_place([c[0], seat as f32, c[2]], rot);
         }
     }
 
@@ -410,7 +470,7 @@ impl Browser {
                 v["center"] = json!([round(c[0]), round(c[1]), round(c[2])]);
             }
             Sel::Base(t, path) => {
-                let f = pos_field(t.as_str());
+                let f = pos_field(t);
                 for (i, a) in ["x", "y", "z"].iter().enumerate() {
                     p.set_patch(path, &format!("{f}/{a}"), Some(json!(round(c[i]))));
                 }
@@ -535,6 +595,12 @@ impl Browser {
 
     /// "To the ground": straight down from the selection.
     fn snap_down(&mut self) {
+        if let (Some((c, Some(rot))), Some(Sel::Base(t, _))) = (self.sel_place(), self.level.edit.sel.clone()) {
+            if t == "tileCars" {
+                self.request("startcheck", json!({"starts": [{"pos": c, "rotY": rot}]}), Pending::StartSeat);
+                return;
+            }
+        }
         if let Some((c, _)) = self.sel_place() {
             self.level.edit.move_offset = 0.0;
             self.request("raycast", json!({"from": [c[0], c[1] + 30.0, c[2]], "to": [c[0], c[1] - 3000.0, c[2]]}), Pending::EditMove);
@@ -908,6 +974,20 @@ impl Browser {
         }
         out
     }
+}
+
+fn records(v: &Value) -> Vec<LevelError> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .map(|e| LevelError {
+                    file: e["file"].as_str().unwrap_or("").into(),
+                    path: e["path"].as_str().unwrap_or("").into(),
+                    message: e["message"].as_str().unwrap_or("").into(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn round(x: f32) -> f64 {

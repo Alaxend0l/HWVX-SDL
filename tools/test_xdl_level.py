@@ -146,6 +146,21 @@ check("error records: a patch's field", recs[0] == {"file": "level.jsonc", "path
 check("error records: a trigger's part", recs[1]["file"] == "triggers/cp1.jsonc" and recs[1]["path"] == "param", recs[1])
 check("error records: a field", recs[2]["path"] == "volumes/cp1/radious", recs[2])
 
+# starts: the cars' box (retail's envelope: x -5..5, y -1.4..5.25, z -14..13)
+import math
+BOX = ([-5.0, -1.4, -14.0], [5.0, 5.25, 13.0])
+a = LV.start_corners([0, 0, 0], 0.0, BOX)
+check("start box: 10 wide, 27 long", sorted({round(x, 3) for x, _ in a[0]}) == [-5.0, 5.0] and
+      sorted({round(z, 3) for _, z in a[0]}) == [-14.0, 13.0], a)
+check("start boxes side by side, 9 apart: overlap", LV.boxes_overlap(a, LV.start_corners([9, 0, 0], 0.0, BOX)))
+check("start boxes side by side, 11 apart: clear", not LV.boxes_overlap(a, LV.start_corners([11, 0, 0], 0.0, BOX)))
+check("start boxes nose to tail, 28 apart: clear", not LV.boxes_overlap(a, LV.start_corners([0, 0, 28], 0.0, BOX)))
+check("a turned box: 11 apart now overlaps", LV.boxes_overlap(a, LV.start_corners([11, 0, 0], math.pi / 2, BOX)))
+check("one above the other: clear", not LV.boxes_overlap(a, LV.start_corners([0, 8, 0], 0.0, BOX)))
+envf = scratch / "spawnbox.json"
+envf.write_text(json.dumps({"box": {"cars": 33, "min": BOX[0], "max": BOX[1]}}))
+check("spawn box file", LV.read_spawn_box(envf) == BOX)
+
 # a mod folder
 out = scratch / "mod"
 if out.exists():

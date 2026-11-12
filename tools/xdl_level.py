@@ -242,9 +242,11 @@ def scalar(T, p, v, where):
 
 
 class Compiler:
-    def __init__(self, proj, base=None, skip_intro=False):
+    def __init__(self, proj, base=None, skip_intro=False, spawn_box=None):
         self.proj = Path(proj)
         self.skip_intro = skip_intro
+        self.spawn_box = spawn_box
+        self.warnings = []
         self.T = XT.Tac()
         self.parts = []           # {"id", "kind", "hex", "links": [[off, LINK]]}
         self.part_ids = set()
@@ -507,6 +509,9 @@ class Compiler:
             idx = names_of.get(t, t if isinstance(t, int) else None)
             if idx is not None and idx < len(TRIGGER_MAX) and n > TRIGGER_MAX[idx]:
                 self.err("triggers", f"{n} {t} triggers: the game keeps {TRIGGER_MAX[idx]} at once")
+        # starts: the cars' box (the viewer's spawnbox, Port_SpawnBox.h) clear of each other
+        if self.spawn_box is not None and self.base is not None:
+            self.warnings += start_overlaps(self.base, lv.get("patches") or {}, archive, self.spawn_box)
         if self.errors:
             return None
         return {
@@ -674,14 +679,88 @@ def error_records(errors):
     return out
 
 
-def compile_project(proj, base=None, skip=False):
-    c = Compiler(proj, base, skip)
+def read_spawn_box(path):
+    """The starts' box: the viewer's `spawnbox` written to a file ({"box": {"min", "max"}})."""
+    if not path:
+        return None
+    try:
+        b = json.loads(Path(path).read_text())["box"]
+        return [float(x) for x in b["min"]], [float(x) for x in b["max"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        raise LevelError(f"{path}: not a spawn box (the viewer's spawnbox writes one)")
+
+
+def start_corners(pos, rot_y, box):
+    """The box's footprint corners (x, z) at a start turned by rotY (forward sin, 0, cos), and its
+    y range."""
+    import math
+    lo, hi = box
+    s, c = math.sin(rot_y), math.cos(rot_y)
+    side, fwd = (c, -s), (s, c)
+    pts = []
+    for x in (lo[0], hi[0]):
+        for z in (lo[2], hi[2]):
+            pts.append((pos[0] + side[0] * x + fwd[0] * z, pos[2] + side[1] * x + fwd[1] * z))
+    return [pts[0], pts[1], pts[3], pts[2]], (pos[1] + lo[1], pos[1] + hi[1])
+
+
+def boxes_overlap(a, b):
+    """Two starts' boxes: their footprints (convex quads) overlap (separating axes) and so do
+    their heights."""
+    (pa, ya), (pb, yb) = a, b
+    if ya[1] <= yb[0] or yb[1] <= ya[0]:
+        return False
+    for poly in (pa, pb):
+        for i in range(4):
+            x0, z0 = poly[i]
+            x1, z1 = poly[(i + 1) % 4]
+            ax, az = -(z1 - z0), x1 - x0
+            pra = [ax * x + az * z for x, z in pa]
+            prb = [ax * x + az * z for x, z in pb]
+            if max(pra) <= min(prb) or max(prb) <= min(pra):
+                return False
+    return True
+
+
+def start_overlaps(base, patches, archive, box):
+    """Warnings: starts (the base world's tile cars, as the level's patches move them) whose
+    boxes overlap."""
+    f = base.dir / "World" / "0" / "tileCars.jsonc"
+    if not f.exists():
+        return []
+    cars = read_jsonc(f).get("items") or []
+    starts = []
+    for i, c in enumerate(cars):
+        path = f"World/0/tileCars/{i}"
+        pt = patches.get(f"base://{archive}/world_0/{path}") or {}
+        pos = [float(pt.get(f"pos/{a}", (c.get("pos") or {}).get(a, 0))) for a in "xyz"]
+        rot = float(pt.get("rotY", c.get("rotY", 0)))
+        starts.append((path, start_corners(pos, rot, box)))
+    out = []
+    for i in range(len(starts)):
+        for j in range(i + 1, len(starts)):
+            if boxes_overlap(starts[i][1], starts[j][1]):
+                p = f"base://{archive}/world_0/{starts[i][0]}"
+                out.append(f"level.jsonc/patches/{p}: its start's box overlaps {starts[j][0]}'s "
+                           f"(the cars' box, {box[1][0] - box[0][0]:g} x {box[1][1] - box[0][1]:g} x "
+                           f"{box[1][2] - box[0][2]:g})")
+    return out
+
+
+def compile_project_full(proj, base=None, skip=False, spawn_box=None):
+    """(doc, errors, warnings)"""
+    c = Compiler(proj, base, skip, spawn_box)
     try:
         doc = c.run()
     except LevelError as ex:
         c.errors.append(str(ex))
         doc = None
-    return doc, c.errors
+    return doc, c.errors, c.warnings
+
+
+def compile_project(proj, base=None, skip=False):
+    doc, errors, _ = compile_project_full(proj, base, skip)
+    return doc, errors
 
 
 def write_json(path, doc):
@@ -762,11 +841,16 @@ def cmd_compile(a):
     t0 = time.perf_counter()
     out = a.out or str(Path(a.project) / "build" / "level.json")
     doc, errors, cached = compile_cached(a.project, out, base_arg(a), a.skip_intro)
+    warnings = []
+    if a.spawn_box and not errors:
+        _, _, warnings = compile_project_full(a.project, base_arg(a), a.skip_intro, read_spawn_box(a.spawn_box))
     ms = round((time.perf_counter() - t0) * 1000, 1)
     if a.json:
         print(json.dumps({"ok": not errors, "out": out, "cached": cached, "ms": ms,
-                          "errors": error_records(errors)}))
+                          "errors": error_records(errors), "warnings": error_records(warnings)}))
         return 1 if errors else 0
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
     if errors:
         return report(errors)
     print(f"{out}: {len(doc['parts'])} parts, {len(doc['patches'])} patches"
@@ -819,10 +903,12 @@ def cmd_testdrive(a):
 
 
 def cmd_check(a):
-    doc, errors = compile_project(a.project, base_arg(a))
+    doc, errors, warnings = compile_project_full(a.project, base_arg(a), False, read_spawn_box(a.spawn_box))
     if a.json:
-        print(json.dumps({"ok": not errors, "errors": error_records(errors)}))
+        print(json.dumps({"ok": not errors, "errors": error_records(errors), "warnings": error_records(warnings)}))
         return 1 if errors else 0
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
     if not errors:
         print(f"{a.project}: ok")
     return report(errors)
@@ -891,6 +977,7 @@ def main():
         if name in ("compile", "check"):
             p.add_argument("--json", action="store_true", help="the result and errors as one JSON line")
         p.add_argument("--base", help="the base world's extracted project (xdl_level.py base)")
+        p.add_argument("--spawn-box", help="the cars' box for the starts' checks (the viewer's spawnbox writes it)")
         p.add_argument("--data", help="the game's data folder: the base world is extracted from it (cached)")
         p.add_argument("--cache")
     p = sub.add_parser("base")
