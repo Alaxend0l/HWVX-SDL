@@ -59,6 +59,7 @@ sys.path.insert(0, str(HERE))
 
 import xdl_gltf as XG  # noqa: E402
 import xdl_struct as XS  # noqa: E402
+import xdl_tac as XT  # noqa: E402
 
 FORMAT = 1
 ROOT_KIND = {"car": "CarAInfo", "item": "ItemRecord", "interface": "IMHeader", "audio": "SoundSeq"}
@@ -149,6 +150,10 @@ def add_step(path, seg):
 
 def find_up(rel):
     return XS.find_up(rel)
+
+
+def strip_struct(t):
+    return t[7:] if t.startswith("struct ") else t
 
 
 _PAIRING = None
@@ -330,7 +335,7 @@ def export_value(link):
 
 class Node:
     __slots__ = ("start", "end", "kind", "schema", "label", "geom", "gindex", "id", "parent",
-                 "file", "anchors", "fixed")
+                 "file", "anchors", "fixed", "count", "tac")
 
     def __init__(self, start, end):
         self.start, self.end = start, end
@@ -344,6 +349,8 @@ class Node:
         self.file = None
         self.anchors = {}           # interior name -> offset in the node
         self.fixed = False
+        self.count = None           # typed: an array of this many (None: one object)
+        self.tac = None             # TAC trigger parts (xdl_tac.py): trigger | conditions | actions
 
 
 class Extractor:
@@ -388,37 +395,72 @@ class Extractor:
         dec = XS.Decoder(S, xp, None)
         queue = []
         rk = ROOT_KIND.get(src.entry["type"])
+        if src.entry["type"] == "world" and S.struct("World") is not None and len(self.blob) >= 0xA0:
+            queue.append((0, "World", None))
         if rk and S.struct(rk) is not None:
             for o in self.root_entries():
                 if o is not None:
-                    queue.append((o, rk))
+                    queue.append((o, rk, None))
         for o, lab in sorted(labels.items()):
             if lab in LABEL_SCHEMA and S.struct(LABEL_SCHEMA[lab]) is not None:
-                queue.append((o, LABEL_SCHEMA[lab]))
+                queue.append((o, LABEL_SCHEMA[lab], None))
         typed = {}
         seen = set()
         while queue:
-            off, sname = queue.pop(0)
+            off, sname, count = queue.pop(0)
             if (off, sname) in seen or off in typed:
                 continue
             seen.add((off, sname))
-            sch = S.struct(sname)
-            size = int(sch["x-size"], 16)
+            size = self.item_size(sname) * (1 if count is None else count)
+            if count == 0:
+                continue
             if off + size > len(self.blob) or any(a < off + size and off < b for a, b in claims):
                 self.notes[f"{sname}: not typed (overlaps another object)"] += 1
                 continue
             try:
-                self._check_typed(dec, sch, off)
+                for i in range(1 if count is None else count):
+                    self._check_item(dec, sname, off + i * self.item_size(sname))
             except (XS.XdlError, struct.error) as e:
                 self.notes[f"{sname}: not typed ({str(e).split(':')[-1].strip()[:60]})"] += 1
                 continue
-            typed[off] = sname
+            typed[off] = (sname, count)
             claims.append((off, off + size))
-            for rel_off, (path, target) in self.slot_fields(sname).items():
+            for rel_off, (path, target, x) in self.slot_fields(sname, count).items():
                 t = src.ptr.get(off + rel_off)
-                if t is not None and S.struct(target) is not None and target in S.top:
-                    queue.append((t, target))
+                if t is None:
+                    continue
+                target = (x or {}).get("item") or target
+                if (x or {}).get("count"):
+                    n = self.count_of(sname, off + rel_off - rel_off % self.item_size(sname) if count else off,
+                                      x["count"])
+                    if n is not None and (target.startswith("PTR32(") or (S.struct(target) is not None
+                                                                         and target in S.top)):
+                        queue.append((t, target, n))
+                elif S.struct(target) is not None and target in S.top:
+                    queue.append((t, target, None))
         return typed
+
+    def item_size(self, sname):
+        if sname.startswith("PTR32("):
+            return 4
+        return int(self.S.struct(sname)["x-size"], 16)
+
+    def count_of(self, sname, base, field):
+        """The value of `field` (a count) of the struct at base."""
+        p = self.S.struct(sname)["properties"].get(field)
+        if p is None or p.get("x-c-type") not in ("u32", "s32"):
+            return None
+        n = self.src.u32(base + int(p["x-offset"], 16))
+        return n if n < 0x10000 else None
+
+    def _check_item(self, dec, sname, off):
+        if sname.startswith("PTR32("):
+            if off not in dec.slots and self.src.u32(off) != 0:
+                raise XS.XdlError("link without relocation")
+            if off in dec.slots and dec.slots[off] != "pointer":
+                raise XS.XdlError(f"a pointer link on a {dec.slots[off]} slot")
+            return
+        self._check_typed(dec, self.S.struct(sname), off)
 
     def _check_typed(self, dec, sch, off):
         # decode with the pairing-free check only: scalars must not sit on relocation slots
@@ -456,8 +498,15 @@ class Extractor:
 
     _slot_cache = {}
 
-    def slot_fields(self, sname):
-        """{offset: (field path, link target type)} of a struct's link fields."""
+    def slot_fields(self, sname, count=None):
+        """{offset: (field path, link target type, x-link)} of a struct's link fields; of each
+        element ("3/info") for an array of `count`."""
+        if count is not None:
+            one = self.slot_fields(sname)
+            size = self.item_size(sname)
+            return {i * size + o: (f"{i}/{p}", t, x) for i in range(count) for o, (p, t, x) in one.items()}
+        if sname.startswith("PTR32("):
+            return {0: ("to", strip_struct(sname[6:-1]), None)}
         if sname in Extractor._slot_cache:
             return Extractor._slot_cache[sname]
         out = {}
@@ -471,7 +520,7 @@ class Extractor:
                     walk(p["items"], off + i * esz, path + [str(i)], sub)
                 return
             if "x-link" in p:
-                out[off] = ("/".join(path), p["x-link"].get("target") or "")
+                out[off] = ("/".join(path), strip_struct(p["x-link"].get("target") or ""), p["x-link"])
                 return
             if "$ref" in p:
                 for key, q in XS.fields(self.S.ref(p)):
@@ -505,6 +554,7 @@ class Extractor:
             gclaims[off] = (i, g, hi)
             claims.append((off, hi))
         typed = self.type_objects(claims, labels)
+        self.tac_at = XT.tac_shapes(src.u32, src.ptr, src.header, n)
         cuts = {0, n}
         cuts |= {t for t in src.ptr.values() if t <= n}
         cuts |= {src.u32(o) for o, v in src.rel["ref"].items() if v >> 16 == 0}
@@ -559,7 +609,10 @@ class Extractor:
                 if g is not None:
                     nd.anchors = {nm: o - a for o, nm in g["names"].items() if a <= o < b and nm}
             elif a in typed:
-                nd.kind, nd.schema = "typed", typed[a]
+                nd.kind, (nd.schema, nd.count) = "typed", typed[a]
+                if nd.count is not None:
+                    sz = self.item_size(nd.schema)
+                    nd.anchors = {str(i): i * sz for i in range(nd.count)}
             nd.label = labels.get(a)
             nodes.append(nd)
         if not nodes:
@@ -619,7 +672,9 @@ class Extractor:
                 if c is not None and c.start == t and c is not nd:
                     self.children[nd.start].append((rel_off, seg, c))
         self.paths = {nd.start: id_path(nd.id).split("/") for nd in self.nodes if nd.id}
-        for seed in roots + fixed + [n0]:
+        # a world pack's root is the World: its tables name the records the triggers point to
+        seeds = [n0] + roots + fixed if src.entry["type"] == "world" else roots + fixed + [n0]
+        for seed in seeds:
             self._bfs(seed)
         k = 0
         for nd in self.nodes:
@@ -650,7 +705,7 @@ class Extractor:
     def out_slots(self, nd):
         """[(offset in node, step name, target)] of the node's pointer slots, offset order."""
         src = self.src
-        fields = self.slot_fields(nd.schema) if nd.kind == "typed" else {}
+        fields = self.slot_fields(nd.schema, nd.count) if nd.kind == "typed" else {}
         out = []
         for o in range(nd.start - nd.start % 4, nd.end, 4):
             if o < nd.start:
@@ -660,15 +715,19 @@ class Extractor:
                 continue
             r = o - nd.start
             seg = fields[r][0] if r in fields else f"p{r:x}"
+            if nd.start in self.tac_at and nd.kind == "raw":
+                seg = XT.step_of(*self.tac_at[nd.start], r) or seg
             out.append((r, seg, t))
         return out
 
-    def link_to(self, t):
+    def link_to(self, t, elem=False):
+        """The link text of offset t; elem: an element of a typed array is named by its index
+        (`.../volumes/0`), also the first."""
         nd = self.node_at(t)
         if nd is None:
             raise GraphError(f"pointer to 0x{t:X} outside every node")
         d = t - nd.start
-        if d == 0:
+        if d == 0 and not (elem and nd.count is not None):
             return nd.id
         for nm, o in nd.anchors.items():
             if o == d:
@@ -725,12 +784,40 @@ class Extractor:
             shutil.rmtree(out)
         out.mkdir(parents=True)
         kinds = set((walkers().KINDS if walkers() else {}))
+        self.kinds = kinds
         for nd in self.nodes:
             own = (nd.fixed or nd.kind != "raw" or (nd.label in kinds)
                    or nd.end - nd.start >= OWN_FILE_MIN or nd.parent is None)
             if own:
                 nd.file = file_stem(id_path(nd.id))
+        self.compose_triggers()
         return self._write()
+
+    def compose_triggers(self):
+        """Each trigger of the pack's table as one file: the record, its conditions, actions and
+        parameter lists decoded (xdl_tac.py). A trigger that doesn't decode stays raw."""
+        self.tac_docs = {}
+        self.tac_pads = {}
+        if not self.tac_at or not self.S.struct("Trigger"):
+            return
+        T = XT.Tac(self.S.path("Trigger"))
+        for nd in self.nodes:
+            if self.tables_at.get(nd.start, ("",))[0] != "trigger" or nd.kind != "raw":
+                continue
+            x = XT.Extract(T, self)
+            if nd.end - nd.start < T.size["Trigger"] or not x.zero_tail(nd, T.size["Trigger"]):
+                self.notes["trigger: not decoded (record size)"] += 1
+                continue
+            try:
+                doc = x.trigger(nd)
+            except (XT.TacError, struct.error) as e:
+                self.notes[f"trigger: not decoded ({str(e)[:60]})"] += 1
+                continue
+            for p in x.parts:
+                p.file, p.tac = nd.file, nd.start
+            self.tac_docs[nd.start] = doc
+            self.tac_pads.update(x.pads)
+            self.notes["trigger: decoded"] += 1
 
     def _home(self, nd):
         p = nd
@@ -744,6 +831,8 @@ class Extractor:
         for nd in self.nodes:
             home = self._home(nd)
             layout.append({"id": nd.id, "file": home.file, "align": align_of(nd.start)})
+            if nd.start in self.tac_pads:
+                layout[-1]["pad"] = self.tac_pads[nd.start]   # zero bytes after the JSON's (alignment)
             if home is nd and nd.label:
                 layout[-1]["type"] = nd.label         # tools/xdl_components.py finds its candidates by this
             if home is not nd:
@@ -753,6 +842,10 @@ class Extractor:
                 self.kids[home.start][nd.id] = rec
         for nd in self.nodes:
             if nd.file is None:
+                continue
+            if nd.tac is not None:
+                if nd.tac == nd.start:
+                    self.write_trigger(nd)
                 continue
             if nd.kind == "geometry":
                 self.write_geometry(nd)
@@ -768,6 +861,25 @@ class Extractor:
                                                          "pointer slots zeroed; links by slot offset"])
         self.write_pack(layout)
         return self.summary()
+
+    def write_trigger(self, nd):
+        p = self.out / (nd.file + ".jsonc")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        S = self.S
+        doc = {"$schema": os.path.relpath(S.path("Trigger").resolve(), p.parent.resolve()),
+               "format_version": FORMAT, "id": nd.id}
+        doc.update(self.tac_docs[nd.start])
+        kids = {}
+        for q in self.nodes_of_trigger(nd):
+            kids.update(self.kids.get(q.start, {}))
+        if kids:
+            doc["children"] = kids
+        self.write_doc(nd.file + ".jsonc", doc, [
+            f"Trigger {nd.id} ({self.src.release}): a TAC trigger with its conditions, actions and "
+            "parameter lists (Trigger.h; tools/xdl_tac.py)"])
+
+    def nodes_of_trigger(self, nd):
+        return [q for q in self.nodes if q.tac == nd.start]
 
     def put_bytes(self, rec, b, nd):
         if len(b) <= INLINE_MAX:
@@ -791,32 +903,53 @@ class Extractor:
     def write_typed(self, nd):
         src, S = self.src, self.S
         sname = nd.schema
-        sch = S.struct(sname)
+        arr = nd.count is not None
         xp = XsPack(src)
         dec = GraphDecoder(S, xp, self)
         stem = nd.file if nd.file else file_stem(id_path(nd.id))
         p = self.out / (stem + ".jsonc")
         p.parent.mkdir(parents=True, exist_ok=True)
-        doc = {"$schema": os.path.relpath(S.path(sname).resolve(), p.parent.resolve()),
-               "format_version": 1, "extends": nd.id}
-        doc.update(dec.struct(sch, nd.start, nd.id))
-        self.write_doc(stem + ".jsonc", doc, [f"{sname} {nd.id} ({src.release}), from tools/xdl_graph.py"], sch)
+        size = self.item_size(sname)
+        n = nd.count if arr else 1
+        ptrs = sname.startswith("PTR32(")
+        sch = None if ptrs else S.struct(sname)
+        if ptrs:
+            doc = {"format_version": 1, "extends": nd.id, "of": sname,
+                   "items": [dec.link({"kind": "object"}, nd.start + i * 4, f"{nd.id}/{i}") for i in range(n)]}
+            self.write_doc(stem + ".jsonc", doc, [f"{n} links ({sname}) {nd.id} ({src.release}), from tools/xdl_graph.py"])
+        else:
+            doc = {"$schema": os.path.relpath(S.path(sname).resolve(), p.parent.resolve()),
+                   "format_version": 1, "extends": nd.id}
+            if arr:
+                doc["items"] = [dec.struct(sch, nd.start + i * size, f"{nd.id}/{i}") for i in range(n)]
+            else:
+                doc.update(dec.struct(sch, nd.start, nd.id))
+            what = f"{n} x {sname}" if arr else sname
+            self.write_doc(stem + ".jsonc", doc, [f"{what} {nd.id} ({src.release}), from tools/xdl_graph.py"]
+                           + (["an array: `items` holds one object per element (the schema's)"] if arr else []),
+                           None if arr else sch)
         # the base: what the JSON leaves out
-        size = int(sch["x-size"], 16)
-        rec, b = self.raw_record(nd, skip=self.json_slots(sname))
+        rec, b = self.raw_record(nd, skip=self.json_slots(sname, nd.count))
         b = bytearray(b)
-        for key, q in XS.fields(sch):
-            lo = int(q["x-offset"], 16)
-            hi = lo + S.size_of(q["x-c-type"])
-            lf = XS.leaf(q, len(XS.parse_ctype(q["x-c-type"])[1]))
-            if not ("x-link" in lf and lf["x-link"]["kind"] == "texture"):
-                b[lo:hi] = bytes(hi - lo)
+        for i in range(n):
+            o = i * size
+            if ptrs:
+                b[o:o + 4] = bytes(4)
+                continue
+            for key, q in XS.fields(sch):
+                lo = o + int(q["x-offset"], 16)
+                hi = lo + S.size_of(q["x-c-type"])
+                lf = XS.leaf(q, len(XS.parse_ctype(q["x-c-type"])[1]))
+                if not ("x-link" in lf and lf["x-link"]["kind"] == "texture"):
+                    b[lo:hi] = bytes(hi - lo)
         # texture relocs the JSON carries come from the JSON
-        for r in self.json_slots(sname):
+        for r in self.json_slots(sname, nd.count):
             rec.get("textures", {}).pop(hx(r), None)
         if "textures" in rec and not rec["textures"]:
             del rec["textures"]
-        base = {"format_version": FORMAT, "id": nd.id, "schema": sname, "json_size": size}
+        base = {"format_version": FORMAT, "id": nd.id, "schema": sname, "json_size": size * n}
+        if arr:
+            base["count"] = n
         if nd.label:
             base["type"] = nd.label
         base.update(rec)
@@ -829,8 +962,8 @@ class Extractor:
         self.write_doc(stem + ".base.jsonc", base, [f"base of {nd.id}: the bytes and links the "
                                                     f"{sname} JSON does not carry (hidden fields, padding, tail)"])
 
-    def json_slots(self, sname):
-        return set(self.slot_fields(sname))
+    def json_slots(self, sname, count=None):
+        return set(self.slot_fields(sname, count))
 
     def write_geometry(self, nd):
         src = self.src
@@ -1021,6 +1154,7 @@ class Builder:
         self.edited = []
         self.lib = lib                # the component library (xdl_components.Library); found when needed
         self.instances = {}
+        self.tac = None
 
     def doc(self, stem, ext=".jsonc"):
         key = stem + ext
@@ -1042,6 +1176,19 @@ class Builder:
                 return self.typed(ent, stem, folder, d)
         if d is None:
             d = self.doc(stem)
+        if str(d.get("$schema", "")).endswith("Trigger.schema.json"):
+            parts = self.trigger_parts(stem, d)
+            if nid in parts:
+                pid, data, links = parts[nid]
+                b = Built(nid, data + bytes(ent.get("pad", 0)), ent["align"])
+                b.links.update(links)
+                return b
+            rec = d.get("children", {}).get(nid)
+            if rec is None:
+                return None                     # a part the file no longer has
+            b = Built(nid, rec_bytes(folder, rec), ent["align"])
+            rec_slots(b, rec)
+            return b
         if "component" in d:                    # a component instance (tools/xdl_components.py)
             rec = self.instance(stem).get(nid)
             if rec is None:
@@ -1057,6 +1204,22 @@ class Builder:
             raise GraphError(f"{nid}: {len(b.data)} bytes, size says {rec['size']}")
         rec_slots(b, rec)
         return b
+
+    def trigger_parts(self, stem, d):
+        """{node id: (id, bytes, links)} of a trigger file, encoded once (xdl_tac.py)."""
+        if stem not in self.instances:
+            if self.tac is None:
+                self.tac = XT.Tac(self.S.path("Trigger"))
+            v, vk = XS.validator(self.S.top["Trigger"][0])
+            errs = [str(getattr(e, "message", e)) for e in v.iter_errors(d)]
+            if errs:
+                raise GraphError(f"{stem}.jsonc: schema ({vk}): " + "; ".join(errs[:3]))
+            try:
+                parts = XT.encode_trigger(self.tac, d, d["id"], self.e, "")
+            except XT.TacError as e:
+                raise GraphError(f"{stem}.jsonc: {e}")
+            self.instances[stem] = {p[0]: p for p in parts}
+        return self.instances[stem]
 
     def instance(self, stem):
         """{node id: record} of the component instance in STEM.jsonc, expanded once."""
@@ -1075,28 +1238,81 @@ class Builder:
 
     def typed_rec(self, ent, stem, sname, doc, base):
         data = rec_bytes(self.dir, base)
+        if "count" in base:
+            return self.typed_array(ent, stem, sname, doc, base, data)
         sch = self.S.struct(sname)
         v, vk = XS.validator(self.S.top[sname][0])
         errs = [str(getattr(e, "message", e)) for e in v.iter_errors(doc)]
         if errs:
             raise GraphError(f"{stem}.jsonc: schema ({vk}): " + "; ".join(errs[:3]))
-        xp = type("P", (), {"e": self.e, "release": self.release, "archive": self.archive, "name": self.name,
-                            "ptrs": set(), "tex": {}, "snd": {}, "ref": {}, "blob": b""})()
-        enc = GraphEncoder(self.S, xp, sname, data)
+        enc = GraphEncoder(self.S, self.xpack(), sname, data)
         try:
             enc.encode(doc, doc.get("extends"))
         except XS.XdlError as e:
             raise GraphError(f"{stem}.jsonc: {e}")
         b = Built(ent["id"], enc.out, ent["align"])
         rec_slots(b, base)
-        for off, (kind, v) in enc.links.items():
+        self.put_links(b, enc.links, 0)
+        return b
+
+    def xpack(self):
+        return type("P", (), {"e": self.e, "release": self.release, "archive": self.archive, "name": self.name,
+                              "ptrs": set(), "tex": {}, "snd": {}, "ref": {}, "blob": b""})()
+
+    @staticmethod
+    def put_links(b, links, at):
+        for off, (kind, v) in links.items():
             if kind == "object":
-                b.links[off] = v
+                b.links[at + off] = v
             elif kind == "texture":
-                b.tex[off] = v
+                b.tex[at + off] = v
             else:                               # geometry: a local ref
-                b.links[off] = v
-                b.refs[off] = "local"
+                b.links[at + off] = v
+                b.refs[at + off] = "local"
+
+    def typed_array(self, ent, stem, sname, doc, base, data):
+        """An array node: `items`, one object (or link) per element, over the base's bytes."""
+        items = doc.get("items")
+        if not isinstance(items, list):
+            raise GraphError(f"{stem}.jsonc: `items` (a list) is missing")
+        out = bytearray()
+        b = Built(ent["id"], b"", ent["align"])
+        rec_slots(b, base)
+        if sname.startswith("PTR32("):
+            for i, v in enumerate(items):
+                if v is not None and not isinstance(v, str):
+                    raise GraphError(f"{stem}.jsonc: items/{i}: a link or null")
+                out += bytes(4)
+                if v is not None:
+                    b.links[4 * i] = v
+        else:
+            sch = self.S.struct(sname)
+            size = int(sch["x-size"], 16)
+            v, vk = XS.validator(dict(self.S.top[sname][0], required=[]))
+            for i, item in enumerate(items):
+                errs = [str(getattr(e, "message", e)) for e in v.iter_errors(dict(item, format_version=1))]
+                if errs:
+                    raise GraphError(f"{stem}.jsonc: items/{i}: schema ({vk}): " + "; ".join(errs[:3]))
+                chunk = data[i * size:(i + 1) * size] if (i + 1) * size <= len(data) else bytes(size)
+                enc = GraphEncoder(self.S, self.xpack(), sname, chunk)
+                try:
+                    enc.encode(item, None)
+                except XS.XdlError as e:
+                    raise GraphError(f"{stem}.jsonc: items/{i}: {e}")
+                self.put_links(b, enc.links, i * size)
+                out += enc.out
+            if len(items) * size < len(data):
+                out += data[len(items) * size:]       # the node's tail (base bytes)
+        n = len(items)
+        if n != base["count"]:
+            # the element count changed: drop the base's slots past the new end
+            lim = len(out)
+            for d in (b.links, b.refs, b.tex, b.snd, b.shd):
+                for o in [o for o in d if o >= lim]:
+                    del d[o]
+        b.data = bytearray(out)
+        sz = 4 if sname.startswith("PTR32(") else self.S.size_of(sname)
+        b.anchors = {str(i): i * sz for i in range(n)}
         return b
 
     def geometry(self, ent, stem, folder):
@@ -1144,7 +1360,27 @@ class Builder:
                 if nid not in have:
                     have.add(nid)
                     layout.append({"id": nid, "file": stem, "align": al})
-        built = [self.node(ent) for ent in layout]
+        built = []
+        for ent in layout:
+            b = self.node(ent)
+            if b is not None:
+                built.append(b)
+            if ent["file"] in self.instances and str(self.doc(ent["file"]).get("$schema", "")).endswith(
+                    "Trigger.schema.json"):
+                last = ent["file"]
+        # parts a trigger file gained (an added action, a list now inline): after its record
+        have = {b.id for b in built}
+        for stem, parts in list(self.instances.items()):
+            if not str(self.doc(stem).get("$schema", "")).endswith("Trigger.schema.json"):
+                continue
+            new = [p for p in parts.values() if p[0] not in have]
+            if new:
+                at = max(i for i, b in enumerate(built) if b.id in parts) + 1
+                for pid, data, links in new:
+                    nb = Built(pid, data, 4)
+                    nb.links.update(links)
+                    built.insert(at, nb)
+                    at += 1
         # place
         pos = 0
         index = {}

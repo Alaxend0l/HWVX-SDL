@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorldVariable",
+  "description": "A script variable (world + 0x48/0x4C), referenced by triggers/actions.",
+  "type": "object",
+  "x-c-struct": "WorldVariable",
+  "x-header": "World.h",
+  "x-size": "0x10",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldVariable"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "unk_0x00": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x00",
+      "x-c-type": "u8",
+      "x-c-name": "pad0"
+    },
+    "active": {
+      "description": "shown by HUD role 51",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x01",
+      "x-c-type": "u8"
+    },
+    "id": {
+      "description": "interfaces bind to it by id",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x02",
+      "x-c-type": "u8"
+    },
+    "unk_0x03": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x03",
+      "x-c-type": "u8",
+      "x-c-name": "pad3"
+    },
+    "value": {
+      "type": "number",
+      "x-offset": "0x04",
+      "x-c-type": "f32"
+    },
+    "unk_0x08": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x08",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad8"
+    },
+    "mode": {
+      "description": "u8 mode (ActionVariableChangeMode)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u8"
+      },
+      "x-offset": "0x0C",
+      "x-c-type": "PTR32(u8)"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "unk_0x00",
+      "active",
+      "id",
+      "unk_0x03",
+      "value",
+      "unk_0x08",
+      "mode"
+    ]
+  }
+}

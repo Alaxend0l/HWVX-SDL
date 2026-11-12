@@ -48,6 +48,11 @@ SCHEMA_STRUCTS = [
     "CarAInfo", "CarAEngine", "CarAAccel", "CarACollider", "CarAStuntInfo", "CarAHud",
     "ProjectileInfo", "SmartProjParams", "CreatureInfo", "ItemRecord", "WeaponInfo",
     "WorldGameData", "DestructibleInfo", "IfaceObjectDef",
+    "Trigger",
+    # world packs (World.h)
+    "World", "TileCar", "TilePath", "WorldQuad", "QuadContents", "QuadInstance", "QuadFxPoint",
+    "QuadItem", "TileSpeaker", "Teleporter", "TileLight", "TileCreature", "WorldObjective",
+    "WorldVolume", "WorldVariable", "WorldTimer",
 ]
 
 # name: (size, signed, float)
@@ -176,6 +181,8 @@ class Registry:
         self.defines = {}        # NAME -> token list
         self.fmacros = {}        # NAME -> (params, body tokens)
         self.enums = {}          # enumerator -> value
+        self.enum_tags = {}      # enum tag -> [(enumerator, value)] (named enums only)
+        self.tac = {}            # TAC_PARAMS_* / TAC_RECORD_* item lists (Trigger.h)
         self.asserts = []        # (header, line, expr tokens)
         self.order = []          # struct/union Types in definition order
         self.errors = []         # parse problems: (header, line, message)
@@ -516,12 +523,14 @@ class Parser:
 
     def enum_type(self):
         self.expect("enum")
+        tag = None
         if self.peek().kind == "name":
-            self.next()
+            tag = self.next().text
         if self.peek().text != "{":
             return Type("enum", "enum", 4, 4)
         self.next()
         val = -1
+        members = self.reg.enum_tags.setdefault(tag, []) if tag else []
         while self.peek().text != "}":
             name = self.next().text
             if self.peek().text == "=":
@@ -540,6 +549,7 @@ class Parser:
             else:
                 val += 1
             self.reg.enums[name] = val
+            members.append((name, val))
             if self.peek().text == ",":
                 self.next()
         self.next()
@@ -938,7 +948,28 @@ def load(headers):
                 reg.defines[name] = btoks
     for h, toks in parsed:
         Parser(reg, h.name, toks).parse()
+        reg.tac.update(tac_macros(h.read_text()))
     return reg
+
+
+TAC_MACRO = re.compile(r"^#define\s+(TAC_(?:PARAMS|RECORD|CASE)_\w+)[ \t]*(.*)$", re.M)
+TAC_ITEM = re.compile(r"(\w+)\(([^)]*)\)")
+TAC_KINDS = {"U32": "u32", "S32": "s32", "F32": "f32", "TOKEN": "token", "ANY": "any", "LINK": "link",
+             "LIST": "list", "OPERAND": "operand", "CODEVAR": "codevar", "SCRATCH": "scratch",
+             "STRING": "string", "TABLE": "table", "WORDS": "words", "VEC3": "vec3", "SWITCH": "switch"}
+
+
+def tac_macros(text):
+    """{macro: [[kind, name, arg?], ...]} of a header's parameter-list macros (Trigger.h)."""
+    out = {}
+    for m in TAC_MACRO.finditer(text):
+        items = []
+        for k, args in TAC_ITEM.findall(m.group(2)):
+            if k not in TAC_KINDS:
+                raise LayoutError(f"{m.group(1)}: unknown item {k}")
+            items.append([TAC_KINDS[k]] + [a.strip() for a in args.split(",")])
+        out[m.group(1)] = items
+    return out
 
 
 def headers():
@@ -1031,6 +1062,12 @@ def parse_marker(comment):
       geometry   a geometry slot (local ref relocation): a geometry link
       units=U    x-units
       hint=TEXT  x-hint
+      enum=TAG   an integer named by `enum TAG`'s enumerators (x-enum; JSON: the name)
+      flags=TAG  a bit set named by `enum TAG`'s enumerators (x-flags; JSON: a list of names)
+      count=F    a pointer to F elements (F: a sibling field); x-link.count
+      inline     the target is written inside this object's file (TAC triggers)
+      params=F   the parameter list whose layout the sibling enum field F picks (Trigger.h's
+                 TAC_PARAMS_* macros): a tagged union, x-params
     """
     text = comment or ""
     marks = {}
@@ -1051,6 +1088,28 @@ def parse_marker(comment):
 # schemas
 
 INT_RANGE = {1: 8, 2: 16, 4: 32, 8: 64}
+
+
+def enum_names(reg, tag):
+    """{value: json name} of `enum TAG`: the enumerators without their common prefix,
+    lower case; a NUM_* / *_COUNT terminator is left out."""
+    mem = [(n, v) for n, v in reg.enum_tags.get(tag, []) if not re.search(r"(^|_)NUM_|_COUNT$", n)]
+    if not mem:
+        raise LayoutError(f"no enum {tag}")
+    names = [n for n, _ in mem]
+    pre = names[0]
+    for n in names[1:]:
+        while not n.startswith(pre):
+            pre = pre[:-1]
+    pre = pre[:pre.rfind("_") + 1] if "_" in pre else ""
+    out = {}
+    for n, v in mem:
+        out.setdefault(v, n[len(pre):].lower())
+    return out
+
+
+def named_int_schema(names, base):
+    return {"anyOf": [{"enum": list(dict.fromkeys(names.values()))}, base]}
 
 
 def link_schema(kind, target=None):
@@ -1087,6 +1146,32 @@ class Emitter:
             return link_schema("texture")
         if "geometry" in marks:
             return link_schema("geometry")
+        if t.kind == "prim" and "enum" in marks:
+            names = enum_names(self.reg, marks["enum"])
+            return dict(named_int_schema(names, prim_schema(t)), **{
+                "x-enum": {str(v): n for v, n in sorted(names.items())}})
+        if t.kind == "prim" and "flags" in marks:
+            names = enum_names(self.reg, marks["flags"])
+            return {"type": "array", "items": named_int_schema(names, prim_schema(t)), "uniqueItems": True,
+                    "x-flags": {str(v): n for v, n in sorted(names.items())}}
+        if t.kind == "ptr" and "params" in marks:
+            return {"anyOf": [link_schema("object", t.target), {"type": "object"}],
+                    "x-params": {"tag": marks["params"]}}
+        if t.kind == "ptr" and "count" in marks:
+            sch = link_schema("object", t.target)
+            sch["x-link"]["count"] = marks["count"]
+            et = self.reg.types.get(t.target)
+            if et is not None:
+                et = self.reg.resolve(et)
+                layout(self.reg, et)
+                sch["x-link"]["item"] = et.name if et.kind in ("struct", "union") else et.ctype()
+                sch["x-link"]["item-size"] = et.size
+            if "inline" in marks:
+                tt = self.reg.types.get(t.target)
+                item = self.type_schema(tt, {}, defs) if tt is not None else {"type": "object"}
+                sch = {"anyOf": [sch, {"type": "array", "items": item}], "x-link": sch["x-link"],
+                       "x-inline": True}
+            return sch
         if t.kind == "prim":
             return prim_schema(t)
         if t.kind == "enum":
@@ -1221,7 +1306,165 @@ class Emitter:
             raise LayoutError(f"no struct {name}")
         layout(self.reg, t)
         defs = {}
-        return self.object_schema(t, defs, top=True)
+        sch = self.object_schema(t, defs, top=True)
+        self.add_variants(sch)
+        return sch
+
+    # -- tagged unions: the TAC parameter lists ------------------------------------------
+    def add_variants(self, sch):
+        """For each `params=F` field (in the struct or its $defs): x-variants, the layout of
+        each kind of F's enum from the TAC_PARAMS_* macros, with a JSON schema per kind
+        ($defs/<Enum>_<kind>) and an if/then per kind picking it."""
+        objs = [sch] + list(sch.get("$defs", {}).values())
+        variants, records, cases = {}, {}, {}
+        for o in objs:
+            for key, p in o.get("properties", {}).items():
+                if "x-params" not in p:
+                    continue
+                tagp = o["properties"][p["x-params"]["tag"]]
+                tag = re.search(r"enum=(\w+)", self._marks_of(o, p["x-params"]["tag"]))
+                tag = tag.group(1) if tag else None
+                if tag is None:
+                    raise LayoutError(f"{key}: params= names a field without enum=")
+                p["x-params"]["enum"] = tag
+                if tag not in variants:
+                    variants[tag] = self.variant_layouts(tag, records, cases)
+                rules = []
+                for kind, items in variants[tag].items():
+                    dname = f"{tag}_{kind}"
+                    sch.setdefault("$defs", {})[dname] = self.variant_schema(items, dname)
+                    rules.append({"if": {"properties": {p["x-params"]["tag"]: {"const": kind}},
+                                         "required": [p["x-params"]["tag"]]},
+                                  "then": {"properties": {key: {"anyOf": [
+                                      {"$ref": f"#/$defs/{dname}"}, {"type": ["string", "null"]}]}}}})
+                o["allOf"] = rules
+                del tagp  # (the tag field keeps its x-enum)
+        if variants:
+            # the trigger file's form (xdl_graph.py): one file per trigger record, its own id, its
+            # inline lists without their counts, raw children; pads only when not zero
+            sch["properties"] = {"id": dict(link_schema("object", sch["title"]), type="string",
+                                            description="the record's own id (the trigger table entry)"),
+                                 "children": {"type": "object", "description": "raw nodes kept in this file"},
+                                 **sch["properties"]}
+            # a field left out is zero (xdl_tac.py writes only the ones that aren't)
+            sch["else"] = {"required": ["type"]}
+            for d in ("Trigger", "TriggerAction"):
+                if d in sch.get("$defs", {}):
+                    sch["$defs"][d]["required"] = ["type"]
+            sch["x-variants"] = variants
+            if records:
+                sch["x-records"] = records
+            if cases:
+                sch["x-cases"] = cases
+            sch["x-tokens"] = {str(v): n for v, n in sorted(enum_names(self.reg, "TacToken").items())}
+            sch["x-operands"] = {str(v): n for v, n in sorted(enum_names(self.reg, "TacOperand").items())}
+
+    def _marks_of(self, obj_schema, key):
+        t = self.reg.types.get(obj_schema.get("x-c-struct") or "")
+        for off, f, alts in self.members(t):
+            if f.name == key:
+                return f.comment or ""
+        return ""
+
+    def variant_layouts(self, tag, records, cases):
+        out = {}
+        for n, v in self.reg.enum_tags[tag]:
+            if re.search(r"(^|_)NUM_|_COUNT$", n):
+                continue
+            macro = "TAC_PARAMS_" + n
+            if macro not in self.reg.tac:
+                raise LayoutError(f"{tag}: no {macro} (Trigger.h)")
+            items = self.reg.tac[macro]
+            self.collect(macro, items, records, cases)
+            out[enum_names(self.reg, tag)[v]] = items
+        return out
+
+    def collect(self, macro, items, records, cases):
+        """The TAC_RECORD_* and TAC_CASE_* lists `items` uses, into records / cases (x-cases:
+        {enum: {value: {"kind": name, "items": [...]}}})."""
+        for it in items:
+            if it[0] == "table" and it[2] not in records:
+                rm = "TAC_RECORD_" + it[2]
+                if rm not in self.reg.tac:
+                    raise LayoutError(f"{macro}: no {rm}")
+                records[it[2]] = self.reg.tac[rm]
+                self.collect(rm, records[it[2]], records, cases)
+            elif it[0] == "switch" and it[2] not in cases:
+                if it[2] not in self.reg.enum_tags:
+                    raise LayoutError(f"{macro}: SWITCH of {it[2]}: no such enum")
+                names = enum_names(self.reg, it[2])
+                cases[it[2]] = {}
+                for n, v in self.reg.enum_tags[it[2]]:
+                    cm = "TAC_CASE_" + n
+                    if cm not in self.reg.tac:
+                        raise LayoutError(f"{it[2]}: no {cm} (Trigger.h)")
+                    cases[it[2]][str(v)] = {"kind": names[v], "items": self.reg.tac[cm]}
+                for c in list(cases[it[2]].values()):
+                    self.collect("TAC_CASE_" + it[2], c["items"], records, cases)
+
+    def item_props(self, items, title):
+        """({name: schema}, required) of a parameter list's items."""
+        link = link_schema("object")
+        word = {"anyOf": [{"type": "integer"}, link]}
+        token = named_int_schema(enum_names(self.reg, "TacToken"), {"type": "integer"})
+        props = {}
+        for it in items:
+            k, name = it[0], it[1]
+            if k in ("u32", "s32"):
+                p = {"type": "integer"}
+            elif k == "f32":
+                p = {"type": "number"}
+            elif k == "vec3":
+                p = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+            elif k == "token":
+                p = token
+            elif k == "any":
+                p = word
+            elif k == "link":
+                p = link_schema("object", None if it[2] == "void" else it[2])
+            elif k == "list":
+                p = {"type": "array", "items": link_schema("object", None if it[2] == "void" else it[2])}
+            elif k == "operand":
+                p = {"type": "object", "x-tac": "operand",
+                     "description": "{\"const\": f32} | {\"variable\": WorldVariableSlot link} | "
+                                    "{\"code\": id, \"arg\": word}"}
+            elif k == "codevar":
+                p = {"type": "object", "x-tac": "codevar",
+                     "description": "{\"var\": id < 100, \"cars\": [TileCar links]} | {\"var\": id, \"arg\": word}"}
+            elif k == "scratch":
+                p = {"type": "array", "items": {"type": "integer"}, "description": f"run-time words, one per {it[2]}"}
+            elif k == "string":
+                p = {"type": "string"}
+            elif k == "table":
+                rp, rq = self.item_props(self.reg.tac["TAC_RECORD_" + it[2]], it[2])
+                p = {"type": "array", "items": {"type": "object", "properties": rp, "required": rq,
+                                                "additionalProperties": False}, "x-record": it[2]}
+            elif k == "switch":
+                alts = []
+                for n, v in self.reg.enum_tags[it[2]]:
+                    cp, cq = self.item_props(self.reg.tac["TAC_CASE_" + n], n)
+                    kind = enum_names(self.reg, it[2])[v]
+                    alts.append({"type": "object", "title": kind,
+                                 "properties": dict({"kind": {"const": kind}}, **cp),
+                                 "required": ["kind"] + cq, "additionalProperties": False})
+                p = {"oneOf": alts, "x-switch": it[2],
+                     "description": f"{{\"kind\": a {it[2]} name, ...}} (Trigger.h TAC_CASE_*)"}
+            elif k == "words":
+                p = {"type": "array", "items": word, "description": "not decoded"}
+            else:
+                raise LayoutError(f"{title}: item {k}")
+            props[name] = dict(p, **{"x-item": k})
+        return props, [it[1] for it in items]
+
+    def variant_schema(self, items, title):
+        link = link_schema("object")
+        word = {"anyOf": [{"type": "integer"}, link]}
+        props, req = self.item_props(items, title)
+        props["tail"] = {"anyOf": [{"type": "string"}, {"type": "array", "items": word}],
+                         "description": "what follows the list in its node, kept as it was: hex, or "
+                                        "words when it holds links"}
+        return {"title": title, "type": "object", "properties": props, "additionalProperties": False,
+                "required": req}
 
 
 def write_schemas(reg, fields_doc, out, observed):

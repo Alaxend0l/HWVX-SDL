@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TileCreature",
+  "description": "A creature placed in the world (World_GetTileCreature).",
+  "type": "object",
+  "x-c-struct": "TileCreature",
+  "x-header": "World.h",
+  "x-size": "0x40",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "TileCreature"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "pos": {
+      "$ref": "#/$defs/Vector4",
+      "x-offset": "0x00",
+      "x-c-type": "Vector4"
+    },
+    "unk_0x10": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x10",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad10"
+    },
+    "angle": {
+      "type": "number",
+      "x-offset": "0x14",
+      "x-c-type": "f32"
+    },
+    "info": {
+      "description": "CreatureInfo",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x18",
+      "x-c-type": "PTR32(void)"
+    },
+    "thing": {
+      "description": "the spawned creature (handle), 0: none",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x1C",
+      "x-c-type": "u32",
+      "x-union-alternatives": [
+        "creature"
+      ]
+    },
+    "mode": {
+      "description": "1: alive (ActionCreatureChangeMode)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x20",
+      "x-c-type": "u32",
+      "x-union-alternatives": [
+        "spawnable"
+      ]
+    },
+    "scripts": {
+      "description": "per difficulty, 0: CreatureInfo.aiScripts",
+      "type": "array",
+      "items": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+        "x-link": {
+          "kind": "object"
+        }
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x24",
+      "x-c-type": "u32[4]"
+    },
+    "unk_0x34": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 12,
+      "maxItems": 12,
+      "x-offset": "0x34",
+      "x-c-type": "u8[12]",
+      "x-c-name": "pad34"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "pos",
+      "unk_0x10",
+      "angle",
+      "info",
+      "thing",
+      "mode",
+      "scripts",
+      "unk_0x34"
+    ]
+  },
+  "$defs": {
+    "Vector4": {
+      "title": "Vector4",
+      "type": "object",
+      "x-c-struct": "Vector4",
+      "x-header": "common.h",
+      "x-size": "0x10",
+      "properties": {
+        "x": {
+          "type": "number",
+          "x-offset": "0x00",
+          "x-c-type": "f32"
+        },
+        "y": {
+          "type": "number",
+          "x-offset": "0x04",
+          "x-c-type": "f32"
+        },
+        "z": {
+          "type": "number",
+          "x-offset": "0x08",
+          "x-c-type": "f32"
+        },
+        "w": {
+          "type": "number",
+          "x-offset": "0x0C",
+          "x-c-type": "f32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

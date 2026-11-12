@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Teleporter",
+  "description": "A teleporter (world + 0x30/0x34); also the data of ActionVehicleTeleport. Thing.c has its own copy of the first part (Thing_CollideWithTeleporters).",
+  "type": "object",
+  "x-c-struct": "Teleporter",
+  "x-header": "World.h",
+  "x-size": "0x70",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "Teleporter"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "mtx": {
+      "description": "v[3] is the position",
+      "$ref": "#/$defs/Matrix4",
+      "x-offset": "0x00",
+      "x-c-type": "Matrix4"
+    },
+    "editorId": {
+      "description": "never read; a number of its own per object of the world, from the exporter (guessed: its object id)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x40",
+      "x-c-type": "u32"
+    },
+    "debris": {
+      "description": "effect spawned on use, 0: none",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x44",
+      "x-c-type": "u32"
+    },
+    "emitter": {
+      "description": "emitter shown at it (World_InitTeleporters), 0: none",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x48",
+      "x-c-type": "u32"
+    },
+    "radius": {
+      "type": "number",
+      "x-offset": "0x4C",
+      "x-c-type": "f32"
+    },
+    "numDest": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x50",
+      "x-c-type": "u32"
+    },
+    "flags": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x54",
+      "x-c-type": "u32"
+    },
+    "dest": {
+      "description": "teleporter indices",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x58",
+      "x-c-type": "PTR32(u32)"
+    },
+    "damage": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x5C",
+      "x-c-type": "s32"
+    },
+    "thing": {
+      "description": "the emitter thing",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "Thing"
+      },
+      "x-offset": "0x60",
+      "x-c-type": "PTR32(Thing)"
+    },
+    "unk_0x64": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 12,
+      "maxItems": 12,
+      "x-offset": "0x64",
+      "x-c-type": "u8[12]",
+      "x-c-name": "pad64"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "mtx",
+      "editorId",
+      "debris",
+      "emitter",
+      "radius",
+      "numDest",
+      "flags",
+      "dest",
+      "damage",
+      "thing",
+      "unk_0x64"
+    ]
+  },
+  "$defs": {
+    "Matrix4": {
+      "title": "Matrix4",
+      "type": "object",
+      "x-c-struct": "Matrix4",
+      "x-header": "common.h",
+      "x-size": "0x40",
+      "properties": {
+        "v": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Vector4"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "x-offset": "0x00",
+          "x-c-type": "Vector4[4]",
+          "x-union-alternatives": [
+            "d"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Vector4": {
+      "title": "Vector4",
+      "type": "object",
+      "x-c-struct": "Vector4",
+      "x-header": "common.h",
+      "x-size": "0x10",
+      "properties": {
+        "x": {
+          "type": "number",
+          "x-offset": "0x00",
+          "x-c-type": "f32"
+        },
+        "y": {
+          "type": "number",
+          "x-offset": "0x04",
+          "x-c-type": "f32"
+        },
+        "z": {
+          "type": "number",
+          "x-offset": "0x08",
+          "x-c-type": "f32"
+        },
+        "w": {
+          "type": "number",
+          "x-offset": "0x0C",
+          "x-c-type": "f32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QuadFxPoint",
+  "description": "An effect point of a quadrant: an emitter (type 2) and/or a corona.",
+  "type": "object",
+  "x-c-struct": "QuadFxPoint",
+  "x-header": "World.h",
+  "x-size": "0x40",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadFxPoint"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "pos": {
+      "$ref": "#/$defs/Vector4",
+      "x-offset": "0x00",
+      "x-c-type": "Vector4"
+    },
+    "quat": {
+      "$ref": "#/$defs/Quaternion",
+      "x-offset": "0x10",
+      "x-c-type": "Quaternion"
+    },
+    "editorId": {
+      "description": "never read; a number of its own per object of the world, from the exporter (guessed: its object id)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x20",
+      "x-c-type": "u32"
+    },
+    "emitter": {
+      "description": "emitter description, or NULL",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x24",
+      "x-c-type": "PTR32(void)"
+    },
+    "corona": {
+      "description": "or NULL",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x28",
+      "x-c-type": "PTR32(void)"
+    },
+    "drawDist": {
+      "description": "used if hasDrawDist",
+      "type": "number",
+      "x-offset": "0x2C",
+      "x-c-type": "f32"
+    },
+    "thing": {
+      "description": "the spawned emitter",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "Thing"
+      },
+      "x-offset": "0x30",
+      "x-c-type": "PTR32(Thing)"
+    },
+    "mode": {
+      "description": "TacToken: on, off (ActionFXPointChangeMode)",
+      "anyOf": [
+        {
+          "enum": [
+            "off",
+            "on",
+            "toggle",
+            "kill",
+            "set_speed",
+            "pause",
+            "resume",
+            "ai_hold",
+            "spawn",
+            "start",
+            "stop",
+            "to_start",
+            "to_end",
+            "add",
+            "subtract",
+            "set",
+            "less",
+            "greater",
+            "equal",
+            "show",
+            "hide",
+            "remove",
+            "kill_hidden",
+            "lock_control",
+            "unlock_control",
+            "order_loop",
+            "order_jump",
+            "damage_lost",
+            "damage_below",
+            "multiply",
+            "divide",
+            "greater_equal",
+            "less_equal"
+          ]
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      ],
+      "x-enum": {
+        "0": "off",
+        "1": "on",
+        "2": "toggle",
+        "3": "kill",
+        "6": "set_speed",
+        "7": "pause",
+        "8": "resume",
+        "9": "ai_hold",
+        "10": "spawn",
+        "11": "start",
+        "12": "stop",
+        "13": "to_start",
+        "14": "to_end",
+        "15": "add",
+        "16": "subtract",
+        "17": "set",
+        "20": "less",
+        "21": "greater",
+        "22": "equal",
+        "23": "show",
+        "24": "hide",
+        "25": "remove",
+        "26": "kill_hidden",
+        "34": "lock_control",
+        "35": "unlock_control",
+        "39": "order_loop",
+        "41": "order_jump",
+        "42": "damage_lost",
+        "43": "damage_below",
+        "45": "multiply",
+        "46": "divide",
+        "47": "greater_equal",
+        "48": "less_equal"
+      },
+      "x-offset": "0x34",
+      "x-c-type": "u32"
+    },
+    "hasDrawDist": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x38",
+      "x-c-type": "u8"
+    },
+    "defMode": {
+      "description": "mode at round start",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x39",
+      "x-c-type": "u8"
+    },
+    "unk_0x3A": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 6,
+      "maxItems": 6,
+      "x-offset": "0x3A",
+      "x-c-type": "u8[6]",
+      "x-c-name": "pad3A"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "pos",
+      "quat",
+      "editorId",
+      "emitter",
+      "corona",
+      "drawDist",
+      "thing",
+      "mode",
+      "hasDrawDist",
+      "defMode",
+      "unk_0x3A"
+    ]
+  },
+  "$defs": {
+    "Vector4": {
+      "title": "Vector4",
+      "type": "object",
+      "x-c-struct": "Vector4",
+      "x-header": "common.h",
+      "x-size": "0x10",
+      "properties": {
+        "x": {
+          "type": "number",
+          "x-offset": "0x00",
+          "x-c-type": "f32"
+        },
+        "y": {
+          "type": "number",
+          "x-offset": "0x04",
+          "x-c-type": "f32"
+        },
+        "z": {
+          "type": "number",
+          "x-offset": "0x08",
+          "x-c-type": "f32"
+        },
+        "w": {
+          "type": "number",
+          "x-offset": "0x0C",
+          "x-c-type": "f32"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Quaternion": {
+      "title": "Quaternion",
+      "type": "object",
+      "x-c-struct": "Quaternion",
+      "x-header": "common.h",
+      "x-size": "0x10",
+      "properties": {
+        "x": {
+          "type": "number",
+          "x-offset": "0x00",
+          "x-c-type": "f32"
+        },
+        "y": {
+          "type": "number",
+          "x-offset": "0x04",
+          "x-c-type": "f32"
+        },
+        "z": {
+          "type": "number",
+          "x-offset": "0x08",
+          "x-c-type": "f32"
+        },
+        "w": {
+          "type": "number",
+          "x-offset": "0x0C",
+          "x-c-type": "f32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

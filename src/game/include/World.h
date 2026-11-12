@@ -24,13 +24,14 @@ typedef struct TileCar {
     f32 rotX;                   /* 0x10 degrees, for SetOrientation */
     f32 rotY;                   /* 0x14 */
     f32 rotZ;                   /* 0x18 */
-    u8 pad1C[8];                /* 0x1C */
+    u32 unused1C;               /* 0x1C never read; 0xCDCDCDCD in every pack (uninitialised) */
+    u32 editorId;               /* 0x20 never read; a number of its own per object of the world, from the exporter (guessed: its object id) */
     union {
         PTR32(struct CarAInfo) info;          /* 0x24 the vehicle; AI scripts per difficulty at 0x90 */
         PTR32(struct AIScriptSet) aiScripts;  /*      the same, as the AI reads it */
     };
     PTR32(struct CarA) car;     /* 0x28 the spawned car, NULL if none */
-    u32 mode;                   /* 0x2C last ActionVehicleChangeMode mode */
+    u32 mode;                   /* 0x2C last ActionVehicleChangeMode mode @xdl: enum=TacToken */
     u32 vehicle;                /* 0x30 */
     u8 dynamic;                 /* 0x34 nonzero: not spawned by mode 1/10; AIPlayerParams.dynamic */
     u8 port;                    /* 0x35 1-4: human player slot; AI cars spawn only when > 4 */
@@ -38,7 +39,7 @@ typedef struct TileCar {
     u8 maxVehicle;              /* 0x37 AI cars pick a vehicle in 0..maxVehicle */
     f32 nearDist;               /* 0x38 AI ranges */
     f32 farDist;                /* 0x3C */
-    u32 scripts[4];             /* 0x40 AI script per difficulty, 0: the vehicle's */
+    u32 scripts[4];             /* 0x40 AI script per difficulty, 0: the vehicle's @xdl: link=AICarScript */
     PTR32(ItemRecord) item2;    /* 0x50 a second item it starts with (LoadWorldProcess) */
     PTR32(ItemRecord) item;     /* 0x54 wildcard the car starts with, NULL: none */
     f32 health;                 /* 0x58 fraction of the maximum, kept across DD Rescue missions
@@ -72,7 +73,7 @@ typedef struct TileCreature {
         u32 mode;               /* 0x20 1: alive (ActionCreatureChangeMode) */
         u32 spawnable;          /*      as the AI reads it */
     };
-    u32 scripts[4];             /* 0x24 per difficulty, 0: CreatureInfo.aiScripts */
+    u32 scripts[4];             /* 0x24 per difficulty, 0: CreatureInfo.aiScripts @xdl: link */
     u8 pad34[0xC];              /* 0x34 */
 } TileCreature;
 
@@ -83,7 +84,7 @@ _Static_assert(sizeof(TileCreature) == 0x40, "TileCreature size");
  * Thing.c has its own copy of the first part (Thing_CollideWithTeleporters). */
 typedef struct Teleporter {
     Matrix4 mtx;                /* 0x00 v[3] is the position */
-    u8 pad40[4];                /* 0x40 */
+    u32 editorId;               /* 0x40 never read; a number of its own per object of the world, from the exporter (guessed: its object id) */
     u32 debris;                 /* 0x44 effect spawned on use, 0: none */
     u32 emitter;                /* 0x48 emitter shown at it (World_InitTeleporters), 0: none */
     f32 radius;                 /* 0x4C */
@@ -165,20 +166,30 @@ typedef struct WorldObjective {
 /* ---- volumes (VolumeManager.c) ------------------------------------------- */
 
 /* VolumeCell.lists[] index, = WorldVolume.type */
-enum {
+enum VolumeType {
+    VOLUME_AIRBOX = 0,          /* no data: the volumes the airbox triggers and actions name */
     VOLUME_FORCE_BOX = 1,       /* data: Thing.c ForceBox */
     VOLUME_REVERB = 2,          /* data: { u32 type, u16 volume, u16 feedback } */
+    VOLUME_CAMERA = 3,          /* the driving camera keeps the car's up inside (Camera_UpdatePosition_Default) */
     VOLUME_FOG = 4,             /* data: { u8 type, f32 near, f32 far, GXColor } */
+    VOLUME_CREATURE = 5,        /* creature spawn volumes (AI_Creature); PC: rescue zones (data byte 0) */
+    VOLUME_LIGHT = 6,           /* data: a Light (LightManager) */
     VOLUME_NUM_TYPES = 7,
+};
+
+/* WorldVolume.shape */
+enum VolumeShape {
+    VOLUME_SHAPE_BSP = 0,
+    VOLUME_SHAPE_SPHERE = 1,
 };
 
 /* A volume (world + 0x68/0x6C): a sphere or a BSP. Triggers ("airboxes") and
  * the volume grid refer to them; `data` depends on the type. */
 typedef struct WorldVolume {
-    u8 pad0[4];                 /* 0x00 */
+    u32 editorId;               /* 0x00 never read; a number of its own per object of the world, from the exporter (guessed: its object id) */
     u32 enabled;                /* 0x04 airboxes: 1 when on (ActionAirboxChangeMode) */
-    s32 shape;                  /* 0x08 0: BSP, 1: sphere */
-    u32 type;                   /* 0x0C VOLUME_* */
+    s32 shape;                  /* 0x08 0: BSP, 1: sphere @xdl: enum=VolumeShape */
+    u32 type;                   /* 0x0C VOLUME_* @xdl: enum=VolumeType */
     Vector4 center;             /* 0x10 sphere */
     f32 radius;                 /* 0x20 */
     f32 radiusSq;               /* 0x24 */
@@ -255,10 +266,10 @@ typedef struct TileSpeaker {
 /* A mover placed on a track (World_GetTilePath), 0x20 bytes: spawned as a
  * physical object (DESTRUCTIBLE_MOVER) at round start. */
 typedef struct TilePath {
-    u8 pad0[4];                 /* 0x00 */
-    u32 anim;                   /* 0x04 the track (DestructibleParams.anim) */
+    u32 editorId;               /* 0x00 never read; a number of its own per object of the world, from the exporter (guessed: its object id) */
+    u32 anim;                   /* 0x04 the track (DestructibleParams.anim) @xdl: link */
     f32 speed;                  /* 0x08 */
-    u32 record;                 /* 0x0C ThingRecord handle */
+    u32 record;                 /* 0x0C ThingRecord handle @xdl: link=ThingRecord */
     PTR32(Thing) thing;         /* 0x10 the spawned mover */
     u32 enabled;                /* 0x14 0: not spawned */
     u8 pad18;                   /* 0x18 */
@@ -289,11 +300,11 @@ enum {
 typedef struct QuadInstance {
     Vector4 pos;                /* 0x00 */
     Quaternion quat;            /* 0x10 */
-    u8 pad20[4];                /* 0x20 */
+    u32 editorId;               /* 0x20 never read; a number of its own per object of the world, from the exporter (guessed: its object id) */
     PTR32(ThingRecord) record;  /* 0x24 see THINGRECORD_IS_STATIC */
     f32 drawDist;               /* 0x28 used if hasDrawDist */
     PTR32(Thing) thing;         /* 0x2C the spawned destructible */
-    u32 mode;                   /* 0x30 */
+    u32 mode;                   /* 0x30 TacToken: on, off, kill (QUAD_OBJECT_DESTROYED) @xdl: enum=TacToken */
     u8 hasDrawDist;             /* 0x34 */
     s8 respawn;                 /* 0x35 */
     u8 defMode;                 /* 0x36 mode at round start (GameRules_Init) */
@@ -312,12 +323,12 @@ _Static_assert(sizeof(QuadInstance) == 0x40, "QuadInstance size");
 typedef struct QuadFxPoint {
     Vector4 pos;                /* 0x00 */
     Quaternion quat;            /* 0x10 */
-    u8 pad20[4];                /* 0x20 */
+    u32 editorId;               /* 0x20 never read; a number of its own per object of the world, from the exporter (guessed: its object id) */
     PTR32(void) emitter;        /* 0x24 emitter description, or NULL */
     PTR32(void) corona;         /* 0x28 or NULL */
     f32 drawDist;               /* 0x2C used if hasDrawDist */
     PTR32(Thing) thing;         /* 0x30 the spawned emitter */
-    u32 mode;                   /* 0x34 */
+    u32 mode;                   /* 0x34 TacToken: on, off (ActionFXPointChangeMode) @xdl: enum=TacToken */
     u8 hasDrawDist;             /* 0x38 */
     u8 defMode;                 /* 0x39 mode at round start */
     u8 pad3A[6];                /* 0x3A */
@@ -336,13 +347,13 @@ enum {
 /* A pickup spawn point of a quadrant (ItemThing.spawner). */
 typedef struct QuadItem {
     Vector4 pos;                /* 0x00 */
-    u8 pad10[4];                /* 0x10 */
+    u32 editorId;               /* 0x10 never read; a number of its own per object of the world, from the exporter (guessed: its object id) */
     s32 respawn;                /* 0x14 ms before it respawns once taken, 0: never */
     s32 timer;                  /* 0x18 ms until it spawns */
     PTR32(ItemRecord) record;   /* 0x1C */
     f32 drawDist;               /* 0x20 used if hasDrawDist */
     PTR32(ItemThing) thing;     /* 0x24 the spawned item */
-    u32 mode;                   /* 0x28 QUAD_ITEM_* */
+    u32 mode;                   /* 0x28 QUAD_ITEM_* (TacToken on, off) @xdl: enum=TacToken */
     u8 pad2C[4];                /* 0x2C */
     u16 id;                     /* 0x30 in the world's item pack, 0xFFFF: random in lo..hi */
     u8 pad32[2];                /* 0x32 */
@@ -368,11 +379,11 @@ _Static_assert(sizeof(QuadItem) == 0x40, "QuadItem size");
 typedef struct QuadContents {
     s8 dirty;                   /* 0x00 things spawned (FileStreaming_SetActiveQuadrants) */
     u32 numInstances;           /* 0x04 */
-    PTR32(QuadInstance) instances; /* 0x08 */
+    PTR32(QuadInstance) instances; /* 0x08 @xdl: count=numInstances */
     u32 numFxPoints;            /* 0x0C */
-    PTR32(QuadFxPoint) fxPoints;   /* 0x10 */
+    PTR32(QuadFxPoint) fxPoints;   /* 0x10 @xdl: count=numFxPoints */
     u32 numItems;               /* 0x14 */
-    PTR32(QuadItem) items;      /* 0x18 */
+    PTR32(QuadItem) items;      /* 0x18 @xdl: count=numItems */
 } QuadContents;
 
 WORLD_ASSERT(QuadContents, items, 0x18);
@@ -524,30 +535,30 @@ typedef struct World {
     PTR32(WorldCollision) collision; /* 0x00 */
     PTR32(VolumeHolder) volumeHolder; /* 0x04 */
     u32 numTileCars;            /* 0x08 */
-    PTR32(TileCar) tileCars;    /* 0x0C */
+    PTR32(TileCar) tileCars;    /* 0x0C @xdl: count=numTileCars */
     u32 numTilePaths;           /* 0x10 */
-    PTR32(struct TilePath) tilePaths; /* 0x14 */
+    PTR32(struct TilePath) tilePaths; /* 0x14 @xdl: count=numTilePaths */
     u8 pad18[8];                /* 0x18 */
     u32 numQuads;               /* 0x20 */
-    PTR32(WorldQuad) quads;     /* 0x24 */
+    PTR32(WorldQuad) quads;     /* 0x24 @xdl: count=numQuads */
     u32 numSpeakers;            /* 0x28 */
-    PTR32(struct TileSpeaker) speakers; /* 0x2C */
+    PTR32(struct TileSpeaker) speakers; /* 0x2C @xdl: count=numSpeakers */
     u32 numTeleporters;         /* 0x30 */
-    PTR32(Teleporter) teleporters; /* 0x34 */
+    PTR32(Teleporter) teleporters; /* 0x34 @xdl: count=numTeleporters */
     u32 numTileLights;          /* 0x38 */
-    PTR32(struct TileLight) tileLights; /* 0x3C */
+    PTR32(struct TileLight) tileLights; /* 0x3C @xdl: count=numTileLights */
     u32 numTileCreatures;       /* 0x40 */
-    PTR32(TileCreature) tileCreatures; /* 0x44 */
+    PTR32(TileCreature) tileCreatures; /* 0x44 @xdl: count=numTileCreatures */
     u32 numVariables;           /* 0x48 */
-    PTR32(WorldVariableSlot) variables; /* 0x4C */
+    PTR32(WorldVariableSlot) variables; /* 0x4C @xdl: count=numVariables */
     u32 numTimers;              /* 0x50 */
-    PTR32(WorldTimerSlot) timers; /* 0x54 */
+    PTR32(WorldTimerSlot) timers; /* 0x54 @xdl: count=numTimers */
     u32 numObjectives;          /* 0x58 */
-    PTR32(WorldObjective) objectives; /* 0x5C */
-    u8 pad60[4];                /* 0x60 */
-    PTR32(u8) lights;           /* 0x64 0x10 each (LightManager) */
+    PTR32(WorldObjective) objectives; /* 0x5C @xdl: count=numObjectives */
+    u32 numLights;              /* 0x60 VertexColorSeqManager_Init */
+    PTR32(u8) lights;           /* 0x64 0x10 each (LightManager, VertexColorSeqManager) */
     u32 numVolumes;             /* 0x68 */
-    PTR32(WorldVolume) volumes; /* 0x6C */
+    PTR32(WorldVolume) volumes; /* 0x6C @xdl: count=numVolumes */
     u8 pad70[8];                /* 0x70 */
     PTR32(void) nav;            /* 0x78 NavHolder */
     PTR32(char) collisionPackName; /* 0x7C the world's collision pack (type 5) */
