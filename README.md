@@ -384,8 +384,8 @@ A selectable row (Difficulty, Sound Mode, Music, SFX, ...):
   value object (24: `role = 9`, `type = 1`) - anim (in the port's `AnimCopy`,
   with the position key raised to the new row height), `stateIndex`,
   `states`, `anchor`/`anchorX`/`anchorY` - or the text lands in the wrong
-  place and colour. The pack's own shapes (dumped with `tools/xgc_inspect.py`
-  over the blob): 24 role 9 text, active 0, 2 states (type 0 and 1),
+  place and colour. The pack's own shapes (dumped over the blob with
+  `tools/xgc_inspect.py`, since removed; git history keeps it): 24 role 9 text, active 0, 2 states (type 0 and 1),
   `anchorX = 1`; 28 role 103 image, 1 state, a 2-key scale track whose first
   key is `(0.0, 16.0)` - the bar starts at width 0 and the engine stretches
   it by the volume - `anchorX = -1`; 32 role 102 image, 2 states (type 0 and
@@ -396,9 +396,9 @@ A selectable row (Difficulty, Sound Mode, Music, SFX, ...):
 
 Pack offsets, if the tables need re-deriving: menu pack `HW_IPack.xgc` entry 5,
 main menu header at blob `0x6ECC60` (26 objects), Options header at blob
-`0x85BB40` (40 objects, vars at `0x85DE20`); find them again with
-`tools/xgc_inspect.py` by searching for a header with 40/26 objects whose
-object 16/10's text is "Controller"/"Main Menu".
+`0x85BB40` (40 objects, vars at `0x85DE20`); find them again by searching for a
+header with 40/26 objects whose object 16/10's text is "Controller"/"Main Menu"
+(`tools/xgc_inspect.py` did that search; it was removed, git history keeps it).
 
 The Gamma and FOV rows keep the volume look instead: `AddBarRow` copies the pack's
 Music row (objects 27-30) to objects 40-47 of the Graphics screen, with its bar.
@@ -487,7 +487,8 @@ Tunnel Host runs the player's own `cloudflared` (next to the game, or installed:
 shipped, and can't run on Android or inside the Flatpak; those can still join) and shows a
 join code, `name-of-the-tunnel/CODE`; the room code is there because a tunnel's address is
 public. Clients reach it by `wss://`, with mbedTLS (a pinned release, `CMakeLists.txt`) and
-the public roots in `src/port/net_roots.h` (`tools/gen_net_roots.py`) as well as any the system
+the public roots in `src/port/net_roots.h` (refresh them by hand when one nears expiry; the
+old generator `tools/gen_net_roots.py` was removed, git history keeps it) as well as any the system
 has. Measured limits of a quick tunnel, which
 the constants in `net.c` and `tunnel.c` follow: a connection silent for about 125 s is closed, and
 a new tunnel's name can fail to resolve for over 80 s if looked up in its first few
@@ -510,9 +511,9 @@ runs one game as host (`HWVX_ONLINE_TEST`, see `Port_Online.c`) and 7 `netbot` c
 machines, run `nettest host PORT ROOM PEERS SECONDS` and `nettest client ADDRESS ROOM
 COUNT SECONDS` (see `tools/nettest.c`).
 
-`tools/net_hostile.py` attacks a host with protocol violations, and
-`tools/net_tunnel_check.py` talks to one through a real tunnel; run the first
-against a sanitizer build. Test optimized builds as well: a masking loop once passed
+`tools/net_hostile.py` checked that a host (run under sanitizers) closes or refuses each protocol
+violation and still serves a normal client afterwards, and `tools/net_tunnel_check.py` talked to a
+host through a real tunnel; both were removed (git history keeps them). Test optimized builds as well: a masking loop once passed
 at `-O0` and failed at `-O2`.
 
 ## Tools
@@ -768,9 +769,9 @@ glslang and SPIRV-Cross build from the Khronos sources with CMake, and DXC
 has prebuilt Linux releases (keep its `lib/` next to `bin/`: `libdxil.so`
 signs the DXIL, which Direct3D 12 requires).
 
-`tools/xgc_inspect.py FILE.xgc [--dump OFFSET N]` shows a data pack's TOC,
-header, root objects and which words are pointers; use it when writing swap
-walkers in `src/game/Port_Swap.c`.
+`tools/xgc_inspect.py` (a data pack's TOC, header, root objects and which words are
+pointers, for writing swap walkers in `src/game/Port_Swap.c`) was removed; git history
+keeps it.
 
 `tools/asm_args.py NAME...` reports which argument registers a function reads
 in the original, and which it passes straight on to a call; use it to settle

@@ -19,7 +19,8 @@
  *
  * So a wrong value read from a pack usually means a u8/u16 field (or a byte
  * array) that no walker claims yet: add it to the walker for its type.
- * tools/xgc_inspect.py shows a pack's layout.
+ * (tools/xgc_inspect.py, which showed a pack's TOC, header and pointer words, was
+ * removed; git history keeps it.)
  */
 #include "common.h"
 #include "Port_Swap.h"

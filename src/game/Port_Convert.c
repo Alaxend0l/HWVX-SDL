@@ -22,7 +22,8 @@
  *   its id says (WorldQuad.packId).
  *
  * The cache files are the ones the game would have written itself, pack by
- * pack, with HWVX_XDL_WRITE=1 (tools/xdl_cache_diff.py compares the two). */
+ * pack, with HWVX_XDL_WRITE=1 (tools/xdl_cache_diff.py, which compared the two
+ * pack by pack, was removed; git history keeps it). */
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "World.h"
