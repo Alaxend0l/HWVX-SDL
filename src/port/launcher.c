@@ -403,7 +403,7 @@ enum { CONV_NONE, CONV_OK, CONV_STALE, CONV_IMAGE /* a disc image: nothing to co
 /* The Settings page: graphics.cfg's choices that have no row in the game's
  * own Graphics menu, and the display (gfx_settings.c reads and writes the
  * file; these are its g_port fields, 1 being `on`). */
-enum { SET_DISPLAY, SET_PCTEX, SET_MAINMENU, SET_SPLITLOD, SET_MOVIES, SET_COUNT };
+enum { SET_DISPLAY, SET_PCTEX, SET_MAINMENU, SET_SPLITLOD, SET_MOVIES, SET_MOUSESTEER, SET_COUNT };
 
 static const struct {
     const char *name, *off, *on, *about, *env;
@@ -416,6 +416,8 @@ static const struct {
     { "Split screen", "Full detail", "GameCube's detail",
       "Full detail like the PC, or a level coarser as the GameCube drew it.", "HWVX_SPLITSCREEN_LOD" },
     { "Movies", "On", "Off", "The intro and ending movies; off skips them, like the PC's option.", "HWVX_NO_MOVIE" },
+    { "Mouse steering", "Off", "On",
+      "In races, like the PC: moving steers; left button A (gas), right X (brake).", "HWVX_MOUSESTEER" },
 };
 
 static int *SettingVar(int i) {
@@ -424,6 +426,7 @@ static int *SettingVar(int i) {
     case SET_PCTEX: return &g_port.pcTexturesPC;
     case SET_MAINMENU: return &g_port.originalMainMenu;
     case SET_SPLITLOD: return &g_port.splitLodGC;
+    case SET_MOUSESTEER: return &g_port.mouseSteer;
     default: return &g_port.moviesOff;
     }
 }

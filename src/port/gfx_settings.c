@@ -45,6 +45,9 @@
  *   GameCube's own main menu has no way to quit: close the window (or Alt+F4,
  *   Cmd+Q) instead. The PC release's main menu has its own Exit to Desktop
  *   and gets no port rows, so this changes nothing there.
+ * - Mouse steering (graphics.cfg "mousesteer=on|off", default off, a row on
+ *   the launcher's Settings page; HWVX_MOUSESTEER=1 or 0 overrides): the PC
+ *   release's mouse controls in races (pad.c, Port_Keyboard.c).
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -246,6 +249,10 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.splitLodGC = 1;
         } else if (SDL_strcmp(line, "splitlod=full") == 0) {
             g_port.splitLodGC = 0;
+        } else if (SDL_strcmp(line, "mousesteer=on") == 0) {
+            g_port.mouseSteer = 1;
+        } else if (SDL_strcmp(line, "mousesteer=off") == 0) {
+            g_port.mouseSteer = 0;
         }
     }
     SDL_free(text);
@@ -262,10 +269,11 @@ static void SaveConfig(int w, int h, int full) {
     n = w > 0 && h > 0 ? SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\n", w, h) : 0;
     n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
                      "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\n",
                      full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
-                     g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on");
+                     g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on",
+                     g_port.mouseSteer ? "on" : "off");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }

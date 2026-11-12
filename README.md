@@ -182,6 +182,20 @@ forward/backward, A/D strafe/stunt roll, Shift power slide, Space fire,
 Ctrl change weapon, ` (grave) change camera, Escape pause. In menus: arrows,
 Enter to accept, Escape to go back, X for the X button (stats).
 
+Mouse steering, the PC release's (off by default: turn it on with Mouse
+steering on the launcher's Settings page, `mousesteer=on` in `graphics.cfg`,
+or `HWVX_MOUSESTEER=1`; `=0` turns it off): in a race the mouse is captured
+and steers as the PC's did - a move of more than 4 pixels in a frame (at 60
+FPS; scaled at other rates) pushes the stick fully that way (101) for that
+frame, left/right steering and up/down the stunt flips - and the left button
+is the pad's A, the right X (gas and brake in the default controller layout).
+There is no sensitivity setting, as on the PC. The mouse is let go in menus,
+in the pause menu, during mission screens and when the window loses the
+focus; demos and input playback ignore it. Testing:
+`HWVX_MOUSE_INJECT="dx,dy,btn*frames;..."` plays mouse moves and buttons
+(`-`, `l`, `r`, `lr`) from the first frame the mouse is captured, without
+taking the real mouse (`src/port/pad.c`).
+
 ## Layout
 
 | Path | What |
