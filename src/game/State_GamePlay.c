@@ -126,13 +126,15 @@ s32 StateGamePlay_Init(void) {
                     }
                     if (port - 1 < humanPorts) {
                         player = PlayerManager_NewHumanPlayer();
-                        if (car->port == 1) {
+                        /* port: by the player's port (Port_OnlineTilePort; offline car->port):
+                         * online, a player 5-8 may start at a free spawn of ports 1-4 */
+                        if (port == 1) {
                             Player_SetName(player, 1, "Player 1");
-                        } else if (car->port == 2) {
+                        } else if (port == 2) {
                             Player_SetName(player, 2, "Player 2");
-                        } else if (car->port == 3) {
+                        } else if (port == 3) {
                             Player_SetName(player, 3, "Player 3");
-                        } else if (car->port == 4) {
+                        } else if (port == 4) {
                             Player_SetName(player, 4, "Player 4");
                         } else if (port > 4) {
                             /* port: online, players 5-8 */

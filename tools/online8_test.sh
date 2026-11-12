@@ -18,19 +18,25 @@
 #     inside its footprint (WALL), no two footprints overlapping (OVERLAP).
 # Drag Race takes 4 players at most: with more, the test passes if the host refuses.
 # CAR=N puts every player in car N (25: Surfin' School Bus, the largest).
+# GAP=P leaves port P (2-8) empty: PLAYERS+1 join, port P's bot leaves in the
+# lobby, and the others keep their ports (players past 4 then start at P's spawn
+# when P <= 4); every remaining port must still drive and be seen by the host.
 # Needs the bots built: cmake -DHWVX_TESTS=ON, target netbot. One game only.
 B="$1"; D="$2"; O="$3"; MODE="$4"; T="${5:-90}"; N="${6:-8}"; W="${7:-0}"
 [ -z "$MODE" ] && { sed -n 2,20p "$0"; exit 2; }
 SYNC_MAX="${SYNC_MAX:-12}"
 mkdir -p "$O"; O=$(cd "$O"; pwd)
-TAG="$MODE$W-$N"
+TAG="$MODE$W-$N${GAP:+-gap$GAP}"
 rm -rf "$O/dump-$TAG" "$O/pref-$TAG" "$O/$TAG".*.log; mkdir -p "$O/dump-$TAG" "$O/pref-$TAG"
 PORT=47815
 
+LAST=$N; [ -n "$GAP" ] && LAST=$((N + 1))
+PORTS=$(seq 2 "$LAST" | grep -vx "${GAP:-0}")
 FINISH_PORT=7
-[ "$N" -lt 7 ] && FINISH_PORT=$N
+[ "$LAST" -lt 7 ] && FINISH_PORT=$LAST
+[ "$FINISH_PORT" = "$GAP" ] && FINISH_PORT=$((GAP - 1))
 env HWVX_NO_MOVIE=1 HWVX_NO_DIALOG=1 HWVX_SEED=3 HWVX_MODS=0 HWVX_AUTOINPUT="700:start,+400:start" \
-    HWVX_ONLINE_TEST="host,players=$N,mode=$MODE,world=$W,rounds=2,time=25,summary=8${CAR:+,car=$CAR}" \
+    HWVX_ONLINE_TEST="host,players=$N,mode=$MODE,world=$W,rounds=2,time=25,summary=8${CAR:+,car=$CAR}${GAP:+,lobby=8}" \
     HWVX_PREF_DIR="$O/pref-$TAG" HWVX_DUMP="$O/dump-$TAG" \
     "$B/hwvx" --windowed --window 1280x960 --data "$D" > "$O/$TAG.host.log" 2>&1 &
 G=$!
@@ -39,8 +45,9 @@ trap 'kill -9 $G "${BOTS[@]}" 2>/dev/null' EXIT
 # the host is up once its lobby is
 for i in $(seq 60); do grep -q 'online: hosting' "$O/$TAG.host.log" 2>/dev/null && break; sleep 1; done
 BOTS=()
-for p in $(seq 2 "$N"); do
+for p in $(seq 2 "$LAST"); do
     extra=""
+    [ "$p" = "$GAP" ] && extra="--seconds 3"
     [ "$MODE" = drag ] && [ "$p" = "$FINISH_PORT" ] && extra="--finish 8"
     "$B/netbot" "127.0.0.1:$PORT" --drive --points 10 --seconds $((T - 5)) ${CAR:+--vehicle $CAR} $extra > "$O/$TAG.bot$p.log" 2>&1 &
     BOTS+=($!)
@@ -65,7 +72,9 @@ if [ "$MODE" = drag ] && [ "$N" -gt 4 ]; then
 fi
 grep -q "level ready: .*$N human cars" "$H" || bad "no level with $N human cars: $(grep 'level ready' "$H" | head -1)"
 grep -q 'online: no clear spawn' "$H" && echo "note: $(grep -c 'online: no clear spawn' "$H") spawn(s) without a clear spot"
-for p in $(seq 2 "$N"); do
+want=0; for p in 1 $PORTS; do want=$((want | (1 << (p - 1)))); done
+want=$(printf '%02X' $want)
+for p in $PORTS; do
     L="$O/$TAG.bot$p.log"
     S=$(grep 'summary:' "$L")
     [ -n "$S" ] || bad "bot $p: no summary: $(tail -2 "$L")"
@@ -77,12 +86,16 @@ for p in $(seq 2 "$N"); do
         [ "${ends:-0}" -ge 1 ] || bad "bot $p: saw no round end"
     fi
     heard=$(echo "$S" | sed -n 's/.*cars heard of \([0-9A-F]*\).*/\1/p')
-    want=$(printf '%02X' $(( (1 << N) - 1 )))
     [ "$heard" = "$want" ] || bad "bot $p: heard of cars $heard, not $want"
 done
 # the host's copies against what their owners said: the worst after the first sync of a stage
 worst=$(grep 'online: sync' "$H" | sed -n 's/.*off by:\(.*\)/\1/p' | tr ' ' '\n' | sed -n 's/^[0-9]*://p' | sort -n | tail -1)
 echo "sync: $(grep -c 'online: sync' "$H") checks, worst ${worst:-none}"
+# every other player's car is seen at the host: in its sync lines
+for p in $PORTS; do
+    grep 'online: sync' "$H" | grep -q " $p:[0-9]" || bad "port $p: its car never synced at the host (no car, or not its port's)"
+done
+[ -n "$GAP" ] && grep 'online: sync' "$H" | grep -q " $GAP:[0-9]" && bad "port $GAP left but has a car"
 if [ -n "$worst" ] && awk "BEGIN{exit !($worst > $SYNC_MAX)}"; then
     # one bad sample right as a stage starts is the snap; more is a desync
     over=$(grep 'online: sync' "$H" | sed -n 's/.*off by:\(.*\)/\1/p' | tr ' ' '\n' | sed -n 's/^[0-9]*://p' | awk "\$1 > $SYNC_MAX" | wc -l)
@@ -92,7 +105,11 @@ grep 'online test: car 1,' "$H" | head -1 | sed 's/.*online test: /spawns: /'
 bad_spawn=$(grep -E 'online test: .*(MOVED|FELL|WALL|OVERLAP)' "$H" | sed 's/.*online test: //' | sort | uniq -c | head -8)
 [ -n "$bad_spawn" ] && bad "spawns: $(echo $bad_spawn)"
 if [ "$MODE" = drag ]; then
-    grep -q "round won by $FINISH_PORT" "$H" || bad "drag: port $FINISH_PORT's claimed finish didn't win: $(grep 'round won' "$H" | head -2)"
+    # a player at another port's spawn races in its lane: the script renumbers by spawn
+    # (ActionSetPlayerOrder), so the round goes to that lane's number
+    LANE=$(sed -n "s/.*online: port $FINISH_PORT starts at the world's spawn [0-9]* (port \([0-9]*\)'s).*/\1/p" "$H" | head -1)
+    LANE=${LANE:-$FINISH_PORT}
+    grep -q "round won by $LANE" "$H" || bad "drag: port $FINISH_PORT's claimed finish (lane $LANE) didn't win: $(grep 'round won' "$H" | head -2)"
 fi
 echo "frames: $(ls "$O/dump-$TAG" | wc -l | tr -d ' ') in $O/dump-$TAG"
 [ $fail = 0 ] && echo "PASS: $MODE world $W, $N players" || echo "see $O/$TAG.*.log"

@@ -96,3 +96,54 @@ const char *Port_ProtoName(const char *fileName) {
     }
     return *fileName == PORT_PROTO_PREFIX ? fileName + 1 : NULL;
 }
+
+/* The prototype's identity for online play (game/Port_Online.c's hello): an FNV-1a
+ * of its files' paths (case folded) and sizes, sorted, as 16 hex digits; "" with
+ * no prototype. Computed once. */
+static int CompareNames(const void *a, const void *b) {
+    return SDL_strcasecmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+const char *Port_ProtoIdentity(void) {
+    static char s_id[17];
+    static int s_done;
+    const char *root;
+    char **names;
+    int i, n = 0;
+    u64 h = 0xCBF29CE484222325ull;
+
+    if (s_done) {
+        return s_id;
+    }
+    s_done = 1;
+    if ((root = Port_ProtoRoot()) == NULL || (names = SDL_GlobDirectory(root, NULL, 0, &n)) == NULL) {
+        return s_id;
+    }
+    SDL_qsort(names, (size_t)n, sizeof(*names), CompareNames);
+    for (i = 0; i < n; i++) {
+        SDL_PathInfo info;
+        char *path = NULL;
+        const char *c;
+        u64 size;
+        int k;
+
+        if (SDL_asprintf(&path, "%s/%s", root, names[i]) < 0) {
+            continue;
+        }
+        if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
+            for (c = names[i]; *c; c++) {
+                char ch = *c == '\\' ? '/' : (char)SDL_tolower((unsigned char)*c);
+
+                h = (h ^ (u8)ch) * 0x100000001B3ull;
+            }
+            size = info.size;
+            for (k = 0; k < 8; k++) {
+                h = (h ^ (u8)(size >> (k * 8))) * 0x100000001B3ull;
+            }
+        }
+        SDL_free(path);
+    }
+    SDL_free(names);
+    SDL_snprintf(s_id, sizeof(s_id), "%016llx", (unsigned long long)h);
+    return s_id;
+}

@@ -249,6 +249,49 @@ int Port_TriggerAtFinish(const void *car) {
     return 0;
 }
 
+/* port: how many words an action's parameters take (schemas/Trigger.schema.json, the
+ * TAC_PARAMS_ACTION_* layouts): its fixed words, a list's count and entries, an operand
+ * after it. A layout of its own size (words, string, table, switch, code variable) is
+ * taken at the exporter's count (paramWords, which is the size or one over). At most
+ * `max`, and no further than the world pack's data block when it is in there. */
+static u32 Port_ActionParamWords(const TriggerAction *action, const u32 *data, u32 max) {
+    /* fixed words, or the list's count word's index (+ 0x40); 0: its own size */
+    static const u8 kLayout[ACTION_NUM_TYPES] = {
+        0x41, 0, 0x41, 0x41, 1, 0x41, 2, 0x41, 0x42, 0x44,  /* 0-9 */
+        0, 0, 0x41, 1, 0, 2, 0x41, 0x41, 0, 0x41,           /* 10-19 */
+        3, 0x42, 0x42, 0, 0x41, 0, 0x41, 0, 0, 0,           /* 20-29 */
+        0, 3, 2, 0, 0, 0x41, 1, 0x44, 3, 1,                 /* 30-39 */
+        0x42, 4, 3, 0x41,                                   /* 40-43 */
+    };
+    DataPack *pack = g_worldData.worldPack != 0 ? (DataPack *)PTR(g_worldData.worldPack) : NULL;
+    const u8 *lo = pack != NULL ? (const u8 *)GETP(pack->base) : NULL;
+    u32 words, room = max, layout = action->type < ACTION_NUM_TYPES ? kLayout[action->type] : 0;
+
+    if (data == NULL) {
+        return 0;
+    }
+    if (lo != NULL && (const u8 *)data >= lo && (u64)((const u8 *)data - lo) < pack->dataSize) {
+        room = (u32)SDL_min((u64)max, (pack->dataSize - (u64)((const u8 *)data - lo)) / 4);
+    }
+    if (layout == 0) {
+        words = action->paramWords + 1;
+    } else if (layout < 0x40) {
+        words = layout;
+    } else {
+        u32 at = layout - 0x40;
+
+        if (at >= room) {
+            return room;
+        }
+        words = at + 1 + SDL_min(data[at], max);
+        if (action->type == ACTION_TIMER_CHANGE_VALUE || action->type == ACTION_VARIABLE_CHANGE_VALUE) {
+            /* the operand: its type, then a constant or variable, or a code variable and its arg */
+            words += words < room && data[words] == 2 ? 3 : 2;
+        }
+    }
+    return SDL_min(words, room);
+}
+
 /* port: the host says player `number` (5-8) won: the template's actions, with that
  * player's number and spawn for player 1's. Its "Player 1 wins" screen isn't theirs:
  * Port_Online.c says who won instead. */
@@ -282,8 +325,9 @@ static void Port_TriggerStandInFinish(u32 number) {
         }
         s_actions[n] = *action;
         s_actions[n].count = 1;
-        for (i = 0; i < STAND_IN_WORDS; i++) {
-            s_words[n][i] = data != NULL ? data[i] : 0;
+        SDL_memset(s_words[n], 0, sizeof(s_words[n]));
+        for (i = 0; i < Port_ActionParamWords(action, data, STAND_IN_WORDS); i++) {
+            s_words[n][i] = data[i];
             if (s_words[n][i] == own) {
                 s_words[n][i] = HND(spawn);
             }

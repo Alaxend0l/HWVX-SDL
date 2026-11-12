@@ -458,11 +458,17 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             SETP(pack->songBank, (void *)((u8 *)GETP(pack->soundBase) + header.songBankOffset));
             /* port: the PC's is little-endian, the PS2's rebuilt elsewhere (Port_Data.c) */
             if (xp == NULL && proto && GETP(pack->song) != NULL && memcmp(GETP(pack->song), "IMPM", 4) == 0) {
-                /* port: the prototype's Impulse Tracker music, its samples decoded (Port_PS2.c) */
-                SETP(pack->songBank, PortPS2_ProtoIT(GETP(pack->song), GETP(pack->songBank),
-                                                     header.songBankOffset > header.songOffset
-                                                         ? header.soundDataSize - header.songBankOffset
-                                                         : header.songOffset - header.songBankOffset));
+                /* port: the prototype's Impulse Tracker music, its samples decoded (Port_PS2.c);
+                 * the song and the bank each run to the other or the sound data's end */
+                u32 end = header.soundDataSize;
+                u32 songEnd = header.songBankOffset > header.songOffset ? header.songBankOffset : end;
+                u32 bankEnd = header.songBankOffset > header.songOffset ? end : header.songOffset;
+
+                SETP(pack->songBank, header.songOffset < songEnd && songEnd <= end && header.songBankOffset < bankEnd &&
+                                             bankEnd <= end
+                                         ? PortPS2_ProtoIT(GETP(pack->song), songEnd - header.songOffset, GETP(pack->songBank),
+                                                           bankEnd - header.songBankOffset)
+                                         : NULL);
             } else if (xp == NULL) {
                 SETP(pack->songBank, PortData_SongBank(fmt, GETP(pack->songBank)));
             } else {
