@@ -675,6 +675,14 @@ Debugging aids:
   `docs/xdl-format` (HWVX-X-FILE-EDITOR); see `src/port/xdl.c`. Data folders
   only, not disc images.
 - `HWVX_LOADTIME=1` logs how long each data pack and quadrant takes to load.
+- `HWVX_HEAPLOG=1` logs the game heap's peak use (`heap 0: peak X of Y MB`, each MB) and the
+  ARAM heap's (`aram: peak X of 15.98 MB, N of 1024 blocks`). `HWVX_ARENA_MB=N` (8-1024,
+  default 128) sizes the game heap; running out stops with a clear error. Asset limits:
+  docs-pending/asset-limits.md.
+- `HWVX_TEX_BUDGET=MB` (default 512): GPU texture memory kept before the least recently used go.
+- `hwvx-audiodec IN OUT.wav|- [--mono] [--rate HZ]` (built with the game) decodes WAV, FLAC,
+  Ogg Vorbis and MP3 for tools/xdl_media.py and tools/xdl_mod.py (`HWVX_AUDIODEC` names it);
+  a mod's `"sounds"` are decoded by the game itself. `tools/mod_sound_test.sh` hears one in a race.
 - `HWVX_LAUNCHER_SHOT=file.bmp` saves the launcher's first frame and closes it
   (testing). `HWVX_LAUNCHER_TAB=play|games|saves|convert|mods|settings` opens
   that page; `HWVX_LAUNCHER_INPUT="rb,ddown,a"` presses keys (`pgup pgdn tab up

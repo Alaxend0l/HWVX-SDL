@@ -112,7 +112,7 @@
      },
      "sample": {
       "type": "string",
-      "description": "the WAV, relative to this file; instruments may share one"
+      "description": "the sound file (WAV, FLAC, Ogg Vorbis or MP3), relative to this file; instruments may share one"
      },
      "rate": {
       "type": "integer",
@@ -126,7 +126,7 @@
        "null"
       ],
       "minimum": 0,
-      "description": "loop start in samples of the WAV (null: plays once). PS2: a multiple of 28 (an ADPCM block)"
+      "description": "loop start in samples at `rate` (null: plays once); a loop in the file's tags (WAV smpl, LOOPSTART/LOOPLENGTH/LOOPEND) wins. PS2: a multiple of 28 (an ADPCM block)"
      },
      "bits": {
       "type": "integer",

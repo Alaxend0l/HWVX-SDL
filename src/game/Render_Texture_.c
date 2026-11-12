@@ -78,7 +78,9 @@ void Render_CreateTextureSlot(u32 id) {
         break;
     }
     tex = &m_texture[id];
-    if (tex->texWidth > 0x200 || tex->width > 0x200) {
+    /* port: 0x200 in the original; no retail texture is over 256 x 256, so
+     * only new content reaches past it (PORT_MAX_TEX_SIZE, port.h) */
+    if (tex->texWidth > PORT_MAX_TEX_SIZE || tex->width > PORT_MAX_TEX_SIZE) {
         return;
     }
     GXInitTexObj(obj, data, tex->texWidth, tex->width, format, wrap, wrap, 1 - tex->height < 0);

@@ -14,6 +14,8 @@
  *   fields the schemas name (Port_ModFields.inc, tools/gen_mod_fields.py).
  * - Recipes: colour matrices on a pack's textures (gx_texmod.h), composed
  *   as tools/xdl_mod.py's recipe_matrix does.
+ * - Sounds: a mod's own sound files (WAV, FLAC, Ogg Vorbis, MP3) over a
+ *   pack's sounds, decoded here (src/audiodec) as the pack loads.
  * - Packages: a .xmod is a zip of stored entries the packer made
  *   (check.json in it); Port_ModsInstall unpacks one. */
 #include <SDL3/SDL.h>
@@ -23,6 +25,8 @@
 #include "Port_Level.h"
 #include "jsonc.h"
 #include "gx_texmod.h"
+#include "Port_Mix.h"
+#include "audiodec.h"
 #include "mbedtls/sha256.h"
 
 enum { MF_U8, MF_S8, MF_U16, MF_S16, MF_U32, MF_S32, MF_F32, MF_LINK, MF_OTHER };
@@ -416,7 +420,7 @@ static void Order(const char *dir) {
 
 /* Conflicts and notes for the enabled mods. */
 static void BuildReport(void) {
-    static const char *const sections[] = { "patches", "recipes" };
+    static const char *const sections[] = { "patches", "recipes", "sounds" };
     int i, j, s;
 
     ClearReport();
@@ -438,7 +442,7 @@ static void BuildReport(void) {
             Report("%s: put in by hand, not checked by the packer", m->info.name);
             m->info.problems++;
         }
-        for (s = 0; s < 2; s++) {
+        for (s = 0; s < 3; s++) {
             const JsonNode *a = Json_Get(m->doc, sections[s]), *x, *y;
 
             for (x = a != NULL && a->type == JSON_OBJECT ? a->child : NULL; x != NULL; x = x->next) {
@@ -448,9 +452,9 @@ static void BuildReport(void) {
                     if (!Enabled(&s_mods[j]) || (y = Json_Get(b, x->key)) == NULL) {
                         continue;
                     }
-                    if (s == 1) {
-                        Report("%s and %s both recolour %s: %s's applies", m->info.name, s_mods[j].info.name, x->key,
-                               s_mods[j].info.name);
+                    if (s >= 1) {
+                        Report("%s and %s both %s %s: %s's applies", m->info.name, s_mods[j].info.name,
+                               s == 1 ? "recolour" : "replace", x->key, s_mods[j].info.name);
                         s_mods[j].info.problems++;
                     } else if (x->type == JSON_OBJECT && y->type == JSON_OBJECT) {
                         const JsonNode *f;
@@ -1677,4 +1681,192 @@ void Port_ModsMusicFree(PortModMusic *tracks, int count) {
         SDL_free(tracks[i].path);
     }
     SDL_free(tracks);
+}
+
+/* ---- sounds ------------------------------------------------------------------ */
+
+/* A mod's "sounds": { "base://HW_Cars/car_5/sound/3": "sounds/horn.ogg" } or
+ * { ...: { "file": "sounds/horn.ogg", "loop": 1200 } } (loop in the file's
+ * samples, null: once). The file (WAV, FLAC, Ogg Vorbis, MP3) is decoded here,
+ * on the player's machine (src/audiodec), mixed to mono and resampled to the
+ * base sound's rate; its loop is the file's tag, else "loop", else (the base
+ * sound loops) the whole sound. The pack's own sound is replaced as a mixed
+ * build replaces one (PortMix_SFXSet). A pack with mod sounds skips the .xdl
+ * cache. */
+typedef struct SndPack {
+    char archive[0x50];
+    u32 type, id;
+} SndPack;
+
+static _Thread_local SndPack s_sndPack[8];
+static _Thread_local int s_sndDepth;
+
+void Port_ModsBeginPack(const char *name, unsigned type, unsigned id) {
+    const char *stem = name, *c;
+
+    if (++s_sndDepth > 8 || name == NULL) {
+        return;
+    }
+    for (c = name; *c; c++) {
+        if (*c == '/' || *c == '\\') {
+            stem = c + 1;
+        }
+    }
+    SDL_snprintf(s_sndPack[s_sndDepth - 1].archive, sizeof(s_sndPack[0].archive), "%s", stem);
+    s_sndPack[s_sndDepth - 1].type = type;
+    s_sndPack[s_sndDepth - 1].id = id;
+}
+
+void Port_ModsEndPack(void) {
+    if (s_sndDepth > 0) {
+        s_sndDepth--;
+    }
+}
+
+static const SndPack *CurPack(void) {
+    return s_sndDepth > 0 && s_sndDepth <= 8 ? &s_sndPack[s_sndDepth - 1] : NULL;
+}
+
+/* "sound/<i>" or "sound/<release>:<i>" of this release: the index, or -1. */
+static long SoundIndex(const char *rest, int fmt) {
+    static const char *const names[] = { "gc", "pc", "ps2" };
+    const char *colon;
+    char *end;
+    unsigned long i;
+
+    if (SDL_strncmp(rest, "sound/", 6) != 0) {
+        return -1;
+    }
+    rest += 6;
+    colon = SDL_strchr(rest, ':');
+    if (colon != NULL) {
+        int r = fmt == PORT_DATA_PC ? 1 : fmt == PORT_DATA_PS2 ? 2 : 0;
+
+        if ((size_t)(colon - rest) != SDL_strlen(names[r]) || SDL_strncmp(rest, names[r], (size_t)(colon - rest)) != 0) {
+            return -1;
+        }
+        rest = colon + 1;
+    }
+    i = SDL_strtoul(rest, &end, 10);
+    return end != rest && *end == 0 && i < 0x10000 ? (long)i : -1;
+}
+
+int Port_ModsPackSounds(void) {
+    const SndPack *p = CurPack();
+    int i;
+
+    if (p == NULL || !Port_ModsActive()) {
+        return 0;
+    }
+    for (i = 0; i < s_numMods; i++) {
+        const JsonNode *sec = Json_Get(s_mods[i].doc, "sounds"), *x;
+        const char *rest;
+
+        if (!Enabled(&s_mods[i])) {
+            continue;
+        }
+        for (x = sec != NULL && sec->type == JSON_OBJECT ? sec->child : NULL; x != NULL; x = x->next) {
+            if (Names(x->key, p->archive, p->type, p->id, &rest) && SDL_strncmp(rest, "sound/", 6) == 0) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static u32 Rd32Fmt(const u8 *p, int be) {
+    return be ? (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3] : Le32(p);
+}
+
+static void ModSound(const Mod *m, const char *id, const JsonNode *v, s32 fmt, const u8 *desc, u32 count, u32 i) {
+    const char *file = v->type == JSON_STRING ? v->string : Str(v, "file");
+    const JsonNode *loopNode = v->type == JSON_OBJECT ? Json_Get(v, "loop") : NULL;
+    const u8 *d = desc + i * 0x20;
+    int be = fmt == PORT_DATA_GC;
+    u32 baseLen = Rd32Fmt(d + 4, be), baseLoop = Rd32Fmt(d + 8, be), rate = Rd32Fmt(d + 0xC, be), n;
+    AudioDecoded a;
+    char err[160], *path = NULL;
+    int16_t *mono, *pcm;
+    int64_t loop, end;
+
+    if (file == NULL || !SafeName(file)) {
+        Report("%s: %s: needs a file of the mod (\"file\")", m->info.name, id);
+        return;
+    }
+    if (i >= count) {
+        Report("%s: %s: this release's pack has %u sounds", m->info.name, id, (unsigned)count);
+        return;
+    }
+    if (rate < 1000 || rate > 192000 || baseLen == 0) {
+        Report("%s: %s: the base sound has no usable rate", m->info.name, id);
+        return;
+    }
+    if (SDL_asprintf(&path, "%s%s", m->dir, file) < 0 || !AudioDec_File(path, &a, err, sizeof(err))) {
+        Report("%s: %s: %s %s", m->info.name, id, file, path != NULL ? err : "out of memory");
+        SDL_free(path);
+        return;
+    }
+    SDL_free(path);
+    loop = a.loopStart;
+    end = a.loopEnd;
+    if (loop < 0 && loopNode != NULL && loopNode->type == JSON_NUMBER && loopNode->number >= 0 &&
+        loopNode->number < a.frames) {
+        loop = (int64_t)loopNode->number;
+    } else if (loop < 0 && loopNode == NULL && baseLoop != 0xFFFFFFFFu) {
+        loop = 0;      /* the base loops and nothing says where: the whole sound */
+    }
+    mono = AudioDec_Mono(&a);
+    pcm = mono != NULL ? AudioDec_Resample(mono, a.frames, a.rate, rate, &n) : NULL;
+    if (pcm != NULL && a.rate != rate) {
+        loop = AudioDec_ScalePos(loop, a.rate, rate);
+        end = AudioDec_ScalePos(end, a.rate, rate);
+    }
+    free(mono);
+    AudioDec_Free(&a);
+    if (pcm == NULL || n == 0 || n > 0x4000000) {
+        free(pcm);
+        Report("%s: %s: %s can't be converted", m->info.name, id, file);
+        return;
+    }
+    if (loop >= n) {
+        loop = -1;
+    }
+    if (loop >= 0 && end > loop && end < n) {
+        n = (u32)end;          /* the game loops from the loop start to the sample's end */
+    }
+    PortMix_SFXSet(i, count, (u8 *)pcm, n * 2, loop >= 0 ? (u32)loop * 2 : 0xFFFFFFFFu, rate);
+    if (s_logValues) {
+        Port_Log("mods: %s: %s: %s, %u samples at %u Hz, loop %lld", m->info.name, id, file, (unsigned)n,
+                 (unsigned)rate, (long long)loop);
+    }
+}
+
+void Port_ModsSFX(int fmt, const void *desc, unsigned count) {
+    const SndPack *p = CurPack();
+    int i;
+
+    if (p == NULL || desc == NULL || !Port_ModsActive()) {
+        return;
+    }
+    for (i = 0; i < s_numMods; i++) {     /* in load order: a later mod's sound replaces an earlier one's */
+        const Mod *m = &s_mods[i];
+        const JsonNode *sec = Json_Get(m->doc, "sounds"), *x;
+        const char *rest;
+        DataPack fake;
+
+        if (!Enabled(m)) {
+            continue;
+        }
+        fake.portFormat = (u8)fmt;
+        if (!ForRelease(m, &fake)) {
+            continue;
+        }
+        for (x = sec != NULL && sec->type == JSON_OBJECT ? sec->child : NULL; x != NULL; x = x->next) {
+            long k;
+
+            if (Names(x->key, p->archive, p->type, p->id, &rest) && (k = SoundIndex(rest, fmt)) >= 0) {
+                ModSound(m, x->key, x, fmt, desc, count, (u32)k);
+            }
+        }
+    }
 }

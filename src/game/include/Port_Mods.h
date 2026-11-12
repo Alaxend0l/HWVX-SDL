@@ -80,6 +80,17 @@ void Port_ModsSyncLock(const char *path);
 /* A pack's pointers are fixed up (FileStreaming_InitializeDataPack): the
  * patches and recipes for it are applied, in load order. */
 void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsigned id);
+/* DataPack_LoadDataPack, around a pack's load: which pack is loading (its
+ * archive, type and TOC id), for its mod sounds. */
+void Port_ModsBeginPack(const char *name, unsigned type, unsigned id);
+void Port_ModsEndPack(void);
+/* 1 if an enabled mod replaces a sound of the pack loading (it then skips
+ * the .xdl cache). */
+int Port_ModsPackSounds(void);
+/* After PortMix_SFXPrepare: the mods' sounds for the pack loading, over its
+ * descriptors (as the release has them: big-endian on GameCube), through
+ * PortMix_SFXSet. */
+void Port_ModsSFX(int fmt, const void *desc, unsigned count);
 /* DataPack_ReleaseDataPack: its textures' recipes go. */
 void Port_ModsPackReleased(void *dataPack);
 /* A registered track's level file (its mod's "tracks" entry's "level", a

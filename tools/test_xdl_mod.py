@@ -276,6 +276,26 @@ def main():
                 "horn.wav", "game data", f"base://HW_Cars/{snd[0]}/sound/")
         part = np.concatenate([np.zeros(333, np.int16), snd[2][501:3001]])
         refused("sound-part", mod("sound-part", files={"horn.wav": wav_bytes(part)}), "horn.wav", "game data", "sound/")
+        # decoded audio: a game sound as FLAC (lossless), MP3 (lossy) and resampled stays the game's
+        if shutil.which("ffmpeg") and XM.find_audiodec():
+            src = OUT / "game.wav"
+            src.write_bytes(wav_bytes(snd[2], snd[1]["rate"]))
+            for ext, args, words in ((".flac", [], "game's sound"),
+                                     (".mp3", ["-b:a", "96k"], "sounds like the game's sound"),
+                                     (".ogg", ["-c:a", "vorbis", "-strict", "-2", "-ac", "2", "-ar", "44100"],
+                                      "sounds like the game's sound")):
+                f = OUT / f"game{ext}"
+                subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", src, *args, f], check=True)
+                refused(f"sound-as{ext}", mod(f"sound-as{ext}", files={f"horn{ext}": f.read_bytes()}),
+                        f"horn{ext}", words, "sound/")
+            longer = OUT / "game-slow.wav"     # resampled to 32 kHz
+            longer.write_bytes(wav_bytes(XM.resample(snd[2], snd[1]["rate"], 32000), 32000))
+            refused("sound-resampled", mod("sound-resampled", files={"horn.wav": longer.read_bytes()}),
+                    "horn.wav", "sounds like the game's sound", "sound/")
+            for f in (src, longer, *(OUT / f"game{e}" for e in (".flac", ".mp3", ".ogg"))):
+                f.unlink(missing_ok=True)
+        else:
+            print("skip: compressed sound checks (needs ffmpeg to make the test files, and hwvx-audiodec)")
     else:
         check("a sound to test with", False)
     blob = XG.Blob(pk.section("data"), set(pk.words("pointers")), arc.release)
@@ -378,6 +398,35 @@ def main():
     code, out = run("pack", mod("own-work", files=own), "-o", OUT / "own.xmod", "--index", INDEX,
                     "--allow-partial-index")
     check("a mod with the modder's own PNG, WAV, glTF and JSON packs", code == 0 and "7 files" in out, out)
+    # the modder's own sounds, compressed, replacing a base sound
+    if shutil.which("ffmpeg") and XM.find_audiodec():
+        chirp = (8000 * np.sin(2 * np.pi * (300 * t / 22050 + 400 * (t / 22050) ** 2))).astype(np.int16)
+        (OUT / "own.wav").write_bytes(wav_bytes(np.concatenate([chirp, tone])))
+        comp = {}
+        for ext in (".flac", ".mp3", ".ogg"):
+            f = OUT / f"own{ext}"
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", OUT / "own.wav",
+                            *(["-c:a", "vorbis", "-strict", "-2", "-ac", "2"] if ext == ".ogg" else []), f], check=True)
+            comp[f"sound/own{ext}"] = f.read_bytes()
+
+        def sounds(doc):
+            doc["sounds"] = {"base://HW_Cars/car_7/sound/0": "sound/own.ogg",
+                             "base://HW_Cars/car_7/sound/1": {"file": "sound/own.mp3", "loop": 100},
+                             "base://HW_Cars/car_7/sound/2": {"file": "sound/own.flac", "loop": None}}
+        code, out = run("pack", mod("own-sounds", sounds, files=comp), "-o", OUT / "own-sounds.xmod", "--index",
+                        INDEX, "--allow-partial-index")
+        check("a mod with its own FLAC, MP3 and Ogg sounds over base sounds packs", code == 0, out)
+
+        def bad(doc):
+            doc["sounds"] = {"base://HW_Cars/car_7/sound/0": "sound/missing.ogg",
+                             "base://HW_Cars/car_7/texture/0": "sound/own.ogg",
+                             "base://HW_Cars/car_7/sound/1": {"file": "../x.mp3"}}
+        code, out = run("pack", mod("bad-sounds", bad, files=comp), "-o", OUT / "bad-sounds.xmod", "--index", INDEX,
+                        "--allow-partial-index")
+        check("sounds: a missing file, a texture id and a path out of the mod are refused",
+              code == 1 and "missing.ogg isn't in the mod" in out and "a sound's id" in out and "a sound file of the mod" in out, out)
+        for f in OUT.glob("own.*"):
+            f.unlink()
     (OUT / "tmp.png").unlink(missing_ok=True)
 
     hwvx = Path(os.environ.get("HWVX_BIN", M.ROOT / "build" / "hwvx"))

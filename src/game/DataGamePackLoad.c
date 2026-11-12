@@ -234,7 +234,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         }
         PortMix_BeginPack(name, type, tocId);   /* port: a mixed build's pack (Port_Mix.c) */
         PortStream_SetPack(asked, type, id);   /* port: its song may be a mod's stream (musicstream.c) */
+        Port_ModsBeginPack(name, type, tocId);  /* port: its mod sounds (Port_Mods.c) */
         DataPack_LoadDataPack(g_fileID, PTR(arg1));
+        Port_ModsEndPack();
         PortStream_SetPack(NULL, 0, 0);
         PortMix_EndPack();
         if (timing && --depth == 0) {
@@ -343,6 +345,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     u8 *xdlBank = NULL;
     void *xdlSfx = NULL;
     s32 proto;
+    int modSounds;
 
     u32 packType = s_xdlType;   /* port: this pack's (a pack it refers to may load below) */
 
@@ -351,7 +354,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
      * the same heap blocks, filled from the cache, its pointers fixed up;
      * no conversion runs. Otherwise its load is recorded for the cache
      * (HWVX_XDL_WRITE). */
-    xp = Xdl_FindPack(Port_FileXdl(file), Port_FileTell(file));
+    /* port: not a pack a mod replaces sounds of (Port_Mods.c): never cached */
+    modSounds = Port_ModsPackSounds();
+    xp = modSounds ? NULL : Xdl_FindPack(Port_FileXdl(file), Port_FileTell(file));
     fmt = Port_FileFormat(file);   /* port: whose pack it is (Port_Data.c) */
     pack->portFormat = (u8)fmt;
     /* port: the PS2 prototype's (Port_Proto.c): no sector padding, its
@@ -362,7 +367,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         SkipRead(xp, XDL_SEG_RAW_HEADER, sizeof(DataPackFileHeader));
         Xdl_Header(xp, &header, sizeof(header));
     } else {
-        Xdl_BeginPack(Port_FileXdl(file), Port_FileTell(file), s_xdlType, s_xdlId);
+        Xdl_BeginPack(modSounds ? NULL : Port_FileXdl(file), Port_FileTell(file), s_xdlType, s_xdlId);
         File_Read(file, sizeof(DataPackFileHeader), &header);
         RecordRead(file, XDL_SEG_RAW_HEADER, sizeof(DataPackFileHeader));
         PortData_PackHeader(fmt, (u32 *)&header, 20, 2, sizeof(DataPackRef));
@@ -487,6 +492,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         if (xp == NULL) {
             /* port: a mixed build's samples from another release (Port_Mix.c) */
             PortMix_SFXPrepare(fmt, sfx, pack->numSounds);
+            Port_ModsSFX(fmt, sfx, pack->numSounds);   /* port: a mod's own sounds (Port_Mods.c) */
             PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
             PortMix_SFX(fmt, sfx, pack->numSounds);
             Xdl_Sound(data, (readSize + 0x1F) & ~0x1F, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase),

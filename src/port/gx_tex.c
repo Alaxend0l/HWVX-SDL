@@ -763,7 +763,7 @@ int GX_PortTexObjInfo(const GXTexObj *obj, GXPortTexInfo *info) {
     info->w = (int)(d[1] >> 16);
     info->h = (int)(d[1] & 0xFFFF);
     info->fmt = (int)d[2];
-    if (PTR(d[0]) == NULL || info->w == 0 || info->h == 0 || info->w > 1024 || info->h > 1024) {
+    if (PTR(d[0]) == NULL || info->w == 0 || info->h == 0 || info->w > PORT_MAX_TEX_SIZE || info->h > PORT_MAX_TEX_SIZE) {
         return 0;
     }
     info->levels = 1;
@@ -771,7 +771,7 @@ int GX_PortTexObjInfo(const GXTexObj *obj, GXPortTexInfo *info) {
         f32 maxLod;
         memcpy(&maxLod, &d[6], 4);
         info->levels = (int)maxLod + 1;
-        if (info->levels < 1 || info->levels > 11) {
+        if (info->levels < 1 || info->levels > PORT_MAX_TEX_LEVELS) {
             info->levels = 1;
         }
     }
@@ -876,7 +876,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     u64 t0;
     const GXTexMod *mod;
 
-    if (image == NULL || w == 0 || h == 0 || w > 1024 || h > 1024) {
+    if (image == NULL || w == 0 || h == 0 || w > PORT_MAX_TEX_SIZE || h > PORT_MAX_TEX_SIZE) {
         return NULL;
     }
     if (d[0] == s_copy.image && s_copy.tex != NULL) {
@@ -889,7 +889,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
         f32 maxLod;
         memcpy(&maxLod, &d[6], 4);
         levels = (int)maxLod + 1;
-        if (levels < 1 || levels > 11) {
+        if (levels < 1 || levels > PORT_MAX_TEX_LEVELS) {
             levels = 1;
         }
     }
