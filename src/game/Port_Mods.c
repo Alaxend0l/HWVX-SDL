@@ -22,6 +22,12 @@
 #include "Port_Mods.h"
 #include "jsonc.h"
 #include "gx_texmod.h"
+#include "mbedtls/sha256.h"
+#ifdef _WIN32
+__declspec(dllimport) unsigned long __stdcall GetFileAttributesW(const wchar_t *name);
+#else
+#include <sys/stat.h>
+#endif
 
 enum { MF_U8, MF_S8, MF_U16, MF_S16, MF_U32, MF_S32, MF_F32, MF_LINK, MF_OTHER };
 
@@ -57,6 +63,7 @@ static int s_numMods;
 static char **s_report;
 static int s_numReport, s_capReport;
 static int s_inited;
+static int FolderChecked(const char *dir, const char *modId);
 static int s_logValues;     /* HWVX_MODS_LOG=1: each value a patch sets, and what it was */
 static double s_old;
 
@@ -112,6 +119,10 @@ static const char *Str(const JsonNode *o, const char *key) {
     const JsonNode *n = Json_Get(o, key);
 
     return n != NULL && n->type == JSON_STRING ? n->string : NULL;
+}
+
+static int Same(const JsonNode *a, const char *b) {
+    return a != NULL && a->type == JSON_STRING && b != NULL && SDL_strcmp(a->string, b) == 0;
 }
 
 static int Enabled(const Mod *m) {
@@ -295,9 +306,7 @@ static SDL_EnumerationResult SDLCALL AddMod(void *userdata, const char *dirname,
     m->info.folder = SDL_strdup(fname);
     m->info.enabled = 1;
     SDL_free(file);
-    SDL_asprintf(&file, "%scheck.json", dir);
-    m->info.checked = file != NULL && SDL_GetPathInfo(file, &pi);
-    SDL_free(file);
+    m->info.checked = FolderChecked(dir, id);
     return SDL_ENUM_CONTINUE;
 }
 
@@ -527,6 +536,22 @@ int Port_ModsActive(void) {
 
 /* ---- packages ------------------------------------------------------------ */
 
+/* Is path (no trailing separator) a symbolic link, junction or other reparse
+ * point? Removing a folder never goes through one: it removes the link. */
+static int IsLink(const char *path) {
+#ifdef _WIN32
+    char *w = SDL_iconv_string("UTF-16LE", "UTF-8", path, SDL_strlen(path) + 1);
+    unsigned long attr = w != NULL ? GetFileAttributesW((const wchar_t *)w) : 0xFFFFFFFFul;
+
+    SDL_free(w);
+    return attr != 0xFFFFFFFFul && (attr & 0x400) != 0;   /* FILE_ATTRIBUTE_REPARSE_POINT */
+#else
+    struct stat st;
+
+    return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
+#endif
+}
+
 static SDL_EnumerationResult SDLCALL RemoveTree(void *userdata, const char *dirname, const char *fname) {
     char *path = NULL;
     SDL_PathInfo pi;
@@ -535,7 +560,7 @@ static SDL_EnumerationResult SDLCALL RemoveTree(void *userdata, const char *dirn
     if (SDL_asprintf(&path, "%s%s", dirname, fname) < 0) {
         return SDL_ENUM_FAILURE;
     }
-    if (SDL_GetPathInfo(path, &pi) && pi.type == SDL_PATHTYPE_DIRECTORY) {
+    if (!IsLink(path) && SDL_GetPathInfo(path, &pi) && pi.type == SDL_PATHTYPE_DIRECTORY) {
         SDL_EnumerateDirectory(path, RemoveTree, NULL);
     }
     SDL_RemovePath(path);
@@ -543,14 +568,29 @@ static SDL_EnumerationResult SDLCALL RemoveTree(void *userdata, const char *dirn
     return SDL_ENUM_CONTINUE;
 }
 
+/* A folder and what's in it; a link (to a folder or not) is only unlinked. */
 static int RemoveFolder(const char *dir) {
+    char *d = SDL_strdup(dir);
+    size_t n = d != NULL ? SDL_strlen(d) : 0;
     SDL_PathInfo pi;
+    int ok;
 
-    if (!SDL_GetPathInfo(dir, &pi)) {
-        return 1;
+    if (d == NULL) {
+        return 0;
     }
-    SDL_EnumerateDirectory(dir, RemoveTree, NULL);
-    return SDL_RemovePath(dir);
+    while (n > 1 && (d[n - 1] == '/' || d[n - 1] == '\\')) {
+        d[--n] = 0;
+    }
+    if (IsLink(d)) {
+        ok = SDL_RemovePath(d);
+    } else if (!SDL_GetPathInfo(d, &pi)) {
+        ok = 1;
+    } else {
+        SDL_EnumerateDirectory(d, RemoveTree, NULL);
+        ok = SDL_RemovePath(d);
+    }
+    SDL_free(d);
+    return ok;
 }
 
 int Port_ModsRemove(int i) {
@@ -590,15 +630,142 @@ static int SafeName(const char *s) {
     return 1;
 }
 
+/* The kinds of file a package may hold: those tools/xdl_mod.py's check reads
+ * (ALLOWED_EXT), and check.json. */
+static int AllowedName(const char *name) {
+    static const char *const ext[] = { ".json", ".jsonc", ".png", ".wav", ".gltf", ".glb", ".bin", ".mid", ".md",
+                                       ".txt" };
+    const char *dot = SDL_strrchr(name, '.'), *p;
+    u32 i;
+
+    for (p = name; p != NULL; p = SDL_strchr(p, '/')) {     /* no hidden files or folders */
+        if (*p == '/') {
+            p++;
+        }
+        if (*p == '.') {
+            return 0;
+        }
+    }
+    for (i = 0; dot != NULL && SDL_strchr(dot, '/') == NULL && i < SDL_arraysize(ext); i++) {
+        if (SDL_strcasecmp(dot, ext[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void Sha256Hex(const void *data, size_t len, char out[65]) {
+    u8 h[32];
+    int i;
+
+    mbedtls_sha256(data, len, h, 0);
+    for (i = 0; i < 32; i++) {
+        SDL_snprintf(out + 2 * i, 3, "%02x", h[i]);
+    }
+}
+
+/* check.json against the mod it came with: written by the packer for this
+ * format, of this mod, and each file it lists of the size and sha256 it gives.
+ * NULL if so, else what's wrong. */
+static const char *CheckManifest(const JsonNode *check, const char *modId) {
+    const JsonNode *files = Json_Get(check, "files");
+
+    if (check == NULL || check->type != JSON_OBJECT) {
+        return "check.json isn't readable";
+    }
+    if (!Same(Json_Get(check, "tool"), "tools/xdl_mod.py") || Json_GetInt(check, "format_version", 0) != 1 ||
+        Json_GetInt(check, "tool_version", 0) < 2) {
+        return "check.json isn't one this version reads (re-pack the mod with tools/xdl_mod.py)";
+    }
+    if (modId == NULL || !Same(Json_Get(check, "mod"), modId)) {
+        return "check.json is another mod's";
+    }
+    if (!Same(Json_Get(check, "result"), "no game data found")) {
+        return "check.json doesn't say the mod passed";
+    }
+    if (files == NULL || files->type != JSON_OBJECT || Json_Get(files, "mod.jsonc") == NULL) {
+        return "check.json lists no files";
+    }
+    return NULL;
+}
+
+/* One file against its check.json entry. */
+static int FileMatches(const JsonNode *entry, const void *data, size_t len) {
+    char hex[65];
+
+    if (entry == NULL || entry->type != JSON_OBJECT || Json_GetInt(entry, "size", -1) != (long long)len) {
+        return 0;
+    }
+    Sha256Hex(data, len, hex);
+    return Same(Json_Get(entry, "sha256"), hex);
+}
+
+/* An installed folder's check.json: the packer's, of this mod, and every file
+ * it lists there unchanged. */
+static int FolderChecked(const char *dir, const char *modId) {
+    char *path = NULL, *text;
+    size_t len;
+    JsonNode *check;
+    const JsonNode *f;
+    int ok;
+
+    if (SDL_asprintf(&path, "%scheck.json", dir) < 0) {
+        return 0;
+    }
+    text = SDL_LoadFile(path, &len);
+    SDL_free(path);
+    check = text != NULL ? Json_Parse(text, len, NULL, 0) : NULL;
+    SDL_free(text);
+    ok = check != NULL && CheckManifest(check, modId) == NULL;
+    for (f = ok ? Json_Get(check, "files")->child : NULL; f != NULL && ok; f = f->next) {
+        path = NULL;
+        text = SafeName(f->key) && AllowedName(f->key) && SDL_asprintf(&path, "%s%s", dir, f->key) > 0
+                   ? SDL_LoadFile(path, &len) : NULL;
+        ok = text != NULL && FileMatches(f, text, len);
+        SDL_free(text);
+        SDL_free(path);
+    }
+    Json_Free(check);
+    return ok;
+}
+
+typedef struct ZipEntry {
+    char name[256];
+    u32 data, size;
+} ZipEntry;
+
+/* The id in a folder's mod.jsonc (to free), or NULL. */
+static char *FolderId(const char *dir) {
+    char *path = NULL, *text, *id = NULL;
+    size_t len;
+    JsonNode *doc;
+
+    if (SDL_asprintf(&path, "%s/mod.jsonc", dir) < 0) {
+        return NULL;
+    }
+    text = SDL_LoadFile(path, &len);
+    doc = text != NULL ? Json_Parse(text, len, NULL, 0) : NULL;
+    if (Str(doc, "id") != NULL) {
+        id = SDL_strdup(Str(doc, "id"));
+    }
+    Json_Free(doc);
+    SDL_free(text);
+    SDL_free(path);
+    return id;
+}
+
 int Port_ModsInstall(const char *package, char *err, size_t errSize) {
     size_t size = 0;
     u8 *zip = SDL_LoadFile(package, &size);
     const u8 *eocd = NULL, *cd;
-    u32 count, cdOff, i, k;
-    char *dir = Port_ModsDir(), *part = NULL, *final = NULL, *text = NULL;
-    JsonNode *doc = NULL;
-    const char *id;
-    int ok = 0, hasCheck = 0, hasMod = 0, pass;
+    u32 count, cdOff, i, k, n = 0;
+    char *dir = Port_ModsDir(), *part = NULL, *final = NULL, *old = NULL, *have = NULL;
+    JsonNode *doc = NULL, *check = NULL;
+    ZipEntry *ent = NULL;
+    const char *id = NULL, *why, *c;
+    const JsonNode *f;
+    int ok = 0, hasCheck = 0, hasMod = 0, listed = 0, moved = 0;
+    SDL_PathInfo pi;
 
     if (zip == NULL || dir == NULL) {
         SDL_snprintf(err, errSize, "can't read %s", package);
@@ -619,107 +786,165 @@ int Port_ModsInstall(const char *package, char *err, size_t errSize) {
     }
     count = Le16(eocd + 10);
     cdOff = Le32(eocd + 16);
-    /* pass 0 checks every entry and reads mod.jsonc; pass 1 writes them */
-    for (pass = 0; pass < 2; pass++) {
-        for (i = 0, cd = zip + cdOff; i < count; i++) {
-            char name[256];
-            u32 nlen, method, csize, lho, data;
+    if ((ent = SDL_calloc(count + 1, sizeof(*ent))) == NULL) {
+        goto done;
+    }
+    /* every entry: a name a package may have, stored, inside the file */
+    for (i = 0, cd = zip + (cdOff <= size ? cdOff : size); i < count; i++) {
+        ZipEntry *e = &ent[n];
+        u32 nlen, method, csize, usize, lho, j;
 
-            if ((size_t)(cd - zip) + 46 > size || Le32(cd) != 0x02014B50) {
-                SDL_snprintf(err, errSize, "the package is damaged");
+        if ((size_t)(cd - zip) + 46 > size || Le32(cd) != 0x02014B50) {
+            SDL_snprintf(err, errSize, "the package is damaged");
+            goto done;
+        }
+        method = Le16(cd + 10);
+        csize = Le32(cd + 20);
+        usize = Le32(cd + 24);
+        nlen = Le16(cd + 28);
+        lho = Le32(cd + 42);
+        if (nlen == 0 || nlen >= sizeof(e->name) || (size_t)(cd - zip) + 46 + nlen > size ||
+            (size_t)lho + 30 > size || Le32(zip + lho) != 0x04034B50) {
+            SDL_snprintf(err, errSize, "the package is damaged");
+            goto done;
+        }
+        SDL_memcpy(e->name, cd + 46, nlen);
+        e->name[nlen] = 0;
+        e->data = lho + 30 + Le16(zip + lho + 26) + Le16(zip + lho + 28);
+        e->size = csize;
+        cd += 46 + nlen + Le16(cd + 30) + Le16(cd + 32);
+        if (!SafeName(e->name) || method != 0 || csize != usize || (size_t)e->data + csize > size) {
+            SDL_snprintf(err, errSize, "%s: %s", e->name, method != 0 || csize != usize
+                                                               ? "compressed (the packer stores entries)"
+                                                               : "not a name or place a package may use");
+            goto done;
+        }
+        if (e->name[nlen - 1] == '/') {
+            continue;   /* a folder: made as its files are written */
+        }
+        if (!AllowedName(e->name)) {
+            SDL_snprintf(err, errSize, "%s: not a kind of file a mod holds (the packer's check reads .json "
+                                       ".jsonc .png .wav .gltf .glb .bin .mid .md .txt)", e->name);
+            goto done;
+        }
+        for (j = 0; j < n; j++) {
+            if (SDL_strcmp(ent[j].name, e->name) == 0) {
+                SDL_snprintf(err, errSize, "%s: twice in the package", e->name);
                 goto done;
-            }
-            method = Le16(cd + 10);
-            csize = Le32(cd + 20);
-            nlen = Le16(cd + 28);
-            lho = Le32(cd + 42);
-            if (nlen >= sizeof(name) || (size_t)(cd - zip) + 46 + nlen > size || (size_t)lho + 30 > size) {
-                SDL_snprintf(err, errSize, "the package is damaged");
-                goto done;
-            }
-            SDL_memcpy(name, cd + 46, nlen);
-            name[nlen] = 0;
-            data = lho + 30 + Le16(zip + lho + 26) + Le16(zip + lho + 28);
-            cd += 46 + nlen + Le16(cd + 30) + Le16(cd + 32);
-            if (!SafeName(name) || method != 0 || (size_t)data + csize > size) {
-                SDL_snprintf(err, errSize, "%s: %s", name, method != 0 ? "compressed (the packer stores entries)"
-                                                                       : "not a name or place a package may use");
-                goto done;
-            }
-            if (pass == 0) {
-                if (SDL_strcmp(name, "check.json") == 0) {
-                    hasCheck = 1;
-                } else if (SDL_strcmp(name, "mod.jsonc") == 0) {
-                    char e2[160];
-
-                    hasMod = 1;
-                    doc = Json_Parse((const char *)zip + data, csize, e2, sizeof(e2));
-                }
-            } else if (name[nlen - 1] != '/') {
-                char *path = NULL, *slash;
-
-                SDL_asprintf(&path, "%s%s", part, name);
-                if (path == NULL) {
-                    goto done;
-                }
-                if ((slash = SDL_strrchr(path, '/')) != NULL) {
-                    *slash = 0;
-                    SDL_CreateDirectory(path);
-                    *slash = '/';
-                }
-                if (!SDL_SaveFile(path, zip + data, csize)) {
-                    SDL_snprintf(err, errSize, "can't write %s: %s", path, SDL_GetError());
-                    SDL_free(path);
-                    goto done;
-                }
-                SDL_free(path);
             }
         }
-        if (pass == 0) {
-            id = Str(doc, "id");
-            if (!hasCheck || !hasMod) {
-                SDL_snprintf(err, errSize, "%s", !hasMod ? "no mod.jsonc in it" : "not made by the packer (no check.json)");
+        if (SDL_strcmp(e->name, "check.json") == 0) {
+            hasCheck = 1;
+            check = Json_Parse((const char *)zip + e->data, csize, NULL, 0);
+        } else if (SDL_strcmp(e->name, "mod.jsonc") == 0) {
+            hasMod = 1;
+            doc = Json_Parse((const char *)zip + e->data, csize, NULL, 0);
+        }
+        n++;
+    }
+    if (!hasCheck || !hasMod) {
+        SDL_snprintf(err, errSize, "%s", !hasMod ? "no mod.jsonc in it" : "not made by the packer (no check.json)");
+        goto done;
+    }
+    id = Str(doc, "id");
+    for (c = id != NULL && SDL_strncmp(id, "uid://", 6) == 0 ? id + 6 : ""; (*c >= '0' && *c <= '9') ||
+         (*c >= 'a' && *c <= 'z'); c++) {
+    }
+    if (id == NULL || *c != 0 || c == id + 6 || c - id > 6 + 13 || Json_GetInt(doc, "format_version", 0) != 1) {
+        SDL_snprintf(err, errSize, "mod.jsonc has no id this version reads");
+        goto done;
+    }
+    /* check.json: the packer's, of this mod, listing exactly the package's files */
+    if ((why = CheckManifest(check, id)) != NULL) {
+        SDL_snprintf(err, errSize, "%s", why);
+        goto done;
+    }
+    for (i = 0; i < n; i++) {
+        if (SDL_strcmp(ent[i].name, "check.json") != 0) {
+            if (!FileMatches(Json_Get(Json_Get(check, "files"), ent[i].name), zip + ent[i].data, ent[i].size)) {
+                SDL_snprintf(err, errSize, "%s isn't the file the packer checked", ent[i].name);
                 goto done;
             }
-            const char *c;
-
-            for (c = id != NULL && SDL_strncmp(id, "uid://", 6) == 0 ? id + 6 : ""; (*c >= '0' && *c <= '9') ||
-                 (*c >= 'a' && *c <= 'z'); c++) {
-            }
-            if (id == NULL || *c != 0 || c == id + 6) {
-                SDL_snprintf(err, errSize, "mod.jsonc has no id this version reads");
-                goto done;
-            }
-            SDL_asprintf(&final, "%s%s", dir, id + 6);
-            SDL_asprintf(&part, "%s%s.part/", dir, id + 6);
-            if (final == NULL || part == NULL) {
-                goto done;
-            }
-            RemoveFolder(part);
-            SDL_CreateDirectory(part);
+            listed++;
         }
     }
-    /* the mod of the same id goes, wherever it was */
-    Port_ModsScan();
-    if ((i = (u32)IndexOfId(id)) != (u32)-1) {
-        RemoveFolder(s_mods[i].dir);
+    for (f = Json_Get(check, "files")->child; f != NULL; f = f->next) {
+        listed--;
     }
-    RemoveFolder(final);
-    part[SDL_strlen(part) - 1] = 0;
+    if (listed != 0) {
+        SDL_snprintf(err, errSize, "check.json lists files the package doesn't have");
+        goto done;
+    }
+    if (SDL_asprintf(&final, "%s%s", dir, id + 6) < 0 || SDL_asprintf(&part, "%s%s.part", dir, id + 6) < 0 ||
+        SDL_asprintf(&old, "%s%s.part-old", dir, id + 6) < 0) {
+        goto done;
+    }
+    /* a folder of that name holding something else stays */
+    if (SDL_GetPathInfo(final, &pi) && ((have = FolderId(final)) == NULL || SDL_strcmp(have, id) != 0)) {
+        SDL_snprintf(err, errSize, "%s%s is in the way: it holds %s", id + 6, "/", have != NULL ? have : "no mod");
+        goto done;
+    }
+    /* unpacked beside it, then swapped in */
+    SDL_CreateDirectory(dir);
+    RemoveFolder(part);
+    if (!SDL_CreateDirectory(part)) {
+        SDL_snprintf(err, errSize, "can't make %s: %s", part, SDL_GetError());
+        goto done;
+    }
+    for (i = 0; i < n; i++) {
+        char *path = NULL, *slash;
+
+        if (SDL_asprintf(&path, "%s/%s", part, ent[i].name) < 0) {
+            goto done;
+        }
+        if ((slash = SDL_strrchr(path, '/')) != NULL) {
+            *slash = 0;
+            SDL_CreateDirectory(path);
+            *slash = '/';
+        }
+        if (!SDL_SaveFile(path, zip + ent[i].data, ent[i].size)) {
+            SDL_snprintf(err, errSize, "can't write %s: %s", path, SDL_GetError());
+            SDL_free(path);
+            goto done;
+        }
+        SDL_free(path);
+    }
+    RemoveFolder(old);
+    if (SDL_GetPathInfo(final, &pi)) {
+        if (!SDL_RenamePath(final, old)) {
+            SDL_snprintf(err, errSize, "can't move the old %s aside: %s", id, SDL_GetError());
+            goto done;
+        }
+        moved = 1;
+    }
     if (!SDL_RenamePath(part, final)) {
         SDL_snprintf(err, errSize, "can't put the mod in place: %s", SDL_GetError());
+        if (moved && !SDL_RenamePath(old, final)) {
+            Port_Log("mods: the old %s is left in %s", id, old);
+        }
         goto done;
     }
     ok = 1;
+    RemoveFolder(old);
+    /* the mod of the same id in another folder goes */
+    Port_ModsScan();
+    for (k = 0; k < (u32)s_numMods; k++) {
+        if (SDL_strcmp(s_mods[k].info.id, id) == 0 && SDL_strcmp(s_mods[k].info.folder, id + 6) != 0) {
+            Port_Log("mods: %s replaces the copy in %s", id, s_mods[k].dir);
+            RemoveFolder(s_mods[k].dir);
+        }
+    }
     Port_Log("mods: installed %s from %s", id, package);
 done:
     if (!ok && part != NULL) {
-        part[SDL_strlen(part) - 1] = 0;
         RemoveFolder(part);
     }
     Json_Free(doc);
-    SDL_free(text);
+    Json_Free(check);
+    SDL_free(ent);
+    SDL_free(have);
     SDL_free(part);
+    SDL_free(old);
     SDL_free(final);
     SDL_free(dir);
     SDL_free(zip);
@@ -740,9 +965,6 @@ void Port_ModsInit(void) {
     }
 }
 
-static int Same(const JsonNode *a, const char *b) {
-    return a != NULL && a->type == JSON_STRING && b != NULL && SDL_strcmp(a->string, b) == 0;
-}
 
 /* Sets lock member `key` to string `s` (or removes it for NULL): 1 if it changed. */
 static int SetStr(JsonNode *e, const char *key, const char *s) {

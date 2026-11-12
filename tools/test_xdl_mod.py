@@ -4,17 +4,25 @@ refused, naming the asset.
 
     python3 tools/test_xdl_mod.py [GAME_FILES]     default: orig/gc/files found above the tools
 
+HWVX_BIN=build/hwvx (the default when it exists) also runs the port's installer (hwvx
+--install-mod) on the sample and on damaged packages, in a scratch mods folder.
+
 Indexes HW_Cars, HW_IPack and HW_Items of the given release (a partial index: a few seconds) and
 writes under build/mods-test (gitignored: the refused mods hold game data, on purpose).
 """
 
+import base64
 import contextlib
+import hashlib
+import os
+import subprocess
 import io
 import json
 import shutil
 import struct
 import sys
 import wave
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -94,6 +102,92 @@ def gltf(pos, name="mesh"):
         "accessors": [{"bufferView": 0, "componentType": 5126, "type": "VEC3", "count": len(pos)}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "mode": 0}]}]}).encode(),
             f"{name}.bin": pos.tobytes()}
+
+
+def repack(src, dst, edit, compress=False):
+    """A copy of package src with its {name: bytes} edited (as a crafted or damaged package would be)."""
+    files = M.read_package(src)
+    edit(files)
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED) as z:
+        for n in sorted(files):
+            zi = zipfile.ZipInfo(n, (1980, 1, 1, 0, 0, 0))
+            zi.compress_type = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
+            z.writestr(zi, files[n])
+    return dst
+
+
+def set_check(pkg, **kv):
+    c = json.loads(pkg["check.json"])
+    c.update(kv)
+    pkg["check.json"] = json.dumps(c).encode()
+
+
+def relist(files):
+    """check.json listing the files as they now are (a package re-signed by hand)."""
+    set_check(files, files={n: {"size": len(d), "sha256": hashlib.sha256(d).hexdigest()}
+                            for n, d in files.items() if n != "check.json"})
+
+
+BAD_PACKAGES = {
+    # name: (edit, compressed, words the refusal has)
+    "no-check": (lambda f: f.pop("check.json"), False, "no check.json"),
+    "tampered": (lambda f: f.update({"README.md": f["README.md"] + b"x"}), False, "isn't the file the packer checked"),
+    "unlisted": (lambda f: f.update({"extra.txt": b"hello"}), False, "list"),
+    "kind": (lambda f: (f.update({"tool.exe": b"MZ"}), relist(f)), False, "kind of file"),
+    "hidden": (lambda f: (f.update({".x/a.txt": b"MZ"}), relist(f)), False, ".x/a.txt"),
+    "other-mod": (lambda f: set_check(f, mod="uid://someoneelse"), False, "another mod's"),
+    "old-tool": (lambda f: set_check(f, tool_version=1), False, "re-pack"),
+    "failed": (lambda f: set_check(f, result="2 problems"), False, "passed"),
+    "compressed": (lambda f: None, True, "compressed"),
+}
+
+
+def port_install(hwvx, pkg, mods):
+    r = subprocess.run([str(hwvx), "--install-mod", str(pkg)], capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, HWVX_MODS_DIR=str(mods), HWVX_PREF_DIR=str(OUT / "pref")))
+    return r.returncode, r.stdout + r.stderr
+
+
+def installers(hwvx):
+    """The packer's install and the port's refuse damaged packages alike; links aren't followed."""
+    good = OUT / "a.hwmod"
+    for name, (edit, compress, words) in BAD_PACKAGES.items():
+        pkg = repack(good, OUT / f"bad-{name}.hwmod", edit, compress)
+        mods = OUT / "inst-bad"
+        shutil.rmtree(mods, ignore_errors=True)
+        if not compress:    # zipfile reads deflated entries: the port's check only
+            code, out = run("install", pkg, mods)
+            check(f"install refuses: {name}", code == 2 and words in out and not (mods / "nightshift001").exists(),
+                  out)
+        if hwvx:
+            code, out = port_install(hwvx, pkg, mods)
+            left = sorted(p.name for p in mods.iterdir()) if mods.exists() else []
+            check(f"port install refuses: {name}", code != 0 and words in out and left == [], f"{out} {left}")
+    for who in ("packer", "port") if hwvx else ("packer",):
+        mods = OUT / f"inst-{who}"
+        work = OUT / f"work-{who}"
+        shutil.rmtree(mods, ignore_errors=True)
+        shutil.rmtree(work, ignore_errors=True)
+        shutil.copytree(SAMPLE, work)
+        mods.mkdir(parents=True)
+        (mods / "mywork").symlink_to(work, target_is_directory=True)       # the same mod, linked in
+        (mods / "nightshift001").mkdir()
+        (mods / "nightshift001" / "mod.jsonc").write_text('{"id": "uid://someoneelse", "format_version": 1}')
+        inst = (lambda p: run("install", p, mods)) if who == "packer" else (lambda p: port_install(hwvx, p, mods))
+        code, out = inst(good)
+        check(f"{who} install: a folder holding another mod is in the way", code != 0 and "in the way" in out,
+              out)
+        shutil.rmtree(mods / "nightshift001")
+        (mods / "nightshift001").symlink_to(work, target_is_directory=True)  # the same id, linked
+        code, out = inst(good)
+        names = sorted(p.name for p in mods.iterdir())
+        check(f"{who} install: replaces linked copies, never what they link to",
+              code == 0 and names == ["nightshift001"] and not (mods / "nightshift001").is_symlink() and
+              (mods / "nightshift001" / "check.json").is_file() and (work / "mod.jsonc").is_file() and
+              (work / "README.md").is_file(), f"{out} {names}")
+        code, out = inst(good)
+        names = sorted(p.name for p in mods.iterdir())
+        check(f"{who} install: again, over itself", code == 0 and names == ["nightshift001"], f"{out} {names}")
 
 
 def main():
@@ -199,6 +293,34 @@ def main():
           code == 0 and doc["cars"]["uid://nightshiftcar"]["patch"]["CarAInfo/0"] ==
           {"maxRpm": 8200, "turboTorqueScale": 1.3}, out)
 
+    # bytes written as text: hex with separators, base64 lines, arrays of numbers
+    chunk = raw[d0 + 0x2000:d0 + 0x2000 + 96]
+    refused("hex-in-txt", mod("hex-in-txt", files={"notes.txt": ("my numbers:\n" + ", ".join(
+        f"0x{b:02X}" for b in chunk) + "\n").encode()}), "notes.txt: hex", "base://HW_Cars/car_5")
+    refused("hex-words-in-md", mod("hex-words-in-md", files={"notes.md": " ".join(
+        chunk[i:i + 4].hex() for i in range(0, 96, 4)).encode()}), "notes.md: hex", "base://HW_Cars/car_5")
+    b64 = base64.b64encode(raw[d0 + 0x3000:d0 + 0x3000 + 300]).decode()
+    refused("base64-in-md", mod("base64-in-md", files={"README.md": ("# data\n\n" + "\n".join(
+        b64[i:i + 76] for i in range(0, len(b64), 76)) + "\n").encode()}), "README.md: base64",
+            "base://HW_Cars/car_5")
+    refused("u8-array", mod("u8-array", files={"t.json": json.dumps({"t": list(chunk)}).encode()}),
+            "t.json: t (u8)", "base://HW_Cars/car_5")
+    fl = next(o for o in range(d0 + 0x1000, d0 + dn - 128, 4)
+              if np.isfinite(np.frombuffer(raw[o:o + 128], ">f4")).all() and
+              len(set(raw[o:o + 128])) > 40)
+    floats = np.frombuffer(raw[fl:fl + 128], ">f4" if arc.release == "gc" else "<f4").astype(float).tolist()
+    refused("f32-array", mod("f32-array", files={"t.json": json.dumps({"v": [floats[i:i + 4] for i in range(
+        0, 32, 4)]}).encode()}), "t.json: v (f32", "base://HW_Cars/car_5")
+
+    def rel_ps2(doc):
+        doc["releases"] = ["gc", "ps2"]
+    code, out = run("pack", mod("releases", rel_ps2), "-o", OUT / "releases.hwmod", "--index", INDEX)
+    check("refused: releases the index lacks", code == 1 and "ps2, which the index has no data of" in out, out)
+    code, out = run("pack", mod("releases", rel_ps2), "-o", OUT / "releases.hwmod", "--index", INDEX,
+                    "--allow-partial-index")
+    check("--allow-partial-index records them", code == 0 and json.loads(M.read_package(
+        OUT / "releases.hwmod")["check.json"])["unindexed_releases"] == ["ps2"], out)
+
     # mistakes in the manifest
     def e_field(doc):
         doc["patches"]["base://HW_Cars/car_7/CarAInfo/0/accel"]["warpDrive"] = 9
@@ -207,6 +329,10 @@ def main():
     def e_link(doc):
         doc["patches"]["base://HW_Cars/car_7/CarAInfo/0"] = {"engine": 5}
     refused("link-field", mod("link-field", e_link), "is a link")
+
+    def e_count(doc):
+        doc["cars"]["uid://nightshiftcar"]["patch"]["CarAInfo/0"]["numWheels"] = 9
+    refused("array-count", mod("array-count", e_count), "numWheels counts an array")
 
     def e_type(doc):
         doc["cars"]["uid://nightshiftcar"]["patch"]["CarAInfo/0"]["skidLife"] = 70000
@@ -253,6 +379,9 @@ def main():
                     "--allow-partial-index")
     check("a mod with the modder's own PNG, WAV, glTF and JSON packs", code == 0 and "7 files" in out, out)
     (OUT / "tmp.png").unlink(missing_ok=True)
+
+    hwvx = Path(os.environ.get("HWVX_BIN", M.ROOT / "build" / "hwvx"))
+    installers(hwvx if hwvx.is_file() else None)
     print(f"{fails} failed")
     return 1 if fails else 0
 
