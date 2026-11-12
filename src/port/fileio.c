@@ -117,6 +117,8 @@ int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
     return ok;
 }
 
+/* fsync, not F_FULLFSYNC (SyncFd): for the .xdl cache (xdl.c), which writes
+ * many packs; a file a power loss leaves inconsistent is rejected and rebuilt. */
 int Port_SyncIO(SDL_IOStream *io) {
     SDL_PropertiesID props = SDL_GetIOProperties(io);
     FILE *f = SDL_GetPointerProperty(props, SDL_PROP_IOSTREAM_STDIO_FILE_POINTER, NULL);
