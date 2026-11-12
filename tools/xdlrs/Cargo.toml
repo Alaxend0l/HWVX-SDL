@@ -7,3 +7,10 @@ description = "The .xdl tools' core (tools/xdl_struct.py, tools/xdl_tac.py) as a
 [dependencies]
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 regex = "1.11"
+# the mod check (modcheck): PNG reading, the sound fingerprint's FFT
+png = "0.18"
+rustfft = "6.2"
+
+[build-dependencies]
+# src/audiodec (the port's own decoders) linked into the mod check
+cc = "1.2"
