@@ -45,6 +45,11 @@ const char *Port_MixName(void);
 int Port_MixBuilding(void);
 /* The colours the build draws in: 1 the GameCube's, 0 the PC's (recipe "look"). */
 int Port_MixLookGC(void);
+/* The interface art's set (recipe "interface", for the built-in recipe the
+ * launcher's choice): PORT_DATA_GC, the GameCube's yellow menus and HUD, or
+ * PORT_DATA_PS2, the PS2's silver ones. The PC's art is yellow too but never
+ * taken; its font pages are (the same glyphs at a higher resolution). */
+int Port_MixInterface(void);
 /* The folder of release `rel` (PORT_DATA_*, PORT_MIX_PROTO), or NULL: not
  * imported, or not in the recipe. */
 const char *Port_MixRoot(int rel);
@@ -52,8 +57,9 @@ const char *Port_MixRoot(int rel);
  * by the recipe's "base" rules; -1 past the last. */
 int Port_MixCandidate(const char *name, int k);
 /* The release of asset `id` ("base://HW_Cars/car_5/texture/3"): the
- * releases to try in order[], their count returned; or one of these. */
-enum { PORT_MIX_FROM_BASE = 0, PORT_MIX_FROM_BEST = -1 };
+ * releases to try in order[], their count returned; or one of these
+ * (FROM_IFACE: textures, the interface set's copy, Port_MixInterface). */
+enum { PORT_MIX_FROM_BASE = 0, PORT_MIX_FROM_BEST = -1, PORT_MIX_FROM_IFACE = -2 };
 int Port_MixAssetRule(const char *id, int order[PORT_MIX_RELS]);
 /* Bytes of the pack file `name` as release `rel` has it; the count read. */
 u32 Port_MixRead(int rel, const char *name, u64 offset, void *dst, u32 size);
@@ -65,6 +71,9 @@ u32 Port_MixStamp(void);
  * --mix-build): asset `id` came from release `rel`, index `index` there,
  * `hash` of the bytes taken. */
 void Port_MixManifest(const char *id, int rel, u32 index, u64 hash);
+/* The same for an interface texture (`ui` "art" or "font", a "ui" field):
+ * written whichever release it comes from, the base's own included. */
+void Port_MixManifestUI(const char *id, int rel, u32 index, u64 hash, const char *ui);
 /* The archives of every release in the recipe, as the game names them
  * (no extension, '\\' separators), each once: `fn` per name. */
 void Port_MixArchives(void (*fn)(const char *name, void *user), void *user);
@@ -84,8 +93,11 @@ void PortMix_EndPack(void);
 void PortMix_LogStats(void);
 /* DataPack_LoadDataPack, once the pack is relocated and converted: its
  * textures (headers at `texOff` of `base`) from the releases the recipe
- * names. The block the new pixels are in is kept with the pack. */
-void PortMix_Textures(struct DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOff, u32 numTex);
+ * names. The block the new pixels are in is kept with the pack. The pack's
+ * pointer list and its { slot, id } reference relocations find what its
+ * interfaces show (Port_IfaceScan.h): those are the interface set's. */
+void PortMix_Textures(struct DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOff, u32 numTex,
+                      const u32 *pointers, u32 numPointers, const u32 *refs, u32 numRefs);
 /* The pack's sound effects (descriptors converted, relocated): samples from
  * another release, in a block PortMix_SFXDone frees once CreateSFX has
  * copied them. PortMix_SFXPrepare runs before the base's own conversion,

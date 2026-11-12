@@ -23,6 +23,7 @@ typedef struct MixRules {
 
 static struct {
     int on, building, lookGC;
+    int iface;                      /* the interface art's set: PORT_DATA_GC (yellow) or PORT_DATA_PS2 (silver) */
     char name[64];
     char cacheName[80];
     u32 stamp;
@@ -51,6 +52,10 @@ int Port_MixBuilding(void) {
 
 int Port_MixLookGC(void) {
     return s_mix.lookGC;
+}
+
+int Port_MixInterface(void) {
+    return s_mix.iface;
 }
 
 int Port_MixProtoReplace(void) {
@@ -109,7 +114,7 @@ static int Glob(const char *pat, const char *s) {
     return *s == 0;
 }
 
-/* A rule list: [{ "match": glob, "from": release | [releases] | "base" | "best" }]. */
+/* A rule list: [{ "match": glob, "from": release | [releases] | "base" | "best" | "interface" }]. */
 static int ReadRules(const JsonNode *arr, MixRules *out, const char *what, char *err, u32 errSize) {
     const JsonNode *n;
     int i = 0;
@@ -140,6 +145,8 @@ static int ReadRules(const JsonNode *arr, MixRules *out, const char *what, char 
             r->kind = PORT_MIX_FROM_BASE;
         } else if (from->type == JSON_STRING && SDL_strcasecmp(from->string, "best") == 0) {
             r->kind = PORT_MIX_FROM_BEST;
+        } else if (from->type == JSON_STRING && SDL_strcasecmp(from->string, "interface") == 0) {
+            r->kind = PORT_MIX_FROM_IFACE;
         } else {
             for (e = from->type == JSON_ARRAY ? from->child : from; e != NULL;
                  e = from->type == JSON_ARRAY ? e->next : NULL) {
@@ -147,7 +154,7 @@ static int ReadRules(const JsonNode *arr, MixRules *out, const char *what, char 
 
                 if (rel < 0 || r->kind >= PORT_DATA_COUNT) {
                     SDL_snprintf(err, errSize, "\"%s\" rule %d: \"from\" is a release (gc, pc, ps2), a list of "
-                                 "them, \"base\" or \"best\"", what, i + 1);
+                                 "them, \"base\", \"best\" or \"interface\"", what, i + 1);
                     return 0;
                 }
                 r->from[r->kind++] = rel;
@@ -354,8 +361,9 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
     const JsonNode *rels, *e;
     int inRecipe[PORT_DATA_COUNT] = { 0 }, i;
     u32 stamp = 2166136261u;
+    int builtIn = SDL_strcasecmp(nameOrPath, "ultimate") == 0;
 
-    if (SDL_strcasecmp(nameOrPath, "ultimate") == 0) {
+    if (builtIn) {
         text = SDL_malloc(sizeof(g_mixRecipeUltimate));
         if (text != NULL) {
             len = sizeof(g_mixRecipeUltimate);
@@ -384,6 +392,20 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
         }
     }
     s_mix.lookGC = SDL_strcasecmp(Json_GetString(root, "look", "gc"), "pc") != 0;
+    {
+        /* the interface art's set; the built-in recipe's is the launcher's choice (sources.cfg "interface=") */
+        char *chosen = builtIn ? SourceLine("interface") : NULL;
+        const char *set = chosen != NULL ? chosen : Json_GetString(root, "interface", "gc");
+
+        s_mix.iface = SDL_strcasecmp(set, "ps2") == 0 ? PORT_DATA_PS2 : SDL_strcasecmp(set, "gc") == 0 ? PORT_DATA_GC : -1;
+        SDL_free(chosen);
+        if (s_mix.iface < 0) {
+            SDL_snprintf(err, errSize, "the recipe %s: \"interface\" is \"gc\" (yellow) or \"ps2\" (silver)", nameOrPath);
+            Json_Free(root);
+            return 0;
+        }
+        stamp = Fnv(stamp, &s_mix.iface, sizeof(s_mix.iface));
+    }
     rels = Json_Get(root, "releases");
     if (rels != NULL && rels->type == JSON_ARRAY) {
         for (e = rels->child; e != NULL; e = e->next) {
@@ -466,8 +488,8 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
     }
     s_mix.building = building;
     s_mix.on = 1;
-    Port_Log("mix: recipe %s, %s look; gc %s, pc %s, ps2 %s", s_mix.name, s_mix.lookGC ? "GameCube" : "PC",
-             s_mix.root[0] ? s_mix.root[0] : "-", s_mix.root[1] ? s_mix.root[1] : "-",
+    Port_Log("mix: recipe %s, %s look, %s interface; gc %s, pc %s, ps2 %s", s_mix.name, s_mix.lookGC ? "GameCube" : "PC",
+             s_mix.iface == PORT_DATA_PS2 ? "silver (PS2)" : "yellow (GameCube)", s_mix.root[0] ? s_mix.root[0] : "-", s_mix.root[1] ? s_mix.root[1] : "-",
              s_mix.root[2] ? s_mix.root[2] : "-");
     return 1;
 }
@@ -546,6 +568,10 @@ static char *CachePath(const char *file) {
 }
 
 void Port_MixManifest(const char *id, int rel, u32 index, u64 hash) {
+    Port_MixManifestUI(id, rel, index, hash, NULL);
+}
+
+void Port_MixManifestUI(const char *id, int rel, u32 index, u64 hash, const char *ui) {
     if (!s_mix.building || rel < 0 || rel >= PORT_DATA_COUNT) {
         return;
     }
@@ -574,8 +600,9 @@ void Port_MixManifest(const char *id, int rel, u32 index, u64 hash) {
             return;
         }
     }
-    SDL_IOprintf(s_mix.manifest, "{\"id\":\"%s\",\"from\":\"%s\",\"i\":%u,\"x\":\"%016llx\"}\n", id, s_relKeys[rel],
-                 (unsigned)index, (unsigned long long)hash);
+    SDL_IOprintf(s_mix.manifest, "{\"id\":\"%s\",\"from\":\"%s\",\"i\":%u,\"x\":\"%016llx\"%s%s%s}\n", id,
+                 s_relKeys[rel], (unsigned)index, (unsigned long long)hash, ui != NULL ? ",\"ui\":\"" : "",
+                 ui != NULL ? ui : "", ui != NULL ? "\"" : "");
 }
 
 void Port_MixManifestClose(void) {

@@ -34,13 +34,20 @@ u32 Port_IfaceTo(const PortIfaceScan *s, u32 off);
  * size / 4 + 1 bytes, the caller frees it), or NULL. *count: how many. */
 u8 *Port_IfaceHeaders(const PortIfaceScan *s, u32 *count);
 
-/* The pack's own textures its interfaces show: used[i] = 1 for texture i (of
- * numTex) that an interface object's image, texture key animation, font or
- * briefing portrait names, through the pack's texture relocations
+/* The pack's own textures its interfaces show: used[i] = PORT_IFACE_ART for
+ * texture i (of numTex) that an interface object's image, texture key
+ * animation or briefing portrait names, PORT_IFACE_FONT for a font's page
+ * (a text's, a box's, a briefing character's) and nothing else, through the pack's texture relocations
  * (DataPack.relocs: { slot, id } pairs, id >> 16 != 0 another pack's;
  * PORT_TEXRELOC_U16 masked). Child interfaces are headers of their own and
  * counted as such. Geometry drawn in an interface (image type 1) is not
  * followed. Returns how many textures were marked. */
+enum { PORT_IFACE_ART = 1, PORT_IFACE_FONT = 2 };
 u32 Port_IfaceTextures(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexRelocs, u8 *used, u32 numTex);
+/* The same, and `other` for each texture of another pack (the pack it refers
+ * to by id: DataPack.refs[k].id, `index` in its table) an interface shows:
+ * the car packs' HUDs draw HW_Cars share_2's gauges, the worlds' HW_share's. */
+u32 Port_IfaceTexturesAll(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexRelocs, u8 *used, u32 numTex,
+                          void (*other)(void *user, u32 packId, u32 index, u8 what), void *user);
 
 #endif
