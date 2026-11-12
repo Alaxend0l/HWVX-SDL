@@ -34,7 +34,14 @@
  *    projection's far plane (Render_Matrix_.c) for All.
  *
  * Port_DrawDistLevel is Normal in the attract demo, input playback and online
- * play, so those are the same for everyone. */
+ * play, so those are the same for everyone.
+ *
+ * The viewer's 3D view (the data browser; HWVX_VIEWER only, never the game's
+ * play or a test drive) has three switches of its own (Port_DrawDistViewer):
+ * all quadrants loaded (All's set, whatever the setting), geometry clipping
+ * off (no far plane, no draw distances or frustum culls, the last LOD past its
+ * range, the projection's far plane out) and fog off (the sky keeps its own,
+ * Port_RenderGroupFog). Defaults: as without them. */
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "World.h"
@@ -79,12 +86,38 @@ static s32 s_level;        /* this frame's Port_DrawDistLevel */
 static u32 s_numShadows;
 static u32 s_shadowBytes;
 
+int Port_ViewerOn(void);   /* viewer.c */
+
+/* The viewer's switches (Port_DrawDistViewer). */
+static s32 s_vClip = 1, s_vAll = 0, s_vFog = 1;
+
+void Port_DrawDistViewer(s32 clip, s32 allQuads, s32 fog) {
+    s_vClip = clip != 0;
+    s_vAll = allQuads != 0;
+    s_vFog = fog != 0;
+}
+
+void Port_DrawDistViewerGet(s32 *clip, s32 *allQuads, s32 *fog) {
+    *clip = s_vClip;
+    *allQuads = s_vAll;
+    *fog = s_vFog;
+}
+
+/* The viewer's geometry clipping is off: nothing is culled for its distance
+ * or for being outside the view (World.c, Gfx_GeometryHandler.c). */
+s32 Port_DrawDistNoCull(void) {
+    return !s_vClip && Port_ViewerOn();
+}
+
 /* The draw distance this frame: the setting, except Normal in the attract
  * demo (code variable 0x198), input playback and online play. */
 s32 Port_DrawDistLevel(void) {
     extern s32 g_playbackStatus;
     s32 level = Port_DrawDistSetting();
 
+    if (Port_ViewerOn() && s_vAll) {
+        return PORT_DRAWDIST_ALL;   /* the viewer's "load all quadrants" */
+    }
     if (level == PORT_DRAWDIST_NORMAL || GameSettings_GetCodeVariable(0x198, 0) != 0 || g_playbackStatus == 2 ||
         Port_OnlineActive()) {
         return PORT_DRAWDIST_NORMAL;
@@ -94,12 +127,16 @@ s32 Port_DrawDistLevel(void) {
 
 /* Whether this frame draws further than the game (Render_.c's group fog). */
 s32 Port_DrawDistActive(void) {
-    return s_level != PORT_DRAWDIST_NORMAL;
+    return s_level != PORT_DRAWDIST_NORMAL || (Port_ViewerOn() && (!s_vFog || !s_vClip));
 }
 
 /* The far clipping plane to cull geometry at (Gfx_GeometryHandler.c): the
  * world's, doubled for Far, none for All (0: no plane). */
 f32 Port_DrawDistFarPlane(f32 farPlane) {
+    if (Port_ViewerOn()) {
+        /* the viewer: its clipping switch, whatever quadrants are loaded */
+        return !s_vClip ? 0.0f : s_level == PORT_DRAWDIST_FAR ? farPlane * 2.0f : farPlane;
+    }
     switch (s_level) {
     case PORT_DRAWDIST_FAR:
         return farPlane * 2.0f;
@@ -112,6 +149,16 @@ f32 Port_DrawDistFarPlane(f32 farPlane) {
 /* The fog's range (Render_.c), pushed out as far as the far plane is for Far.
  * All: no distance fog (0 returned: draw without fog). */
 s32 Port_DrawDistFog(f32 *start, f32 *end) {
+    if (Port_ViewerOn()) {
+        if (!s_vFog) {
+            return 0;
+        }
+        if (!s_vClip || s_level == PORT_DRAWDIST_FAR) {
+            *start *= s_vClip ? 2.0f : 4.0f;   /* out with the geometry it no longer clips */
+            *end *= s_vClip ? 2.0f : 4.0f;
+        }
+        return 1;
+    }
     switch (s_level) {
     case PORT_DRAWDIST_FAR:
         *start *= 2.0f;
@@ -126,6 +173,9 @@ s32 Port_DrawDistFog(f32 *start, f32 *end) {
 /* The projection's far plane (Render_Matrix_.c): the game's 20000 units, or
  * enough for any world with All. */
 f32 Port_DrawDistProjectionFar(f32 farPlane) {
+    if (Port_ViewerOn()) {
+        return !s_vClip ? farPlane * 4.0f : farPlane;
+    }
     return s_level == PORT_DRAWDIST_ALL ? farPlane * 4.0f : farPlane;
 }
 
@@ -281,6 +331,9 @@ static void AnimateShaders(Extra *e) {
 static s32 InDrawDist(QuadInstance *inst, ThingRecord *model) {
     f32 distSq = Gfx_GetMinCameraDistSquared(&inst->pos);
 
+    if (Port_DrawDistNoCull()) {
+        return 1;
+    }
     if ((u32)ViewManager_GetViewFormat() > 1) {
         distSq *= 4.0f;
     }
