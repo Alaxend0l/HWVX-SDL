@@ -8,6 +8,7 @@
 use crate::{Browser, Pending};
 use eframe::egui;
 use hwvx_browser::testdrive::{self, LevelError, Options, Prepared, TestDrive};
+use crate::level_edit::EditState;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -31,10 +32,15 @@ pub struct LevelState {
     waiting_ground: bool,
     ended_shown: bool,
     auto_started: bool,
+    pub edit: EditState,
 }
 
 impl Browser {
     /// The scratch folder the test drives use: the editor's own, beside its viewer's preferences.
+    pub(crate) fn testdrive_scratch_dir(&self) -> PathBuf {
+        self.testdrive_scratch()
+    }
+
     fn testdrive_scratch(&self) -> PathBuf {
         self.args
             .pref
@@ -58,6 +64,21 @@ impl Browser {
             }
         }
         self.level.errors.clear();
+        self.edit_open(dir);
+    }
+
+    /// What a test drive compiles: the project as edited (a copy in the scratch folder when it
+    /// has unsaved edits), else its folder.
+    fn drive_project(&self) -> PathBuf {
+        if let Some(p) = self.level.edit.proj.as_ref() {
+            if p.dirty() {
+                let copy = self.testdrive_scratch().join("drive-copy");
+                if p.write_copy(&copy).is_ok() {
+                    return copy;
+                }
+            }
+        }
+        PathBuf::from(&self.level.project)
     }
 
     fn testdrive_options(&self) -> Options {
@@ -68,7 +89,7 @@ impl Browser {
             python: std::env::var("HWVX_PYTHON").unwrap_or_else(|_| "python3".into()),
             game,
             data,
-            project: PathBuf::from(&self.level.project),
+            project: self.drive_project(),
             scratch: self.testdrive_scratch(),
             car: Some(self.level.car),
             skip_intro: self.level.skip_intro,
@@ -230,24 +251,31 @@ impl Browser {
     pub(crate) fn level_panel(&mut self, ui: &mut egui::Ui) {
         ui.label("Level project (its folder)");
         ui.horizontal(|ui| {
-            let r = ui.add(egui::TextEdit::singleline(&mut self.level.project).desired_width(170.0))
+            let r = ui.add(egui::TextEdit::singleline(&mut self.level.project).desired_width(130.0))
                 .on_hover_text(self.level.project.clone());
             if (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) | ui.button("Open").clicked() {
                 let p = self.level.project.clone();
                 self.open_level(&p);
+            }
+            if ui.button("…").on_hover_text("choose the folder").clicked() {
+                if let Some(d) = Self::choose_folder() {
+                    self.open_level(&d);
+                }
             }
         });
         if let Some(e) = &self.level.summary_error {
             ui.colored_label(egui::Color32::LIGHT_RED, e);
         } else if self.level.summary.is_object() {
             let s = &self.level.summary;
-            egui::Grid::new("level_summary").num_columns(2).show(ui, |ui| {
-                for k in ["name", "mode", "extends", "world", "id"] {
-                    ui.label(k);
-                    ui.add(egui::Label::new(egui::RichText::new(s[k].as_str().unwrap_or("?")).monospace()).truncate());
-                    ui.end_row();
-                }
-            });
+            ui.add(
+                egui::Label::new(egui::RichText::new(format!(
+                    "{} · {} · {}",
+                    s["name"].as_str().unwrap_or("?"),
+                    s["mode"].as_str().unwrap_or("?"),
+                    s["world"].as_str().unwrap_or("?").rsplit(['\\', '/']).next().unwrap_or("")
+                )).strong())
+                .truncate(),
+            );
         }
         ui.separator();
         ui.horizontal(|ui| {
@@ -269,7 +297,7 @@ impl Browser {
         if !self.level.errors.is_empty() {
             ui.separator();
             ui.strong(format!("{} compile error{}", self.level.errors.len(), if self.level.errors.len() == 1 { "" } else { "s" }));
-            egui::ScrollArea::vertical().id_salt("level_errors").show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("level_errors").max_height(140.0).show(ui, |ui| {
                 for e in &self.level.errors {
                     ui.horizontal_wrapped(|ui| {
                         if !e.file.is_empty() {
@@ -283,6 +311,28 @@ impl Browser {
                     ui.add_space(4.0);
                 }
             });
+        }
+        if self.level.edit.proj.is_some() {
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.level.edit.preview, "Live preview")
+                    .on_hover_text("apply the level to the world on show as it is edited (Worlds tab: load its world)");
+                let n = self.level.edit.errors.len();
+                if n > 0 {
+                    ui.colored_label(egui::Color32::LIGHT_RED, format!("⚠ {n}"));
+                } else {
+                    ui.colored_label(egui::Color32::LIGHT_GREEN, "✓");
+                }
+                ui.label(egui::RichText::new(&self.level.edit.preview_note).small().weak());
+            });
+            if !self.world.status["world"].is_string() {
+                if let Some(w) = self.level.summary["world"].as_str().map(str::to_string) {
+                    if ui.button(format!("Load its world ({})", w.rsplit(['\\', '/']).next().unwrap_or(""))).clicked() {
+                        self.request("world", json!({"name": w}), Pending::World);
+                    }
+                }
+            }
+            self.edit_lists(ui);
         }
     }
 }
