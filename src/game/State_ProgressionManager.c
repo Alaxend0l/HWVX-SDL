@@ -2,6 +2,7 @@
 #include "Port_Proto.h"
 #include "Port_Content.h"
 #include "Port_Online.h"
+#include "Port_Level.h"
 #include "World.h"
 
 /* The world being loaded. */
@@ -544,6 +545,15 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             iterationNum = 0;
             bLoadingItems = 1;
             curLoadingState = newLoadingState;
+            {
+                /* port: a registered track's level of its own (Port_Level.h), before
+                 * the refresh activates the triggers */
+                extern s32 g_GameProgressionID;
+
+                Port_LevelWorldLoaded(PTR(g_worldData.worldPack), world,
+                                      GETP(g_GameProgressionState.script) != NULL ?
+                                          Port_ContentTrackOfLevel((u32)g_GameProgressionID, (u32)g_GameProgressionState.index) : -1);
+            }
             DataPack_RefreshPtrs((void *)PTR(g_worldData.worldPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));

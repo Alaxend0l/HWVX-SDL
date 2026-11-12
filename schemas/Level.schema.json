@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "Level.schema.json",
+  "title": "Level",
+  "description": "A level of one's own over a base world (tools/xdl_level.py, src/game/Port_Level.c, docs-pending/mission-editor.md). Triggers are files of their own in triggers/ (Trigger.schema.json). Links: base://<archive>/world_0/<path> (the base world's records), level://<kind>/<name> (the level's own).",
+  "type": "object",
+  "required": ["format_version", "id", "name", "mode", "extends", "world"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {"type": "string"},
+    "format_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^uid://[0-9a-z]{1,13}$", "description": "the track's id: saves and ids.lock key it"},
+    "modId": {"type": "string", "pattern": "^uid://[0-9a-z]{1,13}$", "description": "the mod's id when packaged (default: from the level's)"},
+    "name": {"type": "string", "description": "its name in the world select"},
+    "description": {"type": "string"},
+    "author": {"type": "string"},
+    "version": {"type": "string"},
+    "mode": {"enum": ["challenge", "mission", "adventure", "battle", "drag", "joyride"]},
+    "extends": {"type": "string", "pattern": "^base://mcp/track/[0-9]+$", "description": "the base level of the mode: its loading screen, steps, win and lose sequences"},
+    "world": {"type": "string", "description": "the world as the MCP names it (worlds_\\sp_\\chal1_\\ch1_l2); its archive is what base:// links name"},
+    "thumbnail": {"type": "string", "description": "the world select's picture: a texture link (Mod.schema.json tracks)"},
+    "unlocked": {"type": "boolean", "default": true},
+    "baseTriggers": {
+      "description": "the base world's triggers that stay: all, none, or their numbers",
+      "anyOf": [{"enum": ["all", "none"]}, {"type": "array", "items": {"type": "integer", "minimum": 0}}],
+      "default": "all"
+    },
+    "triggers": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"}, "description": "the order of triggers/NAME.jsonc (default: by name)"},
+    "volumes": {"type": "object", "additionalProperties": {"type": "object", "description": "WorldVolume fields; center may be [x, y, z]; radiusSq defaults to radius squared (the game tests distance squared < radiusSq); enabled 1, shape sphere, type airbox by default"}},
+    "timers": {"type": "object", "additionalProperties": {"type": "object", "description": "WorldTimer fields (time in ms, countUp, type: the id the HUD binds to); mode {mode, type}, default {23, 7}: shown, stopped"}},
+    "variables": {"type": "object", "additionalProperties": {"anyOf": [{"type": "number"}, {"type": "object", "description": "WorldVariable fields"}]}},
+    "strings": {"type": "object", "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}, "description": "texts (paragraphs) for print_debug_string and the like: level://strings/NAME is the game's string table"},
+    "patches": {"type": "object", "additionalProperties": {"type": "object"}, "description": "base record path -> {field: number}: number fields of base records (field/member for embedded structs: pos/y)"}
+  }
+}

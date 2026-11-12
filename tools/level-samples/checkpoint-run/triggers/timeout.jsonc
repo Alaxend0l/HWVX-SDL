@@ -1,0 +1,21 @@
+// The clock ran out first: lost (Challenge 1's).
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "timer_value_check",
+  "param": { "timers": ["base://ch1_l2/world_0/World/0/timers/0"], "value": { "const": 0 }, "op": "equal" },
+  "conditions": [
+    { "type": "variable_value_check", "param": { "variables": ["level://variables/done"], "value": { "const": 0 }, "op": "equal" } }
+  ],
+  "actions": [
+    { "type": "variable_change_value", "data": { "op": "set", "variables": ["level://variables/done"], "value": { "const": 1 } } },
+    { "type": "interface_play", "delayInit": 2000, "data": { "interface": "base://ch1_l2/world_0/trigger/15/actions/12/data/p4" } },
+    { "type": "vehicle_change_control", "data": { "mode": "lock_control", "unused": 0, "cars": ["base://ch1_l2/world_0/World/0/tileCars/0"] } },
+    { "type": "camera_set_targets", "data": { "player": 0, "camera": { "kind": "orbit", "fov": 105, "radius": 18, "height": 0.5, "speed": 1,
+        "around": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [10, 10, 0] },
+        "at": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [0, 0, 0] } }, "end": 31 } },
+    { "type": "music_change", "delayInit": 500, "data": { "vol": 1, "volTime": 0, "pitch": 1, "pitchTime": 0, "tempo": 1, "tempoTime": 0,
+        "orderMode": "order_jump", "order": 22, "orderType": 40, "tracks": [] } },
+    { "type": "hud_change_mode", "delayInit": 200, "data": { "unused": 1, "on": 0 } }
+  ]
+}

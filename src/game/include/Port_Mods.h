@@ -82,5 +82,8 @@ void Port_ModsSyncLock(const char *path);
 void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsigned id);
 /* DataPack_ReleaseDataPack: its textures' recipes go. */
 void Port_ModsPackReleased(void *dataPack);
+/* A registered track's level file (its mod's "tracks" entry's "level", a
+ * path in the mod's folder; Port_Level.h), or NULL; the caller frees it. */
+char *Port_ModsTrackLevel(const char *trackId);
 
 #endif
