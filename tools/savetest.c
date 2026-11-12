@@ -368,6 +368,27 @@ static char *Replace(char *text, const char *from, const char *to) {
     return out;
 }
 
+/* \u escapes: a pair is one code point; a high surrogate without its low
+ * one is kept, and the escape after it read on its own. */
+static void TestJsonStrings(void) {
+    static const struct { const char *json, *utf8; } cases[] = {
+        { "\"\\uD83D\\uDE00\"", "\xF0\x9F\x98\x80" },
+        { "\"\\uD800\\u0041\"", "\xED\xA0\x80" "A" },
+        { "\"\\uD800\\uD83D\\uDE00x\"", "\xED\xA0\x80\xF0\x9F\x98\x80x" },
+        { "\"\\uD800\"", "\xED\xA0\x80" },
+    };
+    size_t i;
+    char err[200];
+
+    Scenario("json-strings");
+    for (i = 0; i < SDL_arraysize(cases); i++) {
+        JsonNode *n = Json_Parse(cases[i].json, SDL_strlen(cases[i].json), err, sizeof(err));
+        CHECK(n != NULL && n->type == JSON_STRING && SDL_strcmp(n->string, cases[i].utf8) == 0, "%s read wrong (%s)",
+              cases[i].json, n == NULL ? err : "");
+        Json_Free(n);
+    }
+}
+
 static void TestUnknownIds(void) {
     u8 *a = SDL_malloc(HW_SIZE), *b = SDL_malloc(HW_SIZE);
     size_t len;
@@ -1071,6 +1092,7 @@ int main(int argc, char **argv) {
     SDL_CreateDirectory(s_out);
     TestGameCube(gci);
     TestRandom();
+    TestJsonStrings();
     TestUnknownIds();
     TestAtomic();
     TestCorrupt();

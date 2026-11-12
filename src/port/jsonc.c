@@ -155,6 +155,8 @@ static char *ParseString(Parser *ps) {
                 lo = Read4Hex(ps);
                 if (lo >= 0xDC00 && lo < 0xE000) {
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                } else if (!ps->failed) {
+                    ps->p -= 6;   /* not a pair: the second escape is read on its own next */
                 }
             }
             PutUtf8(out, &n, cp);
