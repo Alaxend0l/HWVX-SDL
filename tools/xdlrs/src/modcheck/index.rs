@@ -512,7 +512,10 @@ impl Index {
     pub fn load(path: &Path) -> Result<Index, ModError> {
         let shown = super::py_path(&path.to_string_lossy());
         let bad = |e: String| ModError(format!("{shown}: not an index of xdl_mod.py index ({e})"));
-        let z = std::fs::read(path).map_err(|e| bad(format!("[Errno 2] {e}")))?;
+        let z = std::fs::read(path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => bad(format!("[Errno 2] No such file or directory: '{shown}'")),
+            _ => bad(e.to_string()),
+        })?;
         let ents = zip::read_stored(&z).map_err(bad)?;
         let mut arr: BTreeMap<String, zip::Npy> = BTreeMap::new();
         for (n, (o, l)) in &ents {

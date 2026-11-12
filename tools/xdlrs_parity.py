@@ -19,6 +19,9 @@ Runs both on the same input and compares bytes and text exactly:
   tac        `xdl_tac.py SURVEY` (every retail parameter list decoded and encoded)
   tacenc     encode_trigger of the level samples' triggers (and edits), both byte orders
   tacext     xdl_tac.Extract over xdl_graph's Extractor of world packs (host state dumped)
+  modindex, modfiles, modcheck
+             the mod check (`xdlrs mod`) against xdl_mod.py: tools/xdlrs_parity_mod.py
+             (--reuse keeps its indexes)
 
 The Python side runs with xdl_struct's builtin validator (MiniValidator), which is what the
 port has; with the jsonschema package installed the Python tools would use that instead.
@@ -691,6 +694,7 @@ def main():
     ap.add_argument("--out", default=str(ROOT / "build" / "xdlrs-parity"))
     ap.add_argument("--only", default="")
     ap.add_argument("--quick", action="store_true", help="fewer samples")
+    ap.add_argument("--reuse", action="store_true", help="mod: keep indexes already made")
     a = ap.parse_args()
     a.survey = Path(a.survey) if a.survey else next(
         (d for d in (ROOT / "build-survey", ROOT.parent / "build-survey") if d.is_dir()), ROOT / "build-survey")
@@ -733,6 +737,10 @@ def main():
         t_tacenc(a)
     if on("tacext"):
         t_tacext(a)
+    mod = {n for n in ("modindex", "modfiles", "modcheck") if on(n)}
+    if mod:
+        import xdlrs_parity_mod as PM
+        PM.run_all(a, mod, report)
     fails = sum(1 for r in RESULTS if r[2])
     print(f"\n{len(RESULTS) - fails}/{len(RESULTS)} checks identical")
     return 1 if fails else 0

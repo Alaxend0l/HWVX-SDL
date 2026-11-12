@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 pub fn write_stored(entries: &[(String, &[u8])]) -> Vec<u8> {
     let mut out = vec![];
     let mut central = vec![];
-    let (dosdate, dostime) = (((1980 - 1980) << 9 | 1 << 5 | 1) as u16, 0u16);
+    let (dosdate, dostime) = ((1u16 << 5) | 1, 0u16); // 1980-01-01 00:00:00
     for (name, data) in entries {
         let flag: u16 = if name.is_ascii() { 0 } else { 0x800 };
         let crc = crc32(data);

@@ -196,7 +196,11 @@ pub fn read_png(data: &[u8]) -> Result<Rgba, String> {
             }
         }
     };
-    let t16 = |k: usize| trns.as_ref().filter(|t| t.len() >= 2 * k + 2).map(|t| u16::from_be_bytes([t[2 * k], t[2 * k + 1]]) as u32 & 0xFF);
+    // Pillow compares the tRNS value's low byte (a C cast) with the 8-bit pixel; the png crate
+    // keeps only that byte below 16 bits
+    let t16 = |k: usize| {
+        trns.as_ref().and_then(|t| if depth == 16 { t.get(2 * k + 1).copied() } else { t.get(k).copied() }).map(|b| b as u32)
+    };
     use png::ColorType as C;
     for y in 0..h {
         let row = &buf[y * line..(y + 1) * line];
