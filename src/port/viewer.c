@@ -45,6 +45,7 @@ typedef int Sock;
 #define MAX_DRAWN 512           /* geometries side by side */
 #define MAX_BONES 64
 #define MAX_LINE (1u << 20)     /* a request line's longest */
+#define PENDING_MS 3000         /* a newcomer's time to say hello while a client is served */
 
 #ifdef MSG_NOSIGNAL
 #define SEND_FLAGS MSG_NOSIGNAL /* a closed client is an error, not SIGPIPE (Linux; SO_NOSIGPIPE elsewhere) */
@@ -66,6 +67,12 @@ static struct {
     size_t inLen, inCap;
     size_t scan;                /* in[0 .. scan) has no line end */
     int authed;                 /* the client's hello had the token */
+    /* a newer connection while the client is authed: held here until its hello has the
+     * token (then it is the client), dropped otherwise or after PENDING_MS */
+    Sock pending;
+    char pendBuf[1024];
+    size_t pendLen;
+    u64 pendSince;
     char token[80];             /* HWVX_VIEWER_TOKEN, or one made up and logged */
     int quit;
 
@@ -147,6 +154,7 @@ static int Listen(void) {
     }
 #endif
     s.client = SOCK_NONE;
+    s.pending = SOCK_NONE;
     s.listener = socket(AF_INET, SOCK_STREAM, 0);
     if (s.listener == SOCK_NONE) {
         return 0;
@@ -1877,6 +1885,131 @@ static void HandleLine(const char *line, size_t len) {
     Json_Free(req);
 }
 
+static void DropPending(const char *why) {
+    if (s.pending != SOCK_NONE) {
+        if (why != NULL) {
+            char line[200];
+            int n = SDL_snprintf(line, sizeof(line), "{\"ok\":false,\"error\":\"%s\"}\n", why);
+
+            (void)send(s.pending, line, (size_t)n, SEND_FLAGS);   /* best effort */
+        }
+        CloseSock(s.pending);
+        s.pending = SOCK_NONE;
+    }
+    s.pendLen = 0;
+}
+
+/* The client's buffered lines, each scanned once (s.scan: where the last search stopped). */
+static void ProcessLines(void) {
+    size_t start = 0;
+
+    while (s.client != SOCK_NONE) {
+        char *nl = memchr(s.in + s.scan, '\n', s.inLen - s.scan);
+        size_t len;
+
+        if (nl == NULL) {
+            s.scan = s.inLen;
+            break;
+        }
+        len = (size_t)(nl - (s.in + start));
+        s.scan = start + len + 1;
+        HandleLine(s.in + start, len);
+        start += len + 1;
+    }
+    if (s.client == SOCK_NONE) {
+        return;  /* (dropped: the buffer is empty) */
+    }
+    if (start > 0) {
+        s.inLen -= start;
+        s.scan -= start;
+        memmove(s.in, s.in + start, s.inLen);
+    }
+    if (s.inLen > MAX_LINE) {
+        SendError("a request line is over 1 MB");
+        DropClient();
+    }
+}
+
+static int Append(const char *data, size_t n) {
+    if (s.inLen + n + 1 > s.inCap) {
+        size_t cap = (s.inLen + n + 1) * 2;
+        char *p = SDL_realloc(s.in, cap);
+
+        if (p == NULL) {
+            return 0;
+        }
+        s.in = p;
+        s.inCap = cap;
+    }
+    memcpy(s.in + s.inLen, data, n);
+    s.inLen += n;
+    return 1;
+}
+
+/* The pending connection (see s.pending): its first line, once it has one. A hello with
+ * the token: the served client goes, this one is served (its hello answered as usual). */
+static void PollPending(void) {
+    long n;
+    char *nl;
+    JsonNode *req;
+    int good;
+
+    if (s.pending == SOCK_NONE) {
+        return;
+    }
+    if (s.client == SOCK_NONE) {
+        /* the client went: the newcomer is served, its hello checked as any first line */
+        s.client = s.pending;
+        s.pending = SOCK_NONE;
+        s.inLen = s.scan = 0;
+        s.authed = 0;
+        if (!Append(s.pendBuf, s.pendLen)) {
+            DropClient();
+        }
+        s.pendLen = 0;
+        ProcessLines();
+        return;
+    }
+    n = (long)recv(s.pending, s.pendBuf + s.pendLen, sizeof(s.pendBuf) - s.pendLen, 0);
+    if (n == 0 || (n < 0 && !SockWouldBlock())) {
+        DropPending(NULL);
+        return;
+    }
+    if (n > 0) {
+        s.pendLen += (size_t)n;
+    }
+    nl = memchr(s.pendBuf, '\n', s.pendLen);
+    if (nl == NULL) {
+        if (s.pendLen == sizeof(s.pendBuf)) {
+            DropPending("the first request is hello, with the viewer's token");
+        } else if (SDL_GetTicks() - s.pendSince > PENDING_MS) {
+            Port_Log("viewer: a connection that didn't say hello in time: dropped");
+            DropPending("no hello in time (another client is served)");
+        }
+        return;
+    }
+    req = LooksLikeHttp(s.pendBuf, (size_t)(nl - s.pendBuf))
+              ? NULL
+              : Json_Parse(s.pendBuf, (size_t)(nl - s.pendBuf), NULL, 0);
+    good = req != NULL && req->type == JSON_OBJECT && SDL_strcmp(Json_GetString(req, "cmd", ""), "hello") == 0 &&
+           SameToken(s.token, Json_GetString(req, "token", ""));
+    Json_Free(req);
+    if (!good) {
+        Port_Log("viewer: a client without the token: dropped (the served one kept)");
+        DropPending("the first request is hello, with the viewer's token");
+        return;
+    }
+    Port_Log("viewer: a new client with the token: served (the last one dropped)");
+    DropClient();
+    s.client = s.pending;
+    s.pending = SOCK_NONE;
+    if (!Append(s.pendBuf, s.pendLen)) {
+        DropClient();
+    }
+    s.pendLen = 0;
+    ProcessLines();
+}
+
 static void Poll(void) {
     char buf[4096];
     Sock sock;
@@ -1888,17 +2021,25 @@ static void Poll(void) {
     if (sock != SOCK_NONE) {
         int one = 1;
 
-        DropClient();   /* the newest connection is the one served */
-        s.client = sock;
         SetNonBlocking(sock);
         setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
 #ifdef SO_NOSIGPIPE
         setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, (const char *)&one, sizeof(one));
 #endif
+        if (s.client != SOCK_NONE && s.authed) {
+            /* a client is served: it stays until this one proves the token */
+            DropPending("another connection came");
+            s.pending = sock;
+            s.pendLen = 0;
+            s.pendSince = SDL_GetTicks();
+        } else {
+            DropClient();   /* not authed yet: the newest connection is the one served */
+            s.client = sock;
+        }
     }
+    PollPending();
     while (s.client != SOCK_NONE) {
         long n = (long)recv(s.client, buf, sizeof(buf), 0);
-        size_t start = 0;
 
         if (n == 0 || (n < 0 && !SockWouldBlock())) {
             DropClient();
@@ -1907,45 +2048,11 @@ static void Poll(void) {
         if (n < 0) {
             break;
         }
-        if (s.inLen + (size_t)n + 1 > s.inCap) {
-            size_t cap = (s.inLen + (size_t)n + 1) * 2;
-            char *p = SDL_realloc(s.in, cap);
-
-            if (p == NULL) {
-                DropClient();
-                break;
-            }
-            s.in = p;
-            s.inCap = cap;
-        }
-        memcpy(s.in + s.inLen, buf, (size_t)n);
-        s.inLen += (size_t)n;
-        /* the lines in it, each scanned once (s.scan: where the last search stopped) */
-        while (s.client != SOCK_NONE) {
-            char *nl = memchr(s.in + s.scan, '\n', s.inLen - s.scan);
-            size_t len;
-
-            if (nl == NULL) {
-                s.scan = s.inLen;
-                break;
-            }
-            len = (size_t)(nl - (s.in + start));
-            s.scan = start + len + 1;
-            HandleLine(s.in + start, len);
-            start += len + 1;
-        }
-        if (s.client == SOCK_NONE) {
-            break;  /* (dropped: the buffer is empty) */
-        }
-        if (start > 0) {
-            s.inLen -= start;
-            s.scan -= start;
-            memmove(s.in, s.in + start, s.inLen);
-        }
-        if (s.inLen > MAX_LINE) {
-            SendError("a request line is over 1 MB");
+        if (!Append(buf, (size_t)n)) {
             DropClient();
+            break;
         }
+        ProcessLines();
     }
 }
 
