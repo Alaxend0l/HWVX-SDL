@@ -188,7 +188,7 @@ static JsonNode *ParseContainer(Parser *ps, int object) {
         Fail(ps, "out of memory");
         return NULL;
     }
-    if (++ps->depth > 64) {
+    if (++ps->depth > JSON_MAX_DEPTH) {
         Fail(ps, "nested too deep");
         return node;
     }

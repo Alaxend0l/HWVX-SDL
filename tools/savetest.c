@@ -404,6 +404,29 @@ static void TestUnknownIds(void) {
     CHECK(text != NULL && SDL_strstr(text, "\"base://HW_Cars/car_40\": {\"unlocked\": true, \"inactive\": true}") != NULL,
           "the 41st car is gone");
     CHECK(text != NULL && SDL_strstr(text, "\"vehicle\": \"uid://a1b2c3d4e5f60718\"") != NULL, "the chosen mod car is gone");
+
+    /* an entry nested as deep as the reader goes (root, saves, slot, cars,
+     * the entry: 5, then arrays to JSON_MAX_DEPTH) is written back too */
+    {
+        char deep[JSON_MAX_DEPTH * 2 + 128];
+        int d, n = JSON_MAX_DEPTH - 5;
+
+        SDL_strlcpy(deep, "\"cars\": {\n        \"uid://deep\": {\"unlocked\": true, \"note\": ", sizeof(deep));
+        for (d = 0; d < n; d++) SDL_strlcat(deep, "[", sizeof(deep));
+        for (d = 0; d < n; d++) SDL_strlcat(deep, "]", sizeof(deep));
+        SDL_strlcat(deep, "},", sizeof(deep));
+        text = Replace(text, "\"cars\": {", deep);
+        if (text != NULL && (hash = SDL_strstr(text, "// sha256: ")) != NULL) {
+            *hash = 0;
+        }
+        StoreSaveFile(".json", text, text != NULL ? SDL_strlen(text) : 0);
+        SDL_free(text);
+        Port_SavesForget();
+        CHECK(Port_SavesRead("hwvx", b, HW_SIZE), "read of a save nested %d deep", JSON_MAX_DEPTH);
+        CHECK(Port_SavesWrite("hwvx", b, HW_SIZE), "a save nested %d deep isn't written back", JSON_MAX_DEPTH);
+        text = LoadSaveFile(".json", &len);
+        CHECK(text != NULL && SDL_strstr(text, "\"uid://deep\"") != NULL, "the deep entry is gone");
+    }
     SDL_free(text);
     SDL_free(a);
     SDL_free(b);
