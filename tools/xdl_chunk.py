@@ -1020,18 +1020,122 @@ def build_collision(col, C, grid=None, log=print):
                             and _keep_on_wall(piece, plane, clo, clo + size, own):
                         pl = BB.plane_of(piece)
                         if pl is not None:
-                            per.setdefault((x, y, z), []).append((plane, piece, mat))
+                            per.setdefault((x, y, z), []).append((plane, piece, mat, own))
     cells, index = [], [0] * (nx * ny * nz)
     edges = [(np.asarray(a, float), np.asarray(b, float), m) for a, b, m in col.creases]
-    for (x, y, z) in sorted(per, key=lambda k: (k[1], k[2], k[0])):
-        polys = per[(x, y, z)]          # in the source's order: the first is the splitter
-        tree = BB.build(polys)
+    oracle = Sources(col)
+    squares = set(per)
+    for key in oracle.boxes:
+        a = np.clip(np.floor((np.array(key[0]) - lo) / size).astype(int), 0, np.array(n) - 1)
+        b = np.clip(np.ceil((np.array(key[1]) - lo) / size).astype(int) - 1, 0, np.array(n) - 1)
+        squares |= {(x, y, z) for x in range(a[0], b[0] + 1) for y in range(a[1], b[1] + 1)
+                    for z in range(a[2], b[2] + 1)}
+    for (x, y, z) in sorted(squares, key=lambda k: (k[1], k[2], k[0])):
         clo = lo + size * np.array([x, y, z])
         chi = clo + size
+        tree = cell_tree(per.get((x, y, z), []), clo, chi, oracle)
+        if not tree:
+            continue
         eids = [i for i, (a, b, m) in enumerate(edges) if seg_hits_box(a, b, clo - EDGE_REACH, chi + EDGE_REACH)]
         cells.append((clo, chi, tree, eids))
         index[x + nx * (z + nz * y)] = len(cells)
     return {"lo": lo, "hi": hi, "n": n, "size": size, "index": index, "edges": edges}, cells
+
+
+class Sources:
+    """The source boxes of a collision mesh cut to boxes (an extracted retail world: one per
+    retail cell) and, per box, whether a point is solid (its pieces' own tree)."""
+
+    def __init__(self, col):
+        self.pieces = {}
+        for (plane, v, mat), own in zip(col.polys, col.owners):
+            if own is not None:
+                self.pieces.setdefault((tuple(own[0]), tuple(own[1])), []).append((plane, v, mat))
+        self.boxes = list(self.pieces)
+        self._trees = {}
+
+    def overlapping(self, lo, hi, eps=1e-3):
+        return [k for k in self.boxes if np.all(np.minimum(np.array(k[1]), hi) - np.maximum(np.array(k[0]), lo) > eps)]
+
+    def solid(self, key, p):
+        if key not in self._trees:
+            self._trees[key] = BB.build(self.pieces[key])
+        t = self._trees[key]
+        return bool(t) and WL.inside(t, p, strict=False)
+
+
+def cell_tree(pieces, lo, hi, sources=None):
+    """A cell's terrain tree. Pieces of one source (a mesh, or one cell of an extracted retail
+    world) build one tree, in the source's order (the first polygon is the splitter). Pieces of
+    several sources are not mixed: a source's solid is closed only inside its own box, and a
+    splitting plane of one leaves the other's inside unbounded (it reads as empty), so the cell is
+    first cut along the sources' box walls and each part gets its source's tree (or, with no
+    pieces in it, is all solid or all empty as that source says)."""
+    if not sources or not sources.boxes or any(own is None for *_, own in pieces):
+        return BB.build([(pl, v, m) for pl, v, m, _ in pieces])
+    lo, hi = np.array(lo, float), np.array(hi, float)
+    groups = {k: [] for k in sources.overlapping(lo, hi)}
+    for plane, v, mat, own in pieces:
+        groups.setdefault((tuple(own[0]), tuple(own[1])), []).append((plane, v, mat))
+    return _kd(groups, lo, hi, sources)
+
+
+def _kd(groups, lo, hi, sources, eps=1e-3):
+    live = {k: ps for k, ps in groups.items()
+            if np.all(np.minimum(np.array(k[1]), hi) - np.maximum(np.array(k[0]), lo) > eps)}
+    if not live:
+        return []
+    if len(live) == 1:
+        key, ps = next(iter(live.items()))
+        if ps:
+            return BB.build(ps)
+        if sources.solid(key, (lo + hi) / 2):
+            return [((1.0, 0.0, 0.0, -float(hi[0]) - 1.0), None, None, 0)]     # all behind: solid
+        return []
+    # a wall of one source's box strictly inside the part
+    for k in live:
+        for axis in range(3):
+            for w in (k[0][axis], k[1][axis]):
+                if lo[axis] + eps < w < hi[axis] - eps:
+                    plane = [0.0, 0.0, 0.0, -float(w)]
+                    plane[axis] = 1.0
+                    sides = []
+                    for keep_front in (True, False):
+                        sub = {}
+                        for key, ps in live.items():
+                            mid = (key[0][axis] + key[1][axis]) / 2
+                            out = []
+                            for pl, v, m in ps:
+                                f, b, side = BB.split_poly(v, plane, 1e-6)
+                                part = f if keep_front else b
+                                if side == "on":    # on the wall: on its own box's side
+                                    part = v if (mid > w) == keep_front else None
+                                if part is not None and len(part) >= 3 and _thick(part) > 1e-2:
+                                    out.append((pl, part, m))
+                            sub[key] = out
+                        slo, shi = lo.copy(), hi.copy()
+                        if keep_front:
+                            slo[axis] = w
+                        else:
+                            shi[axis] = w
+                        sides.append(_kd(sub, slo, shi, sources, eps))
+                    if not sides[0] and not sides[1]:
+                        return []
+                    return _join(BB.f32_plane(plane), sides[0], sides[1])
+    # no wall inside (sources overlapping): one tree for all
+    return BB.build([p for ps in live.values() for p in ps])
+
+
+def _join(plane, front, back):
+    """A node over two pre-order trees. An empty back side needs a node of its own (a missing
+    back child is solid): the plane flipped, nothing in front of it."""
+    if not back:
+        back = [(tuple(-x for x in plane), None, None, 0)]
+    out = [(plane, 1 if front else None, 1 + len(front), 0)]
+    for t, base in ((front, 1), (back, 1 + len(front))):
+        for pl, f, b, m in t:
+            out.append((pl, None if f is None else f + base, None if b is None else b + base, m))
+    return out
 
 
 def _keep_on_wall(v, plane, lo, hi, own, eps=1e-3):
