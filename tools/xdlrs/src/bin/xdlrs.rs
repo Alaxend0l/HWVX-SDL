@@ -5,6 +5,8 @@
 //!   xdlrs struct roundtrip SURVEY_ROOT [--rel gc,pc] [--archive HW_Cars] [--struct CarAInfo] [--parts] [--out DIR] [-v]
 //!   xdlrs struct observe SURVEY_ROOT [--rel gc,pc] [--archive HW_Cars] [--struct CarAInfo] [--out FILE]
 //!   xdlrs tac survey SURVEY_ROOT
+//!   xdlrs graph extract PACK_DIR PROJECT_DIR [--force]          as xdl_graph.py extract (no glTF)
+//!   xdlrs graph build PROJECT_DIR OUT_DIR [--check PACK_DIR]    as xdl_graph.py build
 //!
 //! Probes the parity test (tools/xdlrs_parity.py) uses:
 //!   xdlrs probe jsonc FILE...            loads: "OK <json.dumps>" / "ERR <kind> <message>" per file
@@ -41,7 +43,7 @@ fn parse_args(a: &[String]) -> Args {
     let mut i = 0;
     while i < a.len() {
         let x = &a[i];
-        if ["--parts", "-v", "--verbose"].contains(&x.as_str()) {
+        if ["--parts", "-v", "--verbose", "--force", "--json", "--skip-intro", "--memory", "--keep"].contains(&x.as_str()) {
             r.flags.push(x.clone());
         } else if x.starts_with('-') && x.len() > 1 && i + 1 < a.len() {
             r.opts.insert(x.trim_start_matches('-').to_string(), a[i + 1].clone());
@@ -601,6 +603,43 @@ fn probe(a: &Args) -> Result<i32> {
     Ok(0)
 }
 
+// ------------------------------------------------------------------------------------------
+// graph
+
+fn graph_ctx(a: &Args) -> Result<xdlrs::graph::Ctx> {
+    let c = ctx(a)?;
+    xdlrs::graph::Ctx::new(&c.root)
+}
+
+fn cmd_graph_extract(a: &Args) -> Result<i32> {
+    let g = graph_ctx(a)?;
+    let src = xdlrs::graph::Source::open(Path::new(a.pos(0)?), &g)?;
+    let (arch, name) = (src.archive.clone(), src.name.clone());
+    let mut ex = xdlrs::graph::Extractor::new(&g, src, Path::new(a.pos(1)?), a.flag("--force"));
+    let s = ex.run()?;
+    println!("{arch}/{name}: {} nodes ({} typed, {} geometry, {} raw) in {} files", s.nodes, s.typed, s.geometry, s.raw, s.files);
+    for m in &s.log {
+        println!("  {m}");
+    }
+    Ok(0)
+}
+
+fn cmd_graph_build(a: &Args) -> Result<i32> {
+    let g = graph_ctx(a)?;
+    let mut b = xdlrs::graph::Builder::new(&g, Path::new(a.pos(0)?))?;
+    let out = PathBuf::from(a.pos(1)?);
+    b.build(&out)?;
+    if let Some(c) = a.opts.get("check") {
+        let d = xdlrs::graph::compare(Path::new(c), &out);
+        for (f, w) in &d {
+            println!("DIFF {f}: {w}");
+        }
+        println!("{}", if d.is_empty() { "identical".to_string() } else { format!("{} differences", d.len()) });
+        return Ok(if d.is_empty() { 0 } else { 1 });
+    }
+    Ok(0)
+}
+
 /// A TacHost read from the parity test's dump of xdl_graph's Extractor.
 struct DumpHost {
     blob: Vec<u8>,
@@ -704,6 +743,8 @@ fn main() -> ExitCode {
         (Some("struct"), Some("roundtrip")) => cmd_roundtrip(&shifted(2)),
         (Some("struct"), Some("observe")) => cmd_observe(&shifted(2)),
         (Some("tac"), Some("survey")) => cmd_tac_survey(&shifted(2)),
+        (Some("graph"), Some("extract")) => cmd_graph_extract(&shifted(2)),
+        (Some("graph"), Some("build")) => cmd_graph_build(&shifted(2)),
         (Some("probe"), Some(_)) => probe(&a),
         _ => {
             eprintln!("usage: see the top of tools/xdlrs/src/bin/xdlrs.rs");

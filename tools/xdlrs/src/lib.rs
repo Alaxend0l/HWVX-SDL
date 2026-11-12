@@ -22,6 +22,7 @@ pub mod decode;
 pub mod encode;
 pub mod error;
 pub mod geom;
+pub mod graph;
 pub mod jsonc;
 pub mod jsonc_edit;
 pub mod ops;
