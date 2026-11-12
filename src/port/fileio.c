@@ -48,9 +48,19 @@ int Port_ReplaceFile(const char *from, const char *to) {
     return ok;
 }
 
+static int IsRealFolder(const char *path) {
+    WCHAR *w = Wide(path);
+    DWORD attr = w != NULL ? GetFileAttributesW(w) : INVALID_FILE_ATTRIBUTES;
+
+    SDL_free(w);
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) &&
+           !(attr & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
 #else
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
@@ -100,4 +110,31 @@ int Port_ReplaceFile(const char *from, const char *to) {
     SDL_free(dir);
     return 1;
 }
+
+static int IsRealFolder(const char *path) {
+    struct stat st;
+
+    return lstat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
 #endif
+
+/* SDL_GetPathInfo follows links; IsRealFolder doesn't, so a symlink or
+ * junction inside the tree (or the tree itself) is removed as a link and
+ * its target left alone. */
+static SDL_EnumerationResult SDLCALL RemoveEntry(void *userdata, const char *dir, const char *name) {
+    char *path = NULL;
+
+    (void)userdata;
+    if (SDL_asprintf(&path, "%s%s", dir, name) >= 0) {
+        Port_RemoveTree(path);
+        SDL_free(path);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+void Port_RemoveTree(const char *path) {
+    if (IsRealFolder(path)) {
+        SDL_EnumerateDirectory(path, RemoveEntry, NULL);
+    }
+    SDL_RemovePath(path);
+}

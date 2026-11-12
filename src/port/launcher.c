@@ -1137,29 +1137,6 @@ char *Port_ConvertedDir(const char *key) {
     return dir;
 }
 
-static SDL_EnumerationResult SDLCALL RemoveEntry(void *userdata, const char *dir, const char *name) {
-    char *path = NULL;
-    SDL_PathInfo info;
-
-    if (SDL_asprintf(&path, "%s%s", dir, name) >= 0) {
-        if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-            SDL_EnumerateDirectory(path, RemoveEntry, userdata);
-        }
-        SDL_RemovePath(path);
-        SDL_free(path);
-    }
-    return SDL_ENUM_CONTINUE;
-}
-
-void Port_RemoveTree(const char *path) {
-    SDL_PathInfo info;
-
-    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-        SDL_EnumerateDirectory(path, RemoveEntry, NULL);
-    }
-    SDL_RemovePath(path);
-}
-
 static SDL_EnumerationResult SDLCALL SumEntry(void *userdata, const char *dir, const char *name) {
     char *path = NULL;
     SDL_PathInfo info;
