@@ -218,6 +218,8 @@ typedef struct GXTexStats {
     u64 bytes, rgbaBytes;
 } GXTexStats;
 void GX_TexStats(GXTexStats *st);
+/* The game freed [p, p+size): the textures whose images were there go. */
+void GX_TexInvalidate(const void *p, u32 size);
 /* gx_tex.c, for the data browser (viewer_media.c): a texture object as the
  * renderer draws it. Info: 0 for no texture (no image, or past 1024). */
 typedef struct GXPortTexInfo {

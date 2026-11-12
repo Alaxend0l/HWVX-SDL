@@ -940,6 +940,7 @@ void Port_InvalidateDisplayLists(const void *p, u32 size) {
     u64 hi = lo + (u64)size;
 
     GX_MeshInvalidate(p, size);     /* gx_mesh.c's buffers read the same memory */
+    GX_TexInvalidate(p, size);      /* and gx_tex.c's textures (their images) */
     if (s_usedCnt == 0 || size == 0)
         return;
     /* Most frees are nowhere near what is cached; the span says so in O(1). */

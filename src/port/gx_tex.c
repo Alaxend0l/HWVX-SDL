@@ -818,6 +818,55 @@ int GX_PortDecodeTexObj(const GXTexObj *obj, int level, u8 *rgba) {
     return 1;
 }
 
+/* The block [p, p+size) of the game's memory is freed (OSFreeToHeap, through
+ * Port_InvalidateDisplayLists): the textures whose image was in it go, and
+ * their GPU textures with them when nothing else shares them. Before, they
+ * stayed until the cache's 1024 entries were all in use, so every level
+ * visited kept its textures on the GPU. */
+void GX_TexInvalidate(const void *p, u32 size) {
+    u32 lo, i;
+
+    if (p == NULL || size == 0 || s_stats.textures == 0) {
+        return;
+    }
+    lo = Port_PtrToHandle(p);
+    for (i = 0; i < TEX_CACHE; i++) {
+        TexEntry *e = &s_cache[i];
+
+        if (e->data != NULL && e->image - lo < size) {
+            HashRemove(e->image, e->key, e->hash);
+            Release(e->data);
+            e->data = NULL;
+            e->lastUse = 0;
+        }
+    }
+}
+
+/* The most GPU memory the cache keeps (HWVX_TEX_BUDGET, in MB; 512 by
+ * default): past it the least recently used textures go first. */
+static void KeepToBudget(void) {
+    static u64 budget;
+
+    if (budget == 0) {
+        const char *e = SDL_getenv("HWVX_TEX_BUDGET");
+        int mb = e != NULL ? SDL_atoi(e) : 0;
+
+        budget = (u64)(mb > 0 ? mb : 512) << 20;
+    }
+    while (s_stats.bytes > budget) {
+        u32 i = LruPick();
+        TexEntry *e = &s_cache[i];
+
+        if (e->data == NULL) {
+            break;
+        }
+        HashRemove(e->image, e->key, e->hash);
+        Release(e->data);
+        e->data = NULL;
+        e->lastUse = 0;
+    }
+}
+
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     const u32 *d = obj->dummy;
     u8 *image = PTR(d[0]);
@@ -878,6 +927,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
         e->lastUse = s_useClock;
         HashInsert(oldest, d[0], key, hash);
         s_stats.ticks += SDL_GetPerformanceCounter() - t0;
+        KeepToBudget();
         return e->data->tex;
     }
 }
