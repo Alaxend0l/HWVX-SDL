@@ -1562,6 +1562,14 @@ def cmd_build(a):
         "archives": {f"worlds_\\geo_\\{pj.set}_geo": geo_dir.name, pj.level: lvl_dir.name,
                      **({col_name: col_dir.name} if col_dir.exists() else {})}},
         indent=1) + "\n")
+    track = pj.cfg.get("track")
+    if track:
+        # an ids.lock registering the level as a track (§10.5.1): the game takes it with
+        # HWVX_IDS_LOCK=<a copy> (it writes the numbers back), or a mod brings the same entry
+        entry = {"alias": track.get("alias", "base://mcp/track/0"), "world": pj.level,
+                 "name": track.get("name", pj.set), "unlocked": True}
+        lock = {"format_version": 1, "tracks": {track["id"]: entry}}
+        (out / "ids.lock").write_text(json.dumps(lock, indent=2) + "\n")
     print(f"built: {out}")
 
 
@@ -1726,7 +1734,8 @@ def cmd_arena(a):
     cfg = {"format_version": 1, "release": "gc", "set": a.set, "level": a.level, "base": base,
            "textures": w.tex_name, "render": "render", "collision": "collision.gltf", "objects": "none",
            "hub": "base",
-           "start": [[0.0, 20.0, -size * 0.15, 0.0]], "chunk": {"min_quads": a.quads}}
+           "start": [[size * 0.28, 20.0, -size * 0.25, 0.0]], "chunk": {"min_quads": a.quads},
+           "track": {"id": f"uid://xdl-chunk-{a.set}", "alias": "base://mcp/track/0", "name": "Chunk Arena"}}
     (out / "world.jsonc").write_text("// xdl_chunk.py arena: generated test world\n" + json.dumps(cfg, indent=2) + "\n")
     print(f"arena: {len(tris)} triangles, {len(bands)} render pieces, project {out}")
 
