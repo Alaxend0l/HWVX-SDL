@@ -39,6 +39,8 @@ pub struct LevelState {
     ended_shown: bool,
     auto_started: bool,
     sharing: Option<Receiver<Result<String, String>>>,
+    /// a project to open in place of one with unsaved edits, once the person says so
+    confirm_open: Option<String>,
     pub edit: EditState,
 }
 
@@ -58,7 +60,19 @@ impl Browser {
             .join("testdrive")
     }
 
+    /// Opens a level project; with unsaved edits in the open one, asks first (the Level tab).
     pub(crate) fn open_level(&mut self, dir: &str) {
+        let dirty = self.level.edit.proj.as_ref().map(|p| p.dirty()).unwrap_or(false);
+        if dirty {
+            self.level.confirm_open = Some(dir.to_string());
+            self.level.tab = true;
+            return;
+        }
+        self.open_level_now(dir);
+    }
+
+    fn open_level_now(&mut self, dir: &str) {
+        self.level.confirm_open = None;
         self.level.project = dir.to_string();
         match testdrive::read_level(std::path::Path::new(dir)) {
             Ok(v) => {
@@ -123,7 +137,18 @@ impl Browser {
         self.level.drive = None;
         self.level.clicked = Some(Instant::now());
         self.level.errors.clear();
-        self.open_level(&self.level.project.clone());
+        // the summary again (the project itself stays as edited: drive_project copies its edits);
+        // a project named but not opened yet opens now
+        let open_dir = self.level.edit.proj.as_ref().map(|p| p.dir.to_string_lossy().to_string());
+        if open_dir.as_deref().map(|d| std::path::Path::new(d) != std::path::Path::new(&self.level.project)).unwrap_or(true) {
+            let d = self.level.project.clone();
+            self.open_level(&d);
+            if self.level.confirm_open.is_some() {
+                return; // the open project has unsaved edits: asked first
+            }
+        } else if let Ok(v) = testdrive::read_level(std::path::Path::new(&self.level.project)) {
+            self.level.summary = v;
+        }
         if self.level.from_here && self.world.status["world"].is_string() {
             // the ground under the camera (fly: where it is; orbit: what it looks at)
             let c = &self.camera;
@@ -347,6 +372,28 @@ impl Browser {
                 }
             }
         });
+        if let Some(d) = self.level.confirm_open.clone() {
+            ui.colored_label(egui::Color32::YELLOW, format!("The open level has unsaved edits. Open {d} and drop them?"));
+            ui.horizontal(|ui| {
+                if ui.button("Save, then open").clicked() {
+                    self.edit_save();
+                    if !self.level.edit.proj.as_ref().map(|p| p.dirty()).unwrap_or(false) {
+                        self.open_level_now(&d);
+                    } else {
+                        self.level.confirm_open = None;
+                    }
+                }
+                if ui.button("Drop the edits and open").clicked() {
+                    self.open_level_now(&d);
+                }
+                if ui.button("Cancel").clicked() {
+                    self.level.confirm_open = None;
+                    if let Some(p) = self.level.edit.proj.as_ref() {
+                        self.level.project = p.dir.to_string_lossy().to_string();
+                    }
+                }
+            });
+        }
         self.new_level_dialog(ui);
         if let Some(e) = &self.level.summary_error {
             ui.colored_label(egui::Color32::LIGHT_RED, e);
