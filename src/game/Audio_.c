@@ -15,10 +15,9 @@ u32 g_free;
 u32 g_silence;
 s32 g_size;
 u32 g_heap;
-/* port: 255 in the original. A challenge race has about 185 blocks in use
- * (HWVX_HEAPLOG=1), so a mod's sounds ran out of these long before ARAM; the
- * free list hands them out in the same order, so the first 255 are as they
- * were. */
+/* port: 0x400 blocks of ARAM (the game's 255 could run out with a mod's
+ * samples); the free list hands them out in the same order, so the retail
+ * game allocates exactly as before */
 #define AUDIO_MEMBLKS 0x400
 MemBlk g_memblk[AUDIO_MEMBLKS];
 
@@ -59,12 +58,12 @@ s32 Audio_Init_(void) {
     g_memblk[1].prev = -1;
     g_memblk[1].next = 2;
     g_free = 1;
-    for (i = 2; i < AUDIO_MEMBLKS; i++) {   /* port: 0xFF */
+    for (i = 2; i < AUDIO_MEMBLKS; i++) {
         g_memblk[i].size = 0;
         g_memblk[i].prev = i - 1;
         g_memblk[i].next = i + 1;
     }
-    g_memblk[AUDIO_MEMBLKS - 1].next = -1;   /* port: 0xFE */
+    g_memblk[AUDIO_MEMBLKS - 1].next = -1;
     level = OSDisableInterrupts();
     buf = OSAllocFromHeap(__OSCurrHeap, 0x800);
     OSRestoreInterrupts(level);

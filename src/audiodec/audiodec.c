@@ -23,13 +23,14 @@
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #endif
-#include "../../third_party/miniaudio/miniaudio.h"
+#include "../third_party/miniaudio.h"
 #undef L
 #undef C
 #undef R
-#define STB_VORBIS_NO_PUSHDATA_API
-#define STB_VORBIS_NO_STDIO
-#include "../../third_party/stb_vorbis/stb_vorbis.c"
+/* stb_vorbis's declarations only: its implementation is compiled once, by
+ * src/port/musicstream.c in the game, by stb_vorbis_impl.c in the helper */
+#define STB_VORBIS_HEADER_ONLY
+#include "../third_party/stb_vorbis.c"
 #undef L
 #undef C
 #undef R

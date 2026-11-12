@@ -81,7 +81,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     u32 tocId;
     s32 proto;
     const char *source = name;
+    char asked[0x40];   /* port: the pack's own name, for a mod's streamed song */
 
+    snprintf(asked, sizeof(asked), "%s", name);
     found = 0;
     /* port: the pack an entry's data is (Port_ContentData.c): an extra car
      * loads the pack it aliases, prototype content the prototype's pack
@@ -231,9 +233,11 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             start = SDL_GetTicksNS();
         }
         PortMix_BeginPack(name, type, tocId);   /* port: a mixed build's pack (Port_Mix.c) */
+        PortStream_SetPack(asked, type, id);   /* port: its song may be a mod's stream (musicstream.c) */
         Port_ModsBeginPack(name, type, tocId);  /* port: its mod sounds (Port_Mods.c) */
         DataPack_LoadDataPack(g_fileID, PTR(arg1));
         Port_ModsEndPack();
+        PortStream_SetPack(NULL, 0, 0);
         PortMix_EndPack();
         if (timing && --depth == 0) {
             t = SDL_GetTicksNS() - start;

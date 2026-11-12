@@ -42,8 +42,8 @@ execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${HWVX_GEN_DIR}/mix_recipe_ultimate.h.new ${HWVX_GEN_DIR}/mix_recipe_ultimate.h)
 include_directories(${HWVX_GEN_DIR})
 
-# Compressed audio for mods (src/audiodec: vendored dr_wav/dr_flac/dr_mp3 and
-# stb_vorbis), linked into the game and built as the helper hwvx-audiodec that
+# Compressed audio for mods (src/audiodec over src/third_party's dr_wav/dr_flac/
+# dr_mp3 and stb_vorbis), linked into the game and built as the helper hwvx-audiodec that
 # tools/xdl_media.py and tools/xdl_mod.py run.
 add_library(hwvx_audiodec STATIC ${CMAKE_SOURCE_DIR}/src/audiodec/audiodec.c)
 target_include_directories(hwvx_audiodec PUBLIC ${CMAKE_SOURCE_DIR}/src/audiodec)
@@ -53,7 +53,7 @@ if(NOT WIN32)
     target_link_libraries(hwvx_audiodec PUBLIC m)
 endif()
 if(NOT ANDROID)
-    add_executable(hwvx-audiodec ${CMAKE_SOURCE_DIR}/src/audiodec/main.c)
+    add_executable(hwvx-audiodec ${CMAKE_SOURCE_DIR}/src/audiodec/main.c ${CMAKE_SOURCE_DIR}/src/audiodec/stb_vorbis_impl.c)
     target_link_libraries(hwvx-audiodec PRIVATE hwvx_audiodec)
 endif()
 

@@ -19,7 +19,10 @@
  * envelopes by 3333 us per frame. */
 #define AX_FRAME_SAMPLES 160
 #define AX_MAX_VOICES 64
-#define ARAM_SIZE (16u << 20)
+/* The GameCube has 16 MB. 64 here leaves room for a mod's samples: the game
+ * allocates from the top of its ARAM heap (MAllocA_), so retail sounds land
+ * at other addresses but play the same. Calloc'd: untouched pages cost nothing. */
+#define ARAM_SIZE (64u << 20)
 #define ARAM_BASE 0x4000u /* the SDK reserves the first 16 KB for the DSP */
 #define RING_FRAMES (AX_FRAME_SAMPLES * 16) /* samples: 53 ms */
 
@@ -433,6 +436,7 @@ static void RunAXFrame(float *out) {
     }
     RunAux(s_auxA, s_auxACtx, auxA, out);
     RunAux(s_auxB, s_auxBCtx, auxB, out);
+    PortStream_Mix(out, AX_FRAME_SAMPLES);   /* a mod's streamed song (musicstream.c) */
     for (i = 0; i < AX_FRAME_SAMPLES * 2; i++) {
         out[i] = SDL_clamp(out[i], -1.0f, 1.0f);
     }
@@ -484,6 +488,7 @@ static int SDLCALL AXThread(void *unused) {
             RunAXFrame(&frames[i * AX_FRAME_SAMPLES * 2]);
         }
         Port_InterruptUnlock();
+        PortStream_Refill();
         if (s_stream != NULL) {
             SDL_PutAudioStreamData(s_stream, frames, n * FRAME_BYTES);
         }
