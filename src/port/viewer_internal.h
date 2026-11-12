@@ -50,6 +50,10 @@ typedef struct VPack {
     u32 numRefs;
     VNode *nodes;
     u32 numNodes, capNodes;
+    /* count fields `set` changed (a link's x-link count): offset and the value the
+     * data had, the most it may be set to again (its array is that long) */
+    u32 countOff[32], countOrig[32];
+    u32 numCounts;
 } VPack;
 
 #define VIEWER_MAX_PACKS 16
@@ -132,10 +136,13 @@ void ViewerWorld_Unload(void);
 void ViewerWorld_Draw(void);                    /* the frame's own draws (tile cars) */
 void ViewerWorld_Overlays(f32 fov);             /* after Gfx_EndScene */
 void ViewerWorld_WriteStatus(JsonWriter *w);    /* "world": {...} or null */
-u32 ViewerWorld_Pick(const f32 *origin, const f32 *dir, f32 *t, const char **kind);
+int ViewerWorld_Pick(const f32 *origin, const f32 *dir, f32 *t, const char **kind, u32 *off, char *path,
+                     size_t pathSize);
 int ViewerWorld_PlaceOf(u32 off, u32 size, f32 *pos, f32 *radius);
 int ViewerWorld_Start(int port, f32 *pos, f32 *yaw);   /* yaw: the orbit's, radians, behind it */
 int ViewerWorld_Bounds(f32 *min, f32 *max);
+/* RayHitsTerrain made safe for protocol input (finite, clipped to the grid) */
+int ViewerWorld_RayHits(const Vector4 *a, const Vector4 *b, f32 *t);
 int ViewerWorld_NavPoint(u32 i, f32 *pos, f32 *yaw);
 /* Another overlay layer (trigger volumes, ...): draw() adds its lines with
  * ViewerWorld_Line while the layer is on (`overlays` {name: true}). */

@@ -175,7 +175,8 @@ typedef struct GXRenderer {
      * GPU; 0 on failure. grabFetch, once the GPU is done with it, copies it
      * out (4 bytes a pixel, R G B and a byte to ignore, top row first, rows
      * `stride` bytes apart; nothing when it is over maxW x maxH), sets *w, *h
-     * and frees the slot: 1. 0: not ready yet (wait: blocks until it is);
+     * and frees the slot: 1. 0: not ready yet (only without wait: with it,
+     * it blocks until it is, and gives up after a few seconds with -1);
      * -1: nothing pending, too big, or failed (the slot is freed). */
     int (*grabStart)(int slot);
     int (*grabFetch)(int slot, u8 *dst, int stride, int maxW, int maxH, int *w, int *h, int wait);

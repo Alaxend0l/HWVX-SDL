@@ -1290,10 +1290,48 @@ static int StoreValue(VPack *vp, const JsonNode *root, const JsonNode *prop, con
     return StorePrim(p, Base(vp) + off, v, err, errSize);
 }
 
+/* `set` on a count field (one a link of the same struct names as its x-link count:
+ * World.numTileCars for tileCars, QuadContents.numItems, a geometry's numGroups...):
+ * the game and the viewer walk that many records from the link, so it may not go above
+ * what the data had (its array holds no more), force or not. 1: fine. */
+static int CountGuard(VPack *vp, const JsonNode *props, const char *name, const CType *t, int dim, u32 off,
+                      const JsonNode *value, char *err, size_t errSize) {
+    const JsonNode *p;
+    u32 size = BaseSize(NULL, t->base), cur = 0, orig, k;
+    int isCount = 0;
+
+    for (p = props != NULL ? props->child : NULL; p != NULL && !isCount; p = p->next) {
+        const JsonNode *link = Json_Get(p, "x-link");
+
+        isCount = link != NULL && SDL_strcmp(Json_GetString(link, "count", ""), name) == 0;
+    }
+    if (!isCount || dim != t->numDims || (size != 1 && size != 2 && size != 4) || !InRange(off, size, vp->size)) {
+        return 1;
+    }
+    SDL_memcpy(&cur, Base(vp) + off, size);     /* (little-endian host: the low bytes) */
+    for (k = 0; k < vp->numCounts && vp->countOff[k] != off; k++) {
+    }
+    if (k == vp->numCounts) {
+        if (k == SDL_arraysize(vp->countOff)) {
+            return Fail(err, errSize, "too many count fields changed in this pack (load it again)");
+        }
+        vp->countOff[k] = off;
+        vp->countOrig[k] = cur;
+        vp->numCounts++;
+    }
+    orig = vp->countOrig[k];
+    if (value == NULL || value->type != JSON_NUMBER || value->number < 0 || value->number > (double)orig) {
+        return Fail(err, errSize, "%s is a count: 0 .. %u (its array holds no more; a level's appends grow it)", name,
+                    (unsigned)orig);
+    }
+    return 1;
+}
+
 int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, const JsonNode *value, int force,
                     char *err, size_t errSize) {
     const JsonNode *root = nd->schema, *props, *prop = NULL;
     char path[200], *seg, *next;
+    const char *name = "";
     CType t;
     int dim = 0;
     u32 off = nd->off;
@@ -1318,6 +1356,28 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
             return Fail(err, errSize, "offset %.20s is outside %s (0x%x bytes)", field + 1, nd->id, nd->size);
         }
         off += rel;
+        {
+            /* a raw store over a count field (the world's nodes are raw: World/0 is a World
+             * all the same): bounded as a named one (CountGuard) */
+            const JsonNode *sch = nd->schema, *q;
+            char type[48];
+            size_t k;
+
+            if (sch == NULL) {
+                for (k = 0; nd->id[k] && nd->id[k] != '/' && k + 1 < sizeof(type); k++) {
+                    type[k] = nd->id[k];
+                }
+                type[k] = '\0';
+                sch = Viewer_Schema(type);
+            }
+            props = sch != NULL ? Json_Get(sch, "properties") : NULL;
+            for (q = props != NULL ? props->child : NULL; q != NULL; q = q->next) {
+                if (Json_Get(q, "x-offset") != NULL && HexOf(q, "x-offset") == rel && q->key != NULL &&
+                    !CountGuard(vp, props, q->key, &t, 0, off, value, err, errSize)) {
+                    return 0;
+                }
+            }
+        }
         if (!StoreValue(vp, NULL, NULL, &t, 0, off, value, force, err, errSize)) {
             return 0;
         }
@@ -1332,6 +1392,7 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
     SDL_memset(&t, 0, sizeof(t));
     for (seg = path; seg != NULL && *seg; seg = next) {
         next = SDL_strchr(seg, '/');
+        name = seg;
         if (next != NULL) {
             *next++ = '\0';
         }
@@ -1370,6 +1431,9 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
     }
     if (prop == NULL) {
         return Fail(err, errSize, "which field?");
+    }
+    if (!CountGuard(vp, props, name, &t, dim, off, value, err, errSize)) {
+        return 0;
     }
     if (!StoreValue(vp, root, prop, &t, dim, off, value, force, err, errSize)) {
         return 0;

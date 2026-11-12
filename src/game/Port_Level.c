@@ -1024,6 +1024,36 @@ void Port_LevelControl(int locked, int human) {
     }
 }
 
+/* For the viewer (Port_Level.h): the arrays the appends grew, mapped by
+ * element index between the base array in the pack and our copy. */
+void *Port_LevelLiveOf(const void *p) {
+    int a;
+
+    for (a = 0; s_lv.pack != NULL && a < s_lv.numGrows; a++) {
+        const struct LevelGrow *g = &s_lv.grows[a];
+
+        if (g->old != NULL && g->mem != NULL && (const u8 *)p >= g->old && (const u8 *)p < g->old + g->oldSize) {
+            return g->mem + ((const u8 *)p - g->old);
+        }
+    }
+    return (void *)p;
+}
+
+const void *Port_LevelBaseOf(const void *p) {
+    int a;
+
+    for (a = 0; s_lv.pack != NULL && a < s_lv.numGrows; a++) {
+        const struct LevelGrow *g = &s_lv.grows[a];
+
+        if (g->mem != NULL && (const u8 *)p >= g->mem && (const u8 *)p < g->mem + g->size) {
+            u32 at = (u32)((const u8 *)p - g->mem);
+
+            return at < g->oldSize && g->old != NULL ? g->old + at : NULL;
+        }
+    }
+    return p;
+}
+
 int Port_LevelVolume(int i, const void **volume, const char **id) {
     if (s_lv.pack == NULL || i < 0 || i >= s_lv.numVolumes) {
         return 0;

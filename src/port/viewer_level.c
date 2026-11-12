@@ -143,7 +143,7 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
         a.z = b.z = p[2];
         a.y = c[2][1] + 1.0f;   /* above the box's top */
         b.y = pos[1] - 40.0f;
-        if (RayHitsTerrain(&a, &b, &t, NULL)) {
+        if (ViewerWorld_RayHits(&a, &b, &t)) {
             f32 g = a.y + (b.y - a.y) * t;
 
             ground++;
@@ -168,7 +168,7 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
         SDL_zero(b);
         a.x = p[0], a.y = p[1], a.z = p[2];
         b.x = q[0], b.y = q[1], b.z = q[2];
-        if (RayHitsTerrain(&a, &b, &t, NULL) || RayHitsTerrain(&b, &a, &t, NULL)) {
+        if (ViewerWorld_RayHits(&a, &b, &t) || ViewerWorld_RayHits(&b, &a, &t)) {
             /* vertical edges (4..7) meeting something: a ceiling or an overhang */
             if (i >= 4 && i < 8) {
                 ceiling++;
@@ -400,6 +400,16 @@ static int Resolve(VPack *vp, const char *path, u8 **at, const char **schema, ch
         SDL_snprintf(err, errSize, "%s: %s isn't a record of the world", path, p);
         return 0;
     }
+    {
+        /* a level's appends moved the array (Port_Level.c): its element i, the pack's i */
+        const u8 *b = Port_LevelBaseOf(rec);
+
+        if (b == NULL) {
+            SDL_snprintf(err, errSize, "%s: an element the level appends (its file holds it, not the world pack)", path);
+            return 0;
+        }
+        rec = (u8 *)b;
+    }
     if (!InPack(vp, rec, 4)) {
         SDL_snprintf(err, errSize, "%s: not in the world pack", path);
         return 0;
@@ -510,9 +520,18 @@ static void Records(JsonWriter *w, VPack *vp, const char *table) {
  * "volumeData": {...} or null. */
 static void WriteVolumeData(JsonWriter *w, VPack *vp, const WorldVolume *v) {
     const u8 *d = Port_HandleToPtr(v->data.h);
-    u32 lo = Port_PtrToHandle(Blob(vp));
+    u32 lo = Port_PtrToHandle(Blob(vp)), need;
 
-    if (v->data.h == 0 || v->data.h - lo >= vp->size) {
+    /* the bytes each type reads below, all inside the pack */
+    switch (v->type) {
+    case VOLUME_FORCE_BOX: need = 0x14; break;
+    case VOLUME_REVERB: need = 8; break;
+    case VOLUME_FOG: need = 16; break;
+    case VOLUME_LIGHT: need = (u32)sizeof(Light); break;
+    case VOLUME_CREATURE: need = 1; break;
+    default: need = 0; break;
+    }
+    if (v->data.h == 0 || v->data.h - lo >= vp->size || need > vp->size - (v->data.h - lo)) {
         Viewer_WriteNull(w, "volumeData");
         return;
     }
@@ -600,6 +619,9 @@ static int ParseVec(const JsonNode *a, f32 *out) {
     }
     for (k = 0; k < 3; k++) {
         out[k] = (f32)Json_At(a, k)->number;
+        if (!isfinite(out[k])) {
+            return 0;   /* (collision rays clip to the grid; NaN/inf can't be) */
+        }
     }
     return 1;
 }
@@ -625,6 +647,33 @@ static void WriteEnvelope(JsonWriter *w) {
     Jw_EndObject(w);
 }
 
+/* spawnbox's `path`, as screenshots' (viewer.c ShotPathOk): a .json, and over nothing
+ * but JSON (an empty file, or one whose first non-space byte opens an object or array):
+ * what asks over the port shouldn't get to replace a file. */
+static int JsonPathOk(const char *path, char *err, size_t errSize) {
+    size_t n = SDL_strlen(path), got, k;
+    SDL_IOStream *io;
+    char head[64];
+
+    if (n <= 5 || SDL_strcasecmp(path + n - 5, ".json") != 0) {
+        SDL_snprintf(err, errSize, "spawnbox's path is a .json");
+        return 0;
+    }
+    io = SDL_IOFromFile(path, "rb");
+    if (io == NULL) {
+        return 1;   /* nothing there (or not readable: writing says why) */
+    }
+    got = SDL_ReadIO(io, head, sizeof(head));
+    SDL_CloseIO(io);
+    for (k = 0; k < got && (head[k] == ' ' || head[k] == '\t' || head[k] == '\r' || head[k] == '\n'); k++) {
+    }
+    if (k == got ? got < sizeof(head) : head[k] == '{' || head[k] == '[') {
+        return 1;
+    }
+    SDL_snprintf(err, errSize, "%s is there and isn't JSON: not overwritten", path);
+    return 0;
+}
+
 int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, int *ok, char *err, size_t errSize) {
     VPack *vp;
 
@@ -633,6 +682,10 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
          * tools/xdl_level.py check --spawn-box */
         const char *path = Json_GetString(req, "path", NULL);
 
+        if (path != NULL && !JsonPathOk(path, err, errSize)) {
+            *ok = 0;
+            return 1;
+        }
         WriteEnvelope(w);
         if (path != NULL) {
             JsonWriter f;
@@ -765,7 +818,7 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
                 a.y = p[1] + up;
                 a.z = p[2] + sz * side + fz * hi[2];
                 b.x = a.x + fx * len, b.y = a.y, b.z = a.z + fz * len;
-                if (RayHitsTerrain(&a, &b, &t, NULL) && t * len < best) {
+                if (ViewerWorld_RayHits(&a, &b, &t) && t * len < best) {
                     best = t * len;
                 }
             }

@@ -44,4 +44,14 @@ void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned i
  * (level://volumes/NAME): 1, or 0 past the last (the viewer draws them). */
 int Port_LevelVolume(int i, const void **volume, const char **id);
 
+/* The viewer, after a level's appends moved arrays of the world (tileCars,
+ * a quadrant's items and effect points, objectives) into copies of ours,
+ * element i of the base array <-> element i of the copy:
+ * LiveOf: a pointer into a moved base array -> the same place in the copy
+ * (else p itself). BaseOf: a pointer into a copy -> the same place in the
+ * base array (the pack's bytes, for offsets into it), NULL for an element
+ * the level appended (no place in the pack); else p itself. */
+void *Port_LevelLiveOf(const void *p);
+const void *Port_LevelBaseOf(const void *p);
+
 #endif

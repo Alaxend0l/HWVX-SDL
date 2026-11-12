@@ -98,7 +98,7 @@ class Viewer:
             proc.kill()
             proc.wait()
             raise
-        v.proc, v.log, v.port = proc, log, port
+        v.proc, v.log, v.port, v.token = proc, log, port, token
         return v
 
     def call(self, cmd, timeout=60.0, **args):
