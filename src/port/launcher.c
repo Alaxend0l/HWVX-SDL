@@ -551,7 +551,7 @@ static void LayoutSaves(Launcher *l) {
     Add(l, 24, VIEW_H - 30, "Import", ACT_IMP_GO, -1, !busy && l->planOk && l->plan.changes > 0);
     Add(l, 24 + 6 * CHAR + 24, VIEW_H - 30, "Add file...", ACT_IMP_ADD, -1,
         !busy && l->numSaves < PORT_IMPORT_MAX_SOURCES);
-    Add(l, 24 + 17 * CHAR + 48, VIEW_H - 30, "Cancel", ACT_IMP_CANCEL, -1, 1);
+    Add(l, 24 + 17 * CHAR + 48, VIEW_H - 30, "Cancel", ACT_IMP_CANCEL, -1, !busy);  /* busy: Add file's answer comes */
 }
 
 /* 1 if any release the game plays is imported. */
