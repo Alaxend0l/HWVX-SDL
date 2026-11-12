@@ -969,7 +969,6 @@ static int CmdPlay(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
         SDL_snprintf(m.playing, sizeof(m.playing), "base://%s/song", packName);
         Jw_String(w, "playing", m.playing);
         Jw_Bool(w, "device", Port_AudioDevice());
-        WriteSongState(w);
         return 1;
     }
     if (!SampleArg(req, &dp, packName, sizeof(packName), what, sizeof(what), &addr, &length, &loop, &rate, &bits,
