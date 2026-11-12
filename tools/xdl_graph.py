@@ -75,6 +75,15 @@ OWN_FILE_MIN = 4096        # raw nodes this large get a file of their own
 SECTIONS = ("pointers", "texture", "sound", "ref", "shader")
 SECTION_FILE = {"pointers": "pointers.bin", "texture": "texture_relocs.bin", "sound": "sound_relocs.bin",
                 "ref": "ref_relocs.bin", "shader": "shader_relocs.bin"}
+SECTION_ABOUT = {      # pack.json's informational section notes (src/pack.rs)
+    "pointers.bin": "offsets of pointer slots in data",
+    "texture_relocs.bin": "data offset + texture index (shared pack << 16)",
+    "sound_relocs.bin": "data offset + sound index (shared pack << 16)",
+    "ref_relocs.bin": "pointer slot + target (shared pack << 16 | index)",
+    "shader_relocs.bin": "data offset + shader index",
+}
+SECTION_ORDER = ("sound_pointers.bin", "sound_data.bin", "texture_relocs.bin", "shader_relocs.bin",
+                 "sound_relocs.bin", "data.bin", "ref_relocs.bin", "pointers.bin")
 HEADER_OFFSETS = (("texture_data_offset", "num_textures"), ("palette_offset", "num_palettes"),
                   ("shader_offset", "num_shaders"), ("trigger_offset", "num_triggers"))
 
@@ -1213,16 +1222,27 @@ class Builder:
             v = h.get(key)
             if isinstance(v, str):
                 h[key] = resolve(v)[0]
+        present = set(self.pack.get("files") or [])
+        # a table the source didn't have (an edit added its first entry): file and section
+        for f in SECTION_FILE.values():
+            if f in present or not files.get(f):
+                continue
+            present.add(f)
+            if not any(s["file"] == f for s in pj["sections"]):
+                rank = SECTION_ORDER.index(f)
+                at = sum(1 for s in pj["sections"] if s["file"] in SECTION_ORDER
+                         and SECTION_ORDER.index(s["file"]) < rank)
+                pj["sections"].insert(at, {"file": f, "about": SECTION_ABOUT[f]})
         for s in pj["sections"]:
             data = files.get(s["file"], b"")
-            rs = self.pack["record_sizes"].get(s["file"], 1)
+            rs = self.pack["record_sizes"].get(s["file"], 4 if s["file"] == "pointers.bin" else
+                                               8 if s["file"] in SECTION_ABOUT else 1)
             byts, recs = len(data), len(data) // rs
             s_new = {"file": s["file"], "bytes": byts, "records": recs}
             s_new.update({k: v for k, v in s.items() if k not in ("file",)})
             s.clear()
             s.update(s_new)
         files["pack.json"] = (json.dumps(pj, indent=2) + "\n").encode()
-        present = set(self.pack.get("files") or [])
         for f, data in files.items():
             if f in present or f == "data.bin" or f == "pack.json":
                 (out / f).write_bytes(data)

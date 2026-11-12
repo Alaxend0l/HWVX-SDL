@@ -188,6 +188,17 @@ except GR.GraphError as e:
     msg = str(e)
 check("error: a field left out of a typed file is refused (not built as 0)", msg and "maxRpm" in msg, str(msg))
 
+# 7b. an edit that adds a relocation table the source lacks (a shader slot in car_5)
+GR.Extractor(GR.Source(src), proj, S).run()
+check("car_5 has no shader_relocs.bin", not (src / "shader_relocs.bin").exists())
+edit(proj / "texture/0.jsonc", lambda t: t.replace('"links": {', '"shaders": {"0x10": 0},\n  "links": {', 1))
+out, bd = build(proj, "car5_shader")
+pj = json.loads((out / "pack.json").read_text())
+sec = [x for x in pj["sections"] if x["file"] == "shader_relocs.bin"]
+check("a new table is written, with its pack.json section",
+      (out / "shader_relocs.bin").exists() and len((out / "shader_relocs.bin").read_bytes()) == 8
+      and sec and sec[0]["records"] == 1, str(sec))
+
 # 8. extracting over a folder that isn't a previous extract is refused
 other = scratch / "not_a_project"
 other.mkdir(parents=True, exist_ok=True)
