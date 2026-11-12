@@ -293,54 +293,6 @@ pub fn read_level(project: &Path) -> Result<Value, String> {
     serde_json::from_str(&strip_jsonc(&text)).map_err(|e| format!("{}: {e}", p.display()))
 }
 
-/// JSONC to JSON: comments out, then trailing commas out (strings kept as they are).
-pub fn strip_jsonc(s: &str) -> String {
-    fn pass(s: &str, commas: bool) -> String {
-        let b: Vec<char> = s.chars().collect();
-        let mut out = String::with_capacity(s.len());
-        let mut i = 0;
-        while i < b.len() {
-            let c = b[i];
-            if c == '"' {
-                out.push(c);
-                i += 1;
-                while i < b.len() {
-                    out.push(b[i]);
-                    if b[i] == '\\' && i + 1 < b.len() {
-                        out.push(b[i + 1]);
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                    if b[i - 1] == '"' {
-                        break;
-                    }
-                }
-            } else if !commas && c == '/' && i + 1 < b.len() && b[i + 1] == '/' {
-                while i < b.len() && b[i] != '\n' {
-                    i += 1;
-                }
-            } else if !commas && c == '/' && i + 1 < b.len() && b[i + 1] == '*' {
-                i += 2;
-                while i + 1 < b.len() && !(b[i] == '*' && b[i + 1] == '/') {
-                    i += 1;
-                }
-                i += 2;
-            } else if commas && c == ',' {
-                let mut j = i + 1;
-                while j < b.len() && b[j].is_whitespace() {
-                    j += 1;
-                }
-                if !(j < b.len() && (b[j] == '}' || b[j] == ']')) {
-                    out.push(c);
-                }
-                i += 1;
-            } else {
-                out.push(c);
-                i += 1;
-            }
-        }
-        out
-    }
-    pass(&pass(s, false), true)
-}
+/// JSONC to JSON: comments out, then trailing commas out (strings kept as they are); the
+/// lenient reader, now in the xdlrs crate.
+pub use xdlrs::jsonc::strip as strip_jsonc;

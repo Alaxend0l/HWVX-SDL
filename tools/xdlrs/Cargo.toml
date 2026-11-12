@@ -1,0 +1,9 @@
+[package]
+name = "xdlrs"
+version = "0.1.0"
+edition = "2024"
+description = "The .xdl tools' core (tools/xdl_struct.py, tools/xdl_tac.py) as a library for the editor"
+
+[dependencies]
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+regex = "1.11"
