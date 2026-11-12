@@ -75,4 +75,14 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
                     char *err, size_t errSize);
 void Viewer_WriteNull(JsonWriter *w, const char *key);
 
+/* viewer_frames.c: the frames shared with the browser */
+int ViewerFrames_On(void);
+/* Shares frames of w x h (the EFB's size from the next frame on); 0 with a message. */
+int ViewerFrames_Configure(int w, int h, char *err, size_t errSize);
+void ViewerFrames_Stop(void);
+void ViewerFrames_EndFrame(u32 frame);
+void ViewerFrames_WriteInfo(JsonWriter *w);    /* the `frames` reply's keys */
+void ViewerFrames_WriteStats(JsonWriter *w);   /* "frames": {...} */
+void ViewerFrames_Shutdown(void);
+
 #endif

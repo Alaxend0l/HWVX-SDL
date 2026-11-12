@@ -1,18 +1,23 @@
 //! hwvx-browser: browse (and edit, live) the game's data packs, with the game itself as the
 //! preview. It runs HWVX-SDL in viewer mode (HWVX_VIEWER, src/port/viewer.c) and talks to it over
-//! the viewer protocol (docs-pending/viewer-protocol.md); the preview is the game's own window.
+//! the viewer protocol (docs/viewer-protocol.md). The preview is the game's picture, drawn in this
+//! window's middle: the game renders it hidden, at the panel's size, and shares each frame through
+//! shared memory (src/frames.rs). Drag to orbit, right/middle (or shift) drag to pan, wheel to
+//! zoom, click to pick; over the picture F frames, Home resets, Space spins, arrows orbit, +/- zoom.
 //!
-//!   hwvx-browser [--game build/hwvx] [--data DIR] [--schemas DIR] [--pref DIR]
+//!   hwvx-browser [--game build/hwvx] [--data DIR] [--schemas DIR] [--pref DIR] [--viewer-window]
 //!                [--port N [--token T]]          a viewer already running (T: its token, or
 //!                                                HWVX_VIEWER_TOKEN; it logs one it made up)
 //!                [--load ARCHIVE:TYPE:ID] [--select NODE] [--app-shot FILE.bmp]
 //!
+//! --viewer-window shows the game's own window instead (the old separate preview, for debugging).
 //! --app-shot saves this window (once the --load and --select replies are in) and quits:
 //! for scripted screenshots of the browser itself. It gives up (exit 1) on an error reply, a
 //! lost viewer, or after two minutes.
 
 use eframe::egui;
 use hwvx_browser::client::{SpawnOptions, Viewer, default_game, default_schemas};
+use hwvx_browser::frames::{Frame, FrameReader};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -36,6 +41,7 @@ struct Args {
     load: Option<(String, String, u64)>,
     select: Option<String>,
     app_shot: Option<PathBuf>,
+    viewer_window: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -61,6 +67,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--select" => a.select = Some(val()?),
             "--app-shot" => a.app_shot = Some(val()?.into()),
+            "--viewer-window" => a.viewer_window = true,
             "-h" | "--help" => {
                 println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
                 std::process::exit(0);
@@ -95,7 +102,102 @@ enum Pending {
     Set { node: String, field: String },
     Camera,
     Shot,
+    Frames,
+    Pick,
     Quiet,
+}
+
+/// The largest picture the viewer makes.
+const MAX_FRAME: [u32; 2] = [3840, 2160];
+/// How long the panel's size has to stay put before the viewer is asked for it.
+const RESIZE_SETTLE: Duration = Duration::from_millis(150);
+
+/// What the frame thread shares with the UI: the shared memory it reads, and the newest frame.
+#[derive(Default)]
+struct Feed {
+    reader: Option<FrameReader>,
+    frame: Option<Frame>,
+    stop: bool,
+}
+
+/// The embedded preview: the game's frames as a texture in the central panel.
+struct Preview {
+    feed: Arc<Mutex<Feed>>,
+    texture: Option<egui::TextureHandle>,
+    size: [u32; 2],          // the texture's
+    frame: u32,              // the viewer's number of the frame shown
+    shown: u64,              // frames shown so far
+    name: String,            // the shared memory's
+    want: [u32; 2],          // the panel's size in physical pixels
+    want_since: Instant,
+    asked: [u32; 2],         // the size last asked for
+    asking: bool,
+    fps: f32,
+    fps_count: u32,
+    fps_t0: Instant,
+    events: Vec<Value>,      // input to send with this UI frame
+    stats: Value,            // the viewer's "frames" from status
+    stats_t: Instant,
+}
+
+impl Preview {
+    fn new(ctx: &egui::Context) -> Preview {
+        let feed = Arc::new(Mutex::new(Feed::default()));
+        let f = feed.clone();
+        let c = ctx.clone();
+        // polls the shared memory: a new frame is copied out here, off the UI thread
+        std::thread::spawn(move || {
+            loop {
+                {
+                    let mut g = f.lock().unwrap();
+                    if g.stop {
+                        break;
+                    }
+                    let got = g.reader.as_mut().and_then(|r| r.take());
+                    if let Some(fr) = got {
+                        g.frame = Some(fr);
+                        c.request_repaint();
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        });
+        let now = Instant::now();
+        Preview {
+            feed,
+            texture: None,
+            size: [0, 0],
+            frame: 0,
+            shown: 0,
+            name: String::new(),
+            want: [0, 0],
+            want_since: now,
+            asked: [0, 0],
+            asking: false,
+            fps: 0.0,
+            fps_count: 0,
+            fps_t0: now,
+            events: Vec::new(),
+            stats: Value::Null,
+            stats_t: now,
+        }
+    }
+
+    /// A new connection: the old shared memory is gone with the old game.
+    fn reset(&mut self) {
+        let mut g = self.feed.lock().unwrap();
+        g.reader = None;
+        g.frame = None;
+        self.name.clear();
+        self.asked = [0, 0];
+        self.asking = false;
+    }
+}
+
+impl Drop for Preview {
+    fn drop(&mut self) {
+        self.feed.lock().unwrap().stop = true;
+    }
 }
 
 #[derive(Clone)]
@@ -164,6 +266,7 @@ struct Browser {
     app_shot_state: u32,
     app_shot_done: Arc<Mutex<Option<Result<String, String>>>>,
     started: Instant,
+    preview: Preview,
 }
 
 impl Browser {
@@ -197,6 +300,7 @@ impl Browser {
             app_shot_state: 0,
             app_shot_done: Arc::new(Mutex::new(None)),
             started: Instant::now(),
+            preview: Preview::new(&ctx),
             args,
             ctx,
         };
@@ -209,6 +313,7 @@ impl Browser {
         self.viewer = None; // (a game this started is killed)
         self.pending.clear();
         self.connect_error = None;
+        self.preview.reset();
         let args = self.args.clone();
         let ctx = self.ctx.clone();
         let (tx, rx) = std::sync::mpsc::channel();
@@ -236,6 +341,7 @@ impl Browser {
                     renderer: None,
                     log_file,
                     token: None,
+                    viewer_window: args.viewer_window,
                 })
             };
             let _ = tx.send(result); // (the browser closed meanwhile: dropping it kills the game)
@@ -388,6 +494,33 @@ impl Browser {
                         self.spin = c["spin"].as_bool().unwrap_or(false);
                         self.camera = c.clone();
                     }
+                    if let Some(f) = r.get("frames") {
+                        self.preview.stats = f.clone();
+                    }
+                }
+                Pending::Frames => {
+                    self.preview.asking = false;
+                    let name = r["name"].as_str().unwrap_or("").to_string();
+                    if r["on"].as_bool() == Some(true) && name != self.preview.name {
+                        // a new shared memory (the first, or a bigger one)
+                        match FrameReader::open(&name, r["key"].as_str().unwrap_or(""), r["size"].as_u64().unwrap_or(0) as usize) {
+                            Ok(reader) => {
+                                self.preview.feed.lock().unwrap().reader = Some(reader);
+                                self.preview.name = name;
+                            }
+                            Err(e) => self.fail(format!("frames: {e}")),
+                        }
+                    }
+                }
+                Pending::Pick => {
+                    if let Some(n) = r["node"].as_str() {
+                        let n = n.to_string();
+                        let ctx = self.ctx.clone();
+                        self.reveal(&ctx, &n);
+                        self.select(&n, false);
+                    } else {
+                        self.note("nothing there".into());
+                    }
                 }
                 Pending::Shot => self.note(format!("saved {} ({}x{})", r["path"].as_str().unwrap_or(""), r["width"], r["height"])),
                 Pending::Quiet => {}
@@ -440,6 +573,9 @@ impl Browser {
         let Some(path) = self.args.app_shot.clone() else { return };
         if !self.pending.is_empty() {
             return;
+        }
+        if !self.args.viewer_window && (self.preview.shown < 3 || self.preview.size != self.preview.want) {
+            return; // the picture, at the panel's size
         }
         self.app_shot_state += 1;
         if self.app_shot_state == 10 {
@@ -820,6 +956,162 @@ impl Browser {
         }
     }
 
+    /// The game's picture, at the panel's size in physical pixels (asked for once the size has
+    /// settled; meanwhile the last frame is stretched), and the pointer and keys over it.
+    fn preview_panel(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let ppp = ctx.pixels_per_point();
+        let status_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+        let full = ui.available_rect_before_wrap();
+        let rect = egui::Rect::from_min_max(full.min, egui::pos2(full.max.x, (full.max.y - status_h).max(full.min.y + 16.0)));
+        let id = egui::Id::unique("hwvx-preview");
+        let resp = ui.interact(rect, id, egui::Sense::click_and_drag());
+        let p = &mut self.preview;
+
+        // a new frame from the feed: into the texture
+        let fresh = p.feed.lock().unwrap().frame.take();
+        if let Some(f) = fresh {
+            let img = egui::ColorImage::from_rgba_premultiplied([f.width as usize, f.height as usize], &f.rgba);
+            match &mut p.texture {
+                Some(t) => t.set(img, egui::TextureOptions::LINEAR),
+                None => p.texture = Some(ctx.load_texture("preview", img, egui::TextureOptions::LINEAR)),
+            }
+            p.size = [f.width, f.height];
+            p.frame = f.frame;
+            p.shown += 1;
+            p.fps_count += 1;
+        }
+        let el = p.fps_t0.elapsed();
+        if el >= Duration::from_millis(500) {
+            p.fps = p.fps_count as f32 / el.as_secs_f32();
+            p.fps_count = 0;
+            p.fps_t0 = Instant::now();
+        }
+
+        // the size: physical pixels, capped (keeping the shape)
+        let phys = rect.size() * ppp;
+        let k = (MAX_FRAME[0] as f32 / phys.x).min(MAX_FRAME[1] as f32 / phys.y).min(1.0);
+        let want = [((phys.x * k).round() as u32).max(16), ((phys.y * k).round() as u32).max(16)];
+        if want != p.want {
+            p.want = want;
+            p.want_since = Instant::now();
+        }
+        let ask = self.viewer.is_some() && !p.asking && p.want != p.asked && p.want_since.elapsed() >= RESIZE_SETTLE;
+        if p.want != p.asked {
+            ctx.request_repaint_after(RESIZE_SETTLE);
+        }
+
+        // the picture (stretched while the size settles)
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(0x30, 0x34, 0x3C));
+        if let Some(t) = &p.texture {
+            painter.image(t.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+        } else {
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, if self.args.viewer_window { "the preview is in the game's own window" } else { "waiting for the game's picture…" }, egui::FontId::proportional(14.0), ui.visuals().weak_text_color());
+        }
+        if resp.has_focus() {
+            painter.rect_stroke(rect.shrink(1.0), 0.0, egui::Stroke::new(1.0, ui.visuals().selection.stroke.color), egui::StrokeKind::Inside);
+        }
+
+        // input, in image pixels
+        let scale = if p.size[1] > 0 { p.size[1] as f32 / (rect.height() * ppp).max(1.0) } else { 1.0 } * ppp;
+        let shift = ui.input(|i| i.modifiers.shift);
+        let d = resp.drag_delta() * scale;
+        if d != egui::Vec2::ZERO {
+            let button = if resp.dragged_by(egui::PointerButton::Secondary) {
+                "right"
+            } else if resp.dragged_by(egui::PointerButton::Middle) {
+                "middle"
+            } else {
+                "left"
+            };
+            p.events.push(json!({"type": "drag", "button": button, "pan": shift, "dx": d.x, "dy": d.y}));
+        }
+        if resp.drag_started() || resp.clicked() {
+            resp.request_focus();
+        }
+        if resp.hovered() {
+            let wheel: f32 = ui.input(|i| {
+                i.events
+                    .iter()
+                    .map(|e| match e {
+                        egui::Event::MouseWheel { unit, delta, .. } => match unit {
+                            egui::MouseWheelUnit::Point => delta.y / 50.0,
+                            egui::MouseWheelUnit::Line => delta.y,
+                            egui::MouseWheelUnit::Page => delta.y * 10.0,
+                        },
+                        _ => 0.0,
+                    })
+                    .sum()
+            });
+            if wheel != 0.0 {
+                p.events.push(json!({"type": "wheel", "dy": wheel}));
+            }
+        }
+        let typing = ctx.memory(|m| m.focused().is_some_and(|f| f != id));
+        if (resp.has_focus() || resp.hovered()) && !typing {
+            use egui::Key;
+            for (key, name) in [
+                (Key::F, "f"),
+                (Key::Home, "home"),
+                (Key::R, "r"),
+                (Key::Space, "space"),
+                (Key::ArrowLeft, "left"),
+                (Key::ArrowRight, "right"),
+                (Key::ArrowUp, "up"),
+                (Key::ArrowDown, "down"),
+                (Key::Plus, "plus"),
+                (Key::Equals, "plus"),
+                (Key::Minus, "minus"),
+            ] {
+                if ui.input(|i| i.key_pressed(key)) {
+                    p.events.push(json!({"type": "key", "key": name}));
+                }
+            }
+        }
+        let click = if resp.clicked() { resp.interact_pointer_pos() } else { None };
+        let pick = click.map(|pos| {
+            let v = (pos - rect.min) * scale;
+            json!({"x": v.x, "y": v.y})
+        });
+
+        // the status line
+        let (fps, size, shown) = (p.fps, p.size, p.shown);
+        let stats = p.stats.clone();
+        let events = std::mem::take(&mut p.events);
+        let image_h = p.size[1];
+        let line = egui::Rect::from_min_max(egui::pos2(full.min.x, rect.max.y), full.max);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(line), |ui| {
+            ui.horizontal(|ui| {
+                let mut s = format!("{fps:.0} fps  ·  {}x{}", size[0], size[1]);
+                if size != want && shown > 0 {
+                    s += &format!(" (→ {}x{})", want[0], want[1]);
+                }
+                if let Some(ms) = stats["ms"].as_f64() {
+                    s += &format!("  ·  readback {ms:.2} ms/frame, {:.0} published/s", stats["fps"].as_f64().unwrap_or(0.0));
+                }
+                ui.label(egui::RichText::new(s).weak().small());
+            });
+        });
+
+        if ask {
+            self.preview.asked = want;
+            self.preview.asking = true;
+            self.request("frames", json!({"width": want[0], "height": want[1]}), Pending::Frames);
+        }
+        if !events.is_empty() {
+            self.request("input", json!({"height": image_h, "events": events}), Pending::Camera);
+        }
+        if let Some(pk) = pick {
+            self.request("pick", pk, Pending::Pick);
+        }
+        if self.viewer.is_some() && self.preview.stats_t.elapsed() >= Duration::from_secs(1) {
+            self.preview.stats_t = Instant::now();
+            self.request("status", json!({}), Pending::Camera);
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
+    }
+
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Camera");
@@ -891,7 +1183,7 @@ impl eframe::App for Browser {
         if self.connecting.is_some() {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.heading("Starting the viewer…");
-                ui.label(if self.args.port.is_some() { "connecting to the running game" } else { "the game is starting in its own window" });
+                ui.label(if self.args.port.is_some() { "connecting to the running game" } else { "the game is starting" });
                 ui.spinner();
             });
             return;
@@ -910,7 +1202,8 @@ impl eframe::App for Browser {
         egui::Panel::bottom("bottom").show(ui, |ui| self.bottom_bar(ui));
         egui::Panel::left("packs").default_size(260.0).resizable(true).show(ui, |ui| self.pack_list(ui));
         egui::Panel::left("outline").default_size(300.0).resizable(true).show(ui, |ui| self.outline_tree(ui));
-        egui::CentralPanel::default().show(ui, |ui| self.properties(ui));
+        egui::Panel::right("properties").default_size(380.0).resizable(true).show(ui, |ui| self.properties(ui));
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.preview_panel(ui));
     }
 }
 

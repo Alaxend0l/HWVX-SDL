@@ -31,6 +31,9 @@ pub struct SpawnOptions {
     pub log_file: Option<PathBuf>,
     /// HWVX_VIEWER_TOKEN for the game; None: one is made up.
     pub token: Option<String>,
+    /// HWVX_VIEWER_WINDOW=1: the game's own window is shown (the old, separate preview; for
+    /// debugging). Otherwise it is hidden and the frames come through `frames` (src/frames.rs).
+    pub viewer_window: bool,
 }
 
 /// 128 random bits as hex, from the standard library's randomly keyed hasher (no crate needed).
@@ -93,6 +96,9 @@ impl Viewer {
             .stderr(Stdio::piped());
         if let Some(s) = &o.schemas {
             cmd.env("HWVX_VIEWER_SCHEMAS", s);
+        }
+        if o.viewer_window {
+            cmd.env("HWVX_VIEWER_WINDOW", "1");
         }
         let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", o.game.display()))?;
         let (tx, rx) = channel::<String>();

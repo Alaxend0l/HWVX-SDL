@@ -56,6 +56,7 @@ fn car_pack_outline_set_screenshot() {
         renderer: None,
         log_file: Some(out.join("viewer.log")),
         token: Some("test-token-1234".into()),
+        viewer_window: false,
     })
     .expect("the viewer starts");
     let port = v.port;

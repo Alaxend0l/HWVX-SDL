@@ -130,6 +130,15 @@ static struct {
     u32 nSamplers;
 } s;
 
+/* The asynchronous readbacks (grabStart/grabFetch): a download buffer each,
+ * and the fence of the submit that fills it. */
+static struct {
+    SDL_GPUTransferBuffer *tb;
+    u32 size;
+    SDL_GPUFence *fence;
+    int w, h;
+} s_grab[GXR_GRAB_SLOTS];
+
 /* Grows *p (elements of size elem) to hold at least need. */
 static void Grow(void **p, u32 *cap, u32 need, size_t elem) {
     if (need > *cap) {
@@ -404,6 +413,11 @@ static void GPU_Close(void) {
     if (s.linearClamp) SDL_ReleaseGPUSampler(s.dev, s.linearClamp);
     if (s.vbuf) SDL_ReleaseGPUBuffer(s.dev, s.vbuf);
     if (s.tbuf) SDL_ReleaseGPUTransferBuffer(s.dev, s.tbuf);
+    for (i = 0; i < GXR_GRAB_SLOTS; i++) {
+        if (s_grab[i].fence) SDL_ReleaseGPUFence(s.dev, s_grab[i].fence);
+        if (s_grab[i].tb) SDL_ReleaseGPUTransferBuffer(s.dev, s_grab[i].tb);
+    }
+    SDL_zeroa(s_grab);
     if (s.efb) SDL_ReleaseGPUTexture(s.dev, s.efb);
     if (s.efbDepth) SDL_ReleaseGPUTexture(s.dev, s.efbDepth);
     if (s.image) SDL_ReleaseGPUTexture(s.dev, s.image);
@@ -1169,6 +1183,85 @@ static int GPU_ReadEFB(u8 *rgba) {
     return ok;
 }
 
+static int GPU_GrabStart(int slot) {
+    SDL_GPUTextureRegion src;
+    SDL_GPUTextureTransferInfo dst;
+    SDL_GPUCopyPass *cp;
+    u32 size = (u32)s.efbW * (u32)s.efbH * 4;
+
+    if (slot < 0 || slot >= GXR_GRAB_SLOTS || s_grab[slot].fence != NULL) {
+        return 0;
+    }
+    if (s_grab[slot].tb == NULL || s_grab[slot].size < size) {
+        SDL_GPUTransferBufferCreateInfo ci;
+
+        if (s_grab[slot].tb != NULL) {
+            SDL_ReleaseGPUTransferBuffer(s.dev, s_grab[slot].tb);
+        }
+        SDL_zero(ci);
+        ci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
+        ci.size = size;
+        s_grab[slot].tb = SDL_CreateGPUTransferBuffer(s.dev, &ci);
+        s_grab[slot].size = s_grab[slot].tb != NULL ? size : 0;
+        if (s_grab[slot].tb == NULL) {
+            return 0;
+        }
+    }
+    Flush();
+    SDL_zero(src);
+    SDL_zero(dst);
+    src.texture = s.efb;
+    src.w = (u32)s.efbW;
+    src.h = (u32)s.efbH;
+    src.d = 1;
+    dst.transfer_buffer = s_grab[slot].tb;
+    dst.pixels_per_row = (u32)s.efbW;
+    dst.rows_per_layer = (u32)s.efbH;
+    cp = SDL_BeginGPUCopyPass(Cmd());
+    SDL_DownloadFromGPUTexture(cp, &src, &dst);
+    SDL_EndGPUCopyPass(cp);
+    /* submitted now, as GPU_ReadEFB does, but not waited for */
+    s_grab[slot].fence = SDL_SubmitGPUCommandBufferAndAcquireFence(s.cmd);
+    s.cmd = NULL;
+    s.swapTex = NULL;
+    s_grab[slot].w = s.efbW;
+    s_grab[slot].h = s.efbH;
+    return s_grab[slot].fence != NULL;
+}
+
+static int GPU_GrabFetch(int slot, u8 *dst, int stride, int maxW, int maxH, int *w, int *h, int wait) {
+    const u8 *map;
+    int ok = -1, y;
+
+    if (slot < 0 || slot >= GXR_GRAB_SLOTS || s_grab[slot].fence == NULL) {
+        return -1;
+    }
+    if (wait) {
+        SDL_WaitForGPUFences(s.dev, true, &s_grab[slot].fence, 1);
+    } else if (!SDL_QueryGPUFence(s.dev, s_grab[slot].fence)) {
+        return 0;
+    }
+    SDL_ReleaseGPUFence(s.dev, s_grab[slot].fence);
+    s_grab[slot].fence = NULL;
+    if (s_grab[slot].w <= maxW && s_grab[slot].h <= maxH &&
+        (map = SDL_MapGPUTransferBuffer(s.dev, s_grab[slot].tb, false)) != NULL) {
+        size_t row = (size_t)s_grab[slot].w * 4;
+
+        if ((size_t)stride == row) {
+            memcpy(dst, map, row * (size_t)s_grab[slot].h);
+        } else {
+            for (y = 0; y < s_grab[slot].h; y++) {
+                memcpy(dst + (size_t)y * (size_t)stride, map + (size_t)y * row, row);
+            }
+        }
+        SDL_UnmapGPUTransferBuffer(s.dev, s_grab[slot].tb);
+        *w = s_grab[slot].w;
+        *h = s_grab[slot].h;
+        ok = 1;
+    }
+    return ok;
+}
+
 static void GPU_Present(void) {
     Flush();
     if (s.cmd != NULL) {
@@ -1183,5 +1276,5 @@ static void GPU_Present(void) {
 const GXRenderer g_gxSDLGPU = {
     "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexFormat, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
     GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_CopyEFB, GPU_ReadEFB, GPU_Present,
-    GPU_MeshIndices, GPU_MeshVertices, GPU_MeshDestroy,
+    GPU_MeshIndices, GPU_MeshVertices, GPU_MeshDestroy, GPU_GrabStart, GPU_GrabFetch,
 };

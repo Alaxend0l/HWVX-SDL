@@ -169,7 +169,19 @@ typedef struct GXRenderer {
     void *(*meshIndices)(const u16 *idx, u32 n);
     void *(*meshVertices)(const GXMeshVertex *v, u32 n, int skinned, void *indices);
     void (*meshDestroy)(void *buf);
+    /* Asynchronous EFB readback (the viewer's shared frames, viewer_frames.c):
+     * grabStart copies the EFB as drawn so far into readback buffer `slot`
+     * (0 .. GXR_GRAB_SLOTS - 1) and submits the work without waiting for the
+     * GPU; 0 on failure. grabFetch, once the GPU is done with it, copies it
+     * out (4 bytes a pixel, R G B and a byte to ignore, top row first, rows
+     * `stride` bytes apart; nothing when it is over maxW x maxH), sets *w, *h
+     * and frees the slot: 1. 0: not ready yet (wait: blocks until it is);
+     * -1: nothing pending, too big, or failed (the slot is freed). */
+    int (*grabStart)(int slot);
+    int (*grabFetch)(int slot, u8 *dst, int stride, int maxW, int maxH, int *w, int *h, int wait);
 } GXRenderer;
+
+#define GXR_GRAB_SLOTS 2
 
 /* HWVX_STATS: draws with a specialised pixel shader (gx_tevgen.h) and with
  * the general one since the last report, and how many specialised programs

@@ -81,6 +81,11 @@ static struct {
     u32 numMatrices;
     u32 drawn;                  /* draws queued in the last frame */
 
+    /* what the last frame drew, for pick: each geometry and where */
+    const Geometry *drawnGeom[MAX_DRAWN];
+    f32 drawnAt[MAX_DRAWN][3];
+    u32 numDrawnGeom;
+
     char *shotPath;             /* a frame to save after the next one drawn */
     long long shotId;
     int shotHasId;
@@ -89,6 +94,17 @@ static struct {
 } s = { -1 };
 
 #define MATRIX_POOL (MAX_DRAWN + 2 * MAX_BONES + 8)
+
+int Port_ViewerHeadless(void) {
+    static int headless = -1;
+
+    if (headless < 0) {
+        const char *e = SDL_getenv("HWVX_VIEWER_WINDOW");
+
+        headless = Port_ViewerOn() && !(e != NULL && *e == '1');
+    }
+    return headless;
+}
 
 int Port_ViewerOn(void) {
     if (s.on < 0) {
@@ -499,6 +515,11 @@ static Matrix4 *ModelPose(VPack *vp, MotionAnim *model, u32 *numBones) {
 static void Grow(f32 *min, f32 *max, const Matrix4 *m, const Geometry *g) {
     int i;
 
+    if (s.numDrawnGeom < MAX_DRAWN) {
+        s.drawnGeom[s.numDrawnGeom] = g;
+        SDL_memcpy(s.drawnAt[s.numDrawnGeom], &m->v[3].x, sizeof(s.drawnAt[0]));
+        s.numDrawnGeom++;
+    }
     for (i = 0; i < 3; i++) {
         f32 at = (&m->v[3].x)[i];
         f32 lo = at + g->bboxMin[i], hi = at + g->bboxMax[i];
@@ -588,6 +609,8 @@ static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max) {
     }
 }
 
+static int s_frameNext;     /* frame the camera on the next scene drawn */
+
 /* Queues the frame's draws; the bounds of what was drawn. 0: nothing. */
 static int DrawScene(f32 *min, f32 *max) {
     VPack *vp = s.shown;
@@ -599,6 +622,7 @@ static int DrawScene(f32 *min, f32 *max) {
     max[0] = max[1] = max[2] = -1e30f;
     s.numMatrices = 0;
     s.drawn = 0;
+    s.numDrawnGeom = 0;
     if (vp == NULL || vp->pack == NULL || GETP(vp->pack->base) == NULL) {
         return 0;
     }
@@ -659,7 +683,6 @@ static void Frame(const f32 *min, const f32 *max) {
     s.distance = r > 0.01f ? r / (f32)sin(0.5f * s.fov * 0.017453292f) : 10.0f;
 }
 
-static int s_frameNext;     /* frame the camera on the next scene drawn */
 
 static void PlaceCamera(void) {
     extern Vector4 g_jBasis;
@@ -710,6 +733,138 @@ static bool SDLCALL MouseWatch(void *userdata, SDL_Event *ev) {
         s.distance *= (f32)pow(0.9, ev->wheel.y);
     }
     return true;
+}
+
+/* The view's half extents at distance 1 (tan of the half field of view),
+ * across and up, for an EFB of w x h: the game's projection is made for its
+ * 4:3 render window (Gfx_SetProjectionMatrix), and gx_draw.c widens it to
+ * the EFB's shape ("screen mapping"). */
+static void ViewExtents(int w, int h, f32 *tanX, f32 *tanY) {
+    GfxWindow *rw = GetRenderWindow();
+    f32 rwW = rw->width ? (f32)rw->width : 640.0f, rwH = rw->height ? (f32)rw->height : 480.0f;
+    f32 fovY = 1.0714285f * s.fov * rwH / rwW;      /* degrees, at 4:3 */
+    f32 t = (f32)tan(0.5f * fovY * 0.017453292f);
+    int a[4];
+
+    GX_Letterbox(w, h, 4, 3, a);
+    *tanY = t * (f32)h / (f32)a[3];
+    *tanX = t * (rwW / rwH) * (f32)w / (f32)a[2];
+}
+
+/* A drag of dx, dy image pixels in an image h pixels tall: orbit (left), or
+ * pan (right, middle, or pan set) so what is under the pointer follows it. */
+static void DragView(f32 dx, f32 dy, int h, int pan) {
+    if (pan) {
+        int w, eh;
+        f32 tx, ty, k, sy = (f32)sin(s.yaw), cy = (f32)cos(s.yaw);
+
+        GX_DrawEfbSize(&w, &eh);
+        ViewExtents(w, eh, &tx, &ty);
+        k = 2.0f * ty * s.distance / (f32)(h > 0 ? h : 1);
+        s.target.x -= dx * k * cy;
+        s.target.z += dx * k * sy;
+        s.target.y += dy * k * (f32)cos(s.pitch);
+    } else {
+        f32 k = 3.0f / (f32)(h > 0 ? h : 1);       /* the image's height: about 170 degrees */
+
+        s.yaw -= dx * k;
+        s.pitch += dy * k;
+        s.spin = 0;
+    }
+}
+
+/* The drawn geometry under image pixel (x, y), as the last frame drew it:
+ * the ray through it against each geometry's bounding sphere, the smallest
+ * one hit (the most specific part), nearest first among equals. -1: none. */
+static int Pick(f32 x, f32 y, f32 *dist) {
+    Camera *c = s.camera;
+    f32 tanX, tanY, nx, ny, d[3], len, bestR = 1e30f, bestT = 1e30f;
+    int w, h, best = -1;
+    u32 i;
+
+    GX_DrawEfbSize(&w, &h);
+    ViewExtents(w, h, &tanX, &tanY);
+    nx = (2.0f * x / (f32)w - 1.0f) * tanX;
+    ny = (1.0f - 2.0f * y / (f32)h) * tanY;
+    /* the camera's right is the screen's left (Gfx_SetCameraMatrix) */
+    d[0] = c->dir.x - c->right.x * nx + c->up.x * ny;
+    d[1] = c->dir.y - c->right.y * nx + c->up.y * ny;
+    d[2] = c->dir.z - c->right.z * nx + c->up.z * ny;
+    len = (f32)sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    d[0] /= len;
+    d[1] /= len;
+    d[2] /= len;
+    for (i = 0; i < s.numDrawnGeom; i++) {
+        const Geometry *g = s.drawnGeom[i];
+        f32 o[3], r, t, e2 = 0.0f;
+        int k;
+
+        for (k = 0; k < 3; k++) {
+            f32 lo = g->bboxMin[k], hi = g->bboxMax[k];
+
+            o[k] = s.drawnAt[i][k] + 0.5f * (lo + hi) - (&c->pos.x)[k];
+            e2 += 0.25f * (hi - lo) * (hi - lo);
+        }
+        r = (f32)sqrt(e2);
+        if (!(r < 1e6f)) {
+            continue;
+        }
+        t = o[0] * d[0] + o[1] * d[1] + o[2] * d[2];
+        o[0] -= t * d[0];
+        o[1] -= t * d[1];
+        o[2] -= t * d[2];
+        if (t + r > 0.0f && o[0] * o[0] + o[1] * o[1] + o[2] * o[2] <= r * r &&
+            (r < bestR * 0.999f || (r <= bestR * 1.001f && t < bestT))) {
+            best = (int)i;
+            bestR = r;
+            bestT = t;
+        }
+    }
+    *dist = bestT;
+    return best;
+}
+
+/* The node of a geometry drawn from the shown pack, or NULL. */
+static VNode *GeometryNode(const Geometry *g) {
+    VPack *vp = s.shown;
+    u32 i;
+
+    for (i = 0; vp != NULL && i < vp->numNodes; i++) {
+        if (vp->nodes[i].kind == VN_GEOMETRY && GeometryOf(vp, &vp->nodes[i]) == g) {
+            return &vp->nodes[i];
+        }
+    }
+    return NULL;
+}
+
+/* A key over the preview: f frames what is drawn, home (or r) resets the
+ * view, space spins, arrows orbit, + and - zoom. 0: not one. */
+static int ViewKey(const char *key) {
+    if (SDL_strcasecmp(key, "f") == 0) {
+        s_frameNext = 1;
+    } else if (SDL_strcasecmp(key, "home") == 0 || SDL_strcasecmp(key, "r") == 0) {
+        s.yaw = 0.6f;
+        s.pitch = 0.3f;
+        s.spin = 0;
+        s_frameNext = 1;
+    } else if (SDL_strcasecmp(key, "space") == 0) {
+        s.spin = !s.spin;
+    } else if (SDL_strcasecmp(key, "left") == 0) {
+        s.yaw -= 15.0f * 0.017453292f;
+    } else if (SDL_strcasecmp(key, "right") == 0) {
+        s.yaw += 15.0f * 0.017453292f;
+    } else if (SDL_strcasecmp(key, "up") == 0) {
+        s.pitch += 10.0f * 0.017453292f;
+    } else if (SDL_strcasecmp(key, "down") == 0) {
+        s.pitch -= 10.0f * 0.017453292f;
+    } else if (SDL_strcasecmp(key, "plus") == 0 || SDL_strcmp(key, "+") == 0 || SDL_strcmp(key, "=") == 0) {
+        s.distance *= 0.8f;
+    } else if (SDL_strcasecmp(key, "minus") == 0 || SDL_strcmp(key, "-") == 0) {
+        s.distance *= 1.25f;
+    } else {
+        return 0;
+    }
+    return 1;
 }
 
 /* ---- commands -------------------------------------------------------------- */
@@ -1114,6 +1269,79 @@ static void Dispatch(const JsonNode *req) {
             Jw_Free(&w);
             return;
         }
+    } else if (SDL_strcmp(cmd, "frames") == 0) {
+        /* the frames to the browser through shared memory, at a size; on: false stops */
+        if (!Json_GetBool(req, "on", 1)) {
+            ViewerFrames_Stop();
+            ViewerFrames_WriteInfo(&w);
+        } else if (!ViewerFrames_Configure((int)Json_GetNumber(req, "width", 0.0), (int)Json_GetNumber(req, "height", 0.0),
+                                           err, sizeof(err))) {
+            ok = 0;
+        } else {
+            ViewerFrames_WriteInfo(&w);
+        }
+    } else if (SDL_strcmp(cmd, "input") == 0) {
+        /* the pointer and keys over the browser's picture: events, in image pixels */
+        const JsonNode *events = Json_Get(req, "events");
+        int h = (int)Json_GetNumber(req, "height", 0.0), ew, eh, k;
+
+        GX_DrawEfbSize(&ew, &eh);
+        if (h <= 0) {
+            h = eh;
+        }
+        for (k = 0; events != NULL && events->type == JSON_ARRAY && k < (int)events->count; k++) {
+            const JsonNode *e = Json_At(events, k);
+            const char *type = Json_GetString(e, "type", "");
+
+            if (SDL_strcmp(type, "drag") == 0) {
+                const char *button = Json_GetString(e, "button", "left");
+
+                DragView((f32)Json_GetNumber(e, "dx", 0.0), (f32)Json_GetNumber(e, "dy", 0.0), h,
+                         SDL_strcmp(button, "left") != 0 || Json_GetBool(e, "pan", 0));
+            } else if (SDL_strcmp(type, "wheel") == 0) {
+                s.distance *= (f32)pow(0.9, Json_GetNumber(e, "dy", 0.0));
+            } else if (SDL_strcmp(type, "key") == 0) {
+                if (!ViewKey(Json_GetString(e, "key", ""))) {
+                    SDL_snprintf(err, sizeof(err), "no key %.40s (f, home, r, space, left, right, up, down, plus, minus)",
+                                 Json_GetString(e, "key", ""));
+                    ok = 0;
+                }
+            } else {
+                SDL_snprintf(err, sizeof(err), "an input event is drag, wheel or key, not %.40s", type);
+                ok = 0;
+            }
+        }
+        WriteCamera(&w);
+    } else if (SDL_strcmp(cmd, "pick") == 0) {
+        /* the node drawn under image pixel x, y (of the last frame); select: also select it */
+        const JsonNode *x = Json_Get(req, "x"), *y = Json_Get(req, "y");
+
+        if (x == NULL || y == NULL || x->type != JSON_NUMBER || y->type != JSON_NUMBER) {
+            SDL_snprintf(err, sizeof(err), "pick takes x and y, image pixels");
+            ok = 0;
+        } else {
+            f32 dist = 0.0f;
+            int i;
+            VNode *nd;
+
+            PlaceCamera();
+            i = Pick((f32)x->number, (f32)y->number, &dist);
+            nd = i >= 0 ? GeometryNode(s.drawnGeom[i]) : NULL;
+            if (nd != NULL) {
+                char full[200];
+
+                SDL_snprintf(full, sizeof(full), "%s/%s", s.shown->archiveName, s.shown->name);
+                Jw_String(&w, "pack", full);
+                Jw_String(&w, "node", nd->id);
+                Jw_Float(&w, "distance", dist);
+                if (Json_GetBool(req, "select", 0)) {
+                    SDL_strlcpy(s.selected, nd->id, sizeof(s.selected));
+                    s.selectedIndex = (s32)(nd - s.shown->nodes);
+                }
+            } else {
+                Viewer_WriteNull(&w, "node");
+            }
+        }
     } else if (SDL_strcmp(cmd, "status") == 0) {
         Jw_Int(&w, "frame", s.frame);
         Jw_Int(&w, "drawn", s.drawn);
@@ -1126,6 +1354,15 @@ static void Dispatch(const JsonNode *req) {
         if (s.selected[0]) {
             Jw_String(&w, "selected", s.selected);
         }
+        {
+            int ew, eh;
+
+            GX_DrawEfbSize(&ew, &eh);
+            Jw_Int(&w, "width", ew);
+            Jw_Int(&w, "height", eh);
+        }
+        Jw_Bool(&w, "headless", Port_ViewerHeadless());
+        ViewerFrames_WriteStats(&w);
         WriteCamera(&w);
     } else if (SDL_strcmp(cmd, "quit") == 0) {
         s.quit = 1;
@@ -1308,7 +1545,7 @@ static void SaveShot(void) {
     char err[300] = "";
     size_t n = SDL_strlen(s.shotPath);
 
-    SDL_GetWindowSizeInPixels(g_port.window, &w, &h);
+    GX_DrawEfbSize(&w, &h);
     surf = w > 0 && h > 0 ? SDL_CreateSurface(w, h, SDL_PIXELFORMAT_XBGR8888) : NULL;
     if (surf == NULL || surf->pitch != w * 4 || !g_gxr->readEFB(surf->pixels)) {
         SDL_snprintf(err, sizeof(err), "the frame could not be read back from the %s renderer", g_gxr->name);
@@ -1448,6 +1685,9 @@ s32 Port_ViewerStart(void) {
     }
     SDL_AddEventWatch(MouseWatch, NULL);
     SDL_SetWindowTitle(g_port.window, "HWVX viewer");
+    if (Port_ViewerHeadless()) {
+        Port_Log("viewer: the window is hidden; frames go to the browser (HWVX_VIEWER_WINDOW=1 shows it)");
+    }
     Port_Log("viewer: listening on 127.0.0.1:%d", s.port);
     return 1;
 }
@@ -1463,6 +1703,7 @@ s32 Port_ViewerFrame(void) {
 
     Poll();
     if (s.quit) {
+        ViewerFrames_Shutdown();
         return 0;
     }
     if (s.spin) {
@@ -1492,9 +1733,13 @@ s32 Port_ViewerFrame(void) {
     if (s.shotPath != NULL && s.shotWait > 0) {
         s.shotWait--;   /* a frame first: the camera framed, the buffers built */
     }
-    if (s.shotPath != NULL && s.shotWait == 0) {
+    if ((s.shotPath != NULL && s.shotWait == 0) || ViewerFrames_On()) {
+        /* the frame read back between its draws and the display copy (which clears it) */
         Gfx_EndScene();
-        SaveShot();
+        if (s.shotPath != NULL && s.shotWait == 0) {
+            SaveShot();
+        }
+        ViewerFrames_EndFrame(s.frame);
         Gfx_FlipBuffers();
         Performance_End();
     } else {

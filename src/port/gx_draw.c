@@ -24,6 +24,7 @@
  * same uniforms (gx_tevgen.h) and uses gx.frag only until that is ready. */
 #include "gx_render.h"
 #include "gx_tevgen.h"
+#include "viewer.h"
 
 #define MAX_STAGES 16
 
@@ -55,11 +56,20 @@ static int SplitScreen(void) {
     return (v & (v - 1)) != 0;
 }
 
-/* The EFB size for the window: its size in pixels (at least 1x1). */
+/* The EFB size for the window: its size in pixels (at least 1x1); in the
+ * viewer, the size the data browser asked for (viewer.h). */
 static void WindowSize(int *w, int *h) {
+    if (Port_ViewerEfbSize(w, h)) {
+        return;
+    }
     SDL_GetWindowSizeInPixels(g_port.window, w, h);
     if (*w < 1) *w = 1;
     if (*h < 1) *h = 1;
+}
+
+void GX_DrawEfbSize(int *w, int *h) {
+    *w = s_efbW;
+    *h = s_efbH;
 }
 
 void GX_DrawInit(void) {
@@ -688,7 +698,9 @@ void GX_DrawCopyDisp(int clear) {
     Port_HudDraw(s_efbW, s_efbH);   /* in the EFB, so dumps and the dump's
                                      * stats stay free of it and it rides the
                                      * copy's letterbox like the frame does */
-    g_gxr->copyDisp(r);
+    if (!Port_ViewerHeadless()) {           /* the viewer's hidden window: no copy */
+        g_gxr->copyDisp(r);
+    }
     if (clear) {
         ClearEFB();
     }
