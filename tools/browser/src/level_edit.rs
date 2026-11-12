@@ -1053,7 +1053,18 @@ fn fields_editor(ui: &mut egui::Ui, v: &mut Value, schema: &Value, advanced: boo
             }
             ui.label(k);
             let present = v.get(k).is_some();
-            let mut val = v.get(k).cloned().unwrap_or(Value::Null);
+            // left out: what the compiler puts there (xdl_level.py's defaults), else zero
+            let default = match (volume, k.as_str()) {
+                (true, "enabled") => json!(1),
+                (true, "shape") => json!("sphere"),
+                (true, "type") => json!("airbox"),
+                (false, "active") if v.get("value").is_none() => json!(1),
+                _ => Value::Null,
+            };
+            let mut val = v.get(k).cloned().unwrap_or(if default.is_null() && link_of(prop).is_none() && prop.get("$ref").is_none() { json!(0) } else { default });
+            if !present {
+                ui.visuals_mut().override_text_color = Some(ui.visuals().weak_text_color());
+            }
             let c = if link_of(prop).is_some() {
                 if k == "mode" && val.is_object() {
                     ui.label(egui::RichText::new(val.to_string()).monospace());
@@ -1085,7 +1096,7 @@ fn fields_editor(ui: &mut egui::Ui, v: &mut Value, schema: &Value, advanced: boo
                 v[k.as_str()] = val;
                 changed = true;
             }
-            let _ = present; // (untouched fields stay out of the file)
+            ui.visuals_mut().override_text_color = None;
             ui.end_row();
         }
     });
@@ -1241,7 +1252,7 @@ fn value_editor(ui: &mut egui::Ui, v: &mut Value, key: &str, kinds: &HashMap<Str
                 for (i, x) in a.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         changed |= value_editor(ui, x, key, kinds, tokens, cands, &format!("{at}/{i}"), pick, depth + 1);
-                        if link_list && ui.small_button("✕").on_hover_text("take it out of the list").clicked() {
+                        if link_list && ui.small_button("−").on_hover_text("take it out of the list").clicked() {
                             remove = Some(i);
                         }
                     });
