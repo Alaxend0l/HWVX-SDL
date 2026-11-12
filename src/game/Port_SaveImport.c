@@ -809,6 +809,23 @@ static void MergeSlot(u8 *target, const PortImportSource *src, int si, int from,
                    Bits(out->extras) + out->raised + out->scriptValues + out->isNew;
 }
 
+/* Whether source s is imported (opt->onlySource). */
+static int Imported(const PortImportSource *srcs, int s, const PortImportOptions *opt) {
+    return s < PORT_IMPORT_MAX_SOURCES && srcs[s].saveFile != NULL && (opt->onlySource < 0 || opt->onlySource == s);
+}
+
+/* The first source imported, or -1. */
+static int FirstImported(const PortImportSource *srcs, int n, const PortImportOptions *opt) {
+    int s;
+
+    for (s = 0; s < n; s++) {
+        if (Imported(srcs, s, opt)) {
+            return s;
+        }
+    }
+    return -1;
+}
+
 void Port_SaveImportMerge(u8 *target, const PortImportSource *srcs, int n, const PortImportOptions *opt,
                           PortImportPlan *plan) {
     SaveFile *tf = (SaveFile *)target;
@@ -818,20 +835,15 @@ void Port_SaveImportMerge(u8 *target, const PortImportSource *srcs, int n, const
     plan->numSlots = 0;
     plan->changes = 0;
     plan->defaultCarsOffered = 0;
-    if (blank) {
-        /* no save yet: the settings come with the first file's */
-        for (s = 0; s < n; s++) {
-            if (srcs[s].saveFile != NULL) {
-                SDL_memcpy(&tf->settings, &((const SaveFile *)srcs[s].saveFile)->settings, sizeof(tf->settings));
-                SDL_memset(tf->settings.slots, 0, sizeof(tf->settings.slots));
-                break;
-            }
-        }
+    if (blank && (s = FirstImported(srcs, n, opt)) >= 0) {
+        /* no save yet: the settings come with the first imported file's */
+        SDL_memcpy(&tf->settings, &((const SaveFile *)srcs[s].saveFile)->settings, sizeof(tf->settings));
+        SDL_memset(tf->settings.slots, 0, sizeof(tf->settings.slots));
     }
     for (s = 0; s < n && s < PORT_IMPORT_MAX_SOURCES; s++) {
         const SaveFile *sf = (const SaveFile *)srcs[s].saveFile;
 
-        if (sf == NULL || (opt->onlySource >= 0 && opt->onlySource != s)) {
+        if (!Imported(srcs, s, opt)) {
             continue;
         }
         for (k = 0; k < SAVE_FILE_SLOTS; k++) {
@@ -873,17 +885,22 @@ static int Merge(const PortImportSource *srcs, int n, const PortImportOptions *o
     }
     Port_SaveImportMerge(target, srcs, n, opt, plan);
     if (apply && plan->changes > 0) {
-        const char *base = srcs[0].path, *slash = SDL_strrchr(base, '/');
+        int first = FirstImported(srcs, n, opt);   /* (changes: there is one) */
+        const char *base = srcs[first].path, *slash = SDL_strrchr(base, '/');
         if (slash == NULL) {
             slash = SDL_strrchr(base, '\\');
         }
-        SDL_snprintf(from, sizeof(from), "%s (%s)", slash != NULL ? slash + 1 : base, Port_SaveReleaseName(srcs[0].release));
+        SDL_snprintf(from, sizeof(from), "%s (%s)", slash != NULL ? slash + 1 : base,
+                     Port_SaveReleaseName(srcs[first].release));
         ok = Port_SavesWriteImported("hwvx", target, HW_SIZE, from);
         if (!ok) {
             Fail(err, errSize, "the save couldn't be written (the log says why)");
         } else {
             int i;
             for (i = 0; i < n; i++) {
+                if (!Imported(srcs, i, opt)) {
+                    continue;
+                }
                 Port_Log("saves: imported %s, %s%s%s", srcs[i].path, Port_SaveContainerName(srcs[i].container),
                          srcs[i].where[0] ? ": " : "", srcs[i].where);
             }

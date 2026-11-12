@@ -570,6 +570,22 @@ static void TestMerge(void) {
     Port_SaveImportMerge(t, &a, 1, &opt, &plan);
     CHECK(plan.numSlots == 1 && plan.slots[0].isNew && plan.slots[0].into == 0, "into an empty save: a new one");
     CHECK(((SaveFile *)t)->settings.audio.sfxVolume == 77, "a new save's settings aren't the file's");
+    {
+        /* one file of two picked: a blank save's settings are that file's */
+        PortImportSource two[2];
+        PortImportPlan p2;
+        u8 *t2 = SDL_calloc(1, HW_SIZE);
+        two[0] = a;
+        two[1] = b;
+        ((SaveFile *)b.saveFile)->settings.audio.sfxVolume = 55;
+        opt.onlySource = 1;
+        Port_SaveImportMerge(t2, two, 2, &opt, &p2);
+        CHECK(((SaveFile *)t2)->settings.audio.sfxVolume == 55 && p2.numSlots == 1 && p2.slots[0].source == 1,
+              "only the second file: settings %d from the first", ((SaveFile *)t2)->settings.audio.sfxVolume);
+        opt.onlySource = -1;
+        ((SaveFile *)b.saveFile)->settings.audio.sfxVolume = 77;
+        SDL_free(t2);
+    }
     Port_SaveImportMerge(t, &b, 1, &opt, &plan);
     Port_SaveImportDescribe(&plan, 0, &opt, line, sizeof(line));
     SDL_Log("   %s", line);
