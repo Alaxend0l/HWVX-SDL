@@ -263,6 +263,16 @@ enum {
     PORT_KEY_GRAVE, PORT_KEY_X,
 };
 u32 Port_KeyboardKeys(void);
+/* Mouse steering (pad.c), the PC release's, off by default: graphics.cfg
+ * "mousesteer=on|off", HWVX_MOUSESTEER=1|0 overrides. The game side
+ * (src/game/Port_Keyboard.c) says each input frame whether the player is
+ * racing (the mouse is captured, in relative mode, only then and only while
+ * the window has the focus) and takes what the mouse did since the last
+ * frame: the motion in pixels and the buttons held (PORT_MOUSE_*). */
+enum { PORT_MOUSE_LEFT = 1, PORT_MOUSE_RIGHT = 2 };
+int Port_MouseSteerOn(void);
+void Port_MouseSteerWant(int racing);
+u32 Port_MouseSteerRead(f32 *dx, f32 *dy);
 /* port.c: a repeatable run (HWVX_DETERMINISTIC, HWVX_SEED, HWVX_FIXEDSTEP):
  * the random seed to use (fallback when none is set), and the fixed frame
  * step in microseconds (0: measured time). */

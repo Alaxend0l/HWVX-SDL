@@ -34,6 +34,8 @@ typedef struct PortState {
     int moviesOff;           /* 1: skip the movies (graphics.cfg movies=off; thp.c) */
     int splitLodGC;          /* 1: split screen draws models a level coarser, as the
                               * GameCube did (graphics.cfg splitlod; Port_SplitScreenCoarseLOD) */
+    int mouseSteer;          /* 1: the PC release's mouse steering in races (graphics.cfg
+                              * mousesteer=on; Port_MouseSteerOn, pad.c) */
     int launcher;            /* --launcher (or run as hwvx-launcher): open the launcher */
     volatile int quit;
     SDL_Window *window;
@@ -156,6 +158,7 @@ void Port_HudDraw(int efbW, int efbH);
 void GX_PortBeginFrame(void);
 void GX_PortPresent(void);
 void Pad_PortHandleEvent(const SDL_Event *ev);
+void Pad_PortMouseUpdate(void);   /* mouse steering: before each event pump */
 void Port_TextHandleEvent(const SDL_Event *ev);
 void Pad_PortSample(void);
 extern volatile u32 g_portDiscReads;  /* dvd.c */

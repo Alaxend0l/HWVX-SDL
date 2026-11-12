@@ -24,7 +24,21 @@
  * Actions (Player.down[]): 0 strafe / stunt roll left, 1 change weapon,
  * 2 accelerate, 3 brake / reverse, 5 power slide, 6/7 stick up/down (stunt
  * flips), 8/9 stick right/left (steering), 10 strafe / stunt roll right,
- * 11 fire, 12 change camera. */
+ * 11 fire, 12 change camera.
+ *
+ * Mouse steering (off by default: graphics.cfg mousesteer=on, the launcher's
+ * Settings page, HWVX_MOUSESTEER=1), the PC release's, in races only (the
+ * PC read the mouse in menus too; here it is captured only while racing):
+ * hotwheels.exe 0x456b3b, in the input poll that fills controller 1's
+ * slots. The left button holds slot 9 (A) and the right slot 7 (X), so they
+ * follow the controller layout as the pad's A and X do: gas and brake in the
+ * default one. A move of more than 4 pixels since the last frame sets the
+ * stick to 101 that way (0x65; right, and up for the mouse moving up), for
+ * that frame only, over the pad's; less leaves the pad's stick. So the mouse
+ * is a digital stick that steers while it moves, nothing in between and no
+ * sensitivity setting, as on the PC. The PC measured each of its frames; at
+ * other frame rates than 60 the 4 pixels scale with the frame's length, so
+ * the same hand movement steers the same. Not in demos or playback. */
 #include "common.h"
 #include "Port_Online.h"
 #include "CarA.h"
@@ -73,6 +87,19 @@ static s32 Racing(void) {
     return InGameplay() && !MissionScreen();
 }
 
+/* Mouse steering (above): only for a player racing, not the attract demo
+ * (code variable 0x198) or input playback. */
+static s32 MouseRacing(void) {
+    extern u32 g_playbackStatus;
+
+    return Racing() && GameSettings_GetCodeVariable(0x198, 0) == 0 && g_playbackStatus != 2;
+}
+
+/* The PC's threshold, 4 pixels a 60 Hz frame (hotwheels.exe 0x456b88). */
+static s8 MouseStick(f32 move, f32 limit) {
+    return move > limit ? 0x65 : move < -limit ? -0x65 : 0;
+}
+
 /* The arrow slots the keyboard holds this frame (Port_KeyboardSlots). */
 static u32 s_arrowsHeld;
 
@@ -86,9 +113,21 @@ u32 Port_KeyboardArrowsHeld(void) {
 void Port_KeyboardSlots(VirtualPad *pad) {
     static u32 held;
     u32 keys = Port_KeyboardKeys(), repeats = Port_KeyboardRepeats(), now = 0, again = 0, released, i;
+    s8 mouseX = 0, mouseY = 0;
 
+    Port_MouseSteerWant(MouseRacing());   /* mouse steering (above) */
     if (Racing()) {
         if (KEY(PORT_KEY_ESCAPE)) now |= 1u << SLOT_START;
+        if (Port_MouseSteerOn() && MouseRacing()) {
+            extern f32 g_fDeltaTimeSec;
+            f32 dx, dy, limit = 4.0f * 60.0f * g_fDeltaTimeSec;
+            u32 buttons = Port_MouseSteerRead(&dx, &dy);
+
+            if (buttons & PORT_MOUSE_LEFT) now |= 1u << SLOT_A;
+            if (buttons & PORT_MOUSE_RIGHT) now |= 1u << SLOT_X;
+            mouseX = MouseStick(dx, limit);
+            mouseY = MouseStick(-dy, limit);   /* the PC: up is the cursor's y going down */
+        }
     } else if (InGameplay()) {   /* a briefing: no Start, which would pause */
         if (KEY(PORT_KEY_UP)) now |= 1u << SLOT_UP;
         if (KEY(PORT_KEY_DOWN)) now |= 1u << SLOT_DOWN;
@@ -134,6 +173,8 @@ void Port_KeyboardSlots(VirtualPad *pad) {
         }
     }
     held = now;
+    if (mouseX != 0) pad->keyValue[0x10] = (u8)mouseX;   /* the stick, over the pad's */
+    if (mouseY != 0) pad->keyValue[0x11] = (u8)mouseY;
 }
 
 /* The player's control reader, after the pad: the keyboard's actions, for

@@ -40,8 +40,11 @@ u32 Port_KeyboardRepeats(void) {
     return bits;
 }
 
+static void MouseEvent(const SDL_Event *ev);
+
 void Pad_PortHandleEvent(const SDL_Event *ev) {
     int i;
+    MouseEvent(ev);   /* mouse steering (below) */
     if (ev->type == SDL_EVENT_KEY_DOWN && ev->key.repeat) {
         switch (ev->key.scancode) {
         case SDL_SCANCODE_UP: s_keyRepeats |= 1u << PORT_KEY_UP; break;
@@ -406,3 +409,172 @@ s32 SIResetSteeringAsync(s32 chan, void *callback) { (void)chan; (void)callback;
 s32 SIReadSteering(s32 chan, void *status) { (void)chan; (void)status; return -1; }
 s32 SIControlSteering(s32 chan, u32 control, s32 level) { (void)chan; (void)control; (void)level; return -1; }
 void *SISetSteeringSamplingCallback(void *callback) { (void)callback; return NULL; }
+
+/* Mouse steering, the PC release's (off by default; port.h). The PC read the
+ * mouse every input frame: the cursor's move since the last frame (it put the
+ * cursor back in the middle of the screen each time, GetCursorPos and
+ * SetCursorPos, hotwheels.exe 0x456b5e), the left and right buttons
+ * (WM_LBUTTONDOWN and WM_RBUTTONDOWN, 0x455b60). Here SDL's relative mode
+ * gives the same moves, the operating system's pointer speed applied as
+ * GetCursorPos had it, while the game says the player is racing; the
+ * game side turns them into the PC's stick and buttons (Port_Keyboard.c).
+ *
+ * Testing: HWVX_MOUSE_INJECT="dx,dy,btn*frames;..." plays mouse events
+ * (SDL_PushEvent, through the same path) from the first frame the mouse is
+ * captured, each entry for that many frames (btn: - l r lr). The real mouse
+ * is then neither captured nor read (the capture is only logged), so a test
+ * run leaves the desktop's mouse alone. */
+#define MOUSE_INJECT_ID 0x7E57u
+
+static volatile int s_mouseWant;
+static u32 s_mouseWantFrame;
+static int s_mouseCaptured;
+static f32 s_mouseDX, s_mouseDY;
+static u32 s_mouseButtons;
+
+static const char *MouseInject(void) {
+    static int read;
+    static const char *script;
+
+    if (!read) {
+        read = 1;
+        script = SDL_getenv("HWVX_MOUSE_INJECT");
+    }
+    return script;
+}
+
+int Port_MouseSteerOn(void) {
+    static int env = -2;
+
+    if (env == -2) {
+        const char *e = SDL_getenv("HWVX_MOUSESTEER");
+
+        env = e != NULL ? SDL_atoi(e) != 0 : -1;
+    }
+    return env >= 0 ? env : g_port.mouseSteer;
+}
+
+void Port_MouseSteerWant(int racing) {
+    s_mouseWant = racing && Port_MouseSteerOn();
+    s_mouseWantFrame = s_frame;
+}
+
+u32 Port_MouseSteerRead(f32 *dx, f32 *dy) {
+    *dx = s_mouseDX;
+    *dy = s_mouseDY;
+    s_mouseDX = s_mouseDY = 0.0f;
+    return s_mouseCaptured ? s_mouseButtons : 0;
+}
+
+static void MouseEvent(const SDL_Event *ev) {
+    int test = MouseInject() != NULL;
+
+    switch (ev->type) {
+    case SDL_EVENT_MOUSE_MOTION:
+        if (s_mouseCaptured && (!test || ev->motion.which == MOUSE_INJECT_ID)) {
+            s_mouseDX += ev->motion.xrel;
+            s_mouseDY += ev->motion.yrel;
+        }
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP: {
+        u32 bit = ev->button.button == SDL_BUTTON_LEFT ? PORT_MOUSE_LEFT
+                  : ev->button.button == SDL_BUTTON_RIGHT ? PORT_MOUSE_RIGHT : 0;
+
+        if (test && ev->button.which != MOUSE_INJECT_ID) {
+            break;
+        }
+        if (ev->type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            s_mouseButtons &= ~bit;
+        } else if (s_mouseCaptured) {
+            s_mouseButtons |= bit;
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+/* HWVX_MOUSE_INJECT: this frame's events, while captured. */
+static void MouseInjectFrame(void) {
+    static const char *next;
+    static int started, frames, dx, dy;
+    static u32 buttons, held;
+    SDL_Event ev;
+    u32 b;
+
+    if (!started) {
+        started = 1;
+        next = MouseInject();
+    }
+    while (frames == 0 && next != NULL && *next) {
+        char btn[4] = "-";
+        int n = 0;
+
+        frames = 1;
+        if (SDL_sscanf(next, "%d,%d,%3[-lr]%n", &dx, &dy, btn, &n) < 3) {
+            Port_Log("HWVX_MOUSE_INJECT: can't parse \"%s\"", next);
+            next = NULL;
+            frames = 0;
+            break;
+        }
+        next += n;
+        if (*next == '*') {
+            next++;
+            frames = SDL_atoi(next);
+            while (*next >= '0' && *next <= '9') next++;
+        }
+        if (*next == ';') next++;
+        buttons = (SDL_strchr(btn, 'l') ? PORT_MOUSE_LEFT : 0) | (SDL_strchr(btn, 'r') ? PORT_MOUSE_RIGHT : 0);
+        Port_Log("mouse inject: %d,%d %s for %d frames (frame %u)", dx, dy, btn, frames, (unsigned)s_frame);
+    }
+    if (frames == 0) {
+        dx = dy = 0;
+        buttons = 0;
+    } else {
+        frames--;
+    }
+    if (dx != 0 || dy != 0) {
+        SDL_zero(ev);
+        ev.type = SDL_EVENT_MOUSE_MOTION;
+        ev.motion.which = MOUSE_INJECT_ID;
+        ev.motion.xrel = (float)dx;
+        ev.motion.yrel = (float)dy;
+        SDL_PushEvent(&ev);
+    }
+    for (b = PORT_MOUSE_LEFT; b <= PORT_MOUSE_RIGHT; b <<= 1) {
+        if ((buttons ^ held) & b) {
+            SDL_zero(ev);
+            ev.type = buttons & b ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+            ev.button.which = MOUSE_INJECT_ID;
+            ev.button.button = b == PORT_MOUSE_LEFT ? SDL_BUTTON_LEFT : SDL_BUTTON_RIGHT;
+            ev.button.down = (buttons & b) != 0;
+            SDL_PushEvent(&ev);
+        }
+    }
+    held = buttons;
+}
+
+/* Before each event pump (vi.c): capture the mouse while the game wants it
+ * (said within the last two frames: loading screens don't ask) and the
+ * window has the focus; release it otherwise. */
+void Pad_PortMouseUpdate(void) {
+    int test = MouseInject() != NULL;
+    int focused = test || (g_port.window != NULL && (SDL_GetWindowFlags(g_port.window) & SDL_WINDOW_INPUT_FOCUS));
+    int want = s_mouseWant && s_frame - s_mouseWantFrame <= 2 && focused;
+
+    if (want != s_mouseCaptured) {
+        if (!test && g_port.window != NULL) {
+            SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "1");
+            SDL_SetWindowRelativeMouseMode(g_port.window, want);
+        }
+        Port_Log("mouse steering: %s%s", want ? "captured" : "released", test ? " (test: not really)" : "");
+        s_mouseCaptured = want;
+        s_mouseDX = s_mouseDY = 0.0f;
+        s_mouseButtons = 0;
+    }
+    if (s_mouseCaptured && test) {
+        MouseInjectFrame();
+    }
+}

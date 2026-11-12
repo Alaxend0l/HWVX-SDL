@@ -20,6 +20,7 @@ static u64 RetraceNS(void) {
 
 void Port_PumpEvents(void) {
     SDL_Event ev;
+    Pad_PortMouseUpdate();   /* mouse steering: capture or release (pad.c) */
     while (SDL_PollEvent(&ev)) {
         Port_TextHandleEvent(&ev);
         switch (ev.type) {
