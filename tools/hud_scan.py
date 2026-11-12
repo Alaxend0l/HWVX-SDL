@@ -17,6 +17,9 @@ Port_HudShift sees it (InterfaceManager.c; kind-6 placeholders left out):
     hud_scan.py --build build --data DIR [--data DIR...] [--out build/hudscan] [--json out.json]
                [--types interface,world,...] [--only mixed]
 
+--textures prints, per pack, the pack's own textures its interfaces show (what a mixed build
+should keep from the base: Port_IfaceTextures, src/game/Port_IfaceScan.c).
+
 Prints one line per interface (release, pack, header offset/id, class, objects as
 kind/role@x,y "text"); --json writes everything. The game is force-killed after each release.
 """
@@ -29,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from viewer_client import Viewer, ViewerError  # noqa: E402
 
 LEFT_X, RIGHT_X = 192.0, 448.0
+TEXTURES = {}   # "release pack": the pack's own textures its interfaces show (Port_IfaceTextures)
 TYPES = ["interface", "world", "share", "item", "car", "link"]
 
 
@@ -65,6 +69,7 @@ def scan_release(build, data, out, types):
             except ViewerError as e:
                 print(f"# {rel} {p['pack']}: {e}", file=sys.stderr)
                 continue
+            TEXTURES[f"{p.get('release', rel)} {p['pack']}"] = r.get("interfaceTextures", [])
             for h in r.get("interfaces", []):
                 h["release"], h["pack"] = p.get("release", rel), p["pack"]
                 found.append(h)
@@ -169,17 +174,26 @@ def main():
     ap.add_argument("--types", default=",".join(TYPES))
     ap.add_argument("--only", help="classes to print, e.g. mixed,left")
     ap.add_argument("--owner", help="owners to print, e.g. none (also matches none+player)")
+    ap.add_argument("--textures", action="store_true",
+                    help="print each pack's interface textures (texture/N indices) instead")
     ap.add_argument("--from-json", help="classify a saved --json instead of running the game")
     a = ap.parse_args()
     if a.from_json:
-        headers = json.load(open(a.from_json))["headers"]
+        saved = json.load(open(a.from_json))
+        headers = saved["headers"]
+        TEXTURES.update(saved.get("textures", {}))
     else:
         headers = []
         for d in a.data:
             headers += scan_release(a.build, d, Path(a.out).resolve(), a.types.split(","))
     rows = resolve(headers)
     if a.json:
-        Path(a.json).write_text(json.dumps({"headers": headers, "rows": rows}, indent=1))
+        Path(a.json).write_text(json.dumps({"headers": headers, "rows": rows, "textures": TEXTURES}, indent=1))
+    if a.textures:
+        for k, v in sorted(TEXTURES.items()):
+            if v:
+                print(f"{k}: {' '.join(map(str, v))}")
+        return
     for r in rows:
         if (a.only is None or r["cls"] in a.only.split(",")) and \
                 (a.owner is None or any(x in r["owner"].split("+") for x in a.owner.split(","))):

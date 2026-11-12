@@ -2,10 +2,8 @@
  * (the viewer's "interfaces" command; tools/hud_scan.py runs it over every
  * pack of a release).
  *
- * A pack says nothing about which of its objects are interface headers, so
- * every target of a pointer slot is tried as one and kept when its fields
- * fit (objects, definitions, animations all where pointers say they are,
- * definition types the loader knows). For each header it writes the
+ * The headers are found as Port_IfaceScan.c finds them (every pointer
+ * target tried as one). For each header it writes the
  * objects as InterfaceManager_AddObject would make them (kind, role, anchor)
  * and their layout position, with Port_HudLayoutX's maths
  * (InterfaceManager.c): the default animation's first position key, or the
@@ -14,6 +12,8 @@
  * hang from; tools/hud_scan.py adds the parent's x. Nothing is changed. */
 #include "viewer_internal.h"
 #include "Interface.h"
+#include "Port_Swap.h"
+#include "Port_IfaceScan.h"
 
 #define MAX_DEPTH 8
 #define DEF_SIZE 0x6C
@@ -24,12 +24,6 @@ static u8 *Base(VPack *vp) {
 
 static int InBlob(VPack *vp, u32 off, u32 n) {
     return off <= vp->size && n <= vp->size - off;
-}
-
-static int PtrSlot(VPack *vp, u32 off) {
-    int k = (off & 3) == 0 && InBlob(vp, off, 4) ? vp->slotKind[off / 4] : VS_NONE;
-
-    return k == VS_POINTER || k == VS_REF;
 }
 
 /* The in-pack offset a handle field points to, or ~0 (null or elsewhere). */
@@ -51,64 +45,6 @@ static u32 Rd(VPack *vp, u32 off) {
         SDL_memcpy(&v, Base(vp) + off, 4);
     }
     return v;
-}
-
-/* A handle field: null, or a pointer slot into this pack (`n` bytes there). */
-static int NullOrPtr(VPack *vp, u32 off, u32 n) {
-    u32 t;
-
-    if (Rd(vp, off) == 0) {
-        return 1;
-    }
-    t = To(vp, off);
-    return PtrSlot(vp, off) && t != ~0u && InBlob(vp, t, n);
-}
-
-static int IsDef(VPack *vp, u32 d) {
-    IfaceObjectDef *def = (IfaceObjectDef *)(Base(vp) + d);
-
-    switch (def->type) {
-    case 0: case 1: case 2: case 3: case 4: case 6: case 7: case 10: case 11: case 12:
-        break;
-    default:
-        return 0;
-    }
-    if (!(def->anchorX >= -1000.0f && def->anchorX <= 1000.0f && def->anchorY >= -1000.0f && def->anchorY <= 1000.0f)) {
-        return 0;
-    }
-    if (def->numStates > 64 || !NullOrPtr(vp, d + 0x60, sizeof(IfaceObjAnim)) || !NullOrPtr(vp, d + 0x14, 4) ||
-        !NullOrPtr(vp, d + 0x68, def->numStates * sizeof(IfaceStateDef))) {
-        return 0;
-    }
-    if ((def->type == 6 || def->type == 7) && !PtrSlot(vp, d + 0x3C)) {
-        return 0;
-    }
-    return 1;
-}
-
-static int IsHeader(VPack *vp, u32 h) {
-    InterfaceHeader *hdr;
-    u32 objs, i;
-
-    if ((h & 3) || !InBlob(vp, h, sizeof(InterfaceHeader))) {
-        return 0;
-    }
-    hdr = (InterfaceHeader *)(Base(vp) + h);
-    if (hdr->numObjects == 0 || hdr->numObjects > 200 || hdr->events.count > 256 || hdr->mode > 4 ||
-        hdr->layer > 64 || !PtrSlot(vp, h + 0x10) || !NullOrPtr(vp, h + 0x18, hdr->events.count * 0xC) ||
-        !NullOrPtr(vp, h + 0x1C, 8) || !NullOrPtr(vp, h + 0x30, 8)) {
-        return 0;
-    }
-    objs = To(vp, h + 0x10);
-    if (objs == ~0u || !InBlob(vp, objs, hdr->numObjects * DEF_SIZE)) {
-        return 0;
-    }
-    for (i = 0; i < hdr->numObjects; i++) {
-        if (!IsDef(vp, objs + i * DEF_SIZE)) {
-            return 0;
-        }
-    }
-    return 1;
 }
 
 /* InterfaceObject.kind as AddObject sets it (-1: left as it was). */
@@ -336,18 +272,38 @@ void Viewer_WriteInterfaces(JsonWriter *w, VPack *vp) {
     u32 words = vp->size / 4, i, j, cand;
     u8 *seen;
 
-    Jw_BeginArray(w, "interfaces", 0);
-    seen = vp->slotKind != NULL ? SDL_calloc(words + 1, 1) : NULL;
-    for (i = 0; seen != NULL && i < words; i++) {
-        if (vp->slotKind[i] != VS_POINTER && vp->slotKind[i] != VS_REF) {
-            continue;
+    {   /* the pack's pointer slots, as the scan wants them */
+        PortIfaceScan scan;
+        u32 *ptrs = SDL_malloc((words + 1) * sizeof(u32)), np = 0, count, *texRelocs;
+        u8 *used;
+
+        for (i = 0; ptrs != NULL && vp->slotKind != NULL && i < words; i++) {
+            if (vp->slotKind[i] == VS_POINTER || vp->slotKind[i] == VS_REF) {
+                ptrs[np++] = i * 4;
+            }
         }
-        cand = To(vp, i * 4);
-        if (cand == ~0u || (cand & 3) || seen[cand / 4] || !IsHeader(vp, cand)) {
-            continue;
+        seen = NULL;
+        if (ptrs != NULL && np != 0 && Port_IfaceScanInit(&scan, Base(vp), vp->size, (u32)HND(Base(vp)), ptrs, np, NULL, 0)) {
+            seen = Port_IfaceHeaders(&scan, &count);
+            /* the pack's own textures its interfaces show (what a mixed build keeps) */
+            used = SDL_calloc(vp->pack->numTextures + 1, 1);
+            texRelocs = (u32 *)GETP(vp->pack->relocs);
+            Jw_BeginArray(w, "interfaceTextures", 1);
+            if (used != NULL && texRelocs != NULL) {
+                Port_IfaceTextures(&scan, texRelocs, vp->pack->numRelocs, used, vp->pack->numTextures);
+                for (i = 0; i < vp->pack->numTextures; i++) {
+                    if (used[i]) {
+                        Jw_Int(w, NULL, i);
+                    }
+                }
+            }
+            Jw_EndArray(w);
+            SDL_free(used);
+            Port_IfaceScanFree(&scan);
         }
-        seen[cand / 4] = R_HEADER;
+        SDL_free(ptrs);
     }
+    Jw_BeginArray(w, "interfaces", 0);
     if (seen != NULL) {
         MarkRoots(vp, seen);
     }
@@ -439,5 +395,5 @@ void Viewer_WriteInterfaces(JsonWriter *w, VPack *vp) {
         Jw_EndObject(w);
     }
     Jw_EndArray(w);
-    SDL_free(seen);
+    free(seen);   /* Port_IfaceHeaders: calloc */
 }
