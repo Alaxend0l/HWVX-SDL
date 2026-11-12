@@ -1,0 +1,48 @@
+// A sample Battle level: one round (rules), won by reaching the flag before the clock, else the
+// round goes to player 2 (an AI car, as retail arena AI). The arena's starts and items are retail's.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://flagrun",
+  "name": "Flag Run",
+  "mode": "battle",
+  "extends": "base://mcp/track/19",
+  "world": "WORLDS_\\MP_\\BATTLE_\\bat1_l1",
+  "unlocked": true,
+  "description": "One round: reach the flag before the clock runs out; the AI fights as retail.",
+  "baseTriggers": "all",
+  "rules": {
+    "mode": "kills",
+    "kills": 99,
+    "rounds": 1,
+    "time": 0
+  },
+  "volumes": {
+    "flag": {
+      "center": [
+        3500,
+        3,
+        2850
+      ],
+      "radius": 40
+    }
+  },
+  "variables": {
+    "done": 0
+  },
+  "timers": {
+    "clock": {
+      "time": 25000,
+      "countUp": 0,
+      "type": 13
+    }
+  },
+  "strings": {
+    "flag": "The flag is yours!"
+  },
+  "triggers": [
+    "start",
+    "flag",
+    "timeout"
+  ]
+}

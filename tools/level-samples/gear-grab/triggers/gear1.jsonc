@@ -1,0 +1,35 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "item_pickup",
+  "param": {
+    "items": [
+      "level://items/gear1"
+    ],
+    "cars": [
+      "base://world1/world_0/World/0/tileCars/0"
+    ]
+  },
+  "actions": [
+    {
+      "type": "variable_change_value",
+      "data": {
+        "op": "add",
+        "variables": [
+          "level://variables/got"
+        ],
+        "value": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "print_debug_string",
+      "data": {
+        "what": 4,
+        "countdown": 60,
+        "value": "level://strings/one"
+      }
+    }
+  ]
+}

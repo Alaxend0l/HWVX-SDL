@@ -119,7 +119,7 @@ void ViewerLevel_SpawnBox(const f32 *pos, f32 rotY, f32 rotX, f32 rotZ, const u8
 
 /* Is the start's box clear (walls, ceiling, ground)? Rays along its edges and through it
  * against the world's collision, and down from above each bottom corner and its middle.
- * *seat: the highest ground under it (where its bottom goes, "to the ground"); the
+ * *seat: the highest ground under it (where the car's origin goes, "to the ground"); the
  * problems as text into `out` (comma separated; "" when clear). */
 static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size) {
     static const int e[12][2] = { { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 }, { 0, 2 }, { 1, 3 },
@@ -151,8 +151,9 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
             highest = g > highest ? g : highest;
         }
     }
-    /* the position that seats the box's bottom on the highest ground under it */
-    *seat = ground ? highest - lo[1] : pos[1];
+    /* where the car's origin rests on the ground: the box reaches below it by the envelope's
+     * below-origin depth (-lo[1]: 1.4 on retail, car 7's), as a car standing there does */
+    *seat = ground ? highest : pos[1];
     /* the box's own edges and diagonals, its bottom raised off the ground a little (the
      * ground under it is the check above): anything they cross is inside the box */
     lifted[0] = pos[0], lifted[2] = pos[2];
@@ -179,12 +180,13 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
     if (ground == 0) {
         n += SDL_snprintf(out + n, size - (size_t)n, "%sno ground under it", n ? ", " : "");
     } else {
-        if (highest > bottom + 0.3f) {
-            n += SDL_snprintf(out + n, size - (size_t)n, "%sits bottom %.1f into the ground", n ? ", " : "",
-                              (double)(highest - bottom));
-        } else if (bottom - highest > 3.0f) {
-            n += SDL_snprintf(out + n, size - (size_t)n, "%sits bottom %.1f above the ground", n ? ", " : "",
-                              (double)(bottom - highest));
+        /* into the ground deeper than the box's own below-origin depth (+ 0.05): the origin
+         * itself below the ground */
+        if (highest > pos[1] + 0.05f) {
+            n += SDL_snprintf(out + n, size - (size_t)n, "%sits box %.2f into the ground (deeper than the cars' %.2f "
+                              "below their origin)", n ? ", " : "", (double)(highest - bottom), (double)-lo[1]);
+        } else if (pos[1] - highest > 3.0f) {
+            n += SDL_snprintf(out + n, size - (size_t)n, "%s%.1f above the ground", n ? ", " : "", (double)(pos[1] - highest));
         }
         if (highest - lowest > 3.0f || ground < 5) {
             gaps = 1;
@@ -724,6 +726,55 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
                 WriteVolumeData(w, vp, (const WorldVolume *)at);
             }
         }
+        return 1;
+    }
+    if (SDL_strcmp(cmd, "lanecheck") == 0) {
+        /* drag lanes: each start's box swept straight ahead (`length`, default 300) against the
+         * world's collision: rays from its front face's corners (above the ground) and middle.
+         * Per start: `clear` (nothing within the length) and `free` (how far it is clear) */
+        const JsonNode *list = Json_Get(req, "starts"), *st;
+        f32 len = (f32)Json_GetNumber(req, "length", 300.0), lo[3], hi[3];
+
+        if (WorldPack() == NULL || list == NULL || list->type != JSON_ARRAY) {
+            SDL_snprintf(err, errSize, WorldPack() == NULL ? "lanecheck needs a world shown (world)"
+                                                            : "lanecheck takes starts: [{pos, rotY}], length?");
+            *ok = 0;
+            return 1;
+        }
+        Port_SpawnEnvelope(lo, hi, NULL, 1);
+        Jw_BeginArray(w, "lanes", 0);
+        for (st = list->child; st != NULL; st = st->next) {
+            f32 p[3], rot = (f32)Json_GetNumber(st, "rotY", 0.0), best = len;
+            f32 fx = sinf(rot), fz = cosf(rot), sx = cosf(rot), sz = -sinf(rot);
+            int k;
+
+            if (!ParseVec(Json_Get(st, "pos"), p)) {
+                Viewer_WriteNull(w, NULL);
+                continue;
+            }
+            for (k = 0; k < 7; k++) {
+                /* side x: left, middle, right; height: above the ground a little, the top */
+                f32 side = k < 6 ? (k % 3 == 0 ? lo[0] : k % 3 == 1 ? 0.0f : hi[0]) * 0.95f : 0.0f;
+                f32 up = k < 3 ? 0.6f : k < 6 ? hi[1] * 0.9f : hi[1] * 0.5f;
+                Vector4 a __attribute__((aligned(16))), b __attribute__((aligned(16)));
+                f32 t = 1.0f;
+
+                SDL_zero(a);
+                SDL_zero(b);
+                a.x = p[0] + sx * side + fx * hi[2];
+                a.y = p[1] + up;
+                a.z = p[2] + sz * side + fz * hi[2];
+                b.x = a.x + fx * len, b.y = a.y, b.z = a.z + fz * len;
+                if (RayHitsTerrain(&a, &b, &t, NULL) && t * len < best) {
+                    best = t * len;
+                }
+            }
+            Jw_BeginObject(w, NULL, 1);
+            Jw_Bool(w, "clear", best >= len);
+            Jw_Float(w, "free", best);
+            Jw_EndObject(w);
+        }
+        Jw_EndArray(w);
         return 1;
     }
     if (SDL_strcmp(cmd, "quadat") == 0) {

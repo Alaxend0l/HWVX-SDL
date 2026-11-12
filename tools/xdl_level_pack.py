@@ -188,9 +188,27 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             names[f"level://{kind}/{n}/to"] = own_id(kind, n)
     for n in (lv.get("strings") or {}):
         names[f"level://strings/{n}"] = own_id("strings", n)
+    # the records the pack build adds to tables: where links to them go
+    tc = table_doc("tileCars")
+    for i, n in enumerate(lv.get("starts") or {}):
+        names[f"level://starts/{n}"] = f"{pre}World/0/tileCars/{len(tc['items']) + i}"
+    od = table_doc("objectives")
+    for i, n in enumerate(lv.get("objectives") or {}):
+        names[f"level://objectives/{n}"] = f"{pre}World/0/objectives/{(len(od['items']) if od else 0) + i}"
+    for kind, arr in (("items", "items"), ("fxPoints", "fxPoints")):
+        added = {}
+        for n, it in (lv.get(kind) or {}).items():
+            q = it.get("quad") if isinstance(it, dict) else None
+            aid = f"{pre}World/0/quads/{q}/contents/{arr}"
+            if not isinstance(q, int) or aid not in W.file_of:
+                continue
+            k0 = len(W.doc(W.file_of[aid]).get("items") or [])
+            names[f"level://{kind}/{n}"] = f"{aid}/{k0 + added.get(q, 0)}"
+            added[q] = added.get(q, 0) + 1
     hdr = W.B.pack["pack"]["header"]
     nbase = int(hdr.get("num_triggers", 0))
     tnames = lv.get("triggers") or sorted(p.stem for p in (project / "triggers").glob("*.jsonc"))
+    tnames = list(tnames) + [n for n, _ in LV.generated_triggers(lv, "level.jsonc/rules")]
     for i, n in enumerate(tnames):
         names[f"level://triggers/{n}"] = f"{pre}trigger/{nbase + i}"
 
@@ -256,12 +274,18 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             W.add_raw(nid, data, links)
     for kind in ("timers", "variables"):
         d = table_doc(kind)
-        for n in (lv.get(kind) or {}):
-            if d is None:
-                raise LV.LevelError(f"level.jsonc/{kind}: the world has no table of {kind} to add to")
-            d["items"].append(names[f"level://{kind}/{n}/to"])
-        if d is not None:
-            world["num" + kind[0].upper() + kind[1:]] = len(d["items"])
+        recs = [names[f"level://{kind}/{n}/to"] for n in (lv.get(kind) or {})]
+        key = "num" + kind[0].upper() + kind[1:]
+        if d is None and recs:
+            # the world has none: a table of entries of its own, the World pointing at it
+            nid = f"{pre}World/0/{kind}"
+            stem = W.add_raw(nid, bytes(4 * len(recs)), [(4 * i, r) for i, r in enumerate(recs)])
+            W.B.docs[stem + ".jsonc"]["anchors"] = {str(i): hex(4 * i) for i in range(len(recs))}
+            world[kind] = nid
+            world[key] = len(recs)
+        elif d is not None:
+            d["items"].extend(recs)
+            world[key] = len(d["items"])
 
     # starts: tile cars, copies of the player's start, moved
     starts = list((lv.get("starts") or {}).items())
@@ -362,25 +386,34 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             W.file_of[nid] = stem
             new.append({"id": nid, "file": stem, "align": 4})
         table = kept + new
-        for k, ent in enumerate(table + dropped):
-            W.layout.insert(first + k, dict(ent, align=32 if k == 0 else 4))
+        if table == ents:
+            for k, ent in enumerate(ents):              # as it was
+                W.layout.insert(first + k, ent)
+        else:
+            for k, ent in enumerate(table + dropped):
+                # back to back (no padding between: the game reads them as one table)
+                e2 = {key: v for key, v in ent.items() if key != "pad"}
+                W.layout.insert(first + k, dict(e2, align=32 if k == 0 else 4))
         hdr["num_triggers"] = len(table)
         hdr["trigger_offset"] = table[0]["id"] if table else hdr.get("trigger_offset")
 
     out_archive = Path(out_archive)
     adir = out_archive.parent / (out_archive.stem + ".build")
-    pdir = adir / out_archive.stem / "00_world_0"
+    man = json.loads((Path(extract_dir) / "manifest.json").read_text())
+    wpath = next(e["path"] for e in man["entries"] if e["type"] == "world")
+    pdir = adir / out_archive.stem / wpath
     if adir.exists():
         import shutil
         shutil.rmtree(adir)
     pdir.mkdir(parents=True)
+    # the archive's other packs (a battle or drag world's collision, geometry, textures), as they are
+    for ent in man["entries"]:
+        if ent["path"] != wpath:
+            (pdir.parent / ent["path"]).symlink_to((Path(extract_dir) / ent["path"]).resolve(), target_is_directory=True)
     try:
         W.build(pdir)
     except GR.GraphError as ex:
         raise LV.LevelError(f"the world pack: {ex}")
-    man = json.loads((Path(extract_dir) / "manifest.json").read_text())
-    for ent in man["entries"]:
-        ent["path"] = "00_world_0"
     man["source_file"] = out_archive.name
     (pdir.parent / "manifest.json").write_text(json.dumps(man, indent=2))
     exe = LV.find_hwvx_x()

@@ -95,6 +95,11 @@ pub struct EditState {
     /// the cars' box (the viewer's spawnbox) written for xdl_level.py
     pub box_file: Option<PathBuf>,
     pub spawn_box: Value,
+    pub lanes_note: String,
+    pub new_mode: String,
+    pub new_world: String,
+    pub new_name: String,
+    pub new_dir: String,
 }
 
 impl EditState {
@@ -509,6 +514,121 @@ impl Browser {
         Some((c, rot))
     }
 
+    /// Drag lanes: every start's box swept 400 units ahead (the viewer's lanecheck).
+    fn lane_check(&mut self) {
+        let mut starts = Vec::new();
+        let paths: Vec<String> = self.level.edit.base.get("tileCars").map(|l| l.iter().filter_map(|e| e["path"].as_str().map(str::to_string)).collect()).unwrap_or_default();
+        for p in &paths {
+            if let Some((c, r)) = self.base_place("tileCars", p) {
+                starts.push(json!({"pos": c, "rotY": r.unwrap_or(0.0)}));
+            }
+        }
+        if let Some(p) = self.level.edit.proj.as_ref() {
+            for (_, v) in p.own("starts") {
+                if let Some(c) = vec3(&v["pos"]) {
+                    starts.push(json!({"pos": c, "rotY": v["rotY"].as_f64().unwrap_or(0.0)}));
+                }
+            }
+        }
+        let n = starts.len();
+        self.level.edit.lanes_note = if n == 4 { "checking…".into() } else { format!("⚠ {n} starts: a drag race has 4 lanes") };
+        self.request("lanecheck", json!({"starts": starts, "length": 400}), Pending::Lanes);
+    }
+
+    pub(crate) fn lanes_reply(&mut self, r: Value) {
+        let lanes = r["lanes"].as_array().cloned().unwrap_or_default();
+        let blocked: Vec<String> = lanes.iter().enumerate().filter(|(_, l)| l["clear"] != true).map(|(i, l)| format!("lane {} blocked after {:.0}", i + 1, l["free"].as_f64().unwrap_or(0.0))).collect();
+        let pre = if lanes.len() == 4 { String::new() } else { format!("⚠ {} starts: a drag race has 4 lanes. ", lanes.len()) };
+        self.level.edit.lanes_note = if blocked.is_empty() { format!("{pre}✓ every lane clear for 400") } else { format!("{pre}⚠ {}", blocked.join(", ")) };
+    }
+
+    /// "New level": a project extending a mode's level in its world (its retail script kept,
+    /// to be changed), in a folder of its own.
+    pub(crate) fn new_level_dialog(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("New level…", |ui| {
+            let e = &mut self.level.edit;
+            if e.new_mode.is_empty() {
+                e.new_mode = "challenge".into();
+            }
+            ui.horizontal(|ui| {
+                ui.label("mode");
+                egui::ComboBox::from_id_salt("new_mode").selected_text(&e.new_mode).show_ui(ui, |ui| {
+                    for m in ["challenge", "battle", "drag", "joyride", "mission"] {
+                        ui.selectable_value(&mut e.new_mode, m.to_string(), m);
+                    }
+                });
+            });
+            let prog = match e.new_mode.as_str() {
+                "mission" => "adventure",
+                m => m,
+            };
+            let worlds: Vec<(usize, String, String)> = self
+                .world
+                .list
+                .iter()
+                .filter(|w| w.mode == prog)
+                .enumerate()
+                .map(|(i, w)| (i, w.name.clone(), w.world.clone()))
+                .collect();
+            ui.horizontal(|ui| {
+                ui.label("on");
+                egui::ComboBox::from_id_salt("new_world").selected_text(&e.new_world).show_ui(ui, |ui| {
+                    for (_, n, _) in &worlds {
+                        ui.selectable_value(&mut e.new_world, n.clone(), n);
+                    }
+                });
+            });
+            ui.horizontal(|ui| {
+                ui.label("name");
+                ui.text_edit_singleline(&mut e.new_name);
+            });
+            ui.horizontal(|ui| {
+                ui.label("in");
+                ui.add(egui::TextEdit::singleline(&mut e.new_dir).desired_width(140.0)).on_hover_text("the folder the level's folder goes in");
+                if ui.button("…").clicked() {
+                    if let Some(d) = Self::choose_folder() {
+                        e.new_dir = d;
+                    }
+                }
+            });
+            let first = match e.new_mode.as_str() {
+                "joyride" => 0,
+                "mission" => 5,
+                "battle" => 19,
+                "drag" => 29,
+                _ => 39,
+            };
+            let pick = worlds.iter().find(|(_, n, _)| *n == e.new_world).cloned();
+            let ready = pick.is_some() && !e.new_name.trim().is_empty() && !e.new_dir.trim().is_empty();
+            if ui.add_enabled(ready, egui::Button::new("Make it")).clicked() {
+                let (i, _, world) = pick.unwrap();
+                let slug: String = e.new_name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+                let dir = std::path::Path::new(e.new_dir.trim()).join(slug.trim_matches('-'));
+                let id: String = e.new_name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).take(13).collect();
+                let mut level = json!({
+                    "$schema": "../../schemas/Level.schema.json", "format_version": 1,
+                    "id": format!("uid://{}", if id.is_empty() { "mylevel".into() } else { id }),
+                    "name": e.new_name.trim(), "mode": e.new_mode, "extends": format!("base://mcp/track/{}", first + i),
+                    "world": world, "unlocked": true, "baseTriggers": "all", "triggers": []
+                });
+                if e.new_mode == "battle" {
+                    level["rules"] = json!({"mode": "kills", "kills": 5, "rounds": 3, "time": 120000});
+                }
+                let made = std::fs::create_dir_all(dir.join("triggers")).and_then(|_| {
+                    std::fs::write(dir.join("level.jsonc"), format!("// a {} level, made in the level editor on {}\n{}\n", e.new_mode, e.new_world, serde_json::to_string_pretty(&level).unwrap()))
+                });
+                match made {
+                    Ok(()) => {
+                        let d = dir.display().to_string();
+                        self.level.project = d.clone();
+                        self.open_level(&d);
+                    }
+                    Err(err) => self.note(format!("{}: {err}", dir.display())),
+                }
+            }
+        });
+    }
+
     /// Every start against the world's collision (the viewer's startcheck), as the level has them.
     fn start_check(&mut self) {
         let mut paths: Vec<String> = self.level.edit.base.get("tileCars").map(|l| l.iter().filter_map(|e| e["path"].as_str().map(str::to_string)).collect()).unwrap_or_default();
@@ -617,7 +737,7 @@ impl Browser {
         if rot > std::f64::consts::PI {
             rot -= std::f64::consts::TAU;
         }
-        let lift = -self.level.edit.spawn_box["min"][1].as_f64().unwrap_or(0.0) as f32;
+        let lift = 0.0f32; // a start's origin on the ground (its box reaches below it, as a car's does)
         let Some(p) = self.level.edit.proj.as_mut() else { return };
         let before = p.snapshot();
         let (k, name, v) = match kind {
@@ -1096,8 +1216,77 @@ impl Browser {
         }
         let patches = p.level["patches"].as_object().map(|m| m.len()).unwrap_or(0);
         ui.label(format!("{patches} base record{} patched", if patches == 1 { "" } else { "s" }));
+        let mode = p.level["mode"].as_str().unwrap_or("").to_string();
+        ui.separator();
+        match mode.as_str() {
+            "battle" | "drag" => {
+                // the round rules (GameRules: set as the level starts)
+                ui.strong("Round rules");
+                let r = p.level.get("rules").cloned().unwrap_or(json!({}));
+                let mut r2 = r.clone();
+                let mut on = r.is_object() && !r.as_object().unwrap().is_empty();
+                if ui.checkbox(&mut on, "the level sets them (else the options' own)").changed() {
+                    r2 = if on { json!({"mode": "kills", "kills": 5, "rounds": 3, "time": 120000}) } else { json!({}) };
+                }
+                if on {
+                    egui::Grid::new("rules").num_columns(2).show(ui, |ui| {
+                        ui.label("win by");
+                        let mut m = r2["mode"].as_str().unwrap_or("kills").to_string();
+                        egui::ComboBox::from_id_salt("rules_mode").selected_text(&m).show_ui(ui, |ui| {
+                            for o in ["kills", "points", "none"] {
+                                ui.selectable_value(&mut m, o.to_string(), o);
+                            }
+                        });
+                        r2["mode"] = json!(m);
+                        ui.end_row();
+                        for (k, tip, hi) in [("kills", "kills to win a round", 99), ("points", "points to win a round", 9999), ("rounds", "rounds", 9), ("time", "a round's time, ms (0: none)", 600000)] {
+                            ui.label(k).on_hover_text(tip);
+                            let mut x = r2[k].as_i64().unwrap_or(0);
+                            if ui.add(egui::DragValue::new(&mut x).range(0..=hi)).changed() {
+                                r2[k] = json!(x);
+                            }
+                            ui.end_row();
+                        }
+                        ui.label("jettison");
+                        let mut j = r2["jettison"].as_i64().unwrap_or(0) != 0 || r2["jettison"] == true;
+                        if ui.checkbox(&mut j, "wildcards dropped on a reset").changed() {
+                            r2["jettison"] = json!(j);
+                        }
+                        ui.end_row();
+                    });
+                }
+                if r2 != r {
+                    if r2.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                        if let Some(o) = p.level.as_object_mut() {
+                            o.remove("rules");
+                        }
+                    } else {
+                        p.level["rules"] = r2;
+                    }
+                    changed = true;
+                }
+                if mode == "drag" {
+                    ui.separator();
+                    ui.strong("Lanes");
+                    ui.label(egui::RichText::new("4 starts (lanes); each start's box is swept straight ahead to see that nothing (a gantry leg, a wall) blocks its lane").small().weak());
+                }
+            }
+            "joyride" => {
+                ui.label(egui::RichText::new("Joyride: free roam, no AI. Collectibles are items with an item_pickup trigger (count them in a variable; end_level result 4 wins); keys unlock cars with code_variable_modify_value 100 (arg: the car)").small().weak());
+            }
+            "mission" | "adventure" => {
+                ui.label(egui::RichText::new("Mission: an objective chain (Objectives: text, done variable), triggers that set each done variable and end_level (result 4: won, 0: lost); the retail AI as its level has it").small().weak());
+            }
+            _ => {}
+        }
         if changed {
             self.edited(before);
+        }
+        if mode == "drag" && self.shows_level_world() && ui.button("Check the lanes").clicked() {
+            self.lane_check();
+        }
+        if !self.level.edit.lanes_note.is_empty() {
+            ui.label(&self.level.edit.lanes_note);
         }
     }
 

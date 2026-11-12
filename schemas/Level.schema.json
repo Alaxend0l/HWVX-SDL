@@ -20,6 +20,7 @@
     "world": {"type": "string", "description": "the world as the MCP names it (worlds_\\sp_\\chal1_\\ch1_l2); its archive is what base:// links name"},
     "thumbnail": {"type": "string", "description": "the world select's picture: a texture link (Mod.schema.json tracks)"},
     "unlocked": {"type": "boolean", "default": true},
+    "smoke": {"type": "object", "description": "tools/level_modes_test.sh also runs a smoke run: HWVX_AUTOPILOT drives (along route, HWVX_AUTOPILOT_ROUTE 'x,z;x,z'). It checks only that the level loads, starts and runs without a crash or a soft-lock in what the autopilot reaches; it says nothing about whether the level can be won (the win and lose runs are scripted inputs)", "properties": {"route": {"type": "string"}}, "additionalProperties": false},
     "baseTriggers": {
       "description": "the base world's triggers that stay: all, none, or their numbers",
       "anyOf": [{"enum": ["all", "none"]}, {"type": "array", "items": {"type": "integer", "minimum": 0}}],

@@ -1,0 +1,57 @@
+// A sample Joyride level (tools/xdl_level.py, docs/xdl-format §10.6): two pickups of its own on the
+// road down from the start; both before the 30 s clock runs out ends the level won, else lost.
+// No AI (retail Joyride has none). Its own records and links into the player's world only.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://geargrab",
+  "name": "Gear Grab",
+  "mode": "joyride",
+  "extends": "base://mcp/track/0",
+  "world": "worlds_\\sp_\\joyride_\\world1",
+  "unlocked": true,
+  "description": "Free roam, but grab the two gears down the hill before the clock runs out.",
+  "baseTriggers": "all",
+  "items": {
+    "gear1": {
+      "pos": [
+        -3660,
+        46,
+        -1540
+      ],
+      "quad": 20,
+      "id": 0
+    },
+    "gear2": {
+      "pos": [
+        -3856,
+        20,
+        -1346
+      ],
+      "quad": 20,
+      "id": 0
+    }
+  },
+  "variables": {
+    "got": 0,
+    "done": 0
+  },
+  "timers": {
+    "clock": {
+      "time": 30000,
+      "countUp": 0,
+      "type": 13
+    }
+  },
+  "strings": {
+    "one": "1 gear of 2",
+    "two": "Both gears: you win!"
+  },
+  "triggers": [
+    "start",
+    "gear1",
+    "gear2",
+    "won",
+    "timeout"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "airbox_entered",
+  "param": {
+    "volumes": [
+      "level://volumes/gate2"
+    ],
+    "cars": [
+      "base://world1l1/world_0/World/0/tileCars/4"
+    ]
+  },
+  "conditions": [
+    {
+      "type": "variable_value_check",
+      "param": {
+        "variables": [
+          "level://variables/g1"
+        ],
+        "value": {
+          "const": 1
+        },
+        "op": "equal"
+      }
+    },
+    {
+      "type": "variable_value_check",
+      "param": {
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 0
+        },
+        "op": "equal"
+      }
+    }
+  ],
+  "mode": "all",
+  "actions": [
+    {
+      "type": "variable_change_value",
+      "data": {
+        "op": "set",
+        "variables": [
+          "level://variables/g2"
+        ],
+        "value": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "variable_change_value",
+      "data": {
+        "op": "set",
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "print_debug_string",
+      "data": {
+        "what": 4,
+        "countdown": 60,
+        "value": "level://strings/won"
+      }
+    },
+    {
+      "type": "end_level",
+      "data": {
+        "result": 4,
+        "arg": 0
+      },
+      "delayInit": 2000
+    }
+  ]
+}

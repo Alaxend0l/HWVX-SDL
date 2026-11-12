@@ -449,8 +449,14 @@ s32 Trigger_AddTrigger(s32 *arg) {
     char buf[0x200];
     s32 type = trigger->type;
 
-    if (TRIGGER_STATS[type].count == TRIGGER_STATS[type].max) {
-        sprintf(buf, "Could not add the trigger: \"%s\", please notify Peter.", triggerLabelsArray[type]);
+    if (type < 0 || type >= TRIGGER_NUM_TYPES || TRIGGER_STATS[type].count == TRIGGER_STATS[type].max) {
+        /* port: the original formatted triggerLabelsArray[type] into an unused buffer (its labels
+         * are handles here: the format crashed); logged instead */
+        (void)buf;
+        (void)triggerLabelsArray;
+        Port_Log("trigger: could not add a trigger of type %d (%u of %u active)", (int)type,
+                 type >= 0 && type < TRIGGER_NUM_TYPES ? (unsigned)TRIGGER_STATS[type].count : 0u,
+                 type >= 0 && type < TRIGGER_NUM_TYPES ? (unsigned)TRIGGER_STATS[type].max : 0u);
         return 0;
     }
     TRIGGER_LISTS[type][TRIGGER_STATS[type].count++] = trigger;

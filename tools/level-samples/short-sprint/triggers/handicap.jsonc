@@ -1,0 +1,37 @@
+// the opponents held 2.5 s after the start: the retail start (base trigger 26, on variable 6 that
+// trigger 19 sets at the level's start) unlocks every car 4.5 s in, and 26 sets variable 6 back
+// at once, so this keys on the level's start too
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "level_start",
+  "param": null,
+  "actions": [
+    {
+      "type": "vehicle_change_control",
+      "delayInit": 4600,
+      "data": {
+        "mode": "lock_control",
+        "unused": 0,
+        "cars": [
+          "base://race1l2/world_0/World/0/tileCars/1",
+          "base://race1l2/world_0/World/0/tileCars/2",
+          "base://race1l2/world_0/World/0/tileCars/3"
+        ]
+      }
+    },
+    {
+      "type": "vehicle_change_control",
+      "delayInit": 7000,
+      "data": {
+        "mode": "unlock_control",
+        "unused": 0,
+        "cars": [
+          "base://race1l2/world_0/World/0/tileCars/1",
+          "base://race1l2/world_0/World/0/tileCars/2",
+          "base://race1l2/world_0/World/0/tileCars/3"
+        ]
+      }
+    }
+  ]
+}
