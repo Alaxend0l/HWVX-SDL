@@ -288,6 +288,46 @@ class Num(float):
 # ------------------------------------------------------------------------------------------
 # decoding
 
+def named(p, v):
+    """An integer field's value as the JSON writes it: its x-enum name (the number when it has
+    none), or for x-flags the list of its bits' names (bits without one as a number)."""
+    if "x-flags" in p:
+        out, rest = [], v
+        for bit, nm in p["x-flags"].items():
+            b = int(bit)
+            if b and v & b == b:
+                out.append(nm)
+                rest &= ~b
+        if rest:
+            out.append(rest)
+        return out
+    names = p.get("x-enum")
+    return names.get(str(v), v) if names else v
+
+
+def unnamed(p, v, path):
+    """named()'s inverse."""
+    if "x-flags" in p and isinstance(v, list):
+        w = 0
+        for x in v:
+            if isinstance(x, str):
+                b = [int(k) for k, nm in p["x-flags"].items() if nm == x]
+                if not b:
+                    raise XdlError(f"{path}: unknown flag {x!r} ({', '.join(p['x-flags'].values())})")
+                w |= b[0]
+            elif isinstance(x, int) and not isinstance(x, bool):
+                w |= x
+            else:
+                raise XdlError(f"{path}: flag names or integers")
+        return w
+    if isinstance(v, str) and "x-enum" in p:
+        for k, nm in p["x-enum"].items():
+            if nm == v:
+                return int(k)
+        raise XdlError(f"{path}: unknown name {v!r} ({', '.join(p['x-enum'].values())})")
+    return v
+
+
 class Decoder:
     def __init__(self, schemas, pack, pairing):
         self.S, self.pk, self.pair = schemas, pack, pairing
@@ -329,7 +369,7 @@ class Decoder:
         v = struct.unpack_from(self.pk.e + code, self.pk.blob, off)[0]
         if flt:
             return Num(v, f32_text(v, code))
-        return v
+        return named(p, v)
 
     def link(self, x, off, path):
         pk = self.pk
@@ -497,6 +537,7 @@ class Encoder:
             return
         code, size, flt = PRIM[base]
         self.clear(off, off + size)
+        v = unnamed(p, v, path)
         if flt:
             v = float(v)
         else:

@@ -291,21 +291,16 @@
       "x-offset": "0x5C",
       "x-c-type": "PTR32(WorldObjective)"
     },
-    "unk_0x60": {
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 255
-      },
-      "minItems": 4,
-      "maxItems": 4,
+    "numLights": {
+      "description": "VertexColorSeqManager_Init",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
       "x-offset": "0x60",
-      "x-c-type": "u8[4]",
-      "x-c-name": "pad60"
+      "x-c-type": "u32"
     },
     "lights": {
-      "description": "0x10 each (LightManager)",
+      "description": "0x10 each (LightManager, VertexColorSeqManager)",
       "type": [
         "string",
         "null"
@@ -493,7 +488,7 @@
       "timers",
       "numObjectives",
       "objectives",
-      "unk_0x60",
+      "numLights",
       "lights",
       "numVolumes",
       "volumes",

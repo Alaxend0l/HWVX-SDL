@@ -28,18 +28,13 @@
       "x-offset": "0x00",
       "x-c-type": "Vector4"
     },
-    "unk_0x10": {
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 255
-      },
-      "minItems": 4,
-      "maxItems": 4,
+    "editorId": {
+      "description": "never read; a number of its own per object of the world, from the exporter (guessed: its object id)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
       "x-offset": "0x10",
-      "x-c-type": "u8[4]",
-      "x-c-name": "pad10"
+      "x-c-type": "u32"
     },
     "respawn": {
       "description": "ms before it respawns once taken, 0: never",
@@ -91,10 +86,86 @@
       "x-c-type": "PTR32(ItemThing)"
     },
     "mode": {
-      "description": "QUAD_ITEM_*",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "description": "QUAD_ITEM_* (TacToken on, off)",
+      "anyOf": [
+        {
+          "enum": [
+            "off",
+            "on",
+            "toggle",
+            "kill",
+            "set_speed",
+            "pause",
+            "resume",
+            "ai_hold",
+            "spawn",
+            "start",
+            "stop",
+            "to_start",
+            "to_end",
+            "add",
+            "subtract",
+            "set",
+            "less",
+            "greater",
+            "equal",
+            "show",
+            "hide",
+            "remove",
+            "kill_hidden",
+            "lock_control",
+            "unlock_control",
+            "order_loop",
+            "order_jump",
+            "damage_lost",
+            "damage_below",
+            "multiply",
+            "divide",
+            "greater_equal",
+            "less_equal"
+          ]
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      ],
+      "x-enum": {
+        "0": "off",
+        "1": "on",
+        "2": "toggle",
+        "3": "kill",
+        "6": "set_speed",
+        "7": "pause",
+        "8": "resume",
+        "9": "ai_hold",
+        "10": "spawn",
+        "11": "start",
+        "12": "stop",
+        "13": "to_start",
+        "14": "to_end",
+        "15": "add",
+        "16": "subtract",
+        "17": "set",
+        "20": "less",
+        "21": "greater",
+        "22": "equal",
+        "23": "show",
+        "24": "hide",
+        "25": "remove",
+        "26": "kill_hidden",
+        "34": "lock_control",
+        "35": "unlock_control",
+        "39": "order_loop",
+        "41": "order_jump",
+        "42": "damage_lost",
+        "43": "damage_below",
+        "45": "multiply",
+        "46": "divide",
+        "47": "greater_equal",
+        "48": "less_equal"
+      },
       "x-offset": "0x28",
       "x-c-type": "u32"
     },
@@ -203,7 +274,7 @@
   "else": {
     "required": [
       "pos",
-      "unk_0x10",
+      "editorId",
       "respawn",
       "timer",
       "record",

@@ -23,18 +23,13 @@
       },
       "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
     },
-    "unk_0x00": {
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 255
-      },
-      "minItems": 4,
-      "maxItems": 4,
+    "editorId": {
+      "description": "never read; a number of its own per object of the world, from the exporter (guessed: its object id)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
       "x-offset": "0x00",
-      "x-c-type": "u8[4]",
-      "x-c-name": "pad0"
+      "x-c-type": "u32"
     },
     "anim": {
       "description": "the track (DestructibleParams.anim)",
@@ -136,7 +131,7 @@
   "then": true,
   "else": {
     "required": [
-      "unk_0x00",
+      "editorId",
       "anim",
       "speed",
       "record",
