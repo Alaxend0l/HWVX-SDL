@@ -247,7 +247,14 @@ static const XdlTocEntry *FindToc(const XdlFile *xf, u32 srcOffset) {
 }
 
 void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
+    return Xdl_OpenFileIn(name, fmt, sourcePath, NULL);
+}
+
+void *Xdl_OpenFileIn(const char *name, int fmt, const char *sourcePath, const char *folder) {
+    /* the PS2 prototype's mode "replace" mixes its assets into the release's
+     * packs (Port_Mix.c): those go in a folder of their own */
     static const char *fmtDir[PORT_DATA_COUNT] = { "gc", "pc", "ps2" };
+    static const char *protoDir[PORT_DATA_COUNT] = { "gc+proto", "pc+proto", "ps2+proto" };
     SDL_PathInfo info;
     XdlFile *xf;
     const char *base, *c;
@@ -278,8 +285,10 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
         }
     }
     n -= (size_t)(base - name);
-    SDL_asprintf(&xf->path, "%s/%s/%.*s.xdl", CacheDir(), Port_MixActive() ? Port_MixCacheName() : fmtDir[fmt],
-                 (int)(n - 4), base);
+    if (folder == NULL) {
+        folder = Port_MixActive() ? Port_MixCacheName() : Port_MixProtoReplace() ? protoDir[fmt] : fmtDir[fmt];
+    }
+    SDL_asprintf(&xf->path, "%s/%s/%.*s.xdl", CacheDir(), folder, (int)(n - 4), base);
     for (lower = xf->path != NULL ? xf->path + SDL_strlen(xf->path) - n : NULL; lower != NULL && *lower; lower++) {
         *lower = (char)SDL_tolower((unsigned char)*lower);
     }

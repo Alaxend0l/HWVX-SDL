@@ -17,7 +17,17 @@
  *
  * A sound keeps the base's descriptor and gets the chosen release's PCM16
  * samples, length, rate and loop (GameCube or PC; the PS2's ADPCM is never
- * the better copy). Song banks and songs stay the base's. */
+ * the better copy). Song banks and songs stay the base's.
+ *
+ * The PS2 prototype is a fourth source (PORT_MIX_PROTO), in its import mode
+ * "replace" only (Port_MixProtoReplace, no recipe): each pack loads as its
+ * release has it and takes the prototype's copy of every texture and sound
+ * the pairing table pairs with it (its column of Port_MixPairs.c), read
+ * from its file in its own layout (version 177/179: TOC offsets from the
+ * end of each entry, no sector padding, the pointer tables before the blob,
+ * a level count one too many, RGB24 textures) and checked as any other's.
+ * Its sounds are SPU-ADPCM: decoded to PCM16 (Port_PS2.c). Its textures are
+ * in the PC's colours, as the PS2's; the base's stay as they are. */
 #include "common.h"
 #include "Voice.h"
 #include "Port_Swap.h"
@@ -28,14 +38,23 @@ enum { GXF_RGBA8 = 6, GXF_CMPR = 14 };
 enum { HDR_WORDS = 20, HDR_SIZE = HDR_WORDS * 4 + 2 * sizeof(DataPackRef), TOC_ENTRY = 0x18 };
 /* DataPackFileHeader's words (DataGamePackLoad.c) */
 enum { H_DATASIZE, H_SOUNDSIZE, H_NUMSOUNDPTRS, H_NUMPTRS, H_NUMRELOCS, H_NUMTEX, H_TEXOFF, H_NUMSOUNDRELOCS,
-       H_NUMSOUNDS, H_SFXOFF, H_PALETTES, H_PALOFF, H_NUMSHADERS, H_NUMGX };
+       H_NUMSOUNDS, H_SFXOFF, H_PALETTES, H_PALOFF, H_NUMSHADERS, H_NUMGX, H_NUMTEXRELOCS };
 
 #define TEX_LIMIT 24.0f     /* thumbnail distance under which two textures are the same art (pairing.md §4) */
 #define MAX_TEX 0x400
 
 static const char *const s_typeNames[11] = { "car", "interface", "item", "link", "world", "collision",
                                              "world_texture", "geometry", "share", "audio", "music" };
-static const char *const s_relNames[PORT_DATA_COUNT] = { "gc", "pc", "ps2" };
+static const char *const s_relNames[PORT_MIX_RELS] = { "gc", "pc", "ps2", "proto" };
+
+/* The PS2 release, or the prototype: textures and sounds of the PS2's kinds. */
+static int IsPS2(int rel) {
+    return rel == PORT_DATA_PS2 || rel == PORT_MIX_PROTO;
+}
+
+static int Mixing(void) {
+    return Port_MixActive() || Port_MixProtoReplace();
+}
 
 /* The pack being loaded; packs load inside packs (the ones one refers to). */
 typedef struct MixPack {
@@ -43,6 +62,7 @@ typedef struct MixPack {
     char archive[0x40];
     u32 type, id;
     const PortMixPairPack *pairs;
+    u32 protoTex, protoSfx;     /* assets taken from the prototype (mode "replace") */
 } MixPack;
 
 /* per thread: the loading thread loads its own packs */
@@ -50,12 +70,12 @@ static _Thread_local MixPack s_stack[8];
 static _Thread_local int s_depth;
 
 static struct {
-    u32 packs, texFrom[PORT_DATA_COUNT], texKept, texRejected, texConverted;
-    u32 sfxFrom[PORT_DATA_COUNT], sfxKept, sfxRejected;
+    u32 packs, texFrom[PORT_MIX_RELS], texKept, texRejected, texConverted;
+    u32 sfxFrom[PORT_MIX_RELS], sfxKept, sfxRejected;
 } s_stats;
 
 static MixPack *Cur(void) {
-    return Port_MixActive() && s_depth > 0 && s_depth <= 8 ? &s_stack[s_depth - 1] : NULL;
+    return Mixing() && s_depth > 0 && s_depth <= 8 ? &s_stack[s_depth - 1] : NULL;
 }
 
 void PortMix_BeginPack(const char *name, u32 type, u32 id) {
@@ -63,7 +83,7 @@ void PortMix_BeginPack(const char *name, u32 type, u32 id) {
     const char *stem = name, *c;
     u32 i;
 
-    if (!Port_MixActive()) {
+    if (!Mixing()) {
         return;
     }
     if (++s_depth > 8) {
@@ -83,6 +103,7 @@ void PortMix_BeginPack(const char *name, u32 type, u32 id) {
     p->type = type;
     p->id = id;
     p->pairs = NULL;
+    p->protoTex = p->protoSfx = 0;
     for (i = 0; i < g_portMixNumPairPacks; i++) {
         const PortMixPairPack *pp = &g_portMixPairPacks[i];
 
@@ -96,7 +117,14 @@ void PortMix_BeginPack(const char *name, u32 type, u32 id) {
 }
 
 void PortMix_EndPack(void) {
-    if (Port_MixActive() && s_depth > 0) {
+    if (Mixing() && s_depth > 0) {
+        MixPack *p = &s_stack[s_depth - 1];
+
+        if (s_depth <= 8 && (p->protoTex || p->protoSfx)) {
+            Port_Log("prototype: %s %s_%u: %u textures and %u sounds are the prototype's", p->archive,
+                     s_typeNames[p->type < 11 ? p->type : 0], (unsigned)p->id, (unsigned)p->protoTex,
+                     (unsigned)p->protoSfx);
+        }
         s_depth--;
     }
 }
@@ -125,15 +153,19 @@ typedef struct RelPack {
 
 /* Find the pack in release `rel`'s copy of the archive and read its header. */
 static void RelPack_Open(RelPack *rp, const MixPack *mp, int rel) {
-    int be = rel == PORT_DATA_GC;
+    int be = rel == PORT_DATA_GC, proto = rel == PORT_MIX_PROTO;
     u8 head[0x10], raw[HDR_SIZE], *toc;
-    u32 count, i;
+    u32 count, i, ver;
     u64 pos = 0;
 
     memset(rp, 0, sizeof(*rp));
     rp->rel = rel;
     if (Port_MixRoot(rel) == NULL || Port_MixRead(rel, mp->file, 0, head, sizeof(head)) != sizeof(head) ||
-        Rd32(head, be) != 0x020100A0 || Rd32(head + 8, be) != 0xB7) {
+        Rd32(head, be) != 0x020100A0) {
+        return;
+    }
+    ver = Rd32(head + 8, be);
+    if (proto ? ver != 177 && ver != 179 : ver != 0xB7) {
         return;
     }
     count = Rd32(head + 12, be);
@@ -144,8 +176,9 @@ static void RelPack_Open(RelPack *rp, const MixPack *mp, int rel) {
         for (i = 0; i < count; i++) {
             const u8 *e = toc + i * TOC_ENTRY;
 
-            if (Rd32(e + 4, be) == mp->type && Rd32(e + 8, be) == mp->id && Rd32(e, be) == 0xB7) {
-                pos = (u64)Rd32(e + 0x14, be) + 0x10 + (u64)count * TOC_ENTRY;
+            if (Rd32(e + 4, be) == mp->type && Rd32(e + 8, be) == mp->id && Rd32(e, be) == ver) {
+                /* the prototype's offsets count from the end of their own entry */
+                pos = (u64)Rd32(e + 0x14, be) + 0x10 + (u64)(proto ? i + 1 : count) * TOC_ENTRY;
                 break;
             }
         }
@@ -165,6 +198,21 @@ static void RelPack_Open(RelPack *rp, const MixPack *mp, int rel) {
         rp->refId[i] = Rd32(ref + 0xC, be);
     }
     pos += HDR_SIZE;
+    if (proto) {
+        /* unpadded: the sound pointers and data, the relocation tables, the
+         * pointer tables, then the blob (DataGamePackLoad.c) */
+        if (rp->hdr[H_SOUNDSIZE] != 0) {
+            rp->soundOff = pos;
+            rp->soundBase = rp->hdr[H_NUMSOUNDPTRS] * 4;
+            pos += (u64)rp->soundBase + rp->hdr[H_SOUNDSIZE];
+        }
+        rp->blobOff = pos + ((u64)rp->hdr[H_NUMRELOCS] + rp->hdr[H_NUMGX] + rp->hdr[H_NUMSOUNDRELOCS]) * 8 +
+                      (u64)rp->hdr[H_NUMTEXRELOCS] * 8 + (u64)rp->hdr[H_NUMPTRS] * 4;
+        rp->ok = rp->hdr[H_DATASIZE] < 0x10000000 && rp->hdr[H_SOUNDSIZE] < 0x10000000 &&
+                 rp->hdr[H_NUMSOUNDPTRS] < 0x1000000 && rp->hdr[H_NUMTEXRELOCS] < 0x1000000 &&
+                 rp->hdr[H_NUMPTRS] < 0x1000000;
+        return;
+    }
     if (rel == PORT_DATA_PS2) {
         pos = (pos + PORT_PS2_SECTOR - 1) & ~(u64)(PORT_PS2_SECTOR - 1);
     }
@@ -244,7 +292,7 @@ static void AssetId(char *id, u32 size, const MixPack *mp, const char *kind, con
     u32 i = idx;
 
     if (pair != NULL) {
-        for (r = 0; r < PORT_DATA_COUNT && pair[r] == 0xFFFF; r++) {
+        for (r = 0; r < PORT_MIX_RELS - 1 && pair[r] == 0xFFFF; r++) {
         }
         i = pair[r];
     }
@@ -285,8 +333,8 @@ static u32 CSM1(u32 i) {
 
 /* Bytes of level (w, h) as stored. */
 static u32 LevelBytes(int rel, const RelTex *t, u32 w, u32 h) {
-    if (rel == PORT_DATA_PS2) {
-        return w * h * (t->fmt == 2 ? 1 : 4);
+    if (IsPS2(rel)) {
+        return w * h * (t->fmt == 2 ? 1 : t->fmt == 0 ? 3 : 4);    /* PSMT8, the prototype's RGB24, PSMCT32 */
     }
     return GX_PortLevelSize(t->gx, (int)w, (int)h);
 }
@@ -333,12 +381,12 @@ static void RelTex_Fill(RelTex *t, int rel, const u32 *hdr, const u8 *blob, u32 
                 return;
             }
             t->clut = blob + hdr[H_PALOFF] + clut * 0x400;
-        } else if (t->fmt != 1) {
+        } else if (t->fmt != 1 && !(rel == PORT_MIX_PROTO && t->fmt == 0)) {
             return;
         }
         break;
     }
-    if (rel != PORT_DATA_PS2 && t->gx == 0) {
+    if (!IsPS2(rel) && t->gx == 0) {
         return;
     }
     for (l = 0, w = t->w, ht = t->h; l < t->levels; l++) {
@@ -373,6 +421,9 @@ static void RelTex_Read(RelTex *t, RelPack *rp, const MixPack *mp, u32 idx) {
     t->w = Rd16LE(h + 2);
     t->h = Rd16LE(h + 4);
     t->levels = Rd16LE(h + 6) ? Rd16LE(h + 6) : 1;
+    if (rp->rel == PORT_MIX_PROTO) {
+        t->levels = t->levels <= 2 ? 1 : t->levels - 1;     /* its level value m: m - 1 stored (Port_PS2.c) */
+    }
     RelTex_Fill(t, rp->rel, rp->hdr, blob, size, h, Rd32(h + 8, rp->rel == PORT_DATA_GC));
 }
 
@@ -405,11 +456,18 @@ static void RelTex_Base(RelTex *t, int rel, const u8 *base, u32 size, u32 texOff
 static void DecodeLevel(int rel, const RelTex *t, const u8 *src, u32 w, u32 h, u8 *out) {
     u32 n = w * h, k;
 
-    if (rel != PORT_DATA_PS2) {
+    if (!IsPS2(rel)) {
         GX_PortDecodeLevel(t->gx, src, (int)w, (int)h, out);
     } else if (t->fmt == 2) {
         for (k = 0; k < n; k++) {
             memcpy(out + k * 4, t->clut + CSM1(src[k]) * 4, 4);
+        }
+    } else if (t->fmt == 0) {
+        for (k = 0; k < n; k++) {
+            out[k * 4] = src[k * 3];
+            out[k * 4 + 1] = src[k * 3 + 1];
+            out[k * 4 + 2] = src[k * 3 + 2];
+            out[k * 4 + 3] = 0xFF;
         }
     } else {
         memcpy(out, src, n * 4);
@@ -584,7 +642,7 @@ static void MakeTex(NewTex *nt, int rel, const RelTex *t, int toPC) {
     nt->w = t->w;
     nt->h = t->h;
     nt->levels = t->levels > 1 ? t->levels : 0;
-    if ((rel == PORT_DATA_GC && !toPC) || rel == PORT_DATA_PC || (rel == PORT_DATA_PS2 && t->fmt == 1)) {
+    if ((rel == PORT_DATA_GC && !toPC) || rel == PORT_DATA_PC || (IsPS2(rel) && t->fmt == 1)) {
         nt->fmt = rel == PORT_DATA_GC ? t->fmt : rel == PORT_DATA_PC ? (PORT_TEX_PC | t->fmt)
                                                                    : (PORT_TEX_PC | PORT_TEX_PC_RGBA8);
         nt->size = t->size;
@@ -617,16 +675,17 @@ static void MakeTex(NewTex *nt, int rel, const RelTex *t, int toPC) {
 
 void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOff, u32 numTex) {
     MixPack *mp = Cur();
-    RelPack rp[PORT_DATA_COUNT];
+    RelPack rp[PORT_MIX_RELS];
     NewTex *nt;
     u8 *block, *out, *hp;
     u32 i, total = 0, changed = 0;
-    int r, lookGC = Port_MixLookGC(), others = 0, paired;
+    /* mode "replace": the base's textures stay as they are, in its look */
+    int r, lookGC = Port_MixProtoReplace() || Port_MixLookGC(), others = 0, paired;
 
     if (mp == NULL || numTex == 0 || numTex > 0x10000 || fmt < 0 || fmt >= PORT_DATA_COUNT) {
         return;
     }
-    for (r = 0; r < PORT_DATA_COUNT; r++) {
+    for (r = 0; r < PORT_MIX_RELS; r++) {
         others += r != fmt && Port_MixRoot(r) != NULL;
     }
     /* one release, or nothing to do to it: the pack as it is */
@@ -644,7 +703,7 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     if (nt == NULL) {
         return;
     }
-    for (r = 0; r < PORT_DATA_COUNT; r++) {
+    for (r = 0; r < PORT_MIX_RELS; r++) {
         memset(&rp[r], 0, sizeof(rp[r]));
         if ((r == fmt && fmt == PORT_DATA_PS2) || (r != fmt && paired)) {
             RelPack_Open(&rp[r], mp, r);
@@ -653,13 +712,13 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     rp[fmt].ok |= fmt != PORT_DATA_PS2;
     for (i = 0; i < numTex && rp[fmt].ok; i++) {
         const u16 *pair = FindPair(mp, 0, fmt, i);
-        RelTex t[PORT_DATA_COUNT];
-        int order[PORT_DATA_COUNT], n, pick = fmt, k;
+        RelTex t[PORT_MIX_RELS];
+        int order[PORT_MIX_RELS], n, pick = fmt, k;
         char id[0xC0];
 
         AssetId(id, sizeof(id), mp, "texture", pair, fmt, i);
         n = Port_MixAssetRule(id, order);
-        for (r = 0; r < PORT_DATA_COUNT; r++) {
+        for (r = 0; r < PORT_MIX_RELS; r++) {
             u32 idx = r == fmt ? i : pair != NULL && n != PORT_MIX_FROM_BASE ? pair[r] : 0xFFFF;
 
             memset(&t[r], 0, sizeof(t[r]));
@@ -691,6 +750,7 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
                 MakeTex(&nt[i], pick, &t[pick], !lookGC);
                 if (nt[i].pix != NULL) {
                     s_stats.texFrom[pick]++;
+                    mp->protoTex += pick == PORT_MIX_PROTO;
                     Port_MixManifest(id, pick, pair[pick], Fnv64(t[pick].pix, t[pick].size));
                 }
             } else if (fmt == PORT_DATA_GC && !lookGC) {
@@ -702,7 +762,7 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         } else {
             s_stats.texKept++;
         }
-        for (r = 0; r < PORT_DATA_COUNT; r++) {
+        for (r = 0; r < PORT_MIX_RELS; r++) {
             free(t[r].rgba);
         }
         if (nt[i].pix != NULL) {
@@ -710,7 +770,7 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
             changed++;
         }
     }
-    for (r = 0; r < PORT_DATA_COUNT; r++) {
+    for (r = 0; r < PORT_MIX_RELS; r++) {
         RelPack_Close(&rp[r]);
     }
     block = changed != 0 && total < 0x10000000 ? Allocate(total + 0x20, 0, "") : NULL;
@@ -760,8 +820,8 @@ static _Thread_local void *s_sfxBlock;
 /* The base's descriptors, before its own conversion: big-endian on GameCube. */
 void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count) {
     MixPack *mp = Cur();
-    RelPack rp[PORT_DATA_COUNT];
-    int opened[PORT_DATA_COUNT] = { 0 }, r;
+    RelPack rp[PORT_MIX_RELS];
+    int opened[PORT_MIX_RELS] = { 0 }, r;
     u32 i;
 
     s_sfx = NULL;
@@ -773,7 +833,7 @@ void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count) {
     for (i = 0; i < count; i++) {
         const u16 *pair = FindPair(mp, 1, fmt, i);
         const u8 *d = desc + i * sizeof(SFX), *snd, *dd;
-        int order[PORT_DATA_COUNT], n, pick = fmt, k, be = fmt == PORT_DATA_GC;
+        int order[PORT_MIX_RELS], n, pick = fmt, k, be = fmt == PORT_DATA_GC;
         u32 len = Rd32(d + 4, be), rate = Rd32(d + 0xC, be), bits = d[0x11], dlen, drate, ddata, samples;
         f32 dur, ddur;
         char id[0xC0];
@@ -790,6 +850,7 @@ void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count) {
             n = 2;
         }
         for (k = 0; k < n; k++) {
+            /* the PS2's ADPCM is never the better copy; the prototype's is its own sound */
             if (order[k] == fmt || (order[k] != PORT_DATA_PS2 && pair[order[k]] != 0xFFFF &&
                                     Port_MixRoot(order[k]) != NULL)) {
                 pick = order[k];
@@ -815,11 +876,17 @@ void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count) {
         ddata = Rd32(dd, be);
         dlen = Rd32(dd + 4, be);
         drate = Rd32(dd + 0xC, be);
-        /* the same sound: PCM16 inside the pack, as long as the base's within 15% */
+        /* the same sound: PCM16 inside the pack (the prototype's ADPCM), as
+         * long as the base's within 15% */
         samples = fmt == PORT_DATA_PS2 ? (len >= 16 ? (len / 16 - 1) * 28 : 0) : len / (bits == 16 ? 2 : 1);
         dur = rate ? (f32)samples / (f32)rate : 0;
-        ddur = drate ? (f32)(dlen / 2) / (f32)drate : 0;
-        if (dd[0x11] != 16 || dlen == 0 || (dlen & 1) || ddata > rp[pick].hdr[H_SOUNDSIZE] ||
+        if (pick == PORT_MIX_PROTO) {
+            ddur = drate && dlen >= 32 ? (f32)((dlen / 16 - 1) * 28) / (f32)drate : 0;
+        } else {
+            ddur = drate ? (f32)(dlen / 2) / (f32)drate : 0;
+        }
+        if ((pick == PORT_MIX_PROTO ? dlen < 32 || (dlen & 15) : dd[0x11] != 16 || dlen == 0 || (dlen & 1)) ||
+            ddata > rp[pick].hdr[H_SOUNDSIZE] ||
             dlen > rp[pick].hdr[H_SOUNDSIZE] - ddata || dur <= 0 || ddur < dur * 0.85f - 0.05f ||
             ddur > dur * 1.15f + 0.05f) {
             s_stats.sfxRejected++;
@@ -832,21 +899,31 @@ void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count) {
             }
             s_numSfx = count;
         }
-        s_sfx[i].pcm = malloc(dlen);
-        if (s_sfx[i].pcm == NULL) {
-            continue;
+        if (pick == PORT_MIX_PROTO) {
+            /* SPU-ADPCM: block 0 is silence; the length and loop in PCM bytes */
+            s_sfx[i].pcm = PortPS2_DecodeSound(snd + rp[pick].soundBase + ddata, dlen, Rd32(dd + 8, 0),
+                                               &s_sfx[i].length, &s_sfx[i].loop);
+            if (s_sfx[i].pcm == NULL) {
+                continue;
+            }
+        } else {
+            s_sfx[i].pcm = malloc(dlen);
+            if (s_sfx[i].pcm == NULL) {
+                continue;
+            }
+            memcpy(s_sfx[i].pcm, snd + rp[pick].soundBase + ddata, dlen);
+            if (be) {
+                Port_SwapArray16(s_sfx[i].pcm, dlen / 2);
+            }
+            s_sfx[i].length = dlen;
+            s_sfx[i].loop = Rd32(dd + 8, be);
         }
-        memcpy(s_sfx[i].pcm, snd + rp[pick].soundBase + ddata, dlen);
-        if (be) {
-            Port_SwapArray16(s_sfx[i].pcm, dlen / 2);
-        }
-        s_sfx[i].length = dlen;
-        s_sfx[i].loop = Rd32(dd + 8, be);
         s_sfx[i].rate = drate;
         s_stats.sfxFrom[pick]++;
+        mp->protoSfx += pick == PORT_MIX_PROTO;
         Port_MixManifest(id, pick, pair[pick], Fnv64(snd + rp[pick].soundBase + ddata, dlen));
     }
-    for (r = 0; r < PORT_DATA_COUNT; r++) {
+    for (r = 0; r < PORT_MIX_RELS; r++) {
         if (opened[r]) {
             RelPack_Close(&rp[r]);
         }
@@ -918,12 +995,14 @@ void PortMix_SFXDone(void) {
 /* ---- the builder ------------------------------------------------------------------------ */
 
 void PortMix_LogStats(void) {
-    Port_Log("mix: %u packs; textures from gc %u, pc %u, ps2 %u, base's own %u (%u of them not like their pair), "
-             "to the PC's colours %u; sounds from gc %u, pc %u, base's own %u (%u not like their pair)",
+    Port_Log("mix: %u packs; textures from gc %u, pc %u, ps2 %u, prototype %u, base's own %u (%u of them not like "
+             "their pair), to the PC's colours %u; sounds from gc %u, pc %u, prototype %u, base's own %u (%u not like "
+             "their pair)",
              (unsigned)s_stats.packs, (unsigned)s_stats.texFrom[0], (unsigned)s_stats.texFrom[1],
-             (unsigned)s_stats.texFrom[2], (unsigned)(s_stats.texKept + s_stats.texRejected),
-             (unsigned)s_stats.texRejected, (unsigned)s_stats.texConverted, (unsigned)s_stats.sfxFrom[0],
-             (unsigned)s_stats.sfxFrom[1], (unsigned)(s_stats.sfxKept + s_stats.sfxRejected),
+             (unsigned)s_stats.texFrom[2], (unsigned)s_stats.texFrom[PORT_MIX_PROTO],
+             (unsigned)(s_stats.texKept + s_stats.texRejected), (unsigned)s_stats.texRejected,
+             (unsigned)s_stats.texConverted, (unsigned)s_stats.sfxFrom[0], (unsigned)s_stats.sfxFrom[1],
+             (unsigned)s_stats.sfxFrom[PORT_MIX_PROTO], (unsigned)(s_stats.sfxKept + s_stats.sfxRejected),
              (unsigned)s_stats.sfxRejected);
 }
 

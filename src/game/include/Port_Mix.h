@@ -24,8 +24,18 @@
 
 /* ---- mix.c ------------------------------------------------------------------ */
 
+/* The releases assets come from: PORT_DATA_GC, _PC, _PS2, and the PS2
+ * prototype (Port_Proto.c), whose assets only its import mode "replace"
+ * takes: the pack's own release is the base, every asset the pairing table
+ * pairs with the prototype comes from it (Port_MixProtoReplace). */
+#define PORT_MIX_PROTO PORT_DATA_COUNT
+#define PORT_MIX_RELS (PORT_DATA_COUNT + 1)
+
 /* A recipe is loaded (Port_MixLoad). */
 int Port_MixActive(void);
+/* No recipe, and the prototype's import mode is "replace": packs load as
+ * the release has them, with the prototype's paired textures and sounds. */
+int Port_MixProtoReplace(void);
 /* Loads the recipe `nameOrPath` ("ultimate", or a .jsonc file) and the
  * releases the player has (sources.cfg in the save folder; HWVX_MIX_GC,
  * HWVX_MIX_PC, HWVX_MIX_PS2 override). 0 with a message in err on failure. */
@@ -35,8 +45,8 @@ const char *Port_MixName(void);
 int Port_MixBuilding(void);
 /* The colours the build draws in: 1 the GameCube's, 0 the PC's (recipe "look"). */
 int Port_MixLookGC(void);
-/* The folder of release `rel` (PORT_DATA_*), or NULL: not imported, or not
- * in the recipe. */
+/* The folder of release `rel` (PORT_DATA_*, PORT_MIX_PROTO), or NULL: not
+ * imported, or not in the recipe. */
 const char *Port_MixRoot(int rel);
 /* The k-th release to look for the file `name` in (the game's GameCube name),
  * by the recipe's "base" rules; -1 past the last. */
@@ -44,7 +54,7 @@ int Port_MixCandidate(const char *name, int k);
 /* The release of asset `id` ("base://HW_Cars/car_5/texture/3"): the
  * releases to try in order[], their count returned; or one of these. */
 enum { PORT_MIX_FROM_BASE = 0, PORT_MIX_FROM_BEST = -1 };
-int Port_MixAssetRule(const char *id, int order[PORT_DATA_COUNT]);
+int Port_MixAssetRule(const char *id, int order[PORT_MIX_RELS]);
 /* Bytes of the pack file `name` as release `rel` has it; the count read. */
 u32 Port_MixRead(int rel, const char *name, u64 offset, void *dst, u32 size);
 /* What identifies the build's cache: its folder name under the cache
@@ -98,7 +108,8 @@ typedef struct PortMixPairPack {
     u32 first;              /* in g_portMixPairs: numTextures, then numSounds */
     u16 numTextures, numSounds;
 } PortMixPairPack;
-extern const u16 g_portMixPairs[][3];   /* index in the GameCube's, PC's, PS2's table; 0xFFFF: none */
+extern const u16 g_portMixPairs[][PORT_MIX_RELS];   /* index in the GameCube's, PC's, PS2's, prototype's
+                                                       * table; 0xFFFF: none */
 extern const PortMixPairPack g_portMixPairPacks[];
 extern const u32 g_portMixNumPairPacks;
 

@@ -227,8 +227,8 @@ int Port_DataRelease(void) {
 }
 
 /* A prototype file (proto.c): the PS2's names, from the prototype's folder.
- * Its packs aren't cached (xdl.c): their layout is the prototype's own. */
-static BOOL OpenProto(const char *name, DVDFileInfo *fi) {
+ * Its packs are cached (xdl.c) in a folder of their own, "ps2proto". */
+static SDL_IOStream *OpenProtoFile(const char *name, char **found) {
     const char *root = Port_ProtoRoot();
     SDL_IOStream *io = NULL;
     int d;
@@ -237,10 +237,22 @@ static BOOL OpenProto(const char *name, DVDFileInfo *fi) {
         char *alt = FormatName(name, PORT_DATA_PS2, d == 0 ? s_formats[PORT_DATA_PS2].dir : "");
 
         if (alt != NULL) {
-            io = OpenIn(root, alt, NULL);
+            io = OpenIn(root, alt, found);
             SDL_free(alt);
         }
     }
+    return io;
+}
+
+/* For readers outside the DVD API (mix.c: the prototype's copy of a pack). */
+SDL_IOStream *Port_OpenProtoFile(const char *name) {
+    return OpenProtoFile(name, NULL);
+}
+
+static BOOL OpenProto(const char *name, DVDFileInfo *fi) {
+    char *found = NULL;
+    SDL_IOStream *io = OpenProtoFile(name, &found);
+
     if (io == NULL) {
         Port_Log("DVDOpen: the prototype's %s not found", name);
         return FALSE;
@@ -250,6 +262,9 @@ static BOOL OpenProto(const char *name, DVDFileInfo *fi) {
     fi->format = PORT_DATA_PS2;
     fi->proto = 1;
     fi->length = (u32)SDL_GetIOSize(io);
+    /* its packs cached as the release's are, in a folder of their own (xdl.c) */
+    fi->xdl = Xdl_OpenFileIn(name, PORT_DATA_PS2, found, "ps2proto");
+    SDL_free(found);
     return TRUE;
 }
 

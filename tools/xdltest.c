@@ -40,6 +40,7 @@ static int s_verbose;
 void *Port_HandleToPtrSlow(u32 h) { (void)h; return NULL; }
 u32 Port_PtrToHandleSlow(const void *p) { (void)p; return 0; }
 int Port_MixActive(void) { return 0; }
+int Port_MixProtoReplace(void) { return 0; }
 const char *Port_MixCacheName(void) { return "mix"; }
 u32 Port_MixStamp(void) { return 0; }
 char *Port_PrefPath(void) { return SDL_strdup(""); }

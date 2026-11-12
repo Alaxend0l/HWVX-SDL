@@ -42,6 +42,9 @@ enum {
  * for), whose source is `sourcePath` in format `fmt`; NULL when the cache is
  * off or there's nothing to read or write. */
 void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath);
+/* The same, in the cache's folder `folder` (NULL: the release's, as above):
+ * the PS2 prototype's packs are in "ps2proto" (dvd.c). */
+void *Xdl_OpenFileIn(const char *name, int fmt, const char *sourcePath, const char *folder);
 void Xdl_CloseFile(void *xf);
 /* The source file an open cache is of (NULL for NULL). */
 const char *Xdl_SourcePath(void *xf);

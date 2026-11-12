@@ -445,7 +445,13 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         if (header.songBankOffset != 0) {
             SETP(pack->songBank, (void *)((u8 *)GETP(pack->soundBase) + header.songBankOffset));
             /* port: the PC's is little-endian, the PS2's rebuilt elsewhere (Port_Data.c) */
-            if (xp == NULL) {
+            if (xp == NULL && proto && GETP(pack->song) != NULL && memcmp(GETP(pack->song), "IMPM", 4) == 0) {
+                /* port: the prototype's Impulse Tracker music, its samples decoded (Port_PS2.c) */
+                SETP(pack->songBank, PortPS2_ProtoIT(GETP(pack->song), GETP(pack->songBank),
+                                                     header.songBankOffset > header.songOffset
+                                                         ? header.soundDataSize - header.songBankOffset
+                                                         : header.songOffset - header.songBankOffset));
+            } else if (xp == NULL) {
                 SETP(pack->songBank, PortData_SongBank(fmt, GETP(pack->songBank)));
             } else {
                 /* port: in place, or the PS2's in its own block, or none */
