@@ -918,6 +918,46 @@ static void WriteVec(JsonWriter *w, const char *key, const f32 *v, int n) {
     Jw_EndArray(w);
 }
 
+/* The node each of the pack's 4-byte words is part of: vp->owner, and a
+ * geometry's level and group records (not nodes of their own: a group's
+ * texture slot belongs to its geometry). Freed by the caller (SDL_free). */
+s32 *Viewer_WordUsers(VPack *vp) {
+    u32 words = vp->size / 4, n, i, j, lodsOff, groupsOff, o;
+    s32 *users = SDL_malloc(((size_t)words + 1) * sizeof(s32));
+
+    if (users == NULL) {
+        return NULL;
+    }
+    for (o = 0; o < words; o++) {
+        users[o] = vp->owner != NULL ? vp->owner[o] : -1;
+    }
+    for (n = 0; n < vp->numNodes; n++) {
+        VNode *nd = &vp->nodes[n];
+        Geometry *g;
+
+        if (nd->kind != VN_GEOMETRY) {
+            continue;
+        }
+        g = (Geometry *)(Base(vp) + nd->off);
+        lodsOff = Target(vp, nd->off + 8);
+        for (i = 0; lodsOff != VIEWER_NO_OFFSET && i < g->numGroups && lodsOff + (i + 1) * 0x18 <= vp->size; i++) {
+            Geometry *lod = (Geometry *)(Base(vp) + lodsOff + i * 0x18);
+
+            for (o = (lodsOff + i * 0x18) / 4; o < (lodsOff + (i + 1) * 0x18) / 4; o++) {
+                users[o] = (s32)n;
+            }
+            groupsOff = Target(vp, lodsOff + i * 0x18 + 8);
+            for (j = 0; groupsOff != VIEWER_NO_OFFSET && j < lod->numGroups &&
+                        groupsOff + (j + 1) * sizeof(GeometryGroup) <= vp->size; j++) {
+                for (o = (u32)(groupsOff + j * sizeof(GeometryGroup)) / 4; o < (u32)(groupsOff + (j + 1) * sizeof(GeometryGroup)) / 4; o++) {
+                    users[o] = (s32)n;
+                }
+            }
+        }
+    }
+    return users;
+}
+
 void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd) {
     static const char *const kindNames[] = { "typed", "raw", "geometry", "texture", "shader", "trigger" };
     u8 *base = Base(vp);
