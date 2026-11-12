@@ -386,7 +386,7 @@ pub fn rewrite(text: &str, old: &Value, new: &Value) -> Result<String, String> {
     for (s, e, t) in &merged {
         out.replace_range(*s..*e, t);
     }
-    match serde_json::from_str::<Value>(&crate::testdrive::strip_jsonc(&out)) {
+    match serde_json::from_str::<Value>(&crate::jsonc::strip(&out)) {
         Ok(v) if &v == new => Ok(out),
         Ok(_) => Err("the rewritten file wouldn't read back as the level: not saved".into()),
         Err(e) => Err(format!("the rewritten file wouldn't parse ({e}): not saved")),
@@ -407,7 +407,7 @@ pub fn new_text(v: &Value, header: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testdrive::strip_jsonc;
+    use crate::jsonc::strip as strip_jsonc;
 
     fn parse(t: &str) -> Value {
         serde_json::from_str(&strip_jsonc(t)).unwrap()
