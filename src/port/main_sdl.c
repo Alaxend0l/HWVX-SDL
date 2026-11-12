@@ -9,6 +9,7 @@
 #include "../game/include/Port_Mods.h"
 
 #include <SDL3/SDL_main.h>
+#include <stdio.h>
 
 /* Globals that main()/Main_NGC.c owned on the GameCube. */
 s64 g_resetTicks;
