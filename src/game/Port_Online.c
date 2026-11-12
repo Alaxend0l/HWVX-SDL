@@ -1982,6 +1982,7 @@ void Port_OnlineRemoteControl(Player *player) {
     for (port = 0; port < ONLINE_PLAYERS; port++) {
         if (s_players[port] == player) {
             r = &s_remote[port];
+            break;              /* port: the peer id below (port index) */
         }
     }
     if (r == NULL) {
