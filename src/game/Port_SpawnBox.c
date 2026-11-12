@@ -3,6 +3,9 @@
 #include "common.h"
 #include "Port_Content.h"
 #include "Port_SpawnBox.h"
+#include "World.h"
+
+extern StreamingPack *g_StreamingDataPacks[11];
 
 static int s_done[2], s_cars[2];
 static f32 s_min[2][3], s_max[2][3];
@@ -44,7 +47,11 @@ int Port_SpawnEnvelope(float min[3], float max[3], int *cars, int all) {
         n = all ? Port_ContentCount(PORT_CONTENT_CAR) : Port_ContentBaseCount(PORT_CONTENT_CAR);
         for (i = 0; i < n; i++) {
             s32 slot = FileStreaming_LoadDataPack(name, 0, i, 0);
-            DataPack *dp = slot >= 0 ? FileStreaming_InitializeDataPack((u32)slot, 0, 0) : NULL;
+            /* the slot's pack as loaded, read only: FileStreaming_InitializeDataPack would mark
+             * it refreshed without refreshing it, and its release would then free texture ids
+             * the pack never had (live textures of other packs) */
+            StreamingPack *sp = slot >= 0 ? &g_StreamingDataPacks[0][slot] : NULL;
+            DataPack *dp = sp != NULL && sp->used && sp->loaded ? &sp->pack : NULL;
             f32 lo[3], hi[3];
 
             if (CarBox(dp, lo, hi)) {
