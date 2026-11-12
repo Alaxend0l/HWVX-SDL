@@ -702,6 +702,26 @@ static void EnsureBuffers(u32 transferSize, u32 vertexSize) {
     }
 }
 
+/* HWVX_STATS: the transfer buffers SDL keeps behind s.tbuf, told apart by
+ * where they map (each buffer it cycles to is another), so the staging line
+ * counts what a cycle costs: every one is tbufSize for good. */
+static void NoteMapped(const u8 *map) {
+    static const void *buf, *seen[64];
+    static u32 n;
+    u32 i;
+
+    if (buf != s.tbuf) {
+        buf = s.tbuf;
+        n = 0;
+    }
+    for (i = 0; i < n && seen[i] != map; i++) {
+    }
+    if (i == n && n < SDL_arraysize(seen)) {
+        seen[n++] = map;
+    }
+    g_gxStagingBytes = (u64)n * s.tbufSize;
+}
+
 static void CopyPass(SDL_GPUCommandBuffer *cmd) {
     u32 vertBytes = s.nVerts * (u32)sizeof(GXVertex);
     u32 vertOffset = (s.nStaging + 15) & ~15u, i;
@@ -713,11 +733,11 @@ static void CopyPass(SDL_GPUCommandBuffer *cmd) {
     }
     EnsureBuffers(vertOffset + vertBytes, vertBytes);
     g_gxCopyPasses++;
-    g_gxStagingBytes = (u64)s.tbufSize + s.vbufSize;
     map = SDL_MapGPUTransferBuffer(s.dev, s.tbuf, true);
     if (map == NULL) {
         Port_Fatal("SDL_MapGPUTransferBuffer failed: %s", SDL_GetError());
     }
+    NoteMapped(map);
     memcpy(map, s.staging, s.nStaging);
     memcpy(map + vertOffset, s.verts, vertBytes);
     SDL_UnmapGPUTransferBuffer(s.dev, s.tbuf);

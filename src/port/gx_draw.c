@@ -660,7 +660,7 @@ static void DumpEFB(void) {
                  (double)ticks * 1000.0 / (double)(SDL_GetPerformanceFrequency() * 60));
         g_gxUploadBytes = 0;
         if (g_gxCopyPasses != 0 || g_gxStagingBytes != 0) {
-            Port_Log("  staging: %.2f copy passes/frame; %.1f MB of transfer and vertex buffers kept",
+            Port_Log("  staging: %.2f copy passes/frame; %.1f MB of transfer buffers kept (every copy SDL cycled to)",
                      (double)g_gxCopyPasses / 60.0, (double)g_gxStagingBytes / 1048576.0);
             g_gxCopyPasses = 0;
         }
