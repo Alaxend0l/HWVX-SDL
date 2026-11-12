@@ -281,10 +281,20 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
                 Fail(err, errSize, "a pointer step leaves the world pack");
                 return NULL;
             }
-            cur = Port_HandleToPtr(*(u32 *)(cur + v));
-            if (cur == NULL) {
-                Fail(err, errSize, "a pointer on the way is null in this release's world");
-                return NULL;
+            {
+                /* bounds-checked: only a handle inside the world pack's blob is followed (a
+                 * level made for another world, or a stale one, never reaches the handle table) */
+                u32 h = *(u32 *)(cur + v), lo = Port_PtrToHandle(GETP(s_lv.pack->base));
+
+                if (h == 0) {
+                    Fail(err, errSize, "a pointer on the way is null in this release's world");
+                    return NULL;
+                }
+                if (h - lo >= s_lv.pack->dataSize) {
+                    Fail(err, errSize, "a pointer on the way leads out of the world pack (made for another world?)");
+                    return NULL;
+                }
+                cur = GETP(s_lv.pack->base) + (h - lo);
             }
         } else {
             cur += v;

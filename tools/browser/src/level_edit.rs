@@ -111,6 +111,14 @@ fn pos_field(table: &str) -> &'static str {
 }
 
 impl Browser {
+    /// The world on show is the level's own (the preview applies only there).
+    pub(crate) fn shows_level_world(&self) -> bool {
+        let norm = |s: &str| s.replace('/', "\\").to_lowercase();
+        let shown = self.world.status["world"].as_str().map(norm);
+        let mine = self.level.edit.proj.as_ref().and_then(|p| p.level["world"].as_str().map(norm));
+        shown.is_some() && shown == mine
+    }
+
     pub(crate) fn level_editing(&self) -> bool {
         self.level.tab && self.level.edit.proj.is_some() && self.world.status["world"].is_string()
     }
@@ -191,6 +199,12 @@ impl Browser {
         }
         // the base world's lists, once a world is on show
         let world = self.world.status["world"].as_str().unwrap_or("").to_string();
+        if self.level.edit.proj.is_some() && !world.is_empty() && self.level.edit.base_world != world && !self.shows_level_world() {
+            // another world: none of its records are the level's
+            self.level.edit.base_world = world.clone();
+            self.level.edit.base.clear();
+            self.level.edit.start_problems.clear();
+        }
         if self.level.edit.proj.is_some() && !world.is_empty() && self.level.edit.base_world != world {
             self.level.edit.base_world = world;
             self.level.edit.base.clear();
@@ -278,10 +292,14 @@ impl Browser {
                             self.level.edit.errors.clear();
                             self.level.edit.warnings = warnings;
                             self.start_check();
-                            if self.level.edit.preview && self.world.status["world"].is_string() {
-                                self.request("level", json!({"path": path, "overlay": false}), Pending::LevelApplied);
-                            }
                             self.level.edit.preview_note = format!("checked in {ms:.0} ms");
+                            if self.level.edit.preview && self.world.status["world"].is_string() {
+                                if self.shows_level_world() {
+                                    self.request("level", json!({"path": path, "overlay": false}), Pending::LevelApplied);
+                                } else {
+                                    self.level.edit.preview_note += " · no preview: the world shown isn't the level's";
+                                }
+                            }
                         }
                         Err(errs) => {
                             self.level.edit.preview_note = format!("{} problem{} (the preview keeps the last good one)", errs.len(), if errs.len() == 1 { "" } else { "s" });
@@ -438,7 +456,7 @@ impl Browser {
     fn start_check(&mut self) {
         let paths: Vec<String> = self.level.edit.base.get("tileCars").map(|l| l.iter().filter_map(|e| e["path"].as_str().map(str::to_string)).collect()).unwrap_or_default();
         let starts: Vec<Value> = paths.iter().filter_map(|p| self.base_place("tileCars", p)).map(|(c, r)| json!({"pos": c, "rotY": r.unwrap_or(0.0)})).collect();
-        if !starts.is_empty() && starts.len() == paths.len() && self.world.status["world"].is_string() {
+        if !starts.is_empty() && starts.len() == paths.len() && self.shows_level_world() {
             self.request("startcheck", json!({"starts": starts}), Pending::StartCheck(paths));
         }
     }
