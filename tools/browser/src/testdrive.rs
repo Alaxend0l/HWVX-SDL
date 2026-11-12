@@ -1,5 +1,6 @@
 //! Test drives of a level project (docs-pending/mission-editor.md): the project compiled into the
-//! editor's scratch folder (tools/xdl_level.py testdrive: only what changed, its sources hashed),
+//! editor's scratch folder (the xdlrs crate's level::testdrive, tools/xdl_level.py testdrive's
+//! port: only what changed, its sources hashed),
 //! there a mod whose track is the level, and the game started straight into it (HWVX_START with
 //! the track's id and the car, HWVX_TESTDRIVE=1: its window in front, and leaving the race for
 //! the menus quits it). The scratch folder is the editor's own: the game's preferences, mods and
@@ -24,12 +25,11 @@ pub struct LevelError {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-    /// tools/ of the checkout (xdl_level.py)
+    /// tools/ of the checkout (its parent holds schemas/, which the level tools read)
     pub tools: PathBuf,
-    pub python: String,
     pub game: PathBuf,
     pub data: Option<PathBuf>,
-    /// The level built into a world pack of its own (tools/xdl_level_pack.py, from `data`);
+    /// The level built into a world pack of its own (xdlrs::level_pack, from `data`);
     /// false: the level file the game applies as the world loads, as a shared mod has it.
     pub build_pack: bool,
     pub project: PathBuf,
@@ -53,49 +53,52 @@ pub struct Prepared {
     pub level: PathBuf,
     /// nothing had changed: the last build was used
     pub cached: bool,
-    /// the tool's own time, and the whole step's (the Python start included)
+    /// the tool's own time, and the whole step's
     pub tool_ms: f64,
     pub ms: f64,
+}
+
+/// The level tools over the checkout's schemas (`tools`' parent).
+pub fn level_env(tools: &Path) -> Result<xdlrs::level::Env, String> {
+    let root = tools.parent().filter(|r| !r.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    xdlrs::level::Env::new(root).map_err(|e| format!("{}: {e}", root.join("schemas").display()))
+}
+
+/// The errors of a level tools' result as records.
+pub fn records(v: &Value) -> Vec<LevelError> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .map(|e| LevelError {
+                    file: e["file"].as_str().unwrap_or("").into(),
+                    path: e["path"].as_str().unwrap_or("").into(),
+                    message: e["message"].as_str().unwrap_or("").into(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Compiles the project for a test drive: Ok, or the errors by place.
 pub fn prepare(o: &Options) -> Result<Prepared, Vec<LevelError>> {
     let t0 = Instant::now();
-    let script = o.tools.join("xdl_level.py");
-    let mut cmd = Command::new(if o.python.is_empty() { "python3" } else { &o.python });
-    cmd.arg(&script).arg("testdrive").arg(&o.project).arg(&o.scratch);
-    if let Some(c) = o.car {
-        cmd.args(["--car", &c.to_string()]);
-    }
-    if o.skip_intro {
-        cmd.arg("--skip-intro");
-    }
-    if let (true, Some(d)) = (o.build_pack, &o.data) {
-        // the level built into its own world pack, from the player's data (cached)
-        cmd.arg("--data").arg(d).arg("--cache").arg(o.scratch.join("base-cache"));
-    }
     let one = |m: String| vec![LevelError { message: m, ..Default::default() }];
     std::fs::create_dir_all(&o.scratch).map_err(|e| one(format!("{}: {e}", o.scratch.display())))?;
-    let out = cmd.stdin(Stdio::null()).output().map_err(|e| one(format!("{}: {e}", script.display())))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let line = text.lines().rev().find(|l| l.trim_start().starts_with('{'));
-    let v: Value = match line.and_then(|l| serde_json::from_str(l).ok()) {
-        Some(v) => v,
-        None => return Err(one(format!("xdl_level.py testdrive: {}{}", text.trim(), String::from_utf8_lossy(&out.stderr).trim()))),
+    let env = level_env(&o.tools).map_err(one)?;
+    let d = xdlrs::level::DriveOpts {
+        car: o.car.map(i64::from),
+        skip_intro: o.skip_intro,
+        memory: false,
+        base: xdlrs::level::BaseOpts {
+            base: None,
+            // the level built into its own world pack, from the player's data (cached)
+            data: if o.build_pack { o.data.clone() } else { None },
+            cache: Some(o.scratch.join("base-cache")),
+        },
     };
+    let v = xdlrs::level::testdrive(&env, &o.project, &o.scratch, &d).map_err(|e| one(xdlrs::level::top_message(&e)))?;
     if v["ok"].as_bool() != Some(true) {
-        let errs: Vec<LevelError> = v["errors"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .map(|e| LevelError {
-                        file: e["file"].as_str().unwrap_or("").into(),
-                        path: e["path"].as_str().unwrap_or("").into(),
-                        message: e["message"].as_str().unwrap_or("").into(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let errs = records(&v["errors"]);
         return Err(if errs.is_empty() { one("the compile failed".into()) } else { errs });
     }
     Ok(Prepared {
@@ -244,34 +247,30 @@ impl Drop for TestDrive {
     }
 }
 
-/// tools/ of the checkout the game is in.
-/// Save as mod: the project packed into an installable .xmod at `out` (tools/xdl_level.py mod
-/// --xmod: the compiled level file and the project's sources; tools/xdl_mod.py's no-game-data
-/// check against an index of the player's own data, made once into the scratch's cache). The
-/// mod folder it packs is made in the scratch. Ok: the packer's line; Err: why it wasn't packed.
+/// Save as mod: the project packed into an installable .xmod at `out` (xdlrs::level::share, as
+/// tools/xdl_level.py mod --xmod: the compiled level file and the project's sources; the
+/// no-game-data check against an index of the player's own data, made once into the scratch's
+/// cache, is xdlrs::level_share::check_and_pack). The mod folder it packs is made in the
+/// scratch. Ok: the packer's line; Err: why it wasn't packed.
 pub fn share(o: &Options, out: &Path) -> Result<String, String> {
-    let script = o.tools.join("xdl_level.py");
     let stem = out.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "level".into());
     let folder = o.scratch.join("share").join(&stem);
-    let mut cmd = Command::new(if o.python.is_empty() { "python3" } else { &o.python });
-    cmd.arg(&script).arg("mod").arg(&o.project).arg(&folder).arg("--xmod").arg(out);
-    match &o.data {
-        Some(d) => cmd.arg("--data").arg(d).arg("--cache").arg(o.scratch.join("base-cache")),
-        None => return Err("the game's data folder isn't known (the check for game data needs it)".into()),
+    let Some(data) = &o.data else {
+        return Err("the game's data folder isn't known (the check for game data needs it)".into());
     };
     std::fs::create_dir_all(o.scratch.join("share")).map_err(|e| format!("{}: {e}", o.scratch.display()))?;
-    let r = cmd.stdin(Stdio::null()).output().map_err(|e| format!("{}: {e}", script.display()))?;
-    let text = format!("{}{}", String::from_utf8_lossy(&r.stdout), String::from_utf8_lossy(&r.stderr));
-    let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
-    if r.status.success() {
-        Ok(last)
-    } else {
-        Err(text.trim().to_string())
+    let env = level_env(&o.tools)?;
+    let base = xdlrs::level::BaseOpts { base: None, data: Some(data.clone()), cache: Some(o.scratch.join("base-cache")) };
+    match xdlrs::level::share(&env, &o.project, &folder, Some(out), &base, None) {
+        Ok(Ok(line)) => Ok(line),
+        Ok(Err(errors)) => Err(errors.iter().map(|e| format!("error: {e}")).collect::<Vec<_>>().join("\n")),
+        Err(e) => Err(format!("error: {}", xdlrs::level::top_message(&e))),
     }
 }
 
+/// tools/ of the checkout the game is in (the one whose parent has schemas/).
 pub fn default_tools(game: &Path) -> Option<PathBuf> {
-    game.ancestors().skip(1).map(|d| d.join("tools")).find(|d| d.join("xdl_level.py").is_file())
+    game.ancestors().skip(1).map(|d| d.join("tools")).find(|d| d.parent().is_some_and(|r| r.join("schemas").join("Trigger.schema.json").is_file()))
 }
 
 /// The editor's start "from here": below `at` (the ground the viewer's raycast found, a little

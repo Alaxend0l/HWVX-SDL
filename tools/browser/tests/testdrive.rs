@@ -20,7 +20,6 @@ fn options(scratch: &Path, project: &Path, data: Option<PathBuf>) -> Options {
     let game = std::env::var_os("HWVX_GAME").map(PathBuf::from).unwrap_or_else(default_game);
     Options {
         tools: root().join("tools"),
-        python: "python3".into(),
         game,
         build_pack: data.is_some(),
         data,

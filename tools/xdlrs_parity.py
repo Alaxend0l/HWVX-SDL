@@ -944,6 +944,8 @@ def shape_of(code, out, err):
         j = json.loads(out.strip().splitlines()[-1])
         return code, [(e["file"], e["path"]) for e in j.get("errors", [])], j.get("ok")
     except (ValueError, IndexError):
+        if "Traceback (most recent call last)" in err:
+            return code, ["error"], None        # the Python stops with a traceback; the port reports it
         return code, [_re.sub(r":.*", "", l) for l in err.splitlines() if l.startswith("error: ")], None
 
 

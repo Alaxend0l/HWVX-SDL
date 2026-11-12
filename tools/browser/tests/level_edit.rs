@@ -1,5 +1,5 @@
 //! The level editor (stage 21.3): the project model (src/level_model.rs: patches, undo and redo,
-//! saving that keeps comments, the copy xdl_level.py checks) and the viewer's editor commands
+//! saving that keeps comments, the copy the level tools check) and the viewer's editor commands
 //! (`records`, `record`, `level`, `marks`, `pick`'s path and ray) on ch1_l2.
 //!
 //!   HWVX_DATA=<GameCube files> cargo test --manifest-path tools/browser/Cargo.toml --test level_edit -- --test-threads=1
@@ -32,14 +32,12 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
+/// The level tools' check (xdl_level.py check --json's result)
 fn check(dir: &Path) -> Value {
-    let out = std::process::Command::new("python3")
-        .arg(root().join("tools/xdl_level.py"))
-        .args(["check", "--json"])
-        .arg(dir)
-        .output()
-        .unwrap();
-    serde_json::from_slice(String::from_utf8_lossy(&out.stdout).lines().last().unwrap_or("{}").as_bytes()).unwrap()
+    let env = xdlrs::level::Env::new(&root()).unwrap();
+    let (e, w) = xdlrs::level::check(&env, dir, &Default::default(), None).unwrap();
+    let rec = |x: &[String]| Value::Array(xdlrs::level::error_records(x).iter().map(|r| r.to_json()).collect());
+    json!({"ok": e.is_empty(), "errors": rec(&e), "warnings": rec(&w)})
 }
 
 #[test]
@@ -179,14 +177,9 @@ fn viewer_editor_commands() {
     let copy = s.join("copy");
     p.write_copy(&copy).unwrap();
     let out = s.join("preview.json");
-    let st = std::process::Command::new("python3")
-        .arg(root().join("tools/xdl_level.py"))
-        .args(["compile", "--json", "-o"])
-        .arg(&out)
-        .arg(&copy)
-        .status()
-        .unwrap();
-    assert!(st.success());
+    let env = xdlrs::level::Env::new(&root()).unwrap();
+    let c = xdlrs::level::compile(&env, &copy, Some(&out), &Default::default(), false, None).unwrap();
+    assert!(c.ok, "{:?}", c.errors);
     let a = v.call("level", json!({"path": out, "overlay": false})).unwrap();
     assert_eq!(a["level"], "uid://checkpointrun");
     assert_eq!(v.call("record", json!({"path": "World/0/timers/0/to"})).unwrap()["fields"]["time"], 40000.0);

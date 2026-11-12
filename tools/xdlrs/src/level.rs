@@ -2224,6 +2224,16 @@ pub fn base_project(env: &Env, world: &str, data: &Path, cache: &Path) -> Result
 // ------------------------------------------------------------------------------------------
 // the commands, as library calls
 
+/// An error the commands stop with, as xdl_level.py's main reports it (without "error: "): a
+/// level or trigger problem as it is, a Python exception of a wrongly shaped level.jsonc as
+/// "level.jsonc: TypeError: ...".
+pub fn top_message(e: &Error) -> String {
+    match e.kind {
+        Kind::Uncaught => format!("level.jsonc: {}", e.msg),
+        _ => e.msg.clone(),
+    }
+}
+
 /// Where the base world comes from: an extracted project, or the game's data (extracted once
 /// into the cache).
 #[derive(Clone, Debug, Default)]

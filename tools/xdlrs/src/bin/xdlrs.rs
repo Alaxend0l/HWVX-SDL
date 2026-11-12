@@ -785,11 +785,7 @@ fn level_main(cmd: &str, a: &Args) -> ExitCode {
     match r {
         Ok(c) => ExitCode::from(c as u8),
         Err(e) => {
-            match e.kind {
-                Kind::Level | Kind::Tac => eprintln!("error: {}", e.msg),
-                Kind::Uncaught => eprintln!("error: level.jsonc: {}", e.msg),
-                _ => eprintln!("error: {}", e.msg),
-            }
+            eprintln!("error: {}", xdlrs::level::top_message(&e));
             ExitCode::from(1)
         }
     }

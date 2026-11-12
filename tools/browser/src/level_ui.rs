@@ -23,7 +23,7 @@ pub struct LevelState {
     pub car: u32,
     pub skip_intro: bool,
     pub from_here: bool,
-    /// the test drive through a world pack of the level's own (tools/xdl_level_pack.py), the
+    /// the test drive through a world pack of the level's own (xdlrs::level_pack), the
     /// old way; off (the default): as a shared mod plays it, the level file applied as the world
     /// loads (Port_Level.c)
     pub build_pack: bool,
@@ -107,7 +107,6 @@ impl Browser {
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
         Options {
             tools: self.args.tools.clone().or_else(|| testdrive::default_tools(&game)).unwrap_or_else(|| "tools".into()),
-            python: std::env::var("HWVX_PYTHON").unwrap_or_else(|_| "python3".into()),
             game,
             data,
             build_pack: false,
