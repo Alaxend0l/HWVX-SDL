@@ -3,18 +3,26 @@
 //! the viewer protocol (docs-pending/viewer-protocol.md); the preview is the game's own window.
 //!
 //!   hwvx-browser [--game build/hwvx] [--data DIR] [--schemas DIR] [--pref DIR]
-//!                [--port N]                      a viewer already running
+//!                [--port N [--token T]]          a viewer already running (T: its token, or
+//!                                                HWVX_VIEWER_TOKEN; it logs one it made up)
 //!                [--load ARCHIVE:TYPE:ID] [--select NODE] [--app-shot FILE.bmp]
 //!
 //! --app-shot saves this window (once the --load and --select replies are in) and quits:
-//! for scripted screenshots of the browser itself.
+//! for scripted screenshots of the browser itself. It gives up (exit 1) on an error reply, a
+//! lost viewer, or after two minutes.
 
 use eframe::egui;
 use hwvx_browser::client::{SpawnOptions, Viewer, default_game, default_schemas};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// How long a request may wait for its reply (a big pack's load is a few seconds).
+const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
+const APP_SHOT_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Default, Clone)]
 struct Args {
@@ -23,6 +31,7 @@ struct Args {
     schemas: Option<PathBuf>,
     pref: Option<PathBuf>,
     port: Option<u16>,
+    token: Option<String>,
     window: Option<String>,
     load: Option<(String, String, u64)>,
     select: Option<String>,
@@ -40,6 +49,7 @@ fn parse_args() -> Result<Args, String> {
             "--schemas" => a.schemas = Some(val()?.into()),
             "--pref" => a.pref = Some(val()?.into()),
             "--port" => a.port = Some(val()?.parse().map_err(|_| "--port N")?),
+            "--token" => a.token = Some(val()?),
             "--window" => a.window = Some(val()?),
             "--load" => {
                 let v = val()?;
@@ -78,7 +88,6 @@ fn main() -> eframe::Result {
 
 /// What a request was for, to route its reply.
 enum Pending {
-    Hello,
     Packs,
     Load,
     Outline(String),
@@ -106,6 +115,8 @@ struct Node {
     type_name: Option<String>,
     offset: Option<u64>,
     size: Option<u64>,
+    /// id and type, lowercase: what Find searches
+    search: String,
 }
 
 #[derive(Default)]
@@ -115,14 +126,17 @@ struct Outline {
     nodes: Vec<Node>,
     children: HashMap<String, Vec<usize>>, // parent id ("" for roots) -> nodes
     shown: Vec<bool>,                      // with raw nodes hidden: those still drawn
+    found: Option<(String, bool, Vec<usize>)>, // Find's last filter, raw shown, and its matches
 }
 
 struct Browser {
     args: Args,
     ctx: egui::Context,
     viewer: Option<Viewer>,
+    /// The worker thread starting or connecting to the viewer.
+    connecting: Option<Receiver<Result<Viewer, String>>>,
     connect_error: Option<String>,
-    pending: HashMap<u64, Pending>,
+    pending: HashMap<u64, (Pending, Instant)>,
     hello: Value,
     status: String,
     status_error: bool,
@@ -149,6 +163,7 @@ struct Browser {
     script_select_sent: bool,
     app_shot_state: u32,
     app_shot_done: Arc<Mutex<Option<Result<String, String>>>>,
+    started: Instant,
 }
 
 impl Browser {
@@ -156,6 +171,7 @@ impl Browser {
         let shot_dir = std::env::current_dir().unwrap_or_default();
         let mut b = Browser {
             viewer: None,
+            connecting: None,
             connect_error: None,
             pending: HashMap::new(),
             hello: Value::Null,
@@ -180,6 +196,7 @@ impl Browser {
             script_select_sent: false,
             app_shot_state: 0,
             app_shot_done: Arc::new(Mutex::new(None)),
+            started: Instant::now(),
             args,
             ctx,
         };
@@ -187,36 +204,62 @@ impl Browser {
         b
     }
 
+    /// Starts (or connects to) the viewer on a worker thread: starting the game takes seconds.
     fn connect(&mut self) {
-        self.viewer = None;
-        let result = if let Some(port) = self.args.port {
-            Viewer::connect(port)
-        } else {
-            let game = self.args.game.clone().unwrap_or_else(default_game);
-            let game = std::fs::canonicalize(&game).unwrap_or(game);
-            let pref = self.args.pref.clone().unwrap_or_else(|| {
-                // next to the program, never the player's own saves and settings
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|e| e.parent().map(|d| d.join("viewer-pref")))
-                    .unwrap_or_else(|| PathBuf::from("viewer-pref"))
-            });
-            let log_file = Some(pref.join("viewer.log"));
-            Viewer::spawn(&SpawnOptions {
-                schemas: self.args.schemas.clone().or_else(|| default_schemas(&game)),
-                game,
-                data: self.args.data.clone(),
-                pref,
-                window: self.args.window.clone().or(Some("800x600".into())),
-                renderer: None,
-                log_file,
-            })
+        self.viewer = None; // (a game this started is killed)
+        self.pending.clear();
+        self.connect_error = None;
+        let args = self.args.clone();
+        let ctx = self.ctx.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = if let Some(port) = args.port {
+                let token = args.token.clone().or_else(|| std::env::var("HWVX_VIEWER_TOKEN").ok()).unwrap_or_default();
+                Viewer::connect(port, &token)
+            } else {
+                let game = args.game.clone().unwrap_or_else(default_game);
+                let game = std::fs::canonicalize(&game).unwrap_or(game);
+                let pref = args.pref.clone().unwrap_or_else(|| {
+                    // next to the program, never the player's own saves and settings
+                    std::env::current_exe()
+                        .ok()
+                        .and_then(|e| e.parent().map(|d| d.join("viewer-pref")))
+                        .unwrap_or_else(|| PathBuf::from("viewer-pref"))
+                });
+                let log_file = Some(pref.join("viewer.log"));
+                Viewer::spawn(&SpawnOptions {
+                    schemas: args.schemas.clone().or_else(|| default_schemas(&game)),
+                    game,
+                    data: args.data.clone(),
+                    pref,
+                    window: args.window.clone().or(Some("800x600".into())),
+                    renderer: None,
+                    log_file,
+                    token: None,
+                })
+            };
+            let _ = tx.send(result); // (the browser closed meanwhile: dropping it kills the game)
+            ctx.request_repaint();
+        });
+        self.connecting = Some(rx);
+        self.note("starting the viewer…".into());
+    }
+
+    /// The worker's result, once it is in.
+    fn check_connecting(&mut self) {
+        let Some(rx) = &self.connecting else { return };
+        let result = match rx.try_recv() {
+            Ok(r) => r,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Err("the viewer could not be started".into()),
         };
+        self.connecting = None;
         match result {
             Ok(v) => {
+                self.hello = v.hello.clone();
                 self.viewer = Some(v);
                 self.connect_error = None;
-                self.request("hello", json!({}), Pending::Hello);
+                self.note(String::new());
                 self.request("packs", json!({}), Pending::Packs);
                 self.request("status", json!({}), Pending::Camera);
             }
@@ -228,7 +271,7 @@ impl Browser {
         let Some(v) = self.viewer.as_mut() else { return };
         match v.send(cmd, args) {
             Ok(seq) => {
-                self.pending.insert(seq, why);
+                self.pending.insert(seq, (why, Instant::now()));
             }
             Err(e) => self.fail(e),
         }
@@ -272,8 +315,24 @@ impl Browser {
     fn handle_replies(&mut self) {
         let Some(v) = self.viewer.as_mut() else { return };
         let replies = v.poll();
+        let closed = v.closed.clone();
+        if let Some(e) = closed {
+            // gone: nothing pending will be answered
+            self.viewer = None;
+            self.pending.clear();
+            self.connect_error = Some(e);
+            return;
+        }
+        let now = Instant::now();
+        let late: Vec<u64> = self.pending.iter().filter(|(_, (_, t))| now.duration_since(*t) > REPLY_TIMEOUT).map(|(s, _)| *s).collect();
+        if !late.is_empty() {
+            for s in late {
+                self.pending.remove(&s);
+            }
+            self.fail(format!("the viewer did not answer in {} s", REPLY_TIMEOUT.as_secs()));
+        }
         for (seq, r) in replies {
-            let why = self.pending.remove(&seq).unwrap_or(Pending::Quiet);
+            let why = self.pending.remove(&seq).map(|(p, _)| p).unwrap_or(Pending::Quiet);
             let ok = r.get("ok").and_then(Value::as_bool) == Some(true);
             if !ok {
                 let e = r.get("error").and_then(Value::as_str).unwrap_or("failed").to_string();
@@ -281,7 +340,6 @@ impl Browser {
                 continue;
             }
             match why {
-                Pending::Hello => self.hello = r,
                 Pending::Packs => {
                     self.packs = r["packs"]
                         .as_array()
@@ -339,6 +397,24 @@ impl Browser {
 
     /// --load / --select / --app-shot, in that order, each once the one before is answered.
     fn script(&mut self, ctx: &egui::Context) {
+        if self.args.app_shot.is_some() {
+            // never waits forever: an error, a lost viewer, or the time running out ends it
+            let gave_up = if let Some(e) = &self.connect_error {
+                Some(e.clone())
+            } else if self.status_error {
+                Some(self.status.clone())
+            } else if self.started.elapsed() > APP_SHOT_TIMEOUT {
+                Some(format!("no screenshot in {} s", APP_SHOT_TIMEOUT.as_secs()))
+            } else {
+                None
+            };
+            if let Some(e) = gave_up {
+                eprintln!("hwvx-browser: --app-shot: {e}");
+                self.viewer = None; // (kills the game: exit skips destructors)
+                std::process::exit(1);
+            }
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
         if self.viewer.is_none() {
             return;
         }
@@ -425,8 +501,7 @@ impl Browser {
                 }
                 _ => {}
             }
-            if ui.button("Reconnect").clicked() {
-                self.pending.clear();
+            if ui.add_enabled(self.connecting.is_none(), egui::Button::new("Reconnect")).clicked() {
                 self.connect();
             }
             if let Some(o) = &self.outline {
@@ -502,41 +577,48 @@ impl Browser {
         ui.separator();
         let mut clicked: Option<(String, bool)> = None;
         let selected = self.selected.clone();
-        egui::ScrollArea::vertical().id_salt("outline").auto_shrink([false, false]).show(ui, |ui| {
-            if !self.node_filter.is_empty() {
-                let f = self.node_filter.to_lowercase();
-                for (i, n) in o.nodes.iter().enumerate() {
-                    if o.shown[i] && (n.id.to_lowercase().contains(&f) || n.type_name.as_deref().unwrap_or("").to_lowercase().contains(&f)) {
-                        let r = ui.selectable_label(selected.as_deref() == Some(n.id.as_str()), node_label(n, true));
-                        if r.clicked() {
-                            clicked = Some((n.id.clone(), r.double_clicked()));
-                        }
+        if !self.node_filter.is_empty() {
+            let f = self.node_filter.to_lowercase();
+            if o.found.as_ref().is_none_or(|(g, raw, _)| *g != f || *raw != self.show_raw) {
+                let hits = (0..o.nodes.len()).filter(|&i| o.shown[i] && o.nodes[i].search.contains(&f)).collect();
+                o.found = Some((f, self.show_raw, hits));
+            }
+            let hits = &o.found.as_ref().unwrap().2;
+            let row = ui.spacing().interact_size.y;
+            egui::ScrollArea::vertical().id_salt("found").auto_shrink([false, false]).show_rows(ui, row, hits.len(), |ui, range| {
+                for &i in &hits[range] {
+                    let n = &o.nodes[i];
+                    let r = ui.selectable_label(selected.as_deref() == Some(n.id.as_str()), node_label(n, true));
+                    if r.clicked() {
+                        clicked = Some((n.id.clone(), r.double_clicked()));
                     }
                 }
-                return;
-            }
-            let roots = o.children.get("").cloned().unwrap_or_default();
-            for (group, kinds) in [
-                ("Objects", &["typed", "raw"][..]),
-                ("Geometry", &["geometry"][..]),
-                ("Textures", &["texture"][..]),
-                ("Shaders", &["shader"][..]),
-                ("Triggers", &["trigger"][..]),
-            ] {
-                let items: Vec<usize> = roots.iter().copied().filter(|&i| o.shown[i] && kinds.contains(&o.nodes[i].kind.as_str())).collect();
-                if items.is_empty() {
-                    continue;
+            });
+        } else {
+            egui::ScrollArea::vertical().id_salt("outline").auto_shrink([false, false]).show(ui, |ui| {
+                let roots = o.children.get("").cloned().unwrap_or_default();
+                for (group, kinds) in [
+                    ("Objects", &["typed", "raw"][..]),
+                    ("Geometry", &["geometry"][..]),
+                    ("Textures", &["texture"][..]),
+                    ("Shaders", &["shader"][..]),
+                    ("Triggers", &["trigger"][..]),
+                ] {
+                    let items: Vec<usize> = roots.iter().copied().filter(|&i| o.shown[i] && kinds.contains(&o.nodes[i].kind.as_str())).collect();
+                    if items.is_empty() {
+                        continue;
+                    }
+                    egui::CollapsingHeader::new(format!("{group} ({})", items.len()))
+                        .id_salt(("group", group))
+                        .default_open(group == "Objects")
+                        .show(ui, |ui| {
+                            for i in items {
+                                tree_node(ui, o, i, selected.as_deref(), &mut clicked);
+                            }
+                        });
                 }
-                egui::CollapsingHeader::new(format!("{group} ({})", items.len()))
-                    .id_salt(("group", group))
-                    .default_open(group == "Objects")
-                    .show(ui, |ui| {
-                        for i in items {
-                            tree_node(ui, o, i, selected.as_deref(), &mut clicked);
-                        }
-                    });
-            }
-        });
+            });
+        }
         if let Some((id, focus)) = clicked {
             self.select(&id, focus);
         }
@@ -800,10 +882,19 @@ impl Browser {
 impl eframe::App for Browser {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.check_connecting();
         self.handle_replies();
         self.script(&ctx);
-        if !self.pending.is_empty() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        if !self.pending.is_empty() || self.connecting.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(30));
+        }
+        if self.connecting.is_some() {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.heading("Starting the viewer…");
+                ui.label(if self.args.port.is_some() { "connecting to the running game" } else { "the game is starting in its own window" });
+                ui.spinner();
+            });
+            return;
         }
         if let Some(e) = self.connect_error.clone() {
             egui::CentralPanel::default().show(ui, |ui| {
@@ -872,6 +963,7 @@ fn build_outline(pack: String, mut r: Value) -> Outline {
             type_name: n["type"].as_str().map(String::from),
             offset: n["offset"].as_u64(),
             size: n["size"].as_u64(),
+            search: format!("{}\u{0}{}", n["id"].as_str().unwrap_or(""), n["type"].as_str().unwrap_or("")).to_lowercase(),
         });
         parents.push(n["parent"].as_str().unwrap_or("").to_string());
     }
@@ -880,7 +972,7 @@ fn build_outline(pack: String, mut r: Value) -> Outline {
         children.entry(p).or_default().push(i);
     }
     let shown = shown_nodes(&nodes, &children, false);
-    Outline { pack, info: r, nodes, children, shown }
+    Outline { pack, info: r, nodes, children, shown, found: None }
 }
 
 /// With raw nodes hidden, a raw node still shows when something typed is below it.

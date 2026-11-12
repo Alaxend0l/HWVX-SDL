@@ -119,6 +119,7 @@ static int CheckLittle(const u8 *b, size_t len, u32 version, char *err, size_t e
 static int Finish(PortImportSource *src, const u8 *gcLayout, int order, char *err, size_t errSize) {
     const PortSaveKind *kind = Port_SaveKindByName("hwvx");
 
+    /* (callers have HW_SIZE bytes at gcLayout) */
     src->saveFile = SDL_malloc(HW_SIZE);
     if (src->saveFile == NULL) {
         return Fail(err, errSize, "out of memory");
@@ -142,6 +143,9 @@ static int ReadGameCube(const u8 *b, size_t len, int order, PortImportSource *sr
     version = order == PORT_SAVE_ORDER_BIG ? GetBE32(b + 4) : GetLE32(b + 4);
     if (magic == SAVE_FILE_MAGIC && version == DDR_VERSION) {
         return Fail(err, errSize, "a Doomsday Rescue save: only Hot Wheels progress is imported");
+    }
+    if (len < HW_SIZE) {
+        return Fail(err, errSize, "cut short: %u bytes of %u", (unsigned)len, (unsigned)HW_SIZE);
     }
     src->release = PORT_RELEASE_GC;
     return Finish(src, b, order, err, errSize);
@@ -372,6 +376,10 @@ static int Ps2Open(Ps2Card *c, const u8 *b, size_t len, char *err, size_t errSiz
     u8 *buf, *buf2;
 
     SDL_zerop(c);
+    if (len < 512) {
+        /* the superblock (with the indirect FAT cluster list at 0x50..0xCF) is page 0 */
+        return Fail(err, errSize, "the PS2 card is cut short (%u bytes)", (unsigned)len);
+    }
     c->d = b;
     c->len = len;
     c->pageLen = GetLE16(b + 0x28);
@@ -785,8 +793,37 @@ static void MergeSlot(u8 *target, const PortImportSource *src, int si, int from,
     out->added[PORT_SAVE_IDS_ITEMS] = Union(t->items, g->items, sizeof(g->items), 0, &out->raised);
     out->cheats = (u32)Union(t->cheats, g->cheats, sizeof(g->cheats), 0, &out->raised);
     out->extras = (u32)Union(t->extras, g->extras, sizeof(g->extras), 0, &out->raised);
+    if (out->isNew && t->vehicle >= 0 && t->vehicle < (s32)sizeof(t->cars) && t->cars[t->vehicle] == 0) {
+        /* its chosen car left locked (a default car not taken): the first
+         * unlocked one, else none (-1, as GameSettings_LoadGame reads a car
+         * it hasn't) */
+        s32 v = -1;
+        for (i = 0; i < (int)sizeof(t->cars) && v < 0; i++) {
+            if (t->cars[i] != 0) {
+                v = i;
+            }
+        }
+        t->vehicle = v;
+    }
     out->changes = Bits(out->added[0]) + Bits(out->added[1]) + Bits(out->added[2]) + Bits(out->cheats) +
                    Bits(out->extras) + out->raised + out->scriptValues + out->isNew;
+}
+
+/* Whether source s is imported (opt->onlySource). */
+static int Imported(const PortImportSource *srcs, int s, const PortImportOptions *opt) {
+    return s < PORT_IMPORT_MAX_SOURCES && srcs[s].saveFile != NULL && (opt->onlySource < 0 || opt->onlySource == s);
+}
+
+/* The first source imported, or -1. */
+static int FirstImported(const PortImportSource *srcs, int n, const PortImportOptions *opt) {
+    int s;
+
+    for (s = 0; s < n; s++) {
+        if (Imported(srcs, s, opt)) {
+            return s;
+        }
+    }
+    return -1;
 }
 
 void Port_SaveImportMerge(u8 *target, const PortImportSource *srcs, int n, const PortImportOptions *opt,
@@ -798,20 +835,15 @@ void Port_SaveImportMerge(u8 *target, const PortImportSource *srcs, int n, const
     plan->numSlots = 0;
     plan->changes = 0;
     plan->defaultCarsOffered = 0;
-    if (blank) {
-        /* no save yet: the settings come with the first file's */
-        for (s = 0; s < n; s++) {
-            if (srcs[s].saveFile != NULL) {
-                SDL_memcpy(&tf->settings, &((const SaveFile *)srcs[s].saveFile)->settings, sizeof(tf->settings));
-                SDL_memset(tf->settings.slots, 0, sizeof(tf->settings.slots));
-                break;
-            }
-        }
+    if (blank && (s = FirstImported(srcs, n, opt)) >= 0) {
+        /* no save yet: the settings come with the first imported file's */
+        SDL_memcpy(&tf->settings, &((const SaveFile *)srcs[s].saveFile)->settings, sizeof(tf->settings));
+        SDL_memset(tf->settings.slots, 0, sizeof(tf->settings.slots));
     }
     for (s = 0; s < n && s < PORT_IMPORT_MAX_SOURCES; s++) {
         const SaveFile *sf = (const SaveFile *)srcs[s].saveFile;
 
-        if (sf == NULL || (opt->onlySource >= 0 && opt->onlySource != s)) {
+        if (!Imported(srcs, s, opt)) {
             continue;
         }
         for (k = 0; k < SAVE_FILE_SLOTS; k++) {
@@ -853,17 +885,22 @@ static int Merge(const PortImportSource *srcs, int n, const PortImportOptions *o
     }
     Port_SaveImportMerge(target, srcs, n, opt, plan);
     if (apply && plan->changes > 0) {
-        const char *base = srcs[0].path, *slash = SDL_strrchr(base, '/');
+        int first = FirstImported(srcs, n, opt);   /* (changes: there is one) */
+        const char *base = srcs[first].path, *slash = SDL_strrchr(base, '/');
         if (slash == NULL) {
             slash = SDL_strrchr(base, '\\');
         }
-        SDL_snprintf(from, sizeof(from), "%s (%s)", slash != NULL ? slash + 1 : base, Port_SaveReleaseName(srcs[0].release));
+        SDL_snprintf(from, sizeof(from), "%s (%s)", slash != NULL ? slash + 1 : base,
+                     Port_SaveReleaseName(srcs[first].release));
         ok = Port_SavesWriteImported("hwvx", target, HW_SIZE, from);
         if (!ok) {
             Fail(err, errSize, "the save couldn't be written (the log says why)");
         } else {
             int i;
             for (i = 0; i < n; i++) {
+                if (!Imported(srcs, i, opt)) {
+                    continue;
+                }
                 Port_Log("saves: imported %s, %s%s%s", srcs[i].path, Port_SaveContainerName(srcs[i].container),
                          srcs[i].where[0] ? ": " : "", srcs[i].where);
             }
