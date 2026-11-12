@@ -1023,6 +1023,12 @@ def build_collision(col, C, grid=None, log=print):
                             per.setdefault((x, y, z), []).append((plane, piece, mat, own))
     cells, index = [], [0] * (nx * ny * nz)
     edges = [(np.asarray(a, float), np.asarray(b, float), m) for a, b, m in col.creases]
+    # the edges' bounds: a cell tests only the edges whose bounds reach its box (a segment hits
+    # a box only then), not every edge of the mesh
+    if edges:
+        ea = np.array([e[0] for e in edges])
+        eb = np.array([e[1] for e in edges])
+        emin, emax = np.minimum(ea, eb) - 1e-6, np.maximum(ea, eb) + 1e-6
     oracle = Sources(col)
     squares = set(per)
     for key in oracle.boxes:
@@ -1036,7 +1042,9 @@ def build_collision(col, C, grid=None, log=print):
         tree = cell_tree(per.get((x, y, z), []), clo, chi, oracle)
         if not tree:
             continue
-        eids = [i for i, (a, b, m) in enumerate(edges) if seg_hits_box(a, b, clo - EDGE_REACH, chi + EDGE_REACH)]
+        blo, bhi = clo - EDGE_REACH, chi + EDGE_REACH
+        near = np.nonzero(np.all(emax >= blo, 1) & np.all(emin <= bhi, 1))[0] if edges else []
+        eids = [int(i) for i in near if seg_hits_box(edges[i][0], edges[i][1], blo, bhi)]
         cells.append((clo, chi, tree, eids))
         index[x + nx * (z + nz * y)] = len(cells)
     return {"lo": lo, "hi": hi, "n": n, "size": size, "index": index, "edges": edges}, cells
