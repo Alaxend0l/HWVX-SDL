@@ -549,6 +549,9 @@ s32 Player_DefaultControlReader(void *arg0) {
     if (Port_OnlineMenuOpen()) {
         return 1;               /* port: online, the pause menu has the pad */
     }
+    if (Port_AutopilotDrive(player)) {
+        return 1;               /* port, testing: HWVX_AUTOPILOT drives (Port_Autopilot.c); not while held (flags & 1) */
+    }
     if (player->flags & 1) {
         player->down[3] = 0xFF;
         player->down[2] = 0xFF;
