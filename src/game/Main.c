@@ -1,5 +1,7 @@
 #include "common.h"
 
+int Port_Converting(void);
+
 s32 Main_Init(void) {
     
     s8 Init_Display(void);
@@ -42,6 +44,9 @@ s32 Main_Init(void) {
     InterfaceManager_Init();
     GameSettings_GetGameInfo(&info);
     FileManager_SetAppInfo(GETP(info.name), GETP(info.id), GETP(info.title), GETP(info.fileName), GETP(info.icon));
+    if (Port_Converting()) {
+        return 1;   /* port: no state runs, the packs are converted (Port_Convert.c) */
+    }
     return StateManager_GotoState(12) != -1;
 }
 

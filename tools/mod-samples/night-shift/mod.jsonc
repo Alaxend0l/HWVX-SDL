@@ -1,0 +1,35 @@
+// A sample mod with no game data in it (docs/xdl-format §8): a new car made of
+// base parts, and a recolour of a base car, each a few numbers. Packed and
+// checked by tools/xdl_mod.py, loaded by src/game/Port_Mods.c.
+{
+  "$schema": "../../../schemas/Mod.schema.json",
+  "format_version": 1,
+  "id": "uid://nightshift001",
+  "name": "Night Shift",
+  "version": "1.0.0",
+  "author": "HWVX-SDL",
+  "description": "A 34th car built on car 5 with its own paint and tuning; car 7 in red.",
+  "cars": {
+    "uid://nightshiftcar": {
+      "extends": "base://HW_Cars/car_5",      // its model, sounds and scripts: the player's own
+      "name": "Night Shift",
+      "unlocked": true,
+      // RFC 7396 merge patches, per object: only what differs from car 5
+      "patch": {
+        "CarAInfo/0": { "maxRpm": 8200, "turboTorqueScale": 1.3 },
+        "CarAInfo/0/engine": { "steerRate": 7.5, "damageScale": 0.03 },
+        "CarAInfo/0/accel": { "brakeDecel": 1.25 }
+      },
+      // art edits are recipes applied to the player's copy, never pixels
+      "recipes": {
+        "texture/0": [ { "op": "hue_shift", "degrees": 140 }, { "op": "brightness", "amount": 0.8 } ]
+      }
+    }
+  },
+  "patches": {
+    "base://HW_Cars/car_7/CarAInfo/0/accel": { "engineBrake": 0.4 }
+  },
+  "recipes": {
+    "base://HW_Cars/car_7/texture/1": [ { "op": "tint", "color": [1.0, 0.45, 0.45] } ]
+  }
+}

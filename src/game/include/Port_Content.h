@@ -82,11 +82,16 @@ typedef struct PortContentEntry {
     const char *suffix;     /* after the alias's name (" (test)"), or NULL */
     const char *thumbnail;  /* a texture link, base://<archive>/<type>_<id>/texture/<n>
                              * (§8.1) of a loaded pack; NULL or not loaded: the alias's picture */
+    const char *world;      /* a track: the world archive its level loads, as the MCP names one
+                             * (worlds_\\sp_\\chal1_\\ch1_l2); NULL: its alias's. The rest of the
+                             * level (loading screen, steps, win and lose sequences) is the alias's */
 } PortContentEntry;
 s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e);
 /* A registered entry's look (NULL each where the alias's is used): 1; 2 if
  * it's reserved; 0 if entry i isn't registered. */
 int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, const char **thumbnail);
+/* A registered track's own world archive, or NULL. */
+const char *Port_ContentWorld(int kind, u32 i);
 /* A project's ids.lock (JSONC, docs §10.5.1): its entries registered at
  * their numbers, in number order, after the base counts are set. Entries
  * without a number (or with one base content or another entry has) get the
@@ -145,5 +150,32 @@ void Port_ContentFixScripts(void *dataPack, const char *name, u32 type, u32 id);
 /* Port_MenuPatch: the menus' car, track and item ranges to the counts. */
 struct InterfaceHeader;
 void Port_ContentPatchInterface(struct InterfaceHeader *h);
+
+/* ---- tracks (Port_ContentData.c) ----------------------------------------- */
+
+/* The world selects reachable from `root` (a menu pack's screen) say which
+ * track numbers each progression script's levels are (its family); the
+ * registered tracks aliasing one of a family become levels after the
+ * script's own (the MCP's script is replaced by a longer copy). Done by
+ * Port_ContentPatchInterface for every screen created; HWVX_START calls it
+ * for the title's screen before it starts a race. */
+void Port_ContentLearnTracks(const struct InterfaceHeader *root);
+/* The track number of progression `prog`'s world select entry `local` (the
+ * select's track variable: the family's numbers, then one per registered
+ * track of the family); `local` itself where there's none. */
+u32 Port_ContentTrackAt(u32 prog, u32 local);
+/* The registered track that is level `level` of progression `prog`, -1 if
+ * it's one of the script's own. */
+s32 Port_ContentTrackOfLevel(u32 prog, u32 level);
+/* A world select (patched first) opens at level `level`: 1 if h is one. */
+int Port_ContentTrackSelectAt(struct InterfaceHeader *h, s32 level);
+
+/* Online play (Port_Online.c): a car or item choice written so that another
+ * machine, whose registered content is numbered by its own ids.lock, reads
+ * the same one, or the base entry it is made from when it lacks it. */
+struct NetWriter;
+struct NetReader;
+void Port_ContentWriteChoice(struct NetWriter *w, int kind, s32 n);
+s32 Port_ContentReadChoice(struct NetReader *r, int kind);
 
 #endif

@@ -40,6 +40,7 @@
 #include "Port_Saves.h"
 #include "Port_Content.h"
 #include "jsonc.h"
+#include "net.h"
 
 /* ---- the port functions the store uses --------------------------------- */
 
@@ -698,6 +699,46 @@ static void TestRegistry(void) {
           Port_ContentUnlocked(PORT_CONTENT_CAR, 33) == 0, "a new game");
     Port_ContentReset();
     CHECK(Port_ContentCount(PORT_CONTENT_CAR) == 33 && !Port_ContentIndexOf(PORT_CONTENT_CAR, "uid://0011223344556677", &index), "reset");
+
+    /* online: choices go by id past the base content (Port_ContentWriteChoice) */
+    {
+        u8 wire[256];
+        NetWriter w;
+        NetReader r;
+        s32 c0, c1, c2, c3, c4;
+
+        /* this machine: 36 and 37 registered, as above */
+        Port_ContentSetBaseCount(PORT_CONTENT_CAR, 36);
+        Port_ContentRegister(PORT_CONTENT_CAR, "uid://0011223344556677", 4, 0);
+        Port_ContentRegister(PORT_CONTENT_CAR, "uid://8899aabbccddeeff", -1, 1);
+        NetWriter_Init(&w, wire, sizeof(wire));
+        Port_ContentWriteChoice(&w, PORT_CONTENT_CAR, 5);    /* base */
+        Port_ContentWriteChoice(&w, PORT_CONTENT_CAR, 36);   /* uid://0011..., data of car 4 */
+        Port_ContentWriteChoice(&w, PORT_CONTENT_CAR, 37);   /* uid://8899..., data of its own */
+        Port_ContentWriteChoice(&w, PORT_CONTENT_ITEM, -1);  /* no item */
+        Port_ContentWriteChoice(&w, PORT_CONTENT_CAR, 99);   /* nothing here */
+        CHECK(w.ok, "choices written");
+        /* this machine reads its own back */
+        NetReader_Init(&r, wire, w.size);
+        c0 = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+        c1 = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+        c2 = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+        c3 = Port_ContentReadChoice(&r, PORT_CONTENT_ITEM);
+        c4 = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+        CHECK(r.ok && c0 == 5 && c1 == 36 && c2 == 37 && c3 == -1 && c4 == 0, "own choices %d %d %d %d %d", (int)c0,
+              (int)c1, (int)c2, (int)c3, (int)c4);
+        /* another machine: the same cars registered the other way round, one missing */
+        Port_ContentReset();
+        Port_ContentSetBaseCount(PORT_CONTENT_CAR, 36);
+        Port_ContentRegister(PORT_CONTENT_CAR, "uid://8899aabbccddeeff", -1, 1);   /* 36 here */
+        NetReader_Init(&r, wire, w.size);
+        c0 = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+        c1 = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+        c2 = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
+        CHECK(r.ok && c0 == 5 && c1 == 4 && c2 == 36, "another machine: base 5, missing -> its alias 4, by id -> 36: %d %d %d",
+              (int)c0, (int)c1, (int)c2);
+        Port_ContentReset();
+    }
 }
 
 /* The game's flow around a save, as GameSettings_SaveGame / LoadGame do it:

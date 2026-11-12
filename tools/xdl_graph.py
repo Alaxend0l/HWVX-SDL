@@ -728,6 +728,8 @@ class Extractor:
         for nd in self.nodes:
             home = self._home(nd)
             layout.append({"id": nd.id, "file": home.file, "align": align_of(nd.start)})
+            if home is nd and nd.label:
+                layout[-1]["type"] = nd.label         # tools/xdl_components.py finds its candidates by this
             if home is not nd:
                 rec, b = self.raw_record(nd)
                 rec = {"id": nd.id, **({"type": nd.label} if nd.label else {}), **rec}
@@ -978,7 +980,7 @@ def rec_bytes(folder, rec):
 
 
 class Builder:
-    def __init__(self, proj, S=None):
+    def __init__(self, proj, S=None, lib=None):
         self.dir = Path(proj)
         self.S = S or XS.Schemas()
         self.pack = read_jsonc(self.dir / "pack.jsonc")
@@ -989,6 +991,8 @@ class Builder:
         self.name = pack_name(ent)
         self.docs = {}
         self.edited = []
+        self.lib = lib                # the component library (xdl_components.Library); found when needed
+        self.instances = {}
 
     def doc(self, stem, ext=".jsonc"):
         key = stem + ext
@@ -1010,7 +1014,14 @@ class Builder:
                 return self.typed(ent, stem, folder, d)
         if d is None:
             d = self.doc(stem)
-        rec = d if d.get("id") == nid else d.get("children", {}).get(nid)
+        if "component" in d:                    # a component instance (tools/xdl_components.py)
+            rec = self.instance(stem).get(nid)
+            if rec is None:
+                raise GraphError(f"{nid}: not a node of the component instance {stem}.jsonc")
+            if "schema" in rec:
+                return self.typed_rec(ent, stem, rec["schema"], rec["doc"], rec["base"])
+        else:
+            rec = d if d.get("id") == nid else d.get("children", {}).get(nid)
         if rec is None:
             raise GraphError(f"{nid}: not in {stem}.jsonc")
         b = Built(nid, rec_bytes(folder, rec), ent["align"])
@@ -1019,10 +1030,23 @@ class Builder:
         rec_slots(b, rec)
         return b
 
+    def instance(self, stem):
+        """{node id: record} of the component instance in STEM.jsonc, expanded once."""
+        if stem not in self.instances:
+            import xdl_components as XC
+            if self.lib is None:
+                self.lib = XC.Library.locate(self.dir, self.pack.get("components"))
+            try:
+                self.instances[stem] = XC.expand(self.lib, self.doc(stem))
+            except GraphError as e:
+                raise GraphError(f"{stem}.jsonc: {e}")
+        return self.instances[stem]
+
     def typed(self, ent, stem, folder, base):
-        sname = base["schema"]
-        data = rec_bytes(folder, base)
-        doc = self.doc(stem)
+        return self.typed_rec(ent, stem, base["schema"], self.doc(stem), base)
+
+    def typed_rec(self, ent, stem, sname, doc, base):
+        data = rec_bytes(self.dir, base)
         sch = self.S.struct(sname)
         v, vk = XS.validator(self.S.top[sname][0])
         errs = [str(getattr(e, "message", e)) for e in v.iter_errors(doc)]
@@ -1077,7 +1101,18 @@ class Builder:
 
     def build(self, out):
         out = Path(out)
-        layout = self.pack["layout"]
+        layout = list(self.pack["layout"])
+        have = {ent["id"] for ent in layout}
+        for stem in self.pack.get("append", []):      # files whose nodes the layout doesn't list yet
+            d = self.doc(stem)
+            if "component" in d:
+                new = [(i, r.get("align", 4)) for i, r in self.instance(stem).items()]
+            else:
+                new = [(d["id"], d.get("align", 4))] + [(i, r.get("align", 4)) for i, r in d.get("children", {}).items()]
+            for nid, al in new:
+                if nid not in have:
+                    have.add(nid)
+                    layout.append({"id": nid, "file": stem, "align": al})
         built = [self.node(ent) for ent in layout]
         # place
         pos = 0

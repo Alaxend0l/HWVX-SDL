@@ -53,7 +53,7 @@ typedef int NetSocket;
 #include "net_roots.h"
 
 #define NET_MAGIC 0x58565748u   /* "HWVX" */
-#define NET_PROTOCOL 1
+#define NET_PROTOCOL 2   /* 2: cars and items by id past the base content (Port_Online.c) */
 
 enum {
     KIND_HELLO = 1,
