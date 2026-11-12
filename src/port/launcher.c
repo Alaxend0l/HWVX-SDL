@@ -185,14 +185,16 @@ static int LoadSources(Sources *s) {
     return 1;
 }
 
+/* Written to sources.cfg.tmp, then renamed over it: never left half written. */
 static void SaveSources(const Sources *s) {
-    char *path = PrefFile("sources.cfg");
-    SDL_IOStream *io = path != NULL ? SDL_IOFromFile(path, "w") : NULL;
+    char *path = PrefFile("sources.cfg"), *tmp = NULL;
+    SDL_IOStream *io = path != NULL && SDL_asprintf(&tmp, "%s.tmp", path) >= 0 ? SDL_IOFromFile(tmp, "w") : NULL;
     int i, ok;
 
     if (io == NULL) {
         Port_Log("sources.cfg: %s", SDL_GetError());
         SDL_free(path);
+        SDL_free(tmp);
         return;
     }
     ok = 1;
@@ -212,10 +214,12 @@ static void SaveSources(const Sources *s) {
     if (s->tab >= 0) {
         ok &= SDL_IOprintf(io, "tab=%s\n", s_tabKeys[s->tab]) > 0;
     }
-    if (!SDL_CloseIO(io) || !ok) {
+    if (!SDL_CloseIO(io) || !ok || !Port_ReplaceFile(tmp, path)) {
         Port_Log("sources.cfg: %s", SDL_GetError());
+        SDL_RemovePath(tmp);
     }
     SDL_free(path);
+    SDL_free(tmp);
 }
 
 static void FreeSources(Sources *s) {
@@ -1608,17 +1612,14 @@ static int FirstFocus(const Launcher *l) {
     return l->buttons[play].enabled ? play : ButtonFor(l, ACT_QUIT);
 }
 
-/* Shows page `tab` (wrapping round), remembered in sources.cfg. Not while
- * the saves preview is open. */
+/* Shows page `tab` (wrapping round), remembered in sources.cfg (written when
+ * the launcher closes). Not while the saves preview is open. */
 static void SwitchTab(Launcher *l, int tab) {
     if (l->savesView) {
         return;
     }
     l->tab = (tab + TAB_COUNT) % TAB_COUNT;
-    if (l->src.tab != l->tab) {
-        l->src.tab = l->tab;
-        SaveSources(&l->src);
-    }
+    l->src.tab = l->tab;
     Layout(l);
     l->focus = FirstFocus(l);
 }
@@ -2110,12 +2111,13 @@ const char *Port_LauncherMix(void) {
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search) {
     Launcher l;
     char *chosen = NULL, *legacy, *found = NULL;
-    int i, valid, firstRun;
+    int i, valid, firstRun, tabLoaded;
 
     SDL_zero(l);
     l.pointer.x = l.pointer.y = -1;
     l.check = check;
     firstRun = !LoadSources(&l.src);
+    tabLoaded = l.src.tab;
     /* on the first run only (no sources.cfg yet), take over what the port
      * used before (datadir.txt), else look around; later, a removed source
      * stays removed */
@@ -2221,6 +2223,9 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
             chosen = SDL_strdup(l.src.path[l.src.play]);
             UseConverted(&l.src);
         }
+    }
+    if (l.src.tab != tabLoaded) {
+        SaveSources(&l.src);    /* the page shown last */
     }
     CloseSaves(&l);
     SDL_DestroyRenderer(l.renderer);
