@@ -23,6 +23,7 @@ pub mod encode;
 pub mod error;
 pub mod jsonc;
 pub mod jsonc_edit;
+pub mod modcheck;
 pub mod ops;
 pub mod pack;
 pub mod py;
