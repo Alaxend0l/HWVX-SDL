@@ -23,6 +23,12 @@ pub struct LevelState {
     pub car: u32,
     pub skip_intro: bool,
     pub from_here: bool,
+    /// the test drive through a world pack of the level's own (tools/xdl_level_pack.py), the
+    /// old way; off (the default): as a shared mod plays it, the level file applied as the world
+    /// loads (Port_Level.c)
+    pub build_pack: bool,
+    /// how the last test drive ran the level (shown with its result)
+    route: &'static str,
     pub errors: Vec<LevelError>,
     pub last: Option<Prepared>,
     pub drive: Option<TestDrive>,
@@ -32,6 +38,7 @@ pub struct LevelState {
     waiting_ground: bool,
     ended_shown: bool,
     auto_started: bool,
+    sharing: Option<Receiver<Result<String, String>>>,
     pub edit: EditState,
 }
 
@@ -89,6 +96,7 @@ impl Browser {
             python: std::env::var("HWVX_PYTHON").unwrap_or_else(|_| "python3".into()),
             game,
             data,
+            build_pack: false,
             project: self.drive_project(),
             scratch: self.testdrive_scratch(),
             car: Some(self.level.car),
@@ -156,6 +164,8 @@ impl Browser {
     fn start_prepare(&mut self, start_at: Option<[f32; 4]>) {
         let mut o = self.testdrive_options();
         o.start_at = start_at;
+        o.build_pack = self.level.build_pack;
+        self.level.route = if self.level.build_pack { "its own world pack, built" } else { "as shared: the level file applied at load" };
         let (tx, rx) = channel();
         let oc = o.clone();
         std::thread::spawn(move || {
@@ -170,9 +180,33 @@ impl Browser {
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
             self.test_drive();
         }
-        if self.args.test_drive && !self.level.auto_started && self.viewer.is_some() && !self.hello.is_null() {
-            self.level.auto_started = true;
-            self.test_drive();
+        if self.args.test_drive && !self.level.auto_started {
+            if self.viewer.is_some() && !self.hello.is_null() {
+                self.level.auto_started = true;
+                self.test_drive();
+            } else {
+                // --test-drive: start as soon as the viewer has said hello, painted or not
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
+        }
+        if let Some(rx) = self.level.sharing.take() {
+            match rx.try_recv() {
+                Err(TryRecvError::Empty) => {
+                    self.level.sharing = Some(rx);
+                    ctx.request_repaint_after(Duration::from_millis(100));
+                }
+                Err(TryRecvError::Disconnected) => self.level.message = "saving the mod stopped".into(),
+                Ok(Ok(line)) => self.level.message = format!("saved as a mod: {line}"),
+                Ok(Err(why)) => {
+                    self.level.message = "not saved as a mod: see the errors".into();
+                    self.level.errors = why
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .map(|l| LevelError { message: l.trim().to_string(), ..Default::default() })
+                        .collect();
+                    self.level.tab = true;
+                }
+            }
         }
         if let Some((rx, o, clicked)) = self.level.preparing.take() {
             match rx.try_recv() {
@@ -189,9 +223,10 @@ impl Browser {
                 Ok(Ok(p)) => match TestDrive::launch(&o, &p, clicked) {
                     Ok(d) => {
                         self.level.message = format!(
-                            "compiled in {:.0} ms{} · game started (pid {})",
+                            "compiled in {:.0} ms{} · {} · game started (pid {})",
                             p.ms,
                             if p.cached { " (unchanged)" } else { "" },
+                            self.level.route,
                             d.pid
                         );
                         self.level.last = Some(p);
@@ -208,7 +243,7 @@ impl Browser {
                 if !self.level.ended_shown {
                     self.level.ended_shown = true;
                     let pr = d.progress.lock().unwrap().clone();
-                    self.level.message = format!("test drive {how}: back in the editor{}", timings(&pr));
+                    self.level.message = format!("test drive ({}) {how}: back in the editor{}", self.level.route, timings(&pr));
                     if let Some(why) = pr.not_applied {
                         self.level.message = format!("the level was not applied: {why}");
                     }
@@ -231,6 +266,55 @@ impl Browser {
             }
             None => true,
         }
+    }
+
+    /// Save as mod: the level (saved) packed into a .xmod a player installs on the launcher's
+    /// Mods page; the game applies it to their own world as it loads (no game data in it).
+    pub(crate) fn save_as_mod(&mut self) {
+        if self.level.project.is_empty() {
+            self.level.message = "open a level project first".into();
+            return;
+        }
+        if self.level.edit.proj.as_ref().map(|p| p.dirty()).unwrap_or(false) {
+            self.level.message = "save the level first (⌘S): the mod is made from its files".into();
+            return;
+        }
+        let id = self.level.summary["id"].as_str().unwrap_or("uid://level").trim_start_matches("uid://").to_string();
+        let Some(out) = Self::choose_save_file(&format!("{id}.xmod")) else { return };
+        let mut o = self.testdrive_options();
+        o.project = PathBuf::from(&self.level.project);
+        let (tx, rx) = channel();
+        let out = PathBuf::from(out);
+        std::thread::spawn(move || {
+            let _ = tx.send(testdrive::share(&o, &out));
+        });
+        self.level.sharing = Some(rx);
+        self.level.errors.clear();
+        self.level.message = "saving as a mod: compiling, checking for game data (the first time about 30 s)…".into();
+    }
+
+    fn choose_save_file(name: &str) -> Option<String> {
+        let out = if cfg!(target_os = "macos") {
+            std::process::Command::new("osascript")
+                .args(["-e", &format!("POSIX path of (choose file name with prompt \"Save the level as a mod\" default name \"{name}\")")])
+                .output()
+                .ok()?
+        } else if cfg!(windows) {
+            std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", &format!("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = '{name}'; if ($d.ShowDialog() -eq 'OK') {{ $d.FileName }}")])
+                .output()
+                .ok()?
+        } else {
+            std::process::Command::new("zenity").args(["--file-selection", "--save", "--confirm-overwrite", &format!("--filename={name}")]).output().ok()?
+        };
+        let mut s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !(out.status.success() && !s.is_empty()) {
+            return None;
+        }
+        if !s.ends_with(".xmod") {
+            s.push_str(".xmod");
+        }
+        Some(s)
     }
 
     pub(crate) fn test_drive_button(&mut self, ui: &mut egui::Ui) {
@@ -287,7 +371,20 @@ impl Browser {
             .on_hover_text("leave out the intro screen and the start's delays (driving at once)");
         ui.add_enabled(self.world.status["world"].is_string(), egui::Checkbox::new(&mut self.level.from_here, "From here"))
             .on_hover_text("start on the ground under the camera, facing its way (a world must be loaded)");
+        ui.checkbox(&mut self.level.build_pack, "Build world pack")
+            .on_hover_text("off (the default): drive it exactly as a player who installed it as a mod gets it, \
+                            the level file applied to the world as it loads; on: through a world pack of its \
+                            own built from your data (the older way)");
         ui.horizontal(|ui| self.test_drive_button(ui));
+        let sharing = self.level.sharing.is_some();
+        if ui
+            .add_enabled(!sharing, egui::Button::new(if sharing { "⏳ Save as mod…" } else { "📦 Save as mod…" }))
+            .on_hover_text("pack the level into a .xmod a player installs on the launcher's Mods page \
+                            (its own records only: checked for game data)")
+            .clicked()
+        {
+            self.save_as_mod();
+        }
         if !self.level.message.is_empty() {
             ui.label(&self.level.message);
         }

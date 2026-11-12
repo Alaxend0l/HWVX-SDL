@@ -4,7 +4,7 @@
  * A mod is a folder in the mods folder (HWVX_MODS_DIR, else mods/ in the
  * preferences folder) with a mod.jsonc (schemas/Mod.schema.json): new cars
  * and items and tracks that extend base ones, field patches on base objects, colour
- * recipes on base textures. tools/xdl_mod.py packs one into a .hwmod after
+ * recipes on base textures. tools/xdl_mod.py packs one into a .xmod after
  * checking that nothing in it is game data; Port_ModsInstall unpacks one.
  *
  * Load order: mods.jsonc in the mods folder ("order": ids, "disabled":
@@ -31,7 +31,7 @@ typedef struct PortModInfo {
     const char *folder;         /* its folder's name in the mods folder */
     int enabled;
     int checked;                /* its folder has the packer's check.json (installed from a
-                                 * .hwmod); 0: a folder put there by hand, unchecked */
+                                 * .xmod); 0: a folder put there by hand, unchecked */
     int problems;               /* report lines about it */
 } PortModInfo;
 
@@ -50,7 +50,7 @@ void Port_ModsSetEnabled(int i, int enabled);
 void Port_ModsMove(int i, int to);
 /* Writes the order and the disabled mods to mods.jsonc: 1 if written. */
 int Port_ModsSave(void);
-/* Unpacks a .hwmod into the mods folder (replacing the mod of the same id)
+/* Unpacks a .xmod into the mods folder (replacing the mod of the same id)
  * and rescans. Only packages the packer checked (a check.json in them), with
  * stored entries, are taken. 1, or 0 with why in err. */
 int Port_ModsInstall(const char *package, char *err, size_t errSize);

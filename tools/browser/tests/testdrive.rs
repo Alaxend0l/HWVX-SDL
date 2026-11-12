@@ -22,6 +22,7 @@ fn options(scratch: &Path, project: &Path, data: Option<PathBuf>) -> Options {
         tools: root().join("tools"),
         python: "python3".into(),
         game,
+        build_pack: data.is_some(),
         data,
         project: project.to_path_buf(),
         scratch: scratch.to_path_buf(),
@@ -213,4 +214,66 @@ fn viewer_raycast() {
     let r = v.call("raycast", json!({"from": [0.0, 5000.0, 0.0], "to": [0.0, 6000.0, 0.0]})).unwrap();
     assert_eq!(r["hit"], false, "{r}");
     v.call("quit", json!({})).ok();
+}
+
+/// Save as mod: the sample packed into a .xmod with the no-game-data check (HWVX_DATA: the
+/// index made from it into the scratch's cache, once); a project with no data folder is refused.
+#[test]
+fn save_as_mod() {
+    let sample = root().join("tools/level-samples/checkpoint-run");
+    let s = scratch("share");
+    let out = s.join("checkpointrun.xmod");
+    assert!(testdrive::share(&options(&s, &sample, None), &out).is_err(), "no data folder: refused");
+    let Some(data) = std::env::var_os("HWVX_DATA").map(PathBuf::from) else {
+        eprintln!("skip: HWVX_DATA not set");
+        return;
+    };
+    let mut o = options(&s, &sample, Some(data));
+    if let Some(idx) = std::env::var_os("HWVX_MOD_INDEX") {
+        // an index already made (tools/xdl_mod.py index), in the cache where share looks
+        let d = s.join("base-cache");
+        std::fs::create_dir_all(&d).unwrap();
+        let key = {
+            let p = std::fs::canonicalize(o.data.as_ref().unwrap()).unwrap();
+            let r = std::process::Command::new("python3")
+                .args(["-c", "import hashlib,sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:12])"])
+                .arg(&p)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&r.stdout).trim().to_string()
+        };
+        std::fs::copy(idx, d.join(format!("mod-index-{key}.npz"))).unwrap();
+    }
+    o.project = sample;
+    let line = testdrive::share(&o, &out).expect("packed");
+    assert!(line.contains("no game data found"), "{line}");
+    assert!(out.exists());
+}
+
+/// Both routes once (the Level tab's default and "Build world pack"): as shared, the test drive's
+/// mod has the level file, which the game applies as the world loads; with a world pack, the mod
+/// names the pack built from the data. Each is applied and drives.
+#[test]
+fn both_routes() {
+    let Some(data) = std::env::var_os("HWVX_DATA").map(PathBuf::from) else {
+        eprintln!("HWVX_DATA not set: skipped");
+        return;
+    };
+    let sample = root().join("tools/level-samples/checkpoint-run");
+    for (pack, name) in [(false, "route-shared"), (true, "route-pack")] {
+        let s = scratch(name);
+        let mut o = options(&s, &sample, Some(data.clone()));
+        o.build_pack = pack;
+        let p = testdrive::prepare(&o).unwrap();
+        let mod_text = std::fs::read_to_string(p.mods.join("editor-test/mod.jsonc")).unwrap();
+        assert_eq!(mod_text.contains("\"worldPack\""), pack, "{mod_text}");
+        assert_eq!(mod_text.contains("\"level\""), !pack, "{mod_text}");
+        let mut d = TestDrive::launch(&o, &p, Instant::now()).unwrap();
+        let ok = wait(&mut d, 60, |p| p.driving.is_some());
+        let pr = d.progress.lock().unwrap().clone();
+        d.stop();
+        assert!(ok, "{name}: not driving: {:?}", pr.tail);
+        assert!(pr.applied.is_some() && pr.not_applied.is_none(), "{name}: the level not applied: {:?}", pr.tail);
+        println!("{name}: compiled {:.0} ms, applied {:?}, driving {:?}", p.ms, pr.applied.unwrap(), pr.driving.unwrap());
+    }
 }

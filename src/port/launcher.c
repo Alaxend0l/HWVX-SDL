@@ -393,7 +393,7 @@ enum {
     ACT_MOD_TOGGLE,     /* mods (Port_Mods.h): turn mod `source` on or off */
     ACT_MOD_UP,         /* load it one earlier */
     ACT_MOD_REMOVE,     /* delete its folder (pressed twice) */
-    ACT_MOD_INSTALL,    /* pick a .hwmod to install */
+    ACT_MOD_INSTALL,    /* pick a .xmod to install */
     ACT_PROTO_MODE      /* the prototype's import mode `source` (PORT_PROTO_*) */
 };
 
@@ -974,7 +974,7 @@ static void DrawPage(Launcher *l) {
              "Mods change and add to the game. They carry no game data: each one applies to "
              "your own copy as the game loads it. Top loads first; changes apply next start.");
         if (Port_ModsCount() == 0) {
-            Text(l, 24, MOD_ROW_Y(0) + 5, DIM, "No mods yet: install a .hwmod package.");
+            Text(l, 24, MOD_ROW_Y(0) + 5, DIM, "No mods yet: install a .xmod package.");
         }
         for (i = 0; i < Port_ModsCount() && i < MODS_SHOWN; i++) {
             const PortModInfo *m = Port_ModsInfo(i);
@@ -1851,7 +1851,7 @@ static int Activate(Launcher *l, const Button *b) {
         return 0;
     }
     case ACT_MOD_INSTALL: {
-        static const SDL_DialogFileFilter mods[] = { { "Mod packages (.hwmod)", "hwmod" } };
+        static const SDL_DialogFileFilter mods[] = { { "Mod packages (.xmod)", "xmod" } };
 
         SDL_SetAtomicInt(&l->picked, 0);
         l->pickMod = 1;

@@ -365,14 +365,16 @@ void RenderQuadrant(u8 *quadrant) {
         if ((u32)ViewManager_GetViewFormat() > 1) {
             distSq *= 4.0f;
         }
-        if (inst->hasDrawDist) {
+        if (Port_DrawDistNoCull()) {
+            /* port: the viewer's geometry clipping off (Port_DrawDist.c) */
+        } else if (inst->hasDrawDist) {
             if (distSq > inst->drawDist * inst->drawDist) {
                 continue;
             }
         } else if (GETP(inst->record)->hasDrawDist && distSq > GETP(inst->record)->drawDist * GETP(inst->record)->drawDist) {
             continue;
         }
-        if (Gfx_FrustrumCullSphereTestAllWindows(inst, inst->radius)) {
+        if (Port_DrawDistNoCull() || Gfx_FrustrumCullSphereTestAllWindows(inst, inst->radius)) {
             t->base.flags = 0;
             t->base.quat = inst->quat;
             QuaternionToSubMatrix(&t->base.quat, THING_MTX(&t->base));
