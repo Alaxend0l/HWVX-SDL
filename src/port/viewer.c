@@ -1395,6 +1395,11 @@ static void Dispatch(const JsonNode *req) {
             WritePack(&w, vp);
             Viewer_WriteOutline(&w, vp);
         }
+    } else if (SDL_strcmp(cmd, "interfaces") == 0) {   /* viewer_hudscan.c */
+        if ((ok = NeedPack(req, &vp, err, sizeof(err)))) {
+            WritePack(&w, vp);
+            Viewer_WriteInterfaces(&w, vp);
+        }
     } else if (SDL_strcmp(cmd, "schema") == 0) {
         const JsonNode *schema = Viewer_Schema(Json_GetString(req, "type", NULL));
 

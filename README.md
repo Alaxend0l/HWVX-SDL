@@ -585,6 +585,12 @@ Debugging aids:
   the progression scripts' levels: checks on what a menu offers are greps.
   E.g. `HWVX_START=menu:mode=challenge HWVX_MENUDUMP=1`: the challenge
   select's tracks (names 39..56).
+- `HWVX_HUDLOG=1` logs, in gameplay, each interface created with no owner
+  (no player's HUD) and how the widescreen HUD rule sees it
+  (`hudlog: no-owner interface, header id 0 (...), 5 objects: 0:k8/r0@0 ...
+  -> left`): left or right moves as a whole, centre and MIXED stay. Its
+  static counterpart is `tools/hud_scan.py --data DIR`, every interface of
+  every pack by side, through the viewer's `interfaces` command.
 - `HWVX_START` boots straight into a menu, select screen or race, skipping
   the intro screens and the menus before it (`src/game/Port_Start.c`: it
   finds the screens through the menu pack's own go-to events and opens them
