@@ -66,8 +66,7 @@ game has marked its visible quadrants and before it draws them:
 * Normal in the attract demo (code variable 0x198), input playback
   (`g_playbackStatus == 2`) and online play.
 
-Measured (GC data, Mission 1 driven by the autopilot test switch, which is
-on its own branch; 164 × 60 frames):
+Measured (GC data, Mission 1 driven by `HWVX_AUTOPILOT=1`, 164 × 60 frames):
 
 | | extra copies | their size | extra heap in use | draws / 60 frames | renderer ms/frame avg (max) |
 |---|---|---|---|---|---|
@@ -80,8 +79,7 @@ quadrant copy loads in 0.3 - 0.9 ms. Process memory moves by less than the
 noise (430 - 480 MB resident).
 
 Verified: GC, PC, PS2 attract demos frame-identical to pc-data with the
-option off; ctest. Logic: a scratch build of the autopilot branch's source
-(which carries this same draw-distance code) drove Challenge 1 (4 quadrants)
+option off; ctest. Logic: `HWVX_AUTOPILOT=1` (pc-data, merged in) drove Challenge 1 (4 quadrants)
 and Mission 1 (11 quadrants, a fight) to a win at Normal, Far and Everything:
 identical car logs and quadrant routes (`tools/autopilot_drive.sh compare`),
 the same win times.
