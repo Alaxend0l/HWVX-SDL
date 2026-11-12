@@ -613,6 +613,7 @@ static void TestMerge(void) {
         SDL_memcpy(SAVE_FILE_GAME_DATA(c.saveFile, sizeof(HotWheelsGameData), 3),
                    SAVE_FILE_GAME_DATA(c.saveFile, sizeof(HotWheelsGameData), 0), sizeof(HotWheelsGameData));
         SDL_strlcpy(cf->settings.slots[3].name, "THIRD", 11);
+        ((HotWheelsGameData *)SAVE_FILE_GAME_DATA(c.saveFile, sizeof(HotWheelsGameData), 3))->vehicle = 1;
     }
     opt.onlySource = 0;
     opt.onlySlot = 3;
@@ -622,6 +623,8 @@ static void TestMerge(void) {
     CHECK(SlotNamed(t, "OTHER") < 0 && SlotNamed(t, "THIRD") == 1, "slot 0 imported though only 3 was asked");
     CHECK(CARS(Slot(t, 1)) == ((1ull << 3) | (1ull << 4) | (1ull << 5) | (1ull << 7)), "a new save's cars 0x%llx",
           (unsigned long long)CARS(Slot(t, 1)));
+    CHECK(Slot(t, 1)->vehicle == 3, "a new save's car is %d: a default car left locked, not the first unlocked (3)",
+          (int)Slot(t, 1)->vehicle);
     opt = s_all;
 
     /* no room: eight saves of other names */

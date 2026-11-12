@@ -793,6 +793,18 @@ static void MergeSlot(u8 *target, const PortImportSource *src, int si, int from,
     out->added[PORT_SAVE_IDS_ITEMS] = Union(t->items, g->items, sizeof(g->items), 0, &out->raised);
     out->cheats = (u32)Union(t->cheats, g->cheats, sizeof(g->cheats), 0, &out->raised);
     out->extras = (u32)Union(t->extras, g->extras, sizeof(g->extras), 0, &out->raised);
+    if (out->isNew && t->vehicle >= 0 && t->vehicle < (s32)sizeof(t->cars) && t->cars[t->vehicle] == 0) {
+        /* its chosen car left locked (a default car not taken): the first
+         * unlocked one, else none (-1, as GameSettings_LoadGame reads a car
+         * it hasn't) */
+        s32 v = -1;
+        for (i = 0; i < (int)sizeof(t->cars) && v < 0; i++) {
+            if (t->cars[i] != 0) {
+                v = i;
+            }
+        }
+        t->vehicle = v;
+    }
     out->changes = Bits(out->added[0]) + Bits(out->added[1]) + Bits(out->added[2]) + Bits(out->cheats) +
                    Bits(out->extras) + out->raised + out->scriptValues + out->isNew;
 }
