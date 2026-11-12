@@ -69,16 +69,8 @@ _Static_assert(sizeof(FrameHeader) == 64 + FRAMES_SLOTS * 32, "FrameHeader layou
 
 /* ---- a tiny portable shared memory wrapper --------------------------------- */
 
-typedef struct ViewerShm {
-    u8 *base;
-    size_t size;
-    char name[64];
-#ifdef _WIN32
-    HANDLE h;
-#endif
-} ViewerShm;
-
-static int Shm_Create(ViewerShm *m, size_t size, const char *tag) {
+/* (ViewerShm is in viewer_internal.h: the media blobs use it too, viewer_media.c) */
+int ViewerShm_Create(ViewerShm *m, size_t size, const char *tag) {
     SDL_zerop(m);
 #ifdef _WIN32
     {
@@ -135,7 +127,7 @@ static int Shm_Create(ViewerShm *m, size_t size, const char *tag) {
     return 1;
 }
 
-static void Shm_Destroy(ViewerShm *m) {
+void ViewerShm_Destroy(ViewerShm *m) {
     if (m->base == NULL) {
         return;
     }
@@ -176,7 +168,7 @@ static FrameHeader *Header(void) {
     return (FrameHeader *)f.shm.base;
 }
 
-static u64 RandomU64(void) {
+u64 Viewer_RandomU64(void) {
     u64 x = 0;
     int got = 0;
 #ifndef _WIN32
@@ -220,7 +212,7 @@ static void Release(void) {
         g_gxr->grabFetch(f.pending[i], NULL, 0, 0, 0, &w, &h, 1);   /* (too big: dropped) */
     }
     f.numPending = 0;
-    Shm_Destroy(&f.shm);
+    ViewerShm_Destroy(&f.shm);
 }
 
 void ViewerFrames_Stop(void) {
@@ -249,9 +241,9 @@ int ViewerFrames_Configure(int w, int h, char *err, size_t errSize) {
             cap = (u32)FRAMES_MAX_W * FRAMES_MAX_H * 4;
         }
         Release();
-        f.key = RandomU64();
+        f.key = Viewer_RandomU64();
         SDL_snprintf(tag, sizeof(tag), "%016llx-%u", (unsigned long long)f.key, f.gen++);
-        if (!Shm_Create(&f.shm, FRAMES_HEADER + (size_t)FRAMES_SLOTS * cap, tag)) {
+        if (!ViewerShm_Create(&f.shm, FRAMES_HEADER + (size_t)FRAMES_SLOTS * cap, tag)) {
             SDL_snprintf(err, errSize, "shared memory of %u MB could not be made", (FRAMES_HEADER + FRAMES_SLOTS * cap) >> 20);
             f.on = 0;
             return 0;

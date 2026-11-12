@@ -74,6 +74,8 @@ void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd);
 int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, const JsonNode *value, int force,
                     char *err, size_t errSize);
 void Viewer_WriteNull(JsonWriter *w, const char *key);
+/* Per 4-byte word of the blob, the node it is part of (geometry groups: their geometry), or -1; SDL_free it. */
+s32 *Viewer_WordUsers(VPack *vp);
 
 /* viewer_frames.c: the frames shared with the browser */
 int ViewerFrames_On(void);
@@ -84,5 +86,32 @@ void ViewerFrames_EndFrame(u32 frame);
 void ViewerFrames_WriteInfo(JsonWriter *w);    /* the `frames` reply's keys */
 void ViewerFrames_WriteStats(JsonWriter *w);   /* "frames": {...} */
 void ViewerFrames_Shutdown(void);
+
+/* A shared memory block for the browser (viewer_frames.c): POSIX shm_open
+ * "/hwvx-<tag>" (mode 0600) or a Windows named mapping "Local\hwvx-<tag>". */
+typedef struct ViewerShm {
+    u8 *base;
+    size_t size;
+    char name[64];
+    void *h;            /* Windows: the mapping's HANDLE */
+} ViewerShm;
+int ViewerShm_Create(ViewerShm *m, size_t size, const char *tag);
+void ViewerShm_Destroy(ViewerShm *m);
+u64 Viewer_RandomU64(void);
+
+/* viewer_media.c: textures and sounds as the game decodes them (the media
+ * commands), the audio played through the game's own mixer */
+void ViewerMedia_Start(void);
+/* 1 when cmd is a media command (its reply written, or *ok = 0 and err). */
+int ViewerMedia_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, int *ok, char *err, size_t errSize);
+void ViewerMedia_WriteStatus(JsonWriter *w);   /* "audio": {...} */
+/* A pack is about to be unloaded (its sounds go) / loaded (hasSong: it brings a song, which replaces the one held). */
+void ViewerMedia_PackGoing(DataPack *pack);
+void ViewerMedia_BeforeLoad(int hasSong);
+void ViewerMedia_Shutdown(void);
+/* The loaded pack (a viewer pack, or a share pack one of them refers to) named
+ * "ARCHIVE/TYPE_ID" (base:// allowed), or NULL; *vp: the viewer's pack, if it is one. */
+DataPack *Viewer_FindDataPack(const char *name, VPack **vp);
+VPack *Viewer_ShownPack(void);     /* viewer.c: the pack shown, or NULL */
 
 #endif
