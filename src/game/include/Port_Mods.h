@@ -103,13 +103,14 @@ char *Port_ModsResolveFile(const char *name, int *format);
 /* Streamed music (port/musicstream.c; docs-pending/streamed-music.md): the
  * "music" entry of the last enabled mod that replaces this pack's song
  * (base://<archive>/<type>_<id>[/song/0]): its tracks, played in order (one
- * track loops), in *out (free with Port_ModsMusicFree). 0: none. */
+ * track loops; an "intro" is a track of its own before its track), in *out (free with Port_ModsMusicFree). 0: none. */
 typedef struct PortModMusic {
     char *path;             /* host path */
     long long loopStart;    /* in the file's sample frames; -1: from its tags, else 0 */
     long long loopEnd;      /* -1: from its tags, else the end */
     int loop;               /* 0: "loop": false, played once */
     float volume;           /* "volume", 1 by default */
+    int intro;              /* 1: the "intro" of the track after it, played once */
 } PortModMusic;
 int Port_ModsMusic(const char *name, unsigned type, unsigned id, PortModMusic **out);
 void Port_ModsMusicFree(PortModMusic *tracks, int count);

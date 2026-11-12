@@ -894,13 +894,22 @@ class Manifest:
                 f = e if isinstance(e, str) else e.get("file") if isinstance(e, dict) else None
                 if isinstance(e, dict):
                     for k in e:
-                        if k not in ("file", "loopStart", "loopEnd", "loop", "volume"):
-                            self.err(f"{w}.{k}", "isn't a member of a song (file, loopStart, loopEnd, loop, volume)")
+                        if k not in ("file", "intro", "loopStart", "loopEnd", "loop", "volume"):
+                            self.err(f"{w}.{k}", "isn't a member of a song (file, intro, loopStart, loopEnd, loop, "
+                                                 "volume)")
                 if not isinstance(f, str) or Path(f).suffix.lower() not in XM.AUDIO_EXT or ".." in Path(f).parts \
                         or f.startswith("/") or "\\" in f:
                     self.err(w, f"a music file of the mod ({' '.join(XM.AUDIO_EXT)}), or {{\"file\", …}}")
                 elif not (self.dir / f).is_file():
                     self.err(w, f"{f} isn't in the mod")
+                intro = e.get("intro") if isinstance(e, dict) else None
+                if intro is None:
+                    continue
+                if not isinstance(intro, str) or Path(intro).suffix.lower() not in XM.AUDIO_EXT \
+                        or ".." in Path(intro).parts or intro.startswith("/") or "\\" in intro:
+                    self.err(f"{w}.intro", f"a music file of the mod ({' '.join(XM.AUDIO_EXT)})")
+                elif not (self.dir / intro).is_file():
+                    self.err(f"{w}.intro", f"{intro} isn't in the mod")
         for k in ("patches", "recipes", "sounds", "music"):
             if not isinstance(d.get(k, {}), dict):
                 self.err(k, "isn't an object")
@@ -929,8 +938,8 @@ def _asset(src):
     return src.split(": ", 1)[1] if ": base://" in src else None
 
 
-def check_bytes(index, rep, where, data, what="holds"):
-    """Whole-file and raw-run checks of one byte string."""
+def check_bytes(index, rep, where, data, what="holds", keep=None):
+    """Whole-file and raw-run checks of one byte string. keep(offsets, B): which hits count."""
     src = index.one("whole", h64(data))
     if src:
         rep.refuse(where, f"is the game's own file ({src})", _asset(src))
@@ -938,6 +947,9 @@ def check_bytes(index, rep, where, data, what="holds"):
     found = False
     for table, B in (("b32", FINE), ("b256", COARSE)):
         hit, srcs = index.find(table, window_hashes(data, B))
+        if len(hit) and keep is not None:
+            k = keep(np.asarray(hit, np.int64), B)
+            hit, srcs = np.asarray(hit)[k], [x for x, y in zip(srcs, k) if y]
         if len(hit):
             count = {}
             for s in srcs:
@@ -1086,6 +1098,21 @@ def gltf_positions(path, data, folder):
     return out
 
 
+QUIET = 256     # 1/128 of full scale (-42 dB): a run this quiet (a fade, near-silence) is in any audio
+
+
+def _loud_windows(ch):
+    """keep() for check_bytes on 16-bit samples: a run counts only if a sample in it is louder
+    than QUIET. Copied game audio is still caught by its loud runs and by the fingerprint."""
+    loud = np.concatenate(([0], np.cumsum(np.abs(ch.astype(np.int32)) >= QUIET)))
+
+    def keep(off, B):
+        a = off // 2
+        b = np.minimum((off + B + 1) // 2, len(ch))
+        return loud[b] > loud[a]
+    return keep
+
+
 def check_audio(index, rep, rel, path):
     """A decoded sound file: its samples (each channel, and their mix) as the game's would be,
     then whether it sounds like a base sound."""
@@ -1101,7 +1128,7 @@ def check_audio(index, rep, rel, path):
         if path.suffix.lower() != ".wav" or len(chans) > 1:
             what = "the decoded samples" if len(chans) == 1 else \
                 f"decoded channel {ci}" if ci < len(chans) - 1 else "the channels' mix"
-            if check_bytes(index, rep, f"{rel}: {what}", raw, "hold"):
+            if check_bytes(index, rep, f"{rel}: {what}", raw, "hold", keep=_loud_windows(ch)):
                 return None
     if "sfp" not in index.a:
         note = ("the index has no sound fingerprints (made by an older xdl_mod.py): sounds were checked by "

@@ -1596,35 +1596,49 @@ char *Port_ModsResolveFile(const char *name, int *format) {
 
 /* ---- music ------------------------------------------------------------------ */
 
-/* One "music" entry: "file" or {"file", "loopStart", "loopEnd", "loop", "volume"}. */
+/* One "music" entry: "file" or {"file", "intro", "loopStart", "loopEnd", "loop", "volume"}:
+ * its tracks into t (an intro is a track of its own, first), how many (0 when broken). */
 static int MusicTrack(const Mod *m, const char *key, const JsonNode *e, PortModMusic *t) {
     const char *file = e->type == JSON_STRING ? e->string : e->type == JSON_OBJECT ? Str(e, "file") : NULL;
+    const char *intro = e->type == JSON_OBJECT ? Str(e, "intro") : NULL;
     const JsonNode *n;
+    int k = intro != NULL;
 
-    SDL_zerop(t);
-    if (file == NULL || !SafeName(file)) {
+    SDL_memset(t, 0, sizeof(*t) * (size_t)(k + 1));
+    if (file == NULL || !SafeName(file) || (intro != NULL && !SafeName(intro))) {
         Report("%s: music %s: not a file of the mod", m->info.name, key);
         return 0;
     }
-    SDL_asprintf(&t->path, "%s%s", m->dir, file);
-    t->loopStart = t->loopEnd = -1;
-    t->loop = 1;
-    t->volume = 1.0f;
+    SDL_asprintf(&t[k].path, "%s%s", m->dir, file);
+    t[k].loopStart = t[k].loopEnd = -1;
+    t[k].loop = 1;
+    t[k].volume = 1.0f;
     if (e->type == JSON_OBJECT) {
         if ((n = Json_Get(e, "loopStart")) != NULL && n->type == JSON_NUMBER && n->number >= 0) {
-            t->loopStart = (long long)n->number;
+            t[k].loopStart = (long long)n->number;
         }
         if ((n = Json_Get(e, "loopEnd")) != NULL && n->type == JSON_NUMBER && n->number > 0) {
-            t->loopEnd = (long long)n->number;
+            t[k].loopEnd = (long long)n->number;
         }
         if ((n = Json_Get(e, "loop")) != NULL && n->type == JSON_BOOL && !n->boolean) {
-            t->loop = 0;
+            t[k].loop = 0;
         }
         if ((n = Json_Get(e, "volume")) != NULL && n->type == JSON_NUMBER) {
-            t->volume = (float)SDL_clamp(n->number, 0.0, 4.0);
+            t[k].volume = (float)SDL_clamp(n->number, 0.0, 4.0);
         }
     }
-    return t->path != NULL;
+    if (intro != NULL) {        /* played once, at the track's volume, straight into it */
+        SDL_asprintf(&t[0].path, "%s%s", m->dir, intro);
+        t[0].loopStart = t[0].loopEnd = -1;
+        t[0].volume = t[1].volume;
+        t[0].intro = 1;
+    }
+    if (t[0].path == NULL || t[k].path == NULL) {
+        SDL_free(t[0].path);
+        SDL_free(t[k].path);
+        return 0;
+    }
+    return k + 1;
 }
 
 int Port_ModsMusic(const char *name, unsigned type, unsigned id, PortModMusic **out) {
@@ -1656,11 +1670,11 @@ int Port_ModsMusic(const char *name, unsigned type, unsigned id, PortModMusic **
             } else {
                 n = 1;
             }
-            t = SDL_calloc((size_t)(n ? n : 1), sizeof(*t));
+            t = SDL_calloc((size_t)(n ? n : 1) * 2, sizeof(*t));     /* each may have an intro */
             if (t == NULL) {
                 return 0;
             }
-            for (e = x->type == JSON_ARRAY ? x->child : x; e != NULL && k < n; e = x->type == JSON_ARRAY ? e->next : NULL) {
+            for (e = x->type == JSON_ARRAY ? x->child : x; e != NULL && k < 2 * n; e = x->type == JSON_ARRAY ? e->next : NULL) {
                 k += MusicTrack(m, x->key, e, &t[k]);
             }
             if (k == 0) {
