@@ -1,4 +1,4 @@
-//! A level project as the editor holds it (tools/xdl_level.py's format: level.jsonc and
+//! A level project as the editor holds it (the level tools' format, xdlrs::level: level.jsonc and
 //! triggers/NAME.jsonc): the values being edited next to the files' text, undo and redo as
 //! snapshots, a copy written for checking and the live preview, and saving that keeps each
 //! file's comments and order (src/jsonc_edit.rs).
@@ -232,7 +232,7 @@ impl Project {
         self.level.get(kind).and_then(Value::as_object).map(|m| m.iter().collect()).unwrap_or_default()
     }
 
-    /// The level and its triggers as plain JSON in `to` (for xdl_level.py: checking, the preview).
+    /// The level and its triggers as plain JSON in `to` (for the level tools: checking, the preview).
     pub fn write_copy(&self, to: &Path) -> Result<(), String> {
         let tdir = to.join("triggers");
         let _ = std::fs::remove_dir_all(&tdir);

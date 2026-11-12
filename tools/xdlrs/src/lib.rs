@@ -18,11 +18,17 @@
 //!
 //! Errors carry the Python exception they correspond to ([`error::Kind`]).
 
+pub mod bsp;
 pub mod decode;
 pub mod encode;
 pub mod error;
+pub mod geom;
+pub mod graph;
 pub mod jsonc;
 pub mod jsonc_edit;
+pub mod level;
+pub mod level_pack;
+pub mod level_share;
 pub mod modcheck;
 pub mod ops;
 pub mod pack;
@@ -30,6 +36,7 @@ pub mod py;
 pub mod schema;
 pub mod tac;
 pub mod validate;
+pub mod walk;
 
 pub use error::{Error, Kind, Result};
 

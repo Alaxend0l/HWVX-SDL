@@ -20,7 +20,6 @@ fn options(scratch: &Path, project: &Path, data: Option<PathBuf>) -> Options {
     let game = std::env::var_os("HWVX_GAME").map(PathBuf::from).unwrap_or_else(default_game);
     Options {
         tools: root().join("tools"),
-        python: "python3".into(),
         game,
         build_pack: data.is_some(),
         data,
@@ -230,7 +229,7 @@ fn save_as_mod() {
     };
     let mut o = options(&s, &sample, Some(data));
     if let Some(idx) = std::env::var_os("HWVX_MOD_INDEX") {
-        // an index already made (tools/xdl_mod.py index), in the cache where share looks
+        // an index already made (xdlrs mod index / xdl_mod.py index), in the cache where share looks
         let d = s.join("base-cache");
         std::fs::create_dir_all(&d).unwrap();
         let key = {

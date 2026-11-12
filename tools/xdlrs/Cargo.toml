@@ -7,6 +7,11 @@ description = "The .xdl tools' core (tools/xdl_struct.py, tools/xdl_tac.py) as a
 [dependencies]
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 regex = "1.11"
+indexmap = "2"
+blake2 = "0.10"
+sha2 = "0.10"
+sha1 = "0.10"
+jsonschema = { version = "0.33", default-features = false }
 # the mod check (modcheck): PNG reading, the sound fingerprint's FFT
 png = "0.18"
 rustfft = "6.2"

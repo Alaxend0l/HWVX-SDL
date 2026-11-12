@@ -16,7 +16,7 @@
 //!                [--level PROJECT_DIR] [--test-drive] [--quick-start] [--car N] [--tools DIR]
 //!                [--testdrive-renderer R] [--level-select trigger:NAME|own:KIND/NAME|base:PATH]
 //!
-//! The Level tab opens a level project (tools/xdl_level.py); Test drive (F5) compiles it and
+//! The Level tab opens a level project (xdlrs::level); Test drive (F5) compiles it and
 //! starts the game straight into it (src/level_ui.rs, src/testdrive.rs).
 //!
 //! --viewer-window shows the game's own window instead (the old separate preview, for debugging).
@@ -63,7 +63,8 @@ struct Args {
     select: Option<String>,
     app_shot: Option<PathBuf>,
     viewer_window: bool,
-    /// tools/ of the checkout (xdl_level.py); default: beside the game's
+    /// tools/ of the checkout (its parent's schemas/ are what the level tools read); default:
+    /// beside the game's
     tools: Option<PathBuf>,
     /// a level project to open (the Level tab)
     level: Option<String>,

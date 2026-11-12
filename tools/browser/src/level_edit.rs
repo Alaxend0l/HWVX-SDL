@@ -8,14 +8,14 @@
 //! Moving: Ctrl/Cmd + drag in the view moves the selection over the ground (the viewer's
 //! `raycast`), Ctrl/Cmd + wheel turns a start; the inspector's numbers and "To the ground".
 //! Every edit can be undone (Ctrl/Cmd+Z, Shift for redo). As the project changes it is checked
-//! (tools/xdl_level.py compile --json on a copy: the same checks as `check`) and, when it
+//! (xdlrs::level::compile on a copy: the same checks as `check`) and, when it
 //! compiles, applied to the world on show (`level`): the live preview. Save (Ctrl/Cmd+S) writes
 //! the changed files, keeping their comments (src/jsonc_edit.rs).
 
 use crate::{Browser, Pending};
 use eframe::egui;
 use hwvx_browser::level_model::{Project, Snapshot};
-use hwvx_browser::testdrive::{LevelError, default_tools};
+use hwvx_browser::testdrive::{LevelError, default_tools, level_env};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -96,11 +96,11 @@ pub struct EditState {
     cands: Option<(String, std::rc::Rc<Vec<(String, String)>>)>,
     pub filter: String,
     pub advanced: bool,
-    /// warnings (the starts' boxes overlapping each other: xdl_level.py; against the world:
+    /// warnings (the starts' boxes overlapping each other: xdlrs::level; against the world:
     /// the viewer's startcheck, by path)
     pub warnings: Vec<LevelError>,
     pub start_problems: HashMap<String, String>,
-    /// the cars' box (the viewer's spawnbox) written for xdl_level.py
+    /// the cars' box (the viewer's spawnbox) written for the level checks
     pub box_file: Option<PathBuf>,
     pub spawn_box: Value,
     pub lanes_note: String,
@@ -357,7 +357,7 @@ impl Browser {
         e.generation += 1;
     }
 
-    /// The project as it is: checked (xdl_level.py compile --json on a copy) a quarter of a second
+    /// The project as it is: checked (xdlrs::level::compile on a copy) a quarter of a second
     /// after the last change, and when it compiles, applied to the world shown.
     fn edit_check(&mut self, ctx: &egui::Context) {
         if let Some((g, rx)) = self.level.edit.checking.take() {
@@ -420,35 +420,15 @@ impl Browser {
         std::thread::spawn(move || {
             let t0 = Instant::now();
             let _ = std::fs::create_dir_all(out.parent().unwrap());
-            let mut c = std::process::Command::new(std::env::var("HWVX_PYTHON").unwrap_or_else(|_| "python3".into()));
-            c.arg(tools.join("xdl_level.py")).arg("compile").arg(&copy).arg("--json").arg("-o").arg(&out);
-            if let Some(d) = &data {
-                c.arg("--data").arg(d).arg("--cache").arg(&cache);
-            }
-            if let Some(b) = &box_file {
-                c.arg("--spawn-box").arg(b);
-            }
-            let res = match c.output() {
-                Ok(o) => {
-                    let text = String::from_utf8_lossy(&o.stdout).to_string();
-                    match text.lines().rev().find_map(|l| serde_json::from_str::<Value>(l).ok()) {
-                        Some(v) if v["ok"] == true => Ok(records(&v["warnings"])),
-                        Some(v) => Err(v["errors"]
-                            .as_array()
-                            .map(|a| {
-                                a.iter()
-                                    .map(|e| LevelError {
-                                        file: e["file"].as_str().unwrap_or("").into(),
-                                        path: e["path"].as_str().unwrap_or("").into(),
-                                        message: e["message"].as_str().unwrap_or("").into(),
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default()),
-                        None => Err(vec![LevelError { message: format!("xdl_level.py: {}{}", text.trim(), String::from_utf8_lossy(&o.stderr).trim()), ..Default::default() }]),
-                    }
-                }
-                Err(err) => Err(vec![LevelError { message: format!("python3: {err}"), ..Default::default() }]),
+            let base = xdlrs::level::BaseOpts { base: None, data, cache: Some(cache) };
+            let one = |m: String| vec![LevelError { message: m, ..Default::default() }];
+            let res = match level_env(&tools) {
+                Err(m) => Err(one(m)),
+                Ok(env) => match xdlrs::level::compile(&env, &copy, Some(&out), &base, false, box_file.as_deref()) {
+                    Ok(c) if c.ok => Ok(c.warnings.iter().map(|w| LevelError { file: w.file.clone(), path: w.path.clone(), message: w.message.clone() }).collect()),
+                    Ok(c) => Err(c.errors.iter().map(|e| LevelError { file: e.file.clone(), path: e.path.clone(), message: e.message.clone() }).collect()),
+                    Err(e) => Err(one(xdlrs::level::top_message(&e))),
+                },
             };
             let _ = tx.send((res, out, t0.elapsed().as_secs_f64() * 1000.0));
         });
@@ -1780,20 +1760,6 @@ impl Browser {
     }
 }
 
-fn records(v: &Value) -> Vec<LevelError> {
-    v.as_array()
-        .map(|a| {
-            a.iter()
-                .map(|e| LevelError {
-                    file: e["file"].as_str().unwrap_or("").into(),
-                    path: e["path"].as_str().unwrap_or("").into(),
-                    message: e["message"].as_str().unwrap_or("").into(),
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn box_edges(lo: [f32; 3], hi: [f32; 3]) -> Vec<([f32; 3], [f32; 3])> {
     let c = |i: usize| [if i & 1 != 0 { hi[0] } else { lo[0] }, if i & 2 != 0 { hi[1] } else { lo[1] }, if i & 4 != 0 { hi[2] } else { lo[2] }];
     [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)].iter().map(|&(a, b)| (c(a), c(b))).collect()
@@ -1970,7 +1936,7 @@ fn fields_editor(ui: &mut egui::Ui, v: &mut Value, schema: &Value, advanced: boo
             }
             ui.label(k);
             let present = v.get(k).is_some();
-            // left out: what the compiler puts there (xdl_level.py's defaults), else zero
+            // left out: what the compiler puts there (the level compiler's defaults), else zero
             let default = match (volume, k.as_str()) {
                 (true, "enabled") => json!(1),
                 (true, "shape") => json!("sphere"),

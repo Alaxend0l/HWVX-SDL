@@ -19,6 +19,15 @@ Runs both on the same input and compares bytes and text exactly:
   tac        `xdl_tac.py SURVEY` (every retail parameter list decoded and encoded)
   tacenc     encode_trigger of the level samples' triggers (and edits), both byte orders
   tacext     xdl_tac.Extract over xdl_graph's Extractor of world packs (host state dumped)
+  graph      `graph extract` of world packs: xdl_graph's project file for file (but the glTF),
+             and `graph build` gives the pack back byte for byte
+  bsp        box volumes' BSPs (bsp_build + world_lib.bspn0_write) over random boxes
+  level      xdl_level.py / xdl_level_pack.py against `xdlrs level`: every level sample and
+             variants (the errors of tools/test_xdl_level*.py and more) through compile,
+             check, testdrive (in memory and as a world pack), mod and pack: exit codes,
+             stdout/stderr, the files made (level files but their cache key, archives byte for
+             byte), and level_refuse_test.py's crafted level files made from both
+             (--data GC_DATA for the checks against the base world and the packs)
   modindex, modfiles, modcheck
              the mod check (`xdlrs mod`) against xdl_mod.py: tools/xdlrs_parity_mod.py
              (--reuse keeps its indexes)
@@ -688,12 +697,367 @@ def t_decode(a):
     report("Decoder + symbolic Encoder (World of every world pack)", n, bad)
 
 
+# ------------------------------------------------------------------------------------------
+# stage 2: xdl_graph's extraction, the box BSPs, the level tools
+
+def t_graph(a):
+    """graph extract / build of world packs (n_worlds per release)."""
+    import xdl_graph as GR
+    bad, total = [], 0
+    for rel in survey_rels(a):
+        packs = []
+        for m in sorted((a.survey / rel).rglob("manifest.json")):
+            man = json.loads(m.read_text())
+            packs += [m.parent / e["path"] for e in man["entries"] if e["type"] == "world"]
+        for pdir in packs[:a.n_worlds]:
+            total += 1
+            o = a.out / "graph" / rel / pdir.parent.name
+            if o.exists():
+                shutil.rmtree(o)
+            GR.Extractor(GR.Source(pdir), o / "py", XS.Schemas()).run()
+            c, out, err = rs("graph", "extract", pdir, o / "rs")
+            if c:
+                bad.append(f"{rel} {pdir.parent.name}: extract: {err.strip()[-200:]}")
+                continue
+            d = project_diff(o / "py", o / "rs")
+            if d:
+                bad.append(f"{rel} {pdir.parent.name}: {d[:3]}")
+            c, out, err = rs("graph", "build", o / "rs", o / "built", "--check", pdir)
+            if c or "identical" not in out:
+                bad.append(f"{rel} {pdir.parent.name}: build: {(out + err).strip()[-200:]}")
+            shutil.rmtree(o)
+    report("graph", total, bad)
+
+
+def project_diff(a, b):
+    """Differences between two extracted projects, but the glTF (and its hash) the Python adds."""
+    def files(d):
+        out = set()
+        for p in d.rglob("*"):
+            if p.is_file():
+                r = str(p.relative_to(d))
+                if r.endswith(".gltf") or (r.endswith(".bin") and (d / (r[:-4] + ".gltf")).exists()):
+                    continue
+                out.add(r)
+        return out
+    fa, fb = files(a), files(b)
+    out = [f"only {'py' if r in fa else 'rs'}: {r}" for r in sorted(fa ^ fb)]
+    for r in sorted(fa & fb):
+        x, y = (a / r).read_bytes(), (b / r).read_bytes()
+        if r.endswith(".xgeo.jsonc"):
+            x = b"\n".join(l for l in x.split(b"\n") if not l.startswith((b'  "gltf"', b'  "hash"')))
+        if x != y:
+            out.append(f"differs: {r}")
+    return out
+
+
+def t_bsp(a):
+    import bsp_build as BB
+    import world_lib as WL
+    rnd = random.Random(7)
+    cases = []
+    for _ in range(300 if a.quick else 3000):
+        k = rnd.choice([1, 1, 10, 0.5])
+        lo = [round(rnd.uniform(-6000, 6000), rnd.choice([0, 1, 2, 3, 6])) for _ in range(3)]
+        hi = [x + round(rnd.uniform(0.001, 300) * k, rnd.choice([0, 2, 4, 7])) for x in lo]
+        cases.append((lo, [h if h > l else l + 1 for l, h in zip(lo, hi)]))
+    cases += [([150, 0, -830], [170, 30, -730]), ([-3211.309, -5403.9, 0.0], [-3143.799, -5232.298, 223.17])]
+    inp = "\n".join(" ".join(repr(float(x)) for x in lo + hi) for lo, hi in cases)
+    got = subprocess.run([str(BIN), "probe", "bsp", "--repo", str(ROOT)], input=inp, capture_output=True, text=True).stdout.split("\n")
+    bad = []
+    for (lo, hi), r in zip(cases, got):
+        tris = BB.prism([(lo[0], lo[2]), (hi[0], lo[2]), (hi[0], hi[2]), (lo[0], hi[2])], lo[1], hi[1])
+        want = WL.bspn0_write(BB.build(BB.polys_from_triangles(tris)), "<").hex()
+        if want != r:
+            bad.append(f"{lo} {hi}")
+    report("bsp", len(cases), bad)
+
+
+PRE = "base://ch1_l2/world_0/"
+
+
+def level_variants():
+    """(name, sample, edit of level.jsonc, {trigger: edit}, extra trigger files, how strict):
+    strict "all" compares every byte of output; "shape" the exit codes and where the errors
+    are (the message is a Python exception's text or a JSON parser's)."""
+    def setp(path, v):
+        def f(lv):
+            d = lv
+            for k in path[:-1]:
+                d = d[k]
+            d[path[-1]] = v
+        return f
+
+    def many(lv):
+        lv["triggers"] = lv["triggers"] + [f"x{i}" for i in range(12)]
+
+    def packext(lv):
+        lv["volumes"]["gate"] = {"box": {"min": [150, 0, -830], "max": [170, 30, -730]}}
+        lv["volumes"]["tagged"] = {"center": [0, 0, 0], "radius": 5, "editorId": 77, "data": "level://strings/obj"}
+        lv["starts"] = {"p2": {"pos": [-330, 3.61, -740], "rotY": 1.5708, "port": 2}}
+        lv["items"] = {"bonus": {"pos": [-2600, 28, -330], "quad": 20, "id": 4}}
+        lv["fxPoints"] = {"flame": {"pos": [0, 4, -760], "quad": 16, "template": PRE + "World/0/quads/16/contents/fxPoints/7"}}
+        lv["strings"]["obj"] = "Reach the 3 checkpoints"
+        lv["objectives"] = {"main": {"text": "level://strings/obj", "kind": "counter", "value": "level://variables/progress/to"}}
+        lv["triggers"].append("gate")
+
+    gate = {"type": "airbox_entered", "param": {"volumes": ["level://volumes/gate"], "cars": [PRE + "World/0/tileCars/0"]},
+            "actions": [{"type": "timer_change_value", "data": {"op": "add", "timers": [PRE + "World/0/timers/0"], "value": {"const": 10000}}}]}
+
+    def nobsp(lv):
+        packext(lv)
+        lv["volumes"]["nobsp"] = {"shape": "bsp", "center": [0, 0, 0], "radius": 5}
+
+    def nowhere(lv):
+        packext(lv)
+        lv["items"]["nowhere"] = {"pos": [0, 0, 0], "quad": 16, "id": 1}
+
+    def datavols(lv):
+        v = lv["volumes"]
+        v["fog"] = {"center": [1, 2, 3], "radius": 40, "type": "fog", "data": {"type": 2, "near": 10.5, "far": 300, "color": [10, 20, 30, 255]}}
+        v["light"] = {"center": [1, 2, 3], "radius": 40, "type": "light", "data": {"direction": [0, -1, 0.25], "color": [200, 100, 50], "lightType": 1, "subtract": -3}}
+        v["push"] = {"box": {"min": [0, 0, 0], "max": [10.25, 4, 7]}, "type": "force_box", "data": {"force": [0, 50, 0], "oneShot": 1, "type": 3}}
+        v["echo"] = {"center": [5, 5, 5], "radius": 12.5, "type": "reverb", "data": {"type": 4, "volume": 300, "feedback": 20}}
+        v["save"] = {"center": [5, 5, 5], "radius": 3, "type": "creature", "data": {"rescue": 2}}
+        v["plain"] = {"center": [5, 5, 5], "radiusSq": 49, "enabled": 0}
+        v["wire"] = {"box": {"min": [-5000.125, -12, 3e3], "max": [-4990, 40.5, 3100]}}
+
+    def strings(lv):
+        lv["strings"]["many"] = ["one", "Zwei – drei", "caf\u00e9 \u2603", "x" * 255]
+        lv["variables"]["big"] = {"value": 7, "id": 3}
+        lv["variables"]["flt"] = 2.5
+        lv["timers"] = {"clock": {"time": 1500, "to": None}, "plain": {}}
+
+    def rules(lv):
+        lv["rules"] = {"mode": "kills", "kills": 5, "rounds": 3, "time": 120000, "countWins": True, "roundTimer": "level://timers/rt"}
+        lv["timers"] = {"rt": {"time": 1}}
+
+    def starts(lv):
+        lv["starts"] = {"ai": {"pos": [10, 0, 20], "port": 0}, "p2": {"pos": [14, 0, 20], "rotY": 3.14, "port": 2},
+                        "far": {"pos": [900, 0, 900], "rotY": -1, "port": 3}}
+        lv["patches"][PRE + "World/0/tileCars/0"] = {"pos/x": 12, "rotY": 0.5}
+
+    def objectives(lv):
+        lv["objectives"] = {"a": {"kind": "timer", "text": "level://strings/brief", "done": "level://variables/done/to", "shown": False, "hud": 300, "arg": 4},
+                            "b": {"kind": "none", "doneText": "level://strings/cp1"}}
+
+    return [
+        ("sample-" + n, n, None, {}, {}, "all") for n in sorted(p.name for p in (HERE / "level-samples").iterdir() if (p / "level.jsonc").exists())
+    ] + [
+        ("badlink", "checkpoint-run", None, {"cp1": lambda t: t["param"].__setitem__("volumes", ["level://volumes/nope"])}, {}, "all"),
+        ("badworld", "checkpoint-run", None, {"cp2": lambda t: t["param"].__setitem__("cars", ["base://ch1_l3/world_0/World/0/tileCars/0"])}, {}, "all"),
+        ("badkind", "checkpoint-run", None, {"cp2": lambda t: t.__setitem__("type", "airbox_enterd")}, {}, "all"),
+        ("badfield", "checkpoint-run", lambda lv: lv["volumes"]["cp1"].__setitem__("radious", 3), {}, {}, "all"),
+        ("badmode", "checkpoint-run", setp(["extends"], "base://mcp/track/3"), {}, {}, "all"),
+        ("badpatch", "checkpoint-run", lambda lv: lv["patches"].__setitem__(PRE + "World/0/timers/0/to", {"mode": 3}), {}, {}, "all"),
+        ("dupname", "checkpoint-run", lambda lv: lv.__setitem__("triggers", lv["triggers"] + [lv["triggers"][0]]), {}, {}, "all"),
+        ("badport", "checkpoint-run", setp(["starts"], {"s": {"pos": [0, 0, 0], "port": "x"}}), {}, {}, "all"),
+        ("toomany", "checkpoint-run", many, {}, {f"x{i}": "intro" for i in range(12)}, "all"),
+        ("pastbase", "checkpoint-run", None, {"cp1": lambda t: t["param"].__setitem__("cars", [PRE + "World/0/tileCars/7"])}, {}, "all"),
+        ("keepall", "checkpoint-run", setp(["baseTriggers"], "all"), {}, {}, "all"),
+        ("keepsome", "checkpoint-run", setp(["baseTriggers"], [0, 3, 5]), {}, {}, "all"),
+        ("keepbad", "checkpoint-run", setp(["baseTriggers"], [0, 9999]), {}, {}, "all"),
+        ("keepword", "checkpoint-run", setp(["baseTriggers"], "some"), {}, {}, "all"),
+        ("packext", "checkpoint-run", packext, {}, {"gate": gate}, "all"),
+        ("nobsp", "checkpoint-run", nobsp, {}, {"gate": gate}, "all"),
+        ("nowhere", "checkpoint-run", nowhere, {}, {"gate": gate}, "all"),
+        ("datavols", "checkpoint-run", datavols, {}, {}, "all"),
+        ("strings", "checkpoint-run", strings, {}, {}, "all"),
+        ("rules", "short-sprint", rules, {}, {}, "all"),
+        ("rules-off", "checkpoint-run", rules, {}, {}, "all"),
+        ("rules-bad", "short-sprint", setp(["rules"], {"mode": "kills", "lives": 3}), {}, {}, "all"),
+        ("starts", "checkpoint-run", starts, {}, {}, "all"),
+        ("objectives", "two-gates", objectives, {}, {}, "all"),
+        ("noid", "checkpoint-run", lambda lv: lv.pop("id"), {}, {}, "all"),
+        ("badid", "checkpoint-run", setp(["id"], "uid://Check"), {}, {}, "all"),
+        ("badfmt", "checkpoint-run", setp(["format_version"], 2), {}, {}, "all"),
+        ("badmodename", "checkpoint-run", setp(["mode"], "race"), {}, {}, "all"),
+        ("otherworld", "checkpoint-run", setp(["world"], "worlds_\\sp_\\chal1_\\ch1_l3"), {}, {}, "all"),
+        ("missingtrig", "checkpoint-run", lambda lv: lv["triggers"].append("ghost"), {}, {}, "all"),
+        ("volname", "checkpoint-run", lambda lv: lv["volumes"].__setitem__("a b", {"center": [0, 0, 0], "radius": 1}), {}, {}, "all"),
+        ("sphere0", "checkpoint-run", lambda lv: lv["volumes"].__setitem__("z", {"center": [0, 0, 0]}), {}, {}, "all"),
+        ("badbox", "checkpoint-run", lambda lv: lv["volumes"].__setitem__("z", {"box": {"min": [0, 5, 0], "max": [1, 1, 1]}}), {}, {}, "all"),
+        ("patchworld", "checkpoint-run", lambda lv: lv["patches"].__setitem__("base://ch1_l3/world_0/World/0/timers/0/to", {"time": 1}), {}, {}, "all"),
+        ("patchlist", "checkpoint-run", lambda lv: lv["patches"].__setitem__(PRE + "World/0/timers/0/to", [1]), {}, {}, "all"),
+        ("patchfield", "checkpoint-run", lambda lv: lv["patches"].__setitem__(PRE + "World/0/tileCars/0", {"pos/q": 1, "zzz": 2}), {}, {}, "all"),
+        ("objbad", "two-gates", lambda lv: lv.__setitem__("objectives", {"o": {"kind": "meter", "text": 5}}), {}, {}, "all"),
+        ("fxbad", "checkpoint-run", lambda lv: lv.__setitem__("fxPoints", {"f": {"pos": [0, 0, 0], "quad": 16, "template": "level://volumes/cp1"}}), {}, {}, "all"),
+        ("itembad", "checkpoint-run", lambda lv: lv.__setitem__("items", {"i": {"pos": [0, 0], "quad": 1}}), {}, {}, "all"),
+        ("badvalue", "checkpoint-run", lambda lv: lv["volumes"]["cp1"].__setitem__("radius", "far"), {}, {}, "shape"),
+        ("notdict", "checkpoint-run", lambda lv: lv["volumes"].__setitem__("cp9", 5), {}, {}, "shape"),
+        ("badjson", "checkpoint-run", None, {"cp1": "{ \"type\": "}, {}, "shape"),
+        ("badaction", "checkpoint-run", None, {"go": lambda t: t["actions"].append({"type": "timer_change_value", "data": {"op": "frob"}})}, {}, "all"),
+    ]
+
+
+def make_variant(root, sample, edit_level, edit_trig, extra):
+    if root.exists():
+        shutil.rmtree(root)
+    shutil.copytree(HERE / "level-samples" / sample, root)
+    if edit_level:
+        lv = XS.jsonc_loads((root / "level.jsonc").read_text())
+        edit_level(lv)
+        (root / "level.jsonc").write_text(json.dumps(lv, indent=2))
+    for t, fn in edit_trig.items():
+        f = root / "triggers" / f"{t}.jsonc"
+        if isinstance(fn, str):
+            f.write_text(fn)
+            continue
+        d = XS.jsonc_loads(f.read_text())
+        fn(d)
+        f.write_text(json.dumps(d, indent=2))
+    for t, src in extra.items():
+        f = root / "triggers" / f"{t}.jsonc"
+        if isinstance(src, str):
+            shutil.copy2(HERE / "level-samples" / sample / "triggers" / f"{src}.jsonc", f)
+        else:
+            f.write_text(json.dumps(src, indent=2))
+
+
+def norm_text(t, side_dir, py_dir):
+    import re as _re
+    t = t.replace(str(side_dir), str(py_dir))
+    t = _re.sub(r'"ms": [0-9.]+', '"ms": 0', t)
+    t = _re.sub(r", [0-9.]+ ms$", ", 0 ms", t, flags=_re.M)
+    t = _re.sub(r'"sourceHash": "[0-9a-f]+"', '"sourceHash": "-"', t)
+    return t
+
+
+def tree_bytes(d, side_dir, py_dir):
+    out = {}
+    if not d.exists():
+        return out
+    files = []
+    for top, dirs, names in os.walk(d):
+        dirs[:] = [x for x in dirs if not x.endswith(".build")]     # the pack build's folders
+        files += [Path(top) / n for n in names]
+    for p in sorted(files):
+        if not p.name.endswith(".key") and not p.is_symlink():
+            b = p.read_bytes()
+            if p.suffix in (".json", ".jsonc"):
+                b = norm_text(b.decode("utf-8", "replace"), side_dir, py_dir).encode()
+            out[str(p.relative_to(d))] = b
+    return out
+
+
+def shape_of(code, out, err):
+    """What a 'shape' case compares: the exit code, and the errors' files and places."""
+    import re as _re
+    try:
+        j = json.loads(out.strip().splitlines()[-1])
+        return code, [(e["file"], e["path"]) for e in j.get("errors", [])], j.get("ok")
+    except (ValueError, IndexError):
+        if "Traceback (most recent call last)" in err:
+            return code, ["error"], None        # the Python stops with a traceback; the port reports it
+        return code, [_re.sub(r":.*", "", l) for l in err.splitlines() if l.startswith("error: ")], None
+
+
+def t_level(a):
+    data = a.data
+    base = a.out / "level"
+    if base.exists():
+        shutil.rmtree(base)
+    cache = {"py": base / "cache-py", "rs": base / "cache-rs"}
+    sbox = base / "spawnbox.json"
+    base.mkdir(parents=True)
+    sbox.write_text(json.dumps({"box": {"cars": 33, "min": [-5.0, -1.4, -14.0], "max": [5.0, 5.25, 13.0]}}))
+
+    def run(side, tool, args):
+        if side == "py":
+            p = subprocess.run([sys.executable, str(HERE / tool), *map(str, args)], capture_output=True, text=True)
+            return p.returncode, p.stdout, p.stderr
+        cmd = {"xdl_level.py": [], "xdl_level_pack.py": []}[tool]
+        args = list(map(str, args))
+        if tool == "xdl_level_pack.py":
+            args = ["pack"] + args[1:]
+        p = subprocess.run([str(BIN), "level", *cmd, *args, "--repo", str(ROOT)], capture_output=True, text=True)
+        return p.returncode, p.stdout, p.stderr
+
+    bad, total, notes = [], 0, []
+    docs = {}
+    for name, sample, el, et, extra, strict in level_variants():
+        if a.quick and not name.startswith("sample-") and name not in ("packext", "badlink", "datavols", "badjson"):
+            continue
+        res = {}
+        for side in ("py", "rs"):
+            d = base / side / name
+            proj = d / "project"
+            make_variant(proj, sample, el, et, extra)
+            c = cache[side]
+            dataargs = ["--data", data, "--cache", c] if data else []
+            ops = [
+                ("compile", ["compile", proj, "-o", d / "out" / "level.json", "--json"]),
+                ("compile-text", ["compile", proj, "-o", d / "out2" / "level.json", "--skip-intro"]),
+                ("check", ["check", proj, "--json"]),
+                ("check-text", ["check", proj]),
+                ("drive-mem", ["testdrive", proj, d / "scratch-mem", "--car", "3", "--skip-intro"]),
+                ("mod", ["mod", proj, d / "mod"]),
+            ]
+            if data:
+                ops += [
+                    ("compile-base", ["compile", proj, "-o", d / "out3" / "level.json", "--json", "--spawn-box", sbox, *dataargs]),
+                    ("check-base", ["check", proj, "--json", "--spawn-box", sbox, *dataargs]),
+                    ("drive-pack", ["testdrive", proj, d / "scratch-pack", "--car", "1", *dataargs]),
+                    ("drive-pack-skip", ["testdrive", proj, d / "scratch-pack2", "--skip-intro", "--memory", *dataargs]),
+                    ("pack", ["build", proj, d / "worlds", *dataargs]),
+                ]
+            out = {}
+            for op, args in ops:
+                tool = "xdl_level_pack.py" if op == "pack" else "xdl_level.py"
+                code, so, se = run(side, tool, args)
+                out[op] = (code, so, se)
+            out["files"] = tree_bytes(d, d, base / "py" / name)
+            res[side] = out
+        for op in res["py"]:
+            total += 1
+            if op == "files":
+                fp, fr = res["py"]["files"], res["rs"]["files"]
+                if strict == "shape":
+                    fp = {k: v for k, v in fp.items() if not k.startswith("project")}
+                    fr = {k: v for k, v in fr.items() if not k.startswith("project")}
+                diff = sorted(k for k in set(fp) | set(fr) if fp.get(k) != fr.get(k) and not k.startswith("project/"))
+                if diff:
+                    bad.append(f"{name} files: {diff[:4]}")
+                continue
+            pyo = tuple(norm_text(x, base / "py" / name, base / "py" / name) if isinstance(x, str) else x for x in res["py"][op])
+            rso = tuple(norm_text(x, base / "rs" / name, base / "py" / name) if isinstance(x, str) else x for x in res["rs"][op])
+            if strict == "shape":
+                pyo, rso = shape_of(*pyo), shape_of(*rso)
+            if pyo != rso:
+                bad.append(f"{name} {op}: py {repr(pyo)[:300]} | rs {repr(rso)[:300]}")
+        if name.startswith("sample-"):
+            for side in ("py", "rs"):
+                f = next((base / side / name / "mod" / "level").glob("*.json"), None)
+                docs[(side, sample)] = json.loads(f.read_text()) if f else None
+    # level_refuse_test's crafted files, from both
+    import copy as _copy
+    import level_refuse_test as RT
+    for cname, (sample, change) in RT.CASES.items():
+        total += 1
+        made = []
+        for side in ("py", "rs"):
+            d = _copy.deepcopy(docs.get((side, sample)))
+            if d is None:
+                made.append(None)
+                continue
+            if change is not None:
+                change(d)
+            made.append(json.dumps(d))
+        if made[0] != made[1] or made[0] is None:
+            bad.append(f"refuse {cname}: the crafted level files differ")
+    if not data:
+        notes.append("no --data: the checks against the base world and the packs were skipped")
+    report("level", total, bad, notes)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--survey", default=None)
     ap.add_argument("--out", default=str(ROOT / "build" / "xdlrs-parity"))
     ap.add_argument("--only", default="")
     ap.add_argument("--quick", action="store_true", help="fewer samples")
+    ap.add_argument("--data", default=os.environ.get("HWVX_GC_DATA"),
+                    help="GameCube data (the level checks against the base world, the packs)")
     ap.add_argument("--reuse", action="store_true", help="mod: keep indexes already made")
     a = ap.parse_args()
     a.survey = Path(a.survey) if a.survey else next(
@@ -737,6 +1101,12 @@ def main():
         t_tacenc(a)
     if on("tacext"):
         t_tacext(a)
+    if on("graph"):
+        t_graph(a)
+    if on("bsp"):
+        t_bsp(a)
+    if on("level"):
+        t_level(a)
     mod = {n for n in ("modindex", "modfiles", "modcheck") if on(n)}
     if mod:
         import xdlrs_parity_mod as PM
