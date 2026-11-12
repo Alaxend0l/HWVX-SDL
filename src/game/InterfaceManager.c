@@ -4119,6 +4119,45 @@ static f32 Port_HudLayoutX(InterfaceObject *obj, u32 depth) {
     return x;
 }
 
+/* The range of x an object is laid out over: every position key of its
+ * default animation and of its states' animations (0x20-byte keys, x
+ * first), plus its parent's layout x; an anchored object only its layout
+ * x. Drag races' "CHECKPOINT" starts at x = 0 and is held at 320 by its
+ * state: by its first key alone it reads as "left". */
+static void Port_HudKeyRange(InterfaceObject *obj, f32 *lo, f32 *hi) {
+    IfaceObjectDef *def = GETP(obj->def);
+    IfaceObjAnim *anim = GETP(def->anim);
+    IfaceStateDef *states = GETP(def->states);
+    IfaceKeyTrack *tracks[65];
+    f32 x = Port_HudLayoutX(obj, 0), base = 0.0f;
+    u32 n = 0, i, k;
+
+    *lo = *hi = x;
+    if (GETP(obj->anchor) != NULL) {
+        return;
+    }
+    if (GETP(obj->parent) != NULL) {
+        base = Port_HudLayoutX(GETP(obj->parent), 1);
+    }
+    if (anim != NULL) {
+        tracks[n++] = &anim->pos;
+    }
+    for (i = 0; states != NULL && i < def->numStates && i < 64; i++) {
+        if (GETP(states[i].anim) != NULL) {
+            tracks[n++] = &GETP(states[i].anim)->pos;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        const u8 *keys = GETP(tracks[i]->keys);
+
+        for (k = 0; keys != NULL && k < tracks[i]->count && k < 256; k++) {
+            x = base + *(const f32 *)(keys + k * 0x20);
+            *lo = x < *lo ? x : *lo;
+            *hi = x > *hi ? x : *hi;
+        }
+    }
+}
+
 static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
     f32 wx, wy, side, x;
 
@@ -4152,18 +4191,19 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
     if (GETP(iface->owner) == NULL) {
         /* an interface of no player in gameplay: the mission's "Wins" and the
          * battle's target car, beside the timer, are one of their own. It
-         * moves only when all of it is on one side; the pause menu and
-         * other screens spread across the middle stay */
-        f32 lo = x, hi = x, ox;
+         * moves only when all of it is on one side, over every key of its
+         * animations; the pause menu and other screens spread across the
+         * middle stay */
+        f32 lo = x, hi = x, olo, ohi;
         u32 j;
 
         for (j = 0; j < iface->count; j++) {
             if (GETP(iface->objects)[j].kind == IFACE_KIND_CHILD) {
                 continue;
             }
-            ox = Port_HudLayoutX(&GETP(iface->objects)[j], 0);
-            lo = ox < lo ? ox : lo;
-            hi = ox > hi ? ox : hi;
+            Port_HudKeyRange(&GETP(iface->objects)[j], &olo, &ohi);
+            lo = olo < lo ? olo : lo;
+            hi = ohi > hi ? ohi : hi;
         }
         return hi < HUD_LEFT_X ? -side : lo > HUD_RIGHT_X ? side : 0.0f;
     }
