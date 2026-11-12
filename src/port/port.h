@@ -274,7 +274,8 @@ int Port_ExtraHeap(void);
 void Port_HeapUsage(int heap, u32 *inUse, u32 *size);
 /* The largest texture the port draws: 2048 (OpenGL ES 3.0's guaranteed size,
  * so every renderer takes it), the full mip chain 12 levels. The retail data's
- * textures are at most 256 x 256 on every release (tools/asset_stats.py); the
+ * textures are at most 256 x 256 on every release (measured with tools/asset_stats.py,
+ * since removed; git history keeps it); the
  * game's own cap was 512 (Render_Texture_.c), GX_TexGet's 1024. */
 #define PORT_MAX_TEX_SIZE 2048
 #define PORT_MAX_TEX_LEVELS 12
