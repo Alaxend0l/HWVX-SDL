@@ -298,8 +298,13 @@ impl Browser {
                 for t in &own {
                     row(ui, t, t["id"].as_str().unwrap_or("").to_string());
                 }
-                let mut packs: Vec<String> = textures.iter().filter(|t| t["shared"] == true).filter_map(|t| t["pack"].as_str().map(String::from)).collect();
-                packs.dedup();
+                // each shared pack once (in the order they come first; not only neighbours)
+                let mut packs: Vec<String> = Vec::new();
+                for p in textures.iter().filter(|t| t["shared"] == true).filter_map(|t| t["pack"].as_str()) {
+                    if !packs.iter().any(|x| x == p) {
+                        packs.push(p.to_string());
+                    }
+                }
                 for p in packs {
                     let items: Vec<&Value> = textures.iter().filter(|t| t["shared"] == true && t["pack"].as_str() == Some(p.as_str())).collect();
                     egui::CollapsingHeader::new(format!("{p} ({} used)", items.len())).id_salt(("shared", p.as_str())).show(ui, |ui| {
@@ -310,10 +315,11 @@ impl Browser {
                 }
             });
         }
-        let sounds = self.media.sounds["sounds"].as_array().cloned().unwrap_or_default();
+        // borrowed, not copied every frame
+        let sounds: &[Value] = self.media.sounds["sounds"].as_array().map(Vec::as_slice).unwrap_or(&[]);
         if !sounds.is_empty() {
             egui::CollapsingHeader::new(format!("Sounds ({})", sounds.len())).id_salt(("group", "Sounds")).default_open(false).show(ui, |ui| {
-                for s in &sounds {
+                for s in sounds {
                     let id = s["id"].as_str().unwrap_or("");
                     let r = ui.selectable_label(selected.as_deref() == Some(id), format!("{id}  ·  {}", sound_summary(s)));
                     let r = r.on_hover_text(format!("{} samples, loop {}, volume {}, plays as {}", s["length"], s["loop"], s["volume"], s["plays"].as_str().unwrap_or("?")));
@@ -323,16 +329,16 @@ impl Browser {
                 }
             });
         }
-        let song = self.media.sounds["song"].clone();
+        let song = &self.media.sounds["song"];
         if song.is_object() {
-            let insts = self.media.sounds["instruments"].as_array().cloned().unwrap_or_default();
+            let insts: &[Value] = self.media.sounds["instruments"].as_array().map(Vec::as_slice).unwrap_or(&[]);
             egui::CollapsingHeader::new("Song").id_salt(("group", "Song")).default_open(true).show(ui, |ui| {
                 let r = ui.selectable_label(selected.as_deref() == Some("song"), format!("song  ·  {} {:.0} bpm, {} ticks", song["kind"].as_str().unwrap_or(""), song["bpm"].as_f64().unwrap_or(0.0), song["ticks"]));
                 if r.clicked() {
                     *clicked = Some("song".into());
                 }
                 egui::CollapsingHeader::new(format!("Instruments ({})", insts.len())).id_salt(("group", "Instruments")).show(ui, |ui| {
-                    for s in &insts {
+                    for s in insts {
                         let id = s["id"].as_str().unwrap_or("");
                         let what = if s["drum"] == true { format!("drum {}", s["lo"]) } else { format!("prog {} {}-{}", s["program"], s["lo"], s["hi"]) };
                         let r = ui.selectable_label(selected.as_deref() == Some(id), format!("{id}  ·  {what}  ·  {}", sound_summary(s)));
@@ -358,8 +364,9 @@ impl Browser {
             Some(View::Texture) => self.media.textures.iter().find(|t| t["id"].as_str() == Some(id.as_str())).cloned(),
             Some(View::Sound) => ["sounds", "instruments"]
                 .iter()
-                .flat_map(|k| self.media.sounds[*k].as_array().cloned().unwrap_or_default())
-                .find(|t| t["id"].as_str() == Some(id.as_str())),
+                .flat_map(|k| self.media.sounds[*k].as_array().into_iter().flatten())
+                .find(|t| t["id"].as_str() == Some(id.as_str()))
+                .cloned(),
             Some(View::Song) => Some(self.media.sounds["song"].clone()),
             _ => None,
         };

@@ -228,8 +228,8 @@ impl Project {
     }
 
     /// The level's own records of a kind (volumes, timers, variables, strings), by name.
-    pub fn own(&self, kind: &str) -> Vec<(String, Value)> {
-        self.level[kind].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default()
+    pub fn own(&self, kind: &str) -> Vec<(&String, &Value)> {
+        self.level.get(kind).and_then(Value::as_object).map(|m| m.iter().collect()).unwrap_or_default()
     }
 
     /// The level and its triggers as plain JSON in `to` (for xdl_level.py: checking, the preview).

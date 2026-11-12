@@ -391,6 +391,7 @@ impl Browser {
     fn connect(&mut self) {
         self.viewer = None; // (a game this started is killed)
         self.drop_all_pending();
+        self.level.edit.reset_marks();
         self.connect_error = None;
         self.preview.reset();
         let args = self.args.clone();

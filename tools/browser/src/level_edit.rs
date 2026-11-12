@@ -90,6 +90,10 @@ pub struct EditState {
     move_offset: f32,
     pub saved_note: String,
     marks_sent: Value,
+    /// what the marks were made from last (they're made again only when it changes)
+    marks_key: String,
+    /// the link pickers' choices, made again only when the level or the base lists change
+    cands: Option<(String, std::rc::Rc<Vec<(String, String)>>)>,
     pub filter: String,
     pub advanced: bool,
     /// warnings (the starts' boxes overlapping each other: xdl_level.py; against the world:
@@ -111,6 +115,12 @@ impl EditState {
     pub fn recheck(&mut self) {
         self.checked_generation = 0;
         self.recheck_pending = true;
+    }
+
+    /// A new viewer: the marks go to it again.
+    pub fn reset_marks(&mut self) {
+        self.marks_key.clear();
+        self.marks_sent = Value::Null;
     }
 
     /// What to go back to if this frame's edit happens: the state at this generation, taken once
@@ -450,8 +460,21 @@ impl Browser {
         if !self.world.status["world"].is_string() || self.viewer.is_none() {
             return;
         }
-        let mut marks = Vec::new();
         let editing = self.level.tab && self.level.edit.proj.is_some();
+        let key = format!(
+            "{}|{:?}|{}|{}|{}|{}",
+            self.level.edit.generation,
+            self.level.edit.sel,
+            editing,
+            self.world.status["world"],
+            self.level.edit.base.values().map(Vec::len).sum::<usize>(),
+            self.level.edit.start_problems.iter().filter(|(_, v)| !v.is_empty()).map(|(k, _)| k.len() + 1).sum::<usize>()
+        );
+        if key == self.level.edit.marks_key {
+            return;
+        }
+        self.level.edit.marks_key = key;
+        let mut marks = Vec::new();
         if editing {
             let p = self.level.edit.proj.as_ref().unwrap();
             for (name, v) in p.own("starts") {
@@ -929,13 +952,13 @@ impl Browser {
             for (name, v) in p.own("volumes") {
                 if let Some(c) = own_volume_center(&v) {
                     let r = v["radius"].as_f64().or_else(|| v["radiusSq"].as_f64().map(f64::sqrt)).unwrap_or(10.0) as f32;
-                    own.push(("volumes".into(), name, c, r));
+                    own.push(("volumes".into(), name.to_string(), c, r));
                 }
             }
             for (k, r) in [("starts", 10.0f32), ("items", 4.0), ("fxPoints", 3.0)] {
                 for (name, v) in p.own(k) {
                     if let Some(c) = vec3(&v["pos"]) {
-                        own.push((k.into(), name, [c[0], c[1] + if k == "starts" { 2.5 } else { 0.0 }, c[2]], r));
+                        own.push((k.into(), name.to_string(), [c[0], c[1] + if k == "starts" { 2.5 } else { 0.0 }, c[2]], r));
                     }
                 }
             }
@@ -1721,7 +1744,19 @@ impl Browser {
     }
 
     /// What a link can name: the level's own records and the base world's listed ones.
-    fn link_candidates(&self, _schema: Option<&Value>) -> Vec<(String, String)> {
+    fn link_candidates(&mut self, _schema: Option<&Value>) -> std::rc::Rc<Vec<(String, String)>> {
+        let key = format!("{}|{}", self.level.edit.generation, self.level.edit.base.values().map(Vec::len).sum::<usize>());
+        if let Some((k, c)) = &self.level.edit.cands {
+            if *k == key {
+                return c.clone();
+            }
+        }
+        let c = std::rc::Rc::new(self.make_link_candidates());
+        self.level.edit.cands = Some((key, c.clone()));
+        c
+    }
+
+    fn make_link_candidates(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
         let Some(p) = self.level.edit.proj.as_ref() else { return out };
         for (k, _) in OWN_KINDS {
