@@ -10,7 +10,8 @@
  *   HWVX_START=itemselect[:mode=M][,car=N][,item=I]   the item select
  *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I]  a race
  *
- * M: adventure (or mission), challenge, drag, battle, joyride (default).
+ * M: adventure (or mission), challenge, drag, battle, joyride (default);
+ * mpdrag and mpbattle, the multi-player progressions, for race only.
  * W: a level of M's progression script, by world name as the MCP names it
  * without folders (bat2_l9, ch1_l2, world1) or its index there (default 0).
  * N, I: car and item numbers (the content registry's; default 0).
@@ -45,6 +46,8 @@ static const struct {
 } s_modes[] = {
     { "adventure", 0, "Adventure" }, { "mission", 0, "Adventure" }, { "challenge", 1, "Challenge" },
     { "drag", 2, "Drag Race" },      { "battle", 3, "Battle" },     { "joyride", 4, "Joyride" },
+    /* the multi-player progressions: race only, with player 1 alone */
+    { "mpdrag", 5, "Drag Race" },    { "mpbattle", 7, "Battle" },
 };
 
 /* The go-to target of the first row (in walking order: One Player's before

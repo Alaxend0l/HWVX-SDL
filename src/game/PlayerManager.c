@@ -3,6 +3,8 @@
 #include "common.h"
 #include "AI.h"
 #include "CarA.h"
+#include "Port_Online.h"
+#include "Port_OnlineProtocol.h"
 
 extern u8 g_playerManager[0x20E0];
 extern u8 *g_pPlayerManager;     /* = g_playerManager */
@@ -21,6 +23,10 @@ typedef struct PlayerPools {
 _Static_assert(offsetof(PlayerPools, active) == 0x20D8, "PlayerPools.active");
 
 #define PLAYER_POOLS ((PlayerPools *)g_playerManager)
+
+/* port: online, human players 5 to 8 (Port_Online.c). Only in the free list while a
+ * session is on, after the pool's four, so those are taken first as offline. */
+static u8 s_portOnlineHumans[ONLINE_MAX_PLAYERS - RETAIL_PLAYERS][0x158] __attribute__((aligned(16)));
 
 /* The camera each human pool slot last chose (button 12 in Player_Heartbeat);
  * NewHumanPlayer applies it, so a new level starts on that camera. The demo
@@ -124,6 +130,15 @@ void PlayerManager_Init(void) {
 
     SETP(pm->active, NULL);
     SETP(pm->free, NULL);
+    if (Port_OnlineActive()) {
+        for (i = 0; i < ONLINE_MAX_PLAYERS - RETAIL_PLAYERS; i++) {
+            player = (Player *)s_portOnlineHumans[i];
+            SETP(player->controlReader, Player_DefaultControlReader);
+            SETP(player->init, PlayerHuman_Init);
+            SETP(player->heartbeat, PlayerHuman_Heartbeat);
+            PlayerManager_Push(&pm->free, player);
+        }
+    }
     for (i = 0; i < 4; i++) {
         player = (Player *)pm->humans[i];
         SETP(player->controlReader, Player_DefaultControlReader);

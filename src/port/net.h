@@ -27,8 +27,7 @@
 
 #define NET_DEFAULT_PORT 47815
 #define NET_MAX_PLAYERS 8        /* what the transport and its messages can carry */
-#define NET_DEFAULT_PLAYERS 4    /* what the game can: it has 4 player slots and
-                                  * score tables, and worlds have 4 human spawns */
+#define NET_DEFAULT_PLAYERS 8    /* what the game hosts: 8 players online (Port_Online.c) */
 #define NET_PEER_HOST 0         /* the host's peer id; clients are 1 and up */
 #define NET_PEER_ALL 0xFF       /* Net_Send*: every peer */
 #define NET_MAX_MESSAGE 60000   /* bytes in one message */

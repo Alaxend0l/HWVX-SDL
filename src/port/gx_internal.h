@@ -162,6 +162,7 @@ void GX_MeshCollect(void);
 /* ticks: performance-counter time in GX_PortDrawGroup since the last call. */
 void GX_MeshStats(u32 *levels, u32 *variants, u32 *built, u64 *vtxBytes, u64 *idxBytes, u64 *ticks);
 void GX_MeshInvalidate(const void *p, u32 size);
+void GX_TexInvalidate(const void *p, u32 size);   /* gx_tex.c: the textures whose images were there */
 
 /* gx_tex.c: GX_TexGet is in gx_render.h */
 

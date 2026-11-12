@@ -227,6 +227,10 @@ static void SendJson(JsonWriter *w) {
 
 /* ---- packs ----------------------------------------------------------------- */
 
+VPack *Viewer_ShownPack(void) {
+    return s.shown;
+}
+
 static VPack *FindPack(const char *name) {
     int i;
     char full[200];
@@ -335,7 +339,7 @@ static void ListArchive(ListScan *scan, const char *archive) {
 
 /* The two share packs a pack's header names (its refs), read from the file
  * without loading it. 1 if the pack is there. */
-static int PackRefs(const char *archive, int type, u32 id, DataPackRef refs[2]) {
+static int PackRefs(const char *archive, int type, u32 id, DataPackRef refs[2], u32 *songBank) {
     struct {
         u32 words[20];
         DataPackRef refs[2];
@@ -352,6 +356,9 @@ static int PackRefs(const char *archive, int type, u32 id, DataPackRef refs[2]) 
             if (File_Read(fd, sizeof(header), &header) > 0) {
                 PortData_PackHeader(fmt, header.words, 20, 2, sizeof(DataPackRef));
                 SDL_memcpy(refs, header.refs, sizeof(header.refs));
+                if (songBank != NULL) {
+                    *songBank = header.words[19];   /* songBankOffset: the pack brings a song */
+                }
                 found = 1;
             }
         }
@@ -375,7 +382,7 @@ static void LoadShares(const char *archive, int type, u32 id, int depth) {
     DataPackRef refs[2];
     int r, k;
 
-    if (depth > 3 || !PackRefs(archive, type, id, refs)) {
+    if (depth > 3 || !PackRefs(archive, type, id, refs, NULL)) {
         return;
     }
     for (r = 0; r < 2; r++) {
@@ -912,6 +919,7 @@ static void Unload(VPack *vp) {
         s.selected[0] = '\0';
         s.selectedIndex = -1;
     }
+    ViewerMedia_PackGoing(vp->pack);
     Viewer_FreeGraph(vp);
     Viewer_ForgetPack(vp->pack);
     FileStreaming_ReleaseDataPack((u32)vp->slot, vp->type);
@@ -950,6 +958,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
     VPack *vp = NULL;
     DataPack *dp;
     DataPackRef refs[2];
+    u32 songBank = 0;
     const char *interned;
     char name[64], full[200];
 
@@ -972,7 +981,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
     SDL_snprintf(name, sizeof(name), "%s_%lld", g_viewerTypeNames[type], id);
     SDL_snprintf(full, sizeof(full), "%s/%s", last, name);
     /* there before anything is unloaded for it: a wrong name leaves what is shown */
-    if (SDL_strlen(archive) >= sizeof(vp->archive) || id > 0xFFFFFFFFll || !PackRefs(archive, type, (u32)id, refs)) {
+    if (SDL_strlen(archive) >= sizeof(vp->archive) || id > 0xFFFFFFFFll || !PackRefs(archive, type, (u32)id, refs, &songBank)) {
         SDL_snprintf(err, errSize, "%s has no %s pack %lld", archive, g_viewerTypeNames[type], id);
         return 0;
     }
@@ -1004,6 +1013,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
             Unload(&g_viewerPacks[i]);
         }
     }
+    ViewerMedia_BeforeLoad(songBank != 0);
     LoadShares(vp->archive, type, (u32)id, 0);
     vp->slot = FileStreaming_LoadDataPack((void *)interned, type, (u32)id, 0);
     dp = vp->slot >= 0 ? FileStreaming_InitializeDataPack((u32)vp->slot, type, 1) : NULL;
@@ -1117,6 +1127,7 @@ static void Dispatch(const JsonNode *req) {
         Jw_String(&w, "release", releases[Port_DataRelease() < 3 ? Port_DataRelease() : 0]);
         Jw_String(&w, "renderer", g_gxr->name);
         Viewer_WriteSchemaNames(&w, "schemas");
+        Jw_Int(&w, "media", 1);     /* the media commands (viewer_media.c) */
     } else if (SDL_strcmp(cmd, "packs") == 0) {
         ok = CmdPacks(&w, err, sizeof(err));
     } else if (SDL_strcmp(cmd, "load") == 0) {
@@ -1363,9 +1374,12 @@ static void Dispatch(const JsonNode *req) {
         }
         Jw_Bool(&w, "headless", Port_ViewerHeadless());
         ViewerFrames_WriteStats(&w);
+        ViewerMedia_WriteStatus(&w);
         WriteCamera(&w);
     } else if (SDL_strcmp(cmd, "quit") == 0) {
         s.quit = 1;
+    } else if (ViewerMedia_Dispatch(cmd, req, &w, &ok, err, sizeof(err))) {
+        /* textures, texture, sounds, sound, play, stop */
     } else {
         SDL_snprintf(err, sizeof(err), "unknown command %.40s", cmd);
         ok = 0;
@@ -1641,7 +1655,7 @@ s32 Port_ViewerStart(void) {
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
     Gfx_SetWorldMatrix(NULL);
     Gfx_StateTextureBlendMode(2);
-    DataPack_EnableLoadingSounds(0);    /* the sound manager isn't running: packs load without their samples */
+    ViewerMedia_Start();    /* the sound manager: packs load with their samples (viewer_media.c) */
     Heartbeat_Process = Heartbeat;  /* (Main_Loop runs Port_ViewerFrame instead) */
 
     s.matrices = Allocate(MATRIX_POOL * sizeof(Matrix4), 0, "");
@@ -1704,6 +1718,7 @@ s32 Port_ViewerFrame(void) {
     Poll();
     if (s.quit) {
         ViewerFrames_Shutdown();
+        ViewerMedia_Shutdown();
         return 0;
     }
     if (s.spin) {
@@ -1723,6 +1738,17 @@ s32 Port_ViewerFrame(void) {
     Gfx_SetAmbientColor(&c);
     c = white;
     Gfx_SetParallelLight(&c, &lightDir);
+    {
+        /* the reflections (windows, chrome, wheels) as the car select draws
+         * them: the MCP's environment map (GameSpecificInterfaces.c); without
+         * one those parts are black */
+        MCP *mcp = GameSettings_GetMCP();
+
+        if (mcp != NULL) {
+            Gfx_SetEnvmap(mcp->envmapX, mcp->envmapY, 1, 100.0f, 100.0f);
+            Gfx_SetEnviroMapMode(1);
+        }
+    }
     any = DrawScene(min, max);
     if (any && s_frameNext) {
         /* the camera for the frame after this one: this one's draws are queued */

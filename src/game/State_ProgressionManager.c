@@ -621,9 +621,9 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             }
             else
             {
-                for (i = 0; i < WORLD()->numTileCars; i++)
+                for (i = 0; i < World_GetTotalTiles_Car(); i++)   /* port: and online's own spawns */
                 {
-                    car = &GETP(WORLD()->tileCars)[i];
+                    car = World_GetTileCar(i);
                     if (car->item2ID != 0xFF && GETP(car->item2) == NULL)
                     {
                         packID = FileStreaming_LoadDataPack(GETP(GETP(WORLD()->gameData)->itemPack), 2, car->item2ID, 0);
@@ -642,9 +642,9 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                         }
                         SETP(car->item, DataPack_GetScript(dp, car->itemID));
                     }
-                    if (car->port <= 4)
+                    if (Port_OnlineTilePort(car) <= Port_OnlineHumanPorts())   /* port: online, ports 5-8 too */
                     {
-                        id = GameSettings_GetCodeVariable(0xCC, car->port);
+                        id = GameSettings_GetCodeVariable(0xCC, Port_OnlineTilePort(car));
                         if (id != -1)
                         {
                             id = Port_ContentItemPack(id);   /* port: the item's pack (the registry's) */
@@ -716,18 +716,18 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         }
         if (!IsLoadingThreadRunning())
         {
-            if (iterationNum < WORLD()->numTileCars)
+            if (iterationNum < World_GetTotalTiles_Car())   /* port: and online's own spawns */
             {
-                car = &GETP(WORLD()->tileCars)[iterationNum++];
+                car = World_GetTileCar(iterationNum++);
                 if (GETP(car->info) == NULL)
                 {
                     name = GETP(GETP(WORLD()->gameData)->vehiclePackList);
                     id = car->vehicle;
-                    if (car->port <= 4 && GameSettings_GetCodeVariable(0x198, 0) == 0)
+                    if (Port_OnlineTilePort(car) <= Port_OnlineHumanPorts() && GameSettings_GetCodeVariable(0x198, 0) == 0)   /* port: as above */
                     {
                         if (!g_bLoadingDemoLand)
                         {
-                            id = GameSettings_GetCodeVariable(0xCB, car->port);
+                            id = GameSettings_GetCodeVariable(0xCB, Port_OnlineTilePort(car));
                             if (id == -1)
                             {
                                 return curLoadingState;
@@ -744,7 +744,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                             id = (cnt + iterationNum) % (car->maxVehicle + 1);
                         }
                     }
-                    if (car->port > 4)
+                    if (Port_OnlineTilePort(car) > Port_OnlineHumanPorts())   /* port: as above */
                     {
                         if (--numAIToActivate < 0)
                         {

@@ -527,13 +527,6 @@ void Viewer_BuildGraph(VPack *vp) {
         }
     }
     head = vp->numNodes;    /* the breadth-first queue starts here */
-    /* a world pack's root is the World, first (as the tools): its tables name the records
-     * the triggers point to */
-    if (vp->type == 4 && Viewer_Schema("World") != NULL && HexOf(Viewer_Schema("World"), "x-size") <= vp->size &&
-        (nd = AddNode(vp, VN_TYPED, "World/0", 0, HexOf(Viewer_Schema("World"), "x-size"), -1)) != NULL) {
-        nd->schema = Viewer_Schema("World");
-        nd->type = "World";
-    }
     /* the root table: a count, then a pointer to {id, pointer} entries */
     if (vp->type >= 0 && vp->type < 11 && s_rootKind[vp->type] != NULL && vp->size >= 8) {
         u32 n = RdU32(vp, 0), tab = IsPointerSlot(vp, 4) ? Target(vp, 4) : VIEWER_NO_OFFSET;
@@ -825,54 +818,6 @@ static void WritePrim(JsonWriter *w, const char *key, const Prim *p, const u8 *a
 
 static void WriteProps(JsonWriter *w, VPack *vp, const JsonNode *root, const JsonNode *props, u32 base);
 
-static long long ReadInt(const Prim *p, const u8 *at) {
-    switch (p->size) {
-    case 1: return p->isSigned ? (long long)*(const s8 *)at : (long long)*at;
-    case 2: { u16 x; SDL_memcpy(&x, at, 2); return p->isSigned ? (long long)(s16)x : (long long)x; }
-    default: { u32 x; SDL_memcpy(&x, at, 4); return p->isSigned ? (long long)(s32)x : (long long)x; }
-    }
-}
-
-/* The name of `v` in a {"value": "name"} table (x-enum, x-tokens), or NULL. */
-static const char *NameOf(const JsonNode *names, long long v) {
-    char k[24];
-
-    SDL_snprintf(k, sizeof(k), "%lld", v);
-    return names != NULL ? Json_GetString(names, k, NULL) : NULL;
-}
-
-/* An x-enum field as its name (the number when it has none), an x-flags field as the list
- * of its bits' names (and the bits without one, as a number), as the project files write
- * them (tools/xdl_tac.py). */
-static void WriteNamedInt(JsonWriter *w, const char *key, const JsonNode *prop, long long v) {
-    const JsonNode *flags = Json_Get(prop, "x-flags"), *f;
-    const char *name;
-
-    if (flags != NULL) {
-        long long rest = v;
-
-        Jw_BeginArray(w, key, 1);
-        for (f = flags->child; f != NULL; f = f->next) {
-            long long bit = SDL_strtoll(f->key, NULL, 10);
-
-            if (bit != 0 && (v & bit) == bit && f->type == JSON_STRING) {
-                Jw_String(w, NULL, f->string);
-                rest &= ~bit;
-            }
-        }
-        if (rest != 0) {
-            Jw_Int(w, NULL, rest);
-        }
-        Jw_EndArray(w);
-        return;
-    }
-    if ((name = NameOf(Json_Get(prop, "x-enum"), v)) != NULL) {
-        Jw_String(w, key, name);
-    } else {
-        Jw_Int(w, key, v);
-    }
-}
-
 static void WriteValue(JsonWriter *w, const char *key, VPack *vp, const JsonNode *root, const JsonNode *prop,
                        const CType *t, int dim, u32 off) {
     const JsonNode *link, *def;
@@ -912,10 +857,7 @@ static void WriteValue(JsonWriter *w, const char *key, VPack *vp, const JsonNode
         Jw_EndObject(w);
         return;
     }
-    if ((p = FindPrim(t->base)) != NULL && !p->isFloat && prop != NULL &&
-        (Json_Get(prop, "x-enum") != NULL || Json_Get(prop, "x-flags") != NULL)) {
-        WriteNamedInt(w, key, prop, ReadInt(p, Base(vp) + off));
-    } else if (p != NULL) {
+    if ((p = FindPrim(t->base)) != NULL) {
         WritePrim(w, key, p, Base(vp) + off);
     } else {
         static const Prim word = { "u32", 4, 0, 0 };
@@ -976,271 +918,44 @@ static void WriteVec(JsonWriter *w, const char *key, const f32 *v, int n) {
     Jw_EndArray(w);
 }
 
-/* ---- TAC triggers: the records and their parameter lists ---------------------
- * As tools/xdl_tac.py decodes them, from schemas/Trigger.schema.json: each list's
- * layout is x-variants[enum][kind], items [kind, name, arg] (Trigger.h's TAC_PARAMS_*).
- * A list that doesn't fit the layout (a number on a pointer slot, a count past the end
- * of the pack) is written as far as it goes, with "error". */
+/* The node each of the pack's 4-byte words is part of: vp->owner, and a
+ * geometry's level and group records (not nodes of their own: a group's
+ * texture slot belongs to its geometry). Freed by the caller (SDL_free). */
+s32 *Viewer_WordUsers(VPack *vp) {
+    u32 words = vp->size / 4, n, i, j, lodsOff, groupsOff, o;
+    s32 *users = SDL_malloc(((size_t)words + 1) * sizeof(s32));
 
-typedef struct TacCursor {
-    VPack *vp;
-    const JsonNode *sch;        /* Trigger.schema.json */
-    u32 o;
-    u32 lastCount;              /* the last list's count (SCRATCH has one word per element) */
-    const char *err;
-} TacCursor;
-
-static int TacWord(TacCursor *c, u32 *v) {
-    if (c->err != NULL || !InRange(c->o, 4, c->vp->size)) {
-        c->err = c->err != NULL ? c->err : "past the end of the pack";
-        return 0;
+    if (users == NULL) {
+        return NULL;
     }
-    *v = RdU32(c->vp, c->o);
-    c->o += 4;
-    return 1;
-}
-
-static void TacLink(JsonWriter *w, const char *key, TacCursor *c) {
-    char text[320];
-    u32 v;
-
-    if (!TacWord(c, &v)) {
-        return;
+    for (o = 0; o < words; o++) {
+        users[o] = vp->owner != NULL ? vp->owner[o] : -1;
     }
-    if (v == 0) {
-        Viewer_WriteNull(w, key);
-    } else if (!IsPointerSlot(c->vp, c->o - 4)) {
-        c->err = "a link slot without a pointer";
-        Jw_Int(w, key, v);
-    } else if (LinkText(c->vp, c->o - 4, "object", text, sizeof(text))) {
-        Jw_String(w, key, text);
-    } else {
-        Viewer_WriteNull(w, key);
-    }
-}
+    for (n = 0; n < vp->numNodes; n++) {
+        VNode *nd = &vp->nodes[n];
+        Geometry *g;
 
-static void TacAny(JsonWriter *w, const char *key, TacCursor *c) {
-    if (IsPointerSlot(c->vp, c->o)) {
-        TacLink(w, key, c);
-    } else {
-        u32 v;
-
-        if (TacWord(c, &v)) {
-            Jw_Int(w, key, v);
-        }
-    }
-}
-
-static void TacPlain(JsonWriter *w, const char *key, TacCursor *c, const char *kind) {
-    u32 v;
-
-    if (IsPointerSlot(c->vp, c->o)) {
-        c->err = "a number on a pointer slot";
-    }
-    if (!TacWord(c, &v)) {
-        return;
-    }
-    if (SDL_strcmp(kind, "f32") == 0) {
-        f32 f;
-
-        SDL_memcpy(&f, &v, 4);
-        Jw_Float(w, key, f);
-    } else if (SDL_strcmp(kind, "s32") == 0) {
-        Jw_Int(w, key, (s32)v);
-    } else if (SDL_strcmp(kind, "token") == 0 && NameOf(Json_Get(c->sch, "x-tokens"), v) != NULL) {
-        Jw_String(w, key, NameOf(Json_Get(c->sch, "x-tokens"), v));
-    } else {
-        Jw_Int(w, key, v);
-    }
-}
-
-static void TacItems(JsonWriter *w, TacCursor *c, const JsonNode *items, u32 end) {
-    const JsonNode *it;
-    u32 n, i;
-
-    for (it = items != NULL ? items->child : NULL; it != NULL && c->err == NULL; it = it->next) {
-        const char *kind, *name;
-
-        kind = Json_At(it, 0) != NULL ? Json_At(it, 0)->string : NULL;
-        name = Json_At(it, 1) != NULL ? Json_At(it, 1)->string : NULL;
-        if (kind == NULL || name == NULL) {
+        if (nd->kind != VN_GEOMETRY) {
             continue;
         }
-        if (!SDL_strcmp(kind, "u32") || !SDL_strcmp(kind, "s32") || !SDL_strcmp(kind, "f32") || !SDL_strcmp(kind, "token")) {
-            TacPlain(w, name, c, kind);
-        } else if (!SDL_strcmp(kind, "any")) {
-            TacAny(w, name, c);
-        } else if (!SDL_strcmp(kind, "link")) {
-            TacLink(w, name, c);
-        } else if (!SDL_strcmp(kind, "list") || !SDL_strcmp(kind, "table")) {
-            if (!TacWord(c, &n)) {
-                break;
+        g = (Geometry *)(Base(vp) + nd->off);
+        lodsOff = Target(vp, nd->off + 8);
+        for (i = 0; lodsOff != VIEWER_NO_OFFSET && i < g->numGroups && lodsOff + (i + 1) * 0x18 <= vp->size; i++) {
+            Geometry *lod = (Geometry *)(Base(vp) + lodsOff + i * 0x18);
+
+            for (o = (lodsOff + i * 0x18) / 4; o < (lodsOff + (i + 1) * 0x18) / 4; o++) {
+                users[o] = (s32)n;
             }
-            if (n > 0x1000 || !InRange(c->o, n * 4, c->vp->size)) {
-                c->err = "a count past the end";
-                break;
-            }
-            c->lastCount = n;
-            Jw_BeginArray(w, name, !SDL_strcmp(kind, "list"));
-            for (i = 0; i < n && c->err == NULL; i++) {
-                if (!SDL_strcmp(kind, "list")) {
-                    TacLink(w, NULL, c);
-                } else {
-                    Jw_BeginObject(w, NULL, 1);
-                    TacItems(w, c, Json_Get(Json_Get(c->sch, "x-records"), Json_At(it, 2) ? Json_At(it, 2)->string : ""), end);
-                    Jw_EndObject(w);
+            groupsOff = Target(vp, lodsOff + i * 0x18 + 8);
+            for (j = 0; groupsOff != VIEWER_NO_OFFSET && j < lod->numGroups &&
+                        groupsOff + (j + 1) * sizeof(GeometryGroup) <= vp->size; j++) {
+                for (o = (u32)(groupsOff + j * sizeof(GeometryGroup)) / 4; o < (u32)(groupsOff + (j + 1) * sizeof(GeometryGroup)) / 4; o++) {
+                    users[o] = (s32)n;
                 }
             }
-            Jw_EndArray(w);
-        } else if (!SDL_strcmp(kind, "operand")) {
-            u32 t;
-
-            if (!TacWord(c, &t)) {
-                break;
-            }
-            Jw_BeginObject(w, name, 1);
-            if (t == 0) {
-                TacPlain(w, "const", c, "f32");
-            } else if (t == 1) {
-                TacLink(w, "variable", c);
-            } else if (t == 2) {
-                TacPlain(w, "code", c, "u32");
-                TacAny(w, "arg", c);
-            } else {
-                c->err = "an unknown operand type";
-            }
-            Jw_EndObject(w);
-        } else if (!SDL_strcmp(kind, "codevar")) {
-            u32 var;
-
-            if (!TacWord(c, &var)) {
-                break;
-            }
-            Jw_BeginObject(w, name, 1);
-            Jw_Int(w, "var", var);
-            if (var < 100) {
-                if (TacWord(c, &n) && n <= 0x1000) {
-                    Jw_BeginArray(w, "cars", 1);
-                    for (i = 0; i < n && c->err == NULL; i++) {
-                        TacLink(w, NULL, c);
-                    }
-                    Jw_EndArray(w);
-                }
-            } else {
-                TacAny(w, "arg", c);
-            }
-            Jw_EndObject(w);
-        } else if (!SDL_strcmp(kind, "scratch")) {
-            /* one run-time word per element of the list before it (VEHICLE_DAMAGE) */
-            Jw_BeginArray(w, name, 1);
-            for (i = 0; i < c->lastCount && c->err == NULL; i++) {
-                TacPlain(w, NULL, c, "u32");
-            }
-            Jw_EndArray(w);
-        } else if (!SDL_strcmp(kind, "string")) {
-            const char *str = (const char *)Base(c->vp) + c->o;
-            size_t len = InRange(c->o, 1, c->vp->size) ? SDL_strnlen(str, c->vp->size - c->o) : 0;
-            char buf[128];
-
-            SDL_snprintf(buf, sizeof(buf), "%.*s", (int)(len < sizeof(buf) - 1 ? len : sizeof(buf) - 1), str);
-            Jw_String(w, name, buf);
-            c->o += (u32)((len + 4) & ~(size_t)3);
-        } else if (!SDL_strcmp(kind, "words")) {
-            Jw_BeginArray(w, name, 1);
-            while (c->o + 4 <= end && c->err == NULL) {
-                TacAny(w, NULL, c);
-            }
-            Jw_EndArray(w);
         }
     }
-}
-
-/* The end of the node at `off`: the next pointer target (as the tools cut nodes). */
-static u32 TacNodeEnd(VPack *vp, u32 off) {
-    s32 owner = vp->owner != NULL && off < vp->size ? vp->owner[off / 4] : -1;
-
-    if (owner >= 0 && vp->nodes[owner].off == off && vp->nodes[owner].size != 0) {
-        return off + vp->nodes[owner].size;
-    }
-    return off + 0x40 < vp->size ? off + 0x40 : vp->size;
-}
-
-static void WriteTacRecord(JsonWriter *w, VPack *vp, const JsonNode *sch, const JsonNode *rec, u32 off, int depth);
-
-static void WriteTacParams(JsonWriter *w, VPack *vp, const JsonNode *sch, const char *key, const char *enumName,
-                           const char *kind, u32 slot) {
-    const JsonNode *items = Json_Get(Json_Get(Json_Get(sch, "x-variants"), enumName), kind);
-    u32 t = Target(vp, slot);
-    TacCursor c;
-
-    if (t == VIEWER_NO_OFFSET || items == NULL) {
-        char text[320];
-
-        if (LinkText(vp, slot, "object", text, sizeof(text))) {
-            Jw_String(w, key, text);
-        } else {
-            Viewer_WriteNull(w, key);
-        }
-        return;
-    }
-    c.vp = vp;
-    c.sch = sch;
-    c.o = t;
-    c.lastCount = 0;
-    c.err = NULL;
-    Jw_BeginObject(w, key, 0);
-    TacItems(w, &c, items, TacNodeEnd(vp, t));
-    if (c.err != NULL) {
-        Jw_String(w, "error", c.err);
-    }
-    Jw_EndObject(w);
-}
-
-/* A Trigger or TriggerAction record (`rec`: its schema object) with its parameter list and,
- * for a trigger, its conditions and actions, as one object. */
-static void WriteTacRecord(JsonWriter *w, VPack *vp, const JsonNode *sch, const JsonNode *rec, u32 off, int depth) {
-    const JsonNode *p, *props = Json_Get(rec, "properties");
-    const char *kind = NULL;
-
-    for (p = props != NULL ? props->child : NULL; p != NULL; p = p->next) {
-        const char *ctype = Json_GetString(p, "x-c-type", NULL);
-        const JsonNode *params = Json_Get(p, "x-params"), *link = Json_Get(p, "x-link");
-        u32 o;
-        CType t;
-
-        if (ctype == NULL || Json_Get(p, "x-offset") == NULL) {
-            continue;
-        }
-        o = off + HexOf(p, "x-offset");
-        if (params != NULL) {
-            WriteTacParams(w, vp, sch, p->key, Json_GetString(params, "enum", ""), kind != NULL ? kind : "", o);
-        } else if (link != NULL && Json_Get(p, "x-inline") != NULL && depth < 3) {
-            const char *countKey = Json_GetString(link, "count", "");
-            const JsonNode *cp = Json_Get(props, countKey);
-            const char *target = Json_GetString(link, "target", "");
-            const JsonNode *elem = Json_Get(Json_Get(sch, "$defs"), SDL_strncmp(target, "struct ", 7) == 0 ? target + 7 : target);
-            u32 n = cp != NULL ? RdU32(vp, off + HexOf(cp, "x-offset")) : 0, a = Target(vp, o), i;
-            u32 size = elem != NULL ? HexOf(elem, "x-size") : 0;
-
-            if (a == VIEWER_NO_OFFSET || n == 0 || size == 0 || n > 0x100 || !InRange(a, n * size, vp->size)) {
-                Viewer_WriteNull(w, p->key);
-                continue;
-            }
-            Jw_BeginArray(w, p->key, 0);
-            for (i = 0; i < n; i++) {
-                Jw_BeginObject(w, NULL, 0);
-                WriteTacRecord(w, vp, sch, elem, a + i * size, depth + 1);
-                Jw_EndObject(w);
-            }
-            Jw_EndArray(w);
-        } else {
-            ParseCType(ctype, &t);
-            WriteValue(w, p->key, vp, sch, p, &t, 0, o);
-            if (SDL_strcmp(p->key, "type") == 0) {
-                kind = NameOf(Json_Get(p, "x-enum"), RdU32(vp, o));
-            }
-        }
-    }
+    return users;
 }
 
 void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd) {
@@ -1324,16 +1039,6 @@ void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd) {
             Jw_EndObject(w);
         }
         Jw_EndArray(w);
-        break;
-    }
-    case VN_TRIGGER: {
-        const JsonNode *sch = Viewer_Schema("Trigger");
-
-        if (sch != NULL && Json_Get(sch, "x-variants") != NULL) {
-            Jw_BeginObject(w, "trigger", 0);
-            WriteTacRecord(w, vp, sch, sch, nd->off, 0);
-            Jw_EndObject(w);
-        }
         break;
     }
     case VN_TEXTURE:

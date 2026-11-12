@@ -444,8 +444,14 @@ floor) and any logic that counts frames rather than time.
 
 Work in progress: Drag Race, Battle and Joyride play over a network, weapons and pickups
 included. In Joyride, a world's key and gears count for every player. One host and its clients, each connected to the host only,
-up to 8 players in the transport (the game itself stops at 4 for now: player pools,
-score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
+up to 8 players in Battle and Joyride, 4 in Drag Race (its worlds have the retail grid of 4;
+the host can't start one with more, and the mode screen says why). One host to connect to,
+because a Cloudflare tunnel only takes connections to the host. The retail game has 4 player
+ports; online, players 5-8 start at spawns nobody has (so 4 or fewer always use the retail
+spawns), a Battle world's AI spawns, or spots of our own found from the world's collision for
+the largest car; scripts naming all 4 player spawns name theirs too, and the round summary
+shows them in turns in its four rows. Players whose
+enabled mods differ (ids and versions) don't play together: the client leaves saying so.
 
 Multi-Player now opens Online or Local; Local is the game's own screen (on PC data the
 port's, see above). Hosting opens a
@@ -480,6 +486,10 @@ cmake -S . -B build-tests -DHWVX_TESTS=ON && cmake --build build-tests --target 
 build-tests/nettest selftest     # protocol code, no sockets
 build-tests/nettest e2e          # a host and clients as separate processes
 ```
+
+A whole session on one machine: `tools/online8_test.sh BUILD DATA OUT battle|drag|joyride`
+runs one game as host (`HWVX_ONLINE_TEST`, see `Port_Online.c`) and 7 `netbot` clients
+(`tools/netbot.c`), and fails on a crash, a desync of the cars or scores, or a missing round.
 
 `HWVX_NET_SIM` makes any session's connection bad, for example
 `HWVX_NET_SIM=lat=40,jitter=20,loss=1,stall=200,bw=64` (see `src/port/net_sim.c`). For two
@@ -656,7 +666,9 @@ Debugging aids:
   the browser shows the picture in its own window, through shared memory
   (`frames`); `HWVX_VIEWER_WINDOW=1` shows the game's window as before
   (debugging; the browser's `--viewer-window`), `HWVX_VIEWER_STATS=1` logs the
-  readback's cost each second. The browser is
+  readback's cost each second. Packs load with their sounds (the browser's
+  textures, sounds and songs, decoded and played by the game);
+  `HWVX_VIEWER_AUDIO=0` loads them without. The browser is
   `tools/browser` (`cargo run --release --manifest-path tools/browser/Cargo.toml
   -- --data DIR`), and `tools/viewer_client.py` sends requests from the shell.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo

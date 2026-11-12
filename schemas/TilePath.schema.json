@@ -38,9 +38,14 @@
     },
     "anim": {
       "description": "the track (DestructibleParams.anim)",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object"
+      },
       "x-offset": "0x04",
       "x-c-type": "u32"
     },
@@ -51,9 +56,15 @@
     },
     "record": {
       "description": "ThingRecord handle",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 4294967295,
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "ThingRecord"
+      },
       "x-offset": "0x0C",
       "x-c-type": "u32"
     },

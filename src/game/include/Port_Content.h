@@ -187,6 +187,8 @@ u32 Port_ContentTrackAt(u32 prog, u32 local);
 /* The registered track that is level `level` of progression `prog`, -1 if
  * it's one of the script's own. */
 s32 Port_ContentTrackOfLevel(u32 prog, u32 level);
+/* The level of progression `prog` that track number `track` is, -1 if none. */
+s32 Port_ContentLevelOfTrack(u32 prog, u32 track);
 /* A world select (patched first) opens at level `level`: 1 if h is one. */
 int Port_ContentTrackSelectAt(struct InterfaceHeader *h, s32 level);
 

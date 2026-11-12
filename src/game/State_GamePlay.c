@@ -39,11 +39,11 @@ s32 StateGamePlay_Init(void) {
     AIPlayerParams desc;
     u32 speakerAction[3];
     u32 airAction[3];
-    s32 viewOf[4];
+    s32 viewOf[8];             /* port: 8 for online's ports 5-8, as humanUsed */
     u32 viewIdx[4];
     Player *players[4];
-    char name[8];
-    s8 humanUsed[4] = {0, 0, 0, 0};
+    char name[12];             /* port: was 8; "Player 8" online */
+    s8 humanUsed[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     s32 soundId;
     Player *aiPlayer;
     u32 i;
@@ -102,25 +102,29 @@ s32 StateGamePlay_Init(void) {
 
         i = 0;
         while ((car = World_GetTileCar(i)) != NULL) {
-            if (GETP(car->aiScripts) != NULL && (car->port <= 4 || car->dynamic == 0 || car->spawned != 0)) {
+            /* port: online, ports 5-8 too (Port_OnlineTilePort); offline the tile's */
+            s32 port = (s32)Port_OnlineTilePort(car);
+            s32 humanPorts = (s32)Port_OnlineHumanPorts();
+
+            if (GETP(car->aiScripts) != NULL && (port <= humanPorts || car->dynamic == 0 || car->spawned != 0)) {
                 params.pos = car->pos;
                 params.pos.y += 10.0f;
                 SETP(params.player, NULL);
                 SETP(params.info, GETP(car->info));
                 params.vel = g_zeroVector;
-                if (car->port <= 4) {
+                if (port <= humanPorts) {
                     car->dynamic = 0;
                 }
                 SetOrientation(&mtx, car->rotY, car->rotX, car->rotZ);
                 SubMatrixToQuaternion(&mtx, &params.quat);
-                if (car->port <= 4 && GameSettings_GetCodeVariable(0x198, 0) == 0) {
+                if (port <= humanPorts && GameSettings_GetCodeVariable(0x198, 0) == 0) {
                     u32 script;
 
-                    script = GameSettings_GetCodeVariable(0xCC, car->port);
+                    script = GameSettings_GetCodeVariable(0xCC, port);
                     if (script != 0xFFFFFFFF) {
                         script = Port_ContentItemPack(script);   /* port: the item's pack (the registry's) */
                     }
-                    if (car->port - 1 < 4) {
+                    if (port - 1 < humanPorts) {
                         player = PlayerManager_NewHumanPlayer();
                         if (car->port == 1) {
                             Player_SetName(player, 1, "Player 1");
@@ -130,10 +134,14 @@ s32 StateGamePlay_Init(void) {
                             Player_SetName(player, 3, "Player 3");
                         } else if (car->port == 4) {
                             Player_SetName(player, 4, "Player 4");
+                        } else if (port > 4) {
+                            /* port: online, players 5-8 */
+                            sprintf(name, "Player %d", (int)port);
+                            Player_SetName(player, port, name);
                         }
                         /* port: online, the other machines' cars get no view here */
                         Port_OnlineSetupPlayer(player);
-                        humanUsed[car->port - 1] = !Port_OnlineIsRemote(player);
+                        humanUsed[port - 1] = !Port_OnlineIsRemote(player);
                         SETP(car->car, ThingManager_DARYL_CreateThing(9, &params));
                         Player_SetThing(player, GETP(car->car));
                         SETP(GETP(car->car)->base.trigger, car);
@@ -345,6 +353,11 @@ s32 StateGamePlay_Init(void) {
         }
         if (humanUsed[3]) {
             viewOf[3] = view++;
+        }
+        for (k = 4; k < 8; k++) {   /* port: online, the one view is the local player's */
+            if (humanUsed[k]) {
+                viewOf[k] = view++;
+            }
         }
         switch (Port_OnlineActive() ? 1 : count) {   /* port: online, one view */
         case 1:

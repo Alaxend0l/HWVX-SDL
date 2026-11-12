@@ -754,6 +754,119 @@ void GX_TexStats(GXTexStats *st) {
     st->rgbaBytes = s_stats.rgbaBytes;
 }
 
+int GX_PortTexObjInfo(const GXTexObj *obj, GXPortTexInfo *info) {
+    const u32 *d = obj->dummy;
+    GXSampler samp;
+    int l;
+
+    SDL_zerop(info);
+    info->w = (int)(d[1] >> 16);
+    info->h = (int)(d[1] & 0xFFFF);
+    info->fmt = (int)d[2];
+    if (PTR(d[0]) == NULL || info->w == 0 || info->h == 0 || info->w > 1024 || info->h > 1024) {
+        return 0;
+    }
+    info->levels = 1;
+    if (d[4]) {     /* as GX_TexGet */
+        f32 maxLod;
+        memcpy(&maxLod, &d[6], 4);
+        info->levels = (int)maxLod + 1;
+        if (info->levels < 1 || info->levels > 11) {
+            info->levels = 1;
+        }
+    }
+    SDL_zero(samp);
+    Sampler(d, info->levels, &samp);
+    info->wrapS = samp.wrapS;
+    info->wrapT = samp.wrapT;
+    info->minLinear = samp.minLinear;
+    info->magLinear = samp.magLinear;
+    info->mip = samp.mip;
+    info->squared = info->fmt >= GX_TF_PORT && Port_PCTexturesLookGC();
+    info->mod = GX_TexModFor(d[0]) != NULL;
+    for (l = 0; l < info->levels; l++) {
+        info->bytes += LevelSize(info->fmt, (info->w >> l) > 0 ? info->w >> l : 1, (info->h >> l) > 0 ? info->h >> l : 1);
+    }
+    return 1;
+}
+
+int GX_PortDecodeTexObj(const GXTexObj *obj, int level, u8 *rgba) {
+    GXPortTexInfo info;
+    const u8 *image = PTR(obj->dummy[0]);
+    const GXTexMod *mod = GX_TexModFor(obj->dummy[0]);
+    int l, lw = 0, lh = 0;
+
+    if (!GX_PortTexObjInfo(obj, &info) || level < 0 || level >= info.levels) {
+        return 0;
+    }
+    /* Upload's walk through the levels */
+    for (l = 0; l <= level; l++) {
+        lw = (info.w >> l) > 0 ? info.w >> l : 1;
+        lh = (info.h >> l) > 0 ? info.h >> l : 1;
+        if (l < level) {
+            image += LevelSize(info.fmt, lw, lh);
+        }
+    }
+    memset(rgba, 0, (size_t)lw * lh * 4);
+    DecodeLevel(info.fmt, image, lw, lh, rgba);
+    if (mod != NULL) {
+        GX_TexModApply(mod, rgba, lw, lh);
+    }
+    if (info.squared) {
+        SquareColours(rgba, lw, lh);
+    }
+    return 1;
+}
+
+/* The block [p, p+size) of the game's memory is freed (OSFreeToHeap, through
+ * Port_InvalidateDisplayLists): the textures whose image was in it go, and
+ * their GPU textures with them when nothing else shares them. Before, they
+ * stayed until the cache's 1024 entries were all in use, so every level
+ * visited kept its textures on the GPU. */
+void GX_TexInvalidate(const void *p, u32 size) {
+    u32 lo, i;
+
+    if (p == NULL || size == 0 || s_stats.textures == 0) {
+        return;
+    }
+    lo = Port_PtrToHandle(p);
+    for (i = 0; i < TEX_CACHE; i++) {
+        TexEntry *e = &s_cache[i];
+
+        if (e->data != NULL && e->image - lo < size) {
+            HashRemove(e->image, e->key, e->hash);
+            Release(e->data);
+            e->data = NULL;
+            e->lastUse = 0;
+        }
+    }
+}
+
+/* The most GPU memory the cache keeps (HWVX_TEX_BUDGET, in MB; 512 by
+ * default): past it the least recently used textures go first. */
+static void KeepToBudget(void) {
+    static u64 budget;
+
+    if (budget == 0) {
+        const char *e = SDL_getenv("HWVX_TEX_BUDGET");
+        int mb = e != NULL ? SDL_atoi(e) : 0;
+
+        budget = (u64)(mb > 0 ? mb : 512) << 20;
+    }
+    while (s_stats.bytes > budget) {
+        u32 i = LruPick();
+        TexEntry *e = &s_cache[i];
+
+        if (e->data == NULL) {
+            break;
+        }
+        HashRemove(e->image, e->key, e->hash);
+        Release(e->data);
+        e->data = NULL;
+        e->lastUse = 0;
+    }
+}
+
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
     const u32 *d = obj->dummy;
     u8 *image = PTR(d[0]);
@@ -814,6 +927,7 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
         e->lastUse = s_useClock;
         HashInsert(oldest, d[0], key, hash);
         s_stats.ticks += SDL_GetPerformanceCounter() - t0;
+        KeepToBudget();
         return e->data->tex;
     }
 }

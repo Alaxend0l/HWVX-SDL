@@ -243,6 +243,7 @@ void ARQPostRequest(void *task, u32 owner, u32 type, u32 priority, u32 source, u
 void ARQFlushQueue(void);
 /* ARAM is emulated in host memory; port helper to reach it. */
 u8 *Port_ARAMBase(void);
+int Port_AudioDevice(void);     /* ax.c: 1 when an output device is open */
 
 /* An AX voice parameter block, in the GameCube SDK layout of the game's era
  * (the DSP's AXPB at 0x138). On the DSP every address and the resampling ratio
