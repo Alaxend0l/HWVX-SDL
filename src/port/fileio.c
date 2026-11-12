@@ -53,6 +53,17 @@ int Port_ReplaceFile(const char *from, const char *to) {
 #include <fcntl.h>
 #include <unistd.h>
 
+/* To the disk itself: on macOS fsync only reaches the drive's cache;
+ * F_FULLFSYNC flushes that too (not every file system has it: then fsync). */
+static int SyncFd(int fd) {
+#if defined(__APPLE__) && defined(F_FULLFSYNC)
+    if (fcntl(fd, F_FULLFSYNC) == 0) {
+        return 0;
+    }
+#endif
+    return fsync(fd);
+}
+
 int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
     const char *p = data;
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -73,7 +84,7 @@ int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
         p += n;
         size -= (size_t)n;
     }
-    if (ok && fsync(fd) != 0) {
+    if (ok && SyncFd(fd) != 0) {
         ok = SDL_SetError("can't sync %s: %s", path, strerror(errno));
     }
     if (close(fd) != 0 && ok) {
@@ -94,7 +105,7 @@ int Port_ReplaceFile(const char *from, const char *to) {
     }
     dir = slash != NULL ? SDL_strndup(to, (size_t)(slash - to) + 1) : SDL_strdup(".");
     if (dir != NULL && (fd = open(dir, O_RDONLY)) >= 0) {
-        fsync(fd);
+        SyncFd(fd);
         close(fd);
     }
     SDL_free(dir);

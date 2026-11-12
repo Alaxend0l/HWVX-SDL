@@ -2204,12 +2204,16 @@ u8 GameSettings_LoadGame(void) {
     memcpy(g_pGameData, SAVE_FILE_GAME_DATA(saved, size, slot), size);
     if (g_pGameData == (u8 *)&g_HotWheelsGameData) {
         /* port: the registry takes the struct back, and the entries past
-         * its arrays from the JSON save's slot; a chosen car the data
-         * doesn't have (a removed mod's) reads as none */
+         * its arrays from the JSON save's slot; a chosen car or item the
+         * data doesn't have (a removed mod's, a number edited by hand)
+         * reads as none */
         Port_ContentFromGameData();
         Port_ContentLoadKept(GameSettings_PortKept(slot));
-        if (g_HotWheelsGameData.vehicle >= (s32)Port_ContentCount(PORT_CONTENT_CAR)) {
+        if (g_HotWheelsGameData.vehicle < -1 || g_HotWheelsGameData.vehicle >= (s32)Port_ContentCount(PORT_CONTENT_CAR)) {
             g_HotWheelsGameData.vehicle = -1;
+        }
+        if (g_HotWheelsGameData.item < -1 || g_HotWheelsGameData.item >= (s32)Port_ContentCount(PORT_CONTENT_ITEM)) {
+            g_HotWheelsGameData.item = -1;
         }
     }
     memcpy(&g_generalGameSettings, &saved->settings, sizeof(GeneralGameSettings));

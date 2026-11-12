@@ -368,6 +368,27 @@ static char *Replace(char *text, const char *from, const char *to) {
     return out;
 }
 
+/* \u escapes: a pair is one code point; a high surrogate without its low
+ * one is kept, and the escape after it read on its own. */
+static void TestJsonStrings(void) {
+    static const struct { const char *json, *utf8; } cases[] = {
+        { "\"\\uD83D\\uDE00\"", "\xF0\x9F\x98\x80" },
+        { "\"\\uD800\\u0041\"", "\xED\xA0\x80" "A" },
+        { "\"\\uD800\\uD83D\\uDE00x\"", "\xED\xA0\x80\xF0\x9F\x98\x80x" },
+        { "\"\\uD800\"", "\xED\xA0\x80" },
+    };
+    size_t i;
+    char err[200];
+
+    Scenario("json-strings");
+    for (i = 0; i < SDL_arraysize(cases); i++) {
+        JsonNode *n = Json_Parse(cases[i].json, SDL_strlen(cases[i].json), err, sizeof(err));
+        CHECK(n != NULL && n->type == JSON_STRING && SDL_strcmp(n->string, cases[i].utf8) == 0, "%s read wrong (%s)",
+              cases[i].json, n == NULL ? err : "");
+        Json_Free(n);
+    }
+}
+
 static void TestUnknownIds(void) {
     u8 *a = SDL_malloc(HW_SIZE), *b = SDL_malloc(HW_SIZE);
     size_t len;
@@ -404,6 +425,29 @@ static void TestUnknownIds(void) {
     CHECK(text != NULL && SDL_strstr(text, "\"base://HW_Cars/car_40\": {\"unlocked\": true, \"inactive\": true}") != NULL,
           "the 41st car is gone");
     CHECK(text != NULL && SDL_strstr(text, "\"vehicle\": \"uid://a1b2c3d4e5f60718\"") != NULL, "the chosen mod car is gone");
+
+    /* an entry nested as deep as the reader goes (root, saves, slot, cars,
+     * the entry: 5, then arrays to JSON_MAX_DEPTH) is written back too */
+    {
+        char deep[JSON_MAX_DEPTH * 2 + 128];
+        int d, n = JSON_MAX_DEPTH - 5;
+
+        SDL_strlcpy(deep, "\"cars\": {\n        \"uid://deep\": {\"unlocked\": true, \"note\": ", sizeof(deep));
+        for (d = 0; d < n; d++) SDL_strlcat(deep, "[", sizeof(deep));
+        for (d = 0; d < n; d++) SDL_strlcat(deep, "]", sizeof(deep));
+        SDL_strlcat(deep, "},", sizeof(deep));
+        text = Replace(text, "\"cars\": {", deep);
+        if (text != NULL && (hash = SDL_strstr(text, "// sha256: ")) != NULL) {
+            *hash = 0;
+        }
+        StoreSaveFile(".json", text, text != NULL ? SDL_strlen(text) : 0);
+        SDL_free(text);
+        Port_SavesForget();
+        CHECK(Port_SavesRead("hwvx", b, HW_SIZE), "read of a save nested %d deep", JSON_MAX_DEPTH);
+        CHECK(Port_SavesWrite("hwvx", b, HW_SIZE), "a save nested %d deep isn't written back", JSON_MAX_DEPTH);
+        text = LoadSaveFile(".json", &len);
+        CHECK(text != NULL && SDL_strstr(text, "\"uid://deep\"") != NULL, "the deep entry is gone");
+    }
     SDL_free(text);
     SDL_free(a);
     SDL_free(b);
@@ -559,8 +603,36 @@ static void TestRotation(void) {
         SDL_snprintf(suffix, sizeof(suffix), ".%d.json", PORT_SAVES_BACKUPS + 1);
         CHECK(!FileExists(suffix), "more than %d backups", PORT_SAVES_BACKUPS);
     }
+    /* the same save written again (an autosave with nothing new): the
+     * backups stay as they are */
+    for (n = 0; n < PORT_SAVES_BACKUPS + 1; n++) {
+        CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "rewrite %d", n);
+    }
+    {
+        size_t len;
+        char *text = LoadSaveFile(".1.json", &len), want[32];
+        SDL_snprintf(want, sizeof(want), "\"SAVE %d\"", PORT_SAVES_BACKUPS + 2);
+        CHECK(text != NULL && SDL_strstr(text, want) != NULL, "an unchanged save rotated the backups");
+        SDL_free(text);
+        CHECK(!FileExists(".json.tmp"), "the unchanged write left its .tmp");
+    }
     Port_SavesForget();
     CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "the last save doesn't read back");
+
+    /* an import keeps the save before it, whatever is written after */
+    SimpleSave(a, 50);
+    CHECK(Port_SavesWriteImported("hwvx", a, HW_SIZE, "test"), "imported write");
+    for (n = 60; n < 60 + PORT_SAVES_BACKUPS + 2; n++) {
+        SimpleSave(a, n);
+        CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write %d", n);
+    }
+    {
+        size_t len;
+        char *text = LoadSaveFile(".before-import.json", &len), want[32];
+        SDL_snprintf(want, sizeof(want), "\"SAVE %d\"", PORT_SAVES_BACKUPS + 3);
+        CHECK(text != NULL && SDL_strstr(text, want) != NULL, "the save before the import wasn't kept");
+        SDL_free(text);
+    }
     SDL_free(a);
     SDL_free(r);
 }
@@ -1020,6 +1092,7 @@ int main(int argc, char **argv) {
     SDL_CreateDirectory(s_out);
     TestGameCube(gci);
     TestRandom();
+    TestJsonStrings();
     TestUnknownIds();
     TestAtomic();
     TestCorrupt();

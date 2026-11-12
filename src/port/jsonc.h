@@ -56,6 +56,11 @@ JsonNode *Json_NewInt(long long v);
 /* Removes and frees the member `key` of an object: 1 if it was there. */
 int Json_RemoveMember(JsonNode *obj, const char *key);
 
+/* The deepest nesting Json_Parse reads (containers, the root's included).
+ * The writer goes deeper, so whatever was read (a save's kept entries) can
+ * be written back. */
+#define JSON_MAX_DEPTH 64
+
 /* Writer: pretty-printed, two spaces an indent. A container opened "inline"
  * keeps its elements on one line (short number lists). */
 typedef struct JsonWriter {
@@ -63,8 +68,8 @@ typedef struct JsonWriter {
     size_t len, cap;
     int depth;
     int failed;               /* out of memory or misuse */
-    unsigned char count[32];  /* elements so far at each depth (capped at 2: only 0/1/more matters) */
-    unsigned char inlined[32];
+    unsigned char count[JSON_MAX_DEPTH + 16];  /* elements so far at each depth (capped at 2: only 0/1/more matters) */
+    unsigned char inlined[JSON_MAX_DEPTH + 16];
 } JsonWriter;
 
 void Jw_Init(JsonWriter *w);

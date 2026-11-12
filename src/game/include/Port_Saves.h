@@ -109,7 +109,9 @@ int Port_SavesDelete(const char *name);
  * save (what: where from), 0 none yet (zeroes), -1 one that can't be read
  * (damaged with no good backup): an import must not replace it. */
 int Port_SavesPeek(const char *name, void *saveFile, u32 size, char *what, size_t whatSize);
-/* Port_SavesWrite, and the save says where it came from if it doesn't yet. */
+/* Port_SavesWrite, and the save says where it came from if it doesn't yet;
+ * the save before it is kept as <name>.before-import.json (until the next
+ * import). */
 int Port_SavesWriteImported(const char *name, const void *saveFile, u32 size, const char *importedFrom);
 
 /* Tests (tools/savetest.c): stop a write after its temporary file is
@@ -205,7 +207,7 @@ void Port_SaveImportMerge(u8 *target, const PortImportSource *srcs, int n, const
 int Port_SaveImportPreview(const PortImportSource *srcs, int n, const PortImportOptions *opt, PortImportPlan *plan,
                            char *err, size_t errSize);
 /* The import: the merge written to the store (atomically, the save before
- * it kept as a backup). The source files are only read. */
+ * it kept as hwvx.before-import.json). The source files are only read. */
 int Port_SaveImportApply(const PortImportSource *srcs, int n, const PortImportOptions *opt, PortImportPlan *plan,
                          char *err, size_t errSize);
 /* One line for a slot of the plan: "HW VEL X 1" -> new save: 3 cars (3, 4, 5), ..." */
