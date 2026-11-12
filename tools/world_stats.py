@@ -139,6 +139,26 @@ def region_checks(world, packs, col):
             other += int((~mine & anyone).sum())
             none += int((~mine & ~anyone).sum())
         out[kind] = {"own": own, "other": other, "none": none}
+    # the owner of an object in several regions: the first of them in the quadrant table?
+    first = later = 0
+    for q in quads:
+        for kind in ("instances", "fx_points", "items"):
+            for p in getattr(q, kind):
+                p = p[0] if kind == "instances" else p
+                hold = [r.index for r in quads if WL.inside(r.region, p)]
+                if len(hold) > 1:
+                    first += hold[0] == q.index
+                    later += hold[0] != q.index
+    out["objects_in_overlaps"] = {"first_region": first, "later_region": later}
+    hub = [q for q in world.quads if not q.region]
+    if hub:
+        pts = [p for p, _ in hub[0].instances]
+        out["hub_instances_in_a_region"] = sum(1 for p in pts if any(WL.inside(r.region, p) for r in quads))
+    # where the cars go (nav points, start tiles): in no region, one, several
+    pts = world.nav_points() + [c["pos"] for c in world.tile_cars()]
+    if pts:
+        cnt = sum(WL.inside_many(q.region, np.array(pts, float)).astype(int) for q in quads)
+        out["drive"] = {"points": len(pts), "none": int((cnt == 0).sum()), "several": int((cnt > 1).sum())}
     # coverage and adjacency on a grid over the collision bounds
     n = 192
     xs = np.linspace(col.min[0], col.max[0], n)
@@ -235,7 +255,7 @@ def measure_level(rel, release, name, geometry, cache):
         cache[tkey] = {"bytes": pk.size, "textures": pk.raw.h["num_textures"], "shaders": pk.raw.h["num_shaders"]}
     lv["texture_pack"] = cache[tkey]
     if geometry:
-        lv["checks"] = region_checks(world, packs, col)
+        lv["checks"] = region_checks(world, packs, col) if len(world.quads) > 1 else None
         ids = [i for st in packs.values() if st for i in st.get("ids", []) if i is not None]
         lv["geometry_ids"] = {"count": len(ids), "distinct": len(set(ids))}
     return lv
@@ -358,6 +378,20 @@ def report(data):
                          f"{a['listed_pairs']} ({a['listed_symmetric']}/{a['listed_directed']} two-way)",
                          a["touching_pairs"], a["listed_not_touching"],
                          "{}/{}".format(*a["neighbours_among_most_shared"])])
+        rows2 = []
+        for lv in sorted(levels, key=lambda x: (x["set"], x["level"])):
+            ch = lv.get("checks")
+            if not ch or "drive" not in ch:
+                continue
+            o, d = ch["objects_in_overlaps"], ch["drive"]
+            rows2.append([lv["level"], lv["set"], f"{o['first_region']} / {o['later_region']}",
+                          ch.get("hub_instances_in_a_region", "-"), d["points"], d["none"], d["several"]])
+        if rows2:
+            out.append("### Per level: object owners and where the cars drive\n")
+            out.append("objects in overlaps: objects inside several regions, owned by the first of them in the "
+                       "quadrant table / by another. drive points: nav points and start tiles.\n")
+            out.append(table(["level", "set", "objects in overlaps", "hub instances inside a region", "drive points",
+                              "in no region", "in several"], rows2))
         if rows:
             out.append("### Regions: what they hold and how they meet (first level of each set)\n")
             out.append("own / other / none: in its own quadrant's region, only in another's, in no region. "
