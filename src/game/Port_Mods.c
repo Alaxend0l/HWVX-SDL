@@ -1041,7 +1041,28 @@ void Port_ModsSyncLock(const char *path) {
                 changed |= SetStr(e2, "alias", Str(x, "extends"));
                 changed |= SetStr(e2, "name", Str(x, "name"));
                 changed |= SetStr(e2, "thumbnail", Str(x, "thumbnail"));
-                changed |= SetStr(e2, "world", Str(x, "world"));   /* tracks */
+                if (Str(x, "worldPack") != NULL && SafeName(Str(x, "worldPack"))) {
+                    /* a world pack of the mod's own (built on this machine: tools/xdl_level_pack.py):
+                     * "@mod\<id>\<file without its extension>", found by Port_ModsResolveFile */
+                    char *w = NULL, *dot, *p;
+
+                    SDL_asprintf(&w, "@mod\\%s\\%s", s_mods[i].info.id + (SDL_strncmp(s_mods[i].info.id, "uid://", 6) == 0 ? 6 : 0),
+                                 Str(x, "worldPack"));
+                    if (w != NULL) {
+                        if ((dot = SDL_strrchr(w, '.')) != NULL && SDL_strchr(dot, '\\') == NULL) {
+                            *dot = 0;
+                        }
+                        for (p = w; *p; p++) {
+                            if (*p == '/') {
+                                *p = '\\';
+                            }
+                        }
+                        changed |= SetStr(e2, "world", w);
+                        SDL_free(w);
+                    }
+                } else {
+                    changed |= SetStr(e2, "world", Str(x, "world"));   /* tracks */
+                }
                 changed |= SetStr(e2, "mod", s_mods[i].info.id);
                 changed |= SetBool(e2, "unlocked", Json_GetBool(x, "unlocked", 0));
                 changed |= SetBool(e2, "active", 1);
@@ -1498,5 +1519,73 @@ char *Port_ModsTrackLevel(const char *trackId) {
         }
         SDL_asprintf(&path, "%s%s", s_mods[i].dir, level);
     }
+    return path;
+}
+
+/* A file of a mod's own that the game opens by name: "@mod\\<id>\\<path>.xgc" (a track's
+ * "worldPack"); the release's extension (.xgc, .xpc, .xps) found beside it. The host path
+ * (the caller frees it) and *format (PORT_DATA_*), or NULL. */
+char *Port_ModsResolveFile(const char *name, int *format) {
+    static const char *const ext[3] = { ".xgc", ".xpc", ".xps" };
+    const char *rest, *slash;
+    char id[64], *rel, *p, *path = NULL;
+    int i, k;
+    size_t n;
+
+    while (*name == '/' || *name == '\\') {
+        name++;
+    }
+    if (SDL_strncmp(name, "@mod", 4) != 0 || (name[4] != '\\' && name[4] != '/')) {
+        return NULL;
+    }
+    rest = name + 5;
+    slash = rest;
+    while (*slash && *slash != '\\' && *slash != '/') {
+        slash++;
+    }
+    if (*slash == 0 || (size_t)(slash - rest) >= sizeof(id)) {
+        return NULL;
+    }
+    SDL_memcpy(id, rest, (size_t)(slash - rest));
+    id[slash - rest] = 0;
+    rel = SDL_strdup(slash + 1);
+    if (rel == NULL) {
+        return NULL;
+    }
+    for (p = rel; *p; p++) {
+        if (*p == '\\') {
+            *p = '/';
+        }
+    }
+    n = SDL_strlen(rel);
+    if (n > 4 && SDL_strcasecmp(rel + n - 4, ".xgc") == 0) {
+        rel[n - 4] = 0;
+    }
+    for (i = 0; i < s_numMods && path == NULL; i++) {
+        const char *mid = s_mods[i].info.id;
+
+        if (!Enabled(&s_mods[i]) || mid == NULL) {
+            continue;
+        }
+        if (SDL_strncmp(mid, "uid://", 6) == 0) {
+            mid += 6;
+        }
+        if (SDL_strcmp(mid, id) != 0 || !SafeName(rel)) {
+            continue;
+        }
+        for (k = 0; k < 3 && path == NULL; k++) {
+            char *cand = NULL;
+            SDL_PathInfo info;
+
+            SDL_asprintf(&cand, "%s%s%s", s_mods[i].dir, rel, ext[k]);
+            if (cand != NULL && SDL_GetPathInfo(cand, &info) && info.type == SDL_PATHTYPE_FILE) {
+                path = cand;
+                *format = k;
+            } else {
+                SDL_free(cand);
+            }
+        }
+    }
+    SDL_free(rel);
     return path;
 }

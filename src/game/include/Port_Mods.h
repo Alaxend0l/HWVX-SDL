@@ -85,5 +85,8 @@ void Port_ModsPackReleased(void *dataPack);
 /* A registered track's level file (its mod's "tracks" entry's "level", a
  * path in the mod's folder; Port_Level.h), or NULL; the caller frees it. */
 char *Port_ModsTrackLevel(const char *trackId);
+/* A mod's own file opened by name, "@mod\\<id>\\<path>" (a track's "worldPack", built on this
+ * machine): its host path (freed by the caller) and *format (PORT_DATA_*), or NULL. */
+char *Port_ModsResolveFile(const char *name, int *format);
 
 #endif

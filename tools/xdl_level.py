@@ -29,6 +29,7 @@ It holds no game data: only the level's own records and paths into the player's 
 
 import argparse
 import hashlib
+import math
 import json
 import os
 import re
@@ -220,7 +221,7 @@ def record_struct(path, where):
 # ------------------------------------------------------------------------------------------
 # records of the level's own
 
-def scalar(T, p, v, where):
+def scalar(T, p, v, where, e=E):
     """A number field's bytes: floats for f32, names for x-enum, lists for arrays."""
     base, dims = XS.parse_ctype(p["x-c-type"])
     code, size, flt = XS.PRIM[base]
@@ -230,21 +231,62 @@ def scalar(T, p, v, where):
             n *= d
         if not isinstance(v, list) or len(v) != n:
             raise LevelError(f"{where}: {n} values")
-        return b"".join(scalar(T, {"x-c-type": base}, x, f"{where}/{i}") for i, x in enumerate(v))
+        return b"".join(scalar(T, {"x-c-type": base}, x, f"{where}/{i}", e) for i, x in enumerate(v))
     if flt:
         if isinstance(v, bool) or not isinstance(v, (int, float)):
             raise LevelError(f"{where}: a number")
-        return struct.pack(E + code, float(v))
+        return struct.pack(e + code, float(v))
     try:
-        return XT.encode_scalar(T, p, v, E, where)
+        return XT.encode_scalar(T, p, v, e, where)
     except XT.TacError as ex:
         raise LevelError(str(ex))
 
 
+def volume_data(kind, d, e, where):
+    """A volume's settings as the game reads them, by its type."""
+    def f(k, default=0.0):
+        x = d.get(k, default)
+        if isinstance(x, bool) or not isinstance(x, (int, float)):
+            raise LevelError(f"{where}/{k}: a number")
+        return float(x)
+
+    def i(k, lo, hi):
+        x = d.get(k, 0)
+        if isinstance(x, bool) or not isinstance(x, int) or not lo <= x <= hi:
+            raise LevelError(f"{where}/{k}: a whole number {lo}..{hi}")
+        return x
+
+    def color(k, n):
+        c = d.get(k, [255] * n)
+        if not (isinstance(c, list) and len(c) == n and all(isinstance(x, int) and 0 <= x <= 255 for x in c)):
+            raise LevelError(f"{where}/{k}: {n} numbers 0..255")
+        return bytes(c)
+    if kind == "force_box":
+        fv = d.get("force", [0, 0, 0])
+        if not (isinstance(fv, list) and len(fv) == 3):
+            raise LevelError(f"{where}/force: [x, y, z]")
+        return struct.pack(e + "4f", *[float(x) for x in fv], 0.0) + struct.pack(e + "bbH", i("oneShot", -128, 127),
+                                                                                  i("carOnly", -128, 127), i("type", 0, 65535))
+    if kind == "reverb":
+        return struct.pack(e + "IHH", i("type", 0, 0xFFFFFFFF), i("volume", 0, 65535), i("feedback", 0, 65535))
+    if kind == "fog":
+        return bytes([i("type", 0, 255), 0, 0, 0]) + struct.pack(e + "2f", f("near"), f("far")) + color("color", 4)
+    if kind == "light":
+        dv = d.get("direction", [0, 0, 1])
+        return (struct.pack(e + "4f", *[float(x) for x in dv], 0.0) + color("color", 3) + b"\0" +
+                struct.pack(e + "i", 0) + bytes([i("lightType", 0, 255), i("subtract", -128, 127) & 0xFF]) + b"\0\0")
+    if kind == "creature":
+        return bytes([i("rescue", 0, 255), 0, 0, 0])
+    raise LevelError(f"{where}: an {kind} volume has no settings")
+
+
 class Compiler:
-    def __init__(self, proj, base=None, skip_intro=False):
+    def __init__(self, proj, base=None, skip_intro=False, spawn_box=None):
         self.proj = Path(proj)
         self.skip_intro = skip_intro
+        self.spawn_box = spawn_box
+        self.warnings = []
+        self.e = E               # the byte order records are encoded in (the pack build: the release's)
         self.T = XT.Tac()
         self.parts = []           # {"id", "kind", "hex", "links": [[off, LINK]]}
         self.part_ids = set()
@@ -275,8 +317,8 @@ class Compiler:
             if link_of(p) is not None:
                 if isinstance(v, dict) and k == "mode":
                     sub = f"{pid}/mode"
-                    raw = bytes(XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("mode", 0), E, f"{where}/mode") +
-                                XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("type", 0), E, f"{where}/mode"))
+                    raw = bytes(XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("mode", 0), self.e, f"{where}/mode") +
+                                XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("type", 0), self.e, f"{where}/mode"))
                     self.add_part(sub, "data", raw + bytes(2), [])
                     links[off] = sub
                 elif v is not None:
@@ -294,10 +336,10 @@ class Compiler:
                     if kk not in vp:
                         raise LevelError(f"{where}/{k}/{kk}: not a field of {ref}")
                     o = off + int(vp[kk]["x-offset"], 16)
-                    b = scalar(self.T, vp[kk], vv, f"{where}/{k}/{kk}")
+                    b = scalar(self.T, vp[kk], vv, f"{where}/{k}/{kk}", self.e)
                     buf[o:o + len(b)] = b
             else:
-                b = scalar(self.T, p, v, f"{where}/{k}")
+                b = scalar(self.T, p, v, f"{where}/{k}", self.e)
                 buf[off:off + len(b)] = b
         return buf, links
 
@@ -305,6 +347,34 @@ class Compiler:
 
     def volume(self, name, v, where):
         props, _ = struct_of("WorldVolume")
+        v = dict(v)
+        box = v.pop("box", None)
+        if box is not None:
+            # a box: its BSP (tools/bsp_build.py), the volume a BSP one centred on it
+            lo, hi = box.get("min") if isinstance(box, dict) else None, box.get("max") if isinstance(box, dict) else None
+            if not (isinstance(lo, list) and isinstance(hi, list) and len(lo) == 3 and len(hi) == 3 and
+                    all(isinstance(x, (int, float)) for x in lo + hi) and all(lo[i] < hi[i] for i in range(3))):
+                raise LevelError(f"{where}/box: min and max [x, y, z], min below max")
+            import bsp_build as BB
+            import world_lib as WL
+            tris = BB.prism([(lo[0], lo[2]), (hi[0], lo[2]), (hi[0], hi[2]), (lo[0], hi[2])], lo[1], hi[1])
+            bsp = WL.bspn0_write(BB.build(BB.polys_from_triangles(tris)), self.e)
+            self.add_part(f"level://volumes/{name}/bsp", "data", bsp, {})
+            v["shape"] = "bsp"
+            v["bsp"] = f"level://volumes/{name}/bsp"
+            v.setdefault("center", [(lo[i] + hi[i]) / 2 for i in range(3)])
+            v.setdefault("radius", 0.5 * math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))))
+            v.setdefault("radiusSq", 0.0)
+        data = v.pop("data", None)
+        if isinstance(data, dict):
+            # the type's settings (VolumeManager.c, Thing.c ForceBox, LightManager.c)
+            raw = volume_data(v.get("type", "airbox"), data, self.e, f"{where}/data")
+            self.add_part(f"level://volumes/{name}/data", "data", raw, {})
+            v["data"] = f"level://volumes/{name}/data"
+            self.warnings.append(f"{where}/type: a {v.get('type')} volume of the level's own isn't in the world's "
+                                 "volume grid (VolumeHolder): only the airbox triggers find a volume without it")
+        elif data is not None:
+            v["data"] = data
         for k in v:
             if k not in props or "x-offset" not in props[k]:
                 raise LevelError(f"{where}/{k}: not a field of WorldVolume")
@@ -315,7 +385,7 @@ class Compiler:
         if "center" in v and isinstance(v["center"], list) and len(v["center"]) == 3:
             v["center"] = v["center"] + [0.0]
         r = v.get("radius")
-        if r is not None and "radiusSq" not in v:
+        if r is not None and "radiusSq" not in v and v.get("shape") != "bsp":
             v["radiusSq"] = float(r) * float(r)    # the test is distance squared < radiusSq
         if v.get("shape") == "sphere" and not v.get("radiusSq"):
             raise LevelError(f"{where}: a sphere needs a radius")
@@ -367,7 +437,7 @@ class Compiler:
                     if "delayInit" in a:
                         a.setdefault("delay", a["delayInit"])
         try:
-            parts = XT.encode_trigger(self.T, doc, tid, E, where)
+            parts = XT.encode_trigger(self.T, doc, tid, self.e, where)
         except XT.TacError as ex:
             raise LevelError(str(ex))
         t = doc.get("type")
@@ -447,6 +517,48 @@ class Compiler:
                     fn(name, v, f"{where}/{kind}/{name}")
                 except (LevelError, XT.TacError) as ex:
                     self.errors.append(str(ex))
+        # starts and items (they go into the world pack: xdl_level_pack.py)
+        for n, st in (lv.get("starts") or {}).items():
+            w = f"{where}/starts/{n}"
+            if not isinstance(st, dict) or not (isinstance(st.get("pos"), list) and len(st["pos"]) == 3):
+                self.err(w, "pos [x, y, z]")
+            elif not isinstance(st.get("rotY", 0), (int, float)) or not isinstance(st.get("port", 0), int):
+                self.err(w, "rotY (radians) and port (1-4 a player, 0 the AI's)")
+        for n, it in (lv.get("items") or {}).items():
+            w = f"{where}/items/{n}"
+            if not isinstance(it, dict) or not (isinstance(it.get("pos"), list) and len(it["pos"]) == 3):
+                self.err(w, "pos [x, y, z]")
+            elif not isinstance(it.get("quad"), int) or not isinstance(it.get("id", 0), int):
+                self.err(w, "quad (the quadrant it is in) and id (the world's item pack's)")
+        for n, fx in (lv.get("fxPoints") or {}).items():
+            w = f"{where}/fxPoints/{n}"
+            if not isinstance(fx, dict) or not (isinstance(fx.get("pos"), list) and len(fx["pos"]) == 3) \
+                    or not isinstance(fx.get("quad"), int) or not isinstance(fx.get("template"), str):
+                self.err(w, "pos [x, y, z], quad and template (a base effect point to copy)")
+            else:
+                try:
+                    self.resolve(fx["template"], w + "/template", archive)
+                except LevelError as ex:
+                    self.errors.append(str(ex))
+        for n, ob in (lv.get("objectives") or {}).items():
+            w = f"{where}/objectives/{n}"
+            if not isinstance(ob, dict):
+                self.err(w, "an object")
+                continue
+            if ob.get("kind", "none") not in ("none", "counter", "timer"):
+                self.err(w + "/kind", "none, counter (a variable's value) or timer (mm:ss)")
+            for k in ("text", "doneText", "done", "value"):
+                x = ob.get(k)
+                if x is not None and not isinstance(x, str):
+                    self.err(w + "/" + k, "a link or null")
+                elif isinstance(x, str):
+                    try:
+                        self.resolve(x, f"{w}/{k}", archive)
+                    except LevelError as ex:
+                        self.errors.append(str(ex))
+        if lv.get("objectives"):
+            self.warnings.append(f"{where}/objectives: objectives go into the level's world pack (a test drive "
+                                 "shows them), not the editor's live preview")
         # triggers
         tdir = self.proj / "triggers"
         names = lv.get("triggers") or sorted(p.stem for p in tdir.glob("*.jsonc"))
@@ -507,6 +619,9 @@ class Compiler:
             idx = names_of.get(t, t if isinstance(t, int) else None)
             if idx is not None and idx < len(TRIGGER_MAX) and n > TRIGGER_MAX[idx]:
                 self.err("triggers", f"{n} {t} triggers: the game keeps {TRIGGER_MAX[idx]} at once")
+        # starts: the cars' box (the viewer's spawnbox, Port_SpawnBox.h) clear of each other
+        if self.spawn_box is not None and self.base is not None:
+            self.warnings += start_overlaps(self.base, lv.get("patches") or {}, archive, self.spawn_box, lv.get("starts"))
         if self.errors:
             return None
         return {
@@ -674,14 +789,92 @@ def error_records(errors):
     return out
 
 
-def compile_project(proj, base=None, skip=False):
-    c = Compiler(proj, base, skip)
+def read_spawn_box(path):
+    """The starts' box: the viewer's `spawnbox` written to a file ({"box": {"min", "max"}})."""
+    if not path:
+        return None
+    try:
+        b = json.loads(Path(path).read_text())["box"]
+        return [float(x) for x in b["min"]], [float(x) for x in b["max"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        raise LevelError(f"{path}: not a spawn box (the viewer's spawnbox writes one)")
+
+
+def start_corners(pos, rot_y, box):
+    """The box's footprint corners (x, z) at a start turned by rotY (forward sin, 0, cos), and its
+    y range."""
+    import math
+    lo, hi = box
+    s, c = math.sin(rot_y), math.cos(rot_y)
+    side, fwd = (c, -s), (s, c)
+    pts = []
+    for x in (lo[0], hi[0]):
+        for z in (lo[2], hi[2]):
+            pts.append((pos[0] + side[0] * x + fwd[0] * z, pos[2] + side[1] * x + fwd[1] * z))
+    return [pts[0], pts[1], pts[3], pts[2]], (pos[1] + lo[1], pos[1] + hi[1])
+
+
+def boxes_overlap(a, b):
+    """Two starts' boxes: their footprints (convex quads) overlap (separating axes) and so do
+    their heights."""
+    (pa, ya), (pb, yb) = a, b
+    if ya[1] <= yb[0] or yb[1] <= ya[0]:
+        return False
+    for poly in (pa, pb):
+        for i in range(4):
+            x0, z0 = poly[i]
+            x1, z1 = poly[(i + 1) % 4]
+            ax, az = -(z1 - z0), x1 - x0
+            pra = [ax * x + az * z for x, z in pa]
+            prb = [ax * x + az * z for x, z in pb]
+            if max(pra) <= min(prb) or max(prb) <= min(pra):
+                return False
+    return True
+
+
+def start_overlaps(base, patches, archive, box, own=None):
+    """Warnings: starts (the base world's tile cars, as the level's patches move them, and the
+    level's own) whose boxes overlap."""
+    f = base.dir / "World" / "0" / "tileCars.jsonc"
+    if not f.exists():
+        return []
+    cars = read_jsonc(f).get("items") or []
+    starts = []
+    for i, c in enumerate(cars):
+        path = f"World/0/tileCars/{i}"
+        pt = patches.get(f"base://{archive}/world_0/{path}") or {}
+        pos = [float(pt.get(f"pos/{a}", (c.get("pos") or {}).get(a, 0))) for a in "xyz"]
+        rot = float(pt.get("rotY", c.get("rotY", 0)))
+        starts.append((path, start_corners(pos, rot, box)))
+    for n, st in (own or {}).items():
+        if isinstance(st, dict) and isinstance(st.get("pos"), list) and len(st["pos"]) == 3:
+            starts.append((f"starts/{n}", start_corners([float(x) for x in st["pos"]], float(st.get("rotY", 0)), box)))
+    out = []
+    for i in range(len(starts)):
+        for j in range(i + 1, len(starts)):
+            if boxes_overlap(starts[i][1], starts[j][1]):
+                a = starts[i][0]
+                where = f"level.jsonc/{a}" if a.startswith("starts/") else f"level.jsonc/patches/base://{archive}/world_0/{a}"
+                out.append(f"{where}: its start's box overlaps {starts[j][0]}'s "
+                           f"(the cars' box, {box[1][0] - box[0][0]:g} x {box[1][1] - box[0][1]:g} x "
+                           f"{box[1][2] - box[0][2]:g})")
+    return out
+
+
+def compile_project_full(proj, base=None, skip=False, spawn_box=None):
+    """(doc, errors, warnings)"""
+    c = Compiler(proj, base, skip, spawn_box)
     try:
         doc = c.run()
     except LevelError as ex:
         c.errors.append(str(ex))
         doc = None
-    return doc, c.errors
+    return doc, c.errors, c.warnings
+
+
+def compile_project(proj, base=None, skip=False):
+    doc, errors, _ = compile_project_full(proj, base, skip)
+    return doc, errors
 
 
 def write_json(path, doc):
@@ -762,11 +955,16 @@ def cmd_compile(a):
     t0 = time.perf_counter()
     out = a.out or str(Path(a.project) / "build" / "level.json")
     doc, errors, cached = compile_cached(a.project, out, base_arg(a), a.skip_intro)
+    warnings = []
+    if a.spawn_box and not errors:
+        _, _, warnings = compile_project_full(a.project, base_arg(a), a.skip_intro, read_spawn_box(a.spawn_box))
     ms = round((time.perf_counter() - t0) * 1000, 1)
     if a.json:
         print(json.dumps({"ok": not errors, "out": out, "cached": cached, "ms": ms,
-                          "errors": error_records(errors)}))
+                          "errors": error_records(errors), "warnings": error_records(warnings)}))
         return 1 if errors else 0
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
     if errors:
         return report(errors)
     print(f"{out}: {len(doc['parts'])} parts, {len(doc['patches'])} patches"
@@ -792,12 +990,27 @@ def cmd_testdrive(a):
             if not isinstance(lv.get(k), str):
                 raise LevelError(f"level.jsonc/{k}: missing (a string)")
         doc, errors, cached = compile_cached(proj, mod_dir / "level.json", base_arg(a), a.skip_intro)
+        pack = None
+        if not errors and a.data and not a.memory:
+            # option 1: the level built into its own world pack (tools/xdl_level_pack.py)
+            import xdl_level_pack as LP
+            try:
+                pack, pcached, _ = LP.build_cached(proj, a.data, cache_dir(a), mod_dir / "worlds", a.skip_intro)
+                cached = cached and pcached
+            except Exception as ex:          # (xdl_level's LevelError as the module imports it)
+                if type(ex).__name__ != "LevelError":
+                    raise
+                errors = str(ex).splitlines()
     except LevelError as ex:
         doc, errors, cached = None, [str(ex)], False
     res["errors"] = error_records(errors)
     if doc is not None and not errors:
         track = {"extends": lv["extends"], "name": lv["name"], "unlocked": True, "world": doc["world"],
                  "level": "level.json"}
+        if pack is not None:
+            # the world pack replaces the base's for this track; the level file isn't needed
+            track = {"extends": lv["extends"], "name": lv["name"], "unlocked": True,
+                     "worldPack": f"worlds/{pack.name}"}
         mod = {"$schema": "../../schemas/Mod.schema.json", "format_version": 1, "id": "uid://editortest",
                "name": "Editor test drive", "version": "1.0.0", "description": f"{lv['name']}, on test",
                "tracks": {lv["id"]: track}}
@@ -811,6 +1024,8 @@ def cmd_testdrive(a):
             start += f",car={a.car}"
         # what the build made: the level file now; later also the level's own packs
         products = [{"kind": "level", "path": str(mod_dir / "level.json"), "cached": cached}]
+        if pack is not None:
+            products.append({"kind": "world", "path": str(pack), "cached": cached})
         res.update(ok=True, cached=all(p["cached"] for p in products), start=start, mods=str(scratch / "mods"),
                    level=str(mod_dir / "level.json"), products=products)
     res["ms"] = round((time.perf_counter() - t0) * 1000, 1)
@@ -819,10 +1034,12 @@ def cmd_testdrive(a):
 
 
 def cmd_check(a):
-    doc, errors = compile_project(a.project, base_arg(a))
+    doc, errors, warnings = compile_project_full(a.project, base_arg(a), False, read_spawn_box(a.spawn_box))
     if a.json:
-        print(json.dumps({"ok": not errors, "errors": error_records(errors)}))
+        print(json.dumps({"ok": not errors, "errors": error_records(errors), "warnings": error_records(warnings)}))
         return 1 if errors else 0
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
     if not errors:
         print(f"{a.project}: ok")
     return report(errors)
@@ -884,6 +1101,8 @@ def main():
         if name == "testdrive":
             p.add_argument("scratch", help="the editor's scratch folder (its mods/, never the player's)")
             p.add_argument("--car", type=int)
+            p.add_argument("--memory", action="store_true",
+                           help="the level applied in memory (Port_Level.c), not built into a world pack")
         if name in ("compile", "testdrive"):
             p.add_argument("--skip-intro", action="store_true", help="the quick start (test drives)")
         if name == "compile":
@@ -891,6 +1110,7 @@ def main():
         if name in ("compile", "check"):
             p.add_argument("--json", action="store_true", help="the result and errors as one JSON line")
         p.add_argument("--base", help="the base world's extracted project (xdl_level.py base)")
+        p.add_argument("--spawn-box", help="the cars' box for the starts' checks (the viewer's spawnbox writes it)")
         p.add_argument("--data", help="the game's data folder: the base world is extracted from it (cached)")
         p.add_argument("--cache")
     p = sub.add_parser("base")

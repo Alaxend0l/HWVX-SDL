@@ -281,10 +281,20 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
                 Fail(err, errSize, "a pointer step leaves the world pack");
                 return NULL;
             }
-            cur = Port_HandleToPtr(*(u32 *)(cur + v));
-            if (cur == NULL) {
-                Fail(err, errSize, "a pointer on the way is null in this release's world");
-                return NULL;
+            {
+                /* bounds-checked: only a handle inside the world pack's blob is followed (a
+                 * level made for another world, or a stale one, never reaches the handle table) */
+                u32 h = *(u32 *)(cur + v), lo = Port_PtrToHandle(GETP(s_lv.pack->base));
+
+                if (h == 0) {
+                    Fail(err, errSize, "a pointer on the way is null in this release's world");
+                    return NULL;
+                }
+                if (h - lo >= s_lv.pack->dataSize) {
+                    Fail(err, errSize, "a pointer on the way leads out of the world pack (made for another world?)");
+                    return NULL;
+                }
+                cur = GETP(s_lv.pack->base) + (h - lo);
             }
         } else {
             cur += v;
@@ -645,6 +655,24 @@ void Port_LevelWorldLoaded(void *worldPack, const char *world, int track) {
     char *path = NULL, id[256], err[256];
 
     Unapply();
+    if (world != NULL && SDL_strncmp(world, "@mod", 4) == 0) {
+        /* the level built into its own world pack (tools/xdl_level_pack.py): nothing to add */
+        DataPack *pack = worldPack;
+        char why[160];
+
+        Port_Log("level: its own world pack %s applied to track %d", world, track);
+        if (pack != NULL && GETP(pack->base) != NULL && SDL_getenv("HWVX_LEVEL_START") != NULL) {
+            /* the editor's "test from here": player 1's start moved (undone with the pack) */
+            s_lv.pack = pack;
+            s_lv.world = (World *)GETP(pack->base);
+            s_lv.id = SDL_strdup(world);
+            if (!StartOverride(pack, s_lv.world, why, sizeof(why))) {
+                Port_Log("level: %s", why);
+                Unapply();
+            }
+        }
+        return;
+    }
     if (env != NULL && *env) {
         path = SDL_strdup(env);
     } else if (track >= 0 && Port_ContentIdOf(PORT_CONTENT_TRACK, (u32)track, id, sizeof(id))) {

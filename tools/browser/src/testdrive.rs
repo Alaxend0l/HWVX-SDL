@@ -67,6 +67,10 @@ pub fn prepare(o: &Options) -> Result<Prepared, Vec<LevelError>> {
     if o.skip_intro {
         cmd.arg("--skip-intro");
     }
+    if let Some(d) = &o.data {
+        // the level built into its own world pack, from the player's data (cached)
+        cmd.arg("--data").arg(d).arg("--cache").arg(o.scratch.join("base-cache"));
+    }
     let one = |m: String| vec![LevelError { message: m, ..Default::default() }];
     std::fs::create_dir_all(&o.scratch).map_err(|e| one(format!("{}: {e}", o.scratch.display())))?;
     let out = cmd.stdin(Stdio::null()).output().map_err(|e| one(format!("{}: {e}", script.display())))?;

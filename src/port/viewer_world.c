@@ -24,6 +24,7 @@
 #include "Nav.h"
 #include "Collision.h"
 #include "CarA.h"
+#include "Port_SpawnBox.h"
 
 enum {
     OV_REGIONS = 1 << 0,
@@ -505,6 +506,13 @@ static void Collect(void) {
             n = n > 1e-4f ? n : 1.0f;
             Arrow(&c->pos, f[0] / n, f[2] / n, 8.0f, c->port >= 1 && c->port <= 4 ? 60 : 255, c->port >= 1 && c->port <= 4 ? 255 : 120,
                   60);
+            {
+                /* the start as the largest car's box (Port_SpawnBox.h), facing as it does */
+                f32 p[3] = { c->pos.x, c->pos.y, c->pos.z };
+                u8 col[3] = { c->port >= 1 && c->port <= 4 ? 60 : 255, c->port >= 1 && c->port <= 4 ? 255 : 120, 60 };
+
+                ViewerLevel_SpawnBox(p, c->rotY, c->rotX, c->rotZ, col);
+            }
         }
         for (i = 0; i < wd->numTileCreatures; i++) {
             TileCreature *c = &GETP(wd->tileCreatures)[i];
@@ -986,6 +994,9 @@ int ViewerWorld_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *jw, i
                          f.mode ? f.mode : "");
             *ok = 0;
         } else if ((*ok = Load(f.found, err, errSize))) {
+            f32 lo[3], hi[3];
+
+            Port_SpawnEnvelope(lo, hi, NULL, 1);    /* the starts' box, now (never while drawing) */
             Viewer_WorldLoaded();
             ViewerWorld_WriteStatus(jw);
         }

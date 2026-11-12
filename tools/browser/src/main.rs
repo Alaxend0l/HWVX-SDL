@@ -159,6 +159,12 @@ enum Pending {
     LevelApplied,
     EditPick,
     EditMove,
+    SpawnBox(std::path::PathBuf),
+    StartCheck(Vec<String>),
+    StartSeat,
+    ItemQuad(String),
+    AddAt(level_edit::AddKind),
+    AddItem([f32; 3], level_edit::AddKind),
     Quiet,
 }
 
@@ -646,6 +652,16 @@ impl Browser {
                 }
                 Pending::LevelApplied => {}
                 Pending::EditPick => self.edit_pick_reply(r),
+                Pending::SpawnBox(f) => {
+                    self.level.edit.spawn_box = r["box"].clone();
+                    self.level.edit.box_file = Some(f);
+                    self.level.edit.recheck();
+                }
+                Pending::StartCheck(paths) => self.start_check_reply(paths, r),
+                Pending::StartSeat => self.start_seat_reply(r),
+                Pending::ItemQuad(name) => self.item_quad_reply(&name, r),
+                Pending::AddAt(kind) => self.add_at_reply(kind, r),
+                Pending::AddItem(pos, kind) => self.add_item_reply(pos, kind, r),
                 Pending::Shot => self.note(format!("saved {} ({}x{})", r["path"].as_str().unwrap_or(""), r["width"], r["height"])),
                 Pending::Quiet => {}
             }

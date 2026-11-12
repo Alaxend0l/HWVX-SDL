@@ -152,5 +152,7 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
 void ViewerLevel_Collect(void);     /* the level's volumes and the marks, into the overlay lines */
 int ViewerLevel_HasLines(void);
 void ViewerLevel_WorldGone(void);
+/* a start's box (the largest car's, Port_SpawnBox.h) at pos, turned as a tile car (rotY, rotX, rotZ) */
+void ViewerLevel_SpawnBox(const f32 *pos, f32 rotY, f32 rotX, f32 rotZ, const u8 *col);
 
 #endif

@@ -54,6 +54,7 @@
  *
  * Not yet: AI opponents are off because each machine would run its own; a weapon a car
  * dropped isn't shared if picked up again. */
+#include "Port_SpawnBox.h"
 #include <SDL3/SDL.h>
 #include <math.h>
 
@@ -81,11 +82,17 @@
 #define SPAWN_PROBE_DOWN 40.0f
 #define SPAWN_MAX_STEP 5.0f     /* difference from the spawn's ground */
 #define SPAWN_MIN_FLAT 0.9f     /* the ground's normal, upwards */
-/* The largest car, Surfin' School Bus: its collision box, measured (tools/online8_test.sh
- * CAR=25 logs every car's). Spots are found for it, so every car fits. */
-#define SPAWN_CAR_WIDTH 9.0f
-#define SPAWN_CAR_LENGTH 27.0f
-#define SPAWN_CAR_HALF_DIAGONAL 14.2f
+/* Every car's collision box at once, the data's cars (Port_SpawnBox.h: the same on every
+ * machine whatever its mods): spots are found for it, so every car fits. */
+static f32 SpawnCarSize(int axis) {
+    f32 lo[3], hi[3];
+
+    Port_SpawnEnvelope(lo, hi, NULL, 0);
+    return hi[axis] - lo[axis];
+}
+#define SPAWN_CAR_WIDTH SpawnCarSize(0)
+#define SPAWN_CAR_LENGTH SpawnCarSize(2)
+#define SPAWN_CAR_HALF_DIAGONAL (0.5f * sqrtf(SPAWN_CAR_WIDTH * SPAWN_CAR_WIDTH + SPAWN_CAR_LENGTH * SPAWN_CAR_LENGTH))
 #define SPAWN_CLEARANCE (SPAWN_CAR_HALF_DIAGONAL + 10.0f)   /* free on every side, room to turn */
 #define SPAWN_GAP 8.0f          /* between two cars' boxes */
 /* If nowhere has that, a tight world still gets a spot, nearer the others. */

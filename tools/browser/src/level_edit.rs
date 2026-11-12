@@ -33,15 +33,35 @@ pub enum Sel {
 }
 
 /// The base world's tables the editor lists, with their labels.
-pub const BASE_TABLES: [(&str, &str); 6] = [
+pub const BASE_TABLES: [(&str, &str); 7] = [
     ("tileCars", "Starts (tile cars)"),
     ("volumes", "Airbox volumes"),
     ("items", "Items"),
+    ("fxPoints", "Effect points"),
     ("timers", "Timers"),
     ("variables", "Variables"),
     ("objectives", "Objectives"),
 ];
-const OWN_KINDS: [(&str, &str); 4] = [("volumes", "Volumes"), ("timers", "Timers"), ("variables", "Variables"), ("strings", "Texts")];
+const OWN_KINDS: [(&str, &str); 8] = [
+    ("volumes", "Volumes"),
+    ("starts", "Starts"),
+    ("items", "Items"),
+    ("fxPoints", "Effect points"),
+    ("timers", "Timers"),
+    ("variables", "Variables"),
+    ("strings", "Texts"),
+    ("objectives", "Objectives"),
+];
+
+/// What "+ Add" makes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AddKind {
+    Sphere,
+    BoxVolume,
+    Start,
+    Item,
+    FxPoint,
+}
 
 #[derive(Default)]
 pub struct EditState {
@@ -57,7 +77,7 @@ pub struct EditState {
     pub generation: u64,
     checked_generation: u64,
     last_change: Option<Instant>,
-    checking: Option<(u64, Receiver<(Result<(), Vec<LevelError>>, PathBuf, f64)>)>,
+    checking: Option<(u64, Receiver<(Result<Vec<LevelError>, Vec<LevelError>>, PathBuf, f64)>)>,
     pub preview: bool,
     pub preview_note: String,
     /// where a "pick in the world" link goes: (trigger, JSON path in it), or the selection's own
@@ -68,6 +88,28 @@ pub struct EditState {
     marks_sent: Value,
     pub filter: String,
     pub advanced: bool,
+    /// warnings (the starts' boxes overlapping each other: xdl_level.py; against the world:
+    /// the viewer's startcheck, by path)
+    pub warnings: Vec<LevelError>,
+    pub start_problems: HashMap<String, String>,
+    /// the cars' box (the viewer's spawnbox) written for xdl_level.py
+    pub box_file: Option<PathBuf>,
+    pub spawn_box: Value,
+}
+
+impl EditState {
+    /// Check again soon (something the check depends on changed: the cars' box).
+    pub fn recheck(&mut self) {
+        self.checked_generation = 0;
+    }
+}
+
+/// A volume of the level's own: its centre (a box's middle).
+fn own_volume_center(v: &Value) -> Option<[f32; 3]> {
+    if let (Some(lo), Some(hi)) = (vec3(&v["box"]["min"]), vec3(&v["box"]["max"])) {
+        return Some([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0]);
+    }
+    vec3(&v["center"])
 }
 
 fn vec3(v: &Value) -> Option<[f32; 3]> {
@@ -97,6 +139,14 @@ fn pos_field(table: &str) -> &'static str {
 }
 
 impl Browser {
+    /// The world on show is the level's own (the preview applies only there).
+    pub(crate) fn shows_level_world(&self) -> bool {
+        let norm = |s: &str| s.replace('/', "\\").to_lowercase();
+        let shown = self.world.status["world"].as_str().map(norm);
+        let mine = self.level.edit.proj.as_ref().and_then(|p| p.level["world"].as_str().map(norm));
+        shown.is_some() && shown == mine
+    }
+
     pub(crate) fn level_editing(&self) -> bool {
         self.level.tab && self.level.edit.proj.is_some() && self.world.status["world"].is_string()
     }
@@ -177,12 +227,21 @@ impl Browser {
         }
         // the base world's lists, once a world is on show
         let world = self.world.status["world"].as_str().unwrap_or("").to_string();
+        if self.level.edit.proj.is_some() && !world.is_empty() && self.level.edit.base_world != world && !self.shows_level_world() {
+            // another world: none of its records are the level's
+            self.level.edit.base_world = world.clone();
+            self.level.edit.base.clear();
+            self.level.edit.start_problems.clear();
+        }
         if self.level.edit.proj.is_some() && !world.is_empty() && self.level.edit.base_world != world {
             self.level.edit.base_world = world;
             self.level.edit.base.clear();
             for (t, _) in BASE_TABLES {
                 self.request("records", json!({"table": t}), Pending::Records(t.to_string()));
             }
+            let f = self.testdrive_scratch_dir().join("spawn-box.json");
+            let _ = std::fs::create_dir_all(f.parent().unwrap());
+            self.request("spawnbox", json!({"path": f}), Pending::SpawnBox(f));
             self.level.edit.checked_generation = 0; // check and apply again on the new world
         }
         self.edit_check(ctx);
@@ -257,12 +316,18 @@ impl Browser {
                 Ok((res, path, ms)) => {
                     self.level.edit.checked_generation = g;
                     match res {
-                        Ok(()) => {
+                        Ok(warnings) => {
                             self.level.edit.errors.clear();
-                            if self.level.edit.preview && self.world.status["world"].is_string() {
-                                self.request("level", json!({"path": path, "overlay": false}), Pending::LevelApplied);
-                            }
+                            self.level.edit.warnings = warnings;
+                            self.start_check();
                             self.level.edit.preview_note = format!("checked in {ms:.0} ms");
+                            if self.level.edit.preview && self.world.status["world"].is_string() {
+                                if self.shows_level_world() {
+                                    self.request("level", json!({"path": path, "overlay": false}), Pending::LevelApplied);
+                                } else {
+                                    self.level.edit.preview_note += " · no preview: the world shown isn't the level's";
+                                }
+                            }
                         }
                         Err(errs) => {
                             self.level.edit.preview_note = format!("{} problem{} (the preview keeps the last good one)", errs.len(), if errs.len() == 1 { "" } else { "s" });
@@ -292,6 +357,7 @@ impl Browser {
         let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
         let cache = scratch.join("base-cache");
+        let box_file = self.level.edit.box_file.clone();
         let g = e.generation;
         let (tx, rx) = channel();
         std::thread::spawn(move || {
@@ -302,11 +368,14 @@ impl Browser {
             if let Some(d) = &data {
                 c.arg("--data").arg(d).arg("--cache").arg(&cache);
             }
+            if let Some(b) = &box_file {
+                c.arg("--spawn-box").arg(b);
+            }
             let res = match c.output() {
                 Ok(o) => {
                     let text = String::from_utf8_lossy(&o.stdout).to_string();
                     match text.lines().rev().find_map(|l| serde_json::from_str::<Value>(l).ok()) {
-                        Some(v) if v["ok"] == true => Ok(()),
+                        Some(v) if v["ok"] == true => Ok(records(&v["warnings"])),
                         Some(v) => Err(v["errors"]
                             .as_array()
                             .map(|a| {
@@ -338,20 +407,55 @@ impl Browser {
         let editing = self.level.tab && self.level.edit.proj.is_some();
         if editing {
             let p = self.level.edit.proj.as_ref().unwrap();
+            for (name, v) in p.own("starts") {
+                if let Some(c) = vec3(&v["pos"]) {
+                    let sel = self.level.edit.sel == Some(Sel::Own("starts".into(), name.clone()));
+                    marks.push(json!({"kind": "start", "pos": c, "rotY": v["rotY"].as_f64().unwrap_or(0.0),
+                                      "color": if sel { json!([255, 240, 40]) } else { json!([80, 220, 255]) }}));
+                }
+            }
+            for (name, v) in p.own("fxPoints") {
+                if let Some(c) = vec3(&v["pos"]) {
+                    let sel = self.level.edit.sel == Some(Sel::Own("fxPoints".into(), name.clone()));
+                    marks.push(json!({"kind": "sphere", "pos": c, "radius": 2.0, "color": if sel { json!([255, 240, 40]) } else { json!([255, 160, 40]) }}));
+                }
+            }
+            for (name, v) in p.own("items") {
+                if let Some(c) = vec3(&v["pos"]) {
+                    let sel = self.level.edit.sel == Some(Sel::Own("items".into(), name.clone()));
+                    marks.push(json!({"kind": "cross", "pos": c, "radius": 4.0, "color": if sel { json!([255, 240, 40]) } else { json!([80, 220, 255]) }}));
+                }
+            }
             for (name, v) in p.own("volumes") {
+                if let (Some(lo), Some(hi)) = (vec3(&v["box"]["min"]), vec3(&v["box"]["max"])) {
+                    let sel = self.level.edit.sel == Some(Sel::Own("volumes".into(), name.clone()));
+                    let col = if sel { json!([255, 240, 40]) } else { json!([255, 80, 220]) };
+                    for (a, b) in box_edges(lo, hi) {
+                        marks.push(json!({"kind": "line", "pos": a, "to": b, "color": col}));
+                    }
+                    continue;
+                }
                 if let Some(c) = vec3(&v["center"]) {
                     let r = v["radius"].as_f64().or_else(|| v["radiusSq"].as_f64().map(f64::sqrt)).unwrap_or(5.0);
                     let sel = self.level.edit.sel == Some(Sel::Own("volumes".into(), name.clone()));
                     marks.push(json!({"kind": "sphere", "pos": c, "radius": r, "color": if sel { json!([255, 240, 40]) } else { json!([255, 80, 220]) }}));
                 }
             }
-            if let Some((pos, rot)) = self.sel_place() {
+            // every start as the cars' box (the viewer's spawnbox), facing its way
+            let paths: Vec<String> = self.level.edit.base.get("tileCars").map(|l| l.iter().filter_map(|e| e["path"].as_str().map(str::to_string)).collect()).unwrap_or_default();
+            for path in paths {
+                if let Some((pos, rot)) = self.base_place("tileCars", &path) {
+                    let sel = self.level.edit.sel == Some(Sel::Base("tileCars".into(), path.clone()));
+                    let bad = self.level.edit.start_problems.get(&path).map(|p| !p.is_empty()).unwrap_or(false);
+                    let col = if sel { json!([255, 240, 40]) } else if bad { json!([255, 120, 40]) } else { json!([60, 255, 90]) };
+                    marks.push(json!({"kind": "start", "pos": pos, "rotY": rot.unwrap_or(0.0), "color": col}));
+                }
+            }
+            if let Some((pos, _rot)) = self.sel_place() {
                 let s = &self.level.edit.sel;
                 let yellow = json!([255, 240, 40]);
                 match s {
-                    Some(Sel::Base(t, _)) if t == "tileCars" => {
-                        marks.push(json!({"kind": "arrow", "pos": pos, "rotY": rot.unwrap_or(0.0), "radius": 10.0, "color": yellow}));
-                    }
+                    Some(Sel::Base(t, _)) if t == "tileCars" => {}
                     Some(Sel::Base(t, path)) if t == "volumes" => {
                         let r = self.base_entry(path.as_str()).and_then(|e| e["radius"].as_f64()).unwrap_or(5.0);
                         marks.push(json!({"kind": "sphere", "pos": pos, "radius": r, "color": yellow}));
@@ -382,20 +486,62 @@ impl Browser {
     pub(crate) fn sel_place(&self) -> Option<([f32; 3], Option<f64>)> {
         let p = self.level.edit.proj.as_ref()?;
         match self.level.edit.sel.as_ref()? {
-            Sel::Own(k, n) if k == "volumes" => vec3(&p.level["volumes"][n]["center"]).map(|c| (c, None)),
-            Sel::Base(t, path) => {
-                let e = self.base_entry(path.as_str())?;
-                let mut c = vec3(&e["pos"])?;
-                let f = pos_field(t.as_str());
-                for (i, a) in ["x", "y", "z"].iter().enumerate() {
-                    if let Some(v) = p.patch(path, &format!("{f}/{a}")).and_then(Value::as_f64) {
-                        c[i] = v as f32;
-                    }
-                }
-                let rot = (t == "tileCars").then(|| p.patch(path, "rotY").and_then(Value::as_f64).or_else(|| e["rotY"].as_f64()).unwrap_or(0.0));
-                Some((c, rot))
-            }
+            Sel::Own(k, n) if k == "volumes" => own_volume_center(&p.level["volumes"][n]).map(|c| (c, None)),
+            Sel::Own(k, n) if k == "starts" => vec3(&p.level["starts"][n]["pos"]).map(|c| (c, Some(p.level["starts"][n]["rotY"].as_f64().unwrap_or(0.0)))),
+            Sel::Own(k, n) if k == "items" || k == "fxPoints" => vec3(&p.level[k.as_str()][n]["pos"]).map(|c| (c, None)),
+            Sel::Base(t, path) => self.base_place(t, path),
             _ => None,
+        }
+    }
+
+    /// A base record's place (and a start's rotY), as the level's patches put it.
+    pub(crate) fn base_place(&self, t: &str, path: &str) -> Option<([f32; 3], Option<f64>)> {
+        let p = self.level.edit.proj.as_ref()?;
+        let e = self.base_entry(path)?;
+        let mut c = vec3(&e["pos"])?;
+        let f = pos_field(t);
+        for (i, a) in ["x", "y", "z"].iter().enumerate() {
+            if let Some(v) = p.patch(path, &format!("{f}/{a}")).and_then(Value::as_f64) {
+                c[i] = v as f32;
+            }
+        }
+        let rot = (t == "tileCars").then(|| p.patch(path, "rotY").and_then(Value::as_f64).or_else(|| e["rotY"].as_f64()).unwrap_or(0.0));
+        Some((c, rot))
+    }
+
+    /// Every start against the world's collision (the viewer's startcheck), as the level has them.
+    fn start_check(&mut self) {
+        let mut paths: Vec<String> = self.level.edit.base.get("tileCars").map(|l| l.iter().filter_map(|e| e["path"].as_str().map(str::to_string)).collect()).unwrap_or_default();
+        let mut starts: Vec<Value> = paths.iter().filter_map(|p| self.base_place("tileCars", p)).map(|(c, r)| json!({"pos": c, "rotY": r.unwrap_or(0.0)})).collect();
+        if starts.len() != paths.len() {
+            return;
+        }
+        if let Some(p) = self.level.edit.proj.as_ref() {
+            for (n, v) in p.own("starts") {
+                if let Some(c) = vec3(&v["pos"]) {
+                    paths.push(format!("level://starts/{n}"));
+                    starts.push(json!({"pos": c, "rotY": v["rotY"].as_f64().unwrap_or(0.0)}));
+                }
+            }
+        }
+        if !starts.is_empty() && self.shows_level_world() {
+            self.request("startcheck", json!({"starts": starts}), Pending::StartCheck(paths));
+        }
+    }
+
+    pub(crate) fn start_check_reply(&mut self, paths: Vec<String>, r: Value) {
+        let mut m = HashMap::new();
+        for (p, s) in paths.iter().zip(r["starts"].as_array().cloned().unwrap_or_default()) {
+            m.insert(p.clone(), s["problems"].as_str().unwrap_or("").to_string());
+        }
+        self.level.edit.start_problems = m;
+    }
+
+    /// "To the ground" for a start: its box's bottom on the highest ground under it.
+    pub(crate) fn start_seat_reply(&mut self, r: Value) {
+        let seat = r["starts"][0]["seat"].as_f64();
+        if let (Some(seat), Some((c, rot))) = (seat, self.sel_place()) {
+            self.set_place([c[0], seat as f32, c[2]], rot);
         }
     }
 
@@ -407,10 +553,30 @@ impl Browser {
         match &sel {
             Sel::Own(k, n) if k == "volumes" => {
                 let v = &mut p.level["volumes"][n.as_str()];
-                v["center"] = json!([round(c[0]), round(c[1]), round(c[2])]);
+                if let (Some(lo), Some(hi)) = (vec3(&v["box"]["min"]), vec3(&v["box"]["max"])) {
+                    // a box: moved whole (its bottom where the centre goes, less half its height)
+                    let h = [(hi[0] - lo[0]) / 2.0, (hi[1] - lo[1]) / 2.0, (hi[2] - lo[2]) / 2.0];
+                    v["box"] = json!({"min": [round(c[0] - h[0]), round(c[1] - h[1]), round(c[2] - h[2])],
+                                      "max": [round(c[0] + h[0]), round(c[1] + h[1]), round(c[2] + h[2])]});
+                } else {
+                    v["center"] = json!([round(c[0]), round(c[1]), round(c[2])]);
+                }
+            }
+            Sel::Own(k, n) if k == "starts" || k == "items" || k == "fxPoints" => {
+                let v = &mut p.level[k.as_str()][n.as_str()];
+                v["pos"] = json!([round(c[0]), round(c[1]), round(c[2])]);
+                if let (Some(r), true) = (rot, k == "starts") {
+                    v["rotY"] = json!((r * 10000.0).round() / 10000.0);
+                }
+                if k == "items" || k == "fxPoints" {
+                    let key = format!("{k}/{n}");
+                    self.edited(before);
+                    self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
+                    return;
+                }
             }
             Sel::Base(t, path) => {
-                let f = pos_field(t.as_str());
+                let f = pos_field(t);
                 for (i, a) in ["x", "y", "z"].iter().enumerate() {
                     p.set_patch(path, &format!("{f}/{a}"), Some(json!(round(c[i]))));
                 }
@@ -421,6 +587,148 @@ impl Browser {
             _ => return,
         }
         self.edited(before);
+    }
+
+    // ---- adding and taking out --------------------------------------------------------------------
+
+    /// "+ Add" of something placed: on the ground under the camera (fly: below it; orbit: what it
+    /// looks at), then made.
+    pub(crate) fn add_placed(&mut self, kind: AddKind) {
+        let c = &self.camera;
+        let p = if c["mode"].as_str() == Some("fly") { &c["pos"] } else { &c["target"] };
+        let Some(at) = vec3(p) else {
+            self.note("load the level's world to place things in it".into());
+            return;
+        };
+        self.request("raycast", json!({"from": [at[0], at[1] + 50.0, at[2]], "to": [at[0], at[1] - 5000.0, at[2]]}), Pending::AddAt(kind));
+    }
+
+    pub(crate) fn add_at_reply(&mut self, kind: AddKind, r: Value) {
+        let Some(g) = vec3(&r["point"]).filter(|_| r["hit"] == true) else {
+            self.note("no ground under the camera".into());
+            return;
+        };
+        if kind == AddKind::Item || kind == AddKind::FxPoint {
+            self.request("quadat", json!({"pos": g}), Pending::AddItem(g, kind));
+            return;
+        }
+        let yaw = self.camera["yaw"].as_f64().unwrap_or(0.0).to_radians();
+        let mut rot = yaw + std::f64::consts::PI;
+        if rot > std::f64::consts::PI {
+            rot -= std::f64::consts::TAU;
+        }
+        let lift = -self.level.edit.spawn_box["min"][1].as_f64().unwrap_or(0.0) as f32;
+        let Some(p) = self.level.edit.proj.as_mut() else { return };
+        let before = p.snapshot();
+        let (k, name, v) = match kind {
+            AddKind::Sphere => ("volumes", p.free_name("volumes", "volume"), json!({"center": [round(g[0]), round(g[1] + 5.0), round(g[2])], "radius": 30})),
+            AddKind::BoxVolume => ("volumes", p.free_name("volumes", "box"), json!({"box": {"min": [round(g[0] - 20.0), round(g[1]), round(g[2] - 20.0)], "max": [round(g[0] + 20.0), round(g[1] + 25.0), round(g[2] + 20.0)]}})),
+            AddKind::Start => ("starts", p.free_name("starts", "start"), json!({"pos": [round(g[0]), round(g[1] + lift), round(g[2])], "rotY": (rot * 10000.0).round() / 10000.0, "port": 0})),
+            AddKind::Item | AddKind::FxPoint => return,
+        };
+        set_own(p, k, &name, v);
+        self.edited(before);
+        self.edit_select(Sel::Own(k.into(), name));
+    }
+
+    pub(crate) fn add_item_reply(&mut self, g: [f32; 3], kind: AddKind, r: Value) {
+        let q = r["quad"].as_i64().unwrap_or(-1);
+        // an effect point: a copy of the base one selected (its emitter, its corona)
+        let template = match (&self.level.edit.sel, self.level.edit.proj.as_ref()) {
+            (Some(Sel::Base(t, path)), Some(p)) if t == "fxPoints" => Some(format!("{}{path}", p.base_prefix())),
+            _ => None,
+        };
+        let Some(p) = self.level.edit.proj.as_mut() else { return };
+        let before = p.snapshot();
+        let (k, name, v) = if kind == AddKind::FxPoint {
+            let Some(t) = template else {
+                self.note("select a base effect point first (Effect points list, or click one): the new one copies it".into());
+                return;
+            };
+            ("fxPoints", p.free_name("fxPoints", "fx"), json!({"pos": [round(g[0]), round(g[1] + 3.0), round(g[2])], "quad": q, "template": t}))
+        } else {
+            ("items", p.free_name("items", "item"), json!({"pos": [round(g[0]), round(g[1] + 2.0), round(g[2])], "quad": q, "id": 0}))
+        };
+        set_own(p, k, &name, v);
+        self.edited(before);
+        if q < 0 {
+            self.note("that place is in no quadrant: move it onto the track".into());
+        }
+        self.edit_select(Sel::Own(k.into(), name));
+    }
+
+    pub(crate) fn item_quad_reply(&mut self, key: &str, r: Value) {
+        let Some((kind, name)) = key.split_once('/') else { return };
+        if let (Some(q), Some(p)) = (r["quad"].as_i64(), self.level.edit.proj.as_mut()) {
+            if p.level[kind][name].is_object() && p.level[kind][name]["quad"] != q {
+                p.level[kind][name]["quad"] = json!(q);
+                self.level.edit.generation += 1;
+            }
+        }
+    }
+
+    /// "+ Add" of a record that isn't placed.
+    pub(crate) fn add_plain(&mut self, kind: &str) {
+        let Some(p) = self.level.edit.proj.as_mut() else { return };
+        let before = p.snapshot();
+        let (name, v) = match kind {
+            "timers" => (p.free_name("timers", "timer"), json!({"time": 60000, "countUp": 0, "type": 12})),
+            "variables" => (p.free_name("variables", "var"), json!(0)),
+            "objectives" => {
+                let text = p.own("strings").first().map(|(n, _)| format!("level://strings/{n}")).unwrap_or_default();
+                (p.free_name("objectives", "objective"), json!({"text": text, "kind": "none", "hud": 0, "shown": true}))
+            }
+            _ => (p.free_name("strings", "text"), json!("A message")),
+        };
+        set_own(p, kind, &name, v);
+        self.edited(before);
+        self.edit_select(Sel::Own(kind.into(), name));
+    }
+
+    /// A new trigger of a kind, its parameters as the kind's layout has them (zero, empty).
+    pub(crate) fn add_trigger(&mut self, kind: &str) {
+        let schema = self.schema("Trigger");
+        let layout = schema["x-variants"]["TriggerType"][kind].clone();
+        let Some(p) = self.level.edit.proj.as_mut() else { return };
+        let before = p.snapshot();
+        let name = p.free_name("triggers", "trigger");
+        let mut t = json!({"$schema": "../../../../schemas/Trigger.schema.json", "format_version": 1, "type": kind});
+        if layout.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+            t["param"] = default_params(&layout);
+        }
+        p.add_trigger(&name, t);
+        self.edited(before);
+        self.edit_select(Sel::Trigger(name));
+    }
+
+    /// The selection taken out of the level (links to it then show as problems).
+    pub(crate) fn delete_selected(&mut self) {
+        let Some(sel) = self.level.edit.sel.clone() else { return };
+        let Some(p) = self.level.edit.proj.as_mut() else { return };
+        let before = p.snapshot();
+        match &sel {
+            Sel::Own(k, n) => {
+                if let Some(m) = p.level.get_mut(k.as_str()).and_then(Value::as_object_mut) {
+                    m.remove(n);
+                }
+            }
+            Sel::Trigger(n) => p.remove_trigger(n),
+            _ => return,
+        }
+        self.edited(before);
+        self.level.edit.sel = Some(Sel::Settings);
+    }
+
+    /// The level's links to the selection (what deleting it would break).
+    pub(crate) fn uses_of(&self, link: &str) -> Vec<String> {
+        let Some(p) = self.level.edit.proj.as_ref() else { return Vec::new() };
+        let mut out = Vec::new();
+        for t in &p.triggers {
+            if t.value.to_string().contains(&format!("\"{link}\"")) || t.value.to_string().contains(&format!("\"{link}/")) {
+                out.push(format!("trigger {}", t.name));
+            }
+        }
+        out
     }
 
     // ---- the view's input -----------------------------------------------------------------------
@@ -436,14 +744,27 @@ impl Browser {
         let d = vec3(&r["dir"]);
         let mut best: Option<(f32, Sel)> = r["path"].as_str().map(|p| (r["t"].as_f64().unwrap_or(1e9) as f32, Sel::Base(table_of(p).to_string(), p.to_string())));
         if let (Some(o), Some(d), Some(p)) = (o, d, self.level.edit.proj.as_ref()) {
+            let mut own: Vec<(String, String, [f32; 3], f32)> = Vec::new();
             for (name, v) in p.own("volumes") {
-                if let Some(c) = vec3(&v["center"]) {
-                    let r = v["radius"].as_f64().or_else(|| v["radiusSq"].as_f64().map(f64::sqrt)).unwrap_or(5.0) as f32;
+                if let Some(c) = own_volume_center(&v) {
+                    let r = v["radius"].as_f64().or_else(|| v["radiusSq"].as_f64().map(f64::sqrt)).unwrap_or(10.0) as f32;
+                    own.push(("volumes".into(), name, c, r));
+                }
+            }
+            for (k, r) in [("starts", 10.0f32), ("items", 4.0), ("fxPoints", 3.0)] {
+                for (name, v) in p.own(k) {
+                    if let Some(c) = vec3(&v["pos"]) {
+                        own.push((k.into(), name, [c[0], c[1] + if k == "starts" { 2.5 } else { 0.0 }, c[2]], r));
+                    }
+                }
+            }
+            for (kind, name, c, r) in own {
+                {
                     let w = [c[0] - o[0], c[1] - o[1], c[2] - o[2]];
                     let tc = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
                     let d2 = w[0] * w[0] + w[1] * w[1] + w[2] * w[2] - tc * tc;
                     if tc + r >= 0.0 && d2 <= r * r && best.as_ref().map(|b| tc < b.0).unwrap_or(true) {
-                        best = Some((tc.max(0.0), Sel::Own("volumes".into(), name)));
+                        best = Some((tc.max(0.0), Sel::Own(kind, name)));
                     }
                 }
             }
@@ -535,6 +856,12 @@ impl Browser {
 
     /// "To the ground": straight down from the selection.
     fn snap_down(&mut self) {
+        if let (Some((c, Some(rot))), Some(sel)) = (self.sel_place(), self.level.edit.sel.clone()) {
+            if matches!(&sel, Sel::Base(t, _) if t == "tileCars") || matches!(&sel, Sel::Own(k, _) if k == "starts") {
+                self.request("startcheck", json!({"starts": [{"pos": c, "rotY": rot}]}), Pending::StartSeat);
+                return;
+            }
+        }
         if let Some((c, _)) = self.sel_place() {
             self.level.edit.move_offset = 0.0;
             self.request("raycast", json!({"from": [c[0], c[1] + 30.0, c[2]], "to": [c[0], c[1] - 3000.0, c[2]]}), Pending::EditMove);
@@ -545,6 +872,58 @@ impl Browser {
     // ---- the lists --------------------------------------------------------------------------------
 
     pub(crate) fn edit_lists(&mut self, ui: &mut egui::Ui) {
+        if self.level.edit.proj.is_some() {
+            // + Add: placed things go on the ground under the camera
+            let placed = self.shows_level_world();
+            let kinds: Vec<String> = self.schema("Trigger")["properties"]["type"]["x-enum"]
+                .as_object()
+                .map(|m| m.values().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            let mut act: Option<Box<dyn FnOnce(&mut Browser)>> = None;
+            ui.horizontal(|ui| {
+                ui.menu_button("+ Add", |ui| {
+                    ui.add_enabled_ui(placed, |ui| {
+                        if ui.button("Sphere volume, here").clicked() {
+                            act = Some(Box::new(|b| b.add_placed(AddKind::Sphere)));
+                        }
+                        if ui.button("Box volume (BSP), here").clicked() {
+                            act = Some(Box::new(|b| b.add_placed(AddKind::BoxVolume)));
+                        }
+                        if ui.button("Start, here").clicked() {
+                            act = Some(Box::new(|b| b.add_placed(AddKind::Start)));
+                        }
+                        if ui.button("Item, here").clicked() {
+                            act = Some(Box::new(|b| b.add_placed(AddKind::Item)));
+                        }
+                        if ui.button("Effect point, here (a copy of the selected one)").clicked() {
+                            act = Some(Box::new(|b| b.add_placed(AddKind::FxPoint)));
+                        }
+                    });
+                    if !placed {
+                        ui.label(egui::RichText::new("(load the level's world to place things)").small().weak());
+                    }
+                    ui.separator();
+                    for (k, label) in [("timers", "Timer"), ("variables", "Variable"), ("strings", "Text"), ("objectives", "Objective")] {
+                        if ui.button(label).clicked() {
+                            act = Some(Box::new(move |b| b.add_plain(k)));
+                        }
+                    }
+                    ui.menu_button("Trigger", |ui| {
+                        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                            for k in &kinds {
+                                if ui.button(k).clicked() {
+                                    let k = k.clone();
+                                    act = Some(Box::new(move |b| b.add_trigger(&k)));
+                                }
+                            }
+                        });
+                    });
+                });
+            });
+            if let Some(f) = act {
+                f(self);
+            }
+        }
         let Some(p) = self.level.edit.proj.as_ref() else {
             if let Some(e) = &self.level.edit.load_error {
                 ui.colored_label(egui::Color32::LIGHT_RED, e);
@@ -722,9 +1101,99 @@ impl Browser {
         }
     }
 
+    fn delete_row(&mut self, ui: &mut egui::Ui, link: &str) {
+        let uses = self.uses_of(link);
+        ui.horizontal(|ui| {
+            if ui.button("🗑 Delete").on_hover_text(if uses.is_empty() { "take it out of the level".to_string() } else { format!("used by {}: those links will show as problems", uses.join(", ")) }).clicked() {
+                self.delete_selected();
+            }
+            if !uses.is_empty() {
+                ui.label(egui::RichText::new(format!("used by {}", uses.join(", "))).small().weak());
+            }
+        });
+    }
+
     fn inspect_own(&mut self, ui: &mut egui::Ui, kind: &str, name: &str) {
         ui.heading(format!("{name}"));
         ui.label(egui::RichText::new(format!("level://{kind}/{name}")).monospace().weak());
+        self.delete_row(ui, &format!("level://{kind}/{name}"));
+        if kind == "starts" || kind == "items" || kind == "fxPoints" {
+            let errs = self.errors_for("level.jsonc", &format!("{kind}/{name}"));
+            Self::show_errors(ui, &errs);
+            let link = format!("level://{kind}/{name}");
+            if let Some(pr) = self.level.edit.start_problems.get(&link).filter(|p| !p.is_empty()) {
+                ui.add(egui::Label::new(egui::RichText::new(format!("⚠ the cars' box here: {pr}")).color(egui::Color32::from_rgb(255, 180, 60))).wrap());
+            }
+            for w in self.level.edit.warnings.iter().filter(|w| w.path == format!("starts/{name}")) {
+                ui.add(egui::Label::new(egui::RichText::new(format!("⚠ {}", w.message)).color(egui::Color32::from_rgb(255, 180, 60))).wrap());
+            }
+            ui.horizontal(|ui| {
+                if ui.button("To the ground").clicked() {
+                    self.snap_down();
+                }
+                ui.label(egui::RichText::new("Ctrl/Cmd + drag moves it, Ctrl/Cmd + wheel turns a start").small().weak());
+            });
+            let p = self.level.edit.proj.as_mut().unwrap();
+            let before = p.snapshot();
+            let v = &mut p.level[kind][name];
+            let mut changed = false;
+            egui::Grid::new(("own_placed", kind, name)).num_columns(2).show(ui, |ui| {
+                let mut c = vec3(&v["pos"]).unwrap_or([0.0; 3]);
+                ui.label("pos");
+                let mut cc = false;
+                ui.horizontal(|ui| {
+                    for (i, a) in ["x", "y", "z"].iter().enumerate() {
+                        ui.label(*a);
+                        cc |= ui.add(egui::DragValue::new(&mut c[i]).speed(0.5)).changed();
+                    }
+                });
+                if cc {
+                    v["pos"] = json!([round(c[0]), round(c[1]), round(c[2])]);
+                    changed = true;
+                }
+                ui.end_row();
+                if kind == "starts" {
+                    ui.label("facing");
+                    let mut deg = v["rotY"].as_f64().unwrap_or(0.0).to_degrees();
+                    if ui.add(egui::DragValue::new(&mut deg).speed(1.0).range(-180.0..=180.0).suffix("°")).changed() {
+                        v["rotY"] = json!((deg.to_radians() * 10000.0).round() / 10000.0);
+                        changed = true;
+                    }
+                    ui.end_row();
+                    ui.label("port");
+                    let mut port = v["port"].as_i64().unwrap_or(0);
+                    if ui.add(egui::DragValue::new(&mut port).range(0..=8)).on_hover_text("1-4: a player's start; 0: an AI car's").changed() {
+                        v["port"] = json!(port);
+                        changed = true;
+                    }
+                    ui.end_row();
+                } else if kind == "fxPoints" {
+                    ui.label("quadrant");
+                    ui.label(v["quad"].to_string());
+                    ui.end_row();
+                    ui.label("a copy of");
+                    ui.label(egui::RichText::new(v["template"].as_str().unwrap_or("").rsplit_once("/world_0/").map(|x| x.1).unwrap_or("")).monospace());
+                    ui.end_row();
+                } else {
+                    ui.label("quadrant");
+                    ui.label(v["quad"].to_string()).on_hover_text("the streaming region it is in (found when it moves)");
+                    ui.end_row();
+                    for (k, tip) in [("id", "the item in the world's item pack (0..)"), ("respawn", "ms before it comes back once taken, 0: never")] {
+                        ui.label(k);
+                        let mut x = v[k].as_i64().unwrap_or(0);
+                        if ui.add(egui::DragValue::new(&mut x).range(0..=600000)).on_hover_text(tip).changed() {
+                            v[k] = json!(x);
+                            changed = true;
+                        }
+                        ui.end_row();
+                    }
+                }
+            });
+            if changed {
+                self.edited(before);
+            }
+            return;
+        }
         let errs = self.errors_for("level.jsonc", &format!("{kind}/{name}"));
         Self::show_errors(ui, &errs);
         let advanced = self.level.edit.advanced;
@@ -753,6 +1222,26 @@ impl Browser {
             ui.label(egui::RichText::new("shown by print_debug_string (what 4: the objective line of the pause, win and lose screens)").small().weak());
             return;
         }
+        if kind == "objectives" {
+            ui.label(egui::RichText::new("text, doneText: texts (level://strings/...); done: a variable whose value != 0 shows doneText; kind none / counter / timer and value: what fills the text's '#'; hud: the HUD object's id; shown").small().weak());
+            let cands = self.link_candidates(None);
+            let p = self.level.edit.proj.as_mut().unwrap();
+            let before = p.snapshot();
+            let mut v = p.level[kind][name].clone();
+            let mut link_pick = None;
+            let mut kinds = HashMap::new();
+            for k in ["text", "doneText", "done", "value"] {
+                kinds.insert(k.to_string(), "link".to_string());
+            }
+            if value_editor(ui, &mut v, "", &kinds, &[], &cands, &format!("{kind}/{name}"), &mut link_pick, 0) {
+                p.level[kind][name] = v;
+                self.edited(before);
+            }
+            if let Some(path) = link_pick {
+                self.level.edit.pick_link = Some((String::new(), path));
+            }
+            return;
+        }
         let sname = match kind {
             "volumes" => "WorldVolume",
             "timers" => "WorldTimer",
@@ -775,7 +1264,54 @@ impl Browser {
             v = json!({"value": v});
         }
         let mut link_pick = None;
-        let changed = fields_editor(ui, &mut v, &schema, advanced, &cands, &format!("{kind}/{name}"), &mut link_pick, kind == "volumes");
+        let mut changed = fields_editor(ui, &mut v, &schema, advanced, &cands, &format!("{kind}/{name}"), &mut link_pick, kind == "volumes");
+        if kind == "volumes" {
+            // a box's size, and the type's settings
+            if let (Some(mut lo), Some(mut hi)) = (vec3(&v["box"]["min"]), vec3(&v["box"]["max"])) {
+                ui.label("box (a BSP volume)");
+                let mut cc = false;
+                for (lbl, c) in [("min", &mut lo), ("max", &mut hi)] {
+                    ui.horizontal(|ui| {
+                        ui.label(lbl);
+                        for i in 0..3 {
+                            cc |= ui.add(egui::DragValue::new(&mut c[i]).speed(0.5)).changed();
+                        }
+                    });
+                }
+                if cc {
+                    v["box"] = json!({"min": [round(lo[0]), round(lo[1]), round(lo[2])], "max": [round(hi[0]), round(hi[1]), round(hi[2])]});
+                    changed = true;
+                }
+            }
+            let t = v["type"].as_str().unwrap_or("airbox").to_string();
+            let defaults = match t.as_str() {
+                "force_box" => Some(json!({"force": [0, 50, 0], "oneShot": 0, "carOnly": 0, "type": 0})),
+                "reverb" => Some(json!({"type": 2, "volume": 16383, "feedback": 16383})),
+                "fog" => Some(json!({"type": 0, "near": 50, "far": 400, "color": [128, 128, 128, 255]})),
+                "light" => Some(json!({"direction": [0, -1, 0], "color": [255, 255, 255], "lightType": 1, "subtract": 0})),
+                "creature" => Some(json!({"rescue": 0})),
+                _ => None,
+            };
+            if let Some(d) = defaults {
+                ui.separator();
+                ui.label(format!("{t} settings (the game finds new ones only once the volume grid lists them: see the warning)"));
+                if !v["data"].is_object() {
+                    v["data"] = d;
+                    changed = true;
+                }
+                let mut dv = v["data"].clone();
+                let kinds = HashMap::new();
+                if value_editor(ui, &mut dv, "", &kinds, &[], &[], &format!("{kind}/{name}/data"), &mut link_pick, 0) {
+                    v["data"] = dv;
+                    changed = true;
+                }
+            } else if v.get("data").map(|d| d.is_object()).unwrap_or(false) {
+                if let Some(o) = v.as_object_mut() {
+                    o.remove("data");
+                }
+                changed = true;
+            }
+        }
         if changed {
             p.level[kind][name] = v;
             self.edited(before);
@@ -791,6 +1327,20 @@ impl Browser {
         ui.label(egui::RichText::new(format!("{prefix}{path}")).monospace().weak());
         let errs = self.errors_for("level.jsonc", &format!("patches/{prefix}{path}"));
         Self::show_errors(ui, &errs);
+        // warnings: the start's box against the world and the other starts
+        if let Some(p) = self.level.edit.start_problems.get(path).filter(|p| !p.is_empty()) {
+            ui.add(egui::Label::new(egui::RichText::new(format!("⚠ the cars' box here: {p}")).color(egui::Color32::from_rgb(255, 180, 60))).wrap());
+        }
+        for w in self.level.edit.warnings.iter().filter(|w| w.path.contains(path)) {
+            ui.add(egui::Label::new(egui::RichText::new(format!("⚠ {}", w.message)).color(egui::Color32::from_rgb(255, 180, 60))).wrap());
+        }
+        if table == "tileCars" {
+            if let Some(b) = self.level.edit.spawn_box.get("min") {
+                let mx = &self.level.edit.spawn_box["max"];
+                let size = |i: usize| mx[i].as_f64().unwrap_or(0.0) - b[i].as_f64().unwrap_or(0.0);
+                ui.label(egui::RichText::new(format!("drawn and checked as every car's box at once: {:.2} wide, {:.2} high, {:.2} long ({} cars)", size(0), size(1), size(2), self.level.edit.spawn_box["cars"])).small().weak());
+            }
+        }
         if table == "tileCars" || table == "volumes" || table == "items" {
             ui.horizontal(|ui| {
                 if ui.button("To the ground").clicked() {
@@ -803,6 +1353,17 @@ impl Browser {
         if rec["path"] != path {
             ui.spinner();
             return;
+        }
+        if let Some(d) = rec["volumeData"].as_object() {
+            ui.label(egui::RichText::new("its settings (by type; read only)").strong());
+            egui::Grid::new("volume_data").num_columns(2).show(ui, |ui| {
+                for (k, x) in d {
+                    ui.label(k);
+                    ui.monospace(x.to_string());
+                    ui.end_row();
+                }
+            });
+            ui.separator();
         }
         let sname = rec["struct"].as_str().unwrap_or("").to_string();
         let schema = self.schema(&sname);
@@ -868,6 +1429,7 @@ impl Browser {
 
     fn inspect_trigger(&mut self, ui: &mut egui::Ui, name: &str) {
         ui.heading(format!("trigger {name}"));
+        self.delete_row(ui, &format!("level://triggers/{name}"));
         let errs = self.errors_for(&format!("triggers/{name}.jsonc"), "");
         Self::show_errors(ui, &errs);
         let schema = self.schema("Trigger");
@@ -908,6 +1470,53 @@ impl Browser {
         }
         out
     }
+}
+
+fn records(v: &Value) -> Vec<LevelError> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .map(|e| LevelError {
+                    file: e["file"].as_str().unwrap_or("").into(),
+                    path: e["path"].as_str().unwrap_or("").into(),
+                    message: e["message"].as_str().unwrap_or("").into(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn box_edges(lo: [f32; 3], hi: [f32; 3]) -> Vec<([f32; 3], [f32; 3])> {
+    let c = |i: usize| [if i & 1 != 0 { hi[0] } else { lo[0] }, if i & 2 != 0 { hi[1] } else { lo[1] }, if i & 4 != 0 { hi[2] } else { lo[2] }];
+    [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)].iter().map(|&(a, b)| (c(a), c(b))).collect()
+}
+
+fn set_own(p: &mut Project, kind: &str, name: &str, v: Value) {
+    if !p.level[kind].is_object() {
+        p.level[kind] = json!({});
+    }
+    p.level[kind][name] = v;
+}
+
+/// Parameters as a kind's layout has them: lists empty, numbers 0, keywords the first, links null.
+pub(crate) fn default_params(layout: &Value) -> Value {
+    let mut m = serde_json::Map::new();
+    for it in layout.as_array().cloned().unwrap_or_default() {
+        let (Some(kind), Some(name)) = (it.get(0).and_then(Value::as_str), it.get(1).and_then(Value::as_str)) else { continue };
+        let v = match kind {
+            "list" | "words" => json!([]),
+            "u32" | "s32" | "any" => json!(0),
+            "f32" => json!(0.0),
+            "token" => json!("on"),
+            "link" => Value::Null,
+            "operand" => json!({"const": 0}),
+            "string" => json!(""),
+            "codevar" => json!({"var": 0, "arg": 0}),
+            _ => continue,
+        };
+        m.insert(name.to_string(), v);
+    }
+    Value::Object(m)
 }
 
 fn round(x: f32) -> f64 {
@@ -1114,6 +1723,12 @@ fn trigger_editor(ui: &mut egui::Ui, v: &mut Value, schema: &Value, cands: &[(St
         let mut t = v["type"].clone();
         if scalar_widget(ui, &mut t, &tprops["type"], "type") {
             v["type"] = t;
+            let lay = &schema["x-variants"]["TriggerType"][v["type"].as_str().unwrap_or("")];
+            if lay.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                v["param"] = default_params(lay);
+            } else if let Some(o) = v.as_object_mut() {
+                o.remove("param");
+            }
             changed = true;
         }
         ui.end_row();
@@ -1136,39 +1751,36 @@ fn trigger_editor(ui: &mut egui::Ui, v: &mut Value, schema: &Value, cands: &[(St
             changed = true;
         }
     }
-    for (list, title) in [("conditions", "if"), ("actions", "do"), ("elseActions", "else")] {
-        let Some(arr) = v.get(list).and_then(Value::as_array).cloned() else { continue };
+    for (list, title) in [("conditions", "if"), ("actions", "do"), ("elseActions", "else (landing)")] {
+        let cond = list == "conditions";
+        let arr = v.get(list).and_then(Value::as_array).cloned().unwrap_or_default();
+        if list == "elseActions" && arr.is_empty() && kind != "player_vehicle_in_air" {
+            continue;
+        }
         ui.separator();
         ui.strong(format!("{title} ({})", arr.len()));
         let mut arr = arr;
+        let mut remove = None;
+        let mut list_changed = false;
+        let (props, enum_name, data_key) = if cond { (tprops, "TriggerType", "param") } else { (aprops, "ActionType", "data") };
         for (i, item) in arr.iter_mut().enumerate() {
             let at = format!("{list}/{i}");
             egui::Frame::group(ui.style()).show(ui, |ui| {
-                if list == "conditions" {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{}.", i + 1));
                     let mut t = item["type"].clone();
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{}.", i + 1));
-                        if scalar_widget(ui, &mut t, &tprops["type"], &at) {
-                            item["type"] = t;
-                            changed = true;
+                    if scalar_widget(ui, &mut t, &props["type"], &at) {
+                        // another kind: its own parameters
+                        item["type"] = t;
+                        let lay = &schema["x-variants"][enum_name][item["type"].as_str().unwrap_or("")];
+                        if lay.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                            item[data_key] = default_params(lay);
+                        } else if let Some(o) = item.as_object_mut() {
+                            o.remove(data_key);
                         }
-                    });
-                    let lay = schema["x-variants"]["TriggerType"][item["type"].as_str().unwrap_or("")].clone();
-                    if item.get("param").is_some() {
-                        let mut pv = item["param"].clone();
-                        if params_editor(ui, &mut pv, &lay, &tokens, cands, &format!("{at}/param"), pick) {
-                            item["param"] = pv;
-                            changed = true;
-                        }
+                        list_changed = true;
                     }
-                } else {
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{}.", i + 1));
-                        let mut t = item["type"].clone();
-                        if scalar_widget(ui, &mut t, &aprops["type"], &at) {
-                            item["type"] = t;
-                            changed = true;
-                        }
+                    if !cond {
                         ui.label("after");
                         let mut d = item["delayInit"].as_f64().unwrap_or(0.0);
                         if ui.add(egui::DragValue::new(&mut d).speed(10.0).range(0.0..=600000.0).suffix(" ms")).changed() {
@@ -1176,28 +1788,61 @@ fn trigger_editor(ui: &mut egui::Ui, v: &mut Value, schema: &Value, cands: &[(St
                             if let Some(o) = item.as_object_mut() {
                                 o.remove("delay");
                             }
-                            changed = true;
+                            list_changed = true;
                         }
                         let always = item["count"] == json!(4294967295u64) || item["count"] == "always";
                         let mut a = always;
                         if ui.checkbox(&mut a, "every time").changed() {
                             item["count"] = if a { json!("always") } else { json!(1) };
-                            changed = true;
+                            list_changed = true;
                         }
-                    });
-                    let lay = schema["x-variants"]["ActionType"][item["type"].as_str().unwrap_or("")].clone();
-                    if item.get("data").is_some() {
-                        let mut pv = item["data"].clone();
-                        if params_editor(ui, &mut pv, &lay, &tokens, cands, &format!("{at}/data"), pick) {
-                            item["data"] = pv;
-                            changed = true;
-                        }
+                    }
+                    if ui.small_button("−").on_hover_text("take it out").clicked() {
+                        remove = Some(i);
+                    }
+                });
+                let lay = schema["x-variants"][enum_name][item["type"].as_str().unwrap_or("")].clone();
+                if item.get(data_key).is_some() {
+                    let mut pv = item[data_key].clone();
+                    if params_editor(ui, &mut pv, &lay, &tokens, cands, &format!("{at}/{data_key}"), pick) {
+                        item[data_key] = pv;
+                        list_changed = true;
                     }
                 }
             });
         }
-        if changed {
-            v[list] = Value::Array(arr);
+        if let Some(i) = remove {
+            arr.remove(i);
+            list_changed = true;
+        }
+        // + another, of a kind from the menu
+        let names: Vec<String> = props["type"]["x-enum"].as_object().map(|m| m.values().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        let mut add = None;
+        egui::ComboBox::from_id_salt(("add", list)).selected_text(if cond { "+ condition" } else { "+ action" }).show_ui(ui, |ui| {
+            for n in &names {
+                if ui.selectable_label(false, n).clicked() {
+                    add = Some(n.clone());
+                }
+            }
+        });
+        if let Some(n) = add {
+            let lay = &schema["x-variants"][enum_name][&n];
+            let mut it = json!({"type": n});
+            if lay.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                it[data_key] = default_params(lay);
+            }
+            arr.push(it);
+            list_changed = true;
+        }
+        if list_changed {
+            changed = true;
+            if arr.is_empty() {
+                if let Some(o) = v.as_object_mut() {
+                    o.remove(list); // (an empty list is null in the format)
+                }
+            } else {
+                v[list] = Value::Array(arr);
+            }
         }
     }
     changed
