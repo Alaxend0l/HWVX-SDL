@@ -583,7 +583,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
      * shared packs, Port_Proto.c, aren't loaded ahead as the release's
      * are), into the same static header: the header is kept aside */
     memcpy(&ownHeader, &header, sizeof(header));
-    for (i = 0; i < header.numTexRelocs; i++) {
+    for (i = 0; i < ownHeader.numTexRelocs; i++) {
         packID = reloc[1] & 0xFFFF0000;
         if (packID != 0) {
             packID >>= 16;
