@@ -653,6 +653,65 @@ static char *PrefixedName(DataPack *pack, const char *name) {
 #define PROTO_NAV_SIZE 0x70
 #define PROTO_NAV_NONE 0xFFFF8000u
 
+/* Is [p, p + count * size) inside the pack's data block? The prototype's world
+ * arrays are read from there before they are converted. */
+static int InPack(const DataPack *pack, const void *p, u32 count, u32 size, const char *what) {
+    const u8 *lo = GETP(pack->base), *q = p;
+    u64 bytes = (u64)count * size;
+
+    if (lo != NULL && q != NULL && q >= lo && (u64)(q - lo) <= pack->dataSize && bytes <= pack->dataSize - (u64)(q - lo)) {
+        return 1;
+    }
+    Port_Log("prototype: world's %s (%u x 0x%X bytes) not inside its pack, skipped", what, count, size);
+    return 0;
+}
+
+/* The way point chain (NAV_TYPE_WAYPOINT nodes by nextWayPoint, Player.c, AI_CarA.c)
+ * is followed without bounds: a next out of range is none (-1, and then the node is no
+ * way point), and a chain that comes back on itself is cut where it does. */
+static void FixWayPoints(NavPoint *pts, u32 n) {
+    u8 *state = Allocate(n, 0, "");   /* 0 not seen, 1 on this walk, 2 done */
+    u32 i, j, cut = 0;
+
+    for (i = 0; i < n; i++) {
+        if ((u32)pts[i].nextWayPoint >= n) {
+            pts[i].nextWayPoint = -1;
+        }
+        if (pts[i].type == NAV_TYPE_WAYPOINT && pts[i].nextWayPoint == -1) {
+            pts[i].type = 0;
+        }
+    }
+    if (state == NULL) {
+        return;
+    }
+    SDL_memset(state, 0, n);
+    for (i = 0; i < n; i++) {
+        for (j = i; pts[j].type == NAV_TYPE_WAYPOINT && state[j] == 0;) {
+            u32 next = (u32)pts[j].nextWayPoint;
+
+            state[j] = 1;
+            if (state[next] == 1) {         /* back on this walk: a cycle */
+                pts[j].type = 0;
+                pts[j].nextWayPoint = -1;
+                cut++;
+                break;
+            }
+            j = next;
+        }
+        for (j = i; state[j] == 1;) {
+            state[j] = 2;
+            if (pts[j].type != NAV_TYPE_WAYPOINT) {
+                break;
+            }
+            j = (u32)pts[j].nextWayPoint;
+        }
+    }
+    Deallocate(state);
+    if (cut != 0) {
+        Port_Log("prototype: world's way point chain cut at %u cycle(s)", cut);
+    }
+}
+
 static void ConvertNav(DataPack *pack, World *w) {
     NavData *nd = GETP(w->nav);
     const u8 *old;
@@ -661,7 +720,8 @@ static void ConvertNav(DataPack *pack, World *w) {
     f32 *costs;
     u32 i, k, n, total = 0;
 
-    if (nd == NULL || nd->numNodes == 0 || nd->numNodes > 0x4000 || (old = (const u8 *)GETP(nd->nodes)) == NULL) {
+    if (nd == NULL || nd->numNodes == 0 || nd->numNodes > 0x4000 || (old = (const u8 *)GETP(nd->nodes)) == NULL ||
+        !InPack(pack, old, nd->numNodes, PROTO_NAV_SIZE, "nav points")) {
         return;
     }
     n = nd->numNodes;
@@ -705,6 +765,10 @@ static void ConvertNav(DataPack *pack, World *w) {
         p->nextWayPoint = *(const s32 *)(o + 0x64);
         total += 12;
     }
+    FixWayPoints(pts, n);
+    if ((u32)nd->firstWayPoint >= n) {
+        nd->firstWayPoint = 0;   /* Player.c reads it before it checks */
+    }
     SETP(nd->nodes, pts);
     PortGeometry_Keep(pack, pts);
 }
@@ -729,7 +793,7 @@ void Port_ProtoWorldLoaded(DataPack *pack) {
         SETP(w->name, p);
     }
     old = (const u8 *)GETP(w->quads);
-    if (old == NULL || w->numQuads == 0 || w->numQuads > 0x400 ||
+    if (old == NULL || w->numQuads == 0 || w->numQuads > 0x400 || !InPack(pack, old, w->numQuads, 0x40, "quadrants") ||
         (quads = Allocate(w->numQuads * sizeof(WorldQuad), 0, "")) == NULL) {
         return;
     }
@@ -741,7 +805,8 @@ void Port_ProtoWorldLoaded(DataPack *pack) {
     SETP(w->quads, quads);
     PortGeometry_Keep(pack, quads);
     ConvertNav(pack, w);
-    if (w->numTilePaths != 0 && GETP(w->tilePaths) != NULL && w->numTilePaths < 0x400) {
+    if (w->numTilePaths != 0 && GETP(w->tilePaths) != NULL && w->numTilePaths < 0x400 &&
+        InPack(pack, GETP(w->tilePaths), w->numTilePaths, 0x14, "moving paths")) {
         const u8 *op = (const u8 *)GETP(w->tilePaths);
         TilePath *paths = Allocate(w->numTilePaths * sizeof(TilePath), 0, "");
 
