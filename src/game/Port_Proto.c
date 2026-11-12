@@ -44,6 +44,8 @@
  * docs-pending/prototype-import.md. */
 #include <SDL3/SDL.h>
 #include "common.h"
+#include "CarA.h"
+#include "Interface.h"
 #include "Port_Proto.h"
 #include "Port_Content.h"
 #include "jsonc.h"
@@ -370,6 +372,79 @@ static void *HP(u32 h) {
  * Camera_UpdatePosition_Default; objects.md §3.1). */
 static const f32 s_chase[6] = { 75.0f, 25.0f, 3.6f, 40.0f, 20.0f, 0.235f };
 
+/* The prototype's HUD (its own, in each car pack: CarAInfo.hud layouts)
+ * has a text object of role 19 reading "X: 00.0 |Y: 00.0 |Z: 00.0": the
+ * car's position, which the prototype fills in (it shows live in the
+ * prototype as it runs). The release's code never sets role 19's text
+ * (InterfaceHudInfo.message19), so it would show the zeros. By default it is
+ * blanked; HWVX_PROTO_DEBUGHUD=1 (or sources.cfg's proto_debughud=1) keeps
+ * it, filled in as the prototype does (Port_ProtoHudInfo). Such a car's HUD
+ * is marked in CarAHud 0x14 (0 in every car, never read). */
+#define HUD_MARK 0x50524F54u    /* "PROT" */
+
+static int DebugHud(void) {
+    static int on = -1;
+
+    if (on < 0) {
+        const char *env = SDL_getenv("HWVX_PROTO_DEBUGHUD");
+        char *v = env != NULL ? NULL : Port_ProtoSetting("proto_debughud");
+
+        on = env != NULL ? SDL_atoi(env) != 0 : v != NULL && SDL_atoi(v) != 0;
+        SDL_free(v);
+    }
+    return on;
+}
+
+static void FixHud(u8 *car) {
+    static const u32 layouts[3] = { 0x10, 0x18, 0x1C };
+    u8 *hud = HP(*(u32 *)(car + 0x84));
+    u32 l, i, n;
+
+    for (l = 0; hud != NULL && l < 3; l++) {
+        u8 *h = HP(*(u32 *)(hud + layouts[l])), *objs;
+
+        if (h == NULL || (objs = HP(*(u32 *)(h + 0x10))) == NULL) {
+            continue;
+        }
+        n = *(u32 *)(h + 0xC);
+        for (i = 0; i < n && i < 0x400; i++) {
+            IfaceObjectDef *def = (IfaceObjectDef *)(objs + i * sizeof(IfaceObjectDef));
+            IfaceText *text = def->type == IFACE_DEF_TEXT ? GETP(def->sub) : NULL;
+            u32 *strings = text != NULL ? (u32 *)GETP(text->strings) : NULL;
+            char *str = strings != NULL ? HP(strings[0]) : NULL;
+
+            if (def->role == 19 && str != NULL && str[0] == 'X' && str[1] == ':') {
+                if (DebugHud()) {
+                    *(u32 *)(hud + 0x14) = HUD_MARK;
+                } else {
+                    str[0] = 0;
+                }
+            }
+        }
+    }
+}
+
+void Port_ProtoHudInfo(CarA *car, InterfaceHudInfo *info) {
+    /* a string table of one: the slot, then the text */
+    static struct {
+        u32 slot;
+        char text[64];
+    } *s_readout;
+    CarAInfo *ci = GETP(car->vehicleIface);
+    CarAHud *hud = ci != NULL ? GETP(ci->hud) : NULL;
+
+    if (hud == NULL || *(u32 *)hud->pad14 != HUD_MARK) {
+        return;
+    }
+    if (s_readout == NULL && (s_readout = Allocate(sizeof(*s_readout), 0, "")) == NULL) {
+        return;
+    }
+    SDL_snprintf(s_readout->text, sizeof(s_readout->text), "X: %.1f |Y: %.1f |Z: %.1f", car->base.pos.x,
+                 car->base.pos.y, car->base.pos.z);
+    s_readout->slot = HND(s_readout->text);
+    info->message19.h = HND(&s_readout->slot);
+}
+
 static void FixCar(DataPack *pack, u8 *car) {
     u8 *engine = HP(*(u32 *)(car + 0x80));
     u32 l, i, slot;
@@ -393,6 +468,14 @@ static void FixCar(DataPack *pack, u8 *car) {
         car[0x10] = 75;         /* damagePercent */
         *(u32 *)(car + 0x18) = 20;
     }
+    /* CarAInfo 0x54: the release's shadow volume (edges, Render_DrawShadows:
+     * groups flagged 0x4000, which RenderGroup skips), the prototype's a
+     * closed hull as a plain lit geometry (docs/beta-cars/research/
+     * geometry.md §1.7, HWVX-X-FILE-EDITOR). Drawn in a race (CarA_Draw,
+     * state 5) it covered the car in black. Left out: the car has no
+     * shadow volume. */
+    *(u32 *)(car + 0x54) = 0;
+    FixHud(car);
     if (*(f32 *)(car + 4) == 0.0f) {
         *(f32 *)(car + 4) = 2.0f;   /* viewOffset y: the turntable */
     }

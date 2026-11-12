@@ -56,6 +56,10 @@ static char *SourcesValue(const char *key) {
     return found;
 }
 
+char *Port_ProtoSetting(const char *key) {
+    return SourcesValue(key);
+}
+
 const char *Port_ProtoRoot(void) {
     if (!s_rootRead) {
         const char *env = SDL_getenv("HWVX_PROTO_DIR");

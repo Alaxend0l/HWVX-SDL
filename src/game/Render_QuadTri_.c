@@ -119,7 +119,7 @@ typedef struct GDL {
     PTR32(GDLGroupQuadVtx) groupQuadVtx;    /* 0x24CDE8 */
     PTR32(GDLGroupLitTriVtx) groupLitTriVtx; /* 0x24CDEC */
     u8 pad24CDF0[0x24CDF4 - 0x24CDF0];
-    u16 spriteHeads[0x1FF];
+    u16 spriteHeads[PORT_MAX_TEXTURES];     /* port: 0x1FF */
 } GDL;
 
 extern GDL *g_pGDL;
@@ -402,7 +402,7 @@ void Render_DrawNewBBSprites(void) {
         return;
     }
     GXSetCurrentMtx(0x3C);
-    for (tex = 0; tex < 0x1FF; tex++) {
+    for (tex = 0; tex < PORT_MAX_TEXTURES; tex++) {
         first = 1;
         idx = g_pGDL->spriteHeads[tex];
         if (idx == 0xFFFF) {
