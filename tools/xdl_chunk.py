@@ -1072,7 +1072,10 @@ def cell_tree(pieces, lo, hi, sources=None):
     first cut along the sources' box walls and each part gets its source's tree (or, with no
     pieces in it, is all solid or all empty as that source says)."""
     if not sources or not sources.boxes or any(own is None for *_, own in pieces):
-        return BB.build([(pl, v, m) for pl, v, m, _ in pieces])
+        # a mesh of its own (not cut to source boxes): faces lying on another's plane facing
+        # the other way are inside faces (a wall's foot on the ground)
+        return BB.build([(pl, v, m) for pl, v, m, _ in pieces],
+                        opposite="drop" if all(own is None for *_, own in pieces) else "back")
     lo, hi = np.array(lo, float), np.array(hi, float)
     groups = {k: [] for k in sources.overlapping(lo, hi)}
     for plane, v, mat, own in pieces:
@@ -1136,6 +1139,61 @@ def _join(plane, front, back):
         for pl, f, b, m in t:
             out.append((pl, None if f is None else f + base, None if b is None else b + base, m))
     return out
+
+
+def ray_hits(col, s, e):
+    """The game's ray against the collision grid (CollisionTerrain.c RayHitsBSP2 / RayHitsBSP, in
+    float32): (t, plane, point) of the first hit over the cells the segment's box overlaps, hits
+    outside a cell's box (+-0.1) dropped; None for no hit. col: a world_lib.Collision."""
+    s, e = np.asarray(s, float), np.asarray(e, float)
+    lo, sz, (nx, ny, nz) = np.array(col.min), np.array(col.cell_size), col.n
+    a = np.floor((np.minimum(s, e) - lo) / sz).astype(int)
+    b = np.floor((np.maximum(s, e) - lo) / sz).astype(int)
+    best = None
+    for x in range(max(a[0], 0), min(b[0], nx - 1) + 1):
+        for y in range(max(a[1], 0), min(b[1], ny - 1) + 1):
+            for z in range(max(a[2], 0), min(b[2], nz - 1) + 1):
+                ci = col.cell_index[x + nx * (z + nz * y)]
+                tree = col.cell_tree(ci) if ci else None
+                if not tree:
+                    continue
+                c = col.cell(ci)
+                r = _ray2(tree, s, e, 0)
+                if r and all(c["min"][k] - 0.1 <= r[2][k] <= c["max"][k] + 0.1 for k in range(3)):
+                    if best is None or r[0] < best[0]:
+                        best = r
+    return best
+
+
+def _ray2(tree, s, e, k):
+    f = np.float32
+    pl, fr, bk, _ = tree[k]
+
+    def dist(p):
+        return f(pl[0]) * f(p[0]) + f(pl[1]) * f(p[1]) + f(pl[2]) * f(p[2]) + f(pl[3])
+    d0, d1 = dist(s), dist(e)
+    if d0 == 0 and d1 == 0:
+        return None if fr is None else _ray2(tree, s, e, fr)
+    if (d0 > 0 > d1) or (d0 < 0 < d1):
+        q = float(d0 / (d0 - d1))
+        mid = s + (e - s) * q
+        near, far = (fr, bk) if d0 > 0 else (bk, fr)
+        if near is not None:
+            r = _ray2(tree, s, mid, near)
+            if r:
+                return (r[0] * q, r[1], r[2])
+        elif d0 < 0:
+            return (q, pl, mid)              # starting behind a solid leaf
+        if far is not None:
+            r = _ray2(tree, mid, e, far)
+            if r:
+                t = r[0] * (1 - q) + q
+                return (q, pl, mid) if t == q else (t, r[1], r[2])
+            return None
+        return (q, pl, mid) if d0 > 0 else None
+    if d0 > 0 or d1 > 0:
+        return None if fr is None else _ray2(tree, s, e, fr)
+    return _ray2(tree, s, e, bk) if bk is not None else (0.0, pl, s)
 
 
 def _keep_on_wall(v, plane, lo, hi, own, eps=1e-3):
@@ -1354,8 +1412,17 @@ def patch_world(sp, pj, plan, quad_ids, pack_ids, names, log=print):
 
 
 def move_start(sp, starts):
-    """Move the start tiles (TileCar: position at 0, rotation x, y, z in degrees at 0x10)."""
+    """Move the start tiles (TileCar: position at 0, rotation x, y, z in degrees at 0x10), and the
+    base's destination-only teleporters (Teleporter 0x70: position at 0x30, numDest 0x50 == 0):
+    the respawn point a fall-out-of-the-world teleporter sends the car to, in the base's
+    coordinates (world1's sent the arena's car outside the arena, to fall forever)."""
     d = bytearray(sp.sec["data.bin"])
+    nt, tb = struct.unpack_from(E + "II", d, 0x30)
+    for i in range(nt):
+        o = tb + 0x70 * i
+        if struct.unpack_from(E + "I", d, o + 0x50)[0] == 0:
+            x, y, z, _ = starts[0]
+            struct.pack_into(E + "3f", d, o + 0x30, x, y + 10.0, z)
     n, base = struct.unpack_from(E + "II", d, 0x08)
     for i in range(n):
         x, y, z, yaw = starts[i % len(starts)]
@@ -1663,7 +1730,10 @@ def cmd_arena(a):
     ramps = []                      # (x, z, width, length, height, dir)
     h = size / 2
     t = 20.0
-    for sx, sz, hx, hz in ((0, -h - t, h + t, t), (0, h + t, h + t, t), (-h - t, 0, t, h + t), (h + t, 0, t, h + t)):
+    # walls that touch but don't overlap: interpenetrating closed meshes don't make a valid
+    # solid-leaf tree (inside one, past a face of the other, reads as empty: the car went
+    # through the corners)
+    for sx, sz, hx, hz in ((0, -h - t, h + 2 * t, t), (0, h + t, h + 2 * t, t), (-h - t, 0, t, h), (h + t, 0, t, h)):
         boxes.append(((sx, 40.0, sz), (hx, 40.0, hz)))
     for k in range(a.ramps):
         ang = 2 * math.pi * k / max(1, a.ramps)

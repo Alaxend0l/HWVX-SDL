@@ -67,6 +67,16 @@ def pure():
     want = np.all((pts > 0) & (pts < 10), 1)
     got = WL.inside_many(t, pts, False)
     check("a box's tree: inside == the box", (got == want).mean() > 0.999, f"{(got == want).mean():.4f}")
+    # a box standing on the ground (the arena's walls and pillars): its foot lies in the ground's
+    # plane facing down; the ground beside it must stay solid below
+    gq = [np.array([[0, 0, 0], [0, 0, 20], [20, 0, 20]], float), np.array([[0, 0, 0], [20, 0, 20], [20, 0, 0]], float)]
+    tris = gq + box_mesh((14, 0, 0), (20, 8, 20))
+    ps = [(p[1], p[2], p[3], None) for p in XC.merge_coplanar(tris, [0] * len(tris))]
+    t = XC.cell_tree(ps, (0, -1, 0), (20, 19, 20))
+    pts = rng.uniform((0, -1, 0), (20, 19, 20), (3000, 3))
+    want = (pts[:, 1] < 0) | ((pts[:, 0] > 14) & (pts[:, 1] < 8))
+    got = WL.inside_many(t, pts, False)
+    check("a box on the ground: the ground beside it stays solid", (got == want).mean() > 0.999, f"{(got == want).mean():.4f}")
     # two sources side by side (a re-gridded retail world): each closed in its own box only
     A = ((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))
     B = ((10.0, 0.0, 0.0), (20.0, 10.0, 10.0))
@@ -178,6 +188,33 @@ def with_data(retail):
         ci = col.cell_index[x + nx * (z + nz * y)]
         got.append(bool(ci) and WL.inside(col.cell_tree(ci), p, False))
     check("above the ground empty, below it solid", got == [False, True, False, True], str(got))
+    # downward rays (the wheels') onto the floor all over the arena, walls and outer ring included:
+    # a floor facing up at y 0, except on ramps and pillars
+    project = XC.jsonc(proj / "world.jsonc")
+    bad = []
+    for x in np.arange(-1495.0, 1496.0, 30.0):
+        for z in np.arange(-1495.0, 1496.0, 30.0):
+            r = XC.ray_hits(col, (x, 10.0, z), (x, -10.0, z))
+            if r is None or (r[0] > 0 and not (r[1][1] > 0.9 and (abs(r[2][1]) < 0.05 or r[2][1] > 0))):
+                bad.append((x, z, None if r is None else tuple(np.round(r[1], 2))))
+    for d in (0.05, 2.0, 15.0):         # right at the wall's foot
+        for t in np.arange(-1499.0, 1500.0, 37.0):
+            for x, z in ((1500 - d, t), (-1500 + d, t), (t, 1500 - d), (t, -1500 + d)):
+                r = XC.ray_hits(col, (x, 3.0, z), (x, -5.0, z))
+                if r is None or r[1][1] < 0.9 or abs(r[2][1]) > 0.05:
+                    bad.append((x, z, None if r is None else tuple(np.round(r[1], 2))))
+    check("wheel rays find the floor everywhere (outer ring by the walls too)", not bad, f"{len(bad)} rays: {bad[:4]}")
+    rng = np.random.default_rng(5)
+    corner = rng.uniform((1500, 1, 1500), (1540, 79, 1540), (300, 3))
+    lo_, sz_, (nx_, ny_, nz_) = np.array(col.min), np.array(col.cell_size), col.n
+    def solid(p):
+        x, y, z = np.floor((p - lo_) / sz_).astype(int)
+        ci = col.cell_index[x + nx_ * (z + nz_ * y)]
+        return bool(ci) and WL.inside(col.cell_tree(ci), p, False)
+    check("the walls' corner block is solid", all(solid(p) for p in corner))
+    pk, tb = w.pk, w.pk.u32(0x34)
+    dests = [pk.f32(tb + 0x70 * i + 0x30, 3) for i in range(w.counts["teleporters"]) if pk.u32(tb + 0x70 * i + 0x50) == 0]
+    check("respawn teleporters moved to the start", all(np.allclose(d_, (want[0], want[1] + 10, want[2])) for d_ in dests), str(dests))
     if retail:
         retail_check(retail, src["gc"])
 

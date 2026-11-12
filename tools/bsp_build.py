@@ -187,9 +187,12 @@ def convex_region(planes):
 # ------------------------------------------------------------------------------------------
 # the builder
 
-def build(polys, eps=EPS, limit=0xFFFF):
+def build(polys, eps=EPS, limit=0xFFFF, opposite="back"):
     """polys: [(plane, vertices (n, 3) array, extra)], in the order that picks the splitters.
-    Returns the tree in pre-order: [(plane, front, back, extra)]."""
+    Returns the tree in pre-order: [(plane, front, back, extra)]. opposite: where a polygon in the
+    splitter's plane facing the other way goes: "back" (the exporter's rule) or "drop" (for new
+    meshes: two solids touching there, a box standing on the ground, make it an inside face; behind
+    the splitter everything is in front of it, so it would leave the space below empty)."""
     tree = []
 
     def rec(items):
@@ -203,7 +206,10 @@ def build(polys, eps=EPS, limit=0xFFFF):
         for pl, v, ex in items[1:]:
             f, b, side = split_poly(v, plane, eps)
             if side == "on":
-                (front if float(np.dot(n, pl[:3])) > 0 else back).append((pl, v, ex))
+                if float(np.dot(n, pl[:3])) > 0:
+                    front.append((pl, v, ex))
+                elif opposite == "back":
+                    back.append((pl, v, ex))
             else:
                 if f is not None:
                     front.append((pl, f, ex))
