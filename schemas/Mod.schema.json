@@ -361,6 +361,11 @@
               "type": "string",
               "pattern": "^[A-Za-z0-9_./ -]+\\.(ogg|mp3|flac|wav)$"
             },
+            "intro": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_./ -]+\\.(ogg|mp3|flac|wav)$",
+              "description": "A file played once before this track, flowing straight into it (gapless). Not repeated when the track loops or a playlist comes round."
+            },
             "loopStart": {
               "type": "integer",
               "minimum": 0,
@@ -379,7 +384,7 @@
               "type": "number",
               "minimum": 0,
               "maximum": 4,
-              "description": "A gain on the track, under the game's music volume. Default 1."
+              "description": "A gain on the track, under the game's music volume. Default 1: a track mastered at about -17 dB RMS plays at the game's own music level (streams get -10.5 dB of headroom)."
             }
           }
         }

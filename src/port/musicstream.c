@@ -19,8 +19,9 @@
  * Loops: a track loops from loopStart to loopEnd (sample frames of the file):
  * the mod's entry, else the file's LOOPSTART / LOOPEND / LOOPLENGTH tags
  * (Vorbis comments, ID3 TXXX), else a sidecar <file>.loop.txt with the same
- * lines, else the whole file. A playlist (several tracks) plays each to its
- * end in turn and wraps. A song the game destroys fades out over FADE_MS
+ * lines, else the whole file. A track's intro plays once, straight into it
+ * (gapless). A playlist (several tracks) plays each to its end in turn and
+ * wraps, skipping intros the second time round. A song the game destroys fades out over FADE_MS
  * while the next one starts (a crossfade). */
 #include "port_internal.h"
 #include "Port_Mods.h"
@@ -44,11 +45,17 @@
 #define RING_FRAMES 16384       /* 341 ms of 48 kHz stereo: 128 KB */
 #define CHUNK_FRAMES 2048       /* decoded per read, at the file's rate */
 #define FADE_MS 500
+/* Recorded tracks are mastered near full scale (about -17 dB RMS) and the game's
+ * own music plays at about -28 dB RMS (measured: the front end's music in the
+ * mixed output). A track's "volume" 1 is that level: -10.5 dB. */
+#define STREAM_HEADROOM 0.3f
 #define MAX_STREAMS 3           /* the playing one and those fading out */
 
 typedef struct Stream {
     PortModMusic *tracks;
     int numTracks, cur;
+    int body;                   /* tracks that aren't intros: more than one is a playlist */
+    int wrapped;                /* the playlist came round: intros are skipped */
     ma_decoder dec;
     int decOpen;
     u32 srcRate;
@@ -213,7 +220,7 @@ static int NextFrame(Stream *s, float f[2]) {
         if (!s->decOpen) {
             return 0;
         }
-        if (s->loopEnd >= 0 && t->loop && s->numTracks == 1) {
+        if (s->loopEnd >= 0 && t->loop && !t->intro && s->body == 1) {
             if (s->srcPos >= s->loopEnd) {
                 want = 0;
             } else if ((s64)want > s->loopEnd - s->srcPos) {
@@ -240,11 +247,17 @@ static int NextFrame(Stream *s, float f[2]) {
             return 0;
         }
         s->sinceLoop = 0;
-        if (s->numTracks > 1) {
-            int next = (s->cur + 1) % s->numTracks, tries;
+        if (t->intro || s->body > 1) {    /* on to the next: an intro to its track */
+            int next = s->cur, tries;
 
-            for (tries = 0; tries < s->numTracks && !OpenTrack(s, next); tries++) {
-                next = (next + 1) % s->numTracks;
+            for (tries = 0; tries < s->numTracks; tries++) {
+                if (++next == s->numTracks) {
+                    next = 0;
+                    s->wrapped = 1;
+                }
+                if ((!s->wrapped || !s->tracks[next].intro) && OpenTrack(s, next)) {
+                    break;
+                }
             }
             if (!s->decOpen) {
                 return 0;
@@ -291,7 +304,7 @@ static void Fill(Stream *s) {
             s->phase -= 1.0;
         }
         t = (float)s->phase;
-        vol = s->tracks[s->cur].volume;
+        vol = s->tracks[s->cur].volume * STREAM_HEADROOM;
         for (c = 0; c < 2; c++) {
             float y0 = s->hist[0][c], y1 = s->hist[1][c], y2 = s->hist[2][c], y3 = s->hist[3][c];
 
@@ -313,6 +326,7 @@ static int Rewind(Stream *s) {
     s->wr = s->rd = 0;
     s->ended = 0;
     s->emptyRuns = 0;
+    s->wrapped = 0;
     for (i = 0; i < s->numTracks && !OpenTrack(s, i); i++) {
     }
     if (i == s->numTracks) {
@@ -394,6 +408,9 @@ int PortStream_Create(void) {
     }
     s->tracks = tracks;
     s->numTracks = n;
+    for (i = 0; i < n; i++) {
+        s->body += !tracks[i].intro;
+    }
     s->fade = 1.0f;
     SDL_snprintf(s->name, sizeof(s->name), "%s/%u", s_packName, s_packId);
     s->target = (float)g_musicVol * (1.0f / 32767.0f);
