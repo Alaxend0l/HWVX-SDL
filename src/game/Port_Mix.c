@@ -291,35 +291,30 @@ static u32 LevelBytes(int rel, const RelTex *t, u32 w, u32 h) {
     return GX_PortLevelSize(t->gx, (int)w, (int)h);
 }
 
-/* Texture `idx` of the release's pack, from its blob. */
-static void RelTex_Read(RelTex *t, RelPack *rp, const MixPack *mp, u32 idx) {
-    const u8 *blob = RelPack_Blob(rp, mp), *h;
-    u32 size = rp->hdr[H_DATASIZE], off = rp->hdr[H_TEXOFF], i, w, ht, data, l;
-    u64 total = 0;
+/* The blob offset of texture idx's header (the GameCube pads its 0x10-byte
+ * headers to 0x20). */
+static u32 TexHeader(int rel, u32 off, u32 idx) {
+    u32 i;
 
-    memset(t, 0, sizeof(*t));
-    if (blob == NULL || idx >= rp->hdr[H_NUMTEX]) {
-        return;
-    }
-    for (i = 0; i < idx; i++) {     /* the GameCube pads its 0x10-byte headers to 0x20 */
+    for (i = 0; i < idx; i++) {
         off += 0x10;
-        if (rp->rel == PORT_DATA_GC && (off & 0x1F)) {
+        if (rel == PORT_DATA_GC && (off & 0x1F)) {
             off = (off + 0x1F) & ~0x1Fu;
         }
     }
-    if ((u64)off + 0x10 > size) {
-        return;
-    }
-    h = blob + off;
-    t->fmt = Rd16LE(h);
-    t->w = Rd16LE(h + 2);
-    t->h = Rd16LE(h + 4);
-    t->levels = Rd16LE(h + 6) ? Rd16LE(h + 6) : 1;
-    data = Rd32(h + 8, rp->rel == PORT_DATA_GC);
+    return off;
+}
+
+/* A copy from its header's values (t->fmt, w, h, levels set) and its pixels at
+ * blob offset `data`; h: the header as the file has it (the PS2's palette). */
+static void RelTex_Fill(RelTex *t, int rel, const u32 *hdr, const u8 *blob, u32 size, const u8 *h, u32 data) {
+    u32 w, ht, l;
+    u64 total = 0;
+
     if (t->w == 0 || t->h == 0 || t->w > MAX_TEX || t->h > MAX_TEX || t->levels > 11 || data >= size) {
         return;
     }
-    switch (rp->rel) {
+    switch (rel) {
     case PORT_DATA_GC:
         t->gx = t->fmt == 4 ? GXF_CMPR : t->fmt == 1 ? GXF_RGBA8 : 0;
         if (t->fmt == 1) {
@@ -334,20 +329,20 @@ static void RelTex_Read(RelTex *t, RelPack *rp, const MixPack *mp, u32 idx) {
         if (t->fmt == 2) {
             u32 clut = Rd32(h + 0xC, 0);
 
-            if (clut >= rp->hdr[H_PALETTES] || (u64)rp->hdr[H_PALOFF] + ((u64)clut + 1) * 0x400 > size) {
+            if (clut >= hdr[H_PALETTES] || (u64)hdr[H_PALOFF] + ((u64)clut + 1) * 0x400 > size) {
                 return;
             }
-            t->clut = blob + rp->hdr[H_PALOFF] + clut * 0x400;
+            t->clut = blob + hdr[H_PALOFF] + clut * 0x400;
         } else if (t->fmt != 1) {
             return;
         }
         break;
     }
-    if (rp->rel != PORT_DATA_PS2 && t->gx == 0) {
+    if (rel != PORT_DATA_PS2 && t->gx == 0) {
         return;
     }
     for (l = 0, w = t->w, ht = t->h; l < t->levels; l++) {
-        total += LevelBytes(rp->rel, t, w ? w : 1, ht ? ht : 1);
+        total += LevelBytes(rel, t, w ? w : 1, ht ? ht : 1);
         w >>= 1;
         ht >>= 1;
     }
@@ -357,6 +352,53 @@ static void RelTex_Read(RelTex *t, RelPack *rp, const MixPack *mp, u32 idx) {
     t->pix = blob + data;
     t->size = (u32)total;
     t->ok = 1;
+}
+
+/* A u16 as LoadBTF_RAM reads the header's (byte-reversed, as PC_Textures leaves them). */
+static u16 Rev16(u32 v) {
+    return (u16)((v & 0xFF) << 8 | (v >> 8 & 0xFF));
+}
+
+/* Texture `idx` of the release's pack, from its file's blob. */
+static void RelTex_Read(RelTex *t, RelPack *rp, const MixPack *mp, u32 idx) {
+    const u8 *blob = RelPack_Blob(rp, mp), *h;
+    u32 size = rp->hdr[H_DATASIZE], off = TexHeader(rp->rel, rp->hdr[H_TEXOFF], idx);
+
+    memset(t, 0, sizeof(*t));
+    if (blob == NULL || idx >= rp->hdr[H_NUMTEX] || (u64)off + 0x10 > size) {
+        return;
+    }
+    h = blob + off;
+    t->fmt = Rd16LE(h);
+    t->w = Rd16LE(h + 2);
+    t->h = Rd16LE(h + 4);
+    t->levels = Rd16LE(h + 6) ? Rd16LE(h + 6) : 1;
+    RelTex_Fill(t, rp->rel, rp->hdr, blob, size, h, Rd32(h + 8, rp->rel == PORT_DATA_GC));
+}
+
+/* Texture `idx` of the pack being loaded (GameCube or PC), from its blob in
+ * memory: the headers as the loader left them (u16s byte-reversed, the PC's
+ * format | PORT_TEX_PC, the pixel pointer fixed up), the pixels as the file
+ * has them. */
+static void RelTex_Base(RelTex *t, int rel, const u8 *base, u32 size, u32 texOff, u32 idx) {
+    u32 off = TexHeader(rel, texOff, idx);
+    const u16 *h;
+    const u8 *pix;
+
+    memset(t, 0, sizeof(*t));
+    if ((u64)off + 0x10 > size) {
+        return;
+    }
+    h = (const u16 *)(base + off);
+    t->fmt = Rev16(h[0]) & ~(u32)(rel == PORT_DATA_PC ? PORT_TEX_PC : 0);
+    t->w = Rev16(h[1]);
+    t->h = Rev16(h[2]);
+    t->levels = Rev16(h[3]) ? Rev16(h[3]) : 1;
+    pix = SLOT_LOAD(const u8 *, h + 4);
+    if (pix < base || pix >= base + size) {
+        return;
+    }
+    RelTex_Fill(t, rel, NULL, base, size, NULL, (u32)(pix - base));
 }
 
 /* Level `l` (w x h, at src) of a copy as RGBA8. */
@@ -573,18 +615,13 @@ static void MakeTex(NewTex *nt, int rel, const RelTex *t, int toPC) {
     }
 }
 
-/* A u16 as LoadBTF_RAM reads the header's (byte-reversed, as PC_Textures leaves them). */
-static u16 Rev16(u32 v) {
-    return (u16)((v & 0xFF) << 8 | (v >> 8 & 0xFF));
-}
-
 void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOff, u32 numTex) {
     MixPack *mp = Cur();
     RelPack rp[PORT_DATA_COUNT];
     NewTex *nt;
     u8 *block, *out, *hp;
     u32 i, total = 0, changed = 0;
-    int r, lookGC = Port_MixLookGC(), others = 0;
+    int r, lookGC = Port_MixLookGC(), others = 0, paired;
 
     if (mp == NULL || numTex == 0 || numTex > 0x10000 || fmt < 0 || fmt >= PORT_DATA_COUNT) {
         return;
@@ -596,13 +633,24 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     if (others == 0 && (fmt != PORT_DATA_GC || lookGC)) {
         return;
     }
+    /* the other releases' copies only for a pack the pairing table has; the
+     * base's own from memory (the PS2's from its file: it's converted by now) */
+    paired = mp->pairs != NULL && mp->pairs->numTextures != 0;
+    if (!paired && (fmt != PORT_DATA_GC || lookGC)) {
+        s_stats.texKept += numTex;
+        return;
+    }
     nt = calloc(numTex, sizeof(NewTex));
     if (nt == NULL) {
         return;
     }
     for (r = 0; r < PORT_DATA_COUNT; r++) {
-        RelPack_Open(&rp[r], mp, r);
+        memset(&rp[r], 0, sizeof(rp[r]));
+        if ((r == fmt && fmt == PORT_DATA_PS2) || (r != fmt && paired)) {
+            RelPack_Open(&rp[r], mp, r);
+        }
     }
+    rp[fmt].ok |= fmt != PORT_DATA_PS2;
     for (i = 0; i < numTex && rp[fmt].ok; i++) {
         const u16 *pair = FindPair(mp, 0, fmt, i);
         RelTex t[PORT_DATA_COUNT];
@@ -615,7 +663,10 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
             u32 idx = r == fmt ? i : pair != NULL && n != PORT_MIX_FROM_BASE ? pair[r] : 0xFFFF;
 
             memset(&t[r], 0, sizeof(t[r]));
-            if (idx != 0xFFFF && rp[r].ok) {
+            if (r == fmt && fmt != PORT_DATA_PS2) {
+                RelTex_Base(&t[r], r, base, dataSize, texOff, idx);
+                RelTex_Decode(&t[r], r);
+            } else if (idx != 0xFFFF && rp[r].ok) {
                 RelTex_Read(&t[r], &rp[r], mp, idx);
                 RelTex_Decode(&t[r], r);
             }
