@@ -8,6 +8,16 @@
 #include "port_internal.h"
 #include "swapcheck.h"
 #include <setjmp.h>
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <psapi.h>
+#elif defined(__APPLE__)
+#include <mach/mach.h>
+#elif defined(__linux__)
+#include <stdio.h>
+#include <unistd.h>
+#endif
 
 /* ---- arena ------------------------------------------------------------- */
 
@@ -629,3 +639,39 @@ void LCQueueWait(u32 len) { (void)len; }
 void EXIInit(void) {}
 void GBAConnectivityInit(void) {}
 void GBAConnectivityLoop(void) {}
+
+void Port_ProcessMemory(u64 *committed, u64 *resident) {
+    *committed = *resident = 0;
+#if defined(_WIN32)
+    {
+        PROCESS_MEMORY_COUNTERS_EX pmc;
+
+        if (K32GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&pmc, sizeof(pmc))) {
+            *committed = pmc.PrivateUsage;
+            *resident = pmc.WorkingSetSize;
+        }
+    }
+#elif defined(__APPLE__)
+    {
+        task_vm_info_data_t vm;
+        mach_msg_type_number_t n = TASK_VM_INFO_COUNT;
+
+        if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vm, &n) == KERN_SUCCESS) {
+            *committed = vm.phys_footprint;
+            *resident = vm.resident_size;
+        }
+    }
+#elif defined(__linux__)
+    {
+        FILE *f = fopen("/proc/self/statm", "r");
+        unsigned long size, rss;
+
+        if (f != NULL) {
+            if (fscanf(f, "%lu %lu", &size, &rss) == 2) {
+                *committed = *resident = (u64)rss * (u64)sysconf(_SC_PAGESIZE);
+            }
+            fclose(f);
+        }
+    }
+#endif
+}

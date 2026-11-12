@@ -110,10 +110,17 @@ static struct {
     SDL_FColor clearColor;
     f32 clearDepth;
 
+    /* Each batch's uploads go through tbuf and its loose vertices to vbuf,
+     * appended (tbufUsed, vbufUsed) within one command buffer and cycled to
+     * a buffer the GPU is done with only at the first batch of the next:
+     * cycling at every batch (several a frame) had SDL make a whole new
+     * buffer each time, kept for good, so a level load's 50-100 MB staging
+     * turned into a gigabyte or two of copies. vbufBase: where this batch's
+     * vertices start. */
     SDL_GPUBuffer *vbuf;
-    u32 vbufSize;
+    u32 vbufSize, vbufUsed, vbufBase;
     SDL_GPUTransferBuffer *tbuf;
-    u32 tbufSize;
+    u32 tbufSize, tbufUsed;
 
     /* the pixel shader for the last FSBlock recorded: 0 gx.frag, n variant
      * n - 1; variants' shaders are created on first use */
@@ -160,6 +167,7 @@ static SDL_GPUCommandBuffer *Cmd(void) {
         if (s.cmd == NULL) {
             Port_Fatal("SDL_AcquireGPUCommandBuffer failed: %s", SDL_GetError());
         }
+        s.tbufUsed = s.vbufUsed = 0;   /* the first batch cycles them (CopyPass) */
     }
     return s.cmd;
 }
@@ -675,50 +683,101 @@ static SDL_GPUGraphicsPipeline *GetPipeline(u32 key) {
 
 /* ---- batches ------------------------------------------------------------- */
 
-static void EnsureBuffers(u32 transferSize, u32 vertexSize) {
-    if (transferSize > s.tbufSize) {
-        SDL_GPUTransferBufferCreateInfo ci;
-        if (s.tbuf) SDL_ReleaseGPUTransferBuffer(s.dev, s.tbuf);
-        SDL_zero(ci);
-        ci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-        ci.size = transferSize + transferSize / 2;
-        s.tbuf = SDL_CreateGPUTransferBuffer(s.dev, &ci);
-        if (s.tbuf == NULL) {
-            Port_Fatal("SDL_CreateGPUTransferBuffer failed: %s", SDL_GetError());
-        }
-        s.tbufSize = ci.size;
+/* Uploads bigger than this (a level's textures and meshes, loaded in one
+ * go) get a transfer buffer of their own, released once they're copied, so
+ * the one kept for every frame stays the size of a frame's uploads. */
+#define ONEOFF_TRANSFER (8u << 20)
+
+/* Room for n bytes at *used in the buffer of *size bytes, at the staging
+ * alignment (texture copies' placement): returns the offset, and whether
+ * the buffer must be cycled first (the command buffer's first batch, or no
+ * room left). One too small even when empty is made anew (*grown). */
+static u32 Reserve(u32 *size, u32 *used, u32 n, int *cycle, int *grown) {
+    u32 at = (*used + STAGING_ALIGN - 1) & ~(u32)(STAGING_ALIGN - 1);
+
+    *cycle = *used == 0;
+    *grown = 0;
+    if (n > *size) {
+        *size = n + n / 2;
+        *grown = 1;
+        at = 0;
+    } else if (at > *size - n) {
+        *cycle = 1;   /* full: another buffer for the rest of this command buffer */
+        at = 0;
     }
-    if (vertexSize > s.vbufSize) {
-        SDL_GPUBufferCreateInfo ci;
-        if (s.vbuf) SDL_ReleaseGPUBuffer(s.dev, s.vbuf);
-        SDL_zero(ci);
-        ci.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
-        ci.size = vertexSize + vertexSize / 2;
-        s.vbuf = SDL_CreateGPUBuffer(s.dev, &ci);
-        if (s.vbuf == NULL) {
-            Port_Fatal("SDL_CreateGPUBuffer failed: %s", SDL_GetError());
-        }
-        s.vbufSize = ci.size;
+    *used = at + n;
+    return at;
+}
+
+/* HWVX_STATS: the transfer buffers SDL keeps behind s.tbuf, told apart by
+ * where they map (each buffer it cycles to is another), so the staging line
+ * counts what a cycle costs: every one is tbufSize for good. */
+static void NoteMapped(const u8 *map) {
+    static const void *buf, *seen[64];
+    static u32 n;
+    u32 i;
+
+    if (buf != s.tbuf) {
+        buf = s.tbuf;
+        n = 0;
     }
+    for (i = 0; i < n && seen[i] != map; i++) {
+    }
+    if (i == n && n < SDL_arraysize(seen)) {
+        seen[n++] = map;
+    }
+    g_gxStagingBytes = (u64)n * s.tbufSize;
 }
 
 static void CopyPass(SDL_GPUCommandBuffer *cmd) {
     u32 vertBytes = s.nVerts * (u32)sizeof(GXVertex);
-    u32 vertOffset = (s.nStaging + 15) & ~15u, i;
+    u32 vertOffset = (s.nStaging + 15) & ~15u, need = vertOffset + vertBytes, base = 0, i;
+    SDL_GPUTransferBuffer *tb = s.tbuf;
     SDL_GPUCopyPass *cp;
+    int cycle = 1, grown = 0;
     u8 *map;
 
     if (s.nUploads == 0 && vertBytes == 0 && s.nBufUploads == 0) {
         return;
     }
-    EnsureBuffers(vertOffset + vertBytes, vertBytes);
-    map = SDL_MapGPUTransferBuffer(s.dev, s.tbuf, true);
+    if (need > ONEOFF_TRANSFER) {
+        SDL_GPUTransferBufferCreateInfo ci;
+
+        SDL_zero(ci);
+        ci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        ci.size = need;
+        tb = SDL_CreateGPUTransferBuffer(s.dev, &ci);
+        if (tb == NULL) {
+            Port_Fatal("SDL_CreateGPUTransferBuffer (%u bytes) failed: %s", need, SDL_GetError());
+        }
+    } else {
+        base = Reserve(&s.tbufSize, &s.tbufUsed, need, &cycle, &grown);
+        if (grown || s.tbuf == NULL) {
+            SDL_GPUTransferBufferCreateInfo ci;
+
+            if (s.tbuf != NULL) {
+                SDL_ReleaseGPUTransferBuffer(s.dev, s.tbuf);   /* freed when the GPU is done */
+            }
+            SDL_zero(ci);
+            ci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+            ci.size = s.tbufSize;
+            s.tbuf = tb = SDL_CreateGPUTransferBuffer(s.dev, &ci);
+            if (s.tbuf == NULL) {
+                Port_Fatal("SDL_CreateGPUTransferBuffer failed: %s", SDL_GetError());
+            }
+        }
+    }
+    map = SDL_MapGPUTransferBuffer(s.dev, tb, cycle);
     if (map == NULL) {
         Port_Fatal("SDL_MapGPUTransferBuffer failed: %s", SDL_GetError());
     }
-    memcpy(map, s.staging, s.nStaging);
-    memcpy(map + vertOffset, s.verts, vertBytes);
-    SDL_UnmapGPUTransferBuffer(s.dev, s.tbuf);
+    if (tb == s.tbuf) {
+        NoteMapped(map);
+    }
+    memcpy(map + base, s.staging, s.nStaging);
+    memcpy(map + base + vertOffset, s.verts, vertBytes);
+    SDL_UnmapGPUTransferBuffer(s.dev, tb);
+    g_gxCopyPasses++;
 
     cp = SDL_BeginGPUCopyPass(cmd);
     for (i = 0; i < s.nUploads; i++) {
@@ -727,8 +786,8 @@ static void CopyPass(SDL_GPUCommandBuffer *cmd) {
         SDL_GPUTextureRegion dst;
         SDL_zero(src);
         SDL_zero(dst);
-        src.transfer_buffer = s.tbuf;
-        src.offset = u->offset;
+        src.transfer_buffer = tb;
+        src.offset = base + u->offset;
         src.pixels_per_row = u->w;
         src.rows_per_layer = u->h;
         dst.texture = u->tex;
@@ -739,19 +798,41 @@ static void CopyPass(SDL_GPUCommandBuffer *cmd) {
         SDL_UploadToGPUTexture(cp, &src, &dst, false);
     }
     if (vertBytes != 0) {
-        SDL_GPUTransferBufferLocation src = { s.tbuf, vertOffset };
-        SDL_GPUBufferRegion dst = { s.vbuf, 0, vertBytes };
-        SDL_UploadToGPUBuffer(cp, &src, &dst, true);
+        SDL_GPUTransferBufferLocation src = { tb, base + vertOffset };
+        SDL_GPUBufferRegion dst;
+
+        s.vbufBase = Reserve(&s.vbufSize, &s.vbufUsed, vertBytes, &cycle, &grown);
+        if (grown || s.vbuf == NULL) {
+            SDL_GPUBufferCreateInfo ci;
+
+            if (s.vbuf != NULL) {
+                SDL_ReleaseGPUBuffer(s.dev, s.vbuf);
+            }
+            SDL_zero(ci);
+            ci.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+            ci.size = s.vbufSize;
+            s.vbuf = SDL_CreateGPUBuffer(s.dev, &ci);
+            if (s.vbuf == NULL) {
+                Port_Fatal("SDL_CreateGPUBuffer failed: %s", SDL_GetError());
+            }
+        }
+        dst.buffer = s.vbuf;
+        dst.offset = s.vbufBase;
+        dst.size = vertBytes;
+        SDL_UploadToGPUBuffer(cp, &src, &dst, cycle);
         g_gxUploadBytes += vertBytes;
     }
     for (i = 0; i < s.nBufUploads; i++) {
         const BufUpload *u = &s.bufUploads[i];
-        SDL_GPUTransferBufferLocation src = { s.tbuf, u->offset };
+        SDL_GPUTransferBufferLocation src = { tb, base + u->offset };
         SDL_GPUBufferRegion dst = { u->buf, 0, u->size };
         SDL_UploadToGPUBuffer(cp, &src, &dst, false);
         g_gxUploadBytes += u->size;
     }
     SDL_EndGPUCopyPass(cp);
+    if (tb != s.tbuf) {
+        SDL_ReleaseGPUTransferBuffer(s.dev, tb);   /* the one-off: freed when the copy is done */
+    }
 }
 
 static void RenderPass(SDL_GPUCommandBuffer *cmd) {
@@ -801,7 +882,7 @@ static void RenderPass(SDL_GPUCommandBuffer *cmd) {
         }
         if (d->meshVtx == NULL) {
             if (boundVtx != s.vbuf) {
-                SDL_GPUBufferBinding vb = { s.vbuf, 0 };
+                SDL_GPUBufferBinding vb = { s.vbuf, s.vbufBase };
                 SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
                 boundVtx = s.vbuf;
             }

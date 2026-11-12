@@ -195,6 +195,11 @@ extern GXShaderStats g_gxShaderStats;
 /* Vertex and index bytes the renderer has sent to the GPU (HWVX_STATS). */
 extern u64 g_gxUploadBytes;
 
+/* HWVX_STATS, SDL_GPU: copy passes (batches with uploads) since the last
+ * report, and the bytes of the staging buffers it keeps for them. */
+extern u32 g_gxCopyPasses;
+extern u64 g_gxStagingBytes;
+
 extern const GXRenderer g_gxGL;
 extern const GXRenderer g_gxSDLGPU;
 extern const GXRenderer *g_gxr;

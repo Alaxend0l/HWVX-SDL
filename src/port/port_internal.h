@@ -141,6 +141,12 @@ void Port_InterruptPoint(void);
 void Port_InterruptWindowBegin(void);
 void Port_InterruptWindowEnd(void);
 
+/* os.c: the process's memory, for HWVX_STATS: `committed` is what Task
+ * Manager calls its memory on Windows (private bytes), the physical
+ * footprint on macOS (Activity Monitor's), the resident size elsewhere;
+ * `resident` is the working set / resident size. 0 where unknown. */
+void Port_ProcessMemory(u64 *committed, u64 *resident);
+
 /* Frame rate HUD (hud.c, HWVX_FPSHUD=1): vi.c ticks it once per retrace,
  * gx_draw.c draws its strip into the EFB's top left before each copy. */
 void Port_HudTick(void);
