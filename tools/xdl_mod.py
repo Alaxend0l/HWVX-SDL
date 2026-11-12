@@ -35,7 +35,8 @@ anything in the mod matches it, naming the base asset to reference instead:
 
 A package is a zip, entries stored (not compressed) in sorted order with fixed dates: the same
 mod packs to the same bytes, and the port reads it without an inflater. `check.json` in it
-records what was checked against which index, each file's hash, and the fingerprints of the base
+records what was checked against which index, each file's size and sha256 (the port's installer
+verifies them), and the fingerprints of the base
 assets the mod refers to on the releases the index (and the pairing table, when found) knows.
 """
 
@@ -47,6 +48,7 @@ import io
 import json
 import multiprocessing
 import re
+import shutil
 import struct
 import sys
 import time
@@ -61,7 +63,7 @@ import xdl_media as XM  # noqa: E402
 import xdl_struct as XS  # noqa: E402
 
 TOOL = "tools/xdl_mod.py"
-TOOL_VERSION = 1
+TOOL_VERSION = 2                 # 2: check.json files {name: {size, sha256}}, which the port verifies
 FORMAT_VERSION = 1
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -234,16 +236,42 @@ class Schemas:
             if "x-c-struct" in d:
                 self.s[d["title"]] = d
 
+    def counts(self, name):
+        """{count field: [the link fields it counts]}: num*/count* fields, and those a link's
+        description names as its array's length ("[numSlaves]"). A patch never sets them: the game
+        would walk past the array."""
+        props = self.s[name]["properties"]
+        out = {k: [] for k in props if re.match(r"^(num|count)[A-Z0-9_]", k)}
+        for k, p in props.items():
+            if not (p.get("x-link") or p.get("items", {}).get("x-link")):
+                continue
+            m = re.search(r"\[([A-Za-z_]\w*)\]", p.get("description") or "")
+            c = m.group(1) if m and m.group(1) in props else "num" + k[:1].upper() + k[1:]
+            if c in props:
+                out.setdefault(c, []).append(k)
+        return out
+
+    def count_of(self, name, link):
+        """The count field of the array a link field points to, or None (one object)."""
+        for c, links in self.counts(name).items():
+            if link in links:
+                return c
+        return None
+
     def fields(self, name):
-        """field -> (offset, prim, count or 0, link target struct or None)."""
+        """field -> (offset, prim, count or 0, link target struct or None). Array counts have prim
+        None, as links and nested structs do: not patchable."""
         out = {}
+        counts = self.counts(name)
         for k, p in self.s[name]["properties"].items():
             if "x-offset" not in p:
                 continue
             off, ct = int(p["x-offset"], 16), p["x-c-type"]
             link = p.get("x-link") or p.get("items", {}).get("x-link")
             m = re.match(r"^(\w+)(?:\[(\d+)\])?$", ct)
-            if link:
+            if k in counts:
+                out[k] = (off, None, 0, None)
+            elif link:
                 if link.get("kind") == "object" and link.get("target") in self.s and "[" not in ct:
                     out[k] = (off, None, 0, link["target"])
                 else:
@@ -801,33 +829,94 @@ def check_bytes(index, rep, where, data, what="holds"):
     return found
 
 
-HEX_RE = re.compile(r"^(?:[0-9a-fA-F]{2}[\s]*){32,}$")
-B64_RE = re.compile(r"^[A-Za-z0-9+/\s]{44,}={0,2}$")
+# runs of hex (bytes or words, 0x prefixes, separated by whitespace , ; :) and of base64 in text
+HEX_RUN_RE = re.compile(r"(?:0[xX])?[0-9a-fA-F]{2,}(?:[\s,;:]+(?:0[xX])?[0-9a-fA-F]{2,})*")
+HEX_TOK_RE = re.compile(r"(?:0[xX])?([0-9a-fA-F]+)")
+B64_RUN_RE = re.compile(r"[A-Za-z0-9+/]{16,}={0,2}(?:\s*[A-Za-z0-9+/]{4,}={0,2})*")
+MIN_BLOB = 32
+
+
+def text_blobs(s):
+    """(what, bytes) of each run of hex or base64 in a text, as written, and word by word
+    little-endian when the run is of 2- or 4-byte words."""
+    for m in HEX_RUN_RE.finditer(s):
+        toks = HEX_TOK_RE.findall(m.group(0))
+        if sum(len(t) for t in toks) < 2 * MIN_BLOB or any(len(t) % 2 for t in toks):
+            continue
+        raw = bytes.fromhex("".join(toks))
+        yield f"hex at {m.start()}", raw
+        w = len(toks[0])
+        if w in (4, 8) and all(len(t) == w for t in toks):
+            yield f"hex words at {m.start()}", b"".join(bytes.fromhex(t)[::-1] for t in toks)
+    for m in B64_RUN_RE.finditer(s):
+        t = "".join(m.group(0).split())
+        if len(t) < 44 or HEX_RUN_RE.fullmatch(m.group(0)):
+            continue
+        t = t.rstrip("=")
+        t = t[:len(t) - len(t) % 4] if len(t) % 4 == 1 else t + "=" * (-len(t) % 4)
+        try:
+            raw = base64.b64decode(t, validate=False)
+        except (binascii.Error, ValueError):
+            continue
+        if len(raw) >= MIN_BLOB:
+            yield f"base64 at {m.start()}", raw
+
+
+def number_blobs(values):
+    """A JSON array of numbers (nested arrays flattened) as the bytes it could be: u8, f32 LE, f32 BE."""
+    out = []
+    if all(isinstance(v, int) and 0 <= v <= 255 for v in values) and len(values) >= MIN_BLOB:
+        out.append(("u8", bytes(values)))
+    if all(isinstance(v, int) and -128 <= v <= 127 for v in values) and len(values) >= MIN_BLOB and \
+            any(v < 0 for v in values):
+        out.append(("s8", bytes(v & 0xFF for v in values)))
+    if len(values) * 4 >= MIN_BLOB and all(abs(v) <= 3.4028234663852886e38 for v in values):
+        a = np.asarray(values, np.float64).astype(np.float32)
+        out.append(("f32 LE", a.astype("<f4").tobytes()))
+        out.append(("f32 BE", a.astype(">f4").tobytes()))
+    return out
+
+
+def _numbers(node):
+    """The numbers of an array of numbers (or of arrays of them), or None."""
+    out = []
+    for v in node:
+        if isinstance(v, list):
+            sub = _numbers(v)
+            if sub is None:
+                return None
+            out.extend(sub)
+        elif isinstance(v, (int, float)) and not isinstance(v, bool):
+            out.append(v)
+        else:
+            return None
+    return out
 
 
 def json_blobs(node, path=""):
-    """(path, bytes) of every string in a JSON tree that holds bytes: hex, base64, a data URI."""
+    """(path, bytes) of everything in a JSON tree that may hold bytes: hex and base64 in strings,
+    data URIs, arrays of numbers (as u8 and f32 both byte orders)."""
     if isinstance(node, dict):
         for k, v in node.items():
             yield from json_blobs(v, f"{path}.{k}" if path else k)
     elif isinstance(node, list):
+        nums = _numbers(node) if node else None
+        if nums is not None:
+            for what, raw in number_blobs(nums):
+                yield f"{path} ({what})", raw
+            return
         for i, v in enumerate(node):
             yield from json_blobs(v, f"{path}[{i}]")
     elif isinstance(node, str):
         s = node
         if s.startswith("data:") and ";base64," in s[:200]:
-            s = s.split(";base64,", 1)[1]
             try:
-                yield path, base64.b64decode(s)
+                yield path, base64.b64decode(s.split(";base64,", 1)[1])
             except (binascii.Error, ValueError):
                 pass
-        elif HEX_RE.match(s):
-            yield path, bytes.fromhex("".join(s.split()))
-        elif B64_RE.match(s):
-            try:
-                yield path, base64.b64decode(s, validate=False)
-            except (binascii.Error, ValueError):
-                pass
+            return
+        for what, raw in text_blobs(s):
+            yield f"{path} ({what})", raw
 
 
 def gltf_positions(path, data, folder):
@@ -917,6 +1006,9 @@ def check_mod(folder, index, strip=False):
                 rep.refuse(w, f"{sname} has no field {f}")
                 continue
             off, prim, count, target = fields[f]
+            if prim is None and f in schemas.counts(sname):
+                rep.refuse(w, f"{sname}.{f} counts an array's entries: the game would read past the array")
+                continue
             if prim is None:
                 rep.refuse(w, f"{sname}.{f} is a link or a nested struct: a patch sets numbers")
                 continue
@@ -963,6 +1055,9 @@ def check_mod(folder, index, strip=False):
                 tree = XS.jsonc_loads(data.decode("utf-8")) if ext != ".gltf" else json.loads(data)
                 for jp, blob in json_blobs(tree):
                     check_bytes(index, rep, f"{rel}: {jp}", blob)
+            elif ext in (".txt", ".md"):
+                for what, blob in text_blobs(data.decode("utf-8", "replace")):
+                    check_bytes(index, rep, f"{rel}: {what}", blob)
             if ext == ".png":
                 img, _ = XM.read_png(p)
                 a, b = pixel_hashes(img)
@@ -1058,6 +1153,18 @@ def cmd_check(a, pack=False):
             rep.refuse("the index", msg + "; make a whole one, or pass --allow-partial-index (recorded)")
         else:
             rep.notes.append(msg)
+    lacking = (sorted(set(man.releases) - set(index.meta["releases"]))
+               if isinstance(man.doc, dict) and "releases" in man.doc and hasattr(man, "releases") else [])
+    if lacking:
+        msg = (f"the mod is for {', '.join(lacking)}, which the index has no data of: what it refers to there "
+               "isn't checked")
+        if pack and not a.allow_partial_index:
+            rep.refuse("mod.jsonc: releases", msg + "; index that release's data too, or pass --allow-partial-index "
+                                                  "(recorded)")
+        elif not pack:
+            rep.refuse("mod.jsonc: releases", msg + "; index that release's data too")
+        else:
+            rep.notes.append(msg)
     if "check.json" in files:
         rep.refuse("check.json", "is written by pack; a mod's sources don't have one")
     rep.show()
@@ -1072,7 +1179,8 @@ def cmd_check(a, pack=False):
              "mod": man.id, "result": "no game data found",
              "index": {"id": index.meta["id"], "releases": index.meta["releases"],
                        "files": len(index.meta["files"]), "partial": index.meta["partial"]},
-             "files": {n: hashlib.blake2b(d, digest_size=16).hexdigest() for n, d in sorted(files.items())},
+             "unindexed_releases": lacking,
+             "files": {n: {"size": len(d), "sha256": hashlib.sha256(d).hexdigest()} for n, d in sorted(files.items())},
              "fingerprints": fingerprints(man, index)}
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -1123,22 +1231,111 @@ def cmd_info(a):
     return 1 if man.errors else 0
 
 
-def cmd_install(a):
-    files = read_package(a.mod)
+def verify_package(files):
+    """What the port's installer checks (Port_ModsInstall): file kinds, names, and a check.json of
+    this mod that lists exactly the package's files with their sizes and sha256. -> mod.jsonc."""
+    for n in files:
+        if n.endswith("/"):
+            continue
+        parts = n.split("/")
+        if (not n or n.startswith("/") or "\\" in n or ":" in n or any(p in ("", "..") or p.startswith(".")
+                                                                      for p in parts)):
+            raise ModError(f"{n!r}: not a name or place a package may use")
+        if n != "check.json" and Path(n).suffix.lower() not in ALLOWED_EXT:
+            raise ModError(f"{n}: not a kind of file a mod holds ({' '.join(ALLOWED_EXT)})")
     if "mod.jsonc" not in files:
-        raise ModError(f"{a.mod}: no mod.jsonc in it")
+        raise ModError("no mod.jsonc in it")
+    if "check.json" not in files:
+        raise ModError("not made by the packer (no check.json)")
     doc = XS.jsonc_loads(files["mod.jsonc"].decode())
-    uid = str(doc.get("id", ""))
-    if not UID_RE.match(uid):
-        raise ModError(f"{a.mod}: its id isn't a uid://")
-    out = Path(a.mods) / uid[6:]
-    for n, d in files.items():
-        p = (out / n).resolve()
-        if out.resolve() not in p.parents:
-            raise ModError(f"{a.mod}: {n!r} leaves the mod's folder")
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(d)
-    print(f"{out}: {len(files)} files")
+    uid = str(doc.get("id", "")) if isinstance(doc, dict) else ""
+    if not UID_RE.match(uid) or doc.get("format_version") != FORMAT_VERSION:
+        raise ModError("mod.jsonc has no id this version reads")
+    try:
+        check = json.loads(files["check.json"])
+    except ValueError:
+        raise ModError("check.json isn't readable")
+    if not isinstance(check, dict) or check.get("tool") != TOOL or check.get("format_version") != FORMAT_VERSION \
+            or not isinstance(check.get("tool_version"), int) or check["tool_version"] < 2:
+        raise ModError("check.json isn't one this version reads (re-pack the mod)")
+    if check.get("mod") != uid:
+        raise ModError("check.json is another mod's")
+    if check.get("result") != "no game data found":
+        raise ModError("check.json doesn't say the mod passed")
+    listed = check.get("files")
+    have = {n for n in files if n != "check.json" and not n.endswith("/")}
+    if not isinstance(listed, dict) or set(listed) != have:
+        raise ModError("check.json doesn't list exactly the package's files")
+    for n in sorted(have):
+        e = listed[n]
+        if not isinstance(e, dict) or e.get("size") != len(files[n]) or \
+                e.get("sha256") != hashlib.sha256(files[n]).hexdigest():
+            raise ModError(f"{n} isn't the file the packer checked")
+    return doc
+
+
+def remove_tree(p):
+    """A folder and what's in it; a link is only unlinked (never followed)."""
+    p = Path(p)
+    if p.is_symlink() or p.is_file():
+        p.unlink()
+    elif p.is_dir():
+        shutil.rmtree(p)
+
+
+def cmd_install(a):
+    """As the port's Port_ModsInstall: checked, unpacked to <id>.part, swapped in, the same mod in
+    another folder removed."""
+    files = read_package(a.mod)
+    try:
+        doc = verify_package(files)
+    except ModError as e:
+        raise ModError(f"{a.mod}: {e}")
+    uid = doc["id"]
+    mods = Path(a.mods)
+    out, part, old = mods / uid[6:], mods / (uid[6:] + ".part"), mods / (uid[6:] + ".part-old")
+    if out.exists() or out.is_symlink():
+        try:
+            there = XS.jsonc_loads((out / "mod.jsonc").read_text()).get("id")
+        except (OSError, ValueError, AttributeError):
+            there = None
+        if there != uid:
+            raise ModError(f"{out} is in the way: it holds {there or 'no mod'}")
+    mods.mkdir(parents=True, exist_ok=True)
+    remove_tree(part)
+    part.mkdir()
+    try:
+        for n, d in sorted(files.items()):
+            if n.endswith("/"):
+                continue
+            p = part / n
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(d)
+        remove_tree(old)
+        moved = out.exists() or out.is_symlink()
+        if moved:
+            out.rename(old)
+        try:
+            part.rename(out)
+        except OSError:
+            if moved:
+                old.rename(out)
+            raise
+    except OSError as e:
+        remove_tree(part)
+        raise ModError(f"can't put the mod in place: {e}")
+    remove_tree(old)
+    for other in sorted(mods.iterdir()):
+        if other.name in (out.name,) or other.name.startswith(".") or ".part" in other.name:
+            continue
+        try:
+            same = XS.jsonc_loads((other / "mod.jsonc").read_text()).get("id") == uid
+        except (OSError, ValueError, AttributeError):
+            same = False
+        if same:
+            print(f"{other}: the same mod, removed")
+            remove_tree(other)
+    print(f"{out}: {len([n for n in files if not n.endswith('/')])} files")
     return 0
 
 

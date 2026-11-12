@@ -275,6 +275,65 @@ static u32 Fnv(u32 h, const void *p, size_t n) {
     return h;
 }
 
+/* The stamp of a release's archives: each one's path, size and time, in any
+ * order (a sum of their hashes); a disc image's own size and time. */
+typedef struct StampScan {
+    const char *ext;
+    size_t rootLen;
+    u32 sum, count;
+} StampScan;
+
+static SDL_EnumerationResult SDLCALL StampArchives(void *user, const char *dir, const char *name) {
+    StampScan *st = user;
+    char *path = NULL;
+    SDL_PathInfo info;
+    size_t n = SDL_strlen(name);
+
+    if (name[0] == '.' || SDL_asprintf(&path, "%s%s", dir, name) < 0) {
+        return SDL_ENUM_CONTINUE;
+    }
+    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+        char *sub = NULL;
+
+        if (SDL_asprintf(&sub, "%s/", path) > 0) {
+            SDL_EnumerateDirectory(sub, StampArchives, st);
+            SDL_free(sub);
+        }
+    } else if (info.type == SDL_PATHTYPE_FILE && n > 4 && SDL_strcasecmp(name + n - 4, st->ext) == 0) {
+        u32 h = Fnv(2166136261u, path + st->rootLen, SDL_strlen(path + st->rootLen));
+
+        h = Fnv(h, &info.size, sizeof(info.size));
+        st->sum += Fnv(h, &info.modify_time, sizeof(info.modify_time));
+        st->count++;
+    }
+    SDL_free(path);
+    return SDL_ENUM_CONTINUE;
+}
+
+static u32 StampRelease(u32 stamp, int rel) {
+    static const char *const exts[PORT_DATA_COUNT] = { ".xgc", ".xpc", ".xps" };
+    StampScan st;
+    SDL_PathInfo info;
+    char *dir = NULL;
+
+    SDL_zero(st);
+    if (s_mix.root[rel] == NULL || !SDL_GetPathInfo(s_mix.root[rel], &info)) {
+        return stamp;
+    }
+    if (info.type != SDL_PATHTYPE_DIRECTORY) {     /* a disc image */
+        stamp = Fnv(stamp, &info.size, sizeof(info.size));
+        return Fnv(stamp, &info.modify_time, sizeof(info.modify_time));
+    }
+    if (SDL_asprintf(&dir, "%s/", s_mix.root[rel]) > 0) {
+        st.ext = exts[rel];
+        st.rootLen = SDL_strlen(dir);
+        SDL_EnumerateDirectory(dir, StampArchives, &st);
+        SDL_free(dir);
+    }
+    stamp = Fnv(stamp, &st.count, sizeof(st.count));
+    return Fnv(stamp, &st.sum, sizeof(st.sum));
+}
+
 int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, char *err, u32 errSize) {
     static const char *const env[PORT_DATA_COUNT] = { "HWVX_MIX_GC", "HWVX_MIX_PC", "HWVX_MIX_PS2" };
     char perr[160] = "";
@@ -375,21 +434,12 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
                      "lists gc=, pc=, ps2=; or set HWVX_MIX_GC, HWVX_MIX_PC, HWVX_MIX_PS2)");
         return 0;
     }
-    for (i = 0; i < PORT_DATA_COUNT; i++) {
-        SDL_PathInfo info;
-        char *marker = s_mix.root[i] != NULL ? Port_FindNoCase(s_mix.root[i], i == PORT_DATA_GC ? "HW_share.xgc"
-                                                               : i == PORT_DATA_PC ? "HW_share.xpc"
-                                                               : "XPS/ENGLISH/HW_share.xps") : NULL;
-
+    for (i = 0; i < PORT_DATA_COUNT; i++) {     /* every archive of every release: size and time */
         stamp = Fnv(stamp, &i, sizeof(i));
         if (s_mix.root[i] != NULL) {
             stamp = Fnv(stamp, s_mix.root[i], SDL_strlen(s_mix.root[i]));
         }
-        if (marker != NULL && SDL_GetPathInfo(marker, &info)) {
-            stamp = Fnv(stamp, &info.size, sizeof(info.size));
-            stamp = Fnv(stamp, &info.modify_time, sizeof(info.modify_time));
-        }
-        SDL_free(marker);
+        stamp = StampRelease(stamp, i);
     }
     s_mix.stamp = stamp ? stamp : 1;
     /* --mix-build fills "mix-NAME.part", from empty; Port_MixBuildFinish
