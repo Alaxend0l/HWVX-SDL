@@ -198,6 +198,11 @@ int Port_SyncIO(struct SDL_IOStream *io);
  * data (GameSetting_Init) and skips the autoload of the newest save;
  * GameSettings_PortAutoLoad reads it. */
 int Port_ResetSave(void);
+/* --gc-air-camera or HWVX_GC_AIR_CAMERA=1 (main_sdl.c): 1 brings back the
+ * GameCube/PS2 check that ends a trigger's orbit camera (Camera_UpdatePosition
+ * mode 28) when the player's car is tipped past 60 degrees with its wheels down
+ * or stuck; 0 (default): the PC release's orbit, which always runs its course. */
+int Port_GCAirCamera(void);
 /* Data formats (dvd.c, game/Port_Data.c). The releases share the BrainCore
  * pack format and the file names; a data folder can mix them file by file.
  * dvd.c finds each file under its GameCube name first, then the others'. */

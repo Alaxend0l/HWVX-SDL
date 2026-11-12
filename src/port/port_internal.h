@@ -42,6 +42,9 @@ typedef struct PortState {
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
     int resetSave;           /* --reset-save (main_sdl.c): default game data, no autoload */
+    int gcAirCamera;         /* --gc-air-camera or HWVX_GC_AIR_CAMERA=1 (main_sdl.c): a trigger
+                              * orbit camera hands back to a tipped car, as on the GameCube
+                              * and PS2 (Port_GCAirCamera, game/CameraManager.c) */
     const char *convertDir;  /* --convert-xdl DIR: convert the data to the .xdl cache there
                               * and exit (game/Port_Convert.c) */
     const char *program;     /* argv[0]: the launcher starts the converter with it */
