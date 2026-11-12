@@ -199,6 +199,39 @@ check("a new table is written, with its pack.json section",
       (out / "shader_relocs.bin").exists() and len((out / "shader_relocs.bin").read_bytes()) == 8
       and sec and sec[0]["records"] == 1, str(sec))
 
+# 7c. links by offset into a geometry: refused once the geometry is re-encoded; bounds-checked
+import xdl_gltf as XG  # noqa: E402
+wsrc, wproj, _ = extract("gc", "worlds_/geo_/w3_geo/10_geometry_0_q5_g4", "w3q5")
+olinks = [(p, m.group(0)) for p in wproj.rglob("*.jsonc") if not p.name.endswith(".xgeo.jsonc")
+          for m in re.finditer(r'"base://[^"]*/geometry/1/o[0-9a-f]+"', p.read_text())]
+check("w3_geo q5: links into geometry/1 by offset", olinks, "none found")
+if olinks:
+    p0, l0 = olinks[0]
+    edit(p0, lambda t: t.replace(l0, re.sub(r"/o[0-9a-f]+", "/offffff", l0), 1))
+    try:
+        build(wproj, "w3q5_oob")
+        msg = None
+    except GR.GraphError as e:
+        msg = str(e)
+    check("error: an offset past the end of its object is refused", msg and "past the end" in msg, str(msg))
+    edit(p0, lambda t: t.replace(re.sub(r"/o[0-9a-f]+", "/offffff", l0), l0, 1))
+    gf = wproj / "geometry" / "1.gltf"
+    gl, gb = XG.load(gf)
+    a = gl["accessors"][gl["meshes"][0]["primitives"][0]["attributes"]["POSITION"]]
+    bv = gl["bufferViews"][a["bufferView"]]
+    gb = bytearray(gb)
+    o = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+    struct.pack_into("<f", gb, o, struct.unpack_from("<f", gb, o)[0] + 0.5)
+    a["max"][0] = max(a["max"][0], struct.unpack_from("<f", gb, o)[0])
+    XG.write(gl, bytes(gb), gf)
+    try:
+        build(wproj, "w3q5_edit")
+        msg = None
+    except GR.GraphError as e:
+        msg = str(e)
+    check("error: offset links into an edited (re-encoded) geometry are listed", msg and "re-encoded" in msg
+          and "geometry/1/o" in msg, str(msg)[:300])
+
 # 8. extracting over a folder that isn't a previous extract is refused
 other = scratch / "not_a_project"
 other.mkdir(parents=True, exist_ok=True)

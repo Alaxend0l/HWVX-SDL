@@ -1172,16 +1172,24 @@ class Builder:
                     rest = "/".join(parts[k:])
                     m = re.match(r"^o([0-9a-f]+)$", rest)
                     if m:
-                        return nb.start + int(m.group(1), 16), head
+                        d = int(m.group(1), 16)
+                        if d >= len(nb.data):
+                            raise GraphError(f"{link}: offset 0x{d:X} past the end of {head} "
+                                             f"(0x{len(nb.data):X} bytes)")
+                        return nb.start + d, head
                     if rest in nb.anchors:
                         return nb.start + nb.anchors[rest], head
                     raise GraphError(f"{link}: no {rest} in {head}")
             raise GraphError(f"{link}: no such object in this pack")
         slots = {k: {} for k in SECTIONS}
         e = self.e
+        edited = set(self.edited)
+        stale = []                  # offset links into a re-encoded geometry: its layout changed
         for li, b in enumerate(built):
             for off, link in b.links.items():
                 t, head = resolve(link)
+                if head in edited and head != b.id and re.match(r"^o[0-9a-f]+$", link[len(head) + 1:]):
+                    stale.append(f"{b.id}+0x{off:X} -> {link}")
                 struct.pack_into(e + "I", blob, b.start + off, t)
                 if b.refs.get(off) == "local":
                     if head not in gidx or t != index[head].start:
@@ -1198,6 +1206,10 @@ class Builder:
                 slots["sound"][(li, off)] = asset_value(self.release, v, "sound", own)
             for off, v in b.shd.items():
                 slots["shader"][(li, off)] = v
+        if stale:
+            raise GraphError(f"{len(stale)} links into re-encoded geometry by offset (the offsets were the "
+                             "original encoding's; only its structural names carry over): "
+                             + "; ".join(stale[:8]) + (" ..." if len(stale) > 8 else ""))
         orderf = self.dir / "pack.order.json"
         order = json.loads(orderf.read_text()) if orderf.exists() else {}
         out.mkdir(parents=True, exist_ok=True)
