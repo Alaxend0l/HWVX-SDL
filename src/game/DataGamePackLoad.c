@@ -7,6 +7,7 @@
 #include "viewer.h"
 #include "Port_Mix.h"
 #include "Port_Proto.h"
+#include "Port_Level.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -339,6 +340,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     void *xdlSfx = NULL;
     s32 proto;
 
+    u32 packType = s_xdlType;   /* port: this pack's (a pack it refers to may load below) */
+
     memset(pack, 0, sizeof(DataPack));
     /* port: the pack as an earlier load left it, cached (xdl.c, HWVX_XDL):
      * the same heap blocks, filled from the cache, its pointers fixed up;
@@ -645,6 +648,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     }
     /* port: the viewer keeps the lists the loader doesn't (HWVX_VIEWER only) */
     Port_ViewerNotePack(pack, pointers, header.numPointers, pointers - header.numTexRelocs * 2, header.numTexRelocs);
+    if (packType == 4) {
+        Port_LevelNotePack(pack, pointers, header.numPointers);   /* port: a level's appends (Port_Level.c) */
+    }
     SETP(pack->paletteData, (void *)((u8 *)GETP(pack->base) + header.paletteOffset));
     SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->base) + header.shaderOffset));
     pack->textureData = header.textureDataOffset + (u32)HND(GETP(pack->base));

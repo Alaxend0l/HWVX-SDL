@@ -45,6 +45,8 @@ class PackCompiler(LV.Compiler):
     """The level's own records encoded in the release's byte order, links named as the
     rebuilt pack's nodes (not pointer walks)."""
 
+    in_memory = False       # starts, items, effect points, objectives: added to the pack below
+
     def __init__(self, proj, base, skip, e, names):
         super().__init__(proj, base, skip)
         self.e = e

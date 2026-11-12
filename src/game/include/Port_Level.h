@@ -34,6 +34,12 @@ void Port_LevelStateChanged(int from, int to);
  * the player's); logs when the player can first drive. */
 void Port_LevelControl(int locked, int human);
 
+/* DataPack_LoadDataPack: a world pack's pointer slots (offsets into its
+ * blob), kept for the world loaded last: a level's "appends" grow the
+ * world's arrays and move every pointer into them (tileCars, a quadrant's
+ * items and effect points, objectives). */
+void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned int numPointers);
+
 /* The applied level's volume i (a WorldVolume) and its id
  * (level://volumes/NAME): 1, or 0 past the last (the viewer draws them). */
 int Port_LevelVolume(int i, const void **volume, const char **id);

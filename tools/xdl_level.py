@@ -4,7 +4,9 @@
     xdl_level.py compile PROJECT [-o LEVEL.json] [--base BASE_PROJECT]    check and compile
     xdl_level.py check PROJECT [--base BASE_PROJECT]                       check only
     xdl_level.py base WORLD_ARCHIVE --data DATA [--cache DIR]               the base world, extracted
-    xdl_level.py mod PROJECT OUT_MOD_DIR [--base ...]                       a mod folder with the level
+    xdl_level.py mod PROJECT OUT_MOD_DIR [--hwmod OUT.hwmod --data DATA|--index I]
+                                                                           a mod folder with the level,
+                                                                           packed and checked
     xdl_level.py testdrive PROJECT SCRATCH [--car N] [--skip-intro]        the editor's test drive
 
 A level is a folder (docs-pending/mission-editor.md):
@@ -496,6 +498,9 @@ class Compiler:
     # -- links --------------------------------------------------------------------------------
 
     def resolve(self, s, where, archive):
+        if s in getattr(self, "append_of", {}):
+            ai, j = self.append_of[s]
+            return {"append": ai, "elem": j, "add": 0}
         if s in self.part_ids and not s.startswith("level://_"):
             return {"part": s}
         m = re.fullmatch(r"(level://[a-z]+/[^/]+(?:/to)?)(?:/o([0-9a-fA-F]+))?", s)
@@ -503,9 +508,13 @@ class Compiler:
             base, add = m.group(1), int(m.group(2), 16) if m.group(2) else 0
             kind = base.split("/")[2]
             if kind in PACK_ONLY:
-                # a record only the world pack has: in memory (the preview) the link names nothing
                 if not isinstance((self.lv.get(kind) or {}).get(base.split("/")[3]), dict):
                     raise LevelError(f"{where}: {s}: the level has no such {kind[:-1]}")
+                if base in getattr(self, "append_of", {}):
+                    # an element the port appends to a base array (the level file's "appends")
+                    ai, j = self.append_of[base]
+                    return {"append": ai, "elem": j, "add": add}
+                # not appended yet (a link checked before the appends are made): names nothing
                 if "level://_null" not in self.part_ids:
                     self.add_part("level://_null", "data", bytes(0x70), {})
                 if f"pack-only {s}" not in self.pack_only:
@@ -530,6 +539,86 @@ class Compiler:
                     raise LevelError(f"{where}: {s}: {why}")
             return base_steps(m.group(2), where)
         raise LevelError(f"{where}: {s}: a link is base://{archive}/world_0/..., level://... or a part")
+
+    # -- records the port appends to the base world's arrays ----------------------------------
+
+    in_memory = True        # the level file's "appends" (the pack build adds these records itself)
+
+    def build_appends(self, lv, where):
+        """starts, items, effect points and objectives as elements the port appends to the base
+        world's arrays (Port_Level.c "appends"): copies of a base element with fields set, or bytes
+        of the level's own. Links to them: {"append": a, "elem": j}."""
+        self.appends, self.append_of = [], {}
+        if not self.in_memory:
+            return
+        groups = {}
+
+        def group(rec_path, rec_struct, field, w):
+            key = (rec_path, field)
+            if key not in groups:
+                props, _ = struct_of(rec_struct)
+                ln = link_of(props[field])
+                groups[key] = len(self.appends)
+                self.appends.append({"record": base_steps(rec_path, w), "pointer": int(props[field]["x-offset"], 16),
+                                     "count": int(props[ln["count"]]["x-offset"], 16), "elemSize": ln["item-size"],
+                                     "what": f"{rec_path}/{field}", "elems": []})
+            return groups[key]
+
+        def put(kind, name, ai, el):
+            self.append_of[f"level://{kind}/{name}"] = (ai, len(self.appends[ai]["elems"]))
+            self.appends[ai]["elems"].append(el)
+
+        def sets(sname, fields, w):
+            props, _ = struct_of(sname)
+            out = []
+            for k, v in fields.items():
+                if k == "pos":
+                    out.append([int(props["pos"]["x-offset"], 16), struct.pack(E + "3f", *map(float, v)).hex()])
+                    continue
+                if k not in props or "x-offset" not in props[k] or link_of(props[k]) is not None or "$ref" in props[k]:
+                    raise LevelError(f"{w}/{k}: not a number field of {sname}")
+                out.append([int(props[k]["x-offset"], 16), scalar(self.T, props[k], v, f"{w}/{k}").hex()])
+            return out
+
+        for n, st in (lv.get("starts") or {}).items():
+            w = f"{where}/starts/{n}"
+            f = {k: v for k, v in st.items() if k not in ("pos",)}
+            f.setdefault("rotY", 0.0)
+            f.setdefault("port", 0)
+            # a copy of the player's start (its vehicle, ranges), moved: as the pack build makes it
+            put("starts", n, group("World/0", "World", "tileCars", w),
+                {"fromPort": 1, "set": sets("TileCar", dict(f, pos=st["pos"]), w)})
+        for n, it in (lv.get("items") or {}).items():
+            w = f"{where}/items/{n}"
+            q = it["quad"]
+            ai = group(f"World/0/quads/{q}/contents", "QuadContents", "items", w)
+            # a copy of the quadrant's first pickup (its ranges, draw distance), moved
+            put("items", n, ai, {"fromIndex": 0, "set": sets("QuadItem", {
+                "pos": it["pos"], "mode": "on", "id": int(it.get("id", 0)), "respawn": int(it.get("respawn", 0))}, w)
+                + [[0x0C, struct.pack(E + "f", 0.0).hex()]]})
+        for n, fx in (lv.get("fxPoints") or {}).items():
+            w = f"{where}/fxPoints/{n}"
+            mm = re.fullmatch(r"base://[A-Za-z0-9_]+/world_0/(World/0/quads/\d+/contents/fxPoints/\d+)", fx["template"])
+            if not mm:
+                raise LevelError(f"{w}/template: a base effect point (World/0/quads/Q/contents/fxPoints/N)")
+            ai = group(f"World/0/quads/{fx['quad']}/contents", "QuadContents", "fxPoints", w)
+            f = {"pos": fx["pos"]}
+            if "mode" in fx:
+                f["mode"] = fx["mode"]
+            put("fxPoints", n, ai, {"from": base_steps(mm.group(1), w), "set": sets("QuadFxPoint", f, w)})
+        obs = list((lv.get("objectives") or {}).items())
+        for n, ob in obs:
+            w = f"{where}/objectives/{n}"
+            kind = {"none": 0, "counter": 1, "timer": 2}[ob.get("kind", "none")]
+            info = bytes([kind, 0x17 if ob.get("shown", True) else 0, int(ob.get("hud", 0)) & 0xFF]) + bytes(9) + bytes(16)
+            links = {}
+            for off, k in ((0x0C, "done"), (0x10, "value"), (0x14, "text"), (0x18, "doneText")):
+                if isinstance(ob.get(k), str):
+                    links[off] = ob[k]
+            self.add_part(f"level://objectives/{n}/info", "data", info, links)
+            self.add_part(f"level://objectives/{n}", "element", struct.pack(E + "I", int(ob.get("arg", 0))) + bytes(4),
+                          {4: f"level://objectives/{n}/info"})
+            put("objectives", n, group("World/0", "World", "objectives", w), {"part": f"level://objectives/{n}"})
 
     # -- the whole --------------------------------------------------------------------------------
 
@@ -617,9 +706,11 @@ class Compiler:
                         self.resolve(x, f"{w}/{k}", archive)
                     except LevelError as ex:
                         self.errors.append(str(ex))
-        if lv.get("objectives"):
-            self.warnings.append(f"{where}/objectives: objectives go into the level's world pack (a test drive "
-                                 "shows them), not the editor's live preview")
+        if not self.errors:
+            try:
+                self.build_appends(lv, where)
+            except (LevelError, XT.TacError) as ex:
+                self.errors.append(str(ex))
         # triggers
         tdir = self.proj / "triggers"
         names = lv.get("triggers") or sorted(p.stem for p in tdir.glob("*.jsonc"))
@@ -689,13 +780,16 @@ class Compiler:
             self.warnings += start_overlaps(self.base, lv.get("patches") or {}, archive, self.spawn_box, lv.get("starts"))
         if self.errors:
             return None
-        return {
+        out = {
             "format": FORMAT, "format_version": 1,
             "id": lv["id"], "name": lv["name"], "mode": mode, "extends": lv["extends"], "world": world,
             "baseTriggers": keep,
             "parts": self.parts,
             "patches": self.patches,
         }
+        if self.appends:
+            out["appends"] = self.appends
+        return out
 
 
 class BaseWorld:
@@ -1184,12 +1278,41 @@ def make_mod(proj, out, doc, extra=None):
     return out
 
 
+def mod_index(a):
+    """The no-game-data index tools/xdl_mod.py packs against: --index, or one made from --data
+    once into the cache (hashes of the player's own install: local, never shipped)."""
+    if getattr(a, "index", None):
+        return Path(a.index)
+    if not a.data:
+        raise LevelError("a .hwmod needs the no-game-data check: --index INDEX.npz or --data DATA")
+    key = hashlib.sha1(str(Path(a.data).resolve()).encode()).hexdigest()[:12]
+    idx = cache_dir(a) / f"mod-index-{key}.npz"
+    if not idx.exists():
+        idx.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run([sys.executable, str(HERE / "xdl_mod.py"), "index", str(a.data), "-o", str(idx)],
+                           capture_output=True, text=True)
+        if r.returncode:
+            raise LevelError("xdl_mod.py index: " + (r.stderr or r.stdout).strip()[-400:])
+    return idx
+
+
 def cmd_mod(a):
+    """A mod folder with the level (the compiled level file, which the port applies to the
+    player's own world as it loads, and the project's sources); with --hwmod, packed by
+    tools/xdl_mod.py (the no-game-data check) into an installable package."""
     doc, errors = compile_project(a.project, base_arg(a))
     if errors:
         return report(errors)
     out = make_mod(a.project, a.out, doc)
-    print(f"{out}: mod.jsonc and the level")
+    if not a.hwmod:
+        print(f"{out}: mod.jsonc and the level")
+        return 0
+    r = subprocess.run([sys.executable, str(HERE / "xdl_mod.py"), "pack", str(out), "-o", str(a.hwmod),
+                        "--index", str(mod_index(a))], capture_output=True, text=True)
+    text = (r.stdout + r.stderr).strip()
+    if r.returncode:
+        raise LevelError("the package: " + text[-1500:])
+    print(text.splitlines()[-1] if text else f"{a.hwmod}: packed")
     return 0
 
 
@@ -1200,7 +1323,9 @@ def main():
         p = sub.add_parser(name)
         p.add_argument("project")
         if name == "mod":
-            p.add_argument("out")
+            p.add_argument("out", help="the mod folder to make")
+            p.add_argument("--hwmod", help="also pack it into this .hwmod (tools/xdl_mod.py pack)")
+            p.add_argument("--index", help="the no-game-data index (xdl_mod.py index); else made from --data")
         if name == "testdrive":
             p.add_argument("scratch", help="the editor's scratch folder (its mods/, never the player's)")
             p.add_argument("--car", type=int)

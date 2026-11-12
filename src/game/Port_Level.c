@@ -8,7 +8,10 @@
  *    "baseTriggers": "all" | "none" | [3, 5, ...],  the base world's triggers it keeps
  *    "parts": [{"id": "...", "kind": "trigger" | "timer" | "variable" | "data",
  *               "hex": "...", "links": [[offset, LINK], ...]}, ...],
- *    "patches": [{"target": LINK, "offset": n, "hex": "..."}, ...]}
+ *    "patches": [{"target": LINK, "offset": n, "hex": "..."}, ...],
+ *    "appends": [{"record": LINK, "pointer": n, "count": n, "elemSize": n,
+ *                 "elems": [{"fromPort": p | "fromIndex": i | "from": LINK | "part": ID,
+ *                            "set": [[offset, "hex"], ...]}, ...]}, ...]}
  *
  * A part is one record of the level's own, in host byte order (little-endian
  * words) as the game has pack data once loaded, with its pointer slots zero
@@ -17,6 +20,8 @@
  *   {"part": ID, "add": n}         a part of the level (n bytes into it)
  *   {"slot": ID}                   a timer's or variable's entry in the world's
  *                                  table (script parameters name those by entry)
+ *   {"append": a, "elem": j, "add": n}
+ *                                  element j the level appends to appends[a]'s array
  *   {"root": "world" | "trigger", "index": n, "steps": [["p", off] | ["a", n], ...]}
  *                                  a record of the base world: from the World
  *                                  (offset 0 of the pack) or base trigger n,
@@ -30,8 +35,22 @@
  * pack's own; timer and variable parts are appended to the World's tables
  * (new tables; the old ones stay where base triggers point into them); the
  * rest stay where they were allocated. Patches write bytes into base records
- * (old bytes kept). Everything is undone when the pack goes, or before a level
- * is applied again. */
+ * (old bytes kept).
+ *
+ * Appends grow an array of the base world: the u32 pointer at `pointer` and
+ * the u32 count at `count` of the record LINK names (World: tileCars,
+ * objectives; a quadrant's QuadContents: items, fxPoints). The array is copied
+ * into one of ours with room for the new elements, and every pointer of the
+ * world pack into the old one (its pointer slots, kept as the pack loaded:
+ * Port_LevelNotePack) moved to the copy, so base triggers that name tile car 2
+ * name it there. An element is a copy of a base one (the first tile car of
+ * port p, the array's element i, or the one LINK names), then `set` bytes of
+ * the level's own written over it (its position, port, id), or a part of
+ * kind "element" (bytes of the level's own, its links resolved in place).
+ * This is what tools/xdl_level_pack.py adds to a world pack, done at load:
+ * the level ships as this file, made of the level's own data only.
+ * Everything is undone when the pack goes, or before a level is applied
+ * again. */
 #include <SDL3/SDL.h>
 #include "common.h"
 #include "World.h"
@@ -74,6 +93,14 @@ static struct {
     int numAllocs, capAllocs;
     LevelPatch *patches;
     int numPatches;
+    struct LevelGrow {
+        u8 *old;                /* the base array (in the blob) */
+        u32 oldSize;
+        u8 *mem;                /* ours: the old elements, then the level's */
+        u32 size;
+        u32 elemSize;
+    } *grows;
+    int numGrows;
     WorldVolume **volumes;      /* the level's own volumes (parts of kind "volume") */
     char **volumeIds;
     int numVolumes;
@@ -128,6 +155,41 @@ static int InBlob(const DataPack *pack, const u8 *p, u32 size) {
            size <= pack->dataSize - (u32)(p - lo);
 }
 
+/* In the world pack's blob, or an array a level grew. */
+static int InWorld(const DataPack *pack, const u8 *p, u32 size) {
+    int i;
+
+    if (InBlob(pack, p, size)) {
+        return 1;
+    }
+    for (i = 0; p != NULL && i < s_lv.numGrows; i++) {
+        const struct LevelGrow *g = &s_lv.grows[i];
+
+        if (p >= g->mem && (size_t)(p - g->mem) <= g->size && size <= g->size - (u32)(p - g->mem)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The world pack loaded last and its pointer slots (Port_LevelNotePack). */
+static struct {
+    void *pack;
+    u32 *pointers;
+    u32 count;
+} s_noted;
+
+void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned int numPointers) {
+    SDL_free(s_noted.pointers);
+    s_noted.pack = dataPack;
+    s_noted.count = 0;
+    s_noted.pointers = pointers != NULL && numPointers > 0 ? SDL_malloc((size_t)numPointers * 4) : NULL;
+    if (s_noted.pointers != NULL) {
+        SDL_memcpy(s_noted.pointers, pointers, (size_t)numPointers * 4);
+        s_noted.count = numPointers;
+    }
+}
+
 static int SameWorld(const char *a, const char *b) {
     for (; *a && *b; a++, b++) {
         char x = (char)SDL_tolower((unsigned char)*a), y = (char)SDL_tolower((unsigned char)*b);
@@ -180,6 +242,7 @@ static void Unapply(void) {
         SDL_aligned_free(s_lv.allocs[i]);
     }
     SDL_free(s_lv.allocs);
+    SDL_free(s_lv.grows);
     for (i = 0; i < s_lv.numVolumes; i++) {
         SDL_free(s_lv.volumeIds[i]);
     }
@@ -191,6 +254,10 @@ static void Unapply(void) {
 }
 
 void Port_LevelPackReleased(void *dataPack) {
+    if (dataPack != NULL && dataPack == s_noted.pack) {
+        SDL_free(s_noted.pointers);
+        SDL_zero(s_noted);
+    }
     if (dataPack != NULL && dataPack == s_lv.pack) {
         Port_Log("level: %s taken out with its world", s_lv.id != NULL ? s_lv.id : "?");
         Unapply();
@@ -241,6 +308,24 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
         }
         return p->mem + add;
     }
+    if (Json_Get(link, "append") != NULL) {
+        long long a = Json_GetInt(link, "append", -1), j = Json_GetInt(link, "elem", -1);
+        long long add = Json_GetInt(link, "add", 0);
+        const struct LevelGrow *g;
+        u32 es;
+
+        if (a < 0 || a >= s_lv.numGrows || j < 0) {
+            Fail(err, errSize, "no appended element %lld of %lld", j, a);
+            return NULL;
+        }
+        g = &s_lv.grows[a];
+        es = g->elemSize;
+        if (es == 0 || g->oldSize + (j + 1) * (long long)es > g->size || add < 0 || add >= es) {
+            Fail(err, errSize, "appended element %lld of %lld: outside it", j, a);
+            return NULL;
+        }
+        return g->mem + g->oldSize + j * es + add;
+    }
     if (Json_Get(link, "slot") != NULL) {
         p = PartNamed(parts, n, Json_GetString(link, "slot", NULL));
         if (p == NULL || (SDL_strcmp(p->kind, "timer") != 0 && SDL_strcmp(p->kind, "variable") != 0)) {
@@ -277,7 +362,7 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
             return NULL;
         }
         if (a->string[0] == 'p') {
-            if (!InBlob(s_lv.pack, cur + v, 4)) {
+            if (!InWorld(s_lv.pack, cur + v, 4)) {
                 Fail(err, errSize, "a pointer step leaves the world pack");
                 return NULL;
             }
@@ -290,16 +375,27 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
                     Fail(err, errSize, "a pointer on the way is null in this release's world");
                     return NULL;
                 }
-                if (h - lo >= s_lv.pack->dataSize) {
-                    Fail(err, errSize, "a pointer on the way leads out of the world pack (made for another world?)");
-                    return NULL;
+                if (h - lo < s_lv.pack->dataSize) {
+                    cur = GETP(s_lv.pack->base) + (h - lo);
+                } else {
+                    /* or into an array the level grew (its appends) */
+                    int g;
+
+                    for (g = 0, cur = NULL; g < s_lv.numGrows && cur == NULL; g++) {
+                        if (h == Port_PtrToHandle(s_lv.grows[g].mem)) {
+                            cur = s_lv.grows[g].mem;
+                        }
+                    }
+                    if (cur == NULL) {
+                        Fail(err, errSize, "a pointer on the way leads out of the world pack (made for another world?)");
+                        return NULL;
+                    }
                 }
-                cur = GETP(s_lv.pack->base) + (h - lo);
             }
         } else {
             cur += v;
         }
-        if (!InBlob(s_lv.pack, cur, 1)) {
+        if (!InWorld(s_lv.pack, cur, 1)) {
             Fail(err, errSize, "the path leaves the world pack");
             return NULL;
         }
@@ -339,6 +435,186 @@ static int PatchBytes(u8 *at, const void *data, u32 size) {
     return 1;
 }
 
+/* A word of ours at `at` (a pointer slot or a count), the old one kept. */
+static int PatchWord(u8 *at, u32 v) {
+    return PatchBytes(at, &v, 4);
+}
+
+/* The level's appends (see the top): the arrays grown, the world's pointers
+ * into them moved, the elements filled. Element parts get their place in the
+ * array as mem (their bytes and links are written there later). */
+static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, int n, char *err, size_t errSize) {
+    const JsonNode *ja, *je;
+    u8 *base = GETP(pack->base);
+    u32 lo = Port_PtrToHandle(base), i;
+    u8 **recs;
+    int a, na = japp != NULL && japp->type == JSON_ARRAY ? japp->count : 0;
+    char why[160];
+
+    if (na == 0) {
+        return 1;
+    }
+    if (s_noted.pack != pack || s_noted.pointers == NULL) {
+        return Fail(err, errSize, "appends: the world pack's pointer list wasn't kept (Port_LevelNotePack)");
+    }
+    s_lv.grows = SDL_calloc((size_t)na, sizeof(*s_lv.grows));
+    recs = SDL_calloc((size_t)na, sizeof(*recs));
+    if (s_lv.grows == NULL || recs == NULL) {
+        SDL_free(recs);
+        return Fail(err, errSize, "out of memory");
+    }
+    /* the arrays: where, how big, ours allocated */
+    for (a = 0, ja = japp->child; ja != NULL; ja = ja->next, a++) {
+        struct LevelGrow *g = &s_lv.grows[a];
+        long long po = Json_GetInt(ja, "pointer", -1), co = Json_GetInt(ja, "count", -1);
+        long long es = Json_GetInt(ja, "elemSize", 0);
+        const JsonNode *elems = Json_Get(ja, "elems");
+        u32 count, k = elems != NULL && elems->type == JSON_ARRAY ? (u32)elems->count : 0;
+        u8 *rec = Resolve(Json_Get(ja, "record"), parts, n, why, sizeof(why));
+
+        if (rec == NULL) {
+            SDL_free(recs);
+            return Fail(err, errSize, "append %d: %s", a, why);
+        }
+        if (po < 0 || co < 0 || es <= 0 || es > 0x1000 || !InBlob(pack, rec + po, 4) || !InBlob(pack, rec + co, 4)) {
+            SDL_free(recs);
+            return Fail(err, errSize, "append %d: its pointer or count isn't in the world's record", a);
+        }
+        recs[a] = rec;
+        count = *(u32 *)(rec + co);
+        g->old = count > 0 ? Port_HandleToPtr(*(u32 *)(rec + po)) : NULL;
+        g->oldSize = count * (u32)es;
+        g->elemSize = (u32)es;
+        g->size = g->oldSize + k * (u32)es;
+        if (count > 0x10000 || (count > 0 && !InBlob(pack, g->old, g->oldSize))) {
+            SDL_free(recs);
+            return Fail(err, errSize, "append %d: the base array isn't in the world pack", a);
+        }
+        if ((g->mem = Alloc(g->size + 4)) == NULL) {
+            SDL_free(recs);
+            return Fail(err, errSize, "out of memory");
+        }
+        s_lv.numGrows = a + 1;
+    }
+    /* every pointer of the world pack into an old array: to our copy */
+    for (i = 0; i < s_noted.count; i++) {
+        u32 off = s_noted.pointers[i], h;
+        u8 *q;
+
+        if (off > pack->dataSize - 4 || (off & 3)) {
+            continue;
+        }
+        h = *(u32 *)(base + off);
+        if (h - lo >= pack->dataSize) {
+            continue;
+        }
+        q = base + (h - lo);
+        for (a = 0; a < s_lv.numGrows; a++) {
+            struct LevelGrow *g = &s_lv.grows[a];
+
+            if (g->old != NULL && q >= g->old && q < g->old + g->oldSize) {
+                if (!PatchWord(base + off, Port_PtrToHandle(g->mem + (q - g->old)))) {
+                    SDL_free(recs);
+                    return Fail(err, errSize, "out of memory");
+                }
+                break;
+            }
+        }
+    }
+    /* the old elements (their pointers moved too), then the new ones */
+    for (a = 0; a < s_lv.numGrows; a++) {
+        if (s_lv.grows[a].oldSize > 0) {
+            SDL_memcpy(s_lv.grows[a].mem, s_lv.grows[a].old, s_lv.grows[a].oldSize);
+        }
+    }
+    for (a = 0, ja = japp->child; ja != NULL; ja = ja->next, a++) {
+        struct LevelGrow *g = &s_lv.grows[a];
+        const JsonNode *elems = Json_Get(ja, "elems");
+        u32 es = g->elemSize, count = g->oldSize / es, j;
+
+        for (j = 0, je = elems != NULL && elems->type == JSON_ARRAY ? elems->child : NULL; je != NULL; je = je->next, j++) {
+            u8 *dst = g->mem + g->oldSize + j * es;
+            const u8 *src = NULL;
+            const JsonNode *js, *x;
+
+            if (Json_Get(je, "fromPort") != NULL) {
+                long long port = Json_GetInt(je, "fromPort", 1);
+                u32 c;
+
+                if (es != sizeof(TileCar)) {
+                    SDL_free(recs);
+                    return Fail(err, errSize, "append %d: fromPort is for tile cars", a);
+                }
+                for (c = 0; c < count && src == NULL; c++) {
+                    if (((TileCar *)g->mem)[c].port == port) {
+                        src = g->mem + c * es;
+                    }
+                }
+                if (src == NULL && count > 0) {
+                    src = g->mem;
+                }
+            } else if (Json_Get(je, "fromIndex") != NULL) {
+                long long k = Json_GetInt(je, "fromIndex", 0);
+
+                if (k >= 0 && k < count) {
+                    src = g->mem + k * es;
+                }
+            } else if (Json_Get(je, "from") != NULL) {
+                src = Resolve(Json_Get(je, "from"), parts, n, why, sizeof(why));
+                if (src == NULL) {
+                    SDL_free(recs);
+                    return Fail(err, errSize, "append %d element %u: %s", a, (unsigned)j, why);
+                }
+                if (!InWorld(pack, src, es)) {
+                    src = NULL;
+                }
+            } else if (Json_Get(je, "part") != NULL) {
+                LevelPart *pt = PartNamed(parts, n, Json_GetString(je, "part", NULL));
+
+                if (pt == NULL || SDL_strcmp(pt->kind, "element") != 0 || pt->size != es) {
+                    SDL_free(recs);
+                    return Fail(err, errSize, "append %d element %u: no element part %s of %u bytes", a, (unsigned)j,
+                                Json_GetString(je, "part", "?"), (unsigned)es);
+                }
+                pt->mem = dst;
+                continue;
+            } else {
+                SDL_free(recs);
+                return Fail(err, errSize, "append %d element %u: fromPort, fromIndex, from or part", a, (unsigned)j);
+            }
+            if (src == NULL) {
+                SDL_free(recs);
+                return Fail(err, errSize, "append %d element %u: the world has no element to copy there "
+                            "(%s has %u)", a, (unsigned)j, Json_GetString(ja, "what", "the array"), (unsigned)count);
+            }
+            SDL_memcpy(dst, src, es);
+            js = Json_Get(je, "set");
+            for (x = js != NULL && js->type == JSON_ARRAY ? js->child : NULL; x != NULL; x = x->next) {
+                const JsonNode *o = Json_At(x, 0), *hx = Json_At(x, 1);
+                int len = hx != NULL && hx->type == JSON_STRING ? HexLen(hx->string) : 0;
+
+                if (o == NULL || o->type != JSON_NUMBER || o->integer < 0 || len == 0 || o->integer + len > es) {
+                    SDL_free(recs);
+                    return Fail(err, errSize, "append %d element %u: a set is [offset, hex] inside it", a, (unsigned)j);
+                }
+                Json_HexDecode(hx->string, dst + o->integer, (size_t)len);
+            }
+        }
+    }
+    /* the records: our arrays, their counts */
+    for (a = 0, ja = japp->child; ja != NULL; ja = ja->next, a++) {
+        struct LevelGrow *g = &s_lv.grows[a];
+
+        if (!PatchWord(recs[a] + Json_GetInt(ja, "pointer", 0), Port_PtrToHandle(g->mem)) ||
+            !PatchWord(recs[a] + Json_GetInt(ja, "count", 0), g->size / g->elemSize)) {
+            SDL_free(recs);
+            return Fail(err, errSize, "out of memory");
+        }
+    }
+    SDL_free(recs);
+    return 1;
+}
+
 static int StartOverride(DataPack *pack, World *world, char *err, size_t errSize) {
     const char *e = SDL_getenv("HWVX_LEVEL_START");
     f32 v[4];
@@ -353,7 +629,7 @@ static int StartOverride(DataPack *pack, World *world, char *err, size_t errSize
     }
     cars = GETP(world->tileCars);
     for (i = 0; cars != NULL && i < world->numTileCars; i++) {
-        if (cars[i].port == 1 && InBlob(pack, (u8 *)&cars[i], sizeof(TileCar))) {
+        if (cars[i].port == 1 && InWorld(pack, (u8 *)&cars[i], sizeof(TileCar))) {
             if (!PatchBytes((u8 *)&cars[i].pos, v, 12) || !PatchBytes((u8 *)&cars[i].rotY, &v[3], 4)) {
                 return Fail(err, errSize, "out of memory");
             }
@@ -440,10 +716,16 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
             parts[i].slot = s_lv.origNumTimers + numTimers++;
         } else if (SDL_strcmp(parts[i].kind, "variable") == 0) {
             parts[i].slot = s_lv.origNumVariables + numVars++;
-        } else if (SDL_strcmp(parts[i].kind, "data") != 0 && SDL_strcmp(parts[i].kind, "volume") != 0) {
+        } else if (SDL_strcmp(parts[i].kind, "data") != 0 && SDL_strcmp(parts[i].kind, "volume") != 0 &&
+                   SDL_strcmp(parts[i].kind, "element") != 0) {
             Fail(err, errSize, "%s: no kind %s", parts[i].id, parts[i].kind);
             goto done;
         }
+    }
+
+    /* the arrays it grows (before the triggers are copied: their pointers move with them) */
+    if (!ApplyAppends(pack, Json_Get(doc, "appends"), parts, n, err, errSize)) {
+        goto done;
     }
 
     /* the trigger table: the kept base triggers (copies), then the level's */
@@ -461,6 +743,11 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     for (i = 0, numTrig = 0; i < n; i++) {
         if (SDL_strcmp(parts[i].kind, "trigger") == 0) {
             parts[i].mem = s_lv.triggers + (numKeep + numTrig++) * TRIGGER_SIZE;
+        } else if (SDL_strcmp(parts[i].kind, "element") == 0) {
+            if (parts[i].mem == NULL) {
+                Fail(err, errSize, "%s: an element no append places", parts[i].id);
+                goto done;
+            }
         } else if ((parts[i].mem = Alloc(parts[i].size + 4)) == NULL) {
             Fail(err, errSize, "out of memory");
             goto done;
@@ -546,11 +833,14 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
 
     /* the patches */
     if (jpatches != NULL && jpatches->type == JSON_ARRAY && jpatches->count > 0) {
-        s_lv.patches = SDL_calloc((size_t)jpatches->count + 1, sizeof(LevelPatch));
-        if (s_lv.patches == NULL) {
+        /* (after the appends' own: grown, not replaced) */
+        LevelPatch *grown = SDL_realloc(s_lv.patches, (size_t)(s_lv.numPatches + jpatches->count + 1) * sizeof(LevelPatch));
+
+        if (grown == NULL) {
             Fail(err, errSize, "out of memory");
             goto done;
         }
+        s_lv.patches = grown;
         for (x = jpatches->child; x != NULL; x = x->next) {
             const char *hex = Json_GetString(x, "hex", "");
             long long off = Json_GetInt(x, "offset", 0);
@@ -597,14 +887,16 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
         world->numVariables = s_lv.origNumVariables + numVars;
     }
     ok = 1;
-    Port_Log("level: %s (%s): %u triggers (%u kept), %u timers and %u variables added, %d parts, %d patches",
-             Json_GetString(doc, "id", "?"), Json_GetString(doc, "name", "?"), (unsigned)s_lv.numTriggers,
-             (unsigned)numKeep, (unsigned)numTimers, (unsigned)numVars, n, s_lv.numPatches);
+    Port_Log("level: %s (%s): %u triggers (%u kept), %u timers and %u variables added, %d parts, %d patches, "
+             "%d arrays grown", Json_GetString(doc, "id", "?"), Json_GetString(doc, "name", "?"),
+             (unsigned)s_lv.numTriggers, (unsigned)numKeep, (unsigned)numTimers, (unsigned)numVars, n,
+             s_lv.numPatches, s_lv.numGrows);
 done:
     SDL_free(keep);
     SDL_free(parts);
     if (!ok) {
-        /* nothing of it stays: the pack's own fields were not touched yet */
+        /* nothing of it stays: the pack's tables weren't swapped yet, the appends' and the
+         * patches' bytes go back */
         s_lv.triggers = NULL;
         s_lv.timers = s_lv.variables = NULL;
         Unapply();
