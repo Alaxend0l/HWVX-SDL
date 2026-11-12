@@ -60,6 +60,7 @@ static struct {
     u32 overlays;
     f32 (*regionBox)[6];        /* per quadrant: min xyz, max xyz (min > max: none) */
     u32 numRegionBoxes;
+    int regionsDone;            /* regionBox made (lazily: ~100k BSP tests a quadrant) */
     f32 loadMs;
     u32 maxLoaded;
     struct {
@@ -156,7 +157,9 @@ static void FindLevel(void *ctx, u32 p, u32 i, const char *path) {
 /* ---- loading ----------------------------------------------------------------- */
 
 /* Each quadrant region's box: points of a grid over the collision bounds
- * that the region holds (BSPN0_CollideWithVector), grown by half a step. */
+ * that the region holds (BSPN0_CollideWithVector), grown by half a step.
+ * Made the first time something needs them (the regions/loaded overlays,
+ * focus on a quadrant), not at every world load. */
 static void RegionBoxes(void) {
     World *wd = WORLD();
     WorldCollision *col = GETP(wd->collision);
@@ -165,6 +168,10 @@ static void RegionBoxes(void) {
     u32 q;
     int x, y, z, k;
 
+    if (w.regionsDone) {
+        return;
+    }
+    w.regionsDone = 1;
     SDL_free(w.regionBox);
     w.numRegionBoxes = wd->numQuads;
     w.regionBox = SDL_calloc(wd->numQuads ? wd->numQuads : 1, sizeof(*w.regionBox));
@@ -271,6 +278,7 @@ void ViewerWorld_Unload(void) {
     SDL_free(w.regionBox);
     w.regionBox = NULL;
     w.numRegionBoxes = 0;
+    w.regionsDone = 0;
     w.active = 0;
     Port_Log("viewer: world %s unloaded", w.name);
 }
@@ -305,7 +313,7 @@ static int Load(const char *path, char *err, size_t errSize) {
     SDL_strlcpy(w.name, LastPart(path), sizeof(w.name));
     AddProcesses();
     g_worldData.resetQuads = 1;
-    RegionBoxes();
+    w.regionsDone = 0;          /* RegionBoxes: when first wanted */
     w.vp = Viewer_AdoptPack(path, 4, 0, (DataPack *)PTR(g_worldData.worldPack));
     w.loadMs = (f32)((SDL_GetTicksNS() - t0) / 1000000.0);
     w.maxLoaded = 0;
@@ -455,6 +463,8 @@ static void Collect(void) {
     s_numLines = 0;
     if (w.overlays & (OV_REGIONS | OV_LOADED)) {
         s32 cur = CameraQuad();
+
+        RegionBoxes();
 
         for (q = 0; q < w.numRegionBoxes; q++) {
             WorldQuad *quad = &GETP(wd->quads)[q];
@@ -851,7 +861,8 @@ int ViewerWorld_PlaceOf(u32 off, u32 size, f32 *pos, f32 *radius) {
                 SET(&GETP(qc->fxPoints)[i].pos, 3.0f);
             }
         }
-        if (q < w.numRegionBoxes && HIT(&GETP(wd->quads)[q], sizeof(WorldQuad)) && w.regionBox[q][0] <= w.regionBox[q][3]) {
+        if (HIT(&GETP(wd->quads)[q], sizeof(WorldQuad)) && (RegionBoxes(), q < w.numRegionBoxes) &&
+            w.regionBox[q][0] <= w.regionBox[q][3]) {
             const f32 *b = w.regionBox[q];
             Vector4 c;
 
