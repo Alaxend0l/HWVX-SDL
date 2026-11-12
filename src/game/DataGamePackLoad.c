@@ -324,6 +324,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     u32 idx;
     s32 fmt;
     XdlPack *xp;
+    DataPackFileHeader ownHeader;
     u8 *xdlBank = NULL;
     void *xdlSfx = NULL;
 
@@ -540,13 +541,20 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     offset = pad + offset;
     reloc = (u32 *)(data + offset);
     pointers = reloc + header.numTexRelocs * 2;
-    for (i = 0; i < header.numTexRelocs; i++) {
+    /* port: a reference not loaded yet is loaded here, through this function:
+     * it overwrites the static header (the release then went on with the
+     * other pack's sizes and offsets) and may close this pack's file (the
+     * cache keeps its own reference, xdl.c). Put back below; a no-op when
+     * every reference is loaded, as in the releases' data. */
+    ownHeader = header;
+    for (i = 0; i < ownHeader.numTexRelocs; i++) {
         packID = reloc[1] & 0xFFFF0000;
         if (packID != 0) {
             packID >>= 16;
             idx = pack->refs[0].id != packID;
             if (GETP(pack->refs[idx].pack) == NULL) {
                 SETP(pack->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&pack->refs[idx], 8, packID, 0), 8, 1));
+                header = ownHeader;
             }
             *(u32 *)(GETP(pack->base) + reloc[0]) = ((u32 *)GETP(GETP(pack->refs[idx].pack)->base))[reloc[1] & 0xFFFF];
         } else if (xp == NULL) {   /* port: a cached pack's are fixups */

@@ -92,6 +92,10 @@ typedef struct XdlFile {
     u32 numSections;
     XdlTocEntry *toc;
     u32 numToc;
+    /* dvd.c's open file holds one, and so does every pack read from it or
+     * recorded for it: a pack that loads another (a missing reference,
+     * DataGamePackLoad.c) can close the file it is being read from */
+    int refs;
 } XdlFile;
 
 struct XdlPack {
@@ -266,6 +270,7 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
     for (lower = xf->path != NULL ? xf->path + SDL_strlen(xf->path) - n : NULL; lower != NULL && *lower; lower++) {
         *lower = (char)SDL_tolower((unsigned char)*lower);
     }
+    xf->refs = 1;
     xf->source = SDL_strdup(sourcePath);
     SDL_memcpy(xf->want.magic, "XDL1", 4);
     xf->want.version = XDL_VERSION;
@@ -305,7 +310,7 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
 void Xdl_CloseFile(void *p) {
     XdlFile *xf = p;
 
-    if (xf == NULL) {
+    if (xf == NULL || --xf->refs > 0) {
         return;
     }
     if (xf->io != NULL) {
@@ -410,6 +415,9 @@ void Xdl_BeginPack(void *xf, u32 srcOffset, u32 type, u32 id) {
     r->prev = s_rec;
     s_rec = r;
     r->xf = xf;
+    if (r->xf != NULL) {
+        r->xf->refs++;
+    }
     r->srcOffset = srcOffset;
     r->type = type;
     r->id = id;
@@ -430,6 +438,7 @@ static void PopRec(void) {
     }
     SDL_free(r->slots);
     SDL_free(r->fix);
+    Xdl_CloseFile(r->xf);
     SDL_free(r);
 }
 
@@ -909,6 +918,7 @@ XdlPack *Xdl_FindPack(void *p, u32 srcOffset) {
         }
     }
     xp->xf = xf;
+    xf->refs++;
     return xp;
 bad:
     Port_Log("xdl: pack at 0x%x of %s is damaged, loading the source", srcOffset, xf->path);
@@ -920,6 +930,7 @@ void Xdl_FreePack(XdlPack *xp) {
     if (xp != NULL) {
         SDL_free(xp->fix);
         SDL_free(xp->applied);
+        Xdl_CloseFile(xp->xf);
         SDL_free(xp);
     }
 }
