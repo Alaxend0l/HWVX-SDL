@@ -474,6 +474,9 @@ s32 Trigger_ReleaseTrigger(s32 *arg) {
     Trigger *trigger = (Trigger *)arg;
     u32 i;
 
+    if (trigger->type >= TRIGGER_NUM_TYPES) {
+        return 0;   /* port: a type no list has (a level's, Port_Level.c) was never added */
+    }
     for (i = 0; i < TRIGGER_STATS[trigger->type].count; i++) {
         if (TRIGGER_LISTS[trigger->type][i] == trigger) {
             TRIGGER_STATS[trigger->type].count--;

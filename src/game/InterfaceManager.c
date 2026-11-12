@@ -3675,7 +3675,8 @@ void InterfaceManager_CheckConditions(Interface *iface, InterfaceObject *obj) {
                     if (GETP(g_worldData.world) != NULL) {
                         /* sic: clears vars[0] and stores by world variable index k */
                         ifc->vars[0] = 0;
-                        for (k = 0; k < WORLD()->numVariables; k++) {
+                        /* port: k bounded by vars[30] (a level's variables can make more) */
+                        for (k = 0; k < WORLD()->numVariables && k < sizeof(ifc->vars) / sizeof(ifc->vars[0]); k++) {
                             if (GETP(GETP(WORLD()->variables)[k])->id == GETP(GETP(GETP(ifc->header)->vars)->vars)[i].offset) {
                                 ifc->vars[k] = GETP(GETP(WORLD()->variables)[k])->value;
                             }
