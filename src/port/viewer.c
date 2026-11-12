@@ -1738,6 +1738,17 @@ s32 Port_ViewerFrame(void) {
     Gfx_SetAmbientColor(&c);
     c = white;
     Gfx_SetParallelLight(&c, &lightDir);
+    {
+        /* the reflections (windows, chrome, wheels) as the car select draws
+         * them: the MCP's environment map (GameSpecificInterfaces.c); without
+         * one those parts are black */
+        MCP *mcp = GameSettings_GetMCP();
+
+        if (mcp != NULL) {
+            Gfx_SetEnvmap(mcp->envmapX, mcp->envmapY, 1, 100.0f, 100.0f);
+            Gfx_SetEnviroMapMode(1);
+        }
+    }
     any = DrawScene(min, max);
     if (any && s_frameNext) {
         /* the camera for the frame after this one: this one's draws are queued */
