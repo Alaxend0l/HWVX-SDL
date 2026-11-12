@@ -273,28 +273,38 @@ void Render_DrawPointSprites(void) {
 void Render_ScreenFlash(void) {
     f32 w;
     f32 zero = 0.0f;
+    f32 wx, wy, h, x0, y0;
 
     if (GetRenderWindow()->overlayMode != 0) {
+        /* port: widescreen - the flash covers the whole window, as the
+         * letterbox bars do: the 4:3 rectangle stretched about its centre
+         * by how much wider (taller) the view is drawn (Port_ViewWiden) */
+        Port_ViewWiden(&wx, &wy);
+        w = (f32)GetRenderWindow()->width;
+        h = (f32)GetRenderWindow()->height;
+        x0 = wx > 1.0f ? 0.5f * w * (1.0f - wx) : zero;
+        y0 = wy > 1.0f ? 0.5f * h * (1.0f - wy) : zero;
+        w -= x0;
+        h -= y0;
         Render_StateZWriteEnable(0);
         Render_StateAlphaBlendEnable(1);
         Render_StateBlendMode(GetRenderWindow()->overlayMode);
         Render_SetTextureHandle(0xFFFF);
         Set2DRectFlatVtxDesc();
         GXBegin(0x80, 0, 4);
-        GXPosition2f32(zero, zero);
+        GXPosition2f32(x0, y0);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
         /* port: the window's width and height, as the PS2 release draws it.
          * The GameCube used left/top (+0x2B0/+0x2B8), 0 or 1 for a window, so
          * the overlay - lens-flare whiteouts, screen flashes - never showed. */
-        GXPosition2f32(zero, (f32)GetRenderWindow()->height);
+        GXPosition2f32(x0, h);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        w = (f32)GetRenderWindow()->width;
-        GXPosition2f32(w, (f32)GetRenderWindow()->height);
+        GXPosition2f32(w, h);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
-        GXPosition2f32(w, zero);
+        GXPosition2f32(w, y0);
         GXColor4u8(GetRenderWindow()->overlayColor.r, GetRenderWindow()->overlayColor.g,
                    GetRenderWindow()->overlayColor.b, GetRenderWindow()->overlayColor.a);
         Render_StateZWriteEnable(1);
