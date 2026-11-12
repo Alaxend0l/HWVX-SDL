@@ -947,6 +947,12 @@ void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd) {
             if (Json_GetString(p, "x-units", NULL) != NULL) {
                 Jw_String(w, "units", Json_GetString(p, "x-units", ""));
             }
+            if (Json_GetString(p, "description", NULL) != NULL) {
+                Jw_String(w, "description", Json_GetString(p, "description", ""));
+            }
+            if (Json_GetString(p, "x-confidence", NULL) != NULL) {
+                Jw_String(w, "confidence", Json_GetString(p, "x-confidence", ""));
+            }
             if (link != NULL) {
                 Jw_String(w, "link", Json_GetString(link, "kind", "object"));
                 if (Json_GetString(link, "target", NULL) != NULL) {
