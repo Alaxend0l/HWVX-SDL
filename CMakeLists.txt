@@ -199,6 +199,22 @@ if(HWVX_TESTS AND NOT ANDROID)
     endif()
     add_test(NAME savetest COMMAND savetest savetest-out)
 
+    # The .xdl pack cache's file handling (src/port/xdl.c): its own files, no
+    # game or window. tools/xdltest.c says what it covers.
+    add_executable(xdltest tools/xdltest.c src/port/xdl.c src/port/fileio.c)
+    target_include_directories(xdltest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/game/include
+        ${CMAKE_SOURCE_DIR}/src/port)
+    target_link_libraries(xdltest PRIVATE SDL3::SDL3)
+    target_compile_options(xdltest PRIVATE -fno-strict-aliasing -fwrapv -Wall -Wno-unknown-pragmas
+        -Wno-unused-function -Wno-missing-braces -Wno-pointer-sign
+        -Werror=implicit-function-declaration -Werror=return-type)
+    if(HWVX_ASAN)
+        target_compile_options(xdltest PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(xdltest PRIVATE -fsanitize=address,undefined)
+    endif()
+    add_test(NAME xdltest COMMAND xdltest xdltest-out)
+
     # Importing the releases' saves (src/game/Port_SaveImport.c). The example
     # saves are read from HWVX-SDL/build-saves and orig/ when they are there
     # (a worktree sits one folder deeper); tools/saveimporttest.c says what
