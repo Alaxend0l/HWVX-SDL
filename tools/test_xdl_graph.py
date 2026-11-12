@@ -179,5 +179,14 @@ except GR.GraphError as e:
     msg = str(e)
 check("error: a link to nothing is refused", msg and "nowhere" in msg, str(msg))
 
+GR.Extractor(GR.Source(src), proj, S).run()
+edit(proj / "CarAInfo/0.jsonc", lambda t: re.sub(r'\n\s*"maxRpm": [^\n]*', "", t, count=1))
+try:
+    build(proj, "car5_nofield")
+    msg = None
+except GR.GraphError as e:
+    msg = str(e)
+check("error: a field left out of a typed file is refused (not built as 0)", msg and "maxRpm" in msg, str(msg))
+
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)

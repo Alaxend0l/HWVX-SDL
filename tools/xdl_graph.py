@@ -929,6 +929,18 @@ class GraphEncoder(XS.Encoder):
         for o in [o for o in self.links if lo <= o + 3 and o < hi]:
             del self.links[o]
 
+    def struct(self, sch, off, obj, path):
+        # the base (.base.jsonc) has every JSON field zeroed: a field left out would build as 0.
+        # Only top-level texture links keep their base bytes (write_typed).
+        for key, p in XS.fields(sch):
+            if key in obj:
+                continue
+            lf = XS.leaf(p, len(XS.parse_ctype(p["x-c-type"])[1]))
+            if not (path == "" and lf.get("x-link", {}).get("kind") == "texture"):
+                raise XS.XdlError(f"{path}/{key}: missing (a project file lists every field; "
+                                  "its base has 0 there)")
+        super().struct(sch, off, obj, path)
+
     def link(self, x, off, v, path):
         if v is not None and not isinstance(v, str):
             raise XS.XdlError(f"{path}: a link is a string or null")
@@ -1055,7 +1067,10 @@ class Builder:
         xp = type("P", (), {"e": self.e, "release": self.release, "archive": self.archive, "name": self.name,
                             "ptrs": set(), "tex": {}, "snd": {}, "ref": {}, "blob": b""})()
         enc = GraphEncoder(self.S, xp, sname, data)
-        enc.encode(doc, doc.get("extends"))
+        try:
+            enc.encode(doc, doc.get("extends"))
+        except XS.XdlError as e:
+            raise GraphError(f"{stem}.jsonc: {e}")
         b = Built(ent["id"], enc.out, ent["align"])
         rec_slots(b, base)
         for off, (kind, v) in enc.links.items():
