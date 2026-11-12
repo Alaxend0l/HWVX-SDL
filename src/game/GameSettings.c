@@ -618,7 +618,7 @@ done:
         /* port: online, all cars, worlds and weapons are open in the menus (Port_Online.c);
          * a level's scripts get the player's real progress, as Joyride's intro reports it */
         if (GameSettings_IsCheatEnabled(1) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {
-            return 1;
+            return type == 0 && Port_ContentReserved(PORT_CONTENT_CAR, arg) ? 0 : 1;   /* port: not a reserved number's "?" */
         }
         switch (type) {
         case 0:
@@ -635,7 +635,7 @@ done:
         break;
     case 0x65:
         if (GameSettings_IsCheatEnabled(3) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {   /* port: as for cars */
-            return 1;
+            return type == 0 && Port_ContentReserved(PORT_CONTENT_TRACK, arg) ? 0 : 1;   /* port: not a reserved number's "?" */
         }
         switch (type) {
         case 0:
@@ -652,7 +652,7 @@ done:
         break;
     case 0x66:
         if (GameSettings_IsCheatEnabled(2) || (Port_OnlineActive() && StateManager_CurrState() != 5)) {   /* port: as for cars */
-            return 1;
+            return type == 0 && Port_ContentReserved(PORT_CONTENT_ITEM, arg) ? 0 : 1;   /* port: not a reserved number's "?" */
         }
         switch (type) {
         case 0:
@@ -1779,6 +1779,16 @@ char *GameSettings_GetActiveMemoryCardFileName(s8 bNoDefault, s32 index, char *d
 
 
 
+/* port: the cars a game can unlock (not the numbers ids.lock reserves) */
+static u32 Port_PlayableCars(void) {
+    u32 i, n = 0;
+
+    for (i = 0; i < Port_ContentCount(PORT_CONTENT_CAR); i++) {
+        n += !Port_ContentReserved(PORT_CONTENT_CAR, i);
+    }
+    return n;
+}
+
 char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
     extern u8 *g_pSavedGameData;
     extern s8 g_bRefreshMC_FileInfo;
@@ -1860,8 +1870,8 @@ char *GameSettings_GetActiveMemoryCardLevelDetails(void) {
                 sprintf(levelDetails, "Mission %d|Challenge %d|Available Cars %d|Available Items %d|Available Races %d|Available Battles %d|Completed %d%%",
                         mission - 4, challenge - 38, cars, items + 3, races + 4, battles + 4,
                         (u32)(100.0f * ((f32)(cars + items + (mission - 4) + (challenge - 38) + (races + 4) + (battles + 4) - 13) /
-                                      /* port: 75, of which 33 cars */
-                                      (f32)(Port_ContentCount(PORT_CONTENT_CAR) + 42))));
+                                      /* port: 75, of which 33 cars (reserved numbers never unlock) */
+                                      (f32)(Port_PlayableCars() + 42))));
                 g_codeVariables.currentMission = mission - 5;
             } else {
                 levelDetails[0] = 0;
@@ -2204,13 +2214,15 @@ u8 GameSettings_LoadGame(void) {
     memcpy(g_pGameData, SAVE_FILE_GAME_DATA(saved, size, slot), size);
     if (g_pGameData == (u8 *)&g_HotWheelsGameData) {
         /* port: the registry takes the struct back, and the entries past
-         * its arrays from the JSON save's slot; a chosen car or item the
-         * data doesn't have (a removed mod's, a number edited by hand)
-         * reads as none */
+         * its arrays from the JSON save's slot; a chosen car number the
+         * data doesn't have, or one ids.lock keeps for a car that's away,
+         * is car 0, as in a new game (-1 from the JSON save: a car it keeps
+         * the id of); an item it doesn't have is none */
         Port_ContentFromGameData();
         Port_ContentLoadKept(GameSettings_PortKept(slot));
-        if (g_HotWheelsGameData.vehicle < -1 || g_HotWheelsGameData.vehicle >= (s32)Port_ContentCount(PORT_CONTENT_CAR)) {
-            g_HotWheelsGameData.vehicle = -1;
+        if (g_HotWheelsGameData.vehicle < -1 || g_HotWheelsGameData.vehicle >= (s32)Port_ContentCount(PORT_CONTENT_CAR) ||
+            (g_HotWheelsGameData.vehicle >= 0 && Port_ContentReserved(PORT_CONTENT_CAR, (u32)g_HotWheelsGameData.vehicle))) {
+            g_HotWheelsGameData.vehicle = 0;
         }
         if (g_HotWheelsGameData.item < -1 || g_HotWheelsGameData.item >= (s32)Port_ContentCount(PORT_CONTENT_ITEM)) {
             g_HotWheelsGameData.item = -1;

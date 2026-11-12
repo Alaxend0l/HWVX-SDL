@@ -37,6 +37,13 @@ enum {
     PORT_CONTENT_KINDS
 };
 
+/* Limits: an id is at most PORT_CONTENT_ID_MAX characters (online sends its
+ * length as a byte; longer ones aren't registered), and a kind numbers at
+ * most PORT_CONTENT_MAX_REGISTERED entries past its base content (an
+ * ids.lock number or "next" past that is logged and not used). */
+#define PORT_CONTENT_ID_MAX 255
+#define PORT_CONTENT_MAX_REGISTERED 4096
+
 /* How many there are, and how many the save struct's array holds. */
 u32 Port_ContentCount(int kind);
 u32 Port_ContentRetailCount(int kind);
@@ -46,6 +53,9 @@ u32 Port_ContentBaseCount(int kind);
  * the count. Setting past the count does nothing. */
 s8 Port_ContentUnlocked(int kind, u32 i);
 void Port_ContentSetUnlocked(int kind, u32 i, s8 v);
+/* 1 if entry i is a reserved number (ids.lock content that isn't there):
+ * never unlocked, never to be chosen. */
+int Port_ContentReserved(int kind, u32 i);
 
 /* Ids, as the save is keyed: base:// for numbered base content, the
  * registered id otherwise. 1 if there is one. */
