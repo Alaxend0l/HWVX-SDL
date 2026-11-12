@@ -387,11 +387,10 @@ static char *Absolute(const char *path) {
 
 /* ---- the window -------------------------------------------------------- */
 
-/* The silver (PS2) set takes the PS2's interface textures but not yet its
- * interface colours (digits, fill bars, arrows stay the GameCube's yellow):
- * the choice stays hidden until it does. A machine already set to silver
- * keeps the button, to switch back. */
-#define MIX_SILVER_READY 0
+/* The silver (PS2) set: the PS2's interface textures and colours
+ * (Port_Mix.c MixIfaceColours). 0 hides the choice (a machine already set to
+ * silver keeps the button, to switch back). */
+#define MIX_SILVER_READY 1
 
 enum {
     ACT_NONE, ACT_PLAY_THIS, ACT_FOLDER, ACT_IMAGE, ACT_REMOVE, ACT_PLAY, ACT_QUIT, ACT_CONVERT, ACT_SKIP,
