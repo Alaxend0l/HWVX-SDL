@@ -1,8 +1,12 @@
 //! Saving edited JSONC without losing what the person wrote: the file is parsed into spans
 //! (where each value, member and comma is), the old and new values are compared, and only
-//! what changed is rewritten in place: a changed number or string, a member added (before the
-//! closing brace, indented as its siblings) or removed (with its comma), an array whose length
-//! changed (written again). Comments, blank lines, key order and formatting elsewhere stay.
+//! what changed is rewritten in place: a changed number or string, a member added (after the
+//! last member and its trailing comment, indented as its siblings) or removed (its span: the
+//! comment lines above it, the member, its comma and its comment on the same line), an array
+//! whose length changed (written again). Comments, blank lines, key order and formatting
+//! elsewhere stay. Commas are the parser's (never one inside a comment), removals that touch
+//! are merged, and the result is read back and compared with what was asked for: a rewrite
+//! that wouldn't read back as `new` is an error, never a file.
 
 use serde_json::Value;
 
@@ -26,6 +30,8 @@ struct Member {
     /// from the key's quote to the value's end
     start: usize,
     value: Node,
+    /// the comma that follows it (the parser's: never one in a comment)
+    comma: Option<usize>,
 }
 
 struct P<'a> {
@@ -77,7 +83,7 @@ impl<'a> P<'a> {
         match self.s.get(self.i) {
             Some(b'{') => {
                 self.i += 1;
-                let mut members = Vec::new();
+                let mut members: Vec<Member> = Vec::new();
                 loop {
                     self.trivia();
                     match self.s.get(self.i) {
@@ -85,7 +91,14 @@ impl<'a> P<'a> {
                             self.i += 1;
                             break;
                         }
-                        Some(b',') => self.i += 1,
+                        Some(b',') => {
+                            if let Some(m) = members.last_mut() {
+                                if m.comma.is_none() {
+                                    m.comma = Some(self.i);
+                                }
+                            }
+                            self.i += 1
+                        }
                         Some(b'"') => {
                             let ms = self.i;
                             let key = self.string()?;
@@ -95,7 +108,7 @@ impl<'a> P<'a> {
                             }
                             self.i += 1;
                             let value = self.value()?;
-                            members.push(Member { key, start: ms, value });
+                            members.push(Member { key, start: ms, value, comma: None });
                         }
                         _ => return Err(format!("an object member at {}", self.i)),
                     }
@@ -180,73 +193,7 @@ fn diff(s: &str, n: &Node, old: &Value, new: &Value, edits: &mut Vec<(usize, usi
         return;
     }
     match (&n.kind, old, new) {
-        (Kind::Obj(members), Value::Object(o), Value::Object(w)) => {
-            // changed and removed members
-            for (i, m) in members.iter().enumerate() {
-                match (o.get(&m.key), w.get(&m.key)) {
-                    (Some(a), Some(b)) => diff(s, &m.value, a, b, edits),
-                    (Some(_), None) => {
-                        // the member and the comma after it (or the one before, for the last)
-                        let bytes = s.as_bytes();
-                        let mut end = m.value.end;
-                        let mut j = end;
-                        while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
-                            j += 1;
-                        }
-                        let mut start = m.start;
-                        if j < bytes.len() && bytes[j] == b',' {
-                            end = j + 1;
-                        } else if i > 0 {
-                            // the previous member's comma
-                            let prev = &members[i - 1];
-                            if let Some(c) = s[prev.value.end..m.start].find(',') {
-                                start = prev.value.end + c;
-                            }
-                        }
-                        // the whole line when the member was alone on it
-                        let ls = s[..start].rfind('\n').map(|x| x + 1).unwrap_or(0);
-                        let le = s[end..].find('\n').map(|x| end + x).unwrap_or(s.len());
-                        if s[ls..start].trim().is_empty() && s[end..le].trim().is_empty() {
-                            edits.push((ls, (le + 1).min(s.len()), String::new()));
-                        } else {
-                            edits.push((start, end, String::new()));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            // added members: before the closing brace
-            let added: Vec<(&String, &Value)> = w.iter().filter(|(k, _)| !o.contains_key(*k)).collect();
-            if !added.is_empty() {
-                let close = n.end - 1;
-                let base = line_indent(s, n.start);
-                let ind = members.first().map(|m| line_indent(s, m.start)).unwrap_or(base + 2);
-                let multi = s[n.start..n.end].contains('\n') || members.is_empty();
-                let mut text = String::new();
-                let last_end = members.last().map(|m| m.value.end);
-                let has_trailing = last_end.map(|e| s[e..close].trim_start().starts_with(',')).unwrap_or(false);
-                for (k, v) in added {
-                    let item = format!("{}: {}", serde_json::to_string(k).unwrap(), format_value(v, ind));
-                    if multi {
-                        text.push_str(&format!("\n{}{item},", " ".repeat(ind)));
-                    } else {
-                        text.push_str(&format!(" {item},"));
-                    }
-                }
-                match last_end {
-                    Some(e) => {
-                        // after the last member (its comma, if it has one)
-                        let at = if has_trailing { e + s[e..close].find(',').unwrap() + 1 } else { e };
-                        let t = if has_trailing { text.trim_end_matches(',').to_string() } else { format!(",{}", text.trim_end_matches(',')) };
-                        edits.push((at, at, t));
-                    }
-                    None => {
-                        let t = format!("{}\n{}", text.trim_end_matches(','), " ".repeat(base));
-                        edits.push((n.start + 1, close, t));
-                    }
-                }
-            }
-        }
+        (Kind::Obj(members), Value::Object(o), Value::Object(w)) => object(s, n, members, o, w, edits),
         (Kind::Arr(items), Value::Array(o), Value::Array(w)) if o.len() == w.len() && items.len() == o.len() => {
             for ((it, a), b) in items.iter().zip(o).zip(w) {
                 diff(s, it, a, b, edits);
@@ -256,18 +203,194 @@ fn diff(s: &str, n: &Node, old: &Value, new: &Value, edits: &mut Vec<(usize, usi
     }
 }
 
-/// The file `text` (JSONC whose value is `old`) with `new` in it, changed in place.
+/// Where member i's span ends: its value, its comma (when right after it), and the rest of its
+/// line when that is only spaces and a comment (the newline included).
+fn span_end(s: &str, m: &Member) -> usize {
+    let b = s.as_bytes();
+    let mut j = m.value.end;
+    let skip = |j: &mut usize| {
+        while *j < b.len() && (b[*j] == b' ' || b[*j] == b'\t' || b[*j] == b'\r') {
+            *j += 1;
+        }
+    };
+    skip(&mut j);
+    if m.comma == Some(j) {
+        j += 1;
+        skip(&mut j);
+    }
+    let k = j;
+    if s[j..].starts_with("//") {
+        j += s[j..].find('\n').unwrap_or(s.len() - j);
+    } else if s[j..].starts_with("/*") {
+        match s[j..].find("*/") {
+            Some(e) if !s[j..j + e].contains('\n') => {
+                j += e + 2;
+                skip(&mut j);
+            }
+            _ => return k,
+        }
+    }
+    if j < b.len() && b[j] == b'\n' {
+        j + 1
+    } else if s[k..j].is_empty() {
+        k
+    } else {
+        j
+    }
+}
+
+/// An object's members changed, removed and added (see the top).
+fn object(s: &str, n: &Node, members: &[Member], o: &serde_json::Map<String, Value>, w: &serde_json::Map<String, Value>,
+          edits: &mut Vec<(usize, usize, String)>) {
+    let open = n.start;
+    let close = n.end - 1;
+    let b = s.as_bytes();
+    let multi = s[open..n.end].contains('\n');
+    let base = line_indent(s, open);
+    let ind = members.first().map(|m| line_indent(s, m.start)).filter(|&i| i > base).unwrap_or(base + 2);
+    let item = |k: &String, v: &Value| format!("{}: {}", serde_json::to_string(k).unwrap(), format_value(v, ind));
+    let removed: Vec<bool> = members.iter().map(|m| o.contains_key(&m.key) && !w.contains_key(&m.key)).collect();
+    let kept: Vec<usize> = (0..members.len()).filter(|&i| !removed[i]).collect();
+    let added: Vec<(&String, &Value)> = w.iter().filter(|(k, _)| !o.contains_key(*k)).collect();
+
+    if kept.is_empty() {
+        // every member goes, or the object was empty: its body written again
+        if members.is_empty() && added.is_empty() {
+            return;
+        }
+        let parts: Vec<String> = added.iter().map(|(k, v)| item(k, v)).collect();
+        let body = if parts.is_empty() {
+            String::new()
+        } else if multi || parts.iter().any(|p| p.contains('\n')) {
+            let lines: Vec<String> = parts.iter().map(|p| format!("{}{p}", " ".repeat(ind))).collect();
+            format!("\n{}\n{}", lines.join(",\n"), " ".repeat(base))
+        } else {
+            format!(" {} ", parts.join(", "))
+        };
+        edits.push((open + 1, close, body));
+        return;
+    }
+    // the members' spans: back to back, the first from the line after the brace
+    let mut at = open + 1;
+    {
+        let mut j = at;
+        while j < close && (b[j] == b' ' || b[j] == b'\t' || b[j] == b'\r') {
+            j += 1;
+        }
+        if j < close && b[j] == b'\n' {
+            at = j + 1;
+        }
+    }
+    let mut spans = Vec::new();
+    for m in members {
+        let e = span_end(s, m).max(m.value.end);
+        spans.push((at.min(m.start), e));
+        at = e;
+    }
+    let in_span = |c: usize, i: usize| c >= spans[i].0 && c < spans[i].1;
+    // changed members
+    for &i in &kept {
+        let m = &members[i];
+        if let (Some(x), Some(y)) = (o.get(&m.key), w.get(&m.key)) {
+            diff(s, &m.value, x, y, edits);
+        }
+    }
+    // removed ones: their spans (the comment lines above, the member, a comma and comment on its line)
+    for i in 0..members.len() {
+        if removed[i] {
+            edits.push((spans[i].0, spans[i].1, String::new()));
+        }
+    }
+    // commas as separators: between two members that stay, one that survives (the first's in its
+    // own span, or one first on the second's line); every other comma not in a removed span goes
+    let lk = *kept.last().unwrap();
+    let was_last = members.len() - 1;
+    let trailing_style = members[was_last].comma.is_some();
+    let mut keep = std::collections::HashSet::new();
+    for pair in kept.windows(2) {
+        let (a, bb) = (pair[0], pair[1]);
+        if let Some(c) = members[a].comma.filter(|&c| in_span(c, a)) {
+            keep.insert(c);
+        } else if let Some(c) = members[bb - 1].comma.filter(|&c| in_span(c, bb)) {
+            keep.insert(c);
+        } else {
+            let v = members[a].value.end;
+            edits.push((v, v, ",".into()));
+        }
+    }
+    if trailing_style || !added.is_empty() {
+        if let Some(c) = members[lk].comma.filter(|&c| in_span(c, lk)) {
+            keep.insert(c);
+        }
+    }
+    for m in members {
+        if let Some(c) = m.comma {
+            if !keep.contains(&c) && !(0..members.len()).any(|i| removed[i] && in_span(c, i)) {
+                edits.push((c, c + 1, String::new()));
+            }
+        }
+    }
+    if added.is_empty() {
+        return;
+    }
+    let end = spans[lk].1;
+    let parts: Vec<String> = added.iter().map(|(k, v)| item(k, v)).collect();
+    let tail = if trailing_style { "," } else { "" };
+    let mut text = if multi && s[..end].ends_with('\n') {
+        let lines: Vec<String> = parts.iter().map(|p| format!("{}{p}", " ".repeat(ind))).collect();
+        format!("{}{tail}\n", lines.join(",\n"))
+    } else if multi {
+        let lines: Vec<String> = parts.iter().map(|p| format!("{}{p}", " ".repeat(ind))).collect();
+        format!("\n{}{tail}", lines.join(",\n"))
+    } else {
+        let sep = if s[..end].ends_with(' ') { "" } else { " " };
+        let after = if b.get(end) == Some(&b' ') { "" } else { " " };
+        format!("{sep}{}{tail}{after}", parts.join(", "))
+    };
+    if !members[lk].comma.map(|c| keep.contains(&c)).unwrap_or(false) {
+        let v = members[lk].value.end;
+        if v == end {
+            text.insert(0, ',');
+        } else {
+            edits.push((v, v, ",".into()));
+        }
+    }
+    edits.push((end, end, text));
+}
+
+/// The file `text` (JSONC whose value is `old`) with `new` in it, changed in place. An error
+/// when the result wouldn't read back as `new` (nothing is written then).
 pub fn rewrite(text: &str, old: &Value, new: &Value) -> Result<String, String> {
     let mut p = P { s: text.as_bytes(), i: 0 };
     let root = p.value()?;
     let mut edits = Vec::new();
     diff(text, &root, old, new, &mut edits);
-    edits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
-    let mut out = text.to_string();
-    for (s, e, t) in edits {
-        out.replace_range(s..e, &t);
+    // deletions that overlap: one; any other overlap is a mistake (refused)
+    edits.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    let mut merged: Vec<(usize, usize, String)> = Vec::new();
+    for e in edits {
+        if let Some(l) = merged.last_mut() {
+            if e.0 < l.1 {
+                if e.2.is_empty() && l.2.is_empty() {
+                    l.1 = l.1.max(e.1);
+                    continue;
+                }
+                return Err(format!("the edits at {}..{} and {}..{} overlap: not saved", l.0, l.1, e.0, e.1));
+            }
+        }
+        merged.push(e);
     }
-    Ok(out)
+    // back to front; at one place, the deletion first, then what is inserted there
+    merged.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    let mut out = text.to_string();
+    for (s, e, t) in &merged {
+        out.replace_range(*s..*e, t);
+    }
+    match serde_json::from_str::<Value>(&crate::testdrive::strip_jsonc(&out)) {
+        Ok(v) if &v == new => Ok(out),
+        Ok(_) => Err("the rewritten file wouldn't read back as the level: not saved".into()),
+        Err(e) => Err(format!("the rewritten file wouldn't parse ({e}): not saved")),
+    }
 }
 
 /// A new file's text (no old one to keep): pretty, two spaces.
@@ -342,4 +465,159 @@ mod tests {
         v["n"] = "text with \"quotes\"".into();
         check(t, v);
     }
+    /// A small deterministic generator (xorshift), no crates.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+        fn chance(&mut self, pct: u64) -> bool {
+            self.below(100) < pct
+        }
+    }
+
+    /// An object's text in one of four layouts (one member a line; with a trailing comma; commas
+    /// first on the line; all on one line), members' comments tagged with their keys (l_KEY on the
+    /// line above, c_KEY after it on its line), and its value.
+    fn gen_obj(r: &mut Rng, depth: usize, indent: usize, keys: &mut u32) -> (String, Value) {
+        let style = r.below(4);
+        let n = r.below(5) as usize;
+        let mut v = serde_json::Map::new();
+        let pad = " ".repeat(indent + 2);
+        let mut lines = Vec::new();
+        for i in 0..n {
+            *keys += 1;
+            let k = format!("k{keys}");
+            let (vt, vv) = match r.below(5) {
+                0 if depth < 2 => gen_obj(r, depth + 1, indent + 2, keys),
+                1 => ("[1, 2]".to_string(), serde_json::json!([1, 2])),
+                2 => (format!("\"s{}\"", r.below(9)), Value::String(format!("s{}", r.below(1)))),
+                _ => {
+                    let x = r.below(100);
+                    (x.to_string(), Value::from(x))
+                }
+            };
+            let vv = if let Value::String(_) = vv { serde_json::from_str::<Value>(&vt).unwrap() } else { vv };
+            v.insert(k.clone(), vv);
+            let last = i + 1 == n;
+            let line = match style {
+                0 | 1 => {
+                    let comma = if !last || style == 1 { "," } else { "" };
+                    let above = if r.chance(30) { format!("{pad}// l_{k}\n") } else { String::new() };
+                    let after = if r.chance(40) { format!(" // c_{k}") } else if r.chance(15) { format!(" /* c_{k} */") } else { String::new() };
+                    format!("{above}{pad}\"{k}\": {vt}{comma}{after}\n")
+                }
+                2 => {
+                    let lead = if i == 0 { "  " } else { ", " };
+                    let after = if r.chance(40) { format!(" // c_{k}") } else { String::new() };
+                    format!("{}{lead}\"{k}\": {vt}{after}\n", " ".repeat(indent))
+                }
+                _ => format!("\"{k}\": {vt}"),
+            };
+            lines.push(line);
+        }
+        let text = if style == 3 {
+            if n == 0 { "{}".to_string() } else { format!("{{ {} }}", lines.join(", ")) }
+        } else {
+            format!("{{\n{}{}}}", lines.concat(), " ".repeat(indent))
+        };
+        (text, Value::Object(v))
+    }
+
+    /// Random deletions, additions and changes; the keys whose members stay (their comments must).
+    fn mutate(r: &mut Rng, v: &mut Value, keys: &mut u32, kept: &mut Vec<String>) {
+        let Value::Object(m) = v else { return };
+        let all = r.chance(10);
+        let names: Vec<String> = m.keys().cloned().collect();
+        for k in names {
+            if all || r.chance(35) {
+                m.remove(&k);
+                continue;
+            }
+            kept.push(k.clone());
+            let x = m.get_mut(&k).unwrap();
+            match x {
+                Value::Object(_) => mutate(r, x, keys, kept),
+                Value::Number(_) if r.chance(30) => *x = Value::from(r.below(1000) + 1000),
+                Value::Array(a) if r.chance(30) => a.push(Value::from(3)),
+                _ => {}
+            }
+        }
+        for _ in 0..r.below(3) {
+            *keys += 1;
+            let nv = if r.chance(30) { serde_json::json!({"x": 1, "y": [1, 2]}) } else { Value::from(r.below(50)) };
+            m.insert(format!("n{keys}"), nv);
+        }
+    }
+
+    #[test]
+    fn random_edits_read_back() {
+        let mut r = Rng(std::env::var("JSONC_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0x2545F4914F6CDD1D));
+        let mut fails = Vec::new();
+        let runs = std::env::var("JSONC_RUNS").ok().and_then(|s| s.parse().ok()).unwrap_or(20000);
+        for run in 0..runs {
+            let mut keys = 0u32;
+            let (text, old) = gen_obj(&mut r, 0, 0, &mut keys);
+            let text = format!("// head\n{text}\n");
+            assert_eq!(parse(&text), old, "the generator: {text}");
+            let mut new = old.clone();
+            let mut kept = Vec::new();
+            mutate(&mut r, &mut new, &mut keys, &mut kept);
+            match rewrite(&text, &old, &new) {
+                Ok(out) => {
+                    let back: Option<Value> = serde_json::from_str(&strip_jsonc(&out)).ok();
+                    if back.as_ref() != Some(&new) {
+                        fails.push(format!("run {run}: reads back wrong\n{text}\n->\n{out}"));
+                    } else if let Some(k) = kept.iter().find(|k| {
+                        (text.contains(&format!("c_{k} ")) || text.contains(&format!("c_{k}\n")) || text.contains(&format!("l_{k}\n")))
+                            && !(out.contains(&format!("c_{k}")) || out.contains(&format!("l_{k}")))
+                    }) {
+                        fails.push(format!("run {run}: the comment of {k} went\n{text}\n->\n{out}"));
+                    }
+                }
+                Err(e) => fails.push(format!("run {run}: {e}\n{text}")),
+            }
+        }
+        for f in fails.iter().take(3) {
+            eprintln!("{f}\n----");
+        }
+        assert_eq!(fails.len(), 0, "{} of {runs} random edits failed", fails.len());
+    }
+
+    #[test]
+    fn the_review_cases() {
+        // the last two members deleted; the only member deleted and one added; every member
+        let t = "{\n  \"a\": 1,\n  \"b\": 2, // two\n  \"c\": 3\n}\n";
+        let mut v = parse(t);
+        v.as_object_mut().unwrap().remove("b");
+        v.as_object_mut().unwrap().remove("c");
+        assert_eq!(check(t, v), "{\n  \"a\": 1\n}\n");
+        let t1 = "{\n  \"only\": 1\n}\n";
+        check(t1, serde_json::json!({"new": 2}));
+        let t2 = "// head\n{\n  \"a\": 1,\n  \"b\": { \"x\": 2 }\n}\n";
+        assert_eq!(check(t2, serde_json::json!({})), "// head\n{}\n");
+        // a comma inside a comment isn't the member's
+        let t3 = "{\n  \"a\": 1 // x, y\n  ,\"b\": 2\n}\n";
+        let mut v = parse(t3);
+        v.as_object_mut().unwrap().remove("b");
+        assert!(check(t3, v).contains("// x, y"));
+        // deleting the last member keeps the previous one's comment; an added member goes after
+        // a trailing comment, not between the value and it
+        let t4 = "{\n  \"a\": 1, // keep me\n  \"b\": 2\n}\n";
+        let mut v = parse(t4);
+        v.as_object_mut().unwrap().remove("b");
+        let out = check(t4, v);
+        assert!(out.contains("// keep me"), "{out}");
+        let t5 = "{\n  \"a\": 1 // after a\n}\n";
+        let mut v = parse(t5);
+        v["z"] = 2.into();
+        assert_eq!(check(t5, v), "{\n  \"a\": 1, // after a\n  \"z\": 2\n}\n");
+    }
 }
+
