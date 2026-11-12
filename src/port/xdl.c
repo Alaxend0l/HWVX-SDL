@@ -104,6 +104,7 @@ struct XdlPack {
     XdlFixup *fix;
     u8 *applied;
     u8 *at[XDL_MAX_SEGS];
+    u8 *bytes[XDL_MAX_SEGS];    /* the segments as read, checked */
 };
 
 /* ---- settings --------------------------------------------------------------- */
@@ -185,15 +186,19 @@ static int ReadAt(SDL_IOStream *io, u64 off, void *dst, size_t n) {
 }
 
 /* Load the index of an open cache file; 0 if it isn't one made from this
- * source by this version. */
+ * source by this version, or a section isn't wholly in the file (cut short:
+ * a full disk, or the game killed while the file was being made). */
 static int LoadIndex(XdlFile *xf, SDL_IOStream *io) {
     XdlHeader h;
     XdlSection *toc;
+    Sint64 fileSize = SDL_GetIOSize(io);
     u32 i;
 
     FreeIndex(xf);
-    if (!ReadAt(io, 0, &h, sizeof(h)) || SDL_memcmp(&h, &xf->want, offsetof(XdlHeader, numSections)) != 0 ||
-        h.settings != xf->want.settings || h.reserved[0] != xf->want.reserved[0] || h.numSections == 0 || h.numSections > 0x100000) {
+    if (fileSize < 0 || !ReadAt(io, 0, &h, sizeof(h)) ||
+        SDL_memcmp(&h, &xf->want, offsetof(XdlHeader, numSections)) != 0 || h.settings != xf->want.settings ||
+        h.reserved[0] != xf->want.reserved[0] || h.numSections == 0 || h.numSections > 0x100000 ||
+        (u64)h.sectionTableOffset + (u64)h.numSections * sizeof(XdlSection) > (u64)fileSize) {
         return 0;
     }
     xf->sections = SDL_malloc(h.numSections * sizeof(XdlSection));
@@ -202,6 +207,14 @@ static int LoadIndex(XdlFile *xf, SDL_IOStream *io) {
         return 0;
     }
     xf->numSections = h.numSections;
+    for (i = 0; i < h.numSections; i++) {
+        const XdlSection *s = &xf->sections[i];
+
+        if (s->offset < sizeof(XdlHeader) || s->offset > (u64)fileSize || s->size > (u64)fileSize - s->offset) {
+            FreeIndex(xf);
+            return 0;
+        }
+    }
     toc = &xf->sections[h.numSections - 1];   /* the TOC is the last section */
     if (toc->kind != XDL_SEC_TOC || toc->size % sizeof(XdlTocEntry) != 0) {
         FreeIndex(xf);
@@ -214,7 +227,7 @@ static int LoadIndex(XdlFile *xf, SDL_IOStream *io) {
         return 0;
     }
     for (i = 0; i < xf->numToc; i++) {
-        if (xf->toc[i].packSection >= xf->numSections) {
+        if (xf->toc[i].packSection >= xf->numSections || xf->sections[xf->toc[i].packSection].kind != XDL_SEC_PACK) {
             FreeIndex(xf);
             return 0;
         }
@@ -298,6 +311,14 @@ void *Xdl_OpenFile(const char *name, int fmt, const char *sourcePath) {
             xf->io = NULL;
         } else if (xf->io != NULL) {
             Port_Log("xdl: %s", xf->path);
+        }
+    } else {
+        /* writing only: what the file already holds isn't recorded again */
+        SDL_IOStream *io = SDL_IOFromFile(xf->path, "rb");
+
+        if (io != NULL) {
+            LoadIndex(xf, io);
+            SDL_CloseIO(io);
         }
     }
     if (xf->io == NULL && !Xdl_Writing()) {
@@ -775,6 +796,23 @@ static u32 AddSection(Writer *w, u32 kind, u32 seg, const void *p, u32 size) {
     return w->numSections++;
 }
 
+/* The open cache file `xf` takes the index `index` (emptied) read from or
+ * written to its file. When reading, the packs it holds are read from it
+ * later this session. */
+static void Adopt(XdlFile *xf, XdlFile *index) {
+    FreeIndex(xf);
+    xf->sections = index->sections;
+    xf->numSections = index->numSections;
+    xf->toc = index->toc;
+    xf->numToc = index->numToc;
+    index->sections = NULL;
+    index->toc = NULL;
+    index->numSections = index->numToc = 0;
+    if (Xdl_Reading() && xf->io == NULL) {
+        xf->io = SDL_IOFromFile(xf->path, "rb");
+    }
+}
+
 static void WritePack(Rec *r) {
     XdlFile *xf = r->xf;
     XdlFile index;
@@ -802,17 +840,23 @@ static void WritePack(Rec *r) {
         fresh = 1;
     }
     if (FindToc(&index, r->srcOffset) != NULL) {
+        /* written by an earlier load (another run): what the file holds now */
         SDL_CloseIO(w.io);
-        FreeIndex(&index);
-        return;     /* written by an earlier load */
+        Adopt(xf, &index);
+        return;
     }
     w.ok = 1;
     w.pack = index.numToc;
     if (fresh) {
         w.pos = sizeof(XdlHeader);
     } else {
-        /* the old TOC and table are replaced: new sections go where the TOC was */
-        w.pos = index.sections[index.numSections - 1].offset;
+        /* new sections, TOC and table go after the end of the file, and the
+         * header last: until it is written the file reads as it did, so a
+         * write cut short (killed, a full disk) loses only this pack. The
+         * old TOC and table stay behind, unused. */
+        Sint64 end = SDL_GetIOSize(w.io);
+
+        w.pos = end > 0 ? (u64)end : 0;
         w.numSections = index.numSections - 1;
         w.sections = index.sections;
         index.sections = NULL;
@@ -852,24 +896,40 @@ static void WritePack(Rec *r) {
         w.pack = ~0u;
         tocSection = AddSection(&w, XDL_SEC_TOC, 0, toc, (index.numToc + 1) * (u32)sizeof(XdlTocEntry));
         (void)tocSection;
-        SDL_free(toc);
     }
     h = xf->want;
     w.pos = (w.pos + 63) & ~(u64)63;
     h.numSections = w.numSections;
     h.sectionTableOffset = (u32)w.pos;
-    if (w.ok && w.pos < 0xFFFFFFFFu && WriteAt(w.io, w.pos, w.sections, w.numSections * sizeof(XdlSection))) {
-        /* the header last: until it is written, the file still reads as before */
-        w.ok = WriteAt(w.io, 0, &h, sizeof(h)) && SDL_FlushIO(w.io);
+    /* the sections and table on the disk before the header that points at
+     * them (Port_SyncIO), then the header */
+    if (w.ok && w.pos + (u64)w.numSections * sizeof(XdlSection) < 0xFFFFFFFFu &&
+        WriteAt(w.io, w.pos, w.sections, w.numSections * sizeof(XdlSection)) && Port_SyncIO(w.io)) {
+        w.ok = WriteAt(w.io, 0, &h, sizeof(h)) && Port_SyncIO(w.io);
     } else {
         w.ok = 0;
     }
     if (!w.ok) {
         Port_Log("xdl: writing %s failed", xf->path);
-    } else if (r->fallback) {
-        Port_Log("xdl: pack at 0x%x of %s: %u listed pointers outside the pack, relocated as listed", r->srcOffset,
-                 xf->path, r->fallback);
+    } else {
+        u32 numToc = index.numToc + 1;
+
+        if (r->fallback) {
+            Port_Log("xdl: pack at 0x%x of %s: %u listed pointers outside the pack, relocated as listed",
+                     r->srcOffset, xf->path, r->fallback);
+        }
+        /* the open file's index as written: a later load of the pack this
+         * session finds it rather than recording it again */
+        FreeIndex(&index);
+        index.sections = w.sections;
+        index.numSections = w.numSections;
+        index.toc = toc;
+        index.numToc = numToc;
+        w.sections = NULL;
+        toc = NULL;
+        Adopt(xf, &index);
     }
+    SDL_free(toc);
     SDL_free(w.sections);
     FreeIndex(&index);
     SDL_CloseIO(w.io);
@@ -895,13 +955,27 @@ XdlPack *Xdl_FindPack(void *p, u32 srcOffset) {
         goto bad;
     }
     for (i = 0; i < XDL_MAX_SEGS; i++) {
-        if (xp->info.seg[i].size != 0 && (xp->info.seg[i].section >= xf->numSections ||
-                                          xf->sections[xp->info.seg[i].section].size != xp->info.seg[i].size)) {
+        const XdlSegInfo *si = &xp->info.seg[i];
+
+        if (si->size == 0) {
+            continue;
+        }
+        if (si->section >= xf->numSections || xf->sections[si->section].kind != XDL_SEC_SEGMENT ||
+            xf->sections[si->section].size != si->size) {
+            goto bad;
+        }
+        /* read whole, so every slot is checked before anything is placed */
+        xp->bytes[i] = SDL_malloc(si->size);
+        if (xp->bytes[i] == NULL || !ReadAt(xf->io, xf->sections[si->section].offset, xp->bytes[i], si->size)) {
             goto bad;
         }
     }
+    if (xp->info.bankSeg != -1 && ((u32)xp->info.bankSeg >= XDL_MAX_SEGS ||
+                                   xp->info.bankOff > xp->info.seg[xp->info.bankSeg].size)) {
+        goto bad;
+    }
     s = &xf->sections[xp->info.fixupSection];
-    if (s->size != xp->info.numFixups * sizeof(XdlFixup)) {
+    if (s->kind != XDL_SEC_FIXUPS || s->size != (u64)xp->info.numFixups * sizeof(XdlFixup)) {
         goto bad;
     }
     xp->fix = SDL_malloc(s->size + 1);
@@ -911,9 +985,15 @@ XdlPack *Xdl_FindPack(void *p, u32 srcOffset) {
     }
     for (i = 0; i < xp->info.numFixups; i++) {
         const XdlFixup *f = &xp->fix[i];
+        u32 v;
 
         if (f->slotSeg >= XDL_MAX_SEGS || f->target >= XDL_MAX_SEGS ||
             (u64)f->slot + 4 > xp->info.seg[f->slotSeg].size) {
+            goto bad;
+        }
+        /* an offset into the target, or to its end */
+        SDL_memcpy(&v, xp->bytes[f->slotSeg] + f->slot, 4);
+        if (v > xp->info.seg[f->target].size) {
             goto bad;
         }
     }
@@ -928,6 +1008,11 @@ bad:
 
 void Xdl_FreePack(XdlPack *xp) {
     if (xp != NULL) {
+        int i;
+
+        for (i = 0; i < XDL_MAX_SEGS; i++) {
+            SDL_free(xp->bytes[i]);
+        }
         SDL_free(xp->fix);
         SDL_free(xp->applied);
         Xdl_CloseFile(xp->xf);
@@ -956,14 +1041,13 @@ int Xdl_BankRef(XdlPack *xp, u32 *offset) {
 }
 
 void Xdl_ReadSeg(XdlPack *xp, int seg, void *dst, u32 from, u32 size) {
-    const XdlSection *s = &xp->xf->sections[xp->info.seg[seg].section];
-
     if (size == 0) {
         return;
     }
-    if ((u64)from + size > xp->info.seg[seg].size || !ReadAt(xp->xf->io, s->offset + from, dst, size)) {
+    if ((u64)from + size > xp->info.seg[seg].size || xp->bytes[seg] == NULL) {
         Port_Fatal("xdl: can't read segment %d of the pack at 0x%x in %s", seg, xp->info.srcOffset, xp->xf->path);
     }
+    SDL_memcpy(dst, xp->bytes[seg] + from, size);
 }
 
 void Xdl_PlaceSeg(XdlPack *xp, int seg, void *at) {

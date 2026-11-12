@@ -35,6 +35,19 @@ int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
     return ok;
 }
 
+int Port_SyncIO(SDL_IOStream *io) {
+    SDL_PropertiesID props = SDL_GetIOProperties(io);
+    HANDLE h = (HANDLE)SDL_GetPointerProperty(props, SDL_PROP_IOSTREAM_WINDOWS_HANDLE_POINTER, NULL);
+
+    if (!SDL_FlushIO(io)) {
+        return 0;
+    }
+    if (h != NULL && !FlushFileBuffers(h)) {
+        return SDL_SetError("can't sync (%lu)", (unsigned long)GetLastError());
+    }
+    return 1;
+}
+
 int Port_ReplaceFile(const char *from, const char *to) {
     WCHAR *wf = Wide(from), *wt = Wide(to);
     int ok = wf != NULL && wt != NULL &&
@@ -50,6 +63,7 @@ int Port_ReplaceFile(const char *from, const char *to) {
 
 #else
 #include <errno.h>
+#include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -80,6 +94,23 @@ int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
         ok = SDL_SetError("can't close %s: %s", path, strerror(errno));
     }
     return ok;
+}
+
+int Port_SyncIO(SDL_IOStream *io) {
+    SDL_PropertiesID props = SDL_GetIOProperties(io);
+    FILE *f = SDL_GetPointerProperty(props, SDL_PROP_IOSTREAM_STDIO_FILE_POINTER, NULL);
+    int fd = (int)SDL_GetNumberProperty(props, SDL_PROP_IOSTREAM_FILE_DESCRIPTOR_NUMBER, -1);
+
+    if (!SDL_FlushIO(io)) {
+        return 0;
+    }
+    if (f != NULL) {
+        fd = fileno(f);
+    }
+    if (fd >= 0 && fsync(fd) != 0) {
+        return SDL_SetError("can't sync: %s", strerror(errno));
+    }
+    return 1;
 }
 
 /* rename(2) replaces `to` atomically; syncing the folder makes the new name
