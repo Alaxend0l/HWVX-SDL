@@ -20,6 +20,7 @@
 #include "common.h"
 #include "Port_Content.h"
 #include "Port_Mods.h"
+#include "Port_Level.h"
 #include "jsonc.h"
 #include "gx_texmod.h"
 #include "mbedtls/sha256.h"
@@ -1468,7 +1469,34 @@ void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsign
 }
 
 void Port_ModsPackReleased(void *dataPack) {
+    Port_LevelPackReleased(dataPack);   /* a level's own records go with its world */
     if (g_gxTexMods != 0) {
         GX_TexModClear(dataPack);
     }
+}
+
+/* ---- levels ---------------------------------------------------------------- */
+
+/* A track entry's level file (its "level", in its mod's folder), for the
+ * enabled mod that brings the entry last; NULL if none. */
+char *Port_ModsTrackLevel(const char *trackId) {
+    char *path = NULL;
+    int i;
+
+    if (trackId == NULL) {
+        return NULL;
+    }
+    for (i = s_numMods - 1; i >= 0 && path == NULL; i--) {
+        const char *level = Str(Json_Get(Json_Get(s_mods[i].doc, "tracks"), trackId), "level");
+
+        if (!Enabled(&s_mods[i]) || level == NULL) {
+            continue;
+        }
+        if (!SafeName(level)) {
+            Report("%s: track %s: level %s isn't a file in the mod", s_mods[i].info.name, trackId, level);
+            continue;
+        }
+        SDL_asprintf(&path, "%s%s", s_mods[i].dir, level);
+    }
+    return path;
 }

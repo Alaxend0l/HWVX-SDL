@@ -1,0 +1,18 @@
+// The intro screen ended: the countdown, then control and the clock.
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "interface_end",
+  "param": { "interface": "base://ch1_l2/world_0/trigger/18/param/p0" },
+  "actions": [
+    { "type": "interface_play", "data": { "interface": "base://ch1_l2/world_0/trigger/18/actions/0/data/p0" } },
+    { "type": "hud_change_mode", "delayInit": 1000, "data": { "unused": 1, "on": 1 } },
+    { "type": "vehicle_change_control", "data": { "mode": "lock_control", "unused": 0, "cars": ["base://ch1_l2/world_0/World/0/tileCars/0"] } },
+    { "type": "vehicle_change_control", "delayInit": 3500, "data": { "mode": "unlock_control", "unused": 0, "cars": ["base://ch1_l2/world_0/World/0/tileCars/0"] } },
+    { "type": "music_change", "delayInit": 3500, "data": { "vol": 1, "volTime": 0, "pitch": 1, "pitchTime": 0, "tempo": 1, "tempoTime": 0,
+        "orderMode": "order_jump", "order": 2, "orderType": 40,
+        "tracks": [{ "unused0": 0, "track": 0, "active": 1, "vol": 1, "unused10": 0, "unused14": 0, "unused18": 0, "unused1C": 0, "unused20": 0, "unused24": 10 }] } },
+    { "type": "timer_change_mode", "data": { "show": "show", "run": "pause", "timers": ["base://ch1_l2/world_0/World/0/timers/0"] } },
+    { "type": "timer_change_mode", "delayInit": 3500, "data": { "show": "show", "run": "resume", "timers": ["base://ch1_l2/world_0/World/0/timers/0"] } }
+  ]
+}

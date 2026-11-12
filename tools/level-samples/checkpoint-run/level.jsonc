@@ -1,0 +1,35 @@
+// A sample level (tools/xdl_level.py; docs-pending/mission-editor.md): a checkpoint run in
+// Challenge 1's world. Three checkpoints in order before the clock runs out. Its own records
+// and links into the player's own world only: no game data in it.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://checkpointrun",
+  "name": "Checkpoint Run",
+  "mode": "challenge",
+  "extends": "base://mcp/track/39",              // Challenge 1: its loading screen, win and lose sequences
+  "world": "worlds_\\sp_\\chal1_\\ch1_l2",       // and its world
+  "unlocked": true,
+  "description": "Reach the three checkpoints in order before the clock runs out.",
+  "baseTriggers": "none",                        // the challenge's own script goes; this one's is in triggers/
+  "triggers": ["intro", "music", "go", "cp1", "cp2", "cp3", "timeout"],
+
+  "volumes": {
+    "cp1": { "center": [82, 4, -780], "radius": 90 },
+    "cp2": { "center": [1252, 3, -730], "radius": 90 },
+    "cp3": { "center": [2410, 4, -1454], "radius": 90 }
+  },
+  "variables": {
+    "progress": 0,                               // checkpoints reached
+    "done": 0                                    // 1 once won or lost
+  },
+  "strings": {
+    "brief": "Checkpoint Run: reach the 3 checkpoints in order before time runs out!",
+    "cp1": "Checkpoint 1 of 3",
+    "cp2": "Checkpoint 2 of 3"
+  },
+  "patches": {
+    // the round timer: 40 seconds
+    "base://ch1_l2/world_0/World/0/timers/0/to": { "time": 40000 }
+  }
+}

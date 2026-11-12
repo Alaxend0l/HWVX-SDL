@@ -1,0 +1,19 @@
+// The start: the briefing, the camera around the car, then the challenge's intro screen.
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "level_start",
+  "actions": [
+    { "type": "print_debug_string", "data": { "what": 4, "countdown": 60, "value": "level://strings/brief" } },
+    { "type": "camera_set_targets", "data": { "player": 0, "camera": { "kind": "orbit", "fov": 105, "radius": 18, "height": 0.5, "speed": 1,
+        "around": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [10, 10, 0] },
+        "at": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [0, 0, 0] } }, "end": 31 } },
+    { "type": "camera_set_targets", "delayInit": 3500, "data": { "player": 0, "camera": { "kind": "player",
+        "from": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [0, 0, 0] },
+        "at": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [0, 0, 0] } }, "end": 31 } },
+    { "type": "hud_change_mode", "data": { "unused": 1, "on": 0 } },
+    { "type": "vehicle_change_mode", "data": { "mode": "ai_hold", "cars": ["base://ch1_l2/world_0/World/0/tileCars/0"] } },
+    { "type": "interface_play", "delayInit": 2000, "data": { "interface": "base://ch1_l2/world_0/trigger/18/param/p0" } },
+    { "type": "timer_change_mode", "data": { "show": "show", "run": "pause", "timers": ["base://ch1_l2/world_0/World/0/timers/0"] } }
+  ]
+}

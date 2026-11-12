@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "Mod.schema.json",
   "title": "Mod",
-  "description": "A mod's mod.jsonc (docs/xdl-format README \u00a78). It never holds game data: it names base data by id and says what to change. Checked and packed by tools/xdl_mod.py, applied by src/game/Port_Mods.c.",
+  "description": "A mod's mod.jsonc (docs/xdl-format README §8). It never holds game data: it names base data by id and says what to change. Checked and packed by tools/xdl_mod.py, applied by src/game/Port_Mods.c.",
   "type": "object",
   "required": [
     "format_version",
@@ -130,6 +130,11 @@
           "world": {
             "type": "string",
             "description": "The world archive its level loads, as the MCP names one (worlds_\\\\sp_\\\\chal1_\\\\ch1_l2); default: the base track's."
+          },
+          "level": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_./-]+\\.json$",
+            "description": "A level of its own over the world (tools/xdl_level.py compile; src/game/Port_Level.c): a file in the mod's folder. Default: the base track's level as it is."
           }
         }
       }

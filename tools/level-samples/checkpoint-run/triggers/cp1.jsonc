@@ -1,0 +1,14 @@
+// Checkpoint 1: counts only after checkpoint 0.
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "airbox_entered",
+  "param": { "volumes": ["level://volumes/cp1"], "cars": ["base://ch1_l2/world_0/World/0/tileCars/0"] },
+  "conditions": [
+    { "type": "variable_value_check", "param": { "variables": ["level://variables/progress"], "value": { "const": 0 }, "op": "equal" } }
+  ],
+  "actions": [
+    { "type": "variable_change_value", "data": { "op": "add", "variables": ["level://variables/progress"], "value": { "const": 1 } } },
+    { "type": "print_debug_string", "data": { "what": 4, "countdown": 60, "value": "level://strings/cp1" } }
+  ]
+}
