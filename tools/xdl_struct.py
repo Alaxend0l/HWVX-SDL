@@ -175,20 +175,13 @@ class Pack:
         return [self.target(tab + 8 * i) for i in range(n)]
 
     def geometries(self):
-        """Geometry header offsets in scan order (GameCube 0x2003, PC 0x0002; pairing.md §1)."""
+        """Geometry header offsets in scan order (xdl_gltf.scan; pairing.md §1)."""
         if self._geoms is None:
-            d, e, out = self.blob, self.e, []
-            u16 = lambda o: struct.unpack_from(e + "H", d, o)[0]  # noqa: E731
-            magic = 0x2003 if self.release == "gc" else 0x0002
-            for off in range(0, len(d) - 0x40, 4):
-                if u16(off) != magic or off + 8 not in self.ptrs or off + 0xC not in self.ptrs:
-                    continue
-                if not 1 <= u16(off + 2) <= 8:
-                    continue
-                lods = self.u32(off + 8)
-                if (self.release == "gc" and lods < len(d)) or lods == off + 0x40:
-                    out.append(off)
-            self._geoms = out
+            here = str(Path(__file__).resolve().parent)
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import xdl_gltf
+            self._geoms = xdl_gltf.scan(xdl_gltf.Blob(self.blob, self.ptrs, self.release))
         return self._geoms
 
     def relocs_in(self, lo, hi):

@@ -101,5 +101,15 @@ for rel in ("gc", "pc"):
     check(f"{rel}: without extends every field is required", any("maxRpm" in x for x in errors(nd)))
     check(f"{rel}: array length is fixed", errors(dict(doc, viewOffset=[0, 1])))
 
+# PS2 geometries (header 0x1005): the reflection geometry's ref link resolves
+pk = X.Pack(survey / "ps2" / "HW_Cars" / "30_car_29")
+check("ps2: geometry scan finds the 0x1005 headers", len(pk.geometries()) > 0)
+for f in X.PARTS:
+    try:
+        ok, msg = X.roundtrip_one(S, pk, P, "CarAInfo", [f], None, "ps2")
+    except X.XdlError as e:
+        ok, msg = False, str(e)
+    check(f"ps2: car_29 {f} round trip", ok, msg)
+
 print("all passed" if not fails else f"{fails} failed")
 sys.exit(1 if fails else 0)
