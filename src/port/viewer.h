@@ -4,8 +4,8 @@
  * logged as "viewer: listening on 127.0.0.1:N") for line-delimited JSON:
  * list and load packs, read the object graph, get and set fields, select and
  * frame objects, move the camera, save a frame. The protocol is
- * docs/viewer-protocol.md. Off by default; nothing here runs without the
- * switch. */
+ * docs/viewer-protocol.md (docs-pending/ until it is folded in). Off by
+ * default; nothing here runs without the switch. */
 #ifndef VIEWER_H
 #define VIEWER_H
 

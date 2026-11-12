@@ -625,6 +625,13 @@ Debugging aids:
   taken after them; `HWVX_LAUNCHER_DISC=pc=IMAGE` (or `ps2=`) imports a disc
   image as if picked; `HWVX_LAUNCHER_IMPORT="FILE;FILE"` opens the saves
   preview. With `HWVX_PREF_DIR` none of it touches your own files.
+- `HWVX_VIEWER=port` runs the game as the data browser's preview and editing
+  server instead of the game (`src/port/viewer.c`; 0: any free port, logged):
+  line-delimited JSON on 127.0.0.1 to list and load packs, read their nodes,
+  get and set fields, frame them and save frames (`docs/viewer-protocol.md`).
+  `HWVX_VIEWER_SCHEMAS=dir` names the schemas folder. The browser is
+  `tools/browser` (`cargo run --release --manifest-path tools/browser/Cargo.toml
+  -- --data DIR`), and `tools/viewer_client.py` sends requests from the shell.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
