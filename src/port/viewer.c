@@ -711,7 +711,7 @@ static void WritePack(JsonWriter *w, VPack *vp) {
     Jw_Int(w, "id", vp->id);
     Jw_String(w, "release", vp->pack->portFormat == PORT_DATA_PC ? "pc" : vp->pack->portFormat == PORT_DATA_PS2 ? "ps2" : "gc");
     Jw_Int(w, "size", vp->size);
-    Jw_Int(w, "nodes", vp->numNodes);
+    Jw_Int(w, "numNodes", vp->numNodes);
     for (i = 0; i < vp->numNodes; i++) {
         counts[vp->nodes[i].kind]++;
     }
