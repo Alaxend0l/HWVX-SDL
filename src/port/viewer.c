@@ -71,6 +71,9 @@ static struct {
     Camera *camera;
     f32 yaw, pitch, distance, fov;
     Vector4 target;
+    int fly;                    /* free fly: the camera at flyPos, looking along yaw/pitch */
+    Vector4 flyPos;
+    f32 flySpeed;               /* units a second */
     int spin;                   /* turntable: yaw moves by itself */
     GXColor background;
 
@@ -93,7 +96,7 @@ static struct {
     u32 frame;
 } s = { -1 };
 
-#define MATRIX_POOL (MAX_DRAWN + 2 * MAX_BONES + 8)
+#define MATRIX_POOL (MAX_DRAWN + 24 * MAX_BONES + 8)   /* a world's tile cars too */
 
 int Port_ViewerHeadless(void) {
     static int headless = -1;
@@ -375,10 +378,15 @@ static int PackRefs(const char *archive, int type, u32 id, DataPackRef refs[2], 
  * loader can't load one in the middle of another (its header is static, its
  * file shared), which it would do for a share pack not loaded yet. They stay
  * loaded (the game's slots keep the names' pointers: s_shareNames). */
+static char s_shareNames[24][sizeof(((DataPackRef *)0)->name) + 1];
+static u32 s_shareIds[24];
+static int s_numShares;
+
+void Viewer_ForgetShares(void) {
+    s_numShares = 0;
+}
+
 static void LoadShares(const char *archive, int type, u32 id, int depth) {
-    static char s_shareNames[24][sizeof(((DataPackRef *)0)->name) + 1];
-    static u32 s_shareIds[24];
-    static int s_numShares;
     DataPackRef refs[2];
     int r, k;
 
@@ -467,8 +475,12 @@ static Geometry *GeometryOf(VPack *vp, VNode *nd) {
 /* p, if [p, p + size) is inside the pack's blob; else NULL. The model's handles
  * are followed through this: a set can point a link anywhere (force). */
 static void *InPack(VPack *vp, const void *p, size_t size) {
-    uintptr_t base = (uintptr_t)GETP(vp->pack->base), q = (uintptr_t)p;
+    uintptr_t base, q = (uintptr_t)p;
 
+    if (vp == NULL) {
+        return (void *)p;   /* the game's own (a world's tile car): trusted */
+    }
+    base = (uintptr_t)GETP(vp->pack->base);
     if (p == NULL || q < base || q - base > vp->size || size > vp->size - (q - base)) {
         return NULL;
     }
@@ -476,17 +488,19 @@ static void *InPack(VPack *vp, const void *p, size_t size) {
 }
 
 /* The car's model: CarAInfo/0's modelRef, as CarA.c reads it. */
+static MotionAnim *ModelOf(VPack *vp, CarAInfo *info) {
+    CarAModelRef *ref = info != NULL ? InPack(vp, GETP(info->modelRef), sizeof(CarAModelRef)) : NULL;
+
+    return ref != NULL ? InPack(vp, GETP(ref->data), sizeof(MotionAnim)) : NULL;
+}
+
 static MotionAnim *CarModel(VPack *vp) {
     VNode *nd = vp->type == 0 ? Viewer_FindNode(vp, "CarAInfo/0") : NULL;
-    CarAInfo *info;
-    CarAModelRef *ref;
 
     if (nd == NULL || nd->kind != VN_TYPED || InPack(vp, GETP(vp->pack->base) + nd->off, sizeof(CarAInfo)) == NULL) {
         return NULL;
     }
-    info = (CarAInfo *)(GETP(vp->pack->base) + nd->off);
-    ref = InPack(vp, GETP(info->modelRef), sizeof(CarAModelRef));
-    return ref != NULL ? InPack(vp, GETP(ref->data), sizeof(MotionAnim)) : NULL;
+    return ModelOf(vp, (CarAInfo *)(GETP(vp->pack->base) + nd->off));
 }
 
 static Matrix4 *NextMatrix(void) {
@@ -564,7 +578,7 @@ static void DrawOne(Geometry *g, Matrix4 *m, f32 *min, f32 *max) {
     s.drawn++;
 }
 
-static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max) {
+static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max, const Matrix4 *at) {
     u32 numBones = 0, i;
     Matrix4 *bones = ModelPose(vp, model, &numBones);
     CarPartList *parts = InPack(vp, GETP(model->parts), sizeof(CarPartList));
@@ -576,6 +590,11 @@ static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max) {
 
     if (bones == NULL) {
         return;
+    }
+    for (i = 0; at != NULL && i < numBones; i++) {
+        Matrix4 b = bones[i];
+
+        MultiplyMatrix(&b, (Matrix4 *)at, &bones[i]);
     }
     for (i = 0; geoms != NULL && i < model->numGeoms; i++) {
         Geometry *g = InPack(vp, GETP(GETP(model->geoms)[i]), sizeof(Geometry));
@@ -617,6 +636,7 @@ static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max) {
 }
 
 static int s_frameNext;     /* frame the camera on the next scene drawn */
+static void PlaceCamera(void);
 
 /* Queues the frame's draws; the bounds of what was drawn. 0: nothing. */
 static int DrawScene(f32 *min, f32 *max) {
@@ -638,7 +658,7 @@ static int DrawScene(f32 *min, f32 *max) {
     if (sel != NULL && sel->kind == VN_GEOMETRY) {
         DrawOne(GeometryOf(vp, sel), NextMatrix(), min, max);
     } else if ((model = CarModel(vp)) != NULL) {
-        DrawModel(vp, model, min, max);
+        DrawModel(vp, model, min, max, NULL);
     } else {
         /* every geometry, in rows, each on a square of the largest one's size */
         f32 cell = 0.0f, x = 0.0f, z = 0.0f;
@@ -688,6 +708,12 @@ static void Frame(const f32 *min, const f32 *max) {
     s.target.y = 0.5f * (min[1] + max[1]);
     s.target.z = 0.5f * (min[2] + max[2]);
     s.distance = r > 0.01f ? r / (f32)sin(0.5f * s.fov * 0.017453292f) : 10.0f;
+    if (s.fly) {
+        s.fly = 0;
+        PlaceCamera();
+        s.flyPos = s.camera->pos;
+        s.fly = 1;
+    }
 }
 
 
@@ -705,10 +731,19 @@ static void PlaceCamera(void) {
     if (s.distance < 0.05f) {
         s.distance = 0.05f;
     }
-    c->pos.x = s.target.x + s.distance * cp * (f32)sin(s.yaw);
-    c->pos.y = s.target.y + s.distance * (f32)sin(s.pitch);
-    c->pos.z = s.target.z + s.distance * cp * (f32)cos(s.yaw);
-    PSVECSubtract(&s.target, &c->pos, &c->dir);
+    if (s.fly) {
+        /* the same view as orbiting: looking along -(the orbit's offset) */
+        c->pos = s.flyPos;
+        c->dir.x = -cp * (f32)sin(s.yaw);
+        c->dir.y = -(f32)sin(s.pitch);
+        c->dir.z = -cp * (f32)cos(s.yaw);
+        c->dir.w = 0.0f;
+    } else {
+        c->pos.x = s.target.x + s.distance * cp * (f32)sin(s.yaw);
+        c->pos.y = s.target.y + s.distance * (f32)sin(s.pitch);
+        c->pos.z = s.target.z + s.distance * cp * (f32)cos(s.yaw);
+        PSVECSubtract(&s.target, &c->pos, &c->dir);
+    }
     if (PSVECSquareMag(&c->dir)) {
         PSVECNormalize(&c->dir, &c->dir);
     }
@@ -717,6 +752,38 @@ static void PlaceCamera(void) {
         PSVECNormalize(&c->up, &c->up);
     }
     PSVECCrossProduct(&c->up, &c->dir, &c->right);
+}
+
+/* Free fly on or off, keeping the view: fly starts where the orbit camera
+ * is; orbit goes round the point `distance` ahead. */
+static void SetFly(int on) {
+    if (on && !s.fly) {
+        PlaceCamera();
+        s.flyPos = s.camera->pos;
+        if (s.flySpeed <= 0.0f) {
+            s.flySpeed = s.distance > 1.0f ? s.distance : 20.0f;
+        }
+    } else if (!on && s.fly) {
+        PlaceCamera();
+        s.target.x = s.flyPos.x + s.camera->dir.x * s.distance;
+        s.target.y = s.flyPos.y + s.camera->dir.y * s.distance;
+        s.target.z = s.flyPos.z + s.camera->dir.z * s.distance;
+    }
+    s.fly = on;
+    s.spin = 0;
+}
+
+/* A fly step: forward, right, up in units of flySpeed * dt (fast: x4). */
+static void FlyMove(f32 fwd, f32 right, f32 up, f32 dt, int fast) {
+    extern Vector4 g_jBasis;
+    Camera *c = s.camera;
+    f32 k = s.flySpeed * dt * (fast ? 4.0f : 1.0f);
+
+    PlaceCamera();
+    /* the camera's right is the screen's left (Gfx_SetCameraMatrix) */
+    s.flyPos.x += (c->dir.x * fwd - c->right.x * right) * k + g_jBasis.x * up * k;
+    s.flyPos.y += (c->dir.y * fwd - c->right.y * right) * k + g_jBasis.y * up * k;
+    s.flyPos.z += (c->dir.z * fwd - c->right.z * right) * k + g_jBasis.z * up * k;
 }
 
 /* The mouse in the game's window: drag to orbit, right drag or shift to
@@ -732,12 +799,18 @@ static bool SDLCALL MouseWatch(void *userdata, SDL_Event *ev) {
             s.target.z += ev->motion.xrel * k * sy;
             s.target.y += ev->motion.yrel * k;
         } else {
-            s.yaw -= ev->motion.xrel * 0.008f;
-            s.pitch += ev->motion.yrel * 0.008f;
+            f32 k = s.fly ? -0.004f : 0.008f;  /* fly: look where the pointer goes */
+
+            s.yaw -= ev->motion.xrel * k;
+            s.pitch += ev->motion.yrel * k;
             s.spin = 0;
         }
     } else if (ev->type == SDL_EVENT_MOUSE_WHEEL) {
-        s.distance *= (f32)pow(0.9, ev->wheel.y);
+        if (s.fly) {
+            s.flySpeed *= (f32)pow(1.25, ev->wheel.y);
+        } else {
+            s.distance *= (f32)pow(0.9, ev->wheel.y);
+        }
     }
     return true;
 }
@@ -761,7 +834,11 @@ static void ViewExtents(int w, int h, f32 *tanX, f32 *tanY) {
 /* A drag of dx, dy image pixels in an image h pixels tall: orbit (left), or
  * pan (right, middle, or pan set) so what is under the pointer follows it. */
 static void DragView(f32 dx, f32 dy, int h, int pan) {
-    if (pan) {
+    if (pan && s.fly) {
+        f32 k = 2.0f / (f32)(h > 0 ? h : 1);   /* the image's height: 2 s of flying */
+
+        FlyMove(0.0f, -dx * k, dy * k, 1.0f, 0);
+    } else if (pan) {
         int w, eh;
         f32 tx, ty, k, sy = (f32)sin(s.yaw), cy = (f32)cos(s.yaw);
 
@@ -774,6 +851,9 @@ static void DragView(f32 dx, f32 dy, int h, int pan) {
     } else {
         f32 k = 3.0f / (f32)(h > 0 ? h : 1);       /* the image's height: about 170 degrees */
 
+        if (s.fly) {
+            k *= -0.5f;     /* mouse look: the view turns where the pointer goes */
+        }
         s.yaw -= dx * k;
         s.pitch += dy * k;
         s.spin = 0;
@@ -783,11 +863,11 @@ static void DragView(f32 dx, f32 dy, int h, int pan) {
 /* The drawn geometry under image pixel (x, y), as the last frame drew it:
  * the ray through it against each geometry's bounding sphere, the smallest
  * one hit (the most specific part), nearest first among equals. -1: none. */
-static int Pick(f32 x, f32 y, f32 *dist) {
+/* The ray from the camera through image pixel (x, y): a unit direction. */
+static void ScreenRay(f32 x, f32 y, f32 *d) {
     Camera *c = s.camera;
-    f32 tanX, tanY, nx, ny, d[3], len, bestR = 1e30f, bestT = 1e30f;
-    int w, h, best = -1;
-    u32 i;
+    f32 tanX, tanY, nx, ny, len;
+    int w, h;
 
     GX_DrawEfbSize(&w, &h);
     ViewExtents(w, h, &tanX, &tanY);
@@ -801,6 +881,15 @@ static int Pick(f32 x, f32 y, f32 *dist) {
     d[0] /= len;
     d[1] /= len;
     d[2] /= len;
+}
+
+static int Pick(f32 x, f32 y, f32 *dist) {
+    Camera *c = s.camera;
+    f32 d[3], bestR = 1e30f, bestT = 1e30f;
+    int best = -1;
+    u32 i;
+
+    ScreenRay(x, y, d);
     for (i = 0; i < s.numDrawnGeom; i++) {
         const Geometry *g = s.drawnGeom[i];
         f32 o[3], r, t, e2 = 0.0f;
@@ -847,6 +936,23 @@ static VNode *GeometryNode(const Geometry *g) {
 /* A key over the preview: f frames what is drawn, home (or r) resets the
  * view, space spins, arrows orbit, + and - zoom. 0: not one. */
 static int ViewKey(const char *key) {
+    static const char *const fly[] = { "w", "s", "a", "d", "e", "q" };
+    size_t i;
+
+    for (i = 0; i < SDL_arraysize(fly); i++) {
+        if (SDL_strcasecmp(key, fly[i]) == 0) {
+            /* a tenth of a second of flying (a held key: the move event) */
+            f32 v[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+
+            SetFly(1);
+            FlyMove(v[i][0], v[i][1], v[i][2], 0.1f, 0);
+            return 1;
+        }
+    }
+    if (SDL_strcasecmp(key, "g") == 0) {
+        Viewer_WorldLoaded();   /* the start */
+        return 1;
+    }
     if (SDL_strcasecmp(key, "f") == 0) {
         s_frameNext = 1;
     } else if (SDL_strcasecmp(key, "home") == 0 || SDL_strcasecmp(key, "r") == 0) {
@@ -888,6 +994,14 @@ static void WriteCamera(JsonWriter *w) {
     Jw_Float(w, NULL, s.target.z);
     Jw_EndArray(w);
     Jw_Bool(w, "spin", s.spin);
+    Jw_String(w, "mode", s.fly ? "fly" : "orbit");
+    PlaceCamera();
+    Jw_BeginArray(w, "pos", 1);
+    Jw_Float(w, NULL, s.camera->pos.x);
+    Jw_Float(w, NULL, s.camera->pos.y);
+    Jw_Float(w, NULL, s.camera->pos.z);
+    Jw_EndArray(w);
+    Jw_Float(w, "speed", s.flySpeed);
     Jw_EndObject(w);
 }
 
@@ -918,6 +1032,10 @@ static void Unload(VPack *vp) {
         s.shown = NULL;
         s.selected[0] = '\0';
         s.selectedIndex = -1;
+    }
+    if (vp->slot < 0) {
+        ViewerWorld_Unload();       /* the world's pack: the world goes */
+        return;
     }
     ViewerMedia_PackGoing(vp->pack);
     Viewer_FreeGraph(vp);
@@ -989,6 +1107,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
         SDL_snprintf(err, errSize, "out of memory");
         return 0;
     }
+    ViewerWorld_Unload();   /* a pack shown alone again */
     if ((vp = FindPack(full)) != NULL) {
         Unload(vp);     /* again from the files: what an editor does after a rebuild */
     }
@@ -1037,6 +1156,113 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
     Port_Log("viewer: loaded %s (%u nodes)", full, vp->numNodes);
     WritePack(w, vp);
     return 1;
+}
+
+void Viewer_UnloadAll(void) {
+    int i;
+
+    for (i = 0; i < VIEWER_MAX_PACKS; i++) {
+        if (g_viewerPacks[i].used && (!ViewerWorld_Active() || g_viewerPacks[i].type != 4)) {
+            Unload(&g_viewerPacks[i]);
+        }
+    }
+}
+
+VPack *Viewer_AdoptPack(const char *archive, int type, u32 id, DataPack *dp) {
+    const char *last = SDL_strrchr(archive, '/');
+    VPack *vp = NULL;
+    int i;
+
+    for (i = 0; i < VIEWER_MAX_PACKS && vp == NULL; i++) {
+        if (!g_viewerPacks[i].used) {
+            vp = &g_viewerPacks[i];
+        }
+    }
+    if (vp == NULL || dp == NULL || GETP(dp->base) == NULL) {
+        return NULL;
+    }
+    last = last != NULL ? last + 1 : archive;
+    memset(vp, 0, sizeof(*vp));
+    SDL_strlcpy(vp->archive, archive, sizeof(vp->archive));
+    SDL_strlcpy(vp->archiveName, last, sizeof(vp->archiveName));
+    SDL_snprintf(vp->name, sizeof(vp->name), "%s_%u", g_viewerTypeNames[type], (unsigned)id);
+    vp->type = type;
+    vp->id = id;
+    vp->slot = -1;
+    vp->used = 1;
+    vp->pack = dp;
+    vp->size = dp->dataSize;
+    Viewer_BuildGraph(vp);
+    s.shown = vp;
+    s.selected[0] = '\0';
+    s.selectedIndex = -1;
+    return vp;
+}
+
+void Viewer_DropPack(VPack *vp) {
+    if (s.shown == vp) {
+        s.shown = NULL;
+        s.selected[0] = '\0';
+        s.selectedIndex = -1;
+    }
+    ViewerMedia_PackGoing(vp->pack);
+    Viewer_FreeGraph(vp);
+    Viewer_ForgetPack(vp->pack);
+    vp->used = 0;
+    vp->pack = NULL;
+}
+
+/* The model's lowest point (its rest pose): a tile car stands on it. */
+static f32 ModelBottom(MotionAnim *model) {
+    u32 numBones = 0, used = s.numMatrices, i;
+    Matrix4 *bones = ModelPose(NULL, model, &numBones);
+    MotionPart *rigid = GETP(model->rigid);
+    f32 lo = 0.0f;
+
+    for (i = 0; bones != NULL && rigid != NULL && i < model->numRigid; i++) {
+        Geometry *g = GETP(rigid[i].geom);
+
+        if (g != NULL && rigid[i].mtxIndex < numBones && bones[rigid[i].mtxIndex].v[3].y + g->bboxMin[1] < lo) {
+            lo = bones[rigid[i].mtxIndex].v[3].y + g->bboxMin[1];
+        }
+    }
+    s.numMatrices = used;
+    return lo;
+}
+
+void Viewer_DrawCar(CarAInfo *info, const Matrix4 *at) {
+    MotionAnim *model = ModelOf(NULL, info);
+    f32 min[3], max[3];
+    Matrix4 m;
+
+    if (model != NULL) {
+        m = *at;
+        m.v[3].y -= ModelBottom(model);     /* on its wheels (the game drops it there) */
+        DrawModel(NULL, model, min, max, &m);
+    }
+}
+
+/* A world loaded: the camera behind player 1's start, looking along it. */
+void Viewer_WorldLoaded(void) {
+    f32 p[3], yaw;
+
+    s_frameNext = 0;
+    s.spin = 0;
+    if (ViewerWorld_Start(1, p, &yaw)) {
+        s.target.x = p[0];
+        s.target.y = p[1] + 2.0f;
+        s.target.z = p[2];
+        s.distance = 30.0f;
+        s.yaw = yaw;
+        s.pitch = 0.25f;
+        s.flySpeed = 60.0f;
+    } else {
+        s_frameNext = 1;
+    }
+    if (s.fly) {
+        PlaceCamera();
+        s.flyPos = s.camera->pos;
+    }
 }
 
 static int NeedPack(const JsonNode *req, VPack **vp, char *err, size_t errSize) {
@@ -1198,7 +1424,22 @@ static void Dispatch(const JsonNode *req) {
             s.selectedIndex = (s32)(nd - vp->nodes);
         }
         if (ok) {
-            if (cmd[0] == 'f') {
+            f32 p[3], r;
+
+            if (cmd[0] == 'f' && ViewerWorld_Active() && s.selectedIndex >= 0 && s.shown != NULL && s.shown->type == 4) {
+                VNode *sel = &s.shown->nodes[s.selectedIndex];
+
+                if (ViewerWorld_PlaceOf(sel->off, sel->size, p, &r)) {
+                    s.target.x = p[0], s.target.y = p[1], s.target.z = p[2];
+                    s.distance = r * 3.0f + 5.0f;
+                    if (s.fly) {
+                        s.fly = 0;
+                        PlaceCamera();
+                        s.flyPos = s.camera->pos;
+                        s.fly = 1;
+                    }
+                }
+            } else if (cmd[0] == 'f') {
                 s_frameNext = 1;
             }
             if (s.selected[0]) {
@@ -1227,6 +1468,21 @@ static void Dispatch(const JsonNode *req) {
                 s.target.z = (f32)Json_At(target, 2)->number;
             }
             s_frameNext = 0;
+            {
+                const char *mode = Json_GetString(req, "mode", NULL);
+                const JsonNode *pos = Json_Get(req, "pos");
+
+                if (mode != NULL) {
+                    SetFly(SDL_strcmp(mode, "fly") == 0);
+                }
+                s.flySpeed = (f32)Json_GetNumber(req, "speed", s.flySpeed);
+                if (pos != NULL && pos->type == JSON_ARRAY && pos->count == 3) {
+                    SetFly(1);
+                    s.flyPos.x = (f32)Json_At(pos, 0)->number;
+                    s.flyPos.y = (f32)Json_At(pos, 1)->number;
+                    s.flyPos.z = (f32)Json_At(pos, 2)->number;
+                }
+            }
         } else {
             s.yaw += (f32)Json_GetNumber(req, "dyaw", 0.0) * 0.017453292f;
             s.pitch += (f32)Json_GetNumber(req, "dpitch", 0.0) * 0.017453292f;
@@ -1310,15 +1566,25 @@ static void Dispatch(const JsonNode *req) {
                 DragView((f32)Json_GetNumber(e, "dx", 0.0), (f32)Json_GetNumber(e, "dy", 0.0), h,
                          SDL_strcmp(button, "left") != 0 || Json_GetBool(e, "pan", 0));
             } else if (SDL_strcmp(type, "wheel") == 0) {
-                s.distance *= (f32)pow(0.9, Json_GetNumber(e, "dy", 0.0));
+                if (s.fly) {
+                    s.flySpeed *= (f32)pow(1.25, Json_GetNumber(e, "dy", 0.0));   /* fly: the wheel sets the speed */
+                } else {
+                    s.distance *= (f32)pow(0.9, Json_GetNumber(e, "dy", 0.0));
+                }
+            } else if (SDL_strcmp(type, "move") == 0) {
+                /* fly: held keys, forward / right / up in -1 .. 1 over dt seconds */
+                SetFly(1);
+                FlyMove((f32)Json_GetNumber(e, "forward", 0.0), (f32)Json_GetNumber(e, "right", 0.0),
+                        (f32)Json_GetNumber(e, "up", 0.0), (f32)Json_GetNumber(e, "dt", 0.016), Json_GetBool(e, "fast", 0));
             } else if (SDL_strcmp(type, "key") == 0) {
                 if (!ViewKey(Json_GetString(e, "key", ""))) {
-                    SDL_snprintf(err, sizeof(err), "no key %.40s (f, home, r, space, left, right, up, down, plus, minus)",
+                    SDL_snprintf(err, sizeof(err),
+                                 "no key %.40s (f, home, r, space, left, right, up, down, plus, minus, w a s d q e, g)",
                                  Json_GetString(e, "key", ""));
                     ok = 0;
                 }
             } else {
-                SDL_snprintf(err, sizeof(err), "an input event is drag, wheel or key, not %.40s", type);
+                SDL_snprintf(err, sizeof(err), "an input event is drag, wheel, move or key, not %.40s", type);
                 ok = 0;
             }
         }
@@ -1336,8 +1602,29 @@ static void Dispatch(const JsonNode *req) {
             VNode *nd;
 
             PlaceCamera();
-            i = Pick((f32)x->number, (f32)y->number, &dist);
-            nd = i >= 0 ? GeometryNode(s.drawnGeom[i]) : NULL;
+            if (ViewerWorld_Active() && s.shown != NULL && s.shown->type == 4) {
+                /* a world: its objects (instances, items, effect points, tiles) */
+                f32 d[3], o[3] = { s.camera->pos.x, s.camera->pos.y, s.camera->pos.z };
+                const char *kind = NULL;
+                u32 off;
+
+                ScreenRay((f32)x->number, (f32)y->number, d);
+                off = ViewerWorld_Pick(o, d, &dist, &kind);
+                nd = off != VIEWER_NO_OFFSET && off / 4 < s.shown->size / 4 && s.shown->owner != NULL &&
+                             s.shown->owner[off / 4] >= 0
+                         ? &s.shown->nodes[s.shown->owner[off / 4]]
+                         : NULL;
+                if (off != VIEWER_NO_OFFSET) {
+                    char at[16];
+
+                    Jw_String(&w, "kind", kind);
+                    SDL_snprintf(at, sizeof(at), "@%x", off);
+                    Jw_String(&w, "at", at);
+                }
+            } else {
+                i = Pick((f32)x->number, (f32)y->number, &dist);
+                nd = i >= 0 ? GeometryNode(s.drawnGeom[i]) : NULL;
+            }
             if (nd != NULL) {
                 char full[200];
 
@@ -1375,7 +1662,33 @@ static void Dispatch(const JsonNode *req) {
         Jw_Bool(&w, "headless", Port_ViewerHeadless());
         ViewerFrames_WriteStats(&w);
         ViewerMedia_WriteStatus(&w);
+        ViewerWorld_WriteStatus(&w);
         WriteCamera(&w);
+    } else if (SDL_strcmp(cmd, "goto") == 0) {
+        /* a world's start: player `port`'s tile car (default 1), or nav point `nav` */
+        f32 p[3], yaw;
+        const JsonNode *navIdx = Json_Get(req, "nav");
+
+        if (navIdx != NULL ? !ViewerWorld_NavPoint((u32)Json_GetNumber(req, "nav", 0.0), p, &yaw)
+                           : !ViewerWorld_Start((int)Json_GetNumber(req, "port", 1.0), p, &yaw)) {
+            SDL_snprintf(err, sizeof(err), navIdx != NULL ? "no world loaded, or no such nav point"
+                                                          : "no world loaded, or it has no start");
+            ok = 0;
+        } else {
+            s.target.x = p[0], s.target.y = p[1] + 2.0f, s.target.z = p[2];
+            s.distance = 30.0f;
+            s.yaw = yaw;
+            s.pitch = 0.25f;
+            if (s.fly) {
+                s.fly = 0;
+                PlaceCamera();
+                s.flyPos = s.camera->pos;
+                s.fly = 1;
+            }
+            WriteCamera(&w);
+        }
+    } else if (ViewerWorld_Dispatch(cmd, req, &w, &ok, err, sizeof(err))) {
+        /* worlds, world, world_unload, overlays */
     } else if (SDL_strcmp(cmd, "quit") == 0) {
         s.quit = 1;
     } else if (ViewerMedia_Dispatch(cmd, req, &w, &ok, err, sizeof(err))) {
@@ -1655,6 +1968,11 @@ s32 Port_ViewerStart(void) {
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
     Gfx_SetWorldMatrix(NULL);
     Gfx_StateTextureBlendMode(2);
+    /* the MCP's textures (its environment maps) again, as each state's Init
+     * has them: Main_Init's Gfx_TextureManager_Init dropped them after the
+     * content registry loaded the MCP, and their slots went to the next pack
+     * loaded (a car's share pack: its wheels and chrome sampled that) */
+    StateGameManager_RefreshMCPTextures();
     ViewerMedia_Start();    /* the sound manager: packs load with their samples (viewer_media.c) */
     Heartbeat_Process = Heartbeat;  /* (Main_Loop runs Port_ViewerFrame instead) */
 
@@ -1709,7 +2027,6 @@ s32 Port_ViewerStart(void) {
 s32 Port_ViewerFrame(void) {
     extern GXColor m_clearColor;
     static const GXColor white = { 0xFF, 0xFF, 0xFF, 0xFF };
-    static const GXColor grey = { 0x80, 0x80, 0x80, 0xFF };
     Vector4 lightDir = { -0.4f, -1.0f, -0.5f, 0.0f };
     f32 min[3], max[3];
     GXColor c;
@@ -1728,20 +2045,27 @@ s32 Port_ViewerFrame(void) {
     ProcessManager_Heartbeat(0);
     FileStreaming_HeartBeat();
     ShaderHolder_Heartbeat();
-    m_clearColor = s.background;
+    if (ViewerWorld_Active()) {
+        static const GXColor black = { 0, 0, 0, 0 };
+
+        m_clearColor = black;   /* the game's (Render_.c); the hub's sky covers it */
+    } else {
+        m_clearColor = s.background;
+    }
     Gfx_SetProjectionMatrix(s.fov);
     GetRenderWindow()->fov = s.fov;
     PlaceCamera();
     Camera_PrepareForRender(s.camera);
     ShowStats_BeginScene();
-    c = grey;
+    /* as LightManager_LightThing lights a car outside a world (the car select) */
+    c = white;
     Gfx_SetAmbientColor(&c);
     c = white;
     Gfx_SetParallelLight(&c, &lightDir);
-    {
+    if (!ViewerWorld_Active()) {
         /* the reflections (windows, chrome, wheels) as the car select draws
          * them: the MCP's environment map (GameSpecificInterfaces.c); without
-         * one those parts are black */
+         * one those parts are black. A world has its own (World_Refresh). */
         MCP *mcp = GameSettings_GetMCP();
 
         if (mcp != NULL) {
@@ -1749,7 +2073,19 @@ s32 Port_ViewerFrame(void) {
             Gfx_SetEnviroMapMode(1);
         }
     }
-    any = DrawScene(min, max);
+    if (ViewerWorld_Active()) {
+        s.numMatrices = 0;
+        s.drawn = 0;
+        s.numDrawnGeom = 0;
+        ViewerWorld_Draw();
+        any = 0;
+        if (s_frameNext && ViewerWorld_Bounds(min, max)) {
+            Frame(min, max);
+            s_frameNext = 0;
+        }
+    } else {
+        any = DrawScene(min, max);
+    }
     if (any && s_frameNext) {
         /* the camera for the frame after this one: this one's draws are queued */
         Frame(min, max);
@@ -1762,10 +2098,16 @@ s32 Port_ViewerFrame(void) {
     if ((s.shotPath != NULL && s.shotWait == 0) || ViewerFrames_On()) {
         /* the frame read back between its draws and the display copy (which clears it) */
         Gfx_EndScene();
+        ViewerWorld_Overlays(s.fov);
         if (s.shotPath != NULL && s.shotWait == 0) {
             SaveShot();
         }
         ViewerFrames_EndFrame(s.frame);
+        Gfx_FlipBuffers();
+        Performance_End();
+    } else if (ViewerWorld_Active()) {
+        Gfx_EndScene();
+        ViewerWorld_Overlays(s.fov);
         Gfx_FlipBuffers();
         Performance_End();
     } else {

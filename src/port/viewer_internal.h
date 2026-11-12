@@ -114,4 +114,32 @@ void ViewerMedia_Shutdown(void);
 DataPack *Viewer_FindDataPack(const char *name, VPack **vp);
 VPack *Viewer_ShownPack(void);     /* viewer.c: the pack shown, or NULL */
 
+/* viewer.c, for viewer_world.c */
+void Viewer_UnloadAll(void);                    /* every viewer pack */
+void Viewer_ForgetShares(void);                 /* the share packs loaded first went (World_Unload) */
+/* A pack the game loaded (the world's) as a viewer pack, shown: its graph and
+ * outline; Viewer_DropPack forgets it without releasing its slot. */
+VPack *Viewer_AdoptPack(const char *archive, int type, u32 id, DataPack *dp);
+void Viewer_DropPack(VPack *vp);
+struct CarAInfo;
+void Viewer_DrawCar(struct CarAInfo *info, const Matrix4 *at); /* a car standing at `at` */
+void Viewer_WorldLoaded(void);                  /* the camera to the world's start (or back to a pack) */
+
+/* viewer_world.c: a whole world, streamed and drawn by the game's own code */
+int ViewerWorld_Active(void);
+int ViewerWorld_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, int *ok, char *err, size_t errSize);
+void ViewerWorld_Unload(void);
+void ViewerWorld_Draw(void);                    /* the frame's own draws (tile cars) */
+void ViewerWorld_Overlays(f32 fov);             /* after Gfx_EndScene */
+void ViewerWorld_WriteStatus(JsonWriter *w);    /* "world": {...} or null */
+u32 ViewerWorld_Pick(const f32 *origin, const f32 *dir, f32 *t, const char **kind);
+int ViewerWorld_PlaceOf(u32 off, u32 size, f32 *pos, f32 *radius);
+int ViewerWorld_Start(int port, f32 *pos, f32 *yaw);   /* yaw: the orbit's, radians, behind it */
+int ViewerWorld_Bounds(f32 *min, f32 *max);
+int ViewerWorld_NavPoint(u32 i, f32 *pos, f32 *yaw);
+/* Another overlay layer (trigger volumes, ...): draw() adds its lines with
+ * ViewerWorld_Line while the layer is on (`overlays` {name: true}). */
+void ViewerWorld_AddOverlayHook(const char *name, void (*draw)(void));
+void ViewerWorld_Line(const f32 *a, const f32 *b, u8 r, u8 g, u8 bl);
+
 #endif

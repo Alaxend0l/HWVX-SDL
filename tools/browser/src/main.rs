@@ -4,11 +4,14 @@
 //! window's middle: the game renders it hidden, at the panel's size, and shares each frame through
 //! shared memory (src/frames.rs). Drag to orbit, right/middle (or shift) drag to pan, wheel to
 //! zoom, click to pick; over the picture F frames, Home resets, Space spins, arrows orbit, +/- zoom.
+//! The Worlds tab loads a whole level (its quadrants streaming around the camera, src/world_ui.rs):
+//! free fly with WASD (Q/E down/up, shift faster, wheel for the speed), G goes to the start.
 //!
 //!   hwvx-browser [--game build/hwvx] [--data DIR] [--schemas DIR] [--pref DIR] [--viewer-window]
 //!                [--port N [--token T]]          a viewer already running (T: its token, or
 //!                                                HWVX_VIEWER_TOKEN; it logs one it made up)
 //!                [--load ARCHIVE:TYPE:ID] [--select NODE] [--app-shot FILE.bmp]
+//!                [--world NAME [--overlays regions,loaded,...]]   a world instead of --load
 //!
 //! --viewer-window shows the game's own window instead (the old separate preview, for debugging).
 //! --app-shot saves this window (once the --load and --select replies are in) and quits:
@@ -16,10 +19,12 @@
 //! lost viewer, or after two minutes.
 
 mod media_ui;
+mod world_ui;
 
 use eframe::egui;
 use hwvx_browser::media::MediaReader;
 use media_ui::{MediaState, View, media_kind};
+use world_ui::WorldState;
 use hwvx_browser::client::{SpawnOptions, Viewer, default_game, default_schemas};
 use hwvx_browser::frames::{Frame, FrameReader};
 use serde_json::{Value, json};
@@ -43,6 +48,8 @@ struct Args {
     token: Option<String>,
     window: Option<String>,
     load: Option<(String, String, u64)>,
+    world: Option<String>,
+    overlays: Option<String>,
     select: Option<String>,
     app_shot: Option<PathBuf>,
     viewer_window: bool,
@@ -70,6 +77,8 @@ fn parse_args() -> Result<Args, String> {
                 a.load = Some((p[2].into(), p[1].into(), p[0].parse().map_err(|_| "--load: ID is a number")?));
             }
             "--select" => a.select = Some(val()?),
+            "--world" => a.world = Some(val()?),
+            "--overlays" => a.overlays = Some(val()?),
             "--app-shot" => a.app_shot = Some(val()?.into()),
             "--viewer-window" => a.viewer_window = true,
             "-h" | "--help" => {
@@ -113,6 +122,8 @@ enum Pending {
     Texture(String),
     Sound(String),
     Play(String),
+    Worlds,
+    World,
     Quiet,
 }
 
@@ -278,6 +289,7 @@ struct Browser {
     preview: Preview,
     media: MediaState,
     media_reader: MediaReader,
+    world: WorldState,
 }
 
 impl Browser {
@@ -314,6 +326,7 @@ impl Browser {
             preview: Preview::new(&ctx),
             media: MediaState::default(),
             media_reader: MediaReader::new(),
+            world: WorldState::default(),
             args,
             ctx,
         };
@@ -380,6 +393,7 @@ impl Browser {
                 self.connect_error = None;
                 self.note(String::new());
                 self.request("packs", json!({}), Pending::Packs);
+                self.request("worlds", json!({}), Pending::Worlds);
                 self.request("status", json!({}), Pending::Camera);
             }
             Err(e) => self.connect_error = Some(e),
@@ -492,6 +506,7 @@ impl Browser {
                     self.detail = None;
                     self.media.open = None;
                     self.media.view = View::Scene;
+                    self.world.status = Value::Null; // (a pack shown alone: the world went)
                     self.request("outline", json!({"pack": pack}), Pending::Outline(pack.clone()));
                     self.request("status", json!({}), Pending::Camera);
                 }
@@ -516,7 +531,12 @@ impl Browser {
                 Pending::Camera => {
                     if let Some(c) = r.get("camera") {
                         self.spin = c["spin"].as_bool().unwrap_or(false);
+                        self.world.fly = c["mode"].as_str() == Some("fly");
                         self.camera = c.clone();
+                    }
+                    if let Some(w) = r.get("world") {
+                        let w = w.clone();
+                        self.world_status(&w);
                     }
                     if let Some(f) = r.get("frames") {
                         self.preview.stats = f.clone();
@@ -539,7 +559,19 @@ impl Browser {
                         }
                     }
                 }
+                Pending::Worlds => self.worlds_reply(r),
+                Pending::World => {
+                    let w = r["world"].clone();
+                    self.note(format!("world {}: {} quadrants, loaded in {:.0} ms", w["name"].as_str().unwrap_or(""), w["quads"], w["loadMs"].as_f64().unwrap_or(0.0)));
+                    self.media.open = None;
+                    self.media.view = View::Scene;
+                    self.world_status(&w);
+                    self.request("status", json!({}), Pending::Camera);
+                }
                 Pending::Pick => {
+                    if let Some(k) = r["kind"].as_str() {
+                        self.note(format!("picked a {k} at {}", r["at"].as_str().unwrap_or("")));
+                    }
                     if let Some(n) = r["node"].as_str() {
                         let n = n.to_string();
                         let ctx = self.ctx.clone();
@@ -587,6 +619,28 @@ impl Browser {
                 self.load(&a, &t, i);
             }
             if self.outline.is_none() {
+                return;
+            }
+        }
+        if let Some(name) = self.args.world.clone() {
+            if !self.script_load_sent && !self.world.list.is_empty() {
+                self.script_load_sent = true;
+                self.world.tab_worlds = true;
+                let e = self.world.list.iter().find(|w| w.name.eq_ignore_ascii_case(&name) || w.world.eq_ignore_ascii_case(&name)).cloned();
+                match e {
+                    Some(e) => {
+                        self.world.filter = e.name.clone();
+                        self.load_world(&e);
+                        if let Some(ov) = self.args.overlays.clone() {
+                            let m: serde_json::Map<String, Value> = ov.split(',').filter(|s| !s.is_empty()).map(|s| (s.to_string(), Value::Bool(true))).collect();
+                            self.request("overlays", Value::Object(m), Pending::Quiet);
+                            self.request("status", json!({}), Pending::Camera);
+                        }
+                    }
+                    None => self.fail(format!("no world {name}")),
+                }
+            }
+            if self.outline.is_none() || !self.world.status.is_object() {
                 return;
             }
         }
@@ -688,15 +742,18 @@ impl Browser {
                     o.info["type"].as_str().unwrap_or("").to_string(),
                     o.info["id"].as_u64().unwrap_or(0),
                 );
-                if ui.button("Reload pack").on_hover_text("load it again from the files (edits are dropped)").clicked() {
+                if let Some(world) = self.world.status["world"].as_str().map(str::to_string) {
+                    if ui.button("Reload world").on_hover_text("load it again from the files (edits are dropped)").clicked() {
+                        self.request("world", json!({"name": world}), Pending::World);
+                    }
+                } else if ui.button("Reload pack").on_hover_text("load it again from the files (edits are dropped)").clicked() {
                     self.load(&pack_archive, &pack_type, pack_id);
                 }
             }
         });
     }
 
-    fn pack_list(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Packs");
+    pub(crate) fn pack_list(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Filter");
             ui.text_edit_singleline(&mut self.pack_filter);
@@ -1022,7 +1079,18 @@ impl Browser {
         let rect = egui::Rect::from_min_max(full.min, egui::pos2(full.max.x, (full.max.y - status_h).max(full.min.y + 16.0)));
         let id = egui::Id::unique("hwvx-preview");
         let resp = ui.interact(rect, id, egui::Sense::click_and_drag());
+        let mut fly_events = Vec::new();
+        if (resp.has_focus() || resp.hovered()) && !ctx.memory(|m| m.focused().is_some_and(|f| f != id)) {
+            self.fly_keys(ui, &mut fly_events);
+        }
+        let world_line = if self.world.status.is_object() {
+            let w = &self.world.status;
+            format!("  ·  {}: {} of {} quadrants loaded, camera in {}", w["name"].as_str().unwrap_or(""), w["loaded"], w["quads"], w["cameraQuad"])
+        } else {
+            String::new()
+        };
         let p = &mut self.preview;
+        p.events.extend(fly_events);
 
         // a new frame from the feed: into the texture
         let fresh = p.feed.lock().unwrap().frame.take();
@@ -1119,6 +1187,7 @@ impl Browser {
                 (Key::Plus, "plus"),
                 (Key::Equals, "plus"),
                 (Key::Minus, "minus"),
+                (Key::G, "g"),
             ] {
                 if ui.input(|i| i.key_pressed(key)) {
                     p.events.push(json!({"type": "key", "key": name}));
@@ -1146,6 +1215,7 @@ impl Browser {
                 if let Some(ms) = stats["ms"].as_f64() {
                     s += &format!("  ·  readback {ms:.2} ms/frame, {:.0} published/s", stats["fps"].as_f64().unwrap_or(0.0));
                 }
+                s += &world_line;
                 ui.label(egui::RichText::new(s).weak().small());
             });
         });
@@ -1261,7 +1331,7 @@ impl eframe::App for Browser {
         }
         egui::Panel::top("top").show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("bottom").show(ui, |ui| self.bottom_bar(ui));
-        egui::Panel::left("packs").default_size(220.0).resizable(true).show(ui, |ui| self.pack_list(ui));
+        egui::Panel::left("packs").default_size(220.0).resizable(true).show(ui, |ui| self.left_tabs(ui));
         egui::Panel::left("outline").default_size(300.0).resizable(true).show(ui, |ui| self.outline_tree(ui));
         egui::Panel::right("properties").default_size(340.0).resizable(true).show(ui, |ui| self.properties(ui));
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
