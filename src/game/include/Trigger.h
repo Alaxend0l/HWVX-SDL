@@ -234,6 +234,27 @@ enum TacOperand {
     OPERAND_CODE_VARIABLE = 2,
 };
 
+/* CameraSetTargets: the camera mode (Camera_UpdatePosition's switch on
+ * Camera.mode[0]; 27-30 fill TacToken's gap). The exporter writes two places
+ * after every mode, also PLAYER's, which reads neither. */
+enum TacCameraMode {
+    CAMERA_LOOK_AT = 27,        /* fov, from, at (Camera_LookAt) */
+    CAMERA_ORBIT = 28,          /* fov, radius, height, speed, around, at (Camera_Orbit) */
+    CAMERA_ZOOM = 29,           /* from, at (Camera_UpdatePosition_Zoom_Generic) */
+    CAMERA_PLAYER = 30,         /* the player's own camera (the default mode) */
+};
+
+/* A camera place (Camera_TriggerActionGetLocation): a kind word, then the
+ * record and an offset (none for CAMERA). */
+enum TacPlace {
+    PLACE_CAR = 1,              /* a TileCar's car; the offset in its frame; the camera ignores it in rays */
+    PLACE_INSTANCE = 2,         /* a QuadInstance's thing (its spawn point when none) + offset */
+    PLACE_POINT = 3,            /* x, y, z of a vector + offset */
+    PLACE_PATH = 4,             /* a TilePath mover; the offset in its frame */
+    PLACE_CAMERA = 5,           /* where the camera is */
+    PLACE_POINT4 = 6,           /* a whole Vector4 (w too) + offset */
+};
+
 
 /* ---- parameter lists ------------------------------------------------------
  * What Trigger.param and TriggerAction.data point to, per kind: word lists
@@ -254,6 +275,9 @@ enum TacOperand {
  *   STRING(name)       a NUL-terminated name, padded to a word
  *   TABLE(name, R)     a count, then that many TAC_RECORD_R records
  *   WORDS(name)        the rest of the list, not decoded
+ *   VEC3(name)         three f32 words (x, y, z)
+ *   SWITCH(name, E)    a word of `enum E`, then the items of TAC_CASE_<its enumerator>: an
+ *                      object {"kind": name, ...}
  *
  * A record's handle is the address of its entry in the world's tables (World.h:
  * TileCar, QuadInstance, WorldVolume...; variables and timers by their table
@@ -289,7 +313,7 @@ enum TacOperand {
 #define TAC_PARAMS_TRIGGER_CREATURE_VOLUME_ENTERED  LIST(volumes, WorldVolume) LIST(creatures, TileCreature)
 
 #define TAC_PARAMS_ACTION_AIRBOX_CHANGE_MODE        TOKEN(mode) LIST(volumes, WorldVolume)
-#define TAC_PARAMS_ACTION_CAMERA_SET_TARGETS        U32(player) WORDS(camera)
+#define TAC_PARAMS_ACTION_CAMERA_SET_TARGETS        U32(player) SWITCH(camera, TacCameraMode) U32(end)
 #define TAC_PARAMS_ACTION_DESTRUCTIBLE_CHANGE_MODE  TOKEN(mode) LIST(instances, QuadInstance)
 #define TAC_PARAMS_ACTION_FX_POINT_CHANGE_MODE      TOKEN(mode) LIST(points, QuadFxPoint)
 #define TAC_PARAMS_ACTION_INTERFACE_PLAY            LINK(interface, void)
@@ -332,6 +356,20 @@ enum TacOperand {
 #define TAC_PARAMS_ACTION_SET_PLAYER_ORDER          LINK(first, TileCar) LINK(second, TileCar) LINK(third, TileCar) LINK(fourth, TileCar)
 #define TAC_PARAMS_ACTION_PLAY_SOUND_SEQUENCE       U32(play) U32(queued) ANY(sequence)
 #define TAC_PARAMS_ACTION_CREATURE_CHANGE_MODE      TOKEN(mode) LIST(creatures, TileCreature)
+
+/* CameraSetTargets: player 1-4 sets that player's camera, 0 every camera's
+ * (CameraManager_SetCameraGlobalMode; a larger first word would be the mode
+ * itself, which no pack has). `end`: 31 in every pack, never read. */
+#define TAC_CASE_CAMERA_LOOK_AT     F32(fov) SWITCH(from, TacPlace) SWITCH(at, TacPlace)
+#define TAC_CASE_CAMERA_ORBIT       F32(fov) F32(radius) F32(height) F32(speed) SWITCH(around, TacPlace) SWITCH(at, TacPlace)
+#define TAC_CASE_CAMERA_ZOOM        SWITCH(from, TacPlace) SWITCH(at, TacPlace)
+#define TAC_CASE_CAMERA_PLAYER      SWITCH(from, TacPlace) SWITCH(at, TacPlace)
+#define TAC_CASE_PLACE_CAR          LINK(car, TileCar) VEC3(offset)
+#define TAC_CASE_PLACE_INSTANCE     LINK(instance, QuadInstance) VEC3(offset)
+#define TAC_CASE_PLACE_POINT        LINK(point, void) VEC3(offset)
+#define TAC_CASE_PLACE_PATH         LINK(path, TilePath) VEC3(offset)
+#define TAC_CASE_PLACE_CAMERA
+#define TAC_CASE_PLACE_POINT4       LINK(point, void) VEC3(offset)
 
 /* A MusicChange track (ActionMusicChange reads track, active and, past 0,
  * vol; the rest are never read). */

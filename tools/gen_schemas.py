@@ -952,11 +952,11 @@ def load(headers):
     return reg
 
 
-TAC_MACRO = re.compile(r"^#define\s+(TAC_(?:PARAMS|RECORD)_\w+)[ \t]*(.*)$", re.M)
+TAC_MACRO = re.compile(r"^#define\s+(TAC_(?:PARAMS|RECORD|CASE)_\w+)[ \t]*(.*)$", re.M)
 TAC_ITEM = re.compile(r"(\w+)\(([^)]*)\)")
 TAC_KINDS = {"U32": "u32", "S32": "s32", "F32": "f32", "TOKEN": "token", "ANY": "any", "LINK": "link",
              "LIST": "list", "OPERAND": "operand", "CODEVAR": "codevar", "SCRATCH": "scratch",
-             "STRING": "string", "TABLE": "table", "WORDS": "words"}
+             "STRING": "string", "TABLE": "table", "WORDS": "words", "VEC3": "vec3", "SWITCH": "switch"}
 
 
 def tac_macros(text):
@@ -1316,7 +1316,7 @@ class Emitter:
         each kind of F's enum from the TAC_PARAMS_* macros, with a JSON schema per kind
         ($defs/<Enum>_<kind>) and an if/then per kind picking it."""
         objs = [sch] + list(sch.get("$defs", {}).values())
-        variants, records = {}, {}
+        variants, records, cases = {}, {}, {}
         for o in objs:
             for key, p in o.get("properties", {}).items():
                 if "x-params" not in p:
@@ -1328,7 +1328,7 @@ class Emitter:
                     raise LayoutError(f"{key}: params= names a field without enum=")
                 p["x-params"]["enum"] = tag
                 if tag not in variants:
-                    variants[tag] = self.variant_layouts(tag, records)
+                    variants[tag] = self.variant_layouts(tag, records, cases)
                 rules = []
                 for kind, items in variants[tag].items():
                     dname = f"{tag}_{kind}"
@@ -1342,17 +1342,20 @@ class Emitter:
         if variants:
             # the trigger file's form (xdl_graph.py): one file per trigger record, its own id, its
             # inline lists without their counts, raw children; pads only when not zero
-            inline = [p["x-link"]["count"] for p in sch["properties"].values() if p.get("x-inline")]
             sch["properties"] = {"id": dict(link_schema("object", sch["title"]), type="string",
                                             description="the record's own id (the trigger table entry)"),
                                  "children": {"type": "object", "description": "raw nodes kept in this file"},
                                  **sch["properties"]}
-            req = [k for k in sch["else"]["required"] if k not in inline
-                   and not sch["properties"][k].get("x-c-name", "").startswith("pad")]
-            sch["else"] = {"required": req}
+            # a field left out is zero (xdl_tac.py writes only the ones that aren't)
+            sch["else"] = {"required": ["type"]}
+            for d in ("Trigger", "TriggerAction"):
+                if d in sch.get("$defs", {}):
+                    sch["$defs"][d]["required"] = ["type"]
             sch["x-variants"] = variants
             if records:
                 sch["x-records"] = records
+            if cases:
+                sch["x-cases"] = cases
             sch["x-tokens"] = {str(v): n for v, n in sorted(enum_names(self.reg, "TacToken").items())}
             sch["x-operands"] = {str(v): n for v, n in sorted(enum_names(self.reg, "TacOperand").items())}
 
@@ -1363,7 +1366,7 @@ class Emitter:
                 return f.comment or ""
         return ""
 
-    def variant_layouts(self, tag, records):
+    def variant_layouts(self, tag, records, cases):
         out = {}
         for n, v in self.reg.enum_tags[tag]:
             if re.search(r"(^|_)NUM_|_COUNT$", n):
@@ -1372,16 +1375,35 @@ class Emitter:
             if macro not in self.reg.tac:
                 raise LayoutError(f"{tag}: no {macro} (Trigger.h)")
             items = self.reg.tac[macro]
-            for it in items:
-                if it[0] == "table":
-                    rm = "TAC_RECORD_" + it[2]
-                    if rm not in self.reg.tac:
-                        raise LayoutError(f"{macro}: no {rm}")
-                    records[it[2]] = self.reg.tac[rm]
+            self.collect(macro, items, records, cases)
             out[enum_names(self.reg, tag)[v]] = items
         return out
 
-    def variant_schema(self, items, title):
+    def collect(self, macro, items, records, cases):
+        """The TAC_RECORD_* and TAC_CASE_* lists `items` uses, into records / cases (x-cases:
+        {enum: {value: {"kind": name, "items": [...]}}})."""
+        for it in items:
+            if it[0] == "table" and it[2] not in records:
+                rm = "TAC_RECORD_" + it[2]
+                if rm not in self.reg.tac:
+                    raise LayoutError(f"{macro}: no {rm}")
+                records[it[2]] = self.reg.tac[rm]
+                self.collect(rm, records[it[2]], records, cases)
+            elif it[0] == "switch" and it[2] not in cases:
+                if it[2] not in self.reg.enum_tags:
+                    raise LayoutError(f"{macro}: SWITCH of {it[2]}: no such enum")
+                names = enum_names(self.reg, it[2])
+                cases[it[2]] = {}
+                for n, v in self.reg.enum_tags[it[2]]:
+                    cm = "TAC_CASE_" + n
+                    if cm not in self.reg.tac:
+                        raise LayoutError(f"{it[2]}: no {cm} (Trigger.h)")
+                    cases[it[2]][str(v)] = {"kind": names[v], "items": self.reg.tac[cm]}
+                for c in list(cases[it[2]].values()):
+                    self.collect("TAC_CASE_" + it[2], c["items"], records, cases)
+
+    def item_props(self, items, title):
+        """({name: schema}, required) of a parameter list's items."""
         link = link_schema("object")
         word = {"anyOf": [{"type": "integer"}, link]}
         token = named_int_schema(enum_names(self.reg, "TacToken"), {"type": "integer"})
@@ -1392,6 +1414,8 @@ class Emitter:
                 p = {"type": "integer"}
             elif k == "f32":
                 p = {"type": "number"}
+            elif k == "vec3":
+                p = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
             elif k == "token":
                 p = token
             elif k == "any":
@@ -1412,17 +1436,35 @@ class Emitter:
             elif k == "string":
                 p = {"type": "string"}
             elif k == "table":
-                p = {"type": "array", "items": {"type": "object"}, "x-record": it[2]}
+                rp, rq = self.item_props(self.reg.tac["TAC_RECORD_" + it[2]], it[2])
+                p = {"type": "array", "items": {"type": "object", "properties": rp, "required": rq,
+                                                "additionalProperties": False}, "x-record": it[2]}
+            elif k == "switch":
+                alts = []
+                for n, v in self.reg.enum_tags[it[2]]:
+                    cp, cq = self.item_props(self.reg.tac["TAC_CASE_" + n], n)
+                    kind = enum_names(self.reg, it[2])[v]
+                    alts.append({"type": "object", "title": kind,
+                                 "properties": dict({"kind": {"const": kind}}, **cp),
+                                 "required": ["kind"] + cq, "additionalProperties": False})
+                p = {"oneOf": alts, "x-switch": it[2],
+                     "description": f"{{\"kind\": a {it[2]} name, ...}} (Trigger.h TAC_CASE_*)"}
             elif k == "words":
                 p = {"type": "array", "items": word, "description": "not decoded"}
             else:
                 raise LayoutError(f"{title}: item {k}")
             props[name] = dict(p, **{"x-item": k})
+        return props, [it[1] for it in items]
+
+    def variant_schema(self, items, title):
+        link = link_schema("object")
+        word = {"anyOf": [{"type": "integer"}, link]}
+        props, req = self.item_props(items, title)
         props["tail"] = {"anyOf": [{"type": "string"}, {"type": "array", "items": word}],
                          "description": "what follows the list in its node, kept as it was: hex, or "
                                         "words when it holds links"}
         return {"title": title, "type": "object", "properties": props, "additionalProperties": False,
-                "required": [it[1] for it in items]}
+                "required": req}
 
 
 def write_schemas(reg, fields_doc, out, observed):

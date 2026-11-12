@@ -48,6 +48,7 @@ class Tac:
         self.structs = {"Trigger": self.sch, "TriggerAction": self.sch["$defs"]["TriggerAction"]}
         self.variants = self.sch["x-variants"]
         self.records = self.sch.get("x-records", {})
+        self.cases = self.sch.get("x-cases", {})        # {enum: {value: {"kind", "items"}}}
         self.tokens = {int(k): v for k, v in self.sch["x-tokens"].items()}
         self.token_val = {v: k for k, v in self.tokens.items()}
         self.operands = {int(k): v for k, v in self.sch["x-operands"].items()}
@@ -160,6 +161,15 @@ def decode_params(T, r, off, end, items, path):
             elif k == "f32":
                 v = f32_of(r.e, plain(name))
                 obj[name] = XS.Num(v, XS.f32_text(v))
+            elif k == "vec3":
+                vs = [f32_of(r.e, plain(f"{name}/{i}")) for i in range(3)]
+                obj[name] = [XS.Num(v, XS.f32_text(v)) for v in vs]
+            elif k == "switch":
+                w = plain(name)
+                case = T.cases.get(it[2], {}).get(str(w))
+                if case is None:
+                    raise TacError(f"{sub}/{name}: {w} is no {it[2]}")
+                obj[name] = dict({"kind": case["kind"]}, **items_of(case["items"], f"{sub}/{name}"))
             elif k == "token":
                 obj[name] = T.token(plain(name))
             elif k == "any":
@@ -304,6 +314,22 @@ def encode_params(T, obj, items, e, path):
                 num(v, name)
             elif k == "f32":
                 flt(v, name)
+            elif k == "vec3":
+                v = lst(v, name)
+                if len(v) != 3:
+                    raise TacError(f"{sub}/{name}: [x, y, z]")
+                for i, x in enumerate(v):
+                    flt(x, f"{name}/{i}")
+            elif k == "switch":
+                if not isinstance(v, dict) or not isinstance(v.get("kind"), str):
+                    raise TacError(f"{sub}/{name}: {{\"kind\": a {it[2]} name, ...}}")
+                cs = T.cases.get(it[2], {})
+                hit = [(int(val), c) for val, c in cs.items() if c["kind"] == v["kind"]]
+                if not hit:
+                    raise TacError(f"{sub}/{name}/kind: {v['kind']!r} is no {it[2]} "
+                                   f"({', '.join(c['kind'] for c in cs.values())})")
+                word(hit[0][0])
+                items_to(hit[0][1]["items"], {a: b for a, b in v.items() if a != "kind"}, f"{sub}/{name}")
             elif k == "token":
                 word(T.token_value(v, f"{sub}/{name}"))
             elif k == "any":
@@ -529,6 +555,8 @@ class Extract:
         return self.record("Trigger", nd, nd.start, nd)
 
     def zero_tail(self, nd, used):
+        if nd.end - nd.start < used:
+            return False
         tail = self.ex.blob[nd.start + used:nd.end]
         if any(tail):
             return False
@@ -569,7 +597,8 @@ class Extract:
                 n = self.ex.src.u32(off + int(T.structs[sname]["properties"][p["x-link"]["count"]]["x-offset"], 16))
                 rec = ARRAY_OF[key]
                 size = T.size[rec]
-                if child is not None and n and self.zero_tail(child, n * size):
+                if (child is not None and n and child.end - child.start >= n * size
+                        and self.zero_tail(child, n * size)):
                     try:
                         mark = len(self.parts)
                         self.parts.append(child)
@@ -586,9 +615,17 @@ class Extract:
                 out[key] = decode_scalar(T, r, p, o, key)
         for c in inline_counts:
             del out[c]
-        for key, p in props:                # a pad shows only when it isn't zero
-            if p.get("x-c-name", "").startswith("pad") and not any(out.get(key) or []):
-                out.pop(key, None)
+        src = self.ex.src
+        for key, p in props:                # a field shows only when it isn't zero (but the kind)
+            if key == "type" or key not in out:
+                continue
+            o = off + int(p["x-offset"], 16)
+            n = XS.PRIM[XS.parse_ctype(p["x-c-type"])[0]][1] if "x-link" not in p and "x-params" not in p else 4
+            for d in XS.parse_ctype(p["x-c-type"])[1]:
+                n *= d
+            if not any(src.blob[o:o + n]) and not any(o <= x < o + n for x in range(o - o % 4, o + n, 4)
+                                                       if x in src.ptr):
+                del out[key]
         return out
 
     def null_link(self, o, key):
@@ -624,7 +661,7 @@ def encode_trigger(T, doc, tid, e, path):
                 buf[o:o + 4] = struct.pack(e + "I", v)
                 continue
             if key not in obj:
-                if p.get("x-c-name", "").startswith("pad"):
+                if key != "type":
                     continue                # zero
                 raise TacError(f"{sub}/{key}: missing")
             v = obj[key]

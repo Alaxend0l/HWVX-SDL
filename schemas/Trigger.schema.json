@@ -348,14 +348,7 @@
   "then": true,
   "else": {
     "required": [
-      "type",
-      "param",
-      "unused8",
-      "conditions",
-      "actions",
-      "elseActions",
-      "state",
-      "mode"
+      "type"
     ]
   },
   "$defs": {
@@ -1481,6 +1474,9 @@
             }
           }
         }
+      ],
+      "required": [
+        "type"
       ]
     },
     "TriggerAction": {
@@ -2935,6 +2931,9 @@
             }
           }
         }
+      ],
+      "required": [
+        "type"
       ]
     },
     "TriggerType_true": {
@@ -4814,26 +4813,1684 @@
           "x-item": "u32"
         },
         "camera": {
-          "type": "array",
-          "items": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
-                "x-link": {
-                  "kind": "object"
+          "oneOf": [
+            {
+              "type": "object",
+              "title": "look_at",
+              "properties": {
+                "kind": {
+                  "const": "look_at"
+                },
+                "fov": {
+                  "type": "number",
+                  "x-item": "f32"
+                },
+                "from": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
+                },
+                "at": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
                 }
-              }
-            ]
-          },
-          "description": "not decoded",
-          "x-item": "words"
+              },
+              "required": [
+                "kind",
+                "fov",
+                "from",
+                "at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "title": "orbit",
+              "properties": {
+                "kind": {
+                  "const": "orbit"
+                },
+                "fov": {
+                  "type": "number",
+                  "x-item": "f32"
+                },
+                "radius": {
+                  "type": "number",
+                  "x-item": "f32"
+                },
+                "height": {
+                  "type": "number",
+                  "x-item": "f32"
+                },
+                "speed": {
+                  "type": "number",
+                  "x-item": "f32"
+                },
+                "around": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
+                },
+                "at": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
+                }
+              },
+              "required": [
+                "kind",
+                "fov",
+                "radius",
+                "height",
+                "speed",
+                "around",
+                "at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "title": "zoom",
+              "properties": {
+                "kind": {
+                  "const": "zoom"
+                },
+                "from": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
+                },
+                "at": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
+                }
+              },
+              "required": [
+                "kind",
+                "from",
+                "at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "title": "player",
+              "properties": {
+                "kind": {
+                  "const": "player"
+                },
+                "from": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
+                },
+                "at": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "title": "car",
+                      "properties": {
+                        "kind": {
+                          "const": "car"
+                        },
+                        "car": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TileCar"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "car",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "instance",
+                      "properties": {
+                        "kind": {
+                          "const": "instance"
+                        },
+                        "instance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "QuadInstance"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "instance",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point",
+                      "properties": {
+                        "kind": {
+                          "const": "point"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "path",
+                      "properties": {
+                        "kind": {
+                          "const": "path"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object",
+                            "target": "TilePath"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "camera",
+                      "properties": {
+                        "kind": {
+                          "const": "camera"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "title": "point4",
+                      "properties": {
+                        "kind": {
+                          "const": "point4"
+                        },
+                        "point": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                          "x-link": {
+                            "kind": "object"
+                          },
+                          "x-item": "link"
+                        },
+                        "offset": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "x-item": "vec3"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "point",
+                        "offset"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "x-switch": "TacPlace",
+                  "description": "{\"kind\": a TacPlace name, ...} (Trigger.h TAC_CASE_*)",
+                  "x-item": "switch"
+                }
+              },
+              "required": [
+                "kind",
+                "from",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "x-switch": "TacCameraMode",
+          "description": "{\"kind\": a TacCameraMode name, ...} (Trigger.h TAC_CASE_*)",
+          "x-item": "switch"
+        },
+        "end": {
+          "type": "integer",
+          "x-item": "u32"
         },
         "tail": {
           "anyOf": [
@@ -4867,7 +6524,8 @@
       "additionalProperties": false,
       "required": [
         "player",
-        "camera"
+        "camera",
+        "end"
       ]
     },
     "ActionType_destructible_change_mode": {
@@ -5794,7 +7452,62 @@
         "tracks": {
           "type": "array",
           "items": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "unused0": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "track": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "active": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "vol": {
+                "type": "number",
+                "x-item": "f32"
+              },
+              "unused10": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "unused14": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "unused18": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "unused1C": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "unused20": {
+                "type": "integer",
+                "x-item": "u32"
+              },
+              "unused24": {
+                "type": "integer",
+                "x-item": "u32"
+              }
+            },
+            "required": [
+              "unused0",
+              "track",
+              "active",
+              "vol",
+              "unused10",
+              "unused14",
+              "unused18",
+              "unused1C",
+              "unused20",
+              "unused24"
+            ],
+            "additionalProperties": false
           },
           "x-record": "MUSIC_TRACK",
           "x-item": "table"
@@ -9335,8 +11048,13 @@
           "player"
         ],
         [
-          "words",
-          "camera"
+          "switch",
+          "camera",
+          "TacCameraMode"
+        ],
+        [
+          "u32",
+          "end"
         ]
       ],
       "destructible_change_mode": [
@@ -9899,6 +11617,166 @@
         "unused24"
       ]
     ]
+  },
+  "x-cases": {
+    "TacCameraMode": {
+      "27": {
+        "kind": "look_at",
+        "items": [
+          [
+            "f32",
+            "fov"
+          ],
+          [
+            "switch",
+            "from",
+            "TacPlace"
+          ],
+          [
+            "switch",
+            "at",
+            "TacPlace"
+          ]
+        ]
+      },
+      "28": {
+        "kind": "orbit",
+        "items": [
+          [
+            "f32",
+            "fov"
+          ],
+          [
+            "f32",
+            "radius"
+          ],
+          [
+            "f32",
+            "height"
+          ],
+          [
+            "f32",
+            "speed"
+          ],
+          [
+            "switch",
+            "around",
+            "TacPlace"
+          ],
+          [
+            "switch",
+            "at",
+            "TacPlace"
+          ]
+        ]
+      },
+      "29": {
+        "kind": "zoom",
+        "items": [
+          [
+            "switch",
+            "from",
+            "TacPlace"
+          ],
+          [
+            "switch",
+            "at",
+            "TacPlace"
+          ]
+        ]
+      },
+      "30": {
+        "kind": "player",
+        "items": [
+          [
+            "switch",
+            "from",
+            "TacPlace"
+          ],
+          [
+            "switch",
+            "at",
+            "TacPlace"
+          ]
+        ]
+      }
+    },
+    "TacPlace": {
+      "1": {
+        "kind": "car",
+        "items": [
+          [
+            "link",
+            "car",
+            "TileCar"
+          ],
+          [
+            "vec3",
+            "offset"
+          ]
+        ]
+      },
+      "2": {
+        "kind": "instance",
+        "items": [
+          [
+            "link",
+            "instance",
+            "QuadInstance"
+          ],
+          [
+            "vec3",
+            "offset"
+          ]
+        ]
+      },
+      "3": {
+        "kind": "point",
+        "items": [
+          [
+            "link",
+            "point",
+            "void"
+          ],
+          [
+            "vec3",
+            "offset"
+          ]
+        ]
+      },
+      "4": {
+        "kind": "path",
+        "items": [
+          [
+            "link",
+            "path",
+            "TilePath"
+          ],
+          [
+            "vec3",
+            "offset"
+          ]
+        ]
+      },
+      "5": {
+        "kind": "camera",
+        "items": []
+      },
+      "6": {
+        "kind": "point4",
+        "items": [
+          [
+            "link",
+            "point",
+            "void"
+          ],
+          [
+            "vec3",
+            "offset"
+          ]
+        ]
+      }
+    }
   },
   "x-tokens": {
     "0": "off",
