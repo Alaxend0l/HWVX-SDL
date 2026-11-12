@@ -2237,6 +2237,16 @@ s32 Port_ViewerFrame(void) {
     ProcessManager_Heartbeat(0);
     FileStreaming_HeartBeat();
     ShaderHolder_Heartbeat();
+    if (Port_ViewerHeadless() && !ViewerFrames_On() && s.shotPath == NULL && !ViewerWorld_Active()) {
+        /* nothing would see the frame (the window hidden, no frames shared, no shot):
+         * not drawn; the heartbeats above run and the retrace paces as a drawn frame's.
+         * (A world is drawn still: World_Render is also what streams its quadrants
+         * around the camera, which status, pick and the shots after a move rely on.) */
+        Performance_End();
+        VIWaitForRetrace();
+        s.frame++;
+        return 1;
+    }
     if (ViewerWorld_Active()) {
         static const GXColor black = { 0, 0, 0, 0 };
 
