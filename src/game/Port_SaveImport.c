@@ -376,6 +376,10 @@ static int Ps2Open(Ps2Card *c, const u8 *b, size_t len, char *err, size_t errSiz
     u8 *buf, *buf2;
 
     SDL_zerop(c);
+    if (len < 512) {
+        /* the superblock (with the indirect FAT cluster list at 0x50..0xCF) is page 0 */
+        return Fail(err, errSize, "the PS2 card is cut short (%u bytes)", (unsigned)len);
+    }
     c->d = b;
     c->len = len;
     c->pageLen = GetLE16(b + 0x28);

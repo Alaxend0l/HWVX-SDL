@@ -772,6 +772,18 @@ static void TestRejected(void) {
               "a cut .sav (%s)", err);
         SDL_free(b);
     }
+    {
+        /* a PS2 card image that is only its superblock's first 0x40 bytes */
+        size_t n = 0x40;
+        u8 *b = SDL_calloc(1, n);
+        SDL_memcpy(b, "Sony PS2 Memory Card Format 1.2.0.0", 0x24);
+        PutLE16(b + 0x28, 512);
+        PutLE16(b + 0x2A, 2);
+        PutLE32(b + 0x30, 8);
+        CHECK(!Port_SaveImportRead(b, n, "cut.ps2", &x, err, sizeof(err)) && SDL_strstr(err, "cut short") != NULL,
+              "a cut .ps2 (%s)", err);
+        SDL_free(b);
+    }
     if (s_gci.bytes != NULL) {
         u8 *b = SDL_malloc(s_gci.len);
         SDL_memcpy(b, s_gci.bytes, s_gci.len);
