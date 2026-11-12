@@ -601,6 +601,11 @@ Debugging aids:
   (past every number given, `next`) and writes the file back; an entry keeps
   its number, `"active": false` keeps it reserved for content that's away
   (docs/xdl-format/README.md §10.5.1).
+- `HWVX_LEVEL=<file>`: a level file (`tools/xdl_level.py compile`) applied to
+  whatever level loads in the world it is made for (`src/game/Port_Level.c`);
+  a mod's track brings one with `"level"` (docs-pending/mission-editor.md).
+  `tools/level_test.sh BUILD DATA OUT` plays the sample level as a mod (world
+  select, win, lose).
 - `HWVX_TEST_EXTRA_CARS=N` adds N cars past the data's (33 on every
   release), each loading a base car's pack (3, 4, ...) under its own number
   and id (`uid://hwvx-test-extra-car-K`); `HWVX_TEST_EXTRA_ITEMS=N` the same
