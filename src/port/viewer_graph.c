@@ -881,6 +881,20 @@ static void WriteProps(JsonWriter *w, VPack *vp, const JsonNode *root, const Jso
     }
 }
 
+/* A struct's fields at `off` of the pack, decoded by its schema (as a typed node's):
+ * {key: {field: value...}}; 0 if there is no such schema or it doesn't fit. */
+int Viewer_WriteStruct(JsonWriter *w, const char *key, VPack *vp, const char *schema, u32 off) {
+    const JsonNode *root = Viewer_Schema(schema);
+
+    if (root == NULL || off >= vp->size || HexOf(root, "x-size") > vp->size - off) {
+        return 0;
+    }
+    Jw_BeginObject(w, key, 0);
+    WriteProps(w, vp, root, Json_Get(root, "properties"), off);
+    Jw_EndObject(w);
+    return 1;
+}
+
 static void WriteSlots(JsonWriter *w, VPack *vp, VNode *nd) {
     static const char *const kinds[] = { "", "object", "geometry", "export", "texture", "sound" };
     u32 o;

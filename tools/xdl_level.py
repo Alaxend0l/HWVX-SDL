@@ -321,7 +321,7 @@ class Compiler:
             raise LevelError(f"{where}: a sphere needs a radius")
         pid = f"level://volumes/{name}"
         buf, links = self.encode_record("WorldVolume", v, where, pid)
-        self.add_part(pid, "data", buf, links)
+        self.add_part(pid, "volume", buf, links)
 
     def timer(self, name, v, where):
         v = dict(v)
@@ -657,7 +657,7 @@ def error_records(errors):
     """Errors as {file, path, message}: where in the project each one is."""
     out = []
     for e in errors:
-        m = re.match(r"((?:level\.jsonc|triggers/[A-Za-z0-9_-]+\.jsonc))(/[^:]*)?: (.*)", e, re.S)
+        m = re.match(r"((?:level\.jsonc|triggers/[A-Za-z0-9_-]+\.jsonc))(/(?:[^:]|:(?=//))*)?: (.*)", e, re.S)
         if m:
             out.append({"file": m.group(1), "path": (m.group(2) or "").lstrip("/"), "message": m.group(3)})
             continue
@@ -720,14 +720,15 @@ def base_project(world, data, cache):
     h = hashlib.sha256(src.read_bytes()).hexdigest()[:16]
     out = Path(cache) / f"{name}-{h}"
     proj = out / "project"
-    if (proj / "pack.jsonc").exists():
+    if (proj / "pack.jsonc").exists() and read_jsonc(proj / "pack.jsonc").get("archive", "").lower() == name:
         return proj
     exe = find_hwvx_x()
     if exe is None:
         raise LevelError("hwvx-x not found (target/release/hwvx-x)")
-    ext = out / "extract"
-    if ext.exists():
-        shutil.rmtree(ext)
+    ext = out / "extract" / name        # the folder's name is the archive's (xdl_graph's ids)
+    if ext.parent.exists():
+        shutil.rmtree(ext.parent)
+    ext.parent.mkdir(parents=True)
     r = subprocess.run([str(exe), "extract", str(src), str(ext)], capture_output=True, text=True)
     if r.returncode:
         raise LevelError("hwvx-x extract: " + r.stderr.strip()[-300:])
@@ -819,6 +820,9 @@ def cmd_testdrive(a):
 
 def cmd_check(a):
     doc, errors = compile_project(a.project, base_arg(a))
+    if a.json:
+        print(json.dumps({"ok": not errors, "errors": error_records(errors)}))
+        return 1 if errors else 0
     if not errors:
         print(f"{a.project}: ok")
     return report(errors)
@@ -884,6 +888,7 @@ def main():
             p.add_argument("--skip-intro", action="store_true", help="the quick start (test drives)")
         if name == "compile":
             p.add_argument("-o", "--out")
+        if name in ("compile", "check"):
             p.add_argument("--json", action="store_true", help="the result and errors as one JSON line")
         p.add_argument("--base", help="the base world's extracted project (xdl_level.py base)")
         p.add_argument("--data", help="the game's data folder: the base world is extracted from it (cached)")

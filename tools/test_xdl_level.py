@@ -136,6 +136,16 @@ if base:
 else:
     print("skip base checks (no base project given)")
 
+# errors as records: file, place, message (the editor's list)
+recs = LV.error_records([
+    "level.jsonc/patches/base://ch1_l2/world_0/World/0/timers/0/to/time: a number",
+    "level://triggers/cp1/param +0x4: level://volumes/nope: the level has nothing of that name",
+    "level.jsonc/volumes/cp1/radious: not a field of WorldVolume",
+])
+check("error records: a patch's field", recs[0] == {"file": "level.jsonc", "path": "patches/base://ch1_l2/world_0/World/0/timers/0/to/time", "message": "a number"}, recs[0])
+check("error records: a trigger's part", recs[1]["file"] == "triggers/cp1.jsonc" and recs[1]["path"] == "param", recs[1])
+check("error records: a field", recs[2]["path"] == "volumes/cp1/radious", recs[2])
+
 # a mod folder
 out = scratch / "mod"
 if out.exists():

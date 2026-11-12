@@ -246,6 +246,7 @@ void ViewerWorld_Unload(void) {
     if (!w.active) {
         return;
     }
+    ViewerLevel_WorldGone();
     while (IsLoadingThreadRunning()) {
         FileStreaming_HeartBeat();
     }
@@ -564,6 +565,7 @@ static void Collect(void) {
             w.hooks[i].draw();
         }
     }
+    ViewerLevel_Collect();
 }
 
 /* One pass of the overlays' lines as thin quads facing the camera, about
@@ -623,7 +625,7 @@ void ViewerWorld_Overlays(f32 fov) {
     int ew, eh;
     f32 px;
 
-    if (!ViewerWorld_Active() || w.overlays == 0) {
+    if (!ViewerWorld_Active() || (w.overlays == 0 && !ViewerLevel_HasLines())) {
         return;
     }
     Collect();
@@ -716,9 +718,53 @@ u32 ViewerWorld_Pick(const f32 *o, const f32 *d, f32 *tOut, const char **kind) {
     for (i = 0; i < wd->numTileCreatures; i++) {
         TRY(&GETP(wd->tileCreatures)[i], &GETP(wd->tileCreatures)[i].pos, 3.0f, "tile_creature");
     }
+    for (i = 0; i < wd->numVolumes; i++) {
+        WorldVolume *v = &GETP(wd->volumes)[i];
+
+        /* the sphere airboxes the scripts test (for links to them), as big as the test */
+        if (v->shape == VOLUME_SHAPE_SPHERE && v->type == VOLUME_AIRBOX && v->radiusSq > 0.0f) {
+            TRY(v, &v->center, (f32)sqrt(v->radiusSq), "volume");
+        }
+    }
 #undef TRY
     *tOut = bestT;
     return best;
+}
+
+/* The structural path of the record that starts at `off` of the world pack:
+ * World/0/tileCars/N, World/0/volumes/N, World/0/tileCreatures/N,
+ * World/0/quads/Q/contents/<instances|items|fxPoints>/N; "" for others. */
+void ViewerWorld_PathOf(u32 off, char *path, size_t size) {
+    World *wd = WORLD();
+    u8 *base, *p;
+    u32 q, i;
+
+    path[0] = 0;
+    if (!ViewerWorld_Active() || w.vp == NULL) {
+        return;
+    }
+    base = GETP(w.vp->pack->base);
+    p = base + off;
+#define IN(arr, n, sz, fmt, ...)                                                                                       \
+    if ((u8 *)(arr) != NULL && p >= (u8 *)(arr) && p < (u8 *)(arr) + (n) * (sz) && (p - (u8 *)(arr)) % (sz) == 0) {   \
+        i = (u32)((p - (u8 *)(arr)) / (sz));                                                                           \
+        SDL_snprintf(path, size, fmt, __VA_ARGS__);                                                                    \
+        return;                                                                                                        \
+    }
+    IN(GETP(wd->tileCars), wd->numTileCars, sizeof(TileCar), "World/0/tileCars/%u", (unsigned)i)
+    IN(GETP(wd->volumes), wd->numVolumes, sizeof(WorldVolume), "World/0/volumes/%u", (unsigned)i)
+    IN(GETP(wd->tileCreatures), wd->numTileCreatures, 0x40, "World/0/tileCreatures/%u", (unsigned)i)
+    for (q = 0; q < wd->numQuads; q++) {
+        QuadContents *qc = GETP(GETP(wd->quads)[q].contents);
+
+        if (qc == NULL) {
+            continue;
+        }
+        IN(GETP(qc->instances), qc->numInstances, 0x40, "World/0/quads/%u/contents/instances/%u", (unsigned)q, (unsigned)i)
+        IN(GETP(qc->items), qc->numItems, 0x40, "World/0/quads/%u/contents/items/%u", (unsigned)q, (unsigned)i)
+        IN(GETP(qc->fxPoints), qc->numFxPoints, 0x40, "World/0/quads/%u/contents/fxPoints/%u", (unsigned)q, (unsigned)i)
+    }
+#undef IN
 }
 
 /* The place of the world object whose struct holds [off, off + size) of the

@@ -1615,11 +1615,29 @@ static void Dispatch(const JsonNode *req) {
                          ? &s.shown->nodes[s.shown->owner[off / 4]]
                          : NULL;
                 if (off != VIEWER_NO_OFFSET) {
-                    char at[16];
+                    char at[16], rpath[96];
 
                     Jw_String(&w, "kind", kind);
                     SDL_snprintf(at, sizeof(at), "@%x", off);
                     Jw_String(&w, "at", at);
+                    ViewerWorld_PathOf(off, rpath, sizeof(rpath));
+                    if (rpath[0]) {
+                        Jw_String(&w, "path", rpath);   /* the record, by structural path (level editor) */
+                    }
+                    Jw_Float(&w, "t", dist);
+                }
+                {
+                    /* the ray, for the level editor's own objects */
+                    Jw_BeginArray(&w, "origin", 1);
+                    Jw_Float(&w, NULL, o[0]);
+                    Jw_Float(&w, NULL, o[1]);
+                    Jw_Float(&w, NULL, o[2]);
+                    Jw_EndArray(&w);
+                    Jw_BeginArray(&w, "dir", 1);
+                    Jw_Float(&w, NULL, d[0]);
+                    Jw_Float(&w, NULL, d[1]);
+                    Jw_Float(&w, NULL, d[2]);
+                    Jw_EndArray(&w);
                 }
             } else {
                 i = Pick((f32)x->number, (f32)y->number, &dist);
@@ -1737,6 +1755,7 @@ static void Dispatch(const JsonNode *req) {
             WriteCamera(&w);
         }
     } else if (ViewerWorld_Dispatch(cmd, req, &w, &ok, err, sizeof(err))) {
+    } else if (ViewerLevel_Dispatch(cmd, req, &w, &ok, err, sizeof(err))) {
         /* worlds, world, world_unload, overlays */
     } else if (SDL_strcmp(cmd, "quit") == 0) {
         s.quit = 1;
