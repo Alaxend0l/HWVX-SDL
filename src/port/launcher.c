@@ -2033,6 +2033,14 @@ static int Run(Launcher *l) {
                     }
                 }
                 break;
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                for (i = 0; i < 8; i++) {
+                    if (pads[i] != NULL && SDL_GetGamepadID(pads[i]) == ev.gdevice.which) {
+                        SDL_CloseGamepad(pads[i]);
+                        pads[i] = NULL;
+                    }
+                }
+                break;
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
                 l->mouse = 0;
                 switch (ev.gbutton.button) {
