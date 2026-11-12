@@ -92,6 +92,7 @@ void FileStreaming_ReleaseQuadPacks(void)
     while (g_bLoadingThreadRunning)
     {
     }
+    Port_DrawDistReleaseAll();   /* port: the draw distance's own quadrant copies (Port_DrawDist.c) */
     for (i = 0; i < (u32)g_numQuadPacksInMemory; i++)
     {
         if (g_LoadedQuadrants[i] != NULL && g_LoadedQuadrants[i]->loaded != 0)

@@ -1,5 +1,6 @@
 #include "common.h"
 #include "Gfx.h"
+s32 Port_DrawDistFog(f32 *start, f32 *end);   /* port: Port_DrawDist.c */
 
 
 extern u32 m_VtxDescFlag;
@@ -897,8 +898,11 @@ void Render_StateZWriteEnable(s32 enable) {
 
 void Render_StateFogEnable(s32 enable) {
     if (m_fogMode != enable) {
-        if (enable) {
-            GXSetFog(m_fogType, m_fogRange1, m_fogRange2, 1.0f, 15000.0f, m_fogColor);
+        f32 start = m_fogRange1;   /* port: further out with a longer draw distance (Port_DrawDistFog) */
+        f32 end = m_fogRange2;
+
+        if (enable && Port_DrawDistFog(&start, &end)) {
+            GXSetFog(m_fogType, start, end, 1.0f, 15000.0f, m_fogColor);
         } else {
             GXSetFog(0, 1.0f, 10.0f, 1.0f, 10.0f, m_fogColor);
         }

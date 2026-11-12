@@ -612,4 +612,12 @@ _Static_assert(sizeof(StreamingPack) == 0xA8, "StreamingPack size");
 
 #undef WORLD_ASSERT
 
+/* port: the optional longer draw distance (Port_DrawDist.c) */
+s32 Port_DrawDistLevel(void);
+void Port_DrawDistRender(World *world, WorldQuad **current, u32 numCameras, WorldQuad *hub);
+void Port_DrawDistReleaseAll(void);
+f32 Port_DrawDistFarPlane(f32 farPlane);
+s32 Port_DrawDistFog(f32 *start, f32 *end);
+f32 Port_DrawDistProjectionFar(f32 farPlane);
+
 #endif

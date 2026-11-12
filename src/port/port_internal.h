@@ -36,6 +36,7 @@ typedef struct PortState {
                               * GameCube did (graphics.cfg splitlod; Port_SplitScreenCoarseLOD) */
     int mouseSteer;          /* 1: the PC release's mouse steering in races (graphics.cfg
                               * mousesteer=on; Port_MouseSteerOn, pad.c) */
+    int drawDist;            /* PORT_DRAWDIST_*: graphics.cfg drawdist (Port_DrawDistSetting) */
     int launcher;            /* --launcher (or run as hwvx-launcher): open the launcher */
     volatile int quit;
     SDL_Window *window;

@@ -91,6 +91,10 @@ void Port_SwapArray32(void *p, size_t count);
 #define PORT_STATIC_HANDLE_BASE 0x01000000u
 #define PORT_STATIC_HANDLE_STRIDE 0x1000u
 
+/* Past the game heap: the draw distance's heap (os.c Port_ExtraHeap). The
+ * game heap stays PORT_ARENA_SIZE (port_internal.h) whatever it holds; a world's quadrant packs
+ * are 0.5 - 5 MB each set, so this is room for every one of them. */
+#define PORT_EXTRA_HEAP (32u << 20)
 extern u8 *g_portArena;
 extern u32 g_portArenaSize;
 
@@ -255,6 +259,16 @@ int Port_OriginalMainMenu(void);
  * PC release at high Geometry Quality. graphics.cfg "splitlod=full|gc",
  * HWVX_SPLITSCREEN_LOD=gc|full overrides. */
 int Port_SplitScreenCoarseLOD(void);
+/* gfx_settings.c: the draw distance the player chose (PORT_DRAWDIST_*):
+ * graphics.cfg "drawdist=normal|far|all", HWVX_DRAWDIST=normal|far|all
+ * overrides. What a frame actually uses is Port_DrawDistLevel
+ * (src/game/Port_DrawDist.c): Normal in demos, playback and online play. */
+enum { PORT_DRAWDIST_NORMAL, PORT_DRAWDIST_FAR, PORT_DRAWDIST_ALL };
+int Port_DrawDistSetting(void);
+/* os.c: the draw distance's own heap, the arena's last PORT_EXTRA_HEAP bytes,
+ * so its quadrant copies never move or crowd the game's allocations. */
+int Port_ExtraHeap(void);
+void Port_HeapUsage(int heap, u32 *inUse, u32 *size);
 /* Keyboard (pad.c): the keys the game reads, as bits (1 << PORT_KEY_*).
  * src/game/Port_Keyboard.c turns them into the PC release's controls. */
 enum {

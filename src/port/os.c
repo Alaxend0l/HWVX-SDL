@@ -183,6 +183,29 @@ void OSFreeToHeap(int heapId, void *ptr) {
     SDL_UnlockMutex(s_heapLock);
 }
 
+/* The draw distance's heap (src/game/Port_DrawDist.c): the arena's last
+ * PORT_EXTRA_HEAP bytes, past the game heap, made the first time it is asked
+ * for. The game heap is the same size and its blocks the same either way. */
+int Port_ExtraHeap(void) {
+    static int id = -1;
+
+    if (id < 0) {
+        id = OSCreateHeap(g_portArena + g_portArenaSize - PORT_EXTRA_HEAP, g_portArena + g_portArenaSize);
+    }
+    return id;
+}
+
+void Port_HeapUsage(int heapId, u32 *inUse, u32 *size) {
+    *inUse = 0;
+    *size = 0;
+    if (heapId >= 0 && heapId < s_numHeaps) {
+        SDL_LockMutex(s_heapLock);
+        *inUse = (u32)s_heaps[heapId].inUse;
+        *size = (u32)s_heaps[heapId].size;
+        SDL_UnlockMutex(s_heapLock);
+    }
+}
+
 /* ---- init / report ----------------------------------------------------- */
 
 static SDL_Mutex *s_giant;
@@ -214,7 +237,7 @@ void OSInit(void) {
     /* Leave the first 64 KB of the arena unused so no allocation gets a handle
      * that looks like a small integer. */
     s_arenaLo = g_portArena + 0x10000;
-    s_arenaHi = g_portArena + g_portArenaSize;
+    s_arenaHi = g_portArena + g_portArenaSize - PORT_EXTRA_HEAP;   /* the rest: Port_ExtraHeap */
     s_giant = SDL_CreateMutex();
     s_interruptDone = SDL_CreateCondition();
     s_windowClosed = SDL_CreateCondition();

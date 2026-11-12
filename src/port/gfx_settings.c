@@ -48,6 +48,12 @@
  * - Mouse steering (graphics.cfg "mousesteer=on|off", default off, a row on
  *   the launcher's Settings page; HWVX_MOUSESTEER=1 or 0 overrides): the PC
  *   release's mouse controls in races (pad.c, Port_Keyboard.c).
+ * - Draw distance (graphics.cfg "drawdist=normal|far|all", default normal, a
+ *   row on the launcher's Settings page; HWVX_DRAWDIST overrides): Far also
+ *   draws the quadrants two steps from each camera's, All every quadrant,
+ *   with the far clipping plane and fog pushed out (src/game/Port_DrawDist.c).
+ *   Drawing only: the game's own streaming, and so everything it spawns,
+ *   stays as it was. Normal in the attract demo, playback and online play.
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -140,6 +146,29 @@ int Port_SplitScreenCoarseLOD(void) {
     int gc = EnvIs(&env, "HWVX_SPLITSCREEN_LOD", "gc");
 
     return gc >= 0 ? gc : g_port.splitLodGC;
+}
+
+static const char *const s_drawDistNames[3] = { "normal", "far", "all" };
+
+static int DrawDistByName(const char *name) {
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        if (name != NULL && SDL_strcmp(name, s_drawDistNames[i]) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* The draw distance (PORT_DRAWDIST_*): HWVX_DRAWDIST, else graphics.cfg. */
+int Port_DrawDistSetting(void) {
+    static int env = -2;
+
+    if (env == -2) {
+        env = DrawDistByName(SDL_getenv("HWVX_DRAWDIST"));
+    }
+    return env >= 0 ? env : g_port.drawDist;
 }
 
 f32 Port_GfxFovScale(void) {
@@ -253,13 +282,15 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.mouseSteer = 1;
         } else if (SDL_strcmp(line, "mousesteer=off") == 0) {
             g_port.mouseSteer = 0;
+        } else if (SDL_strncmp(line, "drawdist=", 9) == 0 && DrawDistByName(line + 9) >= 0) {
+            g_port.drawDist = DrawDistByName(line + 9);
         }
     }
     SDL_free(text);
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[256];
+    char *path = ConfigPath(), buf[320];
     int n;
 
     if (path == NULL) {
@@ -269,11 +300,12 @@ static void SaveConfig(int w, int h, int full) {
     n = w > 0 && h > 0 ? SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\n", w, h) : 0;
     n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
                      "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\n",
                      full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
                      g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on",
-                     g_port.mouseSteer ? "on" : "off");
+                     g_port.mouseSteer ? "on" : "off",
+                     s_drawDistNames[g_port.drawDist >= 0 && g_port.drawDist < 3 ? g_port.drawDist : 0]);
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }

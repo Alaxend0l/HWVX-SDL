@@ -98,12 +98,14 @@ void Port_InitHandles(u32 arenaSize) {
     s_handleLock = SDL_CreateMutex();
     /* 64-byte alignment: the game aligns to 32 and uses the handle value for
      * the arithmetic, so the base must be at least as aligned. */
-    g_portArena = SDL_aligned_alloc(64, arenaSize);
+    /* port: PORT_EXTRA_HEAP more past the game's (os.c Port_ExtraHeap); not
+     * cleared, so its pages cost nothing until the draw distance uses them */
+    g_portArena = SDL_aligned_alloc(64, arenaSize + PORT_EXTRA_HEAP);
     if (g_portArena == NULL) {
         Port_Fatal("could not allocate %u MB game arena", arenaSize >> 20);
     }
     memset(g_portArena, 0, arenaSize);
-    g_portArenaSize = arenaSize;
+    g_portArenaSize = arenaSize + PORT_EXTRA_HEAP;
 }
 
 /* ---- byte swapping ----------------------------------------------------- */
