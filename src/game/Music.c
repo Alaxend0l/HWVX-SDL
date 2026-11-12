@@ -79,6 +79,24 @@ void CreateMusic(u8 *data, u8 *bank) {
   if (data == 0 || bank == 0) {
     return;
   }
+  /* port: a mod's recorded song in place of this one (musicstream.c); any
+   * stream still playing fades out */
+  if (PortStream_Create()) {
+    if (DestroyMusic != (s32 (*)(void))PortStream_Destroy) {
+      DestroyMusic();
+    }
+    DestroyMusic = PortStream_Destroy;
+    SetMusicState = (s32 (*)(void))PortStream_SetState;
+    SetMusicVolume = PortStream_SetVol;
+    SetMusicPitch = AudioVoid;
+    SetMusicTempo = AudioVoid;
+    SetMusicOrder = AudioVoid;
+    SetMusicTrackPriority = AudioVoid;
+    SetMusicTrackOn = AudioVoid;
+    SetMusicTrackOff = AudioVoid;
+    SetMusicTrackVol = AudioVoid;
+    return;
+  }
   if (CmpType_(data, 'MIDI')) {
     DestroyMusic = DestroyMIDI;
     SetMusicState = SetMIDIState;

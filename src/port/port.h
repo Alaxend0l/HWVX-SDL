@@ -352,6 +352,18 @@ void Port_Fatal(const char *fmt, ...) PORT_PRINTF(1, 2) __attribute__((noreturn)
 #define PORT_TODO(what) Port_Todo(__func__, what)
 void Port_Todo(const char *func, const char *what);
 
+/* Streamed music (musicstream.c): a mod's recorded song in place of a
+ * sequenced one. SetPack names the pack whose song CreateMusic is about to
+ * make (NULL after); Create is 1 when a mod streams that song, and then the
+ * game's music hooks are the other four. Refill and Mix run on the AX thread. */
+void PortStream_SetPack(const char *name, unsigned type, unsigned id);
+int PortStream_Create(void);
+s32 PortStream_Destroy(void);
+s32 PortStream_SetState(s32 state);
+s32 PortStream_SetVol(void);
+void PortStream_Refill(void);
+void PortStream_Mix(float *out, int n);
+
 #ifdef __cplusplus
 }
 #endif

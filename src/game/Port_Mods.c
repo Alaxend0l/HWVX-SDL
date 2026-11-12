@@ -466,8 +466,8 @@ static void BuildReport(void) {
                 }
             }
         }
-        for (s = 0; s < 3; s++) {
-            const char *kind = s == 0 ? "cars" : s == 1 ? "items" : "tracks";
+        for (s = 0; s < 4; s++) {
+            const char *kind = s == 0 ? "cars" : s == 1 ? "items" : s == 2 ? "tracks" : "music";
             const JsonNode *a = Json_Get(m->doc, kind), *x;
 
             for (x = a != NULL && a->type == JSON_OBJECT ? a->child : NULL; x != NULL; x = x->next) {
@@ -624,7 +624,7 @@ static int SafeName(const char *s) {
  * (ALLOWED_EXT), and check.json. */
 static int AllowedName(const char *name) {
     static const char *const ext[] = { ".json", ".jsonc", ".png", ".wav", ".gltf", ".glb", ".bin", ".mid", ".md",
-                                       ".txt" };
+                                       ".txt", ".ogg", ".mp3", ".flac" };
     const char *dot = SDL_strrchr(name, '.'), *p;
     u32 i;
 
@@ -814,7 +814,7 @@ int Port_ModsInstall(const char *package, char *err, size_t errSize) {
         }
         if (!AllowedName(e->name)) {
             SDL_snprintf(err, errSize, "%s: not a kind of file a mod holds (the packer's check reads .json "
-                                       ".jsonc .png .wav .gltf .glb .bin .mid .md .txt)", e->name);
+                                       ".jsonc .png .wav .gltf .glb .bin .mid .md .txt .ogg .mp3 .flac)", e->name);
             goto done;
         }
         for (j = 0; j < n; j++) {
@@ -1588,4 +1588,93 @@ char *Port_ModsResolveFile(const char *name, int *format) {
     }
     SDL_free(rel);
     return path;
+}
+
+/* ---- music ------------------------------------------------------------------ */
+
+/* One "music" entry: "file" or {"file", "loopStart", "loopEnd", "loop", "volume"}. */
+static int MusicTrack(const Mod *m, const char *key, const JsonNode *e, PortModMusic *t) {
+    const char *file = e->type == JSON_STRING ? e->string : e->type == JSON_OBJECT ? Str(e, "file") : NULL;
+    const JsonNode *n;
+
+    SDL_zerop(t);
+    if (file == NULL || !SafeName(file)) {
+        Report("%s: music %s: not a file of the mod", m->info.name, key);
+        return 0;
+    }
+    SDL_asprintf(&t->path, "%s%s", m->dir, file);
+    t->loopStart = t->loopEnd = -1;
+    t->loop = 1;
+    t->volume = 1.0f;
+    if (e->type == JSON_OBJECT) {
+        if ((n = Json_Get(e, "loopStart")) != NULL && n->type == JSON_NUMBER && n->number >= 0) {
+            t->loopStart = (long long)n->number;
+        }
+        if ((n = Json_Get(e, "loopEnd")) != NULL && n->type == JSON_NUMBER && n->number > 0) {
+            t->loopEnd = (long long)n->number;
+        }
+        if ((n = Json_Get(e, "loop")) != NULL && n->type == JSON_BOOL && !n->boolean) {
+            t->loop = 0;
+        }
+        if ((n = Json_Get(e, "volume")) != NULL && n->type == JSON_NUMBER) {
+            t->volume = (float)SDL_clamp(n->number, 0.0, 4.0);
+        }
+    }
+    return t->path != NULL;
+}
+
+int Port_ModsMusic(const char *name, unsigned type, unsigned id, PortModMusic **out) {
+    int i;
+
+    *out = NULL;
+    if (name == NULL || !Port_ModsActive()) {
+        return 0;
+    }
+    for (i = s_numMods - 1; i >= 0; i--) {     /* the later mod's applies */
+        const Mod *m = &s_mods[i];
+        const JsonNode *sec = Json_Get(m->doc, "music"), *x, *e;
+        const char *rest;
+
+        if (!Enabled(m)) {
+            continue;
+        }
+        for (x = sec != NULL && sec->type == JSON_OBJECT ? sec->child : NULL; x != NULL; x = x->next) {
+            int n = 0, k = 0;
+            PortModMusic *t;
+
+            if (!Names(x->key, name, type, id, &rest) || (*rest != 0 && SDL_strcmp(rest, "song/0") != 0)) {
+                continue;
+            }
+            if (x->type == JSON_ARRAY) {      /* a playlist */
+                for (e = x->child; e != NULL; e = e->next) {
+                    n++;
+                }
+            } else {
+                n = 1;
+            }
+            t = SDL_calloc((size_t)(n ? n : 1), sizeof(*t));
+            if (t == NULL) {
+                return 0;
+            }
+            for (e = x->type == JSON_ARRAY ? x->child : x; e != NULL && k < n; e = x->type == JSON_ARRAY ? e->next : NULL) {
+                k += MusicTrack(m, x->key, e, &t[k]);
+            }
+            if (k == 0) {
+                SDL_free(t);
+                return 0;
+            }
+            *out = t;
+            return k;
+        }
+    }
+    return 0;
+}
+
+void Port_ModsMusicFree(PortModMusic *tracks, int count) {
+    int i;
+
+    for (i = 0; tracks != NULL && i < count; i++) {
+        SDL_free(tracks[i].path);
+    }
+    SDL_free(tracks);
 }

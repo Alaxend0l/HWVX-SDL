@@ -433,6 +433,7 @@ static void RunAXFrame(float *out) {
     }
     RunAux(s_auxA, s_auxACtx, auxA, out);
     RunAux(s_auxB, s_auxBCtx, auxB, out);
+    PortStream_Mix(out, AX_FRAME_SAMPLES);   /* a mod's streamed song (musicstream.c) */
     for (i = 0; i < AX_FRAME_SAMPLES * 2; i++) {
         out[i] = SDL_clamp(out[i], -1.0f, 1.0f);
     }
@@ -484,6 +485,7 @@ static int SDLCALL AXThread(void *unused) {
             RunAXFrame(&frames[i * AX_FRAME_SAMPLES * 2]);
         }
         Port_InterruptUnlock();
+        PortStream_Refill();
         if (s_stream != NULL) {
             SDL_PutAudioStreamData(s_stream, frames, n * FRAME_BYTES);
         }
