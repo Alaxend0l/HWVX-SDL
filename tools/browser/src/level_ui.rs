@@ -23,9 +23,12 @@ pub struct LevelState {
     pub car: u32,
     pub skip_intro: bool,
     pub from_here: bool,
-    /// the test drive as a shared mod plays it: the level file applied as the world loads
-    /// (Port_Level.c), not the world pack the editor builds
-    pub as_shared: bool,
+    /// the test drive through a world pack of the level's own (tools/xdl_level_pack.py), the
+    /// old way; off (the default): as a shared mod plays it, the level file applied as the world
+    /// loads (Port_Level.c)
+    pub build_pack: bool,
+    /// how the last test drive ran the level (shown with its result)
+    route: &'static str,
     pub errors: Vec<LevelError>,
     pub last: Option<Prepared>,
     pub drive: Option<TestDrive>,
@@ -93,6 +96,7 @@ impl Browser {
             python: std::env::var("HWVX_PYTHON").unwrap_or_else(|_| "python3".into()),
             game,
             data,
+            build_pack: false,
             project: self.drive_project(),
             scratch: self.testdrive_scratch(),
             car: Some(self.level.car),
@@ -160,9 +164,8 @@ impl Browser {
     fn start_prepare(&mut self, start_at: Option<[f32; 4]>) {
         let mut o = self.testdrive_options();
         o.start_at = start_at;
-        if self.level.as_shared {
-            o.data = None; // testdrive without --data: the level file, applied in memory
-        }
+        o.build_pack = self.level.build_pack;
+        self.level.route = if self.level.build_pack { "its own world pack, built" } else { "as shared: the level file applied at load" };
         let (tx, rx) = channel();
         let oc = o.clone();
         std::thread::spawn(move || {
@@ -220,9 +223,10 @@ impl Browser {
                 Ok(Ok(p)) => match TestDrive::launch(&o, &p, clicked) {
                     Ok(d) => {
                         self.level.message = format!(
-                            "compiled in {:.0} ms{} · game started (pid {})",
+                            "compiled in {:.0} ms{} · {} · game started (pid {})",
                             p.ms,
                             if p.cached { " (unchanged)" } else { "" },
+                            self.level.route,
                             d.pid
                         );
                         self.level.last = Some(p);
@@ -239,7 +243,7 @@ impl Browser {
                 if !self.level.ended_shown {
                     self.level.ended_shown = true;
                     let pr = d.progress.lock().unwrap().clone();
-                    self.level.message = format!("test drive {how}: back in the editor{}", timings(&pr));
+                    self.level.message = format!("test drive ({}) {how}: back in the editor{}", self.level.route, timings(&pr));
                     if let Some(why) = pr.not_applied {
                         self.level.message = format!("the level was not applied: {why}");
                     }
@@ -367,9 +371,10 @@ impl Browser {
             .on_hover_text("leave out the intro screen and the start's delays (driving at once)");
         ui.add_enabled(self.world.status["world"].is_string(), egui::Checkbox::new(&mut self.level.from_here, "From here"))
             .on_hover_text("start on the ground under the camera, facing its way (a world must be loaded)");
-        ui.checkbox(&mut self.level.as_shared, "As shared")
-            .on_hover_text("drive it as a player who installed it as a mod gets it: the level file applied to \
-                            the world as it loads, not the world pack the test drive builds");
+        ui.checkbox(&mut self.level.build_pack, "Build world pack")
+            .on_hover_text("off (the default): drive it exactly as a player who installed it as a mod gets it, \
+                            the level file applied to the world as it loads; on: through a world pack of its \
+                            own built from your data (the older way)");
         ui.horizontal(|ui| self.test_drive_button(ui));
         let sharing = self.level.sharing.is_some();
         if ui

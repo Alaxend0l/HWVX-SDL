@@ -22,6 +22,7 @@ fn options(scratch: &Path, project: &Path, data: Option<PathBuf>) -> Options {
         tools: root().join("tools"),
         python: "python3".into(),
         game,
+        build_pack: data.is_some(),
         data,
         project: project.to_path_buf(),
         scratch: scratch.to_path_buf(),
@@ -247,4 +248,32 @@ fn save_as_mod() {
     let line = testdrive::share(&o, &out).expect("packed");
     assert!(line.contains("no game data found"), "{line}");
     assert!(out.exists());
+}
+
+/// Both routes once (the Level tab's default and "Build world pack"): as shared, the test drive's
+/// mod has the level file, which the game applies as the world loads; with a world pack, the mod
+/// names the pack built from the data. Each is applied and drives.
+#[test]
+fn both_routes() {
+    let Some(data) = std::env::var_os("HWVX_DATA").map(PathBuf::from) else {
+        eprintln!("HWVX_DATA not set: skipped");
+        return;
+    };
+    let sample = root().join("tools/level-samples/checkpoint-run");
+    for (pack, name) in [(false, "route-shared"), (true, "route-pack")] {
+        let s = scratch(name);
+        let mut o = options(&s, &sample, Some(data.clone()));
+        o.build_pack = pack;
+        let p = testdrive::prepare(&o).unwrap();
+        let mod_text = std::fs::read_to_string(p.mods.join("editor-test/mod.jsonc")).unwrap();
+        assert_eq!(mod_text.contains("\"worldPack\""), pack, "{mod_text}");
+        assert_eq!(mod_text.contains("\"level\""), !pack, "{mod_text}");
+        let mut d = TestDrive::launch(&o, &p, Instant::now()).unwrap();
+        let ok = wait(&mut d, 60, |p| p.driving.is_some());
+        let pr = d.progress.lock().unwrap().clone();
+        d.stop();
+        assert!(ok, "{name}: not driving: {:?}", pr.tail);
+        assert!(pr.applied.is_some() && pr.not_applied.is_none(), "{name}: the level not applied: {:?}", pr.tail);
+        println!("{name}: compiled {:.0} ms, applied {:?}, driving {:?}", p.ms, pr.applied.unwrap(), pr.driving.unwrap());
+    }
 }

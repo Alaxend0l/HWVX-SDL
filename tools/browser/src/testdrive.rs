@@ -29,6 +29,9 @@ pub struct Options {
     pub python: String,
     pub game: PathBuf,
     pub data: Option<PathBuf>,
+    /// The level built into a world pack of its own (tools/xdl_level_pack.py, from `data`);
+    /// false: the level file the game applies as the world loads, as a shared mod has it.
+    pub build_pack: bool,
     pub project: PathBuf,
     /// The editor's own folder: SCRATCH/pref, SCRATCH/mods, SCRATCH/xdl.
     pub scratch: PathBuf,
@@ -67,7 +70,7 @@ pub fn prepare(o: &Options) -> Result<Prepared, Vec<LevelError>> {
     if o.skip_intro {
         cmd.arg("--skip-intro");
     }
-    if let Some(d) = &o.data {
+    if let (true, Some(d)) = (o.build_pack, &o.data) {
         // the level built into its own world pack, from the player's data (cached)
         cmd.arg("--data").arg(d).arg("--cache").arg(o.scratch.join("base-cache"));
     }
