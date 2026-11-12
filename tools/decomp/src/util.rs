@@ -13,8 +13,9 @@
 use fancy_regex::{Captures, Regex};
 use std::sync::LazyLock;
 
+/// Compiled with the backtrack limit lifted (Python's `re` has none), see `re_big`.
 pub fn re(p: &str) -> Regex {
-    Regex::new(p).unwrap_or_else(|e| panic!("bad regex {p}: {e}"))
+    re_big(p)
 }
 
 /// A lazily compiled regex: `static R: Re = lazy(r"...");` doesn't work with closures
@@ -145,4 +146,13 @@ pub fn glob_ext(dir: &std::path::Path, ext: &str) -> Vec<std::path::PathBuf> {
         .unwrap_or_default();
     v.sort();
     v
+}
+
+/// A regex with fancy_regex's backtrack limit lifted (Python's `re` has none): for
+/// the patterns with lookarounds over long name alternations.
+pub fn re_big(p: &str) -> Regex {
+    fancy_regex::RegexBuilder::new(p)
+        .backtrack_limit(usize::MAX)
+        .build()
+        .unwrap_or_else(|e| panic!("bad regex {p}: {e}"))
 }

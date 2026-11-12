@@ -18,6 +18,7 @@ mod check_ptr_offsets;
 mod offsets_to_fields;
 mod asm_args;
 mod mipsdis;
+mod gen_data;
 
 use std::path::PathBuf;
 
@@ -32,6 +33,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("check-ptr-offsets", "constant offsets on typed pointers (clang): [--bytes] [BUILD_DIR]"),
     ("offsets-to-fields", "byte offsets -> fields: LAYOUTS FILE FUNC [VAR=Type..] [--rename A=B..]"),
     ("asm-args", "argument registers a function reads (GC asm): NAME..."),
+    ("gen-data", "src/game/data_gen.c from the decomp asm (no args: the port's set) [--raw/--hostptr/--bytes/--u16 N].. NAME.. | @FILE"),
     ("mipsdis", "disassemble the PS2 prototype's ELF: ELF FUNC.. | ELF --find S | ELF --addr HEX [N]"),
 ];
 
@@ -81,6 +83,7 @@ fn main() {
         "check-ptr-offsets" => check_ptr_offsets::run(&root, args),
         "offsets-to-fields" => offsets_to_fields::run(&root, args),
         "asm-args" => asm_args::run(&root, args),
+        "gen-data" => gen_data::run(&root, args),
         "mipsdis" => mipsdis::run(&root, args),
         _ => usage(),
     };
