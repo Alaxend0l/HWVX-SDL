@@ -261,7 +261,7 @@ static int DecodeMa(const void *data, size_t size, ma_encoding_format fmt, Audio
     ma_decoder_config cfg = ma_decoder_config_init(ma_format_s16, 0, 0);
     ma_decoder dec;
     size_t cap = 0;
-    uint64_t got;
+    ma_uint64 got;
 
     cfg.encodingFormat = fmt;
     if (ma_decoder_init_memory(data, size, &cfg, &dec) != MA_SUCCESS) {
