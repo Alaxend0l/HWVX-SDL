@@ -170,6 +170,8 @@ void Trigger_RestoreActions(s32 *saved, u32 count) {
     }
 }
 
+static void Port_TriggerStandInFinish(u32 number);
+
 /* port: the host has said: runs the trigger for RoundComplete(number), if its
  * conditions hold as they would have when its test passed. */
 void Port_TriggerFireRoundComplete(u32 number) {
@@ -193,6 +195,107 @@ void Port_TriggerFireRoundComplete(u32 number) {
             }
         }
     }
+    Port_TriggerStandInFinish(number);
+}
+
+/* port: online, players 5-8 in a Drag Race (Port_Online.c). The script has a finish
+ * for each of the world's 4 player spawns: a one-car AirboxEntered trigger running
+ * RoundComplete. The first of those (RoundComplete(1)'s) stands in for the others. */
+static Trigger *Port_TriggerFinishTemplate(void) {
+    Trigger *best = NULL;
+    u32 bestNumber = 0xFFFFFFFF;
+    u32 i;
+    u32 j;
+
+    for (i = 0; i < TRIGGER_STATS[TRIGGER_AIRBOX_ENTERED].count; i++) {
+        Trigger *trigger = TRIGGER_LISTS[TRIGGER_AIRBOX_ENTERED][i];
+        u32 *param = GETP(trigger->param);
+
+        if (param[param[0] + 1] != 1) {
+            continue;
+        }
+        for (j = 0; j < trigger->numActions; j++) {
+            TriggerAction *action = &GETP(trigger->actions)[j];
+
+            if (action->type == ACTION_ROUND_COMPLETE && *(u32 *)GETP(action->data) < bestNumber) {
+                bestNumber = *(u32 *)GETP(action->data);
+                best = trigger;
+            }
+        }
+    }
+    return best;
+}
+
+/* port: is this car at the finish, as one of the four would be? The finish's volumes
+ * and conditions are its own: once a car finished, the script closes them all. */
+int Port_TriggerAtFinish(const void *car) {
+    Trigger *trigger = Port_TriggerFinishTemplate();
+    u32 *param;
+    u32 i;
+    f32 dist;
+
+    if (car == NULL || trigger == NULL || TAC_PAUSED ||
+        !TriggerCheckConditions(trigger->mode, trigger->numConditions, trigger->conditions.h)) {
+        return 0;
+    }
+    param = GETP(trigger->param);
+    for (i = 0; i < param[0]; i++) {
+        WorldVolume *volume = TRIGGER_RECORD(WorldVolume, param[i + 1]);
+
+        if (volume->enabled == 1 && IsPointWithinVolume(&((Thing *)car)->pos, volume, &dist)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* port: the host says player `number` (5-8) won: the template's actions, with that
+ * player's number and spawn for player 1's. Its "Player 1 wins" screen isn't theirs:
+ * Port_Online.c says who won instead. */
+static void Port_TriggerStandInFinish(u32 number) {
+    #define STAND_IN_ACTIONS 16
+    #define STAND_IN_WORDS 16
+    static TriggerAction s_actions[STAND_IN_ACTIONS];
+    static u32 s_words[STAND_IN_ACTIONS][STAND_IN_WORDS];
+    Trigger *trigger = Port_TriggerFinishTemplate();
+    void *spawn = Port_OnlineSpawnOf(number);
+    u32 *param;
+    u32 own;
+    u32 i;
+    u32 j;
+    u32 n = 0;
+
+    if (trigger == NULL || spawn == NULL || number <= 4) {
+        if (number > 4) {
+            GameRules_ForceRoundEnd(number);
+        }
+        return;
+    }
+    param = GETP(trigger->param);
+    own = param[param[0] + 2];
+    for (j = 0; j < trigger->numActions && n < STAND_IN_ACTIONS; j++) {
+        TriggerAction *action = &GETP(trigger->actions)[j];
+        const u32 *data = GETP(action->data);
+
+        if (action->type == 4) {
+            continue;           /* InterfacePlay */
+        }
+        s_actions[n] = *action;
+        s_actions[n].count = 1;
+        for (i = 0; i < STAND_IN_WORDS; i++) {
+            s_words[n][i] = data != NULL ? data[i] : 0;
+            if (s_words[n][i] == own) {
+                s_words[n][i] = HND(spawn);
+            }
+        }
+        if (action->type == ACTION_ROUND_COMPLETE) {
+            s_words[n][0] = number;
+        }
+        SETP(s_actions[n].data, s_words[n]);
+        n++;
+    }
+    Port_Log("online: player %u finished: the stand-in for player 1's finish, %u actions", number, n);
+    Trigger_QueueActionsNow(s_actions, n);
 }
 
 /* port: does a script watch for this item being picked up? fire: and run those triggers,

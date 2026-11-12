@@ -3,6 +3,7 @@
 #include "World.h"
 #include "AI.h"
 #include "Interface.h"
+#include "Port_Online.h"
 
 
 
@@ -444,6 +445,25 @@ typedef WorldVolume TriggerVolume;
 /* The j-th subject: a TileCar, TileCreature, QuadItem or TilePath. */
 #define TRIGGER_SUBJECT(trigger, numVolumes, j) PTR((trigger)[(numVolumes) + 2 + (j)])
 
+/* port: online, a list naming all of the world's player spawns names ours too
+ * (Port_OnlineListExtras): is one of those cars in the volume (stopped: at rest)? */
+static int TriggerPortExtraIn(u32 *trigger, u32 numVolumes, TriggerVolume *volume, int stopped) {
+    TileCar *extra[8];
+    u32 n = Port_OnlineListExtras(&trigger[numVolumes + 2], trigger[numVolumes + 1], extra);
+    u32 j;
+    f32 dist;
+
+    for (j = 0; j < n; j++) {
+        Thing *thing = (Thing *)GETP(extra[j]->car);
+
+        if (thing != NULL && volume->enabled == 1 && (!stopped || PSVECSquareMag(&thing->vel) < 50.0f) &&
+            IsPointWithinVolume(&thing->pos, volume, &dist)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 s32 TriggerAirboxEntered(u32 *trigger) {
     f32 dist;
     Thing *thing;
@@ -461,6 +481,9 @@ s32 TriggerAirboxEntered(u32 *trigger) {
                 if (thing != NULL && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                     return 1;
                 }
+            }
+            if (TriggerPortExtraIn(trigger, numVolumes, volume, 0)) {   /* port: online, players 5-8 */
+                return 1;
             }
         }
     }
@@ -561,6 +584,9 @@ s32 TriggerAirboxStopIn(u32 *trigger) {
                 return 1;
             }
         }
+        if (TriggerPortExtraIn(trigger, numVolumes, volume, 1)) {   /* port: online, players 5-8 */
+            return 1;
+        }
     }
     return 0;
 }
@@ -581,6 +607,9 @@ s32 TriggerAirboxExited(u32 *trigger) {
             if (thing != NULL && volume->enabled == 1 && IsPointWithinVolume(&thing->pos, volume, &dist)) {
                 return 0;
             }
+        }
+        if (TriggerPortExtraIn(trigger, numVolumes, volume, 0)) {   /* port: online, players 5-8 */
+            return 0;
         }
     }
     return 1;
@@ -874,9 +903,12 @@ s32 ActionVehicleTeleport(u32 *action) {
     Player *player;
     Vector4 local __attribute__((aligned(16)));
 
+    TileCar *extra[8];
+    u32 numExtra = Port_OnlineListExtras(&action[3], action[2], extra);   /* port: online, players 5-8 */
+
     data = (Teleporter *)PTR(action[1]);
-    for (i = 0; i < action[2]; i++) {
-        car = (Thing *)GETP(((TileCar *)PTR(action[i + 3]))->car);
+    for (i = 0; i < action[2] + numExtra; i++) {
+        car = (Thing *)GETP((i < action[2] ? (TileCar *)PTR(action[i + 3]) : extra[i - action[2]])->car);
         if (car == NULL) {
             continue;   /* port: no car on that tile now (see TriggerAirboxStopIn) */
         }

@@ -28,7 +28,27 @@ enum {
     MSG_CAR_STATE,              /* u8 port, u32 stage, u8 alive: its car was destroyed or respawned */
     MSG_KILL,                   /* u32 stage, u8 the killer's port: this car's death was its doing */
     MSG_ROUND_END,              /* host: u32 stage, u8 winner, 0xFF: none; s32 kills, u32 points per port */
+    MSG_HELLO,                  /* both, on joining: the enabled mods (ModsFingerprint below) */
+    MSG_TEST_CARS,              /* host, HWVX_ONLINE_TEST only: u32 stage, u8 ports; per port in it
+                                 * u8 port, f32 pos xyz, quat wxyz: where every car is, for
+                                 * tools/netbot.c to report its own from */
 };
+
+/* MSG_HELLO: u8 how many mods, u32 low and high words of a 64-bit FNV-1a hash
+ * of "id@version\n" per enabled mod in load order; u8 length and the text of a
+ * summary to show (names and versions). No mods: 0, 0, 0 and "no mods". Players
+ * whose hellos differ don't play together: the client leaves, saying why, and
+ * the host leaves it out until it does. */
+#define MODS_SUMMARY_MAX 120
+
+static inline unsigned long long Online_Fnv1a(unsigned long long h, const char *s) {
+    for (; s != 0 && *s != 0; s++) {
+        h ^= (unsigned char)*s;
+        h *= 0x100000001B3ull;
+    }
+    return h;
+}
+#define ONLINE_FNV_BASIS 0xCBF29CE484222325ull
 
 /* A car's snapshot, a "latest" message keyed by its port - 1: u32 seq; f32 pos xyz,
  * vel xyz, quat wxyz, angular momentum xyz; s32 health; u32 buttons; s8 stick x, y;

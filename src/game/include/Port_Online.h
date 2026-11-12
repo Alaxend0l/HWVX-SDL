@@ -7,6 +7,9 @@
 #include "common.h"
 #include "Interface.h"
 
+struct TileCar;
+struct World;
+
 /* ---- Port_Online.c ------------------------------------------------------- */
 
 int Port_OnlineActive(void);
@@ -29,8 +32,21 @@ void Port_OnlineHostSetup(void);
 int Port_OnlineCarsChosen(Interface *iface);
 /* The back button on a screen: 1 refuses it. */
 int Port_OnlineBack(const InterfaceHeader *header);
-/* LoadWorldProcess: a world with a spawn for one gets more. */
+/* LoadWorldProcess: a world with a spawn for one gets more; one with 4 player spawns
+ * gets them for players 5 to 8. */
 void Port_OnlineExpandSpawns(struct World *world);
+/* Player ports a world's spawns are for: the retail game's 4, online up to 8. */
+u32 Port_OnlineHumanPorts(void);
+/* A spawn's player port, as the loading and the level's setup read it: offline its
+ * own; online also 5-8 for the world's AI spawns that players use, and above
+ * Port_OnlineHumanPorts for the other AI spawns. */
+u32 Port_OnlineTilePort(const struct TileCar *tile);
+/* Spawns of our own, after the world's list (World_GetTileCar): none offline. */
+u32 Port_OnlineExtraTileCount(void);
+struct TileCar *Port_OnlineExtraTile(u32 index);
+/* A script's list of `n` spawns (TileCar handles): if it names every player spawn
+ * of the world, the spawns of ours go with it: how many, put in out (8 room). */
+u32 Port_OnlineListExtras(const u32 *subjects, u32 n, struct TileCar **out);
 /* StateGamePlay_Init: before it makes any players. */
 void Port_OnlineLevelLoading(void);
 /* StateGamePlay_Init: a human player was made. */
@@ -63,6 +79,10 @@ void Port_OnlineRemoteControl(Player *player);
 void Port_TriggerFireRoundComplete(u32 number);
 /* Trigger.c: does a script watch for this item being picked up? fire: and run those. */
 int Port_TriggerItemWatched(const void *spawner, int fire);
+/* Trigger.c: online, Drag Race players 5-8: is the car at the finish of the world's 4? */
+int Port_TriggerAtFinish(const void *car);
+/* The spawn of a player 1-8 in this level (online), or NULL. */
+void *Port_OnlineSpawnOf(u32 port);
 /* Trigger.c: the interface whose end the script answers with a round reset. */
 void *Port_TriggerRoundSummary(void);
 /* Testing: the active triggers and their actions in the log. */

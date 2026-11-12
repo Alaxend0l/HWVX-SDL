@@ -59,6 +59,7 @@
 
 #include "common.h"
 #include "Port_Content.h"
+#include "Port_Mods.h"
 #include "CarA.h"
 #include "World.h"
 #include "Interface.h"
@@ -66,6 +67,7 @@
 #include "WildCard.h"
 #include "Port_Online.h"
 #include "Port_OnlineProtocol.h"
+#include "Trigger.h"
 #include "net.h"
 
 #define ONLINE_PLAYERS ONLINE_MAX_PLAYERS
@@ -171,18 +173,36 @@ static int s_applyingPickup;
 static int s_localAlive;
 static TileCar s_spawns[ONLINE_PLAYERS];
 static TileCar *s_scriptSpawn;  /* Joyride: the world's own, when s_spawns is its list */
-/* Battle, Drag Race: the first s_numExtra of s_spawns come after the world's list. */
+/* Battle, Drag Race: spawns for players 5-8, after the world's list (World_GetTileCar),
+ * each placed near a spawn of the world's. */
+static TileCar s_extra[ONLINE_PLAYERS];
+static const TileCar *s_extraBase[ONLINE_PLAYERS];
 static u32 s_numExtra;
-/* The world's AI spawns that are players' online, as the pack had them. */
+/* The world's AI spawns that players 5-8 start at instead (Battle). */
 static struct {
-    TileCar *tile;
-    u8 port, itemID, item2ID;
-    u32 item, item2;
+    const TileCar *tile;
+    u8 port;
 } s_borrowed[ONLINE_PLAYERS];
 static u32 s_numBorrowed;
+/* Mods: this machine's (MSG_HELLO); the host's word on each port. */
+static u32 s_modsCount;
+static u64 s_modsHash;
+static char s_modsSummary[MODS_SUMMARY_MAX + 1];
+static u32 s_verified;          /* host: ports whose mods match its own */
+static u32 s_refused;           /* host: ports whose mods don't */
+static int s_helloSent;
+/* HWVX_ONLINE_TEST: a session run without anyone at the keyboard (TestHeartbeat). */
+static struct {
+    int host;
+    u32 players, progression, level, car, rounds, roundMs, summaryMs;
+    int started, setUp;
+    u64 menuSince, lobbySince;
+    u64 nextSync, carsSentStage;
+} s_test;
 static const QuadItem *s_sharedTaken[MAX_SHARED_ITEMS];
 static u32 s_numSharedTaken;
 
+extern CodeVariables g_codeVariables;   /* GameSettings.c */
 void GameSettings_PortOnlineBegin(void);
 void GameSettings_PortOnlineEnd(void);
 
@@ -203,6 +223,15 @@ u32 Port_OnlineHumanPorts(void) {
     return s_state != STATE_NONE ? ONLINE_PLAYERS : RETAIL_PLAYERS;
 }
 
+static int Bits(u32 mask) {
+    int n = 0;
+
+    for (; mask != 0; mask &= mask - 1) {
+        n++;
+    }
+    return n;
+}
+
 int Port_OnlinePlayerCount(void) {
     u32 i, n = 0;
 
@@ -215,7 +244,13 @@ int Port_OnlinePlayerCount(void) {
 static void ShowLobby(const char *status) {
     char text[64];
 
-    SDL_snprintf(text, sizeof(text), "Players: %d/%d", Port_OnlinePlayerCount(), ONLINE_PLAYERS);
+    if (s_isHost && (s_refused & s_present) != 0) {
+        /* in the session, but with other mods: they won't be in a game */
+        SDL_snprintf(text, sizeof(text), "Players: %d/%d, %d other mods", Port_OnlinePlayerCount(), ONLINE_PLAYERS,
+                     Bits(s_refused & s_present));
+    } else {
+        SDL_snprintf(text, sizeof(text), "Players: %d/%d", Port_OnlinePlayerCount(), ONLINE_PLAYERS);
+    }
     if (s_tunnel) {
         char name[128], code[32];
         char *slash;
@@ -259,6 +294,11 @@ static void BeginSession(int isHost) {
     s_localPlayer = NULL;
     s_port = isHost ? 1 : 0;
     s_in = s_chosen = 0;
+    s_verified = isHost ? 1 : 0;
+    s_refused = 0;
+    s_helloSent = 0;
+    s_numExtra = 0;
+    s_numBorrowed = 0;
 }
 
 int Port_OnlineStartHost(void) {
@@ -359,6 +399,101 @@ static void SessionLost(const char *why) {
     }
 }
 
+/* ---- mods: players with other mods don't play together ------------------------ */
+
+/* The enabled mods, ids and versions in load order (Port_Mods.h); none if none change the game. */
+static void ModsFingerprint(void) {
+    int i;
+
+    s_modsCount = 0;
+    s_modsHash = 0;
+    SDL_strlcpy(s_modsSummary, "no mods", sizeof(s_modsSummary));
+    if (!Port_ModsActive()) {
+        return;
+    }
+    s_modsHash = ONLINE_FNV_BASIS;
+    s_modsSummary[0] = 0;
+    for (i = 0; i < Port_ModsCount(); i++) {
+        const PortModInfo *m = Port_ModsInfo(i);
+        char one[96];
+
+        if (m == NULL || !m->enabled) {
+            continue;
+        }
+        s_modsHash = Online_Fnv1a(s_modsHash, m->id);
+        s_modsHash = Online_Fnv1a(s_modsHash, "@");
+        s_modsHash = Online_Fnv1a(s_modsHash, m->version != NULL ? m->version : "");
+        s_modsHash = Online_Fnv1a(s_modsHash, "\n");
+        SDL_snprintf(one, sizeof(one), "%s%s %s", s_modsCount > 0 ? ", " : "", m->name != NULL && *m->name ? m->name : m->id,
+                     m->version != NULL ? m->version : "");
+        SDL_strlcat(s_modsSummary, one, sizeof(s_modsSummary));
+        s_modsCount++;
+    }
+    if (s_modsCount == 0) {
+        s_modsHash = 0;
+        SDL_strlcpy(s_modsSummary, "no mods", sizeof(s_modsSummary));
+    }
+}
+
+static void SendHello(u8 peer) {
+    u8 buf[16 + MODS_SUMMARY_MAX];
+    NetWriter w;
+    u32 len;
+
+    ModsFingerprint();
+    len = (u32)SDL_strlen(s_modsSummary);
+    NetWriter_Init(&w, buf, sizeof(buf));
+    NetWriter_U8(&w, MSG_HELLO);
+    NetWriter_U8(&w, (u8)SDL_min(s_modsCount, 255u));
+    NetWriter_U32(&w, (u32)s_modsHash);
+    NetWriter_U32(&w, (u32)(s_modsHash >> 32));
+    NetWriter_U8(&w, (u8)len);
+    NetWriter_Bytes(&w, s_modsSummary, len);
+    Net_SendReliable(peer, buf, w.size);
+}
+
+/* Another machine's mods. The host leaves a port with others out of every game; a client
+ * with the host's mods differing from its own leaves, saying so. */
+static void ReceiveHello(u32 port, NetReader *r) {
+    u32 count = NetReader_U8(r);
+    u64 hash = NetReader_U32(r);
+    u32 len;
+    const u8 *text;
+    char theirs[MODS_SUMMARY_MAX + 1];
+
+    hash |= (u64)NetReader_U32(r) << 32;
+    len = NetReader_U8(r);
+    text = NetReader_Take(r, len);
+    if (!r->ok || len > MODS_SUMMARY_MAX) {
+        return;
+    }
+    SDL_memcpy(theirs, text, len);
+    theirs[len] = 0;
+    ModsFingerprint();
+    if (count == s_modsCount && hash == s_modsHash) {
+        if (s_isHost) {
+            s_verified |= 1u << (port - 1);
+            s_refused &= ~(1u << (port - 1));
+            Port_Log("online: port %u: the same mods (%s)", port, s_modsSummary);
+        }
+        return;
+    }
+    Port_Log("online: %s has other mods: %s; here: %s", s_isHost ? "a player" : "the host", theirs, s_modsSummary);
+    if (s_isHost) {
+        char line[64];
+
+        s_verified &= ~(1u << (port - 1));
+        s_refused |= 1u << (port - 1);
+        SDL_snprintf(line, sizeof(line), "Player %u has other mods", port);
+        ShowLobby(line);
+    } else {
+        char why[2 * MODS_SUMMARY_MAX + 64];
+
+        SDL_snprintf(why, sizeof(why), "Mods differ. Host: %s. Here: %s", theirs, s_modsSummary);
+        SessionLost(why);
+    }
+}
+
 /* ---- choosing -------------------------------------------------------------- */
 
 void Port_OnlineHostSetup(void) {
@@ -377,11 +512,12 @@ void Port_OnlineHostSetup(void) {
     NetWriter_U8(&w, MSG_SETUP);
     NetWriter_U8(&w, (u8)id);
     NetWriter_U16(&w, (u16)level);
-    NetWriter_U8(&w, (u8)(s_present & s_lobby));
+    /* a player whose mods aren't the host's isn't in it (MSG_HELLO) */
+    NetWriter_U8(&w, (u8)(s_present & s_lobby & s_verified));
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         NetWriter_U32(&w, GameSettings_GetCodeVariable(s_settings[i], 0));
     }
-    s_in = s_present & s_lobby;
+    s_in = s_present & s_lobby & s_verified;
     s_chosen = 0;
     s_state = STATE_CHOOSING;
     Net_SendReliable(NET_PEER_ALL, buf, w.size);
@@ -403,7 +539,12 @@ static void ClientSetup(NetReader *r) {
         return;
     }
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
-        GameSettings_SetCodeVariable(s_settings[i], 0, values[i]);
+        if (s_settings[i] == 0x12E) {
+            /* the round time reads in ms but is set in the menu's 5-minute steps: as read */
+            g_codeVariables.versusRoundTime = values[i];
+        } else {
+            GameSettings_SetCodeVariable(s_settings[i], 0, values[i]);
+        }
     }
     GameSettings_SetCodeVariable(0x133, 0, 0);
     StateProgressionManager_SetProgressionID((s32)id, (s32)level);
@@ -518,15 +659,142 @@ u32 Port_OnlineControllerPort(const Player *player) {
     return s_state != STATE_NONE ? 1 : player->port;
 }
 
-/* LoadWorldProcess: a world with a spawn for one gets more. Pack data the loading goes
- * on to fill in: the car's and its item's, by port. */
+/* A borrowed spawn's player port, our spawns' own (s_spawns, s_extra). */
+static int IsOurs(const TileCar *t) {
+    return (t >= s_spawns && t < s_spawns + ONLINE_PLAYERS) || (t >= s_extra && t < s_extra + ONLINE_PLAYERS);
+}
+
+u32 Port_OnlineTilePort(const TileCar *t) {
+    u32 i;
+
+    if (s_state == STATE_NONE) {
+        return t->port;
+    }
+    for (i = 0; i < s_numBorrowed; i++) {
+        if (s_borrowed[i].tile == t) {
+            return s_borrowed[i].port;
+        }
+    }
+    if (t->port <= RETAIL_PLAYERS || IsOurs(t)) {
+        return t->port;
+    }
+    return 0xFF;                /* an AI spawn: no AI online */
+}
+
+u32 Port_OnlineExtraTileCount(void) {
+    return s_state != STATE_NONE ? s_numExtra : 0;
+}
+
+TileCar *Port_OnlineExtraTile(u32 index) {
+    return s_state != STATE_NONE && index < s_numExtra ? &s_extra[index] : NULL;
+}
+
+void *Port_OnlineSpawnOf(u32 port) {
+    u32 i;
+
+    for (i = 0; s_state != STATE_NONE && i < World_GetTotalTiles_Car(); i++) {
+        TileCar *t = World_GetTileCar(i);
+
+        if (Port_OnlineTilePort(t) == port) {
+            return t;
+        }
+    }
+    return NULL;
+}
+
+/* The world's spawn for player `port` (1-4), as the pack has it. */
+static TileCar *WorldSpawn(World *world, u32 port) {
+    u32 i;
+
+    for (i = 0; i < world->numTileCars; i++) {
+        if (GETP(world->tileCars)[i].port == port) {
+            return &GETP(world->tileCars)[i];
+        }
+    }
+    return NULL;
+}
+
+u32 Port_OnlineListExtras(const u32 *subjects, u32 n, TileCar **out) {
+    World *world;
+    u32 i, j, humans = 0;
+
+    if (s_state == STATE_NONE || s_numExtra == 0 || subjects == NULL || n == 0) {
+        return 0;
+    }
+    world = WORLD_OF_LEVEL();
+    for (i = 0; i < world->numTileCars; i++) {
+        TileCar *t = &GETP(world->tileCars)[i];
+        int named = 0;
+
+        if (t->port < 1 || t->port > RETAIL_PLAYERS) {
+            continue;
+        }
+        humans++;
+        for (j = 0; j < n && !named; j++) {
+            named = subjects[j] == (u32)HND(t);
+        }
+        if (!named) {
+            return 0;
+        }
+    }
+    if (humans == 0) {
+        return 0;
+    }
+    for (i = 0; i < s_numExtra; i++) {
+        out[i] = &s_extra[i];
+    }
+    return s_numExtra;
+}
+
+/* LoadWorldProcess: a world with a spawn for one gets more; one with the retail 4 gets
+ * spawns for players 5-8: its AI spawns first (Battle has three), then ours, placed
+ * when the collision is in (ChooseExtraSpawns). Pack data the loading goes on to fill
+ * in: the car's and its item's, by port. */
 void Port_OnlineExpandSpawns(World *world) {
     extern s32 g_GameProgressionID;
     TileCar *first = GETP(world->tileCars);
-    u32 i;
+    u32 i, port;
 
-    if (s_state == STATE_NONE || g_GameProgressionID != PROGRESSION_JOYRIDE || first == NULL) {
+    s_numExtra = 0;
+    s_numBorrowed = 0;
+    if (s_state == STATE_NONE || first == NULL) {
         s_scriptSpawn = NULL;
+        return;
+    }
+    if (g_GameProgressionID != PROGRESSION_JOYRIDE) {
+        s_scriptSpawn = NULL;
+        for (port = RETAIL_PLAYERS + 1; port <= ONLINE_PLAYERS; port++) {
+            TileCar *tile = NULL, *base, *e;
+
+            if (!((s_in >> (port - 1)) & 1)) {
+                continue;
+            }
+            for (i = 0; i < world->numTileCars && tile == NULL; i++) {
+                if (first[i].port > RETAIL_PLAYERS && Port_OnlineTilePort(&first[i]) == 0xFF) {
+                    tile = &first[i];
+                }
+            }
+            if (tile != NULL) {
+                s_borrowed[s_numBorrowed].tile = tile;
+                s_borrowed[s_numBorrowed].port = (u8)port;
+                s_numBorrowed++;
+                Port_Log("online: port %u starts at the world's AI spawn %u", port, (u32)(tile - first));
+                continue;
+            }
+            base = WorldSpawn(world, (port - 1) % RETAIL_PLAYERS + 1);
+            e = &s_extra[s_numExtra];
+            *e = *(base != NULL ? base : first);
+            e->port = (u8)port;
+            e->info.h = 0;
+            e->car.h = 0;
+            e->item.h = 0;
+            e->item2.h = 0;
+            e->itemID = e->item2ID = 0xFF;
+            e->dynamic = 0;
+            e->spawned = 0;
+            s_extraBase[s_numExtra] = base != NULL ? base : first;
+            s_numExtra++;
+        }
         return;
     }
     if (first == s_spawns) {
@@ -589,84 +857,142 @@ static int SpawnBlocked(f32 x, f32 y, f32 z, f32 dirX, f32 dirZ, f32 distance) {
     return RayHitsTerrain_Aux3(&start, &dir, &t, &hit);
 }
 
-/* Spots for the other cars: on ground like the spawn's, with room around them, in plain
- * reach of the spawn so none starts behind a wall. From the world's own collision, so
- * every machine picks the same, and any that didn't would be corrected by snapshots. */
-static void ChooseSpawns(void) {
-    /* eighths of a turn from the car's right, nearest and beside it first */
-    static const u8 bearings[] = {0, 4, 7, 5, 6, 1, 3, 2};
-    static const f32 radii[] = {30.0f, 40.0f, 55.0f, 70.0f, 90.0f, 120.0f, 160.0f};
-    TileCar *base = s_scriptSpawn;
+/* A spot near a spawn: on ground like the spawn's, with `room` free on every side, `apart`
+ * from those taken, in plain reach of the spawn so none starts behind a wall. Bearings are
+ * eighths of a turn from the spawn's facing (its matrix's first row), tried in order at
+ * each radius in turn. From the world's own collision, so every machine finds the same. */
+static int FindSpot(const TileCar *base, const u8 *bearings, u32 numBearings, const f32 *radii, u32 numRadii, f32 room, f32 apart,
+                    const Vector4 *taken, u32 numTaken, Vector4 *out, u32 *usedRadius, u32 *usedBearing) {
     Matrix4 mtx;
     f32 baseGround, probeY;
-    Vector4 taken[ONLINE_PLAYERS];
-    u32 numTaken = 1, port, pass, r, b, i;
+    u32 r, b, i;
 
-    if (base == NULL) {
-        return;
-    }
     probeY = base->pos.y + SPAWN_PROBE_ABOVE;
     if (!SpawnGround(base->pos.x, probeY, base->pos.z, &baseGround)) {
         baseGround = base->pos.y;
     }
     SetOrientation(&mtx, base->rotY, base->rotX, base->rotZ);
+    for (r = 0; r < numRadii; r++) {
+        for (b = 0; b < numBearings; b++) {
+            f32 angle = (f32)bearings[b] * (3.1415927f / 4.0f);
+            f32 c = cosf(angle), sn = sinf(angle);
+            f32 dirX = mtx.v[0].x * c + mtx.v[2].x * sn;
+            f32 dirZ = mtx.v[0].z * c + mtx.v[2].z * sn;
+            f32 len = sqrtf(dirX * dirX + dirZ * dirZ);
+            f32 x, z, ground, y;
+            int clear = 1;
+
+            if (len < 0.01f) {
+                continue;
+            }
+            dirX /= len;
+            dirZ /= len;
+            x = base->pos.x + dirX * radii[r];
+            z = base->pos.z + dirZ * radii[r];
+            for (i = 0; i < numTaken; i++) {
+                f32 dx = taken[i].x - x, dz = taken[i].z - z;
+
+                if (dx * dx + dz * dz < apart * apart) {
+                    clear = 0;
+                }
+            }
+            if (!clear || !SpawnGround(x, probeY, z, &ground) || fabsf(ground - baseGround) > SPAWN_MAX_STEP) {
+                continue;
+            }
+            y = ground + SPAWN_BODY_HEIGHT;
+            if (SpawnBlocked(base->pos.x, baseGround + SPAWN_BODY_HEIGHT, base->pos.z, dirX, dirZ, radii[r]) ||
+                SpawnBlocked(x, y, z, 1.0f, 0.0f, room) || SpawnBlocked(x, y, z, -1.0f, 0.0f, room) ||
+                SpawnBlocked(x, y, z, 0.0f, 1.0f, room) || SpawnBlocked(x, y, z, 0.0f, -1.0f, room)) {
+                continue;
+            }
+            *out = base->pos;
+            out->x = x;
+            out->y = base->pos.y + (ground - baseGround);
+            out->z = z;
+            *usedRadius = (u32)radii[r];
+            *usedBearing = bearings[b];
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Joyride: spots for the other cars around the world's one spawn. */
+static void ChooseSpawns(void) {
+    /* nearest and beside it first */
+    static const u8 bearings[] = {0, 4, 7, 5, 6, 1, 3, 2};
+    static const f32 radii[] = {30.0f, 40.0f, 55.0f, 70.0f, 90.0f, 120.0f, 160.0f};
+    TileCar *base = s_scriptSpawn;
+    Vector4 taken[ONLINE_PLAYERS];
+    u32 numTaken = 1, port, radius, bearing;
+
+    if (base == NULL) {
+        return;
+    }
     taken[0] = base->pos;
     s_spawns[0].pos = base->pos;
     for (port = 1; port < ONLINE_PLAYERS; port++) {
-        int found = 0;
-
         s_spawns[port].pos = base->pos;
-        for (pass = 0; pass < 2 && !found; pass++) {
-        f32 room = pass == 0 ? SPAWN_CLEARANCE : SPAWN_TIGHT_CLEARANCE;
-        f32 apart = pass == 0 ? SPAWN_SEPARATION : SPAWN_TIGHT_SEPARATION;
-
-        for (r = 0; r < SDL_arraysize(radii) && !found; r++) {
-            for (b = 0; b < SDL_arraysize(bearings) && !found; b++) {
-                f32 angle = (f32)bearings[b] * (3.1415927f / 4.0f);
-                f32 c = cosf(angle), s = sinf(angle);
-                f32 dirX = mtx.v[0].x * c + mtx.v[2].x * s;
-                f32 dirZ = mtx.v[0].z * c + mtx.v[2].z * s;
-                f32 len = sqrtf(dirX * dirX + dirZ * dirZ);
-                f32 x, z, ground, y;
-                int clear;
-
-                if (len < 0.01f) {
-                    continue;
-                }
-                dirX /= len;
-                dirZ /= len;
-                x = base->pos.x + dirX * radii[r];
-                z = base->pos.z + dirZ * radii[r];
-                clear = 1;
-                for (i = 0; i < numTaken; i++) {
-                    f32 dx = taken[i].x - x, dz = taken[i].z - z;
-
-                    if (dx * dx + dz * dz < apart * apart) {
-                        clear = 0;
-                    }
-                }
-                if (!clear || !SpawnGround(x, probeY, z, &ground) || fabsf(ground - baseGround) > SPAWN_MAX_STEP) {
-                    continue;
-                }
-                y = ground + SPAWN_BODY_HEIGHT;
-                if (SpawnBlocked(base->pos.x, baseGround + SPAWN_BODY_HEIGHT, base->pos.z, dirX, dirZ, radii[r]) ||
-                    SpawnBlocked(x, y, z, 1.0f, 0.0f, room) || SpawnBlocked(x, y, z, -1.0f, 0.0f, room) ||
-                    SpawnBlocked(x, y, z, 0.0f, 1.0f, room) || SpawnBlocked(x, y, z, 0.0f, -1.0f, room)) {
-                    continue;
-                }
-                s_spawns[port].pos.x = x;
-                s_spawns[port].pos.y = base->pos.y + (ground - baseGround);
-                s_spawns[port].pos.z = z;
-                taken[numTaken++] = s_spawns[port].pos;
-                found = 1;
-                Port_Log("online: spawn for port %u: %.0f units away, bearing %u", port + 1, radii[r], (u32)bearings[b]);
-            }
-        }
-        }
-        if (!found) {
+        /* if nowhere has the room, a tight world still gets a spot, nearer the others */
+        if (FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), SPAWN_CLEARANCE, SPAWN_SEPARATION, taken,
+                     numTaken, &s_spawns[port].pos, &radius, &bearing) ||
+            FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), SPAWN_TIGHT_CLEARANCE, SPAWN_TIGHT_SEPARATION,
+                     taken, numTaken, &s_spawns[port].pos, &radius, &bearing)) {
+            taken[numTaken++] = s_spawns[port].pos;
+            Port_Log("online: spawn for port %u: %u units away, bearing %u", port + 1, radius, bearing);
+        } else {
             /* nowhere clear: above the spawn, the car falls and the collision sorts it out */
             s_spawns[port].pos.y += SPAWN_SEPARATION * (f32)port;
             Port_Log("online: no clear spawn for port %u", port + 1);
+        }
+    }
+}
+
+/* Battle, Drag Race: spawns for players 5-8 the world has no room for, each near the
+ * spawn of player (port - 1) % 4 + 1: behind it first, as a second row of the grid, a
+ * row as far back as the world's own spawns are spread. */
+static void ChooseExtraSpawns(void) {
+    static const u8 bearings[] = {4, 3, 5, 2, 6, 1, 7, 0};
+    World *world = WORLD_OF_LEVEL();
+    Vector4 taken[24];
+    f32 radii[6], spacing = 1e9f;
+    u32 numTaken = 0, i, j, k, radius, bearing;
+
+    if (s_numExtra == 0) {
+        return;
+    }
+    /* how close the world's spawns are: cars fit that far apart */
+    for (i = 0; i < world->numTileCars && numTaken < SDL_arraysize(taken); i++) {
+        const TileCar *a = &GETP(world->tileCars)[i];
+
+        taken[numTaken++] = a->pos;
+        for (j = 0; j < i; j++) {
+            const TileCar *b = &GETP(world->tileCars)[j];
+            f32 dx = a->pos.x - b->pos.x, dz = a->pos.z - b->pos.z, d = sqrtf(dx * dx + dz * dz);
+
+            if (a->port >= 1 && a->port <= RETAIL_PLAYERS && b->port >= 1 && b->port <= RETAIL_PLAYERS && d > 1.0f && d < spacing) {
+                spacing = d;
+            }
+        }
+    }
+    spacing = SDL_clamp(spacing, 18.0f, 40.0f);
+    for (k = 0; k < SDL_arraysize(radii); k++) {
+        radii[k] = spacing * (2.0f + (f32)k);
+    }
+    for (i = 0; i < s_numExtra; i++) {
+        TileCar *e = &s_extra[i];
+        const TileCar *base = s_extraBase[i];
+
+        e->pos = base->pos;
+        if (FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), spacing * 0.45f, spacing * 0.9f, taken,
+                     numTaken, &e->pos, &radius, &bearing)) {
+            Port_Log("online: spawn for port %u: %u units from port %u's, bearing %u", e->port, radius, base->port, bearing);
+        } else {
+            e->pos.y += spacing * (f32)(i + 1);
+            Port_Log("online: no clear spawn for port %u", e->port);
+        }
+        if (numTaken < SDL_arraysize(taken)) {
+            taken[numTaken++] = e->pos;
         }
     }
 }
@@ -678,6 +1004,7 @@ void Port_OnlineLevelLoading(void) {
     s_numSharedTaken = 0;
     if (s_state != STATE_NONE) {
         ChooseSpawns();
+        ChooseExtraSpawns();
     }
 }
 
@@ -690,6 +1017,10 @@ void Port_OnlineSetupPlayer(Player *player) {
     if ((s32)player->port == s_port) {
         s_localPlayer = player;
         player->device = 0;     /* port 2 here is still this machine's first pad */
+    } else if (player->device < 0 || player->device > 3) {
+        /* players 5-8 got no pad (Input_GetPlayerDevice): one of the pads online leaves
+         * idle, or the game would ask for theirs to be plugged in (code variable 0xD4) */
+        player->device = 1 + (player->port - 1) % 3;
     }
 }
 
@@ -822,6 +1153,9 @@ void Port_OnlineLevelStarted(void) {
     }
     Port_Log("online: level ready: progression %d, port %d, %d human cars", g_GameProgressionID, s_port,
              PlayerManager_PlayerHumanCount());
+    Port_Log("online: rules %u mode %u time %u kills %u points %u rounds %u wins %u", GameSettings_GetCodeVariable(0x12C, 0),
+             GameSettings_GetCodeVariable(0x12D, 0), GameSettings_GetCodeVariable(0x12E, 0), GameSettings_GetCodeVariable(0x12F, 0),
+             GameSettings_GetCodeVariable(0x130, 0), GameSettings_GetCodeVariable(0x131, 0), GameSettings_GetCodeVariable(0x132, 0));
     KeepScriptSpawn();
     BeginStage();
 }
@@ -1468,7 +1802,10 @@ static void HandleMessage(const NetEvent *e) {
         if (port > ONLINE_PLAYERS) {
             return;
         }
-        if (kind == MSG_CARS) {
+        if (kind == MSG_HELLO) {
+            ReceiveHello(port, &r);
+            ShowLobby(NULL);
+        } else if (kind == MSG_CARS) {
             s32 vehicle = Port_ContentReadChoice(&r, PORT_CONTENT_CAR);
             s32 item = Port_ContentReadChoice(&r, PORT_CONTENT_ITEM);
 
@@ -1582,7 +1919,9 @@ static void HandleMessage(const NetEvent *e) {
             }
         }
     } else if (e->peer == NET_PEER_HOST) {
-        if (kind == MSG_SETUP && s_state == STATE_LOBBY) {
+        if (kind == MSG_HELLO) {
+            ReceiveHello(1, &r);
+        } else if (kind == MSG_SETUP && s_state == STATE_LOBBY) {
             ClientSetup(&r);
         } else if (kind == MSG_ABORT && (s_state == STATE_CHOOSING || s_state == STATE_WAITING)) {
             s_state = STATE_LOBBY;
@@ -1659,8 +1998,213 @@ static void HandleMessage(const NetEvent *e) {
     }
 }
 
+/* Drag Race, players 5-8: the script has finishes for the world's four spawns only, so
+ * this machine's car claims its own at theirs (Port_TriggerAtFinish), and the host's
+ * decision runs a stand-in for its RoundComplete (Trigger.c). */
+static void FinishHeartbeat(void) {
+    extern s32 g_GameProgressionID;
+    CarA *car;
+
+    if (g_GameProgressionID != PROGRESSION_MP_DRAG || s_hold || s_claimed || s_decided || s_localPlayer == NULL ||
+        s_localPlayer->port <= RETAIL_PLAYERS || (car = GETP(s_localPlayer->vehicle)) == NULL) {
+        return;
+    }
+    if (Port_TriggerAtFinish(car)) {
+        Port_Log("online: port %d at the finish", s_port);
+        Port_OnlineHoldRoundComplete(s_localPlayer->port);
+    }
+}
+
+/* ---- HWVX_ONLINE_TEST: a session nobody plays, for tools/online8_test.sh ----------
+ *   HWVX_ONLINE_TEST=host,players=8,mode=battle|drag|joyride,world=N,car=N,rounds=N,
+ *     time=SECONDS (a Battle round),summary=SECONDS (then the host goes on)
+ * The host opens its lobby from the main menu, waits for the players, sets the game up
+ * and picks its car without the menus. It logs how far each other car is from where its
+ * owner says (online: sync), and tells the others where every car is (MSG_TEST_CARS) so
+ * tools/netbot.c can drive its own. Test only: in play, the summary waits for the host. */
+static void TestParse(void) {
+    const char *e = SDL_getenv("HWVX_ONLINE_TEST");
+    char buf[256], *tok, *save = NULL;
+
+    SDL_zero(s_test);
+    if (e == NULL || *e == 0) {
+        return;
+    }
+    s_test.players = 2;
+    s_test.progression = PROGRESSION_MP_BATTLE;
+    s_test.rounds = 2;
+    s_test.roundMs = 30000;
+    s_test.summaryMs = 6000;
+    SDL_strlcpy(buf, e, sizeof(buf));
+    for (tok = SDL_strtok_r(buf, ",:", &save); tok != NULL; tok = SDL_strtok_r(NULL, ",:", &save)) {
+        char *eq = SDL_strchr(tok, '=');
+        const char *v = eq != NULL ? eq + 1 : "";
+
+        if (eq != NULL) {
+            *eq = 0;
+        }
+        if (SDL_strcmp(tok, "host") == 0) {
+            s_test.host = 1;
+        } else if (SDL_strcmp(tok, "players") == 0) {
+            s_test.players = (u32)SDL_clamp(SDL_atoi(v), 1, ONLINE_PLAYERS);
+        } else if (SDL_strcmp(tok, "mode") == 0) {
+            s_test.progression = SDL_strcmp(v, "drag") == 0 ? PROGRESSION_MP_DRAG :
+                                 SDL_strcmp(v, "joyride") == 0 ? PROGRESSION_JOYRIDE : PROGRESSION_MP_BATTLE;
+        } else if (SDL_strcmp(tok, "world") == 0) {
+            s_test.level = (u32)SDL_atoi(v);
+        } else if (SDL_strcmp(tok, "car") == 0) {
+            s_test.car = (u32)SDL_atoi(v);
+        } else if (SDL_strcmp(tok, "rounds") == 0) {
+            s_test.rounds = (u32)SDL_atoi(v);
+        } else if (SDL_strcmp(tok, "time") == 0) {
+            s_test.roundMs = (u32)SDL_atoi(v) * 1000u;
+        } else if (SDL_strcmp(tok, "summary") == 0) {
+            s_test.summaryMs = (u32)SDL_atoi(v) * 1000u;
+        }
+    }
+    Port_Log("online test: %s, %u players, progression %u level %u", s_test.host ? "host" : "?", s_test.players, s_test.progression,
+             s_test.level);
+}
+
+static void TestSetUp(void) {
+    /* what the mode's options screen would leave */
+    GameSettings_SetCodeVariable(0x12C, 0, 1);
+    GameSettings_SetCodeVariable(0x12D, 0, s_test.progression == PROGRESSION_MP_BATTLE ? 2 : 3);
+    g_codeVariables.versusRoundTime = (s32)s_test.roundMs;   /* ms; the menu sets 5-minute steps */
+    GameSettings_SetCodeVariable(0x12F, 0, 99);
+    GameSettings_SetCodeVariable(0x130, 0, 0);
+    GameSettings_SetCodeVariable(0x131, 0, s_test.rounds);
+    GameSettings_SetCodeVariable(0x132, 0, 0);
+    GameSettings_SetCodeVariable(0x134, 0, 2);
+    GameSettings_SetCodeVariable(0x135, 0, 0);
+    GameSettings_SetCodeVariable(0x136, 0, 1);
+    StateProgressionManager_SetProgressionID((s32)s_test.progression, (s32)s_test.level);
+    Port_OnlineHostSetup();
+    /* the host's own choice, as the car select would make it */
+    s_vehicle[0] = (s32)s_test.car;
+    s_item[0] = NO_ITEM;
+    s_chosen |= 1;
+    s_state = STATE_WAITING;
+    Port_InterfaceGoto(Port_MenuOnlineScreen(ONLINE_SCREEN_WAITING));
+    HostCheckChosen();
+}
+
+/* Where every car is, once they have settled after go (test only). */
+static void TestSendCars(void) {
+    u8 buf[8 + ONLINE_PLAYERS * 32];
+    NetWriter w;
+    u32 i, n = 0;
+
+    NetWriter_Init(&w, buf, sizeof(buf));
+    NetWriter_U8(&w, MSG_TEST_CARS);
+    NetWriter_U32(&w, s_stage);
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        n += s_players[i] != NULL && GETP(s_players[i]->vehicle) != NULL;
+    }
+    NetWriter_U8(&w, (u8)n);
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        Thing *t;
+
+        if (s_players[i] == NULL || (t = (Thing *)GETP(s_players[i]->vehicle)) == NULL) {
+            continue;
+        }
+        NetWriter_U8(&w, (u8)(i + 1));
+        NetWriter_F32(&w, t->pos.x);
+        NetWriter_F32(&w, t->pos.y);
+        NetWriter_F32(&w, t->pos.z);
+        NetWriter_F32(&w, t->quat.w);
+        NetWriter_F32(&w, t->quat.x);
+        NetWriter_F32(&w, t->quat.y);
+        NetWriter_F32(&w, t->quat.z);
+    }
+    Net_SendReliable(NET_PEER_ALL, buf, w.size);
+    Port_Log("online test: told everyone where the %u cars are, stage %u", n, s_stage);
+}
+
+/* How far the other cars here are from where their owners last said. */
+static void TestSync(void) {
+    char line[256];
+    u32 i, cars = 0;
+
+    line[0] = 0;
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        RemoteCar *r = &s_remote[i];
+        Thing *t;
+        char one[24];
+
+        if (s_players[i] == NULL || (t = (Thing *)GETP(s_players[i]->vehicle)) == NULL) {
+            continue;
+        }
+        cars++;
+        if ((s32)i + 1 == s_port || !r->have) {
+            continue;
+        }
+        {
+            f32 age = (f32)(SDL_GetTicks() - r->receivedAt) / 1000.0f;
+            f32 dx = r->pos.x + r->vel.x * age - t->pos.x, dy = r->pos.y + r->vel.y * age - t->pos.y;
+            f32 dz = r->pos.z + r->vel.z * age - t->pos.z;
+
+            SDL_snprintf(one, sizeof(one), " %u:%.1f", i + 1, sqrtf(dx * dx + dy * dy + dz * dz));
+            SDL_strlcat(line, one, sizeof(line));
+        }
+    }
+    Port_Log("online: sync stage %u, %u cars, %d human players, off by:%s", s_stage, cars, PlayerManager_PlayerHumanCount(), line);
+}
+
+static void TestHeartbeat(u64 now) {
+    if (!s_test.host) {
+        return;
+    }
+    if (!s_test.started) {
+        /* from the main menu, once it has been up a moment (HWVX_AUTOINPUT gets there) */
+        if (StateManager_CurrState() != 2 || Port_MenuOnlineScreen(ONLINE_SCREEN_MAIN) == NULL ||
+            !Port_InterfaceIsUp(Port_MenuOnlineScreen(ONLINE_SCREEN_MAIN))) {
+            s_test.menuSince = 0;
+            return;
+        }
+        if (s_test.menuSince == 0) {
+            s_test.menuSince = now;
+        }
+        if (now - s_test.menuSince > 3000 && Port_OnlineStartHost()) {
+            s_test.started = 1;
+            s_test.lobbySince = now;
+            Port_InterfaceGoto(Port_MenuOnlineScreen(ONLINE_SCREEN_LOBBY_HOST));
+        }
+        return;
+    }
+    if (s_state == STATE_LOBBY && !s_test.setUp && (u32)Bits(s_present & s_verified) >= s_test.players && now - s_test.lobbySince > 2000) {
+        s_test.setUp = 1;
+        Port_Log("online test: %d players in, setting up", Bits(s_present & s_verified));
+        TestSetUp();
+    }
+    if (s_state != STATE_PLAYING || StateManager_CurrState() != 5) {
+        return;
+    }
+    if (now >= s_test.nextSync) {
+        s_test.nextSync = now + 2000;
+        TestSync();
+    }
+    if (!s_hold && s_goTick != 0 && now - s_goTick > 1500 && s_test.carsSentStage != s_stage) {
+        s_test.carsSentStage = s_stage;
+        TestSendCars();
+    }
+    /* the host moves on from the summary on its own, after a while */
+    if (s_summary != NULL && Port_InterfaceIsUp(s_summary) && s_summarySince != 0 && now - s_summarySince > s_test.summaryMs &&
+        now >= s_summaryPress) {
+        s_summaryPress = now + SUMMARY_PRESS_MS;
+        s_pressA = 1;
+    }
+}
+
 void Port_OnlineHeartbeat(void) {
     NetEvent e;
+    static int s_testParsed;
+
+    if (!s_testParsed) {
+        s_testParsed = 1;
+        TestParse();
+    }
+    TestHeartbeat(SDL_GetTicks());
 
     Port_MenuOnlineUpdate();
     if (s_state == STATE_NONE) {
@@ -1692,6 +2236,7 @@ void Port_OnlineHeartbeat(void) {
             s_present |= 1u << (s_port - 1);
             s_state = STATE_LOBBY;
             Port_Log("online: connected as port %d", s_port);
+            SendHello(NET_PEER_HOST);
             {
                 char address[128];
 
@@ -1704,6 +2249,9 @@ void Port_OnlineHeartbeat(void) {
             if (e.peer < ONLINE_PLAYERS) {
                 s_present |= 1u << e.peer;
                 Port_Log("online: port %d joined", e.peer + 1);
+                if (s_isHost) {
+                    SendHello(e.peer);
+                }
                 ShowLobby(s_isHost ? "Ready" : NULL);
             }
             break;
@@ -1711,6 +2259,8 @@ void Port_OnlineHeartbeat(void) {
             if (e.peer < ONLINE_PLAYERS) {
                 s_present &= ~(1u << e.peer);
                 s_in &= ~(1u << e.peer);
+                s_verified &= ~(1u << e.peer);
+                s_refused &= ~(1u << e.peer);
                 s_remote[e.peer].have = 0;
                 if (s_state == STATE_PLAYING) {
                     ReceiveCarState(e.peer + 1u, s_stage, 0);   /* gone: its car too */
@@ -1771,6 +2321,7 @@ void Port_OnlineHeartbeat(void) {
             if (s_isHost && s_claimDeadline != 0 && now >= s_claimDeadline) {
                 HostDecide();
             }
+            FinishHeartbeat();
         }
     } else if (s_state == STATE_PLAYING && s_inLevel) {
         u8 msg = s_isHost ? MSG_RETURN : MSG_LEFT_LEVEL;

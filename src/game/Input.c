@@ -7,7 +7,8 @@ s32 Input_GetPlayerDevice(s32 player) {
     s16 i;
 
     player--;
-    if ((u32)player > 4) {
+    /* port: was > 4, which let port 5 (online only) index past the four pads */
+    if ((u32)player > 3) {
         for (i = 0; i < 4; i++) {
             if ((s8)g_VirtualPad[i].claimed == 0) {
                 g_VirtualPad[i].claimed = 1;

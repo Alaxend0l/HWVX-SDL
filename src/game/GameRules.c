@@ -36,7 +36,7 @@ void GameRules_Init(void) {
     g_bInit = 1;
     GameSettings_SetCodeVariable(0x197, 0, 0);
     GameSettings_SetCodeVariable(0x190, 0, 1);
-    for (i = 1; i < 5; i++) {
+    for (i = 1; i <= Port_OnlineHumanPorts(); i++) {   /* port: online, 8 */
         GameSettings_SetCodeVariable(0x191, i, 0);
         GameSettings_SetCodeVariable(0x194, i, 0);
     }
@@ -113,7 +113,7 @@ void GameRules_HeartBeat(void) {
         winner = -1;
         if (g_bInit) {
             /* give the players without a controller port (AI) a free one */
-            s8 used[4] = {0, 0, 0, 0};
+            s8 used[8] = {0, 0, 0, 0, 0, 0, 0, 0};   /* port: 8, online's ports 5-8 */
 
             numPlayers = PlayerManager_PlayerHumanCount();
             for (i = 0; i < numPlayers; i++) {
@@ -122,7 +122,7 @@ void GameRules_HeartBeat(void) {
             numPlayers = PlayerManager_PlayerCount();
             for (i = 0; i < numPlayers; i++) {
                 player = PlayerManager_GetPlayerByIndex(i);
-                if (player->port > 4) {
+                if (player->port > Port_OnlineHumanPorts()) {   /* port: online, players 5-8 are human */
                     s32 j;
                     for (j = 0; j < 4; j++) {
                         if (!used[j]) {

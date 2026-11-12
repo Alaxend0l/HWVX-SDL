@@ -2,6 +2,7 @@
  * its records (World.h), and the script functions for its items, variables
  * and timers. */
 #include "common.h"
+#include "Port_Online.h"
 #include "World.h"
 #include "Trigger.h"
 #include "ThingManager.h"
@@ -176,7 +177,7 @@ void World_Render(void) {
 }
 
 u32 World_GetTotalTiles_Car(void) {
-    return WORLD()->numTileCars;
+    return WORLD()->numTileCars + Port_OnlineExtraTileCount();   /* port: online spawns past the world's */
 }
 
 u32 World_GetTotalTiles_Creature(void) {
@@ -189,7 +190,7 @@ void *World_GetTileCar(u32 index) {
     if (index < world->numTileCars) {
         return &GETP(world->tileCars)[index];
     }
-    return NULL;
+    return Port_OnlineExtraTile(index - world->numTileCars);   /* port: online, NULL offline */
 }
 
 void *World_GetTileCreature(u32 index) {
