@@ -162,7 +162,10 @@ def with_data(retail):
     check("every quadrant's pack found as the game looks it up",
           all(WL.quad_pack(rel, w, q) is not None for q in w.quads if q.num_geoms))
     start = w.tile_cars()[0]["pos"]
-    check("the start tile moved", abs(start[0]) < 1 and abs(start[2] + 450) < 1, str(start))
+    want = XC.jsonc(proj / "world.jsonc")["start"][0]
+    base = WL.Release("gc", src["gc"]).world(XC.jsonc(proj / "world.jsonc")["base"]).tile_cars()[0]["pos"]
+    check("the start tile moved to the project's start",
+          np.allclose(start, want[:3], atol=0.01) and not np.allclose(start, base, atol=1), f"{start} want {want[:3]}")
     held = [q.index for q in w.quads[1:] if WL.inside(q.region, start)]
     check("the start is in a region", bool(held))
     col = rel.collision("arena1_col")
