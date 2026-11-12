@@ -1,6 +1,8 @@
 #include "common.h"
 #include "viewer.h"
 
+int Port_Converting(void);
+
 s32 Main_Init(void) {
     
     s8 Init_Display(void);
@@ -43,6 +45,9 @@ s32 Main_Init(void) {
     InterfaceManager_Init();
     GameSettings_GetGameInfo(&info);
     FileManager_SetAppInfo(GETP(info.name), GETP(info.id), GETP(info.title), GETP(info.fileName), GETP(info.icon));
+    if (Port_Converting()) {
+        return 1;   /* port: no state runs, the packs are converted (Port_Convert.c) */
+    }
     if (Port_ViewerOn()) {   /* port: HWVX_VIEWER, the data browser's preview instead of the game (viewer.c) */
         return Port_ViewerStart();
     }

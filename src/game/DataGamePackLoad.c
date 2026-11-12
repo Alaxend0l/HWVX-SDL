@@ -1,9 +1,11 @@
 #include "common.h"
+#include "Port_Mods.h"
 #include "Voice.h"
 #include "Port_Swap.h"
 #include "xdl.h"
 #include "Port_Content.h"
 #include "viewer.h"
+#include "Port_Mix.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -77,8 +79,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     u32 tocId;
 
     found = 0;
-    strcpy(path, name);
-    strcat(path, ".xgc");
+    snprintf(path, sizeof(path), "%s.xgc", name);   /* port: bounded (strcpy + strcat) */
     if ((g_fileID != -1 && g_fileTOCCache[type].name == NULL) || strcmp(g_fileTOCCache[type].name, name) != 0) {
         for (i = 0; i < 11; i++) {
             if (i != type && g_fileTOCCache[i].name != NULL && strcmp(g_fileTOCCache[i].name, name) == 0) {
@@ -107,7 +108,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         if (g_fileID == -1) {
             if (strcmp(name, "mcp") != 0) {
                 char msg[0x80];
-                sprintf(msg, "Could not open the data pack: %s\n", path);
+                snprintf(msg, sizeof(msg), "Could not open the data pack: %s\n", path);
                 Dprintf(msg);
             }
             return 0;
@@ -130,7 +131,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             File_Close(g_fileID);
             g_fileID = -1;
             g_openFileDataPackType = 0xB;
-            sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, g_buffer[2], 0xB7);
+            snprintf(msg, sizeof(msg), "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, g_buffer[2], 0xB7);
             Dprintf(msg);
             return 0;
         }
@@ -173,7 +174,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         if (type == s_tocEntries[type][i].type && tocId == s_tocEntries[type][i].id) {
             if (s_tocEntries[type][i].version != 0xB7) {
                 char msg[0x80];
-                sprintf(msg, "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, s_tocEntries[type][i].version, 0xB7);
+                snprintf(msg, sizeof(msg), "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, s_tocEntries[type][i].version, 0xB7);
                 Dprintf(msg);
                 File_Close(g_fileID);
                 g_fileID = -1;
@@ -187,7 +188,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     }
     if (!found) {
         char msg[0x80];
-        sprintf(msg, "Could not load the data pack with Pack ID: %d. Within the file: %s\n.Check the PackID and repack using the latest BrainCore.\n", id, path);
+        /* port: snprintf - the message with a full path is longer than msg (the
+         * release's paths were short): a pack that isn't there overran it */
+        snprintf(msg, sizeof(msg), "Could not load the data pack with Pack ID: %d. Within the file: %s\n.Check the PackID and repack using the latest BrainCore.\n", id, path);
         Dprintf(msg);
         File_Close(g_fileID);
         g_fileID = -1;
@@ -216,7 +219,9 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         if (timing && depth++ == 0) {
             start = SDL_GetTicksNS();
         }
+        PortMix_BeginPack(name, type, tocId);   /* port: a mixed build's pack (Port_Mix.c) */
         DataPack_LoadDataPack(g_fileID, PTR(arg1));
+        PortMix_EndPack();
         if (timing && --depth == 0) {
             t = SDL_GetTicksNS() - start;
             total += t;
@@ -444,7 +449,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         sfx = GETP(pack->sfxData);
         if (xp == NULL) {
+            /* port: a mixed build's samples from another release (Port_Mix.c) */
+            PortMix_SFXPrepare(fmt, sfx, pack->numSounds);
             PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
+            PortMix_SFX(fmt, sfx, pack->numSounds);
             Xdl_Sound(data, (readSize + 0x1F) & ~0x1F, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase),
                       GETP(pack->songBank));
         } else {
@@ -464,6 +472,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         if (xp == NULL) {
             PortData_SFXDone(fmt);   /* port: CreateSFX has copied the samples */
+            PortMix_SFXDone();
         } else {
             Deallocate(xdlSfx);
             Xdl_PlaceSeg(xp, XDL_SEG_SOUND, NULL);
@@ -574,6 +583,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             PortGeometry_Keep(pack, PortPS2_Textures(GETP(pack->base), header.dataSize, header.textureDataOffset,
                                                      header.numTextures, header.paletteOffset, header.palettes));
         }
+        /* port: a mixed build's textures from the other releases (Port_Mix.c) */
+        PortMix_Textures(pack, fmt, GETP(pack->base), header.dataSize, header.textureDataOffset, header.numTextures);
         Xdl_EndPack(GETP(pack->soundData), data, (tablesSize + pad + header.dataSize + relocSize + 0x1F) & ~0x1F,
                     GETP(pack->base),
                     pointers, header.numPointers,
@@ -875,6 +886,8 @@ void DataPack_ReleaseDataPack(DataPack *pack) {
     u32 *gx;
     u8 *trigger;
     u32 i;
+
+    Port_ModsPackReleased(pack);   /* port: its textures' colour recipes go */
 
     if (GETP(pack->soundIDs) != NULL) {
         for (i = 0; i < pack->numSounds; i++) {
