@@ -34,11 +34,11 @@ releases, counts and extremes only) and from runs with `HWVX_HEAPLOG=1`.
 | collision | the car's collider box (or hull) only: mesh polygons don't matter | engine | CarA.c:290-318, 142-195 | | - |
 | game heap | **128 MB** (`HWVX_ARENA_MB` 8-1024) | port | port_internal.h:16; main_sdl.c `Port_ArenaSize` | peak **16.3 MB** (8-player battle) | switch added |
 | running out of heap | was: a silent quit to the title, or models missing; now a fatal error naming the size | port | MemoryManager.c `Allocate` | never | yes |
-| ARAM (samples) | 16 MB emulated; the game's heap is 15.98 MB of it | port (GC hardware size) | ax.c:22; Audio_.c:46-47 | peak **5.6 MB** (challenge race) | proposal (ax.c) |
+| ARAM (samples) | 64 MB emulated (16 MB on the GameCube; raised by the streamed-music work) | port | ax.c `ARAM_SIZE`; Audio_.c:46-47 | peak **5.6 MB** (challenge race, measured at 16 MB) | done on pc-data |
 | ARAM blocks | **255** descriptors in the original: the tight one; now 1024 | engine → port | Audio_.c `AUDIO_MEMBLKS` | **185** in use in a challenge race | yes, 255 → 1024 |
 | sample formats | PCM16 or PCM8, mono; ADPCM voices are silenced | port | ax.c:305-349; Voice_.c:146-157 | all PCM16 (PS2 ADPCM decoded at load) | - |
 | sample rate / pitch | any rate; rate x pitch / 48 kHz between 0.0015 and 2.93 | engine | Voice_.c:455-461 | 8,000-44,100 Hz sounds; bank samples 1,116-220,942 Hz | - |
-| voices | **64** shared by effects and music; the lowest priority is stolen | port + engine | ax.c:21; Voice.h:14, 119 | | proposal |
+| voices | **64** shared by effects and music; the lowest priority is stolen | port + engine | ax.c:21; Voice.h:14, 119 | | kept: retail-identical stealing |
 | songs | one MIDI track, 16 channels, 128 programs, 128 drum keys, 64 loop markers | format / engine | MIDI.c:4-20, 102-105 | 60 songs, all 1 track | - |
 | instrument banks | no count limit besides 128 programs/drums and ARAM | format | MIDI.c:93-100 | 36 instruments at most | - |
 | sound length | none in the engine; mods: 10 minutes per file (decoder cap) | port | audiodec.h `AUDIODEC_MAX_FRAMES` | 26.4 s longest | - |
@@ -182,9 +182,9 @@ MB the peak passes, as `heap 0: peak X of Y MB`.
   * Retail sounds: 8,000 Hz (91), 11,025 (1,258), 22,050 (3,328), 44,100 (46) on GC.
   * Bank samples run from 1,116 to 220,942 Hz at their base note: the game plays those notes
     lower.
-* **ARAM.** 16 MB emulated, as the GameCube's (ax.c:22). The game's heap is 15.98 MB of it
-  (Audio_.c:46-47). `HWVX_HEAPLOG=1` now logs it as `aram: peak X of 15.98 MB, N of 1024
-  blocks`.
+* **ARAM.** 64 MB emulated on pc-data (the GameCube's 16 MB, raised by the streamed-music
+  work; ax.c `ARAM_SIZE`). The game sizes its heap from it (Audio_.c:46-47). `HWVX_HEAPLOG=1`
+  now logs it as `aram: peak X of Y MB, N of 1024 blocks`. Measured at 16 MB:
 
   | run | peak | blocks in use |
   |---|---|---|
@@ -212,8 +212,6 @@ MB the peak passes, as `heap 0: peak X of Y MB`.
 
 | limit | what it would take | risks | for new content only? | effort |
 |---|---|---|---|---|
-| ARAM 16 → 64 MB | ax.c:22 `#define ARAM_SIZE (64u << 20)`; nothing else. The game sizes its heap from `ARGetSize()` (Audio_.c:47); sample addresses are u32 (PCM16 halved: still < 2^31). `s_aram` is `SDL_calloc`ed (ax.c:48), so unused pages cost nothing | none for retail: `MAllocA_` allocates from the top of the first free block, so addresses shift, but no logic reads them; the mix is identical. Android: only what's used is resident | it's one heap; retail uses 5.6 MB of it either way | 1 line + a run (for the ax.c owner) |
-| voices 64 → 128 | `AX_MAX_VOICES` (ax.c:21); `NUM_VOICES` (Voice.h:14); the `g_voice` storage in data_gen.c (0x1C00 = 64 x 0x70) and `g_volTab[64]`; the `_Static_assert` (Voice.h:119) | voice stealing changes only when more than 64 play: retail never does. CPU per voice in the mixer | yes | an hour (ax.c part for its owner) |
 | ADPCM voices | decode GC DSP-ADPCM in ax.c (`PORT_TODO`) | none: no retail data reaches it (the port decodes to PCM16 first) | yes | half a day; not needed |
 | normals 1/64 → full precision | store `s16` normals at 1/16384 in the compact vertex (gx_fifo.c:300-311, `GXVertex.nrm`), or f32 | vertex size grows (memory, upload bandwidth); demo frames change by rounding | the display-list cache is shared | half a day plus an A/B |
 | PC 32,767 vertices per level | a new PC level layout (u32 indices, strips by record) or splitting a level's groups into several vertex arrays | a new pack format: `.xdl` only | yes (`.xdl`) | days |
@@ -253,14 +251,12 @@ MB the peak passes, as `heap 0: peak X of Y MB`.
 * `HWVX_MODS_LOG=1` logs each one: `mods: Tone test: base://HW_Cars/car_7/sound/0:
   sound/tone.ogg, 22050 samples at 11025 Hz, loop 0`.
 
-**The decoder: vendored, no ffmpeg.** No pure-Python decoder for MP3 or Vorbis is available
-offline, so the decoders are vendored single files, built with the game:
-* `third_party/miniaudio/miniaudio.h` 0.11.25 (public domain / MIT-0), for its dr_wav, dr_flac
-  and dr_mp3. It handles MP3 gapless (LAME delay and padding), so lengths are exact.
-* `third_party/stb_vorbis/stb_vorbis.c` 1.17 (public domain / MIT), which has the 2019 CVE fixes.
-
-They are compiled into `hwvx_audiodec` (CMake), which is linked into the game and built as the
-helper `hwvx-audiodec IN OUT.wav|- [--mono] [--rate HZ]` (installed beside the game).
+**The decoder: no ffmpeg.** No pure-Python decoder for MP3 or Vorbis is available offline, so
+src/audiodec uses the official files the streamed music vendors in src/third_party (README.md
+there): miniaudio 0.11.26 for its dr_wav, dr_flac and dr_mp3 (MP3 gapless: lengths exact), and
+stb_vorbis 1.23. `hwvx_audiodec` (CMake) is linked into the game, where stb_vorbis's
+implementation is musicstream.c's, and built as the helper `hwvx-audiodec IN OUT.wav|- [--mono]
+[--rate HZ]` (installed beside the game; its own stb_vorbis in src/audiodec/stb_vorbis_impl.c).
 
 Loop tags are parsed by our own code, with bounds checks. The decoders are limited to 256 MB
 files and 10 minutes, and decode only files a mod names.
