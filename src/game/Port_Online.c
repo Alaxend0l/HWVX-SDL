@@ -204,6 +204,14 @@ static u32 s_numSharedTaken;
 
 extern CodeVariables g_codeVariables;   /* GameSettings.c */
 void GameSettings_PortOnlineBegin(void);
+static void PatchSummaryLabels(void);
+/* The round summary's row labels, given P5-P8 (PatchSummaryLabels). */
+static struct {
+    IfaceText *text;
+    u32 original;               /* the list's handle as the pack has it */
+} s_labels[8];
+static u32 s_numLabels;
+static void UnpatchSummaryLabels(void);
 void GameSettings_PortOnlineEnd(void);
 
 int Port_OnlineActive(void) {
@@ -374,6 +382,10 @@ void Port_OnlineEnd(void) {
     if (s_state == STATE_NONE) {
         return;
     }
+    if (StateManager_CurrState() == 5) {
+        UnpatchSummaryLabels();
+    }
+    s_numLabels = 0;
     Net_Close();
     Port_TunnelStop();
     s_tunnel = 0;
@@ -1105,6 +1117,7 @@ static void BeginStage(void) {
 
         Net_SendReliable(NET_PEER_ALL, &msg, 1);
     }
+    s_numLabels = 0;            /* the level was made anew: its lists are as the pack has them */
     s_summary = Port_TriggerRoundSummary();
     s_summarySince = 0;
     s_continue = 0;
@@ -1262,6 +1275,7 @@ static void SummaryHeartbeat(u64 now) {
             s_summarySince = now;
             s_summaryPress = 0;
         }
+        PatchSummaryLabels();
         if (s_continue && now >= s_summaryPress) {
             s_summaryPress = now + SUMMARY_PRESS_MS;
             s_pressA = 1;
@@ -1269,11 +1283,135 @@ static void SummaryHeartbeat(u64 now) {
     } else if (s_summarySince != 0) {
         s_summarySince = 0;
         s_continue = 0;
+        UnpatchSummaryLabels();
         if (s_isHost) {
             u8 msg = MSG_CONTINUE;
 
             Net_SendReliable(NET_PEER_ALL, &msg, 1);
         }
+    }
+}
+
+/* ---- the round summary of more than 4 --------------------------------------------
+ * Its rows are the retail four, P1-P4, each reading its port's code variables. With
+ * players 5-8 in the game it shows them in turns: P1-P4, then P5-P8 in the same rows
+ * (Port_OnlineInterfaceArg), the row labels' lists given P5-P8 (PatchSummaryLabels). */
+#define SUMMARY_PAGE_MS 3000
+
+static IfaceStringList s_labelLists[8];
+static u32 s_labelTexts[8][10];   /* the list's 6, then P5-P8 */
+static u32 s_labelPage;
+static u32 s_labelBlank;        /* frames the labels stay blank */
+static PTR32(char) s_labelTables[4][1];
+static char s_labelNames[4][4] = {"P|5", "P|6", "P|7", "P|8"};
+
+static int SummaryPaging(const void *header) {
+    return s_state != STATE_NONE && header != NULL && header == s_summary && (s_in & ~0xFu) != 0;
+}
+
+static u32 SummaryPage(void) {
+    return s_summarySince != 0 ? (u32)((SDL_GetTicks() - s_summarySince) / SUMMARY_PAGE_MS) & 1 : 0;
+}
+
+int Port_OnlineInterfacePaging(const void *header) {
+    return SummaryPaging(header);
+}
+
+/* A row's code variable, read for the player shown in it: 0 to read it as it is. */
+int Port_OnlineInterfaceRead(const void *header, u32 id, u32 arg, s32 *out) {
+    u32 page;
+
+    if (!SummaryPaging(header) || arg < 1 || arg > RETAIL_PLAYERS) {
+        return 0;
+    }
+    page = SummaryPage();
+    if (id == 0x196) {
+        /* the label: the list's P1-P4 are P5-P8 on the second page (PatchSummaryLabels);
+         * blank a moment as the pages turn, so the text is looked up again */
+        *out = s_labelBlank == 0 && GameSettings_GetCodeVariable(id, arg + RETAIL_PLAYERS * page) != 0 ? (s32)arg : 0;
+        return 1;
+    }
+    if (page == 0) {
+        return 0;
+    }
+    switch (id) {
+    case 0xCB:
+    case 0x191:
+    case 0x192:
+    case 0x193:
+    case 0x194:
+        *out = (s32)GameSettings_GetCodeVariable(id, arg + RETAIL_PLAYERS);
+        return 1;
+    }
+    return 0;
+}
+
+static void UnpatchSummaryLabels(void) {
+    u32 i;
+
+    for (i = 0; i < s_numLabels; i++) {
+        s_labels[i].text->list.h = s_labels[i].original;
+    }
+    s_numLabels = 0;
+}
+
+/* The label lists ("     ", P1-P4, AI by code variable 0x196): ours, whose P1-P4 are
+ * P5-P8 on the second page. */
+static void PatchSummaryLabels(void) {
+    const InterfaceHeader *h = s_summary;
+    u32 i, k;
+
+    if (s_numLabels != 0) {
+        u32 page = SummaryPage();
+
+        if (s_labelBlank != 0) {
+            s_labelBlank--;
+        }
+        if (page != s_labelPage) {
+            s_labelPage = page;
+            s_labelBlank = 2;
+            for (i = 0; i < s_numLabels; i++) {
+                for (k = 1; k <= 4; k++) {
+                    /* P1-P4 and P5-P8 trade places */
+                    u32 t = s_labelTexts[i][k];
+
+                    s_labelTexts[i][k] = s_labelTexts[i][5 + k];
+                    s_labelTexts[i][5 + k] = t;
+                }
+            }
+        }
+        return;
+    }
+    if (!SummaryPaging(h)) {
+        return;
+    }
+    s_labelPage = 0;
+    for (k = 0; k < 4; k++) {
+        SETP(s_labelTables[k][0], s_labelNames[k]);
+    }
+    for (i = 0; i < h->numObjects && s_numLabels < SDL_arraysize(s_labels); i++) {
+        const IfaceObjectDef *d = &GETP(h->objects)[i];
+        IfaceText *t;
+        IfaceStringList *list;
+        PTR32(char) *first;
+
+        if (d->type != IFACE_DEF_TEXT || (t = GETP(d->sub)) == NULL || !t->listMode || (list = GETP(t->list)) == NULL ||
+            list->count != 6 || (first = (PTR32(char) *)PTR(GETP(list->texts)[1])) == NULL || GETP(first[0]) == NULL ||
+            SDL_strcmp(GETP(first[0]), "P|1") != 0) {
+            continue;
+        }
+        s_labelLists[s_numLabels] = *list;
+        for (k = 0; k < 6; k++) {
+            s_labelTexts[s_numLabels][k] = GETP(list->texts)[k];
+        }
+        for (k = 0; k < 4; k++) {
+            s_labelTexts[s_numLabels][6 + k] = (u32)HND(s_labelTables[k]);
+        }
+        SETP(s_labelLists[s_numLabels].texts, s_labelTexts[s_numLabels]);
+        s_labels[s_numLabels].text = t;
+        s_labels[s_numLabels].original = t->list.h;
+        SETP(t->list, &s_labelLists[s_numLabels]);
+        s_numLabels++;
     }
 }
 
@@ -2330,6 +2468,7 @@ void Port_OnlineHeartbeat(void) {
         s_lobby = (1u << ONLINE_PLAYERS) - 1;
         s_localPlayer = NULL;
         s_scriptSpawn = NULL;
+        s_numLabels = 0;        /* gone with the level */
         s_hold = 0;
         s_menuOpen = 0;
         s_inLevel = 0;

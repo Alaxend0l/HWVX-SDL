@@ -26,7 +26,7 @@ PORT=47815
 FINISH_PORT=7
 [ "$N" -lt 7 ] && FINISH_PORT=$N
 env HWVX_NO_MOVIE=1 HWVX_NO_DIALOG=1 HWVX_SEED=3 HWVX_MODS=0 HWVX_AUTOINPUT="700:start,+400:start" \
-    HWVX_ONLINE_TEST="host,players=$N,mode=$MODE,world=$W,rounds=2,time=25,summary=5" \
+    HWVX_ONLINE_TEST="host,players=$N,mode=$MODE,world=$W,rounds=2,time=25,summary=8" \
     HWVX_PREF_DIR="$O/pref-$TAG" HWVX_DUMP="$O/dump-$TAG" \
     "$B/hwvx" --windowed --window 1280x960 --data "$D" > "$O/$TAG.host.log" 2>&1 &
 G=$!
@@ -36,7 +36,7 @@ BOTS=()
 for p in $(seq 2 "$N"); do
     extra=""
     [ "$MODE" = drag ] && [ "$p" = "$FINISH_PORT" ] && extra="--finish 8"
-    "$B/netbot" "127.0.0.1:$PORT" --drive --points 10 --seconds "$T" $extra > "$O/$TAG.bot$p.log" 2>&1 &
+    "$B/netbot" "127.0.0.1:$PORT" --drive --points 10 --seconds $((T - 5)) $extra > "$O/$TAG.bot$p.log" 2>&1 &
     BOTS+=($!)
     sleep 0.3
 done

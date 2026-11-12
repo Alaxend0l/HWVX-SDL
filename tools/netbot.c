@@ -205,6 +205,17 @@ static int HandleReliable(const NetEvent *e, s32 vehicle) {
         }
         break;
     }
+    case MSG_WINNER: {
+        /* a race's end: the host decided who finished first */
+        u32 stage = NetReader_U32(&r);
+        u32 number = NetReader_U8(&r);
+
+        if (r.ok) {
+            s_roundEnds++;
+            printf("netbot %d: stage %u won by %u\n", s_port, stage, number);
+        }
+        break;
+    }
     case MSG_RETURN:
         if (s_inLevel) {
             u8 msg = MSG_LEFT_LEVEL;

@@ -71,6 +71,10 @@ int Port_OnlineCarKilled(const Player *victim, const Player *killer);
 /* GameRules found the round over; forced: a script or the host said so. 1: not for this
  * machine to decide. */
 int Port_OnlineRoundOver(int forced, u32 winner);
+/* InterfaceManager: the round summary shows players 5-8 in its four rows in turns: the
+ * port a row's code variable reads, and whether its variables are read each frame. */
+int Port_OnlineInterfaceRead(const void *header, u32 id, u32 arg, s32 *out);
+int Port_OnlineInterfacePaging(const void *header);
 /* Whose controller settings a player uses. */
 u32 Port_OnlineControllerPort(const Player *player);
 /* The control reader's work for a car driven on another machine. */
