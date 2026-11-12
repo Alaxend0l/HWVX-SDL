@@ -234,16 +234,42 @@ class Schemas:
             if "x-c-struct" in d:
                 self.s[d["title"]] = d
 
+    def counts(self, name):
+        """{count field: [the link fields it counts]}: num*/count* fields, and those a link's
+        description names as its array's length ("[numSlaves]"). A patch never sets them: the game
+        would walk past the array."""
+        props = self.s[name]["properties"]
+        out = {k: [] for k in props if re.match(r"^(num|count)[A-Z0-9_]", k)}
+        for k, p in props.items():
+            if not (p.get("x-link") or p.get("items", {}).get("x-link")):
+                continue
+            m = re.search(r"\[([A-Za-z_]\w*)\]", p.get("description") or "")
+            c = m.group(1) if m and m.group(1) in props else "num" + k[:1].upper() + k[1:]
+            if c in props:
+                out.setdefault(c, []).append(k)
+        return out
+
+    def count_of(self, name, link):
+        """The count field of the array a link field points to, or None (one object)."""
+        for c, links in self.counts(name).items():
+            if link in links:
+                return c
+        return None
+
     def fields(self, name):
-        """field -> (offset, prim, count or 0, link target struct or None)."""
+        """field -> (offset, prim, count or 0, link target struct or None). Array counts have prim
+        None, as links and nested structs do: not patchable."""
         out = {}
+        counts = self.counts(name)
         for k, p in self.s[name]["properties"].items():
             if "x-offset" not in p:
                 continue
             off, ct = int(p["x-offset"], 16), p["x-c-type"]
             link = p.get("x-link") or p.get("items", {}).get("x-link")
             m = re.match(r"^(\w+)(?:\[(\d+)\])?$", ct)
-            if link:
+            if k in counts:
+                out[k] = (off, None, 0, None)
+            elif link:
                 if link.get("kind") == "object" and link.get("target") in self.s and "[" not in ct:
                     out[k] = (off, None, 0, link["target"])
                 else:
@@ -917,6 +943,9 @@ def check_mod(folder, index, strip=False):
                 rep.refuse(w, f"{sname} has no field {f}")
                 continue
             off, prim, count, target = fields[f]
+            if prim is None and f in schemas.counts(sname):
+                rep.refuse(w, f"{sname}.{f} counts an array's entries: the game would read past the array")
+                continue
             if prim is None:
                 rep.refuse(w, f"{sname}.{f} is a link or a nested struct: a patch sets numbers")
                 continue

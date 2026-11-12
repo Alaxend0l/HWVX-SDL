@@ -29,7 +29,9 @@ typedef struct ModField {
     const char *name;
     u32 offset;
     int type;
-    int count;          /* 0: one value; else an array of count */
+    int count;          /* 0: one value; else an array of count. MF_LINK: 1 + the
+                           offset of the u32 counting the objects it points to
+                           (0: one object) */
     int target;         /* MF_LINK: the struct it points to (s_structs) */
 } ModField;
 
@@ -63,16 +65,24 @@ static const char *const s_typeNames[] = { "car", "interface", "item", "link", "
 
 /* ---- small helpers ------------------------------------------------------- */
 
+/* A line of the report (and the log), once: a pack loads every race. */
 static void Report(const char *fmt, ...) PORT_PRINTF(1, 2);
 static void Report(const char *fmt, ...) {
     va_list ap;
     char *line = NULL;
+    int i;
 
     va_start(ap, fmt);
     SDL_vasprintf(&line, fmt, ap);
     va_end(ap);
     if (line == NULL) {
         return;
+    }
+    for (i = 0; i < s_numReport; i++) {
+        if (SDL_strcmp(s_report[i], line) == 0) {
+            SDL_free(line);
+            return;
+        }
     }
     Port_Log("mods: %s", line);
     if (s_numReport == s_capReport) {
@@ -826,16 +836,67 @@ static void *Ptr(u32 h) {
     return h != 0 ? Port_HandleToPtr(h) : NULL;
 }
 
-/* A root object of a car or item pack (the table at 0: a count, then 8-byte
- * entries whose first word points to the root). */
-static u8 *Root(const DataPack *pack, u32 i) {
-    u8 *base = GETP(pack->base);
-    u8 *tab;
+/* Is [p, p + size) inside the pack's data blob? Every object a patch reads or
+ * writes is. */
+static int InBlob(const DataPack *pack, const void *p, u32 size) {
+    const u8 *lo = GETP(pack->base), *q = p;
 
-    if (base == NULL || i >= *(u32 *)base || (tab = Ptr(*(u32 *)(base + 4))) == NULL) {
+    return lo != NULL && q != NULL && q >= lo && (size_t)(q - lo) <= pack->dataSize &&
+           size <= pack->dataSize - (u32)(q - lo);
+}
+
+/* The struct of a pack type's root objects (tools/xdl_mod.py ROOT_KIND): car
+ * and item packs only; others have no root table. */
+static const ModStruct *RootStruct(unsigned type) {
+    const char *n = type == 0 ? "CarAInfo" : type == 2 ? "ItemRecord" : NULL;
+
+    return n != NULL ? StructNamed(n, SDL_strlen(n)) : NULL;
+}
+
+/* A root object of a car or item pack (the table at 0: a count, then 8-byte
+ * entries whose first word points to the root), all of it in the blob. */
+static u8 *Root(const DataPack *pack, const ModStruct *st, u32 i) {
+    u8 *base = GETP(pack->base), *tab, *obj;
+    u32 n;
+
+    if (base == NULL || pack->dataSize < 8) {
         return NULL;
     }
-    return Ptr(*(u32 *)(tab + 8 * i));
+    n = *(u32 *)base;
+    if (i >= n || n > pack->dataSize / 8 || (tab = Ptr(*(u32 *)(base + 4))) == NULL || !InBlob(pack, tab, 8 * n)) {
+        return NULL;
+    }
+    obj = Ptr(*(u32 *)(tab + 8 * i));
+    return InBlob(pack, obj, st->size) ? obj : NULL;
+}
+
+/* A path's number: digits only, up to the next '/' or the end. */
+static int Index(const char *s, u32 *out) {
+    char *end;
+    unsigned long v;
+
+    if (*s < '0' || *s > '9') {
+        return 0;
+    }
+    v = SDL_strtoul(s, &end, 10);
+    if ((*end != '/' && *end != 0) || v > 0xFFFFFFFFul) {
+        return 0;
+    }
+    *out = (u32)v;
+    return 1;
+}
+
+/* The objects link fd of obj points to: their count (1 unless the schema names
+ * a count for it), all of them in the blob; NULL when there are none. */
+static u8 *Follow(const DataPack *pack, const u8 *obj, const ModField *fd, u32 *count) {
+    const ModStruct *to = &s_structs[fd->target];
+    u8 *p = Ptr(*(u32 *)(obj + fd->offset));
+
+    *count = fd->count > 0 ? *(const u32 *)(obj + fd->count - 1) : 1;
+    if (*count == 0 || to->size == 0 || *count > pack->dataSize / to->size || !InBlob(pack, p, *count * to->size)) {
+        return NULL;
+    }
+    return p;
 }
 
 static double GetValue(const u8 *p, int type) {
@@ -851,10 +912,16 @@ static double GetValue(const u8 *p, int type) {
     }
 }
 
+static int s_clamped;   /* SetValue: the value didn't fit the field's type */
+
+/* 1 if set; the value clamped to the type's range (s_clamped) when it doesn't fit. */
 static int SetValue(u8 *p, int type, const JsonNode *v) {
+    static const double lo[] = { 0, -128, 0, -32768, 0, -2147483648.0, -3.4028234663852886e38 };
+    static const double hi[] = { 255, 127, 65535, 32767, 4294967295.0, 2147483647.0, 3.4028234663852886e38 };
     double d;
 
     s_old = GetValue(p, type);
+    s_clamped = 0;
     if (v->type == JSON_BOOL) {
         d = v->boolean;
     } else if (v->type == JSON_NUMBER) {
@@ -862,12 +929,22 @@ static int SetValue(u8 *p, int type, const JsonNode *v) {
     } else {
         return 0;
     }
+    if (type < MF_U8 || type > MF_F32) {
+        return 0;
+    }
+    if (!(d >= lo[type])) {     /* NaN too */
+        d = d != d ? 0 : lo[type];
+        s_clamped = 1;
+    } else if (d > hi[type]) {
+        d = hi[type];
+        s_clamped = 1;
+    }
     switch (type) {
-    case MF_U8: *p = (u8)(s32)d; break;
+    case MF_U8: *p = (u8)d; break;
     case MF_S8: *(s8 *)p = (s8)d; break;
-    case MF_U16: *(u16 *)p = (u16)(s32)d; break;
+    case MF_U16: *(u16 *)p = (u16)d; break;
     case MF_S16: *(s16 *)p = (s16)d; break;
-    case MF_U32: *(u32 *)p = v->isInteger ? (u32)v->integer : (u32)d; break;
+    case MF_U32: *(u32 *)p = (u32)d; break;
     case MF_S32: *(s32 *)p = (s32)d; break;
     case MF_F32: *(f32 *)p = (f32)d; break;
     default: return 0;
@@ -879,33 +956,49 @@ static int TypeSize(int type) {
     return type == MF_U8 || type == MF_S8 ? 1 : type == MF_U16 || type == MF_S16 ? 2 : 4;
 }
 
-/* A merge patch over an object of struct st: the fields set. */
-static int PatchObject(const Mod *m, const char *where, u8 *obj, const ModStruct *st, const JsonNode *patch) {
+/* A merge patch over an object of struct st (in the blob): the fields set. */
+static int PatchObject(const Mod *m, const DataPack *pack, const char *where, u8 *obj, const ModStruct *st,
+                       const JsonNode *patch) {
     const JsonNode *f;
     int n = 0;
 
     for (f = patch->child; f != NULL; f = f->next) {
         const ModField *fd = FieldNamed(st, f->key, SDL_strlen(f->key));
 
-        if (fd == NULL || fd->type == MF_OTHER) {
+        if (fd == NULL || fd->type == MF_OTHER ||
+            fd->offset + (u32)(fd->type == MF_LINK ? 4 : TypeSize(fd->type) * (fd->count > 0 ? fd->count : 1)) >
+                st->size) {
             Report("%s: %s: %s.%s isn't a field a patch can set", m->info.name, where, st->name, f->key);
         } else if (fd->type == MF_LINK) {
-            u8 *to = Ptr(*(u32 *)(obj + fd->offset));
+            u32 count;
+            u8 *to = Follow(pack, obj, fd, &count);
 
             if (f->type == JSON_OBJECT && to != NULL) {
-                n += PatchObject(m, where, to, &s_structs[fd->target], f);
+                n += PatchObject(m, pack, where, to, &s_structs[fd->target], f);
+            } else if (f->type == JSON_OBJECT) {
+                Report("%s: %s: %s.%s points to nothing in this release's pack", m->info.name, where, st->name,
+                       f->key);
             } else {
                 Report("%s: %s: %s.%s is an object: patch it as one", m->info.name, where, st->name, f->key);
             }
         } else if (fd->count > 0) {
             const JsonNode *e = f->type == JSON_ARRAY ? f->child : NULL;
-            int i;
+            int i, clamped = 0;
 
             for (i = 0; e != NULL && i < fd->count; i++, e = e->next) {
                 n += e->type != JSON_NULL && SetValue(obj + fd->offset + i * TypeSize(fd->type), fd->type, e);
+                clamped |= s_clamped;
+            }
+            if (clamped) {
+                Report("%s: %s: %s.%s: a value out of its type's range, clamped", m->info.name, where, st->name,
+                       f->key);
             }
         } else if (SetValue(obj + fd->offset, fd->type, f)) {
             n++;
+            if (s_clamped) {
+                Report("%s: %s: %s.%s: out of its type's range, clamped to %g", m->info.name, where, st->name,
+                       f->key, GetValue(obj + fd->offset, fd->type));
+            }
             if (s_logValues) {
                 Port_Log("mods: %s %s.%s = %g (was %g)", where, st->name, f->key, GetValue(obj + fd->offset, fd->type),
                          s_old);
@@ -917,24 +1010,34 @@ static int PatchObject(const Mod *m, const char *where, u8 *obj, const ModStruct
     return n;
 }
 
-/* path: Struct/root[/field or index...] in a pack; the object and its struct. */
-static u8 *Locate(const DataPack *pack, const char *path, const ModStruct **st) {
+/* path: Root/i[/field or index...] in a car or item pack, Root its root struct;
+ * an index only into an array the schema gives a count for (else only 0). The
+ * object (in the blob) and its struct. */
+static u8 *Locate(const DataPack *pack, unsigned type, const char *path, const ModStruct **st) {
     const char *p = SDL_strchr(path, '/'), *seg;
-    u8 *obj;
+    const ModStruct *root = RootStruct(type);
+    u8 *obj, *array;
+    u32 count = 1, i;
 
-    if (p == NULL || (*st = StructNamed(path, (size_t)(p - path))) == NULL) {
+    if (p == NULL || root == NULL || (*st = StructNamed(path, (size_t)(p - path))) != root || !Index(p + 1, &i)) {
         return NULL;
     }
-    obj = Root(pack, (u32)SDL_strtoul(p + 1, NULL, 10));
+    obj = array = Root(pack, root, i);
     for (seg = SDL_strchr(p + 1, '/'); obj != NULL && seg != NULL; seg = SDL_strchr(seg + 1, '/')) {
         const char *end = SDL_strchr(seg + 1, '/');
         size_t len = end != NULL ? (size_t)(end - seg - 1) : SDL_strlen(seg + 1);
         const ModField *fd;
 
         if (seg[1] >= '0' && seg[1] <= '9') {
-            obj += SDL_strtoul(seg + 1, NULL, 10) * (*st)->size;
-        } else if ((fd = FieldNamed(*st, seg + 1, len)) != NULL && fd->type == MF_LINK) {
-            obj = Ptr(*(u32 *)(obj + fd->offset));
+            if (!Index(seg + 1, &i) || i >= count) {
+                return NULL;
+            }
+            obj = array + i * (*st)->size;
+            count = 1;
+            array = obj;
+        } else if ((fd = FieldNamed(*st, seg + 1, len)) != NULL && fd->type == MF_LINK &&
+                   fd->offset + 4 <= (*st)->size) {
+            obj = array = Follow(pack, obj, fd, &count);
             *st = &s_structs[fd->target];
         } else {
             return NULL;
@@ -943,15 +1046,16 @@ static u8 *Locate(const DataPack *pack, const char *path, const ModStruct **st) 
     return obj;
 }
 
-static void ApplyPatch(const Mod *m, const DataPack *pack, const char *id, const char *path, const JsonNode *patch) {
+static void ApplyPatch(const Mod *m, const DataPack *pack, unsigned type, const char *id, const char *path,
+                       const JsonNode *patch) {
     const ModStruct *st = NULL;
-    u8 *obj = Locate(pack, path, &st);
+    u8 *obj = Locate(pack, type, path, &st);
 
     if (obj == NULL || patch->type != JSON_OBJECT) {
         Report("%s: %s: no such object in this release's pack", m->info.name, id);
         return;
     }
-    Port_Log("mods: %s: %d values of %s", m->info.name, PatchObject(m, id, obj, st, patch), id);
+    Port_Log("mods: %s: %d values of %s", m->info.name, PatchObject(m, pack, id, obj, st, patch), id);
 }
 
 /* ---- recipes ------------------------------------------------------------- */
@@ -1099,7 +1203,7 @@ void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsign
         sec = Json_Get(m->doc, "patches");
         for (x = sec != NULL && sec->type == JSON_OBJECT ? sec->child : NULL; x != NULL; x = x->next) {
             if (Names(x->key, name, type, id, &rest) && *rest != 0) {
-                ApplyPatch(m, pack, x->key, rest, x);
+                ApplyPatch(m, pack, type, x->key, rest, x);
             }
         }
         sec = Json_Get(m->doc, "recipes");
@@ -1126,7 +1230,7 @@ void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsign
                 }
                 p = Json_Get(e, "patch");
                 for (x = p != NULL && p->type == JSON_OBJECT ? p->child : NULL; x != NULL; x = x->next) {
-                    ApplyPatch(m, pack, e->key, x->key, x);
+                    ApplyPatch(m, pack, type, e->key, x->key, x);
                 }
                 p = Json_Get(e, "recipes");
                 for (x = p != NULL && p->type == JSON_OBJECT ? p->child : NULL; x != NULL; x = x->next) {
