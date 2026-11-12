@@ -4,7 +4,7 @@ After the paragraph "A link into a node is `<id>/o<hex offset>`. Inside a geomet
 structural name ...", add:
 
 Links that reach into a geometry by offset (`geometry/1/o3b04`: world quads' orphans point into
-vertex and display-list data, about 18,000 such links in the GameCube world geometry packs)
+vertex and display-list data; many thousands of such links in the GameCube world packs)
 can't follow a re-encoding. Building a project whose edited glTF re-encodes such a geometry is
 refused, with the links listed. Every `o<hex>` offset must lie inside its object.
 
