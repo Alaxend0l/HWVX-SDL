@@ -3,7 +3,7 @@
  *
  * A mod is a folder in the mods folder (HWVX_MODS_DIR, else mods/ in the
  * preferences folder) with a mod.jsonc (schemas/Mod.schema.json): new cars
- * and items that extend base ones, field patches on base objects, colour
+ * and items and tracks that extend base ones, field patches on base objects, colour
  * recipes on base textures. tools/xdl_mod.py packs one into a .hwmod after
  * checking that nothing in it is game data; Port_ModsInstall unpacks one.
  *
