@@ -91,7 +91,7 @@ class Viewer:
     def call(self, cmd, timeout=60.0, **args):
         rid = self.next_id
         self.next_id += 1
-        req = {"id": rid, "cmd": cmd}
+        req = {"seq": rid, "cmd": cmd}
         req.update(args)
         self.sock.sendall(json.dumps(req).encode() + b"\n")
         self.sock.settimeout(timeout)
@@ -106,7 +106,7 @@ class Viewer:
             if "event" in msg:
                 self.events.append(msg)
                 continue
-            if msg.get("id") != rid:
+            if msg.get("seq") != rid:
                 continue
             if not msg.get("ok"):
                 raise ViewerError(msg.get("error", "failed"))

@@ -17,6 +17,7 @@
 #include "viewer_internal.h"
 #include "CarA.h"
 #include "Motion.h"
+#include "Port_Content.h"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -235,61 +236,143 @@ typedef struct ListScan {
 
 static const char *const s_packExts[] = { ".xgc", ".xpc", ".xps" };
 
+/* A pack file's table of contents, read as the loader does (DataPack_LoadFile):
+ * its entries (SDL_free them), the file left open in *fd. NULL if it isn't one. */
+static FileTOCEntry *ReadToc(const char *archive, s32 *fd, int *fmt, u32 *count) {
+    u32 head[4], *whole;
+    char file[200];
+
+    SDL_snprintf(file, sizeof(file), "%s.xgc", archive);
+    *fd = File_Open(0, file, 0, 0);
+    if (*fd == -1) {
+        return NULL;
+    }
+    *fmt = Port_FileFormat(*fd);
+    if (File_Read(*fd, sizeof(head), head) > 0) {
+        PortData_TOC(*fmt, head, 4);
+        *count = head[3];
+        if (head[0] == 0x020100A0 && head[1] == 0x040100AE && *count <= 0x10000 &&
+            (whole = SDL_malloc(16 + *count * sizeof(FileTOCEntry))) != NULL) {
+            File_Seek(*fd, 0, 0);
+            if (File_Read(*fd, (s32)(16 + *count * sizeof(FileTOCEntry)), whole) > 0) {
+                PortData_TOC(*fmt, whole, (16 + *count * (u32)sizeof(FileTOCEntry)) / 4);
+                SDL_memmove(whole, whole + 4, *count * sizeof(FileTOCEntry));
+                return (FileTOCEntry *)whole;
+            }
+            SDL_free(whole);
+        }
+    }
+    File_Close(*fd);
+    *fd = -1;
+    return NULL;
+}
+
 static void ListArchive(ListScan *scan, const char *archive) {
-    u32 head[4], count, i;
+    u32 count, i;
     FileTOCEntry *toc;
-    char file[200], type[24], name[64];
+    char type[24], name[64];
     s32 fd;
     int fmt;
 
-    SDL_snprintf(file, sizeof(file), "%s.xgc", archive);
-    fd = File_Open(0, file, 0, 0);
-    if (fd == -1) {
+    toc = ReadToc(archive, &fd, &fmt, &count);
+    if (toc == NULL) {
         return;
     }
-    fmt = Port_FileFormat(fd);
-    if (File_Read(fd, sizeof(head), head) <= 0) {
-        File_Close(fd);
-        return;
-    }
-    PortData_TOC(fmt, head, 4);
-    count = head[3];
-    if (head[0] != 0x020100A0 || head[1] != 0x040100AE || count > 0x10000 ||
-        (toc = SDL_malloc(16 + count * sizeof(FileTOCEntry))) == NULL) {
-        File_Close(fd);
-        return;
-    }
-    File_Seek(fd, 0, 0);
-    if (File_Read(fd, (s32)(16 + count * sizeof(FileTOCEntry)), toc) > 0) {
-        PortData_TOC(fmt, (u32 *)toc, (16 + count * (u32)sizeof(FileTOCEntry)) / 4);
-        for (i = 0; i < count; i++) {
-            FileTOCEntry *e = (FileTOCEntry *)((u8 *)toc + 16) + i;
-            VPack *vp;
+    for (i = 0; i < count; i++) {
+        FileTOCEntry *e = &toc[i];
+        VPack *vp;
+        const char *last = SDL_strrchr(archive, '/');
+        char full[200];
 
-            PackTypeName((int)e->type, type, sizeof(type));
-            SDL_snprintf(name, sizeof(name), "%s_%u", type, e->id);
-            Jw_BeginObject(scan->w, NULL, 1);
-            Jw_String(scan->w, "archive", archive);
-            Jw_String(scan->w, "name", name);
-            Jw_String(scan->w, "type", type);
-            Jw_Int(scan->w, "typeId", e->type);
-            Jw_Int(scan->w, "id", e->id);
-            Jw_String(scan->w, "release", fmt == PORT_DATA_PC ? "pc" : fmt == PORT_DATA_PS2 ? "ps2" : "gc");
-            {
-                const char *last = SDL_strrchr(archive, '/');
-                char full[200];
-
-                SDL_snprintf(full, sizeof(full), "%s/%s", last != NULL ? last + 1 : archive, name);
-                vp = FindPack(full);
-                Jw_String(scan->w, "pack", full);
-            }
-            Jw_Bool(scan->w, "loaded", vp != NULL);
-            Jw_EndObject(scan->w);
-            scan->count++;
-        }
+        PackTypeName((int)e->type, type, sizeof(type));
+        SDL_snprintf(name, sizeof(name), "%s_%u", type, e->id);
+        SDL_snprintf(full, sizeof(full), "%s/%s", last != NULL ? last + 1 : archive, name);
+        vp = FindPack(full);
+        Jw_BeginObject(scan->w, NULL, 1);
+        Jw_String(scan->w, "archive", archive);
+        Jw_String(scan->w, "name", name);
+        Jw_String(scan->w, "type", type);
+        Jw_Int(scan->w, "typeId", e->type);
+        Jw_Int(scan->w, "id", e->id);
+        Jw_String(scan->w, "release", fmt == PORT_DATA_PC ? "pc" : fmt == PORT_DATA_PS2 ? "ps2" : "gc");
+        Jw_String(scan->w, "pack", full);
+        Jw_Bool(scan->w, "loaded", vp != NULL);
+        Jw_EndObject(scan->w);
+        scan->count++;
     }
     SDL_free(toc);
     File_Close(fd);
+}
+
+/* The two share packs a pack's header names (its refs), read from the file
+ * without loading it. 1 if the pack is there. */
+static int PackRefs(const char *archive, int type, u32 id, DataPackRef refs[2]) {
+    struct {
+        u32 words[20];
+        DataPackRef refs[2];
+    } header;
+    u32 count, i, tocId = Port_ContentPackId(archive, (u32)type, id);
+    FileTOCEntry *toc;
+    s32 fd;
+    int fmt, found = 0;
+
+    toc = ReadToc(archive, &fd, &fmt, &count);
+    for (i = 0; toc != NULL && i < count && !found; i++) {
+        if (toc[i].type == (u32)type && toc[i].id == tocId) {
+            File_Seek(fd, (s32)(toc[i].offset + 0x10 + count * sizeof(FileTOCEntry)), 0);
+            if (File_Read(fd, sizeof(header), &header) > 0) {
+                PortData_PackHeader(fmt, header.words, 20, 2, sizeof(DataPackRef));
+                SDL_memcpy(refs, header.refs, sizeof(header.refs));
+                found = 1;
+            }
+        }
+    }
+    if (toc != NULL) {
+        SDL_free(toc);
+        File_Close(fd);
+    }
+    return found;
+}
+
+/* The share packs a pack uses, loaded before it, as the game has them
+ * loaded before it asks for a car or a world (GameSpecificInterfaces.c): the
+ * loader can't load one in the middle of another (its header is static, its
+ * file shared), which it would do for a share pack not loaded yet. They stay
+ * loaded (the game's slots keep the names' pointers: s_shareNames). */
+static void LoadShares(const char *archive, int type, u32 id, int depth) {
+    static char s_shareNames[24][sizeof(((DataPackRef *)0)->name) + 1];
+    static u32 s_shareIds[24];
+    static int s_numShares;
+    DataPackRef refs[2];
+    int r, k;
+
+    if (depth > 3 || !PackRefs(archive, type, id, refs)) {
+        return;
+    }
+    for (r = 0; r < 2; r++) {
+        char name[sizeof(refs[r].name) + 1];
+
+        SDL_memcpy(name, refs[r].name, sizeof(refs[r].name));
+        name[sizeof(refs[r].name)] = '\0';
+        if (name[0] == '\0' || (type == 8 && refs[r].id == id && SDL_strcmp(name, archive) == 0)) {
+            continue;
+        }
+        for (k = 0; k < s_numShares; k++) {
+            if (s_shareIds[k] == refs[r].id && SDL_strcmp(s_shareNames[k], name) == 0) {
+                break;
+            }
+        }
+        if (k < s_numShares || s_numShares >= (int)SDL_arraysize(s_shareNames)) {
+            continue;
+        }
+        LoadShares(name, 8, refs[r].id, depth + 1);
+        SDL_strlcpy(s_shareNames[s_numShares], name, sizeof(s_shareNames[0]));
+        s_shareIds[s_numShares] = refs[r].id;
+        if (FileStreaming_LoadDataPack(s_shareNames[s_numShares], 8, refs[r].id, 0) >= 0) {
+            Port_Log("viewer: share pack %s %u loaded first", name, refs[r].id);
+            s_numShares++;
+        }
+    }
 }
 
 static SDL_EnumerationResult SDLCALL ListEntry(void *userdata, const char *dir, const char *name) {
@@ -703,6 +786,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
             Unload(&g_viewerPacks[i]);
         }
     }
+    LoadShares(vp->archive, type, (u32)id, 0);
     vp->slot = FileStreaming_LoadDataPack(vp->archive, type, (u32)id, 0);
     dp = vp->slot >= 0 ? FileStreaming_InitializeDataPack((u32)vp->slot, type, 1) : NULL;
     if (dp == NULL || GETP(dp->base) == NULL) {
@@ -765,7 +849,7 @@ static void SaveShot(void);
 /* One request; the reply is sent, unless it waits for a frame (screenshot). */
 static void Dispatch(const JsonNode *req) {
     const char *cmd = Json_GetString(req, "cmd", "");
-    const JsonNode *idNode = Json_Get(req, "id");
+    const JsonNode *idNode = Json_Get(req, "seq");   /* echoed: "id" is a pack's */
     JsonWriter w;
     char err[400] = "";
     int ok = 1;
@@ -775,7 +859,7 @@ static void Dispatch(const JsonNode *req) {
     Jw_Init(&w);
     Jw_BeginObject(&w, NULL, 0);
     if (idNode != NULL) {
-        Jw_Node(&w, "id", idNode);
+        Jw_Node(&w, "seq", idNode);
     }
     Jw_Bool(&w, "ok", 1);
     if (SDL_strcmp(cmd, "hello") == 0) {
@@ -947,7 +1031,7 @@ static void Dispatch(const JsonNode *req) {
         Jw_Init(&w);
         Jw_BeginObject(&w, NULL, 0);
         if (idNode != NULL) {
-            Jw_Node(&w, "id", idNode);
+            Jw_Node(&w, "seq", idNode);
         }
         Jw_Bool(&w, "ok", 0);
         Jw_String(&w, "error", err);
@@ -1054,7 +1138,7 @@ static void SaveShot(void) {
     Jw_Init(&jw);
     Jw_BeginObject(&jw, NULL, 0);
     if (s.shotHasId) {
-        Jw_Int(&jw, "id", s.shotId);
+        Jw_Int(&jw, "seq", s.shotId);
     }
     Jw_Bool(&jw, "ok", ok);
     if (ok) {
