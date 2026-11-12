@@ -135,6 +135,11 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9_./-]+\\.json$",
             "description": "A level of its own over the world (tools/xdl_level.py compile; src/game/Port_Level.c): a file in the mod's folder. Default: the base track's level as it is."
+          },
+          "worldPack": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_./-]+\\.(xgc|xpc|xps)$",
+            "description": "The level's own world pack, built on the player's machine from their data (tools/xdl_level_pack.py; never shipped): a file in the mod's folder that the track loads in place of its base world pack."
           }
         }
       }

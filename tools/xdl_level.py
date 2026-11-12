@@ -220,7 +220,7 @@ def record_struct(path, where):
 # ------------------------------------------------------------------------------------------
 # records of the level's own
 
-def scalar(T, p, v, where):
+def scalar(T, p, v, where, e=E):
     """A number field's bytes: floats for f32, names for x-enum, lists for arrays."""
     base, dims = XS.parse_ctype(p["x-c-type"])
     code, size, flt = XS.PRIM[base]
@@ -230,13 +230,13 @@ def scalar(T, p, v, where):
             n *= d
         if not isinstance(v, list) or len(v) != n:
             raise LevelError(f"{where}: {n} values")
-        return b"".join(scalar(T, {"x-c-type": base}, x, f"{where}/{i}") for i, x in enumerate(v))
+        return b"".join(scalar(T, {"x-c-type": base}, x, f"{where}/{i}", e) for i, x in enumerate(v))
     if flt:
         if isinstance(v, bool) or not isinstance(v, (int, float)):
             raise LevelError(f"{where}: a number")
-        return struct.pack(E + code, float(v))
+        return struct.pack(e + code, float(v))
     try:
-        return XT.encode_scalar(T, p, v, E, where)
+        return XT.encode_scalar(T, p, v, e, where)
     except XT.TacError as ex:
         raise LevelError(str(ex))
 
@@ -247,6 +247,7 @@ class Compiler:
         self.skip_intro = skip_intro
         self.spawn_box = spawn_box
         self.warnings = []
+        self.e = E               # the byte order records are encoded in (the pack build: the release's)
         self.T = XT.Tac()
         self.parts = []           # {"id", "kind", "hex", "links": [[off, LINK]]}
         self.part_ids = set()
@@ -277,8 +278,8 @@ class Compiler:
             if link_of(p) is not None:
                 if isinstance(v, dict) and k == "mode":
                     sub = f"{pid}/mode"
-                    raw = bytes(XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("mode", 0), E, f"{where}/mode") +
-                                XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("type", 0), E, f"{where}/mode"))
+                    raw = bytes(XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("mode", 0), self.e, f"{where}/mode") +
+                                XT.encode_scalar(self.T, {"x-c-type": "u8"}, v.get("type", 0), self.e, f"{where}/mode"))
                     self.add_part(sub, "data", raw + bytes(2), [])
                     links[off] = sub
                 elif v is not None:
@@ -296,10 +297,10 @@ class Compiler:
                     if kk not in vp:
                         raise LevelError(f"{where}/{k}/{kk}: not a field of {ref}")
                     o = off + int(vp[kk]["x-offset"], 16)
-                    b = scalar(self.T, vp[kk], vv, f"{where}/{k}/{kk}")
+                    b = scalar(self.T, vp[kk], vv, f"{where}/{k}/{kk}", self.e)
                     buf[o:o + len(b)] = b
             else:
-                b = scalar(self.T, p, v, f"{where}/{k}")
+                b = scalar(self.T, p, v, f"{where}/{k}", self.e)
                 buf[off:off + len(b)] = b
         return buf, links
 
@@ -369,7 +370,7 @@ class Compiler:
                     if "delayInit" in a:
                         a.setdefault("delay", a["delayInit"])
         try:
-            parts = XT.encode_trigger(self.T, doc, tid, E, where)
+            parts = XT.encode_trigger(self.T, doc, tid, self.e, where)
         except XT.TacError as ex:
             raise LevelError(str(ex))
         t = doc.get("type")
@@ -876,12 +877,25 @@ def cmd_testdrive(a):
             if not isinstance(lv.get(k), str):
                 raise LevelError(f"level.jsonc/{k}: missing (a string)")
         doc, errors, cached = compile_cached(proj, mod_dir / "level.json", base_arg(a), a.skip_intro)
+        pack = None
+        if not errors and a.data and not a.memory:
+            # option 1: the level built into its own world pack (tools/xdl_level_pack.py)
+            import xdl_level_pack as LP
+            try:
+                pack, pcached, _ = LP.build_cached(proj, a.data, cache_dir(a), mod_dir / "worlds", a.skip_intro)
+                cached = cached and pcached
+            except LevelError as ex:
+                errors = str(ex).splitlines()
     except LevelError as ex:
         doc, errors, cached = None, [str(ex)], False
     res["errors"] = error_records(errors)
     if doc is not None and not errors:
         track = {"extends": lv["extends"], "name": lv["name"], "unlocked": True, "world": doc["world"],
                  "level": "level.json"}
+        if pack is not None:
+            # the world pack replaces the base's for this track; the level file isn't needed
+            track = {"extends": lv["extends"], "name": lv["name"], "unlocked": True,
+                     "worldPack": f"worlds/{pack.name}"}
         mod = {"$schema": "../../schemas/Mod.schema.json", "format_version": 1, "id": "uid://editortest",
                "name": "Editor test drive", "version": "1.0.0", "description": f"{lv['name']}, on test",
                "tracks": {lv["id"]: track}}
@@ -895,6 +909,8 @@ def cmd_testdrive(a):
             start += f",car={a.car}"
         # what the build made: the level file now; later also the level's own packs
         products = [{"kind": "level", "path": str(mod_dir / "level.json"), "cached": cached}]
+        if pack is not None:
+            products.append({"kind": "world", "path": str(pack), "cached": cached})
         res.update(ok=True, cached=all(p["cached"] for p in products), start=start, mods=str(scratch / "mods"),
                    level=str(mod_dir / "level.json"), products=products)
     res["ms"] = round((time.perf_counter() - t0) * 1000, 1)
@@ -970,6 +986,8 @@ def main():
         if name == "testdrive":
             p.add_argument("scratch", help="the editor's scratch folder (its mods/, never the player's)")
             p.add_argument("--car", type=int)
+            p.add_argument("--memory", action="store_true",
+                           help="the level applied in memory (Port_Level.c), not built into a world pack")
         if name in ("compile", "testdrive"):
             p.add_argument("--skip-intro", action="store_true", help="the quick start (test drives)")
         if name == "compile":
