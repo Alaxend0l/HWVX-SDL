@@ -220,21 +220,23 @@ static inline void CarA_FitCubic(f32 *coef, f32 x0, f32 x1, f32 y0, f32 y1, f32 
 /* Vtable Init: sets the car up from its description (CarAParams.info):
    transform, collider bounds, model, wheels, torque curve, sounds and the
    slave things it starts with. */
-/* port, testing: HWVX_CARLOG=1 logs a human's car every 30 frames (handling,
- * gear, rpm, wheel speed, speed, steering, turbo, position). */
+/* port, testing: HWVX_CARLOG=1 logs the human's car every 30 frames (handling,
+ * gear, rpm, wheel speed, speed, steering, turbo, position), =2 every car
+ * ("ai" for the AI's). */
 static void Port_CarLog(CarA *car) {
     static int on = -1;
     static u32 frame;
+    int human = Player_IsHuman(GETP(car->base.player));
 
     if (on < 0) {
         const char *e = getenv("HWVX_CARLOG");
-        on = e != NULL && *e != 0 && *e != '0';
+        on = e != NULL ? atoi(e) : 0;
     }
-    if (!on || frame++ % 30 != 0) {
+    if (on <= 0 || (!human && on < 2) || (human && frame++ % 30 != 0) || (!human && frame % 30 != 1)) {
         return;
     }
-    Port_Log("carlog: mode %u gear %u rpm %.0f wheel %.1f speed %.1f steer %.3f turbo %d flags %x pos %.0f %.0f %.0f",
-             car->driveMode, car->curveTableIdx, car->rpm, car->gradeOrReverse, MagnitudeVector(&car->base.vel),
+    Port_Log("carlog%s: mode %u gear %u rpm %.0f wheel %.1f speed %.1f steer %.3f turbo %d flags %x pos %.0f %.0f %.0f",
+             human ? "" : " ai", car->driveMode, car->curveTableIdx, car->rpm, car->gradeOrReverse, MagnitudeVector(&car->base.vel),
              car->steerAngle, car->turboTime, car->transmissionFlags, car->base.pos.x, car->base.pos.y, car->base.pos.z);
 }
 
@@ -827,7 +829,7 @@ s32 CarA_PreMove(void *thing) {
         car->transmissionFlags &= ~0x10000;
     }
 
-    if (GETP(car->base.player) != NULL && Player_IsHuman(GETP(car->base.player))) {
+    if (GETP(car->base.player) != NULL) {
         Port_CarLog(car);   /* HWVX_CARLOG */
     }
     if (GETP(car->base.player) != NULL) {
