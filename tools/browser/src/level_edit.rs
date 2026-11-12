@@ -33,18 +33,20 @@ pub enum Sel {
 }
 
 /// The base world's tables the editor lists, with their labels.
-pub const BASE_TABLES: [(&str, &str); 6] = [
+pub const BASE_TABLES: [(&str, &str); 7] = [
     ("tileCars", "Starts (tile cars)"),
     ("volumes", "Airbox volumes"),
     ("items", "Items"),
+    ("fxPoints", "Effect points"),
     ("timers", "Timers"),
     ("variables", "Variables"),
     ("objectives", "Objectives"),
 ];
-const OWN_KINDS: [(&str, &str); 7] = [
+const OWN_KINDS: [(&str, &str); 8] = [
     ("volumes", "Volumes"),
     ("starts", "Starts"),
     ("items", "Items"),
+    ("fxPoints", "Effect points"),
     ("timers", "Timers"),
     ("variables", "Variables"),
     ("strings", "Texts"),
@@ -58,6 +60,7 @@ pub enum AddKind {
     BoxVolume,
     Start,
     Item,
+    FxPoint,
 }
 
 #[derive(Default)]
@@ -411,6 +414,12 @@ impl Browser {
                                       "color": if sel { json!([255, 240, 40]) } else { json!([80, 220, 255]) }}));
                 }
             }
+            for (name, v) in p.own("fxPoints") {
+                if let Some(c) = vec3(&v["pos"]) {
+                    let sel = self.level.edit.sel == Some(Sel::Own("fxPoints".into(), name.clone()));
+                    marks.push(json!({"kind": "sphere", "pos": c, "radius": 2.0, "color": if sel { json!([255, 240, 40]) } else { json!([255, 160, 40]) }}));
+                }
+            }
             for (name, v) in p.own("items") {
                 if let Some(c) = vec3(&v["pos"]) {
                     let sel = self.level.edit.sel == Some(Sel::Own("items".into(), name.clone()));
@@ -479,7 +488,7 @@ impl Browser {
         match self.level.edit.sel.as_ref()? {
             Sel::Own(k, n) if k == "volumes" => own_volume_center(&p.level["volumes"][n]).map(|c| (c, None)),
             Sel::Own(k, n) if k == "starts" => vec3(&p.level["starts"][n]["pos"]).map(|c| (c, Some(p.level["starts"][n]["rotY"].as_f64().unwrap_or(0.0)))),
-            Sel::Own(k, n) if k == "items" => vec3(&p.level["items"][n]["pos"]).map(|c| (c, None)),
+            Sel::Own(k, n) if k == "items" || k == "fxPoints" => vec3(&p.level[k.as_str()][n]["pos"]).map(|c| (c, None)),
             Sel::Base(t, path) => self.base_place(t, path),
             _ => None,
         }
@@ -553,16 +562,16 @@ impl Browser {
                     v["center"] = json!([round(c[0]), round(c[1]), round(c[2])]);
                 }
             }
-            Sel::Own(k, n) if k == "starts" || k == "items" => {
+            Sel::Own(k, n) if k == "starts" || k == "items" || k == "fxPoints" => {
                 let v = &mut p.level[k.as_str()][n.as_str()];
                 v["pos"] = json!([round(c[0]), round(c[1]), round(c[2])]);
                 if let (Some(r), true) = (rot, k == "starts") {
                     v["rotY"] = json!((r * 10000.0).round() / 10000.0);
                 }
-                if k == "items" {
-                    let name = n.clone();
+                if k == "items" || k == "fxPoints" {
+                    let key = format!("{k}/{n}");
                     self.edited(before);
-                    self.request("quadat", json!({"pos": c}), Pending::ItemQuad(name));
+                    self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
                     return;
                 }
             }
@@ -599,8 +608,8 @@ impl Browser {
             self.note("no ground under the camera".into());
             return;
         };
-        if kind == AddKind::Item {
-            self.request("quadat", json!({"pos": g}), Pending::AddItem(g));
+        if kind == AddKind::Item || kind == AddKind::FxPoint {
+            self.request("quadat", json!({"pos": g}), Pending::AddItem(g, kind));
             return;
         }
         let yaw = self.camera["yaw"].as_f64().unwrap_or(0.0).to_radians();
@@ -615,30 +624,44 @@ impl Browser {
             AddKind::Sphere => ("volumes", p.free_name("volumes", "volume"), json!({"center": [round(g[0]), round(g[1] + 5.0), round(g[2])], "radius": 30})),
             AddKind::BoxVolume => ("volumes", p.free_name("volumes", "box"), json!({"box": {"min": [round(g[0] - 20.0), round(g[1]), round(g[2] - 20.0)], "max": [round(g[0] + 20.0), round(g[1] + 25.0), round(g[2] + 20.0)]}})),
             AddKind::Start => ("starts", p.free_name("starts", "start"), json!({"pos": [round(g[0]), round(g[1] + lift), round(g[2])], "rotY": (rot * 10000.0).round() / 10000.0, "port": 0})),
-            AddKind::Item => return,
+            AddKind::Item | AddKind::FxPoint => return,
         };
         set_own(p, k, &name, v);
         self.edited(before);
         self.edit_select(Sel::Own(k.into(), name));
     }
 
-    pub(crate) fn add_item_reply(&mut self, g: [f32; 3], r: Value) {
+    pub(crate) fn add_item_reply(&mut self, g: [f32; 3], kind: AddKind, r: Value) {
         let q = r["quad"].as_i64().unwrap_or(-1);
+        // an effect point: a copy of the base one selected (its emitter, its corona)
+        let template = match (&self.level.edit.sel, self.level.edit.proj.as_ref()) {
+            (Some(Sel::Base(t, path)), Some(p)) if t == "fxPoints" => Some(format!("{}{path}", p.base_prefix())),
+            _ => None,
+        };
         let Some(p) = self.level.edit.proj.as_mut() else { return };
         let before = p.snapshot();
-        let name = p.free_name("items", "item");
-        set_own(p, "items", &name, json!({"pos": [round(g[0]), round(g[1] + 2.0), round(g[2])], "quad": q, "id": 0}));
+        let (k, name, v) = if kind == AddKind::FxPoint {
+            let Some(t) = template else {
+                self.note("select a base effect point first (Effect points list, or click one): the new one copies it".into());
+                return;
+            };
+            ("fxPoints", p.free_name("fxPoints", "fx"), json!({"pos": [round(g[0]), round(g[1] + 3.0), round(g[2])], "quad": q, "template": t}))
+        } else {
+            ("items", p.free_name("items", "item"), json!({"pos": [round(g[0]), round(g[1] + 2.0), round(g[2])], "quad": q, "id": 0}))
+        };
+        set_own(p, k, &name, v);
         self.edited(before);
         if q < 0 {
-            self.note("that place is in no quadrant: move the item onto the track".into());
+            self.note("that place is in no quadrant: move it onto the track".into());
         }
-        self.edit_select(Sel::Own("items".into(), name));
+        self.edit_select(Sel::Own(k.into(), name));
     }
 
-    pub(crate) fn item_quad_reply(&mut self, name: &str, r: Value) {
+    pub(crate) fn item_quad_reply(&mut self, key: &str, r: Value) {
+        let Some((kind, name)) = key.split_once('/') else { return };
         if let (Some(q), Some(p)) = (r["quad"].as_i64(), self.level.edit.proj.as_mut()) {
-            if p.level["items"][name].is_object() && p.level["items"][name]["quad"] != q {
-                p.level["items"][name]["quad"] = json!(q);
+            if p.level[kind][name].is_object() && p.level[kind][name]["quad"] != q {
+                p.level[kind][name]["quad"] = json!(q);
                 self.level.edit.generation += 1;
             }
         }
@@ -728,7 +751,7 @@ impl Browser {
                     own.push(("volumes".into(), name, c, r));
                 }
             }
-            for (k, r) in [("starts", 10.0f32), ("items", 4.0)] {
+            for (k, r) in [("starts", 10.0f32), ("items", 4.0), ("fxPoints", 3.0)] {
                 for (name, v) in p.own(k) {
                     if let Some(c) = vec3(&v["pos"]) {
                         own.push((k.into(), name, [c[0], c[1] + if k == "starts" { 2.5 } else { 0.0 }, c[2]], r));
@@ -871,6 +894,9 @@ impl Browser {
                         }
                         if ui.button("Item, here").clicked() {
                             act = Some(Box::new(|b| b.add_placed(AddKind::Item)));
+                        }
+                        if ui.button("Effect point, here (a copy of the selected one)").clicked() {
+                            act = Some(Box::new(|b| b.add_placed(AddKind::FxPoint)));
                         }
                     });
                     if !placed {
@@ -1091,7 +1117,7 @@ impl Browser {
         ui.heading(format!("{name}"));
         ui.label(egui::RichText::new(format!("level://{kind}/{name}")).monospace().weak());
         self.delete_row(ui, &format!("level://{kind}/{name}"));
-        if kind == "starts" || kind == "items" {
+        if kind == "starts" || kind == "items" || kind == "fxPoints" {
             let errs = self.errors_for("level.jsonc", &format!("{kind}/{name}"));
             Self::show_errors(ui, &errs);
             let link = format!("level://{kind}/{name}");
@@ -1140,6 +1166,13 @@ impl Browser {
                         v["port"] = json!(port);
                         changed = true;
                     }
+                    ui.end_row();
+                } else if kind == "fxPoints" {
+                    ui.label("quadrant");
+                    ui.label(v["quad"].to_string());
+                    ui.end_row();
+                    ui.label("a copy of");
+                    ui.label(egui::RichText::new(v["template"].as_str().unwrap_or("").rsplit_once("/world_0/").map(|x| x.1).unwrap_or("")).monospace());
                     ui.end_row();
                 } else {
                     ui.label("quadrant");

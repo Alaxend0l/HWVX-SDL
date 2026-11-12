@@ -530,6 +530,16 @@ class Compiler:
                 self.err(w, "pos [x, y, z]")
             elif not isinstance(it.get("quad"), int) or not isinstance(it.get("id", 0), int):
                 self.err(w, "quad (the quadrant it is in) and id (the world's item pack's)")
+        for n, fx in (lv.get("fxPoints") or {}).items():
+            w = f"{where}/fxPoints/{n}"
+            if not isinstance(fx, dict) or not (isinstance(fx.get("pos"), list) and len(fx["pos"]) == 3) \
+                    or not isinstance(fx.get("quad"), int) or not isinstance(fx.get("template"), str):
+                self.err(w, "pos [x, y, z], quad and template (a base effect point to copy)")
+            else:
+                try:
+                    self.resolve(fx["template"], w + "/template", archive)
+                except LevelError as ex:
+                    self.errors.append(str(ex))
         for n, ob in (lv.get("objectives") or {}).items():
             w = f"{where}/objectives/{n}"
             if not isinstance(ob, dict):

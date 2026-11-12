@@ -301,6 +301,29 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             raise LV.LevelError(f"level.jsonc/items/{n}: quadrant {q} has no items yet (a new items table: "
                                 "not supported yet; put it where the world already has pickups)")
 
+    # effect points: copies of a base one (its emitter, corona), into their quadrant
+    for n, fx in (lv.get("fxPoints") or {}).items():
+        q, tmpl = fx.get("quad"), fx.get("template")
+        m = re.fullmatch(re.escape(pre) + r"World/0/quads/(\d+)/contents/fxPoints/(\d+)", tmpl or "")
+        if not isinstance(q, int) or not m:
+            raise LV.LevelError(f"level.jsonc/fxPoints/{n}: quad and template (a base effect point to copy)")
+        src = W.doc(W.file_of[f"{pre}World/0/quads/{m.group(1)}/contents/fxPoints"]) \
+            if f"{pre}World/0/quads/{m.group(1)}/contents/fxPoints" in W.file_of else None
+        fid = f"{pre}World/0/quads/{q}/contents/fxPoints"
+        if src is None or not isinstance(src.get("items"), list) or int(m.group(2)) >= len(src["items"]):
+            raise LV.LevelError(f"level.jsonc/fxPoints/{n}/template: no such effect point")
+        if fid not in W.file_of or not isinstance(W.doc(W.file_of[fid]).get("items"), list):
+            raise LV.LevelError(f"level.jsonc/fxPoints/{n}/quad: quadrant {q} has no effect points yet "
+                                "(not supported yet: put it where the world has some)")
+        it = copy.deepcopy(src["items"][int(m.group(2))])
+        p = fx.get("pos", [0, 0, 0])
+        it["pos"] = {"x": float(p[0]), "y": float(p[1]), "z": float(p[2]), "w": it.get("pos", {}).get("w", 0.0)}
+        it["mode"] = fx.get("mode", it.get("mode", "on"))
+        fdoc = W.doc(W.file_of[fid])
+        fdoc["items"].append(it)
+        cdoc = W.doc(W.file_of[f"{pre}World/0/quads/{q}/contents"])
+        cdoc["numFxPoints"] = len(fdoc["items"])
+
     # objectives: an entry of the World's objectives and its info (WorldObjectiveInfo)
     obs = list((lv.get("objectives") or {}).items())
     if obs:

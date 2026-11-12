@@ -164,7 +164,7 @@ enum Pending {
     StartSeat,
     ItemQuad(String),
     AddAt(level_edit::AddKind),
-    AddItem([f32; 3]),
+    AddItem([f32; 3], level_edit::AddKind),
     Quiet,
 }
 
@@ -661,7 +661,7 @@ impl Browser {
                 Pending::StartSeat => self.start_seat_reply(r),
                 Pending::ItemQuad(name) => self.item_quad_reply(&name, r),
                 Pending::AddAt(kind) => self.add_at_reply(kind, r),
-                Pending::AddItem(pos) => self.add_item_reply(pos, r),
+                Pending::AddItem(pos, kind) => self.add_item_reply(pos, kind, r),
                 Pending::Shot => self.note(format!("saved {} ({}x{})", r["path"].as_str().unwrap_or(""), r["width"], r["height"])),
                 Pending::Quiet => {}
             }
