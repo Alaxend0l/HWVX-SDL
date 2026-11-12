@@ -37,6 +37,8 @@ s32 Port_FileFormat(s32 handle);
 /* FileManager_NGC.c: a file's cache of converted packs (xdl.c), NULL if
  * none, and its position. */
 void *Port_FileXdl(s32 handle);
+/* FileManager_NGC.c: the PS2 prototype's file (proto.c, Port_Proto.c). */
+s32 Port_FileProto(s32 handle);
 u32 Port_FileTell(s32 handle);
 u32 Port_FilePeek(s32 handle, u32 offset, void *dst, u32 size);
 /* FileManager_NGC.c: move a file's position up to a multiple of `align`. */
@@ -96,7 +98,9 @@ void PortGeometry_Release(void *owner);
  * samples to PCM16 in a block PortPS2_SFXDone frees; PortPS2_SongBank
  * rebuilds a bank in the GameCube's form (NULL if not one), freed by
  * PortPS2_SongBankDone. */
-void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u32 numPal);
+/* proto: the PS2 prototype's (Port_Proto.c): RGB24 textures too, and its
+ * level counts. */
+void *PortPS2_Textures(u8 *base, u32 size, u32 texOff, u32 numTex, u32 palOff, u32 numPal, int proto);
 void PortPS2_SFX(u8 *desc, u32 count);
 void PortPS2_SFXDone(void);
 u8 *PortPS2_SongBank(const u8 *bank);

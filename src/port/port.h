@@ -202,6 +202,19 @@ enum {
 /* dvd.c: the release (PORT_DATA_*) whose packs the game runs on, from the
  * last pack opened; for the few places the releases' code differs. */
 int Port_DataRelease(void);
+/* proto.c: the PS2 prototype's packs loaded into the game being played
+ * (game/Port_Proto.c). A pack file named with PORT_PROTO_PREFIX first
+ * ("~hw_cars.xgc") is the prototype's (dvd.c: PORT_DATA_PS2, its own layout,
+ * archive version 177/179). The import mode the player picked: */
+enum { PORT_PROTO_OFF, PORT_PROTO_CARS, PORT_PROTO_ADDED, PORT_PROTO_REPLACE, PORT_PROTO_MODES };
+#define PORT_PROTO_PREFIX '~'
+int Port_ProtoMode(void);
+/* The prototype's folder (its XPS/ENGLISH or the folder holding it), or NULL. */
+const char *Port_ProtoRoot(void);
+const char *Port_ProtoModeKey(int mode);
+int Port_ProtoModeNamed(const char *key);
+/* fileName without the prefix if it names a prototype file, else NULL. */
+const char *Port_ProtoName(const char *fileName);
 /* The PC release's texture formats (pack header u16 0) as Texture.format
  * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
  * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,

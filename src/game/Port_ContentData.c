@@ -46,6 +46,7 @@
 #include "Interface.h"
 #include "Port_Content.h"
 #include "Port_Swap.h"
+#include "Port_Proto.h"
 
 /* The archives whose packs are numbered as entries are: a car is the type-0
  * pack of its number in HW_Cars (the MCP's carsPack; the worlds' own
@@ -150,6 +151,7 @@ static void LoadIdsLock(void) {
     if (path != NULL) {
         Port_ModsInit();
         Port_ModsSyncLock(path);   /* the enabled mods' cars and items */
+        Port_ProtoSyncLock(path);  /* the PS2 prototype's, by its import mode */
     }
     if (path != NULL && (n = Port_ContentLoadLock(path)) > 0) {
         Port_Log("content: %d entries from %s", n, path);
@@ -274,6 +276,7 @@ void Port_ContentInit(void) {
     TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3, "HWVX_TEST_EXTRA_CAR_THUMB");
     TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0, "HWVX_TEST_EXTRA_ITEM_THUMB");
     TestExtraTracks();
+    Port_ProtoInit();   /* the prototype's car pictures */
     for (j = Port_ContentRetailCount(PORT_CONTENT_CAR); j < Port_ContentCount(PORT_CONTENT_CAR); j++) {
         if (Has(&s_archives[0], j) && Port_ContentDataOf(PORT_CONTENT_CAR, j) != (s32)j) {
             Port_Log("content: %s has a pack %u of its own; car %u loads that, not its own data", s_archives[0].name,
@@ -298,21 +301,40 @@ u32 Port_ContentItemPack(u32 n) {
     return data >= 0 ? (u32)data : s_archives[1].maxId + (n - base);
 }
 
-u32 Port_ContentPackId(const char *name, u32 type, u32 id) {
+u32 Port_ContentPackSource(const char *name, u32 type, u32 id, const char **source) {
     size_t i;
     s32 data;
+    const char *link;
 
+    *source = name;
+    if (name == NULL || Port_ProtoName(name) != NULL) {
+        return id;
+    }
     for (i = 0; i < SDL_arraysize(s_archives); i++) {
         const Archive *a = &s_archives[i];
 
         /* items: numbered apart from their packs (Port_ContentItemPack) */
-        if (a->kind != PORT_CONTENT_CAR || a->type != type || id < Port_ContentRetailCount(a->kind) || Has(a, id) || !SameArchive(name, a->name)) {
+        if (a->kind != PORT_CONTENT_CAR || a->type != type || !SameArchive(name, a->name)) {
             continue;
+        }
+        if (id < Port_ContentRetailCount(a->kind) || Has(a, id)) {
+            /* a base car: the prototype's in its place ("replace") */
+            return Port_ProtoReplacement(name, type, id, source);
+        }
+        if ((link = Port_ContentDataLink(a->kind, id)) != NULL) {
+            /* data of its own: the prototype's pack */
+            return Port_ProtoLink(link, type, id, source);
         }
         data = Port_ContentDataOf(a->kind, id);
         return data >= 0 ? (u32)data : id;
     }
     return id;
+}
+
+u32 Port_ContentPackId(const char *name, u32 type, u32 id) {
+    const char *source;
+
+    return Port_ContentPackSource(name, type, id, &source);
 }
 
 /* A pack's scripts (DataPack.base), as DataPack_GetScript reads them. */
@@ -403,9 +425,18 @@ static s32 TextureOfLink(const char *link) {
     u32 type, id, tex, i;
     char *end;
 
-    if (link == NULL || SDL_strncmp(link, "base://", 7) != 0 || (slash = SDL_strchr(p = link + 7, '/')) == NULL ||
-        (len = (size_t)(slash - p)) >= sizeof(archive)) {
+    /* proto://: a pack of the PS2 prototype's (Port_Proto.c), loaded as "~archive" */
+    int proto = link != NULL && SDL_strncmp(link, "proto://", 8) == 0;
+
+    if (link == NULL || (!proto && SDL_strncmp(link, "base://", 7) != 0) ||
+        (slash = SDL_strchr(p = link + (proto ? 8 : 7), '/')) == NULL || (len = (size_t)(slash - p)) + 1 >= sizeof(archive)) {
         return -1;
+    }
+    if (proto) {
+        archive[0] = PORT_PROTO_PREFIX;
+        SDL_memcpy(archive + 1, p, len);
+        archive[len + 1] = 0;
+        return Port_ProtoTexture(archive, slash + 1);
     }
     SDL_memcpy(archive, p, len);
     archive[len] = 0;
@@ -608,8 +639,15 @@ static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 ori
             }
             if (pass == 1) {
                 str = x->strings + size;
-                SDL_snprintf(str, SDL_strlen(name) + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
-                             suffix != NULL ? suffix : "");
+                size_t nl = SDL_strlen(name);
+
+                /* the suffix before a trailing '*' (the font's trademark sign) */
+                if (suffix != NULL && nl > 0 && name[nl - 1] == '*') {
+                    SDL_snprintf(str, nl + SDL_strlen(suffix) + 1, "%.*s%s*", (int)(nl - 1), name, suffix);
+                } else {
+                    SDL_snprintf(str, nl + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
+                                 suffix != NULL ? suffix : "");
+                }
                 j = k * 2;
                 x->slots[j] = HND(str);
                 x->slots[j + 1] = 0;

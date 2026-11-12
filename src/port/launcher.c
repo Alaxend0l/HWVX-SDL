@@ -20,14 +20,17 @@
  *   XPS/ENGLISH/HW_share.xps, or its disc image, an .iso whose XPS/ENGLISH
  *   pcdisc.c copies into a folder of the player's own);
  * - the PS2 prototype (archive version 177/179; the retail PS2's are 183):
- *   not playable, kept for its beta cars, worlds and audio (later). Its disc
- *   image is imported like the PS2's; either disc goes where its version
- *   says, whichever row it was picked from.
+ *   not playable on its own; its content goes into the game played, by the
+ *   import mode picked on its row (proto.c, game/Port_Proto.c: off, its
+ *   three cars only, all its cars added, or its cars replacing the
+ *   release's). Its disc image is imported like the PS2's; either disc goes
+ *   where its version says, whichever row it was picked from.
  * - a mixed game (Port_Mix.h: the "ultimate" recipe, one game from the best
  *   of each release), offered with two or more releases imported: Play
  *   starts it as --mix ultimate.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
- * "ps2beta=PATH", "play=gc|pc|ps2|mix:ultimate", "skip=1" and "tab=PAGE"; the GameCube data the
+ * "ps2beta=PATH", "proto=off|cars|added|replace", "play=gc|pc|ps2|mix:ultimate", "skip=1" and
+ * "tab=PAGE"; the GameCube data the
  * port found before the launcher existed (datadir.txt) is taken over on the
  * first run.
  *
@@ -127,6 +130,7 @@ typedef struct Sources {
                          * release to fall back on */
     int skip;           /* start the game without the launcher */
     int tab;            /* TAB_* last shown, or -1 */
+    int proto;          /* the prototype's import mode, PORT_PROTO_* (proto.c) */
 } Sources;
 
 /* ---- sources.cfg ----------------------------------------------------- */
@@ -160,6 +164,9 @@ static int LoadSources(Sources *s) {
         }
         if (SDL_strncmp(line, "tab=", 4) == 0) {
             s->tab = TabNamed(line + 4);
+        }
+        if (SDL_strncmp(line, "proto=", 6) == 0 && Port_ProtoModeNamed(line + 6) >= 0) {
+            s->proto = Port_ProtoModeNamed(line + 6);
         }
         for (i = 0; i < SRC_COUNT; i++) {
             size_t n = SDL_strlen(s_keys[i]);
@@ -207,6 +214,9 @@ static void SaveSources(const Sources *s) {
         ok &= SDL_IOprintf(io, "play=mix:%s\n", MIX_RECIPE) > 0;
     } else if (s->play >= 0) {
         ok &= SDL_IOprintf(io, "play=%s\n", s_keys[s->play]) > 0;
+    }
+    if (s->proto != PORT_PROTO_OFF) {
+        ok &= SDL_IOprintf(io, "proto=%s\n", Port_ProtoModeKey(s->proto)) > 0;
     }
     if (s->skip) {
         ok &= SDL_IOprintf(io, "skip=1\n") > 0;
@@ -383,7 +393,8 @@ enum {
     ACT_MOD_TOGGLE,     /* mods (Port_Mods.h): turn mod `source` on or off */
     ACT_MOD_UP,         /* load it one earlier */
     ACT_MOD_REMOVE,     /* delete its folder (pressed twice) */
-    ACT_MOD_INSTALL     /* pick a .hwmod to install */
+    ACT_MOD_INSTALL,    /* pick a .hwmod to install */
+    ACT_PROTO_MODE      /* the prototype's import mode `source` (PORT_PROTO_*) */
 };
 
 /* A release's converted packs. */
@@ -495,6 +506,7 @@ static int CanPlay(const Launcher *l) {
 #define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
 #define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 42.0f)     /* Settings: a setting */
 #define CONV_ROW_Y(k) (PAGE_Y + 30.0f + (k) * 52.0f)    /* Convert: an imported release */
+#define PROTO_Y (ROW_Y(SRC_COUNT) - 2.0f)                /* Games: the prototype's import mode */
 #define MODS_SHOWN 6
 #define MOD_ROW_Y(k) (PAGE_Y + 40.0f + (k) * 34.0f)     /* Mods: a mod, in load order */
 #define CONV_BAR_Y CONV_ROW_Y(3)                        /* the progress, under the releases */
@@ -595,6 +607,18 @@ static void LayoutPage(Launcher *l, int busy) {
             x += Add(l, x, y, "Import disc image...", ACT_IMAGE, i, !busy)->r.w + 8;
             if (have) {
                 Add(l, x, y, "Remove", ACT_REMOVE, i, !busy);
+            }
+        }
+        if (l->src.path[SRC_BETA] != NULL) {
+            /* the import modes (labels kept: buttons keep the pointer) */
+            static const char *const labels[2][PORT_PROTO_MODES] = {
+                { "( ) Off", "( ) Beta cars", "( ) Beta added", "( ) Beta replaces" },
+                { "(*) Off", "(*) Beta cars", "(*) Beta added", "(*) Beta replaces" },
+            };
+            float x = 24;
+
+            for (i = 0; i < PORT_PROTO_MODES; i++) {
+                x += Add(l, x, PROTO_Y, labels[l->src.proto == i][i], ACT_PROTO_MODE, i, !busy)->r.w + 6;
             }
         }
         break;
@@ -810,7 +834,7 @@ static void DrawPage(Launcher *l) {
             y = ROW_Y(i);
             Text(l, 24, y, WHITE, s_names[i]);
             if (i == SRC_BETA) {
-                Text(l, 24 + 21 * CHAR, y, DIM, "- for beta cars, worlds, audio (later)");
+                Text(l, 24 + 21 * CHAR, y, DIM, "- its content in the game you play");
             }
             if (l->src.path[i] != NULL) {
                 Fit(line, sizeof(line), l->src.path[i], 74);
@@ -820,6 +844,23 @@ static void DrawPage(Launcher *l) {
             }
         }
         y = ROW_Y(SRC_COUNT) + 4;
+        if (l->src.path[SRC_BETA] != NULL) {
+            /* what the mode does: replaced, added, left as retail (Port_Proto.c) */
+            static const char *const what[PORT_PROTO_MODES][2] = {
+                { "Nothing of the prototype is used.", "Its cars keep their numbers in ids.lock for saves." },
+                { "Adds its 3 cars of its own: Fandango, Sweet 16 II, Jester.",
+                  "The release's 33 cars, worlds and audio stay as they are." },
+                { "Adds its 36 cars: the 3, and the 33 others as \"... (prototype)\".",
+                  "The release's own stay. Its worlds and audio: not yet." },
+                { "The release's 33 cars become the prototype's versions; its 3 are added.",
+                  "Saves keep their cars. Worlds and audio stay the release's (not yet)." },
+            };
+            int m = l->src.proto >= 0 && l->src.proto < PORT_PROTO_MODES ? l->src.proto : 0;
+
+            Text(l, 24, y + 22, GREY, what[m][0]);
+            Text(l, 24, y + 33, DIM, what[m][1]);
+            y += 46;
+        }
         if (l->importer != NULL) {
             SDL_snprintf(line, sizeof(line), "Importing the %s disc image into the save folder.",
                          l->importSource == PORT_DATA_PC ? "PC" : "PS2");
@@ -1688,6 +1729,13 @@ static int Activate(Launcher *l, const Button *b) {
         SaveSources(&l->src);
         RefreshConverted(l);
         SDL_snprintf(l->status, sizeof(l->status), "%s removed from the list (its files stay).", s_names[b->source]);
+        return 0;
+    case ACT_PROTO_MODE:
+        l->src.proto = b->source;
+        SaveSources(&l->src);
+        SDL_snprintf(l->status, sizeof(l->status), "Prototype: %s. It applies when the game starts.",
+                     b->source == PORT_PROTO_OFF ? "off" : b->source == PORT_PROTO_CARS ? "its cars only"
+                     : b->source == PORT_PROTO_ADDED ? "its content added" : "it replaces the release's cars");
         return 0;
     case ACT_SKIP:
         l->src.skip = !l->src.skip;

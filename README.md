@@ -567,6 +567,12 @@ Debugging aids:
   `world1`) or index; N and I car and item numbers. With
   `HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1` a select screen is
   up in a few seconds.
+- `HWVX_PROTO=off|cars|added|replace`: the PS2 prototype's import mode (the
+  launcher's Games page, `proto=` in sources.cfg): its three cars of its own
+  added; all 36 of its cars added (the others as "... (prototype)"); or the
+  release's 33 cars loaded from the prototype under their own numbers, its
+  three added. `HWVX_PROTO_DIR=<folder>`: the prototype (default: sources.cfg's
+  `ps2beta=`). `src/game/Port_Proto.c`; `tools/proto_race.sh` races with it.
 - `HWVX_IDS_LOCK=<file>`: the content registry's ids.lock (default: `ids.lock`
   in the preferences folder), JSONC: per kind (`cars`, `tracks`, `items`) a
   `uid://` id each with its `number`, `alias` (`base://HW_Cars/car_3`, the
