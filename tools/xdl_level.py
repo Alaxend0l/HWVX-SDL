@@ -305,6 +305,9 @@ class Compiler:
         self.errors.append(f"{where}: {msg}")
 
     def add_part(self, pid, kind, data, links):
+        if pid in self.part_ids:
+            # the game refuses a level with two parts of one id (Port_Level.c)
+            raise LevelError(f"{pid}: made twice (two records of one name?)")
         self.parts.append({"id": pid, "kind": kind, "hex": bytes(data).hex(), "links": dict(links or {})})
         self.part_ids.add(pid)
 
@@ -470,7 +473,8 @@ class Compiler:
         """What a mode's levels need (warnings: the game still runs them). AI cars only as retail
         uses them: an AI start (port 0 or past 4) only in a world whose retail level has AI starts,
         and none in Joyride."""
-        own = [s for s in (lv.get("starts") or {}).values() if isinstance(s, dict)]
+        # (a start whose port isn't a number is an error of its own, checked before)
+        own = [s for s in (lv.get("starts") or {}).values() if isinstance(s, dict) and isinstance(s.get("port", 0), int)]
         ai_own = [s for s in own if not 1 <= int(s.get("port", 0)) <= 4]
         base = self.base_starts()
         if ai_own:
@@ -591,6 +595,9 @@ class Compiler:
         for n, it in (lv.get("items") or {}).items():
             w = f"{where}/items/{n}"
             q = it["quad"]
+            if self.base is not None and not self.base.count(f"World/0/quads/{q}/contents/items"):
+                # an item is a copy of the quadrant's first (the game has none to copy)
+                raise LevelError(f"{w}/quad: quadrant {q} has no items of its own to copy")
             ai = group(f"World/0/quads/{q}/contents", "QuadContents", "items", w)
             # a copy of the quadrant's first pickup (its ranges, draw distance), moved
             put("items", n, ai, {"fromIndex": 0, "set": sets("QuadItem", {
@@ -651,6 +658,11 @@ class Compiler:
             keep = "none"
         if self.base is not None and self.base.archive.lower() != archive:
             self.err(where, f"world: {world} isn't the base given ({self.base.archive})")
+        elif self.base is not None and isinstance(keep, list):
+            n = self.base.num_triggers()
+            for x in keep:
+                if not 0 <= x < n:
+                    self.err(where, f"baseTriggers: the world has no trigger {x} ({n})")
         # own records
         for kind, fn in (("volumes", self.volume), ("timers", self.timer), ("variables", self.variable),
                          ("strings", self.string)):
@@ -830,6 +842,9 @@ class BaseWorld:
                     return None
                 return None
         return "the world has no such record"
+
+    def num_triggers(self):
+        return sum(1 for f in self.dir.glob("trigger/*.jsonc") if f.stem.isdigit())
 
     def trigger_types(self, keep):
         out = {}
@@ -1349,8 +1364,12 @@ def main():
     try:
         return {"compile": cmd_compile, "check": cmd_check, "base": cmd_base, "mod": cmd_mod,
                 "testdrive": cmd_testdrive}[a.cmd](a)
-    except LevelError as ex:
+    except (LevelError, XT.TacError) as ex:
         return report([str(ex)])
+    except (ValueError, TypeError, KeyError, UnicodeError) as ex:
+        # a level.jsonc of the wrong shape somewhere no check names yet: an error of the
+        # level for the editor, not a traceback
+        return report([f"level.jsonc: {type(ex).__name__}: {ex}"])
 
 
 if __name__ == "__main__":

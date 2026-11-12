@@ -115,6 +115,18 @@ _, e = variant("badpatch", edit_level=lambda lv: lv["patches"].__setitem__(
     "base://ch1_l2/world_0/World/0/timers/0/to", {"mode": 3}))
 check("patch on a link field", has(e, "patches", "a link"), e)
 
+# what the game would refuse, or would have been a traceback in the editor
+_, e = variant("dupname", edit_level=lambda lv: lv.__setitem__("triggers", lv["triggers"] + [lv["triggers"][0]]))
+check("a trigger named twice: an error (the game refuses two parts of one id)", has(e, "made twice"), e)
+try:
+    import xdl_tac as XT
+    XT.encode_params(XT.Tac(), {"pack": "caf\u00e9"}, [("string", "pack")], "<", "p")
+    check("a non-ASCII parameter string: a TacError", False, "accepted")
+except XT.TacError as ex:
+    check("a non-ASCII parameter string: a TacError", "ASCII" in str(ex), str(ex))
+_, e = variant("badport", edit_level=lambda lv: lv.__setitem__("starts", {"s": {"pos": [0, 0, 0], "port": "x"}}))
+check("a start's port not a number: an error, not a traceback", has(e, "starts/s", "port"), e)
+
 
 def many(lv):
     lv["triggers"] = lv["triggers"] + [f"x{i}" for i in range(12)]
@@ -133,6 +145,8 @@ if base:
     check("base record past its table", has(e, "tileCars has 1 entries"), e)
     _, e = variant("keepall", edit_level=lambda lv: lv.__setitem__("baseTriggers", "all"))
     check("base triggers kept count toward the limits", not e or has(e, "keeps"), e)
+    _, e = variant("keepbad", edit_level=lambda lv: lv.__setitem__("baseTriggers", [0, 9999]))
+    check("baseTriggers past the base's triggers: an error", has(e, "baseTriggers", "9999"), e)
 else:
     print("skip base checks (no base project given)")
 
