@@ -17,6 +17,9 @@ What a pack's folder holds (`media.jsonc` lists it):
     texture/<i>/texture.jsonc     format, size, levels, header words, hashes
     texture/<i>/level0.png ...    one PNG per mip level (level0 = the full size)
     sound/<i>.wav + <i>.jsonc     PCM16 mono; rate, loop, volume, the descriptor's other fields
+                                  (an edited sound may be any WAV, .flac, .ogg or .mp3: build
+                                  decodes it with hwvx-audiodec, mixes it to mono, resamples it
+                                  to the sidecar's rate and keeps the file's loop tags)
     song/song.mid                 a standard MIDI file (the RIFX 'MIDI' chunk's body)
     song/bank.jsonc               instruments: program, key range, envelope, sample
     song/bank/<k>.wav             the bank's samples
@@ -52,8 +55,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "schemas"
 FORMAT_VERSION = 1
 TOOL = "tools/xdl_media.py"
-# gitignored output: HWVX-SDL/build-media (a worktree sits inside HWVX-SDL, one level deeper)
-OUT = (ROOT.parent if ROOT.parent.name == "HWVX-SDL" else ROOT) / "build-media"
+# gitignored output: HWVX-SDL/build-media (a worktree sits inside HWVX-SDL, one level deeper),
+# or HWVX_MEDIA_OUT
+OUT = Path(os.environ["HWVX_MEDIA_OUT"]) if os.environ.get("HWVX_MEDIA_OUT") else \
+    (ROOT.parent if ROOT.parent.name == "HWVX-SDL" else ROOT) / "build-media"
 
 
 def release_dirs():
@@ -597,6 +602,134 @@ def read_wav(path):
 
 
 # ------------------------------------------------------------------------------------------
+# sound input: WAV, FLAC, Ogg Vorbis, MP3 (decoded on the modder's or player's machine)
+
+AUDIO_EXT = (".wav", ".flac", ".ogg", ".mp3")
+AUDIODEC = "hwvx-audiodec"          # src/audiodec/main.c, built with the game
+
+
+def find_audiodec():
+    """The decoder helper: HWVX_AUDIODEC, a build of this tree, beside the game, or PATH."""
+    env = os.environ.get("HWVX_AUDIODEC")
+    if env:
+        return env
+    exe = AUDIODEC + (".exe" if os.name == "nt" else "")
+    for d in [ROOT / "build", *sorted(ROOT.glob("build*")), ROOT.parent / "build", Path(sys.executable).parent]:
+        if (d / exe).is_file():
+            return str(d / exe)
+    import shutil
+    return shutil.which(AUDIODEC)
+
+
+def wav_loop(data):
+    """A WAV's first `smpl` loop -> (start, end) in frames (end exclusive), or (None, None)."""
+    o = 12
+    while o + 8 <= len(data):
+        cid, n = data[o:o + 4], struct.unpack_from("<I", data, o + 4)[0]
+        if n > len(data) - o - 8:
+            break
+        if cid == b"smpl" and n >= 60 and struct.unpack_from("<I", data, o + 8 + 28)[0] > 0:
+            start, end = struct.unpack_from("<II", data, o + 8 + 36 + 8)
+            return start, end + 1
+        o += 8 + n + (n & 1)
+    return None, None
+
+
+def decode_audio(path):
+    """A sound file -> (int16 frames x channels, rate, loop start, loop end), loop in frames or
+    None. A PCM16 WAV is read here; FLAC, Ogg Vorbis, MP3 and other WAVs go through
+    hwvx-audiodec (vendored public-domain decoders, no ffmpeg)."""
+    path = Path(path)
+    data = path.read_bytes()
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        import io
+        try:
+            with wave.open(io.BytesIO(data), "rb") as w:
+                if w.getsampwidth() == 2 and w.getcomptype() == "NONE":
+                    pcm = np.frombuffer(w.readframes(w.getnframes()), "<i2").reshape(-1, w.getnchannels())
+                    return (pcm.copy(), w.getframerate()) + wav_loop(data)
+        except (wave.Error, EOFError):
+            pass                       # WAVE_FORMAT_EXTENSIBLE, float, 8/24-bit: the helper reads them
+    tool = find_audiodec()
+    if tool is None:
+        raise MediaError(f"{path}: decoding {path.suffix or 'this file'} needs {AUDIODEC} (built with the game: "
+                         f"`ninja {AUDIODEC}`; or set HWVX_AUDIODEC)")
+    import subprocess
+    r = subprocess.run([tool, str(path), "-"], capture_output=True)
+    if r.returncode != 0:
+        raise MediaError(r.stderr.decode("utf-8", "replace").strip() or f"{path}: {AUDIODEC} failed")
+    import io
+    out = r.stdout
+    with wave.open(io.BytesIO(out), "rb") as w:
+        pcm = np.frombuffer(w.readframes(w.getnframes()), "<i2").reshape(-1, w.getnchannels()).copy()
+        rate = w.getframerate()
+    return (pcm, rate) + wav_loop(out)
+
+
+def to_mono(pcm):
+    """The channels' mean, rounded half away from zero (as src/audiodec's AudioDec_Mono)."""
+    pcm = np.asarray(pcm)
+    if pcm.ndim == 1 or pcm.shape[1] == 1:
+        return pcm.reshape(-1).astype(np.int16)
+    c = pcm.shape[1]
+    s = pcm.astype(np.int64).sum(axis=1)
+    m = np.where(s >= 0, (s + c // 2) // c, -((-s + c // 2) // c))
+    return m.astype(np.int16)
+
+
+def resample(x, src, dst, zeros=16):
+    """Windowed-sinc resampling of mono PCM16, the filter of src/audiodec's AudioDec_Resample:
+    cutoff 0.95 of the lower Nyquist, 16 zero crossings, Blackman window."""
+    x = np.asarray(x, np.float64)
+    if src == dst:
+        return np.asarray(x, np.int16)
+    fc = 0.95 * min(1.0, dst / src)
+    half = zeros / fc
+    count = (len(x) * dst + src // 2) // src
+    out = np.empty(count, np.float64)
+    step = src / dst
+    span = int(np.ceil(2 * half)) + 2
+    for a in range(0, count, 4096):
+        t = np.arange(a, min(count, a + 4096)) * step
+        k0 = np.ceil(t - half).astype(np.int64)
+        k = k0[:, None] + np.arange(span)[None, :]
+        d = t[:, None] - k
+        ok = (np.abs(d) < half) & (k >= 0) & (k < len(x))
+        u = d / half
+        w = (0.42 + 0.5 * np.cos(np.pi * u) + 0.08 * np.cos(2 * np.pi * u)) * fc * np.sinc(fc * d)
+        out[a:a + len(t)] = np.where(ok, w * x[np.clip(k, 0, len(x) - 1)], 0).sum(axis=1)
+    return np.clip(np.rint(out), -32768, 32767).astype(np.int16)
+
+
+def scale_pos(n, src, dst):
+    return None if n is None else (n * dst * 2 + src) // (2 * src)
+
+
+def read_audio(path, rate=None, log=None):
+    """A sound file as the game takes it: mono PCM16 at `rate` (the file's own when None),
+    -> (samples, rate, loop). The loop is the file's (a WAV `smpl` chunk; LOOPSTART with
+    LOOPLENGTH or LOOPEND in Vorbis comments or ID3v2 TXXX frames), scaled to the rate; the
+    game loops from the loop start to the sample's end, so a loop end cuts the sample there.
+    None: the file has no loop."""
+    pcm, src, ls, le = decode_audio(path)
+    log = log or (lambda m: None)
+    if pcm.ndim == 2 and pcm.shape[1] > 1:
+        log(f"note: {path}: {pcm.shape[1]} channels mixed to mono")
+    x = to_mono(pcm)
+    if ls is not None and not 0 <= ls < len(x):
+        ls = le = None
+    if rate and rate != src:
+        log(f"note: {path}: resampled {src} Hz -> {rate} Hz")
+        x = resample(x, src, rate)
+        ls, le = scale_pos(ls, src, rate), scale_pos(le, src, rate)
+        if ls is not None and ls >= len(x):
+            ls = le = None
+    if ls is not None and le is not None and ls < le < len(x):
+        x = x[:le]
+    return x, rate or src, ls
+
+
+# ------------------------------------------------------------------------------------------
 # where a pack's media are (offsets are in the pack's bytes)
 
 def scan_textures(pk):
@@ -908,8 +1041,8 @@ U16 = {"type": "integer", "minimum": 0, "maximum": 65535}
 U32 = {"type": "integer", "minimum": 0, "maximum": 4294967295}
 RELEASE = {"enum": ["gc", "pc", "ps2"], "description": "the release whose encoding this is"}
 LOOP = {"type": ["integer", "null"], "minimum": 0,
-        "description": "loop start in samples of the WAV (null: plays once). PS2: a multiple of 28 "
-                       "(an ADPCM block)"}
+        "description": "loop start in samples at `rate` (null: plays once); a loop in the file's tags "
+                       "(WAV smpl, LOOPSTART/LOOPLENGTH/LOOPEND) wins. PS2: a multiple of 28 (an ADPCM block)"}
 
 
 def _doc(title, desc, props, required):
@@ -959,8 +1092,9 @@ def media_schemas():
                "(port-format §2.5).", {
                    "id": _link("sound"), "release": RELEASE,
                    "index": dict(U16, description="the sound's index in its release's table"),
-                   "file": {"type": "string", "description": "mono 16-bit WAV beside this file"},
-                   "rate": dict(U32, description="sample rate in Hz; must equal the WAV's"),
+                   "file": {"type": "string", "description": "the sound beside this file: WAV, FLAC, Ogg Vorbis or MP3 "
+                            "(decoded, mixed to mono and resampled to `rate` when building)"},
+                   "rate": dict(U32, description="the descriptor's sample rate in Hz; the file is resampled to it"),
                    "loop": LOOP,
                    "volume": dict(U16, description="descriptor u16 at 0x12 (0x7FFF everywhere)"),
                    "bits": dict(U8, description="descriptor u8 at 0x11 (16)"),
@@ -982,8 +1116,8 @@ def media_schemas():
                 "decay": dict(U16, description="envelope rate"),
                 "sustain": dict(U16, description="sustain level"),
                 "release": dict(U16, description="envelope rate"),
-                "sample": {"type": "string", "description": "the WAV, relative to this file; instruments "
-                           "may share one"},
+                "sample": {"type": "string", "description": "the sound file (WAV, FLAC, Ogg Vorbis or MP3), "
+                           "relative to this file; instruments may share one"},
                 "rate": dict(U32, description="sample rate at the base note (GetNoteRate_)"),
                 "loop": LOOP, "bits": dict(U8, description="16 (PCM16) or 4 (PS2 SPU-ADPCM)"),
                 "unk_0x10": U8, "unk_0x12": U16, "unk_0x15": U8,
@@ -1096,6 +1230,7 @@ class Builder:
         self.fresh, self.st = fresh, stats or Stats()
         self.log = log or (lambda m: print(m, file=sys.stderr))
         self.out = bytearray(base.b)
+        self.file_loops = {}       # sound file -> its own loop tag (None: none), over the sidecar's
 
     def scrub(self, o, n):
         self.out[o:o + n] = bytes(n)
@@ -1241,13 +1376,17 @@ class Builder:
 
     # ---- sounds, song, bank ----------------------------------------------------------------
     def sample(self, f, doc, base_raw, kind, what, base_loop=None):
-        """A WAV -> the release's bytes (PCM16 in its byte order, or SPU-ADPCM). base_loop:
-        the base descriptor's loop word (the PS2's ADPCM carries the loop in its flag bytes,
-        so the original encoding is reused only for the same loop block)."""
-        pcm, rate = read_wav(f)
-        if rate != doc["rate"]:
-            raise MediaError(f"{f}: {rate} Hz, its sidecar says {doc['rate']}")
-        loop = doc["loop"]
+        """A sound file (WAV, FLAC, Ogg Vorbis, MP3) -> the release's bytes (PCM16 in its byte
+        order, or SPU-ADPCM): mono, at the sidecar's rate, the file's loop if it has one, else the
+        sidecar's. base_loop: the base descriptor's loop word (the PS2's ADPCM carries the loop
+        in its flag bytes, so the original encoding is reused only for the same loop block)."""
+        if f.suffix.lower() not in AUDIO_EXT:
+            raise MediaError(f"{f}: a sound is one of {' '.join(AUDIO_EXT)}")
+        pcm, _, floop = read_audio(f, doc["rate"], self.log)
+        loop = doc["loop"] if floop is None else floop
+        if floop is not None and doc["loop"] != floop:
+            self.log(f"note: {what}: the file's loop {floop} replaces the sidecar's {doc['loop']}")
+        self.file_loops[str(f)] = floop
         if loop is not None and not 0 <= loop < len(pcm):
             raise MediaError(f"{what}: loop {loop} is outside the sample ({len(pcm)} samples)")
         if self.rel != "ps2":
@@ -1263,6 +1402,10 @@ class Builder:
             self.log(f"note: {what}: loop {loop} moved to the ADPCM block at {loop // 28 * 28}")
         return adpcm_encode(pcm, None if loop is None else loop // 28 + 1)
 
+    def loop_of(self, f, doc):
+        floop = self.file_loops.get(str(f))
+        return doc["loop"] if floop is None else floop
+
     def sounds(self):
         pk, rel, e = self.pk, self.rel, self.e
         base = {s["i"]: s for s in scan_sounds(pk)}
@@ -1273,7 +1416,7 @@ class Builder:
             return
         s0, sn = pk.sec["sound_data"]
         new = {}             # key -> bytes
-        docs = {}
+        docs, docs_path = {}, {}
         for f in self.media["sounds"]:
             p = self.dir / f
             doc = read_jsonc(p, "MediaSound")
@@ -1281,6 +1424,7 @@ class Builder:
             if s is None:
                 raise MediaError(f"{p}: the base pack has no sound {doc['index']}")
             docs[doc["index"]] = doc
+            docs_path[doc["index"]] = Path(f).parent / doc["file"]
             new[("sfx", s["i"])] = self.sample(p.parent / doc["file"], doc, pk.b[s["ptr"]:s["ptr"] + s["len"]],
                                                "sound", f, s["loop"])
         if set(docs) != set(base):
@@ -1329,7 +1473,7 @@ class Builder:
             for ins in bdoc["instruments"]:
                 data = files[ins["sample"]][0]
                 hdr += struct.pack(be + "4I", offs[ins["sample"]], len(data),
-                                   samples_to_loop(rel, ins["loop"]), ins["rate"])
+                                   samples_to_loop(rel, self.loop_of(bp.parent / ins["sample"], ins)), ins["rate"])
                 hdr += struct.pack(be + "BBH", ins["unk_0x10"], ins["bits"], ins["unk_0x12"])
                 hdr += struct.pack(be + "BBBB4H", ins["program"], ins["unk_0x15"], ins["key_low"],
                                    ins["key_high"], ins["attack"], ins["decay"], ins["sustain"], ins["release"])
@@ -1359,7 +1503,8 @@ class Builder:
             data = new[("sfx", s["i"])]
             o = offs["desc"] + 0x20 * s["i"]
             sd[o:o + 0x20] = struct.pack(e + "4IBBH", offs[("sfx", s["i"])], len(data),
-                                         samples_to_loop(rel, doc["loop"]), doc["rate"], doc["unk_0x10"],
+                                         samples_to_loop(rel, self.loop_of(self.dir / docs_path[s["i"]], doc)),
+                                         doc["rate"], doc["unk_0x10"],
                                          doc["bits"], doc["volume"]) + bytes(12)
         if size == sn and offs.get("desc", pk.h["sfx_offset"]) == pk.h["sfx_offset"]:
             self.put(s0, sd)

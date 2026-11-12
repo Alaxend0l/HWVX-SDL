@@ -231,17 +231,28 @@ for rel in ("gc", "pc", "ps2"):
           nb.section("data") == pk.section("data") and nb.section("pointers") == pk.section("pointers"))
 
     # ---- errors
-    M.write_wav(sp.parent / sdoc["file"], wav, rate + 1)
-    m = raises(lambda: build(d))
-    check(f"{rel}: WAV rate != sidecar rate is refused", m and "Hz" in m, m)
+    M.write_wav(sp.parent / sdoc["file"], wav, rate * 2)
+    rewrite(sp, "MediaSound", loop=None)
+    b, st = build(d)
+    nb = M.RawPack(rel, pk.type, b, "car_5")
+    ns = next(x for x in M.scan_sounds(nb) if x["i"] == s["i"])
+    got = M.decode_sample(rel, b[ns["ptr"]:ns["ptr"] + ns["len"]], "built")
+    check(f"{rel}: a WAV at twice the sidecar's rate is resampled to it",
+          abs(len(got) - len(wav) / 2) < 30 and ns["rate"] == rate, (len(got), len(wav), ns["rate"]))
     import wave
     with wave.open(str(sp.parent / sdoc["file"]), "wb") as w:
         w.setnchannels(2)
         w.setsampwidth(2)
         w.setframerate(rate)
-        w.writeframes(bytes(8))
+        w.writeframes(np.repeat(quiet, 2).astype("<i2").tobytes())
+    b, st = build(d)
+    nb = M.RawPack(rel, pk.type, b, "car_5")
+    ns = next(x for x in M.scan_sounds(nb) if x["i"] == s["i"])
+    got = M.decode_sample(rel, b[ns["ptr"]:ns["ptr"] + ns["len"]], "built")[:len(quiet)]
+    check(f"{rel}: a stereo WAV is mixed to mono", rel == "ps2" or np.array_equal(got, quiet))
+    (sp.parent / sdoc["file"]).write_bytes(b"not a sound at all")
     m = raises(lambda: build(d))
-    check(f"{rel}: stereo WAV is refused", m and "mono" in m, m)
+    check(f"{rel}: a file that isn't a sound is refused", m is not None, m)
     d = fresh_copy(cars, "car_5", f"{rel}/car_5")
     tp = d / media["textures"][0]
     rewrite(tp, "MediaTexture", width=jsonc(tp)["width"] * 2)
@@ -276,6 +287,34 @@ for rel in ("gc", "pc", "ps2"):
     rewrite(sp, "MediaSound", loop=n)
     m = raises(lambda: build(d))
     check(f"{rel}: loop past the last sample is refused", m and "loop" in m, m)
+
+    # ---- a compressed sound (FLAC, lossless) with a loop tag; ffmpeg only makes the test file
+    import shutil as _sh
+    import subprocess
+    if _sh.which("ffmpeg") and M.find_audiodec():
+        d = fresh_copy(cars, "car_5", f"{rel}/car_5")
+        sp = d / media["sounds"][0]
+        sdoc = jsonc(sp)
+        wav, rate = M.read_wav(sp.parent / sdoc["file"])
+        tone = (np.sin(np.arange(len(wav)) * 2 * np.pi * 440 / rate) * 9000).astype(np.int16)
+        M.write_wav(sp.parent / "tone.wav", tone, rate)
+        ls = len(tone) // 3 // 28 * 28
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(sp.parent / "tone.wav"), "-metadata",
+                        f"LOOPSTART={ls}", str(sp.parent / "tone.flac")], check=True)
+        (sp.parent / "tone.wav").unlink()
+        rewrite(sp, "MediaSound", file="tone.flac", loop=None)
+        b, st = build(d)
+        nb = M.RawPack(rel, pk.type, b, "car_5")
+        ns = next(x for x in M.scan_sounds(nb) if x["i"] == sdoc["index"])
+        got = M.decode_sample(rel, b[ns["ptr"]:ns["ptr"] + ns["len"]], "built")[:len(tone)]
+        loop = M.loop_to_samples(rel, ns["loop"], "x")
+        if rel == "ps2":
+            e = 10 * np.log10((tone.astype(float) ** 2).sum() / max(((tone - got) ** 2).sum(), 1))
+            check(f"{rel}: a FLAC sound is decoded and ADPCM-encoded (SNR {e:.0f} dB), its loop tag kept",
+                  e > 20 and loop == ls, (e, loop, ls))
+        else:
+            check(f"{rel}: a FLAC sound becomes its PCM exactly, its loop tag kept",
+                  np.array_equal(got, tone) and loop == ls, (loop, ls))
 
     # ---- song and bank
     mus = M.Archive(dirs[rel] / f"HW_music{ext}")

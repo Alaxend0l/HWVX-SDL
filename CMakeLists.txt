@@ -42,6 +42,21 @@ execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${HWVX_GEN_DIR}/mix_recipe_ultimate.h.new ${HWVX_GEN_DIR}/mix_recipe_ultimate.h)
 include_directories(${HWVX_GEN_DIR})
 
+# Compressed audio for mods (src/audiodec: vendored dr_wav/dr_flac/dr_mp3 and
+# stb_vorbis), linked into the game and built as the helper hwvx-audiodec that
+# tools/xdl_media.py and tools/xdl_mod.py run.
+add_library(hwvx_audiodec STATIC ${CMAKE_SOURCE_DIR}/src/audiodec/audiodec.c)
+target_include_directories(hwvx_audiodec PUBLIC ${CMAKE_SOURCE_DIR}/src/audiodec)
+set_target_properties(hwvx_audiodec PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(hwvx_audiodec PRIVATE -w)
+if(NOT WIN32)
+    target_link_libraries(hwvx_audiodec PUBLIC m)
+endif()
+if(NOT ANDROID)
+    add_executable(hwvx-audiodec ${CMAKE_SOURCE_DIR}/src/audiodec/main.c)
+    target_link_libraries(hwvx-audiodec PRIVATE hwvx_audiodec)
+endif()
+
 file(GLOB GAME_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/game/*.c)
 file(GLOB PORT_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/port/*.c)
 
@@ -61,7 +76,7 @@ endif()
 target_include_directories(hwvx PRIVATE
     ${CMAKE_SOURCE_DIR}/src/game/include
     ${CMAKE_SOURCE_DIR}/src/port)
-target_link_libraries(hwvx PRIVATE SDL3::SDL3 Threads::Threads mbedtls ${CMAKE_DL_LIBS})
+target_link_libraries(hwvx PRIVATE SDL3::SDL3 Threads::Threads mbedtls hwvx_audiodec ${CMAKE_DL_LIBS})
 if(NOT WIN32)
     target_link_libraries(hwvx PRIVATE m)
 endif()
@@ -144,7 +159,7 @@ if(HWVX_TESTS AND NOT ANDROID)
         target_include_directories(${stem} PRIVATE
             ${CMAKE_SOURCE_DIR}/src/game/include
             ${CMAKE_SOURCE_DIR}/src/port)
-        target_link_libraries(${stem} PRIVATE SDL3::SDL3 Threads::Threads mbedtls ${CMAKE_DL_LIBS})
+        target_link_libraries(${stem} PRIVATE SDL3::SDL3 Threads::Threads mbedtls hwvx_audiodec ${CMAKE_DL_LIBS})
         if(NOT WIN32)
             target_link_libraries(${stem} PRIVATE m)
         endif()
@@ -322,7 +337,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     include(GNUInstallDirs)
     configure_file(packaging/linux/hwvx.desktop.in ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.desktop @ONLY)
     configure_file(packaging/linux/hwvx.metainfo.xml.in ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.metainfo.xml @ONLY)
-    install(TARGETS hwvx RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS hwvx hwvx-audiodec RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(PROGRAMS $<TARGET_FILE_DIR:hwvx>/hwvx-launcher DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
     install(FILES ${CMAKE_BINARY_DIR}/${HWVX_APP_ID}.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)

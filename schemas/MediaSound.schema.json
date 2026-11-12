@@ -36,13 +36,13 @@
   },
   "file": {
    "type": "string",
-   "description": "mono 16-bit WAV beside this file"
+   "description": "the sound beside this file: WAV, FLAC, Ogg Vorbis or MP3 (decoded, mixed to mono and resampled to `rate` when building)"
   },
   "rate": {
    "type": "integer",
    "minimum": 0,
    "maximum": 4294967295,
-   "description": "sample rate in Hz; must equal the WAV's"
+   "description": "the descriptor's sample rate in Hz; the file is resampled to it"
   },
   "loop": {
    "type": [
@@ -50,7 +50,7 @@
     "null"
    ],
    "minimum": 0,
-   "description": "loop start in samples of the WAV (null: plays once). PS2: a multiple of 28 (an ADPCM block)"
+   "description": "loop start in samples at `rate` (null: plays once); a loop in the file's tags (WAV smpl, LOOPSTART/LOOPLENGTH/LOOPEND) wins. PS2: a multiple of 28 (an ADPCM block)"
   },
   "volume": {
    "type": "integer",
