@@ -22,7 +22,11 @@ anything in the mod matches it, naming the base asset to reference instead:
                      string in its JSON: catches extracted .bin files and raw records. Blocks of
                      few distinct bytes or plain progressions aren't indexed.
   decoded sound      the same over each sound's and bank sample's PCM16 (a WAV of a GameCube
-                     or PS2 sound has other bytes than the pack)
+                     or PS2 sound has other bytes than the pack); a mod's .flac .ogg .mp3 and
+                     .wav are decoded first (hwvx-audiodec), each channel and their mix
+  sounds like        a decoded sound whose spectral fingerprint lines up with a base sound's
+                     (16 ms frames, 15 band-energy-slope bits, voted by time offset): a game
+                     sound re-encoded lossily, resampled or trimmed is still the game's
   textures           a PNG whose pixels equal a base texture level's (with or without alpha), or
                      that looks like one (a 256-bit gradient hash of the mean of R, G and B, which
                      a hue rotation keeps): an edited game texture is still the game's, and is
@@ -30,8 +34,8 @@ anything in the mod matches it, naming the base asset to reference instead:
   geometry           a glTF mesh whose vertex positions are a base geometry's
   patches            a field patch that restates the base's value (a copied object record);
                      --strip-unchanged drops those fields in the package instead of refusing
-  file kinds         only kinds the check can read: .json .jsonc .png .wav .gltf .glb .bin .mid
-                     .md .txt
+  file kinds         only kinds the check can read: .json .jsonc .png .wav .flac .ogg .mp3 .gltf
+                     .glb .bin .mid .md .txt
 
 A package is a zip, entries stored (not compressed) in sorted order with fixed dates: the same
 mod packs to the same bytes, and the port reads it without an inflater. `check.json` in it
@@ -68,10 +72,12 @@ FORMAT_VERSION = 1
 ROOT = Path(__file__).resolve().parents[1]
 
 ARCHIVE_EXT = (".xgc", ".xpc", ".xps")
-ALLOWED_EXT = (".json", ".jsonc", ".png", ".wav", ".gltf", ".glb", ".bin", ".mid", ".md", ".txt")
+ALLOWED_EXT = (".json", ".jsonc", ".png", ".wav", ".flac", ".ogg", ".mp3", ".gltf", ".glb", ".bin", ".mid", ".md",
+               ".txt")
 FINE, COARSE = 32, 256           # block sizes: archives, other files
 MIN_DISTINCT = {FINE: 12, COARSE: 24}
 UID_RE = re.compile(r"^uid://[0-9a-z]{1,13}$")
+SND_RE = re.compile(r"^base://([A-Za-z0-9_]+)/([a-z_]+_[0-9]+)/sound/((?:[a-z0-9]+:)?[0-9]+)$")
 TEX_RE = re.compile(r"^base://([A-Za-z0-9_]+)/([a-z_]+_[0-9]+)/texture/((?:[a-z0-9]+:)?[0-9]+)$")
 OBJ_RE = re.compile(r"^base://([A-Za-z0-9_]+)/([a-z_]+_[0-9]+)/([A-Za-z0-9_]+/[0-9]+(?:/[A-Za-z0-9_]+)*)$")
 CAR_RE = re.compile(r"^base://HW_Cars/car_([0-9]+)$")
@@ -88,6 +94,7 @@ DH_W, DH_H = 17, 16              # the gradient hash's grid: 16 x 16 comparisons
 DH_NEAR = 40                     # bits of 256 that may differ and still "look like"
 DH_MIN_STD = 6.0                 # flatter images have no gradients worth comparing
 VTX_MIN, VTX_SHARE = 24, 0.2     # a mesh is a base one's from this many shared positions and share
+SFP_MIN, SFP_SHARE = 8, 0.15     # a sound is a base one's from this many frames lined up, and share
 
 
 class ModError(Exception):
@@ -185,6 +192,34 @@ def vertex_hashes(le_f32x3):
     h ^= (u[:, 2] + np.uint64(0x165667B19E3779F9)) * np.uint64(0xFF51AFD7ED558CCD)
     h ^= h >> np.uint64(29)
     return h * np.uint64(0xC4CEB9FE1A85EC53)
+
+
+def sound_fp(pcm, rate):
+    """A sound's spectral fingerprint: per 16 ms hop of a 64 ms Hann window, 15 bits, the
+    sign of the time slope of the energy difference between neighbouring bands (16 bands,
+    log-spaced 300-3000 Hz; Haitsma & Kalker). In seconds and hertz, so the rate doesn't
+    matter. -> (keys u16, frame numbers u32); quiet frames are left out."""
+    x = np.asarray(pcm, np.float64).reshape(-1)
+    if rate < 4000 or len(x) < rate // 8:
+        return np.empty(0, np.uint16), np.empty(0, np.uint32)
+    win = int(round(rate * 0.064))
+    hop = max(1, win // 4)
+    n = 1 + (len(x) - win) // hop
+    if n < 3:
+        return np.empty(0, np.uint16), np.empty(0, np.uint32)
+    idx = np.arange(win)[None, :] + hop * np.arange(n)[:, None]
+    fr = x[idx] * np.hanning(win)[None, :]
+    spec = np.abs(np.fft.rfft(fr, axis=1)) ** 2
+    hz = np.fft.rfftfreq(win, 1 / rate)
+    edges = np.geomspace(300, min(3000, 0.45 * rate), 17)
+    band = np.stack([spec[:, (hz >= a) & (hz < b)].sum(axis=1) for a, b in zip(edges[:-1], edges[1:])], axis=1)
+    e = np.log(band + 1e-3)
+    d = e[:, :-1] - e[:, 1:]
+    bits = (d[1:] - d[:-1]) > 0
+    keys = (bits * (1 << np.arange(15))[None, :]).sum(axis=1).astype(np.uint16)
+    rms = np.sqrt(np.mean(fr[1:] ** 2, axis=1))
+    keep = rms > 200
+    return keys[keep], np.nonzero(keep)[0].astype(np.uint32) + 1
 
 
 def _positions(blob, off):
@@ -351,6 +386,7 @@ class Collect:
         self.sources = []
         self.t = {k: ([], []) for k in ("b32", "b256", "whole", "px", "rgb", "snd", "vtx")}
         self.dh, self.dh_src = [], []
+        self.sfp = []                   # (keys, frames, src)
         self.obj = []
         self.objects, self.tex, self.files = {}, {}, []
         self.notes = []
@@ -421,8 +457,8 @@ def index_file(job):
         except (XM.MediaError, struct.error, ValueError, IndexError) as e:
             c.notes.append(f"{name} {ent['name']}: textures: {e}")
         try:
-            samples = [(ids.asset(rel, archive, ent["name"], "sound", s["i"]), pk.b[s["ptr"]:s["ptr"] + s["len"]])
-                       for s in XM.scan_sounds(pk)]
+            samples = [(ids.asset(rel, archive, ent["name"], "sound", s["i"]), pk.b[s["ptr"]:s["ptr"] + s["len"]],
+                        s["rate"]) for s in XM.scan_sounds(pk)]
             song, bank = XM.scan_song(pk)
             if song:
                 o, n = song["smf"]
@@ -433,12 +469,17 @@ def index_file(job):
                     if (en["off"], en["len"]) not in done:
                         done.add((en["off"], en["len"]))
                         p = bank["data"] + en["off"]
-                        samples.append((ids.asset(rel, archive, ent["name"], "bank", en["k"]), pk.b[p:p + en["len"]]))
-            for sid, sraw in samples:
-                pcm = XM.decode_sample(rel, sraw, sid).astype("<i2").tobytes()
+                        samples.append((ids.asset(rel, archive, ent["name"], "bank", en["k"]), pk.b[p:p + en["len"]],
+                                        en["rate"]))
+            for sid, sraw, srate in samples:
+                pcm16 = XM.decode_sample(rel, sraw, sid)
+                pcm = pcm16.astype("<i2").tobytes()
                 ss = c.src(f"{rel}: {sid}")
                 c.add("snd", h64(pcm), ss)
                 c.add("b32", block_hashes(pcm, FINE), ss)
+                k, f = sound_fp(pcm16, srate)
+                if len(k):
+                    c.sfp.append((k, f, ss))
         except (XM.MediaError, struct.error, ValueError, IndexError) as e:
             c.notes.append(f"{name} {ent['name']}: sounds: {e}")
         blob = XG.Blob(pk.section("data"), set(pk.words("pointers")), rel)
@@ -482,7 +523,7 @@ def cmd_index(a):
     with multiprocessing.Pool(a.jobs) as pool:
         parts = pool.map(index_file, jobs, chunksize=1)
     sources, tabs = [], {}
-    dh, dh_src, obj, notes = [], [], [], []
+    dh, dh_src, obj, notes, sfp = [], [], [], [], []
     meta = {"tool": TOOL, "tool_version": TOOL_VERSION, "format_version": FORMAT_VERSION,
             "partial": bool(only) or a.no_geometry, "geometry": not a.no_geometry, "files": [],
             "objects": {}, "textures": {}}
@@ -496,6 +537,7 @@ def cmd_index(a):
                 tabs[k][1].append(s + np.uint32(base))
         dh += c.dh
         dh_src += [s + base for s in c.dh_src]
+        sfp += [(k, f, s + base) for k, f, s in c.sfp]
         obj += c.obj
         notes += c.notes
         meta["files"] += c.files
@@ -517,6 +559,12 @@ def cmd_index(a):
     out["dh"] = np.array(dh, np.uint64).reshape(-1, 4)
     out["dh_src"] = np.array(dh_src, np.uint32)
     out["obj"] = np.unique(np.array(obj, np.uint64))
+    if sfp:
+        k = np.concatenate([x[0] for x in sfp])
+        order = np.argsort(k, kind="stable")
+        out["sfp"] = k[order]
+        out["sfp_frame"] = np.concatenate([x[1] for x in sfp])[order]
+        out["sfp_src"] = np.concatenate([np.full(len(x[0]), x[2], np.uint32) for x in sfp])[order]
     out["meta"] = np.frombuffer(json.dumps(meta).encode(), np.uint8)
     path = Path(a.out)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -528,7 +576,8 @@ def cmd_index(a):
         print(f"note: ... and {len(notes) - 20} more")
     print(f"{path}: {len(meta['files'])} files of {', '.join(meta['releases']) or 'no release'}"
           f"{' (PARTIAL)' if meta['partial'] else ''}: {len(out['b32'])} + {len(out['b256'])} blocks, "
-          f"{len(out['px'])} texture levels, {len(out['dh'])} texture looks, {len(out['snd'])} samples, "
+          f"{len(out['px'])} texture levels, {len(out['dh'])} texture looks, {len(out['snd'])} samples "
+          f"({len(out.get('sfp', ()))} sound frames), "
           f"{len(out['vtx'])} vertices, {len(meta['objects'])} objects; "
           f"{path.stat().st_size / 1e6:.1f} MB, {time.time() - t0:.0f} s")
     return 0
@@ -562,6 +611,32 @@ class Index:
     def one(self, table, h):
         hit, src = self.find(table, [h])
         return src[0] if len(hit) else None
+
+    def sounds_like(self, keys, frames):
+        """The base sound a fingerprint lines up with best: (frames lined up, of how many, source),
+        or None. Needs an index made with sound fingerprints."""
+        t = self.a.get("sfp")
+        if t is None or len(t) == 0 or len(keys) == 0:
+            return None
+        lo, hi = np.searchsorted(t, keys, "left"), np.searchsorted(t, keys, "right")
+        cnt = hi - lo
+        cnt = np.minimum(cnt, 2000)                  # a key every quiet hum shares says little
+        q = np.repeat(np.arange(len(keys)), cnt)
+        pos = np.repeat(lo, cnt) + (np.arange(cnt.sum()) - np.repeat(np.cumsum(cnt) - cnt, cnt))
+        if len(pos) == 0:
+            return None
+        src = self.a["sfp_src"][pos].astype(np.int64)
+        off = self.a["sfp_frame"][pos].astype(np.int64) - frames[q].astype(np.int64) + (1 << 20)
+        # one vote per query frame and (source, offset); offsets one frame apart count together
+        pair = np.unique(np.stack([src << 22 | off, q]), axis=1)[0]
+        v, c = np.unique(pair, return_counts=True)
+        c2 = c.copy()
+        nb = np.searchsorted(v, v + 1)
+        ok = nb < len(v)
+        ok[ok] &= v[nb[ok]] == v[ok] + 1
+        c2[ok] += c[nb[ok]]
+        i = int(c2.argmax())
+        return int(c2[i]), len(keys), self.sources[int(v[i] >> 22)]
 
     def near(self, d):
         """The base texture a gradient hash is closest to: (bits differing, source)."""
@@ -616,6 +691,7 @@ class Manifest:
         self.errors = []
         self.patches = []       # (where, base object id or None, entry (kind, uid) or None, object path, dict)
         self.recipes = []       # (where, base texture id, ops)
+        self.sounds = []        # (where, base sound id, file)
         self.refs = set()       # every base:// id the mod names
         self._check()
 
@@ -668,7 +744,7 @@ class Manifest:
         if not isinstance(d, dict):
             return self.err("the file", "isn't an object")
         known = {"$schema", "format_version", "id", "name", "version", "author", "description", "releases",
-                 "after", "cars", "items", "tracks", "patches", "recipes"}
+                 "after", "cars", "items", "tracks", "patches", "recipes", "sounds"}
         for k in d:
             if k not in known:
                 self.err(k, "isn't a member of a mod (schemas/Mod.schema.json)")
@@ -778,7 +854,30 @@ class Manifest:
             self.refs.add(target)
             self._ops(ops, f"recipes.{target}")
             self.recipes.append((f"recipes.{target}", target, ops))
-        for k in ("patches", "recipes"):
+        # sounds: a mod's own sound file over a base sound (decoded by the port)
+        for target, v in (d.get("sounds") or {}).items() if isinstance(d.get("sounds", {}), dict) else []:
+            w = f"sounds.{target}"
+            if not SND_RE.match(target):
+                self.err(w, "a sound's id: base://HW_Cars/car_5/sound/3")
+                continue
+            f = v if isinstance(v, str) else v.get("file") if isinstance(v, dict) else None
+            if isinstance(v, dict):
+                for k in v:
+                    if k not in ("file", "loop"):
+                        self.err(f"{w}.{k}", "isn't a member of a sound (file, loop)")
+                lp = v.get("loop")
+                if "loop" in v and lp is not None and (not isinstance(lp, int) or isinstance(lp, bool) or lp < 0):
+                    self.err(f"{w}.loop", "a sample of the file, or null (plays once)")
+            if not isinstance(f, str) or Path(f).suffix.lower() not in XM.AUDIO_EXT or ".." in Path(f).parts \
+                    or f.startswith("/") or "\\" in f:
+                self.err(w, f"a sound file of the mod ({' '.join(XM.AUDIO_EXT)}), or {{\"file\", \"loop\"}}")
+                continue
+            if not (self.dir / f).is_file():
+                self.err(w, f"{f} isn't in the mod")
+                continue
+            self.refs.add(target)
+            self.sounds.append((w, target, f))
+        for k in ("patches", "recipes", "sounds"):
             if not isinstance(d.get(k, {}), dict):
                 self.err(k, "isn't an object")
         return None
@@ -963,6 +1062,37 @@ def gltf_positions(path, data, folder):
     return out
 
 
+def check_audio(index, rep, rel, path):
+    """A decoded sound file: its samples (each channel, and their mix) as the game's would be,
+    then whether it sounds like a base sound."""
+    pcm, rate, _, _ = XM.decode_audio(path)
+    chans = [np.ascontiguousarray(pcm[:, c]) for c in range(pcm.shape[1])]
+    if len(chans) > 1:
+        chans.append(XM.to_mono(pcm))
+    for ci, ch in enumerate(chans):
+        raw = ch.astype("<i2").tobytes()
+        src = index.one("snd", h64(raw))
+        if src:
+            return rep.refuse(rel, f"is the game's sound ({src})", _asset(src))
+        if path.suffix.lower() != ".wav" or len(chans) > 1:
+            what = "the decoded samples" if len(chans) == 1 else \
+                f"decoded channel {ci}" if ci < len(chans) - 1 else "the channels' mix"
+            if check_bytes(index, rep, f"{rel}: {what}", raw, "hold"):
+                return None
+    if "sfp" not in index.a:
+        note = ("the index has no sound fingerprints (made by an older xdl_mod.py): sounds were checked by "
+                "their exact samples only; run index again")
+        if note not in rep.notes:
+            rep.notes.append(note)
+        return None
+    k, f = sound_fp(chans[-1], rate)
+    hit = index.sounds_like(k, f)
+    if hit and hit[0] >= SFP_MIN and hit[0] >= SFP_SHARE * hit[1]:
+        rep.refuse(rel, f"sounds like the game's sound ({hit[2]}; {hit[0]} of its {hit[1]} frames line up): "
+                        "a re-encoded or resampled game sound is still the game's", _asset(hit[2]))
+    return None
+
+
 def check_mod(folder, index, strip=False):
     """-> (Manifest, Report, files {relative path: bytes} as the package gets them)."""
     folder = Path(folder)
@@ -1071,21 +1201,8 @@ def check_mod(folder, index, strip=False):
                                         "bits differ): an edited game texture is still the game's",
                                    f'a recipe on "{_asset(near[1])}"')
                 check_bytes(index, rep, f"{rel}: pixels", img.tobytes(), "the pixels hold")
-            elif ext == ".wav":
-                import wave
-                with wave.open(io.BytesIO(data), "rb") as w:
-                    if w.getsampwidth() != 2:
-                        rep.refuse(rel, "needs 16-bit PCM to be checked")
-                        continue
-                    pcm = np.frombuffer(w.readframes(w.getnframes()), "<i2")
-                    chans = [pcm[c::w.getnchannels()] for c in range(w.getnchannels())]
-                for ci, ch in enumerate(chans):
-                    raw = np.ascontiguousarray(ch).tobytes()
-                    src = index.one("snd", h64(raw))
-                    if src:
-                        rep.refuse(rel, f"is the game's sound ({src})", _asset(src))
-                    elif len(chans) > 1:
-                        check_bytes(index, rep, f"{rel}: channel {ci}", raw, "the samples hold")
+            elif ext in XM.AUDIO_EXT:
+                check_audio(index, rep, rel, p)
             if ext in (".gltf", ".glb"):
                 if not index.meta["geometry"]:
                     rep.refuse(rel, "the index was made without geometry: meshes can't be checked")

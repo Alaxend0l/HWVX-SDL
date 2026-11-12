@@ -930,6 +930,24 @@ void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count) {
     }
 }
 
+/* A mod's own sound for sound `index` of the pack (Port_ModsSFX), over what
+ * PortMix_SFXPrepare chose: pcm (malloc'd PCM16, host order) is taken. */
+void PortMix_SFXSet(u32 index, u32 count, u8 *pcm, u32 length, u32 loop, u32 rate) {
+    if (s_sfx == NULL && count != 0 && count <= 0x10000) {
+        s_sfx = calloc(count, sizeof(NewSfx));
+        s_numSfx = s_sfx != NULL ? count : 0;
+    }
+    if (index >= s_numSfx) {
+        free(pcm);
+        return;
+    }
+    free(s_sfx[index].pcm);
+    s_sfx[index].pcm = pcm;
+    s_sfx[index].length = length;
+    s_sfx[index].loop = loop;
+    s_sfx[index].rate = rate;
+}
+
 u32 PortMix_SFXLength(u32 index) {
     return index < s_numSfx && s_sfx[index].pcm != NULL ? s_sfx[index].length : 0;
 }

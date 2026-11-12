@@ -91,6 +91,9 @@ void PortMix_Textures(struct DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u3
  * copied them. PortMix_SFXPrepare runs before the base's own conversion,
  * which asks PortMix_SFXLength/Fill for a PS2 pack's (Port_PS2.c). */
 void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count);
+/* A mod's sound over sound `index` (Port_Mods.c): pcm is PCM16 in host order
+ * (malloc'd, taken), length in bytes, loop in bytes or 0xFFFFFFFF. */
+void PortMix_SFXSet(u32 index, u32 count, u8 *pcm, u32 length, u32 loop, u32 rate);
 u32 PortMix_SFXLength(u32 index);
 void PortMix_SFXFill(u32 index, void *desc, u8 *out);
 void PortMix_SFX(s32 fmt, u8 *desc, u32 count);

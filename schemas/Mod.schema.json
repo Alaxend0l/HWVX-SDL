@@ -100,6 +100,44 @@
         "$ref": "#/$defs/recipe"
       }
     },
+    "sounds": {
+      "description": "The mod's own sound files over base sounds, by sound id: base://HW_Cars/car_7/sound/3 (or sound/gc:3 for one release's). The port decodes the file (WAV, FLAC, Ogg Vorbis, MP3) as the pack loads, mixes it to mono and resamples it to the base sound's rate. Loop: the file's tag (WAV smpl; LOOPSTART with LOOPLENGTH or LOOPEND as Vorbis comments or ID3v2 TXXX), else \"loop\", else the whole sound when the base sound loops.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^base://[A-Za-z0-9_]+/[a-z_]+_[0-9]+/sound/([a-z0-9]+:)?[0-9]+$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "\\.(wav|flac|ogg|mp3|WAV|FLAC|OGG|MP3)$",
+            "description": "the sound file, a path in the mod"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "type": "string",
+                "pattern": "\\.(wav|flac|ogg|mp3|WAV|FLAC|OGG|MP3)$",
+                "description": "the sound file, a path in the mod"
+              },
+              "loop": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "loop start in the file's samples (null: plays once); a loop tag in the file wins"
+              }
+            }
+          }
+        ]
+      }
+    },
     "tracks": {
       "description": "New tracks: each a level of its base track's mode and an entry of that mode's world select.",
       "type": "object",
