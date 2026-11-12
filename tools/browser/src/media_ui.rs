@@ -149,8 +149,12 @@ impl Browser {
         self.detail = None;
         self.media.view = kind;
         match kind {
-            View::Texture => self.request("texture", json!({"pack": pack, "node": id}), Pending::Texture(id.to_string())),
-            View::Sound => self.request("sound", json!({"pack": pack, "node": id}), Pending::Sound(id.to_string())),
+            View::Texture => {
+                self.request("texture", json!({"pack": pack, "node": id}), Pending::Texture(id.to_string()));
+            }
+            View::Sound => {
+                self.request("sound", json!({"pack": pack, "node": id}), Pending::Sound(id.to_string()));
+            }
             _ => {}
         }
     }

@@ -741,8 +741,9 @@ impl Browser {
                     v["rotY"] = json!((r * 10000.0).round() / 10000.0);
                 }
                 if k == "items" || k == "fxPoints" {
-                    let key = format!("{k}/{n}");
                     self.edited(before);
+                    // the reply belongs to this generation: one after an undo or a later edit is dropped
+                    let key = format!("{}|{k}/{n}", self.level.edit.generation);
                     self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
                     return;
                 }
@@ -829,12 +830,20 @@ impl Browser {
         self.edit_select(Sel::Own(k.into(), name));
     }
 
+    /// The quadrant a moved item or effect point is in now: part of that move (its undo point),
+    /// so only while nothing else changed since (an undo, a later edit: the reply is dropped).
     pub(crate) fn item_quad_reply(&mut self, key: &str, r: Value) {
-        let Some((kind, name)) = key.split_once('/') else { return };
+        let Some((g, rest)) = key.split_once('|') else { return };
+        let Some((kind, name)) = rest.split_once('/') else { return };
+        if g.parse::<u64>().ok() != Some(self.level.edit.generation) {
+            return;
+        }
         if let (Some(q), Some(p)) = (r["quad"].as_i64(), self.level.edit.proj.as_mut()) {
-            if p.level[kind][name].is_object() && p.level[kind][name]["quad"] != q {
-                p.level[kind][name]["quad"] = json!(q);
-                self.level.edit.generation += 1;
+            if let Some(rec) = p.level.get_mut(kind).and_then(|k| k.get_mut(name)).filter(|v| v.is_object()) {
+                if rec["quad"] != q {
+                    rec["quad"] = json!(q);
+                    self.level.edit.generation += 1;
+                }
             }
         }
     }
@@ -990,8 +999,7 @@ impl Browser {
             self.level.edit.move_offset = f32::NAN;
         }
         if !self.level.edit.move_inflight {
-            self.level.edit.move_inflight = true;
-            self.request("raycast", json!({"x": x, "y": y}), Pending::EditMove);
+            self.level.edit.move_inflight = self.request("raycast", json!({"x": x, "y": y}), Pending::EditMove);
         }
     }
 
@@ -1036,8 +1044,9 @@ impl Browser {
         }
         if let Some((c, _)) = self.sel_place() {
             self.level.edit.move_offset = 0.0;
-            self.request("raycast", json!({"from": [c[0], c[1] + 30.0, c[2]], "to": [c[0], c[1] - 3000.0, c[2]]}), Pending::EditMove);
-            self.level.edit.move_inflight = true;
+            if self.request("raycast", json!({"from": [c[0], c[1] + 30.0, c[2]], "to": [c[0], c[1] - 3000.0, c[2]]}), Pending::EditMove) {
+                self.level.edit.move_inflight = true;
+            }
         }
     }
 

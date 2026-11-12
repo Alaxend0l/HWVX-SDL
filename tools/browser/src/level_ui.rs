@@ -155,14 +155,15 @@ impl Browser {
             let p = if c["mode"].as_str() == Some("fly") { &c["pos"] } else { &c["target"] };
             let at: Vec<f64> = p.as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
             if at.len() == 3 {
-                self.level.waiting_ground = true;
-                self.level.message = "finding the ground under the camera…".into();
-                self.request(
+                if self.request(
                     "raycast",
                     json!({"from": [at[0], at[1] + 50.0, at[2]], "to": [at[0], at[1] - 5000.0, at[2]]}),
                     Pending::Ground,
-                );
-                return;
+                ) {
+                    self.level.waiting_ground = true;
+                    self.level.message = "finding the ground under the camera…".into();
+                    return;
+                }
             }
         }
         self.start_prepare(None);
