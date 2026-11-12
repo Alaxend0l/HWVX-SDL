@@ -1200,7 +1200,54 @@ impl Browser {
             v = json!({"value": v});
         }
         let mut link_pick = None;
-        let changed = fields_editor(ui, &mut v, &schema, advanced, &cands, &format!("{kind}/{name}"), &mut link_pick, kind == "volumes");
+        let mut changed = fields_editor(ui, &mut v, &schema, advanced, &cands, &format!("{kind}/{name}"), &mut link_pick, kind == "volumes");
+        if kind == "volumes" {
+            // a box's size, and the type's settings
+            if let (Some(mut lo), Some(mut hi)) = (vec3(&v["box"]["min"]), vec3(&v["box"]["max"])) {
+                ui.label("box (a BSP volume)");
+                let mut cc = false;
+                for (lbl, c) in [("min", &mut lo), ("max", &mut hi)] {
+                    ui.horizontal(|ui| {
+                        ui.label(lbl);
+                        for i in 0..3 {
+                            cc |= ui.add(egui::DragValue::new(&mut c[i]).speed(0.5)).changed();
+                        }
+                    });
+                }
+                if cc {
+                    v["box"] = json!({"min": [round(lo[0]), round(lo[1]), round(lo[2])], "max": [round(hi[0]), round(hi[1]), round(hi[2])]});
+                    changed = true;
+                }
+            }
+            let t = v["type"].as_str().unwrap_or("airbox").to_string();
+            let defaults = match t.as_str() {
+                "force_box" => Some(json!({"force": [0, 50, 0], "oneShot": 0, "carOnly": 0, "type": 0})),
+                "reverb" => Some(json!({"type": 2, "volume": 16383, "feedback": 16383})),
+                "fog" => Some(json!({"type": 0, "near": 50, "far": 400, "color": [128, 128, 128, 255]})),
+                "light" => Some(json!({"direction": [0, -1, 0], "color": [255, 255, 255], "lightType": 1, "subtract": 0})),
+                "creature" => Some(json!({"rescue": 0})),
+                _ => None,
+            };
+            if let Some(d) = defaults {
+                ui.separator();
+                ui.label(format!("{t} settings (the game finds new ones only once the volume grid lists them: see the warning)"));
+                if !v["data"].is_object() {
+                    v["data"] = d;
+                    changed = true;
+                }
+                let mut dv = v["data"].clone();
+                let kinds = HashMap::new();
+                if value_editor(ui, &mut dv, "", &kinds, &[], &[], &format!("{kind}/{name}/data"), &mut link_pick, 0) {
+                    v["data"] = dv;
+                    changed = true;
+                }
+            } else if v.get("data").map(|d| d.is_object()).unwrap_or(false) {
+                if let Some(o) = v.as_object_mut() {
+                    o.remove("data");
+                }
+                changed = true;
+            }
+        }
         if changed {
             p.level[kind][name] = v;
             self.edited(before);
@@ -1242,6 +1289,17 @@ impl Browser {
         if rec["path"] != path {
             ui.spinner();
             return;
+        }
+        if let Some(d) = rec["volumeData"].as_object() {
+            ui.label(egui::RichText::new("its settings (by type; read only)").strong());
+            egui::Grid::new("volume_data").num_columns(2).show(ui, |ui| {
+                for (k, x) in d {
+                    ui.label(k);
+                    ui.monospace(x.to_string());
+                    ui.end_row();
+                }
+            });
+            ui.separator();
         }
         let sname = rec["struct"].as_str().unwrap_or("").to_string();
         let schema = self.schema(&sname);

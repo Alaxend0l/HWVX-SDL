@@ -242,6 +242,44 @@ def scalar(T, p, v, where, e=E):
         raise LevelError(str(ex))
 
 
+def volume_data(kind, d, e, where):
+    """A volume's settings as the game reads them, by its type."""
+    def f(k, default=0.0):
+        x = d.get(k, default)
+        if isinstance(x, bool) or not isinstance(x, (int, float)):
+            raise LevelError(f"{where}/{k}: a number")
+        return float(x)
+
+    def i(k, lo, hi):
+        x = d.get(k, 0)
+        if isinstance(x, bool) or not isinstance(x, int) or not lo <= x <= hi:
+            raise LevelError(f"{where}/{k}: a whole number {lo}..{hi}")
+        return x
+
+    def color(k, n):
+        c = d.get(k, [255] * n)
+        if not (isinstance(c, list) and len(c) == n and all(isinstance(x, int) and 0 <= x <= 255 for x in c)):
+            raise LevelError(f"{where}/{k}: {n} numbers 0..255")
+        return bytes(c)
+    if kind == "force_box":
+        fv = d.get("force", [0, 0, 0])
+        if not (isinstance(fv, list) and len(fv) == 3):
+            raise LevelError(f"{where}/force: [x, y, z]")
+        return struct.pack(e + "4f", *[float(x) for x in fv], 0.0) + struct.pack(e + "bbH", i("oneShot", -128, 127),
+                                                                                  i("carOnly", -128, 127), i("type", 0, 65535))
+    if kind == "reverb":
+        return struct.pack(e + "IHH", i("type", 0, 0xFFFFFFFF), i("volume", 0, 65535), i("feedback", 0, 65535))
+    if kind == "fog":
+        return bytes([i("type", 0, 255), 0, 0, 0]) + struct.pack(e + "2f", f("near"), f("far")) + color("color", 4)
+    if kind == "light":
+        dv = d.get("direction", [0, 0, 1])
+        return (struct.pack(e + "4f", *[float(x) for x in dv], 0.0) + color("color", 3) + b"\0" +
+                struct.pack(e + "i", 0) + bytes([i("lightType", 0, 255), i("subtract", -128, 127) & 0xFF]) + b"\0\0")
+    if kind == "creature":
+        return bytes([i("rescue", 0, 255), 0, 0, 0])
+    raise LevelError(f"{where}: an {kind} volume has no settings")
+
+
 class Compiler:
     def __init__(self, proj, base=None, skip_intro=False, spawn_box=None):
         self.proj = Path(proj)
@@ -327,6 +365,16 @@ class Compiler:
             v.setdefault("center", [(lo[i] + hi[i]) / 2 for i in range(3)])
             v.setdefault("radius", 0.5 * math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))))
             v.setdefault("radiusSq", 0.0)
+        data = v.pop("data", None)
+        if isinstance(data, dict):
+            # the type's settings (VolumeManager.c, Thing.c ForceBox, LightManager.c)
+            raw = volume_data(v.get("type", "airbox"), data, self.e, f"{where}/data")
+            self.add_part(f"level://volumes/{name}/data", "data", raw, {})
+            v["data"] = f"level://volumes/{name}/data"
+            self.warnings.append(f"{where}/type: a {v.get('type')} volume of the level's own isn't in the world's "
+                                 "volume grid (VolumeHolder): only the airbox triggers find a volume without it")
+        elif data is not None:
+            v["data"] = data
         for k in v:
             if k not in props or "x-offset" not in props[k]:
                 raise LevelError(f"{where}/{k}: not a field of WorldVolume")

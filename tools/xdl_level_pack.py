@@ -225,6 +225,8 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             it["center"] = {"x": (lo[0] + hi[0]) / 2, "y": (lo[1] + hi[1]) / 2, "z": (lo[2] + hi[2]) / 2, "w": 0.0}
             it["radius"] = 0.5 * math.sqrt(sum((hi[k] - lo[k]) ** 2 for k in range(3)))
             it["radiusSq"] = 0.0
+        if isinstance(v.get("data"), dict):
+            it["data"] = own_id("volumes", n) + "/data"
         vdoc["items"].append(it)
     if vols:
         world["numVolumes"] = len(vdoc["items"])

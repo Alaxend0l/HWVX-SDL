@@ -504,6 +504,76 @@ static void Records(JsonWriter *w, VPack *vp, const char *table) {
     Jw_EndArray(w);
 }
 
+/* A volume's settings by its type (WorldVolume.data; VolumeManager.c, Thing.c, LightManager.c):
+ * "volumeData": {...} or null. */
+static void WriteVolumeData(JsonWriter *w, VPack *vp, const WorldVolume *v) {
+    const u8 *d = Port_HandleToPtr(v->data.h);
+    u32 lo = Port_PtrToHandle(Blob(vp));
+
+    if (v->data.h == 0 || v->data.h - lo >= vp->size) {
+        Viewer_WriteNull(w, "volumeData");
+        return;
+    }
+    Jw_BeginObject(w, "volumeData", 1);
+    switch (v->type) {
+    case VOLUME_FORCE_BOX:
+        Jw_String(w, "kind", "force_box");
+        Jw_BeginArray(w, "force", 1);
+        Jw_Float(w, NULL, ((const f32 *)d)[0]);
+        Jw_Float(w, NULL, ((const f32 *)d)[1]);
+        Jw_Float(w, NULL, ((const f32 *)d)[2]);
+        Jw_EndArray(w);
+        Jw_Int(w, "oneShot", (s8)d[0x10]);
+        Jw_Int(w, "carOnly", (s8)d[0x11]);
+        Jw_Int(w, "type", *(const u16 *)(d + 0x12));
+        break;
+    case VOLUME_REVERB:
+        Jw_String(w, "kind", "reverb");
+        Jw_Int(w, "type", *(const u32 *)d);
+        Jw_Int(w, "volume", *(const u16 *)(d + 4));
+        Jw_Int(w, "feedback", *(const u16 *)(d + 6));
+        break;
+    case VOLUME_FOG:
+        Jw_String(w, "kind", "fog");
+        Jw_Int(w, "type", d[0]);
+        Jw_Float(w, "near", *(const f32 *)(d + 4));
+        Jw_Float(w, "far", *(const f32 *)(d + 8));
+        Jw_BeginArray(w, "color", 1);
+        Jw_Int(w, NULL, d[12]);
+        Jw_Int(w, NULL, d[13]);
+        Jw_Int(w, NULL, d[14]);
+        Jw_Int(w, NULL, d[15]);
+        Jw_EndArray(w);
+        break;
+    case VOLUME_LIGHT: {
+        const Light *l = (const Light *)d;
+
+        Jw_String(w, "kind", "light");
+        Jw_BeginArray(w, "direction", 1);
+        Jw_Float(w, NULL, l->direction.x);
+        Jw_Float(w, NULL, l->direction.y);
+        Jw_Float(w, NULL, l->direction.z);
+        Jw_EndArray(w);
+        Jw_BeginArray(w, "color", 1);
+        Jw_Int(w, NULL, l->r);
+        Jw_Int(w, NULL, l->g);
+        Jw_Int(w, NULL, l->b);
+        Jw_EndArray(w);
+        Jw_Int(w, "lightType", l->type);
+        Jw_Int(w, "subtract", l->subtract);
+        break;
+    }
+    case VOLUME_CREATURE:
+        Jw_String(w, "kind", "creature");
+        Jw_Int(w, "rescue", d[0]);
+        break;
+    default:
+        Jw_String(w, "kind", "other");
+        break;
+    }
+    Jw_EndObject(w);
+}
+
 /* ---- the commands ------------------------------------------------------------- */
 
 static int ParseColor(const JsonNode *c, u8 *out) {
@@ -649,6 +719,9 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
             Jw_String(w, "at", hex);
             if (!Viewer_WriteStruct(w, "fields", vp, schema, (u32)(at - Blob(vp)))) {
                 Viewer_WriteNull(w, "fields");
+            }
+            if (SDL_strcmp(schema, "WorldVolume") == 0) {
+                WriteVolumeData(w, vp, (const WorldVolume *)at);
             }
         }
         return 1;
