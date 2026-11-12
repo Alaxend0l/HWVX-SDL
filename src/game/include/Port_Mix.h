@@ -86,8 +86,10 @@ void PortMix_SFXFill(u32 index, void *desc, u8 *out);
 void PortMix_SFX(s32 fmt, u8 *desc, u32 count);
 void PortMix_SFXDone(void);
 /* --mix-build: load every pack of every archive, so the cache holds them;
- * returns the packs converted. */
-u32 PortMix_BuildAll(void);
+ * returns the packs converted, *failed those that did not load. Before each
+ * pack it prints "@convert DONE TOTAL ARCHIVE" (Port_Convert.h's progress;
+ * a first pass over the TOCs counts TOTAL). */
+u32 PortMix_BuildAll(u32 *failed);
 
 typedef struct PortMixPairPack {
     const char *archive;    /* file stem, matched without case */

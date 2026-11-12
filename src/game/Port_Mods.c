@@ -4,8 +4,8 @@
  * - The list: every folder of the mods folder with a mod.jsonc, in the
  *   order mods.jsonc gives ("order", "disabled"), then the others by id,
  *   then each moved behind the mods its "after" names.
- * - Entries (cars, items): an enabled mod's entries go into ids.lock with
- *   their alias, name and "mod" (Port_ModsSyncLock), and the registry
+ * - Entries (cars, items, tracks): an enabled mod's entries go into ids.lock
+ *   with their alias, name (a track's world) and "mod" (Port_ModsSyncLock), and the registry
  *   numbers and loads them as it does any lock entry. A mod that's off or
  *   gone leaves its entries "active": false, their numbers kept.
  * - Patches: RFC 7396 merge patches on objects of a loaded pack, by object
@@ -419,8 +419,8 @@ static void BuildReport(void) {
                 }
             }
         }
-        for (s = 0; s < 2; s++) {
-            const char *kind = s == 0 ? "cars" : "items";
+        for (s = 0; s < 3; s++) {
+            const char *kind = s == 0 ? "cars" : s == 1 ? "items" : "tracks";
             const JsonNode *a = Json_Get(m->doc, kind), *x;
 
             for (x = a != NULL && a->type == JSON_OBJECT ? a->child : NULL; x != NULL; x = x->next) {
@@ -759,7 +759,7 @@ static int SetBool(JsonNode *e, const char *key, int v) {
 }
 
 void Port_ModsSyncLock(const char *path) {
-    static const char *const kinds[] = { "cars", "items" };
+    static const char *const kinds[] = { "cars", "items", "tracks" };
     size_t len;
     char *text = SDL_LoadFile(path, &len), err[160];
     JsonNode *lock = text != NULL ? Json_Parse(text, len, err, sizeof(err)) : NULL;
@@ -774,7 +774,7 @@ void Port_ModsSyncLock(const char *path) {
     if (lock == NULL && (lock = Json_NewObject()) != NULL) {
         Json_Append(lock, Json_NewInt(1), "format_version");
     }
-    for (k = 0; lock != NULL && k < 2; k++) {
+    for (k = 0; lock != NULL && k < (int)SDL_arraysize(kinds); k++) {
         JsonNode *sec = Json_ObjectMember(lock, kinds[k]), *e;
 
         /* entries of mods that are off or gone wait for them */
@@ -806,6 +806,7 @@ void Port_ModsSyncLock(const char *path) {
                 changed |= SetStr(e2, "alias", Str(x, "extends"));
                 changed |= SetStr(e2, "name", Str(x, "name"));
                 changed |= SetStr(e2, "thumbnail", Str(x, "thumbnail"));
+                changed |= SetStr(e2, "world", Str(x, "world"));   /* tracks */
                 changed |= SetStr(e2, "mod", s_mods[i].info.id);
                 changed |= SetBool(e2, "unlocked", Json_GetBool(x, "unlocked", 0));
                 changed |= SetBool(e2, "active", 1);

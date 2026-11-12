@@ -74,6 +74,7 @@ TEX_RE = re.compile(r"^base://([A-Za-z0-9_]+)/([a-z_]+_[0-9]+)/texture/((?:[a-z0
 OBJ_RE = re.compile(r"^base://([A-Za-z0-9_]+)/([a-z_]+_[0-9]+)/([A-Za-z0-9_]+/[0-9]+(?:/[A-Za-z0-9_]+)*)$")
 CAR_RE = re.compile(r"^base://HW_Cars/car_([0-9]+)$")
 ITEM_RE = re.compile(r"^base://mcp/item/([0-9]+)$")
+TRACK_RE = re.compile(r"^base://mcp/track/([0-9]+)$")
 RELEASES = ("gc", "pc", "ps2")
 ROOT_KIND = {"car": "CarAInfo", "item": "ItemRecord"}
 # what the selects' entries extend, and the pack that holds their data
@@ -639,7 +640,7 @@ class Manifest:
         if not isinstance(d, dict):
             return self.err("the file", "isn't an object")
         known = {"$schema", "format_version", "id", "name", "version", "author", "description", "releases",
-                 "after", "cars", "items", "patches", "recipes"}
+                 "after", "cars", "items", "tracks", "patches", "recipes"}
         for k in d:
             if k not in known:
                 self.err(k, "isn't a member of a mod (schemas/Mod.schema.json)")
@@ -707,6 +708,34 @@ class Manifest:
                 for k in ("patch", "recipes"):
                     if not isinstance(e.get(k, {}), dict):
                         self.err(f"{w}.{k}", "isn't an object")
+        # tracks: a level of the base track's mode, its world the base's or one the MCP names
+        sec = d.get("tracks", {})
+        if not isinstance(sec, dict):
+            self.err("tracks", "isn't an object")
+            sec = {}
+        for uid, e in sec.items():
+            w = f"tracks.{uid}"
+            if not UID_RE.match(uid):
+                self.err(w, "the key is the entry's id: uid:// and up to 13 of 0-9 a-z")
+            if uid in uids:
+                self.err(w, "the id is used twice")
+            uids.add(uid)
+            if not isinstance(e, dict):
+                self.err(w, "isn't an object")
+                continue
+            for k in e:
+                if k not in ("extends", "name", "thumbnail", "unlocked", "world"):
+                    self.err(f"{w}.{k}", "isn't a member of a track (extends, name, thumbnail, unlocked, world)")
+            ext = self._str(e, "extends", w, True, TRACK_RE)
+            if ext:
+                self.refs.add(ext)
+            self._str(e, "name", w)
+            self._str(e, "world", w)
+            th = self._str(e, "thumbnail", w, False, TEX_RE)
+            if th:
+                self.refs.add(th)
+            if "unlocked" in e and not isinstance(e["unlocked"], bool):
+                self.err(f"{w}.unlocked", "true or false")
         for target, patch in (d.get("patches") or {}).items() if isinstance(d.get("patches", {}), dict) else []:
             m = OBJ_RE.match(target)
             if not m or TEX_RE.match(target):
@@ -860,7 +889,7 @@ def check_mod(folder, index, strip=False):
     for where, tid, ops in man.recipes:
         if tid not in meta["textures"]:
             rep.refuse(f"mod.jsonc: {where}", f"no texture {tid} in your game data ({', '.join(sorted(have))})")
-    for uid_kind in ("cars", "items"):
+    for uid_kind in ("cars", "items", "tracks"):
         for uid, e in (man.doc.get(uid_kind) or {}).items() if isinstance(man.doc.get(uid_kind, {}), dict) else []:
             th = e.get("thumbnail") if isinstance(e, dict) else None
             if isinstance(th, str) and TEX_RE.match(th) and th not in meta["textures"]:
@@ -1075,6 +1104,9 @@ def cmd_info(a):
         man = type("M", (), {"doc": doc, "errors": []})()
     d = man.doc
     print(f"{d.get('name')} {d.get('version')} ({d.get('id')}) by {d.get('author', '?')}")
+    for uid, e in (d.get("tracks") or {}).items():
+        print(f"  track {uid}: {e.get('name', '(the base name)')}, extends {e.get('extends')}"
+              f"{', world ' + e['world'] if e.get('world') else ''}")
     for k in ("cars", "items"):
         for uid, e in (d.get(k) or {}).items():
             print(f"  {k[:-1]} {uid}: {e.get('name', '(the base name)')}, extends {e.get('extends')}, "

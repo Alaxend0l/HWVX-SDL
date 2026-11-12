@@ -4,6 +4,7 @@
 #include "Port_Swap.h"
 #include "xdl.h"
 #include "Port_Content.h"
+#include "viewer.h"
 #include "Port_Mix.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
@@ -589,6 +590,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
                     pointers, header.numPointers,
                     pointers - header.numTexRelocs * 2, header.numTexRelocs);
     }
+    /* port: the viewer keeps the lists the loader doesn't (HWVX_VIEWER only) */
+    Port_ViewerNotePack(pack, pointers, header.numPointers, pointers - header.numTexRelocs * 2, header.numTexRelocs);
     SETP(pack->paletteData, (void *)((u8 *)GETP(pack->base) + header.paletteOffset));
     SETP(pack->shaders, (DataPackShader *)((u8 *)GETP(pack->base) + header.shaderOffset));
     pack->textureData = header.textureDataOffset + (u32)HND(GETP(pack->base));

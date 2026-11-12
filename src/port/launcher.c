@@ -23,8 +23,11 @@
  *   not playable, kept for its beta cars, worlds and audio (later). Its disc
  *   image is imported like the PS2's; either disc goes where its version
  *   says, whichever row it was picked from.
+ * - a mixed game (Port_Mix.h: the "ultimate" recipe, one game from the best
+ *   of each release), offered with two or more releases imported: Play
+ *   starts it as --mix ultimate.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
- * "ps2beta=PATH", "play=gc|pc|ps2", "skip=1" and "tab=PAGE"; the GameCube data the
+ * "ps2beta=PATH", "play=gc|pc|ps2|mix:ultimate", "skip=1" and "tab=PAGE"; the GameCube data the
  * port found before the launcher existed (datadir.txt) is taken over on the
  * first run.
  *
@@ -68,9 +71,15 @@
  * (HWVX_XDL, HWVX_XDL_WRITE, HWVX_XDL_DIR); a file that is out of date is
  * loaded from its source as before.
  *
- * Hook points for features built elsewhere, each a row with a button that
- * calls a function with a weak stub here (port_internal.h): the mixed-build
- * builder on Convert (Port_LauncherMixedBuild), the mod loader on Mods
+ * The mixed game has a row of its own there: "Build" runs this program as
+ * hwvx --mix-build ultimate (mix.c, game/Port_Mix.c), which prints the same
+ * progress and fills <xdl>/mix-ultimate.part, put in mix-ultimate's place
+ * when complete. Its state: not built (playing it converts its packs as
+ * they load), built, or out of date (built.cfg's stamp, Port_MixStamp, is
+ * of another recipe or other releases, or another cache version).
+ *
+ * A hook point for a feature built elsewhere, a button that calls a
+ * function with a weak stub here (port_internal.h): the mod loader on Mods
  * (Port_LauncherMods). */
 #include "port_internal.h"
 #include "Port_Saves.h"
@@ -87,6 +96,11 @@ enum { SRC_BETA = PORT_DATA_COUNT, SRC_COUNT };
 
 static const char *const s_keys[SRC_COUNT] = { "gc", "pc", "ps2", "ps2beta" };
 static const char *const s_names[SRC_COUNT] = { "GameCube", "PC", "PlayStation 2", "PS2 prototype (beta)" };
+
+/* The mixed game: its recipe (built into the program), and its number where
+ * a source's goes (the converter's convSource). */
+#define MIX_RECIPE "ultimate"
+#define SRC_MIX SRC_COUNT
 
 /* The pages, in tab order; the names are sources.cfg's "tab=" and
  * HWVX_LAUNCHER_TAB's. */
@@ -109,6 +123,8 @@ static int TabNamed(const char *name) {
 typedef struct Sources {
     char *path[SRC_COUNT];
     int play;           /* PORT_DATA_*, or -1 */
+    int mix;            /* the mixed game is chosen ("play=mix:ultimate"); play is then the
+                         * release to fall back on */
     int skip;           /* start the game without the launcher */
     int tab;            /* TAB_* last shown, or -1 */
 } Sources;
@@ -156,8 +172,16 @@ static int LoadSources(Sources *s) {
                 s->play = i;
             }
         }
+        if (SDL_strcmp(line, "play=mix:" MIX_RECIPE) == 0) {
+            s->mix = 1;
+        }
     }
     SDL_free(text);
+    for (i = 0; s->mix && s->play < 0 && i < PORT_DATA_COUNT; i++) {
+        if (s->path[i] != NULL) {
+            s->play = i;    /* when the mixed game can't be played */
+        }
+    }
     return 1;
 }
 
@@ -177,7 +201,9 @@ static void SaveSources(const Sources *s) {
             ok &= SDL_IOprintf(io, "%s=%s\n", s_keys[i], s->path[i]) > 0;
         }
     }
-    if (s->play >= 0) {
+    if (s->mix) {
+        ok &= SDL_IOprintf(io, "play=mix:%s\n", MIX_RECIPE) > 0;
+    } else if (s->play >= 0) {
         ok &= SDL_IOprintf(io, "play=%s\n", s_keys[s->play]) > 0;
     }
     if (s->skip) {
@@ -346,8 +372,10 @@ enum {
     ACT_SET,            /* toggle setting `source` */
     ACT_CONV_DELETE,    /* delete release `source`'s converted packs (ACT_CONVERT converts them) */
     ACT_CONV_CANCEL,
-    ACT_HOOK_MIXED,     /* the hook points: the mixed-build builder, the mod loader */
-    ACT_HOOK_MODS,
+    ACT_HOOK_MODS,      /* the hook point: the mod loader */
+    ACT_PLAY_MIX,       /* play the mixed game */
+    ACT_MIX_BUILD,      /* build it (ACT_CONV_CANCEL stops it) */
+    ACT_MIX_DELETE,     /* delete its cache */
     ACT_MOD_TOGGLE,     /* mods (Port_Mods.h): turn mod `source` on or off */
     ACT_MOD_UP,         /* load it one earlier */
     ACT_MOD_REMOVE,     /* delete its folder (pressed twice) */
@@ -432,7 +460,26 @@ typedef struct Launcher {
     int convSource, convDone, convTotal;
     char convName[64], convLine[600], convError[200];
     size_t convLineLen;
+    /* the mixed game: its recipe looked at (Port_MixProbe), its cache's state */
+    PortMixInfo mix;
+    int mixOk, mixState, mixPacks, mixHave;
+    Uint64 mixBytes;
+    char mixError[160];
 } Launcher;
+
+/* The mixed game can be played: its recipe has two or more releases imported. */
+static int MixPlayable(const Launcher *l) {
+    return l->mixOk && l->mix.releases >= 2;
+}
+
+/* What Play starts: the mixed game, else the chosen release (-1: nothing). */
+static int PlayingMix(const Launcher *l) {
+    return l->src.mix && MixPlayable(l);
+}
+
+static int CanPlay(const Launcher *l) {
+    return PlayingMix(l) || (l->src.play >= 0 && l->src.path[l->src.play] != NULL);
+}
 
 /* The title and the tabs share the top line; the pages start under it. */
 #define TAB_X 216.0f
@@ -446,7 +493,7 @@ typedef struct Launcher {
 #define MODS_SHOWN 6
 #define MOD_ROW_Y(k) (PAGE_Y + 40.0f + (k) * 34.0f)     /* Mods: a mod, in load order */
 #define CONV_BAR_Y CONV_ROW_Y(3)                        /* the progress, under the releases */
-#define CONV_HOOK_Y (CONV_BAR_Y + 46.0f)                /* the mixed-build row */
+#define CONV_HOOK_Y (CONV_BAR_Y + 46.0f)                /* the mixed game's row */
 #define SET_X 200.0f
 
 static void Text(Launcher *l, float x, float y, Uint8 r, Uint8 g, Uint8 b, const char *s) {
@@ -520,8 +567,12 @@ static void LayoutPage(Launcher *l, int busy) {
     case TAB_PLAY:
         for (i = 0, k = 0; i < PORT_DATA_COUNT; i++) {
             if (l->src.path[i] != NULL) {
-                Add(l, 24, PLAY_ROW_Y(k++), l->src.play == i ? "Playing this" : "Play this", ACT_PLAY_THIS, i, !busy);
+                Add(l, 24, PLAY_ROW_Y(k++), !PlayingMix(l) && l->src.play == i ? "Playing this" : "Play this",
+                    ACT_PLAY_THIS, i, !busy);
             }
+        }
+        if (MixPlayable(l)) {
+            Add(l, 24, PLAY_ROW_Y(k++), PlayingMix(l) ? "Playing this" : "Play this", ACT_PLAY_MIX, -1, !busy);
         }
         if (k == 0) {
             Add(l, 24, PLAY_ROW_Y(1), "Import a copy on the Games page", ACT_TAB, TAB_GAMES, 1);
@@ -564,9 +615,16 @@ static void LayoutPage(Launcher *l, int busy) {
         if (l->converter != NULL) {
             Add(l, VIEW_W - 24 - (6 * CHAR + 16), CONV_BAR_Y + 26, "Cancel", ACT_CONV_CANCEL, -1, 1);
         }
-        /* hook point: the mixed-build builder */
-        Add(l, 24, CONV_HOOK_Y + 26, "Build a mixed game...", ACT_HOOK_MIXED, -1,
-            !busy && Port_LauncherMixedBuild(0, NULL, NULL, NULL, 0));
+        /* the mixed game */
+        {
+            float x = 24;
+
+            x += Add(l, x, CONV_HOOK_Y + 26, l->mixState == CONV_NONE ? "Build" : "Build again", ACT_MIX_BUILD, -1,
+                     !busy && MixPlayable(l))->r.w + 8;
+            if (l->mixHave) {
+                Add(l, x, CONV_HOOK_Y + 26, "Delete", ACT_MIX_DELETE, -1, !busy);
+            }
+        }
         break;
     case TAB_MODS:
         if (!l->modsScanned) {
@@ -604,7 +662,7 @@ static void Layout(Launcher *l) {
         LayoutSaves(l);
     } else {
         LayoutPage(l, busy);
-        Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && l->src.play >= 0 && l->src.path[l->src.play] != NULL);
+        Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && CanPlay(l));
         Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, 1);
     }
     l->numFocus = l->numButtons;
@@ -728,6 +786,14 @@ static void DrawPage(Launcher *l) {
                 Text(l, 148, y + 12, GREEN, line);
             }
         }
+        if (MixPlayable(l)) {
+            y = PLAY_ROW_Y(k++);
+            Text(l, 148, y + 1, WHITE, "Mixed game (" MIX_RECIPE ")");
+            Text(l, 148, y + 12, l->mixState == CONV_OK ? GREEN : DIM,
+                 l->mixState == CONV_OK      ? "The best of each copy; built (Convert page)."
+                 : l->mixState == CONV_STALE ? "The best of each copy; its build is out of date."
+                                             : "The best of each copy; packs mix as they first load.");
+        }
         if (k == 0) {
             Text(l, 24, PLAY_ROW_Y(0) + 4, DIM, "No release imported yet.");
         }
@@ -811,8 +877,10 @@ static void DrawPage(Launcher *l) {
             SDL_FRect bar = { 24, y + 14, VIEW_W - 48, 8 };
             int pct = l->convTotal > 0 ? l->convDone * 100 / l->convTotal : 0;
 
-            SDL_snprintf(line, sizeof(line), "Converting the %s copy: %d%%  %d of %d packs  %s", s_names[l->convSource],
-                         pct, l->convDone, l->convTotal, l->convName);
+            SDL_snprintf(line, sizeof(line), "%s%s%s: %d%%  %d of %d packs  %s",
+                         l->convSource == SRC_MIX ? "Building the mixed game" : "Converting the ",
+                         l->convSource == SRC_MIX ? "" : s_names[l->convSource],
+                         l->convSource == SRC_MIX ? "" : " copy", pct, l->convDone, l->convTotal, l->convName);
             Fit(fit, sizeof(fit), line, 74);
             Text(l, 24, y, 255, 210, 80, fit);
             SDL_SetRenderDrawColor(l->renderer, 38, 44, 64, 255);
@@ -823,10 +891,25 @@ static void DrawPage(Launcher *l) {
             Text(l, 24, y + 31, DIM, "Cancel or Quit stops it and keeps the last complete one.");
         }
         y = CONV_HOOK_Y;
-        Text(l, 24, y, WHITE, "Mixed game");
-        Text(l, 24, y + 12, DIM,
-             Port_LauncherMixedBuild(0, NULL, NULL, NULL, 0) ? "One game from the best of your copies."
-                                                             : "One game from the best of your copies. Coming later.");
+        Text(l, 24, y, WHITE, "Mixed game (" MIX_RECIPE ")");
+        Text(l, 24 + 23 * CHAR, y, DIM, "- one game from the best of your copies");
+        if (l->converter != NULL && l->convSource == SRC_MIX) {
+            Text(l, 24, y + 12, 255, 210, 80, "Building...");
+        } else if (!l->mixOk) {
+            Fit(fit, sizeof(fit), l->mixError, 74);
+            Text(l, 24, y + 12, DIM, fit);
+        } else if (!MixPlayable(l)) {
+            Text(l, 24, y + 12, DIM, "Needs two or more of the GameCube, PC and PS2 copies (as folders).");
+        } else if (l->mixState == CONV_OK) {
+            SDL_snprintf(line, sizeof(line), "Built: %d packs, %d MB", l->mixPacks, (int)((l->mixBytes + 500000) / 1000000));
+            Text(l, 24, y + 12, GREEN, line);
+        } else if (l->mixState == CONV_STALE) {
+            SDL_snprintf(line, sizeof(line), "Out of date (%d MB): the copies, the recipe or the port changed.",
+                         (int)((l->mixBytes + 500000) / 1000000));
+            Text(l, 24, y + 12, 255, 190, 120, line);
+        } else {
+            Text(l, 24, y + 12, DIM, "Not built: playing it mixes each pack as it first loads.");
+        }
         break;
     case TAB_MODS:
         Wrap(l, 24, PAGE_Y, PAGE_Y + 30, 74, 0, GREY,
@@ -913,7 +996,8 @@ static void Draw(Launcher *l) {
             }
             continue;
         }
-        if (b->act == ACT_PLAY_THIS && l->src.play == b->source) {
+        if ((b->act == ACT_PLAY_THIS && !PlayingMix(l) && l->src.play == b->source) ||
+            (b->act == ACT_PLAY_MIX && PlayingMix(l))) {
             SDL_SetRenderDrawColor(l->renderer, 40, 110, 60, 255);
         } else {
             SDL_SetRenderDrawColor(l->renderer, on ? 70 : 38, on ? 90 : 44, on ? 150 : 64, 255);
@@ -1029,13 +1113,7 @@ static void StartDisc(Launcher *l, const char *image, int source) {
 
 /* ---- converting to .xdl --------------------------------------------------- */
 
-/* Hook points (port_internal.h): the stubs of features built elsewhere. */
-__attribute__((weak)) int Port_LauncherMixedBuild(int run, const char *const *paths, const char *prefDir, char *status,
-                                                  size_t statusSize) {
-    (void)run, (void)paths, (void)prefDir, (void)status, (void)statusSize;
-    return 0;   /* not built in */
-}
-
+/* The hook point (port_internal.h): the stub of a feature built elsewhere. */
 __attribute__((weak)) int Port_LauncherMods(int run, const char *const *paths, const char *prefDir, char *status,
                                             size_t statusSize) {
     (void)run, (void)paths, (void)prefDir, (void)status, (void)statusSize;
@@ -1073,7 +1151,7 @@ static SDL_EnumerationResult SDLCALL RemoveEntry(void *userdata, const char *dir
     return SDL_ENUM_CONTINUE;
 }
 
-static void RemoveTree(const char *path) {
+void Port_RemoveTree(const char *path) {
     SDL_PathInfo info;
 
     if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
@@ -1139,6 +1217,46 @@ static int ConvertedState(const char *dir, const char *source, int *packs) {
     return stamped ? state : CONV_STALE;
 }
 
+/* The mixed game's recipe looked at again (which releases it has), and the
+ * state of its cache: built.cfg (PORT_MIX_BUILT) names the stamp it was
+ * built for and the cache version. */
+static void RefreshMix(Launcher *l) {
+    char *path = NULL, *text, *line, *save = NULL;
+    u32 version, compiler, settings, v, c, st, stamp = 0;
+    int stamped = 0;
+    SDL_PathInfo info;
+
+    l->mixState = CONV_NONE;
+    l->mixPacks = l->mixHave = 0;
+    l->mixBytes = 0;
+    l->mixOk = Port_MixProbe(MIX_RECIPE, l->check, &l->mix, l->mixError, sizeof(l->mixError));
+    if (!l->mixOk || l->mix.dir[0] == '\0' || !SDL_GetPathInfo(l->mix.dir, &info) ||
+        info.type != SDL_PATHTYPE_DIRECTORY) {
+        return;
+    }
+    l->mixHave = 1;
+    SDL_EnumerateDirectory(l->mix.dir, SumEntry, &l->mixBytes);
+    SDL_asprintf(&path, "%s/%s", l->mix.dir, PORT_MIX_BUILT);
+    text = path != NULL ? SDL_LoadFile(path, NULL) : NULL;
+    SDL_free(path);
+    if (text == NULL) {
+        return;     /* filled as it was played, never built */
+    }
+    Xdl_Stamp(&version, &compiler, &settings);
+    for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
+        if (SDL_strncmp(line, "xdl=", 4) == 0) {
+            stamped = SDL_sscanf(line + 4, "%u.%u.%u", &v, &c, &st) == 3 && v == version && c == compiler &&
+                      st == settings;
+        } else if (SDL_strncmp(line, "stamp=", 6) == 0) {
+            stamp = (u32)SDL_strtoul(line + 6, NULL, 16);
+        } else if (SDL_strncmp(line, "packs=", 6) == 0) {
+            l->mixPacks = SDL_atoi(line + 6);
+        }
+    }
+    SDL_free(text);
+    l->mixState = stamped && stamp == l->mix.stamp ? CONV_OK : CONV_STALE;
+}
+
 /* Every release's state again: on start, and after anything that changes it. */
 static void RefreshConverted(Launcher *l) {
     int i;
@@ -1160,6 +1278,7 @@ static void RefreshConverted(Launcher *l) {
         }
         SDL_free(dir);
     }
+    RefreshMix(l);
 }
 
 /* The game reads release `src`'s converted packs, if it has any and the
@@ -1175,31 +1294,46 @@ static void UseConverted(const Sources *s) {
     SDL_free(dir);
 }
 
-/* Starts the converter on release `src`: this program, as a process. */
+/* Starts the converter on release `src`, or the mixed game's builder
+ * (SRC_MIX): this program, as a process. The builder clears and fills its
+ * own .part folder (mix.c). */
 static void StartConvert(Launcher *l, int src) {
-    char *dir = Port_ConvertedDir(s_keys[src]), *part = NULL, *parent = Port_ConvertedDir("");
+    char *dir = src == SRC_MIX ? NULL : Port_ConvertedDir(s_keys[src]), *part = NULL;
+    char *parent = src == SRC_MIX ? NULL : Port_ConvertedDir("");
     const char *args[6];
     SDL_Environment *env;
     SDL_PropertiesID props;
 
-    if (dir == NULL || parent == NULL || g_port.program == NULL || SDL_asprintf(&part, "%s.part", dir) < 0) {
+    if (src == SRC_MIX) {
+        args[0] = g_port.program;
+        args[1] = "--mix-build";
+        args[2] = MIX_RECIPE;
+        args[3] = NULL;
+        if (g_port.program == NULL || !MixPlayable(l)) {
+            SDL_snprintf(l->status, sizeof(l->status), "Can't build the mixed game.");
+            return;
+        }
+    } else if (dir == NULL || parent == NULL || g_port.program == NULL || SDL_asprintf(&part, "%s.part", dir) < 0) {
         SDL_snprintf(l->status, sizeof(l->status), "Can't convert: no folder to convert into.");
         SDL_free(dir);
         SDL_free(parent);
         return;
+    } else {
+        Port_RemoveTree(part);
+        SDL_CreateDirectory(parent);
+        args[0] = g_port.program;
+        args[1] = "--convert-xdl";
+        args[2] = part;
+        args[3] = "--data";
+        args[4] = l->src.path[src];
+        args[5] = NULL;
     }
-    RemoveTree(part);
-    SDL_CreateDirectory(parent);
-    args[0] = g_port.program;
-    args[1] = "--convert-xdl";
-    args[2] = part;
-    args[3] = "--data";
-    args[4] = l->src.path[src];
-    args[5] = NULL;
     env = SDL_CreateEnvironment(true);
     SDL_SetEnvironmentVariable(env, "HWVX_NO_DIALOG", "1", true);
     SDL_UnsetEnvironmentVariable(env, "HWVX_DUMP");
     SDL_UnsetEnvironmentVariable(env, "HWVX_START");
+    SDL_UnsetEnvironmentVariable(env, "HWVX_MIX");          /* only what the arguments say */
+    SDL_UnsetEnvironmentVariable(env, "HWVX_MIX_BUILD");
     props = SDL_CreateProperties();
     SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, (void *)args);
     SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, env);
@@ -1214,6 +1348,8 @@ static void StartConvert(Launcher *l, int src) {
     l->convLineLen = 0;
     if (l->converter == NULL) {
         SDL_snprintf(l->status, sizeof(l->status), "Could not start the converter: %s", SDL_GetError());
+    } else if (src == SRC_MIX) {
+        SDL_snprintf(l->status, sizeof(l->status), "Building the mixed game...");
     } else {
         SDL_snprintf(l->status, sizeof(l->status), "Converting the %s copy...", s_names[src]);
     }
@@ -1232,6 +1368,31 @@ static void ConvertLine(Launcher *l, const char *line) {
         SDL_strlcpy(l->convName, BaseName(line + at), sizeof(l->convName));
     } else if (SDL_strncmp(line, "@error ", 7) == 0) {
         SDL_strlcpy(l->convError, line + 7, sizeof(l->convError));
+    }
+}
+
+/* The mixed game's builder has ended: it put a complete build in place
+ * itself (mix.c); a stopped one leaves its .part, removed here. */
+static void EndMixBuild(Launcher *l, int cancel, int code) {
+    char *part = NULL;
+    int ok;
+
+    RefreshMix(l);
+    ok = !cancel && code == 0 && l->mixState == CONV_OK;
+    if (!ok && l->mix.dir[0] != '\0' && SDL_asprintf(&part, "%s.part", l->mix.dir) >= 0) {
+        Port_RemoveTree(part);
+        SDL_free(part);
+        RefreshMix(l);
+    }
+    if (ok) {
+        SDL_snprintf(l->status, sizeof(l->status), "The mixed game is built: %d packs.", l->mixPacks);
+    } else if (cancel) {
+        SDL_snprintf(l->status, sizeof(l->status), "Build cancelled: nothing changed.");
+    } else if (l->convError[0] != '\0') {
+        SDL_snprintf(l->status, sizeof(l->status), "Not built: %s", l->convError);
+    } else {
+        SDL_snprintf(l->status, sizeof(l->status), "Not built: the builder stopped (%d) at %s.", code,
+                     l->convName[0] ? l->convName : "the start");
     }
 }
 
@@ -1264,12 +1425,16 @@ static void PollConvert(Launcher *l, int cancel) {
     }
     SDL_DestroyProcess(l->converter);
     l->converter = NULL;
+    if (l->convSource == SRC_MIX) {
+        EndMixBuild(l, cancel, code);
+        return;
+    }
     dir = Port_ConvertedDir(s_keys[l->convSource]);
     if (dir != NULL && SDL_asprintf(&part, "%s.part", dir) >= 0 && SDL_asprintf(&old, "%s.old", dir) >= 0 &&
         SDL_asprintf(&manifest, "%s/%s", part, PORT_CONVERT_MANIFEST) >= 0) {
         /* only a finished conversion takes the last one's place */
         if (!cancel && code == 0 && SDL_GetPathInfo(manifest, NULL)) {
-            RemoveTree(old);
+            Port_RemoveTree(old);
             if (SDL_GetPathInfo(dir, &info) && !SDL_RenamePath(dir, old)) {
                 SDL_snprintf(l->convError, sizeof(l->convError), "could not replace %s: %s", dir, SDL_GetError());
             } else if (!SDL_RenamePath(part, dir)) {
@@ -1278,9 +1443,9 @@ static void PollConvert(Launcher *l, int cancel) {
             } else {
                 ok = 1;
             }
-            RemoveTree(old);
+            Port_RemoveTree(old);
         }
-        RemoveTree(part);
+        Port_RemoveTree(part);
     }
     RefreshConverted(l);
     if (ok) {
@@ -1304,7 +1469,7 @@ static void DeleteConverted(Launcher *l, int src) {
     char *dir = Port_ConvertedDir(s_keys[src]);
 
     if (dir != NULL) {
-        RemoveTree(dir);
+        Port_RemoveTree(dir);
         SDL_free(dir);
     }
     RefreshConverted(l);
@@ -1493,6 +1658,7 @@ static int Activate(Launcher *l, const Button *b) {
     switch (b->act) {
     case ACT_PLAY_THIS:
         l->src.play = b->source;
+        l->src.mix = 0;
         SaveSources(&l->src);
         SDL_snprintf(l->status, sizeof(l->status), "%s chosen.", s_names[b->source]);
         return 0;
@@ -1516,7 +1682,14 @@ static int Activate(Launcher *l, const Button *b) {
         SDL_free(l->src.path[b->source]);
         l->src.path[b->source] = NULL;
         if (l->src.play == b->source) {
+            int i;
+
             l->src.play = -1;
+            for (i = 0; l->src.mix && l->src.play < 0 && i < PORT_DATA_COUNT; i++) {
+                if (l->src.path[i] != NULL) {
+                    l->src.play = i;
+                }
+            }
         }
         SaveSources(&l->src);
         RefreshConverted(l);
@@ -1573,9 +1746,20 @@ static int Activate(Launcher *l, const Button *b) {
             PollConvert(l, 1);
         }
         return 0;
-    case ACT_HOOK_MIXED:
-        RunHook(l, Port_LauncherMixedBuild);
-        RefreshConverted(l);
+    case ACT_PLAY_MIX:
+        l->src.mix = 1;
+        SaveSources(&l->src);
+        SDL_snprintf(l->status, sizeof(l->status), "The mixed game chosen: Play starts it as --mix %s.", MIX_RECIPE);
+        return 0;
+    case ACT_MIX_BUILD:
+        StartConvert(l, SRC_MIX);
+        return 0;
+    case ACT_MIX_DELETE:
+        if (l->mix.dir[0] != '\0') {
+            Port_RemoveTree(l->mix.dir);
+        }
+        RefreshMix(l);
+        SDL_snprintf(l->status, sizeof(l->status), "The mixed game's packs are deleted.");
         return 0;
     case ACT_HOOK_MODS:
         RunHook(l, Port_LauncherMods);
@@ -1940,6 +2124,12 @@ static int Run(Launcher *l) {
  * or NULL (the player quit, or no window may open). `open`: show the
  * launcher even when the chosen data is there. `search`: where to look on a
  * first run, before asking. */
+static const char *s_playMix;
+
+const char *Port_LauncherMix(void) {
+    return s_playMix;
+}
+
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search) {
     Launcher l;
     char *chosen = NULL, *legacy, *found = NULL;
@@ -1969,16 +2159,24 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     }
     SDL_free(legacy);
 
+    if (l.src.mix) {
+        RefreshMix(&l);     /* the mixed game is chosen: can it be played? */
+    }
     valid = l.src.play >= 0 && l.src.path[l.src.play] != NULL;
-    if (valid) {
+    if (valid && !PlayingMix(&l)) {
         char *ok = check(l.src.path[l.src.play]);
 
         valid = ok != NULL;
         SDL_free(ok);
     }
+    valid |= PlayingMix(&l);
     if (valid && !open && (l.src.skip || !window)) {
-        chosen = SDL_strdup(l.src.path[l.src.play]);
-        UseConverted(&l.src);
+        if (PlayingMix(&l)) {
+            s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
+        } else {
+            chosen = SDL_strdup(l.src.path[l.src.play]);
+            UseConverted(&l.src);
+        }
         FreeSources(&l.src);
         return chosen;
     }
@@ -2039,9 +2237,13 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
             StartDisc(&l, disc + 4, PORT_DATA_PS2);
         }
     }
-    if (Run(&l) > 0 && l.src.play >= 0 && l.src.path[l.src.play] != NULL) {
-        chosen = SDL_strdup(l.src.path[l.src.play]);
-        UseConverted(&l.src);
+    if (Run(&l) > 0 && CanPlay(&l)) {
+        if (PlayingMix(&l)) {
+            s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
+        } else {
+            chosen = SDL_strdup(l.src.path[l.src.play]);
+            UseConverted(&l.src);
+        }
     }
     CloseSaves(&l);
     SDL_DestroyRenderer(l.renderer);
