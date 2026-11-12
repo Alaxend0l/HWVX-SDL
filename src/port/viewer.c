@@ -1029,6 +1029,7 @@ static void WritePack(JsonWriter *w, VPack *vp) {
 }
 
 static void Unload(VPack *vp) {
+    s.numDrawnGeom = 0;     /* pick reads these: they may be this pack's */
     if (s.shown == vp) {
         s.shown = NULL;
         s.selected[0] = '\0';
@@ -1061,11 +1062,14 @@ static const char *InternName(const char *name) {
             return s_names[i];
         }
     }
+    if (s_count >= (int)SDL_arraysize(s_names)) {
+        return NULL;    /* full: the load fails (a leaked copy per load before) */
+    }
     copy = SDL_strdup(name);
-    if (copy != NULL && s_count < (int)SDL_arraysize(s_names)) {
+    if (copy != NULL) {
         s_names[s_count++] = copy;
     }
-    return copy;    /* (past 256 names: kept, not found again) */
+    return copy;
 }
 
 static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize) {
@@ -1105,10 +1109,11 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
         return 0;
     }
     if ((interned = InternName(archive)) == NULL) {
-        SDL_snprintf(err, errSize, "out of memory");
+        SDL_snprintf(err, errSize, "out of memory, or 256 archive names were loaded (restart the viewer)");
         return 0;
     }
     ViewerWorld_Unload();   /* a pack shown alone again */
+    s.numDrawnGeom = 0;     /* last frame's draws: not what is shown next (pick reads them) */
     if ((vp = FindPack(full)) != NULL) {
         Unload(vp);     /* again from the files: what an editor does after a rebuild */
     }
@@ -1201,6 +1206,7 @@ VPack *Viewer_AdoptPack(const char *archive, int type, u32 id, DataPack *dp) {
 }
 
 void Viewer_DropPack(VPack *vp) {
+    s.numDrawnGeom = 0;     /* pick reads these: they may be this pack's */
     if (s.shown == vp) {
         s.shown = NULL;
         s.selected[0] = '\0';
