@@ -8,6 +8,7 @@
 #   win     the race, the intro dismissed and the gas held (DRIVE_WIN): the level's file is
 #           applied, and the last frame is the green "objective complete" screen
 #   lose    the same with no gas: the red "objective failed" screen once the clock runs out
+# PACK=1: the level built into its own world pack (the test drive's way) instead of applied in memory.
 # Frames: OUT/dump-<run>; OUT/level_test.png is the select, win and lose side by side.
 # The OpenGL renderer: SDL_GPU (Metal) stalls while another window covers the game's.
 set -u
@@ -15,7 +16,12 @@ B="$1"; D="$2"; O="$3"; P="${4:-$(dirname "$0")/level-samples/checkpoint-run}"
 here=$(cd "$(dirname "$0")"; pwd)
 mkdir -p "$O"; O=$(cd "$O"; pwd)
 rm -rf "$O/mods"
-python3 "$here/xdl_level.py" mod "$P" "$O/mods/level" || exit 1
+if [ "${PACK:-0}" = 1 ]; then
+    # the level built into its own world pack (tools/xdl_level_pack.py), as the test drive does
+    python3 "$here/xdl_level.py" testdrive "$P" "$O" --data "$D" --cache "$O/base-cache" >/dev/null || exit 1
+else
+    python3 "$here/xdl_level.py" mod "$P" "$O/mods/level" || exit 1
+fi
 mode=$(python3 -c "import sys; sys.path.insert(0, '$here'); import xdl_level as L; print(L.read_jsonc('$P/level.jsonc')['mode'])")
 name=$(python3 -c "import sys; sys.path.insert(0, '$here'); import xdl_level as L; print(L.read_jsonc('$P/level.jsonc')['name'])")
 common=(HWVX_RENDERER=${HWVX_RENDERER:-opengl} "HWVX_MODS_DIR=$O/mods")
@@ -34,7 +40,7 @@ for run in win lose; do
     if [ $run = win ]; then drive="${DRIVE_WIN:-308:a,377:a,446:a,515:a*3000}"; else drive="${DRIVE_LOSE:-308:a,377:a,446:a}"; fi
     FAST=1 "$here/run_test.sh" "$B" "$D" "$O" $run ${SECONDS_RUN:-60} "${common[@]}" HWVX_START=race:mode=$mode,world=$level \
         "HWVX_AUTOINPUT=$drive" >/dev/null 2>&1
-    if grep -q "level: .* applied to" "$O/$run.log"; then echo "ok   $run: the level applied"; else echo "FAIL $run: not applied"; fail=1; fi
+    if grep -q "level: .*applied to" "$O/$run.log"; then echo "ok   $run: the level applied"; else echo "FAIL $run: not applied"; fail=1; fi
     last=$(ls "$O/dump-$run" | tail -1)
     verdict=$(python3 - "$O/dump-$run/$last" <<'EOF'
 import sys

@@ -96,6 +96,32 @@ fn model_edit_undo_save() {
     assert_eq!(q.level, p.level);
     assert_eq!(q.trigger("cp3").unwrap().value, p.trigger("cp3").unwrap().value);
 
+    // records added and taken out (stage 21.4): a trigger, a start, then undone and saved
+    p.push_undo();
+    let n = p.free_name("triggers", "trigger");
+    assert_eq!(n, "trigger1");
+    p.add_trigger(&n, json!({"type": "level_start", "actions": [{"type": "hud_change_mode", "data": {"unused": 1, "on": 1}}]}));
+    p.push_undo();
+    p.level["starts"] = json!({"start1": {"pos": [-330.0, 3.6, -740.0], "rotY": 1.5708, "port": 2}});
+    p.push_undo();
+    p.remove_trigger("music");
+    assert!(p.trigger("music").is_none());
+    assert!(!p.level["triggers"].as_array().unwrap().iter().any(|x| x == "music"));
+    assert!(p.undo());
+    assert!(p.trigger("music").is_some(), "undo brings a removed trigger back");
+    assert!(p.undo());
+    assert!(p.undo());
+    assert!(p.trigger("trigger1").is_none(), "undo takes an added trigger out");
+    assert!(p.redo() && p.redo() && p.redo());
+    assert!(p.trigger("trigger1").is_some() && p.trigger("music").is_none());
+    p.write_copy(&copy).unwrap();
+    assert_eq!(check(&copy)["ok"], true, "{}", check(&copy));
+    p.save().unwrap();
+    assert!(proj.join("triggers/trigger1.jsonc").exists());
+    assert!(!proj.join("triggers/music.jsonc").exists(), "a removed trigger's file is deleted on save");
+    let q = Project::load(&proj).unwrap();
+    assert_eq!(q.level["starts"]["start1"]["port"], 2);
+
     // a broken link: the check names the file and place
     p.trigger_mut("cp1").unwrap().value["param"]["volumes"][0] = json!("level://volumes/nope");
     p.write_copy(&copy).unwrap();
