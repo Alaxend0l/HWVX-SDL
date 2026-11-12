@@ -4115,8 +4115,9 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
      * win count) is drawn inside its parent object's draw, each of its
      * objects offset by that object's position. The parent object is only a
      * placeholder (usually at x = 0, which would read as "left" and pull
-     * right-hand elements toward the middle), so it stays put and the child
-     * interface's objects move as one group (below), their layout x
+     * right-hand elements toward the middle), so it stays put and each
+     * object of the child interface moves by its own side (the battle's
+     * "Round" on the left, its kill tally on the right), its layout x
      * counting the parent's (Port_HudLayoutX). */
     if (StateManager_CurrState() != 5 || obj->kind == IFACE_KIND_CHILD) {
         return 0.0f;
@@ -4154,21 +4155,6 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
             hi = ox > hi ? ox : hi;
         }
         return hi < HUD_LEFT_X ? -side : lo > HUD_RIGHT_X ? side : 0.0f;
-    }
-    if (iface->isChild) {
-        /* a child interface is one group (the battle car icon, its "X" and
-         * kill count; a mission's "Wins" and its count, beside the timer):
-         * it moves as a whole, by the side of its middle, so a label just
-         * inside the centre band goes along with its count */
-        f32 lo = x, hi = x, ox;
-        u32 j;
-
-        for (j = 0; j < iface->count; j++) {
-            ox = Port_HudLayoutX(&GETP(iface->objects)[j], 0);
-            lo = ox < lo ? ox : lo;
-            hi = ox > hi ? ox : hi;
-        }
-        x = 0.5f * (lo + hi);
     }
     return x < HUD_LEFT_X ? -side : x > HUD_RIGHT_X ? side : 0.0f;
 }
