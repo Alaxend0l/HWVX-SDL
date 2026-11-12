@@ -115,7 +115,7 @@ pub fn pack_prim(pr: Prim, v: &Value, big: bool, path: &str) -> Result<Vec<u8>> 
     if pr.float {
         return pack_float(pr.code, py_float(v)?, big);
     }
-    let mut shown = v.clone();
+    let mut shown = py::str_of(v);
     let iv = match Num::of(v) {
         Some(Num::Float(f)) => {
             if f.is_nan() {
@@ -127,18 +127,21 @@ pub fn pack_prim(pr: Prim, v: &Value, big: bool, path: &str) -> Result<Vec<u8>> 
             if f != f.trunc() {
                 return Err(Error::xdl(format!("{path}: {} is not an integer", py::float_repr(f))));
             }
-            let i = f as i128;
-            shown = decode::int_value(i);
+            shown = py::int_text_of_float(f);
+            // past i128: as far out of every range as Python's int is
+            Some(if f.abs() < 1e38 { f as i128 } else if f < 0.0 { i128::MIN } else { i128::MAX })
+        }
+        Some(Num::Int(i)) => {
+            shown = i.to_string();
             Some(i)
         }
-        Some(Num::Int(i)) => Some(i),
         None => None,
     };
     let r = match iv {
         Some(i) => pack_int(pr.code, i, big),
         None => Err("required argument is not an integer".to_string()),
     };
-    r.map_err(|e| Error::xdl(format!("{path}: {}: {e}", py::str_of(&shown))))
+    r.map_err(|e| Error::xdl(format!("{path}: {shown}: {e}")))
 }
 
 /// How links are written.

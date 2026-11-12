@@ -123,7 +123,8 @@ fn cmd_build(a: &Args) -> Result<i32> {
     let idx: i64 = m.idx.parse().map_err(|_| Error::uncaught(format!("invalid literal for int() with base 10: {}", py::str_repr(&m.idx))))?;
     let (off, sname, _) = ops::locate(&c.s, &pk, &m.kind, idx, &m.path())?;
     let top = c.s.top(&sname).ok_or_else(|| Error::uncaught(format!("KeyError: {}", py::str_repr(&sname))))?;
-    let errs = MiniValidator::new(top).errors(&doc);
+    // --no-validate 1: straight to the encoder (the parity test's probe of its errors)
+    let errs = if a.opts.contains_key("no-validate") { vec![] } else { MiniValidator::new(top).errors(&doc) };
     for e in &errs {
         eprintln!("schema: {e}");
     }

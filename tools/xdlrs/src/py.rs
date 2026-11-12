@@ -394,6 +394,38 @@ pub fn hex(s: &str) -> Result<i64> {
         .map_err(|_| Error::uncaught(format!("invalid literal for int() with base 16: {}", str_repr(s))))
 }
 
+/// Python str(int(f)) of an integral float of any size (exact).
+pub fn int_text_of_float(f: f64) -> String {
+    if f.abs() < 1e18 {
+        return (f as i64).to_string();
+    }
+    let bits = f.abs().to_bits();
+    let exp = ((bits >> 52) & 0x7FF) as i32 - 1075;
+    let mant = (bits & ((1u64 << 52) - 1)) | (1u64 << 52);
+    // mant * 2^exp in base 1e9 limbs (exp > 0 here)
+    let mut limbs: Vec<u64> = vec![mant % 1_000_000_000, (mant / 1_000_000_000) % 1_000_000_000, mant / 1_000_000_000_000_000_000];
+    for _ in 0..exp.max(0) {
+        let mut carry = 0;
+        for l in limbs.iter_mut() {
+            let v = *l * 2 + carry;
+            *l = v % 1_000_000_000;
+            carry = v / 1_000_000_000;
+        }
+        if carry > 0 {
+            limbs.push(carry);
+        }
+    }
+    while limbs.len() > 1 && *limbs.last().unwrap() == 0 {
+        limbs.pop();
+    }
+    let mut s = if f < 0.0 { "-".to_string() } else { String::new() };
+    s.push_str(&limbs.last().unwrap().to_string());
+    for l in limbs.iter().rev().skip(1) {
+        s.push_str(&format!("{l:09}"));
+    }
+    s
+}
+
 /// Python float(str): what Encoder's float(v) makes of a string.
 pub fn float_of_str(s: &str) -> Option<f64> {
     let t = s.trim().replace('_', "");
@@ -434,6 +466,9 @@ mod tests {
         ] {
             assert_eq!(float_repr(x), s);
         }
+        assert_eq!(int_text_of_float(3.4e38), "339999999999999996123846586046231871488");
+        assert_eq!(int_text_of_float(-1e39), "-999999999999999939709166371603178586112");
+        assert_eq!(int_text_of_float(1e18), "1000000000000000000");
     }
 
     #[test]

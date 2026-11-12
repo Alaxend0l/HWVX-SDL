@@ -461,6 +461,9 @@ impl Enc<'_> {
                 if f != f.trunc() {
                     return Err(err);
                 }
+                if !(-(2f64.powi(31)) <= f && f < 2f64.powi(32)) {
+                    return Err(Error::tac(format!("{}/{name}: {} out of range", self.path, py::int_text_of_float(f))));
+                }
                 f as i128
             }
             _ => return Err(err),
