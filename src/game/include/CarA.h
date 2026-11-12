@@ -658,6 +658,7 @@ typedef struct CarAMode2Tuning {
 } CarAMode2Tuning;
 extern const CarAMode2Tuning g_carAMode2Tuning;
 s32 CarA_PreMove_Control_Mode2(void *thing);
+void CarA_PortMode2Reverse(Player *player);
 /* The handling a car of CarAInfo.driveMode `dataMode` drives with: 2 for a
  * mode 1 car when the player chose the PC's third mode (Options, "Handling",
  * GameSettings_PortHandling), not online or in a demo; else dataMode. */

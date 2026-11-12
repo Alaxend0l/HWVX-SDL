@@ -703,6 +703,7 @@ s32 Player_DefaultControlReader(void *arg0) {
             player->stickX = 0x7F;
         }
         Port_KeyboardSteer(player);   /* port: steering and flips on the keyboard */
+        CarA_PortMode2Reverse(player);   /* port: a way to reverse in the PC's third handling mode */
         if (g_playbackStatus == 1) {
             Playback_PutElement((u16)player->stickX + (player->stick2X << 16));
             Playback_PutElement((u16)player->stickY + (player->stick2Y << 16));

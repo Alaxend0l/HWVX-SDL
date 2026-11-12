@@ -591,6 +591,20 @@ const CarAMode2Tuning g_carAMode2Tuning = { 0.0f, 0.0f, 1.0f, 0.0f };
  * button 15 is a handbrake (flag 0x8000: less grip, ComputeSuspensionForces),
  * and steering follows the stick at once, by less the faster the car goes:
  * (180 - forward speed) / 150 of 45 degrees, none from 180. 0x413540. */
+/* port: mode 2 reverses on action 4 (Player.button14), which none of the
+ * controller layouts binds, and the PC's keyboard has no key for: a human
+ * could only stop. Where it is unbound, Brake / Reverse reverses once the
+ * car is at a standstill (or already reversing), as in the normal handling.
+ * From the human control reader. */
+void CarA_PortMode2Reverse(Player *player) {
+    CarA *car = GETP(player->vehicle);
+
+    if (car != NULL && car->base.type == THING_TYPE_CAR && car->driveMode == 2 && player->keys[4] == 0xFF &&
+        player->down[3] && car->gradeOrReverse < 1.0f) {
+        player->down[4] = player->down[3];
+    }
+}
+
 s32 CarA_PreMove_Control_Mode2(void *thing) {
     CarA *car = thing;
     Player *pl = CARA_PLAYER(car);
