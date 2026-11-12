@@ -23,11 +23,6 @@
 #include "jsonc.h"
 #include "gx_texmod.h"
 #include "mbedtls/sha256.h"
-#ifdef _WIN32
-__declspec(dllimport) unsigned long __stdcall GetFileAttributesW(const wchar_t *name);
-#else
-#include <sys/stat.h>
-#endif
 
 enum { MF_U8, MF_S8, MF_U16, MF_S16, MF_U32, MF_S32, MF_F32, MF_LINK, MF_OTHER };
 
@@ -51,6 +46,7 @@ typedef struct ModStruct {
 #include "Port_ModFields.inc"
 
 void *Gfx_PortTextureImage(u16 id);   /* Gfx_TextureHandler.c */
+void Port_RemoveTree(const char *path); /* fileio.c */
 
 typedef struct Mod {
     PortModInfo info;
@@ -567,61 +563,23 @@ int Port_ModsActive(void) {
 
 /* ---- packages ------------------------------------------------------------ */
 
-/* Is path (no trailing separator) a symbolic link, junction or other reparse
- * point? Removing a folder never goes through one: it removes the link. */
-static int IsLink(const char *path) {
-#ifdef _WIN32
-    char *w = SDL_iconv_string("UTF-16LE", "UTF-8", path, SDL_strlen(path) + 1);
-    unsigned long attr = w != NULL ? GetFileAttributesW((const wchar_t *)w) : 0xFFFFFFFFul;
-
-    SDL_free(w);
-    return attr != 0xFFFFFFFFul && (attr & 0x400) != 0;   /* FILE_ATTRIBUTE_REPARSE_POINT */
-#else
-    struct stat st;
-
-    return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
-#endif
-}
-
-static SDL_EnumerationResult SDLCALL RemoveTree(void *userdata, const char *dirname, const char *fname) {
-    char *path = NULL;
-    SDL_PathInfo pi;
-
-    (void)userdata;
-    if (SDL_asprintf(&path, "%s%s", dirname, fname) < 0) {
-        return SDL_ENUM_FAILURE;
-    }
-    if (!IsLink(path) && SDL_GetPathInfo(path, &pi) && pi.type == SDL_PATHTYPE_DIRECTORY) {
-        SDL_EnumerateDirectory(path, RemoveTree, NULL);
-    }
-    SDL_RemovePath(path);
-    SDL_free(path);
-    return SDL_ENUM_CONTINUE;
-}
-
-/* A folder and what's in it; a link (to a folder or not) is only unlinked. */
+/* A folder and what's in it (Port_RemoveTree: a link, inside or the folder
+ * itself, is unlinked, never followed); 1 if it's gone. */
 static int RemoveFolder(const char *dir) {
     char *d = SDL_strdup(dir);
     size_t n = d != NULL ? SDL_strlen(d) : 0;
     SDL_PathInfo pi;
-    int ok;
 
     if (d == NULL) {
         return 0;
     }
-    while (n > 1 && (d[n - 1] == '/' || d[n - 1] == '\\')) {
+    while (n > 1 && (d[n - 1] == '/' || d[n - 1] == '\\')) {    /* "link/" would be followed */
         d[--n] = 0;
     }
-    if (IsLink(d)) {
-        ok = SDL_RemovePath(d);
-    } else if (!SDL_GetPathInfo(d, &pi)) {
-        ok = 1;
-    } else {
-        SDL_EnumerateDirectory(d, RemoveTree, NULL);
-        ok = SDL_RemovePath(d);
-    }
+    Port_RemoveTree(d);
+    n = !SDL_GetPathInfo(d, &pi);
     SDL_free(d);
-    return ok;
+    return (int)n;
 }
 
 int Port_ModsRemove(int i) {
