@@ -68,6 +68,12 @@ endif()
 if(WIN32)
     target_link_libraries(hwvx PRIVATE ws2_32)   # src/port/net.c
 endif()
+if(MINGW)
+    # One .exe with nothing beside it: a MinGW whose threads are POSIX ones
+    # (Homebrew's, MSYS2's) would otherwise import libwinpthread-1.dll for
+    # _Thread_local (Port_Mix.c, xdl.c), which Windows doesn't have.
+    target_link_options(hwvx PRIVATE -static)
+endif()
 
 target_compile_options(hwvx PRIVATE
     # The decomp type-puns everywhere and relies on two's-complement wrap.
