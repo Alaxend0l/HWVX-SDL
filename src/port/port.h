@@ -286,6 +286,9 @@ void Port_InvalidateDisplayLists(const void *p, u32 size);
 #define PORT_CODEVAR_GAMMA 0x1004       /* 0 .. 100, a volume-style bar: 50 leaves the picture alone */
 #define PORT_CODEVAR_FOV 0x1005         /* 0 .. 100, a volume-style bar: 50 is the game's own view */
 #define PORT_IS_CODEVAR(id) ((id) >= PORT_CODEVAR_RESOLUTION && (id) <= PORT_CODEVAR_FOV)
+/* Options' "Handling" row (Port_Menu.c): 0 the cars' own, 1 the PC's third mode
+ * (GeneralGameSettings audio.handling 2; in the save, unlike the above). */
+#define PORT_CODEVAR_HANDLING 0x1010
 /* The content registry's (src/game/Port_Content.h): code variable 0x65 (a
  * track's unlock) for the entry a world select of progression P numbers
  * `arg`: PORT_CODEVAR_TRACK + P. The selects number a mode's tracks in a
