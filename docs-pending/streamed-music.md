@@ -72,11 +72,11 @@ mod ships only its own audio files, never game data.
 ends: it loops on its own markers, so there is no point to hand over at); shuffle; pitch and
 tempo actions (`ActionMusicChange`) on a stream; the songs' reverb send (the stream is dry).
 
-**Doubtful:** stb_vorbis is v1.17 (2019), the only copy available offline; v1.20+ fixes crashes
-on malformed files found by fuzzing. A mod is installed by the player, but its OGG files are
-still untrusted input: update `src/third_party/stb_vorbis.c` to the current release (1.22) when
-online. The copy came from Kinc (armorpaint), which forced `STB_VORBIS_NO_STDIO`; that line is
-removed, so it is upstream 1.17 apart from two clang warning pragmas.
+**Decoders:** byte-for-byte the official files: miniaudio 0.11.26 (mackron/miniaudio tag
+`0.11.26`) and stb_vorbis 1.23 (nothings/stb commit 6d17754, 2026-11-10); sources and sha256 in
+`src/third_party/README.md`. stb_vorbis keeps its stdio file API: miniaudio opens OGG in pull
+mode with it, the only mode with real seeking (through callbacks it would use push mode, where
+each loop's seek decodes the file again from the start).
 
 ## Tested
 
@@ -107,6 +107,17 @@ the local ffmpeg: 8 s at 44.1 kHz, 0-2 s 300 Hz, 2-6 s 440 + 554 Hz, 6-8 s 1000 
   thread's timing against the game), so `tools/audio_compare.py` sets the difference against
   pc-data run twice: RMS 0.0041 vs 0.0092, spectrum 0.050 vs 0.047 (log10) – within run-to-run
   jitter. ctest passes, as does `tools/test_xdl_mod.py` with the port's installer.
+* **Damaged files** (`tools/stream_fuzz.sh`: the player itself under AddressSanitizer and
+  UBSan, 136 files made from the test tracks: empty, header only, truncated at 5-95%, random
+  bytes with and without the format's magic, 1-1000 bit flips, damaged headers; each mixed for
+  20 s with a stop and restart): no crash or sanitizer report. 36 can't be decoded and fall back;
+  the rest play up to the damage (a read error ends the track or its loop), with NaN or huge
+  samples kept out of the mix. It found one bug, fixed: a create that failed left the freed
+  stream current. In the game, a mod whose playlist is a garbage OGG and a FLAC with 1000 bit
+  flips logs `can't be decoded` / `nothing more can be decoded` / `no track of the mod's
+  decodes ...; the game's own song plays`, and the race's mix matches the run without the mod
+  (`tools/audio_compare.py`: RMS 0.0008). The port's installer copies a package's files after
+  checking their sha256s and never decodes them, so a damaged audio file can't hurt it.
 * **Not tested**: the game's music option itself (no way to set it without a save in a scripted
   run); it reaches the stream by the same hook as the world's 0.7 (`SetMusicGVol` → `g_musicVol`
   → `SetMusicVolume`).
