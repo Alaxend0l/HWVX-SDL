@@ -56,6 +56,7 @@ typedef struct Mod {
     PortModInfo info;
     char *dir;          /* its folder, with a trailing separator */
     JsonNode *doc;      /* mod.jsonc; info's strings point into it */
+    int cycle;          /* its "after" mods come after it in turn */
 } Mod;
 
 static Mod *s_mods;
@@ -336,13 +337,61 @@ static void MoveMod(int from, int to) {
     s_mods[to] = t;
 }
 
+/* Each mod behind the mods its "after" names: a stable topological sort (the
+ * order so far kept wherever "after" doesn't say otherwise); mods in a cycle
+ * keep their order and are reported. */
+static void AfterOrder(void) {
+    int n = s_numMods, i, j, k, done = 0;
+    int *deps = SDL_calloc((size_t)n * n + 1, sizeof(int)), *left = SDL_calloc((size_t)n + 1, sizeof(int));
+    Mod *out = SDL_malloc(((size_t)n + 1) * sizeof(Mod));
+    char *placed = SDL_calloc((size_t)n + 1, 1);
+
+    if (deps == NULL || left == NULL || out == NULL || placed == NULL) {
+        goto done;
+    }
+    for (i = 0; i < n; i++) {     /* deps[i * n + j]: i comes after j */
+        const JsonNode *a = Json_Get(s_mods[i].doc, "after");
+
+        for (a = a != NULL && a->type == JSON_ARRAY ? a->child : NULL; a != NULL; a = a->next) {
+            if (a->type == JSON_STRING && (j = IndexOfId(a->string)) >= 0 && j != i && !deps[i * n + j]) {
+                deps[i * n + j] = 1;
+                left[i]++;
+            }
+        }
+    }
+    while (done < n) {
+        /* the first (in the order so far) whose mods are all placed; in a cycle, the first left */
+        for (i = 0; i < n && (placed[i] || left[i] > 0); i++) {
+        }
+        if (i == n) {
+            for (i = 0; placed[i]; i++) {
+            }
+            s_mods[i].cycle = 1;
+        }
+        placed[i] = 1;
+        out[done++] = s_mods[i];
+        for (k = 0; k < n; k++) {
+            if (deps[k * n + i]) {
+                deps[k * n + i] = 0;
+                left[k]--;
+            }
+        }
+    }
+    SDL_memcpy(s_mods, out, (size_t)n * sizeof(Mod));
+done:
+    SDL_free(deps);
+    SDL_free(left);
+    SDL_free(out);
+    SDL_free(placed);
+}
+
 /* mods.jsonc's order and disabled mods, then "after". */
 static void Order(const char *dir) {
     char *path = NULL, *text, err[160];
     size_t len;
     JsonNode *cfg = NULL;
     const JsonNode *e;
-    int placed = 0, i, pass;
+    int placed = 0, i;
 
     SDL_qsort(s_mods, (size_t)s_numMods, sizeof(Mod), ById);
     SDL_asprintf(&path, "%smods.jsonc", dir);
@@ -365,30 +414,7 @@ static void Order(const char *dir) {
         }
     }
     Json_Free(cfg);
-    /* each behind the mods it names: as many passes as there are mods (a
-     * cycle stops moving then) */
-    for (pass = 0; pass < s_numMods; pass++) {
-        int moved = 0;
-
-        for (i = 0; i < s_numMods; i++) {
-            const JsonNode *a = Json_Get(s_mods[i].doc, "after");
-            int last = -1, j;
-
-            for (a = a != NULL && a->type == JSON_ARRAY ? a->child : NULL; a != NULL; a = a->next) {
-                if (a->type == JSON_STRING && (j = IndexOfId(a->string)) > last) {
-                    last = j;
-                }
-            }
-            if (last > i) {
-                MoveMod(i, last);
-                moved = 1;
-                break;
-            }
-        }
-        if (!moved) {
-            break;
-        }
-    }
+    AfterOrder();
 }
 
 /* Conflicts and notes for the enabled mods. */
@@ -405,6 +431,11 @@ static void BuildReport(void) {
 
         if (!Enabled(m)) {
             continue;
+        }
+        if (m->cycle) {
+            Report("%s: the mods its \"after\" names come after it in turn (a cycle); it loads in the list's "
+                   "order", m->info.name);
+            m->info.problems++;
         }
         if (!m->info.checked) {
             Report("%s: put in by hand, not checked by the packer", m->info.name);
@@ -961,7 +992,12 @@ void Port_ModsInit(void) {
     s_inited = 1;
     s_logValues = SDL_getenv("HWVX_MODS_LOG") != NULL;
     if (Port_ModsScan() > 0) {
+        int i;
+
         Port_Log("mods: %d in the mods folder, %s", s_numMods, Port_ModsActive() ? "some on" : "all off");
+        for (i = 0; s_logValues && i < s_numMods; i++) {
+            Port_Log("mods: %d. %s%s", i + 1, s_mods[i].info.id, Enabled(&s_mods[i]) ? "" : " (off)");
+        }
     }
 }
 
@@ -1029,8 +1065,16 @@ void Port_ModsSyncLock(const char *path) {
             }
             for (x = entries != NULL && entries->type == JSON_OBJECT ? entries->child : NULL; x != NULL; x = x->next) {
                 JsonNode *e2 = (JsonNode *)Json_Get(sec, x->key);
+                int j, later = 0;
 
                 any = 1;
+                /* brought by a mod later in the load order too: that one's is used */
+                for (j = i + 1; j < s_numMods && !later; j++) {
+                    later = Enabled(&s_mods[j]) && Json_Get(Json_Get(s_mods[j].doc, kinds[k]), x->key) != NULL;
+                }
+                if (later) {
+                    continue;
+                }
                 if (e2 == NULL) {
                     e2 = Json_ObjectMember(sec, x->key);
                     changed = 1;
