@@ -15,6 +15,7 @@ Runs both on the same input and compares bytes and text exactly:
              exit code, stdout, stderr, bytes, relocations
   observe    `observe` (the written JSON)
   validate   MiniValidator messages over the samples and edited objects
+  decode     Decoder on every world pack's World, GraphEncoder (symbolic links) of the result
   tac        `xdl_tac.py SURVEY` (every retail parameter list decoded and encoded)
   tacenc     encode_trigger of the level samples' triggers (and edits), both byte orders
   tacext     xdl_tac.Extract over xdl_graph's Extractor of world packs (host state dumped)
@@ -646,6 +647,44 @@ def t_tacext(a):
            [f"{skipped} trigger records not decoded by either (record size)"] if skipped else [])
 
 
+def t_decode(a):
+    """Decoder over the World record of every world pack (and the car structs' own packs are
+    in the round trip), and the symbolic encoder (xdl_graph's GraphEncoder) of the result."""
+    import xdl_graph as GR
+    S = XS.Schemas()
+    P = XS.Pairing(XS.find_up("docs/xdl-format/pairing"))
+    bad, n = [], 0
+    for rel in survey_rels(a):
+        for m in sorted((a.survey / rel).rglob("manifest.json")):
+            man = json.loads(m.read_text())
+            for ent in man["entries"]:
+                if ent["type"] != "world":
+                    continue
+                pdir = m.parent / ent["path"]
+                pk = XS.Pack(pdir)
+                for sname, off in (("World", 0),):
+                    n += 1
+                    sch = S.struct(sname)
+                    oid = f"base://{pk.archive}/{pk.name}/{sname}/0"
+                    w = {}
+                    try:
+                        doc = XS.Decoder(S, pk, P).struct(sch, off, oid)
+                        w["doc"] = XS.dump_value(doc, 0)
+                        try:
+                            enc = GR.GraphEncoder(S, pk, sname, bytes(int(sch["x-size"], 16)))
+                            b, _ = enc.encode(json.loads(json.dumps(doc)), None)
+                            w["sym"] = [b.hex(), {str(o): list(v) for o, v in sorted(enc.links.items())}]
+                        except Exception as e:  # noqa: BLE001
+                            w["sym"] = f"ERR {kind_of(e)} {e}"
+                    except Exception as e:  # noqa: BLE001
+                        w["doc"] = f"ERR {kind_of(e)} {e}"
+                    code, out, err = rs("probe", "decode", pdir, sname, off)
+                    g = json.loads(out) if code == 0 else {"err": err}
+                    if w != g:
+                        bad.append(f"{pdir} {sname}: python {json.dumps(w)[:200]} | rust {json.dumps(g)[:200]}")
+    report("Decoder + symbolic Encoder (World of every world pack)", n, bad)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--survey", default=None)
@@ -660,7 +699,7 @@ def main():
     a.n_f32 = 20000 if a.quick else 200000
     a.n_extract = 20 if a.quick else 120
     a.n_build = 20 if a.quick else 200
-    a.n_worlds = 4 if a.quick else 30
+    a.n_worlds = 4 if a.quick else 1 << 30
     if not BIN.exists():
         raise SystemExit(f"{BIN}: run `cargo build --release` in tools/xdlrs first")
     only = set(a.only.split(",")) if a.only else None
@@ -686,6 +725,8 @@ def main():
         t_validate(a, vdocs)
     if on("observe"):
         t_observe(a)
+    if on("decode"):
+        t_decode(a)
     if on("tac"):
         t_tac(a)
     if on("tacenc"):

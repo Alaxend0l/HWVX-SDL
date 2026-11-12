@@ -560,6 +560,42 @@ fn probe(a: &Args) -> Result<i32> {
             }
             println!("{}", py::dumps(&Value::Array(res)));
         }
+        "decode" => {
+            // an object as Decoder writes it, and Encoder::symbolic of that over zeros
+            let c = ctx(a)?;
+            let pk = Pack::open(Path::new(a.pos(2)?))?;
+            let sname = a.pos(3)?;
+            let off: u32 = a.pos(4)?.parse().unwrap_or(0);
+            let oid = format!("base://{}/{}/{sname}/0", pk.archive, pk.name);
+            let sch = c.s.struct_(sname).ok_or_else(|| Error::uncaught("no such schema"))?;
+            let dec = xdlrs::decode::Decoder::new(&c.s, &pk, Some(&c.pairing));
+            let mut out = Map::new();
+            match dec.struct_(sch, off, &oid) {
+                Ok(doc) => {
+                    let doc = Value::Object(doc);
+                    out.insert("doc".into(), Value::String(jsonc::dump_value(&doc, 0, None)));
+                    let size = schema::size(sch)?;
+                    let sym = xdlrs::encode::Encoder::symbolic(&c.s, &pk, Some(&c.pairing), sname, vec![0; size])
+                        .and_then(|mut e| {
+                            let (b, _) = e.encode(&doc, None)?;
+                            Ok((b, e.links.clone()))
+                        });
+                    match sym {
+                        Ok((b, l)) => {
+                            let lm: Map<String, Value> = l.iter().map(|(o, (k, v))| (o.to_string(), json!([k, v]))).collect();
+                            out.insert("sym".into(), json!([b.iter().map(|x| format!("{x:02x}")).collect::<String>(), lm]));
+                        }
+                        Err(e) => {
+                            out.insert("sym".into(), Value::String(err_line(&e)));
+                        }
+                    }
+                }
+                Err(e) => {
+                    out.insert("doc".into(), Value::String(err_line(&e)));
+                }
+            }
+            println!("{}", py::dumps(&Value::Object(out)));
+        }
         _ => return Err(Error::uncaught(format!("unknown probe {what}"))),
     }
     Ok(0)
