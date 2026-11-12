@@ -300,6 +300,52 @@ static int HexLen(const char *s) {
 
 /* ---- applying ------------------------------------------------------------- */
 
+/* A patch of our own: `size` bytes at `at` set to `data`, the old ones kept. */
+static int PatchBytes(u8 *at, const void *data, u32 size) {
+    LevelPatch *pt;
+    LevelPatch *grown = SDL_realloc(s_lv.patches, (size_t)(s_lv.numPatches + 1) * sizeof(LevelPatch));
+
+    if (grown == NULL) {
+        return 0;
+    }
+    s_lv.patches = grown;
+    pt = &s_lv.patches[s_lv.numPatches];
+    if ((pt->old = SDL_malloc(size)) == NULL) {
+        return 0;
+    }
+    pt->at = at;
+    pt->size = size;
+    SDL_memcpy(pt->old, at, size);
+    SDL_memcpy(at, data, size);
+    s_lv.numPatches++;
+    return 1;
+}
+
+static int StartOverride(DataPack *pack, World *world, char *err, size_t errSize) {
+    const char *e = SDL_getenv("HWVX_LEVEL_START");
+    f32 v[4];
+    TileCar *cars;
+    u32 i;
+
+    if (e == NULL || *e == 0) {
+        return 1;
+    }
+    if (SDL_sscanf(e, "%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3]) != 4) {
+        return Fail(err, errSize, "HWVX_LEVEL_START: x,y,z,rotY");
+    }
+    cars = GETP(world->tileCars);
+    for (i = 0; cars != NULL && i < world->numTileCars; i++) {
+        if (cars[i].port == 1 && InBlob(pack, (u8 *)&cars[i], sizeof(TileCar))) {
+            if (!PatchBytes((u8 *)&cars[i].pos, v, 12) || !PatchBytes((u8 *)&cars[i].rotY, &v[3], 4)) {
+                return Fail(err, errSize, "out of memory");
+            }
+            Port_Log("level: player 1 starts at %.1f %.1f %.1f, rotY %.3f", v[0], v[1], v[2], v[3]);
+            return 1;
+        }
+    }
+    return Fail(err, errSize, "HWVX_LEVEL_START: the world has no player 1 start");
+}
+
 static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSize) {
     World *world = GETP(pack->base) != NULL ? (World *)GETP(pack->base) : NULL;
     const JsonNode *jparts = Json_Get(doc, "parts"), *jkeep = Json_Get(doc, "baseTriggers"), *x;
@@ -461,7 +507,7 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
 
     /* the patches */
     if (jpatches != NULL && jpatches->type == JSON_ARRAY && jpatches->count > 0) {
-        s_lv.patches = SDL_calloc((size_t)jpatches->count, sizeof(LevelPatch));
+        s_lv.patches = SDL_calloc((size_t)jpatches->count + 1, sizeof(LevelPatch));
         if (s_lv.patches == NULL) {
             Fail(err, errSize, "out of memory");
             goto done;
@@ -493,6 +539,11 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
             s_lv.numPatches++;
             Json_HexDecode(hex, pt->at, size);
         }
+    }
+
+    /* HWVX_LEVEL_START=x,y,z,rotY: player 1 starts there (the editor's "test from here") */
+    if (!StartOverride(pack, world, err, errSize)) {
+        goto done;
     }
 
     /* in place */
@@ -577,4 +628,47 @@ void Port_LevelWorldLoaded(void *worldPack, const char *world, int track) {
         Port_Log("level: not applied: %s", err);
     }
     SDL_free(path);
+}
+
+/* ---- test drives (HWVX_TESTDRIVE=1: the editor's) ---------------------------- */
+
+static int TestDrive(void) {
+    static int on = -1;
+
+    if (on < 0) {
+        const char *e = SDL_getenv("HWVX_TESTDRIVE");
+
+        on = e != NULL && *e != 0 && *e != '0';
+    }
+    return on;
+}
+
+void Port_LevelStateChanged(int from, int to) {
+    static int raced;
+
+    (void)from;
+    if (!TestDrive()) {
+        return;
+    }
+    if (to == 5 && !raced) {
+        raced = 1;
+        Port_Log("testdrive: in the race after %llu ms", (unsigned long long)SDL_GetTicks());
+    } else if (raced && to == 2) {
+        /* the race was left for the menus: the test drive is over, back to the editor */
+        SDL_Event ev;
+
+        Port_Log("testdrive: the race was left: quitting");
+        SDL_zero(ev);
+        ev.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&ev);
+    }
+}
+
+void Port_LevelControl(int locked, int human) {
+    static int first = 1;
+
+    if (TestDrive() && human && !locked && first) {
+        first = 0;
+        Port_Log("testdrive: driving after %llu ms", (unsigned long long)SDL_GetTicks());
+    }
 }

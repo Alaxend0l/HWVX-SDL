@@ -3,6 +3,7 @@
  * owns a HUD interface and, as an AI car driver, is respawned after its car
  * is destroyed. */
 #include "common.h"
+#include "Port_Level.h"
 #include "Port_Online.h"
 #include "CarA.h"
 #include "World.h"
@@ -764,6 +765,7 @@ s32 ActionVehicleChangeControl(u32 *action) {
                 Input_SetForceFeedbackActive(player->device, 0);
             }
             player->flags |= 1;
+            Port_LevelControl(1, isHuman);   /* port: the editor's test drive */
         } else {
             isHuman = 0;
             if (player != NULL && (void *)GETP(player->controlReader) == (void *)Player_DefaultControlReader) {
@@ -773,6 +775,7 @@ s32 ActionVehicleChangeControl(u32 *action) {
                 Input_SetForceFeedbackActive(player->device, GameSettings_GetControllerSettings(player->port)->data[0]);
             }
             player->flags &= ~1;
+            Port_LevelControl(0, isHuman);   /* port: the editor's test drive */
         }
     }
     return 1;

@@ -13,7 +13,8 @@
  * M: adventure (or mission), challenge, drag, battle, joyride (default);
  * mpdrag and mpbattle, the multi-player progressions, for race only.
  * W: a level of M's progression script, by world name as the MCP names it
- * without folders (bat2_l9, ch1_l2, world1) or its index there (default 0).
+ * without folders (bat2_l9, ch1_l2, world1) or its index there (default 0),
+ * or a registered track's id (uid://...: its level, Port_Level.h).
  * N, I: car and item numbers (the content registry's; default 0).
  *
  * It does what the menus would, as the title screen starts
@@ -281,6 +282,12 @@ static s32 WorldIndex(s32 p, const char *w) {
 
     if (mcp == NULL || p < 0 || (u32)p >= mcp->numScripts || (ps = GETP(GETP(mcp->scripts)[p])) == NULL) {
         return -1;
+    }
+    if (SDL_strncmp(w, "uid://", 6) == 0) {
+        /* a registered track by its id: its level of this progression */
+        u32 track;
+
+        return Port_ContentIndexOf(PORT_CONTENT_TRACK, w, &track) ? Port_ContentLevelOfTrack((u32)p, track) : -1;
     }
     i = (s32)SDL_strtol(w, &end, 10);
     if (*w != 0 && *end == 0) {

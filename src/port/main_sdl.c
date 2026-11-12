@@ -528,6 +528,11 @@ int Port_TryCreateWindow(SDL_WindowFlags flags) {
     if (g_port.window == NULL) {
         return 0;
     }
+    if (SDL_getenv("HWVX_TESTDRIVE") != NULL && SDL_atoi(SDL_getenv("HWVX_TESTDRIVE")) != 0) {
+        /* the editor's test drive: in front of the editor (a covered window
+         * also stalls SDL_GPU on Metal) */
+        SDL_RaiseWindow(g_port.window);
+    }
     /* a saved resolution is the display mode when fullscreen */
     if (g_port.fullscreen && g_port.winW) {
         Port_GfxSetFullscreenMode(g_port.winW, g_port.winH);
