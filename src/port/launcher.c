@@ -667,7 +667,7 @@ static void Layout(Launcher *l) {
     } else {
         LayoutPage(l, busy);
         Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && CanPlay(l));
-        Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, 1);
+        Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, !l->dialogOpen);
     }
     l->numFocus = l->numButtons;
     /* the preview of an import keeps to its page */
@@ -2019,7 +2019,7 @@ static int Run(Launcher *l) {
                     if (l->savesView) {
                         result = Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)]);
                     } else {
-                        result = -1;
+                        result = l->dialogOpen ? 0 : -1;    /* not while a dialog is open */
                     }
                     break;
                 default: break;
@@ -2044,7 +2044,9 @@ static int Run(Launcher *l) {
                 case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: SwitchTab(l, l->tab - 1); break;
                 case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: SwitchTab(l, l->tab + 1); break;
                 case SDL_GAMEPAD_BUTTON_EAST:
-                    result = l->savesView ? Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)]) : -1;
+                    result = l->savesView ? Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)])
+                             : l->dialogOpen ? 0
+                                             : -1;
                     break;
                 case SDL_GAMEPAD_BUTTON_START:
                     result = Activate(l, &l->buttons[ButtonFor(l, l->savesView ? ACT_IMP_GO : ACT_PLAY)]);
@@ -2109,7 +2111,9 @@ const char *Port_LauncherMix(void) {
 }
 
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search) {
-    Launcher l;
+    /* static: a file dialog's answer (Picked, on SDL's thread) may come after
+     * the window closed (the program asked to quit while it was open) */
+    static Launcher l;
     char *chosen = NULL, *legacy, *found = NULL;
     int i, valid, firstRun, tabLoaded;
 
