@@ -53,6 +53,8 @@ typedef struct Stream {
     int decOpen;
     u32 srcRate;
     s64 srcPos;                 /* frames read from the track */
+    s64 sinceLoop;              /* frames read since the last loop or track change */
+    int emptyRuns;              /* track ends in a row with nothing read: all broken */
     s64 loopStart, loopEnd;     /* this track's, resolved; loopEnd -1: the end */
     float chunk[CHUNK_FRAMES * 2];
     int chunkLen, chunkPos;
@@ -75,6 +77,7 @@ static int s_log = -1;
 static char s_packName[64];     /* the pack whose song is being created */
 static unsigned s_packType, s_packId;
 static int s_packSet;
+extern u32 g_musicVol;          /* Music.c: the game's music volume */
 
 static void Log(const char *fmt, ...) PORT_PRINTF(1, 2);
 static void Log(const char *fmt, ...) {
@@ -180,6 +183,7 @@ static int OpenTrack(Stream *s, int i) {
     s->step = (double)rate / OUT_RATE;
     s->cur = i;
     s->srcPos = 0;
+    s->sinceLoop = 0;
     s->chunkLen = s->chunkPos = 0;
     s->loopStart = t->loopStart;
     s->loopEnd = t->loopEnd;
@@ -222,10 +226,20 @@ static int NextFrame(Stream *s, float f[2]) {
         s->chunkLen = (int)got;
         s->chunkPos = 0;
         s->srcPos += (s64)got;
+        s->sinceLoop += (s64)got;
         if (got > 0) {
+            s->emptyRuns = 0;
             break;
         }
-        /* the end of the track or its loop */
+        /* the end of the track or its loop (or a read error: a damaged file
+         * plays up to the damage). Nothing read since the last one, once per
+         * track: stop rather than spin. */
+        if (s->sinceLoop == 0 && ++s->emptyRuns >= s->numTracks) {
+            Port_Log("music: %s: nothing more can be decoded; the stream stops", s->name);
+            CloseTrack(s);
+            return 0;
+        }
+        s->sinceLoop = 0;
         if (s->numTracks > 1) {
             int next = (s->cur + 1) % s->numTracks, tries;
 
@@ -236,8 +250,10 @@ static int NextFrame(Stream *s, float f[2]) {
                 return 0;
             }
         } else if (t->loop) {
-            if (ma_decoder_seek_to_pcm_frame(&s->dec, (ma_uint64)s->loopStart) != MA_SUCCESS || s->srcPos == 0) {
-                CloseTrack(s);    /* can't seek, or nothing in it: stop rather than spin */
+            if (ma_decoder_seek_to_pcm_frame(&s->dec, (ma_uint64)s->loopStart) != MA_SUCCESS) {
+                Port_Log("music: %s: can't seek to its loop start %lld; the stream stops", s->name,
+                         (long long)s->loopStart);
+                CloseTrack(s);
                 return 0;
             }
             Log("%s: loop at %lld to %lld", s->name, (long long)s->srcPos, (long long)s->loopStart);
@@ -250,6 +266,9 @@ static int NextFrame(Stream *s, float f[2]) {
     f[0] = s->chunk[s->chunkPos * 2];
     f[1] = s->chunk[s->chunkPos * 2 + 1];
     s->chunkPos++;
+    /* a damaged file can decode to anything: no NaN or huge values into the mix */
+    f[0] = f[0] >= -2.0f && f[0] <= 2.0f ? f[0] : f[0] > 2.0f ? 2.0f : f[0] < -2.0f ? -2.0f : 0.0f;
+    f[1] = f[1] >= -2.0f && f[1] <= 2.0f ? f[1] : f[1] > 2.0f ? 2.0f : f[1] < -2.0f ? -2.0f : 0.0f;
     return 1;
 }
 
@@ -284,18 +303,24 @@ static void Fill(Stream *s) {
     }
 }
 
-/* Back to the first track's start, the ring emptied. */
+/* Back to the first track that decodes, the ring emptied and filled: 0 if
+ * none gives a single frame. */
 static int Rewind(Stream *s) {
+    int i;
+
     SDL_zeroa(s->hist);
     s->phase = 3.0;     /* reads three frames: the first output is the first frame */
     s->wr = s->rd = 0;
     s->ended = 0;
-    if (!OpenTrack(s, 0)) {
+    s->emptyRuns = 0;
+    for (i = 0; i < s->numTracks && !OpenTrack(s, i); i++) {
+    }
+    if (i == s->numTracks) {
         s->ended = 1;
         return 0;
     }
     Fill(s);
-    return 1;
+    return s->wr > 0 && !(s->ended && s->wr <= 3);
 }
 
 static void FreeStream(Stream *s) {
@@ -371,9 +396,15 @@ int PortStream_Create(void) {
     s->numTracks = n;
     s->fade = 1.0f;
     SDL_snprintf(s->name, sizeof(s->name), "%s/%u", s_packName, s_packId);
-    s_cur = s;
-    PortStream_SetVol();
-    Rewind(s);
+    s->target = (float)g_musicVol * (1.0f / 32767.0f);
+    if (!Rewind(s)) {
+        /* the game's own song plays instead */
+        Port_Log("music: %s: no track of the mod's decodes (%s); the game's own song plays", s->name,
+                 tracks[0].path);
+        FreeStream(s);
+        SDL_UnlockMutex(s_lock);
+        return 0;
+    }
     s_streams[i] = s;
     s_cur = s;
     Log("%s: streams %s (%d track%s) for its song", s->name, tracks[0].path, n, n == 1 ? "" : "s");
@@ -422,8 +453,6 @@ s32 PortStream_SetState(s32 state) {
 
 /* g_musicVol: the game's music volume (its option times the world's fades). */
 s32 PortStream_SetVol(void) {
-    extern u32 g_musicVol;
-
     if (s_cur != NULL) {
         s_cur->target = (float)g_musicVol * (1.0f / 32767.0f);   /* each track's "volume" in Fill */
         Log("%s: volume %.3f", s_cur->name, s_cur->target);
