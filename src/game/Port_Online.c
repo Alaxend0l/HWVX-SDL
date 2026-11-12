@@ -61,6 +61,7 @@
 #include "common.h"
 #include "Port_Content.h"
 #include "Port_Mods.h"
+#include "Port_Proto.h"
 #include "CarA.h"
 #include "World.h"
 #include "Interface.h"
@@ -427,19 +428,19 @@ static void SessionLost(const char *why) {
 
 /* ---- mods: players with other mods don't play together ------------------------ */
 
-/* The enabled mods, ids and versions in load order (Port_Mods.h); none if none change the game. */
+/* The enabled mods, ids and versions in load order (Port_Mods.h); none if none change the game.
+ * Then the PS2 prototype's import mode and which prototype (Port_ProtoIdentity), when it is
+ * in the game: "replace" drives its cars' physics under the release's numbers, the others
+ * add cars and tracks the other machine must have the same. */
 static void ModsFingerprint(void) {
     int i;
 
     s_modsCount = 0;
     s_modsHash = 0;
     SDL_strlcpy(s_modsSummary, "no mods", sizeof(s_modsSummary));
-    if (!Port_ModsActive()) {
-        return;
-    }
     s_modsHash = ONLINE_FNV_BASIS;
     s_modsSummary[0] = 0;
-    for (i = 0; i < Port_ModsCount(); i++) {
+    for (i = 0; Port_ModsActive() && i < Port_ModsCount(); i++) {
         const PortModInfo *m = Port_ModsInfo(i);
         char one[96];
 
@@ -458,6 +459,16 @@ static void ModsFingerprint(void) {
     if (s_modsCount == 0) {
         s_modsHash = 0;
         SDL_strlcpy(s_modsSummary, "no mods", sizeof(s_modsSummary));
+    }
+    if (Port_ProtoMode() != PORT_PROTO_OFF) {
+        char one[96];
+
+        s_modsHash = Online_Fnv1a(s_modsHash != 0 ? s_modsHash : ONLINE_FNV_BASIS, "proto:");
+        s_modsHash = Online_Fnv1a(s_modsHash, Port_ProtoModeKey(Port_ProtoMode()));
+        s_modsHash = Online_Fnv1a(s_modsHash, ":");
+        s_modsHash = Online_Fnv1a(s_modsHash, Port_ProtoIdentity());
+        SDL_snprintf(one, sizeof(one), ", PS2 prototype (%s, %.6s)", Port_ProtoModeKey(Port_ProtoMode()), Port_ProtoIdentity());
+        SDL_strlcat(s_modsSummary, one, sizeof(s_modsSummary));
     }
 }
 
@@ -510,12 +521,12 @@ static void ReceiveHello(u32 port, NetReader *r) {
 
         s_verified &= ~(1u << (port - 1));
         s_refused |= 1u << (port - 1);
-        SDL_snprintf(line, sizeof(line), "Player %u has other mods", port);
+        SDL_snprintf(line, sizeof(line), "Player %u has other mods or prototype", port);
         ShowLobby(line);
     } else {
         char why[2 * MODS_SUMMARY_MAX + 64];
 
-        SDL_snprintf(why, sizeof(why), "Mods differ. Host: %s. Here: %s", theirs, s_modsSummary);
+        SDL_snprintf(why, sizeof(why), "Mods or prototype differ. Host: %s. Here: %s", theirs, s_modsSummary);
         SessionLost(why);
     }
 }
@@ -594,7 +605,9 @@ static void ClientSetup(NetReader *r) {
 
     u32 len;
     const u8 *bytes;
+    char missing[320];
 
+    missing[0] = 0;
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         values[i] = (s32)NetReader_U32(r);
     }
@@ -611,11 +624,16 @@ static void ClientSetup(NetReader *r) {
         if (Port_ContentIndexOf(PORT_CONTENT_TRACK, trackId, &track) && (here = Port_ContentLevelOfTrack(id, track)) >= 0) {
             level = (u32)here;
         } else {
-            Port_Log("online: the host's track %s isn't here; level %u stands in", trackId, level);
+            /* not another world in its place: the cars would stand somewhere else here */
+            SDL_snprintf(missing, sizeof(missing), "The host's track isn't here: %s", trackId);
         }
     }
     if (!r->ok || (id != PROGRESSION_MP_DRAG && id != PROGRESSION_MP_BATTLE && id != PROGRESSION_JOYRIDE) ||
         !(in & (1u << (s_port - 1)))) {
+        return;
+    }
+    if (missing[0] != 0) {
+        SessionLost(missing);
         return;
     }
     for (i = 0; i < SDL_arraysize(s_settings); i++) {

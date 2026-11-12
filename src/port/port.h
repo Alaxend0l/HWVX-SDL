@@ -220,6 +220,9 @@ int Port_ProtoMode(void);
 /* The prototype's folder (its XPS/ENGLISH or the folder holding it), or NULL. */
 const char *Port_ProtoRoot(void);
 const char *Port_ProtoModeKey(int mode);
+/* Its files' names and sizes hashed, 16 hex digits ("" with none): online play's check
+ * that two machines load the same prototype. */
+const char *Port_ProtoIdentity(void);
 /* sources.cfg's "key=" value (SDL_free it), or NULL. */
 char *Port_ProtoSetting(const char *key);
 int Port_ProtoModeNamed(const char *key);
