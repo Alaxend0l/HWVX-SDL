@@ -10,6 +10,7 @@
  *     "profile": "default",
  *     "imported_from": "memcardA/hwvx.sav", (only for an imported save)
  *     "settings": { "difficulty", "sfx_volume", "music_volume", "speaker_mode",
+ *                   "handling" (only when not 0: 2 is the PC's third handling mode),
  *                   "controllers": [4 x hex of ControllerSettings] },
  *     "saves": [ {                          (the file's 8 slots, empty ones left out)
  *       "slot": 0, "valid": true, "name": "HW VEL X 1", "date": [y, m, d, h, min],
@@ -345,8 +346,8 @@ int Port_SaveToJson(const void *saveFile, const PortSaveKind *kind, const char *
     Jw_Int(w, "sfx_volume", s->audio.sfxVolume);
     Jw_Int(w, "music_volume", s->audio.musicVolume);
     Jw_Int(w, "speaker_mode", s->audio.speakerMode);
-    if (s->audio.pad3 != 0) {
-        Jw_Int(w, "audio_unused", s->audio.pad3);
+    if (s->audio.handling != 0) {
+        Jw_Int(w, "handling", s->audio.handling);
     }
     Jw_BeginArray(w, "controllers", 0);
     for (i = 0; i < 4; i++) {
@@ -677,7 +678,10 @@ int Port_SaveFromJson(const JsonNode *root, const PortSaveKind *kind, void *save
     s->audio.sfxVolume = (u8)IntMember(&r, settings, "sfx_volume", 0, 255, 100);
     s->audio.musicVolume = (u8)IntMember(&r, settings, "music_volume", 0, 255, 100);
     s->audio.speakerMode = (u8)IntMember(&r, settings, "speaker_mode", 0, 255, 0);
-    s->audio.pad3 = (u8)IntMember(&r, settings, "audio_unused", 0, 255, 0);
+    /* the byte after the audio settings; saves before the Handling option
+     * named it audio_unused */
+    s->audio.handling = (u8)IntMember(&r, settings, Json_Get(settings, "handling") != NULL ? "handling" : "audio_unused",
+                                      0, 255, 0);
     c = Json_Get(settings, "controllers");
     if (c != NULL) {
         if (c->type != JSON_ARRAY || c->count != 4) {

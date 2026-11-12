@@ -394,7 +394,9 @@ typedef struct AudioSettings {
   u8 sfxVolume;
   u8 musicVolume;
   u8 speakerMode;
-  u8 pad3;
+  u8 handling;        /* port: the cars' handling, 0 their own (CarAInfo.driveMode),
+                       * 2 the PC's third mode (CarA_PortDriveMode); a byte the
+                       * releases leave 0 and never read */
 } AudioSettings;
 
 /* A save in the memory card file's list (GameSettings_SaveGame). */

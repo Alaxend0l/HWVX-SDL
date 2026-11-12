@@ -72,6 +72,17 @@ static inline MCP *GameSettings_LoadMCP(void)
 
 /* port: the JSON save's entries past the save struct's arrays in Hot Wheels
  * save slot `slot` (Port_Content.h), NULL with the memory card or none. */
+/* port: the handling the player chose (CarA_PortDriveMode). */
+u8 GameSettings_PortHandling(void)
+{
+    const char *e = getenv("HWVX_HANDLING");   /* testing: 0 or 2 whatever the setting */
+
+    if (e != NULL && *e != 0) {
+        return (u8)atoi(e);
+    }
+    return g_generalGameSettings.audio.handling;
+}
+
 static const struct JsonNode *GameSettings_PortKept(u32 slot)
 {
     MCP *mcp = GameSettings_LoadMCP();
@@ -292,6 +303,13 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
 
     if (PORT_IS_CODEVAR(var)) {   /* port: graphics settings (Port_Menu.c) */
         Port_GfxSet(var, val);
+        return;
+    }
+    if (var == PORT_CODEVAR_HANDLING) {   /* port: Options' Handling row */
+        if (g_generalGameSettings.audio.handling != (val ? 2 : 0)) {
+            g_generalGameSettings.audio.handling = val ? 2 : 0;
+            GameSettings_SetCodeVariable(0xCA, 0, 1);   /* changed: saved on leaving Options */
+        }
         return;
     }
     if (PORT_IS_TRACK_CODEVAR(var)) {   /* port: a world select's entry: its track (Port_Content.h) */
@@ -588,6 +606,9 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
 
     if (PORT_IS_CODEVAR(var)) {   /* port: graphics settings (Port_Menu.c) */
         return Port_GfxGet(var);
+    }
+    if (var == PORT_CODEVAR_HANDLING) {
+        return g_generalGameSettings.audio.handling == 2;
     }
     if (PORT_IS_TRACK_CODEVAR(var)) {   /* port: a world select's entry: its track (Port_Content.h) */
         arg = Port_ContentTrackAt((u32)(var - PORT_CODEVAR_TRACK), arg);

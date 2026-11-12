@@ -218,7 +218,7 @@ static int CompareHotWheels(const u8 *a, const u8 *b) {
     SAME("sfxVolume", fa->settings.audio.sfxVolume, fb->settings.audio.sfxVolume);
     SAME("musicVolume", fa->settings.audio.musicVolume, fb->settings.audio.musicVolume);
     SAME("speakerMode", fa->settings.audio.speakerMode, fb->settings.audio.speakerMode);
-    SAME("audio.pad3", fa->settings.audio.pad3, fb->settings.audio.pad3);
+    SAME("audio.handling", fa->settings.audio.handling, fb->settings.audio.handling);
     fields += 8;
     for (i = 0; i < 4; i++) {
         for (j = 0; j < (int)sizeof(fa->settings.controllers[i].data); j++, fields++) {
