@@ -985,6 +985,9 @@ def _level_vertices(g, lv):
     return verts, lists
 
 
+MAX_DRAW = 0xFFFF // 3 * 3    # vertices of one GameCube draw command, whole triangles
+
+
 def _enc_gc_level(o, g, lv, li, L, grp, later):
     e = o.e
     verts, lists = _level_vertices(g, lv)
@@ -993,6 +996,9 @@ def _enc_gc_level(o, g, lv, li, L, grp, later):
     def idx(kind, val):
         lst, ix = arrays[kind]
         if val not in ix:
+            if len(lst) == 0x10000:
+                raise GeomError(f"level {li}: more than 65536 different {kind} values (the GameCube's "
+                                "display lists index them with 16 bits)")
             ix[val] = len(lst)
             lst.append(val)
         return ix[val]
@@ -1014,7 +1020,11 @@ def _enc_gc_level(o, g, lv, li, L, grp, later):
             C = idx("uv", v[3])
             body += struct.pack(">HHH", A, B, C)
         n = len(lists[k])
-        dl = bytes((0x90,)) + struct.pack(">H", n) + bytes(body) if n else b""
+        # one GX_DRAW_TRIANGLES command counts at most 0xFFFF vertices: a larger group is
+        # several commands in its list (21845 triangles each)
+        per = len(body) // n if n else 0
+        dl = b"".join(bytes((0x90,)) + struct.pack(">H", min(MAX_DRAW, n - a)) + bytes(body[a * per:min(n, a + MAX_DRAW) * per])
+                      for a in range(0, n, MAX_DRAW))
         dl += bytes(-len(dl) % 32)
         dls.append(dl)
     pos = [p[0] if g["skinned"] else p for p in arrays["pos"][0]]
