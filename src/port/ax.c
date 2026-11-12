@@ -19,7 +19,10 @@
  * envelopes by 3333 us per frame. */
 #define AX_FRAME_SAMPLES 160
 #define AX_MAX_VOICES 64
-#define ARAM_SIZE (16u << 20)
+/* The GameCube has 16 MB. 64 here leaves room for a mod's samples: the game
+ * allocates from the top of its ARAM heap (MAllocA_), so retail sounds land
+ * at other addresses but play the same. Calloc'd: untouched pages cost nothing. */
+#define ARAM_SIZE (64u << 20)
 #define ARAM_BASE 0x4000u /* the SDK reserves the first 16 KB for the DSP */
 #define RING_FRAMES (AX_FRAME_SAMPLES * 16) /* samples: 53 ms */
 
