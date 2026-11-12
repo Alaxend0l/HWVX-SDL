@@ -629,7 +629,11 @@ Debugging aids:
   server instead of the game (`src/port/viewer.c`; 0: any free port, logged):
   line-delimited JSON on 127.0.0.1 to list and load packs, read their nodes,
   get and set fields, frame them and save frames (`docs/viewer-protocol.md`).
-  `HWVX_VIEWER_SCHEMAS=dir` names the schemas folder. The browser is
+  `HWVX_VIEWER_SCHEMAS=dir` names the schemas folder. Its window is hidden:
+  the browser shows the picture in its own window, through shared memory
+  (`frames`); `HWVX_VIEWER_WINDOW=1` shows the game's window as before
+  (debugging; the browser's `--viewer-window`), `HWVX_VIEWER_STATS=1` logs the
+  readback's cost each second. The browser is
   `tools/browser` (`cargo run --release --manifest-path tools/browser/Cargo.toml
   -- --data DIR`), and `tools/viewer_client.py` sends requests from the shell.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
