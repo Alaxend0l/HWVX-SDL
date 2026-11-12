@@ -752,8 +752,18 @@ class Manifest:
                 self.err(w, "isn't an object")
                 continue
             for k in e:
-                if k not in ("extends", "name", "thumbnail", "unlocked", "world"):
-                    self.err(f"{w}.{k}", "isn't a member of a track (extends, name, thumbnail, unlocked, world)")
+                if k == "worldPack":
+                    # a level built into a world pack (the editor's test drive) is the base world's
+                    # data: a package carries the level file, which the port applies as it loads
+                    self.err(f"{w}.worldPack", "a world pack is game data: package the level file "
+                             "(\"level\", tools/xdl_level.py mod) instead")
+                elif k not in ("extends", "name", "thumbnail", "unlocked", "world", "level"):
+                    self.err(f"{w}.{k}", "isn't a member of a track (extends, name, thumbnail, unlocked, world, "
+                             "level)")
+            lvl = self._str(e, "level", w)
+            if lvl and (lvl.startswith(("/", "\\")) or ".." in lvl.replace("\\", "/").split("/")
+                        or not lvl.endswith(".json")):
+                self.err(f"{w}.level", "the level file (tools/xdl_level.py compile): a .json path inside the mod")
             ext = self._str(e, "extends", w, True, TRACK_RE)
             if ext:
                 self.refs.add(ext)
