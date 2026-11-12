@@ -78,6 +78,8 @@ void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd);
 int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, const JsonNode *value, int force,
                     char *err, size_t errSize);
 void Viewer_WriteNull(JsonWriter *w, const char *key);
+/* viewer_hudscan.c: the pack's interface headers and their objects' layout */
+void Viewer_WriteInterfaces(JsonWriter *w, VPack *vp);
 /* Per 4-byte word of the blob, the node it is part of (geometry groups: their geometry), or -1; SDL_free it. */
 s32 *Viewer_WordUsers(VPack *vp);
 

@@ -18,6 +18,12 @@
 //!   xdlrs probe tac-encode FILE TID gc|pc [PATH]   encode_trigger's parts (JSON)
 //!   xdlrs probe tac-extract HOST.json    Extract over a host dumped by the parity test (JSON)
 //!
+//!   xdlrs mod index DATA... [-o OUT.npz] [--archives A,B] [--no-geometry] [-j N]
+//!   xdlrs mod check MOD --index INDEX [--strip-unchanged]
+//!   xdlrs mod pack MOD -o OUT.xmod --index INDEX [--strip-unchanged] [--allow-partial-index]
+//!                                        as tools/xdl_mod.py (the no-game-data check)
+//!   xdlrs mod probe png|audio|fp|blobs FILE   what the check reads from a file (JSON)
+//!
 //! --repo DIR: the HWVX-SDL checkout (schemas/); default: found above the current folder.
 
 use serde_json::{Map, Value, json};
@@ -883,8 +889,129 @@ impl TacHost for DumpHost {
 
 // ------------------------------------------------------------------------------------------
 
+/// `xdlrs mod ...`: tools/xdl_mod.py's index, check and pack (same output, same exit codes).
+fn mod_main(argv: &[String]) -> ExitCode {
+    use xdlrs::modcheck as mc;
+    let (mut pos, mut opts, mut flags) = (vec![], HashMap::new(), vec![]);
+    let mut i = 0;
+    while i < argv.len() {
+        let x = argv[i].as_str();
+        if ["--strip-unchanged", "--allow-partial-index", "--no-geometry"].contains(&x) {
+            flags.push(x.to_string());
+        } else if ["-o", "--out", "--index", "--archives", "-j", "--jobs", "--repo"].contains(&x) && i + 1 < argv.len() {
+            opts.insert(x.trim_start_matches('-').to_string(), argv[i + 1].clone());
+            i += 1;
+        } else {
+            pos.push(argv[i].clone());
+        }
+        i += 1;
+    }
+    let flag = |k: &str| flags.iter().any(|f| f == k);
+    let opt = |a: &str, b: &str| opts.get(a).or_else(|| opts.get(b)).cloned();
+    let root = match opts.get("repo") {
+        Some(r) => PathBuf::from(r),
+        None => match xdlrs::repo_root(std::env::current_dir().ok().as_deref()) {
+            Some(r) => r,
+            None => {
+                eprintln!("error: no schemas/ found (--repo)");
+                return ExitCode::from(2);
+            }
+        },
+    };
+    let usage = || {
+        eprintln!("usage: xdlrs mod index DATA... [-o OUT] [--archives A,B] [--no-geometry] [-j N]\n       xdlrs mod check MOD --index INDEX [--strip-unchanged]\n       xdlrs mod pack MOD -o OUT --index INDEX [--strip-unchanged] [--allow-partial-index]\n       xdlrs mod probe png|audio|fp|blobs FILE");
+        ExitCode::from(2)
+    };
+    match pos.first().map(String::as_str) {
+        Some("index") if pos.len() > 1 => {
+            let o = IndexOpts { archives: opt("archives", "archives").map(|s| s.split(',').map(String::from).collect()), no_geometry: flag("--no-geometry"), jobs: opt("j", "jobs").and_then(|j| j.parse().ok()).unwrap_or(4) };
+            let out = opt("o", "out").map(PathBuf::from).unwrap_or_else(|| root.join("build").join("mod-index.npz"));
+            let data: Vec<PathBuf> = pos[1..].iter().map(PathBuf::from).collect();
+            match mc::build_index(&data, &out, &o, &root) {
+                Ok(t) => {
+                    print!("{t}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        Some(c @ ("check" | "pack")) if pos.len() == 2 => {
+            let Some(index) = opts.get("index") else { return usage() };
+            let out = if c == "pack" {
+                match opt("o", "out") {
+                    Some(o) => Some(PathBuf::from(o)),
+                    None => return usage(),
+                }
+            } else {
+                None
+            };
+            let o = mc::Options { strip_unchanged: flag("--strip-unchanged"), allow_partial_index: flag("--allow-partial-index"), root: Some(root) };
+            let r = mc::check_and_pack(Path::new(&pos[1]), Path::new(index), out.as_deref(), &o);
+            print!("{}", r.stdout);
+            eprint!("{}", r.stderr);
+            ExitCode::from(r.code as u8)
+        }
+        Some("probe") if pos.len() == 3 => match mod_probe(&pos[1], Path::new(&pos[2])) {
+            Ok(s) => {
+                print!("{s}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                println!("ERR {e}");
+                ExitCode::from(1)
+            }
+        },
+        _ => usage(),
+    }
+}
+
+type IndexOpts = xdlrs::modcheck::IndexOptions;
+
+/// Probes the parity test uses: what the check reads from one file (JSON).
+fn mod_probe(what: &str, p: &Path) -> std::result::Result<String, String> {
+    use xdlrs::modcheck::{audio, blobs, hash, image};
+    let data = std::fs::read(p).map_err(|e| e.to_string())?;
+    let v = match what {
+        "png" => {
+            let img = image::read_png(&data)?;
+            let (a, b) = image::pixel_hashes(&img);
+            json!({"w": img.w, "h": img.h, "px": format!("{a:016x}"), "rgb": format!("{b:016x}"),
+                   "dhash": image::dhash(&img).map(|d| hash::hex(&d))})
+        }
+        "audio" | "fp" => {
+            let pcm = audio::decode_audio(p, &p.to_string_lossy())?;
+            let raw: Vec<u8> = pcm.data.iter().flat_map(|x| x.to_le_bytes()).collect();
+            let mono = pcm.mono();
+            let mut j = json!({"channels": pcm.channels, "rate": pcm.rate, "frames": pcm.frames(), "pcm": format!("{:016x}", hash::h64(&raw))});
+            if what == "fp" {
+                let (k, f) = audio::sound_fp(if pcm.channels > 1 { &mono } else { &pcm.data }, pcm.rate);
+                j["keys"] = json!(k);
+                j["frames_kept"] = json!(f);
+            }
+            j
+        }
+        "blobs" => {
+            let s = String::from_utf8_lossy(&data);
+            let mut out = vec![];
+            match jsonc::loads(&s) {
+                Ok(tree) => blobs::json_blobs(&tree, "", &mut out),
+                Err(_) => out = blobs::text_blobs(&s),
+            }
+            Value::Array(out.into_iter().map(|(w, b)| json!([w, hash::hex(&b)])).collect())
+        }
+        _ => return Err(format!("no probe {what}")),
+    };
+    Ok(py::dumps(&v) + "\n")
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("mod") {
+        return mod_main(&argv[1..]);
+    }
     let a = parse_args(&argv);
     let cmd = (a.pos.first().map(String::as_str), a.pos.get(1).map(String::as_str));
     let shifted = |n: usize| Args { pos: a.pos[n..].to_vec(), opts: a.opts.clone(), flags: a.flags.clone() };

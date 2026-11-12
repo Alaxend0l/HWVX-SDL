@@ -28,6 +28,9 @@ Runs both on the same input and compares bytes and text exactly:
              stdout/stderr, the files made (level files but their cache key, archives byte for
              byte), and level_refuse_test.py's crafted level files made from both
              (--data GC_DATA for the checks against the base world and the packs)
+  modindex, modfiles, modcheck
+             the mod check (`xdlrs mod`) against xdl_mod.py: tools/xdlrs_parity_mod.py
+             (--reuse keeps its indexes)
 
 The Python side runs with xdl_struct's builtin validator (MiniValidator), which is what the
 port has; with the jsonschema package installed the Python tools would use that instead.
@@ -1055,6 +1058,7 @@ def main():
     ap.add_argument("--quick", action="store_true", help="fewer samples")
     ap.add_argument("--data", default=os.environ.get("HWVX_GC_DATA"),
                     help="GameCube data (the level checks against the base world, the packs)")
+    ap.add_argument("--reuse", action="store_true", help="mod: keep indexes already made")
     a = ap.parse_args()
     a.survey = Path(a.survey) if a.survey else next(
         (d for d in (ROOT / "build-survey", ROOT.parent / "build-survey") if d.is_dir()), ROOT / "build-survey")
@@ -1103,6 +1107,10 @@ def main():
         t_bsp(a)
     if on("level"):
         t_level(a)
+    mod = {n for n in ("modindex", "modfiles", "modcheck") if on(n)}
+    if mod:
+        import xdlrs_parity_mod as PM
+        PM.run_all(a, mod, report)
     fails = sum(1 for r in RESULTS if r[2])
     print(f"\n{len(RESULTS) - fails}/{len(RESULTS)} checks identical")
     return 1 if fails else 0

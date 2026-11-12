@@ -1,22 +1,15 @@
-//! Save as mod: the one place the level tools call the no-game-data check (tools/xdl_mod.py).
-//!
-//! [`check_and_pack`] still runs the Python (`xdl_mod.py index` once per data folder into the
-//! cache, then `xdl_mod.py pack`), exactly as tools/xdl_level.py `mod --xmod` does; the Rust port
-//! of xdl_mod (stage 3, the `modcheck` module) replaces this function's body. Nothing else in
-//! the crate or the editor runs Python.
+//! Save as mod: the one place the level tools call the no-game-data check ([`crate::modcheck`],
+//! tools/xdl_mod.py's port): the index of the player's own data made once into the cache, then
+//! the mod folder checked against it and packed, as tools/xdl_level.py `mod --xmod` does with
+//! the Python. No Python runs.
 
 use crate::error::{Error, Result};
 use sha1::Digest as _;
 use sha2::Sha256;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 fn lerr(m: impl Into<String>) -> Error {
     Error::level(m)
-}
-
-fn python() -> String {
-    std::env::var("HWVX_PYTHON").ok().filter(|p| !p.is_empty()).unwrap_or_else(|| "python3".into())
 }
 
 fn hexs(b: &[u8]) -> String {
@@ -49,9 +42,10 @@ fn files_under(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// The index tools/xdl_mod.py packs against: `index`, or one made from `data` once into the
-/// cache (keyed as xdl_level.py keys it: the folder, its files' names, sizes and times, and
-/// xdl_mod.py itself; the Python and this share the cache).
+/// The index the check packs against: `index`, or one made from `data` once into the cache
+/// (keyed as xdl_level.py keys it: the folder, its files' names, sizes and times, and the
+/// indexer: here this crate's sources where the Python hashes xdl_mod.py, so a newer indexer
+/// makes a new index; the .npz format is the Python's, either reads the other's).
 fn mod_index(root: &Path, index: Option<&Path>, data: Option<&Path>, cache: &Path) -> Result<PathBuf> {
     if let Some(i) = index {
         return Ok(i.to_path_buf());
@@ -59,13 +53,9 @@ fn mod_index(root: &Path, index: Option<&Path>, data: Option<&Path>, cache: &Pat
     let Some(data) = data else {
         return Err(lerr("a .xmod needs the no-game-data check: --index INDEX.npz or --data DATA"));
     };
-    let tool = root.join("tools").join("xdl_mod.py");
     let mut fh = Sha256::new();
-    fh.update(b"xdl_mod.py\0");
-    match std::fs::read(&tool) {
-        Ok(b) => fh.update(&b),
-        Err(_) => fh.update(b"-"),
-    }
+    fh.update(b"xdlrs modcheck\0");
+    fh.update(crate::level::TOOL_ID.as_bytes());
     fh.update(b"\0");
     let files_hash = hexs(&fh.finalize());
     let droot = std::fs::canonicalize(data).unwrap_or_else(|_| data.to_path_buf());
@@ -83,42 +73,22 @@ fn mod_index(root: &Path, index: Option<&Path>, data: Option<&Path>, cache: &Pat
     let idx = cache.join(format!("mod-index-{key}.npz"));
     if !idx.exists() {
         std::fs::create_dir_all(cache).map_err(|e| Error::io(format!("{}: {e}", cache.display())))?;
-        let r = Command::new(python())
-            .arg(&tool)
-            .arg("index")
-            .arg(data)
-            .arg("-o")
-            .arg(&idx)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| lerr(format!("xdl_mod.py index: {e}")))?;
-        if !r.status.success() {
-            let t = if r.stderr.is_empty() { &r.stdout } else { &r.stderr };
-            return Err(lerr(format!("xdl_mod.py index: {}", tail(String::from_utf8_lossy(t).trim(), 400))));
-        }
+        let o = crate::modcheck::IndexOptions { archives: None, no_geometry: false, jobs: 4 };
+        crate::modcheck::build_index(&[data.to_path_buf()], &idx, &o, root).map_err(|e| lerr(format!("the index: {}", tail(e.0.trim(), 400))))?;
     }
     Ok(idx)
 }
 
-/// The mod folder `mod_dir` checked for game data and packed into `xmod` (tools/xdl_mod.py pack
-/// against the player's own data's index). Ok: the packer's last line; Err (Kind::Level): why
+/// The mod folder `mod_dir` checked for game data and packed into `xmod` (modcheck, as
+/// tools/xdl_mod.py pack, against the player's own data's index). Ok: the packer's last line; Err (Kind::Level): why
 /// it wasn't packed.
 pub fn check_and_pack(root: &Path, mod_dir: &Path, xmod: &Path, index: Option<&Path>, data: Option<&Path>, cache: &Path) -> Result<String> {
     let idx = mod_index(root, index, data, cache)?;
-    let r = Command::new(python())
-        .arg(root.join("tools").join("xdl_mod.py"))
-        .arg("pack")
-        .arg(mod_dir)
-        .arg("-o")
-        .arg(xmod)
-        .arg("--index")
-        .arg(&idx)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| lerr(format!("the package: {e}")))?;
-    let text = format!("{}{}", String::from_utf8_lossy(&r.stdout), String::from_utf8_lossy(&r.stderr));
+    let opt = crate::modcheck::Options { root: Some(root.to_path_buf()), ..Default::default() };
+    let r = crate::modcheck::check_and_pack(mod_dir, &idx, Some(xmod), &opt);
+    let text = format!("{}{}", r.stdout, r.stderr);
     let text = text.trim();
-    if !r.status.success() {
+    if r.code != 0 {
         return Err(lerr(format!("the package: {}", tail(text, 1500))));
     }
     Ok(match text.lines().last() {

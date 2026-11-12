@@ -29,6 +29,7 @@ pub mod jsonc_edit;
 pub mod level;
 pub mod level_pack;
 pub mod level_share;
+pub mod modcheck;
 pub mod ops;
 pub mod pack;
 pub mod py;
