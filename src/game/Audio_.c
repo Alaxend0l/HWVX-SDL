@@ -85,6 +85,33 @@ void Audio_Update_(void) {
 }
 
 
+/* port: HWVX_HEAPLOG=1 logs each 256 KB the ARAM heap's peak use passes, and the
+ * blocks in use (255 descriptors at most) */
+static void AramLog(void) {
+    static int on = -1;
+    static s32 peak;
+    s32 freeBytes = 0, blocks = 0;
+    u32 i;
+
+    if (on < 0) {
+        on = getenv("HWVX_HEAPLOG") != NULL;
+    }
+    if (!on) {
+        return;
+    }
+    for (i = 0; i != 0xFFFFFFFF && i < 0xFF; i = g_memblk[i].next) {
+        if (g_memblk[i].size > 0) {
+            freeBytes += g_memblk[i].size;
+        } else if (g_memblk[i].size < 0) {
+            blocks++;
+        }
+    }
+    if (g_size - freeBytes > peak + 0x40000) {
+        peak = g_size - freeBytes;
+        Port_Log("aram: peak %.2f of %.2f MB, %d blocks", peak / 1048576.0, g_size / 1048576.0, (int)blocks);
+    }
+}
+
 u32 HAllocA_(s32 size) {
     extern s32 g_last;
     extern u32 g_heap;
@@ -95,6 +122,7 @@ u32 HAllocA_(s32 size) {
     }
     g_memblk[g_last].addr += size;
     g_memblk[g_last].size -= size;
+    AramLog();   /* port */
     return g_heap;
 }
 
@@ -127,6 +155,7 @@ u32 MAllocA_(s32 size) {
             }
             g_memblk[i].addr += g_memblk[i].size - size;
             g_memblk[i].size = -size;
+            AramLog();   /* port */
             return g_memblk[i].addr;
         }
         i = g_memblk[i].next;
