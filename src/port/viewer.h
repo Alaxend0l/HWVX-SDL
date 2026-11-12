@@ -15,6 +15,13 @@ struct DataPack;
 
 /* 1 when HWVX_VIEWER is set. */
 int Port_ViewerOn(void);
+/* 1 when the viewer's window is hidden: its frames go to the data browser
+ * through shared memory (viewer_frames.c). The default in viewer mode;
+ * HWVX_VIEWER_WINDOW=1 shows the window as before (debugging). */
+int Port_ViewerHeadless(void);
+/* gx_draw.c: the EFB size the browser asked for (`frames`), instead of the
+ * window's; 0 when the window decides. */
+int Port_ViewerEfbSize(int *w, int *h);
 /* Main_Init: instead of the game's first state. 1 on success. */
 s32 Port_ViewerStart(void);
 /* Main_Loop: one frame, the commands that arrived and the preview. 0 quits. */

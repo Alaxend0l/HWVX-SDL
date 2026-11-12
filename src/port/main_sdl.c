@@ -1,5 +1,6 @@
 /* SDL3 entry point. Replaces the GameCube main() and Main_NGC.c: sets up the
  * window, renderer and game arena, then runs the game's Main_Init/Main_Loop. */
+#include "viewer.h"
 #include "gx_render.h"
 #include "disc.h"
 #include "Port_Mix.h"
@@ -512,6 +513,10 @@ int Port_TryCreateWindow(SDL_WindowFlags flags) {
     flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (g_port.convertDir != NULL || Port_MixBuilding()) {
         flags |= SDL_WINDOW_HIDDEN;     /* converting: nothing is shown */
+        g_port.fullscreen = 0;
+    }
+    if (Port_ViewerHeadless()) {
+        flags |= SDL_WINDOW_HIDDEN;     /* the viewer's frames go to the data browser */
         g_port.fullscreen = 0;
     }
     if (g_port.fullscreen) {
