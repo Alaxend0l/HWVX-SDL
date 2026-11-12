@@ -656,7 +656,9 @@ Debugging aids:
   the browser shows the picture in its own window, through shared memory
   (`frames`); `HWVX_VIEWER_WINDOW=1` shows the game's window as before
   (debugging; the browser's `--viewer-window`), `HWVX_VIEWER_STATS=1` logs the
-  readback's cost each second. The browser is
+  readback's cost each second. Packs load with their sounds (the browser's
+  textures, sounds and songs, decoded and played by the game);
+  `HWVX_VIEWER_AUDIO=0` loads them without. The browser is
   `tools/browser` (`cargo run --release --manifest-path tools/browser/Cargo.toml
   -- --data DIR`), and `tools/viewer_client.py` sends requests from the shell.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
