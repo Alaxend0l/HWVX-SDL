@@ -462,6 +462,7 @@ typedef struct Launcher {
     Uint64 convBytes[PORT_DATA_COUNT];
     SDL_Process *converter;
     int convSource, convDone, convTotal;
+    SDL_Time convStart;         /* when it started (the mixed game's: was its build made since?) */
     char convName[64], convLine[600], convError[200];
     size_t convLineLen;
     /* the mixed game: its recipe looked at (Port_MixProbe), its cache's state */
@@ -1327,6 +1328,7 @@ static void StartConvert(Launcher *l, int src) {
     l->convDone = l->convTotal = 0;
     l->convName[0] = l->convError[0] = '\0';
     l->convLineLen = 0;
+    SDL_GetCurrentTime(&l->convStart);
     if (l->converter == NULL) {
         SDL_snprintf(l->status, sizeof(l->status), "Could not start the converter: %s", SDL_GetError());
     } else if (src == SRC_MIX) {
@@ -1352,19 +1354,30 @@ static void ConvertLine(Launcher *l, const char *line) {
     }
 }
 
-/* The mixed game's builder has ended: it put a complete build in place
- * itself (mix.c); a stopped one leaves its .part, removed here. */
+/* The mixed game's builder has ended: it puts a complete build in place
+ * itself (mix.c: <dir> to <dir>.old, <dir>.part to <dir>, .old removed), so
+ * a stop, a Cancel too, can come at any point of that. What happened is
+ * read from the folders: a stop between the renames gets the last build
+ * back; a built.cfg written since the start is the new build. */
 static void EndMixBuild(Launcher *l, int cancel, int code) {
-    char *part = NULL;
-    int ok;
+    char *part = NULL, *old = NULL, *built = NULL;
+    SDL_PathInfo info;
+    int ok = 0;
 
     RefreshMix(l);
-    ok = !cancel && code == 0 && l->mixState == CONV_OK;
-    if (!ok && l->mix.dir[0] != '\0' && SDL_asprintf(&part, "%s.part", l->mix.dir) >= 0) {
+    if (l->mix.dir[0] != '\0' && SDL_asprintf(&part, "%s.part", l->mix.dir) >= 0 &&
+        SDL_asprintf(&old, "%s.old", l->mix.dir) >= 0 && SDL_asprintf(&built, "%s/%s", l->mix.dir, PORT_MIX_BUILT) >= 0) {
+        if (!SDL_GetPathInfo(l->mix.dir, NULL)) {
+            SDL_RenamePath(old, l->mix.dir);
+        }
+        Port_RemoveTree(old);
         Port_RemoveTree(part);
-        SDL_free(part);
         RefreshMix(l);
+        ok = SDL_GetPathInfo(built, &info) && info.modify_time >= l->convStart && l->mixState == CONV_OK;
     }
+    SDL_free(part);
+    SDL_free(old);
+    SDL_free(built);
     if (ok) {
         SDL_snprintf(l->status, sizeof(l->status), "The mixed game is built: %d packs.", l->mixPacks);
     } else if (cancel) {
