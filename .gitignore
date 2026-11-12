@@ -70,3 +70,7 @@ dkms.conf
 # debug information files
 *.dwo
 *.DS_Store
+
+# the data browser (tools/browser): cargo output, the viewer preferences folder it makes
+tools/browser/target/
+scratch-pref/
