@@ -88,6 +88,7 @@
 #define SPAWN_TIGHT_SEPARATION 25.0f
 #define SPAWN_BODY_HEIGHT 6.0f  /* walls are looked for this far above the ground */
 #define NO_ITEM (-1)
+#define CHOICE_MAX (5 + 255)    /* Port_ContentWriteChoice: number, length, an id of up to 255 */
 
 
 #define SNAPSHOT_MS 33          /* how often a car tells the others about itself */
@@ -509,9 +510,10 @@ static void ReceiveHello(u32 port, NetReader *r) {
 /* ---- choosing -------------------------------------------------------------- */
 
 void Port_OnlineHostSetup(void) {
-    u8 buf[64];
+    u8 buf[64 + 256];
     NetWriter w;
-    s32 id, level;
+    s32 id, level, track, sent;
+    char trackId[256];
     u32 i;
 
     if (s_state == STATE_NONE || !s_isHost) {
@@ -520,20 +522,37 @@ void Port_OnlineHostSetup(void) {
     /* each machine would run its own AI: none until they are shared */
     GameSettings_SetCodeVariable(0x133, 0, 0);
     StateProgressionManager_GetProgressionID(&id, &level);
+    /* a registered track's level is numbered by each machine's ids.lock: it goes by id,
+     * with the level of the track it is made from for a machine without it */
+    trackId[0] = 0;
+    sent = level;
+    if ((track = Port_ContentTrackOfLevel((u32)id, (u32)level)) >= 0 &&
+        Port_ContentIdOf(PORT_CONTENT_TRACK, (u32)track, trackId, sizeof(trackId))) {
+        s32 base = Port_ContentDataOf(PORT_CONTENT_TRACK, (u32)track);
+
+        sent = base >= 0 ? Port_ContentLevelOfTrack((u32)id, (u32)base) : -1;
+        if (sent < 0) {
+            sent = 0;
+        }
+    } else {
+        trackId[0] = 0;
+    }
     NetWriter_Init(&w, buf, sizeof(buf));
     NetWriter_U8(&w, MSG_SETUP);
     NetWriter_U8(&w, (u8)id);
-    NetWriter_U16(&w, (u16)level);
+    NetWriter_U16(&w, (u16)sent);
     /* a player whose mods aren't the host's isn't in it (MSG_HELLO) */
     NetWriter_U8(&w, (u8)(s_present & s_lobby & s_verified));
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         NetWriter_U32(&w, GameSettings_GetCodeVariable(s_settings[i], 0));
     }
+    NetWriter_U8(&w, (u8)SDL_strlen(trackId));
+    NetWriter_Bytes(&w, trackId, (u32)SDL_strlen(trackId));
     s_in = s_present & s_lobby & s_verified;
     s_chosen = 0;
     s_state = STATE_CHOOSING;
     Net_SendReliable(NET_PEER_ALL, buf, w.size);
-    Port_Log("online: setting up progression %d level %d for ports %x", id, level, s_in);
+    Port_Log("online: setting up progression %d level %d (%s) for ports %x", id, level, trackId[0] ? trackId : "its own", s_in);
 }
 
 static void ClientSetup(NetReader *r) {
@@ -543,8 +562,27 @@ static void ClientSetup(NetReader *r) {
     s32 values[SDL_arraysize(s_settings)];
     u32 i;
 
+    u32 len;
+    const u8 *bytes;
+
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         values[i] = (s32)NetReader_U32(r);
+    }
+    len = NetReader_U8(r);
+    bytes = len > 0 ? NetReader_Take(r, len) : NULL;
+    if (r->ok && bytes != NULL) {
+        /* a registered track: its level here, else the level it is made from */
+        char trackId[256];
+        u32 track;
+        s32 here;
+
+        SDL_memcpy(trackId, bytes, len);
+        trackId[len] = 0;
+        if (Port_ContentIndexOf(PORT_CONTENT_TRACK, trackId, &track) && (here = Port_ContentLevelOfTrack(id, track)) >= 0) {
+            level = (u32)here;
+        } else {
+            Port_Log("online: the host's track %s isn't here; level %u stands in", trackId, level);
+        }
     }
     if (!r->ok || (id != PROGRESSION_MP_DRAG && id != PROGRESSION_MP_BATTLE && id != PROGRESSION_JOYRIDE) ||
         !(in & (1u << (s_port - 1)))) {
@@ -590,7 +628,7 @@ static void StartLevel(void) {
 
 /* The host: when every car is known, start everyone. */
 static void HostCheckChosen(void) {
-    u8 buf[16 + ONLINE_PLAYERS * 2 * (5 + 64)];
+    u8 buf[16 + ONLINE_PLAYERS * 2 * CHOICE_MAX];
     NetWriter w;
     u32 i;
 
@@ -626,7 +664,7 @@ int Port_OnlineCarsChosen(Interface *iface) {
     if (s_isHost) {
         HostCheckChosen();
     } else {
-        u8 buf[8 + 2 * (5 + 64)];
+        u8 buf[8 + 2 * CHOICE_MAX];
         NetWriter w;
 
         NetWriter_Init(&w, buf, sizeof(buf));

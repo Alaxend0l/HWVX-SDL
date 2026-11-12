@@ -1050,6 +1050,24 @@ s32 Port_ContentTrackOfLevel(u32 prog, u32 level) {
     return f != NULL && f->known && level >= f->levels && level - f->levels < f->numExtra ? (s32)f->extra[level - f->levels] : -1;
 }
 
+s32 Port_ContentLevelOfTrack(u32 prog, u32 track) {
+    const Family *f = prog < MAX_PROG ? &s_family[prog] : NULL;
+    u32 i;
+
+    if (f == NULL || !f->known) {
+        return -1;
+    }
+    if ((s32)track >= f->first && (s32)track <= f->last && (u32)((s32)track - f->first) < f->levels) {
+        return (s32)track - f->first;
+    }
+    for (i = 0; i < f->numExtra; i++) {
+        if (f->extra[i] == track) {
+            return (s32)(f->levels + i);
+        }
+    }
+    return -1;
+}
+
 /* The padlocks' code variable for a select of `prog` whose entry is
  * variable `var`: kept for the run (a condition of any load of the pack
  * points at it). */

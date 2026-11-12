@@ -434,8 +434,12 @@ floor) and any logic that counts frames rather than time.
 
 Work in progress: Drag Race, Battle and Joyride play over a network, weapons and pickups
 included. In Joyride, a world's key and gears count for every player. One host and its clients, each connected to the host only,
-up to 8 players in the transport (the game itself stops at 4 for now: player pools,
-score tables, spawns), because a Cloudflare tunnel only takes connections to the host.
+up to 8 players (only one host to connect to, because a Cloudflare tunnel only takes
+connections to the host). The retail game has 4 player ports; online, players 5-8 start at
+a Battle world's AI spawns or at spots of our own behind the world's 4 (a second row of a
+Drag Race grid), scripts naming all 4 player spawns name theirs too, a Drag Race finish
+counts for them, and the round summary shows them in turns in its four rows. Players whose
+enabled mods differ (ids and versions) don't play together: the client leaves saying so.
 
 Multi-Player now opens Online or Local; Local is the game's own screen (on PC data the
 port's, see above). Hosting opens a
@@ -470,6 +474,10 @@ cmake -S . -B build-tests -DHWVX_TESTS=ON && cmake --build build-tests --target 
 build-tests/nettest selftest     # protocol code, no sockets
 build-tests/nettest e2e          # a host and clients as separate processes
 ```
+
+A whole session on one machine: `tools/online8_test.sh BUILD DATA OUT battle|drag|joyride`
+runs one game as host (`HWVX_ONLINE_TEST`, see `Port_Online.c`) and 7 `netbot` clients
+(`tools/netbot.c`), and fails on a crash, a desync of the cars or scores, or a missing round.
 
 `HWVX_NET_SIM` makes any session's connection bad, for example
 `HWVX_NET_SIM=lat=40,jitter=20,loss=1,stall=200,bw=64` (see `src/port/net_sim.c`). For two
