@@ -520,9 +520,18 @@ static void Records(JsonWriter *w, VPack *vp, const char *table) {
  * "volumeData": {...} or null. */
 static void WriteVolumeData(JsonWriter *w, VPack *vp, const WorldVolume *v) {
     const u8 *d = Port_HandleToPtr(v->data.h);
-    u32 lo = Port_PtrToHandle(Blob(vp));
+    u32 lo = Port_PtrToHandle(Blob(vp)), need;
 
-    if (v->data.h == 0 || v->data.h - lo >= vp->size) {
+    /* the bytes each type reads below, all inside the pack */
+    switch (v->type) {
+    case VOLUME_FORCE_BOX: need = 0x14; break;
+    case VOLUME_REVERB: need = 8; break;
+    case VOLUME_FOG: need = 16; break;
+    case VOLUME_LIGHT: need = (u32)sizeof(Light); break;
+    case VOLUME_CREATURE: need = 1; break;
+    default: need = 0; break;
+    }
+    if (v->data.h == 0 || v->data.h - lo >= vp->size || need > vp->size - (v->data.h - lo)) {
         Viewer_WriteNull(w, "volumeData");
         return;
     }
@@ -638,6 +647,33 @@ static void WriteEnvelope(JsonWriter *w) {
     Jw_EndObject(w);
 }
 
+/* spawnbox's `path`, as screenshots' (viewer.c ShotPathOk): a .json, and over nothing
+ * but JSON (an empty file, or one whose first non-space byte opens an object or array):
+ * what asks over the port shouldn't get to replace a file. */
+static int JsonPathOk(const char *path, char *err, size_t errSize) {
+    size_t n = SDL_strlen(path), got, k;
+    SDL_IOStream *io;
+    char head[64];
+
+    if (n <= 5 || SDL_strcasecmp(path + n - 5, ".json") != 0) {
+        SDL_snprintf(err, errSize, "spawnbox's path is a .json");
+        return 0;
+    }
+    io = SDL_IOFromFile(path, "rb");
+    if (io == NULL) {
+        return 1;   /* nothing there (or not readable: writing says why) */
+    }
+    got = SDL_ReadIO(io, head, sizeof(head));
+    SDL_CloseIO(io);
+    for (k = 0; k < got && (head[k] == ' ' || head[k] == '\t' || head[k] == '\r' || head[k] == '\n'); k++) {
+    }
+    if (k == got ? got < sizeof(head) : head[k] == '{' || head[k] == '[') {
+        return 1;
+    }
+    SDL_snprintf(err, errSize, "%s is there and isn't JSON: not overwritten", path);
+    return 0;
+}
+
 int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, int *ok, char *err, size_t errSize) {
     VPack *vp;
 
@@ -646,6 +682,10 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
          * tools/xdl_level.py check --spawn-box */
         const char *path = Json_GetString(req, "path", NULL);
 
+        if (path != NULL && !JsonPathOk(path, err, errSize)) {
+            *ok = 0;
+            return 1;
+        }
         WriteEnvelope(w);
         if (path != NULL) {
             JsonWriter f;
