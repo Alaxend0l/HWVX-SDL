@@ -619,6 +619,11 @@ void Port_DrawDistReleaseAll(void);
 f32 Port_DrawDistFarPlane(f32 farPlane);
 s32 Port_DrawDistFog(f32 *start, f32 *end);
 f32 Port_DrawDistProjectionFar(f32 farPlane);
+/* The viewer's 3D view switches (HWVX_VIEWER only): geometry clipping, every
+ * quadrant loaded, fog. */
+void Port_DrawDistViewer(s32 clip, s32 allQuads, s32 fog);
+void Port_DrawDistViewerGet(s32 *clip, s32 *allQuads, s32 *fog);
+s32 Port_DrawDistNoCull(void);
 /* port, testing: HWVX_AUTOPILOT=1, player 1's car drives itself (Port_Autopilot.c) */
 struct Player;
 s32 Port_AutopilotDrive(struct Player *player);

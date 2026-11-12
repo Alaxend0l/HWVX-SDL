@@ -36,9 +36,19 @@ pub struct WorldState {
     pub tab_worlds: bool,  // the left panel shows the worlds
     pub fly: bool,
     pub last_move: Option<Instant>,
+    /// the 3D view's switches (the viewer's view3d; off: as the game draws)
+    pub no_clip: bool,
+    pub all_quads: bool,
+    pub no_fog: bool,
 }
 
 impl Browser {
+    /// The 3D view's switches to the viewer (view3d; the game's own play never has them).
+    pub(crate) fn send_view3d(&mut self) {
+        let v = json!({"clip": !self.world.no_clip, "allQuads": self.world.all_quads, "fog": !self.world.no_fog});
+        self.request("view3d", v, Pending::Quiet);
+    }
+
     pub(crate) fn worlds_reply(&mut self, r: Value) {
         self.world.list = r["worlds"]
             .as_array()
@@ -204,6 +214,25 @@ impl Browser {
             }
             self.request("overlays", Value::Object(changes), Pending::Quiet);
         }
+        ui.label("View");
+        ui.horizontal_wrapped(|ui| {
+            let mut clip = !self.world.no_clip;
+            let mut all = self.world.all_quads;
+            let mut fog = !self.world.no_fog;
+            let a = ui.checkbox(&mut clip, "Geometry clipping")
+                .on_hover_text("off: nothing disappears with distance (no far clipping plane, no draw distances, no culling)")
+                .changed();
+            let b = ui.checkbox(&mut all, "Load all quadrants")
+                .on_hover_text("every quadrant loaded at once, not only those around the camera")
+                .changed();
+            let c = ui.checkbox(&mut fog, "Fog").on_hover_text("off: no distance fog (the sky keeps its haze)").changed();
+            if a || b || c {
+                self.world.no_clip = !clip;
+                self.world.all_quads = all;
+                self.world.no_fog = !fog;
+                self.send_view3d();
+            }
+        });
         if ui.button("Unload world").clicked() {
             self.request("world_unload", json!({}), Pending::Quiet);
             self.world.status = Value::Null;
