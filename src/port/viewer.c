@@ -1655,6 +1655,11 @@ s32 Port_ViewerStart(void) {
     Gfx_SetCameraMatrix(NULL, NULL, NULL, NULL);
     Gfx_SetWorldMatrix(NULL);
     Gfx_StateTextureBlendMode(2);
+    /* the MCP's textures (its environment maps) again, as each state's Init
+     * has them: Main_Init's Gfx_TextureManager_Init dropped them after the
+     * content registry loaded the MCP, and their slots went to the next pack
+     * loaded (a car's share pack: its wheels and chrome sampled that) */
+    StateGameManager_RefreshMCPTextures();
     ViewerMedia_Start();    /* the sound manager: packs load with their samples (viewer_media.c) */
     Heartbeat_Process = Heartbeat;  /* (Main_Loop runs Port_ViewerFrame instead) */
 
@@ -1709,7 +1714,6 @@ s32 Port_ViewerStart(void) {
 s32 Port_ViewerFrame(void) {
     extern GXColor m_clearColor;
     static const GXColor white = { 0xFF, 0xFF, 0xFF, 0xFF };
-    static const GXColor grey = { 0x80, 0x80, 0x80, 0xFF };
     Vector4 lightDir = { -0.4f, -1.0f, -0.5f, 0.0f };
     f32 min[3], max[3];
     GXColor c;
@@ -1734,7 +1738,8 @@ s32 Port_ViewerFrame(void) {
     PlaceCamera();
     Camera_PrepareForRender(s.camera);
     ShowStats_BeginScene();
-    c = grey;
+    /* as LightManager_LightThing lights a car outside a world (the car select) */
+    c = white;
     Gfx_SetAmbientColor(&c);
     c = white;
     Gfx_SetParallelLight(&c, &lightDir);
