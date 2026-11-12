@@ -16,6 +16,21 @@
 #define MA_NO_VORBIS        /* stb_vorbis below, called directly */
 #define MA_API static
 #define MINIAUDIO_IMPLEMENTATION
+/* Its one non-static global (the spinlock behind its fallback atomics): the game compiles
+
+the implementation too, in src/port/musicstream.c, and both objects reach one executable
+(and one archive), so give this file's copy a name of its own. Only miniaudio's own
+static functions use it, so separate copies cost nothing. */
+#define ma_atomic_global_lock audiodec_ma_atomic_global_lock
+#if defined(GNUC)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#endif
+#include "../third_party/miniaudio.h"
+#undef ma_atomic_global_lock
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
