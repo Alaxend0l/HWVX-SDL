@@ -8,6 +8,7 @@
 #include "Port_Mix.h"
 #include "Port_Proto.h"
 #include "Port_Level.h"
+#include "World.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -786,6 +787,10 @@ static void DataPack_LoadQuadPackTimed(s32 file, QuadPack *quad) {
                     packID >>= 16;
                     header = GETP(quad->header);
                     idx = header->refs[0].id != packID;
+                    if (GETP(header->refs[idx].pack) == NULL && Port_DrawDistSkipRef()) {
+                        reloc += 2;     /* port: a draw-distance copy: not copied (Port_DrawDist.c) */
+                        continue;
+                    }
                     if (GETP(header->refs[idx].pack) == NULL) {
                         SETP(header->refs[idx].pack, FileStreaming_InitializeDataPack(FileStreaming_LoadDataPack(&header->refs[idx], 8, packID, 0), 8, 1));
                     }

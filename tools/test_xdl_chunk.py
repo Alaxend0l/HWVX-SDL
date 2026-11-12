@@ -51,6 +51,27 @@ def pure():
     check("a box's 12 triangles merge into 6 faces", len(m) == 6 and all(len(p[2]) == 4 for p in m))
     e = XC.crease_edges(cube, [0] * len(cube), 0.5)
     check("a box has 12 crease edges (no diagonals)", len(e) == 12, str(len(e)))
+    # the start's yaw (degrees in world.jsonc) as TileCar.rotY (radians: SetOrientation)
+    d = bytearray(0x200)
+    struct.pack_into(XC.E + "II", d, 0x08, 1, 0x100)
+
+    class _SP:
+        sec = {"data.bin": bytes(d)}
+    XC.move_start(_SP, [[1.0, 2.0, 3.0, 90.0]])
+    rot = struct.unpack_from(XC.E + "3f", _SP.sec["data.bin"], 0x110)
+    check("start yaw 90 degrees: rotY pi/2 radians", abs(rot[1] - 1.5707963) < 1e-5, str(rot))
+    # stage: never the data folder (or inside it), never a folder it didn't make
+    sd = HERE.parent / "build-chunk" / "stage-guard"
+    shutil.rmtree(sd, ignore_errors=True)
+    (sd / "data" / "x").mkdir(parents=True)
+    (sd / "other").mkdir()
+    (sd / "other" / "keep.txt").write_text("mine")
+    check("stage: the data folder refused", XC.check_staged(sd / "data", sd / "data", sd / "out") is not None)
+    check("stage: inside the data refused", XC.check_staged(sd / "data" / "x", sd / "data", sd / "out") is not None)
+    check("stage: a parent of the data refused", XC.check_staged(sd, sd / "data", sd / "out") is not None)
+    check("stage: a folder without the marker refused", XC.check_staged(sd / "other", sd / "data", sd / "out") is not None)
+    (sd / "other" / XC.STAGED_MARKER).write_text("")
+    check("stage: a staged folder accepted", XC.check_staged(sd / "other", sd / "data", sd / "out") is None)
     # clipping and the wall rule
     v = XC.clip_to_box(np.array([[-5, 0, -5], [-5, 0, 5], [5, 0, 5], [5, 0, -5]], float), (0, -1, 0), (2, 1, 2))
     check("a polygon clipped to a box", v is not None and np.allclose(v.min(0), [0, 0, 0]) and np.allclose(v.max(0), [2, 0, 2]))

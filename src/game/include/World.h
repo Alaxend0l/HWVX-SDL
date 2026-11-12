@@ -21,7 +21,7 @@
  * tile, so `car` is what "vehicle" triggers test. */
 typedef struct TileCar {
     Vector4 pos;                /* 0x00 */
-    f32 rotX;                   /* 0x10 degrees, for SetOrientation */
+    f32 rotX;                   /* 0x10 radians, for SetOrientation (cos/sin of it) */
     f32 rotY;                   /* 0x14 */
     f32 rotZ;                   /* 0x18 */
     u32 unused1C;               /* 0x1C never read; 0xCDCDCDCD in every pack (uninitialised) */
@@ -616,6 +616,10 @@ _Static_assert(sizeof(StreamingPack) == 0xA8, "StreamingPack size");
 s32 Port_DrawDistLevel(void);
 void Port_DrawDistRender(World *world, WorldQuad **current, u32 numCameras, WorldQuad *hub);
 void Port_DrawDistReleaseAll(void);
+/* DataPack_LoadQuadPack: 1 while the draw distance loads a copy of a quadrant (into its own
+ * heap): a quadrant needing another pack (a shared texture pack) isn't copied, the other
+ * pack would be loaded into that heap and later freed into the game's. */
+int Port_DrawDistSkipRef(void);
 f32 Port_DrawDistFarPlane(f32 farPlane);
 s32 Port_DrawDistFog(f32 *start, f32 *end);
 f32 Port_DrawDistProjectionFar(f32 farPlane);

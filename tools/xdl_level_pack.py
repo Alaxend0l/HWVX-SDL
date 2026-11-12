@@ -132,8 +132,9 @@ class WorldBuild:
         return self.B.build(out_dir)
 
 
-def volume_item(v):
-    """A level.jsonc volume as a WorldVolume item of the pack's array."""
+def volume_item(v, resolve=None, where="level.jsonc/volumes"):
+    """A level.jsonc volume as a WorldVolume item of the pack's array: its own bsp/data links
+    (resolve: the compiler's, to the pack's node ids) and editorId kept."""
     c = v.get("center", [0, 0, 0])
     if isinstance(c, list):
         c = {"x": c[0], "y": c[1], "z": c[2]}
@@ -143,6 +144,13 @@ def volume_item(v):
           "radius": float(r) if r is not None else 0.0,
           "radiusSq": float(v.get("radiusSq", float(r) * float(r) if r is not None else 0.0)),
           "bsp": None, "data": None}
+    if isinstance(v.get("editorId"), int):
+        it["editorId"] = v["editorId"]
+    for k in ("bsp", "data"):
+        if isinstance(v.get(k), str):
+            if resolve is None:
+                raise LV.LevelError(f"{where}/{k}: a link, but nothing to resolve it")
+            it[k] = resolve(v[k], f"{where}/{k}")
     return it
 
 
@@ -237,7 +245,7 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
 
     # volumes: into the array (a box's BSP is a part of the compiler's, below)
     for i, (n, v) in enumerate(vols):
-        it = volume_item(v)
+        it = volume_item(v, lambda s, w: C.resolve(s, w, W.B.archive), f"level.jsonc/volumes/{n}")
         if "box" in v:
             lo, hi = v["box"]["min"], v["box"]["max"]
             it["shape"] = "bsp"
@@ -247,6 +255,9 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             it["radiusSq"] = 0.0
         if isinstance(v.get("data"), dict):
             it["data"] = own_id("volumes", n) + "/data"
+        if it["shape"] in ("bsp", 0) and it["bsp"] is None:
+            # the game collides a BSP volume with its BSP (BSPN0_CollideWithVector(NULL) otherwise)
+            raise LV.LevelError(f"level.jsonc/volumes/{n}: a BSP volume needs a box or a bsp link")
         vdoc["items"].append(it)
     if vols:
         world["numVolumes"] = len(vdoc["items"])
@@ -440,8 +451,9 @@ def build_cached(project, data, cache, out_dir, skip_intro=False):
     rel = LV.read_jsonc(Path(base) / "pack.jsonc")["release"]
     name = lv["world"].replace("/", "\\").rsplit("\\", 1)[-1].lower()
     out = Path(out_dir) / (name + release_ext(rel))
+    # (source_hash: the project, every tool and schema; here the base and hwvx-x, which packs it)
     key = LV.source_hash(project, f"pack;skip_intro={int(skip_intro)};base={LV.base_identity(base)};"
-                                  + hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+                                  f"hwvx-x={LV.exe_stamp(LV.find_hwvx_x())}")
     stamp = out.with_suffix(out.suffix + ".key")
     if out.exists() and stamp.exists() and stamp.read_text() == key:
         return out, True, name

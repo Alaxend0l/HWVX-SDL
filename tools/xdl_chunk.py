@@ -1023,6 +1023,12 @@ def build_collision(col, C, grid=None, log=print):
                             per.setdefault((x, y, z), []).append((plane, piece, mat, own))
     cells, index = [], [0] * (nx * ny * nz)
     edges = [(np.asarray(a, float), np.asarray(b, float), m) for a, b, m in col.creases]
+    # the edges' bounds: a cell tests only the edges whose bounds reach its box (a segment hits
+    # a box only then), not every edge of the mesh
+    if edges:
+        ea = np.array([e[0] for e in edges])
+        eb = np.array([e[1] for e in edges])
+        emin, emax = np.minimum(ea, eb) - 1e-6, np.maximum(ea, eb) + 1e-6
     oracle = Sources(col)
     squares = set(per)
     for key in oracle.boxes:
@@ -1036,7 +1042,9 @@ def build_collision(col, C, grid=None, log=print):
         tree = cell_tree(per.get((x, y, z), []), clo, chi, oracle)
         if not tree:
             continue
-        eids = [i for i, (a, b, m) in enumerate(edges) if seg_hits_box(a, b, clo - EDGE_REACH, chi + EDGE_REACH)]
+        blo, bhi = clo - EDGE_REACH, chi + EDGE_REACH
+        near = np.nonzero(np.all(emax >= blo, 1) & np.all(emin <= bhi, 1))[0] if edges else []
+        eids = [int(i) for i in near if seg_hits_box(edges[i][0], edges[i][1], blo, bhi)]
         cells.append((clo, chi, tree, eids))
         index[x + nx * (z + nz * y)] = len(cells)
     return {"lo": lo, "hi": hi, "n": n, "size": size, "index": index, "edges": edges}, cells
@@ -1412,7 +1420,8 @@ def patch_world(sp, pj, plan, quad_ids, pack_ids, names, log=print):
 
 
 def move_start(sp, starts):
-    """Move the start tiles (TileCar: position at 0, rotation x, y, z in degrees at 0x10), and the
+    """Move the start tiles (TileCar: position at 0, rotation x, y, z in radians at 0x10: the
+    project's yaw is in degrees, SetOrientation takes radians), and the
     base's destination-only teleporters (Teleporter 0x70: position at 0x30, numDest 0x50 == 0):
     the respawn point a fall-out-of-the-world teleporter sends the car to, in the base's
     coordinates (world1's sent the arena's car outside the arena, to fall forever)."""
@@ -1428,7 +1437,7 @@ def move_start(sp, starts):
         x, y, z, yaw = starts[i % len(starts)]
         o = base + 0x60 * i
         struct.pack_into(E + "3f", d, o, x, y, z)
-        struct.pack_into(E + "3f", d, o + 0x10, 0.0, yaw, 0.0)
+        struct.pack_into(E + "3f", d, o + 0x10, 0.0, math.radians(yaw), 0.0)
     sp.sec["data.bin"] = bytes(d)
 
 
@@ -1667,11 +1676,32 @@ def _ci(r, dirs):
     return None
 
 
+STAGED_MARKER = ".hwvx-staged"     # in a folder cmd_stage made (the only kind it deletes)
+
+
+def check_staged(staged, *keep):
+    """Why `staged` can't be (re)made: it is one of the folders in keep (the data, the build) or
+    holds or is inside one, or it is a folder of something else (no STAGED_MARKER); else None."""
+    st = staged.resolve()
+    for k in keep:
+        k = k.resolve()
+        if st == k or st in k.parents or k in st.parents:
+            return f"{staged}: the staged folder can't be, hold or be inside {k}"
+    if st.exists() and (not st.is_dir() or (any(st.iterdir()) and not (st / STAGED_MARKER).is_file())):
+        return f"{staged}: not a folder this tool staged (no {STAGED_MARKER}): not deleted"
+    return None
+
+
 def cmd_stage(a):
     out, data, staged = Path(a.out), Path(a.data), Path(a.staged)
     built = json.loads((out / "built.json").read_text())["archives"]
+    why = check_staged(staged, data, out)
+    if why:
+        raise SystemExit(why)
     if staged.exists():
         shutil.rmtree(staged)
+    staged.mkdir(parents=True)
+    (staged / STAGED_MARKER).write_text("made by tools/xdl_chunk.py stage: deleted and made again by it\n")
     want = []
     for name in built:
         f = archive_file(name)

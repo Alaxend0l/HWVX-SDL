@@ -253,6 +253,13 @@ static s32 RefreshShadow(Extra *e) {
     return 1;
 }
 
+static int s_copying, s_needsRef;
+
+int Port_DrawDistSkipRef(void) {
+    s_needsRef |= s_copying;
+    return s_copying;
+}
+
 /* Loads our own copy of `quad`'s geometry. */
 static void LoadShadow(Extra *e, WorldQuad *quad, u32 index) {
     WorldQuad *sh;
@@ -274,7 +281,10 @@ static void LoadShadow(Extra *e, WorldQuad *quad, u32 index) {
         SETP(((QuadPack *)sh)->alloc, NULL);
         sh->loaded = 0;
         sh->visible = 0;
+        s_copying = 1;
+        s_needsRef = 0;
         DataPack_LoadQuadPack(g_quadFileID, (QuadPack *)sh);
+        s_copying = 0;
     }
     OSSetCurrentHeap(old);
     g_portDiscReads = reads;   /* not the game's reads: HWVX_AUTOINPUT's "+N" waits for those */
@@ -285,6 +295,14 @@ static void LoadShadow(Extra *e, WorldQuad *quad, u32 index) {
     e->shadow = sh;
     s_numShadows++;
     s_shadowBytes += sh->size;
+    if (s_needsRef) {
+        /* its textures are in another pack: only the game loads those (the copy would load
+         * it into our heap) */
+        Port_Log("drawdist: quadrant %u: needs another pack, not copied", index);
+        ReleaseShadow(e);
+        e->failed = 1;
+        return;
+    }
     if (GETP(sh->geoms) == NULL || GETP(((QuadPack *)sh)->alloc) == NULL || !RefreshShadow(e)) {
         Port_Log("drawdist: quadrant %u: could not load a copy", index);
         ReleaseShadow(e);

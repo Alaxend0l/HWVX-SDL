@@ -380,7 +380,10 @@ def encode_params(T, obj, items, e, path):
             elif k == "string":
                 if not isinstance(v, str):
                     raise TacError(f"{sub}/{name}: a string")
-                b = v.encode("ascii") + b"\0"
+                try:
+                    b = v.encode("ascii") + b"\0"
+                except UnicodeEncodeError:
+                    raise TacError(f"{sub}/{name}: the game's strings are ASCII") from None
                 out.extend(b + bytes(-len(b) % 4))
             elif k == "table":
                 v = lst(v, name)

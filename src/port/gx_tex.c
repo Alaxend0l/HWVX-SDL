@@ -454,6 +454,21 @@ static void Sampler(const u32 *d, int levels, GXSampler *samp) {
 
 /* Least-recently-used resident entry; free slots (lastUse == 0) win. Only run
  * when a lookup missed and the cache has no room, so the scan is rare. */
+/* The least recently used entry holding a texture; TEX_CACHE if none does. */
+static u32 LruPickUsed(void) {
+    u32 oldest = TEX_CACHE, i;
+    for (i = 0; i < TEX_CACHE; i++) {
+        if (s_cache[i].data != NULL && (oldest == TEX_CACHE || s_cache[i].lastUse < s_cache[oldest].lastUse)) {
+            oldest = i;
+        }
+    }
+    return oldest;
+}
+
+/* The image handles the cache's entries may hold: [s_imgLo, s_imgHi] (a superset; made
+ * exact again by GX_TexInvalidate's scan), so a free nowhere near them skips the scan. */
+static u32 s_imgLo = 0xFFFFFFFFu, s_imgHi;
+
 static u32 LruPick(void) {
     u32 oldest = 0, i;
     for (i = 0; i < TEX_CACHE; i++) {
@@ -824,12 +839,15 @@ int GX_PortDecodeTexObj(const GXTexObj *obj, int level, u8 *rgba) {
  * stayed until the cache's 1024 entries were all in use, so every level
  * visited kept its textures on the GPU. */
 void GX_TexInvalidate(const void *p, u32 size) {
-    u32 lo, i;
+    u32 lo, i, newLo = 0xFFFFFFFFu, newHi = 0;
 
     if (p == NULL || size == 0 || s_stats.textures == 0) {
         return;
     }
     lo = Port_PtrToHandle(p);
+    if ((u64)lo + size <= s_imgLo || lo > s_imgHi) {
+        return;     /* no entry's image is in the block (every free of the game's heap comes here) */
+    }
     for (i = 0; i < TEX_CACHE; i++) {
         TexEntry *e = &s_cache[i];
 
@@ -838,13 +856,18 @@ void GX_TexInvalidate(const void *p, u32 size) {
             Release(e->data);
             e->data = NULL;
             e->lastUse = 0;
+        } else if (e->data != NULL) {
+            newLo = e->image < newLo ? e->image : newLo;
+            newHi = e->image > newHi ? e->image : newHi;
         }
     }
+    s_imgLo = newLo;
+    s_imgHi = newHi;
 }
 
 /* The most GPU memory the cache keeps (HWVX_TEX_BUDGET, in MB; 512 by
  * default): past it the least recently used textures go first. */
-static void KeepToBudget(void) {
+static void KeepToBudget(u32 keep) {
     static u64 budget;
 
     if (budget == 0) {
@@ -854,12 +877,15 @@ static void KeepToBudget(void) {
         budget = (u64)(mb > 0 ? mb : 512) << 20;
     }
     while (s_stats.bytes > budget) {
-        u32 i = LruPick();
-        TexEntry *e = &s_cache[i];
+        /* the least recently used texture (LruPick prefers an empty entry: with one free
+         * the budget was never kept) */
+        u32 i = LruPickUsed();
+        TexEntry *e;
 
-        if (e->data == NULL) {
+        if (i == TEX_CACHE || i == keep) {
             break;
         }
+        e = &s_cache[i];
         HashRemove(e->image, e->key, e->hash);
         Release(e->data);
         e->data = NULL;
@@ -922,12 +948,14 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
             return NULL;
         }
         e->image = d[0];
+        s_imgLo = d[0] < s_imgLo ? d[0] : s_imgLo;
+        s_imgHi = d[0] > s_imgHi ? d[0] : s_imgHi;
         e->key = key;
         e->hash = hash;
         e->lastUse = s_useClock;
         HashInsert(oldest, d[0], key, hash);
         s_stats.ticks += SDL_GetPerformanceCounter() - t0;
-        KeepToBudget();
+        KeepToBudget(oldest);   /* (not the texture just made) */
         return e->data->tex;
     }
 }

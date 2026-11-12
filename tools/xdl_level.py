@@ -305,6 +305,9 @@ class Compiler:
         self.errors.append(f"{where}: {msg}")
 
     def add_part(self, pid, kind, data, links):
+        if pid in self.part_ids:
+            # the game refuses a level with two parts of one id (Port_Level.c)
+            raise LevelError(f"{pid}: made twice (two records of one name?)")
         self.parts.append({"id": pid, "kind": kind, "hex": bytes(data).hex(), "links": dict(links or {})})
         self.part_ids.add(pid)
 
@@ -470,7 +473,8 @@ class Compiler:
         """What a mode's levels need (warnings: the game still runs them). AI cars only as retail
         uses them: an AI start (port 0 or past 4) only in a world whose retail level has AI starts,
         and none in Joyride."""
-        own = [s for s in (lv.get("starts") or {}).values() if isinstance(s, dict)]
+        # (a start whose port isn't a number is an error of its own, checked before)
+        own = [s for s in (lv.get("starts") or {}).values() if isinstance(s, dict) and isinstance(s.get("port", 0), int)]
         ai_own = [s for s in own if not 1 <= int(s.get("port", 0)) <= 4]
         base = self.base_starts()
         if ai_own:
@@ -591,6 +595,9 @@ class Compiler:
         for n, it in (lv.get("items") or {}).items():
             w = f"{where}/items/{n}"
             q = it["quad"]
+            if self.base is not None and not self.base.count(f"World/0/quads/{q}/contents/items"):
+                # an item is a copy of the quadrant's first (the game has none to copy)
+                raise LevelError(f"{w}/quad: quadrant {q} has no items of its own to copy")
             ai = group(f"World/0/quads/{q}/contents", "QuadContents", "items", w)
             # a copy of the quadrant's first pickup (its ranges, draw distance), moved
             put("items", n, ai, {"fromIndex": 0, "set": sets("QuadItem", {
@@ -651,6 +658,11 @@ class Compiler:
             keep = "none"
         if self.base is not None and self.base.archive.lower() != archive:
             self.err(where, f"world: {world} isn't the base given ({self.base.archive})")
+        elif self.base is not None and isinstance(keep, list):
+            n = self.base.num_triggers()
+            for x in keep:
+                if not 0 <= x < n:
+                    self.err(where, f"baseTriggers: the world has no trigger {x} ({n})")
         # own records
         for kind, fn in (("volumes", self.volume), ("timers", self.timer), ("variables", self.variable),
                          ("strings", self.string)):
@@ -831,6 +843,9 @@ class BaseWorld:
                 return None
         return "the world has no such record"
 
+    def num_triggers(self):
+        return sum(1 for f in self.dir.glob("trigger/*.jsonc") if f.stem.isdigit())
+
     def trigger_types(self, keep):
         out = {}
         files = sorted(self.dir.glob("trigger/*.jsonc"), key=lambda p: int(p.stem) if p.stem.isdigit() else 0)
@@ -919,9 +934,38 @@ def skip_intro(docs):
     return [(n, d) for n, d in docs if d.get("actions") or d.get("type") != "level_start"]
 
 
-TOOL_FILES = ("xdl_level.py", "xdl_tac.py", "xdl_struct.py")
-SCHEMA_FILES = ("Trigger", "WorldVolume", "WorldTimer", "WorldVariable", "World", "TileCar", "WorldQuad",
-                "QuadContents", "WorldGameData")
+# what a compile reads besides the project: every tool it (or the pack build) imports and
+# every schema (a key missing one gave stale results when it changed)
+TOOL_FILES = ("xdl_level.py", "xdl_tac.py", "xdl_struct.py", "xdl_graph.py", "xdl_level_pack.py", "bsp_build.py",
+              "world_lib.py")
+EXTRACT_FILES = ("xdl_graph.py", "xdl_tac.py", "xdl_struct.py")    # what makes a base project
+_files_hash = {}
+
+
+def files_hash(names, schemas=True):
+    """A hash of tools/ files by name and (schemas) every schemas/*.json, once per process."""
+    key = (tuple(names), schemas)
+    if key not in _files_hash:
+        h = hashlib.sha256()
+        files = [HERE / n for n in names] + (sorted(SCHEMAS.glob("*.json")) if schemas else [])
+        for f in files:
+            h.update(f.name.encode() + b"\0")
+            try:
+                h.update(f.read_bytes())
+            except OSError:
+                h.update(b"-")
+            h.update(b"\0")
+        _files_hash[key] = h.hexdigest()
+    return _files_hash[key]
+
+
+def exe_stamp(exe):
+    """hwvx-x as a key: its size and modification time (rebuilt: another key)."""
+    try:
+        st = Path(exe).stat()
+        return f"{st.st_size}:{st.st_mtime_ns}"
+    except (OSError, TypeError):
+        return "none"
 
 
 def source_hash(proj, options=""):
@@ -929,7 +973,7 @@ def source_hash(proj, options=""):
     h = hashlib.sha256(options.encode())
     proj = Path(proj)
     files = [proj / "level.jsonc"] + sorted((proj / "triggers").glob("*.jsonc"))
-    files += [HERE / f for f in TOOL_FILES] + [SCHEMAS / f"{n}.schema.json" for n in SCHEMA_FILES]
+    h.update(files_hash(TOOL_FILES).encode())
     for f in files:
         h.update(str(f.name).encode() + b"\0")
         try:
@@ -1106,12 +1150,13 @@ def base_project(world, data, cache):
             break
     if src is None:
         raise LevelError(f"{world}: no world archive {name} under {data}")
-    h = hashlib.sha256(src.read_bytes()).hexdigest()[:16]
+    exe = find_hwvx_x()
+    # the archive and what extracts it (tools, schemas, hwvx-x): a newer extractor, a new project
+    h = hashlib.sha256(src.read_bytes() + files_hash(EXTRACT_FILES).encode() + exe_stamp(exe).encode()).hexdigest()[:16]
     out = Path(cache) / f"{name}-{h}"
     proj = out / "project"
     if (proj / "pack.jsonc").exists() and read_jsonc(proj / "pack.jsonc").get("archive", "").lower() == name:
         return proj
-    exe = find_hwvx_x()
     if exe is None:
         raise LevelError("hwvx-x not found (target/release/hwvx-x)")
     ext = out / "extract" / name        # the folder's name is the archive's (xdl_graph's ids)
@@ -1285,7 +1330,15 @@ def mod_index(a):
         return Path(a.index)
     if not a.data:
         raise LevelError("a .xmod needs the no-game-data check: --index INDEX.npz or --data DATA")
-    key = hashlib.sha1(str(Path(a.data).resolve()).encode()).hexdigest()[:12]
+    # the folder, its files (names, sizes, times) and the indexer: any change, a new index (one
+    # kept for a folder whose files changed would let new game data through the check)
+    root = Path(a.data).resolve()
+    h = hashlib.sha1(str(root).encode() + b"\0" + files_hash(("xdl_mod.py",), schemas=False).encode())
+    for f in sorted(root.rglob("*")):
+        if f.is_file():
+            st = f.stat()
+            h.update(f"{f.relative_to(root)}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+    key = h.hexdigest()[:12]
     idx = cache_dir(a) / f"mod-index-{key}.npz"
     if not idx.exists():
         idx.parent.mkdir(parents=True, exist_ok=True)
@@ -1349,8 +1402,12 @@ def main():
     try:
         return {"compile": cmd_compile, "check": cmd_check, "base": cmd_base, "mod": cmd_mod,
                 "testdrive": cmd_testdrive}[a.cmd](a)
-    except LevelError as ex:
+    except (LevelError, XT.TacError) as ex:
         return report([str(ex)])
+    except (ValueError, TypeError, KeyError, UnicodeError) as ex:
+        # a level.jsonc of the wrong shape somewhere no check names yet: an error of the
+        # level for the editor, not a traceback
+        return report([f"level.jsonc: {type(ex).__name__}: {ex}"])
 
 
 if __name__ == "__main__":
