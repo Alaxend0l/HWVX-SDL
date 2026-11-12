@@ -214,3 +214,37 @@ fn viewer_raycast() {
     assert_eq!(r["hit"], false, "{r}");
     v.call("quit", json!({})).ok();
 }
+
+/// Save as mod: the sample packed into a .hwmod with the no-game-data check (HWVX_DATA: the
+/// index made from it into the scratch's cache, once); a project with no data folder is refused.
+#[test]
+fn save_as_mod() {
+    let sample = root().join("tools/level-samples/checkpoint-run");
+    let s = scratch("share");
+    let out = s.join("checkpointrun.hwmod");
+    assert!(testdrive::share(&options(&s, &sample, None), &out).is_err(), "no data folder: refused");
+    let Some(data) = std::env::var_os("HWVX_DATA").map(PathBuf::from) else {
+        eprintln!("skip: HWVX_DATA not set");
+        return;
+    };
+    let mut o = options(&s, &sample, Some(data));
+    if let Some(idx) = std::env::var_os("HWVX_MOD_INDEX") {
+        // an index already made (tools/xdl_mod.py index), in the cache where share looks
+        let d = s.join("base-cache");
+        std::fs::create_dir_all(&d).unwrap();
+        let key = {
+            let p = std::fs::canonicalize(o.data.as_ref().unwrap()).unwrap();
+            let r = std::process::Command::new("python3")
+                .args(["-c", "import hashlib,sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:12])"])
+                .arg(&p)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&r.stdout).trim().to_string()
+        };
+        std::fs::copy(idx, d.join(format!("mod-index-{key}.npz"))).unwrap();
+    }
+    o.project = sample;
+    let line = testdrive::share(&o, &out).expect("packed");
+    assert!(line.contains("no game data found"), "{line}");
+    assert!(out.exists());
+}
