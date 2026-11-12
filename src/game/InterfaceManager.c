@@ -4079,9 +4079,9 @@ static inline void InterfaceManager_DrawDebugCross(Vector4 *pos) {
     Gfx_Add2DFXLine(&c0, &c1, white, white, 1);
 }
 
-/* port: widescreen HUD. On a screen wider than 4:3 the in-game HUD (an
- * interface owned by a player, in gameplay) moves its left and right
- * elements to the screen's edges: an object laid out left of LEFT_X moves
+/* port: widescreen HUD. On a screen wider than 4:3 the in-game HUD (in
+ * gameplay: a player's interfaces, and others lying wholly on one side)
+ * moves its left and right elements to the screen's edges: an object laid out left of LEFT_X moves
  * left by the width of the side area (Port_ViewWiden), one right of RIGHT_X
  * right; the middle (the target arrow, messages) stays. The side is decided
  * by the layout position (the default animation's first key, plus the
@@ -4111,9 +4111,14 @@ static f32 Port_HudLayoutX(InterfaceObject *obj, u32 depth) {
 static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
     f32 wx, wy, side, x;
 
-    /* a child interface's objects are drawn inside their parent object's
-     * draw, offset by its (already shifted) position */
-    if (GETP(iface->owner) == NULL || StateManager_CurrState() != 5 || GETP(obj->parent) != NULL) {
+    /* a child interface (the battle kill count and car icon, a mission's
+     * win count) is drawn inside its parent object's draw, each of its
+     * objects offset by that object's position. The parent object is only a
+     * placeholder (usually at x = 0, which would read as "left" and pull
+     * right-hand elements toward the middle), so it stays put and the child
+     * interface's objects move as one group (below), their layout x
+     * counting the parent's (Port_HudLayoutX). */
+    if (StateManager_CurrState() != 5 || obj->kind == IFACE_KIND_CHILD) {
         return 0.0f;
     }
     /* the target arrow is not laid out on the screen at all: its position is
@@ -4132,6 +4137,39 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
     }
     side = 320.0f * (wx - 1.0f);
     x = Port_HudLayoutX(obj, 0);
+    if (GETP(iface->owner) == NULL) {
+        /* an interface of no player in gameplay: the mission's "Wins" and the
+         * battle's target car, beside the timer, are one of their own. It
+         * moves only when all of it is on one side; the pause menu and
+         * other screens spread across the middle stay */
+        f32 lo = x, hi = x, ox;
+        u32 j;
+
+        for (j = 0; j < iface->count; j++) {
+            if (GETP(iface->objects)[j].kind == IFACE_KIND_CHILD) {
+                continue;
+            }
+            ox = Port_HudLayoutX(&GETP(iface->objects)[j], 0);
+            lo = ox < lo ? ox : lo;
+            hi = ox > hi ? ox : hi;
+        }
+        return hi < HUD_LEFT_X ? -side : lo > HUD_RIGHT_X ? side : 0.0f;
+    }
+    if (iface->isChild) {
+        /* a child interface is one group (the battle car icon, its "X" and
+         * kill count; a mission's "Wins" and its count, beside the timer):
+         * it moves as a whole, by the side of its middle, so a label just
+         * inside the centre band goes along with its count */
+        f32 lo = x, hi = x, ox;
+        u32 j;
+
+        for (j = 0; j < iface->count; j++) {
+            ox = Port_HudLayoutX(&GETP(iface->objects)[j], 0);
+            lo = ox < lo ? ox : lo;
+            hi = ox > hi ? ox : hi;
+        }
+        x = 0.5f * (lo + hi);
+    }
     return x < HUD_LEFT_X ? -side : x > HUD_RIGHT_X ? side : 0.0f;
 }
 
