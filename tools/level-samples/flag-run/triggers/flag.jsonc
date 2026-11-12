@@ -1,0 +1,55 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "airbox_entered",
+  "param": {
+    "volumes": [
+      "level://volumes/flag"
+    ],
+    "cars": [
+      "base://bat1_l1/world_0/World/0/tileCars/1"
+    ]
+  },
+  "conditions": [
+    {
+      "type": "variable_value_check",
+      "param": {
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 0
+        },
+        "op": "equal"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "type": "variable_change_value",
+      "data": {
+        "op": "set",
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "print_debug_string",
+      "data": {
+        "what": 4,
+        "countdown": 60,
+        "value": "level://strings/flag"
+      }
+    },
+    {
+      "type": "round_complete",
+      "data": {
+        "player": 1
+      }
+    }
+  ]
+}

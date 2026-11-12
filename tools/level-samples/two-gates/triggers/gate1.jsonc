@@ -1,0 +1,49 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "airbox_entered",
+  "param": {
+    "volumes": [
+      "level://volumes/gate1"
+    ],
+    "cars": [
+      "base://world1l1/world_0/World/0/tileCars/4"
+    ]
+  },
+  "conditions": [
+    {
+      "type": "variable_value_check",
+      "param": {
+        "variables": [
+          "level://variables/g1"
+        ],
+        "value": {
+          "const": 0
+        },
+        "op": "equal"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "type": "variable_change_value",
+      "data": {
+        "op": "set",
+        "variables": [
+          "level://variables/g1"
+        ],
+        "value": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "print_debug_string",
+      "data": {
+        "what": 4,
+        "countdown": 60,
+        "value": "level://strings/o2"
+      }
+    }
+  ]
+}

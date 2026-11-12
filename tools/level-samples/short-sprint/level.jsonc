@@ -1,0 +1,63 @@
+// A sample Drag Race level: retail race1l2's start and its three AI opponents in their lanes,
+// the finish moved to the end of the first straight (a box volume); the first car there wins.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://shortsprint",
+  "name": "Short Sprint",
+  "mode": "drag",
+  "extends": "base://mcp/track/29",
+  "world": "WORLDS_\\SP_\\DRAG_\\race1l2",
+  "unlocked": true,
+  "description": "The first straight only: the finish moved up the road; the same four lanes and opponents.",
+  "baseTriggers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28
+  ],
+  "volumes": {
+    "finish": {
+      "box": {
+        "min": [
+          3900,
+          -5,
+          2820
+        ],
+        "max": [
+          3930,
+          40,
+          2920
+        ]
+      }
+    }
+  },
+  "variables": {
+    "done": 0
+  },
+  "triggers": [
+    "finish1",
+    "finish2",
+    "finish3",
+    "finish4"
+  ]
+}

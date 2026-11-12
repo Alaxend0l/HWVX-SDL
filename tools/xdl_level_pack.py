@@ -274,12 +274,18 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             W.add_raw(nid, data, links)
     for kind in ("timers", "variables"):
         d = table_doc(kind)
-        for n in (lv.get(kind) or {}):
-            if d is None:
-                raise LV.LevelError(f"level.jsonc/{kind}: the world has no table of {kind} to add to")
-            d["items"].append(names[f"level://{kind}/{n}/to"])
-        if d is not None:
-            world["num" + kind[0].upper() + kind[1:]] = len(d["items"])
+        recs = [names[f"level://{kind}/{n}/to"] for n in (lv.get(kind) or {})]
+        key = "num" + kind[0].upper() + kind[1:]
+        if d is None and recs:
+            # the world has none: a table of entries of its own, the World pointing at it
+            nid = f"{pre}World/0/{kind}"
+            stem = W.add_raw(nid, bytes(4 * len(recs)), [(4 * i, r) for i, r in enumerate(recs)])
+            W.B.docs[stem + ".jsonc"]["anchors"] = {str(i): hex(4 * i) for i in range(len(recs))}
+            world[kind] = nid
+            world[key] = len(recs)
+        elif d is not None:
+            d["items"].extend(recs)
+            world[key] = len(d["items"])
 
     # starts: tile cars, copies of the player's start, moved
     starts = list((lv.get("starts") or {}).items())
@@ -380,8 +386,14 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             W.file_of[nid] = stem
             new.append({"id": nid, "file": stem, "align": 4})
         table = kept + new
-        for k, ent in enumerate(table + dropped):
-            W.layout.insert(first + k, dict(ent, align=32 if k == 0 else 4))
+        if table == ents:
+            for k, ent in enumerate(ents):              # as it was
+                W.layout.insert(first + k, ent)
+        else:
+            for k, ent in enumerate(table + dropped):
+                # back to back (no padding between: the game reads them as one table)
+                e2 = {key: v for key, v in ent.items() if key != "pad"}
+                W.layout.insert(first + k, dict(e2, align=32 if k == 0 else 4))
         hdr["num_triggers"] = len(table)
         hdr["trigger_offset"] = table[0]["id"] if table else hdr.get("trigger_offset")
 

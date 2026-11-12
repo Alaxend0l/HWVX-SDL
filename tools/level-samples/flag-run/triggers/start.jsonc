@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "level_start",
+  "actions": [
+    {
+      "type": "timer_change_mode",
+      "data": {
+        "show": "show",
+        "run": "resume",
+        "timers": [
+          "level://timers/clock"
+        ]
+      }
+    }
+  ]
+}

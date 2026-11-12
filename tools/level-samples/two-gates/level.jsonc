@@ -1,0 +1,69 @@
+// A sample Mission level: an objective chain of its own (gate 1, then gate 2) over the retail
+// mission of world1l1 (its AI as retail has it); both gates before 35 s: won, else lost.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://twogates",
+  "name": "Two Gates",
+  "mode": "mission",
+  "extends": "base://mcp/track/5",
+  "world": "worlds_\\sp_\\miss_\\world1l1",
+  "unlocked": true,
+  "description": "Through the first gate, then the second, before the clock runs out.",
+  "baseTriggers": "all",
+  "volumes": {
+    "gate1": {
+      "center": [
+        -3663,
+        45,
+        -1481
+      ],
+      "radius": 45
+    },
+    "gate2": {
+      "center": [
+        -4668,
+        58,
+        -658
+      ],
+      "radius": 60
+    }
+  },
+  "variables": {
+    "g1": 0,
+    "g2": 0,
+    "done": 0
+  },
+  "timers": {
+    "clock": {
+      "time": 35000,
+      "countUp": 0,
+      "type": 13
+    }
+  },
+  "strings": {
+    "o1": "Drive through gate 1",
+    "o2": "Now gate 2!",
+    "won": "Both gates!"
+  },
+  "objectives": {
+    "first": {
+      "text": "level://strings/o1",
+      "kind": "none",
+      "done": "level://variables/g1/to",
+      "hud": 0
+    },
+    "second": {
+      "text": "level://strings/o2",
+      "kind": "none",
+      "done": "level://variables/g2/to",
+      "hud": 0
+    }
+  },
+  "triggers": [
+    "start",
+    "gate1",
+    "gate2",
+    "timeout"
+  ]
+}
