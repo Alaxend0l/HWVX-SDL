@@ -32,6 +32,8 @@ pub struct Project {
     pub triggers: Vec<TriggerFile>,
     pub undo: Vec<Snapshot>,
     pub redo: Vec<Snapshot>,
+    /// the trigger files read from the folder (one taken out is deleted when saved)
+    pub loaded: Vec<String>,
 }
 
 fn read_jsonc(p: &Path) -> Result<(String, Value), String> {
@@ -63,7 +65,8 @@ impl Project {
                 triggers.push(TriggerFile { name: n, text: Some(text), saved: v.clone(), value: v });
             }
         }
-        Ok(Project { dir: dir.to_path_buf(), level_text, level_saved: level.clone(), level, triggers, undo: Vec::new(), redo: Vec::new() })
+        let loaded = triggers.iter().map(|t| t.name.clone()).collect();
+        Ok(Project { dir: dir.to_path_buf(), level_text, level_saved: level.clone(), level, triggers, undo: Vec::new(), redo: Vec::new(), loaded })
     }
 
     /// base://<archive>/world_0/ of the level's world
@@ -73,7 +76,9 @@ impl Project {
     }
 
     pub fn dirty(&self) -> bool {
-        self.level != self.level_saved || self.triggers.iter().any(|t| t.value != t.saved || t.text.is_none())
+        self.level != self.level_saved
+            || self.triggers.iter().any(|t| t.value != t.saved || t.text.is_none())
+            || self.loaded.iter().any(|n| self.trigger(n).is_none())
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -82,11 +87,37 @@ impl Project {
 
     fn restore(&mut self, s: Snapshot) {
         self.level = s.level;
+        let old = std::mem::take(&mut self.triggers);
         for (name, v) in s.triggers {
-            if let Some(t) = self.triggers.iter_mut().find(|t| t.name == name) {
-                t.value = v;
+            match old.iter().find(|t| t.name == name) {
+                Some(t) => self.triggers.push(TriggerFile { value: v, ..t.clone() }),
+                None => self.triggers.push(TriggerFile { name, text: None, saved: Value::Null, value: v }),
             }
         }
+    }
+
+    /// A new trigger file (saved as triggers/NAME.jsonc), last in the order.
+    pub fn add_trigger(&mut self, name: &str, value: Value) {
+        self.triggers.push(TriggerFile { name: name.to_string(), text: None, saved: Value::Null, value });
+        if let Some(order) = self.level.get_mut("triggers").and_then(Value::as_array_mut) {
+            order.push(Value::String(name.to_string()));
+        }
+    }
+
+    /// A trigger taken out (its file deleted when saved).
+    pub fn remove_trigger(&mut self, name: &str) {
+        self.triggers.retain(|t| t.name != name);
+        if let Some(order) = self.level.get_mut("triggers").and_then(Value::as_array_mut) {
+            order.retain(|v| v.as_str() != Some(name));
+        }
+    }
+
+    /// A name for a new record of a kind (or trigger): stem1, stem2, ... not taken.
+    pub fn free_name(&self, kind: &str, stem: &str) -> String {
+        (1..)
+            .map(|i| format!("{stem}{i}"))
+            .find(|n| if kind == "triggers" { self.trigger(n).is_none() } else { self.level[kind].get(n).is_none() })
+            .unwrap()
     }
 
     /// Before an edit: what to go back to.
@@ -210,6 +241,16 @@ impl Project {
             t.saved = t.value.clone();
             out.push(p);
         }
+        // trigger files taken out
+        let gone: Vec<String> = self.loaded.iter().filter(|n| self.trigger(n).is_none()).cloned().collect();
+        for n in gone {
+            let p = self.dir.join("triggers").join(format!("{n}.jsonc"));
+            if p.exists() {
+                std::fs::remove_file(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+                out.push(p);
+            }
+        }
+        self.loaded = self.triggers.iter().map(|t| t.name.clone()).collect();
         Ok(out)
     }
 }

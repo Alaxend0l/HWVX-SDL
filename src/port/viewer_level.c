@@ -653,6 +653,34 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
         }
         return 1;
     }
+    if (SDL_strcmp(cmd, "quadat") == 0) {
+        /* the quadrant (streaming region, BSPN0) a point is in: an item placed there goes into
+         * its contents. -1: none (the hub only) */
+        f32 p[3];
+        s32 found = -1;
+        u32 q;
+
+        if (WorldPack() == NULL || !ParseVec(Json_Get(req, "pos"), p)) {
+            SDL_snprintf(err, errSize, WorldPack() == NULL ? "quadat needs a world shown (world)" : "quadat takes pos [x, y, z]");
+            *ok = 0;
+            return 1;
+        }
+        {
+            World *wd = (World *)Blob(WorldPack());
+            Vector4 v __attribute__((aligned(16)));
+
+            v.x = p[0], v.y = p[1], v.z = p[2], v.w = 1.0f;
+            for (q = 0; q < wd->numQuads && found < 0; q++) {
+                WorldQuad *quad = &GETP(wd->quads)[q];
+
+                if (GETP(quad->bsp) != NULL && BSPN0_CollideWithVector(GETP(quad->bsp), &v)) {
+                    found = (s32)q;
+                }
+            }
+        }
+        Jw_Int(w, "quad", found);
+        return 1;
+    }
     if (SDL_strcmp(cmd, "startcheck") == 0) {
         /* starts as the largest car's box (Port_SpawnBox.h) against the world's collision:
          * {starts: [{pos, rotY}...]} -> per start {clear, problems, seat} */

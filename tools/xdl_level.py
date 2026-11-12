@@ -544,7 +544,7 @@ class Compiler:
                 self.err("triggers", f"{n} {t} triggers: the game keeps {TRIGGER_MAX[idx]} at once")
         # starts: the cars' box (the viewer's spawnbox, Port_SpawnBox.h) clear of each other
         if self.spawn_box is not None and self.base is not None:
-            self.warnings += start_overlaps(self.base, lv.get("patches") or {}, archive, self.spawn_box)
+            self.warnings += start_overlaps(self.base, lv.get("patches") or {}, archive, self.spawn_box, lv.get("starts"))
         if self.errors:
             return None
         return {
@@ -755,9 +755,9 @@ def boxes_overlap(a, b):
     return True
 
 
-def start_overlaps(base, patches, archive, box):
-    """Warnings: starts (the base world's tile cars, as the level's patches move them) whose
-    boxes overlap."""
+def start_overlaps(base, patches, archive, box, own=None):
+    """Warnings: starts (the base world's tile cars, as the level's patches move them, and the
+    level's own) whose boxes overlap."""
     f = base.dir / "World" / "0" / "tileCars.jsonc"
     if not f.exists():
         return []
@@ -769,12 +769,16 @@ def start_overlaps(base, patches, archive, box):
         pos = [float(pt.get(f"pos/{a}", (c.get("pos") or {}).get(a, 0))) for a in "xyz"]
         rot = float(pt.get("rotY", c.get("rotY", 0)))
         starts.append((path, start_corners(pos, rot, box)))
+    for n, st in (own or {}).items():
+        if isinstance(st, dict) and isinstance(st.get("pos"), list) and len(st["pos"]) == 3:
+            starts.append((f"starts/{n}", start_corners([float(x) for x in st["pos"]], float(st.get("rotY", 0)), box)))
     out = []
     for i in range(len(starts)):
         for j in range(i + 1, len(starts)):
             if boxes_overlap(starts[i][1], starts[j][1]):
-                p = f"base://{archive}/world_0/{starts[i][0]}"
-                out.append(f"level.jsonc/patches/{p}: its start's box overlaps {starts[j][0]}'s "
+                a = starts[i][0]
+                where = f"level.jsonc/{a}" if a.startswith("starts/") else f"level.jsonc/patches/base://{archive}/world_0/{a}"
+                out.append(f"{where}: its start's box overlaps {starts[j][0]}'s "
                            f"(the cars' box, {box[1][0] - box[0][0]:g} x {box[1][1] - box[0][1]:g} x "
                            f"{box[1][2] - box[0][2]:g})")
     return out
