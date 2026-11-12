@@ -985,12 +985,15 @@ static int GL_GrabFetch(int slot, u8 *dst, int stride, int maxW, int maxH, int *
         return -1;
     }
     r = glClientWaitSync(s_grab[slot].fence, GL_SYNC_FLUSH_COMMANDS_BIT, wait ? 1000000000ull : 0);
-    if (r == GL_TIMEOUT_EXPIRED) {
+    for (y = 1; wait && r == GL_TIMEOUT_EXPIRED && y < 5; y++) {
+        r = glClientWaitSync(s_grab[slot].fence, 0, 1000000000ull);   /* waiting: up to 5 s in all */
+    }
+    if (r == GL_TIMEOUT_EXPIRED && !wait) {
         return 0;
     }
-    glDeleteSync(s_grab[slot].fence);
+    glDeleteSync(s_grab[slot].fence);   /* (waited and still not done: given up, the slot freed) */
     s_grab[slot].fence = NULL;
-    if (r == GL_WAIT_FAILED || s_grab[slot].w > maxW || s_grab[slot].h > maxH) {
+    if (r == GL_WAIT_FAILED || r == GL_TIMEOUT_EXPIRED || s_grab[slot].w > maxW || s_grab[slot].h > maxH) {
         return -1;
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, s_grab[slot].pbo);

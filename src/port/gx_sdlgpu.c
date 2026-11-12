@@ -1318,7 +1318,11 @@ static int GPU_GrabFetch(int slot, u8 *dst, int stride, int maxW, int maxH, int 
         return -1;
     }
     if (wait) {
-        SDL_WaitForGPUFences(s.dev, true, &s_grab[slot].fence, 1);
+        if (!SDL_WaitForGPUFences(s.dev, true, &s_grab[slot].fence, 1)) {
+            SDL_ReleaseGPUFence(s.dev, s_grab[slot].fence);   /* failed: given up, the slot freed */
+            s_grab[slot].fence = NULL;
+            return -1;
+        }
     } else if (!SDL_QueryGPUFence(s.dev, s_grab[slot].fence)) {
         return 0;
     }
