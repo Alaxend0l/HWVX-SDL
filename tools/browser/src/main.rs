@@ -651,7 +651,7 @@ impl Browser {
     /// it), arrays element by element, embedded structs member by member, links followable.
     fn value_editor(&mut self, ui: &mut egui::Ui, path: &str, v: &Value, link: bool, nav: &mut Option<String>) {
         match v {
-            Value::Array(items) if items.iter().all(|x| !x.is_array() && !x.is_object()) && items.len() <= 4 && !link => {
+            Value::Array(items) if items.iter().all(Value::is_number) && items.len() <= 4 => {
                 ui.horizontal(|ui| {
                     for (i, x) in items.iter().enumerate() {
                         self.scalar_editor(ui, &format!("{path}/{i}"), x, false, nav, 70.0);
@@ -663,7 +663,7 @@ impl Browser {
                     for (i, x) in items.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.label(format!("{i}"));
-                            ui.vertical(|ui| self.value_editor(ui, &format!("{path}/{i}"), x, link, nav));
+                            ui.vertical(|ui| self.value_editor(ui, &format!("{path}/{i}"), x, link || x.is_string(), nav));
                         });
                     }
                 });
