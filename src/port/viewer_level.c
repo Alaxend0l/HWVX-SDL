@@ -424,7 +424,7 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
             SDL_snprintf(err, errSize, "level needs a world shown (world)");
             *ok = 0;
         } else if (path != NULL && path->type == JSON_STRING) {
-            if (!Port_LevelApply(vp->pack, path->string, err, errSize)) {
+            if (!Port_LevelApply(vp->pack, vp->archive, path->string, err, errSize)) {
                 *ok = 0;
             }
         } else if (path != NULL) {
