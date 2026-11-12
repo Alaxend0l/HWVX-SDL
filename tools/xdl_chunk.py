@@ -1416,6 +1416,10 @@ def cmd_extract(a):
         # within ~1e-5 of their planes; world coordinates would be 5e-4 off at 5,000).
         lo_, hi_ = np.array(c["min"]), np.array(c["max"])
         ctr = (lo_ + hi_) / 2
+        # nearly coplanar planes snapped together first: the exporter's slivers (a face's two
+        # triangles a hair out of plane) leave thin solid and empty layers whose surfaces, built
+        # into another tree, become the plane a ray reports (a floor facing down)
+        t, _ = BB.snap_tree(t, ctr)
         polys, _ = BB.boundary_polys(t, lo_, hi_)
         by_mat = {}
         for plane, v, mat in polys + [(pl, v, t[0][3]) for pl, v, _ in BB.box_caps(t, lo_, hi_)]:
