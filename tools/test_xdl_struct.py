@@ -101,5 +101,31 @@ for rel in ("gc", "pc"):
     check(f"{rel}: without extends every field is required", any("maxRpm" in x for x in errors(nd)))
     check(f"{rel}: array length is fixed", errors(dict(doc, viewOffset=[0, 1])))
 
+# jsonc_loads: commas and comment marks inside strings are text; errors at EOF
+check("jsonc: trailing commas dropped, not inside strings",
+      X.jsonc_loads('{"a": "x, }", "b": [1, 2, // z,]\n], "c": /* , */ "//",}') ==
+      {"a": "x, }", "b": [1, 2], "c": "//"})
+check("jsonc: escaped quote", X.jsonc_loads('// h\n{"a": "q\\"x,]"}') == {"a": 'q"x,]'})
+for bad in ('{"a": "abc', '{"a": 1 /* x', '{"a": "x\\"}'):
+    try:
+        X.jsonc_loads(bad)
+        m = None
+    except X.XdlError as e:
+        m = str(e)
+    except Exception as e:  # noqa: BLE001
+        m = None
+        print("  ", type(e).__name__, e)
+    check(f"jsonc: {bad!r} -> XdlError", m is not None)
+
+# PS2 geometries (header 0x1005): the reflection geometry's ref link resolves
+pk = X.Pack(survey / "ps2" / "HW_Cars" / "30_car_29")
+check("ps2: geometry scan finds the 0x1005 headers", len(pk.geometries()) > 0)
+for f in X.PARTS:
+    try:
+        ok, msg = X.roundtrip_one(S, pk, P, "CarAInfo", [f], None, "ps2")
+    except X.XdlError as e:
+        ok, msg = False, str(e)
+    check(f"ps2: car_29 {f} round trip", ok, msg)
+
 print("all passed" if not fails else f"{fails} failed")
 sys.exit(1 if fails else 0)

@@ -179,5 +179,74 @@ except GR.GraphError as e:
     msg = str(e)
 check("error: a link to nothing is refused", msg and "nowhere" in msg, str(msg))
 
+GR.Extractor(GR.Source(src), proj, S).run()
+edit(proj / "CarAInfo/0.jsonc", lambda t: re.sub(r'\n\s*"maxRpm": [^\n]*', "", t, count=1))
+try:
+    build(proj, "car5_nofield")
+    msg = None
+except GR.GraphError as e:
+    msg = str(e)
+check("error: a field left out of a typed file is refused (not built as 0)", msg and "maxRpm" in msg, str(msg))
+
+# 7b. an edit that adds a relocation table the source lacks (a shader slot in car_5)
+GR.Extractor(GR.Source(src), proj, S).run()
+check("car_5 has no shader_relocs.bin", not (src / "shader_relocs.bin").exists())
+edit(proj / "texture/0.jsonc", lambda t: t.replace('"links": {', '"shaders": {"0x10": 0},\n  "links": {', 1))
+out, bd = build(proj, "car5_shader")
+pj = json.loads((out / "pack.json").read_text())
+sec = [x for x in pj["sections"] if x["file"] == "shader_relocs.bin"]
+check("a new table is written, with its pack.json section",
+      (out / "shader_relocs.bin").exists() and len((out / "shader_relocs.bin").read_bytes()) == 8
+      and sec and sec[0]["records"] == 1, str(sec))
+
+# 7c. links by offset into a geometry: refused once the geometry is re-encoded; bounds-checked
+import xdl_gltf as XG  # noqa: E402
+wsrc, wproj, _ = extract("gc", "worlds_/geo_/w3_geo/10_geometry_0_q5_g4", "w3q5")
+olinks = [(p, m.group(0)) for p in wproj.rglob("*.jsonc") if not p.name.endswith(".xgeo.jsonc")
+          for m in re.finditer(r'"base://[^"]*/geometry/1/o[0-9a-f]+"', p.read_text())]
+check("w3_geo q5: links into geometry/1 by offset", olinks, "none found")
+if olinks:
+    p0, l0 = olinks[0]
+    edit(p0, lambda t: t.replace(l0, re.sub(r"/o[0-9a-f]+", "/offffff", l0), 1))
+    try:
+        build(wproj, "w3q5_oob")
+        msg = None
+    except GR.GraphError as e:
+        msg = str(e)
+    check("error: an offset past the end of its object is refused", msg and "past the end" in msg, str(msg))
+    edit(p0, lambda t: t.replace(re.sub(r"/o[0-9a-f]+", "/offffff", l0), l0, 1))
+    gf = wproj / "geometry" / "1.gltf"
+    gl, gb = XG.load(gf)
+    a = gl["accessors"][gl["meshes"][0]["primitives"][0]["attributes"]["POSITION"]]
+    bv = gl["bufferViews"][a["bufferView"]]
+    gb = bytearray(gb)
+    o = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+    struct.pack_into("<f", gb, o, struct.unpack_from("<f", gb, o)[0] + 0.5)
+    a["max"][0] = max(a["max"][0], struct.unpack_from("<f", gb, o)[0])
+    XG.write(gl, bytes(gb), gf)
+    try:
+        build(wproj, "w3q5_edit")
+        msg = None
+    except GR.GraphError as e:
+        msg = str(e)
+    check("error: offset links into an edited (re-encoded) geometry are listed", msg and "re-encoded" in msg
+          and "geometry/1/o" in msg, str(msg)[:300])
+
+# 8. extracting over a folder that isn't a previous extract is refused
+other = scratch / "not_a_project"
+other.mkdir(parents=True, exist_ok=True)
+(other / "notes.txt").write_text("mine")
+try:
+    GR.Extractor(GR.Source(src), other, S).run()
+    msg = None
+except GR.GraphError as e:
+    msg = str(e)
+check("extract: a non-empty folder without pack.jsonc is refused", msg and "--force" in msg
+      and (other / "notes.txt").exists(), str(msg))
+GR.Extractor(GR.Source(src), other, S, force=True).run()
+check("extract: --force replaces it", (other / "pack.jsonc").exists() and not (other / "notes.txt").exists())
+GR.Extractor(GR.Source(src), other, S).run()
+check("extract: a previous extract is replaced", (other / "pack.jsonc").exists())
+
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)

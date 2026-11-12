@@ -170,6 +170,52 @@ except XG.GeomError as e:
     msg = str(e)
 check("ps2: encoding edited geometry is refused with a reason", msg and "PS2" in msg, str(msg))
 
+# 3b. glTF forms other tools write: COLOR_0 as normalised u8/u16 VEC3/VEC4; no primitive extras
+def with_color(gl, b, ctype, typ, vals):
+    """A copy whose first primitive's COLOR_0 is a new accessor (ctype, typ) of `vals`."""
+    gl = json.loads(json.dumps(gl))
+    pr = gl["meshes"][0]["primitives"][0]
+    n = gl["accessors"][pr["attributes"]["POSITION"]]["count"]
+    code = {5121: "B", 5123: "H", 5126: "f"}[ctype]
+    data = b"".join(struct.pack("<%d%s" % (len(vals), code), *vals) for _ in range(n))
+    b = bytes(b) + bytes(-len(b) % 4)
+    gl["bufferViews"].append({"buffer": 0, "byteOffset": len(b), "byteLength": len(data)})
+    gl["accessors"].append({"bufferView": len(gl["bufferViews"]) - 1, "componentType": ctype,
+                            "normalized": ctype != 5126, "count": n, "type": typ})
+    pr["attributes"]["COLOR_0"] = len(gl["accessors"]) - 1
+    return gl, b + data
+
+
+gl, b = XG.to_gltf(geom(survey / "pc" / CAR, 1), "g", "g.bin")
+for ctype, typ, vals, want in ((5121, "VEC3", (255, 128, 0), (255, 128, 0, 255)),
+                               (5123, "VEC3", (65535, 0, 32896), (255, 0, 128, 255)),
+                               (5123, "VEC4", (0, 65535, 0, 32896), (0, 255, 0, 128)),
+                               (5126, "VEC3", (1.0, 0.5, 0.0), (255, 128, 0, 255))):
+    g2 = XG.from_gltf(*with_color(gl, b, ctype, typ, vals))
+    got = {v[2] for v in g2["levels"][0]["groups"][0]["verts"]}
+    check(f"COLOR_0 {ctype} {typ} -> {want}", got == {bytes(want)}, str(got))
+gl2 = json.loads(json.dumps(gl))
+gl2["meshes"][0]["primitives"][0].pop("extras")
+try:
+    XG.from_gltf(gl2, b)
+    msg = None
+except XG.GeomError as e:
+    msg = str(e)
+check("a primitive without extras.group is a GeomError naming it", msg and "extras.group" in msg, str(msg))
+
+# 3c. PC: an edit that needs an array the original level lacks (colours on geometry 12 level 1)
+blob, tex, offs = pack_geoms(survey / "pc" / CAR)
+g = XG.decode(blob, offs[12], tex)
+lv = g["levels"][1]
+check("pc: geometry 12 level 1 has no colour array", lv["vb"]["has"][1] is False)
+gr = lv["groups"][0]
+gr["rec"]["flags"] &= ~XG.F_LITENV
+gr["verts"] = [(p, None, b"\x10\x20\x30\xff", u, bn) for p, _, _, u, bn in gr["verts"]]
+data, ptrs, ts, names = XG.encode(g, "pc")
+g3 = XG.decode(XG.Blob(data, set(ptrs), "pc"), 0, {s: 1 for s in ts})
+check("pc: unlit group with colours gets a colour array", g3["levels"][1]["vb"]["has"][1] is True
+      and {v[2] for v in g3["levels"][1]["groups"][0]["verts"]} == {b"\x10\x20\x30\xff"})
+
 # 4. content hash: unchanged file, same hash; a moved vertex, another hash
 gl, b = XG.to_gltf(geom(survey / "gc" / CAR, 1), "g", "g.bin")
 h = XG.content_hash(gl, b)

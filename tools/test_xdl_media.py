@@ -89,6 +89,10 @@ offs, total = M.relayout([("a", 0, 10, 10), ("b", 32, 10, 10)], 64)
 check("relayout: equal lengths keep offsets", offs == {"a": 0, "b": 32} and total == 64)
 offs, total = M.relayout([("a", 0, 10, 40), ("b", 32, 10, 10), ("c", 48, 4, 4)], 64)
 check("relayout: growth moves what follows, gaps kept", offs == {"a": 0, "b": 64, "c": 80} and total == 96, offs)
+offs, total = M.relayout([("a", 0, 10, 40, b"x"), ("b", 0, 10, 40, b"x"), ("c", 32, 4, 4)], 64)
+check("relayout: items sharing offset and length keep sharing", offs["a"] == offs["b"] == 0 and offs["c"] == 64, offs)
+offs, total = M.relayout([("a", 0, 10, 10, b"x"), ("b", 0, 10, 10, b"y")], 64)
+check("relayout: sharers with different content are split", offs["a"] != offs["b"], offs)
 
 # ---- schemas -----------------------------------------------------------------------------
 
@@ -253,6 +257,26 @@ for rel in ("gc", "pc", "ps2"):
     m = raises(lambda: M.build_pack(d, base_arg=other.path, log=lambda m: None))
     check(f"{rel}: a base that isn't the extracted copy is refused", m is not None, m)
 
+    # ---- loop edits (the WAV unchanged)
+    d = fresh_copy(cars, "car_5", f"{rel}/car_5")
+    sp = d / media["sounds"][0]
+    sdoc = jsonc(sp)
+    n = len(M.read_wav(sp.parent / sdoc["file"])[0])
+    nl = 56 if sdoc["loop"] != 56 else 84
+    rewrite(sp, "MediaSound", loop=nl)
+    b, st = build(d)
+    nb = M.RawPack(rel, pk.type, b, "car_5")
+    ns = next(x for x in M.scan_sounds(nb) if x["i"] == sdoc["index"])
+    check(f"{rel}: loop edit -> descriptor", M.loop_to_samples(rel, ns["loop"], "x") == nl)
+    if rel == "ps2":
+        raw = b[ns["ptr"]:ns["ptr"] + ns["len"]]
+        flags = [raw[k + 1] for k in range(0, len(raw), 16)]
+        check(f"{rel}: loop edit re-encodes the ADPCM flags (loop block 6)",
+              st.c.get(("sound", "encoded")) == 1 and flags.index(6) == nl // 28 + 1, flags[:6])
+    rewrite(sp, "MediaSound", loop=n)
+    m = raises(lambda: build(d))
+    check(f"{rel}: loop past the last sample is refused", m and "loop" in m, m)
+
     # ---- song and bank
     mus = M.Archive(dirs[rel] / f"HW_music{ext}")
     ent = mus.entries[0]
@@ -286,6 +310,23 @@ for rel in ("gc", "pc", "ps2"):
     sharers = [k for k, i in enumerate(bdoc["instruments"]) if i["sample"] == bdoc["instruments"][0]["sample"]]
     check(f"{rel}: instruments sharing the sample still share it",
           len({(bank2["entries"][k]["off"], bank2["entries"][k]["len"]) for k in sharers}) == 1)
+
+    # a bank sample's loop edit (WAV unchanged)
+    d = fresh_copy(mus, ent["name"], f"{rel}/{ent['name']}")
+    bp = d / "song/bank.jsonc"
+    bdoc = jsonc(bp)
+    key = bdoc["instruments"][0]["sample"]
+    old = bdoc["instruments"][0]["loop"]
+    nl = 28 if old != 28 else 56
+    for ins in bdoc["instruments"]:
+        if ins["sample"] == key:
+            ins["loop"] = nl
+    M.write_jsonc(bp, "MediaBank", {k: v for k, v in bdoc.items() if k not in ("$schema", "format_version")}, [])
+    b, st = build(d)
+    _, bank3 = M.scan_song(M.RawPack(rel, ent["type"], b, ent["name"]))
+    check(f"{rel}: bank loop edit -> entry", M.loop_to_samples(rel, bank3["entries"][0]["loop"], "x") == nl)
+    if rel == "ps2":
+        check(f"{rel}: bank loop edit re-encodes the sample", st.c.get(("bank sample", "encoded")) == 1, st.c)
 
 print("all passed" if not fails else f"{fails} failed")
 sys.exit(1 if fails else 0)

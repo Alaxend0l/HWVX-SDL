@@ -1046,16 +1046,23 @@ def cmd_schemas(a):
 # build
 
 def relayout(items, total, a=0x20):
-    """items [(key, orig_off, orig_len, new_len)] -> ({key: new_off}, new_total). Items keep
-    their offsets until one grows; from there on, everything after moves by the growth (the
-    gaps kept, each start aligned to `a`). Equal lengths give equal offsets."""
-    out, shift, end = {}, 0, 0
-    for key, off, _, n in sorted(items, key=lambda x: x[1]):
+    """items [(key, orig_off, orig_len, new_len[, content])] -> ({key: new_off}, new_total).
+    Items keep their offsets until one grows; from there on, everything after moves by the
+    growth (the gaps kept, each start aligned to `a`). Equal lengths give equal offsets. Items
+    that shared their bytes (same offset and length) and still have the same length (and
+    content, when given) share them again."""
+    out, shift, end, seen = {}, 0, 0, {}
+    for it in sorted(items, key=lambda x: x[1]):
+        key, off, n0, n = it[:4]
+        same = (off, n0, n) + tuple(it[4:])
+        if same in seen:
+            out[key] = seen[same]
+            continue
         o = off + shift
         if o < end:
             o = align(end, a)
             shift = o - off
-        out[key] = o
+        out[key] = seen[same] = o
         end = o + n
     return out, max(total + shift, end)
 
@@ -1233,20 +1240,25 @@ class Builder:
                 self.st.add("texture PSMT8", how)
 
     # ---- sounds, song, bank ----------------------------------------------------------------
-    def sample(self, f, doc, base_raw, kind, what):
-        """A WAV -> the release's bytes (PCM16 in its byte order, or SPU-ADPCM)."""
+    def sample(self, f, doc, base_raw, kind, what, base_loop=None):
+        """A WAV -> the release's bytes (PCM16 in its byte order, or SPU-ADPCM). base_loop:
+        the base descriptor's loop word (the PS2's ADPCM carries the loop in its flag bytes,
+        so the original encoding is reused only for the same loop block)."""
         pcm, rate = read_wav(f)
         if rate != doc["rate"]:
             raise MediaError(f"{f}: {rate} Hz, its sidecar says {doc['rate']}")
+        loop = doc["loop"]
+        if loop is not None and not 0 <= loop < len(pcm):
+            raise MediaError(f"{what}: loop {loop} is outside the sample ({len(pcm)} samples)")
         if self.rel != "ps2":
             self.st.add(kind, "lossless")
             return pcm_bytes(self.rel, pcm)
         if (not self.fresh and h16(pcm.astype("<i2").tobytes()) == doc["samples"]
-                and base_raw is not None and h16(base_raw) == doc.get("encoded")):
+                and base_raw is not None and h16(base_raw) == doc.get("encoded")
+                and (base_loop is None or samples_to_loop(self.rel, loop) == base_loop)):
             self.st.add(kind, "reused")
             return base_raw
         self.st.add(kind, "encoded")
-        loop = doc["loop"]
         if loop is not None and loop % 28:
             self.log(f"note: {what}: loop {loop} moved to the ADPCM block at {loop // 28 * 28}")
         return adpcm_encode(pcm, None if loop is None else loop // 28 + 1)
@@ -1270,7 +1282,7 @@ class Builder:
                 raise MediaError(f"{p}: the base pack has no sound {doc['index']}")
             docs[doc["index"]] = doc
             new[("sfx", s["i"])] = self.sample(p.parent / doc["file"], doc, pk.b[s["ptr"]:s["ptr"] + s["len"]],
-                                               "sound", f)
+                                               "sound", f, s["loop"])
         if set(docs) != set(base):
             raise MediaError(f"sounds {sorted(set(base) - set(docs))} of the base pack have no files")
         if song:
@@ -1295,7 +1307,8 @@ class Builder:
                 key = ins["sample"]
                 if key not in files:
                     raw = pk.b[bank["data"] + en["off"]:bank["data"] + en["off"] + en["len"]]
-                    files[key] = (self.sample(bp.parent / key, ins, raw, "bank sample", f"{bp} {key}"), en)
+                    files[key] = (self.sample(bp.parent / key, ins, raw, "bank sample", f"{bp} {key}",
+                                              en["loop"]), en)
             # the bank's samples, laid out inside the bank
             first = {}
             for key, (data, en) in files.items():
@@ -1328,7 +1341,8 @@ class Builder:
             n = 0x20 * len(base)
             items.append(("desc", pk.h["sfx_offset"], n, n))
             for s in base.values():
-                items.append((("sfx", s["i"]), s["ptr"] - s0, s["len"], len(new[("sfx", s["i"])])))
+                data = new[("sfx", s["i"])]
+                items.append((("sfx", s["i"]), s["ptr"] - s0, s["len"], len(data), data))
         if song:
             items.append(("song", song["off"] - s0, song["size"] + 8, len(new["song"])))
         if bank:
@@ -1336,8 +1350,8 @@ class Builder:
         offs, size = relayout(items, sn)
         sd = bytearray(pk.b[s0:s0 + sn]) + bytes(max(0, size - sn))
         del sd[size:]
-        for _, off, n, _ in items:
-            sd[off:off + n] = bytes(n)
+        for it in items:
+            sd[it[1]:it[1] + it[2]] = bytes(it[2])
         for key, data in new.items():
             sd[offs[key]:offs[key] + len(data)] = data
         for s in base.values():
