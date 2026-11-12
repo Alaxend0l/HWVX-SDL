@@ -27,7 +27,11 @@
  *   copy of "One Player") second. With graphics.cfg "mainmenu=original"
  *   (HWVX_ORIGINAL_MAINMENU=1, Port_OriginalMainMenu) the main menu is left
  *   as the release has it: no Quit Game, no Multi-Player on PC, no Online.
- * - Options: "Graphics" (a copy of "Controller") opens the Graphics screen.
+ * - Options: "Handling" (a copy of "Difficulty": Normal / PC Mode 2, the PC
+ *   release's third car handling, CarA_PortDriveMode; in the save, code
+ *   variable PORT_CODEVAR_HANDLING) and "Graphics" (a copy of "Controller",
+ *   opening the Graphics screen) after SFX: eight rows on GameCube and PS2,
+ *   seven on PC (AddHandlingRow, FindOptions' spacing).
  * - Memory card screens (saves are files on PC, always "slot A"): Load Game
  *   and Save Game start on slot A's file list (no Slot A/B picker; the PC's
  *   have none), without the card warnings, and B leaves them.

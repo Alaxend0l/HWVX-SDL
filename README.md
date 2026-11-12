@@ -113,6 +113,16 @@ main menu exactly as the release has it - on GameCube and PS2 data without Quit
 Game (close the window to quit), on PC data without Multi-Player, and with
 Multi-Player going straight to the game's own screen; the other menu changes stay.
 
+Options also has **Handling**: Normal, or PC Mode 2, the PC release's third car
+handling (`CarAInfo.driveMode` 2), which its code has but no car in any release's
+data uses and no release lets you pick. In it the gas runs up through the gears
+with a kick on every upshift, the brake slows to a stop, Brake held at a standstill
+reverses (a port addition: none of the controller layouts has the mode's own reverse
+button), the power slide button is a handbrake, steering follows the stick at once
+but less the faster you go (none from about 180), turbo never runs out, and the AI's
+cars drive the same way. It is kept in the save with the other settings; demos and
+online play always use the cars' own handling (`src/game/CarA_HW.c`).
+
 Saves: there's no memory card on PC, so the GameCube's card screens are
 skipped: the startup card check, the Slot A/B picker (saves always go to the
 save file), the "do not touch" loading/saving notices and the card warnings
@@ -596,6 +606,13 @@ Debugging aids:
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable
   Movies option (`HWVX_NO_MOVIE=1` or `0` overrides).
+- `HWVX_HANDLING=2` (or `0`) drives with the PC's third handling mode (or the
+  cars' own) whatever Options says; `HWVX_CARLOG=1` logs the player's car
+  every 30 frames (handling, gear, rpm, wheel speed, speed, steering, turbo,
+  flags, position), `=2` the AI's cars too. `tools/drive_test.sh BUILD DATA
+  OUT NAME SECONDS [VAR=value ...]` runs a scripted drive (a race, the gas
+  held, a turn) and prints that log: run it with and without
+  `HWVX_HANDLING=2` to compare.
 - `HWVX_SPLITSCREEN_LOD=gc` draws models one level coarser in split screen as
   the GameCube did (default: full detail, like the PC release; `graphics.cfg`
   `splitlod=full|gc`).
