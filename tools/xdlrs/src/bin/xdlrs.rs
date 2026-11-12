@@ -458,6 +458,18 @@ fn err_line(e: &Error) -> String {
 fn probe(a: &Args) -> Result<i32> {
     let what = a.pos(1)?;
     match what {
+        "bsp" => {
+            // stdin: lines "lo0 lo1 lo2 hi0 hi1 hi2" -> the box's BSPN0 bytes (hex), little-endian
+            let mut text = String::new();
+            std::io::stdin().read_to_string(&mut text).map_err(|e| Error::io(e.to_string()))?;
+            for ln in text.lines() {
+                let v: Vec<f64> = ln.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                match xdlrs::bsp::box_bsp([v[0], v[1], v[2]], [v[3], v[4], v[5]], false) {
+                    Ok(b) => println!("{}", xdlrs::graph::hexstr(&b)),
+                    Err(e) => println!("ERR {e}"),
+                }
+            }
+        }
         "jsonc" => {
             for f in &a.pos[2..] {
                 let line = match xdlrs_read(Path::new(f)).and_then(|t| jsonc::loads(&t)) {
