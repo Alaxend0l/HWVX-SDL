@@ -242,6 +242,31 @@ impl Drop for TestDrive {
 }
 
 /// tools/ of the checkout the game is in.
+/// Save as mod: the project packed into an installable .hwmod at `out` (tools/xdl_level.py mod
+/// --hwmod: the compiled level file and the project's sources; tools/xdl_mod.py's no-game-data
+/// check against an index of the player's own data, made once into the scratch's cache). The
+/// mod folder it packs is made in the scratch. Ok: the packer's line; Err: why it wasn't packed.
+pub fn share(o: &Options, out: &Path) -> Result<String, String> {
+    let script = o.tools.join("xdl_level.py");
+    let stem = out.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "level".into());
+    let folder = o.scratch.join("share").join(&stem);
+    let mut cmd = Command::new(if o.python.is_empty() { "python3" } else { &o.python });
+    cmd.arg(&script).arg("mod").arg(&o.project).arg(&folder).arg("--hwmod").arg(out);
+    match &o.data {
+        Some(d) => cmd.arg("--data").arg(d).arg("--cache").arg(o.scratch.join("base-cache")),
+        None => return Err("the game's data folder isn't known (the check for game data needs it)".into()),
+    };
+    std::fs::create_dir_all(o.scratch.join("share")).map_err(|e| format!("{}: {e}", o.scratch.display()))?;
+    let r = cmd.stdin(Stdio::null()).output().map_err(|e| format!("{}: {e}", script.display()))?;
+    let text = format!("{}{}", String::from_utf8_lossy(&r.stdout), String::from_utf8_lossy(&r.stderr));
+    let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
+    if r.status.success() {
+        Ok(last)
+    } else {
+        Err(text.trim().to_string())
+    }
+}
+
 pub fn default_tools(game: &Path) -> Option<PathBuf> {
     game.ancestors().skip(1).map(|d| d.join("tools")).find(|d| d.join("xdl_level.py").is_file())
 }

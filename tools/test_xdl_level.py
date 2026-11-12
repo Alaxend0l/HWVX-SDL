@@ -171,5 +171,22 @@ tr = mod["tracks"]["uid://checkpointrun"]
 check("mod: track entry", tr["extends"] == "base://mcp/track/39" and tr["level"] == "level/checkpointrun.json")
 check("mod: level file", (out / tr["level"]).exists())
 
+# appends: records the port adds to the base world's arrays as it loads (Port_Level.c)
+gg, errs = LV.compile_project(HERE / "level-samples" / "gear-grab")
+ap = (gg or {}).get("appends") or []
+check("appends: gear-grab's two items into quadrant 20's", len(ap) == 1 and len(ap[0]["elems"]) == 2 and
+      ap[0]["what"] == "World/0/quads/20/contents/items" and ap[0]["elemSize"] == 64, ap)
+check("appends: a copy of the quadrant's first pickup, moved",
+      ap and ap[0]["elems"][0].get("fromIndex") == 0 and [0, struct.pack("<3f", -3660, 46, -1540).hex()] in ap[0]["elems"][0]["set"])
+links = [l for p in gg["parts"] for _, l in p["links"]] if gg else []
+check("appends: the trigger links the appended item", {"append": 0, "elem": 0, "add": 0} in links)
+tg, errs = LV.compile_project(HERE / "level-samples" / "two-gates")
+ap = (tg or {}).get("appends") or []
+check("appends: two-gates' objectives, entries of its own", len(ap) == 1 and ap[0]["what"] == "World/0/objectives" and
+      [e.get("part") for e in ap[0]["elems"]] == ["level://objectives/first", "level://objectives/second"], ap)
+check("appends: an objective entry links its info",
+      any(p["id"] == "level://objectives/first" and p["kind"] == "element" and p["links"] == [[4, {"part": "level://objectives/first/info"}]]
+          for p in (tg or {}).get("parts", [])))
+
 print("FAILED" if fails else "all passed", f"({fails} failures)" if fails else "")
 sys.exit(1 if fails else 0)
