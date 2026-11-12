@@ -883,6 +883,12 @@ void ViewerWorld_WriteStatus(JsonWriter *jw) {
     Jw_BeginObject(jw, "world", 0);
     Jw_String(jw, "name", w.name);
     Jw_String(jw, "world", w.path);
+    if (w.vp != NULL) {
+        char full[200];
+
+        SDL_snprintf(full, sizeof(full), "%s/%s", w.vp->archiveName, w.vp->name);
+        Jw_String(jw, "pack", full);   /* the world pack's outline */
+    }
     Jw_Int(jw, "quads", wd->numQuads);
     Jw_BeginArray(jw, "loadedQuads", 1);
     for (q = 0; q < wd->numQuads; q++) {
