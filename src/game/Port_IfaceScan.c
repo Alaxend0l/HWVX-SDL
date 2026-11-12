@@ -237,6 +237,11 @@ static void MarkHeader(const PortIfaceScan *s, u8 *mark, u32 h) {
 }
 
 u32 Port_IfaceTextures(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexRelocs, u8 *used, u32 numTex) {
+    return Port_IfaceTexturesAll(s, texRelocs, numTexRelocs, used, numTex, NULL, NULL);
+}
+
+u32 Port_IfaceTexturesAll(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexRelocs, u8 *used, u32 numTex,
+                          void (*other)(void *user, u32 packId, u32 index, u8 what), void *user) {
     u32 count = 0, i, words = s->size / 4;
     u8 *headers = Port_IfaceHeaders(s, &count), *mark;
 
@@ -250,6 +255,9 @@ u32 Port_IfaceTextures(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexR
     for (i = 0; mark != NULL && i < numTexRelocs; i++) {
         u32 slot = texRelocs[i * 2] & ~PORT_TEXRELOC_U16, id = texRelocs[i * 2 + 1];
 
+        if ((id >> 16) != 0 && other != NULL && slot / 4 <= words && mark[slot / 4]) {
+            other(user, id >> 16, id & 0xFFFF, mark[slot / 4]);
+        }
         if ((id >> 16) == 0 && slot / 4 <= words && mark[slot / 4] && (id & 0xFFFF) < numTex &&
             used[id & 0xFFFF] != PORT_IFACE_ART) {
             count += used[id & 0xFFFF] == 0;

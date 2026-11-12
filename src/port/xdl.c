@@ -157,6 +157,11 @@ void Xdl_Use(const char *dir, int reading, int writing) {
     s_writing = writing;
 }
 
+void Xdl_SetModes(int reading, int writing) {
+    s_reading = reading;
+    s_writing = writing;
+}
+
 int Xdl_EnvSet(void) {
     return SDL_getenv("HWVX_XDL") != NULL || SDL_getenv("HWVX_XDL_WRITE") != NULL || SDL_getenv("HWVX_XDL_DIR") != NULL;
 }

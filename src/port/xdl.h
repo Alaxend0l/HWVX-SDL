@@ -54,6 +54,8 @@ int Xdl_Writing(void);
  * a release converted ahead of time (Port_Convert.c writes it, the launcher
  * has the game read it). Before the first pack file is opened. */
 void Xdl_Use(const char *dir, int reading, int writing);
+/* Reading and writing on or off, the folder kept (mixed builds' first pass). */
+void Xdl_SetModes(int reading, int writing);
 /* 1 if the environment sets any of HWVX_XDL, HWVX_XDL_WRITE, HWVX_XDL_DIR. */
 int Xdl_EnvSet(void);
 /* What a cache file made now is stamped with: one with another version,

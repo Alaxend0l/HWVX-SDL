@@ -76,9 +76,83 @@ static struct {
     /* interface art (Port_IfaceTextures, or a recipe rule "interface") and font pages, by release;
      * art the set has no copy of (the base's kept), font pages whose PC copy has other glyphs,
      * interface textures of packs that aren't interface packs (some are world geometry's too) */
-    u32 artFrom[PORT_MIX_RELS], fontFrom[PORT_MIX_RELS], artFallback, artByShape, fontOther, uiElsewhere;
+    u32 artFrom[PORT_MIX_RELS], fontFrom[PORT_MIX_RELS], artFallback, artByShape, fontOther, uiElsewhere, uiShared;
     u32 sfxFrom[PORT_MIX_RELS], sfxKept, sfxRejected;
 } s_stats;
+
+/* Textures of share packs that other packs' interfaces show (the car packs'
+ * HUDs draw HW_Cars share_2's gauges): found by the builder's first pass,
+ * which loads every pack and only looks (s_collect), since a share pack is
+ * mixed before the packs that refer to it load. */
+typedef struct UiRef {
+    char archive[0x10];
+    u32 id;
+    u16 index;
+    u8 what;    /* PORT_IFACE_ART or _FONT */
+} UiRef;
+
+static UiRef *s_uiRefs;
+static u32 s_numUiRefs, s_capUiRefs;
+static int s_collect;
+
+static const char *StemOf(const char *name) {
+    const char *stem = name, *c;
+
+    for (c = name; *c; c++) {
+        if (*c == '/' || *c == '\\') {
+            stem = c + 1;
+        }
+    }
+    return stem;
+}
+
+static UiRef *FindUiRef(const char *archive, u32 id, u32 index) {
+    u32 i;
+
+    for (i = 0; i < s_numUiRefs; i++) {
+        if (s_uiRefs[i].id == id && s_uiRefs[i].index == index && strcasecmp(s_uiRefs[i].archive, archive) == 0) {
+            return &s_uiRefs[i];
+        }
+    }
+    return NULL;
+}
+
+typedef struct OtherCtx {
+    DataPack *pack;
+} OtherCtx;
+
+static void NoteUiRef(void *user, u32 packId, u32 index, u8 what) {
+    DataPack *pack = ((OtherCtx *)user)->pack;
+    const DataPackRef *ref = pack->refs[0].id == packId ? &pack->refs[0] : pack->refs[1].id == packId ? &pack->refs[1] : NULL;
+    char name[0x10];
+    UiRef *r;
+
+    if (ref == NULL) {
+        return;
+    }
+    memcpy(name, ref->name, 0xC);
+    name[0xC] = 0;
+    if ((r = FindUiRef(StemOf(name), packId, index)) != NULL) {
+        if (what == PORT_IFACE_ART) {
+            r->what = what;     /* art wins over font, as in one pack */
+        }
+        return;
+    }
+    if (s_numUiRefs == s_capUiRefs) {
+        UiRef *n = realloc(s_uiRefs, (s_capUiRefs * 2 + 64) * sizeof(UiRef));
+
+        if (n == NULL) {
+            return;
+        }
+        s_uiRefs = n;
+        s_capUiRefs = s_capUiRefs * 2 + 64;
+    }
+    r = &s_uiRefs[s_numUiRefs++];
+    snprintf(r->archive, sizeof(r->archive), "%s", StemOf(name));
+    r->id = packId;
+    r->index = (u16)index;
+    r->what = what;
+}
 
 static MixPack *Cur(void) {
     return Mixing() && s_depth > 0 && s_depth <= 8 ? &s_stack[s_depth - 1] : NULL;
@@ -793,6 +867,22 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     if (mp == NULL || numTex == 0 || numTex > 0x10000 || fmt < 0 || fmt >= PORT_DATA_COUNT) {
         return;
     }
+    if (s_collect) {
+        /* the builder's first pass: which other packs' textures this one's interfaces show */
+        PortIfaceScan scan;
+        OtherCtx ctx;
+        u8 *used = calloc(numTex, 1);
+
+        ctx.pack = pack;
+        if (used != NULL && Port_IfaceScanInit(&scan, base, dataSize, (u32)HND(base), pointers, numPointers, refs,
+                                               numRefs)) {
+            Port_IfaceTexturesAll(&scan, (const u32 *)GETP(pack->relocs), pack->numRelocs, used, numTex, NoteUiRef,
+                                  &ctx);
+            Port_IfaceScanFree(&scan);
+        }
+        free(used);
+        return;
+    }
     for (r = 0; r < PORT_MIX_RELS; r++) {
         others += r != fmt && Port_MixRoot(r) != NULL;
     }
@@ -821,6 +911,17 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         if (Port_IfaceScanInit(&scan, base, dataSize, (u32)HND(base), pointers, numPointers, refs, numRefs)) {
             Port_IfaceTextures(&scan, (const u32 *)GETP(pack->relocs), pack->numRelocs, ui, numTex);
             Port_IfaceScanFree(&scan);
+        }
+        if (mp->type == 8) {    /* a share pack: what other packs' interfaces show of it */
+            for (i = 0; i < s_numUiRefs; i++) {
+                const UiRef *u = &s_uiRefs[i];
+
+                if (u->id == mp->id && u->index < numTex && ui[u->index] != PORT_IFACE_ART &&
+                    strcasecmp(u->archive, mp->archive) == 0) {
+                    s_stats.uiShared += ui[u->index] == 0;
+                    ui[u->index] = u->what;
+                }
+            }
         }
     }
     for (r = 0; r < PORT_MIX_RELS; r++) {
@@ -996,7 +1097,7 @@ void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count) {
 
     s_sfx = NULL;
     s_numSfx = 0;
-    if (mp == NULL || mp->pairs == NULL || mp->pairs->numSounds == 0 || count == 0 || count > 0x10000 ||
+    if (s_collect || mp == NULL || mp->pairs == NULL || mp->pairs->numSounds == 0 || count == 0 || count > 0x10000 ||
         fmt < 0 || fmt >= PORT_DATA_COUNT) {
         return;
     }
@@ -1195,10 +1296,11 @@ void PortMix_LogStats(void) {
     Port_Log("mix: interface %s: art from gc %u, pc %u, ps2 %u (%u paired by shape; %u the base's own: the set has no "
              "copy); font pages "
              "from gc %u, pc %u, ps2 %u (%u with other glyphs on the PC); %u of them in packs other than interface "
-             "packs", Port_MixInterface() == PORT_DATA_PS2 ? "silver (ps2)" : "yellow (gc)",
+             "packs; %u of them shown by other packs' interfaces (%u found)", Port_MixInterface() == PORT_DATA_PS2 ? "silver (ps2)" : "yellow (gc)",
              (unsigned)s_stats.artFrom[0], (unsigned)s_stats.artFrom[1], (unsigned)s_stats.artFrom[2],
              (unsigned)s_stats.artByShape, (unsigned)s_stats.artFallback, (unsigned)s_stats.fontFrom[0], (unsigned)s_stats.fontFrom[1],
-             (unsigned)s_stats.fontFrom[2], (unsigned)s_stats.fontOther, (unsigned)s_stats.uiElsewhere);
+             (unsigned)s_stats.fontFrom[2], (unsigned)s_stats.fontOther, (unsigned)s_stats.uiElsewhere,
+             (unsigned)s_stats.uiShared, (unsigned)s_numUiRefs);
 }
 
 typedef struct Build {
@@ -1353,10 +1455,25 @@ static void BuildArchive(const char *name, void *user) {
 
 u32 PortMix_BuildAll(u32 *failed) {
     Build b;
+    u32 i;
 
     memset(&b, 0, sizeof(b));
     DataPack_EnableLoadingSounds(0);    /* converted and cached, not created */
     Port_MixArchives(CountArchive, &b);
+    /* first pass, nothing cached: what interfaces show of other packs */
+    b.total *= 2;
+    s_collect = 1;
+    Xdl_SetModes(0, 0);
+    Port_MixArchives(BuildArchive, &b);
+    s_collect = 0;
+    Xdl_SetModes(1, 1);
+    Port_Log("mix: %u textures of share packs shown by other packs' interfaces", (unsigned)s_numUiRefs);
+    for (i = 0; i < s_numUiRefs; i++) {
+        Port_Log("mix:   %s share_%u texture %u (%s)", s_uiRefs[i].archive, (unsigned)s_uiRefs[i].id,
+                 (unsigned)s_uiRefs[i].index, s_uiRefs[i].what == PORT_IFACE_FONT ? "font" : "art");
+    }
+    b.archives = b.packs = b.failed = 0;
+    memset(&s_stats, 0, sizeof(s_stats));
     Port_MixArchives(BuildArchive, &b);
     PortMix_LogStats();
     if (b.failed) {

@@ -44,5 +44,10 @@ u8 *Port_IfaceHeaders(const PortIfaceScan *s, u32 *count);
  * followed. Returns how many textures were marked. */
 enum { PORT_IFACE_ART = 1, PORT_IFACE_FONT = 2 };
 u32 Port_IfaceTextures(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexRelocs, u8 *used, u32 numTex);
+/* The same, and `other` for each texture of another pack (the pack it refers
+ * to by id: DataPack.refs[k].id, `index` in its table) an interface shows:
+ * the car packs' HUDs draw HW_Cars share_2's gauges, the worlds' HW_share's. */
+u32 Port_IfaceTexturesAll(const PortIfaceScan *s, const u32 *texRelocs, u32 numTexRelocs, u8 *used, u32 numTex,
+                          void (*other)(void *user, u32 packId, u32 index, u8 what), void *user);
 
 #endif
