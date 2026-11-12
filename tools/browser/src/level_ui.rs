@@ -39,6 +39,8 @@ pub struct LevelState {
     ended_shown: bool,
     auto_started: bool,
     sharing: Option<Receiver<Result<String, String>>>,
+    /// a project to open in place of one with unsaved edits, once the person says so
+    confirm_open: Option<String>,
     pub edit: EditState,
 }
 
@@ -58,7 +60,19 @@ impl Browser {
             .join("testdrive")
     }
 
+    /// Opens a level project; with unsaved edits in the open one, asks first (the Level tab).
     pub(crate) fn open_level(&mut self, dir: &str) {
+        let dirty = self.level.edit.proj.as_ref().map(|p| p.dirty()).unwrap_or(false);
+        if dirty {
+            self.level.confirm_open = Some(dir.to_string());
+            self.level.tab = true;
+            return;
+        }
+        self.open_level_now(dir);
+    }
+
+    fn open_level_now(&mut self, dir: &str) {
+        self.level.confirm_open = None;
         self.level.project = dir.to_string();
         match testdrive::read_level(std::path::Path::new(dir)) {
             Ok(v) => {
@@ -123,21 +137,33 @@ impl Browser {
         self.level.drive = None;
         self.level.clicked = Some(Instant::now());
         self.level.errors.clear();
-        self.open_level(&self.level.project.clone());
+        // the summary again (the project itself stays as edited: drive_project copies its edits);
+        // a project named but not opened yet opens now
+        let open_dir = self.level.edit.proj.as_ref().map(|p| p.dir.to_string_lossy().to_string());
+        if open_dir.as_deref().map(|d| std::path::Path::new(d) != std::path::Path::new(&self.level.project)).unwrap_or(true) {
+            let d = self.level.project.clone();
+            self.open_level(&d);
+            if self.level.confirm_open.is_some() {
+                return; // the open project has unsaved edits: asked first
+            }
+        } else if let Ok(v) = testdrive::read_level(std::path::Path::new(&self.level.project)) {
+            self.level.summary = v;
+        }
         if self.level.from_here && self.world.status["world"].is_string() {
             // the ground under the camera (fly: where it is; orbit: what it looks at)
             let c = &self.camera;
             let p = if c["mode"].as_str() == Some("fly") { &c["pos"] } else { &c["target"] };
             let at: Vec<f64> = p.as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
             if at.len() == 3 {
-                self.level.waiting_ground = true;
-                self.level.message = "finding the ground under the camera…".into();
-                self.request(
+                if self.request(
                     "raycast",
                     json!({"from": [at[0], at[1] + 50.0, at[2]], "to": [at[0], at[1] - 5000.0, at[2]]}),
                     Pending::Ground,
-                );
-                return;
+                ) {
+                    self.level.waiting_ground = true;
+                    self.level.message = "finding the ground under the camera…".into();
+                    return;
+                }
             }
         }
         self.start_prepare(None);
@@ -293,15 +319,26 @@ impl Browser {
         self.level.message = "saving as a mod: compiling, checking for game data (the first time about 30 s)…".into();
     }
 
+    /// The system's save dialog. The suggested name comes from the project (a shared one may be
+    /// anyone's): only [A-Za-z0-9_.-] of it is kept, and it reaches the dialog as an argument or
+    /// an environment variable, never inside the script's text.
     fn choose_save_file(name: &str) -> Option<String> {
+        let name: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')).collect();
+        let name = if name.trim_matches('.').is_empty() { "level.xmod".to_string() } else { name };
         let out = if cfg!(target_os = "macos") {
             std::process::Command::new("osascript")
-                .args(["-e", &format!("POSIX path of (choose file name with prompt \"Save the level as a mod\" default name \"{name}\")")])
+                .args([
+                    "-e", "on run argv",
+                    "-e", "POSIX path of (choose file name with prompt \"Save the level as a mod\" default name (item 1 of argv))",
+                    "-e", "end run",
+                    &name,
+                ])
                 .output()
                 .ok()?
         } else if cfg!(windows) {
             std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", &format!("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = '{name}'; if ($d.ShowDialog() -eq 'OK') {{ $d.FileName }}")])
+                .env("HWVX_SAVE_NAME", &name)
+                .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = $env:HWVX_SAVE_NAME; if ($d.ShowDialog() -eq 'OK') { $d.FileName }"])
                 .output()
                 .ok()?
         } else {
@@ -347,6 +384,28 @@ impl Browser {
                 }
             }
         });
+        if let Some(d) = self.level.confirm_open.clone() {
+            ui.colored_label(egui::Color32::YELLOW, format!("The open level has unsaved edits. Open {d} and drop them?"));
+            ui.horizontal(|ui| {
+                if ui.button("Save, then open").clicked() {
+                    self.edit_save();
+                    if !self.level.edit.proj.as_ref().map(|p| p.dirty()).unwrap_or(false) {
+                        self.open_level_now(&d);
+                    } else {
+                        self.level.confirm_open = None;
+                    }
+                }
+                if ui.button("Drop the edits and open").clicked() {
+                    self.open_level_now(&d);
+                }
+                if ui.button("Cancel").clicked() {
+                    self.level.confirm_open = None;
+                    if let Some(p) = self.level.edit.proj.as_ref() {
+                        self.level.project = p.dir.to_string_lossy().to_string();
+                    }
+                }
+            });
+        }
         self.new_level_dialog(ui);
         if let Some(e) = &self.level.summary_error {
             ui.colored_label(egui::Color32::LIGHT_RED, e);

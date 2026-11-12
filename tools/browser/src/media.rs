@@ -234,8 +234,9 @@ pub fn play_file(path: &std::path::Path) -> Result<std::process::Child, String> 
         c.arg(path);
         c
     } else if cfg!(windows) {
+        // the path as an environment variable, never inside the command's text
         let mut c = Command::new("powershell");
-        c.args(["-NoProfile", "-Command", &format!("(New-Object Media.SoundPlayer '{}').PlaySync()", path.display())]);
+        c.env("HWVX_PLAY_FILE", path).args(["-NoProfile", "-Command", "(New-Object Media.SoundPlayer $env:HWVX_PLAY_FILE).PlaySync()"]);
         c
     } else {
         let mut c = Command::new("aplay");

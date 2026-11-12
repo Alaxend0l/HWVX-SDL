@@ -390,7 +390,8 @@ impl Browser {
     /// Starts (or connects to) the viewer on a worker thread: starting the game takes seconds.
     fn connect(&mut self) {
         self.viewer = None; // (a game this started is killed)
-        self.pending.clear();
+        self.drop_all_pending();
+        self.level.edit.reset_marks();
         self.connect_error = None;
         self.preview.reset();
         let args = self.args.clone();
@@ -453,14 +454,38 @@ impl Browser {
         }
     }
 
-    fn request(&mut self, cmd: &str, args: Value, why: Pending) {
-        let Some(v) = self.viewer.as_mut() else { return };
+    /// Sends a request; true if it went (a flag waiting for its reply is set only then).
+    fn request(&mut self, cmd: &str, args: Value, why: Pending) -> bool {
+        let Some(v) = self.viewer.as_mut() else { return false };
         match v.send(cmd, args) {
             Ok(seq) => {
                 self.pending.insert(seq, (why, Instant::now()));
+                true
             }
-            Err(e) => self.fail(e),
+            Err(e) => {
+                self.fail(e);
+                false
+            }
         }
+    }
+
+    /// Requests that will never be answered (the viewer gone or restarted, or too late): what
+    /// waits for them is told, so nothing stays stuck (the test drive's ground, a move).
+    fn drop_pending(&mut self, seqs: Vec<u64>) {
+        for s in seqs {
+            if let Some((why, _)) = self.pending.remove(&s) {
+                match why {
+                    Pending::Ground => self.ground_reply(None),
+                    Pending::EditMove => self.edit_move_reply(None),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn drop_all_pending(&mut self) {
+        let all: Vec<u64> = self.pending.keys().copied().collect();
+        self.drop_pending(all);
     }
 
     fn fail(&mut self, e: String) {
@@ -511,16 +536,14 @@ impl Browser {
         if let Some(e) = closed {
             // gone: nothing pending will be answered
             self.viewer = None;
-            self.pending.clear();
+            self.drop_all_pending();
             self.connect_error = Some(e);
             return;
         }
         let now = Instant::now();
         let late: Vec<u64> = self.pending.iter().filter(|(_, (_, t))| now.duration_since(*t) > REPLY_TIMEOUT).map(|(s, _)| *s).collect();
         if !late.is_empty() {
-            for s in late {
-                self.pending.remove(&s);
-            }
+            self.drop_pending(late);
             self.fail(format!("the viewer did not answer in {} s", REPLY_TIMEOUT.as_secs()));
         }
         for (seq, r) in replies {
@@ -688,7 +711,12 @@ impl Browser {
             };
             if let Some(e) = gave_up {
                 eprintln!("hwvx-browser: --app-shot: {e}");
-                self.viewer = None; // (kills the game: exit skips destructors)
+                // our games first (exit skips destructors): a test drive's, then the viewer's
+                if let Some(d) = self.level.drive.as_mut() {
+                    d.stop();
+                }
+                self.level.drive = None;
+                self.viewer = None;
                 std::process::exit(1);
             }
             ctx.request_repaint_after(Duration::from_millis(100));

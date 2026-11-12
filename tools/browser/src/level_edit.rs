@@ -14,7 +14,7 @@
 
 use crate::{Browser, Pending};
 use eframe::egui;
-use hwvx_browser::level_model::Project;
+use hwvx_browser::level_model::{Project, Snapshot};
 use hwvx_browser::testdrive::{LevelError, default_tools};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -76,6 +76,10 @@ pub struct EditState {
     pub errors: Vec<LevelError>,
     pub generation: u64,
     checked_generation: u64,
+    /// recheck() during a check: the next one runs after it whatever its generation
+    recheck_pending: bool,
+    /// the project's state at `generation` (an undo point taken only when something changes)
+    snap: Option<(u64, std::rc::Rc<Snapshot>)>,
     last_change: Option<Instant>,
     checking: Option<(u64, Receiver<(Result<Vec<LevelError>, Vec<LevelError>>, PathBuf, f64)>)>,
     pub preview: bool,
@@ -86,6 +90,10 @@ pub struct EditState {
     move_offset: f32,
     pub saved_note: String,
     marks_sent: Value,
+    /// what the marks were made from last (they're made again only when it changes)
+    marks_key: String,
+    /// the link pickers' choices, made again only when the level or the base lists change
+    cands: Option<(String, std::rc::Rc<Vec<(String, String)>>)>,
     pub filter: String,
     pub advanced: bool,
     /// warnings (the starts' boxes overlapping each other: xdl_level.py; against the world:
@@ -106,6 +114,44 @@ impl EditState {
     /// Check again soon (something the check depends on changed: the cars' box).
     pub fn recheck(&mut self) {
         self.checked_generation = 0;
+        self.recheck_pending = true;
+    }
+
+    /// A new viewer: the marks go to it again.
+    pub fn reset_marks(&mut self) {
+        self.marks_key.clear();
+        self.marks_sent = Value::Null;
+    }
+
+    /// What to go back to if this frame's edit happens: the state at this generation, taken once
+    /// per generation (not every frame).
+    fn before(&mut self) -> std::rc::Rc<Snapshot> {
+        let g = self.generation;
+        match &self.snap {
+            Some((sg, s)) if *sg == g => s.clone(),
+            _ => {
+                let s = std::rc::Rc::new(self.proj.as_ref().map(|p| p.snapshot()).unwrap_or(Snapshot { level: Value::Null, triggers: Vec::new() }));
+                self.snap = Some((g, s.clone()));
+                s
+            }
+        }
+    }
+}
+
+/// An undo point: a snapshot, or the shared one of the frame (EditState::before).
+pub(crate) trait IntoSnapshot {
+    fn into_snapshot(self) -> Snapshot;
+}
+
+impl IntoSnapshot for Snapshot {
+    fn into_snapshot(self) -> Snapshot {
+        self
+    }
+}
+
+impl IntoSnapshot for std::rc::Rc<Snapshot> {
+    fn into_snapshot(self) -> Snapshot {
+        std::rc::Rc::try_unwrap(self).unwrap_or_else(|rc| (*rc).clone())
     }
 }
 
@@ -247,7 +293,7 @@ impl Browser {
             let f = self.testdrive_scratch_dir().join("spawn-box.json");
             let _ = std::fs::create_dir_all(f.parent().unwrap());
             self.request("spawnbox", json!({"path": f}), Pending::SpawnBox(f));
-            self.level.edit.checked_generation = 0; // check and apply again on the new world
+            self.level.edit.recheck(); // check and apply again on the new world
         }
         self.edit_check(ctx);
         self.edit_marks();
@@ -273,6 +319,8 @@ impl Browser {
         if let Some(p) = self.level.edit.proj.as_mut() {
             let done = if redo { p.redo() } else { p.undo() };
             if done {
+                // the next edit starts an undo point of its own (not merged into the last burst)
+                self.level.edit.last_change = None;
                 self.level.edit.generation += 1;
                 self.level.edit.saved_note = if redo { "redone".into() } else { "undone".into() };
                 if let Some(Sel::Base(_, path)) = self.level.edit.sel.clone() {
@@ -287,12 +335,14 @@ impl Browser {
         self.level.edit.saved_note = match p.save() {
             Ok(files) if files.is_empty() => "nothing to save".into(),
             Ok(files) => format!("saved {}", files.iter().map(|f| f.file_name().unwrap_or_default().to_string_lossy().to_string()).collect::<Vec<_>>().join(", ")),
+            Err(e) if e.starts_with("not saved") => e,
             Err(e) => format!("not saved: {e}"),
         };
     }
 
     /// An edit happened: the undo point (one per burst of changes) and a check soon.
-    fn edited(&mut self, before: hwvx_browser::level_model::Snapshot) {
+    fn edited(&mut self, before: impl IntoSnapshot) {
+        let before = before.into_snapshot();
         let e = &mut self.level.edit;
         let now = Instant::now();
         if let Some(p) = e.proj.as_mut() {
@@ -319,7 +369,8 @@ impl Browser {
                 }
                 Err(TryRecvError::Disconnected) => {}
                 Ok((res, path, ms)) => {
-                    self.level.edit.checked_generation = g;
+                    // a recheck asked for while this one ran: it runs again
+                    self.level.edit.checked_generation = if self.level.edit.recheck_pending { 0 } else { g };
                     match res {
                         Ok(warnings) => {
                             self.level.edit.errors.clear();
@@ -364,6 +415,7 @@ impl Browser {
         let cache = scratch.join("base-cache");
         let box_file = self.level.edit.box_file.clone();
         let g = e.generation;
+        self.level.edit.recheck_pending = false;
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             let t0 = Instant::now();
@@ -408,8 +460,21 @@ impl Browser {
         if !self.world.status["world"].is_string() || self.viewer.is_none() {
             return;
         }
-        let mut marks = Vec::new();
         let editing = self.level.tab && self.level.edit.proj.is_some();
+        let key = format!(
+            "{}|{:?}|{}|{}|{}|{}",
+            self.level.edit.generation,
+            self.level.edit.sel,
+            editing,
+            self.world.status["world"],
+            self.level.edit.base.values().map(Vec::len).sum::<usize>(),
+            self.level.edit.start_problems.iter().filter(|(_, v)| !v.is_empty()).map(|(k, _)| k.len() + 1).sum::<usize>()
+        );
+        if key == self.level.edit.marks_key {
+            return;
+        }
+        self.level.edit.marks_key = key;
+        let mut marks = Vec::new();
         if editing {
             let p = self.level.edit.proj.as_ref().unwrap();
             for (name, v) in p.own("starts") {
@@ -603,7 +668,12 @@ impl Browser {
             if ui.add_enabled(ready, egui::Button::new("Make it")).clicked() {
                 let (i, _, world) = pick.unwrap();
                 let slug: String = e.new_name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-                let dir = std::path::Path::new(e.new_dir.trim()).join(slug.trim_matches('-'));
+                let slug = slug.trim_matches('-').to_string();
+                if slug.is_empty() {
+                    self.note("the name needs a letter or digit (the level's folder is named after it)".into());
+                    return;
+                }
+                let dir = std::path::Path::new(e.new_dir.trim()).join(&slug);
                 let id: String = e.new_name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).take(13).collect();
                 let mut level = json!({
                     "$schema": "../../schemas/Level.schema.json", "format_version": 1,
@@ -614,14 +684,19 @@ impl Browser {
                 if e.new_mode == "battle" {
                     level["rules"] = json!({"mode": "kills", "kills": 5, "rounds": 3, "time": 120000});
                 }
+                // never over a project that's there: level.jsonc made new or not at all
+                let text = format!("// a {} level, made in the level editor on {}\n{}\n", e.new_mode, e.new_world, serde_json::to_string_pretty(&level).unwrap());
                 let made = std::fs::create_dir_all(dir.join("triggers")).and_then(|_| {
-                    std::fs::write(dir.join("level.jsonc"), format!("// a {} level, made in the level editor on {}\n{}\n", e.new_mode, e.new_world, serde_json::to_string_pretty(&level).unwrap()))
+                    use std::io::Write;
+                    std::fs::OpenOptions::new().write(true).create_new(true).open(dir.join("level.jsonc"))?.write_all(text.as_bytes())
                 });
                 match made {
                     Ok(()) => {
                         let d = dir.display().to_string();
-                        self.level.project = d.clone();
                         self.open_level(&d);
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                        self.note(format!("{} already has a level: open it, or pick another name", dir.display()))
                     }
                     Err(err) => self.note(format!("{}: {err}", dir.display())),
                 }
@@ -689,8 +764,9 @@ impl Browser {
                     v["rotY"] = json!((r * 10000.0).round() / 10000.0);
                 }
                 if k == "items" || k == "fxPoints" {
-                    let key = format!("{k}/{n}");
                     self.edited(before);
+                    // the reply belongs to this generation: one after an undo or a later edit is dropped
+                    let key = format!("{}|{k}/{n}", self.level.edit.generation);
                     self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
                     return;
                 }
@@ -777,12 +853,20 @@ impl Browser {
         self.edit_select(Sel::Own(k.into(), name));
     }
 
+    /// The quadrant a moved item or effect point is in now: part of that move (its undo point),
+    /// so only while nothing else changed since (an undo, a later edit: the reply is dropped).
     pub(crate) fn item_quad_reply(&mut self, key: &str, r: Value) {
-        let Some((kind, name)) = key.split_once('/') else { return };
+        let Some((g, rest)) = key.split_once('|') else { return };
+        let Some((kind, name)) = rest.split_once('/') else { return };
+        if g.parse::<u64>().ok() != Some(self.level.edit.generation) {
+            return;
+        }
         if let (Some(q), Some(p)) = (r["quad"].as_i64(), self.level.edit.proj.as_mut()) {
-            if p.level[kind][name].is_object() && p.level[kind][name]["quad"] != q {
-                p.level[kind][name]["quad"] = json!(q);
-                self.level.edit.generation += 1;
+            if let Some(rec) = p.level.get_mut(kind).and_then(|k| k.get_mut(name)).filter(|v| v.is_object()) {
+                if rec["quad"] != q {
+                    rec["quad"] = json!(q);
+                    self.level.edit.generation += 1;
+                }
             }
         }
     }
@@ -868,13 +952,13 @@ impl Browser {
             for (name, v) in p.own("volumes") {
                 if let Some(c) = own_volume_center(&v) {
                     let r = v["radius"].as_f64().or_else(|| v["radiusSq"].as_f64().map(f64::sqrt)).unwrap_or(10.0) as f32;
-                    own.push(("volumes".into(), name, c, r));
+                    own.push(("volumes".into(), name.to_string(), c, r));
                 }
             }
             for (k, r) in [("starts", 10.0f32), ("items", 4.0), ("fxPoints", 3.0)] {
                 for (name, v) in p.own(k) {
                     if let Some(c) = vec3(&v["pos"]) {
-                        own.push((k.into(), name, [c[0], c[1] + if k == "starts" { 2.5 } else { 0.0 }, c[2]], r));
+                        own.push((k.into(), name.to_string(), [c[0], c[1] + if k == "starts" { 2.5 } else { 0.0 }, c[2]], r));
                     }
                 }
             }
@@ -938,8 +1022,7 @@ impl Browser {
             self.level.edit.move_offset = f32::NAN;
         }
         if !self.level.edit.move_inflight {
-            self.level.edit.move_inflight = true;
-            self.request("raycast", json!({"x": x, "y": y}), Pending::EditMove);
+            self.level.edit.move_inflight = self.request("raycast", json!({"x": x, "y": y}), Pending::EditMove);
         }
     }
 
@@ -984,14 +1067,29 @@ impl Browser {
         }
         if let Some((c, _)) = self.sel_place() {
             self.level.edit.move_offset = 0.0;
-            self.request("raycast", json!({"from": [c[0], c[1] + 30.0, c[2]], "to": [c[0], c[1] - 3000.0, c[2]]}), Pending::EditMove);
-            self.level.edit.move_inflight = true;
+            if self.request("raycast", json!({"from": [c[0], c[1] + 30.0, c[2]], "to": [c[0], c[1] - 3000.0, c[2]]}), Pending::EditMove) {
+                self.level.edit.move_inflight = true;
+            }
         }
     }
 
     // ---- the lists --------------------------------------------------------------------------------
 
     pub(crate) fn edit_lists(&mut self, ui: &mut egui::Ui) {
+        if let Some(p) = self.level.edit.proj.as_ref() {
+            // trigger files that didn't parse: left as they are (fix them in a text editor, reload)
+            for (n, why) in &p.broken {
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("⚠ triggers/{n}.jsonc doesn't parse (kept as it is): {why}"));
+            }
+            if self.level.edit.saved_note.starts_with("not saved: changed on disk") {
+                let dir = p.dir.to_string_lossy().to_string();
+                if ui.button("Reload from disk (drops the edits here)").clicked() {
+                    self.edit_open(&dir);
+                    self.level.edit.saved_note = "reloaded from disk".into();
+                    return;
+                }
+            }
+        }
         if self.level.edit.proj.is_some() {
             // + Add: placed things go on the ground under the camera
             let placed = self.shows_level_world();
@@ -1160,8 +1258,8 @@ impl Browser {
     fn inspect_settings(&mut self, ui: &mut egui::Ui) {
         let errs: Vec<LevelError> = self.level.edit.errors.iter().filter(|e| e.file == "level.jsonc" && !e.path.contains('/')).cloned().collect();
         Self::show_errors(ui, &errs);
+        let before = self.level.edit.before();
         let p = self.level.edit.proj.as_mut().unwrap();
-        let before = p.snapshot();
         let mut changed = false;
         egui::Grid::new("settings").num_columns(2).show(ui, |ui| {
             for k in ["name", "description", "author", "version"] {
@@ -1306,6 +1404,11 @@ impl Browser {
         ui.heading(format!("{name}"));
         ui.label(egui::RichText::new(format!("level://{kind}/{name}")).monospace().weak());
         self.delete_row(ui, &format!("level://{kind}/{name}"));
+        // gone (deleted just now, or an Add undone): nothing to show, and nothing written back
+        if self.level.edit.proj.as_ref().and_then(|p| p.level.get(kind)).and_then(|k| k.get(name)).is_none() {
+            ui.label(egui::RichText::new("(not in the level)").weak());
+            return;
+        }
         if kind == "starts" || kind == "items" || kind == "fxPoints" {
             let errs = self.errors_for("level.jsonc", &format!("{kind}/{name}"));
             Self::show_errors(ui, &errs);
@@ -1322,9 +1425,10 @@ impl Browser {
                 }
                 ui.label(egui::RichText::new("Ctrl/Cmd + drag moves it, Ctrl/Cmd + wheel turns a start").small().weak());
             });
+            let before = self.level.edit.before();
             let p = self.level.edit.proj.as_mut().unwrap();
-            let before = p.snapshot();
-            let v = &mut p.level[kind][name];
+            let mut rec = p.level[kind][name].clone();
+            let v = &mut rec;
             let mut changed = false;
             egui::Grid::new(("own_placed", kind, name)).num_columns(2).show(ui, |ui| {
                 let mut c = vec3(&v["pos"]).unwrap_or([0.0; 3]);
@@ -1379,6 +1483,9 @@ impl Browser {
                 }
             });
             if changed {
+                if let Some(slot) = p.level.get_mut(kind).and_then(|k| k.get_mut(name)) {
+                    *slot = rec;
+                }
                 self.edited(before);
             }
             return;
@@ -1387,9 +1494,9 @@ impl Browser {
         Self::show_errors(ui, &errs);
         let advanced = self.level.edit.advanced;
         if kind == "strings" {
+            let before = self.level.edit.before();
             let p = self.level.edit.proj.as_mut().unwrap();
-            let before = p.snapshot();
-            let v = &mut p.level["strings"][name];
+            let Some(v) = p.level.get_mut("strings").and_then(|k| k.get_mut(name)) else { return };
             let mut paras: Vec<String> = match v {
                 Value::Array(a) => a.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect(),
                 Value::String(s) => vec![s.clone()],
@@ -1414,8 +1521,8 @@ impl Browser {
         if kind == "objectives" {
             ui.label(egui::RichText::new("text, doneText: texts (level://strings/...); done: a variable whose value != 0 shows doneText; kind none / counter / timer and value: what fills the text's '#'; hud: the HUD object's id; shown").small().weak());
             let cands = self.link_candidates(None);
+            let before = self.level.edit.before();
             let p = self.level.edit.proj.as_mut().unwrap();
-            let before = p.snapshot();
             let mut v = p.level[kind][name].clone();
             let mut link_pick = None;
             let mut kinds = HashMap::new();
@@ -1446,8 +1553,8 @@ impl Browser {
                 ui.label(egui::RichText::new("Ctrl/Cmd + drag in the view moves it").small().weak());
             });
         }
+        let before = self.level.edit.before();
         let p = self.level.edit.proj.as_mut().unwrap();
-        let before = p.snapshot();
         let mut v = p.level[kind][name].clone();
         if kind == "variables" && v.is_number() {
             v = json!({"value": v});
@@ -1484,17 +1591,15 @@ impl Browser {
             if let Some(d) = defaults {
                 ui.separator();
                 ui.label(format!("{t} settings (the game finds new ones only once the volume grid lists them: see the warning)"));
-                if !v["data"].is_object() {
-                    v["data"] = d;
-                    changed = true;
-                }
-                let mut dv = v["data"].clone();
+                // the type's defaults shown; written only once a field of them changes
+                let mut dv = if v["data"].is_object() { v["data"].clone() } else { d };
                 let kinds = HashMap::new();
                 if value_editor(ui, &mut dv, "", &kinds, &[], &[], &format!("{kind}/{name}/data"), &mut link_pick, 0) {
                     v["data"] = dv;
                     changed = true;
                 }
-            } else if v.get("data").map(|d| d.is_object()).unwrap_or(false) {
+            } else if v.get("data").map(|d| d.is_object()).unwrap_or(false) && v["type"] != p.level[kind][name]["type"] {
+                // the type changed to one without settings: its old settings go
                 if let Some(o) = v.as_object_mut() {
                     o.remove("data");
                 }
@@ -1502,7 +1607,9 @@ impl Browser {
             }
         }
         if changed {
-            p.level[kind][name] = v;
+            if let Some(slot) = p.level.get_mut(kind).and_then(|k| k.get_mut(name)) {
+                *slot = v;
+            }
             self.edited(before);
         }
         if let Some(path) = link_pick {
@@ -1558,8 +1665,8 @@ impl Browser {
         let schema = self.schema(&sname);
         let advanced = self.level.edit.advanced;
         ui.label(egui::RichText::new(format!("{sname} at {} of the world pack · edits are patches: only what differs is kept", rec["at"].as_str().unwrap_or(""))).small().weak());
+        let before = self.level.edit.before();
         let p = self.level.edit.proj.as_mut().unwrap();
-        let before = p.snapshot();
         let mut changed = false;
         let props = schema["properties"].as_object().cloned().unwrap_or_default();
         egui::Grid::new("base_fields").num_columns(3).striped(true).show(ui, |ui| {
@@ -1623,8 +1730,8 @@ impl Browser {
         Self::show_errors(ui, &errs);
         let schema = self.schema("Trigger");
         let cands = self.link_candidates(Some(&schema));
+        let before = self.level.edit.before();
         let p = self.level.edit.proj.as_mut().unwrap();
-        let before = p.snapshot();
         let Some(t) = p.trigger_mut(name) else { return };
         let mut link_pick = None;
         let changed = trigger_editor(ui, &mut t.value, &schema, &cands, &mut link_pick);
@@ -1637,7 +1744,19 @@ impl Browser {
     }
 
     /// What a link can name: the level's own records and the base world's listed ones.
-    fn link_candidates(&self, _schema: Option<&Value>) -> Vec<(String, String)> {
+    fn link_candidates(&mut self, _schema: Option<&Value>) -> std::rc::Rc<Vec<(String, String)>> {
+        let key = format!("{}|{}", self.level.edit.generation, self.level.edit.base.values().map(Vec::len).sum::<usize>());
+        if let Some((k, c)) = &self.level.edit.cands {
+            if *k == key {
+                return c.clone();
+            }
+        }
+        let c = std::rc::Rc::new(self.make_link_candidates());
+        self.level.edit.cands = Some((key, c.clone()));
+        c
+    }
+
+    fn make_link_candidates(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
         let Some(p) = self.level.edit.proj.as_ref() else { return out };
         for (k, _) in OWN_KINDS {
