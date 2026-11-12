@@ -17,7 +17,7 @@ env HWVX_NO_MOVIE=1 HWVX_NO_DIALOG=1 HWVX_DETERMINISTIC=1 HWVX_SEED=${HWVX_SEED:
 P=$!
 for i in $(seq "${SECONDS_MAX:-30}"); do sleep 1; kill -0 $P 2>/dev/null || break; done
 if kill -0 $P 2>/dev/null; then
-    pkill -9 -P $P 2>/dev/null; kill -9 $P 2>/dev/null; pkill -9 -x hwvx 2>/dev/null
+    pkill -9 -P $P 2>/dev/null; kill -9 $P 2>/dev/null
     echo "$N: no crash in ${SECONDS_MAX:-30} s"
 else
     grep -E "stop reason|frame #" "$O/$N.log" | cut -c1-220

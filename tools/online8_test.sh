@@ -35,7 +35,7 @@ env HWVX_NO_MOVIE=1 HWVX_NO_DIALOG=1 HWVX_SEED=3 HWVX_MODS=0 HWVX_AUTOINPUT="700
     "$B/hwvx" --windowed --window 1280x960 --data "$D" > "$O/$TAG.host.log" 2>&1 &
 G=$!
 # whatever happens, no game or bot outlives the test
-trap 'kill -9 $G "${BOTS[@]}" 2>/dev/null; pkill -9 -f "$B/hwvx --windowed --window 1280x960 --data $D" 2>/dev/null' EXIT
+trap 'kill -9 $G "${BOTS[@]}" 2>/dev/null' EXIT
 # the host is up once its lobby is
 for i in $(seq 60); do grep -q 'online: hosting' "$O/$TAG.host.log" 2>/dev/null && break; sleep 1; done
 BOTS=()
