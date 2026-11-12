@@ -41,8 +41,15 @@ pub const BASE_TABLES: [(&str, &str); 6] = [
     ("variables", "Variables"),
     ("objectives", "Objectives"),
 ];
-const OWN_KINDS: [(&str, &str); 6] =
-    [("volumes", "Volumes"), ("starts", "Starts"), ("items", "Items"), ("timers", "Timers"), ("variables", "Variables"), ("strings", "Texts")];
+const OWN_KINDS: [(&str, &str); 7] = [
+    ("volumes", "Volumes"),
+    ("starts", "Starts"),
+    ("items", "Items"),
+    ("timers", "Timers"),
+    ("variables", "Variables"),
+    ("strings", "Texts"),
+    ("objectives", "Objectives"),
+];
 
 /// What "+ Add" makes.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -644,6 +651,10 @@ impl Browser {
         let (name, v) = match kind {
             "timers" => (p.free_name("timers", "timer"), json!({"time": 60000, "countUp": 0, "type": 12})),
             "variables" => (p.free_name("variables", "var"), json!(0)),
+            "objectives" => {
+                let text = p.own("strings").first().map(|(n, _)| format!("level://strings/{n}")).unwrap_or_default();
+                (p.free_name("objectives", "objective"), json!({"text": text, "kind": "none", "hud": 0, "shown": true}))
+            }
             _ => (p.free_name("strings", "text"), json!("A message")),
         };
         set_own(p, kind, &name, v);
@@ -866,7 +877,7 @@ impl Browser {
                         ui.label(egui::RichText::new("(load the level's world to place things)").small().weak());
                     }
                     ui.separator();
-                    for (k, label) in [("timers", "Timer"), ("variables", "Variable"), ("strings", "Text")] {
+                    for (k, label) in [("timers", "Timer"), ("variables", "Variable"), ("strings", "Text"), ("objectives", "Objective")] {
                         if ui.button(label).clicked() {
                             act = Some(Box::new(move |b| b.add_plain(k)));
                         }
@@ -1176,6 +1187,26 @@ impl Browser {
                 self.edited(before);
             }
             ui.label(egui::RichText::new("shown by print_debug_string (what 4: the objective line of the pause, win and lose screens)").small().weak());
+            return;
+        }
+        if kind == "objectives" {
+            ui.label(egui::RichText::new("text, doneText: texts (level://strings/...); done: a variable whose value != 0 shows doneText; kind none / counter / timer and value: what fills the text's '#'; hud: the HUD object's id; shown").small().weak());
+            let cands = self.link_candidates(None);
+            let p = self.level.edit.proj.as_mut().unwrap();
+            let before = p.snapshot();
+            let mut v = p.level[kind][name].clone();
+            let mut link_pick = None;
+            let mut kinds = HashMap::new();
+            for k in ["text", "doneText", "done", "value"] {
+                kinds.insert(k.to_string(), "link".to_string());
+            }
+            if value_editor(ui, &mut v, "", &kinds, &[], &cands, &format!("{kind}/{name}"), &mut link_pick, 0) {
+                p.level[kind][name] = v;
+                self.edited(before);
+            }
+            if let Some(path) = link_pick {
+                self.level.edit.pick_link = Some((String::new(), path));
+            }
             return;
         }
         let sname = match kind {

@@ -301,6 +301,25 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             raise LV.LevelError(f"level.jsonc/items/{n}: quadrant {q} has no items yet (a new items table: "
                                 "not supported yet; put it where the world already has pickups)")
 
+    # objectives: an entry of the World's objectives and its info (WorldObjectiveInfo)
+    obs = list((lv.get("objectives") or {}).items())
+    if obs:
+        od = table_doc("objectives")
+        if od is None:
+            raise LV.LevelError("level.jsonc/objectives: the world has no objectives table to add to "
+                                "(only mission and challenge worlds have one)")
+        for n, ob in obs:
+            kind = {"none": 0, "counter": 1, "timer": 2}[ob.get("kind", "none")]
+            info = bytes([kind, 0x17 if ob.get("shown", True) else 0, int(ob.get("hud", 0)) & 0xFF]) + bytes(9) + bytes(16)
+            links = []
+            for off, k in ((0x0C, "done"), (0x10, "value"), (0x14, "text"), (0x18, "doneText")):
+                if isinstance(ob.get(k), str):
+                    links.append((off, C.resolve(ob[k], f"level.jsonc/objectives/{n}/{k}", W.B.archive)))
+            nid = own_id("objectives", n) + "/info"
+            W.add_raw(nid, info, links)
+            od["items"].append({"arg": int(ob.get("arg", 0)), "info": nid})
+        world["numObjectives"] = len(od["items"])
+
     # the trigger table: the base triggers kept, the level's, then the dropped ones
     keep = lv.get("baseTriggers", "all")
     recs = [i for i, ent in enumerate(W.layout) if re.fullmatch(re.escape(pre) + r"trigger/\d+", ent["id"])]

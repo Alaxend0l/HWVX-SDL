@@ -530,6 +530,25 @@ class Compiler:
                 self.err(w, "pos [x, y, z]")
             elif not isinstance(it.get("quad"), int) or not isinstance(it.get("id", 0), int):
                 self.err(w, "quad (the quadrant it is in) and id (the world's item pack's)")
+        for n, ob in (lv.get("objectives") or {}).items():
+            w = f"{where}/objectives/{n}"
+            if not isinstance(ob, dict):
+                self.err(w, "an object")
+                continue
+            if ob.get("kind", "none") not in ("none", "counter", "timer"):
+                self.err(w + "/kind", "none, counter (a variable's value) or timer (mm:ss)")
+            for k in ("text", "doneText", "done", "value"):
+                x = ob.get(k)
+                if x is not None and not isinstance(x, str):
+                    self.err(w + "/" + k, "a link or null")
+                elif isinstance(x, str):
+                    try:
+                        self.resolve(x, f"{w}/{k}", archive)
+                    except LevelError as ex:
+                        self.errors.append(str(ex))
+        if lv.get("objectives"):
+            self.warnings.append(f"{where}/objectives: objectives go into the level's world pack (a test drive "
+                                 "shows them), not the editor's live preview")
         # triggers
         tdir = self.proj / "triggers"
         names = lv.get("triggers") or sorted(p.stem for p in tdir.glob("*.jsonc"))
