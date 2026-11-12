@@ -16,7 +16,7 @@
  *   as tools/xdl_mod.py's recipe_matrix does.
  * - Sounds: a mod's own sound files (WAV, FLAC, Ogg Vorbis, MP3) over a
  *   pack's sounds, decoded here (src/audiodec) as the pack loads.
- * - Packages: a .hwmod is a zip of stored entries the packer made
+ * - Packages: a .xmod is a zip of stored entries the packer made
  *   (check.json in it); Port_ModsInstall unpacks one. */
 #include <SDL3/SDL.h>
 #include "common.h"
@@ -775,7 +775,7 @@ int Port_ModsInstall(const char *package, char *err, size_t errSize) {
         }
     }
     if (eocd == NULL) {
-        SDL_snprintf(err, errSize, "not a .hwmod (zip) package");
+        SDL_snprintf(err, errSize, "not a .xmod (zip) package");
         goto done;
     }
     count = Le16(eocd + 10);

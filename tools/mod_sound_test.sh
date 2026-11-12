@@ -34,8 +34,8 @@ cat > "$M/mod.jsonc" <<EOF
               "base://HW_Cars/car_$C/sound/1": { "file": "sound/tone.$ext" } } }
 EOF
 [ -f "$O/index-cars.npz" ] || python3 "$here/xdl_mod.py" index "$D" -o "$O/index-cars.npz" --archives HW_Cars --no-geometry >/dev/null
-python3 "$here/xdl_mod.py" pack "$M" -o "$O/tonemod.hwmod" --index "$O/index-cars.npz" --allow-partial-index | tail -1
-HWVX_PREF_DIR="$O/pref-soundmod" "$B/hwvx" --data "$D" --install-mod "$O/tonemod.hwmod"
+python3 "$here/xdl_mod.py" pack "$M" -o "$O/tonemod.xmod" --index "$O/index-cars.npz" --allow-partial-index | tail -1
+HWVX_PREF_DIR="$O/pref-soundmod" "$B/hwvx" --data "$D" --install-mod "$O/tonemod.xmod"
 rm -f "$O/soundmod.f32"
 FROMPREF=soundmod "$here/run_test.sh" "$B" "$D" "$O" soundmod2 "$T" HWVX_MODS_LOG=1 \
     "HWVX_START=race:car=$C" "HWVX_AUDIODUMP=$O/soundmod.f32" >/dev/null

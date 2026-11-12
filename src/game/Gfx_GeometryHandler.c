@@ -1,6 +1,7 @@
 #include "common.h"
 #include "Gfx.h"
 f32 Port_DrawDistFarPlane(f32 farPlane);   /* port: Port_DrawDist.c */
+s32 Port_DrawDistNoCull(void);
 
 
 
@@ -106,7 +107,7 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector4 *matrix, u8 *lod, u8 flag) {
         dist >= Port_DrawDistFarPlane(g_state.farClippingPlane)) {
         return 0;
     }
-    switch (Gfx_FrustrumCullSphereTest(&center, radius)) {
+    switch (Port_DrawDistNoCull() ? 2 : Gfx_FrustrumCullSphereTest(&center, radius)) {   /* port: the viewer's clipping off */
     case 1:
         *lod = 1;
         break;
@@ -123,6 +124,9 @@ u32 Gfx_GetCullLODGX(Geometry *geometry, Vector4 *matrix, u8 *lod, u8 flag) {
     }
     if (geometry->numGroups == 1 && GETP(geometry->lodDistances)[0] == 0.0f) {
         i = 0;
+    }
+    if (i >= geometry->numGroups && geometry->numGroups > 0 && Port_DrawDistNoCull()) {
+        i = geometry->numGroups - 1;   /* port: the viewer's clipping off: the last LOD past its range */
     }
     if (i < geometry->numGroups) {
         /* port: the coarser level in split screen only if asked for

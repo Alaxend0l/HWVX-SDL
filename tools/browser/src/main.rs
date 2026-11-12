@@ -11,7 +11,8 @@
 //!                [--port N [--token T]]          a viewer already running (T: its token, or
 //!                                                HWVX_VIEWER_TOKEN; it logs one it made up)
 //!                [--load ARCHIVE:TYPE:ID] [--select NODE] [--app-shot FILE.bmp]
-//!                [--world NAME [--overlays regions,loaded,...]]   a world instead of --load
+//!                [--world NAME [--overlays regions,loaded,...] [--view noclip,allquads,nofog]]
+//!                                                a world instead of --load (--view: the 3D view's switches)
 //!                [--level PROJECT_DIR] [--test-drive] [--quick-start] [--car N] [--tools DIR]
 //!                [--testdrive-renderer R] [--level-select trigger:NAME|own:KIND/NAME|base:PATH]
 //!
@@ -58,6 +59,7 @@ struct Args {
     load: Option<(String, String, u64)>,
     world: Option<String>,
     overlays: Option<String>,
+    view: Option<String>,
     select: Option<String>,
     app_shot: Option<PathBuf>,
     viewer_window: bool,
@@ -99,6 +101,7 @@ fn parse_args() -> Result<Args, String> {
             "--select" => a.select = Some(val()?),
             "--world" => a.world = Some(val()?),
             "--overlays" => a.overlays = Some(val()?),
+            "--view" => a.view = Some(val()?),
             "--app-shot" => a.app_shot = Some(val()?.into()),
             "--viewer-window" => a.viewer_window = true,
             "--tools" => a.tools = Some(val()?.into()),
@@ -711,6 +714,13 @@ impl Browser {
                     Some(e) => {
                         self.world.filter = e.name.clone();
                         self.load_world(&e);
+                        if let Some(v) = self.args.view.clone() {
+                            let has = |k: &str| v.split(',').any(|s| s.eq_ignore_ascii_case(k));
+                            self.world.no_clip = has("noclip");
+                            self.world.all_quads = has("allquads");
+                            self.world.no_fog = has("nofog");
+                            self.send_view3d();
+                        }
                         if let Some(ov) = self.args.overlays.clone() {
                             let m: serde_json::Map<String, Value> = ov.split(',').filter(|s| !s.is_empty()).map(|s| (s.to_string(), Value::Bool(true))).collect();
                             self.request("overlays", Value::Object(m), Pending::Quiet);

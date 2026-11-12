@@ -1,5 +1,5 @@
 #!/bin/bash
-# tools/mod_race_test.sh BUILD DATADIR OUTDIR PACKAGE.hwmod [CAR] [SECONDS]
+# tools/mod_race_test.sh BUILD DATADIR OUTDIR PACKAGE.xmod [CAR] [SECONDS]
 #
 # A mod in a race, end to end: a fresh preferences folder (OUTDIR/pref-modrace),
 # `hwvx --install-mod PACKAGE`, then a deterministic race with car CAR (default

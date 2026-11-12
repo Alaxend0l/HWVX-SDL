@@ -398,6 +398,16 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                 return 8;
             }
             Port_ProtoWorldLoaded(dp);  /* port: a prototype world in the release's layout */
+            {
+                /* port: a registered track's level of its own (Port_Level.h): as soon as the
+                 * world pack is in, before the quadrants, cars and items load from its arrays
+                 * (a level appends to them) and before the refresh activates the triggers */
+                extern s32 g_GameProgressionID;
+
+                Port_LevelWorldLoaded(dp, world,
+                                      GETP(g_GameProgressionState.script) != NULL ?
+                                          Port_ContentTrackOfLevel((u32)g_GameProgressionID, (u32)g_GameProgressionState.index) : -1);
+            }
             newLoadingState = 1;
         }
         return newLoadingState;
@@ -546,15 +556,6 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             iterationNum = 0;
             bLoadingItems = 1;
             curLoadingState = newLoadingState;
-            {
-                /* port: a registered track's level of its own (Port_Level.h), before
-                 * the refresh activates the triggers */
-                extern s32 g_GameProgressionID;
-
-                Port_LevelWorldLoaded(PTR(g_worldData.worldPack), world,
-                                      GETP(g_GameProgressionState.script) != NULL ?
-                                          Port_ContentTrackOfLevel((u32)g_GameProgressionID, (u32)g_GameProgressionState.index) : -1);
-            }
             DataPack_RefreshPtrs((void *)PTR(g_worldData.worldPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));

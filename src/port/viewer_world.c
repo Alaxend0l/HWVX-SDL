@@ -1022,6 +1022,25 @@ int ViewerWorld_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *jw, i
             }
         }
         WriteOverlays(jw);
+    } else if (SDL_strcmp(cmd, "view3d") == 0) {
+        /* the 3D view's switches (Port_DrawDist.c, the viewer only): clip (geometry clipping:
+         * the far plane, draw distances, culls), allQuads (every quadrant loaded), fog */
+        s32 v[3];
+        static const char *const names[3] = { "clip", "allQuads", "fog" };
+        u32 i;
+
+        Port_DrawDistViewerGet(&v[0], &v[1], &v[2]);
+        for (i = 0; i < 3; i++) {
+            const JsonNode *b = Json_Get(req, names[i]);
+
+            if (b != NULL && b->type == JSON_BOOL) {
+                v[i] = b->boolean;
+            }
+        }
+        Port_DrawDistViewer(v[0], v[1], v[2]);
+        for (i = 0; i < 3; i++) {
+            Jw_Bool(jw, names[i], v[i]);
+        }
     } else {
         return 0;
     }

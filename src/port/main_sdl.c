@@ -168,7 +168,7 @@ static void ParseArgs(int argc, char **argv) {
         } else if (SDL_strcmp(argv[i], "--convert-xdl") == 0 && i + 1 < argc) {
             g_port.convertDir = argv[++i];
         } else if (SDL_strcmp(argv[i], "--install-mod") == 0 && i + 1 < argc) {
-            char err[256];   /* a .hwmod into the mods folder (Port_Mods.c), then exit */
+            char err[256];   /* a .xmod into the mods folder (Port_Mods.c), then exit */
 
             if (!Port_ModsInstall(argv[++i], err, sizeof(err))) {
                 SDL_Log("%s: %s", argv[i], err);
@@ -200,7 +200,7 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("  --mix-build RECIPE  convert all of its packs into the cache, then quit");
             SDL_Log("  --convert-xdl DIR  convert every pack of --data PATH to the .xdl cache in DIR");
             SDL_Log("                   and exit (what the launcher's Convert page runs)");
-            SDL_Log("  --install-mod FILE  unpack a .hwmod package into the mods folder and exit");
+            SDL_Log("  --install-mod FILE  unpack a .xmod package into the mods folder and exit");
             exit(1);
         }
     }
