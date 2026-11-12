@@ -578,8 +578,15 @@ static const ExtList *Extend(const ExtMap *m, int what, const u32 *orig, u32 ori
             }
             if (pass == 1) {
                 str = x->strings + size;
-                SDL_snprintf(str, SDL_strlen(name) + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
-                             suffix != NULL ? suffix : "");
+                size_t nl = SDL_strlen(name);
+
+                /* the suffix before a trailing '*' (the font's trademark sign) */
+                if (suffix != NULL && nl > 0 && name[nl - 1] == '*') {
+                    SDL_snprintf(str, nl + SDL_strlen(suffix) + 1, "%.*s%s*", (int)(nl - 1), name, suffix);
+                } else {
+                    SDL_snprintf(str, nl + (suffix != NULL ? SDL_strlen(suffix) : 0) + 1, "%s%s", name,
+                                 suffix != NULL ? suffix : "");
+                }
                 j = k * 2;
                 x->slots[j] = HND(str);
                 x->slots[j + 1] = 0;
