@@ -42,6 +42,7 @@ shutil.copytree(HERE / "level-samples" / "checkpoint-run", proj)
 lv = LV.read_jsonc(proj / "level.jsonc")
 pre = "base://ch1_l2/world_0/"
 lv["volumes"]["gate"] = {"box": {"min": [150, 0, -830], "max": [170, 30, -730]}}
+lv["volumes"]["tagged"] = {"center": [0, 0, 0], "radius": 5, "editorId": 77, "data": "level://strings/obj"}
 lv["starts"] = {"p2": {"pos": [-330, 3.61, -740], "rotY": 1.5708, "port": 2}}
 lv["items"] = {"bonus": {"pos": [-2600, 28, -330], "quad": 20, "id": 4}}
 lv["fxPoints"] = {"flame": {"pos": [0, 4, -760], "quad": 16, "template": pre + "World/0/quads/16/contents/fxPoints/7"}}
@@ -66,7 +67,7 @@ subprocess.run([str(hx), "extract", str(out), str(ext)], check=True, capture_out
 pj = scratch / "proj-out"
 GR.Extractor(GR.Source(ext / "00_world_0"), pj, __import__("xdl_struct").Schemas()).run()
 w = GR.read_jsonc(pj / "World" / "0.jsonc")
-check("volumes: 793 + 4", w["numVolumes"] == 797, w["numVolumes"])
+check("volumes: 793 + 5", w["numVolumes"] == 798, w["numVolumes"])
 check("variables: 3 + 2", w["numVariables"] == 5)
 check("starts: 1 + 1", w["numTileCars"] == 2)
 check("objectives: 1 + 1", w["numObjectives"] == 2)
@@ -76,6 +77,7 @@ hdr = GR.read_jsonc(pj / "pack.jsonc")["pack"]["header"]
 check("the trigger table: the level's 8", hdr["num_triggers"] == 8, hdr["num_triggers"])
 vols = GR.read_jsonc(pj / "World/0/volumes.jsonc")["items"]
 check("the box volume: a BSP", vols[796]["shape"] == "bsp" and vols[796]["bsp"], vols[796])
+check("a volume's own data link and editorId kept", vols[797]["editorId"] == 77 and vols[797]["data"], vols[797])
 cars = GR.read_jsonc(pj / "World/0/tileCars.jsonc")["items"]
 check("the start: port 2 where asked", cars[1]["port"] == 2 and abs(cars[1]["pos"]["z"] + 740) < 0.01, cars[1])
 t0 = GR.read_jsonc(pj / "trigger" / "3.jsonc")
@@ -83,6 +85,14 @@ check("cp1's volume is the level's first", t0["param"]["volumes"] == [pre + "Wor
 check("the timer patched to 40 s", GR.read_jsonc(pj / "World/0/timers/0/to.jsonc")["time"] == 40000)
 
 # errors
+lv2 = json.loads(json.dumps(lv))
+lv2["volumes"]["nobsp"] = {"shape": "bsp", "center": [0, 0, 0], "radius": 5}
+(proj / "level.jsonc").write_text(json.dumps(lv2, indent=2))
+try:
+    LP.build_cached(proj, data, cache, scratch / "worlds")
+    check("a BSP volume without a BSP: an error", False)
+except LV.LevelError as ex:
+    check("a BSP volume without a BSP: an error", "volumes/nobsp" in str(ex), ex)
 lv["items"]["nowhere"] = {"pos": [0, 0, 0], "quad": 16, "id": 1}
 (proj / "level.jsonc").write_text(json.dumps(lv, indent=2))
 try:
