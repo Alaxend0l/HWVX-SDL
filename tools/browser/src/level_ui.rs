@@ -318,15 +318,26 @@ impl Browser {
         self.level.message = "saving as a mod: compiling, checking for game data (the first time about 30 s)…".into();
     }
 
+    /// The system's save dialog. The suggested name comes from the project (a shared one may be
+    /// anyone's): only [A-Za-z0-9_.-] of it is kept, and it reaches the dialog as an argument or
+    /// an environment variable, never inside the script's text.
     fn choose_save_file(name: &str) -> Option<String> {
+        let name: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')).collect();
+        let name = if name.trim_matches('.').is_empty() { "level.xmod".to_string() } else { name };
         let out = if cfg!(target_os = "macos") {
             std::process::Command::new("osascript")
-                .args(["-e", &format!("POSIX path of (choose file name with prompt \"Save the level as a mod\" default name \"{name}\")")])
+                .args([
+                    "-e", "on run argv",
+                    "-e", "POSIX path of (choose file name with prompt \"Save the level as a mod\" default name (item 1 of argv))",
+                    "-e", "end run",
+                    &name,
+                ])
                 .output()
                 .ok()?
         } else if cfg!(windows) {
             std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", &format!("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = '{name}'; if ($d.ShowDialog() -eq 'OK') {{ $d.FileName }}")])
+                .env("HWVX_SAVE_NAME", &name)
+                .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = $env:HWVX_SAVE_NAME; if ($d.ShowDialog() -eq 'OK') { $d.FileName }"])
                 .output()
                 .ok()?
         } else {
