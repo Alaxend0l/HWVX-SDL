@@ -35,6 +35,9 @@ s32 Port_ProtoTexture(const char *archive, const char *rest);
 /* FileStreaming_InitializeDataPack: a prototype pack, once fixed up (its
  * cars' camera modes the release has). */
 void Port_ProtoPackLoaded(struct DataPack *pack, const char *name, u32 type, u32 id);
+/* LoadWorldProcess, the world pack just loaded (not yet refreshed): a
+ * prototype world's records in the release's layout. */
+void Port_ProtoWorldLoaded(struct DataPack *pack);
 /* CarA_GetInterfaceInfo: a prototype car's x/y/z readout (role 19), when
  * the prototype's debug HUD is on. */
 void Port_ProtoHudInfo(struct CarA *car, struct InterfaceHudInfo *info);
