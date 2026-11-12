@@ -77,17 +77,23 @@
 #define PROGRESSION_MP_BATTLE 7
 /* Joyride: where the others may start around the world's spawn. */
 #define MAX_SHARED_ITEMS 64
-#define SPAWN_SEPARATION 35.0f
 #define SPAWN_PROBE_ABOVE 15.0f /* the ground is looked for from this far above the spawn */
 #define SPAWN_PROBE_DOWN 40.0f
 #define SPAWN_MAX_STEP 5.0f     /* difference from the spawn's ground */
 #define SPAWN_MIN_FLAT 0.9f     /* the ground's normal, upwards */
-#define SPAWN_CLEARANCE 26.0f   /* free on every side: the largest car fits */
+/* The largest car, Surfin' School Bus: its collision box, measured (tools/online8_test.sh
+ * CAR=25 logs every car's). Spots are found for it, so every car fits. */
+#define SPAWN_CAR_WIDTH 9.0f
+#define SPAWN_CAR_LENGTH 27.0f
+#define SPAWN_CAR_HALF_DIAGONAL 14.2f
+#define SPAWN_CLEARANCE (SPAWN_CAR_HALF_DIAGONAL + 10.0f)   /* free on every side, room to turn */
+#define SPAWN_GAP 8.0f          /* between two cars' boxes */
 /* If nowhere has that, a tight world still gets a spot, nearer the others. */
-#define SPAWN_TIGHT_CLEARANCE 14.0f
-#define SPAWN_TIGHT_SEPARATION 25.0f
+#define SPAWN_TIGHT_CLEARANCE (SPAWN_CAR_HALF_DIAGONAL + 1.0f)
+#define SPAWN_TIGHT_GAP 2.0f
 #define SPAWN_BODY_HEIGHT 6.0f  /* walls are looked for this far above the ground */
 #define NO_ITEM (-1)
+#define DRAG_MAX_PLAYERS 4      /* the retail grid; see Port_OnlineModeAllowed */
 #define CHOICE_MAX (5 + 255)    /* Port_ContentWriteChoice: number, length, an id of up to 255 */
 
 
@@ -509,7 +515,19 @@ static void ReceiveHello(u32 port, NetReader *r) {
 
 /* ---- choosing -------------------------------------------------------------- */
 
-void Port_OnlineHostSetup(void) {
+/* Drag Race is for 4 at most: its worlds have the retail grid of 4 and its scripts a
+ * finish for each (Battle and Joyride take 8). */
+int Port_OnlineModeAllowed(s32 progression) {
+    if (s_state == STATE_NONE || progression != PROGRESSION_MP_DRAG ||
+        Bits(s_present & s_lobby & s_verified) <= DRAG_MAX_PLAYERS) {
+        return 1;
+    }
+    Port_Log("online: Drag Race: %d players in, %d at most", Bits(s_present & s_lobby & s_verified), DRAG_MAX_PLAYERS);
+    Port_MenuOnlineSetLine(ONLINE_SCREEN_MODE, 0, "Drag Race: 4 players at most");
+    return 0;
+}
+
+int Port_OnlineHostSetup(void) {
     u8 buf[64 + 256];
     NetWriter w;
     s32 id, level, track, sent;
@@ -517,7 +535,11 @@ void Port_OnlineHostSetup(void) {
     u32 i;
 
     if (s_state == STATE_NONE || !s_isHost) {
-        return;
+        return 1;
+    }
+    StateProgressionManager_GetProgressionID(&id, &level);
+    if (!Port_OnlineModeAllowed(id)) {
+        return 0;
     }
     /* each machine would run its own AI: none until they are shared */
     GameSettings_SetCodeVariable(0x133, 0, 0);
@@ -553,6 +575,7 @@ void Port_OnlineHostSetup(void) {
     s_state = STATE_CHOOSING;
     Net_SendReliable(NET_PEER_ALL, buf, w.size);
     Port_Log("online: setting up progression %d level %d (%s) for ports %x", id, level, trackId[0] ? trackId : "its own", s_in);
+    return 1;
 }
 
 static void ClientSetup(NetReader *r) {
@@ -819,6 +842,14 @@ void Port_OnlineExpandSpawns(World *world) {
             if (!((s_in >> (port - 1)) & 1)) {
                 continue;
             }
+            /* a player spawn nobody has (4 players or fewer start where the retail game's
+             * do), then an AI spawn */
+            for (i = 0; i < world->numTileCars && tile == NULL; i++) {
+                if (first[i].port >= 1 && first[i].port <= RETAIL_PLAYERS && !((s_in >> (first[i].port - 1)) & 1) &&
+                    Port_OnlineTilePort(&first[i]) == first[i].port) {
+                    tile = &first[i];
+                }
+            }
             for (i = 0; i < world->numTileCars && tile == NULL; i++) {
                 if (first[i].port > RETAIL_PLAYERS && Port_OnlineTilePort(&first[i]) == 0xFF) {
                     tile = &first[i];
@@ -828,7 +859,7 @@ void Port_OnlineExpandSpawns(World *world) {
                 s_borrowed[s_numBorrowed].tile = tile;
                 s_borrowed[s_numBorrowed].port = (u8)port;
                 s_numBorrowed++;
-                Port_Log("online: port %u starts at the world's AI spawn %u", port, (u32)(tile - first));
+                Port_Log("online: port %u starts at the world's spawn %u (port %u's)", port, (u32)(tile - first), tile->port);
                 continue;
             }
             base = WorldSpawn(world, (port - 1) % RETAIL_PLAYERS + 1);
@@ -907,12 +938,93 @@ static int SpawnBlocked(f32 x, f32 y, f32 z, f32 dirX, f32 dirZ, f32 distance) {
     return RayHitsTerrain_Aux3(&start, &dir, &t, &hit);
 }
 
-/* A spot near a spawn: on ground like the spawn's, with `room` free on every side, `apart`
- * from those taken, in plain reach of the spawn so none starts behind a wall. Bearings are
- * eighths of a turn from the spawn's facing (its matrix's first row), tried in order at
- * each radius in turn. From the world's own collision, so every machine finds the same. */
-static int FindSpot(const TileCar *base, const u8 *bearings, u32 numBearings, const f32 *radii, u32 numRadii, f32 room, f32 apart,
-                    const Vector4 *taken, u32 numTaken, Vector4 *out, u32 *usedRadius, u32 *usedBearing) {
+/* A car's footprint: its collision box seen from above. */
+typedef struct Footprint {
+    int have;
+    f32 cx, cz, ax, az, bx, bz, hx, hz, y;   /* middle, the two axes, half sizes */
+} Footprint;
+
+static void Project(const Footprint *f, f32 ux, f32 uz, f32 *lo, f32 *hi) {
+    f32 c = f->cx * ux + f->cz * uz;
+    f32 r = f->hx * fabsf(f->ax * ux + f->az * uz) + f->hz * fabsf(f->bx * ux + f->bz * uz);
+
+    *lo = c - r;
+    *hi = c + r;
+}
+
+static int Overlap(const Footprint *a, const Footprint *b) {
+    const f32 axes[4][2] = {{a->ax, a->az}, {a->bx, a->bz}, {b->ax, b->az}, {b->bx, b->bz}};
+    u32 k;
+
+    for (k = 0; k < 4; k++) {
+        f32 alo, ahi, blo, bhi;
+
+        Project(a, axes[k][0], axes[k][1], &alo, &ahi);
+        Project(b, axes[k][0], axes[k][1], &blo, &bhi);
+        if (ahi < blo || bhi < alo) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static Footprint SpotFootprint(f32 x, f32 z, const Matrix4 *m, f32 gap) {
+    Footprint f;
+    f32 len;
+
+    SDL_zero(f);
+    f.have = 1;
+    f.cx = x;
+    f.cz = z;
+    len = sqrtf(m->v[0].x * m->v[0].x + m->v[0].z * m->v[0].z);
+    f.ax = len > 0.01f ? m->v[0].x / len : 1.0f;
+    f.az = len > 0.01f ? m->v[0].z / len : 0.0f;
+    len = sqrtf(m->v[2].x * m->v[2].x + m->v[2].z * m->v[2].z);
+    f.bx = len > 0.01f ? m->v[2].x / len : 0.0f;
+    f.bz = len > 0.01f ? m->v[2].z / len : 1.0f;
+    f.hx = (SPAWN_CAR_WIDTH + gap) * 0.5f;
+    f.hz = (SPAWN_CAR_LENGTH + gap) * 0.5f;
+    return f;
+}
+
+/* Ground under every corner of the largest car's box standing there, as high as the
+ * spawn's: none of it hangs over a ledge. */
+static int FootprintGround(f32 x, f32 probeY, f32 z, const Matrix4 *m, f32 baseGround) {
+    u32 k;
+
+    for (k = 0; k < 4; k++) {
+        f32 sx = (k & 1) ? SPAWN_CAR_WIDTH * 0.5f : -SPAWN_CAR_WIDTH * 0.5f;
+        f32 sz = (k & 2) ? SPAWN_CAR_LENGTH * 0.5f : -SPAWN_CAR_LENGTH * 0.5f;
+        f32 ground;
+
+        if (!SpawnGround(x + m->v[0].x * sx + m->v[2].x * sz, probeY, z + m->v[0].z * sx + m->v[2].z * sz, &ground) ||
+            fabsf(ground - baseGround) > SPAWN_MAX_STEP) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* A taken spot: where a car starts, and which way it faces. */
+typedef struct Spot {
+    f32 x, z;
+    Matrix4 mtx;
+} Spot;
+
+static void TakeSpot(Spot *spot, f32 x, f32 z, const TileCar *facing) {
+    spot->x = x;
+    spot->z = z;
+    SetOrientation(&spot->mtx, facing->rotY, facing->rotX, facing->rotZ);
+}
+
+/* A spot near a spawn, for a car facing as it does: on ground like the spawn's, with `room`
+ * free on every side, its footprint `gap` clear of those taken (the largest car's, both),
+ * in plain reach of the spawn so none starts behind a wall. Bearings are eighths of a turn
+ * from the spawn's matrix's first row (its side: a car's length is along the third), tried
+ * in order at each radius in turn. From the world's own collision, so every machine finds
+ * the same. */
+static int FindSpot(const TileCar *base, const u8 *bearings, u32 numBearings, const f32 *radii, u32 numRadii, f32 room, f32 gap,
+                    const Spot *taken, u32 numTaken, Vector4 *out, u32 *usedRadius, u32 *usedBearing) {
     Matrix4 mtx;
     f32 baseGround, probeY;
     u32 r, b, i;
@@ -939,14 +1051,13 @@ static int FindSpot(const TileCar *base, const u8 *bearings, u32 numBearings, co
             dirZ /= len;
             x = base->pos.x + dirX * radii[r];
             z = base->pos.z + dirZ * radii[r];
-            for (i = 0; i < numTaken; i++) {
-                f32 dx = taken[i].x - x, dz = taken[i].z - z;
+            for (i = 0; i < numTaken && clear; i++) {
+                Footprint mine = SpotFootprint(x, z, &mtx, gap), theirs = SpotFootprint(taken[i].x, taken[i].z, &taken[i].mtx, gap);
 
-                if (dx * dx + dz * dz < apart * apart) {
-                    clear = 0;
-                }
+                clear = !Overlap(&mine, &theirs);
             }
-            if (!clear || !SpawnGround(x, probeY, z, &ground) || fabsf(ground - baseGround) > SPAWN_MAX_STEP) {
+            if (!clear || !SpawnGround(x, probeY, z, &ground) || fabsf(ground - baseGround) > SPAWN_MAX_STEP ||
+                !FootprintGround(x, probeY, z, &mtx, baseGround)) {
                 continue;
             }
             y = ground + SPAWN_BODY_HEIGHT;
@@ -973,38 +1084,39 @@ static void ChooseSpawns(void) {
     static const u8 bearings[] = {0, 4, 7, 5, 6, 1, 3, 2};
     static const f32 radii[] = {30.0f, 40.0f, 55.0f, 70.0f, 90.0f, 120.0f, 160.0f};
     TileCar *base = s_scriptSpawn;
-    Vector4 taken[ONLINE_PLAYERS];
+    Spot taken[ONLINE_PLAYERS];
     u32 numTaken = 1, port, radius, bearing;
 
     if (base == NULL) {
         return;
     }
-    taken[0] = base->pos;
+    TakeSpot(&taken[0], base->pos.x, base->pos.z, base);
     s_spawns[0].pos = base->pos;
     for (port = 1; port < ONLINE_PLAYERS; port++) {
         s_spawns[port].pos = base->pos;
         /* if nowhere has the room, a tight world still gets a spot, nearer the others */
-        if (FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), SPAWN_CLEARANCE, SPAWN_SEPARATION, taken,
+        if (FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), SPAWN_CLEARANCE, SPAWN_GAP, taken,
                      numTaken, &s_spawns[port].pos, &radius, &bearing) ||
-            FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), SPAWN_TIGHT_CLEARANCE, SPAWN_TIGHT_SEPARATION,
+            FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), SPAWN_TIGHT_CLEARANCE, SPAWN_TIGHT_GAP,
                      taken, numTaken, &s_spawns[port].pos, &radius, &bearing)) {
-            taken[numTaken++] = s_spawns[port].pos;
+            TakeSpot(&taken[numTaken++], s_spawns[port].pos.x, s_spawns[port].pos.z, base);
             Port_Log("online: spawn for port %u: %u units away, bearing %u", port + 1, radius, bearing);
         } else {
             /* nowhere clear: above the spawn, the car falls and the collision sorts it out */
-            s_spawns[port].pos.y += SPAWN_SEPARATION * (f32)port;
+            s_spawns[port].pos.y += SPAWN_CAR_LENGTH * (f32)port;
             Port_Log("online: no clear spawn for port %u", port + 1);
         }
     }
 }
 
 /* Battle, Drag Race: spawns for players 5-8 the world has no room for, each near the
- * spawn of player (port - 1) % 4 + 1: behind it first, as a second row of the grid, a
- * row as far back as the world's own spawns are spread. */
+ * spawn of player (port - 1) % 4 + 1, facing as it does: beside it first, two of the
+ * world's spacings out (a Drag Race grid gets more columns on its start line), then
+ * diagonally, then ahead or behind. */
 static void ChooseExtraSpawns(void) {
-    static const u8 bearings[] = {4, 3, 5, 2, 6, 1, 7, 0};
+    static const u8 bearings[] = {4, 0, 3, 5, 1, 7, 2, 6};
     World *world = WORLD_OF_LEVEL();
-    Vector4 taken[24];
+    Spot taken[24];
     f32 radii[6], spacing = 1e9f;
     u32 numTaken = 0, i, j, k, radius, bearing;
 
@@ -1015,7 +1127,7 @@ static void ChooseExtraSpawns(void) {
     for (i = 0; i < world->numTileCars && numTaken < SDL_arraysize(taken); i++) {
         const TileCar *a = &GETP(world->tileCars)[i];
 
-        taken[numTaken++] = a->pos;
+        TakeSpot(&taken[numTaken++], a->pos.x, a->pos.z, a);
         for (j = 0; j < i; j++) {
             const TileCar *b = &GETP(world->tileCars)[j];
             f32 dx = a->pos.x - b->pos.x, dz = a->pos.z - b->pos.z, d = sqrtf(dx * dx + dz * dz);
@@ -1034,7 +1146,7 @@ static void ChooseExtraSpawns(void) {
         const TileCar *base = s_extraBase[i];
 
         e->pos = base->pos;
-        if (FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), spacing * 0.45f, spacing * 0.9f, taken,
+        if (FindSpot(base, bearings, SDL_arraysize(bearings), radii, SDL_arraysize(radii), SPAWN_TIGHT_CLEARANCE, SPAWN_TIGHT_GAP, taken,
                      numTaken, &e->pos, &radius, &bearing)) {
             Port_Log("online: spawn for port %u: %u units from port %u's, bearing %u", e->port, radius, base->port, bearing);
         } else {
@@ -1042,7 +1154,7 @@ static void ChooseExtraSpawns(void) {
             Port_Log("online: no clear spawn for port %u", e->port);
         }
         if (numTaken < SDL_arraysize(taken)) {
-            taken[numTaken++] = e->pos;
+            TakeSpot(&taken[numTaken++], e->pos.x, e->pos.z, base);
         }
     }
 }
@@ -2255,7 +2367,10 @@ static void TestSetUp(void) {
     GameSettings_SetCodeVariable(0x135, 0, 0);
     GameSettings_SetCodeVariable(0x136, 0, 1);
     StateProgressionManager_SetProgressionID((s32)s_test.progression, (s32)s_test.level);
-    Port_OnlineHostSetup();
+    if (!Port_OnlineHostSetup()) {
+        Port_Log("online test: refused to start");
+        return;
+    }
     /* the host's own choice, as the car select would make it */
     s_vehicle[0] = (s32)s_test.car;
     s_item[0] = NO_ITEM;
@@ -2295,6 +2410,75 @@ static void TestSendCars(void) {
     }
     Net_SendReliable(NET_PEER_ALL, buf, w.size);
     Port_Log("online test: told everyone where the %u cars are, stage %u", n, s_stage);
+}
+
+/* Where the cars settled after go (test only): each car's footprint (its collision box),
+ * how far it moved from its spawn (pushed out of a wall or another car, or fell), a wall
+ * between its middle and a corner of its footprint, and footprints overlapping. Lines with
+ * MOVED, FELL, WALL or OVERLAP fail tools/online8_test.sh. */
+static void TestSpawnCheck(void) {
+    Footprint f[ONLINE_PLAYERS];
+    u32 i, j;
+
+    SDL_zeroa(f);
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        CarA *car;
+        const TileCar *tile;
+        const CarACollider *coll;
+        const Matrix4 *m;
+        f32 dx, dz, lx, ly, lz, len;
+        int k, wall = 0;
+
+        if (s_players[i] == NULL || (car = GETP(s_players[i]->vehicle)) == NULL || (tile = GETP(s_players[i]->tileCar)) == NULL) {
+            continue;
+        }
+        coll = GETP(GETP(car->vehicleIface)->collider);
+        m = THING_MTX(&car->base);
+        if (coll->type != 0 || GETP(coll->box) == NULL) {
+            Port_Log("online test: car %u: collider type %u, not a box", i + 1, coll->type);
+            continue;
+        }
+        {
+            const Vector4 *box = GETP(coll->box);
+
+            f[i].hx = (box[1].x - box[0].x) * 0.5f;
+            f[i].hz = (box[1].z - box[0].z) * 0.5f;
+            lx = (box[1].x + box[0].x) * 0.5f;
+            ly = (box[1].y + box[0].y) * 0.5f;
+            lz = (box[1].z + box[0].z) * 0.5f;
+        }
+        f[i].have = 1;
+        len = sqrtf(m->v[0].x * m->v[0].x + m->v[0].z * m->v[0].z);
+        f[i].ax = len > 0.01f ? m->v[0].x / len : 1.0f;
+        f[i].az = len > 0.01f ? m->v[0].z / len : 0.0f;
+        len = sqrtf(m->v[2].x * m->v[2].x + m->v[2].z * m->v[2].z);
+        f[i].bx = len > 0.01f ? m->v[2].x / len : 0.0f;
+        f[i].bz = len > 0.01f ? m->v[2].z / len : 1.0f;
+        f[i].cx = car->base.pos.x + m->v[0].x * lx + m->v[1].x * ly + m->v[2].x * lz;
+        f[i].cz = car->base.pos.z + m->v[0].z * lx + m->v[1].z * ly + m->v[2].z * lz;
+        f[i].y = car->base.pos.y + m->v[0].y * lx + m->v[1].y * ly + m->v[2].y * lz;
+        dx = car->base.pos.x - tile->pos.x;
+        dz = car->base.pos.z - tile->pos.z;
+        for (k = 0; k < 4; k++) {
+            f32 sx = (k & 1) ? 1.0f : -1.0f, sz = (k & 2) ? 1.0f : -1.0f;
+            f32 ex = sx * f[i].hx * f[i].ax + sz * f[i].hz * f[i].bx, ez = sx * f[i].hx * f[i].az + sz * f[i].hz * f[i].bz;
+            f32 d = sqrtf(ex * ex + ez * ez);
+
+            if (d > 0.01f && SpawnBlocked(f[i].cx, f[i].y, f[i].cz, ex / d, ez / d, d)) {
+                wall = 1;
+            }
+        }
+        Port_Log("online test: car %u, box %.1f x %.1f: moved %.1f from its spawn, %.1f up%s%s%s", i + 1, 2.0f * f[i].hx, 2.0f * f[i].hz,
+                 sqrtf(dx * dx + dz * dz), car->base.pos.y - tile->pos.y, sqrtf(dx * dx + dz * dz) > 12.0f ? " MOVED" : "",
+                 car->base.pos.y - tile->pos.y < -15.0f ? " FELL" : "", wall ? " WALL" : "");
+    }
+    for (i = 0; i < ONLINE_PLAYERS; i++) {
+        for (j = i + 1; j < ONLINE_PLAYERS; j++) {
+            if (f[i].have && f[j].have && Overlap(&f[i], &f[j])) {
+                Port_Log("online test: cars %u and %u OVERLAP", i + 1, j + 1);
+            }
+        }
+    }
 }
 
 /* How far the other cars here are from where their owners last said. */
@@ -2363,6 +2547,7 @@ static void TestHeartbeat(u64 now) {
     if (!s_hold && s_goTick != 0 && now - s_goTick > 1500 && s_test.carsSentStage != s_stage) {
         s_test.carsSentStage = s_stage;
         TestSendCars();
+        TestSpawnCheck();
     }
     /* the host moves on from the summary on its own, after a while */
     if (s_summary != NULL && Port_InterfaceIsUp(s_summary) && s_summarySince != 0 && now - s_summarySince > s_test.summaryMs &&

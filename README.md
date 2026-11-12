@@ -434,11 +434,13 @@ floor) and any logic that counts frames rather than time.
 
 Work in progress: Drag Race, Battle and Joyride play over a network, weapons and pickups
 included. In Joyride, a world's key and gears count for every player. One host and its clients, each connected to the host only,
-up to 8 players (only one host to connect to, because a Cloudflare tunnel only takes
-connections to the host). The retail game has 4 player ports; online, players 5-8 start at
-a Battle world's AI spawns or at spots of our own behind the world's 4 (a second row of a
-Drag Race grid), scripts naming all 4 player spawns name theirs too, a Drag Race finish
-counts for them, and the round summary shows them in turns in its four rows. Players whose
+up to 8 players in Battle and Joyride, 4 in Drag Race (its worlds have the retail grid of 4;
+the host can't start one with more, and the mode screen says why). One host to connect to,
+because a Cloudflare tunnel only takes connections to the host. The retail game has 4 player
+ports; online, players 5-8 start at spawns nobody has (so 4 or fewer always use the retail
+spawns), a Battle world's AI spawns, or spots of our own found from the world's collision for
+the largest car; scripts naming all 4 player spawns name theirs too, and the round summary
+shows them in turns in its four rows. Players whose
 enabled mods differ (ids and versions) don't play together: the client leaves saying so.
 
 Multi-Player now opens Online or Local; Local is the game's own screen (on PC data the

@@ -13,7 +13,11 @@
 #     every other car, and (battle, drag) saw the rounds end;
 #   - the host's copy of each bot's car stayed near where the bot said
 #     (online: sync, off by less than SYNC_MAX units, default 12);
-#   - drag: the round a bot on port 5-8 claimed went to it.
+#   - drag: the round a bot on port 5-8 claimed went to it;
+#   - every car settled where it spawned: not pushed off (MOVED), not fallen (FELL), no wall
+#     inside its footprint (WALL), no two footprints overlapping (OVERLAP).
+# Drag Race takes 4 players at most: with more, the test passes if the host refuses.
+# CAR=N puts every player in car N (25: Surfin' School Bus, the largest).
 # Needs the bots built: cmake -DHWVX_TESTS=ON, target netbot. One game only.
 B="$1"; D="$2"; O="$3"; MODE="$4"; T="${5:-90}"; N="${6:-8}"; W="${7:-0}"
 [ -z "$MODE" ] && { sed -n 2,20p "$0"; exit 2; }
@@ -26,17 +30,19 @@ PORT=47815
 FINISH_PORT=7
 [ "$N" -lt 7 ] && FINISH_PORT=$N
 env HWVX_NO_MOVIE=1 HWVX_NO_DIALOG=1 HWVX_SEED=3 HWVX_MODS=0 HWVX_AUTOINPUT="700:start,+400:start" \
-    HWVX_ONLINE_TEST="host,players=$N,mode=$MODE,world=$W,rounds=2,time=25,summary=8" \
+    HWVX_ONLINE_TEST="host,players=$N,mode=$MODE,world=$W,rounds=2,time=25,summary=8${CAR:+,car=$CAR}" \
     HWVX_PREF_DIR="$O/pref-$TAG" HWVX_DUMP="$O/dump-$TAG" \
     "$B/hwvx" --windowed --window 1280x960 --data "$D" > "$O/$TAG.host.log" 2>&1 &
 G=$!
+# whatever happens, no game or bot outlives the test
+trap 'kill -9 $G "${BOTS[@]}" 2>/dev/null; pkill -9 -f "$B/hwvx --windowed --window 1280x960 --data $D" 2>/dev/null' EXIT
 # the host is up once its lobby is
 for i in $(seq 60); do grep -q 'online: hosting' "$O/$TAG.host.log" 2>/dev/null && break; sleep 1; done
 BOTS=()
 for p in $(seq 2 "$N"); do
     extra=""
     [ "$MODE" = drag ] && [ "$p" = "$FINISH_PORT" ] && extra="--finish 8"
-    "$B/netbot" "127.0.0.1:$PORT" --drive --points 10 --seconds $((T - 5)) $extra > "$O/$TAG.bot$p.log" 2>&1 &
+    "$B/netbot" "127.0.0.1:$PORT" --drive --points 10 --seconds $((T - 5)) ${CAR:+--vehicle $CAR} $extra > "$O/$TAG.bot$p.log" 2>&1 &
     BOTS+=($!)
     sleep 0.3
 done
@@ -49,6 +55,14 @@ fail=0
 bad() { echo "FAIL: $*"; fail=1; }
 H="$O/$TAG.host.log"
 [ $ALIVE = 1 ] || bad "the game exited early (crash?): $(tail -3 "$H")"
+if [ "$MODE" = drag ] && [ "$N" -gt 4 ]; then
+    # Drag Race takes 4 at most: the host must refuse, and nobody start a level
+    grep -q 'Drag Race: .* 4 at most' "$H" && grep -q 'refused to start' "$H" || bad "drag with $N players wasn't refused"
+    grep -q 'level ready' "$H" && bad "drag with $N players started a level"
+    grep -l 'level starting' "$O/$TAG".bot*.log >/dev/null 2>&1 && bad "a bot started a drag level with $N players"
+    [ $fail = 0 ] && echo "PASS: drag with $N players refused" || echo "see $O/$TAG.*.log"
+    exit $fail
+fi
 grep -q "level ready: .*$N human cars" "$H" || bad "no level with $N human cars: $(grep 'level ready' "$H" | head -1)"
 grep -q 'online: no clear spawn' "$H" && echo "note: $(grep -c 'online: no clear spawn' "$H") spawn(s) without a clear spot"
 for p in $(seq 2 "$N"); do
@@ -74,6 +88,9 @@ if [ -n "$worst" ] && awk "BEGIN{exit !($worst > $SYNC_MAX)}"; then
     over=$(grep 'online: sync' "$H" | sed -n 's/.*off by:\(.*\)/\1/p' | tr ' ' '\n' | sed -n 's/^[0-9]*://p' | awk "\$1 > $SYNC_MAX" | wc -l)
     [ "$over" -gt 2 ] && bad "host's copies off by up to $worst units ($over samples over $SYNC_MAX)"
 fi
+grep 'online test: car 1,' "$H" | head -1 | sed 's/.*online test: /spawns: /'
+bad_spawn=$(grep -E 'online test: .*(MOVED|FELL|WALL|OVERLAP)' "$H" | sed 's/.*online test: //' | sort | uniq -c | head -8)
+[ -n "$bad_spawn" ] && bad "spawns: $(echo $bad_spawn)"
 if [ "$MODE" = drag ]; then
     grep -q "round won by $FINISH_PORT" "$H" || bad "drag: port $FINISH_PORT's claimed finish didn't win: $(grep 'round won' "$H" | head -2)"
 fi

@@ -25,8 +25,11 @@ int Port_OnlineInvite(char *out, size_t size);
 int Port_OnlineStartClient(const char *address);
 void Port_OnlineEnd(void);
 int Port_OnlinePlayerCount(void);
-/* The host reached the car select: everyone goes there. */
-void Port_OnlineHostSetup(void);
+/* The host reached the car select: everyone goes there. 0: refused (Drag Race with
+ * more than 4 players), the host stays where it is. */
+int Port_OnlineHostSetup(void);
+/* May the host start this progression with the players in? 0 says why on the mode screen. */
+int Port_OnlineModeAllowed(s32 progression);
 /* The car select is done on this machine: 1 if a session took it over and the
  * waiting screen is showing instead of the level starting. */
 int Port_OnlineCarsChosen(Interface *iface);
@@ -108,6 +111,7 @@ typedef enum PortOnlineScreen {
     ONLINE_SCREEN_CAR_SELECT_JOYRIDE,   /* Joyride's, going on to its item select */
     ONLINE_SCREEN_ITEM_SELECT_JOYRIDE,
     ONLINE_SCREEN_WAITING,
+    ONLINE_SCREEN_MODE,         /* Drag Race / Battle / Joyride */
 } PortOnlineScreen;
 
 InterfaceHeader *Port_MenuOnlineScreen(PortOnlineScreen screen);

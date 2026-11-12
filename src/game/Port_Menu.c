@@ -1196,6 +1196,7 @@ typedef struct OnlineRow {
     InterfaceHeader *target;    /* NULL: back */
 } OnlineRow;
 
+static InterfaceHeader *s_olDrag;   /* the Drag Race row's target: 4 players at most */
 static OnlineScreen s_olChoose, s_olOnline, s_olTunnel, s_olConnect, s_olLobbyHost, s_olLobbyClient, s_olLobbyTunnel, s_olMode, s_olWaiting;
 static InterfaceHeader s_olPaste, s_olCopy;   /* never shown: those rows' "targets" */
 /* the game's screens online play goes through: Multi-Player, its split car
@@ -1679,7 +1680,8 @@ static void BuildOnlineScreens(InterfaceHeader *main, const MainMenu *m) {
     if (joyride != NULL && s_joyrideCar != NULL && s_joyrideItem != NULL) {
         rows[n++] = (OnlineRow){"Joyride", joyride};
     }
-    BuildOnlineScreen(&s_olMode, &tpl, "Online Game", 0, n, rows);
+    BuildOnlineScreen(&s_olMode, &tpl, "Online Game", 1, n, rows);   /* a line for why a mode can't start */
+    s_olDrag = mpDrag;
 
     BuildOnlineScreen(&s_olWaiting, &tpl, "Please Wait", 1, 0, rows);
     SetText(&s_olWaiting.text[0], &s_olWaiting.objs[s_olWaiting.lineObject[0]], "Waiting...");
@@ -1692,6 +1694,7 @@ static OnlineScreen *OnlineScreenOf(PortOnlineScreen screen) {
     case ONLINE_SCREEN_LOBBY_CLIENT: return &s_olLobbyClient;
     case ONLINE_SCREEN_LOBBY_TUNNEL: return &s_olLobbyTunnel;
     case ONLINE_SCREEN_WAITING: return &s_olWaiting;
+    case ONLINE_SCREEN_MODE: return &s_olMode;
     default: return NULL;
     }
 }
@@ -1817,12 +1820,17 @@ static InterfaceHeader *OnlineEventTarget(InterfaceHeader *target) {
     if (target == &s_olMode.h && Port_OnlinePlayerCount() < 2) {
         return NULL;            /* nobody to play with yet */
     }
-    if (target == s_carSelect && Port_OnlineActive()) {
-        Port_OnlineHostSetup();
-        return s_carSelectSolo;
+    if (target == &s_olMode.h) {
+        Port_MenuOnlineSetLine(ONLINE_SCREEN_MODE, 0, "");
     }
-    if (target == s_joyrideCar && Port_OnlineActive()) {
-        Port_OnlineHostSetup();
+    if (target != NULL && target == s_olDrag && Port_OnlineActive() && !Port_OnlineModeAllowed(PROGRESSION_MP_DRAG)) {
+        return NULL;            /* Drag Race: 4 players at most (it says so) */
+    }
+    if (target == s_carSelect && Port_OnlineActive()) {
+        return Port_OnlineHostSetup() ? s_carSelectSolo : NULL;
+    }
+    if (target == s_joyrideCar && Port_OnlineActive() && !Port_OnlineHostSetup()) {
+        return NULL;
     }
     return target;
 }
