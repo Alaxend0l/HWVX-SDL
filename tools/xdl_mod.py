@@ -744,7 +744,7 @@ class Manifest:
         if not isinstance(d, dict):
             return self.err("the file", "isn't an object")
         known = {"$schema", "format_version", "id", "name", "version", "author", "description", "releases",
-                 "after", "cars", "items", "tracks", "patches", "recipes", "sounds"}
+                 "after", "cars", "items", "tracks", "patches", "recipes", "sounds", "music"}
         for k in d:
             if k not in known:
                 self.err(k, "isn't a member of a mod (schemas/Mod.schema.json)")
@@ -887,7 +887,21 @@ class Manifest:
                 continue
             self.refs.add(target)
             self.sounds.append((w, target, f))
-        for k in ("patches", "recipes", "sounds"):
+        # music: streamed files over a base song, one or a playlist (the port reads it, §8.2.2)
+        for target, v in (d.get("music") or {}).items() if isinstance(d.get("music", {}), dict) else []:
+            for i, e in enumerate(v if isinstance(v, list) else [v]):
+                w = f"music.{target}" + (f"[{i}]" if isinstance(v, list) else "")
+                f = e if isinstance(e, str) else e.get("file") if isinstance(e, dict) else None
+                if isinstance(e, dict):
+                    for k in e:
+                        if k not in ("file", "loopStart", "loopEnd", "loop", "volume"):
+                            self.err(f"{w}.{k}", "isn't a member of a song (file, loopStart, loopEnd, loop, volume)")
+                if not isinstance(f, str) or Path(f).suffix.lower() not in XM.AUDIO_EXT or ".." in Path(f).parts \
+                        or f.startswith("/") or "\\" in f:
+                    self.err(w, f"a music file of the mod ({' '.join(XM.AUDIO_EXT)}), or {{\"file\", …}}")
+                elif not (self.dir / f).is_file():
+                    self.err(w, f"{f} isn't in the mod")
+        for k in ("patches", "recipes", "sounds", "music"):
             if not isinstance(d.get(k, {}), dict):
                 self.err(k, "isn't an object")
         return None
