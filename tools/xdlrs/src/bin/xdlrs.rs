@@ -5,6 +5,7 @@
 //!   xdlrs struct roundtrip SURVEY_ROOT [--rel gc,pc] [--archive HW_Cars] [--struct CarAInfo] [--parts] [--out DIR] [-v]
 //!   xdlrs struct observe SURVEY_ROOT [--rel gc,pc] [--archive HW_Cars] [--struct CarAInfo] [--out FILE]
 //!   xdlrs tac survey SURVEY_ROOT
+//!   xdlrs level compile|check|base|mod|testdrive|pack ...   as xdl_level.py (pack: xdl_level_pack.py build)
 //!   xdlrs graph extract PACK_DIR PROJECT_DIR [--force]          as xdl_graph.py extract (no glTF)
 //!   xdlrs graph build PROJECT_DIR OUT_DIR [--check PACK_DIR]    as xdl_graph.py build
 //!
@@ -652,6 +653,148 @@ fn cmd_graph_build(a: &Args) -> Result<i32> {
     Ok(0)
 }
 
+// ------------------------------------------------------------------------------------------
+// level (tools/xdl_level.py's commands, same output)
+
+fn level_env(a: &Args) -> Result<xdlrs::level::Env> {
+    let c = ctx(a)?;
+    let mut env = xdlrs::level::Env::new(&c.root)?;
+    if let Some(x) = a.opts.get("hwvx-x") {
+        env.hwvx_x = Some(PathBuf::from(x));
+    }
+    Ok(env)
+}
+
+fn base_opts(a: &Args) -> xdlrs::level::BaseOpts {
+    xdlrs::level::BaseOpts {
+        base: a.opts.get("base").map(PathBuf::from),
+        data: a.opts.get("data").map(PathBuf::from),
+        cache: a.opts.get("cache").map(PathBuf::from),
+    }
+}
+
+fn report(errors: &[String]) -> i32 {
+    for e in errors {
+        eprintln!("error: {e}");
+    }
+    if errors.is_empty() { 0 } else { 1 }
+}
+
+fn records_json(r: &[xdlrs::level::Record]) -> Value {
+    Value::Array(r.iter().map(|x| x.to_json()).collect())
+}
+
+fn level_main(cmd: &str, a: &Args) -> ExitCode {
+    use xdlrs::level as lv;
+    let r = (|| -> Result<i32> {
+        let env = level_env(a)?;
+        let base = base_opts(a);
+        let sbox = a.opts.get("spawn-box").map(PathBuf::from);
+        match cmd {
+            "compile" => {
+                let proj = PathBuf::from(a.pos(0)?);
+                let c = lv::compile(&env, &proj, a.opts.get("o").or(a.opts.get("out")).map(Path::new), &base, a.flag("--skip-intro"), sbox.as_deref())?;
+                if a.flag("--json") {
+                    let o = json!({"ok": c.ok, "out": c.out.display().to_string(), "cached": c.cached, "ms": c.ms,
+                                   "errors": records_json(&c.errors), "warnings": records_json(&c.warnings)});
+                    println!("{}", py::dumps(&o));
+                    return Ok(if c.ok { 0 } else { 1 });
+                }
+                for w in &c.warning_texts {
+                    eprintln!("warning: {w}");
+                }
+                if !c.ok {
+                    return Ok(report(&c.error_texts));
+                }
+                let d = c.doc.unwrap_or(Value::Null);
+                println!(
+                    "{}: {} parts, {} patches{}, {} ms",
+                    c.out.display(),
+                    d["parts"].as_array().map(Vec::len).unwrap_or(0),
+                    d["patches"].as_array().map(Vec::len).unwrap_or(0),
+                    if c.cached { " (up to date)" } else { "" },
+                    py::float_repr(c.ms)
+                );
+                Ok(0)
+            }
+            "check" => {
+                let proj = PathBuf::from(a.pos(0)?);
+                let (e, w) = lv::check(&env, &proj, &base, sbox.as_deref())?;
+                if a.flag("--json") {
+                    let o = json!({"ok": e.is_empty(), "errors": records_json(&lv::error_records(&e)), "warnings": records_json(&lv::error_records(&w))});
+                    println!("{}", py::dumps(&o));
+                    return Ok(if e.is_empty() { 0 } else { 1 });
+                }
+                for x in &w {
+                    eprintln!("warning: {x}");
+                }
+                if e.is_empty() {
+                    println!("{}: ok", a.pos(0)?);
+                }
+                Ok(report(&e))
+            }
+            "base" => {
+                let data = a.opts.get("data").ok_or_else(|| Error::uncaught("--data is required"))?;
+                let p = lv::base_project(&env, a.pos(0)?, Path::new(data), &lv::cache_dir(a.opts.get("cache").map(Path::new)))?;
+                println!("{}", p.display());
+                Ok(0)
+            }
+            "mod" => {
+                let proj = PathBuf::from(a.pos(0)?);
+                match lv::share(&env, &proj, Path::new(a.pos(1)?), a.opts.get("xmod").map(Path::new), &base, a.opts.get("index").map(Path::new))? {
+                    Ok(line) => {
+                        println!("{line}");
+                        Ok(0)
+                    }
+                    Err(e) => Ok(report(&e)),
+                }
+            }
+            "testdrive" => {
+                let o = lv::DriveOpts {
+                    car: a.opts.get("car").map(|c| c.parse().unwrap_or(0)),
+                    skip_intro: a.flag("--skip-intro"),
+                    memory: a.flag("--memory"),
+                    base,
+                };
+                let res = lv::testdrive(&env, Path::new(a.pos(0)?), Path::new(a.pos(1)?), &o)?;
+                println!("{}", py::dumps(&res));
+                Ok(if res["ok"] == true { 0 } else { 1 })
+            }
+            "pack" => {
+                let data = a.opts.get("data").ok_or_else(|| Error::uncaught("--data is required"))?;
+                let r = xdlrs::level_pack::build_cached(
+                    &env,
+                    Path::new(a.pos(0)?),
+                    Path::new(data),
+                    &lv::cache_dir(a.opts.get("cache").map(Path::new)),
+                    Path::new(a.pos(1)?),
+                    a.flag("--skip-intro"),
+                );
+                match r {
+                    Ok((out, cached, _)) => {
+                        println!("{}{}", out.display(), if cached { " (up to date)" } else { "" });
+                        Ok(0)
+                    }
+                    Err(e) if e.kind == Kind::Level => Ok(report(&e.msg.lines().map(str::to_string).collect::<Vec<_>>())),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => Err(Error::uncaught(format!("unknown level command {cmd}"))),
+        }
+    })();
+    match r {
+        Ok(c) => ExitCode::from(c as u8),
+        Err(e) => {
+            match e.kind {
+                Kind::Level | Kind::Tac => eprintln!("error: {}", e.msg),
+                Kind::Uncaught => eprintln!("error: level.jsonc: {}", e.msg),
+                _ => eprintln!("error: {}", e.msg),
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
 /// A TacHost read from the parity test's dump of xdl_graph's Extractor.
 struct DumpHost {
     blob: Vec<u8>,
@@ -755,6 +898,10 @@ fn main() -> ExitCode {
         (Some("struct"), Some("roundtrip")) => cmd_roundtrip(&shifted(2)),
         (Some("struct"), Some("observe")) => cmd_observe(&shifted(2)),
         (Some("tac"), Some("survey")) => cmd_tac_survey(&shifted(2)),
+        (Some("level"), Some(c)) => {
+            let c = c.to_string();
+            return level_main(&c, &shifted(2));
+        }
         (Some("graph"), Some("extract")) => cmd_graph_extract(&shifted(2)),
         (Some("graph"), Some("build")) => cmd_graph_build(&shifted(2)),
         (Some("probe"), Some(_)) => probe(&a),

@@ -21,6 +21,8 @@ pub enum Kind {
     Io,
     /// GraphError (raised by a host, e.g. xdl_graph's link_to)
     Graph,
+    /// xdl_level's LevelError (a problem of the level project, by its place)
+    Level,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +57,9 @@ impl Error {
     }
     pub fn graph(msg: impl Into<String>) -> Self {
         Self::new(Kind::Graph, msg)
+    }
+    pub fn level(msg: impl Into<String>) -> Self {
+        Self::new(Kind::Level, msg)
     }
 }
 
