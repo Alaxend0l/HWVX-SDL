@@ -428,18 +428,29 @@ static Geometry *GeometryOf(VPack *vp, VNode *nd) {
     return (Geometry *)(GETP(vp->pack->base) + nd->off);
 }
 
+/* p, if [p, p + size) is inside the pack's blob; else NULL. The model's handles
+ * are followed through this: a set can point a link anywhere (force). */
+static void *InPack(VPack *vp, const void *p, size_t size) {
+    uintptr_t base = (uintptr_t)GETP(vp->pack->base), q = (uintptr_t)p;
+
+    if (p == NULL || q < base || q - base > vp->size || size > vp->size - (q - base)) {
+        return NULL;
+    }
+    return (void *)p;
+}
+
 /* The car's model: CarAInfo/0's modelRef, as CarA.c reads it. */
 static MotionAnim *CarModel(VPack *vp) {
     VNode *nd = vp->type == 0 ? Viewer_FindNode(vp, "CarAInfo/0") : NULL;
     CarAInfo *info;
     CarAModelRef *ref;
 
-    if (nd == NULL || nd->kind != VN_TYPED) {
+    if (nd == NULL || nd->kind != VN_TYPED || InPack(vp, GETP(vp->pack->base) + nd->off, sizeof(CarAInfo)) == NULL) {
         return NULL;
     }
     info = (CarAInfo *)(GETP(vp->pack->base) + nd->off);
-    ref = GETP(info->modelRef);
-    return ref != NULL ? GETP(ref->data) : NULL;
+    ref = InPack(vp, GETP(info->modelRef), sizeof(CarAModelRef));
+    return ref != NULL ? InPack(vp, GETP(ref->data), sizeof(MotionAnim)) : NULL;
 }
 
 static Matrix4 *NextMatrix(void) {
@@ -452,17 +463,17 @@ static Matrix4 *NextMatrix(void) {
 
 /* The model's rest pose as bone matrices (the first key frame over the
  * skeleton's base pose), or NULL. */
-static Matrix4 *ModelPose(MotionAnim *model, u32 *numBones) {
+static Matrix4 *ModelPose(VPack *vp, MotionAnim *model, u32 *numBones) {
     static u8 frames[MAX_BONES * 0x20] __attribute__((aligned(16)));
-    CreatureSkeleton *skel = GETP(model->skeleton);
+    CreatureSkeleton *skel = InPack(vp, GETP(model->skeleton), sizeof(CreatureSkeleton));
     Matrix4 *matrices;
 
-    if (skel == NULL || skel->numBones == 0 || skel->numBones > MAX_BONES || GETP(skel->nodes) == NULL ||
-        s.numMatrices + skel->numBones >= MATRIX_POOL) {
+    if (skel == NULL || skel->numBones == 0 || skel->numBones > MAX_BONES ||
+        InPack(vp, GETP(skel->nodes), skel->numBones * 0x20) == NULL || s.numMatrices + skel->numBones >= MATRIX_POOL) {
         return NULL;
     }
     memcpy(frames, GETP(skel->nodes), skel->numBones * 0x20);
-    if (GETP(model->keys) != NULL) {
+    if (InPack(vp, GETP(model->keys), 4) != NULL) {
         Gfx_AnimExtractKeyFrame(GETP(model->keys), 0.0f, frames, (s32)skel->numBones);
     }
     matrices = &s.matrices[s.numMatrices];
@@ -512,16 +523,21 @@ static void DrawOne(Geometry *g, Matrix4 *m, f32 *min, f32 *max) {
     s.drawn++;
 }
 
-static void DrawModel(MotionAnim *model, f32 *min, f32 *max) {
+static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max) {
     u32 numBones = 0, i;
-    Matrix4 *bones = ModelPose(model, &numBones);
-    CarPartList *parts = GETP(model->parts);
+    Matrix4 *bones = ModelPose(vp, model, &numBones);
+    CarPartList *parts = InPack(vp, GETP(model->parts), sizeof(CarPartList));
+    void *geoms = model->numGeoms < 0x10000 ? InPack(vp, GETP(model->geoms), model->numGeoms * 4) : NULL;
+    MotionPart *rigid = model->numRigid < 0x10000 ? InPack(vp, GETP(model->rigid), model->numRigid * sizeof(MotionPart))
+                                                   : NULL;
+    CarPart *partList = parts != NULL && parts->count < 0x10000
+                            ? InPack(vp, GETP(parts->parts), parts->count * sizeof(CarPart)) : NULL;
 
     if (bones == NULL) {
         return;
     }
-    for (i = 0; i < model->numGeoms; i++) {
-        Geometry *g = GETP(GETP(model->geoms)[i]);
+    for (i = 0; geoms != NULL && i < model->numGeoms; i++) {
+        Geometry *g = InPack(vp, GETP(GETP(model->geoms)[i]), sizeof(Geometry));
 
         if (g != NULL) {
             Gfx_DrawAnimGeometryAux(g, (f32 *)bones, numBones, NULL);
@@ -529,23 +545,23 @@ static void DrawModel(MotionAnim *model, f32 *min, f32 *max) {
             s.drawn++;
         }
     }
-    for (i = 0; i < model->numRigid; i++) {
-        MotionPart *e = &GETP(model->rigid)[i];
+    for (i = 0; rigid != NULL && i < model->numRigid; i++) {
+        MotionPart *e = &rigid[i];
 
-        if (GETP(e->geom) != NULL && e->mtxIndex < numBones) {
+        if (InPack(vp, GETP(e->geom), sizeof(Geometry)) != NULL && e->mtxIndex < numBones) {
             Gfx_DrawGeometry_MatrixNotCached((s32)HND(GETP(e->geom)), (s32)HND(&bones[e->mtxIndex]));
             Grow(min, max, &bones[e->mtxIndex], GETP(e->geom));
             s.drawn++;
         }
     }
     /* the breakable parts as on an undamaged car (CarA.partVisMask 0) */
-    for (i = 0; parts != NULL && i < parts->count; i++) {
-        CarPart *part = &GETP(parts->parts)[i];
+    for (i = 0; partList != NULL && i < parts->count; i++) {
+        CarPart *part = &partList[i];
 
-        if ((part->flags & 1) || GETP(part->geom) == NULL || part->mtxIndex >= numBones) {
+        if ((part->flags & 1) || InPack(vp, GETP(part->geom), sizeof(Geometry)) == NULL || part->mtxIndex >= numBones) {
             continue;
         }
-        if (part->xform && GETP(part->offset) != NULL) {
+        if (part->xform && InPack(vp, GETP(part->offset), sizeof(Vector4)) != NULL) {
             Matrix4 *m = NextMatrix();
 
             *m = bones[part->mtxIndex];
@@ -577,7 +593,7 @@ static int DrawScene(f32 *min, f32 *max) {
     if (sel != NULL && sel->kind == VN_GEOMETRY) {
         DrawOne(GeometryOf(vp, sel), NextMatrix(), min, max);
     } else if ((model = CarModel(vp)) != NULL) {
-        DrawModel(model, min, max);
+        DrawModel(vp, model, min, max);
     } else {
         /* every geometry, in rows, each on a square of the largest one's size */
         f32 cell = 0.0f, x = 0.0f, z = 0.0f;
@@ -920,7 +936,8 @@ static void Dispatch(const JsonNode *req) {
             } else {
                 Jw_String(&w, "node", nd->id);
                 Jw_String(&w, "field", field);
-                ok = Viewer_SetField(&w, vp, nd, field, Json_Get(req, "value"), err, sizeof(err));
+                ok = Viewer_SetField(&w, vp, nd, field, Json_Get(req, "value"), Json_GetBool(req, "force", 0), err,
+                                     sizeof(err));
             }
         }
     } else if (SDL_strcmp(cmd, "select") == 0 || SDL_strcmp(cmd, "focus") == 0) {
