@@ -29,7 +29,8 @@
  *   of each release), offered with two or more releases imported: Play
  *   starts it as --mix ultimate.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
- * "ps2beta=PATH", "proto=off|cars|added|replace", "play=gc|pc|ps2|mix:ultimate", "skip=1" and
+ * "ps2beta=PATH", "proto=off|cars|added|replace", "play=gc|pc|ps2|mix:ultimate", "skip=1",
+ * "interface=gc|ps2" (the mixed game's interface art, read by mix.c too) and
  * "tab=PAGE"; the GameCube data the
  * port found before the launcher existed (datadir.txt) is taken over on the
  * first run.
@@ -79,7 +80,10 @@
  * progress and fills <xdl>/mix-ultimate.part, put in mix-ultimate's place
  * when complete. Its state: not built (playing it converts its packs as
  * they load), built, or out of date (built.cfg's stamp, Port_MixStamp, is
- * of another recipe or other releases, or another cache version).
+ * of another recipe or other releases, or another cache version). Its
+ * interface art is one set, chosen on the row: "Yellow (GameCube)" or
+ * "Silver (PS2)" (sources.cfg "interface="; in the stamp, so a change
+ * leaves the build out of date).
  *
  * A hook point for a feature built elsewhere, a button that calls a
  * function with a weak stub here (port_internal.h): the mod loader on Mods
@@ -131,6 +135,7 @@ typedef struct Sources {
     int skip;           /* start the game without the launcher */
     int tab;            /* TAB_* last shown, or -1 */
     int proto;          /* the prototype's import mode, PORT_PROTO_* (proto.c) */
+    int ifacePS2;       /* the mixed game's interface art: the PS2's silver set, else the GameCube's yellow */
 } Sources;
 
 /* ---- sources.cfg ----------------------------------------------------- */
@@ -182,6 +187,9 @@ static int LoadSources(Sources *s) {
         if (SDL_strcmp(line, "play=mix:" MIX_RECIPE) == 0) {
             s->mix = 1;
         }
+        if (SDL_strncmp(line, "interface=", 10) == 0) {
+            s->ifacePS2 = SDL_strcasecmp(line + 10, "ps2") == 0;
+        }
     }
     SDL_free(text);
     for (i = 0; s->mix && s->play < 0 && i < PORT_DATA_COUNT; i++) {
@@ -220,6 +228,9 @@ static void SaveSources(const Sources *s) {
     }
     if (s->skip) {
         ok &= SDL_IOprintf(io, "skip=1\n") > 0;
+    }
+    if (s->ifacePS2) {
+        ok &= SDL_IOprintf(io, "interface=ps2\n") > 0;
     }
     if (s->tab >= 0) {
         ok &= SDL_IOprintf(io, "tab=%s\n", s_tabKeys[s->tab]) > 0;
@@ -390,6 +401,7 @@ enum {
     ACT_PLAY_MIX,       /* play the mixed game */
     ACT_MIX_BUILD,      /* build it (ACT_CONV_CANCEL stops it) */
     ACT_MIX_DELETE,     /* delete its cache */
+    ACT_MIX_IFACE,      /* its interface art: yellow (GameCube) or silver (PS2) */
     ACT_MOD_TOGGLE,     /* mods (Port_Mods.h): turn mod `source` on or off */
     ACT_MOD_UP,         /* load it one earlier */
     ACT_MOD_REMOVE,     /* delete its folder (pressed twice) */
@@ -494,6 +506,11 @@ typedef struct Launcher {
     Uint64 mixBytes;
     char mixError[160];
 } Launcher;
+
+/* The mixed game's interface set, as its row's button says it. */
+static const char *MixIfaceLabel(const Launcher *l) {
+    return l->src.ifacePS2 ? "Menus: Silver (PS2)" : "Menus: Yellow (GameCube)";
+}
 
 /* The mixed game can be played: its recipe has two or more releases imported. */
 static int MixPlayable(const Launcher *l) {
@@ -665,6 +682,8 @@ static void LayoutPage(Launcher *l, int busy) {
             if (l->mixHave) {
                 Add(l, x, CONV_HOOK_Y + 26, "Delete", ACT_MIX_DELETE, -1, !busy);
             }
+            Add(l, VIEW_W - 24 - (float)(SDL_strlen(MixIfaceLabel(l)) * CHAR + 16), CONV_HOOK_Y + 26,
+                MixIfaceLabel(l), ACT_MIX_IFACE, -1, !busy);
         }
         break;
     case TAB_MODS:
@@ -1807,6 +1826,14 @@ static int Activate(Launcher *l, const Button *b) {
         return 0;
     case ACT_MIX_BUILD:
         StartConvert(l, SRC_MIX);
+        return 0;
+    case ACT_MIX_IFACE:
+        l->src.ifacePS2 = !l->src.ifacePS2;
+        SaveSources(&l->src);
+        RefreshMix(l);      /* the stamp has the choice: a build of the other set is out of date */
+        SDL_snprintf(l->status, sizeof(l->status), "The mixed game's menus and HUD: %s.%s",
+                     l->src.ifacePS2 ? "the PS2's silver set" : "the GameCube's yellow set",
+                     l->mixState == CONV_STALE ? " Build again to use it." : "");
         return 0;
     case ACT_MIX_DELETE:
         if (l->mix.dir[0] != '\0') {
