@@ -15,6 +15,10 @@ env HWVX_NO_MOVIE=1 HWVX_NO_DIALOG=1 HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_
     HWVX_PROTO_DIR="$HWVX_PROTO_DIR" "$@" HWVX_PREF_DIR="$O/pref-bt" \
     lldb -b -s "$O/bt.cmds" -- "$B/hwvx" --windowed --window 640x480 --data "$D" > "$O/bt.log" 2>&1 &
 P=$!
+# only this run's processes: lldb ($P) and what it started (debugserver, the
+# game), by PID; never by name (other games may be running)
+tree() { local c; for c in $(pgrep -P "$1"); do tree "$c"; done; echo "$1"; }
 for i in $(seq "$T"); do sleep 1; kill -0 $P 2>/dev/null || break; done
-pkill -9 -f "$B/hwvx" 2>/dev/null; kill -9 $P 2>/dev/null
+PIDS=$(tree $P)
+kill -9 $PIDS 2>/dev/null
 grep -E 'frame #|stop reason' "$O/bt.log" | head -20
