@@ -1,5 +1,6 @@
 // A sample Drag Race level: retail race1l2's start and its three AI opponents in their lanes,
-// the finish moved to the end of the first straight (a box volume); the first car there wins.
+// the finish moved to the end of the first straight (a sphere across the four lanes); the first car there wins.
+// A handicap with the AI's own retail controls: the three opponents' control is held 2.5 s longer.
 {
   "$schema": "../../../schemas/Level.schema.json",
   "format_version": 1,
@@ -9,7 +10,7 @@
   "extends": "base://mcp/track/29",
   "world": "WORLDS_\\SP_\\DRAG_\\race1l2",
   "unlocked": true,
-  "description": "The first straight only: the finish moved up the road; the same four lanes and opponents.",
+  "description": "The first straight only: the finish moved up the road; the three opponents in their lanes start 2.5 s late.",
   "baseTriggers": [
     0,
     1,
@@ -37,18 +38,12 @@
   ],
   "volumes": {
     "finish": {
-      "box": {
-        "min": [
-          3900,
-          -5,
-          2820
-        ],
-        "max": [
-          3930,
-          40,
-          2920
-        ]
-      }
+      "center": [
+        3915,
+        10,
+        2870
+      ],
+      "radius": 60
     }
   },
   "variables": {
@@ -58,6 +53,10 @@
     "finish1",
     "finish2",
     "finish3",
-    "finish4"
-  ]
+    "finish4",
+    "handicap"
+  ],
+  "smoke": {
+    "route": "3915,2870"
+  }
 }
