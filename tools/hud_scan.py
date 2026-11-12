@@ -13,6 +13,14 @@ Port_HudShift sees it (InterfaceManager.c; kind-6 placeholders left out):
   centre    all within 192..448: stays
   mixed     some on a side and others not (or on the other side): with no owner it stays,
             so its side objects would sit in the middle on a wide screen
+  junk      not an interface (the header test's rare false finds)
+
+Owner: "player" (a car's HUD), "none" (level scripts' InterfacePlay, the pause menu, interface
+packs' roots, event 0x1F; passed on to children and go-to targets), "?" (nothing in the pack
+creates it: only a script's EndInterface names it, or it is created from elsewhere, e.g. the
+mission 5 map icon). Objects print as index:kKIND/rROLE@x,y and side, [lo..hi] the x range of
+all their position keys (default and state animations) when it differs, !1 no position key,
+!2 an anchor out of range.
 
     hud_scan.py --build build --data DIR [--data DIR...] [--out build/hudscan] [--json out.json]
                [--types interface,world,...] [--only mixed]
@@ -41,6 +49,10 @@ def side(x):
 
 
 def classify(objs):
+    # the header test's few false finds: one object of no kind AddObject makes, or an anchor
+    # out of the interface
+    if all(o["kind"] == -1 or o.get("flags", 0) & 2 for o in objs):
+        return "junk"
     xs = [o["ax"] for o in objs if o["kind"] != 6]
     if not xs:
         return "empty"

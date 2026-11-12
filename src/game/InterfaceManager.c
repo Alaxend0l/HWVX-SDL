@@ -4177,7 +4177,7 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
  * is logged once its parent placeholder is set, x counting the parent's. */
 static void Port_HudLog(Interface *iface, const char *what) {
     static int on = -1;
-    char line[600];
+    char line[1500];
     size_t n;
     f32 lo = 0.0f, hi = 0.0f, x;
     u32 j, k = 0;
