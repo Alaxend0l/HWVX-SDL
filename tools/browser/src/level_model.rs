@@ -34,6 +34,11 @@ pub struct Project {
     pub redo: Vec<Snapshot>,
     /// the trigger files read from the folder (one taken out is deleted when saved)
     pub loaded: Vec<String>,
+    /// trigger files taken out, as they were (their text): undo brings them back with it
+    removed: Vec<TriggerFile>,
+    /// trigger files that didn't parse: (name, why). Never written or deleted; their names are
+    /// taken; the checks and the test drive's copy have them as they are (their errors show)
+    pub broken: Vec<(String, String)>,
 }
 
 fn read_jsonc(p: &Path) -> Result<(String, Value), String> {
@@ -59,14 +64,28 @@ impl Project {
             names.extend(more);
         }
         let mut triggers = Vec::new();
+        let mut broken = Vec::new();
         for n in names {
             let p = dir.join("triggers").join(format!("{n}.jsonc"));
-            if let Ok((text, v)) = read_jsonc(&p) {
-                triggers.push(TriggerFile { name: n, text: Some(text), saved: v.clone(), value: v });
+            match read_jsonc(&p) {
+                Ok((text, v)) => triggers.push(TriggerFile { name: n, text: Some(text), saved: v.clone(), value: v }),
+                Err(e) if p.exists() => broken.push((n, e)),
+                Err(_) => {} // listed in level.jsonc, no file: the checks say so
             }
         }
         let loaded = triggers.iter().map(|t| t.name.clone()).collect();
-        Ok(Project { dir: dir.to_path_buf(), level_text, level_saved: level.clone(), level, triggers, undo: Vec::new(), redo: Vec::new(), loaded })
+        Ok(Project {
+            dir: dir.to_path_buf(),
+            level_text,
+            level_saved: level.clone(),
+            level,
+            triggers,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            loaded,
+            removed: Vec::new(),
+            broken,
+        })
     }
 
     /// base://<archive>/world_0/ of the level's world
@@ -89,7 +108,8 @@ impl Project {
         self.level = s.level;
         let old = std::mem::take(&mut self.triggers);
         for (name, v) in s.triggers {
-            match old.iter().find(|t| t.name == name) {
+            // as it was: in the list now, or taken out earlier (its file's text kept)
+            match old.iter().chain(self.removed.iter()).find(|t| t.name == name) {
                 Some(t) => self.triggers.push(TriggerFile { value: v, ..t.clone() }),
                 None => self.triggers.push(TriggerFile { name, text: None, saved: Value::Null, value: v }),
             }
@@ -106,7 +126,11 @@ impl Project {
 
     /// A trigger taken out (its file deleted when saved).
     pub fn remove_trigger(&mut self, name: &str) {
-        self.triggers.retain(|t| t.name != name);
+        if let Some(i) = self.triggers.iter().position(|t| t.name == name) {
+            let t = self.triggers.remove(i);
+            self.removed.retain(|r| r.name != name);
+            self.removed.push(t);
+        }
         if let Some(order) = self.level.get_mut("triggers").and_then(Value::as_array_mut) {
             order.retain(|v| v.as_str() != Some(name));
         }
@@ -116,7 +140,16 @@ impl Project {
     pub fn free_name(&self, kind: &str, stem: &str) -> String {
         (1..)
             .map(|i| format!("{stem}{i}"))
-            .find(|n| if kind == "triggers" { self.trigger(n).is_none() } else { self.level[kind].get(n).is_none() })
+            .find(|n| {
+                if kind == "triggers" {
+                    // nor a file of the folder (one that didn't parse, one taken out not saved yet)
+                    self.trigger(n).is_none()
+                        && !self.broken.iter().any(|(b, _)| b == n)
+                        && !self.dir.join("triggers").join(format!("{n}.jsonc")).exists()
+                } else {
+                    self.level[kind].get(n).is_none()
+                }
+            })
             .unwrap()
     }
 
@@ -205,18 +238,60 @@ impl Project {
         let _ = std::fs::remove_dir_all(&tdir);
         std::fs::create_dir_all(&tdir).map_err(|e| format!("{}: {e}", tdir.display()))?;
         let mut level = self.level.clone();
-        if level.get("triggers").is_none() || level["triggers"].is_array() {
-            level["triggers"] = json!(self.triggers.iter().map(|t| t.name.clone()).collect::<Vec<_>>());
+        if let Some(order) = level.get_mut("triggers").and_then(Value::as_array_mut) {
+            // the listed order, then any other trigger of the project (a broken file's too: its
+            // error shows in the checks)
+            for n in self.triggers.iter().map(|t| &t.name).chain(self.broken.iter().map(|(n, _)| n)) {
+                if !order.iter().any(|v| v.as_str() == Some(n)) {
+                    order.push(json!(n));
+                }
+            }
         }
         write(&to.join("level.jsonc"), &serde_json::to_string_pretty(&level).unwrap())?;
         for t in &self.triggers {
             write(&tdir.join(format!("{}.jsonc", t.name)), &serde_json::to_string_pretty(&t.value).unwrap())?;
         }
+        for (n, _) in &self.broken {
+            let from = self.dir.join("triggers").join(format!("{n}.jsonc"));
+            if let Ok(text) = std::fs::read_to_string(&from) {
+                write(&tdir.join(format!("{n}.jsonc")), &text)?;
+            }
+        }
         Ok(())
     }
 
+    /// Files changed on disk since they were read (or saved): another editor's edits. Saving
+    /// refuses while there are any (reload the project to take them in).
+    pub fn changed_on_disk(&self) -> Vec<PathBuf> {
+        let same = |p: &Path, text: Option<&String>| match (std::fs::read_to_string(p).ok(), text) {
+            (Some(now), Some(t)) => &now == t,
+            (None, None) => true,
+            _ => false,
+        };
+        let mut out = Vec::new();
+        let lp = self.dir.join("level.jsonc");
+        if !same(&lp, Some(&self.level_text)) {
+            out.push(lp);
+        }
+        for t in self.triggers.iter().chain(self.removed.iter().filter(|r| self.loaded.contains(&r.name) && self.trigger(&r.name).is_none())) {
+            let p = self.dir.join("triggers").join(format!("{}.jsonc", t.name));
+            if !same(&p, t.text.as_ref()) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
     /// Writes what changed, each file edited in place (its comments kept). The files written.
+    /// Nothing is written when a file changed on disk since it was read.
     pub fn save(&mut self) -> Result<Vec<PathBuf>, String> {
+        let changed = self.changed_on_disk();
+        if !changed.is_empty() {
+            return Err(format!(
+                "not saved: changed on disk since it was opened: {} (reload the level to take those edits in)",
+                changed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+            ));
+        }
         let mut out = Vec::new();
         if self.level != self.level_saved {
             let p = self.dir.join("level.jsonc");
@@ -249,6 +324,11 @@ impl Project {
                 std::fs::remove_file(&p).map_err(|e| format!("{}: {e}", p.display()))?;
                 out.push(p);
             }
+            // its file is gone now: undone, it comes back as a new one
+            if let Some(r) = self.removed.iter_mut().find(|r| r.name == n) {
+                r.text = None;
+                r.saved = Value::Null;
+            }
         }
         self.loaded = self.triggers.iter().map(|t| t.name.clone()).collect();
         Ok(out)
@@ -259,4 +339,71 @@ fn write(p: &Path, text: &str) -> Result<(), String> {
     let tmp = p.with_extension("jsonc.part");
     std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, p).map_err(|e| format!("{}: {e}", p.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn project(name: &str) -> PathBuf {
+        let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../build-browser-test/model").join(name);
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("triggers")).unwrap();
+        std::fs::write(d.join("level.jsonc"), "// mine\n{\n  \"name\": \"x\",\n  \"triggers\": [\"a\", \"bad\"]\n}\n").unwrap();
+        std::fs::write(d.join("triggers/a.jsonc"), "// keep this comment\n{ \"type\": \"level_start\" }\n").unwrap();
+        std::fs::write(d.join("triggers/bad.jsonc"), "{ \"type\": oops ").unwrap();
+        d
+    }
+
+    #[test]
+    fn broken_trigger_files_are_kept_and_named() {
+        let d = project("broken");
+        let mut p = Project::load(&d).unwrap();
+        assert_eq!(p.broken.len(), 1);
+        assert_eq!(p.broken[0].0, "bad");
+        // its name isn't free; saving never touches it
+        std::fs::write(d.join("triggers/trigger1.jsonc"), "{}").unwrap();
+        assert_eq!(p.free_name("triggers", "trigger"), "trigger2", "a file of the folder is taken");
+        p.level["name"] = "y".into();
+        p.save().unwrap();
+        assert_eq!(std::fs::read_to_string(d.join("triggers/bad.jsonc")).unwrap(), "{ \"type\": oops ");
+        // the checks' copy has it as it is
+        let copy = d.with_file_name("broken-copy");
+        p.write_copy(&copy).unwrap();
+        assert!(copy.join("triggers/bad.jsonc").exists());
+        let lv: Value = serde_json::from_str(&std::fs::read_to_string(copy.join("level.jsonc")).unwrap()).unwrap();
+        assert!(lv["triggers"].as_array().unwrap().iter().any(|v| v == "bad"));
+    }
+
+    #[test]
+    fn undoing_a_trigger_deletion_keeps_its_file() {
+        let d = project("undo");
+        let mut p = Project::load(&d).unwrap();
+        p.push_undo();
+        p.remove_trigger("a");
+        assert!(p.undo());
+        let t = p.trigger("a").unwrap();
+        assert!(t.text.is_some(), "its text comes back");
+        assert!(!p.dirty());
+        // deleted and saved, then undone: a new file again
+        p.push_undo();
+        p.remove_trigger("a");
+        p.save().unwrap();
+        assert!(!d.join("triggers/a.jsonc").exists());
+        assert!(p.undo());
+        assert!(p.trigger("a").unwrap().text.is_none());
+        p.save().unwrap();
+        assert!(d.join("triggers/a.jsonc").exists());
+    }
+
+    #[test]
+    fn save_refuses_files_changed_on_disk() {
+        let d = project("disk");
+        let mut p = Project::load(&d).unwrap();
+        std::fs::write(d.join("level.jsonc"), "// edited elsewhere\n{ \"name\": \"z\", \"triggers\": [\"a\", \"bad\"] }\n").unwrap();
+        p.level["name"] = "y".into();
+        let e = p.save().unwrap_err();
+        assert!(e.contains("changed on disk"), "{e}");
+        assert!(std::fs::read_to_string(d.join("level.jsonc")).unwrap().contains("edited elsewhere"));
+    }
 }
