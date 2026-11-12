@@ -154,6 +154,7 @@ void World_Render(void) {
             }
         }
     }
+    Port_QuadLog(world, pCurrentQuadrant, numCameras);   /* port, testing: HWVX_QUADLOG (Port_Autopilot.c) */
     for (i = 0; i < world->numQuads; i++) {
         quad = &GETP(world->quads)[i];
         if (quad->visible) {

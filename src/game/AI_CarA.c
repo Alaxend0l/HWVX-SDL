@@ -1860,3 +1860,58 @@ void AI_Car_Heartbeat(AICar *ai) {
         }
     }
 }
+
+/* port, testing: HWVX_AUTOPILOT (Port_Autopilot.c) drives player 1's car with
+ * this file's path following: what AI_Car_Heartbeat does once it has a path
+ * (clear the points reached, unstick, steer along the path). Not called
+ * otherwise. */
+void Port_AICarFollowPath(AICar *ai) {
+    NavPoint *point;
+    Vector4 *pos = &CAR_THING(AI_Car_Vehicle(ai))->pos;
+
+    while ((point = AI_Car_PathPoint(ai, ai->pathIndex)) != NULL &&
+           PSVECSquareDistance(&point->pos, pos) < point->radius * point->radius) {
+        AI_Car_ClearedNavPoint_800087C8(ai, 0);
+    }
+    if (!AI_Car_CheckIfStuck(ai)) {
+        AI_Car_SeekPoint(ai);
+    }
+}
+
+/* port, testing: HWVX_AUTOPILOT's mission fights (Port_Autopilot.c). Player
+ * 1's car's own AI script (run by AI_Car_Heartbeat just before) targets
+ * human cars, so against a mission's AI enemies it finds none: then attack
+ * `enemy` as a car-targeting state does (drive at it, AI_Car_LeadTarget, and
+ * the weapon event). `fallback`: a state with no approach distances, for
+ * AI_Car_DriveToTarget when the script is in none. Not called otherwise. */
+void Port_AICarAttack(AICar *ai, Thing *enemy, AIStateSlot *fallback) {
+    Thing *t = GETP(ai->targetThing);
+    s8 idle;
+    AIStateSlot *saved;
+
+    if (enemy == NULL || (t != NULL && GETP(t->vtable) == (u32 *)g_carAVTable)) {
+        return;   /* the script is fighting a car already */
+    }
+    idle = GETP(ai->current) == NULL || (t == NULL && GETP(ai->targetNav) == NULL);
+    Control_ClearControl(ai);
+    SETP(ai->targetThing, enemy);
+    SETP(ai->targetNav, NULL);
+    SETP(ai->obstacle, NULL);
+    memset(ai->path, 0, sizeof(ai->path));
+    ai->pathIndex = 32;
+    saved = GETP(ai->current);
+    if (saved == NULL) {
+        SETP(ai->current, fallback);
+    }
+    if (!AI_Car_CheckIfStuck(ai)) {
+        AI_Car_SeekPoint(ai);
+    }
+    SETP(ai->current, saved);
+    if (idle) {
+        /* AI_Car_Heartbeat stopped before its weapon timers */
+        AI_UpdateTimer(&ai->weaponSwitchTimer);
+        if (ai->weaponTimer != 0 && AI_UpdateTimer(&ai->weaponTimer) == 0) {
+            AI_AddEvent(&ai->weaponEvent);
+        }
+    }
+}
