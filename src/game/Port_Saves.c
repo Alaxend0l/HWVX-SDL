@@ -475,6 +475,9 @@ static int WriteSave(const char *name, const PortSaveKind *kind, const void *sav
     }
     ok = 1;
 done:
+    /* the files changed (or may have: a rotation, a save moved aside); the
+     * cache's stamp of sizes and times can miss that with coarse times */
+    ForgetCache();
     Jw_Free(&w);
     SDL_free(dir);
     SDL_free(current);
