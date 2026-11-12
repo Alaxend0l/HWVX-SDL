@@ -119,7 +119,7 @@ void ViewerLevel_SpawnBox(const f32 *pos, f32 rotY, f32 rotX, f32 rotZ, const u8
 
 /* Is the start's box clear (walls, ceiling, ground)? Rays along its edges and through it
  * against the world's collision, and down from above each bottom corner and its middle.
- * *seat: the highest ground under it (where its bottom goes, "to the ground"); the
+ * *seat: the highest ground under it (where the car's origin goes, "to the ground"); the
  * problems as text into `out` (comma separated; "" when clear). */
 static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size) {
     static const int e[12][2] = { { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 }, { 0, 2 }, { 1, 3 },
@@ -151,8 +151,9 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
             highest = g > highest ? g : highest;
         }
     }
-    /* the position that seats the box's bottom on the highest ground under it */
-    *seat = ground ? highest - lo[1] : pos[1];
+    /* where the car's origin rests on the ground: the box reaches below it by the envelope's
+     * below-origin depth (-lo[1]: 1.4 on retail, car 7's), as a car standing there does */
+    *seat = ground ? highest : pos[1];
     /* the box's own edges and diagonals, its bottom raised off the ground a little (the
      * ground under it is the check above): anything they cross is inside the box */
     lifted[0] = pos[0], lifted[2] = pos[2];
@@ -179,12 +180,13 @@ static int CheckBox(const f32 *pos, f32 rotY, f32 *seat, char *out, size_t size)
     if (ground == 0) {
         n += SDL_snprintf(out + n, size - (size_t)n, "%sno ground under it", n ? ", " : "");
     } else {
-        if (highest > bottom + 0.3f) {
-            n += SDL_snprintf(out + n, size - (size_t)n, "%sits bottom %.1f into the ground", n ? ", " : "",
-                              (double)(highest - bottom));
-        } else if (bottom - highest > 3.0f) {
-            n += SDL_snprintf(out + n, size - (size_t)n, "%sits bottom %.1f above the ground", n ? ", " : "",
-                              (double)(bottom - highest));
+        /* into the ground deeper than the box's own below-origin depth (+ 0.05): the origin
+         * itself below the ground */
+        if (highest > pos[1] + 0.05f) {
+            n += SDL_snprintf(out + n, size - (size_t)n, "%sits box %.2f into the ground (deeper than the cars' %.2f "
+                              "below their origin)", n ? ", " : "", (double)(highest - bottom), (double)-lo[1]);
+        } else if (pos[1] - highest > 3.0f) {
+            n += SDL_snprintf(out + n, size - (size_t)n, "%s%.1f above the ground", n ? ", " : "", (double)(pos[1] - highest));
         }
         if (highest - lowest > 3.0f || ground < 5) {
             gaps = 1;

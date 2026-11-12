@@ -617,7 +617,7 @@ impl Browser {
         if rot > std::f64::consts::PI {
             rot -= std::f64::consts::TAU;
         }
-        let lift = -self.level.edit.spawn_box["min"][1].as_f64().unwrap_or(0.0) as f32;
+        let lift = 0.0f32; // a start's origin on the ground (its box reaches below it, as a car's does)
         let Some(p) = self.level.edit.proj.as_mut() else { return };
         let before = p.snapshot();
         let (k, name, v) = match kind {

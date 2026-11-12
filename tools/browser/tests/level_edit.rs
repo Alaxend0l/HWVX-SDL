@@ -212,16 +212,19 @@ fn viewer_editor_commands() {
     let near = |v: &Value, w: [f64; 3]| (0..3).all(|i| (v[i].as_f64().unwrap() - w[i]).abs() < 0.01);
     assert!(near(&b["box"]["min"], [-5.0, -1.4, -14.0]) && near(&b["box"]["max"], [5.0, 5.25, 13.0]), "{b}");
     assert!(std::fs::read_to_string(&bf).unwrap().contains("\"cars\": 33"));
-    // a start against the world: seated on the road it is clear; too low, too high, inside the world not
+    // a start against the world: the retail start (its origin on the road, the box 1.4 below it) is
+    // clear; too low (0.5 deeper), too high, inside the world not
     let sc = v.call("startcheck", json!({"starts": [
-        {"pos": [-364.6, 3.61, -780.6], "rotY": 1.5708},
-        {"pos": [-364.6, 0.0, -780.6], "rotY": 1.5708},
+        {"pos": [-364.6, 2.22, -780.6], "rotY": 1.5708},
+        {"pos": [-364.6, -1.0, -780.6], "rotY": 1.5708},
         {"pos": [-364.6, 20.0, -780.6], "rotY": 1.5708},
         {"pos": [-300.0, 3.61, -700.0], "rotY": 1.5708}
     ]})).unwrap();
     let st = sc["starts"].as_array().unwrap();
     assert_eq!(st[0]["clear"], true, "{sc}");
-    assert!((st[0]["seat"].as_f64().unwrap() - 3.61).abs() < 0.1, "the seat: the box's bottom on the road: {sc}");
+    assert!((st[0]["seat"].as_f64().unwrap() - 2.21).abs() < 0.1, "the seat: the car's origin on the road: {sc}");
+    let low = v.call("startcheck", json!({"starts": [{"pos": [-364.6, 1.72, -780.6], "rotY": 1.5708}]})).unwrap();
+    assert!(low["starts"][0]["problems"].as_str().unwrap().contains("into the ground"), "0.5 lower: {low}");
     assert!(st[1]["problems"].as_str().unwrap().contains("into the ground"), "{sc}");
     assert!(st[2]["problems"].as_str().unwrap().contains("above the ground"), "{sc}");
     assert!(st[3]["problems"].as_str().unwrap().contains("wall"), "{sc}");
