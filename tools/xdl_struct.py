@@ -560,29 +560,38 @@ class Encoder:
 # ------------------------------------------------------------------------------------------
 # JSONC
 
+_JSONC_COMMENT = re.compile(r'"(?:[^"\\]|\\.)*"|//[^\n]*|/\*.*?\*/|/\*|"', re.S)
+_JSONC_COMMA = re.compile(r'"(?:[^"\\]|\\.)*"|,(?=\s*[\]}])')
+
+
+def _jsonc_strip(m):
+    t = m.group()
+    if t[0] == '"':
+        if len(t) == 1:
+            raise XdlError(f"unterminated string at offset {m.start()}")
+        return t
+    if t == "/*":
+        raise XdlError(f"unterminated comment at offset {m.start()}")
+    return ""
+
+
 def jsonc_loads(text):
-    """JSON with // and /* */ comments and trailing commas."""
-    out, i, n = [], 0, len(text)
-    while i < n:
-        c = text[i]
-        if c == '"':
-            j = i + 1
-            while text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            out.append(text[i:j + 1])
-            i = j + 1
-        elif text.startswith("//", i):
-            j = text.find("\n", i)
-            i = n if j < 0 else j
-        elif text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            if j < 0:
-                raise XdlError("unterminated comment")
-            i = j + 2
-        else:
-            out.append(c)
-            i += 1
-    s = re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+    """JSON with // and /* */ comments and trailing commas (a comma before } or ], outside
+    strings). Raises XdlError for an unterminated string or comment, ValueError for bad JSON."""
+    # fast path: the files the tools write are JSON after leading // comment lines
+    i = 0
+    while True:
+        j = len(text) - len(text[i:].lstrip())
+        if not text.startswith("//", j):
+            break
+        k = text.find("\n", j)
+        i = len(text) if k < 0 else k + 1
+    try:
+        return json.loads(text[i:])
+    except ValueError:
+        pass
+    s = _JSONC_COMMENT.sub(_jsonc_strip, text)
+    s = _JSONC_COMMA.sub(lambda m: m.group() if m.group()[0] == '"' else "", s)
     return json.loads(s)
 
 
