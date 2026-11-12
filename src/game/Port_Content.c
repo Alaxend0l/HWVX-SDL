@@ -25,6 +25,7 @@ typedef struct Registered {
     char *suffix;
     char *thumbnail;    /* a texture link (NULL: the alias's picture) */
     char *world;        /* a track's own world archive (NULL: the alias's level's) */
+    char *data;         /* the pack its data is, when not the alias's (proto://, Port_Proto.c) */
     s8 reserved;        /* a number kept for content that isn't there (ids.lock):
                          * no id to save by, locked, base entry 0's data */
 } Registered;
@@ -216,6 +217,16 @@ int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, co
     return 1;
 }
 
+const char *Port_ContentDataLink(int kind, u32 i) {
+    Kind *k = KindOf(kind);
+    u32 b;
+
+    if (k == NULL || i >= CountOf(k) || i < (b = BaseOf(k)) || k->reg[i - b].reserved) {
+        return NULL;
+    }
+    return k->reg[i - b].data;
+}
+
 const char *Port_ContentWorld(int kind, u32 i) {
     Kind *k = KindOf(kind);
     u32 b;
@@ -319,6 +330,7 @@ s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     r->suffix = Dup(e->suffix);
     r->thumbnail = Dup(e->thumbnail);
     r->world = Dup(e->world);
+    r->data = Dup(e->data);
     r->reserved = e->reserved;
     Grow(k);
     return (s32)(CountOf(k) - 1);
@@ -337,6 +349,7 @@ void Port_ContentReset(void) {
             SDL_free(k->reg[j].suffix);
             SDL_free(k->reg[j].thumbnail);
             SDL_free(k->reg[j].world);
+            SDL_free(k->reg[j].data);
         }
         SDL_free(k->reg);
         SDL_free(k->live);
@@ -673,8 +686,10 @@ int Port_ContentLoadLock(const char *path) {
             pe.suffix = Str(x->node, "suffix");
             pe.thumbnail = Str(x->node, "thumbnail");
             pe.world = Str(x->node, "world");
-            /* away, or data of its own (no mod loading yet): its number kept */
-            pe.reserved = !x->active || x->alias < 0;
+            pe.data = Str(x->node, "data");
+            /* away, or data of its own that nothing loads (a mod's: not yet;
+             * the prototype's, proto://, loads, Port_Proto.c): its number kept */
+            pe.reserved = !x->active || (x->alias < 0 && pe.data == NULL);
             if (Port_ContentRegisterEntry(i, &pe) >= 0) {
                 registered += !pe.reserved;
             }

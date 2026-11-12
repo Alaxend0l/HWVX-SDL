@@ -146,6 +146,16 @@ s32 Port_FileFormat(s32 handle) {
     return ((DVDFileInfo *)PTR(g_filedata_PC[idx].fileInfo))->format;
 }
 
+/* port: `handle` is the PS2 prototype's file (proto.c): its own pack layout. */
+s32 Port_FileProto(s32 handle) {
+    s32 idx = (s8)(u8)handle;
+
+    if ((u8)((u32)handle >> 16) >= 11 || idx < 0 || idx >= 4 || g_filedata_PC[idx].fileInfo == 0) {
+        return 0;
+    }
+    return (s32)((DVDFileInfo *)PTR(g_filedata_PC[idx].fileInfo))->proto;
+}
+
 /* port: the cache of `handle`'s converted packs, or NULL (xdl.c). */
 void *Port_FileXdl(s32 handle) {
     s32 idx = (s8)(u8)handle;

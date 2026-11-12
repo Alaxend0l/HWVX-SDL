@@ -5,6 +5,7 @@
 #include "xdl.h"
 #include "Port_Content.h"
 #include "Port_Mix.h"
+#include "Port_Proto.h"
 
 extern FileTOCCacheEntry g_fileTOCCache[11];
 extern s8 g_bSoundLoadingEnabled;
@@ -76,8 +77,16 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
     s8 found;
     char path[0x80];
     u32 tocId;
+    s32 proto;
+    const char *source = name;
 
     found = 0;
+    /* port: the pack an entry's data is (Port_ContentData.c): an extra car
+     * loads the pack it aliases, prototype content the prototype's pack
+     * (Port_Proto.c), under the prototype's archive name ("~HW_Cars") */
+    tocId = Port_ContentPackSource(name, type, id, &source);
+    name = (char *)source;
+    proto = Port_ProtoName(name) != NULL;
     snprintf(path, sizeof(path), "%s.xgc", name);   /* port: bounded (strcpy + strcat) */
     if ((g_fileID != -1 && g_fileTOCCache[type].name == NULL) || strcmp(g_fileTOCCache[type].name, name) != 0) {
         for (i = 0; i < 11; i++) {
@@ -125,7 +134,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             g_openFileDataPackType = 0xB;
             return 0;
         }
-        if (g_buffer[2] != 0xB7) {
+        if (g_buffer[2] != 0xB7 && !(proto && (g_buffer[2] == 177 || g_buffer[2] == 179))) {   /* port: the prototype's */
             char msg[0x80];
             File_Close(g_fileID);
             g_fileID = -1;
@@ -168,10 +177,10 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
             strcpy(tocName, name);
         }
     }
-    tocId = Port_ContentPackId(name, type, id);   /* port: an extra car loads the pack it aliases */
     for (i = 0; i < toc->count; i++) {
         if (type == s_tocEntries[type][i].type && tocId == s_tocEntries[type][i].id) {
-            if (s_tocEntries[type][i].version != 0xB7) {
+            if (s_tocEntries[type][i].version != 0xB7 &&
+                !(proto && (s_tocEntries[type][i].version == 177 || s_tocEntries[type][i].version == 179))) {
                 char msg[0x80];
                 snprintf(msg, sizeof(msg), "The data pack is out of date: %s. Packfile:%d,  Code:%d\nYou need to repack the data using the latest BrainCore\n", path, s_tocEntries[type][i].version, 0xB7);
                 Dprintf(msg);
@@ -180,7 +189,8 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
                 g_openFileDataPackType = 0xB;
                 return 0;
             }
-            File_Seek(g_fileID, s_tocEntries[type][i].offset + 0x10 + g_fileTOCCache[type].count * sizeof(FileTOCEntry), 0);
+            /* port: the prototype's offsets count from the end of their own entry */
+            File_Seek(g_fileID, s_tocEntries[type][i].offset + 0x10 + (proto ? i + 1 : g_fileTOCCache[type].count) * sizeof(FileTOCEntry), 0);
             found = 1;
             break;
         }
@@ -304,6 +314,7 @@ static void *XdlBlock(XdlPack *xp, int seg) {
 void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     extern s8 g_bSoundLoadingEnabled;
     static DataPackFileHeader header;
+    DataPackFileHeader ownHeader;
     char msg[0x68];
     u32 relocSize;
     s8 freeData;
@@ -325,6 +336,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     XdlPack *xp;
     u8 *xdlBank = NULL;
     void *xdlSfx = NULL;
+    s32 proto;
 
     memset(pack, 0, sizeof(DataPack));
     /* port: the pack as an earlier load left it, cached (xdl.c, HWVX_XDL):
@@ -334,6 +346,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     xp = Xdl_FindPack(Port_FileXdl(file), Port_FileTell(file));
     fmt = Port_FileFormat(file);   /* port: whose pack it is (Port_Data.c) */
     pack->portFormat = (u8)fmt;
+    /* port: the PS2 prototype's (Port_Proto.c): no sector padding, its
+     * pointer tables before its data, other texture headers */
+    proto = Port_FileProto(file);
+    pack->portProto = (u8)proto;
     if (xp != NULL) {
         SkipRead(xp, XDL_SEG_RAW_HEADER, sizeof(DataPackFileHeader));
         Xdl_Header(xp, &header, sizeof(header));
@@ -343,7 +359,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         RecordRead(file, XDL_SEG_RAW_HEADER, sizeof(DataPackFileHeader));
         PortData_PackHeader(fmt, (u32 *)&header, 20, 2, sizeof(DataPackRef));
         Xdl_PackHeader(&header, sizeof(header));
-        if (fmt == PORT_DATA_PS2) {
+        if (fmt == PORT_DATA_PS2 && !proto) {
             Port_FileAlign(file, PORT_PS2_SECTOR);   /* port: the header is padded to a sector */
         }
     }
@@ -360,6 +376,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     pack->songLoaded = 0;
     pack->dataSize = header.dataSize;
     memcpy(pack->refs, header.refs, sizeof(header.refs));
+    if (proto) {
+        Port_ProtoRefs(pack->refs);   /* port: the packs it refers to are the prototype's too */
+    }
     size = header.numRelocs * 8 + (pack->numSounds + pack->numTextures) * 2 + pack->numShaders * 2 + header.numGX * 8 + header.numSoundRelocs * 8 + header.dataSize + 0x60;
     relocSize = header.numTexRelocs * 8 + header.numPointers * 4;
     size += relocSize;
@@ -395,6 +414,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             SkipRead(xp, XDL_SEG_RAW_SOUND, readSize);
             Xdl_ReadSeg(xp, XDL_SEG_SOUND, sfx, 0, Xdl_SegSize(xp, XDL_SEG_SOUND));
             Xdl_PlaceSeg(xp, XDL_SEG_SOUND, sfx);
+        } else if (proto) {
+            /* port: the prototype's sound data follows its pointers unpadded */
+            File_Read(file, header.numSoundPointers * 4, sfx);
+            File_Read(file, header.soundDataSize, PTR((HND(sfx) + header.numSoundPointers * 4 + 0x1F) & ~0x1F));
         } else {
             File_Read(file, readSize, sfx);
             RecordRead(file, XDL_SEG_RAW_SOUND, readSize);
@@ -512,8 +535,25 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
             Port_InvalidateDisplayLists(data + tablesSize + pad, header.dataSize);
         }
     } else {
-        File_Read(file, readSize, data);
-        RecordRead(file, XDL_SEG_RAW_MAIN, readSize);
+        if (proto) {
+            /* port: the prototype's pointer tables come before its data;
+             * read in the file's order, each to where the loader has it
+             * (a read rounds up to 32 bytes: the tables go aside first) */
+            u8 *tables = relocSize != 0 ? malloc(relocSize + 0x20) : NULL;
+
+            File_Read(file, tablesSize, data);
+            if (tables != NULL) {
+                File_Read(file, relocSize, tables);
+            }
+            File_Read(file, header.dataSize, data + tablesSize + pad);
+            if (tables != NULL) {
+                memcpy(data + tablesSize + pad + header.dataSize, tables, relocSize);
+                free(tables);
+            }
+        } else {
+            File_Read(file, readSize, data);
+            RecordRead(file, XDL_SEG_RAW_MAIN, readSize);
+        }
         {
             /* port: swap tables and data blob before the relocations below */
             u8 *blob = data + tablesSize + pad;
@@ -539,6 +579,10 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     offset = pad + offset;
     reloc = (u32 *)(data + offset);
     pointers = reloc + header.numTexRelocs * 2;
+    /* port: a pack this one refers to may load just below (the prototype's
+     * shared packs, Port_Proto.c, aren't loaded ahead as the release's
+     * are), into the same static header: the header is kept aside */
+    memcpy(&ownHeader, &header, sizeof(header));
     for (i = 0; i < header.numTexRelocs; i++) {
         packID = reloc[1] & 0xFFFF0000;
         if (packID != 0) {
@@ -553,6 +597,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         }
         reloc += 2;
     }
+    memcpy(&header, &ownHeader, sizeof(header));
     if (xp != NULL) {
         /* port: the blocks the converters allocated, in their order */
         for (i = XDL_SEG_BLOCK; i < XDL_MAX_SEGS; i++) {
@@ -580,7 +625,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
                                                           header.numPointers, (u32 *)GETP(pack->relocs),
                                                           header.numRelocs));
             PortGeometry_Keep(pack, PortPS2_Textures(GETP(pack->base), header.dataSize, header.textureDataOffset,
-                                                     header.numTextures, header.paletteOffset, header.palettes));
+                                                     header.numTextures, header.paletteOffset, header.palettes,
+                                                     proto));
         }
         /* port: a mixed build's textures from the other releases (Port_Mix.c) */
         PortMix_Textures(pack, fmt, GETP(pack->base), header.dataSize, header.textureDataOffset, header.numTextures);
