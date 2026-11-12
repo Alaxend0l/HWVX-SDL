@@ -188,9 +188,27 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             names[f"level://{kind}/{n}/to"] = own_id(kind, n)
     for n in (lv.get("strings") or {}):
         names[f"level://strings/{n}"] = own_id("strings", n)
+    # the records the pack build adds to tables: where links to them go
+    tc = table_doc("tileCars")
+    for i, n in enumerate(lv.get("starts") or {}):
+        names[f"level://starts/{n}"] = f"{pre}World/0/tileCars/{len(tc['items']) + i}"
+    od = table_doc("objectives")
+    for i, n in enumerate(lv.get("objectives") or {}):
+        names[f"level://objectives/{n}"] = f"{pre}World/0/objectives/{(len(od['items']) if od else 0) + i}"
+    for kind, arr in (("items", "items"), ("fxPoints", "fxPoints")):
+        added = {}
+        for n, it in (lv.get(kind) or {}).items():
+            q = it.get("quad") if isinstance(it, dict) else None
+            aid = f"{pre}World/0/quads/{q}/contents/{arr}"
+            if not isinstance(q, int) or aid not in W.file_of:
+                continue
+            k0 = len(W.doc(W.file_of[aid]).get("items") or [])
+            names[f"level://{kind}/{n}"] = f"{aid}/{k0 + added.get(q, 0)}"
+            added[q] = added.get(q, 0) + 1
     hdr = W.B.pack["pack"]["header"]
     nbase = int(hdr.get("num_triggers", 0))
     tnames = lv.get("triggers") or sorted(p.stem for p in (project / "triggers").glob("*.jsonc"))
+    tnames = list(tnames) + [n for n, _ in LV.generated_triggers(lv, "level.jsonc/rules")]
     for i, n in enumerate(tnames):
         names[f"level://triggers/{n}"] = f"{pre}trigger/{nbase + i}"
 

@@ -728,6 +728,55 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
         }
         return 1;
     }
+    if (SDL_strcmp(cmd, "lanecheck") == 0) {
+        /* drag lanes: each start's box swept straight ahead (`length`, default 300) against the
+         * world's collision: rays from its front face's corners (above the ground) and middle.
+         * Per start: `clear` (nothing within the length) and `free` (how far it is clear) */
+        const JsonNode *list = Json_Get(req, "starts"), *st;
+        f32 len = (f32)Json_GetNumber(req, "length", 300.0), lo[3], hi[3];
+
+        if (WorldPack() == NULL || list == NULL || list->type != JSON_ARRAY) {
+            SDL_snprintf(err, errSize, WorldPack() == NULL ? "lanecheck needs a world shown (world)"
+                                                            : "lanecheck takes starts: [{pos, rotY}], length?");
+            *ok = 0;
+            return 1;
+        }
+        Port_SpawnEnvelope(lo, hi, NULL, 1);
+        Jw_BeginArray(w, "lanes", 0);
+        for (st = list->child; st != NULL; st = st->next) {
+            f32 p[3], rot = (f32)Json_GetNumber(st, "rotY", 0.0), best = len;
+            f32 fx = sinf(rot), fz = cosf(rot), sx = cosf(rot), sz = -sinf(rot);
+            int k;
+
+            if (!ParseVec(Json_Get(st, "pos"), p)) {
+                Viewer_WriteNull(w, NULL);
+                continue;
+            }
+            for (k = 0; k < 7; k++) {
+                /* side x: left, middle, right; height: above the ground a little, the top */
+                f32 side = k < 6 ? (k % 3 == 0 ? lo[0] : k % 3 == 1 ? 0.0f : hi[0]) * 0.95f : 0.0f;
+                f32 up = k < 3 ? 0.6f : k < 6 ? hi[1] * 0.9f : hi[1] * 0.5f;
+                Vector4 a __attribute__((aligned(16))), b __attribute__((aligned(16)));
+                f32 t = 1.0f;
+
+                SDL_zero(a);
+                SDL_zero(b);
+                a.x = p[0] + sx * side + fx * hi[2];
+                a.y = p[1] + up;
+                a.z = p[2] + sz * side + fz * hi[2];
+                b.x = a.x + fx * len, b.y = a.y, b.z = a.z + fz * len;
+                if (RayHitsTerrain(&a, &b, &t, NULL) && t * len < best) {
+                    best = t * len;
+                }
+            }
+            Jw_BeginObject(w, NULL, 1);
+            Jw_Bool(w, "clear", best >= len);
+            Jw_Float(w, "free", best);
+            Jw_EndObject(w);
+        }
+        Jw_EndArray(w);
+        return 1;
+    }
     if (SDL_strcmp(cmd, "quadat") == 0) {
         /* the quadrant (streaming region, BSPN0) a point is in: an item placed there goes into
          * its contents. -1: none (the hub only) */

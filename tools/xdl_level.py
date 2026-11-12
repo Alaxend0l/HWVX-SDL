@@ -62,6 +62,7 @@ MODES = {
 TRIGGER_MAX = [0x28, 0x14, 0xA, 0x14, 0x14, 0xA, 0x28, 0xA, 0xA, 0xA, 0x3C, 0xA, 0xA, 0xA, 0x5, 0xA, 0xA, 0xA,
                0xA, 0x5, 0xA, 0xA, 0x5, 0x5, 0x5, 0xA, 0xA, 0x28]
 KINDS = ("volumes", "timers", "variables", "strings")
+PACK_ONLY = ("starts", "items", "fxPoints", "objectives")    # records only the world pack build adds
 
 
 class LevelError(Exception):
@@ -286,6 +287,8 @@ class Compiler:
         self.skip_intro = skip_intro
         self.spawn_box = spawn_box
         self.warnings = []
+        self.lv = {}
+        self.pack_only = set()
         self.e = E               # the byte order records are encoded in (the pack build: the release's)
         self.T = XT.Tac()
         self.parts = []           # {"id", "kind", "hex", "links": [[off, LINK]]}
@@ -445,15 +448,64 @@ class Compiler:
         for i, (pid, data, links) in enumerate(parts):
             self.add_part(pid, "trigger" if i == 0 else "data", data, dict(links))
 
+    # -- the modes ------------------------------------------------------------------------------
+
+    def base_starts(self):
+        """The base world's tile cars (port, pos, rotY), when the base world is given."""
+        if self.base is None:
+            return None
+        f = self.base.dir / "World" / "0" / "tileCars.jsonc"
+        return read_jsonc(f).get("items") or [] if f.exists() else []
+
+    def mode_checks(self, lv, mode, where):
+        """What a mode's levels need (warnings: the game still runs them). AI cars only as retail
+        uses them: an AI start (port 0 or past 4) only in a world whose retail level has AI starts,
+        and none in Joyride."""
+        own = [s for s in (lv.get("starts") or {}).values() if isinstance(s, dict)]
+        ai_own = [s for s in own if not 1 <= int(s.get("port", 0)) <= 4]
+        base = self.base_starts()
+        if ai_own:
+            if mode == "joyride":
+                self.warnings.append(f"{where}/starts: an AI car in Joyride: retail Joyride has none (the AI "
+                                     "isn't made for free roam)")
+            elif base is not None and not any(not 1 <= int(c.get("port", 0)) <= 4 for c in base):
+                self.warnings.append(f"{where}/starts: an AI car in a world whose retail level has none: the AI "
+                                     "only knows the roles and routes retail gives it")
+            else:
+                self.warnings.append(f"{where}/starts: an AI car of the level's own: keep it on the routes "
+                                     "retail AI drives (near a retail AI start), or move a retail AI start instead")
+        if base is not None:
+            n = len(base) + len(own)
+            humans = sum(1 for c in base if 1 <= int(c.get("port", 0)) <= 4) + len(own) - len(ai_own)
+            if mode == "drag" and n != 4:
+                self.warnings.append(f"{where}/starts: a drag race has 4 lanes: 4 starts (it has {n})")
+            if mode == "battle" and n < 2:
+                self.warnings.append(f"{where}/starts: a battle needs 2 starts at least")
+            if humans == 0:
+                self.err(f"{where}/starts", "no player start (port 1)")
+        if mode not in ("battle", "drag") and lv.get("rules"):
+            self.warnings.append(f"{where}/rules: the round rules are for battles and drag races")
+
     # -- links --------------------------------------------------------------------------------
 
     def resolve(self, s, where, archive):
-        if s in self.part_ids:
+        if s in self.part_ids and not s.startswith("level://_"):
             return {"part": s}
         m = re.fullmatch(r"(level://[a-z]+/[^/]+(?:/to)?)(?:/o([0-9a-fA-F]+))?", s)
         if m and s.startswith("level://"):
             base, add = m.group(1), int(m.group(2), 16) if m.group(2) else 0
             kind = base.split("/")[2]
+            if kind in PACK_ONLY:
+                # a record only the world pack has: in memory (the preview) the link names nothing
+                if not isinstance((self.lv.get(kind) or {}).get(base.split("/")[3]), dict):
+                    raise LevelError(f"{where}: {s}: the level has no such {kind[:-1]}")
+                if "level://_null" not in self.part_ids:
+                    self.add_part("level://_null", "data", bytes(0x70), {})
+                if f"pack-only {s}" not in self.pack_only:
+                    self.pack_only.add(f"pack-only {s}")
+                    self.warnings.append(f"{where}: {s} is in the level's world pack (a test drive), "
+                                         "not the editor's preview")
+                return {"part": "level://_null"}
             if kind in ("timers", "variables") and not base.endswith("/to"):
                 if base + "/to" not in self.part_ids:
                     raise LevelError(f"{where}: {s}: the level has no such {kind[:-1]}")
@@ -477,6 +529,7 @@ class Compiler:
     def run(self):
         lv_path = self.proj / "level.jsonc"
         lv = read_jsonc(lv_path)
+        self.lv = lv
         where = "level.jsonc"
         for k in ("id", "name", "mode", "extends", "world"):
             if not isinstance(lv.get(k), str):
@@ -524,6 +577,7 @@ class Compiler:
                 self.err(w, "pos [x, y, z]")
             elif not isinstance(st.get("rotY", 0), (int, float)) or not isinstance(st.get("port", 0), int):
                 self.err(w, "rotY (radians) and port (1-4 a player, 0 the AI's)")
+        self.mode_checks(lv, mode, where)
         for n, it in (lv.get("items") or {}).items():
             w = f"{where}/items/{n}"
             if not isinstance(it, dict) or not (isinstance(it.get("pos"), list) and len(it["pos"]) == 3):
@@ -572,6 +626,10 @@ class Compiler:
                 docs.append((name, read_jsonc(f)))
             except LevelError as ex:
                 self.errors.append(str(ex))
+        try:
+            docs += generated_triggers(lv, f"{where}/rules")
+        except LevelError as ex:
+            self.errors.append(str(ex))
         if self.skip_intro:
             docs = skip_intro(docs)
         for name, d in docs:
@@ -686,6 +744,43 @@ class BaseWorld:
 
 
 # ------------------------------------------------------------------------------------------
+
+# the multi-round modes' rules (GameRules.c): code variables the level sets as it starts
+RULE_VARS = {"on": 0x12C, "mode": 0x12D, "time": 0x12E, "kills": 0x12F, "points": 0x130, "rounds": 0x131,
+             "countWins": 0x132, "jettison": 0x135}
+RULE_MODES = {"points": 1, "kills": 2, "none": 3}
+
+
+def generated_triggers(lv, where):
+    """Triggers the level's settings make: "rules" (battle: rounds, time, kills or points to win)
+    as a level_start trigger setting the game's rule variables (and the round timer)."""
+    r = lv.get("rules")
+    if not r:
+        return []
+    if not isinstance(r, dict):
+        raise LevelError(f"{where}: an object (mode, kills, points, rounds, time, countWins, jettison)")
+    vals = {"on": 1}
+    for k, v in r.items():
+        if k == "roundTimer":
+            continue
+        if k not in RULE_VARS:
+            raise LevelError(f"{where}/{k}: not a rule ({', '.join(k for k in RULE_VARS if k != 'on')}, roundTimer)")
+        if k == "mode":
+            if v not in RULE_MODES:
+                raise LevelError(f"{where}/mode: points, kills or none")
+            v = RULE_MODES[v]
+        elif isinstance(v, bool):
+            v = int(v)
+        elif not isinstance(v, int) or v < 0:
+            raise LevelError(f"{where}/{k}: a whole number")
+        vals[k] = v
+    acts = [{"type": "code_variable_modify_value", "data": {"op": "set", "var": {"var": RULE_VARS[k], "arg": 0},
+                                                             "value": {"const": v}}} for k, v in vals.items()]
+    if isinstance(r.get("roundTimer"), str) and "time" in vals:
+        acts.append({"type": "timer_change_value", "data": {"op": "set", "timers": [r["roundTimer"]],
+                                                            "value": {"const": vals["time"]}}})
+    return [("_rules", {"type": "level_start", "actions": acts})]
+
 
 def skip_intro(docs):
     """The test drive's quick start: the intro screen a level_start trigger plays is left out,
