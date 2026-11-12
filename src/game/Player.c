@@ -743,8 +743,11 @@ s32 ActionVehicleChangeControl(u32 *action) {
     Player *player;
     s32 isHuman;
 
-    for (i = 0; i < action[2]; i++) {
-        vehicle = SLOT_LOAD(Thing *, (action[i + 3] + 0x28));
+    TileCar *extra[8];
+    u32 numExtra = Port_OnlineListExtras(&action[3], action[2], extra);   /* port: online, players 5-8 */
+
+    for (i = 0; i < action[2] + numExtra; i++) {
+        vehicle = i < action[2] ? SLOT_LOAD(Thing *, (action[i + 3] + 0x28)) : (Thing *)GETP(extra[i - action[2]]->car);
         if (vehicle == NULL) {
             continue;
         }

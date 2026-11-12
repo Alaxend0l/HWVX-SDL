@@ -1,5 +1,6 @@
 #include "common.h"
 #include "Port_Online.h"
+#include "Port_OnlineProtocol.h"
 #include "Port_Content.h"
 #include "Port_Saves.h"
 #include "CarA.h"
@@ -293,6 +294,28 @@ done:
     }
 }
 
+/* port: online, players 5 to 8 (Port_Online.c): their car, item and round results,
+ * which the code variables keep for ports 1-4 only. Offline nothing comes here. */
+static s32 s_portExtraPorts[ONLINE_MAX_PLAYERS - RETAIL_PLAYERS][6];
+
+static s32 *GameSettings_PortExtraPort(s32 var, u32 arg) {
+    u32 k;
+
+    if (arg <= RETAIL_PLAYERS || arg > ONLINE_MAX_PLAYERS || !Port_OnlineActive()) {
+        return NULL;
+    }
+    switch (var) {
+    case 0xCB: k = 0; break;
+    case 0xCC: k = 1; break;
+    case 0x191: k = 2; break;
+    case 0x192: k = 3; break;
+    case 0x193: k = 4; break;
+    case 0x194: k = 5; break;
+    default: return NULL;
+    }
+    return &s_portExtraPorts[arg - RETAIL_PLAYERS - 1][k];
+}
+
 /* port: [(s32)arg - 1] indexes -1 for arg 0, as the original's 32-bit address
  * arithmetic wrapped; with an unsigned index it would land 16 GB away. */
 void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
@@ -311,6 +334,14 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
             GameSettings_SetCodeVariable(0xCA, 0, 1);   /* changed: saved on leaving Options */
         }
         return;
+    }
+    {
+        s32 *extra = GameSettings_PortExtraPort(var, arg);   /* port: online, ports 5-8 */
+
+        if (extra != NULL) {
+            *extra = var == 0x194 ? val != 0 : (s32)val;
+            return;
+        }
     }
     if (PORT_IS_TRACK_CODEVAR(var)) {   /* port: a world select's entry: its track (Port_Content.h) */
         arg = Port_ContentTrackAt((u32)(var - PORT_CODEVAR_TRACK), arg);
@@ -610,6 +641,9 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     if (var == PORT_CODEVAR_HANDLING) {
         return g_generalGameSettings.audio.handling == 2;
     }
+    if (var != 0xCB && GameSettings_PortExtraPort(var, arg) != NULL) {   /* port: online, ports 5-8 */
+        return (u32)*GameSettings_PortExtraPort(var, arg);
+    }
     if (PORT_IS_TRACK_CODEVAR(var)) {   /* port: a world select's entry: its track (Port_Content.h) */
         arg = Port_ContentTrackAt((u32)(var - PORT_CODEVAR_TRACK), arg);
         var = 0x65;
@@ -757,6 +791,9 @@ done:
                 return g_DDRescueGameData.vehicle;
             }
             break;
+        }
+        if (GameSettings_PortExtraPort(var, arg) != NULL) {   /* port: online, ports 5-8 */
+            return (u32)*GameSettings_PortExtraPort(var, arg);
         }
         return g_codeVariables.playerVehicle[(s32)arg - 1];
     case 0xCC:

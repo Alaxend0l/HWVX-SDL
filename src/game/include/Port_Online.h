@@ -7,6 +7,9 @@
 #include "common.h"
 #include "Interface.h"
 
+struct TileCar;
+struct World;
+
 /* ---- Port_Online.c ------------------------------------------------------- */
 
 int Port_OnlineActive(void);
@@ -22,15 +25,31 @@ int Port_OnlineInvite(char *out, size_t size);
 int Port_OnlineStartClient(const char *address);
 void Port_OnlineEnd(void);
 int Port_OnlinePlayerCount(void);
-/* The host reached the car select: everyone goes there. */
-void Port_OnlineHostSetup(void);
+/* The host reached the car select: everyone goes there. 0: refused (Drag Race with
+ * more than 4 players), the host stays where it is. */
+int Port_OnlineHostSetup(void);
+/* May the host start this progression with the players in? 0 says why on the mode screen. */
+int Port_OnlineModeAllowed(s32 progression);
 /* The car select is done on this machine: 1 if a session took it over and the
  * waiting screen is showing instead of the level starting. */
 int Port_OnlineCarsChosen(Interface *iface);
 /* The back button on a screen: 1 refuses it. */
 int Port_OnlineBack(const InterfaceHeader *header);
-/* LoadWorldProcess: a world with a spawn for one gets more. */
+/* LoadWorldProcess: a world with a spawn for one gets more; one with 4 player spawns
+ * gets them for players 5 to 8. */
 void Port_OnlineExpandSpawns(struct World *world);
+/* Player ports a world's spawns are for: the retail game's 4, online up to 8. */
+u32 Port_OnlineHumanPorts(void);
+/* A spawn's player port, as the loading and the level's setup read it: offline its
+ * own; online also 5-8 for the world's AI spawns that players use, and above
+ * Port_OnlineHumanPorts for the other AI spawns. */
+u32 Port_OnlineTilePort(const struct TileCar *tile);
+/* Spawns of our own, after the world's list (World_GetTileCar): none offline. */
+u32 Port_OnlineExtraTileCount(void);
+struct TileCar *Port_OnlineExtraTile(u32 index);
+/* A script's list of `n` spawns (TileCar handles): if it names every player spawn
+ * of the world, the spawns of ours go with it: how many, put in out (8 room). */
+u32 Port_OnlineListExtras(const u32 *subjects, u32 n, struct TileCar **out);
 /* StateGamePlay_Init: before it makes any players. */
 void Port_OnlineLevelLoading(void);
 /* StateGamePlay_Init: a human player was made. */
@@ -55,6 +74,10 @@ int Port_OnlineCarKilled(const Player *victim, const Player *killer);
 /* GameRules found the round over; forced: a script or the host said so. 1: not for this
  * machine to decide. */
 int Port_OnlineRoundOver(int forced, u32 winner);
+/* InterfaceManager: the round summary shows players 5-8 in its four rows in turns: the
+ * port a row's code variable reads, and whether its variables are read each frame. */
+int Port_OnlineInterfaceRead(const void *header, u32 id, u32 arg, s32 *out);
+int Port_OnlineInterfacePaging(const void *header);
 /* Whose controller settings a player uses. */
 u32 Port_OnlineControllerPort(const Player *player);
 /* The control reader's work for a car driven on another machine. */
@@ -63,8 +86,14 @@ void Port_OnlineRemoteControl(Player *player);
 void Port_TriggerFireRoundComplete(u32 number);
 /* Trigger.c: does a script watch for this item being picked up? fire: and run those. */
 int Port_TriggerItemWatched(const void *spawner, int fire);
+/* Trigger.c: online, Drag Race players 5-8: is the car at the finish of the world's 4? */
+int Port_TriggerAtFinish(const void *car);
+/* The spawn of a player 1-8 in this level (online), or NULL. */
+void *Port_OnlineSpawnOf(u32 port);
 /* Trigger.c: the interface whose end the script answers with a round reset. */
 void *Port_TriggerRoundSummary(void);
+/* Testing: the active triggers and their actions in the log. */
+void Port_TriggerDump(void);
 /* The keyboard's turn in Input_Heartbeat: 1 to press A, as a player would. */
 int Port_OnlinePressA(void);
 /* This machine's pad does nothing for now: the host is choosing for everyone. */
@@ -82,6 +111,7 @@ typedef enum PortOnlineScreen {
     ONLINE_SCREEN_CAR_SELECT_JOYRIDE,   /* Joyride's, going on to its item select */
     ONLINE_SCREEN_ITEM_SELECT_JOYRIDE,
     ONLINE_SCREEN_WAITING,
+    ONLINE_SCREEN_MODE,         /* Drag Race / Battle / Joyride */
 } PortOnlineScreen;
 
 InterfaceHeader *Port_MenuOnlineScreen(PortOnlineScreen screen);

@@ -1,6 +1,7 @@
 /* The trigger half of the scripting system: the active trigger lists, the
  * polling heartbeat, event triggers and the code variables tests read. See
  * Trigger.h for the data. */
+#include <SDL3/SDL.h>   /* port: Port_TriggerDump */
 #include "common.h"
 #include "Port_Online.h"
 #include "CarA.h"
@@ -169,6 +170,8 @@ void Trigger_RestoreActions(s32 *saved, u32 count) {
     }
 }
 
+static void Port_TriggerStandInFinish(u32 number);
+
 /* port: the host has said: runs the trigger for RoundComplete(number), if its
  * conditions hold as they would have when its test passed. */
 void Port_TriggerFireRoundComplete(u32 number) {
@@ -192,6 +195,107 @@ void Port_TriggerFireRoundComplete(u32 number) {
             }
         }
     }
+    Port_TriggerStandInFinish(number);
+}
+
+/* port: online, players 5-8 in a Drag Race (Port_Online.c). The script has a finish
+ * for each of the world's 4 player spawns: a one-car AirboxEntered trigger running
+ * RoundComplete. The first of those (RoundComplete(1)'s) stands in for the others. */
+static Trigger *Port_TriggerFinishTemplate(void) {
+    Trigger *best = NULL;
+    u32 bestNumber = 0xFFFFFFFF;
+    u32 i;
+    u32 j;
+
+    for (i = 0; i < TRIGGER_STATS[TRIGGER_AIRBOX_ENTERED].count; i++) {
+        Trigger *trigger = TRIGGER_LISTS[TRIGGER_AIRBOX_ENTERED][i];
+        u32 *param = GETP(trigger->param);
+
+        if (param[param[0] + 1] != 1) {
+            continue;
+        }
+        for (j = 0; j < trigger->numActions; j++) {
+            TriggerAction *action = &GETP(trigger->actions)[j];
+
+            if (action->type == ACTION_ROUND_COMPLETE && *(u32 *)GETP(action->data) < bestNumber) {
+                bestNumber = *(u32 *)GETP(action->data);
+                best = trigger;
+            }
+        }
+    }
+    return best;
+}
+
+/* port: is this car at the finish, as one of the four would be? The finish's volumes
+ * and conditions are its own: once a car finished, the script closes them all. */
+int Port_TriggerAtFinish(const void *car) {
+    Trigger *trigger = Port_TriggerFinishTemplate();
+    u32 *param;
+    u32 i;
+    f32 dist;
+
+    if (car == NULL || trigger == NULL || TAC_PAUSED ||
+        !TriggerCheckConditions(trigger->mode, trigger->numConditions, trigger->conditions.h)) {
+        return 0;
+    }
+    param = GETP(trigger->param);
+    for (i = 0; i < param[0]; i++) {
+        WorldVolume *volume = TRIGGER_RECORD(WorldVolume, param[i + 1]);
+
+        if (volume->enabled == 1 && IsPointWithinVolume(&((Thing *)car)->pos, volume, &dist)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* port: the host says player `number` (5-8) won: the template's actions, with that
+ * player's number and spawn for player 1's. Its "Player 1 wins" screen isn't theirs:
+ * Port_Online.c says who won instead. */
+static void Port_TriggerStandInFinish(u32 number) {
+    #define STAND_IN_ACTIONS 16
+    #define STAND_IN_WORDS 16
+    static TriggerAction s_actions[STAND_IN_ACTIONS];
+    static u32 s_words[STAND_IN_ACTIONS][STAND_IN_WORDS];
+    Trigger *trigger = Port_TriggerFinishTemplate();
+    void *spawn = Port_OnlineSpawnOf(number);
+    u32 *param;
+    u32 own;
+    u32 i;
+    u32 j;
+    u32 n = 0;
+
+    if (trigger == NULL || spawn == NULL || number <= 4) {
+        if (number > 4) {
+            GameRules_ForceRoundEnd(number);
+        }
+        return;
+    }
+    param = GETP(trigger->param);
+    own = param[param[0] + 2];
+    for (j = 0; j < trigger->numActions && n < STAND_IN_ACTIONS; j++) {
+        TriggerAction *action = &GETP(trigger->actions)[j];
+        const u32 *data = GETP(action->data);
+
+        if (action->type == 4) {
+            continue;           /* InterfacePlay */
+        }
+        s_actions[n] = *action;
+        s_actions[n].count = 1;
+        for (i = 0; i < STAND_IN_WORDS; i++) {
+            s_words[n][i] = data != NULL ? data[i] : 0;
+            if (s_words[n][i] == own) {
+                s_words[n][i] = HND(spawn);
+            }
+        }
+        if (action->type == ACTION_ROUND_COMPLETE) {
+            s_words[n][0] = number;
+        }
+        SETP(s_actions[n].data, s_words[n]);
+        n++;
+    }
+    Port_Log("online: player %u finished: the stand-in for player 1's finish, %u actions", number, n);
+    Trigger_QueueActionsNow(s_actions, n);
 }
 
 /* port: does a script watch for this item being picked up? fire: and run those triggers,
@@ -234,6 +338,50 @@ void *Port_TriggerRoundSummary(void) {
         }
     }
     return NULL;
+}
+
+/* port: testing, HWVX_SCRIPTDUMP: the level's active triggers and their actions in
+ * the log, parameter words raw; a word that is a tile car's handle shows as T<index>. */
+static void DumpWords(char *out, size_t size, const u32 *w, u32 n) {
+    World *world = (World *)GETP(g_worldData.world);
+    u32 i, k;
+
+    out[0] = 0;
+    for (i = 0; w != NULL && i < n; i++) {
+        char one[24];
+
+        SDL_snprintf(one, sizeof(one), " %X", w[i]);
+        for (k = 0; k < world->numTileCars; k++) {
+            if (w[i] != 0 && w[i] == HND(&GETP(world->tileCars)[k])) {
+                SDL_snprintf(one, sizeof(one), " T%u", k);
+            }
+        }
+        SDL_strlcat(out, one, size);
+    }
+}
+
+void Port_TriggerDump(void) {
+    u32 type, i, j;
+    char text[256];
+
+    for (type = 0; type < TRIGGER_NUM_TYPES; type++) {
+        for (i = 0; i < TRIGGER_STATS[type].count; i++) {
+            Trigger *t = TRIGGER_LISTS[type][i];
+
+            DumpWords(text, sizeof(text), GETP(t->param), 8);
+            Port_Log("script: trigger type %u #%u conds %u mode %u state %X:%s", type, i, t->numConditions, t->mode, t->state, text);
+            for (j = 0; j < t->numConditions; j++) {
+                DumpWords(text, sizeof(text), GETP(GETP(t->conditions)[j].param), 8);
+                Port_Log("script:   cond type %u:%s", GETP(t->conditions)[j].type, text);
+            }
+            for (j = 0; j < t->numActions; j++) {
+                TriggerAction *a = &GETP(t->actions)[j];
+
+                DumpWords(text, sizeof(text), GETP(a->data), 8);
+                Port_Log("script:   action 0x%X delay %d count %d:%s", a->type, a->delayInit, (s32)a->count, text);
+            }
+        }
+    }
 }
 
 void Trigger_PauseTACSystem(s8 arg0) {

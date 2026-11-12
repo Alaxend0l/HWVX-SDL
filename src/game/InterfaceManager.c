@@ -526,7 +526,9 @@ s32 InterfaceManager_Create(InterfaceHeader *header, Player *owner, void (*callb
             if (GETP(cv->arg)->isVar) {
                 iface->vars[i] = GameSettings_GetCodeVariable(cv->id, iface->vars[GETP(cv->arg)->value]);
             } else {
-                iface->vars[i] = GameSettings_GetCodeVariable(cv->id, GETP(cv->arg)->value);
+                if (!Port_OnlineInterfaceRead(hdr, cv->id, GETP(cv->arg)->value, &iface->vars[i])) {   /* port: online, 5-8 */
+                    iface->vars[i] = GameSettings_GetCodeVariable(cv->id, GETP(cv->arg)->value);
+                }
             }
             iface->vars[i] += GETP(GETP(hdr->vars)->vars)[i].offset;
             if (iface->vars[i] > GETP(GETP(hdr->vars)->vars)[i].max) {
@@ -1495,7 +1497,7 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
         }
         for (i = 0; i < iface->numVars; i++) {
             v = &GETP(GETP(GETP(iface->header)->vars)->vars)[i];
-            if (v->update) {
+            if (v->update || Port_OnlineInterfacePaging(GETP(iface->header))) {   /* port: online, players 5-8 in turns */
                 switch (v->type) {
                 case 0:
                     break;
@@ -1504,7 +1506,9 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
                     if (GETP(cv->arg)->isVar) {
                         iface->vars[i] = GameSettings_GetCodeVariable(cv->id, iface->vars[GETP(cv->arg)->value]);
                     } else {
-                        iface->vars[i] = GameSettings_GetCodeVariable(cv->id, GETP(cv->arg)->value);
+                        if (!Port_OnlineInterfaceRead(GETP(iface->header), cv->id, GETP(cv->arg)->value, &iface->vars[i])) {   /* port: online, 5-8 */
+                            iface->vars[i] = GameSettings_GetCodeVariable(cv->id, GETP(cv->arg)->value);
+                        }
                     }
                     iface->vars[i] += GETP(GETP(GETP(iface->header)->vars)->vars)[i].offset;
                     if (iface->vars[i] > GETP(GETP(GETP(iface->header)->vars)->vars)[i].max) {
