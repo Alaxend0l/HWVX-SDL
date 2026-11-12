@@ -15,7 +15,11 @@
 //! for scripted screenshots of the browser itself. It gives up (exit 1) on an error reply, a
 //! lost viewer, or after two minutes.
 
+mod media_ui;
+
 use eframe::egui;
+use hwvx_browser::media::MediaReader;
+use media_ui::{MediaState, View, media_kind};
 use hwvx_browser::client::{SpawnOptions, Viewer, default_game, default_schemas};
 use hwvx_browser::frames::{Frame, FrameReader};
 use serde_json::{Value, json};
@@ -104,6 +108,11 @@ enum Pending {
     Shot,
     Frames,
     Pick,
+    Textures(String),
+    Sounds(String),
+    Texture(String),
+    Sound(String),
+    Play(String),
     Quiet,
 }
 
@@ -267,6 +276,8 @@ struct Browser {
     app_shot_done: Arc<Mutex<Option<Result<String, String>>>>,
     started: Instant,
     preview: Preview,
+    media: MediaState,
+    media_reader: MediaReader,
 }
 
 impl Browser {
@@ -301,6 +312,8 @@ impl Browser {
             app_shot_done: Arc::new(Mutex::new(None)),
             started: Instant::now(),
             preview: Preview::new(&ctx),
+            media: MediaState::default(),
+            media_reader: MediaReader::new(),
             args,
             ctx,
         };
@@ -399,6 +412,12 @@ impl Browser {
     }
 
     fn select(&mut self, node: &str, focus: bool) {
+        if media_kind(node).is_some() {
+            return self.open_media(node);
+        }
+        if self.media.view != View::Scene {
+            self.media.view = View::Scene;
+        }
         let Some(o) = &self.outline else { return };
         let pack = o.pack.clone();
         self.selected = Some(node.to_string());
@@ -471,10 +490,15 @@ impl Browser {
                     }
                     self.selected = None;
                     self.detail = None;
+                    self.media.open = None;
+                    self.media.view = View::Scene;
                     self.request("outline", json!({"pack": pack}), Pending::Outline(pack.clone()));
                     self.request("status", json!({}), Pending::Camera);
                 }
-                Pending::Outline(pack) => self.outline = Some(build_outline(pack, r)),
+                Pending::Outline(pack) => {
+                    self.outline = Some(build_outline(pack.clone(), r));
+                    self.list_media(&pack);
+                }
                 Pending::Get(node) => {
                     if self.selected.as_deref() == Some(node.as_str()) {
                         self.detail = Some(r);
@@ -496,6 +520,9 @@ impl Browser {
                     }
                     if let Some(f) = r.get("frames") {
                         self.preview.stats = f.clone();
+                    }
+                    if let Some(a) = r.get("audio") {
+                        self.media.audio = a.clone();
                     }
                 }
                 Pending::Frames => {
@@ -521,6 +548,9 @@ impl Browser {
                     } else {
                         self.note("nothing there".into());
                     }
+                }
+                why @ (Pending::Textures(_) | Pending::Sounds(_) | Pending::Texture(_) | Pending::Sound(_) | Pending::Play(_)) => {
+                    self.media_reply(why, r)
                 }
                 Pending::Shot => self.note(format!("saved {} ({}x{})", r["path"].as_str().unwrap_or(""), r["width"], r["height"])),
                 Pending::Quiet => {}
@@ -561,12 +591,19 @@ impl Browser {
             }
         }
         if let Some(n) = self.args.select.clone() {
-            if !self.script_select_sent && self.outline.is_some() {
+            let media = media_kind(&n);
+            if !self.script_select_sent && self.outline.is_some() && (media.is_none() || self.media.listed) {
                 self.script_select_sent = true;
                 self.reveal(ctx, &n);
                 self.select(&n, true);
             }
-            if self.detail.is_none() {
+            let ready = match media {
+                None => self.detail.is_some(),
+                Some(View::Texture) => self.media.tex.as_ref().is_some_and(|t| t.id == n),
+                Some(View::Sound) => self.media.snd.as_ref().is_some_and(|t| t.id == n),
+                _ => self.media.listed,
+            };
+            if !ready {
                 return;
             }
         }
@@ -575,6 +612,7 @@ impl Browser {
             return;
         }
         if !self.args.viewer_window
+            && self.media.view == View::Scene
             && (self.preview.shown < 60 || self.preview.size != self.preview.want || self.preview.fps == 0.0 || self.preview.stats["fps"].as_f64().unwrap_or(0.0) == 0.0)
         {
             return; // the picture, at the panel's size
@@ -611,7 +649,7 @@ impl Browser {
             st.set_open(true);
             st.store(ctx);
         }
-        for g in ["Objects", "Geometry"] {
+        for g in ["Objects", "Geometry", "Textures", "Sounds", "Song", "Instruments"] {
             let mut st = egui::collapsing_header::CollapsingState::load_with_default_open(ctx, egui::Id::unique(("group", g)), true);
             st.set_open(true);
             st.store(ctx);
@@ -701,10 +739,12 @@ impl Browser {
 
     fn outline_tree(&mut self, ui: &mut egui::Ui) {
         ui.heading("Outline");
-        let Some(o) = &mut self.outline else {
+        let Some(mut outline) = self.outline.take() else {
             ui.label("Double-click a pack to load it.");
             return;
         };
+        let o = &mut outline;
+        let mut media_click: Option<String> = None;
         ui.horizontal(|ui| {
             ui.label("Find");
             ui.text_edit_singleline(&mut self.node_filter);
@@ -738,7 +778,6 @@ impl Browser {
                 for (group, kinds) in [
                     ("Objects", &["typed", "raw"][..]),
                     ("Geometry", &["geometry"][..]),
-                    ("Textures", &["texture"][..]),
                     ("Shaders", &["shader"][..]),
                     ("Triggers", &["trigger"][..]),
                 ] {
@@ -755,14 +794,23 @@ impl Browser {
                             }
                         });
                 }
+                // textures (and the share packs' it uses), sounds, the song and its bank
+                self.media_outline(ui, &mut media_click);
             });
         }
+        self.outline = Some(outline);
         if let Some((id, focus)) = clicked {
             self.select(&id, focus);
+        }
+        if let Some(id) = media_click {
+            self.open_media(&id);
         }
     }
 
     fn properties(&mut self, ui: &mut egui::Ui) {
+        if self.media_properties(ui) {
+            return;
+        }
         let Some(d) = self.detail.clone() else {
             ui.heading("Properties");
             ui.label(if self.selected.is_some() { "…" } else { "Select a node in the outline." });
@@ -835,6 +883,7 @@ impl Browser {
                     ui.monospace(hex_dump(b));
                 }
             }
+            self.textures_of(ui, &id);
             if d["kind"].as_str() != Some("texture") {
                 ui.separator();
                 ui.label("Set raw bytes: @offset (hex, in this node) as a type");
@@ -940,6 +989,11 @@ impl Browser {
     /// A link's target: a node of this pack, or of another loaded one (base://ARCHIVE/PACK/node).
     fn follow(&mut self, target: &str) {
         let t = target.trim_start_matches('@');
+        if media_kind(t) == Some(View::Texture) && self.media.textures.iter().any(|x| x["id"].as_str() == Some(t)) {
+            let ctx = self.ctx.clone();
+            self.reveal(&ctx, t);
+            return self.open_media(t);
+        }
         if let Some(rest) = target.strip_prefix("base://") {
             let pack: Vec<&str> = rest.splitn(3, '/').collect();
             if pack.len() == 3 && self.outline.as_ref().map(|o| o.pack.as_str()) == Some(&format!("{}/{}", pack[0], pack[1])) {
@@ -1107,11 +1161,16 @@ impl Browser {
         if let Some(pk) = pick {
             self.request("pick", pk, Pending::Pick);
         }
-        if self.viewer.is_some() && self.preview.stats_t.elapsed() >= Duration::from_secs(1) {
+    }
+
+    /// status every second (four times a second while a song plays): the readback's stats, the audio.
+    fn poll_status(&mut self, ctx: &egui::Context) {
+        let every = if self.media.audio["song"] == true { Duration::from_millis(250) } else { Duration::from_secs(1) };
+        if self.viewer.is_some() && self.preview.stats_t.elapsed() >= every {
             self.preview.stats_t = Instant::now();
             self.request("status", json!({}), Pending::Camera);
-            ctx.request_repaint_after(Duration::from_secs(1));
         }
+        ctx.request_repaint_after(every);
     }
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {
@@ -1205,7 +1264,15 @@ impl eframe::App for Browser {
         egui::Panel::left("packs").default_size(220.0).resizable(true).show(ui, |ui| self.pack_list(ui));
         egui::Panel::left("outline").default_size(300.0).resizable(true).show(ui, |ui| self.outline_tree(ui));
         egui::Panel::right("properties").default_size(340.0).resizable(true).show(ui, |ui| self.properties(ui));
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.preview_panel(ui));
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+            self.view_tabs(ui);
+            if self.media.view == View::Scene {
+                self.preview_panel(ui);
+            } else {
+                self.media_panel(ui);
+            }
+        });
+        self.poll_status(&ctx);
     }
 }
 
