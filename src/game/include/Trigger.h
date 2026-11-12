@@ -121,8 +121,9 @@ enum ActionType {
 typedef struct TriggerAction {
     u32 type;                   /* 0x00 index into pActionFuncArray @xdl: enum=ActionType */
     PTR32(void) data;           /* 0x04 parameters (TAC_PARAMS_ACTION_* below) @xdl: params=type */
-    u32 unused8;                /* 0x08 never read; 1-135, grows with the parameter list (the
-                                 *      exporter's parameter count?) */
+    u32 paramWords;             /* 0x08 never read; the words of `data` as the exporter counted
+                                 *      them: equal, or off by a constant per kind (+1 for a
+                                 *      keyword and a list), in every pack (tools/xdl_tac.py) */
     s32 delayInit;              /* 0x0C ms @xdl: units=ms */
     u32 count;                  /* 0x10 times it can still run, 0xFFFFFFFF: always */
     s32 delay;                  /* 0x14 ms left before it runs; = delayInit in every pack @xdl: units=ms */
@@ -133,8 +134,8 @@ typedef struct Trigger {
     u32 type;                   /* 0x00 TRIGGER_* @xdl: enum=TriggerType */
     PTR32(u32) param;           /* 0x04 parameters, passed to the test (TAC_PARAMS_TRIGGER_*
                                  *      below) @xdl: params=type */
-    u32 unused8;                /* 0x08 never read; 0-452, grows with the parameter list (as
-                                 *      TriggerAction.unused8) */
+    u32 paramWords;             /* 0x08 never read; the words of `param` (as
+                                 *      TriggerAction.paramWords) */
     PTR32(struct Trigger) conditions; /* 0x0C @xdl: count=numConditions; inline */
     u32 numConditions;          /* 0x10 */
     PTR32(TriggerAction) actions;     /* 0x14 @xdl: count=numActions; inline */

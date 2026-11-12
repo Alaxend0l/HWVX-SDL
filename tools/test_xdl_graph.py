@@ -232,6 +232,42 @@ if olinks:
     check("error: offset links into an edited (re-encoded) geometry are listed", msg and "re-encoded" in msg
           and "geometry/1/o" in msg, str(msg)[:300])
 
+# 7b. world packs: the World's tables typed, triggers as readable files (xdl_tac.py)
+tsrc, tproj, _ = extract("gc", "worlds_/sp_/chal1_/ch1_l2/00_world_0", "ch1_l2")
+tdoc = XS.jsonc_loads((tproj / "trigger/4.jsonc").read_text())
+check("trigger: kind and parameters by name", tdoc.get("type") == "airbox_entered"
+      and tdoc["param"]["volumes"][0].endswith("World/0/volumes/19")
+      and tdoc["actions"][0]["type"] == "fx_point_change_mode" and tdoc["actions"][0]["data"]["mode"] == "on",
+      json.dumps(tdoc)[:300])
+world = XS.jsonc_loads((tproj / "World/0/volumes.jsonc").read_text())
+check("world: volumes typed, enums by name", world["items"][19]["type"] == "airbox", str(world["items"][19])[:200])
+# an action's keyword: 4 bytes of its parameter list
+edit(tproj / "trigger/4.jsonc", lambda t: t.replace('"mode": "on"', '"mode": "toggle"', 1))
+out, _ = build(tproj, "ch1_l2_mode")
+d = data_diff(tsrc, out)
+check("trigger edit: on -> toggle changes one word", d and max(d) - min(d) < 4, str([hex(x) for x in d[:6]]))
+check("trigger edit: relocations unchanged", not [f for f, w in GR.compare(tsrc, out) if f != "data.bin"])
+re_doc = XS.jsonc_loads((GR.Extractor(GR.Source(out), scratch / "proj/re_ch1_l2", S).run() and
+                         (scratch / "proj/re_ch1_l2/trigger/4.jsonc")).read_text())
+check("trigger edit: extracts again as written", re_doc["actions"][0]["data"]["mode"] == "toggle")
+# a list grows: one more fx point, the pack one word (and one pointer) longer
+edit(tproj / "trigger/4.jsonc", lambda t: t.replace('"mode": "toggle"', '"mode": "on"', 1).replace(
+    '"base://ch1_l2/world_0/World/0/quads/18/contents/fxPoints/4",',
+    '"base://ch1_l2/world_0/World/0/quads/18/contents/fxPoints/4",\n"base://ch1_l2/world_0/World/0/quads/18/contents/fxPoints/7",', 1))
+out, _ = build(tproj, "ch1_l2_list")
+ln = lambda f: (Path(f) / "data.bin").stat().st_size  # noqa: E731
+np2 = lambda f: (Path(f) / "pointers.bin").stat().st_size // 4  # noqa: E731
+check("trigger edit: a point added to a list: +1 pointer, the data a word or an alignment longer",
+      np2(out) == np2(tsrc) + 1 and 0 < ln(out) - ln(tsrc) <= 32, f"{ln(tsrc)} -> {ln(out)}, {np2(tsrc)} -> {np2(out)}")
+# errors name the place
+edit(tproj / "trigger/4.jsonc", lambda t: t.replace('"type": "fx_point_change_mode"', '"type": "fx_point_change_mood"', 1))
+try:
+    build(tproj, "ch1_l2_bad")
+    msg = None
+except GR.GraphError as e:
+    msg = str(e)
+check("trigger error: an unknown kind is named", msg and "fx_point_change_mood" in msg, str(msg)[:200])
+
 # 8. extracting over a folder that isn't a previous extract is refused
 other = scratch / "not_a_project"
 other.mkdir(parents=True, exist_ok=True)

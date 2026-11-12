@@ -135,8 +135,8 @@
       "x-offset": "0x04",
       "x-c-type": "PTR32(u32)"
     },
-    "unused8": {
-      "description": "never read; 0-452, grows with the parameter list (as TriggerAction.unused8)",
+    "paramWords": {
+      "description": "never read; the words of `param` (as TriggerAction.paramWords)",
       "type": "integer",
       "minimum": 0,
       "maximum": 4294967295,
@@ -459,8 +459,8 @@
           "x-offset": "0x04",
           "x-c-type": "PTR32(u32)"
         },
-        "unused8": {
-          "description": "never read; 0-452, grows with the parameter list (as TriggerAction.unused8)",
+        "paramWords": {
+          "description": "never read; the words of `param` (as TriggerAction.paramWords)",
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295,
@@ -1618,8 +1618,8 @@
           "x-offset": "0x04",
           "x-c-type": "PTR32(void)"
         },
-        "unused8": {
-          "description": "never read; 1-135, grows with the parameter list (the exporter's parameter count?)",
+        "paramWords": {
+          "description": "never read; the words of `data` as the exporter counted them: equal, or off by a constant per kind (+1 for a keyword and a list), in every pack (tools/xdl_tac.py)",
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295,

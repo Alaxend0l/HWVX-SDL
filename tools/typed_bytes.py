@@ -5,7 +5,7 @@
 
 Runs the extractor's cut and naming (no files written) over every pack and sums the node bytes
 by kind: typed (a schema's object or array), trigger (a trigger file's parts, xdl_tac.py),
-geometry (glTF), raw. --tools: another checkout's tools/ (with its schemas/), for a before/after.
+geometry (glTF), texture (images), raw. --tools: another checkout's tools/ (with its schemas/), for a before/after.
 """
 
 import argparse
@@ -50,6 +50,8 @@ def main():
                 for nd in ex.nodes:
                     n = nd.end - nd.start
                     k = "trigger" if getattr(nd, "tac", None) is not None else nd.kind
+                    if k == "raw" and "/texture/" in (nd.id or ""):
+                        k = "texture"           # the pack's textures (images, written as PNG)
                     tot[(rel, k)] += n
                     tot[(rel, "all")] += n
                     if a.by_schema:
@@ -57,8 +59,11 @@ def main():
     for rel in a.rel.split(","):
         allb = tot[(rel, "all")] or 1
         print(f"{rel}: {allb:,} bytes in {a.kinds} packs")
-        for k in ("typed", "trigger", "geometry", "raw"):
+        for k in ("typed", "trigger", "geometry", "texture", "raw"):
             print(f"  {k:9} {tot[(rel, k)]:12,}  {100 * tot[(rel, k)] / allb:5.1f}%")
+        rest = allb - tot[(rel, "geometry")] - tot[(rel, "texture")]
+        print(f"  without geometry and textures: {rest:,} bytes, typed or trigger "
+              f"{100 * (tot[(rel, 'typed')] + tot[(rel, 'trigger')]) / (rest or 1):.1f}%")
         if a.by_schema:
             for (r, k), v in sorted(by.items(), key=lambda x: -x[1]):
                 if r == rel:
