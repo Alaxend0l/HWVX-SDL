@@ -74,4 +74,5 @@ dkms.conf
 # the data browser (tools/browser): cargo output, the viewer preferences folder it makes
 tools/browser/target/
 tools/xdlrs/target/
+tools/decomp/target/
 scratch-pref/

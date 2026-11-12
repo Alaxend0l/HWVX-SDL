@@ -1,0 +1,14 @@
+[package]
+name = "hwvx-decomp"
+version = "0.1.0"
+edition = "2024"
+description = "The decomp workflow tools (importing and rewriting decomp code, reading the decomps' assembly)"
+
+[[bin]]
+name = "hwvx-decomp"
+path = "src/main.rs"
+
+[dependencies]
+fancy-regex = "0.16"
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+shlex = "1.3"
