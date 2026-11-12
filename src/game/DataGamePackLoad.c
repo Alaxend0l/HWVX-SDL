@@ -582,7 +582,8 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     pointers = reloc + header.numTexRelocs * 2;
     /* port: a pack this one refers to may load just below (the prototype's
      * shared packs, Port_Proto.c, aren't loaded ahead as the release's
-     * are), into the same static header: the header is kept aside */
+     * are), into the same static header: the header is kept aside. It may
+     * close this pack's file too: the cache keeps its own reference (xdl.c) */
     memcpy(&ownHeader, &header, sizeof(header));
     for (i = 0; i < ownHeader.numTexRelocs; i++) {
         packID = reloc[1] & 0xFFFF0000;

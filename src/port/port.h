@@ -186,6 +186,10 @@ char *Port_PrefPath(void);
  * renamed over `to`, replacing it (Windows too). 1 on success, else SDL_GetError. */
 int Port_WriteFileSynced(const char *path, const void *data, size_t size);
 int Port_ReplaceFile(const char *from, const char *to);
+/* fileio.c: what was written to `io` is on the disk (SDL_FlushIO, then
+ * fsync / FlushFileBuffers). 1 on success, else SDL_GetError. */
+struct SDL_IOStream;
+int Port_SyncIO(struct SDL_IOStream *io);
 /* --reset-save (main_sdl.c): 1 when this boot starts from the default game
  * data (GameSetting_Init) and skips the autoload of the newest save;
  * GameSettings_PortAutoLoad reads it. */
