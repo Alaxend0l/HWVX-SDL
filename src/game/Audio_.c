@@ -15,7 +15,12 @@ u32 g_free;
 u32 g_silence;
 s32 g_size;
 u32 g_heap;
-MemBlk g_memblk[255];
+/* port: 255 in the original. A challenge race has about 185 blocks in use
+ * (HWVX_HEAPLOG=1), so a mod's sounds ran out of these long before ARAM; the
+ * free list hands them out in the same order, so the first 255 are as they
+ * were. */
+#define AUDIO_MEMBLKS 0x400
+MemBlk g_memblk[AUDIO_MEMBLKS];
 
 
 s32 Audio_Create_(void) {
@@ -54,12 +59,12 @@ s32 Audio_Init_(void) {
     g_memblk[1].prev = -1;
     g_memblk[1].next = 2;
     g_free = 1;
-    for (i = 2; i < 0xFF; i++) {
+    for (i = 2; i < AUDIO_MEMBLKS; i++) {   /* port: 0xFF */
         g_memblk[i].size = 0;
         g_memblk[i].prev = i - 1;
         g_memblk[i].next = i + 1;
     }
-    g_memblk[0xFE].next = -1;
+    g_memblk[AUDIO_MEMBLKS - 1].next = -1;   /* port: 0xFE */
     level = OSDisableInterrupts();
     buf = OSAllocFromHeap(__OSCurrHeap, 0x800);
     OSRestoreInterrupts(level);
@@ -85,11 +90,11 @@ void Audio_Update_(void) {
 }
 
 
-/* port: HWVX_HEAPLOG=1 logs each 256 KB the ARAM heap's peak use passes, and the
- * blocks in use (255 descriptors at most) */
+/* port: HWVX_HEAPLOG=1 logs the ARAM heap's peak use (each 256 KB) and the
+ * most blocks in use (each 16) */
 static void AramLog(void) {
     static int on = -1;
-    static s32 peak;
+    static s32 peak, peakBlocks;
     s32 freeBytes = 0, blocks = 0;
     u32 i;
 
@@ -99,16 +104,18 @@ static void AramLog(void) {
     if (!on) {
         return;
     }
-    for (i = 0; i != 0xFFFFFFFF && i < 0xFF; i = g_memblk[i].next) {
+    for (i = 0; i != 0xFFFFFFFF && i < AUDIO_MEMBLKS; i = g_memblk[i].next) {
         if (g_memblk[i].size > 0) {
             freeBytes += g_memblk[i].size;
         } else if (g_memblk[i].size < 0) {
             blocks++;
         }
     }
-    if (g_size - freeBytes > peak + 0x40000) {
-        peak = g_size - freeBytes;
-        Port_Log("aram: peak %.2f of %.2f MB, %d blocks", peak / 1048576.0, g_size / 1048576.0, (int)blocks);
+    if (g_size - freeBytes > peak + 0x40000 || blocks > peakBlocks + 15) {
+        peak = g_size - freeBytes > peak ? g_size - freeBytes : peak;
+        peakBlocks = blocks > peakBlocks ? blocks : peakBlocks;
+        Port_Log("aram: peak %.2f of %.2f MB, %d of %d blocks", peak / 1048576.0, g_size / 1048576.0, (int)peakBlocks,
+                 AUDIO_MEMBLKS);
     }
 }
 
