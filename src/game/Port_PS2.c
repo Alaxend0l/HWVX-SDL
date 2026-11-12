@@ -366,6 +366,22 @@ u8 *PortPS2_SongBank(const u8 *bank) {
     return nb;
 }
 
+/* The PCM bytes a prototype sample takes, its length capped to what the bank holds
+ * from its data (SPU-ADPCM 16 bytes per 28 samples; PCM as its flags say). */
+static u32 ProtoSampleLen(const u8 *h, u32 bankSize) {
+    u32 len = LE32(h + 0x30), data = LE32(h + 0x48);
+    u64 room = data < bankSize ? bankSize - data : 0;
+
+    if (h[0x12] & 0x08) {
+        room = room / 16 * 28;
+    } else {
+        room >>= (h[0x12] & 0x02) != 0;
+    }
+    return (u64)len > room ? (u32)room : len;
+}
+
+#define PROTO_IT_MAX_PCM (64u << 20)   /* bytes: the largest song bank we decode */
+
 /* The PS2 prototype's music (Port_Proto.c): an Impulse Tracker module
  * ('IMPM', the song) whose samples are SPU-ADPCM in the song bank, each
  * sample header's data offset into it, flagged 16-bit and compressed (0x0B),
@@ -374,23 +390,39 @@ u8 *PortPS2_SongBank(const u8 *bank) {
  * release's IT player (IT.c, from the GameCube) takes PCM; the samples are
  * decoded into a bank of their own (freed by PortPS2_SongBankDone once
  * CreateIT has copied it to ARAM) and the headers rewritten in the song:
- * the PCM byte offset, 16-bit uncompressed, the loop. Returns the new bank,
- * NULL if `song` isn't one. */
-u8 *PortPS2_ProtoIT(u8 *song, const u8 *bank, u32 bankSize) {
-    u32 numOrders, numIns, numSmp, i, total = 0, songSize;
+ * the PCM byte offset, 16-bit uncompressed, the loop. Uncompressed (mono) PCM is
+ * copied as it is. Every length is capped to what the bank holds; a module whose
+ * tables or counts don't fit `songAvail` (the pack's song) or IT.c's (100
+ * instruments, 100 samples, 200 patterns) is refused. Returns the new bank,
+ * NULL if `song` isn't one or is refused. */
+u8 *PortPS2_ProtoIT(u8 *song, u32 songAvail, const u8 *bank, u32 bankSize) {
+    u32 numOrders, numIns, numSmp, numPat, i, songSize;
+    u64 total = 0;
     const u8 *smpOff;
     u8 *out;
 
-    if (memcmp(song, "IMPM", 4) != 0 || !PortData_InSound(bank, bankSize)) {
+    if (songAvail < 0xC0 || memcmp(song, "IMPM", 4) != 0 || !PortData_InSound(bank, bankSize)) {
         return NULL;
     }
     numOrders = song[0x20] | song[0x21] << 8;
     numIns = song[0x22] | song[0x23] << 8;
     numSmp = song[0x24] | song[0x25] << 8;
-    songSize = LE32(song + 0x38);
+    numPat = song[0x26] | song[0x27] << 8;
+    songSize = LE32(song + 0x38);   /* what IT.c copies: within the pack's song */
     smpOff = song + 0xC0 + numOrders + numIns * 4;
-    if (numSmp == 0 || numSmp > 100 || 0xC0 + numOrders + (numIns + numSmp) * 4 > songSize) {
+    if (songSize > songAvail || numSmp == 0 || numSmp > 100 || numIns > 100 || numPat > 200 ||
+        0xC0 + numOrders + (numIns + numSmp + numPat) * 4 > songSize) {
+        Port_Log("prototype: music refused (song %u of %u bytes, %u instruments, %u samples, %u patterns)", songSize,
+                 songAvail, numIns, numSmp, numPat);
         return NULL;
+    }
+    for (i = 0; i < numIns + numSmp + numPat; i++) {
+        u32 off = LE32(song + 0xC0 + numOrders + i * 4);
+
+        if (off >= songSize) {
+            Port_Log("prototype: music refused (offset %u past its %u bytes)", off, songSize);
+            return NULL;
+        }
     }
     for (i = 0; i < numSmp; i++) {
         u32 h = LE32(smpOff + i * 4);
@@ -398,25 +430,36 @@ u8 *PortPS2_ProtoIT(u8 *song, const u8 *bank, u32 bankSize) {
         if ((u64)h + 0x50 > songSize || memcmp(song + h, "IMPS", 4) != 0) {
             return NULL;
         }
-        total += ((LE32(song + h + 0x30) + 27) / 28) * 28 * 2;
+        if (!(song[h + 0x12] & 0x08) && (song[h + 0x12] & 0x04)) {
+            Port_Log("prototype: music refused (sample %u is stereo PCM)", i);
+            return NULL;
+        }
+        total += ((u64)ProtoSampleLen(song + h, bankSize) + 27) / 28 * 28 * 2;
     }
-    s_bank = Allocate(total + 0x40, 0, "");
-    Xdl_NoteBlock(XDL_SEG_BANK, s_bank, total + 0x40);
+    if (total > PROTO_IT_MAX_PCM) {
+        Port_Log("prototype: music refused (%llu bytes of samples)", (unsigned long long)total);
+        return NULL;
+    }
+    s_bank = Allocate((u32)total + 0x40, 0, "");
+    Xdl_NoteBlock(XDL_SEG_BANK, s_bank, (u32)total + 0x40);
     if (s_bank == NULL) {
         return NULL;
     }
     out = (u8 *)PTR((HND(s_bank) + 0x1F) & ~0x1Fu);
-    memset(out, 0, total);
+    memset(out, 0, (size_t)total);
     total = 0;
     for (i = 0; i < numSmp; i++) {
         u8 *h = song + LE32(smpOff + i * 4);
-        u32 len = LE32(h + 0x30), data = LE32(h + 0x48), blocks = (len + 27) / 28, b, loop = ~0u;
+        u32 len = ProtoSampleLen(h, bankSize), data = LE32(h + 0x48), blocks = (len + 27) / 28, b, loop = ~0u;
         int repeat = 0;
 
-        if (h[0x12] & 0x08) {   /* compressed: SPU-ADPCM */
-            if ((u64)data + (u64)blocks * 16 > bankSize) {
-                blocks = data < bankSize ? (bankSize - data) / 16 : 0;
+        PutLE32(h + 0x30, len); /* what the bank holds; the loops within it */
+        for (b = 0x34; b <= 0x40; b += 4) {
+            if (LE32(h + b) > len) {
+                PutLE32(h + b, len);
             }
+        }
+        if (h[0x12] & 0x08) {   /* compressed: SPU-ADPCM */
             DecodeADPCM(bank + data, blocks, (s16 *)(out + total));
             for (b = 0; b < blocks; b++) {
                 u8 f = bank[data + b * 16 + 1];
@@ -432,9 +475,12 @@ u8 *PortPS2_ProtoIT(u8 *song, const u8 *bank, u32 bankSize) {
                 PutLE32(h + 0x34, loop == ~0u ? 0 : loop);
                 PutLE32(h + 0x38, len);
             }
+        } else if (len != 0) {
+            /* PCM as it is (8 or 16-bit mono): IT_.c reads it so; the header's loop stands */
+            memcpy(out + total, bank + data, (size_t)len << ((h[0x12] & 0x02) != 0));
         }
-        PutLE32(h + 0x48, total);
-        total += ((len + 27) / 28) * 28 * 2;
+        PutLE32(h + 0x48, (u32)total);
+        total += ((u64)len + 27) / 28 * 28 * 2;
     }
     Port_Log("prototype: music \"%.26s\", %u samples decoded (%u KB)", (const char *)song + 4, (unsigned)numSmp,
              (unsigned)(total >> 10));
