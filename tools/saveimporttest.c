@@ -761,6 +761,17 @@ static void TestRejected(void) {
     CHECK(!Port_SaveImportRead("Ps2PowerSave\0\0\0\0", 16, "x.max", &x, err, sizeof(err)) && SDL_strstr(err, ".max") != NULL,
           "a .max: %s", err);
     SDL_Log("   .max: %s", err);
+    {
+        /* the port's card file cut short: the header there, the rest not
+         * (a buffer of exactly that size, for ASan) */
+        size_t n = 0x840 + 0x40;
+        u8 *b = SDL_calloc(1, n);
+        PutLE32(b + 0x840, SAVE_FILE_MAGIC);
+        PutLE32(b + 0x844, HW_SIZE - 12);
+        CHECK(!Port_SaveImportRead(b, n, "hwvx.sav", &x, err, sizeof(err)) && SDL_strstr(err, "cut short") != NULL,
+              "a cut .sav (%s)", err);
+        SDL_free(b);
+    }
     if (s_gci.bytes != NULL) {
         u8 *b = SDL_malloc(s_gci.len);
         SDL_memcpy(b, s_gci.bytes, s_gci.len);

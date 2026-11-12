@@ -119,6 +119,7 @@ static int CheckLittle(const u8 *b, size_t len, u32 version, char *err, size_t e
 static int Finish(PortImportSource *src, const u8 *gcLayout, int order, char *err, size_t errSize) {
     const PortSaveKind *kind = Port_SaveKindByName("hwvx");
 
+    /* (callers have HW_SIZE bytes at gcLayout) */
     src->saveFile = SDL_malloc(HW_SIZE);
     if (src->saveFile == NULL) {
         return Fail(err, errSize, "out of memory");
@@ -142,6 +143,9 @@ static int ReadGameCube(const u8 *b, size_t len, int order, PortImportSource *sr
     version = order == PORT_SAVE_ORDER_BIG ? GetBE32(b + 4) : GetLE32(b + 4);
     if (magic == SAVE_FILE_MAGIC && version == DDR_VERSION) {
         return Fail(err, errSize, "a Doomsday Rescue save: only Hot Wheels progress is imported");
+    }
+    if (len < HW_SIZE) {
+        return Fail(err, errSize, "cut short: %u bytes of %u", (unsigned)len, (unsigned)HW_SIZE);
     }
     src->release = PORT_RELEASE_GC;
     return Finish(src, b, order, err, errSize);
