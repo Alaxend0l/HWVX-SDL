@@ -2118,6 +2118,16 @@ const char *Port_LauncherMix(void) {
     return s_playMix;
 }
 
+/* What was chosen, to play: the release's path, or NULL with s_playMix set. */
+static char *PlayChosen(Launcher *l) {
+    if (PlayingMix(l)) {
+        s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
+        return NULL;
+    }
+    UseConverted(&l->src);
+    return SDL_strdup(l->src.path[l->src.play]);
+}
+
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search) {
     /* static: a file dialog's answer (Picked, on SDL's thread) may come after
      * the window closed (the program asked to quit while it was open) */
@@ -2162,12 +2172,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     }
     valid |= PlayingMix(&l);
     if (valid && !open && (l.src.skip || !window)) {
-        if (PlayingMix(&l)) {
-            s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
-        } else {
-            chosen = SDL_strdup(l.src.path[l.src.play]);
-            UseConverted(&l.src);
-        }
+        chosen = PlayChosen(&l);
         FreeSources(&l.src);
         return chosen;
     }
@@ -2186,7 +2191,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
         /* no launcher here: play what was chosen, or say why there is nothing */
         Port_Log("launcher: %s", SDL_GetError());
         if (valid) {
-            chosen = SDL_strdup(l.src.path[l.src.play]);
+            chosen = PlayChosen(&l);
         } else {
             Port_Fatal("The launcher could not open (%s), and no game data is chosen: pass it with --data PATH.",
                        SDL_GetError());
@@ -2229,12 +2234,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
         }
     }
     if (Run(&l) > 0 && CanPlay(&l)) {
-        if (PlayingMix(&l)) {
-            s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
-        } else {
-            chosen = SDL_strdup(l.src.path[l.src.play]);
-            UseConverted(&l.src);
-        }
+        chosen = PlayChosen(&l);
     }
     if (l.src.tab != tabLoaded) {
         SaveSources(&l.src);    /* the page shown last */
