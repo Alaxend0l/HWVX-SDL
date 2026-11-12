@@ -387,6 +387,12 @@ static char *Absolute(const char *path) {
 
 /* ---- the window -------------------------------------------------------- */
 
+/* The silver (PS2) set takes the PS2's interface textures but not yet its
+ * interface colours (digits, fill bars, arrows stay the GameCube's yellow):
+ * the choice stays hidden until it does. A machine already set to silver
+ * keeps the button, to switch back. */
+#define MIX_SILVER_READY 0
+
 enum {
     ACT_NONE, ACT_PLAY_THIS, ACT_FOLDER, ACT_IMAGE, ACT_REMOVE, ACT_PLAY, ACT_QUIT, ACT_CONVERT, ACT_SKIP,
     ACT_SAVES,          /* "Import saves...": pick files */
@@ -682,8 +688,10 @@ static void LayoutPage(Launcher *l, int busy) {
             if (l->mixHave) {
                 Add(l, x, CONV_HOOK_Y + 26, "Delete", ACT_MIX_DELETE, -1, !busy);
             }
-            Add(l, VIEW_W - 24 - (float)(SDL_strlen(MixIfaceLabel(l)) * CHAR + 16), CONV_HOOK_Y + 26,
-                MixIfaceLabel(l), ACT_MIX_IFACE, -1, !busy);
+            if (MIX_SILVER_READY || l->src.ifacePS2) {
+                Add(l, VIEW_W - 24 - (float)(SDL_strlen(MixIfaceLabel(l)) * CHAR + 16), CONV_HOOK_Y + 26,
+                    MixIfaceLabel(l), ACT_MIX_IFACE, -1, !busy);
+            }
         }
         break;
     case TAB_MODS:
