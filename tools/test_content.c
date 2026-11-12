@@ -223,7 +223,7 @@ static void Check(int ok, const char *what, ...)
     }
 }
 
-/* A registered entry shows as its alias: name + " (test)", the alias's
+/* A registered entry shows as its alias: name + " (test)" (before its '*'), the alias's
  * picture, a blank paragraph. */
 static void CheckExtra(u32 id, const char *range, u32 n, u32 alias)
 {
@@ -237,7 +237,11 @@ static void CheckExtra(u32 id, const char *range, u32 n, u32 alias)
         return;
     }
     Check(Entry(names, alias, a, sizeof(a)) && Entry(names, n, b, sizeof(b)) &&
-              (snprintf(want, sizeof(want), "%s (test)", a), strcmp(b, want) == 0),
+              /* the suffix goes before a trailing '*', the font's trademark sign */
+              (strlen(a) > 0 && a[strlen(a) - 1] == '*'
+                   ? snprintf(want, sizeof(want), "%.*s (test)*", (int)strlen(a) - 1, a)
+                   : snprintf(want, sizeof(want), "%s (test)", a),
+               strcmp(b, want) == 0),
           "entry %u's name is entry %u's with \" (test)\": \"%s\"", n, alias, b);
     Check(Entry(pics, alias, a, sizeof(a)) && Entry(pics, n, b, sizeof(b)) && strcmp(a, b) == 0,
           "entry %u's picture is entry %u's (texture %s)", n, alias, b);

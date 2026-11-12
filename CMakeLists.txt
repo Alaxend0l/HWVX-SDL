@@ -246,6 +246,13 @@ if(HWVX_TESTS AND NOT ANDROID)
         endif()
     endforeach()
     add_test(NAME saveimporttest COMMAND saveimporttest ${HWVX_SAVEIMPORT_ARGS})
+
+    # Port_RemoveTree never follows a link (src/port/fileio.c).
+    add_executable(removetreetest tools/removetreetest.c src/port/fileio.c)
+    target_include_directories(removetreetest PRIVATE ${CMAKE_SOURCE_DIR}/src/game/include ${CMAKE_SOURCE_DIR}/src/port)
+    target_link_libraries(removetreetest PRIVATE SDL3::SDL3)
+    add_test(NAME removetreetest COMMAND removetreetest)
+    set_tests_properties(removetreetest PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 # ---- platforms and packaging (see packaging/README.md) ---------------------

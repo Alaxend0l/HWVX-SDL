@@ -570,6 +570,22 @@ static void TestMerge(void) {
     Port_SaveImportMerge(t, &a, 1, &opt, &plan);
     CHECK(plan.numSlots == 1 && plan.slots[0].isNew && plan.slots[0].into == 0, "into an empty save: a new one");
     CHECK(((SaveFile *)t)->settings.audio.sfxVolume == 77, "a new save's settings aren't the file's");
+    {
+        /* one file of two picked: a blank save's settings are that file's */
+        PortImportSource two[2];
+        PortImportPlan p2;
+        u8 *t2 = SDL_calloc(1, HW_SIZE);
+        two[0] = a;
+        two[1] = b;
+        ((SaveFile *)b.saveFile)->settings.audio.sfxVolume = 55;
+        opt.onlySource = 1;
+        Port_SaveImportMerge(t2, two, 2, &opt, &p2);
+        CHECK(((SaveFile *)t2)->settings.audio.sfxVolume == 55 && p2.numSlots == 1 && p2.slots[0].source == 1,
+              "only the second file: settings %d from the first", ((SaveFile *)t2)->settings.audio.sfxVolume);
+        opt.onlySource = -1;
+        ((SaveFile *)b.saveFile)->settings.audio.sfxVolume = 77;
+        SDL_free(t2);
+    }
     Port_SaveImportMerge(t, &b, 1, &opt, &plan);
     Port_SaveImportDescribe(&plan, 0, &opt, line, sizeof(line));
     SDL_Log("   %s", line);
@@ -613,6 +629,7 @@ static void TestMerge(void) {
         SDL_memcpy(SAVE_FILE_GAME_DATA(c.saveFile, sizeof(HotWheelsGameData), 3),
                    SAVE_FILE_GAME_DATA(c.saveFile, sizeof(HotWheelsGameData), 0), sizeof(HotWheelsGameData));
         SDL_strlcpy(cf->settings.slots[3].name, "THIRD", 11);
+        ((HotWheelsGameData *)SAVE_FILE_GAME_DATA(c.saveFile, sizeof(HotWheelsGameData), 3))->vehicle = 1;
     }
     opt.onlySource = 0;
     opt.onlySlot = 3;
@@ -622,6 +639,8 @@ static void TestMerge(void) {
     CHECK(SlotNamed(t, "OTHER") < 0 && SlotNamed(t, "THIRD") == 1, "slot 0 imported though only 3 was asked");
     CHECK(CARS(Slot(t, 1)) == ((1ull << 3) | (1ull << 4) | (1ull << 5) | (1ull << 7)), "a new save's cars 0x%llx",
           (unsigned long long)CARS(Slot(t, 1)));
+    CHECK(Slot(t, 1)->vehicle == 3, "a new save's car is %d: a default car left locked, not the first unlocked (3)",
+          (int)Slot(t, 1)->vehicle);
     opt = s_all;
 
     /* no room: eight saves of other names */
@@ -761,6 +780,29 @@ static void TestRejected(void) {
     CHECK(!Port_SaveImportRead("Ps2PowerSave\0\0\0\0", 16, "x.max", &x, err, sizeof(err)) && SDL_strstr(err, ".max") != NULL,
           "a .max: %s", err);
     SDL_Log("   .max: %s", err);
+    {
+        /* the port's card file cut short: the header there, the rest not
+         * (a buffer of exactly that size, for ASan) */
+        size_t n = 0x840 + 0x40;
+        u8 *b = SDL_calloc(1, n);
+        PutLE32(b + 0x840, SAVE_FILE_MAGIC);
+        PutLE32(b + 0x844, HW_SIZE - 12);
+        CHECK(!Port_SaveImportRead(b, n, "hwvx.sav", &x, err, sizeof(err)) && SDL_strstr(err, "cut short") != NULL,
+              "a cut .sav (%s)", err);
+        SDL_free(b);
+    }
+    {
+        /* a PS2 card image that is only its superblock's first 0x40 bytes */
+        size_t n = 0x40;
+        u8 *b = SDL_calloc(1, n);
+        SDL_memcpy(b, "Sony PS2 Memory Card Format 1.2.0.0", 0x24);
+        PutLE16(b + 0x28, 512);
+        PutLE16(b + 0x2A, 2);
+        PutLE32(b + 0x30, 8);
+        CHECK(!Port_SaveImportRead(b, n, "cut.ps2", &x, err, sizeof(err)) && SDL_strstr(err, "cut short") != NULL,
+              "a cut .ps2 (%s)", err);
+        SDL_free(b);
+    }
     if (s_gci.bytes != NULL) {
         u8 *b = SDL_malloc(s_gci.len);
         SDL_memcpy(b, s_gci.bytes, s_gci.len);

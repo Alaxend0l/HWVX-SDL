@@ -61,11 +61,32 @@ int Port_ReplaceFile(const char *from, const char *to) {
     return ok;
 }
 
+static int IsRealFolder(const char *path) {
+    WCHAR *w = Wide(path);
+    DWORD attr = w != NULL ? GetFileAttributesW(w) : INVALID_FILE_ATTRIBUTES;
+
+    SDL_free(w);
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) &&
+           !(attr & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
 #else
 #include <errno.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
+
+/* To the disk itself: on macOS fsync only reaches the drive's cache;
+ * F_FULLFSYNC flushes that too (not every file system has it: then fsync). */
+static int SyncFd(int fd) {
+#if defined(__APPLE__) && defined(F_FULLFSYNC)
+    if (fcntl(fd, F_FULLFSYNC) == 0) {
+        return 0;
+    }
+#endif
+    return fsync(fd);
+}
 
 int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
     const char *p = data;
@@ -87,7 +108,7 @@ int Port_WriteFileSynced(const char *path, const void *data, size_t size) {
         p += n;
         size -= (size_t)n;
     }
-    if (ok && fsync(fd) != 0) {
+    if (ok && SyncFd(fd) != 0) {
         ok = SDL_SetError("can't sync %s: %s", path, strerror(errno));
     }
     if (close(fd) != 0 && ok) {
@@ -125,10 +146,37 @@ int Port_ReplaceFile(const char *from, const char *to) {
     }
     dir = slash != NULL ? SDL_strndup(to, (size_t)(slash - to) + 1) : SDL_strdup(".");
     if (dir != NULL && (fd = open(dir, O_RDONLY)) >= 0) {
-        fsync(fd);
+        SyncFd(fd);
         close(fd);
     }
     SDL_free(dir);
     return 1;
 }
+
+static int IsRealFolder(const char *path) {
+    struct stat st;
+
+    return lstat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
 #endif
+
+/* SDL_GetPathInfo follows links; IsRealFolder doesn't, so a symlink or
+ * junction inside the tree (or the tree itself) is removed as a link and
+ * its target left alone. */
+static SDL_EnumerationResult SDLCALL RemoveEntry(void *userdata, const char *dir, const char *name) {
+    char *path = NULL;
+
+    (void)userdata;
+    if (SDL_asprintf(&path, "%s%s", dir, name) >= 0) {
+        Port_RemoveTree(path);
+        SDL_free(path);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+void Port_RemoveTree(const char *path) {
+    if (IsRealFolder(path)) {
+        SDL_EnumerateDirectory(path, RemoveEntry, NULL);
+    }
+    SDL_RemovePath(path);
+}

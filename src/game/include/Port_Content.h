@@ -37,6 +37,13 @@ enum {
     PORT_CONTENT_KINDS
 };
 
+/* Limits: an id is at most PORT_CONTENT_ID_MAX characters (online sends its
+ * length as a byte; longer ones aren't registered), and a kind numbers at
+ * most PORT_CONTENT_MAX_REGISTERED entries past its base content (an
+ * ids.lock number or "next" past that is logged and not used). */
+#define PORT_CONTENT_ID_MAX 255
+#define PORT_CONTENT_MAX_REGISTERED 4096
+
 /* How many there are, and how many the save struct's array holds. */
 u32 Port_ContentCount(int kind);
 u32 Port_ContentRetailCount(int kind);
@@ -46,6 +53,9 @@ u32 Port_ContentBaseCount(int kind);
  * the count. Setting past the count does nothing. */
 s8 Port_ContentUnlocked(int kind, u32 i);
 void Port_ContentSetUnlocked(int kind, u32 i, s8 v);
+/* 1 if entry i is a reserved number (ids.lock content that isn't there):
+ * never unlocked, never to be chosen. */
+int Port_ContentReserved(int kind, u32 i);
 
 /* Ids, as the save is keyed: base:// for numbered base content, the
  * registered id otherwise. 1 if there is one. */
@@ -85,11 +95,16 @@ typedef struct PortContentEntry {
     const char *world;      /* a track: the world archive its level loads, as the MCP names one
                              * (worlds_\\sp_\\chal1_\\ch1_l2); NULL: its alias's. The rest of the
                              * level (loading screen, steps, win and lose sequences) is the alias's */
+    const char *data;       /* the pack its data is when not its alias's: proto://<archive>/<type>_<id>,
+                             * a pack of the PS2 prototype (Port_Proto.c); the alias then stands in
+                             * where that can't be had (online, the lists' fallbacks) */
 } PortContentEntry;
 s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e);
 /* A registered entry's look (NULL each where the alias's is used): 1; 2 if
  * it's reserved; 0 if entry i isn't registered. */
 int Port_ContentLook(int kind, u32 i, const char **name, const char **suffix, const char **thumbnail);
+/* A registered entry's own data link (PortContentEntry.data), or NULL. */
+const char *Port_ContentDataLink(int kind, u32 i);
 /* A registered track's own world archive, or NULL. */
 const char *Port_ContentWorld(int kind, u32 i);
 /* A project's ids.lock (JSONC, docs §10.5.1): its entries registered at
@@ -139,6 +154,11 @@ void Port_ContentInit(void);
 /* DataPack_LoadFile: the TOC id to load for pack `id` of type `type` in
  * archive `name` (an extra car: the car whose pack it aliases). */
 u32 Port_ContentPackId(const char *name, u32 type, u32 id);
+/* The same, and the archive to load it from: `name` itself, or the PS2
+ * prototype's ("~HW_Cars", Port_Proto.c) for an entry whose data is the
+ * prototype's, or a retail car the prototype replaces (its import mode
+ * "replace"). */
+u32 Port_ContentPackSource(const char *name, u32 type, u32 id, const char **source);
 /* The HW_Items pack (and script) id of item number n: n for the base items,
  * the alias's for an aliasing one, past the archive's packs for one with
  * data of its own. Item numbers past the base never name a pack directly:

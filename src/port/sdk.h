@@ -116,6 +116,7 @@ typedef struct DVDFileInfo {
             void *host;   /* port: SDL_IOStream */
             u32 format;   /* port: whose data the file is, PORT_DATA_* (port.h) */
             void *xdl;    /* port: its converted packs' cache, or NULL (xdl.c) */
+            u32 proto;    /* port: the PS2 prototype's file (proto.c): its own pack layout */
         };
     };
     u32 startAddr;    /* 0x30 */

@@ -43,6 +43,13 @@ typedef int Sock;
 #define PROTOCOL_VERSION 1
 #define MAX_DRAWN 512           /* geometries side by side */
 #define MAX_BONES 64
+#define MAX_LINE (1u << 20)     /* a request line's longest */
+
+#ifdef MSG_NOSIGNAL
+#define SEND_FLAGS MSG_NOSIGNAL /* a closed client is an error, not SIGPIPE (Linux; SO_NOSIGPIPE elsewhere) */
+#else
+#define SEND_FLAGS 0
+#endif
 
 VPack g_viewerPacks[VIEWER_MAX_PACKS];
 
@@ -56,6 +63,9 @@ static struct {
     Sock listener, client;
     char *in;
     size_t inLen, inCap;
+    size_t scan;                /* in[0 .. scan) has no line end */
+    int authed;                 /* the client's hello had the token */
+    char token[80];             /* HWVX_VIEWER_TOKEN, or one made up and logged */
     int quit;
 
     Camera *camera;
@@ -66,6 +76,7 @@ static struct {
 
     VPack *shown;               /* the pack drawn */
     char selected[256];         /* its selected node's id, or "" */
+    s32 selectedIndex;          /* that node in shown->nodes, or -1 */
     Matrix4 *matrices;          /* scratch for a frame's draws (game heap) */
     u32 numMatrices;
     u32 drawn;                  /* draws queued in the last frame */
@@ -141,13 +152,15 @@ static void DropClient(void) {
         s.client = SOCK_NONE;
     }
     s.inLen = 0;
+    s.scan = 0;
+    s.authed = 0;
 }
 
 static void SendAll(const char *data, size_t len) {
     u64 start = SDL_GetTicks();
 
     while (len > 0 && s.client != SOCK_NONE) {
-        long n = (long)send(s.client, data, len, 0);
+        long n = (long)send(s.client, data, len, SEND_FLAGS);
 
         if (n > 0) {
             data += n;
@@ -428,18 +441,29 @@ static Geometry *GeometryOf(VPack *vp, VNode *nd) {
     return (Geometry *)(GETP(vp->pack->base) + nd->off);
 }
 
+/* p, if [p, p + size) is inside the pack's blob; else NULL. The model's handles
+ * are followed through this: a set can point a link anywhere (force). */
+static void *InPack(VPack *vp, const void *p, size_t size) {
+    uintptr_t base = (uintptr_t)GETP(vp->pack->base), q = (uintptr_t)p;
+
+    if (p == NULL || q < base || q - base > vp->size || size > vp->size - (q - base)) {
+        return NULL;
+    }
+    return (void *)p;
+}
+
 /* The car's model: CarAInfo/0's modelRef, as CarA.c reads it. */
 static MotionAnim *CarModel(VPack *vp) {
     VNode *nd = vp->type == 0 ? Viewer_FindNode(vp, "CarAInfo/0") : NULL;
     CarAInfo *info;
     CarAModelRef *ref;
 
-    if (nd == NULL || nd->kind != VN_TYPED) {
+    if (nd == NULL || nd->kind != VN_TYPED || InPack(vp, GETP(vp->pack->base) + nd->off, sizeof(CarAInfo)) == NULL) {
         return NULL;
     }
     info = (CarAInfo *)(GETP(vp->pack->base) + nd->off);
-    ref = GETP(info->modelRef);
-    return ref != NULL ? GETP(ref->data) : NULL;
+    ref = InPack(vp, GETP(info->modelRef), sizeof(CarAModelRef));
+    return ref != NULL ? InPack(vp, GETP(ref->data), sizeof(MotionAnim)) : NULL;
 }
 
 static Matrix4 *NextMatrix(void) {
@@ -452,17 +476,17 @@ static Matrix4 *NextMatrix(void) {
 
 /* The model's rest pose as bone matrices (the first key frame over the
  * skeleton's base pose), or NULL. */
-static Matrix4 *ModelPose(MotionAnim *model, u32 *numBones) {
+static Matrix4 *ModelPose(VPack *vp, MotionAnim *model, u32 *numBones) {
     static u8 frames[MAX_BONES * 0x20] __attribute__((aligned(16)));
-    CreatureSkeleton *skel = GETP(model->skeleton);
+    CreatureSkeleton *skel = InPack(vp, GETP(model->skeleton), sizeof(CreatureSkeleton));
     Matrix4 *matrices;
 
-    if (skel == NULL || skel->numBones == 0 || skel->numBones > MAX_BONES || GETP(skel->nodes) == NULL ||
-        s.numMatrices + skel->numBones >= MATRIX_POOL) {
+    if (skel == NULL || skel->numBones == 0 || skel->numBones > MAX_BONES ||
+        InPack(vp, GETP(skel->nodes), skel->numBones * 0x20) == NULL || s.numMatrices + skel->numBones >= MATRIX_POOL) {
         return NULL;
     }
     memcpy(frames, GETP(skel->nodes), skel->numBones * 0x20);
-    if (GETP(model->keys) != NULL) {
+    if (InPack(vp, GETP(model->keys), 4) != NULL) {
         Gfx_AnimExtractKeyFrame(GETP(model->keys), 0.0f, frames, (s32)skel->numBones);
     }
     matrices = &s.matrices[s.numMatrices];
@@ -512,16 +536,21 @@ static void DrawOne(Geometry *g, Matrix4 *m, f32 *min, f32 *max) {
     s.drawn++;
 }
 
-static void DrawModel(MotionAnim *model, f32 *min, f32 *max) {
+static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max) {
     u32 numBones = 0, i;
-    Matrix4 *bones = ModelPose(model, &numBones);
-    CarPartList *parts = GETP(model->parts);
+    Matrix4 *bones = ModelPose(vp, model, &numBones);
+    CarPartList *parts = InPack(vp, GETP(model->parts), sizeof(CarPartList));
+    void *geoms = model->numGeoms < 0x10000 ? InPack(vp, GETP(model->geoms), model->numGeoms * 4) : NULL;
+    MotionPart *rigid = model->numRigid < 0x10000 ? InPack(vp, GETP(model->rigid), model->numRigid * sizeof(MotionPart))
+                                                   : NULL;
+    CarPart *partList = parts != NULL && parts->count < 0x10000
+                            ? InPack(vp, GETP(parts->parts), parts->count * sizeof(CarPart)) : NULL;
 
     if (bones == NULL) {
         return;
     }
-    for (i = 0; i < model->numGeoms; i++) {
-        Geometry *g = GETP(GETP(model->geoms)[i]);
+    for (i = 0; geoms != NULL && i < model->numGeoms; i++) {
+        Geometry *g = InPack(vp, GETP(GETP(model->geoms)[i]), sizeof(Geometry));
 
         if (g != NULL) {
             Gfx_DrawAnimGeometryAux(g, (f32 *)bones, numBones, NULL);
@@ -529,23 +558,23 @@ static void DrawModel(MotionAnim *model, f32 *min, f32 *max) {
             s.drawn++;
         }
     }
-    for (i = 0; i < model->numRigid; i++) {
-        MotionPart *e = &GETP(model->rigid)[i];
+    for (i = 0; rigid != NULL && i < model->numRigid; i++) {
+        MotionPart *e = &rigid[i];
 
-        if (GETP(e->geom) != NULL && e->mtxIndex < numBones) {
+        if (InPack(vp, GETP(e->geom), sizeof(Geometry)) != NULL && e->mtxIndex < numBones) {
             Gfx_DrawGeometry_MatrixNotCached((s32)HND(GETP(e->geom)), (s32)HND(&bones[e->mtxIndex]));
             Grow(min, max, &bones[e->mtxIndex], GETP(e->geom));
             s.drawn++;
         }
     }
     /* the breakable parts as on an undamaged car (CarA.partVisMask 0) */
-    for (i = 0; parts != NULL && i < parts->count; i++) {
-        CarPart *part = &GETP(parts->parts)[i];
+    for (i = 0; partList != NULL && i < parts->count; i++) {
+        CarPart *part = &partList[i];
 
-        if ((part->flags & 1) || GETP(part->geom) == NULL || part->mtxIndex >= numBones) {
+        if ((part->flags & 1) || InPack(vp, GETP(part->geom), sizeof(Geometry)) == NULL || part->mtxIndex >= numBones) {
             continue;
         }
-        if (part->xform && GETP(part->offset) != NULL) {
+        if (part->xform && InPack(vp, GETP(part->offset), sizeof(Vector4)) != NULL) {
             Matrix4 *m = NextMatrix();
 
             *m = bones[part->mtxIndex];
@@ -573,11 +602,12 @@ static int DrawScene(f32 *min, f32 *max) {
     if (vp == NULL || vp->pack == NULL || GETP(vp->pack->base) == NULL) {
         return 0;
     }
-    sel = s.selected[0] ? Viewer_FindNode(vp, s.selected) : NULL;
+    sel = s.selected[0] && s.selectedIndex >= 0 && (u32)s.selectedIndex < vp->numNodes ? &vp->nodes[s.selectedIndex]
+                                                                                       : NULL;
     if (sel != NULL && sel->kind == VN_GEOMETRY) {
         DrawOne(GeometryOf(vp, sel), NextMatrix(), min, max);
     } else if ((model = CarModel(vp)) != NULL) {
-        DrawModel(model, min, max);
+        DrawModel(vp, model, min, max);
     } else {
         /* every geometry, in rows, each on a square of the largest one's size */
         f32 cell = 0.0f, x = 0.0f, z = 0.0f;
@@ -725,6 +755,7 @@ static void Unload(VPack *vp) {
     if (s.shown == vp) {
         s.shown = NULL;
         s.selected[0] = '\0';
+        s.selectedIndex = -1;
     }
     Viewer_FreeGraph(vp);
     Viewer_ForgetPack(vp->pack);
@@ -732,6 +763,27 @@ static void Unload(VPack *vp) {
     FileStreaming_HeartBeat();      /* frees it now */
     vp->used = 0;
     vp->pack = NULL;
+}
+
+/* A copy of `name` that lives as long as the program: the streaming slots keep
+ * the name's pointer (FileStreaming_LoadDataPack), and a slot can outlive the
+ * viewer's pack that asked first (a car's share pack, still referenced). */
+static const char *InternName(const char *name) {
+    static char *s_names[256];
+    static int s_count;
+    int i;
+    char *copy;
+
+    for (i = 0; i < s_count; i++) {
+        if (SDL_strcmp(s_names[i], name) == 0) {
+            return s_names[i];
+        }
+    }
+    copy = SDL_strdup(name);
+    if (copy != NULL && s_count < (int)SDL_arraysize(s_names)) {
+        s_names[s_count++] = copy;
+    }
+    return copy;    /* (past 256 names: kept, not found again) */
 }
 
 static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize) {
@@ -742,6 +794,8 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
     long long id = Json_GetInt(req, "id", -1);
     VPack *vp = NULL;
     DataPack *dp;
+    DataPackRef refs[2];
+    const char *interned;
     char name[64], full[200];
 
     for (i = 0; typeName != NULL && i < 11; i++) {
@@ -762,6 +816,15 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
     last = last != NULL ? last + 1 : archive;
     SDL_snprintf(name, sizeof(name), "%s_%lld", g_viewerTypeNames[type], id);
     SDL_snprintf(full, sizeof(full), "%s/%s", last, name);
+    /* there before anything is unloaded for it: a wrong name leaves what is shown */
+    if (SDL_strlen(archive) >= sizeof(vp->archive) || id > 0xFFFFFFFFll || !PackRefs(archive, type, (u32)id, refs)) {
+        SDL_snprintf(err, errSize, "%s has no %s pack %lld", archive, g_viewerTypeNames[type], id);
+        return 0;
+    }
+    if ((interned = InternName(archive)) == NULL) {
+        SDL_snprintf(err, errSize, "out of memory");
+        return 0;
+    }
     if ((vp = FindPack(full)) != NULL) {
         Unload(vp);     /* again from the files: what an editor does after a rebuild */
     }
@@ -787,7 +850,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
         }
     }
     LoadShares(vp->archive, type, (u32)id, 0);
-    vp->slot = FileStreaming_LoadDataPack(vp->archive, type, (u32)id, 0);
+    vp->slot = FileStreaming_LoadDataPack((void *)interned, type, (u32)id, 0);
     dp = vp->slot >= 0 ? FileStreaming_InitializeDataPack((u32)vp->slot, type, 1) : NULL;
     if (dp == NULL || GETP(dp->base) == NULL) {
         if (vp->slot >= 0) {
@@ -804,6 +867,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
     Viewer_BuildGraph(vp);
     s.shown = vp;
     s.selected[0] = '\0';
+    s.selectedIndex = -1;
     s_frameNext = 1;
     Port_Log("viewer: loaded %s (%u nodes)", full, vp->numNodes);
     WritePack(w, vp);
@@ -845,6 +909,33 @@ static int NeedNode(const JsonNode *req, VPack **vp, VNode **nd, char *err, size
 }
 
 static void SaveShot(void);
+
+/* A screenshot goes to a .bmp or .png, and over nothing but an image: the
+ * port is a local one, but what asks for a frame shouldn't get to replace a file. */
+static int ShotPathOk(const char *path, char *err, size_t errSize) {
+    size_t n = SDL_strlen(path);
+    const char *ext = n > 4 ? path + n - 4 : "";
+    SDL_IOStream *io;
+    u8 head[8];
+    size_t got;
+
+    if (SDL_strcasecmp(ext, ".bmp") != 0 && SDL_strcasecmp(ext, ".png") != 0) {
+        SDL_snprintf(err, errSize, "a screenshot is a .bmp or .png");
+        return 0;
+    }
+    io = SDL_IOFromFile(path, "rb");
+    if (io == NULL) {
+        return 1;   /* nothing there (or not readable: saving says why) */
+    }
+    got = SDL_ReadIO(io, head, sizeof(head));
+    SDL_CloseIO(io);
+    if (got == 0 || (got >= 2 && head[0] == 'B' && head[1] == 'M') ||
+        (got >= 8 && SDL_memcmp(head, "\x89PNG\r\n\x1a\n", 8) == 0)) {
+        return 1;
+    }
+    SDL_snprintf(err, errSize, "%s is there and isn't an image: not overwritten", path);
+    return 0;
+}
 
 /* One request; the reply is sent, unless it waits for a frame (screenshot). */
 static void Dispatch(const JsonNode *req) {
@@ -920,7 +1011,8 @@ static void Dispatch(const JsonNode *req) {
             } else {
                 Jw_String(&w, "node", nd->id);
                 Jw_String(&w, "field", field);
-                ok = Viewer_SetField(&w, vp, nd, field, Json_Get(req, "value"), err, sizeof(err));
+                ok = Viewer_SetField(&w, vp, nd, field, Json_Get(req, "value"), Json_GetBool(req, "force", 0), err,
+                                     sizeof(err));
             }
         }
     } else if (SDL_strcmp(cmd, "select") == 0 || SDL_strcmp(cmd, "focus") == 0) {
@@ -932,10 +1024,12 @@ static void Dispatch(const JsonNode *req) {
             if ((ok = NeedPack(req, &vp, err, sizeof(err)))) {
                 s.shown = vp;
                 s.selected[0] = '\0';
+                s.selectedIndex = -1;
             }
         } else if ((ok = NeedNode(req, &vp, &nd, err, sizeof(err)))) {
             s.shown = vp;
             SDL_strlcpy(s.selected, nd->id, sizeof(s.selected));
+            s.selectedIndex = (s32)(nd - vp->nodes);
         }
         if (ok) {
             if (cmd[0] == 'f') {
@@ -984,10 +1078,21 @@ static void Dispatch(const JsonNode *req) {
     } else if (SDL_strcmp(cmd, "background") == 0) {
         const JsonNode *c = Json_Get(req, "color");
 
-        if (c != NULL && c->type == JSON_ARRAY && c->count == 3) {
-            s.background.r = (u8)Json_At(c, 0)->number;
-            s.background.g = (u8)Json_At(c, 1)->number;
-            s.background.b = (u8)Json_At(c, 2)->number;
+        u8 rgb[3];
+        int k;
+
+        for (k = 0; c != NULL && c->type == JSON_ARRAY && c->count == 3 && k < 3; k++) {
+            const JsonNode *x = Json_At(c, k);
+
+            if (x == NULL || x->type != JSON_NUMBER || !(x->number == x->number)) {
+                break;
+            }
+            rgb[k] = x->number <= 0.0 ? 0 : x->number >= 255.0 ? 255 : (u8)x->number;
+        }
+        if (k == 3) {
+            s.background.r = rgb[0];
+            s.background.g = rgb[1];
+            s.background.b = rgb[2];
         } else {
             SDL_snprintf(err, sizeof(err), "background takes color: [r, g, b], 0 .. 255");
             ok = 0;
@@ -997,6 +1102,8 @@ static void Dispatch(const JsonNode *req) {
 
         if (path == NULL || s.shotPath != NULL) {
             SDL_snprintf(err, sizeof(err), path == NULL ? "screenshot takes path (.bmp or .png)" : "a screenshot is pending");
+            ok = 0;
+        } else if (!ShotPathOk(path, err, sizeof(err))) {
             ok = 0;
         } else {
             /* answered once the next frame is drawn, with what it shows */
@@ -1041,6 +1148,86 @@ static void Dispatch(const JsonNode *req) {
     Jw_Free(&w);
 }
 
+static void SendError(const char *msg) {
+    JsonWriter w;
+
+    Jw_Init(&w);
+    Jw_BeginObject(&w, NULL, 0);
+    Jw_Bool(&w, "ok", 0);
+    Jw_String(&w, "error", msg);
+    Jw_EndObject(&w);
+    SendJson(&w);
+    Jw_Free(&w);
+}
+
+/* An HTTP request's first line ("POST / HTTP/1.1"): a web page aiming at the port. */
+static int LooksLikeHttp(const char *line, size_t len) {
+    static const char *const methods[] = { "GET ", "POST ", "PUT ", "HEAD ", "OPTIONS ", "DELETE ", "PATCH ", "CONNECT ", "TRACE " };
+    size_t i;
+
+    for (i = 0; i < SDL_arraysize(methods); i++) {
+        size_t n = SDL_strlen(methods[i]);
+
+        if (len >= n && SDL_strncasecmp(line, methods[i], n) == 0) {
+            return 1;
+        }
+    }
+    for (i = 0; i + 5 <= len; i++) {
+        if (SDL_memcmp(line + i, "HTTP/", 5) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Equal tokens, compared in the same time whatever matches. */
+static int SameToken(const char *a, const char *b) {
+    size_t n = SDL_strlen(a), m = SDL_strlen(b), i;
+    unsigned diff = n != m;
+
+    for (i = 0; i < n; i++) {
+        diff |= (unsigned)(a[i] ^ b[i < m ? i : 0]);
+    }
+    return diff == 0 && m > 0;
+}
+
+/* One request line. A connection's first is hello with the token, or it is dropped:
+ * anything able to reach 127.0.0.1 (a web page's POST, say) is not a client. */
+static void HandleLine(const char *line, size_t len) {
+    char err[160];
+    JsonNode *req;
+
+    if (len == 0 || (len == 1 && line[0] == '\r')) {
+        return;
+    }
+    if (!s.authed && LooksLikeHttp(line, len)) {
+        Port_Log("viewer: an HTTP request on the viewer's port: dropped");
+        DropClient();
+        return;
+    }
+    req = Json_Parse(line, len, err, sizeof(err));
+    if (!s.authed) {
+        const char *cmd = req != NULL && req->type == JSON_OBJECT ? Json_GetString(req, "cmd", "") : "";
+        const char *token = req != NULL && req->type == JSON_OBJECT ? Json_GetString(req, "token", "") : "";
+
+        if (SDL_strcmp(cmd, "hello") != 0 || !SameToken(s.token, token)) {
+            Port_Log("viewer: a client without the token: dropped");
+            SendError(SDL_strcmp(cmd, "hello") != 0 ? "the first request is hello, with the viewer's token"
+                                                    : "wrong token (HWVX_VIEWER_TOKEN)");
+            Json_Free(req);
+            DropClient();
+            return;
+        }
+        s.authed = 1;
+    }
+    if (req != NULL && req->type == JSON_OBJECT) {
+        Dispatch(req);
+    } else {
+        SendError(req != NULL ? "a request is a JSON object" : err);
+    }
+    Json_Free(req);
+}
+
 static void Poll(void) {
     char buf[4096];
     Sock sock;
@@ -1062,7 +1249,7 @@ static void Poll(void) {
     }
     while (s.client != SOCK_NONE) {
         long n = (long)recv(s.client, buf, sizeof(buf), 0);
-        char *nl;
+        size_t start = 0;
 
         if (n == 0 || (n < 0 && !SockWouldBlock())) {
             DropClient();
@@ -1073,7 +1260,7 @@ static void Poll(void) {
         }
         if (s.inLen + (size_t)n + 1 > s.inCap) {
             size_t cap = (s.inLen + (size_t)n + 1) * 2;
-            char *p = cap <= (16u << 20) ? SDL_realloc(s.in, cap) : NULL;
+            char *p = SDL_realloc(s.in, cap);
 
             if (p == NULL) {
                 DropClient();
@@ -1084,29 +1271,31 @@ static void Poll(void) {
         }
         memcpy(s.in + s.inLen, buf, (size_t)n);
         s.inLen += (size_t)n;
-        while (s.client != SOCK_NONE && (nl = memchr(s.in, '\n', s.inLen)) != NULL) {
-            size_t len = (size_t)(nl - s.in);
-            char err[160];
-            JsonNode *req = len > 0 ? Json_Parse(s.in, len, err, sizeof(err)) : NULL;
+        /* the lines in it, each scanned once (s.scan: where the last search stopped) */
+        while (s.client != SOCK_NONE) {
+            char *nl = memchr(s.in + s.scan, '\n', s.inLen - s.scan);
+            size_t len;
 
-            if (req != NULL && req->type == JSON_OBJECT) {
-                Dispatch(req);
-            } else if (len > 1) {
-                JsonWriter w;
-
-                Jw_Init(&w);
-                Jw_BeginObject(&w, NULL, 0);
-                Jw_Bool(&w, "ok", 0);
-                Jw_String(&w, "error", req != NULL ? "a request is a JSON object" : err);
-                Jw_EndObject(&w);
-                SendJson(&w);
-                Jw_Free(&w);
+            if (nl == NULL) {
+                s.scan = s.inLen;
+                break;
             }
-            Json_Free(req);
-            if (s.inLen >= len + 1) {   /* (a dropped client emptied it) */
-                s.inLen -= len + 1;
-                memmove(s.in, nl + 1, s.inLen);
-            }
+            len = (size_t)(nl - (s.in + start));
+            s.scan = start + len + 1;
+            HandleLine(s.in + start, len);
+            start += len + 1;
+        }
+        if (s.client == SOCK_NONE) {
+            break;  /* (dropped: the buffer is empty) */
+        }
+        if (start > 0) {
+            s.inLen -= start;
+            s.scan -= start;
+            memmove(s.in, s.in + start, s.inLen);
+        }
+        if (s.inLen > MAX_LINE) {
+            SendError("a request line is over 1 MB");
+            DropClient();
         }
     }
 }
@@ -1163,6 +1352,38 @@ static s32 Heartbeat(void) {
     return 1;
 }
 
+/* The token a client's hello has to carry: HWVX_VIEWER_TOKEN (the browser and
+ * viewer_client.py make one up and pass it), or one made up here and logged. */
+static void SetToken(void) {
+    const char *e = SDL_getenv("HWVX_VIEWER_TOKEN");
+    u8 bytes[16];
+    SDL_IOStream *io;
+    size_t got = 0, i;
+
+    if (e != NULL && *e != '\0') {
+        SDL_strlcpy(s.token, e, sizeof(s.token));
+        return;
+    }
+    if ((io = SDL_IOFromFile("/dev/urandom", "rb")) != NULL) {
+        got = SDL_ReadIO(io, bytes, sizeof(bytes));
+        SDL_CloseIO(io);
+    }
+    if (got != sizeof(bytes)) {
+        u64 x = SDL_GetPerformanceCounter() ^ ((u64)(uintptr_t)&e << 17) ^ SDL_GetTicksNS();
+
+        for (i = 0; i < sizeof(bytes); i++) {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            bytes[i] = (u8)(x >> 24);
+        }
+    }
+    for (i = 0; i < sizeof(bytes); i++) {
+        SDL_snprintf(s.token + i * 2, 3, "%02x", bytes[i]);
+    }
+    Port_Log("viewer: token %s (HWVX_VIEWER_TOKEN sets one)", s.token);
+}
+
 s32 Port_ViewerStart(void) {
     extern s8 g_cameraManagerPause;
     extern s32 (*Heartbeat_Process)(void);
@@ -1190,6 +1411,7 @@ s32 Port_ViewerStart(void) {
     if (s.camera == NULL || s.matrices == NULL) {
         return 0;
     }
+    s.selectedIndex = -1;
     s.yaw = 0.6f;
     s.pitch = 0.3f;
     s.distance = 12.0f;
@@ -1220,6 +1442,7 @@ s32 Port_ViewerStart(void) {
     SDL_free(found);
     Port_Log("viewer: %d schemas", n);
 
+    SetToken();
     if (!Listen()) {
         Port_Fatal("The viewer could not listen on 127.0.0.1:%d.", s.port);
     }

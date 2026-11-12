@@ -85,7 +85,8 @@ int Port_MixProbe(const char *nameOrPath, Port_DataCheck check, PortMixInfo *inf
 /* launcher.c: the recipe the player chose to play (the Play page's "Mixed
  * game"), or NULL: a release. */
 const char *Port_LauncherMix(void);
-/* launcher.c: removes a folder and everything in it (or a file). */
+/* fileio.c: removes a folder and everything in it (or a file); a symlink
+ * or junction is removed itself, never followed: its target stays. */
 void Port_RemoveTree(const char *path);
 /* The launcher's hook point for a feature built elsewhere: the mod loader
  * (the Mods page's "Mods..." row). launcher.c has a weak stub that says the

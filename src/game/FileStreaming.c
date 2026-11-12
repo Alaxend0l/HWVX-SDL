@@ -3,6 +3,7 @@
  * become active/inactive, and their item spawn points respawn pickups. Also
  * the pool of streamed data packs (g_StreamingDataPacks). */
 #include "common.h"
+#include "Port_Proto.h"
 #include "Port_Mods.h"
 #include "Port_Content.h"
 #include "Port_Swap.h"
@@ -47,6 +48,11 @@ void FileStreaming_Initialize(void)
     g_numQuadPacksInMemory = 0;
     g_numQuadPacksToLoad = 0;
     g_itemTimer = 0;
+    /* port: the PS2 prototype's packs refer to its own shared packs
+     * ("~HW_share", "~HW_Cars"#2: Port_Proto.c), beside the release's three */
+    if (Port_ProtoMode() != PORT_PROTO_OFF && g_MaxStreamingDataPacks[8] < 3 + 2) {
+        g_MaxStreamingDataPacks[8] = 3 + 2;
+    }
     for (i = 0; i < 11; i++) {
         if (i != 7 && g_MaxStreamingDataPacks[i] != 0) {
             size = g_MaxStreamingDataPacks[i] * sizeof(StreamingPack);
@@ -778,6 +784,7 @@ void *FileStreaming_InitializeDataPack(u32 index, s32 type, s8 refresh)
         DataPack_RefreshPtrs(&pack->pack);
         Port_ContentFixScripts(&pack->pack, GETP(pack->name), type, pack->id);   /* port: an extra car's scripts */
         Port_ModsPackLoaded(&pack->pack, GETP(pack->name), (u32)type, pack->id); /* port: mods' patches and recipes */
+        Port_ProtoPackLoaded(&pack->pack, GETP(pack->name), (u32)type, pack->id); /* port: a prototype car in the release */
     }
     pack->refreshed = 1;
     return &pack->pack;

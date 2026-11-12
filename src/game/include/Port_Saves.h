@@ -41,7 +41,9 @@ enum {
 };
 const char *Port_SaveIdSection(int table);   /* its name in the JSON: "cars" */
 u32 Port_SaveIdCount(int table);             /* the game array's length (the retail entries) */
-/* The id of index `index` in `table`: 1 if it has one. */
+/* The id of index `index` in `table`: 1 if it has one. Ids are at most
+ * PORT_SAVE_ID_MAX characters (the registry's PORT_CONTENT_ID_MAX). */
+#define PORT_SAVE_ID_MAX 255
 int Port_SaveIdOf(int table, u32 index, char *buf, size_t size);
 /* The index of `id` in `table`: 1 if the game has it. */
 int Port_SaveIndexOf(int table, const char *id, u32 *index);
@@ -109,7 +111,9 @@ int Port_SavesDelete(const char *name);
  * save (what: where from), 0 none yet (zeroes), -1 one that can't be read
  * (damaged with no good backup): an import must not replace it. */
 int Port_SavesPeek(const char *name, void *saveFile, u32 size, char *what, size_t whatSize);
-/* Port_SavesWrite, and the save says where it came from if it doesn't yet. */
+/* Port_SavesWrite, and the save says where it came from if it doesn't yet;
+ * the save before it is kept as <name>.before-import.json (until the next
+ * import). */
 int Port_SavesWriteImported(const char *name, const void *saveFile, u32 size, const char *importedFrom);
 
 /* Tests (tools/savetest.c): stop a write after its temporary file is
@@ -205,7 +209,7 @@ void Port_SaveImportMerge(u8 *target, const PortImportSource *srcs, int n, const
 int Port_SaveImportPreview(const PortImportSource *srcs, int n, const PortImportOptions *opt, PortImportPlan *plan,
                            char *err, size_t errSize);
 /* The import: the merge written to the store (atomically, the save before
- * it kept as a backup). The source files are only read. */
+ * it kept as hwvx.before-import.json). The source files are only read. */
 int Port_SaveImportApply(const PortImportSource *srcs, int n, const PortImportOptions *opt, PortImportPlan *plan,
                          char *err, size_t errSize);
 /* One line for a slot of the plan: "HW VEL X 1" -> new save: 3 cars (3, 4, 5), ..." */

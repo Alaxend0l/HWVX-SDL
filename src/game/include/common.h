@@ -648,7 +648,8 @@ typedef struct DataPack {
   PTR32(void) songBank;          /* 0x60 */
   s8 songLoaded;           /* 0x64 */
   u8 portFormat;           /* 0x65 port: whose pack it is, PORT_DATA_* (Port_Data.c) */
-  u8 pad66[2];             /* 0x66 */
+  u8 portProto;            /* 0x66 port: the PS2 prototype's pack (Port_Proto.c) */
+  u8 pad67;                /* 0x67 */
   DataPackRef refs[2];     /* 0x68 */
   u32 soundDataSize;       /* 0x90 */
 } DataPack;

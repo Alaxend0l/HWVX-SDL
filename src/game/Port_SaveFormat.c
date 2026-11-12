@@ -124,7 +124,7 @@ static void WriteUnlocks(JsonWriter *w, int table, const s8 *a, const JsonNode *
     const char *section = Port_SaveIdSection(table);
     const JsonNode *more = Json_Get(kept, section), *m, *c;
     u32 i, n = Port_SaveIdCount(table);
-    char id[128];
+    char id[PORT_SAVE_ID_MAX + 1];
 
     Jw_BeginObject(w, section, 0);
     for (i = 0; i < n; i++) {
@@ -163,7 +163,7 @@ static void WriteUnlocks(JsonWriter *w, int table, const s8 *a, const JsonNode *
 /* A number the game keeps for one of the id tables (vehicle, item): the id,
  * or the number itself when it has none (-1: none chosen). */
 static void WriteIdRef(JsonWriter *w, const char *key, int table, s32 v, const JsonNode *kept) {
-    char id[128];
+    char id[PORT_SAVE_ID_MAX + 1];
     const JsonNode *k = Json_Get(Json_Get(kept, "refs"), key);
 
     if (v == -1 && k != NULL && k->type == JSON_STRING) {

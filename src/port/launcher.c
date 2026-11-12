@@ -20,14 +20,17 @@
  *   XPS/ENGLISH/HW_share.xps, or its disc image, an .iso whose XPS/ENGLISH
  *   pcdisc.c copies into a folder of the player's own);
  * - the PS2 prototype (archive version 177/179; the retail PS2's are 183):
- *   not playable, kept for its beta cars, worlds and audio (later). Its disc
- *   image is imported like the PS2's; either disc goes where its version
- *   says, whichever row it was picked from.
+ *   not playable on its own; its content goes into the game played, by the
+ *   import mode picked on its row (proto.c, game/Port_Proto.c: off, its
+ *   three cars only, all its cars added, or its cars replacing the
+ *   release's). Its disc image is imported like the PS2's; either disc goes
+ *   where its version says, whichever row it was picked from.
  * - a mixed game (Port_Mix.h: the "ultimate" recipe, one game from the best
  *   of each release), offered with two or more releases imported: Play
  *   starts it as --mix ultimate.
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
- * "ps2beta=PATH", "play=gc|pc|ps2|mix:ultimate", "skip=1" and "tab=PAGE"; the GameCube data the
+ * "ps2beta=PATH", "proto=off|cars|added|replace", "play=gc|pc|ps2|mix:ultimate", "skip=1" and
+ * "tab=PAGE"; the GameCube data the
  * port found before the launcher existed (datadir.txt) is taken over on the
  * first run.
  *
@@ -127,6 +130,7 @@ typedef struct Sources {
                          * release to fall back on */
     int skip;           /* start the game without the launcher */
     int tab;            /* TAB_* last shown, or -1 */
+    int proto;          /* the prototype's import mode, PORT_PROTO_* (proto.c) */
 } Sources;
 
 /* ---- sources.cfg ----------------------------------------------------- */
@@ -161,6 +165,9 @@ static int LoadSources(Sources *s) {
         if (SDL_strncmp(line, "tab=", 4) == 0) {
             s->tab = TabNamed(line + 4);
         }
+        if (SDL_strncmp(line, "proto=", 6) == 0 && Port_ProtoModeNamed(line + 6) >= 0) {
+            s->proto = Port_ProtoModeNamed(line + 6);
+        }
         for (i = 0; i < SRC_COUNT; i++) {
             size_t n = SDL_strlen(s_keys[i]);
 
@@ -185,14 +192,16 @@ static int LoadSources(Sources *s) {
     return 1;
 }
 
+/* Written to sources.cfg.tmp, then renamed over it: never left half written. */
 static void SaveSources(const Sources *s) {
-    char *path = PrefFile("sources.cfg");
-    SDL_IOStream *io = path != NULL ? SDL_IOFromFile(path, "w") : NULL;
+    char *path = PrefFile("sources.cfg"), *tmp = NULL;
+    SDL_IOStream *io = path != NULL && SDL_asprintf(&tmp, "%s.tmp", path) >= 0 ? SDL_IOFromFile(tmp, "w") : NULL;
     int i, ok;
 
     if (io == NULL) {
         Port_Log("sources.cfg: %s", SDL_GetError());
         SDL_free(path);
+        SDL_free(tmp);
         return;
     }
     ok = 1;
@@ -206,16 +215,21 @@ static void SaveSources(const Sources *s) {
     } else if (s->play >= 0) {
         ok &= SDL_IOprintf(io, "play=%s\n", s_keys[s->play]) > 0;
     }
+    if (s->proto != PORT_PROTO_OFF) {
+        ok &= SDL_IOprintf(io, "proto=%s\n", Port_ProtoModeKey(s->proto)) > 0;
+    }
     if (s->skip) {
         ok &= SDL_IOprintf(io, "skip=1\n") > 0;
     }
     if (s->tab >= 0) {
         ok &= SDL_IOprintf(io, "tab=%s\n", s_tabKeys[s->tab]) > 0;
     }
-    if (!SDL_CloseIO(io) || !ok) {
+    if (!SDL_CloseIO(io) || !ok || !Port_ReplaceFile(tmp, path)) {
         Port_Log("sources.cfg: %s", SDL_GetError());
+        SDL_RemovePath(tmp);
     }
     SDL_free(path);
+    SDL_free(tmp);
 }
 
 static void FreeSources(Sources *s) {
@@ -379,7 +393,8 @@ enum {
     ACT_MOD_TOGGLE,     /* mods (Port_Mods.h): turn mod `source` on or off */
     ACT_MOD_UP,         /* load it one earlier */
     ACT_MOD_REMOVE,     /* delete its folder (pressed twice) */
-    ACT_MOD_INSTALL     /* pick a .hwmod to install */
+    ACT_MOD_INSTALL,    /* pick a .hwmod to install */
+    ACT_PROTO_MODE      /* the prototype's import mode `source` (PORT_PROTO_*) */
 };
 
 /* A release's converted packs. */
@@ -458,6 +473,7 @@ typedef struct Launcher {
     Uint64 convBytes[PORT_DATA_COUNT];
     SDL_Process *converter;
     int convSource, convDone, convTotal;
+    SDL_Time convStart;         /* when it started (the mixed game's: was its build made since?) */
     char convName[64], convLine[600], convError[200];
     size_t convLineLen;
     /* the mixed game: its recipe looked at (Port_MixProbe), its cache's state */
@@ -490,6 +506,7 @@ static int CanPlay(const Launcher *l) {
 #define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
 #define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 42.0f)     /* Settings: a setting */
 #define CONV_ROW_Y(k) (PAGE_Y + 30.0f + (k) * 52.0f)    /* Convert: an imported release */
+#define PROTO_Y (ROW_Y(SRC_COUNT) - 2.0f)                /* Games: the prototype's import mode */
 #define MODS_SHOWN 6
 #define MOD_ROW_Y(k) (PAGE_Y + 40.0f + (k) * 34.0f)     /* Mods: a mod, in load order */
 #define CONV_BAR_Y CONV_ROW_Y(3)                        /* the progress, under the releases */
@@ -547,7 +564,7 @@ static void LayoutSaves(Launcher *l) {
     Add(l, 24, VIEW_H - 30, "Import", ACT_IMP_GO, -1, !busy && l->planOk && l->plan.changes > 0);
     Add(l, 24 + 6 * CHAR + 24, VIEW_H - 30, "Add file...", ACT_IMP_ADD, -1,
         !busy && l->numSaves < PORT_IMPORT_MAX_SOURCES);
-    Add(l, 24 + 17 * CHAR + 48, VIEW_H - 30, "Cancel", ACT_IMP_CANCEL, -1, 1);
+    Add(l, 24 + 17 * CHAR + 48, VIEW_H - 30, "Cancel", ACT_IMP_CANCEL, -1, !busy);  /* busy: Add file's answer comes */
 }
 
 /* 1 if any release the game plays is imported. */
@@ -590,6 +607,18 @@ static void LayoutPage(Launcher *l, int busy) {
             x += Add(l, x, y, "Import disc image...", ACT_IMAGE, i, !busy)->r.w + 8;
             if (have) {
                 Add(l, x, y, "Remove", ACT_REMOVE, i, !busy);
+            }
+        }
+        if (l->src.path[SRC_BETA] != NULL) {
+            /* the import modes (labels kept: buttons keep the pointer) */
+            static const char *const labels[2][PORT_PROTO_MODES] = {
+                { "( ) Off", "( ) Beta cars", "( ) Beta added", "( ) Beta replaces" },
+                { "(*) Off", "(*) Beta cars", "(*) Beta added", "(*) Beta replaces" },
+            };
+            float x = 24;
+
+            for (i = 0; i < PORT_PROTO_MODES; i++) {
+                x += Add(l, x, PROTO_Y, labels[l->src.proto == i][i], ACT_PROTO_MODE, i, !busy)->r.w + 6;
             }
         }
         break;
@@ -663,7 +692,7 @@ static void Layout(Launcher *l) {
     } else {
         LayoutPage(l, busy);
         Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && CanPlay(l));
-        Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, 1);
+        Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, !l->dialogOpen);
     }
     l->numFocus = l->numButtons;
     /* the preview of an import keeps to its page */
@@ -805,7 +834,7 @@ static void DrawPage(Launcher *l) {
             y = ROW_Y(i);
             Text(l, 24, y, WHITE, s_names[i]);
             if (i == SRC_BETA) {
-                Text(l, 24 + 21 * CHAR, y, DIM, "- for beta cars, worlds, audio (later)");
+                Text(l, 24 + 21 * CHAR, y, DIM, "- its content in the game you play");
             }
             if (l->src.path[i] != NULL) {
                 Fit(line, sizeof(line), l->src.path[i], 74);
@@ -815,6 +844,23 @@ static void DrawPage(Launcher *l) {
             }
         }
         y = ROW_Y(SRC_COUNT) + 4;
+        if (l->src.path[SRC_BETA] != NULL) {
+            /* what the mode does: replaced, added, left as retail (Port_Proto.c) */
+            static const char *const what[PORT_PROTO_MODES][2] = {
+                { "Nothing of the prototype is used.", "Its cars keep their numbers in ids.lock for saves." },
+                { "Adds its 3 cars of its own: Fandango, Sweet 16 II, Jester.",
+                  "The release's 33 cars, worlds and audio stay as they are." },
+                { "Adds its 36 cars: the 3, and the 33 others as \"... (prototype)\".",
+                  "The release's own stay. Its worlds and audio: not yet." },
+                { "The release's 33 cars become the prototype's versions; its 3 are added.",
+                  "Saves keep their cars. Worlds and audio stay the release's (not yet)." },
+            };
+            int m = l->src.proto >= 0 && l->src.proto < PORT_PROTO_MODES ? l->src.proto : 0;
+
+            Text(l, 24, y + 22, GREY, what[m][0]);
+            Text(l, 24, y + 33, DIM, what[m][1]);
+            y += 46;
+        }
         if (l->importer != NULL) {
             SDL_snprintf(line, sizeof(line), "Importing the %s disc image into the save folder.",
                          l->importSource == PORT_DATA_PC ? "PC" : "PS2");
@@ -1137,29 +1183,6 @@ char *Port_ConvertedDir(const char *key) {
     return dir;
 }
 
-static SDL_EnumerationResult SDLCALL RemoveEntry(void *userdata, const char *dir, const char *name) {
-    char *path = NULL;
-    SDL_PathInfo info;
-
-    if (SDL_asprintf(&path, "%s%s", dir, name) >= 0) {
-        if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-            SDL_EnumerateDirectory(path, RemoveEntry, userdata);
-        }
-        SDL_RemovePath(path);
-        SDL_free(path);
-    }
-    return SDL_ENUM_CONTINUE;
-}
-
-void Port_RemoveTree(const char *path) {
-    SDL_PathInfo info;
-
-    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-        SDL_EnumerateDirectory(path, RemoveEntry, NULL);
-    }
-    SDL_RemovePath(path);
-}
-
 static SDL_EnumerationResult SDLCALL SumEntry(void *userdata, const char *dir, const char *name) {
     char *path = NULL;
     SDL_PathInfo info;
@@ -1346,6 +1369,7 @@ static void StartConvert(Launcher *l, int src) {
     l->convDone = l->convTotal = 0;
     l->convName[0] = l->convError[0] = '\0';
     l->convLineLen = 0;
+    SDL_GetCurrentTime(&l->convStart);
     if (l->converter == NULL) {
         SDL_snprintf(l->status, sizeof(l->status), "Could not start the converter: %s", SDL_GetError());
     } else if (src == SRC_MIX) {
@@ -1371,19 +1395,30 @@ static void ConvertLine(Launcher *l, const char *line) {
     }
 }
 
-/* The mixed game's builder has ended: it put a complete build in place
- * itself (mix.c); a stopped one leaves its .part, removed here. */
+/* The mixed game's builder has ended: it puts a complete build in place
+ * itself (mix.c: <dir> to <dir>.old, <dir>.part to <dir>, .old removed), so
+ * a stop, a Cancel too, can come at any point of that. What happened is
+ * read from the folders: a stop between the renames gets the last build
+ * back; a built.cfg written since the start is the new build. */
 static void EndMixBuild(Launcher *l, int cancel, int code) {
-    char *part = NULL;
-    int ok;
+    char *part = NULL, *old = NULL, *built = NULL;
+    SDL_PathInfo info;
+    int ok = 0;
 
     RefreshMix(l);
-    ok = !cancel && code == 0 && l->mixState == CONV_OK;
-    if (!ok && l->mix.dir[0] != '\0' && SDL_asprintf(&part, "%s.part", l->mix.dir) >= 0) {
+    if (l->mix.dir[0] != '\0' && SDL_asprintf(&part, "%s.part", l->mix.dir) >= 0 &&
+        SDL_asprintf(&old, "%s.old", l->mix.dir) >= 0 && SDL_asprintf(&built, "%s/%s", l->mix.dir, PORT_MIX_BUILT) >= 0) {
+        if (!SDL_GetPathInfo(l->mix.dir, NULL)) {
+            SDL_RenamePath(old, l->mix.dir);
+        }
+        Port_RemoveTree(old);
         Port_RemoveTree(part);
-        SDL_free(part);
         RefreshMix(l);
+        ok = SDL_GetPathInfo(built, &info) && info.modify_time >= l->convStart && l->mixState == CONV_OK;
     }
+    SDL_free(part);
+    SDL_free(old);
+    SDL_free(built);
     if (ok) {
         SDL_snprintf(l->status, sizeof(l->status), "The mixed game is built: %d packs.", l->mixPacks);
     } else if (cancel) {
@@ -1537,7 +1572,10 @@ static void Replan(Launcher *l) {
     } else if (!Port_SavesJson()) {
         SDL_snprintf(l->status, sizeof(l->status), "The game plays this save when started with HWVX_SAVES=json.");
     } else {
-        SDL_snprintf(l->status, sizeof(l->status), "Import keeps your save as it was as a backup.");
+        SDL_snprintf(l->status, sizeof(l->status), "%s",
+                     SDL_strcmp(l->plan.target, "no save yet") == 0
+                         ? "Import makes a new save."
+                         : "Import keeps your save as it was in hwvx.before-import.json.");
     }
 }
 
@@ -1631,17 +1669,14 @@ static int FirstFocus(const Launcher *l) {
     return l->buttons[play].enabled ? play : ButtonFor(l, ACT_QUIT);
 }
 
-/* Shows page `tab` (wrapping round), remembered in sources.cfg. Not while
- * the saves preview is open. */
+/* Shows page `tab` (wrapping round), remembered in sources.cfg (written when
+ * the launcher closes). Not while the saves preview is open. */
 static void SwitchTab(Launcher *l, int tab) {
     if (l->savesView) {
         return;
     }
     l->tab = (tab + TAB_COUNT) % TAB_COUNT;
-    if (l->src.tab != l->tab) {
-        l->src.tab = l->tab;
-        SaveSources(&l->src);
-    }
+    l->src.tab = l->tab;
     Layout(l);
     l->focus = FirstFocus(l);
 }
@@ -1694,6 +1729,13 @@ static int Activate(Launcher *l, const Button *b) {
         SaveSources(&l->src);
         RefreshConverted(l);
         SDL_snprintf(l->status, sizeof(l->status), "%s removed from the list (its files stay).", s_names[b->source]);
+        return 0;
+    case ACT_PROTO_MODE:
+        l->src.proto = b->source;
+        SaveSources(&l->src);
+        SDL_snprintf(l->status, sizeof(l->status), "Prototype: %s. It applies when the game starts.",
+                     b->source == PORT_PROTO_OFF ? "off" : b->source == PORT_PROTO_CARS ? "its cars only"
+                     : b->source == PORT_PROTO_ADDED ? "its content added" : "it replaces the release's cars");
         return 0;
     case ACT_SKIP:
         l->src.skip = !l->src.skip;
@@ -2041,7 +2083,7 @@ static int Run(Launcher *l) {
                     if (l->savesView) {
                         result = Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)]);
                     } else {
-                        result = -1;
+                        result = l->dialogOpen ? 0 : -1;    /* not while a dialog is open */
                     }
                     break;
                 default: break;
@@ -2052,6 +2094,14 @@ static int Run(Launcher *l) {
                     if (pads[i] == NULL) {
                         pads[i] = SDL_OpenGamepad(ev.gdevice.which);
                         break;
+                    }
+                }
+                break;
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                for (i = 0; i < 8; i++) {
+                    if (pads[i] != NULL && SDL_GetGamepadID(pads[i]) == ev.gdevice.which) {
+                        SDL_CloseGamepad(pads[i]);
+                        pads[i] = NULL;
                     }
                 }
                 break;
@@ -2066,7 +2116,9 @@ static int Run(Launcher *l) {
                 case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: SwitchTab(l, l->tab - 1); break;
                 case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: SwitchTab(l, l->tab + 1); break;
                 case SDL_GAMEPAD_BUTTON_EAST:
-                    result = l->savesView ? Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)]) : -1;
+                    result = l->savesView ? Activate(l, &l->buttons[ButtonFor(l, ACT_IMP_CANCEL)])
+                             : l->dialogOpen ? 0
+                                             : -1;
                     break;
                 case SDL_GAMEPAD_BUTTON_START:
                     result = Activate(l, &l->buttons[ButtonFor(l, l->savesView ? ACT_IMP_GO : ACT_PLAY)]);
@@ -2130,15 +2182,28 @@ const char *Port_LauncherMix(void) {
     return s_playMix;
 }
 
+/* What was chosen, to play: the release's path, or NULL with s_playMix set. */
+static char *PlayChosen(Launcher *l) {
+    if (PlayingMix(l)) {
+        s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
+        return NULL;
+    }
+    UseConverted(&l->src);
+    return SDL_strdup(l->src.path[l->src.play]);
+}
+
 char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch search) {
-    Launcher l;
+    /* static: a file dialog's answer (Picked, on SDL's thread) may come after
+     * the window closed (the program asked to quit while it was open) */
+    static Launcher l;
     char *chosen = NULL, *legacy, *found = NULL;
-    int i, valid, firstRun;
+    int i, valid, firstRun, tabLoaded;
 
     SDL_zero(l);
     l.pointer.x = l.pointer.y = -1;
     l.check = check;
     firstRun = !LoadSources(&l.src);
+    tabLoaded = l.src.tab;
     /* on the first run only (no sources.cfg yet), take over what the port
      * used before (datadir.txt), else look around; later, a removed source
      * stays removed */
@@ -2171,12 +2236,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     }
     valid |= PlayingMix(&l);
     if (valid && !open && (l.src.skip || !window)) {
-        if (PlayingMix(&l)) {
-            s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
-        } else {
-            chosen = SDL_strdup(l.src.path[l.src.play]);
-            UseConverted(&l.src);
-        }
+        chosen = PlayChosen(&l);
         FreeSources(&l.src);
         return chosen;
     }
@@ -2195,7 +2255,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
         /* no launcher here: play what was chosen, or say why there is nothing */
         Port_Log("launcher: %s", SDL_GetError());
         if (valid) {
-            chosen = SDL_strdup(l.src.path[l.src.play]);
+            chosen = PlayChosen(&l);
         } else {
             Port_Fatal("The launcher could not open (%s), and no game data is chosen: pass it with --data PATH.",
                        SDL_GetError());
@@ -2238,12 +2298,10 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
         }
     }
     if (Run(&l) > 0 && CanPlay(&l)) {
-        if (PlayingMix(&l)) {
-            s_playMix = MIX_RECIPE;     /* main_sdl.c starts it as --mix */
-        } else {
-            chosen = SDL_strdup(l.src.path[l.src.play]);
-            UseConverted(&l.src);
-        }
+        chosen = PlayChosen(&l);
+    }
+    if (l.src.tab != tabLoaded) {
+        SaveSources(&l.src);    /* the page shown last */
     }
     CloseSaves(&l);
     SDL_DestroyRenderer(l.renderer);

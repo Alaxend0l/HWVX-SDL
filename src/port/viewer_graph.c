@@ -252,12 +252,17 @@ static u32 RdU32(VPack *vp, u32 off) {
     return v;
 }
 
+/* [off, off + n) inside a blob of `size` bytes (no wrap: off and n come from requests). */
+static int InRange(u32 off, u32 n, u32 size) {
+    return off <= size && n <= size - off;
+}
+
 /* Where the handle in the slot at `off` points in this pack, or
  * VIEWER_NO_OFFSET (null, or another pack's). */
 static u32 Target(VPack *vp, u32 off) {
     u32 h, t;
 
-    if (off + 4 > vp->size) {
+    if (!InRange(off, 4, vp->size)) {
         return VIEWER_NO_OFFSET;
     }
     h = RdU32(vp, off);
@@ -266,7 +271,7 @@ static u32 Target(VPack *vp, u32 off) {
 }
 
 static int SlotKind(VPack *vp, u32 off) {
-    return (off & 3) == 0 && off + 4 <= vp->size ? vp->slotKind[off / 4] : VS_NONE;
+    return (off & 3) == 0 && InRange(off, 4, vp->size) ? vp->slotKind[off / 4] : VS_NONE;
 }
 
 static int IsPointerSlot(VPack *vp, u32 off) {
@@ -928,10 +933,10 @@ void Viewer_WriteNode(JsonWriter *w, VPack *vp, VNode *nd) {
     }
     switch (nd->kind) {
     case VN_TYPED: {
-        const JsonNode *p;
+        const JsonNode *p, *props = Json_Get(nd->schema, "properties");
 
         Jw_BeginArray(w, "fields", 0);
-        for (p = Json_Get(nd->schema, "properties")->child; p != NULL; p = p->next) {
+        for (p = props != NULL ? props->child : NULL; p != NULL; p = p->next) {
             const char *ctype = Json_GetString(p, "x-c-type", NULL);
             const JsonNode *link = Json_Get(p, "x-link");
             CType t;
@@ -1065,7 +1070,13 @@ static int StorePrim(const Prim *p, u8 *at, const JsonNode *v, char *err, size_t
     return 1;
 }
 
-static int StoreLink(VPack *vp, u32 off, const char *kind, const JsonNode *v, char *err, size_t errSize) {
+/* A link field: `link` is its x-link ({kind, target}). An object link takes a node of the
+ * target's type ("void" or none: any), word-aligned; `force` lets it take any node or a raw
+ * @hex offset (the game will read whatever is there as that struct). */
+static int StoreLink(VPack *vp, u32 off, const JsonNode *link, const JsonNode *v, int force, char *err,
+                     size_t errSize) {
+    const char *kind = Json_GetString(link, "kind", "object");
+    const char *target = Json_GetString(link, "target", NULL);
     char prefix[200];
     const char *id;
     VNode *nd;
@@ -1104,11 +1115,19 @@ static int StoreLink(VPack *vp, u32 off, const char *kind, const JsonNode *v, ch
         return Fail(err, errSize, "links to other packs can't be set in a loaded pack yet");
     }
     if (id[0] == '@') {
-        word = (u32)SDL_strtoul(id + 1, NULL, 16);
-        if (word >= vp->size || SDL_strcmp(kind, "object") != 0) {
+        char *end = NULL;
+        unsigned long long at = SDL_strtoull(id + 1, &end, 16);
+
+        if (SDL_strcmp(kind, "object") != 0 || end == id + 1 || *end != '\0' || at >= vp->size) {
             return Fail(err, errSize, "%s is outside the pack", id);
         }
-        word += (u32)HND(Base(vp));
+        if (!force) {
+            return Fail(err, errSize, "a link to a raw offset (%s) needs force: true", id);
+        }
+        if (at & 3) {
+            return Fail(err, errSize, "%s is not word-aligned", id);
+        }
+        word = (u32)at + (u32)HND(Base(vp));
         SDL_memcpy(Base(vp) + off, &word, 4);
         return 1;
     }
@@ -1137,13 +1156,21 @@ static int StoreLink(VPack *vp, u32 off, const char *kind, const JsonNode *v, ch
     if (nd->off == VIEWER_NO_OFFSET) {
         return Fail(err, errSize, "%s can't be linked to from an object field", id);
     }
+    if (nd->off & 3) {
+        return Fail(err, errSize, "%s is not word-aligned", id);
+    }
+    if (SDL_strcmp(kind, "object") == 0 && !force && target != NULL && target[0] != '\0' &&
+        SDL_strcmp(target, "void") != 0 && (nd->type == NULL || SDL_strcmp(nd->type, target) != 0)) {
+        return Fail(err, errSize, "%s is a%s %s, not a %s (force: true to link it anyway)", id,
+                    nd->type != NULL ? "" : "n", nd->type != NULL ? nd->type : "untyped node", target);
+    }
     word = (u32)HND(Base(vp) + nd->off);
     SDL_memcpy(Base(vp) + off, &word, 4);
     return 1;
 }
 
 static int StoreValue(VPack *vp, const JsonNode *root, const JsonNode *prop, const CType *t, int dim, u32 off,
-                      const JsonNode *v, char *err, size_t errSize) {
+                      const JsonNode *v, int force, char *err, size_t errSize) {
     const JsonNode *link, *def;
     const Prim *p;
 
@@ -1159,18 +1186,18 @@ static int StoreValue(VPack *vp, const JsonNode *root, const JsonNode *prop, con
             return Fail(err, errSize, "an array of %d is needed", t->dims[dim]);
         }
         for (i = 0, e = v->child; e != NULL; e = e->next, i++) {
-            if (!StoreValue(vp, root, prop != NULL ? Json_Get(prop, "items") : NULL, t, dim + 1, off + (u32)i * elem, e, err,
-                            errSize)) {
+            if (!StoreValue(vp, root, prop != NULL ? Json_Get(prop, "items") : NULL, t, dim + 1, off + (u32)i * elem, e, force,
+                            err, errSize)) {
                 return 0;
             }
         }
         return 1;
     }
-    if (off + BaseSize(root, t->base) > vp->size) {
+    if (!InRange(off, BaseSize(root, t->base), vp->size)) {
         return Fail(err, errSize, "outside the pack");
     }
     if (prop != NULL && (link = Json_Get(prop, "x-link")) != NULL) {
-        return StoreLink(vp, off, Json_GetString(link, "kind", "object"), v, err, errSize);
+        return StoreLink(vp, off, link, v, force, err, errSize);
     }
     if ((def = RefOf(root, prop)) != NULL) {
         const JsonNode *m;
@@ -1187,7 +1214,7 @@ static int StoreValue(VPack *vp, const JsonNode *root, const JsonNode *prop, con
                 return Fail(err, errSize, "no field %s", m->key);
             }
             ParseCType(ctype, &qt);
-            if (!StoreValue(vp, root, q, &qt, 0, off + HexOf(q, "x-offset"), m, err, errSize)) {
+            if (!StoreValue(vp, root, q, &qt, 0, off + HexOf(q, "x-offset"), m, force, err, errSize)) {
                 return 0;
             }
         }
@@ -1196,14 +1223,21 @@ static int StoreValue(VPack *vp, const JsonNode *root, const JsonNode *prop, con
     if ((p = FindPrim(t->base)) == NULL) {
         p = FindPrim("u32");
     }
-    if (IsPointerSlot(vp, off & ~3u) || SlotKind(vp, off & ~3u) == VS_EXPORT) {
-        return Fail(err, errSize, "this is a pointer slot: set it through a link field");
+    {
+        /* every word the store touches (a u16 at 2 mod 4, an f64 over two words) */
+        u32 o, end = off + p->size;
+
+        for (o = off & ~3u; o < end; o += 4) {
+            if (IsPointerSlot(vp, o) || SlotKind(vp, o) == VS_EXPORT) {
+                return Fail(err, errSize, "this is a pointer slot: set it through a link field");
+            }
+        }
     }
     return StorePrim(p, Base(vp) + off, v, err, errSize);
 }
 
-int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, const JsonNode *value, char *err,
-                    size_t errSize) {
+int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, const JsonNode *value, int force,
+                    char *err, size_t errSize) {
     const JsonNode *root = nd->schema, *props, *prop = NULL;
     char path[200], *seg, *next;
     CType t;
@@ -1216,18 +1250,21 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
     if (field[0] == '@') {
         /* @<hex offset>:<type>: a typed store anywhere in the node */
         const char *colon = SDL_strchr(field, ':');
-        u32 rel = (u32)SDL_strtoul(field + 1, NULL, 16);
+        char *end = NULL;
+        unsigned long long big = SDL_strtoull(field + 1, &end, 16);
+        u32 rel = (u32)big;
 
         SDL_strlcpy(t.base, colon != NULL ? colon + 1 : "u32", sizeof(t.base));
         t.numDims = 0;
         if (FindPrim(t.base) == NULL) {
             return Fail(err, errSize, "%s is not a scalar type", t.base);
         }
-        if (rel + BaseSize(NULL, t.base) > nd->size) {
-            return Fail(err, errSize, "offset 0x%x is outside %s (0x%x bytes)", rel, nd->id, nd->size);
+        if (end == field + 1 || (colon != NULL ? end != colon : *end != '\0') || big > 0xFFFFFFFFull ||
+            !InRange(rel, BaseSize(NULL, t.base), nd->size) || !InRange(nd->off, nd->size, vp->size)) {
+            return Fail(err, errSize, "offset %.20s is outside %s (0x%x bytes)", field + 1, nd->id, nd->size);
         }
         off += rel;
-        if (!StoreValue(vp, NULL, NULL, &t, 0, off, value, err, errSize)) {
+        if (!StoreValue(vp, NULL, NULL, &t, 0, off, value, force, err, errSize)) {
             return 0;
         }
         WriteValue(w, "value", vp, NULL, NULL, &t, 0, off);
@@ -1246,12 +1283,14 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
         }
         if (prop != NULL && dim < t.numDims) {      /* an element */
             u32 elem = BaseSize(root, t.base);
-            int d, i = SDL_atoi(seg);
+            char *end = NULL;
+            unsigned long long i = SDL_isdigit((unsigned char)seg[0]) ? SDL_strtoull(seg, &end, 10) : 0;
+            int d;
 
             for (d = dim + 1; d < t.numDims; d++) {
                 elem *= (u32)t.dims[d];
             }
-            if (!SDL_isdigit((unsigned char)seg[0]) || i >= t.dims[dim]) {
+            if (end == NULL || *end != '\0' || t.dims[dim] <= 0 || i >= (unsigned long long)t.dims[dim]) {
                 return Fail(err, errSize, "%s: index 0 .. %d", field, t.dims[dim] - 1);
             }
             off += (u32)i * elem;
@@ -1278,7 +1317,7 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
     if (prop == NULL) {
         return Fail(err, errSize, "which field?");
     }
-    if (!StoreValue(vp, root, prop, &t, dim, off, value, err, errSize)) {
+    if (!StoreValue(vp, root, prop, &t, dim, off, value, force, err, errSize)) {
         return 0;
     }
     WriteValue(w, "value", vp, root, prop, &t, dim, off);
