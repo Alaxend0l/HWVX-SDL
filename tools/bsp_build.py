@@ -43,8 +43,11 @@ sys.path.insert(0, str(HERE))
 import world_lib as WL  # noqa: E402
 
 ROOT = HERE.parent
-OUT = (ROOT.parent if ROOT.parent.name == "HWVX-SDL" else ROOT) / "build-worldstats"
-EPS = 0.01          # on-plane tolerance for new geometry, in world units (a car is ~10 long)
+OUT = ROOT / "build-worldstats"
+EPS = 1e-4          # on-plane tolerance for new geometry, in world units (built in double precision;
+                    # 1e-3 and up lumps the near-coplanar pieces of real terrain together)
+RETAIL_EPS = {"bspn0": 0.002, "terrain": 0.0001}   # the exporters' on-plane tolerances, as the retail
+                                                    # trees have them (bsp_build.py check)
 sys.setrecursionlimit(20000)
 
 
@@ -225,9 +228,11 @@ def bounds_of(tree, lo=None, hi=None):
     return lo - pad, hi + pad
 
 
-def node_polys(tree, lo, hi, eps=1e-4, paths=None):
+def node_polys(tree, lo, hi, eps=1e-4, paths=None, fill=False):
     """One polygon per node: its plane inside the box and inside the node's cell (the half-
-    spaces of its ancestors). None where the cell is empty (a node no point reaches)."""
+    spaces of its ancestors). None where the cell is empty (a node no point reaches), or with
+    fill, the plane clipped only by the ancestors that leave something of it (the exporter's
+    tolerance kept a sliver there)."""
     out = [None] * len(tree)
     todo = [(0, [])]
     while todo:
@@ -242,7 +247,10 @@ def node_polys(tree, lo, hi, eps=1e-4, paths=None):
             f, b, side = split_poly(v, pl, eps)
             if side == "on":
                 continue
-            v = f if want_front else b
+            w = f if want_front else b
+            if w is None and fill:
+                continue
+            v = w
         out[k] = v
         if front is not None:
             todo.append((front, path + [(plane, True)]))
@@ -271,10 +279,11 @@ def _route(tree, k, verts, normal, solid_if_none, eps, out):
         _route(tree, back, b, normal, True, eps, out)
 
 
-def boundary_polys(tree, lo, hi, eps=1e-4):
+def boundary_polys(tree, lo, hi, eps=1e-4, per_node=None):
     """The solid's surface inside the box as polygons facing out of the solid: for every node,
     the parts of its polygon with empty space in front and solid behind (kept with the node's
-    plane), and the rare parts the other way round (plane flipped)."""
+    plane), and the rare parts the other way round (plane flipped). per_node, a dict: also
+    {node: [its outward pieces]}."""
     out, flipped = [], 0
     paths = {}
 
@@ -303,10 +312,91 @@ def boundary_polys(tree, lo, hi, eps=1e-4):
                     continue
                 if back_solid:
                     out.append((plane, p2, extra))
+                    if per_node is not None:
+                        per_node.setdefault(k, []).append(p2)
                 else:
                     flipped += 1
                     out.append((tuple(-x for x in plane), p2[::-1].copy(), extra))
     return out, flipped
+
+
+def box_caps(tree, lo, hi, eps=1e-4):
+    """Where the solid reaches the box's sides: polygons facing out of the box. A solid-leaf
+    tree's solid can be unbounded (a terrain cell's ground, the slivers of two nearly coplanar
+    triangles); with these the surface encloses it again, inside the box."""
+    out = []
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    for axis in range(3):
+        for sign in (-1.0, 1.0):
+            c = (lo + hi) / 2
+            c[axis] = hi[axis] if sign > 0 else lo[axis]
+            n = np.zeros(3)
+            n[axis] = sign
+            plane = (*n, -float(n @ c))
+            v = plane_quad(plane, lo - 1, hi + 1)
+            if v is None:
+                continue
+            v = v - n * float(n @ v[0] + plane[3])          # onto the side exactly
+            pieces = []
+            _route(tree, 0, v, -n, False, eps, pieces)       # the space just inside the box
+            out += [(plane, piece, None) for piece, solid in pieces if solid]
+    return out
+
+
+def hull_on_plane(pieces, plane):
+    """The convex hull of polygons lying in one plane, as one polygon."""
+    pts = np.concatenate(pieces)
+    n = np.array(plane[:3], float)
+    a = np.cross(n, [1.0, 0, 0] if abs(n[0]) < 0.9 else [0, 1.0, 0])
+    a /= np.linalg.norm(a)
+    b = np.cross(n, a)
+    uv = np.stack([pts @ a, pts @ b], 1)
+    order = sorted(range(len(uv)), key=lambda i: (uv[i][0], uv[i][1]))
+
+    def cross(o, p, q):
+        return (uv[p][0] - uv[o][0]) * (uv[q][1] - uv[o][1]) - (uv[p][1] - uv[o][1]) * (uv[q][0] - uv[o][0])
+    lower, upper = [], []
+    for i in order:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], i) <= 1e-9:
+            lower.pop()
+        lower.append(i)
+    for i in reversed(order):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], i) <= 1e-9:
+            upper.pop()
+        upper.append(i)
+    idx = lower[:-1] + upper[:-1]
+    return pts[idx] if len(idx) >= 3 else None
+
+
+def face_polys(tree, lo, hi, eps=1e-4):
+    """One polygon per node, nearer the exporter's input than node_polys: the hull of the
+    solid's surface on the node's plane inside its cell (where the surface is), else the
+    plane inside the cell."""
+    per, paths = {}, {}
+    boundary_polys(tree, lo, hi, eps, per)
+    out = node_polys(tree, lo, hi, eps, paths, fill=True)
+    hull = {}
+    for k, pieces in per.items():
+        h = hull_on_plane(pieces, tree[k][0])
+        if h is not None:
+            out[k] = hull[k] = h
+    # a node with no surface of its own in an ancestor's plane (the face's other triangle):
+    # that ancestor's face
+    anc = {}
+    for k in range(len(tree)):
+        for child in tree[k][1:3]:
+            if child is not None:
+                anc[child] = k
+    for k in range(len(tree)):
+        if k in hull:
+            continue
+        a = anc.get(k)
+        while a is not None:
+            if a in hull and WL.same_plane(tree[a][0], tree[k][0], 1e-3):
+                out[k] = hull[a]
+                break
+            a = anc.get(a)
+    return out
 
 
 # ------------------------------------------------------------------------------------------
@@ -379,44 +469,136 @@ def check_tree(tree, lo, hi, kind, e, original, samples, rng, slo=None, shi=None
     polys = node_polys(pre, lo, hi, eps)
     slo, shi = (lo, hi) if slo is None else (slo, shi)
     res["unreached"] = sum(1 for v in polys if v is None)
-    # (1) the fixed point: one polygon per node, in node order
-    items = [(pre[k][0], v, pre[k][3]) for k, v in enumerate(polys) if v is not None]
-    try:
-        again = build(items, eps=eps)
-    except (RecursionError, WL.WorldError):
-        again = []
-    res["same_tree"] = same_tree(again, pre)
+    # (1) one polygon per node, in node order: the surface's hull on its plane in its cell
+    # ("faces"), else the plane in the cell ("cells")
+    res["same_tree"] = False
+    for how, ps in (("faces", None), ("cells", polys), ("cells, slivers kept", node_polys(pre, lo, hi, eps, fill=True))):
+        if ps is None:
+            try:
+                ps = face_polys(pre, lo, hi, eps)
+            except (RecursionError, ValueError):
+                continue
+        items = [(pre[k][0], v, pre[k][3]) for k, v in enumerate(ps) if v is not None]
+        try:
+            again = build(items, eps=RETAIL_EPS[kind])
+        except (RecursionError, WL.WorldError):
+            again = []
+        if same_tree(again, pre):
+            res["same_tree"], res["how"] = True, how
+            break
     if kind == "bspn0":
         res["same_bytes"] = res["same_tree"] and was_pre and WL.bspn0_write(again, e, original[0x11:0x12]) == original
     else:
         res["same_bytes"] = res["same_tree"] and was_pre and WL.tbsp_write(again, e, original[0x18:0x20]) == original
-    # (2) from the surface, any order
+    # (2) from the solid's surface polygons in a shuffled order, with the builder's own
+    # tolerance. The retail meshes' faces are often two triangles a hair out of plane (float
+    # error in the exporter), which leaves thin wedges of solid out to the world's edge
+    # ("slivers"); the check is against the tree with each such pair snapped into one plane
+    # (what was meant), and the slivers are counted separately.
     if samples:
-        surf, flipped = boundary_polys(pre, lo, hi)
-        res["surface_polys"], res["flipped"] = len(surf), flipped
+        c = (np.asarray(slo, float) + np.asarray(shi, float)) / 2
+        snapped, res["snapped_nodes"] = snap_tree(pre, c)
+        surf, flipped = boundary_polys(snapped, lo, hi)
+        caps = box_caps(snapped, lo, hi)
+        res["surface_polys"], res["flipped"], res["caps"] = len(surf), flipped, len(caps)
+        surf += caps
         order = list(range(len(surf)))
         random.Random(len(tree)).shuffle(order)
         try:
-            other = build([surf[i] for i in order], eps=1e-4, limit=1 << 20)
+            other = build([surf[i] for i in order], eps=EPS, limit=1 << 20)
         except (RecursionError, WL.WorldError):
             other = None
+        res["shuffled_nodes"] = len(other) if other is not None else 0
         if other is None:
             res["agree"] = None
         elif not other:
-            pts = sample_points(pre, slo, shi, samples, rng, surf)
-            res["points"] = len(pts)
-            res["agree"] = float((~WL.inside_many(pre, pts, strict)).mean())
-            res["shuffled_nodes"] = 0
+            res["points"], res["agree"], res["sliver"] = 0, 1.0, 0.0
+        elif kind == "terrain":
+            res["points"], res["agree"], res["sliver"] = compare_points(pre, snapped, other, surf, slo, shi, samples, rng,
+                                                                         strict=False)
+            res["rays"], res["hits_agree"], res["hits_sliver"] = compare_hits(pre, snapped, other, slo, shi, samples // 2, rng)
         else:
-            pts = sample_points(pre, slo, shi, samples, rng, surf)
-            keep = ~(near_surface(pre, pts, 0.01) | near_surface(other, pts, 0.01))
-            pts = pts[keep]
-            a = WL.inside_many(pre, pts, strict)
-            b = WL.inside_many(other, pts, strict)
-            res["points"] = len(pts)
-            res["agree"] = float((a == b).mean()) if len(pts) else 1.0
-            res["shuffled_nodes"] = len(other)
+            res["points"], res["agree"], res["sliver"] = compare_points(pre, snapped, other, surf, slo, shi, samples, rng)
     return res
+
+
+def snap_tree(tree, center, cos=0.9999, gap=0.5):
+    """The tree with every plane that is nearly another, earlier one (normals within ~0.8 deg,
+    within `gap` of each other at `center`) replaced by it. Returns (tree, nodes changed)."""
+    canon, out, changed = [], [], 0
+    c = np.asarray(center, float)
+    for plane, f, b, x in tree:
+        n = np.array(plane[:3])
+        use = plane
+        for q in canon:
+            m = np.array(q[:3])
+            dot = float(n @ m)
+            if abs(dot) >= cos and abs((n @ c + plane[3]) - np.sign(dot) * (m @ c + q[3])) <= gap:
+                use = q if dot > 0 else tuple(-v for v in q)
+                break
+        else:
+            canon.append(plane)
+        changed += use is not plane and use != plane
+        out.append((use, f, b, x))
+    return out, changed
+
+
+def first_hit(tree, a, b, strict=True):
+    """Where the segment a->b first enters the solid, as a fraction of it; None: it doesn't."""
+    def rec(k, p, q, tp, tq, solid):
+        if k is None:
+            return tp if solid else None
+        (x, y, z, d), front, back, _ = tree[k]
+        dp = x * p[0] + y * p[1] + z * p[2] + d
+        dq = x * q[0] + y * q[1] + z * q[2] + d
+        fp = dp > 0.0 if strict else dp >= 0.0
+        fq = dq > 0.0 if strict else dq >= 0.0
+        if fp == fq:
+            return rec(front if fp else back, p, q, tp, tq, not fp)
+        t = dp / (dp - dq)
+        m = p + (q - p) * t
+        tm = tp + (tq - tp) * t
+        h = rec(front if fp else back, p, m, tp, tm, not fp)
+        if h is not None:
+            return h
+        return rec(back if fp else front, m, q, tm, tq, fp)
+    return rec(0, np.asarray(a, float), np.asarray(b, float), 0.0, 1.0, False)
+
+
+def compare_hits(retail, snapped, other, lo, hi, n, rng, tol=0.05, strict=False):
+    """Segments in the box (half straight down, half any way): (segments, share whose first
+    hit is the same in `other` as in `snapped`, share where `retail` differs from `snapped`)."""
+    lo, hi = np.asarray(lo, float) + 0.1, np.asarray(hi, float) - 0.1   # off the cell's sides
+    same = sliver = 0
+
+    def eq(h1, h2, ln):
+        return (h1 is None and h2 is None) or (h1 is not None and h2 is not None and abs(h1 - h2) * ln <= tol)
+    for i in range(n):
+        if i % 2 == 0:
+            x, z = rng.uniform(lo[0], hi[0]), rng.uniform(lo[2], hi[2])
+            a, b = np.array([x, hi[1], z]), np.array([x, lo[1], z])
+        else:
+            a, b = rng.uniform(lo, hi), rng.uniform(lo, hi)
+        ln = float(np.linalg.norm(b - a))
+        hs = first_hit(snapped, a, b, strict)
+        same += eq(hs, first_hit(other, a, b, strict), ln)
+        sliver += not eq(hs, first_hit(retail, a, b, strict), ln)
+    return n, (same / n if n else 1.0), (sliver / n if n else 0.0)
+
+
+def compare_points(retail, snapped, other, surf, lo, hi, n, rng, tol=0.05, strict=True):
+    """Points in the world box and near the surface: (points compared, share with the same
+    inside/outside answer in `other` as in `snapped`, share where `retail` differs from
+    `snapped`). Points within tol of a plane are left out."""
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    pts = sample_points(snapped, lo, hi, n, rng, surf)
+    keep = ~(near_surface(snapped, pts, tol) | near_surface(other, pts, tol) | near_surface(retail, pts, tol))
+    pts = pts[keep]
+    if not len(pts):
+        return 0, 1.0, 0.0
+    s = WL.inside_many(snapped, pts, strict)
+    return (len(pts), float((WL.inside_many(other, pts, strict) == s).mean()),
+            float((WL.inside_many(retail, pts, strict) != s).mean()))
 
 
 def retail_trees(release, name, what, sample_box=False):
@@ -465,9 +647,13 @@ def cmd_check(a):
     what = a.what.split(",")
     rng = np.random.default_rng(1)
     lines = ["# BSP rebuild check\n", "Written by tools/bsp_build.py check.\n",
-             "identical: rebuilt from one polygon per node in node order, the same bytes as the pack's. "
-             "equivalent: rebuilt from the solid's surface polygons in a shuffled order; the share of sampled "
-             "points (not within 0.01 of a plane) with the same inside/outside answer.\n"]
+             "identical: rebuilt (exporter rule, retail tolerance) from one polygon per node in node order, "
+             "the polygons recovered from the tree itself (the source meshes are not in the data): the same "
+             "bytes as the pack's. equivalent: the tree with nearly coplanar planes snapped together, its "
+             "surface (closed by the box) rebuilt in a shuffled order with the builder's tolerance; the share "
+             "of sampled points (not within 0.05 of a plane) with the same inside/outside answer, and for "
+             "terrain the share of segments with the same first hit (within 0.05). sliver: share of points "
+             "(segments) where the retail tree answers differently from the snapped one.\n"]
     rows, bad = [], []
     for rel, release, names in each_level(a):
         seen, t0 = set(), time.time()
@@ -494,13 +680,16 @@ def cmd_check(a):
                                a.eps)
                 t = tot.setdefault(key, {"trees": 0, "nodes": 0, "identical": 0, "same_tree": 0, "preorder": 0,
                                          "unreached": 0, "points": 0, "agree_pts": 0.0, "full": 0, "tested": 0,
-                                         "flipped": 0, "shuffled_nodes": 0, "tested_nodes": 0})
+                                         "flipped": 0, "shuffled_nodes": 0, "tested_nodes": 0, "sliver": 0.0,
+                                         "rays": 0, "hits": 0.0, "hit_sliver": 0.0, "how": {}})
                 t["trees"] += 1
                 t["nodes"] += r["nodes"]
                 t["identical"] += r["same_bytes"]
                 t["same_tree"] += r["same_tree"]
                 t["preorder"] += r["preorder"]
                 t["unreached"] += r["unreached"]
+                if r.get("how"):
+                    t["how"][r["how"]] = t["how"].get(r["how"], 0) + 1
                 if not r["same_bytes"]:
                     bad.append(f"{rel} {label}: {r['nodes']} nodes, {r['unreached']} unreached, "
                                f"same tree {r['same_tree']}, pre-order {r['preorder']}")
@@ -508,6 +697,11 @@ def cmd_check(a):
                     t["tested"] += 1
                     t["points"] += r["points"]
                     t["agree_pts"] += r["agree"] * r["points"]
+                    t["sliver"] += r["sliver"] * r["points"]
+                    if "rays" in r:
+                        t["rays"] += r["rays"]
+                        t["hits"] += r["hits_agree"] * r["rays"]
+                        t["hit_sliver"] += r["hits_sliver"] * r["rays"]
                     t["full"] += r["agree"] == 1.0
                     t["flipped"] += r["flipped"]
                     t["shuffled_nodes"] += r["shuffled_nodes"]
@@ -517,11 +711,16 @@ def cmd_check(a):
             rows.append([rel, key, t["trees"], f"{t['nodes']:,}", f"{t['identical']} ({t['identical'] / t['trees']:.1%})",
                          t["preorder"], t["unreached"], t["tested"],
                          f"{t['agree_pts'] / t['points']:.4%}" if t["points"] else "-",
-                         f"{t['full']}/{t['tested']}", f"{t['points']:,}", t["flipped"],
-                         f"{t['shuffled_nodes'] / t['tested_nodes']:.2f}x" if t["tested_nodes"] else "-"])
+                         f"{t['full']}/{t['tested']}", f"{t['points']:,}",
+                         f"{t['sliver'] / t['points']:.3%}" if t["points"] else "-",
+                         f"{t['hits'] / t['rays']:.3%} of {t['rays']:,}" if t["rays"] else "-",
+                         f"{t['hit_sliver'] / t['rays']:.3%}" if t["rays"] else "-",
+                         f"{t['shuffled_nodes'] / t['tested_nodes']:.2f}x" if t["tested_nodes"] else "-",
+                         ", ".join(f"{k} {v}" for k, v in sorted(t["how"].items()))])
         print(f"{rel}: {time.time() - t0:.1f} s", file=sys.stderr)
     head = ["release", "trees", "count", "nodes", "identical", "in pre-order", "unreached nodes", "shuffled: trees",
-            "points agreeing", "trees fully agreeing", "points", "inward faces", "node count vs retail"]
+            "points agreeing", "trees fully agreeing", "points", "sliver points", "first hits agreeing",
+            "sliver hits", "node count vs retail", "identical from"]
     import world_stats
     lines.append(world_stats.table(head, rows))
     if bad:

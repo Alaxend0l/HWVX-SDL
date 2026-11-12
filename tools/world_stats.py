@@ -26,7 +26,7 @@ sys.path.insert(0, str(HERE))
 import world_lib as WL  # noqa: E402
 
 ROOT = HERE.parent
-OUT = (ROOT.parent if ROOT.parent.name == "HWVX-SDL" else ROOT) / "build-worldstats"
+OUT = ROOT / "build-worldstats"
 
 
 def mmm(values):
