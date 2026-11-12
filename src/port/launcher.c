@@ -1537,7 +1537,10 @@ static void Replan(Launcher *l) {
     } else if (!Port_SavesJson()) {
         SDL_snprintf(l->status, sizeof(l->status), "The game plays this save when started with HWVX_SAVES=json.");
     } else {
-        SDL_snprintf(l->status, sizeof(l->status), "Import keeps your save as it was as a backup.");
+        SDL_snprintf(l->status, sizeof(l->status), "%s",
+                     SDL_strcmp(l->plan.target, "no save yet") == 0
+                         ? "Import makes a new save."
+                         : "Import keeps your save as it was in hwvx.before-import.json.");
     }
 }
 

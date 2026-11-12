@@ -559,8 +559,36 @@ static void TestRotation(void) {
         SDL_snprintf(suffix, sizeof(suffix), ".%d.json", PORT_SAVES_BACKUPS + 1);
         CHECK(!FileExists(suffix), "more than %d backups", PORT_SAVES_BACKUPS);
     }
+    /* the same save written again (an autosave with nothing new): the
+     * backups stay as they are */
+    for (n = 0; n < PORT_SAVES_BACKUPS + 1; n++) {
+        CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "rewrite %d", n);
+    }
+    {
+        size_t len;
+        char *text = LoadSaveFile(".1.json", &len), want[32];
+        SDL_snprintf(want, sizeof(want), "\"SAVE %d\"", PORT_SAVES_BACKUPS + 2);
+        CHECK(text != NULL && SDL_strstr(text, want) != NULL, "an unchanged save rotated the backups");
+        SDL_free(text);
+        CHECK(!FileExists(".json.tmp"), "the unchanged write left its .tmp");
+    }
     Port_SavesForget();
     CHECK(Port_SavesRead("hwvx", r, HW_SIZE) && SDL_memcmp(r, a, HW_SIZE) == 0, "the last save doesn't read back");
+
+    /* an import keeps the save before it, whatever is written after */
+    SimpleSave(a, 50);
+    CHECK(Port_SavesWriteImported("hwvx", a, HW_SIZE, "test"), "imported write");
+    for (n = 60; n < 60 + PORT_SAVES_BACKUPS + 2; n++) {
+        SimpleSave(a, n);
+        CHECK(Port_SavesWrite("hwvx", a, HW_SIZE), "write %d", n);
+    }
+    {
+        size_t len;
+        char *text = LoadSaveFile(".before-import.json", &len), want[32];
+        SDL_snprintf(want, sizeof(want), "\"SAVE %d\"", PORT_SAVES_BACKUPS + 3);
+        CHECK(text != NULL && SDL_strstr(text, want) != NULL, "the save before the import wasn't kept");
+        SDL_free(text);
+    }
     SDL_free(a);
     SDL_free(r);
 }
