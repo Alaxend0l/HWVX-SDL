@@ -34,6 +34,11 @@
   //   ["ps2", "pc"]     the first of these that has a copy paired with the base's
   // An asset the pairing table doesn't pair stays the base's.
   "assets": [
+    // the menus' art stays the base's (the GameCube's): the PS2's is another
+    // design (blue), not a better copy; the GameCube and PC agree on theirs
+    { "match": "base://HW_IPack/*/texture/*", "from": "base" },
+    { "match": "base://mcp/*/texture/*", "from": "base" },
+    { "match": "base://HW_brief/*/texture/*", "from": "base" },
     // lossless PS2 copies, PS2 palettes for alpha textures (PC DXT5 when it
     // has more than 1024 colours), opaque ones by look
     { "match": "base://*/texture/*", "from": "best" },
