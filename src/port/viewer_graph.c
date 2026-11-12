@@ -1356,6 +1356,28 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
             return Fail(err, errSize, "offset %.20s is outside %s (0x%x bytes)", field + 1, nd->id, nd->size);
         }
         off += rel;
+        {
+            /* a raw store over a count field (the world's nodes are raw: World/0 is a World
+             * all the same): bounded as a named one (CountGuard) */
+            const JsonNode *sch = nd->schema, *q;
+            char type[48];
+            size_t k;
+
+            if (sch == NULL) {
+                for (k = 0; nd->id[k] && nd->id[k] != '/' && k + 1 < sizeof(type); k++) {
+                    type[k] = nd->id[k];
+                }
+                type[k] = '\0';
+                sch = Viewer_Schema(type);
+            }
+            props = sch != NULL ? Json_Get(sch, "properties") : NULL;
+            for (q = props != NULL ? props->child : NULL; q != NULL; q = q->next) {
+                if (Json_Get(q, "x-offset") != NULL && HexOf(q, "x-offset") == rel && q->key != NULL &&
+                    !CountGuard(vp, props, q->key, &t, 0, off, value, err, errSize)) {
+                    return 0;
+                }
+            }
+        }
         if (!StoreValue(vp, NULL, NULL, &t, 0, off, value, force, err, errSize)) {
             return 0;
         }
