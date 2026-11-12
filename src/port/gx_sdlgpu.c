@@ -712,6 +712,8 @@ static void CopyPass(SDL_GPUCommandBuffer *cmd) {
         return;
     }
     EnsureBuffers(vertOffset + vertBytes, vertBytes);
+    g_gxCopyPasses++;
+    g_gxStagingBytes = (u64)s.tbufSize + s.vbufSize;
     map = SDL_MapGPUTransferBuffer(s.dev, s.tbuf, true);
     if (map == NULL) {
         Port_Fatal("SDL_MapGPUTransferBuffer failed: %s", SDL_GetError());

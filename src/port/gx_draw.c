@@ -31,6 +31,8 @@
 const GXRenderer *g_gxr = &g_gxGL;
 GXShaderStats g_gxShaderStats;
 u64 g_gxUploadBytes;
+u32 g_gxCopyPasses;
+u64 g_gxStagingBytes;
 
 static u32 s_statDraws, s_statVerts, s_statMeshDraws;
 static u32 s_statBlend, s_statAlphaComp, s_statFog, s_statStages;
@@ -657,6 +659,11 @@ static void DumpEFB(void) {
                  (double)g_gxUploadBytes / 60.0 / 1048576.0,
                  (double)ticks * 1000.0 / (double)(SDL_GetPerformanceFrequency() * 60));
         g_gxUploadBytes = 0;
+        if (g_gxCopyPasses != 0 || g_gxStagingBytes != 0) {
+            Port_Log("  staging: %.2f copy passes/frame; %.1f MB of transfer and vertex buffers kept",
+                     (double)g_gxCopyPasses / 60.0, (double)g_gxStagingBytes / 1048576.0);
+            g_gxCopyPasses = 0;
+        }
     }
     {
         static GXTexStats last;
@@ -669,6 +676,13 @@ static void DumpEFB(void) {
                  t.created - last.created, t.decoded - last.decoded, t.inexact - last.inexact, t.kept - last.kept, t.shared - last.shared,
                  (double)(t.ticks - last.ticks) * 1000.0 / (double)SDL_GetPerformanceFrequency());
         last = t;
+    }
+    {
+        u64 committed, resident;
+
+        Port_ProcessMemory(&committed, &resident);
+        Port_Log("  process: %.1f MB committed, %.1f MB resident", (double)committed / 1048576.0,
+                 (double)resident / 1048576.0);
     }
     s_statMeshDraws = 0;
     g_gxShaderStats.special = g_gxShaderStats.general = 0;
