@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TileLight",
+  "description": "A placed light (World_GetTileLight), 0x20 bytes.",
+  "type": "object",
+  "x-c-struct": "TileLight",
+  "x-header": "World.h",
+  "x-size": "0x20",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "TileLight"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "pos": {
+      "$ref": "#/$defs/Vector4",
+      "x-offset": "0x00",
+      "x-c-type": "Vector4"
+    },
+    "desc": {
+      "description": "LightHolder_Add",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x10",
+      "x-c-type": "PTR32(void)"
+    },
+    "unk_0x14": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 12,
+      "maxItems": 12,
+      "x-offset": "0x14",
+      "x-c-type": "u8[12]",
+      "x-c-name": "pad14"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "pos",
+      "desc",
+      "unk_0x14"
+    ]
+  },
+  "$defs": {
+    "Vector4": {
+      "title": "Vector4",
+      "type": "object",
+      "x-c-struct": "Vector4",
+      "x-header": "common.h",
+      "x-size": "0x10",
+      "properties": {
+        "x": {
+          "type": "number",
+          "x-offset": "0x00",
+          "x-c-type": "f32"
+        },
+        "y": {
+          "type": "number",
+          "x-offset": "0x04",
+          "x-c-type": "f32"
+        },
+        "z": {
+          "type": "number",
+          "x-offset": "0x08",
+          "x-c-type": "f32"
+        },
+        "w": {
+          "type": "number",
+          "x-offset": "0x0C",
+          "x-c-type": "f32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

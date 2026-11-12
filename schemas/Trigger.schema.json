@@ -7,6 +7,19 @@
   "x-header": "Trigger.h",
   "x-size": "0x2C",
   "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "Trigger"
+      },
+      "description": "the record's own id (the trigger table entry)"
+    },
+    "children": {
+      "type": "object",
+      "description": "raw nodes kept in this file"
+    },
     "$schema": {
       "type": "string",
       "description": "path or URL of this schema"
@@ -141,7 +154,9 @@
           "x-link": {
             "kind": "object",
             "target": "struct Trigger",
-            "count": "numConditions"
+            "count": "numConditions",
+            "item": "Trigger",
+            "item-size": 44
           }
         },
         {
@@ -154,7 +169,9 @@
       "x-link": {
         "kind": "object",
         "target": "struct Trigger",
-        "count": "numConditions"
+        "count": "numConditions",
+        "item": "Trigger",
+        "item-size": 44
       },
       "x-inline": true,
       "x-offset": "0x0C",
@@ -178,7 +195,9 @@
           "x-link": {
             "kind": "object",
             "target": "TriggerAction",
-            "count": "numActions"
+            "count": "numActions",
+            "item": "TriggerAction",
+            "item-size": 24
           }
         },
         {
@@ -191,7 +210,9 @@
       "x-link": {
         "kind": "object",
         "target": "TriggerAction",
-        "count": "numActions"
+        "count": "numActions",
+        "item": "TriggerAction",
+        "item-size": 24
       },
       "x-inline": true,
       "x-offset": "0x14",
@@ -209,7 +230,9 @@
           "x-link": {
             "kind": "object",
             "target": "TriggerAction",
-            "count": "numElseActions"
+            "count": "numElseActions",
+            "item": "TriggerAction",
+            "item-size": 24
           }
         },
         {
@@ -222,7 +245,9 @@
       "x-link": {
         "kind": "object",
         "target": "TriggerAction",
-        "count": "numElseActions"
+        "count": "numElseActions",
+        "item": "TriggerAction",
+        "item-size": 24
       },
       "x-inline": true,
       "x-offset": "0x18",
@@ -327,14 +352,10 @@
       "param",
       "unused8",
       "conditions",
-      "numConditions",
       "actions",
       "elseActions",
-      "numActions",
-      "numElseActions",
       "state",
-      "mode",
-      "unk_0x29"
+      "mode"
     ]
   },
   "$defs": {
@@ -464,7 +485,9 @@
               "x-link": {
                 "kind": "object",
                 "target": "struct Trigger",
-                "count": "numConditions"
+                "count": "numConditions",
+                "item": "Trigger",
+                "item-size": 44
               }
             },
             {
@@ -477,7 +500,9 @@
           "x-link": {
             "kind": "object",
             "target": "struct Trigger",
-            "count": "numConditions"
+            "count": "numConditions",
+            "item": "Trigger",
+            "item-size": 44
           },
           "x-inline": true,
           "x-offset": "0x0C",
@@ -501,7 +526,9 @@
               "x-link": {
                 "kind": "object",
                 "target": "TriggerAction",
-                "count": "numActions"
+                "count": "numActions",
+                "item": "TriggerAction",
+                "item-size": 24
               }
             },
             {
@@ -514,7 +541,9 @@
           "x-link": {
             "kind": "object",
             "target": "TriggerAction",
-            "count": "numActions"
+            "count": "numActions",
+            "item": "TriggerAction",
+            "item-size": 24
           },
           "x-inline": true,
           "x-offset": "0x14",
@@ -532,7 +561,9 @@
               "x-link": {
                 "kind": "object",
                 "target": "TriggerAction",
-                "count": "numElseActions"
+                "count": "numElseActions",
+                "item": "TriggerAction",
+                "item-size": 24
               }
             },
             {
@@ -545,7 +576,9 @@
           "x-link": {
             "kind": "object",
             "target": "TriggerAction",
-            "count": "numElseActions"
+            "count": "numElseActions",
+            "item": "TriggerAction",
+            "item-size": 24
           },
           "x-inline": true,
           "x-offset": "0x18",
@@ -2909,8 +2942,32 @@
       "type": "object",
       "properties": {
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -2951,8 +3008,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -2996,8 +3077,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3041,8 +3146,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3075,8 +3204,32 @@
           "x-item": "u32"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3112,8 +3265,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3156,8 +3333,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3182,8 +3383,32 @@
           "x-item": "link"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3196,8 +3421,32 @@
       "type": "object",
       "properties": {
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3274,8 +3523,32 @@
           "x-item": "token"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3312,8 +3585,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3392,8 +3689,32 @@
           "x-item": "token"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3423,8 +3744,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3459,8 +3804,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3503,8 +3872,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3526,8 +3919,32 @@
           "x-item": "string"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3613,8 +4030,32 @@
           "x-item": "scratch"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3638,8 +4079,32 @@
           "x-item": "u32"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3665,8 +4130,32 @@
           "x-item": "u32"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3711,8 +4200,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3783,8 +4296,32 @@
           "x-item": "operand"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3821,8 +4358,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3835,8 +4396,32 @@
       "type": "object",
       "properties": {
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3847,8 +4432,32 @@
       "type": "object",
       "properties": {
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3889,8 +4498,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3934,8 +4567,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3949,8 +4606,32 @@
       "type": "object",
       "properties": {
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -3991,8 +4672,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4066,8 +4771,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4107,8 +4836,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4182,8 +4935,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4257,8 +5034,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4283,8 +5084,32 @@
           "x-item": "link"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4357,8 +5182,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4380,8 +5229,32 @@
           "x-item": "s32"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4461,8 +5334,32 @@
           "x-item": "operand"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4582,8 +5479,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4711,8 +5632,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4855,8 +5800,32 @@
           "x-item": "table"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4900,8 +5869,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4933,8 +5926,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -4993,8 +6010,32 @@
           "x-item": "token"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5029,8 +6070,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5058,8 +6123,32 @@
           "x-item": "link"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5139,8 +6228,32 @@
           "x-item": "operand"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5215,8 +6328,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5252,8 +6389,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5325,8 +6486,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5366,8 +6551,32 @@
           "x-item": "any"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5413,8 +6622,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5493,8 +6726,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5531,8 +6788,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5564,8 +6845,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5601,8 +6906,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5675,8 +7004,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5698,8 +7051,32 @@
           "x-item": "string"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5721,8 +7098,32 @@
           "x-item": "string"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5744,8 +7145,32 @@
           "x-item": "string"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5767,8 +7192,32 @@
           "x-item": "string"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5815,8 +7264,32 @@
           "x-item": "any"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5839,8 +7312,32 @@
           "x-item": "u32"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5876,8 +7373,32 @@
           "x-item": "words"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -5947,8 +7468,32 @@
           "x-item": "operand"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6023,8 +7568,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6083,8 +7652,32 @@
           "x-item": "token"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6184,8 +7777,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6214,8 +7831,32 @@
           "x-item": "u32"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6234,8 +7875,32 @@
           "x-item": "u32"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6285,8 +7950,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6349,8 +8038,32 @@
           "x-item": "link"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6392,8 +8105,32 @@
           "x-item": "any"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,
@@ -6468,8 +8205,32 @@
           "x-item": "list"
         },
         "tail": {
-          "type": "string",
-          "description": "bytes after the list (hex), kept as they were"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+                    "x-link": {
+                      "kind": "object"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "what follows the list in its node, kept as it was: hex, or words when it holds links"
         }
       },
       "additionalProperties": false,

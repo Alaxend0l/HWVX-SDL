@@ -38,7 +38,7 @@ typedef struct TileCar {
     u8 maxVehicle;              /* 0x37 AI cars pick a vehicle in 0..maxVehicle */
     f32 nearDist;               /* 0x38 AI ranges */
     f32 farDist;                /* 0x3C */
-    u32 scripts[4];             /* 0x40 AI script per difficulty, 0: the vehicle's */
+    u32 scripts[4];             /* 0x40 AI script per difficulty, 0: the vehicle's @xdl: link=AICarScript */
     PTR32(ItemRecord) item2;    /* 0x50 a second item it starts with (LoadWorldProcess) */
     PTR32(ItemRecord) item;     /* 0x54 wildcard the car starts with, NULL: none */
     f32 health;                 /* 0x58 fraction of the maximum, kept across DD Rescue missions
@@ -72,7 +72,7 @@ typedef struct TileCreature {
         u32 mode;               /* 0x20 1: alive (ActionCreatureChangeMode) */
         u32 spawnable;          /*      as the AI reads it */
     };
-    u32 scripts[4];             /* 0x24 per difficulty, 0: CreatureInfo.aiScripts */
+    u32 scripts[4];             /* 0x24 per difficulty, 0: CreatureInfo.aiScripts @xdl: link */
     u8 pad34[0xC];              /* 0x34 */
 } TileCreature;
 
@@ -256,9 +256,9 @@ typedef struct TileSpeaker {
  * physical object (DESTRUCTIBLE_MOVER) at round start. */
 typedef struct TilePath {
     u8 pad0[4];                 /* 0x00 */
-    u32 anim;                   /* 0x04 the track (DestructibleParams.anim) */
+    u32 anim;                   /* 0x04 the track (DestructibleParams.anim) @xdl: link */
     f32 speed;                  /* 0x08 */
-    u32 record;                 /* 0x0C ThingRecord handle */
+    u32 record;                 /* 0x0C ThingRecord handle @xdl: link=ThingRecord */
     PTR32(Thing) thing;         /* 0x10 the spawned mover */
     u32 enabled;                /* 0x14 0: not spawned */
     u8 pad18;                   /* 0x18 */
@@ -368,11 +368,11 @@ _Static_assert(sizeof(QuadItem) == 0x40, "QuadItem size");
 typedef struct QuadContents {
     s8 dirty;                   /* 0x00 things spawned (FileStreaming_SetActiveQuadrants) */
     u32 numInstances;           /* 0x04 */
-    PTR32(QuadInstance) instances; /* 0x08 */
+    PTR32(QuadInstance) instances; /* 0x08 @xdl: count=numInstances */
     u32 numFxPoints;            /* 0x0C */
-    PTR32(QuadFxPoint) fxPoints;   /* 0x10 */
+    PTR32(QuadFxPoint) fxPoints;   /* 0x10 @xdl: count=numFxPoints */
     u32 numItems;               /* 0x14 */
-    PTR32(QuadItem) items;      /* 0x18 */
+    PTR32(QuadItem) items;      /* 0x18 @xdl: count=numItems */
 } QuadContents;
 
 WORLD_ASSERT(QuadContents, items, 0x18);
@@ -524,30 +524,30 @@ typedef struct World {
     PTR32(WorldCollision) collision; /* 0x00 */
     PTR32(VolumeHolder) volumeHolder; /* 0x04 */
     u32 numTileCars;            /* 0x08 */
-    PTR32(TileCar) tileCars;    /* 0x0C */
+    PTR32(TileCar) tileCars;    /* 0x0C @xdl: count=numTileCars */
     u32 numTilePaths;           /* 0x10 */
-    PTR32(struct TilePath) tilePaths; /* 0x14 */
+    PTR32(struct TilePath) tilePaths; /* 0x14 @xdl: count=numTilePaths */
     u8 pad18[8];                /* 0x18 */
     u32 numQuads;               /* 0x20 */
-    PTR32(WorldQuad) quads;     /* 0x24 */
+    PTR32(WorldQuad) quads;     /* 0x24 @xdl: count=numQuads */
     u32 numSpeakers;            /* 0x28 */
-    PTR32(struct TileSpeaker) speakers; /* 0x2C */
+    PTR32(struct TileSpeaker) speakers; /* 0x2C @xdl: count=numSpeakers */
     u32 numTeleporters;         /* 0x30 */
-    PTR32(Teleporter) teleporters; /* 0x34 */
+    PTR32(Teleporter) teleporters; /* 0x34 @xdl: count=numTeleporters */
     u32 numTileLights;          /* 0x38 */
-    PTR32(struct TileLight) tileLights; /* 0x3C */
+    PTR32(struct TileLight) tileLights; /* 0x3C @xdl: count=numTileLights */
     u32 numTileCreatures;       /* 0x40 */
-    PTR32(TileCreature) tileCreatures; /* 0x44 */
+    PTR32(TileCreature) tileCreatures; /* 0x44 @xdl: count=numTileCreatures */
     u32 numVariables;           /* 0x48 */
-    PTR32(WorldVariableSlot) variables; /* 0x4C */
+    PTR32(WorldVariableSlot) variables; /* 0x4C @xdl: count=numVariables */
     u32 numTimers;              /* 0x50 */
-    PTR32(WorldTimerSlot) timers; /* 0x54 */
+    PTR32(WorldTimerSlot) timers; /* 0x54 @xdl: count=numTimers */
     u32 numObjectives;          /* 0x58 */
-    PTR32(WorldObjective) objectives; /* 0x5C */
+    PTR32(WorldObjective) objectives; /* 0x5C @xdl: count=numObjectives */
     u8 pad60[4];                /* 0x60 */
     PTR32(u8) lights;           /* 0x64 0x10 each (LightManager) */
     u32 numVolumes;             /* 0x68 */
-    PTR32(WorldVolume) volumes; /* 0x6C */
+    PTR32(WorldVolume) volumes; /* 0x6C @xdl: count=numVolumes */
     u8 pad70[8];                /* 0x70 */
     PTR32(void) nav;            /* 0x78 NavHolder */
     PTR32(char) collisionPackName; /* 0x7C the world's collision pack (type 5) */

@@ -49,6 +49,10 @@ SCHEMA_STRUCTS = [
     "ProjectileInfo", "SmartProjParams", "CreatureInfo", "ItemRecord", "WeaponInfo",
     "WorldGameData", "DestructibleInfo", "IfaceObjectDef",
     "Trigger",
+    # world packs (World.h)
+    "World", "TileCar", "TilePath", "WorldQuad", "QuadContents", "QuadInstance", "QuadFxPoint",
+    "QuadItem", "TileSpeaker", "Teleporter", "TileLight", "TileCreature", "WorldObjective",
+    "WorldVolume", "WorldVariable", "WorldTimer",
 ]
 
 # name: (size, signed, float)
@@ -1156,6 +1160,12 @@ class Emitter:
         if t.kind == "ptr" and "count" in marks:
             sch = link_schema("object", t.target)
             sch["x-link"]["count"] = marks["count"]
+            et = self.reg.types.get(t.target)
+            if et is not None:
+                et = self.reg.resolve(et)
+                layout(self.reg, et)
+                sch["x-link"]["item"] = et.name if et.kind in ("struct", "union") else et.ctype()
+                sch["x-link"]["item-size"] = et.size
             if "inline" in marks:
                 tt = self.reg.types.get(t.target)
                 item = self.type_schema(tt, {}, defs) if tt is not None else {"type": "object"}
@@ -1330,6 +1340,16 @@ class Emitter:
                 o["allOf"] = rules
                 del tagp  # (the tag field keeps its x-enum)
         if variants:
+            # the trigger file's form (xdl_graph.py): one file per trigger record, its own id, its
+            # inline lists without their counts, raw children; pads only when not zero
+            inline = [p["x-link"]["count"] for p in sch["properties"].values() if p.get("x-inline")]
+            sch["properties"] = {"id": dict(link_schema("object", sch["title"]), type="string",
+                                            description="the record's own id (the trigger table entry)"),
+                                 "children": {"type": "object", "description": "raw nodes kept in this file"},
+                                 **sch["properties"]}
+            req = [k for k in sch["else"]["required"] if k not in inline
+                   and not sch["properties"][k].get("x-c-name", "").startswith("pad")]
+            sch["else"] = {"required": req}
             sch["x-variants"] = variants
             if records:
                 sch["x-records"] = records
@@ -1398,7 +1418,9 @@ class Emitter:
             else:
                 raise LayoutError(f"{title}: item {k}")
             props[name] = dict(p, **{"x-item": k})
-        props["tail"] = {"type": "string", "description": "bytes after the list (hex), kept as they were"}
+        props["tail"] = {"anyOf": [{"type": "string"}, {"type": "array", "items": word}],
+                         "description": "what follows the list in its node, kept as it was: hex, or "
+                                        "words when it holds links"}
         return {"title": title, "type": "object", "properties": props, "additionalProperties": False,
                 "required": [it[1] for it in items]}
 

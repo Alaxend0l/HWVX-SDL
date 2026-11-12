@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QuadItem",
+  "description": "A pickup spawn point of a quadrant (ItemThing.spawner).",
+  "type": "object",
+  "x-c-struct": "QuadItem",
+  "x-header": "World.h",
+  "x-size": "0x40",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadItem"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "pos": {
+      "$ref": "#/$defs/Vector4",
+      "x-offset": "0x00",
+      "x-c-type": "Vector4"
+    },
+    "unk_0x10": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x10",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad10"
+    },
+    "respawn": {
+      "description": "ms before it respawns once taken, 0: never",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x14",
+      "x-c-type": "s32"
+    },
+    "timer": {
+      "description": "ms until it spawns",
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x18",
+      "x-c-type": "s32"
+    },
+    "record": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "ItemRecord"
+      },
+      "x-offset": "0x1C",
+      "x-c-type": "PTR32(ItemRecord)"
+    },
+    "drawDist": {
+      "description": "used if hasDrawDist",
+      "type": "number",
+      "x-offset": "0x20",
+      "x-c-type": "f32"
+    },
+    "thing": {
+      "description": "the spawned item",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "ItemThing"
+      },
+      "x-offset": "0x24",
+      "x-c-type": "PTR32(ItemThing)"
+    },
+    "mode": {
+      "description": "QUAD_ITEM_*",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x28",
+      "x-c-type": "u32"
+    },
+    "unk_0x2C": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x2C",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad2C"
+    },
+    "id": {
+      "description": "in the world's item pack, 0xFFFF: random in lo..hi",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "x-offset": "0x30",
+      "x-c-type": "u16"
+    },
+    "unk_0x32": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "x-offset": "0x32",
+      "x-c-type": "u8[2]",
+      "x-c-name": "pad32"
+    },
+    "hasDrawDist": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x34",
+      "x-c-type": "u8"
+    },
+    "aiPickup": {
+      "description": "ItemParams.aiPickup for items spawned here",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x35",
+      "x-c-type": "u8"
+    },
+    "lo": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x36",
+      "x-c-type": "u8"
+    },
+    "hi": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x37",
+      "x-c-type": "u8"
+    },
+    "spawned": {
+      "type": "integer",
+      "minimum": -128,
+      "maximum": 127,
+      "x-offset": "0x38",
+      "x-c-type": "s8"
+    },
+    "defMode": {
+      "description": "mode at round start",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x39",
+      "x-c-type": "u8"
+    },
+    "unk_0x3A": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 6,
+      "maxItems": 6,
+      "x-offset": "0x3A",
+      "x-c-type": "u8[6]",
+      "x-c-name": "pad3A"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "pos",
+      "unk_0x10",
+      "respawn",
+      "timer",
+      "record",
+      "drawDist",
+      "thing",
+      "mode",
+      "unk_0x2C",
+      "id",
+      "unk_0x32",
+      "hasDrawDist",
+      "aiPickup",
+      "lo",
+      "hi",
+      "spawned",
+      "defMode",
+      "unk_0x3A"
+    ]
+  },
+  "$defs": {
+    "Vector4": {
+      "title": "Vector4",
+      "type": "object",
+      "x-c-struct": "Vector4",
+      "x-header": "common.h",
+      "x-size": "0x10",
+      "properties": {
+        "x": {
+          "type": "number",
+          "x-offset": "0x00",
+          "x-c-type": "f32"
+        },
+        "y": {
+          "type": "number",
+          "x-offset": "0x04",
+          "x-c-type": "f32"
+        },
+        "z": {
+          "type": "number",
+          "x-offset": "0x08",
+          "x-c-type": "f32"
+        },
+        "w": {
+          "type": "number",
+          "x-offset": "0x0C",
+          "x-c-type": "f32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

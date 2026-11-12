@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorldQuad",
+  "description": "A streaming quadrant (world + 0x20/0x24). Its geometry is a quad pack in the world's .xgc file, loaded while a camera is in it or a neighbour. The one without a visibility BSP is the \"world quadrant\", always loaded.",
+  "type": "object",
+  "x-c-struct": "WorldQuad",
+  "x-header": "World.h",
+  "x-size": "0x50",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldQuad"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "id": {
+      "description": "neighbors[] hold ids until FileStreaming_InitializeAllQuads",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x00",
+      "x-c-type": "u32"
+    },
+    "unk_0x04": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x04",
+      "x-c-type": "u8[8]",
+      "x-c-name": "pad4"
+    },
+    "numGeoms": {
+      "description": "also the quad pack's \"Num GX\"",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x0C",
+      "x-c-type": "u32"
+    },
+    "geoms": {
+      "description": "set while the pack is loaded",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadGeom"
+      },
+      "x-offset": "0x10",
+      "x-c-type": "PTR32(QuadGeom)"
+    },
+    "unk_0x14": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x14",
+      "x-c-type": "u8[8]",
+      "x-c-name": "pad14"
+    },
+    "bsp": {
+      "description": "visibility (BSPN0_CollideWithVector), NULL: world quadrant",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x1C",
+      "x-c-type": "PTR32(void)"
+    },
+    "numNeighbors": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x20",
+      "x-c-type": "u32"
+    },
+    "neighbors": {
+      "description": "quadrant indices",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u32"
+      },
+      "x-offset": "0x24",
+      "x-c-type": "PTR32(u32)"
+    },
+    "unk_0x28": {
+      "description": "quad pack header (common.h QuadPack)",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x28",
+      "x-c-type": "u8[8]",
+      "x-c-name": "pad28"
+    },
+    "contents": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadContents"
+      },
+      "x-offset": "0x30",
+      "x-c-type": "PTR32(QuadContents)"
+    },
+    "loaded": {
+      "description": "pack loaded and pointers refreshed",
+      "type": "integer",
+      "minimum": -128,
+      "maximum": 127,
+      "x-offset": "0x34",
+      "x-c-type": "s8"
+    },
+    "visible": {
+      "description": "this frame (World_Render)",
+      "type": "integer",
+      "minimum": -128,
+      "maximum": 127,
+      "x-offset": "0x35",
+      "x-c-type": "s8"
+    },
+    "unk_0x36": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "x-offset": "0x36",
+      "x-c-type": "u8[2]",
+      "x-c-name": "pad36"
+    },
+    "packId": {
+      "description": "low 16 bits: pack id, high: numGeoms",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x38",
+      "x-c-type": "u32"
+    },
+    "fileOffset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x3C",
+      "x-c-type": "u32"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x40",
+      "x-c-type": "u32"
+    },
+    "unk_0x44": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 12,
+      "maxItems": 12,
+      "x-offset": "0x44",
+      "x-c-type": "u8[12]",
+      "x-c-name": "pad44"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "id",
+      "unk_0x04",
+      "numGeoms",
+      "geoms",
+      "unk_0x14",
+      "bsp",
+      "numNeighbors",
+      "neighbors",
+      "unk_0x28",
+      "contents",
+      "loaded",
+      "visible",
+      "unk_0x36",
+      "packId",
+      "fileOffset",
+      "size",
+      "unk_0x44"
+    ]
+  }
+}

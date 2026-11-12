@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TilePath",
+  "description": "A mover placed on a track (World_GetTilePath), 0x20 bytes: spawned as a physical object (DESTRUCTIBLE_MOVER) at round start.",
+  "type": "object",
+  "x-c-struct": "TilePath",
+  "x-header": "World.h",
+  "x-size": "0x20",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "TilePath"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "unk_0x00": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x00",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad0"
+    },
+    "anim": {
+      "description": "the track (DestructibleParams.anim)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x04",
+      "x-c-type": "u32"
+    },
+    "speed": {
+      "type": "number",
+      "x-offset": "0x08",
+      "x-c-type": "f32"
+    },
+    "record": {
+      "description": "ThingRecord handle",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x0C",
+      "x-c-type": "u32"
+    },
+    "thing": {
+      "description": "the spawned mover",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "Thing"
+      },
+      "x-offset": "0x10",
+      "x-c-type": "PTR32(Thing)"
+    },
+    "enabled": {
+      "description": "0: not spawned",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x14",
+      "x-c-type": "u32"
+    },
+    "unk_0x18": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x18",
+      "x-c-type": "u8",
+      "x-c-name": "pad18"
+    },
+    "hasDrawDist": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x19",
+      "x-c-type": "u8"
+    },
+    "unk_0x1A": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "x-offset": "0x1A",
+      "x-c-type": "u8[2]",
+      "x-c-name": "pad1A"
+    },
+    "drawDist": {
+      "type": "number",
+      "x-offset": "0x1C",
+      "x-c-type": "f32"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "unk_0x00",
+      "anim",
+      "speed",
+      "record",
+      "thing",
+      "enabled",
+      "unk_0x18",
+      "hasDrawDist",
+      "unk_0x1A",
+      "drawDist"
+    ]
+  }
+}

@@ -1,0 +1,512 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "World",
+  "type": "object",
+  "x-c-struct": "World",
+  "x-header": "World.h",
+  "x-size": "0xA0",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "World"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "collision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldCollision"
+      },
+      "x-offset": "0x00",
+      "x-c-type": "PTR32(WorldCollision)"
+    },
+    "volumeHolder": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "VolumeHolder"
+      },
+      "x-offset": "0x04",
+      "x-c-type": "PTR32(VolumeHolder)"
+    },
+    "numTileCars": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x08",
+      "x-c-type": "u32"
+    },
+    "tileCars": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "TileCar",
+        "count": "numTileCars",
+        "item": "TileCar",
+        "item-size": 96
+      },
+      "x-offset": "0x0C",
+      "x-c-type": "PTR32(TileCar)"
+    },
+    "numTilePaths": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x10",
+      "x-c-type": "u32"
+    },
+    "tilePaths": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "struct TilePath",
+        "count": "numTilePaths",
+        "item": "TilePath",
+        "item-size": 32
+      },
+      "x-offset": "0x14",
+      "x-c-type": "PTR32(struct TilePath)"
+    },
+    "unk_0x18": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x18",
+      "x-c-type": "u8[8]",
+      "x-c-name": "pad18"
+    },
+    "numQuads": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x20",
+      "x-c-type": "u32"
+    },
+    "quads": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldQuad",
+        "count": "numQuads",
+        "item": "WorldQuad",
+        "item-size": 80
+      },
+      "x-offset": "0x24",
+      "x-c-type": "PTR32(WorldQuad)"
+    },
+    "numSpeakers": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x28",
+      "x-c-type": "u32"
+    },
+    "speakers": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "struct TileSpeaker",
+        "count": "numSpeakers",
+        "item": "TileSpeaker",
+        "item-size": 64
+      },
+      "x-offset": "0x2C",
+      "x-c-type": "PTR32(struct TileSpeaker)"
+    },
+    "numTeleporters": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x30",
+      "x-c-type": "u32"
+    },
+    "teleporters": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "Teleporter",
+        "count": "numTeleporters",
+        "item": "Teleporter",
+        "item-size": 112
+      },
+      "x-offset": "0x34",
+      "x-c-type": "PTR32(Teleporter)"
+    },
+    "numTileLights": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x38",
+      "x-c-type": "u32"
+    },
+    "tileLights": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "struct TileLight",
+        "count": "numTileLights",
+        "item": "TileLight",
+        "item-size": 32
+      },
+      "x-offset": "0x3C",
+      "x-c-type": "PTR32(struct TileLight)"
+    },
+    "numTileCreatures": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x40",
+      "x-c-type": "u32"
+    },
+    "tileCreatures": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "TileCreature",
+        "count": "numTileCreatures",
+        "item": "TileCreature",
+        "item-size": 64
+      },
+      "x-offset": "0x44",
+      "x-c-type": "PTR32(TileCreature)"
+    },
+    "numVariables": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x48",
+      "x-c-type": "u32"
+    },
+    "variables": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldVariableSlot",
+        "count": "numVariables",
+        "item": "PTR32(WorldVariable)",
+        "item-size": 4
+      },
+      "x-offset": "0x4C",
+      "x-c-type": "PTR32(WorldVariableSlot)"
+    },
+    "numTimers": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x50",
+      "x-c-type": "u32"
+    },
+    "timers": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldTimerSlot",
+        "count": "numTimers",
+        "item": "PTR32(WorldTimer)",
+        "item-size": 4
+      },
+      "x-offset": "0x54",
+      "x-c-type": "PTR32(WorldTimerSlot)"
+    },
+    "numObjectives": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x58",
+      "x-c-type": "u32"
+    },
+    "objectives": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldObjective",
+        "count": "numObjectives",
+        "item": "WorldObjective",
+        "item-size": 8
+      },
+      "x-offset": "0x5C",
+      "x-c-type": "PTR32(WorldObjective)"
+    },
+    "unk_0x60": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x60",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad60"
+    },
+    "lights": {
+      "description": "0x10 each (LightManager)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "u8"
+      },
+      "x-offset": "0x64",
+      "x-c-type": "PTR32(u8)"
+    },
+    "numVolumes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x68",
+      "x-c-type": "u32"
+    },
+    "volumes": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldVolume",
+        "count": "numVolumes",
+        "item": "WorldVolume",
+        "item-size": 48
+      },
+      "x-offset": "0x6C",
+      "x-c-type": "PTR32(WorldVolume)"
+    },
+    "unk_0x70": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x70",
+      "x-c-type": "u8[8]",
+      "x-c-name": "pad70"
+    },
+    "nav": {
+      "description": "NavHolder",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "void"
+      },
+      "x-offset": "0x78",
+      "x-c-type": "PTR32(void)"
+    },
+    "collisionPackName": {
+      "description": "the world's collision pack (type 5)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "char"
+      },
+      "x-offset": "0x7C",
+      "x-c-type": "PTR32(char)"
+    },
+    "collisionPackID": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x80",
+      "x-c-type": "s32"
+    },
+    "quadPackName": {
+      "description": "its quadrants' geometry pack (type 6)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "char"
+      },
+      "x-offset": "0x84",
+      "x-c-type": "PTR32(char)"
+    },
+    "quadPackID": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "x-offset": "0x88",
+      "x-c-type": "s32"
+    },
+    "name": {
+      "description": "the quad packs are in <name>.xgc",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "char"
+      },
+      "x-offset": "0x8C",
+      "x-c-type": "PTR32(char)"
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x90",
+      "x-c-type": "u32"
+    },
+    "unk_0x94": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 8,
+      "maxItems": 8,
+      "x-offset": "0x94",
+      "x-c-type": "u8[8]",
+      "x-c-name": "pad94"
+    },
+    "gameData": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldGameData"
+      },
+      "x-offset": "0x9C",
+      "x-c-type": "PTR32(WorldGameData)"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "collision",
+      "volumeHolder",
+      "numTileCars",
+      "tileCars",
+      "numTilePaths",
+      "tilePaths",
+      "unk_0x18",
+      "numQuads",
+      "quads",
+      "numSpeakers",
+      "speakers",
+      "numTeleporters",
+      "teleporters",
+      "numTileLights",
+      "tileLights",
+      "numTileCreatures",
+      "tileCreatures",
+      "numVariables",
+      "variables",
+      "numTimers",
+      "timers",
+      "numObjectives",
+      "objectives",
+      "unk_0x60",
+      "lights",
+      "numVolumes",
+      "volumes",
+      "unk_0x70",
+      "nav",
+      "collisionPackName",
+      "collisionPackID",
+      "quadPackName",
+      "quadPackID",
+      "name",
+      "id",
+      "unk_0x94",
+      "gameData"
+    ]
+  }
+}

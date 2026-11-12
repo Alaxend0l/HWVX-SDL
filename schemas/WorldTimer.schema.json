@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorldTimer",
+  "description": "A script timer (world + 0x50/0x54), counted in ms by TimerManager_Heartbeat.",
+  "type": "object",
+  "x-c-struct": "WorldTimer",
+  "x-header": "World.h",
+  "x-size": "0x10",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldTimer"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "unk_0x00": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x00",
+      "x-c-type": "u8",
+      "x-c-name": "pad0"
+    },
+    "active": {
+      "description": "shown by HUD role 50",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x01",
+      "x-c-type": "u8"
+    },
+    "type": {
+      "description": "id interfaces bind to; 0xC: the round timer (GameRules)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x02",
+      "x-c-type": "u8"
+    },
+    "countUp": {
+      "description": "0: counts down to 0",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "x-offset": "0x03",
+      "x-c-type": "u8"
+    },
+    "unk_0x04": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "x-offset": "0x04",
+      "x-c-type": "u8[4]",
+      "x-c-name": "pad4"
+    },
+    "time": {
+      "description": "ms",
+      "type": "number",
+      "x-offset": "0x08",
+      "x-c-type": "f32"
+    },
+    "mode": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "WorldTimerMode"
+      },
+      "x-offset": "0x0C",
+      "x-c-type": "PTR32(WorldTimerMode)"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "unk_0x00",
+      "active",
+      "type",
+      "countUp",
+      "unk_0x04",
+      "time",
+      "mode"
+    ]
+  }
+}

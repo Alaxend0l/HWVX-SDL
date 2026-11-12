@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QuadContents",
+  "description": "The objects of a quadrant.",
+  "type": "object",
+  "x-c-struct": "QuadContents",
+  "x-header": "World.h",
+  "x-size": "0x1C",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "path or URL of this schema"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadContents"
+      },
+      "description": "the object this one overrides (README \u00a710.3); fields left out, and the hidden ones, come from it"
+    },
+    "dirty": {
+      "description": "things spawned (FileStreaming_SetActiveQuadrants)",
+      "type": "integer",
+      "minimum": -128,
+      "maximum": 127,
+      "x-offset": "0x00",
+      "x-c-type": "s8"
+    },
+    "numInstances": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x04",
+      "x-c-type": "u32"
+    },
+    "instances": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadInstance",
+        "count": "numInstances",
+        "item": "QuadInstance",
+        "item-size": 64
+      },
+      "x-offset": "0x08",
+      "x-c-type": "PTR32(QuadInstance)"
+    },
+    "numFxPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x0C",
+      "x-c-type": "u32"
+    },
+    "fxPoints": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadFxPoint",
+        "count": "numFxPoints",
+        "item": "QuadFxPoint",
+        "item-size": 64
+      },
+      "x-offset": "0x10",
+      "x-c-type": "PTR32(QuadFxPoint)"
+    },
+    "numItems": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-offset": "0x14",
+      "x-c-type": "u32"
+    },
+    "items": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(base://[A-Za-z0-9_]+/[A-Za-z0-9_]+/[A-Za-z0-9_]+/(?:[a-z0-9]+:)?[0-9]+|uid://[0-9a-z]{1,13})(/[A-Za-z0-9_]+)*$",
+      "x-link": {
+        "kind": "object",
+        "target": "QuadItem",
+        "count": "numItems",
+        "item": "QuadItem",
+        "item-size": 64
+      },
+      "x-offset": "0x18",
+      "x-c-type": "PTR32(QuadItem)"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version"
+  ],
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "then": true,
+  "else": {
+    "required": [
+      "dirty",
+      "numInstances",
+      "instances",
+      "numFxPoints",
+      "fxPoints",
+      "numItems",
+      "items"
+    ]
+  }
+}
