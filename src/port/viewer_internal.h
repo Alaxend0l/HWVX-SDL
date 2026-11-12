@@ -50,6 +50,10 @@ typedef struct VPack {
     u32 numRefs;
     VNode *nodes;
     u32 numNodes, capNodes;
+    /* count fields `set` changed (a link's x-link count): offset and the value the
+     * data had, the most it may be set to again (its array is that long) */
+    u32 countOff[32], countOrig[32];
+    u32 numCounts;
 } VPack;
 
 #define VIEWER_MAX_PACKS 16
