@@ -25,7 +25,7 @@ pub mod zip;
 pub use index::{Index, IndexOptions, build_index};
 pub use manifest::Manifest;
 
-use blocks::{COARSE, FINE, window_hashes};
+use blocks::{COARSE, FINE, window_hashes_chunked};
 use hash::{h64, sha256_hex};
 use manifest::{AUDIO_EXT, res};
 use regex::Regex;
@@ -127,7 +127,13 @@ fn check_bytes(index: &Index, rep: &mut Report, place: &str, data: &[u8], what: 
         return true;
     }
     for (table, b) in [("b32", FINE), ("b256", COARSE)] {
-        let (mut hit, mut srcs) = index.find(table, &window_hashes(data, b));
+        // hashed in chunks of 1M windows (8 MB), not 8 bytes per byte of the whole file at once
+        let (mut hit, mut srcs) = (vec![], vec![]);
+        window_hashes_chunked(data, b, 1 << 20, |start, hs| {
+            let (h, s) = index.find(table, hs);
+            hit.extend(h.into_iter().map(|o| o + start));
+            srcs.extend(s);
+        });
         if !hit.is_empty()
             && let Some(k) = keep
         {
