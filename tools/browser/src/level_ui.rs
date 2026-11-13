@@ -55,7 +55,7 @@ impl Browser {
             .pref
             .clone()
             .unwrap_or_else(|| {
-                std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("viewer-pref"))).unwrap_or_else(|| "viewer-pref".into())
+                hwvx_browser::resources::default_pref()
             })
             .join("testdrive")
     }
