@@ -10,6 +10,7 @@
  * other part of the frame. */
 #include "port_internal.h"
 #include "gx_render.h"   /* g_gxr: only drawImage is used */
+#include "viewer.h"      /* Port_ViewerEfbSize */
 
 static int HudOn(void) {
     static int on = -1;
@@ -253,30 +254,41 @@ static void Rasterize(const char *text, int scale) {
 
 void Port_HudDraw(int efbW, int efbH) {
     static u32 draws;
-    int dst[4];
+    static int lastScale;
+    int dst[4], winW = 0, winH = 0, scale, vw, vh;
+    f32 r = 1.0f;   /* EFB pixels per window pixel (the resolution scale) */
 
     if (!HudOn() || s_count == 0) {
         return;
     }
+    /* Sized in window pixels, so the strip looks the same at any resolution
+     * scale: rasterized for the window's height, stretched by the EFB's
+     * size over the window's (the viewer's frames: the EFB's own size). */
+    if (!Port_ViewerEfbSize(&vw, &vh) && SDL_GetWindowSizeInPixels(g_port.window, &winW, &winH) && winH > 0 &&
+        winH != efbH) {
+        r = (f32)efbH / (f32)winH;
+    }
+    scale = (r != 1.0f ? winH : efbH) >= 1000 ? 3 : 2;
     /* Numbers refreshed about three times a second; a frame's worth of new
      * retraces barely moves the averages anyway. */
-    if ((draws++ & 31) == 0 || s_text[0] == '\0') {
+    if ((draws++ & 31) == 0 || s_text[0] == '\0' || scale != lastScale) {
         char text[48];
 
         SDL_snprintf(text, sizeof(text), "FPS %.1f AVG %.1f 1%% LOW %.1f",
                      MeanRecentFps(20), MeanAllFps(), Low1Fps());
-        if (SDL_strcmp(text, s_text) != 0) {
+        if (SDL_strcmp(text, s_text) != 0 || scale != lastScale) {
             SDL_strlcpy(s_text, text, sizeof(s_text));
-            Rasterize(s_text, efbH >= 1000 ? 3 : 2);
+            Rasterize(s_text, scale);
+            lastScale = scale;
         }
     }
     if (s_w <= 0 || s_h <= 0) {
         return;
     }
-    dst[0] = 6;
-    dst[1] = 6;
-    dst[2] = dst[0] + s_w;
-    dst[3] = dst[1] + s_h;
+    dst[0] = (int)(6.0f * r + 0.5f);
+    dst[1] = dst[0];
+    dst[2] = dst[0] + (int)((f32)s_w * r + 0.5f);
+    dst[3] = dst[1] + (int)((f32)s_h * r + 0.5f);
     if (dst[2] > efbW) {
         dst[2] = efbW;
     }

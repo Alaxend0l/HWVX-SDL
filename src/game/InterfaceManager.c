@@ -4103,6 +4103,8 @@ static inline void InterfaceManager_DrawDebugCross(Vector4 *pos) {
  * across the middle move as a whole. 0 in split screen and menus. */
 #define HUD_LEFT_X 192.0f
 #define HUD_RIGHT_X 448.0f
+#define HUD_SPLIT_LEFT_X 256.0f
+#define HUD_SPLIT_RIGHT_X 384.0f
 static f32 Port_HudLayoutX(InterfaceObject *obj, u32 depth) {
     IfaceObjAnim *anim = GETP(GETP(obj->def)->anim);
     f32 x = obj->pos.v.x;
@@ -4161,8 +4163,53 @@ static void Port_HudKeyRange(InterfaceObject *obj, f32 *lo, f32 *hi) {
     }
 }
 
-static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
-    f32 wx, wy, side, x;
+/* Split screen: the view (x, y, width, height, in the game's 640x480 units) a
+ * player's HUD is drawn over, its player's (a child interface goes by its
+ * parent's). fix: how far the HUD moves to sit at its view's corner (the
+ * game places the 2- and 4-player HUDs 10 units in from the screen's middle
+ * lines, so the top views' HUDs sat 10 low, the bottom ones 10 high, the
+ * right ones 10 left; the views start at 0 or the middle, inset by 1). 0
+ * outside split screen, or for an interface of no player. */
+static s32 Port_HudPane(Interface *iface, f32 pane[4], f32 fix[2]) {
+    extern GfxWindow g_window[];
+    extern u8 g_CurrentViews;
+    u8 views = g_CurrentViews;
+    Interface *owner = iface;
+    Player *player;
+    GfxWindow *w;
+
+    if ((views & (views - 1)) == 0) {
+        return 0;
+    }
+    if (iface->isChild && iface->parent < IFACE_MAX) {
+        owner = &g_interfaces[iface->parent];
+    }
+    player = GETP(owner->owner);
+    if (player == NULL || player->view < 1 || player->view > 4 || !(views & (1 << player->view))) {
+        return 0;
+    }
+    w = &g_window[player->view];
+    pane[0] = (f32)(w->left - 1);
+    pane[1] = (f32)(w->top - 1);
+    pane[2] = (f32)(w->width + 1);
+    pane[3] = (f32)(w->height + 1);
+    if (owner->hasOffset) {
+        fix[0] = pane[0] - owner->offset.x;
+        fix[1] = pane[1] - owner->offset.y;
+    }
+    return pane[2] > 0.0f && pane[3] > 0.0f;
+}
+
+/* How far (x; y into *dy) a HUD object moves on a screen of another shape
+ * than 4:3. One view: its sides out to the screen's edges. Split screen: each
+ * view is as much wider (taller) as the screen (gx_draw.c MapViewport), so a
+ * player's HUD moves with its view's centre and its sides out to the view's
+ * edges, the side decided by its layout x within the view as on one view. */
+static f32 Port_HudShift(Interface *iface, InterfaceObject *obj, f32 *dy) {
+    f32 wx, wy, side, x, pane[4] = { 0.0f, 0.0f, 640.0f, 480.0f }, fix[2] = { 0.0f, 0.0f }, centre = 0.0f;
+    s32 split;
+
+    *dy = 0.0f;
 
     /* a child interface (the battle kill count and car icon, a mission's
      * win count) is drawn inside its parent object's draw, each of its
@@ -4186,10 +4233,22 @@ static f32 Port_HudShift(Interface *iface, InterfaceObject *obj) {
         return 0.0f;
     }
     Port_ViewWiden(&wx, &wy);
-    if (wx <= 1.0f) {
-        return 0.0f;
+    split = Port_HudPane(iface, pane, fix);
+    if (split) {
+        centre = (pane[0] + 0.5f * pane[2] - 320.0f) * (wx - 1.0f) + fix[0];
+        *dy = (pane[1] + 0.5f * pane[3] - 240.0f) * (wy - 1.0f) + fix[1];
     }
-    side = 320.0f * (wx - 1.0f);
+    if (wx <= 1.0f) {
+        return centre;
+    }
+    side = 0.5f * pane[2] * (wx - 1.0f);
+    if (split) {
+        /* the side by the layout x on one view's 640 units; the split HUDs
+         * (about 300 units, placed at each view's offset) keep their middle
+         * narrower: the battle's speed sits by the radar, its score left */
+        x = Port_HudLayoutX(obj, 0) * 640.0f / pane[2];
+        return centre + (x < HUD_SPLIT_LEFT_X ? -side : x > HUD_SPLIT_RIGHT_X ? side : 0.0f);
+    }
     x = Port_HudLayoutX(obj, 0);
     if (GETP(iface->owner) == NULL) {
         /* an interface of no player in gameplay: the mission's "Wins" and the
@@ -4367,7 +4426,7 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
              * their fading copies that shrink onto them) zooms evenly until
              * it fills the width, up to 21:9, so the effect still covers the
              * screen; the top and bottom it crops are mostly under the bars. */
-            f32 wx, wy, shift = 0.0f, zoom = 1.0f;
+            f32 wx, wy, shift = 0.0f, shiftY = 0.0f, zoom = 1.0f;
             s8 stretch;
             s8 image = slot->kind == IFACE_KIND_IMAGE || slot->kind == IFACE_KIND_ANIM_IMAGE;
 
@@ -4382,7 +4441,7 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
                 zoom = wx < 1.75f ? wx : 1.75f;  /* 1.75: 21:9 over 4:3 */
             }
             if (!stretch && zoom == 1.0f) {
-                shift = Port_HudShift(iface, slot);
+                shift = Port_HudShift(iface, slot, &shiftY);
             }
             if (zoom != 1.0f) {
                 if (!restore) {
@@ -4393,7 +4452,7 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
                 }
                 slot->scale.v.x *= zoom;
                 slot->scale.v.y *= zoom;
-            } else if (stretch || shift != 0.0f) {
+            } else if (stretch || shift != 0.0f || shiftY != 0.0f) {
                 if (!restore) {
                     restore = 1;
                     savedPos = slot->pos.v;
@@ -4405,6 +4464,7 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
                     slot->scale.v.x *= wx;
                 } else {
                     slot->pos.v.x += shift;
+                    slot->pos.v.y += shiftY;
                 }
             }
         }
