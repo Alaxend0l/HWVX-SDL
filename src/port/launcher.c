@@ -443,6 +443,7 @@ enum {
     ACT_MOD_UP,         /* load it one earlier */
     ACT_MOD_REMOVE,     /* delete its folder (pressed twice) */
     ACT_MOD_INSTALL,    /* pick a .xmod to install */
+    ACT_EDITOR,         /* start the level editor (HWVX Editor) when it is installed beside the game, else its release page */
     ACT_PROTO_MODE      /* the prototype's import mode `source` (PORT_PROTO_*) */
 };
 
@@ -791,6 +792,106 @@ static void LayoutPage(Launcher *l, int busy) {
     }
 }
 
+/* ---- the level editor (HWVX Editor, its own release) --------------------- */
+
+#define EDITOR_RELEASES "https://github.com/Alaxend0l/HWVX-SDL/releases?q=editor-v"
+
+static char *EditorTry(char *path) {
+    SDL_PathInfo info;
+
+    if (path != NULL && SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
+        return path;
+    }
+    SDL_free(path);
+    return NULL;
+}
+
+/* The editor's program when it is installed beside the game, else NULL (looked
+ * for once): hwvx-browser in the game's own folder (the editor's package holds
+ * the game); macOS, "HWVX Editor.app" beside HWVX.app or in /Applications;
+ * Linux, an HWVX-Editor*.AppImage beside the game's AppImage. */
+static const char *EditorPath(void) {
+    static int looked;
+    static char *path;
+    const char *base = SDL_GetBasePath();   /* a bundle's Contents/Resources/ on macOS */
+    char *p = NULL;
+
+    if (looked) {
+        return path;
+    }
+    looked = 1;
+    if (base != NULL) {
+#if defined(_WIN32)
+        SDL_asprintf(&p, "%shwvx-browser.exe", base);
+#else
+        SDL_asprintf(&p, "%shwvx-browser", base);
+#endif
+        path = EditorTry(p);
+    }
+#if defined(__APPLE__)
+    if (path == NULL && base != NULL && SDL_asprintf(&p, "%s../MacOS/hwvx-browser", base) >= 0) {
+        path = EditorTry(p);
+    }
+    if (path == NULL && base != NULL && SDL_asprintf(&p, "%s../../../HWVX Editor.app/Contents/MacOS/hwvx-browser", base) >= 0) {
+        path = EditorTry(p);
+    }
+    if (path == NULL) {
+        path = EditorTry(SDL_strdup("/Applications/HWVX Editor.app/Contents/MacOS/hwvx-browser"));
+    }
+#elif defined(__linux__)
+    if (path == NULL && SDL_getenv("APPIMAGE") != NULL) {
+        char *dir = SDL_strdup(SDL_getenv("APPIMAGE")), *slash = dir != NULL ? SDL_strrchr(dir, '/') : NULL;
+        char **found;
+        int n = 0;
+
+        if (slash != NULL) {
+            slash[1] = 0;
+            found = SDL_GlobDirectory(dir, "HWVX-Editor*.AppImage", 0, &n);
+            if (found != NULL && n > 0 && SDL_asprintf(&p, "%s%s", dir, found[n - 1]) >= 0) {
+                path = EditorTry(p);
+            }
+            SDL_free(found);
+        }
+        SDL_free(dir);
+    }
+#endif
+    return path;
+}
+
+/* The Editor button: the editor started on its own (it outlives the launcher),
+ * or, when it isn't installed, its release page. */
+static void StartEditor(Launcher *l) {
+    const char *exe = EditorPath();
+    const char *args[2];
+    SDL_Environment *env;
+    SDL_PropertiesID props;
+    SDL_Process *p;
+
+    if (exe == NULL) {
+        SDL_snprintf(l->status, sizeof(l->status), "The editor isn't installed beside the game: its download page is open.");
+        SDL_OpenURL(EDITOR_RELEASES);
+        return;
+    }
+    args[0] = exe;
+    args[1] = NULL;
+    env = SDL_CreateEnvironment(true);
+    SDL_UnsetEnvironmentVariable(env, "HWVX_START");   /* the game's own switches stay with the game */
+    SDL_UnsetEnvironmentVariable(env, "HWVX_PREF_DIR");
+    props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, (void *)args);
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, env);
+    SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
+    p = SDL_CreateProcessWithProperties(props);
+    SDL_DestroyProperties(props);
+    SDL_DestroyEnvironment(env);
+    if (p == NULL) {
+        SDL_snprintf(l->status, sizeof(l->status), "Could not start the editor: %s", SDL_GetError());
+        return;
+    }
+    SDL_DestroyProcess(p);   /* not stopped: it runs on its own */
+    SDL_snprintf(l->status, sizeof(l->status), "The editor is starting.");
+}
+
 /* The buttons for the current state, in focus order, then the tabs. */
 static void Layout(Launcher *l) {
     int i, busy = l->importer != NULL || l->converter != NULL || l->dialogOpen;
@@ -803,6 +904,7 @@ static void Layout(Launcher *l) {
         LayoutPage(l, busy);
         Add(l, 24, VIEW_H - 30, "Play", ACT_PLAY, -1, !busy && CanPlay(l));
         Add(l, 24 + 4 * CHAR + 24, VIEW_H - 30, "Quit", ACT_QUIT, -1, !l->dialogOpen);
+        Add(l, 24 + 8 * CHAR + 48, VIEW_H - 30, EditorPath() != NULL ? "Editor" : "Get the editor", ACT_EDITOR, -1, !l->dialogOpen);
     }
     l->numFocus = l->numButtons;
     /* the preview of an import keeps to its page */
@@ -1996,6 +2098,9 @@ static int Activate(Launcher *l, const Button *b) {
         SDL_ShowOpenFileDialog(Picked, l, l->window, mods, 1, NULL, false);
         return 0;
     }
+    case ACT_EDITOR:
+        StartEditor(l);
+        return 0;
     case ACT_PLAY:
         return 1;
     case ACT_QUIT:

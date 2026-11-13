@@ -21,9 +21,11 @@
 pub mod audiolevel;
 pub mod stereo;
 pub mod bsp;
+pub mod cars;
 pub mod decode;
 pub mod encode;
 pub mod error;
+pub mod fonts;
 pub mod geom;
 pub mod graph;
 pub mod jsonc;
@@ -62,4 +64,17 @@ pub fn repo_root(from: Option<&Path>) -> Option<PathBuf> {
 /// docs/xdl-format/pairing above the repo root (the superproject's docs), as find_up finds it.
 pub fn pairing_dir(root: &Path) -> Option<PathBuf> {
     pack::find_up(&root.join("tools"), "docs/xdl-format/pairing")
+}
+
+/// A program to run without a console window of its own (Windows: CREATE_NO_WINDOW, so the
+/// editor, a windowed program, doesn't flash one for hwvx-x or powershell); elsewhere as is.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut c = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000);
+    }
+    c
 }

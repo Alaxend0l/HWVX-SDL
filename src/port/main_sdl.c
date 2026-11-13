@@ -700,6 +700,7 @@ static u32 Port_ArenaSize(void) {
 static const char *s_convertSource;
 
 int main(int argc, char **argv) {
+    Port_LogToRedirectedStderr();   /* Windows: a pipe given (the editor) gets the log */
     ParseArgs(argc, argv);
     if (g_port.convertDir != NULL || (s_mixRecipe != NULL && (s_mixBuild || s_mixScan))) {
         SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");  /* the converter shows nothing: no Dock icon either */

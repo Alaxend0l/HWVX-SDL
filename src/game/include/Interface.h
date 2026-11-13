@@ -840,5 +840,6 @@ void Port_MenuDump(const InterfaceHeader *root);
 /* ... and the lists a screen shows by a variable, as patched. */
 void Port_MenuDumpLists(const InterfaceHeader *h);
 void Port_StartHeartbeat(void);   /* Port_Start.c: HWVX_START */
+int Port_StartSkipsOpening(void);   /* Port_Start.c: HWVX_START=race, its level's opening sequence */
 
 #endif

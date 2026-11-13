@@ -15,6 +15,12 @@
 //!                                                a world instead of --load (--view: the 3D view's switches)
 //!                [--level PROJECT_DIR] [--test-drive] [--quick-start] [--car N] [--tools DIR]
 //!                [--testdrive-renderer R] [--level-select trigger:NAME|own:KIND/NAME|base:PATH]
+//!   hwvx-browser --level PROJECT_DIR [--check] [--drive SECS] [--save-mod OUT.xmod] [--data DIR]
+//!                                                headless: the level's check, a test drive (until
+//!                                                it drives, at most SECS), Save as mod; exit 0: ok
+//!
+//! Runtime files (schemas/, the game, hwvx-x) are found as src/resources.rs says: packaged
+//! beside the program, $HWVX_EDITOR_RESOURCES, or the checkout.
 //!
 //! The Level tab opens a level project (xdlrs::level); Test drive (F5) compiles it and
 //! starts the game straight into it (src/level_ui.rs, src/testdrive.rs).
@@ -23,6 +29,9 @@
 //! --app-shot saves this window (once the --load and --select replies are in) and quits:
 //! for scripted screenshots of the browser itself. It gives up (exit 1) on an error reply, a
 //! lost viewer, or after two minutes.
+// Windows: a windowed program (no console window of its own); run from a console (headless
+// mode, errors) it writes to that one (attach_console)
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod level_edit;
 mod level_ui;
@@ -76,6 +85,10 @@ struct Args {
     car: Option<u32>,
     /// the level editor's selection at start: trigger:NAME, own:KIND/NAME, base:PATH, settings
     level_select: Option<String>,
+    /// headless (no window): --check, --drive SECS, --save-mod OUT.xmod, on --level
+    check: bool,
+    drive: Option<u64>,
+    save_mod: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -112,6 +125,9 @@ fn parse_args() -> Result<Args, String> {
             "--quick-start" => a.quick_start = true,
             "--level-select" => a.level_select = Some(val()?),
             "--car" => a.car = Some(val()?.parse().map_err(|_| "--car N")?),
+            "--check" => a.check = true,
+            "--drive" => a.drive = Some(val()?.parse().map_err(|_| "--drive SECS")?),
+            "--save-mod" => a.save_mod = Some(val()?.into()),
             "-h" | "--help" => {
                 println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
                 std::process::exit(0);
@@ -123,6 +139,7 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn main() -> eframe::Result {
+    attach_console();
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -130,11 +147,106 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
+    if args.check || args.drive.is_some() || args.save_mod.is_some() {
+        std::process::exit(headless(&args));
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1500.0, 860.0]).with_title("HWVX data browser"),
         ..Default::default()
     };
     eframe::run_native("hwvx-browser", options, Box::new(move |cc| Ok(Box::new(Browser::new(args, cc.egui_ctx.clone())))))
+}
+
+/// Windows: the console it was started from, if any, for its output (a windowed program has
+/// none of its own; output redirected to a file or pipe is left as it is).
+fn attach_console() {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE};
+        if GetStdHandle(STD_OUTPUT_HANDLE).is_null() {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+}
+
+/// --check / --drive SECS / --save-mod OUT on --level, without a window (scripts, a package's
+/// smoke test): the same lookups and steps as the Level tab's. The exit code: 0 all went well.
+fn headless(a: &Args) -> i32 {
+    use hwvx_browser::testdrive::{self, Options, TestDrive};
+    let Some(level) = &a.level else {
+        eprintln!("hwvx-browser: --check, --drive and --save-mod need --level PROJECT_DIR");
+        return 2;
+    };
+    let game = a.game.clone().unwrap_or_else(default_game);
+    let game = std::fs::canonicalize(&game).unwrap_or(game);
+    let o = Options {
+        tools: a.tools.clone().or_else(|| testdrive::default_tools(&game)).unwrap_or_else(|| "tools".into()),
+        game,
+        data: a.data.clone(),
+        build_pack: false,
+        project: PathBuf::from(level),
+        scratch: a.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref).join("testdrive"),
+        car: a.car,
+        skip_intro: a.quick_start,
+        start_at: None,
+        renderer: a.testdrive_renderer.clone(),
+        // a mission's or challenge's information window at the start waits for A, as retail (in a window the
+        // player presses it): pressed for them, a few times (HWVX_AUTOINPUT given: that instead)
+        env: if std::env::var_os("HWVX_AUTOINPUT").is_some() { Vec::new() } else { vec![("HWVX_AUTOINPUT".into(), "+60:a,+120:a,+120:a,+120:a,+120:a,+120:a,+120:a".into())] },
+    };
+    println!("game {} | tools {} | scratch {}", o.game.display(), o.tools.display(), o.scratch.display());
+    let mut code = 0;
+    if a.check || a.drive.is_some() {
+        match testdrive::prepare(&o) {
+            Ok(p) => println!("check: ok ({:.0} ms{}) start {}", p.ms, if p.cached { ", cached" } else { "" }, p.start),
+            Err(errs) => {
+                for e in errs {
+                    println!("check: error: {} {} {}", e.file, e.path, e.message);
+                }
+                return 1;
+            }
+        }
+    }
+    if let Some(secs) = a.drive {
+        let clicked = Instant::now();
+        let p = testdrive::prepare(&o).expect("compiled above");
+        match TestDrive::launch(&o, &p, clicked) {
+            Err(e) => {
+                println!("drive: {e}");
+                code = 1;
+            }
+            Ok(mut d) => {
+                println!("drive: the game started (PID {})", d.pid);
+                // a joyride never holds the car at the start: in the race is driving
+                let free = testdrive::read_level(&o.project).map(|v| v["mode"] == "joyride").unwrap_or(false);
+                let drives = |p: &testdrive::Progress| p.driving.is_some() || (free && p.in_race.is_some());
+                let end = Instant::now() + Duration::from_secs(secs);
+                while Instant::now() < end && !drives(&d.progress.lock().unwrap()) && d.poll().is_none() {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                let pr = d.progress.lock().unwrap().clone();
+                let how = d.poll();
+                d.stop();
+                println!("drive: applied {:?}, in the race {:?}, driving {:?}, not applied {:?}, ended {how:?}", pr.applied, pr.in_race, pr.driving, pr.not_applied);
+                if !drives(&pr) {
+                    for l in pr.tail.iter().rev().take(10).rev() {
+                        println!("  | {l}");
+                    }
+                    code = 1;
+                }
+            }
+        }
+    }
+    if let Some(out) = &a.save_mod {
+        match testdrive::share(&o, out) {
+            Ok(line) => println!("save-mod: {line}"),
+            Err(e) => {
+                println!("save-mod: {e}");
+                code = 1;
+            }
+        }
+    }
+    code
 }
 
 /// What a request was for, to route its reply.
@@ -405,13 +517,8 @@ impl Browser {
             } else {
                 let game = args.game.clone().unwrap_or_else(default_game);
                 let game = std::fs::canonicalize(&game).unwrap_or(game);
-                let pref = args.pref.clone().unwrap_or_else(|| {
-                    // next to the program, never the player's own saves and settings
-                    std::env::current_exe()
-                        .ok()
-                        .and_then(|e| e.parent().map(|d| d.join("viewer-pref")))
-                        .unwrap_or_else(|| PathBuf::from("viewer-pref"))
-                });
+                // the editor's own, never the player's saves and settings
+                let pref = args.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref);
                 let log_file = Some(pref.join("viewer.log"));
                 Viewer::spawn(&SpawnOptions {
                     schemas: args.schemas.clone().or_else(|| default_schemas(&game)),
