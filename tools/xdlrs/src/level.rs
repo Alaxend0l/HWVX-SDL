@@ -336,7 +336,9 @@ pub fn base_steps(env: &Env, path: &str, wh: &str) -> Result<Value> {
             let Some(isz) = item_size else {
                 return Err(lerr(format!("{wh}: {path}: {seg}: not an array here")));
             };
-            steps.push(('a', seg.parse::<i128>().unwrap_or(0) * isz));
+            // checked: a huge index is a level error, not an overflow
+            let k = seg.parse::<i128>().ok().and_then(|k| k.checked_mul(isz));
+            steps.push(('a', k.ok_or_else(|| lerr(format!("{wh}: {path}: {seg}: an index out of range")))?));
             cur = item.take();
             item_size = None;
         } else if *seg == "to" {
@@ -382,7 +384,8 @@ pub fn base_steps(env: &Env, path: &str, wh: &str) -> Result<Value> {
     let mut out: Vec<(char, i128)> = vec![];
     for st in steps {
         if st.0 == 'a' && out.last().is_some_and(|l| l.0 == 'a') {
-            out.last_mut().unwrap().1 += st.1;
+            let l = out.last_mut().unwrap();
+            l.1 = l.1.checked_add(st.1).ok_or_else(|| lerr(format!("{wh}: {path}: an offset out of range")))?;
         } else if !(st.0 == 'a' && st.1 == 0) {
             out.push(st);
         }
@@ -2549,6 +2552,22 @@ mod tests {
         }
         for bad in ["", "a/b", "../x", "..", "/abs", "a\\b", "c:x", "a.b", "a b", "\u{e9}"] {
             assert!(check_trigger_name(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn base_step_overflow_is_a_level_error() {
+        let env = Env::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path()).unwrap();
+        let st = |p: &str| base_steps(&env, p, "level.jsonc/x");
+        assert_eq!(st("World/0/quads/2/o4").unwrap()["steps"], json!([["p", 0x24], ["a", 164]]));
+        for p in [
+            "World/0/quads/170141183460469231731687303715884105727",   // i128::MAX * 80
+            "World/0/quads/99999999999999999999999999999999999999999", // past i128
+            &format!("World/0/quads/{}/offffffff", i128::MAX / 80),     // the sum
+        ] {
+            let e = st(p).unwrap_err();
+            assert_eq!(e.kind, Kind::Level, "{p}: {}", e.msg);
+            assert!(e.msg.contains("out of range"), "{}", e.msg);
         }
     }
 
