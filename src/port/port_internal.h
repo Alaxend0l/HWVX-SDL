@@ -37,6 +37,9 @@ typedef struct PortState {
     int mouseSteer;          /* 1: the PC release's mouse steering in races (graphics.cfg
                               * mousesteer=on; Port_MouseSteerOn, pad.c) */
     int drawDist;            /* PORT_DRAWDIST_*: graphics.cfg drawdist (Port_DrawDistSetting) */
+    int resScale;            /* g_portResScales index: graphics.cfg resscale (Port_ResScale) */
+    int resNearest;          /* 1: graphics.cfg resfilter=nearest (Port_ResScaleNearest) */
+    f32 resScaleOverride;    /* --res-scale, HWVX_RESSCALE (main_sdl.c; 0: graphics.cfg decides) */
     int launcher;            /* --launcher (or run as hwvx-launcher): open the launcher */
     volatile int quit;
     SDL_Window *window;
@@ -55,6 +58,19 @@ typedef struct PortState {
 extern PortState g_port;
 
 void Port_InitHandles(u32 arenaSize);
+
+/* The resolution scale (main_sdl.c): the EFB is the window times this
+ * (gx_draw.c). --res-scale, else HWVX_RESSCALE, else graphics.cfg resscale=
+ * (the launcher's Settings, Display). Nearest: a scale under 1x is shown
+ * with nearest-neighbour instead of bilinear filtering (graphics.cfg
+ * resfilter=nearest, HWVX_RESFILTER=nearest). */
+f32 Port_ResScale(void);
+int Port_ResScaleNearest(void);
+/* The launcher's choices (g_port.resScale is the index); "1x" is the default. */
+#define PORT_RESSCALE_COUNT 5
+#define PORT_RESSCALE_DEFAULT 2
+extern const f32 g_portResScales[PORT_RESSCALE_COUNT];
+extern const char *const g_portResScaleNames[PORT_RESSCALE_COUNT];
 
 /* Creates g_port.window with the renderer's flags (gx_render.h open). */
 void Port_CreateWindow(SDL_WindowFlags flags);

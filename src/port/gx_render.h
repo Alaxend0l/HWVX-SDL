@@ -180,6 +180,9 @@ typedef struct GXRenderer {
      * -1: nothing pending, too big, or failed (the slot is freed). */
     int (*grabStart)(int slot);
     int (*grabFetch)(int slot, u8 *dst, int stride, int maxW, int maxH, int *w, int *h, int wait);
+    /* The largest render target side the device takes (the resolution
+     * scale is capped to it); NULL: 16384. */
+    int (*maxTarget)(void);
 } GXRenderer;
 
 #define GXR_GRAB_SLOTS 2
@@ -208,6 +211,16 @@ extern const GXRenderer *g_gxr;
 /* The largest area of aspect aw:ah centred in a w x h window: x, y, width,
  * height (top-left origin). */
 void GX_Letterbox(int w, int h, int aw, int ah, int out[4]);
+
+/* The display copy (copyDisp) of EFB rectangle src to a winW x winH window:
+ * where it goes (letterboxed to its shape, or with a resolution scale, the
+ * whole window), and how to filter it: GXR_PRESENT_BOX, the EFB larger than
+ * the window, is an area average (shaders/present.frag); f is that shader's
+ * uFilter (x: 1 box, yz: EFB texels per window pixel). At 1x: the letterbox
+ * and LINEAR, as before the scale existed. */
+enum { GXR_PRESENT_LINEAR, GXR_PRESENT_NEAREST, GXR_PRESENT_BOX };
+void GX_PresentRect(int winW, int winH, const int src[4], int lb[4]);
+int GX_PresentFilter(const int src[4], const int lb[4], f32 f[4]);
 
 /* gx_tex.c: the decoded texture for a texture object, and its sampler. */
 void *GX_TexGet(const GXTexObj *obj, GXSampler *samp);

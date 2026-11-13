@@ -58,6 +58,12 @@
  *   Settings page; --pc-pan or HWVX_PC_PAN=1 or 0 overrides, main_sdl.c
  *   Port_PCPan): pc pans sounds with the PC release's DirectSound law, far
  *   wider than the GameCube/PS2 equal-power table (game/Voice_.c PCPan).
+ * - Resolution scale (graphics.cfg "resscale=0.5|0.75|1|1.5|2", default 1, a row
+ *   on the launcher's Settings page, Display; --res-scale or HWVX_RESSCALE
+ *   overrides, main_sdl.c Port_ResScale): the EFB is the window times this
+ *   (gx_draw.c), shown filtered to the window: below 1x for weak GPUs, above
+ *   1x as supersampling. "resfilter=nearest" (no row; HWVX_RESFILTER) shows a
+ *   scale under 1x with nearest-neighbour pixels instead of bilinear.
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -292,6 +298,18 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.pcPan = 1;
         } else if (SDL_strcmp(line, "stereo=gc") == 0) {
             g_port.pcPan = 0;
+        } else if (SDL_strncmp(line, "resscale=", 9) == 0) {
+            int i;
+
+            for (i = 0; i < PORT_RESSCALE_COUNT; i++) {
+                if (SDL_strcmp(line + 9, g_portResScaleNames[i]) == 0) {
+                    g_port.resScale = i;
+                }
+            }
+        } else if (SDL_strcmp(line, "resfilter=nearest") == 0) {
+            g_port.resNearest = 1;
+        } else if (SDL_strcmp(line, "resfilter=linear") == 0) {
+            g_port.resNearest = 0;
         }
     }
     SDL_free(text);
@@ -308,13 +326,17 @@ static void SaveConfig(int w, int h, int full) {
     n = w > 0 && h > 0 ? SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\n", w, h) : 0;
     n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
                      "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\n"
+                     "resscale=%s\nresfilter=%s\n",
                      full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
                      g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on",
                      g_port.mouseSteer ? "on" : "off",
                      s_drawDistNames[g_port.drawDist >= 0 && g_port.drawDist < 3 ? g_port.drawDist : 0],
-                     g_port.pcPan ? "pc" : "gc");
+                     g_port.pcPan ? "pc" : "gc",
+                     g_portResScaleNames[g_port.resScale >= 0 && g_port.resScale < PORT_RESSCALE_COUNT
+                                             ? g_port.resScale : PORT_RESSCALE_DEFAULT],
+                     g_port.resNearest ? "nearest" : "linear");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }
@@ -517,4 +539,24 @@ void Port_GfxApply(void) {
     SDL_SyncWindow(g_port.window);
     g_port.fullscreen = (int)s_pendingFull;
     SaveConfig(r.w, r.h, (int)s_pendingFull);
+}
+
+const f32 g_portResScales[PORT_RESSCALE_COUNT] = { 0.5f, 0.75f, 1.0f, 1.5f, 2.0f };
+const char *const g_portResScaleNames[PORT_RESSCALE_COUNT] = { "0.5", "0.75", "1", "1.5", "2" };
+
+/* The resolution scale (port_internal.h): --res-scale, else HWVX_RESSCALE
+ * (main_sdl.c, g_port.resScaleOverride), else graphics.cfg "resscale=". */
+f32 Port_ResScale(void) {
+    int i = g_port.resScale;
+
+    if (g_port.resScaleOverride > 0.0f) {
+        return g_port.resScaleOverride;
+    }
+    return g_portResScales[i >= 0 && i < PORT_RESSCALE_COUNT ? i : PORT_RESSCALE_DEFAULT];
+}
+
+int Port_ResScaleNearest(void) {
+    const char *e = SDL_getenv("HWVX_RESFILTER");
+
+    return e != NULL && *e ? SDL_strcmp(e, "nearest") == 0 : g_port.resNearest;
 }

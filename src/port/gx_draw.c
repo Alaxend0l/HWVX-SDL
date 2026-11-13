@@ -58,15 +58,67 @@ static int SplitScreen(void) {
     return (v & (v - 1)) != 0;
 }
 
-/* The EFB size for the window: its size in pixels (at least 1x1); in the
- * viewer, the size the data browser asked for (viewer.h). */
+/* The EFB size for the window: its size in pixels times the resolution scale
+ * (Port_ResScale; at least 1x1, at most the renderer's largest render target,
+ * keeping the shape); in the viewer, the size the data browser asked for
+ * (viewer.h), unscaled: its frames and pick coordinates are in the pixels it
+ * shows. s_scaled: the EFB isn't the window's size, so the display copy fills
+ * the window and filters (GX_PresentRect). */
+static int s_scaled;
+
 static void WindowSize(int *w, int *h) {
+    f32 scale = Port_ResScale();
+
+    s_scaled = 0;
     if (Port_ViewerEfbSize(w, h)) {
         return;
     }
     SDL_GetWindowSizeInPixels(g_port.window, w, h);
+    if (scale != 1.0f && *w > 0 && *h > 0) {
+        static int lastW, lastH;
+        int max = g_gxr->maxTarget != NULL ? g_gxr->maxTarget() : 16384;
+        f32 sw = (f32)*w * scale, sh = (f32)*h * scale, fit = 1.0f;
+
+        if (sw > (f32)max || sh > (f32)max) {
+            fit = (f32)max / (sw > sh ? sw : sh);
+        }
+        if (*w != lastW || *h != lastH) {
+            lastW = *w;
+            lastH = *h;
+            if (fit < 1.0f) {
+                Port_Log("resolution scale %.2gx: %dx%d capped to the renderer's largest target, %d pixels",
+                         scale, (int)(sw + 0.5f), (int)(sh + 0.5f), max);
+            }
+        }
+        *w = (int)(sw * fit + 0.5f);
+        *h = (int)(sh * fit + 0.5f);
+        s_scaled = 1;
+    }
     if (*w < 1) *w = 1;
     if (*h < 1) *h = 1;
+}
+
+void GX_PresentRect(int winW, int winH, const int src[4], int lb[4]) {
+    if (s_scaled) {
+        lb[0] = 0;
+        lb[1] = 0;
+        lb[2] = winW;
+        lb[3] = winH;
+    } else {
+        GX_Letterbox(winW, winH, src[2] - src[0], src[3] - src[1], lb);
+    }
+}
+
+int GX_PresentFilter(const int src[4], const int lb[4], f32 f[4]) {
+    f[0] = 0.0f;
+    f[1] = lb[2] > 0 ? (f32)(src[2] - src[0]) / (f32)lb[2] : 1.0f;
+    f[2] = lb[3] > 0 ? (f32)(src[3] - src[1]) / (f32)lb[3] : 1.0f;
+    f[3] = 0.0f;
+    if (s_scaled && (f[1] > 1.0f || f[2] > 1.0f)) {
+        f[0] = 1.0f;
+        return GXR_PRESENT_BOX;
+    }
+    return s_scaled && Port_ResScaleNearest() ? GXR_PRESENT_NEAREST : GXR_PRESENT_LINEAR;
 }
 
 void GX_DrawEfbSize(int *w, int *h) {
