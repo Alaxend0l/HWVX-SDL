@@ -460,7 +460,7 @@ pub fn build_index(data: &[PathBuf], out: &Path, opt: &IndexOptions, root: &Path
         std::fs::create_dir_all(p).map_err(|e| ModError(e.to_string()))?;
     }
     let refs: Vec<(String, &[u8])> = arrays.iter().map(|(n, b)| (n.clone(), b.as_slice())).collect();
-    let z = zip::write_stored(&refs);
+    let z = zip::write_stored(&refs).map_err(|e| ModError(format!("{}: {e}", out.display())))?;
     std::fs::write(out, &z).map_err(|e| ModError(format!("{}: {e}", out.display())))?;
     let mut text = String::new();
     for n in notes.iter().take(20) {

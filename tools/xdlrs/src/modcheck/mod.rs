@@ -784,7 +784,7 @@ fn run_check(mod_dir: &Path, index_path: &Path, out: Option<&Path>, opt: &Option
             entries.push((n.clone(), d.as_slice()));
         }
     }
-    let z = zip::write_stored(&entries);
+    let z = zip::write_stored(&entries).map_err(|e| ModError(format!("{}: {e}", py_path(&out.to_string_lossy()))))?;
     if let Some(p) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(p).map_err(|e| ModError(e.to_string()))?;
     }
