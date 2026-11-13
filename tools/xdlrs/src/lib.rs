@@ -18,6 +18,7 @@
 //!
 //! Errors carry the Python exception they correspond to ([`error::Kind`]).
 
+pub mod audiolevel;
 pub mod bsp;
 pub mod decode;
 pub mod encode;

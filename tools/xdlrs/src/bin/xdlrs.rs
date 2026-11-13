@@ -27,6 +27,8 @@
 //!   xdlrs mix ui-check MANIFEST --set gc|ps2 [--base gc] [--list]
 //!                                        a mixed build's interface textures (manifest "ui" lines) by
 //!                                        release; exit 1 when one breaks the set rule (Port_Mix.c)
+//!   xdlrs audio level DUMP.f32 [--window S] [--from S]
+//!                                        an HWVX_AUDIODUMP's loudness per window and band (audiolevel.rs)
 //!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
 //!                                        two frame dumps side by side (tools/mix_pair_shots.sh)
 //!
@@ -1021,6 +1023,9 @@ fn main() -> ExitCode {
     if argv.first().map(String::as_str) == Some("mix") {
         return mix_main(&argv[1..]);
     }
+    if argv.first().map(String::as_str) == Some("audio") {
+        return audio_main(&argv[1..]);
+    }
     let a = parse_args(&argv);
     let cmd = (a.pos.first().map(String::as_str), a.pos.get(1).map(String::as_str));
     let shifted = |n: usize| Args { pos: a.pos[n..].to_vec(), opts: a.opts.clone(), flags: a.flags.clone() };
@@ -1224,4 +1229,26 @@ fn mix_pair(left: &str, right: &str, out: &str, half: bool) -> std::result::Resu
     let mut wr = enc.write_header().map_err(|e| format!("{out}: {e}"))?;
     wr.write_image_data(&pix).map_err(|e| format!("{out}: {e}"))?;
     Ok(())
+}
+
+/// `xdlrs audio level DUMP [--window S] [--from S]` (xdlrs::audiolevel).
+fn audio_main(argv: &[String]) -> ExitCode {
+    let a = parse_args(argv);
+    if a.pos.first().map(String::as_str) != Some("level") || a.pos.len() < 2 {
+        eprintln!("usage: xdlrs audio level DUMP.f32 [--window S] [--from S]");
+        return ExitCode::from(2);
+    }
+    let num = |k: &str, d: f64| a.opts.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let s = match xdlrs::audiolevel::read_dump(Path::new(&a.pos[1])) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {}: {e}", a.pos[1]);
+            return ExitCode::from(1);
+        }
+    };
+    println!("    from     rms   <250Hz  250-4k   >4kHz   (dBFS)");
+    for (t, total, b) in xdlrs::audiolevel::levels(&s, num("window", 5.0), num("from", 0.0)) {
+        println!("{t:7.1}s {total:7.1} {:8.1} {:7.1} {:7.1}", b[0], b[1], b[2]);
+    }
+    ExitCode::SUCCESS
 }
