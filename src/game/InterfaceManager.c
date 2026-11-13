@@ -3987,7 +3987,10 @@ void InterfaceManager_Render(void) {
     for (i = 0; i < g_numInterfacesToRender; i++) {
         iface = &g_interfaces[g_interfaceRenderOrder[i]];
         if (*(u32 *)iface != 0 /* interface count */ && (iface->state != 1 || iface->timer != 0) && iface->isChild == 0) {
+            int old = Port_PromptsInterface(iface->input);   /* port: button prompts */
+
             InterfaceManager_RenderInterface((RenderInterface *)iface);
+            Port_PromptsRestore(old);
         }
     }
 #undef g_numInterfacesToRender
@@ -4466,7 +4469,10 @@ void InterfaceManager_RenderObject(Interface *iface, s32 index) {
             switch (slot->kind) {
             case 6:
                 if ((u32)slot->child != iface->index) {
+                    int old = Port_PromptsInterface(((Interface *)&g_interfaces[slot->child])->input);   /* port */
+
                     InterfaceManager_RenderInterface(&g_interfaces[slot->child]);
+                    Port_PromptsRestore(old);
                 }
                 break;
             case 0:
@@ -4841,7 +4847,7 @@ void InterfaceManager_DrawObject_Standard_Image(InterfaceObject *obj) {
         rect = Gfx_Add2DRectangle();
     }
     rect->blendMode = obj->blendMode;
-    rect->tex = obj->texture;
+    rect->tex = Port_PromptTexture(obj->texture);   /* port: was obj->texture (button prompts, Port_Prompts.c) */
     anchor = GETP(obj->def);
     x0 = 0.5f * obj->scale.v.x + 0.5f * (anchor->scale.v.x * obj->scale.v.x);
     y0 = 0.5f * obj->scale.v.y + 0.5f * (anchor->scale.v.y * obj->scale.v.y);

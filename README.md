@@ -199,6 +199,12 @@ forward/backward, A/D strafe/stunt roll, Shift power slide, Space fire,
 Ctrl change weapon, ` (grave) change camera, Escape pause. In menus: arrows,
 Enter to accept, Escape to go back, X for the X button (stats).
 
+Button prompts follow the device (Button prompts in the launcher's Controls,
+`prompts=` in `graphics.cfg`, `--prompts NAME` or `HWVX_PROMPTS=NAME` for one run:
+`auto` (default: the controller or keyboard last pressed, per player), `original`
+(the release's own art), `xbox`, `ps`, `switch`, `keyboard`). The glyphs are
+"The Meritite Union's Input Prompts" (CC0; `assets/prompts/README.md`).
+
 Mouse steering, the PC release's (off by default: turn it on with Mouse
 steering on the launcher's Settings page, `mousesteer=on` in `graphics.cfg`,
 or `HWVX_MOUSESTEER=1`; `=0` turns it off): in a race the mouse is captured

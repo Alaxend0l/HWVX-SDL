@@ -68,6 +68,9 @@
  *   (gx_draw.c), shown filtered to the window: below 1x for weak GPUs, above
  *   1x as supersampling. "resfilter=nearest" (no row; HWVX_RESFILTER) shows a
  *   scale under 1x with nearest-neighbour pixels instead of bilinear.
+ * - Button prompts (graphics.cfg "prompts=auto|original|xbox|ps|switch|keyboard",
+ *   default auto, a row in the launcher's Controls; --prompts NAME or HWVX_PROMPTS=NAME
+ *   wins for one run; pad.c Port_PromptStyle, game/Port_Prompts.c).
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -413,6 +416,10 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.pcPan = 1;
         } else if (SDL_strcmp(line, "stereo=gc") == 0) {
             g_port.pcPan = 0;
+        } else if (SDL_strncmp(line, "prompts=", 8) == 0) {
+            int p = Port_PromptsByName(line + 8);
+
+            g_port.prompts = p < 0 ? PORT_PROMPTS_AUTO : p;
         } else if (SDL_strncmp(line, "renderer=", 9) == 0) {
             int r = Port_RendererByName(line + 9);
 
@@ -438,7 +445,7 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[416];
+    char *path = ConfigPath(), buf[448];
     int n;
 
     if (path == NULL) {
@@ -449,7 +456,7 @@ static void SaveConfig(int w, int h, int full) {
     n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
                      "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
                      "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\nrenderer=%s\n"
-                     "resscale=%s\nresfilter=%s\n",
+                     "resscale=%s\nresfilter=%s\nprompts=%s\n",
                      full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
                      g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on",
@@ -459,7 +466,8 @@ static void SaveConfig(int w, int h, int full) {
                      Port_RendererName(g_port.renderer) != NULL ? Port_RendererName(g_port.renderer) : "auto",
                      g_portResScaleNames[g_port.resScale >= 0 && g_port.resScale < PORT_RESSCALE_COUNT
                                              ? g_port.resScale : PORT_RESSCALE_DEFAULT],
-                     g_port.resNearest ? "nearest" : "linear");
+                     g_port.resNearest ? "nearest" : "linear",
+                     Port_PromptsName(g_port.prompts));
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }

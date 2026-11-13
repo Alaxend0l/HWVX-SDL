@@ -40,6 +40,7 @@ typedef struct PortState {
     int resScale;            /* g_portResScales index: graphics.cfg resscale (Port_ResScale) */
     int resNearest;          /* 1: graphics.cfg resfilter=nearest (Port_ResScaleNearest) */
     f32 resScaleOverride;    /* --res-scale, HWVX_RESSCALE (main_sdl.c; 0: graphics.cfg decides) */
+    int prompts;             /* PORT_PROMPTS_*: graphics.cfg "prompts=" (Port_PromptStyle, pad.c) */
     int launcher;            /* --launcher (or run as hwvx-launcher): open the launcher */
     volatile int quit;
     SDL_Window *window;

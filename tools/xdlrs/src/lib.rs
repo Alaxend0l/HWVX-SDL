@@ -39,6 +39,7 @@ pub mod modcheck;
 pub mod ops;
 pub mod pack;
 pub mod prompts;
+pub mod prompts_art;
 pub mod py;
 pub mod schema;
 pub mod tac;

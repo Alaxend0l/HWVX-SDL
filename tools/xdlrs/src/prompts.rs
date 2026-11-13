@@ -554,6 +554,28 @@ impl Pix {
         }
         s as f64 / (self.px.len() as f64)
     }
+    /// A perceptual hash the game's recognition uses (src/game/Port_Prompts.c Phash, the same
+    /// sums): 8 x 8 blocks, a bit each where the block's alpha, then its alpha-weighted luma, is
+    /// above the blocks' mean. Re-encoded copies (CMPR, DXT5, a mixed build's) stay a few bits off.
+    pub fn phash(&self) -> (u64, u64) {
+        let (bw, bh) = ((self.w / 8).max(1), (self.h / 8).max(1));
+        let mut a = [0u64; 64];
+        let mut l = [0u64; 64];
+        for y in 0..self.h.min(bh * 8) {
+            for x in 0..self.w.min(bw * 8) {
+                let p = &self.px[(y * self.w + x) * 4..][..4];
+                let k = (y / bh) * 8 + x / bw;
+                let al = p[3] as u64;
+                a[k] += al;
+                l[k] += (299 * p[0] as u64 + 587 * p[1] as u64 + 114 * p[2] as u64) * al / 255000;
+            }
+        }
+        let bits = |v: &[u64; 64]| {
+            let sum: u64 = v.iter().sum();
+            v.iter().enumerate().fold(0u64, |h, (k, &x)| if x * 64 > sum { h | 1 << k } else { h })
+        };
+        (bits(&a), bits(&l))
+    }
     pub fn crop(&self, x: usize, y: usize, w: usize, h: usize) -> Pix {
         let mut px = Vec::with_capacity(w * h * 4);
         for r in y..(y + h).min(self.h) {
@@ -720,8 +742,8 @@ pub fn inventory(opt: &Options) -> R<String> {
     }
     // the hash table
     writeln!(out, "## Textures (decoded level 0; hash of w, h, RGBA)\n").unwrap();
-    writeln!(out, "| class | distance | hash | release | format | size | copies |").unwrap();
-    writeln!(out, "|---|---|---|---|---|---|---|").unwrap();
+    writeln!(out, "| class | distance | hash | phash | release | format | size | copies |").unwrap();
+    writeln!(out, "|---|---|---|---|---|---|---|---|").unwrap();
     let mut groups: BTreeMap<(String, u64), Vec<&TexKey>> = BTreeMap::new();
     for ((rel, k), (hh, ..)) in &info {
         if class.contains_key(hh) {
@@ -734,7 +756,31 @@ pub fn inventory(opt: &Options) -> R<String> {
         let p = &pix[hh];
         let (c, d) = &class[hh];
         let ks: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
-        writeln!(out, "| {c} | {d:.1} | `{hh:016x}` | {rel} | {} | {}x{} | {} |", p.fmt, p.w, p.h, ks.join(", ")).unwrap();
+        let (pa, pl) = p.phash();
+        writeln!(out, "| {c} | {d:.1} | `{hh:016x}` | `{pa:016x}:{pl:016x}` | {rel} | {} | {}x{} | {} |", p.fmt, p.w, p.h, ks.join(", "))
+            .unwrap();
+    }
+    // the phash's margin: per class, the nearest texture of the same size outside it
+    writeln!(out, "\n### Perceptual hash margin (bits apart, of 128)\n").unwrap();
+    let mut margin: BTreeMap<String, (u32, u32)> = BTreeMap::new(); // class -> (max inside, min outside)
+    for (&hh, (c, _)) in &class {
+        let (pa, pl) = pix[&hh].phash();
+        let e = margin.entry(c.clone()).or_insert((0, u32::MAX));
+        for (&oh, op) in &pix {
+            if op.w != pix[&hh].w || op.h != pix[&hh].h {
+                continue;
+            }
+            let (qa, ql) = op.phash();
+            let d = (pa ^ qa).count_ones() + (pl ^ ql).count_ones();
+            if class.get(&oh).is_some_and(|o| &o.0 == c) {
+                e.0 = e.0.max(d);
+            } else {
+                e.1 = e.1.min(d);
+            }
+        }
+    }
+    for (c, (i, o)) in &margin {
+        writeln!(out, "- {c}: copies within {i}, nearest other texture {o}").unwrap();
     }
     // uses, grouped: an interface whose rows (and texts) are the same in several packs once
     let mut cells: BTreeMap<u64, BTreeSet<(i64, i64, i64, i64)>> = BTreeMap::new();

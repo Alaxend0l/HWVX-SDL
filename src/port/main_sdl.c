@@ -169,9 +169,12 @@ static void ParseArgs(int argc, char **argv) {
             g_port.resScaleOverride = ParseResScale(argv[++i]);
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && Port_RendererByName(argv[i + 1]) >= 0) {
             s_rendererOverride = Port_RendererByName(argv[++i]);
+        } else if (SDL_strcmp(argv[i], "--prompts") == 0 && i + 1 < argc && Port_PromptsByName(argv[i + 1]) >= 0) {
+            Port_PromptsOverride(Port_PromptsByName(argv[++i]));
         } else {
             SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen|--windowed]", argv[0]);
-            SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save] [--launcher]");
+            SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--prompts NAME] [--reset-save]");
+            SDL_Log("              [--launcher]");
             SDL_Log("              [--gc-air-camera] [--pc-pan] [--res-scale N]");
             SDL_Log("  --data PATH      a GameCube disc image (.iso) or the extracted disc files");
             SDL_Log("                   (default: the one chosen last time, or an .iso or files/");
@@ -186,6 +189,9 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("                   graphics.cfg renderer=, the launcher's Settings: Renderer, else auto:");
             SDL_Log("                   %s; also HWVX_RENDERER=NAME; one that fails to start", Port_RendererName(Port_RendererDefault()));
             SDL_Log("                   falls back to auto, then to opengl)");
+            SDL_Log("  --prompts NAME   button prompts for this run: auto (the device last pressed),");
+            SDL_Log("                   original (the release's), xbox, ps, switch or keyboard (default:");
+            SDL_Log("                   graphics.cfg prompts=, the launcher's Controls; also HWVX_PROMPTS=NAME)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
             SDL_Log("  --gc-air-camera  the GameCube/PS2 orbit camera: a trigger's orbit around");
             SDL_Log("                   an object hands back to the car when it is tipped over");

@@ -245,6 +245,8 @@ const char *Port_ProtoName(const char *fileName);
  * and a race with a prototype car went past 0x1FF: every texture after the
  * last slot landed in that one). */
 #define PORT_MAX_TEXTURES 0x7FF
+/* Past them, the port's button prompt atlases (game/Port_Prompts.c): texture objects only. */
+#define PORT_PROMPT_TEXTURES 16
 /* The PC release's texture formats (pack header u16 0) as Texture.format
  * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
  * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,
@@ -311,6 +313,33 @@ enum { PORT_MOUSE_LEFT = 1, PORT_MOUSE_RIGHT = 2 };
 int Port_MouseSteerOn(void);
 void Port_MouseSteerWant(int racing);
 u32 Port_MouseSteerRead(f32 *dx, f32 *dy);
+/* Button prompts (pad.c; game/Port_Prompts.c draws them). The setting: graphics.cfg
+ * "prompts=" (g_port.prompts, the launcher's Controls), --prompts NAME and HWVX_PROMPTS=NAME
+ * win for one run; names auto, original, xbox, ps, switch, keyboard. Auto follows the device
+ * last pressed on the port (port 1: the keyboard or the first pad). */
+enum { PORT_PROMPTS_AUTO, PORT_PROMPTS_ORIGINAL, PORT_PROMPTS_XBOX, PORT_PROMPTS_PS, PORT_PROMPTS_SWITCH,
+       PORT_PROMPTS_KEYBOARD, PORT_PROMPTS_COUNT };
+/* The glyphs of assets/prompts/prompts.bin, in its order (tools/xdlrs prompts_art.rs GLYPHS). */
+enum { PORT_GLYPH_XBOX_A, PORT_GLYPH_XBOX_B, PORT_GLYPH_XBOX_X, PORT_GLYPH_XBOX_Y, PORT_GLYPH_PS_CROSS,
+       PORT_GLYPH_PS_CIRCLE, PORT_GLYPH_PS_SQUARE, PORT_GLYPH_PS_TRIANGLE, PORT_GLYPH_SWITCH_A,
+       PORT_GLYPH_SWITCH_B, PORT_GLYPH_SWITCH_X, PORT_GLYPH_SWITCH_Y, PORT_GLYPH_KEY_ENTER,
+       PORT_GLYPH_KEY_ESCAPE, PORT_GLYPH_KEY_X, PORT_GLYPH_COUNT };
+int Port_PromptsByName(const char *name);       /* PORT_PROMPTS_*, -1: not one */
+const char *Port_PromptsName(int prompts);
+void Port_PromptsOverride(int prompts);         /* --prompts NAME (main_sdl.c) */
+/* The style for an interface read by `port` (0-3; -1 any: the device last pressed anywhere),
+ * never AUTO, and unless ORIGINAL the glyphs (PORT_GLYPH_*) of confirm, back and details: the
+ * device's labels of the buttons pad.c reads as A, B and X (SOUTH, EAST, WEST), Enter, Escape, X. */
+int Port_PromptStyle(int port, int glyphs[3]);
+/* game/Port_Prompts.c: a loaded texture slot, noted if it is a button atlas, forgotten when
+ * unloaded; the texture to draw in place of `tex` (the prompts' own when it is an atlas and
+ * the style is not Original), for the interface being drawn (Port_PromptsInterface: its
+ * Interface.input, returning the previous port for Port_PromptsRestore). */
+void Port_PromptsNote(u16 id);
+void Port_PromptsForget(u16 id);
+u16 Port_PromptTexture(u16 tex);
+int Port_PromptsInterface(s32 input);
+void Port_PromptsRestore(int old);
 /* port.c: a repeatable run (HWVX_DETERMINISTIC, HWVX_SEED, HWVX_FIXEDSTEP):
  * the random seed to use (fallback when none is set), and the fixed frame
  * step in microseconds (0: measured time). */
