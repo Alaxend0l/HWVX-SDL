@@ -1,4 +1,4 @@
-| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu, in sub-tabs (left/right on a row switches them; the last one shown is remembered): Display (windowed or fullscreen, PC textures `pctextures=`, draw distance `drawdist=`, split-screen detail `splitlod=`), Audio (stereo: `stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one; movies `movies=`), Controls (mouse steering `mousesteer=`), Game (main menu `mainmenu=`);# HWVX-SDL
+# HWVX-SDL
 Turning the GC Decompilation of HWVX into a portable codebase for modding and porting!
 
 The game code comes from the [HWVX-GC-Decomp](HWVX-GC-Decomp) submodule. The
@@ -41,7 +41,7 @@ bottom:
 | Saves | **Import saves...** and its preview (below) |
 | Convert | converting to `.xdl`: coming later |
 | Mods | coming later |
-| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu: display (windowed or fullscreen), renderer (`renderer=`: Auto, the default, or one this machine can start: OpenGL, Vulkan, Metal, Direct3D 12), PC textures (`pctextures=`), main menu (`mainmenu=`), split-screen detail (`splitlod=`), movies (`movies=`), mouse steering (`mousesteer=`), draw distance (`drawdist=`), stereo (`stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one); each change is saved at once, and an environment variable that overrides one is named under it. `--renderer NAME` or `HWVX_RENDERER=NAME` picks a renderer for one run without saving it |
+| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu, in sub-tabs (left/right on a row switches them; the last one shown is remembered): Display (windowed or fullscreen, PC textures `pctextures=`, draw distance `drawdist=`, split-screen detail `splitlod=`), Audio (stereo: `stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one; movies `movies=`), Controls (mouse steering `mousesteer=`), Game (main menu `mainmenu=`);
 
 The launcher opens every time the game starts, unless you tick
 "Start the game without this window"; then the game boots straight into the
