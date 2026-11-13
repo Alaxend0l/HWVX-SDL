@@ -51,11 +51,11 @@ mkdir -p "$ed/bin"
 cargo_lipo "$root/tools/browser/Cargo.toml" hwvx-browser "$ed/bin/hwvx-browser"
 if [ -n "${HWVX_X:-}" ]; then
     cp "$HWVX_X" "$ed/bin/hwvx-x"
-elif grep -q '^name = "hwvx-xfile"' "$root/../Cargo.toml" 2>/dev/null; then
-    cargo_lipo "$root/../Cargo.toml" hwvx-x "$ed/bin/hwvx-x"
 else
-    echo "no hwvx-x: set HWVX_X, or build inside the superproject" >&2
-    exit 1
+    sup=$root
+    while [ "$sup" != / ] && ! grep -q '^name = "hwvx-xfile"' "$sup/Cargo.toml" 2>/dev/null; do sup=$(dirname "$sup"); done
+    [ "$sup" != / ] || { echo "no hwvx-x: set HWVX_X, or build inside the superproject" >&2; exit 1; }
+    cargo_lipo "$sup/Cargo.toml" hwvx-x "$ed/bin/hwvx-x"
 fi
 
 app="$ed/HWVX Editor.app"
