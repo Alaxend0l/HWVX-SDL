@@ -320,6 +320,35 @@ static void *XdlBlock(XdlPack *xp, int seg) {
     return block;
 }
 
+/* port: packs are shared content (a mod's, a mixed build's, the
+ * prototype's), so their headers are untrusted. How many of the header's
+ * `numSounds` sound descriptors (0x20 bytes each, from `sfxOffset` in the
+ * sound data) lie inside the sound data: the loader reads that many, the
+ * rest of the pack's sound ids stay 0 (no sound), as they are for a pack
+ * with no sound data. Every retail pack's descriptors fit (GameCube, PC,
+ * PS2 and the prototype's: none is cut). */
+static u32 FitSounds(const DataPackFileHeader *h) {
+    u32 room;
+
+    if (h->soundDataSize == 0 || h->sfxOffset > h->soundDataSize) {
+        return 0;
+    }
+    room = (h->soundDataSize - h->sfxOffset) / sizeof(SFX);
+    return h->numSounds < room ? h->numSounds : room;
+}
+
+/* port: the header's counts and sizes, summed in 64 bits: a pack whose
+ * block (or sound data) would pass 2 GB is damaged, never allocated with a
+ * wrapped-around size. */
+static int SaneSizes(const DataPackFileHeader *h) {
+    u64 size = (u64)h->numRelocs * 8 + ((u64)h->numSounds + h->numTextures) * 2 + (u64)h->numShaders * 2 +
+               (u64)h->numGX * 8 + (u64)h->numSoundRelocs * 8 + h->dataSize + 0x60 + (u64)h->numTexRelocs * 8 +
+               (u64)h->numPointers * 4;
+    u64 sound = (u64)h->numSoundPointers * 4 + 0x20 + h->soundDataSize + 0x60;
+
+    return size < 0x80000000u && sound < 0x80000000u;
+}
+
 void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     extern s8 g_bSoundLoadingEnabled;
     static DataPackFileHeader header;
@@ -347,6 +376,7 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     void *xdlSfx = NULL;
     s32 proto;
     int modSounds;
+    u32 numFit;
 
     u32 packType = s_xdlType;   /* port: this pack's (a pack it refers to may load below) */
 
@@ -393,6 +423,9 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     if (proto) {
         Port_ProtoRefs(pack->refs);   /* port: the packs it refers to are the prototype's too */
     }
+    if (!SaneSizes(&header)) {
+        Port_Fatal("a data pack (type %u, id %u) has a damaged header: its sizes pass 2 GB", packType, s_xdlId);
+    }
     size = header.numRelocs * 8 + (pack->numSounds + pack->numTextures) * 2 + pack->numShaders * 2 + header.numGX * 8 + header.numSoundRelocs * 8 + header.dataSize + 0x60;
     relocSize = header.numTexRelocs * 8 + header.numPointers * 4;
     size += relocSize;
@@ -407,6 +440,13 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     }
     SETP(pack->soundIDs, (u16 *)alloc);
     soundIDsSize = pack->numSounds * 2;
+    numFit = FitSounds(&header);
+    if (numFit != pack->numSounds) {
+        /* port: the ones past the sound data (or all, with none) play nothing */
+        memset(alloc, 0, soundIDsSize);
+        Port_Log("pack (type %u, id %u): %u of its %u sound descriptors lie outside its %u bytes of sound data, not loaded",
+                 packType, s_xdlId, pack->numSounds - numFit, pack->numSounds, header.soundDataSize);
+    }
     if (header.soundDataSize != 0) {
         freeData = 0;
         pad = (header.numSoundPointers * 4) & 0x1F;
@@ -498,16 +538,16 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         sfx = GETP(pack->sfxData);
         if (xp == NULL) {
             /* port: a mixed build's samples from another release (Port_Mix.c) */
-            PortMix_SFXPrepare(fmt, sfx, pack->numSounds);
-            Port_ModsSFX(fmt, sfx, pack->numSounds);   /* port: a mod's own sounds (Port_Mods.c) */
-            PortData_SFX(fmt, sfx, pack->numSounds);  /* port */
-            PortMix_SFX(fmt, sfx, pack->numSounds);
+            PortMix_SFXPrepare(fmt, sfx, numFit);
+            Port_ModsSFX(fmt, sfx, numFit);   /* port: a mod's own sounds (Port_Mods.c) */
+            PortData_SFX(fmt, sfx, numFit);  /* port */
+            PortMix_SFX(fmt, sfx, numFit);
             Xdl_Sound(data, (readSize + 0x1F) & ~0x1F, (u32 *)data, header.numSoundPointers, GETP(pack->soundBase),
                       GETP(pack->songBank));
         } else {
             xdlSfx = XdlBlock(xp, XDL_SEG_SFX);   /* port: the PS2's decoded samples */
         }
-        for (i = 0; i < pack->numSounds; i++) {
+        for (i = 0; i < numFit; i++) {
             if (g_bSoundLoadingEnabled) {
                 GETP(pack->soundIDs)[i] = CreateSFX(sfx);
             } else {
