@@ -38,6 +38,7 @@ pub mod level_share;
 pub mod modcheck;
 pub mod ops;
 pub mod pack;
+pub mod prompts;
 pub mod py;
 pub mod schema;
 pub mod tac;
