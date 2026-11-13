@@ -147,7 +147,8 @@ impl TestDrive {
             cmd.arg("--data").arg(d);
         }
         if let Some(r) = &o.renderer {
-            cmd.env("HWVX_RENDERER", r);
+            // the game takes it as --renderer (it reads no HWVX_RENDERER)
+            cmd.arg("--renderer").arg(r);
         }
         cmd.env("HWVX_PREF_DIR", &pref)
             .env("HWVX_MODS_DIR", &p.mods)
