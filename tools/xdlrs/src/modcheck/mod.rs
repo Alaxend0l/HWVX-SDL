@@ -115,6 +115,12 @@ fn asset(src: &str) -> Option<String> {
     if src.contains(": base://") { src.split_once(": ").map(|x| x.1.to_string()) } else { None }
 }
 
+/// Port_Mods.c's SafeName (no '\', ':', leading '/', empty name or '..' part) and its ZipEntry
+/// name (under 256 bytes): a package entry the installer takes
+pub fn installer_name_ok(rel: &str) -> bool {
+    !rel.is_empty() && !rel.starts_with('/') && !rel.contains(['\\', ':']) && !rel.split('/').any(|p| p == "..") && rel.len() < 256
+}
+
 fn py_opt(s: &Option<String>) -> String {
     s.clone().unwrap_or_else(|| "None".into())
 }
@@ -511,6 +517,11 @@ fn check_mod(folder: &Path, index: &Index, strip: bool, root: &Path) -> Result<(
         let rel = parts.join("/");
         if parts.iter().any(|x| x.starts_with('.')) {
             rep.notes.push(format!("{rel}: hidden, left out"));
+            continue;
+        }
+        // the installer's SafeName (Port_Mods.c) and its 255-byte names: a package it would refuse
+        if !installer_name_ok(&rel) {
+            rep.refuse(&rel, "a name the game's installer refuses ('\\', ':', a '..' part, or 256 bytes or longer); rename it", None);
             continue;
         }
         if std::fs::symlink_metadata(&p).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
