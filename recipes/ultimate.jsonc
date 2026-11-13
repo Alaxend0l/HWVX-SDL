@@ -20,6 +20,11 @@
   // built-in recipe.
   "interface": "gc",
 
+  // The title's press-start line: a mixed game is played with a pad or the
+  // keyboard. Every "Press START" text of the title screens reads this (the
+  // title font draws it in capitals); leave it out for the release's own.
+  "press_start": "Press START/ENTER",
+
   // Releases the build may take from, best first. One you have not imported
   // is skipped; with only one left the build is that release unchanged.
   "releases": ["gc", "ps2", "pc"],

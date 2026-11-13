@@ -24,6 +24,7 @@ typedef struct MixRules {
 static struct {
     int on, building, lookGC;
     int iface;                      /* the interface art's set: PORT_DATA_GC (yellow) or PORT_DATA_PS2 (silver) */
+    char pressStart[48];            /* recipe "press_start": the title's press-start line, "" as the release has it */
     char name[64];
     char cacheName[80];
     u32 stamp;
@@ -56,6 +57,10 @@ int Port_MixLookGC(void) {
 
 int Port_MixInterface(void) {
     return s_mix.iface;
+}
+
+const char *Port_MixPressStart(void) {
+    return s_mix.on && s_mix.pressStart[0] ? s_mix.pressStart : NULL;
 }
 
 int Port_MixProtoReplace(void) {
@@ -392,6 +397,7 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
         }
     }
     s_mix.lookGC = SDL_strcasecmp(Json_GetString(root, "look", "gc"), "pc") != 0;
+    SDL_strlcpy(s_mix.pressStart, Json_GetString(root, "press_start", ""), sizeof(s_mix.pressStart));
     {
         /* the interface art's set; the built-in recipe's is the launcher's choice (sources.cfg "interface=") */
         char *chosen = builtIn ? SourceLine("interface") : NULL;
