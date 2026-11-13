@@ -1033,6 +1033,9 @@ fn main() -> ExitCode {
     if argv.first().map(String::as_str) == Some("audio") {
         return audio_main(&argv[1..]);
     }
+    if argv.first().map(String::as_str) == Some("fonts") {
+        return fonts_main(&argv[1..]);
+    }
     if argv.first().map(String::as_str) == Some("cars") {
         return cars_main(&argv[1..]);
     }
@@ -1244,6 +1247,33 @@ fn mix_pair(left: &str, right: &str, out: &str, half: bool) -> std::result::Resu
     let mut wr = enc.write_header().map_err(|e| format!("{out}: {e}"))?;
     wr.write_image_data(&pix).map_err(|e| format!("{out}: {e}"))?;
     Ok(())
+}
+
+/// `xdlrs fonts list [--gc DIR] [--pc DIR] [--ps2 DIR] [--dump DIR] [--report FILE.json] [--threshold D]`
+/// (xdlrs::fonts): every font page of the releases' archives.
+fn fonts_main(argv: &[String]) -> ExitCode {
+    let a = parse_args(argv);
+    if a.pos.first().map(String::as_str) != Some("list") {
+        eprintln!("usage: xdlrs fonts list [--gc DIR] [--pc DIR] [--ps2 DIR] [--dump DIR] [--report FILE.json] [--threshold 12]");
+        return ExitCode::from(2);
+    }
+    let dirs: Vec<(String, PathBuf)> =
+        ["gc", "pc", "ps2"].iter().filter_map(|r| a.opts.get(*r).map(|d| (r.to_string(), PathBuf::from(d)))).collect();
+    if dirs.is_empty() {
+        eprintln!("fonts list: give at least one of --gc, --pc, --ps2");
+        return ExitCode::from(2);
+    }
+    let th = a.opts.get("threshold").and_then(|t| t.parse().ok()).unwrap_or(12.0);
+    match xdlrs::fonts::list(&dirs, a.opts.get("dump").map(Path::new), a.opts.get("report").map(Path::new), th) {
+        Ok(s) => {
+            print!("{s}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 /// `xdlrs audio level DUMP [--window S] [--from S]` (xdlrs::audiolevel).
