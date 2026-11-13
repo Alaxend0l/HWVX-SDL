@@ -279,16 +279,16 @@ Conventions:
   original rather than fixing them, and mark deliberate deviations with
   `port:` (e.g. a value the original read from an uninitialised register).
 - After changing signatures, regenerate `game_protos.h`
-  (`tools/gen_protos.py`).
-- After giving a pointer field a struct type, run `tools/check_ptr_offsets.py`:
+  (`hwvx-decomp gen-protos`).
+- After giving a pointer field a struct type, run `hwvx-decomp check-ptr-offsets`:
   leftover `GETP(x->field) + 0x24` byte offsets would now step whole structs
   (this caused an integer division by zero, SIGFPE on x86 Linux, that ARM64
   silently ignores; `-fsanitize=integer-divide-by-zero` catches those on a Mac).
-- `tools/offsets_to_fields.py` rewrites a function's byte offsets into field
+- `hwvx-decomp offsets-to-fields` rewrites a function's byte offsets into field
   accesses from the layouts clang computes (`-Xclang -fdump-record-layouts`);
   read its diff, since it trusts the variable types it is given.
 
-Status: every game file uses structs. `tools/check_ptr_offsets.py --bytes`
+Status: every game file uses structs. `hwvx-decomp check-ptr-offsets --bytes`
 lists the byte offsets still used as struct accesses; it reports only
 `data_gen.c` (generated tables) and `Port_Swap.c` (which walks raw big-endian
 pack data on purpose). Some globals are still declared as byte arrays in
@@ -302,7 +302,7 @@ rest of `common.h`. Before writing a local `typedef struct` view of an
 object, check whether one of them already has it.
 
 Restructured functions no longer match the decomp text, so
-`import_decomp.py --merge` will conflict on them; resolve those by hand.
+`hwvx-decomp import --merge` will conflict on them; resolve those by hand.
 
 ### Big-endian data
 
@@ -384,8 +384,8 @@ A selectable row (Difficulty, Sound Mode, Music, SFX, ...):
   value object (24: `role = 9`, `type = 1`) - anim (in the port's `AnimCopy`,
   with the position key raised to the new row height), `stateIndex`,
   `states`, `anchor`/`anchorX`/`anchorY` - or the text lands in the wrong
-  place and colour. The pack's own shapes (dumped with `tools/xgc_inspect.py`
-  over the blob): 24 role 9 text, active 0, 2 states (type 0 and 1),
+  place and colour. The pack's own shapes (dumped over the blob with
+  `tools/xgc_inspect.py`, since removed; git history keeps it): 24 role 9 text, active 0, 2 states (type 0 and 1),
   `anchorX = 1`; 28 role 103 image, 1 state, a 2-key scale track whose first
   key is `(0.0, 16.0)` - the bar starts at width 0 and the engine stretches
   it by the volume - `anchorX = -1`; 32 role 102 image, 2 states (type 0 and
@@ -396,9 +396,9 @@ A selectable row (Difficulty, Sound Mode, Music, SFX, ...):
 
 Pack offsets, if the tables need re-deriving: menu pack `HW_IPack.xgc` entry 5,
 main menu header at blob `0x6ECC60` (26 objects), Options header at blob
-`0x85BB40` (40 objects, vars at `0x85DE20`); find them again with
-`tools/xgc_inspect.py` by searching for a header with 40/26 objects whose
-object 16/10's text is "Controller"/"Main Menu".
+`0x85BB40` (40 objects, vars at `0x85DE20`); find them again by searching for a
+header with 40/26 objects whose object 16/10's text is "Controller"/"Main Menu"
+(`tools/xgc_inspect.py` did that search; it was removed, git history keeps it).
 
 The Gamma and FOV rows keep the volume look instead: `AddBarRow` copies the pack's
 Music row (objects 27-30) to objects 40-47 of the Graphics screen, with its bar.
@@ -487,7 +487,8 @@ Tunnel Host runs the player's own `cloudflared` (next to the game, or installed:
 shipped, and can't run on Android or inside the Flatpak; those can still join) and shows a
 join code, `name-of-the-tunnel/CODE`; the room code is there because a tunnel's address is
 public. Clients reach it by `wss://`, with mbedTLS (a pinned release, `CMakeLists.txt`) and
-the public roots in `src/port/net_roots.h` (`tools/gen_net_roots.py`) as well as any the system
+the public roots in `src/port/net_roots.h` (refresh them by hand when one nears expiry; the
+old generator `tools/gen_net_roots.py` was removed, git history keeps it) as well as any the system
 has. Measured limits of a quick tunnel, which
 the constants in `net.c` and `tunnel.c` follow: a connection silent for about 125 s is closed, and
 a new tunnel's name can fail to resolve for over 80 s if looked up in its first few
@@ -510,36 +511,44 @@ runs one game as host (`HWVX_ONLINE_TEST`, see `Port_Online.c`) and 7 `netbot` c
 machines, run `nettest host PORT ROOM PEERS SECONDS` and `nettest client ADDRESS ROOM
 COUNT SECONDS` (see `tools/nettest.c`).
 
-`tools/net_hostile.py` attacks a host with protocol violations, and
-`tools/net_tunnel_check.py` talks to one through a real tunnel; run the first
-against a sanitizer build. Test optimized builds as well: a masking loop once passed
+`tools/net_hostile.py` checked that a host (run under sanitizers) closes or refuses each protocol
+violation and still serves a normal client afterwards, and `tools/net_tunnel_check.py` talked to a
+host through a real tunnel; both were removed (git history keeps them). Test optimized builds as well: a masking loop once passed
 at `-O0` and failed at `-O2`.
 
 ## Tools
 
+The decomp tools are one Rust program, `hwvx-decomp` (`tools/decomp`; build it with
+`cargo build --release --manifest-path tools/decomp/Cargo.toml`, it lands in
+`tools/decomp/target/release/`; `hwvx-decomp` with no arguments lists the commands).
 Run in this order on freshly imported sources (each is idempotent):
 
-1. `tools/import_decomp.py`: copy game files from the submodule, apply
+1. `hwvx-decomp import`: copy game files from the submodule, apply
    CodeWarrior → GCC syntax fixes. Won't overwrite existing files without
    `--force`.
-2. `tools/strip_sdk_decls.py src/game/*.c src/game/include/*.h`: drop the
+2. `hwvx-decomp strip-sdk-decls src/game/*.c src/game/include/*.h`: drop the
    game's ad-hoc SDK/libc prototypes in favour of `sdk.h`.
-3. `tools/gen_protos.py --strip`: generate `game_protos.h` from function
+3. `hwvx-decomp gen-protos --strip`: generate `game_protos.h` from function
    definitions and drop local re-declarations.
-4. `tools/slotify.py src/game/*.c`: rewrite raw pointer-slot accesses to
+4. `hwvx-decomp slotify src/game/*.c`: rewrite raw pointer-slot accesses to
    `SLOT_LOAD`/`SLOT_STORE`.
-5. `tools/fix_casts.py BUILD_DIR`: wrap pointer↔integer conversions reported
-   by GCC in `PTR`/`HND` (see the script for the SARIF build setup).
-6. `tools/fieldify.py src/game/*.c src/game/include/*.h`: pointer fields →
+5. `hwvx-decomp fix-casts BUILD_DIR`: wrap pointer↔integer conversions reported
+   by GCC in `PTR`/`HND` (configure a build dir with
+   `-DCMAKE_C_FLAGS=-fdiagnostics-add-output=sarif`, `ninja -k 0` it, repeat until 0 edits).
+6. `hwvx-decomp fieldify src/game/*.c src/game/include/*.h`: pointer fields →
    `PTR32`, accesses → `GETP`/`SETP`; then repeat
-   `ninja -C build -k 0 > build.log 2>&1; tools/fieldify.py --revert build.log`
+   `ninja -C build -k 0 > build.log 2>&1; hwvx-decomp fieldify --revert build.log`
    until it reverts nothing (undoes same-named non-pointer fields).
-7. `tools/view_externs.py build.log`: where functions in one file declare
+7. `hwvx-decomp view-externs build.log`: where functions in one file declare
    the same global with different types (CodeWarrior allowed it, GCC
    doesn't), keep each function's type as a function-local view macro.
-8. `tools/gen_data.py NAME...`: C definitions for globals that exist only in
+8. `hwvx-decomp gen-data`: C definitions for globals that exist only in
    the decomp's split data sections (needs the decomp built, for
-   `build/HOTWHE/asm`). Pointer entries become handles at startup.
+   `build/HOTWHE/asm`). Pointer entries become handles at startup. With no
+   arguments it regenerates `src/game/data_gen.c` for the names in
+   `tools/gen_data_names.txt` (add a name when the link fails) with the port's
+   `--raw`/`--hostptr`/`--bytes`/`--u16` choices; see `tools/decomp/src/gen_data.rs`
+   for running it on other names.
 
 Debugging aids:
 
@@ -768,27 +777,27 @@ glslang and SPIRV-Cross build from the Khronos sources with CMake, and DXC
 has prebuilt Linux releases (keep its `lib/` next to `bin/`: `libdxil.so`
 signs the DXIL, which Direct3D 12 requires).
 
-`tools/xgc_inspect.py FILE.xgc [--dump OFFSET N]` shows a data pack's TOC,
-header, root objects and which words are pointers; use it when writing swap
-walkers in `src/game/Port_Swap.c`.
+`tools/xgc_inspect.py` (a data pack's TOC, header, root objects and which words are
+pointers, for writing swap walkers in `src/game/Port_Swap.c`) was removed; git history
+keeps it.
 
-`tools/asm_args.py NAME...` reports which argument registers a function reads
+`hwvx-decomp asm-args NAME...` reports which argument registers a function reads
 in the original, and which it passes straight on to a call; use it to settle
 call sites that disagree with a definition.
 
-`gen_protos.py` also declares functions whose signatures use a type local to
+`hwvx-decomp gen-protos` also declares functions whose signatures use a type local to
 their own file, with those pointers as `void *`; the declaration is hidden from
 that file and from files that declare the function with their own copy of the
 type (CMake defines `HWVX_SRC_<file>` for each game source).
 
 ### Updating from the decomp
 
-`tools/import_decomp.py --merge` three-way merges the decomp's changes since
+`hwvx-decomp import --merge` three-way merges the decomp's changes since
 `src/game/DECOMP_REVISION` into the patched files (base: old decomp file,
 ours: `src/game`, theirs: new decomp file). New code arrives unrewritten;
-resolve any conflicts, then rerun steps 2–7 (all idempotent). Run `fieldify.py`
+resolve any conflicts, then rerun steps 2–7 (all idempotent). Run `hwvx-decomp fieldify`
 with `--only <merged files>` so files the merge didn't touch keep their hand
-fixes (the script prints the command).
+fixes (the import prints the command).
 
 ## Status
 
