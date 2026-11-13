@@ -85,16 +85,11 @@ static struct {
     u32 sfxFrom[PORT_MIX_RELS], sfxKept, sfxRejected;
 } s_stats;
 
-/* Textures of share packs that other packs' interfaces show (the car packs'
- * HUDs draw HW_Cars share_2's gauges): found by the builder's first pass,
- * which loads every pack and only looks (s_collect), since a share pack is
- * mixed before the packs that refer to it load. */
-typedef struct UiRef {
-    char archive[0x10];
-    u32 id;
-    u16 index;
-    u8 what;    /* PORT_IFACE_ART or _FONT */
-} UiRef;
+/* Textures of share packs that other packs' interfaces show (Port_Mix.h):
+ * found by the builder's first pass, which loads every pack and only looks
+ * (s_collect), or read from the cache's list before a mixed game's first
+ * pack (Port_MixUiRefsLoad, PortMix_AddUiRef). */
+typedef PortMixUiRef UiRef;
 
 static UiRef *s_uiRefs;
 static u32 s_numUiRefs, s_capUiRefs;
@@ -132,14 +127,19 @@ static void NoteUiRef(void *user, u32 packId, u32 index, u8 what) {
     DataPack *pack = ((OtherCtx *)user)->pack;
     const DataPackRef *ref = pack->refs[0].id == packId ? &pack->refs[0] : pack->refs[1].id == packId ? &pack->refs[1] : NULL;
     char name[0x10];
-    UiRef *r;
 
     if (ref == NULL) {
         return;
     }
     memcpy(name, ref->name, 0xC);
     name[0xC] = 0;
-    if ((r = FindUiRef(StemOf(name), packId, index, what == PORT_IFACE_GEOM)) != NULL) {
+    PortMix_AddUiRef(StemOf(name), packId, index, what);
+}
+
+void PortMix_AddUiRef(const char *archive, u32 id, u32 index, u8 what) {
+    UiRef *r;
+
+    if ((r = FindUiRef(archive, id, index, what == PORT_IFACE_GEOM)) != NULL) {
         if (what == PORT_IFACE_ART) {
             r->what = what;     /* art wins over font, as in one pack */
         }
@@ -155,8 +155,8 @@ static void NoteUiRef(void *user, u32 packId, u32 index, u8 what) {
         s_capUiRefs = s_capUiRefs * 2 + 64;
     }
     r = &s_uiRefs[s_numUiRefs++];
-    snprintf(r->archive, sizeof(r->archive), "%s", StemOf(name));
-    r->id = packId;
+    snprintf(r->archive, sizeof(r->archive), "%s", archive);
+    r->id = id;
     r->index = (u16)index;
     r->what = what;
 }
@@ -947,6 +947,9 @@ static u32 HdrSig(const PortIfaceScan *s, u32 h) {
     const InterfaceHeader *hdr = (const InterfaceHeader *)(s->base + h);
     u32 objs = Port_IfaceTo(s, h + 0x10), sig = 2166136261u, i;
 
+    if (objs == ~0u || hdr->numObjects > 0x10000 || !InBlobOf(s, objs, hdr->numObjects * 0x6C)) {
+        return 0;   /* objects outside the blob: no shape (pairs only with another such) */
+    }
     for (i = 0; i <= hdr->numObjects; i++) {
         u32 v = i < hdr->numObjects ? s->base[objs + i * 0x6C + 1] : 0x100 + hdr->numObjects;
 
@@ -1136,7 +1139,8 @@ static u32 PairObjects(IfaceSide *b, u32 hb, IfaceSide *p, u32 hp) {
     u16 *t;
     u32 sb[200], sp[200];
 
-    if (ob == ~0u || op == ~0u || nb > 200 || np > 200 || (t = calloc((size_t)(nb + 1) * W, 2)) == NULL) {
+    if (ob == ~0u || op == ~0u || nb > 200 || np > 200 || !InBlobOf(&b->scan, ob, nb * 0x6C) ||
+        !InBlobOf(&p->scan, op, np * 0x6C) || (t = calloc((size_t)(nb + 1) * W, 2)) == NULL) {
         return 0;
     }
     for (i = 0; i < nb; i++) {
@@ -1402,13 +1406,19 @@ static void MixIfaceColours(MixPack *mp, s32 fmt, u8 *base, u32 dataSize, const 
             }
             if (sb[i] == sp[j]) {
                 const InterfaceHeader *hb = (const InterfaceHeader *)(b.base + b.hdrs[i]);
+                const InterfaceHeader *hp = (const InterfaceHeader *)(p.base + p.hdrs[j]);
                 u32 ob = Port_IfaceTo(&b.scan, b.hdrs[i] + 0x10), op = Port_IfaceTo(&p.scan, p.hdrs[j] + 0x10), k;
+                /* an equal signature is a hash: the counts compared, both object arrays in their blobs */
+                int same = hb->numObjects == hp->numObjects && ob != ~0u && op != ~0u &&
+                           InBlobOf(&b.scan, ob, hb->numObjects * 0x6C) && InBlobOf(&p.scan, op, hp->numObjects * 0x6C);
 
-                for (k = 0; ob != ~0u && op != ~0u && k < hb->numObjects; k++) {
+                for (k = 0; same && k < hb->numObjects; k++) {
                     CopyObjectColours(&b, ob + k * 0x6C, &p, op + k * 0x6C);
                 }
-                ShowPS2Art(&b, b.hdrs[i], fmt);
-                pairs++;
+                if (same) {
+                    ShowPS2Art(&b, b.hdrs[i], fmt);
+                    pairs++;
+                }
                 i++;
                 j++;
             } else if (lcs[(i + 1) * W + j] >= lcs[i * W + j + 1]) {
@@ -2099,26 +2109,42 @@ static void BuildArchive(const char *name, void *user) {
     Port_Log("mix: [%u] %s: %u packs", (unsigned)b->archives, name, (unsigned)done);
 }
 
-u32 PortMix_BuildAll(u32 *failed) {
-    Build b;
+/* The first pass, nothing cached: what interfaces show of other packs. */
+static void CollectUiRefs(Build *b) {
     u32 i;
 
-    memset(&b, 0, sizeof(b));
-    DataPack_EnableLoadingSounds(0);    /* converted and cached, not created */
-    Port_MixArchives(CountArchive, &b);
-    /* first pass, nothing cached: what interfaces show of other packs */
-    b.total *= 2;
     s_collect = 1;
     Xdl_SetModes(0, 0);
-    Port_MixArchives(BuildArchive, &b);
+    Port_MixArchives(BuildArchive, b);
     s_collect = 0;
-    Xdl_SetModes(1, 1);
     Port_Log("mix: %u textures of share packs shown by other packs' interfaces", (unsigned)s_numUiRefs);
     for (i = 0; i < s_numUiRefs; i++) {
         Port_Log("mix:   %s share_%u texture %u (%s)", s_uiRefs[i].archive, (unsigned)s_uiRefs[i].id,
                  (unsigned)s_uiRefs[i].index, s_uiRefs[i].what == PORT_IFACE_FONT ? "font"
                  : s_uiRefs[i].what == PORT_IFACE_GEOM ? "geometry slot" : "art");
     }
+}
+
+int PortMix_ScanUi(void) {
+    Build b;
+
+    memset(&b, 0, sizeof(b));
+    DataPack_EnableLoadingSounds(0);
+    Port_MixArchives(CountArchive, &b);
+    CollectUiRefs(&b);
+    return Port_MixUiRefsSave(s_uiRefs, s_numUiRefs);
+}
+
+u32 PortMix_BuildAll(u32 *failed) {
+    Build b;
+
+    memset(&b, 0, sizeof(b));
+    DataPack_EnableLoadingSounds(0);    /* converted and cached, not created */
+    Port_MixArchives(CountArchive, &b);
+    b.total *= 2;
+    CollectUiRefs(&b);
+    Xdl_SetModes(1, 1);
+    Port_MixUiRefsSave(s_uiRefs, s_numUiRefs);     /* the build carries its list (a later --mix reads it) */
     b.archives = b.packs = b.failed = 0;
     memset(&s_stats, 0, sizeof(s_stats));
     memset(&s_colStats, 0, sizeof(s_colStats));

@@ -287,6 +287,26 @@ static char *SourceLine(const char *key) {
     return found;
 }
 
+int Port_MixInterfaceSetting(const char *value, int log) {
+    size_t n;
+
+    while (value != NULL && SDL_isspace((unsigned char)*value)) {
+        value++;
+    }
+    n = value != NULL ? SDL_strlen(value) : 0;
+    while (n > 0 && SDL_isspace((unsigned char)value[n - 1])) {
+        n--;
+    }
+    if (n == 3 && SDL_strncasecmp(value, "ps2", 3) == 0) {
+        return PORT_DATA_PS2;
+    }
+    if (log && !(n == 2 && SDL_strncasecmp(value, "gc", 2) == 0)) {
+        Port_Log("mix: sources.cfg interface=%.*s is neither gc nor ps2: the yellow (GameCube) set", (int)n,
+                 value != NULL ? value : "");
+    }
+    return PORT_DATA_GC;
+}
+
 static char *CacheFolder(const char *cacheName);
 
 static u32 Fnv(u32 h, const void *p, size_t n) {
@@ -401,9 +421,13 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
     {
         /* the interface art's set; the built-in recipe's is the launcher's choice (sources.cfg "interface=") */
         char *chosen = builtIn ? SourceLine("interface") : NULL;
-        const char *set = chosen != NULL ? chosen : Json_GetString(root, "interface", "gc");
+        const char *set = Json_GetString(root, "interface", "gc");
 
-        s_mix.iface = SDL_strcasecmp(set, "ps2") == 0 ? PORT_DATA_PS2 : SDL_strcasecmp(set, "gc") == 0 ? PORT_DATA_GC : -1;
+        if (chosen != NULL) {   /* the launcher's choice: read as the launcher reads it */
+            s_mix.iface = Port_MixInterfaceSetting(chosen, 1);
+        } else {
+            s_mix.iface = SDL_strcasecmp(set, "ps2") == 0 ? PORT_DATA_PS2 : SDL_strcasecmp(set, "gc") == 0 ? PORT_DATA_GC : -1;
+        }
         SDL_free(chosen);
         if (s_mix.iface < 0) {
             SDL_snprintf(err, errSize, "the recipe %s: \"interface\" is \"gc\" (yellow) or \"ps2\" (silver)", nameOrPath);
@@ -577,12 +601,16 @@ void Port_MixManifest(const char *id, int rel, u32 index, u64 hash) {
     Port_MixManifestUI(id, rel, index, hash, NULL);
 }
 
+/* HWVX_MIX_MANIFEST=1: a game played unbuilt writes the manifest of what it
+ * mixes too, <cache>/manifest-play.jsonl (appended), to check against a build's. */
 void Port_MixManifestUI(const char *id, int rel, u32 index, u64 hash, const char *ui) {
-    if (!s_mix.building || rel < 0 || rel >= PORT_DATA_COUNT) {
+    const char *play = SDL_getenv("HWVX_MIX_MANIFEST");
+
+    if ((!s_mix.building && (play == NULL || SDL_atoi(play) == 0)) || rel < 0 || rel >= PORT_DATA_COUNT) {
         return;
     }
     if (s_mix.manifest == NULL) {
-        char *path = CachePath("manifest.jsonl"), *slash;
+        char *path = CachePath(s_mix.building ? "manifest.jsonl" : "manifest-play.jsonl"), *slash;
 
         if (path == NULL) {
             return;
@@ -600,7 +628,7 @@ void Port_MixManifestUI(const char *id, int rel, u32 index, u64 hash, const char
         }
         SDL_CreateDirectory(path);
         *slash = '/';
-        s_mix.manifest = SDL_IOFromFile(path, "w");
+        s_mix.manifest = SDL_IOFromFile(path, s_mix.building ? "w" : "a");
         SDL_free(path);
         if (s_mix.manifest == NULL) {
             return;
@@ -609,6 +637,9 @@ void Port_MixManifestUI(const char *id, int rel, u32 index, u64 hash, const char
     SDL_IOprintf(s_mix.manifest, "{\"id\":\"%s\",\"from\":\"%s\",\"i\":%u,\"x\":\"%016llx\"%s%s%s}\n", id,
                  s_relKeys[rel], (unsigned)index, (unsigned long long)hash, ui != NULL ? ",\"ui\":\"" : "",
                  ui != NULL ? ui : "", ui != NULL ? "\"" : "");
+    if (!s_mix.building) {
+        SDL_FlushIO(s_mix.manifest);    /* a played game is stopped, not closed */
+    }
 }
 
 void Port_MixManifestClose(void) {
@@ -616,6 +647,179 @@ void Port_MixManifestClose(void) {
         SDL_CloseIO(s_mix.manifest);
         s_mix.manifest = NULL;
     }
+}
+
+/* ---- the share packs' textures other packs' interfaces show (uirefs.txt) ------------ */
+
+#define UIREFS_FILE "uirefs.txt"
+
+/* A file of the cache folder that starts "stamp=" and "xdl=" lines (built.cfg,
+ * uirefs.txt) is of this build: the recipe and releases, the cache version. */
+static int OfThisBuild(char *text) {
+    u32 version, compiler, settings, v, c, st;
+    char *line, *save = NULL;
+    int stamped = 0, xdl = 0;
+
+    Xdl_Stamp(&version, &compiler, &settings);
+    for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
+        if (SDL_strncmp(line, "xdl=", 4) == 0) {
+            xdl = SDL_sscanf(line + 4, "%u.%u.%u", &v, &c, &st) == 3 && v == version && c == compiler && st == settings;
+        } else if (SDL_strncmp(line, "stamp=", 6) == 0) {
+            stamped = (u32)SDL_strtoul(line + 6, NULL, 16) == s_mix.stamp;
+        }
+    }
+    return stamped && xdl;
+}
+
+int Port_MixUiRefsSave(const PortMixUiRef *refs, u32 count) {
+    char *path = CachePath(UIREFS_FILE), *tmp = NULL, *dir = CacheFolder(s_mix.cacheName);
+    u32 version, compiler, settings, i;
+    SDL_IOStream *io;
+    int ok;
+
+    if (path == NULL || dir == NULL || SDL_asprintf(&tmp, "%s.part", path) < 0) {
+        SDL_free(path);
+        SDL_free(dir);
+        return 0;
+    }
+    SDL_CreateDirectory(dir);   /* makes its parents too */
+    Xdl_Stamp(&version, &compiler, &settings);
+    ok = (io = SDL_IOFromFile(tmp, "w")) != NULL;
+    if (ok) {
+        ok &= SDL_IOprintf(io, "stamp=%08x\nxdl=%u.%u.%u\ncount=%u\n", (unsigned)s_mix.stamp, version, compiler, settings,
+                           (unsigned)count) > 0;
+        for (i = 0; ok && i < count; i++) {     /* archive, pack id, texture or slot index, PORT_IFACE_* */
+            ok &= SDL_IOprintf(io, "ref %s %u %u %u\n", refs[i].archive, (unsigned)refs[i].id, (unsigned)refs[i].index,
+                               (unsigned)refs[i].what) > 0;
+        }
+        ok &= SDL_CloseIO(io);
+    }
+    ok = ok && SDL_RenamePath(tmp, path);
+    if (!ok) {
+        Port_Log("mix: could not write %s: %s", path, SDL_GetError());
+        SDL_RemovePath(tmp);
+    }
+    SDL_free(tmp);
+    SDL_free(path);
+    SDL_free(dir);
+    return ok;
+}
+
+/* The list in the cache, given to PortMix_AddUiRef; -1 when there is none of this build. */
+static int UiRefsRead(void) {
+    char *path = CachePath(UIREFS_FILE), *text, *copy, *line, *save = NULL;
+    int n = 0, count = -1;
+
+    text = path != NULL ? SDL_LoadFile(path, NULL) : NULL;
+    SDL_free(path);
+    copy = text != NULL ? SDL_strdup(text) : NULL;
+    if (copy == NULL || !OfThisBuild(copy)) {
+        SDL_free(copy);
+        SDL_free(text);
+        return -1;
+    }
+    SDL_free(copy);
+    for (line = SDL_strtok_r(text, "\r\n", &save); line != NULL; line = SDL_strtok_r(NULL, "\r\n", &save)) {
+        char archive[0x10];
+        unsigned id, index, what;
+
+        if (SDL_strncmp(line, "count=", 6) == 0) {
+            count = SDL_atoi(line + 6);
+        } else if (SDL_sscanf(line, "ref %15s %u %u %u", archive, &id, &index, &what) == 4) {
+            PortMix_AddUiRef(archive, id, index, (u8)what);
+            n++;
+        }
+    }
+    SDL_free(text);
+    return n == count ? n : -1;     /* a list cut short: made again */
+}
+
+int Port_MixUiRefsLoad(const char *program, const char *recipe) {
+    const char *args[4];
+    SDL_Environment *env;
+    SDL_PropertiesID props;
+    SDL_Process *proc;
+    Uint64 t0;
+    int n, code = -1;
+
+    if (!s_mix.on || s_mix.building) {
+        return 0;
+    }
+    if ((n = UiRefsRead()) >= 0) {
+        Port_Log("mix: %d textures of share packs shown by other packs' interfaces (%s)", n, UIREFS_FILE);
+        return 1;
+    }
+    if (program == NULL || recipe == NULL) {
+        Port_Log("mix: no %s, and no program to make it: shared interface textures follow the \"best\" rule", UIREFS_FILE);
+        return 0;
+    }
+    /* the builder's first pass, in a process of its own (it loads every pack) */
+    t0 = SDL_GetTicks();
+    args[0] = program;
+    args[1] = "--mix-scan";
+    args[2] = recipe;
+    args[3] = NULL;
+    env = SDL_CreateEnvironment(true);
+    SDL_SetEnvironmentVariable(env, "HWVX_NO_DIALOG", "1", true);
+    SDL_UnsetEnvironmentVariable(env, "HWVX_DUMP");
+    SDL_UnsetEnvironmentVariable(env, "HWVX_START");
+    SDL_UnsetEnvironmentVariable(env, "HWVX_MIX");      /* only what the arguments say */
+    SDL_UnsetEnvironmentVariable(env, "HWVX_MIX_BUILD");
+    props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, (void *)args);
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, env);
+    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
+    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL);
+    proc = SDL_CreateProcessWithProperties(props);
+    SDL_DestroyProperties(props);
+    SDL_DestroyEnvironment(env);
+    if (proc == NULL) {
+        Port_Log("mix: could not start %s --mix-scan: %s", program, SDL_GetError());
+    } else {
+        SDL_WaitProcess(proc, true, &code);
+        SDL_DestroyProcess(proc);
+    }
+    n = code == 0 ? UiRefsRead() : -1;
+    if (n < 0) {
+        Port_Log("mix: --mix-scan failed (%d): shared interface textures follow the \"best\" rule", code);
+        return 0;
+    }
+    Port_Log("mix: %d textures of share packs shown by other packs' interfaces (--mix-scan, %u ms)", n,
+             (unsigned)(SDL_GetTicks() - t0));
+    {
+        /* share archives cached before there was a list (an unbuilt game's,
+         * mixed as they loaded) are mixed again; a complete build's are right */
+        char *built = CachePath(PORT_MIX_BUILT), *text = built != NULL ? SDL_LoadFile(built, NULL) : NULL;
+
+        if (text == NULL || !OfThisBuild(text)) {
+            char *list = CachePath(UIREFS_FILE), *lt = list != NULL ? SDL_LoadFile(list, NULL) : NULL, *line, *save = NULL;
+
+            for (line = lt != NULL ? SDL_strtok_r(lt, "\r\n", &save) : NULL; line != NULL;
+                 line = SDL_strtok_r(NULL, "\r\n", &save)) {
+                char archive[0x10], *xdl = NULL, *p;
+                unsigned id, index, what;
+
+                if (SDL_sscanf(line, "ref %15s %u %u %u", archive, &id, &index, &what) != 4) {
+                    continue;
+                }
+                for (p = archive; *p; p++) {
+                    *p = (char)SDL_tolower((unsigned char)*p);
+                }
+                SDL_asprintf(&xdl, "%s.xdl", archive);
+                p = xdl != NULL ? CachePath(xdl) : NULL;
+                if (p != NULL && SDL_GetPathInfo(p, NULL) && SDL_RemovePath(p)) {
+                    Port_Log("mix: %s was cached without the list: mixed again", p);
+                }
+                SDL_free(p);
+                SDL_free(xdl);
+            }
+            SDL_free(lt);
+            SDL_free(list);
+        }
+        SDL_free(text);
+        SDL_free(built);
+    }
+    return 1;
 }
 
 /* ---- the archives of every release ---------------------------------------------------- */

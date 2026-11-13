@@ -188,7 +188,7 @@ static int LoadSources(Sources *s) {
             s->mix = 1;
         }
         if (SDL_strncmp(line, "interface=", 10) == 0) {
-            s->ifacePS2 = SDL_strcasecmp(line + 10, "ps2") == 0;
+            s->ifacePS2 = Port_MixInterfaceSetting(line + 10, 0) == PORT_DATA_PS2;   /* as mix.c reads it */
         }
     }
     SDL_free(text);
