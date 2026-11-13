@@ -54,6 +54,10 @@
  *   with the far clipping plane and fog pushed out (src/game/Port_DrawDist.c).
  *   Drawing only: the game's own streaming, and so everything it spawns,
  *   stays as it was. Normal in the attract demo, playback and online play.
+ * - Stereo (graphics.cfg "stereo=gc|pc", default gc, a row on the launcher's
+ *   Settings page; --pc-pan or HWVX_PC_PAN=1 or 0 overrides, main_sdl.c
+ *   Port_PCPan): pc pans sounds with the PC release's DirectSound law, far
+ *   wider than the GameCube/PS2 equal-power table (game/Voice_.c PCPan).
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -284,13 +288,17 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.mouseSteer = 0;
         } else if (SDL_strncmp(line, "drawdist=", 9) == 0 && DrawDistByName(line + 9) >= 0) {
             g_port.drawDist = DrawDistByName(line + 9);
+        } else if (SDL_strcmp(line, "stereo=pc") == 0) {
+            g_port.pcPan = 1;
+        } else if (SDL_strcmp(line, "stereo=gc") == 0) {
+            g_port.pcPan = 0;
         }
     }
     SDL_free(text);
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[320];
+    char *path = ConfigPath(), buf[384];
     int n;
 
     if (path == NULL) {
@@ -300,12 +308,13 @@ static void SaveConfig(int w, int h, int full) {
     n = w > 0 && h > 0 ? SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\n", w, h) : 0;
     n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
                      "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\n",
                      full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
                      g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on",
                      g_port.mouseSteer ? "on" : "off",
-                     s_drawDistNames[g_port.drawDist >= 0 && g_port.drawDist < 3 ? g_port.drawDist : 0]);
+                     s_drawDistNames[g_port.drawDist >= 0 && g_port.drawDist < 3 ? g_port.drawDist : 0],
+                     g_port.pcPan ? "pc" : "gc");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }

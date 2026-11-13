@@ -41,7 +41,7 @@ bottom:
 | Saves | **Import saves...** and its preview (below) |
 | Convert | converting to `.xdl`: coming later |
 | Mods | coming later |
-| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu: display (windowed or fullscreen), PC textures (`pctextures=`), main menu (`mainmenu=`), split-screen detail (`splitlod=`), movies (`movies=`); each change is saved at once, and an environment variable that overrides one is named under it. The renderer stays `--renderer NAME` |
+| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu: display (windowed or fullscreen), PC textures (`pctextures=`), main menu (`mainmenu=`), split-screen detail (`splitlod=`), movies (`movies=`), mouse steering (`mousesteer=`), draw distance (`drawdist=`), stereo (`stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one); each change is saved at once, and an environment variable that overrides one is named under it. The renderer stays `--renderer NAME` |
 
 The launcher opens every time the game starts, unless you tick
 "Start the game without this window"; then the game boots straight into the
@@ -94,7 +94,8 @@ event's orbit around an object ends, and the camera goes back to the car, as soo
 player's car is tipped past 60° with its wheels down or stuck (after a jump or a roll).
 Default: the PC's orbit, which runs until the event's script moves the camera on.
 
-`--pc-pan` (or `HWVX_PC_PAN=1`): the PC release's stereo pan. The PC pans each sound with
+`--pc-pan` (or `HWVX_PC_PAN=1`; `HWVX_PC_PAN=0` forces the default): the PC release's stereo pan, also
+the launcher's Settings row Stereo (`stereo=pc` in `graphics.cfg`), which these override. The PC pans each sound with
 DirectSound, dropping the far speaker by up to 65 dB for a sound at the side (music channels
 hard left/right); the GameCube and PS2 use an equal-power table that keeps the speakers within
 about 10 dB. Default: the GameCube/PS2 pan. Centred sounds play the same either way.
