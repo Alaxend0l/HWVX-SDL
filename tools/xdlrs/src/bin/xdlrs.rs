@@ -34,7 +34,7 @@
 //!   xdlrs audio pan                      the releases' pan laws: speaker dB per source position (stereo.rs)
 //!   xdlrs prompts inventory DATA... [--seed KIND:REL:FILE/PACK:INDEX]... [--png DIR] [--threshold D] [--all]
 //!                                        button atlases and pad pictures, the interface objects that
-//!                                        show them, their cells (prompts.rs; docs-pending/prompts-inventory.md)
+//!                                        show them, their cells (prompts.rs; `xdlrs prompts inventory`; README "Button prompts")
 //!   xdlrs prompts sheet PACK_PNG256 OUT.png  the prompt pack's glyphs in several looks (prompts_art.rs)
 //!   xdlrs prompts build SRC OUT.bin      assets/prompts/src into prompts.bin, the table the game embeds
 //!   xdlrs prompts check SRC BIN          BIN is SRC's build and the PNGs are README.md's (sha256)
@@ -1329,7 +1329,7 @@ fn audio_main(argv: &[String]) -> ExitCode {
 // ---- prompts: the button prompts' inventory ----------------------------------------------
 
 /// The default seeds: each release's button atlas (the PC's: keycaps), the GameCube's and the PS2's pad
-/// picture (HW_IPack; docs-pending/prompts-inventory.md). The PC's controller page has none.
+/// picture (HW_IPack; `xdlrs prompts inventory`; README "Button prompts"). The PC's controller page has none.
 const PROMPT_SEEDS: [&str; 6] = [
     "atlas:gc:hw_ipack/interface_3:24",
     "pad:gc:hw_ipack/interface_6:124",

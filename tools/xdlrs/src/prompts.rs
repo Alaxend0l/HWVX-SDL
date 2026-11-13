@@ -647,7 +647,7 @@ fn fmt_uv(r: &[f32; 4], w: usize, h: usize) -> String {
     format!("({:.0},{:.0})-({:.0},{:.0})", x0, y0, x1, y1)
 }
 
-/// The cell names of the GC atlas (32 px cells; docs-pending/prompts-inventory.md).
+/// The cell names of the GC atlas (32 px cells; `xdlrs prompts inventory`; README "Button prompts").
 pub fn cell_px(r: &[f32; 4], w: usize, h: usize) -> (i64, i64, i64, i64) {
     let x0 = (r[0].min(r[2]) * w as f32).round() as i64;
     let y0 = (r[1].min(r[3]) * h as f32).round() as i64;

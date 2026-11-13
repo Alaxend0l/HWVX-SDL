@@ -1,4 +1,4 @@
-/* port: button prompts that match the device (docs/plans/v0.4.1.md A; docs-pending/prompts.md).
+/* port: button prompts that match the device (docs/plans/v0.4.1.md A; README "Button prompts").
  *
  * Every release keeps its button glyphs in one 128 x 128 atlas of 32 px cells, and its
  * interfaces show three of them: confirm (32,64), back (32,96), details (0,64), in texture
