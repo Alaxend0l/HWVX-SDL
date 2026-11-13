@@ -16,6 +16,10 @@
  *
  * hwvx --mix NAME|FILE         play the mixed build (packs convert as they load)
  * hwvx --mix-build NAME|FILE   convert every pack into the cache, then quit
+ * hwvx --mix-scan NAME|FILE    only the builder's first pass: the share packs'
+ *                              textures other packs' interfaces show, into
+ *                              the cache's uirefs.txt (what --mix runs first
+ *                              when it has no list)
  * (HWVX_MIX, HWVX_MIX_BUILD: the same from the environment.) */
 #ifndef PORT_MIX_H
 #define PORT_MIX_H
@@ -74,6 +78,27 @@ void Port_MixManifest(const char *id, int rel, u32 index, u64 hash);
 /* The same for an interface texture (`ui` "art" or "font", a "ui" field):
  * written whichever release it comes from, the base's own included. */
 void Port_MixManifestUI(const char *id, int rel, u32 index, u64 hash, const char *ui);
+/* Textures of share packs that other packs' interfaces show (the car packs'
+ * HUDs draw HW_Cars share_2's gauges): the builder's first pass finds them
+ * (Port_Mix.c). A share pack is mixed before the packs that refer to it
+ * load, so playing a mixed game needs the list before its first pack:
+ * <cache>/uirefs.txt keeps it, stamped as the build (Port_MixStamp and the
+ * cache version). */
+typedef struct PortMixUiRef {
+    char archive[0x10];     /* the share pack's file stem */
+    u32 id;
+    u16 index;              /* a texture's, or for PORT_IFACE_GEOM the word index of the slot holding a geometry */
+    u8 what;                /* PORT_IFACE_ART, _FONT or _GEOM */
+} PortMixUiRef;
+/* Writes the list into the cache folder; 1 on success. */
+int Port_MixUiRefsSave(const PortMixUiRef *refs, u32 count);
+/* Playing a mixed game (not --mix-build): the list read from the cache,
+ * else made by `program --mix-scan recipe` (a process of its own: the pass
+ * loads every pack, which the game must not keep) and read then; given to
+ * PortMix_AddUiRef. Cached share archives made without a list (an older
+ * unbuilt game's) are removed, to be mixed again. 0 when there is no list:
+ * those textures follow the "best" rule. */
+int Port_MixUiRefsLoad(const char *program, const char *recipe);
 /* The archives of every release in the recipe, as the game names them
  * (no extension, '\\' separators), each once: `fn` per name. */
 void Port_MixArchives(void (*fn)(const char *name, void *user), void *user);
@@ -115,6 +140,10 @@ void PortMix_SFXDone(void);
  * pack it prints "@convert DONE TOTAL ARCHIVE" (Port_Convert.h's progress;
  * a first pass over the TOCs counts TOTAL). */
 u32 PortMix_BuildAll(u32 *failed);
+/* --mix-scan: the first pass alone, its list saved (Port_MixUiRefsSave); 1 on success. */
+int PortMix_ScanUi(void);
+/* One entry of the list (Port_MixUiRefsLoad). */
+void PortMix_AddUiRef(const char *archive, u32 id, u32 index, u8 what);
 
 typedef struct PortMixPairPack {
     const char *archive;    /* file stem, matched without case */

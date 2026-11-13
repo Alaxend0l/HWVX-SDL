@@ -105,6 +105,8 @@ static int ParseVSync(const char *s) {
 /* --mix / --mix-build (or HWVX_MIX, HWVX_MIX_BUILD): a mixed build's recipe (mix.c). */
 static const char *s_mixRecipe;
 static int s_mixBuild;
+/* --mix-scan RECIPE: the builder's first pass alone, its list into the cache (Port_Mix.h) */
+static int s_mixScan;
 
 static void ParseArgs(int argc, char **argv) {
     int i, v, haveSize = 0, haveVSync = 0, haveFps = 0, haveDisplay = 0;
@@ -162,6 +164,9 @@ static void ParseArgs(int argc, char **argv) {
             i++;
         } else if ((SDL_strcmp(argv[i], "--mix") == 0 || SDL_strcmp(argv[i], "--mix-build") == 0) && i + 1 < argc) {
             s_mixBuild = argv[i][5] != 0;
+            s_mixRecipe = argv[++i];
+        } else if (SDL_strcmp(argv[i], "--mix-scan") == 0 && i + 1 < argc) {
+            s_mixScan = 1;      /* internal: Port_MixUiRefsLoad runs it */
             s_mixRecipe = argv[++i];
         } else if (SDL_strcmp(argv[i], "--launcher") == 0) {
             g_port.launcher = 1;
@@ -439,7 +444,13 @@ static void MixDataDir(void) {
         }
         Port_Fatal("Mixed build: %s", err);
     }
-    rel = Disc_IsOpen() ? PORT_DATA_GC : Port_MixCandidate("HW_IPack.xgc", 0);
+    if (s_mixScan) {
+        Xdl_SetModes(0, 0);     /* the first pass reads and writes no cache */
+    } else {
+        /* played: the list of shared interface textures before the first pack (Port_Mix.h) */
+        Port_MixUiRefsLoad(g_port.program, s_mixRecipe);
+    }
+    rel =Disc_IsOpen() ? PORT_DATA_GC : Port_MixCandidate("HW_IPack.xgc", 0);
     if (rel < 0) {
         Port_Fatal("Mixed build: none of the recipe's releases is imported");
     }
@@ -529,7 +540,7 @@ static void FindDataDir(void) {
 
 int Port_TryCreateWindow(SDL_WindowFlags flags) {
     flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    if (g_port.convertDir != NULL || Port_MixBuilding()) {
+    if (g_port.convertDir != NULL || Port_MixBuilding() || s_mixScan) {
         flags |= SDL_WINDOW_HIDDEN;     /* converting: nothing is shown */
         g_port.fullscreen = 0;
     }
@@ -660,7 +671,7 @@ static const char *s_convertSource;
 
 int main(int argc, char **argv) {
     ParseArgs(argc, argv);
-    if (g_port.convertDir != NULL || (s_mixRecipe != NULL && s_mixBuild)) {
+    if (g_port.convertDir != NULL || (s_mixRecipe != NULL && (s_mixBuild || s_mixScan))) {
         SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");  /* the converter shows nothing: no Dock icon either */
     }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
@@ -707,6 +718,10 @@ int main(int argc, char **argv) {
 
         Port_Log("mix: %u packs converted for %s", (unsigned)n, Port_MixName());
         exit(Port_MixBuildFinish(n, failed) ? 0 : 1);
+    }
+    if (s_mixScan) {
+        /* --mix-scan: the builder's first pass alone, for a mixed game played unbuilt */
+        exit(PortMix_ScanUi() ? 0 : 1);
     }
     if (g_port.convertDir != NULL) {
         int failed = Disc_IsOpen() ? 1 : Port_ConvertRun(g_port.dataDir, s_convertSource, g_port.convertDir);

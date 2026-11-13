@@ -85,16 +85,11 @@ static struct {
     u32 sfxFrom[PORT_MIX_RELS], sfxKept, sfxRejected;
 } s_stats;
 
-/* Textures of share packs that other packs' interfaces show (the car packs'
- * HUDs draw HW_Cars share_2's gauges): found by the builder's first pass,
- * which loads every pack and only looks (s_collect), since a share pack is
- * mixed before the packs that refer to it load. */
-typedef struct UiRef {
-    char archive[0x10];
-    u32 id;
-    u16 index;
-    u8 what;    /* PORT_IFACE_ART or _FONT */
-} UiRef;
+/* Textures of share packs that other packs' interfaces show (Port_Mix.h):
+ * found by the builder's first pass, which loads every pack and only looks
+ * (s_collect), or read from the cache's list before a mixed game's first
+ * pack (Port_MixUiRefsLoad, PortMix_AddUiRef). */
+typedef PortMixUiRef UiRef;
 
 static UiRef *s_uiRefs;
 static u32 s_numUiRefs, s_capUiRefs;
@@ -132,14 +127,19 @@ static void NoteUiRef(void *user, u32 packId, u32 index, u8 what) {
     DataPack *pack = ((OtherCtx *)user)->pack;
     const DataPackRef *ref = pack->refs[0].id == packId ? &pack->refs[0] : pack->refs[1].id == packId ? &pack->refs[1] : NULL;
     char name[0x10];
-    UiRef *r;
 
     if (ref == NULL) {
         return;
     }
     memcpy(name, ref->name, 0xC);
     name[0xC] = 0;
-    if ((r = FindUiRef(StemOf(name), packId, index, what == PORT_IFACE_GEOM)) != NULL) {
+    PortMix_AddUiRef(StemOf(name), packId, index, what);
+}
+
+void PortMix_AddUiRef(const char *archive, u32 id, u32 index, u8 what) {
+    UiRef *r;
+
+    if ((r = FindUiRef(archive, id, index, what == PORT_IFACE_GEOM)) != NULL) {
         if (what == PORT_IFACE_ART) {
             r->what = what;     /* art wins over font, as in one pack */
         }
@@ -155,8 +155,8 @@ static void NoteUiRef(void *user, u32 packId, u32 index, u8 what) {
         s_capUiRefs = s_capUiRefs * 2 + 64;
     }
     r = &s_uiRefs[s_numUiRefs++];
-    snprintf(r->archive, sizeof(r->archive), "%s", StemOf(name));
-    r->id = packId;
+    snprintf(r->archive, sizeof(r->archive), "%s", archive);
+    r->id = id;
     r->index = (u16)index;
     r->what = what;
 }
@@ -1960,26 +1960,42 @@ static void BuildArchive(const char *name, void *user) {
     Port_Log("mix: [%u] %s: %u packs", (unsigned)b->archives, name, (unsigned)done);
 }
 
-u32 PortMix_BuildAll(u32 *failed) {
-    Build b;
+/* The first pass, nothing cached: what interfaces show of other packs. */
+static void CollectUiRefs(Build *b) {
     u32 i;
 
-    memset(&b, 0, sizeof(b));
-    DataPack_EnableLoadingSounds(0);    /* converted and cached, not created */
-    Port_MixArchives(CountArchive, &b);
-    /* first pass, nothing cached: what interfaces show of other packs */
-    b.total *= 2;
     s_collect = 1;
     Xdl_SetModes(0, 0);
-    Port_MixArchives(BuildArchive, &b);
+    Port_MixArchives(BuildArchive, b);
     s_collect = 0;
-    Xdl_SetModes(1, 1);
     Port_Log("mix: %u textures of share packs shown by other packs' interfaces", (unsigned)s_numUiRefs);
     for (i = 0; i < s_numUiRefs; i++) {
         Port_Log("mix:   %s share_%u texture %u (%s)", s_uiRefs[i].archive, (unsigned)s_uiRefs[i].id,
                  (unsigned)s_uiRefs[i].index, s_uiRefs[i].what == PORT_IFACE_FONT ? "font"
                  : s_uiRefs[i].what == PORT_IFACE_GEOM ? "geometry slot" : "art");
     }
+}
+
+int PortMix_ScanUi(void) {
+    Build b;
+
+    memset(&b, 0, sizeof(b));
+    DataPack_EnableLoadingSounds(0);
+    Port_MixArchives(CountArchive, &b);
+    CollectUiRefs(&b);
+    return Port_MixUiRefsSave(s_uiRefs, s_numUiRefs);
+}
+
+u32 PortMix_BuildAll(u32 *failed) {
+    Build b;
+
+    memset(&b, 0, sizeof(b));
+    DataPack_EnableLoadingSounds(0);    /* converted and cached, not created */
+    Port_MixArchives(CountArchive, &b);
+    b.total *= 2;
+    CollectUiRefs(&b);
+    Xdl_SetModes(1, 1);
+    Port_MixUiRefsSave(s_uiRefs, s_numUiRefs);     /* the build carries its list (a later --mix reads it) */
     b.archives = b.packs = b.failed = 0;
     memset(&s_stats, 0, sizeof(s_stats));
     memset(&s_colStats, 0, sizeof(s_colStats));
