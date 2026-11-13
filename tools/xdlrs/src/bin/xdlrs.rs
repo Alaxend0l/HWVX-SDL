@@ -24,6 +24,12 @@
 //!                                        as tools/xdl_mod.py (the no-game-data check)
 //!   xdlrs mod probe png|audio|fp|blobs FILE   what the check reads from a file (JSON)
 //!
+//!   xdlrs mix ui-check MANIFEST --set gc|ps2 [--base gc] [--list]
+//!                                        a mixed build's interface textures (manifest "ui" lines) by
+//!                                        release; exit 1 when one breaks the set rule (Port_Mix.c)
+//!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
+//!                                        two frame dumps side by side (tools/mix_pair_shots.sh)
+//!
 //! --repo DIR: the HWVX-SDL checkout (schemas/); default: found above the current folder.
 
 use serde_json::{Map, Value, json};
@@ -1012,6 +1018,9 @@ fn main() -> ExitCode {
     if argv.first().map(String::as_str) == Some("mod") {
         return mod_main(&argv[1..]);
     }
+    if argv.first().map(String::as_str) == Some("mix") {
+        return mix_main(&argv[1..]);
+    }
     let a = parse_args(&argv);
     let cmd = (a.pos.first().map(String::as_str), a.pos.get(1).map(String::as_str));
     let shifted = |n: usize| Args { pos: a.pos[n..].to_vec(), opts: a.opts.clone(), flags: a.flags.clone() };
@@ -1042,3 +1051,177 @@ fn main() -> ExitCode {
     }
 }
 
+
+// ---- mix: mixed builds' checks --------------------------------------------------------
+
+fn mix_main(argv: &[String]) -> ExitCode {
+    let mut pos = vec![];
+    let mut opts: HashMap<String, String> = HashMap::new();
+    let mut flags = BTreeSet::new();
+    let mut i = 0;
+    while i < argv.len() {
+        let x = &argv[i];
+        if x == "--list" || x == "--half" {
+            flags.insert(x.clone());
+        } else if x.starts_with("--") && i + 1 < argv.len() {
+            opts.insert(x[2..].to_string(), argv[i + 1].clone());
+            i += 1;
+        } else {
+            pos.push(x.clone());
+        }
+        i += 1;
+    }
+    let r = match pos.first().map(String::as_str) {
+        Some("ui-check") if pos.len() == 2 => mix_ui_check(&pos[1], &opts, flags.contains("--list")),
+        Some("pair") if pos.len() == 4 => mix_pair(&pos[1], &pos[2], &pos[3], flags.contains("--half")).map(|_| 0),
+        _ => {
+            eprintln!("usage: xdlrs mix ui-check MANIFEST --set gc|ps2 [--base gc] [--list]");
+            eprintln!("       xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]");
+            return ExitCode::from(2);
+        }
+    };
+    match r {
+        Ok(c) => ExitCode::from(c),
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/* Counts the interface textures (manifest lines with "ui": "art" | "font") by the
+ * release they came from and checks the set rule: art from the set's release or,
+ * where it has no copy, the base's own (a fallback); font pages from the PC, else
+ * the set's, else the base's. */
+fn mix_ui_check(manifest: &str, opts: &HashMap<String, String>, list: bool) -> std::result::Result<u8, String> {
+    let set = opts.get("set").map(String::as_str).ok_or("--set gc|ps2")?;
+    if set != "gc" && set != "ps2" {
+        return Err("--set gc|ps2".into());
+    }
+    let base = opts.get("base").map(String::as_str).unwrap_or("gc");
+    let text = std::fs::read_to_string(manifest).map_err(|e| format!("{manifest}: {e}"))?;
+    let mut counts: BTreeMap<(String, String), u32> = BTreeMap::new();
+    let mut fallbacks: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut bad = vec![];
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let e: Value = serde_json::from_str(line).map_err(|e| format!("{manifest}: {e}"))?;
+        let (Some(ui), Some(from), Some(id)) = (e["ui"].as_str(), e["from"].as_str(), e["id"].as_str()) else {
+            continue;
+        };
+        *counts.entry((ui.to_string(), from.to_string())).or_default() += 1;
+        let parts: Vec<&str> = id.split('/').collect();
+        let pack = if parts.len() > 3 { format!("{}/{}", parts[2], parts[3]) } else { id.to_string() };
+        let idx = id.rsplit('/').next().unwrap_or("").to_string();
+        if ui == "art" {
+            if from == set {
+                continue;
+            }
+            if from == base {
+                fallbacks.entry(pack).or_default().push(idx);
+            } else {
+                bad.push(format!("{id} {from} {ui}"));
+            }
+        } else if from != "pc" && from != set && from != base {
+            bad.push(format!("{id} {from} {ui}"));
+        } else if from != "pc" {
+            fallbacks.entry(pack + " (font)").or_default().push(idx);
+        }
+    }
+    for ui in ["art", "font"] {
+        let row: Vec<String> = ["gc", "pc", "ps2"]
+            .iter()
+            .filter_map(|r| counts.get(&(ui.to_string(), r.to_string())).map(|n| format!("{r} {n}")))
+            .collect();
+        println!("{:<5} {}", ui, if row.is_empty() { "none".to_string() } else { row.join(", ") });
+    }
+    let n: usize = fallbacks.values().map(Vec::len).sum();
+    println!("not from the set (the base's own, fonts not from the pc): {} in {} packs", n, fallbacks.len());
+    if list || set != base {
+        for (pack, idx) in &fallbacks {
+            let more = if idx.len() > 24 { " ..." } else { "" };
+            println!("  {:<40} {}: {}{}", pack, idx.len(), idx[..idx.len().min(24)].join(" "), more);
+        }
+    }
+    for b in bad.iter().take(40) {
+        println!("BAD {b}");
+    }
+    if !bad.is_empty() {
+        println!("{} interface textures break the set rule", bad.len());
+        return Ok(1);
+    }
+    println!("ok: no interface art from another release");
+    Ok(0)
+}
+
+/* An uncompressed 24- or 32-bit BMP (the port's frame dumps) as RGB rows, top first. */
+fn read_bmp(path: &str) -> std::result::Result<(u32, u32, Vec<u8>), String> {
+    let d = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let rd32 = |o: usize| -> u32 { u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]) };
+    if d.len() < 54 || &d[0..2] != b"BM" || rd32(30) != 0 {
+        return Err(format!("{path}: not an uncompressed BMP"));
+    }
+    let off = rd32(10) as usize;
+    let w = rd32(18);
+    let hs = rd32(22) as i32;
+    let bpp = u16::from_le_bytes([d[28], d[29]]) as usize / 8;
+    let h = hs.unsigned_abs();
+    if bpp != 3 && bpp != 4 {
+        return Err(format!("{path}: {} bits per pixel", bpp * 8));
+    }
+    let stride = (w as usize * bpp + 3) & !3;
+    if off + stride * h as usize > d.len() {
+        return Err(format!("{path}: short"));
+    }
+    let mut out = vec![0u8; w as usize * h as usize * 3];
+    for y in 0..h as usize {
+        let src = if hs > 0 { h as usize - 1 - y } else { y };
+        for x in 0..w as usize {
+            let p = off + src * stride + x * bpp;
+            let o = (y * w as usize + x) * 3;
+            out[o] = d[p + 2];
+            out[o + 1] = d[p + 1];
+            out[o + 2] = d[p];
+        }
+    }
+    Ok((w, h, out))
+}
+
+/* LEFT and RIGHT side by side as OUT.png; --half: at half the size (2x2 boxes). */
+fn mix_pair(left: &str, right: &str, out: &str, half: bool) -> std::result::Result<(), String> {
+    let (lw, lh, l) = read_bmp(left)?;
+    let (rw, rh, r) = read_bmp(right)?;
+    if lw != rw || lh != rh {
+        return Err(format!("{left} is {lw}x{lh}, {right} {rw}x{rh}"));
+    }
+    let (w, h) = (lw as usize * 2, lh as usize);
+    let mut img = vec![0u8; w * h * 3];
+    for y in 0..h {
+        img[y * w * 3..y * w * 3 + lw as usize * 3].copy_from_slice(&l[y * lw as usize * 3..(y + 1) * lw as usize * 3]);
+        img[y * w * 3 + lw as usize * 3..(y + 1) * w * 3].copy_from_slice(&r[y * lw as usize * 3..(y + 1) * lw as usize * 3]);
+    }
+    let (ow, oh, pix) = if half {
+        let (ow, oh) = (w / 2, h / 2);
+        let mut o = vec![0u8; ow * oh * 3];
+        for y in 0..oh {
+            for x in 0..ow {
+                for c in 0..3 {
+                    let s: u32 = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                        .iter()
+                        .map(|(dx, dy)| img[((y * 2 + dy) * w + x * 2 + dx) * 3 + c] as u32)
+                        .sum();
+                    o[(y * ow + x) * 3 + c] = ((s + 2) / 4) as u8;
+                }
+            }
+        }
+        (ow, oh, o)
+    } else {
+        (w, h, img)
+    };
+    let f = std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(f), ow as u32, oh as u32);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut wr = enc.write_header().map_err(|e| format!("{out}: {e}"))?;
+    wr.write_image_data(&pix).map_err(|e| format!("{out}: {e}"))?;
+    Ok(())
+}

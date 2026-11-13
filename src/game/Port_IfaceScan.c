@@ -46,6 +46,8 @@ int Port_IfaceScanInit(PortIfaceScan *s, const u8 *base, u32 size, u32 bias, con
     s->base = base;
     s->size = size;
     s->bias = bias;
+    s->refs = refs;
+    s->numRefs = refs != NULL ? numRefs : 0;
     s->isPtr = calloc(size / 4 + 1, 1);
     if (s->isPtr == NULL) {
         return 0;
@@ -203,6 +205,26 @@ static void MarkDialog(const PortIfaceScan *s, u8 *mark, u32 list) {
     }
 }
 
+/* A geometry header (GameCube 0x2003, PS2 0x1005 or converted): its levels'
+ * groups' texture slots. */
+static void MarkGeometry(const PortIfaceScan *s, u8 *mark, u32 g) {
+    u32 levels, l, k;
+
+    if (g == ~0u || !InBlob(s, g, 0x40)) {
+        return;
+    }
+    levels = Port_IfaceTo(s, g + 8);
+    for (l = 0; levels != ~0u && l < *(const u16 *)(s->base + g + 2) && l < 8 && InBlob(s, levels + l * 0x18, 0x18); l++) {
+        u32 L = levels + l * 0x18, groups = Port_IfaceTo(s, L + 8), n = *(const u16 *)(s->base + L + 2);
+
+        for (k = 0; groups != ~0u && k < n && k < 0x100 && InBlob(s, groups + k * 0x20, 0x20); k++) {
+            if (mark[(groups + k * 0x20 + 0x18) / 4] == 0) {
+                mark[(groups + k * 0x20 + 0x18) / 4] = PORT_IFACE_GEOMTEX;
+            }
+        }
+    }
+}
+
 static void MarkHeader(const PortIfaceScan *s, u8 *mark, u32 h) {
     const InterfaceHeader *hdr = (const InterfaceHeader *)(s->base + h);
     u32 objs = Port_IfaceTo(s, h + 0x10), i;
@@ -219,6 +241,13 @@ static void MarkHeader(const PortIfaceScan *s, u8 *mark, u32 h) {
                 MarkWord(s, mark, sub + 4);     /* the texture (type 0) */
                 if (s->base[sub] == 3) {
                     MarkTexAnim(s, mark, Port_IfaceTo(s, sub + 0x10));
+                }
+                if (s->base[sub] == 1) {    /* geometry: this pack's, or another's (the ref relocations) */
+                    if (PtrSlot(s, sub + 4)) {
+                        MarkGeometry(s, mark, Port_IfaceTo(s, sub + 4));
+                    } else {
+                        mark[(sub + 4) / 4] = PORT_IFACE_GEOM;
+                    }
                 }
             }
             break;
@@ -255,16 +284,49 @@ u32 Port_IfaceTexturesAll(const PortIfaceScan *s, const u32 *texRelocs, u32 numT
     for (i = 0; mark != NULL && i < numTexRelocs; i++) {
         u32 slot = texRelocs[i * 2] & ~PORT_TEXRELOC_U16, id = texRelocs[i * 2 + 1];
 
-        if ((id >> 16) != 0 && other != NULL && slot / 4 <= words && mark[slot / 4]) {
+        if ((id >> 16) != 0 && other != NULL && slot / 4 <= words &&
+            (mark[slot / 4] == PORT_IFACE_ART || mark[slot / 4] == PORT_IFACE_FONT)) {
             other(user, id >> 16, id & 0xFFFF, mark[slot / 4]);
         }
-        if ((id >> 16) == 0 && slot / 4 <= words && mark[slot / 4] && (id & 0xFFFF) < numTex &&
+        if ((id >> 16) == 0 && slot / 4 <= words &&
+            (mark[slot / 4] == PORT_IFACE_ART || mark[slot / 4] == PORT_IFACE_FONT ||
+             mark[slot / 4] == PORT_IFACE_GEOMTEX) && (id & 0xFFFF) < numTex &&
             used[id & 0xFFFF] != PORT_IFACE_ART) {
-            count += used[id & 0xFFFF] == 0;
-            used[id & 0xFFFF] = mark[slot / 4];
+            if (used[id & 0xFFFF] == 0 || mark[slot / 4] != PORT_IFACE_GEOMTEX) {
+                count += used[id & 0xFFFF] == 0;
+                used[id & 0xFFFF] = mark[slot / 4];
+            }
+        }
+    }
+    for (i = 0; mark != NULL && other != NULL && i < s->numRefs; i++) {
+        u32 slot = s->refs[i * 2], id = s->refs[i * 2 + 1];
+
+        if ((id >> 16) != 0 && slot / 4 <= words && mark[slot / 4] == PORT_IFACE_GEOM) {
+            other(user, id >> 16, id & 0xFFFF, PORT_IFACE_GEOM);
         }
     }
     free(mark);
     free(headers);
+    return count;
+}
+
+u32 Port_IfaceGeometryTextures(const PortIfaceScan *s, u32 slot, const u32 *texRelocs, u32 numTexRelocs, u8 *used,
+                               u32 numTex) {
+    u32 words = s->size / 4, i, count = 0;
+    u8 *mark = PtrSlot(s, slot) ? calloc(words + 1, 1) : NULL;
+
+    if (mark == NULL) {
+        return 0;
+    }
+    MarkGeometry(s, mark, Port_IfaceTo(s, slot));
+    for (i = 0; i < numTexRelocs; i++) {
+        u32 at = texRelocs[i * 2] & ~PORT_TEXRELOC_U16, id = texRelocs[i * 2 + 1];
+
+        if ((id >> 16) == 0 && at / 4 <= words && mark[at / 4] && (id & 0xFFFF) < numTex && used[id & 0xFFFF] == 0) {
+            count++;
+            used[id & 0xFFFF] = PORT_IFACE_GEOMTEX;
+        }
+    }
+    free(mark);
     return count;
 }
