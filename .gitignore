@@ -76,3 +76,6 @@ tools/browser/target/
 tools/xdlrs/target/
 tools/decomp/target/
 scratch-pref/
+
+# third-party asset packs (assets/prompts/README.md)
+thirdparty/

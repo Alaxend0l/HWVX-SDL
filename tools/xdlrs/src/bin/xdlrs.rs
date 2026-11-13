@@ -35,6 +35,9 @@
 //!   xdlrs prompts inventory DATA... [--seed KIND:REL:FILE/PACK:INDEX]... [--png DIR] [--threshold D] [--all]
 //!                                        button atlases and pad pictures, the interface objects that
 //!                                        show them, their cells (prompts.rs; docs-pending/prompts-inventory.md)
+//!   xdlrs prompts sheet PACK_PNG256 OUT.png  the prompt pack's glyphs in several looks (prompts_art.rs)
+//!   xdlrs prompts build SRC OUT.bin      assets/prompts/src into prompts.bin, the table the game embeds
+//!   xdlrs prompts check SRC BIN          BIN is SRC's build and the PNGs are README.md's (sha256)
 //!   xdlrs cars stats DIR... [--dump OUT.json] [--md OUT]
 //!                                        per release folder (GC files/, PC, PS2, the PS2 prototype):
 //!                                        every car's stat bars and physics fields, the car select's
@@ -1330,6 +1333,10 @@ const PROMPT_SEEDS: [&str; 6] = [
 ];
 
 fn prompts_main(argv: &[String]) -> ExitCode {
+    match argv.first().map(String::as_str) {
+        Some("sheet" | "build" | "check") => return prompts_art_main(argv),
+        _ => {}
+    }
     let mut dirs = vec![];
     let mut seeds = vec![];
     let mut png = None;
@@ -1414,6 +1421,34 @@ fn cars_main(argv: &[String]) -> ExitCode {
     };
     match run() {
         Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `xdlrs prompts sheet|build|check` (prompts_art.rs).
+fn prompts_art_main(argv: &[String]) -> ExitCode {
+    use xdlrs::prompts_art as pa;
+    let (Some(a), Some(b)) = (argv.get(1), argv.get(2)) else {
+        eprintln!("usage: xdlrs prompts sheet PACK_PNG256 OUT.png | build SRC OUT.bin | check SRC BIN");
+        return ExitCode::from(2);
+    };
+    let (a, b) = (Path::new(a), Path::new(b));
+    let r = match argv[0].as_str() {
+        "sheet" => pa::sheet(a, b).map(|_| vec![]),
+        "build" => pa::build(a).and_then(|v| std::fs::write(b, &v).map_err(|e| format!("{}: {e}", b.display())).map(|_| vec![])),
+        _ => pa::check(a, b),
+    };
+    match r {
+        Ok(bad) if bad.is_empty() => ExitCode::SUCCESS,
+        Ok(bad) => {
+            for l in bad {
+                eprintln!("{l}");
+            }
+            ExitCode::from(1)
+        }
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(1)

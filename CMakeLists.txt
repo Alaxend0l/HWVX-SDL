@@ -40,6 +40,15 @@ file(WRITE ${HWVX_GEN_DIR}/mix_recipe_ultimate.h.new
     "/* Generated from recipes/ultimate.jsonc (CMakeLists.txt). */\nstatic const char g_mixRecipeUltimate[] = { ${HWVX_RECIPE_HEX} };\n")
 execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${HWVX_GEN_DIR}/mix_recipe_ultimate.h.new ${HWVX_GEN_DIR}/mix_recipe_ultimate.h)
+# The button prompt glyphs (game/Port_Prompts.c; assets/prompts/README.md), as bytes.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/assets/prompts/prompts.bin)
+file(READ ${CMAKE_SOURCE_DIR}/assets/prompts/prompts.bin HWVX_PROMPTS_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," HWVX_PROMPTS_HEX "${HWVX_PROMPTS_HEX}")
+file(WRITE ${HWVX_GEN_DIR}/prompts_bin.h.new
+    "/* Generated from assets/prompts/prompts.bin (CMakeLists.txt). */\nstatic const unsigned char g_promptsBin[] = { ${HWVX_PROMPTS_HEX} };\n")
+unset(HWVX_PROMPTS_HEX)
+execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${HWVX_GEN_DIR}/prompts_bin.h.new ${HWVX_GEN_DIR}/prompts_bin.h)
 include_directories(${HWVX_GEN_DIR})
 
 # Compressed audio for mods (src/audiodec over src/third_party's dr_wav/dr_flac/
