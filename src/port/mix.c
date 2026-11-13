@@ -607,6 +607,9 @@ void Port_MixManifestUI(const char *id, int rel, u32 index, u64 hash, const char
     SDL_IOprintf(s_mix.manifest, "{\"id\":\"%s\",\"from\":\"%s\",\"i\":%u,\"x\":\"%016llx\"%s%s%s}\n", id,
                  s_relKeys[rel], (unsigned)index, (unsigned long long)hash, ui != NULL ? ",\"ui\":\"" : "",
                  ui != NULL ? ui : "", ui != NULL ? "\"" : "");
+    if (!s_mix.building) {
+        SDL_FlushIO(s_mix.manifest);    /* a played game is stopped, not closed */
+    }
 }
 
 void Port_MixManifestClose(void) {
