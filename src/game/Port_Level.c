@@ -2618,3 +2618,32 @@ static void CheckList(void *worldPack, const char *world) {
     }
     SDL_free(text);
 }
+
+/* An interface pack's name as a load/play interface action passes it, copied to storage
+ * that lives as long as the program. The streaming slot (FileStreaming_LoadDataPack) and
+ * g_InterfacePackData keep the name's pointer, and a level's parameter lists go when the
+ * level is taken out (Unapply), while an interface the level started may run on and a
+ * slot's name is compared by later loads. The same name gives the same copy, so the
+ * pointer test in FileStreaming_GetPackID still holds. NULL when 256 names are kept
+ * already (retail's worlds name a few). */
+const char *Port_LevelPackName(const char *name) {
+    static char *s_names[256];
+    static int s_count, s_warned;
+    int i;
+    char *copy;
+
+    for (i = 0; i < s_count; i++) {
+        if (SDL_strcmp(s_names[i], name) == 0) {
+            return s_names[i];
+        }
+    }
+    if (s_count >= (int)SDL_arraysize(s_names) || (copy = SDL_strdup(name)) == NULL) {
+        if (!s_warned) {
+            s_warned = 1;
+            Port_Log("level: interface pack names: no room for \"%s\" (its load/play fails)", name);
+        }
+        return NULL;
+    }
+    s_names[s_count++] = copy;
+    return copy;
+}

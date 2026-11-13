@@ -8,6 +8,7 @@
 #include "World.h"
 #include "Trigger.h"
 #include "Nav.h"
+#include "Port_Level.h"
 
 /* The AI scripts of a vehicle record, one per difficulty (CarAInfo 0x90). */
 
@@ -210,8 +211,14 @@ s32 ActionPrintDebugString(u32 *action)
 /* data: { id, name[] }; true if the pack has a slot. */
 s8 ActionLoadInterfacePack(s32 *arg0) {
     s32 slot;
+    /* port: the slot keeps the name's pointer; a game-owned copy, not the trigger's
+     * parameters (a level's go when it is taken out). Same name, same pack. */
+    const char *name = Port_LevelPackName((const char *)(arg0 + 1));
 
-    slot = FileStreaming_LoadDataPack(arg0 + 1, 1, *arg0, 1);
+    if (name == NULL) {
+        return 0;
+    }
+    slot = FileStreaming_LoadDataPack((void *)name, 1, *arg0, 1);
     return slot != -1;
 }
 

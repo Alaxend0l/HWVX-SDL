@@ -3,6 +3,7 @@
 #include "common.h"
 #include "Port_Content.h"
 #include "Port_Online.h"
+#include "Port_Level.h"
 #include "CarA.h"
 #include "World.h"
 #include "AI.h"
@@ -914,7 +915,14 @@ s32 ActionPlayInterfacePack(u32 *pack) {
         if (script == NULL) {
             result = 0;
         } else {
-            SLOT_STORE(((u8 *)g_InterfacePackData + g_NumInterfacesPlaying * sizeof(InterfacePackEntry)), (char *)(pack + 1));
+            /* port: a game-owned copy of the name (Port_LevelPackName): the entry outlives a
+             * level's parameters when its interface runs on after the level is taken out */
+            const char *name = Port_LevelPackName((char *)(pack + 1));
+
+            if (name == NULL) {
+                return 0;
+            }
+            SLOT_STORE(((u8 *)g_InterfacePackData + g_NumInterfacesPlaying * sizeof(InterfacePackEntry)), (char *)name);
             g_InterfacePackData[g_NumInterfacesPlaying].id = id;
             g_InterfacePackData[g_NumInterfacesPlaying].iface =
                 InterfaceManager_Create(script, 0, InterfaceDataPackRouter);

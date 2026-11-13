@@ -34,6 +34,11 @@ void Port_LevelStateChanged(int from, int to);
  * the player's); logs when the player can first drive. */
 void Port_LevelControl(int locked, int human);
 
+/* ActionLoadInterfacePack, ActionPlayInterfacePack: the game-owned copy of an interface
+ * pack name (a level's parameter lists go with the level; the slots keep the pointer).
+ * NULL if none could be kept. */
+const char *Port_LevelPackName(const char *name);
+
 /* DataPack_LoadDataPack: a world pack's pointer slots (offsets into its
  * blob), kept for the world loaded last: a level's "appends" grow the
  * world's arrays and move every pointer into them (tileCars, a quadrant's
