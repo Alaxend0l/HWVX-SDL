@@ -244,8 +244,15 @@ static void Id3Tags(Tags *t, const uint8_t *p, size_t n) {
         end = n;
     }
     if (p[5] & 0x40) {     /* extended header */
-        uint32_t ext = ver == 4 ? Syncsafe(p + 10) : Be32(p + 10) + 4;
+        uint32_t ext;
 
+        if (end < 14) {
+            return;
+        }
+        ext = ver == 4 ? Syncsafe(p + 10) : Be32(p + 10) + 4;
+        if (ext > end - o) {     /* (no wrap of a 32-bit size_t) */
+            return;
+        }
         o += ext;
     }
     while (o + 10 <= end && p[o] != 0) {
