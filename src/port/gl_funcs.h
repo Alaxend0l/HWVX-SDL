@@ -17,6 +17,10 @@ typedef void (APIENTRYP PFNGLBLENDFUNCPROC)(GLenum sfactor, GLenum dfactor);
 typedef void (APIENTRYP PFNGLLOGICOPPROC)(GLenum opcode);
 typedef void (APIENTRYP PFNGLDEPTHFUNCPROC)(GLenum func);
 typedef void (APIENTRYP PFNGLDEPTHMASKPROC)(GLboolean flag);
+typedef void (APIENTRYP PFNGLSTENCILFUNCPROC)(GLenum func, GLint ref, GLuint mask);
+typedef void (APIENTRYP PFNGLSTENCILOPPROC)(GLenum sfail, GLenum dpfail, GLenum dppass);
+typedef void (APIENTRYP PFNGLSTENCILMASKPROC)(GLuint mask);
+typedef void (APIENTRYP PFNGLCLEARSTENCILPROC)(GLint s);
 typedef void (APIENTRYP PFNGLCOLORMASKPROC)(GLboolean r, GLboolean g, GLboolean b, GLboolean a);
 typedef void (APIENTRYP PFNGLCULLFACEPROC)(GLenum mode);
 typedef void (APIENTRYP PFNGLFRONTFACEPROC)(GLenum mode);
@@ -61,6 +65,10 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLLOGICOPPROC, glLogicOp)                                              \
     X(PFNGLDEPTHFUNCPROC, glDepthFunc)                                          \
     X(PFNGLDEPTHMASKPROC, glDepthMask)                                          \
+    X(PFNGLSTENCILFUNCPROC, glStencilFunc)                                      \
+    X(PFNGLSTENCILOPPROC, glStencilOp)                                          \
+    X(PFNGLSTENCILMASKPROC, glStencilMask)                                      \
+    X(PFNGLCLEARSTENCILPROC, glClearStencil)                                    \
     X(PFNGLCOLORMASKPROC, glColorMask)                                          \
     X(PFNGLCULLFACEPROC, glCullFace)                                            \
     X(PFNGLFRONTFACEPROC, glFrontFace)                                          \
@@ -160,6 +168,10 @@ GL_FUNCS(GL_DECLARE)
 #define glLogicOp p_glLogicOp
 #define glDepthFunc p_glDepthFunc
 #define glDepthMask p_glDepthMask
+#define glStencilFunc p_glStencilFunc
+#define glStencilOp p_glStencilOp
+#define glStencilMask p_glStencilMask
+#define glClearStencil p_glClearStencil
 #define glColorMask p_glColorMask
 #define glCullFace p_glCullFace
 #define glFrontFace p_glFrontFace

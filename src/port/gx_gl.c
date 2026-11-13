@@ -65,6 +65,7 @@ static struct {
     f32 vp[6];                    /* viewport, near, far as GX set them */
     int scissorOn, sc[4];
     int depthTest, depthWrite, cull, blend, blendRevSub;
+    int stencil;                  /* GXR_STENCIL_* */
     GLenum zfunc, bsrc, bdst;
     GLboolean colorWrite, alphaWrite;
     struct { const void *tex; GXSampler samp; } unit[8];
@@ -758,6 +759,29 @@ static void GL_Draw(const GXDrawCall *dc) {
         a.colorWrite = dc->colorWrite;
         a.alphaWrite = dc->alphaWrite;
     }
+    if (force || a.stencil != dc->stencil) {
+        /* the shadow mask (gx_render.h): count where the depth test passes,
+         * then mask where not 0 and zero it */
+        switch (dc->stencil) {
+        case GXR_STENCIL_NONE:
+            glDisable(GL_STENCIL_TEST);
+            break;
+        case GXR_STENCIL_INCR:
+        case GXR_STENCIL_DECR:
+            glEnable(GL_STENCIL_TEST);
+            glStencilMask(0xFF);
+            glStencilFunc(GL_ALWAYS, 0, 0xFF);
+            glStencilOp(GL_KEEP, GL_KEEP, dc->stencil == GXR_STENCIL_INCR ? GL_INCR : GL_DECR);
+            break;
+        default:
+            glEnable(GL_STENCIL_TEST);
+            glStencilMask(0xFF);
+            glStencilFunc(GL_NOTEQUAL, 0, 0xFF);
+            glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
+            break;
+        }
+        a.stencil = dc->stencil;
+    }
     if (force || a.cull != dc->cull) {
         switch (dc->cull) {
         case 0: glDisable(GL_CULL_FACE); break;
@@ -795,7 +819,9 @@ static void GL_Clear(const f32 c[4], f32 depth) {
     glDepthMask(GL_TRUE);
     glClearColor(c[0], c[1], c[2], c[3]);
     glClearDepth(depth);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glStencilMask(0xFF);
+    glClearStencil(0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     StateReset();
 }
 
@@ -912,6 +938,7 @@ static void GL_DrawGamma(const int src[4], const int lb[4], f32 power, const f32
     }
     glBindVertexArray(s.gammaVao);
     glDisable(GL_DEPTH_TEST);
+    glDisable(GL_STENCIL_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     glViewport(lb[0], lb[1], lb[2], lb[3]);
@@ -1130,6 +1157,11 @@ static void GL_Mark(int m) {
     s_tqFrame = f;
 }
 
+/* The EFB is DEPTH24_STENCIL8 (CreateEFB). */
+static int GL_Stencil(void) {
+    return 1;
+}
+
 static void GL_Present(void) {
     TevGenStats();
     /* GXCopyDisp(clear) leaves the EFB bound (GL_Clear). Present from the
@@ -1151,4 +1183,5 @@ const GXRenderer g_gxGL = {
     "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexFormat, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
     GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_CopyEFB, GL_ReadEFB, GL_Present,
     GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy, GL_GrabStart, GL_GrabFetch, GL_MaxTarget, GL_Mark,
+    GL_Stencil,
 };

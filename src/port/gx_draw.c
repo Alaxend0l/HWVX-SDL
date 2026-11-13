@@ -56,6 +56,49 @@ static int s_efbW, s_efbH;
 /* HWVX_GPUTIME=1: per-frame counts and GPU time, logged every 120 frames. */
 static int s_gpuTimeOn = -1, s_shadowMarked, s_afterCopy;
 
+/* The shadow mask (Render_DrawShadows). The game counts its shadow volumes in
+ * the EFB alpha, copies the EFB (GXCopyTex) and darkens where the copy's alpha
+ * is not 0 with one quad. The scene leaves the alpha 0 (the clear's, alpha
+ * updates off until the volumes), so a stencil count of the same faces is not
+ * 0 exactly where that alpha is not: the volumes also count in the stencil,
+ * GXCopyTex copies nothing, and the quad (the next draw, sampling the copy)
+ * draws where the stencil is not 0, with alpha 255 standing in for the copy's.
+ * No full-EFB copy, and on SDL_GPU no render pass split for it. The volumes
+ * still write the alpha, so it ends as before. The alpha saturates at 255
+ * (64 faces' worth) where the stencil does at 255 faces: past 63 overlapping
+ * volumes they could differ. HWVX_SHADOW_COPY=1 keeps the copy (A/B), as does
+ * a renderer without stencil. s_maskNext: a GXCopyTex went to the stencil and
+ * the quad has not been drawn yet. */
+static int s_shadowStencil = -1, s_maskNext;
+
+/* The mask draw with the stencil: its texture is the 1x1 alpha-255 one, so a
+ * stage's GX_TEV_COMP_A8_GT of that alpha (texmap 0's) over zero always adds
+ * c: as an ADD of a = c, b = c = 0 (mix(c, 0, 0) is c exactly) it gives the
+ * same value without a compare op, which only gx.frag has: the draw gets a
+ * specialised pixel shader (gx_tevgen.h), where gx.frag over the whole EFB
+ * cost more than the copy did (2.7 ms of GPU at 3600x2160 on OpenGL). */
+static void MaskFS(GXFSUniforms *fs) {
+    int s;
+
+    for (s = 0; s < fs->misc[0] && s < 16; s++) {
+        if (fs->aop[s][0] == 14 && fs->ain[s][0] == 4 && fs->order[s][1] == 0 && fs->ain[s][1] >= 6) {
+            fs->aop[s][0] = 0;
+            fs->ain[s][0] = fs->ain[s][2];
+            fs->ain[s][1] = fs->ain[s][2] = 7;
+        }
+    }
+}
+
+static int ShadowStencil(void) {
+    if (s_shadowStencil < 0) {
+        const char *e = SDL_getenv("HWVX_SHADOW_COPY");
+
+        s_shadowStencil = !(e != NULL && *e == '1') && g_gxr->stencil != NULL && g_gxr->stencil();
+        Port_Log("shadow mask: %s", s_shadowStencil ? "stencil" : "EFB copy");
+    }
+    return s_shadowStencil;
+}
+
 static int GpuTimeOn(void) {
     if (s_gpuTimeOn < 0) {
         const char *e = SDL_getenv("HWVX_GPUTIME");
@@ -473,6 +516,23 @@ static int BuildDrawCall(GXDrawCall *dc, GXVSUniforms *vs, GXFSUniforms *fs) {
         dc->blendRevSub = 1;
         dc->blendSrc = dc->blendDst = GXR_BF_ONE;
     }
+    dc->stencil = GXR_STENCIL_NONE;
+    if (g->blendType == 1 && !g->colorUpdate && g->alphaUpdate && ShadowStencil()) {
+        if (dc->blendRevSub) {
+            dc->stencil = GXR_STENCIL_DECR;
+        } else if (g->blendSrc == 1 && g->blendDst == 1) {
+            dc->stencil = GXR_STENCIL_INCR;
+        }
+    }
+    if (s_maskNext) {
+        s_maskNext = 0;
+        if (g->texLoaded[0] && GX_TexIsCopy(&g->texObj[0])) {
+            dc->stencil = GXR_STENCIL_MASK;
+            MaskFS(fs);
+        } else {
+            Port_Log("shadow mask: the draw after GXCopyTex does not sample it");
+        }
+    }
     if (g->blendType == 1 && !g->colorUpdate && g->alphaUpdate && !s_shadowMarked) {
         s_shadowMarked = 1;   /* HWVX_GPUTIME: the first shadow volume */
         Mark(GXR_MARK_SHADOW);
@@ -818,9 +878,13 @@ void GX_DrawCopyTex(void *dest, int clear) {
     int r[4] = { 0, 0, s_efbW, s_efbH };
 
     Mark(GXR_MARK_COPY);
-    g_gxFrame.effCopies++;
-    g_gxFrame.effPixels += (u32)(s_efbW * s_efbH);
-    GX_TexCopyEFB(dest, r);
+    if (ShadowStencil() && GX_TexCopyStencil(dest)) {
+        s_maskNext = 1;
+    } else {
+        g_gxFrame.effCopies++;
+        g_gxFrame.effPixels += (u32)(s_efbW * s_efbH);
+        GX_TexCopyEFB(dest, r);
+    }
     s_afterCopy = 1;   /* HWVX_GPUTIME: the next draw applies the mask */
     if (clear) {
         ClearEFB();

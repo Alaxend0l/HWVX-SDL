@@ -52,6 +52,12 @@ typedef struct GXFSUniforms {
 _Static_assert(sizeof(GXVSUniforms) == 128 * 16, "GXVSUniforms must match VSBlock");
 _Static_assert(sizeof(GXFSUniforms) == 104 * 16, "GXFSUniforms must match FSBlock");
 
+/* The shadow mask in the stencil buffer (gx_draw.c): INCR and DECR count a
+ * shadow volume's faces where they pass the depth test (saturating, 0..255),
+ * MASK draws only where the count is not 0 and zeroes it where it draws or
+ * fails the depth test, so the stencil is all 0 again after the mask. */
+enum { GXR_STENCIL_NONE, GXR_STENCIL_INCR, GXR_STENCIL_DECR, GXR_STENCIL_MASK };
+
 enum {
     GXR_TRIANGLES, GXR_TRIANGLESTRIP, GXR_TRIANGLEFAN, GXR_LINES, GXR_LINESTRIP, GXR_POINTS
 };
@@ -128,6 +134,7 @@ typedef struct GXDrawCall {
     u8 depthTest, depthFunc, depthWrite;          /* depthFunc: GX_NEVER..GX_ALWAYS */
     u8 colorWrite, alphaWrite;
     u8 cull;                  /* 0 none, 1 front, 2 back, 3 all (GX_CULL_*) */
+    u8 stencil;               /* GXR_STENCIL_*: the shadow mask in the EFB stencil (see gx_draw.c) */
 } GXDrawCall;
 
 typedef struct GXRenderer {
@@ -189,6 +196,10 @@ typedef struct GXRenderer {
      * just the whole frame to g_gxGpuNs[GXR_MARK_END] when it has no timers.
      * NULL: not measured. */
     void (*mark)(int m);
+    /* 1 if the EFB has an 8-bit stencil that draws' stencil field drives and
+     * clear zeroes (the shadow mask, gx_draw.c); NULL or 0: the mask is an EFB
+     * copy (copyEFB). */
+    int (*stencil)(void);
 } GXRenderer;
 
 #define GXR_GRAB_SLOTS 2
@@ -274,5 +285,10 @@ int GX_PortTexObjInfo(const GXTexObj *obj, GXPortTexInfo *info);
 int GX_PortDecodeTexObj(const GXTexObj *obj, int level, u8 *rgba);
 /* GXCopyTex: texture objects on dest's memory now sample this EFB rectangle. */
 void GX_TexCopyEFB(void *dest, const int src[4]);
+/* The shadow mask in the stencil: texture objects on dest's memory now sample
+ * alpha 255 (the stencil test does the masking). 0 on failure. */
+int GX_TexCopyStencil(void *dest);
+/* Whether obj samples the last GXCopyTex's destination. */
+int GX_TexIsCopy(const GXTexObj *obj);
 
 #endif

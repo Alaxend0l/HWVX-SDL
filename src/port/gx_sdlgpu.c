@@ -25,6 +25,8 @@
 #define GX_NUM_TEV_VARIANTS 0
 #endif
 
+_Static_assert(GX_NUM_TEV_VARIANTS < 64, "the pipeline key has 6 bits for the pixel shader");
+
 #define MAX_PIPELINES 1024
 #define MAX_SAMPLERS 64
 #define STAGING_ALIGN 512   /* D3D12 texture upload placement alignment */
@@ -71,6 +73,7 @@ typedef struct Draw {
 static struct {
     SDL_GPUDevice *dev;
     SDL_GPUTextureFormat swapFmt, depthFmt;
+    int stencil;                    /* depthFmt has an 8-bit stencil (GPU_Stencil) */
     SDL_GPUShader *vs, *fs, *presentVS, *presentFS;
     SDL_GPUGraphicsPipeline *present;
     SDL_GPUTexture *efb, *efbDepth, *black, *image;
@@ -360,10 +363,25 @@ static void GPU_Init(int efbW, int efbH) {
                  s.tevGen ? "" : ", off (HWVX_NO_TEVGEN)");
     }
 
-    /* 24-bit depth like the EFB's; Apple GPUs only have 32-bit float */
-    s.depthFmt = SDL_GPUTextureSupportsFormat(s.dev, SDL_GPU_TEXTUREFORMAT_D24_UNORM, SDL_GPU_TEXTURETYPE_2D,
-                                              SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
-                     ? SDL_GPU_TEXTUREFORMAT_D24_UNORM : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    /* 24-bit depth like the EFB's; Apple GPUs only have 32-bit float. With
+     * an 8-bit stencil for the shadow mask (gx_draw.c) when the device has
+     * the same depth with one; HWVX_SHADOW_COPY=1 (the mask an EFB copy)
+     * keeps the depth alone. */
+    {
+        const char *e = SDL_getenv("HWVX_SHADOW_COPY");
+        int d24 = SDL_GPUTextureSupportsFormat(s.dev, SDL_GPU_TEXTUREFORMAT_D24_UNORM, SDL_GPU_TEXTURETYPE_2D,
+                                               SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET);
+        SDL_GPUTextureFormat withStencil = d24 ? SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT
+                                               : SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
+
+        s.depthFmt = d24 ? SDL_GPU_TEXTUREFORMAT_D24_UNORM : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+        s.stencil = !(e != NULL && *e == '1') &&
+                    SDL_GPUTextureSupportsFormat(s.dev, withStencil, SDL_GPU_TEXTURETYPE_2D,
+                                                 SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET);
+        if (s.stencil) {
+            s.depthFmt = withStencil;
+        }
+    }
     CreateEFB();
     for (i = 0; i < GXR_TEX_COUNT; i++) {
         s.texFormats[i] = s_texFmt[i] != SDL_GPU_TEXTUREFORMAT_INVALID &&
@@ -557,7 +575,7 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
     u32 prim = key & 7, blend = (key >> 3) & 1, src = (key >> 4) & 15, dst = (key >> 8) & 15;
     u32 revSub = (key >> 12) & 1, depthTest = (key >> 13) & 1, depthFunc = (key >> 14) & 7;
     u32 depthWrite = (key >> 17) & 1, colorWrite = (key >> 18) & 1, alphaWrite = (key >> 19) & 1;
-    u32 cullMode = (key >> 20) & 3, layout = (key >> 22) & 3, frag = key >> 24;
+    u32 cullMode = (key >> 20) & 3, layout = (key >> 22) & 3, frag = (key >> 24) & 63, stencil = key >> 30;
     int i;
 
     SDL_zero(attr);
@@ -644,6 +662,25 @@ static SDL_GPUGraphicsPipeline *CreatePipeline(u32 key) {
     ci.depth_stencil_state.enable_depth_test = depthTest != 0;
     ci.depth_stencil_state.enable_depth_write = depthTest && depthWrite;
     ci.depth_stencil_state.compare_op = cmp[depthFunc];
+    if (stencil != GXR_STENCIL_NONE) {
+        /* the shadow mask (gx_render.h): count where the depth test passes,
+         * then mask where not 0 and zero it; the reference is 0 */
+        SDL_GPUStencilOpState *st = &ci.depth_stencil_state.front_stencil_state;
+
+        ci.depth_stencil_state.enable_stencil_test = true;
+        ci.depth_stencil_state.compare_mask = ci.depth_stencil_state.write_mask = 0xFF;
+        st->fail_op = SDL_GPU_STENCILOP_KEEP;
+        if (stencil == GXR_STENCIL_MASK) {
+            st->compare_op = SDL_GPU_COMPAREOP_NOT_EQUAL;
+            st->depth_fail_op = st->pass_op = SDL_GPU_STENCILOP_ZERO;
+        } else {
+            st->compare_op = SDL_GPU_COMPAREOP_ALWAYS;
+            st->depth_fail_op = SDL_GPU_STENCILOP_KEEP;
+            st->pass_op = stencil == GXR_STENCIL_INCR ? SDL_GPU_STENCILOP_INCREMENT_AND_CLAMP
+                                                      : SDL_GPU_STENCILOP_DECREMENT_AND_CLAMP;
+        }
+        ci.depth_stencil_state.back_stencil_state = *st;
+    }
     ci.target_info.color_target_descriptions = &ct;
     ci.target_info.num_color_targets = 1;
     ci.target_info.depth_stencil_format = s.depthFmt;
@@ -871,10 +908,16 @@ static void RenderPass(SDL_GPUCommandBuffer *cmd) {
     dt.load_op = ct.load_op;
     dt.store_op = SDL_GPU_STOREOP_STORE;
     dt.clear_depth = s.clearDepth;
-    dt.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
-    dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    /* the shadow mask's count (gx_draw.c) lives within a frame, but a frame
+     * can span passes (a Flush for uploads) */
+    dt.stencil_load_op = s.stencil ? ct.load_op : SDL_GPU_LOADOP_DONT_CARE;
+    dt.stencil_store_op = s.stencil ? SDL_GPU_STOREOP_STORE : SDL_GPU_STOREOP_DONT_CARE;
+    dt.clear_stencil = 0;
     g_gxFrame.passes++;
     pass = SDL_BeginGPURenderPass(cmd, &ct, 1, &dt);
+    if (s.stencil) {
+        SDL_SetGPUStencilReference(pass, 0);
+    }
     for (i = 0; i < s.nDraws; i++) {
         const Draw *d = &s.draws[i];
         SDL_GPUTextureSamplerBinding tb[8];
@@ -1037,7 +1080,8 @@ static void GPU_Draw(const GXDrawCall *dc) {
     key = prims[dc->prim] | (u32)(dc->blend != 0) << 3 | (u32)(dc->blendSrc & 15) << 4 |
           (u32)(dc->blendDst & 15) << 8 | (u32)(dc->blendRevSub != 0) << 12 | (u32)(dc->depthTest != 0) << 13 |
           (u32)(dc->depthFunc & 7) << 14 | (u32)(dc->depthWrite != 0) << 17 | (u32)(dc->colorWrite != 0) << 18 |
-          (u32)(dc->alphaWrite != 0) << 19 | (u32)(dc->cull % 3) << 20 | layout << 22 | s.curFrag << 24;
+          (u32)(dc->alphaWrite != 0) << 19 | (u32)(dc->cull % 3) << 20 | layout << 22 | s.curFrag << 24 |
+          (u32)(dc->stencil & 3) << 30;
     d->pipeline = GetPipeline(key);
 }
 
@@ -1374,6 +1418,10 @@ static int GPU_GrabFetch(int slot, u8 *dst, int stride, int maxW, int maxH, int 
     return ok;
 }
 
+static int GPU_Stencil(void) {
+    return s.stencil;
+}
+
 static void GPU_Present(void) {
     Flush();
     if (s.cmd != NULL) {
@@ -1420,4 +1468,5 @@ const GXRenderer g_gxSDLGPU = {
     "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexFormat, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
     GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_CopyEFB, GPU_ReadEFB, GPU_Present,
     GPU_MeshIndices, GPU_MeshVertices, GPU_MeshDestroy, GPU_GrabStart, GPU_GrabFetch, NULL, GPU_Mark,
+    GPU_Stencil,
 };
