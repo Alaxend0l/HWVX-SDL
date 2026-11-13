@@ -41,7 +41,7 @@ bottom:
 | Saves | **Import saves...** and its preview (below) |
 | Convert | converting to `.xdl`: coming later |
 | Mods | coming later |
-| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu, in sub-tabs (left/right on a row switches them; the last one shown is remembered): Display (windowed or fullscreen, PC textures `pctextures=`, draw distance `drawdist=`, split-screen detail `splitlod=`), Audio (stereo: `stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one; movies `movies=`), Controls (mouse steering `mousesteer=`), Game (main menu `mainmenu=`);
+| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu, in sub-tabs (left/right on a row switches them; the last one shown is remembered): Display (windowed or fullscreen, renderer `renderer=`, resolution scale `resscale=`, PC textures `pctextures=`, draw distance `drawdist=`, split-screen detail `splitlod=`), Audio (stereo: `stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one; movies `movies=`), Controls (mouse steering `mousesteer=`, button prompts `prompts=`), Game (main menu `mainmenu=`);
 
 The launcher opens every time the game starts, unless you tick
 "Start the game without this window"; then the game boots straight into the
@@ -87,7 +87,8 @@ not played.
 
 Options: `--data PATH`, `--scale N` (window = 640×480×N), `--window WxH`
 (any size and shape), `--fullscreen` or `--windowed` (either overrides
-`graphics.cfg`), `--renderer NAME` (this run only; `auto` too).
+`graphics.cfg`), `--renderer NAME` (this run only; `auto` too),
+`--res-scale N` and `--prompts NAME` (this run only; below).
 
 `--gc-air-camera` (or `HWVX_GC_AIR_CAMERA=1`): the GameCube/PS2 trigger orbit camera. An
 event's orbit around an object ends, and the camera goes back to the car, as soon as the
@@ -103,7 +104,11 @@ about 10 dB. Default: the GameCube/PS2 pan. Centred sounds play the same either 
 Resolution: the game renders at the window's size and shape, and the window
 can be resized. On a screen wider than 4:3 the 3D view widens to fill it while
 the HUD and menus keep their 4:3 layout in the middle (taller screens work the
-same way vertically); split screen stays 4:3. Options → Graphics (a menu the
+same way vertically). Split screen fills the window too: each view is widened
+as one view is, and each player's HUD is laid out in its own view (centred in
+it, its sides at the view's edges; the original game's 10-unit offset toward
+the screen's middle lines is gone, at 4:3 too). The resolution scale (Settings >
+Display, `resscale=`; `HWVX_RESSCALE` below) renders at 0.5x-2x the window. Options → Graphics (a menu the
 port adds) picks a resolution from the display's modes and windowed or
 fullscreen; it is applied when you leave that menu and kept in `graphics.cfg`
 in the save folder. It also has Gamma and FOV bars, which take effect at once. Command-line options override it.
@@ -202,8 +207,22 @@ Enter to accept, Escape to go back, X for the X button (stats).
 Button prompts follow the device (Button prompts in the launcher's Controls,
 `prompts=` in `graphics.cfg`, `--prompts NAME` or `HWVX_PROMPTS=NAME` for one run:
 `auto` (default: the controller or keyboard last pressed, per player), `original`
-(the release's own art), `xbox`, `ps`, `switch`, `keyboard`). The glyphs are
-"The Meritite Union's Input Prompts" (CC0; `assets/prompts/README.md`).
+(the release's own art), `xbox`, `ps` (or `playstation`), `switch`, `keyboard`).
+Auto follows the device last pressed on each port (a button, or a trigger past
+half way; sticks don't count); port 1 shares the keyboard and the first pad, and
+before any press shows the first pad if one is connected. A pad's style comes
+from its type (PS3/4/5 → PlayStation, Switch Pro and Joy-Cons → Switch, a
+GameCube adapter → Original, others → Xbox), and each glyph is the label SDL
+gives the button the game reads (confirm SOUTH, back EAST, details WEST), so a
+Switch pad shows B for confirm. In split screen each interface follows its own
+pad; the menus, read by every pad, follow the device last pressed anywhere. The
+release's atlases are recognised by a perceptual hash when a pack loads, and
+the three cells interfaces show are swapped at draw time
+(`src/game/Port_Prompts.c`); the controller page's pad picture stays. Tests
+that compare frames pin `HWVX_PROMPTS=original`. The glyphs are
+"The Meritite Union's Input Prompts" (CC0; `assets/prompts/README.md`);
+`xdlrs prompts inventory GC PC PS2` lists the releases' atlases and every
+interface that shows them.
 
 Mouse steering, the PC release's (off by default: turn it on with Mouse
 steering on the launcher's Settings page, `mousesteer=on` in `graphics.cfg`,
@@ -633,10 +652,13 @@ Debugging aids:
   `carselect[:mode=M][,car=N][,world=W]`; `itemselect` (through the car
   select, which picks car N as an A press would, so the item select shows
   it; starting at item I);
-  `race[:mode=M][,world=W][,car=N][,item=I]`. M is `adventure` (or
-  `mission`), `challenge`, `drag`, `battle` or `joyride` (default); W a level
+  `race[:mode=M][,world=W][,car=N][,item=I][,players=P]`. M is `adventure` (or
+  `mission`), `challenge`, `drag`, `battle` or `joyride` (default), and for
+  `race` also `mpdrag` and `mpbattle` (the multi-player progressions); W a level
   of the mode's progression script by world name (`bat2_l9`, `ch1_l2`,
-  `world1`) or index; N and I car and item numbers. With
+  `world1`) or index; N and I car and item numbers; P (1-4) local players on
+  ports 1-P, all with car N and item I as the split car select leaves them
+  (split-screen tests, with `mpbattle` or `mpdrag`). With
   `HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1` a select screen is
   up in a few seconds.
 - `HWVX_PROTO=off|cars|added|replace`: the PS2 prototype's import mode (the
@@ -694,13 +716,18 @@ Debugging aids:
   `HWVX_HANDLING=2` to compare.
 - `HWVX_SPLITSCREEN_LOD=gc` draws models one level coarser in split screen as
   the GameCube did (default: full detail, like the PC release; `graphics.cfg`
-  `splitlod=full- `HWVX_RESSCALE=0.5..2` (or `--res-scale N`) renders at that times the
-  window's size (`graphics.cfg resscale=0.5|0.75|1|1.5|2`, the launcher's
-  Settings > Display; default 1): below 1x for weak GPUs, above 1x box-filtered
-  down as supersampling. `HWVX_RESFILTER=nearest` (`resfilter=nearest`) shows a
-  scale under 1x with square pixels. HWVX_DUMP frames and screenshots are at
-  the render size; the data browser's view is never scaled.
-|gc`).
+  `splitlod=full|gc`).
+- `HWVX_RESSCALE=0.5..2` (or `--res-scale N`; any value in that range, not
+  saved) renders at that times the window's size (`graphics.cfg
+  resscale=0.5|0.75|1|1.5|2`, the launcher's Settings > Display; default 1):
+  below 1x for weak GPUs, above 1x box-filtered down as supersampling.
+  `HWVX_RESFILTER=nearest` (`resfilter=nearest`, no launcher row) shows a
+  scale under 1x with square pixels. The render size is capped at the
+  renderer's largest target (OpenGL: its texture/renderbuffer/viewport
+  limits; SDL_GPU 16384), keeping the shape, logged once per window size.
+  HWVX_DUMP frames and screenshots are at the render size; the data
+  browser's embedded view is never scaled (it asks for the pixel size it
+  shows).
 - `HWVX_DETERMINISTIC=1` makes runs repeatable, to compare builds frame by
   frame: a fixed random seed (`HWVX_SEED=n`, default 1), a fixed frame step
   (`HWVX_FIXEDSTEP=us`, default 16667) instead of measured time, and world
@@ -768,6 +795,20 @@ Debugging aids:
   CPU's wait on the frame's fence (it adds a stall). `tools/gputime.sh` runs one
   unpaced timed run at a window size (`HWVX_START=race:mode=challenge
   HWVX_AUTOPILOT=1` for a race; the attract demo is split screen, so no shadows).
+  What grows with the window is the shadow mask, not the scene (OpenGL, a race,
+  M2 Max: the scene 0.7 ms at 1280x960, 1.0 at 3600x2160). The game counts its
+  shadow volumes in the EFB alpha, copies the EFB (the game's only `GXCopyTex`)
+  and darkens where the copy's alpha isn't 0 with one full-screen quad. The port
+  counts the volumes in the stencil as well, copies nothing and draws the quad
+  where the stencil isn't 0 (no full-EFB copy, and on SDL_GPU no render pass
+  split for it; identical up to 63 overlapping volumes). The cost was the
+  quad: its alpha compare only exists in the general shader (`gx.frag`), which
+  over the whole EFB cost more than the copy, so with the stencil the compare is
+  rewritten as an ADD giving the same value and the quad gets a specialised
+  shader (on SDL_GPU precompiled as `gx_tev9`, its setup in `tools/tevkeys.txt`); OpenGL at 3600x2160
+  went from 4.4 to 2.0 ms of GPU. `HWVX_SHADOW_COPY=1` keeps the EFB copy (to
+  compare; also used by a renderer without stencil, logged as `shadow mask:`);
+  OpenGL's copy keeps its texture storage instead of reallocating it each frame.
 - `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
   since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.
 - `HWVX_THREADTRACE=1` logs every background world/car load: how long it held
