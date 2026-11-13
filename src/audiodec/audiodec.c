@@ -325,28 +325,77 @@ static int DecodeMa(const void *data, size_t size, ma_encoding_format fmt, Audio
     return 1;
 }
 
+/* stb_vorbis_decode_memory's loop, stopping at the ten-minute cap: a small, highly
+ * compressible file could otherwise decode to gigabytes before the length check. */
 static int DecodeOgg(const void *data, size_t size, AudioDecoded *out, char *err, size_t errSize) {
-    int ch = 0, rate = 0, n;
-    short *pcm = NULL;
+    int ch, rate, error = 0;
+    size_t frames = 0, offset = 0, total, limit;
+    short *pcm;
+    stb_vorbis *v;
+    stb_vorbis_info info;
 
     if (size > 0x7FFFFFFF) {
         Err(err, errSize, "is too large");
         return 0;
     }
-    n = stb_vorbis_decode_memory(data, (int)size, &ch, &rate, &pcm);
-    if (n <= 0 || pcm == NULL) {
+    if ((v = stb_vorbis_open_memory(data, (int)size, &error, NULL)) == NULL) {
+        Err(err, errSize, "can't be decoded (Ogg Vorbis)");
+        return 0;
+    }
+    info = stb_vorbis_get_info(v);
+    ch = info.channels;
+    rate = (int)info.sample_rate;
+    if (ch <= 0 || ch > 8 || rate < 1000 || rate > 384000) {
+        stb_vorbis_close(v);
+        Err(err, errSize, "has an unusable channel count or rate");
+        return 0;
+    }
+    limit = (size_t)ch * 4096;      /* more than one Vorbis packet's frames */
+    total = limit;
+    if ((pcm = malloc(total * sizeof(*pcm))) == NULL) {
+        stb_vorbis_close(v);
+        Err(err, errSize, "can't be decoded (Ogg Vorbis)");
+        return 0;
+    }
+    for (;;) {
+        int n = stb_vorbis_get_frame_short_interleaved(v, ch, pcm + offset, (int)(total - offset));
+
+        if (n <= 0) {
+            break;
+        }
+        frames += (size_t)n;
+        offset += (size_t)n * (size_t)ch;
+        if (frames > AUDIODEC_MAX_FRAMES) {
+            stb_vorbis_close(v);
+            free(pcm);
+            Err(err, errSize, "is longer than ten minutes");
+            return 0;
+        }
+        if (offset + limit > total) {
+            size_t want = total * 2, cap = ((size_t)AUDIODEC_MAX_FRAMES + 4096) * (size_t)ch + limit;
+            short *grown;
+
+            if (want > cap) {
+                want = cap;
+            }
+            if ((grown = realloc(pcm, want * sizeof(*pcm))) == NULL) {
+                stb_vorbis_close(v);
+                free(pcm);
+                Err(err, errSize, "can't be decoded (Ogg Vorbis)");
+                return 0;
+            }
+            pcm = grown;
+            total = want;
+        }
+    }
+    stb_vorbis_close(v);
+    if (frames == 0) {
         free(pcm);
         Err(err, errSize, "can't be decoded (Ogg Vorbis)");
         return 0;
     }
-    if (ch <= 0 || ch > 8 || rate < 1000 || rate > 384000 || (uint32_t)n > AUDIODEC_MAX_FRAMES) {
-        free(pcm);
-        Err(err, errSize, ch <= 0 || ch > 8 || rate < 1000 || rate > 384000 ? "has an unusable channel count or rate"
-                                                                             : "is longer than ten minutes");
-        return 0;
-    }
     out->pcm = pcm;
-    out->frames = (uint32_t)n;
+    out->frames = (uint32_t)frames;
     out->channels = (uint32_t)ch;
     out->rate = (uint32_t)rate;
     return 1;
