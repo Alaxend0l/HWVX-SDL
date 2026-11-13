@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=HWVX Editor
+Comment=Level editor for the Hot Wheels: Velocity X port (needs your own disc's files)
+Exec=hwvx-browser
+Icon=hwvx-editor
+Terminal=false
+Categories=Development;Game;
+StartupWMClass=hwvx-browser
