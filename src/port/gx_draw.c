@@ -236,19 +236,20 @@ static void Widen(f32 *wx, f32 *wy) {
 }
 
 void Port_ViewWiden(f32 *wx, f32 *wy) {
-    if (SplitScreen() || s_efbW == 0) {
+    if (s_efbW == 0) {
         *wx = *wy = 1.0f;
     } else {
         Widen(wx, wy);
     }
 }
 
-/* A GX rectangle (x, y, width, height) to EFB pixels through the safe area. */
+/* A GX rectangle (x, y, width, height) to EFB pixels: the game's screen
+ * stretched over the whole EFB (split screen: each view fills its share of
+ * the window, its projection widened like a single view's, MapViewport). */
 static void MapRect(const f32 in[4], f32 out[4]) {
-    f32 d[4], a[4];
+    f32 d[4], a[4] = { 0.0f, 0.0f, (f32)s_efbW, (f32)s_efbH };
 
     DisplayArea(d);
-    SafeArea(a);
     out[0] = a[0] + (in[0] - d[0]) * a[2] / d[2];
     out[1] = a[1] + (in[1] - d[1]) * a[3] / d[3];
     out[2] = in[2] * a[2] / d[2];
@@ -414,6 +415,16 @@ static int MapViewport(GXDrawCall *dc, GXVSUniforms *vs) {
     dc->scissor[1] = y0;
     dc->scissor[2] = x1 - x0;
     dc->scissor[3] = y1 - y0;
+    /* the view is wx times wider (wy taller) than the game laid it out for:
+     * widened as a single view is, its 4:3 content (the player's HUD) in its
+     * middle, the HUD's sides moved out to its edges (Port_HudShift) */
+    Widen(&wx, &wy);
+    if (wx != 1.0f || wy != 1.0f) {
+        for (i = 0; i < 4; i++) {
+            vs->proj[0][i] /= wx;
+            vs->proj[1][i] /= wy;
+        }
+    }
     return 1;
 }
 
