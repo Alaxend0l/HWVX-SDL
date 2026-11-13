@@ -40,7 +40,8 @@
  * release plays, the skip tick), Games (importing and removing releases),
  * Saves, Convert (below), Mods (a placeholder), Settings (graphics.cfg,
  * through gfx_settings.c, in sections under a row of sub-tabs: Display
- * (windowed or fullscreen, PC textures, draw distance, split screen), Audio
+ * (windowed or fullscreen, PC textures, draw distance, split screen,
+ * resolution scale), Audio
  * (stereo, movies), Controls (mouse steering), Game (main menu); a row cycles
  * through its choices, any number of them). Play, Quit and the status line
  * stay at the bottom. It opens on the page (and section) shown last, or Play;
@@ -455,6 +456,7 @@ enum { CONV_NONE, CONV_OK, CONV_STALE, CONV_IMAGE /* a disc image: nothing to co
  * each section's rows in the order shown. */
 enum {
     SET_DISPLAY, SET_PCTEX, SET_DRAWDIST, SET_SPLITLOD,     /* Display */
+    SET_RESSCALE,                                           /* Display */
     SET_STEREO, SET_MOVIES,                                 /* Audio */
     SET_MOUSESTEER,                                         /* Controls */
     SET_MAINMENU,                                           /* Game */
@@ -476,6 +478,8 @@ static const struct {
       "HWVX_DRAWDIST", { "Normal", "Far", "Everything" } },
     { SEC_DISPLAY, "Split screen", "Full detail like the PC, or a level coarser as the GameCube drew it.",
       "HWVX_SPLITSCREEN_LOD", { "Full detail", "GameCube's detail" } },
+    { SEC_DISPLAY, "Resolution scale", "The window's size times this: below 1x for weak GPUs, above 1x smoother.",
+      "HWVX_RESSCALE", { "0.5x", "0.75x", "1x", "1.5x", "2x" } },
     { SEC_AUDIO, "Stereo", "How far sounds pan; the PC's plays a sound at the side from one speaker.", "HWVX_PC_PAN",
       { "GameCube/PS2", "PC (wider)" } },
     { SEC_AUDIO, "Movies", "The intro and ending movies; off skips them, like the PC's option.", "HWVX_NO_MOVIE",
@@ -517,6 +521,7 @@ static int *SettingVar(int i) {
     case SET_MOUSESTEER: return &g_port.mouseSteer;
     case SET_DRAWDIST: return &g_port.drawDist;
     case SET_STEREO: return &g_port.pcPan;
+    case SET_RESSCALE: return &g_port.resScale;
     default: return &g_port.moviesOff;
     }
 }
