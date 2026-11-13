@@ -316,8 +316,25 @@ static s32 *GameSettings_PortExtraPort(s32 var, u32 arg) {
     return &s_portExtraPorts[arg - RETAIL_PLAYERS - 1][k];
 }
 
+/* port: a code variable's argument past the table it indexes (a shared level's check
+ * refuses those, Port_Level.c; this is the game's own guard): logged once per variable,
+ * the Get returns 0 and the Set does nothing. Every index inside the table reads and
+ * writes as retail. */
+static s32 GameSettings_PortBadIndex(s32 var, u32 arg, s32 set) {
+    static u8 s_logged[2][0x200 / 8];
+
+    if (var >= 0 && var < 0x200 && !(s_logged[set != 0][var >> 3] & (1 << (var & 7)))) {
+        s_logged[set != 0][var >> 3] |= 1 << (var & 7);
+        Port_Log("codevar: %s 0x%X with argument %u, past its table: %s", set ? "set" : "get",
+                 (unsigned)var, (unsigned)arg, set ? "ignored" : "0");
+    }
+    return 0;
+}
+#define PORT_ARG_1_TO(n) (arg >= 1 && arg <= (n))   /* a 1-based port index */
+
 /* port: [(s32)arg - 1] indexes -1 for arg 0, as the original's 32-bit address
- * arithmetic wrapped; with an unsigned index it would land 16 GB away. */
+ * arithmetic wrapped; with an unsigned index it would land 16 GB away. Now bounded:
+ * arg 0 and the unchecked tables go to GameSettings_PortBadIndex. */
 void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     extern s8 g_bGameSettingsInitialized;
     extern s8 g_bBlockReset;
@@ -468,6 +485,10 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         }
         break;
     case 0xCB:
+        if (!PORT_ARG_1_TO(4)) {   /* port: was unchecked (arg 0 indexed [-1]) */
+            GameSettings_PortBadIndex(var, arg, 1);
+            break;
+        }
         g_codeVariables.playerVehicle[(s32)arg - 1] = val;
         if (arg - 1 == 0) {
             switch (type) {
@@ -481,6 +502,10 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         }
         break;
     case 0xCC:
+        if (!PORT_ARG_1_TO(4)) {   /* port: was unchecked (arg 0 indexed [-1]) */
+            GameSettings_PortBadIndex(var, arg, 1);
+            break;
+        }
         g_codeVariables.playerItem[(s32)arg - 1] = val;
         if (arg - 1 == 0) {
             switch (type) {
@@ -494,13 +519,13 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         }
         break;
     case 0xCE:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 1)) {   /* port: arg 0 indexed [-1] */
             g_generalGameSettings.controllers[(s32)arg - 1].data[1] = val;
             GameSettings_ApplyDefaultGameData();
         }
         break;
     case 0xD1:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 1)) {   /* port: arg 0 indexed [-1] */
             g_generalGameSettings.controllers[(s32)arg - 1].data[0] = val;
             GameSettings_ApplyDefaultGameData();
             if (val) {
@@ -567,22 +592,22 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         g_codeVariables.currentRound = val;
         break;
     case 0x191:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 1)) {   /* port: arg 0 indexed [-1] */
             g_codeVariables.playerWins[(s32)arg - 1] = val;
         }
         break;
     case 0x192:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 1)) {   /* port: arg 0 indexed [-1] */
             g_codeVariables.playerStuntPoints[(s32)arg - 1] = val;
         }
         break;
     case 0x193:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 1)) {   /* port: arg 0 indexed [-1] */
             g_codeVariables.playerKills[(s32)arg - 1] = val;
         }
         break;
     case 0x194:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 1)) {   /* port: arg 0 indexed [-1] */
             g_codeVariables.playerWinner[(s32)arg - 1] = val != 0;
         }
         break;
@@ -617,7 +642,8 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
     }
 }
 /* port: [(s32)arg - 1] indexes -1 for arg 0, as the original's 32-bit address
- * arithmetic wrapped; with an unsigned index it would land 16 GB away. */
+ * arithmetic wrapped; with an unsigned index it would land 16 GB away. Now bounded:
+ * arg 0 and the unchecked tables go to GameSettings_PortBadIndex. */
 u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     extern s8 g_bGameSettingsInitialized;
     static s8 bFirstTime = 1;
@@ -737,6 +763,9 @@ done:
     case 0x69:
         return GameSettings_IsCheatEnabled(9);
     case 0x6A:
+        if (arg >= 0xB) {   /* port: was unchecked; the cheats are 11 */
+            return GameSettings_PortBadIndex(var, arg, 0);
+        }
         switch (type) {
         case 0:
             return g_HotWheelsGameData.cheats[arg] || g_HotWheelsGameData.cheats[10];
@@ -745,12 +774,21 @@ done:
         }
         break;
     case 0x6B:
+        if (arg >= sizeof(g_codeVariables.cheatsEnabled)) {   /* port: was unchecked */
+            return GameSettings_PortBadIndex(var, arg, 0);
+        }
         return GameSettings_IsCheatEnabled(arg);
     case 0x6C:
+        if (arg >= sizeof(g_codeVariables.cheatsEnabled)) {   /* port: was unchecked */
+            return GameSettings_PortBadIndex(var, arg, 0);
+        }
         return g_codeVariables.cheatsEnabled[arg];
     case 0xC8:
         return g_generalGameSettings.difficulty;
     case 0xC9:
+        if (!PORT_ARG_1_TO(10)) {   /* port: was unchecked; the Set takes 1-10 */
+            return GameSettings_PortBadIndex(var, arg, 0);
+        }
         if ((1 << (arg - 1)) & Input_GetContollersPluggedIn()) {
             return g_codeVariables.controllerState[(s32)arg - 1];
         }
@@ -795,8 +833,14 @@ done:
         if (GameSettings_PortExtraPort(var, arg) != NULL) {   /* port: online, ports 5-8 */
             return (u32)*GameSettings_PortExtraPort(var, arg);
         }
+        if (!PORT_ARG_1_TO(4)) {   /* port: was unchecked (arg 0 indexed [-1]) */
+            return GameSettings_PortBadIndex(var, arg, 0);
+        }
         return g_codeVariables.playerVehicle[(s32)arg - 1];
     case 0xCC:
+        if (!PORT_ARG_1_TO(4)) {   /* port: was unchecked (arg 0 indexed [-1]) */
+            return GameSettings_PortBadIndex(var, arg, 0);
+        }
         return g_codeVariables.playerItem[(s32)arg - 1];
     case 0xCD:
         n = 0;
@@ -807,17 +851,17 @@ done:
         }
         return n;
     case 0xCE:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 0)) {   /* port: arg 0 indexed [-1] */
             return g_generalGameSettings.controllers[(s32)arg - 1].data[1];
         }
         return 0;
     case 0xD1:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 0)) {   /* port: arg 0 indexed [-1] */
             return (s8)g_generalGameSettings.controllers[(s32)arg - 1].data[0];
         }
         return 0;
     case 0xD2:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 0)) {   /* port: arg 0 indexed [-1] */
             return g_codeVariables.playerVehicle[(s32)arg - 1] != -1;
         }
         return 0;
@@ -886,22 +930,22 @@ done:
     case 0x190:
         return g_codeVariables.currentRound;
     case 0x191:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 0)) {   /* port: arg 0 indexed [-1] */
             return g_codeVariables.playerWins[(s32)arg - 1];
         }
         break;
     case 0x192:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 0)) {   /* port: arg 0 indexed [-1] */
             return g_codeVariables.playerStuntPoints[(s32)arg - 1];
         }
         break;
     case 0x193:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 0)) {   /* port: arg 0 indexed [-1] */
             return g_codeVariables.playerKills[(s32)arg - 1];
         }
         break;
     case 0x194:
-        if (arg <= 4) {
+        if (PORT_ARG_1_TO(4) || GameSettings_PortBadIndex(var, arg, 0)) {   /* port: arg 0 indexed [-1] */
             return g_codeVariables.playerWinner[(s32)arg - 1];
         }
         break;
@@ -1084,6 +1128,9 @@ done:
     }
     if (((u32)(cheat - 1) <= 2 || cheat == 4) && cheats[10] && g_codeVariables.cheatsEnabled[10]) {
         return 1;
+    }
+    if ((u32)cheat >= sizeof(g_codeVariables.cheatsEnabled)) {   /* port: was unchecked */
+        return GameSettings_PortBadIndex(0x6B, (u32)cheat, 0);
     }
     result = 0;
     if ((cheats[10] || cheats != NULL) && g_codeVariables.cheatsEnabled[cheat]) {
