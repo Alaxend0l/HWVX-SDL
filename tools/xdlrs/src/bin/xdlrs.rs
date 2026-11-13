@@ -29,6 +29,9 @@
 //!                                        release; exit 1 when one breaks the set rule (Port_Mix.c)
 //!   xdlrs audio level DUMP.f32 [--window S] [--from S]
 //!                                        an HWVX_AUDIODUMP's loudness per window and band (audiolevel.rs)
+//!   xdlrs audio level DUMP.f32 --lr [--window S] [--from S]
+//!                                        its left and right RMS per window (stereo.rs)
+//!   xdlrs audio pan                      the releases' pan laws: speaker dB per source position (stereo.rs)
 //!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
 //!                                        two frame dumps side by side (tools/mix_pair_shots.sh)
 //!
@@ -58,7 +61,7 @@ fn parse_args(a: &[String]) -> Args {
     let mut i = 0;
     while i < a.len() {
         let x = &a[i];
-        if ["--parts", "-v", "--verbose", "--force", "--json", "--skip-intro", "--memory", "--keep"].contains(&x.as_str()) {
+        if ["--parts", "-v", "--verbose", "--force", "--json", "--skip-intro", "--memory", "--keep", "--lr"].contains(&x.as_str()) {
             r.flags.push(x.clone());
         } else if x.starts_with('-') && x.len() > 1 && i + 1 < a.len() {
             r.opts.insert(x.trim_start_matches('-').to_string(), a[i + 1].clone());
@@ -1234,8 +1237,12 @@ fn mix_pair(left: &str, right: &str, out: &str, half: bool) -> std::result::Resu
 /// `xdlrs audio level DUMP [--window S] [--from S]` (xdlrs::audiolevel).
 fn audio_main(argv: &[String]) -> ExitCode {
     let a = parse_args(argv);
+    if a.pos.first().map(String::as_str) == Some("pan") {
+        print!("{}", xdlrs::stereo::pan_table());
+        return ExitCode::SUCCESS;
+    }
     if a.pos.first().map(String::as_str) != Some("level") || a.pos.len() < 2 {
-        eprintln!("usage: xdlrs audio level DUMP.f32 [--window S] [--from S]");
+        eprintln!("usage: xdlrs audio level DUMP.f32 [--window S] [--from S] [--lr]\n       xdlrs audio pan");
         return ExitCode::from(2);
     }
     let num = |k: &str, d: f64| a.opts.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
@@ -1246,6 +1253,13 @@ fn audio_main(argv: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if a.flags.iter().any(|f| f == "--lr") {
+        println!("    from    left   right    R-L   (dBFS RMS)");
+        for (t, l, r) in xdlrs::stereo::lr_levels(&s, xdlrs::audiolevel::RATE, num("window", 5.0), num("from", 0.0)) {
+            println!("{t:7.1}s {l:7.1} {r:7.1} {:6.1}", r - l);
+        }
+        return ExitCode::SUCCESS;
+    }
     println!("    from     rms   <250Hz  250-4k   >4kHz   (dBFS)");
     for (t, total, b) in xdlrs::audiolevel::levels(&s, num("window", 5.0), num("from", 0.0)) {
         println!("{t:7.1}s {total:7.1} {:8.1} {:7.1} {:7.1}", b[0], b[1], b[2]);
