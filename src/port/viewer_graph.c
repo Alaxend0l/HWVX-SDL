@@ -1294,20 +1294,24 @@ static int StoreValue(VPack *vp, const JsonNode *root, const JsonNode *prop, con
  * World.numTileCars for tileCars, QuadContents.numItems, a geometry's numGroups...):
  * the game and the viewer walk that many records from the link, so it may not go above
  * what the data had (its array holds no more), force or not. 1: fine. */
-static int CountGuard(VPack *vp, const JsonNode *props, const char *name, const CType *t, int dim, u32 off,
-                      const JsonNode *value, char *err, size_t errSize) {
+static int IsCountName(const JsonNode *props, const char *name) {
     const JsonNode *p;
-    u32 size = BaseSize(NULL, t->base), cur = 0, orig, k;
-    int isCount = 0;
 
-    for (p = props != NULL ? props->child : NULL; p != NULL && !isCount; p = p->next) {
+    for (p = props != NULL ? props->child : NULL; p != NULL; p = p->next) {
         const JsonNode *link = Json_Get(p, "x-link");
 
-        isCount = link != NULL && SDL_strcmp(Json_GetString(link, "count", ""), name) == 0;
+        if (link != NULL && SDL_strcmp(Json_GetString(link, "count", ""), name) == 0) {
+            return 1;
+        }
     }
-    if (!isCount || dim != t->numDims || (size != 1 && size != 2 && size != 4) || !InRange(off, size, vp->size)) {
-        return 1;
-    }
+    return 0;
+}
+
+/* The value the count field of `size` bytes at `off` had when the pack was loaded (the
+ * first `set` on it records it). 1: *orig set. */
+static int CountOrig(VPack *vp, u32 off, u32 size, u32 *orig, char *err, size_t errSize) {
+    u32 cur = 0, k;
+
     SDL_memcpy(&cur, Base(vp) + off, size);     /* (little-endian host: the low bytes) */
     for (k = 0; k < vp->numCounts && vp->countOff[k] != off; k++) {
     }
@@ -1319,7 +1323,21 @@ static int CountGuard(VPack *vp, const JsonNode *props, const char *name, const 
         vp->countOrig[k] = cur;
         vp->numCounts++;
     }
-    orig = vp->countOrig[k];
+    *orig = vp->countOrig[k];
+    return 1;
+}
+
+static int CountGuard(VPack *vp, const JsonNode *props, const char *name, const CType *t, int dim, u32 off,
+                      const JsonNode *value, char *err, size_t errSize) {
+    u32 size = BaseSize(NULL, t->base), orig;
+
+    if (!IsCountName(props, name) || dim != t->numDims || (size != 1 && size != 2 && size != 4) ||
+        !InRange(off, size, vp->size)) {
+        return 1;
+    }
+    if (!CountOrig(vp, off, size, &orig, err, errSize)) {
+        return 0;
+    }
     if (value == NULL || value->type != JSON_NUMBER || value->number < 0 || value->number > (double)orig) {
         return Fail(err, errSize, "%s is a count: 0 .. %u (its array holds no more; a level's appends grow it)", name,
                     (unsigned)orig);
@@ -1357,11 +1375,17 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
         }
         off += rel;
         {
-            /* a raw store over a count field (the world's nodes are raw: World/0 is a World
-             * all the same): bounded as a named one (CountGuard) */
+            /* a raw store over any byte of a count field (the world's nodes are raw: World/0 is
+             * a World all the same; `@9:u8`, `@6:u32` reach numTileCars too): each count it
+             * touches, read whole after the store, may not go above what the data had (as
+             * CountGuard), force or not; refused, the bytes are put back */
             const JsonNode *sch = nd->schema, *q;
             char type[48];
             size_t k;
+            u32 size = BaseSize(NULL, t.base), lo = off, hi = off + size;
+            struct { u32 off, size, orig; const char *name; } hit[8];
+            u8 saved[24];
+            int numHits = 0, h;
 
             if (sch == NULL) {
                 for (k = 0; nd->id[k] && nd->id[k] != '/' && k + 1 < sizeof(type); k++) {
@@ -1372,14 +1396,56 @@ int Viewer_SetField(JsonWriter *w, VPack *vp, VNode *nd, const char *field, cons
             }
             props = sch != NULL ? Json_Get(sch, "properties") : NULL;
             for (q = props != NULL ? props->child : NULL; q != NULL; q = q->next) {
-                if (Json_Get(q, "x-offset") != NULL && HexOf(q, "x-offset") == rel && q->key != NULL &&
-                    !CountGuard(vp, props, q->key, &t, 0, off, value, err, errSize)) {
+                CType ct;
+                u32 crel, cs;
+
+                if (Json_Get(q, "x-offset") == NULL || q->key == NULL || !IsCountName(props, q->key)) {
+                    continue;
+                }
+                ParseCType(Json_GetString(q, "x-c-type", "u32"), &ct);
+                crel = HexOf(q, "x-offset");
+                cs = BaseSize(NULL, ct.base);
+                if (ct.numDims != 0 || (cs != 1 && cs != 2 && cs != 4) || crel >= rel + size || rel >= crel + cs ||
+                    !InRange(nd->off + crel, cs, vp->size)) {
+                    continue;
+                }
+                if (numHits == (int)SDL_arraysize(hit)) {
+                    return Fail(err, errSize, "this store overlaps too many count fields");
+                }
+                hit[numHits].off = nd->off + crel;
+                hit[numHits].size = cs;
+                hit[numHits].name = q->key;
+                if (!CountOrig(vp, hit[numHits].off, cs, &hit[numHits].orig, err, errSize)) {
                     return 0;
                 }
+                lo = SDL_min(lo, hit[numHits].off);
+                hi = SDL_max(hi, hit[numHits].off + cs);
+                numHits++;
             }
-        }
-        if (!StoreValue(vp, NULL, NULL, &t, 0, off, value, force, err, errSize)) {
-            return 0;
+            if (hi - lo > sizeof(saved)) {
+                return Fail(err, errSize, "this store overlaps count fields too widely");
+            }
+            if (numHits > 0) {
+                SDL_memcpy(saved, Base(vp) + lo, hi - lo);
+            }
+            if (!StoreValue(vp, NULL, NULL, &t, 0, off, value, force, err, errSize)) {
+                if (numHits > 0) {
+                    SDL_memcpy(Base(vp) + lo, saved, hi - lo);
+                }
+                return 0;
+            }
+            for (h = 0; h < numHits; h++) {
+                u32 cur = 0;
+
+                SDL_memcpy(&cur, Base(vp) + hit[h].off, hit[h].size);   /* (little-endian host) */
+                if (cur > hit[h].orig) {
+                    SDL_memcpy(Base(vp) + lo, saved, hi - lo);
+                    return Fail(err, errSize,
+                                "%s is a count: 0 .. %u (its array holds no more; a level's appends grow it): "
+                                "this store would make it %u",
+                                hit[h].name, (unsigned)hit[h].orig, (unsigned)cur);
+                }
+            }
         }
         WriteValue(w, "value", vp, NULL, NULL, &t, 0, off);
         return 1;

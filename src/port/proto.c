@@ -98,10 +98,16 @@ const char *Port_ProtoName(const char *fileName) {
 }
 
 /* The prototype's identity for online play (game/Port_Online.c's hello): an FNV-1a
- * of its files' paths (case folded) and sizes, sorted, as 16 hex digits; "" with
- * no prototype. Computed once. */
+ * of its files' paths (separators as '/', ASCII case folded) and sizes, sorted by the
+ * folded path, as 16 hex digits; "" with no prototype. Computed once. The paths are
+ * folded before the sort, so Windows ('\') and macOS/Linux ('/') peers agree. */
+typedef struct ProtoName {
+    char *folded;           /* its own copy */
+    const char *name;       /* as the glob gave it (for the stat) */
+} ProtoName;
+
 static int CompareNames(const void *a, const void *b) {
-    return SDL_strcasecmp(*(const char *const *)a, *(const char *const *)b);
+    return SDL_strcmp(((const ProtoName *)a)->folded, ((const ProtoName *)b)->folded);
 }
 
 const char *Port_ProtoIdentity(void) {
@@ -109,7 +115,8 @@ const char *Port_ProtoIdentity(void) {
     static int s_done;
     const char *root;
     char **names;
-    int i, n = 0;
+    ProtoName *sorted;
+    int i, n = 0, ok = 1;
     u64 h = 0xCBF29CE484222325ull;
 
     if (s_done) {
@@ -119,22 +126,38 @@ const char *Port_ProtoIdentity(void) {
     if ((root = Port_ProtoRoot()) == NULL || (names = SDL_GlobDirectory(root, NULL, 0, &n)) == NULL) {
         return s_id;
     }
-    SDL_qsort(names, (size_t)n, sizeof(*names), CompareNames);
+    if ((sorted = (ProtoName *)SDL_calloc((size_t)n + 1, sizeof(*sorted))) == NULL) {
+        SDL_free(names);
+        return s_id;
+    }
     for (i = 0; i < n; i++) {
+        char *c;
+
+        sorted[i].name = names[i];
+        if ((sorted[i].folded = SDL_strdup(names[i])) == NULL) {
+            ok = 0;
+            continue;
+        }
+        for (c = sorted[i].folded; *c; c++) {
+            *c = *c == '\\' ? '/' : (char)SDL_tolower((unsigned char)*c);
+        }
+    }
+    if (ok) {       /* (out of memory: no identity rather than a wrong one) */
+        SDL_qsort(sorted, (size_t)n, sizeof(*sorted), CompareNames);
+    }
+    for (i = 0; ok && i < n; i++) {
         SDL_PathInfo info;
         char *path = NULL;
         const char *c;
         u64 size;
         int k;
 
-        if (SDL_asprintf(&path, "%s/%s", root, names[i]) < 0) {
+        if (SDL_asprintf(&path, "%s/%s", root, sorted[i].name) < 0) {
             continue;
         }
         if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE) {
-            for (c = names[i]; *c; c++) {
-                char ch = *c == '\\' ? '/' : (char)SDL_tolower((unsigned char)*c);
-
-                h = (h ^ (u8)ch) * 0x100000001B3ull;
+            for (c = sorted[i].folded; *c; c++) {
+                h = (h ^ (u8)*c) * 0x100000001B3ull;
             }
             size = info.size;
             for (k = 0; k < 8; k++) {
@@ -143,7 +166,13 @@ const char *Port_ProtoIdentity(void) {
         }
         SDL_free(path);
     }
+    for (i = 0; i < n; i++) {
+        SDL_free(sorted[i].folded);
+    }
+    SDL_free(sorted);
     SDL_free(names);
-    SDL_snprintf(s_id, sizeof(s_id), "%016llx", (unsigned long long)h);
+    if (ok) {
+        SDL_snprintf(s_id, sizeof(s_id), "%016llx", (unsigned long long)h);
+    }
     return s_id;
 }
