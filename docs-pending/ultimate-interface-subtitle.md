@@ -15,7 +15,21 @@ alone: the PS2's "PRESS START BUTTON" wording stays the GameCube's "PRESS START"
 the retail data, all of them the subtitle's. The yellow set is untouched (manifest and packs
 byte-identical).
 
-Checked against the plain PS2 at 1280x720 (title frames 600-1200): identical but for the
-press-start text, which on the GameCube sits where the PS2 moved its own line down: from about
-frame 780 to 1080 "PRESS START" overlaps the subtitle's lower edge (the PS2 draws "PRESS START
-BUTTON" below it). Moving the GameCube's line is a layout question, not done.
+## The press-start line (both sets, mixed builds only)
+
+Recipe field `"press_start"` (recipes/ultimate.jsonc: `"Press START/ENTER"`; absent or "": the
+release's own). Port_Mix.c (MixPressStart) points the shown string (strings[0]) of every text
+object of role 9 whose string starts "Press START" at the recipe's text, in a block the pack keeps
+and the cache records; font, colour and animation stay. In the retail data that is HW_IPack
+interface_1's title (one string table, shared by its two press-start objects); interface_2 and _8
+have no press-start line. The title font has '/' (its spacing table lists it) and draws the text
+in capitals ("PRESS START/ENTER"), centred like the original (align 0 at x 320).
+
+Silver also takes the PS2's place for the line: of the title's two press-start objects, the PS2's
+("show if 0x258 == 1", y 392, below the subtitle) is shown and the GameCube's ("hide if 0x258 ==
+1", y 370) hidden (ShowPS2Art). Yellow keeps the GameCube's line at y 370. Plain GameCube, PC and
+PS2 games are unchanged (nothing of this runs without a recipe).
+
+Checked at 1280x720 against the plain PS2 (silver) and the plain GameCube (yellow), title frames
+600-1200: identical but for the press-start row, which reads PRESS START/ENTER where they read
+PRESS START BUTTON and PRESS START, at the same height and centre.

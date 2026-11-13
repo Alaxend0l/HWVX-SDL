@@ -50,6 +50,10 @@ int Port_MixLookGC(void);
  * PORT_DATA_PS2, the PS2's silver ones. The PC's art is yellow too but never
  * taken; its font pages are (the same glyphs at a higher resolution). */
 int Port_MixInterface(void);
+/* The title's press-start line (recipe "press_start", e.g. "Press START/ENTER": a mixed
+ * game is played with a pad or the keyboard), or NULL: the release's own. Port_Mix.c puts it
+ * in every press-start text (role 9) of the packs as they mix. */
+const char *Port_MixPressStart(void);
 /* The folder of release `rel` (PORT_DATA_*, PORT_MIX_PROTO), or NULL: not
  * imported, or not in the recipe. */
 const char *Port_MixRoot(int rel);

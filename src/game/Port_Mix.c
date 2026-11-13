@@ -1183,7 +1183,9 @@ static u32 PairObjects(IfaceSide *b, u32 hb, IfaceSide *p, u32 hp) {
  * JUSTICE" subtitle, its flares and its TM): images shown only where the platform code
  * variable (0x258, GameSettings.c: GameCube 2, PS2 1, PC 0) is the PS2's, and what is
  * anchored to them. Their condition is made the base's platform value, so they show as on the
- * PS2. Text so conditioned stays as it is (the PS2's "PRESS START BUTTON" wording). */
+ * PS2. The press-start line (role 9 text) takes the PS2's place too: the PS2's line ("show if
+ * 0x258 == 1", lower, below the subtitle) is shown and the GameCube's ("hide if 0x258 == 1")
+ * hidden; their strings are the base's, both "Press START" on the GameCube. */
 static void ShowPS2Art(IfaceSide *b, u32 h, int fmt) {
     const InterfaceHeader *hdr = (const InterfaceHeader *)(b->base + h);
     u32 objs = Port_IfaceTo(&b->scan, h + 0x10), vl = Port_IfaceTo(&b->scan, h + 0x1C), vars = ~0u, nv = 0, i;
@@ -1202,8 +1204,8 @@ static void ShowPS2Art(IfaceSide *b, u32 h, int fmt) {
         s32 value, id;
 
         cond[i] = ~0u;
-        if (cl == ~0u || !InBlobOf(&b->scan, cl, 12) || b->base[cl] != 1) {
-            continue;   /* not "show if all" */
+        if (cl == ~0u || !InBlobOf(&b->scan, cl, 12) || (b->base[cl] != 1 && b->base[cl] != 0)) {
+            continue;   /* not "show if all" or "hide if all" */
         }
         memcpy(&cn, b->base + cl + 4, 4);
         c = Port_IfaceTo(&b->scan, cl + 8);
@@ -1233,7 +1235,12 @@ static void ShowPS2Art(IfaceSide *b, u32 h, int fmt) {
             continue;
         }
         cond[i] = c + 4;
-        sel[i] = b->base[d + 1] == IFACE_DEF_IMAGE;
+        /* an image the PS2 shows; the press-start line the PS2 shows, or the one it hides */
+        sel[i] = (b->base[cl] == 1 && b->base[d + 1] == IFACE_DEF_IMAGE) ||
+                 (b->base[d + 1] == IFACE_DEF_TEXT && b->base[d] == 9);
+        if (b->base[cl] != 1 && !sel[i]) {
+            cond[i] = ~0u;  /* a "hide" condition only for the press-start line */
+        }
     }
     for (i = 0; i < hdr->numObjects; i++) {     /* what is anchored to one of them */
         s16 anc;
@@ -1251,6 +1258,60 @@ static void ShowPS2Art(IfaceSide *b, u32 h, int fmt) {
             Port_Log("mix: interface @%x object %u: the PS2's own art, shown", (unsigned)h, (unsigned)i);
         }
     }
+}
+
+/* The recipe's press-start line (Port_MixPressStart) in every text object of role 9 whose
+ * shown string (strings[0]) starts "Press START": its slot points at the new string, in a
+ * block the pack keeps (and the cache records). Colour, font, animation stay. */
+static void MixPressStart(DataPack *pack, MixPack *mp, u8 *base, u32 dataSize, const u32 *pointers, u32 numPointers,
+                          const u32 *refs, u32 numRefs) {
+    const char *text = Port_MixPressStart();
+    PortIfaceScan scan;
+    u8 *headers, *block = NULL;
+    u32 count, i, k, n = 0, len;
+
+    if (text == NULL || !Port_IfaceScanInit(&scan, base, dataSize, (u32)HND(base), pointers, numPointers, refs,
+                                            numRefs)) {
+        return;
+    }
+    len = (u32)strlen(text) + 1;
+    headers = Port_IfaceHeaders(&scan, &count);
+    for (i = 0; headers != NULL && i <= dataSize / 4; i++) {
+        const InterfaceHeader *hdr = (const InterfaceHeader *)(base + i * 4);
+        u32 objs;
+
+        if (!headers[i] || (objs = Port_IfaceTo(&scan, i * 4 + 0x10)) == ~0u) {
+            continue;
+        }
+        for (k = 0; k < hdr->numObjects; k++) {
+            u32 d = objs + k * 0x6C, sub = Port_IfaceTo(&scan, d + 0x14), st, s0;
+
+            if (base[d + 1] != IFACE_DEF_TEXT || base[d] != 9 || sub == ~0u ||
+                (st = Port_IfaceTo(&scan, sub)) == ~0u || (s0 = Port_IfaceTo(&scan, st)) == ~0u ||
+                !InBlobOf(&scan, s0, 12) || strncasecmp((const char *)base + s0, "press start", 11) != 0) {
+                continue;
+            }
+            if (block == NULL) {
+                block = Allocate(len + 0x20, 0, "");
+                if (block == NULL) {
+                    break;
+                }
+                Xdl_NoteBlock(XDL_SEG_BLOCK, block, len + 0x20);
+                PortGeometry_Keep(pack, block);
+                memset(block, 0, len + 0x20);
+                memcpy(block, text, len);
+            }
+            SLOT_STORE(base + st, block);
+            Xdl_NoteSlot(base + st);
+            n++;
+        }
+    }
+    if (n != 0) {
+        Port_Log("mix: %s %s_%u: %u press-start lines read \"%s\"", mp->archive, s_typeNames[mp->type < 11 ? mp->type : 0],
+                 (unsigned)mp->id, (unsigned)n, text);
+    }
+    free(headers);
+    Port_IfaceScanFree(&scan);
 }
 
 static void MixIfaceColours(MixPack *mp, s32 fmt, u8 *base, u32 dataSize, const u32 *pointers, u32 numPointers,
@@ -1406,6 +1467,9 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         }
         free(used);
         return;
+    }
+    if (Port_MixActive()) {
+        MixPressStart(pack, mp, base, dataSize, pointers, numPointers, refs, numRefs);
     }
     if (Port_MixActive() && set == PORT_DATA_PS2 && fmt != PORT_DATA_PS2 && Port_MixRoot(PORT_DATA_PS2) != NULL) {
         s_numObjTex = numTex < 0x10000 ? numTex : 0;
