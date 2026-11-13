@@ -984,7 +984,7 @@ static void IfaceSide_Free(IfaceSide *sd) {
 }
 
 static struct {
-    u32 packs, headers, headersByObject, headersUnpaired, tracks, tracksByTime, blends, keys, tracksSkipped, points, dialog;
+    u32 packs, headers, headersByObject, headersUnpaired, tracks, tracksByTime, blends, ps2Art, keys, tracksSkipped, points, dialog;
 } s_colStats;
 
 /* Colour track at `to` (base) from `from` (PS2): IfaceKeyTrack, keys 12 bytes, RGBA at 0. */
@@ -1179,7 +1179,81 @@ static u32 PairObjects(IfaceSide *b, u32 hb, IfaceSide *p, u32 hp) {
     return n;
 }
 
-static void MixIfaceColours(MixPack *mp, u8 *base, u32 dataSize, const u32 *pointers, u32 numPointers,
+/* The PS2's own art in an interface the GameCube shares (HW_IPack's title: the "MAXIMUM
+ * JUSTICE" subtitle, its flares and its TM): images shown only where the platform code
+ * variable (0x258, GameSettings.c: GameCube 2, PS2 1, PC 0) is the PS2's, and what is
+ * anchored to them. Their condition is made the base's platform value, so they show as on the
+ * PS2. Text so conditioned stays as it is (the PS2's "PRESS START BUTTON" wording). */
+static void ShowPS2Art(IfaceSide *b, u32 h, int fmt) {
+    const InterfaceHeader *hdr = (const InterfaceHeader *)(b->base + h);
+    u32 objs = Port_IfaceTo(&b->scan, h + 0x10), vl = Port_IfaceTo(&b->scan, h + 0x1C), vars = ~0u, nv = 0, i;
+    s32 own = fmt == PORT_DATA_PS2 ? 1 : fmt == PORT_DATA_PC ? 0 : 2;
+    u8 sel[200];
+    u32 cond[200];
+
+    if (objs == ~0u || vl == ~0u || hdr->numObjects > 200 || !InBlobOf(&b->scan, vl, 8)) {
+        return;
+    }
+    memcpy(&nv, b->base + vl, 4);
+    vars = Port_IfaceTo(&b->scan, vl + 4);
+    memset(sel, 0, sizeof(sel));
+    for (i = 0; vars != ~0u && i < hdr->numObjects; i++) {
+        u32 d = objs + i * 0x6C, cl = Port_IfaceTo(&b->scan, d + 0x48), cn, c, data, v, code;
+        s32 value, id;
+
+        cond[i] = ~0u;
+        if (cl == ~0u || !InBlobOf(&b->scan, cl, 12) || b->base[cl] != 1) {
+            continue;   /* not "show if all" */
+        }
+        memcpy(&cn, b->base + cl + 4, 4);
+        c = Port_IfaceTo(&b->scan, cl + 8);
+        if (cn != 1 || c == ~0u || !InBlobOf(&b->scan, c, 0x1C) || b->base[c] != 1) {
+            continue;   /* not one "variable == value" */
+        }
+        memcpy(&value, b->base + c + 4, 4);
+        data = Port_IfaceTo(&b->scan, c + 8);
+        if (value != 1 || data == ~0u || !InBlobOf(&b->scan, data, 4) || b->base[data] != 0) {
+            continue;
+        }
+        {
+            u16 v16;
+
+            memcpy(&v16, b->base + data + 2, 2);   /* IfaceVarValue.value: the variable */
+            v = v16;
+        }
+        if (v >= nv || !InBlobOf(&b->scan, vars + v * 0x34, 0x34) || b->base[vars + v * 0x34] != IFACE_VAR_CODE) {
+            continue;
+        }
+        code = Port_IfaceTo(&b->scan, vars + v * 0x34 + 0x10);
+        if (code == ~0u || !InBlobOf(&b->scan, code, 4)) {
+            continue;
+        }
+        memcpy(&id, b->base + code, 4);
+        if (id != 0x258) {
+            continue;
+        }
+        cond[i] = c + 4;
+        sel[i] = b->base[d + 1] == IFACE_DEF_IMAGE;
+    }
+    for (i = 0; i < hdr->numObjects; i++) {     /* what is anchored to one of them */
+        s16 anc;
+
+        memcpy(&anc, b->base + objs + i * 0x6C + 0xC, 2);
+        if (!sel[i] && cond[i] != ~0u && anc != 0 && (s32)i + anc >= 0 && (u32)((s32)i + anc) < hdr->numObjects &&
+            sel[i + anc]) {
+            sel[i] = 1;
+        }
+    }
+    for (i = 0; i < hdr->numObjects; i++) {
+        if (sel[i]) {
+            memcpy(b->base + cond[i], &own, 4);
+            s_colStats.ps2Art++;
+            Port_Log("mix: interface @%x object %u: the PS2's own art, shown", (unsigned)h, (unsigned)i);
+        }
+    }
+}
+
+static void MixIfaceColours(MixPack *mp, s32 fmt, u8 *base, u32 dataSize, const u32 *pointers, u32 numPointers,
                             const u32 *refs, u32 numRefs, const u32 *texRelocs, u32 numTexRelocs) {
     RelPack rp;
     IfaceSide b, p;
@@ -1272,6 +1346,7 @@ static void MixIfaceColours(MixPack *mp, u8 *base, u32 dataSize, const u32 *poin
                 for (k = 0; ob != ~0u && op != ~0u && k < hb->numObjects; k++) {
                     CopyObjectColours(&b, ob + k * 0x6C, &p, op + k * 0x6C);
                 }
+                ShowPS2Art(&b, b.hdrs[i], fmt);
                 pairs++;
                 i++;
                 j++;
@@ -1338,7 +1413,7 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         if (s_objTex != NULL) {
             memset(s_objTex, 0xFF, numTex * sizeof(u16));
         }
-        MixIfaceColours(mp, base, dataSize, pointers, numPointers, refs, numRefs, (const u32 *)GETP(pack->relocs),
+        MixIfaceColours(mp, fmt, base, dataSize, pointers, numPointers, refs, numRefs, (const u32 *)GETP(pack->relocs),
                         pack->numRelocs);
     }
     for (r = 0; r < PORT_MIX_RELS; r++) {
@@ -1783,12 +1858,12 @@ void PortMix_LogStats(void) {
         Port_Log("mix: interface colours from the ps2: %u packs, %u interfaces paired (%u of them object by object; %u "
                  "not), %u colour tracks "
                  "(%u keys changed), %u with other keys taken by time, %u skipped, %u blend modes, %u polygon points, "
-                 "%u briefing colours",
+                 "%u briefing colours; %u objects of the PS2's own art shown (its title's subtitle)",
                  (unsigned)s_colStats.packs, (unsigned)s_colStats.headers, (unsigned)s_colStats.headersByObject,
                  (unsigned)s_colStats.headersUnpaired,
                  (unsigned)s_colStats.tracks, (unsigned)s_colStats.keys, (unsigned)s_colStats.tracksByTime,
                  (unsigned)s_colStats.tracksSkipped, (unsigned)s_colStats.blends,
-                 (unsigned)s_colStats.points, (unsigned)s_colStats.dialog);
+                 (unsigned)s_colStats.points, (unsigned)s_colStats.dialog, (unsigned)s_colStats.ps2Art);
     }
     Port_Log("mix: %u packs; textures from gc %u, pc %u, ps2 %u, prototype %u, base's own %u (%u of them not like "
              "their pair), to the PC's colours %u; sounds from gc %u, pc %u, prototype %u, base's own %u (%u not like "
