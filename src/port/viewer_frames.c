@@ -99,6 +99,11 @@ int ViewerShm_Create(ViewerShm *m, size_t size, const char *tag) {
             return 0;
         }
     }
+#elif defined(__ANDROID__)
+    /* port: Android has no shm_open, and no data browser to read the frames */
+    (void)size;
+    (void)tag;
+    return 0;
 #else
     {
         int fd;
@@ -134,7 +139,7 @@ void ViewerShm_Destroy(ViewerShm *m) {
 #ifdef _WIN32
     UnmapViewOfFile(m->base);
     CloseHandle(m->h);
-#else
+#elif !defined(__ANDROID__)
     munmap(m->base, m->size);
     shm_unlink(m->name);    /* (the browser may have done it already) */
 #endif
