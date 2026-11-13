@@ -12,8 +12,8 @@ B="$1"; D="$2"; O="$3"; R="$4"; S="$5"; T="$6"; shift 6
 mkdir -p "$O"; O=$(cd "$O"; pwd)
 N="$R-$S"; rm -rf "$O/pref-$N"; mkdir -p "$O/pref-$N"
 env HWVX_NO_MOVIE=1 HWVX_NO_DIALOG=1 HWVX_DETERMINISTIC=1 HWVX_NO_VIWAIT=1 HWVX_NO_VSYNC=1 \
-    HWVX_GPUTIME=1 HWVX_FPSLOG=1 "$@" HWVX_PREF_DIR="$O/pref-$N" \
-    "$B/hwvx" --renderer "$R" --windowed --window "$S" --data "$D" > "$O/$N.log" 2>&1 &
+    HWVX_GPUTIME=${GPUTIME-1} HWVX_FPSLOG=1 "$@" HWVX_PREF_DIR="$O/pref-$N" \
+    "$B/hwvx" --renderer "$R" ${WINARG---windowed} --window "$S" --data "$D" > "$O/$N.log" 2>&1 &
 P=$!
 for i in $(seq "$T"); do sleep 1; kill -0 $P 2>/dev/null || break; done
 kill -9 $P 2>/dev/null
