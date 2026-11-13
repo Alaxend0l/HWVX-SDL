@@ -39,3 +39,12 @@ briefing colours; 0 polygon points (none in the paired interfaces).
 Checked side by side with the plain PS2 release at 1280x720 (tools/mix_pair_shots.sh): main menu,
 challenge HUD (ch1_l3), battle HUD (bat1_l1), mission HUD (world1l1). The launcher's
 MIX_SILVER_READY is 1: the Silver button shows.
+
+## Tools (replace the Python ones in ultimate-interface.md)
+
+* `xdlrs mix ui-check MANIFEST --set gc|ps2 [--base gc] [--list]` (was tools/mix_ui_check.py,
+  removed): the interface textures of a build's manifest by release, the fallbacks, exit 1 when
+  one breaks the set rule.
+* `tools/mix_pair_shots.sh BUILD MIXPREF REFDATA GCDATA OUTDIR NAME SECONDS FRAMES [VAR=value...]`:
+  the same scene in the mixed build and a plain release, joined side by side with
+  `xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]`.
