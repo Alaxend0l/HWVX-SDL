@@ -177,11 +177,14 @@ static void ParseArgs(int argc, char **argv) {
             exit(0);
         } else if (SDL_strcmp(argv[i], "--reset-save") == 0) {
             g_port.resetSave = 1;
+        } else if (SDL_strcmp(argv[i], "--gc-air-camera") == 0) {
+            g_port.gcAirCamera = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
         } else {
             SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen|--windowed]", argv[0]);
             SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save] [--launcher]");
+            SDL_Log("              [--gc-air-camera]");
             SDL_Log("  --data PATH      a GameCube disc image (.iso) or the extracted disc files");
             SDL_Log("                   (default: the one chosen last time, or an .iso or files/");
             SDL_Log("                   next to the program, or orig/files)");
@@ -194,6 +197,10 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
             SDL_Log("                   one that fails to start falls back to opengl)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
+            SDL_Log("  --gc-air-camera  the GameCube/PS2 orbit camera: a trigger's orbit around");
+            SDL_Log("                   an object hands back to the car when it is tipped over");
+            SDL_Log("                   (default: the PC's, the orbit runs its course;");
+            SDL_Log("                   also HWVX_GC_AIR_CAMERA=1)");
             SDL_Log("  --launcher       open the launcher (game data, releases) instead of booting");
             SDL_Log("  --mix RECIPE     play a mixed build: one game from the releases you imported,");
             SDL_Log("                   by a recipe (\"ultimate\", or a .jsonc file)");
@@ -216,6 +223,11 @@ static void ParseArgs(int argc, char **argv) {
             s_mixRecipe = NULL;
         }
     }
+    if (!g_port.gcAirCamera) {
+        const char *env = SDL_getenv("HWVX_GC_AIR_CAMERA");
+
+        g_port.gcAirCamera = env != NULL && SDL_atoi(env) != 0;
+    }
     Port_GfxLoadConfig(haveSize, haveDisplay || g_port.fullscreen, haveVSync, haveFps);
 }
 
@@ -223,6 +235,11 @@ static void ParseArgs(int argc, char **argv) {
  * than our private PortState (port_internal.h is not in the game code). */
 int Port_ResetSave(void) {
     return g_port.resetSave;
+}
+
+/* --gc-air-camera / HWVX_GC_AIR_CAMERA=1, for game/CameraManager.c (port.h). */
+int Port_GCAirCamera(void) {
+    return g_port.gcAirCamera;
 }
 
 /* ---- the game data ----------------------------------------------------- */

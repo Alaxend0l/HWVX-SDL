@@ -1090,7 +1090,12 @@ void Camera_UpdatePosition(Camera *cam) {
         Camera_TriggerActionGetLocation((u8 *)cam, &mode[i], &target);
         Camera_Orbit(cam, &center, &target, radius, height, speed, fov);
         car = GETP(GETP(cam->player)->vehicle);
-        if (car != NULL && (u8 *)GETP(car->base.vtable) == g_carAVTable && (car->stuckCounter > 0 || car->airTime <= 0) &&
+        /* port: the PC release (0x40C93B in its Camera_UpdatePosition, 0x40C520)
+         * has no check here: its orbit runs its course. The GameCube (0x80012DBC)
+         * and PS2 (0x0025907C) hand the camera back to the car once it is tipped
+         * past 60 degrees with its wheels down or stuck. --gc-air-camera /
+         * HWVX_GC_AIR_CAMERA=1 brings the check back. */
+        if (Port_GCAirCamera() && car != NULL && (u8 *)GETP(car->base.vtable) == g_carAVTable && (car->stuckCounter > 0 || car->airTime <= 0) &&
             car->base.axis[1].y < 0.5f) {
             SETP(cam->mode, &g_triggerAction_params_default);
         }
