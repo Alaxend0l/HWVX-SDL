@@ -189,8 +189,8 @@ static void DecodeADPCM(const u8 *src, u32 blocks, s16 *dst) {
 }
 
 /* PCM bytes for `len` ADPCM bytes, block 0 dropped. */
-static u32 PCMBytes(u32 len) {
-    return len >= 32 ? (len / 16 - 1) * 28 * 2 : 0;
+static u64 PCMBytes(u32 len) {
+    return len >= 32 ? ((u64)len / 16 - 1) * 28 * 2 : 0;   /* port: 64 bits (3.5 times the ADPCM) */
 }
 
 /* A loop at ADPCM byte offset `loop` (or ~0) as a PCM byte offset. */
@@ -202,7 +202,8 @@ static u32 PCMLoop(u32 loop) {
  * `loop` or ~0) as PCM16 in host order (malloc): its PCM length and loop in
  * bytes. For another release's copy of a sound (Port_Mix.c, the prototype). */
 u8 *PortPS2_DecodeSound(const u8 *adpcm, u32 len, u32 loop, u32 *pcmLen, u32 *pcmLoop) {
-    u32 n = PCMBytes(len);
+    u64 big = PCMBytes(len);
+    u32 n = big < PORT_MIX_SFX_BLOCK_MAX ? (u32)big : 0;   /* port: a damaged length decodes nothing */
     u8 *pcm = n ? malloc(n) : NULL;
 
     if (pcm == NULL) {
@@ -232,9 +233,15 @@ void PortPS2_SFX(u8 *desc, u32 count) {
             sfx[i].length = 0;
         }
         /* a mixed build's sample from another release goes in its place (Port_Mix.c) */
-        total += (((PortMix_SFXLength(i) ? PortMix_SFXLength(i) : PCMBytes(sfx[i].length)) + 0x1F) & ~0x1Fu) + 0x20;
+        if (PortMix_SFXLength(i) == 0 && PCMBytes(sfx[i].length) >= PORT_MIX_SFX_BLOCK_MAX) {
+            sfx[i].length = 0;   /* port: a sample of a damaged pack that alone passes the limit */
+        }
+        if (total < PORT_MIX_SFX_BLOCK_MAX) {
+            /* summed in 64 bits, each term too: a mixed build's or a mod's length never wraps it */
+            total += PORT_MIX_SFX_SPACE(PortMix_SFXLength(i) ? PortMix_SFXLength(i) : PCMBytes(sfx[i].length));
+        }
     }
-    s_sfxBlock = total && total < 0x10000000 ? Allocate((u32)total + 0x20, 0, "") : NULL;
+    s_sfxBlock = total && total < PORT_MIX_SFX_BLOCK_MAX ? Allocate((u32)total + 0x20, 0, "") : NULL;
     Xdl_NoteBlock(XDL_SEG_SFX, s_sfxBlock, (u32)total + 0x20);
     if (s_sfxBlock == NULL) {
         /* the samples stay SPU-ADPCM, which would play as noise: silence them */
@@ -245,12 +252,12 @@ void PortPS2_SFX(u8 *desc, u32 count) {
     }
     out = (u8 *)PTR((HND(s_sfxBlock) + 0x1F) & ~0x1Fu);
     for (i = 0; i < count; i++) {
-        u32 len = sfx[i].length, pcm = PCMBytes(len);
+        u32 len = sfx[i].length, pcm = (u32)PCMBytes(len);   /* (under the limit: checked above) */
         const u8 *src = sfx[i].data ? (const u8 *)PTR(sfx[i].data) : NULL;
 
         if (PortMix_SFXLength(i) != 0) {
             PortMix_SFXFill(i, &sfx[i], out);
-            out += ((sfx[i].length + 0x1F) & ~0x1Fu) + 0x20;
+            out += PORT_MIX_SFX_SPACE(sfx[i].length);
             continue;
         }
         if (src == NULL || pcm == 0) {
@@ -265,7 +272,7 @@ void PortPS2_SFX(u8 *desc, u32 count) {
         sfx[i].loop = PCMLoop(sfx[i].loop);
         sfx[i].unused10 = 0;
         sfx[i].bits = 16;
-        out += ((pcm + 0x1F) & ~0x1Fu) + 0x20;
+        out += PORT_MIX_SFX_SPACE(pcm);
     }
 }
 
@@ -342,7 +349,7 @@ u8 *PortPS2_SongBank(const u8 *bank) {
     for (i = 0; i < count; i++) {
         const u8 *e = bank + 0x20 + i * 0x20;
         u8 *o = nb + 0x20 + i * 0x20;
-        u32 addr = LE32(e), len = LE32(e + 4), n = PCMBytes(len), k;
+        u32 addr = LE32(e), len = LE32(e + 4), n = (u32)PCMBytes(len), k;   /* (summed under 128 MB above) */
 
         if ((u64)table + addr + len <= (u64)LE32(bank + 4) + 8 && PortData_InSound(bank, (u64)table + addr + len) &&
             n) {

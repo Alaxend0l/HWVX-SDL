@@ -1733,31 +1733,40 @@ void PortMix_SFXFill(u32 index, void *desc, u8 *out) {
     sfx->bits = 16;
 }
 
-void PortMix_SFX(s32 fmt, u8 *desc, u32 count) {
+u32 PortMix_SFX(s32 fmt, u8 *desc, u32 count) {
     SFX *sfx = (SFX *)desc;
-    u32 i, total = 0;
+    u32 i;
+    u64 total = 0;
     u8 *out;
 
     if (s_numSfx == 0 || fmt == PORT_DATA_PS2) {   /* the PS2's went into its own block (PortPS2_SFX) */
-        return;
+        return 0;
     }
-    for (i = 0; i < count && i < s_numSfx; i++) {
+    /* summed in 64 bits and refused as soon as it passes the limit: a mod's sounds are
+     * untrusted, and a wrapped sum would be a small block the samples overrun */
+    for (i = 0; i < count && i < s_numSfx && total < PORT_MIX_SFX_BLOCK_MAX; i++) {
         if (s_sfx[i].pcm != NULL) {
-            total += ((s_sfx[i].length + 0x1F) & ~0x1Fu) + 0x20;
+            total += PORT_MIX_SFX_SPACE(s_sfx[i].length);
         }
     }
-    s_sfxBlock = total && total < 0x10000000 ? Allocate(total + 0x20, 0, "") : NULL;
-    Xdl_NoteBlock(XDL_SEG_SFX, s_sfxBlock, total + 0x20);
+    if (total >= PORT_MIX_SFX_BLOCK_MAX) {
+        Port_Log("mix: a pack's replaced sounds need more than %u MB: kept the base's",
+                 (unsigned)(PORT_MIX_SFX_BLOCK_MAX >> 20));
+        total = 0;
+    }
+    s_sfxBlock = total != 0 ? Allocate((u32)total + 0x20, 0, "") : NULL;
+    Xdl_NoteBlock(XDL_SEG_SFX, s_sfxBlock, (u32)total + 0x20);
     if (s_sfxBlock == NULL) {
-        return;
+        return 0;
     }
     out = (u8 *)PTR((HND(s_sfxBlock) + 0x1F) & ~0x1Fu);
     for (i = 0; i < count && i < s_numSfx; i++) {
         if (s_sfx[i].pcm != NULL) {
             PortMix_SFXFill(i, &sfx[i], out);
-            out += ((s_sfx[i].length + 0x1F) & ~0x1Fu) + 0x20;
+            out += PORT_MIX_SFX_SPACE(s_sfx[i].length);
         }
     }
+    return (u32)total;
 }
 
 void PortMix_SFXDone(void) {
