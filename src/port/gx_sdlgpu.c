@@ -82,6 +82,7 @@ static struct {
     SDL_GPUCommandBuffer *cmd;
     SDL_GPUTexture *swapTex;
     u32 swapW, swapH;
+    SDL_GPUFence *idleFence;        /* GPU_Present's fence when no swapchain went out */
 
     /* the batch being recorded */
     GXVertex *verts;
@@ -412,6 +413,10 @@ static void GPU_Close(void) {
         s.cmd = NULL;
     }
     SDL_WaitForGPUIdle(s.dev);
+    if (s.idleFence) {
+        SDL_ReleaseGPUFence(s.dev, s.idleFence);
+        s.idleFence = NULL;
+    }
     for (i = 0; i < s.nPipes; i++) SDL_ReleaseGPUGraphicsPipeline(s.dev, s.pipes[i].p);
     for (i = 0; i < s.nSamplers; i++) SDL_ReleaseGPUSampler(s.dev, s.samplers[i].s);
     for (i = 0; i < s.nReleased; i++) SDL_ReleaseGPUTexture(s.dev, s.released[i]);
@@ -1350,8 +1355,27 @@ static int GPU_GrabFetch(int slot, u8 *dst, int stride, int maxW, int maxH, int 
 static void GPU_Present(void) {
     Flush();
     if (s.cmd != NULL) {
-        if (!SDL_SubmitGPUCommandBuffer(s.cmd)) {
-            Port_Log("SDL_SubmitGPUCommandBuffer failed: %s", SDL_GetError());
+        if (s.swapTex != NULL) {
+            if (!SDL_SubmitGPUCommandBuffer(s.cmd)) {
+                Port_Log("SDL_SubmitGPUCommandBuffer failed: %s", SDL_GetError());
+            }
+        } else {
+            /* No swapchain image went out with this frame (the viewer's hidden
+             * window, a minimized window): SDL only recycles the transfer
+             * buffers it cycles and runs its deferred destroys on a frame it
+             * presented, or when a fence is waited for. Submit without that
+             * every frame keeps every cycled buffer and destroyed texture
+             * alive forever (a world's whole staging size in new Vulkan
+             * memory a second). So the frame brings its own fence, and the
+             * last frame's is waited for here: the cleanup tick arrives one
+             * frame late, which one frame's depth covers. */
+            SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(s.cmd);
+
+            if (s.idleFence != NULL) {
+                SDL_WaitForGPUFences(s.dev, true, &s.idleFence, 1);
+                SDL_ReleaseGPUFence(s.dev, s.idleFence);
+            }
+            s.idleFence = fence;
         }
         s.cmd = NULL;
     }
