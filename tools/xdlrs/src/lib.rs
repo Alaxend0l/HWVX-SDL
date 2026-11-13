@@ -24,6 +24,7 @@ pub mod bsp;
 pub mod decode;
 pub mod encode;
 pub mod error;
+pub mod fonts;
 pub mod geom;
 pub mod graph;
 pub mod jsonc;
