@@ -731,6 +731,10 @@ Debugging aids:
   -- --data DIR`), and `tools/viewer_client.py` sends requests from the shell.
 - `HWVX_AUDIODUMP=file` writes the mixed audio to `file`, raw float32 stereo
   at 48000 Hz (e.g. `ffplay -f f32le -ar 48000 -ac 2 file`).
+  A level's song starts only after the intro objectives box's Continue (every level song opens with a
+  silent hold loop until the level script jumps it to its main section), so a run with no input has
+  no music in its dump: press A first (e.g. `HWVX_AUTOINPUT="+240:a,+60:a"`).
+  `xdlrs audio level DUMP.f32 [--window S] [--from S]` prints a dump's loudness per window and band.
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
 - `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
   since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.
