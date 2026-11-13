@@ -1,10 +1,10 @@
-// The start: the briefing, the camera around the car, then the challenge's intro screen.
+// The start: the message line blanked (the briefing shows it under its box, as retail does), the camera around the car, then the challenge's intro screen.
 {
   "$schema": "../../../../schemas/Trigger.schema.json",
   "format_version": 1,
   "type": "level_start",
   "actions": [
-    { "type": "print_debug_string", "data": { "what": 4, "countdown": 60, "value": "level://strings/brief" } },
+    { "type": "print_debug_string", "data": { "what": 4, "countdown": 60, "value": "level://strings/blank" } },
     { "type": "camera_set_targets", "data": { "player": 0, "camera": { "kind": "orbit", "fov": 105, "radius": 18, "height": 0.5, "speed": 1,
         "around": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [10, 10, 0] },
         "at": { "kind": "car", "car": "base://ch1_l2/world_0/World/0/tileCars/0", "offset": [0, 0, 0] } }, "end": 31 } },

@@ -24,7 +24,7 @@
     "done": 0                                    // 1 once won or lost
   },
   "strings": {
-    "brief": "Checkpoint Run: reach the 3 checkpoints in order before time runs out!",
+    "blank": "     ",                           // what the briefing's bottom line shows as the level starts (retail's)
     "cp1": "Checkpoint 1 of 3",
     "cp2": "Checkpoint 2 of 3"
   },
