@@ -102,10 +102,18 @@ static int GL_Open(void) {
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-    Port_CreateWindow(SDL_WINDOW_OPENGL);
+    /* no OpenGL 3.3 core (an old driver, some Wine setups): report 0 for
+     * main_sdl.c to try another renderer */
+    if (!Port_TryCreateWindow(SDL_WINDOW_OPENGL)) {
+        Port_Log("The OpenGL renderer is unavailable: %s", SDL_GetError());
+        return 0;
+    }
     s.ctx = SDL_GL_CreateContext(g_port.window);
     if (s.ctx == NULL) {
-        Port_Fatal("OpenGL 3.3 core context unavailable: %s", SDL_GetError());
+        Port_Log("OpenGL 3.3 core context unavailable: %s", SDL_GetError());
+        SDL_DestroyWindow(g_port.window);
+        g_port.window = NULL;
+        return 0;
     }
     SDL_GL_MakeCurrent(g_port.window, s.ctx);
     GL_ApplyVSync();

@@ -139,8 +139,9 @@ const char *Port_RendererTitle(int r);      /* "Auto", "OpenGL", "Direct3D 12", 
 int Port_RendererByName(const char *name);  /* -1: none */
 int Port_RendererDefault(void);             /* what Auto picks */
 const char *Port_RendererGPUDriver(int r);  /* its SDL_GPU driver (NULL: OpenGL) */
-/* Whether renderer r can start here: OpenGL always (desktop), an SDL_GPU one when
- * SDL has that driver and it finds a device (SDL_GPUSupportsShaderFormats). */
+/* Whether renderer r can start here: OpenGL when a 3.3 core context can be made
+ * (desktop), an SDL_GPU one when SDL has that driver and it finds a device
+ * (SDL_GPUSupportsShaderFormats). */
 int Port_RendererAvailable(int r);
 void Port_GfxSetFullscreenMode(int w, int h);
 /* The Max FPS choice, brought into the rate the retrace pacing allows. */

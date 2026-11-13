@@ -129,6 +129,32 @@ int Port_RendererDefault(void) {
     return r > PORT_RENDERER_AUTO ? r : PORT_RENDERER_OPENGL;
 }
 
+/* OpenGL 3.3 core can start here: a hidden window and context made and
+ * dropped (some Windows drivers and Wine have none). Asked once. */
+static int OpenGLAvailable(void) {
+    static int known = -1;
+    SDL_Window *w;
+
+    if (known >= 0) {
+        return known;
+    }
+    known = 0;
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    w = SDL_CreateWindow("", 16, 16, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+    if (w != NULL) {
+        SDL_GLContext ctx = SDL_GL_CreateContext(w);
+
+        if (ctx != NULL) {
+            known = 1;
+            SDL_GL_DestroyContext(ctx);
+        }
+        SDL_DestroyWindow(w);
+    }
+    return known;
+}
+
 int Port_RendererAvailable(int r) {
     int i, n;
 
@@ -139,7 +165,7 @@ int Port_RendererAvailable(int r) {
 #ifdef SDL_PLATFORM_ANDROID
         return 0;
 #else
-        return 1;
+        return OpenGLAvailable();
 #endif
     }
     for (i = 0, n = SDL_GetNumGPUDrivers(); i < n; i++) {

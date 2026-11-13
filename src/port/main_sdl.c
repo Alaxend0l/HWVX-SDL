@@ -685,32 +685,34 @@ int main(int argc, char **argv) {
     FindDataDir();
     Port_InitHandles(Port_ArenaSize());
     /* the renderer: --renderer or HWVX_RENDERER, else graphics.cfg's (the
-     * launcher may have just changed it); one that fails falls back to Auto,
-     * then to OpenGL */
+     * launcher may have just changed it); one that fails to start falls back
+     * to Auto (the platform's default), then to OpenGL (none on Android) */
     {
         int want = s_rendererOverride >= 0 ? s_rendererOverride : g_port.renderer;
+        int tries[3], n = 0, k, opened = 0;
 
-        UseRenderer(want);
-        if (!g_gxr->open()) {
-#ifdef SDL_PLATFORM_ANDROID
-            Port_Fatal("The %s renderer is unavailable: %s", g_port.gpuDriver, SDL_GetError());
-#else
-            int opened = 0;
-
-            if (want != PORT_RENDERER_AUTO && want != Port_RendererDefault()) {
-                Port_Log("renderer %s failed: falling back to auto (%s)", Port_RendererName(want),
-                         Port_RendererName(Port_RendererDefault()));
-                UseRenderer(PORT_RENDERER_AUTO);
-                opened = g_gxr->open();
-            }
-            if (!opened) {
-                Port_Log("falling back to the OpenGL renderer");
-                UseRenderer(PORT_RENDERER_OPENGL);
-                if (!g_gxr->open()) {
-                    Port_Fatal("No renderer could start: %s", SDL_GetError());
-                }
-            }
+        if (want <= PORT_RENDERER_AUTO || want >= PORT_RENDERER_COUNT) {
+            want = Port_RendererDefault();
+        }
+        tries[n++] = want;
+        if (Port_RendererDefault() != want) {
+            tries[n++] = Port_RendererDefault();
+        }
+#ifndef SDL_PLATFORM_ANDROID
+        if (want != PORT_RENDERER_OPENGL && Port_RendererDefault() != PORT_RENDERER_OPENGL) {
+            tries[n++] = PORT_RENDERER_OPENGL;
+        }
 #endif
+        for (k = 0; k < n && !opened; k++) {
+            if (k > 0) {
+                Port_Log("renderer %s failed: falling back to %s%s", Port_RendererName(tries[k - 1]),
+                         Port_RendererName(tries[k]), tries[k] == Port_RendererDefault() ? " (auto)" : "");
+            }
+            UseRenderer(tries[k]);
+            opened = g_gxr->open();
+        }
+        if (!opened) {
+            Port_Fatal("No renderer could start (%s last): %s", Port_RendererName(tries[n - 1]), SDL_GetError());
         }
     }
 
