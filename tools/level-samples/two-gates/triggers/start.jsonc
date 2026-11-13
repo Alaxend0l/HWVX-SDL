@@ -18,7 +18,7 @@
       "data": {
         "what": 4,
         "countdown": 60,
-        "value": "level://strings/o1"
+        "value": "level://strings/blank"
       }
     }
   ]

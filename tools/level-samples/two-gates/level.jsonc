@@ -42,6 +42,7 @@
     }
   },
   "strings": {
+    "blank": "     ",
     "o1": "Drive through gate 1",
     "o2": "Now gate 2!",
     "won": "Both gates!"

@@ -1566,6 +1566,8 @@ impl<'e> Compiler<'e> {
         if self.skip_intro {
             docs = skip_intro(docs)?;
         }
+        let w = start_message_warnings(&lv, &docs);
+        self.warnings.extend(w);
         for (name, d) in docs {
             let r = self.trigger(&name, &d, &format!("triggers/{name}.jsonc"));
             self.catch_level(r)?;
@@ -1708,6 +1710,48 @@ pub fn check_trigger_name(name: &str) -> std::result::Result<(), String> {
     } else {
         Err(format!("{}: not a trigger name (letters, digits, '_' and '-' only)", py::str_repr(name)))
     }
+}
+
+/// What a level_start trigger's print_debug_string shows on the screen (Action.c,
+/// InterfaceManager_MoveObject): `what` 4, 7 and 8 set player 1, 2 and 3's message, and the
+/// first interface up with a text of role 65, 66 or 67 takes it. As a level starts that is
+/// the challenge and joyride briefing's bottom line (the big font of its "00:00" times, at
+/// 320,396): a sentence there runs off the screen. Retail levels print "     " (blank) as
+/// they start and keep their message lines for the end screens' short texts ("CHECKPOINT!!!!",
+/// "Out of Time"); the briefing's own text is an objective's (role 0x34). One warning per
+/// such action whose level://strings text isn't blank.
+pub fn start_message_warnings(lv: &Value, docs: &[(String, Value)]) -> Vec<String> {
+    let mut w = vec![];
+    let strings = lv.get("strings");
+    for (name, d) in docs {
+        if d.get("type").and_then(Value::as_str) != Some("level_start") {
+            continue;
+        }
+        let Some(actions) = d.get("actions").and_then(Value::as_array) else { continue };
+        for (i, a) in actions.iter().enumerate() {
+            if a.get("type").and_then(Value::as_str) != Some("print_debug_string") {
+                continue;
+            }
+            let data = a.get("data");
+            if !matches!(data.and_then(|x| x.get("what")).and_then(Value::as_i64), Some(4 | 7 | 8)) {
+                continue;
+            }
+            let Some(sname) = data.and_then(|x| x.get("value")).and_then(Value::as_str).and_then(|v| v.strip_prefix("level://strings/")) else {
+                continue;
+            };
+            let text = match strings.and_then(|t| t.get(sname)) {
+                Some(Value::String(t)) => t.clone(),
+                Some(Value::Array(p)) => p.first().and_then(Value::as_str).unwrap_or("").to_string(),
+                _ => continue,
+            };
+            if !text.trim().is_empty() {
+                w.push(format!(
+                    "triggers/{name}.jsonc/actions/{i}/data/value: level://strings/{sname} as the level starts shows on the challenge and joyride briefing's bottom line, in its big timer font (a sentence runs off the screen); retail prints a blank text (\"     \") here: put the briefing's text in an objective"
+                ));
+            }
+        }
+    }
+    w
 }
 
 /// sorted(p.stem for p in tdir.glob("*.jsonc"))
@@ -2543,6 +2587,23 @@ mod tests {
         for (x, t) in [(10.0, "10"), (6.65, "6.65"), (27.0, "27"), (0.0001, "0.0001"), (1234567.0, "1.23457e+06"), (0.00001, "1e-05"), (-2.5, "-2.5")] {
             assert_eq!(fmt_g(x), t);
         }
+    }
+
+    #[test]
+    fn start_message() {
+        let lv = json!({"strings": {"brief": "Reach the 3 checkpoints before time runs out!", "blank": "     ", "end": ["CHECKPOINT!!!!"]}});
+        let pds = |what: i64, v: &str| json!({"type": "print_debug_string", "data": {"what": what, "countdown": 60, "value": v}});
+        let docs = vec![
+            ("intro".to_string(), json!({"type": "level_start", "actions": [pds(4, "level://strings/brief"), pds(4, "level://strings/blank"), pds(2, "level://strings/brief")]})),
+            ("cp".to_string(), json!({"type": "airbox_entered", "actions": [pds(4, "level://strings/end")]})),
+            ("go".to_string(), json!({"type": "level_start", "actions": [pds(7, "level://strings/end"), pds(4, "base://ch1_l2/world_0/x")]})),
+        ];
+        let w = start_message_warnings(&lv, &docs);
+        assert_eq!(w.len(), 2);
+        assert!(w[0].starts_with("triggers/intro.jsonc/actions/0/data/value: level://strings/brief "));
+        assert!(w[1].starts_with("triggers/go.jsonc/actions/0/data/value: level://strings/end "));
+        let r = error_records(&w);
+        assert_eq!((r[0].file.as_str(), r[0].path.as_str()), ("triggers/intro.jsonc", "actions/0/data/value"));
     }
 
     #[test]

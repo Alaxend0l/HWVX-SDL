@@ -1495,7 +1495,7 @@ impl Browser {
                 *v = if paras.len() == 1 { Value::String(paras.remove(0)) } else { json!(paras) };
                 self.edited(before);
             }
-            ui.label(egui::RichText::new("shown by print_debug_string (what 4: the objective line of the pause, win and lose screens)").small().weak());
+            ui.label(egui::RichText::new("shown by print_debug_string (what 4: player 1's message line, under the challenge and joyride briefing and on the win and lose screens; keep it short, and blank (\"     \") as the level starts)").small().weak());
             return;
         }
         if kind == "objectives" {
