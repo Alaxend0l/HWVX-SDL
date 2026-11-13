@@ -2339,6 +2339,23 @@ pub fn start_mode(mode: &str) -> &str {
     }
 }
 
+/// HWVX_START for a test drive: race:mode=M,world=ID[,car=N]. The game splits it at ',' and
+/// '=', so the mode and id must be the compiler's own (a mode of MODES, a uid:// id), never
+/// text that could add a key of its own; the compile refuses others, and this checks again.
+pub fn start_string(mode: &str, id: &str, car: Option<i64>) -> Result<String> {
+    if !MODES.iter().any(|m| m.0 == mode) {
+        return Err(lerr(format!("level.jsonc: mode: {}: not a mode", py::str_repr(mode))));
+    }
+    if !rx!(r"^uid://[0-9a-z]{1,13}$").is_match(id) {
+        return Err(lerr(format!("level.jsonc: id: {}: uid:// and 1 to 13 of 0-9 a-z", py::str_repr(id))));
+    }
+    let mut start = format!("race:mode={},world={id}", start_mode(mode));
+    if let Some(c) = car {
+        start += &format!(",car={c}");
+    }
+    Ok(start)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DriveOpts {
     pub car: Option<i64>,
@@ -2409,10 +2426,7 @@ pub fn testdrive(env: &Env, proj: &Path, scratch: &Path, o: &DriveOpts) -> Resul
         if std::fs::read_to_string(&mj).ok().as_deref() != Some(text.as_str()) {
             graph::write_text(&mj, &text)?;
         }
-        let mut start = format!("race:mode={},world={}", start_mode(&s(&lv["mode"])), s(&lv["id"]));
-        if let Some(c) = o.car {
-            start += &format!(",car={c}");
-        }
+        let start = start_string(&s(&lv["mode"]), &s(&lv["id"]), o.car)?;
         let level = mod_dir.join("level.json");
         let mut products = vec![json!({"kind": "level", "path": level.display().to_string(), "cached": cached})];
         if let Some(p) = &pack {
@@ -2568,6 +2582,16 @@ mod tests {
             let e = st(p).unwrap_err();
             assert_eq!(e.kind, Kind::Level, "{p}: {}", e.msg);
             assert!(e.msg.contains("out of range"), "{}", e.msg);
+        }
+    }
+
+    #[test]
+    fn test_drive_start_string() {
+        assert_eq!(start_string("adventure", "uid://abc123", Some(3)).unwrap(), "race:mode=mission,world=uid://abc123,car=3");
+        assert_eq!(start_string("joyride", "uid://a", None).unwrap(), "race:mode=joyride,world=uid://a");
+        for (m, id) in [("joyride,car=9", "uid://a"), ("joyride=x", "uid://a"), ("joyride", "uid://a,car=9"), ("joyride", "uid://a=b"), ("joyride", "")] {
+            let e = start_string(m, id, None);
+            assert!(e.is_err(), "{m} {id}");
         }
     }
 
