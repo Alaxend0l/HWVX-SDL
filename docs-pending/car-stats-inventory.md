@@ -20,7 +20,7 @@ PS2 prototype (`ps2beta`).
   white (1..100). Past 100 the tracks hold their last key (no active key loops them): **255
   draws like 100**, so the usable range is 0-100. Prototype: vertical bars (rot ±90), scale y
   9 → 90 over 0..100, no number.
-* **Retail bytes:** used range 25-100; every car has 30 or more in at least three bars, the
+* **Retail bytes:** used range 25-100; the
   "floor" is 30 for most cars (25 for a few). The bytes are **identical on GC, PC and PS2** for all 33
   cars. The prototype's 33 twin cars carry **the same bytes as their release twin**; its three
   own cars: Fandango 30/50/45/30, Sweet 16 II 52/30/30/35, Jester 51/30/50/60.
