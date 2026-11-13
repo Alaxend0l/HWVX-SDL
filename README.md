@@ -89,6 +89,11 @@ Options: `--data PATH`, `--scale N` (window = 640×480×N), `--window WxH`
 (any size and shape), `--fullscreen` or `--windowed` (either overrides
 `graphics.cfg`), `--renderer NAME`.
 
+`--gc-air-camera` (or `HWVX_GC_AIR_CAMERA=1`): the GameCube/PS2 trigger orbit camera. An
+event's orbit around an object ends, and the camera goes back to the car, as soon as the
+player's car is tipped past 60° with its wheels down or stuck (after a jump or a roll).
+Default: the PC's orbit, which runs until the event's script moves the camera on.
+
 Resolution: the game renders at the window's size and shape, and the window
 can be resized. On a screen wider than 4:3 the 3D view widens to fill it while
 the HUD and menus keep their 4:3 layout in the middle (taller screens work the
