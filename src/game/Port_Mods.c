@@ -1795,9 +1795,9 @@ static u32 Rd32Fmt(const u8 *p, int be) {
 static void ModSound(const Mod *m, const char *id, const JsonNode *v, s32 fmt, const u8 *desc, u32 count, u32 i) {
     const char *file = v->type == JSON_STRING ? v->string : Str(v, "file");
     const JsonNode *loopNode = v->type == JSON_OBJECT ? Json_Get(v, "loop") : NULL;
-    const u8 *d = desc + i * 0x20;
+    const u8 *d;
     int be = fmt == PORT_DATA_GC;
-    u32 baseLen = Rd32Fmt(d + 4, be), baseLoop = Rd32Fmt(d + 8, be), rate = Rd32Fmt(d + 0xC, be), n;
+    u32 baseLen, baseLoop, rate, n;
     AudioDecoded a;
     char err[160], *path = NULL;
     int16_t *mono, *pcm;
@@ -1811,6 +1811,10 @@ static void ModSound(const Mod *m, const char *id, const JsonNode *v, s32 fmt, c
         Report("%s: %s: this release's pack has %u sounds", m->info.name, id, (unsigned)count);
         return;
     }
+    d = desc + i * 0x20;     /* (i is the mod's key: checked first) */
+    baseLen = Rd32Fmt(d + 4, be);
+    baseLoop = Rd32Fmt(d + 8, be);
+    rate = Rd32Fmt(d + 0xC, be);
     if (rate < 1000 || rate > 192000 || baseLen == 0) {
         Report("%s: %s: the base sound has no usable rate", m->info.name, id);
         return;
