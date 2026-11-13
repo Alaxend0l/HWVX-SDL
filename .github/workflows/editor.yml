@@ -1,0 +1,150 @@
+# The level editor's packages (HWVX Editor, packaging/README.md "The editor"):
+# - on an editor tag (editor-v0.1.0...): built and published as a GitHub
+#   Release of its own (the game's workflow, build.yml, runs on v* tags only);
+# - by hand (workflow_dispatch): as workflow artifacts only.
+# Each job runs the script you can run locally in packaging/editor/.
+# hwvx-x is built from the superproject's crate (hwvx-xfile, the public repo
+# Alaxend0l/HWVX-X-FILE-EDITOR), checked out sparsely (its Cargo files and
+# src/ only) at HWVX_X_REF, and given to the scripts as HWVX_X_CRATE.
+name: Editor
+
+on:
+  push:
+    tags: ['editor-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  HWVX_X_REPO: Alaxend0l/HWVX-X-FILE-EDITOR
+  HWVX_X_REF: beta-content-port
+  # editor-v0.1.0 -> 0.1.0; by hand: dev-<commit>
+  HWVX_EDITOR_VERSION: ${{ startsWith(github.ref, 'refs/tags/editor-v') && github.ref_name || format('dev-{0}', github.sha) }}
+
+jobs:
+  windows:
+    name: Windows x86_64 (.zip)
+    runs-on: ubuntu-24.04   # cross-compiled with MinGW-w64 GCC
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # the game's version inside: git describe (v* tags)
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HWVX_X_REPO }}
+          ref: ${{ env.HWVX_X_REF }}
+          path: _hwvx-x
+          sparse-checkout: |
+            Cargo.toml
+            Cargo.lock
+            src
+          sparse-checkout-cone-mode: false
+      - run: echo "HWVX_X_CRATE=$GITHUB_WORKSPACE/_hwvx-x" >> "$GITHUB_ENV"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 cmake ninja-build zip
+      - run: rustup target add x86_64-pc-windows-gnu
+      - uses: actions/cache@v4
+        with:
+          path: build-pkg/windows/sdl-prefix
+          key: sdl-windows-${{ hashFiles('packaging/SDL_VERSION', 'packaging/build-sdl3.sh', 'cmake/mingw-w64-x86_64.cmake') }}
+      - run: packaging/editor/windows/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-windows-x86_64
+          path: dist/*
+
+  macos:
+    name: macOS universal (.dmg)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HWVX_X_REPO }}
+          ref: ${{ env.HWVX_X_REF }}
+          path: _hwvx-x
+          sparse-checkout: |
+            Cargo.toml
+            Cargo.lock
+            src
+          sparse-checkout-cone-mode: false
+      - run: echo "HWVX_X_CRATE=$GITHUB_WORKSPACE/_hwvx-x" >> "$GITHUB_ENV"
+      - run: brew install ninja librsvg
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: actions/cache@v4
+        with:
+          path: build-pkg/macos/sdl-prefix
+          key: sdl-macos-${{ hashFiles('packaging/SDL_VERSION', 'packaging/build-sdl3.sh') }}
+      - run: packaging/editor/macos/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-macos-universal
+          path: dist/*
+
+  linux:
+    name: Linux ${{ matrix.arch }} (AppImage)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04       # old glibc: runs on more distributions
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HWVX_X_REPO }}
+          ref: ${{ env.HWVX_X_REF }}
+          path: _hwvx-x
+          sparse-checkout: |
+            Cargo.toml
+            Cargo.lock
+            src
+          sparse-checkout-cone-mode: false
+      - run: echo "HWVX_X_CRATE=$GITHUB_WORKSPACE/_hwvx-x" >> "$GITHUB_ENV"
+      - name: SDL's build dependencies (as build.yml's linux job)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config curl file \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libaudio-dev libjack-dev libsndio-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libdbus-1-dev libibus-1.0-dev libudev-dev libusb-1.0-0-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev
+      - uses: actions/cache@v4
+        with:
+          path: build-pkg/linux-${{ matrix.arch }}/sdl-prefix
+          key: sdl-linux-${{ matrix.arch }}-${{ hashFiles('packaging/SDL_VERSION', 'packaging/build-sdl3.sh') }}
+      - run: packaging/editor/linux/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-linux-${{ matrix.arch }}
+          path: dist/*.AppImage
+
+  release:
+    name: GitHub Release (the editor's)
+    if: startsWith(github.ref, 'refs/tags/editor-v')
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: editor-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: HWVX Editor ${{ github.ref_name }}
+          files: artifacts/*
+          generate_release_notes: true
+          make_latest: false   # the game's release stays the repository's latest
