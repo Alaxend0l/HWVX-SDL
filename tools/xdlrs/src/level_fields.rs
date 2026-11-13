@@ -4,8 +4,10 @@
 //! link leads to, so the port can walk the base world's records from the World and know the
 //! type of every word it reaches.
 //!
-//!     xdlrs level gen-fields            write it
-//!     xdlrs level gen-fields --check    1 if the file isn't what the schemas give
+//! ```text
+//! xdlrs level gen-fields            write it
+//! xdlrs level gen-fields --check    1 if the file isn't what the schemas give
+//! ```
 
 use crate::error::{Error, Result};
 use crate::schema::{self, Schemas};
