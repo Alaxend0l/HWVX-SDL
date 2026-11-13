@@ -138,6 +138,17 @@ static struct {
     u32 nSamplers;
 } s;
 
+/* HWVX_GPUTIME: the next present waits for its frame's fence and counts the
+ * wait (SDL_GPU has no timer queries; the frame's work is all submitted at
+ * present, so the wait is close to its GPU time). */
+static int s_timeFrame;
+
+static void GPU_Mark(int m) {
+    if (m == GXR_MARK_END) {
+        s_timeFrame = 1;
+    }
+}
+
 /* The asynchronous readbacks (grabStart/grabFetch): a download buffer each,
  * and the fence of the submit that fills it. */
 static struct {
@@ -745,6 +756,7 @@ static void CopyPass(SDL_GPUCommandBuffer *cmd) {
     if (s.nUploads == 0 && vertBytes == 0 && s.nBufUploads == 0) {
         return;
     }
+    g_gxFrame.passes++;
     if (need > ONEOFF_TRANSFER) {
         SDL_GPUTransferBufferCreateInfo ci;
 
@@ -861,6 +873,7 @@ static void RenderPass(SDL_GPUCommandBuffer *cmd) {
     dt.clear_depth = s.clearDepth;
     dt.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    g_gxFrame.passes++;
     pass = SDL_BeginGPURenderPass(cmd, &ct, 1, &dt);
     for (i = 0; i < s.nDraws; i++) {
         const Draw *d = &s.draws[i];
@@ -1181,6 +1194,7 @@ static void GPU_CopyDisp(const int src[4]) {
     ct.load_op = SDL_GPU_LOADOP_CLEAR;
     ct.store_op = SDL_GPU_STOREOP_STORE;
     ct.clear_color.a = 1.0f;
+    g_gxFrame.passes++;
     pass = SDL_BeginGPURenderPass(cmd, &ct, 1, NULL);
     SDL_BindGPUGraphicsPipeline(pass, s.present);
     vp.x = (f32)lb[0];
@@ -1214,6 +1228,7 @@ static void GPU_CopyEFB(void *tex, const int src[4]) {
     from.x = (u32)src[0];
     from.y = (u32)src[1];
     to.texture = tex;
+    g_gxFrame.passes++;
     cp = SDL_BeginGPUCopyPass(Cmd());
     SDL_CopyGPUTextureToTexture(cp, &from, &to, (u32)(src[2] - src[0]), (u32)(src[3] - src[1]), 1, false);
     SDL_EndGPUCopyPass(cp);
@@ -1356,7 +1371,18 @@ static void GPU_Present(void) {
     Flush();
     if (s.cmd != NULL) {
         if (s.swapTex != NULL) {
-            if (!SDL_SubmitGPUCommandBuffer(s.cmd)) {
+            if (s_timeFrame) {
+                SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(s.cmd);
+
+                if (fence != NULL) {
+                    u64 t0 = SDL_GetTicksNS();
+
+                    SDL_WaitForGPUFences(s.dev, true, &fence, 1);
+                    g_gxGpuNs[GXR_MARK_END] += SDL_GetTicksNS() - t0;
+                    g_gxFrame.timed++;
+                    SDL_ReleaseGPUFence(s.dev, fence);
+                }
+            } else             if (!SDL_SubmitGPUCommandBuffer(s.cmd)) {
                 Port_Log("SDL_SubmitGPUCommandBuffer failed: %s", SDL_GetError());
             }
         } else {
@@ -1380,10 +1406,11 @@ static void GPU_Present(void) {
         s.cmd = NULL;
     }
     s.swapTex = NULL;
+    s_timeFrame = 0;
 }
 
 const GXRenderer g_gxSDLGPU = {
     "sdl_gpu", GPU_Open, GPU_Close, GPU_Init, GPU_Resize, GPU_TexFormat, GPU_TexCreate, GPU_TexUpload, GPU_TexDestroy,
     GPU_Draw, GPU_Clear, GPU_DrawImage, GPU_CopyDisp, GPU_CopyEFB, GPU_ReadEFB, GPU_Present,
-    GPU_MeshIndices, GPU_MeshVertices, GPU_MeshDestroy, GPU_GrabStart, GPU_GrabFetch,
+    GPU_MeshIndices, GPU_MeshVertices, GPU_MeshDestroy, GPU_GrabStart, GPU_GrabFetch, GPU_Mark,
 };

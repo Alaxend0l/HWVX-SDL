@@ -33,6 +33,8 @@ GXShaderStats g_gxShaderStats;
 u64 g_gxUploadBytes;
 u32 g_gxCopyPasses;
 u64 g_gxStagingBytes;
+GXFrameStats g_gxFrame;
+u64 g_gxGpuNs[GXR_MARK_COUNT];
 
 static u32 s_statDraws, s_statVerts, s_statMeshDraws;
 static u32 s_statBlend, s_statAlphaComp, s_statFog, s_statStages;
@@ -50,6 +52,24 @@ static int StatsOn(void) {
     return s_statsOn;
 }
 static int s_efbW, s_efbH;
+
+/* HWVX_GPUTIME=1: per-frame counts and GPU time, logged every 120 frames. */
+static int s_gpuTimeOn = -1, s_shadowMarked, s_afterCopy;
+
+static int GpuTimeOn(void) {
+    if (s_gpuTimeOn < 0) {
+        const char *e = SDL_getenv("HWVX_GPUTIME");
+
+        s_gpuTimeOn = e != NULL && *e == '1';
+    }
+    return s_gpuTimeOn;
+}
+
+static void Mark(int m) {
+    if (GpuTimeOn() && g_gxr->mark != NULL) {
+        g_gxr->mark(m);
+    }
+}
 
 extern u8 g_CurrentViews[8];   /* game: bit n set = view n drawn this frame */
 
@@ -401,6 +421,10 @@ static int BuildDrawCall(GXDrawCall *dc, GXVSUniforms *vs, GXFSUniforms *fs) {
         dc->blendRevSub = 1;
         dc->blendSrc = dc->blendDst = GXR_BF_ONE;
     }
+    if (g->blendType == 1 && !g->colorUpdate && g->alphaUpdate && !s_shadowMarked) {
+        s_shadowMarked = 1;   /* HWVX_GPUTIME: the first shadow volume */
+        Mark(GXR_MARK_SHADOW);
+    }
     dc->depthTest = g->zEnable;
     dc->depthFunc = g->zFunc & 7;
     dc->depthWrite = g->zUpdate;
@@ -515,7 +539,15 @@ static void Submit(GXDrawCall *dc) {
             s_statStages += (u32)fs.misc[0];
             t0 = SDL_GetPerformanceCounter();
         }
+        if (s_afterCopy == 1) {
+            s_afterCopy = 2;
+            Mark(GXR_MARK_COPIED);
+        }
         g_gxr->draw(dc);
+        if (s_afterCopy == 2) {
+            s_afterCopy = 3;
+            Mark(GXR_MARK_MASK);
+        }
         if (t0 != 0) {
             s_statDrawNs += SDL_GetPerformanceCounter() - t0;
         }
@@ -527,6 +559,7 @@ static void Submit(GXDrawCall *dc) {
 static void ClearEFB(void) {
     f32 c[4];
 
+    g_gxFrame.clears++;
     Color4(&g_gx.clearColor, c);
     g_gxr->clear(c, (f32)((g_gx.clearZ & 0xFFFFFF) / (f64)0xFFFFFF));
 }
@@ -537,6 +570,8 @@ void GX_DrawBeginFrame(void) {
     int w, h;
 
     GX_MeshCollect();
+    s_shadowMarked = s_afterCopy = 0;
+    Mark(GXR_MARK_FRAME);
 
     WindowSize(&w, &h);
     if (w != s_efbW || h != s_efbH) {
@@ -697,6 +732,7 @@ static void DumpEFB(void) {
     if (surf == NULL) {
         return;
     }
+    g_gxFrame.readbacks++;
     if (surf->pitch == s_efbW * 4 && g_gxr->readEFB(surf->pixels)) {
         SDL_snprintf(path, sizeof(path), "%s/frame%05d.bmp", dir, count - 1);
         SDL_SaveBMP(surf, path);
@@ -712,6 +748,8 @@ void GX_DrawCopyDisp(int clear) {
     Port_HudDraw(s_efbW, s_efbH);   /* in the EFB, so dumps and the dump's
                                      * stats stay free of it and it rides the
                                      * copy's letterbox like the frame does */
+    Mark(GXR_MARK_DISP);
+    g_gxFrame.dispCopies++;
     if (!Port_ViewerHeadless()) {           /* the viewer's hidden window: no copy */
         g_gxr->copyDisp(r);
     }
@@ -727,12 +765,41 @@ void GX_DrawCopyDisp(int clear) {
 void GX_DrawCopyTex(void *dest, int clear) {
     int r[4] = { 0, 0, s_efbW, s_efbH };
 
+    Mark(GXR_MARK_COPY);
+    g_gxFrame.effCopies++;
+    g_gxFrame.effPixels += (u32)(s_efbW * s_efbH);
     GX_TexCopyEFB(dest, r);
+    s_afterCopy = 1;   /* HWVX_GPUTIME: the next draw applies the mask */
     if (clear) {
         ClearEFB();
     }
 }
 
 void GX_DrawPresent(void) {
+    Mark(GXR_MARK_END);
     g_gxr->present();
+    if (GpuTimeOn() && ++g_gxFrame.frames == 120) {
+        static const char *const names[GXR_MARK_COUNT] = {
+            "-", "scene", "shadow volumes", "shadow copy", "mask draw", "to display copy", "display copy"
+        };
+        int w, h, i, n = 0;
+        char buf[256];
+        f64 per = g_gxFrame.timed ? 1.0 / (1e6 * g_gxFrame.timed) : 0.0, total = 0.0;
+
+        SDL_GetWindowSizeInPixels(g_port.window, &w, &h);
+        for (i = 1; i < GXR_MARK_COUNT; i++) {
+            total += (f64)g_gxGpuNs[i] * per;
+            if (g_gxGpuNs[i] != 0 && n < (int)sizeof(buf) - 40) {
+                n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n, ", %s %.3f", names[i], (f64)g_gxGpuNs[i] * per);
+            }
+        }
+        buf[n] = 0;
+        Port_Log("gputime %s: EFB %dx%d, window %dx%d; per frame %.2f render passes, %.2f clears, %.2f EFB copies "
+                 "(%.0f px each), %.2f display copies, %.2f readbacks; GPU %.3f ms%s",
+                 g_gxr->name, s_efbW, s_efbH, w, h, g_gxFrame.passes / 120.0, g_gxFrame.clears / 120.0,
+                 g_gxFrame.effCopies / 120.0, g_gxFrame.effCopies ? (f64)g_gxFrame.effPixels / g_gxFrame.effCopies : 0.0,
+                 g_gxFrame.dispCopies / 120.0, g_gxFrame.readbacks / 120.0, total, buf);
+        SDL_zero(g_gxFrame);
+        SDL_zeroa(g_gxGpuNs);
+    }
 }

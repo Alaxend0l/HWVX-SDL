@@ -459,8 +459,15 @@ static void GL_TexUpload(void *tex, int fmt, int level, int w, int h, const u8 *
     StateReset();
 }
 
+/* GL_CopyEFB's texture, once it has its storage */
+static GLuint s_copyTex;
+static int s_copyW, s_copyH;
+
 static void GL_TexDestroy(void *tex) {
     GLuint name = (GLuint)(uintptr_t)tex;
+    if (name == s_copyTex) {
+        s_copyTex = 0;
+    }
     glDeleteTextures(1, &name);
     StateReset();
 }
@@ -905,8 +912,11 @@ static void GL_CopyDisp(const int src[4]) {
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
-/* The storage is respecified on each copy since texCreate leaves it to the
- * first upload, and a texture only gets one copy per frame. */
+/* texCreate leaves the storage to the first upload, so the first copy into a
+ * texture (gx_tex.c keeps one, remade when the EFB size changes) gives it its
+ * storage and attaches it; later copies reuse both. Respecifying it on every
+ * copy reallocated a texture the size of the window each frame, which some
+ * drivers do slowly. GL_TexDestroy forgets it. */
 static void GL_CopyEFB(void *tex, const int src[4]) {
     static GLuint fbo;
     int w = src[2] - src[0], h = src[3] - src[1];
@@ -914,11 +924,16 @@ static void GL_CopyEFB(void *tex, const int src[4]) {
     if (fbo == 0) {
         glGenFramebuffers(1, &fbo);
     }
-    glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)(uintptr_t)tex, 0);
+    if ((GLuint)(uintptr_t)tex != s_copyTex || w != s_copyW || h != s_copyH) {
+        glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)(uintptr_t)tex, 0);
+        s_copyTex = (GLuint)(uintptr_t)tex;
+        s_copyW = w;
+        s_copyH = h;
+    }
     glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, s.fbo);
     /* GL rows are bottom-up, texture rows top-down: flip while copying */
     glBlitFramebuffer(src[0], s.efbH - src[3], src[2], s.efbH - src[1], 0, h, w, 0,
@@ -1013,6 +1028,49 @@ static int GL_GrabFetch(int slot, u8 *dst, int stride, int maxW, int maxH, int *
     return ok;
 }
 
+/* HWVX_GPUTIME: a GL_TIME_ELAPSED query from each mark to the next (Apple's
+ * GL has no usable GL_TIMESTAMP), read back 3 frames later, when done, so
+ * reading doesn't wait for the GPU. s_tqEnd: the mark that ended the query
+ * begun at a mark (it is that stretch's time). */
+#define GT_FRAMES 4
+static GLuint s_tq[GT_FRAMES][GXR_MARK_COUNT];
+static s8 s_tqEnd[GT_FRAMES][GXR_MARK_COUNT];
+static int s_tqFrame, s_tqInit, s_tqOpen = -1;
+
+static void GL_Mark(int m) {
+    int f = s_tqFrame, i;
+
+    if (!s_tqInit) {
+        glGenQueries(GT_FRAMES * GXR_MARK_COUNT, &s_tq[0][0]);
+        memset(s_tqEnd, -1, sizeof(s_tqEnd));
+        s_tqInit = 1;
+    }
+    if (s_tqOpen >= 0) {
+        glEndQuery(GL_TIME_ELAPSED);
+        s_tqEnd[f][s_tqOpen] = (s8)m;
+        s_tqOpen = -1;
+    }
+    if (m != GXR_MARK_END) {
+        glBeginQuery(GL_TIME_ELAPSED, s_tq[f][m]);
+        s_tqOpen = m;
+        return;
+    }
+    f = (s_tqFrame + 1) % GT_FRAMES;   /* the oldest frame */
+    if (s_tqEnd[f][GXR_MARK_FRAME] >= 0) {
+        for (i = 0; i < GXR_MARK_COUNT; i++) {
+            if (s_tqEnd[f][i] >= 0) {
+                GLuint64 t = 0;
+
+                glGetQueryObjectui64v(s_tq[f][i], GL_QUERY_RESULT, &t);
+                g_gxGpuNs[(int)s_tqEnd[f][i]] += t;
+            }
+        }
+        g_gxFrame.timed++;
+    }
+    memset(s_tqEnd[f], -1, sizeof(s_tqEnd[f]));
+    s_tqFrame = f;
+}
+
 static void GL_Present(void) {
     TevGenStats();
     /* GXCopyDisp(clear) leaves the EFB bound (GL_Clear). Present from the
@@ -1033,5 +1091,5 @@ static void GL_Present(void) {
 const GXRenderer g_gxGL = {
     "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexFormat, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
     GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_CopyEFB, GL_ReadEFB, GL_Present,
-    GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy, GL_GrabStart, GL_GrabFetch,
+    GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy, GL_GrabStart, GL_GrabFetch, GL_Mark,
 };

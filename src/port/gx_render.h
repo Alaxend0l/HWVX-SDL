@@ -180,6 +180,12 @@ typedef struct GXRenderer {
      * -1: nothing pending, too big, or failed (the slot is freed). */
     int (*grabStart)(int slot);
     int (*grabFetch)(int slot, u8 *dst, int stride, int maxW, int maxH, int *w, int *h, int wait);
+    /* HWVX_GPUTIME=1 (gx_draw.c): a point in the frame, GXR_MARK_*; at
+     * GXR_MARK_END the renderer adds the GPU time between the frame's marks
+     * to g_gxGpuNs (ns, per mark: from the previous mark to this one), or
+     * just the whole frame to g_gxGpuNs[GXR_MARK_END] when it has no timers.
+     * NULL: not measured. */
+    void (*mark)(int m);
 } GXRenderer;
 
 #define GXR_GRAB_SLOTS 2
@@ -200,6 +206,18 @@ extern u64 g_gxUploadBytes;
  * report, and the bytes of the staging buffers it keeps for them. */
 extern u32 g_gxCopyPasses;
 extern u64 g_gxStagingBytes;
+
+/* HWVX_GPUTIME=1: per-frame counts since the last report (gx_draw.c fills
+ * in the generic ones, the renderer its passes) and GPU time per stretch of
+ * the frame. The marks: frame start, first shadow volume, before and after
+ * the shadow mask's EFB copy, after the draw that applies the mask, the
+ * display copy, present. */
+enum { GXR_MARK_FRAME, GXR_MARK_SHADOW, GXR_MARK_COPY, GXR_MARK_COPIED, GXR_MARK_MASK, GXR_MARK_DISP, GXR_MARK_END, GXR_MARK_COUNT };
+typedef struct GXFrameStats {
+    u32 frames, passes, clears, effCopies, effPixels, dispCopies, readbacks, timed;
+} GXFrameStats;
+extern GXFrameStats g_gxFrame;
+extern u64 g_gxGpuNs[GXR_MARK_COUNT];
 
 extern const GXRenderer g_gxGL;
 extern const GXRenderer g_gxSDLGPU;
