@@ -61,7 +61,10 @@ pub struct Prepared {
 /// The level tools over the checkout's schemas (`tools`' parent).
 pub fn level_env(tools: &Path) -> Result<xdlrs::level::Env, String> {
     let root = tools.parent().filter(|r| !r.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    xdlrs::level::Env::new(root).map_err(|e| format!("{}: {e}", root.join("schemas").display()))
+    let mut env = xdlrs::level::Env::new(root).map_err(|e| format!("{}: {e}", root.join("schemas").display()))?;
+    // a package's own hwvx-x, beside the program (else xdlrs looks in the checkout, the PATH)
+    env.hwvx_x = crate::resources::hwvx_x();
+    Ok(env)
 }
 
 /// The errors of a level tools' result as records.
@@ -268,9 +271,17 @@ pub fn share(o: &Options, out: &Path) -> Result<String, String> {
     }
 }
 
-/// tools/ of the checkout the game is in (the one whose parent has schemas/).
+/// tools/ (its parent has schemas/): the packaged resources' (or $HWVX_EDITOR_RESOURCES), else
+/// the checkout the game is in, else the one this program is in (crate::resources).
 pub fn default_tools(game: &Path) -> Option<PathBuf> {
-    game.ancestors().skip(1).map(|d| d.join("tools")).find(|d| d.parent().is_some_and(|r| r.join("schemas").join("Trigger.schema.json").is_file()))
+    if let Some(t) = crate::resources::given().map(|r| r.join("tools")) {
+        return Some(t);
+    }
+    game.ancestors()
+        .skip(1)
+        .map(|d| d.join("tools"))
+        .find(|d| d.parent().is_some_and(|r| r.join("schemas").join("Trigger.schema.json").is_file()))
+        .or_else(crate::resources::tools)
 }
 
 /// The editor's start "from here": below `at` (the ground the viewer's raycast found, a little
