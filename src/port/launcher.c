@@ -31,7 +31,7 @@
  * Kept in <pref>/sources.cfg as "gc=PATH", "pc=PATH", "ps2=PATH",
  * "ps2beta=PATH", "proto=off|cars|added|replace", "play=gc|pc|ps2|mix:ultimate", "skip=1",
  * "interface=gc|ps2" (the mixed game's interface art, read by mix.c too) and
- * "tab=PAGE"; the GameCube data the
+ * "tab=PAGE" and "section=SECTION" (the Settings page's); the GameCube data the
  * port found before the launcher existed (datadir.txt) is taken over on the
  * first run.
  *
@@ -39,19 +39,23 @@
  * text at a logical 640x420. A tab bar shows one page at a time: Play (which
  * release plays, the skip tick), Games (importing and removing releases),
  * Saves, Convert (below), Mods (a placeholder), Settings (graphics.cfg,
- * through gfx_settings.c: display, PC textures, main menu, split screen,
- * movies, mouse steering, draw distance, stereo). Play, Quit and the status line stay at the bottom. It opens
- * on the page shown last, or Play; on Games while no release is imported.
+ * through gfx_settings.c, in sections under a row of sub-tabs: Display
+ * (windowed or fullscreen, PC textures, draw distance, split screen), Audio
+ * (stereo, movies), Controls (mouse steering), Game (main menu); a row cycles
+ * through its choices, any number of them). Play, Quit and the status line
+ * stay at the bottom. It opens on the page (and section) shown last, or Play;
+ * on Games while no release is imported.
  * Mouse, keyboard (arrows, Tab, Enter, Escape; Page Up/Down: the page) and
  * gamepads (d-pad or left stick, A, B, Start: Play; LB/RB: the page) move a
- * focus between the page's buttons and the bottom bar's; the tabs take clicks.
+ * focus between the page's buttons and the bottom bar's; the tabs and sub-tabs
+ * take clicks, and left/right on a setting's row switch the section.
  * Folders and images are picked with the system's dialogs, which need a mouse
  * or a keyboard.
  *
  * Testing: HWVX_LAUNCHER_SHOT=file.bmp saves a frame and closes;
- * HWVX_LAUNCHER_TAB=PAGE opens that page; HWVX_LAUNCHER_INPUT queues input
- * before the shot (QueueInput); HWVX_LAUNCHER_DISC=pc=IMAGE|ps2=IMAGE imports
- * a disc image as if picked.
+ * HWVX_LAUNCHER_TAB=PAGE opens that page (settings/SECTION: and that
+ * section); HWVX_LAUNCHER_INPUT queues input before the shot (QueueInput);
+ * HWVX_LAUNCHER_DISC=pc=IMAGE|ps2=IMAGE imports a disc image as if picked.
  *
  * "Import saves..." takes progress from any release's saves (Port_SaveImport.c:
  * GameCube .gci and card images, the PC's velocityX, PS2 card images and
@@ -128,6 +132,24 @@ static int TabNamed(const char *name) {
     return -1;
 }
 
+/* The Settings page's sections, its sub-tabs; the names are sources.cfg's
+ * "section=" and HWVX_LAUNCHER_TAB's "settings/NAME". */
+enum { SEC_DISPLAY, SEC_AUDIO, SEC_CONTROLS, SEC_GAME, SEC_COUNT };
+
+static const char *const s_secKeys[SEC_COUNT] = { "display", "audio", "controls", "game" };
+static const char *const s_secNames[SEC_COUNT] = { "Display", "Audio", "Controls", "Game" };
+
+static int SectionNamed(const char *name) {
+    int i;
+
+    for (i = 0; name != NULL && i < SEC_COUNT; i++) {
+        if (SDL_strcasecmp(name, s_secKeys[i]) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 typedef struct Sources {
     char *path[SRC_COUNT];
     int play;           /* PORT_DATA_*, or -1 */
@@ -135,6 +157,7 @@ typedef struct Sources {
                          * release to fall back on */
     int skip;           /* start the game without the launcher */
     int tab;            /* TAB_* last shown, or -1 */
+    int section;        /* SEC_*: the Settings page's section last shown */
     int proto;          /* the prototype's import mode, PORT_PROTO_* (proto.c) */
     int ifacePS2;       /* the mixed game's interface art: the PS2's silver set, else the GameCube's yellow */
 } Sources;
@@ -170,6 +193,9 @@ static int LoadSources(Sources *s) {
         }
         if (SDL_strncmp(line, "tab=", 4) == 0) {
             s->tab = TabNamed(line + 4);
+        }
+        if (SDL_strncmp(line, "section=", 8) == 0 && SectionNamed(line + 8) >= 0) {
+            s->section = SectionNamed(line + 8);
         }
         if (SDL_strncmp(line, "proto=", 6) == 0 && Port_ProtoModeNamed(line + 6) >= 0) {
             s->proto = Port_ProtoModeNamed(line + 6);
@@ -235,6 +261,9 @@ static void SaveSources(const Sources *s) {
     }
     if (s->tab >= 0) {
         ok &= SDL_IOprintf(io, "tab=%s\n", s_tabKeys[s->tab]) > 0;
+    }
+    if (s->section != SEC_DISPLAY) {
+        ok &= SDL_IOprintf(io, "section=%s\n", s_secKeys[s->section]) > 0;
     }
     if (!SDL_CloseIO(io) || !ok || !Port_ReplaceFile(tmp, path)) {
         Port_Log("sources.cfg: %s", SDL_GetError());
@@ -400,7 +429,8 @@ enum {
     ACT_IMP_CARS,       /* the PC/PS2 default cars */
     ACT_IMP_GO, ACT_IMP_ADD, ACT_IMP_CANCEL,
     ACT_TAB,            /* show page `source` */
-    ACT_SET,            /* toggle setting `source` */
+    ACT_SET,            /* setting `source`: its next choice */
+    ACT_SECTION,        /* show the Settings page's section `source` */
     ACT_CONV_DELETE,    /* delete release `source`'s converted packs (ACT_CONVERT converts them) */
     ACT_CONV_CANCEL,
     ACT_HOOK_MODS,      /* the hook point: the mod loader */
@@ -420,32 +450,62 @@ enum { CONV_NONE, CONV_OK, CONV_STALE, CONV_IMAGE /* a disc image: nothing to co
 
 /* The Settings page: graphics.cfg's choices that have no row in the game's
  * own Graphics menu, and the display (gfx_settings.c reads and writes the
- * file; these are its g_port fields, 1 being `on`). */
-enum { SET_DISPLAY, SET_PCTEX, SET_MAINMENU, SET_SPLITLOD, SET_MOVIES, SET_MOUSESTEER, SET_DRAWDIST, SET_STEREO, SET_COUNT };
-
-/* `third`: a third choice (value 2) the row cycles through, NULL for on/off. */
-static const struct {
-    const char *name, *off, *on, *about, *env, *third;
-} s_settings[SET_COUNT] = {
-    { "Display", "Windowed", "Fullscreen", "How the game's window opens.", NULL },
-    { "PC textures", "GameCube colours", "PC colours",
-      "The PC release's textures: in the GameCube's colours, or the PC's own.", "HWVX_PC_TEXTURES" },
-    { "Main menu", "With the port's rows", "Original",
-      "The port adds Quit Game and Multi-Player; original is the release's.", "HWVX_ORIGINAL_MAINMENU" },
-    { "Split screen", "Full detail", "GameCube's detail",
-      "Full detail like the PC, or a level coarser as the GameCube drew it.", "HWVX_SPLITSCREEN_LOD" },
-    { "Movies", "On", "Off", "The intro and ending movies; off skips them, like the PC's option.", "HWVX_NO_MOVIE" },
-    { "Mouse steering", "Off", "On",
-      "In races, like the PC: moving steers; left button A (gas), right X (brake).", "HWVX_MOUSESTEER" },
-    { "Draw distance", "Normal", "Far",
-      "More of the world drawn, the fog further out; the game plays the same.", "HWVX_DRAWDIST", "Everything" },
-    { "Stereo", "GameCube/PS2", "PC (wider)",
-      "How far sounds pan; the PC's plays a sound at the side from one speaker.", "HWVX_PC_PAN" },
+ * file; these are its g_port fields, the choice's index being the value).
+ * The rows are in sections (SEC_*), one shown at a time; in section order,
+ * each section's rows in the order shown. */
+enum {
+    SET_DISPLAY, SET_PCTEX, SET_DRAWDIST, SET_SPLITLOD,     /* Display */
+    SET_STEREO, SET_MOVIES,                                 /* Audio */
+    SET_MOUSESTEER,                                         /* Controls */
+    SET_MAINMENU,                                           /* Game */
+    SET_COUNT
 };
+
+/* `choices`: the row's choices, value 0 first, ended by NULL; the row cycles
+ * through them. */
+#define SET_CHOICES_MAX 8
+static const struct {
+    int section;
+    const char *name, *about, *env;
+    const char *choices[SET_CHOICES_MAX + 1];
+} s_settings[SET_COUNT] = {
+    { SEC_DISPLAY, "Display", "How the game's window opens.", NULL, { "Windowed", "Fullscreen" } },
+    { SEC_DISPLAY, "PC textures", "The PC release's textures: in the GameCube's colours, or the PC's own.",
+      "HWVX_PC_TEXTURES", { "GameCube colours", "PC colours" } },
+    { SEC_DISPLAY, "Draw distance", "More of the world drawn, the fog further out; the game plays the same.",
+      "HWVX_DRAWDIST", { "Normal", "Far", "Everything" } },
+    { SEC_DISPLAY, "Split screen", "Full detail like the PC, or a level coarser as the GameCube drew it.",
+      "HWVX_SPLITSCREEN_LOD", { "Full detail", "GameCube's detail" } },
+    { SEC_AUDIO, "Stereo", "How far sounds pan; the PC's plays a sound at the side from one speaker.", "HWVX_PC_PAN",
+      { "GameCube/PS2", "PC (wider)" } },
+    { SEC_AUDIO, "Movies", "The intro and ending movies; off skips them, like the PC's option.", "HWVX_NO_MOVIE",
+      { "On", "Off" } },
+    { SEC_CONTROLS, "Mouse steering", "In races, like the PC: moving steers; left button A (gas), right X (brake).",
+      "HWVX_MOUSESTEER", { "Off", "On" } },
+    { SEC_GAME, "Main menu", "The port adds Quit Game and Multi-Player; original is the release's.",
+      "HWVX_ORIGINAL_MAINMENU", { "With the port's rows", "Original" } },
+};
+
+static int SettingChoices(int i) {
+    int n = 0;
+
+    while (n < SET_CHOICES_MAX && s_settings[i].choices[n] != NULL) {
+        n++;
+    }
+    return n;
+}
+
+/* A value as a choice: one out of range (a hand-edited graphics.cfg) counts
+ * as the last, as any non-zero value was `on` with two. */
+static int SettingChoice(int i, int v) {
+    int n = SettingChoices(i);
+
+    return v < 0 ? 0 : v >= n ? n - 1 : v;
+}
 
 /* A row's button label: its choice. */
 static const char *SettingLabel(int i, int v) {
-    return v == 2 && s_settings[i].third != NULL ? s_settings[i].third : v ? s_settings[i].on : s_settings[i].off;
+    return s_settings[i].choices[SettingChoice(i, v)];
 }
 
 static int *SettingVar(int i) {
@@ -542,7 +602,8 @@ static int CanPlay(const Launcher *l) {
 #define ROW_Y(i) (PAGE_Y + (i) * 58.0f)                 /* Games: a release */
 #define PLAY_ROW_Y(k) (PAGE_Y + 24.0f + (k) * 34.0f)    /* Play: an imported release */
 #define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
-#define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 34.0f)     /* Settings: a setting */
+#define SEC_Y PAGE_Y                                    /* Settings: the sections' sub-tabs */
+#define SET_ROW_Y(k) (PAGE_Y + 48.0f + (k) * 34.0f)     /* Settings: the section's k-th setting */
 #define CONV_ROW_Y(k) (PAGE_Y + 30.0f + (k) * 52.0f)    /* Convert: an imported release */
 #define PROTO_Y (ROW_Y(SRC_COUNT) - 2.0f)                /* Games: the prototype's import mode */
 #define MODS_SHOWN 6
@@ -714,8 +775,10 @@ static void LayoutPage(Launcher *l, int busy) {
         Add(l, 24, MOD_ROW_Y(MODS_SHOWN) + 4, "Install a mod...", ACT_MOD_INSTALL, -1, !busy);
         break;
     case TAB_SETTINGS:
-        for (i = 0; i < SET_COUNT; i++) {
-            Add(l, SET_X, SET_ROW_Y(i), SettingLabel(i, *SettingVar(i)), ACT_SET, i, 1);
+        for (i = 0, k = 0; i < SET_COUNT; i++) {
+            if (s_settings[i].section == l->src.section) {
+                Add(l, SET_X, SET_ROW_Y(k++), SettingLabel(i, *SettingVar(i)), ACT_SET, i, 1);
+            }
         }
         break;
     default:
@@ -740,6 +803,13 @@ static void Layout(Launcher *l) {
     /* the preview of an import keeps to its page */
     for (i = 0; i < TAB_COUNT; i++) {
         x += Add(l, x, TAB_Y, s_tabNames[i], ACT_TAB, i, !l->savesView)->r.w + 4;
+    }
+    /* Settings: its sections' sub-tabs, which take clicks as the tabs do
+     * (left and right on a row switch them) */
+    if (!l->savesView && l->tab == TAB_SETTINGS) {
+        for (i = 0, x = 24; i < SEC_COUNT; i++) {
+            x += Add(l, x, SEC_Y, s_secNames[i], ACT_SECTION, i, 1)->r.w + 4;
+        }
     }
     if (l->focus >= l->numFocus) {
         l->focus = l->numFocus - 1;
@@ -1025,11 +1095,17 @@ static void DrawPage(Launcher *l) {
         }
         break;
     case TAB_SETTINGS:
-        Text(l, 24, PAGE_Y, GREY, "Kept in graphics.cfg; the game reads them when it starts.");
-        for (i = 0; i < SET_COUNT; i++) {
+        /* the sub-tabs' line, as the tabs' */
+        SDL_SetRenderDrawColor(l->renderer, 60, 74, 120, 255);
+        SDL_RenderLine(l->renderer, 16, SEC_Y + 18, VIEW_W - 16, SEC_Y + 18);
+        Text(l, 24, SEC_Y + 26, GREY, "Kept in graphics.cfg; the game reads them when it starts.");
+        for (i = 0, k = 0; i < SET_COUNT; i++) {
             const char *env = s_settings[i].env != NULL ? SDL_getenv(s_settings[i].env) : NULL;
 
-            y = SET_ROW_Y(i);
+            if (s_settings[i].section != l->src.section) {
+                continue;
+            }
+            y = SET_ROW_Y(k++);
             Text(l, 24, y + 5, WHITE, s_settings[i].name);
             if (env != NULL) {
                 SDL_snprintf(line, sizeof(line), "%s=%s is set: it wins over this.", s_settings[i].env, env);
@@ -1038,9 +1114,11 @@ static void DrawPage(Launcher *l) {
                 Text(l, 24, y + 22, DIM, s_settings[i].about);
             }
         }
-        y = SET_ROW_Y(SET_COUNT) + 4;
-        Text(l, 24, y, DIM, "Resolution, VSync, Max FPS, gamma and FOV: Options > Graphics in");
-        Text(l, 24, y + 11, DIM, "the game. The renderer: --renderer NAME.");
+        if (l->src.section == SEC_DISPLAY) {
+            y = SET_ROW_Y(k) + 4;
+            Text(l, 24, y, DIM, "Resolution, VSync, Max FPS, gamma and FOV: Options > Graphics in");
+            Text(l, 24, y + 11, DIM, "the game. The renderer: --renderer NAME.");
+        }
         break;
     default:
         break;
@@ -1066,8 +1144,8 @@ static void Draw(Launcher *l) {
         int on = l->mouse ? i == l->hover : i == l->focus;
 
         if (i >= l->numFocus) {
-            /* a tab: the page shown joins the line under the tabs */
-            int shown = b->source == l->tab;
+            /* a tab (or a section's sub-tab): the one shown joins the line under them */
+            int shown = b->source == (b->act == ACT_SECTION ? l->src.section : l->tab);
 
             SDL_SetRenderDrawColor(l->renderer, shown ? 60 : 30, shown ? 74 : 35, shown ? 120 : 52, 255);
             SDL_RenderFillRect(l->renderer, &b->r);
@@ -1723,6 +1801,19 @@ static void SwitchTab(Launcher *l, int tab) {
     l->focus = FirstFocus(l);
 }
 
+/* Shows the Settings page's section `sec` (wrapping round), remembered in
+ * sources.cfg as the page is. The focus keeps its row (the last, if the
+ * section has fewer) when it was on one, else goes to the first. */
+static void SwitchSection(Launcher *l, int sec) {
+    int row = l->focus < l->numFocus && l->buttons[l->focus].act == ACT_SET ? l->focus : 0, rows;
+
+    l->src.section = (sec + SEC_COUNT) % SEC_COUNT;
+    Layout(l);
+    for (rows = 0; rows < l->numFocus && l->buttons[rows].act == ACT_SET; rows++) {
+    }
+    l->focus = rows == 0 ? FirstFocus(l) : row < rows ? row : rows - 1;
+}
+
 /* Do button `b`; returns 1 to play, -1 to quit, 0 to stay. */
 static int Activate(Launcher *l, const Button *b) {
     static const SDL_DialogFileFilter gcImages[] = { { "GameCube disc image (.iso, .gcm)", "iso;gcm;gcz" } };
@@ -1810,10 +1901,13 @@ static int Activate(Launcher *l, const Button *b) {
     case ACT_TAB:
         SwitchTab(l, b->source);
         return 0;
+    case ACT_SECTION:
+        SwitchSection(l, b->source);
+        return 0;
     case ACT_SET: {
         int i = b->source, *v = SettingVar(i);
 
-        *v = s_settings[i].third != NULL ? (*v + 1) % 3 : !*v;
+        *v = (SettingChoice(i, *v) + 1) % SettingChoices(i);
         Port_GfxSaveConfig();
         SDL_snprintf(l->status, sizeof(l->status), "%s: %s. Saved in graphics.cfg.", s_settings[i].name,
                      SettingLabel(i, *v));
@@ -1926,6 +2020,16 @@ static void Move(Launcher *l, int dx, int dy) {
         }
     }
     l->focus = pick;
+}
+
+/* A step of the arrows, d-pad or stick: left and right on a setting's row
+ * switch the Settings page's section, else the focus moves. */
+static void Step(Launcher *l, int dx, int dy) {
+    if (dx != 0 && !l->savesView && l->tab == TAB_SETTINGS && l->buttons[l->focus].act == ACT_SET) {
+        SwitchSection(l, l->src.section + dx);
+    } else {
+        Move(l, dx, dy);
+    }
 }
 
 /* Answers that come from other threads: a dialog, a disc import. */
@@ -2121,10 +2225,10 @@ static int Run(Launcher *l) {
             case SDL_EVENT_KEY_DOWN:
                 l->mouse = 0;
                 switch (ev.key.key) {
-                case SDLK_LEFT: Move(l, -1, 0); break;
-                case SDLK_RIGHT: Move(l, 1, 0); break;
-                case SDLK_UP: Move(l, 0, -1); break;
-                case SDLK_DOWN: Move(l, 0, 1); break;
+                case SDLK_LEFT: Step(l, -1, 0); break;
+                case SDLK_RIGHT: Step(l, 1, 0); break;
+                case SDLK_UP: Step(l, 0, -1); break;
+                case SDLK_DOWN: Step(l, 0, 1); break;
                 case SDLK_TAB: l->focus = (l->focus + 1) % l->numFocus; break;
                 case SDLK_PAGEUP: SwitchTab(l, l->tab - 1); break;
                 case SDLK_PAGEDOWN: SwitchTab(l, l->tab + 1); break;
@@ -2158,10 +2262,10 @@ static int Run(Launcher *l) {
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
                 l->mouse = 0;
                 switch (ev.gbutton.button) {
-                case SDL_GAMEPAD_BUTTON_DPAD_LEFT: Move(l, -1, 0); break;
-                case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: Move(l, 1, 0); break;
-                case SDL_GAMEPAD_BUTTON_DPAD_UP: Move(l, 0, -1); break;
-                case SDL_GAMEPAD_BUTTON_DPAD_DOWN: Move(l, 0, 1); break;
+                case SDL_GAMEPAD_BUTTON_DPAD_LEFT: Step(l, -1, 0); break;
+                case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: Step(l, 1, 0); break;
+                case SDL_GAMEPAD_BUTTON_DPAD_UP: Step(l, 0, -1); break;
+                case SDL_GAMEPAD_BUTTON_DPAD_DOWN: Step(l, 0, 1); break;
                 case SDL_GAMEPAD_BUTTON_SOUTH: result = Activate(l, focused); break;
                 case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: SwitchTab(l, l->tab - 1); break;
                 case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: SwitchTab(l, l->tab + 1); break;
@@ -2184,7 +2288,7 @@ static int Run(Launcher *l) {
 
                     if (dir != 0 && held[a] != dir) {
                         l->mouse = 0;
-                        Move(l, a ? 0 : dir, a ? dir : 0);
+                        Step(l, a ? 0 : dir, a ? dir : 0);
                     }
                     held[a] = dir;
                 }
@@ -2247,7 +2351,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
      * the window closed (the program asked to quit while it was open) */
     static Launcher l;
     char *chosen = NULL, *legacy, *found = NULL;
-    int i, valid, firstRun, tabLoaded;
+    int i, valid, firstRun, tabLoaded, sectionLoaded;
 
     SDL_zero(l);
     l.pointer.x = l.pointer.y = -1;
@@ -2316,11 +2420,24 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     SDL_SetRenderLogicalPresentation(l.renderer, VIEW_W, VIEW_H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     SDL_SetRenderVSync(l.renderer, 1);
     /* the page shown last, or Play; Games while there is nothing to play.
-     * HWVX_LAUNCHER_TAB=NAME picks it (testing: screenshots of each page) */
+     * HWVX_LAUNCHER_TAB=NAME picks it, settings/SECTION the Settings page's
+     * section too (testing: screenshots of each page) */
     l.tab = AnyRelease(&l) ? (l.src.tab >= 0 ? l.src.tab : TAB_PLAY) : TAB_GAMES;
-    if (TabNamed(SDL_getenv("HWVX_LAUNCHER_TAB")) >= 0) {
-        l.tab = TabNamed(SDL_getenv("HWVX_LAUNCHER_TAB"));
+    if (SDL_getenv("HWVX_LAUNCHER_TAB") != NULL) {
+        char *want = SDL_strdup(SDL_getenv("HWVX_LAUNCHER_TAB")), *sec = SDL_strchr(want, '/');
+
+        if (sec != NULL) {
+            *sec++ = '\0';
+            if (SectionNamed(sec) >= 0) {
+                l.src.section = SectionNamed(sec);
+            }
+        }
+        if (TabNamed(want) >= 0) {
+            l.tab = TabNamed(want);
+        }
+        SDL_free(want);
     }
+    sectionLoaded = l.src.section;
     RefreshConverted(&l);
     Layout(&l);
     l.focus = valid ? ButtonFor(&l, ACT_PLAY) : FirstFocus(&l);     /* valid: A or Enter starts the game */
@@ -2350,8 +2467,8 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     if (Run(&l) > 0 && CanPlay(&l)) {
         chosen = PlayChosen(&l);
     }
-    if (l.src.tab != tabLoaded) {
-        SaveSources(&l.src);    /* the page shown last */
+    if (l.src.tab != tabLoaded || l.src.section != sectionLoaded) {
+        SaveSources(&l.src);    /* the page (and section) shown last */
     }
     CloseSaves(&l);
     SDL_DestroyRenderer(l.renderer);
