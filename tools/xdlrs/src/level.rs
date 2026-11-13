@@ -1539,6 +1539,11 @@ impl<'e> Compiler<'e> {
         let mut docs: Vec<(String, Value)> = vec![];
         for name in names {
             let name = s(&name);
+            // the name is a file stem: never a path out of triggers/
+            if let Err(e) = check_trigger_name(&name) {
+                self.err(wh, format!("triggers: {e}"));
+                continue;
+            }
             let f = tdir.join(format!("{name}.jsonc"));
             if !f.exists() {
                 self.err(wh, format!("triggers: {name}: no triggers/{name}.jsonc"));
@@ -1689,6 +1694,17 @@ fn splice(buf: &mut Vec<u8>, o: usize, b: &[u8]) {
         return;
     }
     buf.splice(lo..hi, b.iter().copied());
+}
+
+/// A trigger's name is its file's stem (triggers/NAME.jsonc): letters, digits, '_' and '-'
+/// only, so a name from level.jsonc never reaches outside triggers/ (no '/', '\', '..', ':',
+/// nothing empty or absolute). Shared with the browser's level editor.
+pub fn check_trigger_name(name: &str) -> std::result::Result<(), String> {
+    if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        Ok(())
+    } else {
+        Err(format!("{}: not a trigger name (letters, digits, '_' and '-' only)", py::str_repr(name)))
+    }
 }
 
 /// sorted(p.stem for p in tdir.glob("*.jsonc"))
@@ -2524,6 +2540,16 @@ mod tests {
         assert_eq!((r[1].file.as_str(), r[1].path.as_str()), ("triggers/cp1.jsonc", "param"));
         assert_eq!(r[2].path, "volumes/cp1/radious");
         assert_eq!((r[3].path.as_str(), r[3].message.as_str()), ("", "id: missing (a string)"));
+    }
+
+    #[test]
+    fn trigger_names() {
+        for ok in ["cp1", "Gate_2", "rules", "a-b"] {
+            assert!(check_trigger_name(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "a/b", "../x", "..", "/abs", "a\\b", "c:x", "a.b", "a b", "\u{e9}"] {
+            assert!(check_trigger_name(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

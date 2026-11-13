@@ -41,6 +41,13 @@ pub struct Project {
     pub broken: Vec<(String, String)>,
 }
 
+/// triggers/NAME.jsonc of a project: the name (from level.jsonc or the folder) checked first, so
+/// it is never a path out of triggers/ (xdlrs::level::check_trigger_name, as the level tools)
+fn trigger_file(dir: &Path, name: &str) -> Result<PathBuf, String> {
+    xdlrs::level::check_trigger_name(name).map_err(|e| format!("{}: triggers: {e}", dir.join("level.jsonc").display()))?;
+    Ok(dir.join("triggers").join(format!("{name}.jsonc")))
+}
+
 fn read_jsonc(p: &Path) -> Result<(String, Value), String> {
     let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
     let v = serde_json::from_str(&strip_jsonc(&text)).map_err(|e| format!("{}: {e}", p.display()))?;
@@ -66,7 +73,7 @@ impl Project {
         let mut triggers = Vec::new();
         let mut broken = Vec::new();
         for n in names {
-            let p = dir.join("triggers").join(format!("{n}.jsonc"));
+            let p = trigger_file(dir, &n)?;
             match read_jsonc(&p) {
                 Ok((text, v)) => triggers.push(TriggerFile { name: n, text: Some(text), saved: v.clone(), value: v }),
                 Err(e) if p.exists() => broken.push((n, e)),
@@ -249,12 +256,12 @@ impl Project {
         }
         write(&to.join("level.jsonc"), &serde_json::to_string_pretty(&level).unwrap())?;
         for t in &self.triggers {
-            write(&tdir.join(format!("{}.jsonc", t.name)), &serde_json::to_string_pretty(&t.value).unwrap())?;
+            write(&trigger_file(to, &t.name)?, &serde_json::to_string_pretty(&t.value).unwrap())?;
         }
         for (n, _) in &self.broken {
-            let from = self.dir.join("triggers").join(format!("{n}.jsonc"));
+            let from = trigger_file(&self.dir, n)?;
             if let Ok(text) = std::fs::read_to_string(&from) {
-                write(&tdir.join(format!("{n}.jsonc")), &text)?;
+                write(&trigger_file(to, n)?, &text)?;
             }
         }
         Ok(())
@@ -305,7 +312,7 @@ impl Project {
             if t.value == t.saved && t.text.is_some() {
                 continue;
             }
-            let p = self.dir.join("triggers").join(format!("{}.jsonc", t.name));
+            let p = trigger_file(&self.dir, &t.name)?;
             let text = match &t.text {
                 Some(old) => jsonc_edit::rewrite(old, &t.saved, &t.value)?,
                 None => jsonc_edit::new_text(&t.value, &format!("trigger {} (made in the level editor)", t.name)),
@@ -319,7 +326,7 @@ impl Project {
         // trigger files taken out
         let gone: Vec<String> = self.loaded.iter().filter(|n| self.trigger(n).is_none()).cloned().collect();
         for n in gone {
-            let p = self.dir.join("triggers").join(format!("{n}.jsonc"));
+            let p = trigger_file(&self.dir, &n)?;
             if p.exists() {
                 std::fs::remove_file(&p).map_err(|e| format!("{}: {e}", p.display()))?;
                 out.push(p);
@@ -373,6 +380,29 @@ mod tests {
         assert!(copy.join("triggers/bad.jsonc").exists());
         let lv: Value = serde_json::from_str(&std::fs::read_to_string(copy.join("level.jsonc")).unwrap()).unwrap();
         assert!(lv["triggers"].as_array().unwrap().iter().any(|v| v == "bad"));
+    }
+
+    #[test]
+    fn trigger_names_that_are_paths_are_refused() {
+        for bad in ["../../outside", "/abs", "a\\b", "c:x", "", ".."] {
+            let d = project("badname");
+            let lv = json!({"name": "x", "triggers": ["a", bad]});
+            std::fs::write(d.join("level.jsonc"), lv.to_string()).unwrap();
+            let e = Project::load(&d).err().unwrap_or_else(|| panic!("{bad:?} loaded"));
+            assert!(e.contains("not a trigger name"), "{e}");
+        }
+        // a file of the folder with such a stem too
+        let d = project("badfile");
+        std::fs::write(d.join("level.jsonc"), "{}").unwrap();
+        std::fs::write(d.join("triggers/a b.jsonc"), "{}").unwrap();
+        assert!(Project::load(&d).err().unwrap().contains("not a trigger name"));
+        // write_copy / save of a name that slipped in refuse it too
+        let d = project("badsave");
+        let mut p = Project::load(&d).unwrap();
+        p.add_trigger("../evil", json!({"type": "level_start"}));
+        assert!(p.save().unwrap_err().contains("not a trigger name"));
+        assert!(p.write_copy(&d.with_file_name("badsave-copy")).unwrap_err().contains("not a trigger name"));
+        assert!(!d.join("evil.jsonc").exists());
     }
 
     #[test]
