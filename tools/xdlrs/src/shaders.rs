@@ -153,17 +153,17 @@ struct Compiled {
     dxil: String,
 }
 
-struct Gen<'a> {
+struct Gen {
     tools: Tools,
     tmp: PathBuf,
     old: HashMap<String, String>,
     fresh: bool,
     kept: Vec<String>,
     written: Vec<String>,
-    _o: &'a Opts,
+    root: PathBuf,
 }
 
-impl Gen<'_> {
+impl Gen {
     /// SPIR-V, MSL and DXIL for one shader (GLSL without #version), named
     /// `base`_spv/_msl/_dxil; the header's entries when its SPIR-V is unchanged.
     fn compile(&mut self, file: &str, base: &str, stage: &str, src: &str) -> R<Compiled> {
@@ -173,11 +173,12 @@ impl Gen<'_> {
         run(Command::new(&self.tools.glslang).args(["-V", "-S", stage, "-o"]).arg(&spv).arg(&vk))?;
         let spv_text = c_bytes(&format!("{base}_spv"), &read_bytes(&spv)?);
         let names = [format!("{base}_spv"), format!("{base}_msl"), format!("{base}_dxil")];
-        if !self.fresh && self.old.get(&names[0]) == Some(&spv_text) {
-            if let (Some(m), Some(d)) = (self.old.get(&names[1]), self.old.get(&names[2])) {
-                self.kept.push(base.to_string());
-                return Ok(Compiled { spv: spv_text, msl: m.clone(), dxil: d.clone() });
-            }
+        if !self.fresh
+            && self.old.get(&names[0]) == Some(&spv_text)
+            && let (Some(m), Some(d)) = (self.old.get(&names[1]), self.old.get(&names[2]))
+        {
+            self.kept.push(base.to_string());
+            return Ok(Compiled { spv: spv_text, msl: m.clone(), dxil: d.clone() });
         }
         self.written.push(base.to_string());
         let msl = self.tmp.join(format!("{file}.msl"));
@@ -213,12 +214,12 @@ impl Gen<'_> {
 
     /// gx_tev_variants[]: SDL_GPU's specialised pixel shaders (gx_sdlgpu.c).
     fn tev_variants(&mut self, frag_src: &str) -> R<String> {
-        let root = self._o.root.clone();
+        let root = self.root.clone();
         let end = frag_src
             .find(DECL_END)
             .ok_or_else(|| format!("gx.frag has no {:?} (see gx_gl.c FragDecl)", DECL_END.trim()))?;
         let decl = self.tmp.join("decl.glsl");
-        write(&decl, frag_src[..end + 1].as_bytes())?;
+        write(&decl, &frag_src.as_bytes()[..end + 1])?;
         let tool = self.tmp.join("tevgen_glsl");
         let flags = Command::new("pkg-config")
             .args(["--cflags", "--libs", "sdl3"])
@@ -317,7 +318,7 @@ pub fn generate(o: &Opts) -> R<()> {
     let tmp = std::env::temp_dir().join(format!("xdlrs-shaders-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    let mut g = Gen { tools, tmp: tmp.clone(), old, fresh: o.fresh, kept: vec![], written: vec![], _o: o };
+    let mut g = Gen { tools, tmp: tmp.clone(), old, fresh: o.fresh, kept: vec![], written: vec![], root: o.root.clone() };
     let r = (|| -> R<Vec<String>> {
         let mut parts = vec![];
         let mut frag_src = String::new();
