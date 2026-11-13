@@ -359,9 +359,12 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
             continue;
         }
         let segs: Vec<&str> = p.id.split('/').collect();
+        if segs.len() < 4 {
+            return Err(lerr(format!("{}: not a level part", p.id)));
+        }
         let (kind, name, rest) = (segs[2], segs[3], segs[4..].join("/"));
         let nid = if kind == "triggers" {
-            format!("{}{}", names[&format!("level://triggers/{name}")], if rest.is_empty() { String::new() } else { format!("/{rest}") })
+            trigger_nid(&names, &p.id, name, &rest)?
         } else if (kind == "timers" || kind == "variables") && rest.starts_with("to") {
             format!("{}{}", own_id(&mut own, kind, name), &rest[2..])
         } else {
@@ -668,4 +671,28 @@ pub fn build_cached(env: &Env, project: &Path, data: &Path, cache: &Path, out_di
     build_world(env, project, &base, &extract, &out, skip_intro)?;
     std::fs::write(&stamp, &key).map_err(|e| Error::io(format!("{}: {e}", stamp.display())))?;
     Ok((out, false, name))
+}
+
+/// a trigger part's record id from the packer's numbering: a name it did not number (one with a
+/// '/', which splits the part id) is a level error, not a panic
+fn trigger_nid(names: &IndexMap<String, String>, id: &str, name: &str, rest: &str) -> Result<String> {
+    let n = names.get(&format!("level://triggers/{name}")).ok_or_else(|| lerr(format!("{id}: no trigger named {}", py::str_repr(name))))?;
+    Ok(format!("{n}{}", if rest.is_empty() { String::new() } else { format!("/{rest}") }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trigger_with_slash_is_an_error() {
+        let mut names = IndexMap::new();
+        names.insert("level://triggers/a/b".to_string(), "x/trigger/3".to_string());
+        names.insert("level://triggers/ok".to_string(), "x/trigger/4".to_string());
+        assert_eq!(trigger_nid(&names, "level://triggers/ok/param", "ok", "param").unwrap(), "x/trigger/4/param");
+        // the part id level://triggers/a/b splits as name "a", rest "b"
+        let e = trigger_nid(&names, "level://triggers/a/b", "a", "b").unwrap_err();
+        assert_eq!(e.kind, crate::error::Kind::Level);
+        assert!(e.msg.contains("no trigger named 'a'"), "{}", e.msg);
+    }
 }
