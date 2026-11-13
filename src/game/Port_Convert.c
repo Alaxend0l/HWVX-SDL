@@ -30,6 +30,7 @@
 #include "Port_Swap.h"
 #include "Port_Convert.h"
 #include "xdl.h"
+#include "Port_Level.h"
 
 extern StreamingPack *g_StreamingDataPacks[11];
 extern u32 g_MaxStreamingDataPacks[11];
@@ -311,6 +312,9 @@ static const char *ConvertFile(PackFile *pf, u32 *done, u32 total) {
         EnsureRefs(pf, e, 0);
         if (!DataPack_LoadFile(pf->name, HND(pack), e->type, e->id) || GETP(pack->soundIDs) == NULL) {
             return "a pack didn't load";
+        }
+        if (e->type == 4) {
+            Port_LevelSweep(pack, pf->name);   /* HWVX_LEVEL_SWEEP=1 (tests) */
         }
         KeepRefNames();
         LetGo(pack);

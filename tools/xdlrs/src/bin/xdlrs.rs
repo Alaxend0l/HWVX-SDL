@@ -56,7 +56,7 @@ fn parse_args(a: &[String]) -> Args {
     let mut i = 0;
     while i < a.len() {
         let x = &a[i];
-        if ["--parts", "-v", "--verbose", "--force", "--json", "--skip-intro", "--memory", "--keep"].contains(&x.as_str()) {
+        if ["--parts", "-v", "--verbose", "--force", "--json", "--skip-intro", "--memory", "--keep", "--check"].contains(&x.as_str()) {
             r.flags.push(x.clone());
         } else if x.starts_with('-') && x.len() > 1 && i + 1 < a.len() {
             r.opts.insert(x.trim_start_matches('-').to_string(), a[i + 1].clone());
@@ -1030,6 +1030,11 @@ fn main() -> ExitCode {
         (Some("struct"), Some("roundtrip")) => cmd_roundtrip(&shifted(2)),
         (Some("struct"), Some("observe")) => cmd_observe(&shifted(2)),
         (Some("tac"), Some("survey")) => cmd_tac_survey(&shifted(2)),
+        (Some("level"), Some("gen-fields")) => {
+            let root = xdlrs::repo_root(std::env::current_dir().ok().as_deref()).ok_or_else(|| Error::io("no schemas/ found"));
+            root.and_then(|r| xdlrs::level_fields::generate(&r, a.flag("--check")))
+        }
+        (Some("level"), Some("refuse-test")) => xdlrs::level_refuse::main(&shifted(2).pos),
         (Some("level"), Some(c)) => {
             let c = c.to_string();
             return level_main(&c, &shifted(2));
