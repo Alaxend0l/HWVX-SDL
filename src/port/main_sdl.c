@@ -184,12 +184,14 @@ static void ParseArgs(int argc, char **argv) {
             g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--gc-air-camera") == 0) {
             g_port.gcAirCamera = 1;
+        } else if (SDL_strcmp(argv[i], "--pc-pan") == 0) {
+            g_port.pcPan = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
         } else {
             SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen|--windowed]", argv[0]);
             SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save] [--launcher]");
-            SDL_Log("              [--gc-air-camera]");
+            SDL_Log("              [--gc-air-camera] [--pc-pan]");
             SDL_Log("  --data PATH      a GameCube disc image (.iso) or the extracted disc files");
             SDL_Log("                   (default: the one chosen last time, or an .iso or files/");
             SDL_Log("                   next to the program, or orig/files)");
@@ -206,6 +208,9 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("                   an object hands back to the car when it is tipped over");
             SDL_Log("                   (default: the PC's, the orbit runs its course;");
             SDL_Log("                   also HWVX_GC_AIR_CAMERA=1)");
+            SDL_Log("  --pc-pan         the PC release's stereo pan: sounds to the side play from");
+            SDL_Log("                   one speaker (default: the GameCube/PS2's narrower pan;");
+            SDL_Log("                   also HWVX_PC_PAN=1)");
             SDL_Log("  --launcher       open the launcher (game data, releases) instead of booting");
             SDL_Log("  --mix RECIPE     play a mixed build: one game from the releases you imported,");
             SDL_Log("                   by a recipe (\"ultimate\", or a .jsonc file)");
@@ -233,6 +238,11 @@ static void ParseArgs(int argc, char **argv) {
 
         g_port.gcAirCamera = env != NULL && SDL_atoi(env) != 0;
     }
+    if (!g_port.pcPan) {
+        const char *env = SDL_getenv("HWVX_PC_PAN");
+
+        g_port.pcPan = env != NULL && SDL_atoi(env) != 0;
+    }
     Port_GfxLoadConfig(haveSize, haveDisplay || g_port.fullscreen, haveVSync, haveFps);
 }
 
@@ -245,6 +255,11 @@ int Port_ResetSave(void) {
 /* --gc-air-camera / HWVX_GC_AIR_CAMERA=1, for game/CameraManager.c (port.h). */
 int Port_GCAirCamera(void) {
     return g_port.gcAirCamera;
+}
+
+/* --pc-pan / HWVX_PC_PAN=1, for game/Voice_.c (port.h). */
+int Port_PCPan(void) {
+    return g_port.pcPan;
 }
 
 /* ---- the game data ----------------------------------------------------- */

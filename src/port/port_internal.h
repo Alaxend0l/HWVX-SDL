@@ -45,6 +45,8 @@ typedef struct PortState {
     int gcAirCamera;         /* --gc-air-camera or HWVX_GC_AIR_CAMERA=1 (main_sdl.c): a trigger
                               * orbit camera hands back to a tipped car, as on the GameCube
                               * and PS2 (Port_GCAirCamera, game/CameraManager.c) */
+    int pcPan;               /* --pc-pan or HWVX_PC_PAN=1 (main_sdl.c): the PC's pan law
+                              * (Port_PCPan, game/Voice_.c) */
     const char *convertDir;  /* --convert-xdl DIR: convert the data to the .xdl cache there
                               * and exit (game/Port_Convert.c) */
     const char *program;     /* argv[0]: the launcher starts the converter with it */

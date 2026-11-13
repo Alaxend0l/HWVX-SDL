@@ -358,6 +358,28 @@ void ProcessVoice_(void) {
     }
 }
 
+/* port: --pc-pan (Port_PCPan): the PC release's pan law instead of g_panTab.
+ * The PC's SetVoiceVol_ (0x45DC20) calls IDirectSoundBuffer::SetPan(pan / 4)
+ * (0x45D610), clamped to +-10000: the far speaker drops by |pan / 4|
+ * hundredths of a dB and the near one stays at the centre level. A sound
+ * effect at the side (pan 0x6666) is 65 dB apart instead of 10, a music
+ * channel at full pan 82 dB. The centre keeps the GameCube's level (-3 dB per
+ * speaker, about g_panTab[64]), so centred sounds play unchanged. */
+static void PCPan(s32 pan, s32 *l, s32 *r) {
+    s32 ds = pan / 4;
+    s32 near = 0x5A82;
+    s32 far;
+
+    if (ds > 10000) {
+        ds = 10000;
+    } else if (ds < -10000) {
+        ds = -10000;
+    }
+    far = (s32)(near * powf(10.0f, (f32)(ds < 0 ? ds : -ds) / 2000.0f));
+    *l = ds > 0 ? far : near;
+    *r = ds < 0 ? far : near;
+}
+
 /* Sets the speaker volumes (and, for songs, the reverb send) from vol, the
  * voice's own volume and its pan. Changes ramp over one AX frame (160
  * samples); ProcessVoice_ lands them on the next frame. */
@@ -385,6 +407,9 @@ void SetVoiceVol_(Voice *v, u32 vol) {
     }
     l = g_panTab[0x7F - pan];
     r = g_panTab[pan];
+    if (g_speakers >= 1 && Port_PCPan()) {
+        PCPan(v->pan, &l, &r);
+    }
     vol = v->mixVol * vol;
     amp = vol >> 15;
     l = (s32)(l * amp) >> 17;

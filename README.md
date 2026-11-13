@@ -94,6 +94,11 @@ event's orbit around an object ends, and the camera goes back to the car, as soo
 player's car is tipped past 60° with its wheels down or stuck (after a jump or a roll).
 Default: the PC's orbit, which runs until the event's script moves the camera on.
 
+`--pc-pan` (or `HWVX_PC_PAN=1`): the PC release's stereo pan. The PC pans each sound with
+DirectSound, dropping the far speaker by up to 65 dB for a sound at the side (music channels
+hard left/right); the GameCube and PS2 use an equal-power table that keeps the speakers within
+about 10 dB. Default: the GameCube/PS2 pan. Centred sounds play the same either way.
+
 Resolution: the game renders at the window's size and shape, and the window
 can be resized. On a screen wider than 4:3 the 3D view widens to fill it while
 the HUD and menus keep their 4:3 layout in the middle (taller screens work the
