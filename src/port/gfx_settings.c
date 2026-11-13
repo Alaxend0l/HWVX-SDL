@@ -58,12 +58,101 @@
  *   Settings page; --pc-pan or HWVX_PC_PAN=1 or 0 overrides, main_sdl.c
  *   Port_PCPan): pc pans sounds with the PC release's DirectSound law, far
  *   wider than the GameCube/PS2 equal-power table (game/Voice_.c PCPan).
+ * - Renderer (graphics.cfg "renderer=auto|opengl|vulkan|metal|d3d12", default
+ *   auto, a row on the launcher's Settings page listing what this machine has;
+ *   --renderer NAME or HWVX_RENDERER=NAME wins for one run, main_sdl.c): one
+ *   that fails to start falls back to auto, then to OpenGL.
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
  * two bars take effect at once, to judge them by, and are saved with the rest. */
 #include "port_internal.h"
 #include "Port_Mix.h"
+
+/* The renderers (--renderer NAME, graphics.cfg "renderer="), indexed by
+ * PORT_RENDERER_* (port_internal.h): the SDL_GPU driver each asks for (main_sdl.c
+ * opens it; OpenGL none). */
+static const struct {
+    const char *name, *title;
+    const char *gpuDriver;
+} s_renderers[PORT_RENDERER_COUNT] = {
+    { "auto", "Auto", NULL },
+    { "opengl", "OpenGL", NULL },
+    { "vulkan", "Vulkan", "vulkan" },
+    { "metal", "Metal", "metal" },
+    { "d3d12", "Direct3D 12", "direct3d12" },
+};
+
+/* Auto (no --renderer, graphics.cfg's renderer=auto): each platform's native
+ * API through SDL_GPU, Direct3D 12 on Windows, Metal on macOS, Vulkan
+ * elsewhere; one that fails to start falls back to OpenGL (main), except on
+ * Android, which has no desktop OpenGL. A build can pick another (CMake
+ * HWVX_DEFAULT_RENDERER). */
+#if defined(SDL_PLATFORM_ANDROID)
+static const char *const s_defaultRenderer = "vulkan";
+#elif defined(HWVX_DEFAULT_RENDERER)
+static const char *const s_defaultRenderer = HWVX_DEFAULT_RENDERER;
+#elif defined(SDL_PLATFORM_WINDOWS)
+static const char *const s_defaultRenderer = "d3d12";
+#elif defined(SDL_PLATFORM_APPLE)
+static const char *const s_defaultRenderer = "metal";
+#else
+static const char *const s_defaultRenderer = "vulkan";
+#endif
+
+const char *Port_RendererName(int r) {
+    return r >= 0 && r < PORT_RENDERER_COUNT ? s_renderers[r].name : NULL;
+}
+
+const char *Port_RendererTitle(int r) {
+    return r >= 0 && r < PORT_RENDERER_COUNT ? s_renderers[r].title : NULL;
+}
+
+int Port_RendererByName(const char *name) {
+    int i;
+
+    for (i = 0; i < PORT_RENDERER_COUNT; i++) {
+        if (SDL_strcasecmp(name, s_renderers[i].name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+const char *Port_RendererGPUDriver(int r) {
+    return r >= 0 && r < PORT_RENDERER_COUNT ? s_renderers[r].gpuDriver : NULL;
+}
+
+int Port_RendererDefault(void) {
+    int r = Port_RendererByName(s_defaultRenderer);
+
+    return r > PORT_RENDERER_AUTO ? r : PORT_RENDERER_OPENGL;
+}
+
+int Port_RendererAvailable(int r) {
+    int i, n;
+
+    if (r <= PORT_RENDERER_AUTO || r >= PORT_RENDERER_COUNT) {
+        return r == PORT_RENDERER_AUTO;
+    }
+    if (s_renderers[r].gpuDriver == NULL) {
+#ifdef SDL_PLATFORM_ANDROID
+        return 0;
+#else
+        return 1;
+#endif
+    }
+    for (i = 0, n = SDL_GetNumGPUDrivers(); i < n; i++) {
+        if (SDL_strcmp(SDL_GetGPUDriver(i), s_renderers[r].gpuDriver) == 0) {
+            /* asks the driver for a device it could create, and drops it */
+            return SDL_GPUSupportsShaderFormats(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL |
+                                                    SDL_GPU_SHADERFORMAT_DXIL,
+                                                s_renderers[r].gpuDriver);
+        }
+    }
+    return 0;
+}
+
 
 #define MAX_MODES 48
 
@@ -292,13 +381,20 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.pcPan = 1;
         } else if (SDL_strcmp(line, "stereo=gc") == 0) {
             g_port.pcPan = 0;
+        } else if (SDL_strncmp(line, "renderer=", 9) == 0) {
+            int r = Port_RendererByName(line + 9);
+
+            if (r < 0) {
+                Port_Log("graphics.cfg: renderer=%s is not one of the port's: auto instead", line + 9);
+            }
+            g_port.renderer = r < 0 ? PORT_RENDERER_AUTO : r;
         }
     }
     SDL_free(text);
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[384];
+    char *path = ConfigPath(), buf[416];
     int n;
 
     if (path == NULL) {
@@ -308,13 +404,14 @@ static void SaveConfig(int w, int h, int full) {
     n = w > 0 && h > 0 ? SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\n", w, h) : 0;
     n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
                      "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\nrenderer=%s\n",
                      full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
                      g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on",
                      g_port.mouseSteer ? "on" : "off",
                      s_drawDistNames[g_port.drawDist >= 0 && g_port.drawDist < 3 ? g_port.drawDist : 0],
-                     g_port.pcPan ? "pc" : "gc");
+                     g_port.pcPan ? "pc" : "gc",
+                     Port_RendererName(g_port.renderer) != NULL ? Port_RendererName(g_port.renderer) : "auto");
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }
