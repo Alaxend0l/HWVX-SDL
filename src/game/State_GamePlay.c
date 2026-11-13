@@ -903,6 +903,9 @@ s32 ActionPlayInterfacePack(u32 *pack) {
     s32 result;
 
     id = pack[0];
+    if (g_NumInterfacesPlaying >= 10) {
+        return 0;   /* port: g_InterfacePackData has 10 entries; the GameCube wrote past them */
+    }
     data = FileStreaming_InitializeDataPack(FileStreaming_GetPackID((char *)(pack + 1), 1, id), 1, 1);
     if (data == NULL) {
         result = 0;

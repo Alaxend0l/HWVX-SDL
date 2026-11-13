@@ -39,6 +39,8 @@ void Port_LevelControl(int locked, int human);
  * world's arrays and move every pointer into them (tileCars, a quadrant's
  * items and effect points, objectives). */
 void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned int numPointers);
+/* Tests: HWVX_LEVEL_SWEEP=1 checks each world pack --convert-xdl loads (Port_Level.c). */
+void Port_LevelSweep(void *worldPack, const char *name);
 
 /* The applied level's volume i (a WorldVolume) and its id
  * (level://volumes/NAME): 1, or 0 past the last (the viewer draws them). */

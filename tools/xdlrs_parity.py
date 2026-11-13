@@ -26,7 +26,7 @@ Runs both on the same input and compares bytes and text exactly:
              variants (the errors of tools/test_xdl_level*.py and more) through compile,
              check, testdrive (in memory and as a world pack), mod and pack: exit codes,
              stdout/stderr, the files made (level files but their cache key, archives byte for
-             byte), and level_refuse_test.py's crafted level files made from both
+             byte) (the crafted refusal cases: `xdlrs level refuse-test`, Rust only)
              (--data GC_DATA for the checks against the base world and the packs)
   modindex, modfiles, modcheck
              the mod check (`xdlrs mod`) against xdl_mod.py: tools/xdlrs_parity_mod.py
@@ -1029,22 +1029,6 @@ def t_level(a):
             for side in ("py", "rs"):
                 f = next((base / side / name / "mod" / "level").glob("*.json"), None)
                 docs[(side, sample)] = json.loads(f.read_text()) if f else None
-    # level_refuse_test's crafted files, from both
-    import copy as _copy
-    import level_refuse_test as RT
-    for cname, (sample, change) in RT.CASES.items():
-        total += 1
-        made = []
-        for side in ("py", "rs"):
-            d = _copy.deepcopy(docs.get((side, sample)))
-            if d is None:
-                made.append(None)
-                continue
-            if change is not None:
-                change(d)
-            made.append(json.dumps(d))
-        if made[0] != made[1] or made[0] is None:
-            bad.append(f"refuse {cname}: the crafted level files differ")
     if not data:
         notes.append("no --data: the checks against the base world and the packs were skipped")
     report("level", total, bad, notes)

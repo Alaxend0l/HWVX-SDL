@@ -1841,9 +1841,12 @@ static void ModSound(const Mod *m, const char *id, const JsonNode *v, s32 fmt, c
     }
     free(mono);
     AudioDec_Free(&a);
-    if (pcm == NULL || n == 0 || n > 0x4000000) {
+    /* at most 16M samples (32 MB of PCM16, 6 minutes at 44.1 kHz): half the 64 MB sound
+     * memory (Audio_.c) a pack's sounds share, so a longer one could never be created; and a
+     * silent file of a few bytes on disk decodes to that much (PortMix_SFX sums them) */
+    if (pcm == NULL || n == 0 || n > 0x1000000) {
         free(pcm);
-        Report("%s: %s: %s can't be converted", m->info.name, id, file);
+        Report("%s: %s: %s can't be converted (at most 16M samples once resampled)", m->info.name, id, file);
         return;
     }
     if (loop >= n) {

@@ -137,7 +137,14 @@ void PortMix_SFXPrepare(s32 fmt, const u8 *desc, u32 count);
 void PortMix_SFXSet(u32 index, u32 count, u8 *pcm, u32 length, u32 loop, u32 rate);
 u32 PortMix_SFXLength(u32 index);
 void PortMix_SFXFill(u32 index, void *desc, u8 *out);
-void PortMix_SFX(s32 fmt, u8 *desc, u32 count);
+/* What a sample of `length` bytes takes in a samples block: rounded up to 32
+ * bytes, plus the 32 CreateSFX_ reads past its end. In 64 bits: a mod's
+ * lengths are untrusted, and the sum of a pack's must never wrap. */
+#define PORT_MIX_SFX_SPACE(length) (((unsigned long long)(length) + 0x1F) / 0x20 * 0x20 + 0x20)
+/* A pack's samples block past this (256 MB) is refused: its sounds stay the base's. */
+#define PORT_MIX_SFX_BLOCK_MAX 0x10000000u
+/* Returns the samples block's size, 0 when there is none (or it was refused). */
+u32 PortMix_SFX(s32 fmt, u8 *desc, u32 count);
 void PortMix_SFXDone(void);
 /* --mix-build: load every pack of every archive, so the cache holds them;
  * returns the packs converted, *failed those that did not load. Before each

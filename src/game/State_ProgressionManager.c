@@ -184,13 +184,15 @@ s32 StateProgressionManager_Heartbeat(void) {
         if (phase == 0) {
             seq = (ProgSequence *)level;
         } else if (g_GameProgressionEndState[0] == 4) {
-            if (g_GameProgressionEndState[1] > level->win.count) {
+            /* port: >= (the GameCube tested >, reading one sequence past the table for an
+             * end_level arg equal to the count; a shared level's arg is untrusted) */
+            if (g_GameProgressionEndState[1] >= level->win.count) {
                 StateManager_GotoState(2);
                 return 1;
             }
             seq = &GETP(level->win.seqs)[g_GameProgressionEndState[1]];
         } else {
-            if (g_GameProgressionEndState[1] > level->lose.count) {
+            if (g_GameProgressionEndState[1] >= level->lose.count) {   /* port: as above */
                 StateManager_GotoState(2);
                 return 1;
             }

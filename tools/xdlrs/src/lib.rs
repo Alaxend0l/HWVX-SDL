@@ -28,6 +28,8 @@ pub mod graph;
 pub mod jsonc;
 pub mod jsonc_edit;
 pub mod level;
+pub mod level_fields;
+pub mod level_refuse;
 pub mod level_pack;
 pub mod level_share;
 pub mod modcheck;

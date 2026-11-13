@@ -114,7 +114,42 @@ static struct {
     u8 **linked;                /* the words a link wrote (pointer slots the level may fill) */
     int numLinked, capLinked;
     u32 *notedBits;             /* the world pack's pointer slots, a bit per word of the blob */
+    u8 *wordKind;               /* per word of the blob: WK_* (BuildTypedMap) */
+    u8 *recStart;               /* per word of the blob: 1 + the s_levelStructs index of a
+                                 * record of the world that starts there */
 } s_lv;
+
+/* What a word of the world pack's blob is, as far as patches go (BuildTypedMap). */
+enum {
+    WK_UNKNOWN = 0,             /* not in a record the walk reached */
+    WK_NUMBER,                  /* a number field: patches may set it */
+    WK_POINTER,                 /* a pointer field (an x-link: object links, texture ids, handle
+                                 * arrays), null in the pack or not */
+    WK_COUNT,                   /* a count a link names */
+    WK_INDEX,                   /* a number the game indexes with (s_indexFields) */
+    WK_TRIGGER,                 /* read by a base trigger: its conditions, actions and
+                                 * parameters (patches never change what a kept trigger runs) */
+};
+
+enum { LF_NONE, LF_PTR, LF_COUNT };
+
+typedef struct LevelField {
+    u32 off;
+    u32 size;
+    u8 kind;                    /* LF_* */
+    s8 target;                  /* the s_levelStructs index the pointer leads to, -1 none */
+    u32 count;                  /* 1 + the offset of its count (0: one record) */
+    u32 item;                   /* the size of a record it points to */
+} LevelField;
+
+typedef struct LevelStruct {
+    const char *name;
+    u32 size;
+    const LevelField *fields;
+    u32 count;
+} LevelStruct;
+
+#include "Port_LevelFields.inc"
 
 /* Limits for what a level file may ask for (far above what any level needs). */
 #define LEVEL_MAX_HEX 0x100000      /* bytes of a part or a patch */
@@ -417,6 +452,816 @@ static int TriggerOk(const u8 *t, const u8 *orig, char *err, size_t errSize) {
                      ACTION_NUM_TYPES, "else action", err, errSize);
 }
 
+/* ---- the world's records by type (patches, typed links) ------------------- */
+
+static int StructIndex(const char *name) {
+    int i;
+
+    for (i = 0; i < (int)SDL_arraysize(s_levelStructs); i++) {
+        if (SDL_strcmp(s_levelStructs[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Number fields the game indexes or switches with (tables, function tables, ids that pick
+ * a record, sizes): patches never set them. By struct, offset and size. */
+static const struct {
+    const char *st;
+    u32 off, size;
+} s_indexFields[] = {
+    {"WorldVolume", 0x08, 8},   /* shape (a BSP walked, or a sphere), type (creature volumes
+                                 * read their data as an info, gs_aSpawnVolumes[256]) */
+    {"WorldQuad", 0x00, 4},     /* id: the neighbour lists name quadrants by it */
+    {"WorldQuad", 0x0C, 4},     /* numGeoms */
+    {"WorldQuad", 0x20, 4},     /* numNeighbors */
+    {"WorldQuad", 0x28, 8},     /* QuadPack.header, set at load */
+    {"WorldQuad", 0x38, 0x18},  /* packId, fileOffset, size (Allocate(size + 0x40)), alloc */
+    {"TileCar", 0x34, 4},       /* port: humanUsed[port - 1], viewOf[], at most 4 players */
+    {"TileCreature", 0x1C, 4},  /* thing: a handle set at run time */
+    {"Teleporter", 0x44, 8},    /* debris, emitter: handles */
+    {"Teleporter", 0x50, 4},    /* numDest */
+    {"TileSpeaker", 0x2C, 4},   /* soundSeq: a handle */
+    {"World", 0x90, 4},         /* id: the quad packs' TOC key */
+    {"WorldGameData", 0x68, 8}, /* impactFxMinVel/MaxVel: they make an index into impactFx */
+    {"WorldTimer", 0x00, 4},    /* active, type (the interface binding), countUp */
+    {"WorldVariable", 0x00, 4}, /* active (reads *mode, null for some), id (the binding) */
+};
+
+static void MarkWords(const u8 *p, u32 size, u8 kind, int force) {
+    const u8 *base = GETP(s_lv.pack->base);
+    u64 w, end;
+
+    if (p < base || (u64)(p - base) >= s_lv.pack->dataSize) {
+        return;
+    }
+    end = SDL_min((u64)(p - base) + size, (u64)s_lv.pack->dataSize);
+    for (w = (u64)(p - base) / 4; w * 4 < end; w++) {
+        if (force || s_lv.wordKind[w] == WK_UNKNOWN || s_lv.wordKind[w] == WK_NUMBER) {
+            s_lv.wordKind[w] = kind;
+        }
+    }
+}
+
+/* The record of struct `st` at `rec` (a blob address) and every record it leads to. */
+static void MarkRecord(const u8 *rec, int st, int depth) {
+    const u8 *base = GETP(s_lv.pack->base);
+    const LevelStruct *s = &s_levelStructs[st];
+    u32 i, w;
+
+    if (depth > 12 || rec == NULL || ((rec - base) & 3) || !InBlob(s_lv.pack, rec, s->size)) {
+        return;
+    }
+    w = (u32)(rec - base) / 4;
+    if (s_lv.recStart[w] == st + 1) {
+        return;
+    }
+    if (s_lv.recStart[w] == 0) {
+        s_lv.recStart[w] = (u8)(st + 1);
+    }
+    MarkWords(rec, s->size, WK_NUMBER, 0);
+    for (i = 0; i < SDL_arraysize(s_indexFields); i++) {
+        if (SDL_strcmp(s_indexFields[i].st, s->name) == 0) {
+            MarkWords(rec + s_indexFields[i].off, s_indexFields[i].size, WK_INDEX, 0);
+        }
+    }
+    for (i = 0; i < s->count; i++) {
+        const LevelField *f = &s->fields[i];
+
+        if (f->kind == LF_NONE) {
+            continue;
+        }
+        MarkWords(rec + f->off, f->size, f->kind == LF_PTR ? WK_POINTER : WK_COUNT, 1);
+        if (f->kind == LF_PTR && f->size == 4 && f->target >= 0 && f->item != 0 && NotedSlot(rec + f->off)) {
+            const u8 *to = Port_HandleToPtr(*(const u32 *)(rec + f->off));
+            u32 n = f->count != 0 ? *(const u32 *)(rec + f->count - 1) : 1, k;
+
+            for (k = 0; k < n && k < 0x10000; k++) {
+                const u8 *o = BlobOrigin(to + (u64)k * f->item);   /* (an array a level grew: its base part) */
+
+                if (o != NULL) {
+                    MarkRecord(o, f->target, depth + 1);
+                }
+            }
+        }
+    }
+}
+
+/* The typed map of the world's blob: from the World, every record the schemas' links reach
+ * (and the variables, timers and objective infos the World's tables point to). */
+static int BuildTypedMap(void) {
+    const u8 *base = GETP(s_lv.pack->base);
+    World *world = (World *)base;
+    u32 words = s_lv.pack->dataSize / 4 + 1, k;
+    int sv = StructIndex("WorldVariable"), stm = StructIndex("WorldTimer"), sw = StructIndex("World");
+
+    s_lv.wordKind = SDL_calloc(words, 1);
+    s_lv.recStart = SDL_calloc(words, 1);
+    if (s_lv.wordKind == NULL || s_lv.recStart == NULL || sv < 0 || stm < 0 || sw < 0) {
+        return 0;
+    }
+    MarkRecord(base, sw, 0);
+    /* the variable and timer tables (handle tables: no schema struct) and what they hold */
+    for (k = 0; k < 2; k++) {
+        const u8 *slot = base + (k == 0 ? offsetof(World, variables) : offsetof(World, timers));
+        u32 n = k == 0 ? s_lv.origNumVariables : s_lv.origNumTimers, i;
+        const u32 *tab = NotedSlot(slot) ? Port_HandleToPtr(*(const u32 *)slot) : NULL;
+
+        for (i = 0; tab != NULL && i < n && InBlob(s_lv.pack, (const u8 *)(tab + i), 4); i++) {
+            if (NotedSlot((const u8 *)(tab + i))) {
+                MarkRecord(BlobOrigin(Port_HandleToPtr(tab[i])), k == 0 ? sv : stm, 1);
+            }
+        }
+    }
+    /* objective infos: no schema struct; every byte is a pointer or a number the HUD uses as
+     * a kind, a mode or an object id */
+    {
+        const WorldObjective *obj = GETP(world->objectives);
+
+        for (k = 0; obj != NULL && k < world->numObjectives && k < 0x10000; k++) {
+            const u8 *o = BlobOrigin((const u8 *)&obj[k]);
+
+            if (o != NULL && NotedSlot(o + offsetof(WorldObjective, info))) {
+                MarkWords(Port_HandleToPtr(*(const u32 *)(o + offsetof(WorldObjective, info))),
+                          sizeof(WorldObjectiveInfo), WK_INDEX, 1);
+            }
+        }
+    }
+    return 1;
+}
+
+static int WordKind(const u8 *o) {
+    const u8 *base = GETP(s_lv.pack->base);
+
+    if (s_lv.wordKind == NULL || o < base || (u64)(o - base) >= s_lv.pack->dataSize) {
+        return WK_UNKNOWN;
+    }
+    return s_lv.wordKind[(u64)(o - base) / 4];
+}
+
+/* ---- parameter lists ---------------------------------------------------------
+ * Trigger.h's TAC_PARAMS_* layouts (the ones the game's functions read) as strings of item
+ * codes: w a number, a a handle or a number (ANY), k/l a link/list of a record type (the
+ * letter after it), o an operand, c a code variable, s scratch words, z a string, t the
+ * music table, * words, x the camera switch. */
+#define REC_TileCar "C"
+#define REC_TilePath "P"
+#define REC_Teleporter "E"
+#define REC_TileCreature "K"
+#define REC_QuadInstance "I"
+#define REC_QuadItem "M"
+#define REC_QuadFxPoint "F"
+#define REC_WorldObjective "O"
+#define REC_WorldVolume "V"
+#define REC_WorldTimerSlot "T"
+#define REC_WorldVariableSlot "R"
+#define REC_NavPoint "N"
+#define REC_void "?"
+#define U32(n) "w"
+#define S32(n) "w"
+#define F32(n) "w"
+#define TOKEN(n) "w"
+#define ANY(n) "a"
+#define LINK(n, T) "k" REC_##T
+#define LIST(n, T) "l" REC_##T
+#define OPERAND(n) "o"
+#define CODEVAR(n) "c"
+#define SCRATCH(n, L) "s"
+#define STRING(n) "z"
+#define TABLE(n, R) "t"
+#define WORDS(n) "*"
+#define VEC3(n) "www"
+#define SWITCH(n, E) "x"
+#define TP(x) [TRIGGER_##x] = "" TAC_PARAMS_TRIGGER_##x
+#define AP(x) [ACTION_##x] = "" TAC_PARAMS_ACTION_##x
+static const char *const s_trigParams[TRIGGER_NUM_TYPES] = {
+    TP(TRUE), TP(AIRBOX_ENTERED), TP(AIRBOX_EXITED), TP(AIRBOX_STOP_IN), TP(DESTRUCTIBLE_KILLED),
+    TP(CREATURE_KILLED), TP(ITEM_PICKUP), TP(INTERFACE_END), TP(LEVEL_START), TP(TIMER_VALUE_CHECK),
+    TP(MOVEABLE_END), TP(VARIABLE_VALUE_CHECK), TP(VEHICLE_KILLED), TP(P2P_ACTIVATED), TP(CREATURE_DROPPED_OFF),
+    TP(INTERFACE_PACK_END), TP(VEHICLE_DAMAGE), TP(PLAYER_VEHICLE_GEAR), TP(PLAYER_VEHICLE_IN_AIR),
+    TP(ITEM_VOLUME_ENTERED), TP(CODE_VARIABLE_VALUE_CHECK), TP(CREATURE_PICKED_UP), TP(GAME_ROUNDS_COMPLETE),
+    TP(GAME_ROUND_X_COMPLETE), TP(ITEM_DROPPED), TP(MOVABLE_VOLUME_ENTERED), TP(SOUND_SEQ_QUEUE_END),
+    TP(CREATURE_VOLUME_ENTERED),
+};
+static const char *const s_actParams[ACTION_NUM_TYPES] = {
+    AP(AIRBOX_CHANGE_MODE), AP(CAMERA_SET_TARGETS), AP(DESTRUCTIBLE_CHANGE_MODE), AP(FX_POINT_CHANGE_MODE),
+    AP(INTERFACE_PLAY), AP(ITEM_CHANGE_MODE), AP(END_LEVEL), AP(TIMER_CHANGE_VALUE), AP(TIMER_CHANGE_MODE),
+    AP(MOVEABLE_CHANGE_MODE), AP(MUSIC_CHANGE), AP(MUSIC_SET_SONG), AP(NAV_POINT_CHANGE_MODE), AP(PAUSE_GAME),
+    AP(SPEAKER_CHANGE_MODE), AP(TARGET_ARROW_SET_TARGET), AP(VARIABLE_CHANGE_VALUE), AP(VEHICLE_CHANGE_MODE),
+    AP(VEHICLE_AI_SET_NAMED_PATH), AP(VERTEX_COLOR_SEQ_CHANGE_MODE), AP(PRINT_DEBUG_STRING), AP(VEHICLE_TELEPORT),
+    AP(VEHICLE_CHANGE_CONTROL), AP(SET_PLAYER_VEHICLE), AP(VEHICLE_REMOVE_ITEM), AP(VEHICLE_REMOVE_CREATURE),
+    AP(VARIABLE_CHANGE_MODE), AP(LOAD_INTERFACE_PACK), AP(PLAY_INTERFACE_PACK), AP(UNLOAD_INTERFACE_PACK),
+    AP(END_INTERFACE_PACK), AP(END_INTERFACE), AP(HUD_CHANGE_MODE), AP(SCRIPT_LIGHT_CHANGE_MODE),
+    AP(CODE_VARIABLE_MODIFY_VALUE), AP(MISSION_OBJ_CHANGE_MODE), AP(PAUSE_TAC_SYSTEM), AP(SWAP_AI_SCRIPT),
+    AP(RESET_GAME_ROUND), AP(ROUND_COMPLETE), AP(VEHICLE_GIVE_ITEM), AP(SET_PLAYER_ORDER), AP(PLAY_SOUND_SEQUENCE),
+    AP(CREATURE_CHANGE_MODE),
+};
+#undef TP
+#undef AP
+#undef U32
+#undef S32
+#undef F32
+#undef TOKEN
+#undef ANY
+#undef LINK
+#undef LIST
+#undef OPERAND
+#undef CODEVAR
+#undef SCRATCH
+#undef STRING
+#undef TABLE
+#undef WORDS
+#undef VEC3
+#undef SWITCH
+
+/* A record of the world (or one a level appended) of type `rec` starts at p. */
+static int TypedAt(const u8 *p, char rec) {
+    static const struct {
+        char rec;
+        const char *st;
+        int grow;               /* its s_growable kind, -1 none */
+    } types[] = {
+        {'C', "TileCar", 0}, {'O', "WorldObjective", 1}, {'M', "QuadItem", 2}, {'F', "QuadFxPoint", 3},
+        {'P', "TilePath", -1}, {'E', "Teleporter", -1}, {'K', "TileCreature", -1}, {'I', "QuadInstance", -1},
+        {'V', "WorldVolume", -1},
+    };
+    const u8 *o;
+    int i, a;
+
+    if (p == NULL) {
+        return 0;
+    }
+    if (rec == 'R' || rec == 'T') {
+        /* a slot of the variable or timer table the game will have */
+        const u8 *tab = rec == 'R' ? (s_lv.variables != NULL ? (const u8 *)s_lv.variables
+                                                             : (const u8 *)GETP(s_lv.world->variables))
+                                   : (s_lv.timers != NULL ? (const u8 *)s_lv.timers : (const u8 *)GETP(s_lv.world->timers));
+        u32 n = rec == 'R' ? s_lv.numVariableSlots : s_lv.numTimerSlots;
+
+        return tab != NULL && p >= tab && p < tab + (u64)n * 4 && ((p - tab) & 3) == 0;
+    }
+    if (rec == 'v') {
+        return Container(p, sizeof(Vector4), NULL, NULL);   /* a point: read only */
+    }
+    for (i = 0; i < (int)SDL_arraysize(types); i++) {
+        if (types[i].rec != rec) {
+            continue;
+        }
+        if (rec == 'V') {
+            for (a = 0; a < s_lv.numParts; a++) {
+                if (s_lv.parts[a].mem == p && SDL_strcmp(s_lv.parts[a].kind, "volume") == 0) {
+                    return 1;   /* a volume of the level's own (checked in Validate) */
+                }
+            }
+        }
+        for (a = 0; types[i].grow >= 0 && a < s_lv.numGrows; a++) {
+            const struct LevelGrow *g = &s_lv.grows[a];
+
+            if (g->kind == types[i].grow && p >= g->mem && p < g->mem + g->size && (p - g->mem) % g->elemSize == 0) {
+                return 1;
+            }
+        }
+        o = BlobOrigin(p);
+        return o != NULL && s_lv.recStart != NULL && s_lv.recStart[(o - GETP(s_lv.pack->base)) / 4] != 0 &&
+               SDL_strcmp(s_levelStructs[s_lv.recStart[(o - GETP(s_lv.pack->base)) / 4] - 1].name, types[i].st) == 0 &&
+               ((o - GETP(s_lv.pack->base)) & 3) == 0;
+    }
+    return 0;   /* '?', 'N': records the level can't make (interfaces, sequences, scripts...) */
+}
+
+typedef struct ParamWalk {
+    const u32 *w, *end;         /* the next word, the end of the block it is in */
+    const u32 *start;
+    char *err;
+    size_t errSize;
+    const char *what;
+    u32 lastCount;              /* the last list's count (SCRATCH) */
+} ParamWalk;
+
+static int PwFail(ParamWalk *pw, const char *why) {
+    return Fail(pw->err, pw->errSize, "%s: %s (word %u of its parameters)", pw->what, why,
+                (unsigned)(pw->w - pw->start));
+}
+
+static int PwNeed(ParamWalk *pw, u64 n) {
+    return (u64)(pw->end - pw->w) >= n;
+}
+
+/* h is a handle a kept base trigger's parameters hold (an interface, a sequence, a script:
+ * records only the world's own triggers name, which a level may name too). */
+static int BaseParamHandle(u32 h) {
+    const u8 *base = GETP(s_lv.pack->base);
+    u32 w, n = s_lv.pack->dataSize / 4;
+
+    for (w = 0; s_lv.wordKind != NULL && w < n; w++) {
+        if (s_lv.wordKind[w] == WK_TRIGGER && ((const u32 *)base)[w] == h && NotedSlot(base + w * 4)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The handle word at slot: zero (nullOk), the world's own pointer (unchanged: patches never
+ * set one), or a link of the level to a record of type rec (of a kind the level can't make:
+ * one a kept base trigger names). */
+static int HandleOk(const u32 *slot, char rec, int nullOk) {
+    const u8 *o;
+
+    if (*slot == 0) {
+        return nullOk;
+    }
+    o = BlobOrigin((const u8 *)slot);
+    if (o != NULL && NotedSlot(o)) {
+        return 1;
+    }
+    if (!Linked((const u8 *)slot)) {
+        return 0;
+    }
+    return rec == '?' || rec == 'N' ? BaseParamHandle(*slot) : TypedAt(Port_HandleToPtr(*slot), rec);
+}
+
+static int PwHandle(ParamWalk *pw, char rec, int nullOk) {
+    if (!PwNeed(pw, 1)) {
+        return PwFail(pw, "runs past its block");
+    }
+    if (!HandleOk(pw->w, rec, nullOk)) {
+        return PwFail(pw, rec == '?' || rec == 'N' ? "a handle that isn't the world's own"
+                                                    : "a handle that isn't a record of the right kind");
+    }
+    pw->w++;
+    return 1;
+}
+
+static int PwList(ParamWalk *pw, char rec) {
+    u32 n, i;
+
+    if (!PwNeed(pw, 1) || (n = *pw->w) > 0x10000 || !PwNeed(pw, (u64)n + 1)) {
+        return PwFail(pw, "a list runs past its block");
+    }
+    pw->w++;
+    pw->lastCount = n;
+    for (i = 0; i < n; i++) {
+        if (!PwHandle(pw, rec, 0)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* GetCodeVariable/SetCodeVariable's argument for code variable var (GameSettings.c's tables:
+ * the ranges they index without checking). */
+static int CodeArgOk(u32 var, u32 arg) {
+    if (var == 0xC9 || var == 0xCB || var == 0xCC || var == 0xCE || var == 0xD1 || var == 0xD2 ||
+        (var >= 0x191 && var <= 0x194)) {
+        return arg >= 1 && arg <= 4;
+    }
+    if (var >= 0x6A && var <= 0x6C) {
+        return arg <= 10;
+    }
+    return 1;
+}
+
+static int PwCodeFail(ParamWalk *pw, u32 var, u32 arg) {
+    char why[80];
+
+    SDL_snprintf(why, sizeof(why), "code variable 0x%X's argument %u past its table", (unsigned)var, (unsigned)arg);
+    return PwFail(pw, why);
+}
+
+static int CarCodeVar(u32 var) {
+    return var == 1 || var == 2 || var == 3 || (var >= 20 && var <= 27);
+}
+
+static int PwOperand(ParamWalk *pw) {
+    if (!PwNeed(pw, 1)) {
+        return PwFail(pw, "runs past its block");
+    }
+    switch (*pw->w++) {
+    case OPERAND_CONSTANT:
+        if (!PwNeed(pw, 1)) {
+            return PwFail(pw, "runs past its block");
+        }
+        pw->w++;
+        return 1;
+    case OPERAND_VARIABLE:
+        return PwHandle(pw, 'R', 0);
+    case OPERAND_CODE_VARIABLE: {
+        u32 var;
+
+        if (!PwNeed(pw, 2)) {
+            return PwFail(pw, "runs past its block");
+        }
+        var = *pw->w++;
+        if (CarCodeVar(var)) {
+            return PwHandle(pw, 'C', 0);
+        }
+        if (!CodeArgOk(var, *pw->w)) {
+            return PwCodeFail(pw, var, *pw->w);
+        }
+        pw->w++;
+        return 1;
+    }
+    default:
+        pw->w--;
+        return PwFail(pw, "no such operand type");
+    }
+}
+
+static int PwCodeVar(ParamWalk *pw) {
+    u32 var;
+
+    if (!PwNeed(pw, 1)) {
+        return PwFail(pw, "runs past its block");
+    }
+    var = *pw->w++;
+    if (var < 100) {
+        return PwList(pw, 'C');
+    }
+    if (!PwNeed(pw, 1)) {
+        return PwFail(pw, "runs past its block");
+    }
+    if (!CodeArgOk(var, *pw->w)) {
+        return PwCodeFail(pw, var, *pw->w);
+    }
+    pw->w++;
+    return 1;
+}
+
+/* A camera place (Camera_TriggerActionGetLocation). */
+static int PwPlace(ParamWalk *pw) {
+    u32 kind;
+    int ok;
+
+    if (!PwNeed(pw, 1)) {
+        return PwFail(pw, "runs past its block");
+    }
+    kind = *pw->w++;
+    switch (kind) {
+    case PLACE_CAR: ok = PwHandle(pw, 'C', 0); break;
+    case PLACE_INSTANCE: ok = PwHandle(pw, 'I', 0); break;
+    case PLACE_POINT:
+    case PLACE_POINT4: ok = PwHandle(pw, 'v', 0); break;
+    case PLACE_PATH: ok = PwHandle(pw, 'P', 0); break;
+    case PLACE_CAMERA: return 1;
+    default: pw->w--; return PwFail(pw, "no such camera place");
+    }
+    if (!ok || !PwNeed(pw, 3)) {
+        return ok ? PwFail(pw, "runs past its block") : 0;
+    }
+    pw->w += 3;
+    return 1;
+}
+
+static int PwCamera(ParamWalk *pw) {
+    u32 mode, n;
+
+    if (!PwNeed(pw, 1)) {
+        return PwFail(pw, "runs past its block");
+    }
+    mode = *pw->w++;
+    n = mode == CAMERA_LOOK_AT ? 1 : mode == CAMERA_ORBIT ? 4 : 0;
+    if (mode < CAMERA_LOOK_AT || mode > CAMERA_PLAYER) {
+        pw->w--;
+        return PwFail(pw, "no such camera mode");
+    }
+    if (!PwNeed(pw, n)) {
+        return PwFail(pw, "runs past its block");
+    }
+    pw->w += n;
+    return PwPlace(pw) && PwPlace(pw);
+}
+
+static int PwString(ParamWalk *pw) {
+    const char *s = (const char *)pw->w;
+    size_t room = (size_t)(pw->end - pw->w) * 4, n;
+
+    for (n = 0; n < room && s[n] != 0; n++) {
+    }
+    if (n >= room || n >= 0x70) {
+        return PwFail(pw, "a name not ended in its block (or 112 characters or more)");
+    }
+    if (SDL_strstr(s, "..") != NULL || SDL_strchr(s, '/') != NULL || SDL_strchr(s, ':') != NULL) {
+        return PwFail(pw, "a pack name with a path in it");
+    }
+    pw->w += (n + 4) / 4;
+    return 1;
+}
+
+static int StringTableOk(const u8 *slot, u32 max);
+static int s_strictBase;     /* HWVX_LEVEL_SWEEP: the base triggers' lists walked too */
+
+/* The parameter list at p of a trigger/condition (action 0) or action (action 1) of `type`,
+ * as the game's function will read it: every handle a record of the right kind (or the
+ * world's own), every index inside its table, every list inside the block. A level's own
+ * list only: one in the world pack's blob that a base trigger reads is the world's (patches
+ * never change it). */
+static int ParamsOk(const u8 *p, int action, u32 type, const char *what, char *err, size_t errSize) {
+    const char *spec = action ? s_actParams[type] : s_trigParams[type];
+    const u8 *lo;
+    u64 len;
+    ParamWalk pw;
+    const char *c;
+
+    if (spec == NULL || spec[0] == 0) {
+        return 1;   /* reads none */
+    }
+    if (p == NULL) {
+        return Fail(err, errSize, "%s: no parameters", what);
+    }
+    if (!s_strictBase && WordKind(BlobOrigin(p)) == WK_TRIGGER) {
+        return 1;
+    }
+    if (!Container(p, 4, &lo, &len) || ((uintptr_t)p & 3)) {
+        return Fail(err, errSize, "%s: its parameters aren't in a block", what);
+    }
+    SDL_zero(pw);
+    pw.w = pw.start = (const u32 *)p;
+    pw.end = (const u32 *)(lo + (len & ~(u64)3));
+    pw.err = err;
+    pw.errSize = errSize;
+    pw.what = what;
+    if (!action && type == TRIGGER_P2P_ACTIVATED && s_strictBase) {
+        return 1;
+    }
+    if (!action && type == TRIGGER_P2P_ACTIVATED) {
+        return PwFail(&pw, "a p2p trigger of the level's own (its words are thing handles)");
+    }
+    for (c = spec; *c; c++) {
+        int ok = 1;
+
+        switch (*c) {
+        case 'w':
+            if (!PwNeed(&pw, 1)) {
+                return PwFail(&pw, "runs past its block");
+            }
+            pw.w++;
+            break;
+        case 'a':
+            /* a handle or a number: the game follows it (scripts, messages, sequences,
+             * items) except END_INTERFACE's, which it only compares */
+            if (action && type == ACTION_END_INTERFACE) {
+                ok = PwNeed(&pw, 1) ? (pw.w++, 1) : PwFail(&pw, "runs past its block");
+            } else if (action && type == ACTION_VEHICLE_GIVE_ITEM && pw.w > pw.start && pw.w[-1] == 0) {
+                ok = PwHandle(&pw, 'M', 1);   /* what 0: a pickup */
+            } else if (action && type == ACTION_VEHICLE_GIVE_ITEM && PwNeed(&pw, 1) && *pw.w < 1000) {
+                pw.w++;                       /* what 1: an item id */
+            } else if (action && type == ACTION_PRINT_DEBUG_STRING && pw.start[0] >= 2 && pw.start[0] <= 8) {
+                /* a message: a string table (the HUD shows it, a car's stunt messages) */
+                if (!PwNeed(&pw, 1)) {
+                    return PwFail(&pw, "runs past its block");
+                }
+                if (!HandleOk(pw.w, '?', 1) && !StringTableOk((const u8 *)pw.w, 0x80)) {
+                    return PwFail(&pw, "a message that isn't a string table (strings under 128 characters)");
+                }
+                pw.w++;
+            } else if (action && type == ACTION_PRINT_DEBUG_STRING) {
+                ok = PwNeed(&pw, 1) ? (pw.w++, 1) : PwFail(&pw, "runs past its block");   /* a number */
+            } else {
+                ok = PwHandle(&pw, '?', 1);
+            }
+            break;
+        case 'k': {
+            char rec = *++c;
+            int nullOk = rec == '?';
+
+            if (action && type == ACTION_SET_PLAYER_ORDER) {
+                ok = PwNeed(&pw, 1) ? (pw.w++, 1) : PwFail(&pw, "runs past its block");   /* compared only */
+                break;
+            }
+            if (action && type == ACTION_TARGET_ARROW_SET_TARGET && pw.w > pw.start) {
+                u32 kind = pw.w[-1];
+
+                rec = kind == 1 ? 'C' : kind == 2 ? 'I' : kind == 3 ? 'M' : kind == 4 ? 'P' : kind == 6 ? 'v' : 0;
+                if (rec == 0) {
+                    ok = PwNeed(&pw, 1) ? (pw.w++, 1) : PwFail(&pw, "runs past its block");   /* no target */
+                    break;
+                }
+                nullOk = kind == 6;
+            }
+            ok = PwHandle(&pw, rec, nullOk);
+            break;
+        }
+        case 'l':
+            ok = PwList(&pw, *++c);
+            break;
+        case 'o':
+            ok = PwOperand(&pw);
+            break;
+        case 'c':
+            ok = PwCodeVar(&pw);
+            break;
+        case 's':
+            if (!PwNeed(&pw, pw.lastCount)) {
+                return PwFail(&pw, "its scratch words run past its block");
+            }
+            pw.w += pw.lastCount;
+            break;
+        case 'z':
+            ok = PwString(&pw);
+            break;
+        case 't': {
+            /* MusicChange's tracks: `track` indexes g_tracks[32], read at two strides
+             * (0x28 and the GameCube's 0x24, AudioManager.c) */
+            u32 n, i;
+
+            if (!PwNeed(&pw, 1) || (n = *pw.w) > 64 || !PwNeed(&pw, 1 + (u64)n * 10)) {
+                return PwFail(&pw, "the music table runs past its block");
+            }
+            for (i = 0; i < n; i++) {
+                if (pw.w[2 + 10 * i] >= 32 || pw.w[2 + 9 * i] >= 32) {
+                    return PwFail(&pw, "a music track past the 32 tracks");
+                }
+            }
+            pw.w += 1 + n * 10;
+            break;
+        }
+        case '*':
+            return 1;   /* the rest: not read (P2P, the one that reads them, refused above) */
+        case 'x':
+            ok = PwCamera(&pw);
+            break;
+        default:
+            return PwFail(&pw, "no such item");
+        }
+        if (!ok) {
+            return 0;
+        }
+    }
+    if (!action && type == TRIGGER_VEHICLE_DAMAGE) {
+        /* cars, test, amount: 0x2B divides by amount */
+        const u32 *x = pw.start + 1 + pw.start[0];
+
+        if (x[0] == TAC_DAMAGE_BELOW && x[1] == 0) {
+            return Fail(err, errSize, "%s: a damage test dividing by 0", what);
+        }
+    }
+    return 1;
+}
+
+/* The base triggers' records and parameters the kept triggers read: marked WK_TRIGGER (patches
+ * never change them, so their contents stay the world's). The same walk as ParamsOk, only
+ * marking. */
+static void MarkTriggerData(const u8 *orig) {
+    const Trigger *t = (const Trigger *)orig;
+    u32 i, k;
+
+    for (k = 0; k < 3; k++) {
+        u32 n = k == 0 ? t->numConditions : k == 1 ? t->numActions : t->numElseActions;
+        u32 size = k == 0 ? TRIGGER_SIZE : sizeof(TriggerAction);
+        const u8 *slot = orig + (k == 0 ? 0x0C : k == 1 ? 0x14 : 0x18);
+        const u8 *recs;
+
+        if (n == 0 || n > 0x10000 || !NotedSlot(slot)) {
+            continue;
+        }
+        recs = Port_HandleToPtr(*(const u32 *)slot);
+        MarkWords(recs, n * size, WK_TRIGGER, 1);
+        for (i = 0; i < n && InBlob(s_lv.pack, recs, n * size); i++) {
+            const u8 *r = recs + i * size;
+            const u8 *p = NotedSlot(r + 4) ? Port_HandleToPtr(*(const u32 *)(r + 4)) : NULL;
+            const u8 *base = GETP(s_lv.pack->base);
+
+            if (p != NULL && InBlob(s_lv.pack, p, 4)) {
+                /* to the end of its parameters: up to the next record the walk reached, at
+                 * most 1 KB (no list is longer) */
+                u32 w = (u32)(p - base) / 4, e;
+
+                for (e = w; e < w + 256 && (u64)e * 4 < s_lv.pack->dataSize; e++) {
+                    if (e > w && s_lv.recStart[e] != 0) {
+                        break;
+                    }
+                    if (s_lv.wordKind[e] == WK_UNKNOWN || s_lv.wordKind[e] == WK_TRIGGER) {
+                        s_lv.wordKind[e] = WK_TRIGGER;
+                    } else if (e > w) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    {
+        const u8 *p = NotedSlot(orig + 4) ? Port_HandleToPtr(*(const u32 *)(orig + 4)) : NULL;
+
+        if (p != NULL && InBlob(s_lv.pack, p, 4)) {
+            const u8 *base = GETP(s_lv.pack->base);
+            u32 w = (u32)(p - base) / 4, e;
+
+            for (e = w; e < w + 256 && (u64)e * 4 < s_lv.pack->dataSize; e++) {
+                if (e > w && s_lv.recStart[e] != 0) {
+                    break;
+                }
+                if (s_lv.wordKind[e] == WK_UNKNOWN || s_lv.wordKind[e] == WK_TRIGGER) {
+                    s_lv.wordKind[e] = WK_TRIGGER;
+                } else if (e > w) {
+                    break;
+                }
+            }
+        }
+    }
+    MarkWords(orig, TRIGGER_SIZE, WK_TRIGGER, 1);
+}
+
+/* ---- volumes and objectives of the level's own ------------------------------- */
+
+/* A BSP the game walks (BSPN0.c): 0x20-byte nodes, a node going on to the next (type bit 0)
+ * or `next` nodes on (bit 1). Every node it can reach inside the block it starts in, and no
+ * path deeper than the game's recursion should go. */
+static int BspOk(const u8 *bsp) {
+    const u8 *lo;
+    u64 len;
+    u32 n, i, *depth;
+    int ok = 1;
+
+    if (!Container(bsp, 0x20, &lo, &len) || ((uintptr_t)(bsp - lo) & 3)) {
+        return 0;
+    }
+    n = (u32)SDL_min((len - (u64)(bsp - lo)) / 0x20, 0x10000);
+    depth = SDL_calloc((size_t)n + 1, 4);
+    if (depth == NULL) {
+        return 0;
+    }
+    depth[0] = 1;   /* reached, at depth 1 (nodes only point forwards) */
+    for (i = 0; i < n && ok; i++) {
+        const u8 *node = bsp + (u64)i * 0x20;
+        u8 type = node[0x10];
+        u16 next = *(const u16 *)(node + 0x12);
+
+        if (depth[i] == 0) {
+            continue;
+        }
+        if (depth[i] > 1024) {
+            ok = 0;
+            break;
+        }
+        if (type & 1) {
+            if (i + 1 >= n) {
+                ok = 0;
+            } else {
+                depth[i + 1] = SDL_max(depth[i + 1], depth[i] + 1);
+            }
+        }
+        if (type & 2) {
+            if (next == 0 || (u64)i + next >= n) {
+                ok = 0;
+            } else {
+                depth[i + next] = SDL_max(depth[i + next], depth[i] + 1);
+            }
+        }
+    }
+    SDL_free(depth);
+    return ok;
+}
+
+/* The bytes a volume's data holds, by type (what VolumeManager.c, Thing.c and LightManager.c
+ * read; viewer_level.c's table). */
+static u32 VolumeDataSize(u32 type) {
+    switch (type) {
+    case VOLUME_FORCE_BOX: return 0x14;
+    case VOLUME_REVERB: return 8;
+    case VOLUME_FOG: return 16;
+    case VOLUME_LIGHT: return (u32)sizeof(Light);
+    case VOLUME_CREATURE: return 1;
+    default: return 0;
+    }
+}
+
+/* A string table (InterfaceManager_SetObjectText): string handles up to a null one, each a
+ * string ended in its block, shorter than `max` (the objective text is copied into the
+ * object's savedText[0x34]). */
+static int StringTableOk(const u8 *slot, u32 max) {
+    u8 *tab;
+    u32 i;
+
+    if (!SlotOk(slot, NULL, 4, 1, &tab)) {
+        return 0;
+    }
+    for (i = 0; tab != NULL && i < 64; i++) {
+        const u8 *lo;
+        u64 len, k;
+        u8 *str;
+
+        if (!SlotOk(tab + i * 4, NULL, 1, 1, &str)) {
+            return 0;
+        }
+        if (str == NULL) {
+            return 1;
+        }
+        if (!Container(str, 1, &lo, &len)) {
+            return 0;
+        }
+        for (k = 0; (u64)(str - lo) + k < len && str[k] != 0; k++) {
+        }
+        if ((u64)(str - lo) + k >= len || k >= max) {
+            return 0;
+        }
+        if (!Container(tab + (i + 1) * 4, 4, NULL, NULL)) {
+            return 0;
+        }
+    }
+    return tab == NULL;
+}
+
 static int SameWorld(const char *a, const char *b) {
     for (; *a && *b; a++, b++) {
         char x = (char)SDL_tolower((unsigned char)*a), y = (char)SDL_tolower((unsigned char)*b);
@@ -471,6 +1316,8 @@ static void Unapply(void) {
     SDL_free(s_lv.patches);
     SDL_free(s_lv.linked);
     SDL_free(s_lv.notedBits);
+    SDL_free(s_lv.wordKind);
+    SDL_free(s_lv.recStart);
     for (i = 0; i < s_lv.numAllocs; i++) {
         SDL_aligned_free(s_lv.allocs[i]);
     }
@@ -1042,6 +1889,34 @@ static int StartOverride(DataPack *pack, World *world, char *err, size_t errSize
 /* The level's records the game will follow: the trigger table (the base triggers kept,
  * as copies of keep[]'s, then the level's), its timers and variables, its volumes and
  * objectives. A level that fails is refused whole. */
+/* A level trigger's parameter lists: its own, its conditions' and its actions' (TriggerOk
+ * has checked the arrays and types). */
+static int TriggerParamsOk(const u8 *t, char *err, size_t errSize) {
+    const Trigger *tr = (const Trigger *)t;
+    char what[48];
+    u32 k, i;
+
+    if (!ParamsOk(Port_HandleToPtr(tr->param.h), 0, tr->type, "its test", err, errSize)) {
+        return 0;
+    }
+    for (k = 0; k < 3; k++) {
+        u32 n = k == 0 ? tr->numConditions : k == 1 ? tr->numActions : tr->numElseActions;
+        u32 size = k == 0 ? TRIGGER_SIZE : sizeof(TriggerAction);
+        const u8 *recs = n != 0 ? Port_HandleToPtr(*(const u32 *)(t + (k == 0 ? 0x0C : k == 1 ? 0x14 : 0x18))) : NULL;
+
+        for (i = 0; i < n; i++) {
+            const u8 *r = recs + (u64)i * size;
+
+            SDL_snprintf(what, sizeof(what), "%s %u", k == 0 ? "condition" : k == 1 ? "action" : "else action",
+                         (unsigned)i);
+            if (!ParamsOk(Port_HandleToPtr(*(const u32 *)(r + 4)), k != 0, *(const u32 *)r, what, err, errSize)) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 static int Validate(const u8 *keep, char *err, size_t errSize) {
     char why[160];
     u32 k, t;
@@ -1049,16 +1924,20 @@ static int Validate(const u8 *keep, char *err, size_t errSize) {
     u8 *to;
 
     for (k = 0, t = 0; k < s_lv.origNumTriggers; k++) {
-        if (keep[k] && !TriggerOk(s_lv.triggers + t++ * TRIGGER_SIZE, s_lv.origTriggers + k * TRIGGER_SIZE, why,
-                                  sizeof(why))) {
+        if (!keep[k]) {
+            continue;
+        }
+        if (!TriggerOk(s_lv.triggers + t * TRIGGER_SIZE, s_lv.origTriggers + k * TRIGGER_SIZE, why, sizeof(why)) ||
+            (s_strictBase && !TriggerParamsOk(s_lv.triggers + t * TRIGGER_SIZE, why, sizeof(why)))) {
             return Fail(err, errSize, "base trigger %u: %s", (unsigned)k, why);
         }
+        t++;
     }
     for (i = 0; i < s_lv.numParts; i++) {
         LevelPart *p = &s_lv.parts[i];
 
         if (SDL_strcmp(p->kind, "trigger") == 0) {
-            if (!TriggerOk(p->mem, NULL, why, sizeof(why))) {
+            if (!TriggerOk(p->mem, NULL, why, sizeof(why)) || !TriggerParamsOk(p->mem, why, sizeof(why))) {
                 return Fail(err, errSize, "%s: %s", p->id, why);
             }
         } else if (SDL_strcmp(p->kind, "timer") == 0) {
@@ -1082,11 +1961,18 @@ static int Validate(const u8 *keep, char *err, size_t errSize) {
         } else if (SDL_strcmp(p->kind, "volume") == 0) {
             const WorldVolume *v = (const WorldVolume *)p->mem;
 
+            u8 *bsp;
+
             if (v->type >= VOLUME_NUM_TYPES || (v->shape != VOLUME_SHAPE_BSP && v->shape != VOLUME_SHAPE_SPHERE) ||
-                !SlotOk(p->mem + offsetof(WorldVolume, bsp), NULL, 4, v->shape != VOLUME_SHAPE_BSP, &to) ||
-                !SlotOk(p->mem + offsetof(WorldVolume, data), NULL, 4,
-                        v->type != VOLUME_FOG && v->type != VOLUME_LIGHT, &to)) {
-                return Fail(err, errSize, "%s: a volume's type, shape, BSP or data", p->id);
+                !SlotOk(p->mem + offsetof(WorldVolume, bsp), NULL, 0x20, v->shape != VOLUME_SHAPE_BSP, &bsp) ||
+                !SlotOk(p->mem + offsetof(WorldVolume, data), NULL, SDL_max(VolumeDataSize(v->type), 4),
+                        VolumeDataSize(v->type) == 0, &to)) {
+                return Fail(err, errSize, "%s: a volume's type, shape, BSP or data (sized for its type)", p->id);
+            }
+            /* a BSP of the level's own is walked by the game node to node: every node it can
+             * reach inside its block (one of the world's is the world's) */
+            if (v->shape == VOLUME_SHAPE_BSP && BlobOrigin(bsp) == NULL && !BspOk(bsp)) {
+                return Fail(err, errSize, "%s: its BSP's nodes lead out of its block (or too deep)", p->id);
             }
         } else if (SDL_strcmp(p->kind, "element") == 0) {
             /* only objectives are elements of the level's own (other elements are copies of
@@ -1098,9 +1984,36 @@ static int Validate(const u8 *keep, char *err, size_t errSize) {
                 !SlotOk(p->mem + offsetof(WorldObjective, info), NULL, sizeof(WorldObjectiveInfo), 0, &info)) {
                 return Fail(err, errSize, "%s: an objective (its info a link of the level)", p->id);
             }
-            for (o = offsetof(WorldObjectiveInfo, done); o + 4 <= sizeof(WorldObjectiveInfo); o += 4) {
-                if (!SlotOk(info + o, NULL, 4, 1, &any)) {
-                    return Fail(err, errSize, "%s: an objective's info: +0x%x isn't a link", p->id, (unsigned)o);
+            {
+                /* InterfaceManager_SetMissionObjectiveText: done's value; the value its type
+                 * shows (1: a variable, 2: a timer, 3: a code variable's id and argument); the
+                 * texts, copied into a 0x34-byte buffer when a value goes in them */
+                const WorldObjectiveInfo *oi = (const WorldObjectiveInfo *)info;
+                u32 vsize = oi->type == 1 || oi->type == 2 ? 0x10 : oi->type == 3 ? 8 : 4;
+                u8 *val;
+
+                (void)o;
+                if (!SlotOk(info + offsetof(WorldObjectiveInfo, done), NULL, sizeof(WorldVariable), 1, &any) ||
+                    !SlotOk(info + offsetof(WorldObjectiveInfo, value), NULL, vsize, oi->type == 0 || oi->type > 3,
+                            &val)) {
+                    return Fail(err, errSize, "%s: an objective's done or value (sized for its type %u)", p->id,
+                                (unsigned)oi->type);
+                }
+                if (oi->type == 3 && !CarCodeVar(((const u32 *)val)[0]) && ((const u32 *)val)[0] >= 10 &&
+                    !CodeArgOk(((const u32 *)val)[0], ((const u32 *)val)[1])) {
+                    return Fail(err, errSize, "%s: an objective's code variable argument past its table", p->id);
+                }
+                if (oi->type == 3 && (CarCodeVar(((const u32 *)val)[0]) || ((const u32 *)val)[0] >= 10)) {
+                    /* a car's (by a TileCar handle): only the level's own objectives' code
+                     * variables of the game settings */
+                    if (CarCodeVar(((const u32 *)val)[0])) {
+                        return Fail(err, errSize, "%s: an objective's code variable of a car", p->id);
+                    }
+                }
+                if (!StringTableOk(info + offsetof(WorldObjectiveInfo, text), oi->type != 0 ? 0x34 : 0x80) ||
+                    !StringTableOk(info + offsetof(WorldObjectiveInfo, doneText), oi->type != 0 ? 0x34 : 0x80)) {
+                    return Fail(err, errSize, "%s: an objective's texts (string handles of the level, ended, "
+                                "under 52 characters when a value goes in)", p->id);
                 }
             }
         }
@@ -1372,6 +2285,16 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
         }
     }
 
+    /* the world's records by type, and what the kept base triggers read (patches never set
+     * a pointer, a count, an index or a trigger's data) */
+    if (!BuildTypedMap()) {
+        Fail(err, errSize, "out of memory");
+        goto done;
+    }
+    for (k = 0; k < s_lv.origNumTriggers; k++) {
+        MarkTriggerData(s_lv.origTriggers + k * TRIGGER_SIZE);   /* (kept or not: what they name is the world's) */
+    }
+
     /* the patches: numbers in the base world's records (tools/xdl_level.py writes them from
      * the schemas' number fields): inside the world (or a base element an append copied),
      * never over one of its pointers */
@@ -1397,6 +2320,21 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
         if (o == NULL || BlobOrigin(at + size - 1) != o + size - 1 || !InBlob(pack, o, size)) {
             Fail(err, errSize, "patch %d: not in the base world's records", i);
             goto done;
+        }
+        {
+            static const char *const kinds[] = {"outside the records the world's links reach", NULL,
+                                                "over a pointer", "over a count", "over a number the game indexes with",
+                                                "over what a kept base trigger reads"};
+            u32 w;
+
+            for (w = 0; w < size + ((uintptr_t)o & 3); w += 4) {
+                int kind = WordKind((const u8 *)(((uintptr_t)o & ~(uintptr_t)3) + w));
+
+                if (kind != WK_NUMBER) {
+                    Fail(err, errSize, "patch %d: %s", i, kinds[kind]);
+                    goto done;
+                }
+            }
         }
         if (TouchesNoted(at, size)) {
             Fail(err, errSize, "patch %d: over a pointer of the world (patches set numbers)", i);
@@ -1498,11 +2436,14 @@ int Port_LevelApply(void *worldPack, const char *world, const char *path, char *
     return ApplyFile(worldPack, path, world, err, errSize);
 }
 
+static void CheckList(void *worldPack, const char *world);
+
 void Port_LevelWorldLoaded(void *worldPack, const char *world, int track) {
     const char *env = SDL_getenv("HWVX_LEVEL");
     char *path = NULL, id[256], err[256];
 
     Unapply();
+    CheckList(worldPack, world);
     if (world != NULL && SDL_strncmp(world, "@mod", 4) == 0) {
         /* the level built into its own world pack (tools/xdl_level_pack.py): nothing to add */
         DataPack *pack = worldPack;
@@ -1617,4 +2558,63 @@ int Port_LevelVolume(int i, const void **volume, const char **id) {
     *volume = s_lv.volumes[i];
     *id = s_lv.volumeIds[i];
     return 1;
+}
+
+/* ---- tests -------------------------------------------------------------------- */
+
+/* HWVX_LEVEL_SWEEP=1 (hwvx --convert-xdl, which loads every pack): each world pack gets an
+ * empty level that keeps every base trigger, its parameter lists walked as a level's are;
+ * "levelsweep: NAME: ok" or why not. Shows the checks agree with every retail world. */
+void Port_LevelSweep(void *worldPack, const char *name) {
+    static const char doc[] = "{\"format\": \"hwvx-level\", \"format_version\": 1, \"id\": \"sweep\"}";
+    static int on = -1;
+    char err[256], perr[160];
+    JsonNode *d;
+    int ok;
+
+    if (on < 0) {
+        const char *e = SDL_getenv("HWVX_LEVEL_SWEEP");
+
+        on = e != NULL && *e == '1';
+    }
+    if (!on || worldPack == NULL) {
+        return;
+    }
+    Unapply();
+    d = Json_Parse(doc, sizeof(doc) - 1, perr, sizeof(perr));
+    s_strictBase = 1;
+    ok = d != NULL && ApplyDoc(worldPack, d, err, sizeof(err));
+    s_strictBase = 0;
+    Port_Log("levelsweep: %s: %s", name, ok ? "ok" : d == NULL ? perr : err);
+    Unapply();
+    Json_Free(d);
+}
+
+/* HWVX_LEVEL_CHECK=FILE (a list of level files, one a line): as the world loads, each is
+ * applied and taken out again, "levelcheck: PATH: applied" or "...: not applied: why"; then
+ * the world goes on as it would. tools/xdlrs's `level refuse-test`. */
+static void CheckList(void *worldPack, const char *world) {
+    const char *list = SDL_getenv("HWVX_LEVEL_CHECK");
+    char *text, *line, *next, err[256];
+    size_t len;
+
+    if (list == NULL || *list == 0 || (text = SDL_LoadFile(list, &len)) == NULL) {
+        return;
+    }
+    for (line = text; line != NULL && *line; line = next) {
+        next = SDL_strchr(line, '\n');
+        if (next != NULL) {
+            *next++ = 0;
+        }
+        if (*line == 0) {
+            continue;
+        }
+        if (ApplyFile(worldPack, line, world, err, sizeof(err))) {
+            Port_Log("levelcheck: %s: applied", line);
+        } else {
+            Port_Log("levelcheck: %s: not applied: %s", line, err);
+        }
+        Unapply();
+    }
+    SDL_free(text);
 }
