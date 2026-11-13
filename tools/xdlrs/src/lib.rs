@@ -21,6 +21,7 @@
 pub mod audiolevel;
 pub mod stereo;
 pub mod bsp;
+pub mod cars;
 pub mod decode;
 pub mod encode;
 pub mod error;
