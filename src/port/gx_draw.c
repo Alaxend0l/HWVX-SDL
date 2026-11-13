@@ -12,9 +12,10 @@
  * area. 3D views therefore widen to the screen's shape, while the HUD and
  * menus (orthographic, laid out for 640 units) stay 4:3 and centred, and
  * points the game projects itself (Gfx_TransformVector) still line up. In
- * split screen the game's viewports and scissors are used, mapped into the
- * safe area. Port_ViewWiden tells the game's culling how much wider the view
- * is.
+ * split screen the game's viewports and scissors are used, stretched over the
+ * whole EFB, and each view's projection is narrowed the same way, so every
+ * view widens to the screen's shape too (its HUD: Port_HudShift). Port_ViewWiden
+ * tells the game's culling how much wider the view is.
  *
  * One "uber" shader (shaders/gx.vert, gx.frag) implements the parts of the GX
  * pipeline the game uses, driven by two uniform blocks this file fills in from
