@@ -174,7 +174,9 @@ fn headless(a: &Args) -> i32 {
         skip_intro: a.quick_start,
         start_at: None,
         renderer: a.testdrive_renderer.clone(),
-        env: Vec::new(),
+        // a mission's or challenge's information window at the start waits for A, as retail (in a window the
+        // player presses it): pressed for them, a few times (HWVX_AUTOINPUT given: that instead)
+        env: if std::env::var_os("HWVX_AUTOINPUT").is_some() { Vec::new() } else { vec![("HWVX_AUTOINPUT".into(), "+60:a,+120:a,+120:a,+120:a,+120:a,+120:a,+120:a".into())] },
     };
     println!("game {} | tools {} | scratch {}", o.game.display(), o.tools.display(), o.scratch.display());
     let mut code = 0;
@@ -199,15 +201,18 @@ fn headless(a: &Args) -> i32 {
             }
             Ok(mut d) => {
                 println!("drive: the game started (PID {})", d.pid);
+                // a joyride never holds the car at the start: in the race is driving
+                let free = testdrive::read_level(&o.project).map(|v| v["mode"] == "joyride").unwrap_or(false);
+                let drives = |p: &testdrive::Progress| p.driving.is_some() || (free && p.in_race.is_some());
                 let end = Instant::now() + Duration::from_secs(secs);
-                while Instant::now() < end && d.progress.lock().unwrap().driving.is_none() && d.poll().is_none() {
+                while Instant::now() < end && !drives(&d.progress.lock().unwrap()) && d.poll().is_none() {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 let pr = d.progress.lock().unwrap().clone();
                 let how = d.poll();
                 d.stop();
                 println!("drive: applied {:?}, in the race {:?}, driving {:?}, not applied {:?}, ended {how:?}", pr.applied, pr.in_race, pr.driving, pr.not_applied);
-                if pr.driving.is_none() {
+                if !drives(&pr) {
                     for l in pr.tail.iter().rev().take(10).rev() {
                         println!("  | {l}");
                     }
