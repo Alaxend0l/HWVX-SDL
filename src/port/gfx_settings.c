@@ -61,7 +61,9 @@
  * - Renderer (graphics.cfg "renderer=auto|opengl|vulkan|metal|d3d12", default
  *   auto, a row on the launcher's Settings page listing what this machine has;
  *   --renderer NAME or HWVX_RENDERER=NAME wins for one run, main_sdl.c): one
- *   that fails to start falls back to auto, then to OpenGL.
+ *   that fails to start falls back to auto, then to OpenGL. * - Button prompts (graphics.cfg "prompts=auto|original|xbox|ps|switch|keyboard",
+ *   default auto, a row in the launcher's Controls; --prompts NAME or HWVX_PROMPTS=NAME
+ *   wins for one run; pad.c Port_PromptStyle, game/Port_Prompts.c).
  *
  * The menu changes pending values; Port_GfxApply applies them when the menu
  * closes, so stepping through modes doesn't switch the display each time. The
@@ -407,6 +409,10 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
             g_port.pcPan = 1;
         } else if (SDL_strcmp(line, "stereo=gc") == 0) {
             g_port.pcPan = 0;
+        } else if (SDL_strncmp(line, "prompts=", 8) == 0) {
+            int p = Port_PromptsByName(line + 8);
+
+            g_port.prompts = p < 0 ? PORT_PROMPTS_AUTO : p;
         } else if (SDL_strncmp(line, "renderer=", 9) == 0) {
             int r = Port_RendererByName(line + 9);
 
@@ -420,7 +426,7 @@ void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int hav
 }
 
 static void SaveConfig(int w, int h, int full) {
-    char *path = ConfigPath(), buf[416];
+    char *path = ConfigPath(), buf[448];
     int n;
 
     if (path == NULL) {
@@ -430,14 +436,15 @@ static void SaveConfig(int w, int h, int full) {
     n = w > 0 && h > 0 ? SDL_snprintf(buf, sizeof(buf), "resolution=%dx%d\n", w, h) : 0;
     n += SDL_snprintf(buf + n, sizeof(buf) - (size_t)n,
                      "fullscreen=%d\nvsync=%d\nfps=%d\ngamma=%d\nfov=%d\npctextures=%s\n"
-                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\nrenderer=%s\n",
+                     "mainmenu=%s\nsplitlod=%s\nmovies=%s\nmousesteer=%s\ndrawdist=%s\nstereo=%s\nrenderer=%s\nprompts=%s\n",
                      full, g_port.vsync, g_port.maxFps, g_port.gamma, g_port.fov,
                      g_port.pcTexturesPC ? "pc" : "gc", g_port.originalMainMenu ? "original" : "port",
                      g_port.splitLodGC ? "gc" : "full", g_port.moviesOff ? "off" : "on",
                      g_port.mouseSteer ? "on" : "off",
                      s_drawDistNames[g_port.drawDist >= 0 && g_port.drawDist < 3 ? g_port.drawDist : 0],
                      g_port.pcPan ? "pc" : "gc",
-                     Port_RendererName(g_port.renderer) != NULL ? Port_RendererName(g_port.renderer) : "auto");
+                     Port_RendererName(g_port.renderer) != NULL ? Port_RendererName(g_port.renderer) : "auto",
+                     Port_PromptsName(g_port.prompts));
     if (!SDL_SaveFile(path, buf, (size_t)n)) {
         Port_Log("graphics.cfg: %s", SDL_GetError());
     }

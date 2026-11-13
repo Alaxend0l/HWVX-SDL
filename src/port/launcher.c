@@ -41,7 +41,7 @@
  * Saves, Convert (below), Mods (a placeholder), Settings (graphics.cfg,
  * through gfx_settings.c, in sections under a row of sub-tabs: Display
  * (windowed or fullscreen, the renderer, PC textures, draw distance, split screen), Audio
- * (stereo, movies), Controls (mouse steering), Game (main menu); a row cycles
+ * (stereo, movies), Controls (mouse steering, button prompts), Game (main menu); a row cycles
  * through its choices, any number of them). Play, Quit and the status line
  * stay at the bottom. It opens on the page (and section) shown last, or Play;
  * on Games while no release is imported.
@@ -457,7 +457,7 @@ enum { CONV_NONE, CONV_OK, CONV_STALE, CONV_IMAGE /* a disc image: nothing to co
 enum {
     SET_DISPLAY, SET_RENDERER, SET_PCTEX, SET_DRAWDIST, SET_SPLITLOD, /* Display */
     SET_STEREO, SET_MOVIES,                                 /* Audio */
-    SET_MOUSESTEER,                                         /* Controls */
+    SET_MOUSESTEER, SET_PROMPTS,                            /* Controls */
     SET_MAINMENU,                                           /* Game */
     SET_COUNT
 };
@@ -485,6 +485,8 @@ static const struct {
       { "On", "Off" } },
     { SEC_CONTROLS, "Mouse steering", "In races, like the PC: moving steers; left button A (gas), right X (brake).",
       "HWVX_MOUSESTEER", { "Off", "On" } },
+    { SEC_CONTROLS, "Button prompts", "The buttons menus show; Auto: the controller or keyboard last pressed.",
+      "HWVX_PROMPTS", { "Auto", "Original", "Xbox", "PlayStation", "Switch", "Keyboard" } },
     { SEC_GAME, "Main menu", "The port adds Quit Game and Multi-Player; original is the release's.",
       "HWVX_ORIGINAL_MAINMENU", { "With the port's rows", "Original" } },
 };
@@ -556,6 +558,7 @@ static int *SettingVar(int i) {
     case SET_MAINMENU: return &g_port.originalMainMenu;
     case SET_SPLITLOD: return &g_port.splitLodGC;
     case SET_MOUSESTEER: return &g_port.mouseSteer;
+    case SET_PROMPTS: return &g_port.prompts;
     case SET_DRAWDIST: return &g_port.drawDist;
     case SET_STEREO: return &g_port.pcPan;
     case SET_RENDERER: return &s_rendRow;

@@ -40,11 +40,13 @@ u32 Port_KeyboardRepeats(void) {
     return bits;
 }
 
+static void PromptEvent(const SDL_Event *ev);
 static void MouseEvent(const SDL_Event *ev);
 
 void Pad_PortHandleEvent(const SDL_Event *ev) {
     int i;
     MouseEvent(ev);   /* mouse steering (below) */
+    PromptEvent(ev);   /* the device last pressed, for button prompts (below) */
     if (ev->type == SDL_EVENT_KEY_DOWN && ev->key.repeat) {
         switch (ev->key.scancode) {
         case SDL_SCANCODE_UP: s_keyRepeats |= 1u << PORT_KEY_UP; break;
@@ -577,4 +579,150 @@ void Pad_PortMouseUpdate(void) {
     if (s_mouseCaptured && test) {
         MouseInjectFrame();
     }
+}
+
+/* ---- button prompts: the device last pressed on each port -------------- */
+
+static const char *const s_promptNames[PORT_PROMPTS_COUNT] = {
+    "auto", "original", "xbox", "ps", "switch", "keyboard",
+};
+
+int Port_PromptsByName(const char *name) {
+    int i;
+
+    if (name == NULL) {
+        return -1;
+    }
+    if (SDL_strcasecmp(name, "playstation") == 0) {
+        return PORT_PROMPTS_PS;
+    }
+    for (i = 0; i < PORT_PROMPTS_COUNT; i++) {
+        if (SDL_strcasecmp(name, s_promptNames[i]) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+const char *Port_PromptsName(int prompts) {
+    return prompts >= 0 && prompts < PORT_PROMPTS_COUNT ? s_promptNames[prompts] : "auto";
+}
+
+static int s_promptsOverride = -1;   /* --prompts, else HWVX_PROMPTS; -1: graphics.cfg's */
+
+void Port_PromptsOverride(int prompts) {
+    s_promptsOverride = prompts;
+}
+
+/* Per port: the device last pressed, 0 none yet, 1 the keyboard (port 1 only), 2 the pad; and
+ * the port last pressed on at all. A press is a button or a trigger past half way, not a stick. */
+enum { DEV_NONE, DEV_KEYBOARD, DEV_PAD };
+static u8 s_lastDev[PAD_MAX_CONTROLLERS];
+static int s_lastPort;
+
+static void Pressed(int port, int dev) {
+    s_lastDev[port] = (u8)dev;
+    s_lastPort = port;
+}
+
+static void PromptEvent(const SDL_Event *ev) {
+    int i;
+
+    if (ev->type == SDL_EVENT_KEY_DOWN && !ev->key.repeat) {
+        Pressed(0, DEV_KEYBOARD);
+    } else if (ev->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN ||
+               (ev->type == SDL_EVENT_GAMEPAD_AXIS_MOTION && ev->gaxis.value > 16384 &&
+                (ev->gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || ev->gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))) {
+        SDL_JoystickID id = ev->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN ? ev->gbutton.which : ev->gaxis.which;
+
+        for (i = 0; i < PAD_MAX_CONTROLLERS; i++) {
+            if (s_pads[i] != NULL && SDL_GetGamepadID(s_pads[i]) == id) {
+                Pressed(i, DEV_PAD);
+            }
+        }
+    }
+}
+
+/* A pad's style by its type: the GameCube's own (an adapter) shows the release's art. */
+static int PadStyle(SDL_Gamepad *gp) {
+    switch (SDL_GetGamepadType(gp)) {
+    case SDL_GAMEPAD_TYPE_PS3:
+    case SDL_GAMEPAD_TYPE_PS4:
+    case SDL_GAMEPAD_TYPE_PS5:
+        return PORT_PROMPTS_PS;
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+        return PORT_PROMPTS_SWITCH;
+    case SDL_GAMEPAD_TYPE_GAMECUBE:
+        return PORT_PROMPTS_ORIGINAL;
+    default:
+        return PORT_PROMPTS_XBOX;
+    }
+}
+
+static int LabelGlyph(SDL_GamepadButtonLabel l, int style) {
+    int sw = style == PORT_PROMPTS_SWITCH;
+
+    switch (l) {
+    case SDL_GAMEPAD_BUTTON_LABEL_A: return sw ? PORT_GLYPH_SWITCH_A : PORT_GLYPH_XBOX_A;
+    case SDL_GAMEPAD_BUTTON_LABEL_B: return sw ? PORT_GLYPH_SWITCH_B : PORT_GLYPH_XBOX_B;
+    case SDL_GAMEPAD_BUTTON_LABEL_X: return sw ? PORT_GLYPH_SWITCH_X : PORT_GLYPH_XBOX_X;
+    case SDL_GAMEPAD_BUTTON_LABEL_Y: return sw ? PORT_GLYPH_SWITCH_Y : PORT_GLYPH_XBOX_Y;
+    case SDL_GAMEPAD_BUTTON_LABEL_CROSS: return PORT_GLYPH_PS_CROSS;
+    case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: return PORT_GLYPH_PS_CIRCLE;
+    case SDL_GAMEPAD_BUTTON_LABEL_SQUARE: return PORT_GLYPH_PS_SQUARE;
+    case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE: return PORT_GLYPH_PS_TRIANGLE;
+    default: return -1;
+    }
+}
+
+int Port_PromptStyle(int port, int glyphs[3]) {
+    /* each style's own buttons for SOUTH, EAST, WEST (a Switch pad's confirm is its B) */
+    static const int fixed[PORT_PROMPTS_COUNT][3] = {
+        [PORT_PROMPTS_XBOX] = { PORT_GLYPH_XBOX_A, PORT_GLYPH_XBOX_B, PORT_GLYPH_XBOX_X },
+        [PORT_PROMPTS_PS] = { PORT_GLYPH_PS_CROSS, PORT_GLYPH_PS_CIRCLE, PORT_GLYPH_PS_SQUARE },
+        [PORT_PROMPTS_SWITCH] = { PORT_GLYPH_SWITCH_B, PORT_GLYPH_SWITCH_A, PORT_GLYPH_SWITCH_Y },
+        [PORT_PROMPTS_KEYBOARD] = { PORT_GLYPH_KEY_ENTER, PORT_GLYPH_KEY_ESCAPE, PORT_GLYPH_KEY_X },
+    };
+    static const SDL_GamepadButton buttons[3] = {
+        SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST,
+    };
+    static int envRead;
+    SDL_Gamepad *gp = NULL;
+    int style = g_port.prompts, i;
+
+    if (!envRead) {
+        envRead = 1;
+        if (s_promptsOverride < 0 && SDL_getenv("HWVX_PROMPTS") != NULL && *SDL_getenv("HWVX_PROMPTS")) {
+            s_promptsOverride = Port_PromptsByName(SDL_getenv("HWVX_PROMPTS"));
+            if (s_promptsOverride < 0) {
+                Port_Log("HWVX_PROMPTS=%s: not one of auto, original, xbox, ps, switch, keyboard", SDL_getenv("HWVX_PROMPTS"));
+            }
+        }
+    }
+    if (s_promptsOverride >= 0) {
+        style = s_promptsOverride;
+    }
+    if (port < 0 || port >= PAD_MAX_CONTROLLERS) {
+        port = s_lastPort;
+    }
+    if (s_pads[port] != NULL && (s_lastDev[port] == DEV_PAD || (s_lastDev[port] == DEV_NONE && port != 0))) {
+        gp = s_pads[port];
+    } else if (port == 0 && s_lastDev[0] == DEV_NONE && s_pads[0] != NULL) {
+        gp = s_pads[0];     /* nothing pressed yet: port 1's pad before the keyboard */
+    }
+    if (style < 0 || style >= PORT_PROMPTS_COUNT || style == PORT_PROMPTS_AUTO) {
+        style = gp != NULL ? PadStyle(gp) : PORT_PROMPTS_KEYBOARD;
+    }
+    if (style == PORT_PROMPTS_ORIGINAL) {
+        return style;
+    }
+    for (i = 0; i < 3; i++) {
+        int g = gp != NULL && PadStyle(gp) == style ? LabelGlyph(SDL_GetGamepadButtonLabel(gp, buttons[i]), style) : -1;
+
+        glyphs[i] = g >= 0 ? g : fixed[style][i];
+    }
+    return style;
 }
