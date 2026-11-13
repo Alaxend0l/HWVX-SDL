@@ -607,7 +607,7 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
     man["source_file"] = json!(out_archive.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default());
     std::fs::write(pdir.parent().unwrap().join("manifest.json"), py::dumps_indent(&man, 2, false)).map_err(|e| Error::io(e.to_string()))?;
     let exe = env.find_hwvx_x().ok_or_else(|| lerr("hwvx-x not found (target/release/hwvx-x)"))?;
-    let r = std::process::Command::new(&exe)
+    let r = crate::command(&exe)
         .arg("pack")
         .arg(pdir.parent().unwrap())
         .arg(out_archive)

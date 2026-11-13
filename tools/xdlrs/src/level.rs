@@ -2258,7 +2258,7 @@ pub fn base_project(env: &Env, world: &str, data: &Path, cache: &Path) -> Result
         std::fs::remove_dir_all(ep).map_err(|e| Error::io(format!("{}: {e}", ep.display())))?;
     }
     std::fs::create_dir_all(ep).map_err(|e| Error::io(format!("{}: {e}", ep.display())))?;
-    let r = std::process::Command::new(&exe)
+    let r = crate::command(&exe)
         .arg("extract")
         .arg(&src)
         .arg(&ext)

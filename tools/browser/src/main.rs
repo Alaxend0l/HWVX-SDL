@@ -29,6 +29,9 @@
 //! --app-shot saves this window (once the --load and --select replies are in) and quits:
 //! for scripted screenshots of the browser itself. It gives up (exit 1) on an error reply, a
 //! lost viewer, or after two minutes.
+// Windows: a windowed program (no console window of its own); run from a console (headless
+// mode, errors) it writes to that one (attach_console)
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod level_edit;
 mod level_ui;
@@ -136,6 +139,7 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn main() -> eframe::Result {
+    attach_console();
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -151,6 +155,18 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native("hwvx-browser", options, Box::new(move |cc| Ok(Box::new(Browser::new(args, cc.egui_ctx.clone())))))
+}
+
+/// Windows: the console it was started from, if any, for its output (a windowed program has
+/// none of its own; output redirected to a file or pipe is left as it is).
+fn attach_console() {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE};
+        if GetStdHandle(STD_OUTPUT_HANDLE).is_null() {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
 }
 
 /// --check / --drive SECS / --save-mod OUT on --level, without a window (scripts, a package's

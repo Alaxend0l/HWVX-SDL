@@ -159,6 +159,11 @@ void Port_InterruptWindowEnd(void);
  * `resident` is the working set / resident size. 0 where unknown. */
 void Port_ProcessMemory(u64 *committed, u64 *resident);
 
+/* os.c: Windows, a windowed build started with its stderr a pipe or a file
+ * (the editor's test drives, scripts): the log goes there too (SDL writes
+ * it only to a console it can attach). Elsewhere nothing. */
+void Port_LogToRedirectedStderr(void);
+
 /* Frame rate HUD (hud.c, HWVX_FPSHUD=1): vi.c ticks it once per retrace,
  * gx_draw.c draws its strip into the EFB's top left before each copy. */
 void Port_HudTick(void);
