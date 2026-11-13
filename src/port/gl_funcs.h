@@ -137,6 +137,10 @@ typedef void (APIENTRYP PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenu
     X(PFNGLFENCESYNCPROC, glFenceSync)                                          \
     X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync)                                \
     X(PFNGLDELETESYNCPROC, glDeleteSync)                                        \
+    X(PFNGLGENQUERIESPROC, glGenQueries)                                        \
+    X(PFNGLBEGINQUERYPROC, glBeginQuery)                                        \
+    X(PFNGLENDQUERYPROC, glEndQuery)                                            \
+    X(PFNGLGETQUERYOBJECTUI64VPROC, glGetQueryObjectui64v)                      \
     X(PFNGLFLUSHPROC, glFlush)
 
 #define GL_DECLARE(type, name) extern type p_##name;
@@ -230,6 +234,10 @@ GL_FUNCS(GL_DECLARE)
 #define glMapBufferRange p_glMapBufferRange
 #define glUnmapBuffer p_glUnmapBuffer
 #define glFenceSync p_glFenceSync
+#define glGenQueries p_glGenQueries
+#define glBeginQuery p_glBeginQuery
+#define glEndQuery p_glEndQuery
+#define glGetQueryObjectui64v p_glGetQueryObjectui64v
 #define glClientWaitSync p_glClientWaitSync
 #define glDeleteSync p_glDeleteSync
 #define glFlush p_glFlush

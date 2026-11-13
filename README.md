@@ -754,6 +754,14 @@ Debugging aids:
   no music in its dump: press A first (e.g. `HWVX_AUTOINPUT="+240:a,+60:a"`).
   `xdlrs audio level DUMP.f32 [--window S] [--from S]` prints a dump's loudness per window and band.
 - `HWVX_FPSLOG=1` logs the frame rate and the game's average frame delta every 5 s.
+- `HWVX_GPUTIME=1` logs every 120 frames the EFB and window size, the render passes,
+  clears, EFB copies (and their size), display copies and readbacks per frame, and the
+  GPU time per frame: on OpenGL split by `GL_TIME_ELAPSED` queries into the scene,
+  shadow volumes, the shadow mask's EFB copy, the draw applying it, the rest and the
+  display copy (Apple's GL books the copy under the draw after it); on SDL_GPU the
+  CPU's wait on the frame's fence (it adds a stall). `tools/gputime.sh` runs one
+  unpaced timed run at a window size (`HWVX_START=race:mode=challenge
+  HWVX_AUTOPILOT=1` for a race; the attract demo is split screen, so no shadows).
 - `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
   since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.
 - `HWVX_THREADTRACE=1` logs every background world/car load: how long it held
