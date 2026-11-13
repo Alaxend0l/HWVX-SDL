@@ -482,11 +482,16 @@ static u32 LruPick(void) {
 /* The EFB copy (GXCopyTex). It never reaches the game's memory: the texture
  * object's image address just selects it, whatever size and format the object
  * says. Only the alpha is meaningful, which is all the game's GX_CTF_A8 copy is
- * read for (TEXA). One is enough, the game only has the shadow mask. */
+ * read for (TEXA). One is enough, the game only has the shadow mask.
+ * With the mask in the stencil (GX_TexCopyStencil) there is no copy: the
+ * address selects a 1x1 texture of alpha 255 instead, and the stencil test
+ * keeps the mask draw to where the copy's alpha would not have been 0. */
 static struct {
     u32 image;
     void *tex;
     int w, h;
+    void *opaque;       /* the 1x1 texture for the stencil mask */
+    int stencil;        /* the last copy was GX_TexCopyStencil's */
 } s_copy;
 
 void GX_TexCopyEFB(void *dest, const int src[4]) {
@@ -501,9 +506,29 @@ void GX_TexCopyEFB(void *dest, const int src[4]) {
         s_copy.h = h;
     }
     s_copy.image = HND(dest);
+    s_copy.stencil = 0;
     if (s_copy.tex != NULL) {
         g_gxr->copyEFB(s_copy.tex, src);
     }
+}
+
+int GX_TexCopyStencil(void *dest) {
+    static const u8 white[4] = { 255, 255, 255, 255 };
+
+    if (s_copy.opaque == NULL) {
+        s_copy.opaque = g_gxr->texCreate(GXR_TEX_RGBA8, 1, 1, 1);
+        if (s_copy.opaque == NULL) {
+            return 0;
+        }
+        g_gxr->texUpload(s_copy.opaque, GXR_TEX_RGBA8, 0, 1, 1, white);
+    }
+    s_copy.image = HND(dest);
+    s_copy.stencil = 1;
+    return 1;
+}
+
+int GX_TexIsCopy(const GXTexObj *obj) {
+    return s_copy.image != 0 && obj->dummy[0] == s_copy.image;
 }
 
 /* CMPR to BC1, one level: each 4x4 block from its place in the 8x8 tiles,
@@ -904,6 +929,11 @@ void *GX_TexGet(const GXTexObj *obj, GXSampler *samp) {
 
     if (image == NULL || w == 0 || h == 0 || w > PORT_MAX_TEX_SIZE || h > PORT_MAX_TEX_SIZE) {
         return NULL;
+    }
+    if (d[0] == s_copy.image && s_copy.stencil) {
+        Sampler(d, 1, samp);
+        samp->minLinear = samp->magLinear = 0;
+        return s_copy.opaque;
     }
     if (d[0] == s_copy.image && s_copy.tex != NULL) {
         /* drawn 1:1 with the EFB; linear could only blur the mask's edge */
