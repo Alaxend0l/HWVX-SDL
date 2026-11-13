@@ -252,7 +252,7 @@ impl Browser {
     fn play_here(&mut self) {
         self.stop_here();
         let Some(s) = &self.media.snd else { return };
-        let dir = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("viewer-pref"))).unwrap_or_else(|| "viewer-pref".into());
+        let dir = hwvx_browser::resources::default_pref();
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("play.wav");
         let rate = s.sound.rate;

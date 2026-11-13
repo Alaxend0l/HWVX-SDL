@@ -1,3 +1,5 @@
+| Windows x86_64 `.zip` | `packaging/editor/windows/build.sh` | Linux or macOS: MinGW-w64, cargo with `x86_64-pc-windows-gnu`, zip | `HWVX-Editor-VER-windows-x86_64.zip` |
+| Linux AppImage (x86_64, aarch64) | `packaging/editor/linux/build.sh` | Linux (CI: Ubuntu 22.04), cargo | `HWVX-Editor-VER-ARCH.AppImage` |
 # Packages
 
 Release builds for every platform come from one script each, which CI
@@ -88,3 +90,74 @@ Change `SDL_VERSION` and `SDL_SHA256` (`shasum -a 256` of the
 `SDL3-VERSION.tar.gz` release), and the `url`/`sha256` in
 `flatpak/io.github.alaxend0l.hwvx.yml`. The Android NDK version in
 `android/app/build.gradle` follows SDL's `android-project`.
+
+## The editor (separate release)
+
+The level editor (tools/browser, `hwvx-browser`, with the tools/xdlrs crate) is released on
+its own as **HWVX Editor**, versioned from `editor-v*` tags (`editor-v0.1.0`); the game keeps
+its `v*` tags (common.sh's `git describe` leaves `editor-v*` out). The editor package contains
+the game, which it drives (viewer mode, test drives); the game package does not contain the editor.
+
+| Package | Script | Runs on | Output |
+|---------|--------|---------|--------|
+| macOS `.dmg` (Apple silicon + Intel) | `packaging/editor/macos/build.sh` | macOS, cargo with both Apple targets | `HWVX-Editor-VER-macos.dmg` |
+
+Version: `HWVX_EDITOR_VERSION`, else `git describe --match 'editor-v*'`, else `git describe`.
+`hwvx-x` comes from the superproject's `hwvx-xfile` crate: `HWVX_X_CRATE` (its folder), else the
+superproject above the checkout; or `HWVX_X`, the program as is (packaging/editor/common.sh).
+
+CI: `.github/workflows/editor.yml` builds the three on an `editor-v*` tag and publishes them as a
+GitHub Release of their own (not marked latest: the game's stays the latest); by hand
+(workflow_dispatch) as artifacts. hwvx-x: a sparse checkout (Cargo files, `src/`) of the public
+superproject `Alaxend0l/HWVX-X-FILE-EDITOR` at `HWVX_X_REF` (beta-content-port), as `HWVX_X_CRATE`.
+The game's workflow (build.yml) runs on `v*` tags only, which `editor-v*` doesn't match.
+
+The game's launcher has an **Editor** button (src/port/launcher.c): it starts `hwvx-browser`
+when the editor is installed beside the game (in the game's folder, as in the editor's package;
+macOS: `HWVX Editor.app` beside `HWVX.app` or in /Applications; Linux: an
+`HWVX-Editor*.AppImage` beside the game's AppImage), else it reads **Get the editor** and opens
+the editor's releases page.
+
+## Layout (macOS)
+
+    HWVX Editor.app/Contents/
+      Info.plist                 CFBundleExecutable hwvx-browser
+      MacOS/hwvx-browser         the editor (universal)
+      MacOS/hwvx                 the game, the plain program (no bundle of its own), SDL3 linked in
+      MacOS/hwvx-x               archive extract/pack (world packs, base levels)
+      Resources/schemas/         every *.schema.json: the level tools' root, the viewer's schemas
+      Resources/level-samples/   the sample level projects (tools/level-samples)
+      Resources/hwvx-editor.icns
+
+Windows: one folder, `hwvx-browser.exe` (a windowed program; run from a console it writes to it),
+`hwvx.exe` (windowed; with its stderr a pipe or file, as the editor runs it, the log goes there),
+`hwvx-x.exe` (run without a console window), `schemas/`, `level-samples/`.
+Linux (AppImage): `usr/bin/{hwvx-browser,hwvx,hwvx-x}`, `usr/share/hwvx-editor/{schemas,level-samples}`.
+
+What it reads at run time is only `schemas/` (xdlrs: level::Env, graph::Ctx), the game, and
+hwvx-x. Not bundled: the pairing table (superproject docs/xdl-format/pairing, 19 MB; optional,
+for decoding base geometry/texture ids; level checks, test drives and Save as mod work without
+it), the Python tools, any game data (the player's own, `--data` or the viewer's sources).
+
+## Lookup order (tools/browser/src/resources.rs)
+
+- Resources (the folder holding `schemas/`): `$HWVX_EDITOR_RESOURCES`; beside the program
+  (`../Resources`, `../share/hwvx-editor`, the program's own folder); else the checkout above
+  the program (dev). `--schemas` / `--tools` still override. The packaged or given resources
+  win over a `--game`'s checkout; without them, the game's checkout, then the program's.
+- The game: `--game`; `hwvx` beside the program; the checkout's `build/hwvx`.
+- hwvx-x: beside the program; the checkout's `target/release/hwvx-x`; the PATH.
+- Scratch (viewer pref, test drives, base cache): `--pref`; in a package, the user's
+  `~/Library/Application Support/HWVX-Editor/viewer-pref` (`$XDG_DATA_HOME/hwvx-editor`,
+  `%APPDATA%\HWVX-Editor`), never inside the app; in a checkout, `viewer-pref/` beside the program.
+
+## Headless (scripts, smoke tests)
+
+    hwvx-browser --level PROJECT [--check] [--drive SECS] [--save-mod OUT.xmod] [--data DIR] [--pref DIR]
+
+The Level tab's own steps without a window: the check (compile), a test drive until it
+drives (at most SECS; the game stopped after), Save as mod. Exit 0 when all went well.
+A mission's or challenge's information window at the start waits for A, as retail: headless
+`--drive` presses A a few times (`HWVX_AUTOINPUT` set: that instead); a joyride, which never
+holds the car, counts as driving once in the race. `HWVX_START=race` (which test drives use)
+leaves out the level's opening sequence (an adventure mission's briefing, car and item select).

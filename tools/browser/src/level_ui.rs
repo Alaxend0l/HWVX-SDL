@@ -55,7 +55,7 @@ impl Browser {
             .pref
             .clone()
             .unwrap_or_else(|| {
-                std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("viewer-pref"))).unwrap_or_else(|| "viewer-pref".into())
+                hwvx_browser::resources::default_pref()
             })
             .join("testdrive")
     }
@@ -335,7 +335,7 @@ impl Browser {
                 .output()
                 .ok()?
         } else if cfg!(windows) {
-            std::process::Command::new("powershell")
+            xdlrs::command("powershell")
                 .env("HWVX_SAVE_NAME", &name)
                 .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = $env:HWVX_SAVE_NAME; if ($d.ShowDialog() -eq 'OK') { $d.FileName }"])
                 .output()

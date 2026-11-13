@@ -248,7 +248,7 @@ impl Browser {
                 .output()
                 .ok()?
         } else if cfg!(windows) {
-            std::process::Command::new("powershell")
+            xdlrs::command("powershell")
                 .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"])
                 .output()
                 .ok()?

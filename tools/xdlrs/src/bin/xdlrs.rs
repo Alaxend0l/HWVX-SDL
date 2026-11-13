@@ -35,6 +35,10 @@
 //!   xdlrs prompts inventory DATA... [--seed KIND:REL:FILE/PACK:INDEX]... [--png DIR] [--threshold D] [--all]
 //!                                        button atlases and pad pictures, the interface objects that
 //!                                        show them, their cells (prompts.rs; docs-pending/prompts-inventory.md)
+//!   xdlrs cars stats DIR... [--dump OUT.json] [--md OUT]
+//!                                        per release folder (GC files/, PC, PS2, the PS2 prototype):
+//!                                        every car's stat bars and physics fields, the car select's
+//!                                        bars (roles 70-73), labels and value->length curve (cars.rs)
 //!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
 //!                                        two frame dumps side by side (tools/mix_pair_shots.sh)
 //!
@@ -1035,6 +1039,12 @@ fn main() -> ExitCode {
     if argv.first().map(String::as_str) == Some("audio") {
         return audio_main(&argv[1..]);
     }
+    if argv.first().map(String::as_str) == Some("fonts") {
+        return fonts_main(&argv[1..]);
+    }
+    if argv.first().map(String::as_str) == Some("cars") {
+        return cars_main(&argv[1..]);
+    }
     let a = parse_args(&argv);
     let cmd = (a.pos.first().map(String::as_str), a.pos.get(1).map(String::as_str));
     let shifted = |n: usize| Args { pos: a.pos[n..].to_vec(), opts: a.opts.clone(), flags: a.flags.clone() };
@@ -1245,6 +1255,33 @@ fn mix_pair(left: &str, right: &str, out: &str, half: bool) -> std::result::Resu
     Ok(())
 }
 
+/// `xdlrs fonts list [--gc DIR] [--pc DIR] [--ps2 DIR] [--dump DIR] [--report FILE.json] [--threshold D]`
+/// (xdlrs::fonts): every font page of the releases' archives.
+fn fonts_main(argv: &[String]) -> ExitCode {
+    let a = parse_args(argv);
+    if a.pos.first().map(String::as_str) != Some("list") {
+        eprintln!("usage: xdlrs fonts list [--gc DIR] [--pc DIR] [--ps2 DIR] [--dump DIR] [--report FILE.json] [--threshold 12]");
+        return ExitCode::from(2);
+    }
+    let dirs: Vec<(String, PathBuf)> =
+        ["gc", "pc", "ps2"].iter().filter_map(|r| a.opts.get(*r).map(|d| (r.to_string(), PathBuf::from(d)))).collect();
+    if dirs.is_empty() {
+        eprintln!("fonts list: give at least one of --gc, --pc, --ps2");
+        return ExitCode::from(2);
+    }
+    let th = a.opts.get("threshold").and_then(|t| t.parse().ok()).unwrap_or(12.0);
+    match xdlrs::fonts::list(&dirs, a.opts.get("dump").map(Path::new), a.opts.get("report").map(Path::new), th) {
+        Ok(s) => {
+            print!("{s}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 /// `xdlrs audio level DUMP [--window S] [--from S]` (xdlrs::audiolevel).
 fn audio_main(argv: &[String]) -> ExitCode {
     let a = parse_args(argv);
@@ -1344,6 +1381,39 @@ fn prompts_main(argv: &[String]) -> ExitCode {
             print!("{s}");
             ExitCode::SUCCESS
         }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/* xdlrs cars stats DIR... [--dump OUT.json] [--md OUT]: the stat bars and the physics behind them
+ * (src/cars.rs). Markdown tables to stdout (or --md), everything as JSON with --dump. */
+fn cars_main(argv: &[String]) -> ExitCode {
+    let a = parse_args(argv);
+    if a.pos.first().map(String::as_str) != Some("stats") || a.pos.len() < 2 {
+        eprintln!("usage: xdlrs cars stats DIR... [--dump OUT.json] [--md OUT] [--repo DIR]");
+        return ExitCode::from(2);
+    }
+    let run = || -> std::result::Result<(), String> {
+        let c = ctx(&a).map_err(|e| e.msg)?;
+        let mut rels = vec![];
+        for d in &a.pos[1..] {
+            rels.push(xdlrs::cars::release(&c.s, Path::new(d))?);
+        }
+        if let Some(j) = a.opts.get("dump") {
+            std::fs::write(j, serde_json::to_string_pretty(&rels).unwrap()).map_err(|e| format!("{j}: {e}"))?;
+        }
+        let md = xdlrs::cars::report(&rels);
+        match a.opts.get("md") {
+            Some(m) => std::fs::write(m, md).map_err(|e| format!("{m}: {e}"))?,
+            None => print!("{md}"),
+        }
+        Ok(())
+    };
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(1)
