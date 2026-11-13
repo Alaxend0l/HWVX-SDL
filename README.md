@@ -1,4 +1,4 @@
-# HWVX-SDL
+| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu, in sub-tabs (left/right on a row switches them; the last one shown is remembered): Display (windowed or fullscreen, PC textures `pctextures=`, draw distance `drawdist=`, split-screen detail `splitlod=`), Audio (stereo: `stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one; movies `movies=`), Controls (mouse steering `mousesteer=`), Game (main menu `mainmenu=`);# HWVX-SDL
 Turning the GC Decompilation of HWVX into a portable codebase for modding and porting!
 
 The game code comes from the [HWVX-GC-Decomp](HWVX-GC-Decomp) submodule. The
@@ -711,7 +711,7 @@ Debugging aids:
   a mod's `"sounds"` are decoded by the game itself. `tools/mod_sound_test.sh` hears one in a race.
 - `HWVX_LAUNCHER_SHOT=file.bmp` saves the launcher's first frame and closes it
   (testing). `HWVX_LAUNCHER_TAB=play|games|saves|convert|mods|settings` opens
-  that page; `HWVX_LAUNCHER_INPUT="rb,ddown,a"` presses keys (`pgup pgdn tab up
+  that page (`settings/display|audio|controls|game`: and that section); `HWVX_LAUNCHER_INPUT="rb,ddown,a"` presses keys (`pgup pgdn tab up
   down left right enter esc`), gamepad buttons (`lb rb a b start dup ddown dleft
   dright`) and clicks (`click:X:Y` in the 640x420 view) first, and the shot is
   taken after them; `HWVX_LAUNCHER_DISC=pc=IMAGE` (or `ps2=`) imports a disc

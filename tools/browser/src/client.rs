@@ -290,21 +290,18 @@ fn check(cmd: &str, v: Value) -> Result<Value, String> {
     }
 }
 
-/// The game next to this program's checkout: <repo>/build/hwvx, from tools/browser/target/*/.
+/// The game: beside this program (a package), else its checkout's build/hwvx (crate::resources).
 pub fn default_game() -> PathBuf {
-    let name = if cfg!(windows) { "hwvx.exe" } else { "hwvx" };
-    if let Ok(exe) = std::env::current_exe() {
-        for dir in exe.ancestors().skip(1) {
-            let p = dir.join("build").join(name);
-            if p.is_file() {
-                return p;
-            }
-        }
-    }
-    Path::new("build").join(name)
+    crate::resources::game().unwrap_or_else(|| Path::new("build").join(if cfg!(windows) { "hwvx.exe" } else { "hwvx" }))
 }
 
-/// schemas/ of the checkout the game is in, if there is one.
+/// schemas/: the packaged resources' (or $HWVX_EDITOR_RESOURCES), else the checkout the game is
+/// in, else the one this program is in (crate::resources).
 pub fn default_schemas(game: &Path) -> Option<PathBuf> {
-    game.ancestors().skip(1).map(|d| d.join("schemas")).find(|d| d.join("CarAInfo.schema.json").is_file())
+    let ok = |d: &PathBuf| d.join("CarAInfo.schema.json").is_file();
+    crate::resources::given()
+        .map(|r| r.join("schemas"))
+        .filter(ok)
+        .or_else(|| game.ancestors().skip(1).map(|d| d.join("schemas")).find(ok))
+        .or_else(|| crate::resources::root().map(|r| r.join("schemas")).filter(ok))
 }

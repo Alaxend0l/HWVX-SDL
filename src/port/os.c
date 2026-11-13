@@ -733,3 +733,38 @@ void Port_ProcessMemory(u64 *committed, u64 *resident) {
     }
 #endif
 }
+
+/* ---- the log, redirected (Windows) --------------------------------------- */
+
+#if defined(_WIN32)
+static HANDLE s_logPipe;
+static SDL_LogOutputFunction s_logDefault;
+static void *s_logDefaultData;
+
+static void SDLCALL LogToPipe(void *data, int category, SDL_LogPriority priority, const char *message) {
+    DWORD n;
+
+    (void)data;
+    WriteFile(s_logPipe, message, (DWORD)SDL_strlen(message), &n, NULL);
+    WriteFile(s_logPipe, "\r\n", 2, &n, NULL);
+    s_logDefault(s_logDefaultData, category, priority, message);
+}
+#endif
+
+void Port_LogToRedirectedStderr(void) {
+#if defined(_WIN32)
+    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+    DWORD type = h != NULL && h != INVALID_HANDLE_VALUE ? GetFileType(h) : FILE_TYPE_UNKNOWN;
+
+    /* a console build (HWVX_CONSOLE) has its console: SDL writes there */
+    if (type == FILE_TYPE_PIPE || type == FILE_TYPE_DISK) {
+        DWORD mode;
+
+        if (!GetConsoleMode(h, &mode) && GetConsoleWindow() == NULL) {
+            s_logPipe = h;
+            SDL_GetLogOutputFunction(&s_logDefault, &s_logDefaultData);
+            SDL_SetLogOutputFunction(LogToPipe, NULL);
+        }
+    }
+#endif
+}
