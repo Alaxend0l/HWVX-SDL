@@ -245,6 +245,8 @@ const char *Port_ProtoName(const char *fileName);
  * and a race with a prototype car went past 0x1FF: every texture after the
  * last slot landed in that one). */
 #define PORT_MAX_TEXTURES 0x7FF
+/* Past them, the port's button prompt atlases (game/Port_Prompts.c): texture objects only. */
+#define PORT_PROMPT_TEXTURES 16
 /* The PC release's texture formats (pack header u16 0) as Texture.format
  * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
  * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,
@@ -329,6 +331,15 @@ void Port_PromptsOverride(int prompts);         /* --prompts NAME (main_sdl.c) *
  * never AUTO, and unless ORIGINAL the glyphs (PORT_GLYPH_*) of confirm, back and details: the
  * device's labels of the buttons pad.c reads as A, B and X (SOUTH, EAST, WEST), Enter, Escape, X. */
 int Port_PromptStyle(int port, int glyphs[3]);
+/* game/Port_Prompts.c: a loaded texture slot, noted if it is a button atlas, forgotten when
+ * unloaded; the texture to draw in place of `tex` (the prompts' own when it is an atlas and
+ * the style is not Original), for the interface being drawn (Port_PromptsInterface: its
+ * Interface.input, returning the previous port for Port_PromptsRestore). */
+void Port_PromptsNote(u16 id);
+void Port_PromptsForget(u16 id);
+u16 Port_PromptTexture(u16 tex);
+int Port_PromptsInterface(s32 input);
+void Port_PromptsRestore(int old);
 /* port.c: a repeatable run (HWVX_DETERMINISTIC, HWVX_SEED, HWVX_FIXEDSTEP):
  * the random seed to use (fallback when none is set), and the fixed frame
  * step in microseconds (0: measured time). */

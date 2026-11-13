@@ -940,6 +940,7 @@ void DataPack_RefreshTextures(DataPack *pack) {
 
         for (i = 0; i < pack->numTextures; i++) {
             GETP(pack->textureIDs)[i] = Gfx_LoadTexture_RAM(&tex);
+            Port_PromptsNote(GETP(pack->textureIDs)[i]);   /* port: button prompts (Port_Prompts.c) */
             texData = HND(tex);
             /* the PC and PS2 releases pack the 0x10-byte headers (Port_Data.c) */
             if ((texData & 0x1F) && pack->portFormat != PORT_DATA_PC && pack->portFormat != PORT_DATA_PS2) {

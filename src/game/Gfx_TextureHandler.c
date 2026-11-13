@@ -461,6 +461,7 @@ void Gfx_LoadPalettes_RAM(void *data, u32 count) {
 void Gfx_UnLoadTexture(u16 id) {
     if (id < m_totalTextures && m_texture != NULL) {
         if (--m_texture[id].refCount == 0) {
+            Port_PromptsForget(id);   /* port */
             Render_DestroyTextureSlot(id);
             if (m_texture[id].fromPack == 0) {
                 Deallocate(GETP(m_texture[id].data));
