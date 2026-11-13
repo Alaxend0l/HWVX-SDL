@@ -71,6 +71,24 @@ static int s_gpuTimeOn = -1, s_shadowMarked, s_afterCopy;
  * the quad has not been drawn yet. */
 static int s_shadowStencil = -1, s_maskNext;
 
+/* The mask draw with the stencil: its texture is the 1x1 alpha-255 one, so a
+ * stage's GX_TEV_COMP_A8_GT of that alpha (texmap 0's) over zero always adds
+ * c: as an ADD of a = c, b = c = 0 (mix(c, 0, 0) is c exactly) it gives the
+ * same value without a compare op, which only gx.frag has: the draw gets a
+ * specialised pixel shader (gx_tevgen.h), where gx.frag over the whole EFB
+ * cost more than the copy did (2.7 ms of GPU at 3600x2160 on OpenGL). */
+static void MaskFS(GXFSUniforms *fs) {
+    int s;
+
+    for (s = 0; s < fs->misc[0] && s < 16; s++) {
+        if (fs->aop[s][0] == 14 && fs->ain[s][0] == 4 && fs->order[s][1] == 0 && fs->ain[s][1] >= 6) {
+            fs->aop[s][0] = 0;
+            fs->ain[s][0] = fs->ain[s][2];
+            fs->ain[s][1] = fs->ain[s][2] = 7;
+        }
+    }
+}
+
 static int ShadowStencil(void) {
     if (s_shadowStencil < 0) {
         const char *e = SDL_getenv("HWVX_SHADOW_COPY");
@@ -510,6 +528,7 @@ static int BuildDrawCall(GXDrawCall *dc, GXVSUniforms *vs, GXFSUniforms *fs) {
         s_maskNext = 0;
         if (g->texLoaded[0] && GX_TexIsCopy(&g->texObj[0])) {
             dc->stencil = GXR_STENCIL_MASK;
+            MaskFS(fs);
         } else {
             Port_Log("shadow mask: the draw after GXCopyTex does not sample it");
         }
