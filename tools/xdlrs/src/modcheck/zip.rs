@@ -93,15 +93,20 @@ pub fn read_stored(z: &[u8]) -> Result<BTreeMap<String, (usize, usize)>, String>
     let mut count = le16(z, eocd + 10)? as u64;
     let mut cd = le32(z, eocd + 16)?;
     if (count == 0xFFFF || cd == 0xFFFF_FFFF) && eocd >= 20 && &z[eocd - 20..eocd - 16] == b"PK\x06\x07" {
-        let r = le64(z, eocd - 12)? as usize;
-        if z.get(r..r + 4) == Some(b"PK\x06\x06") {
+        // (positions read from the file are checked against its size before any sum)
+        let r = usize::try_from(le64(z, eocd - 12)?).unwrap_or(usize::MAX);
+        if r <= z.len() && z.get(r..r + 4) == Some(b"PK\x06\x06") {
             count = le64(z, r + 32)?;
             cd = le64(z, r + 48)?;
         }
     }
     let mut out = BTreeMap::new();
-    let mut p = cd as usize;
+    let mut p = usize::try_from(cd).unwrap_or(usize::MAX);
     for _ in 0..count {
+        // p stays within the file (each step adds at most 3 x 0xFFFF + 46), so p + n can't wrap
+        if p > z.len() {
+            return Err("bad central directory".into());
+        }
         if z.get(p..p + 4) != Some(b"PK\x01\x02") {
             return Err("bad central directory".into());
         }
@@ -135,12 +140,12 @@ pub fn read_stored(z: &[u8]) -> Result<BTreeMap<String, (usize, usize)>, String>
         if method != 0 {
             return Err(format!("{name}: compressed (a package's entries are stored)"));
         }
-        let lo = off as usize;
-        if z.get(lo..lo + 4) != Some(b"PK\x03\x04") {
+        let lo = usize::try_from(off).unwrap_or(usize::MAX);
+        if lo > z.len() || z.get(lo..lo + 4) != Some(b"PK\x03\x04") {
             return Err("bad local header".into());
         }
         let data = lo + 30 + le16(z, lo + 26)? + le16(z, lo + 28)?;
-        if data + usize_ as usize > z.len() {
+        if usize::try_from(usize_).ok().and_then(|n| data.checked_add(n)).is_none_or(|e| e > z.len()) {
             return Err("truncated".into());
         }
         let _ = csize;
