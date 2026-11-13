@@ -203,7 +203,8 @@ int Port_ResetSave(void);
  * mode 28) when the player's car is tipped past 60 degrees with its wheels down
  * or stuck; 0 (default): the PC release's orbit, which always runs its course. */
 int Port_GCAirCamera(void);
-/* --pc-pan or HWVX_PC_PAN=1 (main_sdl.c): 1 pans voices with the PC release's
+/* The stereo pan (main_sdl.c): --pc-pan, else HWVX_PC_PAN=1 or 0, else graphics.cfg
+ * "stereo=pc|gc" (the launcher's Settings page). 1 pans voices with the PC release's
  * DirectSound law (far speaker -|pan / 4| hundredths of a dB: near hard pans) instead
  * of the GameCube/PS2 equal-power table (about 10 dB apart at the side);
  * game/Voice_.c SetVoiceVol_. 0 (default): the GameCube/PS2 pan. */

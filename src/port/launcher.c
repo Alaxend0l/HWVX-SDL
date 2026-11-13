@@ -39,7 +39,8 @@
  * text at a logical 640x420. A tab bar shows one page at a time: Play (which
  * release plays, the skip tick), Games (importing and removing releases),
  * Saves, Convert (below), Mods (a placeholder), Settings (graphics.cfg,
- * through gfx_settings.c). Play, Quit and the status line stay at the bottom. It opens
+ * through gfx_settings.c: display, PC textures, main menu, split screen,
+ * movies, mouse steering, draw distance, stereo). Play, Quit and the status line stay at the bottom. It opens
  * on the page shown last, or Play; on Games while no release is imported.
  * Mouse, keyboard (arrows, Tab, Enter, Escape; Page Up/Down: the page) and
  * gamepads (d-pad or left stick, A, B, Start: Play; LB/RB: the page) move a
@@ -420,7 +421,7 @@ enum { CONV_NONE, CONV_OK, CONV_STALE, CONV_IMAGE /* a disc image: nothing to co
 /* The Settings page: graphics.cfg's choices that have no row in the game's
  * own Graphics menu, and the display (gfx_settings.c reads and writes the
  * file; these are its g_port fields, 1 being `on`). */
-enum { SET_DISPLAY, SET_PCTEX, SET_MAINMENU, SET_SPLITLOD, SET_MOVIES, SET_MOUSESTEER, SET_DRAWDIST, SET_COUNT };
+enum { SET_DISPLAY, SET_PCTEX, SET_MAINMENU, SET_SPLITLOD, SET_MOVIES, SET_MOUSESTEER, SET_DRAWDIST, SET_STEREO, SET_COUNT };
 
 /* `third`: a third choice (value 2) the row cycles through, NULL for on/off. */
 static const struct {
@@ -438,6 +439,8 @@ static const struct {
       "In races, like the PC: moving steers; left button A (gas), right X (brake).", "HWVX_MOUSESTEER" },
     { "Draw distance", "Normal", "Far",
       "More of the world drawn, the fog further out; the game plays the same.", "HWVX_DRAWDIST", "Everything" },
+    { "Stereo", "GameCube/PS2", "PC (wider)",
+      "How far sounds pan; the PC's plays a sound at the side from one speaker.", "HWVX_PC_PAN" },
 };
 
 /* A row's button label: its choice. */
@@ -453,6 +456,7 @@ static int *SettingVar(int i) {
     case SET_SPLITLOD: return &g_port.splitLodGC;
     case SET_MOUSESTEER: return &g_port.mouseSteer;
     case SET_DRAWDIST: return &g_port.drawDist;
+    case SET_STEREO: return &g_port.pcPan;
     default: return &g_port.moviesOff;
     }
 }
@@ -538,7 +542,7 @@ static int CanPlay(const Launcher *l) {
 #define ROW_Y(i) (PAGE_Y + (i) * 58.0f)                 /* Games: a release */
 #define PLAY_ROW_Y(k) (PAGE_Y + 24.0f + (k) * 34.0f)    /* Play: an imported release */
 #define SKIP_Y(rows) (PLAY_ROW_Y((rows) > 2 ? (rows) : 2) + 12.0f)  /* under the releases */
-#define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 38.0f)     /* Settings: a setting */
+#define SET_ROW_Y(i) (PAGE_Y + 22.0f + (i) * 34.0f)     /* Settings: a setting */
 #define CONV_ROW_Y(k) (PAGE_Y + 30.0f + (k) * 52.0f)    /* Convert: an imported release */
 #define PROTO_Y (ROW_Y(SRC_COUNT) - 2.0f)                /* Games: the prototype's import mode */
 #define MODS_SHOWN 6

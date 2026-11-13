@@ -26,3 +26,8 @@ Majority rule: GC and PS2 agree, so the port keeps their law by default. `--pc-p
 `HWVX_PC_PAN=1` (Port_PCPan, game/Voice_.c PCPan) uses the PC law for every voice (effects and
 music), with the centre kept at the GameCube level (near speaker 0x5A82), so centred sounds and
 the attract demo are unchanged; a sound at the side is 3 dB lower in total power, as on the PC.
+
+Launcher (stereo2): the Settings page's last row, "Stereo: GameCube/PS2 | PC (wider)", saved as
+`stereo=gc|pc` in graphics.cfg (default gc); `--pc-pan` and `HWVX_PC_PAN=1|0` override it for one
+run (main_sdl.c Port_PCPan, cached at start) and are not saved. The Settings rows are 34 px apart
+now (8 rows fit above the footer).

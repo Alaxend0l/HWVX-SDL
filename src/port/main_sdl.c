@@ -105,6 +105,7 @@ static int ParseVSync(const char *s) {
 /* --mix / --mix-build (or HWVX_MIX, HWVX_MIX_BUILD): a mixed build's recipe (mix.c). */
 static const char *s_mixRecipe;
 static int s_mixBuild;
+static int s_pcPanOverride = -1;   /* --pc-pan, HWVX_PC_PAN (-1: graphics.cfg decides) */
 /* --mix-scan RECIPE: the builder's first pass alone, its list into the cache (Port_Mix.h) */
 static int s_mixScan;
 
@@ -185,7 +186,7 @@ static void ParseArgs(int argc, char **argv) {
         } else if (SDL_strcmp(argv[i], "--gc-air-camera") == 0) {
             g_port.gcAirCamera = 1;
         } else if (SDL_strcmp(argv[i], "--pc-pan") == 0) {
-            g_port.pcPan = 1;
+            s_pcPanOverride = 1;
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
             i++;
         } else {
@@ -210,7 +211,7 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("                   also HWVX_GC_AIR_CAMERA=1)");
             SDL_Log("  --pc-pan         the PC release's stereo pan: sounds to the side play from");
             SDL_Log("                   one speaker (default: the GameCube/PS2's narrower pan;");
-            SDL_Log("                   also HWVX_PC_PAN=1)");
+            SDL_Log("                   also HWVX_PC_PAN=1; the launcher's Settings: Stereo)");
             SDL_Log("  --launcher       open the launcher (game data, releases) instead of booting");
             SDL_Log("  --mix RECIPE     play a mixed build: one game from the releases you imported,");
             SDL_Log("                   by a recipe (\"ultimate\", or a .jsonc file)");
@@ -238,10 +239,8 @@ static void ParseArgs(int argc, char **argv) {
 
         g_port.gcAirCamera = env != NULL && SDL_atoi(env) != 0;
     }
-    if (!g_port.pcPan) {
-        const char *env = SDL_getenv("HWVX_PC_PAN");
-
-        g_port.pcPan = env != NULL && SDL_atoi(env) != 0;
+    if (s_pcPanOverride < 0 && SDL_getenv("HWVX_PC_PAN") != NULL && *SDL_getenv("HWVX_PC_PAN")) {
+        s_pcPanOverride = SDL_atoi(SDL_getenv("HWVX_PC_PAN")) != 0;
     }
     Port_GfxLoadConfig(haveSize, haveDisplay || g_port.fullscreen, haveVSync, haveFps);
 }
@@ -257,9 +256,10 @@ int Port_GCAirCamera(void) {
     return g_port.gcAirCamera;
 }
 
-/* --pc-pan / HWVX_PC_PAN=1, for game/Voice_.c (port.h). */
+/* The stereo pan, for game/Voice_.c (port.h): --pc-pan, else HWVX_PC_PAN=1 or 0,
+ * else graphics.cfg "stereo=" (the launcher's Settings page). */
 int Port_PCPan(void) {
-    return g_port.pcPan;
+    return s_pcPanOverride >= 0 ? s_pcPanOverride : g_port.pcPan;
 }
 
 /* ---- the game data ----------------------------------------------------- */

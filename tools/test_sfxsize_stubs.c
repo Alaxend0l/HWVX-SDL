@@ -31,6 +31,7 @@ void EndThread(void) { }
 void TextureManager_ReleaseCache(void) { }
 int Port_ResetSave(void) { return 0; }
 int Port_GCAirCamera(void) { return 0; }
+int Port_PCPan(void) { return 0; }
 
 void GetSystemDate(s32 *year, s32 *month, s32 *day, s32 *hour, s32 *minute)
 {
