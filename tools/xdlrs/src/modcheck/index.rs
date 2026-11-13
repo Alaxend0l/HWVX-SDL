@@ -592,6 +592,11 @@ impl Index {
             for p in lo..lo + cnt {
                 let src = ts[p] as i64;
                 let off = tf[p] as i64 - frames[q] as i64 + (1 << 20);
+                // the key holds the offset in 22 bits: one outside (a sound over 2^20 frames
+                // long) would run into the source's bits
+                if !(0..1 << 22).contains(&off) {
+                    continue;
+                }
                 pairs.push(((src << 22) | off, q));
             }
         }
@@ -635,5 +640,26 @@ impl Index {
             }
         }
         Some((best.0, self.sources[self.dh_src[best.1] as usize].clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_offsets_outside_the_key_are_skipped() {
+        // a base frame at 0 and a mod frame past 2^20: the offset went negative and the key
+        // (src << 22 | off) pointed at no source
+        let ix = Index {
+            meta: Value::Null,
+            sources: vec!["base://a.wav".into()],
+            tabs: BTreeMap::new(),
+            dh: vec![],
+            dh_src: vec![],
+            sfp: Some((vec![7, 7], vec![0, 5], vec![0, 0])),
+        };
+        assert_eq!(ix.sounds_like(&[7], &[1 << 21]), None);
+        assert_eq!(ix.sounds_like(&[7], &[3]).unwrap().2, "base://a.wav");
     }
 }

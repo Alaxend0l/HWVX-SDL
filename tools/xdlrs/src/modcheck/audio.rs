@@ -52,6 +52,9 @@ impl Pcm {
     }
 }
 
+/// src/audiodec's AUDIODEC_MAX_FRAMES: ten minutes at 48 kHz
+pub const MAX_FRAMES: usize = 48000 * 60 * 10;
+
 /// Python 3.9's `wave` on a RIFF WAVE: Ok(None) where wave.open fails (wave.Error, EOFError) or
 /// the samples aren't 16-bit (decode_audio then runs the decoder), Err for what numpy refuses.
 fn py_wave(data: &[u8]) -> Result<Option<Pcm>, String> {
@@ -117,6 +120,11 @@ fn py_wave(data: &[u8]) -> Result<Option<Pcm>, String> {
     let framesize = chans * width;
     let nframes = size / framesize;
     let n = avail(start, nframes * framesize);
+    // longer than the decoder takes (AUDIODEC_MAX_FRAMES, ten minutes at 48 kHz): the decoder
+    // then refuses it as it refuses any other format
+    if n / framesize > MAX_FRAMES {
+        return Ok(None);
+    }
     if n % 2 != 0 {
         return Err("buffer size must be a multiple of element size".into());
     }
@@ -293,4 +301,33 @@ pub fn sound_fp(pcm: &[i16], rate: u32) -> (Vec<u16>, Vec<u32>) {
         d_prev = Some(d);
     }
     (keys, frames)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wav(frames: usize) -> Vec<u8> {
+        let n = frames * 2;
+        let mut w = b"RIFF".to_vec();
+        w.extend_from_slice(&((36 + n) as u32).to_le_bytes());
+        w.extend_from_slice(b"WAVEfmt ");
+        w.extend_from_slice(&16u32.to_le_bytes());
+        w.extend_from_slice(&[1, 0, 1, 0]); // PCM, mono
+        w.extend_from_slice(&48000u32.to_le_bytes());
+        w.extend_from_slice(&96000u32.to_le_bytes());
+        w.extend_from_slice(&[2, 0, 16, 0]);
+        w.extend_from_slice(b"data");
+        w.extend_from_slice(&(n as u32).to_le_bytes());
+        w.resize(44 + n, 0);
+        w
+    }
+
+    #[test]
+    fn wave_over_ten_minutes_goes_to_the_decoder() {
+        assert_eq!(py_wave(&wav(100)).unwrap().unwrap().data.len(), 100);
+        assert_eq!(py_wave(&wav(MAX_FRAMES)).unwrap().unwrap().data.len(), MAX_FRAMES);
+        // one frame more: not read here (the decoder says "is longer than ten minutes")
+        assert!(py_wave(&wav(MAX_FRAMES + 1)).unwrap().is_none());
+    }
 }
