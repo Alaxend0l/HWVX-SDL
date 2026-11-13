@@ -335,7 +335,7 @@ impl Browser {
                 .output()
                 .ok()?
         } else if cfg!(windows) {
-            std::process::Command::new("powershell")
+            xdlrs::command("powershell")
                 .env("HWVX_SAVE_NAME", &name)
                 .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = $env:HWVX_SAVE_NAME; if ($d.ShowDialog() -eq 'OK') { $d.FileName }"])
                 .output()

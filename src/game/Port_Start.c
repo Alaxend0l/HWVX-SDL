@@ -317,6 +317,7 @@ int Port_StartSkipsIntro(void) {
 }
 
 static void *s_titleScript;
+static int s_raceOpening;      /* race: the first level's opening sequence left out (Port_StartSkipsOpening) */
 static s32 s_pickCar = -1;     /* itemselect: the car select picks this car, then goes on */
 static u32 s_pickFrames;
 
@@ -494,9 +495,24 @@ static int StartTitle(void *script) {
     if (SDL_strcmp(mode, "race") == 0) {
         Port_Log("start: race, %s (progression %d) world %d, car %d item %d", modeName, (int)p, (int)w, (int)car,
                  (int)item);
+        s_raceOpening = 1;
         StateManager_QueueChange(0xB);
         return 1;
     }
     Port_Log("start: HWVX_START=%s: carselect, itemselect or race", e);
     return 0;
+}
+
+/* HWVX_START=race: the progression's first level skips its opening sequence
+ * (State_ProgressionManager phase 0: movies, an adventure mission's briefing,
+ * its car and item select, which would wait for a player): the car and item
+ * are HWVX_START's already. Once: 1 the first time it is asked after a race
+ * start, then 0 (a level after it opens as retail). */
+int Port_StartSkipsOpening(void) {
+    if (!s_raceOpening) {
+        return 0;
+    }
+    s_raceOpening = 0;
+    Port_Log("start: the level's opening sequence (briefing, selects) left out");
+    return 1;
 }

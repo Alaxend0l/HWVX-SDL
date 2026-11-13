@@ -13,16 +13,7 @@
 set -eu
 target=macos # shares SDL's build with the game's package
 . "$(dirname "$0")/../../common.sh"
-game_version=$version
-if [ -n "${HWVX_EDITOR_VERSION:-}" ]; then
-    ed_version=$HWVX_EDITOR_VERSION
-else
-    ed_version=$(git -C "$root" describe --tags --match 'editor-v*' 2>/dev/null ||
-        git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)
-fi
-ed_version=$(echo "$ed_version" | sed 's/^editor-v//; s/^v//')
-ed="$work/editor"
-mkdir -p "$ed"
+. "$(dirname "$0")/../common.sh"
 export MACOSX_DEPLOYMENT_TARGET=11.0
 arch_args='-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
 rust_targets='aarch64-apple-darwin x86_64-apple-darwin'
@@ -47,15 +38,11 @@ cargo_lipo() {
     # shellcheck disable=SC2086
     lipo -create $parts -output "$3"
 }
-mkdir -p "$ed/bin"
 cargo_lipo "$root/tools/browser/Cargo.toml" hwvx-browser "$ed/bin/hwvx-browser"
 if [ -n "${HWVX_X:-}" ]; then
     cp "$HWVX_X" "$ed/bin/hwvx-x"
 else
-    sup=$root
-    while [ "$sup" != / ] && ! grep -q '^name = "hwvx-xfile"' "$sup/Cargo.toml" 2>/dev/null; do sup=$(dirname "$sup"); done
-    [ "$sup" != / ] || { echo "no hwvx-x: set HWVX_X, or build inside the superproject" >&2; exit 1; }
-    cargo_lipo "$sup/Cargo.toml" hwvx-x "$ed/bin/hwvx-x"
+    cargo_lipo "$xcrate/Cargo.toml" hwvx-x "$ed/bin/hwvx-x"
 fi
 
 app="$ed/HWVX Editor.app"

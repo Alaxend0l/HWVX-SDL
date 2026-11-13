@@ -1,3 +1,5 @@
+| Windows x86_64 `.zip` | `packaging/editor/windows/build.sh` | Linux or macOS: MinGW-w64, cargo with `x86_64-pc-windows-gnu`, zip | `HWVX-Editor-VER-windows-x86_64.zip` |
+| Linux AppImage (x86_64, aarch64) | `packaging/editor/linux/build.sh` | Linux (CI: Ubuntu 22.04), cargo | `HWVX-Editor-VER-ARCH.AppImage` |
 # Packages
 
 Release builds for every platform come from one script each, which CI
@@ -101,7 +103,20 @@ the game, which it drives (viewer mode, test drives); the game package does not 
 | macOS `.dmg` (Apple silicon + Intel) | `packaging/editor/macos/build.sh` | macOS, cargo with both Apple targets | `HWVX-Editor-VER-macos.dmg` |
 
 Version: `HWVX_EDITOR_VERSION`, else `git describe --match 'editor-v*'`, else `git describe`.
-`hwvx-x` comes from the superproject's `hwvx-xfile` crate (above the checkout), or `HWVX_X`.
+`hwvx-x` comes from the superproject's `hwvx-xfile` crate: `HWVX_X_CRATE` (its folder), else the
+superproject above the checkout; or `HWVX_X`, the program as is (packaging/editor/common.sh).
+
+CI: `.github/workflows/editor.yml` builds the three on an `editor-v*` tag and publishes them as a
+GitHub Release of their own (not marked latest: the game's stays the latest); by hand
+(workflow_dispatch) as artifacts. hwvx-x: a sparse checkout (Cargo files, `src/`) of the public
+superproject `Alaxend0l/HWVX-X-FILE-EDITOR` at `HWVX_X_REF` (beta-content-port), as `HWVX_X_CRATE`.
+The game's workflow (build.yml) runs on `v*` tags only, which `editor-v*` doesn't match.
+
+The game's launcher has an **Editor** button (src/port/launcher.c): it starts `hwvx-browser`
+when the editor is installed beside the game (in the game's folder, as in the editor's package;
+macOS: `HWVX Editor.app` beside `HWVX.app` or in /Applications; Linux: an
+`HWVX-Editor*.AppImage` beside the game's AppImage), else it reads **Get the editor** and opens
+the editor's releases page.
 
 ## Layout (macOS)
 
@@ -114,8 +129,10 @@ Version: `HWVX_EDITOR_VERSION`, else `git describe --match 'editor-v*'`, else `g
       Resources/level-samples/   the sample level projects (tools/level-samples)
       Resources/hwvx-editor.icns
 
-Linux / Windows (stage 2) keep the same split: the programs together in one folder (`bin/`),
-the resources in `../share/hwvx-editor/` or beside the programs.
+Windows: one folder, `hwvx-browser.exe` (a windowed program; run from a console it writes to it),
+`hwvx.exe` (windowed; with its stderr a pipe or file, as the editor runs it, the log goes there),
+`hwvx-x.exe` (run without a console window), `schemas/`, `level-samples/`.
+Linux (AppImage): `usr/bin/{hwvx-browser,hwvx,hwvx-x}`, `usr/share/hwvx-editor/{schemas,level-samples}`.
 
 What it reads at run time is only `schemas/` (xdlrs: level::Env, graph::Ctx), the game, and
 hwvx-x. Not bundled: the pairing table (superproject docs/xdl-format/pairing, 19 MB; optional,
@@ -140,3 +157,7 @@ it), the Python tools, any game data (the player's own, `--data` or the viewer's
 
 The Level tab's own steps without a window: the check (compile), a test drive until it
 drives (at most SECS; the game stopped after), Save as mod. Exit 0 when all went well.
+A mission's or challenge's information window at the start waits for A, as retail: headless
+`--drive` presses A a few times (`HWVX_AUTOINPUT` set: that instead); a joyride, which never
+holds the car, counts as driving once in the race. `HWVX_START=race` (which test drives use)
+leaves out the level's opening sequence (an adventure mission's briefing, car and item select).

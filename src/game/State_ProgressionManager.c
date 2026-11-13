@@ -178,6 +178,9 @@ s32 StateProgressionManager_Heartbeat(void) {
         g_bLoadingDemoLand = 1;
     }
     phase = g_GameProgressionState.phase;
+    if (phase == 0 && g_GameProgressionState.step == 0 && !g_GameProgressionState.loaded && Port_StartSkipsOpening()) {
+        g_GameProgressionState.phase = phase = 1;   /* port: HWVX_START=race, testing: straight into the level */
+    }
     switch (phase) {
     case 0:
     case 2:
