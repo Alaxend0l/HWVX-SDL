@@ -38,6 +38,7 @@
 //!   xdlrs prompts sheet PACK_PNG256 OUT.png  the prompt pack's glyphs in several looks (prompts_art.rs)
 //!   xdlrs prompts build SRC OUT.bin      assets/prompts/src into prompts.bin, the table the game embeds
 //!   xdlrs prompts check SRC BIN          BIN is SRC's build and the PNGs are README.md's (sha256)
+//!   xdlrs prompts montage OUT.png COLS PNG...  screenshots in a grid, 320 px wide each
 //!   xdlrs cars stats DIR... [--dump OUT.json] [--md OUT]
 //!                                        per release folder (GC files/, PC, PS2, the PS2 prototype):
 //!                                        every car's stat bars and physics fields, the car select's
@@ -1334,7 +1335,7 @@ const PROMPT_SEEDS: [&str; 6] = [
 
 fn prompts_main(argv: &[String]) -> ExitCode {
     match argv.first().map(String::as_str) {
-        Some("sheet" | "build" | "check") => return prompts_art_main(argv),
+        Some("sheet" | "build" | "check" | "montage") => return prompts_art_main(argv),
         _ => {}
     }
     let mut dirs = vec![];
@@ -1438,6 +1439,10 @@ fn prompts_art_main(argv: &[String]) -> ExitCode {
     let (a, b) = (Path::new(a), Path::new(b));
     let r = match argv[0].as_str() {
         "sheet" => pa::sheet(a, b).map(|_| vec![]),
+        "montage" => {
+            let files: Vec<PathBuf> = argv[3..].iter().map(PathBuf::from).collect();
+            pa::montage(a, b.to_str().and_then(|s| s.parse().ok()).unwrap_or(4), &files).map(|_| vec![])
+        }
         "build" => pa::build(a).and_then(|v| std::fs::write(b, &v).map_err(|e| format!("{}: {e}", b.display())).map(|_| vec![])),
         _ => pa::check(a, b),
     };

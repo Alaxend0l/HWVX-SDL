@@ -217,3 +217,30 @@ mod tests {
         assert!(bad.is_empty(), "{bad:?}");
     }
 }
+
+/// Screenshots side by side for a look (`xdlrs prompts montage OUT.png COLS PNG...`): each
+/// scaled to 320 px wide (nearest), COLS a row, on black.
+pub fn montage(out: &Path, cols: usize, files: &[std::path::PathBuf]) -> R<()> {
+    const TW: usize = 320;
+    let imgs: Vec<Img> = files.iter().map(|f| read_png(f)).collect::<R<_>>()?;
+    let th = imgs.iter().map(|i| i.h * TW / i.w.max(1)).max().unwrap_or(0);
+    let cols = cols.max(1);
+    let rows = imgs.len().div_ceil(cols);
+    let (w, h) = (cols * (TW + 4), rows * (th + 4));
+    let mut o = Img { w, h, px: vec![0; w * h * 4] };
+    for p in o.px.chunks_exact_mut(4) {
+        p[3] = 255;
+    }
+    for (n, im) in imgs.iter().enumerate() {
+        let (x0, y0) = ((n % cols) * (TW + 4), (n / cols) * (th + 4));
+        let ih = im.h * TW / im.w.max(1);
+        for y in 0..ih {
+            for x in 0..TW {
+                let s = &im.px[((y * im.h / ih) * im.w + x * im.w / TW) * 4..][..4];
+                let d = ((y0 + y) * w + x0 + x) * 4;
+                o.px[d..d + 3].copy_from_slice(&s[..3]);
+            }
+        }
+    }
+    write_png(out, &o)
+}
