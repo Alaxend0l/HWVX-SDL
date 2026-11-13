@@ -42,6 +42,7 @@ pub mod prompts;
 pub mod prompts_art;
 pub mod py;
 pub mod schema;
+pub mod shaders;
 pub mod tac;
 pub mod validate;
 pub mod walk;

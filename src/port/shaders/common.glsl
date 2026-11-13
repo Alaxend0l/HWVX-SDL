@@ -1,4 +1,4 @@
-/* Shared by every shader. Compiled two ways (tools/gen_shaders.py):
+/* Shared by every shader. Compiled two ways (xdlrs shaders gen):
  * - OpenGL 3.3: "#version 330 core" is prepended at run time (gx_gl.c);
  *   uniform blocks get their bindings from glUniformBlockBinding and the
  *   samplers from glUniform1i.

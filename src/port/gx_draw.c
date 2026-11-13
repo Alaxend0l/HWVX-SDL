@@ -421,7 +421,7 @@ static int MapViewport(GXDrawCall *dc, GXVSUniforms *vs) {
  * time a draw uses it, as its whole FSBlock in hex, one per line. The lines
  * from earlier runs count as seen, so the file only grows by new setups.
  * tools/test_tevgen checks the specialised shaders against gx.frag with
- * them, and tools/gen_shaders.py builds SDL_GPU's variants from them. */
+ * them, and xdlrs shaders gen builds SDL_GPU's variants from them. */
 #define TEVKEY_SLOTS 4096
 
 /* Adds key to the seen set; 1 if it is new. */

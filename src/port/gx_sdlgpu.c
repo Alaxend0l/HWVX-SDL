@@ -1,6 +1,6 @@
 /* SDL_GPU renderer: Vulkan, Metal or Direct3D 12 (--renderer vulkan|metal|
  * d3d12), with the shaders precompiled to SPIR-V, MSL and DXIL
- * (gx_shaders.h, tools/gen_shaders.py).
+ * (gx_shaders.h, xdlrs shaders gen).
  *
  * SDL_GPU can't upload data inside a render pass, and the game uploads
  * textures between draws, so draws are recorded and run in batches (Flush):

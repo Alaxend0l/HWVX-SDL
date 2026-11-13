@@ -45,6 +45,9 @@
 //!                                        bars (roles 70-73), labels and value->length curve (cars.rs)
 //!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
 //!                                        two frame dumps side by side (tools/mix_pair_shots.sh)
+//!   xdlrs shaders gen [--tools DIR] [--fresh]
+//!                                        src/port/gx_shaders.h from src/port/shaders/ and
+//!                                        tools/tevkeys.txt; unchanged shaders keep their entries (shaders.rs)
 //!
 //! --repo DIR: the HWVX-SDL checkout (schemas/); default: found above the current folder.
 
@@ -1049,6 +1052,9 @@ fn main() -> ExitCode {
     if argv.first().map(String::as_str) == Some("cars") {
         return cars_main(&argv[1..]);
     }
+    if argv.first().map(String::as_str) == Some("shaders") {
+        return shaders_main(&argv[1..]);
+    }
     let a = parse_args(&argv);
     let cmd = (a.pos.first().map(String::as_str), a.pos.get(1).map(String::as_str));
     let shifted = |n: usize| Args { pos: a.pos[n..].to_vec(), opts: a.opts.clone(), flags: a.flags.clone() };
@@ -1424,6 +1430,45 @@ fn cars_main(argv: &[String]) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `xdlrs shaders gen [--tools DIR] [--fresh] [--repo DIR]` (shaders.rs).
+fn shaders_main(argv: &[String]) -> ExitCode {
+    let mut fresh = false;
+    let mut tools = None;
+    let mut repo = None;
+    let mut ok = argv.first().map(String::as_str) == Some("gen");
+    let mut i = 1;
+    while ok && i < argv.len() {
+        match argv[i].as_str() {
+            "--fresh" => fresh = true,
+            "--tools" if i + 1 < argv.len() => {
+                tools = Some(PathBuf::from(&argv[i + 1]));
+                i += 1;
+            }
+            "--repo" if i + 1 < argv.len() => {
+                repo = Some(PathBuf::from(&argv[i + 1]));
+                i += 1;
+            }
+            _ => ok = false,
+        }
+        i += 1;
+    }
+    if !ok {
+        eprintln!("usage: xdlrs shaders gen [--tools DIR] [--fresh] [--repo DIR]");
+        return ExitCode::from(2);
+    }
+    let Some(root) = repo.or_else(|| xdlrs::repo_root(std::env::current_dir().ok().as_deref())) else {
+        eprintln!("error: no schemas/ found (--repo)");
+        return ExitCode::from(1);
+    };
+    match xdlrs::shaders::generate(&xdlrs::shaders::Opts { root, tools, fresh }) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: shaders gen: {e}");
             ExitCode::from(1)
         }
     }

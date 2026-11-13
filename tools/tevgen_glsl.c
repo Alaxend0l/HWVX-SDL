@@ -1,5 +1,5 @@
 /* tevgen_glsl: the specialised pixel shaders for SDL_GPU's precompiled set.
- * tools/gen_shaders.py builds and runs it:
+ * xdlrs shaders gen builds and runs it:
  *
  *   tevgen_glsl KEYS_FILE DECL_FILE OUT_DIR
  *

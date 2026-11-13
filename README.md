@@ -805,18 +805,23 @@ Debugging aids:
   draws spend making them.
 - `HWVX_TEVKEYS=tools/tevkeys.txt` appends each TEV setup the game uses that
   the file doesn't have yet. SDL_GPU only has specialised shaders for the
-  setups listed there (rerun `tools/gen_shaders.py`); OpenGL builds its own.
+  setups listed there (rerun `xdlrs shaders gen`); OpenGL builds its own.
   `tools/tevcheck.sh tools/tevkeys.txt --random 2000 --exact` checks the
   specialised shaders against `gx.frag` (needs a display).
 
-`tools/gen_shaders.py` regenerates `src/port/gx_shaders.h` after a change in
-`src/port/shaders/`: GLSL for OpenGL, and glslang → SPIR-V (Vulkan),
+`xdlrs shaders gen` (`tools/xdlrs`, run in the checkout) regenerates
+`src/port/gx_shaders.h` after a change in `src/port/shaders/` or
+`tools/tevkeys.txt`: GLSL for OpenGL, and glslang → SPIR-V (Vulkan),
 SPIRV-Cross → MSL (Metal) and HLSL → DXC → DXIL (Direct3D 12). The header is
 committed, so building the game needs none of these tools. It looks for them
-on `PATH` and in `~/.local/opt/shadertools/{bin,dxc/bin}` (`--tools DIR`);
-glslang and SPIRV-Cross build from the Khronos sources with CMake, and DXC
+in `~/.local/opt/shadertools/{bin,dxc/bin}` (`--tools DIR`), then on `PATH`;
+glslang and SPIRV-Cross build from the Khronos sources with CMake (Homebrew's
+`glslang`, `spirv-cross` and `directx-shader-compiler` work too), and DXC
 has prebuilt Linux releases (keep its `lib/` next to `bin/`: `libdxil.so`
-signs the DXIL, which Direct3D 12 requires).
+signs the DXIL, which Direct3D 12 requires). A shader whose SPIR-V comes out
+as the header has it keeps its committed SPIR-V, MSL and DXIL, so a rerun on
+another machine (another dxc build gives other DXIL) only changes the shaders
+whose source changed; `--fresh` rewrites them all.
 
 `tools/xgc_inspect.py` (a data pack's TOC, header, root objects and which words are
 pointers, for writing swap walkers in `src/game/Port_Swap.c`) was removed; git history
