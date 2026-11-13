@@ -74,6 +74,13 @@ static int ParseVSync(const char *s) {
     return -1;
 }
 
+/* A resolution scale ("1.5", "1.5x"), held to 0.5 .. 2; 0 if it isn't one. */
+static f32 ParseResScale(const char *s) {
+    f32 v = s != NULL ? (f32)SDL_atof(s) : 0.0f;
+
+    return v <= 0.0f ? 0.0f : v < 0.5f ? 0.5f : v > 2.0f ? 2.0f : v;
+}
+
 /* --mix / --mix-build (or HWVX_MIX, HWVX_MIX_BUILD): a mixed build's recipe (mix.c). */
 static const char *s_mixRecipe;
 static int s_mixBuild;
@@ -104,6 +111,7 @@ static void ParseArgs(int argc, char **argv) {
     g_port.gamma = 50;
     g_port.fov = 50;
     UseRenderer(PORT_RENDERER_AUTO);
+    g_port.resScale = PORT_RESSCALE_DEFAULT;
 #ifdef SDL_PLATFORM_ANDROID
     g_port.fullscreen = 1;
 #endif
@@ -157,12 +165,14 @@ static void ParseArgs(int argc, char **argv) {
             g_port.gcAirCamera = 1;
         } else if (SDL_strcmp(argv[i], "--pc-pan") == 0) {
             s_pcPanOverride = 1;
+        } else if (SDL_strcmp(argv[i], "--res-scale") == 0 && i + 1 < argc) {
+            g_port.resScaleOverride = ParseResScale(argv[++i]);
         } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && Port_RendererByName(argv[i + 1]) >= 0) {
             s_rendererOverride = Port_RendererByName(argv[++i]);
         } else {
             SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen|--windowed]", argv[0]);
             SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save] [--launcher]");
-            SDL_Log("              [--gc-air-camera] [--pc-pan]");
+            SDL_Log("              [--gc-air-camera] [--pc-pan] [--res-scale N]");
             SDL_Log("  --data PATH      a GameCube disc image (.iso) or the extracted disc files");
             SDL_Log("                   (default: the one chosen last time, or an .iso or files/");
             SDL_Log("                   next to the program, or orig/files)");
@@ -184,6 +194,8 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("  --pc-pan         the PC release's stereo pan: sounds to the side play from");
             SDL_Log("                   one speaker (default: the GameCube/PS2's narrower pan;");
             SDL_Log("                   also HWVX_PC_PAN=1; the launcher's Settings: Stereo)");
+            SDL_Log("  --res-scale N    render at N times the window's size, 0.5 to 2 (default 1;");
+            SDL_Log("                   also HWVX_RESSCALE; the launcher's Settings: Resolution scale)");
             SDL_Log("  --launcher       open the launcher (game data, releases) instead of booting");
             SDL_Log("  --mix RECIPE     play a mixed build: one game from the releases you imported,");
             SDL_Log("                   by a recipe (\"ultimate\", or a .jsonc file)");
@@ -219,6 +231,9 @@ static void ParseArgs(int argc, char **argv) {
     }
     if (s_pcPanOverride < 0 && SDL_getenv("HWVX_PC_PAN") != NULL && *SDL_getenv("HWVX_PC_PAN")) {
         s_pcPanOverride = SDL_atoi(SDL_getenv("HWVX_PC_PAN")) != 0;
+    }
+    if (g_port.resScaleOverride == 0.0f && SDL_getenv("HWVX_RESSCALE") != NULL) {
+        g_port.resScaleOverride = ParseResScale(SDL_getenv("HWVX_RESSCALE"));
     }
     Port_GfxLoadConfig(haveSize, haveDisplay || g_port.fullscreen, haveVSync, haveFps);
 }

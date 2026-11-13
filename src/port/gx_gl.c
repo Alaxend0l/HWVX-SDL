@@ -29,7 +29,7 @@ static struct {
     SDL_GLContext ctx;
     GLuint prog, vs, vao, vbo, ubo[2];
     GLuint gammaProg, gammaVao;     /* GL_DrawGamma: made when first needed */
-    GLint gammaRect, gammaPower;
+    GLint gammaRect, gammaPower, gammaFilter;
     GLuint poolVao, poolVbo;    /* the display list cache's vertex pool */
     GLuint fbo, fboColor, fboDepth;
     int efbW, efbH;
@@ -825,9 +825,12 @@ static void GL_DrawImage(const u8 *rgba, int width, int height, const int dst[4]
     StateReset();
 }
 
-/* The display copy when the Graphics menu's Gamma row is off its middle: the blit
- * below can't change colours, so draw the EFB rectangle instead. shaders/present.*
- * are SDL_GPU's version of this. Made the first time it is needed. */
+/* The display copy when it can't be a blit: the Graphics menu's Gamma row off
+ * its middle (a blit can't change colours), or the EFB larger than the window
+ * (the resolution scale above 1x: a blit's linear filter would skip texels;
+ * this averages them, GX_PresentFilter). It draws the EFB rectangle instead.
+ * shaders/present.* are SDL_GPU's version of this. Made the first time it is
+ * needed. */
 static const char s_gammaVS[] =
     "uniform vec4 uRect;\n"
     "out vec2 vUV;\n"
@@ -839,13 +842,31 @@ static const char s_gammaVS[] =
 static const char s_gammaFS[] =
     "uniform sampler2D uEFB;\n"
     "uniform vec4 uGamma;\n"
+    "uniform vec4 uFilter;\n"
     "in vec2 vUV;\n"
     "out vec4 oColor;\n"
+    "vec3 Box() {\n"
+    "    ivec2 size = textureSize(uEFB, 0);\n"
+    "    vec2 c = vUV * vec2(size), lo = c - 0.5 * uFilter.yz, hi = c + 0.5 * uFilter.yz;\n"
+    "    ivec2 i0 = ivec2(floor(lo)), i1 = ivec2(ceil(hi)) - 1;\n"
+    "    vec3 sum = vec3(0.0);\n"
+    "    float total = 0.0;\n"
+    "    for (int y = i0.y; y <= i1.y && y < i0.y + 8; y++) {\n"
+    "        float wy = min(hi.y, float(y + 1)) - max(lo.y, float(y));\n"
+    "        for (int x = i0.x; x <= i1.x && x < i0.x + 8; x++) {\n"
+    "            float w = wy * (min(hi.x, float(x + 1)) - max(lo.x, float(x)));\n"
+    "            sum += w * texelFetch(uEFB, clamp(ivec2(x, y), ivec2(0), size - 1), 0).rgb;\n"
+    "            total += w;\n"
+    "        }\n"
+    "    }\n"
+    "    return sum / max(total, 1e-6);\n"
+    "}\n"
     "void main() {\n"
-    "    oColor = vec4(pow(texture(uEFB, vUV).rgb, uGamma.xxx), 1.0);\n"
+    "    vec3 c = uFilter.x > 0.5 ? Box() : texture(uEFB, vUV).rgb;\n"
+    "    oColor = vec4(pow(c, uGamma.xxx), 1.0);\n"
     "}\n";
 
-static void GL_DrawGamma(const int src[4], const int lb[4], f32 power) {
+static void GL_DrawGamma(const int src[4], const int lb[4], f32 power, const f32 filter[4], int nearest) {
     f32 rect[4], gamma[4] = { power, 0.0f, 0.0f, 0.0f };
 
     if (s.gammaProg == 0) {
@@ -864,6 +885,7 @@ static void GL_DrawGamma(const int src[4], const int lb[4], f32 power) {
         glDeleteShader(fs);
         s.gammaRect = glGetUniformLocation(s.gammaProg, "uRect");
         s.gammaPower = glGetUniformLocation(s.gammaProg, "uGamma");
+        s.gammaFilter = glGetUniformLocation(s.gammaProg, "uFilter");
         glGenVertexArrays(1, &s.gammaVao);
     }
     /* texture rows are bottom-up, src is top-down */
@@ -874,34 +896,44 @@ static void GL_DrawGamma(const int src[4], const int lb[4], f32 power) {
     glUseProgram(s.gammaProg);
     glUniform4fv(s.gammaRect, 1, rect);
     glUniform4fv(s.gammaPower, 1, gamma);
+    glUniform4fv(s.gammaFilter, 1, filter);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, s.fboColor);
+    if (nearest) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
     glBindVertexArray(s.gammaVao);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     glViewport(lb[0], lb[1], lb[2], lb[3]);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    if (nearest) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
     StateReset();
 }
 
 static void GL_CopyDisp(const int src[4]) {
-    int w, h, lb[4];
-    f32 power = Port_GfxGammaPower();
+    int w, h, lb[4], mode;
+    f32 power = Port_GfxGammaPower(), filter[4];
 
     SDL_GetWindowSizeInPixels(g_port.window, &w, &h);
-    GX_Letterbox(w, h, src[2] - src[0], src[3] - src[1], lb);
+    GX_PresentRect(w, h, src, lb);
+    mode = GX_PresentFilter(src, lb, filter);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
-    if (power != 1.0f) {
-        GL_DrawGamma(src, lb, power);
+    if (power != 1.0f || mode == GXR_PRESENT_BOX) {
+        GL_DrawGamma(src, lb, power, filter, mode == GXR_PRESENT_NEAREST);
     } else {
         glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, s.fbo);
         glBlitFramebuffer(src[0], s.efbH - src[3], src[2], s.efbH - src[1], lb[0], lb[1], lb[0] + lb[2], lb[1] + lb[3],
-                          GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                          GL_COLOR_BUFFER_BIT, mode == GXR_PRESENT_NEAREST ? GL_NEAREST : GL_LINEAR);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
     /* The EFB alpha is game scratch (shadow volumes), not opacity, and the
@@ -911,6 +943,25 @@ static void GL_CopyDisp(const int src[4]) {
     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
     glClear(GL_COLOR_BUFFER_BIT);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
+/* The largest render target: the smallest of the texture, renderbuffer and
+ * viewport limits. */
+static int GL_MaxTarget(void) {
+    static GLint m;
+    GLint tex = 0, rb = 0, vp[2] = { 0, 0 };
+
+    if (m > 0) {
+        return m;
+    }
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &tex);
+    glGetIntegerv(0x84E8 /* GL_MAX_RENDERBUFFER_SIZE */, &rb);
+    glGetIntegerv(GL_MAX_VIEWPORT_DIMS, vp);
+    m = tex > 0 ? tex : 4096;
+    if (rb > 0 && rb < m) m = rb;
+    if (vp[0] > 0 && vp[0] < m) m = vp[0];
+    if (vp[1] > 0 && vp[1] < m) m = vp[1];
+    return m;
 }
 
 /* The storage is respecified on each copy since texCreate leaves it to the
@@ -1041,5 +1092,5 @@ static void GL_Present(void) {
 const GXRenderer g_gxGL = {
     "opengl", GL_Open, GL_Close, GL_Init, GL_Resize, GL_TexFormat, GL_TexCreate, GL_TexUpload, GL_TexDestroy,
     GL_Draw, GL_Clear, GL_DrawImage, GL_CopyDisp, GL_CopyEFB, GL_ReadEFB, GL_Present,
-    GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy, GL_GrabStart, GL_GrabFetch,
+    GL_MeshIndices, GL_MeshVertices, GL_MeshDestroy, GL_GrabStart, GL_GrabFetch, GL_MaxTarget,
 };

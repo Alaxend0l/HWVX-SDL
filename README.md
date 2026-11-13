@@ -688,7 +688,13 @@ Debugging aids:
   `HWVX_HANDLING=2` to compare.
 - `HWVX_SPLITSCREEN_LOD=gc` draws models one level coarser in split screen as
   the GameCube did (default: full detail, like the PC release; `graphics.cfg`
-  `splitlod=full|gc`).
+  `splitlod=full- `HWVX_RESSCALE=0.5..2` (or `--res-scale N`) renders at that times the
+  window's size (`graphics.cfg resscale=0.5|0.75|1|1.5|2`, the launcher's
+  Settings > Display; default 1): below 1x for weak GPUs, above 1x box-filtered
+  down as supersampling. `HWVX_RESFILTER=nearest` (`resfilter=nearest`) shows a
+  scale under 1x with square pixels. HWVX_DUMP frames and screenshots are at
+  the render size; the data browser's view is never scaled.
+|gc`).
 - `HWVX_DETERMINISTIC=1` makes runs repeatable, to compare builds frame by
   frame: a fixed random seed (`HWVX_SEED=n`, default 1), a fixed frame step
   (`HWVX_FIXEDSTEP=us`, default 16667) instead of measured time, and world

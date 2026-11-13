@@ -1146,8 +1146,9 @@ static void GPU_CopyDisp(const int src[4]) {
     SDL_GPURenderPass *pass;
     SDL_GPUTextureSamplerBinding tb;
     SDL_GPUViewport vp;
-    f32 rect[4], gamma[4] = { Port_GfxGammaPower(), 0.0f, 0.0f, 0.0f };
-    int lb[4];
+    /* PresentGamma: uGamma, uFilter (shaders/present.frag) */
+    f32 rect[4], gamma[8] = { Port_GfxGammaPower(), 0.0f, 0.0f, 0.0f };
+    int lb[4], mode;
 
     Flush();
     cmd = Cmd();
@@ -1175,7 +1176,8 @@ static void GPU_CopyDisp(const int src[4]) {
             return;
         }
     }
-    GX_Letterbox((int)s.swapW, (int)s.swapH, src[2] - src[0], src[3] - src[1], lb);
+    GX_PresentRect((int)s.swapW, (int)s.swapH, src, lb);
+    mode = GX_PresentFilter(src, lb, gamma + 4);
     SDL_zero(ct);
     ct.texture = s.swapTex;
     ct.load_op = SDL_GPU_LOADOP_CLEAR;
@@ -1198,6 +1200,11 @@ static void GPU_CopyDisp(const int src[4]) {
     SDL_PushGPUFragmentUniformData(cmd, 0, gamma, sizeof(gamma));
     tb.texture = s.efb;
     tb.sampler = s.linearClamp;
+    if (mode == GXR_PRESENT_NEAREST) {
+        static const GXSampler nearest;   /* nearest, clamped, no mips */
+
+        tb.sampler = GetSampler(&nearest);
+    }
     SDL_BindGPUFragmentSamplers(pass, 0, &tb, 1);
     SDL_DrawGPUPrimitives(pass, 4, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
