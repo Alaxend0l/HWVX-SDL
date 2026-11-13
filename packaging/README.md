@@ -106,11 +106,10 @@ Version: `HWVX_EDITOR_VERSION`, else `git describe --match 'editor-v*'`, else `g
 `hwvx-x` comes from the superproject's `hwvx-xfile` crate: `HWVX_X_CRATE` (its folder), else the
 superproject above the checkout; or `HWVX_X`, the program as is (packaging/editor/common.sh).
 
-CI: `.github/workflows/editor.yml` builds the three on an `editor-v*` tag and publishes them as a
-GitHub Release of their own (not marked latest: the game's stays the latest); by hand
-(workflow_dispatch) as artifacts. hwvx-x: a sparse checkout (Cargo files, `src/`) of the public
-superproject `Alaxend0l/HWVX-X-FILE-EDITOR` at `HWVX_X_REF` (beta-content-port), as `HWVX_X_CRATE`.
-The game's workflow (build.yml) runs on `v*` tags only, which `editor-v*` doesn't match.
+CI lives in the superproject (`Alaxend0l/HWVX-X-FILE-EDITOR`, `.github/workflows/editor.yml`): on an
+`editor-v*` tag it builds the three from the HWVX-SDL commit the superproject pins, with hwvx-x from
+the superproject's own crate, and publishes them as a GitHub Release there; by hand
+(workflow_dispatch) as artifacts. This repository's releases are the game's alone.
 
 The game's launcher has an **Editor** button (src/port/launcher.c): it starts `hwvx-browser`
 when the editor is installed beside the game (in the game's folder, as in the editor's package;
