@@ -48,3 +48,21 @@ MIX_SILVER_READY is 1: the Silver button shows.
 * `tools/mix_pair_shots.sh BUILD MIXPREF REFDATA GCDATA OUTDIR NAME SECONDS FRAMES [VAR=value...]`:
   the same scene in the mixed build and a plain release, joined side by side with
   `xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]`.
+
+## Which PS2 copy: the one the paired object shows
+
+The PS2 keeps two logos (blue glow and chrome, e.g. HW_IPack interface_1 textures 4/5 and 15/16)
+where the GameCube has its flame logo, and its title shows the chrome one. The pairing table and
+the shape test both see two equally good candidates, so the texture each paired PS2 *object*
+shows decides (an image's texture, a texture key animation's keys, through both packs' texture
+relocations): when the set has a copy and the PS2 object shows another texture of the same size,
+that one is taken (16 textures: the title's logo, the logos of 7 mission worlds' screens). A base
+texture two objects share that the PS2 gives two textures (the title's logo: the blue one fading
+in, the chrome one after) takes the one not in its own place; the pack has no texture to spare
+for the other, so the fade-in shows chrome too (hardly visible: it is dark and translucent). Art
+the PS2 has no copy of stays the base's (the pad glyphs).
+
+Menu frames compared with the plain PS2 (menu2_*.png): colours and logos match. Differences left,
+all text or layout, not colour: the PS2's "MAXIMUM JUSTICE" subtitle and its flare (not added),
+"PRESS START" vs the PS2's "PRESS START BUTTON", the GameCube's "LICENSED BY NINTENDO" line on
+the legal screen, the button glyph (A vs the PS2's X, kept by design).

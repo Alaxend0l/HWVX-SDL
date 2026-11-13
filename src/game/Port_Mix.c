@@ -81,7 +81,7 @@ static struct {
     /* interface art (Port_IfaceTextures, or a recipe rule "interface") and font pages, by release;
      * art the set has no copy of (the base's kept), font pages whose PC copy has other glyphs,
      * interface textures of packs that aren't interface packs (some are world geometry's too) */
-    u32 artFrom[PORT_MIX_RELS], fontFrom[PORT_MIX_RELS], artFallback, artByShape, fontOther, uiElsewhere, uiShared;
+    u32 artFrom[PORT_MIX_RELS], fontFrom[PORT_MIX_RELS], artFallback, artByShape, artByObject, fontOther, uiElsewhere, uiShared;
     u32 sfxFrom[PORT_MIX_RELS], sfxKept, sfxRejected;
 } s_stats;
 
@@ -888,7 +888,60 @@ typedef struct IfaceSide {
     PortIfaceScan scan;
     u8 *base;
     u32 *hdrs, numHdrs;
+    u32 *slotTex;       /* per blob word: 1 + the pack's own texture its relocation names, 0: none */
 } IfaceSide;
+
+/* The texture each base texture's paired PS2 object shows (an image's, a texture key's): the
+ * PS2's own choice where it has two copies of a design (its chrome and blue logos), and its
+ * copy of art the pairing table leaves single. 0xFFFF: none. Filled by MixIfaceColours. */
+static _Thread_local u16 *s_objTex;
+static _Thread_local u32 s_numObjTex;
+
+static void SlotTex(IfaceSide *sd, const u32 *texRelocs, u32 n) {
+    u32 words = sd->scan.size / 4, i;
+
+    sd->slotTex = calloc(words + 1, 4);
+    for (i = 0; sd->slotTex != NULL && i < n; i++) {
+        u32 slot = texRelocs[i * 2] & ~PORT_TEXRELOC_U16, id = texRelocs[i * 2 + 1];
+
+        if ((id >> 16) == 0 && slot / 4 <= words) {
+            sd->slotTex[slot / 4] = (id & 0xFFFF) + 1;
+        }
+    }
+}
+
+static void MapTex(IfaceSide *b, u32 sb, IfaceSide *p, u32 sp) {
+    u32 tb, tp;
+
+    if (b->slotTex == NULL || p->slotTex == NULL || !InBlobOf(&b->scan, sb, 4) || !InBlobOf(&p->scan, sp, 4)) {
+        return;
+    }
+    tb = b->slotTex[sb / 4];
+    tp = p->slotTex[sp / 4];
+    /* one base texture shown by two objects the PS2 gives two textures (its title's logo: the
+     * blue one fading in, then the chrome one): the one not in the base's own place wins, the
+     * PS2's deliberate choice; the pack has no texture to spare for the other */
+    if (tb != 0 && tp != 0 && tb - 1 < s_numObjTex &&
+        (s_objTex[tb - 1] == 0xFFFF || (s_objTex[tb - 1] == tb - 1 && tp != tb))) {
+        s_objTex[tb - 1] = (u16)(tp - 1);
+    }
+}
+
+/* Texture key animations (IfaceTexAnim: count, keys -> texture slots) of the same length. */
+static void MapTexAnim(IfaceSide *b, u32 ab, IfaceSide *p, u32 ap) {
+    u32 nb, np, kb, kp, i;
+
+    if (ab == ~0u || ap == ~0u || !InBlobOf(&b->scan, ab, 8) || !InBlobOf(&p->scan, ap, 8)) {
+        return;
+    }
+    memcpy(&nb, b->base + ab, 4);
+    memcpy(&np, p->base + ap, 4);
+    kb = Port_IfaceTo(&b->scan, ab + 4);
+    kp = Port_IfaceTo(&p->scan, ap + 4);
+    for (i = 0; nb == np && kb != ~0u && kp != ~0u && i < nb && i < 0x400; i++) {
+        MapTex(b, kb + i * 4, p, kp + i * 4);
+    }
+}
 
 static u32 HdrSig(const PortIfaceScan *s, u32 h) {
     const InterfaceHeader *hdr = (const InterfaceHeader *)(s->base + h);
@@ -927,6 +980,7 @@ static int IfaceSide_Init(IfaceSide *sd, u8 *base, u32 size, u32 bias, const u32
 static void IfaceSide_Free(IfaceSide *sd) {
     Port_IfaceScanFree(&sd->scan);
     free(sd->hdrs);
+    free(sd->slotTex);
 }
 
 static struct {
@@ -1020,9 +1074,16 @@ static void CopyObjectColours(IfaceSide *b, u32 db, IfaceSide *p, u32 dp) {
     switch (b->base[db + 1]) {
     case IFACE_DEF_IMAGE:       /* how it blends (the PS2's empty meters: 3 where the GameCube has 2) */
         if (InBlobOf(&b->scan, ub, sizeof(IfaceImageDef)) && InBlobOf(&p->scan, up, sizeof(IfaceImageDef)) &&
-            b->base[ub] == p->base[up] && b->base[ub + 1] != p->base[up + 1]) {
-            b->base[ub + 1] = p->base[up + 1];
-            s_colStats.blends++;
+            b->base[ub] == p->base[up]) {
+            if (b->base[ub + 1] != p->base[up + 1]) {
+                b->base[ub + 1] = p->base[up + 1];
+                s_colStats.blends++;
+            }
+            if (b->base[ub] == 0) {
+                MapTex(b, ub + 4, p, up + 4);
+            } else if (b->base[ub] == 3) {
+                MapTexAnim(b, Port_IfaceTo(&b->scan, ub + 0x10), p, Port_IfaceTo(&p->scan, up + 0x10));
+            }
         }
         break;
     case IFACE_DEF_TEXT:
@@ -1119,7 +1180,7 @@ static u32 PairObjects(IfaceSide *b, u32 hb, IfaceSide *p, u32 hp) {
 }
 
 static void MixIfaceColours(MixPack *mp, u8 *base, u32 dataSize, const u32 *pointers, u32 numPointers,
-                            const u32 *refs, u32 numRefs) {
+                            const u32 *refs, u32 numRefs, const u32 *texRelocs, u32 numTexRelocs) {
     RelPack rp;
     IfaceSide b, p;
     u32 *tables = NULL, nt, np, i, j, *lcs = NULL, pairs = 0;
@@ -1149,6 +1210,18 @@ static void MixIfaceColours(MixPack *mp, u8 *base, u32 dataSize, const u32 *poin
         free(tables);
         RelPack_Close(&rp);
         return;
+    }
+    if (s_objTex != NULL) {
+        /* the PS2's texture relocations: the first table before its blob */
+        u32 nr = rp.hdr[H_NUMRELOCS], gx = rp.hdr[H_NUMGX], sr = rp.hdr[H_NUMSOUNDRELOCS];
+        u64 tsize = (((u64)nr + gx + sr) * 8 + 0x1F) & ~(u64)0x1F;
+        u32 *pr = nr < 0x100000 && tsize <= rp.blobOff ? malloc((size_t)nr * 8 + 8) : NULL;
+
+        SlotTex(&b, texRelocs, numTexRelocs);
+        if (pr != NULL && Port_MixRead(PORT_DATA_PS2, mp->file, rp.blobOff - tsize, pr, nr * 8) == nr * 8) {
+            SlotTex(&p, pr, nr);
+        }
+        free(pr);
     }
     if (b.numHdrs != 0 && p.numHdrs != 0 &&
         (lcs = calloc(((size_t)b.numHdrs + 1) * (p.numHdrs + 1), sizeof(u32))) != NULL) {
@@ -1231,6 +1304,9 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     MixPack *mp = Cur();
     RelPack rp[PORT_MIX_RELS];
     NewTex *nt;
+
+    free(s_objTex);     /* a load that returned early left its map */
+    s_objTex = NULL;
     u8 *block, *out, *hp, *ui = NULL, *taken = NULL;
     int set = Port_MixInterface();
     u32 i, total = 0, changed = 0;
@@ -1257,7 +1333,13 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
         return;
     }
     if (Port_MixActive() && set == PORT_DATA_PS2 && fmt != PORT_DATA_PS2 && Port_MixRoot(PORT_DATA_PS2) != NULL) {
-        MixIfaceColours(mp, base, dataSize, pointers, numPointers, refs, numRefs);
+        s_numObjTex = numTex < 0x10000 ? numTex : 0;
+        s_objTex = s_numObjTex != 0 ? malloc(numTex * sizeof(u16)) : NULL;
+        if (s_objTex != NULL) {
+            memset(s_objTex, 0xFF, numTex * sizeof(u16));
+        }
+        MixIfaceColours(mp, base, dataSize, pointers, numPointers, refs, numRefs, (const u32 *)GETP(pack->relocs),
+                        pack->numRelocs);
     }
     for (r = 0; r < PORT_MIX_RELS; r++) {
         others += r != fmt && Port_MixRoot(r) != NULL;
@@ -1355,6 +1437,26 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
                 taken[setIdx] = 1;
                 s_stats.artByShape++;
                 Port_Log("mix: %s: the %s's %u by its shape", id, s_relNames[set], (unsigned)setIdx);
+            }
+            if (kind == PORT_IFACE_ART && set == PORT_DATA_PS2 && set != fmt && s_objTex != NULL &&
+                i < s_numObjTex && s_objTex[i] != 0xFFFF && s_objTex[i] != setIdx && rp[set].ok && t[set].ok) {
+                /* the set has a copy (paired, or by shape): the one the paired PS2 object shows, where
+                 * the PS2 has two (its chrome and blue logos); art the PS2 has none of (pad glyphs)
+                 * stays the base's */
+                RelTex c;
+
+                RelTex_Read(&c, &rp[set], mp, s_objTex[i]);
+                RelTex_Decode(&c, set);
+                if (c.ok && c.w == t[fmt].w && c.h == t[fmt].h) {   /* another copy of the art, not other art */
+                    free(t[set].rgba);
+                    t[set] = c;
+                    Port_Log("mix: %s: the ps2's %u, as its object shows (not %u)", id, (unsigned)s_objTex[i],
+                             (unsigned)setIdx);
+                    setIdx = s_objTex[i];
+                    s_stats.artByObject++;
+                } else {
+                    free(c.rgba);
+                }
             }
             pick = set != fmt && t[set].ok && t[set].w <= 0x200 && t[set].h <= 0x200 ? set : fmt;
             if (kind == PORT_IFACE_FONT && pick != PORT_DATA_PC && t[PORT_DATA_PC].ok &&
@@ -1466,6 +1568,8 @@ void PortMix_Textures(DataPack *pack, s32 fmt, u8 *base, u32 dataSize, u32 texOf
     free(nt);
     free(ui);
     free(taken);
+    free(s_objTex);
+    s_objTex = NULL;
 }
 
 /* ---- sound effects ------------------------------------------------------------------ */
@@ -1695,12 +1799,13 @@ void PortMix_LogStats(void) {
              (unsigned)s_stats.texConverted, (unsigned)s_stats.sfxFrom[0], (unsigned)s_stats.sfxFrom[1],
              (unsigned)s_stats.sfxFrom[PORT_MIX_PROTO], (unsigned)(s_stats.sfxKept + s_stats.sfxRejected),
              (unsigned)s_stats.sfxRejected);
-    Port_Log("mix: interface %s: art from gc %u, pc %u, ps2 %u (%u paired by shape; %u the base's own: the set has no "
+    Port_Log("mix: interface %s: art from gc %u, pc %u, ps2 %u (%u the paired PS2 object's, %u paired by shape; %u the base's own: the set has no "
              "copy); font pages "
              "from gc %u, pc %u, ps2 %u (%u with other glyphs on the PC); %u of them in packs other than interface "
              "packs; %u of them shown by other packs' interfaces (%u found)", Port_MixInterface() == PORT_DATA_PS2 ? "silver (ps2)" : "yellow (gc)",
              (unsigned)s_stats.artFrom[0], (unsigned)s_stats.artFrom[1], (unsigned)s_stats.artFrom[2],
-             (unsigned)s_stats.artByShape, (unsigned)s_stats.artFallback, (unsigned)s_stats.fontFrom[0], (unsigned)s_stats.fontFrom[1],
+             (unsigned)s_stats.artByObject, (unsigned)s_stats.artByShape, (unsigned)s_stats.artFallback,
+             (unsigned)s_stats.fontFrom[0], (unsigned)s_stats.fontFrom[1],
              (unsigned)s_stats.fontFrom[2], (unsigned)s_stats.fontOther, (unsigned)s_stats.uiElsewhere,
              (unsigned)s_stats.uiShared, (unsigned)s_numUiRefs);
 }
