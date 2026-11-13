@@ -8,7 +8,11 @@
  *                                   options, opened at world W
  *   HWVX_START=carselect[:mode=M][,car=N][,world=W]   M's car select
  *   HWVX_START=itemselect[:mode=M][,car=N][,item=I]   the item select
- *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I]  a race
+ *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I][,players=P]  a race;
+ *                                   P (1-4, default 1) local players on ports
+ *                                   1-P, all with car N and item I, as the
+ *                                   multi-player selects leave them (mpbattle,
+ *                                   mpdrag: split screen)
  *
  * M: adventure (or mission), challenge, drag, battle, joyride (default);
  * mpdrag and mpbattle, the multi-player progressions, for race only.
@@ -387,7 +391,7 @@ static int StartTitle(void *script) {
     const char *e = SDL_getenv("HWVX_START");
     char mode[16], world[64] = "0", modeName[16] = "joyride";
     const char *args;
-    s32 car = 0, item = 0, w, p;
+    s32 car = 0, item = 0, players = 1, w, p;
     Found f;
     size_t len, m;
 
@@ -409,6 +413,8 @@ static int StartTitle(void *script) {
         SDL_strlcpy(val, eq + 1, (size_t)(end - eq));
         if (SDL_strcmp(key, "car") == 0) {
             car = SDL_atoi(val);
+        } else if (SDL_strcmp(key, "players") == 0) {
+            players = SDL_clamp(SDL_atoi(val), 1, 4);
         } else if (SDL_strcmp(key, "item") == 0) {
             item = SDL_atoi(val);
         } else if (SDL_strcmp(key, "mode") == 0) {
@@ -493,8 +499,17 @@ static int StartTitle(void *script) {
         return 1;
     }
     if (SDL_strcmp(mode, "race") == 0) {
-        Port_Log("start: race, %s (progression %d) world %d, car %d item %d", modeName, (int)p, (int)w, (int)car,
-                 (int)item);
+        s32 port;
+
+        Port_Log("start: race, %s (progression %d) world %d, car %d item %d, %d player%s", modeName, (int)p, (int)w,
+                 (int)car, (int)item, (int)players, players == 1 ? "" : "s");
+        /* the other players as the split car select leaves them: a car, an
+         * item and ready (0xC9 = 3); the race counts the ports with a car */
+        for (port = 2; port <= players; port++) {
+            GameSettings_SetCodeVariable(0xCB, port, car);
+            GameSettings_SetCodeVariable(0xCC, port, item);
+            GameSettings_SetCodeVariable(0xC9, port, 3);
+        }
         s_raceOpening = 1;
         StateManager_QueueChange(0xB);
         return 1;
