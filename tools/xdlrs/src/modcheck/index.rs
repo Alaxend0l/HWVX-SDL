@@ -460,7 +460,7 @@ pub fn build_index(data: &[PathBuf], out: &Path, opt: &IndexOptions, root: &Path
         std::fs::create_dir_all(p).map_err(|e| ModError(e.to_string()))?;
     }
     let refs: Vec<(String, &[u8])> = arrays.iter().map(|(n, b)| (n.clone(), b.as_slice())).collect();
-    let z = zip::write_stored(&refs);
+    let z = zip::write_stored(&refs).map_err(|e| ModError(format!("{}: {e}", out.display())))?;
     std::fs::write(out, &z).map_err(|e| ModError(format!("{}: {e}", out.display())))?;
     let mut text = String::new();
     for n in notes.iter().take(20) {
@@ -520,7 +520,8 @@ impl Index {
         let mut arr: BTreeMap<String, zip::Npy> = BTreeMap::new();
         for (n, (o, l)) in &ents {
             if let Some(k) = n.strip_suffix(".npy") {
-                arr.insert(k.to_string(), zip::npy_parse(&z[*o..*o + *l]).map_err(bad)?);
+                let b = o.checked_add(*l).and_then(|e| z.get(*o..e)).ok_or_else(|| bad(format!("{n}: truncated")))?;
+                arr.insert(k.to_string(), zip::npy_parse(b).map_err(bad)?);
             }
         }
         let meta_a = arr.remove("meta").ok_or_else(|| bad("'meta is not a file in the archive'".into()))?;
@@ -540,12 +541,31 @@ impl Index {
             };
             tabs.insert(k.to_string(), (h, s));
         }
-        let dh = arr.get("dh").map(|a| a.data.chunks_exact(32).map(|c| c.try_into().unwrap()).collect()).unwrap_or_default();
+        let dh: Vec<[u8; 32]> = arr.get("dh").map(|a| a.data.chunks_exact(32).map(|c| c.try_into().unwrap()).collect()).unwrap_or_default();
         let dh_src = arr.get("dh_src").map(|a| zip::u32s(a)).transpose().map_err(bad)?.unwrap_or_default();
         let sfp = match (arr.get("sfp"), arr.get("sfp_frame"), arr.get("sfp_src")) {
             (Some(k), Some(f), Some(s)) => Some((zip::u16s(k).map_err(bad)?, zip::u32s(f).map_err(bad)?, zip::u32s(s).map_err(bad)?)),
             _ => None,
         };
+        // every source number in range and every table as long as its sources, so lookups by
+        // the file's values never index out of bounds
+        let n = sources.len();
+        let srcs_ok = |s: &[u32]| s.iter().all(|&i| (i as usize) < n);
+        for (k, (h, s)) in &tabs {
+            if let Some(s) = s
+                && (s.len() != h.len() || !srcs_ok(s))
+            {
+                return Err(bad(format!("{k}_src: {} sources for {} hashes, or one past the {n} sources", s.len(), h.len())));
+            }
+        }
+        if dh_src.len() != dh.len() || !srcs_ok(&dh_src) {
+            return Err(bad("dh_src: not one source per gradient hash".into()));
+        }
+        if let Some((k, f, s)) = &sfp
+            && (f.len() != k.len() || s.len() != k.len() || !srcs_ok(s))
+        {
+            return Err(bad("sfp: keys, frames and sources differ in length".into()));
+        }
         Ok(Index { meta, sources, tabs, dh, dh_src, sfp })
     }
 
@@ -592,6 +612,11 @@ impl Index {
             for p in lo..lo + cnt {
                 let src = ts[p] as i64;
                 let off = tf[p] as i64 - frames[q] as i64 + (1 << 20);
+                // the key holds the offset in 22 bits: one outside (a sound over 2^20 frames
+                // long) would run into the source's bits
+                if !(0..1 << 22).contains(&off) {
+                    continue;
+                }
                 pairs.push(((src << 22) | off, q));
             }
         }
@@ -635,5 +660,26 @@ impl Index {
             }
         }
         Some((best.0, self.sources[self.dh_src[best.1] as usize].clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_offsets_outside_the_key_are_skipped() {
+        // a base frame at 0 and a mod frame past 2^20: the offset went negative and the key
+        // (src << 22 | off) pointed at no source
+        let ix = Index {
+            meta: Value::Null,
+            sources: vec!["base://a.wav".into()],
+            tabs: BTreeMap::new(),
+            dh: vec![],
+            dh_src: vec![],
+            sfp: Some((vec![7, 7], vec![0, 5], vec![0, 0])),
+        };
+        assert_eq!(ix.sounds_like(&[7], &[1 << 21]), None);
+        assert_eq!(ix.sounds_like(&[7], &[3]).unwrap().2, "base://a.wav");
     }
 }

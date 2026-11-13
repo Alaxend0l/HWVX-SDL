@@ -25,7 +25,7 @@ pub mod zip;
 pub use index::{Index, IndexOptions, build_index};
 pub use manifest::Manifest;
 
-use blocks::{COARSE, FINE, window_hashes};
+use blocks::{COARSE, FINE, window_hashes_chunked};
 use hash::{h64, sha256_hex};
 use manifest::{AUDIO_EXT, res};
 use regex::Regex;
@@ -115,6 +115,12 @@ fn asset(src: &str) -> Option<String> {
     if src.contains(": base://") { src.split_once(": ").map(|x| x.1.to_string()) } else { None }
 }
 
+/// Port_Mods.c's SafeName (no '\', ':', leading '/', empty name or '..' part) and its ZipEntry
+/// name (under 256 bytes): a package entry the installer takes
+pub fn installer_name_ok(rel: &str) -> bool {
+    !rel.is_empty() && !rel.starts_with('/') && !rel.contains(['\\', ':']) && !rel.split('/').any(|p| p == "..") && rel.len() < 256
+}
+
 fn py_opt(s: &Option<String>) -> String {
     s.clone().unwrap_or_else(|| "None".into())
 }
@@ -127,7 +133,13 @@ fn check_bytes(index: &Index, rep: &mut Report, place: &str, data: &[u8], what: 
         return true;
     }
     for (table, b) in [("b32", FINE), ("b256", COARSE)] {
-        let (mut hit, mut srcs) = index.find(table, &window_hashes(data, b));
+        // hashed in chunks of 1M windows (8 MB), not 8 bytes per byte of the whole file at once
+        let (mut hit, mut srcs) = (vec![], vec![]);
+        window_hashes_chunked(data, b, 1 << 20, |start, hs| {
+            let (h, s) = index.find(table, hs);
+            hit.extend(h.into_iter().map(|o| o + start));
+            srcs.extend(s);
+        });
         if !hit.is_empty()
             && let Some(k) = keep
         {
@@ -180,7 +192,7 @@ fn int_of(v: Option<&Value>, d: i64) -> Result<i64, String> {
 }
 
 /// gltf_positions: every POSITION accessor's f32 x 3 of a .gltf / .glb
-fn gltf_positions(path: &Path, data: &[u8], folder: &Path) -> Result<Vec<[f32; 3]>, String> {
+pub fn gltf_positions(path: &Path, data: &[u8], folder: &Path) -> Result<Vec<[f32; 3]>, String> {
     let mut bins: BTreeMap<i64, Vec<u8>> = BTreeMap::new();
     let gl: Value = if manifest::py_suffix(&path.to_string_lossy()).to_lowercase() == ".glb" {
         if data.len() < 20 || &data[..4] != b"glTF" {
@@ -233,22 +245,33 @@ fn gltf_positions(path: &Path, data: &[u8], folder: &Path) -> Result<Vec<[f32; 3
             let bv = views.get(bvi).ok_or("list index out of range")?;
             let bi = int_of(bv.get("buffer"), 0)?;
             let buf = bins.get(&bi).unwrap_or(&empty);
-            let o = int_of(bv.get("byteOffset"), 0)? + int_of(a.get("byteOffset"), 0)?;
+            let o = int_of(bv.get("byteOffset"), 0)?.checked_add(int_of(a.get("byteOffset"), 0)?);
             let stride = int_of(bv.get("byteStride"), 12)?;
             let count = int_of(a.get("count"), -1).map_err(|_| "'count'".to_string())?;
             if a.get("count").is_none() {
                 return Err("'count'".into());
             }
-            let raw: Vec<u8> = if stride != 12 {
-                (0..count.max(0)).flat_map(|k| pyslice(buf, o + k * stride, o + k * stride + 12).to_vec()).collect()
-            } else {
-                pyslice(buf, o, o + 12 * count).to_vec()
-            };
-            if raw.len() as i64 == 12 * count {
-                for c in raw.chunks_exact(12) {
-                    let f = |i: usize| f32::from_le_bytes(c[i..i + 4].try_into().unwrap());
-                    out.push([f(0), f(4), f(8)]);
-                }
+            // the accessor must lie inside its buffer: a byteStride of 0 (tight) once repeated
+            // one 12-byte slice `count` times (gigabytes from a tiny file). Python's xdl_mod
+            // skipped a short accessor; this refuses it.
+            let stride = if stride == 0 { 12 } else { stride };
+            let bad = |why: &str| format!("accessor {ai}: {why}");
+            let o = o.filter(|&o| o >= 0).ok_or_else(|| bad("negative or huge byteOffset"))?;
+            if count < 0 {
+                return Err(bad("negative count"));
+            }
+            if stride < 12 {
+                return Err(bad(&format!("byteStride {stride} is under 12")));
+            }
+            let span = if count == 0 { Some(0) } else { (count - 1).checked_mul(stride).and_then(|s| s.checked_add(12)) };
+            match span.and_then(|s| s.checked_add(o)) {
+                Some(end) if end <= buf.len() as i64 => {}
+                _ => return Err(bad(&format!("{count} positions at offset {o}, stride {stride} run past its {}-byte buffer", buf.len()))),
+            }
+            for k in 0..count {
+                let c = &buf[(o + k * stride) as usize..][..12];
+                let f = |i: usize| f32::from_le_bytes(c[i..i + 4].try_into().unwrap());
+                out.push([f(0), f(4), f(8)]);
             }
         }
     }
@@ -494,6 +517,11 @@ fn check_mod(folder: &Path, index: &Index, strip: bool, root: &Path) -> Result<(
         let rel = parts.join("/");
         if parts.iter().any(|x| x.starts_with('.')) {
             rep.notes.push(format!("{rel}: hidden, left out"));
+            continue;
+        }
+        // the installer's SafeName (Port_Mods.c) and its 255-byte names: a package it would refuse
+        if !installer_name_ok(&rel) {
+            rep.refuse(&rel, "a name the game's installer refuses ('\\', ':', a '..' part, or 256 bytes or longer); rename it", None);
             continue;
         }
         if std::fs::symlink_metadata(&p).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
@@ -767,7 +795,7 @@ fn run_check(mod_dir: &Path, index_path: &Path, out: Option<&Path>, opt: &Option
             entries.push((n.clone(), d.as_slice()));
         }
     }
-    let z = zip::write_stored(&entries);
+    let z = zip::write_stored(&entries).map_err(|e| ModError(format!("{}: {e}", py_path(&out.to_string_lossy()))))?;
     if let Some(p) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(p).map_err(|e| ModError(e.to_string()))?;
     }

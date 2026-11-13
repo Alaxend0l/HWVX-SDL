@@ -168,9 +168,22 @@ pub fn dhash(img: &Rgba) -> Option<[u8; 32]> {
     Some(out)
 }
 
+/// The most pixels a mod's PNG may have: 16 MP, four times the largest texture the game
+/// loads (PORT_MAX_TEX_SIZE 2048 x 2048).
+pub const MAX_PIXELS: u64 = 4096 * 4096;
+
 /// read_png: RGBA as Pillow gives it (`Image.open(p).convert("RGBA")`, palette PNGs through
 /// their palette and tRNS). Only PNG: Pillow would open other formats too (a JPEG named .png).
 pub fn read_png(data: &[u8]) -> Result<Rgba, String> {
+    // refuse a huge image from its header, before the decoder allocates anything: a tiny 1-bit
+    // PNG can claim 16384 x 16384 pixels (the png crate's limit caps only the packed rows)
+    if data.len() >= 24 && &data[..8] == b"\x89PNG\r\n\x1a\n" && &data[12..16] == b"IHDR" {
+        let w = u32::from_be_bytes(data[16..20].try_into().unwrap()) as u64;
+        let h = u32::from_be_bytes(data[20..24].try_into().unwrap()) as u64;
+        if w * h > MAX_PIXELS {
+            return Err(format!("image file is too large ({w} x {h} pixels; the limit is {MAX_PIXELS})"));
+        }
+    }
     let mut dec = png::Decoder::new(std::io::Cursor::new(data));
     dec.set_transformations(png::Transformations::IDENTITY);
     dec.ignore_checksums(false);

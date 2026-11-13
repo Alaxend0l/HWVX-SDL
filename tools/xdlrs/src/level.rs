@@ -336,7 +336,9 @@ pub fn base_steps(env: &Env, path: &str, wh: &str) -> Result<Value> {
             let Some(isz) = item_size else {
                 return Err(lerr(format!("{wh}: {path}: {seg}: not an array here")));
             };
-            steps.push(('a', seg.parse::<i128>().unwrap_or(0) * isz));
+            // checked: a huge index is a level error, not an overflow
+            let k = seg.parse::<i128>().ok().and_then(|k| k.checked_mul(isz));
+            steps.push(('a', k.ok_or_else(|| lerr(format!("{wh}: {path}: {seg}: an index out of range")))?));
             cur = item.take();
             item_size = None;
         } else if *seg == "to" {
@@ -382,7 +384,8 @@ pub fn base_steps(env: &Env, path: &str, wh: &str) -> Result<Value> {
     let mut out: Vec<(char, i128)> = vec![];
     for st in steps {
         if st.0 == 'a' && out.last().is_some_and(|l| l.0 == 'a') {
-            out.last_mut().unwrap().1 += st.1;
+            let l = out.last_mut().unwrap();
+            l.1 = l.1.checked_add(st.1).ok_or_else(|| lerr(format!("{wh}: {path}: an offset out of range")))?;
         } else if !(st.0 == 'a' && st.1 == 0) {
             out.push(st);
         }
@@ -1539,6 +1542,11 @@ impl<'e> Compiler<'e> {
         let mut docs: Vec<(String, Value)> = vec![];
         for name in names {
             let name = s(&name);
+            // the name is a file stem: never a path out of triggers/
+            if let Err(e) = check_trigger_name(&name) {
+                self.err(wh, format!("triggers: {e}"));
+                continue;
+            }
             let f = tdir.join(format!("{name}.jsonc"));
             if !f.exists() {
                 self.err(wh, format!("triggers: {name}: no triggers/{name}.jsonc"));
@@ -1689,6 +1697,17 @@ fn splice(buf: &mut Vec<u8>, o: usize, b: &[u8]) {
         return;
     }
     buf.splice(lo..hi, b.iter().copied());
+}
+
+/// A trigger's name is its file's stem (triggers/NAME.jsonc): letters, digits, '_' and '-'
+/// only, so a name from level.jsonc never reaches outside triggers/ (no '/', '\', '..', ':',
+/// nothing empty or absolute). Shared with the browser's level editor.
+pub fn check_trigger_name(name: &str) -> std::result::Result<(), String> {
+    if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        Ok(())
+    } else {
+        Err(format!("{}: not a trigger name (letters, digits, '_' and '-' only)", py::str_repr(name)))
+    }
 }
 
 /// sorted(p.stem for p in tdir.glob("*.jsonc"))
@@ -2320,6 +2339,23 @@ pub fn start_mode(mode: &str) -> &str {
     }
 }
 
+/// HWVX_START for a test drive: race:mode=M,world=ID[,car=N]. The game splits it at ',' and
+/// '=', so the mode and id must be the compiler's own (a mode of MODES, a uid:// id), never
+/// text that could add a key of its own; the compile refuses others, and this checks again.
+pub fn start_string(mode: &str, id: &str, car: Option<i64>) -> Result<String> {
+    if !MODES.iter().any(|m| m.0 == mode) {
+        return Err(lerr(format!("level.jsonc: mode: {}: not a mode", py::str_repr(mode))));
+    }
+    if !rx!(r"^uid://[0-9a-z]{1,13}$").is_match(id) {
+        return Err(lerr(format!("level.jsonc: id: {}: uid:// and 1 to 13 of 0-9 a-z", py::str_repr(id))));
+    }
+    let mut start = format!("race:mode={},world={id}", start_mode(mode));
+    if let Some(c) = car {
+        start += &format!(",car={c}");
+    }
+    Ok(start)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DriveOpts {
     pub car: Option<i64>,
@@ -2390,10 +2426,7 @@ pub fn testdrive(env: &Env, proj: &Path, scratch: &Path, o: &DriveOpts) -> Resul
         if std::fs::read_to_string(&mj).ok().as_deref() != Some(text.as_str()) {
             graph::write_text(&mj, &text)?;
         }
-        let mut start = format!("race:mode={},world={}", start_mode(&s(&lv["mode"])), s(&lv["id"]));
-        if let Some(c) = o.car {
-            start += &format!(",car={c}");
-        }
+        let start = start_string(&s(&lv["mode"]), &s(&lv["id"]), o.car)?;
         let level = mod_dir.join("level.json");
         let mut products = vec![json!({"kind": "level", "path": level.display().to_string(), "cached": cached})];
         if let Some(p) = &pack {
@@ -2524,6 +2557,42 @@ mod tests {
         assert_eq!((r[1].file.as_str(), r[1].path.as_str()), ("triggers/cp1.jsonc", "param"));
         assert_eq!(r[2].path, "volumes/cp1/radious");
         assert_eq!((r[3].path.as_str(), r[3].message.as_str()), ("", "id: missing (a string)"));
+    }
+
+    #[test]
+    fn trigger_names() {
+        for ok in ["cp1", "Gate_2", "rules", "a-b"] {
+            assert!(check_trigger_name(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "a/b", "../x", "..", "/abs", "a\\b", "c:x", "a.b", "a b", "\u{e9}"] {
+            assert!(check_trigger_name(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn base_step_overflow_is_a_level_error() {
+        let env = Env::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path()).unwrap();
+        let st = |p: &str| base_steps(&env, p, "level.jsonc/x");
+        assert_eq!(st("World/0/quads/2/o4").unwrap()["steps"], json!([["p", 0x24], ["a", 164]]));
+        for p in [
+            "World/0/quads/170141183460469231731687303715884105727",   // i128::MAX * 80
+            "World/0/quads/99999999999999999999999999999999999999999", // past i128
+            &format!("World/0/quads/{}/offffffff", i128::MAX / 80),     // the sum
+        ] {
+            let e = st(p).unwrap_err();
+            assert_eq!(e.kind, Kind::Level, "{p}: {}", e.msg);
+            assert!(e.msg.contains("out of range"), "{}", e.msg);
+        }
+    }
+
+    #[test]
+    fn test_drive_start_string() {
+        assert_eq!(start_string("adventure", "uid://abc123", Some(3)).unwrap(), "race:mode=mission,world=uid://abc123,car=3");
+        assert_eq!(start_string("joyride", "uid://a", None).unwrap(), "race:mode=joyride,world=uid://a");
+        for (m, id) in [("joyride,car=9", "uid://a"), ("joyride=x", "uid://a"), ("joyride", "uid://a,car=9"), ("joyride", "uid://a=b"), ("joyride", "")] {
+            let e = start_string(m, id, None);
+            assert!(e.is_err(), "{m} {id}");
+        }
     }
 
     #[test]

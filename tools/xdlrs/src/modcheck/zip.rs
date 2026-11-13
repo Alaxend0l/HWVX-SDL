@@ -6,13 +6,22 @@ use super::hash::crc32;
 use std::collections::BTreeMap;
 
 /// zipfile.ZipFile(path, "w", ZIP_STORED) with ZipInfo(name, (1980, 1, 1, 0, 0, 0)),
-/// external_attr 0o644 << 16, written in the given order.
-pub fn write_stored(entries: &[(String, &[u8])]) -> Vec<u8> {
+/// external_attr 0o644 << 16, written in the given order. Past what fits without zip64 (where
+/// Python's zipfile switches to zip64: an entry over ZIP64_LIMIT / 1.05, an offset or the
+/// central directory over ZIP64_LIMIT, 0xFFFF entries or more) it is an error, so every file
+/// written is the bytes Python writes.
+pub fn write_stored(entries: &[(String, &[u8])]) -> Result<Vec<u8>, String> {
+    if entries.len() >= 0xFFFF {
+        return Err(format!("{} files: a package holds at most {}", entries.len(), 0xFFFF - 1));
+    }
     let mut out = vec![];
     let mut central = vec![];
     let (dosdate, dostime) = ((1u16 << 5) | 1, 0u16); // 1980-01-01 00:00:00
     for (name, data) in entries {
         let flag: u16 = if name.is_ascii() { 0 } else { 0x800 };
+        if zip64_size(data.len() as u64) || out.len() as u64 > ZIP64_LIMIT || name.len() > 0xFFFF {
+            return Err(format!("{name}: too large for a package ({} bytes at offset {})", data.len(), out.len()));
+        }
         let crc = crc32(data);
         let off = out.len() as u32;
         let n = name.as_bytes();
@@ -43,6 +52,9 @@ pub fn write_stored(entries: &[(String, &[u8])]) -> Vec<u8> {
         central.extend_from_slice(&off.to_le_bytes());
         central.extend_from_slice(n);
     }
+    if out.len() as u64 > ZIP64_LIMIT || central.len() as u64 > ZIP64_LIMIT {
+        return Err(format!("a package of {} bytes is too large", out.len() + central.len()));
+    }
     let cd_off = out.len() as u32;
     out.extend_from_slice(&central);
     out.extend_from_slice(b"PK\x05\x06");
@@ -53,7 +65,16 @@ pub fn write_stored(entries: &[(String, &[u8])]) -> Vec<u8> {
     out.extend_from_slice(&(central.len() as u32).to_le_bytes());
     out.extend_from_slice(&cd_off.to_le_bytes());
     out.extend_from_slice(&0u16.to_le_bytes());
-    out
+    Ok(out)
+}
+
+/// zipfile.ZIP64_LIMIT
+const ZIP64_LIMIT: u64 = (1 << 31) - 1;
+
+/// where Python's zipfile writes an entry with zip64 extras: its size (x 1.05, as
+/// ZipFile._open_to_write guesses) past ZIP64_LIMIT
+fn zip64_size(n: u64) -> bool {
+    n as f64 * 1.05 > ZIP64_LIMIT as f64
 }
 
 fn le16(b: &[u8], o: usize) -> Result<usize, String> {
@@ -72,15 +93,20 @@ pub fn read_stored(z: &[u8]) -> Result<BTreeMap<String, (usize, usize)>, String>
     let mut count = le16(z, eocd + 10)? as u64;
     let mut cd = le32(z, eocd + 16)?;
     if (count == 0xFFFF || cd == 0xFFFF_FFFF) && eocd >= 20 && &z[eocd - 20..eocd - 16] == b"PK\x06\x07" {
-        let r = le64(z, eocd - 12)? as usize;
-        if z.get(r..r + 4) == Some(b"PK\x06\x06") {
+        // (positions read from the file are checked against its size before any sum)
+        let r = usize::try_from(le64(z, eocd - 12)?).unwrap_or(usize::MAX);
+        if r <= z.len() && z.get(r..r + 4) == Some(b"PK\x06\x06") {
             count = le64(z, r + 32)?;
             cd = le64(z, r + 48)?;
         }
     }
     let mut out = BTreeMap::new();
-    let mut p = cd as usize;
+    let mut p = usize::try_from(cd).unwrap_or(usize::MAX);
     for _ in 0..count {
+        // p stays within the file (each step adds at most 3 x 0xFFFF + 46), so p + n can't wrap
+        if p > z.len() {
+            return Err("bad central directory".into());
+        }
         if z.get(p..p + 4) != Some(b"PK\x01\x02") {
             return Err("bad central directory".into());
         }
@@ -114,12 +140,12 @@ pub fn read_stored(z: &[u8]) -> Result<BTreeMap<String, (usize, usize)>, String>
         if method != 0 {
             return Err(format!("{name}: compressed (a package's entries are stored)"));
         }
-        let lo = off as usize;
-        if z.get(lo..lo + 4) != Some(b"PK\x03\x04") {
+        let lo = usize::try_from(off).unwrap_or(usize::MAX);
+        if lo > z.len() || z.get(lo..lo + 4) != Some(b"PK\x03\x04") {
             return Err("bad local header".into());
         }
         let data = lo + 30 + le16(z, lo + 26)? + le16(z, lo + 28)?;
-        if data + usize_ as usize > z.len() {
+        if usize::try_from(usize_).ok().and_then(|n| data.checked_add(n)).is_none_or(|e| e > z.len()) {
             return Err("truncated".into());
         }
         let _ = csize;
@@ -198,8 +224,29 @@ mod tests {
         assert_eq!(b.len() % 64, 16);
         let n = super::npy_parse(&b).unwrap();
         assert_eq!(super::u64s(&n).unwrap(), vec![1, 2]);
-        let z = super::write_stored(&[("a.npy".into(), &b[..])]);
+        let z = super::write_stored(&[("a.npy".into(), &b[..])]).unwrap();
         let e = super::read_stored(&z).unwrap();
         assert_eq!(&z[e["a.npy"].0..e["a.npy"].0 + e["a.npy"].1], &b[..]);
+    }
+}
+
+#[cfg(test)]
+mod limits {
+    use super::*;
+
+    #[test]
+    fn past_the_zip_limits_is_an_error() {
+        // 0xFFFE entries fit; 0xFFFF would need zip64's end record (the count was cut to u16)
+        let names: Vec<String> = (0..0xFFFF).map(|i| format!("{i}")).collect();
+        let e: Vec<(String, &[u8])> = names.iter().map(|n| (n.clone(), &b""[..])).collect();
+        let z = write_stored(&e[..0xFFFE]).unwrap();
+        assert_eq!(read_stored(&z).unwrap().len(), 0xFFFE);
+        assert!(write_stored(&e).unwrap_err().contains("at most"));
+        // sizes: where Python's zipfile goes zip64
+        assert!(!zip64_size(2_000_000_000));
+        assert!(zip64_size(2_100_000_000));
+        assert!(zip64_size(u32::MAX as u64 + 1));
+        let long = "n".repeat(0x10000);
+        assert!(write_stored(&[(long, &b""[..])]).unwrap_err().contains("too large"));
     }
 }

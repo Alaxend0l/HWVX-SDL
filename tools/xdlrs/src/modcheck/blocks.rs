@@ -81,6 +81,22 @@ pub fn window_hashes(buf: &[u8], b: usize) -> Vec<u64> {
     out
 }
 
+/// window_hashes in pieces of at most `chunk` windows: f(first window's offset, its hashes), so
+/// a big buffer never needs 8 bytes per byte at once.
+pub fn window_hashes_chunked(buf: &[u8], b: usize, chunk: usize, mut f: impl FnMut(usize, &[u64])) {
+    let n = buf.len();
+    if n < b {
+        return;
+    }
+    let windows = n - b + 1;
+    let mut start = 0;
+    while start < windows {
+        let end = (start + chunk.max(1)).min(windows);
+        f(start, &window_hashes(&buf[start..end + b - 1], b));
+        start = end;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +114,20 @@ mod tests {
         assert!(trivial(&[5u8; 32], 12));
         let ramp: Vec<u8> = (0..32).collect();
         assert!(trivial(&ramp, 12));
+    }
+
+    #[test]
+    fn chunked_windows_match() {
+        let buf: Vec<u8> = (0..1000u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+        for b in [FINE, COARSE] {
+            let whole = window_hashes(&buf, b);
+            let mut got = vec![];
+            window_hashes_chunked(&buf, b, 7, |start, hs| {
+                assert_eq!(start, got.len());
+                got.extend_from_slice(hs);
+            });
+            assert_eq!(got, whole);
+        }
+        window_hashes_chunked(&buf[..10], FINE, 7, |_, _| panic!("no windows"));
     }
 }
