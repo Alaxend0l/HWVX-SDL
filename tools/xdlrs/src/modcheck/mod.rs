@@ -186,7 +186,7 @@ fn int_of(v: Option<&Value>, d: i64) -> Result<i64, String> {
 }
 
 /// gltf_positions: every POSITION accessor's f32 x 3 of a .gltf / .glb
-fn gltf_positions(path: &Path, data: &[u8], folder: &Path) -> Result<Vec<[f32; 3]>, String> {
+pub fn gltf_positions(path: &Path, data: &[u8], folder: &Path) -> Result<Vec<[f32; 3]>, String> {
     let mut bins: BTreeMap<i64, Vec<u8>> = BTreeMap::new();
     let gl: Value = if manifest::py_suffix(&path.to_string_lossy()).to_lowercase() == ".glb" {
         if data.len() < 20 || &data[..4] != b"glTF" {
@@ -239,22 +239,33 @@ fn gltf_positions(path: &Path, data: &[u8], folder: &Path) -> Result<Vec<[f32; 3
             let bv = views.get(bvi).ok_or("list index out of range")?;
             let bi = int_of(bv.get("buffer"), 0)?;
             let buf = bins.get(&bi).unwrap_or(&empty);
-            let o = int_of(bv.get("byteOffset"), 0)? + int_of(a.get("byteOffset"), 0)?;
+            let o = int_of(bv.get("byteOffset"), 0)?.checked_add(int_of(a.get("byteOffset"), 0)?);
             let stride = int_of(bv.get("byteStride"), 12)?;
             let count = int_of(a.get("count"), -1).map_err(|_| "'count'".to_string())?;
             if a.get("count").is_none() {
                 return Err("'count'".into());
             }
-            let raw: Vec<u8> = if stride != 12 {
-                (0..count.max(0)).flat_map(|k| pyslice(buf, o + k * stride, o + k * stride + 12).to_vec()).collect()
-            } else {
-                pyslice(buf, o, o + 12 * count).to_vec()
-            };
-            if raw.len() as i64 == 12 * count {
-                for c in raw.chunks_exact(12) {
-                    let f = |i: usize| f32::from_le_bytes(c[i..i + 4].try_into().unwrap());
-                    out.push([f(0), f(4), f(8)]);
-                }
+            // the accessor must lie inside its buffer: a byteStride of 0 (tight) once repeated
+            // one 12-byte slice `count` times (gigabytes from a tiny file). Python's xdl_mod
+            // skipped a short accessor; this refuses it.
+            let stride = if stride == 0 { 12 } else { stride };
+            let bad = |why: &str| format!("accessor {ai}: {why}");
+            let o = o.filter(|&o| o >= 0).ok_or_else(|| bad("negative or huge byteOffset"))?;
+            if count < 0 {
+                return Err(bad("negative count"));
+            }
+            if stride < 12 {
+                return Err(bad(&format!("byteStride {stride} is under 12")));
+            }
+            let span = if count == 0 { Some(0) } else { (count - 1).checked_mul(stride).and_then(|s| s.checked_add(12)) };
+            match span.and_then(|s| s.checked_add(o)) {
+                Some(end) if end <= buf.len() as i64 => {}
+                _ => return Err(bad(&format!("{count} positions at offset {o}, stride {stride} run past its {}-byte buffer", buf.len()))),
+            }
+            for k in 0..count {
+                let c = &buf[(o + k * stride) as usize..][..12];
+                let f = |i: usize| f32::from_le_bytes(c[i..i + 4].try_into().unwrap());
+                out.push([f(0), f(4), f(8)]);
             }
         }
     }

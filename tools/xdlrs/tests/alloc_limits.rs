@@ -59,3 +59,36 @@ fn huge_png_refused_before_decoding() {
     assert!(e.contains("too large"), "{e}");
     assert!(big < MB, "allocated {big} bytes");
 }
+
+fn gltf(count: i64, stride: i64, offset: i64) -> String {
+    // one buffer of 12 bytes (1.0, 2.0, 3.0) as a data URI
+    format!(
+        r#"{{"buffers":[{{"uri":"data:application/octet-stream;base64,AACAPwAAAEAAAEBA","byteLength":12}}],
+        "bufferViews":[{{"buffer":0,"byteOffset":0,"byteStride":{stride}}}],
+        "accessors":[{{"bufferView":0,"byteOffset":{offset},"componentType":5126,"type":"VEC3","count":{count}}}],
+        "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}}}}]}}]}}"#
+    )
+}
+
+#[test]
+fn gltf_accessor_past_buffer_refused() {
+    use std::path::Path;
+    let p = Path::new("m.gltf");
+    let run = |c: i64, s: i64, o: i64| xdlrs::modcheck::gltf_positions(p, gltf(c, s, o).as_bytes(), Path::new("."));
+    // tight (0 and 12) and in range
+    assert_eq!(run(1, 0, 0).unwrap(), vec![[1.0, 2.0, 3.0]]);
+    assert_eq!(run(1, 12, 0).unwrap(), vec![[1.0, 2.0, 3.0]]);
+    assert_eq!(run(0, 12, 12).unwrap(), Vec::<[f32; 3]>::new());
+    // byteStride 0 once repeated the 12 bytes `count` times: 3 GB
+    let (r, big) = biggest(|| run(250_000_000, 0, 0));
+    assert!(r.unwrap_err().contains("past its 12-byte buffer"));
+    assert!(big < MB, "allocated {big} bytes");
+    let (r, big) = biggest(|| run(250_000_000, 4, 0));
+    assert!(r.unwrap_err().contains("under 12"));
+    assert!(big < MB, "allocated {big} bytes");
+    assert!(run(1, 12, 4).unwrap_err().contains("past"));
+    assert!(run(1, 12, -4).unwrap_err().contains("negative"));
+    assert!(run(-1, 12, 0).unwrap_err().contains("negative count"));
+    assert!(run(i64::MAX, 16, 0).unwrap_err().contains("past"));
+    assert!(run(1, 12, i64::MAX).unwrap_err().contains("past"));
+}
