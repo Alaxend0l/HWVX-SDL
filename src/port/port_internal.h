@@ -88,6 +88,10 @@ typedef struct PortMixInfo {
     int releases;
 } PortMixInfo;
 int Port_MixProbe(const char *nameOrPath, Port_DataCheck check, PortMixInfo *info, char *err, u32 errSize);
+/* sources.cfg "interface=" (the launcher's and mix.c's one reading): "ps2"
+ * PORT_DATA_PS2 (silver), anything else PORT_DATA_GC (yellow); spaces
+ * around it and case don't matter. `log`: a value that is neither is logged. */
+int Port_MixInterfaceSetting(const char *value, int log);
 /* launcher.c: the recipe the player chose to play (the Play page's "Mixed
  * game"), or NULL: a release. */
 const char *Port_LauncherMix(void);

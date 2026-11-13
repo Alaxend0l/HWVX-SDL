@@ -947,6 +947,9 @@ static u32 HdrSig(const PortIfaceScan *s, u32 h) {
     const InterfaceHeader *hdr = (const InterfaceHeader *)(s->base + h);
     u32 objs = Port_IfaceTo(s, h + 0x10), sig = 2166136261u, i;
 
+    if (objs == ~0u || hdr->numObjects > 0x10000 || !InBlobOf(s, objs, hdr->numObjects * 0x6C)) {
+        return 0;   /* objects outside the blob: no shape (pairs only with another such) */
+    }
     for (i = 0; i <= hdr->numObjects; i++) {
         u32 v = i < hdr->numObjects ? s->base[objs + i * 0x6C + 1] : 0x100 + hdr->numObjects;
 
@@ -1136,7 +1139,8 @@ static u32 PairObjects(IfaceSide *b, u32 hb, IfaceSide *p, u32 hp) {
     u16 *t;
     u32 sb[200], sp[200];
 
-    if (ob == ~0u || op == ~0u || nb > 200 || np > 200 || (t = calloc((size_t)(nb + 1) * W, 2)) == NULL) {
+    if (ob == ~0u || op == ~0u || nb > 200 || np > 200 || !InBlobOf(&b->scan, ob, nb * 0x6C) ||
+        !InBlobOf(&p->scan, op, np * 0x6C) || (t = calloc((size_t)(nb + 1) * W, 2)) == NULL) {
         return 0;
     }
     for (i = 0; i < nb; i++) {
@@ -1267,12 +1271,16 @@ static void MixIfaceColours(MixPack *mp, u8 *base, u32 dataSize, const u32 *poin
             }
             if (sb[i] == sp[j]) {
                 const InterfaceHeader *hb = (const InterfaceHeader *)(b.base + b.hdrs[i]);
+                const InterfaceHeader *hp = (const InterfaceHeader *)(p.base + p.hdrs[j]);
                 u32 ob = Port_IfaceTo(&b.scan, b.hdrs[i] + 0x10), op = Port_IfaceTo(&p.scan, p.hdrs[j] + 0x10), k;
+                /* an equal signature is a hash: the counts compared, both object arrays in their blobs */
+                int same = hb->numObjects == hp->numObjects && ob != ~0u && op != ~0u &&
+                           InBlobOf(&b.scan, ob, hb->numObjects * 0x6C) && InBlobOf(&p.scan, op, hp->numObjects * 0x6C);
 
-                for (k = 0; ob != ~0u && op != ~0u && k < hb->numObjects; k++) {
+                for (k = 0; same && k < hb->numObjects; k++) {
                     CopyObjectColours(&b, ob + k * 0x6C, &p, op + k * 0x6C);
                 }
-                pairs++;
+                pairs += (u32)same;
                 i++;
                 j++;
             } else if (lcs[(i + 1) * W + j] >= lcs[i * W + j + 1]) {

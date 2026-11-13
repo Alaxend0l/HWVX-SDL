@@ -282,6 +282,26 @@ static char *SourceLine(const char *key) {
     return found;
 }
 
+int Port_MixInterfaceSetting(const char *value, int log) {
+    size_t n;
+
+    while (value != NULL && SDL_isspace((unsigned char)*value)) {
+        value++;
+    }
+    n = value != NULL ? SDL_strlen(value) : 0;
+    while (n > 0 && SDL_isspace((unsigned char)value[n - 1])) {
+        n--;
+    }
+    if (n == 3 && SDL_strncasecmp(value, "ps2", 3) == 0) {
+        return PORT_DATA_PS2;
+    }
+    if (log && !(n == 2 && SDL_strncasecmp(value, "gc", 2) == 0)) {
+        Port_Log("mix: sources.cfg interface=%.*s is neither gc nor ps2: the yellow (GameCube) set", (int)n,
+                 value != NULL ? value : "");
+    }
+    return PORT_DATA_GC;
+}
+
 static char *CacheFolder(const char *cacheName);
 
 static u32 Fnv(u32 h, const void *p, size_t n) {
@@ -395,9 +415,13 @@ int Port_MixSetup(const char *nameOrPath, int building, Port_DataCheck check, ch
     {
         /* the interface art's set; the built-in recipe's is the launcher's choice (sources.cfg "interface=") */
         char *chosen = builtIn ? SourceLine("interface") : NULL;
-        const char *set = chosen != NULL ? chosen : Json_GetString(root, "interface", "gc");
+        const char *set = Json_GetString(root, "interface", "gc");
 
-        s_mix.iface = SDL_strcasecmp(set, "ps2") == 0 ? PORT_DATA_PS2 : SDL_strcasecmp(set, "gc") == 0 ? PORT_DATA_GC : -1;
+        if (chosen != NULL) {   /* the launcher's choice: read as the launcher reads it */
+            s_mix.iface = Port_MixInterfaceSetting(chosen, 1);
+        } else {
+            s_mix.iface = SDL_strcasecmp(set, "ps2") == 0 ? PORT_DATA_PS2 : SDL_strcasecmp(set, "gc") == 0 ? PORT_DATA_GC : -1;
+        }
         SDL_free(chosen);
         if (s_mix.iface < 0) {
             SDL_snprintf(err, errSize, "the recipe %s: \"interface\" is \"gc\" (yellow) or \"ps2\" (silver)", nameOrPath);
