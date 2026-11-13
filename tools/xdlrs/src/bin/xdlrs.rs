@@ -32,6 +32,9 @@
 //!   xdlrs audio level DUMP.f32 --lr [--window S] [--from S]
 //!                                        its left and right RMS per window (stereo.rs)
 //!   xdlrs audio pan                      the releases' pan laws: speaker dB per source position (stereo.rs)
+//!   xdlrs prompts inventory DATA... [--seed KIND:REL:FILE/PACK:INDEX]... [--png DIR] [--threshold D] [--all]
+//!                                        button atlases and pad pictures, the interface objects that
+//!                                        show them, their cells (prompts.rs; docs-pending/prompts-inventory.md)
 //!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
 //!                                        two frame dumps side by side (tools/mix_pair_shots.sh)
 //!
@@ -1026,6 +1029,9 @@ fn main() -> ExitCode {
     if argv.first().map(String::as_str) == Some("mix") {
         return mix_main(&argv[1..]);
     }
+    if argv.first().map(String::as_str) == Some("prompts") {
+        return prompts_main(&argv[1..]);
+    }
     if argv.first().map(String::as_str) == Some("audio") {
         return audio_main(&argv[1..]);
     }
@@ -1270,4 +1276,77 @@ fn audio_main(argv: &[String]) -> ExitCode {
         println!("{t:7.1}s {total:7.1} {:8.1} {:7.1} {:7.1}", b[0], b[1], b[2]);
     }
     ExitCode::SUCCESS
+}
+
+
+// ---- prompts: the button prompts' inventory ----------------------------------------------
+
+/// The default seeds: each release's button atlas (the PC's: keycaps), the GameCube's and the PS2's pad
+/// picture (HW_IPack; docs-pending/prompts-inventory.md). The PC's controller page has none.
+const PROMPT_SEEDS: [&str; 6] = [
+    "atlas:gc:hw_ipack/interface_3:24",
+    "pad:gc:hw_ipack/interface_6:124",
+    "atlas:pc:hw_ipack/interface_3:24",
+    "atlas:ps2:hw_ipack/interface_3:24",
+    "pad:ps2:hw_ipack/interface_6:125",
+    "pad-overlay:ps2:hw_ipack/interface_6:126",
+];
+
+fn prompts_main(argv: &[String]) -> ExitCode {
+    let mut dirs = vec![];
+    let mut seeds = vec![];
+    let mut png = None;
+    let mut threshold = 24.0;
+    let mut all = false;
+    let mut i = 1;
+    let usage = || {
+        eprintln!("usage: xdlrs prompts inventory DATA... [--seed KIND:REL:FILE/PACK:INDEX]... [--png DIR] [--threshold D] [--all]");
+        ExitCode::from(2)
+    };
+    if argv.first().map(String::as_str) != Some("inventory") {
+        return usage();
+    }
+    while i < argv.len() {
+        let x = argv[i].as_str();
+        let next = argv.get(i + 1).cloned();
+        match x {
+            "--all" => all = true,
+            "--seed" | "--png" | "--threshold" => {
+                let Some(v) = next else { return usage() };
+                match x {
+                    "--seed" => seeds.push(v),
+                    "--png" => png = Some(PathBuf::from(v)),
+                    _ => threshold = v.parse().unwrap_or(threshold),
+                }
+                i += 1;
+            }
+            _ => dirs.push(PathBuf::from(x)),
+        }
+        i += 1;
+    }
+    if dirs.is_empty() {
+        return usage();
+    }
+    if seeds.is_empty() {
+        seeds = PROMPT_SEEDS.iter().map(|s| s.to_string()).collect();
+    }
+    let mut sv = vec![];
+    for s in &seeds {
+        let mut p = s.splitn(3, ':');
+        match (p.next(), p.next(), p.next()) {
+            (Some(k), Some(r), Some(key)) => sv.push((k.to_string(), r.to_string(), key.to_string())),
+            _ => return usage(),
+        }
+    }
+    let opt = xdlrs::prompts::Options { dirs, seeds: sv, png, threshold, all };
+    match xdlrs::prompts::inventory(&opt) {
+        Ok(s) => {
+            print!("{s}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
