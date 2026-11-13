@@ -41,6 +41,8 @@ typedef struct PortState {
     volatile int quit;
     SDL_Window *window;
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
+    int renderer;            /* graphics.cfg "renderer=" (the launcher's Settings): 0 Auto, else
+                              * PORT_RENDERER_*; --renderer and HWVX_RENDERER win for one run */
     int resetSave;           /* --reset-save (main_sdl.c): default game data, no autoload */
     int gcAirCamera;         /* --gc-air-camera or HWVX_GC_AIR_CAMERA=1 (main_sdl.c): a trigger
                               * orbit camera hands back to a tipped car, as on the GameCube
@@ -128,6 +130,19 @@ int Port_ImportPS2Disc(const char *image, const char *prefDir, char *dest, size_
 void Port_GfxLoadConfig(int haveSize, int haveFullscreen, int haveVSync, int haveFps);
 /* Saves graphics.cfg from g_port as it stands (the launcher's Settings page). */
 void Port_GfxSaveConfig(void);
+/* The renderers (main_sdl.c), graphics.cfg's "renderer=" values: 0 Auto (the
+ * platform's default), then each of the port's, PORT_RENDERER_COUNT in all. */
+enum { PORT_RENDERER_AUTO, PORT_RENDERER_OPENGL, PORT_RENDERER_VULKAN, PORT_RENDERER_METAL,
+       PORT_RENDERER_D3D12, PORT_RENDERER_COUNT };
+const char *Port_RendererName(int r);       /* "auto", "opengl", ... (NULL out of range) */
+const char *Port_RendererTitle(int r);      /* "Auto", "OpenGL", "Direct3D 12", ... */
+int Port_RendererByName(const char *name);  /* -1: none */
+int Port_RendererDefault(void);             /* what Auto picks */
+const char *Port_RendererGPUDriver(int r);  /* its SDL_GPU driver (NULL: OpenGL) */
+/* Whether renderer r can start here: OpenGL when a 3.3 core context can be made
+ * (desktop), an SDL_GPU one when SDL has that driver and it finds a device
+ * (SDL_GPUSupportsShaderFormats). */
+int Port_RendererAvailable(int r);
 void Port_GfxSetFullscreenMode(int w, int h);
 /* The Max FPS choice, brought into the rate the retrace pacing allows. */
 int Port_GfxFrameRate(void);

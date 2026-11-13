@@ -50,46 +50,18 @@ void *rmode = &s_renderMode;
 
 PortState g_port;
 
-/* --renderer NAME: the backend, and for SDL_GPU the driver it asks for. */
-static const struct {
-    const char *name;
-    const GXRenderer *renderer;
-    const char *gpuDriver;
-} s_renderers[] = {
-    { "opengl", &g_gxGL, NULL },
-    { "vulkan", &g_gxSDLGPU, "vulkan" },
-    { "metal", &g_gxSDLGPU, "metal" },
-    { "d3d12", &g_gxSDLGPU, "direct3d12" },
-};
-
-/* Without --renderer: each platform's native API through SDL_GPU, Direct3D 12
- * on Windows, Metal on macOS, Vulkan elsewhere; one that fails to start falls
- * back to OpenGL (main), except on Android, which has no desktop OpenGL. A
- * build can pick another (CMake HWVX_DEFAULT_RENDERER). */
-#if defined(SDL_PLATFORM_ANDROID)
-static const char *const s_defaultRenderer = "vulkan";
-#elif defined(HWVX_DEFAULT_RENDERER)
-static const char *const s_defaultRenderer = HWVX_DEFAULT_RENDERER;
-#elif defined(SDL_PLATFORM_WINDOWS)
-static const char *const s_defaultRenderer = "d3d12";
-#elif defined(SDL_PLATFORM_APPLE)
-static const char *const s_defaultRenderer = "metal";
-#else
-static const char *const s_defaultRenderer = "vulkan";
-#endif
-
-static int SetRenderer(const char *name) {
-    size_t i;
-
-    for (i = 0; i < sizeof(s_renderers) / sizeof(s_renderers[0]); i++) {
-        if (SDL_strcasecmp(name, s_renderers[i].name) == 0) {
-            g_gxr = s_renderers[i].renderer;
-            g_port.gpuDriver = s_renderers[i].gpuDriver;
-            return 1;
-        }
+/* Renderer r runs (Auto: the platform's default). */
+static void UseRenderer(int r) {
+    if (r <= PORT_RENDERER_AUTO || r >= PORT_RENDERER_COUNT) {
+        r = Port_RendererDefault();
     }
-    return 0;
+    g_gxr = r == PORT_RENDERER_OPENGL ? &g_gxGL : &g_gxSDLGPU;
+    g_port.gpuDriver = Port_RendererGPUDriver(r);
 }
+
+/* --renderer NAME or HWVX_RENDERER=NAME: this run's renderer, graphics.cfg's
+ * left as it is (-1: none given, graphics.cfg decides). */
+static int s_rendererOverride = -1;
 
 /* --vsync on|off, also written 1/0. -1: not something the port takes. */
 static int ParseVSync(const char *s) {
@@ -131,9 +103,7 @@ static void ParseArgs(int argc, char **argv) {
     g_port.maxFps = 60;
     g_port.gamma = 50;
     g_port.fov = 50;
-    if (!SetRenderer(s_defaultRenderer)) {
-        SetRenderer("opengl");
-    }
+    UseRenderer(PORT_RENDERER_AUTO);
 #ifdef SDL_PLATFORM_ANDROID
     g_port.fullscreen = 1;
 #endif
@@ -187,8 +157,8 @@ static void ParseArgs(int argc, char **argv) {
             g_port.gcAirCamera = 1;
         } else if (SDL_strcmp(argv[i], "--pc-pan") == 0) {
             s_pcPanOverride = 1;
-        } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && SetRenderer(argv[i + 1])) {
-            i++;
+        } else if (SDL_strcmp(argv[i], "--renderer") == 0 && i + 1 < argc && Port_RendererByName(argv[i + 1]) >= 0) {
+            s_rendererOverride = Port_RendererByName(argv[++i]);
         } else {
             SDL_Log("usage: %s [--data DIR] [--scale N] [--window WxH] [--fullscreen|--windowed]", argv[0]);
             SDL_Log("              [--vsync on|off] [--fps N] [--renderer NAME] [--reset-save] [--launcher]");
@@ -202,8 +172,10 @@ static void ParseArgs(int argc, char **argv) {
             SDL_Log("                   360, 480, or 0 for unlimited (the game's 1 ms time");
             SDL_Log("                   floor bounds it near 1000); a rate the drawing");
             SDL_Log("                   cannot reach lands where it fits");
-            SDL_Log("  --renderer NAME  opengl, vulkan, metal or d3d12 (default: %s;", s_defaultRenderer);
-            SDL_Log("                   one that fails to start falls back to opengl)");
+            SDL_Log("  --renderer NAME  auto, opengl, vulkan, metal or d3d12 for this run (default:");
+            SDL_Log("                   graphics.cfg renderer=, the launcher's Settings: Renderer, else auto:");
+            SDL_Log("                   %s; also HWVX_RENDERER=NAME; one that fails to start", Port_RendererName(Port_RendererDefault()));
+            SDL_Log("                   falls back to auto, then to opengl)");
             SDL_Log("  --reset-save     start from default game data: the newest save is not loaded");
             SDL_Log("  --gc-air-camera  the GameCube/PS2 orbit camera: a trigger's orbit around");
             SDL_Log("                   an object hands back to the car when it is tipped over");
@@ -238,6 +210,12 @@ static void ParseArgs(int argc, char **argv) {
         const char *env = SDL_getenv("HWVX_GC_AIR_CAMERA");
 
         g_port.gcAirCamera = env != NULL && SDL_atoi(env) != 0;
+    }
+    if (s_rendererOverride < 0 && SDL_getenv("HWVX_RENDERER") != NULL && *SDL_getenv("HWVX_RENDERER")) {
+        s_rendererOverride = Port_RendererByName(SDL_getenv("HWVX_RENDERER"));
+        if (s_rendererOverride < 0) {
+            Port_Log("HWVX_RENDERER=%s: no such renderer (auto, opengl, vulkan, metal, d3d12)", SDL_getenv("HWVX_RENDERER"));
+        }
     }
     if (s_pcPanOverride < 0 && SDL_getenv("HWVX_PC_PAN") != NULL && *SDL_getenv("HWVX_PC_PAN")) {
         s_pcPanOverride = SDL_atoi(SDL_getenv("HWVX_PC_PAN")) != 0;
@@ -706,14 +684,36 @@ int main(int argc, char **argv) {
     }
     FindDataDir();
     Port_InitHandles(Port_ArenaSize());
-    if (!g_gxr->open()) {
-#ifdef SDL_PLATFORM_ANDROID
-        Port_Fatal("The %s renderer is unavailable: %s", g_port.gpuDriver, SDL_GetError());
-#else
-        Port_Log("falling back to the OpenGL renderer");
-        SetRenderer("opengl");
-        g_gxr->open();
+    /* the renderer: --renderer or HWVX_RENDERER, else graphics.cfg's (the
+     * launcher may have just changed it); one that fails to start falls back
+     * to Auto (the platform's default), then to OpenGL (none on Android) */
+    {
+        int want = s_rendererOverride >= 0 ? s_rendererOverride : g_port.renderer;
+        int tries[3], n = 0, k, opened = 0;
+
+        if (want <= PORT_RENDERER_AUTO || want >= PORT_RENDERER_COUNT) {
+            want = Port_RendererDefault();
+        }
+        tries[n++] = want;
+        if (Port_RendererDefault() != want) {
+            tries[n++] = Port_RendererDefault();
+        }
+#ifndef SDL_PLATFORM_ANDROID
+        if (want != PORT_RENDERER_OPENGL && Port_RendererDefault() != PORT_RENDERER_OPENGL) {
+            tries[n++] = PORT_RENDERER_OPENGL;
+        }
 #endif
+        for (k = 0; k < n && !opened; k++) {
+            if (k > 0) {
+                Port_Log("renderer %s failed: falling back to %s%s", Port_RendererName(tries[k - 1]),
+                         Port_RendererName(tries[k]), tries[k] == Port_RendererDefault() ? " (auto)" : "");
+            }
+            UseRenderer(tries[k]);
+            opened = g_gxr->open();
+        }
+        if (!opened) {
+            Port_Fatal("No renderer could start (%s last): %s", Port_RendererName(tries[n - 1]), SDL_GetError());
+        }
     }
 
     OSInit();

@@ -40,7 +40,7 @@
  * release plays, the skip tick), Games (importing and removing releases),
  * Saves, Convert (below), Mods (a placeholder), Settings (graphics.cfg,
  * through gfx_settings.c, in sections under a row of sub-tabs: Display
- * (windowed or fullscreen, PC textures, draw distance, split screen), Audio
+ * (windowed or fullscreen, the renderer, PC textures, draw distance, split screen), Audio
  * (stereo, movies), Controls (mouse steering), Game (main menu); a row cycles
  * through its choices, any number of them). Play, Quit and the status line
  * stay at the bottom. It opens on the page (and section) shown last, or Play;
@@ -455,7 +455,7 @@ enum { CONV_NONE, CONV_OK, CONV_STALE, CONV_IMAGE /* a disc image: nothing to co
  * The rows are in sections (SEC_*), one shown at a time; in section order,
  * each section's rows in the order shown. */
 enum {
-    SET_DISPLAY, SET_PCTEX, SET_DRAWDIST, SET_SPLITLOD,     /* Display */
+    SET_DISPLAY, SET_RENDERER, SET_PCTEX, SET_DRAWDIST, SET_SPLITLOD, /* Display */
     SET_STEREO, SET_MOVIES,                                 /* Audio */
     SET_MOUSESTEER,                                         /* Controls */
     SET_MAINMENU,                                           /* Game */
@@ -471,6 +471,8 @@ static const struct {
     const char *choices[SET_CHOICES_MAX + 1];
 } s_settings[SET_COUNT] = {
     { SEC_DISPLAY, "Display", "How the game's window opens.", NULL, { "Windowed", "Fullscreen" } },
+    { SEC_DISPLAY, "Renderer", "Auto is the default; try another if the game runs slowly.", "HWVX_RENDERER",
+      { NULL } },   /* its choices: RendererRowInit */
     { SEC_DISPLAY, "PC textures", "The PC release's textures: in the GameCube's colours, or the PC's own.",
       "HWVX_PC_TEXTURES", { "GameCube colours", "PC colours" } },
     { SEC_DISPLAY, "Draw distance", "More of the world drawn, the fog further out; the game plays the same.",
@@ -487,9 +489,44 @@ static const struct {
       "HWVX_ORIGINAL_MAINMENU", { "With the port's rows", "Original" } },
 };
 
+/* The Renderer row's choices: Auto, then the renderers this machine can start
+ * (Port_RendererAvailable, asked once), as PORT_RENDERER_* values; the row's
+ * value is the index in here. graphics.cfg's choice is listed even when it is
+ * not available any more, so the row shows what the game will try. */
+static int s_rendAvail[PORT_RENDERER_COUNT], s_rendCount, s_rendRow;
+static char s_rendLabels[PORT_RENDERER_COUNT][40];
+
+static void RendererRowInit(void) {
+    int r;
+
+    s_rendCount = 0;
+    s_rendRow = 0;
+    for (r = PORT_RENDERER_AUTO; r < PORT_RENDERER_COUNT; r++) {
+        int avail = Port_RendererAvailable(r);
+
+        if (!avail && r != g_port.renderer) {
+            continue;
+        }
+        if (r == PORT_RENDERER_AUTO) {
+            SDL_snprintf(s_rendLabels[s_rendCount], sizeof(s_rendLabels[0]), "Auto (%s)",
+                         Port_RendererTitle(Port_RendererDefault()));
+        } else {
+            SDL_snprintf(s_rendLabels[s_rendCount], sizeof(s_rendLabels[0]), "%s%s", Port_RendererTitle(r),
+                         avail ? "" : " (not found)");
+        }
+        if (r == g_port.renderer) {
+            s_rendRow = s_rendCount;
+        }
+        s_rendAvail[s_rendCount++] = r;
+    }
+}
+
 static int SettingChoices(int i) {
     int n = 0;
 
+    if (i == SET_RENDERER) {
+        return s_rendCount > 0 ? s_rendCount : 1;
+    }
     while (n < SET_CHOICES_MAX && s_settings[i].choices[n] != NULL) {
         n++;
     }
@@ -506,6 +543,9 @@ static int SettingChoice(int i, int v) {
 
 /* A row's button label: its choice. */
 static const char *SettingLabel(int i, int v) {
+    if (i == SET_RENDERER) {
+        return s_rendCount > 0 ? s_rendLabels[SettingChoice(i, v)] : "Auto";
+    }
     return s_settings[i].choices[SettingChoice(i, v)];
 }
 
@@ -518,6 +558,7 @@ static int *SettingVar(int i) {
     case SET_MOUSESTEER: return &g_port.mouseSteer;
     case SET_DRAWDIST: return &g_port.drawDist;
     case SET_STEREO: return &g_port.pcPan;
+    case SET_RENDERER: return &s_rendRow;
     default: return &g_port.moviesOff;
     }
 }
@@ -1219,7 +1260,7 @@ static void DrawPage(Launcher *l) {
         if (l->src.section == SEC_DISPLAY) {
             y = SET_ROW_Y(k) + 4;
             Text(l, 24, y, DIM, "Resolution, VSync, Max FPS, gamma and FOV: Options > Graphics in");
-            Text(l, 24, y + 11, DIM, "the game. The renderer: --renderer NAME.");
+            Text(l, 24, y + 11, DIM, "the game. --renderer NAME picks a renderer for one run.");
         }
         break;
     default:
@@ -2010,6 +2051,9 @@ static int Activate(Launcher *l, const Button *b) {
         int i = b->source, *v = SettingVar(i);
 
         *v = (SettingChoice(i, *v) + 1) % SettingChoices(i);
+        if (i == SET_RENDERER && s_rendCount > 0) {
+            g_port.renderer = s_rendAvail[*v];
+        }
         Port_GfxSaveConfig();
         SDL_snprintf(l->status, sizeof(l->status), "%s: %s. Saved in graphics.cfg.", s_settings[i].name,
                      SettingLabel(i, *v));
@@ -2459,6 +2503,7 @@ char *Port_Launcher(int open, int window, Port_DataCheck check, Port_DataSearch 
     int i, valid, firstRun, tabLoaded, sectionLoaded;
 
     SDL_zero(l);
+    RendererRowInit();
     l.pointer.x = l.pointer.y = -1;
     l.check = check;
     firstRun = !LoadSources(&l.src);

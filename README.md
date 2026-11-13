@@ -41,7 +41,7 @@ bottom:
 | Saves | **Import saves...** and its preview (below) |
 | Convert | converting to `.xdl`: coming later |
 | Mods | coming later |
-| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu: display (windowed or fullscreen), PC textures (`pctextures=`), main menu (`mainmenu=`), split-screen detail (`splitlod=`), movies (`movies=`), mouse steering (`mousesteer=`), draw distance (`drawdist=`), stereo (`stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one); each change is saved at once, and an environment variable that overrides one is named under it. The renderer stays `--renderer NAME` |
+| Settings | what `graphics.cfg` holds beyond the game's own Graphics menu: display (windowed or fullscreen), renderer (`renderer=`: Auto, the default, or one this machine can start: OpenGL, Vulkan, Metal, Direct3D 12), PC textures (`pctextures=`), main menu (`mainmenu=`), split-screen detail (`splitlod=`), movies (`movies=`), mouse steering (`mousesteer=`), draw distance (`drawdist=`), stereo (`stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one); each change is saved at once, and an environment variable that overrides one is named under it. `--renderer NAME` or `HWVX_RENDERER=NAME` picks a renderer for one run without saving it |
 
 The launcher opens every time the game starts, unless you tick
 "Start the game without this window"; then the game boots straight into the
@@ -87,7 +87,7 @@ not played.
 
 Options: `--data PATH`, `--scale N` (window = 640×480×N), `--window WxH`
 (any size and shape), `--fullscreen` or `--windowed` (either overrides
-`graphics.cfg`), `--renderer NAME`.
+`graphics.cfg`), `--renderer NAME` (this run only; `auto` too).
 
 `--gc-air-camera` (or `HWVX_GC_AIR_CAMERA=1`): the GameCube/PS2 trigger orbit camera. An
 event's orbit around an object ends, and the camera goes back to the car, as soon as the
@@ -177,9 +177,15 @@ kept as `hwvx.1.json`. Code: `src/game/Port_SaveImport.c`; tested by
 
 Renderers (`--renderer`): through SDL_GPU `d3d12` (the default on Windows),
 `metal` (the default on macOS) and `vulkan` (the default on Linux and
-Android), and `opengl` (OpenGL 3.3 core). When the default can't start (no
-driver for it, an old GPU), the game falls back to OpenGL, except on
-Android. CMake's `HWVX_DEFAULT_RENDERER` builds in another default.
+Android), and `opengl` (OpenGL 3.3 core). The launcher's Settings > Display >
+Renderer keeps a choice in `graphics.cfg` (`renderer=auto|opengl|vulkan|metal|d3d12`),
+listing Auto and the renderers that start on this machine (OpenGL when a 3.3 core
+context can be made, an SDL_GPU driver when SDL finds a device for it; Vulkan on
+macOS only with MoltenVK installed, e.g. `brew install molten-vk vulkan-loader`).
+`--renderer NAME` or `HWVX_RENDERER=NAME` wins for one run and is not saved. A
+renderer that can't start (no driver for it, an old GPU) falls back to Auto, then
+to OpenGL (none on Android), with the reason in the log. CMake's
+`HWVX_DEFAULT_RENDERER` builds in another default for Auto.
 F11 or Alt+Enter toggles fullscreen. Saves go to SDL's per-user preferences
 folder (`memcardA/*.sav`, or `saves/` with `HWVX_SAVES=json`);
 `HWVX_PREF_DIR=dir` uses another folder for everything kept there (saves,
