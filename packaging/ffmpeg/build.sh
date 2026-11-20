@@ -70,7 +70,7 @@ if [ ! -f "$src/.unpacked" ]; then
         echo "build.sh: no gpg, the signature is not checked (the sha256 is)" >&2
     fi
     rm -rf "$src"
-    tar -xJf "$tarball" -C "$work"
+    tar --no-same-owner -xJf "$tarball" -C "$work"   # (as root in a sandbox, keeping the archive's owners fails)
     touch "$src/.unpacked"
 fi
 
