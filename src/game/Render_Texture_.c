@@ -19,7 +19,7 @@ typedef struct Texture {
 
 extern Texture *m_texture;
 
-GXTexObj m_gxTexObjArray[PORT_MAX_TEXTURES + PORT_PROMPT_TEXTURES];   /* port: 511; then the prompts' (Port_Prompts.c) */
+GXTexObj m_gxTexObjArray[PORT_MAX_TEXTURES + PORT_PROMPT_TEXTURES + PORT_MOD_IMAGE_TEXTURES];   /* port: 511; then the prompts' (Port_Prompts.c), mods' pictures (Port_ModImages.c) */
 u32 m_curTexture;
 
 

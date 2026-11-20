@@ -14,3 +14,4 @@ pub mod testdrive;
 pub use xdlrs::jsonc_edit;
 pub mod level_model;
 pub mod content_music;
+pub mod content_tracks;

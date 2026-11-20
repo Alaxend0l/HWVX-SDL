@@ -100,6 +100,9 @@ char *Port_ModsTrackLevel(const char *trackId);
 /* A mod's own file opened by name, "@mod\\<id>\\<path>" (a track's "worldPack", built on this
  * machine): its host path (freed by the caller) and *format (PORT_DATA_*), or NULL. */
 char *Port_ModsResolveFile(const char *name, int *format);
+/* A mod's own file by name, "@mod\\<id>\\<path>" as it is (an entry's picture: Port_ModImages.c):
+ * its host path (freed by the caller), or NULL when no enabled mod has it. */
+char *Port_ModsFilePath(const char *name);
 
 /* Streamed music (port/musicstream.c; docs-pending/streamed-music.md): the
  * "music" entry of the last enabled mod that replaces this pack's song

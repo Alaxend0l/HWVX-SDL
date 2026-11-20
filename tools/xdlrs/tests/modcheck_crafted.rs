@@ -100,3 +100,51 @@ fn index_values_out_of_range_are_errors_not_panics() {
         assert!(zip::read_stored(&z).is_err(), "{field}");
     }
 }
+
+/// A PNG made here: a gradient with a square (no game data in it).
+fn gradient_png(w: u32, h: u32) -> Vec<u8> {
+    let mut px = vec![];
+    for y in 0..h {
+        for x in 0..w {
+            let inside = x > w / 4 && x < w * 3 / 4 && y > h / 4 && y < h * 3 / 4;
+            px.extend_from_slice(&if inside { [255, 255, 0, 255] } else { [(x * 255 / w) as u8, 40, (y * 255 / h) as u8, 255] });
+        }
+    }
+    let mut out = vec![];
+    let mut e = png::Encoder::new(&mut out, w, h);
+    e.set_color(png::ColorType::Rgba);
+    e.set_depth(png::BitDepth::Eight);
+    e.write_header().unwrap().write_image_data(&px).unwrap();
+    out
+}
+
+#[test]
+fn a_track_picture_of_the_mods_own() {
+    let d = scratch("thumb");
+    let ix = index(&d, &[], &[]);
+    let m = d.join("mod");
+    std::fs::create_dir_all(m.join("images")).unwrap();
+    let write = |thumb: &str| {
+        std::fs::write(
+            m.join("mod.jsonc"),
+            format!(r#"{{"format_version": 1, "id": "uid://crafted02", "name": "Crafted", "version": "1.0.0",
+                "tracks": {{"uid://trk1": {{"extends": "base://mcp/track/39", "name": "Mine", "unlocked": true, "thumbnail": "{thumb}"}}}}}}"#),
+        )
+        .unwrap()
+    };
+    std::fs::write(m.join("images/mine.png"), gradient_png(320, 192)).unwrap();
+    write("images/mine.png");
+    let r = modcheck::check_and_pack(&m, &ix, Some(&d.join("m.xmod")), &opt());
+    assert_eq!(r.code, 0, "{}{}", r.stdout, r.stderr);
+    let names: Vec<String> = zip::read_stored(&std::fs::read(d.join("m.xmod")).unwrap()).unwrap().into_iter().map(|e| e.0).collect();
+    assert!(names.iter().any(|n| n == "images/mine.png"), "{names:?}");
+    // too big, missing, outside the mod, not a PNG
+    std::fs::write(m.join("images/big.png"), gradient_png(1100, 8)).unwrap();
+    std::fs::write(m.join("images/fake.png"), b"not a png at all, not at all").unwrap();
+    for (thumb, says) in [("images/big.png", "at most 1024"), ("images/none.png", "no such file"), ("../x.png", "isn't the form"), ("images/fake.png", "not a PNG")] {
+        write(thumb);
+        let r = modcheck::check_and_pack(&m, &ix, None, &opt());
+        assert_eq!(r.code, 1, "{thumb}: {}{}", r.stdout, r.stderr);
+        assert!(r.stdout.contains(says) || r.stderr.contains(says), "{thumb}: {}{}", r.stdout, r.stderr);
+    }
+}

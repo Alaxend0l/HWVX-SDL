@@ -42,6 +42,7 @@ mod content_music_ui;
 mod content_ui;
 mod content_retail_ui;
 mod content_sounds_ui;
+mod content_tracks_ui;
 mod level_edit;
 mod level_ui;
 mod media_ui;

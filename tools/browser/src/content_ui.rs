@@ -38,6 +38,8 @@ pub(crate) struct ContentState {
     pub sounds: crate::content_sounds_ui::SoundsState,
     /// the Soundtrack (content_music_ui.rs)
     pub music: crate::content_music_ui::MusicState,
+    /// the Tracks section (content_tracks_ui.rs)
+    pub tracks: crate::content_tracks_ui::TracksState,
 }
 
 pub(crate) fn base_label(kind: Kind, n: u32) -> String {
@@ -206,6 +208,7 @@ impl Browser {
         self.content_retail_panel(ui);
         self.content_sounds_panel(ui);
         self.music_panel(ui);
+        self.tracks_list(ui);
     }
 
     /// The right panel while the Content tab is on show.
@@ -216,6 +219,8 @@ impl Browser {
             self.content.music.sel = None;
         } else if self.content.music.sel.is_some() {
             return self.music_inspector(ui);
+        if self.tracks_inspector(ui) {
+            return;
         }
         let Some((kind, uid)) = self.content.sel.clone() else {
             ui.heading("Content");
@@ -379,7 +384,10 @@ impl Browser {
     }
 
     /// Save as mod: the folder packed into an .xmod after the no-game-data check.
-    fn content_pack(&mut self) {
+    pub(crate) fn content_pack(&mut self) {
+        if self.tracks_before_pack() {
+            return; // the tracks' levels compiled first: it goes on from there
+        }
         let Some(p) = self.content.proj.as_ref() else { return };
         if p.dirty() {
             self.content_note("save the mod first (Ctrl+S): the package is made from its files", true);

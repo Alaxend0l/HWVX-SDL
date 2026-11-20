@@ -132,7 +132,8 @@
           },
           "thumbnail": {
             "type": "string",
-            "pattern": "^base://[A-Za-z0-9_]+/[a-z_]+_[0-9]+/texture/([a-z0-9]+:)?[0-9]+$"
+            "pattern": "^(base://[A-Za-z0-9_]+/[a-z_]+_[0-9]+/texture/([a-z0-9]+:)?[0-9]+|[A-Za-z0-9_][A-Za-z0-9_./-]*\\.png)$",
+            "description": "Its picture in the select: a texture of the player's game data (base://HW_IPack/interface_6/texture/42), or a PNG of the mod's own (images/my-track.png: up to 1024 x 1024 and 4 MB, stretched to the size of the base picture it stands in for, as the select draws its own: the world select's are 256 x 256 drawn about 5:3)."
           },
           "unlocked": {
             "type": "boolean"
@@ -197,7 +198,8 @@
         },
         "thumbnail": {
           "type": "string",
-          "pattern": "^base://[A-Za-z0-9_]+/[a-z_]+_[0-9]+/texture/([a-z0-9]+:)?[0-9]+$"
+          "pattern": "^(base://[A-Za-z0-9_]+/[a-z_]+_[0-9]+/texture/([a-z0-9]+:)?[0-9]+|[A-Za-z0-9_][A-Za-z0-9_./-]*\\.png)$",
+          "description": "Its picture in the select: a texture of the player's game data (base://HW_IPack/interface_6/texture/42), or a PNG of the mod's own (images/my-track.png: up to 1024 x 1024 and 4 MB, stretched to the size of the base picture it stands in for, as the select draws its own: the world select's are 256 x 256 drawn about 5:3)."
         },
         "unlocked": {
           "type": "boolean"
