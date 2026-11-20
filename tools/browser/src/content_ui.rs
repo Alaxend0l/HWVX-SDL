@@ -31,6 +31,8 @@ pub(crate) struct ContentState {
     /// the texture the paint applies to (a car's body is usually its first)
     pub paint_texture: u32,
     pub packing: Option<Receiver<Result<String, String>>>,
+    /// the Soundtrack (content_music_ui.rs)
+    pub music: crate::content_music_ui::MusicState,
 }
 
 fn base_label(kind: Kind, n: u32) -> String {
@@ -196,10 +198,16 @@ impl Browser {
             }
             ui.add_space(6.0);
         }
+        self.music_panel(ui);
     }
 
     /// The right panel while the Content tab is on show.
     pub(crate) fn content_inspector(&mut self, ui: &mut egui::Ui) {
+        if self.content.sel.is_some() {
+            self.content.music.sel = None;
+        } else if self.content.music.sel.is_some() {
+            return self.music_inspector(ui);
+        }
         let Some((kind, uid)) = self.content.sel.clone() else {
             ui.heading("Content");
             ui.label("Select a car or weapon on the left, or add one (+ New car, + New weapon).");

@@ -38,6 +38,7 @@
 // mode, errors) it writes to that one (attach_console)
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod content_music_ui;
 mod content_ui;
 mod level_edit;
 mod level_ui;

@@ -11,3 +11,4 @@ pub mod testdrive;
 /// moved to the xdlrs crate (tools/xdlrs), kept here under its old path
 pub use xdlrs::jsonc_edit;
 pub mod level_model;
+pub mod content_music;
