@@ -7,10 +7,16 @@
  * linked, and the build needs neither them nor their headers. Without them a
  * Bink movie is skipped, as before (thp.c).
  *
+ * The same code plays the PS2's MPEG-2 movies (.PSS), whose video FFmpeg's
+ * program stream demuxer reads; their audio track FFmpeg doesn't see, so
+ * pss.c reads it.
+ *
  * Which FFmpeg: releases 6.0 to 9.x (libavformat/libavcodec majors 60-63,
- * libavutil 58-61). Everything goes through functions, except five structs'
- * leading fields, which are the same in all of these releases (checked against
- * their headers): AVFormatContext up to `streams`, AVStream up to `nb_frames`
+ * libavutil 58-61; the Flatpak runtime's 7.1 is 61). libswscale and
+ * libswresample are not used: YUV to RGBA is done here, and SDL's audio stream
+ * converts the rate and format. Everything goes through functions, except five
+ * structs' leading fields, which are the same in all of these releases (checked against
+ * their headers): AVFormatContext up to `streams`, AVStream up to `avg_frame_rate`
  * (6.0 moved av_class/codecpar to the front; 5.x and older differ), AVPacket up
  * to `stream_index`, AVFrame up to `format`, AVIOContext up to `buffer`. The
  * majors are checked (avformat_version(), avcodec_version(), avutil_version())
@@ -19,8 +25,9 @@
  * depend on AVCodecContext's layout.
  *
  * Where: HWVX_FFMPEG_DIR, if set, is the only folder looked in. Otherwise the
- * game's own folder, then the system's library search (and Homebrew's folders
- * on macOS), by each release's file names: libavformat.so.63 (Linux, BSD),
+ * game's own folder, the packages' (an .app's ../Frameworks, an AppImage's
+ * ../lib), then the system's library search (and Homebrew's folders on
+ * macOS), by each release's file names: libavformat.so.63 (Linux, BSD),
  * libavformat.63.dylib (macOS), avformat-63.dll (Windows), libavformat.so
  * (Android, and a fallback elsewhere). */
 #include "port_internal.h"
@@ -57,6 +64,10 @@ typedef struct FFStreamHead {
     void *priv_data;
     int tbNum, tbDen;
     int64_t start_time, duration, nb_frames;
+    int disposition, discard;
+    int sarNum, sarDen;
+    void *metadata;
+    int avgNum, avgDen;
 } FFStreamHead;
 
 typedef struct FFPacketHead {
@@ -118,6 +129,7 @@ static struct {
     unsigned (*avformat_version)(void);
     void *(*avformat_alloc_context)(void);
     int (*avformat_open_input)(void **, const char *, const void *, void **);
+    int (*avformat_find_stream_info)(void *, void **);
     void (*avformat_close_input)(void **);
     int (*av_find_best_stream)(void *, int, int, int, const void **, int);
     int (*av_read_frame)(void *, void *);
@@ -142,6 +154,7 @@ struct BinkMovie {
     int vIndex, aIndex;
     int width, height, frames, channels, rate;
     double fps;
+    double start;       /* the video's first PTS, in seconds */
     int eof, flushed;
     BinkAudioFn audioFn;
     void *audioUser;
@@ -266,6 +279,7 @@ static int LoadFunctions(void) {
     SDL_strlcpy(file, "libavformat", sizeof(file));
     GET(2, avformat_alloc_context);
     GET(2, avformat_open_input);
+    GET(2, avformat_find_stream_info);
     GET(2, avformat_close_input);
     GET(2, av_find_best_stream);
     GET(2, av_read_frame);
@@ -276,8 +290,8 @@ static int LoadFunctions(void) {
 
 int Bink_Load(void) {
     const char *env;
-    const char *dirs[6];
-    char *base = NULL;
+    const char *dirs[8];
+    char *base = NULL, *sibling = NULL;
     int nd = 0, d, major, found = 0;
     unsigned v;
 
@@ -293,6 +307,18 @@ int Bink_Load(void) {
         if (b != NULL && *b) {
             base = SDL_strdup(b);
             dirs[nd++] = base;
+#if defined(SDL_PLATFORM_APPLE) || (defined(SDL_PLATFORM_LINUX) && !defined(SDL_PLATFORM_ANDROID))
+            /* the packages' own copy: an .app's Contents/Frameworks (the base
+             * path is Contents/Resources), an AppImage's usr/lib (beside usr/bin) */
+#if defined(SDL_PLATFORM_APPLE)
+            SDL_asprintf(&sibling, "%s../Frameworks", base);
+#else
+            SDL_asprintf(&sibling, "%s../lib", base);
+#endif
+            if (sibling != NULL) {
+                dirs[nd++] = sibling;
+            }
+#endif
         }
         dirs[nd++] = "";
 #if defined(SDL_PLATFORM_MACOS)
@@ -312,18 +338,21 @@ int Bink_Load(void) {
     if (!found) {
         char want[64];
         LibName(want, sizeof(want), "", 2, FF_MAX_MAJOR);
-        Port_Log("bink: no FFmpeg 6-9 found (looked for %s and older%s%s); Bink movies are skipped", want,
+        Port_Log("ffmpeg: no FFmpeg 6-9 found (looked for %s and older%s%s); the PC (Bink) and PS2 (PSS) "
+                 "movies are skipped", want,
                  env != NULL && *env ? " in HWVX_FFMPEG_DIR=" : "", env != NULL && *env ? env : "");
         if (*s_why) {
-            Port_Log("bink: %s", s_why);
+            Port_Log("ffmpeg: %s", s_why);
         }
         SDL_free(base);
+        SDL_free(sibling);
         return 0;
     }
     if (!LoadFunctions()) {
-        Port_Log("bink: %s; Bink movies are skipped", s_why);
+        Port_Log("ffmpeg: %s; the PC (Bink) and PS2 (PSS) movies are skipped", s_why);
         Unload();
         SDL_free(base);
+        SDL_free(sibling);
         return 0;
     }
     ff.av_log_set_level(FF_LOG_ERROR);
@@ -335,12 +364,13 @@ int Bink_Load(void) {
     s_smpS16 = ff.av_get_sample_fmt("s16");
     s_smpS16P = ff.av_get_sample_fmt("s16p");
     v = ff.avformat_version();
-    Port_Log("bink: FFmpeg %d (libavformat %u.%u.%u, libavcodec %u.%u.%u, libavutil %u.%u.%u)%s%s",
+    Port_Log("ffmpeg: FFmpeg %d (libavformat %u.%u.%u, libavcodec %u.%u.%u, libavutil %u.%u.%u)%s%s",
              (int)(v >> 16) - 54, v >> 16, (v >> 8) & 0xFF, v & 0xFF, ff.avcodec_version() >> 16,
              (ff.avcodec_version() >> 8) & 0xFF, ff.avcodec_version() & 0xFF, ff.avutil_version() >> 16,
              (ff.avutil_version() >> 8) & 0xFF, ff.avutil_version() & 0xFF, env != NULL && *env ? " from " : "",
              env != NULL && *env ? env : "");
     SDL_free(base);
+    SDL_free(sibling);
     s_state = 1;
     return 1;
 }
@@ -441,24 +471,40 @@ BinkMovie *Bink_Open(SDL_IOStream *io, const char *name) {
     }
     ((FFFormatHead *)m->fmt)->pb = m->pb;
     if (ff.avformat_open_input(&m->fmt, name, NULL, NULL) < 0) {   /* frees fmt on failure */
-        Port_Log("bink: %s: not a movie FFmpeg can read", name);
+        Port_Log("ffmpeg: %s: not a movie FFmpeg can read", name);
         m->fmt = NULL;
         Bink_Close(m);
         return NULL;
     }
+    /* fills in what a header doesn't say (an MPEG program stream's picture
+     * size and frame rate) by reading the first packets */
+    ff.avformat_find_stream_info(m->fmt, NULL);
     m->vIndex = ff.av_find_best_stream(m->fmt, FF_MEDIA_VIDEO, -1, -1, &vcodec, 0);
     if (m->vIndex < 0 || vcodec == NULL || (m->vdec = OpenDecoder(m, m->vIndex, vcodec)) == NULL) {
-        Port_Log("bink: %s: no video FFmpeg can decode", name);
+        Port_Log("ffmpeg: %s: no video FFmpeg can decode", name);
         Bink_Close(m);
         return NULL;
     }
     vst = (FFStreamHead *)((FFFormatHead *)m->fmt)->streams[m->vIndex];
     ff.av_opt_get_image_size(m->vdec, "video_size", 0, &m->width, &m->height);
-    m->fps = vst->tbNum > 0 && vst->tbDen > 0 ? (double)vst->tbDen / vst->tbNum : 29.97;
-    if (m->fps < 1.0 || m->fps > 120.0) {
-        m->fps = 29.97;   /* not a Bink frame clock: use the GameCube movies' */
+    /* Bink's time base is its frame clock; MPEG's is 90 kHz, with the rate
+     * in avg_frame_rate */
+    m->fps = vst->tbNum > 0 && vst->tbDen > 0 ? (double)vst->tbDen / vst->tbNum : 0.0;
+    if ((m->fps < 1.0 || m->fps > 120.0) && vst->avgNum > 0 && vst->avgDen > 0) {
+        m->fps = (double)vst->avgNum / vst->avgDen;
     }
-    m->frames = vst->nb_frames > 0 ? (int)vst->nb_frames : vst->duration > 0 ? (int)vst->duration : 0;
+    if (m->fps < 1.0 || m->fps > 120.0) {
+        m->fps = 29.97;   /* the GameCube movies' */
+    }
+    if (vst->tbNum > 0 && vst->tbDen > 0) {
+        double tb = (double)vst->tbNum / vst->tbDen;
+        m->start = vst->start_time != (int64_t)0x8000000000000000ULL ? vst->start_time * tb : 0.0;
+        if (vst->nb_frames > 0) {
+            m->frames = (int)vst->nb_frames;
+        } else if (vst->duration > 0) {
+            m->frames = (int)(vst->duration * tb * m->fps + 0.5);
+        }
+    }
     i = ff.av_find_best_stream(m->fmt, FF_MEDIA_AUDIO, -1, m->vIndex, &acodec, 0);
     if (i >= 0 && acodec != NULL && (m->adec = OpenDecoder(m, i, acodec)) != NULL) {
         FFChannelLayout cl;
@@ -498,6 +544,8 @@ void Bink_Info(const BinkMovie *m, int *width, int *height, double *fps, int *fr
     *channels = m->channels;
     *rate = m->rate;
 }
+
+double Bink_StartTime(const BinkMovie *m) { return m->start; }
 
 void Bink_SetAudio(BinkMovie *m, BinkAudioFn fn, void *user) {
     m->audioFn = fn;
@@ -540,7 +588,7 @@ static void EmitAudio(BinkMovie *m) {
         }
     } else {
         if (!m->badAudio) {
-            Port_Log("bink: audio sample format %d not handled; the movie plays silent", f->format);
+            Port_Log("ffmpeg: audio sample format %d not handled; the movie plays silent", f->format);
             m->badAudio = 1;
         }
         return;
@@ -618,7 +666,7 @@ int Bink_NextFrame(BinkMovie *m, u8 *rgba) {
                 if (f->format == s_pixYUV420 || f->format == s_pixYUVA420 || f->format == s_pixYUVJ420) {
                     ToRGBA(f, f->format == s_pixYUVJ420, rgba, m->width, m->height);
                 } else if (!m->badVideo) {
-                    Port_Log("bink: pixel format %d not handled", f->format);
+                    Port_Log("ffmpeg: pixel format %d not handled", f->format);
                     m->badVideo = 1;
                 }
             }

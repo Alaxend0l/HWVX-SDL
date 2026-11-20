@@ -258,7 +258,7 @@ if(HWVX_TESTS AND NOT ANDROID)
     # The movies decoded by the player's FFmpeg (src/port/bink.c) against the
     # ffmpeg program's decode; skipped without FFmpeg or a movie file.
     # tools/movietest.c says what it covers.
-    add_executable(movietest tools/movietest.c src/port/bink.c)
+    add_executable(movietest tools/movietest.c src/port/bink.c src/port/pss.c)
     target_include_directories(movietest PRIVATE
         ${CMAKE_SOURCE_DIR}/src/game/include
         ${CMAKE_SOURCE_DIR}/src/port)

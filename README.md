@@ -56,9 +56,10 @@ Folders, disc images and saves are picked in the system's file dialog, which
 needs a mouse or keyboard. Importing the PC CD copies its packs (out of
 `HWVX.cab`) and its movies, which the PC game only ever read from the disc,
 into a `pc` folder in the save folder; an installed copy may have no movies.
-The PC movies (Bink, `.bik`) play through FFmpeg 6 to 9 when it is installed
-(libavformat, libavcodec, libavutil, loaded at run time, never linked;
-`HWVX_FFMPEG_DIR` names the folder to look in); without it they are skipped.
+The PC movies (Bink, `.bik`) and the PS2's (MPEG-2, `.pss`) play through
+FFmpeg 6 to 9 when it is installed (libavformat, libavcodec, libavutil, loaded
+at run time, never linked; `HWVX_FFMPEG_DIR` names the folder to look in);
+without it they are skipped.
 Importing a PS2 disc image copies its `XPS/ENGLISH` into `ps2` (or `ps2beta`
 for the prototype's).
 Your choices are kept in `sources.cfg` in the save folder. On start the game
@@ -85,8 +86,11 @@ disc's files (the folder holding `XPS/ENGLISH/`, or `XPS/ENGLISH/` itself; the
 `.xps` packs). Each pack is converted to the one layout the port draws as it
 loads (`src/game/Port_Data.c`; PS2: `Port_PS2.c` and `Port_Geometry.c`):
 the PS2's geometry is drawn without back-face culling (some of its strips are
-wound the other way), its shadow volumes are off, and its movies (`.pss`) are
-not played.
+wound the other way) and its shadow volumes are off. Its movies (`.pss`) play
+through FFmpeg like the PC's, with their audio track (Sony's `SShd`/`SSbd`
+PCM, which FFmpeg doesn't see) read by `src/port/pss.c`; they are shown as
+decoded (720x480 to 4:3, not deinterlaced: the few frames flagged interlaced
+show no combing).
 
 Options: `--data PATH`, `--scale N` (window = 640×480×N), `--window WxH`
 (any size and shape), `--fullscreen` or `--windowed` (either overrides
@@ -721,9 +725,9 @@ Debugging aids:
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable
   Movies option (`HWVX_NO_MOVIE=1` or `0` overrides).
-- `HWVX_FFMPEG_DIR=dir` loads FFmpeg for the PC's Bink movies from `dir` only
+- `HWVX_FFMPEG_DIR=dir` loads FFmpeg for the PC and PS2 movies from `dir` only
   (`libavformat.so.63`, `libavformat.63.dylib`, `avformat-63.dll` down to FFmpeg 6's 60);
-  a folder without it shows the skip (`bink: no FFmpeg 6-9 found ...`).
+  a folder without it shows the skip (`ffmpeg: no FFmpeg 6-9 found ...`).
 - `HWVX_HANDLING=2` (or `0`) drives with the PC's third handling mode (or the
   cars' own) whatever Options says; `HWVX_CARLOG=1` logs the player's car
   every 30 frames (handling, gear, rpm, wheel speed, speed, steering, turbo,
@@ -928,7 +932,7 @@ demo) run with graphics, sound and music.
 - [x] SDL_GPU renderers: Vulkan (Linux, and MoltenVK on macOS) and Metal
       tested; Direct3D 12 tested under CrossOver only, not on Windows hardware
 - [x] Music
-- [x] THP movies; the PC's Bink movies through the player's FFmpeg (`src/port/bink.c`)
+- [x] THP movies; the PC's Bink and the PS2's PSS movies through the player's FFmpeg (`src/port/bink.c`, `pss.c`)
 - [ ] Aux-bus reverb, ADPCM
 - [ ] Logitech wheels / force feedback via SDL haptics (no wheel reported yet)
 - [ ] IPL ROM font for the debug text printer (empty font for now)

@@ -16,6 +16,9 @@ int Bink_Load(void);
 BinkMovie *Bink_Open(SDL_IOStream *io, const char *name);
 /* frames: 0 if the file doesn't say; channels/rate: 0 without audio */
 void Bink_Info(const BinkMovie *m, int *width, int *height, double *fps, int *frames, int *channels, int *rate);
+/* The first video frame's time in the file, in seconds (to place a
+ * separately read audio track: pss.c). */
+double Bink_StartTime(const BinkMovie *m);
 /* Where decoded audio goes, as packets are read (a few frames ahead of the picture). */
 void Bink_SetAudio(BinkMovie *m, BinkAudioFn fn, void *user);
 /* Decodes the next video frame into rgba (width*height*4, top row first;
