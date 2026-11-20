@@ -9,8 +9,15 @@
  * Video follows the wall clock at the file's frame rate; Mpeg_Render draws
  * the current frame into the EFB and presents it, since nothing else renders
  * while the movie state runs. Audio goes to its own SDL audio stream, a few
- * frames ahead of the picture. */
+ * frames ahead of the picture.
+ *
+ * The PC release's movies are Bink files (FMV_/name.bik), played through the
+ * player's own FFmpeg when there is one (bink.c), on the same clock, audio
+ * stream and drawing; without FFmpeg they are skipped, as a missing THP is.
+ * So are the PS2's (name.pss, MPEG-2), whose audio track pss.c reads. */
 #include "port_internal.h"
+#include "bink.h"
+#include "pss.h"
 
 SDL_IOStream *Port_OpenDiscFile(const char *name);
 int THPJpeg_Decode(const u8 *data, u32 size, u8 *rgba, int width, int height);
@@ -41,6 +48,11 @@ typedef struct Movie {
     u32 beats;          /* heartbeats so far: the clock under a fixed step */
     s16 *pcm;
     u32 pcmCap;
+    BinkMovie *bink;    /* a movie FFmpeg plays (bink.c: Bink, PSS) instead of THP */
+    u32 decoded;        /* FFmpeg: video frames decoded so far */
+    PssAudio *pss;      /* a PSS's own audio track (pss.c) */
+    u32 pssFed;         /* its frames queued so far */
+    double pssLead;     /* its start after the picture's, in seconds */
 } Movie;
 
 static Movie *s_movie;
@@ -56,6 +68,8 @@ static void Movie_Free(Movie *m) {
     if (m->audio != NULL) {
         SDL_DestroyAudioStream(m->audio);
     }
+    Bink_Close(m->bink);
+    Pss_CloseAudio(m->pss);
     if (m->io != NULL) {
         SDL_CloseIO(m->io);
     }
@@ -201,6 +215,147 @@ static int MoviesOff(void) {
     return off;
 }
 
+/* The movie's own audio stream, playing. */
+static void OpenAudio(Movie *m, SDL_AudioFormat format, double volumeScale) {
+    SDL_AudioSpec spec = { format, m->channels, (int)m->rate };
+
+    m->audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (m->audio != NULL) {
+        /* The original (THPPlay.c) truncated (u32)(46.0f * volumeScale) to an
+         * index into VolumeTable, a square law: floor(32768 i^2 / 127^2), so
+         * 1.0 -> 46 -> 4298 / 32768, about -17.6 dB. The truncation and the
+         * square law together made the movie inaudible below about 15 while
+         * the game's own volume (SetMusicGVol) is linear, so keep the full
+         * volume level and scale it linearly with the volume instead. The PC's
+         * Bink audio is as loud as the GameCube's THP (hw_intro: mean -11.0 dB
+         * against -10.9 dB), so it takes the same gain. */
+        f32 gain = 4298.0f / 32768.0f * (f32)volumeScale;
+        SDL_SetAudioStreamGain(m->audio, gain < 0.0f ? 0.0f : gain > 1.0f ? 1.0f : gain);
+        SDL_ResumeAudioStreamDevice(m->audio);
+    }
+}
+
+static void BinkAudio(void *user, const float *pcm, int frames) {
+    Movie *m = user;
+
+    if (m->audio != NULL) {
+        SDL_PutAudioStreamData(m->audio, pcm, frames * m->channels * (int)sizeof(float));
+    }
+}
+
+/* Queues the PS2 track's audio up to `ahead` video frames past `due`, from
+ * where it starts against the picture (silence before, if it starts later). */
+static void FeedPss(Movie *m, u32 due) {
+    double until = (due + 1 + AUDIO_AHEAD) / (double)m->fps;
+    s16 buf[2048];
+    int per = (int)(SDL_arraysize(buf) / m->channels), n;
+
+    if (m->pssLead != 0.0) {
+        u32 left = (u32)(SDL_fabs(m->pssLead) * m->rate);
+
+        SDL_memset(buf, 0, sizeof(buf));
+        while (left > 0) {
+            if (m->pssLead > 0.0) {   /* starts after the picture: silence first */
+                n = (int)(left < (u32)per ? left : (u32)per);
+                if (m->audio != NULL) {
+                    SDL_PutAudioStreamData(m->audio, buf, n * m->channels * (int)sizeof(s16));
+                }
+                m->pssFed += (u32)n;
+            } else if ((n = Pss_ReadAudio(m->pss, buf, (int)(left < (u32)per ? left : (u32)per))) <= 0) {
+                break;   /* starts before it: what's before is dropped */
+            }
+            left -= (u32)n < left ? (u32)n : left;
+        }
+        m->pssLead = 0.0;
+    }
+    /* pssFed: frames queued, the silence included, so it is the picture's clock */
+    while ((double)m->pssFed / m->rate < until) {
+        n = Pss_ReadAudio(m->pss, buf, per);
+        if (n <= 0) {
+            break;
+        }
+        if (m->audio != NULL) {
+            SDL_PutAudioStreamData(m->audio, buf, n * m->channels * (int)sizeof(s16));
+        }
+        m->pssFed += (u32)n;
+    }
+}
+
+/* A movie FFmpeg plays (bink.c): the PC's FMV_/name.bik, or the PS2's
+ * name.pss with its own audio track (pss.c). 1 if it plays, 0 if it can't
+ * (logged), -1 if there is no such file. */
+static int StartFF(Movie *m, const char *name, const char *path, double volumeScale) {
+    char file[288];
+    size_t n = SDL_strlen(path);
+    const char *kind = "Bink", *base = path, *p;
+    SDL_IOStream *io = NULL;
+    double fps;
+    int frames, rate, pss = 0;
+
+    for (p = path; *p; p++) {
+        if (*p == '/') {
+            base = p + 1;
+        }
+    }
+    if (n > 4 && SDL_strcasecmp(path + n - 4, ".bik") == 0) {
+        SDL_strlcpy(file, path, sizeof(file));
+    } else {
+        SDL_snprintf(file, sizeof(file), "%s.bik", path);
+    }
+    io = Port_OpenDiscFile(file);
+    /* the PS2's: under XPS/ENGLISH/ unless the data folder is that folder;
+     * the prototype keeps them there without the FMV_ folder */
+    if (io == NULL) {
+        static const char *const fmts[] = { "%s.pss", "XPS/ENGLISH/%s.pss", "XPS/ENGLISH/%s.pss" };
+        int k;
+
+        for (k = 0; io == NULL && k < (int)SDL_arraysize(fmts); k++) {
+            SDL_snprintf(file, sizeof(file), fmts[k], k == 2 ? base : path);
+            io = Port_OpenDiscFile(file);
+        }
+        pss = io != NULL;
+        kind = "PSS";
+    }
+    if (io == NULL) {
+        return -1;
+    }
+    if (!Bink_Load()) {
+        Port_Log("movie %s: %s, skipped (no FFmpeg)", name, kind);
+        SDL_CloseIO(io);
+        return 0;
+    }
+    m->bink = Bink_Open(io, file);
+    if (m->bink == NULL) {
+        Port_Log("movie %s: %s, skipped (FFmpeg can't play it)", name, kind);
+        return 0;
+    }
+    Bink_Info(m->bink, &m->width, &m->height, &fps, &frames, &m->channels, &rate);
+    m->fps = (f32)fps;
+    m->numFrames = (u32)frames;
+    m->rate = (u32)rate;
+    if (m->width <= 0 || m->height <= 0 || m->width > 1024 || m->height > 1024) {
+        Port_Log("movie %s: unsupported video %dx%d", name, m->width, m->height);
+        return 0;
+    }
+    m->rgba = SDL_calloc((size_t)m->width * m->height, 4);
+    if (pss && m->channels == 0 && (m->pss = Pss_OpenAudio(Port_OpenDiscFile(file))) != NULL) {
+        double start;
+        u32 total;
+
+        Pss_AudioInfo(m->pss, &m->channels, &rate, &start, &total);
+        m->rate = (u32)rate;
+        m->pssLead = start >= 0.0 ? start - Bink_StartTime(m->bink) : 0.0;
+        OpenAudio(m, SDL_AUDIO_S16, volumeScale);
+        FeedPss(m, 0);
+    } else if (m->channels >= 1 && m->channels <= 8) {
+        OpenAudio(m, SDL_AUDIO_F32, volumeScale);
+        Bink_SetAudio(m->bink, BinkAudio, m);
+    }
+    Port_Log("movie %s: %s %dx%d, %u frames at %.2f fps, audio %d ch %u Hz%s", name, kind, m->width, m->height,
+             m->numFrames, m->fps, m->channels, m->rate, m->pss != NULL ? " (SShd PCM)" : "");
+    return 1;
+}
+
 /* name is a disc path like "FMV_\bglogo"; volume 0-100 (music volume). */
 s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     u8 hdr[0x30], comp[0x80];
@@ -226,9 +381,23 @@ s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     m = SDL_calloc(1, sizeof(*m));
     m->io = Port_OpenDiscFile(path);
     if (m->io == NULL || SDL_ReadIO(m->io, hdr, sizeof(hdr)) != sizeof(hdr) || memcmp(hdr, "THP\0", 4) != 0) {
-        Port_Log("movie %s: not found or not a THP file", name);
-        Movie_Free(m);
-        return 0;
+        int ff;
+
+        if (m->io != NULL) {
+            SDL_CloseIO(m->io);
+            m->io = NULL;
+        }
+        ff = StartFF(m, name, path, volumeScale);
+        if (ff <= 0) {
+            if (ff < 0) {
+                Port_Log("movie %s: not found or not a THP, Bink or PSS file", name);
+            }
+            Movie_Free(m);
+            return 0;
+        }
+        m->startNS = SDL_GetTicksNS();
+        s_movie = m;
+        return 1;
     }
     {
         union { u32 u; f32 f; } c;
@@ -268,19 +437,7 @@ s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     m->rgba = SDL_calloc((size_t)m->width * m->height, 4);
     m->nextOffset = movieOff;
     if (m->channels == 1 || m->channels == 2) {
-        SDL_AudioSpec spec = { SDL_AUDIO_S16, m->channels, (int)m->rate };
-        m->audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
-        if (m->audio != NULL) {
-            /* The original (THPPlay.c) truncated (u32)(46.0f * volumeScale) to an
-             * index into VolumeTable, a square law: floor(32768 i^2 / 127^2), so
-             * 1.0 -> 46 -> 4298 / 32768, about -17.6 dB. The truncation and the
-             * square law together made the movie inaudible below about 15 while
-             * the game's own volume (SetMusicGVol) is linear, so keep the full
-             * volume level and scale it linearly with the volume instead. */
-            f32 gain = 4298.0f / 32768.0f * (f32)volumeScale;
-            SDL_SetAudioStreamGain(m->audio, gain < 0.0f ? 0.0f : gain > 1.0f ? 1.0f : gain);
-            SDL_ResumeAudioStreamDevice(m->audio);
-        }
+        OpenAudio(m, SDL_AUDIO_S16, volumeScale);
     }
     for (i = 0; i <= AUDIO_AHEAD && ReadFrame(m); i++) {
     }
@@ -305,6 +462,20 @@ s32 Mpeg_Heartbeat(void) {
         due = (u32)((double)m->beats++ * Port_FixedStepUs() * m->fps / 1e6);
     } else {
         due = (u32)((double)(SDL_GetTicksNS() - m->startNS) * m->fps / 1e9);
+    }
+    if (m->bink != NULL) {
+        /* decode up to the frame due, converting only that one; the movie
+         * ends with its last frame (a PSS's frame count is an estimate) */
+        while (m->decoded <= due) {
+            if (!Bink_NextFrame(m->bink, m->decoded == due ? m->rgba : NULL)) {
+                return 0;
+            }
+            m->shown = ++m->decoded;
+        }
+        if (m->pss != NULL) {
+            FeedPss(m, due);
+        }
+        return 1;
     }
     if (due >= m->numFrames) {
         return 0;
