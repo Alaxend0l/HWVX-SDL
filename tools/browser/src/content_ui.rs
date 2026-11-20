@@ -31,6 +31,8 @@ pub(crate) struct ContentState {
     /// the texture the paint applies to (a car's body is usually its first)
     pub paint_texture: u32,
     pub packing: Option<Receiver<Result<String, String>>>,
+    /// sound replacements (src/content_sounds_ui.rs)
+    pub sounds: crate::content_sounds_ui::SoundsState,
 }
 
 fn base_label(kind: Kind, n: u32) -> String {
@@ -196,10 +198,14 @@ impl Browser {
             }
             ui.add_space(6.0);
         }
+        self.content_sounds_panel(ui);
     }
 
     /// The right panel while the Content tab is on show.
     pub(crate) fn content_inspector(&mut self, ui: &mut egui::Ui) {
+        if self.content_sounds_inspector(ui) {
+            return;
+        }
         let Some((kind, uid)) = self.content.sel.clone() else {
             ui.heading("Content");
             ui.label("Select a car or weapon on the left, or add one (+ New car, + New weapon).");
@@ -258,6 +264,8 @@ impl Browser {
         egui::ScrollArea::vertical().show(ui, |ui| {
             if kind == Kind::Car {
                 self.content_paint(ui, &uid);
+                ui.separator();
+                self.content_sounds_car(ui, &uid);
                 ui.separator();
             }
             ui.label(egui::RichText::new("Numbers: a ticked one is the mod's; the others stay the base's.").weak());
