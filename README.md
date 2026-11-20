@@ -649,7 +649,8 @@ Debugging aids:
   `menu:mode=M` the screen M's One Player row opens (the Adventure screen,
   the challenge or Joyride world select, the drag race or battle options);
   `worldselect:mode=M` its world (track) select, past the options;
-  `carselect[:mode=M][,car=N][,world=W]`; `itemselect` (through the car
+  `carselect[:mode=M][,car=N][,world=W]` (N and I below: a number, or a mod's car or
+  item by its `uid://` id); `itemselect` (through the car
   select, which picks car N as an A press would, so the item select shows
   it; starting at item I);
   `race[:mode=M][,world=W][,car=N][,item=I][,players=P]`. M is `adventure` (or

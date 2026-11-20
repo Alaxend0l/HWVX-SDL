@@ -257,7 +257,9 @@ impl Browser {
             if z {
                 self.edit_undo(shift);
             }
-            if s {
+            if s && self.content.tab {
+                self.content_save();
+            } else if s {
                 self.edit_save();
             }
         }

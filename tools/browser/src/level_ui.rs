@@ -102,7 +102,7 @@ impl Browser {
         PathBuf::from(&self.level.project)
     }
 
-    fn testdrive_options(&self) -> Options {
+    pub(crate) fn testdrive_options(&self) -> Options {
         let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
         Options {
@@ -202,13 +202,21 @@ impl Browser {
 
     /// Each frame: the compile's result, the game's progress, its end.
     pub(crate) fn level_tick(&mut self, ctx: &egui::Context) {
+        // F5 (and --test-drive): the level's test drive, or on the Content tab the selected car or weapon's
+        let content = self.content.tab.then(|| self.content.sel.clone()).flatten();
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
-            self.test_drive();
+            match &content {
+                Some((k, u)) => self.content_test(*k, u),
+                None => self.test_drive(),
+            }
         }
         if self.args.test_drive && !self.level.auto_started {
             if self.viewer.is_some() && !self.hello.is_null() {
                 self.level.auto_started = true;
-                self.test_drive();
+                match &content {
+                    Some((k, u)) => self.content_test(*k, u),
+                    None => self.test_drive(),
+                }
             } else {
                 // --test-drive: start as soon as the viewer has said hello, painted or not
                 ctx.request_repaint_after(Duration::from_millis(50));
@@ -321,7 +329,7 @@ impl Browser {
     /// The system's save dialog. The suggested name comes from the project (a shared one may be
     /// anyone's): only [A-Za-z0-9_.-] of it is kept, and it reaches the dialog as an argument or
     /// an environment variable, never inside the script's text.
-    fn choose_save_file(name: &str) -> Option<String> {
+    pub(crate) fn choose_save_file(name: &str) -> Option<String> {
         let name: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')).collect();
         let name = if name.trim_matches('.').is_empty() { "level.xmod".to_string() } else { name };
         let out = if cfg!(target_os = "macos") {
@@ -428,7 +436,16 @@ impl Browser {
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("Car");
-            ui.add(egui::DragValue::new(&mut self.level.car).range(0..=40));
+            egui::ComboBox::from_id_salt("testdrive_car")
+                .selected_text(hwvx_browser::cars::label(self.level.car))
+                .height(400.0)
+                .show_ui(ui, |ui| {
+                    for n in 0..=40u32 {
+                        ui.selectable_value(&mut self.level.car, n, hwvx_browser::cars::label(n));
+                    }
+                })
+                .response
+                .on_hover_text("the car the test drive starts with (past 32: cars a mod or the prototype adds)");
         });
         ui.checkbox(&mut self.level.skip_intro, "Quick start")
             .on_hover_text("leave out the intro screen and the start's delays (driving at once)");

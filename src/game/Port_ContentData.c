@@ -290,15 +290,17 @@ void Port_ContentInit(void) {
 
 /* ---- loading an entry's data --------------------------------------------- */
 
+/* A registered item's pack: always one of its own, numbered past the archive's last, so a
+ * mod's patches and recipes on it never reach the base item it is made from (which would
+ * share the alias's pack). Port_ContentPackSource loads an aliasing item's number from its
+ * alias's pack, as a car's. */
 u32 Port_ContentItemPack(u32 n) {
     u32 base = Port_ContentBaseCount(PORT_CONTENT_ITEM);
-    s32 data;
 
     if (n < base || n >= Port_ContentCount(PORT_CONTENT_ITEM)) {
         return n;
     }
-    data = Port_ContentDataOf(PORT_CONTENT_ITEM, n);
-    return data >= 0 ? (u32)data : s_archives[1].maxId + (n - base);
+    return s_archives[1].maxId + (n - base);
 }
 
 u32 Port_ContentPackSource(const char *name, u32 type, u32 id, const char **source) {
@@ -313,9 +315,19 @@ u32 Port_ContentPackSource(const char *name, u32 type, u32 id, const char **sour
     for (i = 0; i < SDL_arraysize(s_archives); i++) {
         const Archive *a = &s_archives[i];
 
-        /* items: numbered apart from their packs (Port_ContentItemPack) */
-        if (a->kind != PORT_CONTENT_CAR || a->type != type || !SameArchive(name, a->name)) {
+        if (a->type != type || !SameArchive(name, a->name)) {
             continue;
+        }
+        if (a->kind == PORT_CONTENT_ITEM) {
+            /* items: numbered apart from their packs (Port_ContentItemPack); a registered
+             * item's own number past the archive loads its alias's pack, a copy of its own */
+            u32 base = Port_ContentBaseCount(PORT_CONTENT_ITEM);
+
+            if (a->maxId == 0 || id < a->maxId || Has(a, id)) {
+                return id;
+            }
+            data = Port_ContentDataOf(PORT_CONTENT_ITEM, base + (id - a->maxId));
+            return data >= 0 ? (u32)data : id;
         }
         if (id < Port_ContentRetailCount(a->kind) || Has(a, id)) {
             /* a base car: the prototype's in its place ("replace") */

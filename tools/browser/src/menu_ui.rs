@@ -270,17 +270,18 @@ impl Browser {
                 }
             });
             ui.menu_button("View", |ui| {
-                let (level, worlds) = (self.level.tab, self.world.tab_worlds);
-                if ui.radio(!level && !worlds, "Packs").clicked() {
-                    self.level.tab = false;
-                    self.world.tab_worlds = false;
+                let (level, worlds, content) = (self.level.tab, self.world.tab_worlds, self.content.tab);
+                if ui.radio(!content && !level && !worlds, "Packs").clicked() {
+                    (self.content.tab, self.level.tab, self.world.tab_worlds) = (false, false, false);
                 }
-                if ui.radio(!level && worlds, "Worlds").clicked() {
-                    self.level.tab = false;
-                    self.world.tab_worlds = true;
+                if ui.radio(!content && !level && worlds, "Worlds").clicked() {
+                    (self.content.tab, self.level.tab, self.world.tab_worlds) = (false, false, true);
                 }
-                if ui.radio(level, "Level").clicked() {
-                    self.level.tab = true;
+                if ui.radio(!content && level, "Level").clicked() {
+                    (self.content.tab, self.level.tab) = (false, true);
+                }
+                if ui.radio(content, "Content (new cars, weapons)").clicked() {
+                    (self.content.tab, self.level.tab) = (true, false);
                 }
                 ui.separator();
                 if ui

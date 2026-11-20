@@ -85,20 +85,30 @@ impl Browser {
 
     pub(crate) fn left_tabs(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.selectable_label(!self.level.tab && !self.world.tab_worlds, "Packs").clicked() {
+            let c = self.content.tab;
+            if ui.selectable_label(!c && !self.level.tab && !self.world.tab_worlds, "Packs").clicked() {
+                self.content.tab = false;
                 self.level.tab = false;
                 self.world.tab_worlds = false;
             }
-            if ui.selectable_label(!self.level.tab && self.world.tab_worlds, "Worlds").clicked() {
+            if ui.selectable_label(!c && !self.level.tab && self.world.tab_worlds, "Worlds").clicked() {
+                self.content.tab = false;
                 self.level.tab = false;
                 self.world.tab_worlds = true;
             }
-            if ui.selectable_label(self.level.tab, "Level").clicked() {
+            if ui.selectable_label(!c && self.level.tab, "Level").clicked() {
+                self.content.tab = false;
                 self.level.tab = true;
+            }
+            if ui.selectable_label(c, "Content").on_hover_text("new cars and weapons, in a mod").clicked() {
+                self.content.tab = true;
+                self.level.tab = false;
             }
         });
         ui.separator();
-        if self.level.tab {
+        if self.content.tab {
+            self.content_panel(ui);
+        } else if self.level.tab {
             self.level_panel(ui);
         } else if self.world.tab_worlds {
             self.world_list(ui);

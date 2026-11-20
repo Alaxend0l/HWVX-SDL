@@ -15,6 +15,7 @@
 //!                                                a world instead of --load (--view: the 3D view's switches)
 //!                [--level PROJECT_DIR] [--test-drive] [--quick-start] [--car N] [--tools DIR]
 //!                [--testdrive-renderer R] [--level-select trigger:NAME|own:KIND/NAME|base:PATH]
+//!                [--content MOD_DIR]             a mod of new cars and weapons (the Content tab)
 //!   hwvx-browser --level PROJECT_DIR [--check] [--drive SECS] [--save-mod OUT.xmod] [--data DIR]
 //!                                                headless: the level's check, a test drive (until
 //!                                                it drives, at most SECS), Save as mod; exit 0: ok
@@ -37,6 +38,7 @@
 // mode, errors) it writes to that one (attach_console)
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod content_ui;
 mod level_edit;
 mod level_ui;
 mod media_ui;
@@ -82,6 +84,8 @@ struct Args {
     tools: Option<PathBuf>,
     /// a level project to open (the Level tab)
     level: Option<String>,
+    /// a mod to open (the Content tab)
+    content: Option<String>,
     /// HWVX_RENDERER for test drives
     testdrive_renderer: Option<String>,
     /// start a test drive at once (scripts)
@@ -125,6 +129,7 @@ fn parse_args() -> Result<Args, String> {
             "--viewer-window" => a.viewer_window = true,
             "--tools" => a.tools = Some(val()?.into()),
             "--level" => a.level = Some(val()?),
+            "--content" => a.content = Some(val()?),
             "--testdrive-renderer" => a.testdrive_renderer = Some(val()?),
             "--test-drive" => a.test_drive = true,
             "--quick-start" => a.quick_start = true,
@@ -460,6 +465,7 @@ struct Browser {
     /// the game data screen, while it is shown (src/menu_ui.rs)
     data_pick: Option<menu_ui::DataPick>,
     about: bool,
+    content: content_ui::ContentState,
 }
 
 impl Browser {
@@ -500,6 +506,7 @@ impl Browser {
             level: LevelState::default(),
             data_pick: None,
             about: false,
+            content: Default::default(),
             args,
             ctx,
         };
@@ -508,6 +515,9 @@ impl Browser {
             b.level.tab = true;
             b.level.skip_intro = b.args.quick_start;
             b.level.car = b.args.car.unwrap_or(0);
+        }
+        if let Some(c) = b.args.content.clone() {
+            b.content_open(&c);
         }
         // the game data: --data, else the one chosen last time, else ask (a running viewer has its own)
         if b.args.port.is_none() && b.args.data.is_none() {
@@ -1628,7 +1638,9 @@ impl eframe::App for Browser {
         egui::Panel::left("packs").default_size(220.0).resizable(true).show(ui, |ui| self.left_tabs(ui));
         egui::Panel::left("outline").default_size(300.0).resizable(true).show(ui, |ui| self.outline_tree(ui));
         egui::Panel::right("properties").default_size(340.0).resizable(true).show(ui, |ui| {
-            if self.level.tab && self.level.edit.proj.is_some() {
+            if self.content.tab {
+                self.content_inspector(ui);
+            } else if self.level.tab && self.level.edit.proj.is_some() {
                 self.edit_inspector(ui);
             } else {
                 self.properties(ui);

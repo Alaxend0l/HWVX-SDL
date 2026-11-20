@@ -9,6 +9,7 @@
  *   HWVX_START=carselect[:mode=M][,car=N][,world=W]   M's car select
  *   HWVX_START=itemselect[:mode=M][,car=N][,item=I]   the item select
  *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I][,players=P]  a race;
+ *   (N and I: numbers, or a mod's car or item by its uid://)
  *                                   P (1-4, default 1) local players on ports
  *                                   1-P, all with car N and item I, as the
  *                                   multi-player selects leave them (mpbattle,
@@ -277,6 +278,16 @@ static void StartAt(const InterfaceHeader *h, u16 id, s32 n, u32 count, u32 reta
     }
 }
 
+/* A car or item by number, or a registered one by its id (uid://...: a mod's); -1 if there's none. */
+static s32 ContentArg(int kind, const char *v) {
+    u32 i;
+
+    if (SDL_strncmp(v, "uid://", 6) == 0) {
+        return Port_ContentIndexOf(kind, v, &i) ? (s32)i : -1;
+    }
+    return SDL_atoi(v);
+}
+
 /* A world of progression p by name or index; -1 if there's none. */
 static s32 WorldIndex(s32 p, const char *w) {
     MCP *mcp = GameSettings_GetMCP();
@@ -412,11 +423,11 @@ static int StartTitle(void *script) {
         SDL_strlcpy(key, args, (size_t)(eq - args) + 1);
         SDL_strlcpy(val, eq + 1, (size_t)(end - eq));
         if (SDL_strcmp(key, "car") == 0) {
-            car = SDL_atoi(val);
+            car = ContentArg(PORT_CONTENT_CAR, val);
         } else if (SDL_strcmp(key, "players") == 0) {
             players = SDL_clamp(SDL_atoi(val), 1, 4);
         } else if (SDL_strcmp(key, "item") == 0) {
-            item = SDL_atoi(val);
+            item = ContentArg(PORT_CONTENT_ITEM, val);
         } else if (SDL_strcmp(key, "mode") == 0) {
             SDL_strlcpy(modeName, val, sizeof(modeName));
         } else if (SDL_strcmp(key, "world") == 0 || SDL_strcmp(key, "level") == 0) {
