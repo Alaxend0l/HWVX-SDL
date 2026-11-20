@@ -57,15 +57,12 @@ struct Tools {
 }
 
 fn find_tool(name: &str, extra: &[PathBuf]) -> R<PathBuf> {
-    for d in extra {
-        let p = d.join(name);
-        if is_exe(&p) {
-            return Ok(p);
-        }
-    }
-    if let Some(path) = std::env::var_os("PATH") {
-        for d in std::env::split_paths(&path) {
-            let p = d.join(name);
+    // (Windows: the programs are NAME.exe)
+    let names: Vec<String> = if cfg!(windows) && !name.ends_with(".exe") { vec![format!("{name}.exe"), name.to_string()] } else { vec![name.to_string()] };
+    let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    for d in extra.iter().chain(path.iter()) {
+        for n in &names {
+            let p = d.join(n);
             if is_exe(&p) {
                 return Ok(p);
             }
@@ -74,9 +71,16 @@ fn find_tool(name: &str, extra: &[PathBuf]) -> R<PathBuf> {
     Err(format!("{name} not found (see --tools)"))
 }
 
+#[cfg(unix)]
 fn is_exe(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     p.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+}
+
+/// (Windows: no execute bit; a file is enough: find_tool looks for NAME.exe there)
+#[cfg(not(unix))]
+fn is_exe(p: &Path) -> bool {
+    p.is_file()
 }
 
 fn read(p: &Path) -> R<String> {

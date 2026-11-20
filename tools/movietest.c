@@ -70,6 +70,10 @@ static void *RunFFmpeg(size_t *size, const char *const *args) {
     argv[n++] = "-nostdin";
     argv[n++] = "-v";
     argv[n++] = "error";
+    /* the plain C decoders, as the game's FFmpeg (packaging/ffmpeg: --disable-x86asm) has them:
+     * the assembly ones round Bink audio differently (hw_gal.bik: 1.2e-6 apart) */
+    argv[n++] = "-cpuflags";
+    argv[n++] = "0";
     while (*args && n < 30) {
         argv[n++] = *args++;
     }
