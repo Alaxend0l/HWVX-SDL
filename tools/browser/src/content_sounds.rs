@@ -472,8 +472,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(src);
     }
 
-    /// The mod of the game run (docs-content-sounds.md, "Testing"): HWVX_SOUND_TEST_MODS=DIR
-    /// writes DIR/soundtest, a new car made from car 7 whose engine (sound/1) is a loud 2 kHz tone.
+    /// The mod of the game run: HWVX_SOUND_TEST_MODS=DIR writes DIR/soundtest, a new car made
+    /// from car 7 whose engine (sound/1) is a loud 2 kHz tone (its uid in DIR/soundtest.uid).
+    /// Then `SDL_AUDIO_DRIVER=dummy FAST=1 tools/run_test.sh build DATA OUT NAME 40
+    /// HWVX_MODS_LOG=1 HWVX_MODS_DIR=DIR HWVX_START=race:mode=challenge,car=UID
+    /// HWVX_AUDIODUMP=OUT/NAME.f32` and `xdlrs audio level OUT/NAME.f32`. Measured (GC): the new
+    /// car logs `mods: Sound test: uid://… sound/1: sounds/tone.wav, 11025 samples at 11025 Hz,
+    /// loop 0` and its 250 Hz-4 kHz band is -20.1 dBFS (low band -29.0); car 7 in the same run
+    /// logs no replacement and stays the game's (-31.4 dBFS mid, -22.1 low).
     #[test]
     fn game_run_mod() {
         let Some(out) = std::env::var_os("HWVX_SOUND_TEST_MODS") else { return };
