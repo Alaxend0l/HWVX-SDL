@@ -16,6 +16,7 @@
 //!                [--level PROJECT_DIR] [--test-drive] [--quick-start] [--car N] [--tools DIR]
 //!                [--testdrive-renderer R] [--level-select trigger:NAME|own:KIND/NAME|base:PATH]
 //!                [--content MOD_DIR]             a mod of new cars and weapons (the Content tab)
+//!                [--axis-drag x|y|z:PIXELS]      drags that axis of the selection's gizmo (scripts)
 //!   hwvx-browser --level PROJECT_DIR [--check] [--drive SECS] [--save-mod OUT.xmod] [--data DIR]
 //!                                                headless: the level's check, a test drive (until
 //!                                                it drives, at most SECS), Save as mod; exit 0: ok
@@ -54,6 +55,7 @@ use hwvx_browser::media::MediaReader;
 use media_ui::{MediaState, View, media_kind};
 use world_ui::WorldState;
 use level_ui::LevelState;
+use level_edit::AxisEvent;
 use hwvx_browser::client::{SpawnOptions, Viewer, default_game, default_schemas};
 use hwvx_browser::frames::{Frame, FrameReader};
 use serde_json::{Value, json};
@@ -98,6 +100,8 @@ struct Args {
     car: Option<u32>,
     /// the level editor's selection at start: trigger:NAME, own:KIND/NAME, base:PATH, settings
     level_select: Option<String>,
+    /// --axis-drag: the gizmo's axis and how many points the pointer goes along it (scripts)
+    axis_drag: Option<(usize, f32)>,
     /// headless (no window): --check, --drive SECS, --save-mod OUT.xmod, on --level
     check: bool,
     drive: Option<u64>,
@@ -138,6 +142,12 @@ fn parse_args() -> Result<Args, String> {
             "--test-drive" => a.test_drive = true,
             "--quick-start" => a.quick_start = true,
             "--level-select" => a.level_select = Some(val()?),
+            "--axis-drag" => {
+                let v = val()?;
+                let (k, n) = v.split_once(':').ok_or("--axis-drag x|y|z:PIXELS")?;
+                let k = ["x", "y", "z"].iter().position(|a| *a == k).ok_or("--axis-drag x|y|z:PIXELS")?;
+                a.axis_drag = Some((k, n.parse().map_err(|_| "--axis-drag x|y|z:PIXELS")?));
+            }
             "--car" => a.car = Some(val()?.parse().map_err(|_| "--car N")?),
             "--check" => a.check = true,
             "--drive" => a.drive = Some(val()?.parse().map_err(|_| "--drive SECS")?),
@@ -458,6 +468,12 @@ struct Browser {
 
     script_load_sent: bool,
     script_select_sent: bool,
+    /// --axis-drag: the frame of its pointer script it is at, and where the selection was
+    axis_script: u32,
+    axis_script_from: Option<[f32; 3]>,
+    axis_script_grab: Option<egui::Pos2>,
+    /// the 3D view's place in the window (points), for --axis-drag
+    preview_rect: egui::Rect,
     app_shot_state: u32,
     app_shot_done: Arc<Mutex<Option<Result<String, String>>>>,
     started: Instant,
@@ -500,6 +516,10 @@ impl Browser {
             shot_path: shot_dir.join("viewer-shot.png").display().to_string(),
             script_load_sent: false,
             script_select_sent: false,
+            axis_script: 0,
+            axis_script_from: None,
+            axis_script_grab: None,
+            preview_rect: egui::Rect::NOTHING,
             app_shot_state: 0,
             app_shot_done: Arc::new(Mutex::new(None)),
             started: Instant::now(),
@@ -705,6 +725,11 @@ impl Browser {
             }
             if matches!(why, Pending::EditMove) {
                 self.edit_move_reply(ok.then_some(r));
+                continue;
+            }
+            if !ok && matches!(why, Pending::LevelApplied) {
+                let e = r.get("error").and_then(Value::as_str).unwrap_or("failed").to_string();
+                self.level_refused(&e);
                 continue;
             }
             if !ok {
@@ -928,6 +953,9 @@ impl Browser {
             if !ready {
                 return;
             }
+        }
+        if self.args.axis_drag.is_some() {
+            return; // (raw_input_hook drags; the shot after)
         }
         let Some(path) = self.args.app_shot.clone() else { return };
         if self.args.test_drive && !self.test_drive_settled() {
@@ -1363,6 +1391,9 @@ impl Browser {
             String::new()
         };
         let editing = self.level_editing();
+        self.preview_rect = rect;
+        let gizmo = if editing { self.gizmo() } else { None };
+        let axis_dragging = self.level.edit.axis_drag.is_some();
         let p = &mut self.preview;
         p.events.extend(fly_events);
 
@@ -1417,7 +1448,46 @@ impl Browser {
         let d = resp.drag_delta() * scale;
         let cmd = ui.input(|i| i.modifiers.command);
         let mut edit_drag = None;
-        if editing && cmd && resp.dragged_by(egui::PointerButton::Primary) {
+        let mut edit_drag_end = false;
+        // the gizmo: picture pixels as the camera reports them (its size may lag the frame's)
+        let to_view = |pos: egui::Pos2, view: &hwvx_browser::gizmo::View| -> [f32; 2] {
+            let v = (pos - rect.min) * scale;
+            let k = if p.size[0] > 0 && p.size[1] > 0 { [view.size[0] / p.size[0] as f32, view.size[1] / p.size[1] as f32] } else { [1.0, 1.0] };
+            [v.x * k[0], v.y * k[1]]
+        };
+        let mut axis_ev = None;
+        // within 8 points of an axis, in the camera's picture pixels
+        let tol = |view: &hwvx_browser::gizmo::View| 8.0 * view.size[1] / rect.height().max(1.0);
+        let primary = resp.dragged_by(egui::PointerButton::Primary);
+        if let (Some((view, at, len)), true, false, true) = (gizmo, editing, cmd, resp.drag_started_by(egui::PointerButton::Primary)) {
+            // a drag that starts on an axis of the gizmo moves the selection along it
+            let press = ui.input(|i| i.pointer.press_origin());
+            if let (Some(press), Some(now)) = (press, resp.interact_pointer_pos()) {
+                let q = to_view(press, &view);
+                if let Some(k) = hwvx_browser::gizmo::axis_at(&view, at, len, q, tol(&view)) {
+                    let n = to_view(now, &view);
+                    axis_ev = Some(AxisEvent::Start(k, view.ray(q[0], q[1]), view.ray(n[0], n[1])));
+                }
+            }
+        } else if let (true, true, Some((view, _, _))) = (axis_dragging, primary, gizmo) {
+            if let Some(now) = resp.interact_pointer_pos() {
+                let q = to_view(now, &view);
+                axis_ev = Some(AxisEvent::Move(view.ray(q[0], q[1])));
+            }
+        }
+        if axis_dragging && !primary && !resp.dragged() {
+            axis_ev = Some(AxisEvent::End);
+        }
+        if axis_ev.is_none() && editing && !resp.dragged() {
+            let hot = match (gizmo, resp.hover_pos()) {
+                (Some((view, at, len)), Some(h)) if !cmd => hwvx_browser::gizmo::axis_at(&view, at, len, to_view(h, &view), tol(&view)),
+                _ => None,
+            };
+            axis_ev = Some(AxisEvent::Hover(hot));
+        }
+        if axis_dragging || matches!(axis_ev, Some(AxisEvent::Start(..))) {
+            // the gizmo has the drag: the camera stays
+        } else if editing && cmd && resp.dragged_by(egui::PointerButton::Primary) {
             // the level editor: the selection follows the ground under the pointer
             if let Some(pos) = resp.interact_pointer_pos() {
                 let v = (pos - rect.min) * scale;
@@ -1432,6 +1502,9 @@ impl Browser {
                 "left"
             };
             p.events.push(json!({"type": "drag", "button": button, "pan": shift, "dx": d.x, "dy": d.y}));
+        }
+        if editing && resp.drag_stopped() {
+            edit_drag_end = true;
         }
         if resp.drag_started() || resp.clicked() {
             resp.request_focus();
@@ -1523,6 +1596,12 @@ impl Browser {
         if let Some((x, y, started)) = edit_drag {
             self.edit_drag(x, y, started);
         }
+        if let Some(ev) = axis_ev {
+            self.edit_axis(ev);
+        }
+        if edit_drag_end {
+            self.edit_drag_end();
+        }
         if edit_rotate != 0.0 {
             self.edit_rotate(edit_rotate.signum());
         }
@@ -1598,6 +1677,43 @@ impl Browser {
 }
 
 impl eframe::App for Browser {
+    /// --axis-drag: the pointer over the axis (60% along it), pressed, moved along it in ten
+    /// steps, released; then the selection's move is printed and --app-shot goes on.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let Some((k, px)) = self.args.axis_drag else { return };
+        ctx.request_repaint();
+        if self.args.level_select.is_some() || !self.pending.is_empty() || self.preview.shown < 60 || self.preview.size != self.preview.want {
+            return;
+        }
+        let Some((view, at, len)) = self.gizmo() else { return };
+        let r = self.preview_rect;
+        let to_screen = |p: [f32; 3]| view.project(p).map(|q| egui::pos2(r.min.x + q[0] * r.width() / view.size[0], r.min.y + q[1] * r.height() / view.size[1]));
+        let mut end = at;
+        end[k] += len;
+        let (Some(a), Some(b)) = (to_screen(at), to_screen(end)) else { return };
+        if self.axis_script == 0 {
+            self.axis_script_from = Some(at);
+        }
+        let dir = (b - a).normalized();
+        let grab = a + (b - a) * 0.6;
+        let n = self.axis_script;
+        let mods = egui::Modifiers::default();
+        // (the axis moves with the selection: the steps go on from where the drag started)
+        let start = *self.axis_script_grab.get_or_insert(grab);
+        match n {
+            0 => raw.events.push(egui::Event::PointerMoved(start)),
+            1 => raw.events.push(egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: mods }),
+            2..=11 => raw.events.push(egui::Event::PointerMoved(start + dir * px * (n - 1) as f32 / 10.0)),
+            12 => raw.events.push(egui::Event::PointerButton { pos: start + dir * px, button: egui::PointerButton::Primary, pressed: false, modifiers: mods }),
+            _ => {
+                let undo = self.level.edit.proj.as_ref().map(|p| p.undo.len()).unwrap_or(0);
+                println!("hwvx-browser: axis drag: {:?} -> {:?} ({undo} undo point{})", self.axis_script_from.unwrap_or_default(), at, if undo == 1 { "" } else { "s" });
+                self.args.axis_drag = None;
+            }
+        }
+        self.axis_script += 1;
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.check_connecting();

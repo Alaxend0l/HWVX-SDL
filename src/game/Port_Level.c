@@ -1333,6 +1333,13 @@ static void Unapply(void) {
     SDL_zero(s_lv);
 }
 
+void Port_LevelTakeOut(void *worldPack) {
+    if (worldPack != NULL && worldPack == s_lv.pack) {
+        Port_Log("level: %s taken out", s_lv.id != NULL ? s_lv.id : "?");
+        Unapply();
+    }
+}
+
 void Port_LevelPackReleased(void *dataPack) {
     if (dataPack != NULL && dataPack == s_noted.pack) {
         SDL_free(s_noted.pointers);
@@ -2295,30 +2302,38 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
         MarkTriggerData(s_lv.origTriggers + k * TRIGGER_SIZE);   /* (kept or not: what they name is the world's) */
     }
 
-    /* the patches: numbers in the base world's records (tools/xdl_level.py writes them from
-     * the schemas' number fields): inside the world (or a base element an append copied),
-     * never over one of its pointers */
+    /* the patches: values in the base world's records (numbers, enums, number arrays: the level
+     * compiler writes them from the schemas' fields, and refuses links and INDEX_FIELDS there):
+     * inside the world (or a base element an append copied), never over one of its pointers */
     for (x = jpatches != NULL && jpatches->type == JSON_ARRAY ? jpatches->child : NULL, i = 0; x != NULL;
          x = x->next, i++) {
         const char *hex = Json_GetString(x, "hex", "");
         long long off = Json_GetInt(x, "offset", 0);
         u32 size = (u32)HexLen(hex);
-        char why[160];
+        char why[160], what[160];
         u8 *to = Resolve(Json_Get(x, "target"), parts, n, why, sizeof(why)), *at;
         const u8 *o;
 
+        /* "patch 3 (World/0/timers/0/to countUp)": the compiler names each patch's record and
+         * field, so the editor can show a refusal at the field */
+        if (Json_GetString(x, "path", "")[0]) {
+            SDL_snprintf(what, sizeof(what), "patch %d (%.100s %.40s)", i, Json_GetString(x, "path", ""),
+                         Json_GetString(x, "field", ""));
+        } else {
+            SDL_snprintf(what, sizeof(what), "patch %d", i);
+        }
         if (to == NULL) {
-            Fail(err, errSize, "patch %d: %s", i, why);
+            Fail(err, errSize, "%s: %s", what, why);
             goto done;
         }
         if (off < 0 || off > 0x10000 || size == 0 || size > 0x1000 || SDL_strlen(hex) != (size_t)size * 2) {
-            Fail(err, errSize, "patch %d: outside the record", i);
+            Fail(err, errSize, "%s: outside the record", what);
             goto done;
         }
         at = to + off;
         o = BlobOrigin(at);
         if (o == NULL || BlobOrigin(at + size - 1) != o + size - 1 || !InBlob(pack, o, size)) {
-            Fail(err, errSize, "patch %d: not in the base world's records", i);
+            Fail(err, errSize, "%s: not in the base world's records", what);
             goto done;
         }
         {
@@ -2331,13 +2346,13 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
                 int kind = WordKind((const u8 *)(((uintptr_t)o & ~(uintptr_t)3) + w));
 
                 if (kind != WK_NUMBER) {
-                    Fail(err, errSize, "patch %d: %s", i, kinds[kind]);
+                    Fail(err, errSize, "%s: %s", what, kinds[kind]);
                     goto done;
                 }
             }
         }
         if (TouchesNoted(at, size)) {
-            Fail(err, errSize, "patch %d: over a pointer of the world (patches set numbers)", i);
+            Fail(err, errSize, "%s: over a pointer of the world (patches set numbers)", what);
             goto done;
         }
         {
@@ -2345,7 +2360,7 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
 
             for (w = 0; w < size + ((uintptr_t)o & 3); w += 4) {
                 if (TypedPointer(pack, (const u8 *)(((uintptr_t)o & ~(uintptr_t)3) + w))) {
-                    Fail(err, errSize, "patch %d: over a pointer of the world (patches set numbers)", i);
+                    Fail(err, errSize, "%s: over a pointer of the world (patches set numbers)", what);
                     goto done;
                 }
             }

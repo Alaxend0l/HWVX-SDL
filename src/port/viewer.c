@@ -1011,6 +1011,35 @@ static void WriteCamera(JsonWriter *w) {
     Jw_Float(w, NULL, s.camera->pos.z);
     Jw_EndArray(w);
     Jw_Float(w, "speed", s.flySpeed);
+    {
+        /* the picture's camera as ScreenRay uses it: the level editor projects its gizmo and
+         * takes pointer rays from it without asking */
+        const Camera *c = s.camera;
+        const Vector4 *axes[3] = { &c->dir, &c->right, &c->up };
+        static const char *const names[3] = { "dir", "right", "up" };
+        f32 tanX, tanY;
+        int ew, eh, k;
+
+        GX_DrawEfbSize(&ew, &eh);
+        ViewExtents(ew, eh, &tanX, &tanY);
+        Jw_BeginObject(w, "view", 1);
+        for (k = 0; k < 3; k++) {
+            Jw_BeginArray(w, names[k], 1);
+            Jw_Float(w, NULL, axes[k]->x);
+            Jw_Float(w, NULL, axes[k]->y);
+            Jw_Float(w, NULL, axes[k]->z);
+            Jw_EndArray(w);
+        }
+        Jw_BeginArray(w, "tan", 1);
+        Jw_Float(w, NULL, tanX);
+        Jw_Float(w, NULL, tanY);
+        Jw_EndArray(w);
+        Jw_BeginArray(w, "size", 1);
+        Jw_Int(w, NULL, ew);
+        Jw_Int(w, NULL, eh);
+        Jw_EndArray(w);
+        Jw_EndObject(w);
+    }
     Jw_EndObject(w);
 }
 

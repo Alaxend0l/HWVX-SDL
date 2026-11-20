@@ -198,6 +198,65 @@ fn viewer_editor_commands() {
     assert!((v.call("record", json!({"path": "World/0/tileCars/0"})).unwrap()["fields"]["pos"]["x"].as_f64().unwrap() + 364.6).abs() < 0.1);
     assert!(v.call("level", json!({"path": "/nonexistent/level.json"})).is_err());
 
+    // patches of every kind a base record's fields have: an enum by name, a number array, a
+    // quaternion's member (an effect point's), a byte; applied after the level was taken out
+    let item = items["records"][0]["path"].as_str().unwrap().to_string();
+    let fx = v.call("records", json!({"table": "fxPoints"})).unwrap()["records"][0]["path"].as_str().unwrap().to_string();
+    let compile = |p: &Project, name: &str| {
+        let copy = s.join(format!("copy-{name}"));
+        let _ = std::fs::remove_dir_all(&copy);
+        p.write_copy(&copy).unwrap();
+        let out = s.join(format!("{name}.json"));
+        (xdlrs::level::compile(&env, &copy, Some(&out), &Default::default(), false, None).unwrap(), out)
+    };
+    let mut p = Project::load(&proj).unwrap();
+    p.set_patch(&item, "mode", Some(json!("off")));
+    p.set_patch(&item, "unk_0x2C", Some(json!([1, 2, 3, 4])));
+    p.set_patch(&item, "aiPickup", Some(json!(0)));
+    p.set_patch(&fx, "quat/y", Some(json!(0.7071)));
+    p.set_patch(&fx, "quat/w", Some(json!(0.7071)));
+    let (c, out) = compile(&p, "kinds");
+    assert!(c.ok, "{:?}", c.errors);
+    v.call("level", json!({"path": out})).unwrap();
+    let r = v.call("record", json!({"path": item})).unwrap();
+    assert_eq!((r["fields"]["mode"].clone(), r["fields"]["unk_0x2C"].clone(), r["fields"]["aiPickup"].clone()), (json!(0), json!([1, 2, 3, 4]), json!(0)), "{r}");
+    let q = &v.call("record", json!({"path": fx})).unwrap()["fields"]["quat"];
+    assert!((q["y"].as_f64().unwrap() - 0.7071).abs() < 1e-4 && (q["w"].as_f64().unwrap() - 0.7071).abs() < 1e-4, "{q}");
+    v.call("level", json!({"path": null})).unwrap();
+    assert_eq!(v.call("record", json!({"path": item})).unwrap()["fields"]["mode"], 1, "taken out");
+    v.call("level", json!({"path": out})).expect("applied again after it was taken out");
+    v.call("level", json!({"path": null})).unwrap();
+
+    // what patches can't set, said at the field by the compiler: a link, a list of links, a
+    // number the game indexes with
+    for (path, field, val, why) in [
+        (item.as_str(), "record", json!("base://ch1_l2/world_0/World/0/tileCars/0"), "a link"),
+        ("World/0/tileCars/0", "scripts", json!([0, 0, 0, 0]), "a link"),
+        ("World/0/timers/0/to", "countUp", json!(1), "indexes with"),
+        ("World/0/tileCars/0", "port", json!(2), "indexes with"),
+        ("World/0/volumes/0", "type", json!("fog"), "indexes with"),
+    ] {
+        let mut p = Project::load(&proj).unwrap();
+        p.set_patch(path, field, Some(val));
+        let (c, _) = compile(&p, "refused");
+        assert!(!c.ok);
+        assert!(c.errors.iter().any(|e| e.path.ends_with(&format!("{path}/{field}")) || e.message.contains(&format!("{field}: "))), "{path} {field}: {:?}", c.errors);
+        assert!(c.errors.iter().any(|e| e.message.contains(why)), "{path} {field}: {:?}", c.errors);
+    }
+    // ... and by the game, naming the patch's record and field (a level file the compiler
+    // didn't make: the timer's countUp byte)
+    let mut p = Project::load(&proj).unwrap();
+    p.set_patch("World/0/timers/0/to", "time", Some(json!(30000)));
+    let (c, out) = compile(&p, "crafted");
+    assert!(c.ok);
+    let mut lv: Value = serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+    let pt = lv["patches"].as_array_mut().unwrap().iter_mut().find(|x| x["field"] == "time").unwrap();
+    pt["offset"] = json!(3);
+    pt["hex"] = json!("01");
+    std::fs::write(&out, lv.to_string()).unwrap();
+    let e = v.call("level", json!({"path": out})).unwrap_err();
+    assert!(e.contains("(World/0/timers/0/to time): over a number the game indexes with"), "{e}");
+
     // the starts' box: every car's collision box at once (retail: x -5..5, y -1.4..5.25, z -14..13)
     let bf = s.join("spawn-box.json");
     let b = v.call("spawnbox", json!({"path": bf})).unwrap();
@@ -246,5 +305,22 @@ fn viewer_editor_commands() {
     let g = v.call("raycast", json!({"x": 200, "y": 150})).unwrap();
     assert_eq!(g["hit"], true, "{g}");
     assert!((g["point"][0].as_f64().unwrap() + 365.0).abs() < 20.0 && (g["point"][2].as_f64().unwrap() + 781.0).abs() < 20.0, "{g}");
+
+    // the gizmo: the camera's view as the viewer reports it gives the rays pick makes, and puts
+    // the point a pick's ray hits back under the pixel (an angled view, off the picture's middle)
+    v.call("camera", json!({"pitch": 30, "yaw": 40, "distance": 120})).unwrap();
+    let st = v.call("status", json!({})).unwrap();
+    let view = hwvx_browser::gizmo::View::from_camera(&st["camera"]).expect("status: camera.view");
+    assert_eq!(view.size, [400.0, 300.0], "{st}");
+    for (x, y) in [(200.0f32, 150.0f32), (37.0, 260.0), (390.0, 12.0)] {
+        let pk = v.call("pick", json!({"x": x, "y": y})).unwrap();
+        let (o, d) = view.ray(x, y);
+        for i in 0..3 {
+            assert!((pk["origin"][i].as_f64().unwrap() as f32 - o[i]).abs() < 0.01, "origin {pk} {o:?}");
+            assert!((pk["dir"][i].as_f64().unwrap() as f32 - d[i]).abs() < 1e-4, "dir {pk} {d:?}");
+        }
+        let at = view.project(hwvx_browser::gizmo::add(o, d, 80.0)).unwrap();
+        assert!((at[0] - x).abs() < 0.01 && (at[1] - y).abs() < 0.01, "{at:?} for {x}, {y}");
+    }
     v.call("quit", json!({})).ok();
 }

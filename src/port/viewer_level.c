@@ -724,7 +724,7 @@ int ViewerLevel_Dispatch(const char *cmd, const JsonNode *req, JsonWriter *w, in
                 *ok = 0;
             }
         } else if (path != NULL) {
-            Port_LevelPackReleased(vp->pack);   /* taken out */
+            Port_LevelTakeOut(vp->pack);   /* taken out (the pack stays: a level may come again) */
         }
         if (*ok) {
             const char *file = NULL, *id = Port_LevelCurrent(&file);

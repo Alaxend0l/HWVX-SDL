@@ -5,7 +5,8 @@
 //! viewer's `pick`, and the level's own volumes against the same ray). The inspector edits the
 //! selection by its schema: enums as menus, flags as boxes, links from a list of what fits or by
 //! clicking in the world, numbers, text. A base record is edited as patches (only what differs).
-//! Moving: Ctrl/Cmd + drag in the view moves the selection over the ground (the viewer's
+//! Moving: a drag on an axis of the gizmo moves the selection along it (src/gizmo.rs, from the
+//! camera the viewer reports), Ctrl/Cmd + drag in the view over the ground (the viewer's
 //! `raycast`), Ctrl/Cmd + wheel turns a start; the inspector's numbers and "To the ground".
 //! Every edit can be undone (Ctrl/Cmd+Z, Shift for redo). As the project changes it is checked
 //! (xdlrs::level::compile on a copy: the same checks as `check`) and, when it
@@ -14,6 +15,7 @@
 
 use crate::{Browser, Pending};
 use eframe::egui;
+use hwvx_browser::gizmo::{AxisDrag, View, gizmo_length};
 use hwvx_browser::level_model::{Project, Snapshot};
 use hwvx_browser::testdrive::{LevelError, default_tools, level_env};
 use serde_json::{Value, json};
@@ -53,6 +55,16 @@ const OWN_KINDS: [(&str, &str); 8] = [
     ("objectives", "Objectives"),
 ];
 
+/// What the pointer does with the gizmo (src/main.rs's view, in picture rays).
+pub enum AxisEvent {
+    /// over axis k (or none)
+    Hover(Option<usize>),
+    /// a drag along axis k: the ray where it was pressed, the ray now
+    Start(usize, ([f32; 3], [f32; 3]), ([f32; 3], [f32; 3])),
+    Move(([f32; 3], [f32; 3])),
+    End,
+}
+
 /// What "+ Add" makes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AddKind {
@@ -88,6 +100,13 @@ pub struct EditState {
     pub pick_link: Option<(String, String)>,
     move_inflight: bool,
     move_offset: f32,
+    /// a drag of the selection (ground or axis): 1 started (its first change is an undo point),
+    /// 2 that point taken (the rest of the drag goes into it), 0 none
+    drag_undo: u8,
+    /// the gizmo: a drag along one of its axes, the axis under the pointer, its axes' length
+    pub axis_drag: Option<AxisDrag>,
+    pub gizmo_hot: Option<usize>,
+    pub gizmo_len: f32,
     pub saved_note: String,
     marks_sent: Value,
     /// what the marks were made from last (they're made again only when it changes)
@@ -336,7 +355,16 @@ impl Browser {
         let e = &mut self.level.edit;
         let now = Instant::now();
         if let Some(p) = e.proj.as_mut() {
-            if e.last_change.map(|t| now.duration_since(t) > Duration::from_millis(600)).unwrap_or(true) {
+            // a drag: one undo point however long it takes; else one per burst
+            let burst = match e.drag_undo {
+                1 => {
+                    e.drag_undo = 2;
+                    true
+                }
+                2 => false,
+                _ => e.last_change.map(|t| now.duration_since(t) > Duration::from_millis(600)).unwrap_or(true),
+            };
+            if burst {
                 if p.undo.last() != Some(&before) {
                     p.undo.push(before);
                 }
@@ -425,20 +453,41 @@ impl Browser {
         self.level.edit.checking = Some((g, rx));
     }
 
+    /// The game refused the live preview (the level compiled): said under Live preview, and at
+    /// the field when it names a patch ("level: patch 2 (World/0/timers/0/to countUp): why").
+    pub(crate) fn level_refused(&mut self, e: &str) {
+        self.level.edit.preview_note = format!("the game refused the preview: {e}");
+        if let Some((path, field, why)) = refused_patch(e) {
+            let prefix = self.level.edit.proj.as_ref().map(|p| p.base_prefix()).unwrap_or_default();
+            self.level.edit.errors.push(LevelError { file: "level.jsonc".into(), path: format!("patches/{prefix}{path}/{field}"), message: format!("the game refuses it: {why}") });
+        } else {
+            self.fail(e.to_string());
+        }
+    }
+
     /// What the world shows for the editor: the level's own volumes, the selection, its gizmo.
     fn edit_marks(&mut self) {
         if !self.world.status["world"].is_string() || self.viewer.is_none() {
             return;
         }
         let editing = self.level.tab && self.level.edit.proj.is_some();
+        // the gizmo's length: about the same size in the picture at any camera distance
+        let cam = self.camera["pos"].as_array().and_then(|a| Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32, a.get(2)?.as_f64()? as f32]));
+        self.level.edit.gizmo_len = match (cam, self.sel_place()) {
+            (Some(c), Some((p, _))) => gizmo_length(((c[0] - p[0]).powi(2) + (c[1] - p[1]).powi(2) + (c[2] - p[2]).powi(2)).sqrt()),
+            _ => 15.0,
+        };
         let key = format!(
-            "{}|{:?}|{}|{}|{}|{}",
+            "{}|{:?}|{}|{}|{}|{}|{}|{:?}|{:?}",
             self.level.edit.generation,
             self.level.edit.sel,
             editing,
             self.world.status["world"],
             self.level.edit.base.values().map(Vec::len).sum::<usize>(),
-            self.level.edit.start_problems.iter().filter(|(_, v)| !v.is_empty()).map(|(k, _)| k.len() + 1).sum::<usize>()
+            self.level.edit.start_problems.iter().filter(|(_, v)| !v.is_empty()).map(|(k, _)| k.len() + 1).sum::<usize>(),
+            self.level.edit.gizmo_len,
+            self.level.edit.gizmo_hot,
+            self.level.edit.axis_drag.map(|d| d.axis)
         );
         if key == self.level.edit.marks_key {
             return;
@@ -503,10 +552,13 @@ impl Browser {
                     Some(Sel::Base(_, _)) => marks.push(json!({"kind": "cross", "pos": pos, "radius": 4.0, "color": yellow})),
                     _ => {}
                 }
-                // the gizmo: x red, y green, z blue
+                // the gizmo: x red, y green, z blue; the axis under the pointer (or dragged) yellow
+                let len = self.level.edit.gizmo_len;
+                let hot = self.level.edit.axis_drag.map(|d| d.axis).or(self.level.edit.gizmo_hot);
                 for (k, col) in [(0, [255, 60, 60]), (1, [60, 255, 60]), (2, [80, 120, 255])] {
                     let mut to = pos;
-                    to[k] += 15.0;
+                    to[k] += len;
+                    let col = if hot == Some(k) { [255, 240, 40] } else { col };
                     marks.push(json!({"kind": "line", "pos": pos, "to": to, "color": col}));
                 }
             }
@@ -991,6 +1043,7 @@ impl Browser {
         if started {
             // keep a volume's height above the ground as it was
             self.level.edit.move_offset = f32::NAN;
+            self.level.edit.drag_undo = 1;
         }
         if !self.level.edit.move_inflight {
             self.level.edit.move_inflight = self.request("raycast", json!({"x": x, "y": y}), Pending::EditMove);
@@ -1012,6 +1065,51 @@ impl Browser {
             _ => 0.0,
         };
         self.set_place([hit[0], hit[1] + lift, hit[2]], rot);
+    }
+
+    /// A drag of the selection ended (its undo point is closed).
+    pub(crate) fn edit_drag_end(&mut self) {
+        self.level.edit.drag_undo = 0;
+        self.level.edit.axis_drag = None;
+    }
+
+    /// The gizmo as drawn: the picture's camera, the selection's place, the axes' length. None
+    /// when nothing placed is selected (or the game doesn't report its camera's view).
+    pub(crate) fn gizmo(&self) -> Option<(View, [f32; 3], f32)> {
+        if !self.level.tab || self.level.edit.proj.is_none() {
+            return None;
+        }
+        let view = View::from_camera(&self.camera)?;
+        let (pos, _) = self.sel_place()?;
+        Some((view, pos, if self.level.edit.gizmo_len > 0.0 { self.level.edit.gizmo_len } else { 15.0 }))
+    }
+
+    /// The pointer over the gizmo: a drag along an axis (one undo point), or the axis it is over.
+    pub(crate) fn edit_axis(&mut self, ev: AxisEvent) {
+        match ev {
+            AxisEvent::Hover(k) => self.level.edit.gizmo_hot = k,
+            AxisEvent::Start(k, (o0, d0), now) => {
+                let Some((from, rot)) = self.sel_place() else { return };
+                self.level.edit.axis_drag = AxisDrag::start(k, from, rot, o0, d0);
+                if self.level.edit.axis_drag.is_some() {
+                    self.level.edit.drag_undo = 1;
+                    self.level.edit.gizmo_hot = Some(k);
+                    self.edit_axis(AxisEvent::Move(now));
+                } else {
+                    self.note(format!("the {} axis points at the camera: turn the view to drag it", ["x", "y", "z"][k]));
+                }
+            }
+            AxisEvent::Move((o, d)) => {
+                let Some(drag) = self.level.edit.axis_drag else { return };
+                if let Some(c) = drag.place(o, d, 5000.0) {
+                    // only when it moves by a hundredth (the places are kept to two decimals)
+                    if self.sel_place().map(|(cur, _)| (0..3).any(|i| (cur[i] - c[i]).abs() >= 0.005)).unwrap_or(false) {
+                        self.set_place(c, drag.rot);
+                    }
+                }
+            }
+            AxisEvent::End => self.edit_drag_end(),
+        }
     }
 
     /// Ctrl/Cmd + wheel: a start turns (15 degrees a notch).
@@ -1394,8 +1492,8 @@ impl Browser {
                 if ui.button("To the ground").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new("Ctrl/Cmd + drag moves it, Ctrl/Cmd + wheel turns a start").small().weak());
             });
+            ui.add(egui::Label::new(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it; Ctrl/Cmd + wheel turns a start").small().weak()).wrap());
             let before = self.level.edit.before();
             let p = self.level.edit.proj.as_mut().unwrap();
             let mut rec = p.level[kind][name].clone();
@@ -1521,8 +1619,8 @@ impl Browser {
                 if ui.button("To the ground").on_hover_text("straight down onto the collision").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new("Ctrl/Cmd + drag in the view moves it").small().weak());
             });
+            ui.add(egui::Label::new(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it").small().weak()).wrap());
         }
         let before = self.level.edit.before();
         let p = self.level.edit.proj.as_mut().unwrap();
@@ -1613,8 +1711,8 @@ impl Browser {
                 if ui.button("To the ground").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new(if table == "tileCars" { "Ctrl/Cmd + drag moves it, Ctrl/Cmd + wheel turns it" } else { "Ctrl/Cmd + drag moves it" }).small().weak());
             });
+            ui.add(egui::Label::new(egui::RichText::new(if table == "tileCars" { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it, Ctrl/Cmd + wheel to turn it" } else { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it" }).small().weak()).wrap());
         }
         let rec = self.level.edit.record.clone();
         if rec["path"] != path {
@@ -1640,48 +1738,67 @@ impl Browser {
         let p = self.level.edit.proj.as_mut().unwrap();
         let mut changed = false;
         let props = schema["properties"].as_object().cloned().unwrap_or_default();
+        let defs = schema["$defs"].clone();
         egui::Grid::new("base_fields").num_columns(3).striped(true).show(ui, |ui| {
             for (k, prop) in &props {
                 if prop.get("x-offset").is_none() || (!advanced && hidden_field(k)) {
                     continue;
                 }
                 let live = &rec["fields"][k];
-                if link_of(prop).is_some() {
-                    if advanced {
+                let off = xdlrs::schema::offset(prop).unwrap_or(0);
+                // what patches can't set (links, numbers the game indexes with): shown as they are
+                if let Some(why) = xdlrs::level::patch_refusal(&sname, prop, off) {
+                    if advanced || link_of(prop).is_none() {
                         ui.label(k);
-                        ui.label(egui::RichText::new(live.as_str().unwrap_or("null")).small().weak());
+                        let shown = match (live, enum_names(prop)) {
+                            (Value::Number(n), Some(names)) => names.iter().find(|(v, _)| Some(*v) == n.as_i64()).map(|(_, s)| s.clone()).unwrap_or_else(|| n.to_string()),
+                            (Value::String(s), _) => s.clone(),
+                            (Value::Null, _) => "null".into(),
+                            (v, _) => v.to_string(),
+                        };
+                        ui.label(egui::RichText::new(shown).monospace().weak()).on_hover_text(format!("{why}; the base world's value"));
                         ui.label("");
                         ui.end_row();
                     }
                     continue;
                 }
-                // embedded structs (pos): their members, each its own patch
+                // embedded structs (pos, quat): their members, each its own patch
                 if let Value::Object(members) = live {
+                    let sub = prop["$ref"].as_str().and_then(|r| r.rsplit('/').next()).map(|r| defs[r]["properties"].clone()).unwrap_or(Value::Null);
                     for (mk, mv) in members {
-                        if mk == "w" && !advanced {
+                        if mk == "w" && !advanced && k != "quat" {
                             continue;
                         }
                         let field = format!("{k}/{mk}");
                         let patched = p.patch(path, &field).cloned();
-                        let mut x = patched.as_ref().and_then(Value::as_f64).unwrap_or(mv.as_f64().unwrap_or(0.0));
                         ui.label(&field);
-                        if ui.add(egui::DragValue::new(&mut x).speed(0.5)).changed() {
-                            p.set_patch(path, &field, Some(json!(round(x as f32))));
-                            changed = true;
+                        let mp = &sub[mk.as_str()];
+                        if mp.is_object() && !mp["x-c-type"].as_str().unwrap_or("f32").starts_with('f') {
+                            // a whole number (none so far: Vector4 and Quaternion are floats)
+                            let cur = patched.clone().unwrap_or_else(|| mv.clone());
+                            let mut nv = cur.clone();
+                            if scalar_widget(ui, &mut nv, mp, &field) && nv != cur {
+                                p.set_patch(path, &field, Some(nv));
+                                changed = true;
+                            }
+                        } else {
+                            let mut x = patched.as_ref().and_then(Value::as_f64).unwrap_or(mv.as_f64().unwrap_or(0.0));
+                            if ui.add(egui::DragValue::new(&mut x).speed(if k == "quat" { 0.01 } else { 0.5 })).changed() {
+                                p.set_patch(path, &field, Some(json!(if k == "quat" { (x * 10000.0).round() / 10000.0 } else { round(x as f32) })));
+                                changed = true;
+                            }
                         }
                         changed |= revert_button(ui, p, path, &field, patched.is_some());
                         ui.end_row();
                     }
                     continue;
                 }
-                if live.is_array() {
-                    continue; // arrays: not patched from here
-                }
                 let patched = p.patch(path, k).cloned();
                 let cur = patched.clone().unwrap_or_else(|| live.clone());
                 ui.label(k);
                 let mut nv = cur.clone();
-                if scalar_widget(ui, &mut nv, prop, k) && nv != cur {
+                let edited = if live.is_array() { array_widget(ui, &mut nv, prop) } else { scalar_widget(ui, &mut nv, prop, k) };
+                if edited && nv != cur {
                     p.set_patch(path, k, Some(nv));
                     changed = true;
                 }
@@ -1784,6 +1901,20 @@ pub(crate) fn default_params(layout: &Value) -> Value {
     Value::Object(m)
 }
 
+/// "... patch N (PATH FIELD): why" (Port_Level.c's refusal of a patch): (path, field, why).
+pub(crate) fn refused_patch(e: &str) -> Option<(String, String, String)> {
+    let at = e.find("patch ")?;
+    let rest = &e[at + 6..];
+    let open = rest.find(" (")?;
+    if !rest[..open].bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let inner = &rest[open + 2..];
+    let close = inner.find("): ")?;
+    let (path, field) = inner[..close].split_once(' ')?;
+    Some((path.to_string(), field.to_string(), inner[close + 3..].to_string()))
+}
+
 fn round(x: f32) -> f64 {
     ((x as f64) * 100.0).round() / 100.0
 }
@@ -1871,6 +2002,35 @@ fn scalar_widget(ui: &mut egui::Ui, v: &mut Value, prop: &Value, key: &str) -> b
         return true;
     }
     false
+}
+
+/// An array of numbers (u8[6], f32[3]...): a value for each, kept in its type's range. The
+/// whole array is one patch. true if changed.
+fn array_widget(ui: &mut egui::Ui, v: &mut Value, prop: &Value) -> bool {
+    let (base, _) = xdlrs::schema::parse_ctype(prop["x-c-type"].as_str().unwrap_or(""));
+    let Some(pr) = xdlrs::schema::prim(&base) else {
+        ui.label(egui::RichText::new(v.to_string()).monospace().weak());
+        return false;
+    };
+    let Some(items) = v.as_array_mut() else { return false };
+    let (lo, hi) = if pr.float {
+        (f64::MIN, f64::MAX)
+    } else {
+        let bits = (pr.size * 8) as i32;
+        if pr.code.is_ascii_uppercase() { (0.0, 2f64.powi(bits) - 1.0) } else { (-(2f64.powi(bits - 1)), 2f64.powi(bits - 1) - 1.0) }
+    };
+    let mut changed = false;
+    ui.horizontal_wrapped(|ui| {
+        for x in items.iter_mut() {
+            let mut n = x.as_f64().unwrap_or(0.0);
+            let r = if pr.float { ui.add(egui::DragValue::new(&mut n).speed(0.5)) } else { ui.add(egui::DragValue::new(&mut n).speed(1.0).range(lo..=hi).fixed_decimals(0)) };
+            if r.changed() {
+                *x = if pr.float { json!(n) } else { json!(n as i64) };
+                changed = true;
+            }
+        }
+    });
+    changed
 }
 
 /// A link: the current target, a menu of what fits, and "pick in the world". true if changed.
@@ -2215,4 +2375,21 @@ fn value_editor(ui: &mut egui::Ui, v: &mut Value, key: &str, kinds: &HashMap<Str
 
 fn is_link(s: &str) -> bool {
     s.starts_with("base://") || s.starts_with("level://") || s.starts_with("uid://")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refused_patch;
+
+    #[test]
+    fn the_games_refusal_of_a_patch() {
+        let e = "level: patch 2 (World/0/timers/0/to countUp): over a number the game indexes with";
+        assert_eq!(refused_patch(e), Some(("World/0/timers/0/to".into(), "countUp".into(), "over a number the game indexes with".into())));
+        let e = "level: patch 0 (World/0/quads/4/contents/items/0 pos/x): over what a kept base trigger reads";
+        assert_eq!(refused_patch(e).unwrap().1, "pos/x");
+        // an older game's (no names), or another refusal: none
+        assert_eq!(refused_patch("level: patch 1: over a pointer"), None);
+        assert_eq!(refused_patch("level: part 3 (x y): bad"), None);
+        assert_eq!(refused_patch("level: the world pack's pointer list wasn't kept"), None);
+    }
 }

@@ -24,6 +24,9 @@ int Port_LevelApply(void *worldPack, const char *world, const char *path, char *
  * the base world's tables and patched fields. Any pack: does nothing for
  * the others. */
 void Port_LevelPackReleased(void *dataPack);
+/* Takes out the level applied to `worldPack` (if any), the pack staying: a level can be
+ * applied to it again (the viewer's level {path: null}). */
+void Port_LevelTakeOut(void *worldPack);
 /* The level applied now: its id and file (NULL: none). */
 const char *Port_LevelCurrent(const char **path);
 
