@@ -203,7 +203,8 @@ impl Browser {
     /// Each frame: the compile's result, the game's progress, its end.
     pub(crate) fn level_tick(&mut self, ctx: &egui::Context) {
         // F5 (and --test-drive): the level's test drive, or on the Content tab the selected car or weapon's
-        let content = self.content.tab.then(|| self.content.sel.clone()).flatten();
+        // (a retail car or weapon: content_test takes its number as the id)
+        let content = self.content.tab.then(|| self.content.sel.clone().or_else(|| self.content.retail.sel.map(|(k, n)| (k, n.to_string())))).flatten();
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
             match &content {
                 Some((k, u)) => self.content_test(*k, u),

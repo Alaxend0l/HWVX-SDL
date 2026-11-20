@@ -40,6 +40,8 @@ pub(crate) struct ContentState {
     pub music: crate::content_music_ui::MusicState,
     /// the Tracks section (content_tracks_ui.rs)
     pub tracks: crate::content_tracks_ui::TracksState,
+    /// the sections' selections last frame (content_one_selection)
+    pub seen: [String; 5],
 }
 
 pub(crate) fn base_label(kind: Kind, n: u32) -> String {
@@ -211,16 +213,32 @@ impl Browser {
         self.tracks_list(ui);
     }
 
+    /// One selection across the tab's sections (cars and weapons, retail changes, sounds, songs,
+    /// tracks): the one picked last stays, the others are let go.
+    fn content_one_selection(&mut self) {
+        let c = &mut self.content;
+        let now = [format!("{:?}", c.sel), format!("{:?}", c.retail.sel), format!("{:?}", c.sounds.sel), format!("{:?}", c.music.sel), format!("{:?}", c.tracks.sel)];
+        let picked = (0..now.len()).find(|&i| now[i] != c.seen[i] && now[i] != "None");
+        if let Some(i) = picked {
+            if i != 0 { c.sel = None; }
+            if i != 1 { c.retail.sel = None; }
+            if i != 2 { c.sounds.sel = None; }
+            if i != 3 { c.music.sel = None; }
+            if i != 4 { c.tracks.sel = None; }
+        }
+        c.seen = [format!("{:?}", c.sel), format!("{:?}", c.retail.sel), format!("{:?}", c.sounds.sel), format!("{:?}", c.music.sel), format!("{:?}", c.tracks.sel)];
+    }
+
     /// The right panel while the Content tab is on show.
     pub(crate) fn content_inspector(&mut self, ui: &mut egui::Ui) {
-        if self.content_retail_inspector(ui) || self.content_sounds_inspector(ui) {
-            return;
-        if self.content.sel.is_some() {
-            self.content.music.sel = None;
-        } else if self.content.music.sel.is_some() {
-            return self.music_inspector(ui);
-        if self.tracks_inspector(ui) {
-            return;
+        self.content_one_selection();
+        if self.content.sel.is_none() {
+            if self.content.music.sel.is_some() {
+                return self.music_inspector(ui);
+            }
+            if self.content_retail_inspector(ui) || self.content_sounds_inspector(ui) || self.tracks_inspector(ui) {
+                return;
+            }
         }
         let Some((kind, uid)) = self.content.sel.clone() else {
             ui.heading("Content");
