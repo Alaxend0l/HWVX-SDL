@@ -1559,7 +1559,7 @@ impl Browser {
             };
             if let Some(d) = defaults {
                 ui.separator();
-                ui.label(format!("{t} settings (the game finds new ones only once the volume grid lists them: see the warning)"));
+                ui.label(format!("{t} settings"));
                 // the type's defaults shown; written only once a field of them changes
                 let mut dv = if v["data"].is_object() { v["data"].clone() } else { d };
                 let kinds = HashMap::new();

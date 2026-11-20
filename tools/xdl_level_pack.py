@@ -70,6 +70,11 @@ class PackCompiler(LV.Compiler):
         raise LV.LevelError(f"{where}: {s}: the level has nothing of that name")
 
 
+# the center's w (padding the game never reads) of the volumes a level appends: "LVL1" as an
+# f32 (0x4C564C31); the port adds the volumes so marked to the volume grid (Port_Level.c)
+LEVEL_VOLUME_MARK = 56176836.0
+
+
 def raw_doc(nid, data, links):
     return {"id": nid, "size": len(data), "bytes": bytes(data).hex(),
             "links": {hex(off): link for off, link in links}}
@@ -140,7 +145,7 @@ def volume_item(v, resolve=None, where="level.jsonc/volumes"):
         c = {"x": c[0], "y": c[1], "z": c[2]}
     r = v.get("radius")
     it = {"editorId": 0, "enabled": v.get("enabled", 1), "shape": v.get("shape", "sphere"),
-          "type": v.get("type", "airbox"), "center": {"x": float(c["x"]), "y": float(c["y"]), "z": float(c["z"]), "w": 0.0},
+          "type": v.get("type", "airbox"), "center": {"x": float(c["x"]), "y": float(c["y"]), "z": float(c["z"]), "w": LEVEL_VOLUME_MARK},
           "radius": float(r) if r is not None else 0.0,
           "radiusSq": float(v.get("radiusSq", float(r) * float(r) if r is not None else 0.0)),
           "bsp": None, "data": None}
@@ -250,7 +255,7 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             lo, hi = v["box"]["min"], v["box"]["max"]
             it["shape"] = "bsp"
             it["bsp"] = own_id("volumes", n) + "/bsp"
-            it["center"] = {"x": (lo[0] + hi[0]) / 2, "y": (lo[1] + hi[1]) / 2, "z": (lo[2] + hi[2]) / 2, "w": 0.0}
+            it["center"] = {"x": (lo[0] + hi[0]) / 2, "y": (lo[1] + hi[1]) / 2, "z": (lo[2] + hi[2]) / 2, "w": LEVEL_VOLUME_MARK}
             it["radius"] = 0.5 * math.sqrt(sum((hi[k] - lo[k]) ** 2 for k in range(3)))
             it["radiusSq"] = 0.0
         if isinstance(v.get("data"), dict):

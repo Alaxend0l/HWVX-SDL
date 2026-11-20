@@ -1861,6 +1861,182 @@ static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, 
     return 1;
 }
 
+/* ---- the volume grid ------------------------------------------------------------ */
+
+/* The grid (VolumeHolder, VolumeManager.c) lists the volumes of each type touching each of
+ * its cells; force boxes, reverb, fog, camera, creature and light volumes are only found
+ * through it (airbox triggers name their volumes). A level's own volumes are added to the
+ * cells their bounding sphere touches (and to cell 0, the one outside the grid, when it
+ * reaches out of it): each cell's list for the type copied into one of ours with the volume
+ * at its end (so a base volume still comes first where both are), the cell's list patched
+ * (undone with the rest). The point test after the lookup is exact, so a cell listing a
+ * volume it doesn't touch costs a test, nothing else. */
+typedef struct LevelGrid {
+    VolumeHolder *h;
+    VolumeCell *cells;
+    const s32 *index;
+    u32 numSquares, numCells;
+} LevelGrid;
+
+static int GridOf(DataPack *pack, World *world, LevelGrid *g) {
+    u32 i;
+
+    SDL_zero(*g);
+    g->h = GETP(world->volumeHolder);
+    if (g->h == NULL || !InBlob(pack, (const u8 *)g->h, sizeof(VolumeHolder)) || g->h->numX <= 0 || g->h->numY <= 0 ||
+        g->h->numZ <= 0 || (u64)g->h->numX * (u64)g->h->numY * (u64)g->h->numZ > 0x400000) {
+        return 0;
+    }
+    g->numSquares = (u32)g->h->numX * (u32)g->h->numY * (u32)g->h->numZ;
+    g->index = GETP(g->h->cellIndex);
+    g->cells = GETP(g->h->cells);
+    if (!InBlob(pack, (const u8 *)g->index, g->numSquares * 4) || g->cells == NULL) {
+        return 0;
+    }
+    for (i = 0; i < g->numSquares; i++) {
+        if (g->index[i] < 0 || g->index[i] >= 0x100000) {
+            return 0;
+        }
+        g->numCells = SDL_max(g->numCells, (u32)g->index[i] + 1);
+    }
+    return InBlob(pack, (const u8 *)g->cells, g->numCells * (u32)sizeof(VolumeCell));
+}
+
+/* Some cell's list of the volume's type has it. */
+static int GridLists(const LevelGrid *g, const WorldVolume *v) {
+    u32 c, k;
+
+    if (v->type >= VOLUME_NUM_TYPES) {
+        return 0;
+    }
+    for (c = 0; c < g->numCells; c++) {
+        const VolumeList *l = &g->cells[c].lists[v->type];
+        const u32 *vols = GETP(l->volumes);
+
+        for (k = 0; vols != NULL && k < l->count && k < 0x10000; k++) {
+            if (Port_HandleToPtr(vols[k]) == v) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* The volume added to the cells it touches; 0 out of memory. */
+static int GridAdd(const LevelGrid *g, WorldVolume *v) {
+    const VolumeHolder *h = g->h;
+    u8 *mark = SDL_calloc(g->numCells, 1);
+    f32 r = v->radius, lo[3], hi[3], c[3];
+    s32 a0[3], a1[3], n[3], x, y, z, ax;
+    int outside = 0, ok = 1;
+    u32 i;
+
+    if (mark == NULL) {
+        return 0;
+    }
+    if (v->shape == VOLUME_SHAPE_SPHERE && v->radiusSq > 0.0f) {
+        r = SDL_max(r, SDL_sqrtf(v->radiusSq));
+    }
+    c[0] = v->center.x, c[1] = v->center.y, c[2] = v->center.z;
+    n[0] = h->numX, n[1] = h->numY, n[2] = h->numZ;
+    if (!(r > 0.0f) || !(r < 1e7f)) {
+        /* no bounds known (a BSP without its sphere): every cell */
+        SDL_memset(mark, 1, g->numCells);
+    } else {
+        for (ax = 0; ax < 3; ax++) {
+            lo[ax] = (c[ax] - r - h->origin[ax]) / h->cellSize[ax];
+            hi[ax] = (c[ax] + r - h->origin[ax]) / h->cellSize[ax];
+            if (!(h->cellSize[ax] > 0.0f) || !(lo[ax] > -1e7f) || !(hi[ax] < 1e7f)) {
+                lo[ax] = -1.0f, hi[ax] = (f32)n[ax];
+            }
+            outside |= lo[ax] < 0.0f || hi[ax] >= (f32)n[ax];
+            a0[ax] = SDL_max(0, (s32)SDL_floorf(lo[ax]));
+            a1[ax] = SDL_min(n[ax] - 1, (s32)SDL_floorf(hi[ax]));
+        }
+        for (y = a0[1]; y <= a1[1]; y++) {
+            for (z = a0[2]; z <= a1[2]; z++) {
+                for (x = a0[0]; x <= a1[0]; x++) {
+                    mark[g->index[z * n[0] + n[2] * (y * n[0]) + x]] = 1;   /* as VolumeManager_GetCell */
+                }
+            }
+        }
+        if (outside) {
+            mark[0] = 1;
+        }
+    }
+    for (i = 0; i < g->numCells && ok; i++) {
+        VolumeList *l = &g->cells[i].lists[v->type];
+        u32 *mem;
+
+        if (!mark[i]) {
+            continue;
+        }
+        if ((mem = Alloc(((size_t)l->count + 1) * 4)) == NULL) {
+            ok = 0;
+            break;
+        }
+        if (l->count > 0) {
+            SDL_memcpy(mem, GETP(l->volumes), (size_t)l->count * 4);
+        }
+        mem[l->count] = Port_PtrToHandle(v);
+        ok = PatchWord((u8 *)&l->volumes, Port_PtrToHandle(mem)) && PatchWord((u8 *)&l->count, l->count + 1);
+    }
+    SDL_free(mark);
+    return ok;
+}
+
+/* The volumes the grid doesn't list yet (not airboxes: their triggers name them), added;
+ * the number added, -1 out of memory. */
+static int GridAddMissing(DataPack *pack, World *world, WorldVolume **vols, int num) {
+    LevelGrid g;
+    int i, added = 0;
+
+    if (num == 0 || !GridOf(pack, world, &g)) {
+        return 0;
+    }
+    for (i = 0; i < num; i++) {
+        if (vols[i]->type == VOLUME_AIRBOX || vols[i]->type >= VOLUME_NUM_TYPES || GridLists(&g, vols[i])) {
+            continue;
+        }
+        if (!GridAdd(&g, vols[i])) {
+            return -1;
+        }
+        added++;
+    }
+    return added;
+}
+
+/* A level's own world pack (tools/xdlrs level_pack.rs) marks the volumes it appends to the
+ * World's array: their center's w (padding the game never reads) is this word ("LVL1",
+ * 56176836.0f). Retail's own volumes the grid leaves out (some worlds have 150) stay out. */
+#define LEVEL_VOLUME_MARK 0x4C564C31u
+
+static int LevelMarked(const WorldVolume *v) {
+    u32 w;
+
+    SDL_memcpy(&w, &v->center.w, 4);
+    return w == LEVEL_VOLUME_MARK;
+}
+
+/* The world array's volumes, as a list: all, or only the ones a level's own world pack marks. */
+static WorldVolume **WorldVolumes(DataPack *pack, World *world, int marked, int *num) {
+    WorldVolume *arr = GETP(world->volumes), **out;
+    u32 i;
+
+    *num = 0;
+    if (world->numVolumes == 0 || world->numVolumes > 0x10000 ||
+        !InBlob(pack, (const u8 *)arr, world->numVolumes * (u32)sizeof(WorldVolume)) ||
+        (out = SDL_malloc(world->numVolumes * sizeof(*out))) == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < world->numVolumes; i++) {
+        if (!marked || LevelMarked(&arr[i])) {
+            out[(*num)++] = &arr[i];
+        }
+    }
+    return out;
+}
+
 static int StartOverride(DataPack *pack, World *world, char *err, size_t errSize) {
     const char *e = SDL_getenv("HWVX_LEVEL_START");
     f32 v[4];
@@ -2027,7 +2203,7 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     const JsonNode *jpatches = Json_Get(doc, "patches");
     LevelPart *parts = NULL;
     u8 *keep = NULL;
-    int n = 0, i, ok = 0;
+    int n = 0, i, ok = 0, grid = 0;
     u32 numKeep = 0, numTrig = 0, numTimers = 0, numVars = 0, k;
 
     if (world == NULL || pack->dataSize < sizeof(World)) {
@@ -2367,6 +2543,12 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
         goto done;
     }
 
+    /* the level's volumes into the volume grid (force, fog, reverb, light, creature...) */
+    if ((grid = GridAddMissing(pack, world, s_lv.volumes, s_lv.numVolumes)) < 0) {
+        Fail(err, errSize, "out of memory");
+        goto done;
+    }
+
     /* in place */
     SETP(pack->triggers, s_lv.triggers);
     pack->numTriggers = s_lv.numTriggers;
@@ -2380,9 +2562,9 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     }
     ok = 1;
     Port_Log("level: %s (%s): %u triggers (%u kept), %u timers and %u variables added, %d parts, %d patches, "
-             "%d arrays grown", Json_GetString(doc, "id", "?"), Json_GetString(doc, "name", "?"),
-             (unsigned)s_lv.numTriggers, (unsigned)numKeep, (unsigned)numTimers, (unsigned)numVars, n,
-             s_lv.numPatches, s_lv.numGrows);
+             "%d arrays grown, %d volumes added to the volume grid", Json_GetString(doc, "id", "?"),
+             Json_GetString(doc, "name", "?"), (unsigned)s_lv.numTriggers, (unsigned)numKeep, (unsigned)numTimers,
+             (unsigned)numVars, n, s_lv.numPatches, s_lv.numGrows, grid);
 done:
     SDL_free(keep);
     SDL_free(parts);
@@ -2450,13 +2632,26 @@ void Port_LevelWorldLoaded(void *worldPack, const char *world, int track) {
         char why[160];
 
         Port_Log("level: its own world pack %s applied to track %d", world, track);
-        if (pack != NULL && GETP(pack->base) != NULL && SDL_getenv("HWVX_LEVEL_START") != NULL) {
-            /* the editor's "test from here": player 1's start moved (undone with the pack) */
+        if (pack != NULL && GETP(pack->base) != NULL && pack->dataSize >= sizeof(World)) {
+            WorldVolume **vols;
+            int nv = 0, added;
+
             s_lv.pack = pack;
             s_lv.world = (World *)GETP(pack->base);
             s_lv.id = SDL_strdup(world);
-            if (!StartOverride(pack, s_lv.world, why, sizeof(why))) {
-                Port_Log("level: %s", why);
+            /* the level's volumes are in the World's array, marked, not yet in the grid (the
+             * pack builder leaves the grid as the base world has it): added (undone with the pack) */
+            vols = WorldVolumes(pack, s_lv.world, 1, &nv);
+            added = GridAddMissing(pack, s_lv.world, vols, nv);
+            SDL_free(vols);
+            if (added != 0) {
+                Port_Log("level: %d volumes added to the volume grid%s", added, added < 0 ? " (out of memory)" : "");
+            }
+            /* the editor's "test from here": player 1's start moved (undone with the pack) */
+            if (added < 0 || (SDL_getenv("HWVX_LEVEL_START") != NULL && !StartOverride(pack, s_lv.world, why, sizeof(why)))) {
+                if (added >= 0) {
+                    Port_Log("level: %s", why);
+                }
                 Unapply();
             }
         }
@@ -2587,6 +2782,30 @@ void Port_LevelSweep(void *worldPack, const char *name) {
     s_strictBase = 0;
     Port_Log("levelsweep: %s: %s", name, ok ? "ok" : d == NULL ? perr : err);
     Unapply();
+    {
+        /* the world's own volumes the grid doesn't list (a level's own world pack adds the
+         * unlisted ones: none of retail's should be) */
+        DataPack *pack = worldPack;
+        World *world = GETP(pack->base);
+        LevelGrid g;
+        WorldVolume **vols;
+        int nv = 0, i, unlisted = 0, airboxes = 0, marked = 0;
+
+        if (world != NULL && pack->dataSize >= sizeof(World) && GridOf(pack, world, &g)) {
+            vols = WorldVolumes(pack, world, 0, &nv);
+            for (i = 0; i < nv; i++) {
+                if (!GridLists(&g, vols[i])) {
+                    *(vols[i]->type == VOLUME_AIRBOX ? &airboxes : &unlisted) += 1;
+                }
+                marked += LevelMarked(vols[i]);
+            }
+            SDL_free(vols);
+            Port_Log("levelsweep: %s: grid: %d volumes, %d cells, %d airboxes and %d others unlisted, %d marked as a "
+                     "level's", name, nv, (int)g.numCells, airboxes, unlisted, marked);
+        } else {
+            Port_Log("levelsweep: %s: grid: none", name);
+        }
+    }
     Json_Free(d);
 }
 

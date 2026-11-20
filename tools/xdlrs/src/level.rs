@@ -945,10 +945,6 @@ impl<'e> Compiler<'e> {
                 let did = format!("level://volumes/{name}/data");
                 self.add_part(&did, "data", raw, BTreeMap::new())?;
                 v.insert("data".into(), json!(did));
-                let t = v.get("type").map(|t| s(t)).unwrap_or_else(|| "None".into());
-                self.warnings.push(format!(
-                    "{wh}/type: a {t} volume of the level's own isn't in the world's volume grid (VolumeHolder): only the airbox triggers find a volume without it"
-                ));
             }
             Some(d) if !d.is_null() => {
                 v.insert("data".into(), d);

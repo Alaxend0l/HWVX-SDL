@@ -143,6 +143,11 @@ fn xyz(p: &Value) -> Result<[f64; 3]> {
     Ok([get(0)?, get(1)?, get(2)?])
 }
 
+/// The center's w (padding the game never reads) of the volumes a level appends: "LVL1" as an
+/// f32 (0x4C564C31). The port adds the volumes so marked to the world's volume grid
+/// (Port_Level.c), so force, fog, reverb, light and creature volumes work as the base's do.
+pub const LEVEL_VOLUME_MARK: f64 = 56176836.0;
+
 /// A level.jsonc volume as a WorldVolume item of the pack's array.
 fn volume_item(c: &mut Compiler, v: &Value, archive: &str, wh: &str) -> Result<Value> {
     let c0 = v.get("center").cloned().unwrap_or(json!([0, 0, 0]));
@@ -168,7 +173,7 @@ fn volume_item(c: &mut Compiler, v: &Value, archive: &str, wh: &str) -> Result<V
     it.insert("enabled".into(), v.get("enabled").cloned().unwrap_or(json!(1)));
     it.insert("shape".into(), v.get("shape").cloned().unwrap_or(json!("sphere")));
     it.insert("type".into(), v.get("type").cloned().unwrap_or(json!("airbox")));
-    it.insert("center".into(), json!({"x": f64v(cxyz[0]), "y": f64v(cxyz[1]), "z": f64v(cxyz[2]), "w": 0.0}));
+    it.insert("center".into(), json!({"x": f64v(cxyz[0]), "y": f64v(cxyz[1]), "z": f64v(cxyz[2]), "w": LEVEL_VOLUME_MARK}));
     it.insert("radius".into(), f64v(rf.unwrap_or(0.0)));
     it.insert("radiusSq".into(), f64v(rsq));
     it.insert("bsp".into(), Value::Null);
@@ -328,7 +333,7 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
             im.insert("bsp".into(), json!(format!("{}/bsp", own_id(&mut own, "volumes", n))));
             im.insert(
                 "center".into(),
-                json!({"x": f64v((lo[0] + hi[0]) / 2.0), "y": f64v((lo[1] + hi[1]) / 2.0), "z": f64v((lo[2] + hi[2]) / 2.0), "w": 0.0}),
+                json!({"x": f64v((lo[0] + hi[0]) / 2.0), "y": f64v((lo[1] + hi[1]) / 2.0), "z": f64v((lo[2] + hi[2]) / 2.0), "w": LEVEL_VOLUME_MARK}),
             );
             let mut sum = 0.0;
             for k in 0..3 {

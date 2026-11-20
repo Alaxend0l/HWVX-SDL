@@ -380,8 +380,6 @@ class Compiler:
             raw = volume_data(v.get("type", "airbox"), data, self.e, f"{where}/data")
             self.add_part(f"level://volumes/{name}/data", "data", raw, {})
             v["data"] = f"level://volumes/{name}/data"
-            self.warnings.append(f"{where}/type: a {v.get('type')} volume of the level's own isn't in the world's "
-                                 "volume grid (VolumeHolder): only the airbox triggers find a volume without it")
         elif data is not None:
             v["data"] = data
         for k in v:

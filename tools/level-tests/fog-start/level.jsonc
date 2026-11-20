@@ -1,0 +1,26 @@
+// A test level (tools/level_volume_test.sh), not a sample: Challenge 1's world as it is, with a
+// fog volume of the level's own around the player's start: thick red fog. The game finds a fog
+// volume only through the world's volume grid, so the frames are red only when the level's
+// volumes are added to it (Port_Level.c), in memory and in the level's own world pack.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://fogstarttest",
+  "name": "Fog Start Test",
+  "mode": "challenge",
+  "extends": "base://mcp/track/39",
+  "world": "worlds_\\sp_\\chal1_\\ch1_l2",
+  "unlocked": true,
+  "description": "Red fog at the start (a test).",
+  "baseTriggers": "all",
+  "triggers": [],
+
+  "volumes": {
+    "redfog": {
+      "type": "fog",
+      "center": [-364, 2, -780],                 // the player's start
+      "radius": 600,
+      "data": { "type": 0, "near": 1, "far": 20, "color": [255, 0, 0, 255] }
+    }
+  }
+}
