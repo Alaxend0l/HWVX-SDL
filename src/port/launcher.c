@@ -806,8 +806,9 @@ static void CreditsBuild(void) {
     Credit(CR_TEXT, "Copyright (c) 2026 Alaxend0l. MIT licence (LICENSE in the repository).");
     Credit(CR_LINK, "https://github.com/Alaxend0l/HWVX-SDL");
     Credit(CR_TEXT, "No game data is included: the game plays your own copy of it.");
-    Credit(CR_TEXT, "Hot Wheels: Velocity X and its data belong to the game's original "
-                    "developers and publisher.");
+    Credit(CR_TEXT, "Hot Wheels: Velocity X was developed by Beyond Games and published by THQ "
+                    "(2002). The game and its data belong to their owners; Hot Wheels is a trademark "
+                    "of Mattel.");
     Credit(CR_TEXT, "The game's code comes from HWVX-GC-Decomp, the GameCube decompilation "
                     "(CC0 1.0).");
     Credit(CR_TEXT, "");
