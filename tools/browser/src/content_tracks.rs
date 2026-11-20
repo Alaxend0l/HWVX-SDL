@@ -52,7 +52,9 @@ pub const MODES: [Mode; 5] = [
 
 /// The world select's picture of each retail track: its texture key (the menudump's pictures,
 /// GameCube; 0: none). The pictures are textures of HW_IPack's interface pack 6, number = key - 3
-/// (checked: a thumbnail texture/16 shows key 19, texture/103 key 106).
+/// (checked: a thumbnail texture/16 shows key 19, texture/103 key 106). The PS2's are the same.
+/// A link's texture number is the GameCube's on every release (the game finds the same picture
+/// in the PC's pack, Port_ContentData.c WorldPictureOn).
 const PICTURE_KEYS: [u16; 57] = [
     21, 24, 27, 106, 31, // joyride
     19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, // missions
@@ -62,6 +64,31 @@ const PICTURE_KEYS: [u16; 57] = [
     0, 0, 0, 0, //
     45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, // challenges
 ];
+/// The PC's keys for the same pictures: its interface pack 6 has them in another order (the
+/// menudump of every world select on the PC data; texture = key - 3 there too, checked against
+/// the select's screen and the GameCube's pictures).
+const PICTURE_KEYS_PC: [u16; 57] = [
+    27, 30, 33, 109, 37, //
+    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, //
+    27, 105, 106, 35, 37, 107, 108, 103, //
+    0, 0, //
+    27, 29, 30, 33, 103, 104, //
+    0, 0, 0, 0, //
+    49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66,
+];
+
+/// The texture of a release's interface pack 6 that shows world select picture `texture` (a
+/// link's number, the GameCube's): the PC's own number for it; others as they are.
+pub fn release_texture(release: &str, texture: u32) -> u32 {
+    if release != "pc" {
+        return texture;
+    }
+    PICTURE_KEYS
+        .iter()
+        .zip(PICTURE_KEYS_PC)
+        .find(|&(&k, _)| k >= 3 && u32::from(k) - 3 == texture)
+        .map_or(texture, |(_, pc)| u32::from(pc) - 3)
+}
 pub const PICTURE_ARCHIVE: &str = "HW_IPack";
 pub const PICTURE_PACK_TYPE: u32 = 1; // interface
 pub const PICTURE_PACK_ID: u32 = 6;
@@ -219,14 +246,13 @@ pub struct Picture {
 }
 
 /// The world select's pictures, decoded from the player's own HW_IPack (its interface pack 6;
-/// the archive found in `data` whatever the release's extension). Only what [`pictures`] lists.
+/// the archive found in `data` whatever the release's extension and layout: the PS2's is in
+/// XPS/ENGLISH). Only what [`pictures`] lists, by their links' numbers: on the PC each is
+/// decoded from the texture that shows it there ([`release_texture`]).
 pub fn base_pictures(data: &Path) -> Result<Vec<Picture>, String> {
     use xdlrs::modcheck::media::{Archive, RawPack, decode_level, scan_textures, slice};
-    let path = std::fs::read_dir(data)
-        .map_err(|e| format!("{}: {e}", data.display()))?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| xdlrs::modcheck::media::stem(p).eq_ignore_ascii_case(PICTURE_ARCHIVE) && p.is_file())
+    let path = xdlrs::cars::find_archive(data, PICTURE_ARCHIVE)
+        .filter(|p| p.is_file())
         .ok_or_else(|| format!("{}: no {PICTURE_ARCHIVE} archive", data.display()))?;
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let a = Archive::from_bytes(bytes, &path)?;
@@ -239,11 +265,12 @@ pub fn base_pictures(data: &Path) -> Result<Vec<Picture>, String> {
     let texs = scan_textures(&pk)?;
     let mut out = vec![];
     for (t, _) in pictures() {
-        let Some(x) = texs.get(t as usize) else { continue };
+        let Some(x) = texs.get(release_texture(a.release, t) as usize) else { continue };
         let Some(&(o, n, w, h)) = x.levels.first() else { continue };
         let clut = x.clut.map(|o| slice(pk.b, o, (o + 0x400) as i64));
         let rgba = decode_level(a.release, x.fmt, slice(pk.b, o, (o + n) as i64), w, h, clut)?;
-        // stored bottom row first (the select draws them flipped: checked against its screen, GameCube)
+        // stored bottom row first (the select draws them flipped: checked against its screen,
+        // GameCube and PC; the PS2's are stored as the GameCube's)
         let rgba: Vec<u8> = rgba.chunks(w * 4).rev().flatten().copied().collect();
         out.push(Picture { texture: t, w, h, rgba });
     }
@@ -496,6 +523,9 @@ mod tests {
         assert_eq!(picture_link(5).as_deref(), Some("base://HW_IPack/interface_6/texture/16"));
         assert_eq!(picture_texture("base://HW_IPack/interface_6/texture/103"), Some(103));
         assert_eq!(picture_texture("base://HW_IPack/interface_0/texture/1"), None);
+        // the PC's pack numbers the same pictures otherwise: challenge 1, mission 1, a battle's
+        assert_eq!((release_texture("pc", 42), release_texture("pc", 16), release_texture("pc", 99)), (46, 22, 102));
+        assert_eq!((release_texture("gc", 42), release_texture("ps2", 42), release_texture("pc", 5)), (42, 42, 5));
         // joyride 0, battle 19 and drag 29 share Monument City's picture
         assert!(pictures().iter().any(|(t, v)| *t == 18 && v.contains(&0) && v.contains(&19) && v.contains(&29)));
         assert_eq!(start_string("uid://abc123", 40).as_deref(), Some("race:mode=challenge,world=uid://abc123"));
@@ -552,6 +582,54 @@ mod tests {
         assert_eq!(ModProject::open(&d).unwrap().tracks().len(), 1);
         let _ = std::fs::remove_dir_all(&d);
         let _ = std::fs::remove_dir_all(&lp);
+    }
+
+    /// A picture made small and grey, its mean taken out and its length 1: two pictures' dot
+    /// product says how alike they are, whatever their brightness (the PC's are lighter).
+    fn shape(p: &Picture) -> Vec<f64> {
+        const N: usize = 64;
+        let mut v = vec![0f64; N * N];
+        for y in 0..p.h {
+            for x in 0..p.w {
+                let o = (y * p.w + x) * 4;
+                let g = 0.3 * p.rgba[o] as f64 + 0.59 * p.rgba[o + 1] as f64 + 0.11 * p.rgba[o + 2] as f64;
+                v[(y * N / p.h) * N + x * N / p.w] += g;
+            }
+        }
+        let mean = v.iter().sum::<f64>() / v.len() as f64;
+        v.iter_mut().for_each(|x| *x -= mean);
+        let len = v.iter().map(|x| x * x).sum::<f64>().sqrt().max(1e-9);
+        v.iter_mut().for_each(|x| *x /= len);
+        v
+    }
+
+    /// With the GameCube's data (HWVX_TEST_DATA) and the PC's or the PS2's (HWVX_TEST_PC_DATA,
+    /// HWVX_TEST_PS2_DATA; each skipped without): every world select picture the editor decodes
+    /// from that release, by a link's number, is the GameCube's picture of that number (the one
+    /// most like it of all of them). The GameCube's numbering on the PC's pack fails this.
+    #[test]
+    fn world_select_pictures_per_release() {
+        let Some(gc) = std::env::var_os("HWVX_TEST_DATA").map(PathBuf::from) else {
+            eprintln!("HWVX_TEST_DATA not set: skipped");
+            return;
+        };
+        let gc: Vec<_> = base_pictures(&gc).unwrap().iter().map(|p| (p.texture, shape(p))).collect();
+        assert_eq!(gc.len(), pictures().len());
+        for var in ["HWVX_TEST_PC_DATA", "HWVX_TEST_PS2_DATA"] {
+            let Some(data) = std::env::var_os(var).map(PathBuf::from) else {
+                eprintln!("{var} not set: skipped");
+                continue;
+            };
+            let pics = base_pictures(&data).unwrap();
+            assert_eq!(pics.len(), gc.len(), "{var}");
+            for p in &pics {
+                let s = shape(p);
+                let dot = |g: &Vec<f64>| g.iter().zip(&s).map(|(a, b)| a * b).sum::<f64>();
+                let (best, score) = gc.iter().map(|(t, g)| (*t, dot(g))).fold((0, f64::MIN), |a, b| if b.1 > a.1 { b } else { a });
+                eprintln!("{var}: texture {} is most like the GameCube's {best} ({score:.2})", p.texture);
+                assert_eq!(best, p.texture, "{var}: the picture decoded for texture {} is the GameCube's {best}", p.texture);
+            }
+        }
     }
 
     /// With game data (HWVX_TEST_DATA, else skipped): the sample checkpoint-run compiled into a

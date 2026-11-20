@@ -428,15 +428,57 @@ static char s_blank[] = " ";
 static const char *const s_typeNames[] = { "car", "interface", "item", "link", "world", "collision",
                                            "world_texture", "geometry", "share", "audio", "music" };
 
+/* The world selects' pictures (HW_IPack's interface pack 6) by track, as
+ * each release's select lists them: their texture keys (texture = key - 3).
+ * The GameCube's and the PS2's are the same; the PC's pack has its textures
+ * in another order (checked: HWVX_MENUDUMP of every select on each release,
+ * and the pictures themselves). 0: no picture. */
+static const u8 s_worldPicturesGC[57] = {
+    21, 24, 27, 106, 31,                                                        /* joyride */
+    19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,                     /* missions */
+    21, 102, 103, 29, 31, 104, 105, 99, 0, 0,                                   /* battles */
+    21, 23, 24, 27, 99, 100, 0, 0, 0, 0,                                        /* drag races */
+    45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,     /* challenges */
+};
+static const u8 s_worldPicturesPC[57] = {
+    27, 30, 33, 109, 37,
+    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+    27, 105, 106, 35, 37, 107, 108, 103, 0, 0,
+    27, 29, 30, 33, 103, 104, 0, 0, 0, 0,
+    49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66,
+};
+
+/* A world select picture's texture as a link numbers it (the GameCube's
+ * numbering, which a link without a release means) on the release of the
+ * pack it is read from: the same picture. Other textures as they are. */
+static u32 WorldPictureOn(u32 tex, int portFormat) {
+    u32 i;
+
+    if (portFormat != PORT_DATA_PC) {
+        return tex;
+    }
+    for (i = 0; i < SDL_arraysize(s_worldPicturesGC); i++) {
+        if (s_worldPicturesGC[i] != 0 && s_worldPicturesGC[i] - 3u == tex) {
+            return s_worldPicturesPC[i] - 3u;
+        }
+    }
+    return tex;
+}
+
 /* A texture link, base://<archive>/<type>_<id>/texture/<n>, to the texture
- * id of a loaded pack; -1 if it names none. */
+ * id of a loaded pack; -1 if it names none. <n> may be <release>:<n> (gc,
+ * pc, ps2: that release's texture n, none on the others); a world select
+ * picture without one is the GameCube's numbering, the same picture on every
+ * release (WorldPictureOn). */
 static s32 TextureOfLink(const char *link) {
+    static const char *const releases[] = { "gc", "pc", "ps2" };
     extern StreamingPack *g_StreamingDataPacks[11];
     extern u32 g_MaxStreamingDataPacks[11];
     char archive[0x40];
-    const char *p, *slash;
+    const char *p, *slash, *colon;
     size_t len, n;
     u32 type, id, tex, i;
+    s32 only = -1;      /* the release a <release>:<n> names */
     char *end;
 
     /* proto://: a pack of the PS2 prototype's (Port_Proto.c), loaded as "~archive" */
@@ -459,19 +501,44 @@ static s32 TextureOfLink(const char *link) {
         n = SDL_strlen(s_typeNames[type]);
         if (SDL_strncmp(p, s_typeNames[type], n) == 0 && p[n] == '_' && p[n + 1] >= '0' && p[n + 1] <= '9') {
             id = (u32)SDL_strtoul(p + n + 1, &end, 10);
-            if (SDL_strncmp(end, "/texture/", 9) != 0 || end[9] < '0' || end[9] > '9') {
+            if (SDL_strncmp(end, "/texture/", 9) != 0) {
                 return -1;
             }
-            tex = (u32)SDL_strtoul(end + 9, &end, 10);
+            p = end + 9;
+            if ((colon = SDL_strchr(p, ':')) != NULL) {
+                for (i = 0; i < SDL_arraysize(releases); i++) {
+                    if (SDL_strlen(releases[i]) == (size_t)(colon - p) && SDL_strncmp(p, releases[i], (size_t)(colon - p)) == 0) {
+                        only = (s32)i;
+                    }
+                }
+                if (only < 0) {
+                    return -1;
+                }
+                p = colon + 1;
+            }
+            if (*p < '0' || *p > '9') {
+                return -1;
+            }
+            tex = (u32)SDL_strtoul(p, &end, 10);
             if (*end != 0 || g_StreamingDataPacks[type] == NULL) {
                 return -1;
             }
             for (i = 0; i < g_MaxStreamingDataPacks[type]; i++) {
                 const StreamingPack *sp = &g_StreamingDataPacks[type][i];
+                int format = sp->pack.portFormat;
+                u32 t = tex;
 
-                if (sp->used && sp->loaded && sp->id == id && SameArchive(GETP(sp->name), archive) &&
-                    tex < sp->pack.numTextures && GETP(sp->pack.textureIDs) != NULL) {
-                    return GETP(sp->pack.textureIDs)[tex];
+                if (!sp->used || !sp->loaded || sp->id != id || !SameArchive(GETP(sp->name), archive)) {
+                    continue;
+                }
+                if (only >= 0 && only != (format == PORT_DATA_PC ? 1 : format == PORT_DATA_PS2 ? 2 : 0)) {
+                    return -1;   /* another release's texture */
+                }
+                if (only < 0 && type == 1 && id == 6 && SameArchive(archive, "HW_IPack")) {
+                    t = WorldPictureOn(tex, format);
+                }
+                if (t < sp->pack.numTextures && GETP(sp->pack.textureIDs) != NULL) {
+                    return GETP(sp->pack.textureIDs)[t];
                 }
             }
             return -1;

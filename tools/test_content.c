@@ -23,6 +23,12 @@
  *   bigtoc       the same with an HW_Items of 129 packs, its own last (the
  *                file layer kept 50 TOC entries): data linked to the
  *                GameCube's in content-out/data-toc
+ *   thumb, thumb-pc, thumb-ps2, thumbonly, thumbonly-pc
+ *                an extra challenge track with challenge 3's picture by its
+ *                GameCube texture number: challenge 3's on each release (the PC
+ *                numbers its pictures otherwise); texture/pc:N only on the PC,
+ *                elsewhere the alias's picture. -pc, -ps2: on HWVX_TEST_PC_DATA,
+ *                HWVX_TEST_PS2_DATA (skipped without)
  *
  * Data: the GameCube's extracted files, HWVX_TEST_GC_DATA or orig/gc/files
  * beside the source tree; without them the test is skipped (77).
@@ -279,6 +285,9 @@ typedef struct Scenario {
     const char *until;          /* log text that says the screen is there */
 } Scenario;
 
+#define THUMB_ENV(t) "HWVX_START=worldselect:mode=challenge", "HWVX_TEST_EXTRA_TRACKS=alias=40", \
+                     "HWVX_TEST_EXTRA_TRACK_THUMB=base://HW_IPack/interface_6/texture/" t
+
 static const Scenario s_scenarios[] = {
     { "carselect", { "HWVX_START=carselect" }, "menudump:   paragraphs 36" },
     { "extracars", { "HWVX_START=carselect", "HWVX_TEST_EXTRA_CARS=2" }, "menudump:   paragraphs 36" },
@@ -289,6 +298,13 @@ static const Scenario s_scenarios[] = {
     { "joyride", { "HWVX_START=worldselect:mode=joyride" }, "menudump:   paragraphs 57" },
     { "adventure", { "HWVX_START=menu:mode=adventure" }, "start: menu, adventure" },
     { "idslock", { "HWVX_START=carselect" }, "menudump:   paragraphs 36" },
+    /* a track with another's world select picture (GameCube numbering: challenge 3's), on each
+     * release: the same picture; texture/pc:N only on the PC, else its alias's */
+    { "thumb", { THUMB_ENV("44") }, "menudump:   paragraphs 58" },
+    { "thumb-pc", { THUMB_ENV("44") }, "menudump:   paragraphs 58" },
+    { "thumb-ps2", { THUMB_ENV("44") }, "menudump:   paragraphs 58" },
+    { "thumbonly", { THUMB_ENV("pc:48") }, "menudump:   paragraphs 58" },
+    { "thumbonly-pc", { THUMB_ENV("pc:48") }, "menudump:   paragraphs 58" },
     { "item16", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
 #ifndef _WIN32
     { "bigtoc", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
@@ -315,6 +331,16 @@ static void Checks(const char *name)
         CheckExtra(3, ": 0..13", 13, 1);
     } else if (strcmp(name, "challenge") == 0) {
         CheckWorlds(1);
+    } else if (strncmp(name, "thumb", 5) == 0) {
+        /* extra track 57 is entry 18 of the challenge pictures; challenge 3
+         * (entry 2) has the picture asked for, challenge 2 (1) is its alias */
+        const char *pics = List(0, ": 0..18", "pictures");
+        int alias = strcmp(name, "thumbonly") == 0;
+        char a[32], b[32];
+
+        Check(pics != NULL && Entry(pics, alias ? 1 : 2, a, sizeof(a)) && Entry(pics, 18, b, sizeof(b)) &&
+                  strcmp(a, b) == 0,
+              "track 57's picture is challenge %d's (%s)", alias ? 2 : 3, pics != NULL ? b : "no list");
     } else if (strcmp(name, "drag") == 0) {
         CheckWorlds(2);
     } else if (strcmp(name, "battle") == 0) {
@@ -496,6 +522,21 @@ static int RunOne(const Scenario *sc, const char *data, const char *out)
     return s_fails != 0;
 }
 
+/* A scenario named ...-pc or ...-ps2 runs on that release's data (HWVX_TEST_PC_DATA,
+ * HWVX_TEST_PS2_DATA: NULL, skipped, without), the others on the GameCube's. */
+static const char *ScenarioData(const char *name, const char *gc)
+{
+    size_t n = strlen(name);
+
+    if (n > 4 && strcmp(name + n - 4, "-ps2") == 0) {
+        return getenv("HWVX_TEST_PS2_DATA");
+    }
+    if (n > 3 && strcmp(name + n - 3, "-pc") == 0) {
+        return getenv("HWVX_TEST_PC_DATA");
+    }
+    return gc;
+}
+
 int main(int argc, char **argv)
 {
     const char *data = getenv("HWVX_TEST_GC_DATA");
@@ -536,7 +577,9 @@ int main(int argc, char **argv)
     if (argc > 2 && strcmp(argv[1], "--one") == 0) {
         for (i = 0; i < SDL_arraysize(s_scenarios); i++) {
             if (strcmp(s_scenarios[i].name, argv[2]) == 0) {
-                return RunOne(&s_scenarios[i], data, out);
+                const char *d = ScenarioData(s_scenarios[i].name, data);
+
+                return d != NULL ? RunOne(&s_scenarios[i], d, out) : (printf("%s: no data: skipped\n", argv[2]), 0);
             }
         }
         printf("no scenario %s\n", argv[2]);
@@ -549,6 +592,10 @@ int main(int argc, char **argv)
         int code = -1;
 
         if (argc > 1 && strcmp(argv[1], s_scenarios[i].name) != 0) {
+            continue;
+        }
+        if (ScenarioData(s_scenarios[i].name, data) == NULL) {
+            printf("== %s: skipped (no %s)\n", s_scenarios[i].name, strstr(s_scenarios[i].name, "-ps2") != NULL ? "HWVX_TEST_PS2_DATA" : "HWVX_TEST_PC_DATA");
             continue;
         }
         printf("== %s\n", s_scenarios[i].name);
