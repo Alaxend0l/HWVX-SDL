@@ -15,7 +15,7 @@
 #   lib/       the libraries, under the names the game looks for:
 #              libavformat.so.63 (linux), avformat-63.dll (windows),
 #              libavformat.63.dylib (macos), libavformat.so (android); same
-#              for avcodec, avutil, swscale, swresample
+#              for avcodec and avutil
 #   licenses/FFmpeg/  COPYING.LGPLv2.1, LICENSE.md (FFmpeg's) and NOTICE.txt
 #              (version, source, this script, the configure line)
 # A PREFIX already built from the same version, target and script is kept
@@ -78,25 +78,28 @@ major() {   # major LIB: the library's major version in this release
     grep -h "define LIB$(echo "$1" | tr a-z A-Z)_VERSION_MAJOR " \
         "$src/lib$1/version_major.h" "$src/lib$1/version.h" 2>/dev/null | awk '{print $3; exit}'
 }
-libs="avutil avcodec avformat swscale swresample"
+libs="avutil avcodec avformat"
 
 # LGPL v2.1+ only: no --enable-gpl, --enable-version3 or --enable-nonfree, and
-# no external libraries (--disable-autodetect). Only what the movies need:
-# Bink (the demuxer, the video decoder "bink" and both Bink Audio kinds),
-# MPEG-PS with MPEG-1/2 video (the mpegvideo demuxer is how mpegps probes a
-# video stream's codec; the parser cuts its frames), 16-bit PCM and PS-ADPCM
-# (decoders the game can hand the PSS's own SShd/SSbd audio to: FFmpeg's
-# demuxer doesn't read that stream), the file protocol.
+# no external libraries (--disable-autodetect). Only what the game's movies
+# use (bink.c, pss.c), each checked against the PC's seven .bik and the PS2's
+# .PSS (retail and prototype): the bink demuxer, the Bink video decoder
+# ("bink") and Bink Audio DCT (all seven .bik; none uses RDFT); the MPEG
+# program stream demuxer, MPEG-2 video (every .PSS; none is MPEG-1) with its
+# parser, and the raw mpegvideo demuxer, which is how mpegps probes a video
+# stream's codec. No protocols: the game reads the files itself (an AVIO
+# context over SDL's), and pss.c reads a PSS's SShd/SSbd audio, which FFmpeg's
+# demuxer passes over. No swscale or swresample: bink.c converts YUV to RGBA
+# itself and SDL resamples.
 # x86 assembly (nasm) is left out: one less build tool everywhere, and the C
 # decoders play 640x480 at 30 fps with room to spare.
 common="--disable-everything --disable-autodetect --disable-programs --disable-doc
- --disable-network --disable-avdevice --disable-avfilter --disable-debug
- --enable-shared --disable-static --disable-x86asm
- --enable-avcodec --enable-avformat --enable-avutil --enable-swscale --enable-swresample
- --enable-demuxer=bink,binka,mpegps,mpegvideo
- --enable-decoder=bink,binkaudio_dct,binkaudio_rdft,mpeg1video,mpeg2video,pcm_s16le,pcm_s16be,adpcm_psx
- --enable-parser=mpegvideo
- --enable-protocol=file"
+ --disable-network --disable-avdevice --disable-avfilter --disable-swscale --disable-swresample
+ --disable-debug --enable-shared --disable-static --disable-x86asm
+ --enable-avcodec --enable-avformat --enable-avutil
+ --enable-demuxer=bink,mpegps,mpegvideo
+ --enable-decoder=bink,binkaudio_dct,mpeg2video
+ --enable-parser=mpegvideo"
 
 configure_lines=""
 # build NAME [configure args...]: configures and builds into $work/build-NAME,
@@ -133,7 +136,7 @@ linux)
     done
     ;;
 windows)
-    # -static-libgcc: swscale would need libgcc_s_seh-1.dll otherwise.
+    # -static-libgcc: no DLL of libgcc's (libgcc_s_seh-1.dll) needed beside them.
     build windows --enable-cross-compile --target-os=mingw32 --arch=x86_64 \
         --cross-prefix=x86_64-w64-mingw32- --extra-ldflags=-static-libgcc
     for l in $libs; do

@@ -110,46 +110,52 @@ The source is used unmodified.
 It is configured LGPL-only (v2.1 or later): no `--enable-gpl`,
 `--enable-version3` or `--enable-nonfree`, no external libraries
 (`--disable-autodetect`), shared libraries only, no programs or docs, and only
-what the movies need:
+what the game's movies use:
 
     --disable-everything --disable-autodetect --disable-programs --disable-doc
-    --disable-network --disable-avdevice --disable-avfilter --disable-debug
-    --enable-shared --disable-static --disable-x86asm
-    --enable-avcodec --enable-avformat --enable-avutil --enable-swscale --enable-swresample
-    --enable-demuxer=bink,binka,mpegps,mpegvideo
-    --enable-decoder=bink,binkaudio_dct,binkaudio_rdft,mpeg1video,mpeg2video,pcm_s16le,pcm_s16be,adpcm_psx
-    --enable-parser=mpegvideo --enable-protocol=file
+    --disable-network --disable-avdevice --disable-avfilter --disable-swscale --disable-swresample
+    --disable-debug --enable-shared --disable-static --disable-x86asm
+    --enable-avcodec --enable-avformat --enable-avutil
+    --enable-demuxer=bink,mpegps,mpegvideo
+    --enable-decoder=bink,binkaudio_dct,mpeg2video
+    --enable-parser=mpegvideo
 
 plus the platform's (cross) compiler options, all written into each package's
-`NOTICE.txt`. `mpegvideo` (demuxer) is how `mpegps` recognises a video stream
-as MPEG-2; the parser cuts its frames. FFmpeg's `mpegps` demuxer does not read
-a PSS's own audio stream (`SShd`/`SSbd` in private stream 1): `pcm_s16le` and
-`adpcm_psx` are there for the game to decode it itself. THP (the GameCube's)
-is left out: `thp.c` plays those. No x86 assembly (`--disable-x86asm`): nasm is
-one build tool less, and the C decoders run all of the PC and PS2 movies at
-over 1000 frames a second on one core. After building, `build.sh` checks that
-libavcodec says `LGPL version 2.1 or later` and that no library's configuration
-has gpl, version3 or nonfree.
+`NOTICE.txt`. Each one is there because a release's movies use it: all seven
+PC `.bik` are Bink video with Bink Audio DCT (no RDFT); every PS2 `.PSS`
+(retail's five, the July 2002 prototype's four) is MPEG-2 (no MPEG-1) in an
+MPEG program stream; `mpegvideo` (demuxer) is how `mpegps` recognises that
+video stream's codec, and the parser cuts its frames. Not there: protocols
+(the game hands FFmpeg its own reader, an AVIO context), swscale and
+swresample (bink.c converts YUV to RGBA itself and SDL resamples), the PSS's
+audio decoders (pss.c reads its `SShd`/`SSbd` PCM, which FFmpeg's demuxer
+passes over), THP (`thp.c`). No x86 assembly (`--disable-x86asm`): nasm is one
+build tool less, and the C decoders run all of the PC and PS2 movies at over
+1000 frames a second on one core. (Bink Audio then differs from an
+assembly-optimised FFmpeg's by up to about 1e-6, under a 16-bit sample's
+step; against an ffmpeg run with `-cpuflags 0` it is identical.) After
+building, `build.sh` checks that libavcodec says `LGPL version 2.1 or later`
+and that no library's configuration has gpl, version3 or nonfree.
 
 | Package | Libraries | Where | Licence, notice | Size added |
 |---------|-----------|-------|-----------------|------------|
-| Windows `.zip` | `avcodec-63.dll`, `avformat-63.dll`, `avutil-61.dll`, `swscale-10.dll`, `swresample-7.dll` | beside `hwvx.exe` | `licenses/FFmpeg/` | 3.8 MB unpacked, 1.6 MB in the zip |
-| Linux `.tar.gz` | `libavcodec.so.63`, `libavformat.so.63`, `libavutil.so.61`, `libswscale.so.10`, `libswresample.so.7` | beside `hwvx` | `licenses/FFmpeg/` | 2.7 MB unpacked, 1.1 MB in the tar.gz |
-| AppImage | the same | `usr/lib` (hwvx's run path `$ORIGIN/../lib`) | `usr/share/licenses/FFmpeg/` | 1.0 MB |
-| macOS `.app` | `libavcodec.63.dylib`... (universal, install names `@loader_path/...`, ad-hoc signed) | `Contents/Frameworks`, linked from `Contents/Resources` (`SDL_GetBasePath()`) | `Contents/Resources/licenses/FFmpeg/` | not measured (two slices: about 5.5 MB unpacked) |
-| Android `.apk` | `libavcodec.so`... (unversioned, as Android packages them; 16 KB pages) | `lib/arm64-v8a`, `lib/x86_64` | `assets/licenses/FFmpeg/` | 6.0 MB (native libraries are stored uncompressed) |
+| Windows `.zip` | `avcodec-63.dll`, `avformat-63.dll`, `avutil-61.dll` | beside `hwvx.exe` | `licenses/FFmpeg/` | 1.9 MB unpacked, 0.85 MB in the zip |
+| Linux `.tar.gz` | `libavcodec.so.63`, `libavformat.so.63`, `libavutil.so.61` | beside `hwvx` | `licenses/FFmpeg/` | 1.7 MB unpacked, 0.74 MB in the tar.gz |
+| AppImage | the same | `usr/lib` (the base path's `../lib`) | `usr/share/licenses/FFmpeg/` | 0.68 MB |
+| macOS `.app` | `libavcodec.63.dylib`... (universal, install names `@loader_path/...`, ad-hoc signed) | `Contents/Frameworks` (the base path, `Contents/Resources`, `../Frameworks`) | `Contents/Resources/licenses/FFmpeg/` | not measured (two slices: about 3.5 MB unpacked) |
+| Android `.apk` | `libavcodec.so`... (unversioned, as Android packages them; 16 KB pages) | `lib/arm64-v8a`, `lib/x86_64` | `assets/licenses/FFmpeg/` | 3.2 MB (native libraries are stored uncompressed) |
 | Flatpak | none: the runtime's | `/usr/lib/ARCH-linux-gnu` | the runtime's | 0 |
 
 Sizes are the x86_64 builds (Linux built on Ubuntu 22.04, Windows with Ubuntu
-24.04's MinGW-w64). swscale and swresample are about half of them and the
-game doesn't load them today; dropping them is one word in `build.sh` (`libs=`).
+24.04's MinGW-w64).
 
 The game's lookup (bink.c): `HWVX_FFMPEG_DIR` if set (the only place), else its
-own folder (`SDL_GetBasePath()`), then the system's library search (and
-Homebrew's folders on macOS), for libavformat majors 63 down to 60 (FFmpeg
-9.x to 6.0) by the names above, then unversioned (`libavformat.so`: Android).
-libavutil, libavcodec and libavformat are opened in that order, so each one's
-dependencies are already loaded. The **Flatpak** carries no FFmpeg: the
+own folder (`SDL_GetBasePath()`) and the packages' (an `.app`'s
+`../Frameworks`, an AppImage's `../lib`), then the system's library search
+(and Homebrew's folders on macOS), for libavformat majors 63 down to 60
+(FFmpeg 9.x to 6.0) by the names above, then unversioned (`libavformat.so`:
+Android). libavutil, libavcodec and libavformat are opened in that order, so
+each one's dependencies are already loaded. The **Flatpak** carries no FFmpeg: the
 24.08 runtime's own (FFmpeg 7.1, `libavformat.so.61`, configured LGPL with
 the Bink, Bink Audio and MPEG-2 decoders and the `bink`/`mpeg` demuxers) is
 what the system search finds, on x86_64 and aarch64. The runtime's

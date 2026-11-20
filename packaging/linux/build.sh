@@ -37,8 +37,7 @@ echo "$out"
 appdir="$work/AppDir"
 rm -rf "$appdir"
 DESTDIR="$appdir" cmake --install "$work/game" --strip
-# FFmpeg in usr/lib: linuxdeploy gives hwvx the run path $ORIGIN/../lib, which
-# SDL_LoadObject's search uses (the game's own folder, usr/bin, comes first).
+# FFmpeg in usr/lib, where bink.c looks (the base path usr/bin's ../lib).
 mkdir -p "$appdir/usr/lib" "$appdir/usr/share/licenses"
 cp "$work/ffmpeg-prefix"/lib/* "$appdir/usr/lib/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$appdir/usr/share/licenses/"

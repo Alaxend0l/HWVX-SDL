@@ -24,18 +24,12 @@ cmake --build "$work/game"
 
 app="$work/game/Hot Wheels Velocity X.app"
 strip -x "$app/Contents/MacOS/Hot Wheels Velocity X"
-# FFmpeg: the libraries in Contents/Frameworks, where a bundle's code goes, and
-# a link to each in Contents/Resources, the game's own folder as SDL reports it
-# (SDL_GetBasePath), where it looks first. Their install names are
-# @loader_path/..., so they find each other from either.
+# FFmpeg: the libraries in Contents/Frameworks, where a bundle's code goes and
+# where bink.c looks (the base path's ../Frameworks); their install names are
+# @loader_path/..., so they find each other there.
 rm -rf "$app/Contents/Frameworks" "$app/Contents/Resources/licenses"
 mkdir -p "$app/Contents/Frameworks" "$app/Contents/Resources/licenses"
-for f in "$work/ffmpeg-prefix"/lib/*.dylib; do
-    n=$(basename "$f")
-    cp "$f" "$app/Contents/Frameworks/$n"
-    rm -f "$app/Contents/Resources/$n"
-    ln -s "../Frameworks/$n" "$app/Contents/Resources/$n"
-done
+cp "$work/ffmpeg-prefix"/lib/*.dylib "$app/Contents/Frameworks/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$app/Contents/Resources/licenses/"
 codesign --force --deep --sign - "$app"
 
