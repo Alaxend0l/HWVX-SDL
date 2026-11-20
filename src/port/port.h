@@ -253,6 +253,8 @@ const char *Port_ProtoName(const char *fileName);
  * and a race with a prototype car went past 0x1FF: every texture after the
  * last slot landed in that one). */
 #define PORT_MAX_TEXTURES 0x7FF
+/* Every slot of PORT_MAX_TEXTURES from now on (Gfx_TextureHandler.c): two world packs at once. */
+void Port_TexturesWiden(void);
 /* Past them, the port's button prompt atlases (game/Port_Prompts.c): texture objects only. */
 #define PORT_PROMPT_TEXTURES 16
 /* Past those, a mod's own pictures (game/Port_ModImages.c): texture objects only. */

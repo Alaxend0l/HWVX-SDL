@@ -42,6 +42,12 @@
       "data": {
         "player": 2
       }
+    },
+    {
+      "type": "interface_play",
+      "data": {
+        "interface": "base://race1l2/world_0/trigger/11/actions/1/data/p0"
+      }
     }
   ]
 }

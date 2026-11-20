@@ -233,6 +233,24 @@ static struct {
     u32 count;
 } s_noted;
 
+/* The mode's screens: a level of a mode on a world none of that mode's levels is on (a Joyride
+ * world as a template) plays the mode's own interfaces (intro, results, round screens), which
+ * live in the world packs of the mode's retail levels (the same screens in every one of them):
+ * the level file's "modeWorld", one of them, is loaded beside the level's world as a pack of its
+ * own. Its data only: its triggers are never activated (counted out before the refresh), its
+ * World is never the game's; the level's links with root "mode" lead into it from its trigger
+ * table, and a level trigger may name what a trigger of it names (an interface:
+ * ModeParamHandle). Released with the level. */
+static struct {
+    char name[160];
+    s32 index;                  /* its g_StreamingDataPacks[4] slot, -1: none */
+    DataPack *pack;
+    u8 *triggers;               /* its trigger table (the pack's count set to 0) */
+    u32 numTriggers;
+    u32 *handles;               /* the words its triggers' parameter blocks hold, sorted */
+    u32 numHandles;
+} s_mode = { .index = -1 };
+
 void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned int numPointers) {
     SDL_free(s_noted.pointers);
     s_noted.pack = dataPack;
@@ -764,6 +782,8 @@ static int BaseParamHandle(u32 h) {
     return 0;
 }
 
+static int ModeParamHandle(u32 h);
+
 /* The handle word at slot: zero (nullOk), the world's own pointer (unchanged: patches never
  * set one), or a link of the level to a record of type rec (of a kind the level can't make:
  * one a kept base trigger names). */
@@ -780,7 +800,7 @@ static int HandleOk(const u32 *slot, char rec, int nullOk) {
     if (!Linked((const u8 *)slot)) {
         return 0;
     }
-    return rec == '?' || rec == 'N' ? BaseParamHandle(*slot) : TypedAt(Port_HandleToPtr(*slot), rec);
+    return rec == '?' || rec == 'N' ? BaseParamHandle(*slot) || ModeParamHandle(*slot) : TypedAt(Port_HandleToPtr(*slot), rec);
 }
 
 static int PwHandle(ParamWalk *pw, char rec, int nullOk) {
@@ -1281,12 +1301,123 @@ static int SameWorld(const char *a, const char *b) {
     return *a == *b;
 }
 
+/* ---- the mode's screens ------------------------------------------------------ */
+
+static int CmpU32(const void *a, const void *b) {
+    u32 x = *(const u32 *)a, y = *(const u32 *)b;
+
+    return x < y ? -1 : x > y;
+}
+
+/* The words of a parameter block of the mode pack (at most 64: no list is longer in retail). */
+static void ModeNoteWords(u32 h, u32 *out, u32 *n, u32 cap) {
+    const u8 *p = h != 0 ? Port_HandleToPtr(h) : NULL;
+    u32 w;
+
+    for (w = 0; p != NULL && w < 64 && *n < cap && InBlob(s_mode.pack, p + w * 4, 4); w++) {
+        out[(*n)++] = ((const u32 *)p)[w];
+    }
+}
+
+static void ModeRelease(void) {
+    if (s_mode.index >= 0) {
+        if (s_mode.pack != NULL) {
+            s_mode.pack->numTriggers = 0;    /* (never activated: none to release) */
+        }
+        FileStreaming_ReleaseDataPack((u32)s_mode.index, 4);
+        Port_Log("level: the mode's screens (%s) released", s_mode.name);
+    }
+    SDL_free(s_mode.handles);
+    SDL_zero(s_mode);
+    s_mode.index = -1;
+}
+
+/* Loads `world` (a retail level of the level's mode) as the mode's screens. The pointer list the
+ * loader notes is the level world's (s_noted): kept across this load. */
+static int ModeLoad(const char *world, char *err, size_t errSize) {
+    extern StreamingPack *g_StreamingDataPacks[11];
+    extern u32 g_MaxStreamingDataPacks[11];
+    void *keepPack = s_noted.pack;
+    u32 *keepPointers = s_noted.pointers, keepCount = s_noted.count, k, cap;
+    StreamingPack *sp;
+    s32 idx;
+
+    if (SDL_strlen(world) >= sizeof(s_mode.name) || SDL_strchr(world, '/') != NULL || SDL_strstr(world, "..") != NULL ||
+        SDL_strncmp(world, "@", 1) == 0) {
+        return Fail(err, errSize, "modeWorld: a world as the MCP names it");
+    }
+    ModeRelease();
+    Port_TexturesWiden();   /* two worlds' textures at once */
+    SDL_strlcpy(s_mode.name, world, sizeof(s_mode.name));
+    s_noted.pointers = NULL;
+    s_noted.pack = NULL;
+    s_noted.count = 0;
+    idx = FileStreaming_LoadDataPack(s_mode.name, 4, 0, 0);
+    SDL_free(s_noted.pointers);
+    s_noted.pack = keepPack;
+    s_noted.pointers = keepPointers;
+    s_noted.count = keepCount;
+    if (idx < 0 || (u32)idx >= g_MaxStreamingDataPacks[4] || !g_StreamingDataPacks[4][idx].loaded) {
+        if (idx >= 0) {
+            FileStreaming_ReleaseDataPack((u32)idx, 4);
+        }
+        SDL_zero(s_mode.name);
+        return Fail(err, errSize, "modeWorld %s: not loaded (no such world in this release's data?)", world);
+    }
+    s_mode.index = idx;
+    sp = &g_StreamingDataPacks[4][idx];
+    s_mode.pack = &sp->pack;
+    if (!sp->refreshed) {
+        /* its triggers kept from the trigger lists: counted out before the refresh adds them */
+        s_mode.triggers = GETP(sp->pack.triggers);
+        s_mode.numTriggers = sp->pack.numTriggers;
+        sp->pack.numTriggers = 0;
+    } else {
+        return Fail(err, errSize, "modeWorld %s: already loaded as a world", world);
+    }
+    if (FileStreaming_InitializeDataPack((u32)idx, 4, 1) == NULL) {
+        return Fail(err, errSize, "modeWorld %s: not loaded", world);
+    }
+    /* what its triggers' parameters name (interfaces): what a level trigger may name of it */
+    cap = (s_mode.numTriggers + 1) * 64 * 8;
+    if (s_mode.numTriggers > 0x10000 || (s_mode.handles = SDL_malloc(cap * 4)) == NULL) {
+        return Fail(err, errSize, "out of memory");
+    }
+    for (k = 0; k < s_mode.numTriggers && InBlob(s_mode.pack, s_mode.triggers + k * TRIGGER_SIZE, TRIGGER_SIZE); k++) {
+        const Trigger *t = (const Trigger *)(s_mode.triggers + k * TRIGGER_SIZE);
+        u32 a, list;
+
+        ModeNoteWords(t->param.h, s_mode.handles, &s_mode.numHandles, cap);
+        for (list = 0; list < 3; list++) {
+            u32 n = list == 0 ? t->numConditions : list == 1 ? t->numActions : t->numElseActions;
+            u32 size = list == 0 ? TRIGGER_SIZE : sizeof(TriggerAction);
+            u32 h = list == 0 ? t->conditions.h : list == 1 ? t->actions.h : t->elseActions.h;
+            const u8 *recs = h != 0 ? Port_HandleToPtr(h) : NULL;
+
+            for (a = 0; recs != NULL && a < n && a < 64 && InBlob(s_mode.pack, recs + (a + 1) * size - 4, 4); a++) {
+                ModeNoteWords(*(const u32 *)(recs + a * size + 4), s_mode.handles, &s_mode.numHandles, cap);
+            }
+        }
+    }
+    SDL_qsort(s_mode.handles, s_mode.numHandles, 4, CmpU32);
+    Port_Log("level: the mode's screens from %s (%u triggers' records, never run)", world, (unsigned)s_mode.numTriggers);
+    return 1;
+}
+
+/* h, a handle a level trigger's parameters hold, is one a trigger of the mode pack holds
+ * (an interface, a sequence) and leads into the mode pack. */
+static int ModeParamHandle(u32 h) {
+    return s_mode.pack != NULL && h != 0 && InBlob(s_mode.pack, Port_HandleToPtr(h), 4) &&
+           SDL_bsearch(&h, s_mode.handles, s_mode.numHandles, 4, CmpU32) != NULL;
+}
+
 /* ---- undoing -------------------------------------------------------------- */
 
 static void Unapply(void) {
     int i;
     u32 k;
 
+    ModeRelease();
     if (s_lv.pack == NULL) {
         return;
     }
@@ -1379,6 +1510,7 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
     const JsonNode *steps, *s;
     LevelPart *p;
     u8 *cur;
+    DataPack *in = s_lv.pack;    /* the pack the walk is in: the world's, or the mode's screens */
 
     if (link == NULL || link->type != JSON_OBJECT) {
         Fail(err, errSize, "a link is an object");
@@ -1445,6 +1577,16 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
             return NULL;
         }
         cur = s_lv.origTriggers + i * TRIGGER_SIZE;
+    } else if (SDL_strcmp(root, "mode") == 0) {
+        /* the mode's screens (ModeLoad): from a trigger of its pack, within its blob */
+        long long i = Json_GetInt(link, "index", -1);
+
+        if (s_mode.pack == NULL || i < 0 || i >= s_mode.numTriggers) {
+            Fail(err, errSize, "the mode's screens have no trigger %lld (modeWorld %s)", i, s_mode.name[0] ? s_mode.name : "not loaded");
+            return NULL;
+        }
+        in = s_mode.pack;
+        cur = s_mode.triggers + i * TRIGGER_SIZE;
     } else {
         Fail(err, errSize, "no root %s", root);
         return NULL;
@@ -1459,26 +1601,26 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
             return NULL;
         }
         if (a->string[0] == 'p') {
-            if (!InWorld(s_lv.pack, cur + v, 4)) {
+            if (!InWorld(in, cur + v, 4)) {
                 Fail(err, errSize, "a pointer step leaves the world pack");
                 return NULL;
             }
             {
                 /* bounds-checked: only a handle inside the world pack's blob is followed (a
                  * level made for another world, or a stale one, never reaches the handle table) */
-                u32 h = *(u32 *)(cur + v), lo = Port_PtrToHandle(GETP(s_lv.pack->base));
+                u32 h = *(u32 *)(cur + v), lo = Port_PtrToHandle(GETP(in->base));
 
                 if (h == 0) {
                     Fail(err, errSize, "a pointer on the way is null in this release's world");
                     return NULL;
                 }
-                if (h - lo < s_lv.pack->dataSize) {
-                    cur = GETP(s_lv.pack->base) + (h - lo);
+                if (h - lo < in->dataSize) {
+                    cur = GETP(in->base) + (h - lo);
                 } else {
                     /* or into an array the level grew (its appends) */
                     int g;
 
-                    for (g = 0, cur = NULL; g < s_lv.numGrows && cur == NULL; g++) {
+                    for (g = 0, cur = NULL; in == s_lv.pack && g < s_lv.numGrows && cur == NULL; g++) {
                         if (h == Port_PtrToHandle(s_lv.grows[g].mem)) {
                             cur = s_lv.grows[g].mem;
                         }
@@ -1492,7 +1634,7 @@ static u8 *Resolve(const JsonNode *link, LevelPart *parts, int n, char *err, siz
         } else {
             cur += v;
         }
-        if (!InWorld(s_lv.pack, cur, 1)) {
+        if (!InWorld(in, cur, 1)) {
             Fail(err, errSize, "the path leaves the world pack");
             return NULL;
         }
@@ -2637,6 +2779,11 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     s_lv.origNumVariables = world->numVariables;
     s_lv.numTimerSlots = s_lv.origNumTimers;
     s_lv.numVariableSlots = s_lv.origNumVariables;
+
+    /* the mode's screens, when the level plays its mode on another mode's world */
+    if (Json_Get(doc, "modeWorld") != NULL && !ModeLoad(Json_GetString(doc, "modeWorld", ""), err, errSize)) {
+        goto done;
+    }
 
     /* the world pack's pointer slots (every check below leans on them) */
     if (s_noted.pack != pack || s_noted.pointers == NULL) {

@@ -1,0 +1,46 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "game_round_x_complete",
+  "actions": [
+    {
+      "type": "hud_change_mode",
+      "data": {
+        "unused": 1,
+        "on": 0
+      },
+      "count": "always"
+    },
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "lock_control",
+        "unused": 0,
+        "cars": [
+          "base://world1/world_0/World/0/tileCars/0",
+          "level://starts/rival"
+        ]
+      },
+      "count": "always"
+    },
+    {
+      "type": "timer_change_mode",
+      "data": {
+        "show": "show",
+        "run": "pause",
+        "timers": [
+          "level://timers/clock"
+        ]
+      },
+      "count": "always"
+    },
+    {
+      "type": "interface_play",
+      "data": {
+        "interface": "base://bat1_l1/world_0/trigger/0/param/p0"
+      },
+      "delayInit": 3000,
+      "count": "always"
+    }
+  ]
+}

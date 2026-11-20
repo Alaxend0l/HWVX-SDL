@@ -21,6 +21,8 @@
 # "memory": [...]} must log each of those lines in that run ("memory": the win run with MEMORY=1:
 # the level file applied at run time, which logs what it removes). OUT/<sample>-<run>.log, frames
 # in OUT/dump-* (deleted unless KEEP_FRAMES=1).
+# MODE_INPUT=1 answers any level's screens as a level with the mode's own screens is answered (below):
+# a retail level's, to compare with.
 #
 # SAMPLE "templates": every mode on every Joyride world (20 levels: challenge, mission, battle, drag
 # on worlds 1-5), each as New level makes it (xdlrs level new: the gears and key removed, the
@@ -72,8 +74,22 @@ for s in "${samples[@]}"; do
         # presses; a drag shows "GO" at about frame 240, the gas from 250 (none in its countdown); a level
         # on a Joyride world opens with the Joyride intro (A presses, as a mission's)
         case "$mode" in mission|joyride) pre="$PRESS";; drag) pre="250:a";; *) pre="308:a,377:a,446:a,515:a";; esac
-        case "$(key "$P/level.jsonc" '.world' | tr 'A-Z' 'a-z')" in *joyride*) [ "$mode" != joyride ] && pre="308:a,377:a";; esac
+        modew=$(key "$P/level.jsonc" '.modeWorld // ""' | tr -d '"')
+        case "$(key "$P/level.jsonc" '.world' | tr 'A-Z' 'a-z')" in *joyride*) [ "$mode" != joyride ] && [ -z "$modew" ] && pre="308:a,377:a";; esac
         if [ $run = win ]; then input="$pre*3000"; else input="$pre"; fi
+        if [ -n "$modew" ] || [ -n "${MODE_INPUT:-}" ]; then
+            # the mode's own screens (modeWorld), answered as a player would on its retail levels: a
+            # challenge's or mission's intro box (A), then Objective Complete's Continue (A: "won (sequence
+            # 0)", back to the menus) or Objective Failed's Retry (A: "lost (sequence 0)", the level again);
+            # a battle's or drag race's results after the last round: Main Menu (down, A: "won (sequence
+            # 99)", the progression's quit), the gas released before them
+            case "$mode" in
+                battle|drag) [ $mode = battle ] && g=308 || g=250
+                             if [ $run = win ]; then input="$g:a*600,3100:down,3200:a,3300:a"; else input="$g:a,4200:down,4300:a,4400:a"; fi ;;
+                *) pre="308:a,377:a,446:a,515:a"
+                   if [ $run = win ]; then input="$pre*2500,3100:a,3200:a,3300:a,3400:a"; else input="$pre,4300:a"; fi ;;
+            esac
+        fi
         extra=()
         if [ $run = smoke ]; then
             # the autopilot drives (src/game/Port_Autopilot.c); A only for the screens before the start

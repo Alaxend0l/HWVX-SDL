@@ -32,6 +32,7 @@
     "variables": {"type": "object", "additionalProperties": {"anyOf": [{"type": "number"}, {"type": "object", "description": "WorldVariable fields"}]}},
     "strings": {"type": "object", "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}, "description": "texts (paragraphs) for print_debug_string and the like: level://strings/NAME is the game's string table"},
     "patches": {"type": "object", "additionalProperties": {"type": "object"}, "description": "base record path -> {field: number}: number fields of base records (field/member for embedded structs: pos/y)"},
+    "modeWorld": {"type": "string", "description": "a retail level of the mode (its world as the MCP names it), loaded beside the level's world for the mode's own screens: base links into its archive may name what its triggers name (base://ARCHIVE/world_0/trigger/N/...); xdlrs level new sets it on a Joyride world (xdlrs::level_template::mode_screens)"},
     "remove": {
       "type": "object",
       "description": "base records the level takes out (a Joyride world as a template: its gears, its key and the objectives that count them; xdlrs level new, xdlrs level collectibles): pickup points never spawned, objectives hidden (not shown, in no HUD object: the level's own objective with the removed one's id shows there). Never also patched.",

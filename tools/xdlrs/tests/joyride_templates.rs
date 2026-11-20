@@ -127,14 +127,17 @@ fn every_mode_on_every_joyride_world() {
             assert!(r.ok, "{mode} on world{w}: {:?}", r.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>());
             let doc = r.doc.unwrap();
             assert_eq!(doc["removes"].as_array().unwrap().len(), 13, "{mode} on world{w}");
-            assert_eq!(doc["baseTriggers"].as_array().unwrap().len(), c.kept.len());
+            // the Joyride intro (an interface and what waits for it) goes too: the mode's own screens
+            let kept: Vec<i64> = doc["baseTriggers"].as_array().unwrap().iter().filter_map(Value::as_i64).collect();
+            assert!(kept.len() < c.kept.len() && kept.iter().all(|k| c.kept.contains(k)), "{mode} on world{w}: {kept:?}");
+            assert_eq!(doc["modeWorld"], level_template::mode_screens(mode).unwrap().world);
             // (compile gives warnings with a spawn box only: the check's)
             let (errs, warnings) = level::check(&env, &dir, &b, None).unwrap();
             assert!(errs.is_empty(), "{errs:?}");
             let warned = |s: &str| warnings.iter().any(|x| x.contains(s));
             match mode {
                 // nothing wins it yet (the template leaves the goal to the level)
-                "challenge" | "mission" => assert!(warned("nothing ends this"), "{mode} on world{w}: {warnings:?}"),
+                "challenge" | "mission" => assert!(warned("nothing wins this"), "{mode} on world{w}: {warnings:?}"),
                 // one start: a battle wants 2, a drag race 4
                 _ => assert!(warned(if mode == "battle" { "2 starts" } else { "4 lanes" }), "{mode} on world{w}: {warnings:?}"),
             }

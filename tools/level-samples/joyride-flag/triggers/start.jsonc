@@ -1,0 +1,93 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "level_start",
+  "actions": [
+    {
+      "type": "interface_play",
+      "data": {
+        "interface": "base://bat1_l1/world_0/trigger/0/actions/3/data/p0"
+      },
+      "count": "always"
+    },
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "lock_control",
+        "unused": 0,
+        "cars": [
+          "base://world1/world_0/World/0/tileCars/0",
+          "level://starts/rival"
+        ]
+      },
+      "count": "always"
+    },
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "unlock_control",
+        "unused": 0,
+        "cars": [
+          "base://world1/world_0/World/0/tileCars/0",
+          "level://starts/rival"
+        ]
+      },
+      "delayInit": 3500,
+      "count": "always"
+    },
+    {
+      "type": "hud_change_mode",
+      "data": {
+        "unused": 1,
+        "on": 0
+      },
+      "count": "always"
+    },
+    {
+      "type": "hud_change_mode",
+      "data": {
+        "unused": 1,
+        "on": 1
+      },
+      "delayInit": 1000,
+      "count": "always"
+    },
+    {
+      "type": "timer_change_mode",
+      "data": {
+        "show": "show",
+        "run": "pause",
+        "timers": [
+          "level://timers/clock"
+        ]
+      },
+      "count": "always"
+    },
+    {
+      "type": "timer_change_mode",
+      "data": {
+        "show": "show",
+        "run": "resume",
+        "timers": [
+          "level://timers/clock"
+        ]
+      },
+      "delayInit": 3500,
+      "count": "always"
+    },
+    {
+      "type": "code_variable_modify_value",
+      "data": {
+        "op": "set",
+        "var": {
+          "var": 300,
+          "arg": 0
+        },
+        "value": {
+          "const": 1
+        }
+      },
+      "count": "always"
+    }
+  ]
+}

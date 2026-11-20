@@ -34,8 +34,9 @@ typedef struct BTFHeader {
 s32 Gfx_TextureHandler_Create(void) {
     /* port: more slots with the prototype's content (PORT_MAX_TEXTURES) */
     m_totalTextures = Port_ProtoMode() != PORT_PROTO_OFF ? PORT_MAX_TEXTURES : 0x1FF;
-    m_texture = Allocate(m_totalTextures * sizeof(Texture), 0, "");
-    memset(m_texture, 0, m_totalTextures * sizeof(Texture));
+    /* port: the table always has room for PORT_MAX_TEXTURES (Port_TexturesWiden) */
+    m_texture = Allocate(PORT_MAX_TEXTURES * sizeof(Texture), 0, "");
+    memset(m_texture, 0, PORT_MAX_TEXTURES * sizeof(Texture));
     return 1;
 }
 
@@ -475,3 +476,13 @@ void Gfx_UnLoadTexture(u16 id) {
     }
 }
 
+
+/* port: PORT_MAX_TEXTURES slots from now on: a level of a mode on another mode's world loads a
+ * retail level of its mode beside it for its screens (Port_Level.c ModeLoad), two worlds'
+ * textures at once, past the release's 0x1FF (every texture after the last slot would land in
+ * it). The table was made that big. */
+void Port_TexturesWiden(void) {
+    if (m_texture != NULL && m_totalTextures < PORT_MAX_TEXTURES) {
+        m_totalTextures = PORT_MAX_TEXTURES;
+    }
+}

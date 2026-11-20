@@ -783,6 +783,17 @@ fn level_main(cmd: &str, a: &Args) -> ExitCode {
                 println!("{}", p.display());
                 Ok(0)
             }
+            "screens" => {
+                // the screens a world's triggers play, fingerprinted (the same screen in two packs:
+                // the same hash), one JSON line each
+                let data = a.opts.get("data").ok_or_else(|| Error::uncaught("--data is required"))?;
+                let p = lv::base_project(&env, a.pos(0)?, Path::new(data), &lv::cache_dir(a.opts.get("cache").map(Path::new)))?;
+                let shapes = xdlrs::level_template::screens(&env, &p, false)?;
+                for (s, sh) in xdlrs::level_template::screens(&env, &p, true)?.into_iter().zip(shapes) {
+                    println!("{}", py::dumps(&json!({"path": s.path, "hash": s.hash, "shape": sh.hash, "texts": s.texts})));
+                }
+                Ok(0)
+            }
             "collectibles" => {
                 // what a world's script collects (a Joyride world: its gears, its key), as JSON
                 let data = a.opts.get("data").ok_or_else(|| Error::uncaught("--data is required"))?;

@@ -3,9 +3,44 @@
   "format_version": 1,
   "type": "interface_end",
   "param": {
-    "interface": "base://world2/world_0/trigger/32/param/p0"
+    "interface": "base://world1l1/world_0/trigger/23/param/p0"
   },
   "actions": [
+    {
+      "type": "interface_play",
+      "data": {
+        "interface": "base://world1l1/world_0/trigger/23/actions/3/data/p0"
+      }
+    },
+    {
+      "type": "hud_change_mode",
+      "data": {
+        "unused": 1,
+        "on": 1
+      },
+      "delayInit": 1000
+    },
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "lock_control",
+        "unused": 0,
+        "cars": [
+          "base://world2/world_0/World/0/tileCars/0"
+        ]
+      }
+    },
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "unlock_control",
+        "unused": 0,
+        "cars": [
+          "base://world2/world_0/World/0/tileCars/0"
+        ]
+      },
+      "delayInit": 3500
+    },
     {
       "type": "timer_change_mode",
       "data": {
@@ -13,6 +48,35 @@
         "run": "resume",
         "timers": [
           "level://timers/clock"
+        ]
+      },
+      "delayInit": 3500
+    },
+    {
+      "type": "music_change",
+      "data": {
+        "vol": 1,
+        "volTime": 0,
+        "pitch": 1,
+        "pitchTime": 0,
+        "tempo": 1,
+        "tempoTime": 0,
+        "orderMode": "order_jump",
+        "order": 10,
+        "orderType": 40,
+        "tracks": [
+          {
+            "unused0": 0,
+            "track": 0,
+            "active": 1,
+            "vol": 1,
+            "unused10": 0,
+            "unused14": 0,
+            "unused18": 0,
+            "unused1C": 0,
+            "unused20": 0,
+            "unused24": 10
+          }
         ]
       }
     }

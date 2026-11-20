@@ -1,0 +1,137 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "level_start",
+  "actions": [
+    {
+      "type": "print_debug_string",
+      "data": {
+        "what": 4,
+        "countdown": 60,
+        "value": "level://strings/blank"
+      }
+    },
+    {
+      "type": "camera_set_targets",
+      "data": {
+        "player": 0,
+        "camera": {
+          "kind": "orbit",
+          "fov": 105,
+          "radius": 18,
+          "height": 0.5,
+          "speed": 1,
+          "around": {
+            "kind": "car",
+            "car": "base://world4/world_0/World/0/tileCars/0",
+            "offset": [
+              10,
+              10,
+              0
+            ]
+          },
+          "at": {
+            "kind": "car",
+            "car": "base://world4/world_0/World/0/tileCars/0",
+            "offset": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        "end": 31
+      }
+    },
+    {
+      "type": "camera_set_targets",
+      "data": {
+        "player": 0,
+        "camera": {
+          "kind": "player",
+          "from": {
+            "kind": "car",
+            "car": "base://world4/world_0/World/0/tileCars/0",
+            "offset": [
+              0,
+              0,
+              0
+            ]
+          },
+          "at": {
+            "kind": "car",
+            "car": "base://world4/world_0/World/0/tileCars/0",
+            "offset": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        "end": 31
+      },
+      "delayInit": 3500
+    },
+    {
+      "type": "hud_change_mode",
+      "data": {
+        "unused": 1,
+        "on": 0
+      }
+    },
+    {
+      "type": "vehicle_change_mode",
+      "data": {
+        "mode": "ai_hold",
+        "cars": [
+          "base://world4/world_0/World/0/tileCars/0"
+        ]
+      }
+    },
+    {
+      "type": "interface_play",
+      "data": {
+        "interface": "base://ch1_l2/world_0/trigger/18/param/p0"
+      },
+      "delayInit": 2000
+    },
+    {
+      "type": "timer_change_mode",
+      "data": {
+        "show": "show",
+        "run": "pause",
+        "timers": [
+          "level://timers/clock"
+        ]
+      }
+    },
+    {
+      "type": "music_change",
+      "data": {
+        "vol": 1,
+        "volTime": 0,
+        "pitch": 1,
+        "pitchTime": 0,
+        "tempo": 1,
+        "tempoTime": 0,
+        "orderMode": "order_jump",
+        "order": 20,
+        "orderType": 40,
+        "tracks": [
+          {
+            "unused0": 0,
+            "track": 0,
+            "active": 1,
+            "vol": 1,
+            "unused10": 0,
+            "unused14": 0,
+            "unused18": 0,
+            "unused1C": 0,
+            "unused20": 0,
+            "unused24": 10
+          }
+        ]
+      }
+    }
+  ]
+}
