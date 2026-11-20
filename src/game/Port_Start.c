@@ -8,12 +8,14 @@
  *                                   options, opened at world W
  *   HWVX_START=carselect[:mode=M][,car=N][,world=W]   M's car select
  *   HWVX_START=itemselect[:mode=M][,car=N][,item=I]   the item select
- *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I][,players=P]  a race;
+ *   HWVX_START=race[:mode=M][,world=W][,car=N][,item=I][,players=P][,gadgets=G]
  *   (N and I: numbers, or a mod's car or item by its uid://)
  *                                   P (1-4, default 1) local players on ports
  *                                   1-P, all with car N and item I, as the
  *                                   multi-player selects leave them (mpbattle,
  *                                   mpdrag: split screen)
+ *                                   G (0-2) the Gadgets option: none,
+ *                                   original, random
  *
  * M: adventure (or mission), challenge, drag, battle, joyride (default);
  * mpdrag and mpbattle, the multi-player progressions, for race only.
@@ -415,7 +417,7 @@ static int StartTitle(void *script) {
     const char *e = SDL_getenv("HWVX_START");
     char mode[16], world[64] = "0", modeName[16] = "joyride";
     const char *args, *name;
-    s32 car = 0, item = 0, players = 1, w, p;
+    s32 car = 0, item = 0, players = 1, w, p, gadgets = -1;
     Found f;
     size_t len, m;
 
@@ -439,6 +441,8 @@ static int StartTitle(void *script) {
             car = ContentArg(PORT_CONTENT_CAR, val);
         } else if (SDL_strcmp(key, "players") == 0) {
             players = SDL_clamp(SDL_atoi(val), 1, 4);
+        } else if (SDL_strcmp(key, "gadgets") == 0) {
+            gadgets = SDL_clamp(SDL_atoi(val), 0, 2);
         } else if (SDL_strcmp(key, "item") == 0) {
             item = ContentArg(PORT_CONTENT_ITEM, val);
         } else if (SDL_strcmp(key, "mode") == 0) {
@@ -489,6 +493,9 @@ static int StartTitle(void *script) {
     }
     if (f.options != NULL) {
         ApplyOptions(&f);
+    }
+    if (gadgets >= 0) {
+        GameSettings_SetCodeVariable(0x134, 0, gadgets);   /* port: HWVX_START=...,gadgets=N */
     }
     StateProgressionManager_SetProgressionID(p, w);
     GameSettings_SetCodeVariable(0xCB, 1, car);

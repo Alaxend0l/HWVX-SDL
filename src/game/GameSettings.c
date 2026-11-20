@@ -2,6 +2,7 @@
 #include "Port_Online.h"
 #include "Port_OnlineProtocol.h"
 #include "Port_Content.h"
+#include "Port_BattleItems.h"
 #include "Port_Saves.h"
 #include "CarA.h"
 #include "World.h"
@@ -352,6 +353,14 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         }
         return;
     }
+    if (var == PORT_CODEVAR_BATFIL) {   /* port: Weapon Filter row (Port_Menu.c) */
+        Port_BattleItemsSetOff(arg, (s32)val != 0);
+        return;
+    }
+    if (var == PORT_CODEVAR_BATFIL_PAGE) {   /* port: Weapon Filter page row */
+        Port_BattleItemsSetPage((s32)val);
+        return;
+    }
     {
         s32 *extra = GameSettings_PortExtraPort(var, arg);   /* port: online, ports 5-8 */
 
@@ -666,6 +675,12 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     }
     if (var == PORT_CODEVAR_HANDLING) {
         return g_generalGameSettings.audio.handling == 2;
+    }
+    if (var == PORT_CODEVAR_BATFIL) {   /* port: Weapon Filter row (Port_Menu.c) */
+        return Port_BattleItemsIsOff((u32)arg);
+    }
+    if (var == PORT_CODEVAR_BATFIL_PAGE) {   /* port: Weapon Filter page row */
+        return (u32)Port_BattleItemsGetPage();
     }
     if (var != 0xCB && GameSettings_PortExtraPort(var, arg) != NULL) {   /* port: online, ports 5-8 */
         return (u32)*GameSettings_PortExtraPort(var, arg);

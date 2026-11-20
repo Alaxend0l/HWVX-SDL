@@ -390,6 +390,11 @@ void Port_InvalidateDisplayLists(const void *p, u32 size);
 /* Options' "Handling" row (Port_Menu.c): 0 the cars' own, 1 the PC's third mode
  * (GeneralGameSettings audio.handling 2; in the save, unlike the above). */
 #define PORT_CODEVAR_HANDLING 0x1010
+/* The Battle Options' Weapon Filter screen (Port_Menu.c), over the battle
+ * weapon store (Port_BattleItems.c): a row's variable is its item switched
+ * off, `arg` the item's id; the page rows' variable is the page shown. */
+#define PORT_CODEVAR_BATFIL 0x1011       /* arg: the item's id; 0 spawns, 1 off */
+#define PORT_CODEVAR_BATFIL_PAGE 0x1012  /* which page of the list is shown */
 /* The content registry's (src/game/Port_Content.h): code variable 0x65 (a
  * track's unlock) for the entry a world select of progression P numbers
  * `arg`: PORT_CODEVAR_TRACK + P. The selects number a mode's tracks in a
@@ -403,6 +408,12 @@ void Port_InvalidateDisplayLists(const void *p, u32 size);
 #define PORT_ROLE_GAMMA_BAR 105
 #define PORT_ROLE_FOV_BAR 106
 #define PORT_EVENT_SLIDER 0x40
+/* The Weapon Filter rows (Port_Menu.c): the pack's own left/right event types
+ * 0x16/0x17 (the Music and SFX rows' volume steps), fired here on the d-pad
+ * and played as action lists (type 0xB), so a row writes its code variable
+ * the moment its arrows move it. */
+#define PORT_EVENT_LEFT 0x16
+#define PORT_EVENT_RIGHT 0x17
 #define PORT_MAX_CHOICES 10              /* the widest of those choice lists */
 u32 Port_GfxGet(s32 id);
 void Port_GfxSet(s32 id, u32 value);

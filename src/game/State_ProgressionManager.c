@@ -2,6 +2,7 @@
 #include "Port_Proto.h"
 #include "Port_Content.h"
 #include "Port_Online.h"
+#include "Port_BattleItems.h"
 #include "Port_Level.h"
 #include "Port_World.h"
 #include "World.h"
@@ -560,6 +561,8 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     case 5:
         if (newLoadingState != curLoadingState)
         {
+            s32 pid, plevel;
+
             mcp = GameSettings_GetMCP();
             quadrantNum = 0;
             iterationNum = 0;
@@ -569,6 +572,9 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));
             Port_OnlineExpandSpawns(WORLD());   /* port: Joyride, online */
+            StateProgressionManager_GetProgressionID(&pid, &plevel);
+            if (pid == 3 || pid == 7)   /* battle worlds only: the filter menu's pool (Port_BattleItems.c) */
+                Port_BattleItemsScanWorld(WORLD());
             if (mcp != NULL && GETP(GETP(WORLD()->gameData)->itemPack) != NULL && mcp->skipWorldPacks == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(WORLD()->gameData)->itemPack), 8, 3, 0);
@@ -595,7 +601,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                             case 1:
                                 if (id == 0xFFFF)
                                 {
-                                    id = Port_OnlineItemRandom(item->lo, item->hi + 1, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline */
+                                    id = Port_BattleItemsRoll(item->lo, item->hi, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline, without what the player switched off */
                                 }
                                 if (GameSettings_GetGameType() == 0 && id == 3 && GameSettings_IsCheatEnabled(8))
                                 {
@@ -605,7 +611,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                                 FileStreaming_LoadDataPack(name, 2, id, 0);
                                 break;
                             case 2:
-                                id = Port_OnlineItemRandom(item->lo, item->hi + 1, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline */
+                                id = Port_BattleItemsRoll(item->lo, item->hi, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline, without what the player switched off */
                                 if (GameSettings_GetGameType() == 0 && id == 3 && GameSettings_IsCheatEnabled(8))
                                 {
                                     id = 0x4D;

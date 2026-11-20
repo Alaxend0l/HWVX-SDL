@@ -74,6 +74,7 @@
 #include "Port_Content.h"
 #include "Interface.h"
 #include "Port_Online.h"
+#include "Port_BattleItems.h"
 
 /* The Options screen ("Game Settings"), found by its rows' texts rather than
  * at fixed indices: the GameCube and PC packs lay it out differently.
@@ -216,6 +217,8 @@ typedef struct ActionCopy {
     IfaceCodeAction code;
     IfaceCodeVar codeVar;
     IfaceVarValue value;
+    IfaceVarValue argValue;     /* the Weapon Filter rows: arg is the item's
+                                 * id as a constant, only its value is a var */
 } ActionCopy;
 
 typedef struct ListCopy {
@@ -464,6 +467,24 @@ static void SetArrowConds(IfaceObjectDef *d, IfaceConditionList *lists, IfaceCon
         SETP(lists[i].conds, &conds[i]);
         SETP(d[2 + i].conditions, &lists[i]);
     }
+}
+
+/* Battle Options rows (and the Weapon Filter screen built from them) carry no
+ * arrows: their third object is a marker the pack shows while the row is
+ * selected (`if1:v5 == its record id`: the selected variable is number 5 on
+ * those screens).  The pack's condition, with this row's record id. */
+static void MarkRow(IfaceObjectDef *d, IfaceConditionList *list, IfaceCondition *cond, u8 id) {
+    IfaceConditionList *cl = GETP(d->conditions);
+
+    if (cl == NULL || GETP(cl->conds) == NULL) {
+        d->conditions.h = 0;
+        return;
+    }
+    *list = *cl;
+    *cond = *GETP(cl->conds);
+    cond->value = id;
+    SETP(list->conds, cond);
+    SETP(d->conditions, list);
 }
 
 static void AddBarRow(BarRow *row, const IfaceObjectDef *objs, u32 at, const char *name, u8 role, u32 codeVar,
@@ -1867,34 +1888,452 @@ void Port_MenuOnlineUpdate(void) {
     }
 }
 
-/* ---- Battle Options without Opponents ---------------------------------------- */
+/* ---- Battle Options: the Gadgets default, and the Weapon Filter row ---------
+ * One Player battle's options screen (HW_IPack's first): its rows are each
+ * three objects (label, value, arrows) over a `save` CONST variable whose
+ * offset the pack carries as the default. The port raises the Gadgets
+ * default to Random once per run (its variable's offset 1 -> 2 in pack RAM,
+ * the same place the row's `save` bit writes back to), and adds a Weapon
+ * Filter row under the last: its A opens the screen built here from a
+ * pristine copy of this one - six weapon rows and a pair of page rows over
+ * the store's (Port_BattleItems.c) pool of what this run's battle worlds
+ * can spawn. */
 
-#define BATTLE_MAX_OBJECTS 48
+#define BATTLE_MAX_OBJECTS 64
+#define BATTLE_MAX_ROWS 6             /* weapons shown at once */
+#define BATTLE_PAGE_ROW_STEP 26.0f
+
+enum { REC_BATFIL = 7, REC_BATFIL_PREV = 8, REC_BATFIL_NEXT = 9 };
 
 static u32 s_battleOriginal;    /* the handle in h->objects */
+static u32 s_battlePackCount;   /* the screen's objects, as the pack has them */
+static InterfaceHeader *s_battleCountHeader;   /* whose count that is */
 static InterfaceHeader *s_battlePatched;
 static IfaceObjectDef s_battleObjs[BATTLE_MAX_OBJECTS];
 static RowHide s_battleHide;
+static int s_battleGadgetsDefaulted;
+static RecordCopy s_battleRec[6];     /* the pack's rows: the Score ring link
+                                       * and the screen's Accept moved onto them */
+static IfaceEventDef s_battleA[2];    /* the header's A events' definitions */
+static int s_battleAHeld;
+
+/* the filter screen, built on each opening from this pristine copy */
+static InterfaceHeader s_pristine;
+static IfaceEvent s_filterEvents[4];        /* the filter screen's header events */
+static IfaceObjectDef s_pristineObjs[BATTLE_MAX_OBJECTS];
+static InterfaceHeader s_filter;
+static IfaceObjectDef s_filterObjs[BATTLE_MAX_OBJECTS];
+static IfaceVarList s_filterVarList;
+static IfaceVar s_filterVars[8];
+static InterfaceHeader s_filterSentinel;    /* the row's go-to: intercepted, never shown */
+
+/* Each filter row: its objects' animations, label and value texts, record,
+ * left/right action (SetCodeVariable of the row's item), value list, and the
+ * arrows' "my row is selected" conditions. */
+typedef struct FilterRow {
+    AnimCopy anim[3];
+    TextCopy label;
+    TextCopy value;             /* page rows: the copied value text, blanked */
+    RecordCopy rec;
+    ActionCopy act;
+    ListCopy list;
+    IfaceConditionList markList;      /* the marker: shown while this row is selected */
+    IfaceCondition markCond;
+    u16 var;
+    u32 objIdx;                   /* the row's first object on the screen */
+    u32 argId;                    /* the item the row stands for now */
+} FilterRow;
+
+static FilterRow s_filterRow[BATTLE_MAX_ROWS + 3];   /* weapons, Prev, Next, page label */
+static TextCopy s_filterTitleText;                   /* the screen's title */
+static RecordCopy s_battleFilterRec;                 /* Battle Options' Weapon Filter row */
+static TextCopy s_battleFilterText;
+static TextCopy s_battleFilterValue;
+static IfaceConditionList s_battleMarkList;
+static IfaceCondition s_battleMarkCond;
+static const char *const s_filterOnOff[2] = { "On", "Off" };
+static u32 s_battlePool[BATTLE_ITEMS_MAX_ID];
+
+/* The Weapons Filter's row in s_battleObjs: three copies of the Gadgets row
+ * under the last row (into the Opponents row's gap when the online patch
+ * hid it), the ring closed through it: its A goes to the sentinel, which
+ * Port_MenuEventTarget turns into the Weapon Filter screen. */
+static void AddFilterRow(const IfaceObjectDef *gadgets, f32 y, u32 at, u8 up) {
+    u32 i;
+
+    for (i = 0; i < 3; i++) {
+        s_battleObjs[at + i] = gadgets[i];
+        MoveTo(&s_battleHide.moved[i], &s_battleObjs[at + i], y);
+    }
+    SetText(&s_battleFilterText, &s_battleObjs[at], "Weapon Filter");
+    /* its A (the pack's row records have none of their own) goes to the
+     * sentinel Port_MenuEventTarget turns into the filter screen */
+    CopyRecord(&s_battleFilterRec, &s_battleObjs[at], REC_BATFIL, up, 1);
+    memset(s_battleFilterRec.events, 0, sizeof(s_battleFilterRec.events));
+    memset(s_battleFilterRec.defs, 0, sizeof(s_battleFilterRec.defs));
+    s_battleFilterRec.rec.events.count = 1;
+    SETP(s_battleFilterRec.rec.events.events, s_battleFilterRec.events);
+    s_battleFilterRec.events[0].type = EVENT_A;
+    SETP(s_battleFilterRec.events[0].def, &s_battleFilterRec.defs[0]);
+    s_battleFilterRec.defs[0].type = EVENT_GOTO;
+    SETP(s_battleFilterRec.defs[0].target, &s_filterSentinel);
+    s_battleObjs[at + 1].active = 0;      /* the copied value text: blank plain text, */
+    SetText(&s_battleFilterValue, &s_battleObjs[at + 1], " ");    /* not the Gadgets row's list */
+    ((IfaceText *)GETP(s_battleObjs[at + 1].sub))->listMode = 0;
+    MarkRow(&s_battleObjs[at + 2], &s_battleMarkList, &s_battleMarkCond, REC_BATFIL);
+}
+
+static void BuildFilterScreen(const u32 *ids, u32 numSeen) {
+    static const u8 s_ring[BATTLE_MAX_ROWS + 2] = { 1, 2, 3, 4, 5, 6,
+                                                    REC_BATFIL_PREV, REC_BATFIL_NEXT };
+    /* the selected variable keeps the pack's number 5: the rows' markers are
+     * `if1:v5 == the row's record id`, as the pack has them */
+    static const u8 s_varIdx[BATTLE_MAX_ROWS + 2] = { 0, 1, 2, 3, 4, 6, 7, 7 };
+    static const char *const rowNames[BATTLE_MAX_ROWS] = { "Rounds", "Gadgets", "Item Respawn",
+                                                           "Opponents", "Time Limit", "Score" };
+    IfaceObjectDef *tpl = GETP(s_pristine.objects);
+    IfaceVarList *vars = GETP(s_pristine.vars);
+    u32 rows[BATTLE_MAX_ROWS], title, sel = 5, pageCount, at, i, k;
+
+    title = FindText(tpl, s_pristine.numObjects, "Battle Options", 0);
+    for (i = 0; i < BATTLE_MAX_ROWS; i++) {
+        rows[i] = FindText(tpl, s_pristine.numObjects, rowNames[i], 1);
+    }
+    if (title == NONE || vars == NULL || GETP(vars->vars) == NULL) {
+        return;
+    }
+    for (i = 0; i < BATTLE_MAX_ROWS; i++) {
+        if (rows[i] == NONE || rows[i] + 3 > s_pristine.numObjects) {
+            return;
+        }
+    }
+    for (i = 0; i < vars->count; i++) {
+        if (GETP(vars->vars)[i].type == IFACE_VAR_SELECTED) {
+            sel = i;
+        }
+    }
+    pageCount = (numSeen + BATTLE_MAX_ROWS - 1) / BATTLE_MAX_ROWS;
+    if (pageCount > BATTLE_ITEMS_MAX_PAGES) {
+        pageCount = BATTLE_ITEMS_MAX_PAGES;
+    }
+
+    s_filter = s_pristine;
+    memcpy(s_filterObjs, GETP(s_pristine.objects), s_pristine.numObjects * sizeof(IfaceObjectDef));
+    SETP(s_filter.objects, s_filterObjs);
+    /* the screen's own header events: just the Backs.  The pack's Accept and
+     * START write its options' variables and go on to the car select; here
+     * those variables belong to the weapon rows. */
+    {
+        IfaceEvent *hev = GETP(s_pristine.events.events);
+        u32 n = s_pristine.events.count;
+
+        k = 0;
+        for (i = 0; i < n && k < 4; i++) {
+            IfaceEventDef *d = GETP(hev[i].def);
+
+            if (d != NULL && d->type == EVENT_BACK) {
+                s_filterEvents[k++] = hev[i];
+            }
+        }
+        s_filter.events.count = k;
+        SETP(s_filter.events.events, s_filterEvents);
+    }
+    SetText(&s_filterTitleText, &s_filterObjs[title], "Weapon Filter");
+    /* its own variables: the six weapon rows, the page row, the selected id */
+    s_filterVarList.count = 8;
+    SETP(s_filterVarList.vars, s_filterVars);
+    SETP(s_filter.vars, &s_filterVarList);
+    for (i = 0; i < BATTLE_MAX_ROWS + 2; i++) {
+        FilterRow *row = &s_filterRow[i];
+        u8 vi = s_varIdx[i];
+
+        memset(&s_filterVars[vi], 0, sizeof(s_filterVars[vi]));
+        s_filterVars[vi].type = IFACE_VAR_CODE;
+        s_filterVars[vi].update = 1;
+        s_filterVars[vi].min = 0;
+        s_filterVars[vi].max = i < BATTLE_MAX_ROWS ? 1 : (s32)(pageCount != 0 ? pageCount : 1) - 1;
+        SETP(s_filterVars[vi].code, &row->act.codeVar);
+        row->act.codeVar.id = i < BATTLE_MAX_ROWS ? PORT_CODEVAR_BATFIL : PORT_CODEVAR_BATFIL_PAGE;
+        SETP(row->act.codeVar.arg, &row->act.argValue);
+        row->act.argValue.isVar = 0;
+        row->act.argValue.value = 0;      /* UpdateFilterScreen: the row's item */
+        row->var = vi;
+    }
+    s_filterVars[5] = GETP(vars->vars)[sel];
+    s_filterVars[5].type = IFACE_VAR_SELECTED;
+    s_filterVars[5].save = 0;
+    s_filterVars[5].max = REC_BATFIL_NEXT;
+
+    /* the six weapon rows are the pack's own option rows, in place and with
+     * their spacing: relabelled, with new records over the store; the two
+     * page rows are copies under the last */
+    for (i = 0; i < BATTLE_MAX_ROWS + 2; i++) {
+        FilterRow *row = &s_filterRow[i];
+        u8 id = s_ring[i];
+
+        if (i < BATTLE_MAX_ROWS) {
+            at = rows[i];
+        } else {
+            const IfaceObjectDef *src = &tpl[rows[BATTLE_MAX_ROWS - 1]];
+            f32 y = PosY(&tpl[rows[BATTLE_MAX_ROWS - 1]]) + (f32)(i + 1 - BATTLE_MAX_ROWS) * BATTLE_PAGE_ROW_STEP;
+
+            at = s_pristine.numObjects + (i - BATTLE_MAX_ROWS) * 3;
+            s_filterObjs[at] = src[0];
+            s_filterObjs[at + 1] = src[1];
+            s_filterObjs[at + 2] = src[2];
+            MoveTo(&row->anim[0], &s_filterObjs[at], y);
+            MoveTo(&row->anim[1], &s_filterObjs[at + 1], y);
+            MoveTo(&row->anim[2], &s_filterObjs[at + 2], y);
+        }
+        row->objIdx = at;
+        SetText(&row->label, &s_filterObjs[at],
+                i < BATTLE_MAX_ROWS ? " " : (i == BATTLE_MAX_ROWS ? "Previous page" : "Next page"));
+        CopyRecord(&row->rec, &s_filterObjs[at], id, s_ring[(i + 7) % 8], s_ring[(i + 1) % 8]);
+        /* left/right change the row's variable (the record's step, applied
+         * with the d-pad) and write the store at once: the pack's volume
+         * rows' trigger pair, whose action (type 0xB) is the row's
+         * SetCodeVariable (UpdateFilterScreen keeps its item id current) */
+        row->rec.rec.events.count = 2;
+        SETP(row->rec.rec.events.events, row->rec.events);
+        memset(row->rec.events, 0, sizeof(row->rec.events));
+        memset(row->rec.defs, 0, sizeof(row->rec.defs));
+        memset(&row->act, 0, offsetof(ActionCopy, codeVar));
+        row->act.action.type = 2;
+        SETP(row->act.action.data, &row->act.code);
+        SETP(row->act.code.code, &row->act.codeVar);
+        SETP(row->act.code.value, &row->act.value);
+        row->act.value.isVar = 1;
+        row->act.value.value = (u32)row->var;
+        row->act.list.count = 1;
+        SETP(row->act.list.actions, &row->act.action);
+        for (k = 0; k < 2; k++) {
+            row->rec.events[k].type = k == 0 ? PORT_EVENT_LEFT : PORT_EVENT_RIGHT;
+            SETP(row->rec.events[k].def, &row->rec.defs[k]);
+            row->rec.defs[k].type = EVENT_ACTIONS;
+            SETP(row->rec.defs[k].target, &row->act.list);
+        }
+        /* the row's own step, on its own variable (the pack's row steps
+         * its option's variable: unusable here) */
+        memset(&row->rec.step, 0, sizeof(row->rec.step));
+        row->rec.step.var = row->var;
+        row->rec.step.val[2] = -1;
+        row->rec.step.val[3] = 1;
+        SETP(row->rec.rec.steps, &row->rec.step);
+        row->rec.rec.numSteps = 1;
+        if (i < BATTLE_MAX_ROWS) {
+            SetList(&row->list, &s_filterObjs[at + 1], row->var, s_filterOnOff, 2);
+        } else {
+            s_filterObjs[at + 1].active = 0;      /* page rows: the copied value text */
+            SetText(&row->value, &s_filterObjs[at + 1], " ");    /* as blank plain text, */
+            ((IfaceText *)GETP(s_filterObjs[at + 1].sub))->listMode = 0;   /* not the Score row's list */
+        }
+        MarkRow(&s_filterObjs[at + 2], &row->markList, &row->markCond, id);
+    }
+    /* the page line under the title: copied like the rows, no record */
+    at = s_pristine.numObjects + 6;
+    s_filterObjs[at] = tpl[rows[0]];
+    s_filterObjs[at].record.h = 0;
+    s_filterObjs[at].active = 0;        /* active rows must have a record */
+    s_filterRow[BATTLE_MAX_ROWS + 2].objIdx = at;
+    MoveTo(&s_filterRow[BATTLE_MAX_ROWS + 2].anim[0], &s_filterObjs[at], 150.0f);
+    SetText(&s_filterRow[BATTLE_MAX_ROWS + 2].label, &s_filterObjs[at], " ");
+    s_filter.numObjects = at + 1;
+}
+
+/* The screen's live text: each row's item (the page decides), its name as
+ * soon as its pack is loaded, and the "7-12 of 31" line. */
+/* One Weapon Filter row's line: the def is ours (its text lives in `row`),
+ * the live object keeps its own string slots, so when the text changes the
+ * live object is re-aimed at the row's. */
+static void SetRowText(Interface *iface, FilterRow *row, const char *s) {
+    InterfaceObject *obj = &GETP(iface->objects)[row->objIdx];
+    IfaceObjectDef *def = GETP(obj->def);
+
+    if (def == NULL) {
+        return;
+    }
+    if (DefText(def) == NULL || strcmp(DefText(def), s) != 0) {
+        SetText(&row->label, def, s);
+        InterfaceManager_SetObjectText(obj, (char **)(void *)&row->label.slot);
+    }
+}
+
+static void UpdateFilterScreen(s32 idx) {
+    Interface *iface = &g_interfaces[idx];
+    u32 numSeen = (u32)Port_BattleItemsSeen(s_battlePool, BATTLE_ITEMS_MAX_ID);
+    u32 pageCount = (numSeen + BATTLE_MAX_ROWS - 1) / BATTLE_MAX_ROWS;
+    s32 page;
+    char text[96];
+    u32 i;
+
+    if (pageCount > BATTLE_ITEMS_MAX_PAGES) {
+        pageCount = BATTLE_ITEMS_MAX_PAGES;
+    }
+    page = Port_BattleItemsGetPage();
+    if (pageCount != 0 && page >= (s32)pageCount) {
+        Port_BattleItemsSetPage((s32)pageCount - 1);
+        page = Port_BattleItemsGetPage();
+    }
+    for (i = 0; i < BATTLE_MAX_ROWS; i++) {
+        FilterRow *row = &s_filterRow[i];
+        u32 k = (u32)page * BATTLE_MAX_ROWS + i;
+        const char *name;
+
+        row->argId = k < numSeen ? s_battlePool[k] : 0xFFFF;
+        row->act.argValue.value = row->argId;
+        if (row->argId == 0xFFFF) {
+            name = " ";
+        } else {
+            name = Port_BattleItemsName(row->argId);
+            if (name == NULL || name[0] == 0) {
+                snprintf(text, sizeof(text), "Item %u", (unsigned)row->argId);
+                name = text;
+            }
+        }
+        SetRowText(iface, row, name);
+    }
+    if (numSeen != 0) {
+        u32 last = page * BATTLE_MAX_ROWS + (numSeen - page * BATTLE_MAX_ROWS > BATTLE_MAX_ROWS
+                                                ? BATTLE_MAX_ROWS : numSeen - page * BATTLE_MAX_ROWS);
+
+        snprintf(text, sizeof(text), "%u-%u of %u", (unsigned)page * BATTLE_MAX_ROWS + 1,
+                     (unsigned)last, (unsigned)numSeen);
+    } else {
+        strcpy(text, "Play a battle to see its weapons");
+    }
+    SetRowText(iface, &s_filterRow[BATTLE_MAX_ROWS + 2], text);
+}
+
+void Port_MenuUpdate(void) {
+    s32 i;
+
+    for (i = 0; i < IFACE_MAX; i++) {
+        if (g_interfaces[i].count != 0 && GETP(g_interfaces[i].header) == &s_filter) {
+            Port_BattleItemsProcessNames();   /* one item pack's name per frame */
+            UpdateFilterScreen(i);
+            return;
+        }
+    }
+}
 
 static void PatchBattleOptions(InterfaceHeader *h) {
     IfaceObjectDef *objs;
-    u32 opponents;
+    u32 opponents, gadgets, score, respawn, i;
 
+    if (h == &s_filter) {        /* the Weapon Filter screen: made from the same
+                                  * rows, but it is patched at build time */
+        return;
+    }
     if (h == s_battlePatched) {
         h->objects.h = s_battleOriginal;   /* as the pack has it */
+        h->numObjects = s_battlePackCount;
         s_battlePatched = NULL;
     }
-    if (h != s_battleOptions || !Port_OnlineActive() || h->numObjects > BATTLE_MAX_OBJECTS) {
+    /* the Battle Options screen, by its two port-named rows (its label texts
+     * are in the pack as "Gadgets" and "Item Respawn") */
+    objs = GETP(h->objects);
+    if (h->numObjects > BATTLE_MAX_OBJECTS - 3 || objs == NULL ||
+        (gadgets = FindText(objs, h->numObjects, "Gadgets", 1)) == NONE ||
+        (respawn = FindText(objs, h->numObjects, "Item Respawn", 1)) == NONE) {
         return;
     }
-    objs = GETP(h->objects);
-    if ((opponents = FindText(objs, h->numObjects, "Opponents", 1)) == NONE) {
-        return;
+    s_battleOptions = h;
+    if (h == s_battleCountHeader) {
+        h->numObjects = s_battlePackCount;   /* its own objects, as the pack has them */
+    }
+    else if (s_battleCountHeader == NULL) {
+        s_battleCountHeader = h;
+        s_battlePackCount = h->numObjects;
     }
     memcpy(s_battleObjs, objs, h->numObjects * sizeof(IfaceObjectDef));
-    if (!HideRow(s_battleObjs, objs, h->numObjects, opponents, &s_battleHide)) {
+    /* online: no Opponents row (the lobby's player count rules) */
+    opponents = FindText(objs, h->numObjects, "Opponents", 1);
+    if (Port_OnlineActive() && opponents != NONE &&
+        !HideRow(s_battleObjs, objs, h->numObjects, opponents, &s_battleHide)) {
         return;
     }
+    if (!s_battleGadgetsDefaulted) {
+        IfaceVarList *vl = GETP(h->vars);
+
+        /* randomized gadgets by default: the row's variable carries the
+         * pack's default in its offset; raised once per run (the row's
+         * `save` bit writes that same offset back when the screen ends) */
+        if (vl != NULL && vl->count > 1 && GETP(vl->vars)[1].type == IFACE_VAR_CONST &&
+            GETP(vl->vars)[1].offset == 1) {
+            GETP(vl->vars)[1].offset = 2;
+        }
+        s_battleGadgetsDefaulted = 1;
+    }
+    score = FindText(objs, h->numObjects, "Score", 1);
+    if (gadgets == NONE || score == NONE || respawn == NONE || GETP(objs[score].record) == NULL ||
+        gadgets + 3 > h->numObjects || score + 3 > h->numObjects ||
+        h->numObjects + 3 > BATTLE_MAX_OBJECTS) {
+        return;
+    }
+    /* the header's A is the screen's own Accept: it writes the options and
+     * goes on to the car select.  ProcessInput reads the header's events
+     * before the selected row's, so the Weapon Filter row's own A would
+     * never be seen: move the header's pair of A events onto the pack's
+     * own rows (whose records have no events of their own) */
+    if (!s_battleAHeld) {
+        IfaceEvent *hev = GETP(h->events.events);
+        u32 n = h->events.count, k = 0, m = 0;
+
+        for (i = 0; i < n; i++) {
+            if (hev[i].type == 4) {
+                if (m < 2) {
+                    s_battleA[m++] = *GETP(hev[i].def);
+                }
+            } else {
+                hev[k++] = hev[i];
+            }
+        }
+        h->events.count = k;
+        s_battleAHeld = m == 2;
+    }
+    if (s_pristine.objects.h == 0) {
+        /* the pristine copy the Weapon Filter screen is built from: after
+         * that surgery, so the new screen is not handed an Accept of its own */
+        s_pristine = *h;
+        memcpy(s_pristineObjs, objs, h->numObjects * sizeof(IfaceObjectDef));
+        SETP(s_pristine.objects, s_pristineObjs);
+    }
+    {
+        static const char *const rowNames[6] = { "Rounds", "Gadgets", "Item Respawn",
+                                                 "Opponents", "Time Limit", "Score" };
+        u32 r;
+
+        for (r = 0; r < 6; r++) {
+            u32 row = FindText(objs, h->numObjects, rowNames[r], 1);
+            IfaceRecord *pr;
+
+            if (row == NONE || (pr = GETP(objs[row].record)) == NULL) {
+                continue;
+            }
+            /* the selection ring now passes through the new row: where the
+             * last row wrapped to the first it now goes to the Weapon Filter */
+            CopyRecord(&s_battleRec[r], &s_battleObjs[row], pr->id, pr->next[0],
+                       strcmp(rowNames[r], "Score") == 0 ? REC_BATFIL : pr->next[1]);
+            if (s_battleAHeld) {
+                memset(s_battleRec[r].events, 0, sizeof(s_battleRec[r].events));
+                memset(s_battleRec[r].defs, 0, sizeof(s_battleRec[r].defs));
+                s_battleRec[r].rec.events.count = 2;
+                SETP(s_battleRec[r].rec.events.events, s_battleRec[r].events);
+                s_battleRec[r].events[0].type = EVENT_A;
+                s_battleRec[r].defs[0] = s_battleA[0];
+                SETP(s_battleRec[r].events[0].def, &s_battleRec[r].defs[0]);
+                s_battleRec[r].events[1].type = EVENT_A;
+                s_battleRec[r].defs[1] = s_battleA[1];
+                SETP(s_battleRec[r].events[1].def, &s_battleRec[r].defs[1]);
+            }
+        }
+    }
+    AddFilterRow(&objs[gadgets],
+                 opponents != NONE ? PosY(&objs[opponents]) : PosY(&objs[score]) + BATTLE_PAGE_ROW_STEP,
+                 h->numObjects, GETP(objs[score].record)->id);
+    Port_Log("menu: battle options: weapon filter row added, gadgets default %d",
+             GETP(GETP(h->vars)->vars)[1].offset);
+    h->numObjects += 3;      /* the Weapon Filter row: three more objects */
     s_battlePatched = h;
     s_battleOriginal = h->objects.h;
     SETP(h->objects, s_battleObjs);
@@ -1998,6 +2437,14 @@ static void PatchPauseMenu(InterfaceHeader *h) {
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target) {
     extern s8 g_bMemoryCardHWHack;
 
+    if (target == &s_filterSentinel) {   /* port: the Weapon Filter row's A:
+                                          * build the screen afresh over the
+                                          * pool the store has for this run */
+        u32 numSeen = (u32)Port_BattleItemsSeen(s_battlePool, BATTLE_ITEMS_MAX_ID);
+
+        BuildFilterScreen(s_battlePool, numSeen);
+        return &s_filter;
+    }
     if (target == NULL || s_main == NULL) {
         return target;
     }

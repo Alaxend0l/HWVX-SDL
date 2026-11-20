@@ -62,6 +62,7 @@
 #include "Port_Content.h"
 #include "Port_Mods.h"
 #include "Port_Proto.h"
+#include "Port_BattleItems.h"
 #include "CarA.h"
 #include "World.h"
 #include "Interface.h"
@@ -546,7 +547,7 @@ int Port_OnlineModeAllowed(s32 progression) {
 }
 
 int Port_OnlineHostSetup(void) {
-    u8 buf[64 + 256];
+    u8 buf[96 + 256];   /* port: + the filter mask's words */
     NetWriter w;
     s32 id, level, track, sent;
     char trackId[256];
@@ -586,6 +587,9 @@ int Port_OnlineHostSetup(void) {
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         NetWriter_U32(&w, GameSettings_GetCodeVariable(s_settings[i], 0));
     }
+    for (i = 0; i < BATTLE_ITEMS_WORDS; i++) {      /* port: what the host switched off */
+        NetWriter_U32(&w, Port_BattleItemsOffWord(i));
+    }
     NetWriter_U8(&w, (u8)SDL_strlen(trackId));
     NetWriter_Bytes(&w, trackId, (u32)SDL_strlen(trackId));
     s_in = s_present & s_lobby & s_verified;
@@ -610,6 +614,14 @@ static void ClientSetup(NetReader *r) {
     missing[0] = 0;
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         values[i] = (s32)NetReader_U32(r);
+    }
+    {
+        u32 words[BATTLE_ITEMS_WORDS];
+
+        for (i = 0; i < BATTLE_ITEMS_WORDS; i++) {
+            words[i] = NetReader_U32(r);
+        }
+        Port_BattleItemsSetOffWords(words, BATTLE_ITEMS_WORDS);   /* port: the host's filter, before the level loads */
     }
     len = NetReader_U8(r);
     bytes = len > 0 ? NetReader_Take(r, len) : NULL;

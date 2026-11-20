@@ -1243,6 +1243,7 @@ void InterfaceManager_Heartbeat(void) {
     u32 i;
 
     Port_StartHeartbeat();   /* port: HWVX_START=itemselect */
+    Port_MenuUpdate();       /* port: Weapon Filter screen's live rows (Port_Menu.c) */
     for (i = 0; i < 0x12; i++) {
         if (g_interfaces[i].count != 0 && g_interfaces[i].paused == 0 && g_interfaces[i].hidden == 0) {
             void (*callback)(IfaceMsg *) = GETP(g_interfaces[i].callback);
@@ -2151,6 +2152,13 @@ s32 InterfaceManager_ProcessInput(Interface *iface, InterfaceObject *obj, u32 *e
                     pressed = 0;
                 }
             }
+            break;
+        case PORT_EVENT_LEFT:   /* port: the Weapon Filter rows' arrow events
+                                 * (the pack's Music/SFX volume event types) */
+            pressed = InterfaceManager_KeyPress(iface, iface->input, 2);
+            break;
+        case PORT_EVENT_RIGHT:
+            pressed = InterfaceManager_KeyPress(iface, iface->input, 3);
             break;
         }
         if (pressed != 0) {

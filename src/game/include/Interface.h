@@ -835,6 +835,8 @@ void Port_MenuPatch(InterfaceHeader *header);
 void Port_CarouselPatch(InterfaceHeader *header);   /* Port_Carousel.c */
 void Port_MenuReleased(InterfaceHeader *header);
 InterfaceHeader *Port_MenuEventTarget(InterfaceHeader *target);
+/* Port_Menu.c: each frame's live text on the Weapon Filter screen. */
+void Port_MenuUpdate(void);
 /* Port_MenuDump.c: HWVX_MENUDUMP=1 logs the screens reachable from `root`. */
 void Port_MenuDump(const InterfaceHeader *root);
 /* ... and the lists a screen shows by a variable, as patched. */
