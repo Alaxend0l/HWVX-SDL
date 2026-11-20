@@ -39,7 +39,7 @@ static SDL_EnumerationResult SDLCALL MatchEntry(void *userdata, const char *dir,
     return SDL_ENUM_CONTINUE;
 }
 
-static char *ResolveCase(const char *root, const char *name) {
+char *Port_ResolveCase(const char *root, const char *name) {
     char *dir = SDL_strdup(root);
     const char *p = name;
 
@@ -97,7 +97,7 @@ static SDL_IOStream *OpenIn(const char *root, const char *name, char **found) {
         SDL_free(path);
         path = NULL;
     }
-    if (io == NULL && (path = ResolveCase(root, name)) != NULL) {
+    if (io == NULL && (path = Port_ResolveCase(root, name)) != NULL) {
         io = SDL_IOFromFile(path, "rb");
         if (io == NULL) {
             SDL_free(path);
@@ -114,7 +114,7 @@ static SDL_IOStream *OpenIn(const char *root, const char *name, char **found) {
                 base = p + 1;
             }
         }
-        if (base != name && (path = ResolveCase(root, base)) != NULL) {
+        if (base != name && (path = Port_ResolveCase(root, base)) != NULL) {
             io = SDL_IOFromFile(path, "rb");
             if (io == NULL) {
                 SDL_free(path);
