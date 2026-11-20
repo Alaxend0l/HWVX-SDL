@@ -17,6 +17,10 @@ pub enum View {
     Texture,
     Sound,
     Song,
+    /// the Media tab's open movie (src/movie_ui.rs)
+    Movie,
+    /// the Audio browser (src/audio_ui.rs)
+    Audio,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -228,7 +232,7 @@ impl Browser {
         }
     }
 
-    fn play_game(&mut self) {
+    pub(crate) fn play_game(&mut self) {
         let Some(id) = self.media.open.clone() else { return };
         let pack = self.outline.as_ref().map(|o| o.pack.clone()).unwrap_or_default();
         self.stop_here();
@@ -445,11 +449,24 @@ impl Browser {
 
     /// The tabs over the central panel: the 3D view, or the open media item.
     pub(crate) fn view_tabs(&mut self, ui: &mut egui::Ui) {
-        let Some(open) = self.media.open.clone() else { return };
-        let kind = media_kind(&open).unwrap_or(View::Scene);
+        let open = self.media.open.clone();
+        let movie = self.movies.open.as_ref().map(|m| m.file.name.clone());
+        let audio = self.media.view == View::Audio || !self.audio.entries.is_empty();
+        if open.is_none() && movie.is_none() && !audio {
+            return;
+        }
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.media.view, View::Scene, "3D view");
-            ui.selectable_value(&mut self.media.view, kind, open.as_str());
+            if let Some(open) = &open {
+                let kind = media_kind(open).unwrap_or(View::Scene);
+                ui.selectable_value(&mut self.media.view, kind, open.as_str());
+            }
+            if let Some(m) = &movie {
+                ui.selectable_value(&mut self.media.view, View::Movie, format!("Movie: {m}"));
+            }
+            if audio {
+                ui.selectable_value(&mut self.media.view, View::Audio, "Audio browser");
+            }
         });
     }
 
@@ -458,6 +475,8 @@ impl Browser {
             View::Texture => self.texture_panel(ui),
             View::Sound => self.sound_panel(ui),
             View::Song => self.song_panel(ui),
+            View::Movie => self.movie_panel(ui),
+            View::Audio => self.audio_panel(ui),
             View::Scene => {}
         }
     }

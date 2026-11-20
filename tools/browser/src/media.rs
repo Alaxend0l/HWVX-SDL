@@ -245,3 +245,33 @@ pub fn play_file(path: &std::path::Path) -> Result<std::process::Child, String> 
     };
     cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e| format!("no system player: {e}"))
 }
+
+/// Interleaved PCM16 of `channels` channels as a WAV file's bytes.
+pub fn wav_bytes_channels(rate: u32, channels: u16, pcm: &[i16]) -> Vec<u8> {
+    let mut out = wav_bytes(rate, pcm);
+    let ch = channels.max(1);
+    out[22..24].copy_from_slice(&ch.to_le_bytes());
+    out[28..32].copy_from_slice(&(rate * 2 * ch as u32).to_le_bytes());
+    out[32..34].copy_from_slice(&(2 * ch).to_le_bytes());
+    out
+}
+
+/// Opens a file in the system's default app (a video in the user's video player): xdg-open,
+/// macOS open, Windows explorer. The path is an argument, never inside a command's text.
+pub fn open_external(path: &std::path::Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let mut cmd = if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else if cfg!(windows) {
+        xdlrs::command("explorer")
+    } else {
+        Command::new("xdg-open")
+    };
+    cmd.arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = cmd.spawn().map_err(|e| format!("no system opener: {e}"))?;
+    // reaped on a thread: the opener returns at once, the player stays
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}

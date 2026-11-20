@@ -16,3 +16,6 @@ pub mod level_model;
 pub mod content_music;
 pub mod content_tracks;
 pub mod gizmo;
+pub mod ffmpeg;
+pub mod movie;
+pub mod audio_index;
