@@ -6,6 +6,7 @@ use crate::Browser;
 use eframe::egui;
 use hwvx_browser::cars;
 use hwvx_browser::content::{Kind, ModProject};
+use hwvx_browser::content_retail::Target;
 use hwvx_browser::testdrive::{Prepared, TestDrive};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -31,9 +32,11 @@ pub(crate) struct ContentState {
     /// the texture the paint applies to (a car's body is usually its first)
     pub paint_texture: u32,
     pub packing: Option<Receiver<Result<String, String>>>,
+    /// Retail changes (src/content_retail_ui.rs)
+    pub retail: crate::content_retail_ui::RetailState,
 }
 
-fn base_label(kind: Kind, n: u32) -> String {
+pub(crate) fn base_label(kind: Kind, n: u32) -> String {
     match kind {
         Kind::Car => cars::label(n),
         Kind::Weapon => format!("{n}  item {n}"),
@@ -196,10 +199,14 @@ impl Browser {
             }
             ui.add_space(6.0);
         }
+        self.content_retail_panel(ui);
     }
 
     /// The right panel while the Content tab is on show.
     pub(crate) fn content_inspector(&mut self, ui: &mut egui::Ui) {
+        if self.content_retail_inspector(ui) {
+            return;
+        }
         let Some((kind, uid)) = self.content.sel.clone() else {
             ui.heading("Content");
             ui.label("Select a car or weapon on the left, or add one (+ New car, + New weapon).");
@@ -255,50 +262,58 @@ impl Browser {
             }
         });
         ui.separator();
+        let target = Target::Entry(kind, uid.clone());
         egui::ScrollArea::vertical().show(ui, |ui| {
             if kind == Kind::Car {
-                self.content_paint(ui, &uid);
+                self.content_paint(ui, &target);
                 ui.separator();
             }
-            ui.label(egui::RichText::new("Numbers: a ticked one is the mod's; the others stay the base's.").weak());
-            for &(part, st, what) in kind.parts() {
-                let schema = self.schema(st);
-                let Some(props) = schema["properties"].as_object().cloned() else { continue };
-                let set = self.content.proj.as_ref().map(|p| p.doc[kind.section()][&uid]["patch"][part].as_object().map(|m| m.len()).unwrap_or(0)).unwrap_or(0);
-                egui::CollapsingHeader::new(format!("{what}  ({st}{})", if set > 0 { format!(", {set} changed") } else { String::new() })).id_salt(("content_part", part)).show(ui, |ui| {
-                    egui::Grid::new(("content_fields", part)).num_columns(2).striped(true).show(ui, |ui| {
-                        for (field, d) in props.iter() {
-                            let numeric = matches!(d["type"].as_str(), Some("number" | "integer"));
-                            if !numeric || field.starts_with("unk_") || field.starts_with("num") {
-                                continue;
-                            }
-                            let int = d["type"] == "integer";
-                            let cur = self.content.proj.as_ref().and_then(|p| p.patch_value(kind, &uid, part, field));
-                            let mut on = cur.is_some();
-                            let mut v = cur.unwrap_or(0.0);
-                            let tip = d["description"].as_str().unwrap_or("").to_string();
-                            let r = ui.checkbox(&mut on, field.as_str());
-                            if !tip.is_empty() {
-                                r.on_hover_text(&tip);
-                            }
-                            let changed = ui.add_enabled(on, egui::DragValue::new(&mut v).speed(if int { 1.0 } else { 0.01 }).max_decimals(if int { 0 } else { 4 })).changed();
-                            ui.end_row();
-                            if let Some(p) = self.content.proj.as_mut() {
-                                if on != cur.is_some() || changed {
-                                    p.set_patch(kind, &uid, part, field, on.then_some(if int { v.round() } else { v }));
-                                }
-                            }
-                        }
-                    });
-                });
-            }
+            self.content_numbers(ui, &target);
         });
     }
 
-    fn content_paint(&mut self, ui: &mut egui::Ui, uid: &str) {
+    /// The numbers of a target's parts, a ticked one the mod's: an entry's own patch, or a retail
+    /// car or weapon's top-level patch (src/content_retail.rs).
+    pub(crate) fn content_numbers(&mut self, ui: &mut egui::Ui, target: &Target) {
+        let kind = target.kind();
+        ui.label(egui::RichText::new("Numbers: a ticked one is the mod's; the others stay the base's.").weak());
+        for &(part, st, what) in kind.parts() {
+            let schema = self.schema(st);
+            let Some(props) = schema["properties"].as_object().cloned() else { continue };
+            let set = self.content.proj.as_ref().map(|p| p.target_changed(target, part)).unwrap_or(0);
+            egui::CollapsingHeader::new(format!("{what}  ({st}{})", if set > 0 { format!(", {set} changed") } else { String::new() })).id_salt(("content_part", part)).show(ui, |ui| {
+                egui::Grid::new(("content_fields", part)).num_columns(2).striped(true).show(ui, |ui| {
+                    for (field, d) in props.iter() {
+                        let numeric = matches!(d["type"].as_str(), Some("number" | "integer"));
+                        if !numeric || field.starts_with("unk_") || field.starts_with("num") {
+                            continue;
+                        }
+                        let int = d["type"] == "integer";
+                        let cur = self.content.proj.as_ref().and_then(|p| p.target_value(target, part, field));
+                        let mut on = cur.is_some();
+                        let mut v = cur.unwrap_or(0.0);
+                        let tip = d["description"].as_str().unwrap_or("").to_string();
+                        let r = ui.checkbox(&mut on, field.as_str());
+                        if !tip.is_empty() {
+                            r.on_hover_text(&tip);
+                        }
+                        let changed = ui.add_enabled(on, egui::DragValue::new(&mut v).speed(if int { 1.0 } else { 0.01 }).max_decimals(if int { 0 } else { 4 })).changed();
+                        ui.end_row();
+                        if let Some(p) = self.content.proj.as_mut() {
+                            if on != cur.is_some() || changed {
+                                p.set_target_value(target, part, field, on.then_some(if int { v.round() } else { v }));
+                            }
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    pub(crate) fn content_paint(&mut self, ui: &mut egui::Ui, target: &Target) {
         ui.strong("Paint");
         let tex = self.content.paint_texture;
-        let Some((mut hue, mut bright)) = self.content.proj.as_ref().map(|p| p.paint(uid, tex)) else { return };
+        let Some((mut hue, mut bright)) = self.content.proj.as_ref().map(|p| p.target_paint(target, tex)) else { return };
         let (h0, b0) = (hue, bright);
         egui::Grid::new("content_paint").num_columns(2).show(ui, |ui| {
             ui.label("texture");
@@ -314,7 +329,7 @@ impl Browser {
         ui.label(egui::RichText::new("A recipe on the player's own texture: the mod holds no pixels.").small().weak());
         if (hue, bright) != (h0, b0) && self.content.paint_texture == tex {
             if let Some(p) = self.content.proj.as_mut() {
-                p.set_paint(uid, tex, hue, bright);
+                p.set_target_paint(target, tex, hue, bright);
             }
         }
     }
