@@ -2014,17 +2014,23 @@ static void PollPending(void) {
     }
     nl = memchr(s.pendBuf, '\n', s.pendLen);
     if (nl == NULL) {
+        int http = LooksLikeHttp(s.pendBuf, s.pendLen);   /* (answered with nothing) */
+
         if (s.pendLen == sizeof(s.pendBuf)) {
-            DropPending("the first request is hello, with the viewer's token");
+            DropPending(http ? NULL : "the first request is hello, with the viewer's token");
         } else if (SDL_GetTicks() - s.pendSince > PENDING_MS) {
             Port_Log("viewer: a connection that didn't say hello in time: dropped");
-            DropPending("no hello in time (another client is served)");
+            DropPending(http ? NULL : "no hello in time (another client is served)");
         }
         return;
     }
-    req = LooksLikeHttp(s.pendBuf, (size_t)(nl - s.pendBuf))
-              ? NULL
-              : Json_Parse(s.pendBuf, (size_t)(nl - s.pendBuf), NULL, 0);
+    if (LooksLikeHttp(s.pendBuf, (size_t)(nl - s.pendBuf))) {
+        /* as HandleLine's: closed without an answer, the served client kept */
+        Port_Log("viewer: an HTTP request on the viewer's port: dropped (the served client kept)");
+        DropPending(NULL);
+        return;
+    }
+    req = Json_Parse(s.pendBuf, (size_t)(nl - s.pendBuf), NULL, 0);
     good = req != NULL && req->type == JSON_OBJECT && SDL_strcmp(Json_GetString(req, "cmd", ""), "hello") == 0 &&
            SameToken(s.token, Json_GetString(req, "token", ""));
     Json_Free(req);

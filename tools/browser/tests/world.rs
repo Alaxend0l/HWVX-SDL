@@ -14,14 +14,20 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// The first frame drawn after the last request. Not just the next one published: the frames are
+/// read back asynchronously (viewer_frames.c), so one or two drawn before the request (one
+/// published, one in flight) can still come after it. The viewer polls its requests before it
+/// draws, so a frame numbered at least status's `frame` now was drawn after them.
 fn next_frame(r: &mut FrameReader, v: &mut Viewer) -> Frame {
     let end = Instant::now() + Duration::from_secs(10);
-    let _ = r.take(); // the frame from before the last request
+    let after = v.call("status", json!({})).unwrap()["frame"].as_u64().unwrap();
     loop {
-        v.call("status", json!({})).unwrap(); // (a frame passes)
         if let Some(f) = r.take() {
-            return f;
+            if u64::from(f.frame) >= after {
+                return f;
+            }
         }
+        v.call("status", json!({})).unwrap(); // (a frame passes)
         assert!(Instant::now() < end, "no frame in 10 s");
         std::thread::sleep(Duration::from_millis(5));
     }
