@@ -246,5 +246,22 @@ fn viewer_editor_commands() {
     let g = v.call("raycast", json!({"x": 200, "y": 150})).unwrap();
     assert_eq!(g["hit"], true, "{g}");
     assert!((g["point"][0].as_f64().unwrap() + 365.0).abs() < 20.0 && (g["point"][2].as_f64().unwrap() + 781.0).abs() < 20.0, "{g}");
+
+    // the gizmo: the camera's view as the viewer reports it gives the rays pick makes, and puts
+    // the point a pick's ray hits back under the pixel (an angled view, off the picture's middle)
+    v.call("camera", json!({"pitch": 30, "yaw": 40, "distance": 120})).unwrap();
+    let st = v.call("status", json!({})).unwrap();
+    let view = hwvx_browser::gizmo::View::from_camera(&st["camera"]).expect("status: camera.view");
+    assert_eq!(view.size, [400.0, 300.0], "{st}");
+    for (x, y) in [(200.0f32, 150.0f32), (37.0, 260.0), (390.0, 12.0)] {
+        let pk = v.call("pick", json!({"x": x, "y": y})).unwrap();
+        let (o, d) = view.ray(x, y);
+        for i in 0..3 {
+            assert!((pk["origin"][i].as_f64().unwrap() as f32 - o[i]).abs() < 0.01, "origin {pk} {o:?}");
+            assert!((pk["dir"][i].as_f64().unwrap() as f32 - d[i]).abs() < 1e-4, "dir {pk} {d:?}");
+        }
+        let at = view.project(hwvx_browser::gizmo::add(o, d, 80.0)).unwrap();
+        assert!((at[0] - x).abs() < 0.01 && (at[1] - y).abs() < 0.01, "{at:?} for {x}, {y}");
+    }
     v.call("quit", json!({})).ok();
 }

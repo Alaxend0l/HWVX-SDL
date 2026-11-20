@@ -5,7 +5,8 @@
 //! viewer's `pick`, and the level's own volumes against the same ray). The inspector edits the
 //! selection by its schema: enums as menus, flags as boxes, links from a list of what fits or by
 //! clicking in the world, numbers, text. A base record is edited as patches (only what differs).
-//! Moving: Ctrl/Cmd + drag in the view moves the selection over the ground (the viewer's
+//! Moving: a drag on an axis of the gizmo moves the selection along it (src/gizmo.rs, from the
+//! camera the viewer reports), Ctrl/Cmd + drag in the view over the ground (the viewer's
 //! `raycast`), Ctrl/Cmd + wheel turns a start; the inspector's numbers and "To the ground".
 //! Every edit can be undone (Ctrl/Cmd+Z, Shift for redo). As the project changes it is checked
 //! (xdlrs::level::compile on a copy: the same checks as `check`) and, when it
@@ -14,6 +15,7 @@
 
 use crate::{Browser, Pending};
 use eframe::egui;
+use hwvx_browser::gizmo::{AxisDrag, View, gizmo_length};
 use hwvx_browser::level_model::{Project, Snapshot};
 use hwvx_browser::testdrive::{LevelError, default_tools, level_env};
 use serde_json::{Value, json};
@@ -53,6 +55,16 @@ const OWN_KINDS: [(&str, &str); 8] = [
     ("objectives", "Objectives"),
 ];
 
+/// What the pointer does with the gizmo (src/main.rs's view, in picture rays).
+pub enum AxisEvent {
+    /// over axis k (or none)
+    Hover(Option<usize>),
+    /// a drag along axis k: the ray where it was pressed, the ray now
+    Start(usize, ([f32; 3], [f32; 3]), ([f32; 3], [f32; 3])),
+    Move(([f32; 3], [f32; 3])),
+    End,
+}
+
 /// What "+ Add" makes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AddKind {
@@ -88,6 +100,13 @@ pub struct EditState {
     pub pick_link: Option<(String, String)>,
     move_inflight: bool,
     move_offset: f32,
+    /// a drag of the selection (ground or axis): 1 started (its first change is an undo point),
+    /// 2 that point taken (the rest of the drag goes into it), 0 none
+    drag_undo: u8,
+    /// the gizmo: a drag along one of its axes, the axis under the pointer, its axes' length
+    pub axis_drag: Option<AxisDrag>,
+    pub gizmo_hot: Option<usize>,
+    pub gizmo_len: f32,
     pub saved_note: String,
     marks_sent: Value,
     /// what the marks were made from last (they're made again only when it changes)
@@ -334,7 +353,16 @@ impl Browser {
         let e = &mut self.level.edit;
         let now = Instant::now();
         if let Some(p) = e.proj.as_mut() {
-            if e.last_change.map(|t| now.duration_since(t) > Duration::from_millis(600)).unwrap_or(true) {
+            // a drag: one undo point however long it takes; else one per burst
+            let burst = match e.drag_undo {
+                1 => {
+                    e.drag_undo = 2;
+                    true
+                }
+                2 => false,
+                _ => e.last_change.map(|t| now.duration_since(t) > Duration::from_millis(600)).unwrap_or(true),
+            };
+            if burst {
                 if p.undo.last() != Some(&before) {
                     p.undo.push(before);
                 }
@@ -429,14 +457,23 @@ impl Browser {
             return;
         }
         let editing = self.level.tab && self.level.edit.proj.is_some();
+        // the gizmo's length: about the same size in the picture at any camera distance
+        let cam = self.camera["pos"].as_array().and_then(|a| Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32, a.get(2)?.as_f64()? as f32]));
+        self.level.edit.gizmo_len = match (cam, self.sel_place()) {
+            (Some(c), Some((p, _))) => gizmo_length(((c[0] - p[0]).powi(2) + (c[1] - p[1]).powi(2) + (c[2] - p[2]).powi(2)).sqrt()),
+            _ => 15.0,
+        };
         let key = format!(
-            "{}|{:?}|{}|{}|{}|{}",
+            "{}|{:?}|{}|{}|{}|{}|{}|{:?}|{:?}",
             self.level.edit.generation,
             self.level.edit.sel,
             editing,
             self.world.status["world"],
             self.level.edit.base.values().map(Vec::len).sum::<usize>(),
-            self.level.edit.start_problems.iter().filter(|(_, v)| !v.is_empty()).map(|(k, _)| k.len() + 1).sum::<usize>()
+            self.level.edit.start_problems.iter().filter(|(_, v)| !v.is_empty()).map(|(k, _)| k.len() + 1).sum::<usize>(),
+            self.level.edit.gizmo_len,
+            self.level.edit.gizmo_hot,
+            self.level.edit.axis_drag.map(|d| d.axis)
         );
         if key == self.level.edit.marks_key {
             return;
@@ -501,10 +538,13 @@ impl Browser {
                     Some(Sel::Base(_, _)) => marks.push(json!({"kind": "cross", "pos": pos, "radius": 4.0, "color": yellow})),
                     _ => {}
                 }
-                // the gizmo: x red, y green, z blue
+                // the gizmo: x red, y green, z blue; the axis under the pointer (or dragged) yellow
+                let len = self.level.edit.gizmo_len;
+                let hot = self.level.edit.axis_drag.map(|d| d.axis).or(self.level.edit.gizmo_hot);
                 for (k, col) in [(0, [255, 60, 60]), (1, [60, 255, 60]), (2, [80, 120, 255])] {
                     let mut to = pos;
-                    to[k] += 15.0;
+                    to[k] += len;
+                    let col = if hot == Some(k) { [255, 240, 40] } else { col };
                     marks.push(json!({"kind": "line", "pos": pos, "to": to, "color": col}));
                 }
             }
@@ -989,6 +1029,7 @@ impl Browser {
         if started {
             // keep a volume's height above the ground as it was
             self.level.edit.move_offset = f32::NAN;
+            self.level.edit.drag_undo = 1;
         }
         if !self.level.edit.move_inflight {
             self.level.edit.move_inflight = self.request("raycast", json!({"x": x, "y": y}), Pending::EditMove);
@@ -1010,6 +1051,51 @@ impl Browser {
             _ => 0.0,
         };
         self.set_place([hit[0], hit[1] + lift, hit[2]], rot);
+    }
+
+    /// A drag of the selection ended (its undo point is closed).
+    pub(crate) fn edit_drag_end(&mut self) {
+        self.level.edit.drag_undo = 0;
+        self.level.edit.axis_drag = None;
+    }
+
+    /// The gizmo as drawn: the picture's camera, the selection's place, the axes' length. None
+    /// when nothing placed is selected (or the game doesn't report its camera's view).
+    pub(crate) fn gizmo(&self) -> Option<(View, [f32; 3], f32)> {
+        if !self.level.tab || self.level.edit.proj.is_none() {
+            return None;
+        }
+        let view = View::from_camera(&self.camera)?;
+        let (pos, _) = self.sel_place()?;
+        Some((view, pos, if self.level.edit.gizmo_len > 0.0 { self.level.edit.gizmo_len } else { 15.0 }))
+    }
+
+    /// The pointer over the gizmo: a drag along an axis (one undo point), or the axis it is over.
+    pub(crate) fn edit_axis(&mut self, ev: AxisEvent) {
+        match ev {
+            AxisEvent::Hover(k) => self.level.edit.gizmo_hot = k,
+            AxisEvent::Start(k, (o0, d0), now) => {
+                let Some((from, rot)) = self.sel_place() else { return };
+                self.level.edit.axis_drag = AxisDrag::start(k, from, rot, o0, d0);
+                if self.level.edit.axis_drag.is_some() {
+                    self.level.edit.drag_undo = 1;
+                    self.level.edit.gizmo_hot = Some(k);
+                    self.edit_axis(AxisEvent::Move(now));
+                } else {
+                    self.note(format!("the {} axis points at the camera: turn the view to drag it", ["x", "y", "z"][k]));
+                }
+            }
+            AxisEvent::Move((o, d)) => {
+                let Some(drag) = self.level.edit.axis_drag else { return };
+                if let Some(c) = drag.place(o, d, 5000.0) {
+                    // only when it moves by a hundredth (the places are kept to two decimals)
+                    if self.sel_place().map(|(cur, _)| (0..3).any(|i| (cur[i] - c[i]).abs() >= 0.005)).unwrap_or(false) {
+                        self.set_place(c, drag.rot);
+                    }
+                }
+            }
+            AxisEvent::End => self.edit_drag_end(),
+        }
     }
 
     /// Ctrl/Cmd + wheel: a start turns (15 degrees a notch).
@@ -1392,7 +1478,7 @@ impl Browser {
                 if ui.button("To the ground").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new("Ctrl/Cmd + drag moves it, Ctrl/Cmd + wheel turns a start").small().weak());
+                ui.label(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it; Ctrl/Cmd + wheel turns a start").small().weak());
             });
             let before = self.level.edit.before();
             let p = self.level.edit.proj.as_mut().unwrap();
@@ -1519,7 +1605,7 @@ impl Browser {
                 if ui.button("To the ground").on_hover_text("straight down onto the collision").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new("Ctrl/Cmd + drag in the view moves it").small().weak());
+                ui.label(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it").small().weak());
             });
         }
         let before = self.level.edit.before();
@@ -1611,7 +1697,7 @@ impl Browser {
                 if ui.button("To the ground").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new(if table == "tileCars" { "Ctrl/Cmd + drag moves it, Ctrl/Cmd + wheel turns it" } else { "Ctrl/Cmd + drag moves it" }).small().weak());
+                ui.label(egui::RichText::new(if table == "tileCars" { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it, Ctrl/Cmd + wheel to turn it" } else { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it" }).small().weak());
             });
         }
         let rec = self.level.edit.record.clone();
