@@ -132,6 +132,16 @@ fn sound(v: &mut Viewer, r: &mut MediaReader, node: &str) -> Sound {
     Sound::from_reply(&reply, &data)
 }
 
+/// xdl_media's file for a node (texture/3 + "/level0.png"): the GameCube's as KIND/N, the
+/// others' as KIND/RELEASE_N (its file names carry the release off the GameCube).
+fn xdl_file(xdl: &Path, release: &str, id: &str, tail: &str) -> PathBuf {
+    let plain = xdl.join(format!("{id}{tail}"));
+    match id.split_once('/') {
+        Some((kind, n)) if !plain.exists() => xdl.join(format!("{kind}/{release}_{n}{tail}")),
+        _ => plain,
+    }
+}
+
 /// A car pack's own textures and sounds against xdl_media's files.
 fn check_car(v: &mut Viewer, r: &mut MediaReader, release: &str, xdl: &Path) {
     let list = v.call("textures", json!({})).unwrap();
@@ -142,7 +152,7 @@ fn check_car(v: &mut Viewer, r: &mut MediaReader, release: &str, xdl: &Path) {
         let tex = texture(v, r, id);
         assert_eq!(tex.levels.len() as u64, t["levels"].as_u64().unwrap(), "{release} {id}: every level drawn");
         for l in &tex.levels {
-            let png = xdl.join(format!("{id}/level{}.png", l.level));
+            let png = xdl_file(xdl, release, id, &format!("/level{}.png", l.level));
             let Ok((w, h, px)) = read_png(&png) else {
                 println!("{release} {id} level {}: no {} (xdl_media keeps the stored levels)", l.level, png.display());
                 continue;
@@ -177,7 +187,7 @@ fn check_car(v: &mut Viewer, r: &mut MediaReader, release: &str, xdl: &Path) {
         let id = s["id"].as_str().unwrap();
         assert_eq!(s["loaded"], true, "{release} {id} loaded");
         let snd = sound(v, r, id);
-        let (rate, pcm) = read_wav(&std::fs::read(xdl.join(format!("{id}.wav"))).unwrap()).unwrap();
+        let (rate, pcm) = read_wav(&std::fs::read(xdl_file(xdl, release, id, ".wav")).unwrap()).unwrap();
         assert_eq!(snd.rate, rate, "{release} {id}: rate");
         let same = snd.pcm.iter().zip(&pcm).filter(|(a, b)| a == b).count();
         println!("{release} {id}: {} Hz, {} samples (xdl_media {}), {same} identical", snd.rate, snd.pcm.len(), pcm.len());

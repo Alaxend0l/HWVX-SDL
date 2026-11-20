@@ -270,18 +270,22 @@ impl Browser {
                 }
             });
             ui.menu_button("View", |ui| {
-                let (level, worlds, content) = (self.level.tab, self.world.tab_worlds, self.content.tab);
-                if ui.radio(!content && !level && !worlds, "Packs").clicked() {
-                    (self.content.tab, self.level.tab, self.world.tab_worlds) = (false, false, false);
+                let (level, worlds, content, media) = (self.level.tab, self.world.tab_worlds, self.content.tab, self.movies.tab);
+                let other = content || media;
+                if ui.radio(!other && !level && !worlds, "Packs").clicked() {
+                    (self.movies.tab, self.content.tab, self.level.tab, self.world.tab_worlds) = (false, false, false, false);
                 }
-                if ui.radio(!content && !level && worlds, "Worlds").clicked() {
-                    (self.content.tab, self.level.tab, self.world.tab_worlds) = (false, false, true);
+                if ui.radio(!other && !level && worlds, "Worlds").clicked() {
+                    (self.movies.tab, self.content.tab, self.level.tab, self.world.tab_worlds) = (false, false, false, true);
                 }
-                if ui.radio(!content && level, "Level").clicked() {
-                    (self.content.tab, self.level.tab) = (false, true);
+                if ui.radio(!other && level, "Level").clicked() {
+                    (self.movies.tab, self.content.tab, self.level.tab) = (false, false, true);
                 }
-                if ui.radio(content, "Content (new cars, weapons)").clicked() {
-                    (self.content.tab, self.level.tab) = (true, false);
+                if ui.radio(content && !media, "Content (new cars, weapons, tracks, sounds, music)").clicked() {
+                    (self.movies.tab, self.content.tab, self.level.tab) = (false, true, false);
+                }
+                if ui.radio(media, "Media (movies, every sound and song)").clicked() {
+                    (self.movies.tab, self.content.tab, self.level.tab) = (true, false, false);
                 }
                 ui.separator();
                 if ui

@@ -17,6 +17,8 @@
 //!                [--testdrive-renderer R] [--level-select trigger:NAME|own:KIND/NAME|base:PATH]
 //!                [--content MOD_DIR]             a mod of new cars and weapons (the Content tab)
 //!                [--axis-drag x|y|z:PIXELS]      drags that axis of the selection's gizmo (scripts)
+//!                [--movie NAME[@SECONDS][!]]     the Media tab's movie NAME, paused there (!: playing)
+//!                [--audio SEARCH]                the Audio browser, searched (scripts)
 //!   hwvx-browser --level PROJECT_DIR [--check] [--drive SECS] [--save-mod OUT.xmod] [--data DIR]
 //!                                                headless: the level's check, a test drive (until
 //!                                                it drives, at most SECS), Save as mod; exit 0: ok
@@ -47,6 +49,8 @@ mod content_tracks_ui;
 mod level_edit;
 mod level_ui;
 mod media_ui;
+mod movie_ui;
+mod audio_ui;
 mod menu_ui;
 mod world_ui;
 
@@ -102,6 +106,9 @@ struct Args {
     level_select: Option<String>,
     /// --axis-drag: the gizmo's axis and how many points the pointer goes along it (scripts)
     axis_drag: Option<(usize, f32)>,
+    /// --movie NAME[@SECONDS], --audio SEARCH (scripts)
+    movie: Option<(String, f64)>,
+    audio: Option<String>,
     /// headless (no window): --check, --drive SECS, --save-mod OUT.xmod, on --level
     check: bool,
     drive: Option<u64>,
@@ -148,6 +155,19 @@ fn parse_args() -> Result<Args, String> {
                 let k = ["x", "y", "z"].iter().position(|a| *a == k).ok_or("--axis-drag x|y|z:PIXELS")?;
                 a.axis_drag = Some((k, n.parse().map_err(|_| "--axis-drag x|y|z:PIXELS")?));
             }
+            "--movie" => {
+                let v = val()?;
+                // NAME[@SECONDS][!]: the `!` (play) stays on the name
+                let (v, bang) = match v.strip_suffix('!') {
+                    Some(s) => (s.to_string(), "!"),
+                    None => (v, ""),
+                };
+                a.movie = Some(match v.rsplit_once('@') {
+                    Some((n, t)) => (format!("{n}{bang}"), t.parse().map_err(|_| "--movie NAME[@SECONDS][!]")?),
+                    None => (format!("{v}{bang}"), 0.0),
+                });
+            }
+            "--audio" => a.audio = Some(val()?),
             "--car" => a.car = Some(val()?.parse().map_err(|_| "--car N")?),
             "--check" => a.check = true,
             "--drive" => a.drive = Some(val()?.parse().map_err(|_| "--drive SECS")?),
@@ -486,6 +506,9 @@ struct Browser {
     data_pick: Option<menu_ui::DataPick>,
     about: bool,
     content: content_ui::ContentState,
+    /// the Media tab: movies (src/movie_ui.rs) and the Audio browser (src/audio_ui.rs)
+    movies: movie_ui::MovieState,
+    audio: audio_ui::AudioState,
 }
 
 impl Browser {
@@ -531,6 +554,8 @@ impl Browser {
             data_pick: None,
             about: false,
             content: Default::default(),
+            movies: movie_ui::MovieState { script: args.movie.clone(), ..Default::default() },
+            audio: Default::default(),
             args,
             ctx,
         };
@@ -936,6 +961,9 @@ impl Browser {
             if self.outline.is_none() || !self.world.status.is_object() {
                 return;
             }
+        }
+        if !self.movie_script() || !self.audio_script() {
+            return;
         }
         if let Some(n) = self.args.select.clone() {
             let media = media_kind(&n);
@@ -1721,6 +1749,7 @@ impl eframe::App for Browser {
         self.script(&ctx);
         self.level_tick(&ctx);
         self.edit_tick(&ctx);
+        self.audio_tick();
         if !self.pending.is_empty() || self.connecting.is_some() {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
