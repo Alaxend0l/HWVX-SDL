@@ -47,6 +47,7 @@
 #include "Port_Content.h"
 #include "Port_Swap.h"
 #include "Port_Proto.h"
+#include "Port_World.h"
 
 /* The archives whose packs are numbered as entries are: a car is the type-0
  * pack of its number in HW_Cars (the MCP's carsPack; the worlds' own
@@ -276,6 +277,7 @@ void Port_ContentInit(void) {
     TestExtra(PORT_CONTENT_CAR, "HWVX_TEST_EXTRA_CARS", "car", 3, "HWVX_TEST_EXTRA_CAR_THUMB");
     TestExtra(PORT_CONTENT_ITEM, "HWVX_TEST_EXTRA_ITEMS", "item", 0, "HWVX_TEST_EXTRA_ITEM_THUMB");
     TestExtraTracks();
+    Port_WorldRegister();   /* HWVX_WORLD: a custom world as a track (Port_World.h) */
     Port_ProtoInit();   /* the prototype's car pictures */
     for (j = Port_ContentRetailCount(PORT_CONTENT_CAR); j < Port_ContentCount(PORT_CONTENT_CAR); j++) {
         if (Has(&s_archives[0], j) && Port_ContentDataOf(PORT_CONTENT_CAR, j) != (s32)j) {

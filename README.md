@@ -683,6 +683,16 @@ Debugging aids:
   a mod's track brings one with `"level"` (docs-pending/mission-editor.md).
   `tools/level_test.sh BUILD DATA OUT` plays the sample level as a mod (world
   select, win, lose).
+- `HWVX_WORLD=<folder>/world.jsonc`: a custom world (the superproject's
+  `hwvx-x world demo|build`, docs/plans/custom-worlds.md) as a track over a
+  base level (`"base"`, a track number): its own archive (`<folder>/<archive>.xgc`:
+  one hub quadrant pack, one collision pack whose surfaces are the base's)
+  composed over the base's world pack as it loads (`src/game/Port_World.c`);
+  `HWVX_START=race:mode=joyride,world=<its id>` starts it.
+  `tools/world_drive.sh BUILD DATA OUT NAME world.jsonc` drives it (GameCube
+  data only for now). A world from a glTF: `hwvx-x world build PROJECT.jsonc
+  OUT` (`tools/world-samples/ramp`: the generated demo as a glTF and its
+  project file: scale, turn, materials to base textures and surfaces, start).
 - The editor's test drive (data browser, Level tab, F5): `HWVX_TESTDRIVE=1`
   raises the window, logs `testdrive: in the race` / `driving` and quits when
   the race is left for the menus; `HWVX_LEVEL_START=x,y,z,rotY` moves player

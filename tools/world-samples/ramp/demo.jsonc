@@ -1,0 +1,21 @@
+// A custom world from a glTF (hwvx-x world build world.jsonc OUT; docs/plans/custom-worlds.md).
+// Positions are model units times "scale" (game units), turned "rotateY" degrees about the up axis.
+// Textures are indices into the base level's world texture pack (Joyride world1's w1_tex here),
+// surfaces indices into its collision materials; null: vertex colour only.
+{
+  "id": "uid://hwvx-world-sample-ramp",
+  "name": "Sample Ramp",
+  "base": 0,
+  "model": "demo.gltf",
+  "scale": 1.0,
+  "rotateY": 0,
+  "leaveOut": [],
+  "renderOnly": [],
+  "collisionOnly": [],
+  "materials": {
+    "ground": { "texture": 4, "surface": 0 },
+    "ramp": { "texture": 32, "surface": 0 },
+    "wall": { "texture": 9, "surface": 0 }
+  },
+  "start": [0, 20, -1200, 0]
+}
