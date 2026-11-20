@@ -258,7 +258,7 @@ taking the real mouse (`src/port/pad.c`).
 | `src/port/port.h` | Fixed-width types, endian helpers, 32-bit handles |
 | `src/port/sdk.h`, `gx.h` | The SDK API surface the game uses |
 | `src/port/gx_render.h` | Renderer interface; `gx_gl.c` (OpenGL) and `gx_sdlgpu.c` (SDL_GPU) implement it |
-| `src/port/net.h`, `net*.c` | Online play transport (see "Online play"); nothing in the game calls it yet |
+| `src/port/net.h`, `net*.c` | Online play transport (see "Online play"), driven by `src/game/Port_Online.c` |
 | `src/port/shaders/` | Shader sources (GLSL), shared by every renderer |
 | `src/port/gx_shaders.h` | Generated: the shaders as GLSL, SPIR-V, MSL and DXIL |
 | `tools/` | Import and rewrite scripts (below) |
