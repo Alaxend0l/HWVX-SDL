@@ -5,6 +5,7 @@ pub mod media;
 pub mod shm;
 pub mod resources;
 pub mod data_dir;
+pub mod extract;
 pub mod cars;
 pub mod content;
 pub mod content_retail;

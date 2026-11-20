@@ -207,7 +207,7 @@ pub fn choose_folder(prompt: &str) -> Choice {
     })
 }
 
-/// A disc image (.iso, .gcm, .gcz), in the system's dialog.
+/// A disc image (.iso, .gcm, .gcz; the PC CD's .cue/.bin, for extracting), in the system's dialog.
 pub fn choose_image(prompt: &str) -> Choice {
     if cfg!(target_os = "macos") {
         run(std::process::Command::new("osascript").args([
@@ -223,13 +223,13 @@ pub fn choose_image(prompt: &str) -> Choice {
         run(xdlrs::command("powershell").env("HWVX_PROMPT", prompt).args([
             "-NoProfile",
             "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Disc image (*.iso;*.gcm;*.gcz)|*.iso;*.gcm;*.gcz|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
+            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Disc image (*.iso;*.gcm;*.gcz;*.cue;*.bin)|*.iso;*.gcm;*.gcz;*.cue;*.bin|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
         ]))
     } else if on_path("zenity") {
         run(std::process::Command::new("zenity").args([
             "--file-selection",
             &format!("--title={prompt}"),
-            "--file-filter=Disc image | *.iso *.gcm *.gcz *.ISO *.GCM *.GCZ",
+            "--file-filter=Disc image | *.iso *.gcm *.gcz *.cue *.bin *.ISO *.GCM *.GCZ *.CUE *.BIN",
             "--file-filter=All files | *",
         ]))
     } else if on_path("kdialog") {
@@ -238,7 +238,7 @@ pub fn choose_image(prompt: &str) -> Choice {
             prompt,
             "--getopenfilename",
             ".",
-            "*.iso *.gcm *.gcz|Disc image",
+            "*.iso *.gcm *.gcz *.cue *.bin *.ISO *.GCM *.GCZ *.CUE *.BIN|Disc image",
         ]))
     } else {
         Err(NO_DIALOG.into())
