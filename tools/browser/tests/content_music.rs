@@ -68,9 +68,14 @@ fn songs_match_the_viewer() {
         let ours: Vec<&str> = songs.iter().filter(|s| s.start.starts_with(&format!("race:mode={mode},"))).map(|s| s.archive).collect();
         assert_eq!(ours, game, "{mode}");
     }
+    // every world's archive is in the data (any release's layout), but those the release hasn't:
+    // the PC's MCP lists the six multi-player drag worlds its data lacks
+    let info = hwvx_browser::content::DataInfo::read(&data).unwrap();
+    let missing = hwvx_browser::content_music::songs_missing(&info);
+    assert_eq!(missing.len(), if info.release == "pc" { 6 } else { 0 }, "{}: {missing:?}", info.release);
     for s in songs.iter().filter(|s| s.archive != "HW_music") {
         assert!(seen.contains(&s.key()), "{}: no level of the MCP's", s.key());
-        assert!(data.join(format!("{}.xgc", s.path)).is_file(), "{}: no {}", s.key(), s.path);
+        assert!(info.has_archive(s.archive) || missing.contains(&s.key()), "{}: no {}", s.key(), s.path);
     }
     // the base songs through the viewer: a world's and a front-end one
     let packs = v.call("packs", json!({})).unwrap();

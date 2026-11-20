@@ -67,7 +67,7 @@ pub fn archives(data: &Path) -> Vec<String> {
                     walk(&p, depth - 1, out);
                 }
             } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| ["xgc", "xpc", "xps"].contains(&x.to_ascii_lowercase().as_str())) {
-                out.push(xdlrs::modcheck::media::stem(&p));
+                out.push(crate::content::archive_name(&xdlrs::modcheck::media::stem(&p)));
             }
         }
     }
@@ -87,7 +87,7 @@ impl SoundArchive {
     pub fn open(path: &Path) -> Result<SoundArchive, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let arc = Archive::from_bytes(bytes, path)?;
-        Ok(SoundArchive { name: arc.name.clone(), release: arc.release, arc })
+        Ok(SoundArchive { name: crate::content::archive_name(&arc.name), release: arc.release, arc })
     }
 
     fn raw(&self, typ: u32, id: u32) -> Result<RawPack<'_>, String> {

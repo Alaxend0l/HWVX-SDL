@@ -92,6 +92,20 @@ impl DataInfo {
     }
 }
 
+/// An archive's name as the GameCube spells it, the spelling base:// ids use (the game matches
+/// them without case, but a mod's keys and the editor's lists should not depend on the release
+/// read): the PS2's disc has every name in upper case (HW_SHARE.XPS, WORLD1L1.XPS).
+pub fn archive_name(stem: &str) -> String {
+    const MIXED: [&str; 6] = ["HW_brief", "HW_Cars", "HW_IPack", "HW_Items", "HW_music", "HW_share"];
+    if let Some(m) = MIXED.iter().find(|m| m.eq_ignore_ascii_case(stem)) {
+        return m.to_string();
+    }
+    if stem.len() > 4 && stem[..4].eq_ignore_ascii_case("HWB_") {
+        return stem.to_ascii_uppercase();
+    }
+    stem.to_ascii_lowercase()
+}
+
 pub fn release_name(key: &str) -> &'static str {
     match key {
         "gc" => "GameCube",
@@ -280,6 +294,14 @@ impl ModProject {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The PS2's upper-case names (and any other spelling) as the GameCube spells them.
+    #[test]
+    fn archive_names() {
+        for (a, b) in [("HW_SHARE", "HW_share"), ("hw_ipack", "HW_IPack"), ("HW_Cars", "HW_Cars"), ("WORLD1L1", "world1l1"), ("BAT2_L9", "bat2_l9"), ("hwb_m01", "HWB_M01"), ("MCP", "mcp")] {
+            assert_eq!(archive_name(a), b);
+        }
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("hwvx-content-test-{}-{name}", std::process::id()));
