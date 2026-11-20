@@ -353,9 +353,14 @@ impl Browser {
         Some(s)
     }
 
+    /// A test drive is being compiled or placed (not startable again yet).
+    pub(crate) fn test_drive_busy(&self) -> bool {
+        self.level.preparing.is_some() || self.level.waiting_ground
+    }
+
     pub(crate) fn test_drive_button(&mut self, ui: &mut egui::Ui) {
         let running = self.level.drive.as_mut().map(|d| d.running()).unwrap_or(false);
-        let busy = self.level.preparing.is_some() || self.level.waiting_ground;
+        let busy = self.test_drive_busy();
         let label = if busy { "⏳ Test drive" } else if running { "↻ Test drive again (F5)" } else { "▶ Test drive (F5)" };
         let b = egui::Button::new(egui::RichText::new(label).strong().color(egui::Color32::WHITE)).fill(egui::Color32::from_rgb(30, 120, 60));
         if ui.add_enabled(!busy, b).on_hover_text("compile the level and drive it in the game (F5)").clicked() {

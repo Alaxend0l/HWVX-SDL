@@ -4,6 +4,7 @@ pub mod frames;
 pub mod media;
 pub mod shm;
 pub mod resources;
+pub mod data_dir;
 pub mod testdrive;
 /// moved to the xdlrs crate (tools/xdlrs), kept here under its old path
 pub use xdlrs::jsonc_edit;

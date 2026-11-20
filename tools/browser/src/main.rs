@@ -19,6 +19,10 @@
 //!                                                headless: the level's check, a test drive (until
 //!                                                it drives, at most SECS), Save as mod; exit 0: ok
 //!
+//! The game data: --data DIR (this run), else the one chosen before (editor-data.txt in the pref
+//! folder), else the editor asks for it, offering the game launcher's (src/data_dir.rs, src/menu_ui.rs).
+//! The menu bar (File, Edit, View, Tools, Help) is src/menu_ui.rs.
+//!
 //! Runtime files (schemas/, the game, hwvx-x) are found as src/resources.rs says: packaged
 //! beside the program, $HWVX_EDITOR_RESOURCES, or the checkout.
 //!
@@ -36,6 +40,7 @@
 mod level_edit;
 mod level_ui;
 mod media_ui;
+mod menu_ui;
 mod world_ui;
 
 use eframe::egui;
@@ -151,7 +156,7 @@ fn main() -> eframe::Result {
         std::process::exit(headless(&args));
     }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1500.0, 860.0]).with_title("HWVX data browser"),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1500.0, 860.0]).with_title("HWVX Editor"),
         ..Default::default()
     };
     eframe::run_native("hwvx-browser", options, Box::new(move |cc| Ok(Box::new(Browser::new(args, cc.egui_ctx.clone())))))
@@ -182,7 +187,10 @@ fn headless(a: &Args) -> i32 {
     let o = Options {
         tools: a.tools.clone().or_else(|| testdrive::default_tools(&game)).unwrap_or_else(|| "tools".into()),
         game,
-        data: a.data.clone(),
+        data: a.data.clone().or_else(|| {
+            let pref = a.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref);
+            hwvx_browser::data_dir::remembered(&pref).or_else(hwvx_browser::data_dir::from_launcher)
+        }),
         build_pack: false,
         project: PathBuf::from(level),
         scratch: a.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref).join("testdrive"),
@@ -449,6 +457,9 @@ struct Browser {
     media_reader: MediaReader,
     world: WorldState,
     level: LevelState,
+    /// the game data screen, while it is shown (src/menu_ui.rs)
+    data_pick: Option<menu_ui::DataPick>,
+    about: bool,
 }
 
 impl Browser {
@@ -487,6 +498,8 @@ impl Browser {
             media_reader: MediaReader::new(),
             world: WorldState::default(),
             level: LevelState::default(),
+            data_pick: None,
+            about: false,
             args,
             ctx,
         };
@@ -495,6 +508,15 @@ impl Browser {
             b.level.tab = true;
             b.level.skip_intro = b.args.quick_start;
             b.level.car = b.args.car.unwrap_or(0);
+        }
+        // the game data: --data, else the one chosen last time, else ask (a running viewer has its own)
+        if b.args.port.is_none() && b.args.data.is_none() {
+            let pref = b.args.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref);
+            b.args.data = hwvx_browser::data_dir::remembered(&pref);
+            if b.args.data.is_none() {
+                b.ask_for_data(None);
+                return b;
+            }
         }
         b.connect();
         b
@@ -557,6 +579,12 @@ impl Browser {
                 self.request("packs", json!({}), Pending::Packs);
                 self.request("worlds", json!({}), Pending::Worlds);
                 self.request("status", json!({}), Pending::Camera);
+            }
+            // the data folder is wrong (moved, or a --data the game refuses): ask again, plainly
+            Err(e) if self.args.port.is_none() && e.contains("Game data not found") => {
+                let at = self.args.data.as_ref().map(|d| format!(" in {}", d.display())).unwrap_or_default();
+                self.args.data = None;
+                self.ask_for_data(Some(format!("The game found no game data{at}. Choose your copy of the game.")));
             }
             Err(e) => self.connect_error = Some(e),
         }
@@ -1566,6 +1594,11 @@ impl eframe::App for Browser {
         if !self.pending.is_empty() || self.connecting.is_some() {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
+        egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
+        if self.data_pick.is_some() {
+            self.data_screen(ui);
+            return;
+        }
         if self.connecting.is_some() {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.heading("Starting the viewer…");
@@ -1577,10 +1610,16 @@ impl eframe::App for Browser {
         if let Some(e) = self.connect_error.clone() {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.heading("The viewer could not be started");
-                ui.monospace(e);
-                if ui.button("Try again").clicked() {
-                    self.connect();
-                }
+                ui.monospace(&e);
+                ui.horizontal(|ui| {
+                    if ui.button("Try again").clicked() {
+                        self.connect();
+                    }
+                    if self.args.port.is_none() && ui.button("Choose the game data…").clicked() {
+                        let why = e.contains("Game data not found").then(|| "the game could not find its data there".to_string());
+                        self.ask_for_data(why);
+                    }
+                });
             });
             return;
         }

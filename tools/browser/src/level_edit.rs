@@ -108,6 +108,8 @@ pub struct EditState {
     pub new_world: String,
     pub new_name: String,
     pub new_dir: String,
+    /// the menu's File > New level: the dialog opens (once)
+    pub new_requested: bool,
 }
 
 impl EditState {
@@ -242,21 +244,7 @@ impl Browser {
 
     /// A native folder chooser (the system's: osascript, zenity, PowerShell); None if cancelled.
     pub(crate) fn choose_folder() -> Option<String> {
-        let out = if cfg!(target_os = "macos") {
-            std::process::Command::new("osascript")
-                .args(["-e", "POSIX path of (choose folder with prompt \"A level project (its folder, with level.jsonc)\")"])
-                .output()
-                .ok()?
-        } else if cfg!(windows) {
-            xdlrs::command("powershell")
-                .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"])
-                .output()
-                .ok()?
-        } else {
-            std::process::Command::new("zenity").args(["--file-selection", "--directory"]).output().ok()?
-        };
-        let s = String::from_utf8_lossy(&out.stdout).trim().trim_end_matches('/').to_string();
-        (out.status.success() && !s.is_empty()).then_some(s)
+        hwvx_browser::data_dir::choose_folder("A level project (its folder, with level.jsonc)").ok().flatten()
     }
 
     // ---- per frame ---------------------------------------------------------------------------
@@ -315,7 +303,7 @@ impl Browser {
         }
     }
 
-    fn edit_undo(&mut self, redo: bool) {
+    pub(crate) fn edit_undo(&mut self, redo: bool) {
         if let Some(p) = self.level.edit.proj.as_mut() {
             let done = if redo { p.redo() } else { p.undo() };
             if done {
@@ -590,7 +578,8 @@ impl Browser {
     /// "New level": a project extending a mode's level in its world (its retail script kept,
     /// to be changed), in a folder of its own.
     pub(crate) fn new_level_dialog(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing("New level…", |ui| {
+        let open = std::mem::take(&mut self.level.edit.new_requested).then_some(true);
+        egui::CollapsingHeader::new("New level…").open(open).show(ui, |ui| {
             let e = &mut self.level.edit;
             if e.new_mode.is_empty() {
                 e.new_mode = "challenge".into();
