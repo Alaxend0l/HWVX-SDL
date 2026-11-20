@@ -39,7 +39,7 @@ static SDL_EnumerationResult SDLCALL MatchEntry(void *userdata, const char *dir,
     return SDL_ENUM_CONTINUE;
 }
 
-static char *ResolveCase(const char *root, const char *name) {
+char *Port_ResolveCase(const char *root, const char *name) {
     char *dir = SDL_strdup(root);
     const char *p = name;
 
@@ -97,7 +97,7 @@ static SDL_IOStream *OpenIn(const char *root, const char *name, char **found) {
         SDL_free(path);
         path = NULL;
     }
-    if (io == NULL && (path = ResolveCase(root, name)) != NULL) {
+    if (io == NULL && (path = Port_ResolveCase(root, name)) != NULL) {
         io = SDL_IOFromFile(path, "rb");
         if (io == NULL) {
             SDL_free(path);
@@ -114,7 +114,7 @@ static SDL_IOStream *OpenIn(const char *root, const char *name, char **found) {
                 base = p + 1;
             }
         }
-        if (base != name && (path = ResolveCase(root, base)) != NULL) {
+        if (base != name && (path = Port_ResolveCase(root, base)) != NULL) {
             io = SDL_IOFromFile(path, "rb");
             if (io == NULL) {
                 SDL_free(path);
@@ -411,4 +411,26 @@ BOOL DVDInquiryAsync(DVDCommandBlock *block, void *info, void (*callback)(s32, D
         callback(0x20, block);
     }
     return TRUE;
+}
+
+int Port_DataHasPack(const char *name) {
+    char path[0x100];
+    size_t n = SDL_strlen(name), i;
+    DVDFileInfo fi;
+
+    if (n == 0 || n + 5 > sizeof(path)) {
+        return 0;
+    }
+    SDL_strlcpy(path, name, sizeof(path));
+    for (i = 0; i < n; i++) {
+        path[i] = path[i] == '\\' ? '/' : path[i];
+    }
+    if (n < 4 || SDL_strcasecmp(path + n - 4, ".xgc") != 0) {
+        SDL_strlcat(path, ".xgc", sizeof(path));
+    }
+    if (!DVDOpen(path, &fi)) {
+        return 0;
+    }
+    DVDClose(&fi);
+    return 1;
 }

@@ -153,7 +153,8 @@ pub fn is_image_name(p: &Path) -> bool {
 }
 
 /// The track file a .cue names: FILE "name" BINARY (or unquoted), relative to the .cue's folder
-/// unless absolute (pcdisc.c CueTrack).
+/// unless absolute (pcdisc.c CueTrack). The name is matched without case when the exact spelling
+/// is missing, as on Windows and macOS: the retail PC .cue names IMS-HWVX.BIN, the rip ims-hwvx.bin.
 fn cue_track(cue: &Path) -> R<PathBuf> {
     let text = fs::read_to_string(cue).map_err(|e| format!("{}: {e}", cue.display()))?;
     for line in text.lines() {
@@ -168,7 +169,15 @@ fn cue_track(cue: &Path) -> R<PathBuf> {
         }
         let p = Path::new(name);
         let abs = p.is_absolute() || name.starts_with(['/', '\\']) || name.as_bytes().get(1) == Some(&b':');
-        return Ok(if abs { p.to_path_buf() } else { cue.parent().unwrap_or(Path::new(".")).join(p) });
+        if abs {
+            return Ok(p.to_path_buf());
+        }
+        let dir = cue.parent().unwrap_or(Path::new("."));
+        let exact = dir.join(p);
+        if exact.exists() {
+            return Ok(exact);
+        }
+        return Ok(path_nocase(dir, &name.replace('\\', "/")).unwrap_or(exact));
     }
     Err(format!("{}: names no track file", cue.display()))
 }

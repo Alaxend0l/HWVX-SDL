@@ -44,7 +44,10 @@ the entry's own pack only: `Port_ModsBeginPack` takes the number asked for besid
 that is; its sounds apply after the base:// ones and the pack skips the .xdl cache. The Rust
 packer (xdlrs modcheck manifest) checks them as it checks `"sounds"`. Keys are `sound/N` (every
 release) or `sound/gc:N` (one release's); the editor writes `sound/N` with the indices of the data
-it reads.
+it reads. The indices mean the same sound on every release: each car pack has as many sounds on
+the GameCube, the PC and the PS2 (33 packs, 97 sounds), each index in the same role (CarAInfo:
+wind, engine, rolling, gear shifts), and HW_share's and HW_Items' packs as many each
+(content_sounds.rs `car_sound_roles_per_release`, with the three releases' data).
 
 ## Testing
 

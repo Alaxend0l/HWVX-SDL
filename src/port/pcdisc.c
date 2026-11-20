@@ -126,6 +126,22 @@ static int CueTrack(const char *cuePath, char *bin, size_t size) {
         } else {
             SDL_snprintf(bin, size, "%.*s%s", (int)(slash - cuePath + 1), cuePath, name);
         }
+        if (!IsAbsolute(name) && !SDL_GetPathInfo(bin, NULL)) {
+            /* the name without case, as Windows and macOS find it: the
+             * retail .cue names IMS-HWVX.BIN, a copy may be ims-hwvx.bin */
+            char *dir = slash != NULL ? SDL_strndup(cuePath, (size_t)(slash - cuePath)) : SDL_strdup("."), *p, *real;
+
+            for (p = name; *p; p++) {
+                if (*p == '\\') {
+                    *p = '/';
+                }
+            }
+            if ((real = Port_ResolveCase(dir, name)) != NULL) {
+                SDL_strlcpy(bin, real, size);
+                SDL_free(real);
+            }
+            SDL_free(dir);
+        }
         found = 1;
     }
     SDL_free(cue);

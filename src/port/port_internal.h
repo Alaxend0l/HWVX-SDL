@@ -133,6 +133,9 @@ int Port_LauncherMods(int run, const char *const *paths, const char *prefDir, ch
  * packs: <pref>converted/<key>; SDL_free it. The game reads them when the
  * folder holds a finished conversion (its manifest, Port_Convert.h). */
 char *Port_ConvertedDir(const char *key);
+/* dvd.c: `name` ('/'-separated) under folder `root`, each part matched
+ * without case: the path as the host spells it, or NULL; SDL_free it. */
+char *Port_ResolveCase(const char *root, const char *name);
 /* pcdisc.c: the PC release's disc image (.iso, .cue/.bin) into folder `dest`:
  * HWVX.cab's files flat, the FMV_ movies; `progress` counts files. */
 int Port_ImportPCDisc(const char *image, const char *dest, SDL_AtomicInt *progress, SDL_AtomicInt *cancel, char *err,

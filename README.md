@@ -50,6 +50,7 @@ bottom:
 | Convert | converting to `.xdl`: coming later |
 | Mods | coming later |
 | Settings | what `graphics.cfg` holds beyond the game's own Graphics menu, in sub-tabs (left/right on a row switches them; the last one shown is remembered): Display (windowed or fullscreen, renderer `renderer=`, resolution scale `resscale=`, PC textures `pctextures=`, draw distance `drawdist=`, split-screen detail `splitlod=`), Audio (stereo: `stereo=gc` the GameCube/PS2 pan, or `stereo=pc` the PC's wider one; movies `movies=`), Controls (mouse steering `mousesteer=`, button prompts `prompts=`), Game (main menu `mainmenu=`);
+| Credits | the project (MIT licence, the repository, your own copy of the game needed), what the game is built with and each one's licence (SDL3, Mbed TLS, miniaudio, stb_vorbis, stb_image, the Input Prompts glyphs), FFmpeg's LGPL line with whether the movies found it and which release, and where the licence texts are; up/down, the d-pad or stick and the mouse wheel scroll it |
 
 The launcher opens every time the game starts, unless you tick
 "Start the game without this window"; then the game boots straight into the
@@ -59,7 +60,8 @@ makes; app bundles use `--launcher`). It opens on the page you saw last
 (`tab=` in `sources.cfg`), or on Play; on Games while no release is imported.
 Mouse, keyboard and gamepad all work: the d-pad or stick (or the arrow keys,
 and Tab) moves between the page's buttons and Play/Quit, A (Enter) presses,
-B (Escape) quits, Start plays, and LB/RB (Page Up/Page Down) change the page.
+B (Escape) quits, Start plays, and LB/RB (Page Up/Page Down) change the page;
+on Credits, up and down (and the wheel) scroll the page.
 Folders, disc images and saves are picked in the system's file dialog, which
 needs a mouse or keyboard. Importing the PC CD copies its packs (out of
 `HWVX.cab`) and its movies, which the PC game only ever read from the disc,
@@ -264,7 +266,7 @@ taking the real mouse (`src/port/pad.c`).
 | `src/port/port.h` | Fixed-width types, endian helpers, 32-bit handles |
 | `src/port/sdk.h`, `gx.h` | The SDK API surface the game uses |
 | `src/port/gx_render.h` | Renderer interface; `gx_gl.c` (OpenGL) and `gx_sdlgpu.c` (SDL_GPU) implement it |
-| `src/port/net.h`, `net*.c` | Online play transport (see "Online play"); nothing in the game calls it yet |
+| `src/port/net.h`, `net*.c` | Online play transport (see "Online play"), driven by `src/game/Port_Online.c` |
 | `src/port/shaders/` | Shader sources (GLSL), shared by every renderer |
 | `src/port/gx_shaders.h` | Generated: the shaders as GLSL, SPIR-V, MSL and DXIL |
 | `tools/` | Import and rewrite scripts (below) |
@@ -784,10 +786,11 @@ Debugging aids:
   Ogg Vorbis and MP3 for tools/xdl_media.py and tools/xdl_mod.py (`HWVX_AUDIODEC` names it);
   a mod's `"sounds"` are decoded by the game itself. `tools/mod_sound_test.sh` hears one in a race.
 - `HWVX_LAUNCHER_SHOT=file.bmp` saves the launcher's first frame and closes it
-  (testing). `HWVX_LAUNCHER_TAB=play|games|saves|convert|mods|settings` opens
+  (testing). `HWVX_LAUNCHER_TAB=play|games|saves|convert|mods|settings|credits` opens
   that page (`settings/display|audio|controls|game`: and that section); `HWVX_LAUNCHER_INPUT="rb,ddown,a"` presses keys (`pgup pgdn tab up
   down left right enter esc`), gamepad buttons (`lb rb a b start dup ddown dleft
-  dright`) and clicks (`click:X:Y` in the 640x420 view) first, and the shot is
+  dright`), clicks (`click:X:Y` in the 640x420 view) and the wheel (`wheel:N`,
+  notches, up positive) first, and the shot is
   taken after them; `HWVX_LAUNCHER_DISC=pc=IMAGE` (or `ps2=`) imports a disc
   image as if picked; `HWVX_LAUNCHER_IMPORT="FILE;FILE"` opens the saves
   preview. With `HWVX_PREF_DIR` none of it touches your own files.

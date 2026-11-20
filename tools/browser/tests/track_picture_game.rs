@@ -130,10 +130,13 @@ fn own_picture_in_the_world_select() {
     let last = pics.rsplit('|').next().unwrap().trim();
     assert!(last.starts_with("18 ") && last[3..].parse::<u32>().unwrap() >= 0x7FF + 16, "level 18's picture is the port's own texture: {last}");
 
-    // the last frame: the select settled on level 18
+    // the last whole frame: the select settled on level 18 (the game is killed, maybe while it
+    // writes one: every dump of the window is as long)
     let mut frames: Vec<PathBuf> = std::fs::read_dir(&dump).unwrap().flatten().map(|e| e.path()).collect();
     frames.sort();
-    let f = frames.last().expect("frames");
+    let len = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let whole = frames.iter().map(len).max().unwrap_or(0);
+    let f = frames.iter().rev().find(|p| len(p) == whole).expect("frames");
     std::fs::copy(f, out.join("frame.bmp")).unwrap();
     for x in &frames {
         let _ = std::fs::remove_file(x);
