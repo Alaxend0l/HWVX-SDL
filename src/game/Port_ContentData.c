@@ -586,12 +586,15 @@ static void FreeExt(ExtList *x) {
  * again each time the list is used (its pack may not have been loaded the
  * first time, or loaded since at other texture ids). log: say which
  * thumbnails aren't there. */
+static const char *WorldPicture(u32 num, char *buf, size_t size);
+
 static void FillItems(ExtList *x, int log) {
     u32 i, k;
     int what = x->what;
 
     for (k = 0; k < x->n && what != EXT_NAMES; k++) {
-        const char *name, *suffix, *thumb = NULL;
+        const char *name, *suffix, *thumb = NULL, *own;
+        char link[64];
         u32 num = x->number[k];
         s32 alias = Port_ContentDataOf(x->kind, num) - x->aliasBase, tex;
 
@@ -605,7 +608,17 @@ static void FillItems(ExtList *x, int log) {
         }
         if (Port_ContentLook(x->kind, num, &name, &suffix, &thumb) == 2) {
             x->items[i] = x->orig[x->origCount - 1];   /* reserved: the list's own last ("?") */
-        } else if (what == EXT_PICTURES && (tex = Port_ModImageTexture(thumb, alias >= 0 && (u32)alias < x->origCount ? (s32)x->orig[alias] : -1)) >= 0) {
+            continue;
+        }
+        if (thumb == NULL && what == EXT_PICTURES && x->kind == PORT_CONTENT_TRACK &&
+            (own = WorldPicture(num, link, sizeof(link))) != NULL) {
+            /* on another family's world (a Joyride world as a template): that world's picture */
+            thumb = own;
+            if (log) {
+                Port_Log("content: track %u is on the world of another mode's level: its picture, %s", (unsigned)num, own);
+            }
+        }
+        if (what == EXT_PICTURES && (tex = Port_ModImageTexture(thumb, alias >= 0 && (u32)alias < x->origCount ? (s32)x->orig[alias] : -1)) >= 0) {
             x->items[i] = (u32)tex;   /* a picture of its mod's own (Port_ModImages.c) */
         } else if (what == EXT_PICTURES && (tex = TextureOfLink(thumb)) >= 0) {
             x->items[i] = (u32)tex;
@@ -1102,6 +1115,84 @@ static ProgScript *ScriptOf(u32 prog) {
     return mcp != NULL && prog < mcp->numScripts && GETP(mcp->scripts) != NULL ? GETP(GETP(mcp->scripts)[prog]) : NULL;
 }
 
+/* The base track whose level is on `world` (by its archive, SameArchive: worlds_\sp_\joyride_\world1
+ * and a level's own world pack, @mod\editortest\worlds\world1, are both world1), of the families the
+ * selects have shown; -1 if none. */
+static s32 TrackOfWorld(const char *world) {
+    u32 p, l;
+
+    for (p = 0; world != NULL && p < MAX_PROG; p++) {
+        const Family *f = &s_family[p];
+        const ProgScript *ps = ScriptOf(p);
+
+        if (!f->known || ps == NULL || GETP(ps->levels) == NULL) {
+            continue;
+        }
+        for (l = 0; l < f->levels && l < (u32)ps->count; l++) {
+            if (SameArchive(GETP(GETP(ps->levels)[l].world), world)) {
+                return f->first + (s32)l;
+            }
+        }
+    }
+    return -1;
+}
+
+/* A registered track on another family's world (a challenge, a battle... on a Joyride world, its
+ * template) shows that world's level's picture in its select when it names no thumbnail: its
+ * alias's would show the alias's world. NULL: the alias's. */
+static const char *WorldPicture(u32 num, char *buf, size_t size) {
+    s32 t = TrackOfWorld(Port_ContentWorld(PORT_CONTENT_TRACK, num));
+
+    if (t < 0 || t == Port_ContentDataOf(PORT_CONTENT_TRACK, num) || t >= (s32)SDL_arraysize(s_worldPicturesGC) ||
+        s_worldPicturesGC[t] == 0) {
+        return NULL;
+    }
+    SDL_snprintf(buf, size, "base://HW_IPack/interface_6/texture/%u", (unsigned)s_worldPicturesGC[t] - 3);
+    return buf;
+}
+
+static int SameStep(const ProgStep *a, const ProgStep *b) {
+    const ProgPack *p = a->type == 1 ? GETP(a->data) : NULL, *q = b->type == 1 ? GETP(b->data) : NULL;
+
+    if (a->type != b->type) {
+        return 0;
+    }
+    if (p == NULL || q == NULL) {
+        return p == q && a->data.h == b->data.h;
+    }
+    return p->id == q->id && GETP(p->name) != NULL && GETP(q->name) != NULL && SDL_strcasecmp(GETP(p->name), GETP(q->name)) == 0;
+}
+
+/* A registered track on a world none of its script's levels is on (a mission on a Joyride world):
+ * its alias's opening without the steps only the alias has (a mission's briefing, HW_brief n, which
+ * tells of the alias's world and task; the first mission's movie), keeping the ones another level
+ * of the script has too (the item select, HW_IPack 3). */
+static void OpeningOnAnotherWorld(ProgLevel *l, const ProgLevel *levels, u32 n, u32 self, u32 prog, u32 at) {
+    ProgStep *kept;
+    u32 s, j, k = 0, t;
+
+    if (l->count == 0 || GETP(l->steps) == NULL || (kept = SDL_malloc(l->count * sizeof(ProgStep))) == NULL) {
+        return;
+    }
+    for (s = 0; s < l->count; s++) {
+        const ProgStep *st = &GETP(l->steps)[s];
+        int shared = 0;
+
+        for (j = 0; j < n && !shared; j++) {
+            for (t = 0; j != self && t < levels[j].count && GETP(levels[j].steps) != NULL && !shared; t++) {
+                shared = SameStep(st, &GETP(levels[j].steps)[t]);
+            }
+        }
+        if (shared) {
+            kept[k++] = *st;
+        }
+    }
+    Port_Log("content: progression %u: level %u is on a world of no level of its own: %u of its alias's %u opening "
+             "steps (the ones its other levels have too)", (unsigned)prog, (unsigned)at, (unsigned)k, (unsigned)l->count);
+    l->count = k;
+    SETP(l->steps, kept);
+}
+
 /* A select as the pack has it says its script's family; the registered
  * tracks of the family become the script's levels. */
 static void Learn(const InterfaceHeader *h, const TrackSelect *ts) {
@@ -1171,9 +1262,16 @@ static void Learn(const InterfaceHeader *h, const TrackSelect *ts) {
         ProgLevel *l = &levels[f->levels + k];
         const char *world = Port_ContentWorld(PORT_CONTENT_TRACK, f->extra[k]);
 
-        *l = levels[Port_ContentDataOf(PORT_CONTENT_TRACK, f->extra[k]) - f->first];
+        u32 self = (u32)(Port_ContentDataOf(PORT_CONTENT_TRACK, f->extra[k]) - f->first), j;
+
+        *l = levels[self];
         if (world != NULL) {
             SETP(l->world, (char *)world);
+            for (j = 0; j < f->levels && !SameArchive(GETP(levels[j].world), world); j++) {
+            }
+            if (j == f->levels) {
+                OpeningOnAnotherWorld(l, levels, f->levels, self, ts->prog, f->levels + k);
+            }
         }
         Port_Log("content: progression %u: level %u is track %u (%s)", (unsigned)ts->prog, (unsigned)(f->levels + k),
                  (unsigned)f->extra[k], GETP(l->world) != NULL ? GETP(l->world) : "-");
