@@ -1243,7 +1243,6 @@ void InterfaceManager_Heartbeat(void) {
     u32 i;
 
     Port_StartHeartbeat();   /* port: HWVX_START=itemselect */
-    Port_MenuUpdate();       /* port: Weapon Filter screen's live rows (Port_Menu.c) */
     for (i = 0; i < 0x12; i++) {
         if (g_interfaces[i].count != 0 && g_interfaces[i].paused == 0 && g_interfaces[i].hidden == 0) {
             void (*callback)(IfaceMsg *) = GETP(g_interfaces[i].callback);
@@ -1618,6 +1617,14 @@ void InterfaceManager_MoveInterface(Interface *iface, f32 dt) {
             if (GETP(iface->objects)[i].hidden == 0 && wasHidden) {
                 InterfaceManager_MoveObject(iface, &GETP(iface->objects)[i], info, dt);
             }
+        }
+        /* port: a row whose own A must come before the screen's (the Battle
+         * Options' Weapons row: the screen's A is its Accept, Port_Menu.c) */
+        if (iface->state == 2 && GETP(iface->selected) != NULL &&
+            Port_MenuRowFirst(GETP(GETP(GETP(iface->selected)->def)->record)) &&
+            InterfaceManager_ProcessInput(iface, GETP(iface->selected), &GETP(GETP(GETP(iface->selected)->def)->record)->events.count) == 0) {
+            iface->locked = 0;
+            return;
         }
         if (InterfaceManager_ProcessInput(iface, NULL, &GETP(iface->header)->events) == 0) {
             return;
@@ -2152,13 +2159,6 @@ s32 InterfaceManager_ProcessInput(Interface *iface, InterfaceObject *obj, u32 *e
                     pressed = 0;
                 }
             }
-            break;
-        case PORT_EVENT_LEFT:   /* port: the Weapon Filter rows' arrow events
-                                 * (the pack's Music/SFX volume event types) */
-            pressed = InterfaceManager_KeyPress(iface, iface->input, 2);
-            break;
-        case PORT_EVENT_RIGHT:
-            pressed = InterfaceManager_KeyPress(iface, iface->input, 3);
             break;
         }
         if (pressed != 0) {

@@ -53,7 +53,7 @@ typedef int NetSocket;
 #include "net_roots.h"
 
 #define NET_MAGIC 0x58565748u   /* "HWVX" */
-#define NET_PROTOCOL 3   /* 2: cars and items by id past the base content (Port_Online.c); 3: 8 players, mods in MSG_HELLO */
+#define NET_PROTOCOL 4   /* 2: cars and items by id past the base content (Port_Online.c); 3: 8 players, mods in MSG_HELLO; 4: the battle weapon filter in MSG_SETUP */
 
 enum {
     KIND_HELLO = 1,

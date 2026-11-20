@@ -1,5 +1,4 @@
 #include "common.h"
-#include <stdlib.h>
 #include "Port_Mods.h"
 #include "Voice.h"
 #include "Port_Swap.h"
@@ -350,16 +349,6 @@ static int SaneSizes(const DataPackFileHeader *h) {
     return size < 0x80000000u && sound < 0x80000000u;
 }
 
-/* port: HWVX_PACKDBG=1 logs where each pack's blocks lie in its file. */
-static int PackDbg(void) {
-    static int dbg = -1;
-
-    if (dbg < 0) {
-        dbg = getenv("HWVX_PACKDBG") != NULL;
-    }
-    return dbg;
-}
-
 void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     extern s8 g_bSoundLoadingEnabled;
     static DataPackFileHeader header;
@@ -410,9 +399,6 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
         Xdl_Header(xp, &header, sizeof(header));
     } else {
         Xdl_BeginPack(modSounds ? NULL : Port_FileXdl(file), Port_FileTell(file), s_xdlType, s_xdlId);
-        if (PackDbg()) {
-            Port_Log("packdbg: %s entry at %lld", g_portSwapPackName, (long long)Port_FileTell(file));
-        }
         File_Read(file, sizeof(DataPackFileHeader), &header);
         RecordRead(file, XDL_SEG_RAW_HEADER, sizeof(DataPackFileHeader));
         PortData_PackHeader(fmt, (u32 *)&header, 20, 2, sizeof(DataPackRef));
@@ -423,13 +409,6 @@ void DataPack_LoadDataPack(s32 file, DataPack *pack) {
     }
     pack->numRelocs = header.numRelocs;
     pack->numSoundRelocs = header.numSoundRelocs;
-    if (PackDbg()) {
-        Port_Log("packdbg: %s fmt %d at %lld data %u sound %u(%u ptrs) reloc %u gx %u sndreloc %u ptrs %u texreloc %u",
-                 g_portSwapPackName, fmt, (long long)Port_FileTell(file),
-                 header.dataSize, header.soundDataSize, header.numSoundPointers,
-                 header.numRelocs, header.numGX, header.numSoundRelocs,
-                 header.numPointers, header.numTexRelocs);
-    }
     pack->numTextures = header.numTextures;
     pack->numSounds = header.numSounds;
     /* port: 0 on GameCube/PC; the PS2's CLUT count, which isn't a handle

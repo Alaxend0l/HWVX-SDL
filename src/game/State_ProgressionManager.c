@@ -373,6 +373,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     extern s8 g_bLoadingDemoLand;
     QuadItem *item;
     u32 id;
+    s32 roll;   /* port: Port_BattleItemsRoll's, -1 none */
     char *name;
     TileCar *car;
     MCP *mcp;
@@ -561,8 +562,6 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     case 5:
         if (newLoadingState != curLoadingState)
         {
-            s32 pid, plevel;
-
             mcp = GameSettings_GetMCP();
             quadrantNum = 0;
             iterationNum = 0;
@@ -572,9 +571,6 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             DataPack_RefreshPtrs((void *)PTR(g_worldData.quadPack));
             DataPack_RefreshPtrs((void *)PTR(g_worldData.collisionPack));
             Port_OnlineExpandSpawns(WORLD());   /* port: Joyride, online */
-            StateProgressionManager_GetProgressionID(&pid, &plevel);
-            if (pid == 3 || pid == 7)   /* battle worlds only: the filter menu's pool (Port_BattleItems.c) */
-                Port_BattleItemsScanWorld(WORLD());
             if (mcp != NULL && GETP(GETP(WORLD()->gameData)->itemPack) != NULL && mcp->skipWorldPacks == 0)
             {
                 packID = FileStreaming_LoadDataPack(GETP(GETP(WORLD()->gameData)->itemPack), 8, 3, 0);
@@ -601,7 +597,12 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                             case 1:
                                 if (id == 0xFFFF)
                                 {
-                                    id = Port_BattleItemsRoll(item->lo, item->hi, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline, without what the player switched off */
+                                    roll = Port_BattleItemsRoll(item->lo, item->hi, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline; battles: without the weapons switched off */
+                                    if (roll < 0) {   /* port: every weapon in range off: an empty point */
+                                        item->id = 0xFFFF;
+                                        break;
+                                    }
+                                    id = (u32)roll;
                                 }
                                 if (GameSettings_GetGameType() == 0 && id == 3 && GameSettings_IsCheatEnabled(8))
                                 {
@@ -611,7 +612,12 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                                 FileStreaming_LoadDataPack(name, 2, id, 0);
                                 break;
                             case 2:
-                                id = Port_BattleItemsRoll(item->lo, item->hi, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline, without what the player switched off */
+                                roll = Port_BattleItemsRoll(item->lo, item->hi, quadrantNum, iterationNum);   /* port: as RandomNumberGenerator_GetRandomInteger offline; battles: without the weapons switched off */
+                                if (roll < 0) {   /* port: every weapon in range off: an empty point */
+                                    item->id = 0xFFFF;
+                                    break;
+                                }
+                                id = (u32)roll;
                                 if (GameSettings_GetGameType() == 0 && id == 3 && GameSettings_IsCheatEnabled(8))
                                 {
                                     id = 0x4D;

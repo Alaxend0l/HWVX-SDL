@@ -13,7 +13,8 @@
 #define RETAIL_PLAYERS 4
 
 enum {
-    MSG_SETUP = 1,              /* host: u8 progression, u16 level, u8 ports in, the settings */
+    MSG_SETUP = 1,              /* host: u8 progression, u16 level, u8 ports in, the settings,
+                                 * the battle weapon filter (8 u32, Port_BattleItems.h) */
     MSG_ABORT,                  /* host: left the car select */
     MSG_CARS,                   /* client: the car, then the item (Port_ContentWriteChoice) */
     MSG_START,                  /* host: u8 ports in, u32 seed, then the car and the item per port */

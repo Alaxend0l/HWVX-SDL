@@ -405,6 +405,7 @@ void Port_OnlineEnd(void) {
     Net_Close();
     Port_TunnelStop();
     s_tunnel = 0;
+    Port_BattleItemsReload();   /* port: a client's own weapon filter again */
     s_state = STATE_NONE;
     GameSettings_PortOnlineEnd();
     Port_Log("online: session over");
@@ -547,7 +548,7 @@ int Port_OnlineModeAllowed(s32 progression) {
 }
 
 int Port_OnlineHostSetup(void) {
-    u8 buf[96 + 256];   /* port: + the filter mask's words */
+    u8 buf[64 + 4 * BATTLE_ITEMS_WORDS + 256];   /* + the battle weapon filter's mask */
     NetWriter w;
     s32 id, level, track, sent;
     char trackId[256];
@@ -587,7 +588,7 @@ int Port_OnlineHostSetup(void) {
     for (i = 0; i < SDL_arraysize(s_settings); i++) {
         NetWriter_U32(&w, GameSettings_GetCodeVariable(s_settings[i], 0));
     }
-    for (i = 0; i < BATTLE_ITEMS_WORDS; i++) {      /* port: what the host switched off */
+    for (i = 0; i < BATTLE_ITEMS_WORDS; i++) {      /* the battle weapons the host switched off */
         NetWriter_U32(&w, Port_BattleItemsOffWord(i));
     }
     NetWriter_U8(&w, (u8)SDL_strlen(trackId));
@@ -621,7 +622,9 @@ static void ClientSetup(NetReader *r) {
         for (i = 0; i < BATTLE_ITEMS_WORDS; i++) {
             words[i] = NetReader_U32(r);
         }
-        Port_BattleItemsSetOffWords(words, BATTLE_ITEMS_WORDS);   /* port: the host's filter, before the level loads */
+        if (r->ok) {
+            Port_BattleItemsSetOffWords(words, BATTLE_ITEMS_WORDS);   /* the host's filter, before the level loads */
+        }
     }
     len = NetReader_U8(r);
     bytes = len > 0 ? NetReader_Take(r, len) : NULL;

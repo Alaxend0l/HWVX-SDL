@@ -353,11 +353,11 @@ void GameSettings_SetCodeVariable(s32 var, u32 arg, u32 val) {
         }
         return;
     }
-    if (var == PORT_CODEVAR_BATFIL) {   /* port: Weapon Filter row (Port_Menu.c) */
-        Port_BattleItemsSetOff(arg, (s32)val != 0);
+    if (var == PORT_CODEVAR_BATFIL) {   /* port: a Weapons row (Port_Menu.c): arg the row */
+        Port_BattleItemsSetOff(Port_BattleItemsRowId(arg), val != 0);
         return;
     }
-    if (var == PORT_CODEVAR_BATFIL_PAGE) {   /* port: Weapon Filter page row */
+    if (var == PORT_CODEVAR_BATFIL_PAGE) {   /* port: the Weapons screen's Page row */
         Port_BattleItemsSetPage((s32)val);
         return;
     }
@@ -676,11 +676,11 @@ u32 GameSettings_GetCodeVariable(s32 var, u32 arg) {
     if (var == PORT_CODEVAR_HANDLING) {
         return g_generalGameSettings.audio.handling == 2;
     }
-    if (var == PORT_CODEVAR_BATFIL) {   /* port: Weapon Filter row (Port_Menu.c) */
-        return Port_BattleItemsIsOff((u32)arg);
+    if (var == PORT_CODEVAR_BATFIL) {   /* port: a Weapons row (Port_Menu.c): arg the row */
+        return Port_BattleItemsIsOff(Port_BattleItemsRowId(arg));
     }
-    if (var == PORT_CODEVAR_BATFIL_PAGE) {   /* port: Weapon Filter page row */
-        return (u32)Port_BattleItemsGetPage();
+    if (var == PORT_CODEVAR_BATFIL_PAGE) {   /* port: the Weapons screen's Page row */
+        return (u32)Port_BattleItemsPage();
     }
     if (var != 0xCB && GameSettings_PortExtraPort(var, arg) != NULL) {   /* port: online, ports 5-8 */
         return (u32)*GameSettings_PortExtraPort(var, arg);

@@ -1,13 +1,18 @@
-/* Which weapons may spawn when a battle's items are randomized.  Port-only file.
+/* Which weapons may spawn where a battle rolls its items.  Port-only file.
  *
- * A player can switch individual items off; where a level rolls a random item
- * (the Gadgets option's Random, and any spawn point without a set item under
- * Original), the roll is re-rolled until it lands on an item that isn't off,
- * bounded, falling back to the plain roll.  Set item ids the level's authors
- * chose are never filtered.  The pool the menu lists is what the world loads
- * recorded (Port_BattleItemsScanWorld), kept for the run; an online client
- * gets the host's mask with the level setup (Port_Online.c) before loading.
- * The mask lives in <pref>/battle.cfg. */
+ * The player switches weapons off on the Battle Options' Weapons screen
+ * (Port_Menu.c). Where a battle's spawn point rolls a random item in its
+ * lo..hi range (the Gadgets option's Random; under Original only the points
+ * the authors left at 0xFFFF), the roll picks among the ids in range that
+ * are on; with every id in range off, the point stays empty. Ids the
+ * authors set are never filtered, and nothing changes outside the battle
+ * progressions (3 and 7). The retail battle worlds roll 0..11, the weapons
+ * the item select lists, so those are what the screen shows.
+ *
+ * The mask lives in <pref>/battle.cfg (the ids switched off, one per
+ * line). Online, the host's travels in MSG_SETUP (Port_Online.c) and
+ * stands in for a client's own until the session ends, so every machine
+ * rolls the same items. */
 #ifndef PORT_BATTLEITEMS_H
 #define PORT_BATTLEITEMS_H
 
@@ -15,34 +20,28 @@
 
 #define BATTLE_ITEMS_MAX_ID 256
 #define BATTLE_ITEMS_WORDS (BATTLE_ITEMS_MAX_ID / 32)
-#define BATTLE_ITEMS_MAX_PAGES 8        /* the Weapon Filter screen's pages (Port_Menu.c) */
+#define BATTLE_ITEMS_PER_PAGE 6     /* the Weapons screen's rows */
+#define BATTLE_ITEMS_MAX_PAGES 8
 
 int Port_BattleItemsIsOff(u32 id);
-void Port_BattleItemsSetOff(u32 id, int off);      /* and save */
+void Port_BattleItemsSetOff(u32 id, int off);      /* and saves battle.cfg */
 u32 Port_BattleItemsOffWord(u32 word);             /* for the online setup */
-void Port_BattleItemsSetOffWords(const u32 *words, u32 count);   /* from the host; no save */
+void Port_BattleItemsSetOffWords(const u32 *words, u32 count);   /* the host's; not saved */
+void Port_BattleItemsReload(void);                 /* battle.cfg's again (session over) */
 
-/* What the battle worlds seen so far can spawn: ids of their spawn points, in
- * any lo..hi range, and their own ids. 0 if nothing has been seen. */
-int Port_BattleItemsSeen(u32 *ids, u32 cap);
-
-/* The page of the Weapon Filter screen shown (Port_CODEVAR_BATFIL_PAGE): kept
- * between openings, wrapped into the pages this pool has. */
-s32 Port_BattleItemsGetPage(void);
+/* How many weapons the Weapons screen lists (ids 0..n-1), and its pages. */
+u32 Port_BattleItemsCount(void);
+u32 Port_BattleItemsPages(void);
+/* The page shown (PORT_CODEVAR_BATFIL_PAGE), and the id its row `row`
+ * stands for (PORT_CODEVAR_BATFIL's arg): BATTLE_ITEMS_MAX_ID past the list. */
+s32 Port_BattleItemsPage(void);
 void Port_BattleItemsSetPage(s32 page);
+u32 Port_BattleItemsRowId(u32 row);
 
-/* The name an id spawns under (its ItemRecord's), NULL until it is known.
- * Port_BattleItemsProcessNames loads the item packs one per frame while any
- * seen id's name is unknown; call it every frame while the screen is up. */
-const char *Port_BattleItemsName(u32 id);
-void Port_BattleItemsProcessNames(void);
-
-/* Random item id for a spawn point, avoiding what is off: the same roll on
- * every machine (Port_OnlineItemRandom's), re-salted by the attempt. */
+/* A random item id in lo..hi for spawn point (quadrant, index), rolled as
+ * Port_OnlineItemRandom rolls it (the same on every machine online) among
+ * the ids that are on; -1: all of them are off, spawn nothing. Outside a
+ * battle, or with nothing in range off, exactly the plain roll. */
 s32 Port_BattleItemsRoll(s32 lo, s32 hi, u32 quadrant, u32 index);
-
-/* Records what this world's spawn points can spawn, and the pack their ids
- * name (every load, once per world). */
-void Port_BattleItemsScanWorld(void *world);
 
 #endif
