@@ -72,6 +72,14 @@ android {
     sourceSets {
         main {
             java.srcDirs += "${sdlDir}/android-project/app/src/main/java"
+            // FFmpeg for the movies (packaging/ffmpeg/android.sh, which CI runs
+            // first): its libraries per ABI, and the licence texts (FFmpeg's and the
+            // rest, packaging/licenses.sh) under assets/licenses. Without them the APK just has no movies.
+            def ffmpeg = file("${repoRoot}/build-pkg/android-ffmpeg")
+            if (file("${ffmpeg}/jni").exists()) {
+                jniLibs.srcDirs += "${ffmpeg}/jni"
+                assets.srcDirs += "${ffmpeg}/assets"
+            }
         }
     }
 

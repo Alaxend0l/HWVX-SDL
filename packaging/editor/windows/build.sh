@@ -17,6 +17,7 @@ export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="${CARGO_TARGET_X86_64_PC_WINDO
 
 # the game: windowed (no console); the editor reads its log through the pipes it gives it
 "$root/packaging/build-sdl3.sh" "$work" "$work/sdl-prefix" -DCMAKE_TOOLCHAIN_FILE="$toolchain"
+"$root/packaging/ffmpeg/build.sh" windows "$work" "$work/ffmpeg-prefix"
 cmake -S "$root" -B "$ed/game" -G Ninja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
@@ -39,6 +40,11 @@ mkdir -p "$stage"
 x86_64-w64-mingw32-strip -o "$stage/hwvx-browser.exe" "$ed/cargo/$rt/release/hwvx-browser.exe"
 x86_64-w64-mingw32-strip -o "$stage/hwvx-x.exe" "$ed/bin/hwvx-x.exe"
 x86_64-w64-mingw32-strip -o "$stage/hwvx.exe" "$ed/game/hwvx.exe"
+# FFmpeg for the movies (the game's and the editor's viewer), beside the programs
+mkdir -p "$stage/licenses"
+cp "$work/ffmpeg-prefix"/lib/*.dll "$stage/"
+cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$stage/licenses/"
+"$root/packaging/licenses.sh" "$stage/licenses" "$work/SDL3-$(cat "$root/packaging/SDL_VERSION")" "$ed/game/_deps/mbedtls-src"
 # the runtime files (tools/browser/src/resources.rs: beside the programs)
 cp -R "$root/schemas" "$stage/schemas"
 cp -R "$root/tools/level-samples" "$stage/level-samples"
