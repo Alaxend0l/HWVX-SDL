@@ -10,70 +10,18 @@
       "base://world4/world_0/World/0/tileCars/0"
     ]
   },
-  "conditions": [
-    {
-      "type": "variable_value_check",
-      "param": {
-        "variables": [
-          "level://variables/done"
-        ],
-        "value": {
-          "const": 0
-        },
-        "op": "equal"
-      }
-    }
-  ],
   "actions": [
     {
       "type": "variable_change_value",
       "data": {
         "op": "set",
         "variables": [
-          "level://variables/done"
+          "level://variables/goal"
         ],
         "value": {
           "const": 1
         }
       }
-    },
-    {
-      "type": "variable_change_value",
-      "data": {
-        "op": "set",
-        "variables": [
-          "level://variables/briefed"
-        ],
-        "value": {
-          "const": 1
-        }
-      }
-    },
-    {
-      "type": "timer_change_mode",
-      "data": {
-        "show": "show",
-        "run": "pause",
-        "timers": [
-          "level://timers/clock"
-        ]
-      }
-    },
-    {
-      "type": "print_debug_string",
-      "data": {
-        "what": 4,
-        "countdown": 60,
-        "value": "level://strings/won"
-      }
-    },
-    {
-      "type": "end_level",
-      "data": {
-        "result": 4,
-        "arg": 0
-      },
-      "delayInit": 2000
     }
   ]
 }

@@ -36,13 +36,23 @@
         "value": {
           "const": 1
         }
-      }
+      },
+      "count": "always"
+    },
+    {
+      "type": "interface_play",
+      "data": {
+        "interface": "base://race1l2/world_0/trigger/10/actions/4/data/p4"
+      },
+      "count": "always"
     },
     {
       "type": "round_complete",
       "data": {
         "player": 2
-      }
+      },
+      "delayInit": 2000,
+      "count": "always"
     }
   ]
 }

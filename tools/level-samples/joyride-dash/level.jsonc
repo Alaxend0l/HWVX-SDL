@@ -1,7 +1,7 @@
-// A sample Challenge on Joyride world 4, a world retail has no challenge on (xdlrs level new --mode challenge
-// --world worlds_\sp_\joyride_\world4): the template's gears, key and their objectives removed; the goal down
-// the road from the start before the 30 s clock (the HUD's) runs out wins, else lost. The briefing line shows in
-// the Joyride intro box (an objective of its own with the removed one's HUD id).
+// A sample Challenge on Joyride world 4, which retail has no challenge on (xdlrs level new --mode challenge
+// --world worlds_\sp_\joyride_\world4): the template's gears, key and their objectives removed; the challenge's
+// own screens (modeWorld: Challenge 1's pack beside the world): its intro box with the briefing line, its start,
+// Objective Complete when the goal down the road is reached before the 30 s clock, else Objective Failed.
 {
   "$schema": "../../../schemas/Level.schema.json",
   "format_version": 1,
@@ -12,8 +12,6 @@
   "world": "worlds_\\sp_\\joyride_\\world4",
   "unlocked": true,
   "baseTriggers": [
-    0,
-    5,
     6
   ],
   "remove": {
@@ -35,6 +33,7 @@
       "base://world4/world_0/World/0/objectives/1"
     ]
   },
+  "modeWorld": "worlds_\\sp_\\chal1_\\ch1_l2",
   "objectives": {
     "brief": {
       "text": "level://strings/brief",
@@ -44,12 +43,13 @@
     }
   },
   "strings": {
-    "brief": "Reach the goal before the clock runs out!",
-    "won": "Goal!"
+    "blank": "     ",
+    "brief": "Reach the goal before the clock runs out!"
   },
   "variables": {
     "done": 0,
-    "briefed": 0
+    "briefed": 0,
+    "goal": 0
   },
   "timers": {
     "clock": {
@@ -59,9 +59,11 @@
     }
   },
   "triggers": [
+    "start",
     "go",
-    "goal",
-    "timeout"
+    "won",
+    "timeout",
+    "goal"
   ],
   "description": "Down the road to the goal before the clock runs out: a challenge on Joyride world 4.",
   "volumes": {
@@ -76,13 +78,14 @@
   },
   "test": {
     "memory": [
-      "level: uid://joyridedash: 11 base items and 2 base objectives removed"
+      "level: uid://joyridedash: 11 base items and 2 base objectives removed",
+      "level: the mode's screens from worlds_\\sp_\\chal1_\\ch1_l2"
     ],
     "win": [
-      "progression: the level ends: won"
+      "progression: the level ends: won (sequence 0)"
     ],
     "lose": [
-      "progression: the level ends: lost"
+      "progression: the level ends: lost (sequence 0)"
     ]
   }
 }

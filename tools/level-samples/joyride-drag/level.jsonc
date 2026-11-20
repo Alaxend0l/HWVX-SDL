@@ -1,8 +1,8 @@
 // A sample Drag Race on Joyride world 1 (xdlrs level new --mode drag --world worlds_\sp_\joyride_\world1): the
-// template's gears, key and their objectives removed; four lanes (the player's start moved into the first by a
-// patch, three AI starts of its own: port 0), a finish down the road, a round_complete trigger per car. On a
-// Joyride world the AI has no drag scripts: its cars drive the vehicle's own AI on the world's roads, not their
-// lane; the 20 s clock is the opponent that wins it for player 2 (the HUD's round clock).
+// template's gears, key and their objectives removed; the drag race's own countdown, "Player N WINS", "Out of
+// Time" and results screens (modeWorld: Drag Race 1's pack); four lanes (the player's start patched into the
+// first, three AI starts of its own: on a Joyride world they roam, not keep to their lane), the finish down the
+// road before the 20 s clock, else Out of Time and the round to player 2.
 {
   "$schema": "../../../schemas/Level.schema.json",
   "format_version": 1,
@@ -30,8 +30,6 @@
     14,
     15,
     16,
-    17,
-    22,
     23
   ],
   "remove": {
@@ -53,26 +51,15 @@
       "base://world1/world_0/World/0/objectives/1"
     ]
   },
-  "objectives": {
-    "brief": {
-      "text": "level://strings/brief",
-      "kind": "none",
-      "done": "level://variables/briefed/to",
-      "hud": 1
-    }
-  },
+  "modeWorld": "WORLDS_\\SP_\\DRAG_\\race1l2",
   "rules": {
     "mode": "none",
     "rounds": 1,
     "time": 20000,
     "roundTimer": "level://timers/clock"
   },
-  "strings": {
-    "brief": "Beat the clock to the finish!"
-  },
   "variables": {
-    "done": 0,
-    "briefed": 0
+    "done": 0
   },
   "timers": {
     "clock": {
@@ -82,15 +69,15 @@
     }
   },
   "triggers": [
-    "go",
+    "start",
+    "round-over",
+    "series-over",
+    "next-round",
+    "timeout",
     "finish1",
     "finish2",
     "finish3",
-    "finish4",
-    "timeout",
-    "next-round",
-    "won",
-    "lost"
+    "finish4"
   ],
   "description": "Four lanes down the road from the start: beat the clock to the finish.",
   "patches": {
@@ -139,15 +126,16 @@
   },
   "test": {
     "memory": [
-      "level: uid://joyridedrag: 11 base items and 2 base objectives removed"
+      "level: uid://joyridedrag: 11 base items and 2 base objectives removed",
+      "level: the mode's screens from WORLDS_\\SP_\\DRAG_\\race1l2"
     ],
     "win": [
       "rules: all rounds complete, player 1 won",
-      "progression: the level ends: won"
+      "progression: the level ends: won (sequence 99)"
     ],
     "lose": [
       "rules: all rounds complete, player 1 lost",
-      "progression: the level ends: lost"
+      "progression: the level ends: won (sequence 99)"
     ]
   }
 }

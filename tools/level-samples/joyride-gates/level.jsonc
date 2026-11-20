@@ -1,7 +1,7 @@
 // A sample Mission on Joyride world 2 (xdlrs level new --mode mission --world worlds_\sp_\joyride_\world2): the
-// template's gears, key and their objectives removed; its objective (in the Joyride intro box) is the gate down
-// the road from the start, before the 40 s clock runs out (won), else lost. No briefing: the alias's (mission 1's)
-// is of another world, so the game leaves it out of a level on a world no mission is on.
+// template's gears, key and their objectives removed; the mission's own screens (modeWorld: mission 1's pack):
+// its intro box with the objective, Objective Complete when the gate down the road is passed before the 40 s
+// clock, else Objective Failed. No briefing of another mission (the game leaves the alias's out).
 {
   "$schema": "../../../schemas/Level.schema.json",
   "format_version": 1,
@@ -44,8 +44,6 @@
     29,
     30,
     31,
-    32,
-    37,
     38
   ],
   "remove": {
@@ -67,22 +65,23 @@
       "base://world2/world_0/World/0/objectives/1"
     ]
   },
+  "modeWorld": "WORLDS_\\SP_\\MISS_\\world1l1",
   "objectives": {
     "brief": {
       "text": "level://strings/brief",
       "kind": "none",
       "done": "level://variables/briefed/to",
-      "hud": 1,
-      "doneText": "level://strings/done"
+      "hud": 1
     }
   },
   "strings": {
-    "brief": "Drive through the gate before the clock runs out",
-    "done": "Through the gate!"
+    "blank": "     ",
+    "brief": "Drive through the gate before the clock runs out"
   },
   "variables": {
     "done": 0,
-    "briefed": 0
+    "briefed": 0,
+    "goal": 0
   },
   "timers": {
     "clock": {
@@ -92,9 +91,11 @@
     }
   },
   "triggers": [
+    "start",
     "go",
-    "gate",
-    "timeout"
+    "won",
+    "timeout",
+    "gate"
   ],
   "description": "Through the gate before the clock runs out: a mission on Joyride world 2.",
   "volumes": {
@@ -109,14 +110,15 @@
   },
   "test": {
     "memory": [
-      "level: uid://joyridegates: 11 base items and 2 base objectives removed"
+      "level: uid://joyridegates: 11 base items and 2 base objectives removed",
+      "level: the mode's screens from WORLDS_\\SP_\\MISS_\\world1l1"
     ],
     "win": [
-      "progression: the level ends: won",
+      "progression: the level ends: won (sequence 0)",
       "of its alias's 3 opening steps"
     ],
     "lose": [
-      "progression: the level ends: lost"
+      "progression: the level ends: lost (sequence 0)"
     ]
   }
 }
