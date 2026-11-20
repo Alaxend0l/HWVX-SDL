@@ -1156,6 +1156,7 @@ s32 StateMovie_Shutdown(void);
 /* State_ProgressionManager.c */
 s32 ActionEndLevel(s32 *arg0);
 s32 LoadWorldProcess(char *world, s8 loaded);
+void LoadWorldProcess_Reset(void);
 void StateProgressionManager_GetProgressionID(s32 *id, s32 *subID);
 s32 StateProgressionManager_Heartbeat(void);
 s32 StateProgressionManager_Init(s32 prevState);

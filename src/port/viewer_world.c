@@ -305,6 +305,12 @@ static int Load(const char *path, char *err, size_t errSize) {
     } while (state != 7 && state != 8 && ++steps < 0x100000);
     if (state != 7 || (wd = WORLD()) == NULL) {
         SDL_snprintf(err, errSize, "the world %s did not load (state %d; see the game's log)", path, (int)state);
+        /* what did load goes, and the loader starts over next time (it kept its state,
+         * so the next world resumed this one's load) */
+        LoadWorldProcess_Reset();
+        w.active = 1;
+        SDL_strlcpy(w.name, "(failed)", sizeof(w.name));
+        ViewerWorld_Unload();
         return 0;
     }
     DataPack_CloseFiles();

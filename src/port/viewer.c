@@ -395,12 +395,15 @@ void Viewer_ForgetShares(void) {
     s_numShares = 0;
 }
 
-static void LoadShares(const char *archive, int type, u32 id, int depth) {
+/* 0: a share pack it needs could not be loaded (the game has 3 share slots and the
+ * viewer keeps what it loaded until the world goes): the pack's own load would then
+ * find the share missing and dereference NULL (DataGamePackLoad.c) */
+static int LoadShares(const char *archive, int type, u32 id, int depth) {
     DataPackRef refs[2];
-    int r, k;
+    int r, k, ok = 1;
 
     if (depth > 3 || !PackRefs(archive, type, id, refs, NULL)) {
-        return;
+        return 1;
     }
     for (r = 0; r < 2; r++) {
         char name[sizeof(refs[r].name) + 1];
@@ -415,17 +418,24 @@ static void LoadShares(const char *archive, int type, u32 id, int depth) {
                 break;
             }
         }
-        if (k < s_numShares || s_numShares >= (int)SDL_arraysize(s_shareNames)) {
+        if (k < s_numShares) {
             continue;
         }
-        LoadShares(name, 8, refs[r].id, depth + 1);
+        if (s_numShares >= (int)SDL_arraysize(s_shareNames)) {
+            ok = 0;
+            continue;
+        }
+        ok &= LoadShares(name, 8, refs[r].id, depth + 1);
         SDL_strlcpy(s_shareNames[s_numShares], name, sizeof(s_shareNames[0]));
         s_shareIds[s_numShares] = refs[r].id;
         if (FileStreaming_LoadDataPack(s_shareNames[s_numShares], 8, refs[r].id, 0) >= 0) {
             Port_Log("viewer: share pack %s %u loaded first", name, refs[r].id);
             s_numShares++;
+        } else {
+            ok = 0;
         }
     }
+    return ok;
 }
 
 static SDL_EnumerationResult SDLCALL ListEntry(void *userdata, const char *dir, const char *name) {
@@ -1176,7 +1186,11 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
         }
     }
     ViewerMedia_BeforeLoad(songBank != 0);
-    LoadShares(vp->archive, type, (u32)id, 0);
+    if (!LoadShares(vp->archive, type, (u32)id, 0)) {
+        SDL_snprintf(err, errSize, "%s %s pack %lld: a share pack it needs could not be loaded (the share slots are full; "
+                     "load a world, or restart the viewer, to free them)", archive, g_viewerTypeNames[type], id);
+        return 0;
+    }
     vp->slot = FileStreaming_LoadDataPack((void *)interned, type, (u32)id, 0);
     dp = vp->slot >= 0 ? FileStreaming_InitializeDataPack((u32)vp->slot, type, 1) : NULL;
     if (dp == NULL || GETP(dp->base) == NULL) {

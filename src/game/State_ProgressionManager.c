@@ -357,6 +357,16 @@ s32 ActionEndLevel(s32 *arg0)
  * to the frame rate. The caller repeats this call as fast as the work allows.
  * `loaded` was the original's "use the loading thread" flag; it is kept for
  * the signature and ignored. */
+/* port: the loader's state is static and only goes back to the start when a world
+ * loads; after a failure (state 8) the next call carried on from where that one
+ * stopped. The viewer loads world after world and resets it after a failure. */
+static s8 s_loadReset;
+
+void LoadWorldProcess_Reset(void)
+{
+    s_loadReset = 1;
+}
+
 s32 LoadWorldProcess(char *world, s8 loaded)
 {
     static s32 newLoadingState;
@@ -384,6 +394,11 @@ s32 LoadWorldProcess(char *world, s8 loaded)
     u32 max;
     void *dp;
 
+    if (s_loadReset) {
+        s_loadReset = 0;
+        newLoadingState = 0;
+        curLoadingState = 7;
+    }
     switch (newLoadingState)
     {
     case 0:
