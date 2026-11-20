@@ -4598,6 +4598,7 @@ dependencies = [
  "cc",
  "indexmap",
  "jsonschema",
+ "miniz_oxide 0.8.9",
  "png",
  "regex",
  "rustfft",

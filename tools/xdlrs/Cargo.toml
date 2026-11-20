@@ -15,6 +15,8 @@ jsonschema = { version = "0.33", default-features = false }
 # the mod check (modcheck): PNG reading, the sound fingerprint's FFT
 png = "0.18"
 rustfft = "6.2"
+# the disc ripper (disc/): .gcz blocks (zlib) and HWVX.cab (MSZIP); already in the tree through png
+miniz_oxide = "0.8"
 
 [build-dependencies]
 # src/audiodec (the port's own decoders) linked into the mod check

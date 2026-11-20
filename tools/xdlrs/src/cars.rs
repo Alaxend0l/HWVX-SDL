@@ -106,6 +106,12 @@ fn proto_packs(b: &[u8]) -> R<Vec<PackData>> {
 /// Every non-geometry pack of an archive file, and the archive's release.
 pub fn read_archive(path: &Path) -> R<(&'static str, Vec<PackData>)> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    read_archive_bytes(bytes, path)
+}
+
+/// The same for an archive's bytes (`path` names it in messages; from a disc image it is
+/// IMAGE/the file's path there, disc::find_archive).
+pub fn read_archive_bytes(bytes: Vec<u8>, path: &Path) -> R<(&'static str, Vec<PackData>)> {
     let rel = crate::modcheck::media::detect_release(&bytes, path)?;
     if rel == "proto" {
         return Ok(("proto", proto_packs(&bytes)?));
@@ -512,17 +518,18 @@ pub fn eval_vec(keys: &[Value], t: f32) -> Option<[f32; 3]> {
 
 // ---- the command ----------------------------------------------------------------------------
 
-/// Everything for one release folder: {release, cars: {id: car}, select: [...]}.
+/// Everything for one release, a folder or a disc image (disc::find_archive): {release, cars:
+/// {id: car}, select: [...]}.
 pub fn release(s: &Schemas, dir: &Path) -> R<Value> {
-    let cars_path = find_archive(dir, "HW_Cars").ok_or_else(|| format!("{}: no HW_Cars", dir.display()))?;
-    let (rel, packs) = read_archive(&cars_path)?;
+    let (cars_path, bytes) = crate::disc::find_archive(dir, "HW_Cars")?;
+    let (rel, packs) = read_archive_bytes(bytes, &cars_path)?;
     let mut cars = Map::new();
     for p in packs.iter().filter(|p| p.typ == 0) {
         cars.insert(p.id.to_string(), car(s, &p.blob).unwrap_or_else(|e| json!({"error": e})));
     }
     let mut select = vec![];
-    if let Some(ip) = find_archive(dir, "HW_IPack") {
-        let (_, ipacks) = read_archive(&ip)?;
+    if let Ok((ip, bytes)) = crate::disc::find_archive(dir, "HW_IPack") {
+        let (_, ipacks) = read_archive_bytes(bytes, &ip)?;
         for p in ipacks.iter().filter(|p| p.typ == 1) {
             for mut x in car_select(&p.blob) {
                 x["pack"] = json!(format!("interface_{}", p.id));

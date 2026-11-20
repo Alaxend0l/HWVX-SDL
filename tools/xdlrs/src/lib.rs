@@ -23,6 +23,7 @@ pub mod stereo;
 pub mod bsp;
 pub mod cars;
 pub mod decode;
+pub mod disc;
 pub mod encode;
 pub mod error;
 pub mod fonts;

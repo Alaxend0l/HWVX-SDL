@@ -40,7 +40,7 @@
 //!   xdlrs prompts check SRC BIN          BIN is SRC's build and the PNGs are README.md's (sha256)
 //!   xdlrs prompts montage OUT.png COLS PNG...  screenshots in a grid, 320 px wide each
 //!   xdlrs cars stats DIR... [--dump OUT.json] [--md OUT]
-//!                                        per release folder (GC files/, PC, PS2, the PS2 prototype):
+//!                                        per release folder or disc image (GC files/, PC, PS2, the PS2 prototype):
 //!                                        every car's stat bars and physics fields, the car select's
 //!                                        bars (roles 70-73), labels and value->length curve (cars.rs)
 //!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
@@ -48,6 +48,15 @@
 //!   xdlrs shaders gen [--tools DIR] [--fresh]
 //!                                        src/port/gx_shaders.h from src/port/shaders/ and
 //!                                        tools/tevkeys.txt; unchanged shaders keep their entries (shaders.rs)
+//!   xdlrs disc info PATH... [--json]     what a disc image or folder is: release (gc, pc, ps2, ps2beta),
+//!                                        kind, game ID, file count and sizes (src/disc)
+//!   xdlrs disc list PATH [--only PAT]    its files and sizes, as extracted
+//!   xdlrs disc extract PATH OUT [--only PAT[,PAT]]... [-v]
+//!                                        the game's files in the layout the launcher imports (GC: the
+//!                                        disc's files/; PS2: XPS/ENGLISH/; PC: HWVX.cab's files and
+//!                                        FMV_/): OUT plays as --data. PAT: * and ?, without case; with
+//!                                        a '/' it matches the path, else the name
+//!   xdlrs disc read PATH NAME [-o OUT]   one file (a path or a name) to OUT or stdout, nothing else read
 //!
 //! --repo DIR: the HWVX-SDL checkout (schemas/); default: found above the current folder.
 
@@ -1055,6 +1064,9 @@ fn main() -> ExitCode {
     if argv.first().map(String::as_str) == Some("shaders") {
         return shaders_main(&argv[1..]);
     }
+    if argv.first().map(String::as_str) == Some("disc") {
+        return disc_main(&argv[1..]);
+    }
     let a = parse_args(&argv);
     let cmd = (a.pos.first().map(String::as_str), a.pos.get(1).map(String::as_str));
     let shifted = |n: usize| Args { pos: a.pos[n..].to_vec(), opts: a.opts.clone(), flags: a.flags.clone() };
@@ -1498,6 +1510,150 @@ fn prompts_art_main(argv: &[String]) -> ExitCode {
                 eprintln!("{l}");
             }
             ExitCode::from(1)
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+// ---- disc: the ripper (src/disc) -------------------------------------------------------
+
+fn human(n: u64) -> String {
+    let (v, u) = if n >= 1 << 30 { (n as f64 / (1u64 << 30) as f64, "GiB") } else if n >= 1 << 20 { (n as f64 / (1u64 << 20) as f64, "MiB") } else { (n as f64 / 1024.0, "KiB") };
+    format!("{n} bytes ({v:.1} {u})")
+}
+
+fn disc_info(d: &xdlrs::disc::Disc) -> Value {
+    json!({
+        "path": d.path.display().to_string(),
+        "kind": d.kind.key(),
+        "release": d.release.key(),
+        "release_name": d.release.name(),
+        "game_id": d.game_id,
+        "title": d.title,
+        "nkit": d.nkit,
+        "raw_sectors": d.raw_sectors,
+        "archive_version": d.archive_version,
+        "image_size": d.kind.is_image().then_some(d.image_size),
+        "disc_size": d.kind.is_image().then_some(d.disc_size),
+        "files": d.entries.len(),
+        "bytes": d.total_size(),
+    })
+}
+
+/// `xdlrs disc info|list|extract|read ...` (src/disc).
+fn disc_main(argv: &[String]) -> ExitCode {
+    let mut pos = vec![];
+    let mut only: Vec<String> = vec![];
+    let (mut as_json, mut verbose, mut out_file) = (false, false, None::<String>);
+    let mut i = 0;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "--json" => as_json = true,
+            "-v" | "--verbose" => verbose = true,
+            "--only" if i + 1 < argv.len() => {
+                only.extend(argv[i + 1].split(',').filter(|s| !s.is_empty()).map(str::to_string));
+                i += 1;
+            }
+            "-o" if i + 1 < argv.len() => {
+                out_file = Some(argv[i + 1].clone());
+                i += 1;
+            }
+            x => pos.push(x.to_string()),
+        }
+        i += 1;
+    }
+    use xdlrs::disc::Disc;
+    let run = || -> std::result::Result<(), String> {
+        match (pos.first().map(String::as_str), pos.len()) {
+            (Some("info"), n) if n >= 2 => {
+                let mut all = vec![];
+                for p in &pos[1..] {
+                    let d = Disc::open(Path::new(p))?;
+                    if as_json {
+                        all.push(disc_info(&d));
+                        continue;
+                    }
+                    println!("{}", d.path.display());
+                    println!("  release: {} ({})", d.release.key(), d.release.name());
+                    let kind = match d.kind {
+                        xdlrs::disc::Kind::GcImage => "GameCube disc image",
+                        xdlrs::disc::Kind::Gcz => "GameCube disc image, Dolphin's compressed .gcz",
+                        xdlrs::disc::Kind::Iso if d.raw_sectors => "ISO 9660 disc image, raw 2352-byte sectors",
+                        xdlrs::disc::Kind::Iso => "ISO 9660 disc image",
+                        xdlrs::disc::Kind::CdFolder => "the PC CD as a folder",
+                        xdlrs::disc::Kind::Extracted => "a folder of the game's files",
+                    };
+                    println!("  kind: {} ({kind}{})", d.kind.key(), if d.nkit { ", NKit" } else { "" });
+                    if let Some(id) = &d.game_id {
+                        println!("  game: {id} {}", d.title.as_deref().unwrap_or(""));
+                    }
+                    if let Some(v) = d.archive_version {
+                        println!("  archive version: {v}");
+                    }
+                    println!("  files: {}, {}", d.entries.len(), human(d.total_size()));
+                    if d.kind.is_image() {
+                        println!("  image: {}", human(d.image_size));
+                        if d.disc_size != d.image_size {
+                            println!("  disc: {}", human(d.disc_size));
+                        }
+                    }
+                }
+                if as_json {
+                    println!("{}", serde_json::to_string_pretty(&all).unwrap());
+                }
+                Ok(())
+            }
+            (Some("list"), 2) => {
+                let d = Disc::open(Path::new(&pos[1]))?;
+                for e in d.select(&only) {
+                    println!("{}\t{}", e.size, e.path);
+                }
+                Ok(())
+            }
+            (Some("extract"), 3) => {
+                let d = Disc::open(Path::new(&pos[1]))?;
+                let picked = d.select(&only);
+                if picked.is_empty() {
+                    return Err(format!("nothing in {} matches --only {}", pos[1], only.join(",")));
+                }
+                let total = picked.len();
+                let mut k = 0;
+                let (n, bytes) = d.extract(Path::new(&pos[2]), &only, &mut |e| {
+                    k += 1;
+                    if verbose {
+                        eprintln!("[{k}/{total}] {} ({} bytes)", e.path, e.size);
+                    }
+                })?;
+                println!("{} ({}): {n} files, {} -> {}", d.release.key(), d.kind.key(), human(bytes), pos[2]);
+                Ok(())
+            }
+            (Some("read"), 3) => {
+                let d = Disc::open(Path::new(&pos[1]))?;
+                let e = d.find(&pos[2]).ok_or_else(|| format!("{}: no {}", pos[1], pos[2]))?;
+                match &out_file {
+                    Some(o) => {
+                        let mut f = std::io::BufWriter::new(std::fs::File::create(o).map_err(|x| format!("{o}: {x}"))?);
+                        d.copy(e, &mut f)?;
+                        std::io::Write::flush(&mut f).map_err(|x| format!("{o}: {x}"))?;
+                    }
+                    None => {
+                        let mut so = std::io::stdout().lock();
+                        d.copy(e, &mut so)?;
+                    }
+                }
+                Ok(())
+            }
+            _ => Err("usage: xdlrs disc info PATH... [--json] | list PATH [--only PAT] | extract PATH OUT [--only PAT[,PAT]] [-v] | read PATH NAME [-o OUT]".into()),
+        }
+    };
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) if e.starts_with("usage:") => {
+            eprintln!("{e}");
+            ExitCode::from(2)
         }
         Err(e) => {
             eprintln!("error: {e}");
