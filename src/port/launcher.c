@@ -43,19 +43,24 @@
  * (windowed or fullscreen, the renderer, PC textures, draw distance, split screen,
  * resolution scale), Audio
  * (stereo, movies), Controls (mouse steering, button prompts), Game (main menu); a row cycles
- * through its choices, any number of them). Play, Quit and the status line
+ * through its choices, any number of them), Credits (the project, its licence, and the
+ * libraries and art it ships with theirs; FFmpeg's line says whether bink.c found it: a
+ * list longer than the page, scrolled by up/down, the d-pad or stick, and the wheel,
+ * with a bar beside it). Play, Quit and the status line
  * stay at the bottom. It opens on the page (and section) shown last, or Play;
  * on Games while no release is imported.
  * Mouse, keyboard (arrows, Tab, Enter, Escape; Page Up/Down: the page) and
  * gamepads (d-pad or left stick, A, B, Start: Play; LB/RB: the page) move a
  * focus between the page's buttons and the bottom bar's; the tabs and sub-tabs
- * take clicks, and left/right on a setting's row switch the section.
+ * take clicks, and left/right on a setting's row switch the section. On Credits, which has
+ * no buttons of its own, up and down scroll and left/right move along the bottom bar.
  * Folders and images are picked with the system's dialogs, which need a mouse
  * or a keyboard.
  *
  * Testing: HWVX_LAUNCHER_SHOT=file.bmp saves a frame and closes;
- * HWVX_LAUNCHER_TAB=PAGE opens that page (settings/SECTION: and that
- * section); HWVX_LAUNCHER_INPUT queues input before the shot (QueueInput);
+ * HWVX_LAUNCHER_TAB=PAGE opens that page (play, games, saves, convert, mods,
+ * settings, credits; settings/SECTION: and that section); HWVX_LAUNCHER_INPUT
+ * queues input before the shot (QueueInput);
  * HWVX_LAUNCHER_DISC=pc=IMAGE|ps2=IMAGE imports a disc image as if picked.
  *
  * "Import saves..." takes progress from any release's saves (Port_SaveImport.c:
@@ -97,6 +102,8 @@
 #include "port_internal.h"
 #include "Port_Saves.h"
 #include "xdl.h"
+#include "bink.h"
+#include <mbedtls/build_info.h>
 #include "../game/include/Port_Convert.h"
 #include "../game/include/Port_Mods.h"
 
@@ -117,10 +124,10 @@ static const char *const s_names[SRC_COUNT] = { "GameCube", "PC", "PlayStation 2
 
 /* The pages, in tab order; the names are sources.cfg's "tab=" and
  * HWVX_LAUNCHER_TAB's. */
-enum { TAB_PLAY, TAB_GAMES, TAB_SAVES, TAB_CONVERT, TAB_MODS, TAB_SETTINGS, TAB_COUNT };
+enum { TAB_PLAY, TAB_GAMES, TAB_SAVES, TAB_CONVERT, TAB_MODS, TAB_SETTINGS, TAB_CREDITS, TAB_COUNT };
 
-static const char *const s_tabKeys[TAB_COUNT] = { "play", "games", "saves", "convert", "mods", "settings" };
-static const char *const s_tabNames[TAB_COUNT] = { "Play", "Games", "Saves", "Convert", "Mods", "Settings" };
+static const char *const s_tabKeys[TAB_COUNT] = { "play", "games", "saves", "convert", "mods", "settings", "credits" };
+static const char *const s_tabNames[TAB_COUNT] = { "Play", "Games", "Saves", "Convert", "Mods", "Settings", "Credits" };
 
 static int TabNamed(const char *name) {
     int i;
@@ -624,6 +631,9 @@ typedef struct Launcher {
     int mixOk, mixState, mixPacks, mixHave;
     Uint64 mixBytes;
     char mixError[160];
+    /* Credits: the first line shown; the wheel's part of a step still to come */
+    int creditsTop;
+    float creditsWheel;
 } Launcher;
 
 /* The mixed game's interface set, as its row's button says it. */
@@ -648,6 +658,8 @@ static int CanPlay(const Launcher *l) {
 /* The title and the tabs share the top line; the pages start under it. */
 #define TAB_X 216.0f
 #define TAB_Y 8.0f
+#define TAB_PAD 10.0f       /* a tab's width beyond its label: the seven fit beside the title */
+#define TAB_GAP 3.0f
 #define PAGE_Y 42.0f
 #define ROW_Y(i) (PAGE_Y + (i) * 58.0f)                 /* Games: a release */
 #define PLAY_ROW_Y(k) (PAGE_Y + 24.0f + (k) * 34.0f)    /* Play: an imported release */
@@ -723,6 +735,118 @@ static int AnyRelease(const Launcher *l) {
     for (i = 0; i < PORT_DATA_COUNT && l->src.path[i] == NULL; i++) {
     }
     return i < PORT_DATA_COUNT;
+}
+
+/* ---- Credits ------------------------------------------------------------
+ *
+ * The project and what the game ships with, each with its licence (the
+ * versions of the vendored files: src/third_party/README.md and
+ * assets/prompts/README.md; SDL's and Mbed TLS's as built). Made into lines
+ * once, the first time the page shows, which is also when FFmpeg is looked
+ * for (bink.c, as the first movie would). */
+
+#define CREDITS_CHARS 72        /* a line's characters, the scrollbar beside them */
+#define CREDITS_LINE 11.0f
+#define CREDITS_SHOWN 29        /* the lines between the tabs and the status line */
+#define CREDITS_STEP 3          /* lines scrolled by an arrow, d-pad or stick step, a wheel notch */
+#define CREDITS_MAX 80
+
+enum { CR_HEAD, CR_TEXT, CR_NOTE, CR_LINK, CR_YES, CR_NO };
+
+static struct {
+    Uint8 kind;
+    char text[CREDITS_CHARS + 1];
+} s_credits[CREDITS_MAX];
+static int s_creditCount;
+
+/* A paragraph, over lines broken at spaces, the later ones indented by 2. */
+static void Credit(int kind, const char *fmt, ...) {
+    char buf[512];
+    const char *s = buf;
+    size_t indent = 0;
+    va_list ap;
+
+    va_start(ap, fmt);
+    SDL_vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    do {
+        size_t n = SDL_strlen(s), cut = n;
+
+        if (s_creditCount == CREDITS_MAX) {
+            return;
+        }
+        if (n + indent > CREDITS_CHARS) {
+            for (cut = CREDITS_CHARS - indent; cut > 0 && s[cut] != ' '; cut--) {
+            }
+            if (cut == 0) {
+                cut = CREDITS_CHARS - indent;
+            }
+        }
+        s_credits[s_creditCount].kind = (Uint8)kind;
+        SDL_snprintf(s_credits[s_creditCount++].text, CREDITS_CHARS + 1, "%*s%.*s", (int)indent, "", (int)cut, s);
+        s += cut;
+        while (*s == ' ') {
+            s++;
+        }
+        indent = 2;
+    } while (*s != '\0');
+}
+
+static void CreditsBuild(void) {
+    int sdl = SDL_GetVersion(), ffmpeg;
+
+    if (s_creditCount > 0) {
+        return;
+    }
+    ffmpeg = Bink_Load() ? Bink_Version() : 0;
+    Credit(CR_NOTE, "Up and down, the d-pad or stick, or the mouse wheel scroll this page.");
+    Credit(CR_TEXT, "");
+    Credit(CR_HEAD, "HWVX-SDL");
+    Credit(CR_TEXT, "Hot Wheels: Velocity X, ported from its GameCube decompilation to SDL3.");
+    Credit(CR_TEXT, "Copyright (c) 2026 Alaxend0l. MIT licence (LICENSE in the repository).");
+    Credit(CR_LINK, "https://github.com/Alaxend0l/HWVX-SDL");
+    Credit(CR_TEXT, "No game data is included: the game plays your own copy of it.");
+    Credit(CR_TEXT, "Hot Wheels: Velocity X and its data belong to the game's original "
+                    "developers and publisher.");
+    Credit(CR_TEXT, "The game's code comes from HWVX-GC-Decomp, the GameCube decompilation "
+                    "(CC0 1.0).");
+    Credit(CR_TEXT, "");
+    Credit(CR_HEAD, "Built in");
+    Credit(CR_TEXT, "SDL3 %d.%d.%d - zlib licence. The window, input, sound and graphics.",
+           SDL_VERSIONNUM_MAJOR(sdl), SDL_VERSIONNUM_MINOR(sdl), SDL_VERSIONNUM_MICRO(sdl));
+    Credit(CR_TEXT, "Mbed TLS " MBEDTLS_VERSION_STRING " - Apache-2.0 (or GPL-2.0-or-later). "
+                    "Online play's secure connections.");
+    Credit(CR_TEXT, "miniaudio 0.11.26, with its dr_wav, dr_flac and dr_mp3 - public domain "
+                    "or MIT-0. Mods' music and sounds.");
+    Credit(CR_TEXT, "stb_vorbis 1.23 - public domain or MIT. Ogg Vorbis music.");
+    Credit(CR_TEXT, "stb_image 2.34 - public domain or MIT. Mods' pictures (PNG).");
+    Credit(CR_TEXT, "The Meritite Union's Input Prompts 2.0.0, by hergergy - CC0 1.0. "
+                    "The button prompt glyphs.");
+    Credit(CR_TEXT, "");
+    Credit(CR_HEAD, "FFmpeg");
+    Credit(CR_TEXT, "This software uses libraries from the FFmpeg project under the LGPLv2.1");
+    if (ffmpeg > 0) {
+        Credit(CR_YES, "(used for the PC and PS2 releases' movies; loaded: FFmpeg %d)", ffmpeg);
+    } else {
+        Credit(CR_NO, "(used for the PC and PS2 releases' movies; not found: they are skipped)");
+    }
+    Credit(CR_NOTE, "Loaded at run time when present, never linked. The packages carry "
+                    "FFmpeg 9.0.2's libraries, with its licence and how it was built in "
+                    "licenses/FFmpeg/; its source is on each release's page:");
+    Credit(CR_LINK, "https://github.com/Alaxend0l/HWVX-SDL/releases");
+    Credit(CR_NOTE, "The Flatpak uses its runtime's FFmpeg.");
+    Credit(CR_TEXT, "");
+    Credit(CR_HEAD, "Licences");
+    Credit(CR_TEXT, "The full texts: the licenses folder in the game's package (FFmpeg's), "
+                    "LICENSE in the repository, the end of each file in src/third_party, "
+                    "assets/prompts/README.md, and SDL's and Mbed TLS's own source.");
+}
+
+/* Scrolls Credits by `lines`, kept within the list. */
+static void CreditsScroll(Launcher *l, int lines) {
+    int last = s_creditCount > CREDITS_SHOWN ? s_creditCount - CREDITS_SHOWN : 0;
+
+    l->creditsTop = SDL_clamp(l->creditsTop + lines, 0, last);
 }
 
 /* The current page's buttons. */
@@ -830,6 +954,9 @@ static void LayoutPage(Launcher *l, int busy) {
                 Add(l, SET_X, SET_ROW_Y(k++), SettingLabel(i, *SettingVar(i)), ACT_SET, i, 1);
             }
         }
+        break;
+    case TAB_CREDITS:
+        CreditsBuild();     /* no buttons of its own: up and down scroll it */
         break;
     default:
         break;
@@ -953,7 +1080,10 @@ static void Layout(Launcher *l) {
     l->numFocus = l->numButtons;
     /* the preview of an import keeps to its page */
     for (i = 0; i < TAB_COUNT; i++) {
-        x += Add(l, x, TAB_Y, s_tabNames[i], ACT_TAB, i, !l->savesView)->r.w + 4;
+        Button *t = Add(l, x, TAB_Y, s_tabNames[i], ACT_TAB, i, !l->savesView);
+
+        t->r.w = (float)SDL_strlen(s_tabNames[i]) * CHAR + TAB_PAD;
+        x += t->r.w + TAB_GAP;
     }
     /* Settings: its sections' sub-tabs, which take clicks as the tabs do
      * (left and right on a row switch them) */
@@ -1057,6 +1187,36 @@ static void DrawSaves(Launcher *l) {
 #define DIM 130, 130, 140
 #define WHITE 235, 235, 240
 #define GREEN 140, 200, 140
+
+/* Credits: the lines from creditsTop, and a bar beside them saying where
+ * they are in the list. */
+static void DrawCredits(Launcher *l) {
+    int i;
+
+    CreditsScroll(l, 0);
+    for (i = 0; i < CREDITS_SHOWN && l->creditsTop + i < s_creditCount; i++) {
+        const char *s = s_credits[l->creditsTop + i].text;
+        float y = PAGE_Y + i * CREDITS_LINE;
+
+        switch (s_credits[l->creditsTop + i].kind) {
+        case CR_HEAD: Text(l, 24, y, 255, 210, 80, s); break;
+        case CR_NOTE: Text(l, 24, y, DIM, s); break;
+        case CR_LINK: case CR_YES: Text(l, 24, y, GREEN, s); break;
+        case CR_NO: Text(l, 24, y, 255, 190, 120, s); break;
+        default: Text(l, 24, y, GREY, s); break;
+        }
+    }
+    if (s_creditCount > CREDITS_SHOWN) {
+        SDL_FRect track = { VIEW_W - 22, PAGE_Y, 4, CREDITS_SHOWN * CREDITS_LINE - 3 }, thumb = track;
+
+        SDL_SetRenderDrawColor(l->renderer, 30, 35, 52, 255);
+        SDL_RenderFillRect(l->renderer, &track);
+        thumb.h = track.h * CREDITS_SHOWN / s_creditCount;
+        thumb.y = track.y + track.h * l->creditsTop / s_creditCount;
+        SDL_SetRenderDrawColor(l->renderer, 90, 110, 170, 255);
+        SDL_RenderFillRect(l->renderer, &thumb);
+    }
+}
 
 /* The current page's text (its buttons are drawn with the rest). */
 static void DrawPage(Launcher *l) {
@@ -1271,6 +1431,9 @@ static void DrawPage(Launcher *l) {
             Text(l, 24, y + 11, DIM, "the game. --renderer NAME picks a renderer for one run.");
         }
         break;
+    case TAB_CREDITS:
+        DrawCredits(l);
+        break;
     default:
         break;
     }
@@ -1297,6 +1460,7 @@ static void Draw(Launcher *l) {
         if (i >= l->numFocus) {
             /* a tab (or a section's sub-tab): the one shown joins the line under them */
             int shown = b->source == (b->act == ACT_SECTION ? l->src.section : l->tab);
+            float tx = b->r.x + (b->r.w - (float)SDL_strlen(b->label) * CHAR) / 2;
 
             SDL_SetRenderDrawColor(l->renderer, shown ? 60 : 30, shown ? 74 : 35, shown ? 120 : 52, 255);
             SDL_RenderFillRect(l->renderer, &b->r);
@@ -1305,11 +1469,11 @@ static void Draw(Launcher *l) {
                 SDL_RenderRect(l->renderer, &b->r);
             }
             if (shown) {
-                Text(l, b->r.x + 8, b->r.y + 5, 255, 210, 80, b->label);
+                Text(l, tx, b->r.y + 5, 255, 210, 80, b->label);
             } else if (b->enabled) {
-                Text(l, b->r.x + 8, b->r.y + 5, 200, 200, 210, b->label);
+                Text(l, tx, b->r.y + 5, 200, 200, 210, b->label);
             } else {
-                Text(l, b->r.x + 8, b->r.y + 5, 90, 90, 100, b->label);
+                Text(l, tx, b->r.y + 5, 90, 90, 100, b->label);
             }
             continue;
         }
@@ -1928,12 +2092,13 @@ static int ButtonFor(const Launcher *l, int act) {
 }
 
 /* Where the focus starts on a page: its first button that works, else Play,
- * else Quit. */
+ * else Quit (not the bottom bar's Editor: Credits has no buttons of its own). */
 static int FirstFocus(const Launcher *l) {
     int i, play = ButtonFor(l, ACT_PLAY);
 
     for (i = 0; i < l->numFocus; i++) {
-        if (l->buttons[i].enabled && l->buttons[i].act != ACT_PLAY && l->buttons[i].act != ACT_QUIT) {
+        if (l->buttons[i].enabled && l->buttons[i].act != ACT_PLAY && l->buttons[i].act != ACT_QUIT &&
+            l->buttons[i].act != ACT_EDITOR) {
             return i;
         }
     }
@@ -2179,10 +2344,13 @@ static void Move(Launcher *l, int dx, int dy) {
     l->focus = pick;
 }
 
-/* A step of the arrows, d-pad or stick: left and right on a setting's row
- * switch the Settings page's section, else the focus moves. */
+/* A step of the arrows, d-pad or stick: up and down on Credits scroll it,
+ * left and right on a setting's row switch the Settings page's section, else
+ * the focus moves. */
 static void Step(Launcher *l, int dx, int dy) {
-    if (dx != 0 && !l->savesView && l->tab == TAB_SETTINGS && l->buttons[l->focus].act == ACT_SET) {
+    if (dy != 0 && !l->savesView && l->tab == TAB_CREDITS) {
+        CreditsScroll(l, dy * CREDITS_STEP);
+    } else if (dx != 0 && !l->savesView && l->tab == TAB_SETTINGS && l->buttons[l->focus].act == ACT_SET) {
         SwitchSection(l, l->src.section + dx);
     } else {
         Move(l, dx, dy);
@@ -2243,7 +2411,8 @@ static void Poll(Launcher *l) {
 
 /* Testing: HWVX_LAUNCHER_INPUT="rb,down,a,..." queues keys (pgup pgdn tab
  * up down left right enter esc), gamepad buttons (lb rb a b start dup ddown
- * dleft dright) and clicks (click:X:Y, in the 640x420 view) as if the player
+ * dleft dright), clicks (click:X:Y, in the 640x420 view) and the mouse wheel
+ * (wheel:N, notches: up is positive) as if the player
  * had pressed them, with waits between them (wait:MS, or waitconvert: until
  * the converter has ended); HWVX_LAUNCHER_SHOT then saves the frame after
  * them. */
@@ -2277,6 +2446,13 @@ static void QueueInput(Launcher *l) {
         if (SDL_strcmp(p, "waitconvert") == 0 || SDL_sscanf(p, "wait:%f", &x) == 1) {
             ev.type = SDL_EVENT_USER;       /* wait here: for the converter to end, or x ms */
             ev.user.code = SDL_strcmp(p, "waitconvert") == 0 ? -1 : (Sint32)x;
+            SDL_PushEvent(&ev);
+            continue;
+        }
+        if (SDL_sscanf(p, "wheel:%f", &y) == 1) {
+            ev.type = SDL_EVENT_MOUSE_WHEEL;
+            ev.wheel.windowID = SDL_GetWindowID(l->window);
+            ev.wheel.y = y;
             SDL_PushEvent(&ev);
             continue;
         }
@@ -2375,6 +2551,18 @@ static int Run(Launcher *l) {
                     break;
                 }
                 l->scripted = 0;
+                break;
+            case SDL_EVENT_MOUSE_WHEEL:
+                /* Credits: a notch scrolls a step (a touchpad's parts of one add up) */
+                if (!l->savesView && l->tab == TAB_CREDITS) {
+                    float y = ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -ev.wheel.y : ev.wheel.y;
+                    int steps;
+
+                    l->creditsWheel += y;
+                    steps = (int)l->creditsWheel;
+                    l->creditsWheel -= (float)steps;
+                    CreditsScroll(l, -steps * CREDITS_STEP);
+                }
                 break;
             case SDL_EVENT_WINDOW_MOUSE_LEAVE:
                 l->pointer.x = l->pointer.y = -1;
