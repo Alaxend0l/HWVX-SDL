@@ -451,6 +451,18 @@ impl Browser {
         self.level.edit.checking = Some((g, rx));
     }
 
+    /// The game refused the live preview (the level compiled): said under Live preview, and at
+    /// the field when it names a patch ("level: patch 2 (World/0/timers/0/to countUp): why").
+    pub(crate) fn level_refused(&mut self, e: &str) {
+        self.level.edit.preview_note = format!("the game refused the preview: {e}");
+        if let Some((path, field, why)) = refused_patch(e) {
+            let prefix = self.level.edit.proj.as_ref().map(|p| p.base_prefix()).unwrap_or_default();
+            self.level.edit.errors.push(LevelError { file: "level.jsonc".into(), path: format!("patches/{prefix}{path}/{field}"), message: format!("the game refuses it: {why}") });
+        } else {
+            self.fail(e.to_string());
+        }
+    }
+
     /// What the world shows for the editor: the level's own volumes, the selection, its gizmo.
     fn edit_marks(&mut self) {
         if !self.world.status["world"].is_string() || self.viewer.is_none() {
@@ -1478,8 +1490,8 @@ impl Browser {
                 if ui.button("To the ground").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it; Ctrl/Cmd + wheel turns a start").small().weak());
             });
+            ui.add(egui::Label::new(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it; Ctrl/Cmd + wheel turns a start").small().weak()).wrap());
             let before = self.level.edit.before();
             let p = self.level.edit.proj.as_mut().unwrap();
             let mut rec = p.level[kind][name].clone();
@@ -1605,8 +1617,8 @@ impl Browser {
                 if ui.button("To the ground").on_hover_text("straight down onto the collision").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it").small().weak());
             });
+            ui.add(egui::Label::new(egui::RichText::new("drag an axis of the gizmo, or Ctrl/Cmd + drag over the ground, to move it").small().weak()).wrap());
         }
         let before = self.level.edit.before();
         let p = self.level.edit.proj.as_mut().unwrap();
@@ -1697,8 +1709,8 @@ impl Browser {
                 if ui.button("To the ground").clicked() {
                     self.snap_down();
                 }
-                ui.label(egui::RichText::new(if table == "tileCars" { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it, Ctrl/Cmd + wheel to turn it" } else { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it" }).small().weak());
             });
+            ui.add(egui::Label::new(egui::RichText::new(if table == "tileCars" { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it, Ctrl/Cmd + wheel to turn it" } else { "drag an axis of the gizmo (or Ctrl/Cmd + drag over the ground) to move it" }).small().weak()).wrap());
         }
         let rec = self.level.edit.record.clone();
         if rec["path"] != path {
@@ -1724,48 +1736,67 @@ impl Browser {
         let p = self.level.edit.proj.as_mut().unwrap();
         let mut changed = false;
         let props = schema["properties"].as_object().cloned().unwrap_or_default();
+        let defs = schema["$defs"].clone();
         egui::Grid::new("base_fields").num_columns(3).striped(true).show(ui, |ui| {
             for (k, prop) in &props {
                 if prop.get("x-offset").is_none() || (!advanced && hidden_field(k)) {
                     continue;
                 }
                 let live = &rec["fields"][k];
-                if link_of(prop).is_some() {
-                    if advanced {
+                let off = xdlrs::schema::offset(prop).unwrap_or(0);
+                // what patches can't set (links, numbers the game indexes with): shown as they are
+                if let Some(why) = xdlrs::level::patch_refusal(&sname, prop, off) {
+                    if advanced || link_of(prop).is_none() {
                         ui.label(k);
-                        ui.label(egui::RichText::new(live.as_str().unwrap_or("null")).small().weak());
+                        let shown = match (live, enum_names(prop)) {
+                            (Value::Number(n), Some(names)) => names.iter().find(|(v, _)| Some(*v) == n.as_i64()).map(|(_, s)| s.clone()).unwrap_or_else(|| n.to_string()),
+                            (Value::String(s), _) => s.clone(),
+                            (Value::Null, _) => "null".into(),
+                            (v, _) => v.to_string(),
+                        };
+                        ui.label(egui::RichText::new(shown).monospace().weak()).on_hover_text(format!("{why}; the base world's value"));
                         ui.label("");
                         ui.end_row();
                     }
                     continue;
                 }
-                // embedded structs (pos): their members, each its own patch
+                // embedded structs (pos, quat): their members, each its own patch
                 if let Value::Object(members) = live {
+                    let sub = prop["$ref"].as_str().and_then(|r| r.rsplit('/').next()).map(|r| defs[r]["properties"].clone()).unwrap_or(Value::Null);
                     for (mk, mv) in members {
-                        if mk == "w" && !advanced {
+                        if mk == "w" && !advanced && k != "quat" {
                             continue;
                         }
                         let field = format!("{k}/{mk}");
                         let patched = p.patch(path, &field).cloned();
-                        let mut x = patched.as_ref().and_then(Value::as_f64).unwrap_or(mv.as_f64().unwrap_or(0.0));
                         ui.label(&field);
-                        if ui.add(egui::DragValue::new(&mut x).speed(0.5)).changed() {
-                            p.set_patch(path, &field, Some(json!(round(x as f32))));
-                            changed = true;
+                        let mp = &sub[mk.as_str()];
+                        if mp.is_object() && !mp["x-c-type"].as_str().unwrap_or("f32").starts_with('f') {
+                            // a whole number (none so far: Vector4 and Quaternion are floats)
+                            let cur = patched.clone().unwrap_or_else(|| mv.clone());
+                            let mut nv = cur.clone();
+                            if scalar_widget(ui, &mut nv, mp, &field) && nv != cur {
+                                p.set_patch(path, &field, Some(nv));
+                                changed = true;
+                            }
+                        } else {
+                            let mut x = patched.as_ref().and_then(Value::as_f64).unwrap_or(mv.as_f64().unwrap_or(0.0));
+                            if ui.add(egui::DragValue::new(&mut x).speed(if k == "quat" { 0.01 } else { 0.5 })).changed() {
+                                p.set_patch(path, &field, Some(json!(if k == "quat" { (x * 10000.0).round() / 10000.0 } else { round(x as f32) })));
+                                changed = true;
+                            }
                         }
                         changed |= revert_button(ui, p, path, &field, patched.is_some());
                         ui.end_row();
                     }
                     continue;
                 }
-                if live.is_array() {
-                    continue; // arrays: not patched from here
-                }
                 let patched = p.patch(path, k).cloned();
                 let cur = patched.clone().unwrap_or_else(|| live.clone());
                 ui.label(k);
                 let mut nv = cur.clone();
-                if scalar_widget(ui, &mut nv, prop, k) && nv != cur {
+                let edited = if live.is_array() { array_widget(ui, &mut nv, prop) } else { scalar_widget(ui, &mut nv, prop, k) };
+                if edited && nv != cur {
                     p.set_patch(path, k, Some(nv));
                     changed = true;
                 }
@@ -1868,6 +1899,20 @@ pub(crate) fn default_params(layout: &Value) -> Value {
     Value::Object(m)
 }
 
+/// "... patch N (PATH FIELD): why" (Port_Level.c's refusal of a patch): (path, field, why).
+pub(crate) fn refused_patch(e: &str) -> Option<(String, String, String)> {
+    let at = e.find("patch ")?;
+    let rest = &e[at + 6..];
+    let open = rest.find(" (")?;
+    if !rest[..open].bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let inner = &rest[open + 2..];
+    let close = inner.find("): ")?;
+    let (path, field) = inner[..close].split_once(' ')?;
+    Some((path.to_string(), field.to_string(), inner[close + 3..].to_string()))
+}
+
 fn round(x: f32) -> f64 {
     ((x as f64) * 100.0).round() / 100.0
 }
@@ -1955,6 +2000,35 @@ fn scalar_widget(ui: &mut egui::Ui, v: &mut Value, prop: &Value, key: &str) -> b
         return true;
     }
     false
+}
+
+/// An array of numbers (u8[6], f32[3]...): a value for each, kept in its type's range. The
+/// whole array is one patch. true if changed.
+fn array_widget(ui: &mut egui::Ui, v: &mut Value, prop: &Value) -> bool {
+    let (base, _) = xdlrs::schema::parse_ctype(prop["x-c-type"].as_str().unwrap_or(""));
+    let Some(pr) = xdlrs::schema::prim(&base) else {
+        ui.label(egui::RichText::new(v.to_string()).monospace().weak());
+        return false;
+    };
+    let Some(items) = v.as_array_mut() else { return false };
+    let (lo, hi) = if pr.float {
+        (f64::MIN, f64::MAX)
+    } else {
+        let bits = (pr.size * 8) as i32;
+        if pr.code.is_ascii_uppercase() { (0.0, 2f64.powi(bits) - 1.0) } else { (-(2f64.powi(bits - 1)), 2f64.powi(bits - 1) - 1.0) }
+    };
+    let mut changed = false;
+    ui.horizontal_wrapped(|ui| {
+        for x in items.iter_mut() {
+            let mut n = x.as_f64().unwrap_or(0.0);
+            let r = if pr.float { ui.add(egui::DragValue::new(&mut n).speed(0.5)) } else { ui.add(egui::DragValue::new(&mut n).speed(1.0).range(lo..=hi).fixed_decimals(0)) };
+            if r.changed() {
+                *x = if pr.float { json!(n) } else { json!(n as i64) };
+                changed = true;
+            }
+        }
+    });
+    changed
 }
 
 /// A link: the current target, a menu of what fits, and "pick in the world". true if changed.
@@ -2299,4 +2373,21 @@ fn value_editor(ui: &mut egui::Ui, v: &mut Value, key: &str, kinds: &HashMap<Str
 
 fn is_link(s: &str) -> bool {
     s.starts_with("base://") || s.starts_with("level://") || s.starts_with("uid://")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refused_patch;
+
+    #[test]
+    fn the_games_refusal_of_a_patch() {
+        let e = "level: patch 2 (World/0/timers/0/to countUp): over a number the game indexes with";
+        assert_eq!(refused_patch(e), Some(("World/0/timers/0/to".into(), "countUp".into(), "over a number the game indexes with".into())));
+        let e = "level: patch 0 (World/0/quads/4/contents/items/0 pos/x): over what a kept base trigger reads";
+        assert_eq!(refused_patch(e).unwrap().1, "pos/x");
+        // an older game's (no names), or another refusal: none
+        assert_eq!(refused_patch("level: patch 1: over a pointer"), None);
+        assert_eq!(refused_patch("level: part 3 (x y): bad"), None);
+        assert_eq!(refused_patch("level: the world pack's pointer list wasn't kept"), None);
+    }
 }

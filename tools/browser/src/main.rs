@@ -713,6 +713,11 @@ impl Browser {
                 self.edit_move_reply(ok.then_some(r));
                 continue;
             }
+            if !ok && matches!(why, Pending::LevelApplied) {
+                let e = r.get("error").and_then(Value::as_str).unwrap_or("failed").to_string();
+                self.level_refused(&e);
+                continue;
+            }
             if !ok {
                 let e = r.get("error").and_then(Value::as_str).unwrap_or("failed").to_string();
                 self.fail(e);

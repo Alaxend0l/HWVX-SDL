@@ -426,6 +426,49 @@ pub fn record_struct(env: &Env, path: &str) -> Result<Option<String>> {
     Ok(cur)
 }
 
+/// Number fields the game indexes or switches with (tables, function tables, ids that pick a
+/// record, sizes): patches never set them. The same list as src/game/Port_Level.c's
+/// s_indexFields (by struct, offset and size; a test checks they agree), which the game
+/// refuses a patch over: here so the editor and `check` say so at the field.
+pub const INDEX_FIELDS: &[(&str, u32, u32)] = &[
+    ("WorldVolume", 0x08, 8),
+    ("WorldQuad", 0x00, 4),
+    ("WorldQuad", 0x0C, 4),
+    ("WorldQuad", 0x20, 4),
+    ("WorldQuad", 0x28, 8),
+    ("WorldQuad", 0x38, 0x18),
+    ("TileCar", 0x34, 4),
+    ("TileCreature", 0x1C, 4),
+    ("Teleporter", 0x44, 8),
+    ("Teleporter", 0x50, 4),
+    ("TileSpeaker", 0x2C, 4),
+    ("World", 0x90, 4),
+    ("WorldGameData", 0x68, 8),
+    ("WorldTimer", 0x00, 4),
+    ("WorldVariable", 0x00, 4),
+];
+
+/// The bytes a field of `ctype` takes (numbers and arrays of them); None for anything else.
+pub fn field_size(ctype: &str) -> Option<u32> {
+    let (base, dims) = schema::parse_ctype(ctype);
+    let pr = schema::prim(&base)?;
+    Some((pr.size * dims.iter().product::<usize>()) as u32)
+}
+
+/// Why a patch can't set field `p` (at `off` in a record of struct `rec`): a link (a pointer,
+/// or a list of them: patches set values, never what a record points to), or a number the game
+/// indexes with (INDEX_FIELDS); None if it can. A word a kept base trigger reads is only known
+/// to the game (it refuses the patch when the level is applied).
+pub fn patch_refusal(rec: &str, p: &Value, off: u32) -> Option<&'static str> {
+    let ct = schema::ctype(p);
+    if link_of(p).is_some() || p.get("items").and_then(|i| i.get("x-link")).is_some() || ct.starts_with("PTR32(") || ct.starts_with("FPTR32") {
+        return Some("a link (patches set numbers)"); // (xdl_level.py's words: xdlrs_parity.py compares)
+    }
+    let size = field_size(ct)?;
+    let over = INDEX_FIELDS.iter().any(|&(st, o, n)| st == rec && off < o + n && o < off + size);
+    over.then_some("a number the game indexes with (patches can't set it)")
+}
+
 /// (link, offset, prop) of a number field of a base record named by path
 pub fn field_target(env: &Env, path: &str, field: &str, wh: &str) -> Result<(Value, u32, Value)> {
     let link = base_steps(env, path, wh)?;
@@ -452,8 +495,8 @@ pub fn field_target(env: &Env, path: &str, field: &str, wh: &str) -> Result<(Val
     } else if parts.len() != 1 || p.get("$ref").is_some() {
         return Err(lerr(format!("{wh}: {field}: a number field (or field/member of an embedded struct)")));
     }
-    if link_of(&p).is_some() {
-        return Err(lerr(format!("{wh}: {field}: a link (patches set numbers)")));
+    if let Some(why) = patch_refusal(&rec, &p, off) {
+        return Err(lerr(format!("{wh}: {field}: {why}")));
     }
     Ok((link, off, p))
 }
@@ -2581,6 +2624,48 @@ pub fn share(env: &Env, proj: &Path, out: &Path, xmod: Option<&Path>, base: &Bas
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INDEX_FIELDS is Port_Level.c's s_indexFields.
+    #[test]
+    fn index_fields_as_the_game() {
+        let c = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/game/Port_Level.c")).unwrap();
+        let body = &c[c.find("} s_indexFields[] = {").unwrap()..];
+        let body = &body[..body.find("};").unwrap()];
+        let re = regex::Regex::new(r#"\{"(\w+)", 0x([0-9A-Fa-f]+), (0x[0-9A-Fa-f]+|\d+)\}"#).unwrap();
+        let game: Vec<(String, u32, u32)> = re
+            .captures_iter(body)
+            .map(|m| {
+                let n = &m[3];
+                let size = if let Some(h) = n.strip_prefix("0x") { u32::from_str_radix(h, 16).unwrap() } else { n.parse().unwrap() };
+                (m[1].to_string(), u32::from_str_radix(&m[2], 16).unwrap(), size)
+            })
+            .collect();
+        let ours: Vec<(String, u32, u32)> = INDEX_FIELDS.iter().map(|&(s, o, n)| (s.to_string(), o, n)).collect();
+        assert_eq!(game, ours);
+    }
+
+    #[test]
+    fn what_patches_set() {
+        let num = json!({"x-offset": "0x8", "x-c-type": "f32"});
+        assert_eq!(patch_refusal("WorldTimer", &num, 8), None);
+        let arr = json!({"x-offset": "0x4", "x-c-type": "u8[4]"});
+        assert_eq!(patch_refusal("WorldTimer", &arr, 4), None);
+        // the timer's first word (active, type, countUp) is the game's index
+        let byte = json!({"x-offset": "0x3", "x-c-type": "u8"});
+        assert!(patch_refusal("WorldTimer", &byte, 3).unwrap().contains("indexes"));
+        // an enum over the volume's shape and type; the tile car's port, not its mode
+        let e = json!({"x-offset": "0xC", "x-c-type": "u32", "x-enum": {"0": "airbox"}});
+        assert!(patch_refusal("WorldVolume", &e, 0xC).is_some());
+        assert!(patch_refusal("TileCar", &json!({"x-c-type": "u8"}), 0x35).is_some());
+        assert_eq!(patch_refusal("TileCar", &json!({"x-c-type": "u32"}), 0x2C), None);
+        // links: a pointer, a list of them (the tile car's AI scripts), an anyOf one
+        assert!(patch_refusal("QuadItem", &json!({"x-c-type": "PTR32(ItemRecord)", "x-link": {"kind": "object"}}), 0x1C).unwrap().contains("link"));
+        assert!(patch_refusal("TileCar", &json!({"x-c-type": "u32[4]", "items": {"x-link": {"kind": "object"}}}), 0x40).unwrap().contains("link"));
+        assert!(patch_refusal("X", &json!({"x-c-type": "u32", "anyOf": [{"x-link": {}}]}), 0).is_some());
+        assert_eq!(field_size("u8[6]"), Some(6));
+        assert_eq!(field_size("u32[4]"), Some(16));
+        assert_eq!(field_size("Vector4"), None);
+    }
 
     #[test]
     fn g_format() {
