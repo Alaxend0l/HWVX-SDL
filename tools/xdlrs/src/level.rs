@@ -771,6 +771,11 @@ impl BaseWorld {
         Ok(Some("the world has no such record".into()))
     }
 
+    /// The base triggers' files (trigger/N.jsonc), by number.
+    pub fn trigger_files_pub(&self) -> Vec<(i128, PathBuf)> {
+        self.trigger_files()
+    }
+
     fn trigger_files(&self) -> Vec<(i128, PathBuf)> {
         let mut out = vec![];
         if let Ok(rd) = std::fs::read_dir(self.dir.join("trigger")) {
@@ -834,6 +839,8 @@ pub struct Compiler<'e> {
     pub appends: Vec<Value>,
     append_of: IndexMap<String, (usize, usize)>,
     pub mode: Mode,
+    /// the base records `remove` takes out: {"kind": "item" | "objective", "target": walk, "path": rel}
+    pub removes: Vec<Value>,
 }
 
 pub type SpawnBox = ([f64; 3], [f64; 3]);
@@ -862,6 +869,7 @@ impl<'e> Compiler<'e> {
             appends: vec![],
             append_of: IndexMap::new(),
             mode: Mode::Memory,
+            removes: vec![],
         })
     }
 
@@ -1156,8 +1164,13 @@ impl<'e> Compiler<'e> {
                 }
                 None => None,
             };
+            let world = s(dget(lv, "world")?.unwrap_or(&Value::Null));
             if mode == "joyride" {
                 self.warnings.push(format!("{wh}/starts: an AI car in Joyride: retail Joyride has none (the AI isn't made for free roam)"));
+            } else if crate::level_template::is_joyride_world(&world) {
+                self.warnings.push(format!(
+                    "{wh}/starts: an AI car on a Joyride world: the world has no {mode} AI scripts, so it drives its vehicle's own AI along the world's roads (it roams: it won't keep to a lane, chase a flag or follow a course); its start is spawned with the level (port 0 is the AI's)"
+                ));
             } else if base_ai == Some(false) {
                 self.warnings.push(format!(
                     "{wh}/starts: an AI car in a world whose retail level has none: the AI only knows the roles and routes retail gives it"
@@ -1350,7 +1363,7 @@ impl<'e> Compiler<'e> {
                 }
             }
             f.entry("rotY").or_insert(json!(0.0));
-            f.entry("port").or_insert(json!(0));
+            ai_start(&mut f)?;
             f.insert("pos".into(), st.get("pos").cloned().ok_or_else(|| pyerr("KeyError", "'pos'"))?);
             let g = self.group(&mut groups, "World/0", "World", "tileCars", &w)?;
             let set = self.sets("TileCar", &f, &w)?;
@@ -1603,6 +1616,8 @@ impl<'e> Compiler<'e> {
         }
         let w = start_message_warnings(&lv, &docs);
         self.warnings.extend(w);
+        let w = self.template_warnings(&lv, &mode, &keep, &docs)?;
+        self.warnings.extend(w);
         for (name, d) in docs {
             let r = self.trigger(&name, &d, &format!("triggers/{name}.jsonc"));
             self.catch_level(r)?;
@@ -1654,6 +1669,10 @@ impl<'e> Compiler<'e> {
                 }
             }
         }
+        // remove: base records taken out (a Joyride world as a template: its gears, its key, the
+        // objectives that count them)
+        let r = self.removes_of(&lv, &archive, &keep, wh);
+        self.catch(r)?;
         // limits
         let kept = match &self.base {
             Some(b) => b.trigger_types(&keep)?,
@@ -1708,7 +1727,144 @@ impl<'e> Compiler<'e> {
         if !self.appends.is_empty() {
             out.insert("appends".into(), Value::Array(self.appends.clone()));
         }
+        if !self.removes.is_empty() {
+            out.insert("removes".into(), Value::Array(self.removes.clone()));
+        }
         Ok(Some(Value::Object(out)))
+    }
+
+    /// A level of another mode on a Joyride world (a template): what the world's script doesn't
+    /// give the mode. Its collectibles still there (counting toward the Joyride's car unlocks);
+    /// nothing that ends a challenge or a mission won; no round flow for a battle or a drag race
+    /// (a Joyride world has no results screens: after the last round nothing would end it).
+    fn template_warnings(&self, lv: &Value, mode: &str, keep: &Value, docs: &[(String, Value)]) -> Result<Vec<String>> {
+        let world = s(dget(lv, "world")?.unwrap_or(&Value::Null));
+        let mut w = vec![];
+        if mode == "joyride" || !crate::level_template::is_joyride_world(&world) {
+            return Ok(w);
+        }
+        if let Some(b) = &self.base {
+            let c = crate::level_template::collectibles(&b.dir)?;
+            let removed: HashSet<String> = ["items", "objectives"]
+                .iter()
+                .flat_map(|k| lv.get("remove").and_then(|r| r.get(*k)).and_then(Value::as_array).cloned().unwrap_or_default())
+                .map(|x| s(&x))
+                .collect();
+            let kept: Vec<i64> = c
+                .triggers
+                .iter()
+                .copied()
+                .filter(|n| keep.as_str() == Some("all") || keep.as_array().is_some_and(|a| a.iter().any(|x| x.as_i64() == Some(*n))))
+                .collect();
+            let left = c.items.iter().chain(c.objectives.iter()).filter(|x| !removed.contains(*x)).count();
+            if left > 0 || !kept.is_empty() {
+                w.push(format!(
+                    "level.jsonc/remove: the template's gears and key are still in it ({left} of its {} pickups and objectives, {} of the {} triggers that count them and unlock cars): \"Template: remove the gears and the key\" takes them out",
+                    c.items.len() + c.objectives.len(),
+                    kept.len(),
+                    c.triggers.len()
+                ));
+            }
+        }
+        let has = |ty: &str, f: &dyn Fn(&Value) -> bool| docs.iter().any(|(_, d)| d.get("type").and_then(Value::as_str) == Some(ty) && f(d));
+        let ends_won = |d: &Value| {
+            d.get("actions").and_then(Value::as_array).is_some_and(|a| {
+                a.iter().any(|x| x.get("type").and_then(Value::as_str) == Some("end_level") && x["data"]["result"].as_i64() == Some(4))
+            })
+        };
+        let any_ends_won = docs.iter().any(|(_, d)| ends_won(d));
+        match mode {
+            "challenge" | "mission" | "adventure" if !any_ends_won => w.push(format!(
+                "triggers: nothing ends this {mode} won: a Joyride world's script never does (add a trigger with end_level result 4: a volume to reach, items to pick up)"
+            )),
+            "battle" | "drag" if !has("game_rounds_complete", &|d| ends_won(d)) => w.push(format!(
+                "triggers: a Joyride world has no {mode} results screens: without a game_rounds_complete trigger that ends the level (end_level; the template's won and lost), it never ends after the last round"
+            )),
+            "battle" | "drag" if lv.get("rules").is_none_or(|r| !truthy(r)) => {
+                w.push(format!("level.jsonc/rules: a {mode} on a Joyride world needs its round rules (the world sets none)"))
+            }
+            _ => {}
+        }
+        Ok(w)
+    }
+
+    /// `remove`: {"items": [base pickup points], "objectives": [base objectives]}, as
+    /// base://ARCHIVE/world_0/World/0/quads/Q/contents/items/N and .../World/0/objectives/N. The
+    /// port turns a pickup point off for good and hides an objective (Port_Level.c ApplyRemoves);
+    /// a world pack build writes the same into the records (level_pack). A record removed is never
+    /// also patched; a kept base trigger that names a removed pickup is warned of (it never fires).
+    fn removes_of(&mut self, lv: &Value, archive: &str, keep: &Value, wh: &str) -> Result<()> {
+        self.removes.clear();
+        let Some(rm) = dget(lv, "remove")? else { return Ok(()) };
+        let w = format!("{wh}/remove");
+        let Some(m) = rm.as_object() else {
+            self.err(&w, "an object: items, objectives (lists of base records)");
+            return Ok(());
+        };
+        let patched: HashSet<String> = ditems(&or_empty(dget(lv, "patches")?))?.into_iter().map(|(k, _)| k).collect();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut items: Vec<String> = vec![];
+        for (k, v) in m {
+            let (kind, pat) = match k.as_str() {
+                "items" => ("item", rx!(r"^World/0/quads/\d+/contents/items/\d+$")),
+                "objectives" => ("objective", rx!(r"^World/0/objectives/\d+$")),
+                _ => {
+                    self.err(&format!("{w}/{k}"), "not a kind of record a level removes (items, objectives)");
+                    continue;
+                }
+            };
+            let Some(list) = v.as_array() else {
+                self.err(&format!("{w}/{k}"), "a list of base records");
+                continue;
+            };
+            for (i, x) in list.iter().enumerate() {
+                let wi = format!("{w}/{k}/{i}");
+                let link = s(x);
+                let mm = rx!(r"^base://([A-Za-z0-9_]+)/world_0/(.+)$").captures(&link);
+                let Some(mm) = mm.filter(|c| c[1].to_lowercase() == archive && pat.is_match(&c[2])) else {
+                    let what = if kind == "item" { "World/0/quads/Q/contents/items/N" } else { "World/0/objectives/N" };
+                    self.err(&wi, format!("{}: base://{archive}/world_0/{what}", py::repr(x)));
+                    continue;
+                };
+                let rel = mm[2].to_string();
+                if !seen.insert(rel.clone()) {
+                    self.err(&wi, format!("{link}: removed twice"));
+                    continue;
+                }
+                if patched.contains(&link) {
+                    self.err(&wi, format!("{link}: removed and patched (a removed record isn't there to patch)"));
+                    continue;
+                }
+                if let Some(b) = &self.base
+                    && let Some(why) = b.check(&rel)?
+                {
+                    self.err(&wi, format!("{link}: {why}"));
+                    continue;
+                }
+                let target = base_steps(self.env, &rel, &wi)?;
+                if kind == "item" {
+                    items.push(link.clone());
+                }
+                self.removes.push(json!({"kind": kind, "target": target, "path": rel}));
+            }
+        }
+        if let Some(b) = &self.base
+            && !items.is_empty()
+        {
+            for (n, f) in b.trigger_files() {
+                let kept = keep.as_str() == Some("all") || keep.as_array().is_some_and(|a| a.iter().any(|x| matches!(py_int(x), Ok(v) if v == n)));
+                if !kept {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&f).unwrap_or_default();
+                if let Some(it) = items.iter().find(|l| text.contains(&format!("\"{l}\""))) {
+                    self.warnings.push(format!(
+                        "{w}: base trigger {n} (kept) names {it}, which the level removes: it never fires for it (drop the trigger from baseTriggers)"
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// `except LevelError` (a TacError goes through, as in the Python's loops that catch only
@@ -2409,6 +2565,24 @@ pub fn check(env: &Env, proj: &Path, base: &BaseOpts, spawn_box: Option<&Path>) 
     let sb = read_spawn_box(spawn_box)?;
     let (_, e, w) = compile_project_full(env, proj, b.as_deref(), false, sb)?;
     Ok((e, w))
+}
+
+/// The port an AI car's start gets in the game: the game spawns a start of port 1-4 as a
+/// player's and one of 5 and up as an AI's (retail: 5 in missions, 6 in battles and drag races);
+/// port 0 is neither (StateGamePlay_Init takes it for a player's and indexes its tables by port - 1).
+pub const AI_PORT: i128 = 6;
+
+/// A level start's fields as the game needs them: `port` 0 (the level's "an AI car") is the AI's
+/// port, and an AI car's start is spawned at the start (TileCar `dynamic` 0, as retail's AI
+/// starts; a copy of a Joyride world's player start has 1, "spawned by a script") unless it says.
+pub fn ai_start(f: &mut Map<String, Value>) -> Result<()> {
+    let port = py_int(f.get("port").unwrap_or(&json!(0)))?;
+    let port = if port == 0 { AI_PORT } else { port };
+    f.insert("port".into(), crate::decode::int_value(port));
+    if port > 4 {
+        f.entry("dynamic").or_insert(json!(0));
+    }
+    Ok(())
 }
 
 pub fn start_mode(mode: &str) -> &str {
