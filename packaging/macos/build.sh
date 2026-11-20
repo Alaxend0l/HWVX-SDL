@@ -31,6 +31,7 @@ rm -rf "$app/Contents/Frameworks" "$app/Contents/Resources/licenses"
 mkdir -p "$app/Contents/Frameworks" "$app/Contents/Resources/licenses"
 cp "$work/ffmpeg-prefix"/lib/*.dylib "$app/Contents/Frameworks/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$app/Contents/Resources/licenses/"
+"$root/packaging/licenses.sh" "$app/Contents/Resources/licenses" "$work/SDL3-$(cat "$root/packaging/SDL_VERSION")" "$work/game/_deps/mbedtls-src"
 codesign --force --deep --sign - "$app"
 
 stage="$work/dmg"

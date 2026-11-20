@@ -48,7 +48,7 @@ modules:
       - /include
       - /lib/cmake
       - /lib/pkgconfig
-      - /share
+      - /share/licenses/SDL3   # SDL's own copy; flatpak-builder records it in share/licenses/APP-ID/SDL3
 
   - name: ffmpeg
     buildsystem: simple
@@ -74,6 +74,9 @@ modules:
     config-opts:
       - -DFETCHCONTENT_SOURCE_DIR_MBEDTLS=/run/build/hwvx/mbedtls   # no network while building (CMakeLists.txt)
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo   # renderer: vulkan, OpenGL without it (main_sdl.c)
+    post-install:   # the licence texts (packaging/licenses.sh; FFmpeg's: its module; SDL3's:
+      # flatpak-builder records it from its module, in SDL3/)
+      - packaging/licenses.sh /app/share/licenses/io.github.alaxend0l.hwvx - mbedtls
     cleanup:
       - /share/icons/hicolor/scalable   # PNG only (see appstream-compose above)
     sources:

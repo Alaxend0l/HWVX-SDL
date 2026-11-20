@@ -25,6 +25,7 @@ mkdir -p "$stage/$name/licenses"
 x86_64-w64-mingw32-strip -o "$stage/$name/hwvx.exe" "$work/game/hwvx.exe"
 cp "$work/ffmpeg-prefix"/lib/*.dll "$stage/$name/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$stage/$name/licenses/"
+"$root/packaging/licenses.sh" "$stage/$name/licenses" "$work/SDL3-$(cat "$root/packaging/SDL_VERSION")" "$work/game/_deps/mbedtls-src"
 out="$dist/$name.zip"
 rm -f "$out"
 (cd "$stage" && zip -qr9 "$out" "$name")

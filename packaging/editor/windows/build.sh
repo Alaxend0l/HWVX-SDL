@@ -44,6 +44,7 @@ x86_64-w64-mingw32-strip -o "$stage/hwvx.exe" "$ed/game/hwvx.exe"
 mkdir -p "$stage/licenses"
 cp "$work/ffmpeg-prefix"/lib/*.dll "$stage/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$stage/licenses/"
+"$root/packaging/licenses.sh" "$stage/licenses" "$work/SDL3-$(cat "$root/packaging/SDL_VERSION")" "$ed/game/_deps/mbedtls-src"
 # the runtime files (tools/browser/src/resources.rs: beside the programs)
 cp -R "$root/schemas" "$stage/schemas"
 cp -R "$root/tools/level-samples" "$stage/level-samples"

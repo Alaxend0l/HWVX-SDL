@@ -30,6 +30,7 @@ mkdir -p "$stage/$name/licenses"
 strip -o "$stage/$name/hwvx" "$work/game/hwvx"
 cp "$work/ffmpeg-prefix"/lib/* "$stage/$name/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$stage/$name/licenses/"
+"$root/packaging/licenses.sh" "$stage/$name/licenses" "$work/SDL3-$(cat "$root/packaging/SDL_VERSION")" "$work/game/_deps/mbedtls-src"
 out="$dist/$name.tar.gz"
 tar -czf "$out" -C "$stage" "$name"
 echo "$out"
@@ -41,6 +42,7 @@ DESTDIR="$appdir" cmake --install "$work/game" --strip
 mkdir -p "$appdir/usr/lib" "$appdir/usr/share/licenses"
 cp "$work/ffmpeg-prefix"/lib/* "$appdir/usr/lib/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$appdir/usr/share/licenses/"
+"$root/packaging/licenses.sh" "$appdir/usr/share/licenses" "$work/SDL3-$(cat "$root/packaging/SDL_VERSION")" "$work/game/_deps/mbedtls-src"
 # appimagetool makes the AppImage's icon (.DirIcon) from a PNG named after
 # the desktop file's Icon= at the top of the AppDir, and won't take an SVG:
 # use the installed PNG, and leave the SVG out so linuxdeploy can't pick it.

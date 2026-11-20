@@ -57,6 +57,7 @@ strip -x "$app/Contents/MacOS/hwvx-browser" "$app/Contents/MacOS/hwvx-x" "$app/C
 mkdir -p "$app/Contents/Frameworks" "$app/Contents/Resources/licenses"
 cp "$work/ffmpeg-prefix"/lib/*.dylib "$app/Contents/Frameworks/"
 cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$app/Contents/Resources/licenses/"
+"$root/packaging/licenses.sh" "$app/Contents/Resources/licenses" "$work/SDL3-$(cat "$root/packaging/SDL_VERSION")" "$ed/game/_deps/mbedtls-src"
 # the runtime files (src/resources.rs): the schemas, the sample level projects
 cp -R "$root/schemas" "$app/Contents/Resources/schemas"
 cp -R "$root/tools/level-samples" "$app/Contents/Resources/level-samples"

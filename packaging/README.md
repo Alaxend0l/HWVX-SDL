@@ -21,6 +21,15 @@ tunnel, is the player's to install (the Flatpak and Android can join such games,
 on first start the game looks in the usual places and, on desktop, asks for
 the folder (see "Game data" in the top-level README).
 
+Every package (the editor's too) has a `licenses` folder with the licence texts of
+what the game is built from, as the launcher's Credits tab says: `packaging/licenses.sh`
+(HWVX-SDL's LICENSE, SDL3's and Mbed TLS's from the sources the build used, the licence
+sections of `src/third_party`'s single-file libraries, the Input Prompts glyphs' CC0) and
+FFmpeg's (`packaging/ffmpeg/build.sh`). It is `licenses/` beside the program (Windows,
+Linux `.tar.gz`), `usr/share/licenses/` (AppImage), `Contents/Resources/licenses/`
+(macOS), `assets/licenses/` (Android, from `packaging/ffmpeg/android.sh`) and
+`/app/share/licenses/io.github.alaxend0l.hwvx/` (Flatpak).
+
 ## How they are built
 
 - **SDL3** is the release in `SDL_VERSION` (source checked against
