@@ -47,7 +47,7 @@ fn car_pack_outline_set_screenshot() {
     let game = std::fs::canonicalize(&game).unwrap_or_else(|_| default_game());
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("protocol");
     std::fs::create_dir_all(&out).unwrap();
-    let v = Viewer::spawn(&SpawnOptions {
+    let mut v = Viewer::spawn(&SpawnOptions {
         schemas: default_schemas(&game),
         game,
         data: Some(data),
@@ -61,12 +61,15 @@ fn car_pack_outline_set_screenshot() {
     .expect("the viewer starts");
     let port = v.port;
 
-    // only a client with the token is served; a web page's POST is not one (each of these
-    // connections displaces the one before: the test goes on over a new one)
+    // only a client with the token is served; a web page's POST is not one, and isn't answered
+    // (a page learns nothing). The spawn's client is served, so each of these connections is
+    // held until its first line and dropped: the served client stays and the quit isn't run.
     assert_eq!(raw_exchange(port, "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 16\r\n\r\n{\"cmd\":\"quit\"}\n"), "");
+    assert!(v.call("status", json!({})).is_ok(), "the POST left the served client alone");
     assert!(first_error(&raw_exchange(port, "{\"cmd\":\"quit\"}\n")).contains("hello"));
     assert!(first_error(&raw_exchange(port, "{\"cmd\":\"hello\"}\n{\"cmd\":\"quit\"}\n")).contains("token"));
     assert!(first_error(&raw_exchange(port, "{\"cmd\":\"hello\",\"token\":\"test-token-123\"}\n")).contains("token"));
+    assert!(v.call("status", json!({})).is_ok(), "nor did the connections without the token");
     let owner = v; // (kills the game when dropped)
     let mut v = Viewer::connect(port, "test-token-1234").expect("the right token is served");
 
