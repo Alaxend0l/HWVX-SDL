@@ -98,6 +98,9 @@ impl Texture {
             }
             levels.push(Level { level: l["level"].as_u64().unwrap_or(0) as u32, width: w, height: h, rgba: data[off..off + n].to_vec() });
         }
+        if levels.is_empty() {
+            return Err("the texture has no levels".into());
+        }
         let mut info = reply.clone();
         if let Some(m) = info.as_object_mut() {
             for k in ["seq", "ok", "blob", "levelData"] {

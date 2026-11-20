@@ -50,13 +50,17 @@ fn trigger_file(dir: &Path, name: &str) -> Result<PathBuf, String> {
 
 fn read_jsonc(p: &Path) -> Result<(String, Value), String> {
     let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
-    let v = serde_json::from_str(&strip_jsonc(&text)).map_err(|e| format!("{}: {e}", p.display()))?;
+    // a UTF-8 byte order mark (Windows Notepad) isn't JSON
+    let v = serde_json::from_str(&strip_jsonc(text.strip_prefix('\u{feff}').unwrap_or(&text))).map_err(|e| format!("{}: {e}", p.display()))?;
     Ok((text, v))
 }
 
 impl Project {
     pub fn load(dir: &Path) -> Result<Project, String> {
         let (level_text, level) = read_jsonc(&dir.join("level.jsonc"))?;
+        if !level.is_object() {
+            return Err(format!("{}: not a JSON object", dir.join("level.jsonc").display()));
+        }
         let mut names: Vec<String> = Vec::new();
         if let Some(order) = level["triggers"].as_array() {
             names.extend(order.iter().filter_map(Value::as_str).map(str::to_string));
@@ -66,6 +70,9 @@ impl Project {
                 .filter_map(|e| e.ok())
                 .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".jsonc")).map(str::to_string))
                 .filter(|n| !names.contains(n))
+                // files that can't be trigger names (._x.jsonc from macOS, "x copy.jsonc") are
+                // left alone rather than failing the whole project
+                .filter(|n| xdlrs::level::check_trigger_name(n).is_ok())
                 .collect();
             more.sort();
             names.extend(more);
@@ -391,11 +398,19 @@ mod tests {
             let e = Project::load(&d).err().unwrap_or_else(|| panic!("{bad:?} loaded"));
             assert!(e.contains("not a trigger name"), "{e}");
         }
-        // a file of the folder with such a stem too
+        // a file of the folder with such a stem (a copy, macOS's ._ files) is left out, not fatal
         let d = project("badfile");
         std::fs::write(d.join("level.jsonc"), "{}").unwrap();
         std::fs::write(d.join("triggers/a b.jsonc"), "{}").unwrap();
-        assert!(Project::load(&d).err().unwrap().contains("not a trigger name"));
+        std::fs::write(d.join("triggers/._a.jsonc"), "{}").unwrap();
+        let p = Project::load(&d).unwrap();
+        assert!(p.triggers.iter().all(|t| t.name != "a b" && t.name != "._a"));
+        // nor a level.jsonc that isn't an object
+        std::fs::write(d.join("level.jsonc"), "[]").unwrap();
+        assert!(Project::load(&d).err().unwrap().contains("not a JSON object"));
+        // a byte order mark is fine
+        std::fs::write(d.join("level.jsonc"), "\u{feff}{}").unwrap();
+        assert!(Project::load(&d).is_ok());
         // write_copy / save of a name that slipped in refuse it too
         let d = project("badsave");
         let mut p = Project::load(&d).unwrap();

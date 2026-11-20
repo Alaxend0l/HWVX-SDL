@@ -7,7 +7,6 @@
 //! .xdl cache there, never the player's. Only the game this started is ever stopped (its PID).
 
 use serde_json::Value;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -194,7 +193,7 @@ impl TestDrive {
             let progress = progress.clone();
             let file = file.clone();
             std::thread::spawn(move || {
-                for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+                for line in crate::client::lossy_lines(pipe) {
                     if let Some(f) = file.lock().unwrap().as_mut() {
                         use std::io::Write;
                         let _ = writeln!(f, "{line}");

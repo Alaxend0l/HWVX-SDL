@@ -83,7 +83,7 @@ pub struct EditState {
     pub base: HashMap<String, Vec<Value>>,
     pub base_world: String,
     pub record: Value,
-    pub schemas: HashMap<String, Value>,
+    pub schemas: HashMap<String, std::rc::Rc<Value>>,
     /// the checks' errors, and the generation they are of
     pub errors: Vec<LevelError>,
     pub generation: u64,
@@ -235,7 +235,8 @@ impl Browser {
         self.args.schemas.clone().or_else(|| hwvx_browser::client::default_schemas(&game))
     }
 
-    pub(crate) fn schema(&mut self, name: &str) -> Value {
+    /// Shared, not copied: the Trigger schema alone is about 300 KB and is asked for every frame.
+    pub(crate) fn schema(&mut self, name: &str) -> std::rc::Rc<Value> {
         if let Some(s) = self.level.edit.schemas.get(name) {
             return s.clone();
         }
@@ -244,6 +245,7 @@ impl Browser {
             .and_then(|d| std::fs::read_to_string(d.join(format!("{name}.schema.json"))).ok())
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
+        let v = std::rc::Rc::new(v);
         self.level.edit.schemas.insert(name.to_string(), v.clone());
         v
     }
@@ -375,6 +377,9 @@ impl Browser {
             if burst {
                 if p.undo.last() != Some(&before) {
                     p.undo.push(before);
+                    if p.undo.len() > 500 {
+                        p.undo.remove(0);
+                    }
                 }
                 p.redo.clear();
             }
@@ -393,7 +398,12 @@ impl Browser {
                     ctx.request_repaint_after(Duration::from_millis(30));
                     return;
                 }
-                Err(TryRecvError::Disconnected) => {}
+                Err(TryRecvError::Disconnected) => {
+                    // the check thread died (a panic): not again until the next edit, or it
+                    // respawns every frame
+                    self.level.edit.checked_generation = g;
+                    self.level.edit.preview_note = "the check stopped unexpectedly (see the log); edit to retry".into();
+                }
                 Ok((res, path, ms)) => {
                     // a recheck asked for while this one ran: it runs again
                     self.level.edit.checked_generation = if self.level.edit.recheck_pending { 0 } else { g };

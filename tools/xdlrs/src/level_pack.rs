@@ -771,9 +771,28 @@ fn symlink_dir(target: &Path, link: &Path) -> Result<()> {
     std::os::unix::fs::symlink(target, link).map_err(|e| Error::io(format!("{}: {e}", link.display())))
 }
 
+/// A link needs admin rights or Developer Mode on Windows; without them, a copy.
 #[cfg(windows)]
 fn symlink_dir(target: &Path, link: &Path) -> Result<()> {
-    std::os::windows::fs::symlink_dir(target, link).map_err(|e| Error::io(format!("{}: {e}", link.display())))
+    if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+        return Ok(());
+    }
+    copy_dir(target, link).map_err(|e| Error::io(format!("{}: {e}", link.display())))
+}
+
+#[cfg(windows)]
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        let (src, dst) = (e.path(), to.join(e.file_name()));
+        if e.file_type()?.is_dir() {
+            copy_dir(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn release_ext(release: &str) -> &'static str {

@@ -680,7 +680,7 @@ impl Browser {
             if steps != 0.0 {
                 let p = resp.hover_pos().map(|p| ((p.x - rect.min.x) / rect.width()).clamp(0.0, 1.0)).unwrap_or(0.5);
                 let at = a as f32 + p * (b - a) as f32;
-                let span = ((b - a) as f32 * 1.2f32.powf(-steps)).clamp(32.0, n as f32);
+                let span = ((b - a) as f32 * 1.2f32.powf(-steps)).clamp((n as f32).min(32.0), n as f32);
                 a = (at - p * span).max(0.0) as usize;
                 b = (a + span as usize).min(n);
                 a = b.saturating_sub(span as usize);
@@ -750,7 +750,7 @@ impl Browser {
         );
         if let Some(p) = resp.hover_pos() {
             let i = (a as f32 + (p.x - rect.min.x) / rect.width() * (b - a) as f32) as usize;
-            if i < n {
+            if i < snd.pcm.len() {
                 line += &format!("  ·  sample {i} ({:.3} s) = {}", i as f64 / snd.rate.max(1) as f64, snd.pcm[i]);
             }
         }

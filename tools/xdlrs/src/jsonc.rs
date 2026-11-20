@@ -112,6 +112,8 @@ pub fn strip(s: &str) -> String {
 /// xdl_struct.jsonc_loads. Errors: Kind::Xdl for an unterminated string or comment,
 /// Kind::Json for bad JSON (the message is serde_json's, not Python's).
 pub fn loads(text: &str) -> Result<Value> {
+    // a UTF-8 byte order mark (Windows Notepad) isn't JSON
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     // fast path: the files the tools write are JSON after leading // comment lines
     let mut i = 0;
     loop {

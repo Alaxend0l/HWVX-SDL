@@ -272,13 +272,13 @@ impl Env {
         }
         let tools = self.root().join("tools");
         for d in tools.ancestors() {
-            let p = d.join("target").join("release").join("hwvx-x");
+            let p = d.join("target").join("release").join(format!("hwvx-x{}", std::env::consts::EXE_SUFFIX));
             if p.exists() {
                 return Some(p);
             }
         }
         let path = std::env::var_os("PATH")?;
-        std::env::split_paths(&path).map(|d| d.join("hwvx-x")).find(|p| p.is_file())
+        std::env::split_paths(&path).map(|d| d.join(format!("hwvx-x{}", std::env::consts::EXE_SUFFIX))).find(|p| p.is_file())
     }
 }
 
@@ -2136,16 +2136,18 @@ pub fn skip_intro(docs: Vec<(String, Value)>) -> Result<Vec<(String, Value)>> {
 /// this crate's sources, hashed when it was built (the Python hashes its own tools)
 pub const TOOL_ID: &str = concat!("xdlrs ", env!("CARGO_PKG_VERSION"), " ", env!("XDLRS_SRC_HASH"));
 
-thread_local! {
-    static SCHEMA_HASH: RefCell<HashMap<PathBuf, String>> = RefCell::new(HashMap::new());
-}
+/// process-wide, not per thread: the editor checks each edit on a thread of its own
+static SCHEMA_HASH: std::sync::Mutex<Option<HashMap<PathBuf, String>>> = std::sync::Mutex::new(None);
 
 /// A hash of the tools (this crate) and every schemas/*.json, once per process.
 pub fn tools_hash(root: &Path) -> String {
-    SCHEMA_HASH.with(|c| {
-        if let Some(h) = c.borrow().get(root) {
+    {
+        let c = SCHEMA_HASH.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(h) = c.as_ref().and_then(|m| m.get(root)) {
             return h.clone();
         }
+    }
+    {
         let mut h = Sha256::new();
         h.update(TOOL_ID.as_bytes());
         h.update(b"\0");
@@ -2163,9 +2165,9 @@ pub fn tools_hash(root: &Path) -> String {
             h.update(b"\0");
         }
         let x = hex(&h.finalize());
-        c.borrow_mut().insert(root.to_path_buf(), x.clone());
+        SCHEMA_HASH.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(root.to_path_buf(), x.clone());
         x
-    })
+    }
 }
 
 fn hex(b: &[u8]) -> String {
@@ -2449,7 +2451,8 @@ fn find_archive(data: &Path, name: &str) -> Option<PathBuf> {
         let mut ents: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
         ents.sort();
         for p in ents {
-            if p.is_dir() {
+            // not into linked folders: a link loop, or one to a big tree, made every check walk it
+            if p.symlink_metadata().is_ok_and(|m| m.is_dir()) {
                 stack.push(p);
             } else if p.is_file() {
                 let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
@@ -2464,16 +2467,53 @@ fn find_archive(data: &Path, name: &str) -> Option<PathBuf> {
     found.into_iter().next()
 }
 
+/// What base_project already worked out this process: (data, name) -> the archive, and
+/// (archive, size, mtime) -> its hash. The editor asks on every edit; walking the data folder
+/// and hashing the whole archive each time was most of an edit check's cost.
+#[derive(Default)]
+struct BaseMemo {
+    archives: HashMap<(PathBuf, String), PathBuf>,
+    hashes: HashMap<(PathBuf, String), [u8; 32]>,
+}
+static BASE_MEMO: std::sync::Mutex<Option<BaseMemo>> = std::sync::Mutex::new(None);
+/// One extraction at a time: the editor's check, test drive and Save as mod share one cache,
+/// and one removing the extract folder another is writing into broke both.
+static BASE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn archive_hash(src: &Path) -> Result<[u8; 32]> {
+    let stamp = exe_stamp(Some(src));
+    let key = (src.to_path_buf(), stamp);
+    if let Some(h) = BASE_MEMO.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|b| b.hashes.get(&key)) {
+        return Ok(*h);
+    }
+    let h: [u8; 32] = Sha256::digest(crate::error::read(src)?).into();
+    BASE_MEMO.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).hashes.insert(key, h);
+    Ok(h)
+}
+
+fn find_archive_memo(data: &Path, name: &str) -> Option<PathBuf> {
+    let key = (data.to_path_buf(), name.to_string());
+    if let Some(p) = BASE_MEMO.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|b| b.archives.get(&key))
+        && p.is_file()
+    {
+        return Some(p.clone());
+    }
+    let p = find_archive(data, name)?;
+    BASE_MEMO.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).archives.insert(key, p.clone());
+    Some(p)
+}
+
 /// The base world's extracted project, made once into the cache (game data: local only).
 pub fn base_project(env: &Env, world: &str, data: &Path, cache: &Path) -> Result<PathBuf> {
     let world = world.replace('\\', "/");
     let name = world.rsplit('/').next().unwrap_or("").to_lowercase();
-    let Some(src) = find_archive(data, &name) else {
+    let Some(src) = find_archive_memo(data, &name) else {
         return Err(lerr(format!("{world}: no world archive {name} under {}", data.display())));
     };
     let exe = env.find_hwvx_x();
+    let _one = BASE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut h = Sha256::new();
-    h.update(crate::error::read(&src)?);
+    h.update(archive_hash(&src)?);
     h.update(tools_hash(env.root()).as_bytes());
     h.update(exe_stamp(exe.as_deref()).as_bytes());
     let h = hex(&h.finalize());
@@ -2585,9 +2625,8 @@ pub fn compile(env: &Env, proj: &Path, out: Option<&Path>, base: &BaseOpts, skip
     let (doc, errors, cached) = compile_cached(env, proj, &out, b.as_deref(), skip)?;
     let mut warnings = vec![];
     if spawn_box.is_some() && errors.is_empty() {
-        let b2 = base.resolve(env, proj)?;
         let sb = read_spawn_box(spawn_box)?;
-        warnings = compile_project_full(env, proj, b2.as_deref(), skip, sb)?.2;
+        warnings = compile_project_full(env, proj, b.as_deref(), skip, sb)?.2;
     }
     Ok(Compiled {
         ok: errors.is_empty(),

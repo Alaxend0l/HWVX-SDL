@@ -114,7 +114,7 @@ impl Viewer {
             let tx = tx.clone();
             let log = log.clone();
             std::thread::spawn(move || {
-                for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+                for line in lossy_lines(pipe) {
                     if let Some(f) = log.lock().unwrap().as_mut() {
                         let _ = writeln!(f, "{line}");
                     }
@@ -165,8 +165,7 @@ impl Viewer {
         let read = stream.try_clone().map_err(|e| e.to_string())?;
         let (tx, rx) = channel();
         std::thread::spawn(move || {
-            for line in BufReader::new(read).lines() {
-                let Ok(line) = line else { break };
+            for line in lossy_lines(read) {
                 if line.trim().is_empty() {
                     continue;
                 }
@@ -304,4 +303,23 @@ pub fn default_schemas(game: &Path) -> Option<PathBuf> {
         .filter(ok)
         .or_else(|| game.ancestors().skip(1).map(|d| d.join("schemas")).find(ok))
         .or_else(|| crate::resources::root().map(|r| r.join("schemas")).filter(ok))
+}
+
+/// A pipe's or socket's lines, bytes that aren't UTF-8 replaced: lines() stops at the first
+/// such line, which left the game's log pipe undrained (the game then blocks writing its log)
+/// and dropped the connection over one odd name in a reply.
+pub fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
+    let mut r = BufReader::new(r);
+    std::iter::from_fn(move || {
+        let mut buf = Vec::new();
+        match r.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => {
+                while buf.last().is_some_and(|&c| c == b'\n' || c == b'\r') {
+                    buf.pop();
+                }
+                Some(String::from_utf8_lossy(&buf).into_owned())
+            }
+        }
+    })
 }
