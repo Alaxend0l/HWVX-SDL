@@ -53,6 +53,11 @@ void FileStreaming_Initialize(void)
     if (Port_ProtoMode() != PORT_PROTO_OFF && g_MaxStreamingDataPacks[8] < 3 + 2) {
         g_MaxStreamingDataPacks[8] = 3 + 2;
     }
+    /* port: a level on another mode's world loads a retail level of its mode beside it, for that
+     * mode's screens (Port_Level.c ModeLoad): two world packs */
+    if (g_MaxStreamingDataPacks[4] < 2) {
+        g_MaxStreamingDataPacks[4] = 2;
+    }
     for (i = 0; i < 11; i++) {
         if (i != 7 && g_MaxStreamingDataPacks[i] != 0) {
             size = g_MaxStreamingDataPacks[i] * sizeof(StreamingPack);
