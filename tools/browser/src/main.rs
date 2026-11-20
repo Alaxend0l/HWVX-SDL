@@ -39,6 +39,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod content_ui;
+mod content_tracks_ui;
 mod level_edit;
 mod level_ui;
 mod media_ui;

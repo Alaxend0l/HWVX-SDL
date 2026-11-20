@@ -31,6 +31,8 @@ pub(crate) struct ContentState {
     /// the texture the paint applies to (a car's body is usually its first)
     pub paint_texture: u32,
     pub packing: Option<Receiver<Result<String, String>>>,
+    /// the Tracks section (content_tracks_ui.rs)
+    pub tracks: crate::content_tracks_ui::TracksState,
 }
 
 fn base_label(kind: Kind, n: u32) -> String {
@@ -196,10 +198,14 @@ impl Browser {
             }
             ui.add_space(6.0);
         }
+        self.tracks_list(ui);
     }
 
     /// The right panel while the Content tab is on show.
     pub(crate) fn content_inspector(&mut self, ui: &mut egui::Ui) {
+        if self.tracks_inspector(ui) {
+            return;
+        }
         let Some((kind, uid)) = self.content.sel.clone() else {
             ui.heading("Content");
             ui.label("Select a car or weapon on the left, or add one (+ New car, + New weapon).");
@@ -352,7 +358,10 @@ impl Browser {
     }
 
     /// Save as mod: the folder packed into an .xmod after the no-game-data check.
-    fn content_pack(&mut self) {
+    pub(crate) fn content_pack(&mut self) {
+        if self.tracks_before_pack() {
+            return; // the tracks' levels compiled first: it goes on from there
+        }
         let Some(p) = self.content.proj.as_ref() else { return };
         if p.dirty() {
             self.content_note("save the mod first (Ctrl+S): the package is made from its files", true);
