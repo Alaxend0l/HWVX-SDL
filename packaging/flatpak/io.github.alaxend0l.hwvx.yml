@@ -3,15 +3,16 @@
 # from the release in packaging/SDL_VERSION (keep url and sha256 in step);
 # the game from this checkout. The game data is picked with the folder
 # dialog (xdg-desktop-portal), so no file system access is granted.
-# Movies: the game loads FFmpeg at run time (src/port/bink.c) and finds the
-# runtime's own: 24.08 has FFmpeg 7.1 (libavformat.so.61), LGPL, with the
-# Bink, Bink Audio and MPEG-2 decoders and the bink/mpeg demuxers, so the
-# Flatpak carries no FFmpeg of its own (packaging/README.md, "FFmpeg"). From
-# 25.08 the runtime adds org.freedesktop.Platform.codecs-extra to the library
-# path when it is installed, and that one is built with --enable-gpl.
+# Movies: the game loads FFmpeg at run time (src/port/bink.c). The ffmpeg
+# module below is the packages' own LGPL build (packaging/ffmpeg/build.sh,
+# its tarball and signature as sources; keep them in step with
+# packaging/ffmpeg/FFMPEG_*), in /app/lib, and HWVX_FFMPEG_DIR makes that the
+# only place the game looks: the runtime's org.freedesktop.Platform.codecs-extra
+# extension, which is on the library path when installed, is built with
+# --enable-gpl (packaging/README.md, "FFmpeg").
 id: io.github.alaxend0l.hwvx
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 command: hwvx
 # flatpak-builder checks and composes icons with the build host's image
@@ -28,6 +29,7 @@ finish-args:
   - --socket=pulseaudio
   - --device=all          # GPU and game controllers
   - --share=network       # online play
+  - --env=HWVX_FFMPEG_DIR=/app/lib   # the ffmpeg module's, never the runtime's (above)
 modules:
   - name: SDL3
     buildsystem: cmake-ninja
@@ -47,6 +49,25 @@ modules:
       - /lib/cmake
       - /lib/pkgconfig
       - /share
+
+  - name: ffmpeg
+    buildsystem: simple
+    build-commands:
+      - ./build.sh linux work prefix
+      - install -Dm644 -t /app/lib prefix/lib/*
+      - mkdir -p /app/share/licenses/io.github.alaxend0l.hwvx
+      - cp -R prefix/licenses/FFmpeg /app/share/licenses/io.github.alaxend0l.hwvx/
+    sources:
+      - type: dir
+        path: ../ffmpeg
+      - type: file
+        url: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+        sha256: 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+        dest: work
+      - type: file
+        url: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz.asc
+        sha256: d617fd94ea354dadd2a8bb16243d37c44e1e9729b06b6ad58fe30bfb0fa943f2
+        dest: work
 
   - name: hwvx
     buildsystem: cmake-ninja

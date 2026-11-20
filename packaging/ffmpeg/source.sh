@@ -28,9 +28,9 @@ This software uses code of [FFmpeg](https://ffmpeg.org) licensed under the
 [LGPLv2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html), and its
 source can be downloaded here: \`ffmpeg-$version.tar.xz\` below (unmodified
 FFmpeg $version, sha256 \`$sha256\`, with FFmpeg's signature
-\`ffmpeg-$version.tar.xz.asc\`). The Windows, macOS, Linux and Android packages
-carry FFmpeg's libraries, built LGPL-only by \`packaging/ffmpeg/build.sh\` in this
-release's source; each package has a \`licenses/FFmpeg\` folder with the licence
-and a NOTICE giving the configure line. The game loads them at run time to play the PC and PS2 movies. The
-Flatpak uses the FFmpeg of its runtime (org.freedesktop.Platform).
+\`ffmpeg-$version.tar.xz.asc\`). Every package carries FFmpeg's libraries,
+built LGPL-only by \`packaging/ffmpeg/build.sh\` in HWVX-SDL's source
+(https://github.com/Alaxend0l/HWVX-SDL); each has a \`licenses/FFmpeg\` folder
+with the licence and a NOTICE giving the configure line. The game loads them
+at run time to play the PC and PS2 movies; they are not linked into it.
 EOF

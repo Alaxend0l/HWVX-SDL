@@ -15,7 +15,7 @@ go to `dist/`; scratch (SDL builds, AppDirs...) to `build-pkg/`.
 | Linux Flatpak | `packaging/flatpak/build.sh [ARCH]` | Linux x86_64 / aarch64 with flatpak-builder (another ARCH: qemu-user-static) | `HWVX-VER-ARCH.flatpak` |
 | Android `.apk` | `packaging/ffmpeg/android.sh`, then `cd android && ./gradlew assembleRelease` | Linux, macOS (JDK 17, Android SDK) | `android/app/build/outputs/apk/release/app-release.apk` |
 
-Every package contains the program and, except the Flatpak, FFmpeg's libraries
+Every package contains the program and FFmpeg's libraries
 for the movies (see "FFmpeg" below); `cloudflared`, for hosting online through a
 tunnel, is the player's to install (the Flatpak and Android can join such games, not host them). The game data is the player's own:
 on first start the game looks in the usual places and, on desktop, asks for
@@ -98,7 +98,7 @@ The game plays the PC release's Bink movies (`FMV_/*.bik`) and the PS2's MPEG-2
 ones (`*.PSS`) with FFmpeg, which it loads at run time (`src/port/bink.c`,
 `SDL_LoadObject`): FFmpeg is never linked into `hwvx`, the build needs neither
 its libraries nor its headers, and without a usable FFmpeg the movies are only
-skipped. Every package except the Flatpak carries FFmpeg's libraries, built by
+skipped. Every package carries FFmpeg's libraries, built by
 `ffmpeg/build.sh` from the release in `ffmpeg/FFMPEG_VERSION` (9.0.2, the newest
 point release of FFmpeg's newest branch with one; 9.1 came out the day this was
 set up), checked against `ffmpeg/FFMPEG_SHA256` and, when gpg is there,
@@ -144,7 +144,7 @@ and that no library's configuration has gpl, version3 or nonfree.
 | AppImage | the same | `usr/lib` (the base path's `../lib`) | `usr/share/licenses/FFmpeg/` | 0.68 MB |
 | macOS `.app` | `libavcodec.63.dylib`... (universal, install names `@loader_path/...`, ad-hoc signed) | `Contents/Frameworks` (the base path, `Contents/Resources`, `../Frameworks`) | `Contents/Resources/licenses/FFmpeg/` | not measured (two slices: about 3.5 MB unpacked) |
 | Android `.apk` | `libavcodec.so`... (unversioned, as Android packages them; 16 KB pages) | `lib/arm64-v8a`, `lib/x86_64` | `assets/licenses/FFmpeg/` | 3.2 MB (native libraries are stored uncompressed) |
-| Flatpak | none: the runtime's | `/usr/lib/ARCH-linux-gnu` | the runtime's | 0 |
+| Flatpak | the same (`libavcodec.so.63`...) | `/app/lib` (`HWVX_FFMPEG_DIR`) | `/app/share/licenses/io.github.alaxend0l.hwvx/FFmpeg/` | about 0.7 MB (not measured against a bundle without it) |
 
 Sizes are the x86_64 builds (Linux built on Ubuntu 22.04, Windows with Ubuntu
 24.04's MinGW-w64).
@@ -155,12 +155,13 @@ own folder (`SDL_GetBasePath()`) and the packages' (an `.app`'s
 (and Homebrew's folders on macOS), for libavformat majors 63 down to 60
 (FFmpeg 9.x to 6.0) by the names above, then unversioned (`libavformat.so`:
 Android). libavutil, libavcodec and libavformat are opened in that order, so
-each one's dependencies are already loaded. The **Flatpak** carries no FFmpeg: the
-24.08 runtime's own (FFmpeg 7.1, `libavformat.so.61`, configured LGPL with
-the Bink, Bink Audio and MPEG-2 decoders and the `bink`/`mpeg` demuxers) is
-what the system search finds, on x86_64 and aarch64. The runtime's
-`org.freedesktop.Platform.codecs-extra` extension (25.08 on) is built with
-`--enable-gpl`, so it is not one to add.
+each one's dependencies are already loaded. The **Flatpak** (runtime
+org.freedesktop.Platform 26.08) builds the same FFmpeg as a module of its
+manifest (`build.sh linux`, with the tarball and its signature as the
+module's sources) into `/app/lib`, and sets `HWVX_FFMPEG_DIR=/app/lib`, so
+that is the only FFmpeg the game looks at: the runtime's
+`org.freedesktop.Platform.codecs-extra` extension, on the sandbox's library path when it is installed (FFmpeg 8,
+`libavcodec.so.62` in 26.08), is built with `--enable-gpl`.
 
 **Android**: `packaging/ffmpeg/android.sh` (needs `ANDROID_NDK_HOME`, the NDK
 of `android/app/build.gradle`) builds both ABIs into `build-pkg/android-ffmpeg`,

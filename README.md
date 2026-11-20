@@ -23,7 +23,7 @@ on every push (artifacts) and version tag (GitHub Release): see
 
 This software uses libraries from the [FFmpeg](https://ffmpeg.org) project
 under the [LGPLv2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html).
-The packages (but the Flatpak, which uses its runtime's) carry FFmpeg's
+The packages (the game's and the editor's) carry FFmpeg's
 libraries, which the game loads at run time to play the PC (Bink) and PS2
 (MPEG-2) movies; they are not linked into it. Each GitHub Release has the
 FFmpeg source they were built from beside the packages, and

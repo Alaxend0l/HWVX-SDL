@@ -24,7 +24,8 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 version=$(cat "$here/FFMPEG_VERSION")
 sha256=$(cat "$here/FFMPEG_SHA256")
-# FFmpeg's release signing key (https://ffmpeg.org/download.html#releases)
+# FFmpeg's release signing key (ffmpeg-devel.asc here, from
+# https://ffmpeg.org/ffmpeg-devel.asc; https://ffmpeg.org/download.html#releases)
 keyfpr=FCF986EA15E6E293A5644F10B4322F04D67658D8
 url="https://ffmpeg.org/releases/ffmpeg-$version.tar.xz"
 
@@ -55,9 +56,8 @@ if [ ! -f "$src/.unpacked" ]; then
     echo "$sha256  $tarball" | sha -c - >&2
     if command -v gpg >/dev/null; then
         [ -f "$tarball.asc" ] || curl -fsSL -o "$tarball.asc" "$url.asc"
-        [ -f "$work/ffmpeg-devel.asc" ] || curl -fsSL -o "$work/ffmpeg-devel.asc" https://ffmpeg.org/ffmpeg-devel.asc
         gnupg=$(mktemp -d)
-        GNUPGHOME=$gnupg gpg -q --batch --import "$work/ffmpeg-devel.asc" 2>/dev/null
+        GNUPGHOME=$gnupg gpg -q --batch --import "$here/ffmpeg-devel.asc" 2>/dev/null
         if ! GNUPGHOME=$gnupg gpg --batch --status-fd 1 --verify "$tarball.asc" "$tarball" 2>/dev/null \
                 | grep -q "^\[GNUPG:\] VALIDSIG $keyfpr "; then
             rm -rf "$gnupg"
@@ -215,8 +215,10 @@ cp "$src/COPYING.LGPLv2.1" "$src/LICENSE.md" "$prefix/licenses/FFmpeg/"
     echo "Source:   $url"
     echo "          sha256 $sha256"
     echo "          signature $url.asc (FFmpeg's release key $keyfpr)"
-    echo "          The same tarball is attached to every HWVX release on GitHub:"
+    echo "          The same tarball is attached to every HWVX release (the game) and"
+    echo "          HWVX Editor release on GitHub:"
     echo "          https://github.com/Alaxend0l/HWVX-SDL/releases"
+    echo "          https://github.com/Alaxend0l/HWVX-X-FILE-EDITOR/releases"
     echo "Built by: packaging/ffmpeg/build.sh $target (HWVX's source, same release)"
     echo "Libraries:"
     for f in "$prefix"/lib/*; do echo "          $(basename "$f")"; done
