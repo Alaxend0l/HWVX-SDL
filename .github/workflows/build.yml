@@ -136,6 +136,19 @@ jobs:
           echo "HWVX_VERSION=$v" >> "$GITHUB_ENV"
       - name: Bundle name
         run: echo "BUNDLE=HWVX-$HWVX_VERSION-${{ matrix.arch }}.flatpak" >> "$GITHUB_ENV"
+      # The image has the runtime and SDK in its system installation
+      # (/var/lib/flatpak), on the container's overlayfs, and flatpak-builder
+      # updates them when Flathub has newer commits. An update moves the old
+      # deployment, a directory of the image's layer, to .removed with rename(),
+      # and an overlayfs mounted without redirect_dir refuses that with EXDEV,
+      # "Invalid cross-device link" (the job then fails before building; some
+      # of GitHub's x86_64 runner hosts mount it so, the aarch64 ones so far
+      # don't). So flatpak works on a copy on the runner's own disk.
+      - name: Flatpak installation off the image's overlayfs
+        run: |
+          grep ' / ' /proc/mounts
+          cp -a /var/lib/flatpak "$RUNNER_TEMP/flatpak"
+          echo "FLATPAK_SYSTEM_DIR=$RUNNER_TEMP/flatpak" >> "$GITHUB_ENV"
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: ${{ env.BUNDLE }}
