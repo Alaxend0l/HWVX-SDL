@@ -697,7 +697,14 @@ Debugging aids:
   base level (`"base"`, a track number): its own archive (`<folder>/<archive>.xgc`:
   one hub quadrant pack, one collision pack whose surfaces are the base's)
   composed over the base's world pack as it loads (`src/game/Port_World.c`);
-  `HWVX_START=race:mode=joyride,world=<its id>` starts it.
+  `HWVX_START=race:mode=joyride,world=<its id>` starts it (the base's mode:
+  `battle`, `challenge`... for a base of those). None of the base shows,
+  moves or plays: its placed objects, items, sky, movers (trains, spinning
+  props), AI cars and routes, volumes, speakers, creatures, lights, weather,
+  teleporter effects, and the script triggers and actions on any of them go
+  (the log's `world: from the base level:` line counts them per kind); its
+  rules, music, fog and surfaces stay. `HWVX_THINGLOG=N` (any level) logs the
+  things alive by type every N frames.
   `tools/world_drive.sh BUILD DATA OUT NAME world.jsonc` drives it (GameCube
   data only for now). A world from a glTF: `hwvx-x world build PROJECT.jsonc
   OUT` (`tools/world-samples/ramp`: the generated demo as a glTF and its

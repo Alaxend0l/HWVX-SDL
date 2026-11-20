@@ -3,7 +3,8 @@
 #
 # Drive a custom world (game/Port_World.c; built by the superproject's
 # `hwvx-x world demo|build`): HWVX_WORLD=WORLD_JSONC registers it as a track,
-# HWVX_START=race:mode=joyride,world=<its id> starts it, tools/drive_test.sh
+# HWVX_START=race:mode=joyride,world=<its id> starts it (MODE=battle,
+# challenge... for a base of another mode), tools/drive_test.sh
 # holds the gas (DRIVE=... replaces the input; default: straight ahead).
 # Prints the car's positions every 10th log line (30 frames each), the
 # highest and lowest heights reached before it first left the world (y below
@@ -15,7 +16,7 @@ here=$(cd "$(dirname "$0")"; pwd)
 W=$(cd "$(dirname "$W")"; pwd)/$(basename "$W")
 id=$(grep -o '"id": *"[^"]*"' "$W" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
 DRIVE="${DRIVE:-308:a,377:a,446:a,515:a*1500}" "$here/drive_test.sh" "$B" "$D" "$O" "$N" "$T" \
-    "HWVX_WORLD=$W" "HWVX_START=race:mode=joyride,world=$id" "$@" > "$O/$N.car"
+    "HWVX_WORLD=$W" "HWVX_START=race:mode=${MODE:-joyride},world=$id" "$@" > "$O/$N.car"
 awk 'NR % 10 == 1 { print "pos", $(NF-2), $(NF-1), $NF }' "$O/$N.car" | head -30
 awk -v floor="${FLOOR:--50}" '{ y = $(NF-1) + 0; if (y < floor) exit; if (hi == "" || y > hi) hi = y; if (lo == "" || y < lo) lo = y; n++ }
     END { print "on the world:", n, "lines; highest y:", hi, "lowest y:", lo }' "$O/$N.car"
