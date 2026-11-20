@@ -702,6 +702,8 @@ Debugging aids:
   data only for now). A world from a glTF: `hwvx-x world build PROJECT.jsonc
   OUT` (`tools/world-samples/ramp`: the generated demo as a glTF and its
   project file: scale, turn, materials to base textures and surfaces, start).
+  `tools/world_pitch.sh BUILD DATA OUT NAME world.jsonc` measures how smoothly
+  it drives: pitch spikes and terrain contacts per 100 units (`HWVX_CARLOG=3`).
 - The editor's test drive (data browser, Level tab, F5): `HWVX_TESTDRIVE=1`
   raises the window, logs `testdrive: in the race` / `driving` and quits when
   the race is left for the menus; `HWVX_LEVEL_START=x,y,z,rotY` moves player
@@ -733,7 +735,9 @@ Debugging aids:
 - `HWVX_HANDLING=2` (or `0`) drives with the PC's third handling mode (or the
   cars' own) whatever Options says; `HWVX_CARLOG=1` logs the player's car
   every 30 frames (handling, gear, rpm, wheel speed, speed, steering, turbo,
-  flags, position), `=2` the AI's cars too. `tools/drive_test.sh BUILD DATA
+  flags, position), `=2` the AI's cars too, `=3` also the player's pitch and
+  the terrain contacts (crease edges, box corners) every frame, `=4` each box
+  corner contact with the plane it met. `tools/drive_test.sh BUILD DATA
   OUT NAME SECONDS [VAR=value ...]` runs a scripted drive (a race, the gas
   held, a turn) and prints that log: run it with and without
   `HWVX_HANDLING=2` to compare.

@@ -1,5 +1,6 @@
 #include "common.h"
 #include "World.h"
+#include "Port_World.h"
 
 
 
@@ -485,6 +486,10 @@ s8 OBoxHitsCell(CollisionOBox *obox, Vector4 *vel, TerrainCell *cell, f32 *time,
     return hit;
 }
 
+/* port, testing: terrain contacts by kind, for HWVX_CARLOG=3 (CarA.c) */
+u32 g_portTerrainEdgeHits, g_portTerrainCornerHits;
+int g_portTerrainContactLog;   /* HWVX_CARLOG=4: each box-corner contact too */
+
 s8 OBoxHitsBSP(CollisionOBox *obox, Vector4 *vel, TerrainCell *bsp, f32 *time, void *arg4)
 {
     Vector4 corner __attribute__((aligned(16)));
@@ -539,6 +544,12 @@ s8 OBoxHitsBSP(CollisionOBox *obox, Vector4 *vel, TerrainCell *bsp, f32 *time, v
     if (!hitEdge && !hitCorner)
     {
         return 0;
+    }
+    g_portTerrainEdgeHits += hitEdge != 0;
+    g_portTerrainCornerHits += hitCorner != 0;
+    if (hitCorner && g_portTerrainContactLog) {
+        Port_Log("contact: corner %.2f %.2f %.2f vel %.2f %.2f %.2f t %.3f normal %.3f %.3f %.3f %.2f cell %.0f %.0f %.0f .. %.0f %.0f %.0f", corner.x, corner.y, corner.z, vel->x,
+                 vel->y, vel->z, t, normal.x, normal.y, normal.z, normal.w, bsp->min.x, bsp->min.y, bsp->min.z, bsp->max.x, bsp->max.y, bsp->max.z);
     }
     if (arg4 != NULL && hitCorner)
     {
@@ -729,6 +740,40 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, TerrainCell *bsp, u32 node, s32 de
     }
     *hit = *start;
     *t = 0.0f;
+    if (Port_WorldActive()) {
+        /* port: a custom world (Port_World.h): the ray starts inside the solid (a box corner
+         * sunk a hair into the ground); the game pushes it out along the plane of the last
+         * node, which in a built cell is often one of the cell's walls closing the solid,
+         * far off: a car on smooth ground was shoved sideways and lifted. The nearest of the
+         * planes it is behind on its way down the tree is the face it sank through. */
+        TerrainBSPNode *nodes = GETP(bsp->nodes), *best = n;
+        f32 bestDist = -Distance_Plane(n, start);
+        u32 k = 0;
+        s32 steps;
+
+        for (steps = 0; steps < 0x10000; steps++) {
+            TerrainBSPNode *m = &nodes[k];
+            f32 dd = Distance_Plane(m, start);
+
+            if (dd >= 0.0f) {
+                if (m->front == BSP_LEAF) {
+                    break;
+                }
+                k = m->front;
+            } else {
+                if (-dd < bestDist) {
+                    bestDist = -dd;
+                    best = m;
+                }
+                if (m->back == BSP_LEAF) {
+                    break;
+                }
+                k = m->back;
+            }
+        }
+        *(Vector4 *)plane = best->plane;
+        return GETP(TERRAIN()->materials)[best->material];
+    }
     *(Vector4 *)plane = n->plane;
     return GETP(TERRAIN()->materials)[n->material];
 }
