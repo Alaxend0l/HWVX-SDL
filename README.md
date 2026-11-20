@@ -16,10 +16,18 @@ cmake -S . -B build -G Ninja
 ninja -C build
 ```
 
-Packages for Windows, macOS, Linux (AppImage, Flatpak, bare program; x86_64
+Packages for Windows, macOS, Linux (AppImage, Flatpak, program `.tar.gz`; x86_64
 and aarch64) and Android are built by the scripts in `packaging/`, and by CI
 on every push (artifacts) and version tag (GitHub Release): see
 [packaging/README.md](packaging/README.md).
+
+This software uses libraries from the [FFmpeg](https://ffmpeg.org) project
+under the [LGPLv2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html).
+The packages (but the Flatpak, which uses its runtime's) carry FFmpeg's
+libraries, which the game loads at run time to play the PC (Bink) and PS2
+(MPEG-2) movies; they are not linked into it. Each GitHub Release has the
+FFmpeg source they were built from beside the packages, and
+`packaging/ffmpeg/build.sh` is how (packaging/README.md, "FFmpeg").
 
 ## Game data
 

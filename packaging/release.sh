@@ -58,8 +58,17 @@ find "$tmp/artifacts" -type f | while read -r file; do
     [ ! -e "$tmp/assets/$name" ] || die "two packages are named $name"
     mv "$file" "$tmp/assets/$name"
 done
+
+# FFmpeg's source beside the packages that carry its libraries (LGPL), and the
+# release notes' paragraph on it; the commit's FFmpeg must be this checkout's.
+touch "$tmp/notes.md"
+if want=$(git show "$commit:packaging/ffmpeg/FFMPEG_VERSION" 2>/dev/null); then
+    [ "$want" = "$(cat packaging/ffmpeg/FFMPEG_VERSION)" ] ||
+        die "$commit was built with FFmpeg $want, this checkout has $(cat packaging/ffmpeg/FFMPEG_VERSION)"
+    packaging/ffmpeg/source.sh "$tmp/assets" "$tmp/notes.md"
+fi
 ls -l "$tmp/assets"
 
 # The ordering gives the caller's options the last word.
 gh release create "$tag" "$tmp"/assets/* \
-    --target "$commit" --title "$tag" --generate-notes "$@"
+    --target "$commit" --title "$tag" --notes-file "$tmp/notes.md" --generate-notes "$@"

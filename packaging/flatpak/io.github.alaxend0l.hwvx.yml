@@ -3,6 +3,12 @@
 # from the release in packaging/SDL_VERSION (keep url and sha256 in step);
 # the game from this checkout. The game data is picked with the folder
 # dialog (xdg-desktop-portal), so no file system access is granted.
+# Movies: the game loads FFmpeg at run time (src/port/bink.c) and finds the
+# runtime's own: 24.08 has FFmpeg 7.1 (libavformat.so.61), LGPL, with the
+# Bink, Bink Audio and MPEG-2 decoders and the bink/mpeg demuxers, so the
+# Flatpak carries no FFmpeg of its own (packaging/README.md, "FFmpeg"). From
+# 25.08 the runtime adds org.freedesktop.Platform.codecs-extra to the library
+# path when it is installed, and that one is built with --enable-gpl.
 id: io.github.alaxend0l.hwvx
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'

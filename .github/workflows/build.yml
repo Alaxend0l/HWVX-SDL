@@ -30,11 +30,16 @@ jobs:
         run: |
           if [ -n "$TAG" ]; then v=${TAG#v}; else v=dev-${GITHUB_SHA::7}; fi
           echo "HWVX_VERSION=$v" >> "$GITHUB_ENV"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 cmake ninja-build
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 cmake ninja-build zip
       - uses: actions/cache@v4
         with:
           path: build-pkg/windows/sdl-prefix
           key: sdl-windows-${{ hashFiles('packaging/SDL_VERSION', 'packaging/build-sdl3.sh', 'cmake/mingw-w64-x86_64.cmake') }}
+      # FFmpeg (packaging/ffmpeg/build.sh): rebuilt only when its script or version changes
+      - uses: actions/cache@v4
+        with:
+          path: build-pkg/windows/ffmpeg-prefix
+          key: ffmpeg-windows-${{ hashFiles('packaging/ffmpeg/build.sh', 'packaging/ffmpeg/FFMPEG_*') }}
       - run: packaging/windows/build.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -56,6 +61,10 @@ jobs:
         with:
           path: build-pkg/macos/sdl-prefix
           key: sdl-macos-${{ hashFiles('packaging/SDL_VERSION', 'packaging/build-sdl3.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: build-pkg/macos/ffmpeg-prefix
+          key: ffmpeg-macos-${{ hashFiles('packaging/ffmpeg/build.sh', 'packaging/ffmpeg/FFMPEG_*') }}
       - run: packaging/macos/build.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -94,6 +103,10 @@ jobs:
         with:
           path: build-pkg/linux-${{ matrix.arch }}/sdl-prefix
           key: sdl-linux-${{ matrix.arch }}-${{ hashFiles('packaging/SDL_VERSION', 'packaging/build-sdl3.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: build-pkg/linux-${{ matrix.arch }}/ffmpeg-prefix
+          key: ffmpeg-linux-${{ matrix.arch }}-${{ hashFiles('packaging/ffmpeg/build.sh', 'packaging/ffmpeg/FFMPEG_*') }}
       - run: packaging/linux/build.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -157,6 +170,17 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "HWVX_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+      - name: NDK (build.gradle's ndkVersion, for FFmpeg)
+        run: |
+          ndk=$(sed -n "s/^ *ndkVersion '\(.*\)'.*/\1/p" android/app/build.gradle)
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$ndk" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: build-pkg/android-ffmpeg/prefix-*
+          key: ffmpeg-android-${{ hashFiles('packaging/ffmpeg/build.sh', 'packaging/ffmpeg/FFMPEG_*', 'android/app/build.gradle') }}
+      - name: FFmpeg (into the APK; packaging/ffmpeg/android.sh)
+        run: packaging/ffmpeg/android.sh
       - name: Build
         working-directory: android
         env:
@@ -182,11 +206,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/ffmpeg
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      # FFmpeg's source beside the packages that carry its libraries (LGPL),
+      # and the release notes' paragraph on it.
+      - run: packaging/ffmpeg/source.sh artifacts "$RUNNER_TEMP/ffmpeg-notes.md"
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
+          body_path: ${{ runner.temp }}/ffmpeg-notes.md
           generate_release_notes: true
