@@ -361,7 +361,11 @@ impl Browser {
     pub(crate) fn content_paint(&mut self, ui: &mut egui::Ui, target: &Target) {
         ui.strong("Paint");
         let tex = self.content.paint_texture;
-        let Some((mut hue, mut bright)) = self.content.proj.as_ref().map(|p| p.target_paint(target, tex)) else { return };
+        // the texture's number is the data's release's (no data known: the GameCube's)
+        let info = self.content_data_info();
+        let release = info.as_ref().map_or("gc", |i| i.release);
+        let Some((mut hue, mut bright)) = self.content.proj.as_ref().map(|p| p.target_paint(target, release, tex)) else { return };
+        let note = self.content.proj.as_ref().and_then(|p| p.target_texture_note(target, release, tex));
         let (h0, b0) = (hue, bright);
         egui::Grid::new("content_paint").num_columns(2).show(ui, |ui| {
             ui.label("texture");
@@ -375,9 +379,13 @@ impl Browser {
             ui.end_row();
         });
         ui.label(egui::RichText::new("A recipe on the player's own texture: the mod holds no pixels.").small().weak());
+        if let Some(n) = note {
+            // the releases number some car and weapon textures otherwise (content_retail TEXTURE_ROWS)
+            ui.colored_label(egui::Color32::from_rgb(230, 170, 60), format!("{} texture {tex}: {n}", hwvx_browser::content::release_name(release)));
+        }
         if (hue, bright) != (h0, b0) && self.content.paint_texture == tex {
             if let Some(p) = self.content.proj.as_mut() {
-                p.set_target_paint(target, tex, hue, bright);
+                p.set_target_paint(target, release, tex, hue, bright);
             }
         }
     }
