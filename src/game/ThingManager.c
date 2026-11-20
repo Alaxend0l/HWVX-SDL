@@ -5,6 +5,7 @@
 #include "CarA.h"
 #include "World.h"
 #include "ThingManager.h"
+#include "Port_World.h"
 
 extern u8 g_aSharedSlaveHolder[0x200];
 #define SHARED_SLAVE_HOLDERS ((SharedSlaveHolder *)g_aSharedSlaveHolder)
@@ -547,6 +548,7 @@ void ThingManager_MoveLookerOnly(void) {
 
 void ThingManager_DARYL_Heartbeat(void) {
     extern u8 g_bFreezeWorld;
+    Port_WorldThingLog();   /* port: HWVX_THINGLOG (testing) */
     if ((s8) g_bFreezeWorld != 0) {
         ThingManager_MoveLookerOnly();
         return;

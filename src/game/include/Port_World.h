@@ -4,9 +4,10 @@
  * (render geometry) and one collision pack (terrain grid; surfaces are
  * indices into the base collision pack's materials). The base level's world
  * pack is kept for everything else (scripts, chase cameras, fog, item pack)
- * and adapted in memory: one hub quadrant, the start moved, what lives in
- * the base's coordinates (volumes, speakers, creatures, teleporters, the
- * radar map) taken out of the way. Port-only file.
+ * and adapted in memory: one hub quadrant, the start moved, everything the
+ * base places, moves, lights or plays in its own coordinates (the AI, movers,
+ * volumes, speakers, creatures, lights, routes, weather, teleporters, the
+ * radar map, the scripts' triggers and actions on them) taken out. Port-only file.
  *
  * HWVX_WORLD=<folder>/world.jsonc registers the world as a track (its "id",
  * a Joyride-style track over "base", a track number) whose level is the
@@ -30,6 +31,8 @@ void Port_WorldCollisionLoaded(void);
 /* State 7, World.collision set to the base pack's grid: points it at the
  * world's grid with the base's materials. */
 void Port_WorldBindCollision(void);
+/* ThingManager_DARYL_Heartbeat: HWVX_THINGLOG=N, the things alive every N frames. */
+void Port_WorldThingLog(void);
 /* The custom world is the one loaded. */
 int Port_WorldActive(void);
 
