@@ -3,6 +3,7 @@
 #include "Port_Content.h"
 #include "Port_Online.h"
 #include "Port_Level.h"
+#include "Port_World.h"
 #include "World.h"
 
 /* The world being loaded. */
@@ -408,10 +409,12 @@ s32 LoadWorldProcess(char *world, s8 loaded)
                  * world pack is in, before the quadrants, cars and items load from its arrays
                  * (a level appends to them) and before the refresh activates the triggers */
                 extern s32 g_GameProgressionID;
+                int track = GETP(g_GameProgressionState.script) != NULL ?
+                                Port_ContentTrackOfLevel((u32)g_GameProgressionID, (u32)g_GameProgressionState.index) : -1;
 
-                Port_LevelWorldLoaded(dp, world,
-                                      GETP(g_GameProgressionState.script) != NULL ?
-                                          Port_ContentTrackOfLevel((u32)g_GameProgressionID, (u32)g_GameProgressionState.index) : -1);
+                Port_LevelWorldLoaded(dp, world, track);
+                /* port: a custom world composed over this level (Port_World.h) */
+                Port_WorldLoaded(dp, track);
             }
             newLoadingState = 1;
         }
@@ -449,6 +452,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
             {
                 return 8;
             }
+            Port_WorldCollisionLoaded();   /* port: a custom world's own grid (Port_World.h) */
             FileStreaming_InitializeAllQuads();
             newLoadingState = 4;
         }
@@ -787,6 +791,7 @@ s32 LoadWorldProcess(char *world, s8 loaded)
         if (newLoadingState == 7)
         {
             SETP(WORLD()->collision, SLOT_LOAD(void *, g_worldData.collisionPack));
+            Port_WorldBindCollision();   /* port: a custom world's grid, the base's materials */
             newLoadingState = 0;
             curLoadingState = 7;
             World_Init();

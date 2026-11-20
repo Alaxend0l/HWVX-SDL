@@ -76,6 +76,7 @@ static char *ResolveCase(const char *root, const char *name) {
 
 SDL_IOStream *Port_OpenDiscFile(const char *name);
 char *Port_ModsResolveFile(const char *name, int *format);   /* game/Port_Mods.c */
+char *Port_WorldResolveFile(const char *name, int *format);  /* game/Port_World.c */
 
 /* `found`, if not NULL: the host path it was found at (NULL for a disc
  * image's file), for the caller to free. */
@@ -280,6 +281,10 @@ BOOL DVDOpen(const char *fileName, DVDFileInfo *fi) {
          * Port_Mods.c), from the mods folder */
         int modFormat = PORT_DATA_GC;
         char *host = Port_ModsResolveFile(fileName, &modFormat);
+
+        if (host == NULL) {
+            host = Port_WorldResolveFile(fileName, &modFormat);   /* a custom world's archive (Port_World.h) */
+        }
 
         if (host != NULL) {
             io = SDL_IOFromFile(host, "rb");
