@@ -868,10 +868,24 @@ static void DumpEFB(void) {
 void GX_DrawCopyDisp(int clear) {
     int r[4] = { 0, 0, s_efbW, s_efbH };
 
-    DumpEFB();
-    Port_HudDraw(s_efbW, s_efbH);   /* in the EFB, so dumps and the dump's
-                                     * stats stay free of it and it rides the
-                                     * copy's letterbox like the frame does */
+    {
+        /* HWVX_DUMP_HUD=1: the readouts in the dumped frames too (tests of them) */
+        static int withHud = -1;
+
+        if (withHud < 0) {
+            const char *e = SDL_getenv("HWVX_DUMP_HUD");
+            withHud = e != NULL && *e == '1';
+        }
+        if (withHud) {
+            Port_HudDraw(s_efbW, s_efbH);
+        }
+        DumpEFB();
+        if (!withHud) {
+            Port_HudDraw(s_efbW, s_efbH);   /* in the EFB after the dump, so dumps and the
+                                             * dump's stats stay free of it and it rides the
+                                             * copy's letterbox like the frame does */
+        }
+    }
     Mark(GXR_MARK_DISP);
     g_gxFrame.dispCopies++;
     if (!Port_ViewerHeadless()) {           /* the viewer's hidden window: no copy */

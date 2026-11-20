@@ -1,7 +1,9 @@
-/* On-screen frame rate readout: HWVX_FPSHUD=1 draws a small strip at the top
+/* On-screen readouts. HWVX_FPSHUD=1 draws a small strip at the top
  * left of the screen with the FPS now, the average, and the 1% low (the
  * average of the worst 1% of frame times), over a ring of the last few
- * thousand retraces.
+ * thousand retraces. --show-position / HWVX_POSHUD=1 draws, under it, a strip per human
+ * player with the car's position, heading, speed and collision square (game/CarA.c reports
+ * them every frame; F9 logs them, vi.c).
  *
  * vi.c ticks it once per retrace; gx_draw.c draws it before each EFB copy,
  * where it bakes background and glyphs into one opaque RGBA image and blits
@@ -190,14 +192,19 @@ static const u8 s_glyph['Z' + 1 - ' '][7] = {
     /* Z */ { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F },
 };
 
-/* ---- the strip ----------------------------------------------------------- */
+/* ---- the strips ---------------------------------------------------------- */
 
 #define HUD_PAD 4      /* dark border around the text, unscaled pixels */
-#define HUD_MAXW 640
+#define HUD_MAXW 900
 #define HUD_MAXH 48
-static u8 s_rgba[HUD_MAXW * HUD_MAXH * 4];
-static int s_w, s_h;
-static char s_text[48];
+#define HUD_STRIPS 5   /* the frame rate, then a position per player */
+
+typedef struct Strip {
+    u8 rgba[HUD_MAXW * HUD_MAXH * 4];
+    int w, h, scale;
+    char text[96];
+} Strip;
+static Strip s_strip[HUD_STRIPS];
 
 static void Put(u8 *p, u8 v) {
     p[0] = p[1] = p[2] = v;
@@ -205,22 +212,24 @@ static void Put(u8 *p, u8 v) {
 }
 
 /* The opaque image: a dark bar, the text in white over it. */
-static void Rasterize(const char *text, int scale) {
+static void Rasterize(Strip *st, const char *text, int scale) {
     int len = (int)SDL_strlen(text);
     int cw = 6 * scale; /* glyph + one scaled pixel of spacing */
     int x, y, i, row, bit;
 
-    s_w = HUD_PAD * 2 + len * cw - scale;
-    s_h = HUD_PAD * 2 + 7 * scale;
-    if (s_w > HUD_MAXW) {
-        s_w = HUD_MAXW;
+    SDL_strlcpy(st->text, text, sizeof(st->text));
+    st->scale = scale;
+    st->w = HUD_PAD * 2 + len * cw - scale;
+    st->h = HUD_PAD * 2 + 7 * scale;
+    if (st->w > HUD_MAXW) {
+        st->w = HUD_MAXW;
     }
-    if (s_h > HUD_MAXH) {
-        s_h = HUD_MAXH;
+    if (st->h > HUD_MAXH) {
+        st->h = HUD_MAXH;
     }
-    for (y = 0; y < s_h; y++) {
-        for (x = 0; x < s_w; x++) {
-            Put(&s_rgba[(y * s_w + x) * 4], 0x18);
+    for (y = 0; y < st->h; y++) {
+        for (x = 0; x < st->w; x++) {
+            Put(&st->rgba[(y * st->w + x) * 4], 0x18);
         }
     }
     for (i = 0; text[i] != '\0'; i++) {
@@ -242,8 +251,8 @@ static void Rasterize(const char *text, int scale) {
                         int px = cx + bit * scale + x;
                         int py = HUD_PAD + row * scale + y;
 
-                        if (px < s_w && py < s_h) {
-                            Put(&s_rgba[(py * s_w + px) * 4], 0xFF);
+                        if (px < st->w && py < st->h) {
+                            Put(&st->rgba[(py * st->w + px) * 4], 0xFF);
                         }
                     }
                 }
@@ -252,16 +261,92 @@ static void Rasterize(const char *text, int scale) {
     }
 }
 
-void Port_HudDraw(int efbW, int efbH) {
-    static u32 draws;
-    static int lastScale;
-    int dst[4], winW = 0, winH = 0, scale, vw, vh;
-    f32 r = 1.0f;   /* EFB pixels per window pixel (the resolution scale) */
+/* A strip's text, re-rasterized only when it or the scale changed. */
+static void SetText(Strip *st, const char *text, int scale) {
+    if (SDL_strcmp(text, st->text) != 0 || scale != st->scale) {
+        Rasterize(st, text, scale);
+    }
+}
 
-    if (!HudOn() || s_count == 0) {
+/* ---- the position readout ------------------------------------------------- */
+
+typedef struct PosLine {
+    u64 ticks;                 /* SDL_GetTicks of the last report, 0: never */
+    float x, y, z, heading, speed;
+    int cx, cy, cz;
+} PosLine;
+static PosLine s_pos[4];
+
+int Port_PosHudOn(void) {
+    static int on = -1;
+    const char *e;
+
+    if (on < 0) {
+        e = SDL_getenv("HWVX_POSHUD");
+        on = g_port.showPosition || (e != NULL && *e == '1');
+    }
+    return on;
+}
+
+void Port_PosHudSet(int player, float x, float y, float z, float heading, float speed, int cx, int cy, int cz) {
+    PosLine *p;
+
+    if (player < 0 || player >= 4) {
         return;
     }
-    /* Sized in window pixels, so the strip looks the same at any resolution
+    p = &s_pos[player];
+    p->ticks = SDL_GetTicks();
+    p->x = x;
+    p->y = y;
+    p->z = z;
+    p->heading = heading;
+    p->speed = speed;
+    p->cx = cx;
+    p->cy = cy;
+    p->cz = cz;
+}
+
+/* Shown while reported in the last quarter second (in a race). */
+static int PosLive(int i) {
+    return s_pos[i].ticks != 0 && SDL_GetTicks() - s_pos[i].ticks < 250;
+}
+
+void Port_PosHudMark(void) {
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        const PosLine *p = &s_pos[i];
+
+        if (PosLive(i)) {
+            Port_Log("pos: player %d x %.1f y %.1f z %.1f heading %.1f speed %.1f cell %d %d %d", i + 1, p->x, p->y, p->z,
+                     p->heading, p->speed, p->cx, p->cy, p->cz);
+        }
+    }
+}
+
+static void PosText(int i, char *out, size_t size) {
+    const PosLine *p = &s_pos[i];
+
+    if (p->cx < 0) {
+        SDL_snprintf(out, size, "P%d X %.1f Y %.1f Z %.1f H %.0f S %.0f", i + 1, p->x, p->y, p->z, p->heading, p->speed);
+    } else {
+        SDL_snprintf(out, size, "P%d X %.1f Y %.1f Z %.1f H %.0f S %.0f CELL %d %d %d", i + 1, p->x, p->y, p->z,
+                     p->heading, p->speed, p->cx, p->cy, p->cz);
+    }
+}
+
+/* ---- drawing -------------------------------------------------------------- */
+
+void Port_HudDraw(int efbW, int efbH) {
+    static u32 draws;
+    int winW = 0, winH = 0, scale, vw, vh, i, top;
+    f32 r = 1.0f;   /* EFB pixels per window pixel (the resolution scale) */
+    int fps = HudOn() && s_count != 0, pos = Port_PosHudOn();
+
+    if (!fps && !pos) {
+        return;
+    }
+    /* Sized in window pixels, so the strips look the same at any resolution
      * scale: rasterized for the window's height, stretched by the EFB's
      * size over the window's (the viewer's frames: the EFB's own size). */
     if (!Port_ViewerEfbSize(&vw, &vh) && SDL_GetWindowSizeInPixels(g_port.window, &winW, &winH) && winH > 0 &&
@@ -269,31 +354,46 @@ void Port_HudDraw(int efbW, int efbH) {
         r = (f32)efbH / (f32)winH;
     }
     scale = (r != 1.0f ? winH : efbH) >= 1000 ? 3 : 2;
-    /* Numbers refreshed about three times a second; a frame's worth of new
-     * retraces barely moves the averages anyway. */
-    if ((draws++ & 31) == 0 || s_text[0] == '\0' || scale != lastScale) {
-        char text[48];
+    draws++;
+    /* The frame rate refreshed about three times a second; a frame's worth of
+     * new retraces barely moves the averages anyway. */
+    if (fps && ((draws & 31) == 1 || s_strip[0].text[0] == '\0' || scale != s_strip[0].scale)) {
+        char text[96];
 
-        SDL_snprintf(text, sizeof(text), "FPS %.1f AVG %.1f 1%% LOW %.1f",
-                     MeanRecentFps(20), MeanAllFps(), Low1Fps());
-        if (SDL_strcmp(text, s_text) != 0 || scale != lastScale) {
-            SDL_strlcpy(s_text, text, sizeof(s_text));
-            Rasterize(s_text, scale);
-            lastScale = scale;
+        SDL_snprintf(text, sizeof(text), "FPS %.1f AVG %.1f 1%% LOW %.1f", MeanRecentFps(20), MeanAllFps(), Low1Fps());
+        SetText(&s_strip[0], text, scale);
+    }
+    top = (int)(6.0f * r + 0.5f);
+    for (i = 0; i < HUD_STRIPS; i++) {
+        Strip *st = &s_strip[i];
+        int dst[4];
+
+        if (i == 0 && !fps) {
+            continue;
         }
+        if (i > 0) {
+            char text[96];
+
+            if (!pos || !PosLive(i - 1)) {
+                continue;
+            }
+            PosText(i - 1, text, sizeof(text));
+            SetText(st, text, scale);
+        }
+        if (st->w <= 0 || st->h <= 0) {
+            continue;
+        }
+        dst[0] = (int)(6.0f * r + 0.5f);
+        dst[1] = top;
+        dst[2] = dst[0] + (int)((f32)st->w * r + 0.5f);
+        dst[3] = dst[1] + (int)((f32)st->h * r + 0.5f);
+        if (dst[2] > efbW) {
+            dst[2] = efbW;
+        }
+        if (dst[3] > efbH) {
+            dst[3] = efbH;
+        }
+        g_gxr->drawImage(st->rgba, st->w, st->h, dst);
+        top = dst[3] + (int)(2.0f * r + 0.5f);
     }
-    if (s_w <= 0 || s_h <= 0) {
-        return;
-    }
-    dst[0] = (int)(6.0f * r + 0.5f);
-    dst[1] = dst[0];
-    dst[2] = dst[0] + (int)((f32)s_w * r + 0.5f);
-    dst[3] = dst[1] + (int)((f32)s_h * r + 0.5f);
-    if (dst[2] > efbW) {
-        dst[2] = efbW;
-    }
-    if (dst[3] > efbH) {
-        dst[3] = efbH;
-    }
-    g_gxr->drawImage(s_rgba, s_w, s_h, dst);
 }

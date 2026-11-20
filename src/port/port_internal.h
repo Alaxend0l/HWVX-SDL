@@ -47,6 +47,8 @@ typedef struct PortState {
     const char *gpuDriver;   /* SDL_GPU driver for gx_sdlgpu.c: vulkan, metal, direct3d12 */
     int renderer;            /* graphics.cfg "renderer=" (the launcher's Settings): 0 Auto, else
                               * PORT_RENDERER_*; --renderer and HWVX_RENDERER win for one run */
+    int showPosition;        /* --show-position (main_sdl.c), or HWVX_POSHUD=1: the cars' positions on
+                              * screen (hud.c) */
     int resetSave;           /* --reset-save (main_sdl.c): default game data, no autoload */
     int gcAirCamera;         /* --gc-air-camera or HWVX_GC_AIR_CAMERA=1 (main_sdl.c): a trigger
                               * orbit camera hands back to a tipped car, as on the GameCube
@@ -203,6 +205,7 @@ void Port_LogToRedirectedStderr(void);
  * gx_draw.c draws its strip into the EFB's top left before each copy. */
 void Port_HudTick(void);
 void Port_HudDraw(int efbW, int efbH);
+void Port_PosHudMark(void);   /* F9: the positions shown, to the log (hud.c) */
 
 /* Subsystems */
 void GX_PortBeginFrame(void);

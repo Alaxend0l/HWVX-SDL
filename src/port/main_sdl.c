@@ -159,6 +159,8 @@ static void ParseArgs(int argc, char **argv) {
                 exit(1);
             }
             exit(0);
+        } else if (SDL_strcmp(argv[i], "--show-position") == 0) {
+            g_port.showPosition = 1;
         } else if (SDL_strcmp(argv[i], "--reset-save") == 0) {
             g_port.resetSave = 1;
         } else if (SDL_strcmp(argv[i], "--gc-air-camera") == 0) {
