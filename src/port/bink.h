@@ -11,6 +11,9 @@ typedef void (*BinkAudioFn)(void *user, const float *pcm, int frames);
 
 /* Loads FFmpeg on first use (logs once either way); 1 if it can be used. */
 int Bink_Load(void);
+/* The FFmpeg release loaded (6-9, from libavformat's major), 0 if none is
+ * (or Bink_Load hasn't run): for the launcher's Credits page. */
+int Bink_Version(void);
 /* Opens a movie read from `io`, which it takes over (closed on failure too);
  * `name` is for messages. NULL if FFmpeg is missing or can't play it. */
 BinkMovie *Bink_Open(SDL_IOStream *io, const char *name);

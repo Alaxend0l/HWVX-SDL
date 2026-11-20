@@ -375,6 +375,10 @@ int Bink_Load(void) {
     return 1;
 }
 
+int Bink_Version(void) {
+    return s_state > 0 ? (int)(ff.avformat_version() >> 16) - 54 : 0;
+}
+
 /* ---- reading through the game's SDL_IOStream ---------------------------- */
 
 static int IORead(void *opaque, uint8_t *buf, int size) {
