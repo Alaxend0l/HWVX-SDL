@@ -143,6 +143,11 @@ fn xyz(p: &Value) -> Result<[f64; 3]> {
     Ok([get(0)?, get(1)?, get(2)?])
 }
 
+/// The center's w (padding the game never reads) of the volumes a level appends: "LVL1" as an
+/// f32 (0x4C564C31). The port adds the volumes so marked to the world's volume grid
+/// (Port_Level.c), so force, fog, reverb, light and creature volumes work as the base's do.
+pub const LEVEL_VOLUME_MARK: f64 = 56176836.0;
+
 /// A level.jsonc volume as a WorldVolume item of the pack's array.
 fn volume_item(c: &mut Compiler, v: &Value, archive: &str, wh: &str) -> Result<Value> {
     let c0 = v.get("center").cloned().unwrap_or(json!([0, 0, 0]));
@@ -168,7 +173,7 @@ fn volume_item(c: &mut Compiler, v: &Value, archive: &str, wh: &str) -> Result<V
     it.insert("enabled".into(), v.get("enabled").cloned().unwrap_or(json!(1)));
     it.insert("shape".into(), v.get("shape").cloned().unwrap_or(json!("sphere")));
     it.insert("type".into(), v.get("type").cloned().unwrap_or(json!("airbox")));
-    it.insert("center".into(), json!({"x": f64v(cxyz[0]), "y": f64v(cxyz[1]), "z": f64v(cxyz[2]), "w": 0.0}));
+    it.insert("center".into(), json!({"x": f64v(cxyz[0]), "y": f64v(cxyz[1]), "z": f64v(cxyz[2]), "w": LEVEL_VOLUME_MARK}));
     it.insert("radius".into(), f64v(rf.unwrap_or(0.0)));
     it.insert("radiusSq".into(), f64v(rsq));
     it.insert("bsp".into(), Value::Null);
@@ -183,6 +188,57 @@ fn volume_item(c: &mut Compiler, v: &Value, archive: &str, wh: &str) -> Result<V
         }
     }
     Ok(Value::Object(it))
+}
+
+/// A base BSP volume's shape moved by d: each node's plane d less n.d (a point p is in front
+/// when n.p + d > 0), in the record's bytes (0x20-byte nodes, no pointers). The BSP is the
+/// volume's own (one no other volume names).
+fn move_bsp(w: &mut WorldBuild, bsp: &str, d: [f64; 3], big: bool) -> Result<()> {
+    let users = match w.file_of.get(bsp).cloned() {
+        Some(stem) => w.doc(&stem)?.get("items").and_then(Value::as_array).map(|a| a.iter().filter(|v| v["bsp"].as_str() == Some(bsp)).count()).unwrap_or(0),
+        None => 0,
+    };
+    if users > 1 {
+        return Err(lerr(format!("{bsp}: a BSP {users} volumes share: moving one isn't supported")));
+    }
+    let stem = w.file_of.get(bsp).cloned().ok_or_else(|| lerr(format!("{bsp}: not in the project")))?;
+    let dir = w.b.dir.clone();
+    let base = w.b.doc(&stem, ".base.jsonc")?;
+    let rec = base.get_mut("children").and_then(|c| c.get_mut(bsp)).ok_or_else(|| lerr(format!("{bsp}: not a record of {stem}")))?;
+    let mut bytes = match rec.get("bin") {
+        Some(b) => crate::error::read(&dir.join(s(b)))?,
+        None => graph::unhex(rec.get("bytes").unwrap_or(&json!([])))?,
+    };
+    let rd = |b: &[u8]| -> f32 {
+        let a = [b[0], b[1], b[2], b[3]];
+        if big { f32::from_be_bytes(a) } else { f32::from_le_bytes(a) }
+    };
+    for node in bytes.chunks_exact_mut(0x20) {
+        let (a, b, c, dd) = (rd(&node[0..]), rd(&node[4..]), rd(&node[8..]), rd(&node[12..]));
+        let nd = (dd as f64 - (a as f64 * d[0] + b as f64 * d[1] + c as f64 * d[2])) as f32;
+        node[12..16].copy_from_slice(&if big { nd.to_be_bytes() } else { nd.to_le_bytes() });
+    }
+    let m = rec.as_object_mut().unwrap();
+    m.shift_remove("bin");
+    m.insert("bytes".into(), json!(graph::hexstr(&bytes)));
+    Ok(())
+}
+
+/// The first element of a quadrant's array (`items` or `fxPoints`) in the base world, by quadrant.
+fn first_quad_element(w: &mut WorldBuild, pre: &str, arr: &str) -> Result<Option<Value>> {
+    let re = Regex::new(&format!("^{}World/0/quads/(\\d+)/contents/{arr}$", regex::escape(pre))).unwrap();
+    let mut ids: Vec<(u64, String)> = w
+        .file_of
+        .keys()
+        .filter_map(|k| re.captures(k).map(|c| (c[1].parse().unwrap_or(u64::MAX), k.clone())))
+        .collect();
+    ids.sort();
+    for (_, id) in ids {
+        if let Some(f) = w.doc_of(&id)?.get("items").and_then(Value::as_array).and_then(|a| a.first()).cloned() {
+            return Ok(Some(f));
+        }
+    }
+    Ok(None)
 }
 
 /// re.fullmatch's groups (owned)
@@ -260,10 +316,15 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
             let Some(q) = q.filter(level::is_int) else { continue };
             let qi = py_int(&q)?;
             let aid = format!("{pre}World/0/quads/{}/contents/{arr}", s(&q));
-            if !w.file_of.contains_key(&aid) {
+            if !w.file_of.contains_key(&format!("{pre}World/0/quads/{}/contents", s(&q))) {
                 continue;
             }
-            let k0 = w.doc_of(&aid)?.get("items").filter(|x| truthy(x)).and_then(Value::as_array).map(Vec::len).unwrap_or(0);
+            // (a quadrant without any: an array of its own, made below)
+            let k0 = if w.file_of.contains_key(&aid) {
+                w.doc_of(&aid)?.get("items").filter(|x| truthy(x)).and_then(Value::as_array).map(Vec::len).unwrap_or(0)
+            } else {
+                0
+            };
             let a = added.get(&qi).copied().unwrap_or(0);
             names.insert(format!("level://{kind}/{n}"), format!("{aid}/{}", k0 + a));
             added.insert(qi, a + 1);
@@ -301,6 +362,8 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
         }
         let (stem, at) = nd.unwrap();
         let fm = fields.as_object().cloned().ok_or_else(|| pyerr("AttributeError", "'list' object has no attribute 'items'"))?;
+        let is_volume = re_full("World/0/volumes/\\d+", &rel).is_some();
+        let was = if is_volume { lpath(w.doc(&stem)?, &at).and_then(|r| r.get("center").cloned()) } else { None };
         let rec = lpath(w.doc(&stem)?, &at).unwrap().as_object_mut().unwrap();
         for (f, v) in fm {
             if let Some((a, b)) = f.split_once('/') {
@@ -312,6 +375,20 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
                 }
             } else {
                 rec.insert(f, v);
+            }
+        }
+        // a base volume moved: a BSP's shape with it (its center only moves it), marked for
+        // the port to put it in the grid's cells where it is now
+        if let Some(was) = was {
+            let rec = lpath(w.doc(&stem)?, &at).unwrap().clone();
+            let now = &rec["center"];
+            let d: Vec<f64> = ["x", "y", "z"].iter().map(|k| Ok(py_float(&now[*k])? - py_float(&was[*k])?)).collect::<Result<_>>()?;
+            if d.iter().any(|x| *x != 0.0) {
+                if rec["shape"].as_str() == Some("bsp") || py::eq(&rec["shape"], &json!(0)) {
+                    let bsp = rec["bsp"].as_str().map(str::to_string).ok_or_else(|| lerr(format!("level.jsonc/patches/{path}: a BSP volume without its BSP")))?;
+                    move_bsp(&mut w, &bsp, [d[0], d[1], d[2]], big).map_err(|e| lerr(format!("level.jsonc/patches/{path}: {}", e.msg)))?;
+                }
+                lpath(w.doc(&stem)?, &at).unwrap()["center"]["w"] = json!(LEVEL_VOLUME_MARK);
             }
         }
     }
@@ -328,7 +405,7 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
             im.insert("bsp".into(), json!(format!("{}/bsp", own_id(&mut own, "volumes", n))));
             im.insert(
                 "center".into(),
-                json!({"x": f64v((lo[0] + hi[0]) / 2.0), "y": f64v((lo[1] + hi[1]) / 2.0), "z": f64v((lo[2] + hi[2]) / 2.0), "w": 0.0}),
+                json!({"x": f64v((lo[0] + hi[0]) / 2.0), "y": f64v((lo[1] + hi[1]) / 2.0), "z": f64v((lo[2] + hi[2]) / 2.0), "w": LEVEL_VOLUME_MARK}),
             );
             let mut sum = 0.0;
             for k in 0..3 {
@@ -432,6 +509,7 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
     }
 
     // items: into their quadrant's contents
+    let mut new_arrays: IndexMap<String, (String, &str, &str, Vec<Value>)> = IndexMap::new();
     for (n, it) in items_of(dget(&lv, "items")?)? {
         let q = it.get("quad").cloned().unwrap_or(Value::Null);
         if !level::is_int(&q) {
@@ -448,10 +526,15 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
         let iid = format!("{cid}/items");
         let has = w.doc_of(&cid)?.get("items").is_some_and(truthy) && w.file_of.contains_key(&iid);
         if !has {
-            return Err(lerr(format!(
-                "level.jsonc/items/{n}: quadrant {} has no items yet (a new items table: not supported yet; put it where the world already has pickups)",
-                s(&q)
-            )));
+            // a quadrant without items: a copy of another quadrant's first, in an array of its own
+            let tmpl = first_quad_element(&mut w, &pre, "items")?
+                .ok_or_else(|| lerr(format!("level.jsonc/items/{n}: the world has no items to copy")))?;
+            let mut m = tmpl.as_object().cloned().unwrap_or_default();
+            for (k, v) in rec.as_object().unwrap() {
+                m.insert(k.clone(), v.clone());
+            }
+            new_arrays.entry(iid.clone()).or_insert_with(|| (cid.clone(), "QuadItem", "numItems", vec![])).3.push(Value::Object(m));
+            continue;
         }
         let idoc = w.doc_of(&iid)?;
         let arr = idoc["items"].as_array_mut().ok_or_else(|| pyerr("TypeError", "items"))?;
@@ -483,11 +566,9 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
         let src_item = if w.file_of.contains_key(&sid) { w.doc_of(&sid)?.get("items").and_then(Value::as_array).and_then(|a| a.get(idx)).cloned() } else { None };
         let Some(mut it) = src_item else { return Err(lerr(format!("level.jsonc/fxPoints/{n}/template: no such effect point"))) };
         let fid = format!("{pre}World/0/quads/{}/contents/fxPoints", s(&q));
-        if !w.file_of.contains_key(&fid) || !w.doc_of(&fid)?.get("items").is_some_and(Value::is_array) {
-            return Err(lerr(format!(
-                "level.jsonc/fxPoints/{n}/quad: quadrant {} has no effect points yet (not supported yet: put it where the world has some)",
-                s(&q)
-            )));
+        let cid = format!("{pre}World/0/quads/{}/contents", s(&q));
+        if !w.file_of.contains_key(&cid) {
+            return Err(lerr(format!("level.jsonc/fxPoints/{n}/quad: no quadrant {}", s(&q))));
         }
         let p = xyz(&fx.get("pos").cloned().unwrap_or(json!([0, 0, 0])))?;
         let wv = it.get("pos").and_then(|x| x.get("w")).cloned().unwrap_or(json!(0.0));
@@ -495,10 +576,39 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
         let im = it.as_object_mut().ok_or_else(|| pyerr("TypeError", "effect point"))?;
         im.insert("pos".into(), json!({"x": f64v(p[0]), "y": f64v(p[1]), "z": f64v(p[2]), "w": wv}));
         im.insert("mode".into(), mode);
+        if !w.file_of.contains_key(&fid) || !w.doc_of(&fid)?.get("items").is_some_and(Value::is_array) {
+            // a quadrant without effect points: an array of its own
+            new_arrays.entry(fid.clone()).or_insert_with(|| (cid, "QuadFxPoint", "numFxPoints", vec![])).3.push(it);
+            continue;
+        }
         let arr = w.doc_of(&fid)?["items"].as_array_mut().unwrap();
         arr.push(it);
         let k = arr.len();
         w.doc_of(&format!("{pre}World/0/quads/{}/contents", s(&q)))?["numFxPoints"] = json!(k);
+    }
+
+    // the arrays of quadrants that had none: raw records of the elements' bytes, the
+    // quadrant's contents pointing at them
+    for (aid, (cid, sname, count, elems)) in &new_arrays {
+        let (_, size) = c.env.struct_of(sname)?.ok_or_else(|| pyerr("TypeError", "no schema"))?;
+        let mut data = vec![];
+        let mut links = vec![];
+        for (i, el) in elems.iter().enumerate() {
+            let m = el.as_object().cloned().unwrap_or_default();
+            let (b, l) = c.encode_record(sname, &m, &format!("{aid}/{i}"), &format!("{aid}/{i}"))?;
+            links.extend(l.into_iter().map(|(o, t)| (o + (i * size) as u32, json!(t))));
+            data.extend(b);
+        }
+        let stem = w.add_raw(aid, &data, &links);
+        let anchors: Map<String, Value> = (0..elems.len()).map(|i| (i.to_string(), json!(format!("0x{:x}", i * size)))).collect();
+        w.b.docs.get_mut(&format!("{stem}.jsonc")).unwrap()["anchors"] = Value::Object(anchors);
+        if let Some(e) = w.layout.last_mut() {
+            e["align"] = json!(32);
+        }
+        let field = if *sname == "QuadItem" { "items" } else { "fxPoints" };
+        let cd = w.doc_of(cid)?;
+        cd[field] = json!(aid);
+        cd[*count] = json!(elems.len());
     }
 
     // objectives: an entry of the World's objectives and its info (WorldObjectiveInfo)

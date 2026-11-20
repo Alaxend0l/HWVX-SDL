@@ -93,13 +93,16 @@ try:
     check("a BSP volume without a BSP: an error", False)
 except LV.LevelError as ex:
     check("a BSP volume without a BSP: an error", "volumes/nobsp" in str(ex), ex)
-lv["items"]["nowhere"] = {"pos": [0, 0, 0], "quad": 16, "id": 1}
+lv["items"]["nowhere"] = {"pos": [1, 2, 3], "quad": 16, "id": 1}
 (proj / "level.jsonc").write_text(json.dumps(lv, indent=2))
-try:
-    LP.build_cached(proj, data, cache, scratch / "worlds")
-    check("an item in a quadrant without items: an error", False)
-except LV.LevelError as ex:
-    check("an item in a quadrant without items: an error", "items/nowhere" in str(ex), ex)
+out3, _, _ = LP.build_cached(proj, data, cache, scratch / "worlds")
+ext3, pj3 = scratch / "extract3" / "ch1_l2", scratch / "proj-out3"
+subprocess.run([str(hx), "extract", str(out3), str(ext3)], check=True, capture_output=True)
+GR.Extractor(GR.Source(ext3 / "00_world_0"), pj3, __import__("xdl_struct").Schemas()).run()
+c16 = GR.read_jsonc(pj3 / "World/0/quads/16/contents.jsonc")
+i16 = GR.read_jsonc(pj3 / "World/0/quads/16/contents/items.jsonc")["items"] if c16["numItems"] else []
+check("an item in a quadrant without items: an array of its own", c16["numItems"] == 1 and i16[0]["id"] == 1 and
+      i16[0]["pos"]["x"] == 1 and i16[0]["pos"]["z"] == 3, (c16, i16))
 
 print("FAILED" if fails else "all passed", f"({fails} failures)" if fails else "")
 sys.exit(1 if fails else 0)

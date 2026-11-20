@@ -70,6 +70,11 @@ class PackCompiler(LV.Compiler):
         raise LV.LevelError(f"{where}: {s}: the level has nothing of that name")
 
 
+# the center's w (padding the game never reads) of the volumes a level appends: "LVL1" as an
+# f32 (0x4C564C31); the port adds the volumes so marked to the volume grid (Port_Level.c)
+LEVEL_VOLUME_MARK = 56176836.0
+
+
 def raw_doc(nid, data, links):
     return {"id": nid, "size": len(data), "bytes": bytes(data).hex(),
             "links": {hex(off): link for off, link in links}}
@@ -140,7 +145,7 @@ def volume_item(v, resolve=None, where="level.jsonc/volumes"):
         c = {"x": c[0], "y": c[1], "z": c[2]}
     r = v.get("radius")
     it = {"editorId": 0, "enabled": v.get("enabled", 1), "shape": v.get("shape", "sphere"),
-          "type": v.get("type", "airbox"), "center": {"x": float(c["x"]), "y": float(c["y"]), "z": float(c["z"]), "w": 0.0},
+          "type": v.get("type", "airbox"), "center": {"x": float(c["x"]), "y": float(c["y"]), "z": float(c["z"]), "w": LEVEL_VOLUME_MARK},
           "radius": float(r) if r is not None else 0.0,
           "radiusSq": float(v.get("radiusSq", float(r) * float(r) if r is not None else 0.0)),
           "bsp": None, "data": None}
@@ -210,9 +215,10 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
         for n, it in (lv.get(kind) or {}).items():
             q = it.get("quad") if isinstance(it, dict) else None
             aid = f"{pre}World/0/quads/{q}/contents/{arr}"
-            if not isinstance(q, int) or aid not in W.file_of:
+            if not isinstance(q, int) or f"{pre}World/0/quads/{q}/contents" not in W.file_of:
                 continue
-            k0 = len(W.doc(W.file_of[aid]).get("items") or [])
+            # (a quadrant without any: an array of its own, made below)
+            k0 = len(W.doc(W.file_of[aid]).get("items") or []) if aid in W.file_of else 0
             names[f"level://{kind}/{n}"] = f"{aid}/{k0 + added.get(q, 0)}"
             added[q] = added.get(q, 0) + 1
     hdr = W.B.pack["pack"]["header"]
@@ -250,7 +256,7 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             lo, hi = v["box"]["min"], v["box"]["max"]
             it["shape"] = "bsp"
             it["bsp"] = own_id("volumes", n) + "/bsp"
-            it["center"] = {"x": (lo[0] + hi[0]) / 2, "y": (lo[1] + hi[1]) / 2, "z": (lo[2] + hi[2]) / 2, "w": 0.0}
+            it["center"] = {"x": (lo[0] + hi[0]) / 2, "y": (lo[1] + hi[1]) / 2, "z": (lo[2] + hi[2]) / 2, "w": LEVEL_VOLUME_MARK}
             it["radius"] = 0.5 * math.sqrt(sum((hi[k] - lo[k]) ** 2 for k in range(3)))
             it["radiusSq"] = 0.0
         if isinstance(v.get("data"), dict):
@@ -318,6 +324,17 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
         world["numTileCars"] = len(tc["items"])
 
     # items: into their quadrant's contents
+    new_arrays = {}     # array id: (contents id, struct, count field, elements)
+
+    def first_quad_element(arr):
+        """the first element of a quadrant's array (items, fxPoints) in the base world, by quadrant"""
+        r = re.compile(re.escape(pre) + r"World/0/quads/(\d+)/contents/" + arr)
+        for _, i in sorted((int(m.group(1)), k) for k in W.file_of for m in [r.fullmatch(k)] if m):
+            a = W.doc(W.file_of[i]).get("items")
+            if isinstance(a, list) and a:
+                return a[0]
+        return None
+
     for n, it in (lv.get("items") or {}).items():
         q = it.get("quad")
         if not isinstance(q, int):
@@ -335,8 +352,11 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
             idoc["items"].append(dict(copy.deepcopy(idoc["items"][0]), **rec) if idoc["items"] else rec)
             cdoc["numItems"] = len(idoc["items"])
         else:
-            raise LV.LevelError(f"level.jsonc/items/{n}: quadrant {q} has no items yet (a new items table: "
-                                "not supported yet; put it where the world already has pickups)")
+            # a quadrant without items: a copy of another quadrant's first, in an array of its own
+            tmpl = first_quad_element("items")
+            if tmpl is None:
+                raise LV.LevelError(f"level.jsonc/items/{n}: the world has no items to copy")
+            new_arrays.setdefault(iid, (cid, "QuadItem", "numItems", []))[3].append(dict(copy.deepcopy(tmpl), **rec))
 
     # effect points: copies of a base one (its emitter, corona), into their quadrant
     for n, fx in (lv.get("fxPoints") or {}).items():
@@ -349,17 +369,36 @@ def build_world(project, base_project, extract_dir, out_archive, skip_intro=Fals
         fid = f"{pre}World/0/quads/{q}/contents/fxPoints"
         if src is None or not isinstance(src.get("items"), list) or int(m.group(2)) >= len(src["items"]):
             raise LV.LevelError(f"level.jsonc/fxPoints/{n}/template: no such effect point")
-        if fid not in W.file_of or not isinstance(W.doc(W.file_of[fid]).get("items"), list):
-            raise LV.LevelError(f"level.jsonc/fxPoints/{n}/quad: quadrant {q} has no effect points yet "
-                                "(not supported yet: put it where the world has some)")
+        cid = f"{pre}World/0/quads/{q}/contents"
+        if cid not in W.file_of:
+            raise LV.LevelError(f"level.jsonc/fxPoints/{n}/quad: no quadrant {q}")
         it = copy.deepcopy(src["items"][int(m.group(2))])
         p = fx.get("pos", [0, 0, 0])
         it["pos"] = {"x": float(p[0]), "y": float(p[1]), "z": float(p[2]), "w": it.get("pos", {}).get("w", 0.0)}
         it["mode"] = fx.get("mode", it.get("mode", "on"))
+        if fid not in W.file_of or not isinstance(W.doc(W.file_of[fid]).get("items"), list):
+            # a quadrant without effect points: an array of its own
+            new_arrays.setdefault(fid, (cid, "QuadFxPoint", "numFxPoints", []))[3].append(it)
+            continue
         fdoc = W.doc(W.file_of[fid])
         fdoc["items"].append(it)
         cdoc = W.doc(W.file_of[f"{pre}World/0/quads/{q}/contents"])
         cdoc["numFxPoints"] = len(fdoc["items"])
+
+    # the arrays of quadrants that had none: raw records of the elements' bytes, the quadrant's
+    # contents pointing at them
+    for aid, (cid, sname, count, elems) in new_arrays.items():
+        _, size = LV.struct_of(sname)
+        data, links = bytearray(), []
+        for i, el in enumerate(elems):
+            b, l = C.encode_record(sname, el, f"{aid}/{i}", f"{aid}/{i}")
+            links += [(o + i * size, t) for o, t in sorted(l.items())]
+            data += b
+        stem = W.add_raw(aid, bytes(data), links, align=32)
+        W.B.docs[stem + ".jsonc"]["anchors"] = {str(i): hex(i * size) for i in range(len(elems))}
+        cdoc = W.doc(W.file_of[cid])
+        cdoc["items" if sname == "QuadItem" else "fxPoints"] = aid
+        cdoc[count] = len(elems)
 
     # objectives: an entry of the World's objectives and its info (WorldObjectiveInfo)
     obs = list((lv.get("objectives") or {}).items())

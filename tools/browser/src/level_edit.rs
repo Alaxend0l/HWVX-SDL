@@ -37,7 +37,7 @@ pub enum Sel {
 /// The base world's tables the editor lists, with their labels.
 pub const BASE_TABLES: [(&str, &str); 7] = [
     ("tileCars", "Starts (tile cars)"),
-    ("volumes", "Airbox volumes"),
+    ("volumes", "Volumes"),
     ("items", "Items"),
     ("fxPoints", "Effect points"),
     ("timers", "Timers"),
@@ -546,8 +546,18 @@ impl Browser {
                 match s {
                     Some(Sel::Base(t, _)) if t == "tileCars" => {}
                     Some(Sel::Base(t, path)) if t == "volumes" => {
-                        let r = self.base_entry(path.as_str()).and_then(|e| e["radius"].as_f64()).unwrap_or(5.0);
-                        marks.push(json!({"kind": "sphere", "pos": pos, "radius": r, "color": yellow}));
+                        let e = self.base_entry(path.as_str());
+                        if let Some((lo, hi, mid)) = e.and_then(|e| Some((vec3(&e["min"])?, vec3(&e["max"])?, vec3(&e["pos"])?))) {
+                            // a box (BSP): its box, moved as its place is
+                            let d = [pos[0] - mid[0], pos[1] - mid[1], pos[2] - mid[2]];
+                            let (lo, hi) = ([lo[0] + d[0], lo[1] + d[1], lo[2] + d[2]], [hi[0] + d[0], hi[1] + d[1], hi[2] + d[2]]);
+                            for (a, b) in box_edges(lo, hi) {
+                                marks.push(json!({"kind": "line", "pos": a, "to": b, "color": yellow}));
+                            }
+                        } else {
+                            let r = e.and_then(|e| e["radius"].as_f64()).unwrap_or(5.0);
+                            marks.push(json!({"kind": "sphere", "pos": pos, "radius": r, "color": yellow}));
+                        }
                     }
                     Some(Sel::Base(_, _)) => marks.push(json!({"kind": "cross", "pos": pos, "radius": 4.0, "color": yellow})),
                     _ => {}
@@ -586,15 +596,20 @@ impl Browser {
         }
     }
 
-    /// A base record's place (and a start's rotY), as the level's patches put it.
+    /// A base record's place (and a start's rotY), as the level's patches put it. A box (BSP)
+    /// volume's place is its box's middle; its center (which the game reads for spheres only)
+    /// is how far a level moves it: its place moves as much as the patched center differs from
+    /// the center the viewer reported with the box.
     pub(crate) fn base_place(&self, t: &str, path: &str) -> Option<([f32; 3], Option<f64>)> {
         let p = self.level.edit.proj.as_ref()?;
         let e = self.base_entry(path)?;
         let mut c = vec3(&e["pos"])?;
         let f = pos_field(t);
+        let bsp = t == "volumes" && e["shape"] == "bsp";
+        let was = vec3(&e["center"]).unwrap_or([0.0; 3]);
         for (i, a) in ["x", "y", "z"].iter().enumerate() {
             if let Some(v) = p.patch(path, &format!("{f}/{a}")).and_then(Value::as_f64) {
-                c[i] = v as f32;
+                c[i] = if bsp { c[i] + (v as f32 - was[i]) } else { v as f32 };
             }
         }
         let rot = (t == "tileCars").then(|| p.patch(path, "rotY").and_then(Value::as_f64).or_else(|| e["rotY"].as_f64()).unwrap_or(0.0));
@@ -796,8 +811,15 @@ impl Browser {
             }
             Sel::Base(t, path) => {
                 let f = pos_field(t);
+                // a box (BSP) volume: its center moved by as much as its box's middle (base_place)
+                let e = self.level.edit.base.get(table_of(path)).and_then(|l| l.iter().find(|e| e["path"] == path.as_str()));
+                let bsp = e.filter(|e| t == "volumes" && e["shape"] == "bsp").and_then(|e| Some((vec3(&e["pos"])?, vec3(&e["center"]).unwrap_or([0.0; 3]))));
                 for (i, a) in ["x", "y", "z"].iter().enumerate() {
-                    p.set_patch(path, &format!("{f}/{a}"), Some(json!(round(c[i]))));
+                    let v = match bsp {
+                        Some((pos, was)) => was[i] + (round(c[i]) as f32 - pos[i]),
+                        None => round(c[i]) as f32,
+                    };
+                    p.set_patch(path, &format!("{f}/{a}"), Some(json!(if bsp.is_some() { (v as f64 * 100.0).round() / 100.0 } else { round(c[i]) })));
                 }
                 if let (Some(r), true) = (rot, t == "tileCars") {
                     p.set_patch(path, "rotY", Some(json!((r * 10000.0).round() / 10000.0)));
@@ -1260,8 +1282,8 @@ impl Browser {
             }
             for (t, title) in BASE_TABLES {
                 let Some(list) = self.level.edit.base.get(t) else { continue };
-                // airboxes: only the spheres (the BSP ones can't be moved)
-                let rows: Vec<&Value> = list.iter().filter(|e| t != "volumes" || e["shape"] == "sphere").filter(|e| keep(e["path"].as_str().unwrap_or(""))).collect();
+                // volumes: spheres, and boxes (BSP) whose box the viewer found
+                let rows: Vec<&Value> = list.iter().filter(|e| t != "volumes" || e.get("pos").is_some()).filter(|e| keep(e["path"].as_str().unwrap_or(""))).collect();
                 egui::CollapsingHeader::new(format!("{title} ({})", rows.len())).id_salt(t).show(ui, |ui| {
                     for e in rows.into_iter().take(400) {
                         let path = e["path"].as_str().unwrap_or("").to_string();
@@ -1659,7 +1681,7 @@ impl Browser {
             };
             if let Some(d) = defaults {
                 ui.separator();
-                ui.label(format!("{t} settings (the game finds new ones only once the volume grid lists them: see the warning)"));
+                ui.label(format!("{t} settings"));
                 // the type's defaults shown; written only once a field of them changes
                 let mut dv = if v["data"].is_object() { v["data"].clone() } else { d };
                 let kinds = HashMap::new();
@@ -1858,7 +1880,7 @@ impl Browser {
         let prefix = p.base_prefix();
         for (t, _) in BASE_TABLES {
             if let Some(list) = self.level.edit.base.get(t) {
-                for e in list.iter().filter(|e| t != "volumes" || e["shape"] == "sphere").take(300) {
+                for e in list.iter().filter(|e| t != "volumes" || e.get("pos").is_some()).take(300) {
                     let path = e["path"].as_str().unwrap_or("");
                     out.push((path.trim_start_matches("World/0/").to_string(), format!("{prefix}{path}")));
                 }

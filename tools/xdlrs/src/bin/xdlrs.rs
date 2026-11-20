@@ -45,6 +45,7 @@
 //!                                        bars (roles 70-73), labels and value->length curve (cars.rs)
 //!   xdlrs mix pair LEFT.bmp RIGHT.bmp OUT.png [--half]
 //!                                        two frame dumps side by side (tools/mix_pair_shots.sh)
+//!   xdlrs frame mean FRAME.bmp           a frame dump's mean colour: "R G B" (0-255; tools/level_volume_test.sh)
 //!   xdlrs shaders gen [--tools DIR] [--fresh]
 //!                                        src/port/gx_shaders.h from src/port/shaders/ and
 //!                                        tools/tevkeys.txt; unchanged shaders keep their entries (shaders.rs)
@@ -1088,6 +1089,15 @@ fn main() -> ExitCode {
         (Some("graph"), Some("extract")) => cmd_graph_extract(&shifted(2)),
         (Some("graph"), Some("build")) => cmd_graph_build(&shifted(2)),
         (Some("probe"), Some(_)) => probe(&a),
+        (Some("frame"), Some("mean")) if a.pos.len() == 3 => match read_bmp(&a.pos[2]) {
+            Ok((w, h, px)) => {
+                let n = (w as u64 * h as u64).max(1);
+                let sum = |c: usize| px.iter().skip(c).step_by(3).map(|&v| v as u64).sum::<u64>() / n;
+                println!("{} {} {}", sum(0), sum(1), sum(2));
+                Ok(0)
+            }
+            Err(e) => Err(Error::io(e)),
+        },
         _ => {
             eprintln!("usage: see the top of tools/xdlrs/src/bin/xdlrs.rs");
             return ExitCode::from(2);

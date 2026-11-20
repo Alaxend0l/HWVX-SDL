@@ -884,7 +884,7 @@ impl<'e> Compiler<'e> {
     }
 
     /// bytes and {offset: link} of one record of struct sname from its JSON
-    fn encode_record(&mut self, sname: &str, obj: &Map<String, Value>, wh: &str, pid: &str) -> Result<(Vec<u8>, BTreeMap<u32, String>)> {
+    pub(crate) fn encode_record(&mut self, sname: &str, obj: &Map<String, Value>, wh: &str, pid: &str) -> Result<(Vec<u8>, BTreeMap<u32, String>)> {
         let (props, size) = self.env.struct_of(sname)?.ok_or_else(|| pyerr("TypeError", "cannot unpack non-iterable NoneType object"))?;
         let mut buf = vec![0u8; size];
         let mut links = BTreeMap::new();
@@ -988,10 +988,6 @@ impl<'e> Compiler<'e> {
                 let did = format!("level://volumes/{name}/data");
                 self.add_part(&did, "data", raw, BTreeMap::new())?;
                 v.insert("data".into(), json!(did));
-                let t = v.get("type").map(|t| s(t)).unwrap_or_else(|| "None".into());
-                self.warnings.push(format!(
-                    "{wh}/type: a {t} volume of the level's own isn't in the world's volume grid (VolumeHolder): only the airbox triggers find a volume without it"
-                ));
             }
             Some(d) if !d.is_null() => {
                 v.insert("data".into(), d);
@@ -1363,11 +1359,7 @@ impl<'e> Compiler<'e> {
         for (n, it) in ditems(&or_empty(dget(lv, "items")?))? {
             let w = format!("{wh}/items/{n}");
             let q = s(it.get("quad").ok_or_else(|| pyerr("KeyError", "'quad'"))?);
-            if let Some(b) = &self.base
-                && !b.count(&format!("World/0/quads/{q}/contents/items"))?.is_some_and(|c| c > 0)
-            {
-                return Err(lerr(format!("{w}/quad: quadrant {q} has no items of its own to copy")));
-            }
+            // (a quadrant without items: the port copies another quadrant's first, Port_Level.c)
             let g = self.group(&mut groups, &format!("World/0/quads/{q}/contents"), "QuadContents", "items", &w)?;
             let mut f = Map::new();
             f.insert("pos".into(), it.get("pos").cloned().ok_or_else(|| pyerr("KeyError", "'pos'"))?);
