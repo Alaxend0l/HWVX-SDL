@@ -11,6 +11,7 @@ use hwvx_browser::testdrive::{self, Prepared, TestDrive};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
 
@@ -46,6 +47,10 @@ pub(crate) struct TracksState {
     pack_ready: bool,
     /// the mod folder last shown: a mod opened with no car or weapon selected shows its first track
     opened: Option<PathBuf>,
+    /// the track whose picture is set to "your own" (before a PNG is chosen)
+    own_mode: Option<String>,
+    /// the own picture's preview: its file, its time, the texture and size (or why not)
+    own_preview: Option<(PathBuf, Option<std::time::SystemTime>, Result<(egui::TextureHandle, [usize; 2]), String>)>,
 }
 
 fn base_text(n: u32, worlds: &[String]) -> String {
@@ -284,8 +289,31 @@ impl Browser {
 
     fn track_picture_ui(&mut self, ui: &mut egui::Ui, uid: &str, entry: &Value, base: u32) {
         ui.strong("Picture in the world select");
-        self.track_pictures_load();
         let cur = entry["thumbnail"].as_str().map(str::to_string);
+        let own = cur.as_deref().is_some_and(tracks::is_own_picture);
+        let mut want_own = own || self.content.tracks.own_mode.as_deref() == Some(uid);
+        ui.horizontal(|ui| {
+            ui.label("Picture:");
+            ui.radio_value(&mut want_own, false, "the game's");
+            ui.radio_value(&mut want_own, true, "your own");
+        });
+        if want_own != (own || self.content.tracks.own_mode.as_deref() == Some(uid)) {
+            if want_own {
+                self.content.tracks.own_mode = Some(uid.to_string());
+            } else {
+                self.content.tracks.own_mode = None;
+                if own {
+                    if let Some(p) = self.content.proj.as_mut() {
+                        p.set_track_str(uid, "thumbnail", tracks::picture_link(base).as_deref());
+                    }
+                }
+            }
+        }
+        if want_own {
+            self.track_own_picture_ui(ui, uid, cur.as_deref().filter(|c| tracks::is_own_picture(c)));
+            return;
+        }
+        self.track_pictures_load();
         let cur_tex = cur.as_deref().and_then(tracks::picture_texture);
         match cur.as_deref() {
             None => ui.label("the base track's own"),
@@ -317,6 +345,54 @@ impl Browser {
         }
         if let (Some(v), Some(p)) = (pick, self.content.proj.as_mut()) {
             p.set_track_str(uid, "thumbnail", v.as_deref());
+        }
+    }
+
+    /// "your own": a PNG chosen from disk, copied into the mod's images/, with its preview as
+    /// the select draws it (stretched to about 5:3).
+    fn track_own_picture_ui(&mut self, ui: &mut egui::Ui, uid: &str, cur: Option<&str>) {
+        if ui.button("Choose image…").on_hover_text(format!("a PNG of yours, at most {0} x {0}: copied into the mod's images/", tracks::OWN_PICTURE_SIDE)).clicked() {
+            if let Some(f) = choose_png("The track's picture (a PNG)") {
+                let r = self.content.proj.as_mut().map(|p| p.set_track_own_picture(uid, Path::new(&f)));
+                match r {
+                    Some(Ok(rel)) => {
+                        self.content.tracks.own_preview = None;
+                        self.track_note(format!("the picture is {rel}"), false);
+                    }
+                    Some(Err(e)) => self.track_note(format!("not taken: {e}"), true),
+                    None => {}
+                }
+            }
+        }
+        let Some(rel) = cur else {
+            ui.label(egui::RichText::new("No picture of yours yet: until there is, the select shows the base track's.").weak());
+            return;
+        };
+        let Some(path) = self.content.proj.as_ref().map(|p| p.dir.join(rel)) else { return };
+        let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let fresh = self.content.tracks.own_preview.as_ref().is_some_and(|(p, s, _)| *p == path && *s == stamp);
+        if !fresh {
+            let r = tracks::read_picture(&path).map(|pic| {
+                let size = [pic.w, pic.h];
+                let img = egui::ColorImage::from_rgba_unmultiplied(size, &pic.rgba);
+                (self.ctx.load_texture("track_own_picture", img, egui::TextureOptions::LINEAR), size)
+            });
+            self.content.tracks.own_preview = Some((path.clone(), stamp, r));
+        }
+        ui.label(egui::RichText::new(rel).monospace());
+        match &self.content.tracks.own_preview {
+            Some((_, _, Ok((h, size)))) => {
+                ui.add(egui::Image::new(h).fit_to_exact_size(egui::vec2(250.0, 150.0)).corner_radius(4.0));
+                ui.label(
+                    egui::RichText::new(format!("{} x {}: the game draws it at the base picture's 256 x 256, stretched to the select's frame (about 5:3) as it does its own", size[0], size[1]))
+                        .small()
+                        .weak(),
+                );
+            }
+            Some((_, _, Err(e))) => {
+                ui.colored_label(egui::Color32::LIGHT_RED, e);
+            }
+            None => {}
         }
     }
 
@@ -498,4 +574,31 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// A PNG, in the system's dialog (None: cancelled, or no dialog here). The prompt reaches it as
+/// an argument or an environment variable, never inside a script's text.
+fn choose_png(prompt: &str) -> Option<String> {
+    let out = if cfg!(target_os = "macos") {
+        Command::new("osascript")
+            .args(["-e", "on run argv", "-e", "POSIX path of (choose file with prompt (item 1 of argv) of type {\"png\"})", "-e", "end run", prompt])
+            .output()
+    } else if cfg!(windows) {
+        xdlrs::command("powershell")
+            .env("HWVX_PROMPT", prompt)
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'PNG image (*.png)|*.png'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
+            ])
+            .output()
+    } else {
+        Command::new("zenity")
+            .args(["--file-selection", &format!("--title={prompt}"), "--file-filter=PNG image | *.png *.PNG"])
+            .output()
+            .or_else(|_| Command::new("kdialog").args(["--title", prompt, "--getopenfilename", ".", "*.png *.PNG|PNG image"]).output())
+    };
+    let out = out.ok().filter(|o| o.status.success())?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!s.is_empty()).then_some(s)
 }

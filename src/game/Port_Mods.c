@@ -1044,7 +1044,19 @@ void Port_ModsSyncLock(const char *path) {
                 }
                 changed |= SetStr(e2, "alias", Str(x, "extends"));
                 changed |= SetStr(e2, "name", Str(x, "name"));
-                changed |= SetStr(e2, "thumbnail", Str(x, "thumbnail"));
+                {
+                    /* a picture of the mod's own (images/x.png): "@mod\<id>\<path>", found by
+                     * Port_ModsFilePath when the select draws it (Port_ModImages.c) */
+                    const char *th = Str(x, "thumbnail");
+                    char *own = NULL;
+
+                    if (th != NULL && SDL_strncmp(th, "base://", 7) != 0 && SDL_strncmp(th, "proto://", 8) != 0 && SafeName(th)) {
+                        SDL_asprintf(&own, "@mod\\%s\\%s",
+                                     s_mods[i].info.id + (SDL_strncmp(s_mods[i].info.id, "uid://", 6) == 0 ? 6 : 0), th);
+                    }
+                    changed |= SetStr(e2, "thumbnail", own != NULL ? own : th);
+                    SDL_free(own);
+                }
                 if (Str(x, "worldPack") != NULL && SafeName(Str(x, "worldPack"))) {
                     /* a world pack of the mod's own (built on this machine: tools/xdl_level_pack.py):
                      * "@mod\<id>\<file without its extension>", found by Port_ModsResolveFile */
@@ -1588,6 +1600,53 @@ char *Port_ModsResolveFile(const char *name, int *format) {
             } else {
                 SDL_free(cand);
             }
+        }
+    }
+    SDL_free(rel);
+    return path;
+}
+
+char *Port_ModsFilePath(const char *name) {
+    const char *rest, *slash;
+    char id[64], *rel, *p, *path = NULL;
+    int i;
+
+    if (name == NULL || SDL_strncmp(name, "@mod", 4) != 0 || (name[4] != '\\' && name[4] != '/')) {
+        return NULL;
+    }
+    rest = name + 5;
+    for (slash = rest; *slash && *slash != '\\' && *slash != '/'; slash++) {
+    }
+    if (*slash == 0 || (size_t)(slash - rest) >= sizeof(id)) {
+        return NULL;
+    }
+    SDL_memcpy(id, rest, (size_t)(slash - rest));
+    id[slash - rest] = 0;
+    if ((rel = SDL_strdup(slash + 1)) == NULL) {
+        return NULL;
+    }
+    for (p = rel; *p; p++) {
+        if (*p == '\\') {
+            *p = '/';
+        }
+    }
+    for (i = 0; i < s_numMods && path == NULL; i++) {
+        const char *mid = s_mods[i].info.id;
+        SDL_PathInfo info;
+
+        if (!Enabled(&s_mods[i]) || mid == NULL || !SafeName(rel)) {
+            continue;
+        }
+        if (SDL_strncmp(mid, "uid://", 6) == 0) {
+            mid += 6;
+        }
+        if (SDL_strcmp(mid, id) != 0) {
+            continue;
+        }
+        SDL_asprintf(&path, "%s%s", s_mods[i].dir, rel);
+        if (path != NULL && !(SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE)) {
+            SDL_free(path);
+            path = NULL;
         }
     }
     SDL_free(rel);

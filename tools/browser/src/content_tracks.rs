@@ -268,7 +268,71 @@ fn write_links(dir: &Path, links: &Map<String, Value>) -> Result<(), String> {
     std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap() + "\n").map_err(|e| format!("{}: {e}", p.display()))
 }
 
+/// A picture of the mod's own: at most this a side and this many bytes (the packer's and the
+/// game's limits, xdlrs modcheck::manifest::THUMB_MAX_*).
+pub const OWN_PICTURE_SIDE: u32 = xdlrs::modcheck::manifest::THUMB_MAX_SIDE;
+pub const OWN_PICTURE_BYTES: u64 = xdlrs::modcheck::manifest::THUMB_MAX_BYTES;
+/// Where the editor copies one: the mod folder's images/.
+pub const IMAGES: &str = "images";
+
+/// Is a thumbnail a picture of the mod's own (a .png path in it), not a base:// link?
+pub fn is_own_picture(thumb: &str) -> bool {
+    !thumb.contains("://") && thumb.to_ascii_lowercase().ends_with(".png")
+}
+
+/// A PNG read for a preview and the limits: RGBA, top row first.
+pub fn read_picture(path: &Path) -> Result<Picture, String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if meta.len() > OWN_PICTURE_BYTES {
+        return Err(format!("{}: {} bytes; a picture is at most {OWN_PICTURE_BYTES}", path.display(), meta.len()));
+    }
+    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let img = xdlrs::modcheck::image::read_png(&data).map_err(|e| format!("{}: {e}", path.display()))?;
+    if img.w as u32 > OWN_PICTURE_SIDE || img.h as u32 > OWN_PICTURE_SIDE {
+        return Err(format!("{}: {} x {}; a picture is at most {OWN_PICTURE_SIDE} x {OWN_PICTURE_SIDE}", path.display(), img.w, img.h));
+    }
+    Ok(Picture { texture: 0, w: img.w, h: img.h, rgba: img.px })
+}
+
 impl ModProject {
+    /// The track's picture of the mod's own, as a file (None: a base picture, or none).
+    pub fn track_own_picture(&self, uid: &str) -> Option<PathBuf> {
+        let t = self.doc[SECTION][uid]["thumbnail"].as_str().filter(|t| is_own_picture(t))?;
+        Some(self.dir.join(t))
+    }
+
+    /// A PNG of the modder's made the track's picture: checked (a PNG within the limits),
+    /// copied into the mod's images/ (named after the track and the file), the thumbnail set
+    /// to it. Ok: its path in the mod.
+    pub fn set_track_own_picture(&mut self, uid: &str, src: &Path) -> Result<String, String> {
+        read_picture(src)?;
+        let stem: String = src
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c.to_ascii_lowercase() } else { '-' })
+            .take(40)
+            .collect();
+        let stem = stem.trim_matches('-');
+        let id = uid.trim_start_matches("uid://");
+        let rel = if stem.is_empty() { format!("{IMAGES}/{id}.png") } else { format!("{IMAGES}/{id}-{stem}.png") };
+        let dest = self.dir.join(&rel);
+        std::fs::create_dir_all(self.dir.join(IMAGES)).map_err(|e| format!("{}: {e}", dest.display()))?;
+        let same = std::fs::canonicalize(src).ok().is_some_and(|a| std::fs::canonicalize(&dest).ok() == Some(a));
+        if !same {
+            std::fs::copy(src, &dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+        }
+        // the copy it replaces goes, when the editor made it for this track
+        if let Some(old) = self.track_own_picture(uid).filter(|o| *o != dest) {
+            if old.parent() == dest.parent() && old.file_name().is_some_and(|n| n.to_string_lossy().starts_with(id)) {
+                let _ = std::fs::remove_file(old);
+            }
+        }
+        self.set_track_str(uid, "thumbnail", Some(&rel));
+        Ok(rel)
+    }
+
     /// The mod's tracks: (uid, entry), in the file's order.
     pub fn tracks(&self) -> Vec<(String, Value)> {
         self.doc[SECTION].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default()
@@ -288,8 +352,15 @@ impl ModProject {
         uid
     }
 
-    /// The track gone, with its level link and its compiled level.
+    /// The track gone, with its level link, its compiled level and the picture the editor copied
+    /// for it.
     pub fn remove_track(&mut self, uid: &str) {
+        if let Some(old) = self.track_own_picture(uid) {
+            let id = uid.trim_start_matches("uid://");
+            if old.parent() == Some(&self.dir.join(IMAGES)) && old.file_name().is_some_and(|n| n.to_string_lossy().starts_with(id)) {
+                let _ = std::fs::remove_file(old);
+            }
+        }
         if let Some(m) = self.doc.get_mut(SECTION).and_then(Value::as_object_mut) {
             m.remove(uid);
         }
@@ -529,5 +600,69 @@ mod tests {
             return;
         }
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+mod own_picture_tests {
+    use super::*;
+
+    /// A PNG made here: a gradient (red across, blue down) with a yellow square in the middle.
+    pub fn gradient_png(w: u32, h: u32) -> Vec<u8> {
+        let mut px = vec![];
+        for y in 0..h {
+            for x in 0..w {
+                let inside = x >= w / 4 && x < w * 3 / 4 && y >= h / 4 && y < h * 3 / 4;
+                px.extend_from_slice(&if inside { [255, 230, 0, 255] } else { [(x * 255 / (w - 1)) as u8, 40, (y * 255 / (h - 1)) as u8, 255] });
+            }
+        }
+        let mut out = vec![];
+        let mut e = png::Encoder::new(&mut out, w, h);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        e.write_header().unwrap().write_image_data(&px).unwrap();
+        out
+    }
+
+    #[test]
+    fn a_picture_of_the_mods_own() {
+        let d = std::env::temp_dir().join(format!("hwvx-tracks-test-{}-own", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let mut p = ModProject::create(&d, "Pictures", "").unwrap();
+        let t = p.add_track(39, "Mine", true);
+        let srcs = d.with_extension("src");
+        std::fs::create_dir_all(&srcs).unwrap();
+        let src = srcs.join("My Picture.png");
+        std::fs::write(&src, gradient_png(320, 192)).unwrap();
+        let rel = p.set_track_own_picture(&t, &src).unwrap();
+        assert_eq!(rel, format!("images/{}-my-picture.png", t.trim_start_matches("uid://")));
+        assert_eq!(p.track_own_picture(&t), Some(d.join(&rel)));
+        assert_eq!(std::fs::read(d.join(&rel)).unwrap(), std::fs::read(&src).unwrap());
+        let pic = read_picture(&d.join(&rel)).unwrap();
+        assert_eq!((pic.w, pic.h), (320, 192));
+        // another replaces it (the old copy goes)
+        let src2 = srcs.join("second.png");
+        std::fs::write(&src2, gradient_png(64, 64)).unwrap();
+        let rel2 = p.set_track_own_picture(&t, &src2).unwrap();
+        assert!(!d.join(&rel).exists() && d.join(&rel2).exists());
+        // refused: too big, not a PNG
+        std::fs::write(&src2, gradient_png(1030, 4)).unwrap();
+        assert!(p.set_track_own_picture(&t, &src2).unwrap_err().contains("at most 1024"));
+        std::fs::write(&src2, b"nope").unwrap();
+        assert!(p.set_track_own_picture(&t, &src2).is_err());
+        assert_eq!(p.doc["tracks"][&t]["thumbnail"], rel2.as_str());
+        p.save().unwrap();
+        let schema: Value = serde_json::from_str(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/Mod.schema.json")).unwrap()).unwrap();
+        let errs = xdlrs::validate::MiniValidator::new(&schema).errors(&ModProject::open(&d).unwrap().doc);
+        assert!(errs.is_empty(), "{errs:?}");
+        // the track deleted: its copied picture goes too
+        let mut q = ModProject::open(&d).unwrap();
+        q.remove_track(&t);
+        assert!(!d.join(&rel2).exists());
+        // a base link is not one
+        p.set_track_str(&t, "thumbnail", picture_link(40).as_deref());
+        assert!(p.track_own_picture(&t).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&srcs);
     }
 }

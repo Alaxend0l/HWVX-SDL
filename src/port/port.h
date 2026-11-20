@@ -247,6 +247,8 @@ const char *Port_ProtoName(const char *fileName);
 #define PORT_MAX_TEXTURES 0x7FF
 /* Past them, the port's button prompt atlases (game/Port_Prompts.c): texture objects only. */
 #define PORT_PROMPT_TEXTURES 16
+/* Past those, a mod's own pictures (game/Port_ModImages.c): texture objects only. */
+#define PORT_MOD_IMAGE_TEXTURES 32
 /* The PC release's texture formats (pack header u16 0) as Texture.format
  * (Render_Texture_.c) once Port_Data.c has read them: PORT_TEX_PC | format,
  * clear of the GameCube's 0-4. gx_tex.c decodes them as port-only GX formats,
@@ -340,6 +342,10 @@ void Port_PromptsForget(u16 id);
 u16 Port_PromptTexture(u16 tex);
 int Port_PromptsInterface(s32 input);
 void Port_PromptsRestore(int old);
+/* game/Port_ModImages.c: the texture of a mod's own picture ("@mod\\<id>\\<path>.png", an
+ * entry's thumbnail in ids.lock), made at the size of texture `like` (the base picture it stands
+ * in for), or -1 (not one, or not loadable: logged once). */
+s32 Port_ModImageTexture(const char *link, s32 like);
 /* port.c: a repeatable run (HWVX_DETERMINISTIC, HWVX_SEED, HWVX_FIXEDSTEP):
  * the random seed to use (fallback when none is set), and the fixed frame
  * step in microseconds (0: measured time). */

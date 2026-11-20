@@ -12,6 +12,10 @@ use std::sync::OnceLock;
 pub const FORMAT_VERSION: i64 = 1;
 pub const RELEASES: [&str; 3] = ["gc", "pc", "ps2"];
 pub const AUDIO_EXT: [&str; 4] = [".wav", ".flac", ".ogg", ".mp3"];
+/// A mod's own picture (an entry's thumbnail): its sides and file size at most (the game's
+/// Port_ModImages.c refuses the same).
+pub const THUMB_MAX_SIDE: u32 = 1024;
+pub const THUMB_MAX_BYTES: u64 = 4 << 20;
 
 pub struct Res {
     pub uid: Regex,
@@ -23,6 +27,8 @@ pub struct Res {
     pub track: Regex,
     pub path: Regex,
     pub texkey: Regex,
+    /// a picture of the mod's own: a PNG in its folder
+    pub img: Regex,
 }
 
 pub fn res() -> &'static Res {
@@ -37,6 +43,7 @@ pub fn res() -> &'static Res {
         track: re_py(r"^base://mcp/track/([0-9]+)$"),
         path: re_py(r"^[A-Za-z0-9_]+/[0-9]+(/[A-Za-z0-9_]+)*$"),
         texkey: re_py(r"^texture/[0-9]+$"),
+        img: re_py(r"^[A-Za-z0-9_][A-Za-z0-9_./-]*\.png$"),
     })
 }
 
@@ -137,6 +144,47 @@ impl Manifest {
                 self.err(&format!("{w}.{k}"), "isn't a string");
                 None
             }
+        }
+    }
+
+    /// An entry's "thumbnail": a texture of the player's data (checked against it later), or
+    /// a PNG of the mod's own: a file in its folder, at most [`THUMB_MAX_SIDE`] a side and
+    /// [`THUMB_MAX_BYTES`] (the pack's PNG check sees its pixels, as every PNG's).
+    fn thumbnail(&mut self, e: &Value, w: &str) {
+        let rx = res();
+        let Some(th) = e.get("thumbnail").filter(|v| !v.is_null()) else { return };
+        let Some(s) = th.as_str() else {
+            return self.err(&format!("{w}.thumbnail"), "isn't a string");
+        };
+        if rx.tex.is_match(s) {
+            self.refs.insert(s.to_string());
+            return;
+        }
+        let wt = format!("{w}.thumbnail");
+        if !rx.img.is_match(s) {
+            return self.err(&wt, &format!("{} isn't the form expected (a base:// texture, or a .png of the mod: images/x.png)", py::str_repr(s)));
+        }
+        if s.split('/').any(|p| p == ".." || p.starts_with('.')) {
+            return self.err(&wt, "a .png inside the mod (no .., no hidden folders)");
+        }
+        let p = self.dir.join(s);
+        let Ok(meta) = std::fs::metadata(&p).map_err(|_| ()).and_then(|m| if m.is_file() { Ok(m) } else { Err(()) }) else {
+            return self.err(&wt, &format!("{s}: no such file in the mod"));
+        };
+        if meta.len() > THUMB_MAX_BYTES {
+            return self.err(&wt, &format!("{s}: {} bytes; a picture is at most {THUMB_MAX_BYTES}", meta.len()));
+        }
+        let head = std::fs::read(&p).unwrap_or_default();
+        if head.len() < 24 || &head[..8] != b"\x89PNG\r\n\x1a\n" || &head[12..16] != b"IHDR" {
+            return self.err(&wt, &format!("{s}: not a PNG"));
+        }
+        let wd = u32::from_be_bytes(head[16..20].try_into().unwrap());
+        let ht = u32::from_be_bytes(head[20..24].try_into().unwrap());
+        if wd == 0 || ht == 0 || wd > THUMB_MAX_SIDE || ht > THUMB_MAX_SIDE {
+            self.err(
+                &wt,
+                &format!("{s}: {wd} x {ht}; a picture is at most {THUMB_MAX_SIDE} x {THUMB_MAX_SIDE} (it is drawn at the base picture's size, 256 x 256 in the world select)"),
+            );
         }
     }
 
@@ -270,9 +318,7 @@ impl Manifest {
                     );
                 }
                 self.get_str(e, "name", &w, false, None);
-                if let Some(th) = self.get_str(e, "thumbnail", &w, false, Some(&rx.tex)) {
-                    self.refs.insert(th);
-                }
+                self.thumbnail(e, &w);
                 if eo.get("unlocked").is_some_and(|u| !u.is_boolean()) {
                     self.err(&format!("{w}.unlocked"), "true or false");
                 }
@@ -349,9 +395,7 @@ impl Manifest {
             }
             self.get_str(e, "name", &w, false, None);
             self.get_str(e, "world", &w, false, None);
-            if let Some(th) = self.get_str(e, "thumbnail", &w, false, Some(&rx.tex)) {
-                self.refs.insert(th);
-            }
+            self.thumbnail(e, &w);
             if eo.get("unlocked").is_some_and(|u| !u.is_boolean()) {
                 self.err(&format!("{w}.unlocked"), "true or false");
             }

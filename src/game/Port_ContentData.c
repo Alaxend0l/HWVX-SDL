@@ -536,6 +536,8 @@ static void FillItems(ExtList *x, int log) {
         }
         if (Port_ContentLook(x->kind, num, &name, &suffix, &thumb) == 2) {
             x->items[i] = x->orig[x->origCount - 1];   /* reserved: the list's own last ("?") */
+        } else if (what == EXT_PICTURES && (tex = Port_ModImageTexture(thumb, alias >= 0 && (u32)alias < x->origCount ? (s32)x->orig[alias] : -1)) >= 0) {
+            x->items[i] = (u32)tex;   /* a picture of its mod's own (Port_ModImages.c) */
         } else if (what == EXT_PICTURES && (tex = TextureOfLink(thumb)) >= 0) {
             x->items[i] = (u32)tex;
         } else {
