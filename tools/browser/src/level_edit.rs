@@ -127,6 +127,13 @@ pub struct EditState {
     pub new_world: String,
     pub new_name: String,
     pub new_dir: String,
+    /// a Joyride world as the template: its gears, key and the objectives that count them kept
+    /// (off: removed, the default)
+    pub new_keep_collectibles: bool,
+    /// a level being made on another thread (its template's world extracted first)
+    pub new_making: Option<Receiver<Result<PathBuf, String>>>,
+    /// (--new-level) the "on" list opens once
+    pub new_open_on: bool,
     /// the menu's File > New level: the dialog opens (once)
     pub new_requested: bool,
 }
@@ -645,9 +652,29 @@ impl Browser {
     }
 
     /// "New level": a project extending a mode's level in its world (its retail script kept,
-    /// to be changed), in a folder of its own.
+    /// to be changed), in a folder of its own. On: one of the mode's retail worlds, or any Joyride
+    /// world as a template (every mode on every world: Challenge on world 4, which retail has no
+    /// challenge on); a template gets the clock, rules and round flow the Joyride script lacks,
+    /// and by default its gears, key and their objectives removed (xdlrs::level_template).
     pub(crate) fn new_level_dialog(&mut self, ui: &mut egui::Ui) {
+        // a level being made: a template's world is extracted first (a few seconds, once)
+        if let Some(rx) = self.level.edit.new_making.take() {
+            match rx.try_recv() {
+                Err(TryRecvError::Empty) => {
+                    self.level.edit.new_making = Some(rx);
+                    ui.ctx().request_repaint_after(Duration::from_millis(100));
+                }
+                Err(TryRecvError::Disconnected) => self.note("making the level stopped".into()),
+                Ok(Ok(dir)) => {
+                    let d = dir.display().to_string();
+                    self.open_level(&d);
+                }
+                Ok(Err(m)) => self.note(m),
+            }
+        }
         let open = std::mem::take(&mut self.level.edit.new_requested).then_some(true);
+        let making = self.level.edit.new_making.is_some();
+        let mut make: Option<NewWorld> = None;
         egui::CollapsingHeader::new("New level…").open(open).show(ui, |ui| {
             let e = &mut self.level.edit;
             if e.new_mode.is_empty() {
@@ -661,26 +688,33 @@ impl Browser {
                     }
                 });
             });
-            let prog = match e.new_mode.as_str() {
-                "mission" => "adventure",
-                m => m,
-            };
-            let worlds: Vec<(usize, String, String)> = self
-                .world
-                .list
-                .iter()
-                .filter(|w| w.mode == prog)
-                .enumerate()
-                .map(|(i, w)| (i, w.name.clone(), w.world.clone()))
-                .collect();
+            let worlds = new_level_worlds(&self.world.list, &e.new_mode);
             ui.horizontal(|ui| {
                 ui.label("on");
-                egui::ComboBox::from_id_salt("new_world").selected_text(&e.new_world).show_ui(ui, |ui| {
-                    for (_, n, _) in &worlds {
-                        ui.selectable_value(&mut e.new_world, n.clone(), n);
+                let r = egui::ComboBox::from_id_salt("new_world").selected_text(&e.new_world).width(220.0).show_ui(ui, |ui| {
+                    let mut templates = false;
+                    for w in &worlds {
+                        if w.template && !templates {
+                            templates = true;
+                            ui.separator();
+                            ui.weak("a Joyride world as the template:");
+                        }
+                        ui.selectable_value(&mut e.new_world, w.label.clone(), &w.label).on_hover_text(&w.hover);
                     }
                 });
+                if std::mem::take(&mut e.new_open_on) {
+                    egui::Popup::open_id(ui.ctx(), r.response.id.with("popup"));
+                }
             });
+            let pick = worlds.iter().find(|w| w.label == e.new_world).cloned();
+            if let Some(w) = pick.as_ref().filter(|w| w.template) {
+                let mut remove = !e.new_keep_collectibles;
+                ui.checkbox(&mut remove, "Template: remove the gears and the key").on_hover_text(
+                    "The Joyride level's ten gears and hidden key go (their pickups), with the triggers that count them and unlock cars and the two objectives that show them (\"Collect 10 GEARS\", \"Find Hidden KEY\"): the world is a clean stage. Its intro, music and effects stay.",
+                );
+                e.new_keep_collectibles = !remove;
+                ui.weak(template_note(&e.new_mode, &w.world));
+            }
             ui.horizontal(|ui| {
                 ui.label("name");
                 ui.text_edit_singleline(&mut e.new_name);
@@ -694,52 +728,54 @@ impl Browser {
                     }
                 }
             });
-            let first = match e.new_mode.as_str() {
-                "joyride" => 0,
-                "mission" => 5,
-                "battle" => 19,
-                "drag" => 29,
-                _ => 39,
-            };
-            let pick = worlds.iter().find(|(_, n, _)| *n == e.new_world).cloned();
-            let ready = pick.is_some() && !e.new_name.trim().is_empty() && !e.new_dir.trim().is_empty();
+            let ready = pick.is_some() && !e.new_name.trim().is_empty() && !e.new_dir.trim().is_empty() && !making;
+            if making {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("making the level (its world extracted the first time)…");
+                });
+            }
             if ui.add_enabled(ready, egui::Button::new("Make it")).clicked() {
-                let (i, _, world) = pick.unwrap();
-                let slug: String = e.new_name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-                let slug = slug.trim_matches('-').to_string();
-                if slug.is_empty() {
-                    self.note("the name needs a letter or digit (the level's folder is named after it)".into());
-                    return;
-                }
-                let dir = std::path::Path::new(e.new_dir.trim()).join(&slug);
-                let id: String = e.new_name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).take(13).collect();
-                let mut level = json!({
-                    "$schema": "../../schemas/Level.schema.json", "format_version": 1,
-                    "id": format!("uid://{}", if id.is_empty() { "mylevel".into() } else { id }),
-                    "name": e.new_name.trim(), "mode": e.new_mode, "extends": format!("base://mcp/track/{}", first + i),
-                    "world": world, "unlocked": true, "baseTriggers": "all", "triggers": []
-                });
-                if e.new_mode == "battle" {
-                    level["rules"] = json!({"mode": "kills", "kills": 5, "rounds": 3, "time": 120000});
-                }
-                // never over a project that's there: level.jsonc made new or not at all
-                let text = format!("// a {} level, made in the level editor on {}\n{}\n", e.new_mode, e.new_world, serde_json::to_string_pretty(&level).unwrap());
-                let made = std::fs::create_dir_all(dir.join("triggers")).and_then(|_| {
-                    use std::io::Write;
-                    std::fs::OpenOptions::new().write(true).create_new(true).open(dir.join("level.jsonc"))?.write_all(text.as_bytes())
-                });
-                match made {
-                    Ok(()) => {
-                        let d = dir.display().to_string();
-                        self.open_level(&d);
-                    }
-                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                        self.note(format!("{} already has a level: open it, or pick another name", dir.display()))
-                    }
-                    Err(err) => self.note(format!("{}: {err}", dir.display())),
-                }
+                make = pick;
             }
         });
+        let Some(w) = make else { return };
+        let e = &self.level.edit;
+        let slug: String = e.new_name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+        let slug = slug.trim_matches('-').to_string();
+        if slug.is_empty() {
+            self.note("the name needs a letter or digit (the level's folder is named after it)".into());
+            return;
+        }
+        let o = xdlrs::level_template::NewLevel {
+            mode: e.new_mode.clone(),
+            world: w.world.clone(),
+            extends: w.extends,
+            name: e.new_name.trim().to_string(),
+            dir: std::path::Path::new(e.new_dir.trim()).join(&slug),
+            clean: w.template && !e.new_keep_collectibles,
+            base: None,
+        };
+        let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
+        let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
+        let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
+        let cache = self.testdrive_scratch_dir().join("base-cache");
+        let template = w.template;
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let r = (|| -> Result<PathBuf, String> {
+                let mut o = o;
+                if template {
+                    // the template's script (its intro screen, its collectibles) is read from its world
+                    let env = level_env(&tools)?;
+                    let data = data.ok_or("the game's data folder isn't known: the template's world can't be read")?;
+                    o.base = Some(xdlrs::level::base_project(&env, &o.world, &data, &cache).map_err(|e| xdlrs::level::top_message(&e))?);
+                }
+                xdlrs::level_template::new_level(&o).map_err(|e| e.msg)
+            })();
+            let _ = tx.send(r);
+        });
+        self.level.edit.new_making = Some(rx);
     }
 
     /// Every start against the world's collision (the viewer's startcheck), as the level has them.
@@ -1405,6 +1441,22 @@ impl Browser {
         }
         let patches = p.level["patches"].as_object().map(|m| m.len()).unwrap_or(0);
         ui.label(format!("{patches} base record{} patched", if patches == 1 { "" } else { "s" }));
+        // a Joyride world as the template: what New level took out of it
+        let removed = |k: &str| p.level["remove"][k].as_array().map(Vec::len).unwrap_or(0);
+        let (ri, ro) = (removed("items"), removed("objectives"));
+        if ri + ro > 0 {
+            ui.horizontal(|ui| {
+                ui.label(format!("{ri} base pickup{} and {ro} objective{} removed (the template's gears and key)", if ri == 1 { "" } else { "s" }, if ro == 1 { "" } else { "s" }))
+                    .on_hover_text("remove: the pickups never spawn and the objectives don't show (Port_Level.c); the triggers that counted them are left out of base triggers");
+                if ui.small_button("keep them").on_hover_text("the gears, the key and their objectives back, and every base trigger (all)").clicked() {
+                    if let Some(m) = p.level.as_object_mut() {
+                        m.remove("remove");
+                    }
+                    p.level["baseTriggers"] = json!("all");
+                    changed = true;
+                }
+            });
+        }
         let mode = p.level["mode"].as_str().unwrap_or("").to_string();
         ui.separator();
         match mode.as_str() {
@@ -2413,5 +2465,59 @@ mod tests {
         assert_eq!(refused_patch("level: patch 1: over a pointer"), None);
         assert_eq!(refused_patch("level: part 3 (x y): bad"), None);
         assert_eq!(refused_patch("level: the world pack's pointer list wasn't kept"), None);
+    }
+}
+
+/// A world New level offers: one of the mode's retail levels', or a Joyride world as the template.
+#[derive(Clone)]
+pub(crate) struct NewWorld {
+    pub label: String,
+    pub hover: String,
+    pub world: String,
+    /// the retail level it extends: the one on that world, or (a template) the mode's first
+    pub extends: u32,
+    pub template: bool,
+}
+
+/// The worlds New level offers for `mode`: its retail levels' (as the MCP's progression script
+/// lists them), then, for every mode but Joyride, each Joyride world as a template (the mode's
+/// first level gives the progression entry; the game shows the Joyride level's picture).
+pub(crate) fn new_level_worlds(list: &[crate::world_ui::WorldEntry], mode: &str) -> Vec<NewWorld> {
+    let prog = if mode == "mission" { "adventure" } else { mode };
+    let first = xdlrs::level_template::first_track(prog).unwrap_or(39);
+    let mut out: Vec<NewWorld> = list
+        .iter()
+        .filter(|w| w.mode == prog)
+        .enumerate()
+        .map(|(i, w)| NewWorld { label: w.name.clone(), hover: format!("the retail {mode} level on {}", w.world), world: w.world.clone(), extends: first + i as u32, template: false })
+        .collect();
+    if mode != "joyride" {
+        for (i, w) in list.iter().filter(|w| w.mode == "joyride").enumerate() {
+            out.push(NewWorld {
+                label: format!("{} (Joyride world {})", w.name, i + 1),
+                hover: format!("Joyride world {} ({}): its open world as the stage of a {mode} level", i + 1, w.world),
+                world: w.world.clone(),
+                extends: first,
+                template: true,
+            });
+        }
+    }
+    out
+}
+
+/// What a level of `mode` on a Joyride world gets, and what it needs (shown under the template's
+/// checkbox).
+pub(crate) fn template_note(mode: &str, world: &str) -> String {
+    let w = world.rsplit('\\').next().unwrap_or(world);
+    match mode {
+        "challenge" | "mission" => format!(
+            "On {w}: the Joyride intro (with your briefing line), music and effects; it adds a 60 s clock on the HUD that loses when it runs out. You add what wins it (a volume to reach: end_level 4)."
+        ),
+        "battle" => format!(
+            "On {w}: one start (the player's); it adds round rules (5 kills, 3 rounds, 2 minutes on the HUD) and the round flow (next round, the level's end). Add an AI start (port 0) or more: on a Joyride world the AI roams the roads."
+        ),
+        _ => format!(
+            "On {w}: one start; it adds the round rules and the round flow. A drag race needs 4 starts in lanes, a finish and a round_complete per car (Lanes: Check the lanes). The AI doesn't keep to a lane here."
+        ),
     }
 }
