@@ -161,7 +161,7 @@ fn main() -> eframe::Result {
         std::process::exit(headless(&args));
     }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1500.0, 860.0]).with_title("HWVX Editor"),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1500.0, 860.0]).with_title("HWVX Editor").with_app_id("hwvx-browser"),
         ..Default::default()
     };
     eframe::run_native("hwvx-browser", options, Box::new(move |cc| Ok(Box::new(Browser::new(args, cc.egui_ctx.clone())))))
