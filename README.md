@@ -908,8 +908,8 @@ demo) run with graphics, sound and music.
 - [x] GX renderer: FIFO/display-list vertex decoding, all texture
       formats, matrices, texgen, lighting channels, TEV, blending, fog
       (no render-to-texture or indirect texturing yet), on OpenGL
-- [ ] SDL_GPU renderers: Vulkan tested on Linux; Metal and Direct3D 12
-      untested
+- [x] SDL_GPU renderers: Vulkan (Linux, and MoltenVK on macOS) and Metal
+      tested; Direct3D 12 tested under CrossOver only, not on Windows hardware
 - [x] Music
 - [x] THP movies
 - [ ] Aux-bus reverb, ADPCM
