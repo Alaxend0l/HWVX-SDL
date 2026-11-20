@@ -34,8 +34,9 @@
  *                the PC has no such world: HWVX_START says so, and a track over
  *                it is left out
  *
- * Data: the GameCube's extracted files, HWVX_TEST_GC_DATA or orig/gc/files
- * beside the source tree; without them the test is skipped (77).
+ * Data: the GameCube's extracted files (a folder with HW_share.xgc): HWVX_TEST_GC_DATA,
+ * or orig/gc/files or orig/gc/<any folder>/files in the source tree or up to two
+ * folders above it; without them the test says SKIPPED and exits 77 (ctest: skipped).
  *   ./test_content [scenario]     all of them, or one
  */
 #include <stdio.h>
@@ -557,34 +558,93 @@ static const char *ScenarioData(const char *name, const char *gc)
     return gc;
 }
 
+/* A folder of the GameCube's files: it holds HW_share.xgc. */
+static int IsGcFiles(const char *dir)
+{
+    char probe[1100];
+    FILE *f;
+
+    snprintf(probe, sizeof(probe), "%s/HW_share.xgc", dir);
+    if ((f = fopen(probe, "rb")) == NULL) {
+        return 0;
+    }
+    fclose(f);
+    return 1;
+}
+
+/* orig/gc/<any folder>/files (a rip keeps its own folder name): the first by name. */
+typedef struct GcFind {
+    const char *gc;
+    char *best;
+    size_t size;
+} GcFind;
+
+static SDL_EnumerationResult SDLCALL FindGcFiles(void *userdata, const char *dirname, const char *fname)
+{
+    GcFind *g = userdata;
+    char dir[1024];
+
+    (void)dirname;
+    snprintf(dir, sizeof(dir), "%s/%s/files", g->gc, fname);
+    if (IsGcFiles(dir) && (g->best[0] == '\0' || strcmp(dir, g->best) < 0)) {
+        snprintf(g->best, g->size, "%s", dir);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+/* The GameCube's files by the sources: orig/gc/files, or orig/gc/<folder>/files, in the
+ * source tree or up to two folders above it (a worktree, HWVX-SDL/<wt>: the superproject's
+ * orig/). NULL without them; `tried` lists where it looked. */
+static const char *FindGcData(char *found, size_t size, char *tried, size_t triedSize)
+{
+    int up;
+
+    tried[0] = '\0';
+    for (up = 0; up < 3; up++) {
+        char gc[900];
+        GcFind g;
+
+        snprintf(gc, sizeof(gc), "%s%s/orig/gc", HWVX_SOURCE_DIR, up == 0 ? "" : up == 1 ? "/.." : "/../..");
+        snprintf(found, size, "%s/files", gc);
+        if (IsGcFiles(found)) {
+            return found;
+        }
+        found[0] = '\0';
+        g.gc = gc;
+        g.best = found;
+        g.size = size;
+        SDL_EnumerateDirectory(gc, FindGcFiles, &g);   /* (false when there's no such folder) */
+        if (found[0] != '\0') {
+            return found;
+        }
+        snprintf(tried + strlen(tried), triedSize - strlen(tried), "\n  %s/files\n  %s/*/files", gc, gc);
+    }
+    return NULL;
+}
+
 int main(int argc, char **argv)
 {
     const char *data = getenv("HWVX_TEST_GC_DATA");
-    char found[1024], out[1024];
+    char found[1024], out[1024], tried[4096];
     size_t i;
     int fails = 0, ran = 0;
 
     s_verbose = getenv("HWVX_TEST_VERBOSE") != NULL;
     if (data == NULL) {
-        snprintf(found, sizeof(found), "%s/orig/gc/files", HWVX_SOURCE_DIR);
-        for (i = 0; i < 3; i++) {
-            FILE *f;
-            char probe[1100];
-
-            snprintf(probe, sizeof(probe), "%s/HW_Cars.xgc", found);
-            if ((f = fopen(probe, "rb")) != NULL) {
-                fclose(f);
-                data = found;
-                break;
-            }
-            /* a worktree sits deeper: HWVX-SDL/<wt>, the superproject's orig/ */
-            snprintf(probe, sizeof(probe), "%s", found);
-            snprintf(found, sizeof(found), "%.*s/../orig/gc/files", (int)(strlen(probe) - strlen("/orig/gc/files")), probe);
+        data = FindGcData(found, sizeof(found), tried, sizeof(tried));
+        if (data == NULL) {
+            printf("SKIPPED: no GameCube data (a folder with HW_share.xgc): set HWVX_TEST_GC_DATA, "
+                   "or extract it to one of:%s\n", tried);
+            fprintf(stderr, "test_content: SKIPPED, no GameCube data (HWVX_TEST_GC_DATA)\n");
+            return 77;
         }
+    } else if (!IsGcFiles(data)) {
+        printf("HWVX_TEST_GC_DATA=%s has no HW_share.xgc: not the GameCube's files\n", data);
+        return 1;
     }
-    if (data == NULL) {
-        printf("no GameCube data (HWVX_TEST_GC_DATA, or orig/gc/files by the sources): skipped\n");
-        return 77;
+    if (argc < 2 || strcmp(argv[1], "--one") != 0) {
+        printf("GameCube data: %s\n", data);
+        fflush(stdout);
     }
     snprintf(out, sizeof(out), "%s", "content-out");
     SDL_CreateDirectory(out);
