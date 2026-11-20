@@ -39,7 +39,8 @@
       "text": "level://strings/brief",
       "kind": "none",
       "done": "level://variables/briefed/to",
-      "hud": 1
+      "hud": 1,
+      "doneText": "level://strings/brief"
     }
   },
   "strings": {

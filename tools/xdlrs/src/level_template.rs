@@ -340,7 +340,7 @@ pub fn template_files(o: &NewLevel) -> Result<(String, Vec<(String, Value)>)> {
                     vars.insert("briefed".into(), json!(0));
                     lv.insert(
                         "objectives".into(),
-                        json!({"brief": {"text": "level://strings/brief", "kind": "none", "done": "level://variables/briefed/to", "hud": h}}),
+                        json!({"brief": {"text": "level://strings/brief", "doneText": "level://strings/brief", "kind": "none", "done": "level://variables/briefed/to", "hud": h}}),
                     );
                 }
                 vars.insert("goal".into(), json!(0));
