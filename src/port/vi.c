@@ -32,6 +32,9 @@ void Port_PumpEvents(void) {
                 g_port.fullscreen = !g_port.fullscreen;
                 SDL_SetWindowFullscreen(g_port.window, g_port.fullscreen);
             }
+            if (ev.key.key == SDLK_F9 && !ev.key.repeat) {
+                Port_PosHudMark();   /* the position readout's spots, to the log */
+            }
             Pad_PortHandleEvent(&ev);
             break;
         default:

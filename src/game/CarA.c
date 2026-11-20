@@ -255,6 +255,37 @@ static void Port_CarLog(CarA *car) {
              car->steerAngle, car->turboTime, car->transmissionFlags, car->base.pos.x, car->base.pos.y, car->base.pos.z);
 }
 
+/* port: --show-position / HWVX_POSHUD=1 (port/hud.c): a human car's position, heading
+ * (degrees; forward is sin h, 0, cos h), speed and collision grid square, every frame. */
+static void Port_CarPosHud(CarA *car) {
+    Player *pl = GETP(car->base.player);
+    WorldCollision *g;
+    int c[3] = { -1, -1, -1 };
+    f32 h;
+
+    if (!Port_PosHudOn() || pl == NULL || !Player_IsHuman(pl)) {
+        return;
+    }
+    if (WORLD() != NULL && (g = GETP(WORLD()->collision)) != NULL && g->cellSize[0] > 0.0f && g->cellSize[1] > 0.0f &&
+        g->cellSize[2] > 0.0f) {
+        f32 p[3] = { car->base.pos.x - g->min.x, car->base.pos.y - g->min.y, car->base.pos.z - g->min.z };
+        s32 n[3] = { g->numX, g->numY, g->numZ };
+        int k;
+
+        for (k = 0; k < 3; k++) {
+            f32 f = p[k] / g->cellSize[k];
+
+            c[k] = f >= 0.0f && f < (f32)n[k] ? (int)f : -1;
+        }
+        if (c[0] < 0 || c[1] < 0 || c[2] < 0) {
+            c[0] = c[1] = c[2] = -1;
+        }
+    }
+    h = atan2f(car->base.axis[2].x, car->base.axis[2].z) * 57.29578f;
+    Port_PosHudSet((int)pl->port - 1, car->base.pos.x, car->base.pos.y, car->base.pos.z, h < 0.0f ? h + 360.0f : h,
+                   MagnitudeVector(&car->base.vel), c[0], c[1], c[2]);
+}
+
 /* port: see CarA.h. Recorded and attract-mode demos keep the cars' own
  * handling (their inputs were made for it), as does online play (every
  * machine must simulate alike). */
@@ -846,6 +877,7 @@ s32 CarA_PreMove(void *thing) {
 
     if (GETP(car->base.player) != NULL) {
         Port_CarLog(car);   /* HWVX_CARLOG */
+        Port_CarPosHud(car);   /* --show-position */
     }
     if (GETP(car->base.player) != NULL) {
         switch (car->driveMode) {

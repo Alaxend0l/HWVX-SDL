@@ -636,6 +636,21 @@ s8 OBoxHitsBSPZeroTimeEdgesOnly(CollisionOBox *obox, TerrainCell *bsp, void *arg
     return 0;
 }
 
+/* port: the segment being walked starts where a split cut it (on a parent's plane), not at
+ * the ray's own start (RayHitsBSP clears it). See the exit case below. */
+static int s_portRayMidStart;
+
+/* port: walks the far part of a split segment, which starts on node n's plane. */
+static u32 RayFar(Vector4 *mid, Vector4 *end, TerrainCell *bsp, u32 node, s32 depth, void *plane, f32 *t, Vector4 *hit) {
+    int saved = s_portRayMidStart;
+    u32 r;
+
+    s_portRayMidStart = 1;
+    r = RayHitsBSP2(mid, end, bsp, node, depth, plane, t, hit);
+    s_portRayMidStart = saved;
+    return r;
+}
+
 u32 RayHitsBSP2(Vector4 *start, Vector4 *end, TerrainCell *bsp, u32 node, s32 depth, void *plane, f32 *t, Vector4 *hit) {
     TerrainBSPNode *n;
     f32 d0;
@@ -672,7 +687,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, TerrainCell *bsp, u32 node, s32 de
             }
         }
         if (n->back != BSP_LEAF) {
-            result = RayHitsBSP2(&mid, end, bsp, n->back, depth + 1, plane, t, hit);
+            result = RayFar(&mid, end, bsp, n->back, depth + 1, plane, t, hit);
             if (result) {
                 *t = *t * (1.0f - frac) + frac;
                 if (frac == *t) {
@@ -708,6 +723,18 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, TerrainCell *bsp, u32 node, s32 de
                 *t *= frac;
                 return result;
             }
+        } else if (Port_WorldActive() && s_portRayMidStart) {
+            /* port: a custom world (Port_World.h): the piece starts in the solid on a parent's
+             * plane, so the ray entered the solid there; reported as at its start, the parent
+             * puts the hit at its own plane. The game reports where the piece leaves the solid
+             * instead (meant for a ray starting inside): through a thin slab that is the slab's
+             * far side, facing the wrong way. A built cell is closed at its walls, so a surface
+             * a hair above a cell's floor is such a slab: a car on a plain at that height was
+             * pushed down through its floor and stuck there (pushed back up, down, ...). */
+            *hit = *start;
+            *t = 0.0f;
+            *(Vector4 *)plane = n->plane;
+            return GETP(TERRAIN()->materials)[n->material];
         } else {
             *hit = mid;
             *t = frac;
@@ -715,7 +742,7 @@ u32 RayHitsBSP2(Vector4 *start, Vector4 *end, TerrainCell *bsp, u32 node, s32 de
             return GETP(TERRAIN()->materials)[n->material];
         }
         if (n->front != BSP_LEAF) {
-            result = RayHitsBSP2(&mid, end, bsp, n->front, depth + 1, plane, t, hit);
+            result = RayFar(&mid, end, bsp, n->front, depth + 1, plane, t, hit);
             if (result) {
                 *t = *t * (1.0f - frac) + frac;
                 if (frac == *t) {
@@ -792,6 +819,7 @@ u32 RayHitsBSP(Vector4 *start, Vector4 *dir, TerrainCell *cell, f32 *time, Vecto
     end.x = start->x + dir->x * *time;
     end.y = start->y + dir->y * *time;
     end.z = start->z + dir->z * *time;
+    s_portRayMidStart = 0;
     result = RayHitsBSP2(start, &end, cell, 0, 0, plane, &t, &hit);
     if (result) {
         eps = 0.1f;

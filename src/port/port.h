@@ -167,6 +167,10 @@ static inline void *Port_AsPtr(const void *p) { return (void *)p; }
 #endif
 
 void Port_Log(const char *fmt, ...) PORT_PRINTF(1, 2);
+/* The position readout (hud.c): --show-position or HWVX_POSHUD=1. A human car tells it where it
+ * is every frame (game/CarA.c); grid cell -1 when outside the collision grid. */
+int Port_PosHudOn(void);
+void Port_PosHudSet(int player, float x, float y, float z, float heading, float speed, int cx, int cy, int cz);
 
 /* text_input.c: typing into a menu. */
 void Port_TextInputStart(char *buf, size_t cap);

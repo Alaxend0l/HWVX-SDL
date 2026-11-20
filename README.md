@@ -854,6 +854,13 @@ Debugging aids:
   OpenGL's copy keeps its texture storage instead of reallocating it each frame.
 - `HWVX_FPSHUD=1` draws an on-screen overlay, top left: current FPS, the average
   since boot, and the 1% low; frame gaps over 250 ms (movies, loads) don't count.
+- `--show-position` (or `HWVX_POSHUD=1`) draws under it, per human player, the car's
+  position (x y z), heading in degrees (forward is sin h, 0, cos h: the `start` of a
+  custom world's `world.jsonc`, `HWVX_LEVEL_START`), speed and the collision grid
+  square it is in (`CELL x y z`), in any level. F9 writes the same to the log as one
+  line per player (`pos: player 1 x ... heading ... cell ...`) to mark a spot while
+  driving. `HWVX_DUMP_HUD=1` puts the readouts in `HWVX_DUMP` frames too (they are
+  left out by default).
 - `HWVX_THREADTRACE=1` logs every background world/car load: how long it held
   the giant lock, and how long the frame that started it waited for it. A load
   that never runs, or a wait of many milliseconds, means the loader thread is
