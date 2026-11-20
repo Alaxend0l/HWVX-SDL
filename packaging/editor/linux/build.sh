@@ -15,6 +15,7 @@ target="linux-$(uname -m)" # shares SDL's build with the game's package
 arch=$(uname -m)
 
 "$root/packaging/build-sdl3.sh" "$work" "$work/sdl-prefix"
+"$root/packaging/ffmpeg/build.sh" linux "$work" "$work/ffmpeg-prefix"
 cmake -S "$root" -B "$ed/game" -G Ninja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DCMAKE_PREFIX_PATH="$work/sdl-prefix" \
@@ -36,6 +37,11 @@ mkdir -p "$appdir/usr/bin" "$appdir/usr/share/hwvx-editor" "$appdir/usr/share/ap
 strip -o "$appdir/usr/bin/hwvx-browser" "$ed/cargo/release/hwvx-browser"
 strip -o "$appdir/usr/bin/hwvx-x" "$ed/bin/hwvx-x"
 strip -o "$appdir/usr/bin/hwvx" "$ed/game/hwvx"
+# FFmpeg for the movies (the game's and the editor's viewer) in usr/lib, where
+# the game looks (its base path usr/bin's ../lib)
+mkdir -p "$appdir/usr/lib" "$appdir/usr/share/licenses"
+cp "$work/ffmpeg-prefix"/lib/* "$appdir/usr/lib/"
+cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$appdir/usr/share/licenses/"
 cp -R "$root/schemas" "$appdir/usr/share/hwvx-editor/schemas"
 cp -R "$root/tools/level-samples" "$appdir/usr/share/hwvx-editor/level-samples"
 cp "$(dirname "$0")/hwvx-editor.desktop" "$appdir/usr/share/applications/hwvx-editor.desktop"
@@ -51,8 +57,9 @@ fi
 out="$dist/HWVX-Editor-$ed_version-$arch.AppImage"
 rm -f "$out"
 # extract-and-run: works without FUSE (containers, CI); the AppImage runs hwvx-browser,
-# which finds hwvx and hwvx-x beside itself in usr/bin
-APPIMAGE_EXTRACT_AND_RUN=1 LINUXDEPLOY_OUTPUT_VERSION="$ed_version" OUTPUT="$out" \
+# which finds hwvx and hwvx-x beside itself in usr/bin. LD_LIBRARY_PATH: so it
+# finds libavcodec's libavutil beside it (FFmpeg's libraries have no run path).
+APPIMAGE_EXTRACT_AND_RUN=1 LD_LIBRARY_PATH="$appdir/usr/lib" LINUXDEPLOY_OUTPUT_VERSION="$ed_version" OUTPUT="$out" \
     "$deploy" --appdir "$appdir" \
     --executable "$appdir/usr/bin/hwvx-browser" \
     --executable "$appdir/usr/bin/hwvx" \

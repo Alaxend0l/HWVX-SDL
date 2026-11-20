@@ -229,6 +229,9 @@ The level editor (tools/browser, `hwvx-browser`, with the tools/xdlrs crate) is 
 its own as **HWVX Editor**, versioned from `editor-v*` tags (`editor-v0.1.0`); the game keeps
 its `v*` tags (common.sh's `git describe` leaves `editor-v*` out). The editor package contains
 the game, which it drives (viewer mode, test drives); the game package does not contain the editor.
+It carries the same FFmpeg as the game's packages (`packaging/ffmpeg/build.sh`, its licence and
+NOTICE; "FFmpeg" above), for the game and the editor's movie viewer, and its releases have
+FFmpeg's source beside the packages.
 
 | Package | Script | Runs on | Output |
 |---------|--------|---------|--------|
@@ -256,14 +259,17 @@ the editor's releases page.
       MacOS/hwvx-browser         the editor (universal)
       MacOS/hwvx                 the game, the plain program (no bundle of its own), SDL3 linked in
       MacOS/hwvx-x               archive extract/pack (world packs, base levels)
+      Frameworks/                FFmpeg's libraries (libavcodec.63.dylib...), for the movies
       Resources/schemas/         every *.schema.json: the level tools' root, the viewer's schemas
       Resources/level-samples/   the sample level projects (tools/level-samples)
       Resources/hwvx-editor.icns
+      Resources/licenses/FFmpeg/ FFmpeg's licence and NOTICE.txt
 
 Windows: one folder, `hwvx-browser.exe` (a windowed program; run from a console it writes to it),
 `hwvx.exe` (windowed; with its stderr a pipe or file, as the editor runs it, the log goes there),
-`hwvx-x.exe` (run without a console window), `schemas/`, `level-samples/`.
-Linux (AppImage): `usr/bin/{hwvx-browser,hwvx,hwvx-x}`, `usr/share/hwvx-editor/{schemas,level-samples}`.
+`hwvx-x.exe` (run without a console window), FFmpeg's DLLs and `licenses/FFmpeg/`, `schemas/`, `level-samples/`.
+Linux (AppImage): `usr/bin/{hwvx-browser,hwvx,hwvx-x}`, FFmpeg in `usr/lib` (licence in
+`usr/share/licenses/FFmpeg`), `usr/share/hwvx-editor/{schemas,level-samples}`.
 
 What it reads at run time is only `schemas/` (xdlrs: level::Env, graph::Ctx), the game, and
 hwvx-x. Not bundled: the pairing table (superproject docs/xdl-format/pairing, 19 MB; optional,

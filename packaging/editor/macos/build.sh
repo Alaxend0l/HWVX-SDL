@@ -21,6 +21,7 @@ rust_targets='aarch64-apple-darwin x86_64-apple-darwin'
 # the game: the plain program (no bundle of its own), universal, SDL3 linked in
 # shellcheck disable=SC2086
 "$root/packaging/build-sdl3.sh" "$work" "$work/sdl-prefix" $arch_args
+"$root/packaging/ffmpeg/build.sh" macos "$work" "$work/ffmpeg-prefix"
 # shellcheck disable=SC2086
 cmake -S "$root" -B "$ed/game" -G Ninja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -51,6 +52,11 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$ed/bin/hwvx-browser" "$ed/bin/hwvx-x" "$app/Contents/MacOS/"
 cp "$ed/game/hwvx" "$app/Contents/MacOS/hwvx"
 strip -x "$app/Contents/MacOS/hwvx-browser" "$app/Contents/MacOS/hwvx-x" "$app/Contents/MacOS/hwvx"
+# FFmpeg for the movies (the game's and the editor's viewer) in Contents/Frameworks,
+# where the game looks (its base path, Contents/Resources, ../Frameworks)
+mkdir -p "$app/Contents/Frameworks" "$app/Contents/Resources/licenses"
+cp "$work/ffmpeg-prefix"/lib/*.dylib "$app/Contents/Frameworks/"
+cp -R "$work/ffmpeg-prefix/licenses/FFmpeg" "$app/Contents/Resources/licenses/"
 # the runtime files (src/resources.rs): the schemas, the sample level projects
 cp -R "$root/schemas" "$app/Contents/Resources/schemas"
 cp -R "$root/tools/level-samples" "$app/Contents/Resources/level-samples"
