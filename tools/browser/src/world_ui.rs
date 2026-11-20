@@ -70,7 +70,9 @@ impl Browser {
         let old_pack = self.world.status["pack"].as_str().map(str::to_string);
         self.world.status = w.clone();
         if let Some(p) = new_pack {
-            if Some(&p) != old_pack.as_ref() || self.outline.as_ref().map(|o| &o.pack) != Some(&p) {
+            // not again while one is on its way: status and input replies come every frame
+            let asked = self.pending.values().any(|(w, _)| matches!(w, crate::Pending::Outline(x) if *x == p));
+            if !asked && (Some(&p) != old_pack.as_ref() || self.outline.as_ref().map(|o| &o.pack) != Some(&p)) {
                 self.selected = None;
                 self.detail = None;
                 self.request("outline", json!({"pack": p}), Pending::Outline(p.clone()));

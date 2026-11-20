@@ -668,6 +668,7 @@ impl Browser {
     /// challenge on); a template gets the clock, rules and round flow the Joyride script lacks,
     /// and by default its gears, key and their objectives removed (xdlrs::level_template).
     pub(crate) fn new_level_dialog(&mut self, ui: &mut egui::Ui) {
+        let mut pick_dir = false;
         // a level being made: a template's world is extracted first (a few seconds, once)
         if let Some(rx) = self.level.edit.new_making.take() {
             match rx.try_recv() {
@@ -734,9 +735,7 @@ impl Browser {
                 ui.label("in");
                 ui.add(egui::TextEdit::singleline(&mut e.new_dir).desired_width(140.0)).on_hover_text("the folder the level's folder goes in");
                 if ui.button("…").clicked() {
-                    if let Some(d) = Self::choose_folder() {
-                        e.new_dir = d;
-                    }
+                    pick_dir = true;
                 }
             });
             let ready = pick.is_some() && !e.new_name.trim().is_empty() && !e.new_dir.trim().is_empty() && !making;
@@ -750,6 +749,9 @@ impl Browser {
                 make = pick;
             }
         });
+        if pick_dir {
+            self.ask(crate::level_ui::Dialog::NewDir, Self::choose_folder);
+        }
         let Some(w) = make else { return };
         let e = &self.level.edit;
         let slug: String = e.new_name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();

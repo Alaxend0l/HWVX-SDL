@@ -14,6 +14,13 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
+/// What a file dialog's answer is for.
+pub(crate) enum Dialog {
+    NewDir,
+    OpenLevel,
+    SaveMod,
+}
+
 #[derive(Default)]
 pub struct LevelState {
     pub tab: bool,
@@ -41,6 +48,9 @@ pub struct LevelState {
     ended_shown: bool,
     auto_started: bool,
     sharing: Option<Receiver<Result<String, String>>>,
+    /// a system file dialog open on a thread of its own (osascript, PowerShell and zenity run
+    /// as programs; waiting on one froze the window, "Not Responding" on Windows)
+    dialog: Option<(Dialog, Receiver<Option<String>>)>,
     /// a project to open in place of one with unsaved edits, once the person says so
     confirm_open: Option<String>,
     pub edit: EditState,
@@ -228,6 +238,20 @@ impl Browser {
                 ctx.request_repaint_after(Duration::from_millis(50));
             }
         }
+        if let Some((what, rx)) = self.level.dialog.take() {
+            match rx.try_recv() {
+                Err(TryRecvError::Empty) => {
+                    self.level.dialog = Some((what, rx));
+                    ctx.request_repaint_after(Duration::from_millis(100));
+                }
+                Err(TryRecvError::Disconnected) | Ok(None) => {}
+                Ok(Some(d)) => match what {
+                    Dialog::NewDir => self.level.edit.new_dir = d,
+                    Dialog::OpenLevel => self.open_level(&d),
+                    Dialog::SaveMod => self.save_as_mod_to(PathBuf::from(d)),
+                },
+            }
+        }
         if let Some(rx) = self.level.sharing.take() {
             match rx.try_recv() {
                 Err(TryRecvError::Empty) => {
@@ -319,11 +343,26 @@ impl Browser {
             return;
         }
         let id = self.level.summary["id"].as_str().unwrap_or("uid://level").trim_start_matches("uid://").to_string();
-        let Some(out) = Self::choose_save_file(&format!("{id}.xmod")) else { return };
+        let name = format!("{id}.xmod");
+        self.ask(Dialog::SaveMod, move || Self::choose_save_file(&name));
+    }
+
+    /// A dialog run off the UI thread; its answer is taken up in the frame it arrives.
+    pub(crate) fn ask(&mut self, what: Dialog, f: impl FnOnce() -> Option<String> + Send + 'static) {
+        if self.level.dialog.is_some() {
+            return;
+        }
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        self.level.dialog = Some((what, rx));
+    }
+
+    fn save_as_mod_to(&mut self, out: PathBuf) {
         let mut o = self.testdrive_options();
         o.project = PathBuf::from(&self.level.project);
         let (tx, rx) = channel();
-        let out = PathBuf::from(out);
         std::thread::spawn(move || {
             let _ = tx.send(testdrive::share(&o, &out));
         });
@@ -397,9 +436,7 @@ impl Browser {
                 self.open_level(&p);
             }
             if ui.button("…").on_hover_text("choose the folder").clicked() {
-                if let Some(d) = Self::choose_folder() {
-                    self.open_level(&d);
-                }
+                self.ask(Dialog::OpenLevel, Self::choose_folder);
             }
         });
         if let Some(d) = self.level.confirm_open.clone() {

@@ -354,6 +354,8 @@ const RESIZE_SETTLE: Duration = Duration::from_millis(150);
 #[derive(Default)]
 struct Feed {
     reader: Option<FrameReader>,
+    /// bumped when the reader is replaced, so a copy taken from the old one is dropped
+    reader_gen: u64,
     frame: Option<Frame>,
     stop: bool,
 }
@@ -386,15 +388,24 @@ impl Preview {
         // polls the shared memory: a new frame is copied out here, off the UI thread
         std::thread::spawn(move || {
             loop {
-                {
-                    let mut g = f.lock().unwrap();
+                // the copy (up to 33 MB at 4K) is made with the lock let go, so the UI thread
+                // never waits on it
+                let (reader, at) = {
+                    let mut g = f.lock().unwrap_or_else(|e| e.into_inner());
                     if g.stop {
                         break;
                     }
-                    let got = g.reader.as_mut().and_then(|r| r.take());
-                    if let Some(fr) = got {
-                        g.frame = Some(fr);
-                        c.request_repaint();
+                    (g.reader.take(), g.reader_gen)
+                };
+                if let Some(mut r) = reader {
+                    let got = r.take();
+                    let mut g = f.lock().unwrap_or_else(|e| e.into_inner());
+                    if g.reader_gen == at {
+                        g.reader = Some(r);
+                        if let Some(fr) = got {
+                            g.frame = Some(fr);
+                            c.request_repaint();
+                        }
                     }
                 }
                 std::thread::sleep(Duration::from_millis(2));
@@ -423,8 +434,9 @@ impl Preview {
 
     /// A new connection: the old shared memory is gone with the old game.
     fn reset(&mut self) {
-        let mut g = self.feed.lock().unwrap();
+        let mut g = self.feed.lock().unwrap_or_else(|e| e.into_inner());
         g.reader = None;
+        g.reader_gen += 1;
         g.frame = None;
         self.name.clear();
         self.asked = [0, 0];
@@ -434,7 +446,7 @@ impl Preview {
 
 impl Drop for Preview {
     fn drop(&mut self) {
-        self.feed.lock().unwrap().stop = true;
+        self.feed.lock().unwrap_or_else(|e| e.into_inner()).stop = true;
     }
 }
 
@@ -862,7 +874,10 @@ impl Browser {
                         // a new shared memory (the first, or a bigger one)
                         match FrameReader::open(&name, r["key"].as_str().unwrap_or(""), r["size"].as_u64().unwrap_or(0) as usize) {
                             Ok(reader) => {
-                                self.preview.feed.lock().unwrap().reader = Some(reader);
+                                let mut g = self.preview.feed.lock().unwrap_or_else(|e| e.into_inner());
+                                g.reader = Some(reader);
+                                g.reader_gen += 1;
+                                drop(g);
                                 self.preview.name = name;
                             }
                             Err(e) => self.fail(format!("frames: {e}")),
@@ -1499,7 +1514,7 @@ impl Browser {
         p.events.extend(fly_events);
 
         // a new frame from the feed: into the texture
-        let fresh = p.feed.lock().unwrap().frame.take();
+        let fresh = p.feed.lock().unwrap_or_else(|e| e.into_inner()).frame.take();
         if let Some(f) = fresh {
             let img = egui::ColorImage::from_rgba_premultiplied([f.width as usize, f.height as usize], &f.rgba);
             match &mut p.texture {
