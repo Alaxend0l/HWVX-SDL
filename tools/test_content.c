@@ -29,6 +29,10 @@
  *                numbers its pictures otherwise); texture/pc:N only on the PC,
  *                elsewhere the alias's picture. -pc, -ps2: on HWVX_TEST_PC_DATA,
  *                HWVX_TEST_PS2_DATA (skipped without)
+ *   mpdrag, mpdrag-pc, mpdragtrack-pc
+ *                a race on race1l1 (multi-player drag): on the GameCube it starts;
+ *                the PC has no such world: HWVX_START says so, and a track over
+ *                it is left out
  *
  * Data: the GameCube's extracted files, HWVX_TEST_GC_DATA or orig/gc/files
  * beside the source tree; without them the test is skipped (77).
@@ -305,6 +309,12 @@ static const Scenario s_scenarios[] = {
     { "thumb-ps2", { THUMB_ENV("44") }, "menudump:   paragraphs 58" },
     { "thumbonly", { THUMB_ENV("pc:48") }, "menudump:   paragraphs 58" },
     { "thumbonly-pc", { THUMB_ENV("pc:48") }, "menudump:   paragraphs 58" },
+    /* the multi-player drag worlds (race*l1), which the PC hasn't: a race there and a track
+     * over one say "not on this release" instead of loading for ever */
+    { "mpdrag", { "HWVX_START=race:mode=mpdrag,world=race1l1" }, "-> STATE_GAME_PLAY" },
+    { "mpdrag-pc", { "HWVX_START=race:mode=mpdrag,world=race1l1" }, "HWVX_START ignored" },
+    { "mpdragtrack-pc", { "HWVX_START=race:mode=drag,world=uid://hwvx-test-extra-track-0", "HWVX_TEST_EXTRA_TRACKS=alias=29",
+                          "HWVX_TEST_EXTRA_TRACK_WORLD=WORLDS_\\MP_\\DRAG_\\race1l1" }, "HWVX_START ignored" },
     { "item16", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
 #ifndef _WIN32
     { "bigtoc", { "HWVX_START=race:item=16", "HWVX_TEST_EXTRA_ITEMS=6" }, "-> STATE_GAME_PLAY" },
@@ -331,6 +341,16 @@ static void Checks(const char *name)
         CheckExtra(3, ": 0..13", 13, 1);
     } else if (strcmp(name, "challenge") == 0) {
         CheckWorlds(1);
+    } else if (strcmp(name, "mpdrag") == 0) {
+        Check(Line("-> STATE_GAME_PLAY", NULL) != NULL && Line("not on this release", NULL) == NULL,
+              "the GameCube races on race1l1");
+    } else if (strcmp(name, "mpdrag-pc") == 0) {
+        Check(Line("start: race1l1: not on this release", NULL) != NULL && Line("-> STATE_PROGRESSION_MANAGER", NULL) == NULL,
+              "the PC says race1l1 is not on this release, and starts no race");
+    } else if (strcmp(name, "mpdragtrack-pc") == 0) {
+        Check(Line("its world WORLDS_\\MP_\\DRAG_\\race1l1 is not on this release; left out", NULL) != NULL &&
+                  Line("-> STATE_PROGRESSION_MANAGER", NULL) == NULL,
+              "the PC leaves out a track over race1l1, and starts no race on it");
     } else if (strncmp(name, "thumb", 5) == 0) {
         /* extra track 57 is entry 18 of the challenge pictures; challenge 3
          * (entry 2) has the picture asked for, challenge 2 (1) is its alias */

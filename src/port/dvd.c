@@ -412,3 +412,25 @@ BOOL DVDInquiryAsync(DVDCommandBlock *block, void *info, void (*callback)(s32, D
     }
     return TRUE;
 }
+
+int Port_DataHasPack(const char *name) {
+    char path[0x100];
+    size_t n = SDL_strlen(name), i;
+    DVDFileInfo fi;
+
+    if (n == 0 || n + 5 > sizeof(path)) {
+        return 0;
+    }
+    SDL_strlcpy(path, name, sizeof(path));
+    for (i = 0; i < n; i++) {
+        path[i] = path[i] == '\\' ? '/' : path[i];
+    }
+    if (n < 4 || SDL_strcasecmp(path + n - 4, ".xgc") != 0) {
+        SDL_strlcat(path, ".xgc", sizeof(path));
+    }
+    if (!DVDOpen(path, &fi)) {
+        return 0;
+    }
+    DVDClose(&fi);
+    return 1;
+}

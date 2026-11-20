@@ -242,6 +242,10 @@ impl Browser {
 
     /// The game started where the song plays, the mod run from a copy of its folder.
     fn music_test(&mut self, song: &BaseSong) {
+        if let Some(info) = self.content_data_info().filter(|i| !i.has_archive(song.archive)) {
+            // the game would wait on its loading screen for a world the data hasn't
+            return self.music_note(format!("{}: {}: the game can't play it here", song.label, cm::not_on_release(&info)), true);
+        }
         self.content_save();
         let Some(p) = self.content.proj.as_ref() else { return };
         if p.dirty() {
@@ -279,6 +283,11 @@ impl Browser {
         let Some(p) = self.content.proj.as_ref() else { return };
         let music = p.music();
         let songs = cm::base_songs();
+        // songs whose world this data hasn't (the PC's multi-player drag): shown, not offered
+        let info = self.content_data_info();
+        let missing = info.as_ref().map(|i| cm::songs_missing(i)).unwrap_or_default();
+        let absent = info.as_ref().map(|i| cm::not_on_release(i)).unwrap_or_default();
+        let Some(p) = self.content.proj.as_ref() else { return };
         // a soundtrack-only mod opens on its first song
         let entries = p.doc["cars"].as_object().map_or(0, |m| m.len()) + p.doc["items"].as_object().map_or(0, |m| m.len());
         if entries == 0 && self.content.sel.is_none() && self.content.music.sel.is_none() {
@@ -300,6 +309,11 @@ impl Browser {
                         }
                         let have = music.iter().any(|(k, _)| cm::canonical(k) == s.key());
                         let text = if have { format!("{}  ✔", s.label) } else { s.label.clone() };
+                        if missing.contains(&s.key()) {
+                            ui.add_enabled(false, egui::Button::selectable(false, format!("{text}  ({absent})")))
+                                .on_disabled_hover_text(format!("{}: the data has no world {}", s.key(), s.archive));
+                            continue;
+                        }
                         if ui.selectable_label(m.pick.as_deref() == Some(&s.key()), text).on_hover_text(s.key()).clicked() {
                             m.pick = Some(s.key());
                         }
@@ -320,7 +334,11 @@ impl Browser {
             });
         });
         for (k, tracks) in music {
-            let label = cm::song_for(&k).map(|s| s.label).unwrap_or_else(|| k.clone());
+            let mut label = cm::song_for(&k).map(|s| s.label).unwrap_or_else(|| k.clone());
+            if missing.contains(&cm::canonical(&k)) {
+                // kept for the releases that have it; never heard on this one
+                label = format!("{label}  ({absent})");
+            }
             let n = if tracks.len() == 1 { tracks[0].file.rsplit('/').next().unwrap_or("").to_string() } else { format!("a playlist of {}", tracks.len()) };
             let selected = self.content.music.sel.as_deref().is_some_and(|s| cm::canonical(s) == cm::canonical(&k));
             if ui.selectable_label(selected, format!("♪ {label}  →  {n}")).on_hover_text(&k).clicked() {

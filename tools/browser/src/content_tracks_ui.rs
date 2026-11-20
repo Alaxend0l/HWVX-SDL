@@ -247,6 +247,13 @@ impl Browser {
                     (Some(f), Some(w)) => ui.label(egui::RichText::new(format!("compiled: {f}, over {w}")).small().weak()),
                     _ => ui.label(egui::RichText::new("not compiled yet: ▶ Drive it and Save as mod compile it").small().weak()),
                 };
+                if let Some(w) = entry["world"].as_str() {
+                    // a world of the base game the data hasn't (the PC's multi-player drag)
+                    let stem = w.rsplit(['\\', '/']).next().unwrap_or(w);
+                    if let Some(info) = self.content_data_info().filter(|i| !w.starts_with('@') && !i.has_archive(stem)) {
+                        ui.colored_label(egui::Color32::LIGHT_RED, format!("its world {stem}: {}: the game leaves this track out", hwvx_browser::content_music::not_on_release(&info)));
+                    }
+                }
                 if !l.join("level.jsonc").is_file() {
                     ui.colored_label(egui::Color32::LIGHT_RED, "the folder has no level.jsonc any more");
                 }

@@ -59,6 +59,49 @@ impl Kind {
     }
 }
 
+/// What the player's game data is: its release (gc, pc, ps2, ps2beta) and its archives' names.
+/// The releases don't all have the same files (the PC has no multi-player drag worlds,
+/// race1l1..race6l1): what names one it hasn't says so instead of failing.
+#[derive(Clone, Debug)]
+pub struct DataInfo {
+    pub release: &'static str,
+    /// the archives' names without extension, lower case
+    pub archives: std::collections::HashSet<String>,
+}
+
+impl DataInfo {
+    /// A folder or a disc image, as the game reads it (xdlrs::disc).
+    pub fn read(data: &Path) -> Result<DataInfo, String> {
+        let d = xdlrs::disc::Disc::open(data)?;
+        let archives = d
+            .entries
+            .iter()
+            .filter(|e| e.name().rsplit('.').next().is_some_and(|x| ["xgc", "xpc", "xps"].contains(&x.to_ascii_lowercase().as_str())))
+            .map(|e| e.stem().to_ascii_lowercase())
+            .collect();
+        Ok(DataInfo { release: d.release.key(), archives })
+    }
+
+    pub fn has_archive(&self, stem: &str) -> bool {
+        self.archives.contains(&stem.to_ascii_lowercase())
+    }
+
+    /// "PC", "GameCube", ... for messages
+    pub fn release_name(&self) -> &'static str {
+        release_name(self.release)
+    }
+}
+
+pub fn release_name(key: &str) -> &'static str {
+    match key {
+        "gc" => "GameCube",
+        "pc" => "PC",
+        "ps2" => "PlayStation 2",
+        "ps2beta" => "PlayStation 2 prototype",
+        _ => "?",
+    }
+}
+
 /// A new id: uid:// and 12 base-36 characters (the schema allows 13), from the time and a counter.
 pub fn new_uid() -> String {
     use std::hash::{BuildHasher, Hasher};

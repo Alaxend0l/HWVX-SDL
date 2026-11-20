@@ -351,6 +351,13 @@ s32 Port_ContentRegisterEntry(int kind, const PortContentEntry *e) {
     r->world = Dup(e->world);
     r->data = Dup(e->data);
     r->reserved = e->reserved;
+    /* a world this release hasn't (the PC has no multi-player drag): its
+     * number kept, never offered (the loading screen would wait for ever).
+     * A mod's own world (@mod\\, @world\\) is its own: not looked for here */
+    if (!r->reserved && e->world != NULL && e->world[0] != '@' && !Port_DataHasPack(e->world)) {
+        Port_Log("content: %s: %s: its world %s is not on this release; left out", k->section, id, e->world);
+        r->reserved = 1;
+    }
     Grow(k);
     return (s32)(CountOf(k) - 1);
 }

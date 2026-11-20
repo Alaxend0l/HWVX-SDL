@@ -42,6 +42,8 @@ pub(crate) struct ContentState {
     pub tracks: crate::content_tracks_ui::TracksState,
     /// the sections' selections last frame (content_one_selection)
     pub seen: [String; 5],
+    /// the game data's release and archives (content_data_info): read again when the data changes
+    pub data_info: Option<(PathBuf, Option<std::rc::Rc<hwvx_browser::content::DataInfo>>)>,
 }
 
 pub(crate) fn base_label(kind: Kind, n: u32) -> String {
@@ -59,6 +61,17 @@ fn slug(name: &str) -> String {
 }
 
 impl Browser {
+    /// The game data's release and archives (None: no data known, or it can't be read), read
+    /// once per data path.
+    pub(crate) fn content_data_info(&mut self) -> Option<std::rc::Rc<hwvx_browser::content::DataInfo>> {
+        let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from))?;   // as testdrive_options
+        if self.content.data_info.as_ref().is_none_or(|(p, _)| *p != data) {
+            let info = hwvx_browser::content::DataInfo::read(&data).ok().map(std::rc::Rc::new);
+            self.content.data_info = Some((data, info));
+        }
+        self.content.data_info.as_ref().and_then(|(_, i)| i.clone())
+    }
+
     fn content_note(&mut self, s: impl Into<String>, error: bool) {
         self.content.message = s.into();
         self.content.error = error;
