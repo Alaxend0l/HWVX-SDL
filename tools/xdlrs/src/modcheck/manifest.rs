@@ -23,6 +23,7 @@ pub struct Res {
     pub track: Regex,
     pub path: Regex,
     pub texkey: Regex,
+    pub sndkey: Regex,
 }
 
 pub fn res() -> &'static Res {
@@ -37,6 +38,7 @@ pub fn res() -> &'static Res {
         track: re_py(r"^base://mcp/track/([0-9]+)$"),
         path: re_py(r"^[A-Za-z0-9_]+/[0-9]+(/[A-Za-z0-9_]+)*$"),
         texkey: re_py(r"^texture/[0-9]+$"),
+        sndkey: re_py(r"^sound/(?:[a-z0-9]+:)?[0-9]+$"),
     })
 }
 
@@ -199,6 +201,37 @@ impl Manifest {
             || f.contains('\\')
     }
 
+    /// A sound's value at `w` (a file of the mod, or {"file", "loop"}): its file, or None (an error said why).
+    fn sound(&mut self, w: &str, v: &Value) -> Option<String> {
+        let f = match v {
+            Value::String(s) => Some(s.clone()),
+            Value::Object(o) => o.get("file").and_then(Value::as_str).map(String::from),
+            _ => None,
+        };
+        if let Some(o) = v.as_object() {
+            for k in o.keys() {
+                if k != "file" && k != "loop" {
+                    self.err(&format!("{w}.{k}"), "isn't a member of a sound (file, loop)");
+                }
+            }
+            if let Some(lp) = o.get("loop")
+                && !lp.is_null()
+                && (!is_int(lp) || lp.as_i64().is_some_and(|x| x < 0))
+            {
+                self.err(&format!("{w}.loop"), "a sample of the file, or null (plays once)");
+            }
+        }
+        let Some(f) = f.filter(|f| !Self::audio_path_bad(f)) else {
+            self.err(w, &format!("a sound file of the mod ({}), or {{\"file\", \"loop\"}}", AUDIO_EXT.join(" ")));
+            return None;
+        };
+        if !self.dir.join(&f).is_file() {
+            self.err(w, &format!("{f} isn't in the mod"));
+            return None;
+        }
+        Some(f)
+    }
+
     fn check(&mut self) {
         let d = self.doc.clone();
         let Some(obj) = d.as_object() else {
@@ -258,7 +291,7 @@ impl Manifest {
                     continue;
                 };
                 for k in eo.keys() {
-                    if !["extends", "name", "thumbnail", "unlocked", "patch", "recipes"].contains(&k.as_str()) {
+                    if !["extends", "name", "thumbnail", "unlocked", "patch", "recipes", "sounds"].contains(&k.as_str()) {
                         self.err(&format!("{w}.{k}"), "isn't a member of an entry");
                     }
                 }
@@ -300,7 +333,20 @@ impl Manifest {
                         self.recipes.push((format!("{w}.recipes.{tex}"), format!("{b}/{tex}"), ops.clone()));
                     }
                 }
-                for k in ["patch", "recipes"] {
+                // the entry's own sounds (Port_Mods.c EntrySounds): sound/3 of its own pack
+                for (key, v) in Self::items(e, "sounds") {
+                    let ws = format!("{w}.sounds.{key}");
+                    if !rx.sndkey.is_match(&key) {
+                        self.err(&ws, "a sound of the entry's pack: sound/3");
+                        continue;
+                    }
+                    if let Some(f) = self.sound(&ws, &v)
+                        && let Some(b) = &base_pack
+                    {
+                        self.sounds.push((ws, format!("{b}/{key}"), f));
+                    }
+                }
+                for k in ["patch", "recipes", "sounds"] {
                     if Self::not_dict(e, k) {
                         self.err(&format!("{w}.{k}"), "isn't an object");
                     }
@@ -381,34 +427,10 @@ impl Manifest {
                 self.err(&w, "a sound's id: base://HW_Cars/car_5/sound/3");
                 continue;
             }
-            let f = match &v {
-                Value::String(s) => Some(s.clone()),
-                Value::Object(o) => o.get("file").and_then(Value::as_str).map(String::from),
-                _ => None,
-            };
-            if let Some(o) = v.as_object() {
-                for k in o.keys() {
-                    if k != "file" && k != "loop" {
-                        self.err(&format!("{w}.{k}"), "isn't a member of a sound (file, loop)");
-                    }
-                }
-                if let Some(lp) = o.get("loop")
-                    && !lp.is_null()
-                    && (!is_int(lp) || lp.as_i64().is_some_and(|x| x < 0))
-                {
-                    self.err(&format!("{w}.loop"), "a sample of the file, or null (plays once)");
-                }
+            if let Some(f) = self.sound(&w, &v) {
+                self.refs.insert(target.clone());
+                self.sounds.push((w, target.clone(), f));
             }
-            let Some(f) = f.filter(|f| !Self::audio_path_bad(f)) else {
-                self.err(&w, &format!("a sound file of the mod ({exts}), or {{\"file\", \"loop\"}}"));
-                continue;
-            };
-            if !self.dir.join(&f).is_file() {
-                self.err(&w, &format!("{f} isn't in the mod"));
-                continue;
-            }
-            self.refs.insert(target.clone());
-            self.sounds.push((w, target.clone(), f));
         }
         for (target, v) in Self::items(&d, "music") {
             let list = v.as_array().cloned();
@@ -446,5 +468,35 @@ impl Manifest {
                 self.err(k, "isn't an object");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An entry's own sounds ("sound/3" of its pack) are checked as the mod's "sounds" are.
+    #[test]
+    fn entry_sounds() {
+        let d = std::env::temp_dir().join(format!("xdlrs-manifest-entry-sounds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("sounds")).unwrap();
+        std::fs::write(d.join("sounds/horn.wav"), b"RIFF").unwrap();
+        let doc = |sounds: &str| {
+            format!(
+                r#"{{"format_version": 1, "id": "uid://m1", "name": "M", "version": "1",
+                    "cars": {{"uid://c1": {{"extends": "base://HW_Cars/car_5", "sounds": {sounds}}}}}}}"#
+            )
+        };
+        std::fs::write(d.join("mod.jsonc"), doc(r#"{"sound/3": "sounds/horn.wav", "sound/gc:4": {"file": "sounds/horn.wav", "loop": null}}"#)).unwrap();
+        let m = Manifest::load(&d).unwrap();
+        assert!(m.errors.is_empty(), "{:?}", m.errors);
+        assert_eq!(m.sounds.len(), 2);
+        assert_eq!(m.sounds[0].1, "base://HW_Cars/car_5/sound/3");
+        std::fs::write(d.join("mod.jsonc"), doc(r#"{"texture/3": "sounds/horn.wav", "sound/1": "sounds/gone.ogg", "sound/2": "x.txt"}"#)).unwrap();
+        let m = Manifest::load(&d).unwrap();
+        assert_eq!(m.errors.len(), 3, "{:?}", m.errors);
+        assert!(m.sounds.is_empty());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

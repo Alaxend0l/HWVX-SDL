@@ -81,8 +81,9 @@ void Port_ModsSyncLock(const char *path);
  * patches and recipes for it are applied, in load order. */
 void Port_ModsPackLoaded(void *dataPack, const char *name, unsigned type, unsigned id);
 /* DataPack_LoadDataPack, around a pack's load: which pack is loading (its
- * archive, type and TOC id), for its mod sounds. */
-void Port_ModsBeginPack(const char *name, unsigned type, unsigned id);
+ * archive, type and TOC id, and the number asked for: a new car's own, its
+ * entry's "sounds"), for its mod sounds. */
+void Port_ModsBeginPack(const char *name, unsigned type, unsigned id, unsigned own);
 void Port_ModsEndPack(void);
 /* 1 if an enabled mod replaces a sound of the pack loading (it then skips
  * the .xdl cache). */

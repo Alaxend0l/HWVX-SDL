@@ -107,35 +107,7 @@
         "pattern": "^base://[A-Za-z0-9_]+/[a-z_]+_[0-9]+/sound/([a-z0-9]+:)?[0-9]+$"
       },
       "additionalProperties": {
-        "oneOf": [
-          {
-            "type": "string",
-            "pattern": "\\.(wav|flac|ogg|mp3|WAV|FLAC|OGG|MP3)$",
-            "description": "the sound file, a path in the mod"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "file"
-            ],
-            "properties": {
-              "file": {
-                "type": "string",
-                "pattern": "\\.(wav|flac|ogg|mp3|WAV|FLAC|OGG|MP3)$",
-                "description": "the sound file, a path in the mod"
-              },
-              "loop": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "minimum": 0,
-                "description": "loop start in the file's samples (null: plays once); a loop tag in the file wins"
-              }
-            }
-          }
-        ]
+        "$ref": "#/$defs/sound"
       }
     },
     "tracks": {
@@ -248,8 +220,49 @@
           "additionalProperties": {
             "$ref": "#/$defs/recipe"
           }
+        },
+        "sounds": {
+          "description": "The entry's own sounds: the mod's sound files over sounds of the entry's own pack only (sound/3, or sound/gc:3 for one release's), after the base:// ones. As \"sounds\" of the mod.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^sound/([a-z0-9]+:)?[0-9]+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/sound"
+          }
         }
       }
+    },
+    "sound": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "\\.(wav|flac|ogg|mp3|WAV|FLAC|OGG|MP3)$",
+          "description": "the sound file, a path in the mod"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "pattern": "\\.(wav|flac|ogg|mp3|WAV|FLAC|OGG|MP3)$",
+              "description": "the sound file, a path in the mod"
+            },
+            "loop": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "loop start in the file's samples (null: plays once); a loop tag in the file wins"
+            }
+          }
+        }
+      ]
     },
     "recipe": {
       "description": "Colour operations applied in order, as one 3x4 matrix.",

@@ -235,7 +235,7 @@ s32 DataPack_LoadFile(char *name, s32 arg1, u32 type, u32 id) {
         }
         PortMix_BeginPack(name, type, tocId);   /* port: a mixed build's pack (Port_Mix.c) */
         PortStream_SetPack(asked, type, id);   /* port: its song may be a mod's stream (musicstream.c) */
-        Port_ModsBeginPack(name, type, tocId);  /* port: its mod sounds (Port_Mods.c) */
+        Port_ModsBeginPack(name, type, tocId, id);  /* port: its mod sounds (Port_Mods.c) */
         DataPack_LoadDataPack(g_fileID, PTR(arg1));
         Port_ModsEndPack();
         PortStream_SetPack(NULL, 0, 0);

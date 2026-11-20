@@ -1706,16 +1706,21 @@ void Port_ModsMusicFree(PortModMusic *tracks, int count) {
  * base sound's rate; its loop is the file's tag, else "loop", else (the base
  * sound loops) the whole sound. The pack's own sound is replaced as a mixed
  * build replaces one (PortMix_SFXSet). A pack with mod sounds skips the .xdl
- * cache. */
+ * cache.
+ * A new car or item's own sounds are its entry's "sounds": { "sound/3": ... }
+ * (or "sound/gc:3"), for its own pack only (it loads its base's pack under its
+ * own number); they apply after the base:// ones, which name the base pack
+ * and so reach the entries made from it too. */
 typedef struct SndPack {
     char archive[0x50];
     u32 type, id;
+    u32 own;            /* the pack asked for: a new car's own number (id is its base's) */
 } SndPack;
 
 static _Thread_local SndPack s_sndPack[8];
 static _Thread_local int s_sndDepth;
 
-void Port_ModsBeginPack(const char *name, unsigned type, unsigned id) {
+void Port_ModsBeginPack(const char *name, unsigned type, unsigned id, unsigned own) {
     const char *stem = name, *c;
 
     if (++s_sndDepth > 8 || name == NULL) {
@@ -1729,6 +1734,7 @@ void Port_ModsBeginPack(const char *name, unsigned type, unsigned id) {
     SDL_snprintf(s_sndPack[s_sndDepth - 1].archive, sizeof(s_sndPack[0].archive), "%s", stem);
     s_sndPack[s_sndDepth - 1].type = type;
     s_sndPack[s_sndDepth - 1].id = id;
+    s_sndPack[s_sndDepth - 1].own = own;
 }
 
 void Port_ModsEndPack(void) {
@@ -1765,6 +1771,33 @@ static long SoundIndex(const char *rest, int fmt) {
     return end != rest && *end == 0 && i < 0x10000 ? (long)i : -1;
 }
 
+/* The "sounds" of mod m's entry (car or item) whose own pack is p, or NULL; *key: its uid. */
+static const JsonNode *EntrySounds(const Mod *m, const SndPack *p, const char **key) {
+    int k;
+
+    for (k = 0; k < 2; k++) {
+        int kind = k == 0 ? PORT_CONTENT_CAR : PORT_CONTENT_ITEM;
+        const JsonNode *sec, *e, *s;
+        u32 n;
+
+        if (p->type != (k == 0 ? 0u : 2u)) {
+            continue;
+        }
+        sec = Json_Get(m->doc, k == 0 ? "cars" : "items");
+        for (e = sec != NULL && sec->type == JSON_OBJECT ? sec->child : NULL; e != NULL; e = e->next) {
+            if (!Port_ContentIndexOf(kind, e->key, &n) || (k == 0 ? n : Port_ContentItemPack(n)) != p->own) {
+                continue;
+            }
+            s = Json_Get(e, "sounds");
+            if (s != NULL && s->type == JSON_OBJECT && s->child != NULL) {
+                *key = e->key;
+                return s;
+            }
+        }
+    }
+    return NULL;
+}
+
 int Port_ModsPackSounds(void) {
     const SndPack *p = CurPack();
     int i;
@@ -1774,7 +1807,7 @@ int Port_ModsPackSounds(void) {
     }
     for (i = 0; i < s_numMods; i++) {
         const JsonNode *sec = Json_Get(s_mods[i].doc, "sounds"), *x;
-        const char *rest;
+        const char *rest, *uid;
 
         if (!Enabled(&s_mods[i])) {
             continue;
@@ -1783,6 +1816,9 @@ int Port_ModsPackSounds(void) {
             if (Names(x->key, p->archive, p->type, p->id, &rest) && SDL_strncmp(rest, "sound/", 6) == 0) {
                 return 1;
             }
+        }
+        if (EntrySounds(&s_mods[i], p, &uid) != NULL) {
+            return 1;
         }
     }
     return 0;
@@ -1887,6 +1923,26 @@ void Port_ModsSFX(int fmt, const void *desc, unsigned count) {
 
             if (Names(x->key, p->archive, p->type, p->id, &rest) && (k = SoundIndex(rest, fmt)) >= 0) {
                 ModSound(m, x->key, x, fmt, desc, count, (u32)k);
+            }
+        }
+    }
+    for (i = 0; i < s_numMods; i++) {     /* then the new entries' own, over their base's */
+        const Mod *m = &s_mods[i];
+        const JsonNode *sec, *x;
+        const char *uid = NULL;
+        DataPack fake;
+
+        fake.portFormat = (u8)fmt;
+        if (!Enabled(m) || !ForRelease(m, &fake) || (sec = EntrySounds(m, p, &uid)) == NULL) {
+            continue;
+        }
+        for (x = sec->child; x != NULL; x = x->next) {
+            long k = SoundIndex(x->key, fmt);
+            char where[200];
+
+            if (k >= 0) {
+                SDL_snprintf(where, sizeof(where), "%s %s", uid, x->key);
+                ModSound(m, where, x, fmt, desc, count, (u32)k);
             }
         }
     }
