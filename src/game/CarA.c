@@ -223,7 +223,9 @@ static inline void CarA_FitCubic(f32 *coef, f32 x0, f32 x1, f32 y0, f32 y1, f32 
    slave things it starts with. */
 /* port, testing: HWVX_CARLOG=1 logs the human's car every 30 frames (handling,
  * gear, rpm, wheel speed, speed, steering, turbo, position), =2 every car
- * ("ai" for the AI's). */
+ * ("ai" for the AI's); =3 also every frame of the human's car its pitch (degrees,
+ * nose up), position and the terrain contacts of every thing since the last line
+ * (an edge or a box corner meeting the cell's BSP: CollisionTerrain.c OBoxHitsBSP). */
 static void Port_CarLog(CarA *car) {
     static int on = -1;
     static u32 frame;
@@ -232,6 +234,18 @@ static void Port_CarLog(CarA *car) {
     if (on < 0) {
         const char *e = getenv("HWVX_CARLOG");
         on = e != NULL ? atoi(e) : 0;
+    }
+    if (on >= 3 && human) {
+        extern u32 g_portTerrainEdgeHits, g_portTerrainCornerHits;
+        extern int g_portTerrainContactLog;
+
+        g_portTerrainContactLog = on == 4;
+        f32 fy = car->base.axis[2].y;
+
+        Port_Log("carpitch: %.2f pos %.1f %.1f %.1f edges %u corners %u", (f32)(asinf(fy < -1.0f ? -1.0f : fy > 1.0f ? 1.0f : fy) * 57.29578f),
+                 car->base.pos.x, car->base.pos.y, car->base.pos.z, (unsigned)g_portTerrainEdgeHits, (unsigned)g_portTerrainCornerHits);
+        g_portTerrainEdgeHits = 0;
+        g_portTerrainCornerHits = 0;
     }
     if (on <= 0 || (!human && on < 2) || (human && frame++ % 30 != 0) || (!human && frame % 30 != 1)) {
         return;
