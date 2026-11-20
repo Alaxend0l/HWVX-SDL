@@ -393,6 +393,37 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
         }
     }
 
+    // remove: base pickup points off for good, base objectives hidden (as the port's ApplyRemoves:
+    // an item's mode and round-start mode off; an objective's info mode 0, not shown, and HUD
+    // object id 0xFF, in no object); the compiler checked the paths
+    for r in &c.removes {
+        let rel = s(&r["path"]);
+        if r["kind"] == "item" {
+            let nd = w.node_doc(&rel)?;
+            let rec = match &nd {
+                Some((stem, at)) => lpath(w.doc(stem)?, at).and_then(Value::as_object_mut),
+                None => None,
+            };
+            let Some(rec) = rec else { return Err(lerr(format!("level.jsonc/remove: {rel}: no such record in the project"))) };
+            rec.insert("mode".into(), json!("off"));
+            rec.insert("defMode".into(), json!(0));
+        } else {
+            let nid = format!("{pre}{rel}/info");
+            let stem = w.file_of.get(&nid).cloned().ok_or_else(|| lerr(format!("level.jsonc/remove: {rel}: an objective without its info")))?;
+            let d = w.b.doc(&stem, ".base.jsonc")?;
+            let bytes = d.get_mut("children").and_then(|c| c.get_mut(&nid)).and_then(|n| n.get_mut("bytes"));
+            let first = match bytes {
+                Some(Value::Array(a)) => a.first_mut(),
+                Some(x @ Value::String(_)) => Some(x),
+                _ => None,
+            };
+            let Some(Value::String(h)) = first.filter(|h| h.as_str().is_some_and(|h| h.len() >= 8 && h[..8].bytes().all(|c| c.is_ascii_hexdigit()))) else {
+                return Err(lerr(format!("level.jsonc/remove: {rel}: its info's bytes aren't inline hex")));
+            };
+            h.replace_range(2..6, "00ff");
+        }
+    }
+
     // volumes: into the array (a box's BSP is a part of the compiler's, below)
     for (n, v) in &vols {
         let wh = format!("level.jsonc/volumes/{n}");
@@ -496,10 +527,11 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
             let im = it.as_object_mut().ok_or_else(|| pyerr("TypeError", "tile car"))?;
             im.insert("pos".into(), json!({"x": f64v(p[0]), "y": f64v(p[1]), "z": f64v(p[2]), "w": wv}));
             im.insert("rotY".into(), f64v(py_float(sd.get("rotY").unwrap_or(&json!(0.0)))?));
-            im.insert("port".into(), crate::decode::int_value(py_int(sd.get("port").unwrap_or(&json!(0)))?));
-            for (k, v) in sd.as_object().into_iter().flatten() {
-                if !["pos", "rotY", "port"].contains(&k.as_str()) {
-                    im.insert(k.clone(), v.clone());
+            let mut f = sd.as_object().cloned().unwrap_or_default();
+            level::ai_start(&mut f)?;
+            for (k, v) in f {
+                if !["pos", "rotY"].contains(&k.as_str()) {
+                    im.insert(k, v);
                 }
             }
             w.doc(&st)?["items"].as_array_mut().unwrap().push(it);

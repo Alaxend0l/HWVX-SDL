@@ -1,0 +1,48 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "timer_value_check",
+  "param": {
+    "timers": [
+      "level://timers/clock"
+    ],
+    "value": {
+      "const": 0
+    },
+    "op": "equal"
+  },
+  "conditions": [
+    {
+      "type": "variable_value_check",
+      "param": {
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 0
+        },
+        "op": "equal"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "type": "variable_change_value",
+      "data": {
+        "op": "set",
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "round_complete",
+      "data": {
+        "player": 2
+      }
+    }
+  ]
+}

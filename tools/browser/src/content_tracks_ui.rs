@@ -53,7 +53,14 @@ pub(crate) struct TracksState {
     own_preview: Option<(PathBuf, Option<std::time::SystemTime>, Result<(egui::TextureHandle, [usize; 2]), String>)>,
 }
 
+/// "made from" values past the retail tracks: Joyride world k (track k) as the template of a
+/// track of another mode (the mode's first track its base, the Joyride world its world).
+const TEMPLATE: u32 = 1000;
+
 fn base_text(n: u32, worlds: &[String]) -> String {
+    if n >= TEMPLATE {
+        return format!("Joyride world {} as the template", n - TEMPLATE + 1);
+    }
     let m = tracks::mode_of(n);
     let w = m.and_then(|m| worlds.get((n - m.first) as usize)).map(|w| format!("   ({w})")).unwrap_or_default();
     format!("{}{w}", tracks::label(n))
@@ -92,6 +99,7 @@ impl Browser {
         let linked: Vec<String> = p.track_levels().into_iter().map(|(u, _)| u).collect();
         let mode_first = tracks::MODES[self.content.tracks.add_mode.min(tracks::MODES.len() - 1)].first;
         let add_worlds = self.track_worlds(mode_first);
+        let joyride_worlds: Vec<String> = self.world.list.iter().filter(|w| w.mode == "joyride").map(|w| w.world.clone()).collect();
         ui.horizontal(|ui| {
             ui.strong(format!("Tracks ({})", list.len()));
             ui.menu_button("+ New track", |ui| {
@@ -106,7 +114,8 @@ impl Browser {
                         }
                     });
                     let m = &tracks::MODES[t.add_mode];
-                    if before != t.add_mode || !(m.first..m.end).contains(&t.add_base) {
+                    let template_ok = m.name != "joyride" && (TEMPLATE..TEMPLATE + 5).contains(&t.add_base);
+                    if before != t.add_mode || !((m.first..m.end).contains(&t.add_base) || template_ok) {
                         t.add_base = m.first;
                     }
                     ui.end_row();
@@ -114,6 +123,15 @@ impl Browser {
                     egui::ComboBox::from_id_salt("track_add_base").selected_text(base_text(t.add_base, &add_worlds)).height(380.0).show_ui(ui, |ui| {
                         for n in m.first..m.end {
                             ui.selectable_value(&mut t.add_base, n, base_text(n, &add_worlds));
+                        }
+                        if m.name != "joyride" {
+                            // any Joyride world: a track of this mode on it (Challenge on world 4, which
+                            // retail has none on); the game shows the Joyride level's picture
+                            ui.separator();
+                            for k in 0..5 {
+                                ui.selectable_value(&mut t.add_base, TEMPLATE + k, base_text(TEMPLATE + k, &add_worlds))
+                                    .on_hover_text(joyride_worlds.get(k as usize).cloned().unwrap_or_default());
+                            }
                         }
                     });
                     ui.end_row();
@@ -128,10 +146,16 @@ impl Browser {
                 if ui.add_enabled(!t.add_name.trim().is_empty(), egui::Button::new("Add")).clicked() {
                     let name = t.add_name.trim().to_string();
                     if let Some(p) = self.content.proj.as_mut() {
-                        let uid = p.add_track(t.add_base, &name, !t.add_locked);
-                        // the base track's own picture, named (the select shows it anyway: written out so it can be changed)
-                        if let Some(l) = tracks::picture_link(t.add_base) {
+                        let template = (t.add_base >= TEMPLATE).then(|| t.add_base - TEMPLATE);
+                        let base = if template.is_some() { tracks::MODES[t.add_mode].first } else { t.add_base };
+                        let uid = p.add_track(base, &name, !t.add_locked);
+                        // the base track's own picture, named (the select shows it anyway: written out so it can be changed);
+                        // a template's: the Joyride world's, and that world
+                        if let Some(l) = tracks::picture_link(template.unwrap_or(t.add_base)) {
                             p.set_track_str(&uid, "thumbnail", Some(&l));
+                        }
+                        if let Some(w) = template.and_then(|k| joyride_worlds.get(k as usize)) {
+                            p.set_track_str(&uid, "world", Some(w));
                         }
                         t.sel = Some(uid);
                         t.add_name.clear();

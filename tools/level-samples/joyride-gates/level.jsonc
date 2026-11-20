@@ -1,0 +1,122 @@
+// A sample Mission on Joyride world 2 (xdlrs level new --mode mission --world worlds_\sp_\joyride_\world2): the
+// template's gears, key and their objectives removed; its objective (in the Joyride intro box) is the gate down
+// the road from the start, before the 40 s clock runs out (won), else lost. No briefing: the alias's (mission 1's)
+// is of another world, so the game leaves it out of a level on a world no mission is on.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://joyridegates",
+  "name": "Joyride Gates",
+  "mode": "mission",
+  "extends": "base://mcp/track/5",
+  "world": "worlds_\\sp_\\joyride_\\world2",
+  "unlocked": true,
+  "baseTriggers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    37,
+    38
+  ],
+  "remove": {
+    "items": [
+      "base://world2/world_0/World/0/quads/17/contents/items/1",
+      "base://world2/world_0/World/0/quads/2/contents/items/0",
+      "base://world2/world_0/World/0/quads/5/contents/items/1",
+      "base://world2/world_0/World/0/quads/5/contents/items/2",
+      "base://world2/world_0/World/0/quads/6/contents/items/8",
+      "base://world2/world_0/World/0/quads/10/contents/items/0",
+      "base://world2/world_0/World/0/quads/12/contents/items/0",
+      "base://world2/world_0/World/0/quads/13/contents/items/0",
+      "base://world2/world_0/World/0/quads/13/contents/items/1",
+      "base://world2/world_0/World/0/quads/17/contents/items/0",
+      "base://world2/world_0/World/0/quads/17/contents/items/7"
+    ],
+    "objectives": [
+      "base://world2/world_0/World/0/objectives/0",
+      "base://world2/world_0/World/0/objectives/1"
+    ]
+  },
+  "objectives": {
+    "brief": {
+      "text": "level://strings/brief",
+      "kind": "none",
+      "done": "level://variables/briefed/to",
+      "hud": 1,
+      "doneText": "level://strings/done"
+    }
+  },
+  "strings": {
+    "brief": "Drive through the gate before the clock runs out",
+    "done": "Through the gate!"
+  },
+  "variables": {
+    "done": 0,
+    "briefed": 0
+  },
+  "timers": {
+    "clock": {
+      "time": 40000,
+      "countUp": 0,
+      "type": 12
+    }
+  },
+  "triggers": [
+    "go",
+    "gate",
+    "timeout"
+  ],
+  "description": "Through the gate before the clock runs out: a mission on Joyride world 2.",
+  "volumes": {
+    "gate": {
+      "center": [
+        626,
+        297,
+        2998
+      ],
+      "radius": 50
+    }
+  },
+  "test": {
+    "memory": [
+      "level: uid://joyridegates: 11 base items and 2 base objectives removed"
+    ],
+    "win": [
+      "progression: the level ends: won",
+      "of its alias's 3 opening steps"
+    ],
+    "lose": [
+      "progression: the level ends: lost"
+    ]
+  }
+}

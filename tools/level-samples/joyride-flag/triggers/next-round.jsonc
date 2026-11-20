@@ -1,0 +1,40 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "game_round_x_complete",
+  "actions": [
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "lock_control",
+        "unused": 0,
+        "cars": [
+          "base://world1/world_0/World/0/tileCars/0"
+        ]
+      },
+      "count": "always"
+    },
+    {
+      "type": "reset_game_round",
+      "data": {
+        "resetMotion": 1,
+        "resetPosition": 1,
+        "jettison": 1
+      },
+      "delayInit": 3000,
+      "count": "always"
+    },
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "unlock_control",
+        "unused": 0,
+        "cars": [
+          "base://world1/world_0/World/0/tileCars/0"
+        ]
+      },
+      "delayInit": 3500,
+      "count": "always"
+    }
+  ]
+}

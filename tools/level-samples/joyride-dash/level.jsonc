@@ -1,0 +1,88 @@
+// A sample Challenge on Joyride world 4, a world retail has no challenge on (xdlrs level new --mode challenge
+// --world worlds_\sp_\joyride_\world4): the template's gears, key and their objectives removed; the goal down
+// the road from the start before the 30 s clock (the HUD's) runs out wins, else lost. The briefing line shows in
+// the Joyride intro box (an objective of its own with the removed one's HUD id).
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://joyridedash",
+  "name": "Joyride Dash",
+  "mode": "challenge",
+  "extends": "base://mcp/track/39",
+  "world": "worlds_\\sp_\\joyride_\\world4",
+  "unlocked": true,
+  "baseTriggers": [
+    0,
+    5,
+    6
+  ],
+  "remove": {
+    "items": [
+      "base://world4/world_0/World/0/quads/3/contents/items/0",
+      "base://world4/world_0/World/0/quads/4/contents/items/0",
+      "base://world4/world_0/World/0/quads/4/contents/items/1",
+      "base://world4/world_0/World/0/quads/9/contents/items/0",
+      "base://world4/world_0/World/0/quads/10/contents/items/0",
+      "base://world4/world_0/World/0/quads/12/contents/items/0",
+      "base://world4/world_0/World/0/quads/13/contents/items/0",
+      "base://world4/world_0/World/0/quads/13/contents/items/1",
+      "base://world4/world_0/World/0/quads/14/contents/items/0",
+      "base://world4/world_0/World/0/quads/19/contents/items/0",
+      "base://world4/world_0/World/0/quads/21/contents/items/0"
+    ],
+    "objectives": [
+      "base://world4/world_0/World/0/objectives/0",
+      "base://world4/world_0/World/0/objectives/1"
+    ]
+  },
+  "objectives": {
+    "brief": {
+      "text": "level://strings/brief",
+      "kind": "none",
+      "done": "level://variables/briefed/to",
+      "hud": 1
+    }
+  },
+  "strings": {
+    "brief": "Reach the goal before the clock runs out!",
+    "won": "Goal!"
+  },
+  "variables": {
+    "done": 0,
+    "briefed": 0
+  },
+  "timers": {
+    "clock": {
+      "time": 30000,
+      "countUp": 0,
+      "type": 12
+    }
+  },
+  "triggers": [
+    "go",
+    "goal",
+    "timeout"
+  ],
+  "description": "Down the road to the goal before the clock runs out: a challenge on Joyride world 4.",
+  "volumes": {
+    "goal": {
+      "center": [
+        -2452,
+        -166,
+        -2778
+      ],
+      "radius": 50
+    }
+  },
+  "test": {
+    "memory": [
+      "level: uid://joyridedash: 11 base items and 2 base objectives removed"
+    ],
+    "win": [
+      "progression: the level ends: won"
+    ],
+    "lose": [
+      "progression: the level ends: lost"
+    ]
+  }
+}

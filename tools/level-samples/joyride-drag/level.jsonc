@@ -1,0 +1,153 @@
+// A sample Drag Race on Joyride world 1 (xdlrs level new --mode drag --world worlds_\sp_\joyride_\world1): the
+// template's gears, key and their objectives removed; four lanes (the player's start moved into the first by a
+// patch, three AI starts of its own: port 0), a finish down the road, a round_complete trigger per car. On a
+// Joyride world the AI has no drag scripts: its cars drive the vehicle's own AI on the world's roads, not their
+// lane; the 20 s clock is the opponent that wins it for player 2 (the HUD's round clock).
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://joyridedrag",
+  "name": "Joyride Drag",
+  "mode": "drag",
+  "extends": "base://mcp/track/29",
+  "world": "worlds_\\sp_\\joyride_\\world1",
+  "unlocked": true,
+  "baseTriggers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    22,
+    23
+  ],
+  "remove": {
+    "items": [
+      "base://world1/world_0/World/0/quads/17/contents/items/2",
+      "base://world1/world_0/World/0/quads/6/contents/items/1",
+      "base://world1/world_0/World/0/quads/7/contents/items/0",
+      "base://world1/world_0/World/0/quads/7/contents/items/1",
+      "base://world1/world_0/World/0/quads/7/contents/items/4",
+      "base://world1/world_0/World/0/quads/8/contents/items/0",
+      "base://world1/world_0/World/0/quads/11/contents/items/1",
+      "base://world1/world_0/World/0/quads/13/contents/items/2",
+      "base://world1/world_0/World/0/quads/15/contents/items/4",
+      "base://world1/world_0/World/0/quads/16/contents/items/0",
+      "base://world1/world_0/World/0/quads/19/contents/items/4"
+    ],
+    "objectives": [
+      "base://world1/world_0/World/0/objectives/0",
+      "base://world1/world_0/World/0/objectives/1"
+    ]
+  },
+  "objectives": {
+    "brief": {
+      "text": "level://strings/brief",
+      "kind": "none",
+      "done": "level://variables/briefed/to",
+      "hud": 1
+    }
+  },
+  "rules": {
+    "mode": "none",
+    "rounds": 1,
+    "time": 20000,
+    "roundTimer": "level://timers/clock"
+  },
+  "strings": {
+    "brief": "Beat the clock to the finish!"
+  },
+  "variables": {
+    "done": 0,
+    "briefed": 0
+  },
+  "timers": {
+    "clock": {
+      "time": 20000,
+      "countUp": 0,
+      "type": 12
+    }
+  },
+  "triggers": [
+    "go",
+    "finish1",
+    "finish2",
+    "finish3",
+    "finish4",
+    "timeout",
+    "next-round",
+    "won",
+    "lost"
+  ],
+  "description": "Four lanes down the road from the start: beat the clock to the finish.",
+  "patches": {
+    "base://world1/world_0/World/0/tileCars/0": {
+      "pos/x": -3674
+    }
+  },
+  "starts": {
+    "lane2": {
+      "pos": [
+        -3646,
+        45.4,
+        -1742
+      ],
+      "rotY": 0,
+      "port": 0
+    },
+    "lane3": {
+      "pos": [
+        -3674,
+        45.4,
+        -1772
+      ],
+      "rotY": 0,
+      "port": 0
+    },
+    "lane4": {
+      "pos": [
+        -3646,
+        45.4,
+        -1772
+      ],
+      "rotY": 0,
+      "port": 0
+    }
+  },
+  "volumes": {
+    "finish": {
+      "center": [
+        -3660,
+        46,
+        -1540
+      ],
+      "radius": 60
+    }
+  },
+  "test": {
+    "memory": [
+      "level: uid://joyridedrag: 11 base items and 2 base objectives removed"
+    ],
+    "win": [
+      "rules: all rounds complete, player 1 won",
+      "progression: the level ends: won"
+    ],
+    "lose": [
+      "rules: all rounds complete, player 1 lost",
+      "progression: the level ends: lost"
+    ]
+  }
+}

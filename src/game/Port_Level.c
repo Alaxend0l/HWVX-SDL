@@ -9,6 +9,8 @@
  *    "parts": [{"id": "...", "kind": "trigger" | "timer" | "variable" | "data",
  *               "hex": "...", "links": [[offset, LINK], ...]}, ...],
  *    "patches": [{"target": LINK, "offset": n, "hex": "..."}, ...],
+ *    "removes": [{"kind": "item" | "objective", "target": LINK}, ...],   base pickup points
+ *                                                   off, base objectives hidden (ApplyRemoves)
  *    "appends": [{"record": LINK, "pointer": n, "count": n, "elemSize": n,
  *                 "elems": [{"fromPort": p | "fromIndex": i | "from": LINK | "part": ID,
  *                            "set": [[offset, "hex"], ...]}, ...]}, ...]}
@@ -2368,6 +2370,86 @@ static WorldVolume **WorldVolumes(DataPack *pack, World *world, int marked, int 
     return out;
 }
 
+/* The base records a level removes, "removes": [{"kind": "item" | "objective", "target": LINK,
+ * "path": "World/0/..."}] (the compiler's `remove`: a Joyride world as a template, its gears, its
+ * key and the objectives that count them gone). An item: a pickup point of a quadrant, off for
+ * good (its mode and its round-start mode QUAD_ITEM_OFF: FileStreaming_HeartBeatItems never
+ * spawns it, a round reset or a quadrant streamed in again keeps it off). An objective: one of
+ * the World's, hidden (its mode not 0x17: not shown, not counted by code variable 0x19A; its HUD
+ * object id 0xFF, which no interface object has: a level objective with the id it had shows in
+ * that object, the first id match winning in InterfaceManager). The bytes go back with the
+ * level (patches of ours). Elements only, of the world's own arrays (or an append's copy). */
+static int ApplyRemoves(DataPack *pack, const JsonNode *jrem, LevelPart *parts, int n, int *numItems, int *numObjectives,
+                        char *err, size_t errSize) {
+    const JsonNode *x;
+    int i;
+
+    for (x = jrem != NULL && jrem->type == JSON_ARRAY ? jrem->child : NULL, i = 0; x != NULL; x = x->next, i++) {
+        const char *kind = Json_GetString(x, "kind", "");
+        int item = SDL_strcmp(kind, "item") == 0, objective = SDL_strcmp(kind, "objective") == 0;
+        char why[160], what[160];
+        u8 *at = Resolve(Json_Get(x, "target"), parts, n, why, sizeof(why));
+        const u8 *o = at != NULL ? BlobOrigin(at) : NULL;
+
+        SDL_snprintf(what, sizeof(what), "removes %d (%.100s)", i, Json_GetString(x, "path", kind));
+        if (!item && !objective) {
+            return Fail(err, errSize, "%s: kind item or objective", what);
+        }
+        if (at == NULL) {
+            return Fail(err, errSize, "%s: %s", what, why);
+        }
+        if (o == NULL || !ElementOfKind(pack, o, item ? 2 : 1)) {
+            return Fail(err, errSize, "%s: not one of the world's %s", what, item ? "pickup points" : "objectives");
+        }
+        if (item) {
+            QuadItem *q = (QuadItem *)at;
+            u32 off = QUAD_ITEM_OFF;
+            u8 def = QUAD_ITEM_OFF;
+
+            if (!PatchBytes((u8 *)&q->mode, &off, 4) || !PatchBytes(&q->defMode, &def, 1)) {
+                return Fail(err, errSize, "out of memory");
+            }
+            (*numItems)++;
+        } else {
+            u8 *info;
+            u8 hidden[2] = {0, 0xFF};   /* mode, id */
+
+            if (!NotedSlot(o + offsetof(WorldObjective, info)) ||
+                !InBlob(pack, info = Port_HandleToPtr(*(const u32 *)(at + offsetof(WorldObjective, info))),
+                        sizeof(WorldObjectiveInfo))) {
+                return Fail(err, errSize, "%s: an objective without its info", what);
+            }
+            if (!PatchBytes(info + offsetof(WorldObjectiveInfo, mode), hidden, 2)) {
+                return Fail(err, errSize, "out of memory");
+            }
+            (*numObjectives)++;
+        }
+    }
+    return 1;
+}
+
+/* The level's own starts (the tile cars an append added): a player's port 1-4 or an AI's 5 and up.
+ * Port 0 is neither: StateGamePlay_Init takes a port up to the humans' for a player's and indexes
+ * its tables by port - 1. */
+static int NewStartsOk(World *world, char *err, size_t errSize) {
+    const TileCar *cars = GETP(world->tileCars);
+    int g;
+
+    for (g = 0; g < s_lv.numGrows; g++) {
+        u32 k;
+
+        if (s_lv.grows[g].kind != 0 || GETP(world->tileCars) != (TileCar *)s_lv.grows[g].mem) {
+            continue;
+        }
+        for (k = s_lv.grows[g].oldSize / sizeof(TileCar); k < world->numTileCars; k++) {
+            if (cars[k].port == 0) {
+                return Fail(err, errSize, "start %u: port 0 (a player's start is 1-4, an AI car's 5 or more)", (unsigned)k);
+            }
+        }
+    }
+    return 1;
+}
+
 static int StartOverride(DataPack *pack, World *world, char *err, size_t errSize) {
     const char *e = SDL_getenv("HWVX_LEVEL_START");
     f32 v[4];
@@ -2534,7 +2616,7 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     const JsonNode *jpatches = Json_Get(doc, "patches");
     LevelPart *parts = NULL;
     u8 *keep = NULL;
-    int n = 0, i, ok = 0, grid = 0, moved = 0;
+    int n = 0, i, ok = 0, grid = 0, moved = 0, removedItems = 0, removedObjectives = 0;
     Vector4 *centers = NULL;
     u32 numKeep = 0, numTrig = 0, numTimers = 0, numVars = 0, k;
 
@@ -2885,6 +2967,13 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
         Json_HexDecode(hex, at, size);
     }
 
+    /* the base records the level removes (a Joyride world as a template: its gears, its key and
+     * the objectives that count them), and the level's own starts' ports */
+    if (!ApplyRemoves(pack, Json_Get(doc, "removes"), parts, n, &removedItems, &removedObjectives, err, errSize) ||
+        !NewStartsOk(world, err, errSize)) {
+        goto done;
+    }
+
     /* HWVX_LEVEL_START=x,y,z,rotY: player 1 starts there (the editor's "test from here") */
     if (!StartOverride(pack, world, err, errSize)) {
         goto done;
@@ -2934,6 +3023,10 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
              "%d arrays grown, %d volumes added to the volume grid, %d base volumes moved", Json_GetString(doc, "id", "?"),
              Json_GetString(doc, "name", "?"), (unsigned)s_lv.numTriggers, (unsigned)numKeep, (unsigned)numTimers,
              (unsigned)numVars, n, s_lv.numPatches, s_lv.numGrows, grid, moved);
+    if (removedItems + removedObjectives > 0) {
+        Port_Log("level: %s: %d base items and %d base objectives removed", Json_GetString(doc, "id", "?"),
+                 removedItems, removedObjectives);
+    }
 done:
     SDL_free(centers);
     SDL_free(keep);

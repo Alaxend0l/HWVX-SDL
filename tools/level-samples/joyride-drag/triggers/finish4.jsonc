@@ -1,0 +1,47 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "airbox_entered",
+  "param": {
+    "volumes": [
+      "level://volumes/finish"
+    ],
+    "cars": [
+      "level://starts/lane4"
+    ]
+  },
+  "conditions": [
+    {
+      "type": "variable_value_check",
+      "param": {
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 0
+        },
+        "op": "equal"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "type": "variable_change_value",
+      "data": {
+        "op": "set",
+        "variables": [
+          "level://variables/done"
+        ],
+        "value": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "round_complete",
+      "data": {
+        "player": 4
+      }
+    }
+  ]
+}

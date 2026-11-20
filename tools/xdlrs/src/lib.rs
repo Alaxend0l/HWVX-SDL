@@ -36,6 +36,7 @@ pub mod level_fields;
 pub mod level_refuse;
 pub mod level_pack;
 pub mod level_share;
+pub mod level_template;
 pub mod modcheck;
 pub mod ops;
 pub mod pack;

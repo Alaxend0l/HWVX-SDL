@@ -1,0 +1,20 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "interface_end",
+  "param": {
+    "interface": "base://world1/world_0/trigger/17/param/p0"
+  },
+  "actions": [
+    {
+      "type": "timer_change_mode",
+      "data": {
+        "show": "show",
+        "run": "resume",
+        "timers": [
+          "level://timers/clock"
+        ]
+      }
+    }
+  ]
+}

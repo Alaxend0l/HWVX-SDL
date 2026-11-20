@@ -1,0 +1,128 @@
+// A sample Battle on Joyride world 1 (xdlrs level new --mode battle --world worlds_\sp_\joyride_\world1): the
+// template's gears, key and their objectives removed; an AI car of its own (port 0: the AI's); one round, won by
+// reaching the flag down the road before the 25 s clock (the HUD's round clock: rules roundTimer), else the round
+// goes to player 2. The round flow a battle world's script has (its results screens) is the template's
+// triggers: next-round, and won/lost ending the level.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://joyrideflag",
+  "name": "Joyride Flag",
+  "mode": "battle",
+  "extends": "base://mcp/track/19",
+  "world": "worlds_\\sp_\\joyride_\\world1",
+  "unlocked": true,
+  "baseTriggers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    22,
+    23
+  ],
+  "remove": {
+    "items": [
+      "base://world1/world_0/World/0/quads/17/contents/items/2",
+      "base://world1/world_0/World/0/quads/6/contents/items/1",
+      "base://world1/world_0/World/0/quads/7/contents/items/0",
+      "base://world1/world_0/World/0/quads/7/contents/items/1",
+      "base://world1/world_0/World/0/quads/7/contents/items/4",
+      "base://world1/world_0/World/0/quads/8/contents/items/0",
+      "base://world1/world_0/World/0/quads/11/contents/items/1",
+      "base://world1/world_0/World/0/quads/13/contents/items/2",
+      "base://world1/world_0/World/0/quads/15/contents/items/4",
+      "base://world1/world_0/World/0/quads/16/contents/items/0",
+      "base://world1/world_0/World/0/quads/19/contents/items/4"
+    ],
+    "objectives": [
+      "base://world1/world_0/World/0/objectives/0",
+      "base://world1/world_0/World/0/objectives/1"
+    ]
+  },
+  "objectives": {
+    "brief": {
+      "text": "level://strings/brief",
+      "kind": "none",
+      "done": "level://variables/briefed/to",
+      "hud": 1
+    }
+  },
+  "rules": {
+    "mode": "kills",
+    "kills": 99,
+    "rounds": 1,
+    "time": 25000,
+    "roundTimer": "level://timers/clock"
+  },
+  "strings": {
+    "brief": "Reach the flag before the clock runs out!"
+  },
+  "variables": {
+    "done": 0,
+    "briefed": 0
+  },
+  "timers": {
+    "clock": {
+      "time": 25000,
+      "countUp": 0,
+      "type": 12
+    }
+  },
+  "triggers": [
+    "go",
+    "flag",
+    "timeout",
+    "next-round",
+    "won",
+    "lost"
+  ],
+  "description": "One round: reach the flag before the clock runs out; an AI car roams the world.",
+  "starts": {
+    "rival": {
+      "pos": [
+        -3660,
+        45.4,
+        -1700
+      ],
+      "rotY": 0,
+      "port": 0
+    }
+  },
+  "volumes": {
+    "flag": {
+      "center": [
+        -3660,
+        46,
+        -1540
+      ],
+      "radius": 40
+    }
+  },
+  "test": {
+    "memory": [
+      "level: uid://joyrideflag: 11 base items and 2 base objectives removed"
+    ],
+    "win": [
+      "rules: all rounds complete, player 1 won",
+      "progression: the level ends: won"
+    ],
+    "lose": [
+      "rules: all rounds complete, player 1 lost",
+      "progression: the level ends: lost"
+    ]
+  }
+}

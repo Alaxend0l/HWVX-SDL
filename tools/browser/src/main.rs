@@ -21,6 +21,7 @@
 //!                [--audio SEARCH]                the Audio browser, searched (scripts)
 //!                [--extract-disc IMAGE [--extract-to DIR]]  File > Extract a disc… on IMAGE (DIR: extracting
 //!                                                at once; with --app-shot, shot 30% of the way)
+//!                [--new-level MODE[:WORLD]]      the New level dialog, its "on" list open (WORLD: that one picked)
 //!   hwvx-browser --level PROJECT_DIR [--check] [--drive SECS] [--save-mod OUT.xmod] [--data DIR]
 //!                                                headless: the level's check, a test drive (until
 //!                                                it drives, at most SECS), Save as mod; exit 0: ok
@@ -112,6 +113,8 @@ struct Args {
     /// --movie NAME[@SECONDS], --audio SEARCH (scripts)
     movie: Option<(String, f64)>,
     audio: Option<String>,
+    /// --new-level MODE[:WORLD]: the Level tab's New level, that mode, its "on" list open (or WORLD picked)
+    new_level: Option<String>,
     /// headless (no window): --check, --drive SECS, --save-mod OUT.xmod, on --level
     check: bool,
     drive: Option<u64>,
@@ -174,6 +177,7 @@ fn parse_args() -> Result<Args, String> {
                 });
             }
             "--audio" => a.audio = Some(val()?),
+            "--new-level" => a.new_level = Some(val()?),
             "--car" => a.car = Some(val()?.parse().map_err(|_| "--car N")?),
             "--check" => a.check = true,
             "--drive" => a.drive = Some(val()?.parse().map_err(|_| "--drive SECS")?),
@@ -496,6 +500,7 @@ struct Browser {
 
     script_load_sent: bool,
     script_select_sent: bool,
+    script_new_sent: bool,
     /// --axis-drag: the frame of its pointer script it is at, and where the selection was
     axis_script: u32,
     axis_script_from: Option<[f32; 3]>,
@@ -549,6 +554,7 @@ impl Browser {
             shot_path: shot_dir.join("viewer-shot.png").display().to_string(),
             script_load_sent: false,
             script_select_sent: false,
+            script_new_sent: false,
             axis_script: 0,
             axis_script_from: None,
             axis_script_grab: None,
@@ -1002,6 +1008,26 @@ impl Browser {
         }
         if !self.movie_script() || !self.audio_script() {
             return;
+        }
+        if let Some(nl) = self.args.new_level.clone() {
+            if self.world.list.is_empty() {
+                return; // the worlds first (the list of what it's on)
+            }
+            if !self.script_new_sent {
+                self.script_new_sent = true;
+                let (m, w) = nl.split_once(':').map_or((nl.as_str(), None), |(m, w)| (m, Some(w)));
+                self.level.tab = true;
+                self.level.edit.new_requested = true;
+                self.level.edit.new_mode = m.to_string();
+                match w {
+                    Some(w) => {
+                        let l = level_edit::new_level_worlds(&self.world.list, m).into_iter().find(|x| x.label.contains(w)).map(|x| x.label);
+                        self.level.edit.new_world = l.unwrap_or_default();
+                        self.level.edit.new_name = "My Level".into();
+                    }
+                    None => self.level.edit.new_open_on = true,
+                }
+            }
         }
         if let Some(n) = self.args.select.clone() {
             let media = media_kind(&n);

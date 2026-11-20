@@ -229,6 +229,57 @@ void Port_MenuDump(const InterfaceHeader *root) {
                 snprintf(line + len, sizeof(line) - len, " %s", GETP(lv->world) != NULL ? GETP(lv->world) : "-");
             }
             Port_Log("menudump: progression %u: %d levels:%s", i, ps != NULL ? ps->count : -1, line);
+            /* each level's opening steps, loading screen and end sequences (what a level on
+             * another mode's world borrows: Port_ContentData's tracks) */
+            for (j = 0; ps != NULL && j < (u32)ps->count; j++) {
+                const ProgLevel *lv = &GETP(ps->levels)[j];
+                const ProgPack *lp = GETP(lv->pack);
+                size_t len;
+                u32 s, q;
+
+                snprintf(line, sizeof(line), "menudump: progression %u level %u: %s; loading %s:%d; opening", i, j,
+                         GETP(lv->world) != NULL ? GETP(lv->world) : "-",
+                         lp != NULL && GETP(lp->name) != NULL ? GETP(lp->name) : "-", lp != NULL ? (int)lp->id : -1);
+                for (s = 0; s < lv->count && GETP(lv->steps) != NULL && strlen(line) < sizeof(line) - 40; s++) {
+                    const ProgStep *st = &GETP(lv->steps)[s];
+                    const ProgPack *p = st->type == 1 ? GETP(st->data) : NULL;
+
+                    len = strlen(line);
+                    if (p != NULL) {
+                        snprintf(line + len, sizeof(line) - len, " %s:%d", GETP(p->name) != NULL ? GETP(p->name) : "-", (int)p->id);
+                    } else {
+                        snprintf(line + len, sizeof(line) - len, " type%u", (unsigned)st->type);
+                    }
+                }
+                for (q = 0; q < 2; q++) {
+                    const ProgSeqList *sl = q == 0 ? &lv->win : &lv->lose;
+
+                    len = strlen(line);
+                    snprintf(line + len, sizeof(line) - len, "; %s %u:", q == 0 ? "win" : "lose", (unsigned)sl->count);
+                    for (s = 0; s < sl->count && GETP(sl->seqs) != NULL && strlen(line) < sizeof(line) - 40; s++) {
+                        const ProgSequence *sq = &GETP(sl->seqs)[s];
+                        u32 t;
+
+                        len = strlen(line);
+                        snprintf(line + len, sizeof(line) - len, " [+%u", (unsigned)sq->advance);
+                        for (t = 0; t < sq->count && GETP(sq->steps) != NULL && strlen(line) < sizeof(line) - 40; t++) {
+                            const ProgStep *st = &GETP(sq->steps)[t];
+                            const ProgPack *p = st->type == 1 ? GETP(st->data) : NULL;
+
+                            len = strlen(line);
+                            if (p != NULL) {
+                                snprintf(line + len, sizeof(line) - len, " %s:%d", GETP(p->name) != NULL ? GETP(p->name) : "-",
+                                         (int)p->id);
+                            } else {
+                                snprintf(line + len, sizeof(line) - len, " type%u", (unsigned)st->type);
+                            }
+                        }
+                        len = strlen(line);
+                        snprintf(line + len, sizeof(line) - len, "]");
+                    }
+                }
+                Port_Log("%s", line);
+            }
         }
     }
     Queue(root, queue, &n);

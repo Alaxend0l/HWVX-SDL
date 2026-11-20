@@ -1,0 +1,40 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "game_rounds_complete",
+  "conditions": [
+    {
+      "type": "code_variable_value_check",
+      "param": {
+        "op": "equal",
+        "var": {
+          "var": 404,
+          "arg": 1
+        },
+        "value": {
+          "const": 1
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "type": "vehicle_change_control",
+      "data": {
+        "mode": "lock_control",
+        "unused": 0,
+        "cars": [
+          "base://world1/world_0/World/0/tileCars/0"
+        ]
+      }
+    },
+    {
+      "type": "end_level",
+      "data": {
+        "result": 4,
+        "arg": 0
+      },
+      "delayInit": 2000
+    }
+  ]
+}

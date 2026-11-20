@@ -6,6 +6,9 @@
 //!   xdlrs struct observe SURVEY_ROOT [--rel gc,pc] [--archive HW_Cars] [--struct CarAInfo] [--out FILE]
 //!   xdlrs tac survey SURVEY_ROOT
 //!   xdlrs level compile|check|base|mod|testdrive|pack ...   as xdl_level.py (pack: xdl_level_pack.py build)
+//!   xdlrs level collectibles WORLD --data D [--cache C]   what a world's script collects (JSON)
+//!   xdlrs level new DIR --mode M --world W --name N [--extends T] [--keep-collectibles] [--data D]
+//!                                        a level project (a Joyride world: a template, its gears and key removed)
 //!   xdlrs graph extract PACK_DIR PROJECT_DIR [--force]          as xdl_graph.py extract (no glTF)
 //!   xdlrs graph build PROJECT_DIR OUT_DIR [--check PACK_DIR]    as xdl_graph.py build
 //!
@@ -85,7 +88,7 @@ fn parse_args(a: &[String]) -> Args {
     let mut i = 0;
     while i < a.len() {
         let x = &a[i];
-        if ["--parts", "-v", "--verbose", "--force", "--json", "--skip-intro", "--memory", "--keep", "--check", "--lr"].contains(&x.as_str()) {
+        if ["--parts", "-v", "--verbose", "--force", "--json", "--skip-intro", "--memory", "--keep", "--check", "--lr", "--keep-collectibles"].contains(&x.as_str()) {
             r.flags.push(x.clone());
         } else if x.starts_with('-') && x.len() > 1 && i + 1 < a.len() {
             r.opts.insert(x.trim_start_matches('-').to_string(), a[i + 1].clone());
@@ -779,6 +782,49 @@ fn level_main(cmd: &str, a: &Args) -> ExitCode {
                 let p = lv::base_project(&env, a.pos(0)?, Path::new(data), &lv::cache_dir(a.opts.get("cache").map(Path::new)))?;
                 println!("{}", p.display());
                 Ok(0)
+            }
+            "collectibles" => {
+                // what a world's script collects (a Joyride world: its gears, its key), as JSON
+                let data = a.opts.get("data").ok_or_else(|| Error::uncaught("--data is required"))?;
+                let p = lv::base_project(&env, a.pos(0)?, Path::new(data), &lv::cache_dir(a.opts.get("cache").map(Path::new)))?;
+                let c = xdlrs::level_template::collectibles(&p)?;
+                let hud = xdlrs::level_template::objective_hud_ids(&p, &c.objectives)?;
+                println!(
+                    "{}",
+                    py::dumps(&json!({"items": c.items, "objectives": c.objectives, "objectiveHud": hud, "triggers": c.triggers, "kept": c.kept}))
+                );
+                Ok(0)
+            }
+            "new" => {
+                // a level project: DIR --mode M --world W --name N [--extends T] [--keep-collectibles] [--data D]
+                let mode = a.opts.get("mode").cloned().ok_or_else(|| Error::uncaught("--mode is required"))?;
+                let world = a.opts.get("world").cloned().ok_or_else(|| Error::uncaught("--world is required"))?;
+                let name = a.opts.get("name").cloned().ok_or_else(|| Error::uncaught("--name is required"))?;
+                let extends = match a.opts.get("extends") {
+                    Some(t) => t.parse().map_err(|_| Error::uncaught("--extends: a track number"))?,
+                    None => xdlrs::level_template::first_track(&mode).ok_or_else(|| Error::uncaught(format!("no mode {mode}")))?,
+                };
+                let base = match a.opts.get("data") {
+                    Some(d) => Some(lv::base_project(&env, &world, Path::new(d), &lv::cache_dir(a.opts.get("cache").map(Path::new)))?),
+                    None => None,
+                };
+                let o = xdlrs::level_template::NewLevel {
+                    mode,
+                    world,
+                    extends,
+                    name,
+                    dir: PathBuf::from(a.pos(0)?),
+                    clean: !a.flag("--keep-collectibles"),
+                    base,
+                };
+                match xdlrs::level_template::new_level(&o) {
+                    Ok(p) => {
+                        println!("{}", p.display());
+                        Ok(0)
+                    }
+                    Err(e) if e.kind == Kind::Level => Ok(report(&[e.msg])),
+                    Err(e) => Err(e),
+                }
             }
             "mod" => {
                 let proj = PathBuf::from(a.pos(0)?);
