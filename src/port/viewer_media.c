@@ -575,7 +575,7 @@ static const u8 *Samples(u32 addr, u32 length, u8 bits, int *bytesPer) {
     *bytesPer = bits / 8;
     start = (u64)addr * (u64)*bytesPer;
     end = start + (u64)length * (u64)*bytesPer;
-    return end <= (16u << 20) ? aram + start : NULL;
+    return end <= ARGetSize() ? aram + start : NULL;   /* all of ARAM (ax.c: 64 MB since the limits were lifted) */
 }
 
 static void WriteSample(JsonWriter *w, u32 length, u32 loop, u32 rate, u8 bits) {
@@ -853,7 +853,11 @@ static int CmdSound(JsonWriter *w, const JsonNode *req, char *err, size_t errSiz
         return 0;
     }
     if ((src = Samples(addr, length, bits, &per)) == NULL) {
-        SDL_snprintf(err, errSize, "%s: %u-bit samples the port's mixer doesn't play", what, bits);
+        if (bits == 8 || bits == 16) {
+            SDL_snprintf(err, errSize, "%s: its %u-bit samples lie past ARAM (0x%X, %u samples)", what, bits, addr, length);
+        } else {
+            SDL_snprintf(err, errSize, "%s: %u-bit samples the port's mixer doesn't play", what, bits);
+        }
         return 0;
     }
     if ((out = (s16 *)BlobBegin(length * 2, err, errSize)) == NULL) {
