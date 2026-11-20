@@ -122,7 +122,8 @@ impl ReadAt for Gcz {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod tests {
     use super::*;
     use crate::disc::io::Mem;

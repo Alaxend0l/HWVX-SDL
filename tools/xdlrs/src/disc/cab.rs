@@ -197,7 +197,8 @@ pub fn overlap(f: &CabFile, pos: u64, n: usize) -> Option<std::ops::Range<usize>
     (s < e).then(|| (s - pos) as usize..(e - pos) as usize)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod tests {
     use super::*;
     use crate::disc::io::Mem;

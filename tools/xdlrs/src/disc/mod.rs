@@ -32,6 +32,9 @@ use std::sync::Arc;
 
 pub type R<T> = std::result::Result<T, String>;
 
+/// [`Disc::extract_until`]'s error when its progress callback stopped it.
+pub const CANCELLED: &str = "cancelled";
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Release {
     Gc,
@@ -465,6 +468,15 @@ impl Disc {
     /// imports (an extraction plays as `--data out`). Each file is written as NAME.part and
     /// renamed when complete; the image is never written. `progress` sees each finished file.
     pub fn extract(&self, out: &Path, only: &[String], progress: &mut dyn FnMut(&Entry)) -> R<(usize, u64)> {
+        self.extract_until(out, only, &mut |e| {
+            progress(e);
+            true
+        })
+    }
+
+    /// [`Disc::extract`], stopped when `progress` returns false (after that file): Err([`CANCELLED`]).
+    /// The files done stay; a cabinet file being written stays as NAME.part.
+    pub fn extract_until(&self, out: &Path, only: &[String], progress: &mut dyn FnMut(&Entry) -> bool) -> R<(usize, u64)> {
         let picked = self.select(only);
         fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
         let (mut files, mut bytes) = (0usize, 0u64);
@@ -477,7 +489,9 @@ impl Disc {
             let mut w = Part::create(out, &e.path)?;
             self.copy(e, &mut w.f).map_err(|x| format!("{x} (writing {})", w.part.display()))?;
             w.finish()?;
-            progress(e);
+            if !progress(e) {
+                return Err(CANCELLED.into());
+            }
             files += 1;
             bytes += e.size;
         }
@@ -495,9 +509,12 @@ impl Disc {
                     continue;
                 }
                 let mut left = want.len();
+                let mut stopped = false;
                 for w in want.iter_mut().filter(|w| w.1.size == 0) {
                     Part::create(out, &w.0.path)?.finish()?;
-                    progress(w.0);
+                    if !progress(w.0) {
+                        return Err(CANCELLED.into());
+                    }
                     left -= 1;
                     w.3 = u64::MAX;
                 }
@@ -516,14 +533,20 @@ impl Disc {
                                 w.3 += r.len() as u64;
                                 if w.3 == w.1.size as u64 {
                                     w.2.take().unwrap().finish()?;
-                                    progress(w.0);
                                     w.3 = u64::MAX;
                                     left -= 1;
+                                    if !progress(w.0) {
+                                        stopped = true;
+                                        return Ok(false);
+                                    }
                                 }
                             }
                         }
                         Ok(left > 0)
                     })?;
+                }
+                if stopped {
+                    return Err(CANCELLED.into());
                 }
                 if let Some(w) = want.iter().find(|w| w.3 != u64::MAX) {
                     return Err(format!("HWVX.cab: {} runs past its folder's data", w.1.name));
@@ -642,3 +665,13 @@ pub fn find_archive(path: &Path, stem: &str) -> R<(PathBuf, Vec<u8>)> {
 
 #[cfg(test)]
 mod tests;
+
+/// Tiny disc images built in memory, for tests (this crate's, and the editor's with the
+/// `test-utils` feature): a GameCube image, an ISO 9660 image (a PS2 DVD's or the PC CD's tree),
+/// its raw 2352-byte sectors (.bin), and a sample HWVX.cab.
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_images {
+    pub use super::cab::tests::sample as cab_sample;
+    pub use super::gcm::tests::make as gamecube;
+    pub use super::iso::tests::{Node, make as iso9660, to_raw};
+}

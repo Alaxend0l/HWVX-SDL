@@ -4,7 +4,7 @@
 
 use crate::{Browser, Pending, shown_nodes};
 use eframe::egui;
-use hwvx_browser::data_dir;
+use hwvx_browser::{data_dir, extract};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -20,6 +20,9 @@ pub(crate) struct DataPick {
     pub suggestion: Option<PathBuf>,
     /// a folder is in use already (changing it from the menu): Cancel goes back to it
     pub can_cancel: bool,
+    /// a disc image (or the PC CD as a folder) chosen: what it is, with "Extract it…" (and for a
+    /// GameCube image "Use it directly")
+    pub disc: Option<extract::DiscInfo>,
 }
 
 fn shortcut(ctx: &egui::Context, cmd: bool, shift: bool, key: egui::Key) -> String {
@@ -45,11 +48,12 @@ impl Browser {
             error: why,
             suggestion: data_dir::from_launcher().filter(|s| Some(s) != current.as_ref()),
             can_cancel: current.is_some() && self.connect_error.is_none(),
+            disc: None,
         });
     }
 
     /// Uses `p` if it holds the game: remembered for next time, the game restarted on it.
-    fn use_data(&mut self, p: &Path) {
+    pub(crate) fn use_data(&mut self, p: &Path) {
         match data_dir::check(p) {
             Ok(d) => {
                 let pref = self
@@ -70,9 +74,36 @@ impl Browser {
             Err(e) => {
                 if let Some(dp) = self.data_pick.as_mut() {
                     dp.error = Some(e);
+                } else {
+                    self.fail(e);
                 }
             }
         }
+    }
+
+    /// A choice on the game data screen: a disc image (or the PC CD as a folder) is shown with what
+    /// it is and "Extract it…" (a GameCube image also "Use it directly"); anything else is used.
+    fn pick_data(&mut self, p: &Path) {
+        let disc_like = (p.is_file() && xdlrs::disc::is_image_name(p)) || (p.is_dir() && data_dir::check(p).is_err());
+        if disc_like {
+            let r = extract::inspect(p);
+            if let Some(dp) = self.data_pick.as_mut() {
+                match r {
+                    Ok(info) => {
+                        dp.error = None;
+                        dp.disc = Some(info);
+                        return;
+                    }
+                    Err(e) if p.is_file() => {
+                        dp.error = Some(e);
+                        dp.disc = None;
+                        return;
+                    }
+                    Err(_) => {} // a folder: data_dir::check's own message
+                }
+            }
+        }
+        self.use_data(p);
     }
 
     pub(crate) fn data_screen(&mut self, ui: &mut egui::Ui) {
@@ -80,6 +111,8 @@ impl Browser {
             return;
         };
         let mut chosen: Option<PathBuf> = None;
+        let mut direct: Option<PathBuf> = None;
+        let mut extract_it: Option<PathBuf> = None;
         let mut cancel = false;
         egui::CentralPanel::default().show(ui, |ui| {
             ui.add_space(24.0);
@@ -94,8 +127,9 @@ impl Browser {
                 ui.label(
                     "The editor shows and test-drives your levels in your own copy of Hot Wheels: Velocity X. \
                      Choose the GameCube disc's extracted files (the folder with HW_share.xgc, or the files/ \
-                     folder Dolphin's Extract Entire Disc makes), a disc image (.iso, .gcm, .gcz), or the PC or \
-                     PS2 release's data. Nothing from it goes into your levels.",
+                     folder Dolphin's Extract Entire Disc makes), a GameCube disc image (.iso, .gcm), or the PC or \
+                     PS2 release's extracted data. A PC or PS2 disc image (or a .gcz) is extracted first: choose it and \
+                     the editor offers to (File > Extract a disc… too). Nothing from it goes into your levels.",
                 );
                 ui.add_space(16.0);
                 if let Some(s) = dp.suggestion.clone() {
@@ -106,7 +140,7 @@ impl Browser {
                             ui.add(egui::Label::new(egui::RichText::new(s.display().to_string()).monospace()).truncate());
                         });
                         if ui.button("Use it").clicked() {
-                            chosen = Some(s.clone());
+                            direct = Some(s.clone());
                         }
                     });
                     ui.add_space(12.0);
@@ -143,6 +177,32 @@ impl Browser {
                         cancel = true;
                     }
                 });
+                if let Some(info) = dp.disc.clone() {
+                    ui.add_space(8.0);
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.strong(format!(
+                            "Hot Wheels: Velocity X, {}: {}, {} files, {}",
+                            info.release.name(),
+                            info.kind_text(),
+                            info.files,
+                            extract::human(info.bytes)
+                        ));
+                        ui.label(if info.plays_directly() {
+                            "The game reads this image as it is. Or extract it into a folder of files."
+                        } else {
+                            "The game can't read this disc as it is: extract it first (once). The extracted folder is then the game data."
+                        });
+                        ui.horizontal(|ui| {
+                            if info.plays_directly() && ui.button("Use it directly").clicked() {
+                                direct = Some(info.path.clone());
+                            }
+                            if ui.button("Extract it…").clicked() {
+                                extract_it = Some(info.path.clone());
+                            }
+                        });
+                    });
+                }
                 if let Some(e) = &dp.error {
                     ui.add_space(8.0);
                     ui.colored_label(egui::Color32::LIGHT_RED, e);
@@ -154,8 +214,12 @@ impl Browser {
         });
         if cancel {
             self.data_pick = None;
-        } else if let Some(p) = chosen {
+        } else if let Some(p) = direct {
             self.use_data(&p);
+        } else if let Some(p) = extract_it {
+            self.open_extract(Some(&p));
+        } else if let Some(p) = chosen {
+            self.pick_data(&p);
         }
     }
 
@@ -225,6 +289,13 @@ impl Browser {
                     .clicked()
                 {
                     self.ask_for_data(None);
+                }
+                if ui
+                    .add_enabled(self.extract.as_ref().is_none_or(|e| e.job.is_none()), egui::Button::new("Extract a disc…"))
+                    .on_hover_text("the PC or PS2 disc (or a GameCube image) into a folder the game plays")
+                    .clicked()
+                {
+                    self.extract_from_menu();
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {

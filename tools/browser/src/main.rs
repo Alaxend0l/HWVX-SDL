@@ -19,6 +19,8 @@
 //!                [--axis-drag x|y|z:PIXELS]      drags that axis of the selection's gizmo (scripts)
 //!                [--movie NAME[@SECONDS][!]]     the Media tab's movie NAME, paused there (!: playing)
 //!                [--audio SEARCH]                the Audio browser, searched (scripts)
+//!                [--extract-disc IMAGE [--extract-to DIR]]  File > Extract a disc… on IMAGE (DIR: extracting
+//!                                                at once; with --app-shot, shot 30% of the way)
 //!   hwvx-browser --level PROJECT_DIR [--check] [--drive SECS] [--save-mod OUT.xmod] [--data DIR]
 //!                                                headless: the level's check, a test drive (until
 //!                                                it drives, at most SECS), Save as mod; exit 0: ok
@@ -52,6 +54,7 @@ mod media_ui;
 mod movie_ui;
 mod audio_ui;
 mod menu_ui;
+mod extract_ui;
 mod world_ui;
 
 use eframe::egui;
@@ -113,6 +116,9 @@ struct Args {
     check: bool,
     drive: Option<u64>,
     save_mod: Option<PathBuf>,
+    /// --extract-disc IMAGE [--extract-to DIR]: the Extract a disc window on it (extracting at once into DIR)
+    extract_disc: Option<PathBuf>,
+    extract_to: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -172,6 +178,8 @@ fn parse_args() -> Result<Args, String> {
             "--check" => a.check = true,
             "--drive" => a.drive = Some(val()?.parse().map_err(|_| "--drive SECS")?),
             "--save-mod" => a.save_mod = Some(val()?.into()),
+            "--extract-disc" => a.extract_disc = Some(val()?.into()),
+            "--extract-to" => a.extract_to = Some(val()?.into()),
             "-h" | "--help" => {
                 println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
                 std::process::exit(0);
@@ -504,6 +512,8 @@ struct Browser {
     level: LevelState,
     /// the game data screen, while it is shown (src/menu_ui.rs)
     data_pick: Option<menu_ui::DataPick>,
+    /// the Extract a disc window, while it is open (src/extract_ui.rs)
+    extract: Option<extract_ui::ExtractState>,
     about: bool,
     content: content_ui::ContentState,
     /// the Media tab: movies (src/movie_ui.rs) and the Audio browser (src/audio_ui.rs)
@@ -552,6 +562,7 @@ impl Browser {
             world: WorldState::default(),
             level: LevelState::default(),
             data_pick: None,
+            extract: None,
             about: false,
             content: Default::default(),
             movies: movie_ui::MovieState { script: args.movie.clone(), ..Default::default() },
@@ -567,6 +578,14 @@ impl Browser {
         }
         if let Some(c) = b.args.content.clone() {
             b.content_open(&c);
+        }
+        if let Some(img) = b.args.extract_disc.clone() {
+            b.open_extract(Some(&img));
+            if let Some(to) = b.args.extract_to.clone()
+                && let Some(st) = b.extract.as_mut()
+            {
+                st.dest = to.display().to_string(); // (started by script, once the window is up)
+            }
         }
         // the game data: --data, else the one chosen last time, else ask (a running viewer has its own)
         if b.args.port.is_none() && b.args.data.is_none() {
@@ -921,6 +940,25 @@ impl Browser {
             }
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+        if self.args.extract_disc.is_some() {
+            // the Extract a disc window: its info step, or 30% of the way through (no game needed)
+            if self.args.extract_to.is_some()
+                && self.started.elapsed() > Duration::from_secs(1)
+                && self.extract.as_ref().is_some_and(|st| st.job.is_none() && st.done.is_none())
+            {
+                self.extract_start();
+            }
+            let ready = match self.extract.as_ref() {
+                Some(st) if self.args.extract_to.is_some() => st.running().is_some_and(|p| p.fraction() >= 0.3),
+                Some(st) => st.info.is_some(),
+                None => false,
+            };
+            // (and the window's fade-in over)
+            if (ready && self.started.elapsed() > Duration::from_secs(1)) || self.app_shot_state > 0 {
+                self.app_shot_now(ctx);
+            }
+            return;
+        }
         if self.viewer.is_none() {
             return;
         }
@@ -985,7 +1023,9 @@ impl Browser {
         if self.args.axis_drag.is_some() {
             return; // (raw_input_hook drags; the shot after)
         }
-        let Some(path) = self.args.app_shot.clone() else { return };
+        if self.args.app_shot.is_none() {
+            return;
+        }
         if self.args.test_drive && !self.test_drive_settled() {
             return;
         }
@@ -998,6 +1038,12 @@ impl Browser {
         {
             return; // the picture, at the panel's size
         }
+        self.app_shot_now(ctx);
+    }
+
+    /// --app-shot: a few frames for the layout to settle, then the window's own pixels; then quits.
+    fn app_shot_now(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.args.app_shot.clone() else { return };
         self.app_shot_state += 1;
         if self.app_shot_state == 10 {
             // a few frames for the layout to settle, then the window's own pixels
@@ -1754,6 +1800,7 @@ impl eframe::App for Browser {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
+        self.extract_window(&ctx);
         if self.data_pick.is_some() {
             self.data_screen(ui);
             return;

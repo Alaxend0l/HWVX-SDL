@@ -259,3 +259,23 @@ fn cue_track_nocase() {
     let c = t.write("none.cue", b"FILE \"MISSING.BIN\" BINARY\n");
     assert_eq!(cue_track(&c).unwrap(), t.0.join("MISSING.BIN"));
 }
+
+/// extract_until stops after the file its callback refuses, image files and cabinet files alike.
+#[test]
+fn extract_cancelled() {
+    let t = Tmp::new("cancel");
+    let d = Disc::open(&t.write("gc.iso", &gc_image())).unwrap();
+    let mut n = 0;
+    let r = d.extract_until(&t.0.join("gc"), &[], &mut |_| {
+        n += 1;
+        n < 2
+    });
+    assert_eq!(r.unwrap_err(), CANCELLED);
+    assert_eq!(tree(&t.0.join("gc")).len(), 2);
+    let (cab, _) = cab::tests::sample();
+    let d = Disc::open(&t.write("pc.iso", &pc_tree(&cab, b"movie"))).unwrap();
+    let r = d.extract_until(&t.0.join("pc"), &[], &mut |e| e.path != "a.xpc");
+    assert_eq!(r.unwrap_err(), CANCELLED);
+    // the movie, the empty file, a.xpc; not b.xpc (in a.xpc's folder) nor c.bin
+    assert_eq!(tree(&t.0.join("pc")).keys().collect::<Vec<_>>(), ["FMV_/hwboot.bik", "a.xpc", "e"]);
+}

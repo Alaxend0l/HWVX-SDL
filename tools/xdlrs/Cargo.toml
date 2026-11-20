@@ -21,3 +21,7 @@ miniz_oxide = "0.8"
 [build-dependencies]
 # src/audiodec (the port's own decoders) linked into the mod check
 cc = "1.2"
+
+[features]
+# disc::test_images: tiny disc images for the editor's tests
+test-utils = []
