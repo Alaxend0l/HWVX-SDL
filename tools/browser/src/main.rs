@@ -248,6 +248,7 @@ fn headless(a: &Args) -> i32 {
         car: a.car,
         skip_intro: a.quick_start,
         start_at: None,
+        gadgets: None,
         renderer: a.testdrive_renderer.clone(),
         // a mission's or challenge's information window at the start waits for A, as retail (in a window the
         // player presses it): pressed for them, a few times (HWVX_AUTOINPUT given: that instead)

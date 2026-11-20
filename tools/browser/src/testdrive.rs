@@ -40,6 +40,9 @@ pub struct Options {
     pub skip_intro: bool,
     /// Player 1's start moved here: x, y, z, rotY (radians; forward is sin, 0, cos).
     pub start_at: Option<[f32; 4]>,
+    /// A battle's Gadgets option (the game's 0x134): 1 the level's own items, 2 Random (the
+    /// Battle Options' default since the game's 0.4.2); None: the game's own (1).
+    pub gadgets: Option<u8>,
     pub renderer: Option<String>,
     /// Extra environment for the game (tests: HWVX_AUTOINPUT ...).
     pub env: Vec<(String, String)>,
@@ -152,7 +155,10 @@ impl TestDrive {
         }
         cmd.env("HWVX_PREF_DIR", &pref)
             .env("HWVX_MODS_DIR", &p.mods)
-            .env("HWVX_START", &p.start)
+            .env("HWVX_START", match o.gadgets {
+                Some(g) => format!("{},gadgets={g}", p.start),
+                None => p.start.clone(),
+            })
             .env("HWVX_TESTDRIVE", "1")
             .env("HWVX_NO_MOVIE", "1")
             .env("HWVX_NO_DIALOG", "1")

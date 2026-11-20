@@ -156,6 +156,14 @@ but less the faster you go (none from about 180), turbo never runs out, and the 
 cars drive the same way. It is kept in the save with the other settings; demos and
 online play always use the cars' own handling (`src/game/CarA_HW.c`).
 
+Battle Options (One Player's and Multi-Player's) starts with Gadgets on **Random**
+and Item Respawn on, and has a **Weapons** row: a screen listing the item select's
+12 weapons, each On or Off (six a page, a Page row). Where a battle rolls a random
+weapon it picks among those left on; a spawn point whose every weapon is off stays
+empty; weapons a level sets itself (Gadgets: On) are never filtered. The choice is
+kept in `battle.cfg` beside `graphics.cfg`; online, the host's applies to everyone
+(`src/game/Port_BattleItems.c`, the screens in `Port_Menu.c`).
+
 Saves: there's no memory card on PC, so the GameCube's card screens are
 skipped: the startup card check, the Slot A/B picker (saves always go to the
 save file), the "do not touch" loading/saving notices and the card warnings
@@ -533,7 +541,7 @@ lobby, and the host's choices in the game's own menus bring everyone to the car 
 is open and nothing reaches a save. In a level each machine simulates its own car, and
 the others follow its inputs and are pulled towards where it says it is. The world holds
 after loading and each round reset until the host says go, and the host decides who
-finished first. Not in yet: AI opponents (Battle Options hides the row online) and typing an
+finished first. Not in yet: AI opponents (Battle Options hides the row online; its Weapons row stays, and the host's choice travels with the level setup) and typing an
 address with only a controller. `HWVX_ONLINE_ADDRESS` fills in
 the Connect screen, for testing with `HWVX_AUTOINPUT`.
 

@@ -23,6 +23,8 @@ pub struct LevelState {
     pub car: u32,
     pub skip_intro: bool,
     pub from_here: bool,
+    /// a Battle's test drive with random items (Gadgets: Random), as players get it by default
+    pub random_items: bool,
     /// the test drive through a world pack of the level's own (xdlrs::level_pack), the
     /// old way; off (the default): as a shared mod plays it, the level file applied as the world
     /// loads (Port_Level.c)
@@ -115,6 +117,7 @@ impl Browser {
             car: Some(self.level.car),
             skip_intro: self.level.skip_intro,
             start_at: None,
+            gadgets: (self.level.summary["mode"] == "battle").then_some(if self.level.random_items { 2 } else { 1 }),
             renderer: self.args.testdrive_renderer.clone(),
             env: Vec::new(),
         }
@@ -452,6 +455,12 @@ impl Browser {
         });
         ui.checkbox(&mut self.level.skip_intro, "Quick start")
             .on_hover_text("leave out the intro screen and the start's delays (driving at once)");
+        if self.level.summary["mode"] == "battle" {
+            ui.checkbox(&mut self.level.random_items, "Random items")
+                .on_hover_text("the Battle Options' Gadgets: Random, the players' default since the game's 0.4.2: \
+                                every item point rolls a weapon among those the player left on (Battle Options > \
+                                Weapons), whatever item you set on it; off: your items as placed (Gadgets: On)");
+        }
         ui.add_enabled(self.world.status["world"].is_string(), egui::Checkbox::new(&mut self.level.from_here, "From here"))
             .on_hover_text("start on the ground under the camera, facing its way (a world must be loaded)");
         ui.checkbox(&mut self.level.build_pack, "Build world pack")

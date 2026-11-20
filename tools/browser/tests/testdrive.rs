@@ -28,6 +28,7 @@ fn options(scratch: &Path, project: &Path, data: Option<PathBuf>) -> Options {
         car: Some(5),
         skip_intro: true,
         start_at: None,
+        gadgets: None,
         // SDL_GPU on Metal stalls while another window covers the game's
         renderer: Some(std::env::var("HWVX_RENDERER").unwrap_or_else(|_| "opengl".into())),
         env: Vec::new(),
