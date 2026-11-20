@@ -2512,13 +2512,13 @@ pub(crate) fn template_note(mode: &str, world: &str) -> String {
     let w = world.rsplit('\\').next().unwrap_or(world);
     match mode {
         "challenge" | "mission" => format!(
-            "On {w}: the Joyride intro (with your briefing line), music and effects; it adds a 60 s clock on the HUD that loses when it runs out. You add what wins it (a volume to reach: end_level 4)."
+            "On {w}, with the {mode}'s own screens: its intro box (your briefing line), its start and HUD, a 60 s clock, Objective Complete when the goal variable is 1, Objective Failed when the clock runs out. You add what sets goal (a volume to reach)."
         ),
         "battle" => format!(
-            "On {w}: one start (the player's); it adds round rules (5 kills, 3 rounds, 2 minutes on the HUD) and the round flow (next round, the level's end). Add an AI start (port 0) or more: on a Joyride world the AI roams the roads."
+            "On {w}, with the battle's own countdown and results screens: round rules (5 kills, 3 rounds, 2 minutes on the HUD) and its round flow. One start (the player's): add an AI start (port 0) or more, to the flow's cars too; on a Joyride world the AI roams the roads."
         ),
         _ => format!(
-            "On {w}: one start; it adds the round rules and the round flow. A drag race needs 4 starts in lanes, a finish and a round_complete per car (Lanes: Check the lanes). The AI doesn't keep to a lane here."
+            "On {w}, with the drag race's own countdown, Player N WINS, Out of Time and results screens and its round flow. One start: a drag race needs 4 in lanes, a finish and a trigger per car (round_complete, Player N WINS); Lanes: Check the lanes. The AI doesn't keep to a lane here."
         ),
     }
 }

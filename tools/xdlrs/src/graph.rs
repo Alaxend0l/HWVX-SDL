@@ -2059,6 +2059,12 @@ impl<'c> Builder<'c> {
 
     /// The pack files in `out` (data.bin, the relocation tables, pack.json, the sounds); returns
     /// them by name.
+    /// One node of the project as the build makes it (its bytes and slots), by its layout entry
+    /// (pack.jsonc's `layout`).
+    pub fn built(&mut self, ent: &Value) -> Result<Option<Built>> {
+        self.node(ent)
+    }
+
     pub fn build(&mut self, out: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
         let layout: Vec<Value> = self.pack["layout"].as_array().cloned().unwrap_or_default();
         if self.pack.get("append").and_then(Value::as_array).is_some_and(|a| !a.is_empty()) {

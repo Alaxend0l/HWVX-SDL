@@ -841,6 +841,9 @@ pub struct Compiler<'e> {
     pub mode: Mode,
     /// the base records `remove` takes out: {"kind": "item" | "objective", "target": walk, "path": rel}
     pub removes: Vec<Value>,
+    /// `modeWorld`'s archive: a retail level of the mode whose screens (its triggers' interfaces)
+    /// the level plays on another world (base://ARCHIVE/world_0/trigger/N/... links: root "mode")
+    pub mode_archive: Option<String>,
 }
 
 pub type SpawnBox = ([f64; 3], [f64; 3]);
@@ -870,6 +873,7 @@ impl<'e> Compiler<'e> {
             append_of: IndexMap::new(),
             mode: Mode::Memory,
             removes: vec![],
+            mode_archive: None,
         })
     }
 
@@ -1276,7 +1280,18 @@ impl<'e> Compiler<'e> {
             return Ok(json!({"part": base, "add": add}));
         }
         if let Some(c) = rx!(r"^base://([A-Za-z0-9_]+)/world_0/(.+)$").captures(sl) {
-            if c[1].to_lowercase() != archive.to_lowercase() {
+            let a = c[1].to_lowercase();
+            if self.mode_archive.as_deref() == Some(a.as_str()) && a != archive.to_lowercase() {
+                // the mode's screens: a record its triggers name (an interface), in the retail
+                // level of the mode the game loads beside the world (Port_Level.c: root "mode")
+                if !c[2].starts_with("trigger/") {
+                    return Err(lerr(format!("{wh}: {sl}: of the mode's level only what its triggers name (trigger/N/...)")));
+                }
+                let mut v = base_steps(self.env, &c[2], wh)?;
+                v["root"] = json!("mode");
+                return Ok(v);
+            }
+            if a != archive.to_lowercase() {
                 return Err(lerr(format!("{wh}: {sl}: not the level's world ({archive})")));
             }
             if let Some(b) = &self.base
@@ -1475,6 +1490,15 @@ impl<'e> Compiler<'e> {
             self.err(wh, "id: uid:// and 1 to 13 of 0-9 a-z");
         }
         let world = s(&lv["world"]).replace('/', "\\");
+        self.mode_archive = None;
+        match lv.get("modeWorld") {
+            None => {}
+            Some(Value::String(m)) if !m.is_empty() => {
+                let ma = m.replace('/', "\\").rsplit('\\').next().unwrap_or("").to_lowercase();
+                self.mode_archive = Some(ma);
+            }
+            Some(_) => self.err(wh, "modeWorld: a world as the MCP names it (a retail level of the mode: its screens)"),
+        }
         let archive = world.rsplit('\\').next().unwrap_or("").to_lowercase();
         let mut keep = lv.get("baseTriggers").cloned().unwrap_or(json!("all"));
         let keep_ok = keep.as_str() == Some("all") || keep.as_str() == Some("none") || keep.as_array().is_some_and(|a| a.iter().all(is_int));
@@ -1722,6 +1746,9 @@ impl<'e> Compiler<'e> {
         }
         out.insert("world".into(), json!(world));
         out.insert("baseTriggers".into(), keep);
+        if let Some(m) = lv.get("modeWorld").filter(|m| m.is_string()) {
+            out.insert("modeWorld".into(), json!(m.as_str().unwrap().replace('/', "\\")));
+        }
         out.insert("parts".into(), Value::Array(parts));
         out.insert("patches".into(), Value::Array(self.patches.clone()));
         if !self.appends.is_empty() {
@@ -1773,6 +1800,22 @@ impl<'e> Compiler<'e> {
             })
         };
         let any_ends_won = docs.iter().any(|(_, d)| ends_won(d));
+        if let Some(ma) = self.mode_archive.clone() {
+            // the mode's own screens (modeWorld): its Objective Complete and its results end the
+            // level as on the mode's retail levels
+            let plays = |d: &Value| d.to_string().contains(&format!("base://{ma}/world_0/trigger/"));
+            let sets_goal = docs.iter().any(|(_, d)| {
+                d.get("actions").and_then(Value::as_array).is_some_and(|a| {
+                    a.iter().any(|x| x["data"]["variables"].as_array().is_some_and(|v| v.iter().any(|v| v == "level://variables/goal")) && x["data"]["value"]["const"] != 0)
+                })
+            });
+            if !docs.iter().any(|(_, d)| plays(d)) {
+                w.push(format!("triggers: modeWorld is set, but no trigger plays one of its screens (base://{ma}/world_0/trigger/...)"));
+            } else if matches!(mode, "challenge" | "mission" | "adventure") && lv.pointer("/variables/goal").is_some() && !sets_goal && !any_ends_won {
+                w.push(format!("triggers: nothing wins this {mode}: set level://variables/goal to 1 (a volume to reach, items to pick up) and the template's won plays the {mode}'s Objective Complete"));
+            }
+            return Ok(w);
+        }
         match mode {
             "challenge" | "mission" | "adventure" if !any_ends_won => w.push(format!(
                 "triggers: nothing ends this {mode} won: a Joyride world's script never does (add a trigger with end_level result 4: a volume to reach, items to pick up)"
@@ -2638,7 +2681,7 @@ pub fn testdrive(env: &Env, proj: &Path, scratch: &Path, o: &DriveOpts) -> Resul
         let b = o.base.resolve(env, proj)?;
         let (doc, mut errors, mut cached) = compile_cached(env, proj, &mod_dir.join("level.json"), b.as_deref(), o.skip_intro)?;
         if errors.is_empty()
-            && let Some(d) = o.base.data.as_ref().filter(|_| !o.memory)
+            && let Some(d) = o.base.data.as_ref().filter(|_| !o.memory && lv.get("modeWorld").is_none())
         {
             // option 1: the level built into its own world pack (level_pack)
             match crate::level_pack::build_cached(env, proj, d, &cache_dir(o.base.cache.as_deref()), &mod_dir.join("worlds"), o.skip_intro) {
