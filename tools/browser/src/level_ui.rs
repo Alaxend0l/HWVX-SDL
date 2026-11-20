@@ -208,6 +208,8 @@ impl Browser {
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
             match &content {
                 Some((k, u)) => self.content_test(*k, u),
+                // the Content tab with a track, sound or song selected: its own button, not the level's drive
+                None if self.content.tab => self.content.message = "F5 drives a selected car or weapon; a track, sound or song has its own button".into(),
                 None => self.test_drive(),
             }
         }

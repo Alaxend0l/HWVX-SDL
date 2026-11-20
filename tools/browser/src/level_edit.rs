@@ -273,7 +273,8 @@ impl Browser {
         let typing = ctx.egui_wants_keyboard_input();
         if cmd && !typing {
             let (z, s, shift) = ctx.input(|i| (i.key_pressed(egui::Key::Z), i.key_pressed(egui::Key::S), i.modifiers.shift));
-            if z {
+            // (the Content tab has no undo of its own: Ctrl+Z there must not undo the level)
+            if z && !self.content.tab {
                 self.edit_undo(shift);
             }
             if s && self.content.tab {
