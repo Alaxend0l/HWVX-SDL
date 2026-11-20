@@ -36,6 +36,8 @@ pub(crate) struct ContentState {
     pub retail: crate::content_retail_ui::RetailState,
     /// sound replacements (src/content_sounds_ui.rs)
     pub sounds: crate::content_sounds_ui::SoundsState,
+    /// the Soundtrack (content_music_ui.rs)
+    pub music: crate::content_music_ui::MusicState,
 }
 
 pub(crate) fn base_label(kind: Kind, n: u32) -> String {
@@ -203,12 +205,17 @@ impl Browser {
         }
         self.content_retail_panel(ui);
         self.content_sounds_panel(ui);
+        self.music_panel(ui);
     }
 
     /// The right panel while the Content tab is on show.
     pub(crate) fn content_inspector(&mut self, ui: &mut egui::Ui) {
         if self.content_retail_inspector(ui) || self.content_sounds_inspector(ui) {
             return;
+        if self.content.sel.is_some() {
+            self.content.music.sel = None;
+        } else if self.content.music.sel.is_some() {
+            return self.music_inspector(ui);
         }
         let Some((kind, uid)) = self.content.sel.clone() else {
             ui.heading("Content");
