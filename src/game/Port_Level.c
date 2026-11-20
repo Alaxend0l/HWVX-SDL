@@ -1624,6 +1624,39 @@ static int ElementOfKind(DataPack *pack, const u8 *o, int t) {
     return InElementOfKind(pack, o, t) == 1;
 }
 
+/* The first element (in the blob) of an array of kind t of any quadrant, or NULL. */
+static const u8 *AnyElementOfKind(DataPack *pack, int t) {
+    World *world = (World *)GETP(pack->base);
+    const u8 *quads = GETP(world->quads);
+    u32 i;
+
+    if (!s_growable[t].quad || world->numQuads > 0x10000 ||
+        !InBlob(pack, quads, world->numQuads * (u32)sizeof(WorldQuad))) {
+        return NULL;
+    }
+    for (i = 0; i < world->numQuads; i++) {
+        const u8 *slot = quads + i * sizeof(WorldQuad) + offsetof(WorldQuad, contents), *rec, *arr;
+        u32 count;
+
+        if (*(const u32 *)slot == 0 || !NotedSlot(slot)) {
+            continue;
+        }
+        rec = Port_HandleToPtr(*(const u32 *)slot);
+        if (!InBlob(pack, rec, sizeof(QuadContents))) {
+            continue;
+        }
+        count = *(const u32 *)(rec + s_growable[t].count);
+        if (count == 0 || count > 0x10000 || !NotedSlot(rec + s_growable[t].pointer)) {
+            continue;
+        }
+        arr = BlobOrigin(Port_HandleToPtr(*(const u32 *)(rec + s_growable[t].pointer)));  /* (moved to a copy) */
+        if (InBlob(pack, arr, count * s_growable[t].elemSize)) {
+            return arr;
+        }
+    }
+    return NULL;
+}
+
 /* The word at blob address o is a pointer slot of an element of the arrays above
  * (also the ones null in the pack). */
 static int TypedPointer(DataPack *pack, const u8 *o) {
@@ -1697,12 +1730,14 @@ static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, 
                             "quadrant's items/fxPoints, once each, at most %d elements)", a, LEVEL_MAX_APPEND);
             }
         }
-        if (!NotedSlot(rec + po)) {
+        count = *(u32 *)(rec + co);
+        if (!NotedSlot(rec + po) && !(count == 0 && *(u32 *)(rec + po) == 0)) {
+            /* (null with no elements: a quadrant without items or effect points gets an
+             * array of its own) */
             SDL_free(recs);
             return Fail(err, errSize, "append %d: its pointer isn't one of the world's", a);
         }
         recs[a] = rec;
-        count = *(u32 *)(rec + co);
         if (count > 0x10000) {
             SDL_free(recs);
             return Fail(err, errSize, "append %d: the base array isn't in the world pack", a);
@@ -1783,6 +1818,9 @@ static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, 
 
                 if (k >= 0 && k < count) {
                     src = g->mem + k * es;
+                } else if (count == 0 && s_growable[g->kind].quad) {
+                    /* a quadrant without any: a copy of another quadrant's first */
+                    src = AnyElementOfKind(pack, g->kind);
                 }
             } else if (Json_Get(je, "from") != NULL) {
                 src = Resolve(Json_Get(je, "from"), parts, n, why, sizeof(why));

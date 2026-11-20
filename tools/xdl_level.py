@@ -593,9 +593,7 @@ class Compiler:
         for n, it in (lv.get("items") or {}).items():
             w = f"{where}/items/{n}"
             q = it["quad"]
-            if self.base is not None and not self.base.count(f"World/0/quads/{q}/contents/items"):
-                # an item is a copy of the quadrant's first (the game has none to copy)
-                raise LevelError(f"{w}/quad: quadrant {q} has no items of its own to copy")
+            # (a quadrant without items: the port copies another quadrant's first, Port_Level.c)
             ai = group(f"World/0/quads/{q}/contents", "QuadContents", "items", w)
             # a copy of the quadrant's first pickup (its ranges, draw distance), moved
             put("items", n, ai, {"fromIndex": 0, "set": sets("QuadItem", {

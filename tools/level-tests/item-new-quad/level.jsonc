@@ -1,0 +1,39 @@
+// A test level (tools/level_items_test.sh), not a sample: items and effect points in quadrants
+// that have none of their own. Challenge 1's world; three pickups across the road ahead of the
+// start in the world quadrant (quadrant 0: always loaded, no items, no effect points), one of
+// them picked up wins; an effect point there too (a copy of one of quadrant 18's), and an item
+// and an effect point in quadrant 5 (none of either). The quadrants are given, not found: the
+// editor would put these in quadrant 18, which has some.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://itemquadtest",
+  "name": "Item New Quad Test",
+  "mode": "challenge",
+  "extends": "base://mcp/track/39",
+  "world": "worlds_\\sp_\\chal1_\\ch1_l2",
+  "unlocked": true,
+  "description": "Pick up one of the pickups ahead (a test).",
+  "baseTriggers": "none",
+  "triggers": ["intro", "music", "go", "got", "timeout"],
+
+  "items": {
+    "a": { "pos": [-150, 4, -795], "quad": 0, "id": 0 },
+    "b": { "pos": [-150, 4, -780], "quad": 0, "id": 0 },
+    "c": { "pos": [-150, 4, -765], "quad": 0, "id": 0 },
+    "far": { "pos": [0, 0, 0], "quad": 5, "id": 0 }
+  },
+  "fxPoints": {
+    "glow": { "pos": [-200, 6, -780], "quad": 0, "template": "base://ch1_l2/world_0/World/0/quads/18/contents/fxPoints/0" },
+    "farglow": { "pos": [0, 0, 0], "quad": 5, "template": "base://ch1_l2/world_0/World/0/quads/18/contents/fxPoints/0" }
+  },
+  "variables": {
+    "done": 0                                    // 1 once won or lost
+  },
+  "strings": {
+    "blank": "     "
+  },
+  "patches": {
+    "base://ch1_l2/world_0/World/0/timers/0/to": { "time": 40000 }
+  }
+}
