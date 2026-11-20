@@ -133,6 +133,17 @@ pub fn base_songs() -> Vec<BaseSong> {
     v
 }
 
+/// The retail songs the data has no world for: their keys. The PC has no multi-player drag
+/// worlds (race1l1..race6l1): 54 of the 60 songs, where the GameCube and the PS2 have all.
+pub fn songs_missing(info: &crate::content::DataInfo) -> Vec<String> {
+    base_songs().into_iter().filter(|s| !info.has_archive(s.archive)).map(|s| s.key()).collect()
+}
+
+/// What the editor says of a song the data has no world for.
+pub fn not_on_release(info: &crate::content::DataInfo) -> String {
+    format!("not on this release ({})", info.release_name())
+}
+
 /// The song a key names (with or without its /song/0).
 pub fn song_for(key: &str) -> Option<BaseSong> {
     let k = canonical(key);
@@ -525,6 +536,27 @@ mod tests {
             assert_eq!(song_for(&s.key().replace("/song/0", "")).as_ref(), Some(s));
         }
         assert_eq!(song_for("base://ch1_l2/world_0/song/0").unwrap().start, "race:mode=challenge,world=ch1_l2");
+    }
+
+    /// With each release's data (HWVX_TEST_DATA: the GameCube's, HWVX_TEST_PC_DATA,
+    /// HWVX_TEST_PS2_DATA; each skipped without): the songs it has no world for. The PC lacks the
+    /// six multi-player drag worlds; the others have every one.
+    #[test]
+    fn songs_per_release() {
+        for (var, release, missing) in [("HWVX_TEST_DATA", "gc", 0), ("HWVX_TEST_PC_DATA", "pc", 6), ("HWVX_TEST_PS2_DATA", "ps2", 0)] {
+            let Some(data) = std::env::var_os(var).map(PathBuf::from) else {
+                eprintln!("{var} not set: skipped");
+                continue;
+            };
+            let info = crate::content::DataInfo::read(&data).unwrap();
+            assert_eq!(info.release, release, "{var}");
+            let m = songs_missing(&info);
+            assert_eq!(m.len(), missing, "{var}: {m:?}");
+            assert!(m.iter().all(|k| song_for(k).is_some_and(|s| s.start.starts_with("race:mode=mpdrag,"))), "{m:?}");
+            if missing > 0 {
+                assert_eq!(not_on_release(&info), "not on this release (PC)");
+            }
+        }
     }
 
     /// the schema's propertyNames pattern, ^base://[A-Za-z0-9_]+/[a-z_]+_[0-9]+(/song/0)?$

@@ -27,7 +27,10 @@ the mode's own levels in its world select (a new track number past 56, ids.lock)
 * **Picture in the world select**: *the game's* or *your own*. The game's: the select's own
   pictures, shown from the player's data (HW_IPack's interface pack 6, decoded in Rust), each
   named after the tracks that use it; a click sets `thumbnail` to
-  `base://HW_IPack/interface_6/texture/N`. "the base track's own" drops it. A new track starts with its base track's picture.
+  `base://HW_IPack/interface_6/texture/N`, N the GameCube's number of the picture whatever the
+  data (the PS2 numbers them the same; the PC's pack has them in another order, so the editor
+  decodes the PC's own texture for the preview and the game finds the same picture there:
+  Port_ContentData.c WorldPictureOn). "the base track's own" drops it. A new track starts with its base track's picture.
   Your own: *Choose image…* takes a PNG (at most 1024 x 1024 and 4 MB), copies it into the mod
   folder's `images/` (`images/<track id>-<file name>.png`; the copy it replaces, and the one of a
   deleted track, go) and sets `thumbnail` to that path; the panel previews it. The game draws

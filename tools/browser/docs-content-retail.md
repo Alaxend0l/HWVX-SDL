@@ -19,6 +19,17 @@ A retail weapon N is HW_Items pack N. A new weapon made from it loads a pack of 
 (`Port_ContentItemPack`), so a retail weapon's patch never reaches it, and the new weapon's
 own patch never reaches the retail one.
 
+A texture's number T is the release's the editor reads (its data), and a recipe's `texture/T` is
+texture T of the release the game runs (Port_Mods.c `ApplyRecipe`). Most car and weapon textures
+have the same number on all three releases; the 86 rows of `TEXTURE_ROWS` don't (the pairing table's:
+the PS2's extra car textures in car_1, 3, 7 and 20 and its own order in car_15, 20 and 24, the
+PC lacking car_3's and car_13's fourth and third, and most weapons' second, which only the
+GameCube has; the PS2 has one of its own there). For those the paint writes a recipe for each
+release that has the texture, under its number there (`texture/gc:4`, `texture/pc:3`,
+`texture/ps2:5`), and the inspector says how the others number it or that one hasn't it. The
+test `texture_numbers_against_the_data` checks the numbers with each release's data (194 PC and
+196 PS2 textures).
+
 **▶ Drive it / ▶ Try it** saves the mod and starts the game with it on, as for a new entry:
 `HWVX_START=race:mode=challenge,car=N` or `race:mode=battle,item=N`. **↺ Reset** drops every
 patch and recipe on that car or weapon (also ones the tab doesn't show).

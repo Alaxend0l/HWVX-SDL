@@ -323,6 +323,19 @@ static s32 WorldIndex(s32 p, const char *w) {
     return -1;
 }
 
+/* Level w of progression p's world, as the MCP names it (WORLDS_\MP_\DRAG_\race1l1),
+ * or NULL. */
+static const char *WorldName(s32 p, s32 w) {
+    MCP *mcp = GameSettings_GetMCP();
+    const ProgScript *ps;
+
+    if (mcp == NULL || p < 0 || (u32)p >= mcp->numScripts || (ps = GETP(GETP(mcp->scripts)[p])) == NULL || w < 0 ||
+        w >= ps->count) {
+        return NULL;
+    }
+    return GETP(GETP(ps->levels)[w].world);
+}
+
 /* HWVX_START is set: the game manager skips its steps' screens (the
  * press-start and memory card screens), loading what they would. */
 int Port_StartSkipsIntro(void) {
@@ -401,7 +414,7 @@ void Port_StartTitleLate(void) {
 static int StartTitle(void *script) {
     const char *e = SDL_getenv("HWVX_START");
     char mode[16], world[64] = "0", modeName[16] = "joyride";
-    const char *args;
+    const char *args, *name;
     s32 car = 0, item = 0, players = 1, w, p;
     Found f;
     size_t len, m;
@@ -456,6 +469,11 @@ static int StartTitle(void *script) {
     }
     if ((w = WorldIndex(p, world)) < 0) {
         Port_Log("start: progression %d has no world %s; HWVX_START ignored", (int)p, world);
+        return 0;
+    }
+    if (SDL_strcmp(mode, "menu") != 0 && (name = WorldName(p, w)) != NULL && !Port_DataHasPack(name)) {
+        /* the loading screen would wait for it for ever */
+        Port_Log("start: %s: not on this release (the data has no %s); HWVX_START ignored", world, name);
         return 0;
     }
     if (SDL_strcmp(mode, "menu") == 0) {

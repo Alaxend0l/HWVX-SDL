@@ -67,7 +67,7 @@ pub fn archives(data: &Path) -> Vec<String> {
                     walk(&p, depth - 1, out);
                 }
             } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| ["xgc", "xpc", "xps"].contains(&x.to_ascii_lowercase().as_str())) {
-                out.push(xdlrs::modcheck::media::stem(&p));
+                out.push(crate::content::archive_name(&xdlrs::modcheck::media::stem(&p)));
             }
         }
     }
@@ -87,7 +87,7 @@ impl SoundArchive {
     pub fn open(path: &Path) -> Result<SoundArchive, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let arc = Archive::from_bytes(bytes, path)?;
-        Ok(SoundArchive { name: arc.name.clone(), release: arc.release, arc })
+        Ok(SoundArchive { name: crate::content::archive_name(&arc.name), release: arc.release, arc })
     }
 
     fn raw(&self, typ: u32, id: u32) -> Result<RawPack<'_>, String> {
@@ -522,6 +522,44 @@ mod tests {
         eprintln!("{line}");
         assert!(line.contains("3 files") && line.contains("no game data found"), "{line}");
         let _ = std::fs::remove_dir_all(src);
+    }
+
+    /// With the GameCube's data (HWVX_TEST_DATA) and the PC's or the PS2's (HWVX_TEST_PC_DATA,
+    /// HWVX_TEST_PS2_DATA; each skipped without): a car sound's index means the same on every
+    /// release. Every car pack has as many sounds on each, and each index plays the same role
+    /// (CarAInfo: wind, engine, rolling, gear shifts, ...), so `sound/N` (the GameCube's N)
+    /// replaces the same sound everywhere. Lengths may differ (the releases' own recordings).
+    #[test]
+    fn car_sound_roles_per_release() {
+        let Some(gc) = std::env::var_os("HWVX_TEST_DATA") else { return };
+        let gc = SoundArchive::find(Path::new(&gc), "HW_Cars").unwrap();
+        // "used by the car (0x99434)": its data offset differs by release, not what it is
+        let role = |r: &str| r.split(", ").map(|x| x.split(" (0x").next().unwrap_or(x)).collect::<Vec<_>>().join(", ");
+        let roles = |a: &SoundArchive, id: u32| a.sounds(0, id).unwrap().into_iter().map(|s| (s.index, role(&s.role), s.looped)).collect::<Vec<_>>();
+        let cars: Vec<u32> = gc.packs().iter().filter(|p| p.typ == 0).map(|p| p.id).collect();
+        for var in ["HWVX_TEST_PC_DATA", "HWVX_TEST_PS2_DATA"] {
+            let Some(data) = std::env::var_os(var) else {
+                eprintln!("{var} not set: skipped");
+                continue;
+            };
+            let other = SoundArchive::find(Path::new(&data), "HW_Cars").unwrap();
+            let theirs: Vec<u32> = other.packs().iter().filter(|p| p.typ == 0).map(|p| p.id).collect();
+            assert_eq!(theirs, cars, "{var}: the same car packs have sounds");
+            let mut sounds = 0;
+            for &id in &cars {
+                let (a, b) = (roles(&gc, id), roles(&other, id));
+                eprintln!("{var} car_{id}: {} sounds; GameCube {:?}", b.len(), a);
+                assert_eq!(b, a, "{var}: car_{id}'s sounds by index: their roles");
+                sounds += a.len();
+            }
+            eprintln!("{var}: {} car packs, {sounds} sounds, every index the same role", cars.len());
+            // the shared sounds' packs: as many sounds each (HW_share: 15; HW_Items: 15 packs)
+            for name in ["HW_share", "HW_Items"] {
+                let a: Vec<(String, u32)> = SoundArchive::find(Path::new(&std::env::var_os("HWVX_TEST_DATA").unwrap()), name).unwrap().packs().into_iter().map(|p| (p.name, p.count)).collect();
+                let b: Vec<(String, u32)> = SoundArchive::find(Path::new(&data), name).unwrap().packs().into_iter().map(|p| (p.name, p.count)).collect();
+                assert_eq!(b, a, "{var} {name}: its packs' sound counts");
+            }
+        }
     }
 
     /// With the GameCube data (HWVX_TEST_DATA): a car pack's sounds and what plays them.

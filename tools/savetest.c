@@ -52,6 +52,12 @@ char *Port_PrefPath(void) {
     return SDL_strdup(s_pref);
 }
 
+/* no game data here: every world is (Port_Content.c leaves out a track whose world isn't) */
+int Port_DataHasPack(const char *name) {
+    (void)name;
+    return 1;
+}
+
 void Port_Log(const char *fmt, ...) {
     char line[1024];
     va_list ap;

@@ -244,3 +244,18 @@ fn cue_paths() {
     let c = t.write("b.cue", b"FILE \"/abs/x y.bin\" BINARY\n");
     assert_eq!(cue_track(&c).unwrap(), PathBuf::from("/abs/x y.bin"));
 }
+
+/// The retail PC .cue names IMS-HWVX.BIN; the file beside it is ims-hwvx.bin (found without case,
+/// as Windows and macOS would); a name with no match at all keeps the .cue's spelling.
+#[test]
+fn cue_track_nocase() {
+    let t = Tmp::new("cue-case");
+    t.write("ims-hwvx.bin", b"x");
+    let c = t.write("ims-hwvx.cue", b"FILE \"IMS-HWVX.BIN\" BINARY\r\n  TRACK 01 MODE1/2352\r\n");
+    assert_eq!(cue_track(&c).unwrap(), t.0.join("ims-hwvx.bin"));
+    t.write("Sub/Track.Bin", b"x");
+    let c = t.write("sub.cue", b"FILE \"SUB\\TRACK.BIN\" BINARY\n");
+    assert_eq!(cue_track(&c).unwrap(), t.0.join("Sub/Track.Bin"));
+    let c = t.write("none.cue", b"FILE \"MISSING.BIN\" BINARY\n");
+    assert_eq!(cue_track(&c).unwrap(), t.0.join("MISSING.BIN"));
+}

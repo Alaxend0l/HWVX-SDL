@@ -221,6 +221,10 @@ enum {
 /* dvd.c: the release (PORT_DATA_*) whose packs the game runs on, from the
  * last pack opened; for the few places the releases' code differs. */
 int Port_DataRelease(void);
+/* dvd.c: is world or pack `name` (as the game names it: "WORLDS_\\MP_\\DRAG_\\race1l1",
+ * with or without .xgc; a mod's or a custom world's own too) in the game data?
+ * Not every release has every world: the PC has no multi-player drag. */
+int Port_DataHasPack(const char *name);
 /* proto.c: the PS2 prototype's packs loaded into the game being played
  * (game/Port_Proto.c). A pack file named with PORT_PROTO_PREFIX first
  * ("~hw_cars.xgc") is the prototype's (dvd.c: PORT_DATA_PS2, its own layout,
