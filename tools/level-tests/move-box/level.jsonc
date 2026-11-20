@@ -1,0 +1,30 @@
+// A test level (tools/level_movebox_test.sh), not a sample: a base box (BSP) volume moved. Challenge
+// 1's world; its airbox volume 2 (a BSP box, 50 x 10 x 325, off the road far away) moved across
+// the road ahead of the start by patching its center (which the game never reads for a BSP: the
+// port and the pack builder move its planes by the change). Driving into it wins: only when its
+// shape moved with it.
+{
+  "$schema": "../../../schemas/Level.schema.json",
+  "format_version": 1,
+  "id": "uid://moveboxtest",
+  "name": "Move Box Test",
+  "mode": "challenge",
+  "extends": "base://mcp/track/39",
+  "world": "worlds_\\sp_\\chal1_\\ch1_l2",
+  "unlocked": true,
+  "description": "Drive into the moved box (a test).",
+  "baseTriggers": "none",
+  "triggers": ["intro", "music", "go", "box", "timeout"],
+
+  "variables": {
+    "done": 0                                    // 1 once won or lost
+  },
+  "strings": {
+    "blank": "     "
+  },
+  "patches": {
+    "base://ch1_l2/world_0/World/0/timers/0/to": { "time": 40000 },
+    // its box's middle from (4821.9, 17.6, 133.4) to (-150, 5, -780): the center is the move
+    "base://ch1_l2/world_0/World/0/volumes/2": { "center/x": -4971.91, "center/y": -12.59, "center/z": -913.38 }
+  }
+}

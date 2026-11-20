@@ -1226,6 +1226,12 @@ static void Claim_World(Swapper *s, u32 off) {
             ClaimBytes(s, light + 0x10, 4);
             ClaimBytes(s, light + 0x18, 4);
         }
+        /* a BSP volume (shape 0x8 == 0) of the array: its shape (0x28), also when no trigger
+         * or grid cell names the volume (the scan below finds those by their pointers only;
+         * a level may name any, or move it) */
+        if (Word(s, list + i * 0x30 + 0x8) == 0) {
+            Claim_BSPN0(s, Target(s, list + i * 0x30 + 0x28));
+        }
     }
     {
         u32 gd = Target(s, off + 0x9C);

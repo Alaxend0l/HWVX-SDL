@@ -445,6 +445,24 @@ static void Entry(JsonWriter *w, const char *table, const char *path, const u8 *
         if (v->shape == VOLUME_SHAPE_SPHERE) {
             Vec(w, "pos", &v->center);
             Jw_Float(w, "radius", v->radiusSq > 0.0f ? sqrtf(v->radiusSq) : 0.0f);
+        } else {
+            /* a BSP: its box (pos its middle) and its center, which only moves it: a level
+             * moves the shape by patching the center (Port_Level.c) */
+            f32 lo[3], hi[3];
+            Vector4 mid;
+
+            Vec(w, "center", &v->center);
+            if (Port_LevelBspBounds(GETP(v->bsp), 0x10000, lo, hi, NULL)) {
+                mid.x = 0.5f * (lo[0] + hi[0]), mid.y = 0.5f * (lo[1] + hi[1]), mid.z = 0.5f * (lo[2] + hi[2]);
+                mid.w = 0.0f;
+                Vec(w, "pos", &mid);
+                Jw_BeginArray(w, "min", 1);
+                Jw_Float(w, NULL, lo[0]), Jw_Float(w, NULL, lo[1]), Jw_Float(w, NULL, lo[2]);
+                Jw_EndArray(w);
+                Jw_BeginArray(w, "max", 1);
+                Jw_Float(w, NULL, hi[0]), Jw_Float(w, NULL, hi[1]), Jw_Float(w, NULL, hi[2]);
+                Jw_EndArray(w);
+            }
         }
     } else if (SDL_strcmp(table, "items") == 0 || SDL_strcmp(table, "fxPoints") == 0 ||
                SDL_strcmp(table, "instances") == 0 || SDL_strcmp(table, "tileCreatures") == 0) {

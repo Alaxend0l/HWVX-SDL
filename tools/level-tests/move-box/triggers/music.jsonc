@@ -1,0 +1,9 @@
+{
+  "$schema": "../../../../schemas/Trigger.schema.json",
+  "format_version": 1,
+  "type": "level_start",
+  "actions": [
+    { "type": "music_change", "data": { "vol": 1, "volTime": 0, "pitch": 1, "pitchTime": 0, "tempo": 1, "tempoTime": 0,
+        "orderMode": "set_speed", "order": 0, "orderType": "off", "tracks": [] } }
+  ]
+}

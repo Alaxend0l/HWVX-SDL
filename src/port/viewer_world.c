@@ -749,9 +749,20 @@ int ViewerWorld_Pick(const f32 *o, const f32 *d, f32 *tOut, const char **kind, u
     for (i = 0; i < wd->numVolumes; i++) {
         WorldVolume *v = &GETP(wd->volumes)[i];
 
-        /* the sphere airboxes the scripts test (for links to them), as big as the test */
+        /* the airboxes the scripts test (for links to them): a sphere as big as the test, a
+         * box (BSP) by the sphere around its box */
         if (v->shape == VOLUME_SHAPE_SPHERE && v->type == VOLUME_AIRBOX && v->radiusSq > 0.0f) {
             TRY(v, &v->center, (f32)sqrt(v->radiusSq), "volume");
+        } else if (v->shape == VOLUME_SHAPE_BSP && v->type == VOLUME_AIRBOX && GETP(v->bsp) != NULL) {
+            f32 lo[3], hi[3];
+            Vector4 mid;
+
+            if (Port_LevelBspBounds(GETP(v->bsp), 0x10000, lo, hi, NULL)) {
+                mid.x = 0.5f * (lo[0] + hi[0]), mid.y = 0.5f * (lo[1] + hi[1]), mid.z = 0.5f * (lo[2] + hi[2]);
+                mid.w = 0.0f;
+                TRY(v, &mid, 0.5f * (f32)sqrt((hi[0] - lo[0]) * (hi[0] - lo[0]) + (hi[1] - lo[1]) * (hi[1] - lo[1]) +
+                                              (hi[2] - lo[2]) * (hi[2] - lo[2])), "volume");
+            }
         }
     }
 #undef TRY

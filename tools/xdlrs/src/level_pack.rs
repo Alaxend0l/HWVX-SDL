@@ -190,6 +190,40 @@ fn volume_item(c: &mut Compiler, v: &Value, archive: &str, wh: &str) -> Result<V
     Ok(Value::Object(it))
 }
 
+/// A base BSP volume's shape moved by d: each node's plane d less n.d (a point p is in front
+/// when n.p + d > 0), in the record's bytes (0x20-byte nodes, no pointers). The BSP is the
+/// volume's own (one no other volume names).
+fn move_bsp(w: &mut WorldBuild, bsp: &str, d: [f64; 3], big: bool) -> Result<()> {
+    let users = match w.file_of.get(bsp).cloned() {
+        Some(stem) => w.doc(&stem)?.get("items").and_then(Value::as_array).map(|a| a.iter().filter(|v| v["bsp"].as_str() == Some(bsp)).count()).unwrap_or(0),
+        None => 0,
+    };
+    if users > 1 {
+        return Err(lerr(format!("{bsp}: a BSP {users} volumes share: moving one isn't supported")));
+    }
+    let stem = w.file_of.get(bsp).cloned().ok_or_else(|| lerr(format!("{bsp}: not in the project")))?;
+    let dir = w.b.dir.clone();
+    let base = w.b.doc(&stem, ".base.jsonc")?;
+    let rec = base.get_mut("children").and_then(|c| c.get_mut(bsp)).ok_or_else(|| lerr(format!("{bsp}: not a record of {stem}")))?;
+    let mut bytes = match rec.get("bin") {
+        Some(b) => crate::error::read(&dir.join(s(b)))?,
+        None => graph::unhex(rec.get("bytes").unwrap_or(&json!([])))?,
+    };
+    let rd = |b: &[u8]| -> f32 {
+        let a = [b[0], b[1], b[2], b[3]];
+        if big { f32::from_be_bytes(a) } else { f32::from_le_bytes(a) }
+    };
+    for node in bytes.chunks_exact_mut(0x20) {
+        let (a, b, c, dd) = (rd(&node[0..]), rd(&node[4..]), rd(&node[8..]), rd(&node[12..]));
+        let nd = (dd as f64 - (a as f64 * d[0] + b as f64 * d[1] + c as f64 * d[2])) as f32;
+        node[12..16].copy_from_slice(&if big { nd.to_be_bytes() } else { nd.to_le_bytes() });
+    }
+    let m = rec.as_object_mut().unwrap();
+    m.shift_remove("bin");
+    m.insert("bytes".into(), json!(graph::hexstr(&bytes)));
+    Ok(())
+}
+
 /// The first element of a quadrant's array (`items` or `fxPoints`) in the base world, by quadrant.
 fn first_quad_element(w: &mut WorldBuild, pre: &str, arr: &str) -> Result<Option<Value>> {
     let re = Regex::new(&format!("^{}World/0/quads/(\\d+)/contents/{arr}$", regex::escape(pre))).unwrap();
@@ -328,6 +362,8 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
         }
         let (stem, at) = nd.unwrap();
         let fm = fields.as_object().cloned().ok_or_else(|| pyerr("AttributeError", "'list' object has no attribute 'items'"))?;
+        let is_volume = re_full("World/0/volumes/\\d+", &rel).is_some();
+        let was = if is_volume { lpath(w.doc(&stem)?, &at).and_then(|r| r.get("center").cloned()) } else { None };
         let rec = lpath(w.doc(&stem)?, &at).unwrap().as_object_mut().unwrap();
         for (f, v) in fm {
             if let Some((a, b)) = f.split_once('/') {
@@ -339,6 +375,20 @@ pub fn build_world(env: &Env, project: &Path, base_project: &Path, extract_dir: 
                 }
             } else {
                 rec.insert(f, v);
+            }
+        }
+        // a base volume moved: a BSP's shape with it (its center only moves it), marked for
+        // the port to put it in the grid's cells where it is now
+        if let Some(was) = was {
+            let rec = lpath(w.doc(&stem)?, &at).unwrap().clone();
+            let now = &rec["center"];
+            let d: Vec<f64> = ["x", "y", "z"].iter().map(|k| Ok(py_float(&now[*k])? - py_float(&was[*k])?)).collect::<Result<_>>()?;
+            if d.iter().any(|x| *x != 0.0) {
+                if rec["shape"].as_str() == Some("bsp") || py::eq(&rec["shape"], &json!(0)) {
+                    let bsp = rec["bsp"].as_str().map(str::to_string).ok_or_else(|| lerr(format!("level.jsonc/patches/{path}: a BSP volume without its BSP")))?;
+                    move_bsp(&mut w, &bsp, [d[0], d[1], d[2]], big).map_err(|e| lerr(format!("level.jsonc/patches/{path}: {}", e.msg)))?;
+                }
+                lpath(w.doc(&stem)?, &at).unwrap()["center"]["w"] = json!(LEVEL_VOLUME_MARK);
             }
         }
     }

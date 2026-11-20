@@ -51,6 +51,12 @@ void Port_LevelSweep(void *worldPack, const char *name);
  * (level://volumes/NAME): 1, or 0 past the last (the viewer draws them). */
 int Port_LevelVolume(int i, const void **volume, const char **id);
 
+/* A BSPN0 shape's bounds (a volume's: the box around the cells inside it, from its planes'
+ * corners): 1, or 0 when it isn't bounded or not a BSP (at most maxNodes nodes); numNodes
+ * (if not NULL): the nodes it reaches. A level moves a base BSP volume by patching its center
+ * (which the game never reads for a BSP): the port moves its planes by the change. */
+int Port_LevelBspBounds(const void *bsp, unsigned int maxNodes, float lo[3], float hi[3], unsigned int *numNodes);
+
 /* The viewer, after a level's appends moved arrays of the world (tileCars,
  * a quadrant's items and effect points, objectives) into copies of ours,
  * element i of the base array <-> element i of the copy:

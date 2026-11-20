@@ -1960,11 +1960,247 @@ static int GridLists(const LevelGrid *g, const WorldVolume *v) {
     return 0;
 }
 
-/* The volume added to the cells it touches; 0 out of memory. */
+/* ---- BSP shapes (BSPN0: 0x20-byte nodes in a row, no pointers: a plane a, b, c, d (a point
+ * p is in front when a p.x + b p.y + c p.z + d > 0), type (1: a front child, the next node;
+ * 2: a back child, `next` nodes on), next; a leaf behind its plane is inside) ------------- */
+
+#define BSP_NODE 0x20
+#define BSP_MAX_DEPTH 1024
+#define BSP_FAR 1e5f
+
+typedef struct BspWalk {
+    const u8 *bsp;
+    u32 maxNodes, reached;
+    f32 planes[BSP_MAX_DEPTH][4];       /* the path's half-spaces (n p + d <= 0) */
+    f32 lo[3], hi[3];
+    int any, bad;
+} BspWalk;
+
+static f32 BspF(const u8 *node, int k) {
+    f32 f;
+
+    SDL_memcpy(&f, node + 4 * k, 4);
+    return f;
+}
+
+static f64 Det3(f64 m[3][3]) {
+    return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+           m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+}
+
+/* A plane of the far box (k 0-5: x <= FAR, x >= -FAR, y..., z...) or the path's plane k - 6. */
+static const f32 *BspPlane(const BspWalk *bw, int k, f32 *box) {
+    if (k >= 6) {
+        return bw->planes[k - 6];
+    }
+    box[0] = box[1] = box[2] = 0.0f;
+    box[k / 2] = k & 1 ? -1.0f : 1.0f;
+    box[3] = -BSP_FAR;
+    return box;
+}
+
+/* Exact: the corners of the cell (three of its planes meeting inside all of them). */
+static void BspCellCorners(BspWalk *bw, int n, f64 lo[3], f64 hi[3]) {
+    int i, j, k, m, all = n + 6, row, col;
+    f32 bx[4][4];
+
+    for (i = 0; i < all; i++) {
+        for (j = i + 1; j < all; j++) {
+            for (k = j + 1; k < all; k++) {
+                const f32 *r[3] = { BspPlane(bw, i, bx[0]), BspPlane(bw, j, bx[1]), BspPlane(bw, k, bx[2]) };
+                f64 m3[3][3], rhs[3], det, x[3];
+                int in = 1;
+
+                for (row = 0; row < 3; row++) {
+                    m3[row][0] = r[row][0], m3[row][1] = r[row][1], m3[row][2] = r[row][2];
+                    rhs[row] = -(f64)r[row][3];
+                }
+                det = Det3(m3);
+                if (det > -1e-9 && det < 1e-9) {
+                    continue;
+                }
+                for (col = 0; col < 3; col++) {
+                    f64 mc[3][3];
+
+                    SDL_memcpy(mc, m3, sizeof(mc));
+                    for (row = 0; row < 3; row++) {
+                        mc[row][col] = rhs[row];
+                    }
+                    x[col] = Det3(mc) / det;
+                }
+                for (m = 0; m < all && in; m++) {
+                    const f32 *p = BspPlane(bw, m, bx[3]);
+
+                    in = p[0] * x[0] + p[1] * x[1] + p[2] * x[2] + p[3] <= 1e-3 * (1.0 + SDL_fabs(p[3]) * 1e-4);
+                }
+                for (m = 0; in && m < 3; m++) {
+                    lo[m] = SDL_min(lo[m], x[m]);
+                    hi[m] = SDL_max(hi[m], x[m]);
+                }
+            }
+        }
+    }
+}
+
+/* The box of the cell the first n planes bound (and the far box), into the bounds: a cell of
+ * up to 24 planes by its corners (exact), a bigger one by narrowing a box: each half-space
+ * n p + d <= 0 narrows it on each axis by what it allows the others, in rounds (exact for
+ * boxes, a box around the cell for other shapes, or the far box). */
+static void BspCell(BspWalk *bw, int n) {
+    f64 lo[3], hi[3];
+    int i, j, k, round, moved = 1;
+
+    /* in front of a plane and behind (nearly) the same one: retail's leaves repeat their
+     * node's plane, give or take the exporter's rounding: a sliver, not an inside */
+    for (i = 0; i < n; i++) {
+        for (j = i + 1; j < n; j++) {
+            const f32 *a = bw->planes[i], *b = bw->planes[j];
+
+            if (SDL_fabsf(a[0] + b[0]) < 1e-3f && SDL_fabsf(a[1] + b[1]) < 1e-3f && SDL_fabsf(a[2] + b[2]) < 1e-3f &&
+                SDL_fabsf(a[3] + b[3]) <= 0.05f + 1e-3f * SDL_fabsf(a[3])) {
+                return;
+            }
+        }
+    }
+    if (n <= 24) {
+        for (k = 0; k < 3; k++) {
+            lo[k] = 1e30, hi[k] = -1e30;
+        }
+        BspCellCorners(bw, n, lo, hi);
+        if (lo[0] > hi[0]) {
+            return;     /* no corner: empty */
+        }
+        moved = 0;
+    } else {
+        for (k = 0; k < 3; k++) {
+            lo[k] = -BSP_FAR, hi[k] = BSP_FAR;
+        }
+    }
+    for (round = 0; round < 16 && moved; round++) {
+        moved = 0;
+        for (i = 0; i < n; i++) {
+            const f32 *p = bw->planes[i];
+
+            for (k = 0; k < 3; k++) {
+                f64 rest = p[3], b;
+
+                if (p[k] > -1e-6f && p[k] < 1e-6f) {
+                    continue;
+                }
+                for (j = 0; j < 3; j++) {
+                    if (j != k) {
+                        rest += SDL_min(p[j] * lo[j], p[j] * hi[j]);
+                    }
+                }
+                b = -rest / p[k];   /* p[k] x_k <= -rest */
+                if (p[k] > 0.0f && b < hi[k] - 1e-3) {
+                    hi[k] = b, moved = 1;
+                } else if (p[k] < 0.0f && b > lo[k] + 1e-3) {
+                    lo[k] = b, moved = 1;
+                }
+            }
+        }
+        for (k = 0; k < 3; k++) {
+            if (lo[k] > hi[k] + 1e-3) {
+                return;     /* empty */
+            }
+        }
+    }
+    for (k = 0; k < 3; k++) {
+        bw->lo[k] = SDL_min(bw->lo[k], (f32)lo[k]);
+        bw->hi[k] = SDL_max(bw->hi[k], (f32)hi[k]);
+    }
+    bw->any = 1;
+}
+
+static void BspDown(BspWalk *bw, u32 i, int depth) {
+    const u8 *node;
+    u8 type;
+    u16 next;
+    int k;
+
+    if (bw->bad || i >= bw->maxNodes || depth >= BSP_MAX_DEPTH) {
+        bw->bad = 1;
+        return;
+    }
+    node = bw->bsp + (size_t)i * BSP_NODE;
+    type = node[0x10];
+    SDL_memcpy(&next, node + 0x12, 2);
+    bw->reached = SDL_max(bw->reached, i + 1);
+    /* in front (n p + d > 0, as -n p - d < 0) */
+    if (type & 1) {
+        for (k = 0; k < 4; k++) {
+            bw->planes[depth][k] = -BspF(node, k);
+        }
+        BspDown(bw, i + 1, depth + 1);
+    }
+    /* behind */
+    for (k = 0; k < 4; k++) {
+        bw->planes[depth][k] = BspF(node, k);
+    }
+    if (type & 2) {
+        if (next == 0) {
+            bw->bad = 1;
+            return;
+        }
+        BspDown(bw, i + next, depth + 1);
+    } else {
+        BspCell(bw, depth + 1);
+    }
+}
+
+int Port_LevelBspBounds(const void *bsp, unsigned int maxNodes, float lo[3], float hi[3], unsigned int *numNodes) {
+    BspWalk *bw;
+    int ok, k;
+
+    if (bsp == NULL || maxNodes == 0 || (bw = SDL_calloc(1, sizeof(*bw))) == NULL) {
+        return 0;
+    }
+    bw->bsp = bsp;
+    bw->maxNodes = maxNodes;
+    for (k = 0; k < 3; k++) {
+        bw->lo[k] = 1e30f, bw->hi[k] = -1e30f;
+    }
+    BspDown(bw, 0, 0);
+    ok = !bw->bad && bw->any;
+    for (k = 0; k < 3 && ok; k++) {
+        /* a cell reaching the far box: not a bounded shape */
+        ok = bw->lo[k] > -0.99f * BSP_FAR && bw->hi[k] < 0.99f * BSP_FAR;
+        lo[k] = bw->lo[k], hi[k] = bw->hi[k];
+    }
+    if (numNodes != NULL) {
+        *numNodes = bw->reached;
+    }
+    SDL_free(bw);
+    return ok;
+}
+
+/* The volume's bounds: its sphere's box, or its BSP's. */
+static int VolumeBounds(const WorldVolume *v, f32 lo[3], f32 hi[3]) {
+    f32 r = v->radius;
+    int k;
+
+    if (v->shape == VOLUME_SHAPE_BSP && GETP(v->bsp) != NULL &&
+        Port_LevelBspBounds(GETP(v->bsp), 0x10000, lo, hi, NULL)) {
+        return 1;
+    }
+    if (v->shape == VOLUME_SHAPE_SPHERE && v->radiusSq > 0.0f) {
+        r = SDL_max(r, SDL_sqrtf(v->radiusSq));
+    }
+    if (!(r > 0.0f) || !(r < 1e7f)) {
+        return 0;
+    }
+    for (k = 0; k < 3; k++) {
+        lo[k] = (&v->center.x)[k] - r, hi[k] = (&v->center.x)[k] + r;
+    }
+    return 1;
+}
+
+/* The volume added to the cells it touches (but those that list it); 0 out of memory. */
 static int GridAdd(const LevelGrid *g, WorldVolume *v) {
     const VolumeHolder *h = g->h;
     u8 *mark = SDL_calloc(g->numCells, 1);
-    f32 r = v->radius, lo[3], hi[3], c[3];
+    f32 blo[3], bhi[3], lo[3], hi[3];
     s32 a0[3], a1[3], n[3], x, y, z, ax;
     int outside = 0, ok = 1;
     u32 i;
@@ -1972,18 +2208,14 @@ static int GridAdd(const LevelGrid *g, WorldVolume *v) {
     if (mark == NULL) {
         return 0;
     }
-    if (v->shape == VOLUME_SHAPE_SPHERE && v->radiusSq > 0.0f) {
-        r = SDL_max(r, SDL_sqrtf(v->radiusSq));
-    }
-    c[0] = v->center.x, c[1] = v->center.y, c[2] = v->center.z;
     n[0] = h->numX, n[1] = h->numY, n[2] = h->numZ;
-    if (!(r > 0.0f) || !(r < 1e7f)) {
-        /* no bounds known (a BSP without its sphere): every cell */
+    if (!VolumeBounds(v, blo, bhi)) {
+        /* no bounds known: every cell */
         SDL_memset(mark, 1, g->numCells);
     } else {
         for (ax = 0; ax < 3; ax++) {
-            lo[ax] = (c[ax] - r - h->origin[ax]) / h->cellSize[ax];
-            hi[ax] = (c[ax] + r - h->origin[ax]) / h->cellSize[ax];
+            lo[ax] = (blo[ax] - h->origin[ax]) / h->cellSize[ax];
+            hi[ax] = (bhi[ax] - h->origin[ax]) / h->cellSize[ax];
             if (!(h->cellSize[ax] > 0.0f) || !(lo[ax] > -1e7f) || !(hi[ax] < 1e7f)) {
                 lo[ax] = -1.0f, hi[ax] = (f32)n[ax];
             }
@@ -2004,8 +2236,12 @@ static int GridAdd(const LevelGrid *g, WorldVolume *v) {
     }
     for (i = 0; i < g->numCells && ok; i++) {
         VolumeList *l = &g->cells[i].lists[v->type];
-        u32 *mem;
+        const u32 *vols = GETP(l->volumes);
+        u32 *mem, k;
 
+        for (k = 0; mark[i] && vols != NULL && k < l->count; k++) {
+            mark[i] = Port_HandleToPtr(vols[k]) != v;   /* listed there already */
+        }
         if (!mark[i]) {
             continue;
         }
@@ -2023,9 +2259,58 @@ static int GridAdd(const LevelGrid *g, WorldVolume *v) {
     return ok;
 }
 
-/* The volumes the grid doesn't list yet (not airboxes: their triggers name them), added;
- * the number added, -1 out of memory. */
-static int GridAddMissing(DataPack *pack, World *world, WorldVolume **vols, int num) {
+/* A base BSP volume a patch of its center moved (the game never reads a BSP volume's center:
+ * a level moves its shape with it): its BSP copied into one of ours, each plane moved by the
+ * center's change (d - n delta), the volume pointed at the copy. 0 out of memory or a BSP
+ * that isn't one. */
+static int MoveBsp(WorldVolume *v, const Vector4 *was) {
+    const u8 *bsp = GETP(v->bsp);
+    f32 dx = v->center.x - was->x, dy = v->center.y - was->y, dz = v->center.z - was->z;
+    u32 n = 0, i;
+    u8 *mem;
+
+    if (bsp == NULL || (dx == 0.0f && dy == 0.0f && dz == 0.0f)) {
+        return 1;
+    }
+    {
+        /* its nodes: as far as they reach (they only point forwards) */
+        u8 *reach = SDL_calloc(0x10001, 1);
+        u16 next;
+
+        if (reach == NULL) {
+            return 0;
+        }
+        reach[0] = 1;
+        for (i = 0; i < 0x10000; i++) {
+            if (!reach[i]) {
+                continue;
+            }
+            n = i + 1;
+            SDL_memcpy(&next, bsp + (size_t)i * BSP_NODE + 0x12, 2);
+            reach[i + 1] |= (bsp[(size_t)i * BSP_NODE + 0x10] & 1) != 0;
+            if ((bsp[(size_t)i * BSP_NODE + 0x10] & 2) && next != 0 && i + next < 0x10000) {
+                reach[i + next] = 1;
+            }
+        }
+        SDL_free(reach);
+    }
+    if (n == 0 || (mem = Alloc((size_t)n * BSP_NODE)) == NULL) {
+        return 0;
+    }
+    SDL_memcpy(mem, bsp, (size_t)n * BSP_NODE);
+    for (i = 0; i < n; i++) {
+        u8 *node = mem + (size_t)i * BSP_NODE;
+        f32 d = BspF(node, 3) - (BspF(node, 0) * dx + BspF(node, 1) * dy + BspF(node, 2) * dz);
+
+        SDL_memcpy(node + 12, &d, 4);
+    }
+    return PatchWord((u8 *)&v->bsp, Port_PtrToHandle(mem));
+}
+
+/* The volumes the grid doesn't list yet (not airboxes: their triggers name them), added (and
+ * listedToo: the ones it lists, to the cells where they are, a base volume a level's own world
+ * pack moved); the number added, -1 out of memory. */
+static int GridAddMissing(DataPack *pack, World *world, WorldVolume **vols, int num, int listedToo) {
     LevelGrid g;
     int i, added = 0;
 
@@ -2033,7 +2318,7 @@ static int GridAddMissing(DataPack *pack, World *world, WorldVolume **vols, int 
         return 0;
     }
     for (i = 0; i < num; i++) {
-        if (vols[i]->type == VOLUME_AIRBOX || vols[i]->type >= VOLUME_NUM_TYPES || GridLists(&g, vols[i])) {
+        if (vols[i]->type == VOLUME_AIRBOX || vols[i]->type >= VOLUME_NUM_TYPES || (!listedToo && GridLists(&g, vols[i]))) {
             continue;
         }
         if (!GridAdd(&g, vols[i])) {
@@ -2045,8 +2330,9 @@ static int GridAddMissing(DataPack *pack, World *world, WorldVolume **vols, int 
 }
 
 /* A level's own world pack (tools/xdlrs level_pack.rs) marks the volumes it appends to the
- * World's array: their center's w (padding the game never reads) is this word ("LVL1",
- * 56176836.0f). Retail's own volumes the grid leaves out (some worlds have 150) stay out. */
+ * World's array, and the base ones it moves: their center's w (padding the game never reads)
+ * is this word ("LVL1", 56176836.0f). Retail's own volumes the grid leaves out (some worlds
+ * have 150) stay out. */
 #define LEVEL_VOLUME_MARK 0x4C564C31u
 
 static int LevelMarked(const WorldVolume *v) {
@@ -2241,7 +2527,8 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     const JsonNode *jpatches = Json_Get(doc, "patches");
     LevelPart *parts = NULL;
     u8 *keep = NULL;
-    int n = 0, i, ok = 0, grid = 0;
+    int n = 0, i, ok = 0, grid = 0, moved = 0;
+    Vector4 *centers = NULL;
     u32 numKeep = 0, numTrig = 0, numTimers = 0, numVars = 0, k;
 
     if (world == NULL || pack->dataSize < sizeof(World)) {
@@ -2509,6 +2796,18 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
         MarkTriggerData(s_lv.origTriggers + k * TRIGGER_SIZE);   /* (kept or not: what they name is the world's) */
     }
 
+    /* the base volumes' centers before the patches (a moved volume: below) */
+    if (world->numVolumes > 0 && world->numVolumes <= 0x10000 &&
+        InBlob(pack, GETP(world->volumes), world->numVolumes * (u32)sizeof(WorldVolume))) {
+        if ((centers = SDL_malloc(world->numVolumes * sizeof(Vector4))) == NULL) {
+            Fail(err, errSize, "out of memory");
+            goto done;
+        }
+        for (k = 0; k < world->numVolumes; k++) {
+            centers[k] = GETP(world->volumes)[k].center;
+        }
+    }
+
     /* the patches: numbers in the base world's records (tools/xdl_level.py writes them from
      * the schemas' number fields): inside the world (or a base element an append copied),
      * never over one of its pointers */
@@ -2582,9 +2881,26 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     }
 
     /* the level's volumes into the volume grid (force, fog, reverb, light, creature...) */
-    if ((grid = GridAddMissing(pack, world, s_lv.volumes, s_lv.numVolumes)) < 0) {
+    if ((grid = GridAddMissing(pack, world, s_lv.volumes, s_lv.numVolumes, 0)) < 0) {
         Fail(err, errSize, "out of memory");
         goto done;
+    }
+
+    /* base volumes the patches moved: a BSP's shape moved with its center, and the volume in
+     * the grid's cells where it is now (it stays in its old ones: the point test is exact) */
+    for (k = 0; centers != NULL && k < world->numVolumes; k++) {
+        WorldVolume *v = &GETP(world->volumes)[k];
+        LevelGrid g;
+
+        if (SDL_memcmp(&v->center, &centers[k], 12) == 0) {
+            continue;
+        }
+        if ((v->shape == VOLUME_SHAPE_BSP && !MoveBsp(v, &centers[k])) ||
+            (v->type != VOLUME_AIRBOX && v->type < VOLUME_NUM_TYPES && GridOf(pack, world, &g) && !GridAdd(&g, v))) {
+            Fail(err, errSize, "out of memory");
+            goto done;
+        }
+        moved++;
     }
 
     /* in place */
@@ -2600,10 +2916,11 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     }
     ok = 1;
     Port_Log("level: %s (%s): %u triggers (%u kept), %u timers and %u variables added, %d parts, %d patches, "
-             "%d arrays grown, %d volumes added to the volume grid", Json_GetString(doc, "id", "?"),
+             "%d arrays grown, %d volumes added to the volume grid, %d base volumes moved", Json_GetString(doc, "id", "?"),
              Json_GetString(doc, "name", "?"), (unsigned)s_lv.numTriggers, (unsigned)numKeep, (unsigned)numTimers,
-             (unsigned)numVars, n, s_lv.numPatches, s_lv.numGrows, grid);
+             (unsigned)numVars, n, s_lv.numPatches, s_lv.numGrows, grid, moved);
 done:
+    SDL_free(centers);
     SDL_free(keep);
     SDL_free(parts);
     s_lv.parts = NULL;
@@ -2680,7 +2997,7 @@ void Port_LevelWorldLoaded(void *worldPack, const char *world, int track) {
             /* the level's volumes are in the World's array, marked, not yet in the grid (the
              * pack builder leaves the grid as the base world has it): added (undone with the pack) */
             vols = WorldVolumes(pack, s_lv.world, 1, &nv);
-            added = GridAddMissing(pack, s_lv.world, vols, nv);
+            added = GridAddMissing(pack, s_lv.world, vols, nv, 1);
             SDL_free(vols);
             if (added != 0) {
                 Port_Log("level: %d volumes added to the volume grid%s", added, added < 0 ? " (out of memory)" : "");
@@ -2827,7 +3144,8 @@ void Port_LevelSweep(void *worldPack, const char *name) {
         World *world = GETP(pack->base);
         LevelGrid g;
         WorldVolume **vols;
-        int nv = 0, i, unlisted = 0, airboxes = 0, marked = 0;
+        int nv = 0, i, unlisted = 0, airboxes = 0, marked = 0, bsps = 0, boxed = 0;
+        f32 lo[3], hi[3];
 
         if (world != NULL && pack->dataSize >= sizeof(World) && GridOf(pack, world, &g)) {
             vols = WorldVolumes(pack, world, 0, &nv);
@@ -2836,10 +3154,15 @@ void Port_LevelSweep(void *worldPack, const char *name) {
                     *(vols[i]->type == VOLUME_AIRBOX ? &airboxes : &unlisted) += 1;
                 }
                 marked += LevelMarked(vols[i]);
+                if (vols[i]->shape == VOLUME_SHAPE_BSP) {
+                    bsps++;
+                    boxed += Port_LevelBspBounds(GETP(vols[i]->bsp), 0x10000, lo, hi, NULL);
+                }
             }
             SDL_free(vols);
             Port_Log("levelsweep: %s: grid: %d volumes, %d cells, %d airboxes and %d others unlisted, %d marked as a "
-                     "level's", name, nv, (int)g.numCells, airboxes, unlisted, marked);
+                     "level's; %d BSP volumes, %d with a box", name, nv, (int)g.numCells, airboxes, unlisted, marked,
+                     bsps, boxed);
         } else {
             Port_Log("levelsweep: %s: grid: none", name);
         }

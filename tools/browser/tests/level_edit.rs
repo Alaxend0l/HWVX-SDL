@@ -248,3 +248,73 @@ fn viewer_editor_commands() {
     assert!((g["point"][0].as_f64().unwrap() + 365.0).abs() < 20.0 && (g["point"][2].as_f64().unwrap() + 781.0).abs() < 20.0, "{g}");
     v.call("quit", json!({})).ok();
 }
+
+/// Base box (BSP) volumes: the viewer gives their box (min, max, pos its middle) and their
+/// center; a level moves one by patching its center (the game reads it for spheres only), and
+/// the shape moves with it (Port_Level.c): the box the viewer gives then is the moved one, the
+/// editor's place (pos + patched center - reported center) the same before and after.
+#[test]
+fn base_box_volume_moves() {
+    let Some(data) = std::env::var_os("HWVX_DATA").map(PathBuf::from) else {
+        eprintln!("HWVX_DATA not set: skipped");
+        return;
+    };
+    let game = std::env::var_os("HWVX_GAME").map(PathBuf::from).unwrap_or_else(default_game);
+    let s = scratch("viewer-box");
+    let mut v = Viewer::spawn(&SpawnOptions {
+        schemas: default_schemas(&game),
+        game,
+        data: Some(data),
+        pref: s.join("pref"),
+        window: Some("320x240".into()),
+        renderer: std::env::var("HWVX_RENDERER").ok(),
+        log_file: Some(s.join("viewer.log")),
+        token: None,
+        viewer_window: false,
+    })
+    .expect("the viewer starts");
+    v.call("world", json!({"name": "ch1_l2"})).unwrap();
+    let vol = |v: &mut Viewer, path: &str| -> Value {
+        let r = v.call("records", json!({"table": "volumes"})).unwrap();
+        r["records"].as_array().unwrap().iter().find(|e| e["path"] == path).cloned().unwrap()
+    };
+    let f = |x: &Value, i: usize| x[i].as_f64().unwrap();
+    let all = v.call("records", json!({"table": "volumes"})).unwrap();
+    let boxes: Vec<&Value> = all["records"].as_array().unwrap().iter().filter(|e| e["shape"] == "bsp").collect();
+    assert_eq!(boxes.len(), 26);
+    assert!(boxes.iter().all(|e| e.get("min").is_some() && e.get("pos").is_some()), "every box volume's box: {boxes:?}");
+    // airbox volume 2: a box 50 x 10 x 325
+    let b = vol(&mut v, "World/0/volumes/2");
+    assert!((0..3).all(|i| f(&b["center"], i) == 0.0), "{b}");
+    let size: Vec<f64> = (0..3).map(|i| f(&b["max"], i) - f(&b["min"], i)).collect();
+    assert!((size[0] - 50.3).abs() < 0.5 && (size[1] - 10.0).abs() < 0.5 && (size[2] - 325.0).abs() < 0.5, "{b}");
+
+    // moved by a patch of its center (as the editor writes it)
+    let d = [-4971.91, -12.59, -913.38];
+    let proj = s.join("project");
+    copy_dir(&root().join("tools/level-samples/checkpoint-run"), &proj);
+    let mut p = Project::load(&proj).unwrap();
+    for (i, a) in ["x", "y", "z"].iter().enumerate() {
+        p.set_patch("World/0/volumes/2", &format!("center/{a}"), Some(json!(d[i])));
+    }
+    let copy = s.join("copy");
+    p.write_copy(&copy).unwrap();
+    let out = s.join("preview.json");
+    let env = xdlrs::level::Env::new(&root()).unwrap();
+    let c = xdlrs::level::compile(&env, &copy, Some(&out), &Default::default(), false, None).unwrap();
+    assert!(c.ok, "{:?}", c.errors);
+    v.call("level", json!({"path": out, "overlay": false})).unwrap();
+    let m = vol(&mut v, "World/0/volumes/2");
+    for i in 0..3 {
+        assert!((f(&m["center"], i) - d[i]).abs() < 0.01, "{m}");
+        assert!((f(&m["pos"], i) - (f(&b["pos"], i) + d[i])).abs() < 0.05, "the box moved: {m} from {b}");
+        assert!((f(&m["min"], i) - (f(&b["min"], i) + d[i])).abs() < 0.05, "{m}");
+        // the editor's place: the same from either record
+        let place = |e: &Value| f(&e["pos"], i) + (d[i] - f(&e["center"], i));
+        assert!((place(&m) - place(&b)).abs() < 0.05);
+    }
+    // taken out: back where it was
+    v.call("level", json!({"path": null})).unwrap();
+    assert_eq!(vol(&mut v, "World/0/volumes/2")["pos"], b["pos"]);
+    v.call("quit", json!({})).ok();
+}
