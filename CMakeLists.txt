@@ -255,6 +255,28 @@ if(HWVX_TESTS AND NOT ANDROID)
     endif()
     add_test(NAME xdltest COMMAND xdltest xdltest-out)
 
+    # The movies decoded by the player's FFmpeg (src/port/bink.c) against the
+    # ffmpeg program's decode; skipped without FFmpeg or a movie file.
+    # tools/movietest.c says what it covers.
+    add_executable(movietest tools/movietest.c src/port/bink.c)
+    target_include_directories(movietest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/game/include
+        ${CMAKE_SOURCE_DIR}/src/port)
+    target_link_libraries(movietest PRIVATE SDL3::SDL3)
+    if(NOT WIN32)
+        target_link_libraries(movietest PRIVATE m)
+    endif()
+    target_compile_options(movietest PRIVATE -fno-strict-aliasing -fwrapv -Wall -Wno-unknown-pragmas
+        -Wno-unused-function -Wno-missing-braces -Wno-pointer-sign
+        -Werror=implicit-function-declaration -Werror=return-type)
+    target_compile_definitions(movietest PRIVATE HWVX_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    if(HWVX_ASAN)
+        target_compile_options(movietest PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(movietest PRIVATE -fsanitize=address,undefined)
+    endif()
+    add_test(NAME movietest COMMAND movietest)
+    set_tests_properties(movietest PROPERTIES SKIP_RETURN_CODE 77)
+
     # Importing the releases' saves (src/game/Port_SaveImport.c). The example
     # saves are read from HWVX-SDL/build-saves and orig/ when they are there
     # (a worktree sits one folder deeper); tools/saveimporttest.c says what

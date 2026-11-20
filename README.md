@@ -56,6 +56,9 @@ Folders, disc images and saves are picked in the system's file dialog, which
 needs a mouse or keyboard. Importing the PC CD copies its packs (out of
 `HWVX.cab`) and its movies, which the PC game only ever read from the disc,
 into a `pc` folder in the save folder; an installed copy may have no movies.
+The PC movies (Bink, `.bik`) play through FFmpeg 6 to 9 when it is installed
+(libavformat, libavcodec, libavutil, loaded at run time, never linked;
+`HWVX_FFMPEG_DIR` names the folder to look in); without it they are skipped.
 Importing a PS2 disc image copies its `XPS/ENGLISH` into `ps2` (or `ps2beta`
 for the prototype's).
 Your choices are kept in `sources.cfg` in the save folder. On start the game
@@ -718,6 +721,9 @@ Debugging aids:
   port rows), `=0` the port's; overrides `mainmenu=` in `graphics.cfg`.
 - `graphics.cfg` `movies=off` skips the movies, like the PC release's Disable
   Movies option (`HWVX_NO_MOVIE=1` or `0` overrides).
+- `HWVX_FFMPEG_DIR=dir` loads FFmpeg for the PC's Bink movies from `dir` only
+  (`libavformat.so.63`, `libavformat.63.dylib`, `avformat-63.dll` down to FFmpeg 6's 60);
+  a folder without it shows the skip (`bink: no FFmpeg 6-9 found ...`).
 - `HWVX_HANDLING=2` (or `0`) drives with the PC's third handling mode (or the
   cars' own) whatever Options says; `HWVX_CARLOG=1` logs the player's car
   every 30 frames (handling, gear, rpm, wheel speed, speed, steering, turbo,
@@ -922,7 +928,7 @@ demo) run with graphics, sound and music.
 - [x] SDL_GPU renderers: Vulkan (Linux, and MoltenVK on macOS) and Metal
       tested; Direct3D 12 tested under CrossOver only, not on Windows hardware
 - [x] Music
-- [x] THP movies
+- [x] THP movies; the PC's Bink movies through the player's FFmpeg (`src/port/bink.c`)
 - [ ] Aux-bus reverb, ADPCM
 - [ ] Logitech wheels / force feedback via SDL haptics (no wheel reported yet)
 - [ ] IPL ROM font for the debug text printer (empty font for now)

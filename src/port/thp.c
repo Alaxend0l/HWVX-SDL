@@ -9,8 +9,13 @@
  * Video follows the wall clock at the file's frame rate; Mpeg_Render draws
  * the current frame into the EFB and presents it, since nothing else renders
  * while the movie state runs. Audio goes to its own SDL audio stream, a few
- * frames ahead of the picture. */
+ * frames ahead of the picture.
+ *
+ * The PC release's movies are Bink files (FMV_/name.bik), played through the
+ * player's own FFmpeg when there is one (bink.c), on the same clock, audio
+ * stream and drawing; without FFmpeg they are skipped, as a missing THP is. */
 #include "port_internal.h"
+#include "bink.h"
 
 SDL_IOStream *Port_OpenDiscFile(const char *name);
 int THPJpeg_Decode(const u8 *data, u32 size, u8 *rgba, int width, int height);
@@ -41,6 +46,8 @@ typedef struct Movie {
     u32 beats;          /* heartbeats so far: the clock under a fixed step */
     s16 *pcm;
     u32 pcmCap;
+    BinkMovie *bink;    /* a Bink movie (bink.c) instead of THP */
+    u32 decoded;        /* Bink: video frames decoded so far */
 } Movie;
 
 static Movie *s_movie;
@@ -56,6 +63,7 @@ static void Movie_Free(Movie *m) {
     if (m->audio != NULL) {
         SDL_DestroyAudioStream(m->audio);
     }
+    Bink_Close(m->bink);
     if (m->io != NULL) {
         SDL_CloseIO(m->io);
     }
@@ -201,6 +209,80 @@ static int MoviesOff(void) {
     return off;
 }
 
+/* The movie's own audio stream, playing. */
+static void OpenAudio(Movie *m, SDL_AudioFormat format, double volumeScale) {
+    SDL_AudioSpec spec = { format, m->channels, (int)m->rate };
+
+    m->audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (m->audio != NULL) {
+        /* The original (THPPlay.c) truncated (u32)(46.0f * volumeScale) to an
+         * index into VolumeTable, a square law: floor(32768 i^2 / 127^2), so
+         * 1.0 -> 46 -> 4298 / 32768, about -17.6 dB. The truncation and the
+         * square law together made the movie inaudible below about 15 while
+         * the game's own volume (SetMusicGVol) is linear, so keep the full
+         * volume level and scale it linearly with the volume instead. The PC's
+         * Bink audio is as loud as the GameCube's THP (hw_intro: mean -11.0 dB
+         * against -10.9 dB), so it takes the same gain. */
+        f32 gain = 4298.0f / 32768.0f * (f32)volumeScale;
+        SDL_SetAudioStreamGain(m->audio, gain < 0.0f ? 0.0f : gain > 1.0f ? 1.0f : gain);
+        SDL_ResumeAudioStreamDevice(m->audio);
+    }
+}
+
+static void BinkAudio(void *user, const float *pcm, int frames) {
+    Movie *m = user;
+
+    if (m->audio != NULL) {
+        SDL_PutAudioStreamData(m->audio, pcm, frames * m->channels * (int)sizeof(float));
+    }
+}
+
+/* The PC's FMV_/name.bik, if there is one: 1 if it plays, 0 if it can't
+ * (logged), -1 if there is none. */
+static int StartBink(Movie *m, const char *name, const char *path, double volumeScale) {
+    char bik[272];
+    size_t n = SDL_strlen(path);
+    SDL_IOStream *io;
+    double fps;
+    int frames, rate;
+
+    if (n > 4 && SDL_strcasecmp(path + n - 4, ".bik") == 0) {
+        SDL_strlcpy(bik, path, sizeof(bik));
+    } else {
+        SDL_snprintf(bik, sizeof(bik), "%s.bik", path);
+    }
+    io = Port_OpenDiscFile(bik);
+    if (io == NULL) {
+        return -1;
+    }
+    if (!Bink_Load()) {
+        Port_Log("movie %s: Bink, skipped (no FFmpeg)", name);
+        SDL_CloseIO(io);
+        return 0;
+    }
+    m->bink = Bink_Open(io, bik);
+    if (m->bink == NULL) {
+        Port_Log("movie %s: Bink, skipped (FFmpeg can't play it)", name);
+        return 0;
+    }
+    Bink_Info(m->bink, &m->width, &m->height, &fps, &frames, &m->channels, &rate);
+    m->fps = (f32)fps;
+    m->numFrames = (u32)frames;
+    m->rate = (u32)rate;
+    if (m->width <= 0 || m->height <= 0 || m->width > 1024 || m->height > 1024) {
+        Port_Log("movie %s: unsupported video %dx%d", name, m->width, m->height);
+        return 0;
+    }
+    m->rgba = SDL_calloc((size_t)m->width * m->height, 4);
+    if (m->channels >= 1 && m->channels <= 8) {
+        OpenAudio(m, SDL_AUDIO_F32, volumeScale);
+        Bink_SetAudio(m->bink, BinkAudio, m);
+    }
+    Port_Log("movie %s: Bink %dx%d, %u frames at %.2f fps, audio %d ch %u Hz", name, m->width, m->height,
+             m->numFrames, m->fps, m->channels, m->rate);
+    return 1;
+}
+
 /* name is a disc path like "FMV_\bglogo"; volume 0-100 (music volume). */
 s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     u8 hdr[0x30], comp[0x80];
@@ -226,9 +308,23 @@ s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     m = SDL_calloc(1, sizeof(*m));
     m->io = Port_OpenDiscFile(path);
     if (m->io == NULL || SDL_ReadIO(m->io, hdr, sizeof(hdr)) != sizeof(hdr) || memcmp(hdr, "THP\0", 4) != 0) {
-        Port_Log("movie %s: not found or not a THP file", name);
-        Movie_Free(m);
-        return 0;
+        int bink;
+
+        if (m->io != NULL) {
+            SDL_CloseIO(m->io);
+            m->io = NULL;
+        }
+        bink = StartBink(m, name, path, volumeScale);
+        if (bink <= 0) {
+            if (bink < 0) {
+                Port_Log("movie %s: not found or not a THP or Bink file", name);
+            }
+            Movie_Free(m);
+            return 0;
+        }
+        m->startNS = SDL_GetTicksNS();
+        s_movie = m;
+        return 1;
     }
     {
         union { u32 u; f32 f; } c;
@@ -268,19 +364,7 @@ s32 Mpeg_StartMovie(const char *name, s32 volume, double volumeScale) {
     m->rgba = SDL_calloc((size_t)m->width * m->height, 4);
     m->nextOffset = movieOff;
     if (m->channels == 1 || m->channels == 2) {
-        SDL_AudioSpec spec = { SDL_AUDIO_S16, m->channels, (int)m->rate };
-        m->audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
-        if (m->audio != NULL) {
-            /* The original (THPPlay.c) truncated (u32)(46.0f * volumeScale) to an
-             * index into VolumeTable, a square law: floor(32768 i^2 / 127^2), so
-             * 1.0 -> 46 -> 4298 / 32768, about -17.6 dB. The truncation and the
-             * square law together made the movie inaudible below about 15 while
-             * the game's own volume (SetMusicGVol) is linear, so keep the full
-             * volume level and scale it linearly with the volume instead. */
-            f32 gain = 4298.0f / 32768.0f * (f32)volumeScale;
-            SDL_SetAudioStreamGain(m->audio, gain < 0.0f ? 0.0f : gain > 1.0f ? 1.0f : gain);
-            SDL_ResumeAudioStreamDevice(m->audio);
-        }
+        OpenAudio(m, SDL_AUDIO_S16, volumeScale);
     }
     for (i = 0; i <= AUDIO_AHEAD && ReadFrame(m); i++) {
     }
@@ -305,6 +389,19 @@ s32 Mpeg_Heartbeat(void) {
         due = (u32)((double)m->beats++ * Port_FixedStepUs() * m->fps / 1e6);
     } else {
         due = (u32)((double)(SDL_GetTicksNS() - m->startNS) * m->fps / 1e9);
+    }
+    if (m->bink != NULL) {
+        if (m->numFrames != 0 && due >= m->numFrames) {
+            return 0;
+        }
+        /* decode up to the frame due, converting only that one */
+        while (m->decoded <= due) {
+            if (!Bink_NextFrame(m->bink, m->decoded == due ? m->rgba : NULL)) {
+                return 0;
+            }
+            m->shown = ++m->decoded;
+        }
+        return 1;
     }
     if (due >= m->numFrames) {
         return 0;
