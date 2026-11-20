@@ -1241,10 +1241,18 @@ static void DrawPage(Launcher *l) {
         if (MixPlayable(l)) {
             y = PLAY_ROW_Y(k++);
             Text(l, 148, y + 1, WHITE, "Mixed game (" MIX_RECIPE ")");
-            Text(l, 148, y + 12, l->mixState == CONV_OK ? GREEN : DIM,
-                 l->mixState == CONV_OK      ? "The best of each copy; built (Convert page)."
-                 : l->mixState == CONV_STALE ? "The best of each copy; its build is out of date."
-                                             : "The best of each copy; packs mix as they first load.");
+            {
+                const char *what = l->mixState == CONV_OK      ? "The best of each copy; built (Convert page)."
+                                   : l->mixState == CONV_STALE ? "The best of each copy; its build is out of date."
+                                                               : "The best of each copy; packs mix as they first load.";
+
+                /* (a colour is three arguments: a ?: can't choose between two) */
+                if (l->mixState == CONV_OK) {
+                    Text(l, 148, y + 12, GREEN, what);
+                } else {
+                    Text(l, 148, y + 12, DIM, what);
+                }
+            }
         }
         if (k == 0) {
             Text(l, 24, PLAY_ROW_Y(0) + 4, DIM, "No release imported yet.");
@@ -1391,7 +1399,11 @@ static void DrawPage(Launcher *l) {
             const PortModInfo *m = Port_ModsInfo(i);
 
             SDL_snprintf(line, sizeof(line), "%.36s %.10s", m->name, m->version);
-            Text(l, 24, MOD_ROW_Y(i) + 1, m->enabled ? WHITE : DIM, line);
+            if (m->enabled) {
+                Text(l, 24, MOD_ROW_Y(i) + 1, WHITE, line);
+            } else {
+                Text(l, 24, MOD_ROW_Y(i) + 1, DIM, line);
+            }
             SDL_snprintf(line, sizeof(line), "%.24s%s%s", *m->author ? m->author : m->id,
                          m->checked ? "" : "  - not checked by the packer", m->problems ? "  - see below" : "");
             Text(l, 24, MOD_ROW_Y(i) + 13, DIM, line);
