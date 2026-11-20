@@ -1740,10 +1740,11 @@ static void Dispatch(const JsonNode *req) {
             SDL_snprintf(err, sizeof(err), "raycast needs a world (world)");
             ok = 0;
             have = 0;
-        } else if (from != NULL && to != NULL && from->count == 3 && to->count == 3) {
+        } else if (from != NULL && to != NULL && from->type == JSON_ARRAY && to->type == JSON_ARRAY && from->count == 3 &&
+                   to->count == 3) {
             a.x = (f32)Json_At(from, 0)->number, a.y = (f32)Json_At(from, 1)->number, a.z = (f32)Json_At(from, 2)->number;
             b.x = (f32)Json_At(to, 0)->number, b.y = (f32)Json_At(to, 1)->number, b.z = (f32)Json_At(to, 2)->number;
-        } else if (down != NULL && down->count == 2) {
+        } else if (down != NULL && down->type == JSON_ARRAY && down->count == 2) {
             a.x = b.x = (f32)Json_At(down, 0)->number;
             a.z = b.z = (f32)Json_At(down, 1)->number;
             a.y = hi[1] + 10.0f;

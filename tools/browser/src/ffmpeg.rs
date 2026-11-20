@@ -127,7 +127,7 @@ pub struct Ff {
 
 fn lib_name(dir: &Path, lib: usize, major: u32) -> PathBuf {
     let names = ["avutil", "avcodec", "avformat"];
-    let v = if lib == 0 { major - 2 } else { major };
+    let v = if lib == 0 { major.saturating_sub(2) } else { major }; // (major 0: the unversioned name, v unused)
     let file = if cfg!(windows) {
         if major > 0 { format!("{}-{v}.dll", names[lib]) } else { format!("{}.dll", names[lib]) }
     } else if cfg!(target_os = "macos") {
