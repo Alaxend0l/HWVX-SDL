@@ -1567,7 +1567,7 @@ impl Browser {
         // a new frame from the feed: into the texture
         let fresh = p.feed.lock().unwrap_or_else(|e| e.into_inner()).frame.take();
         if let Some(f) = fresh {
-            let img = egui::ColorImage::from_rgba_premultiplied([f.width as usize, f.height as usize], &f.rgba);
+            let img = egui::ColorImage::new([f.width as usize, f.height as usize], f.pixels);
             match &mut p.texture {
                 Some(t) => t.set(img, egui::TextureOptions::LINEAR),
                 None => p.texture = Some(ctx.load_texture("preview", img, egui::TextureOptions::LINEAR)),

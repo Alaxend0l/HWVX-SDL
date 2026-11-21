@@ -37,14 +37,14 @@ fn next_frame(r: &mut FrameReader, w: u32, h: u32) -> Frame {
 /// How many distinct colours (to a step of 8) a frame has: a blank one has 1.
 fn colours(f: &Frame) -> usize {
     let mut seen = std::collections::HashSet::new();
-    for px in f.rgba.chunks_exact(4).step_by(7) {
+    for px in f.rgba().chunks_exact(4).step_by(7) {
         seen.insert((px[0] >> 3, px[1] >> 3, px[2] >> 3));
     }
     seen.len()
 }
 
 fn differing(a: &Frame, b: &Frame) -> usize {
-    a.rgba.chunks_exact(4).zip(b.rgba.chunks_exact(4)).filter(|(p, q)| p[..3] != q[..3]).count()
+    a.rgba().chunks_exact(4).zip(b.rgba().chunks_exact(4)).filter(|(p, q)| p[..3] != q[..3]).count()
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn embedded_frames() {
     let mut last = None;
     for _ in 0..5 {
         let f = next_frame(&mut fr, 400, 300);
-        assert_eq!(f.rgba.len(), 400 * 300 * 4);
+        assert_eq!(f.rgba().len(), 400 * 300 * 4);
         if let Some(n) = last {
             assert!(f.frame > n, "frames move on: {} after {n}", f.frame);
         }

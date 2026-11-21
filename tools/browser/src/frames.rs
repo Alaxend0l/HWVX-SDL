@@ -5,13 +5,15 @@
 //! new one, telling the game it was taken (the game reads back no more than one frame ahead).
 
 use crate::shm::Mapping;
+use eframe::egui::Color32;
 use std::sync::atomic::{AtomicU32, Ordering, fence};
 
 const MAGIC: u32 = 0x4656_5748; // "HWVF"
 const VERSION: u32 = 1;
 const HEADER_MIN: usize = 64 + 3 * 32;
 
-/// One frame: RGBA (alpha forced opaque), top row first, rows `width * 4` bytes.
+/// One frame: RGBA (alpha forced opaque, so premultiplied as it is), top row first. As egui's
+/// pixels: the texture takes them as they are, without another copy of the frame.
 #[derive(Clone)]
 pub struct Frame {
     /// The viewer's frame number.
@@ -20,7 +22,15 @@ pub struct Frame {
     pub published: u32,
     pub width: u32,
     pub height: u32,
-    pub rgba: Vec<u8>,
+    pub pixels: Vec<Color32>,
+}
+
+impl Frame {
+    /// The pixels as bytes, `width * 4` a row.
+    pub fn rgba(&self) -> &[u8] {
+        // Color32 is four bytes, RGBA (repr(C))
+        unsafe { std::slice::from_raw_parts(self.pixels.as_ptr() as *const u8, self.pixels.len() * 4) }
+    }
 }
 
 pub struct FrameReader {
@@ -100,32 +110,33 @@ impl FrameReader {
             if width == 0 || stride < width * 4 || bytes > capacity {
                 return None;
             }
-            let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
+            let n = width as usize * height as usize;
+            let mut pixels: Vec<Color32> = Vec::with_capacity(n);
             unsafe {
                 let src = self.base.add(header + latest * capacity);
+                let dst = pixels.as_mut_ptr() as *mut u8;
                 if stride == width * 4 {
-                    rgba.extend_from_slice(std::slice::from_raw_parts(src, bytes));
+                    std::ptr::copy_nonoverlapping(src, dst, n * 4);
                 } else {
+                    let row = width as usize * 4;
                     for y in 0..height as usize {
-                        let row = std::slice::from_raw_parts(src.add(y * stride as usize), width as usize * 4);
-                        rgba.extend_from_slice(row);
+                        std::ptr::copy_nonoverlapping(src.add(y * stride as usize), dst.add(y * row), row);
                     }
                 }
+                pixels.set_len(n);
             }
             fence(Ordering::Acquire);
             if self.u32_at(s) != seq {
                 continue; // rewritten while it was copied: again
             }
             // the EFB's alpha is the game's scratch, not opacity
-            let mut i = 3;
-            while i < rgba.len() {
-                rgba[i] = 255;
-                i += 4;
+            for p in &mut pixels {
+                *p = Color32::from_rgba_premultiplied(p.r(), p.g(), p.b(), 255);
             }
             self.last = slot_pub.max(1);
             // taken: the game may read back the next one
             self.atomic(36).store(published.max(slot_pub), Ordering::Release);
-            return Some(Frame { frame, published: slot_pub, width, height, rgba });
+            return Some(Frame { frame, published: slot_pub, width, height, pixels });
         }
         None
     }
