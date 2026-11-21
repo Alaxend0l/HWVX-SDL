@@ -226,6 +226,11 @@ s32 ActionFXPointChangeMode(ActionFXList *list) {
             }
             break;
         case 2:
+            /* port: the original reads the flags before its NULL checks below (a point with
+             * no emitter spawned, a corona only or its quadrant not loaded) */
+            if (fx == NULL) {
+                break;
+            }
             if (fx->base.flags & EMITTER_FLAG_DISABLED) {
                 if (fx != NULL) {
                     fx->base.flags &= ~EMITTER_FLAG_DISABLED;
