@@ -244,7 +244,7 @@ fn headless(a: &Args) -> i32 {
         }),
         build_pack: false,
         project: PathBuf::from(level),
-        scratch: a.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref).join("testdrive"),
+        scratch: testdrive::own_scratch(&a.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref).join("testdrive")),
         car: a.car,
         skip_intro: a.quick_start,
         start_at: None,

@@ -60,13 +60,15 @@ impl Browser {
     }
 
     fn testdrive_scratch(&self) -> PathBuf {
-        self.args
+        let base = self.args
             .pref
             .clone()
             .unwrap_or_else(|| {
                 hwvx_browser::resources::default_pref()
             })
-            .join("testdrive")
+            .join("testdrive");
+        // this editor's own, beside another editor's (the base cache shared)
+        testdrive::own_scratch(&base)
     }
 
     /// Opens a level project; with unsaved edits in the open one, asks first (the Level tab).
