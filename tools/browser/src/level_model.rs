@@ -44,6 +44,33 @@ pub struct Project {
     dirty_memo: std::cell::Cell<Option<(u64, bool)>>,
 }
 
+/// A project's level and triggers as they are (Project::copy_source), to write as plain JSON.
+pub struct CopySource {
+    dir: PathBuf,
+    level: Value,
+    triggers: Vec<(String, Value)>,
+    broken: Vec<String>,
+}
+
+impl CopySource {
+    pub fn write(&self, to: &Path) -> Result<(), String> {
+        let tdir = to.join("triggers");
+        let _ = std::fs::remove_dir_all(&tdir);
+        std::fs::create_dir_all(&tdir).map_err(|e| format!("{}: {e}", tdir.display()))?;
+        write(&to.join("level.jsonc"), &serde_json::to_string_pretty(&self.level).unwrap())?;
+        for (n, v) in &self.triggers {
+            write(&trigger_file(to, n)?, &serde_json::to_string_pretty(v).unwrap())?;
+        }
+        for n in &self.broken {
+            let from = trigger_file(&self.dir, n)?;
+            if let Ok(text) = std::fs::read_to_string(&from) {
+                write(&trigger_file(to, n)?, &text)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// triggers/NAME.jsonc of a project: the name (from level.jsonc or the folder) checked first, so
 /// it is never a path out of triggers/ (xdlrs::level::check_trigger_name, as the level tools)
 fn trigger_file(dir: &Path, name: &str) -> Result<PathBuf, String> {
@@ -264,9 +291,11 @@ impl Project {
 
     /// The level and its triggers as plain JSON in `to` (for the level tools: checking, the preview).
     pub fn write_copy(&self, to: &Path) -> Result<(), String> {
-        let tdir = to.join("triggers");
-        let _ = std::fs::remove_dir_all(&tdir);
-        std::fs::create_dir_all(&tdir).map_err(|e| format!("{}: {e}", tdir.display()))?;
+        self.copy_source().write(to)
+    }
+
+    /// What write_copy writes, taken now and written later (on the check's thread).
+    pub fn copy_source(&self) -> CopySource {
         let mut level = self.level.clone();
         if let Some(order) = level.get_mut("triggers").and_then(Value::as_array_mut) {
             // the listed order, then any other trigger of the project (a broken file's too: its
@@ -277,17 +306,12 @@ impl Project {
                 }
             }
         }
-        write(&to.join("level.jsonc"), &serde_json::to_string_pretty(&level).unwrap())?;
-        for t in &self.triggers {
-            write(&trigger_file(to, &t.name)?, &serde_json::to_string_pretty(&t.value).unwrap())?;
+        CopySource {
+            dir: self.dir.clone(),
+            level,
+            triggers: self.triggers.iter().map(|t| (t.name.clone(), t.value.clone())).collect(),
+            broken: self.broken.iter().map(|(n, _)| n.clone()).collect(),
         }
-        for (n, _) in &self.broken {
-            let from = trigger_file(&self.dir, n)?;
-            if let Ok(text) = std::fs::read_to_string(&from) {
-                write(&trigger_file(to, n)?, &text)?;
-            }
-        }
-        Ok(())
     }
 
     /// Files changed on disk since they were read (or saved): another editor's edits. Saving

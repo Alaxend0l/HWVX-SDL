@@ -474,11 +474,8 @@ impl Browser {
         let scratch = self.testdrive_scratch_dir();
         let copy = scratch.join("edit-copy");
         let out = scratch.join("preview").join("level.json");
-        if let Err(err) = p.write_copy(&copy) {
-            self.level.edit.preview_note = err;
-            self.level.edit.checked_generation = self.level.edit.generation;
-            return;
-        }
+        // written on the check's thread: a big level's files take a while
+        let src = p.copy_source();
         let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
         let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
@@ -492,7 +489,7 @@ impl Browser {
             let _ = std::fs::create_dir_all(out.parent().unwrap());
             let base = xdlrs::level::BaseOpts { base: None, data, cache: Some(cache) };
             let one = |m: String| vec![LevelError { message: m, ..Default::default() }];
-            let res = match level_env(&tools) {
+            let res = match src.write(&copy).and_then(|_| level_env(&tools)) {
                 Err(m) => Err(one(m)),
                 Ok(env) => match xdlrs::level::compile(&env, &copy, Some(&out), &base, false, box_file.as_deref()) {
                     Ok(c) if c.ok => Ok(c.warnings.iter().map(|w| LevelError { file: w.file.clone(), path: w.path.clone(), message: w.message.clone() }).collect()),
