@@ -247,7 +247,10 @@ pub fn template_files(o: &NewLevel) -> Result<(String, Vec<(String, Value)>)> {
         if b.archive.to_lowercase() != archive {
             return Err(lerr(format!("the base given is {}, not the level's world {archive}", b.archive)));
         }
-        let c = if o.clean { Some(collectibles(base)?) } else { None };
+        // a template finds them kept or not: the intro drop below leaves their triggers alone
+        let all = if o.clean || template { Some(collectibles(base)?) } else { None };
+        let counted: HashSet<i64> = all.as_ref().map(|c| c.triggers.iter().copied().collect()).unwrap_or_default();
+        let c = all.filter(|_| o.clean);
         let mut kept: Vec<i64> = match &c {
             Some(c) => c.kept.clone(),
             None => b.trigger_files_pub().iter().map(|x| x.0 as i64).collect(),
@@ -262,7 +265,8 @@ pub fn template_files(o: &NewLevel) -> Result<(String, Vec<(String, Value)>)> {
                 if let Some(m) = own.as_object_mut() {
                     m.remove("children");
                 }
-                if !own.to_string().contains("\"interface\"") {
+                // (a pickup plays its own screen: kept with the collectibles)
+                if counted.contains(&(n as i64)) || !own.to_string().contains("\"interface\"") {
                     continue;
                 }
                 drop.insert(n as i64);
@@ -359,21 +363,19 @@ pub fn template_files(o: &NewLevel) -> Result<(String, Vec<(String, Value)>)> {
                 let mut go = vec![play(sc.hud, 0), hud_on(1, 1000), control("lock_control", 0), control("unlock_control", 3500), clock("clock", "show", "resume", 3500)];
                 go.extend(music_go.iter().cloned());
                 trigs.push(("go".into(), trigger("interface_end", json!({"interface": scr(sc.intro)}), Value::Null, json!(go))));
+                let mut won = vec![set_var("level://variables/done", 1)];
+                // briefed is declared only with the briefing objective (collectibles removed)
+                if hud.is_some() {
+                    won.push(set_var("level://variables/briefed", 1));
+                }
+                won.extend([clock("clock", "show", "pause", 0), control("lock_control", 1000), orbit.clone(), hud_on(0, 200), play(sc.complete, 4000)]);
                 trigs.push((
                     "won".into(),
                     trigger(
                         "variable_value_check",
                         json!({"variables": ["level://variables/goal"], "value": {"const": 1}, "op": "equal"}),
                         json!([var_is("level://variables/done", 0)]),
-                        json!([
-                            set_var("level://variables/done", 1),
-                            set_var("level://variables/briefed", 1),
-                            clock("clock", "show", "pause", 0),
-                            control("lock_control", 1000),
-                            orbit.clone(),
-                            hud_on(0, 200),
-                            play(sc.complete, 4000)
-                        ]),
+                        json!(won),
                     ),
                 ));
                 trigs.push((
