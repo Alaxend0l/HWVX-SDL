@@ -232,6 +232,24 @@ pub fn index_all(data: &Path, mut progress: impl FnMut(&Path, Result<usize, Stri
     all
 }
 
+/// A mod file's (rate, samples), decoded once per version of it (each re-index decoded every
+/// file whole again).
+fn mod_file_length(p: &Path) -> (u32, u32) {
+    type Seen = std::collections::HashMap<PathBuf, (Option<std::time::SystemTime>, u64, (u32, u32))>;
+    static SEEN: std::sync::Mutex<Option<Seen>> = std::sync::Mutex::new(None);
+    let stamp = std::fs::metadata(p).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let seen = seen.get_or_insert_with(Default::default);
+    if let Some(&(t, n, v)) = seen.get(p) {
+        if (t, n) == stamp {
+            return v;
+        }
+    }
+    let v = crate::content_sounds::decode_file(p).map(|(pcm, r)| (r, pcm.len() as u32)).unwrap_or((0, 0));
+    seen.insert(p.to_path_buf(), (stamp.0, stamp.1, v));
+    v
+}
+
 /// A mod's own audio files (WAV, FLAC, Ogg Vorbis, MP3 anywhere in its folder: sounds/, music/),
 /// decoded as the game decodes them (src/audiodec, xdlrs::modcheck::audio) for their rate and
 /// length.
@@ -252,7 +270,7 @@ pub fn mod_files(dir: &Path) -> Vec<Entry> {
                 continue;
             }
             let name = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/");
-            let (rate, samples) = crate::content_sounds::decode_file(&p).map(|(pcm, r)| (r, pcm.len() as u32)).unwrap_or((0, 0));
+            let (rate, samples) = mod_file_length(&p);
             let mut e = Entry {
                 kind: Kind::ModFile,
                 archive: name.clone(),
