@@ -467,7 +467,7 @@ impl Browser {
         let (tx, rx) = channel();
         let n = levels.len();
         std::thread::spawn(move || {
-            let base = xdlrs::level::BaseOpts { base: None, data: Some(data), cache: Some(o.scratch.join("base-cache")) };
+            let base = xdlrs::level::BaseOpts { base: None, data: Some(data), cache: Some(testdrive::base_cache(&o.scratch)) };
             let r: Built = match testdrive::level_env(&o.tools) {
                 Ok(env) => levels.iter().map(|(u, l)| tracks::build_level(&env, &dir, u, l, &base).map_err(|e| (u.clone(), e))).collect(),
                 Err(e) => levels.iter().map(|(u, _)| Err((u.clone(), vec![e.clone()]))).collect(),

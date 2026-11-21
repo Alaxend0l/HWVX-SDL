@@ -35,14 +35,14 @@ fn next_frame(r: &mut FrameReader, v: &mut Viewer) -> Frame {
 
 fn colours(f: &Frame) -> usize {
     let mut seen = HashSet::new();
-    for px in f.rgba.chunks_exact(4).step_by(7) {
+    for px in f.rgba().chunks_exact(4).step_by(7) {
         seen.insert((px[0] >> 3, px[1] >> 3, px[2] >> 3));
     }
     seen.len()
 }
 
 fn differing(a: &Frame, b: &Frame) -> usize {
-    a.rgba.chunks_exact(4).zip(b.rgba.chunks_exact(4)).filter(|(p, q)| p[..3] != q[..3]).count()
+    a.rgba().chunks_exact(4).zip(b.rgba().chunks_exact(4)).filter(|(p, q)| p[..3] != q[..3]).count()
 }
 
 fn loaded(w: &Value) -> Vec<u64> {

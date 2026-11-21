@@ -24,6 +24,7 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 typedef SOCKET Sock;
 #define SOCK_NONE INVALID_SOCKET
 #define CloseSock closesocket
@@ -35,6 +36,7 @@ typedef SOCKET Sock;
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
 #include <errno.h>
 typedef int Sock;
 #define SOCK_NONE (-1)
@@ -2307,10 +2309,61 @@ static void PollPending(void) {
     ProcessLines();
 }
 
+/* ---- the parent ------------------------------------------------------------ */
+
+/* HWVX_VIEWER_PARENT: the program that started this (the editor's PID). Once
+ * it is gone (crashed, killed) the viewer quits: its window is hidden and
+ * nothing else would end it. Checked about once a second. */
+static int ParentGone(void) {
+    static int state = -1;      /* -1: not read yet, 0: nothing to watch, 1: watched */
+    static u64 last;
+    static long pid;
+#ifdef _WIN32
+    static HANDLE h;
+#else
+    static int direct;          /* it is this process's parent */
+#endif
+    u64 now;
+
+    if (state < 0) {
+        const char *e = SDL_getenv("HWVX_VIEWER_PARENT");
+
+        pid = e != NULL ? SDL_atoi(e) : 0;
+        state = pid > 0;
+#ifdef _WIN32
+        if (state && (h = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid)) == NULL) {
+            state = 0;  /* (not one this may watch) */
+        }
+#else
+        direct = state && pid == (long)getppid();
+#endif
+    }
+    if (state == 0 || (now = SDL_GetTicks()) - last < 1000) {
+        return 0;
+    }
+    last = now;
+#ifdef _WIN32
+    return WaitForSingleObject(h, 0) == WAIT_OBJECT_0;
+#else
+    /* the parent: this is reparented once it dies (kill would still find it, a zombie) */
+    if (direct) {
+        return (long)getppid() != pid;
+    }
+    return kill((pid_t)pid, 0) != 0 && errno == ESRCH;
+#endif
+}
+
 static void Poll(void) {
     char buf[4096];
     Sock sock;
 
+    if (ParentGone()) {
+#ifndef _WIN32
+        signal(SIGPIPE, SIG_IGN);   /* its log pipe has no reader now: a log line is not to end this */
+#endif
+        Port_Log("viewer: the program that started it is gone: quitting");
+        s.quit = 1;
+    }
     if (s.listener == SOCK_NONE) {
         return;
     }

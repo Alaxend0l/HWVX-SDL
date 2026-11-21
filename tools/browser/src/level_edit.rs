@@ -487,7 +487,7 @@ impl Browser {
         let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
         let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
-        let cache = scratch.join("base-cache");
+        let cache = hwvx_browser::testdrive::base_cache(&scratch);
         let box_file = self.level.edit.box_file.clone();
         let g = e.generation;
         self.level.edit.recheck_pending = false;
@@ -881,7 +881,7 @@ impl Browser {
         let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
         let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
-        let cache = self.testdrive_scratch_dir().join("base-cache");
+        let cache = hwvx_browser::testdrive::base_cache(&self.testdrive_scratch_dir());
         let template = w.template;
         let (tx, rx) = channel();
         std::thread::spawn(move || {

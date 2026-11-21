@@ -33,6 +33,10 @@
 #include <unistd.h>
 #include <errno.h>
 #endif
+#ifdef __linux__
+#include <dirent.h>
+#include <signal.h>
+#endif
 
 #define FRAMES_MAGIC 0x46565748u    /* "HWVF" */
 #define FRAMES_VERSION 1
@@ -68,6 +72,37 @@ typedef struct FrameHeader {
 _Static_assert(sizeof(FrameHeader) == 64 + FRAMES_SLOTS * 32, "FrameHeader layout");
 
 /* ---- a tiny portable shared memory wrapper --------------------------------- */
+
+#ifdef __linux__
+/* Linux: names carry the game's PID, and the ones of games no longer running
+ * are removed (once): a game killed before the browser mapped (and unlinked)
+ * its memory left it in /dev/shm, taking its room there. */
+static void SweepStale(void) {
+    static int done;
+    DIR *d;
+    struct dirent *e;
+
+    if (done++ || (d = opendir("/dev/shm")) == NULL) {
+        return;
+    }
+    while ((e = readdir(d)) != NULL) {
+        char *end;
+        long pid;
+
+        if (SDL_strncmp(e->d_name, "hwvx-p", 6) != 0) {
+            continue;
+        }
+        pid = SDL_strtol(e->d_name + 6, &end, 10);
+        if (pid > 0 && *end == '-' && pid != (long)getpid() && kill((pid_t)pid, 0) != 0 && errno == ESRCH) {
+            char name[300];
+
+            SDL_snprintf(name, sizeof(name), "/%s", e->d_name);
+            shm_unlink(name);
+        }
+    }
+    closedir(d);
+}
+#endif
 
 /* (ViewerShm is in viewer_internal.h: the media blobs use it too, viewer_media.c) */
 int ViewerShm_Create(ViewerShm *m, size_t size, const char *tag) {
@@ -109,7 +144,12 @@ int ViewerShm_Create(ViewerShm *m, size_t size, const char *tag) {
         int fd;
         void *p;
 
+#ifdef __linux__
+        SweepStale();
+        SDL_snprintf(m->name, sizeof(m->name), "/hwvx-p%ld-%s", (long)getpid(), tag);
+#else
         SDL_snprintf(m->name, sizeof(m->name), "/hwvx-%s", tag);   /* macOS: at most 31 characters */
+#endif
         fd = shm_open(m->name, O_RDWR | O_CREAT | O_EXCL, 0600);
         if (fd < 0) {
             return 0;
@@ -119,6 +159,15 @@ int ViewerShm_Create(ViewerShm *m, size_t size, const char *tag) {
             shm_unlink(m->name);
             return 0;
         }
+#ifdef __linux__
+        /* the pages reserved now: /dev/shm (a tmpfs, often small in a container) would
+         * otherwise refuse them only when written, with SIGBUS */
+        if (posix_fallocate(fd, 0, (off_t)size) != 0) {
+            close(fd);
+            shm_unlink(m->name);
+            return 0;
+        }
+#endif
         p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         close(fd);
         if (p == MAP_FAILED) {
@@ -241,6 +290,7 @@ int ViewerFrames_Configure(int w, int h, char *err, size_t errSize) {
         /* a new one (a new name): grows by a quarter to spare reallocating on every drag */
         u32 cap = need + need / 4;
         char tag[40];
+        int made;
 
         if (cap > (u32)FRAMES_MAX_W * FRAMES_MAX_H * 4) {
             cap = (u32)FRAMES_MAX_W * FRAMES_MAX_H * 4;
@@ -248,8 +298,19 @@ int ViewerFrames_Configure(int w, int h, char *err, size_t errSize) {
         Release();
         f.key = Viewer_RandomU64();
         SDL_snprintf(tag, sizeof(tag), "%016llx-%u", (unsigned long long)f.key, f.gen++);
-        if (!ViewerShm_Create(&f.shm, FRAMES_HEADER + (size_t)FRAMES_SLOTS * cap, tag)) {
+        made = ViewerShm_Create(&f.shm, FRAMES_HEADER + (size_t)FRAMES_SLOTS * cap, tag);
+        if (!made && cap > need) {
+            cap = need;     /* without the spare quarter: what a small /dev/shm may still hold */
+            SDL_snprintf(tag, sizeof(tag), "%016llx-%u", (unsigned long long)f.key, f.gen++);
+            made = ViewerShm_Create(&f.shm, FRAMES_HEADER + (size_t)FRAMES_SLOTS * cap, tag);
+        }
+        if (!made) {
+#ifdef __linux__
+            SDL_snprintf(err, errSize, "shared memory of %u MB could not be made (/dev/shm full or too small? a smaller preview needs less)",
+                         (FRAMES_HEADER + FRAMES_SLOTS * cap) >> 20);
+#else
             SDL_snprintf(err, errSize, "shared memory of %u MB could not be made", (FRAMES_HEADER + FRAMES_SLOTS * cap) >> 20);
+#endif
             f.on = 0;
             return 0;
         }

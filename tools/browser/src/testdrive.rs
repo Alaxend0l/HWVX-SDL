@@ -60,13 +60,50 @@ pub struct Prepared {
     pub ms: f64,
 }
 
-/// The level tools over the checkout's schemas (`tools`' parent).
-pub fn level_env(tools: &Path) -> Result<xdlrs::level::Env, String> {
+/// The level tools over the checkout's schemas (`tools`' parent). Made once per tools folder and
+/// kept for the next call (reading the schemas again was most of an edit's check); an Env isn't
+/// Sync, so each caller has one to itself, back in the pool when it is dropped.
+pub fn level_env(tools: &Path) -> Result<LevelEnv, String> {
     let root = tools.parent().filter(|r| !r.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let mut env = xdlrs::level::Env::new(root).map_err(|e| format!("{}: {e}", root.join("schemas").display()))?;
-    // a package's own hwvx-x, beside the program (else xdlrs looks in the checkout, the PATH)
-    env.hwvx_x = crate::resources::hwvx_x();
-    Ok(env)
+    let kept = {
+        let mut pool = ENVS.lock().unwrap_or_else(|e| e.into_inner());
+        pool.iter().position(|(r, _)| r == root).map(|i| pool.swap_remove(i).1)
+    };
+    let env = match kept {
+        Some(env) => env,
+        None => {
+            let mut env = xdlrs::level::Env::new(root).map_err(|e| format!("{}: {e}", root.join("schemas").display()))?;
+            // a package's own hwvx-x, beside the program (else xdlrs looks in the checkout, the PATH)
+            env.hwvx_x = crate::resources::hwvx_x();
+            env
+        }
+    };
+    Ok(LevelEnv { env: Some(env), root: root.to_path_buf() })
+}
+
+static ENVS: Mutex<Vec<(PathBuf, xdlrs::level::Env)>> = Mutex::new(Vec::new());
+
+/// An Env from `level_env`, returned to its pool when dropped.
+pub struct LevelEnv {
+    env: Option<xdlrs::level::Env>,
+    root: PathBuf,
+}
+
+impl std::ops::Deref for LevelEnv {
+    type Target = xdlrs::level::Env;
+    fn deref(&self) -> &xdlrs::level::Env {
+        self.env.as_ref().unwrap()
+    }
+}
+
+impl Drop for LevelEnv {
+    fn drop(&mut self) {
+        let mut pool = ENVS.lock().unwrap_or_else(|e| e.into_inner());
+        // a few per folder at most (as many as ran at once)
+        if let Some(env) = self.env.take().filter(|_| pool.iter().filter(|(r, _)| *r == self.root).count() < 4) {
+            pool.push((std::mem::take(&mut self.root), env));
+        }
+    }
 }
 
 /// The errors of a level tools' result as records.
@@ -98,7 +135,7 @@ pub fn prepare(o: &Options) -> Result<Prepared, Vec<LevelError>> {
             base: None,
             // the level built into its own world pack, from the player's data (cached)
             data: if o.build_pack { o.data.clone() } else { None },
-            cache: Some(o.scratch.join("base-cache")),
+            cache: Some(base_cache(&o.scratch)),
         },
     };
     let v = xdlrs::level::testdrive(&env, &o.project, &o.scratch, &d).map_err(|e| one(xdlrs::level::top_message(&e)))?;
@@ -269,7 +306,7 @@ pub fn share(o: &Options, out: &Path) -> Result<String, String> {
     };
     std::fs::create_dir_all(o.scratch.join("share")).map_err(|e| format!("{}: {e}", o.scratch.display()))?;
     let env = level_env(&o.tools)?;
-    let base = xdlrs::level::BaseOpts { base: None, data: Some(data.clone()), cache: Some(o.scratch.join("base-cache")) };
+    let base = xdlrs::level::BaseOpts { base: None, data: Some(data.clone()), cache: Some(base_cache(&o.scratch)) };
     match xdlrs::level::share(&env, &o.project, &folder, Some(out), &base, None) {
         Ok(Ok(line)) => Ok(line),
         Ok(Err(errors)) => Err(errors.iter().map(|e| format!("error: {e}")).collect::<Vec<_>>().join("\n")),
@@ -312,3 +349,98 @@ pub fn read_level(project: &Path) -> Result<Value, String> {
 /// JSONC to JSON: comments out, then trailing commas out (strings kept as they are); the
 /// lenient reader, now in the xdlrs crate.
 pub use xdlrs::jsonc::strip as strip_jsonc;
+
+/// This editor's own test drive folder under `base` (pref/testdrive): `base` itself for the first
+/// editor open, `base/instance-N` for each more, so two editors don't build, copy and run into
+/// the same folders. Claimed for the process by `base/instance-N.pid` (taken over once that
+/// process is gone). The base cache stays shared (`base_cache`).
+pub fn own_scratch(base: &Path) -> PathBuf {
+    static OWN: Mutex<Vec<(PathBuf, PathBuf)>> = Mutex::new(Vec::new());
+    let mut own = OWN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, d)) = own.iter().find(|(b, _)| b == base) {
+        return d.clone();
+    }
+    let me = std::process::id();
+    let _ = std::fs::create_dir_all(base);
+    let dir = (0..16)
+        .find(|n| {
+            let pid = base.join(format!("instance-{n}.pid"));
+            for _ in 0..2 {
+                match std::fs::File::create_new(&pid) {
+                    Ok(mut f) => {
+                        use std::io::Write;
+                        let _ = write!(f, "{me}");
+                        return true;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let holder = std::fs::read_to_string(&pid).ok().and_then(|s| s.trim().parse::<u32>().ok());
+                        match holder {
+                            Some(p) if p == me => return true,
+                            Some(p) if alive(p) => return false,
+                            _ => {
+                                let _ = std::fs::remove_file(&pid); // (its editor is gone: taken over)
+                            }
+                        }
+                    }
+                    // (not writable: the shared folder, as before)
+                    Err(_) => return *n == 0,
+                }
+            }
+            false
+        })
+        .map(|n| if n == 0 { base.to_path_buf() } else { base.join(format!("instance-{n}")) })
+        .unwrap_or_else(|| base.join(format!("instance-p{me}")));
+    own.push((base.to_path_buf(), dir.clone()));
+    dir
+}
+
+/// The extracted base worlds' cache: shared by every editor (xdlrs locks its extraction).
+pub fn base_cache(scratch: &Path) -> PathBuf {
+    let shared = match scratch.file_name().and_then(|n| n.to_str()) {
+        Some(n) if n.starts_with("instance-") => scratch.parent().unwrap_or(scratch),
+        _ => scratch,
+    };
+    shared.join("base-cache")
+}
+
+/// A process with this PID is running.
+fn alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(pid as libc::pid_t, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError};
+        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return GetLastError() == ERROR_ACCESS_DENIED;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code) != 0;
+        CloseHandle(h);
+        ok && code == 259 // STILL_ACTIVE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(unix)]
+    fn second_editor_gets_its_own_scratch() {
+        let base = std::env::temp_dir().join(format!("hwvx-own-scratch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        // instance 0 held by a running process (pid 1), instance 1 by one long gone
+        std::fs::write(base.join("instance-0.pid"), "1").unwrap();
+        std::fs::write(base.join("instance-1.pid"), "999999").unwrap();
+        let own = super::own_scratch(&base);
+        assert_eq!(own, base.join("instance-1"));
+        assert_eq!(std::fs::read_to_string(base.join("instance-1.pid")).unwrap(), std::process::id().to_string());
+        assert_eq!(super::own_scratch(&base), own, "kept for the process");
+        assert_eq!(super::base_cache(&own), base.join("base-cache"));
+        assert_eq!(super::base_cache(&base), base.join("base-cache"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}

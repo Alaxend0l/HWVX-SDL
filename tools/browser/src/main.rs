@@ -234,7 +234,7 @@ fn headless(a: &Args) -> i32 {
         return 2;
     };
     let game = a.game.clone().unwrap_or_else(default_game);
-    let game = std::fs::canonicalize(&game).unwrap_or(game);
+    let game = hwvx_browser::resources::canonical(&game);
     let o = Options {
         tools: a.tools.clone().or_else(|| testdrive::default_tools(&game)).unwrap_or_else(|| "tools".into()),
         game,
@@ -244,7 +244,7 @@ fn headless(a: &Args) -> i32 {
         }),
         build_pack: false,
         project: PathBuf::from(level),
-        scratch: a.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref).join("testdrive"),
+        scratch: testdrive::own_scratch(&a.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref).join("testdrive")),
         car: a.car,
         skip_intro: a.quick_start,
         start_at: None,
@@ -641,7 +641,7 @@ impl Browser {
                 Viewer::connect(port, &token)
             } else {
                 let game = args.game.clone().unwrap_or_else(default_game);
-                let game = std::fs::canonicalize(&game).unwrap_or(game);
+                let game = hwvx_browser::resources::canonical(&game);
                 // the editor's own, never the player's saves and settings
                 let pref = args.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref);
                 let log_file = Some(pref.join("viewer.log"));
@@ -816,8 +816,21 @@ impl Browser {
         let now = Instant::now();
         let late: Vec<u64> = self.pending.iter().filter(|(_, (_, t))| now.duration_since(*t) > REPLY_TIMEOUT).map(|(s, _)| *s).collect();
         if !late.is_empty() {
-            self.drop_pending(late);
-            self.fail(format!("the viewer did not answer in {} s", REPLY_TIMEOUT.as_secs()));
+            // a world or pack still loading is kept (its reply, however late, still applies), and
+            // what was sent after it (answered in order, after it); the rest are dropped
+            let loading = self.pending.iter().filter(|(_, (p, _))| matches!(p, Pending::World | Pending::Load)).map(|(s, _)| *s).min();
+            let (slow, gone): (Vec<u64>, Vec<u64>) = late.into_iter().partition(|s| loading.is_some_and(|l| *s >= l));
+            for s in &slow {
+                if let Some(p) = self.pending.get_mut(s) {
+                    p.1 = now; // (said again in another REPLY_TIMEOUT)
+                }
+            }
+            if gone.is_empty() {
+                self.note(format!("still loading (over {} s so far)…", REPLY_TIMEOUT.as_secs()));
+            } else {
+                self.drop_pending(gone);
+                self.fail(format!("the viewer did not answer in {} s", REPLY_TIMEOUT.as_secs()));
+            }
         }
         for (seq, r) in replies {
             let why = self.pending.remove(&seq).map(|(p, _)| p).unwrap_or(Pending::Quiet);
@@ -1608,7 +1621,7 @@ impl Browser {
         // a new frame from the feed: into the texture
         let fresh = p.feed.lock().unwrap_or_else(|e| e.into_inner()).frame.take();
         if let Some(f) = fresh {
-            let img = egui::ColorImage::from_rgba_premultiplied([f.width as usize, f.height as usize], &f.rgba);
+            let img = egui::ColorImage::new([f.width as usize, f.height as usize], f.pixels);
             match &mut p.texture {
                 Some(t) => t.set(img, egui::TextureOptions::LINEAR),
                 None => p.texture = Some(ctx.load_texture("preview", img, egui::TextureOptions::LINEAR)),

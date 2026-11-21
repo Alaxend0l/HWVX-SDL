@@ -480,7 +480,7 @@ impl Browser {
         };
         let root = o.tools.parent().map(Path::to_path_buf).unwrap_or_default();
         let dir = p.dir.clone();
-        let cache = o.scratch.join("base-cache");
+        let cache = hwvx_browser::testdrive::base_cache(&o.scratch);
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             let r = xdlrs::level_share::check_and_pack(&root, &dir, Path::new(&out), None, Some(&data), &cache).map_err(|e| xdlrs::level::top_message(&e));
