@@ -604,6 +604,12 @@ const PSS_LEAD_MAX: f64 = 60.0;
 
 /// The whole soundtrack (Ok(None): the movie has none).
 pub fn decode_audio(m: &MovieFile) -> Result<Option<Audio>, String> {
+    decode_audio_until(m, &AtomicBool::new(false))
+}
+
+/// The whole soundtrack, given up (Err) once `stop` is set: a movie closed before its sound is in.
+pub fn decode_audio_until(m: &MovieFile, stop: &AtomicBool) -> Result<Option<Audio>, String> {
+    let stopped = || "stopped".to_string();
     match m.kind {
         Kind::Thp => {
             let mut t = Thp::open(&m.path)?;
@@ -612,6 +618,9 @@ pub fn decode_audio(m: &MovieFile) -> Result<Option<Audio>, String> {
             }
             let mut pcm = Vec::new();
             while let Some((_, a)) = t.next_frame() {
+                if stop.load(Ordering::Relaxed) {
+                    return Err(stopped());
+                }
                 if let Some(a) = a {
                     thp_audio(&a, t.channels as usize, &mut pcm);
                 }
@@ -623,7 +632,7 @@ pub fn decode_audio(m: &MovieFile) -> Result<Option<Audio>, String> {
             if f.channels > 0 {
                 let ch = f.channels;
                 let rate = f.rate;
-                let pcm = f.all_audio().iter().map(|&s| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16).collect();
+                let pcm = f.all_audio_until(stop).ok_or_else(stopped)?.iter().map(|&s| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16).collect();
                 return Ok(Some(Audio { channels: ch, rate, pcm }));
             }
             if m.kind != Kind::Pss {
@@ -688,17 +697,17 @@ impl Pictures {
     }
 }
 
-/// A decoded picture: its frame number and RGBA pixels.
+/// A decoded picture: its frame number, size and RGBA pixels.
 pub struct Picture {
     pub index: u32,
+    pub width: u32,
+    pub height: u32,
     pub rgba: Vec<u8>,
 }
 
-/// A movie's pictures from a frame on, decoded on a thread a few frames ahead (`ahead`). Dropping
-/// it stops the thread.
+/// A movie's pictures from a frame on, decoded on a thread a few frames ahead (`ahead`); the
+/// movie is opened there too, so a start never waits on the file. Dropping it stops the thread.
 pub struct VideoStream {
-    pub width: u32,
-    pub height: u32,
     rx: Receiver<Result<Picture, String>>,
     stop: Arc<AtomicBool>,
 }
@@ -709,14 +718,53 @@ impl Drop for VideoStream {
     }
 }
 
+/// Sends, blocking while `ahead` wait; false once stopped or dropped.
+fn deliver(tx: &SyncSender<Result<Picture, String>>, stop: &AtomicBool, msg: Result<Picture, String>) -> bool {
+    let mut msg = Some(msg);
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        match tx.try_send(msg.take().unwrap()) {
+            Ok(()) => return true,
+            Err(TrySendError::Full(m)) => {
+                msg = Some(m);
+                std::thread::sleep(std::time::Duration::from_millis(3));
+            }
+            Err(TrySendError::Disconnected(_)) => return false,
+        }
+    }
+}
+
 impl VideoStream {
-    pub fn start(m: &MovieFile, from: u32, ahead: usize) -> Result<VideoStream, String> {
-        let (mut pics, width, height) = Pictures::open(m)?;
+    pub fn start(m: &MovieFile, from: u32, ahead: usize) -> VideoStream {
         let (tx, rx): (SyncSender<Result<Picture, String>>, _) = sync_channel(ahead.max(1));
         let stop = Arc::new(AtomicBool::new(false));
         let s = stop.clone();
+        let m = m.clone();
         std::thread::spawn(move || {
+            let (mut pics, width, height) = match Pictures::open(&m) {
+                Ok(p) => p,
+                Err(e) => {
+                    deliver(&tx, &s, Err(e));
+                    return;
+                }
+            };
             let mut index = 0;
+            // FFmpeg's: to the key frame before `from` (else from the start, opened again); THP's
+            // frames are passed over by their sizes alone
+            if let (true, Pictures::Ff(f)) = (from > 0, &mut pics) {
+                match f.seek(from) {
+                    Some(at) => index = at,
+                    None => match Pictures::open(&m) {
+                        Ok(p) => pics = p.0,
+                        Err(e) => {
+                            deliver(&tx, &s, Err(e));
+                            return;
+                        }
+                    },
+                }
+            }
             // up to `from`, unconverted
             while index < from {
                 if s.load(Ordering::Relaxed) {
@@ -726,38 +774,25 @@ impl VideoStream {
                     Ok(true) => index += 1,
                     Ok(false) => return,
                     Err(e) => {
-                        let _ = tx.send(Err(e));
+                        deliver(&tx, &s, Err(e));
                         return;
                     }
                 }
             }
             loop {
                 let mut rgba = vec![0u8; (width * height * 4) as usize];
-                let r = pics.next(Some(&mut rgba), width, height);
-                let msg = match r {
-                    Ok(true) => Ok(Picture { index, rgba }),
+                let msg = match pics.next(Some(&mut rgba), width, height) {
+                    Ok(true) => Ok(Picture { index, width, height, rgba }),
                     Ok(false) => return,
                     Err(e) => Err(format!("frame {index}: {e}")),
                 };
                 index += 1;
-                let mut msg = Some(msg);
-                // blocks while `ahead` wait, giving up when stopped
-                loop {
-                    if s.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    match tx.try_send(msg.take().unwrap()) {
-                        Ok(()) => break,
-                        Err(TrySendError::Full(m)) => {
-                            msg = Some(m);
-                            std::thread::sleep(std::time::Duration::from_millis(3));
-                        }
-                        Err(TrySendError::Disconnected(_)) => return,
-                    }
+                if !deliver(&tx, &s, msg) {
+                    return;
                 }
             }
         });
-        Ok(VideoStream { width, height, rx, stop })
+        VideoStream { rx, stop }
     }
 
     /// The next picture if one is decoded (Ok(None): not yet). Err(None): the movie has ended.

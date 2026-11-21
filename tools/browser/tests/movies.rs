@@ -122,7 +122,7 @@ fn thp_greyscale_picture() {
     movie::decode_thp_picture(&GREY_JPEG, 16, 16, &mut out).unwrap();
     assert!(out.chunks_exact(4).all(|p| p[0] == p[1] && p[1] == p[2] && p[3] == 255), "{:?}", &out[..8]);
     let m = thp_file("grey.thp", &GREY_JPEG, &[], 3, None);
-    let vs = VideoStream::start(&m, 1, 2).unwrap();
+    let vs = VideoStream::start(&m, 1, 2);
     let p = vs.wait().unwrap().unwrap();
     assert_eq!((p.index, p.rgba.len()), (1, 16 * 16 * 4));
 }
@@ -149,7 +149,7 @@ fn thp_bad_sizes() {
     // a first frame of 4 GB: nothing read
     let m = thp_file("huge-frame.thp", &GREY_JPEG, &[], 4, Some(0xFFFF_FFF0));
     assert_eq!(movie::decode_audio(&m).unwrap().unwrap().pcm.len(), 0);
-    let vs = VideoStream::start(&m, 0, 2).unwrap();
+    let vs = VideoStream::start(&m, 0, 2);
     assert!(vs.wait().is_none());
 }
 
@@ -246,7 +246,7 @@ fn check_movie(release: &str, m: &MovieFile) {
     assert!(info.width > 0 && info.height > 0 && info.fps > 1.0 && info.frames > 30, "{release} {}: {info:?}", m.name);
     // pictures: 45 from the start, not black, changing
     let t0 = std::time::Instant::now();
-    let vs = VideoStream::start(m, 0, 4).unwrap();
+    let vs = VideoStream::start(m, 0, 4);
     let (mut lit, mut changed, mut prev): (u32, u32, Option<Vec<u8>>) = (0, 0, None);
     for k in 0..45 {
         let p = vs.wait().unwrap_or_else(|| panic!("{release} {}: ended at {k}", m.name)).unwrap();
@@ -269,12 +269,20 @@ fn check_movie(release: &str, m: &MovieFile) {
     println!("  45 pictures in {dt:.2} s ({:.0} fps), {lit} not black, {changed} changed from the one before", 45.0 / dt);
     assert!(lit > 0 && changed > 0, "{release} {}: pictures black or still", m.name);
     drop(vs);
-    // a seek: from frame 90 on
-    let from = (info.frames / 2).min(90);
-    let vs = VideoStream::start(m, from, 2).unwrap();
-    let p = vs.wait().unwrap().unwrap();
-    assert_eq!(p.index, from, "{release} {}: the seek's first picture", m.name);
-    drop(vs);
+    // seeks: to frame 90 and three quarters in (FFmpeg's to a key frame), each the picture decoded
+    // from the start
+    let froms = [(info.frames / 2).min(90), info.frames * 3 / 4];
+    let t0 = std::time::Instant::now();
+    let seeks: Vec<_> = froms.iter().map(|&from| VideoStream::start(m, from, 2).wait().unwrap().unwrap()).collect();
+    println!("  2 seeks in {:.3} s", t0.elapsed().as_secs_f64());
+    let all = VideoStream::start(m, 0, 2);
+    for (p, &from) in seeks.iter().zip(&froms) {
+        assert_eq!(p.index, from, "{release} {}: the seek's first picture", m.name);
+        let q = std::iter::from_fn(|| all.wait()).map(|r| r.unwrap()).find(|q| q.index == from).unwrap();
+        let diff = p.rgba.iter().zip(&q.rgba).map(|(a, b)| a.abs_diff(*b) as u64).sum::<u64>() as f64 / p.rgba.len() as f64;
+        assert!(diff < 1.0, "{release} {}: frame {from} sought differs from decoded by {diff:.2}", m.name);
+    }
+    drop(all);
     // the soundtrack
     let a = movie::decode_audio(m).unwrap().unwrap_or_else(|| panic!("{release} {}: no audio", m.name));
     println!("  audio {} ch {} Hz, {:.2} s (picture {:.2} s), peak {:.3}", a.channels, a.rate, a.seconds(), info.seconds, a.peak());
@@ -447,7 +455,7 @@ fn without_ffmpeg() {
     if let Some(data) = std::env::var_os("HWVX_DATA").map(PathBuf::from) {
         let thp = movie::find_movies(&data).into_iter().find(|m| m.kind == Kind::Thp).expect("a THP movie");
         let info = movie::probe(&thp).unwrap();
-        let vs = VideoStream::start(&thp, 0, 2).unwrap();
+        let vs = VideoStream::start(&thp, 0, 2);
         assert!(vs.wait().unwrap().is_ok());
         assert!(movie::decode_audio(&thp).unwrap().unwrap().peak() > 0.01);
         println!("without FFmpeg: {} still plays ({})", thp.name, info.summary());
