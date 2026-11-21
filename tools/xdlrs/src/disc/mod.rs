@@ -160,12 +160,16 @@ pub fn is_image_name(p: &Path) -> bool {
 /// is missing, as on Windows and macOS: the retail PC .cue names IMS-HWVX.BIN, the rip ims-hwvx.bin.
 fn cue_track(cue: &Path) -> R<PathBuf> {
     let text = fs::read_to_string(cue).map_err(|e| format!("{}: {e}", cue.display()))?;
+    // a .cue saved by Notepad starts with a BOM
+    let text = text.strip_prefix('\u{FEFF}').unwrap_or(&text);
     for line in text.lines() {
         let l = line.trim_start();
-        if l.len() < 5 || !l[..4].eq_ignore_ascii_case("FILE") || !l[4..].starts_with([' ', '\t']) {
+        // get(): a line starting with a multibyte character has no boundary at 4
+        let Some(rest) = l.get(..4).filter(|h| h.eq_ignore_ascii_case("FILE")).map(|_| &l[4..]) else { continue };
+        if !rest.starts_with([' ', '\t']) {
             continue;
         }
-        let rest = l[4..].trim_start();
+        let rest = rest.trim_start();
         let name = if let Some(q) = rest.strip_prefix('"') { q.split('"').next().unwrap_or("") } else { rest.split([' ', '\t']).next().unwrap_or("") };
         if name.is_empty() {
             continue;

@@ -243,6 +243,12 @@ fn cue_paths() {
     assert_eq!(cue_track(&c).unwrap(), t.0.join("track.bin"));
     let c = t.write("b.cue", b"FILE \"/abs/x y.bin\" BINARY\n");
     assert_eq!(cue_track(&c).unwrap(), PathBuf::from("/abs/x y.bin"));
+    // a BOM before FILE; a line starting with a multibyte character is skipped, not a panic
+    let c = t.write("bom.cue", "\u{FEFF}FILE \"t.bin\" BINARY\n".as_bytes());
+    assert_eq!(cue_track(&c).unwrap(), t.0.join("t.bin"));
+    let c = t.write("utf8.cue", "REM x\nÉté\nFIL€ x\nFILE \"u.bin\" BINARY\n".as_bytes());
+    assert_eq!(cue_track(&c).unwrap(), t.0.join("u.bin"));
+    assert!(cue_track(&t.write("none.cue", "ÅÅÅ\n".as_bytes())).is_err());
 }
 
 /// The retail PC .cue names IMS-HWVX.BIN; the file beside it is ims-hwvx.bin (found without case,
@@ -251,11 +257,13 @@ fn cue_paths() {
 fn cue_track_nocase() {
     let t = Tmp::new("cue-case");
     t.write("ims-hwvx.bin", b"x");
+    // (on a case-insensitive file system the .cue's own spelling exists and is kept)
+    let same = |a: PathBuf, b: PathBuf| assert!(a == b || (cfg!(any(windows, target_os = "macos")) && a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())), "{a:?} {b:?}");
     let c = t.write("ims-hwvx.cue", b"FILE \"IMS-HWVX.BIN\" BINARY\r\n  TRACK 01 MODE1/2352\r\n");
-    assert_eq!(cue_track(&c).unwrap(), t.0.join("ims-hwvx.bin"));
+    same(cue_track(&c).unwrap(), t.0.join("ims-hwvx.bin"));
     t.write("Sub/Track.Bin", b"x");
     let c = t.write("sub.cue", b"FILE \"SUB\\TRACK.BIN\" BINARY\n");
-    assert_eq!(cue_track(&c).unwrap(), t.0.join("Sub/Track.Bin"));
+    same(cue_track(&c).unwrap(), t.0.join("Sub/Track.Bin"));
     let c = t.write("none.cue", b"FILE \"MISSING.BIN\" BINARY\n");
     assert_eq!(cue_track(&c).unwrap(), t.0.join("MISSING.BIN"));
 }
