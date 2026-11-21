@@ -276,7 +276,7 @@ impl Browser {
         let picking = self.data_pick.is_some();
         let proj = self.level.edit.proj.as_ref();
         let has_level = proj.is_some();
-        let dirty = proj.is_some_and(|p| p.dirty());
+        let dirty = proj.is_some_and(|p| p.dirty_at(self.level.edit.generation)); // every frame: the memoised one
         let (can_undo, can_redo) = proj
             .map(|p| (!p.undo.is_empty(), !p.redo.is_empty()))
             .unwrap_or((false, false));
