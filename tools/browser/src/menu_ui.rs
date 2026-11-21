@@ -7,6 +7,7 @@ use eframe::egui;
 use hwvx_browser::{data_dir, extract};
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 const GUIDE_URL: &str =
     "https://github.com/Alaxend0l/HWVX-X-FILE-EDITOR/blob/main/docs/level-editor.md";
@@ -23,6 +24,8 @@ pub(crate) struct DataPick {
     /// a disc image (or the PC CD as a folder) chosen: what it is, with "Extract it…" (and for a
     /// GameCube image "Use it directly")
     pub disc: Option<extract::DiscInfo>,
+    /// the disc chosen, being read (pick_data), and its answer
+    pub reading: Option<(PathBuf, Receiver<Result<extract::DiscInfo, String>>)>,
 }
 
 fn shortcut(ctx: &egui::Context, cmd: bool, shift: bool, key: egui::Key) -> String {
@@ -49,6 +52,7 @@ impl Browser {
             suggestion: data_dir::from_launcher().filter(|s| Some(s) != current.as_ref()),
             can_cancel: current.is_some() && self.connect_error.is_none(),
             disc: None,
+            reading: None,
         });
     }
 
@@ -81,32 +85,74 @@ impl Browser {
         }
     }
 
-    /// A choice on the game data screen: a disc image (or the PC CD as a folder) is shown with what
-    /// it is and "Extract it…" (a GameCube image also "Use it directly"); anything else is used.
+    /// A choice on the game data screen: a disc image (or the PC CD as a folder, or a folder
+    /// holding a PS2 or PC .iso) is shown with what it is and "Extract it…" (a GameCube image also
+    /// "Use it directly"); anything else is used. The disc is read on a thread (Disc::open reads
+    /// its file tree), taken up by [`Browser::data_reading`].
     fn pick_data(&mut self, p: &Path) {
         let disc_like = (p.is_file() && xdlrs::disc::is_image_name(p)) || (p.is_dir() && data_dir::check(p).is_err());
-        if disc_like {
-            let r = extract::inspect(p);
-            if let Some(dp) = self.data_pick.as_mut() {
-                match r {
-                    Ok(info) => {
-                        dp.error = None;
-                        dp.disc = Some(info);
-                        return;
-                    }
-                    Err(e) if p.is_file() => {
-                        dp.error = Some(e);
-                        dp.disc = None;
-                        return;
-                    }
-                    Err(_) => {} // a folder: data_dir::check's own message
-                }
-            }
+        let Some(dp) = self.data_pick.as_mut().filter(|_| disc_like) else {
+            return self.use_data(p);
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (q, ctx) = (p.to_path_buf(), self.ctx.clone());
+        std::thread::spawn(move || {
+            let r = extract::inspect(&q).or_else(|e| match data_dir::images_in(&q).first() {
+                Some(i) if q.is_dir() => extract::inspect(i),
+                _ => Err(e),
+            });
+            let _ = tx.send(r);
+            ctx.request_repaint();
+        });
+        dp.error = None;
+        dp.disc = None;
+        dp.reading = Some((p.to_path_buf(), rx));
+    }
+
+    /// The disc [`Browser::pick_data`] reads, once read.
+    fn data_reading(&mut self) {
+        let Some(dp) = self.data_pick.as_mut() else { return };
+        let Some((p, rx)) = &dp.reading else { return };
+        let r = match rx.try_recv() {
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Err("the disc could not be read".to_string()),
+            Ok(r) => r,
+        };
+        let p = p.clone();
+        dp.reading = None;
+        match r {
+            Ok(info) => dp.disc = Some(info),
+            Err(e) if p.is_file() => dp.error = Some(e),
+            Err(_) => self.use_data(&p), // a folder: data_dir::check's own message
         }
-        self.use_data(p);
+    }
+
+    /// The game data screen's Folder… and Disc image… buttons: the system's dialog (ask_then).
+    fn data_choose(&mut self, image: bool) {
+        self.ask_then(
+            move || {
+                if image {
+                    data_dir::choose_image("Your Hot Wheels: Velocity X disc image")
+                } else {
+                    data_dir::choose_folder("Your Hot Wheels: Velocity X files")
+                }
+            },
+            |b, r| {
+                let Some(dp) = b.data_pick.as_mut() else { return };
+                match r {
+                    Ok(Some(p)) => {
+                        dp.text = p.clone();
+                        b.pick_data(Path::new(&p));
+                    }
+                    Ok(None) => {}
+                    Err(e) => dp.error = Some(e),
+                }
+            },
+        );
     }
 
     pub(crate) fn data_screen(&mut self, ui: &mut egui::Ui) {
+        self.data_reading();
         let Some(dp) = self.data_pick.as_mut() else {
             return;
         };
@@ -114,6 +160,7 @@ impl Browser {
         let mut direct: Option<PathBuf> = None;
         let mut extract_it: Option<PathBuf> = None;
         let mut cancel = false;
+        let mut choose: Option<bool> = None;
         egui::CentralPanel::default().show(ui, |ui| {
             ui.add_space(24.0);
             // one column of 720 points in the middle, its contents left-aligned
@@ -153,19 +200,7 @@ impl Browser {
                     }
                     for (label, image) in [("Folder…", false), ("Disc image…", true)] {
                         if ui.button(label).clicked() {
-                            let r = if image {
-                                data_dir::choose_image("Your Hot Wheels: Velocity X disc image")
-                            } else {
-                                data_dir::choose_folder("Your Hot Wheels: Velocity X files")
-                            };
-                            match r {
-                                Ok(Some(p)) => {
-                                    dp.text = p.clone();
-                                    chosen = Some(PathBuf::from(p));
-                                }
-                                Ok(None) => {}
-                                Err(e) => dp.error = Some(e),
-                            }
+                            choose = Some(image);
                         }
                     }
                 });
@@ -177,6 +212,13 @@ impl Browser {
                         cancel = true;
                     }
                 });
+                if dp.reading.is_some() {
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Reading the disc…");
+                    });
+                }
                 if let Some(info) = dp.disc.clone() {
                     ui.add_space(8.0);
                     egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -212,6 +254,9 @@ impl Browser {
             });
             });
         });
+        if let Some(image) = choose {
+            self.data_choose(image);
+        }
         if cancel {
             self.data_pick = None;
         } else if let Some(p) = direct {
@@ -255,10 +300,13 @@ impl Browser {
                     .on_hover_text("a level project's folder (with level.jsonc)")
                     .clicked()
                 {
-                    if let Some(d) = Self::choose_folder() {
-                        self.level.tab = true;
-                        self.open_level(&d);
-                    }
+                    // (the dialog off the UI thread: ask_then)
+                    self.ask_then(Self::choose_folder, |b, d| {
+                        if let Some(d) = d {
+                            b.level.tab = true;
+                            b.open_level(&d);
+                        }
+                    });
                 }
                 ui.separator();
                 if ui
