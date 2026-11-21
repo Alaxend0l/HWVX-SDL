@@ -283,7 +283,12 @@ impl Browser {
 
     /// A native folder chooser (the system's: osascript, zenity, PowerShell); None if cancelled.
     pub(crate) fn choose_folder() -> Option<String> {
-        hwvx_browser::data_dir::choose_folder("A level project (its folder, with level.jsonc)").ok().flatten()
+        Self::pick_folder().ok().flatten()
+    }
+
+    /// choose_folder, with why there's no dialog (no zenity or kdialog) to say.
+    pub(crate) fn pick_folder() -> Result<Option<String>, String> {
+        hwvx_browser::data_dir::choose_folder("A level project (its folder, with level.jsonc)")
     }
 
     // ---- per frame ---------------------------------------------------------------------------
@@ -851,7 +856,7 @@ impl Browser {
             }
         });
         if pick_dir {
-            self.ask(crate::level_ui::Dialog::NewDir, Self::choose_folder);
+            self.ask(crate::level_ui::Dialog::NewDir, Self::pick_folder);
         }
         let Some(w) = make else { return };
         let e = &self.level.edit;

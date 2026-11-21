@@ -328,13 +328,18 @@ impl Browser {
         }
         let id = self.level.summary["id"].as_str().unwrap_or("uid://level").trim_start_matches("uid://").to_string();
         let name = format!("{id}.xmod");
-        self.ask(Dialog::SaveMod, move || Self::choose_save_file(&name));
+        self.ask(Dialog::SaveMod, move || Self::pick_save_file(&name));
     }
 
-    /// A file dialog off the UI thread (ask_then), for the Level tab's three.
-    pub(crate) fn ask(&mut self, what: Dialog, f: impl FnOnce() -> Option<String> + Send + 'static) {
+    /// A file dialog off the UI thread (ask_then), for the Level tab's three. Err: no dialog
+    /// here (no zenity), said rather than nothing happening.
+    pub(crate) fn ask(&mut self, what: Dialog, f: impl FnOnce() -> Result<Option<String>, String> + Send + 'static) {
         self.ask_then(f, move |b, d| {
-            let Some(d) = d else { return };
+            let d = match d {
+                Ok(Some(d)) => d,
+                Ok(None) => return,
+                Err(e) => return b.note(e),
+            };
             match what {
                 Dialog::NewDir => b.level.edit.new_dir = d,
                 Dialog::OpenLevel => b.open_level(&d),
@@ -359,6 +364,11 @@ impl Browser {
     /// anyone's): only [A-Za-z0-9_.-] of it is kept, and it reaches the dialog as an argument or
     /// an environment variable, never inside the script's text.
     pub(crate) fn choose_save_file(name: &str) -> Option<String> {
+        Self::pick_save_file(name).ok().flatten()
+    }
+
+    /// choose_save_file; Err: no dialog program here (Linux without zenity), to be said.
+    pub(crate) fn pick_save_file(name: &str) -> Result<Option<String>, String> {
         let name: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')).collect();
         let name = if name.trim_matches('.').is_empty() { "level.xmod".to_string() } else { name };
         let out = if cfg!(target_os = "macos") {
@@ -370,24 +380,30 @@ impl Browser {
                     &name,
                 ])
                 .output()
-                .ok()?
         } else if cfg!(windows) {
+            // UTF-8 out, or a path with é in it comes back garbled (the console's code page)
             xdlrs::command("powershell")
                 .env("HWVX_SAVE_NAME", &name)
-                .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = $env:HWVX_SAVE_NAME; if ($d.ShowDialog() -eq 'OK') { $d.FileName }"])
+                .args(["-NoProfile", "-Command", "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Mod package (*.xmod)|*.xmod'; $d.FileName = $env:HWVX_SAVE_NAME; if ($d.ShowDialog() -eq 'OK') { $d.FileName }"])
                 .output()
-                .ok()?
         } else {
-            std::process::Command::new("zenity").args(["--file-selection", "--save", "--confirm-overwrite", &format!("--filename={name}")]).output().ok()?
+            std::process::Command::new("zenity").args(["--file-selection", "--save", "--confirm-overwrite", &format!("--filename={name}")]).output()
+        };
+        let out = match out {
+            Ok(o) => o,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !cfg!(any(target_os = "macos", windows)) => {
+                return Err("no save dialog here (install zenity): the mod isn't saved".into());
+            }
+            Err(e) => return Err(format!("the save dialog didn't open: {e}")),
         };
         let mut s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if !(out.status.success() && !s.is_empty()) {
-            return None;
+            return Ok(None);
         }
         if !s.ends_with(".xmod") {
             s.push_str(".xmod");
         }
-        Some(s)
+        Ok(Some(s))
     }
 
     /// A test drive is being compiled or placed (not startable again yet).
@@ -420,7 +436,7 @@ impl Browser {
                 self.open_level(&p);
             }
             if ui.button("…").on_hover_text("choose the folder").clicked() {
-                self.ask(Dialog::OpenLevel, Self::choose_folder);
+                self.ask(Dialog::OpenLevel, Self::pick_folder);
             }
         });
         if let Some(d) = self.level.confirm_open.clone() {
