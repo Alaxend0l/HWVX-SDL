@@ -39,6 +39,9 @@ pub struct Project {
     /// trigger files that didn't parse: (name, why). Never written or deleted; their names are
     /// taken; the checks and the test drive's copy have them as they are (their errors show)
     pub broken: Vec<(String, String)>,
+    /// dirty() as of an edit generation (the editor's): a deep compare of the whole level is
+    /// too much for every frame
+    dirty_memo: std::cell::Cell<Option<(u64, bool)>>,
 }
 
 /// triggers/NAME.jsonc of a project: the name (from level.jsonc or the folder) checked first, so
@@ -99,6 +102,7 @@ impl Project {
             loaded,
             removed: Vec::new(),
             broken,
+            dirty_memo: Default::default(),
         })
     }
 
@@ -112,6 +116,18 @@ impl Project {
         self.level != self.level_saved
             || self.triggers.iter().any(|t| t.value != t.saved || t.text.is_none())
             || self.loaded.iter().any(|n| self.trigger(n).is_none())
+    }
+
+    /// dirty(), worked out once per `generation` (bumped by every edit; saving forgets it).
+    pub fn dirty_at(&self, generation: u64) -> bool {
+        match self.dirty_memo.get() {
+            Some((g, d)) if g == generation => d,
+            _ => {
+                let d = self.dirty();
+                self.dirty_memo.set(Some((generation, d)));
+                d
+            }
+        }
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -299,6 +315,7 @@ impl Project {
     /// Writes what changed, each file edited in place (its comments kept). The files written.
     /// Nothing is written when a file changed on disk since it was read.
     pub fn save(&mut self) -> Result<Vec<PathBuf>, String> {
+        self.dirty_memo.set(None);
         let changed = self.changed_on_disk();
         if !changed.is_empty() {
             return Err(format!(

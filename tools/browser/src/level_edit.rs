@@ -119,6 +119,8 @@ pub struct EditState {
     marks_key: String,
     /// the link pickers' choices, made again only when the level or the base lists change
     cands: Option<(String, std::rc::Rc<Vec<(String, String)>>)>,
+    /// uses_of's last answer: (generation, link, the triggers)
+    uses: Option<(u64, String, std::rc::Rc<Vec<String>>)>,
     pub filter: String,
     pub advanced: bool,
     /// warnings (the starts' boxes overlapping each other: xdlrs::level; against the world:
@@ -1140,15 +1142,26 @@ impl Browser {
         self.level.edit.sel = Some(Sel::Settings);
     }
 
-    /// The level's links to the selection (what deleting it would break).
-    pub(crate) fn uses_of(&self, link: &str) -> Vec<String> {
-        let Some(p) = self.level.edit.proj.as_ref() else { return Vec::new() };
+    /// The level's links to the selection (what deleting it would break): worked out once per
+    /// edit generation (the inspector asks every frame; every trigger is written out for it).
+    pub(crate) fn uses_of(&mut self, link: &str) -> std::rc::Rc<Vec<String>> {
+        let g = self.level.edit.generation;
+        if let Some((cg, cl, uses)) = &self.level.edit.uses {
+            if *cg == g && cl == link {
+                return uses.clone();
+            }
+        }
+        let Some(p) = self.level.edit.proj.as_ref() else { return Default::default() };
+        let (whole, under) = (format!("\"{link}\""), format!("\"{link}/"));
         let mut out = Vec::new();
         for t in &p.triggers {
-            if t.value.to_string().contains(&format!("\"{link}\"")) || t.value.to_string().contains(&format!("\"{link}/")) {
+            let s = t.value.to_string();
+            if s.contains(&whole) || s.contains(&under) {
                 out.push(format!("trigger {}", t.name));
             }
         }
+        let out = std::rc::Rc::new(out);
+        self.level.edit.uses = Some((g, link.to_string(), out.clone()));
         out
     }
 
@@ -1502,7 +1515,7 @@ impl Browser {
             if ui.add_enabled(!p.redo.is_empty(), egui::Button::new("↷ Redo")).on_hover_text("Ctrl/Cmd+Shift+Z").clicked() {
                 self.edit_undo(true);
             }
-            let dirty = self.level.edit.proj.as_ref().unwrap().dirty();
+            let dirty = self.level.edit.proj.as_ref().unwrap().dirty_at(self.level.edit.generation);
             if ui.add_enabled(dirty, egui::Button::new(if dirty { "💾 Save*" } else { "💾 Save" })).on_hover_text("Ctrl/Cmd+S: the changed files, their comments kept").clicked() {
                 self.edit_save();
             }
