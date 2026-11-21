@@ -134,6 +134,9 @@ pub fn new_uid() -> String {
     s
 }
 
+/// A file's modified time and size.
+pub(crate) type FileStamp = (Option<std::time::SystemTime>, u64);
+
 pub struct ModProject {
     pub dir: PathBuf,
     /// the file as on disk, and its value: what saving rewrites in place
@@ -141,7 +144,7 @@ pub struct ModProject {
     saved: Value,
     pub doc: Value,
     /// the tracks' links file as last read, by its time and size (content_tracks: read every frame)
-    pub(crate) links: std::sync::Mutex<Option<((Option<std::time::SystemTime>, u64), Map<String, Value>)>>,
+    pub(crate) links: std::sync::Mutex<Option<(FileStamp, Map<String, Value>)>>,
 }
 
 impl ModProject {

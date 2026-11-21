@@ -409,7 +409,7 @@ impl ModProject {
 
     /// The links file, read again only when its time or size changed (the lists ask every frame).
     fn links(&self) -> Map<String, Value> {
-        let key = std::fs::metadata(self.dir.join(LINKS)).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
+        let key: crate::content::FileStamp = std::fs::metadata(self.dir.join(LINKS)).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
         let mut c = self.links.lock().unwrap_or_else(|e| e.into_inner());
         match c.as_ref() {
             Some((k, m)) if *k == key => m.clone(),

@@ -11,6 +11,7 @@ use eframe::egui;
 use hwvx_browser::audio_index::{self, Entry, Kind};
 use hwvx_browser::media::{play_file, wav_bytes};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
@@ -36,6 +37,11 @@ enum After {
     Export(PathBuf),
 }
 
+/// The rows' filter: search, kinds, archive.
+type RowsKey = (String, [bool; 5], String);
+/// (entry, its decode's answer, what follows)
+type Decoding = (usize, Receiver<Result<Decoded, String>>, After);
+
 pub struct AudioState {
     pub entries: Vec<Entry>,
     indexing: Option<Receiver<Msg>>,
@@ -50,10 +56,10 @@ pub struct AudioState {
     /// the archives of the entries (sorted), made when the index is in
     archives: Vec<String>,
     /// the rows shown: for (search, kinds, archive), and their seconds
-    rows: Option<((String, [bool; 5], String), Vec<usize>, f64)>,
+    rows: Option<(RowsKey, Vec<usize>, f64)>,
     /// the selected entry's samples (entry index, decoded or why not), and a decode under way
-    sel_pcm: Option<(usize, Result<std::sync::Arc<Decoded>, String>)>,
-    decoding: Option<(usize, Receiver<Result<Decoded, String>>, After)>,
+    sel_pcm: Option<(usize, Result<Arc<Decoded>, String>)>,
+    decoding: Option<Decoding>,
     pub export: String,
     player: Option<std::process::Child>,
     playing: Option<(usize, Instant, f64)>,
@@ -254,7 +260,7 @@ impl Browser {
         let Some((i, rx, _)) = &self.audio.decoding else { return };
         let i = *i;
         let r = match rx.try_recv() {
-            Ok(r) => r.map(std::sync::Arc::new),
+            Ok(r) => r.map(Arc::new),
             Err(TryRecvError::Empty) => return self.ctx.request_repaint_after(Duration::from_millis(50)),
             Err(TryRecvError::Disconnected) => Err("its decoder stopped (a crash: damaged data?)".into()),
         };
@@ -271,16 +277,16 @@ impl Browser {
     /// The entry's samples decoded on a thread, then `after` (one decode at a time: a later
     /// one takes its place).
     fn audio_decode(&mut self, i: usize, after: After) {
-        if let Some((k, Ok(d))) = &self.audio.sel_pcm {
-            if *k == i {
-                let d = d.clone();
-                match after {
-                    After::Show => {}
-                    After::Play => self.audio_play_decoded(i, &d),
-                    After::Export(path) => self.audio_write(&path, Ok(wav_bytes(d.rate, &d.pcm))),
-                }
-                return;
+        if let Some((k, Ok(d))) = &self.audio.sel_pcm
+            && *k == i
+        {
+            let d = d.clone();
+            match after {
+                After::Show => {}
+                After::Play => self.audio_play_decoded(i, &d),
+                After::Export(path) => self.audio_write(&path, Ok(wav_bytes(d.rate, &d.pcm))),
             }
+            return;
         }
         let e = self.audio.entries[i].clone();
         let (tx, rx) = std::sync::mpsc::channel();

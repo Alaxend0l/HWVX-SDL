@@ -22,6 +22,9 @@ pub(crate) struct FileInfo {
     tags: LoopTags,
 }
 
+/// (mod folder, its music section, when, unused files, problems)
+type MusicFs = (PathBuf, Value, Instant, Vec<String>, Vec<String>);
+
 #[derive(Default)]
 pub(crate) struct MusicState {
     /// the song shown in the inspector (its key, base://...)
@@ -46,7 +49,7 @@ pub(crate) struct MusicState {
     want_base: Option<String>,
     /// music/'s unused files and the section's problems, for the section as it was then (they
     /// list the folder and stat its files: not every frame)
-    fs: Option<(PathBuf, Value, Instant, Vec<String>, Vec<String>)>,
+    fs: Option<MusicFs>,
 }
 
 impl Drop for MusicState {

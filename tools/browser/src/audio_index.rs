@@ -240,10 +240,10 @@ fn mod_file_length(p: &Path) -> (u32, u32) {
     let stamp = std::fs::metadata(p).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
     let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
     let seen = seen.get_or_insert_with(Default::default);
-    if let Some(&(t, n, v)) = seen.get(p) {
-        if (t, n) == stamp {
-            return v;
-        }
+    if let Some(&(t, n, v)) = seen.get(p)
+        && (t, n) == stamp
+    {
+        return v;
     }
     let v = crate::content_sounds::decode_file(p).map(|(pcm, r)| (r, pcm.len() as u32)).unwrap_or((0, 0));
     seen.insert(p.to_path_buf(), (stamp.0, stamp.1, v));
