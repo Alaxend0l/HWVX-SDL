@@ -100,7 +100,7 @@ pub fn archive_name(stem: &str) -> String {
     if let Some(m) = MIXED.iter().find(|m| m.eq_ignore_ascii_case(stem)) {
         return m.to_string();
     }
-    if stem.len() > 4 && stem[..4].eq_ignore_ascii_case("HWB_") {
+    if stem.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("HWB_")) && stem.len() > 4 {
         return stem.to_ascii_uppercase();
     }
     stem.to_ascii_lowercase()
@@ -232,7 +232,14 @@ impl ModProject {
         match v {
             Some(x) => {
                 let n = serde_json::Number::from_f64(x).map(Value::Number).unwrap_or(Value::Null);
+                // IndexMut panics on a non-object (a hand-written "patch": []): replaced
                 let patch = e.entry("patch").or_insert_with(|| json!({}));
+                if !patch.is_object() {
+                    *patch = json!({});
+                }
+                if !patch[part].is_object() {
+                    patch[part] = json!({});
+                }
                 patch[part][field] = if x.fract() == 0.0 && x.abs() < 1e15 { json!(x as i64) } else { n };
             }
             None => {
@@ -278,6 +285,9 @@ impl ModProject {
             ops.push(json!({ "op": "brightness", "amount": (bright * 100.0).round() / 100.0 }));
         }
         let recipes = e.entry("recipes").or_insert_with(|| json!({}));
+        if !recipes.is_object() {
+            *recipes = json!({});
+        }
         if ops.is_empty() {
             if let Some(m) = recipes.as_object_mut() {
                 m.remove(&key);
@@ -298,7 +308,7 @@ mod tests {
     /// The PS2's upper-case names (and any other spelling) as the GameCube spells them.
     #[test]
     fn archive_names() {
-        for (a, b) in [("HW_SHARE", "HW_share"), ("hw_ipack", "HW_IPack"), ("HW_Cars", "HW_Cars"), ("WORLD1L1", "world1l1"), ("BAT2_L9", "bat2_l9"), ("hwb_m01", "HWB_M01"), ("MCP", "mcp")] {
+        for (a, b) in [("HW_SHARE", "HW_share"), ("hw_ipack", "HW_IPack"), ("HW_Cars", "HW_Cars"), ("WORLD1L1", "world1l1"), ("BAT2_L9", "bat2_l9"), ("hwb_m01", "HWB_M01"), ("MCP", "mcp"), ("hé_x", "hé_x"), ("ééé", "ééé")] {
             assert_eq!(archive_name(a), b);
         }
     }
@@ -350,6 +360,21 @@ mod tests {
         assert!(text.starts_with("// A mod made"), "{text}");
         let r = ModProject::open(&d).unwrap();
         assert!(r.doc["cars"][&car].get("patch").is_none() && r.doc["cars"][&car].get("recipes").is_none(), "empty patches go");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn hand_written_non_objects_are_replaced() {
+        let d = scratch("nonobject");
+        let mut p = ModProject::create(&d, "T", "").unwrap();
+        let car = p.add(Kind::Car, 1, "C");
+        p.doc["cars"][&car]["patch"] = json!([]);
+        p.doc["cars"][&car]["recipes"] = json!(3);
+        p.set_patch(Kind::Car, &car, "CarAInfo/0", "maxRpm", Some(1.0));
+        p.doc["cars"][&car]["patch"]["CarAInfo/0"] = json!("x");
+        p.set_patch(Kind::Car, &car, "CarAInfo/0", "maxRpm", Some(2.0));
+        p.set_paint(&car, 0, 90.0, 1.0);
+        assert_eq!(p.patch_value(Kind::Car, &car, "CarAInfo/0", "maxRpm"), Some(2.0));
         let _ = std::fs::remove_dir_all(d);
     }
 
