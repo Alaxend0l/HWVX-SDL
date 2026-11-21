@@ -70,6 +70,9 @@ impl Cab {
             data_reserve = h[39] as u32;
             first = 40 + le16(&h, 36) as usize;
         }
+        if (first + n_folders as usize * folder_size) as u64 > size {
+            return Err("HWVX.cab is damaged".into());
+        }
         let fb = read(&src, first as u64, n_folders as usize * folder_size)?;
         let folders = (0..n_folders as usize)
             .map(|i| {
@@ -153,7 +156,13 @@ impl Cab {
 
     /// One file's bytes (its folder decompressed up to the file's end).
     pub fn read_file(&self, f: &CabFile) -> Result<Vec<u8>, String> {
-        let mut out = Vec::with_capacity(f.size as usize);
+        // a folder holds at most 32 KB a block: a larger size is a damaged table, not 4 GB to allocate
+        let room = self.folders.get(f.folder as usize).map_or(0, |d| d.blocks as u64 * 32768);
+        if f.size > 0 && f.offset as u64 + f.size as u64 > room {
+            return Err(format!("HWVX.cab: {} runs past its folder's data", f.name));
+        }
+        // and the blocks may still be missing: the buffer grows as they arrive
+        let mut out = Vec::with_capacity((f.size as usize).min(16 << 20));
         let mut w = Writer { file: f, out: &mut out };
         self.stream_one(f, &mut w)?;
         Ok(out)

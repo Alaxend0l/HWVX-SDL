@@ -287,3 +287,30 @@ fn extract_cancelled() {
     // the movie, the empty file, a.xpc; not b.xpc (in a.xpc's folder) nor c.bin
     assert_eq!(tree(&t.0.join("pc")).keys().collect::<Vec<_>>(), ["FMV_/hwboot.bik", "a.xpc", "e"]);
 }
+
+/// Sizes from a damaged image are checked before anything that size is allocated.
+#[test]
+fn damaged_sizes_refused() {
+    let t = Tmp::new("sizes");
+    let mut d = Disc::open(&t.write("gc.iso", &gc_image())).unwrap();
+    d.entries[0].size = 3 << 30;
+    let e = d.entries[0].clone();
+    assert!(d.read_entry(&e).unwrap_err().contains("outside the disc image"));
+    // a cabinet file of 4 GB in a folder of one block
+    let c = cab::tests::make(&[(0, vec![(b"stored!".to_vec(), 7)])], &[("big", 0, 0, 0xFFFF_FFF0)]);
+    let c = cab::Cab::open(Arc::new(io::Mem(c))).unwrap();
+    assert!(c.read_file(&c.files[0]).unwrap_err().contains("runs past"));
+    // .gcz headers: a Wii-sized disc, a block table larger than the data needs, tiny blocks
+    let gcz = |data: u64, bs: u32, n: u32| {
+        let mut h = vec![0u8; 64];
+        h[0..4].copy_from_slice(&gcz::MAGIC.to_le_bytes());
+        h[16..24].copy_from_slice(&data.to_le_bytes());
+        h[24..28].copy_from_slice(&bs.to_le_bytes());
+        h[28..32].copy_from_slice(&n.to_le_bytes());
+        gcz::Gcz::open(Arc::new(io::Mem(h))).err().unwrap()
+    };
+    assert!(gcz(4 << 30, 32768, 131072).contains("Wii"));
+    assert!(gcz(1 << 20, 32768, 1 << 27).contains("damaged"));
+    assert!(gcz(1 << 20, 1, 1 << 20).contains("damaged"));
+    assert!(gcz(1 << 30, 512, 1 << 21).contains("cut short"));
+}

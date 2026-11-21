@@ -442,19 +442,28 @@ impl Disc {
             let cab = self.cab.as_ref().expect("a cabinet entry without its cabinet");
             return cab.read_file(&cab.files[i]);
         }
+        // the size is the image's word for it: checked against the image before it is allocated
+        if let Origin::Image(off) = e.origin {
+            self.inside(e, off)?;
+        }
         let mut out = Vec::with_capacity(e.size as usize);
         self.copy(e, &mut out)?;
         Ok(out)
+    }
+
+    fn inside(&self, e: &Entry, off: u64) -> R<&Src> {
+        let src = self.src.as_ref().expect("an image entry without its image");
+        if off > src.len() || e.size > src.len() - off {
+            return Err(format!("{} lies outside the disc image (a trimmed image?)", e.path));
+        }
+        Ok(src)
     }
 
     /// A file's bytes written to `w`, a megabyte at a time.
     pub fn copy(&self, e: &Entry, w: &mut dyn Write) -> R<()> {
         match &e.origin {
             Origin::Image(off) => {
-                let src = self.src.as_ref().expect("an image entry without its image");
-                if *off > src.len() || e.size > src.len() - off {
-                    return Err(format!("{} lies outside the disc image (a trimmed image?)", e.path));
-                }
+                let src = self.inside(e, *off)?;
                 io::copy_range(&**src, *off, e.size, w).map_err(|x| format!("{}: {x}", e.path))
             }
             Origin::File(p) => {
