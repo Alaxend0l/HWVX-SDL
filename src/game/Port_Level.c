@@ -1365,17 +1365,19 @@ static int ModeLoad(const char *world, char *err, size_t errSize) {
         SDL_zero(s_mode.name);
         return Fail(err, errSize, "modeWorld %s: not loaded (no such world in this release's data?)", world);
     }
-    s_mode.index = idx;
     sp = &g_StreamingDataPacks[4][idx];
-    s_mode.pack = &sp->pack;
-    if (!sp->refreshed) {
-        /* its triggers kept from the trigger lists: counted out before the refresh adds them */
-        s_mode.triggers = GETP(sp->pack.triggers);
-        s_mode.numTriggers = sp->pack.numTriggers;
-        sp->pack.numTriggers = 0;
-    } else {
+    if (sp->refreshed) {
+        /* the world shown (or another's): its triggers are live, not ours to count out */
+        FileStreaming_ReleaseDataPack((u32)idx, 4);
+        SDL_zero(s_mode.name);
         return Fail(err, errSize, "modeWorld %s: already loaded as a world", world);
     }
+    s_mode.index = idx;
+    s_mode.pack = &sp->pack;
+    /* its triggers kept from the trigger lists: counted out before the refresh adds them */
+    s_mode.triggers = GETP(sp->pack.triggers);
+    s_mode.numTriggers = sp->pack.numTriggers;
+    sp->pack.numTriggers = 0;
     if (FileStreaming_InitializeDataPack((u32)idx, 4, 1) == NULL) {
         return Fail(err, errSize, "modeWorld %s: not loaded", world);
     }
