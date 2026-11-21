@@ -53,7 +53,7 @@ pub fn check(p: &Path) -> Result<PathBuf, String> {
     }
     if p.is_file() {
         return if is_image(p) {
-            Ok(p.to_path_buf())
+            plays(p).map(|_| p.to_path_buf())
         } else {
             Err(format!(
                 "{} is not a disc image (.iso, .gcm or .gcz)",
@@ -71,7 +71,28 @@ pub fn check(p: &Path) -> Result<PathBuf, String> {
     if has_data(&files) {
         return Ok(files);
     }
-    let mut images: Vec<PathBuf> = std::fs::read_dir(p)
+    // the first image the game plays; another's (a PS2 or PC .iso) says why not
+    let mut why = None;
+    for i in images_in(p) {
+        match plays(&i) {
+            Ok(()) => return Ok(i),
+            Err(e) => {
+                why.get_or_insert(e);
+            }
+        }
+    }
+    Err(why.unwrap_or_else(|| {
+        format!(
+            "no game data in {}: expected the disc's extracted files (HW_share.xgc, worlds_/, audio_/ …), \
+             a files/ folder with them, or a disc image (.iso)",
+            p.display()
+        )
+    }))
+}
+
+/// The disc images in `dir` (by extension), sorted.
+pub fn images_in(dir: &Path) -> Vec<PathBuf> {
+    let mut images: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
@@ -79,25 +100,58 @@ pub fn check(p: &Path) -> Result<PathBuf, String> {
         .filter(|e| e.is_file() && is_image(e))
         .collect();
     images.sort();
-    images.into_iter().next().ok_or_else(|| {
-        format!(
-            "no game data in {}: expected the disc's extracted files (HW_share.xgc, worlds_/, audio_/ …), \
-             a files/ folder with them, or a disc image (.iso)",
-            p.display()
-        )
-    })
+    images
+}
+
+/// Whether the game reads the image `p` itself: a GameCube one, not a .gcz (disc.c refuses it).
+/// A PS2 or PC .iso was once taken as game data and the game failed at every launch.
+fn plays(p: &Path) -> Result<(), String> {
+    let d = xdlrs::disc::Disc::open(p).map_err(|e| format!("{}: not a disc image the game reads ({e})", p.display()))?;
+    match (d.release, d.kind) {
+        (xdlrs::disc::Release::Gc, xdlrs::disc::Kind::GcImage) => Ok(()),
+        (r, k) => Err(format!(
+            "{} is the {} release's {}: the game can't read it as it is. Extract it first (File > Extract a disc…).",
+            p.display(),
+            r.name(),
+            if k == xdlrs::disc::Kind::Gcz { ".gcz image" } else { "disc image" }
+        )),
+    }
 }
 
 /// The choice kept from last time, if it is still there.
 pub fn remembered(pref: &Path) -> Option<PathBuf> {
-    let s = std::fs::read_to_string(pref.join(REMEMBERED)).ok()?;
-    check(Path::new(s.trim())).ok()
+    let b = std::fs::read(pref.join(REMEMBERED)).ok()?;
+    // only a line end (one typed in by hand) goes: a folder's name may begin or end with spaces
+    let mut b = b.as_slice();
+    while let [rest @ .., b'\r' | b'\n'] = b {
+        b = rest;
+    }
+    check(&path_from_bytes(b)?).ok()
+}
+
+/// The path's bytes as kept: a Unix path as it is (its name need not be UTF-8); elsewhere UTF-8.
+#[cfg(unix)]
+fn path_bytes(p: &Path) -> Option<Vec<u8>> {
+    Some(std::os::unix::ffi::OsStrExt::as_bytes(p.as_os_str()).to_vec())
+}
+#[cfg(not(unix))]
+fn path_bytes(p: &Path) -> Option<Vec<u8>> {
+    p.to_str().map(|s| s.as_bytes().to_vec())
+}
+#[cfg(unix)]
+fn path_from_bytes(b: &[u8]) -> Option<PathBuf> {
+    Some(PathBuf::from(<std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(b)))
+}
+#[cfg(not(unix))]
+fn path_from_bytes(b: &[u8]) -> Option<PathBuf> {
+    std::str::from_utf8(b).ok().map(PathBuf::from)
 }
 
 pub fn remember(pref: &Path, data: &Path) -> Result<(), String> {
+    // (lossy, it would name another folder next time: asked for again instead)
+    let b = path_bytes(data).ok_or_else(|| format!("{}: a name that can't be written down", data.display()))?;
     std::fs::create_dir_all(pref).map_err(|e| format!("{}: {e}", pref.display()))?;
-    std::fs::write(pref.join(REMEMBERED), data.to_string_lossy().as_bytes())
-        .map_err(|e| format!("{}: {e}", pref.join(REMEMBERED).display()))
+    std::fs::write(pref.join(REMEMBERED), b).map_err(|e| format!("{}: {e}", pref.join(REMEMBERED).display()))
 }
 
 /// The game's save folder (SDL_GetPrefPath("HWVX-SDL", "HotWheelsVelocityX")).
@@ -178,7 +232,7 @@ pub fn choose_folder(prompt: &str) -> Choice {
         run(xdlrs::command("powershell").env("HWVX_PROMPT", prompt).args([
             "-NoProfile",
             "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = $env:HWVX_PROMPT; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }",
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = $env:HWVX_PROMPT; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }",
         ]))
     } else if on_path("zenity") {
         run(std::process::Command::new("zenity").args([
@@ -223,7 +277,7 @@ pub fn choose_image(prompt: &str) -> Choice {
         run(xdlrs::command("powershell").env("HWVX_PROMPT", prompt).args([
             "-NoProfile",
             "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Disc image (*.iso;*.gcm;*.gcz;*.cue;*.bin)|*.iso;*.gcm;*.gcz;*.cue;*.bin|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Disc image (*.iso;*.gcm;*.gcz;*.cue;*.bin)|*.iso;*.gcm;*.gcz;*.cue;*.bin|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
         ]))
     } else if on_path("zenity") {
         run(std::process::Command::new("zenity").args([
@@ -273,13 +327,24 @@ mod tests {
         std::fs::write(p.join("XPS/ENGLISH/HW_share.xps"), b"").unwrap();
         assert_eq!(check(&p).unwrap(), p);
         // a disc image in the folder, or chosen itself; another file is refused
+        use xdlrs::disc::test_images::{Node, gamecube, iso9660};
         let i = scratch("image");
-        std::fs::write(i.join("game.ISO"), b"").unwrap();
+        std::fs::write(i.join("game.ISO"), gamecube("GHWE78", &[("HW_share.xgc", b"s")])).unwrap();
         std::fs::write(i.join("notes.txt"), b"").unwrap();
         assert_eq!(check(&i).unwrap(), i.join("game.ISO"));
         assert_eq!(check(&i.join("game.ISO")).unwrap(), i.join("game.ISO"));
         assert!(check(&i.join("notes.txt")).is_err());
-        for x in [d, p, i] {
+        // a PS2 .iso (or anything else named .iso) is not game data: extracted first
+        let o = scratch("ps2-image");
+        let mut share = vec![0u8; 64];
+        share[8..12].copy_from_slice(&183u32.to_le_bytes());
+        let ps2 = iso9660(&[Node::Dir("XPS", vec![Node::Dir("ENGLISH", vec![Node::File("HW_share.xps", &share)])])]);
+        std::fs::write(o.join("ps2.iso"), ps2).unwrap();
+        assert!(check(&o).unwrap_err().contains("Extract it first"));
+        assert!(check(&o.join("ps2.iso")).unwrap_err().contains("PlayStation 2"));
+        std::fs::write(o.join("empty.iso"), b"").unwrap();
+        assert!(check(&o.join("empty.iso")).is_err());
+        for x in [d, p, i, o] {
             let _ = std::fs::remove_dir_all(x);
         }
     }
@@ -294,7 +359,27 @@ mod tests {
         assert_eq!(remembered(&pref), Some(data.clone()));
         std::fs::remove_file(data.join("HW_share.xgc")).unwrap();
         assert_eq!(remembered(&pref), None, "the data was moved away");
-        for x in [pref, data] {
+        // spaces at either end are the folder's own; a line end typed by hand is not
+        let spaced = scratch(" spaced ");
+        std::fs::write(spaced.join("HW_share.xgc"), b"").unwrap();
+        remember(&pref, &spaced).unwrap();
+        assert_eq!(remembered(&pref), Some(spaced.clone()));
+        let mut typed = std::fs::read(pref.join(REMEMBERED)).unwrap();
+        typed.extend_from_slice(b"\r\n");
+        std::fs::write(pref.join(REMEMBERED), typed).unwrap();
+        assert_eq!(remembered(&pref), Some(spaced.clone()));
+        // a name that isn't UTF-8 (Linux allows one) comes back as it was
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let odd = std::env::temp_dir().join(std::ffi::OsStr::from_bytes(b"hwvx-data-dir-\xff"));
+            std::fs::create_dir_all(&odd).unwrap();
+            std::fs::write(odd.join("HW_share.xgc"), b"").unwrap();
+            remember(&pref, &odd).unwrap();
+            assert_eq!(remembered(&pref), Some(odd.clone()));
+            let _ = std::fs::remove_dir_all(odd);
+        }
+        for x in [pref, data, spaced] {
             let _ = std::fs::remove_dir_all(x);
         }
     }
