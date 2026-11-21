@@ -2731,8 +2731,23 @@ static int ApplyRemoves(DataPack *pack, const JsonNode *jrem, LevelPart *parts, 
             u32 off = QUAD_ITEM_OFF;
             u8 def = QUAD_ITEM_OFF;
 
+            Thing *t = GrowThing(GETP(q->thing), 2);
+
             if (!PatchBytes((u8 *)&q->mode, &off, 4) || !PatchBytes(&q->defMode, &def, 1)) {
                 return Fail(err, errSize, "out of memory");
+            }
+            if (t != NULL && GETP(t->trigger) == q && GETP(((ItemThing *)t)->record)->type != ITEM_TYPE_CARRIED) {
+                /* the one it spawned goes too (back when the level goes: on again, not spawned) */
+                u8 paused = Trigger_IsTACSystemPaused();
+
+                Trigger_PauseTACSystem(1);
+                if (q->timer == 0) {
+                    q->spawned = 0;
+                }
+                THING_VFN(t, THING_V_RELEASE, void (*)(void *))(t);
+                SETP(q->thing, NULL);
+                ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
+                Trigger_PauseTACSystem((s8)paused);
             }
             (*numItems)++;
         } else {
