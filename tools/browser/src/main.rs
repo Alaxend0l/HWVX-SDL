@@ -484,6 +484,9 @@ struct Outline {
 struct Browser {
     args: Args,
     ctx: egui::Context,
+    /// a blocking call (a system file dialog: osascript, PowerShell, zenity) running on a thread
+    /// of its own, and what to do with its answer (ask_then)
+    asking: Option<Box<dyn FnMut(&mut Browser) -> bool>>,
     viewer: Option<Viewer>,
     /// The worker thread starting or connecting to the viewer.
     connecting: Option<Receiver<Result<Viewer, String>>>,
@@ -547,6 +550,7 @@ impl Browser {
             connecting: None,
             connect_error: None,
             pending: HashMap::new(),
+            asking: None,
             hello: Value::Null,
             status: String::new(),
             status_error: false,
@@ -688,6 +692,40 @@ impl Browser {
     }
 
     /// Sends a request; true if it went (a flag waiting for its reply is set only then).
+    /// Runs `f` (a system file dialog, or another call that blocks) on a thread of its own and
+    /// hands its answer to `then` in the frame it arrives: waiting on one in the UI thread froze
+    /// the window ("Not Responding" on Windows). One at a time: an ask while one is open is
+    /// dropped, as a second click on a button whose dialog is already up.
+    pub(crate) fn ask_then<T: Send + 'static>(&mut self, f: impl FnOnce() -> T + Send + 'static, then: impl FnOnce(&mut Browser, T) + 'static) {
+        if self.asking.is_some() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        let mut then = Some(then);
+        self.asking = Some(Box::new(move |b: &mut Browser| match rx.try_recv() {
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => true,
+            Ok(v) => {
+                if let Some(t) = then.take() {
+                    t(b, v);
+                }
+                true
+            }
+        }));
+    }
+
+    fn poll_asking(&mut self) {
+        if let Some(mut p) = self.asking.take() {
+            if !p(self) {
+                self.asking = Some(p);
+                self.ctx.request_repaint_after(Duration::from_millis(100));
+            }
+        }
+    }
+
     fn request(&mut self, cmd: &str, args: Value, why: Pending) -> bool {
         let Some(v) = self.viewer.as_mut() else { return false };
         match v.send(cmd, args) {
@@ -1835,6 +1873,7 @@ impl eframe::App for Browser {
         self.check_connecting();
         self.handle_replies();
         self.script(&ctx);
+        self.poll_asking();
         self.level_tick(&ctx);
         self.edit_tick(&ctx);
         self.audio_tick();

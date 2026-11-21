@@ -48,9 +48,6 @@ pub struct LevelState {
     ended_shown: bool,
     auto_started: bool,
     sharing: Option<Receiver<Result<String, String>>>,
-    /// a system file dialog open on a thread of its own (osascript, PowerShell and zenity run
-    /// as programs; waiting on one froze the window, "Not Responding" on Windows)
-    dialog: Option<(Dialog, Receiver<Option<String>>)>,
     /// a project to open in place of one with unsaved edits, once the person says so
     confirm_open: Option<String>,
     pub edit: EditState,
@@ -238,20 +235,6 @@ impl Browser {
                 ctx.request_repaint_after(Duration::from_millis(50));
             }
         }
-        if let Some((what, rx)) = self.level.dialog.take() {
-            match rx.try_recv() {
-                Err(TryRecvError::Empty) => {
-                    self.level.dialog = Some((what, rx));
-                    ctx.request_repaint_after(Duration::from_millis(100));
-                }
-                Err(TryRecvError::Disconnected) | Ok(None) => {}
-                Ok(Some(d)) => match what {
-                    Dialog::NewDir => self.level.edit.new_dir = d,
-                    Dialog::OpenLevel => self.open_level(&d),
-                    Dialog::SaveMod => self.save_as_mod_to(PathBuf::from(d)),
-                },
-            }
-        }
         if let Some(rx) = self.level.sharing.take() {
             match rx.try_recv() {
                 Err(TryRecvError::Empty) => {
@@ -347,16 +330,16 @@ impl Browser {
         self.ask(Dialog::SaveMod, move || Self::choose_save_file(&name));
     }
 
-    /// A dialog run off the UI thread; its answer is taken up in the frame it arrives.
+    /// A file dialog off the UI thread (ask_then), for the Level tab's three.
     pub(crate) fn ask(&mut self, what: Dialog, f: impl FnOnce() -> Option<String> + Send + 'static) {
-        if self.level.dialog.is_some() {
-            return;
-        }
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            let _ = tx.send(f());
+        self.ask_then(f, move |b, d| {
+            let Some(d) = d else { return };
+            match what {
+                Dialog::NewDir => b.level.edit.new_dir = d,
+                Dialog::OpenLevel => b.open_level(&d),
+                Dialog::SaveMod => b.save_as_mod_to(PathBuf::from(d)),
+            }
         });
-        self.level.dialog = Some((what, rx));
     }
 
     fn save_as_mod_to(&mut self, out: PathBuf) {
