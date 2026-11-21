@@ -234,7 +234,7 @@ fn headless(a: &Args) -> i32 {
         return 2;
     };
     let game = a.game.clone().unwrap_or_else(default_game);
-    let game = std::fs::canonicalize(&game).unwrap_or(game);
+    let game = hwvx_browser::resources::canonical(&game);
     let o = Options {
         tools: a.tools.clone().or_else(|| testdrive::default_tools(&game)).unwrap_or_else(|| "tools".into()),
         game,
@@ -639,7 +639,7 @@ impl Browser {
                 Viewer::connect(port, &token)
             } else {
                 let game = args.game.clone().unwrap_or_else(default_game);
-                let game = std::fs::canonicalize(&game).unwrap_or(game);
+                let game = hwvx_browser::resources::canonical(&game);
                 // the editor's own, never the player's saves and settings
                 let pref = args.pref.clone().unwrap_or_else(hwvx_browser::resources::default_pref);
                 let log_file = Some(pref.join("viewer.log"));
