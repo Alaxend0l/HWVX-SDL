@@ -18,6 +18,7 @@
 #include "CarA.h"
 #include "Motion.h"
 #include "Port_Content.h"
+#include "Shader.h"
 #include <math.h>
 
 #ifdef _WIN32
@@ -44,8 +45,11 @@ typedef int Sock;
 #define PROTOCOL_VERSION 1
 #define MAX_DRAWN 512           /* geometries side by side */
 #define MAX_BONES 64
+#define SKIN_MATRICES 40        /* Gfx_Anim.c matrixlookup: the most a skinned draw loads */
+#define SKIN_SLOTS 8            /* the bone slots a skinned level's vertices use (Render_DrawGroupIndexed) */
 #define MAX_LINE (1u << 20)     /* a request line's longest */
 #define PENDING_MS 3000         /* a newcomer's time to say hello while a client is served */
+#define STILL_REDRAW 15         /* frames: a still preview is drawn again this often (4 a second at 60) */
 
 #ifdef MSG_NOSIGNAL
 #define SEND_FLAGS MSG_NOSIGNAL /* a closed client is an error, not SIGPIPE (Linux; SO_NOSIGPIPE elsewhere) */
@@ -54,6 +58,7 @@ typedef int Sock;
 #endif
 
 VPack g_viewerPacks[VIEWER_MAX_PACKS];
+u32 g_viewerChanges;
 
 const char *const g_viewerTypeNames[11] = {
     "car", "interface", "item", "link", "world", "collision", "world_texture", "geometry", "share", "audio", "music",
@@ -102,6 +107,10 @@ static struct {
     int shotHasId;
     int shotWait;               /* frames to draw before it */
     u32 frame;
+    u32 changes;                /* g_viewerChanges as the frame `changedAt` saw it */
+    u32 changedAt;              /* the frame since which the scene is as it is */
+    u32 drawnFrame;             /* the last frame drawn */
+    int haveDrawn;
 } s = { -1 };
 
 #define MATRIX_POOL (MAX_DRAWN + 24 * MAX_BONES + 8)   /* a world's tile cars too */
@@ -272,11 +281,33 @@ static void PackTypeName(int type, char *out, size_t size) {
     }
 }
 
-/* A pack file's packs, from its table of contents, read as the loader does. */
+/* `packs`: the data folder's pack files, each one's table of contents read as the loader
+ * does. Kept between calls (each read opened every file): a file whose path, size and
+ * modification time are as they were keeps its list, unless a file of the same archive name
+ * came, changed or went (the game opens an archive by name, and might now open another of
+ * them: foo.xgc over foo.xpc). Read afresh with another data folder, or a mixed build's
+ * (mix.c opens its files from the releases' folders, not this one). */
+typedef struct TocFile {
+    char *path;                 /* as found */
+    char *archive;              /* the name the game asks for */
+    SDL_Time mtime;
+    Uint64 size;
+    int fmt;
+    u32 count;
+    u32 *entries;               /* count {type, id} */
+} TocFile;
+
+typedef struct TocList {
+    TocFile *files;
+    u32 num, cap;
+} TocList;
+
+static TocList s_toc;
+static char *s_tocDir;          /* the data folder s_toc is of */
+
 typedef struct ListScan {
-    JsonWriter *w;
+    TocList found;              /* this walk's files (no entries yet) */
     size_t rootLen;
-    int count;
 } ListScan;
 
 static const char *const s_packExts[] = { ".xgc", ".xpc", ".xps" };
@@ -312,41 +343,64 @@ static FileTOCEntry *ReadToc(const char *archive, s32 *fd, int *fmt, u32 *count)
     return NULL;
 }
 
-static void ListArchive(ListScan *scan, const char *archive) {
+static void FreeToc(TocList *l) {
+    u32 i;
+
+    for (i = 0; i < l->num; i++) {
+        SDL_free(l->files[i].path);
+        SDL_free(l->files[i].archive);
+        SDL_free(l->files[i].entries);
+    }
+    SDL_free(l->files);
+    SDL_zerop(l);
+}
+
+/* The archive's table of contents into tf (none: count 0). */
+static void ReadArchive(TocFile *tf) {
     u32 count, i;
     FileTOCEntry *toc;
-    char type[24], name[64];
     s32 fd;
     int fmt;
 
-    toc = ReadToc(archive, &fd, &fmt, &count);
+    tf->count = 0;
+    tf->entries = NULL;
+    toc = ReadToc(tf->archive, &fd, &fmt, &count);
     if (toc == NULL) {
         return;
     }
-    for (i = 0; i < count; i++) {
-        FileTOCEntry *e = &toc[i];
-        VPack *vp;
-        const char *last = SDL_strrchr(archive, '/');
-        char full[200];
-
-        PackTypeName((int)e->type, type, sizeof(type));
-        SDL_snprintf(name, sizeof(name), "%s_%u", type, e->id);
-        SDL_snprintf(full, sizeof(full), "%s/%s", last != NULL ? last + 1 : archive, name);
-        vp = FindPack(full);
-        Jw_BeginObject(scan->w, NULL, 1);
-        Jw_String(scan->w, "archive", archive);
-        Jw_String(scan->w, "name", name);
-        Jw_String(scan->w, "type", type);
-        Jw_Int(scan->w, "typeId", e->type);
-        Jw_Int(scan->w, "id", e->id);
-        Jw_String(scan->w, "release", fmt == PORT_DATA_PC ? "pc" : fmt == PORT_DATA_PS2 ? "ps2" : "gc");
-        Jw_String(scan->w, "pack", full);
-        Jw_Bool(scan->w, "loaded", vp != NULL);
-        Jw_EndObject(scan->w);
-        scan->count++;
+    tf->fmt = fmt;
+    tf->entries = SDL_malloc((count ? count : 1) * 2 * sizeof(u32));
+    for (i = 0; tf->entries != NULL && i < count; i++) {
+        tf->entries[i * 2] = toc[i].type;
+        tf->entries[i * 2 + 1] = toc[i].id;
     }
+    tf->count = tf->entries != NULL ? count : 0;
     SDL_free(toc);
     File_Close(fd);
+}
+
+static void WriteArchive(JsonWriter *w, const TocFile *tf) {
+    const char *archive = tf->archive, *last = SDL_strrchr(archive, '/');
+    u32 i;
+
+    for (i = 0; i < tf->count; i++) {
+        u32 type = tf->entries[i * 2], id = tf->entries[i * 2 + 1];
+        char typeName[24], name[64], full[200];
+
+        PackTypeName((int)type, typeName, sizeof(typeName));
+        SDL_snprintf(name, sizeof(name), "%s_%u", typeName, id);
+        SDL_snprintf(full, sizeof(full), "%s/%s", last != NULL ? last + 1 : archive, name);
+        Jw_BeginObject(w, NULL, 1);
+        Jw_String(w, "archive", archive);
+        Jw_String(w, "name", name);
+        Jw_String(w, "type", typeName);
+        Jw_Int(w, "typeId", type);
+        Jw_Int(w, "id", id);
+        Jw_String(w, "release", tf->fmt == PORT_DATA_PC ? "pc" : tf->fmt == PORT_DATA_PS2 ? "ps2" : "gc");
+        Jw_String(w, "pack", full);
+        Jw_Bool(w, "loaded", FindPack(full) != NULL);
+        Jw_EndObject(w);
+    }
 }
 
 /* The two share packs a pack's header names (its refs), read from the file
@@ -397,12 +451,15 @@ void Viewer_ForgetShares(void) {
 
 /* 0: a share pack it needs could not be loaded (the game has 3 share slots and the
  * viewer keeps what it loaded until the world goes): the pack's own load would then
- * find the share missing and dereference NULL (DataGamePackLoad.c) */
-static int LoadShares(const char *archive, int type, u32 id, int depth) {
+ * find the share missing and dereference NULL (DataGamePackLoad.c). known: the pack's refs
+ * when its header was read already (load), else NULL */
+static int LoadShares(const char *archive, int type, u32 id, int depth, const DataPackRef *known) {
     DataPackRef refs[2];
     int r, k, ok = 1;
 
-    if (depth > 3 || !PackRefs(archive, type, id, refs, NULL)) {
+    if (known != NULL) {
+        SDL_memcpy(refs, known, sizeof(refs));
+    } else if (depth > 3 || !PackRefs(archive, type, id, refs, NULL)) {
         return 1;
     }
     for (r = 0; r < 2; r++) {
@@ -425,7 +482,7 @@ static int LoadShares(const char *archive, int type, u32 id, int depth) {
             ok = 0;
             continue;
         }
-        ok &= LoadShares(name, 8, refs[r].id, depth + 1);
+        ok &= LoadShares(name, 8, refs[r].id, depth + 1, NULL);
         SDL_strlcpy(s_shareNames[s_numShares], name, sizeof(s_shareNames[0]));
         s_shareIds[s_numShares] = refs[r].id;
         if (FileStreaming_LoadDataPack(s_shareNames[s_numShares], 8, refs[r].id, 0) >= 0) {
@@ -455,15 +512,38 @@ static SDL_EnumerationResult SDLCALL ListEntry(void *userdata, const char *dir, 
                 /* the name the game asks for: from the data folder, no extension;
                  * the PS2 disc's XPS/ENGLISH/ is where dvd.c looks by itself */
                 char *archive = path + scan->rootLen;
+                TocList *l = &scan->found;
 
                 while (*archive == '/' || *archive == '\\') {
                     archive++;
                 }
+                archive = SDL_strdup(archive);
+                if (archive == NULL) {
+                    break;
+                }
                 archive[SDL_strlen(archive) - 4] = '\0';
                 if (SDL_strncasecmp(archive, "XPS/ENGLISH/", 12) == 0) {
-                    archive += 12;
+                    SDL_memmove(archive, archive + 12, SDL_strlen(archive + 12) + 1);
                 }
-                ListArchive(scan, archive);
+                if (l->num == l->cap) {
+                    u32 cap = l->cap ? l->cap * 2 : 256;
+                    TocFile *p = SDL_realloc(l->files, cap * sizeof(TocFile));
+
+                    if (p == NULL) {
+                        SDL_free(archive);
+                        break;
+                    }
+                    l->files = p;
+                    l->cap = cap;
+                }
+                SDL_zero(l->files[l->num]);
+                l->files[l->num].path = path;
+                l->files[l->num].archive = archive;
+                l->files[l->num].mtime = info.modify_time;
+                l->files[l->num].size = info.size;
+                l->num++;
+                path = NULL;    /* (the list's now) */
+                break;
             }
         }
     }
@@ -471,16 +551,98 @@ static SDL_EnumerationResult SDLCALL ListEntry(void *userdata, const char *dir, 
     return SDL_ENUM_CONTINUE;
 }
 
+static int InList(char **names, u32 num, const char *name) {
+    u32 i;
+
+    for (i = 0; i < num; i++) {
+        if (SDL_strcasecmp(names[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int CmdPacks(JsonWriter *w, char *err, size_t errSize) {
-    ListScan scan = { w, SDL_strlen(g_port.dataDir), 0 };
+    extern int Port_MixActive(void);
+    ListScan scan;
     SDL_PathInfo info;
+    char **stale;
+    s32 *match;         /* per file found: its s_toc entry, or -1 */
+    u8 *kept;           /* per s_toc entry: found again */
+    u32 numStale = 0, i, k, hint = 0;
 
     if (!SDL_GetPathInfo(g_port.dataDir, &info) || info.type != SDL_PATHTYPE_DIRECTORY) {
         SDL_snprintf(err, errSize, "the packs of a disc image can't be listed: extract its files and pass the folder");
         return 0;
     }
-    Jw_BeginArray(w, "packs", 0);
+    SDL_zero(scan);
+    scan.rootLen = SDL_strlen(g_port.dataDir);
     SDL_EnumerateDirectory(g_port.dataDir, ListEntry, &scan);
+    if (s_tocDir == NULL || SDL_strcmp(s_tocDir, g_port.dataDir) != 0 || Port_MixActive()) {
+        FreeToc(&s_toc);
+        SDL_free(s_tocDir);
+        s_tocDir = SDL_strdup(g_port.dataDir);
+    }
+    stale = SDL_malloc((scan.found.num + s_toc.num + 1) * sizeof(char *));
+    match = SDL_malloc((scan.found.num + 1) * sizeof(s32));
+    kept = SDL_calloc(s_toc.num + 1, 1);
+    if (stale == NULL || match == NULL || kept == NULL) {
+        FreeToc(&s_toc);        /* (no memory to compare: every file read) */
+        SDL_free(stale);
+        SDL_free(match);
+        SDL_free(kept);
+        stale = NULL;
+        match = NULL;
+        kept = NULL;
+    }
+    /* the archive names whose files came, changed or went: read again */
+    for (i = 0; match != NULL && i < scan.found.num; i++) {
+        TocFile *f = &scan.found.files[i];
+
+        match[i] = -1;
+        for (k = 0; k < s_toc.num; k++) {
+            u32 j = (hint + k) % s_toc.num;     /* (a walk's order is the last one's) */
+
+            if (!kept[j] && SDL_strcmp(s_toc.files[j].path, f->path) == 0) {
+                match[i] = (s32)j;
+                kept[j] = 1;
+                hint = j + 1;
+                break;
+            }
+        }
+        if (match[i] < 0 || s_toc.files[match[i]].mtime != f->mtime || s_toc.files[match[i]].size != f->size ||
+            SDL_strcmp(s_toc.files[match[i]].archive, f->archive) != 0) {
+            stale[numStale++] = f->archive;
+        }
+    }
+    for (i = 0; kept != NULL && i < s_toc.num; i++) {
+        if (!kept[i]) {
+            stale[numStale++] = s_toc.files[i].archive;
+        }
+    }
+    /* the walk's files with their lists: kept, or read */
+    for (i = 0; i < scan.found.num; i++) {
+        TocFile *f = &scan.found.files[i];
+        TocFile *t = match != NULL && match[i] >= 0 ? &s_toc.files[match[i]] : NULL;
+
+        if (t != NULL && t->entries != NULL && !InList(stale, numStale, f->archive)) {
+            f->fmt = t->fmt;
+            f->count = t->count;
+            f->entries = t->entries;
+            t->entries = NULL;      /* (moved) */
+        } else {
+            ReadArchive(f);
+        }
+    }
+    SDL_free(stale);    /* (its names were the old and new lists' own) */
+    SDL_free(match);
+    SDL_free(kept);
+    FreeToc(&s_toc);
+    s_toc = scan.found;
+    Jw_BeginArray(w, "packs", 0);
+    for (i = 0; i < s_toc.num; i++) {
+        WriteArchive(w, &s_toc.files[i]);
+    }
     Jw_EndArray(w);
     return 1;
 }
@@ -578,18 +740,19 @@ static void DrawOne(Geometry *g, Matrix4 *m, f32 *min, f32 *max) {
         return;
     }
     if (g->skipDraw != 0) {
-        /* skinned: every bone where the geometry stands */
+        /* skinned: every bone slot its vertices can use (the renderer reads SKIN_SLOTS: a level's
+         * vertices are sorted by bone, Render_DrawGroupIndexed) where the geometry stands */
         u32 i;
         Matrix4 *bones;
 
-        if (s.numMatrices + 8 >= MATRIX_POOL) {
+        if (s.numMatrices + SKIN_SLOTS >= MATRIX_POOL) {
             return;
         }
         bones = &s.matrices[s.numMatrices];
-        for (i = 0; i < 8; i++) {
+        for (i = 0; i < SKIN_SLOTS; i++) {
             *NextMatrix() = *m;
         }
-        Gfx_DrawAnimGeometryAux(g, (f32 *)bones, 8, NULL);
+        Gfx_DrawAnimGeometryAux(g, (f32 *)bones, SKIN_SLOTS, NULL);
     } else {
         Gfx_DrawGeometry_MatrixNotCached((s32)HND(g), (s32)HND(m));
     }
@@ -619,7 +782,8 @@ static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max, const Ma
         Geometry *g = InPack(vp, GETP(GETP(model->geoms)[i]), sizeof(Geometry));
 
         if (g != NULL) {
-            Gfx_DrawAnimGeometryAux(g, (f32 *)bones, numBones, NULL);
+            /* (a malformed skeleton of more bones: the first ones; matrixlookup has no more) */
+            Gfx_DrawAnimGeometryAux(g, (f32 *)bones, numBones < SKIN_MATRICES ? numBones : SKIN_MATRICES, NULL);
             Grow(min, max, &bones[0], g);
             s.drawn++;
         }
@@ -805,10 +969,58 @@ static void FlyMove(f32 fwd, f32 right, f32 up, f32 dt, int fast) {
     s.flyPos.z += (c->dir.z * fwd - c->right.z * right) * k + g_jBasis.z * up * k;
 }
 
+/* The camera's numbers as protocol input or the mouse left them: back to `before` when
+ * one isn't finite (a NaN or an infinity spreads to every frame after it), and distance,
+ * fly speed and places held to what the view can use. 0: restored. */
+typedef struct CamSnap {
+    f32 yaw, pitch, distance, fov, flySpeed;
+    Vector4 target, flyPos;
+    int fly, spin;
+} CamSnap;
+
+static void CamSave(CamSnap *c) {
+    c->yaw = s.yaw, c->pitch = s.pitch, c->distance = s.distance, c->fov = s.fov, c->flySpeed = s.flySpeed;
+    c->target = s.target, c->flyPos = s.flyPos;
+    c->fly = s.fly, c->spin = s.spin;
+}
+
+static f32 Clamp(f32 v, f32 lo, f32 hi) {
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+static int CamSane(const CamSnap *before) {
+    const f32 far = 1e7f;
+    int k;
+
+    if (!(isfinite(s.yaw) && isfinite(s.pitch) && isfinite(s.distance) && isfinite(s.fov) && isfinite(s.flySpeed) &&
+          isfinite(s.target.x) && isfinite(s.target.y) && isfinite(s.target.z) && isfinite(s.flyPos.x) &&
+          isfinite(s.flyPos.y) && isfinite(s.flyPos.z))) {
+        s.yaw = before->yaw, s.pitch = before->pitch, s.distance = before->distance, s.fov = before->fov;
+        s.flySpeed = before->flySpeed, s.target = before->target, s.flyPos = before->flyPos;
+        s.fly = before->fly, s.spin = before->spin;
+        return 0;
+    }
+    if (s.yaw > 1e6f || s.yaw < -1e6f) {
+        s.yaw = (f32)fmod(s.yaw, 6.283185307);   /* (sin and cos keep their precision) */
+    }
+    s.distance = Clamp(s.distance, 0.05f, 1e6f);
+    if (s.flySpeed != 0.0f) {
+        s.flySpeed = Clamp(s.flySpeed, 0.01f, 1e6f);    /* (0: not set yet, SetFly picks one) */
+    }
+    for (k = 0; k < 3; k++) {
+        (&s.target.x)[k] = Clamp((&s.target.x)[k], -far, far);
+        (&s.flyPos.x)[k] = Clamp((&s.flyPos.x)[k], -far, far);
+    }
+    return 1;
+}
+
 /* The mouse in the game's window: drag to orbit, right drag or shift to
  * pan, the wheel to zoom. Watched, so the event pump (vi.c) is as it was. */
 static bool SDLCALL MouseWatch(void *userdata, SDL_Event *ev) {
+    CamSnap before;
+
     (void)userdata;
+    CamSave(&before);
     if (ev->type == SDL_EVENT_MOUSE_MOTION && (ev->motion.state & (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK))) {
         if ((ev->motion.state & SDL_BUTTON_RMASK) || (SDL_GetModState() & SDL_KMOD_SHIFT)) {
             f32 k = s.distance * 0.0015f;
@@ -824,13 +1036,18 @@ static bool SDLCALL MouseWatch(void *userdata, SDL_Event *ev) {
             s.pitch += ev->motion.yrel * k;
             s.spin = 0;
         }
+        g_viewerChanges++;      /* (drawn again) */
     } else if (ev->type == SDL_EVENT_MOUSE_WHEEL) {
         if (s.fly) {
             s.flySpeed *= (f32)pow(1.25, ev->wheel.y);
         } else {
             s.distance *= (f32)pow(0.9, ev->wheel.y);
         }
+        g_viewerChanges++;      /* (drawn again) */
+    } else {
+        return true;
     }
+    CamSane(&before);
     return true;
 }
 
@@ -1186,7 +1403,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
         }
     }
     ViewerMedia_BeforeLoad(songBank != 0);
-    if (!LoadShares(vp->archive, type, (u32)id, 0)) {
+    if (!LoadShares(vp->archive, type, (u32)id, 0, refs)) {   /* (refs: PackRefs read them above) */
         SDL_snprintf(err, errSize, "%s %s pack %lld: a share pack it needs could not be loaded (the share slots are full; "
                      "load a world, or restart the viewer, to free them)", archive, g_viewerTypeNames[type], id);
         return 0;
@@ -1402,6 +1619,18 @@ static void Dispatch(const JsonNode *req) {
         Jw_Node(&w, "seq", idNode);
     }
     Jw_Bool(&w, "ok", 1);
+    {
+        /* what a command may change is drawn again (Port_ViewerFrame skips a still scene) */
+        static const char *const reads[] = { "hello", "packs", "loaded", "outline", "interfaces", "schema",
+                                             "get", "status", "worlds", "raycast" };
+        size_t k;
+
+        for (k = 0; k < SDL_arraysize(reads) && SDL_strcmp(cmd, reads[k]) != 0; k++) {
+        }
+        if (k == SDL_arraysize(reads)) {
+            g_viewerChanges++;
+        }
+    }
     if (SDL_strcmp(cmd, "hello") == 0) {
         static const char *const releases[] = { "gc", "pc", "ps2" };
 
@@ -1516,7 +1745,9 @@ static void Dispatch(const JsonNode *req) {
          * spin); orbit: steps (dyaw, dpitch in degrees, zoom a factor, pan in
          * screen directions, in units of the distance) */
         const JsonNode *target = Json_Get(req, "target"), *pan = Json_Get(req, "pan");
+        CamSnap before;
 
+        CamSave(&before);
         if (cmd[0] == 'c') {
             s.yaw = (f32)Json_GetNumber(req, "yaw", s.yaw * 57.29578f) * 0.017453292f;
             s.pitch = (f32)Json_GetNumber(req, "pitch", s.pitch * 57.29578f) * 0.017453292f;
@@ -1559,7 +1790,12 @@ static void Dispatch(const JsonNode *req) {
             }
         }
         s.spin = Json_GetBool(req, "spin", cmd[0] == 'c' ? s.spin : 0);
-        WriteCamera(&w);
+        if (!CamSane(&before)) {
+            SDL_snprintf(err, sizeof(err), "%s: the numbers must be finite (the camera is as it was)", cmd);
+            ok = 0;
+        } else {
+            WriteCamera(&w);
+        }
     } else if (SDL_strcmp(cmd, "background") == 0) {
         const JsonNode *c = Json_Get(req, "color");
 
@@ -1614,7 +1850,9 @@ static void Dispatch(const JsonNode *req) {
         /* the pointer and keys over the browser's picture: events, in image pixels */
         const JsonNode *events = Json_Get(req, "events");
         int h = (int)Json_GetNumber(req, "height", 0.0), ew, eh, k;
+        CamSnap before;
 
+        CamSave(&before);
         GX_DrawEfbSize(&ew, &eh);
         if (h <= 0) {
             h = eh;
@@ -1650,6 +1888,10 @@ static void Dispatch(const JsonNode *req) {
                 SDL_snprintf(err, sizeof(err), "an input event is drag, wheel, move or key, not %.40s", type);
                 ok = 0;
             }
+        }
+        if (!CamSane(&before)) {
+            SDL_snprintf(err, sizeof(err), "input: the numbers must be finite (the camera is as it was)");
+            ok = 0;
         }
         WriteCamera(&w);
     } else if (SDL_strcmp(cmd, "pick") == 0) {
@@ -2271,6 +2513,27 @@ s32 Port_ViewerStart(void) {
     return 1;
 }
 
+/* Something drawn moves by itself: a shader of one of the shown pack's geometries (only
+ * they are drawn here; a share pack's stay loaded with theirs) has keys (colour, scroll,
+ * texture flips) or plays a movie (ShaderHolder_Heartbeat). */
+static int Animating(void) {
+    extern ShaderHolder *g_pShaderHolder;
+    const u8 *base = s.shown != NULL && s.shown->pack != NULL ? (const u8 *)GETP(s.shown->pack->base) : NULL;
+    u32 i;
+
+    for (i = 0; base != NULL && g_pShaderHolder != NULL && i < g_pShaderHolder->numGX &&
+                i < SDL_arraysize(g_pShaderHolder->gx); i++) {
+        Shader *sh = GETP(g_pShaderHolder->gx[i].shader);
+        const u8 *gx = (const u8 *)GETP(g_pShaderHolder->gx[i].gx);
+
+        if (sh != NULL && gx >= base && gx < base + s.shown->size &&
+            (sh->hasColorKey || sh->hasPointKey || sh->hasTextureKey || (GETP(sh->def) != NULL && GETP(sh->def)->isMovie))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 s32 Port_ViewerFrame(void) {
     extern GXColor m_clearColor;
     static const GXColor white = { 0xFF, 0xFF, 0xFF, 0xFF };
@@ -2292,11 +2555,23 @@ s32 Port_ViewerFrame(void) {
     ProcessManager_Heartbeat(0);
     FileStreaming_HeartBeat();
     ShaderHolder_Heartbeat();
-    if (Port_ViewerHeadless() && !ViewerFrames_On() && s.shotPath == NULL && !ViewerWorld_Active()) {
+    if (g_viewerChanges != s.changes) {
+        s.changes = g_viewerChanges;
+        s.changedAt = s.frame;
+    }
+    if (Port_ViewerHeadless() && s.shotPath == NULL && !ViewerWorld_Active() &&
+        (!ViewerFrames_On() ||
+         (!s.spin && !s_frameNext && s.haveDrawn && (s32)(s.drawnFrame - s.changedAt) >= 0 && !Animating() &&
+          !IsLoadingThreadRunning() && s.frame - s.drawnFrame < STILL_REDRAW && ViewerFrames_Still(s.changedAt)))) {
         /* nothing would see the frame (the window hidden, no frames shared, no shot):
          * not drawn; the heartbeats above run and the retrace paces as a drawn frame's.
          * (A world is drawn still: World_Render is also what streams its quadrants
-         * around the camera, which status, pick and the shots after a move rely on.) */
+         * around the camera, which status, pick and the shots after a move rely on.)
+         * Frames shared: not drawn either while the scene is still (no command or mouse
+         * changed it, nothing spins or animates) and the browser has the frame drawn
+         * since, or hasn't taken the last ones (L8: a still preview drew and read back
+         * every frame); one every STILL_REDRAW frames still, so frames keep coming (a
+         * client may wait for the next one) at a few a second. */
         Performance_End();
         VIWaitForRetrace();
         s.frame++;
@@ -2370,6 +2645,8 @@ s32 Port_ViewerFrame(void) {
     } else {
         ShowStats_EndScene();
     }
+    s.drawnFrame = s.frame;
+    s.haveDrawn = 1;
     s.frame++;
     return 1;
 }

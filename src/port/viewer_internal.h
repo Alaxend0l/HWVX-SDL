@@ -50,6 +50,8 @@ typedef struct VPack {
     u32 numRefs;
     VNode *nodes;
     u32 numNodes, capNodes;
+    s32 *index;                 /* Viewer_FindNode's: node numbers by id hash (-1: empty) */
+    u32 indexCap, indexed;      /* its size (a power of 2), and numNodes when it was made */
     /* count fields `set` changed (a link's x-link count): offset and the value the
      * data had, the most it may be set to again (its array is that long) */
     u32 countOff[32], countOrig[32];
@@ -92,6 +94,7 @@ void ViewerFrames_EndFrame(u32 frame);
 void ViewerFrames_WriteInfo(JsonWriter *w);    /* the `frames` reply's keys */
 void ViewerFrames_WriteStats(JsonWriter *w);   /* "frames": {...} */
 void ViewerFrames_Shutdown(void);
+int ViewerFrames_Still(u32 since);             /* a still scene: nothing a frame drawn now would add */
 
 /* A shared memory block for the browser (viewer_frames.c): POSIX shm_open
  * "/hwvx-<tag>" (mode 0600) or a Windows named mapping "Local\hwvx-<tag>". */
@@ -119,6 +122,9 @@ void ViewerMedia_Shutdown(void);
  * "ARCHIVE/TYPE_ID" (base:// allowed), or NULL; *vp: the viewer's pack, if it is one. */
 DataPack *Viewer_FindDataPack(const char *name, VPack **vp);
 VPack *Viewer_ShownPack(void);     /* viewer.c: the pack shown, or NULL */
+
+/* viewer.c: bumped by each command that may change what is shown (not the read-only ones) */
+extern u32 g_viewerChanges;
 
 /* viewer.c, for viewer_world.c */
 void Viewer_UnloadAll(void);                    /* every viewer pack */

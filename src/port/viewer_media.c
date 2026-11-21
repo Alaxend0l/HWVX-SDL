@@ -365,25 +365,71 @@ static void WriteTexInfo(JsonWriter *w, DataPack *dp, u32 i) {
     Jw_EndObject(w);
 }
 
-/* The nodes whose texture slots name texture `index` of `share` (NULL: the pack's own). */
-static void WriteUsers(JsonWriter *w, VPack *vp, const s32 *users, DataPack *share, u32 index) {
-    DataPack *dp = vp->pack;
-    u32 i, n = 0;
-    s32 seen[16];
-    u32 numSeen = 0, k;
+/* A pack's texture relocations by the texture they name: (key << 32 | relocation), sorted,
+ * so each texture's run is in relocation order. key: which pack the texture is in (0: this
+ * one, 1, 2: the pack refs[0], refs[1] point to, the first of equal ones; 3: none) << 16, and
+ * its index. Made once a `textures` (each texture used to walk every relocation). */
+typedef struct RelocIndex {
+    u64 *by;
+    u32 n;
+} RelocIndex;
 
-    Jw_BeginArray(w, "usedBy", 1);
-    for (i = 0; i < dp->numRelocs && n < 16; i++) {
-        u32 slot = (u32)GETP(dp->relocs)[i * 2] & ~PORT_TEXRELOC_U16;
+static u32 TargetClass(DataPack *dp, DataPack *target) {
+    return target == dp ? 0 : target == GETP(dp->refs[0].pack) ? 1 : target == GETP(dp->refs[1].pack) ? 2 : 3;
+}
+
+static int SDLCALL CompareU64(const void *a, const void *b) {
+    u64 x = *(const u64 *)a, y = *(const u64 *)b;
+
+    return x < y ? -1 : x > y;
+}
+
+static int MakeRelocIndex(RelocIndex *ri, DataPack *dp) {
+    u32 i;
+
+    ri->n = 0;
+    ri->by = SDL_malloc((dp->numRelocs ? dp->numRelocs : 1) * sizeof(u64));
+    if (ri->by == NULL) {
+        return 0;
+    }
+    for (i = 0; i < dp->numRelocs; i++) {
         u32 id = (u32)GETP(dp->relocs)[i * 2 + 1];
         DataPack *target = dp;
-        s32 owner;
 
         if (id >> 16) {
             target = GETP(dp->refs[dp->refs[0].id != (id >> 16)].pack);
             id &= 0xFFFF;
         }
-        if (target != (share != NULL ? share : dp) || id != index || slot / 4 >= vp->size / 4 || users == NULL) {
+        ri->by[ri->n++] = (u64)(TargetClass(dp, target) << 16 | id) << 32 | i;
+    }
+    SDL_qsort(ri->by, ri->n, sizeof(u64), CompareU64);
+    return 1;
+}
+
+/* The nodes whose texture slots name texture `index` of `share` (NULL: the pack's own). */
+static void WriteUsers(JsonWriter *w, VPack *vp, const s32 *users, const RelocIndex *ri, DataPack *share, u32 index) {
+    DataPack *dp = vp->pack;
+    u64 key = (u64)(TargetClass(dp, share != NULL ? share : dp) << 16 | index) << 32;
+    u32 lo = 0, hi = ri->n, n = 0;
+    s32 seen[16];
+    u32 numSeen = 0, k;
+
+    while (lo < hi) {   /* the run's first */
+        u32 mid = lo + (hi - lo) / 2;
+
+        if (ri->by[mid] < key) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    Jw_BeginArray(w, "usedBy", 1);
+    for (; lo < ri->n && (ri->by[lo] >> 32) == (key >> 32) && n < 16; lo++) {
+        u32 i = (u32)ri->by[lo];
+        u32 slot = (u32)GETP(dp->relocs)[i * 2] & ~PORT_TEXRELOC_U16;
+        s32 owner;
+
+        if (slot / 4 >= vp->size / 4 || users == NULL) {
             continue;
         }
         owner = users[slot / 4];
@@ -405,8 +451,13 @@ static int CmdTextures(JsonWriter *w, const JsonNode *req, char *err, size_t err
     DataPack *dp = PackArg(req, &vp, packName, sizeof(packName), err, errSize), *used[2] = { NULL, NULL };
     u32 i, r;
     s32 *users;
+    RelocIndex ri = { NULL, 0 };
 
     if (dp == NULL) {
+        return 0;
+    }
+    if (vp != NULL && !MakeRelocIndex(&ri, vp->pack)) {
+        SDL_snprintf(err, errSize, "out of memory");
         return 0;
     }
     users = vp != NULL ? Viewer_WordUsers(vp) : NULL;
@@ -421,7 +472,7 @@ static int CmdTextures(JsonWriter *w, const JsonNode *req, char *err, size_t err
         Jw_String(w, "pack", packName);
         WriteTexInfo(w, dp, i);
         if (vp != NULL) {
-            WriteUsers(w, vp, users, NULL, i);
+            WriteUsers(w, vp, users, &ri, NULL, i);
         }
         Jw_EndObject(w);
     }
@@ -430,22 +481,26 @@ static int CmdTextures(JsonWriter *w, const JsonNode *req, char *err, size_t err
         for (r = 0; r < 2; r++) {
             DataPack *sp = GETP(dp->refs[r].pack);
             char share[64];
+            u8 *refd;
 
             if (sp == NULL || dp->refs[r].name[0] == '\0' || sp == used[0]) {
                 continue;
             }
             used[r] = sp;
             SDL_snprintf(share, sizeof(share), "%.12s/share_%u", dp->refs[r].name, dp->refs[r].id);
-            for (i = 0; i < sp->numTextures; i++) {
-                u32 k, refd = 0;
+            /* which of its textures a relocation names, in one pass */
+            refd = SDL_calloc(sp->numTextures ? sp->numTextures : 1, 1);
+            for (i = 0; refd != NULL && i < dp->numRelocs; i++) {
+                u32 rid = (u32)GETP(dp->relocs)[i * 2 + 1];
+
+                if ((rid >> 16) == dp->refs[r].id && (rid & 0xFFFF) < sp->numTextures) {
+                    refd[rid & 0xFFFF] = 1;
+                }
+            }
+            for (i = 0; refd != NULL && i < sp->numTextures; i++) {
                 char id[120];
 
-                for (k = 0; k < dp->numRelocs && !refd; k++) {
-                    u32 rid = (u32)GETP(dp->relocs)[k * 2 + 1];
-
-                    refd = (rid >> 16) == dp->refs[r].id && (rid & 0xFFFF) == i;
-                }
-                if (!refd) {
+                if (!refd[i]) {
                     continue;
                 }
                 Jw_BeginObject(w, NULL, 1);
@@ -454,13 +509,15 @@ static int CmdTextures(JsonWriter *w, const JsonNode *req, char *err, size_t err
                 Jw_String(w, "pack", share);
                 Jw_Bool(w, "shared", 1);
                 WriteTexInfo(w, sp, i);
-                WriteUsers(w, vp, users, sp, i);
+                WriteUsers(w, vp, users, &ri, sp, i);
                 Jw_EndObject(w);
             }
+            SDL_free(refd);
         }
     }
     Jw_EndArray(w);
     SDL_free(users);
+    SDL_free(ri.by);
     return 1;
 }
 
@@ -606,13 +663,13 @@ static const MidiInst *Instruments(u32 *count) {
 /* The song's events: tempo, length, channels and notes (one SMF track, as ProcessMIDI reads it). */
 static void WriteSongInfo(JsonWriter *w) {
     const MidiHeader *h = g_pHdr;
-    const u8 *p = h->track, *end = h->track + h->trackSize;
+    /* CreateMIDI copied the RIFF's size + 8 bytes: the track is read within those, whatever
+     * its own size field says */
+    u64 room = (u64)h->size + 8 > offsetof(MidiHeader, track) ? (u64)h->size + 8 - offsetof(MidiHeader, track) : 0;
+    const u8 *p = h->track, *end = h->trackSize <= room ? h->track + h->trackSize : p;
     u32 tick = 0, notes = 0, channels = 0, firstTempo = 0, tempos = 0, markers = 0, events = 0;
     u8 status = 0;
 
-    if (h->trackSize > h->size) {
-        end = p;
-    }
     while (p < end) {
         u32 delta = 0, c, len;
 
@@ -641,7 +698,7 @@ static void WriteSongInfo(JsonWriter *w) {
                     firstTempo = (u32)p[0] << 16 | (u32)p[1] << 8 | p[2];
                 }
             }
-            p += len;
+            p += len < (u32)(end - p) ? len : (u32)(end - p);
             if (type == 0x2F) {
                 break;
             }
@@ -653,7 +710,7 @@ static void WriteSongInfo(JsonWriter *w) {
                 c = p < end ? *p++ : 0;
                 len = (len << 7) | (c & 0x7F);
             } while (c & 0x80);
-            p += len;
+            p += len < (u32)(end - p) ? len : (u32)(end - p);
             continue;
         }
         switch (status & 0xF0) {

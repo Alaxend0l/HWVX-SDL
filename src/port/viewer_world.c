@@ -60,7 +60,11 @@ static struct {
     u32 overlays;
     f32 (*regionBox)[6];        /* per quadrant: min xyz, max xyz (min > max: none) */
     u32 numRegionBoxes;
-    int regionsDone;            /* regionBox made (lazily: ~100k BSP tests a quadrant) */
+    int regionsSet;             /* regionBox set up (RegionSetup: when first wanted) */
+    u8 *regionDone;             /* per quadrant: its box is complete */
+    u32 regionQ;                /* RegionBoxesStep: the quadrant it is making, */
+    int regionY;                /* and its next grid row */
+    f32 regionLo[3], regionStep[3];   /* the grid */
     f32 loadMs;
     u32 maxLoaded;
     struct {
@@ -158,64 +162,129 @@ static void FindLevel(void *ctx, u32 p, u32 i, const char *path) {
 
 /* Each quadrant region's box: points of a grid over the collision bounds
  * that the region holds (BSPN0_CollideWithVector), grown by half a step.
- * Made the first time something needs them (the regions/loaded overlays,
- * focus on a quadrant), not at every world load. */
-static void RegionBoxes(void) {
+ * Made when something first needs them (the regions/loaded overlays, focus
+ * on a quadrant), not at every world load: for the overlays a few grid rows
+ * a frame (a quadrant is ~100k BSP tests, a world dozens of them, which in
+ * one frame held the game for seconds), each box drawn once complete; for
+ * focus the one quadrant at once. */
+#define REGION_NX 64
+#define REGION_NY 24
+#define REGION_NZ 64
+#define REGION_BUDGET_NS 4000000ull     /* a frame's share of the grid tests */
+
+/* Sets the boxes up (all empty). 0: there are none (no collision, no memory). */
+static int RegionSetup(void) {
     World *wd = WORLD();
     WorldCollision *col = GETP(wd->collision);
-    const int nx = 64, ny = 24, nz = 64;
-    f32 step[3], lo[3], hi[3];
+    f32 hi[3];
     u32 q;
-    int x, y, z, k;
 
-    if (w.regionsDone) {
-        return;
+    if (w.regionsSet) {
+        return w.numRegionBoxes != 0;
     }
-    w.regionsDone = 1;
+    w.regionsSet = 1;
     SDL_free(w.regionBox);
+    SDL_free(w.regionDone);
     w.numRegionBoxes = wd->numQuads;
     w.regionBox = SDL_calloc(wd->numQuads ? wd->numQuads : 1, sizeof(*w.regionBox));
-    if (w.regionBox == NULL || col == NULL) {
+    w.regionDone = SDL_calloc(wd->numQuads ? wd->numQuads : 1, 1);
+    w.regionQ = 0;
+    w.regionY = 0;
+    if (w.regionBox == NULL || w.regionDone == NULL || col == NULL) {
+        SDL_free(w.regionBox);
+        SDL_free(w.regionDone);
+        w.regionBox = NULL;
+        w.regionDone = NULL;
         w.numRegionBoxes = 0;
-        return;
+        return 0;
     }
-    lo[0] = col->min.x - 50.0f, lo[1] = col->min.y - 50.0f, lo[2] = col->min.z - 50.0f;
+    w.regionLo[0] = col->min.x - 50.0f, w.regionLo[1] = col->min.y - 50.0f, w.regionLo[2] = col->min.z - 50.0f;
     hi[0] = col->max.x + 50.0f, hi[1] = col->max.y + 150.0f, hi[2] = col->max.z + 50.0f;
-    step[0] = (hi[0] - lo[0]) / nx, step[1] = (hi[1] - lo[1]) / ny, step[2] = (hi[2] - lo[2]) / nz;
+    w.regionStep[0] = (hi[0] - w.regionLo[0]) / REGION_NX;
+    w.regionStep[1] = (hi[1] - w.regionLo[1]) / REGION_NY;
+    w.regionStep[2] = (hi[2] - w.regionLo[2]) / REGION_NZ;
     for (q = 0; q < wd->numQuads; q++) {
-        WorldQuad *quad = &GETP(wd->quads)[q];
         f32 *b = w.regionBox[q];
 
         b[0] = b[1] = b[2] = 1e30f;
         b[3] = b[4] = b[5] = -1e30f;
-        if (GETP(quad->bsp) == NULL) {
-            continue;
-        }
-        for (y = 0; y <= ny; y++) {
-            for (z = 0; z <= nz; z++) {
-                for (x = 0; x <= nx; x++) {
-                    Vector4 p __attribute__((aligned(16)));
+    }
+    return 1;
+}
 
-                    p.x = lo[0] + x * step[0];
-                    p.y = lo[1] + y * step[1];
-                    p.z = lo[2] + z * step[2];
-                    p.w = 1.0f;
-                    if (BSPN0_CollideWithVector(GETP(quad->bsp), &p)) {
-                        for (k = 0; k < 3; k++) {
-                            f32 v = (&p.x)[k];
+/* Grid rows y0 .. y1 - 1 (of REGION_NY + 1) of quadrant q, into its box. */
+static void RegionRows(u32 q, int y0, int y1) {
+    WorldQuad *quad = &GETP(WORLD()->quads)[q];
+    const f32 *lo = w.regionLo, *step = w.regionStep;
+    f32 *b = w.regionBox[q];
+    int x, y, z, k;
 
-                            if (v - 0.5f * step[k] < b[k]) {
-                                b[k] = v - 0.5f * step[k];
-                            }
-                            if (v + 0.5f * step[k] > b[3 + k]) {
-                                b[3 + k] = v + 0.5f * step[k];
-                            }
+    if (GETP(quad->bsp) == NULL) {
+        return;
+    }
+    for (y = y0; y < y1; y++) {
+        for (z = 0; z <= REGION_NZ; z++) {
+            for (x = 0; x <= REGION_NX; x++) {
+                Vector4 p __attribute__((aligned(16)));
+
+                p.x = lo[0] + x * step[0];
+                p.y = lo[1] + y * step[1];
+                p.z = lo[2] + z * step[2];
+                p.w = 1.0f;
+                if (BSPN0_CollideWithVector(GETP(quad->bsp), &p)) {
+                    for (k = 0; k < 3; k++) {
+                        f32 v = (&p.x)[k];
+
+                        if (v - 0.5f * step[k] < b[k]) {
+                            b[k] = v - 0.5f * step[k];
+                        }
+                        if (v + 0.5f * step[k] > b[3 + k]) {
+                            b[3 + k] = v + 0.5f * step[k];
                         }
                     }
                 }
             }
         }
     }
+}
+
+/* More of the boxes, in table order, for about `budget` ns. */
+static void RegionBoxesStep(u64 budget) {
+    u64 t0 = SDL_GetTicksNS();
+
+    if (!RegionSetup()) {
+        return;
+    }
+    while (w.regionQ < w.numRegionBoxes) {
+        if (w.regionDone[w.regionQ] || GETP(GETP(WORLD()->quads)[w.regionQ].bsp) == NULL) {
+            w.regionDone[w.regionQ++] = 1;      /* (made for focus already, or no region: empty) */
+            w.regionY = 0;
+            continue;
+        }
+        RegionRows(w.regionQ, w.regionY, w.regionY + 1);
+        if (++w.regionY > REGION_NY) {
+            w.regionDone[w.regionQ++] = 1;
+            w.regionY = 0;
+        }
+        if (SDL_GetTicksNS() - t0 >= budget) {
+            break;
+        }
+    }
+}
+
+/* Quadrant q's box, complete now (focus). */
+static void RegionBoxNow(u32 q) {
+    if (!RegionSetup() || q >= w.numRegionBoxes || w.regionDone[q]) {
+        return;
+    }
+    if (q == w.regionQ) {
+        RegionRows(q, w.regionY, REGION_NY + 1);    /* (the rows not made yet) */
+        w.regionQ++;
+        w.regionY = 0;
+    } else {
+        RegionRows(q, 0, REGION_NY + 1);
+    }
+    w.regionDone[q] = 1;
 }
 
 /* The game's world processes, as StateGamePlay_Init adds them (not the
@@ -278,14 +347,16 @@ void ViewerWorld_Unload(void) {
     SDL_free(w.regionBox);
     w.regionBox = NULL;
     w.numRegionBoxes = 0;
-    w.regionsDone = 0;
+    SDL_free(w.regionDone);
+    w.regionDone = NULL;
+    w.regionsSet = 0;
     w.active = 0;
     Port_Log("viewer: world %s unloaded", w.name);
 }
 
 static int Load(const char *path, char *err, size_t errSize) {
     static char s_path[128];
-    u64 t0 = SDL_GetTicksNS();
+    u64 t0 = SDL_GetTicksNS(), pumped = t0;
     u32 steps = 0, i;
     s32 state = 0;
     World *wd;
@@ -302,6 +373,12 @@ static int Load(const char *path, char *err, size_t errSize) {
     do {
         state = LoadWorldProcess(s_path, 0);
         FileStreaming_HeartBeat();
+        if (SDL_GetTicksNS() - pumped > 50000000ull) {
+            /* the window's events taken in (queued for the next frame's pump), so the
+             * system doesn't take a long load for a hung program */
+            SDL_PumpEvents();
+            pumped = SDL_GetTicksNS();
+        }
     } while (state != 7 && state != 8 && ++steps < 0x100000);
     if (state != 7 || (wd = WORLD()) == NULL) {
         SDL_snprintf(err, errSize, "the world %s did not load (state %d; see the game's log)", path, (int)state);
@@ -319,7 +396,7 @@ static int Load(const char *path, char *err, size_t errSize) {
     SDL_strlcpy(w.name, LastPart(path), sizeof(w.name));
     AddProcesses();
     g_worldData.resetQuads = 1;
-    w.regionsDone = 0;          /* RegionBoxes: when first wanted */
+    w.regionsSet = 0;           /* the region boxes: when first wanted */
     w.vp = Viewer_AdoptPack(path, 4, 0, (DataPack *)PTR(g_worldData.worldPack));
     w.loadMs = (f32)((SDL_GetTicksNS() - t0) / 1000000.0);
     w.maxLoaded = 0;
@@ -470,13 +547,12 @@ static void Collect(void) {
     if (w.overlays & (OV_REGIONS | OV_LOADED)) {
         s32 cur = CameraQuad();
 
-        RegionBoxes();
-
+        /* (a box is drawn once complete: ViewerWorld_Overlays makes more of them each frame) */
         for (q = 0; q < w.numRegionBoxes; q++) {
             WorldQuad *quad = &GETP(wd->quads)[q];
             const f32 *b = w.regionBox[q];
 
-            if (b[0] > b[3]) {
+            if (!w.regionDone[q] || b[0] > b[3]) {
                 continue;
             }
             if ((s32)q == cur) {
@@ -642,6 +718,34 @@ static void Quads(const f32 *cam, f32 pxWorld, int dim) {
     }
 }
 
+/* What the overlays' lines are made from, besides the data (which only commands change:
+ * g_viewerChanges): Collect runs again only when this changed (it walked every edge,
+ * spawn and nav link each frame). */
+static u64 OverlayKey(void) {
+    World *wd = WORLD();
+    u64 h = 1469598103934665603ull;
+    u32 q, i, hooks = 0;
+
+#define MIX(v) (h = (h ^ (u64)(v)) * 1099511628211ull)
+    MIX(w.overlays);
+    for (i = 0; i < w.numHooks; i++) {
+        hooks |= (u32)(w.hooks[i].on != 0) << i;
+    }
+    MIX(hooks);
+    MIX(g_viewerChanges);
+    MIX((uintptr_t)wd);
+    if (w.overlays & (OV_REGIONS | OV_LOADED)) {
+        MIX((u32)CameraQuad());
+        MIX(w.regionQ);
+        MIX(w.regionsSet);
+        for (q = 0; (w.overlays & OV_LOADED) && q < wd->numQuads; q++) {
+            MIX((u32)(GETP(wd->quads)[q].loaded != 0) | (u32)(GETP(wd->quads)[q].visible != 0) << 1);
+        }
+    }
+#undef MIX
+    return h;
+}
+
 /* After the frame's scene (Gfx_EndScene): the overlays, in the camera's
  * projection: dimmed through what hides them, then bright where in front. */
 void ViewerWorld_Overlays(f32 fov) {
@@ -654,7 +758,22 @@ void ViewerWorld_Overlays(f32 fov) {
     if (!ViewerWorld_Active() || (w.overlays == 0 && !ViewerLevel_HasLines())) {
         return;
     }
-    Collect();
+    {
+        static u64 s_key;
+        static int s_have;
+        u64 key;
+
+        if (w.overlays & (OV_REGIONS | OV_LOADED)) {
+            RegionBoxesStep(REGION_BUDGET_NS);
+        }
+        key = OverlayKey();
+
+        if (!s_have || key != s_key) {
+            Collect();
+            s_key = key;
+            s_have = 1;
+        }
+    }
     if (s_numLines == 0) {
         return;
     }
@@ -878,7 +997,7 @@ int ViewerWorld_PlaceOf(u32 off, u32 size, f32 *pos, f32 *radius) {
                 SET(&GETP(qc->fxPoints)[i].pos, 3.0f);
             }
         }
-        if (HIT(&GETP(wd->quads)[q], sizeof(WorldQuad)) && (RegionBoxes(), q < w.numRegionBoxes) &&
+        if (HIT(&GETP(wd->quads)[q], sizeof(WorldQuad)) && (RegionBoxNow(q), q < w.numRegionBoxes) &&
             w.regionBox[q][0] <= w.regionBox[q][3]) {
             const f32 *b = w.regionBox[q];
             Vector4 c;

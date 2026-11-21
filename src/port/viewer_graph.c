@@ -434,6 +434,9 @@ void Viewer_FreeGraph(VPack *vp) {
     vp->slotKind = NULL;
     vp->owner = NULL;
     vp->refs = NULL;
+    SDL_free(vp->index);
+    vp->index = NULL;
+    vp->indexCap = vp->indexed = 0;
     vp->numNodes = vp->capNodes = vp->numRefs = 0;
 }
 
@@ -646,12 +649,59 @@ void Viewer_BuildGraph(VPack *vp) {
     SDL_free(cut);
 }
 
-VNode *Viewer_FindNode(VPack *vp, const char *id) {
-    u32 i;
+static u32 HashId(const char *id) {
+    u32 h = 2166136261u;
 
-    for (i = 0; i < vp->numNodes; i++) {
-        if (SDL_strcmp(vp->nodes[i].id, id) == 0) {
-            return &vp->nodes[i];
+    while (*id) {
+        h = (h ^ (u8)*id++) * 16777619u;
+    }
+    return h;
+}
+
+/* By id, through an open-addressed index of the nodes (made again when nodes were added
+ * since): inserted in node order, so of equal ids the first is found, as a walk would. */
+VNode *Viewer_FindNode(VPack *vp, const char *id) {
+    u32 i, mask;
+
+    if (vp->numNodes == 0) {
+        return NULL;
+    }
+    if (vp->index == NULL || vp->indexed != vp->numNodes) {
+        u32 cap = 64;
+
+        while (cap < vp->numNodes * 2) {
+            cap *= 2;
+        }
+        if (cap != vp->indexCap || vp->index == NULL) {
+            s32 *p = SDL_realloc(vp->index, cap * sizeof(s32));
+
+            if (p == NULL) {
+                for (i = 0; i < vp->numNodes; i++) {    /* (no memory for it: walked) */
+                    if (SDL_strcmp(vp->nodes[i].id, id) == 0) {
+                        return &vp->nodes[i];
+                    }
+                }
+                return NULL;
+            }
+            vp->index = p;
+            vp->indexCap = cap;
+        }
+        SDL_memset(vp->index, 0xFF, vp->indexCap * sizeof(s32));
+        mask = vp->indexCap - 1;
+        for (i = 0; i < vp->numNodes; i++) {
+            u32 h = HashId(vp->nodes[i].id) & mask;
+
+            while (vp->index[h] >= 0) {
+                h = (h + 1) & mask;
+            }
+            vp->index[h] = (s32)i;
+        }
+        vp->indexed = vp->numNodes;
+    }
+    mask = vp->indexCap - 1;
+    for (i = HashId(id) & mask; vp->index[i] >= 0; i = (i + 1) & mask) {
+        if (SDL_strcmp(vp->nodes[vp->index[i]].id, id) == 0) {
+            return &vp->nodes[vp->index[i]];
         }
     }
     return NULL;
