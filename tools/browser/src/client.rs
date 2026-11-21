@@ -88,6 +88,8 @@ impl Viewer {
         let token = o.token.clone().unwrap_or_else(new_token);
         cmd.env("HWVX_VIEWER", "0") // any free port, read back from the log
             .env("HWVX_VIEWER_TOKEN", &token)
+            // it quits once this is gone: a crashed or killed editor left hidden games running
+            .env("HWVX_VIEWER_PARENT", std::process::id().to_string())
             .env("HWVX_PREF_DIR", &o.pref)
             .env("HWVX_NO_DIALOG", "1")
             .env("HWVX_NO_MOVIE", "1")
@@ -101,6 +103,8 @@ impl Viewer {
             cmd.env("HWVX_VIEWER_WINDOW", "1");
         }
         let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", o.game.display()))?;
+        #[cfg(windows)]
+        kill_with_this(&child);
         let (tx, rx) = channel::<String>();
         let log = o.log_file.as_ref().and_then(|p| std::fs::File::create(p).ok());
         let log = std::sync::Arc::new(std::sync::Mutex::new(log));
@@ -296,6 +300,33 @@ impl Drop for Viewer {
     fn drop(&mut self) {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
         self.kill();
+    }
+}
+
+/// Windows: the game into a job that ends it when this process ends, however it ends (the job's
+/// handle is never closed: the system closes it with the process). HWVX_VIEWER_PARENT is the
+/// game's own check; this is the one that needs nothing from the game.
+#[cfg(windows)]
+fn kill_with_this(child: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::JobObjects::*;
+    static JOB: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let job = *JOB.get_or_init(|| unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return 0;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let size = std::mem::size_of_val(&info) as u32;
+        if SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info as *const _ as *const _, size) == 0 {
+            windows_sys::Win32::Foundation::CloseHandle(job);
+            return 0;
+        }
+        job as usize
+    });
+    if job != 0 {
+        unsafe { AssignProcessToJobObject(job as _, child.as_raw_handle() as _) };
     }
 }
 
