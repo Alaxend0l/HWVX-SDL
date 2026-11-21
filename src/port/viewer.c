@@ -274,11 +274,33 @@ static void PackTypeName(int type, char *out, size_t size) {
     }
 }
 
-/* A pack file's packs, from its table of contents, read as the loader does. */
+/* `packs`: the data folder's pack files, each one's table of contents read as the loader
+ * does. Kept between calls (each read opened every file): a file whose path, size and
+ * modification time are as they were keeps its list, unless a file of the same archive name
+ * came, changed or went (the game opens an archive by name, and might now open another of
+ * them: foo.xgc over foo.xpc). Read afresh with another data folder, or a mixed build's
+ * (mix.c opens its files from the releases' folders, not this one). */
+typedef struct TocFile {
+    char *path;                 /* as found */
+    char *archive;              /* the name the game asks for */
+    SDL_Time mtime;
+    Uint64 size;
+    int fmt;
+    u32 count;
+    u32 *entries;               /* count {type, id} */
+} TocFile;
+
+typedef struct TocList {
+    TocFile *files;
+    u32 num, cap;
+} TocList;
+
+static TocList s_toc;
+static char *s_tocDir;          /* the data folder s_toc is of */
+
 typedef struct ListScan {
-    JsonWriter *w;
+    TocList found;              /* this walk's files (no entries yet) */
     size_t rootLen;
-    int count;
 } ListScan;
 
 static const char *const s_packExts[] = { ".xgc", ".xpc", ".xps" };
@@ -314,41 +336,64 @@ static FileTOCEntry *ReadToc(const char *archive, s32 *fd, int *fmt, u32 *count)
     return NULL;
 }
 
-static void ListArchive(ListScan *scan, const char *archive) {
+static void FreeToc(TocList *l) {
+    u32 i;
+
+    for (i = 0; i < l->num; i++) {
+        SDL_free(l->files[i].path);
+        SDL_free(l->files[i].archive);
+        SDL_free(l->files[i].entries);
+    }
+    SDL_free(l->files);
+    SDL_zerop(l);
+}
+
+/* The archive's table of contents into tf (none: count 0). */
+static void ReadArchive(TocFile *tf) {
     u32 count, i;
     FileTOCEntry *toc;
-    char type[24], name[64];
     s32 fd;
     int fmt;
 
-    toc = ReadToc(archive, &fd, &fmt, &count);
+    tf->count = 0;
+    tf->entries = NULL;
+    toc = ReadToc(tf->archive, &fd, &fmt, &count);
     if (toc == NULL) {
         return;
     }
-    for (i = 0; i < count; i++) {
-        FileTOCEntry *e = &toc[i];
-        VPack *vp;
-        const char *last = SDL_strrchr(archive, '/');
-        char full[200];
-
-        PackTypeName((int)e->type, type, sizeof(type));
-        SDL_snprintf(name, sizeof(name), "%s_%u", type, e->id);
-        SDL_snprintf(full, sizeof(full), "%s/%s", last != NULL ? last + 1 : archive, name);
-        vp = FindPack(full);
-        Jw_BeginObject(scan->w, NULL, 1);
-        Jw_String(scan->w, "archive", archive);
-        Jw_String(scan->w, "name", name);
-        Jw_String(scan->w, "type", type);
-        Jw_Int(scan->w, "typeId", e->type);
-        Jw_Int(scan->w, "id", e->id);
-        Jw_String(scan->w, "release", fmt == PORT_DATA_PC ? "pc" : fmt == PORT_DATA_PS2 ? "ps2" : "gc");
-        Jw_String(scan->w, "pack", full);
-        Jw_Bool(scan->w, "loaded", vp != NULL);
-        Jw_EndObject(scan->w);
-        scan->count++;
+    tf->fmt = fmt;
+    tf->entries = SDL_malloc((count ? count : 1) * 2 * sizeof(u32));
+    for (i = 0; tf->entries != NULL && i < count; i++) {
+        tf->entries[i * 2] = toc[i].type;
+        tf->entries[i * 2 + 1] = toc[i].id;
     }
+    tf->count = tf->entries != NULL ? count : 0;
     SDL_free(toc);
     File_Close(fd);
+}
+
+static void WriteArchive(JsonWriter *w, const TocFile *tf) {
+    const char *archive = tf->archive, *last = SDL_strrchr(archive, '/');
+    u32 i;
+
+    for (i = 0; i < tf->count; i++) {
+        u32 type = tf->entries[i * 2], id = tf->entries[i * 2 + 1];
+        char typeName[24], name[64], full[200];
+
+        PackTypeName((int)type, typeName, sizeof(typeName));
+        SDL_snprintf(name, sizeof(name), "%s_%u", typeName, id);
+        SDL_snprintf(full, sizeof(full), "%s/%s", last != NULL ? last + 1 : archive, name);
+        Jw_BeginObject(w, NULL, 1);
+        Jw_String(w, "archive", archive);
+        Jw_String(w, "name", name);
+        Jw_String(w, "type", typeName);
+        Jw_Int(w, "typeId", type);
+        Jw_Int(w, "id", id);
+        Jw_String(w, "release", tf->fmt == PORT_DATA_PC ? "pc" : tf->fmt == PORT_DATA_PS2 ? "ps2" : "gc");
+        Jw_String(w, "pack", full);
+        Jw_Bool(w, "loaded", FindPack(full) != NULL);
+        Jw_EndObject(w);
+    }
 }
 
 /* The two share packs a pack's header names (its refs), read from the file
@@ -399,12 +444,15 @@ void Viewer_ForgetShares(void) {
 
 /* 0: a share pack it needs could not be loaded (the game has 3 share slots and the
  * viewer keeps what it loaded until the world goes): the pack's own load would then
- * find the share missing and dereference NULL (DataGamePackLoad.c) */
-static int LoadShares(const char *archive, int type, u32 id, int depth) {
+ * find the share missing and dereference NULL (DataGamePackLoad.c). known: the pack's refs
+ * when its header was read already (load), else NULL */
+static int LoadShares(const char *archive, int type, u32 id, int depth, const DataPackRef *known) {
     DataPackRef refs[2];
     int r, k, ok = 1;
 
-    if (depth > 3 || !PackRefs(archive, type, id, refs, NULL)) {
+    if (known != NULL) {
+        SDL_memcpy(refs, known, sizeof(refs));
+    } else if (depth > 3 || !PackRefs(archive, type, id, refs, NULL)) {
         return 1;
     }
     for (r = 0; r < 2; r++) {
@@ -427,7 +475,7 @@ static int LoadShares(const char *archive, int type, u32 id, int depth) {
             ok = 0;
             continue;
         }
-        ok &= LoadShares(name, 8, refs[r].id, depth + 1);
+        ok &= LoadShares(name, 8, refs[r].id, depth + 1, NULL);
         SDL_strlcpy(s_shareNames[s_numShares], name, sizeof(s_shareNames[0]));
         s_shareIds[s_numShares] = refs[r].id;
         if (FileStreaming_LoadDataPack(s_shareNames[s_numShares], 8, refs[r].id, 0) >= 0) {
@@ -457,15 +505,38 @@ static SDL_EnumerationResult SDLCALL ListEntry(void *userdata, const char *dir, 
                 /* the name the game asks for: from the data folder, no extension;
                  * the PS2 disc's XPS/ENGLISH/ is where dvd.c looks by itself */
                 char *archive = path + scan->rootLen;
+                TocList *l = &scan->found;
 
                 while (*archive == '/' || *archive == '\\') {
                     archive++;
                 }
+                archive = SDL_strdup(archive);
+                if (archive == NULL) {
+                    break;
+                }
                 archive[SDL_strlen(archive) - 4] = '\0';
                 if (SDL_strncasecmp(archive, "XPS/ENGLISH/", 12) == 0) {
-                    archive += 12;
+                    SDL_memmove(archive, archive + 12, SDL_strlen(archive + 12) + 1);
                 }
-                ListArchive(scan, archive);
+                if (l->num == l->cap) {
+                    u32 cap = l->cap ? l->cap * 2 : 256;
+                    TocFile *p = SDL_realloc(l->files, cap * sizeof(TocFile));
+
+                    if (p == NULL) {
+                        SDL_free(archive);
+                        break;
+                    }
+                    l->files = p;
+                    l->cap = cap;
+                }
+                SDL_zero(l->files[l->num]);
+                l->files[l->num].path = path;
+                l->files[l->num].archive = archive;
+                l->files[l->num].mtime = info.modify_time;
+                l->files[l->num].size = info.size;
+                l->num++;
+                path = NULL;    /* (the list's now) */
+                break;
             }
         }
     }
@@ -473,16 +544,98 @@ static SDL_EnumerationResult SDLCALL ListEntry(void *userdata, const char *dir, 
     return SDL_ENUM_CONTINUE;
 }
 
+static int InList(char **names, u32 num, const char *name) {
+    u32 i;
+
+    for (i = 0; i < num; i++) {
+        if (SDL_strcasecmp(names[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int CmdPacks(JsonWriter *w, char *err, size_t errSize) {
-    ListScan scan = { w, SDL_strlen(g_port.dataDir), 0 };
+    extern int Port_MixActive(void);
+    ListScan scan;
     SDL_PathInfo info;
+    char **stale;
+    s32 *match;         /* per file found: its s_toc entry, or -1 */
+    u8 *kept;           /* per s_toc entry: found again */
+    u32 numStale = 0, i, k, hint = 0;
 
     if (!SDL_GetPathInfo(g_port.dataDir, &info) || info.type != SDL_PATHTYPE_DIRECTORY) {
         SDL_snprintf(err, errSize, "the packs of a disc image can't be listed: extract its files and pass the folder");
         return 0;
     }
-    Jw_BeginArray(w, "packs", 0);
+    SDL_zero(scan);
+    scan.rootLen = SDL_strlen(g_port.dataDir);
     SDL_EnumerateDirectory(g_port.dataDir, ListEntry, &scan);
+    if (s_tocDir == NULL || SDL_strcmp(s_tocDir, g_port.dataDir) != 0 || Port_MixActive()) {
+        FreeToc(&s_toc);
+        SDL_free(s_tocDir);
+        s_tocDir = SDL_strdup(g_port.dataDir);
+    }
+    stale = SDL_malloc((scan.found.num + s_toc.num + 1) * sizeof(char *));
+    match = SDL_malloc((scan.found.num + 1) * sizeof(s32));
+    kept = SDL_calloc(s_toc.num + 1, 1);
+    if (stale == NULL || match == NULL || kept == NULL) {
+        FreeToc(&s_toc);        /* (no memory to compare: every file read) */
+        SDL_free(stale);
+        SDL_free(match);
+        SDL_free(kept);
+        stale = NULL;
+        match = NULL;
+        kept = NULL;
+    }
+    /* the archive names whose files came, changed or went: read again */
+    for (i = 0; match != NULL && i < scan.found.num; i++) {
+        TocFile *f = &scan.found.files[i];
+
+        match[i] = -1;
+        for (k = 0; k < s_toc.num; k++) {
+            u32 j = (hint + k) % s_toc.num;     /* (a walk's order is the last one's) */
+
+            if (!kept[j] && SDL_strcmp(s_toc.files[j].path, f->path) == 0) {
+                match[i] = (s32)j;
+                kept[j] = 1;
+                hint = j + 1;
+                break;
+            }
+        }
+        if (match[i] < 0 || s_toc.files[match[i]].mtime != f->mtime || s_toc.files[match[i]].size != f->size ||
+            SDL_strcmp(s_toc.files[match[i]].archive, f->archive) != 0) {
+            stale[numStale++] = f->archive;
+        }
+    }
+    for (i = 0; kept != NULL && i < s_toc.num; i++) {
+        if (!kept[i]) {
+            stale[numStale++] = s_toc.files[i].archive;
+        }
+    }
+    /* the walk's files with their lists: kept, or read */
+    for (i = 0; i < scan.found.num; i++) {
+        TocFile *f = &scan.found.files[i];
+        TocFile *t = match != NULL && match[i] >= 0 ? &s_toc.files[match[i]] : NULL;
+
+        if (t != NULL && t->entries != NULL && !InList(stale, numStale, f->archive)) {
+            f->fmt = t->fmt;
+            f->count = t->count;
+            f->entries = t->entries;
+            t->entries = NULL;      /* (moved) */
+        } else {
+            ReadArchive(f);
+        }
+    }
+    SDL_free(stale);    /* (its names were the old and new lists' own) */
+    SDL_free(match);
+    SDL_free(kept);
+    FreeToc(&s_toc);
+    s_toc = scan.found;
+    Jw_BeginArray(w, "packs", 0);
+    for (i = 0; i < s_toc.num; i++) {
+        WriteArchive(w, &s_toc.files[i]);
+    }
     Jw_EndArray(w);
     return 1;
 }
@@ -1239,7 +1392,7 @@ static int CmdLoad(JsonWriter *w, const JsonNode *req, char *err, size_t errSize
         }
     }
     ViewerMedia_BeforeLoad(songBank != 0);
-    if (!LoadShares(vp->archive, type, (u32)id, 0)) {
+    if (!LoadShares(vp->archive, type, (u32)id, 0, refs)) {   /* (refs: PackRefs read them above) */
         SDL_snprintf(err, errSize, "%s %s pack %lld: a share pack it needs could not be loaded (the share slots are full; "
                      "load a world, or restart the viewer, to free them)", archive, g_viewerTypeNames[type], id);
         return 0;
