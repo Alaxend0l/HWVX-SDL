@@ -44,6 +44,8 @@ typedef int Sock;
 #define PROTOCOL_VERSION 1
 #define MAX_DRAWN 512           /* geometries side by side */
 #define MAX_BONES 64
+#define SKIN_MATRICES 40        /* Gfx_Anim.c matrixlookup: the most a skinned draw loads */
+#define SKIN_SLOTS 8            /* the bone slots a skinned level's vertices use (Render_DrawGroupIndexed) */
 #define MAX_LINE (1u << 20)     /* a request line's longest */
 #define PENDING_MS 3000         /* a newcomer's time to say hello while a client is served */
 
@@ -578,18 +580,19 @@ static void DrawOne(Geometry *g, Matrix4 *m, f32 *min, f32 *max) {
         return;
     }
     if (g->skipDraw != 0) {
-        /* skinned: every bone where the geometry stands */
+        /* skinned: every bone slot its vertices can use (the renderer reads SKIN_SLOTS: a level's
+         * vertices are sorted by bone, Render_DrawGroupIndexed) where the geometry stands */
         u32 i;
         Matrix4 *bones;
 
-        if (s.numMatrices + 8 >= MATRIX_POOL) {
+        if (s.numMatrices + SKIN_SLOTS >= MATRIX_POOL) {
             return;
         }
         bones = &s.matrices[s.numMatrices];
-        for (i = 0; i < 8; i++) {
+        for (i = 0; i < SKIN_SLOTS; i++) {
             *NextMatrix() = *m;
         }
-        Gfx_DrawAnimGeometryAux(g, (f32 *)bones, 8, NULL);
+        Gfx_DrawAnimGeometryAux(g, (f32 *)bones, SKIN_SLOTS, NULL);
     } else {
         Gfx_DrawGeometry_MatrixNotCached((s32)HND(g), (s32)HND(m));
     }
@@ -619,7 +622,8 @@ static void DrawModel(VPack *vp, MotionAnim *model, f32 *min, f32 *max, const Ma
         Geometry *g = InPack(vp, GETP(GETP(model->geoms)[i]), sizeof(Geometry));
 
         if (g != NULL) {
-            Gfx_DrawAnimGeometryAux(g, (f32 *)bones, numBones, NULL);
+            /* (a malformed skeleton of more bones: the first ones; matrixlookup has no more) */
+            Gfx_DrawAnimGeometryAux(g, (f32 *)bones, numBones < SKIN_MATRICES ? numBones : SKIN_MATRICES, NULL);
             Grow(min, max, &bones[0], g);
             s.drawn++;
         }
@@ -805,10 +809,58 @@ static void FlyMove(f32 fwd, f32 right, f32 up, f32 dt, int fast) {
     s.flyPos.z += (c->dir.z * fwd - c->right.z * right) * k + g_jBasis.z * up * k;
 }
 
+/* The camera's numbers as protocol input or the mouse left them: back to `before` when
+ * one isn't finite (a NaN or an infinity spreads to every frame after it), and distance,
+ * fly speed and places held to what the view can use. 0: restored. */
+typedef struct CamSnap {
+    f32 yaw, pitch, distance, fov, flySpeed;
+    Vector4 target, flyPos;
+    int fly, spin;
+} CamSnap;
+
+static void CamSave(CamSnap *c) {
+    c->yaw = s.yaw, c->pitch = s.pitch, c->distance = s.distance, c->fov = s.fov, c->flySpeed = s.flySpeed;
+    c->target = s.target, c->flyPos = s.flyPos;
+    c->fly = s.fly, c->spin = s.spin;
+}
+
+static f32 Clamp(f32 v, f32 lo, f32 hi) {
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+static int CamSane(const CamSnap *before) {
+    const f32 far = 1e7f;
+    int k;
+
+    if (!(isfinite(s.yaw) && isfinite(s.pitch) && isfinite(s.distance) && isfinite(s.fov) && isfinite(s.flySpeed) &&
+          isfinite(s.target.x) && isfinite(s.target.y) && isfinite(s.target.z) && isfinite(s.flyPos.x) &&
+          isfinite(s.flyPos.y) && isfinite(s.flyPos.z))) {
+        s.yaw = before->yaw, s.pitch = before->pitch, s.distance = before->distance, s.fov = before->fov;
+        s.flySpeed = before->flySpeed, s.target = before->target, s.flyPos = before->flyPos;
+        s.fly = before->fly, s.spin = before->spin;
+        return 0;
+    }
+    if (s.yaw > 1e6f || s.yaw < -1e6f) {
+        s.yaw = (f32)fmod(s.yaw, 6.283185307);   /* (sin and cos keep their precision) */
+    }
+    s.distance = Clamp(s.distance, 0.05f, 1e6f);
+    if (s.flySpeed != 0.0f) {
+        s.flySpeed = Clamp(s.flySpeed, 0.01f, 1e6f);    /* (0: not set yet, SetFly picks one) */
+    }
+    for (k = 0; k < 3; k++) {
+        (&s.target.x)[k] = Clamp((&s.target.x)[k], -far, far);
+        (&s.flyPos.x)[k] = Clamp((&s.flyPos.x)[k], -far, far);
+    }
+    return 1;
+}
+
 /* The mouse in the game's window: drag to orbit, right drag or shift to
  * pan, the wheel to zoom. Watched, so the event pump (vi.c) is as it was. */
 static bool SDLCALL MouseWatch(void *userdata, SDL_Event *ev) {
+    CamSnap before;
+
     (void)userdata;
+    CamSave(&before);
     if (ev->type == SDL_EVENT_MOUSE_MOTION && (ev->motion.state & (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK))) {
         if ((ev->motion.state & SDL_BUTTON_RMASK) || (SDL_GetModState() & SDL_KMOD_SHIFT)) {
             f32 k = s.distance * 0.0015f;
@@ -831,6 +883,7 @@ static bool SDLCALL MouseWatch(void *userdata, SDL_Event *ev) {
             s.distance *= (f32)pow(0.9, ev->wheel.y);
         }
     }
+    CamSane(&before);
     return true;
 }
 
@@ -1516,7 +1569,9 @@ static void Dispatch(const JsonNode *req) {
          * spin); orbit: steps (dyaw, dpitch in degrees, zoom a factor, pan in
          * screen directions, in units of the distance) */
         const JsonNode *target = Json_Get(req, "target"), *pan = Json_Get(req, "pan");
+        CamSnap before;
 
+        CamSave(&before);
         if (cmd[0] == 'c') {
             s.yaw = (f32)Json_GetNumber(req, "yaw", s.yaw * 57.29578f) * 0.017453292f;
             s.pitch = (f32)Json_GetNumber(req, "pitch", s.pitch * 57.29578f) * 0.017453292f;
@@ -1559,7 +1614,12 @@ static void Dispatch(const JsonNode *req) {
             }
         }
         s.spin = Json_GetBool(req, "spin", cmd[0] == 'c' ? s.spin : 0);
-        WriteCamera(&w);
+        if (!CamSane(&before)) {
+            SDL_snprintf(err, sizeof(err), "%s: the numbers must be finite (the camera is as it was)", cmd);
+            ok = 0;
+        } else {
+            WriteCamera(&w);
+        }
     } else if (SDL_strcmp(cmd, "background") == 0) {
         const JsonNode *c = Json_Get(req, "color");
 
@@ -1614,7 +1674,9 @@ static void Dispatch(const JsonNode *req) {
         /* the pointer and keys over the browser's picture: events, in image pixels */
         const JsonNode *events = Json_Get(req, "events");
         int h = (int)Json_GetNumber(req, "height", 0.0), ew, eh, k;
+        CamSnap before;
 
+        CamSave(&before);
         GX_DrawEfbSize(&ew, &eh);
         if (h <= 0) {
             h = eh;
@@ -1650,6 +1712,10 @@ static void Dispatch(const JsonNode *req) {
                 SDL_snprintf(err, sizeof(err), "an input event is drag, wheel, move or key, not %.40s", type);
                 ok = 0;
             }
+        }
+        if (!CamSane(&before)) {
+            SDL_snprintf(err, sizeof(err), "input: the numbers must be finite (the camera is as it was)");
+            ok = 0;
         }
         WriteCamera(&w);
     } else if (SDL_strcmp(cmd, "pick") == 0) {
