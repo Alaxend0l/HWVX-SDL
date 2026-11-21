@@ -34,6 +34,9 @@ pub enum Sel {
     Base(String, String),
 }
 
+/// "keep them"'s job: the project's folder, and the triggers that count its collectibles.
+type KeepJob = (PathBuf, Receiver<Result<Vec<i64>, String>>);
+
 /// A drag's steps at most this often (drag_place).
 const DRAG_STEP: Duration = Duration::from_millis(33);
 
@@ -142,7 +145,7 @@ pub struct EditState {
     pub new_making: Option<Receiver<Result<PathBuf, String>>>,
     /// "keep them" on a template level: the project (its folder) and the base triggers that count
     /// its collectibles, found on another thread (the world extracted the first time)
-    pub keep_making: Option<(PathBuf, Receiver<Result<Vec<i64>, String>>)>,
+    pub keep_making: Option<KeepJob>,
     /// (--new-level) the "on" list opens once
     pub new_open_on: bool,
     /// the menu's File > New level: the dialog opens (once)
@@ -1148,10 +1151,11 @@ impl Browser {
     /// edit generation (the inspector asks every frame; every trigger is written out for it).
     pub(crate) fn uses_of(&mut self, link: &str) -> std::rc::Rc<Vec<String>> {
         let g = self.level.edit.generation;
-        if let Some((cg, cl, uses)) = &self.level.edit.uses {
-            if *cg == g && cl == link {
-                return uses.clone();
-            }
+        if let Some((cg, cl, uses)) = &self.level.edit.uses
+            && *cg == g
+            && cl == link
+        {
+            return uses.clone();
         }
         let Some(p) = self.level.edit.proj.as_ref() else { return Default::default() };
         let (whole, under) = (format!("\"{link}\""), format!("\"{link}/"));
@@ -1290,10 +1294,10 @@ impl Browser {
         let moved = self.level.edit.drag_at.take().is_some();
         self.level.edit.drag_undo = 0;
         self.level.edit.axis_drag = None;
-        if let (true, Some(Sel::Own(k, n)), Some((c, _))) = (moved, self.level.edit.sel.clone(), self.sel_place()) {
-            if k == "items" || k == "fxPoints" {
-                self.item_quad(&k, &n, c);
-            }
+        if let (true, Some(Sel::Own(k, n)), Some((c, _))) = (moved, self.level.edit.sel.clone(), self.sel_place())
+            && (k == "items" || k == "fxPoints")
+        {
+            self.item_quad(&k, &n, c);
         }
     }
 
