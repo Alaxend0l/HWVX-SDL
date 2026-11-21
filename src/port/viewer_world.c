@@ -541,7 +541,7 @@ static void Collect(void) {
     if (w.overlays & (OV_REGIONS | OV_LOADED)) {
         s32 cur = CameraQuad();
 
-        RegionBoxesStep(REGION_BUDGET_NS);  /* (a box is drawn once complete) */
+        /* (a box is drawn once complete: ViewerWorld_Overlays makes more of them each frame) */
         for (q = 0; q < w.numRegionBoxes; q++) {
             WorldQuad *quad = &GETP(wd->quads)[q];
             const f32 *b = w.regionBox[q];
@@ -712,6 +712,34 @@ static void Quads(const f32 *cam, f32 pxWorld, int dim) {
     }
 }
 
+/* What the overlays' lines are made from, besides the data (which only commands change:
+ * g_viewerChanges): Collect runs again only when this changed (it walked every edge,
+ * spawn and nav link each frame). */
+static u64 OverlayKey(void) {
+    World *wd = WORLD();
+    u64 h = 1469598103934665603ull;
+    u32 q, i, hooks = 0;
+
+#define MIX(v) (h = (h ^ (u64)(v)) * 1099511628211ull)
+    MIX(w.overlays);
+    for (i = 0; i < w.numHooks; i++) {
+        hooks |= (u32)(w.hooks[i].on != 0) << i;
+    }
+    MIX(hooks);
+    MIX(g_viewerChanges);
+    MIX((uintptr_t)wd);
+    if (w.overlays & (OV_REGIONS | OV_LOADED)) {
+        MIX((u32)CameraQuad());
+        MIX(w.regionQ);
+        MIX(w.regionsSet);
+        for (q = 0; (w.overlays & OV_LOADED) && q < wd->numQuads; q++) {
+            MIX((u32)(GETP(wd->quads)[q].loaded != 0) | (u32)(GETP(wd->quads)[q].visible != 0) << 1);
+        }
+    }
+#undef MIX
+    return h;
+}
+
 /* After the frame's scene (Gfx_EndScene): the overlays, in the camera's
  * projection: dimmed through what hides them, then bright where in front. */
 void ViewerWorld_Overlays(f32 fov) {
@@ -724,7 +752,22 @@ void ViewerWorld_Overlays(f32 fov) {
     if (!ViewerWorld_Active() || (w.overlays == 0 && !ViewerLevel_HasLines())) {
         return;
     }
-    Collect();
+    {
+        static u64 s_key;
+        static int s_have;
+        u64 key;
+
+        if (w.overlays & (OV_REGIONS | OV_LOADED)) {
+            RegionBoxesStep(REGION_BUDGET_NS);
+        }
+        key = OverlayKey();
+
+        if (!s_have || key != s_key) {
+            Collect();
+            s_key = key;
+            s_have = 1;
+        }
+    }
     if (s_numLines == 0) {
         return;
     }

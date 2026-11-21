@@ -94,6 +94,7 @@ void ViewerFrames_EndFrame(u32 frame);
 void ViewerFrames_WriteInfo(JsonWriter *w);    /* the `frames` reply's keys */
 void ViewerFrames_WriteStats(JsonWriter *w);   /* "frames": {...} */
 void ViewerFrames_Shutdown(void);
+int ViewerFrames_Still(u32 since);             /* a still scene: nothing a frame drawn now would add */
 
 /* A shared memory block for the browser (viewer_frames.c): POSIX shm_open
  * "/hwvx-<tag>" (mode 0600) or a Windows named mapping "Local\hwvx-<tag>". */
@@ -121,6 +122,9 @@ void ViewerMedia_Shutdown(void);
  * "ARCHIVE/TYPE_ID" (base:// allowed), or NULL; *vp: the viewer's pack, if it is one. */
 DataPack *Viewer_FindDataPack(const char *name, VPack **vp);
 VPack *Viewer_ShownPack(void);     /* viewer.c: the pack shown, or NULL */
+
+/* viewer.c: bumped by each command that may change what is shown (not the read-only ones) */
+extern u32 g_viewerChanges;
 
 /* viewer.c, for viewer_world.c */
 void Viewer_UnloadAll(void);                    /* every viewer pack */

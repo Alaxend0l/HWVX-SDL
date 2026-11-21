@@ -18,6 +18,7 @@
 #include "CarA.h"
 #include "Motion.h"
 #include "Port_Content.h"
+#include "Shader.h"
 #include <math.h>
 
 #ifdef _WIN32
@@ -48,6 +49,7 @@ typedef int Sock;
 #define SKIN_SLOTS 8            /* the bone slots a skinned level's vertices use (Render_DrawGroupIndexed) */
 #define MAX_LINE (1u << 20)     /* a request line's longest */
 #define PENDING_MS 3000         /* a newcomer's time to say hello while a client is served */
+#define STILL_REDRAW 15         /* frames: a still preview is drawn again this often (4 a second at 60) */
 
 #ifdef MSG_NOSIGNAL
 #define SEND_FLAGS MSG_NOSIGNAL /* a closed client is an error, not SIGPIPE (Linux; SO_NOSIGPIPE elsewhere) */
@@ -56,6 +58,7 @@ typedef int Sock;
 #endif
 
 VPack g_viewerPacks[VIEWER_MAX_PACKS];
+u32 g_viewerChanges;
 
 const char *const g_viewerTypeNames[11] = {
     "car", "interface", "item", "link", "world", "collision", "world_texture", "geometry", "share", "audio", "music",
@@ -104,6 +107,10 @@ static struct {
     int shotHasId;
     int shotWait;               /* frames to draw before it */
     u32 frame;
+    u32 changes;                /* g_viewerChanges as the frame `changedAt` saw it */
+    u32 changedAt;              /* the frame since which the scene is as it is */
+    u32 drawnFrame;             /* the last frame drawn */
+    int haveDrawn;
 } s = { -1 };
 
 #define MATRIX_POOL (MAX_DRAWN + 24 * MAX_BONES + 8)   /* a world's tile cars too */
@@ -1029,12 +1036,16 @@ static bool SDLCALL MouseWatch(void *userdata, SDL_Event *ev) {
             s.pitch += ev->motion.yrel * k;
             s.spin = 0;
         }
+        g_viewerChanges++;      /* (drawn again) */
     } else if (ev->type == SDL_EVENT_MOUSE_WHEEL) {
         if (s.fly) {
             s.flySpeed *= (f32)pow(1.25, ev->wheel.y);
         } else {
             s.distance *= (f32)pow(0.9, ev->wheel.y);
         }
+        g_viewerChanges++;      /* (drawn again) */
+    } else {
+        return true;
     }
     CamSane(&before);
     return true;
@@ -1608,6 +1619,18 @@ static void Dispatch(const JsonNode *req) {
         Jw_Node(&w, "seq", idNode);
     }
     Jw_Bool(&w, "ok", 1);
+    {
+        /* what a command may change is drawn again (Port_ViewerFrame skips a still scene) */
+        static const char *const reads[] = { "hello", "packs", "loaded", "outline", "interfaces", "schema",
+                                             "get", "status", "worlds", "raycast" };
+        size_t k;
+
+        for (k = 0; k < SDL_arraysize(reads) && SDL_strcmp(cmd, reads[k]) != 0; k++) {
+        }
+        if (k == SDL_arraysize(reads)) {
+            g_viewerChanges++;
+        }
+    }
     if (SDL_strcmp(cmd, "hello") == 0) {
         static const char *const releases[] = { "gc", "pc", "ps2" };
 
@@ -2490,6 +2513,27 @@ s32 Port_ViewerStart(void) {
     return 1;
 }
 
+/* Something drawn moves by itself: a shader of one of the shown pack's geometries (only
+ * they are drawn here; a share pack's stay loaded with theirs) has keys (colour, scroll,
+ * texture flips) or plays a movie (ShaderHolder_Heartbeat). */
+static int Animating(void) {
+    extern ShaderHolder *g_pShaderHolder;
+    const u8 *base = s.shown != NULL && s.shown->pack != NULL ? (const u8 *)GETP(s.shown->pack->base) : NULL;
+    u32 i;
+
+    for (i = 0; base != NULL && g_pShaderHolder != NULL && i < g_pShaderHolder->numGX &&
+                i < SDL_arraysize(g_pShaderHolder->gx); i++) {
+        Shader *sh = GETP(g_pShaderHolder->gx[i].shader);
+        const u8 *gx = (const u8 *)GETP(g_pShaderHolder->gx[i].gx);
+
+        if (sh != NULL && gx >= base && gx < base + s.shown->size &&
+            (sh->hasColorKey || sh->hasPointKey || sh->hasTextureKey || (GETP(sh->def) != NULL && GETP(sh->def)->isMovie))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 s32 Port_ViewerFrame(void) {
     extern GXColor m_clearColor;
     static const GXColor white = { 0xFF, 0xFF, 0xFF, 0xFF };
@@ -2511,11 +2555,23 @@ s32 Port_ViewerFrame(void) {
     ProcessManager_Heartbeat(0);
     FileStreaming_HeartBeat();
     ShaderHolder_Heartbeat();
-    if (Port_ViewerHeadless() && !ViewerFrames_On() && s.shotPath == NULL && !ViewerWorld_Active()) {
+    if (g_viewerChanges != s.changes) {
+        s.changes = g_viewerChanges;
+        s.changedAt = s.frame;
+    }
+    if (Port_ViewerHeadless() && s.shotPath == NULL && !ViewerWorld_Active() &&
+        (!ViewerFrames_On() ||
+         (!s.spin && !s_frameNext && s.haveDrawn && (s32)(s.drawnFrame - s.changedAt) >= 0 && !Animating() &&
+          !IsLoadingThreadRunning() && s.frame - s.drawnFrame < STILL_REDRAW && ViewerFrames_Still(s.changedAt)))) {
         /* nothing would see the frame (the window hidden, no frames shared, no shot):
          * not drawn; the heartbeats above run and the retrace paces as a drawn frame's.
          * (A world is drawn still: World_Render is also what streams its quadrants
-         * around the camera, which status, pick and the shots after a move rely on.) */
+         * around the camera, which status, pick and the shots after a move rely on.)
+         * Frames shared: not drawn either while the scene is still (no command or mouse
+         * changed it, nothing spins or animates) and the browser has the frame drawn
+         * since, or hasn't taken the last ones (L8: a still preview drew and read back
+         * every frame); one every STILL_REDRAW frames still, so frames keep coming (a
+         * client may wait for the next one) at a few a second. */
         Performance_End();
         VIWaitForRetrace();
         s.frame++;
@@ -2589,6 +2645,8 @@ s32 Port_ViewerFrame(void) {
     } else {
         ShowStats_EndScene();
     }
+    s.drawnFrame = s.frame;
+    s.haveDrawn = 1;
     s.frame++;
     return 1;
 }

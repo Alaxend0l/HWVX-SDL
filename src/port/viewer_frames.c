@@ -421,3 +421,35 @@ void ViewerFrames_EndFrame(u32 frame) {
 void ViewerFrames_Shutdown(void) {
     ViewerFrames_Stop();
 }
+
+/* For a still scene (Port_ViewerFrame skips drawing it): publishes the readbacks the GPU
+ * has finished (none started), and 1 when a frame drawn now would add nothing: the newest
+ * frame published, or one in flight, was drawn at `since` or later (at this size), or the
+ * browser hasn't taken what it has (no readback would start). */
+int ViewerFrames_Still(u32 since) {
+    FrameHeader *hd;
+    const FrameSlot *sl;
+    int k;
+
+    if (!f.on || f.shm.base == NULL) {
+        return 0;
+    }
+    hd = Header();
+    while (f.numPending > 0) {
+        f.pendingFrameOut = f.pendingFrame[0];
+        if (!Publish(0)) {
+            break;
+        }
+    }
+    for (k = 0; k < f.numPending; k++) {
+        if ((s32)(f.pendingFrame[k] - since) >= 0 && f.pendingW[k] == f.w && f.pendingH[k] == f.h) {
+            return 1;
+        }
+    }
+    SDL_MemoryBarrierAcquire();
+    if (hd->published + (u32)f.numPending - hd->consumed > 1) {   /* (as ViewerFrames_EndFrame starts none) */
+        return 1;
+    }
+    sl = &hd->slot[hd->latest];
+    return hd->published != 0 && (s32)(sl->frame - since) >= 0 && sl->width == (u32)f.w && sl->height == (u32)f.h;
+}
