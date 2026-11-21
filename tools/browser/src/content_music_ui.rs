@@ -7,11 +7,10 @@
 use crate::{Browser, Pending};
 use eframe::egui;
 use hwvx_browser::content_music::{self as cm, BaseSong, LoopTags, Track};
-use hwvx_browser::testdrive::{Prepared, TestDrive};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::time::Instant;
 
 /// What the inspector shows of a file: decoded once, in the background.
@@ -35,11 +34,19 @@ pub(crate) struct MusicState {
     info: HashMap<PathBuf, Result<FileInfo, String>>,
     asked: HashSet<PathBuf>,
     info_rx: Option<Receiver<(PathBuf, Result<FileInfo, String>)>>,
-    info_tx: Option<Sender<(PathBuf, Result<FileInfo, String>)>>,
+    /// files for the one worker that decodes them in turn (a thread each held every playlist
+    /// track's whole decode at once)
+    info_jobs: Option<Sender<PathBuf>>,
     preview_rx: Option<Receiver<Result<PathBuf, String>>>,
+    /// each preview's own file (two quick ones wrote one file at once), the last one played
+    preview_seq: u64,
+    preview_file: Option<PathBuf>,
     player: Option<std::process::Child>,
     /// a base song to play once the viewer's pack list is in
     want_base: Option<String>,
+    /// music/'s unused files and the section's problems, for the section as it was then (they
+    /// list the folder and stat its files: not every frame)
+    fs: Option<(PathBuf, Value, Instant, Vec<String>, Vec<String>)>,
 }
 
 impl Drop for MusicState {
@@ -61,41 +68,33 @@ fn secs(frames: u64, rate: u32) -> String {
     format!("{}:{:06.3}", (s / 60.0) as u64, s % 60.0)
 }
 
-/// Audio files, in the system's dialog (several at once); empty when cancelled or there is none.
-fn choose_audio() -> Vec<String> {
+/// Audio files, in the system's dialog (several at once); Ok(empty) when cancelled.
+fn choose_audio() -> Result<Vec<String>, String> {
     use std::process::Command;
+    let on_path = |name: &str| std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()));
     let out = if cfg!(target_os = "macos") {
         Command::new("osascript")
             .args(["-e", "set fs to choose file with prompt \"Music for the mod (OGG, MP3, FLAC, WAV)\" with multiple selections allowed", "-e", "set out to \"\"", "-e", "repeat with f in fs", "-e", "set out to out & POSIX path of f & linefeed", "-e", "end repeat", "-e", "out"])
             .output()
     } else if cfg!(windows) {
+        // UTF-8 out: a path's non-ASCII letters came back in the console's code page
         xdlrs::command("powershell")
-            .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; $d.Filter = 'Music (*.ogg;*.mp3;*.flac;*.wav)|*.ogg;*.mp3;*.flac;*.wav'; if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join \"`n\" }"])
+            .args(["-NoProfile", "-Command", "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; $d.Filter = 'Music (*.ogg;*.mp3;*.flac;*.wav)|*.ogg;*.mp3;*.flac;*.wav'; if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join \"`n\" }"])
             .output()
-    } else {
+    } else if on_path("zenity") {
         Command::new("zenity")
             .args(["--file-selection", "--multiple", "--separator=\n", "--title=Music for the mod", "--file-filter=Music | *.ogg *.mp3 *.flac *.wav *.OGG *.MP3 *.FLAC *.WAV", "--file-filter=All files | *"])
             .output()
-            .or_else(|_| Command::new("kdialog").args(["--getopenfilename", ".", "*.ogg *.mp3 *.flac *.wav|Music", "--multiple", "--separate-output"]).output())
+    } else if on_path("kdialog") {
+        Command::new("kdialog").args(["--getopenfilename", ".", "*.ogg *.mp3 *.flac *.wav|Music", "--multiple", "--separate-output"]).output()
+    } else {
+        return Err(hwvx_browser::content_sounds::NO_DIALOG.into());
     };
-    match out {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect(),
-        _ => vec![],
+    let o = out.map_err(|e| e.to_string())?;
+    if !o.status.success() {
+        return Ok(vec![]);
     }
-}
-
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for e in std::fs::read_dir(from)? {
-        let e = e?;
-        let t = to.join(e.file_name());
-        if e.file_type()?.is_dir() {
-            copy_dir(&e.path(), &t)?;
-        } else {
-            std::fs::copy(e.path(), t)?;
-        }
-    }
-    Ok(())
+    Ok(String::from_utf8_lossy(&o.stdout).lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
 }
 
 impl Browser {
@@ -107,22 +106,45 @@ impl Browser {
     fn music_tick(&mut self) {
         let m = &mut self.content.music;
         if let Some(rx) = &m.info_rx {
-            while let Ok((p, r)) = rx.try_recv() {
-                m.info.insert(p, r);
+            loop {
+                match rx.try_recv() {
+                    Ok((p, r)) => {
+                        m.info.insert(p, r);
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        // the worker crashed on a file: what it hadn't read can't be read
+                        for p in &m.asked {
+                            m.info.entry(p.clone()).or_insert_with(|| Err("not read: the decoder stopped (a crash)".into()));
+                        }
+                        m.info_rx = None;
+                        m.info_jobs = None;
+                        break;
+                    }
+                }
             }
         }
         if let Some(rx) = &m.preview_rx {
-            if let Ok(r) = rx.try_recv() {
-                m.preview_rx = None;
-                match r.and_then(|p| hwvx_browser::media::play_file(&p)) {
-                    Ok(c) => {
-                        m.player = Some(c);
-                        self.note("playing the preview with the system's player".into());
+            let r = match rx.try_recv() {
+                Ok(r) => Some(r),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => Some(Err("the preview's decoder stopped (a crash)".into())),
+            };
+            match r {
+                Some(r) => {
+                    m.preview_rx = None;
+                    if let Ok(p) = &r {
+                        m.preview_file = Some(p.clone());
                     }
-                    Err(e) => self.fail(e),
+                    match r.and_then(|p| hwvx_browser::media::play_file(&p)) {
+                        Ok(c) => {
+                            self.content.music.player = Some(c);
+                            self.note("playing the preview with the system's player".into());
+                        }
+                        Err(e) => self.fail(e),
+                    }
                 }
-            } else {
-                self.ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                None => self.ctx.request_repaint_after(std::time::Duration::from_millis(100)),
             }
         }
         if let Some(key) = self.content.music.want_base.clone() {
@@ -142,18 +164,24 @@ impl Browser {
             return Some(r.clone());
         }
         if m.asked.insert(path.clone()) {
-            if m.info_tx.is_none() {
+            if m.info_jobs.is_none() {
+                let (jobs, todo) = channel::<PathBuf>();
                 let (tx, rx) = channel();
-                m.info_tx = Some(tx);
+                let ctx = self.ctx.clone();
+                // one file decoded at a time, dropped once counted; gone with the state
+                std::thread::spawn(move || {
+                    for p in todo {
+                        let r = info_of(&p);
+                        if tx.send((p, r)).is_err() {
+                            break;
+                        }
+                        ctx.request_repaint();
+                    }
+                });
+                m.info_jobs = Some(jobs);
                 m.info_rx = Some(rx);
             }
-            let tx = m.info_tx.clone().unwrap();
-            let ctx = self.ctx.clone();
-            std::thread::spawn(move || {
-                let r = info_of(&path);
-                let _ = tx.send((path, r));
-                ctx.request_repaint();
-            });
+            let _ = m.info_jobs.as_ref().unwrap().send(path);
         }
         None
     }
@@ -170,13 +198,17 @@ impl Browser {
             let _ = c.kill();
             let _ = c.wait();
         }
+        if let Some(f) = self.content.music.preview_file.take() {
+            let _ = std::fs::remove_file(f);
+        }
     }
 
     /// A file of the mod (whole, or its loop's seam) to the system's player, decoded here.
     fn music_preview(&mut self, file: &str, seam: Option<(u64, Option<u64>)>) {
         let Some(path) = self.content.proj.as_ref().map(|p| p.dir.join(file)) else { return };
         self.music_stop_preview();
-        let out = hwvx_browser::resources::default_pref().join("music-preview.wav");
+        self.content.music.preview_seq += 1;
+        let out = hwvx_browser::resources::default_pref().join(format!("music-preview-{}.wav", self.content.music.preview_seq));
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             let r = (|| {
@@ -189,7 +221,10 @@ impl Browser {
                 std::fs::write(&out, cm::wav(d.rate, d.channels, &data)).map_err(|e| format!("{}: {e}", out.display()))?;
                 Ok(out)
             })();
-            let _ = tx.send(r);
+            // a later preview took its place: its file isn't played
+            if let Err(std::sync::mpsc::SendError(Ok(p))) = tx.send(r) {
+                let _ = std::fs::remove_file(p);
+            }
         });
         self.content.music.preview_rx = Some(rx);
         self.note(format!("decoding {file}…"));
@@ -218,26 +253,54 @@ impl Browser {
         self.request("play", json!({"node": node}), Pending::Play(node.clone()));
     }
 
-    /// Files into the mod's music/ folder, added to the song's playlist.
+    /// Files copied into the mod's music/ folder off the UI thread (read and compared whole),
+    /// then added to the song's playlist.
     fn music_add_files(&mut self, key: &str, files: &[String]) {
-        let Some(p) = self.content.proj.as_mut() else { return };
-        let mut tracks = p.music_tracks(key);
-        let mut msgs = vec![];
-        let mut err = false;
-        for f in files {
-            match p.import_music(Path::new(f.trim())) {
-                Ok(rel) => {
-                    msgs.push(format!("added {rel}"));
-                    tracks.push(Track::new(&rel));
-                }
-                Err(e) => {
-                    msgs.push(e);
-                    err = true;
-                }
-            }
+        let Some(dir) = self.content.proj.as_ref().map(|p| p.dir.clone()) else { return };
+        if self.asking.is_some() {
+            return self.music_note("a file dialog or a copy is under way: add the files once it is done", true);
         }
-        p.set_music(key, &tracks);
-        self.music_note(msgs.join("; "), err);
+        let n = files.len();
+        self.music_note(format!("copying {n} file{} into music/…", if n == 1 { "" } else { "s" }), false);
+        let files = files.to_vec();
+        let key = key.to_string();
+        let to = dir.clone();
+        self.ask_then(
+            move || files.iter().map(|f| cm::import_music(&to, Path::new(f.trim()))).collect::<Vec<_>>(),
+            move |b, rs| {
+                let Some(p) = b.content.proj.as_mut().filter(|p| p.dir == dir) else { return };
+                let mut tracks = p.music_tracks(&key);
+                let mut msgs = vec![];
+                let mut err = false;
+                for r in rs {
+                    match r {
+                        Ok(rel) => {
+                            msgs.push(format!("added {rel}"));
+                            tracks.push(Track::new(&rel));
+                        }
+                        Err(e) => {
+                            msgs.push(e);
+                            err = true;
+                        }
+                    }
+                }
+                p.set_music(&key, &tracks);
+                b.content.music.fs = None;
+                b.music_note(msgs.join("; "), err);
+            },
+        );
+    }
+
+    /// music/'s unused files and the section's problems: again when the section changed, else
+    /// every 2 s (files changed outside).
+    fn music_fs(&mut self) -> (Vec<String>, Vec<String>) {
+        let Some(p) = self.content.proj.as_ref() else { return Default::default() };
+        let section = &p.doc[cm::SECTION];
+        let fresh = self.content.music.fs.as_ref().is_some_and(|(d, s, t, _, _)| *d == p.dir && s == section && t.elapsed().as_secs() < 2);
+        if !fresh {
+            self.content.music.fs = Some((p.dir.clone(), section.clone(), Instant::now(), p.music_unused(), p.music_problems()));
+        }
+        self.content.music.fs.as_ref().map(|f| (f.3.clone(), f.4.clone())).unwrap_or_default()
     }
 
     /// The game started where the song plays, the mod run from a copy of its folder.
@@ -256,25 +319,10 @@ impl Browser {
         if !song.input.is_empty() {
             o.env.push(("HWVX_AUTOINPUT".into(), song.input.clone()));
         }
-        let mods = o.scratch.join("content-mods");
-        let _ = std::fs::remove_dir_all(&mods);
-        let dest = mods.join(p.dir.file_name().unwrap_or_default());
-        if let Err(e) = copy_dir(&p.dir, &dest) {
-            return self.music_note(format!("the mod could not be copied for the test: {e}"), true);
-        }
-        let prepared = Prepared { start: song.start.clone(), mods, level: PathBuf::new(), cached: false, tool_ms: 0.0, ms: 0.0 };
-        if let Some(d) = self.level.drive.as_mut() {
-            d.stop();
-        }
         self.music_stop_preview();
-        match TestDrive::launch(&o, &prepared, Instant::now()) {
-            Ok(d) => {
-                self.level.drive = Some(d);
-                let log = o.scratch.join("testdrive.log");
-                self.music_note(format!("starting the game ({}): its music log in {}", if song.start.is_empty() { "the title screen" } else { &song.start }, log.display()), false);
-            }
-            Err(e) => self.music_note(e, true),
-        }
+        let log = o.scratch.join("testdrive.log");
+        let started = format!("starting the game ({}): its music log in {}", if song.start.is_empty() { "the title screen" } else { &song.start }, log.display());
+        self.content_launch(o, song.start.clone(), started);
     }
 
     /// The left panel's Soundtrack list (after the cars and weapons).
@@ -323,10 +371,12 @@ impl Browser {
                 let picked = m.pick.clone();
                 if ui.add_enabled(picked.is_some(), egui::Button::new("Choose files…")).on_hover_text("OGG, MP3, FLAC or WAV: copied into the mod's music/ folder").clicked() {
                     let key = picked.unwrap();
-                    let files = choose_audio();
-                    if !files.is_empty() {
-                        self.music_add_files(&key, &files);
-                    }
+                    let k = key.clone();
+                    self.ask_then(choose_audio, move |b, r| match r {
+                        Ok(files) if !files.is_empty() => b.music_add_files(&k, &files),
+                        Ok(_) => {}
+                        Err(e) => b.music_note(e, true),
+                    });
                     self.content.music.sel = Some(key);
                     self.content.sel = None;
                     ui.close();
@@ -353,12 +403,13 @@ impl Browser {
     pub(crate) fn music_inspector(&mut self, ui: &mut egui::Ui) {
         self.music_tick();
         let Some(key) = self.content.music.sel.clone() else { return };
+        let (unused, problems) = self.music_fs();
         let Some(proj) = self.content.proj.as_ref() else { return };
         let song = cm::song_for(&key);
         let mut tracks = proj.music_tracks(&key);
         let before = tracks.clone();
         let files: Vec<String> = {
-            let mut v = proj.music_unused();
+            let mut v = unused;
             v.extend(tracks.iter().flat_map(|t| std::iter::once(t.file.clone()).chain(t.intro.clone())));
             v.sort();
             v.dedup();
@@ -492,11 +543,12 @@ impl Browser {
             }
             ui.horizontal_wrapped(|ui| {
                 if ui.button("+ Add files…").on_hover_text("OGG, MP3, FLAC or WAV: copied into the mod's music/ folder (you can also drop files on the window)").clicked() {
-                    let f = choose_audio();
-                    if !f.is_empty() {
-                        action = Some((usize::MAX, "added"));
-                        self.music_add_files(&key, &f);
-                    }
+                    let k = key.clone();
+                    self.ask_then(choose_audio, move |b, r| match r {
+                        Ok(files) if !files.is_empty() => b.music_add_files(&k, &files),
+                        Ok(_) => {}
+                        Err(e) => b.music_note(e, true),
+                    });
                 }
                 let unused: Vec<String> = files.iter().filter(|f| !tracks.iter().any(|t| t.file == **f)).cloned().collect();
                 if !unused.is_empty() {
@@ -544,7 +596,6 @@ impl Browser {
             }
         }
         ui.separator();
-        let problems = self.content.proj.as_ref().map(|p| p.music_problems()).unwrap_or_default();
         for pr in &problems {
             ui.colored_label(egui::Color32::LIGHT_RED, pr);
         }
