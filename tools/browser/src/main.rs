@@ -479,6 +479,8 @@ struct Outline {
     children: HashMap<String, Vec<usize>>, // parent id ("" for roots) -> nodes
     shown: Vec<bool>,                      // with raw nodes hidden: those still drawn
     found: Option<(String, bool, Vec<usize>)>, // Find's last filter, raw shown, and its matches
+    /// the tree as drawn, one row each (outline_rows): made again when a node opens or closes
+    rows: Option<Vec<OutRow>>,
 }
 
 struct Browser {
@@ -1165,6 +1167,9 @@ impl Browser {
             st.set_open(true);
             st.store(ctx);
         }
+        if let Some(o) = self.outline.as_mut() {
+            o.rows = None;
+        }
     }
 
     // ---- panels --------------------------------------------------------------------------------
@@ -1267,6 +1272,7 @@ impl Browser {
         });
         if ui.checkbox(&mut self.show_raw, "raw nodes (no schema)").changed() {
             o.shown = shown_nodes(&o.nodes, &o.children, self.show_raw);
+            o.rows = None;
         }
         ui.separator();
         let mut clicked: Option<(String, bool)> = None;
@@ -1290,25 +1296,57 @@ impl Browser {
             });
         } else {
             egui::ScrollArea::vertical().id_salt("outline").auto_shrink([false, false]).show(ui, |ui| {
-                let roots = o.children.get("").cloned().unwrap_or_default();
-                for (group, kinds) in [
-                    ("Objects", &["typed", "raw"][..]),
-                    ("Geometry", &["geometry"][..]),
-                    ("Shaders", &["shader"][..]),
-                    ("Triggers", &["trigger"][..]),
-                ] {
-                    let items: Vec<usize> = roots.iter().copied().filter(|&i| o.shown[i] && kinds.contains(&o.nodes[i].kind.as_str())).collect();
-                    if items.is_empty() {
-                        continue;
-                    }
-                    egui::CollapsingHeader::new(format!("{group} ({})", items.len()))
-                        .id_salt(("group", group))
-                        .default_open(group == "Objects")
-                        .show(ui, |ui| {
-                            for i in items {
-                                tree_node(ui, o, i, selected.as_deref(), &mut clicked);
+                // only the rows in sight are laid out (a pack has thousands of nodes); the others
+                // are space of one row's height each, as show_rows does
+                if o.rows.is_none() {
+                    o.rows = Some(outline_rows(ui.ctx(), o));
+                }
+                let rows = o.rows.as_ref().unwrap();
+                let row_h = ui.spacing().interact_size.y;
+                let step = row_h + ui.spacing().item_spacing.y;
+                let (top, clip) = (ui.cursor().top(), ui.clip_rect());
+                let first = (((clip.top() - top) / step).floor().max(0.0) as usize).min(rows.len());
+                let last = ((((clip.bottom() - top) / step).ceil().max(0.0) as usize) + 1).clamp(first, rows.len());
+                ui.add_space(first as f32 * step);
+                let mut toggle: Option<(egui::Id, bool)> = None;
+                for r in &rows[first..last] {
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(row_h);
+                        match *r {
+                            OutRow::Group(g, count, open) => {
+                                let arrow = if open { "▼" } else { "▶" };
+                                if ui.add(egui::Button::new(egui::RichText::new(format!("{arrow} {} ({count})", OUTLINE_GROUPS[g].0)).strong()).frame(false)).clicked() {
+                                    toggle = Some((egui::Id::unique(("group", OUTLINE_GROUPS[g].0)), !open));
+                                }
                             }
-                        });
+                            OutRow::Node { i, depth, kids, open } => {
+                                let n = &o.nodes[i];
+                                ui.add_space(depth as f32 * 14.0);
+                                if kids {
+                                    if ui.add(egui::Button::new(if open { "▼" } else { "▶" }).frame(false).small()).clicked() {
+                                        toggle = Some((egui::Id::unique(("node", n.id.as_str())), !open));
+                                    }
+                                } else {
+                                    ui.add_space(18.0);
+                                }
+                                let r = ui.selectable_label(selected.as_deref() == Some(n.id.as_str()), node_label(n, false));
+                                // (made only while hovered)
+                                let r = r.on_hover_ui(|ui| {
+                                    ui.label(format!("{}\n{}", n.id, n.offset.map(|o| format!("0x{o:X}, {} bytes", n.size.unwrap_or(0))).unwrap_or_default()));
+                                });
+                                if r.clicked() || r.double_clicked() {
+                                    clicked = Some((n.id.clone(), r.double_clicked()));
+                                }
+                            }
+                        }
+                    });
+                }
+                ui.add_space((rows.len() - last) as f32 * step);
+                if let Some((id, open)) = toggle {
+                    let mut st = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+                    st.set_open(open);
+                    st.store(ui.ctx());
+                    o.rows = None;
                 }
                 // textures (and the share packs' it uses), sounds, the song and its bank
                 self.media_outline(ui, &mut media_click);
@@ -1327,11 +1365,20 @@ impl Browser {
         if self.media_properties(ui) {
             return;
         }
-        let Some(d) = self.detail.clone() else {
+        // taken, not copied, while it's drawn (a node's fields can be large); back unless what's
+        // drawn chose another node or media item
+        let Some(d) = self.detail.take() else {
             ui.heading("Properties");
             ui.label(if self.selected.is_some() { "…" } else { "Select a node in the outline." });
             return;
         };
+        self.node_properties(ui, &d);
+        if self.detail.is_none() && self.selected.as_deref() == d["id"].as_str() {
+            self.detail = Some(d);
+        }
+    }
+
+    fn node_properties(&mut self, ui: &mut egui::Ui, d: &Value) {
         let id = d["id"].as_str().unwrap_or("").to_string();
         ui.horizontal(|ui| {
             ui.heading(&id);
@@ -1352,14 +1399,17 @@ impl Browser {
                 egui::Grid::new("fields").num_columns(3).striped(true).spacing([12.0, 4.0]).show(ui, |ui| {
                     for f in fields {
                         let name = f["name"].as_str().unwrap_or("");
-                        let mut tip = format!("{}  @0x{:X}", f["ctype"].as_str().unwrap_or(""), f["offset"].as_u64().unwrap_or(0));
-                        if let Some(c) = f["confidence"].as_str() {
-                            tip += &format!("  ({c})");
-                        }
-                        if let Some(desc) = f["description"].as_str() {
-                            tip = format!("{desc}\n{tip}");
-                        }
-                        ui.label(name).on_hover_text(tip);
+                        // the tip made only while hovered
+                        ui.label(name).on_hover_ui(|ui| {
+                            let mut tip = format!("{}  @0x{:X}", f["ctype"].as_str().unwrap_or(""), f["offset"].as_u64().unwrap_or(0));
+                            if let Some(c) = f["confidence"].as_str() {
+                                tip += &format!("  ({c})");
+                            }
+                            if let Some(desc) = f["description"].as_str() {
+                                tip = format!("{desc}\n{tip}");
+                            }
+                            ui.label(tip);
+                        });
                         ui.vertical(|ui| self.value_editor(ui, name, &f["value"], f.get("link").is_some(), &mut nav));
                         let mut right = f["ctype"].as_str().unwrap_or("").to_string();
                         if let Some(u) = f["units"].as_str() {
@@ -1949,31 +1999,51 @@ fn node_label(n: &Node, full: bool) -> egui::RichText {
     if n.kind == "raw" { r.weak() } else { r }
 }
 
-fn tree_node(ui: &mut egui::Ui, o: &Outline, i: usize, selected: Option<&str>, clicked: &mut Option<(String, bool)>) {
-    let n = &o.nodes[i];
-    let kids: Vec<usize> = o.children.get(&n.id).map(|k| k.iter().copied().filter(|&k| o.shown[k]).collect()).unwrap_or_default();
-    let is_sel = selected == Some(n.id.as_str());
-    let mut label = |ui: &mut egui::Ui| {
-        let r = ui.selectable_label(is_sel, node_label(n, false));
-        let r = r.on_hover_text(format!("{}\n{}", n.id, n.offset.map(|o| format!("0x{o:X}, {} bytes", n.size.unwrap_or(0))).unwrap_or_default()));
-        if r.clicked() || r.double_clicked() {
-            *clicked = Some((n.id.clone(), r.double_clicked()));
-        }
-    };
-    if kids.is_empty() {
-        ui.horizontal(|ui| {
-            ui.add_space(18.0);
-            label(ui);
-        });
-        return;
-    }
-    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), egui::Id::unique(("node", n.id.as_str())), false)
-        .show_header(ui, |ui| label(ui))
-        .body(|ui| {
+/// The outline's groups of root nodes, by kind.
+const OUTLINE_GROUPS: [(&str, &[&str]); 4] = [("Objects", &["typed", "raw"]), ("Geometry", &["geometry"]), ("Shaders", &["shader"]), ("Triggers", &["trigger"])];
+
+/// A row of the outline as drawn.
+#[derive(Clone, Copy)]
+enum OutRow {
+    /// OUTLINE_GROUPS[g], its count of nodes, open
+    Group(usize, usize, bool),
+    Node { i: usize, depth: u16, kids: bool, open: bool },
+}
+
+/// The outline's rows: each group, and the nodes under the open ones (open as egui keeps it,
+/// which reveal sets too).
+fn outline_rows(ctx: &egui::Context, o: &Outline) -> Vec<OutRow> {
+    let is_open = |id: egui::Id, default: bool| egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, default).is_open();
+    let shown_kids = |i: usize| o.children.get(&o.nodes[i].id).map(|k| k.iter().copied().filter(|&k| o.shown[k]).collect::<Vec<_>>()).unwrap_or_default();
+    fn add(o: &Outline, i: usize, depth: u16, rows: &mut Vec<OutRow>, on: &mut Vec<usize>, is_open: &dyn Fn(egui::Id, bool) -> bool, kids_of: &dyn Fn(usize) -> Vec<usize>) {
+        let kids = kids_of(i);
+        let open = !kids.is_empty() && is_open(egui::Id::unique(("node", o.nodes[i].id.as_str())), false);
+        rows.push(OutRow::Node { i, depth, kids: !kids.is_empty(), open });
+        // (a cycle of links, or a deep one: no further)
+        if open && depth < 200 && !on.contains(&i) {
+            on.push(i);
             for k in kids {
-                tree_node(ui, o, k, selected, clicked);
+                add(o, k, depth + 1, rows, on, is_open, kids_of);
             }
-        });
+            on.pop();
+        }
+    }
+    let roots: &[usize] = o.children.get("").map(Vec::as_slice).unwrap_or(&[]);
+    let mut rows = Vec::new();
+    for (g, (group, kinds)) in OUTLINE_GROUPS.iter().enumerate() {
+        let items: Vec<usize> = roots.iter().copied().filter(|&i| o.shown[i] && kinds.contains(&o.nodes[i].kind.as_str())).collect();
+        if items.is_empty() {
+            continue;
+        }
+        let open = is_open(egui::Id::unique(("group", *group)), *group == "Objects");
+        rows.push(OutRow::Group(g, items.len(), open));
+        if open {
+            for i in items {
+                add(o, i, 0, &mut rows, &mut Vec::new(), &is_open, &shown_kids);
+            }
+        }
+    }
+    rows
 }
 
 fn build_outline(pack: String, mut r: Value) -> Outline {
@@ -1997,7 +2067,7 @@ fn build_outline(pack: String, mut r: Value) -> Outline {
         children.entry(p).or_default().push(i);
     }
     let shown = shown_nodes(&nodes, &children, false);
-    Outline { pack, info: r, nodes, children, shown, found: None }
+    Outline { pack, info: r, nodes, children, shown, found: None, rows: None }
 }
 
 /// With raw nodes hidden, a raw node still shows when something typed is below it.
