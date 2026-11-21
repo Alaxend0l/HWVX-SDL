@@ -243,6 +243,12 @@ fn cue_paths() {
     assert_eq!(cue_track(&c).unwrap(), t.0.join("track.bin"));
     let c = t.write("b.cue", b"FILE \"/abs/x y.bin\" BINARY\n");
     assert_eq!(cue_track(&c).unwrap(), PathBuf::from("/abs/x y.bin"));
+    // a BOM before FILE; a line starting with a multibyte character is skipped, not a panic
+    let c = t.write("bom.cue", "\u{FEFF}FILE \"t.bin\" BINARY\n".as_bytes());
+    assert_eq!(cue_track(&c).unwrap(), t.0.join("t.bin"));
+    let c = t.write("utf8.cue", "REM x\nÉté\nFIL€ x\nFILE \"u.bin\" BINARY\n".as_bytes());
+    assert_eq!(cue_track(&c).unwrap(), t.0.join("u.bin"));
+    assert!(cue_track(&t.write("none.cue", "ÅÅÅ\n".as_bytes())).is_err());
 }
 
 /// The retail PC .cue names IMS-HWVX.BIN; the file beside it is ims-hwvx.bin (found without case,
@@ -251,11 +257,13 @@ fn cue_paths() {
 fn cue_track_nocase() {
     let t = Tmp::new("cue-case");
     t.write("ims-hwvx.bin", b"x");
+    // (on a case-insensitive file system the .cue's own spelling exists and is kept)
+    let same = |a: PathBuf, b: PathBuf| assert!(a == b || (cfg!(any(windows, target_os = "macos")) && a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())), "{a:?} {b:?}");
     let c = t.write("ims-hwvx.cue", b"FILE \"IMS-HWVX.BIN\" BINARY\r\n  TRACK 01 MODE1/2352\r\n");
-    assert_eq!(cue_track(&c).unwrap(), t.0.join("ims-hwvx.bin"));
+    same(cue_track(&c).unwrap(), t.0.join("ims-hwvx.bin"));
     t.write("Sub/Track.Bin", b"x");
     let c = t.write("sub.cue", b"FILE \"SUB\\TRACK.BIN\" BINARY\n");
-    assert_eq!(cue_track(&c).unwrap(), t.0.join("Sub/Track.Bin"));
+    same(cue_track(&c).unwrap(), t.0.join("Sub/Track.Bin"));
     let c = t.write("none.cue", b"FILE \"MISSING.BIN\" BINARY\n");
     assert_eq!(cue_track(&c).unwrap(), t.0.join("MISSING.BIN"));
 }
@@ -278,4 +286,75 @@ fn extract_cancelled() {
     assert_eq!(r.unwrap_err(), CANCELLED);
     // the movie, the empty file, a.xpc; not b.xpc (in a.xpc's folder) nor c.bin
     assert_eq!(tree(&t.0.join("pc")).keys().collect::<Vec<_>>(), ["FMV_/hwboot.bik", "a.xpc", "e"]);
+}
+
+/// Sizes from a damaged image are checked before anything that size is allocated.
+#[test]
+fn damaged_sizes_refused() {
+    let t = Tmp::new("sizes");
+    let mut d = Disc::open(&t.write("gc.iso", &gc_image())).unwrap();
+    d.entries[0].size = 3 << 30;
+    let e = d.entries[0].clone();
+    assert!(d.read_entry(&e).unwrap_err().contains("outside the disc image"));
+    // a cabinet file of 4 GB in a folder of one block
+    let c = cab::tests::make(&[(0, vec![(b"stored!".to_vec(), 7)])], &[("big", 0, 0, 0xFFFF_FFF0)]);
+    let c = cab::Cab::open(Arc::new(io::Mem(c))).unwrap();
+    assert!(c.read_file(&c.files[0]).unwrap_err().contains("runs past"));
+    // .gcz headers: a Wii-sized disc, a block table larger than the data needs, tiny blocks
+    let gcz = |data: u64, bs: u32, n: u32| {
+        let mut h = vec![0u8; 64];
+        h[0..4].copy_from_slice(&gcz::MAGIC.to_le_bytes());
+        h[16..24].copy_from_slice(&data.to_le_bytes());
+        h[24..28].copy_from_slice(&bs.to_le_bytes());
+        h[28..32].copy_from_slice(&n.to_le_bytes());
+        gcz::Gcz::open(Arc::new(io::Mem(h))).err().unwrap()
+    };
+    assert!(gcz(4 << 30, 32768, 131072).contains("Wii"));
+    assert!(gcz(1 << 20, 32768, 1 << 27).contains("damaged"));
+    assert!(gcz(1 << 20, 1, 1 << 20).contains("damaged"));
+    assert!(gcz(1 << 30, 512, 1 << 21).contains("cut short"));
+}
+
+/// Names that Windows can't hold are refused; ISO's "NAME.;1" loses its dot; names differing
+/// only in case are refused (they would land on one file).
+#[test]
+fn names_for_windows() {
+    for bad in ["CON", "nul.txt", "Com1.bin", "lpt9", "a<b", "a|b", "a?", "a*", "a\"b", "tab\t", "end.", "end ", ".", ".."] {
+        assert!(!gcm::safe_name(bad), "{bad}");
+    }
+    for good in ["HW_share.xgc", "CONSOLE.xgc", "com.bin", "COM10", ".hidden", "a b.xps"] {
+        assert!(gcm::safe_name(good), "{good}");
+    }
+    let t = Tmp::new("names");
+    let img = gcm::tests::make("GHWE78", &[("HW_share.xgc", b"s"), ("w/a.xgc", b"1"), ("W/A.XGC", b"2")]);
+    assert!(Disc::open(&t.write("twins.iso", &img)).unwrap_err().contains("but for case"));
+    let img = gcm::tests::make("GHWE78", &[("HW_share.xgc", b"s"), ("hw_share.xgc/x", b"1")]);
+    assert!(Disc::open(&t.write("filedir.iso", &img)).unwrap_err().contains("both a file and a folder"));
+    let iso = iso::tests::make(&[Node::Dir("XPS", vec![Node::Dir("ENGLISH", vec![Node::File("HW_share.xps", &share_xps(183)), Node::File("NOEXT.", b"x")])])]);
+    let d = Disc::open(&t.write("ps2.iso", &iso)).unwrap();
+    assert!(d.find("XPS/ENGLISH/NOEXT").is_some());
+}
+
+/// extract_steps reports a large file's bytes as they are written and stops within it.
+#[test]
+fn extract_steps_within_a_file() {
+    let t = Tmp::new("steps");
+    let big = vec![7u8; 3 << 20];
+    let img = gcm::tests::make("GHWE78", &[("HW_share.xgc", b"s"), ("big.xgc", &big)]);
+    let d = Disc::open(&t.write("gc.iso", &img)).unwrap();
+    let (mut steps, mut done) = (vec![], 0);
+    d.extract_steps(&t.0.join("all"), &[], &mut |s| {
+        match s {
+            Step::Bytes(n) => steps.push(n),
+            Step::Done(_) => done += 1,
+        }
+        true
+    })
+    .unwrap();
+    assert_eq!((done, steps.iter().sum::<u64>()), (2, big.len() as u64 + 1));
+    assert!(steps.len() >= 3, "{steps:?}");
+    // stopped at its first megabyte: big.xgc stays a .part
+    let r = d.extract_steps(&t.0.join("stop"), &["big.xgc".into()], &mut |s| !matches!(s, Step::Bytes(_)));
+    assert_eq!(r.unwrap_err(), CANCELLED);
+    assert_eq!(tree(&t.0.join("stop")).keys().collect::<Vec<_>>(), ["big.xgc.part"]);
 }

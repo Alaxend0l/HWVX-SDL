@@ -67,6 +67,10 @@ pub fn list(src: &dyn ReadAt, dir: &Rec) -> Result<Vec<Rec>, String> {
             if let Some(i) = name.find(';') {
                 name.truncate(i);
             }
+            // "NAME.;1" is a file without an extension (Windows would drop the dot)
+            if name.len() > 1 && name.ends_with('.') {
+                name.pop();
+            }
             out.push(Rec { name, lba: le32(&d, at + 2), size: le32(&d, at + 10), dir: d[at + 25] & 2 != 0 });
         }
         at += len;

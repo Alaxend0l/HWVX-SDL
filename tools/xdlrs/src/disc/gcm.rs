@@ -36,9 +36,17 @@ fn cstr(b: &[u8]) -> String {
     String::from_utf8_lossy(&b[..end]).into_owned()
 }
 
-/// A name from the disc, safe as one path component.
+/// A name from the disc, safe as one path component, on Windows too (an extraction made
+/// elsewhere may be copied there): none of <>:"/\|?* or control characters, no trailing dot or
+/// space (Windows drops them), not a device name (CON, NUL.txt, COM1, ...).
 pub fn safe_name(n: &str) -> bool {
-    !n.is_empty() && n != "." && n != ".." && !n.contains(['/', '\\', ':']) && !n.contains('\0')
+    if n.is_empty() || n.ends_with(['.', ' ']) || n.chars().any(|c| c < ' ' || "<>:\"/\\|?*".contains(c)) {
+        return false;
+    }
+    let stem = n.split('.').next().unwrap_or(n).trim_end_matches(' ').to_ascii_uppercase();
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit());
+    !device
 }
 
 /// The header and every file of the table, in table order, paths joined with '/'.

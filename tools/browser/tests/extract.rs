@@ -137,6 +137,17 @@ fn where_it_goes() {
     // the same name at another size: another disc's
     t.write("other/XPS/ENGLISH/HW_SHARE.XPS", b"short");
     assert!(extract::check_dest(&t.0.join("other"), &info).unwrap_err().contains("of another size"));
+    // a link is not followed: it is another file, even named as the disc's (a .part through it
+    // would be written wherever it points)
+    #[cfg(unix)]
+    {
+        let _ = std::fs::create_dir_all(t.0.join("haslink/XPS/ENGLISH"));
+        std::os::unix::fs::symlink(t.0.join("ps2.iso"), t.0.join("haslink/XPS/ENGLISH/HW_SHARE.XPS.part")).unwrap();
+        assert!(extract::check_dest(&t.0.join("haslink"), &info).unwrap_err().contains("other files"));
+        std::os::unix::fs::symlink(t.0.join("prev"), t.0.join("haslink2")).unwrap();
+        // (the destination itself may be a link: the player chose it)
+        assert!(matches!(extract::check_dest(&t.0.join("haslink2"), &info).unwrap(), Dest::Previous { .. }));
+    }
 }
 
 #[test]

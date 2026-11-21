@@ -13,6 +13,8 @@ use std::io;
 use std::sync::Mutex;
 
 pub const MAGIC: u32 = 0xB10B_C001;
+/// The largest disc a .gcz is read for (a GameCube disc is 1,459,978,240 bytes).
+const MAX_DATA: u64 = 2 << 30;
 
 pub struct Gcz {
     file: Src,
@@ -50,7 +52,13 @@ impl Gcz {
             return Err("not a .gcz image".into());
         }
         let (comp_size, data_size, block_size, n) = (le64(&h, 8), le64(&h, 16), le32(&h, 24), le32(&h, 28) as u64);
-        if block_size == 0 || block_size > 64 << 20 || n > 1 << 28 || n * (block_size as u64) < data_size || n == 0 {
+        // a GameCube disc is 1.4 GB: more is a Wii disc's (the table would be read whole)
+        if data_size > MAX_DATA {
+            return Err("the .gcz holds more than a GameCube disc: a Wii disc's image?".into());
+        }
+        // exactly the blocks the data needs (Dolphin rounds up), each at least 512 bytes: the
+        // table stays a few MB, whatever the header says
+        if !(512..=64 << 20).contains(&block_size) || n == 0 || n != data_size.div_ceil(block_size as u64) {
             return Err("the .gcz header is damaged".into());
         }
         let data_off = 32 + n * 12;

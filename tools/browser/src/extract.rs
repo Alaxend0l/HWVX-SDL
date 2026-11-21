@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
-use xdlrs::disc::{CANCELLED, Disc, Kind, Release};
+use xdlrs::disc::{CANCELLED, Disc, Kind, Release, Step};
 
 /// Room kept free beyond the files themselves (the file system's own blocks, the pref folder).
 pub const SPACE_MARGIN: u64 = 64 << 20;
@@ -150,7 +150,13 @@ fn ignorable(name: &str) -> bool {
     matches!(name.to_ascii_lowercase().as_str(), ".ds_store" | "thumbs.db" | "desktop.ini" | ".directory")
 }
 
-fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, u64)>, depth: u32) -> Result<(), String> {
+/// What [`walk`] hands each file to.
+type Visit<'a> = dyn FnMut(&str, Option<u64>) -> Result<(), String> + 'a;
+
+/// Each file under `dir` to `visit` (its size; None: not a plain file, a link or a device),
+/// depth first in name order; `visit`'s Err ends the walk there. Links are not followed: the
+/// destination's own folders only (a link to `/` once walked the whole drive).
+fn walk(dir: &Path, rel: &str, visit: &mut Visit, depth: u32) -> Result<(), String> {
     if depth > 16 {
         return Ok(());
     }
@@ -160,11 +166,11 @@ fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, u64)>, depth: u32) -> Resu
     for e in items {
         let name = e.file_name().to_string_lossy().into_owned();
         let r = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
-        let Ok(md) = std::fs::metadata(e.path()) else { continue };
-        if md.is_dir() {
-            walk(&e.path(), &r, out, depth + 1)?;
+        let Ok(ft) = e.file_type() else { continue };
+        if ft.is_dir() {
+            walk(&e.path(), &r, visit, depth + 1)?;
         } else if !ignorable(&name) {
-            out.push((r, md.len()));
+            visit(&r, ft.is_file().then(|| e.metadata().map(|m| m.len()).unwrap_or(0)))?;
         }
     }
     Ok(())
@@ -172,7 +178,8 @@ fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, u64)>, depth: u32) -> Resu
 
 /// Whether the disc may go into `dest`: a new or empty folder, or one holding only this disc's
 /// files (an earlier extraction, perhaps stopped). Anything else is refused: the extraction
-/// would mix with other files.
+/// would mix with other files. The first file that isn't the disc's decides (`/` is refused at
+/// once, not walked).
 pub fn check_dest(dest: &Path, info: &DiscInfo) -> Result<Dest, String> {
     if dest.as_os_str().is_empty() {
         return Err("Choose a folder to extract into.".into());
@@ -183,27 +190,22 @@ pub fn check_dest(dest: &Path, info: &DiscInfo) -> Result<Dest, String> {
     if !dest.exists() {
         return Ok(Dest::Fresh);
     }
-    let mut found = vec![];
-    walk(dest, "", &mut found, 0)?;
     let want: HashMap<String, u64> = info.entries.iter().map(|(p, s)| (p.to_ascii_lowercase(), *s)).collect();
     let (mut files, mut bytes, mut parts) = (0usize, 0u64, 0usize);
-    for (rel, size) in &found {
+    walk(dest, "", &mut |rel, size| {
         let (name, part) = match rel.strip_suffix(".part") {
             Some(n) => (n, true),
-            None => (rel.as_str(), false),
+            None => (rel, false),
         };
-        let other = || {
-            format!(
+        let (Some(size), Some(&want_size)) = (size, want.get(&name.to_ascii_lowercase())) else {
+            return Err(format!(
                 "{} already holds other files ({rel}, …). Choose an empty folder, or the folder an earlier extraction of this disc went to.",
                 dest.display()
-            )
-        };
-        let Some(&want_size) = want.get(&name.to_ascii_lowercase()) else {
-            return Err(other());
+            ));
         };
         if part {
             parts += 1;
-        } else if *size == want_size {
+        } else if size == want_size {
             files += 1;
             bytes += size;
         } else {
@@ -212,7 +214,8 @@ pub fn check_dest(dest: &Path, info: &DiscInfo) -> Result<Dest, String> {
                 dest.display()
             ));
         }
-    }
+        Ok(())
+    }, 0)?;
     Ok(if files + parts == 0 { Dest::Fresh } else { Dest::Previous { files, bytes, parts } })
 }
 
@@ -321,6 +324,8 @@ pub struct Progress {
     pub bytes_total: u64,
     /// the last file done
     pub last: String,
+    /// not begun: an extraction stopped before (its window closed) is still letting go of its file
+    pub waiting: bool,
 }
 
 impl Progress {
@@ -335,8 +340,8 @@ impl Progress {
 
 /// Extracts the disc at `image` into `dest` (checked again: the folder, the free space), each
 /// file as NAME.part until whole, then checks the result as the game would (data_dir::check).
-/// Ok: the game data path. Err: in plain words; [`CANCELLED`] when `cancel` was set. `wake`: after
-/// each file.
+/// Ok: the game data path. Err: in plain words; [`CANCELLED`] when `cancel` was set (looked at
+/// each megabyte). `wake`: as the bytes go.
 pub fn run(image: &Path, dest: &Path, progress: &Mutex<Progress>, cancel: &AtomicBool, wake: &dyn Fn()) -> Result<PathBuf, String> {
     let info = inspect(image)?;
     plan(dest, &info, None)?;
@@ -345,11 +350,15 @@ pub fn run(image: &Path, dest: &Path, progress: &Mutex<Progress>, cancel: &Atomi
         let mut p = progress.lock().unwrap();
         *p = Progress { files_total: info.files, bytes_total: info.bytes, ..Default::default() };
     }
-    let r = disc.extract_until(dest, &[], &mut |e| {
+    let r = disc.extract_steps(dest, &[], &mut |s| {
         let mut p = progress.lock().unwrap();
-        p.files += 1;
-        p.bytes += e.size;
-        p.last = e.path.clone();
+        match s {
+            Step::Bytes(n) => p.bytes += n,
+            Step::Done(e) => {
+                p.files += 1;
+                p.last = e.path.clone();
+            }
+        }
         drop(p);
         wake();
         !cancel.load(Ordering::Relaxed)
@@ -362,6 +371,10 @@ pub fn run(image: &Path, dest: &Path, progress: &Mutex<Progress>, cancel: &Atomi
     data_dir::check(dest).map_err(|e| format!("The files were extracted, but the game wouldn't find its data there: {e}"))
 }
 
+/// One extraction at a time, the thread's whole run: one stopped by its window closing finishes
+/// its megabyte (and lets go of its .part) before the next, perhaps into the same folder, begins.
+static ONE: Mutex<()> = Mutex::new(());
+
 /// [`run`] on a worker thread.
 pub struct Job {
     pub image: PathBuf,
@@ -372,14 +385,23 @@ pub struct Job {
 }
 
 impl Job {
-    /// `wake` is called as each file is done and at the end (the window's repaint).
+    /// `wake` is called as the bytes go and at the end (the window's repaint).
     pub fn start(image: &Path, dest: &Path, wake: impl Fn() + Send + 'static) -> Job {
         let progress = Arc::new(Mutex::new(Progress::default()));
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, rx) = std::sync::mpsc::channel();
         let (i, d, p, c) = (image.to_path_buf(), dest.to_path_buf(), progress.clone(), cancel.clone());
         std::thread::spawn(move || {
-            let r = run(&i, &d, &p, &c, &wake);
+            let _one = match ONE.try_lock() {
+                Ok(g) => g,
+                Err(std::sync::TryLockError::Poisoned(g)) => g.into_inner(),
+                Err(_) => {
+                    p.lock().unwrap().waiting = true;
+                    wake();
+                    ONE.lock().unwrap_or_else(|e| e.into_inner())
+                }
+            };
+            let r = if c.load(Ordering::Relaxed) { Err(CANCELLED.into()) } else { run(&i, &d, &p, &c, &wake) };
             let _ = tx.send(r);
             wake();
         });
@@ -409,7 +431,7 @@ impl Job {
 }
 
 impl Drop for Job {
-    /// A window closed (or the editor quit) mid-way stops it after the file it is on.
+    /// A window closed (or the editor quit) mid-way stops it within a megabyte (the next waits: ONE).
     fn drop(&mut self) {
         self.cancel();
     }

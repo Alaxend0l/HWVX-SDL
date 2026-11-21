@@ -160,12 +160,16 @@ pub fn is_image_name(p: &Path) -> bool {
 /// is missing, as on Windows and macOS: the retail PC .cue names IMS-HWVX.BIN, the rip ims-hwvx.bin.
 fn cue_track(cue: &Path) -> R<PathBuf> {
     let text = fs::read_to_string(cue).map_err(|e| format!("{}: {e}", cue.display()))?;
+    // a .cue saved by Notepad starts with a BOM
+    let text = text.strip_prefix('\u{FEFF}').unwrap_or(&text);
     for line in text.lines() {
         let l = line.trim_start();
-        if l.len() < 5 || !l[..4].eq_ignore_ascii_case("FILE") || !l[4..].starts_with([' ', '\t']) {
+        // get(): a line starting with a multibyte character has no boundary at 4
+        let Some(rest) = l.get(..4).filter(|h| h.eq_ignore_ascii_case("FILE")).map(|_| &l[4..]) else { continue };
+        if !rest.starts_with([' ', '\t']) {
             continue;
         }
-        let rest = l[4..].trim_start();
+        let rest = rest.trim_start();
         let name = if let Some(q) = rest.strip_prefix('"') { q.split('"').next().unwrap_or("") } else { rest.split([' ', '\t']).next().unwrap_or("") };
         if name.is_empty() {
             continue;
@@ -286,6 +290,7 @@ impl Disc {
             d.raw_sectors = raw;
             d
         };
+        one_spelling(&d.entries).map_err(|e| format!("{}: {e}", path.display()))?;
         d.image_size = image_size;
         Ok(d)
     }
@@ -360,6 +365,7 @@ impl Disc {
                     }
                 }
             }
+            one_spelling(&d.entries).map_err(|e| format!("{}: {e}", c.display()))?;
             return Ok(d);
         }
         let version_of = |p: &Path| -> Option<u32> {
@@ -438,19 +444,28 @@ impl Disc {
             let cab = self.cab.as_ref().expect("a cabinet entry without its cabinet");
             return cab.read_file(&cab.files[i]);
         }
+        // the size is the image's word for it: checked against the image before it is allocated
+        if let Origin::Image(off) = e.origin {
+            self.inside(e, off)?;
+        }
         let mut out = Vec::with_capacity(e.size as usize);
         self.copy(e, &mut out)?;
         Ok(out)
+    }
+
+    fn inside(&self, e: &Entry, off: u64) -> R<&Src> {
+        let src = self.src.as_ref().expect("an image entry without its image");
+        if off > src.len() || e.size > src.len() - off {
+            return Err(format!("{} lies outside the disc image (a trimmed image?)", e.path));
+        }
+        Ok(src)
     }
 
     /// A file's bytes written to `w`, a megabyte at a time.
     pub fn copy(&self, e: &Entry, w: &mut dyn Write) -> R<()> {
         match &e.origin {
             Origin::Image(off) => {
-                let src = self.src.as_ref().expect("an image entry without its image");
-                if *off > src.len() || e.size > src.len() - off {
-                    return Err(format!("{} lies outside the disc image (a trimmed image?)", e.path));
-                }
+                let src = self.inside(e, *off)?;
                 io::copy_range(&**src, *off, e.size, w).map_err(|x| format!("{}: {x}", e.path))
             }
             Origin::File(p) => {
@@ -477,6 +492,16 @@ impl Disc {
     /// [`Disc::extract`], stopped when `progress` returns false (after that file): Err([`CANCELLED`]).
     /// The files done stay; a cabinet file being written stays as NAME.part.
     pub fn extract_until(&self, out: &Path, only: &[String], progress: &mut dyn FnMut(&Entry) -> bool) -> R<(usize, u64)> {
+        self.extract_steps(out, only, &mut |s| match s {
+            Step::Done(e) => progress(e),
+            Step::Bytes(_) => true,
+        })
+    }
+
+    /// [`Disc::extract`], with the bytes as they are written (a megabyte at a time: a large file's
+    /// progress) and each file done; stopped when `progress` returns false, within a file too
+    /// (it stays as NAME.part): Err([`CANCELLED`]).
+    pub fn extract_steps(&self, out: &Path, only: &[String], progress: &mut dyn FnMut(Step) -> bool) -> R<(usize, u64)> {
         let picked = self.select(only);
         fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
         let (mut files, mut bytes) = (0usize, 0u64);
@@ -487,9 +512,16 @@ impl Disc {
                 continue;
             }
             let mut w = Part::create(out, &e.path)?;
-            self.copy(e, &mut w.f).map_err(|x| format!("{x} (writing {})", w.part.display()))?;
+            let mut t = Ticking { w: &mut w.f, n: 0, tick: &mut *progress, stopped: false };
+            let r = self.copy(e, &mut t);
+            let (rest, stopped) = (t.n, t.stopped);
+            if stopped {
+                return Err(CANCELLED.into());
+            }
+            r.map_err(|x| format!("{x} (writing {})", w.part.display()))?;
             w.finish()?;
-            if !progress(e) {
+            // (both: the file is whole either way)
+            if !(progress(Step::Bytes(rest)) & progress(Step::Done(e))) {
                 return Err(CANCELLED.into());
             }
             files += 1;
@@ -512,12 +544,15 @@ impl Disc {
                 let mut stopped = false;
                 for w in want.iter_mut().filter(|w| w.1.size == 0) {
                     Part::create(out, &w.0.path)?.finish()?;
-                    if !progress(w.0) {
+                    if !progress(Step::Done(w.0)) {
                         return Err(CANCELLED.into());
                     }
                     left -= 1;
                     w.3 = u64::MAX;
                 }
+                // the bytes written since the last Step::Bytes, and the folder's bytes decompressed
+                // (the files wanted may lie far into it)
+                let (mut pending, mut seen) = (0u64, 0u64);
                 if left > 0 {
                     cab.stream(fi, &mut |pos, block| {
                         for w in want.iter_mut() {
@@ -531,21 +566,30 @@ impl Disc {
                                 let p = w.2.as_mut().unwrap();
                                 p.f.write_all(&block[r.clone()]).map_err(|x| format!("{}: {x}", p.part.display()))?;
                                 w.3 += r.len() as u64;
+                                pending += r.len() as u64;
                                 if w.3 == w.1.size as u64 {
                                     w.2.take().unwrap().finish()?;
                                     w.3 = u64::MAX;
                                     left -= 1;
-                                    if !progress(w.0) {
+                                    if !progress(Step::Done(w.0)) {
                                         stopped = true;
                                         return Ok(false);
                                     }
                                 }
                             }
                         }
+                        seen += block.len() as u64;
+                        if seen >= STEP {
+                            seen = 0;
+                            if !progress(Step::Bytes(std::mem::take(&mut pending))) {
+                                stopped = true;
+                                return Ok(false);
+                            }
+                        }
                         Ok(left > 0)
                     })?;
                 }
-                if stopped {
+                if stopped || (pending > 0 && !progress(Step::Bytes(pending))) {
                     return Err(CANCELLED.into());
                 }
                 if let Some(w) = want.iter().find(|w| w.3 != u64::MAX) {
@@ -559,9 +603,65 @@ impl Disc {
     }
 }
 
+/// What [`Disc::extract_steps`] reports as it goes.
+pub enum Step<'a> {
+    /// more bytes written
+    Bytes(u64),
+    /// a file complete
+    Done(&'a Entry),
+}
+
+/// The bytes between two [`Step::Bytes`] (each a look at whether to stop).
+const STEP: u64 = 1 << 20;
+
+/// A file's writer reporting its bytes a [`STEP`] at a time; a refusal stops the copy.
+struct Ticking<'a, 'b> {
+    w: &'a mut dyn Write,
+    n: u64,
+    tick: &'a mut dyn FnMut(Step<'b>) -> bool,
+    stopped: bool,
+}
+
+impl Write for Ticking<'_, '_> {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        let k = self.w.write(b)?;
+        self.n += k as u64;
+        if self.n >= STEP && !(self.tick)(Step::Bytes(std::mem::take(&mut self.n))) {
+            self.stopped = true;
+            return Err(std::io::Error::other(CANCELLED));
+        }
+        Ok(k)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.w.flush()
+    }
+}
+
 impl std::fmt::Debug for Disc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Disc({}, {}, {}, {} files)", self.path.display(), self.kind.key(), self.release.key(), self.entries.len())
+    }
+}
+
+/// The image's files as one file system without case sees them (Windows', macOS's): two names
+/// differing only in case, or a file where another's folder is, would land on one another.
+fn one_spelling(entries: &[Entry]) -> R<()> {
+    let mut files = std::collections::HashSet::new();
+    let mut dirs = std::collections::HashSet::new();
+    for e in entries {
+        let low = e.path.to_lowercase();
+        let mut at = 0;
+        while let Some(i) = low[at..].find('/') {
+            dirs.insert(low[..at + i].to_string());
+            at += i + 1;
+        }
+        if !files.insert(low) {
+            return Err(format!("two files named {} but for case (a damaged image?)", e.path));
+        }
+    }
+    match files.iter().find(|f| dirs.contains(*f)) {
+        Some(f) => Err(format!("{f} is both a file and a folder (a damaged image?)")),
+        None => Ok(()),
     }
 }
 
