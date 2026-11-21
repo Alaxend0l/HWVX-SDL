@@ -251,6 +251,7 @@ static struct {
     u32 *handles;               /* the words its triggers' parameter blocks hold, sorted */
     u32 numHandles;
 } s_mode = { .index = -1 };
+static int s_modeKeep;          /* Unapply leaves s_mode (ApplyFile) */
 
 void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned int numPointers) {
     SDL_free(s_noted.pointers);
@@ -1347,6 +1348,10 @@ static int ModeLoad(const char *world, char *err, size_t errSize) {
         SDL_strncmp(world, "@", 1) == 0) {
         return Fail(err, errSize, "modeWorld: a world as the MCP names it");
     }
+    if (s_mode.pack != NULL && SDL_strcmp(s_mode.name, world) == 0 && (u32)s_mode.index < g_MaxStreamingDataPacks[4] &&
+        g_StreamingDataPacks[4][s_mode.index].loaded && &g_StreamingDataPacks[4][s_mode.index].pack == s_mode.pack) {
+        return 1;   /* kept from the level's last apply (ApplyFile): not read from disk again */
+    }
     ModeRelease();
     Port_TexturesWiden();   /* two worlds' textures at once */
     SDL_strlcpy(s_mode.name, world, sizeof(s_mode.name));
@@ -1549,7 +1554,9 @@ static void Unapply(void) {
     int i;
     u32 k;
 
-    ModeRelease();
+    if (!s_modeKeep) {
+        ModeRelease();
+    }
     if (s_lv.pack == NULL) {
         return;
     }
@@ -2916,7 +2923,9 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     s_lv.numVariableSlots = s_lv.origNumVariables;
 
     /* the mode's screens, when the level plays its mode on another mode's world */
-    if (Json_Get(doc, "modeWorld") != NULL && !ModeLoad(Json_GetString(doc, "modeWorld", ""), err, errSize)) {
+    if (Json_Get(doc, "modeWorld") == NULL) {
+        ModeRelease();  /* (the last apply's, kept) */
+    } else if (!ModeLoad(Json_GetString(doc, "modeWorld", ""), err, errSize)) {
         goto done;
     }
 
@@ -3325,13 +3334,29 @@ done:
     return ok;
 }
 
+static int ApplyFileDoc(DataPack *pack, const char *path, const char *world, char *err, size_t errSize);
+
 static int ApplyFile(DataPack *pack, const char *path, const char *world, char *err, size_t errSize) {
+    int ok;
+
+    /* the mode's screens stay through the undoing: the editor applies the level again on
+     * every edit, and ModeLoad keeps them when it names the same world */
+    s_modeKeep = 1;
+    Unapply();
+    s_modeKeep = 0;
+    ok = ApplyFileDoc(pack, path, world, err, errSize);
+    if (s_lv.pack == NULL) {
+        ModeRelease();  /* (none applied) */
+    }
+    return ok;
+}
+
+static int ApplyFileDoc(DataPack *pack, const char *path, const char *world, char *err, size_t errSize) {
     size_t len = 0;
     char *text, perr[160];
     JsonNode *doc;
     int ok;
 
-    Unapply();
     if (pack == NULL) {
         return Fail(err, errSize, "no world pack");
     }
