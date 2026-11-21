@@ -452,7 +452,8 @@ void AnimTraverseHeirarchyToMatrices(AnimBone *bones, u32 count, f32 *matrices) 
                     child = &child[child->next];
                 }
             }
-        } else {
+        } else if (i + 1 < count) {
+            /* port: the last leaf popped below the stacks' bottom (the values went unused) */
             pos = *--posSp;
             rotSp -= bone->pop + 1;
             rot = *rotSp++;
