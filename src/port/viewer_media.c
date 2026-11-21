@@ -606,13 +606,13 @@ static const MidiInst *Instruments(u32 *count) {
 /* The song's events: tempo, length, channels and notes (one SMF track, as ProcessMIDI reads it). */
 static void WriteSongInfo(JsonWriter *w) {
     const MidiHeader *h = g_pHdr;
-    const u8 *p = h->track, *end = h->track + h->trackSize;
+    /* CreateMIDI copied the RIFF's size + 8 bytes: the track is read within those, whatever
+     * its own size field says */
+    u64 room = (u64)h->size + 8 > offsetof(MidiHeader, track) ? (u64)h->size + 8 - offsetof(MidiHeader, track) : 0;
+    const u8 *p = h->track, *end = h->trackSize <= room ? h->track + h->trackSize : p;
     u32 tick = 0, notes = 0, channels = 0, firstTempo = 0, tempos = 0, markers = 0, events = 0;
     u8 status = 0;
 
-    if (h->trackSize > h->size) {
-        end = p;
-    }
     while (p < end) {
         u32 delta = 0, c, len;
 
@@ -641,7 +641,7 @@ static void WriteSongInfo(JsonWriter *w) {
                     firstTempo = (u32)p[0] << 16 | (u32)p[1] << 8 | p[2];
                 }
             }
-            p += len;
+            p += len < (u32)(end - p) ? len : (u32)(end - p);
             if (type == 0x2F) {
                 break;
             }
@@ -653,7 +653,7 @@ static void WriteSongInfo(JsonWriter *w) {
                 c = p < end ? *p++ : 0;
                 len = (len << 7) | (c & 0x7F);
             } while (c & 0x80);
-            p += len;
+            p += len < (u32)(end - p) ? len : (u32)(end - p);
             continue;
         }
         switch (status & 0xF0) {
