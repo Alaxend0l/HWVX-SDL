@@ -60,6 +60,7 @@
 #include "Port_Content.h"
 #include "Port_Mods.h"
 #include "Port_Level.h"
+#include "ThingManager.h"
 #include "jsonc.h"
 
 s32 Trigger_ReleaseTrigger(s32 *arg);
@@ -250,6 +251,24 @@ static struct {
     u32 *handles;               /* the words its triggers' parameter blocks hold, sorted */
     u32 numHandles;
 } s_mode = { .index = -1 };
+static int s_modeKeep;          /* Unapply leaves s_mode (ApplyFile) */
+
+/* Port_LevelBspBounds' answers (each walk is long; the viewer asks on every pick), by the BSP's
+ * address and its first node; forgotten when a pack goes or a level's records do (an address
+ * may be another BSP's then). A BSP is never changed in place (MoveBsp copies it). */
+static struct {
+    const void *bsp;
+    u32 maxNodes, numNodes;
+    int ok;
+    f32 lo[3], hi[3];
+    u8 node[0x20];
+} s_bspBounds[64];
+static u32 s_numBspBounds;
+
+static void BspBoundsForget(void) {
+    SDL_zeroa(s_bspBounds);
+    s_numBspBounds = 0;
+}
 
 void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned int numPointers) {
     SDL_free(s_noted.pointers);
@@ -1346,6 +1365,10 @@ static int ModeLoad(const char *world, char *err, size_t errSize) {
         SDL_strncmp(world, "@", 1) == 0) {
         return Fail(err, errSize, "modeWorld: a world as the MCP names it");
     }
+    if (s_mode.pack != NULL && SDL_strcmp(s_mode.name, world) == 0 && (u32)s_mode.index < g_MaxStreamingDataPacks[4] &&
+        g_StreamingDataPacks[4][s_mode.index].loaded && &g_StreamingDataPacks[4][s_mode.index].pack == s_mode.pack) {
+        return 1;   /* kept from the level's last apply (ApplyFile): not read from disk again */
+    }
     ModeRelease();
     Port_TexturesWiden();   /* two worlds' textures at once */
     SDL_strlcpy(s_mode.name, world, sizeof(s_mode.name));
@@ -1364,17 +1387,19 @@ static int ModeLoad(const char *world, char *err, size_t errSize) {
         SDL_zero(s_mode.name);
         return Fail(err, errSize, "modeWorld %s: not loaded (no such world in this release's data?)", world);
     }
-    s_mode.index = idx;
     sp = &g_StreamingDataPacks[4][idx];
-    s_mode.pack = &sp->pack;
-    if (!sp->refreshed) {
-        /* its triggers kept from the trigger lists: counted out before the refresh adds them */
-        s_mode.triggers = GETP(sp->pack.triggers);
-        s_mode.numTriggers = sp->pack.numTriggers;
-        sp->pack.numTriggers = 0;
-    } else {
+    if (sp->refreshed) {
+        /* the world shown (or another's): its triggers are live, not ours to count out */
+        FileStreaming_ReleaseDataPack((u32)idx, 4);
+        SDL_zero(s_mode.name);
         return Fail(err, errSize, "modeWorld %s: already loaded as a world", world);
     }
+    s_mode.index = idx;
+    s_mode.pack = &sp->pack;
+    /* its triggers kept from the trigger lists: counted out before the refresh adds them */
+    s_mode.triggers = GETP(sp->pack.triggers);
+    s_mode.numTriggers = sp->pack.numTriggers;
+    sp->pack.numTriggers = 0;
     if (FileStreaming_InitializeDataPack((u32)idx, 4, 1) == NULL) {
         return Fail(err, errSize, "modeWorld %s: not loaded", world);
     }
@@ -1411,16 +1436,149 @@ static int ModeParamHandle(u32 h) {
            SDL_bsearch(&h, s_mode.handles, s_mode.numHandles, 4, CmpU32) != NULL;
 }
 
+/* ---- the things of grown arrays ---------------------------------------------- */
+
+/* The items and effect points a level grows spawn things that point back at their element
+ * (ItemThing base.trigger and spawner; the element's thing slot): while the level is in, the
+ * copy's elements own them; when it goes, the base ones get them back and the level's own
+ * release theirs (as a quadrant leaving does, FileStreaming_ReleaseQuadResources). */
+
+/* t, a live thing of the item (2) or emitter (3) pool; else NULL (a stale slot: its pool
+ * was released with the world). */
+static Thing *GrowThing(void *t, int kind) {
+    extern u8 g_itemVTable[], g_emitterVTable[];
+    u8 *pool = kind == 2 ? (u8 *)THING_POOLS->items : (u8 *)THING_POOLS->emitters;
+    u32 stride = kind == 2 ? sizeof(THING_POOLS->items[0]) : sizeof(THING_POOLS->emitters[0]);
+    u32 n = kind == 2 ? SDL_arraysize(THING_POOLS->items) : SDL_arraysize(THING_POOLS->emitters);
+    Thing *th = t;
+
+    if (th == NULL || (u8 *)th < pool || (u8 *)th >= pool + n * stride || ((u8 *)th - pool) % stride != 0 ||
+        (th->flags & (THING_FLAG_RELEASED | THING_FLAG_FREE)) ||
+        (u8 *)GETP(th->vtable) != (kind == 2 ? g_itemVTable : g_emitterVTable)) {
+        return NULL;
+    }
+    return th;
+}
+
+/* Every live item's spawn slot in [from, from + size) moved to the same place in `to`, or
+ * off it (NULL) past toSize. */
+static void GrowMoveItems(const u8 *from, u32 size, u8 *to, u32 toSize) {
+    u32 i;
+
+    for (i = 0; from != NULL && i < SDL_arraysize(THING_POOLS->items); i++) {
+        ItemThing *it = (ItemThing *)GrowThing(&THING_POOLS->items[i].thing, 2);
+        const u8 *tr = it != NULL ? GETP(it->base.trigger) : NULL, *sp = it != NULL ? (u8 *)GETP(it->spawner) : NULL;
+
+        if (tr != NULL && tr >= from && tr < from + size) {
+            SETP(it->base.trigger, (u32)(tr - from) < toSize ? to + (tr - from) : NULL);
+        }
+        if (sp != NULL && sp >= from && sp < from + size) {
+            SETP(it->spawner, (u32)(sp - from) < toSize ? (QuadItem *)(to + (sp - from)) : NULL);
+        }
+    }
+}
+
+/* A new element copied from another: nothing spawned of its own yet (the copy's thing or
+ * car stays the other's, which would release it twice). */
+static void GrowElementFresh(u8 *el, int kind) {
+    if (kind == 0) {
+        SETP(((TileCar *)el)->car, NULL);
+    } else if (kind == 2) {
+        SETP(((QuadItem *)el)->thing, NULL);
+        ((QuadItem *)el)->spawned = 0;
+        ((QuadItem *)el)->timer = 0;
+    } else if (kind == 3) {
+        SETP(((QuadFxPoint *)el)->thing, NULL);
+    }
+}
+
+/* Applying: the base elements' items point at their copies. */
+static void GrowsTakeThings(void) {
+    int a;
+
+    for (a = 0; a < s_lv.numGrows; a++) {
+        const struct LevelGrow *g = &s_lv.grows[a];
+
+        if (g->kind == 2 && g->old != NULL && g->mem != NULL) {
+            GrowMoveItems(g->old, g->oldSize, g->mem, g->oldSize);
+        }
+    }
+}
+
+/* Undoing (before the copies are freed): the base elements' things back to them, the level's
+ * own released. */
+static void GrowsGiveBackThings(void) {
+    u8 paused = Trigger_IsTACSystemPaused();
+    int a, released = 0;
+
+    Trigger_PauseTACSystem(1);
+    for (a = 0; a < s_lv.numGrows; a++) {
+        const struct LevelGrow *g = &s_lv.grows[a];
+        u32 es = g->elemSize, j;
+
+        if ((g->kind != 2 && g->kind != 3) || g->mem == NULL || es == 0) {
+            continue;
+        }
+        for (j = 0; j < g->size / es; j++) {
+            u8 *el = g->mem + j * es;
+            Thing *t;
+
+            if (g->kind == 2) {
+                QuadItem *q = (QuadItem *)el;
+
+                t = GrowThing(GETP(q->thing), 2);
+                if (t != NULL && GETP(t->trigger) != q) {
+                    t = NULL;   /* (a slot reused since) */
+                }
+                if (j * es < g->oldSize) {
+                    QuadItem *o = (QuadItem *)(g->old + j * es);
+
+                    SETP(o->thing, (ItemThing *)t);
+                    o->spawned = q->spawned;
+                    o->timer = q->timer;
+                } else if (t != NULL && GETP(((ItemThing *)t)->record)->type != ITEM_TYPE_CARRIED) {
+                    THING_VFN(t, THING_V_RELEASE, void (*)(void *))(t);
+                    released = 1;
+                }
+                SETP(q->thing, NULL);
+            } else {
+                QuadFxPoint *f = (QuadFxPoint *)el;
+
+                t = GrowThing(GETP(f->thing), 3);
+                if (j * es < g->oldSize) {
+                    SETP(((QuadFxPoint *)(g->old + j * es))->thing, t);
+                } else if (t != NULL) {
+                    THING_VFN(t, THING_V_RELEASE, void (*)(void *))(t);
+                    released = 1;
+                }
+                SETP(f->thing, NULL);
+            }
+        }
+        if (g->kind == 2) {
+            /* (carried ones too: off their slot) */
+            GrowMoveItems(g->mem, g->size, g->old, g->oldSize);
+        }
+    }
+    if (released) {
+        ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
+    }
+    Trigger_PauseTACSystem((s8)paused);
+}
+
 /* ---- undoing -------------------------------------------------------------- */
 
 static void Unapply(void) {
     int i;
     u32 k;
 
-    ModeRelease();
+    BspBoundsForget();   /* (its records go; a patch may have been in one) */
+    if (!s_modeKeep) {
+        ModeRelease();
+    }
     if (s_lv.pack == NULL) {
         return;
     }
+    GrowsGiveBackThings();
     /* active triggers of ours out of the trigger lists first (no-op if they
      * weren't activated) */
     for (k = 0; s_lv.triggers != NULL && k < s_lv.numTriggers; k++) {
@@ -1474,6 +1632,7 @@ void Port_LevelTakeOut(void *worldPack) {
 }
 
 void Port_LevelPackReleased(void *dataPack) {
+    BspBoundsForget();
     if (dataPack != NULL && dataPack == s_noted.pack) {
         SDL_free(s_noted.pointers);
         SDL_zero(s_noted);
@@ -1938,6 +2097,7 @@ static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, 
             SDL_memcpy(s_lv.grows[a].mem, s_lv.grows[a].old, s_lv.grows[a].oldSize);
         }
     }
+    GrowsTakeThings();
     for (a = 0, ja = japp->child; ja != NULL; ja = ja->next, a++) {
         struct LevelGrow *g = &s_lv.grows[a];
         const JsonNode *elems = Json_Get(ja, "elems");
@@ -2002,6 +2162,7 @@ static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, 
                             "(%s has %u)", a, (unsigned)j, Json_GetString(ja, "what", "the array"), (unsigned)count);
             }
             SDL_memcpy(dst, src, es);
+            GrowElementFresh(dst, g->kind);
             js = Json_Get(je, "set");
             for (x = js != NULL && js->type == JSON_ARRAY ? js->child : NULL; x != NULL; x = x->next) {
                 const JsonNode *o = Json_At(x, 0), *hx = Json_At(x, 1);
@@ -2303,7 +2464,20 @@ static void BspDown(BspWalk *bw, u32 i, int depth) {
 int Port_LevelBspBounds(const void *bsp, unsigned int maxNodes, float lo[3], float hi[3], unsigned int *numNodes) {
     BspWalk *bw;
     int ok, k;
+    u32 c;
 
+    for (c = 0; bsp != NULL && c < SDL_arraysize(s_bspBounds); c++) {
+        if (s_bspBounds[c].bsp == bsp && s_bspBounds[c].maxNodes == maxNodes &&
+            SDL_memcmp(s_bspBounds[c].node, bsp, BSP_NODE) == 0) {
+            for (k = 0; k < 3 && s_bspBounds[c].ok; k++) {
+                lo[k] = s_bspBounds[c].lo[k], hi[k] = s_bspBounds[c].hi[k];
+            }
+            if (numNodes != NULL) {
+                *numNodes = s_bspBounds[c].numNodes;
+            }
+            return s_bspBounds[c].ok;
+        }
+    }
     if (bsp == NULL || maxNodes == 0 || (bw = SDL_calloc(1, sizeof(*bw))) == NULL) {
         return 0;
     }
@@ -2322,6 +2496,15 @@ int Port_LevelBspBounds(const void *bsp, unsigned int maxNodes, float lo[3], flo
     if (numNodes != NULL) {
         *numNodes = bw->reached;
     }
+    c = s_numBspBounds++ % SDL_arraysize(s_bspBounds);
+    s_bspBounds[c].bsp = bsp;
+    s_bspBounds[c].maxNodes = maxNodes;
+    s_bspBounds[c].numNodes = bw->reached;
+    s_bspBounds[c].ok = ok;
+    for (k = 0; k < 3; k++) {
+        s_bspBounds[c].lo[k] = bw->lo[k], s_bspBounds[c].hi[k] = bw->hi[k];
+    }
+    SDL_memcpy(s_bspBounds[c].node, bsp, BSP_NODE);
     SDL_free(bw);
     return ok;
 }
@@ -2548,8 +2731,23 @@ static int ApplyRemoves(DataPack *pack, const JsonNode *jrem, LevelPart *parts, 
             u32 off = QUAD_ITEM_OFF;
             u8 def = QUAD_ITEM_OFF;
 
+            Thing *t = GrowThing(GETP(q->thing), 2);
+
             if (!PatchBytes((u8 *)&q->mode, &off, 4) || !PatchBytes(&q->defMode, &def, 1)) {
                 return Fail(err, errSize, "out of memory");
+            }
+            if (t != NULL && GETP(t->trigger) == q && GETP(((ItemThing *)t)->record)->type != ITEM_TYPE_CARRIED) {
+                /* the one it spawned goes too (back when the level goes: on again, not spawned) */
+                u8 paused = Trigger_IsTACSystemPaused();
+
+                Trigger_PauseTACSystem(1);
+                if (q->timer == 0) {
+                    q->spawned = 0;
+                }
+                THING_VFN(t, THING_V_RELEASE, void (*)(void *))(t);
+                SETP(q->thing, NULL);
+                ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
+                Trigger_PauseTACSystem((s8)paused);
             }
             (*numItems)++;
         } else {
@@ -2781,7 +2979,9 @@ static int ApplyDoc(DataPack *pack, const JsonNode *doc, char *err, size_t errSi
     s_lv.numVariableSlots = s_lv.origNumVariables;
 
     /* the mode's screens, when the level plays its mode on another mode's world */
-    if (Json_Get(doc, "modeWorld") != NULL && !ModeLoad(Json_GetString(doc, "modeWorld", ""), err, errSize)) {
+    if (Json_Get(doc, "modeWorld") == NULL) {
+        ModeRelease();  /* (the last apply's, kept) */
+    } else if (!ModeLoad(Json_GetString(doc, "modeWorld", ""), err, errSize)) {
         goto done;
     }
 
@@ -3190,13 +3390,29 @@ done:
     return ok;
 }
 
+static int ApplyFileDoc(DataPack *pack, const char *path, const char *world, char *err, size_t errSize);
+
 static int ApplyFile(DataPack *pack, const char *path, const char *world, char *err, size_t errSize) {
+    int ok;
+
+    /* the mode's screens stay through the undoing: the editor applies the level again on
+     * every edit, and ModeLoad keeps them when it names the same world */
+    s_modeKeep = 1;
+    Unapply();
+    s_modeKeep = 0;
+    ok = ApplyFileDoc(pack, path, world, err, errSize);
+    if (s_lv.pack == NULL) {
+        ModeRelease();  /* (none applied) */
+    }
+    return ok;
+}
+
+static int ApplyFileDoc(DataPack *pack, const char *path, const char *world, char *err, size_t errSize) {
     size_t len = 0;
     char *text, perr[160];
     JsonNode *doc;
     int ok;
 
-    Unapply();
     if (pack == NULL) {
         return Fail(err, errSize, "no world pack");
     }
