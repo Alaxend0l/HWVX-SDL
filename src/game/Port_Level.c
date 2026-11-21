@@ -253,6 +253,23 @@ static struct {
 } s_mode = { .index = -1 };
 static int s_modeKeep;          /* Unapply leaves s_mode (ApplyFile) */
 
+/* Port_LevelBspBounds' answers (each walk is long; the viewer asks on every pick), by the BSP's
+ * address and its first node; forgotten when a pack goes or a level's records do (an address
+ * may be another BSP's then). A BSP is never changed in place (MoveBsp copies it). */
+static struct {
+    const void *bsp;
+    u32 maxNodes, numNodes;
+    int ok;
+    f32 lo[3], hi[3];
+    u8 node[0x20];
+} s_bspBounds[64];
+static u32 s_numBspBounds;
+
+static void BspBoundsForget(void) {
+    SDL_zeroa(s_bspBounds);
+    s_numBspBounds = 0;
+}
+
 void Port_LevelNotePack(void *dataPack, const unsigned int *pointers, unsigned int numPointers) {
     SDL_free(s_noted.pointers);
     s_noted.pack = dataPack;
@@ -1554,6 +1571,7 @@ static void Unapply(void) {
     int i;
     u32 k;
 
+    BspBoundsForget();   /* (its records go; a patch may have been in one) */
     if (!s_modeKeep) {
         ModeRelease();
     }
@@ -1614,6 +1632,7 @@ void Port_LevelTakeOut(void *worldPack) {
 }
 
 void Port_LevelPackReleased(void *dataPack) {
+    BspBoundsForget();
     if (dataPack != NULL && dataPack == s_noted.pack) {
         SDL_free(s_noted.pointers);
         SDL_zero(s_noted);
@@ -2445,7 +2464,20 @@ static void BspDown(BspWalk *bw, u32 i, int depth) {
 int Port_LevelBspBounds(const void *bsp, unsigned int maxNodes, float lo[3], float hi[3], unsigned int *numNodes) {
     BspWalk *bw;
     int ok, k;
+    u32 c;
 
+    for (c = 0; bsp != NULL && c < SDL_arraysize(s_bspBounds); c++) {
+        if (s_bspBounds[c].bsp == bsp && s_bspBounds[c].maxNodes == maxNodes &&
+            SDL_memcmp(s_bspBounds[c].node, bsp, BSP_NODE) == 0) {
+            for (k = 0; k < 3 && s_bspBounds[c].ok; k++) {
+                lo[k] = s_bspBounds[c].lo[k], hi[k] = s_bspBounds[c].hi[k];
+            }
+            if (numNodes != NULL) {
+                *numNodes = s_bspBounds[c].numNodes;
+            }
+            return s_bspBounds[c].ok;
+        }
+    }
     if (bsp == NULL || maxNodes == 0 || (bw = SDL_calloc(1, sizeof(*bw))) == NULL) {
         return 0;
     }
@@ -2464,6 +2496,15 @@ int Port_LevelBspBounds(const void *bsp, unsigned int maxNodes, float lo[3], flo
     if (numNodes != NULL) {
         *numNodes = bw->reached;
     }
+    c = s_numBspBounds++ % SDL_arraysize(s_bspBounds);
+    s_bspBounds[c].bsp = bsp;
+    s_bspBounds[c].maxNodes = maxNodes;
+    s_bspBounds[c].numNodes = bw->reached;
+    s_bspBounds[c].ok = ok;
+    for (k = 0; k < 3; k++) {
+        s_bspBounds[c].lo[k] = bw->lo[k], s_bspBounds[c].hi[k] = bw->hi[k];
+    }
+    SDL_memcpy(s_bspBounds[c].node, bsp, BSP_NODE);
     SDL_free(bw);
     return ok;
 }
