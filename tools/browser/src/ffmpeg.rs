@@ -7,7 +7,7 @@
 //! libavcodec majors 60-63, libavutil 58-61), checked before anything else is called. Everything
 //! goes through functions except five structs' leading fields, the same in all of these releases
 //! (bink.c checked them against their headers): AVFormatContext up to `streams`, AVStream up to
-//! `avg_frame_rate`, AVPacket up to `stream_index`, AVFrame up to `format`. Decoder settings are
+//! `avg_frame_rate`, AVPacket up to `flags`, AVFrame up to `format`. Decoder settings are
 //! read through AVOptions. No libswscale or libswresample: 4:2:0 to RGBA is done here.
 //!
 //! Where: HWVX_FFMPEG_DIR, if set, is the only folder looked in. Otherwise the program's own
@@ -25,6 +25,8 @@ const MEDIA_VIDEO: c_int = 0;
 const MEDIA_AUDIO: c_int = 1;
 const LOG_ERROR: c_int = 16;
 const NOPTS: i64 = i64::MIN;
+const PKT_KEY: c_int = 1;
+const SEEK_BACKWARD: c_int = 1;
 
 #[cfg(target_os = "macos")]
 const EAGAIN: c_int = 35;
@@ -72,6 +74,7 @@ struct PacketHead {
     data: *mut u8,
     size: c_int,
     stream_index: c_int,
+    flags: c_int,
 }
 
 #[repr(C)]
@@ -121,6 +124,8 @@ pub struct Ff {
     format_close_input: unsafe extern "C" fn(*mut P),
     find_best_stream: unsafe extern "C" fn(P, c_int, c_int, c_int, *mut *const c_void, c_int) -> c_int,
     read_frame: unsafe extern "C" fn(P, P) -> c_int,
+    seek_frame: unsafe extern "C" fn(P, c_int, i64, c_int) -> c_int,
+    flush_buffers: unsafe extern "C" fn(P),
     pix: [c_int; 3],    // yuv420p, yuvj420p, yuva420p
     smp: [c_int; 4],    // flt, fltp, s16, s16p
 }
@@ -211,6 +216,8 @@ fn try_load(dir: &Path, major: u32) -> Result<Ff, String> {
         format_close_input: sym!(f0, "avformat_close_input"),
         find_best_stream: sym!(f0, "av_find_best_stream"),
         read_frame: sym!(f0, "av_read_frame"),
+        seek_frame: sym!(f0, "av_seek_frame"),
+        flush_buffers: sym!(c0, "avcodec_flush_buffers"),
         pix,
         smp,
         _libs: libs,
@@ -275,6 +282,9 @@ pub struct FfMovie {
     /// decoded audio, interleaved float, not yet taken
     pub pcm: Vec<f32>,
     bad_pixels: bool,
+    /// after a seek: video packets dropped up to a key frame, whose time stamp is kept here
+    seeking: bool,
+    key_pts: i64,
 }
 
 // the contexts belong to this movie alone; it moves to a decoding thread whole
@@ -363,6 +373,8 @@ impl FfMovie {
             flushed: false,
             pcm: Vec::new(),
             bad_pixels: false,
+            seeking: false,
+            key_pts: NOPTS,
         };
         unsafe {
             if (ff.format_open_input)(&mut m.fmt, cpath.as_ptr(), std::ptr::null(), std::ptr::null_mut()) < 0 {
@@ -451,31 +463,58 @@ impl FfMovie {
         Ok(m)
     }
 
+    /// The audio decoder's channels now: a stream may change its layout midway (mono to stereo),
+    /// and each frame has the decoder's layout of its time.
+    fn frame_channels(&self) -> usize {
+        let ff = self.ff;
+        let mut cl = ChannelLayout { order: 0, nb_channels: 0, mask: 0, opaque: std::ptr::null_mut() };
+        let chl = c"ch_layout";
+        unsafe {
+            if (ff.opt_get_chlayout)(self.adec, chl.as_ptr(), 0, &mut cl) < 0 {
+                return 0;
+            }
+            (ff.channel_layout_uninit)(&mut cl);
+        }
+        cl.nb_channels.max(0) as usize
+    }
+
     fn take_audio(&mut self) {
         let ff = self.ff;
         let f = unsafe { &*(self.frame as *const FrameHead) };
-        let (n, ch) = (f.nb_samples.max(0) as usize, self.channels as usize);
-        if n == 0 || ch == 0 {
+        let (n, ch, fch) = (f.nb_samples.max(0) as usize, self.channels as usize, self.frame_channels());
+        if n == 0 || ch == 0 || fch == 0 {
             return;
         }
+        // the frame's channels to the track's: one channel repeated, the extra ones dropped
+        let src = |c: usize| c.min(fch - 1);
         unsafe {
             let plane = |c: usize| *f.extended_data.add(c);
             if f.format == ff.smp[1] {
                 for i in 0..n {
                     for c in 0..ch {
-                        self.pcm.push(*(plane(c) as *const f32).add(i));
+                        self.pcm.push(*(plane(src(c)) as *const f32).add(i));
                     }
                 }
             } else if f.format == ff.smp[0] {
-                self.pcm.extend_from_slice(std::slice::from_raw_parts(plane(0) as *const f32, n * ch));
+                let s = std::slice::from_raw_parts(plane(0) as *const f32, n * fch);
+                for i in 0..n {
+                    for c in 0..ch {
+                        self.pcm.push(s[i * fch + src(c)]);
+                    }
+                }
             } else if f.format == ff.smp[3] {
                 for i in 0..n {
                     for c in 0..ch {
-                        self.pcm.push(*(plane(c) as *const i16).add(i) as f32 / 32768.0);
+                        self.pcm.push(*(plane(src(c)) as *const i16).add(i) as f32 / 32768.0);
                     }
                 }
             } else if f.format == ff.smp[2] {
-                self.pcm.extend(std::slice::from_raw_parts(plane(0) as *const i16, n * ch).iter().map(|&s| s as f32 / 32768.0));
+                let s = std::slice::from_raw_parts(plane(0) as *const i16, n * fch);
+                for i in 0..n {
+                    for c in 0..ch {
+                        self.pcm.push(s[i * fch + src(c)] as f32 / 32768.0);
+                    }
+                }
             }
         }
     }
@@ -509,9 +548,16 @@ impl FfMovie {
                 self.decode_audio(std::ptr::null_mut());
                 return None;
             }
-            let idx = (*(self.pkt as *const PacketHead)).stream_index;
+            let ph = &*(self.pkt as *const PacketHead);
+            let idx = ph.stream_index;
             let mut sent = false;
-            if idx == self.vindex && !self.vdec.is_null() {
+            if idx == self.vindex && self.seeking && ph.flags & PKT_KEY == 0 {
+                // a seek's pictures start at a key frame
+            } else if idx == self.vindex && !self.vdec.is_null() {
+                if self.seeking {
+                    self.seeking = false;
+                    self.key_pts = if ph.pts != NOPTS { ph.pts } else { ph.dts };
+                }
                 (ff.send_packet)(self.vdec, self.pkt); // a packet the decoder refuses is dropped
                 sent = true;
             } else if idx == self.aindex {
@@ -520,6 +566,56 @@ impl FfMovie {
             (ff.packet_unref)(self.pkt);
             Some(sent)
         }
+    }
+
+    /// To the key frame at or before `frame` (the video's clock): the frame it lands on, whose
+    /// picture `next_frame` gives next. None: no seek (the container can't, or its key frame has
+    /// no time stamp); the movie is then to be opened again.
+    pub fn seek(&mut self, frame: u32) -> Option<u32> {
+        if self.vdec.is_null() {
+            return None;
+        }
+        let st = self.stream(self.vindex);
+        if st.tb_num <= 0 || st.tb_den <= 0 {
+            return None;
+        }
+        let tb = st.tb_num as f64 / st.tb_den as f64;
+        let start = if st.start_time != NOPTS { st.start_time } else { 0 };
+        let target = frame as f64 / self.fps;
+        // a program stream lands on the key frame after its time stamp search: earlier and earlier
+        for back in [0.0, 1.0, 2.0, 4.0, 8.0] {
+            let ts = start + ((target - back).max(0.0) / tb) as i64;
+            match self.seek_to(ts, start, tb) {
+                Some(at) if at <= frame => return Some(at),
+                Some(_) if back < target => {}
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    /// To the key frame `ts` (stream time) finds: its frame. None: no seek.
+    fn seek_to(&mut self, ts: i64, start: i64, tb: f64) -> Option<u32> {
+        let ff = self.ff;
+        unsafe {
+            if (ff.seek_frame)(self.fmt, self.vindex, ts, SEEK_BACKWARD) < 0 {
+                return None;
+            }
+            (ff.flush_buffers)(self.vdec);
+            if !self.adec.is_null() {
+                (ff.flush_buffers)(self.adec);
+            }
+        }
+        self.pcm.clear();
+        (self.eof, self.flushed, self.seeking, self.key_pts) = (false, false, true, NOPTS);
+        // up to the key frame's packet, sent to the decoder
+        while self.seeking {
+            self.read_packet()?;
+        }
+        if self.key_pts == NOPTS {
+            return None;
+        }
+        Some(((self.key_pts - start) as f64 * tb * self.fps).round().max(0.0) as u32)
     }
 
     /// The next picture: true if there was one (converted to RGBA into `rgba` when given, top row
@@ -563,8 +659,17 @@ impl FfMovie {
 
     /// The whole audio track, interleaved float (the video packets passed over).
     pub fn all_audio(&mut self) -> Vec<f32> {
-        while self.read_packet().is_some() {}
-        std::mem::take(&mut self.pcm)
+        self.all_audio_until(&std::sync::atomic::AtomicBool::new(false)).unwrap_or_default()
+    }
+
+    /// The whole audio track, or None once `stop` is set.
+    pub fn all_audio_until(&mut self, stop: &std::sync::atomic::AtomicBool) -> Option<Vec<f32>> {
+        while self.read_packet().is_some() {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+        }
+        Some(std::mem::take(&mut self.pcm))
     }
 
     /// 4:2:0 planes to RGBA: BT.601, video range, or full range for yuvj420p (bink.c ToRGBA).
