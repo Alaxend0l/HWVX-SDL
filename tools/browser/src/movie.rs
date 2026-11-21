@@ -162,7 +162,12 @@ pub struct Thp {
     next_off: u64,
     next_size: u32,
     pub read: u32,
+    /// the file's length: no frame is read past it
+    len: u64,
 }
+
+/// A frame bigger than this is a corrupt size, not a THP frame (they are tens of KB).
+const THP_FRAME_MAX: usize = 64 << 20;
 
 impl Thp {
     pub fn open(path: &Path) -> Result<Thp, String> {
@@ -199,7 +204,8 @@ impl Thp {
         if !(1..=2).contains(&channels) {
             channels = 0;
         }
-        Ok(Thp { f, fps, frames, comps, width, height, channels, rate, first_off: movie_off, first_size, next_off: movie_off, next_size: first_size, read: 0 })
+        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+        Ok(Thp { f, fps, frames, comps, width, height, channels, rate, first_off: movie_off, first_size, next_off: movie_off, next_size: first_size, read: 0, len })
     }
 
     pub fn rewind(&mut self) {
@@ -226,7 +232,7 @@ impl Thp {
     /// The next frame's components: (its JPEG, its audio block).
     pub fn next_frame(&mut self) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
         let size = self.next_size as usize;
-        if self.read >= self.frames || size < 8 + 4 * self.comps.len() {
+        if self.read >= self.frames || size < 8 + 4 * self.comps.len() || size > THP_FRAME_MAX || self.next_off.saturating_add(size as u64) > self.len {
             return None;
         }
         let mut b = vec![0u8; size];
@@ -239,7 +245,7 @@ impl Thp {
         let (mut video, mut audio) = (Vec::new(), None);
         for (i, &t) in self.comps.iter().enumerate() {
             let cs = be32(&b, 8 + 4 * i) as usize;
-            if off + cs > size {
+            if cs > size - off {
                 break;
             }
             match t {
@@ -299,9 +305,26 @@ pub fn decode_thp_picture(jpeg: &[u8], width: u32, height: u32, out: &mut [u8]) 
     let px = d.decode().map_err(|e| format!("JPEG: {e:?}"))?;
     let info = d.info().ok_or("JPEG: no size")?;
     let (w, h) = (info.width as usize, info.height as usize);
+    // RGBA asked for, but a greyscale JPEG may come out as luma (1) or luma + alpha (2), and RGB (3)
+    let n = if w == 0 || h == 0 || px.len() % (w * h) != 0 { 0 } else { px.len() / (w * h) };
+    if !(1..=4).contains(&n) {
+        return Err(format!("JPEG: {} bytes for {w}x{h}", px.len()));
+    }
     let (cw, ch) = ((w as u32).min(width) as usize, (h as u32).min(height) as usize);
     for y in 0..ch {
-        out[y * width as usize * 4..(y * width as usize + cw) * 4].copy_from_slice(&px[y * w * 4..(y * w + cw) * 4]);
+        let row = &mut out[y * width as usize * 4..(y * width as usize + cw) * 4];
+        let src = &px[y * w * n..(y * w + cw) * n];
+        if n == 4 {
+            row.copy_from_slice(src);
+            continue;
+        }
+        for (o, s) in row.chunks_exact_mut(4).zip(src.chunks_exact(n)) {
+            o.copy_from_slice(&match n {
+                1 => [s[0], s[0], s[0], 255],
+                2 => [s[0], s[0], s[0], s[1]],
+                _ => [s[0], s[1], s[2], 255],
+            });
+        }
     }
     Ok(())
 }
@@ -335,10 +358,13 @@ fn dsp_adpcm(src: &[u8], n: usize, coefs: &[i16; 16], hist: &mut [i16; 2], out: 
 
 /// A THP frame's audio block, appended interleaved.
 fn thp_audio(a: &[u8], channels: usize, out: &mut Vec<i16>) {
-    if a.len() < 8 || channels == 0 {
+    // the header, and every channel's coefficients and history, in the block
+    if channels == 0 || channels > 2 || a.len() < 8 + 36 * channels {
         return;
     }
-    let (ch_size, n) = (be32(a, 0) as usize, be32(a, 4) as usize);
+    let ch_size = be32(a, 0) as usize;
+    // no more samples than the channel's 8-byte frames hold, 14 each
+    let n = (be32(a, 4) as usize).min(ch_size / 8 * 14);
     let mut p = 8;
     let mut coefs = [[0i16; 16]; 2];
     let mut hist = [[0i16; 2]; 2];
@@ -352,7 +378,7 @@ fn thp_audio(a: &[u8], channels: usize, out: &mut Vec<i16>) {
         *h = [i16::from_be_bytes([a[p], a[p + 1]]), i16::from_be_bytes([a[p + 2], a[p + 3]])];
         p += 4;
     }
-    if p + ch_size * channels > a.len() {
+    if ch_size.checked_mul(channels).is_none_or(|s| s > a.len() - p) || n == 0 {
         return;
     }
     let at = out.len();
@@ -430,32 +456,53 @@ fn pss_payloads(b: &[u8]) -> Vec<(usize, usize, Option<f64>)> {
     out
 }
 
+/// The first audio payload's SShd/SSbd headers: (the PCM's offset in it, channels, rate,
+/// interleave, the PCM bytes SSbd states).
+fn pss_headers(d: &[u8]) -> Result<(usize, u32, u32, usize, usize), String> {
+    let n = d.len();
+    let le = |o: usize| u32::from_le_bytes(d[o..o + 4].try_into().unwrap());
+    if n < 24 || &d[0..4] != b"SShd" {
+        return Err("the audio track has no SShd header".into());
+    }
+    let hs = le(4) as usize;
+    if hs < 16 || 8 + hs + 8 > n || &d[8 + hs..12 + hs] != b"SSbd" {
+        return Err("the audio track has no SSbd header".into());
+    }
+    let (typ, rate, channels, inter) = (le(8), le(12), le(16), le(20) as usize);
+    if typ != 1 || !(8000..=96000).contains(&rate) || !(1..=2).contains(&channels) || !(2..=0x4000).contains(&inter) || inter & 1 != 0 {
+        return Err(format!("audio type {typ}, {rate} Hz, {channels} ch, interleave {inter:#x}: only PCM is read"));
+    }
+    Ok((8 + hs + 8, channels, rate, inter, le(8 + hs + 4) as usize))
+}
+
 impl PssAudio {
+    /// The track's channels, rate and length in seconds, from its headers (the file's first MB
+    /// read, not the whole movie).
+    pub fn length(path: &Path) -> Result<(u32, u32, f64), String> {
+        let mut b = Vec::new();
+        File::open(path).and_then(|f| f.take(1 << 20).read_to_end(&mut b)).map_err(|e| format!("{}: {e}", path.display()))?;
+        let &(at, n, _) = pss_payloads(&b).first().ok_or("no audio track (private stream 1) in the first MB")?;
+        let (_, channels, rate, _, bytes) = pss_headers(&b[at..at + n])?;
+        // no more than the file holds
+        let len = std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0);
+        Ok((channels, rate, bytes.min(len) as f64 / 2.0 / channels as f64 / rate as f64))
+    }
+
     pub fn read(path: &Path) -> Result<PssAudio, String> {
         let b = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let pays = pss_payloads(&b);
         let &(at, n, start) = pays.first().ok_or("no audio track (private stream 1)")?;
         let d = &b[at..at + n];
-        let le = |o: usize| u32::from_le_bytes(d[o..o + 4].try_into().unwrap());
-        if n < 16 || &d[0..4] != b"SShd" {
-            return Err("the audio track has no SShd header".into());
-        }
-        let hs = le(4) as usize;
-        if hs < 16 || 8 + hs + 8 > n || &d[8 + hs..12 + hs] != b"SSbd" {
-            return Err("the audio track has no SSbd header".into());
-        }
-        let (typ, rate, channels, inter) = (le(8), le(12), le(16), le(20) as usize);
-        let mut left = le(8 + hs + 4) as usize;
-        if typ != 1 || !(8000..=96000).contains(&rate) || !(1..=2).contains(&channels) || !(2..=0x4000).contains(&inter) || inter & 1 != 0 {
-            return Err(format!("audio type {typ}, {rate} Hz, {channels} ch, interleave {inter:#x}: only PCM is read"));
-        }
+        let (pcm_at, channels, rate, inter, left) = pss_headers(d)?;
+        // what SSbd states, but no more than the payloads hold
+        let mut left = left.min(pays.iter().map(|p| p.1).sum());
         let mut data = Vec::with_capacity(left);
         let mut keep = |s: &[u8]| {
             let k = s.len().min(left);
             data.extend_from_slice(&s[..k]);
             left -= k;
         };
-        keep(&d[8 + hs + 8..]);
+        keep(&d[pcm_at..]);
         for &(a, len, _) in &pays[1..] {
             keep(&b[a..a + len]);
         }
@@ -511,11 +558,10 @@ pub fn probe(m: &MovieFile) -> Result<Info, String> {
             };
             if m.kind == Kind::Pss && info.channels == 0 {
                 // the length from the audio track's (the program stream states none)
-                if let Ok(a) = PssAudio::read(&m.path) {
-                    info.channels = a.channels;
-                    info.rate = a.rate;
+                if let Ok((channels, rate, s)) = PssAudio::length(&m.path) {
+                    info.channels = channels;
+                    info.rate = rate;
                     info.audio_codec = "SShd PCM16".into();
-                    let s = a.pcm.len() as f64 / a.channels as f64 / a.rate as f64;
                     if info.seconds <= 0.0 {
                         info.seconds = s;
                         info.frames = (s * info.fps) as u32;
@@ -553,6 +599,9 @@ impl Audio {
     }
 }
 
+/// The most a PSS's audio starts before or after its picture, in seconds.
+const PSS_LEAD_MAX: f64 = 60.0;
+
 /// The whole soundtrack (Ok(None): the movie has none).
 pub fn decode_audio(m: &MovieFile) -> Result<Option<Audio>, String> {
     match m.kind {
@@ -587,6 +636,8 @@ pub fn decode_audio(m: &MovieFile) -> Result<Option<Audio>, String> {
             let mut pcm = a.pcm;
             // placed by its PTS against the picture's first (pss.c's lead)
             let lead = a.start.map(|s| s - video_start).unwrap_or(0.0);
+            // a gap of more than a minute is a broken time stamp, not a lead: not padded (GBs of silence)
+            let lead = if lead.abs() > PSS_LEAD_MAX { 0.0 } else { lead };
             let n = (lead.abs() * a.rate as f64) as usize * ch;
             if lead > 0.0 {
                 pcm.splice(0..0, std::iter::repeat_n(0, n));

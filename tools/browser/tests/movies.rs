@@ -77,6 +77,113 @@ fn pss_audio_track() {
     assert!((a.start.unwrap() - 1.0).abs() < 1e-6);
 }
 
+/// A THP file of 16x16 stereo frames: each frame (next size, previous size, the two components'
+/// sizes) with `jpeg` and `audio`; `first` overrides the header's first frame size.
+fn thp_file(name: &str, jpeg: &[u8], audio: &[u8], frames: u32, first: Option<u32>) -> MovieFile {
+    let mut frame = Vec::new();
+    let size = (16 + jpeg.len() + audio.len()) as u32;
+    for v in [size, size, jpeg.len() as u32, audio.len() as u32] {
+        frame.extend_from_slice(&v.to_be_bytes());
+    }
+    frame.extend_from_slice(jpeg);
+    frame.extend_from_slice(audio);
+    let mut b = vec![0u8; 0xB0];
+    b[0..4].copy_from_slice(b"THP\0");
+    for (o, v) in [(0x10, 29.97f32.to_bits()), (0x14, frames), (0x18, first.unwrap_or(size)), (0x20, 0x30), (0x28, 0xB0)] {
+        b[o..o + 4].copy_from_slice(&v.to_be_bytes());
+    }
+    b[0x30..0x34].copy_from_slice(&2u32.to_be_bytes());
+    b[0x34..0x44].copy_from_slice(&[0, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+    for (o, v) in [(0x44, 16u32), (0x48, 16), (0x4C, 2), (0x50, 32000)] {
+        b[o..o + 4].copy_from_slice(&v.to_be_bytes());
+    }
+    for _ in 0..frames {
+        b.extend_from_slice(&frame);
+    }
+    let path = out_dir().join(name);
+    std::fs::write(&path, &b).unwrap();
+    MovieFile { name: name.into(), bytes: b.len() as u64, path, kind: Kind::Thp }
+}
+
+/// A 16x16 greyscale JPEG (cjpeg -grayscale): no 0xFF in its entropy
+/// data, so a THP picture as it is.
+const GREY_JPEG: [u8; 178] = [
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06,
+    0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20,
+    0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32, 0xff,
+    0xc0, 0x00, 0x0b, 0x08, 0x00, 0x10, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x15, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x06, 0xff, 0xc4, 0x00, 0x18, 0x10, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x43, 0x83,
+    0xc4, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0xa1, 0x62, 0x7b, 0x34, 0x06, 0x27, 0xb3, 0x40, 0x62, 0x7b, 0x34, 0x06, 0x27, 0xb3, 0x41, 0xff, 0xd9,
+];
+
+#[test]
+fn thp_greyscale_picture() {
+    let mut out = vec![0u8; 16 * 16 * 4];
+    movie::decode_thp_picture(&GREY_JPEG, 16, 16, &mut out).unwrap();
+    assert!(out.chunks_exact(4).all(|p| p[0] == p[1] && p[1] == p[2] && p[3] == 255), "{:?}", &out[..8]);
+    let m = thp_file("grey.thp", &GREY_JPEG, &[], 3, None);
+    let vs = VideoStream::start(&m, 1, 2).unwrap();
+    let p = vs.wait().unwrap().unwrap();
+    assert_eq!((p.index, p.rgba.len()), (1, 16 * 16 * 4));
+}
+
+/// Corrupt THP sizes: decoded as far as they go, never read past a block or allocated from.
+#[test]
+fn thp_bad_sizes() {
+    // an audio block shorter than its coefficients
+    let m = thp_file("short-audio.thp", &GREY_JPEG, &[0, 0, 0, 8, 0, 0, 0, 14, 1, 2], 2, None);
+    assert_eq!(movie::decode_audio(&m).unwrap().unwrap().pcm.len(), 0);
+    // 4G samples claimed in a block of one 8-byte frame per channel: its 14
+    let mut a = vec![0, 0, 0, 8, 0xFF, 0xFF, 0xFF, 0xFF];
+    a.extend_from_slice(&[0; 72]);
+    a.extend_from_slice(&[0x00, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x00, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11]);
+    let m = thp_file("many-samples.thp", &GREY_JPEG, &a, 2, None);
+    let au = movie::decode_audio(&m).unwrap().unwrap();
+    assert_eq!(au.pcm.len(), 2 * 14 * 2);
+    assert!(au.peak() > 0.0);
+    // a channel size whose sum with the coefficients wraps
+    let mut a = vec![0x80, 0, 0, 0, 0, 0, 0, 14];
+    a.extend_from_slice(&[0; 88]);
+    let m = thp_file("wrap.thp", &GREY_JPEG, &a, 1, None);
+    assert_eq!(movie::decode_audio(&m).unwrap().unwrap().pcm.len(), 0);
+    // a first frame of 4 GB: nothing read
+    let m = thp_file("huge-frame.thp", &GREY_JPEG, &[], 4, Some(0xFFFF_FFF0));
+    assert_eq!(movie::decode_audio(&m).unwrap().unwrap().pcm.len(), 0);
+    let vs = VideoStream::start(&m, 0, 2).unwrap();
+    assert!(vs.wait().is_none());
+}
+
+/// A PSS whose SSbd states 4 GB of PCM and whose SShd is cut short.
+#[test]
+fn pss_bad_sizes() {
+    let pss = |name: &str, payload: &[u8]| {
+        let mut pes = vec![0x81, 0x00, 0];
+        pes.extend_from_slice(&[0xA0, 0, 0]);
+        pes.extend_from_slice(payload);
+        let mut b = vec![0, 0, 1, 0xBD];
+        b.extend_from_slice(&(pes.len() as u16).to_be_bytes());
+        b.extend_from_slice(&pes);
+        b.extend_from_slice(&[0, 0, 1, 0xB9]);
+        let f = out_dir().join(name);
+        std::fs::write(&f, &b).unwrap();
+        f
+    };
+    let mut p = b"SShd".to_vec();
+    p.extend_from_slice(&0x18u32.to_le_bytes());
+    for v in [1u32, 48000, 2, 4] {
+        p.extend_from_slice(&v.to_le_bytes());
+    }
+    p.extend_from_slice(&[0xFF; 8]);
+    p.extend_from_slice(b"SSbd");
+    p.extend_from_slice(&u32::MAX.to_le_bytes());
+    p.extend_from_slice(&[1, 0, 2, 0, 3, 0, 4, 0]);
+    let f = pss("huge-ssbd.pss", &p);
+    assert_eq!(PssAudio::read(&f).unwrap().pcm, vec![1, 3, 2, 4]);
+    let (ch, rate, s) = PssAudio::length(&f).unwrap();
+    assert!(ch == 2 && rate == 48000 && s < 0.01, "{s}");
+    assert!(PssAudio::read(&pss("short-sshd.pss", &p[..20])).is_err());
+}
+
 #[test]
 fn audio_search() {
     let e = audio_index::Entry {
