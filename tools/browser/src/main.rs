@@ -882,10 +882,14 @@ impl Browser {
                 Pending::Set { node, field } => {
                     self.note(format!("{node} {field} = {}", r["value"]));
                     self.edits.remove(&field);
-                    if let Some(d) = &mut self.detail {
-                        if d["id"].as_str() == Some(node.as_str()) {
-                            store_value(d, &field, r["value"].clone());
-                        }
+                    let stale = match &mut self.detail {
+                        Some(d) if d["id"].as_str() == Some(node.as_str()) => !store_value(d, &field, r["value"].clone()),
+                        _ => false,
+                    };
+                    if stale {
+                        // a field the list doesn't have that way: the node asked for again
+                        let pack = self.outline.as_ref().map(|o| o.pack.clone()).unwrap_or_default();
+                        self.request("get", json!({"pack": pack, "node": node}), Pending::Get(node.clone()));
                     }
                 }
                 Pending::Camera => {
@@ -2014,20 +2018,25 @@ fn shown_nodes(nodes: &[Node], children: &HashMap<String, Vec<usize>>, raw: bool
     (0..nodes.len()).map(|i| visit(i, nodes, children, raw, &mut out)).collect()
 }
 
-/// A set's answer into the node's field list (path: field/index/member).
-fn store_value(d: &mut Value, path: &str, value: Value) {
+/// A set's answer into the node's field list (path: field/index/member). False when the path
+/// isn't there (an index past the end, a member of a number: IndexMut would panic).
+fn store_value(d: &mut Value, path: &str, value: Value) -> bool {
     let mut parts = path.split('/');
-    let Some(first) = parts.next() else { return };
-    let Some(fields) = d["fields"].as_array_mut() else { return };
-    let Some(f) = fields.iter_mut().find(|f| f["name"].as_str() == Some(first)) else { return };
-    let mut at = &mut f["value"];
+    let Some(first) = parts.next() else { return false };
+    let Some(fields) = d.get_mut("fields").and_then(Value::as_array_mut) else { return false };
+    let Some(f) = fields.iter_mut().find(|f| f["name"].as_str() == Some(first)) else { return false };
+    let Some(mut at) = f.get_mut("value") else { return false };
     for p in parts {
-        at = match p.parse::<usize>() {
-            Ok(i) if at.is_array() => &mut at[i],
-            _ => &mut at[p],
+        let next = match at {
+            Value::Array(a) => p.parse::<usize>().ok().and_then(|i| a.get_mut(i)),
+            Value::Object(m) => m.get_mut(p),
+            _ => None,
         };
+        let Some(n) = next else { return false };
+        at = n;
     }
     *at = value;
+    true
 }
 
 fn hex_dump(hex: &str) -> String {
@@ -2059,4 +2068,21 @@ fn save_bmp(path: &std::path::Path, img: &egui::ColorImage) -> Result<(), String
         out.extend_from_slice(&[p.b(), p.g(), p.r(), 255]);
     }
     std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::store_value;
+    use serde_json::json;
+
+    #[test]
+    fn store_value_never_panics() {
+        let mut d = json!({"fields": [{"name": "pos", "value": [1, 2, 3]}, {"name": "n", "value": 4}, {"name": "s", "value": {"a": 1}}]});
+        assert!(store_value(&mut d, "pos/1", json!(9)));
+        assert_eq!(d["fields"][0]["value"], json!([1, 9, 3]));
+        assert!(store_value(&mut d, "s/a", json!(2)));
+        for bad in ["pos/7", "pos/x", "n/0", "n/a", "s/b", "nope", "s/a/0"] {
+            assert!(!store_value(&mut d, bad, json!(0)), "{bad}");
+        }
+    }
 }
