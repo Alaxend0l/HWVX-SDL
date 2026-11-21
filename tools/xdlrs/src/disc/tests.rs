@@ -334,3 +334,27 @@ fn names_for_windows() {
     let d = Disc::open(&t.write("ps2.iso", &iso)).unwrap();
     assert!(d.find("XPS/ENGLISH/NOEXT").is_some());
 }
+
+/// extract_steps reports a large file's bytes as they are written and stops within it.
+#[test]
+fn extract_steps_within_a_file() {
+    let t = Tmp::new("steps");
+    let big = vec![7u8; 3 << 20];
+    let img = gcm::tests::make("GHWE78", &[("HW_share.xgc", b"s"), ("big.xgc", &big)]);
+    let d = Disc::open(&t.write("gc.iso", &img)).unwrap();
+    let (mut steps, mut done) = (vec![], 0);
+    d.extract_steps(&t.0.join("all"), &[], &mut |s| {
+        match s {
+            Step::Bytes(n) => steps.push(n),
+            Step::Done(_) => done += 1,
+        }
+        true
+    })
+    .unwrap();
+    assert_eq!((done, steps.iter().sum::<u64>()), (2, big.len() as u64 + 1));
+    assert!(steps.len() >= 3, "{steps:?}");
+    // stopped at its first megabyte: big.xgc stays a .part
+    let r = d.extract_steps(&t.0.join("stop"), &["big.xgc".into()], &mut |s| !matches!(s, Step::Bytes(_)));
+    assert_eq!(r.unwrap_err(), CANCELLED);
+    assert_eq!(tree(&t.0.join("stop")).keys().collect::<Vec<_>>(), ["big.xgc.part"]);
+}

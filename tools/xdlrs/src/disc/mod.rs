@@ -492,6 +492,16 @@ impl Disc {
     /// [`Disc::extract`], stopped when `progress` returns false (after that file): Err([`CANCELLED`]).
     /// The files done stay; a cabinet file being written stays as NAME.part.
     pub fn extract_until(&self, out: &Path, only: &[String], progress: &mut dyn FnMut(&Entry) -> bool) -> R<(usize, u64)> {
+        self.extract_steps(out, only, &mut |s| match s {
+            Step::Done(e) => progress(e),
+            Step::Bytes(_) => true,
+        })
+    }
+
+    /// [`Disc::extract`], with the bytes as they are written (a megabyte at a time: a large file's
+    /// progress) and each file done; stopped when `progress` returns false, within a file too
+    /// (it stays as NAME.part): Err([`CANCELLED`]).
+    pub fn extract_steps(&self, out: &Path, only: &[String], progress: &mut dyn FnMut(Step) -> bool) -> R<(usize, u64)> {
         let picked = self.select(only);
         fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
         let (mut files, mut bytes) = (0usize, 0u64);
@@ -502,9 +512,16 @@ impl Disc {
                 continue;
             }
             let mut w = Part::create(out, &e.path)?;
-            self.copy(e, &mut w.f).map_err(|x| format!("{x} (writing {})", w.part.display()))?;
+            let mut t = Ticking { w: &mut w.f, n: 0, tick: &mut *progress, stopped: false };
+            let r = self.copy(e, &mut t);
+            let (rest, stopped) = (t.n, t.stopped);
+            if stopped {
+                return Err(CANCELLED.into());
+            }
+            r.map_err(|x| format!("{x} (writing {})", w.part.display()))?;
             w.finish()?;
-            if !progress(e) {
+            // (both: the file is whole either way)
+            if !(progress(Step::Bytes(rest)) & progress(Step::Done(e))) {
                 return Err(CANCELLED.into());
             }
             files += 1;
@@ -527,12 +544,15 @@ impl Disc {
                 let mut stopped = false;
                 for w in want.iter_mut().filter(|w| w.1.size == 0) {
                     Part::create(out, &w.0.path)?.finish()?;
-                    if !progress(w.0) {
+                    if !progress(Step::Done(w.0)) {
                         return Err(CANCELLED.into());
                     }
                     left -= 1;
                     w.3 = u64::MAX;
                 }
+                // the bytes written since the last Step::Bytes, and the folder's bytes decompressed
+                // (the files wanted may lie far into it)
+                let (mut pending, mut seen) = (0u64, 0u64);
                 if left > 0 {
                     cab.stream(fi, &mut |pos, block| {
                         for w in want.iter_mut() {
@@ -546,21 +566,30 @@ impl Disc {
                                 let p = w.2.as_mut().unwrap();
                                 p.f.write_all(&block[r.clone()]).map_err(|x| format!("{}: {x}", p.part.display()))?;
                                 w.3 += r.len() as u64;
+                                pending += r.len() as u64;
                                 if w.3 == w.1.size as u64 {
                                     w.2.take().unwrap().finish()?;
                                     w.3 = u64::MAX;
                                     left -= 1;
-                                    if !progress(w.0) {
+                                    if !progress(Step::Done(w.0)) {
                                         stopped = true;
                                         return Ok(false);
                                     }
                                 }
                             }
                         }
+                        seen += block.len() as u64;
+                        if seen >= STEP {
+                            seen = 0;
+                            if !progress(Step::Bytes(std::mem::take(&mut pending))) {
+                                stopped = true;
+                                return Ok(false);
+                            }
+                        }
                         Ok(left > 0)
                     })?;
                 }
-                if stopped {
+                if stopped || (pending > 0 && !progress(Step::Bytes(pending))) {
                     return Err(CANCELLED.into());
                 }
                 if let Some(w) = want.iter().find(|w| w.3 != u64::MAX) {
@@ -571,6 +600,40 @@ impl Disc {
             }
         }
         Ok((files, bytes))
+    }
+}
+
+/// What [`Disc::extract_steps`] reports as it goes.
+pub enum Step<'a> {
+    /// more bytes written
+    Bytes(u64),
+    /// a file complete
+    Done(&'a Entry),
+}
+
+/// The bytes between two [`Step::Bytes`] (each a look at whether to stop).
+const STEP: u64 = 1 << 20;
+
+/// A file's writer reporting its bytes a [`STEP`] at a time; a refusal stops the copy.
+struct Ticking<'a, 'b> {
+    w: &'a mut dyn Write,
+    n: u64,
+    tick: &'a mut dyn FnMut(Step<'b>) -> bool,
+    stopped: bool,
+}
+
+impl Write for Ticking<'_, '_> {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        let k = self.w.write(b)?;
+        self.n += k as u64;
+        if self.n >= STEP && !(self.tick)(Step::Bytes(std::mem::take(&mut self.n))) {
+            self.stopped = true;
+            return Err(std::io::Error::other(CANCELLED));
+        }
+        Ok(k)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.w.flush()
     }
 }
 
