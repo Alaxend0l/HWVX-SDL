@@ -116,8 +116,10 @@ static void QueueAudio(Movie *m, const u8 *a, u32 size) {
     s16 coefs[2][16], hist[2][2];
     int ch, k;
     const u8 *p;
+    s16 *pcm;
 
-    if (m->audio == NULL || size < 8) {
+    /* the header and every channel's coefficients and history in the block */
+    if (m->audio == NULL || m->channels < 1 || m->channels > 2 || size < 8 + 36u * (u32)m->channels) {
         return;
     }
     chSize = Be32(a);
@@ -136,9 +138,20 @@ static void QueueAudio(Movie *m, const u8 *a, u32 size) {
     if ((size_t)(p - a) + (size_t)chSize * m->channels > size) {
         return;
     }
+    /* no more samples than the channel's 8-byte frames hold, 14 each */
+    if (n > chSize / 8 * 14) {
+        n = chSize / 8 * 14;
+    }
+    if (n == 0) {
+        return;
+    }
     if (n * m->channels > m->pcmCap) {
+        pcm = SDL_realloc(m->pcm, (size_t)n * m->channels * sizeof(s16));
+        if (pcm == NULL) {
+            return;
+        }
+        m->pcm = pcm;
         m->pcmCap = n * m->channels;
-        m->pcm = SDL_realloc(m->pcm, m->pcmCap * sizeof(s16));
     }
     for (ch = 0; ch < m->channels; ch++) {
         DecodeADPCM(p + (size_t)ch * chSize, n, coefs[ch], hist[ch], m->pcm + ch, m->channels);
@@ -146,17 +159,25 @@ static void QueueAudio(Movie *m, const u8 *a, u32 size) {
     SDL_PutAudioStreamData(m->audio, m->pcm, (int)(n * m->channels * sizeof(s16)));
 }
 
+/* A frame bigger than this is a corrupt size, not a THP frame (they are tens
+ * of KB). */
+#define FRAME_MAX (64u << 20)
+
 /* Reads the next frame: queues its audio, keeps its JPEG for display. */
 static int ReadFrame(Movie *m) {
     u32 size = m->nextSize, i, off;
     u8 *f;
 
-    if (m->framesRead >= m->numFrames || size < 8 + 4 * m->numComps) {
+    if (m->framesRead >= m->numFrames || size < 8 + 4 * m->numComps || size > FRAME_MAX) {
         return 0;
     }
     if (size > m->frameCap) {
+        f = SDL_realloc(m->frame, size);
+        if (f == NULL) {
+            return 0;
+        }
+        m->frame = f;
         m->frameCap = size;
-        m->frame = SDL_realloc(m->frame, size);
     }
     f = m->frame;
     if (SDL_SeekIO(m->io, (Sint64)m->nextOffset, SDL_IO_SEEK_SET) < 0 || SDL_ReadIO(m->io, f, size) != size) {
@@ -167,14 +188,19 @@ static int ReadFrame(Movie *m) {
     off = 8 + 4 * m->numComps;
     for (i = 0; i < m->numComps; i++) {
         u32 cs = Be32(f + 8 + i * 4);
-        if (off + cs > size) {
+        if (cs > size - off) {   /* not off + cs > size: that wraps */
             break;
         }
         if (m->compTypes[i] == 0) {
             u32 slot = m->framesRead % (AUDIO_AHEAD + 1);
-            m->video[slot] = SDL_realloc(m->video[slot], cs);
-            memcpy(m->video[slot], f + off, cs);
-            m->videoSize[slot] = cs;
+            u8 *v = SDL_realloc(m->video[slot], cs > 0 ? cs : 1);
+            if (v == NULL) {
+                m->videoSize[slot] = 0;
+            } else {
+                m->video[slot] = v;
+                memcpy(v, f + off, cs);
+                m->videoSize[slot] = cs;
+            }
         } else if (m->compTypes[i] == 1) {
             QueueAudio(m, f + off, cs);
         }
