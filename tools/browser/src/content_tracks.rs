@@ -444,6 +444,7 @@ impl ModProject {
                 }
             }
             None => {
+                let old = self.track_level(uid);
                 if links.remove(uid).is_some() {
                     write_links(&self.dir, &links)?;
                 }
@@ -453,7 +454,13 @@ impl ModProject {
                 }
                 let stem = level_stem(uid);
                 let _ = std::fs::remove_file(self.dir.join(format!("{stem}.json")));
-                let _ = std::fs::remove_dir_all(self.dir.join(format!("{stem}-src")));
+                // build_level's copy, made only of a project outside the mod: the folder can be
+                // the linked project itself (or hold another track's), and then it stays
+                let src = self.dir.join(format!("{stem}-src"));
+                let copy = old.is_some_and(|p| !inside(&p, &self.dir)) && !self.track_levels().iter().any(|(_, p)| inside(p, &src));
+                if copy {
+                    let _ = std::fs::remove_dir_all(src);
+                }
             }
         }
         Ok(())
@@ -576,7 +583,18 @@ mod tests {
         r.set_track_level(&b, None).unwrap();
         assert!(r.doc["tracks"][&b].get("level").is_none() && r.doc["tracks"][&b].get("world").is_none());
         assert!(r.track_level(&b).is_none() && r.track_level(&a).is_some());
+        // a project that is the track's own level/<id>-src folder survives an unlink
+        let own = d.join(format!("{}-src", level_stem(&b)));
+        level_project(&own, "battle", 20, "WORLDS_\\MP_\\BATTLE_\\bat2_l9");
+        r.set_track_level(&b, Some(&own)).unwrap();
+        r.set_track_level(&b, None).unwrap();
+        assert!(own.join("level.jsonc").is_file(), "the linked project was deleted");
+        // an outside project's copy goes
+        let copy = d.join(format!("{}-src", level_stem(&a)));
+        std::fs::create_dir_all(&copy).unwrap();
+        r.set_track_level(&a, Some(&lp)).unwrap();
         r.remove_track(&a);
+        assert!(!copy.exists());
         assert!(!d.join(LINKS).exists(), "no links left: no file");
         r.save().unwrap();
         assert_eq!(ModProject::open(&d).unwrap().tracks().len(), 1);
