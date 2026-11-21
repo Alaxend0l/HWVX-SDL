@@ -132,6 +132,9 @@ pub struct EditState {
     pub new_keep_collectibles: bool,
     /// a level being made on another thread (its template's world extracted first)
     pub new_making: Option<Receiver<Result<PathBuf, String>>>,
+    /// "keep them" on a template level: the project (its folder) and the base triggers that count
+    /// its collectibles, found on another thread (the world extracted the first time)
+    pub keep_making: Option<(PathBuf, Receiver<Result<Vec<i64>, String>>)>,
     /// (--new-level) the "on" list opens once
     pub new_open_on: bool,
     /// the menu's File > New level: the dialog opens (once)
@@ -683,6 +686,73 @@ impl Browser {
             }
             Ok(Err(m)) => self.note(m),
         }
+        self.poll_keep_collectibles(ctx);
+    }
+
+    /// "keep them": the template's collectibles back. Only their own base triggers come back
+    /// with them (not "all": that would bring back the Joyride intro next to the mode's own), so
+    /// they're found from the template's world first (xdlrs::level_template::collectibles).
+    fn keep_collectibles(&mut self) {
+        let Some(p) = self.level.edit.proj.as_ref() else { return };
+        if !p.level["baseTriggers"].is_array() {
+            // all or none: nothing to add to
+            return self.keep_collectibles_with(&[]);
+        }
+        let dir = p.dir.clone();
+        let world = p.level["world"].as_str().unwrap_or("").to_string();
+        let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
+        let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
+        let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
+        let cache = self.testdrive_scratch_dir().join("base-cache");
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let r = (|| -> Result<Vec<i64>, String> {
+                let env = level_env(&tools)?;
+                let data = data.ok_or("the game's data folder isn't known: the template's world can't be read")?;
+                let base = xdlrs::level::base_project(&env, &world, &data, &cache).map_err(|e| xdlrs::level::top_message(&e))?;
+                Ok(xdlrs::level_template::collectibles(&base).map_err(|e| e.msg)?.triggers)
+            })();
+            let _ = tx.send(r);
+        });
+        self.level.edit.keep_making = Some((dir, rx));
+    }
+
+    fn poll_keep_collectibles(&mut self, ctx: &egui::Context) {
+        let Some((dir, rx)) = self.level.edit.keep_making.take() else { return };
+        match rx.try_recv() {
+            Err(TryRecvError::Empty) => {
+                self.level.edit.keep_making = Some((dir, rx));
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+            Err(TryRecvError::Disconnected) => self.note("finding the template's collectibles stopped".into()),
+            // (another project opened meanwhile: not its)
+            Ok(Ok(trigs)) if self.level.edit.proj.as_ref().is_some_and(|p| p.dir == dir) => self.keep_collectibles_with(&trigs),
+            Ok(Ok(_)) => {}
+            Ok(Err(m)) => self.note(format!("the collectibles aren't back: {m}")),
+        }
+    }
+
+    fn keep_collectibles_with(&mut self, trigs: &[i64]) {
+        let Some(p) = self.level.edit.proj.as_mut() else { return };
+        let before = p.snapshot();
+        let lv = &mut p.level;
+        if let Some(m) = lv.as_object_mut() {
+            m.remove("remove");
+        }
+        if let Some(a) = lv["baseTriggers"].as_array_mut() {
+            let mut nums: Vec<i64> = a.iter().filter_map(Value::as_i64).chain(trigs.iter().copied()).collect();
+            nums.sort_unstable();
+            nums.dedup();
+            *a = nums.into_iter().map(Value::from).collect();
+        }
+        // the template's briefing line has the HUD slot of an objective that's back
+        if let Some(obs) = lv.get_mut("objectives").and_then(Value::as_object_mut) {
+            obs.retain(|_, o| o["done"] != "level://variables/briefed/to");
+            if obs.is_empty() {
+                lv.as_object_mut().unwrap().remove("objectives");
+            }
+        }
+        self.edited(before);
     }
 
     /// "New level": a project extending a mode's level in its world (its retail script kept,
@@ -1465,16 +1535,18 @@ impl Browser {
         // a Joyride world as the template: what New level took out of it
         let removed = |k: &str| p.level["remove"][k].as_array().map(Vec::len).unwrap_or(0);
         let (ri, ro) = (removed("items"), removed("objectives"));
+        let mut keep = false;
         if ri + ro > 0 {
             ui.horizontal(|ui| {
                 ui.label(format!("{ri} base pickup{} and {ro} objective{} removed (the template's gears and key)", if ri == 1 { "" } else { "s" }, if ro == 1 { "" } else { "s" }))
                     .on_hover_text("remove: the pickups never spawn and the objectives don't show (Port_Level.c); the triggers that counted them are left out of base triggers");
-                if ui.small_button("keep them").on_hover_text("the gears, the key and their objectives back, and every base trigger (all)").clicked() {
-                    if let Some(m) = p.level.as_object_mut() {
-                        m.remove("remove");
-                    }
-                    p.level["baseTriggers"] = json!("all");
-                    changed = true;
+                let busy = self.level.edit.keep_making.is_some();
+                let tip = "the gears, the key and their objectives back, with the base triggers that count them (the level's briefing line goes: it shows where they do)";
+                if ui.add_enabled(!busy, egui::Button::new("keep them").small()).on_hover_text(tip).clicked() {
+                    keep = true;
+                }
+                if busy {
+                    ui.spinner();
                 }
             });
         }
@@ -1543,6 +1615,9 @@ impl Browser {
         }
         if changed {
             self.edited(before);
+        }
+        if keep {
+            self.keep_collectibles();
         }
         if mode == "drag" && self.shows_level_world() && ui.button("Check the lanes").clicked() {
             self.lane_check();
