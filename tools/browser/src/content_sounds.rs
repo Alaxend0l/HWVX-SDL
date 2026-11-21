@@ -19,6 +19,8 @@ use xdlrs::modcheck::media::{Archive, RawPack, TYPE_NAMES, decode_sample, rd_u32
 pub const DIR: &str = "sounds";
 /// What the game decodes (src/audiodec).
 pub const EXTS: [&str; 4] = ["wav", "flac", "ogg", "mp3"];
+/// A file dialog's error where the system has none (Linux without zenity or kdialog).
+pub const NO_DIALOG: &str = "no file dialog here (install zenity or kdialog): type the path instead";
 
 /// One sound of a base pack.
 #[derive(Clone, Debug, PartialEq)]
@@ -360,7 +362,7 @@ pub fn choose_sound(prompt: &str) -> Result<Option<String>, String> {
         c.env("HWVX_PROMPT", prompt).args([
             "-NoProfile",
             "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Sound (*.wav;*.flac;*.ogg;*.mp3)|*.wav;*.flac;*.ogg;*.mp3|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Sound (*.wav;*.flac;*.ogg;*.mp3)|*.wav;*.flac;*.ogg;*.mp3|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
         ]);
         c
     } else if on_path("zenity") {
@@ -372,7 +374,7 @@ pub fn choose_sound(prompt: &str) -> Result<Option<String>, String> {
         c.args(["--title", prompt, "--getopenfilename", ".", "*.wav *.flac *.ogg *.mp3|Sound"]);
         c
     } else {
-        return Err("no file dialog here (install zenity or kdialog): type the path instead".into());
+        return Err(NO_DIALOG.into());
     };
     let out = cmd.output().map_err(|e| e.to_string())?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
