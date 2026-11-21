@@ -295,6 +295,11 @@ impl Browser {
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.level.edit.pick_link = None;
         }
+        // a drag whose release the view never saw (the panel gone, Ctrl let go first): closed
+        // here, or every later edit would fold into its undo point
+        if self.level.edit.drag_undo != 0 && !ctx.input(|i| i.pointer.any_down()) {
+            self.edit_drag_end();
+        }
         // the base world's lists, once a world is on show
         let world = self.world.status["world"].as_str().unwrap_or("").to_string();
         if self.level.edit.proj.is_some() && !world.is_empty() && self.level.edit.base_world != world && !self.shows_level_world() {
@@ -662,6 +667,24 @@ impl Browser {
         self.level.edit.lanes_note = if blocked.is_empty() { format!("{pre}✓ every lane clear for 400") } else { format!("{pre}⚠ {}", blocked.join(", ")) };
     }
 
+    /// A level being made (a template's world is extracted first: a few seconds, once), opened
+    /// when it's ready: each frame (level_tick), not only while the dialog is drawn.
+    pub(crate) fn poll_new_level(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.level.edit.new_making.take() else { return };
+        match rx.try_recv() {
+            Err(TryRecvError::Empty) => {
+                self.level.edit.new_making = Some(rx);
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+            Err(TryRecvError::Disconnected) => self.note("making the level stopped".into()),
+            Ok(Ok(dir)) => {
+                let d = dir.display().to_string();
+                self.open_level(&d);
+            }
+            Ok(Err(m)) => self.note(m),
+        }
+    }
+
     /// "New level": a project extending a mode's level in its world (its retail script kept,
     /// to be changed), in a folder of its own. On: one of the mode's retail worlds, or any Joyride
     /// world as a template (every mode on every world: Challenge on world 4, which retail has no
@@ -669,21 +692,6 @@ impl Browser {
     /// and by default its gears, key and their objectives removed (xdlrs::level_template).
     pub(crate) fn new_level_dialog(&mut self, ui: &mut egui::Ui) {
         let mut pick_dir = false;
-        // a level being made: a template's world is extracted first (a few seconds, once)
-        if let Some(rx) = self.level.edit.new_making.take() {
-            match rx.try_recv() {
-                Err(TryRecvError::Empty) => {
-                    self.level.edit.new_making = Some(rx);
-                    ui.ctx().request_repaint_after(Duration::from_millis(100));
-                }
-                Err(TryRecvError::Disconnected) => self.note("making the level stopped".into()),
-                Ok(Ok(dir)) => {
-                    let d = dir.display().to_string();
-                    self.open_level(&d);
-                }
-                Ok(Err(m)) => self.note(m),
-            }
-        }
         let open = std::mem::take(&mut self.level.edit.new_requested).then_some(true);
         let making = self.level.edit.new_making.is_some();
         let mut make: Option<NewWorld> = None;
