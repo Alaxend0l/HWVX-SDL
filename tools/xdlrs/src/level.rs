@@ -2480,6 +2480,39 @@ static BASE_MEMO: std::sync::Mutex<Option<BaseMemo>> = std::sync::Mutex::new(Non
 /// and one removing the extract folder another is writing into broke both.
 static BASE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// A lock file across processes (two editors sharing one cache): `take` waits while another
+/// holds it, and takes over one left for over 10 minutes (its holder died); dropped, it goes.
+struct FileLock(PathBuf);
+
+impl FileLock {
+    fn take(p: &Path) -> Result<FileLock> {
+        loop {
+            match std::fs::File::create_new(p) {
+                Ok(mut f) => {
+                    use std::io::Write;
+                    let _ = write!(f, "{}", std::process::id());
+                    return Ok(FileLock(p.to_path_buf()));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let age = std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+                    if age.is_some_and(|a| a > std::time::Duration::from_secs(600)) {
+                        let _ = std::fs::remove_file(p);
+                        continue;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+                Err(e) => return Err(Error::io(format!("{}: {e}", p.display()))),
+            }
+        }
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 fn archive_hash(src: &Path) -> Result<[u8; 32]> {
     let stamp = exe_stamp(Some(src));
     let key = (src.to_path_buf(), stamp);
@@ -2519,11 +2552,19 @@ pub fn base_project(env: &Env, world: &str, data: &Path, cache: &Path) -> Result
     let h = hex(&h.finalize());
     let out = cache.join(format!("{name}-{}", &h[..16]));
     let proj = out.join("project");
-    if proj.join("pack.jsonc").exists()
-        && let Ok(pj) = read_jsonc(&proj.join("pack.jsonc"))
-        && pj.get("archive").map(s).unwrap_or_default().to_lowercase() == name
-    {
+    let lock = cache.join(format!("{name}-{}.lock", &h[..16]));
+    let made = || {
+        proj.join("pack.jsonc").exists()
+            && read_jsonc(&proj.join("pack.jsonc")).is_ok_and(|pj| pj.get("archive").map(s).unwrap_or_default().to_lowercase() == name)
+    };
+    if !lock.exists() && made() {
         return Ok(proj);
+    }
+    // BASE_LOCK is this process's; another editor's extraction into the same cache is waited for
+    std::fs::create_dir_all(cache).map_err(|e| Error::io(format!("{}: {e}", cache.display())))?;
+    let _other = FileLock::take(&lock)?;
+    if made() {
+        return Ok(proj); // (the other one made it meanwhile)
     }
     let Some(exe) = exe else { return Err(lerr("hwvx-x not found (target/release/hwvx-x)")) };
     let ext = out.join("extract").join(&name);
