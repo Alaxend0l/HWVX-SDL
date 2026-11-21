@@ -11,12 +11,29 @@ use eframe::egui;
 use hwvx_browser::audio_index::{self, Entry, Kind};
 use hwvx_browser::media::{play_file, wav_bytes};
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 enum Msg {
     Archive(String, Result<usize, String>),
     Done(Vec<Entry>),
+}
+
+/// An entry's samples, decoded once (off the UI thread) for its waveform, ▶ and export.
+struct Decoded {
+    pcm: Vec<i16>,
+    rate: u32,
+    /// (min, max) of ENVELOPE equal runs of the samples: the waveform drawn from it
+    env: Vec<(i16, i16)>,
+}
+
+const ENVELOPE: usize = 2048;
+
+/// What follows a decode.
+enum After {
+    Show,
+    Play,
+    Export(PathBuf),
 }
 
 pub struct AudioState {
@@ -30,8 +47,13 @@ pub struct AudioState {
     pub kinds: [bool; 5],
     pub archive: String,
     pub selected: Option<usize>,
-    /// the selected entry's samples (entry index, PCM, error)
-    sel_pcm: Option<(usize, Result<Vec<i16>, String>)>,
+    /// the archives of the entries (sorted), made when the index is in
+    archives: Vec<String>,
+    /// the rows shown: for (search, kinds, archive), and their seconds
+    rows: Option<((String, [bool; 5], String), Vec<usize>, f64)>,
+    /// the selected entry's samples (entry index, decoded or why not), and a decode under way
+    sel_pcm: Option<(usize, Result<std::sync::Arc<Decoded>, String>)>,
+    decoding: Option<(usize, Receiver<Result<Decoded, String>>, After)>,
     pub export: String,
     player: Option<std::process::Child>,
     playing: Option<(usize, Instant, f64)>,
@@ -51,7 +73,10 @@ impl Default for AudioState {
             kinds: [true; 5],
             archive: String::new(),
             selected: None,
+            archives: Vec::new(),
+            rows: None,
             sel_pcm: None,
+            decoding: None,
             export: String::new(),
             player: None,
             playing: None,
@@ -70,13 +95,19 @@ impl Drop for AudioState {
 
 const KINDS: [Kind; 5] = [Kind::Sound, Kind::Instrument, Kind::Song, Kind::Movie, Kind::ModFile];
 
+/// Resampled output at most this long (a few seconds' sample at a bogus rate of a few Hz asked
+/// for gigabytes).
+const PLAYABLE_MAX: usize = 48000 * 600;
+
 /// For the system's player: a rate it takes (a bank sample's base-note rate can be 2920 or
-/// 220942 Hz), linearly resampled to 48 kHz outside 4-96 kHz.
+/// 220942 Hz), linearly resampled to 48 kHz outside 4-96 kHz. A rate under 1 kHz (a bad
+/// header) is taken as 1 kHz; the output stops at ten minutes.
 pub fn playable(rate: u32, pcm: &[i16]) -> (u32, Vec<i16>) {
     if (4000..=96000).contains(&rate) || pcm.is_empty() {
         return (rate, pcm.to_vec());
     }
-    let n = (pcm.len() as u64 * 48000 / rate.max(1) as u64).max(1) as usize;
+    let rate = rate.max(1000);
+    let n = (pcm.len() as u64 * 48000 / rate as u64).clamp(1, PLAYABLE_MAX as u64) as usize;
     let step = rate as f64 / 48000.0;
     let out = (0..n)
         .map(|i| {
@@ -88,6 +119,25 @@ pub fn playable(rate: u32, pcm: &[i16]) -> (u32, Vec<i16>) {
         })
         .collect();
     (48000, out)
+}
+
+fn envelope(pcm: &[i16]) -> Vec<(i16, i16)> {
+    if pcm.is_empty() {
+        return vec![];
+    }
+    let n = ENVELOPE.min(pcm.len());
+    (0..n)
+        .map(|c| {
+            let s = &pcm[c * pcm.len() / n..((c + 1) * pcm.len() / n).max(c * pcm.len() / n + 1)];
+            (*s.iter().min().unwrap(), *s.iter().max().unwrap())
+        })
+        .collect()
+}
+
+/// An entry's samples and rate (a mod file's from its own decode: once).
+fn decode(e: &Entry) -> Result<Decoded, String> {
+    let (pcm, rate) = if e.kind == Kind::ModFile { hwvx_browser::content_sounds::decode_file(&e.file)? } else { (e.decode()?, e.rate) };
+    Ok(Decoded { env: envelope(&pcm), pcm, rate })
 }
 
 fn fmt_len(e: &Entry) -> String {
@@ -113,6 +163,9 @@ impl Browser {
         self.audio.archives_read = 0;
         self.audio.selected = None;
         self.audio.sel_pcm = None;
+        self.audio.decoding = None;
+        self.audio.rows = None;
+        self.audio.archives.clear();
         let (tx, rx) = std::sync::mpsc::channel();
         let c = self.ctx.clone();
         std::thread::spawn(move || {
@@ -141,7 +194,17 @@ impl Browser {
 
     fn audio_poll(&mut self) {
         let Some(rx) = &self.audio.indexing else { return };
-        while let Ok(m) = rx.try_recv() {
+        loop {
+            let m = match rx.try_recv() {
+                Ok(m) => m,
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => {
+                    // the indexer crashed on an archive: what it read before is lost with it
+                    self.audio.indexing = None;
+                    self.audio.notes.push("the index stopped (a crash reading the data): Rescan to try again".into());
+                    return;
+                }
+            };
             match m {
                 Msg::Archive(f, r) => {
                     self.audio.archives_read += 1;
@@ -150,6 +213,11 @@ impl Browser {
                     }
                 }
                 Msg::Done(v) => {
+                    let mut archives: Vec<String> = v.iter().filter(|e| !matches!(e.kind, Kind::Movie | Kind::ModFile)).map(|e| e.archive.clone()).collect();
+                    archives.sort_by_key(|a| a.to_lowercase());
+                    archives.dedup();
+                    self.audio.archives = archives;
+                    self.audio.rows = None;
                     self.audio.entries = v;
                     self.audio.indexing = None;
                     return;
@@ -178,6 +246,77 @@ impl Browser {
                 self.audio.playing = None;
             }
         }
+        self.audio_decoded();
+    }
+
+    /// A decode's result, when it is in: kept for the entry, then what was asked of it.
+    fn audio_decoded(&mut self) {
+        let Some((i, rx, _)) = &self.audio.decoding else { return };
+        let i = *i;
+        let r = match rx.try_recv() {
+            Ok(r) => r.map(std::sync::Arc::new),
+            Err(TryRecvError::Empty) => return self.ctx.request_repaint_after(Duration::from_millis(50)),
+            Err(TryRecvError::Disconnected) => Err("its decoder stopped (a crash: damaged data?)".into()),
+        };
+        let Some((_, _, after)) = self.audio.decoding.take() else { return };
+        self.audio.sel_pcm = Some((i, r.clone()));
+        match (after, r) {
+            (After::Show, _) => {}
+            (_, Err(err)) => self.fail(err),
+            (After::Play, Ok(d)) => self.audio_play_decoded(i, &d),
+            (After::Export(path), Ok(d)) => self.audio_write(&path, Ok(wav_bytes(d.rate, &d.pcm))),
+        }
+    }
+
+    /// The entry's samples decoded on a thread, then `after` (one decode at a time: a later
+    /// one takes its place).
+    fn audio_decode(&mut self, i: usize, after: After) {
+        if let Some((k, Ok(d))) = &self.audio.sel_pcm {
+            if *k == i {
+                let d = d.clone();
+                match after {
+                    After::Show => {}
+                    After::Play => self.audio_play_decoded(i, &d),
+                    After::Export(path) => self.audio_write(&path, Ok(wav_bytes(d.rate, &d.pcm))),
+                }
+                return;
+            }
+        }
+        let e = self.audio.entries[i].clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(decode(&e));
+            ctx.request_repaint();
+        });
+        self.audio.decoding = Some((i, rx, after));
+    }
+
+    fn audio_play_decoded(&mut self, i: usize, d: &Decoded) {
+        self.audio_stop();
+        let id = self.audio.entries[i].id();
+        let (r, pcm) = playable(d.rate, &d.pcm);
+        let dir = hwvx_browser::resources::default_pref();
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("audio.wav");
+        if let Err(err) = std::fs::write(&path, wav_bytes(r, &pcm)) {
+            return self.fail(format!("{}: {err}", path.display()));
+        }
+        match play_file(&path) {
+            Ok(c) => {
+                self.audio.player = Some(c);
+                self.audio.playing = Some((i, Instant::now(), pcm.len() as f64 / r.max(1) as f64));
+                self.note(format!("playing {id} with the system's player{}", if r != d.rate { " (resampled to 48 kHz)" } else { "" }));
+            }
+            Err(err) => self.fail(err),
+        }
+    }
+
+    fn audio_write(&mut self, path: &std::path::Path, bytes: Result<Vec<u8>, String>) {
+        match bytes.and_then(|b| std::fs::write(path, b).map_err(|err| format!("{}: {err}", path.display()))) {
+            Ok(()) => self.note(format!("saved {}", path.display())),
+            Err(err) => self.fail(err),
+        }
     }
 
     fn audio_stop(&mut self) {
@@ -201,27 +340,7 @@ impl Browser {
             }
             _ => {}
         }
-        let rate = if e.kind == Kind::ModFile { hwvx_browser::content_sounds::decode_file(&e.file).map(|(_, r)| r).unwrap_or(e.rate) } else { e.rate };
-        match e.decode() {
-            Ok(pcm) => {
-                let (r, pcm) = playable(rate, &pcm);
-                let dir = hwvx_browser::resources::default_pref();
-                let _ = std::fs::create_dir_all(&dir);
-                let path = dir.join("audio.wav");
-                if let Err(err) = std::fs::write(&path, wav_bytes(r, &pcm)) {
-                    return self.fail(format!("{}: {err}", path.display()));
-                }
-                match play_file(&path) {
-                    Ok(c) => {
-                        self.audio.player = Some(c);
-                        self.audio.playing = Some((i, Instant::now(), pcm.len() as f64 / r.max(1) as f64));
-                        self.note(format!("playing {} with the system's player{}", e.id(), if r != rate { " (resampled to 48 kHz)" } else { "" }));
-                    }
-                    Err(err) => self.fail(err),
-                }
-            }
-            Err(err) => self.fail(err),
-        }
+        self.audio_decode(i, After::Play);
     }
 
     /// Loads the entry's pack in the viewer and opens the item there (its own view: the game's
@@ -276,9 +395,6 @@ impl Browser {
 
     pub(crate) fn audio_panel(&mut self, ui: &mut egui::Ui) {
         self.audio_refresh(false);
-        let mut archives: Vec<String> = self.audio.entries.iter().filter(|e| !matches!(e.kind, Kind::Movie | Kind::ModFile)).map(|e| e.archive.clone()).collect();
-        archives.sort_by_key(|a| a.to_lowercase());
-        archives.dedup();
         ui.horizontal(|ui| {
             ui.label("Search");
             ui.add(egui::TextEdit::singleline(&mut self.audio.search).hint_text("archive, pack, sound/3 ...").desired_width(220.0));
@@ -287,7 +403,7 @@ impl Browser {
             }
             egui::ComboBox::from_id_salt("audio-archive").selected_text(if self.audio.archive.is_empty() { "every archive" } else { &self.audio.archive }).show_ui(ui, |ui| {
                 ui.selectable_value(&mut self.audio.archive, String::new(), "every archive");
-                for a in &archives {
+                for a in &self.audio.archives {
                     ui.selectable_value(&mut self.audio.archive, a.clone(), a);
                 }
             });
@@ -304,16 +420,22 @@ impl Browser {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
             return;
         }
-        let kinds: Vec<Kind> = KINDS.iter().zip(self.audio.kinds).filter(|(_, on)| *on).map(|(k, _)| *k).collect();
-        let rows: Vec<usize> = self
-            .audio
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| audio_index::matches(e, &self.audio.search, &kinds) && (self.audio.archive.is_empty() || e.archive == self.audio.archive))
-            .map(|(i, _)| i)
-            .collect();
-        let total: f64 = rows.iter().map(|&i| self.audio.entries[i].seconds()).sum();
+        // filtered again only when the search, the kinds or the archive changed
+        let key = (self.audio.search.clone(), self.audio.kinds, self.audio.archive.clone());
+        if self.audio.rows.as_ref().is_none_or(|r| r.0 != key) {
+            let kinds: Vec<Kind> = KINDS.iter().zip(self.audio.kinds).filter(|(_, on)| *on).map(|(k, _)| *k).collect();
+            let rows: Vec<usize> = self
+                .audio
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| audio_index::matches(e, &self.audio.search, &kinds) && (self.audio.archive.is_empty() || e.archive == self.audio.archive))
+                .map(|(i, _)| i)
+                .collect();
+            let total: f64 = rows.iter().map(|&i| self.audio.entries[i].seconds()).sum();
+            self.audio.rows = Some((key, rows, total));
+        }
+        let Some((_, rows, total)) = &self.audio.rows else { return };
         ui.label(egui::RichText::new(format!("{} of {} items  ·  {:.0} s of audio", rows.len(), self.audio.entries.len(), total)).weak());
         let detail_h = 120.0;
         let table_h = (ui.available_height() - detail_h).max(80.0);
@@ -378,7 +500,6 @@ impl Browser {
     fn audio_select(&mut self, i: usize) {
         self.audio.selected = Some(i);
         let e = &self.audio.entries[i];
-        self.audio.sel_pcm = matches!(e.kind, Kind::Sound | Kind::Instrument | Kind::ModFile).then(|| (i, e.decode()));
         let ext = if e.kind == Kind::Song { "mid" } else { "wav" };
         let base: String = e.id().trim_start_matches("base://").chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
         self.audio.export = std::env::current_dir().unwrap_or_default().join(format!("{base}.{ext}")).display().to_string();
@@ -390,6 +511,11 @@ impl Browser {
             return;
         };
         let e = self.audio.entries[i].clone();
+        // its samples decoded once, off the UI thread (unless a decode of it is under way)
+        let sample = matches!(e.kind, Kind::Sound | Kind::Instrument | Kind::ModFile);
+        if sample && self.audio.sel_pcm.as_ref().is_none_or(|(k, _)| *k != i) && self.audio.decoding.is_none() {
+            self.audio_decode(i, After::Show);
+        }
         let mut export = false;
         ui.horizontal(|ui| {
             ui.strong(e.id());
@@ -404,22 +530,22 @@ impl Browser {
         ui.allocate_rect(rect, egui::Sense::hover());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(0x20, 0x23, 0x28));
-        if let Some((k, Ok(pcm))) = &self.audio.sel_pcm {
-            if *k == i && !pcm.is_empty() {
+        match &self.audio.sel_pcm {
+            Some((k, Ok(d))) if *k == i && !d.env.is_empty() => {
+                let env = &d.env;
                 let (mid, half) = (rect.center().y, rect.height() * 0.45);
                 let cols = rect.width().max(1.0) as usize;
                 let wave = egui::Color32::from_rgb(0x6C, 0xB4, 0xF0);
                 for c in 0..cols {
-                    let a = c * pcm.len() / cols;
-                    let b = ((c + 1) * pcm.len() / cols).max(a + 1).min(pcm.len());
-                    let s = &pcm[a.min(pcm.len() - 1)..b];
-                    let (lo, hi) = (*s.iter().min().unwrap_or(&0), *s.iter().max().unwrap_or(&0));
+                    let a = (c * env.len() / cols).min(env.len() - 1);
+                    let b = ((c + 1) * env.len() / cols).clamp(a + 1, env.len());
+                    let (lo, hi) = env[a..b].iter().fold((i16::MAX, i16::MIN), |(lo, hi), &(l, h)| (lo.min(l), hi.max(h)));
                     let x = rect.min.x + c as f32 + 0.5;
                     let (y0, y1) = (mid - hi as f32 / 32768.0 * half, mid - lo as f32 / 32768.0 * half);
                     painter.line_segment([egui::pos2(x, y0), egui::pos2(x, y1.max(y0 + 1.0))], egui::Stroke::new(1.0, wave));
                 }
                 if let Some(l) = e.loop_start {
-                    let x = rect.min.x + l as f32 / pcm.len() as f32 * rect.width();
+                    let x = rect.min.x + l as f32 / d.pcm.len() as f32 * rect.width();
                     painter.line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], egui::Stroke::new(1.5, egui::Color32::from_rgb(0xF0, 0xA0, 0x30)));
                 }
                 if let Some((p, t0, len)) = self.audio.playing {
@@ -429,27 +555,25 @@ impl Browser {
                     }
                 }
             }
-        } else if let Some((_, Err(err))) = &self.audio.sel_pcm {
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, err, egui::FontId::proportional(13.0), egui::Color32::LIGHT_RED);
-        } else {
-            let msg = match e.kind {
-                Kind::Song => "a MIDI song: ▶ plays it in the game (its sequencer and the pack's bank)",
-                Kind::Movie => "a movie's soundtrack: ▶ opens the movie",
-                _ => "",
-            };
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(13.0), egui::Color32::GRAY);
+            Some((k, Err(err))) if *k == i => {
+                painter.text(rect.center(), egui::Align2::CENTER_CENTER, err, egui::FontId::proportional(13.0), egui::Color32::LIGHT_RED);
+            }
+            _ => {
+                let msg = match e.kind {
+                    Kind::Song => "a MIDI song: ▶ plays it in the game (its sequencer and the pack's bank)",
+                    Kind::Movie => "a movie's soundtrack: ▶ opens the movie",
+                    _ if self.audio.decoding.is_some() => "decoding…",
+                    _ => "",
+                };
+                painter.text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(13.0), egui::Color32::GRAY);
+            }
         }
         if export {
             let path = PathBuf::from(self.audio.export.trim());
-            let bytes = if e.kind == Kind::Song {
-                e.raw()
+            if e.kind == Kind::Song {
+                self.audio_write(&path, e.raw());
             } else {
-                let rate = if e.kind == Kind::ModFile { hwvx_browser::content_sounds::decode_file(&e.file).map(|(_, r)| r).unwrap_or(e.rate) } else { e.rate };
-                e.decode().map(|pcm| wav_bytes(rate, &pcm))
-            };
-            match bytes.and_then(|b| std::fs::write(&path, b).map_err(|err| format!("{}: {err}", path.display()))) {
-                Ok(()) => self.note(format!("saved {}", path.display())),
-                Err(err) => self.fail(err),
+                self.audio_decode(i, After::Export(path));
             }
         }
     }
@@ -474,5 +598,32 @@ impl Browser {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bad rate of a few Hz: no gigabytes, a ten-minute cap at most.
+    #[test]
+    fn playable_is_bounded() {
+        let pcm = vec![100i16; 48000];
+        assert!(playable(2, &pcm).1.len() <= PLAYABLE_MAX);
+        assert!(playable(0, &pcm).1.len() <= PLAYABLE_MAX);
+        assert_eq!(playable(22050, &pcm).1.len(), pcm.len());
+        assert_eq!(playable(2000, &[1, 2]).0, 48000);
+    }
+
+    #[test]
+    fn envelope_keeps_the_peaks() {
+        let mut pcm = vec![0i16; 100_000];
+        pcm[54_321] = 30000;
+        pcm[7] = -30000;
+        let env = envelope(&pcm);
+        assert_eq!(env.len(), ENVELOPE);
+        assert!(env.iter().any(|e| e.1 == 30000) && env.iter().any(|e| e.0 == -30000));
+        assert_eq!(envelope(&[5, -5]), vec![(5, 5), (-5, -5)]);
+        assert!(envelope(&[]).is_empty());
     }
 }
