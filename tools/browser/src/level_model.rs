@@ -39,6 +39,36 @@ pub struct Project {
     /// trigger files that didn't parse: (name, why). Never written or deleted; their names are
     /// taken; the checks and the test drive's copy have them as they are (their errors show)
     pub broken: Vec<(String, String)>,
+    /// dirty() as of an edit generation (the editor's): a deep compare of the whole level is
+    /// too much for every frame
+    dirty_memo: std::cell::Cell<Option<(u64, bool)>>,
+}
+
+/// A project's level and triggers as they are (Project::copy_source), to write as plain JSON.
+pub struct CopySource {
+    dir: PathBuf,
+    level: Value,
+    triggers: Vec<(String, Value)>,
+    broken: Vec<String>,
+}
+
+impl CopySource {
+    pub fn write(&self, to: &Path) -> Result<(), String> {
+        let tdir = to.join("triggers");
+        let _ = std::fs::remove_dir_all(&tdir);
+        std::fs::create_dir_all(&tdir).map_err(|e| format!("{}: {e}", tdir.display()))?;
+        write(&to.join("level.jsonc"), &serde_json::to_string_pretty(&self.level).unwrap())?;
+        for (n, v) in &self.triggers {
+            write(&trigger_file(to, n)?, &serde_json::to_string_pretty(v).unwrap())?;
+        }
+        for n in &self.broken {
+            let from = trigger_file(&self.dir, n)?;
+            if let Ok(text) = std::fs::read_to_string(&from) {
+                write(&trigger_file(to, n)?, &text)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// triggers/NAME.jsonc of a project: the name (from level.jsonc or the folder) checked first, so
@@ -99,6 +129,7 @@ impl Project {
             loaded,
             removed: Vec::new(),
             broken,
+            dirty_memo: Default::default(),
         })
     }
 
@@ -112,6 +143,18 @@ impl Project {
         self.level != self.level_saved
             || self.triggers.iter().any(|t| t.value != t.saved || t.text.is_none())
             || self.loaded.iter().any(|n| self.trigger(n).is_none())
+    }
+
+    /// dirty(), worked out once per `generation` (bumped by every edit; saving forgets it).
+    pub fn dirty_at(&self, generation: u64) -> bool {
+        match self.dirty_memo.get() {
+            Some((g, d)) if g == generation => d,
+            _ => {
+                let d = self.dirty();
+                self.dirty_memo.set(Some((generation, d)));
+                d
+            }
+        }
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -248,9 +291,11 @@ impl Project {
 
     /// The level and its triggers as plain JSON in `to` (for the level tools: checking, the preview).
     pub fn write_copy(&self, to: &Path) -> Result<(), String> {
-        let tdir = to.join("triggers");
-        let _ = std::fs::remove_dir_all(&tdir);
-        std::fs::create_dir_all(&tdir).map_err(|e| format!("{}: {e}", tdir.display()))?;
+        self.copy_source().write(to)
+    }
+
+    /// What write_copy writes, taken now and written later (on the check's thread).
+    pub fn copy_source(&self) -> CopySource {
         let mut level = self.level.clone();
         if let Some(order) = level.get_mut("triggers").and_then(Value::as_array_mut) {
             // the listed order, then any other trigger of the project (a broken file's too: its
@@ -261,17 +306,12 @@ impl Project {
                 }
             }
         }
-        write(&to.join("level.jsonc"), &serde_json::to_string_pretty(&level).unwrap())?;
-        for t in &self.triggers {
-            write(&trigger_file(to, &t.name)?, &serde_json::to_string_pretty(&t.value).unwrap())?;
+        CopySource {
+            dir: self.dir.clone(),
+            level,
+            triggers: self.triggers.iter().map(|t| (t.name.clone(), t.value.clone())).collect(),
+            broken: self.broken.iter().map(|(n, _)| n.clone()).collect(),
         }
-        for (n, _) in &self.broken {
-            let from = trigger_file(&self.dir, n)?;
-            if let Ok(text) = std::fs::read_to_string(&from) {
-                write(&trigger_file(to, n)?, &text)?;
-            }
-        }
-        Ok(())
     }
 
     /// Files changed on disk since they were read (or saved): another editor's edits. Saving
@@ -299,6 +339,7 @@ impl Project {
     /// Writes what changed, each file edited in place (its comments kept). The files written.
     /// Nothing is written when a file changed on disk since it was read.
     pub fn save(&mut self) -> Result<Vec<PathBuf>, String> {
+        self.dirty_memo.set(None);
         let changed = self.changed_on_disk();
         if !changed.is_empty() {
             return Err(format!(

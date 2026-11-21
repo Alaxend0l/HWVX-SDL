@@ -34,6 +34,12 @@ pub enum Sel {
     Base(String, String),
 }
 
+/// "keep them"'s job: the project's folder, and the triggers that count its collectibles.
+type KeepJob = (PathBuf, Receiver<Result<Vec<i64>, String>>);
+
+/// A drag's steps at most this often (drag_place).
+const DRAG_STEP: Duration = Duration::from_millis(33);
+
 /// The base world's tables the editor lists, with their labels.
 pub const BASE_TABLES: [(&str, &str); 7] = [
     ("tileCars", "Starts (tile cars)"),
@@ -103,6 +109,9 @@ pub struct EditState {
     /// a drag of the selection (ground or axis): 1 started (its first change is an undo point),
     /// 2 that point taken (the rest of the drag goes into it), 0 none
     drag_undo: u8,
+    /// a drag's latest step not applied yet (drag_place), and when the last one was
+    drag_to: Option<([f32; 3], Option<f64>)>,
+    drag_at: Option<Instant>,
     /// the gizmo: a drag along one of its axes, the axis under the pointer, its axes' length
     pub axis_drag: Option<AxisDrag>,
     pub gizmo_hot: Option<usize>,
@@ -113,6 +122,8 @@ pub struct EditState {
     marks_key: String,
     /// the link pickers' choices, made again only when the level or the base lists change
     cands: Option<(String, std::rc::Rc<Vec<(String, String)>>)>,
+    /// uses_of's last answer: (generation, link, the triggers)
+    uses: Option<(u64, String, std::rc::Rc<Vec<String>>)>,
     pub filter: String,
     pub advanced: bool,
     /// warnings (the starts' boxes overlapping each other: xdlrs::level; against the world:
@@ -132,6 +143,9 @@ pub struct EditState {
     pub new_keep_collectibles: bool,
     /// a level being made on another thread (its template's world extracted first)
     pub new_making: Option<Receiver<Result<PathBuf, String>>>,
+    /// "keep them" on a template level: the project (its folder) and the base triggers that count
+    /// its collectibles, found on another thread (the world extracted the first time)
+    pub keep_making: Option<KeepJob>,
     /// (--new-level) the "on" list opens once
     pub new_open_on: bool,
     /// the menu's File > New level: the dialog opens (once)
@@ -272,7 +286,12 @@ impl Browser {
 
     /// A native folder chooser (the system's: osascript, zenity, PowerShell); None if cancelled.
     pub(crate) fn choose_folder() -> Option<String> {
-        hwvx_browser::data_dir::choose_folder("A level project (its folder, with level.jsonc)").ok().flatten()
+        Self::pick_folder().ok().flatten()
+    }
+
+    /// choose_folder, with why there's no dialog (no zenity or kdialog) to say.
+    pub(crate) fn pick_folder() -> Result<Option<String>, String> {
+        hwvx_browser::data_dir::choose_folder("A level project (its folder, with level.jsonc)")
     }
 
     // ---- per frame ---------------------------------------------------------------------------
@@ -294,6 +313,18 @@ impl Browser {
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.level.edit.pick_link = None;
+        }
+        // a drag whose release the view never saw (the panel gone, Ctrl let go first): closed
+        // here, or every later edit would fold into its undo point
+        if self.level.edit.drag_undo != 0 && !ctx.input(|i| i.pointer.any_down()) {
+            self.edit_drag_end();
+        } else if let Some((c, rot)) = self.level.edit.drag_to {
+            // a step that waited (drag_place): applied once its time comes, the pointer still
+            if self.level.edit.drag_at.is_none_or(|t| t.elapsed() >= DRAG_STEP) {
+                self.drag_place(c, rot);
+            } else {
+                ctx.request_repaint_after(DRAG_STEP);
+            }
         }
         // the base world's lists, once a world is on show
         let world = self.world.status["world"].as_str().unwrap_or("").to_string();
@@ -360,6 +391,17 @@ impl Browser {
     }
 
     /// An edit happened: the undo point (one per burst of changes) and a check soon.
+    fn edited_maybe(&mut self, before: Option<Snapshot>) {
+        match before {
+            Some(b) => self.edited(b),
+            // a drag's later step: it folds into the drag's undo point
+            None => {
+                self.level.edit.last_change = Some(Instant::now());
+                self.level.edit.generation += 1;
+            }
+        }
+    }
+
     fn edited(&mut self, before: impl IntoSnapshot) {
         let before = before.into_snapshot();
         let e = &mut self.level.edit;
@@ -440,11 +482,8 @@ impl Browser {
         let scratch = self.testdrive_scratch_dir();
         let copy = scratch.join("edit-copy");
         let out = scratch.join("preview").join("level.json");
-        if let Err(err) = p.write_copy(&copy) {
-            self.level.edit.preview_note = err;
-            self.level.edit.checked_generation = self.level.edit.generation;
-            return;
-        }
+        // written on the check's thread: a big level's files take a while
+        let src = p.copy_source();
         let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
         let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
         let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
@@ -458,7 +497,7 @@ impl Browser {
             let _ = std::fs::create_dir_all(out.parent().unwrap());
             let base = xdlrs::level::BaseOpts { base: None, data, cache: Some(cache) };
             let one = |m: String| vec![LevelError { message: m, ..Default::default() }];
-            let res = match level_env(&tools) {
+            let res = match src.write(&copy).and_then(|_| level_env(&tools)) {
                 Err(m) => Err(one(m)),
                 Ok(env) => match xdlrs::level::compile(&env, &copy, Some(&out), &base, false, box_file.as_deref()) {
                     Ok(c) if c.ok => Ok(c.warnings.iter().map(|w| LevelError { file: w.file.clone(), path: w.path.clone(), message: w.message.clone() }).collect()),
@@ -662,6 +701,91 @@ impl Browser {
         self.level.edit.lanes_note = if blocked.is_empty() { format!("{pre}✓ every lane clear for 400") } else { format!("{pre}⚠ {}", blocked.join(", ")) };
     }
 
+    /// A level being made (a template's world is extracted first: a few seconds, once), opened
+    /// when it's ready: each frame (level_tick), not only while the dialog is drawn.
+    pub(crate) fn poll_new_level(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.level.edit.new_making.take() else { return };
+        match rx.try_recv() {
+            Err(TryRecvError::Empty) => {
+                self.level.edit.new_making = Some(rx);
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+            Err(TryRecvError::Disconnected) => self.note("making the level stopped".into()),
+            Ok(Ok(dir)) => {
+                let d = dir.display().to_string();
+                self.open_level(&d);
+            }
+            Ok(Err(m)) => self.note(m),
+        }
+        self.poll_keep_collectibles(ctx);
+    }
+
+    /// "keep them": the template's collectibles back. Only their own base triggers come back
+    /// with them (not "all": that would bring back the Joyride intro next to the mode's own), so
+    /// they're found from the template's world first (xdlrs::level_template::collectibles).
+    fn keep_collectibles(&mut self) {
+        let Some(p) = self.level.edit.proj.as_ref() else { return };
+        if !p.level["baseTriggers"].is_array() {
+            // all or none: nothing to add to
+            return self.keep_collectibles_with(&[]);
+        }
+        let dir = p.dir.clone();
+        let world = p.level["world"].as_str().unwrap_or("").to_string();
+        let game = self.args.game.clone().unwrap_or_else(hwvx_browser::client::default_game);
+        let tools = self.args.tools.clone().or_else(|| default_tools(&game)).unwrap_or_else(|| "tools".into());
+        let data = self.args.data.clone().or_else(|| self.hello["data"].as_str().map(PathBuf::from));
+        let cache = self.testdrive_scratch_dir().join("base-cache");
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let r = (|| -> Result<Vec<i64>, String> {
+                let env = level_env(&tools)?;
+                let data = data.ok_or("the game's data folder isn't known: the template's world can't be read")?;
+                let base = xdlrs::level::base_project(&env, &world, &data, &cache).map_err(|e| xdlrs::level::top_message(&e))?;
+                Ok(xdlrs::level_template::collectibles(&base).map_err(|e| e.msg)?.triggers)
+            })();
+            let _ = tx.send(r);
+        });
+        self.level.edit.keep_making = Some((dir, rx));
+    }
+
+    fn poll_keep_collectibles(&mut self, ctx: &egui::Context) {
+        let Some((dir, rx)) = self.level.edit.keep_making.take() else { return };
+        match rx.try_recv() {
+            Err(TryRecvError::Empty) => {
+                self.level.edit.keep_making = Some((dir, rx));
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+            Err(TryRecvError::Disconnected) => self.note("finding the template's collectibles stopped".into()),
+            // (another project opened meanwhile: not its)
+            Ok(Ok(trigs)) if self.level.edit.proj.as_ref().is_some_and(|p| p.dir == dir) => self.keep_collectibles_with(&trigs),
+            Ok(Ok(_)) => {}
+            Ok(Err(m)) => self.note(format!("the collectibles aren't back: {m}")),
+        }
+    }
+
+    fn keep_collectibles_with(&mut self, trigs: &[i64]) {
+        let Some(p) = self.level.edit.proj.as_mut() else { return };
+        let before = p.snapshot();
+        let lv = &mut p.level;
+        if let Some(m) = lv.as_object_mut() {
+            m.remove("remove");
+        }
+        if let Some(a) = lv["baseTriggers"].as_array_mut() {
+            let mut nums: Vec<i64> = a.iter().filter_map(Value::as_i64).chain(trigs.iter().copied()).collect();
+            nums.sort_unstable();
+            nums.dedup();
+            *a = nums.into_iter().map(Value::from).collect();
+        }
+        // the template's briefing line has the HUD slot of an objective that's back
+        if let Some(obs) = lv.get_mut("objectives").and_then(Value::as_object_mut) {
+            obs.retain(|_, o| o["done"] != "level://variables/briefed/to");
+            if obs.is_empty() {
+                lv.as_object_mut().unwrap().remove("objectives");
+            }
+        }
+        self.edited(before);
+    }
+
     /// "New level": a project extending a mode's level in its world (its retail script kept,
     /// to be changed), in a folder of its own. On: one of the mode's retail worlds, or any Joyride
     /// world as a template (every mode on every world: Challenge on world 4, which retail has no
@@ -669,21 +793,6 @@ impl Browser {
     /// and by default its gears, key and their objectives removed (xdlrs::level_template).
     pub(crate) fn new_level_dialog(&mut self, ui: &mut egui::Ui) {
         let mut pick_dir = false;
-        // a level being made: a template's world is extracted first (a few seconds, once)
-        if let Some(rx) = self.level.edit.new_making.take() {
-            match rx.try_recv() {
-                Err(TryRecvError::Empty) => {
-                    self.level.edit.new_making = Some(rx);
-                    ui.ctx().request_repaint_after(Duration::from_millis(100));
-                }
-                Err(TryRecvError::Disconnected) => self.note("making the level stopped".into()),
-                Ok(Ok(dir)) => {
-                    let d = dir.display().to_string();
-                    self.open_level(&d);
-                }
-                Ok(Err(m)) => self.note(m),
-            }
-        }
         let open = std::mem::take(&mut self.level.edit.new_requested).then_some(true);
         let making = self.level.edit.new_making.is_some();
         let mut make: Option<NewWorld> = None;
@@ -750,7 +859,7 @@ impl Browser {
             }
         });
         if pick_dir {
-            self.ask(crate::level_ui::Dialog::NewDir, Self::choose_folder);
+            self.ask(crate::level_ui::Dialog::NewDir, Self::pick_folder);
         }
         let Some(w) = make else { return };
         let e = &self.level.edit;
@@ -830,8 +939,11 @@ impl Browser {
     /// Moves the selection to `c` (and turns a start to rot).
     fn set_place(&mut self, c: [f32; 3], rot: Option<f64>) {
         let Some(sel) = self.level.edit.sel.clone() else { return };
+        let dragging = self.level.edit.drag_undo != 0;
+        // a drag's undo point is its start: no copy of the level for each later step
+        let snap = self.level.edit.drag_undo != 2;
         let Some(p) = self.level.edit.proj.as_mut() else { return };
-        let before = p.snapshot();
+        let before = snap.then(|| p.snapshot());
         match &sel {
             Sel::Own(k, n) if k == "volumes" => {
                 let v = &mut p.level["volumes"][n.as_str()];
@@ -850,11 +962,9 @@ impl Browser {
                 if let (Some(r), true) = (rot, k == "starts") {
                     v["rotY"] = json!((r * 10000.0).round() / 10000.0);
                 }
-                if k == "items" || k == "fxPoints" {
-                    self.edited(before);
-                    // the reply belongs to this generation: one after an undo or a later edit is dropped
-                    let key = format!("{}|{k}/{n}", self.level.edit.generation);
-                    self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
+                if (k == "items" || k == "fxPoints") && !dragging {
+                    self.edited_maybe(before);
+                    self.item_quad(k, n, c);
                     return;
                 }
             }
@@ -876,7 +986,27 @@ impl Browser {
             }
             _ => return,
         }
-        self.edited(before);
+        self.edited_maybe(before);
+    }
+
+    /// The quadrant a moved item or effect point is in (the viewer's quadat): once its move is done.
+    fn item_quad(&mut self, k: &str, n: &str, c: [f32; 3]) {
+        // the reply belongs to this generation: one after an undo or a later edit is dropped
+        let key = format!("{}|{k}/{n}", self.level.edit.generation);
+        self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
+    }
+
+    /// A step of a drag, applied about 30 times a second at most (each remakes the marks and the
+    /// level's state); one that comes sooner waits in drag_to for edit_tick or the drag's end.
+    fn drag_place(&mut self, c: [f32; 3], rot: Option<f64>) {
+        let e = &mut self.level.edit;
+        if e.drag_at.is_some_and(|t| t.elapsed() < DRAG_STEP) {
+            e.drag_to = Some((c, rot));
+            return;
+        }
+        e.drag_to = None;
+        e.drag_at = Some(Instant::now());
+        self.set_place(c, rot);
     }
 
     // ---- adding and taking out --------------------------------------------------------------------
@@ -1017,15 +1147,27 @@ impl Browser {
         self.level.edit.sel = Some(Sel::Settings);
     }
 
-    /// The level's links to the selection (what deleting it would break).
-    pub(crate) fn uses_of(&self, link: &str) -> Vec<String> {
-        let Some(p) = self.level.edit.proj.as_ref() else { return Vec::new() };
+    /// The level's links to the selection (what deleting it would break): worked out once per
+    /// edit generation (the inspector asks every frame; every trigger is written out for it).
+    pub(crate) fn uses_of(&mut self, link: &str) -> std::rc::Rc<Vec<String>> {
+        let g = self.level.edit.generation;
+        if let Some((cg, cl, uses)) = &self.level.edit.uses
+            && *cg == g
+            && cl == link
+        {
+            return uses.clone();
+        }
+        let Some(p) = self.level.edit.proj.as_ref() else { return Default::default() };
+        let (whole, under) = (format!("\"{link}\""), format!("\"{link}/"));
         let mut out = Vec::new();
         for t in &p.triggers {
-            if t.value.to_string().contains(&format!("\"{link}\"")) || t.value.to_string().contains(&format!("\"{link}/")) {
+            let s = t.value.to_string();
+            if s.contains(&whole) || s.contains(&under) {
                 out.push(format!("trigger {}", t.name));
             }
         }
+        let out = std::rc::Rc::new(out);
+        self.level.edit.uses = Some((g, link.to_string(), out.clone()));
         out
     }
 
@@ -1135,13 +1277,28 @@ impl Browser {
             Some(Sel::Base(ref t, _)) if t == "tileCars" => 2.0,
             _ => 0.0,
         };
-        self.set_place([hit[0], hit[1] + lift, hit[2]], rot);
+        let to = [hit[0], hit[1] + lift, hit[2]];
+        if self.level.edit.drag_undo != 0 {
+            self.drag_place(to, rot);
+        } else {
+            self.set_place(to, rot);
+        }
     }
 
-    /// A drag of the selection ended (its undo point is closed).
+    /// A drag of the selection ended (its undo point is closed): its last step applied, and a
+    /// moved item's quadrant asked for.
     pub(crate) fn edit_drag_end(&mut self) {
+        if let Some((c, rot)) = self.level.edit.drag_to.take() {
+            self.set_place(c, rot);
+        }
+        let moved = self.level.edit.drag_at.take().is_some();
         self.level.edit.drag_undo = 0;
         self.level.edit.axis_drag = None;
+        if let (true, Some(Sel::Own(k, n)), Some((c, _))) = (moved, self.level.edit.sel.clone(), self.sel_place())
+            && (k == "items" || k == "fxPoints")
+        {
+            self.item_quad(&k, &n, c);
+        }
     }
 
     /// The gizmo as drawn: the picture's camera, the selection's place, the axes' length. None
@@ -1175,7 +1332,7 @@ impl Browser {
                 if let Some(c) = drag.place(o, d, 5000.0) {
                     // only when it moves by a hundredth (the places are kept to two decimals)
                     if self.sel_place().map(|(cur, _)| (0..3).any(|i| (cur[i] - c[i]).abs() >= 0.005)).unwrap_or(false) {
-                        self.set_place(c, drag.rot);
+                        self.drag_place(c, drag.rot);
                     }
                 }
             }
@@ -1364,7 +1521,7 @@ impl Browser {
             if ui.add_enabled(!p.redo.is_empty(), egui::Button::new("↷ Redo")).on_hover_text("Ctrl/Cmd+Shift+Z").clicked() {
                 self.edit_undo(true);
             }
-            let dirty = self.level.edit.proj.as_ref().unwrap().dirty();
+            let dirty = self.level.edit.proj.as_ref().unwrap().dirty_at(self.level.edit.generation);
             if ui.add_enabled(dirty, egui::Button::new(if dirty { "💾 Save*" } else { "💾 Save" })).on_hover_text("Ctrl/Cmd+S: the changed files, their comments kept").clicked() {
                 self.edit_save();
             }
@@ -1457,16 +1614,18 @@ impl Browser {
         // a Joyride world as the template: what New level took out of it
         let removed = |k: &str| p.level["remove"][k].as_array().map(Vec::len).unwrap_or(0);
         let (ri, ro) = (removed("items"), removed("objectives"));
+        let mut keep = false;
         if ri + ro > 0 {
             ui.horizontal(|ui| {
                 ui.label(format!("{ri} base pickup{} and {ro} objective{} removed (the template's gears and key)", if ri == 1 { "" } else { "s" }, if ro == 1 { "" } else { "s" }))
                     .on_hover_text("remove: the pickups never spawn and the objectives don't show (Port_Level.c); the triggers that counted them are left out of base triggers");
-                if ui.small_button("keep them").on_hover_text("the gears, the key and their objectives back, and every base trigger (all)").clicked() {
-                    if let Some(m) = p.level.as_object_mut() {
-                        m.remove("remove");
-                    }
-                    p.level["baseTriggers"] = json!("all");
-                    changed = true;
+                let busy = self.level.edit.keep_making.is_some();
+                let tip = "the gears, the key and their objectives back, with the base triggers that count them (the level's briefing line goes: it shows where they do)";
+                if ui.add_enabled(!busy, egui::Button::new("keep them").small()).on_hover_text(tip).clicked() {
+                    keep = true;
+                }
+                if busy {
+                    ui.spinner();
                 }
             });
         }
@@ -1535,6 +1694,9 @@ impl Browser {
         }
         if changed {
             self.edited(before);
+        }
+        if keep {
+            self.keep_collectibles();
         }
         if mode == "drag" && self.shows_level_world() && ui.button("Check the lanes").clicked() {
             self.lane_check();

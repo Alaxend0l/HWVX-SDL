@@ -3,8 +3,8 @@
 //! Without game data: the compiler's checks of `remove` on a project of its own. With the
 //! GameCube data and hwvx-x where this machine has them (XDLRS_GC_FILES, XDLRS_HWVX_X; skipped
 //! otherwise): on each of the five Joyride worlds the collectibles are found (ten gears, a key,
-//! two objectives, six triggers), and a level of every mode made on it compiles, with 13 removes
-//! and the template's triggers.
+//! two objectives, six triggers), and a level of every mode made on it compiles, the collectibles
+//! removed (13 removes and the template's triggers) or kept (their triggers with them).
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -108,40 +108,50 @@ fn every_mode_on_every_joyride_world() {
         assert_eq!(c.triggers.len(), 6, "world{w}");
         assert_eq!(level_template::objective_hud_ids(&base, &c.objectives).unwrap(), [2, 1], "world{w}");
         for mode in ["challenge", "mission", "battle", "drag"] {
-            let dir = scratch(&format!("tpl-{mode}-world{w}"));
-            std::fs::remove_dir_all(&dir).unwrap();
-            let o = NewLevel {
-                mode: mode.into(),
-                world: world.clone(),
-                extends: level_template::first_track(if mode == "mission" { "adventure" } else { mode }).unwrap(),
-                name: format!("{mode} {w}"),
-                dir: dir.clone(),
-                clean: true,
-                base: Some(base.clone()),
-            };
-            level_template::new_level(&o).unwrap();
-            // never over a level that's there
-            assert!(level_template::new_level(&o).is_err());
-            let b = BaseOpts { base: Some(base.clone()), data: None, cache: None };
-            let r = level::compile(&env, &dir, None, &b, false, None).unwrap();
-            assert!(r.ok, "{mode} on world{w}: {:?}", r.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>());
-            let doc = r.doc.unwrap();
-            assert_eq!(doc["removes"].as_array().unwrap().len(), 13, "{mode} on world{w}");
-            // the Joyride intro (an interface and what waits for it) goes too: the mode's own screens
-            let kept: Vec<i64> = doc["baseTriggers"].as_array().unwrap().iter().filter_map(Value::as_i64).collect();
-            assert!(kept.len() < c.kept.len() && kept.iter().all(|k| c.kept.contains(k)), "{mode} on world{w}: {kept:?}");
-            assert_eq!(doc["modeWorld"], level_template::mode_screens(mode).unwrap().world);
-            // (compile gives warnings with a spawn box only: the check's)
-            let (errs, warnings) = level::check(&env, &dir, &b, None).unwrap();
-            assert!(errs.is_empty(), "{errs:?}");
-            let warned = |s: &str| warnings.iter().any(|x| x.contains(s));
-            match mode {
-                // nothing wins it yet (the template leaves the goal to the level)
-                "challenge" | "mission" => assert!(warned("nothing wins this"), "{mode} on world{w}: {warnings:?}"),
-                // one start: a battle wants 2, a drag race 4
-                _ => assert!(warned(if mode == "battle" { "2 starts" } else { "4 lanes" }), "{mode} on world{w}: {warnings:?}"),
+            // collectibles removed (the New level box ticked) and kept (unticked): both compile
+            for clean in [true, false] {
+                let dir = scratch(&format!("tpl-{mode}-world{w}-{}", if clean { "clean" } else { "kept" }));
+                std::fs::remove_dir_all(&dir).unwrap();
+                let o = NewLevel {
+                    mode: mode.into(),
+                    world: world.clone(),
+                    extends: level_template::first_track(if mode == "mission" { "adventure" } else { mode }).unwrap(),
+                    name: format!("{mode} {w}"),
+                    dir: dir.clone(),
+                    clean,
+                    base: Some(base.clone()),
+                };
+                level_template::new_level(&o).unwrap();
+                // never over a level that's there
+                assert!(level_template::new_level(&o).is_err());
+                let b = BaseOpts { base: Some(base.clone()), data: None, cache: None };
+                let r = level::compile(&env, &dir, None, &b, false, None).unwrap();
+                assert!(r.ok, "{mode} on world{w} (clean {clean}): {:?}", r.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>());
+                let doc = r.doc.unwrap();
+                let removes = doc.get("removes").and_then(Value::as_array).map_or(0, Vec::len);
+                assert_eq!(removes, if clean { 13 } else { 0 }, "{mode} on world{w} (clean {clean})");
+                // the Joyride intro (an interface and what waits for it) goes too: the mode's own screens
+                let kept: Vec<i64> = doc["baseTriggers"].as_array().unwrap().iter().filter_map(Value::as_i64).collect();
+                if clean {
+                    assert!(kept.len() < c.kept.len() && kept.iter().all(|k| c.kept.contains(k)), "{mode} on world{w}: {kept:?}");
+                } else {
+                    assert!(c.triggers.iter().all(|t| kept.contains(t)), "{mode} on world{w}: {kept:?}");
+                }
+                assert_eq!(doc["modeWorld"], level_template::mode_screens(mode).unwrap().world);
+                // (compile gives warnings with a spawn box only: the check's)
+                let (errs, warnings) = level::check(&env, &dir, &b, None).unwrap();
+                assert!(errs.is_empty(), "{errs:?}");
+                let warned = |s: &str| warnings.iter().any(|x| x.contains(s));
+                match mode {
+                    // nothing wins it yet (the template leaves the goal to the level)
+                    "challenge" | "mission" => assert!(warned("nothing wins this"), "{mode} on world{w}: {warnings:?}"),
+                    // one start: a battle wants 2, a drag race 4
+                    _ => assert!(warned(if mode == "battle" { "2 starts" } else { "4 lanes" }), "{mode} on world{w}: {warnings:?}"),
+                }
+                if clean {
+                    assert!(!warned("still in it"), "{mode} on world{w}: the collectibles removed");
+                }
             }
-            assert!(!warned("still in it"), "{mode} on world{w}: the collectibles removed");
         }
     }
 }
