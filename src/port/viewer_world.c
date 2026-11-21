@@ -356,7 +356,7 @@ void ViewerWorld_Unload(void) {
 
 static int Load(const char *path, char *err, size_t errSize) {
     static char s_path[128];
-    u64 t0 = SDL_GetTicksNS();
+    u64 t0 = SDL_GetTicksNS(), pumped = t0;
     u32 steps = 0, i;
     s32 state = 0;
     World *wd;
@@ -373,6 +373,12 @@ static int Load(const char *path, char *err, size_t errSize) {
     do {
         state = LoadWorldProcess(s_path, 0);
         FileStreaming_HeartBeat();
+        if (SDL_GetTicksNS() - pumped > 50000000ull) {
+            /* the window's events taken in (queued for the next frame's pump), so the
+             * system doesn't take a long load for a hung program */
+            SDL_PumpEvents();
+            pumped = SDL_GetTicksNS();
+        }
     } while (state != 7 && state != 8 && ++steps < 0x100000);
     if (state != 7 || (wd = WORLD()) == NULL) {
         SDL_snprintf(err, errSize, "the world %s did not load (state %d; see the game's log)", path, (int)state);
