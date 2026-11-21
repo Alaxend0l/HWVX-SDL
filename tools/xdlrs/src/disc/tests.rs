@@ -314,3 +314,23 @@ fn damaged_sizes_refused() {
     assert!(gcz(1 << 20, 1, 1 << 20).contains("damaged"));
     assert!(gcz(1 << 30, 512, 1 << 21).contains("cut short"));
 }
+
+/// Names that Windows can't hold are refused; ISO's "NAME.;1" loses its dot; names differing
+/// only in case are refused (they would land on one file).
+#[test]
+fn names_for_windows() {
+    for bad in ["CON", "nul.txt", "Com1.bin", "lpt9", "a<b", "a|b", "a?", "a*", "a\"b", "tab\t", "end.", "end ", ".", ".."] {
+        assert!(!gcm::safe_name(bad), "{bad}");
+    }
+    for good in ["HW_share.xgc", "CONSOLE.xgc", "com.bin", "COM10", ".hidden", "a b.xps"] {
+        assert!(gcm::safe_name(good), "{good}");
+    }
+    let t = Tmp::new("names");
+    let img = gcm::tests::make("GHWE78", &[("HW_share.xgc", b"s"), ("w/a.xgc", b"1"), ("W/A.XGC", b"2")]);
+    assert!(Disc::open(&t.write("twins.iso", &img)).unwrap_err().contains("but for case"));
+    let img = gcm::tests::make("GHWE78", &[("HW_share.xgc", b"s"), ("hw_share.xgc/x", b"1")]);
+    assert!(Disc::open(&t.write("filedir.iso", &img)).unwrap_err().contains("both a file and a folder"));
+    let iso = iso::tests::make(&[Node::Dir("XPS", vec![Node::Dir("ENGLISH", vec![Node::File("HW_share.xps", &share_xps(183)), Node::File("NOEXT.", b"x")])])]);
+    let d = Disc::open(&t.write("ps2.iso", &iso)).unwrap();
+    assert!(d.find("XPS/ENGLISH/NOEXT").is_some());
+}

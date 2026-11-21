@@ -290,6 +290,7 @@ impl Disc {
             d.raw_sectors = raw;
             d
         };
+        one_spelling(&d.entries).map_err(|e| format!("{}: {e}", path.display()))?;
         d.image_size = image_size;
         Ok(d)
     }
@@ -364,6 +365,7 @@ impl Disc {
                     }
                 }
             }
+            one_spelling(&d.entries).map_err(|e| format!("{}: {e}", c.display()))?;
             return Ok(d);
         }
         let version_of = |p: &Path| -> Option<u32> {
@@ -575,6 +577,28 @@ impl Disc {
 impl std::fmt::Debug for Disc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Disc({}, {}, {}, {} files)", self.path.display(), self.kind.key(), self.release.key(), self.entries.len())
+    }
+}
+
+/// The image's files as one file system without case sees them (Windows', macOS's): two names
+/// differing only in case, or a file where another's folder is, would land on one another.
+fn one_spelling(entries: &[Entry]) -> R<()> {
+    let mut files = std::collections::HashSet::new();
+    let mut dirs = std::collections::HashSet::new();
+    for e in entries {
+        let low = e.path.to_lowercase();
+        let mut at = 0;
+        while let Some(i) = low[at..].find('/') {
+            dirs.insert(low[..at + i].to_string());
+            at += i + 1;
+        }
+        if !files.insert(low) {
+            return Err(format!("two files named {} but for case (a damaged image?)", e.path));
+        }
+    }
+    match files.iter().find(|f| dirs.contains(*f)) {
+        Some(f) => Err(format!("{f} is both a file and a folder (a damaged image?)")),
+        None => Ok(()),
     }
 }
 
