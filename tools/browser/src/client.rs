@@ -122,7 +122,9 @@ impl Viewer {
                 }
             });
         }
-        let end = Instant::now() + Duration::from_secs(60);
+        // a first start can be slow (a cold disc, shaders compiled, an antivirus scan on Windows)
+        let start_wait = Duration::from_secs(180);
+        let end = Instant::now() + start_wait;
         let mut tail = Vec::new();
         let port = loop {
             if let Ok(Some(status)) = child.try_wait() {
@@ -141,12 +143,13 @@ impl Viewer {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => {}
+                Err(RecvTimeoutError::Disconnected) => std::thread::sleep(Duration::from_millis(100)), // (the pipes closed: no busy wait)
             }
             if Instant::now() > end {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("the game did not start listening:\n{}", tail.join("\n")));
+                let at = o.log_file.as_ref().map(|p| format!(" (its log: {})", p.display())).unwrap_or_default();
+                return Err(format!("the game did not start listening in {} s{at}:\n{}", start_wait.as_secs(), tail.join("\n")));
             }
         };
         let stream = match TcpStream::connect(("127.0.0.1", port)) {
@@ -169,8 +172,14 @@ impl Viewer {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let v = serde_json::from_str::<Value>(&line)
-                    .unwrap_or_else(|e| json!({"ok": false, "error": format!("unreadable reply: {e}")}));
+                let v = serde_json::from_str::<Value>(&line).unwrap_or_else(|e| {
+                    // its seq, if it can be read, so the error goes to the request it answers
+                    let mut v = json!({"ok": false, "error": format!("unreadable reply: {e}")});
+                    if let Some(seq) = seq_in(&line) {
+                        v["seq"] = json!(seq);
+                    }
+                    v
+                });
                 if tx.send(v).is_err() {
                     break;
                 }
@@ -204,6 +213,10 @@ impl Viewer {
         }
         let mut line = serde_json::to_string(&Value::Object(req)).unwrap();
         line.push('\n');
+        if line.len() > 1 << 20 {
+            // the viewer's limit (MAX_LINE): it would answer with no seq and drop the connection
+            return Err(format!("{cmd}: the request is over 1 MB"));
+        }
         if let Err(e) = self.stream.write_all(line.as_bytes()) {
             let e = format!("the viewer is gone: {e}");
             self.closed = Some(e.clone());
@@ -237,7 +250,8 @@ impl Viewer {
     /// One request and its reply; Err with the viewer's message when it answers ok: false.
     pub fn call(&mut self, cmd: &str, args: Value) -> Result<Value, String> {
         let seq = self.send(cmd, args)?;
-        let end = Instant::now() + Duration::from_secs(60);
+        let wait = reply_timeout(cmd);
+        let end = Instant::now() + wait;
         loop {
             if let Some(v) = self.stash.remove(&seq) {
                 return check(cmd, v);
@@ -250,9 +264,13 @@ impl Viewer {
                         self.stash.insert(s, v);
                     }
                     None if v.get("event").is_some() => self.events.push(v),
-                    None => return check(cmd, v),
+                    // no seq: the viewer refusing a line, not necessarily this one (it would come
+                    // to `poll` as seq 0); this call waits on for its own
+                    None => {
+                        self.stash.insert(0, v);
+                    }
                 },
-                Err(RecvTimeoutError::Timeout) => return Err(format!("{cmd}: no reply in 60 s")),
+                Err(RecvTimeoutError::Timeout) => return Err(format!("{cmd}: no reply in {} s", wait.as_secs())),
                 Err(RecvTimeoutError::Disconnected) => {
                     self.closed = Some("the viewer closed the connection".into());
                     return Err(format!("{cmd}: the viewer closed the connection"));
@@ -279,6 +297,19 @@ impl Drop for Viewer {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
         self.kill();
     }
+}
+
+/// How long `call` waits: a world or a pack can take minutes to load from a slow disc.
+pub fn reply_timeout(cmd: &str) -> Duration {
+    Duration::from_secs(if matches!(cmd, "world" | "load") { 300 } else { 60 })
+}
+
+/// The seq of a reply line that isn't JSON (`"seq":N` as the viewer writes it), if there is one.
+fn seq_in(line: &str) -> Option<u64> {
+    let i = line.find("\"seq\"")? + 5;
+    let rest = line[i..].trim_start().strip_prefix(':')?.trim_start();
+    let n = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    rest[..n].parse().ok()
 }
 
 fn check(cmd: &str, v: Value) -> Result<Value, String> {
@@ -322,4 +353,14 @@ pub fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn seq_of_an_unreadable_reply() {
+        assert_eq!(super::seq_in(r#"{"seq":12,"ok":true,"name":"\xff"#), Some(12));
+        assert_eq!(super::seq_in(r#"{"seq" : 7 ,"ok":tru"#), Some(7));
+        assert_eq!(super::seq_in(r#"{"ok":false,"error":"x"}"#), None);
+    }
 }

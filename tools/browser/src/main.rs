@@ -814,8 +814,21 @@ impl Browser {
         let now = Instant::now();
         let late: Vec<u64> = self.pending.iter().filter(|(_, (_, t))| now.duration_since(*t) > REPLY_TIMEOUT).map(|(s, _)| *s).collect();
         if !late.is_empty() {
-            self.drop_pending(late);
-            self.fail(format!("the viewer did not answer in {} s", REPLY_TIMEOUT.as_secs()));
+            // a world or pack still loading is kept (its reply, however late, still applies), and
+            // what was sent after it (answered in order, after it); the rest are dropped
+            let loading = self.pending.iter().filter(|(_, (p, _))| matches!(p, Pending::World | Pending::Load)).map(|(s, _)| *s).min();
+            let (slow, gone): (Vec<u64>, Vec<u64>) = late.into_iter().partition(|s| loading.is_some_and(|l| *s >= l));
+            for s in &slow {
+                if let Some(p) = self.pending.get_mut(s) {
+                    p.1 = now; // (said again in another REPLY_TIMEOUT)
+                }
+            }
+            if gone.is_empty() {
+                self.note(format!("still loading (over {} s so far)…", REPLY_TIMEOUT.as_secs()));
+            } else {
+                self.drop_pending(gone);
+                self.fail(format!("the viewer did not answer in {} s", REPLY_TIMEOUT.as_secs()));
+            }
         }
         for (seq, r) in replies {
             let why = self.pending.remove(&seq).map(|(p, _)| p).unwrap_or(Pending::Quiet);
