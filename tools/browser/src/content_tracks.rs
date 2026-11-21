@@ -266,7 +266,7 @@ pub fn base_pictures(data: &Path) -> Result<Vec<Picture>, String> {
     let mut out = vec![];
     for (t, _) in pictures() {
         let Some(x) = texs.get(release_texture(a.release, t) as usize) else { continue };
-        let Some(&(o, n, w, h)) = x.levels.first() else { continue };
+        let Some(&(o, n, w, h)) = x.levels.first().filter(|l| l.2 > 0 && l.3 > 0) else { continue }; // chunks(0) panics
         let clut = x.clut.map(|o| slice(pk.b, o, (o + 0x400) as i64));
         let rgba = decode_level(a.release, x.fmt, slice(pk.b, o, (o + n) as i64), w, h, clut)?;
         // stored bottom row first (the select draws them flipped: checked against its screen,
@@ -407,15 +407,39 @@ impl ModProject {
         }
     }
 
+    /// The links file, read again only when its time or size changed (the lists ask every frame).
+    fn links(&self) -> Map<String, Value> {
+        let key = std::fs::metadata(self.dir.join(LINKS)).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
+        let mut c = self.links.lock().unwrap_or_else(|e| e.into_inner());
+        match c.as_ref() {
+            Some((k, m)) if *k == key => m.clone(),
+            _ => {
+                let m = read_links(&self.dir);
+                *c = Some((key, m.clone()));
+                m
+            }
+        }
+    }
+
+    /// After a write: one within the file time's granularity, of the same size, looks unchanged.
+    fn forget_links(&self) {
+        *self.links.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    fn link_path(&self, links: &Map<String, Value>, uid: &str) -> Option<PathBuf> {
+        let p = PathBuf::from(links.get(uid)?.as_str()?);
+        Some(if p.is_relative() { self.dir.join(p) } else { p })
+    }
+
     /// The level project the track is made from (None: the base track's level as it is).
     pub fn track_level(&self, uid: &str) -> Option<PathBuf> {
-        let p = PathBuf::from(read_links(&self.dir).get(uid)?.as_str()?);
-        Some(if p.is_relative() { self.dir.join(p) } else { p })
+        self.link_path(&self.links(), uid)
     }
 
     /// Every track's level project: (uid, folder), for tracks the mod still has.
     pub fn track_levels(&self) -> Vec<(String, PathBuf)> {
-        self.tracks().into_iter().filter_map(|(u, _)| self.track_level(&u).map(|p| (u, p))).collect()
+        let links = self.links();
+        self.tracks().into_iter().filter_map(|(u, _)| self.link_path(&links, &u).map(|p| (u, p))).collect()
     }
 
     /// Links the track to a level project (its `extends` becomes the level's: a level whose mode
@@ -436,6 +460,7 @@ impl ModProject {
                 let stored = abs.strip_prefix(&dir).map(Path::to_path_buf).unwrap_or(abs);
                 links.insert(uid.into(), Value::String(stored.display().to_string()));
                 write_links(&self.dir, &links)?;
+                self.forget_links();
                 if let Some(e) = self.track_mut(uid) {
                     e.insert("extends".into(), Value::String(extends));
                     if e.get("name").and_then(Value::as_str).is_none_or(|s| s.trim().is_empty()) {
@@ -447,6 +472,7 @@ impl ModProject {
                 let old = self.track_level(uid);
                 if links.remove(uid).is_some() {
                     write_links(&self.dir, &links)?;
+                    self.forget_links();
                 }
                 if let Some(e) = self.track_mut(uid) {
                     e.remove("level");

@@ -140,6 +140,8 @@ pub struct ModProject {
     text: String,
     saved: Value,
     pub doc: Value,
+    /// the tracks' links file as last read, by its time and size (content_tracks: read every frame)
+    pub(crate) links: std::sync::Mutex<Option<((Option<std::time::SystemTime>, u64), Map<String, Value>)>>,
 }
 
 impl ModProject {
@@ -150,7 +152,7 @@ impl ModProject {
         if !doc.is_object() {
             return Err(format!("{}: not a mod (an object expected)", p.display()));
         }
-        Ok(ModProject { dir: dir.to_path_buf(), text, saved: doc.clone(), doc })
+        Ok(ModProject { dir: dir.to_path_buf(), text, saved: doc.clone(), doc, links: Default::default() })
     }
 
     /// A new mod folder `dir` (it must not hold a mod already).
