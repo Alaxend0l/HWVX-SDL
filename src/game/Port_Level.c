@@ -60,6 +60,7 @@
 #include "Port_Content.h"
 #include "Port_Mods.h"
 #include "Port_Level.h"
+#include "ThingManager.h"
 #include "jsonc.h"
 
 s32 Trigger_ReleaseTrigger(s32 *arg);
@@ -1411,6 +1412,121 @@ static int ModeParamHandle(u32 h) {
            SDL_bsearch(&h, s_mode.handles, s_mode.numHandles, 4, CmpU32) != NULL;
 }
 
+/* ---- the things of grown arrays ---------------------------------------------- */
+
+/* The items and effect points a level grows spawn things that point back at their element
+ * (ItemThing base.trigger and spawner; the element's thing slot): while the level is in, the
+ * copy's elements own them; when it goes, the base ones get them back and the level's own
+ * release theirs (as a quadrant leaving does, FileStreaming_ReleaseQuadResources). */
+
+/* t, a live thing of the item (2) or emitter (3) pool; else NULL (a stale slot: its pool
+ * was released with the world). */
+static Thing *GrowThing(void *t, int kind) {
+    extern u8 g_itemVTable[], g_emitterVTable[];
+    u8 *pool = kind == 2 ? (u8 *)THING_POOLS->items : (u8 *)THING_POOLS->emitters;
+    u32 stride = kind == 2 ? sizeof(THING_POOLS->items[0]) : sizeof(THING_POOLS->emitters[0]);
+    u32 n = kind == 2 ? SDL_arraysize(THING_POOLS->items) : SDL_arraysize(THING_POOLS->emitters);
+    Thing *th = t;
+
+    if (th == NULL || (u8 *)th < pool || (u8 *)th >= pool + n * stride || ((u8 *)th - pool) % stride != 0 ||
+        (th->flags & (THING_FLAG_RELEASED | THING_FLAG_FREE)) ||
+        (u8 *)GETP(th->vtable) != (kind == 2 ? g_itemVTable : g_emitterVTable)) {
+        return NULL;
+    }
+    return th;
+}
+
+/* Every live item's spawn slot in [from, from + size) moved to the same place in `to`, or
+ * off it (NULL) past toSize. */
+static void GrowMoveItems(const u8 *from, u32 size, u8 *to, u32 toSize) {
+    u32 i;
+
+    for (i = 0; from != NULL && i < SDL_arraysize(THING_POOLS->items); i++) {
+        ItemThing *it = (ItemThing *)GrowThing(&THING_POOLS->items[i].thing, 2);
+        const u8 *tr = it != NULL ? GETP(it->base.trigger) : NULL, *sp = it != NULL ? (u8 *)GETP(it->spawner) : NULL;
+
+        if (tr != NULL && tr >= from && tr < from + size) {
+            SETP(it->base.trigger, (u32)(tr - from) < toSize ? to + (tr - from) : NULL);
+        }
+        if (sp != NULL && sp >= from && sp < from + size) {
+            SETP(it->spawner, (u32)(sp - from) < toSize ? (QuadItem *)(to + (sp - from)) : NULL);
+        }
+    }
+}
+
+/* Applying: the base elements' items point at their copies. */
+static void GrowsTakeThings(void) {
+    int a;
+
+    for (a = 0; a < s_lv.numGrows; a++) {
+        const struct LevelGrow *g = &s_lv.grows[a];
+
+        if (g->kind == 2 && g->old != NULL && g->mem != NULL) {
+            GrowMoveItems(g->old, g->oldSize, g->mem, g->oldSize);
+        }
+    }
+}
+
+/* Undoing (before the copies are freed): the base elements' things back to them, the level's
+ * own released. */
+static void GrowsGiveBackThings(void) {
+    u8 paused = Trigger_IsTACSystemPaused();
+    int a, released = 0;
+
+    Trigger_PauseTACSystem(1);
+    for (a = 0; a < s_lv.numGrows; a++) {
+        const struct LevelGrow *g = &s_lv.grows[a];
+        u32 es = g->elemSize, j;
+
+        if ((g->kind != 2 && g->kind != 3) || g->mem == NULL || es == 0) {
+            continue;
+        }
+        for (j = 0; j < g->size / es; j++) {
+            u8 *el = g->mem + j * es;
+            Thing *t;
+
+            if (g->kind == 2) {
+                QuadItem *q = (QuadItem *)el;
+
+                t = GrowThing(GETP(q->thing), 2);
+                if (t != NULL && GETP(t->trigger) != q) {
+                    t = NULL;   /* (a slot reused since) */
+                }
+                if (j * es < g->oldSize) {
+                    QuadItem *o = (QuadItem *)(g->old + j * es);
+
+                    SETP(o->thing, (ItemThing *)t);
+                    o->spawned = q->spawned;
+                    o->timer = q->timer;
+                } else if (t != NULL && GETP(((ItemThing *)t)->record)->type != ITEM_TYPE_CARRIED) {
+                    THING_VFN(t, THING_V_RELEASE, void (*)(void *))(t);
+                    released = 1;
+                }
+                SETP(q->thing, NULL);
+            } else {
+                QuadFxPoint *f = (QuadFxPoint *)el;
+
+                t = GrowThing(GETP(f->thing), 3);
+                if (j * es < g->oldSize) {
+                    SETP(((QuadFxPoint *)(g->old + j * es))->thing, t);
+                } else if (t != NULL) {
+                    THING_VFN(t, THING_V_RELEASE, void (*)(void *))(t);
+                    released = 1;
+                }
+                SETP(f->thing, NULL);
+            }
+        }
+        if (g->kind == 2) {
+            /* (carried ones too: off their slot) */
+            GrowMoveItems(g->mem, g->size, g->old, g->oldSize);
+        }
+    }
+    if (released) {
+        ThingManagerList_RemoveReleasedThings(&g_thingManager_DARYL.activeList);
+    }
+    Trigger_PauseTACSystem((s8)paused);
+}
+
 /* ---- undoing -------------------------------------------------------------- */
 
 static void Unapply(void) {
@@ -1421,6 +1537,7 @@ static void Unapply(void) {
     if (s_lv.pack == NULL) {
         return;
     }
+    GrowsGiveBackThings();
     /* active triggers of ours out of the trigger lists first (no-op if they
      * weren't activated) */
     for (k = 0; s_lv.triggers != NULL && k < s_lv.numTriggers; k++) {
@@ -1938,6 +2055,7 @@ static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, 
             SDL_memcpy(s_lv.grows[a].mem, s_lv.grows[a].old, s_lv.grows[a].oldSize);
         }
     }
+    GrowsTakeThings();
     for (a = 0, ja = japp->child; ja != NULL; ja = ja->next, a++) {
         struct LevelGrow *g = &s_lv.grows[a];
         const JsonNode *elems = Json_Get(ja, "elems");
