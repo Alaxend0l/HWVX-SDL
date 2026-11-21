@@ -991,7 +991,7 @@ static f32 Clamp(f32 v, f32 lo, f32 hi) {
 }
 
 static int CamSane(const CamSnap *before) {
-    const f32 far = 1e7f;
+    const f32 lim = 1e7f;   /* (not "far": a macro in the Windows headers) */
     int k;
 
     if (!(isfinite(s.yaw) && isfinite(s.pitch) && isfinite(s.distance) && isfinite(s.fov) && isfinite(s.flySpeed) &&
@@ -1010,8 +1010,8 @@ static int CamSane(const CamSnap *before) {
         s.flySpeed = Clamp(s.flySpeed, 0.01f, 1e6f);    /* (0: not set yet, SetFly picks one) */
     }
     for (k = 0; k < 3; k++) {
-        (&s.target.x)[k] = Clamp((&s.target.x)[k], -far, far);
-        (&s.flyPos.x)[k] = Clamp((&s.flyPos.x)[k], -far, far);
+        (&s.target.x)[k] = Clamp((&s.target.x)[k], -lim, lim);
+        (&s.flyPos.x)[k] = Clamp((&s.flyPos.x)[k], -lim, lim);
     }
     return 1;
 }
