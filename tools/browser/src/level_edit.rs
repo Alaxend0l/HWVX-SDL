@@ -34,6 +34,9 @@ pub enum Sel {
     Base(String, String),
 }
 
+/// A drag's steps at most this often (drag_place).
+const DRAG_STEP: Duration = Duration::from_millis(33);
+
 /// The base world's tables the editor lists, with their labels.
 pub const BASE_TABLES: [(&str, &str); 7] = [
     ("tileCars", "Starts (tile cars)"),
@@ -103,6 +106,9 @@ pub struct EditState {
     /// a drag of the selection (ground or axis): 1 started (its first change is an undo point),
     /// 2 that point taken (the rest of the drag goes into it), 0 none
     drag_undo: u8,
+    /// a drag's latest step not applied yet (drag_place), and when the last one was
+    drag_to: Option<([f32; 3], Option<f64>)>,
+    drag_at: Option<Instant>,
     /// the gizmo: a drag along one of its axes, the axis under the pointer, its axes' length
     pub axis_drag: Option<AxisDrag>,
     pub gizmo_hot: Option<usize>,
@@ -302,6 +308,13 @@ impl Browser {
         // here, or every later edit would fold into its undo point
         if self.level.edit.drag_undo != 0 && !ctx.input(|i| i.pointer.any_down()) {
             self.edit_drag_end();
+        } else if let Some((c, rot)) = self.level.edit.drag_to {
+            // a step that waited (drag_place): applied once its time comes, the pointer still
+            if self.level.edit.drag_at.is_none_or(|t| t.elapsed() >= DRAG_STEP) {
+                self.drag_place(c, rot);
+            } else {
+                ctx.request_repaint_after(DRAG_STEP);
+            }
         }
         // the base world's lists, once a world is on show
         let world = self.world.status["world"].as_str().unwrap_or("").to_string();
@@ -368,6 +381,17 @@ impl Browser {
     }
 
     /// An edit happened: the undo point (one per burst of changes) and a check soon.
+    fn edited_maybe(&mut self, before: Option<Snapshot>) {
+        match before {
+            Some(b) => self.edited(b),
+            // a drag's later step: it folds into the drag's undo point
+            None => {
+                self.level.edit.last_change = Some(Instant::now());
+                self.level.edit.generation += 1;
+            }
+        }
+    }
+
     fn edited(&mut self, before: impl IntoSnapshot) {
         let before = before.into_snapshot();
         let e = &mut self.level.edit;
@@ -908,8 +932,11 @@ impl Browser {
     /// Moves the selection to `c` (and turns a start to rot).
     fn set_place(&mut self, c: [f32; 3], rot: Option<f64>) {
         let Some(sel) = self.level.edit.sel.clone() else { return };
+        let dragging = self.level.edit.drag_undo != 0;
+        // a drag's undo point is its start: no copy of the level for each later step
+        let snap = self.level.edit.drag_undo != 2;
         let Some(p) = self.level.edit.proj.as_mut() else { return };
-        let before = p.snapshot();
+        let before = snap.then(|| p.snapshot());
         match &sel {
             Sel::Own(k, n) if k == "volumes" => {
                 let v = &mut p.level["volumes"][n.as_str()];
@@ -928,11 +955,9 @@ impl Browser {
                 if let (Some(r), true) = (rot, k == "starts") {
                     v["rotY"] = json!((r * 10000.0).round() / 10000.0);
                 }
-                if k == "items" || k == "fxPoints" {
-                    self.edited(before);
-                    // the reply belongs to this generation: one after an undo or a later edit is dropped
-                    let key = format!("{}|{k}/{n}", self.level.edit.generation);
-                    self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
+                if (k == "items" || k == "fxPoints") && !dragging {
+                    self.edited_maybe(before);
+                    self.item_quad(k, n, c);
                     return;
                 }
             }
@@ -954,7 +979,27 @@ impl Browser {
             }
             _ => return,
         }
-        self.edited(before);
+        self.edited_maybe(before);
+    }
+
+    /// The quadrant a moved item or effect point is in (the viewer's quadat): once its move is done.
+    fn item_quad(&mut self, k: &str, n: &str, c: [f32; 3]) {
+        // the reply belongs to this generation: one after an undo or a later edit is dropped
+        let key = format!("{}|{k}/{n}", self.level.edit.generation);
+        self.request("quadat", json!({"pos": c}), Pending::ItemQuad(key));
+    }
+
+    /// A step of a drag, applied about 30 times a second at most (each remakes the marks and the
+    /// level's state); one that comes sooner waits in drag_to for edit_tick or the drag's end.
+    fn drag_place(&mut self, c: [f32; 3], rot: Option<f64>) {
+        let e = &mut self.level.edit;
+        if e.drag_at.is_some_and(|t| t.elapsed() < DRAG_STEP) {
+            e.drag_to = Some((c, rot));
+            return;
+        }
+        e.drag_to = None;
+        e.drag_at = Some(Instant::now());
+        self.set_place(c, rot);
     }
 
     // ---- adding and taking out --------------------------------------------------------------------
@@ -1213,13 +1258,28 @@ impl Browser {
             Some(Sel::Base(ref t, _)) if t == "tileCars" => 2.0,
             _ => 0.0,
         };
-        self.set_place([hit[0], hit[1] + lift, hit[2]], rot);
+        let to = [hit[0], hit[1] + lift, hit[2]];
+        if self.level.edit.drag_undo != 0 {
+            self.drag_place(to, rot);
+        } else {
+            self.set_place(to, rot);
+        }
     }
 
-    /// A drag of the selection ended (its undo point is closed).
+    /// A drag of the selection ended (its undo point is closed): its last step applied, and a
+    /// moved item's quadrant asked for.
     pub(crate) fn edit_drag_end(&mut self) {
+        if let Some((c, rot)) = self.level.edit.drag_to.take() {
+            self.set_place(c, rot);
+        }
+        let moved = self.level.edit.drag_at.take().is_some();
         self.level.edit.drag_undo = 0;
         self.level.edit.axis_drag = None;
+        if let (true, Some(Sel::Own(k, n)), Some((c, _))) = (moved, self.level.edit.sel.clone(), self.sel_place()) {
+            if k == "items" || k == "fxPoints" {
+                self.item_quad(&k, &n, c);
+            }
+        }
     }
 
     /// The gizmo as drawn: the picture's camera, the selection's place, the axes' length. None
@@ -1253,7 +1313,7 @@ impl Browser {
                 if let Some(c) = drag.place(o, d, 5000.0) {
                     // only when it moves by a hundredth (the places are kept to two decimals)
                     if self.sel_place().map(|(cur, _)| (0..3).any(|i| (cur[i] - c[i]).abs() >= 0.005)).unwrap_or(false) {
-                        self.set_place(c, drag.rot);
+                        self.drag_place(c, drag.rot);
                     }
                 }
             }
