@@ -60,13 +60,50 @@ pub struct Prepared {
     pub ms: f64,
 }
 
-/// The level tools over the checkout's schemas (`tools`' parent).
-pub fn level_env(tools: &Path) -> Result<xdlrs::level::Env, String> {
+/// The level tools over the checkout's schemas (`tools`' parent). Made once per tools folder and
+/// kept for the next call (reading the schemas again was most of an edit's check); an Env isn't
+/// Sync, so each caller has one to itself, back in the pool when it is dropped.
+pub fn level_env(tools: &Path) -> Result<LevelEnv, String> {
     let root = tools.parent().filter(|r| !r.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let mut env = xdlrs::level::Env::new(root).map_err(|e| format!("{}: {e}", root.join("schemas").display()))?;
-    // a package's own hwvx-x, beside the program (else xdlrs looks in the checkout, the PATH)
-    env.hwvx_x = crate::resources::hwvx_x();
-    Ok(env)
+    let kept = {
+        let mut pool = ENVS.lock().unwrap_or_else(|e| e.into_inner());
+        pool.iter().position(|(r, _)| r == root).map(|i| pool.swap_remove(i).1)
+    };
+    let env = match kept {
+        Some(env) => env,
+        None => {
+            let mut env = xdlrs::level::Env::new(root).map_err(|e| format!("{}: {e}", root.join("schemas").display()))?;
+            // a package's own hwvx-x, beside the program (else xdlrs looks in the checkout, the PATH)
+            env.hwvx_x = crate::resources::hwvx_x();
+            env
+        }
+    };
+    Ok(LevelEnv { env: Some(env), root: root.to_path_buf() })
+}
+
+static ENVS: Mutex<Vec<(PathBuf, xdlrs::level::Env)>> = Mutex::new(Vec::new());
+
+/// An Env from `level_env`, returned to its pool when dropped.
+pub struct LevelEnv {
+    env: Option<xdlrs::level::Env>,
+    root: PathBuf,
+}
+
+impl std::ops::Deref for LevelEnv {
+    type Target = xdlrs::level::Env;
+    fn deref(&self) -> &xdlrs::level::Env {
+        self.env.as_ref().unwrap()
+    }
+}
+
+impl Drop for LevelEnv {
+    fn drop(&mut self) {
+        let mut pool = ENVS.lock().unwrap_or_else(|e| e.into_inner());
+        // a few per folder at most (as many as ran at once)
+        if let Some(env) = self.env.take().filter(|_| pool.iter().filter(|(r, _)| *r == self.root).count() < 4) {
+            pool.push((std::mem::take(&mut self.root), env));
+        }
+    }
 }
 
 /// The errors of a level tools' result as records.
