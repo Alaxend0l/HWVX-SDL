@@ -19,6 +19,8 @@ use xdlrs::modcheck::media::{Archive, RawPack, TYPE_NAMES, decode_sample, rd_u32
 pub const DIR: &str = "sounds";
 /// What the game decodes (src/audiodec).
 pub const EXTS: [&str; 4] = ["wav", "flac", "ogg", "mp3"];
+/// A file dialog's error where the system has none (Linux without zenity or kdialog).
+pub const NO_DIALOG: &str = "no file dialog here (install zenity or kdialog): type the path instead";
 
 /// One sound of a base pack.
 #[derive(Clone, Debug, PartialEq)]
@@ -315,35 +317,41 @@ impl ModProject {
         out
     }
 
-    /// The mod's own copy of a sound file the modder picked: sounds/<its name> (another name
-    /// when one of other content is there). Ok: the path in the mod.
+    /// The mod's own copy of a sound file the modder picked (import_sound).
     pub fn import_sound(&self, src: &Path) -> Result<String, String> {
-        let ext = src.extension().and_then(|x| x.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
-        if !EXTS.contains(&ext.as_str()) {
-            return Err(format!("{}: the game plays WAV, FLAC, Ogg Vorbis and MP3 files", src.display()));
-        }
-        let bytes = std::fs::read(src).map_err(|e| format!("{}: {e}", src.display()))?;
-        let stem: String = src
-            .file_stem()
-            .map(|s| s.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect())
-            .unwrap_or_default();
-        let stem = if stem.is_empty() { "sound".to_string() } else { stem };
-        let dir = self.dir.join(DIR);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        for n in 0..1000 {
-            let name = if n == 0 { format!("{stem}.{ext}") } else { format!("{stem}-{n}.{ext}") };
-            let to: PathBuf = dir.join(&name);
-            match std::fs::read(&to) {
-                Ok(b) if b == bytes => return Ok(format!("{DIR}/{name}")),
-                Ok(_) => continue,
-                Err(_) => {
-                    std::fs::write(&to, &bytes).map_err(|e| format!("{}: {e}", to.display()))?;
-                    return Ok(format!("{DIR}/{name}"));
-                }
+        import_sound(&self.dir, src)
+    }
+}
+
+/// The own copy, in the mod in `mod_dir`, of a sound file the modder picked: sounds/<its name>
+/// (another name when one of other content is there). Ok: the path in the mod. Called off the
+/// UI thread.
+pub fn import_sound(mod_dir: &Path, src: &Path) -> Result<String, String> {
+    let ext = src.extension().and_then(|x| x.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    if !EXTS.contains(&ext.as_str()) {
+        return Err(format!("{}: the game plays WAV, FLAC, Ogg Vorbis and MP3 files", src.display()));
+    }
+    let bytes = std::fs::read(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let stem: String = src
+        .file_stem()
+        .map(|s| s.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect())
+        .unwrap_or_default();
+    let stem = if stem.is_empty() { "sound".to_string() } else { stem };
+    let dir = mod_dir.join(DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for n in 0..1000 {
+        let name = if n == 0 { format!("{stem}.{ext}") } else { format!("{stem}-{n}.{ext}") };
+        let to: PathBuf = dir.join(&name);
+        match std::fs::read(&to) {
+            Ok(b) if b == bytes => return Ok(format!("{DIR}/{name}")),
+            Ok(_) => continue,
+            Err(_) => {
+                std::fs::write(&to, &bytes).map_err(|e| format!("{}: {e}", to.display()))?;
+                return Ok(format!("{DIR}/{name}"));
             }
         }
-        Err(format!("{}: too many files named {stem}", dir.display()))
     }
+    Err(format!("{}: too many files named {stem}", dir.display()))
 }
 
 /// A sound file, in the system's dialog (Ok(None): cancelled). The prompt reaches the dialog as
@@ -360,7 +368,7 @@ pub fn choose_sound(prompt: &str) -> Result<Option<String>, String> {
         c.env("HWVX_PROMPT", prompt).args([
             "-NoProfile",
             "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Sound (*.wav;*.flac;*.ogg;*.mp3)|*.wav;*.flac;*.ogg;*.mp3|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'Sound (*.wav;*.flac;*.ogg;*.mp3)|*.wav;*.flac;*.ogg;*.mp3|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
         ]);
         c
     } else if on_path("zenity") {
@@ -372,7 +380,7 @@ pub fn choose_sound(prompt: &str) -> Result<Option<String>, String> {
         c.args(["--title", prompt, "--getopenfilename", ".", "*.wav *.flac *.ogg *.mp3|Sound"]);
         c
     } else {
-        return Err("no file dialog here (install zenity or kdialog): type the path instead".into());
+        return Err(NO_DIALOG.into());
     };
     let out = cmd.output().map_err(|e| e.to_string())?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();

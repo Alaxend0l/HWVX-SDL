@@ -286,30 +286,7 @@ impl ModProject {
     /// Copies an audio file into the mod's music/ folder: its path in the mod. The same file
     /// imported again is the one already there; another file of the same name gets a number.
     pub fn import_music(&self, src: &Path) -> Result<String, String> {
-        let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let safe = safe_file_name(&name).ok_or_else(|| format!("{name}: not a file the game streams (OGG, MP3, FLAC or WAV)"))?;
-        let data = std::fs::read(src).map_err(|e| format!("{}: {e}", src.display()))?;
-        let dir = self.dir.join(MUSIC_DIR);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let (stem, ext) = safe.rsplit_once('.').unwrap();
-        for n in 1.. {
-            let file = if n == 1 { safe.clone() } else { format!("{stem}-{n}.{ext}") };
-            let to = dir.join(&file);
-            match std::fs::read(&to) {
-                Ok(have) if have == data => return Ok(format!("{MUSIC_DIR}/{file}")),
-                Ok(_) => continue,
-                Err(_) => {
-                    std::fs::write(&to, &data).map_err(|e| format!("{}: {e}", to.display()))?;
-                    // a sidecar of loop points goes with it
-                    let side = PathBuf::from(format!("{}.loop.txt", src.display()));
-                    if let Ok(t) = std::fs::read(&side) {
-                        let _ = std::fs::write(dir.join(format!("{file}.loop.txt")), t);
-                    }
-                    return Ok(format!("{MUSIC_DIR}/{file}"));
-                }
-            }
-        }
-        unreachable!()
+        import_music(&self.dir, src)
     }
 
     /// Audio files in music/ no song uses (left behind by edits).
@@ -359,6 +336,36 @@ impl ModProject {
 }
 
 // ---- the files ---------------------------------------------------------------------------------
+
+/// Copies an audio file into the music/ folder of the mod in `mod_dir`: its path in the mod. The
+/// same file imported again is the one already there; another file of the same name gets a number
+/// (a file of another size isn't read to be compared). Called off the UI thread.
+pub fn import_music(mod_dir: &Path, src: &Path) -> Result<String, String> {
+    let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let safe = safe_file_name(&name).ok_or_else(|| format!("{name}: not a file the game streams (OGG, MP3, FLAC or WAV)"))?;
+    let data = std::fs::read(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let dir = mod_dir.join(MUSIC_DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let (stem, ext) = safe.rsplit_once('.').unwrap();
+    for n in 1.. {
+        let file = if n == 1 { safe.clone() } else { format!("{stem}-{n}.{ext}") };
+        let to = dir.join(&file);
+        match std::fs::metadata(&to) {
+            Ok(m) if m.len() == data.len() as u64 && std::fs::read(&to).is_ok_and(|have| have == data) => return Ok(format!("{MUSIC_DIR}/{file}")),
+            Ok(_) => continue,
+            Err(_) => {
+                std::fs::write(&to, &data).map_err(|e| format!("{}: {e}", to.display()))?;
+                // a sidecar of loop points goes with it
+                let side = PathBuf::from(format!("{}.loop.txt", src.display()));
+                if let Ok(t) = std::fs::read(&side) {
+                    let _ = std::fs::write(dir.join(format!("{file}.loop.txt")), t);
+                }
+                return Ok(format!("{MUSIC_DIR}/{file}"));
+            }
+        }
+    }
+    unreachable!()
+}
 
 /// What the game reads of a file's loop: LOOPSTART / LOOPEND / LOOPLENGTH in its first 256 KB
 /// (Vorbis comments, ID3 TXXX: musicstream.c TagValue), else in `<file>.loop.txt`.

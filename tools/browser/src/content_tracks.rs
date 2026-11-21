@@ -266,7 +266,7 @@ pub fn base_pictures(data: &Path) -> Result<Vec<Picture>, String> {
     let mut out = vec![];
     for (t, _) in pictures() {
         let Some(x) = texs.get(release_texture(a.release, t) as usize) else { continue };
-        let Some(&(o, n, w, h)) = x.levels.first() else { continue };
+        let Some(&(o, n, w, h)) = x.levels.first().filter(|l| l.2 > 0 && l.3 > 0) else { continue }; // chunks(0) panics
         let clut = x.clut.map(|o| slice(pk.b, o, (o + 0x400) as i64));
         let rgba = decode_level(a.release, x.fmt, slice(pk.b, o, (o + n) as i64), w, h, clut)?;
         // stored bottom row first (the select draws them flipped: checked against its screen,
@@ -407,15 +407,39 @@ impl ModProject {
         }
     }
 
+    /// The links file, read again only when its time or size changed (the lists ask every frame).
+    fn links(&self) -> Map<String, Value> {
+        let key: crate::content::FileStamp = std::fs::metadata(self.dir.join(LINKS)).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
+        let mut c = self.links.lock().unwrap_or_else(|e| e.into_inner());
+        match c.as_ref() {
+            Some((k, m)) if *k == key => m.clone(),
+            _ => {
+                let m = read_links(&self.dir);
+                *c = Some((key, m.clone()));
+                m
+            }
+        }
+    }
+
+    /// After a write: one within the file time's granularity, of the same size, looks unchanged.
+    fn forget_links(&self) {
+        *self.links.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    fn link_path(&self, links: &Map<String, Value>, uid: &str) -> Option<PathBuf> {
+        let p = PathBuf::from(links.get(uid)?.as_str()?);
+        Some(if p.is_relative() { self.dir.join(p) } else { p })
+    }
+
     /// The level project the track is made from (None: the base track's level as it is).
     pub fn track_level(&self, uid: &str) -> Option<PathBuf> {
-        let p = PathBuf::from(read_links(&self.dir).get(uid)?.as_str()?);
-        Some(if p.is_relative() { self.dir.join(p) } else { p })
+        self.link_path(&self.links(), uid)
     }
 
     /// Every track's level project: (uid, folder), for tracks the mod still has.
     pub fn track_levels(&self) -> Vec<(String, PathBuf)> {
-        self.tracks().into_iter().filter_map(|(u, _)| self.track_level(&u).map(|p| (u, p))).collect()
+        let links = self.links();
+        self.tracks().into_iter().filter_map(|(u, _)| self.link_path(&links, &u).map(|p| (u, p))).collect()
     }
 
     /// Links the track to a level project (its `extends` becomes the level's: a level whose mode
@@ -436,6 +460,7 @@ impl ModProject {
                 let stored = abs.strip_prefix(&dir).map(Path::to_path_buf).unwrap_or(abs);
                 links.insert(uid.into(), Value::String(stored.display().to_string()));
                 write_links(&self.dir, &links)?;
+                self.forget_links();
                 if let Some(e) = self.track_mut(uid) {
                     e.insert("extends".into(), Value::String(extends));
                     if e.get("name").and_then(Value::as_str).is_none_or(|s| s.trim().is_empty()) {
@@ -444,8 +469,10 @@ impl ModProject {
                 }
             }
             None => {
+                let old = self.track_level(uid);
                 if links.remove(uid).is_some() {
                     write_links(&self.dir, &links)?;
+                    self.forget_links();
                 }
                 if let Some(e) = self.track_mut(uid) {
                     e.remove("level");
@@ -453,7 +480,13 @@ impl ModProject {
                 }
                 let stem = level_stem(uid);
                 let _ = std::fs::remove_file(self.dir.join(format!("{stem}.json")));
-                let _ = std::fs::remove_dir_all(self.dir.join(format!("{stem}-src")));
+                // build_level's copy, made only of a project outside the mod: the folder can be
+                // the linked project itself (or hold another track's), and then it stays
+                let src = self.dir.join(format!("{stem}-src"));
+                let copy = old.is_some_and(|p| !inside(&p, &self.dir)) && !self.track_levels().iter().any(|(_, p)| inside(p, &src));
+                if copy {
+                    let _ = std::fs::remove_dir_all(src);
+                }
             }
         }
         Ok(())
@@ -576,7 +609,18 @@ mod tests {
         r.set_track_level(&b, None).unwrap();
         assert!(r.doc["tracks"][&b].get("level").is_none() && r.doc["tracks"][&b].get("world").is_none());
         assert!(r.track_level(&b).is_none() && r.track_level(&a).is_some());
+        // a project that is the track's own level/<id>-src folder survives an unlink
+        let own = d.join(format!("{}-src", level_stem(&b)));
+        level_project(&own, "battle", 20, "WORLDS_\\MP_\\BATTLE_\\bat2_l9");
+        r.set_track_level(&b, Some(&own)).unwrap();
+        r.set_track_level(&b, None).unwrap();
+        assert!(own.join("level.jsonc").is_file(), "the linked project was deleted");
+        // an outside project's copy goes
+        let copy = d.join(format!("{}-src", level_stem(&a)));
+        std::fs::create_dir_all(&copy).unwrap();
+        r.set_track_level(&a, Some(&lp)).unwrap();
         r.remove_track(&a);
+        assert!(!copy.exists());
         assert!(!d.join(LINKS).exists(), "no links left: no file");
         r.save().unwrap();
         assert_eq!(ModProject::open(&d).unwrap().tracks().len(), 1);

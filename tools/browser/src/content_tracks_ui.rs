@@ -7,13 +7,12 @@ use crate::Browser;
 use eframe::egui;
 use hwvx_browser::content::ModProject;
 use hwvx_browser::content_tracks::{self as tracks, Picture, TrackBuild};
-use hwvx_browser::testdrive::{self, Prepared, TestDrive};
+use hwvx_browser::testdrive;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc::{Receiver, channel};
-use std::time::Instant;
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 /// What follows the levels' compile.
 #[derive(Clone, PartialEq)]
@@ -285,14 +284,20 @@ impl Browser {
         }
         ui.horizontal(|ui| {
             if ui.button(if level.is_some() { "Link another…" } else { "Link a level project…" }).on_hover_text("a folder with level.jsonc (the Level tab's projects): its race on this track").clicked() {
-                if let Ok(Some(d)) = hwvx_browser::data_dir::choose_folder("A level project (its folder, with level.jsonc)") {
-                    let r = self.content.proj.as_mut().map(|p| p.set_track_level(uid, Some(Path::new(&d))));
+                let uid = uid.to_string();
+                self.ask_then(|| hwvx_browser::data_dir::choose_folder("A level project (its folder, with level.jsonc)"), move |b, r| {
+                    let d = match r {
+                        Ok(Some(d)) => d,
+                        Ok(None) => return,
+                        Err(e) => return b.track_note(e, true),
+                    };
+                    let r = b.content.proj.as_mut().map(|p| p.set_track_level(&uid, Some(Path::new(&d))));
                     match r {
-                        Some(Ok(())) => self.track_note(format!("linked {d}"), false),
-                        Some(Err(e)) => self.track_note(format!("not linked: {e}"), true),
+                        Some(Ok(())) => b.track_note(format!("linked {d}"), false),
+                        Some(Err(e)) => b.track_note(format!("not linked: {e}"), true),
                         None => {}
                     }
-                }
+                });
             }
             if let Some(l) = level {
                 if ui.button("Open in Level tab").clicked() {
@@ -383,17 +388,23 @@ impl Browser {
     /// the select draws it (stretched to about 5:3).
     fn track_own_picture_ui(&mut self, ui: &mut egui::Ui, uid: &str, cur: Option<&str>) {
         if ui.button("Choose image…").on_hover_text(format!("a PNG of yours, at most {0} x {0}: copied into the mod's images/", tracks::OWN_PICTURE_SIDE)).clicked() {
-            if let Some(f) = choose_png("The track's picture (a PNG)") {
-                let r = self.content.proj.as_mut().map(|p| p.set_track_own_picture(uid, Path::new(&f)));
+            let uid = uid.to_string();
+            self.ask_then(|| choose_png("The track's picture (a PNG)"), move |b, r| {
+                let f = match r {
+                    Ok(Some(f)) => f,
+                    Ok(None) => return,
+                    Err(e) => return b.track_note(e, true),
+                };
+                let r = b.content.proj.as_mut().map(|p| p.set_track_own_picture(&uid, Path::new(&f)));
                 match r {
                     Some(Ok(rel)) => {
-                        self.content.tracks.own_preview = None;
-                        self.track_note(format!("the picture is {rel}"), false);
+                        b.content.tracks.own_preview = None;
+                        b.track_note(format!("the picture is {rel}"), false);
                     }
-                    Some(Err(e)) => self.track_note(format!("not taken: {e}"), true),
+                    Some(Err(e)) => b.track_note(format!("not taken: {e}"), true),
                     None => {}
                 }
-            }
+            });
         }
         let Some(rel) = cur else {
             ui.label(egui::RichText::new("No picture of yours yet: until there is, the select shows the base track's.").weak());
@@ -470,7 +481,12 @@ impl Browser {
 
     fn tracks_tick(&mut self) {
         if let Some(rx) = &self.content.tracks.pictures_rx {
-            if let Ok(r) = rx.try_recv() {
+            let r = match rx.try_recv() {
+                Ok(r) => Some(r),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => Some(Err("their reader stopped (a crash: corrupt data?)".into())),
+            };
+            if let Some(r) = r {
                 self.content.tracks.pictures_rx = None;
                 match r {
                     Ok(pics) => {
@@ -490,9 +506,16 @@ impl Browser {
             }
         }
         let Some((after, rx)) = &self.content.tracks.building else { return };
-        let Ok(built) = rx.try_recv() else {
-            self.ctx.request_repaint_after(std::time::Duration::from_millis(200));
-            return;
+        let built = match rx.try_recv() {
+            Ok(b) => b,
+            Err(TryRecvError::Empty) => {
+                self.ctx.request_repaint_after(std::time::Duration::from_millis(200));
+                return;
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.content.tracks.building = None;
+                return self.track_note("not compiled: the compiler's thread stopped (a crash)", true);
+            }
         };
         let after = after.clone();
         self.content.tracks.building = None;
@@ -572,44 +595,14 @@ impl Browser {
             return;
         };
         let o = self.testdrive_options();
-        let mods = o.scratch.join("content-mods");
-        let _ = std::fs::remove_dir_all(&mods);
-        let dest = mods.join(p.dir.file_name().unwrap_or_default());
-        if let Err(e) = copy_dir(&p.dir, &dest) {
-            self.track_note(format!("the mod could not be copied for the test: {e}"), true);
-            return;
-        }
-        let prepared = Prepared { start, mods, level: PathBuf::new(), cached: false, tool_ms: 0.0, ms: 0.0 };
-        if let Some(d) = self.level.drive.as_mut() {
-            d.stop();
-        }
-        match TestDrive::launch(&o, &prepared, Instant::now()) {
-            Ok(d) => {
-                self.level.drive = Some(d);
-                self.track_note("starting the game…", false);
-            }
-            Err(e) => self.track_note(e, true),
-        }
+        self.content_launch(o, start, "starting the game…".into());
     }
 }
 
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for e in std::fs::read_dir(from)? {
-        let e = e?;
-        let t = to.join(e.file_name());
-        if e.file_type()?.is_dir() {
-            copy_dir(&e.path(), &t)?;
-        } else {
-            std::fs::copy(e.path(), t)?;
-        }
-    }
-    Ok(())
-}
-
-/// A PNG, in the system's dialog (None: cancelled, or no dialog here). The prompt reaches it as
-/// an argument or an environment variable, never inside a script's text.
-fn choose_png(prompt: &str) -> Option<String> {
+/// A PNG, in the system's dialog (Ok(None): cancelled). The prompt reaches it as an argument or
+/// an environment variable, never inside a script's text.
+fn choose_png(prompt: &str) -> Result<Option<String>, String> {
+    let on_path = |name: &str| std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()));
     let out = if cfg!(target_os = "macos") {
         Command::new("osascript")
             .args(["-e", "on run argv", "-e", "POSIX path of (choose file with prompt (item 1 of argv) of type {\"png\"})", "-e", "end run", prompt])
@@ -620,16 +613,18 @@ fn choose_png(prompt: &str) -> Option<String> {
             .args([
                 "-NoProfile",
                 "-Command",
-                "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'PNG image (*.png)|*.png'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
+                // UTF-8 out: a path's non-ASCII letters came back in the console's code page
+                "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = $env:HWVX_PROMPT; $d.Filter = 'PNG image (*.png)|*.png'; if ($d.ShowDialog() -eq 'OK') { $d.FileName }",
             ])
             .output()
+    } else if on_path("zenity") {
+        Command::new("zenity").args(["--file-selection", &format!("--title={prompt}"), "--file-filter=PNG image | *.png *.PNG"]).output()
+    } else if on_path("kdialog") {
+        Command::new("kdialog").args(["--title", prompt, "--getopenfilename", ".", "*.png *.PNG|PNG image"]).output()
     } else {
-        Command::new("zenity")
-            .args(["--file-selection", &format!("--title={prompt}"), "--file-filter=PNG image | *.png *.PNG"])
-            .output()
-            .or_else(|_| Command::new("kdialog").args(["--title", prompt, "--getopenfilename", ".", "*.png *.PNG|PNG image"]).output())
+        return Err(hwvx_browser::content_sounds::NO_DIALOG.into());
     };
-    let out = out.ok().filter(|o| o.status.success())?;
+    let out = out.map_err(|e| e.to_string())?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!s.is_empty()).then_some(s)
+    Ok((out.status.success() && !s.is_empty()).then_some(s))
 }

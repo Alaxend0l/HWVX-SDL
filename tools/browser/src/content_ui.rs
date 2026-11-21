@@ -7,10 +7,10 @@ use eframe::egui;
 use hwvx_browser::cars;
 use hwvx_browser::content::{Kind, ModProject};
 use hwvx_browser::content_retail::Target;
-use hwvx_browser::testdrive::{Prepared, TestDrive};
+use hwvx_browser::testdrive::{Options, Prepared, TestDrive};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Instant;
 
 #[derive(Default)]
@@ -114,11 +114,14 @@ impl Browser {
                 self.content_open(&d);
             }
             if ui.button("…").on_hover_text("choose the folder").clicked() {
-                if let Ok(Some(d)) = hwvx_browser::data_dir::choose_folder("A mod (its folder, with mod.jsonc)") {
-                    self.content_open(&d);
-                }
+                self.ask_then(|| hwvx_browser::data_dir::choose_folder("A mod (its folder, with mod.jsonc)"), |b, r| match r {
+                    Ok(Some(d)) => b.content_open(&d),
+                    Ok(None) => {}
+                    Err(e) => b.content_note(e, true),
+                });
             }
         });
+        let mut choose_in = false;
         egui::CollapsingHeader::new("New mod…").default_open(self.content.proj.is_none()).show(ui, |ui| {
             let c = &mut self.content;
             ui.horizontal(|ui| {
@@ -132,11 +135,7 @@ impl Browser {
             ui.horizontal(|ui| {
                 ui.label("in");
                 ui.add(egui::TextEdit::singleline(&mut c.new_in).desired_width(110.0).hint_text("a folder"));
-                if ui.button("…").clicked() {
-                    if let Ok(Some(d)) = hwvx_browser::data_dir::choose_folder("Where the mod's folder goes") {
-                        c.new_in = d;
-                    }
-                }
+                choose_in |= ui.button("…").clicked();
             });
             let ok = !c.new_name.trim().is_empty() && !c.new_in.trim().is_empty();
             if ui.add_enabled(ok, egui::Button::new("Make it")).clicked() {
@@ -156,6 +155,13 @@ impl Browser {
                 }
             }
         });
+        if choose_in {
+            self.ask_then(|| hwvx_browser::data_dir::choose_folder("Where the mod's folder goes"), |b, r| match r {
+                Ok(Some(d)) => b.content.new_in = d,
+                Ok(None) => {}
+                Err(e) => b.content_note(e, true),
+            });
+        }
         if !self.content.message.is_empty() {
             let col = if self.content.error { egui::Color32::LIGHT_RED } else { ui.visuals().weak_text_color() };
             ui.colored_label(col, self.content.message.clone());
@@ -397,29 +403,48 @@ impl Browser {
         if p.dirty() {
             return; // (not saved: the message says why)
         }
-        let o = self.testdrive_options();
-        let mods = o.scratch.join("content-mods");
-        let _ = std::fs::remove_dir_all(&mods);
-        let dest = mods.join(p.dir.file_name().unwrap_or_default());
-        if let Err(e) = copy_dir(&p.dir, &dest) {
-            self.content_note(format!("the mod could not be copied for the test: {e}"), true);
-            return;
-        }
         let start = match kind {
             Kind::Car => format!("race:mode=challenge,car={uid}"),
             Kind::Weapon => format!("race:mode=battle,item={uid}"),
         };
-        let prepared = Prepared { start, mods, level: PathBuf::new(), cached: false, tool_ms: 0.0, ms: 0.0 };
+        let o = self.testdrive_options();
+        self.content_launch(o, start, "starting the game…".into());
+    }
+
+    /// The game started at `start` with the mod run from a copy of its folder (`started`: the
+    /// note then). The copy is made off the UI thread: a mod's music can be hundreds of MB.
+    pub(crate) fn content_launch(&mut self, o: Options, start: String, started: String) {
+        let Some(p) = self.content.proj.as_ref() else { return };
+        if self.asking.is_some() {
+            return self.content_note("a file dialog or a copy is under way: try again once it is done", true);
+        }
+        let from = p.dir.clone();
+        let mods = o.scratch.join("content-mods");
+        // the game running from the last copy stops first: the copy replaces its files
         if let Some(d) = self.level.drive.as_mut() {
             d.stop();
         }
-        match TestDrive::launch(&o, &prepared, Instant::now()) {
-            Ok(d) => {
-                self.level.drive = Some(d);
-                self.content_note("starting the game…", false);
-            }
-            Err(e) => self.content_note(e, true),
-        }
+        self.content_note("copying the mod for the test…", false);
+        let to = mods.clone();
+        self.ask_then(
+            move || {
+                let _ = std::fs::remove_dir_all(&to);
+                copy_dir(&from, &to.join(from.file_name().unwrap_or_default())).map_err(|e| e.to_string())
+            },
+            move |b, r| {
+                if let Err(e) = r {
+                    return b.content_note(format!("the mod could not be copied for the test: {e}"), true);
+                }
+                let prepared = Prepared { start, mods, level: PathBuf::new(), cached: false, tool_ms: 0.0, ms: 0.0 };
+                match TestDrive::launch(&o, &prepared, Instant::now()) {
+                    Ok(d) => {
+                        b.level.drive = Some(d);
+                        b.content_note(started, false);
+                    }
+                    Err(e) => b.content_note(e, true),
+                }
+            },
+        );
     }
 
     /// Save as mod: the folder packed into an .xmod after the no-game-data check.
@@ -432,8 +457,22 @@ impl Browser {
             self.content_note("save the mod first (Ctrl+S): the package is made from its files", true);
             return;
         }
-        let name = slug(p.name());
-        let Some(out) = Self::choose_save_file(&format!("{name}.xmod")) else { return };
+        let name = format!("{}.xmod", slug(p.name()));
+        let dir = p.dir.clone();
+        self.ask_then(move || Self::choose_save_file(&name), move |b, out| {
+            if let Some(out) = out {
+                b.content_pack_to(&dir, out);
+            }
+        });
+    }
+
+    /// Save as mod's pack once its file is chosen (the same mod still open, and saved).
+    fn content_pack_to(&mut self, dir: &Path, out: String) {
+        let Some(p) = self.content.proj.as_ref().filter(|p| p.dir == dir) else { return };
+        if p.dirty() {
+            self.content_note("save the mod first (Ctrl+S): the package is made from its files", true);
+            return;
+        }
         let o = self.testdrive_options();
         let Some(data) = o.data.clone() else {
             self.content_note("the game data isn't known (File > Game data…): the check for game data needs it", true);
@@ -453,14 +492,19 @@ impl Browser {
 
     fn content_tick(&mut self) {
         let Some(rx) = &self.content.packing else { return };
-        if let Ok(r) = rx.try_recv() {
-            self.content.packing = None;
-            match r {
-                Ok(line) => self.content_note(line, false),
-                Err(e) => self.content_note(format!("not packed: {e}"), true),
+        match rx.try_recv() {
+            Ok(r) => {
+                self.content.packing = None;
+                match r {
+                    Ok(line) => self.content_note(line, false),
+                    Err(e) => self.content_note(format!("not packed: {e}"), true),
+                }
             }
-        } else {
-            self.ctx.request_repaint_after(std::time::Duration::from_millis(200));
+            Err(TryRecvError::Empty) => self.ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+            Err(TryRecvError::Disconnected) => {
+                self.content.packing = None;
+                self.content_note("not packed: the packer's thread stopped (a crash)", true);
+            }
         }
     }
 }
