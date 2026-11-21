@@ -1454,6 +1454,20 @@ static void GrowMoveItems(const u8 *from, u32 size, u8 *to, u32 toSize) {
     }
 }
 
+/* A new element copied from another: nothing spawned of its own yet (the copy's thing or
+ * car stays the other's, which would release it twice). */
+static void GrowElementFresh(u8 *el, int kind) {
+    if (kind == 0) {
+        SETP(((TileCar *)el)->car, NULL);
+    } else if (kind == 2) {
+        SETP(((QuadItem *)el)->thing, NULL);
+        ((QuadItem *)el)->spawned = 0;
+        ((QuadItem *)el)->timer = 0;
+    } else if (kind == 3) {
+        SETP(((QuadFxPoint *)el)->thing, NULL);
+    }
+}
+
 /* Applying: the base elements' items point at their copies. */
 static void GrowsTakeThings(void) {
     int a;
@@ -2120,6 +2134,7 @@ static int ApplyAppends(DataPack *pack, const JsonNode *japp, LevelPart *parts, 
                             "(%s has %u)", a, (unsigned)j, Json_GetString(ja, "what", "the array"), (unsigned)count);
             }
             SDL_memcpy(dst, src, es);
+            GrowElementFresh(dst, g->kind);
             js = Json_Get(je, "set");
             for (x = js != NULL && js->type == JSON_ARRAY ? js->child : NULL; x != NULL; x = x->next) {
                 const JsonNode *o = Json_At(x, 0), *hx = Json_At(x, 1);
